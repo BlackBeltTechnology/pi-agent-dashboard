@@ -5,6 +5,7 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | File | Purpose |
 |------|---------|
 | `artifact-view-gate.ts` | Pure viewport gate `openArtifactForViewport(isMobile, ref, handlers)`: non-mobile→`openDialog`, mobile→`navigateToPreview`. Shared by App + unit tests. See change: openspec-artifact-dialog-desktop. |
+| `attr-escape.ts` | `attrEscape(value)` escapes `"` and `\` for quoted attribute selectors (jsdom has no `CSS.escape`). See change: add-session-actions-flyout. |
 | `clipboard.ts` | `copyText(text)`: `navigator.clipboard.writeText` with hidden-textarea + `execCommand` fallback for non-secure (HTTP tunnel) contexts. See change: register-bash-and-tool-install-help. |
 | `cwd-visibility.ts` | Pure `isVisibleCwd(cwd, {pinnedDirectories, workspaces, sessions, platform?})`. → see `cwd-visibility.ts.AGENTS.md` |
 | `folder-encoding.ts` | Base64url encode/decode for cwd paths in URL routes. Exports `encodeFolderPath(cwd)` (UTF-8 safe, URL-safe… → see `folder-encoding.ts.AGENTS.md` |

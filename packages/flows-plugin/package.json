@@ -50,6 +50,10 @@
         "shouldRender": "shouldRenderFlowsSubcard"
       },
       {
+        "slot": "session-card-action-bar",
+        "component": "SessionFlowMenuClaim"
+      },
+      {
         "slot": "content-header-sticky",
         "component": "FlowDashboardClaim",
         "module": "./src/client/FlowDashboard.tsx"

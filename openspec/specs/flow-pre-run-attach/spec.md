@@ -5,27 +5,6 @@ Lets a user attach any available flow to a session's flow slot before it runs, s
 
 ## Requirements
 
-### Requirement: FLOWS subcard offers an Open flow action
-
-The FLOWS subcard SHALL show an **Open flow…** action whenever the session's available-flows list is non-empty. Activating it SHALL open a searchable picker listing every flow in the session's available-flows list (project-local and package-provided flows alike), each with its name and description. The action SHALL be disabled, with an explanatory tooltip, while any flow in that session is running.
-
-#### Scenario: Open action visible with flows available
-- **WHEN** a session's available-flows list contains at least one flow and no flow is running
-- **THEN** the FLOWS subcard SHALL show an enabled **Open flow…** action
-
-#### Scenario: Picker lists all available flows
-- **GIVEN** a session whose available-flows list contains a project flow `test:capabilities` and a package flow
-- **WHEN** the user activates **Open flow…**
-- **THEN** the picker SHALL list both flows by name with their descriptions
-
-#### Scenario: Open action disabled while a flow runs
-- **WHEN** a flow in the session is running
-- **THEN** the **Open flow…** action SHALL be disabled and SHALL indicate that a flow is running
-
-#### Scenario: Open action hidden with no flows
-- **WHEN** the session's available-flows list is empty
-- **THEN** no **Open flow…** action SHALL be shown
-
 ### Requirement: Attached flow renders in the flow slot as a not-started panel
 
 Picking a flow in the Open picker SHALL attach it to that session's flow slot. The slot SHALL render the same flow panel used for a running flow — header, full DAG graph with its expand dialog, the flow YAML viewer, and the node card grid — built from the flow's definition file, with every node card in the pending state and no run data (no tokens, cost, duration, tool activity, outputs, model, or questions/answers from any earlier run of that flow). The card set and graph topology (nodes and edges) SHALL match what the same flow shows at the moment a real run starts; the not-started panel SHALL NOT draw any node or edge the live panel would not. The header SHALL indicate the flow is not started, SHALL NOT offer Abort, and its expanded form SHALL offer **Run**, **Close**, and the autonomous-mode toggle (the mobile collapsed bar SHALL read as not started; controls appear when expanded). The not-started panel SHALL NOT switch to the completed-flow summary and SHALL NOT show tabs for other flows.
@@ -187,3 +166,25 @@ The attachment SHALL be stored on the client per session id and SHALL survive pa
 #### Scenario: Storage unavailable
 - **WHEN** client storage is unavailable
 - **THEN** attaching SHALL still work for the current page lifetime without throwing
+
+### Requirement: Session actions menu offers an Open flow action
+
+The desktop session card's actions menu SHALL offer an **Open flow…** action, as part of the flows plugin's PLUGINS contribution, whenever flows is available for the session (per `flows-plugin` "Flow actions and the FLOWS subcard are gated separately") and the session's available-flows list is non-empty. Activating it SHALL close the menu and open a searchable picker listing every flow in the session's available-flows list (project-local and package-provided flows alike), each with its name and description. The action SHALL be disabled, with an explanatory tooltip, while any flow in that session is running.
+
+#### Scenario: Open action visible with flows available
+- **WHEN** flows is available for a session, its available-flows list contains at least one flow, and no flow is running
+- **THEN** the session actions menu SHALL show an enabled **Open flow…** action
+
+#### Scenario: Picker lists all available flows
+- **GIVEN** a session whose available-flows list contains a project flow `test:capabilities` and a package flow
+- **WHEN** the user activates **Open flow…** in the session actions menu
+- **THEN** the picker SHALL open and stay open after the menu closes
+- **AND** it SHALL list both flows by name with their descriptions
+
+#### Scenario: Open action disabled while a flow runs
+- **WHEN** a flow in the session is running
+- **THEN** the **Open flow…** action SHALL be disabled and SHALL indicate that a flow is running
+
+#### Scenario: Open action hidden with no flows
+- **WHEN** the session's available-flows list is empty
+- **THEN** no **Open flow…** action SHALL be shown

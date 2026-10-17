@@ -49,7 +49,9 @@ export function SortableSessionCard({ id, children }: Props) {
   );
 
   return (
-    <div ref={setNodeRef} style={style}>
+    // `data-session-dragging` lets the hover-intent listener and the card's
+    // right-click handler stand down while a drag is in flight.
+    <div ref={setNodeRef} style={style} data-session-dragging={isDragging ? "" : undefined}>
       <DragHandleCtx.Provider value={dragHandleProps}>{children}</DragHandleCtx.Provider>
     </div>
   );

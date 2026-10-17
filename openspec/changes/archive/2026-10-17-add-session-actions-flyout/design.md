@@ -79,6 +79,42 @@ flowchart LR
 The `ctx` argument carries the handlers, folder OpenSpec data and attachment resolution, workflow config, section visibility and `working`. Because the deriver is pure, it can be unit-tested without the DOM. Inert lifecycle segments are emitted as `inert`, and the menu renders them as non-focusable status.
 - *Alternative:* every subcard keeps its own menu and the flyout aggregates their nodes. Rejected: it cannot enforce the single-primary or folding rules, and it duplicates gating.
 
+### D1 inventory — every interactive control on the desktop branch (task 1.1)
+
+| Control (`SessionCard.tsx` desktop branch) | Where it lives now |
+|---|---|
+| Resume / Fork chips (`onResume`) | SESSION · `resume`, `fork` |
+| +Session (`onSpawnSibling`) | SESSION · `spawn-sibling` (`session-card-spawn-sibling`) |
+| +Worktree (`onSpawnWorktree`) | SESSION · `spawn-worktree` (`session-card-spawn-worktree`) |
+| Header Rename pencil | SESSION · `rename` (double-click rename stays on the card) |
+| Archive button (`setArchiveConfirmOpen` / `onArchive`) | stays on card; also SESSION · `archive-session` |
+| Exit ✕ (`onShutdown`) | stays on card; also SESSION · `exit` |
+| `SessionOpenSpecActions` primary | NEXT (or OPENSPEC when Merge wins) · `openspec-<key>` |
+| `SessionOpenSpecActions` `OverflowMenu` (FF / Verify / Explore / Archive anyway / Detach) | OPENSPEC · `openspec-<key>` (rare ones behind `More…`) |
+| Unattached combo + New / Propose / Explore | OPENSPEC · `openspec-attach`, `openspec-new`, `openspec-propose`, `openspec-explore` |
+| Bulk Archive (`bulk-archive-btn`) | OPENSPEC · `openspec-bulk-archive` (was never rendered on the card) |
+| Attached change link (`attached-badge`) | stays on card (now a button when `onReadArtifact`); OPENSPEC · `open-change` |
+| Lifecycle bar segments (`OpenSpecStepper`) | stays on card; OPENSPEC · lifecycle row (`session-menu-segment-<id>`) |
+| Archived / missing / main-checkout letters + badges (`AttachmentTrace`) | stay on card; OPENSPEC · `openspec-letter-<id>` |
+| `OpenSpecDisabledPanel` remediation control | stays on card (not mirrored) |
+| `WorktreeActionsMenu` (Push / Open PR / Merge / Close, PR link, toast) | GIT · `push`, `open-pr`, `view-pr`, `merge` (NEXT when primary), `close-worktree`; toast via the app toast sink |
+| `GitInfo` branch link, `GitDirtyPill`, PR link | stay on card; GIT · `switch-branch`, `commit`, `view-pr` |
+| `SubcardLegendMenu` (Hide here / everywhere / Section settings) | VIEW · `card-sections`, `card-defaults` (hide actions live on the settings pages) |
+| `ProcessSubcard` stop / kill / expand, `ProcessSafetyChip`, running-flow abort | stay on card (act on one running thing) |
+| Drag bead, status chip (history ring) | stay on card |
+| `SessionCardActionBarSlot` footer | PLUGINS group (claims stay mounted; output portaled into the menu) |
+| Flows Run / Open / New-Edit / Delete | PLUGINS · flows `session-card-action-bar` claim |
+| Memory "Details", KB re-index, relay badge popover | out of scope — stay on card |
+
+### Deviations and findings recorded during implementation
+
+- **Rare set size.** FF only exists in PLANNING and Archive anyway only in IMPLEMENTING, so an attached change shows at most 3 rare items (never the 4 the spec example counts). Folding is unchanged; the deriver tests assert the real sets.
+- **ABSENT readiness + non-live attachment.** A removed worktree (readiness `ABSENT`) whose attachment is archived / missing / in the main checkout keeps its OPENSPEC group (letters + Detach). Omitting it would strand the session, which the card used to let you detach.
+- **Goal claim.** `GoalControl` is a read-only link chip since `add-goals-folder-page` (no Pause); test X3 asserts the chip hosts and navigates inside the menu.
+- **`ui:popover` inside a dialog (F23).** No shipped dialog hosts a `ui:popover` consumer, so the L3 half is covered at L1 by `Popover.layering.test.tsx`; F24 (dialog over a popover) runs at L3.
+- **Focus after a dialog with an autofocused field.** The dialog's focus trap records the autofocused field as "previously focused"; the card hands focus back to the trigger when its dialog closes.
+- **Contrast.** Group headings use `--text-secondary`; `--text-muted` (2.59:1 in dark) failed the computed-contrast e2e probe.
+
 ### D2. Extract `deriveWorktreeActions` and keep `WorktreeActionsMenu` for the composer
 The item list inside `WorktreeActionsMenu`, which holds the per-PR-state rules, the gh gate and the working-disabled rule, moves into a pure `deriveWorktreeActions(session, ctx)`. The composer's segments mode keeps rendering `WorktreeActionsMenu` on top of it, and the session menu consumes the same function. Push/PR toasts and error-code labels stay in the component and are reused through the card's dialog host (D3).
 
@@ -171,3 +207,4 @@ Client-only. No server, protocol or persisted-config change. No flag: the change
 ## Open Questions
 
 - Final hover timings. Dwell, close grace and the speed cutoff start at 300 ms, 300 ms and 0.4 px/ms. They are constants, and they can be retuned from the lab's accidental-open rate without changing specs or tasks.
+- **Shipped values (task 10.4):** `HOVER_STRIP_PX=32`, `HOVER_DWELL_MS=300`, `HOVER_SPEED_CUTOFF=0.4` px/ms over a 100 ms window (path length, not endpoint displacement), `HOVER_CLOSE_GRACE_MS=300`. The real-mouse retune (task 2.63) is a post-merge manual step; until it runs these are the shipped defaults.

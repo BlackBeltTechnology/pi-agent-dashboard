@@ -1,9 +1,9 @@
 /**
  * Unit tests for `shouldRenderFlowsSubcard`, the manifest-level visibility gate
- * for the `session-card-flows` claim. The gate reads live per-session-data
- * (`flowsList`) + plugin config (`editFlow`) + flow events — the same sources
- * `SessionFlowActionsClaim` uses to decide it renders content. See change:
- * fix-empty-flows-subcard.
+ * for the `session-card-flows` claim. The FLOWS subcard carries status only, so
+ * the gate is "the session has any flow event" — flowsList and edit mode no
+ * longer matter (they gate the flow actions, see flows-actions-gate.test.ts).
+ * See change: fix-empty-flows-subcard, add-session-actions-flyout (E25).
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
@@ -45,17 +45,22 @@ describe("flows-plugin: shouldRenderFlowsSubcard predicate", () => {
     expect(shouldRenderFlowsSubcard(session(sid))).toBe(false);
   });
 
-  it("visible when flowsList is non-empty", () => {
-    const sid = "has-flows";
-    publishSessionData(sid, "flowsList", [{ name: "deploy" }]);
-    expect(shouldRenderFlowsSubcard(session(sid))).toBe(true);
-  });
-
-  it("visible when edit mode is on (author-first, zero flows)", () => {
-    const sid = "edit-mode";
-    publishSessionData(sid, "flowsList", []);
-    setEditMode(true);
-    expect(shouldRenderFlowsSubcard(session(sid))).toBe(true);
+  it("E25: true iff a flow event exists, irrespective of editFlow × flowsList", () => {
+    let n = 0;
+    for (const edit of [false, true]) {
+      for (const list of [[], [{ name: "deploy" }]]) {
+        for (const withEvent of [false, true]) {
+          const sid = `e25-${++n}`;
+          setEditMode(edit);
+          publishSessionData(sid, "flowsList", list);
+          if (withEvent) {
+            publishSessionEvent(sid, { eventType: "flow_started", timestamp: 1, data: {} } as never);
+          }
+          expect(shouldRenderFlowsSubcard(session(sid))).toBe(withEvent);
+          clearSessionEvents(sid);
+        }
+      }
+    }
   });
 
   it("visible when a flow event exists (running/completed, zero listed flows)", () => {

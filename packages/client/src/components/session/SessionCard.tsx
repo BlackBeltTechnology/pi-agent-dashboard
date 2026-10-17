@@ -1,13 +1,18 @@
+import { ActionListMenuContext } from "@blackbelt-technology/pi-dashboard-client-utils/ActionListMenuContext";
 import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm";
 import { DialogPortal } from "@blackbelt-technology/pi-dashboard-client-utils/DialogPortal";
 import {
   HOST_PRESSURE_DEGRADED_MS,
   HOST_PRESSURE_UNRESPONSIVE_MS,
 } from "@blackbelt-technology/pi-dashboard-shared/host-pressure.js";
-import { mdiAlertOutline, mdiArchiveOutline, mdiArrowRightCircleOutline, mdiClose, mdiCommentQuestion, mdiConsoleLine, mdiFlash, mdiLoading, mdiPaperclip, mdiPencil, mdiPencilOutline, mdiPlay, mdiPlayCircleOutline, mdiPlus, mdiRefresh, mdiRemoteDesktop, mdiSourceBranch, mdiSourceBranchPlus, mdiSourceFork } from "@mdi/js";
+import { mdiAlertOutline, mdiArchiveOutline, mdiArrowRightCircleOutline, mdiClose, mdiCommentQuestion, mdiConsoleLine, mdiFlash, mdiLoading, mdiPaperclip, mdiPlay, mdiRefresh, mdiRemoteDesktop, mdiSourceBranch } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import React, { useCallback, useEffect, useState } from "react";
+import type React from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { getApiBase } from "../../lib/api/api-context.js";
+import { buildFolderSettingsUrl } from "../../lib/nav/route-builders.js";
+import { useTrackedNavigate } from "../../lib/nav/useTrackedNavigate.js";
 import { isComposerWorking } from "../../lib/chat/composer-liveness.js";
 import {
   deriveDotColorWithFlags,
@@ -50,8 +55,10 @@ import type { HistoryLoadPhase } from "../../lib/replay/history-load-phase.js";
 import { selectBadgeTimestamp } from "../../lib/session/session-card-time.js";
 import { getSessionDisplayName } from "../../lib/session/session-display-name.js";
 import { inferPlatform, pathKey } from "../../lib/session/session-grouping.js";
-import { hasMovedAway, isAcpSession, isRemoteOrigin } from "../../lib/session/session-origin-view.js";
-import { useCardSectionActions, useCardSectionVisible, usePluginSectionFilter } from "../../lib/state/CardSectionsContext.js";
+import type { SessionDialogKind, SessionMenuActions, SessionMenuCtx } from "../../lib/session/session-menu-items.js";
+import { hasMovedAway, isRemoteOrigin } from "../../lib/session/session-origin-view.js";
+import { useCardSectionVisible, usePluginNames, usePluginSectionFilter, useCardToast } from "../../lib/state/CardSectionsContext.js";
+import { sessionScopeKey, useSessionMenuScope } from "../../lib/state/SessionMenuScopeContext.js";
 import { formatRelativeTime, formatTokens } from "../../lib/util/format.js";
 // flows-plugin components (FlowActivityBadge, SessionFlowActions) are
 // rendered exclusively via plugin slot consumers (SessionCardBadgeSlot /
@@ -66,16 +73,17 @@ import { TagStrip } from "../tags/TagStrip.js";
 import { type ProcessEntry, ProcessList } from "../terminal/ProcessList.js";
 import { useCommitDialog } from "../worktree/CommitDialog.js";
 import { GitDirtyPill } from "../worktree/GitDirtyPill.js";
-import { WorktreeActionsMenu } from "../worktree/WorktreeActionsMenu.js";
+import { probeGhAvailable } from "../worktree/WorktreeActionsMenu.js";
 import { ContextUsageBar } from "./ContextUsageBar.js";
 import { DriverChip } from "./DriverChip.js";
 import { PiBelowFloorWarning } from "./PiBelowFloorWarning.js";
 import { formatElapsed, SessionActivityBar, truncateCommand } from "./SessionActivityBar.js";
 import type { ContextUsageInfo } from "./SessionList.js";
+import { SessionActionsMenu } from "./SessionActionsMenu.js";
+import { LazySessionCardDialogs } from "./lazy-session-menu.js";
 import { SessionStatusChip } from "./SessionStatusChip.js";
 import { SessionSubcard } from "./SessionSubcard.js";
 import { useSessionCardDragHandle } from "./SortableSessionCard.js";
-import type { SubcardMenuTarget } from "./SubcardLegendMenu.js";
 
 /**
  * The card's single activity slot. Precedence:
@@ -913,10 +921,7 @@ export function SessionCard({
   const showProcess = useCardSectionVisible(session, "process");
   const showFlows = useCardSectionVisible(session, "flows");
   const showMemory = useCardSectionVisible(session, "memory");
-  const { canWrite: canEditSections } = useCardSectionActions();
   const sectionFolderPath = session.gitWorktree?.mainPath || session.cwd;
-  const menuFor = (sectionId: string): SubcardMenuTarget | undefined =>
-    canEditSections ? { sectionId, folderPath: sectionFolderPath } : undefined;
   const processList = processes ?? EMPTY_PROCESSES;
   // Suppress purple `card-input-stripes` when a widget-bar slot owns the
   // pending prompt. Plugin-agnostic. See change: fix-flows-plugin-polish (B1).
@@ -976,6 +981,175 @@ export function SessionCard({
   // mosaic shape is carved by an SVG mask asset; the gutter element's
   // background-color supplies the colour. Selected cards use the brighter
   // -400 shade. See change: add-session-card-status-mosaic-rail.
+
+  // ── Session actions menu (desktop) ─────────────────────────────────────────
+  // One grouped menu holds every action of the card; four entry points open it
+  // (header trigger, hover strip, right-click, Shift+F10). The state lives in
+  // `SessionList`'s shared scope so a session menu and a folder menu are never
+  // open together. See change: add-session-actions-flyout.
+  const cardElRef = useRef<HTMLLIElement | null>(null);
+  const setCardEl = useCallback(
+    (el: HTMLLIElement | null) => {
+      cardElRef.current = el;
+      if (hasAnimatedFx) cardFxRef(el);
+    },
+    [cardFxRef, hasAnimatedFx],
+  );
+  const menuScope = useSessionMenuScope();
+  const menuKey = sessionScopeKey(session.id);
+  const menuOpen = !isMobile && menuScope.state.menuFor === menuKey;
+  const setMenuOpen = useCallback(
+    (open: boolean, req?: { source: "trigger" | "hover" | "contextmenu" | "keyboard"; point?: { x: number; y: number }; opener?: HTMLElement | null }) => {
+      if (!open) {
+        menuScope.setState({ menuFor: null });
+        return;
+      }
+      menuScope.setState({
+        menuFor: menuKey,
+        source: req?.source ?? "trigger",
+        point: req?.point,
+        opener: req?.source === "hover" ? null : (req?.opener ?? (document.activeElement as HTMLElement | null)),
+      });
+    },
+    [menuScope, menuKey],
+  );
+  const [dialog, setDialog] = useState<SessionDialogKind | null>(null);
+  // A dialog that autofocuses an inner field (Explore's textarea) leaves the
+  // focus trap's "previously focused" pointing at that field, so closing it drops
+  // focus on <body>. Hand focus back to the card's trigger in that case.
+  const prevDialogRef = useRef<SessionDialogKind | null>(null);
+  useEffect(() => {
+    if (prevDialogRef.current && !dialog) {
+      const a = document.activeElement;
+      if (!a || a === document.body) {
+        cardElRef.current?.querySelector<HTMLElement>("[data-testid^='session-actions-trigger-']")?.focus();
+      }
+    }
+    prevDialogRef.current = dialog;
+  }, [dialog]);
+  const navigate = useTrackedNavigate();
+  const showToast = useCardToast();
+  const { open: openCommitDialog } = useCommitDialog();
+  const dirtyStatus = useGitStatus(session.cwd, session.gitStatus);
+  const [ghAvailable, setGhAvailable] = useState<boolean | undefined>(undefined);
+  const wantsGh = menuOpen && !!session.gitWorktree;
+  useEffect(() => {
+    if (!wantsGh || ghAvailable !== undefined) return;
+    let cancelled = false;
+    void probeGhAvailable().then((v) => { if (!cancelled) setGhAvailable(v); }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [wantsGh, ghAvailable]);
+  const toastOutcome = useCallback(
+    (outcome: { level: "info" | "error" | "success"; text: string } | null) => {
+      if (outcome) showToast?.(outcome.text, outcome.level);
+    },
+    [showToast],
+  );
+  const pluginNames = usePluginNames();
+  // Detached per-card container for the `session-card-action-bar` slot output
+  // (D7): the claims stay mounted for the card's lifetime through the portal
+  // below; the menu attaches this element into its PLUGINS group while open.
+  const pluginContainer = useMemo(() => (isMobile ? null : document.createElement("div")), [isMobile]);
+  const wrapPlugin = useCallback(
+    (pluginId: string, node: React.ReactNode) => (
+      <div data-plugin-group="" role="group" aria-label={pluginNames?.[pluginId] ?? pluginId} className="empty:hidden">
+        {node}
+      </div>
+    ),
+    [pluginNames],
+  );
+  const menuListCtx = useMemo(
+    () => ({
+      onActivate: () => {
+        setMenuOpen(false);
+        // An intent action activated with the keyboard must not strand focus on <body>.
+        cardElRef.current?.querySelector<HTMLElement>("[data-testid^='session-actions-trigger-']")?.focus();
+      },
+    }),
+    [setMenuOpen],
+  );
+
+  const attachedName = session.attachedProposal || undefined;
+  // The menu CONTEXT (not the derived groups): the lazily loaded panel derives the
+  // groups from it on every render while open, so the deriver stays off the entry chunk.
+  const menuCtx = useMemo<SessionMenuCtx | undefined>(() => {
+    if (!menuOpen) return undefined;
+    const wfCfg = openspecConfig.workflows;
+    const actions: SessionMenuActions = {
+      resume: onResume,
+      spawnSibling: onSpawnSibling ? () => onSpawnSibling(session) : undefined,
+      spawnWorktree: onSpawnWorktree ? () => onSpawnWorktree(session) : undefined,
+      rename: () => setIsRenaming(true),
+      archiveSession: () => {
+        if (session.status === "ended") onArchive(session.id);
+        else setArchiveConfirmOpen(true);
+      },
+      exit: onShutdown
+        ? () => {
+            if (session.closing) return;
+            if (session.status === "streaming" && !window.confirm(i18nT("session.exitWhileRunningConfirm", undefined, "Session is currently running. Exit anyway?"))) return;
+            onShutdown(session.id);
+          }
+        : undefined,
+      openDialog: (kind) => {
+        if (kind === "commit") openCommitDialog(session.cwd, session.id);
+        else setDialog(kind);
+      },
+      sendSkill: (skill) => onSendPrompt?.(`/skill:${skill} ${attachedName ?? ""}`),
+      detach: () => onDetachProposal?.(),
+      readArtifact: onReadArtifact,
+      navigate,
+      push: () => { void import("../worktree/worktree-runners.js").then((m) => m.runWorktreePush(session.cwd)).then(toastOutcome); },
+      openPr: () => { void import("../worktree/worktree-runners.js").then((m) => m.runWorktreeOpenPr(session.cwd)).then(toastOutcome); },
+      openUrl: (url) => { window.open(url, "_blank", "noopener,noreferrer"); },
+      openCardSections: () => navigate(buildFolderSettingsUrl(sectionFolderPath, "cards")),
+      openCardDefaults: () => navigate("/settings/general"),
+    };
+    return {
+      working,
+      mergeIsPrimary,
+      isHidden,
+      showSpawn,
+      canRename,
+      canArchive,
+      canExit: !!onShutdown,
+      openspecWired: !!(openspecChanges && onSendPrompt && onAttachProposal && onDetachProposal),
+      changes: openspecChanges,
+      readiness: openspecReadiness,
+      hasDir: openspecHasDir,
+      initialized: openspecInitialized,
+      pending: openspecPending,
+      wf: (w) => wfCfg.includes(w),
+      resolution: attachmentResolution,
+      canBulkArchive: !!onBulkArchive,
+      ghAvailable,
+      dirtyCount: dirtyStatus?.dirtyCount ?? 0,
+      actions,
+    };
+    // biome-ignore lint/correctness/useExhaustiveDependencies: live re-derive while open
+  }, [menuOpen, session, working, mergeIsPrimary, isHidden, showSpawn, canRename, canArchive, openspecChanges, openspecReadiness, openspecHasDir, openspecInitialized, openspecPending, openspecConfig, attachmentResolution, ghAvailable, dirtyStatus, onResume, onSpawnSibling, onSpawnWorktree, onShutdown, onSendPrompt, onAttachProposal, onDetachProposal, onReadArtifact, onBulkArchive, onArchive, attachedName, navigate, sectionFolderPath, toastOutcome, openCommitDialog]);
+
+  const onCardContextMenu = (e: React.MouseEvent) => {
+    if (isRenaming) return;
+    const target = e.target as Element;
+    // Native menu stays for links, text inputs, selected text and drags.
+    if (target.closest("a[href], input, textarea, [contenteditable='true']")) return;
+    const sel = window.getSelection?.();
+    if (sel && !sel.isCollapsed && sel.toString().length > 0 && sel.anchorNode && cardElRef.current?.contains(sel.anchorNode)) return;
+    if (document.querySelector("[data-session-dragging]")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setMenuOpen(true, { source: "contextmenu", point: { x: e.clientX, y: e.clientY }, opener: document.activeElement as HTMLElement | null });
+  };
+  const onCardKeyDown = (e: React.KeyboardEvent) => {
+    const isMenuKey = (e.shiftKey && e.key === "F10") || e.key === "ContextMenu";
+    if (!isMenuKey) return;
+    const target = e.target as Element;
+    if (target.closest("input, textarea, [contenteditable='true']")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setMenuOpen(true, { source: "keyboard", opener: target as HTMLElement });
+  };
 
   function handleConfirmRename(name: string) {
     setIsRenaming(false);
@@ -1126,9 +1300,12 @@ export function SessionCard({
 
   return (
     <li
-      ref={hasAnimatedFx ? cardFxRef : undefined}
+      ref={setCardEl}
       data-session-id={session.id}
+      data-session-card=""
       onClick={() => onSelect(session.id)}
+      onContextMenu={onCardContextMenu}
+      onKeyDown={onCardKeyDown}
       /* `group/card` drives the hover-revealed drag bead. The `before:` tick is
          the 9px connector from the folder's directory rail (drawn by
          SessionList on the list container) into this card.
@@ -1220,16 +1397,6 @@ export function SessionCard({
             {getSessionDisplayName(session)}
           </span>
         )}
-        {canRename && !isRenaming && (
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); setIsRenaming(true); }}
-            className="focus-ring inline-flex items-center justify-center min-h-[44px] min-w-[44px] sm:min-h-[32px] sm:min-w-[32px] rounded flex-shrink-0 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
-            title={i18nT("session.renameSession", undefined, "Rename session")}
-          >
-            <Icon path={mdiPencilOutline} size={0.45} />
-          </button>
-        )}
         {/* Workspace membership is DIRECTORY-scoped, so the add-to-workspace
             affordance left this card — rendering it per session produced N
             identical buttons with one effect. It now lives once, in the owning
@@ -1258,6 +1425,17 @@ export function SessionCard({
             <Icon path={mdiArchiveOutline} size={0.45} />
           </button>
         )}
+        <SessionActionsMenu
+          session={session}
+          ctx={menuCtx}
+          open={menuOpen}
+          source={menuScope.state.source}
+          point={menuScope.state.point}
+          opener={menuScope.state.opener}
+          cardRef={cardElRef}
+          onOpenChange={setMenuOpen}
+          pluginContainer={pluginContainer}
+        />
         {isAlive && onShutdown && (
           <button
             onClick={(e) => {
@@ -1278,10 +1456,9 @@ export function SessionCard({
         )}
       </div>
 
-      {/* Line 2: model + thinking level + source/fork right-aligned. Wraps:
-          the action chips are 32 px targets now, so a narrow sidebar must
-          push them to a second row rather than clip them.
-          See change: align-ui-with-theme-tokens (D5, test-plan F9). */}
+      {/* Line 2: model + thinking level + status chips. The Resume / Fork /
+          +Session / +Worktree chips live in the session actions menu.
+          See change: add-session-actions-flyout. */}
       <div className="flex flex-wrap items-center mt-0.5 gap-1.5">
         {session.model && (
           <span className="text-xs text-[var(--text-tertiary)] truncate">
@@ -1291,69 +1468,6 @@ export function SessionCard({
         <MovedBadge session={session} />
         <OriginDeviceChip session={session} />
         <DriverChip session={session} />
-        <span className="flex-1" />
-        {/* Remote-origin sessions live on another host (server answers 409),
-            so resume/fork are not offered at all.
-            See change: add-pi-gateway-transport-identity. */}
-        {onResume && session.sessionFile && !isRemoteOrigin(session) && !isAcpSession(session) && (
-          <>
-            {(!isAlive || isHidden) && (
-              <button
-                onClick={(e) => { e.stopPropagation(); onResume("continue"); }}
-                disabled={session.resuming || session.cwdMissing === true}
-                className="focus-ring inline-flex items-center gap-0.5 text-[12px] font-semibold tap-target px-2.5 rounded-md border tint-action-green disabled:opacity-50 disabled:cursor-not-allowed"
-                title={session.cwdMissing ? i18nT("session.cwdMissing", undefined, "session's directory no longer exists") : i18nT("session.resumeTitle", undefined, "Resume session (continue same session)")}
-              >
-                <Icon path={mdiPlayCircleOutline} size={0.5} className="flex-shrink-0" />{i18nT("session.resume", undefined, "Resume")}
-              </button>
-            )}
-            <button
-              onClick={(e) => { e.stopPropagation(); onResume("fork"); }}
-              disabled={session.resuming || session.cwdMissing === true}
-              className="focus-ring inline-flex items-center gap-0.5 text-[12px] font-semibold tap-target px-2.5 rounded-md border tint-action-blue disabled:opacity-50 disabled:cursor-not-allowed"
-              title={session.cwdMissing ? i18nT("session.cwdMissing", undefined, "session's directory no longer exists") : i18nT("session.forkTitle", undefined, "Fork session (new session from this point)")}
-            >
-              <Icon path={mdiSourceFork} size={0.5} className="flex-shrink-0" />{i18nT("session.fork", undefined, "Fork")}
-            </button>
-          </>
-        )}
-        {/* +Session — clean sibling spawn. Always visible (no ended/sessionFile
-            gate, unlike Fork/Resume above). Inherits cwd + attachedProposal.
-            See change: session-card-plus-session-button. */}
-        {showSpawn && onSpawnSibling && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onSpawnSibling(session); }}
-            disabled={!!session.cwdMissing}
-            className="focus-ring inline-flex items-center gap-0.5 text-[12px] font-semibold tap-target px-2.5 rounded-md border tint-action-green disabled:opacity-50 disabled:cursor-not-allowed"
-            title={session.cwdMissing ? i18nT("session.cwdMissing", undefined, "session's directory no longer exists") : i18nT("session.spawnSiblingTitle", undefined, "+Session clean sibling in same folder")}
-            data-testid="session-card-spawn-sibling"
-          >
-            <Icon path={mdiPlus} size={0.5} className="flex-shrink-0" />{i18nT("session.session", undefined, "Session")}
-          </button>
-        )}
-        {/* +Worktree — create git worktree (if needed) + spawn session inside
-            it via WorktreeSpawnDialog. Gated upstream by gitWorktreeEnabled.
-            Hidden when the session is ALREADY a worktree session
-            (`session.gitWorktree` set) — spawning a worktree from inside a
-            worktree is redundant. Also hidden ONLY when the cwd is a
-            confirmed non-git directory (`isGitRepo === false`); `true` and
-            `undefined` (unknown / probe-timed-out / legacy) keep the button
-            so a real repo never loses it. NOT gated on `gitBranch` — that is
-            a data-arrival signal (absent during the register race, on probe
-            failure, and after restart for cold sessions).
-            See changes: session-card-plus-session-button,
-            gate-session-worktree-button-on-git. */}
-        {showSpawn && onSpawnWorktree && !session.gitWorktree && session.isGitRepo !== false && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onSpawnWorktree(session); }}
-            disabled={!!session.cwdMissing}
-            className="focus-ring inline-flex items-center gap-0.5 text-[12px] font-semibold tap-target px-2.5 rounded-md border tint-action-orange disabled:opacity-50 disabled:cursor-not-allowed"
-            title={session.cwdMissing ? i18nT("session.cwdMissing", undefined, "session's directory no longer exists") : i18nT("session.spawnWorktreeTitle", undefined, "Create a git worktree and start a new session in it")}
-            data-testid="session-card-spawn-worktree"
-          >
-            <Icon path={mdiSourceBranchPlus} size={0.5} className="flex-shrink-0" />{i18nT("worktree.worktree", undefined, "Worktree")}
-          </button>
-        )}
       </div>
 
       {/* Line 3: activity/meta (left, the shrink victim so a long
@@ -1448,8 +1562,12 @@ export function SessionCard({
         // BROKEN / STALE normally swaps in the inert panel, but an attachment that
         // is not live-active in this cwd (archived / missing / main-checkout / still resolving) must stay reachable (+ Detach).
         const showAttachmentTrace = attachedTrace && !isLiveActive(attachmentResolution, session.cwd);
+        // An unattached session has nothing to show here any more: its attach /
+        // new / propose / explore actions are items of the session actions menu.
+        // BROKEN / STALE keep the panel (reason + remediation) either way.
+        if (!session.attachedProposal && !(disabled && readiness)) return null;
         return (
-          <SessionSubcard title={i18nT("session.subcardOpenspec", undefined, "OPENSPEC")} menu={menuFor("openspec")}>
+          <SessionSubcard title={i18nT("session.subcardOpenspec", undefined, "OPENSPEC")}>
             {disabled && readiness && !showAttachmentTrace ? (
               <OpenSpecDisabledPanel
                 reason={readiness.reason ?? (readiness.state === "BROKEN" ? "cli-failed" : "missing-skills")}
@@ -1471,7 +1589,10 @@ export function SessionCard({
                 openspecConfig={openspecConfig}
                 /* See change: redesign-session-card-and-composer (config-driven-workflow). */
                 working={working}
-                mergeIsPrimary={mergeIsPrimary}
+                /* State only: the lifecycle bar + change link; actions are menu items. */
+                variant="status"
+                onOpenTasks={() => setDialog("tasks")}
+                onRequestArchive={() => setDialog("archive")}
               />
             )}
           </SessionSubcard>
@@ -1498,17 +1619,9 @@ export function SessionCard({
 
       {/* GIT subcard. See change: redesign-session-card-and-composer (5.1–5.3). */}
       {showGit && (
-        <GitSubcard
-          session={session}
-          showGitInfo={showGitInfo}
-          allSessions={allSessions ?? []}
-          onShutdownSession={onShutdown ?? (() => { /* unwired */ })}
-          menu={menuFor("git")}
-          working={working}
-          mergeIsPrimary={mergeIsPrimary}
-        />
+        <GitSubcard session={session} showGitInfo={showGitInfo} />
       )}
-      {showStatus && <BadgeSubcard session={session} menu={menuFor("status")} isPluginVisible={badgePluginVisible} />}
+      {showStatus && <BadgeSubcard session={session} isPluginVisible={badgePluginVisible} />}
 
       {/* PROCESS subcard — activity bar (in-flight bash toolCalls) +
           background processes drawer. Subcard hides only when BOTH the
@@ -1525,7 +1638,6 @@ export function SessionCard({
           onSetCollapsed={onSetProcessDrawerCollapsed}
           onNavigateToSession={onSelect}
           reserveAtIdle={prefs.reserveProcessLineAtIdle}
-          menu={menuFor("process")}
         />
       ) : (
         <ProcessSafetyChip processes={processList} onKill={onKillProcess} onNavigateToSession={onSelect} />
@@ -1534,18 +1646,54 @@ export function SessionCard({
       {/* FLOWS subcard — plugin slot only.
           Populated by flows-plugin's SessionFlowActionsClaim via the
           dedicated `session-card-flows` slot. See change: add-flows-subcard. */}
-      {showFlows && <FlowsSubcard session={session} menu={menuFor("flows")} />}
+      {showFlows && <FlowsSubcard session={session} />}
 
       {/* MEMORY subcard — plugin slot only */}
-      {showMemory && <MemorySubcard session={session} menu={menuFor("memory")} />}
+      {showMemory && <MemorySubcard session={session} />}
 
-      {/* Plugin slot: session-card-action-bar — generic card footer.
-          Kept rendered for future generic plugins. */}
-      <SessionCardActionBarSlot session={session} isPluginVisible={actionbarPluginVisible} />
+      {/* Plugin slot: session-card-action-bar. The claims stay MOUNTED for the
+          card's lifetime (their effects, subscriptions and the dialogs they own
+          survive the menu closing), but their output never renders on the card:
+          it is portaled into a detached container the session actions menu
+          attaches into its PLUGINS group while open. The inner wrapper stops
+          click propagation so a plugin control never selects the card; the
+          `ui:action-list` primitive renders as menu items inside the menu
+          context. See change: add-session-actions-flyout (D7). */}
+      {pluginContainer &&
+        createPortal(
+          <ActionListMenuContext.Provider value={menuListCtx}>
+            <div data-plugin-group="" className="contents" onClick={(e) => e.stopPropagation()}>
+              <SessionCardActionBarSlot session={session} isPluginVisible={actionbarPluginVisible} wrapPlugin={wrapPlugin} />
+            </div>
+          </ActionListMenuContext.Provider>,
+          pluginContainer,
+        )}
       </div>{/* end card content */}
       </div>{/* end flex row */}
       {/* Idle-alive archive confirmation (ended archives without a dialog).
           Portalled by Dialog — placement in the tree is irrelevant. */}
+      {dialog && (
+      <Suspense fallback={null}>
+      <LazySessionCardDialogs
+        session={session}
+        dialog={dialog}
+        onClose={() => {
+          if (dialog === "switch-branch") branchCache.delete(session.cwd);
+          setDialog(null);
+        }}
+        changes={openspecChanges}
+        attachedChange={attachedChange}
+        groups={openspecGroups}
+        assignments={openspecAssignments}
+        allSessions={allSessions ?? []}
+        onShutdownSession={onShutdown ?? (() => { /* unwired */ })}
+        onSendPrompt={onSendPrompt}
+        onAttach={onAttachProposal}
+        onBulkArchive={onBulkArchive}
+        onWorktreeRemoved={() => showToast?.(i18nT("worktree.worktreeRemoved", undefined, "Worktree removed."), "success")}
+      />
+      </Suspense>
+      )}
       {archiveConfirmOpen && (
         <Confirm
           open
@@ -1622,8 +1770,6 @@ interface ProcessSubcardProps {
    * grid never reflows. Mobile ignores it.
    */
   reserveAtIdle?: boolean;
-  /** Legend options menu target (desktop). See change: configurable-session-card-sections. */
-  menu?: SubcardMenuTarget;
 }
 
 /**
@@ -1651,7 +1797,7 @@ export function formatCountsPill(running: number, bg: number): string | null {
  * Unmounts (returns null) only when both surfaces are empty AND `reserveAtIdle`
  * is false. See change: stable-process-line.
  */
-function ProcessSubcard({ activity, processes, onKill, onAbortTool, now, collapsed, onSetCollapsed, onNavigateToSession, reserveAtIdle, menu }: ProcessSubcardProps) {
+function ProcessSubcard({ activity, processes, onKill, onAbortTool, now, collapsed, onSetCollapsed, onNavigateToSession, reserveAtIdle }: ProcessSubcardProps) {
   const hasActivity = activity.length > 0;
   const hasProcesses = processes.length > 0;
   const { expanded, onToggle } = useDrawerExpansion(collapsed, onSetCollapsed);
@@ -1680,7 +1826,7 @@ function ProcessSubcard({ activity, processes, onKill, onAbortTool, now, collaps
   }
 
   return (
-    <SessionSubcard title={i18nT("session.subcardProcess", undefined, "PROCESS")} menu={menu}>
+    <SessionSubcard title={i18nT("session.subcardProcess", undefined, "PROCESS")}>
       <CollapseSummary expanded={expanded} onToggle={onToggle} testId="process-summary-line">
         <Icon path={lineIcon} size={0.4} className={`${lineIconClass} flex-shrink-0`} />
         <span className="text-[var(--text-secondary)] truncate flex-1" title={primary?.command ?? lineText}>
@@ -1894,24 +2040,16 @@ function OpenSpecDisabledPanel({
   );
 }
 
-function GitSubcard({ session, showGitInfo, allSessions, onShutdownSession, menu, working, mergeIsPrimary }: { session: DashboardSession; showGitInfo: boolean; allSessions: DashboardSession[]; onShutdownSession: (sessionId: string) => void; menu?: SubcardMenuTarget; working: boolean; mergeIsPrimary: boolean }) {
+function GitSubcard({ session, showGitInfo }: { session: DashboardSession; showGitInfo: boolean }) {
   // Worktree sessions need their own GitInfo line even in multi-session
-  // groups (parent group header shows the main checkout's branch).
+  // groups (parent group header shows the main checkout's branch). The worktree
+  // actions (Push / Open PR / Merge / Close) are items of the session actions
+  // menu's GIT group — this subcard is clickable status only.
   const renderGitInfo = showGitInfo || !!session.gitWorktree;
-  const hasWorktreeActions = !!session.gitWorktree;
-  if (!renderGitInfo && !hasWorktreeActions) return null;
+  if (!renderGitInfo) return null;
   return (
-    <SessionSubcard title={i18nT("session.subcardGit", undefined, "GIT")} menu={menu}>
-      {renderGitInfo ? <GitInfo session={session} /> : null}
-      {hasWorktreeActions ? (
-        <WorktreeActionsMenu
-          session={session}
-          allSessions={allSessions}
-          onShutdownSession={onShutdownSession}
-          disabled={working}
-          mergeIsPrimary={mergeIsPrimary}
-        />
-      ) : null}
+    <SessionSubcard title={i18nT("session.subcardGit", undefined, "GIT")}>
+      <GitInfo session={session} />
     </SessionSubcard>
   );
 }
@@ -1923,17 +2061,15 @@ function GitSubcard({ session, showGitInfo, allSessions, onShutdownSession, menu
  */
 function BadgeSubcard({
   session,
-  menu,
   isPluginVisible,
 }: {
   session: DashboardSession;
-  menu?: SubcardMenuTarget;
   isPluginVisible?: (pluginId: string) => boolean;
 }) {
   const hasBadge = useSlotHasVisibleClaimsForSession("session-card-badge", session, isPluginVisible);
   if (!hasBadge) return null;
   return (
-    <SessionSubcard title={i18nT("session.subcardStatus", undefined, "STATUS")} menu={menu}>
+    <SessionSubcard title={i18nT("session.subcardStatus", undefined, "STATUS")}>
       <SessionCardBadgeSlot session={session} isPluginVisible={isPluginVisible} />
     </SessionSubcard>
   );
@@ -1943,11 +2079,11 @@ function BadgeSubcard({
  * MEMORY subcard — renders only when a plugin claims session-card-memory.
  * See change: redesign-session-card-subcards (D3).
  */
-function MemorySubcard({ session, menu }: { session: DashboardSession; menu?: SubcardMenuTarget }) {
+function MemorySubcard({ session }: { session: DashboardSession }) {
   const hasMemory = useSlotHasClaimsForSession("session-card-memory", session);
   if (!hasMemory) return null;
   return (
-    <SessionSubcard title={i18nT("session.subcardMemory", undefined, "MEMORY")} menu={menu}>
+    <SessionSubcard title={i18nT("session.subcardMemory", undefined, "MEMORY")}>
       <SessionCardMemorySlot session={session} />
     </SessionSubcard>
   );
@@ -1958,11 +2094,11 @@ function MemorySubcard({ session, menu }: { session: DashboardSession; menu?: Su
  * at least one claim's `shouldRender(session)` returns true. See change:
  * add-flows-subcard.
  */
-function FlowsSubcard({ session, menu }: { session: DashboardSession; menu?: SubcardMenuTarget }) {
+function FlowsSubcard({ session }: { session: DashboardSession }) {
   const hasFlows = useSlotHasClaimsForSession("session-card-flows", session);
   if (!hasFlows) return null;
   return (
-    <SessionSubcard title={i18nT("session.subcardFlows", undefined, "FLOWS")} menu={menu}>
+    <SessionSubcard title={i18nT("session.subcardFlows", undefined, "FLOWS")}>
       <SessionCardFlowsSlot session={session} />
     </SessionSubcard>
   );

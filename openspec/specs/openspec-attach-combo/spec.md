@@ -5,7 +5,7 @@ Define the session card's OpenSpec attach combo box, attach dialog, workflow ste
 ## Requirements
 
 ### Requirement: Session card shows attach combo box when no proposal attached
-Each session card SHALL display a `<select>` dropdown listing available changes from the folder-level OpenSpec data when the session has no attached proposal and the directory has initialized OpenSpec data. **When the user opens the searchable attach dialog (the dialog reachable from the combo box's "Browse all changes…" entry or equivalent affordance), the dialog SHALL render group sections + pill row when the cwd has at least one defined group; otherwise the dialog renders the flat list exactly as today.** The inline `<select>` combo box itself remains a flat list — group structure is exposed only inside the searchable dialog.
+On the desktop session card, attaching is offered as the **Attach change…** item of the session actions menu's OPENSPEC group. That item opens the searchable attach dialog directly, and the card renders no inline `<select>`. Every other surface that mounts the session OpenSpec block (for example, the per-session panel on board cards) SHALL display a `<select>` dropdown listing available changes from the folder-level OpenSpec data when the session has no attached proposal and the directory has initialized OpenSpec data. **When the user opens the searchable attach dialog (the dialog reachable from the combo box's "Browse all changes…" entry or equivalent affordance), the dialog SHALL render group sections + pill row when the cwd has at least one defined group; otherwise the dialog renders the flat list exactly as today.** The inline `<select>` combo box itself remains a flat list — group structure is exposed only inside the searchable dialog.
 
 #### Scenario: Combo box lists available changes (flat, unchanged)
 - **WHEN** session `"s1"` in cwd `/project/foo` has `attachedProposal = null` and the folder has changes `["add-auth", "fix-bug", "refactor-db"]`
@@ -36,6 +36,12 @@ Each session card SHALL display a `<select>` dropdown listing available changes 
 - **WHEN** the user opens the searchable attach dialog for cwd `/project/foo` and `groups.length === 0`
 - **THEN** the dialog SHALL render flat (in-progress-first sort, search input only) exactly as today
 
+#### Scenario: Desktop session card attaches through the menu
+- **WHEN** a desktop session card renders for session `"s1"` with `attachedProposal = null` in an OpenSpec-initialised folder
+- **THEN** no inline attach `<select>` SHALL render on the card
+- **AND** the session actions menu's OPENSPEC group SHALL contain **Attach change…**, which opens the searchable attach dialog
+- **AND** selecting `"add-auth"` there SHALL send `{ type: "attach_proposal", sessionId: "s1", changeName: "add-auth" }`
+
 ### Requirement: PDST rendered as single button navigating to proposal
 The chat-view session header (desktop and mobile) SHALL render the attached change's artifact letters as a single combined button (`ArtifactLettersButton`). Each letter keeps its status color. Clicking the button navigates to the proposal artifact. The session card SHALL NOT render this button; there the lifecycle bar carries per-artifact state and navigation.
 
@@ -49,11 +55,11 @@ The chat-view session header (desktop and mobile) SHALL render the attached chan
 - **THEN** `onReadArtifact("add-auth", "proposal")` SHALL be called
 
 ### Requirement: Bulk Archive button on session card when completed changes exist
-The `SessionOpenSpecActions` component SHALL render a "Bulk Archive" button **only on unattached sessions** when at least one change in the folder has `status === "complete"`. Attached-session action rows SHALL NOT render a Bulk Archive button.
+The `SessionOpenSpecActions` component SHALL render a "Bulk Archive" button **only on unattached sessions** when at least one change in the folder has `status === "complete"`. On the desktop session card, the same action is offered as the **Bulk archive…** item of the session actions menu's OPENSPEC group, under the same conditions, with the same confirmation and the same streaming-disabled rule; no inline button renders on that card. Attached-session action rows SHALL NOT render a Bulk Archive button.
 
 #### Scenario: Bulk Archive shown on unattached session when completed changes exist
 - **WHEN** session `"s1"` has no attached proposal, is in cwd `/project/foo`, and the folder has changes `["done-change" (complete), "wip-change" (in-progress)]`
-- **THEN** the session card SHALL show a "Bulk Archive" button alongside the attach combo box
+- **THEN** a surface that mounts the session OpenSpec block inline (for example, the board panel) SHALL show a "Bulk Archive" button alongside the attach combo box
 
 #### Scenario: Bulk Archive hidden when no completed changes
 - **WHEN** session `"s1"` has no attached proposal and all folder changes have status `in-progress` or `active`
@@ -77,7 +83,12 @@ The `SessionOpenSpecActions` component SHALL render a "Bulk Archive" button **on
 
 #### Scenario: Bulk Archive disabled when streaming
 - **WHEN** unattached session `"s1"` has `status = "streaming"` and completed changes exist
-- **THEN** the "Bulk Archive" button SHALL be shown but disabled
+- **THEN** the Bulk Archive control (the inline button, or the **Bulk archive…** menu item on the desktop session card) SHALL be shown but disabled
+
+#### Scenario: Desktop session card offers Bulk archive in the menu
+- **WHEN** unattached session `"s1"` in cwd `/project/foo` renders as a desktop session card, and the folder contains a completed change
+- **THEN** no inline "Bulk Archive" button SHALL render on the card
+- **AND** the session actions menu's OPENSPEC group SHALL contain **Bulk archive…**, whose confirmation sends `{ type: "openspec_bulk_archive", cwd: "/project/foo" }`
 
 ### Requirement: Mobile session header shows attached-proposal chip
 On mobile viewports, the session header SHALL render a paperclip-prefixed chip displaying `session.attachedProposal` whenever that field is non-empty. When the chip is rendered, the mobile session header SHALL use a **two-row layout**: When the attachment does not resolve `kind: "active"` with the resolved cwd equal to `session.cwd` (see `openspec-attachment-resolution`), the chip content additionally follows "Archived or missing attachment renders a traceable header".
@@ -367,9 +378,11 @@ Pill selection in the attach dialog SHALL be local to that dialog instance and S
 ### Requirement: Active session shows + Change and Explore only when unattached
 When a session is active (not ended) and has no attached proposal, the `SessionOpenSpecActions` component SHALL render a "+ Change" button and an enabled "Explore" button inline next to the attach combo box, each subject to the folder's workflow configuration. When a session has an attached proposal, neither "+ Change" nor an inline "Explore" button SHALL render. Change-scoped Explore is offered in the `⋯` menu instead (see `Attached session header shows one primary action and an overflow menu`).
 
+On the desktop session card, these actions are offered as the **New change…** and **Explore…** items, together with **Propose…** from the same shared derivation, in the session actions menu's OPENSPEC group, under the same conditions. No inline buttons render on that card.
+
 #### Scenario: Active session with no attachment shows enabled Explore
 - **WHEN** session `"s1"` has `status = "active"` and `attachedProposal = null`
-- **THEN** the session card SHALL show the attach combo box, a "+ Change" button, and an enabled "Explore" button in a single row
+- **THEN** a surface that mounts the session OpenSpec block inline SHALL show the attach combo box, a "+ Change" button, and an enabled "Explore" button in a single row
 
 #### Scenario: + Change opens NewChangeDialog
 - **WHEN** the user clicks "+ Change" on session `"s1"`
@@ -390,6 +403,11 @@ When a session is active (not ended) and has no attached proposal, the `SessionO
 #### Scenario: Ended session hides + Change and Explore
 - **WHEN** session `"s1"` has `status = "ended"` and `attachedProposal = null`
 - **THEN** neither "+ Change" nor "Explore" buttons SHALL be rendered
+
+#### Scenario: Desktop session card offers New change and Explore in the menu
+- **WHEN** active, unattached session `"s1"` renders as a desktop session card
+- **THEN** no inline "+ Change" or "Explore" button SHALL render on the card
+- **AND** the session actions menu's OPENSPEC group SHALL contain **New change…** (opens `NewChangeDialog`) and **Explore…** (opens `ExploreDialog` with an empty change name)
 
 ### Requirement: Lifecycle bar inside attached session card
 When a session has an `attachedProposal` AND the corresponding `OpenSpecChange` is present in the folder's OpenSpec data, the session card SHALL render a **lifecycle bar** directly below the attached-change header row. The bar SHALL contain exactly five segments, left to right: `Proposal`, `Design`, `Specs`, `Tasks`, `Archive`. There SHALL be no `Explore` segment and no separate `Apply` segment. The bar SHALL be exposed to assistive technology as a labelled group ("OpenSpec lifecycle").
@@ -498,7 +516,7 @@ The OpenSpec board card uses the compact variant.
 - **THEN** every interactive segment's hit area SHALL be at least 24 CSS px tall
 
 ### Requirement: Attached session header shows one primary action and an overflow menu
-When a session has an `attachedProposal`, the session card SHALL show one header row:
+When a session has an `attachedProposal`, the session OpenSpec block SHALL show one header row:
 - the attached change name as a badge, name in `text-blue-400`;
 - then, right-aligned, at most **one primary action button**;
 - then a `⋯` overflow button.
@@ -536,6 +554,13 @@ Activating a `⋯` item SHALL NOT select, navigate to, or drag the enclosing ses
 The `⋯` menu SHALL open on click or on keyboard activation. On open, focus SHALL move to its first enabled item. Escape or an outside click SHALL close it and return focus to the `⋯` button.
 
 This requirement applies wherever the session OpenSpec block is mounted, including the per-session OpenSpec panel on board cards.
+
+**Desktop session card.** The desktop session card SHALL NOT mount the header's primary button or its `⋯` button. It shows the attached change link and the lifecycle bar. The same derivation SHALL feed the session actions menu:
+- the primary action becomes that menu's NEXT item, unless the Merge-emphasis rule makes Merge the NEXT item instead;
+- the `⋯` items become OPENSPEC items, with Fast-forward, Explore…, Archive anyway… and Detach folded behind `More…`;
+- Verify renders as a visible OPENSPEC item whenever it is not the NEXT item.
+
+The workflow gating, the streaming rule and the ended rule above SHALL apply to those menu items exactly as they apply to the header. On the menu they are expressed as `aria-disabled` items or absent items.
 
 This requirement governs attachments that resolve `kind: "active"` with the resolved cwd equal to `session.cwd` (see `openspec-attachment-resolution`). Attachments that resolve `archived` or `missing` render per "Archived or missing attachment renders a traceable header" instead.
 
@@ -614,27 +639,38 @@ This requirement governs attachments that resolve `kind: "active"` with the reso
 - **THEN** the badge SHALL show `gone-change`, then a muted `Not found` badge, then the `⋯` button, whose menu contains only **Detach**
 - **AND** no lifecycle bar and no primary action SHALL render
 
+#### Scenario: Desktop session card shows no primary or overflow button
+- **WHEN** session `"s1"` attached to `"add-auth"` in state `IMPLEMENTING` renders as a desktop session card
+- **THEN** no Apply button and no OpenSpec `⋯` button SHALL render on the card
+- **AND** the card SHALL render the attached change link and the lifecycle bar
+- **AND** the session actions menu SHALL show **Apply** as its NEXT item and list **Explore…** and **Detach** under the OPENSPEC `More…`
+
+#### Scenario: Ended desktop card keeps Detach reachable
+- **WHEN** ended session `"s1"` attached to `"add-auth"` renders as a desktop session card
+- **THEN** the session actions menu SHALL contain no NEXT item
+- **AND** **Detach** SHALL remain reachable in its OPENSPEC group
+
 ### Requirement: Archived or missing attachment renders a traceable header
 When the attachment resolves `kind: "archived"`, the desktop session card, the desktop session header, and the composer session actions SHALL render the following, for running and ended sessions alike:
 - the paperclip and the attached name;
 - an `Archived <YYYY-MM-DD>` badge, using the entry date;
 - archive artifact letters for each artifact in `entry.artifacts`, in that order (as the archive browser renders them). Activating a letter SHALL navigate (push) to `/folder/<encoded resolved cwd>/openspec/archive/<entry.name>/<artifactId>`;
-- a `⋯` menu containing only **Detach**.
+- a `⋯` menu containing only **Detach**. On the desktop session card, this `⋯` SHALL NOT render. Detach, and an item per archive letter with the same navigation, are offered in the session actions menu's OPENSPEC group instead. The badge and the letters stay on the card.
 
 On mobile, the read-only attached-proposal chips in the header and the card SHALL show the name, the `Archived <YYYY-MM-DD>` badge, and the same archive letters. Detach SHALL remain in the existing `MobileAttachButton` popover. `MobileActionMenu` SHALL NOT offer workflow actions for an archived attachment.
 
 No lifecycle bar, no primary action, and no workflow action (Continue, Fast-forward, Apply, Verify, Archive, Explore) SHALL render for an archived attachment.
 
-When the attachment resolves `kind: "missing"`, those surfaces SHALL render the name, then a muted `Not found` badge titled "Not in active changes or archive (pull may be needed)". Desktop shows `⋯` with only **Detach**; mobile keeps Detach in the popover.
+When the attachment resolves `kind: "missing"`, those surfaces SHALL render the name, then a muted `Not found` badge titled "Not in active changes or archive (pull may be needed)". Desktop shows `⋯` with only **Detach** (on the desktop session card: Detach in the session actions menu); mobile keeps Detach in the popover.
 
-When the attachment resolves `kind: "active"` but the resolved cwd differs from `session.cwd` (a removed worktree whose change is still active in `gitWorktree.mainPath`), the surfaces SHALL render read-only: the name, an `In main checkout` badge, the change's artifact letters linking to the preview route for the resolved cwd, and Detach (desktop `⋯`; mobile popover). No lifecycle bar, no primary action, and no workflow action SHALL render.
+When the attachment resolves `kind: "active"` but the resolved cwd differs from `session.cwd` (a removed worktree whose change is still active in `gitWorktree.mainPath`), the surfaces SHALL render read-only: the name, an `In main checkout` badge, the change's artifact letters linking to the preview route for the resolved cwd, and Detach (desktop `⋯`, or the session actions menu on the desktop session card; mobile popover). No lifecycle bar, no primary action, and no workflow action SHALL render.
 
-When the attachment resolves `kind: "unresolved"`, the surfaces SHALL render the bare attached name with no badge. Desktop shows `⋯` with only **Detach**.
+When the attachment resolves `kind: "unresolved"`, the surfaces SHALL render the bare attached name with no badge. Desktop shows `⋯` with only **Detach** (on the desktop session card: Detach in the session actions menu).
 
 #### Scenario: Ended session attached to an archived change
 - **WHEN** ended session `"s1"` has `attachedProposal = "add-auth"` and resolution yields entry `2026-09-30-add-auth` with proposal, design and tasks
-- **THEN** the card SHALL show `add-auth`, `Archived 2026-09-30`, letters P, D and T, and `⋯`
-- **AND** the `⋯` menu SHALL contain only **Detach**
+- **THEN** the desktop session card SHALL show `add-auth`, `Archived 2026-09-30`, and letters P, D and T, with no OpenSpec `⋯`
+- **AND** the session actions menu's OPENSPEC group SHALL contain items P, D and T and **Detach**, and no workflow item
 
 #### Scenario: Running session after archiving
 - **WHEN** running session `"s1"` is attached to `add-auth` and the change has just been archived
@@ -652,7 +688,8 @@ When the attachment resolves `kind: "unresolved"`, the surfaces SHALL render the
 
 #### Scenario: Active in main checkout is read-only
 - **WHEN** ended session `"s1"` has `cwd = "/repo/.worktrees/os-x"` and resolves `kind: "active"` with `cwd = "/repo"`
-- **THEN** the card SHALL show `x`, the `In main checkout` badge, the change's artifact letters and `⋯` with only **Detach**
+- **THEN** the card SHALL show `x`, the `In main checkout` badge and the change's artifact letters
+- **AND** the session actions menu's OPENSPEC group SHALL offer only those letters and **Detach**
 - **AND** no Apply, Continue or Archive action SHALL render
 
 #### Scenario: Mobile chip stays read-only

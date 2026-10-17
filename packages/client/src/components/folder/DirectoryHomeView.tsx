@@ -25,7 +25,7 @@
 import type { CommandInfo, ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { mdiCog, mdiFolderOpen } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FolderCommandOrigin } from "../../lib/api/folder-commands-api.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
 import { isFolderPaneId } from "../../lib/layout/folder-pane-id.js";
@@ -36,7 +36,7 @@ import { EditorPane } from "../editor-pane/EditorPane.js";
 import { LayoutModeSwitch } from "../split/LayoutModeSwitch.js";
 import { SplitWorkspace } from "../split/SplitWorkspace.js";
 import { useOptionalSplitWorkspace } from "../split/SplitWorkspaceContext.js";
-import { WorktreeSpawnDialog } from "../worktree/WorktreeSpawnDialog.js";
+import { LazyWorktreeSpawnDialog } from "../worktree/lazy-worktree-dialogs.js";
 import { buildStarters, type Starter, withStarterInserted } from "./starter-cards.js";
 
 export interface SpawnFromHomeOpts {
@@ -341,7 +341,8 @@ export function DirectoryHomeView({
       )}
 
       {worktreeOpen && (
-        <WorktreeSpawnDialog
+        <Suspense fallback={null}>
+        <LazyWorktreeSpawnDialog
           cwd={cwd}
           onCancel={() => {
             setWorktreeOpen(false);
@@ -367,6 +368,7 @@ export function DirectoryHomeView({
             onWorktreeSpawned?.(path);
           }}
         />
+        </Suspense>
       )}
     </div>
   );

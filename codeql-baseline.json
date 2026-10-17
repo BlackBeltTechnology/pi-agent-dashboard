@@ -316,13 +316,6 @@
       "reason": "untriaged"
     },
     {
-      "ruleId": "js/client-side-unvalidated-url-redirection",
-      "file": "packages/client/src/components/worktree/WorktreeActionsMenu.tsx",
-      "lineHash": "bba3c76f3faa9aea:1",
-      "count": 1,
-      "reason": "untriaged"
-    },
-    {
       "ruleId": "js/request-forgery",
       "file": "packages/client/src/lib/api/model-proxy-api.ts",
       "lineHash": "1188a1fad939a53b:1",

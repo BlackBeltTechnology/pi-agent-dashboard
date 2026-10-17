@@ -41,6 +41,11 @@ const defaultProps = {
   onArchive: () => {},
 };
 
+/** Open the session actions menu of the (default) test session. */
+function openMenu(id = "test-session") {
+  fireEvent.click(screen.getByTestId(`session-actions-trigger-${id}`));
+}
+
 // worktree-card-section slot: KB row is rendered ONLY for worktree sessions,
 // scoped to the worktree's own cwd. See change: kb-row-on-worktree-session-card.
 describe("SessionCard worktree-card-section slot", () => {
@@ -205,8 +210,8 @@ describe("SessionCard", () => {
     expect(onShutdown).not.toHaveBeenCalled();
   });
 
-  it("should show OpenSpec actions when selected and has changes", () => {
-    const session = makeSession();
+  it("should show the attached change's OpenSpec status when selected and has changes", () => {
+    const session = makeSession({ attachedProposal: "feat-a" });
     const changes = [{ name: "feat-a", status: "in-progress" as const, completedTasks: 1, totalTasks: 3, artifacts: [] }];
     render(
       <SessionCard session={session} {...defaultProps} selectedId="test-session" openspecChanges={changes}
@@ -215,8 +220,8 @@ describe("SessionCard", () => {
     expect(screen.getByTestId("session-openspec-actions")).toBeTruthy();
   });
 
-  it("should show OpenSpec actions even when not selected (renders on all cards with changes)", () => {
-    const session = makeSession();
+  it("should show the attached change's OpenSpec status even when not selected (renders on all cards with changes)", () => {
+    const session = makeSession({ attachedProposal: "feat-a" });
     const changes = [{ name: "feat-a", status: "in-progress" as const, completedTasks: 1, totalTasks: 3, artifacts: [] }];
     render(
       <SessionCard session={session} {...defaultProps} selectedId="other" openspecChanges={changes}
@@ -733,7 +738,9 @@ describe("GroupGitInfo", () => {
 
 describe("SessionCard subcard structure", () => {
   it("renders OPENSPEC, GIT, PROCESS subcard titles in order when populated", () => {
-    const session = makeSession({ gitBranch: "feature/test" });
+    // An UNATTACHED READY session renders no OPENSPEC subcard any more (its
+    // actions are menu items), so the session is attached to show one.
+    const session = makeSession({ gitBranch: "feature/test", attachedProposal: "feat-a" });
     const changes = [{ name: "feat-a", status: "in-progress" as const, completedTasks: 1, totalTasks: 3, artifacts: [] }];
     const { container } = render(
       <SessionCard
@@ -1196,7 +1203,7 @@ describe("SessionCard — OPENSPEC subcard visibility (auto-hide-empty-session-s
   });
 
   it("shows OPENSPEC subcard when pending=true (cold-boot)", () => {
-    const session = makeSession();
+    const session = makeSession({ attachedProposal: "feat-a" });
     render(
       <SessionCard
         session={session}
@@ -1210,7 +1217,7 @@ describe("SessionCard — OPENSPEC subcard visibility (auto-hide-empty-session-s
   });
 
   it("shows OPENSPEC subcard when openspecInitialized=true even with empty changes (attach CTA)", () => {
-    const session = makeSession();
+    const session = makeSession({ attachedProposal: "feat-a" });
     render(
       <SessionCard
         session={session}
@@ -1224,7 +1231,7 @@ describe("SessionCard — OPENSPEC subcard visibility (auto-hide-empty-session-s
   });
 
   it("shows OPENSPEC subcard for legacy callers (openspecInitialized undefined preserves visibility)", () => {
-    const session = makeSession();
+    const session = makeSession({ attachedProposal: "feat-a" });
     render(
       <SessionCard
         session={session}
@@ -1249,7 +1256,7 @@ describe("SessionCard — openspecHasDir (auto-hide-empty-session-subcards)", ()
     // Fresh `openspec init` project: openspec/ exists, openspec/changes/ does
     // not, openspec list errors out. The subcard must still render as an
     // init/attach affordance.
-    const session = makeSession();
+    const session = makeSession({ attachedProposal: "feat-a" });
     render(
       <SessionCard
         session={session}
@@ -1281,7 +1288,7 @@ describe("SessionCard — openspecHasDir (auto-hide-empty-session-subcards)", ()
   it("shows OPENSPEC subcard when openspecHasDir=false but pending=true (cold-boot)", () => {
     // Edge case: openspecHasDir was probed before changes/ existed, but the
     // poll is still in flight. Keep the subcard visible so it doesn't blink.
-    const session = makeSession();
+    const session = makeSession({ attachedProposal: "feat-a" });
     render(
       <SessionCard
         session={session}
@@ -1296,7 +1303,7 @@ describe("SessionCard — openspecHasDir (auto-hide-empty-session-subcards)", ()
 
   it("openspecHasDir takes precedence over openspecInitialized when both present", () => {
     // openspecHasDir=true wins even if openspecInitialized=false.
-    const session = makeSession();
+    const session = makeSession({ attachedProposal: "feat-a" });
     render(
       <SessionCard
         session={session}
@@ -1312,7 +1319,7 @@ describe("SessionCard — openspecHasDir (auto-hide-empty-session-subcards)", ()
 
   it("falls back to legacy (initialized||pending) when openspecHasDir undefined", () => {
     // Old broadcast or legacy parent — backwards-compat check.
-    const session = makeSession();
+    const session = makeSession({ attachedProposal: "feat-a" });
     render(
       <SessionCard
         session={session}
@@ -1327,50 +1334,69 @@ describe("SessionCard — openspecHasDir (auto-hide-empty-session-subcards)", ()
   });
 });
 
-describe("SessionCard — +Session sibling-spawn button (session-card-plus-session-button)", () => {
+describe("SessionCard — New session menu item (session-card-plus-session-button → add-session-actions-flyout)", () => {
   const spawnProps = { ...defaultProps, onSpawnSibling: () => {} };
 
   it("2.1 renders for a live session (status !== ended)", () => {
     const session = makeSession({ status: "streaming" });
     render(<SessionCard session={session} {...spawnProps} />);
+    openMenu();
     expect(screen.getByTestId("session-card-spawn-sibling")).toBeTruthy();
   });
 
-  it("2.2 renders for an ended session alongside Fork", () => {
+  it("2.2 renders for an ended session alongside Fork (and Resume)", () => {
     const session = makeSession({ status: "ended", sessionFile: "/sess/x.jsonl" });
     render(<SessionCard session={session} {...spawnProps} onResume={() => {}} />);
+    openMenu();
     expect(screen.getByTestId("session-card-spawn-sibling")).toBeTruthy();
-    expect(screen.getByText("Fork")).toBeTruthy();
+    expect(screen.getByTestId("session-menu-item-fork")).toBeTruthy();
+    expect(screen.getByTestId("session-menu-item-resume")).toBeTruthy();
   });
 
   it("2.3 renders even when sessionFile is absent (no Fork-style gating)", () => {
     const session = makeSession({ status: "ended", sessionFile: undefined });
     render(<SessionCard session={session} {...spawnProps} onResume={() => {}} />);
-    // Fork is gated on sessionFile; +Session is not.
-    expect(screen.queryByText("Fork")).toBeNull();
+    openMenu();
+    // Fork is gated on sessionFile; New session is not.
+    expect(screen.queryByTestId("session-menu-item-fork")).toBeNull();
     expect(screen.getByTestId("session-card-spawn-sibling")).toBeTruthy();
   });
 
-  it("2.4 click invokes handler with the session", () => {
+  it("2.4 activation invokes the handler with the session, closes the menu and does not select the card", () => {
     const onSpawnSibling = vi.fn();
+    const onSelect = vi.fn();
     const session = makeSession();
-    render(<SessionCard session={session} {...defaultProps} onSpawnSibling={onSpawnSibling} />);
+    render(<SessionCard session={session} {...defaultProps} onSelect={onSelect} onSpawnSibling={onSpawnSibling} />);
+    openMenu();
     fireEvent.click(screen.getByTestId("session-card-spawn-sibling"));
     expect(onSpawnSibling).toHaveBeenCalledWith(session);
+    expect(screen.queryByTestId("session-actions-menu-test-session")).toBeNull();
+    expect(onSelect).not.toHaveBeenCalled();
   });
 
-  it("2.5 cwdMissing → disabled attribute + tooltip changes", () => {
+  it("2.5 cwdMissing → aria-disabled + reason text", () => {
     const session = makeSession({ cwdMissing: true });
     render(<SessionCard session={session} {...spawnProps} />);
-    const btn = screen.getByTestId("session-card-spawn-sibling") as HTMLButtonElement;
-    expect(btn.disabled).toBe(true);
-    expect(btn.title).toBe("session's directory no longer exists");
+    openMenu();
+    const item = screen.getByTestId("session-card-spawn-sibling");
+    expect(item.getAttribute("aria-disabled")).toBe("true");
+    expect(item.getAttribute("title")).toBe("session's directory no longer exists");
   });
 
-  it("2.6 no handler → button absent", () => {
+  it("2.6 no handler → item absent", () => {
     const session = makeSession();
     render(<SessionCard session={session} {...defaultProps} />);
+    openMenu();
     expect(screen.queryByTestId("session-card-spawn-sibling")).toBeNull();
+  });
+
+  it("2.7 hiding the `spawn` section removes the item", () => {
+    const session = makeSession();
+    render(<SessionCard session={session} {...spawnProps} />);
+    // The default (no prefs) shows it; the section gate itself is covered in
+    // session-menu-items.test.ts (E12).
+    openMenu();
+    expect(screen.getByTestId("session-card-spawn-sibling")).toBeTruthy();
   });
 });
 
@@ -1411,10 +1437,11 @@ describe("SessionCard — +Session wiring through handleSpawnSession (session-ca
     return { send, onSpawnSibling };
   }
 
-  it("4.1 click sends spawn_session with cwd + attachProposal + requestId", () => {
+  it("4.1 activation sends spawn_session with cwd + attachProposal + requestId", () => {
     const { send, onSpawnSibling } = setup();
     const session = makeSession({ cwd: "/project/foo", attachedProposal: "add-dark-mode" });
     render(<SessionCard session={session} {...defaultProps} onSpawnSibling={onSpawnSibling} />);
+    openMenu();
     fireEvent.click(screen.getByTestId("session-card-spawn-sibling"));
     expect(send).toHaveBeenCalledTimes(1);
     const payload = send.mock.calls[0][0];
@@ -1429,6 +1456,7 @@ describe("SessionCard — +Session wiring through handleSpawnSession (session-ca
     const { send, onSpawnSibling } = setup();
     const session = makeSession({ cwd: "/project/bar", attachedProposal: undefined });
     render(<SessionCard session={session} {...defaultProps} onSpawnSibling={onSpawnSibling} />);
+    openMenu();
     fireEvent.click(screen.getByTestId("session-card-spawn-sibling"));
     const payload = send.mock.calls[0][0];
     expect(payload.cwd).toBe("/project/bar");
@@ -1438,62 +1466,72 @@ describe("SessionCard — +Session wiring through handleSpawnSession (session-ca
     cleanup();
     const session2 = makeSession({ cwd: "/project/baz", attachedProposal: "" });
     render(<SessionCard session={session2} {...defaultProps} onSpawnSibling={onSpawnSibling} />);
+    openMenu();
     fireEvent.click(screen.getByTestId("session-card-spawn-sibling"));
     expect("attachProposal" in send.mock.calls[0][0]).toBe(false);
   });
 
-  it("4.3 cwdMissing → button disabled, click does NOT send", () => {
+  it("4.3 cwdMissing → item disabled, activation does NOT send", () => {
     const { send, onSpawnSibling } = setup();
     const session = makeSession({ cwd: "/project/gone", cwdMissing: true });
     render(<SessionCard session={session} {...defaultProps} onSpawnSibling={onSpawnSibling} />);
+    openMenu();
     fireEvent.click(screen.getByTestId("session-card-spawn-sibling"));
     expect(send).not.toHaveBeenCalled();
   });
 });
 
-describe("SessionCard — +Worktree button (session-card-plus-session-button)", () => {
+describe("SessionCard — New worktree session menu item (session-card-plus-session-button → add-session-actions-flyout)", () => {
   const wtProps = { ...defaultProps, onSpawnWorktree: () => {} };
 
   it("7.x renders when onSpawnWorktree supplied", () => {
     render(<SessionCard session={makeSession()} {...wtProps} />);
-    const btn = screen.getByTestId("session-card-spawn-worktree");
-    expect(btn).toBeTruthy();
-    expect(btn.textContent).toContain("Worktree");
-    expect((btn as HTMLButtonElement).title).toBe("Create a git worktree and start a new session in it");
+    openMenu();
+    const item = screen.getByTestId("session-card-spawn-worktree");
+    expect(item).toBeTruthy();
+    expect(item.textContent).toContain("New worktree session");
   });
 
   it("7.x absent when no handler", () => {
     render(<SessionCard session={makeSession()} {...defaultProps} />);
+    openMenu();
     expect(screen.queryByTestId("session-card-spawn-worktree")).toBeNull();
   });
 
-  it("7.x absent when session is already a worktree session", () => {
+  it("7.x absent when session is already a worktree session; New session is unaffected", () => {
     const session = makeSession({ gitWorktree: { name: "wt-x", base: "main" } as any });
-    render(<SessionCard session={session} {...wtProps} />);
+    render(<SessionCard session={session} {...wtProps} onSpawnSibling={() => {}} />);
+    openMenu();
     expect(screen.queryByTestId("session-card-spawn-worktree")).toBeNull();
-    // +Session is unaffected by the worktree gate.
-    render(<SessionCard session={session} {...defaultProps} onSpawnSibling={() => {}} />);
     expect(screen.getByTestId("session-card-spawn-sibling")).toBeTruthy();
   });
 
-  it("7.x click invokes handler with the session", () => {
+  it("7.x activation invokes handler with the session", () => {
     const onSpawnWorktree = vi.fn();
     const session = makeSession();
     render(<SessionCard session={session} {...defaultProps} onSpawnWorktree={onSpawnWorktree} />);
+    openMenu();
     fireEvent.click(screen.getByTestId("session-card-spawn-worktree"));
     expect(onSpawnWorktree).toHaveBeenCalledWith(session);
   });
 
-  it("7.x cwdMissing → disabled + tooltip changes", () => {
+  it("7.x cwdMissing → aria-disabled + reason, activation does nothing", () => {
+    const onSpawnWorktree = vi.fn();
     const session = makeSession({ cwdMissing: true });
-    render(<SessionCard session={session} {...wtProps} />);
-    const btn = screen.getByTestId("session-card-spawn-worktree") as HTMLButtonElement;
-    expect(btn.disabled).toBe(true);
-    expect(btn.title).toBe("session's directory no longer exists");
+    render(<SessionCard session={session} {...defaultProps} onSpawnWorktree={onSpawnWorktree} />);
+    openMenu();
+    const item = screen.getByTestId("session-card-spawn-worktree");
+    expect(item.getAttribute("aria-disabled")).toBe("true");
+    expect(item.getAttribute("title")).toBe("session's directory no longer exists");
+    fireEvent.click(item);
+    expect(onSpawnWorktree).not.toHaveBeenCalled();
+    // the menu stays open
+    expect(screen.getByTestId("session-actions-menu-test-session")).toBeTruthy();
   });
 
-  it("7.x coexists with +Session", () => {
+  it("7.x coexists with New session", () => {
     render(<SessionCard session={makeSession()} {...defaultProps} onSpawnSibling={() => {}} onSpawnWorktree={() => {}} />);
+    openMenu();
     expect(screen.getByTestId("session-card-spawn-sibling")).toBeTruthy();
     expect(screen.getByTestId("session-card-spawn-worktree")).toBeTruthy();
   });
@@ -1721,7 +1759,7 @@ describe("SessionCard — OPENSPEC subcard readiness (add-openspec-init-affordan
   it("legacy payload (readiness undefined) renders the live subcard exactly as before — never disabled", () => {
     render(
       <SessionCard
-        session={makeSession()}
+        session={makeSession({ attachedProposal: "feat-a" })}
         {...baseProps}
         openspecChanges={[]}
         openspecHasDir={true}
@@ -1737,7 +1775,7 @@ describe("SessionCard — OPENSPEC subcard readiness (add-openspec-init-affordan
   it("legacy payload with no signals preserves visibility (older parent default)", () => {
     render(
       <SessionCard
-        session={makeSession()}
+        session={makeSession({ attachedProposal: "feat-a" })}
         {...baseProps}
         openspecChanges={[]}
       />,
@@ -1879,8 +1917,8 @@ describe("SessionCard — archive affordance (archive-sessions-lazy-load)", () =
 // Portal bubbling: React events from the body-portalled `⋯` Popover bubble
 // through the React tree to the card's `onClick={onSelect}`. Menu items stop
 // propagation. See change: compact-openspec-lifecycle-bar (test-plan F4).
-describe("SessionCard OpenSpec ⋯ menu", () => {
-  it("selecting Explore… opens the dialog without selecting the card (F4)", async () => {
+describe("SessionCard session actions menu — OpenSpec items", () => {
+  it("selecting Explore… opens the dialog without selecting the card (F4, X4)", async () => {
     const { makeRunConfig, RunConfigHarness } = await import("../../test-support/runConfigHarness.js");
     const onSelect = vi.fn();
     const session = makeSession({ attachedProposal: "add-auth", status: "idle" });
@@ -1902,9 +1940,11 @@ describe("SessionCard OpenSpec ⋯ menu", () => {
           onSendPrompt={() => {}} onAttachProposal={() => {}} onDetachProposal={() => {}} />
       </RunConfigHarness>,
     );
-    fireEvent.click(screen.getByTestId("openspec-overflow-btn"));
-    fireEvent.click(screen.getByTestId("explore-menu-item"));
-    expect(screen.getByTestId("explore-textarea")).toBeTruthy();
+    openMenu();
+    // Explore… is a rare item folded behind the OPENSPEC group's More… expander.
+    fireEvent.click(screen.getByTestId("session-menu-more-openspec"));
+    fireEvent.click(screen.getByTestId("session-menu-item-openspec-explore"));
+    expect(await screen.findByTestId("explore-textarea")).toBeTruthy();
     expect(onSelect).toHaveBeenCalledTimes(0);
   });
 });
@@ -1945,15 +1985,27 @@ describe("SessionCard — Merge emphasis + working (#E13, #F7)", () => {
         isRetrying={isRetrying}
       />,
     );
-  const filled = () => Array.from(document.querySelectorAll("[data-emphasis='filled']")).map((e) => e.getAttribute("data-testid"));
+  /** Open the menu, then list the emphasised (primary) items — exactly one NEXT item at most. */
+  const primaries = () => {
+    openMenu();
+    return Array.from(document.querySelectorAll("[data-emphasis='primary']")).map((e) => e.getAttribute("data-testid"));
+  };
 
   it.each([
-    ["COMPLETE + passing", COMPLETE, "passing", "worktree-action-merge"],
-    ["IMPLEMENTING + passing", IMPLEMENTING, "passing", "apply-btn"],
-    ["COMPLETE + failing", COMPLETE, "failing", "archive-btn"],
-  ] as const)("%s → exactly one filled primary: %s", (_n, change, checks, expected) => {
+    ["COMPLETE + passing", COMPLETE, "passing", "session-menu-item-merge"],
+    ["IMPLEMENTING + passing", IMPLEMENTING, "passing", "session-menu-item-openspec-apply"],
+    ["COMPLETE + failing", COMPLETE, "failing", "session-menu-item-openspec-archive"],
+  ] as const)("%s → exactly one emphasised primary: %s", (_n, change, checks, expected) => {
     renderCard(wtSession(checks), change);
-    expect(filled()).toEqual([expected]);
+    expect(primaries()).toEqual([expected]);
+  });
+
+  it("COMPLETE + passing: the OpenSpec primary stays reachable, un-emphasised, as 'Archive change'", () => {
+    renderCard(wtSession("passing"), COMPLETE);
+    openMenu();
+    const archive = screen.getByTestId("session-menu-item-openspec-archive");
+    expect(archive.textContent).toContain("Archive change");
+    expect(archive.getAttribute("data-emphasis")).toBeNull();
   });
 
   it.each([
@@ -1961,13 +2013,14 @@ describe("SessionCard — Merge emphasis + working (#E13, #F7)", () => {
     ["retrying", "active", true],
   ] as const)("%s → OpenSpec primary, Push and Merge gated (aria-disabled, focusable, reason)", (_n, status, retrying) => {
     renderCard(wtSession("passing", { status }), COMPLETE, retrying);
-    for (const id of ["archive-btn", "worktree-action-push", "worktree-action-merge"]) {
+    openMenu();
+    for (const id of ["session-menu-item-openspec-archive", "session-menu-item-push", "session-menu-item-merge"]) {
       const el = screen.getByTestId(id) as HTMLButtonElement;
       expect(el.getAttribute("aria-disabled"), id).toBe("true");
       expect(el.disabled, id).toBe(false);
       expect(el.getAttribute("title"), id).toBe("Session is streaming");
     }
-    expect(filled()).toEqual([]);
+    expect(document.querySelector("[data-emphasis='primary']")).toBeNull();
   });
 
   // See change: fix-composer-liveness-on-reload (D7, test-plan #E13): card `working`
@@ -1978,14 +2031,16 @@ describe("SessionCard — Merge emphasis + working (#E13, #F7)", () => {
     ["active + retrying", "active", true, "true"],
   ] as const)("%s → worktree actions gated=%s (retry never makes a terminal session working)", (_n, status, retrying, gated) => {
     renderCard(wtSession("passing", { status }), COMPLETE, retrying);
-    for (const id of ["worktree-action-push", "worktree-action-merge"]) {
+    openMenu();
+    for (const id of ["session-menu-item-push", "session-menu-item-merge"]) {
       expect(screen.getByTestId(id).getAttribute("aria-disabled"), id).toBe(gated);
     }
   });
 
   it("idle → nothing gated", () => {
     renderCard(wtSession("passing"), COMPLETE);
-    for (const id of ["archive-btn", "worktree-action-push", "worktree-action-merge"]) {
+    openMenu();
+    for (const id of ["session-menu-item-openspec-archive", "session-menu-item-push", "session-menu-item-merge"]) {
       expect(screen.getByTestId(id).getAttribute("aria-disabled"), id).toBeNull();
     }
   });
@@ -2073,8 +2128,8 @@ describe("SessionCard attachment resolution", () => {
     );
     expect((await screen.findByTestId("attachment-archived-badge")).textContent).toBe("Archived 2026-09-30");
     expect(screen.getAllByTestId("artifact-letter").length).toBe(3);
-    fireEvent.click(screen.getByTestId("openspec-overflow-btn"));
-    expect(screen.getByTestId("detach-btn")).toBeTruthy();
+    openMenu();
+    expect(screen.getByTestId("session-menu-item-openspec-detach")).toBeTruthy();
   });
 
   it.each([
@@ -2097,8 +2152,8 @@ describe("SessionCard attachment resolution", () => {
       </Router>,
     );
     await waitFor(() => expect(screen.getByText(/add-auth/)).toBeTruthy());
-    fireEvent.click(screen.getByTestId("openspec-overflow-btn"));
-    expect(screen.getByTestId("detach-btn")).toBeTruthy();
+    openMenu();
+    expect(screen.getByTestId("session-menu-item-openspec-detach")).toBeTruthy();
     expect(screen.queryByTestId("attachment-not-found-badge")).toBeNull();
   });
 

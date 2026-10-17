@@ -58,7 +58,7 @@ import { SplitWorkspaceProvider } from "./components/split/SplitWorkspaceContext
 import { allTagsInUse } from "./components/tags/all-tags.js";
 import { CommitDialogProvider } from "./components/worktree/CommitDialog.js";
 import { WorktreeInitStack } from "./components/worktree/WorktreeInitStack.js";
-import { WorktreeSpawnDialog } from "./components/worktree/WorktreeSpawnDialog.js";
+import { LazyWorktreeSpawnDialog } from "./components/worktree/lazy-worktree-dialogs.js";
 import { useAppHidden } from "./hooks/useAppHidden.js";
 import { useContentViews } from "./hooks/useContentViews.js";
 import { useDocumentTitle } from "./hooks/useDocumentTitle.js";
@@ -3521,7 +3521,8 @@ export default function App() {
         />
       )}
       {boardWorktreeForChange && (
-        <WorktreeSpawnDialog
+        <Suspense fallback={null}>
+        <LazyWorktreeSpawnDialog
           cwd={boardWorktreeForChange.cwd}
           initialBranch={`os/${boardWorktreeForChange.changeName}`}
           attachProposal={boardWorktreeForChange.changeName}
@@ -3538,6 +3539,7 @@ export default function App() {
             void maybeAutoInitWorktreeOnSpawn(path);
           }}
         />
+        </Suspense>
       )}
       {addFoldersDialog}
     </div>

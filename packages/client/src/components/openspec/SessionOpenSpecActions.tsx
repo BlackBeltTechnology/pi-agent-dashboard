@@ -265,9 +265,24 @@ interface Props {
    * See change: redesign-composer-session-strip (D6).
    */
   mergeIsPrimary?: boolean;
+  /**
+   * `full` (default; board rows, composer parity): the header with its primary +
+   * `⋯`, the unattached combo and its dialogs. `status` (the desktop session
+   * card): state only — the attached change, the lifecycle bar, and the archived
+   * / missing / main-checkout trace. Every action lives in the session actions
+   * menu; a clickable stepper segment routes through `onOpenTasks` /
+   * `onRequestArchive` to the card's dialog host. See change:
+   * add-session-actions-flyout.
+   */
+  variant?: "full" | "status";
+  /** `status` only: the Tasks segment's click (card dialog host). */
+  onOpenTasks?: () => void;
+  /** `status` only: the Archive segment's click (card dialog host). */
+  onRequestArchive?: () => void;
 }
 
-export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, onReplaceProposal, onSendPrompt, onReadArtifact, onBulkArchive, groups, assignments, openspecConfig, working: workingProp, mergeIsPrimary = false }: Props) {
+export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, onReplaceProposal, onSendPrompt, onReadArtifact, onBulkArchive, groups, assignments, openspecConfig, working: workingProp, mergeIsPrimary = false, variant = "full", onOpenTasks, onRequestArchive }: Props) {
+  const statusOnly = variant === "status";
   const cfg = openspecConfig ?? DEFAULT_OPENSPEC_CONFIG;
   const wf = (name: string) => cfg.workflows.includes(name);
   const [exploreOpen, setExploreOpen] = useState(false);
@@ -345,6 +360,8 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
 
   // Not attached: show combo box or attaching indicator
   if (!attached) {
+    // The card shows no unattached controls; they are session-menu items.
+    if (statusOnly) return null;
     if (attachingName) {
       return (
         <div className="mt-1 text-[10px] text-blue-400 animate-pulse" data-testid="session-openspec-actions">
@@ -454,7 +471,7 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
           <span className="text-[11px] text-[var(--text-tertiary)]"><Icon path={mdiPaperclip} size={0.4} className="inline mr-0.5" />{attached}</span>
           <AttachmentTrace resolution={resolution} sessionCwd={session.cwd} />
           <span className="flex-1" />
-          <OverflowMenu items={overflow.map((a) => toItem(a, onDetach))} />
+          {!statusOnly && <OverflowMenu items={overflow.map((a) => toItem(a, onDetach))} />}
         </div>
         {replaceDialog}
       </div>
@@ -496,9 +513,19 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
   return (
     <div className="mt-1 space-y-0.5" data-testid="session-openspec-actions">
       <div className="flex items-center gap-1.5 min-w-0">
-        <span className="text-[11px] truncate min-w-0" data-testid="attached-badge"><Icon path={mdiPaperclip} size={0.4} className="inline mr-0.5" /><span className="text-blue-400">{attached}</span></span>
+        {statusOnly && onReadArtifact ? (
+          // The attached change link: opens the proposal, like the menu's Open change.
+          <button
+            type="button"
+            className="focus-ring text-[11px] truncate min-w-0 text-left hover:underline"
+            data-testid="attached-badge"
+            onClick={(e) => { e.stopPropagation(); onReadArtifact(attached, "proposal"); }}
+          ><Icon path={mdiPaperclip} size={0.4} className="inline mr-0.5" /><span className="text-blue-400">{attached}</span></button>
+        ) : (
+          <span className="text-[11px] truncate min-w-0" data-testid="attached-badge"><Icon path={mdiPaperclip} size={0.4} className="inline mr-0.5" /><span className="text-blue-400">{attached}</span></span>
+        )}
         <span className="flex-1" />
-        {primary && (
+        {!statusOnly && primary && (
           <ActionButton
             label={label(primary)}
             icon={primary.icon}
@@ -510,17 +537,17 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
             emphasis={mergeIsPrimary ? "outlined" : "filled"}
           />
         )}
-        <OverflowMenu items={menuItems} />
+        {!statusOnly && <OverflowMenu items={menuItems} />}
       </div>
       <OpenSpecStepper
         variant="sidebar"
         change={change}
         onReadArtifact={onReadArtifact}
-        onOpenTasks={hasParseableTasks && !streaming ? () => setTasksOpen(true) : undefined}
-        onArchive={canArchive ? () => setArchiveConfirm(true) : undefined}
+        onOpenTasks={hasParseableTasks && !streaming ? (statusOnly ? onOpenTasks : () => setTasksOpen(true)) : undefined}
+        onArchive={canArchive ? (statusOnly ? onRequestArchive : () => setArchiveConfirm(true)) : undefined}
       />
 
-      {exploreOpen && (
+      {!statusOnly && exploreOpen && (
         <DialogPortal><Suspense fallback={null}><LazyExploreDialog
           changeName={attached}
           onSend={(text, images) => {
@@ -531,7 +558,7 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
         /></Suspense></DialogPortal>
       )}
 
-      {archiveConfirm && (
+      {!statusOnly && archiveConfirm && (
         <Confirm
           open
           testId="archive-confirm"
@@ -545,7 +572,7 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
           onClose={() => setArchiveConfirm(false)}
         />
       )}
-      {archiveAnywayConfirm && (
+      {!statusOnly && archiveAnywayConfirm && (
         <Confirm
           open
           testId="archive-anyway-confirm"
@@ -559,7 +586,7 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
           onClose={() => setArchiveAnywayConfirm(false)}
         />
       )}
-      {tasksOpen && (
+      {!statusOnly && tasksOpen && (
         <Suspense fallback={null}><LazyTasksPopover
           cwd={session.cwd}
           change={attached}
