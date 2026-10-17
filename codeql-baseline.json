@@ -351,27 +351,6 @@
       "reason": "untriaged"
     },
     {
-      "ruleId": "js/client-side-unvalidated-url-redirection",
-      "file": "packages/electron/resources/loading.html",
-      "lineHash": "6ca20d39776a630d:1",
-      "count": 1,
-      "reason": "untriaged"
-    },
-    {
-      "ruleId": "js/client-side-unvalidated-url-redirection",
-      "file": "packages/electron/resources/loading.html",
-      "lineHash": "75cba8fcb8d0cf1e:1",
-      "count": 1,
-      "reason": "untriaged"
-    },
-    {
-      "ruleId": "js/xss",
-      "file": "packages/electron/resources/loading.html",
-      "lineHash": "75cba8fcb8d0cf1e:1",
-      "count": 1,
-      "reason": "untriaged"
-    },
-    {
       "ruleId": "js/resource-exhaustion",
       "file": "packages/grammar-plugin/src/useGrammarCheck.ts",
       "lineHash": "27a85c1ebb434f56:1",
@@ -1021,6 +1000,13 @@
       "lineHash": "d1196e2cf3c3f6f8:1",
       "count": 1,
       "reason": "operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
+    },
+    {
+      "ruleId": "js/server-side-unvalidated-url-redirection",
+      "file": "packages/server/src/routes/local-proof-routes.ts",
+      "lineHash": "eebfa8d11b146b09:1",
+      "count": 1,
+      "reason": "false-positive: redirect target is constrained by sanitizeReturnUrl (same-origin path only; rejects //, /\\, control chars, origin re-parse; tests E20-E28); CodeQL cannot model the sanitizer"
     },
     {
       "ruleId": "js/path-injection",
