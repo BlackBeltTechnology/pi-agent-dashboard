@@ -153,6 +153,12 @@
       "name": "Automation Scheduler",
       "color": "#eab308",
       "order": 25
+    },
+    {
+      "id": "gmail",
+      "name": "Gmail",
+      "color": "#ea4335",
+      "order": 26
     }
   ],
   "assignments": {
@@ -464,10 +470,10 @@
     "add-session-actions-flyout": "ui",
     "mirror-dashboard-trust-live-remote": "pi-trust-mirror",
     "add-dedicated-agent-browser": "browser-agent",
-    "improve-gmail-plugin-setup-ux": "browser-agent",
+    "improve-gmail-plugin-setup-ux": "gmail",
     "fix-kb-index-integrity": "kowledge-base",
     "add-kb-worktree-seed": "kowledge-base",
-    "add-gmail-auto-setup": "browser-agent",
+    "add-gmail-auto-setup": "gmail",
     "use-openspec-status-all": "openspec-workflow",
     "add-pi-spec-driven-schema": "openspec-workflow",
     "add-openspec-change-dependencies": "openspec-workflow",
@@ -498,8 +504,7 @@
       "add-request-access-remedy",
       "add-operator-browser-relay",
       "audit-plugin-bundles-non-secure-context",
-      "fix-orphaned-ended-session-archive",
-      "improve-gmail-plugin-setup-ux"
+      "fix-orphaned-ended-session-archive"
     ],
     "addons-hub": [
       "addons-hub-feature-catalog",
@@ -631,9 +636,7 @@
     "browser-agent": [
       "fix-browser-relay-pane-input",
       "fix-empty-status-subcard",
-      "add-dedicated-agent-browser",
-      "improve-gmail-plugin-setup-ux",
-      "add-gmail-auto-setup"
+      "add-dedicated-agent-browser"
     ],
     "kowledge-base": [
       "fix-kb-index-integrity",
@@ -647,6 +650,10 @@
     "automation-scheduler": [
       "fix-home-folder-scope-double-arm",
       "fix-automation-key-collision"
+    ],
+    "gmail": [
+      "improve-gmail-plugin-setup-ux",
+      "add-gmail-auto-setup"
     ]
   }
 }
