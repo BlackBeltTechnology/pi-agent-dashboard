@@ -65,7 +65,7 @@
 
 - [x] 6.1 Write Playwright spec (see `tests/e2e/project-trust-headless-spawn.spec.ts` and `tests/e2e/mcp-client-project-override.spec.ts`): harness folder with `.pi/mcp.json` stdio echo server, pinned, empty trust.json · spawn headless session · tool list has the folder server's tool; folder MCP page shows "trusted by the dashboard — pinned folder" (test-plan #F5)
 - [x] 6.2 Extend the same spec: after 6.1 · unpin, spawn a new headless session · new session lacks the tool; Access effective list no longer lists the folder (test-plan #F6)
-- [ ] 6.3 Manual check of Settings → Access wording at desktop and mobile width: precedence and scope understandable (test-plan: manual-only, #M1)
+- [x] 6.3 Manual check of Settings → Access wording at desktop and mobile width: precedence and scope understandable (test-plan: manual-only, #M1)
 - [x] 6.4 Delegate `docs/` updates (architecture §MCP client trust, faq "Why is my mcp.json server ignored?", security notes: default ON, subtree, precedence over `never`, three bridge behaviour changes, reason codes) to DocScribe in caveman style; update `AGENTS.md` rows for every touched source file; verify `scripts/check-conventions.mjs` passes
 - [x] 6.5 Run `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` and `npm run quality:changed`; verify green
 - [x] 6.6 Record the new boundary (dashboard trust → pi `project_trust` via snapshot) in the security-boundary inventory left by the archived `security-boundary-audit`; verify the inventory row exists

@@ -98,13 +98,13 @@ export function PiTrustMirrorSection() {
         <p data-testid="pi-trust-scope">
           {cfg.coverInteractive
             ? i18nT("piTrust.scopeAll", undefined, "It applies to every pi session on this machine, including terminal and interactive sessions.")
-            : i18nT("piTrust.scopeHeadless", undefined, "It applies to dashboard-spawned headless sessions only (turn on \"cover interactive\" to include terminal pi).")}
+            : i18nT("piTrust.scopeHeadless", undefined, "It applies to headless sessions the dashboard starts only (turn on \"cover interactive\" to include terminal pi).")}
         </p>
         <p data-testid="pi-trust-exclusions">
           {i18nT(
             "piTrust.exclusions",
             undefined,
-            "Sessions started with --no-approve or --no-extensions, and pi's own CLI commands (for example pi mcp list), do not use it. A dashboard-spawned headless session is also trusted in exactly its own start folder for that run, unless pi has a recorded decision there or the folder is a system or temporary folder.",
+            "Sessions started with --no-approve or --no-extensions, and pi's own CLI commands (for example pi mcp list), do not use it. A headless session the dashboard starts is also trusted in exactly its own start folder for that run, unless pi has a recorded decision there or the folder is a system or temporary folder.",
           )}
         </p>
         <p data-testid="pi-trust-agent-dir">

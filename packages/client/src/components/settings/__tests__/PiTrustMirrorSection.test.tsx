@@ -59,7 +59,7 @@ describe("#F2 Access page pi-trust disclosure", () => {
     expect(ignored[1].textContent).toContain("hook changed — re-approve");
 
     expect(screen.getByTestId("pi-trust-precedence").textContent).toMatch(/defaultProjectTrust.*never/);
-    expect(screen.getByTestId("pi-trust-scope").textContent).toMatch(/dashboard-spawned headless sessions only/);
+    expect(screen.getByTestId("pi-trust-scope").textContent).toMatch(/headless sessions the dashboard starts only/);
     expect(screen.getByTestId("pi-trust-exclusions").textContent).toMatch(/--no-approve.*--no-extensions/);
     expect(screen.getByTestId("pi-trust-agent-dir").textContent).toContain("/x/agent");
     expect(screen.getByTestId("pi-trust-pi-entries").textContent).toContain("/Users/me/Project");
