@@ -419,9 +419,11 @@ export class OciDriver implements ServiceDriver {
         out.push({ name, removed: true });
         continue;
       }
-      // Refused: either it vanished already (nothing to keep) or a container grabbed it.
+      // Refused: it vanished already ("no such volume" — nothing to keep), a container grabbed it, or
+      // the runtime failed. Only a clear "no such volume" counts as removed; anything else keeps it.
       const still = await this.exec(["volume", "inspect", name], 15_000);
-      out.push(still.code === 0 ? { name, removed: false, reason: "volume-in-use" } : { name, removed: true });
+      const gone = still.code !== 0 && /no such volume/i.test(`${still.stderr}${still.stdout}`);
+      out.push(gone ? { name, removed: true } : { name, removed: false, reason: "volume-in-use" });
     }
     return out;
   }

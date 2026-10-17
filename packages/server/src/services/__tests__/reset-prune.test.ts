@@ -31,7 +31,7 @@ function world(o: {
     const rows = vol ? (o.users?.[vol] ?? []) : (o.owned ?? []);
     return { stdout: rows.map((c) => c.Id).join("\n") };
   };
-  const volumeInspect = (name: string) => (o.volumeStillThere?.has(name) ? { stdout: "[{}]" } : { code: 1 });
+  const volumeInspect = (name: string) => (o.volumeStillThere?.has(name) ? { stdout: "[{}]" } : { code: 1, stderr: `Error: No such volume: ${name}` });
   return (args: string[]) => {
     if (o.fail?.(args)) return { code: 1, stderr: "boom" };
     if (args[0] === "ps") return ps(args);
@@ -189,6 +189,18 @@ describe("X6–X8 — reset-data runtime failures", () => {
   });
 });
 
+describe("volume inspect failure is not read as absence", () => {
+  it("a runtime error after a refused `volume rm` keeps the volume (fail closed)", async () => {
+    const h = ociHarness(volDef("docling", { "flaky-vol": "/f" }), (args) => {
+      if (args[0] === "volume" && args[1] === "rm") return { code: 1, stderr: "volume is in use" };
+      if (args[0] === "volume" && args[1] === "inspect") return { code: 1, stderr: "Cannot connect to the Docker daemon" };
+      return world({})(args);
+    });
+    roots.push(...h.roots);
+    expect((await h.manager.resetData("docling")).volumes).toEqual([{ name: "flaky-vol", removed: false, reason: "volume-in-use" }]);
+  });
+});
+
 describe("prune", () => {
   const ESRCH = Object.assign(new Error("no such process"), { code: "ESRCH" });
   const EPERM = Object.assign(new Error("not permitted"), { code: "EPERM" });
@@ -263,6 +275,30 @@ describe("prune", () => {
     expect(r).toMatchObject({ removed: expect.arrayContaining(["ghost", "tika"]) });
     expect(called(h, "rm").map((c) => c.args)).toEqual([["rm", "orphan-stopped"]]);
     expect(fs.existsSync(`${h.paths.runRoot}/tika`)).toBe(false);
+  });
+
+  it("B1 a previewed orphan container does not take a live run dir with it", async () => {
+    const h = mk();
+    instanceFile(h, "ghost", 222); // the container's service also has a run dir whose process GROUP is alive
+    const preview = (await h.manager.prune({ dryRun: true })) as { candidates: Array<{ kind: string; id: string }> };
+    expect(preview.candidates.filter((c) => c.id === "ghost")).toEqual([{ kind: "container", id: "ghost", containerId: "orphan-stopped", runtime: "docker" }]);
+    const r = await h.manager.prune({ dryRun: false, ids: ["ghost"] });
+    expect(r).toMatchObject({ removed: ["ghost"], skipped: [] });
+    expect(called(h, "rm").map((c) => c.args)).toEqual([["rm", "orphan-stopped"]]);
+    expect(fs.existsSync(h.paths.instanceFile("ghost"))).toBe(true); // the live run dir survives
+  });
+
+  it("B1 a previewed container-only id that gets defined is reported as a container, and no empty run dir is left behind", async () => {
+    const h = mk();
+    await h.manager.prune({ dryRun: true });
+    writeDefinitions(h.root, [volDef(), volDef("ghost")]);
+    const r = (await h.manager.prune({ dryRun: false, ids: ["ghost"] })) as { skipped: Array<{ id: string; kind: string }> };
+    expect(r.skipped).toEqual([{ id: "ghost", kind: "container", reason: expect.any(String) }]);
+    expect(called(h, "rm")).toHaveLength(0);
+    // a container-only confirm that DOES remove leaves no stray lock-created directory
+    writeDefinitions(h.root, [volDef()]);
+    await h.manager.prune({ dryRun: false, ids: ["ghost"] });
+    expect(fs.existsSync(h.paths.runDir("ghost"))).toBe(false);
   });
 
   it("E27 services.json missing → 409 definitions-missing; corrupt → 409; nothing removed", async () => {

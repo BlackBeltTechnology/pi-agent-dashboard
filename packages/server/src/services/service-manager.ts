@@ -1326,28 +1326,36 @@ export class ServiceManager {
       .map((name) => ({ kind: "run-dir" as const, id: name }));
   }
 
-  /** Re-check one previewed id under its lifecycle lock (after re-reading `services.json`), then remove it. */
+  /**
+   * Re-check one previewed id under its lifecycle lock (after re-reading `services.json`), then remove
+   * ONLY what is still a leftover: containers when a container candidate remains, the run dir only when
+   * the re-check still lists it (a live process group protects it).
+   */
   private async pruneOne(
     id: string,
     instanceId: string,
     definedNow: () => Set<string> | null,
+    previewed: ReadonlySet<PruneCandidate["kind"]>,
     removed: string[],
     skipped: PruneSkipped[],
   ): Promise<void> {
-    const skip = (kind: PruneSkipped["kind"], reason: string) => void skipped.push({ id, kind, reason });
+    const kind: PruneSkipped["kind"] = previewed.has("container") ? "container" : "run-dir";
+    const skip = (reason: string) => void skipped.push({ id, kind, reason });
     const defined = definedNow();
-    if (!defined) return skip("run-dir", "services.json is missing or corrupt");
-    if (defined.has(id)) return skip("run-dir", "defined since the preview");
+    if (!defined) return skip("services.json is missing or corrupt");
+    if (defined.has(id)) return skip("defined since the preview");
     const again = await this.pruneCandidates(defined, instanceId, new Set([id]));
-    if (again.candidates.length === 0) return skip("run-dir", "no longer a leftover");
+    if (again.candidates.length === 0) return skip("no longer a leftover");
     for (const runtime of ["docker", "podman"] as const) {
       const cids = again.candidates.filter((c) => c.kind === "container" && c.runtime === runtime).map((c) => c.containerId as string);
       if (cids.length > 0 && !(await this.driver(`oci:${runtime}`).removeContainers?.(cids))) {
-        return skip("container", `${runtime} could not remove the container`);
+        return skip(`${runtime} could not remove the container`);
       }
     }
-    fs.rmSync(this.deps.paths.runDir(id), { recursive: true, force: true });
-    this.output.close(id);
+    if (again.candidates.some((c) => c.kind === "run-dir")) {
+      fs.rmSync(this.deps.paths.runDir(id), { recursive: true, force: true });
+      this.output.close(id);
+    }
     removed.push(id);
   }
 
@@ -1376,16 +1384,26 @@ export class ServiceManager {
     const skipped: PruneSkipped[] = [];
     const first = await this.pruneCandidates(new Set(r.entries.map((e) => e.id)), instanceId, wanted);
     const ids = [...new Set(first.candidates.map((c) => c.id))];
-    // A previewed id that has become a defined service meanwhile is reported, not silently dropped;
-    // an id that was never a candidate is ignored.
+    // A previewed id that has become a defined service meanwhile is reported (with the kind of leftover
+    // it had), not silently dropped; an id that was never a candidate is ignored.
     const definedAtConfirm = new Set(r.entries.map((e) => e.id));
-    for (const id of wanted) {
-      if (!ids.includes(id) && definedAtConfirm.has(id)) skipped.push({ id, kind: "run-dir", reason: "defined since the preview" });
+    for (const id of [...wanted].filter((w) => !ids.includes(w) && definedAtConfirm.has(w))) {
+      const had = await this.pruneCandidates(new Set(), instanceId, new Set([id]));
+      const kind = had.candidates.some((c) => c.kind === "container") ? "container" : "run-dir";
+      skipped.push({ id, kind, reason: "defined since the preview" });
     }
     for (const id of ids) {
+      const previewed = new Set(first.candidates.filter((c) => c.id === id).map((c) => c.kind));
       await this.mutex.run(id, () =>
-        withLifecycleLock(this.deps.paths.lockTarget(id), () => this.pruneOne(id, instanceId, definedNow, removed, skipped), this.deps.lockOptions),
+        withLifecycleLock(this.deps.paths.lockTarget(id), () => this.pruneOne(id, instanceId, definedNow, previewed, removed, skipped), this.deps.lockOptions),
       );
+      // Taking the lock creates the run dir; a container-only leftover must not leave an empty one
+      // (non-recursive: a dir that holds anything is never touched).
+      try {
+        fs.rmdirSync(this.deps.paths.runDir(id));
+      } catch {
+        /* not empty, or already gone */
+      }
     }
     this.log(`[services] prune removed ${removed.length}, skipped ${skipped.length}`);
     this.notify();
