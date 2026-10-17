@@ -126,9 +126,9 @@
 ## 10. Agent recipe + docs
 
 - [x] 10.1 `packages/extension/.pi/skills/browser/references/dashboard-relay.md`: `host` only with `operatorHosts: true`, operator-host discovery, the "own computer" rule, errors `unknown-host` / `operator-denied` / `consent-timeout` / `no-chrome` / `host-gone`
-- [ ] 10.2 Delegate the `docs/architecture.md` "Browser relay" operator-host subsection to DocScribe; update package `AGENTS.md` rows for every new/changed file
+- [x] 10.2 Delegate the `docs/architecture.md` "Browser relay" operator-host subsection to DocScribe; update package `AGENTS.md` rows for every new/changed file
 
 ## 11. Closeout
 
-- [ ] 11.1 Security pass on the diff with the `Audit` subagent (identity/pin, carrier input on both ends, shim gate, consent, token handling); fix findings
+- [x] 11.1 Security pass on the diff with the `Audit` subagent (identity/pin, carrier input on both ends, shim gate, consent, token handling); fix findings
 - [ ] 11.2 Full rebuild (`full-rebuild.ts`) and live check: mac-home Electron → MacBook dashboard, agent connects with `host`, operator sees one consent dialog
