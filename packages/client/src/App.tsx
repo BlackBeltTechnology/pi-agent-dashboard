@@ -209,6 +209,7 @@ import { ApiContext, deriveApiBase, setGlobalApiBase, VITE_API_URL } from "./lib
 import { buildContextUsageMap } from "./lib/context-usage.js";
 import { t as i18nT, registerPluginCatalog, useI18n } from "./lib/i18n/i18n.js";
 import { loginRedirectFor } from "./lib/identity/login-session.js";
+import { LiveSessionCwdsProvider, liveCwdKey } from "./lib/preview/use-mermaid-source.js";
 import { runUrgencyMigration } from "./lib/session/group-by-migration.js";
 import { deriveRetryProjection } from "./lib/session/retry-projection.js";
 import { SessionAssetsProvider } from "./lib/session/SessionAssetsContext.js";
@@ -1175,6 +1176,10 @@ export default function App() {
   // exactness. Ended cards and stub groups never enter the set.
   // See change: fix-connect-snapshot-frame-loss.
   const archiveSessionList = useMemo(() => [...sessions.values()], [sessions]);
+  // Live session cwds → gates "Apply fix to file" in file previews (md-read/write
+  // 403 any other cwd). A primitive key keeps the provider value stable across
+  // session churn. See change: add-preview-apply-fix-to-file.
+  const sessionCwdKey = useMemo(() => liveCwdKey(archiveSessionList.map((s) => s.cwd)), [archiveSessionList]);
   const archiveCandidates = useArchiveEntries(archiveCwd, openspecMap);
   const renderedCwds = useMemo(
     () =>
@@ -3081,6 +3086,7 @@ export default function App() {
       <EmbeddedAppShellProvider shell={embeddedAppShell}>
       <FolderMenuProvider>
       <ShellSessionsProvider value={sessions}>
+      <LiveSessionCwdsProvider cwdKey={sessionCwdKey}>
         <ErrorBoundary fallback={
           <div className="min-h-screen flex items-center justify-center p-8 bg-[var(--bg-primary)] text-[var(--text-primary)]" data-testid="shell-error-fallback">
             <div className="text-center space-y-2">
@@ -3136,6 +3142,7 @@ export default function App() {
             </SessionDiffProvider>
           </SplitWorkspaceProvider>
         </ErrorBoundary>
+      </LiveSessionCwdsProvider>
       </ShellSessionsProvider>
       </FolderMenuProvider>
       </EmbeddedAppShellProvider>

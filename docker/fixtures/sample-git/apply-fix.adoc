@@ -1,0 +1,16 @@
+= Apply Fix Fixture
+
+AsciiDoc mermaid block that fails as written and is fixed by rule-based repair (R5), followed by a plantuml block that must stay untouched.
+
+[source,mermaid]
+----
+flowchart TD
+  A[call (x)]-->B
+----
+
+[source,plantuml]
+----
+@startuml
+Bob -> Alice
+@enduml
+----
