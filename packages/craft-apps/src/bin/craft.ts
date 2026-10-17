@@ -10,7 +10,7 @@
  *   pi-craft <app> ensure|path|exec|mcp       per-app provisioning, bash route, stdio MCP server
  *
  * Exit codes: 0 ok · 1 usage error / failed operation · 69 provisioning failure
- * (`exec` propagates the binary's own exit code; `verify` has its own codes).
+ * (`exec` propagates the binary's own exit code; `verify` and `doc prepare` have their own: 2 = usage).
  *
  * See change: add-craft-apps-core, add-craft-office-workflows.
  */

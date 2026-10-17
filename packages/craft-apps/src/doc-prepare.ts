@@ -275,7 +275,7 @@ const unescapeXml = (s: string): string =>
   });
 
 /** Escape for XML text; also drops characters XML 1.0 forbids. */
-const escapeXml = (s: string): string => s.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff]/g, "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const escapeXml = (s: string): string => s.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\ud800-\udfff\ufffe\uffff]/g, "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 interface TemplateMeta {
   defaults: Map<string, string>;
@@ -766,6 +766,23 @@ function substitute(prose: string, c: BodyCtx): string {
   });
 }
 
+/** A local image ref → the file to inline, or why it is refused. The path is canonicalised (realpath) before the check. */
+function resolveImage(ref: string, c: BodyCtx): { real: string; mime: string } | { skip: string } {
+  let file: string;
+  try {
+    file = /^file:/i.test(ref) ? fileURLToPath(ref) : path.resolve(c.mdDir, safeDecode(ref));
+  } catch {
+    return { skip: "invalid path" };
+  }
+  if (!fs.existsSync(file)) return { skip: "file not found" };
+  const real = fs.realpathSync(file);
+  if (!c.conf.allows(real)) return { skip: "outside the input's directory and --allow-path" };
+  const mime = IMAGE_TYPES[path.extname(real).toLowerCase()];
+  if (!mime) return { skip: "unsupported image type" };
+  if (fs.statSync(real).size > MAX_IMAGE_BYTES) return { skip: "image too large" };
+  return { real, mime };
+}
+
 function inlineImages(prose: string, c: BodyCtx): string {
   return prose.replace(/!\[([^\]]*)\]\(\s*<?([^)\s>]+)>?((?:\s+"[^"]*")?)\s*\)/g, (whole, alt: string, ref: string) => {
     if (/^data:/i.test(ref)) return whole;
@@ -773,24 +790,13 @@ function inlineImages(prose: string, c: BodyCtx): string {
       c.report.images.remote.push(ref);
       return whole;
     }
-    const skip = (reason: string) => {
-      c.report.images.skipped.push({ path: ref, reason });
+    const img = resolveImage(ref, c);
+    if ("skip" in img) {
+      c.report.images.skipped.push({ path: ref, reason: img.skip });
       return whole;
-    };
-    let file: string;
-    try {
-      file = /^file:/i.test(ref) ? fileURLToPath(ref) : path.resolve(c.mdDir, safeDecode(ref));
-    } catch {
-      return skip("invalid path");
     }
-    if (!fs.existsSync(file)) return skip("file not found");
-    const real = fs.realpathSync(file);
-    if (!c.conf.allows(real)) return skip("outside the input's directory and --allow-path");
-    const mime = IMAGE_TYPES[path.extname(real).toLowerCase()];
-    if (!mime) return skip("unsupported image type");
-    if (fs.statSync(real).size > MAX_IMAGE_BYTES) return skip("image too large");
     c.report.images.inlined++;
-    return c.place(fs.readFileSync(real), mime, alt);
+    return c.place(fs.readFileSync(img.real), img.mime, alt);
   });
 }
 
@@ -805,7 +811,8 @@ const safeDecode = (s: string): string => {
 /** nano-banana route: the md5 cache, else one `pi-nano-banana` call. null = fall back to mmdc. */
 async function renderViaNano(source: string, c: BodyCtx): Promise<{ png: Buffer; cached: boolean } | null> {
   const cacheDir = path.join(c.mdDir, ".mermaid-cache");
-  const cached = path.join(cacheDir, `${md5(`${c.style.name ?? ""}${source}`)}.png`);
+  // The key covers the style's name AND its prompt text, so editing a style under the same name never reuses a stale png.
+  const cached = path.join(cacheDir, `${md5(`${c.style.name ?? ""}\n${c.style.prompt}\n${source}`)}.png`);
   if (fs.existsSync(cached)) return { png: fs.readFileSync(cached), cached: true };
   const nano = c.deps.nanoBanana();
   if (!nano) return null;

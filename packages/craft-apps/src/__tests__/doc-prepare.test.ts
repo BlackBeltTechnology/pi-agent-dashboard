@@ -378,8 +378,16 @@ describe("body preparation", () => {
     fs.writeFileSync(path.join(a.work, "in.md"), NB.replace("ros-3d", "flat"));
     await rerun(a.work, stubs.env);
     expect(stubs.calls("pi-nano-banana")).toHaveLength(2);
-    const key = (style: string) => createHash("md5").update(`${style}graph TD; A-->B`).digest("hex");
-    for (const style of ["ros-3d", "flat"]) expect(fs.existsSync(path.join(a.work, ".mermaid-cache", `${key(style)}.png`)), style).toBe(true);
+    const key = (style: string, prompt: string) => createHash("md5").update(`${style}\n${prompt}\ngraph TD; A-->B`).digest("hex");
+    const cached = (k: string) => fs.existsSync(path.join(a.work, ".mermaid-cache", `${k}.png`));
+    expect(cached(key("ros-3d", "STYLE ROS\n\nAVOID: no cartoon"))).toBe(true);
+    expect(cached(key("flat", "STYLE FLAT"))).toBe(true);
+    // editing the style's prompt under the same name must not reuse the old png
+    fs.writeFileSync(path.join(a.work, "in.md"), NB);
+    fs.writeFileSync(path.join(a.work, "tpl", "default", "nano-banana-styles.yaml"), STYLES.replace("STYLE ROS", "STYLE ROS v2"));
+    await rerun(a.work, stubs.env);
+    expect(stubs.calls("pi-nano-banana")).toHaveLength(3);
+    expect(cached(key("ros-3d", "STYLE ROS v2\n\nAVOID: no cartoon"))).toBe(true);
   });
 
   it("E21 a failing nano-banana falls back to mmdc", async () => {

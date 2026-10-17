@@ -88,5 +88,5 @@
 
 ## 6. Review
 
-- [ ] 6.1 `security-hardening` pass on `doc-prepare.ts` (path confinement, XML escaping, argv spawn, in-memory unzip, secrets)
-- [ ] 6.2 `review-code`
+- [x] 6.1 `security-hardening` pass on `doc-prepare.ts` (path confinement, XML escaping, argv spawn, in-memory unzip, secrets) — added: exclusive temp-file writes, 20 MB / type allowlist for inlined images, comment stripping to a fixed point (CodeQL), `Diagram:` prompt label, lone-surrogate stripping
+- [x] 6.2 `review-code` — ship-it step 4.5 round 1 (`@review`): 0 blocking; non-blocking fixed (cache key on style content, exit-code header, lint exemption, surrogates)

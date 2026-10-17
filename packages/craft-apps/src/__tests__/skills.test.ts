@@ -417,7 +417,7 @@ describe("office workflow skills (lint)", () => {
 
   it("every office skill drives its mapped apps in the step table", () => {
     for (const s of officeSkills) {
-      for (const app of WORKFLOW_APPS[s.name as keyof typeof WORKFLOW_APPS].filter((a) => ["craft-data-visual"].includes(s.name) === false)) {
+      for (const app of WORKFLOW_APPS[s.name as keyof typeof WORKFLOW_APPS]) {
         expect(s.body.toLowerCase(), `${s.name} never uses ${app}`).toContain(app);
       }
     }
