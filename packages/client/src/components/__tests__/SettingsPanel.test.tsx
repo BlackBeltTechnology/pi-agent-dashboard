@@ -1637,7 +1637,7 @@ describe("SettingsPanel Models nav group", () => {
     const groupLabels = Array.from(rail.querySelectorAll("[data-testid^='settings-nav-group-label-']")).map(
       (el) => (el.textContent ?? "").trim(),
     );
-    expect(groupLabels.length).toBe(6);
+    expect(groupLabels.length).toBe(7); // + Services (add-services-settings-ui)
     for (const label of [...labels, ...groupLabels]) {
       expect(RESERVED_SETTINGS_LABELS.has(foldSettingsLabel(label))).toBe(true);
     }

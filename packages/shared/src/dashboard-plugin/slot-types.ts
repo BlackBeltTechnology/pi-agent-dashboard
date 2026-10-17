@@ -230,6 +230,9 @@ export type SettingsTab =
   | "add-ons"
   | "plugins"
   | "openspec"
+  // Managed-services pages (Services nav group). See change: add-services-settings-ui.
+  | "services"
+  | "runtimes"
   // Resource card pages (global scope). See change: resources-card-tabs.
   | "skills"
   | "agents"
@@ -248,6 +251,8 @@ export const VALID_SETTINGS_TABS: SettingsTab[] = [
   "add-ons",
   "plugins",
   "openspec",
+  "services",
+  "runtimes",
   "skills",
   "agents",
   "extensions",

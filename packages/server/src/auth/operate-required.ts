@@ -19,6 +19,7 @@ import {
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { LocalTrustContext } from "./local-proof.js";
 import { isLocallyTrusted } from "./localhost-guard.js";
+import { tierRefusalFor } from "./route-tier-gate.js";
 
 /** Which route family is refusing — selects the fixed message. */
 type OperateRoute = "vault" | "services";
@@ -50,6 +51,24 @@ export function hasOperateAuthority(request: FastifyRequest, localTrust?: LocalT
   if (via === "device") return (request as Marked).principalTier === "operate";
   if (via === "session" || via === "principal") return true;
   return isLocallyTrusted({ ip: request.ip, headers: request.headers as Record<string, unknown> }, localTrust);
+}
+
+/**
+ * Would a mutating (`operate`-gated) route accept this request? Exactly the two
+ * checks such a route passes: `hasOperateAuthority` AND the route-tier gate at
+ * tier `operate` (a `control`-tier login session passes the first, is refused
+ * by the second). One predicate shared by `GET /api/services` (`canOperate`)
+ * so the client's gating never disagrees with the server.
+ * See change: add-services-settings-ui (D8).
+ */
+export function canOperate(
+  request: FastifyRequest,
+  deps: { getTrustedNetworks: () => string[]; localTrust?: LocalTrustContext },
+): boolean {
+  return (
+    hasOperateAuthority(request, deps.localTrust) &&
+    tierRefusalFor(request, "operate", deps.getTrustedNetworks, deps.localTrust) === null
+  );
 }
 
 export interface SendOperateRequiredOptions {

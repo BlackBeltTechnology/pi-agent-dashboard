@@ -1,6 +1,6 @@
 # Managed services
 
-Dashboard-run long-lived processes (containers, native runners, user commands) behind one consumer contract. Change: add-service-registry-core. Design: `openspec/changes/archive/2026-10-10-add-service-registry-core/design.md`.
+Dashboard-run long-lived processes (containers, native runners, user commands) behind one consumer contract. Change: add-service-registry-core. Settings UI, logs, reset-data, prune: add-services-settings-ui. Design: `openspec/changes/archive/2026-10-10-add-service-registry-core/design.md`.
 
 ## Purpose
 
@@ -17,6 +17,7 @@ Root `~/.pi/dashboard/` (`servicesPaths()` in `packages/server/src/services/path
 |---|---|---|
 | `services.json` | 0600 | `schemaVersion: 1`, `instanceId`, `services[]`. User-owned. |
 | `services-secrets.json` | 0600 | Secret store, keyed `<id>/<name>`. |
+| `services-digest.key` | 0600 | Random per-install HMAC key for `secretsDigest`. |
 | `services-run/<id>/` | 0700 | Per-service run dir. |
 | `services-run/<id>/instance.json` | | Native pid, argv, ports. OCI container id. |
 | `services-run/<id>/prefetched.json` | | Explicit prefetch marker (`package@version`). |
@@ -24,6 +25,8 @@ Root `~/.pi/dashboard/` (`servicesPaths()` in `packages/server/src/services/path
 | `services-run/<id>/pinned` | | Pin marker. |
 | `services-run/<id>/lifecycle.lock` | | Async `proper-lockfile` per service. |
 | `services-run/<id>/secrets/<name>` | 0600 | Secret files mounted `:ro`. |
+| `services-run/<id>/start.json` | 0600 | `startedAt`, `driver`, `secretsDigest` (HMAC-SHA256), `secretsSavedSinceStart`, `output` `(dev, ino)`. Written every dashboard start. |
+| `services-run/<id>/output.log` | 0600 | stdout+stderr of dashboard-started native/attached child. Truncated in place each start. Cap 1 MiB, checked every 5 s. |
 | `services-run/.docker-config/` | 0700 | Empty `DOCKER_CONFIG` for every runtime call. |
 
 - Missing `services.json` → zero services, no probe, no command at boot.
@@ -94,6 +97,7 @@ stateDiagram-v2
 | Health probe concurrency | 4 |
 
 - `ensure` returns a lease only when `healthy`.
+- `leaseHolders` (status): `holder` text + ISO `expiresAt`. Never `leaseId`. `holder` ≤ 200 chars (`LeaseTable.create`).
 - `heartbeat` / `release` on unknown lease → `404 lease-unknown`. Restart clears leases (in memory).
 - CLI `heartbeat` / `exec` on `lease-unknown` → re-`ensure`, adopt new `leaseId`.
 - Idle-stop only when `startedBy: "dashboard"`, not pinned, not `blocked`.
@@ -185,7 +189,35 @@ stateDiagram-v2
     - Declared `env` var holds VALUE in child env (`startCommandSecretEnv`).
   - Definition mixing oci + native/attached → value driver-dependent. Read `/run/secrets/<name>` only inside a container.
   - `service exec <id> -- <argv…>`: child env `SVC_<ID>_<NAME>`. Parent env untouched.
-- No reveal surface. No REST route returns a value.
+- No reveal surface. No REST route returns a secret value. `/logs` returns redacted text only (see Output capture and redaction).
+
+## Output capture and redaction
+
+See change: add-services-settings-ui (D4, D5).
+
+Native / attached (dashboard-started only):
+- stdout+stderr → `services-run/<id>/output.log` via inherited fd, `O_APPEND`, 0600. Server does not relay output.
+- Truncated in place (same inode) before every dashboard start. File holds latest start only.
+- Cap 1 MiB. Checked at start, on logs read, and every 5 s per service with a file.
+- Over cap → `ftruncate(fd, 0)`. No fd held (after restart) or fd truncate fails → by path, only if `(dev, ino)` = `start.json` `output`.
+- Never rename, copy or reopen. Steady-state bound ≈ 1 MiB + 5 s output.
+- No file or no `start.json` (pre-change instance) → `no-output`. `external` mode → `external`.
+
+OCI:
+- `<runtime> logs --timestamps --since <startedAt> --tail M <container>`. `startedAt` from `start.json`.
+- stdout + stderr merged by timestamp (stdout first on tie). Timestamp prefix stripped.
+- Runner keeps head of each stream up to 4 MiB, kill at 30 s. `truncated`, `timedOut` or spawn error → `runtime-error`. Never partial output.
+- > 1 matching container → `duplicate-instances`.
+- `M` = N + (lines in longest secret − 1). Multi-line secret fully inside fetched text.
+
+Redaction (fail closed):
+- Each secret resolved in parallel. `unset` → skipped.
+- `unreadable` → `secret-unavailable`, `secret` = first in declaration order.
+- Value < 4 chars → `secret-too-short`, `secret` = name.
+- `secretsDigest` (HMAC-SHA256, key `services-digest.key`) of current values ≠ `start.json` → `secrets-changed`. Withheld until next start. Covers store, `env:`, `keychain:`.
+- One pass: single alternation, longest value first, on raw text, before line split → `«secret:<name>»`.
+- Values held for request only.
+- `secretsSavedSinceStart` (persisted) or `defHash` mismatch → `restartRequired`.
 
 ## Threat model
 
@@ -200,6 +232,11 @@ stateDiagram-v2
   - Such caller can create argv-carrying `attached` entry.
   - Same dashboard-wide loopback posture as terminals.
   - Strict mode: `requireLocalProof` → requires local token / proof cookie.
+- Logs residuals:
+  - Transformed secret values (encoded, split, partial) not redacted.
+  - Plaintext output at rest ≤ ~1 MiB, 0600, in run dir that holds mounted secret files. Stated exception in `service-secrets`.
+  - Any login session at tier `operate` reads logs. Same audience that starts, stops, rewrites services.
+- `services_changed` timing visible to every socket. Content-free (no ids).
 
 ## REST routes
 
@@ -207,7 +244,7 @@ Source: `packages/server/src/services/routes.ts` (top comment).
 
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/api/services` | list (+ `updateAvailable`, diff) |
+| GET | `/api/services` | list. Adds `canOperate`; per status `leaseHolders`, `secretRefs`, `volumes`, `drivers`, `updateAvailable`, `diff` |
 | GET | `/api/services/offers` | discovered `pi.services` (cached 10 s) |
 | GET | `/api/services/runtimes` | runtime detection report |
 | GET | `/api/services/:id` | status (re-probes running instance) |
@@ -218,10 +255,13 @@ Source: `packages/server/src/services/routes.ts` (top comment).
 | POST | `/api/services/:id/release` | `{ leaseId }` → 404 `lease-unknown` |
 | POST | `/api/services/:id/{start,stop,retry,pin,unpin,prefetch}` | mutations |
 | PUT | `/api/services/:id/secrets/:name` | `{ value }` → `{ configured }`. Never echoed. |
+| GET | `/api/services/:id/logs?tail=N` | Operate authority (GET). Redacted tail. |
+| POST | `/api/services/:id/reset-data` | Operate. Stopped only. → `{ volumes: [{ name, removed, reason? }] }`. |
+| POST | `/api/services/prune` | Operate. `{ dryRun: true }` → `{ candidates, skipped, unreachableRuntimes }`. `{ dryRun: false, ids }` → `{ removed, skipped }`. |
 
 Auth:
 - Unexpected server error → 500 `{ error: "internal", message: "internal error (see server.log)" }`. Details only in `server.log` (`sendError`, `routes.ts`).
-- Reads: network guard (`createNetworkGuard`).
+- Reads: network guard (`createNetworkGuard`). Exception: `/logs` needs operate.
 - Mutations: `canMutateServices` →
   - device bearer tier `operate`, OR
   - authenticated session / principal, OR
@@ -229,6 +269,13 @@ Auth:
 - Trusted-network caller and `observe` / `control` bearer → refused.
 - Mutations denylisted from MCP (core).
 - Gates: `route-tier-gate.test.ts`, `mcp-manifest-completeness.test.ts`.
+- Logs: `tail` 1–2000 (default 200), else 400 `invalid-tail`. Body ≤ 512 KiB.
+- Logs body: `{ available: true, driver, stale, lines }` | `{ available: false, reason, secret? }`. `stale` = no running instance.
+- Logs reasons: `external`, `duplicate-instances`, `secrets-changed`, `no-output`, `runtime-error`, `secret-unavailable`, `secret-too-short`. `secret` names input to fix.
+- reset-data 409: `not-resettable` (not stopped / container running), `no-data` (no declared volumes), `runtime-unreachable` (list or inspect failed; nothing removed), `volume-shared`, `volume-in-use`.
+- prune 409: `definitions-missing` (no `services.json`), `definitions-corrupt`.
+- prune candidates: `pi.owner=<instanceId>` containers with undefined `pi.service`; `services-run/<id>/` undefined with no live pid. Never volumes or foreign owners. Running orphan containers → skipped, never force-removed.
+- `remove ?purgeData=true` → `{ ok, volumes }`. Shared / in-use volumes kept and reported. Never `volume rm -f`.
 
 ## CLI
 
@@ -308,10 +355,64 @@ Exit rule:
 ## Stop semantics
 
 - OCI: `stop -t <stopTimeout>`, poll `inspect State.Running` until false. Still running → `stop-failed`.
+- OCI without recorded instance: stop only containers with BOTH `pi.service=<id>` AND `pi.owner=<instanceId>`. Never `pi.service` alone.
 - Native: `killProcessGroup(pid, { timeoutMs })` (POSIX: SIGTERM `-pid`, poll, SIGKILL `-pid`; win32: `taskkill /F /T`). Known limit: `setsid` workers not reached on POSIX.
 - Attached: judged only by exact-executable matcher gone within `stopTimeout`. Never by rc.
   - Matcher scans current user's processes only on POSIX (`ps -U <uid>`). Windows `tasklist` unfiltered.
 - No direct `process.kill`. Must go through `packages/shared/src/platform/process.ts`.
+
+## Settings UI
+
+See change: add-services-settings-ui (D1–D12).
+
+Nav:
+- Group `Services` (after Network). Pages: `services` ("All services") at `/settings/services[/<id>]`; `runtimes` at `/settings/runtimes`.
+- Unknown `<id>` → list + "not found" notice.
+- Not a Save Bar source. Every action instant-applies via its own route.
+
+Live view:
+- Server sends `{ type: "services_changed" }`. No fields.
+- Fired on: StateCell transition / init, lease create / release / sweep, pin / unpin, add / update / remove, secret save, prune, reset-data.
+- Coalesced leading + trailing, 500 ms window (`change-notifier.ts`).
+- Gateway class `state`, key `services_changed`. Never shed.
+- Client refetches ONLY `GET /api/services`: on ping and WS reconnect, after 100–400 ms random delay.
+- Detail `GET /api/services/:id` (probes, may transition): on detail open and Refresh only.
+- Exposure via list lookup, cached 30 s per port.
+
+Action gating (client, from state; server authoritative):
+
+| State | Actions |
+|---|---|
+| stopped | Start; Prefetch (native); Reset data |
+| starting | Stop |
+| healthy / idle / blocked | Stop (not `startedBy: external`); Force stop (`external`) |
+| stop-failed | Stop (retries) |
+| failed | Retry |
+| unavailable | Try again (not `adoption-uncertain` / `duplicate-instances` / `owner-conflict`); Stop (`duplicate-instances`); Force stop (`adoption-uncertain`); Prefetch (`package-absent`); Reset data (same exclusions as Try again) |
+| stopping | none |
+
+- Pin / unpin: `managed` only. Remove: always. Reset data: only if definition declares volumes.
+- Refused action → error code + hint inline.
+
+Destructive confirmations:
+- Remove: "Also delete data volumes" unchecked by default. Lists volumes.
+- Reset data: type service id. Lists volumes.
+- Prune: dry-run first. Confirm sends exactly previewed ids. Result names skipped.
+- Force stop: names overridden check (PID-reuse for `adoption-uncertain`; not dashboard-started for `external`).
+
+Secrets:
+- Per declared secret: name, ref text, `configured` badge.
+- `store:` only: write-only password input → `PUT …/secrets/:name`. Cleared on success. No value kept in state.
+- `env:` / `keychain:` read-only.
+
+Logs panel:
+- Tail snapshot + manual refresh. No follow.
+- Withheld reasons shown as text. `secret-unavailable` / `secret-too-short` link to `secret` input.
+- `canOperate: false` → no logs request.
+
+Read-only:
+- `canOperate: false` (`GET /api/services`) → actions disabled, one banner with remedies.
+- Server 403 `operate_required` → remedy UI inline at the action.
 
 ## Rollback
 
@@ -322,6 +423,7 @@ Exit rule:
    - labelled containers: `docker ps -aq --filter label=pi.owner=<instanceId>`
    - pid files under `services-run/`
    - `services-secrets.json` (live secrets; delete deliberately)
+3. Inert files: `output.log`, `start.json`, `services-digest.key`. Revert is safe. `service remove` deletes the first two.
 
 ## Platform matrix
 

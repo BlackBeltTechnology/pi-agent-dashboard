@@ -22,8 +22,21 @@ import { spawn } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.j
 import { isProcessAlive, killProcess } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
 import { readProcessCommandLine } from "@blackbelt-technology/pi-dashboard-shared/platform/process-scan.js";
 import type { DriverName, ServiceDefinition } from "@blackbelt-technology/pi-dashboard-shared/services/schema.js";
+import type { VolumeOutcome } from "@blackbelt-technology/pi-dashboard-shared/services/status.js";
 import type { CommandRunner, RunResult } from "./command-runner.js";
-import type { AdoptResult, DriverInstance, PresenceResult, ServiceDriver, StartContext, StopOutcome } from "./driver.js";
+import type {
+  AdoptResult,
+  DriverInstance,
+  DriverLogs,
+  LogsRequest,
+  OwnedListing,
+  PresenceResult,
+  ResetDataOutcome,
+  ServiceDriver,
+  StartContext,
+  StopOutcome,
+} from "./driver.js";
+import { mergeTimestamped } from "./log-text.js";
 import { ensurePrivateDir, readJsonFile, type ServicesPaths, writePrivateFile } from "./paths.js";
 import { allocateLoopbackPort, loopbackEndpoint, type PortAllocator } from "./ports.js";
 import { secretPathEnv, writeSecretMounts } from "./secret-delivery.js";
@@ -199,25 +212,41 @@ export class OciDriver implements ServiceDriver {
 
   // ── inspect helpers ───────────────────────────────────────────────────────
 
-  async inspect(ids: string[]): Promise<ContainerInspect[]> {
+  /** `inspect` that tells "failed" (null) from "nothing there" ([]). */
+  async inspectOrNull(ids: string[]): Promise<ContainerInspect[] | null> {
     if (ids.length === 0) return [];
     const r = await this.exec(["inspect", ...ids], 15_000);
-    if (r.code !== 0 && r.stdout.trim() === "") return [];
+    if (r.code !== 0 && r.stdout.trim() === "") return null;
     try {
       const parsed = JSON.parse(r.stdout) as ContainerInspect[];
-      return Array.isArray(parsed) ? parsed : [];
+      return Array.isArray(parsed) ? parsed : null;
     } catch {
-      return [];
+      return null;
     }
   }
 
-  /** `ps -a -q` with label filters → full inspect records. */
+  async inspect(ids: string[]): Promise<ContainerInspect[]> {
+    return (await this.inspectOrNull(ids)) ?? [];
+  }
+
+  /**
+   * `ps -a -q` with label filters → full inspect records. `null` when the
+   * containers cannot be listed OR inspected — never a failed query read as
+   * "no containers".
+   */
   async listContainers(filters: string[]): Promise<ContainerInspect[] | null> {
     const args = ["ps", "-a", "-q", "--no-trunc", ...filters.flatMap((f) => ["--filter", `label=${f}`])];
     const r = await this.exec(args, 15_000);
     if (r.code !== 0) return null;
     const ids = r.stdout.split(/\s+/).filter(Boolean);
-    return this.inspect(ids);
+    return this.inspectOrNull(ids);
+  }
+
+  /** Containers carrying BOTH `pi.service=<id>` and `pi.owner=<instanceId>` (labels re-checked client-side). */
+  private async ownedContainers(id: string, instanceId: string): Promise<ContainerInspect[] | null> {
+    const all = await this.listContainers([`${LABEL_SERVICE}=${id}`, `${LABEL_OWNER}=${instanceId}`]);
+    if (all === null) return null;
+    return all.filter((c) => c.Config?.Labels?.[LABEL_SERVICE] === id && c.Config?.Labels?.[LABEL_OWNER] === instanceId);
   }
 
   endpointsOf(def: ServiceDefinition, c: ContainerInspect): Record<string, string> {
@@ -330,10 +359,17 @@ export class OciDriver implements ServiceDriver {
     return c?.State?.Running === true;
   }
 
-  async stop(def: ServiceDefinition, inst: DriverInstance | undefined, stopTimeoutMs: number): Promise<StopOutcome> {
+  async stop(
+    def: ServiceDefinition,
+    inst: DriverInstance | undefined,
+    stopTimeoutMs: number,
+    opts: { force?: boolean; instanceId?: string } = {},
+  ): Promise<StopOutcome> {
     let ids: string[];
     if (inst?.containerId) ids = [inst.containerId];
-    else ids = ((await this.listContainers([`${LABEL_SERVICE}=${def.id}`])) ?? []).map((c) => c.Id);
+    // Without a recorded instance act only on containers THIS installation owns:
+    // `pi.service` alone could stop another dashboard's container.
+    else ids = opts.instanceId ? ((await this.ownedContainers(def.id, opts.instanceId)) ?? []).map((c) => c.Id) : [];
     await this.closeTunnel(def, inst?.tunnelPid);
     if (ids.length === 0) return "stopped";
     const secs = Math.max(1, Math.round(stopTimeoutMs / 1000));
@@ -347,13 +383,102 @@ export class OciDriver implements ServiceDriver {
     }
   }
 
-  async remove(def: ServiceDefinition, instanceId: string, opts: { purgeData: boolean }): Promise<void> {
-    if (!this.bin()) return;
-    const mine = ((await this.listContainers([`${LABEL_SERVICE}=${def.id}`, `${LABEL_OWNER}=${instanceId}`])) ?? []).map((c) => c.Id);
+  async remove(
+    def: ServiceDefinition,
+    instanceId: string,
+    opts: { purgeData: boolean; sharedVolumes?: ReadonlySet<string> },
+  ): Promise<{ volumes?: VolumeOutcome[] } | undefined> {
+    if (!this.bin()) return undefined;
+    const mine = ((await this.ownedContainers(def.id, instanceId)) ?? []).map((c) => c.Id);
     if (mine.length > 0) await this.exec(["rm", "-f", ...mine], 60_000);
-    if (opts.purgeData) {
-      for (const vol of Object.keys(def.oci?.volumes ?? {})) await this.exec(["volume", "rm", vol], 60_000);
+    if (!opts.purgeData) return undefined;
+    return { volumes: await this.removeVolumesGuarded(def, instanceId, opts.sharedVolumes ?? new Set()) };
+  }
+
+  /**
+   * The shared volume guard (reset-data and remove-with-purge). Volume names are
+   * runtime-global, so a declared volume is KEPT when another defined service
+   * declares it (`volume-shared`) or when a container that is not this
+   * service's owned one uses it (`volume-in-use`). `volume rm` is never forced:
+   * a volume a container started using after the check is refused by the
+   * runtime and reported kept.
+   */
+  private async removeVolumesGuarded(def: ServiceDefinition, instanceId: string, shared: ReadonlySet<string>): Promise<VolumeOutcome[]> {
+    const out: VolumeOutcome[] = [];
+    for (const name of Object.keys(def.oci?.volumes ?? {})) {
+      if (shared.has(name)) {
+        out.push({ name, removed: false, reason: "volume-shared" });
+        continue;
+      }
+      if (await this.foreignContainerUses(name, def.id, instanceId)) {
+        out.push({ name, removed: false, reason: "volume-in-use" });
+        continue;
+      }
+      const rm = await this.exec(["volume", "rm", name], 60_000);
+      if (rm.code === 0) {
+        out.push({ name, removed: true });
+        continue;
+      }
+      // Refused: it vanished already ("no such volume" — nothing to keep), a container grabbed it, or
+      // the runtime failed. Only a clear "no such volume" counts as removed; anything else keeps it.
+      const still = await this.exec(["volume", "inspect", name], 15_000);
+      const gone = still.code !== 0 && /no such volume/i.test(`${still.stderr}${still.stdout}`);
+      out.push(gone ? { name, removed: true } : { name, removed: false, reason: "volume-in-use" });
     }
+    return out;
+  }
+
+  /** Does a container other than this service's owned one use `volume`? Unverifiable → yes (fail closed). */
+  private async foreignContainerUses(volume: string, id: string, instanceId: string): Promise<boolean> {
+    const r = await this.exec(["ps", "-a", "-q", "--no-trunc", "--filter", `volume=${volume}`], 15_000);
+    if (r.code !== 0) return true;
+    const ids = r.stdout.split(/\s+/).filter(Boolean);
+    if (ids.length === 0) return false;
+    const found = await this.inspectOrNull(ids);
+    if (found === null || found.length < ids.length) return true;
+    return found.some((c) => c.Config?.Labels?.[LABEL_SERVICE] !== id || c.Config?.Labels?.[LABEL_OWNER] !== instanceId);
+  }
+
+  async resetData(def: ServiceDefinition, instanceId: string, sharedVolumes: ReadonlySet<string>): Promise<ResetDataOutcome> {
+    if (!this.bin()) return { kind: "na" };
+    const mine = await this.ownedContainers(def.id, instanceId);
+    if (mine === null) return { kind: "unreachable" };
+    if (mine.some((c) => c.State?.Running === true)) return { kind: "busy" };
+    // Plain `rm` (never `-f`): a container that started meanwhile refuses it.
+    if (mine.length > 0) {
+      const rm = await this.exec(["rm", ...mine.map((c) => c.Id)], 60_000);
+      if (rm.code !== 0) return { kind: "rm-failed" };
+    }
+    return { kind: "ok", volumes: await this.removeVolumesGuarded(def, instanceId, sharedVolumes) };
+  }
+
+  async logs(def: ServiceDefinition, _inst: DriverInstance | undefined, req: LogsRequest): Promise<DriverLogs> {
+    if (!this.bin()) return { ok: false, reason: "runtime-error" };
+    const mine = await this.ownedContainers(def.id, req.instanceId);
+    if (mine === null) return { ok: false, reason: "runtime-error" };
+    if (mine.length > 1) return { ok: false, reason: "duplicate-instances" };
+    if (mine.length === 0) return { ok: false, reason: "no-output" };
+    const r = await this.exec(["logs", "--timestamps", "--since", req.startedAt, "--tail", String(req.lines), mine[0].Id], 30_000);
+    // A partial tail (timeout, runner cap, failure) is never served.
+    if (r.timedOut || r.truncated || r.error || r.code !== 0) return { ok: false, reason: "runtime-error" };
+    return { ok: true, text: mergeTimestamped(r.stdout, r.stderr) };
+  }
+
+  async listOwned(instanceId: string): Promise<OwnedListing> {
+    if (!this.bin()) return { state: "absent" };
+    const all = await this.listContainers([`${LABEL_OWNER}=${instanceId}`]);
+    if (all === null) return { state: "unreachable" };
+    return {
+      state: "ok",
+      containers: all
+        .filter((c) => c.Config?.Labels?.[LABEL_OWNER] === instanceId && typeof c.Config?.Labels?.[LABEL_SERVICE] === "string")
+        .map((c) => ({ serviceId: c.Config?.Labels?.[LABEL_SERVICE] as string, containerId: c.Id, running: c.State?.Running === true })),
+    };
+  }
+
+  async removeContainers(ids: string[]): Promise<boolean> {
+    if (ids.length === 0) return true;
+    return (await this.exec(["rm", ...ids], 60_000)).code === 0;
   }
 
   async healthcheck(_def: ServiceDefinition, inst: DriverInstance): Promise<boolean> {

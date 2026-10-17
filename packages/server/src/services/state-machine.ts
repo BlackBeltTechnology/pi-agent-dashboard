@@ -77,12 +77,17 @@ export class StateCell {
   state: ServiceState = "stopped";
   reason?: UnavailableReason;
 
+  /** Called after every initialisation and every state/reason change. */
+  private readonly onChange?: () => void;
+
   constructor(
     id: string,
     log: TransitionLogger,
+    onChange?: () => void,
   ) {
     this.id = id;
     this.log = log;
+    this.onChange = onChange;
   }
 
   init(state: ServiceState, why: string, reason?: UnavailableReason): void {
@@ -90,6 +95,7 @@ export class StateCell {
     this.state = state;
     this.reason = reason;
     this.log(`[services] ${this.id} ${from}→${state} reason=${reason ?? why} (init)`);
+    this.onChange?.();
   }
 
   transition(to: ServiceState, why: string, reason?: UnavailableReason): void {
@@ -101,6 +107,7 @@ export class StateCell {
     this.state = to;
     this.reason = to === "unavailable" ? reason : undefined;
     this.log(`[services] ${this.id} ${from}→${to} reason=${reason ?? why}`);
+    this.onChange?.();
   }
 }
 
