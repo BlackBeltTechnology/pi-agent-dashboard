@@ -193,8 +193,8 @@ export function ServicesListPage({
           onClose={() => setAdding(false)}
           onAdded={(id) => {
             setAdding(false);
-            void services.refetch();
-            navigate(`/settings/services/${encodeURIComponent(id)}`);
+            // Wait for a list that contains the new id, or the detail route shows "no such service".
+            void services.refetch().then(() => navigate(`/settings/services/${encodeURIComponent(id)}`));
           }}
         />
       )}

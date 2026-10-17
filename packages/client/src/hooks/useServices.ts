@@ -56,6 +56,11 @@ export function useServices({ onMessage, ws, delayMs = randomDelay, fetchList = 
   delayRef.current = delayMs;
 
   const runRef = useRef<() => Promise<void>>(async () => {});
+  /** Callers of `refetch` waiting for a FRESH answer (resolved when no further fetch is queued). */
+  const waiters = useRef<Array<() => void>>([]);
+  const settle = useCallback(() => {
+    for (const w of waiters.current.splice(0)) w();
+  }, []);
 
   const schedule = useCallback(() => {
     if (timer.current) return; // a burst collapses into the pending fetch
@@ -86,9 +91,11 @@ export function useServices({ onMessage, ws, delayMs = randomDelay, fetchList = 
       if (again.current && alive.current) {
         again.current = false;
         schedule();
+      } else {
+        settle();
       }
     }
-  }, [schedule]);
+  }, [schedule, settle]);
   runRef.current = run;
 
   useEffect(() => {
@@ -98,8 +105,9 @@ export function useServices({ onMessage, ws, delayMs = randomDelay, fetchList = 
       alive.current = false;
       if (timer.current) clearTimeout(timer.current);
       timer.current = undefined;
+      settle();
     };
-  }, [run]);
+  }, [run, settle]);
 
   useEffect(
     () =>
@@ -118,9 +126,16 @@ export function useServices({ onMessage, ws, delayMs = randomDelay, fetchList = 
     if (ws !== null && prev !== undefined && prev !== ws) schedule();
   }, [ws, schedule]);
 
-  const refetch = useCallback(async () => {
-    await run();
-  }, [run]);
+  // Resolves once a fetch that STARTED after this call has landed — a fetch already in flight does
+  // not count (its answer may predate the change the caller just made).
+  const refetch = useCallback(
+    () =>
+      new Promise<void>((resolve) => {
+        waiters.current.push(resolve);
+        void run();
+      }),
+    [run],
+  );
 
   return { list, loading, error, refetch, canOperate: list?.canOperate === true };
 }

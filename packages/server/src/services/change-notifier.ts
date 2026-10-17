@@ -2,7 +2,8 @@
  * Leading + trailing coalescer for the content-free `services_changed` ping:
  * the first change fires at once, further changes inside the window collapse
  * into ONE trailing fire when the window closes (so the last change is always
- * announced), and at most one fire happens per `windowMs`.
+ * announced), and the trailing fire opens a fresh window — so at most one fire
+ * happens per `windowMs`, always.
  * See change: add-services-settings-ui (D3).
  */
 export const CHANGE_COALESCE_MS = 500;
@@ -24,6 +25,17 @@ export function createChangeCoalescer(fire: () => void, windowMs = CHANGE_COALES
       console.warn(`[services] change hook failed: ${(err as Error).message}`);
     }
   };
+  /** Open a window; when it closes, a trailing fire (if any change landed inside) opens the NEXT one. */
+  const arm = () => {
+    timer = setTimeout(() => {
+      timer = undefined;
+      if (!pending) return;
+      pending = false;
+      safe();
+      arm(); // the trailing fire is itself a frame: no second one until another full window passes
+    }, windowMs);
+    timer.unref?.();
+  };
   return {
     notify() {
       if (windowMs <= 0) return safe();
@@ -32,14 +44,7 @@ export function createChangeCoalescer(fire: () => void, windowMs = CHANGE_COALES
         return;
       }
       safe();
-      timer = setTimeout(() => {
-        timer = undefined;
-        if (pending) {
-          pending = false;
-          safe();
-        }
-      }, windowMs);
-      timer.unref?.();
+      arm();
     },
     dispose() {
       if (timer) clearTimeout(timer);

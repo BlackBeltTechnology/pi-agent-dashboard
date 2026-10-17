@@ -1262,7 +1262,8 @@ export class ServiceManager {
       reached = true;
       for (const v of out.volumes) {
         const prev = merged.get(v.name);
-        if (!prev || (!prev.removed && v.removed)) merged.set(v.name, v);
+        // Fail closed: a volume kept by ANY runtime is reported kept (another runtime reporting it gone must not mask it).
+        if (!prev || (prev.removed && !v.removed)) merged.set(v.name, v);
       }
     }
     if (!reached) throw new ServiceError(409, "runtime-unreachable", "no container runtime is available to remove the volumes");

@@ -71,12 +71,16 @@ export const defaultCommandRunner: CommandRunner = (file, args, opts = {}) =>
       child.kill("SIGKILL");
       finish({ code: null });
     }, opts.timeoutMs ?? 30_000);
-    child.stdout?.on("data", (d: Buffer) => {
-      if (stdout.length < MAX_OUTPUT) stdout += d.toString("utf8");
+    // `setEncoding` decodes across chunk boundaries: a multi-byte character split between two
+    // chunks must not become two U+FFFD (that would defeat exact-value log redaction).
+    child.stdout?.setEncoding("utf8");
+    child.stderr?.setEncoding("utf8");
+    child.stdout?.on("data", (d: string) => {
+      if (stdout.length < MAX_OUTPUT) stdout += d;
       else truncated = true;
     });
-    child.stderr?.on("data", (d: Buffer) => {
-      if (stderr.length < MAX_OUTPUT) stderr += d.toString("utf8");
+    child.stderr?.on("data", (d: string) => {
+      if (stderr.length < MAX_OUTPUT) stderr += d;
       else truncated = true;
     });
     child.on("error", (err) => finish({ code: null, error: err.message }));

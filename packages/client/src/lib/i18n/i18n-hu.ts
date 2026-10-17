@@ -2547,7 +2547,7 @@ export const huCatalog: Record<string, string> = {
   "settings.groupServices": "Szolgáltatások",
   "settings.services": "Összes szolgáltatás",
   "settings.runtimes": "Futtatókörnyezetek",
-  "settings.servicesAttention": "${servicesNeedingAttention} szolgáltatás figyelmet igényel",
+  "settings.servicesAttention": "{count} szolgáltatás figyelmet igényel",
   "services.reason.runtime-missing": "Nincs telepítve konténer-futtatókörnyezet (Docker vagy Podman).",
   "services.reason.runtime-unreachable": "A konténer-futtatókörnyezet telepítve van, de nem fut.",
   "services.reason.host-vm-stopped": "A Podman- vagy Docker-gép (VM) le van állítva. A műszerfal soha nem indítja el.",

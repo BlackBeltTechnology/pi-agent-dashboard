@@ -2549,7 +2549,7 @@ export const zhCNCatalog: Record<string, string> = {
   "settings.groupServices": "服务",
   "settings.services": "所有服务",
   "settings.runtimes": "运行时",
-  "settings.servicesAttention": "${servicesNeedingAttention} 个服务需要关注",
+  "settings.servicesAttention": "{count} 个服务需要关注",
   "services.reason.runtime-missing": "未安装容器运行时（Docker 或 Podman）。",
   "services.reason.runtime-unreachable": "已安装容器运行时，但未运行。",
   "services.reason.host-vm-stopped": "Podman 或 Docker 机器（虚拟机）已停止。仪表板从不会启动它。",

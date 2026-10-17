@@ -100,7 +100,7 @@ describe("F5 — one change callback per event", () => {
 describe("F6 — coalescing: leading + trailing within 500 ms", () => {
   beforeEach(() => vi.useFakeTimers());
 
-  it("a burst of 10 within 100 ms → at most 2 frames; a change 600 ms later → 1 more", () => {
+  it("a burst of 10 within 100 ms → at most 2 frames; a change after the quiet window → 1 more, immediately", () => {
     const fired: number[] = [];
     const c = createChangeCoalescer(() => fired.push(Date.now()), 500);
     for (let i = 0; i < 10; i++) {
@@ -108,12 +108,27 @@ describe("F6 — coalescing: leading + trailing within 500 ms", () => {
       vi.advanceTimersByTime(10);
     }
     vi.advanceTimersByTime(600);
-    expect(fired.length).toBeLessThanOrEqual(2);
     expect(fired.length).toBe(2); // leading + trailing
+    vi.advanceTimersByTime(600); // the trailing fire's window passes with no change
     c.notify();
-    expect(fired.length).toBe(3);
+    expect(fired.length).toBe(3); // a quiet window → fires at once
     vi.advanceTimersByTime(600);
     expect(fired.length).toBe(3); // nothing pending → no trailing
+  });
+
+  it("never more than one frame per window, even right after a trailing fire", () => {
+    const fired: number[] = [];
+    const c = createChangeCoalescer(() => fired.push(Date.now()), 500);
+    c.notify(); // t=0   leading
+    vi.advanceTimersByTime(100);
+    c.notify(); // t=100 → trailing at t=500
+    vi.advanceTimersByTime(410); // t=510: trailing has fired
+    expect(fired).toHaveLength(2);
+    c.notify(); // t=510: inside the NEW window → must wait
+    expect(fired).toHaveLength(2);
+    vi.advanceTimersByTime(500); // t=1010
+    expect(fired).toHaveLength(3);
+    expect(fired[2] - fired[1]).toBeGreaterThanOrEqual(500);
   });
 
   it("a lone change fires once, immediately; the trailing frame is never lost", () => {

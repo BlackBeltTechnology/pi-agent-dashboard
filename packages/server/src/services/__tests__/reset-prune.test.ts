@@ -3,6 +3,7 @@
  * (add-services-settings-ui). Test-plan: E21–E27, E30, X6–X9.
  */
 import fs from "node:fs";
+import path from "node:path";
 import type { ServiceDefinition } from "@blackbelt-technology/pi-dashboard-shared/services/schema.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp, DIGEST, FakeDriver, makeManager, ociDef, tmpRoot, writeDefinitions } from "./helpers.js";
@@ -213,7 +214,7 @@ describe("prune", () => {
     throw ESRCH;
   };
   const instanceFile = (h: { paths: { instanceFile(id: string): string } }, id: string, pid: number) => {
-    fs.mkdirSync(h.paths.instanceFile(id).replace(/\/instance\.json$/, ""), { recursive: true });
+    fs.mkdirSync(path.dirname(h.paths.instanceFile(id)), { recursive: true });
     fs.writeFileSync(h.paths.instanceFile(id), JSON.stringify({ pid }));
   };
   const orphans = [ctr("orphan-stopped", "ghost", "iid-1", false), ctr("orphan-running", "runner", "iid-1", true), ctr("foreign", "x", "someone-else", false)];

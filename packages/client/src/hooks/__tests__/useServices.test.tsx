@@ -124,6 +124,34 @@ describe("useServices", () => {
     expect(fetchList).toHaveBeenCalledTimes(0);
   });
 
+  it("refetch resolves only after a fetch that started AFTER the call (an in-flight one does not count)", async () => {
+    const releases: Array<() => void> = [];
+    const slow = vi.fn(
+      () =>
+        new Promise<{ ok: boolean; status: number; data: ReturnType<typeof makeList> }>((resolve) => {
+          releases.push(() => resolve({ ok: true, status: 200, data: makeList([makeService({ id: `v${releases.length}` })]) }));
+        }),
+    );
+    const { result } = renderHook(() => useServices({ fetchList: slow as never, delayMs: () => 100 }));
+    expect(slow).toHaveBeenCalledTimes(1); // the initial fetch, still in flight
+    let resolved = false;
+    void result.current.refetch().then(() => {
+      resolved = true;
+    });
+    await act(async () => {
+      releases[0]();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(resolved).toBe(false); // the in-flight fetch finished, but it predates the call
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(150); // the queued fetch starts…
+      releases[1]();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(resolved).toBe(true);
+    expect(slow).toHaveBeenCalledTimes(2);
+  });
+
   it("a failed fetch keeps the previous list on screen and reports the error", async () => {
     const b = bus();
     const f = vi.fn().mockResolvedValueOnce({ ok: true, status: 200, data: makeList([makeService()]) }).mockResolvedValue({ ok: false, status: 0, code: "network", error: "down" });
