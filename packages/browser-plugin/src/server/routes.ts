@@ -287,6 +287,19 @@ export function registerBrowserRoutes(fastify: FastifyInstance, deps: BrowserRou
         reply.code(400);
         return { error: "host must be a non-empty string" };
       }
+      // Operator consent (≤ 60 s) plus the extension handshake (≤ 60 s) outlast
+      // Fastify's 10 s connectionTimeout: disable the per-socket timeout for this
+      // request and restore it once the response flushes (same shape as
+      // git-routes). A client abort destroys the socket, so nothing to restore.
+      // See change: add-operator-browser-relay (design D4).
+      const socket = req.raw.socket;
+      const prevTimeout = typeof socket?.timeout === "number" ? socket.timeout : undefined;
+      socket?.setTimeout?.(0);
+      if (typeof prevTimeout === "number") {
+        reply.raw.once("finish", () => {
+          if (socket && !socket.destroyed) socket.setTimeout(prevTimeout);
+        });
+      }
       const result = await manager.connect(profileDirectory, host);
       if (!result.ok) {
         reply.code(result.status);

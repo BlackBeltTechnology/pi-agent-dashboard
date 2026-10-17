@@ -102,7 +102,7 @@ interface Harness {
   setProfiles(result: ProfileListResult): void;
 }
 
-async function harness(): Promise<Harness> {
+async function harness(fastifyOpts: { connectionTimeout?: number } = {}): Promise<Harness> {
   const manager = new StubManager();
   const audit = new AuditRing();
   const config: RelayConfig = {
@@ -116,7 +116,7 @@ async function harness(): Promise<Harness> {
       { profileDirectory: "Profile 1", label: "Work", installed: false },
     ],
   };
-  const app = Fastify();
+  const app = Fastify(fastifyOpts);
   registerBrowserRoutes(app, {
     manager,
     audit,
@@ -251,6 +251,24 @@ describe("operator hosts over REST", () => {
     await h.app.inject({ method: "POST", url: "/api/browser/connect", payload: { profileDirectory: "Default", host: HOST } });
     await h.app.inject({ method: "POST", url: "/api/browser/connect", payload: { profileDirectory: "Default" } });
     expect(h.manager.connectHosts).toEqual([HOST, undefined]);
+  });
+
+  it("connect outlives the server's idle connectionTimeout (operator consent can take up to 60 s)", async () => {
+    await h.app.close();
+    h = await harness({ connectionTimeout: 150 });
+    const connect = h.manager.connect.bind(h.manager);
+    h.manager.connect = async (p: string, host?: string) => {
+      await new Promise((r) => setTimeout(r, 600));
+      return connect(p, host);
+    };
+    await h.app.listen({ port: 0, host: "127.0.0.1" });
+    const { port } = h.app.server.address() as { port: number };
+    const res = await fetch(`http://127.0.0.1:${port}/api/browser/connect`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ profileDirectory: "Default", host: HOST }),
+    });
+    expect(res.status).toBe(200);
   });
 
   it("connect rejects a non-string / empty / oversized host with 400", async () => {
