@@ -79,6 +79,7 @@ export function ProviderBody({ ctx }: { ctx: StepCtx }) {
   const needsWrite = stored === undefined || provider !== stored || mode !== storedMode;
 
   const next = async () => {
+    if (awaitingStatus) return;
     // A connected primary is never switched from here (Make primary stays in Settings).
     if (connectedPrimary && provider !== stored) {
       setBlocked(true);
