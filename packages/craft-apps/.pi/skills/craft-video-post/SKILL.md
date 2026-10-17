@@ -48,6 +48,7 @@ missing, then continue on the degraded path or stop if the request needs it.
 Then set up the job (see **Craft jobs** in `craft-studio`: slug rule, `job-helper` snippet) and run **Resume** below.
 
 ```bash check: job
+# run from the directory that contains craft-jobs/ (SLUG set as in step 0)
 jq -e '.name and .workflow and (.steps | type == "object")' "craft-jobs/$SLUG/job.json"
 ```
 
@@ -128,6 +129,7 @@ Transcribe the recording (or the final dialogue) with `video-transcription` — 
 hand-written or user-supplied `.srt` when the skill is missing. Never place captions from a file the check rejects.
 
 ```bash check: srt
+# run inside the step directory: cd "$JOB/04-captions" (the file is named as below)
 test "$(grep -cE '^[0-9:,.]+ --> [0-9:,.]+' cues.srt)" -ge 1
 ```
 

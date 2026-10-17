@@ -46,6 +46,7 @@ also gives the package directory (`PKG`). Needs the user's local music file (no 
 Then set up the job (**Craft jobs** in `craft-studio`: slug rule, `job-helper`) and run **Resume**.
 
 ```bash check: job
+# run from the directory that contains craft-jobs/ (SLUG set as in step 0)
 jq -e '.name and .workflow and (.steps | type == "object")' "craft-jobs/$SLUG/job.json"
 ```
 
@@ -57,6 +58,7 @@ jq -e '.name and .workflow and (.steps | type == "object")' "craft-jobs/$SLUG/jo
 Run `music-analysis` on the local track; read the sections and drop candidates and confirm the drop by ear.
 
 ```bash check: map
+# run inside the step directory: cd "$JOB/01-music" (the file is named as below)
 jq -e '.schema=="music-map/1"' track_map.json
 ```
 
@@ -73,6 +75,7 @@ pi-craft verify "$JOB/02-music/edit.wav" --duration "${D}±0.1" --has-audio
 ```
 
 ```bash check: edit
+# run inside the step directory: cd "$JOB/02-music" (the file is named as below)
 jq -e '.schema=="music-edit/1" and .duration > 0 and (.downbeats_video | length) > 0' edit_edit.json
 ```
 
@@ -85,6 +88,7 @@ Run `beat-sync-video` (`pick_hits.py`) on `edit_edit.json`. Hits are video time;
 `"source":"manual"`. An empty or wrong-schema file stops the workflow — do not cut to guessed times.
 
 ```bash check: hits
+# run inside the step directory: cd "$JOB/03-hits" (the file is named as below)
 jq -e '.schema=="music-hits/1" and (.hits|length>0)' hits.json
 ```
 
@@ -114,7 +118,8 @@ as long as the music; export with `--start 0 --end <music seconds>` so the pictu
 CUTS=$(jq -n --slurpfile e edit_edit.json --slurpfile h hits.json --argjson n 4 --argjson fps "$FPS" '
   ([$e[0].downbeats_video | to_entries[] | select(.key % $n == 0) | .value] + [$h[0].hits[].t])
   | map(select(. > 0 and . < $e[0].duration)) | map(. * $fps | round) | unique | map(. / $fps)')
-jq -c '.[] | {id:"sequence.addEditAllTracks",params:{time:(. * 254016000000 | round)}}' <<<"$CUTS"   # one line per cut
+{ echo "{\"id\":\"file.newSequence\",\"params\":{\"name\":\"beat\",\"width\":$W,\"height\":$H,\"fps\":$FPS,\"fromItem\":$FOOT}}"
+  jq -c '.[] | {id:"sequence.addEditAllTracks",params:{time:(. * 254016000000 | round)}}' <<<"$CUTS"; } > "$JOB/05-cut/cuts.jsonl"   # one line per cut
 pi-craft filmcraft exec --project "$JOB/05-cut/p.fcproj" --save run "$JOB/05-cut/cuts.jsonl"
 pi-craft filmcraft exec --project "$JOB/05-cut/p.fcproj" export "$JOB/05-cut/rough.mp4" --format h264 --start 0 --end "$D"
 pi-craft verify "$JOB/05-cut/rough.mp4" --duration "${D}±0.1" --has-video

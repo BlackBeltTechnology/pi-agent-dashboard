@@ -46,6 +46,7 @@ The reference length: `REF=$(ffprobe -v error -show_entries format=duration -of 
 Set up the job (**Craft jobs** in `craft-studio`: slug rule, `job-helper`) and run **Resume**.
 
 ```bash check: job
+# run from the directory that contains craft-jobs/ (SLUG set as in step 0)
 jq -e '.name and .workflow and (.steps | type == "object")' "craft-jobs/$SLUG/job.json"
 ```
 
@@ -58,6 +59,7 @@ jq -e '.name and .workflow and (.steps | type == "object")' "craft-jobs/$SLUG/jo
 Soniox key). Copy it to `01-transcript/rec.srt`.
 
 ```bash check: srt
+# run inside the step directory: cd "$JOB/01-transcript" (the file is named as below)
 test "$(grep -cE '^[0-9:,.]+ --> [0-9:,.]+' rec.srt)" -ge 1
 ```
 
@@ -76,6 +78,7 @@ pi-voiceid analyze --srt "$JOB/01-transcript/rec.srt"
 ```
 
 ```bash check: named
+# run inside the step directory: cd "$JOB/02-speakers" (the file is named as below)
 test "$(grep -cE '^[0-9:,.]+ --> [0-9:,.]+' rec.named.srt)" -ge 1 && grep -qE '^\[[^]]+\]' rec.named.srt
 ```
 
@@ -146,6 +149,7 @@ Pick chapter starts from the named SRT (topic changes, speaker introductions) wi
 (YouTube/podcast-app style).
 
 ```bash check: chapters
+# run inside the step directory: cd "$JOB/06-chapters" (the file is named as below)
 grep -qE '^00:00 ' chapters.txt && ! grep -vqE '^[0-9]{2}:[0-9]{2}(:[0-9]{2})? .+' chapters.txt
 ```
 

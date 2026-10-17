@@ -41,6 +41,7 @@ ask the user (`ask_user`) for each name's title line.
 Set up the job (**Craft jobs** in `craft-studio`: slug rule, `job-helper`) and run **Resume**.
 
 ```bash check: job
+# run from the directory that contains craft-jobs/ (SLUG set as in step 0)
 jq -e '.name and .workflow and (.steps | type == "object")' "craft-jobs/$SLUG/job.json"
 ```
 
@@ -54,6 +55,7 @@ start time (`awk`, see the recipe); titles come from the user. Titles that overl
 tracks (`sequence.addTracks`); this workflow places them sequentially on V2.
 
 ```bash check: names
+# run inside the step directory: cd "$JOB/01-names" (the file is named as below)
 jq -e 'length>0 and all(.[]; .name and .at>=0)' names.json
 ```
 
@@ -72,6 +74,7 @@ pi-craft effectcraft exec --empty run templates.list '{}' | jq -c '.[] | {id, co
 ```
 
 ```bash check: template
+# run inside the step directory: cd "$JOB/02-template" (the file is named as below)
 jq -e '.id and (.controls | index("Name"))' choice.json
 ```
 
@@ -100,6 +103,7 @@ pi-craft verify "$JOB/03-titles/$SLUG.mov" --alpha --size 1920x1080 --duration 6
 ```
 
 ```bash check: alpha
+# run inside the step directory: cd "$JOB/03-titles" (the file is named as below)
 test "$(ffmpeg -v error -ss 3 -i title.mov -frames:v 1 -vf crop=1:1:0:0,format=rgba -f rawvideo - | od -An -tx1 | tr -d ' \n')" = 00000000
 ```
 
