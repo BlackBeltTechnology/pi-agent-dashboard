@@ -4,11 +4,12 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
+import { WORKFLOW_SKILL_NAMES } from "./helpers/skills.js";
 import { nodeStub } from "./helpers/stubs.js";
 
 /**
  * Shell-executability invariants for `pi-craft` and the `pi-photocraft` alias (npm install + checkout)
- * and `pi-nano-banana` as a workspace bin, plus shipping of all 18 skills (router, 13 apps, 4 media workflows).
+ * and `pi-nano-banana` as a workspace bin, plus shipping of all 23 skills (router, 13 apps, 4 media + 5 office workflows).
  *
  * See change: add-photocraft-plugin, add-craft-apps-core.
  */
@@ -55,9 +56,9 @@ function npmPack(cwd: string, tmp: string): string[] {
 }
 
 describe("craft-apps packaging", () => {
-  it("E23 the 18 skills are declared, have frontmatter, and ship in the tarball", () => {
-    expect(pkg.pi.skills).toHaveLength(18);
-    for (const wf of ["craft-video-post", "craft-beat-cut", "craft-podcast-master", "craft-motion-titles"]) expect(pkg.pi.skills).toContain(`.pi/skills/${wf}`);
+  it("E23/E26 the 23 skills are declared, have frontmatter, and ship in the tarball", () => {
+    expect(pkg.pi.skills).toHaveLength(23);
+    for (const wf of WORKFLOW_SKILL_NAMES) expect(pkg.pi.skills).toContain(`.pi/skills/${wf}`);
     for (const rel of pkg.pi.skills) {
       const name = path.basename(rel);
       const text = fs.readFileSync(path.join(pkgDir, rel, "SKILL.md"), "utf8");
@@ -69,7 +70,7 @@ describe("craft-apps packaging", () => {
     expect(/^description: (.+)$/m.exec(photo)?.[1]).toMatch(/PhotoCraft.*nano-banana.*headless|headless.*PhotoCraft.*nano-banana/i);
     const tmp = scratchDir("pc-pack-list-");
     const [, ...files] = npmPack(pkgDir, tmp);
-    expect(files.filter((f) => /^\.pi\/skills\/[^/]+\/SKILL\.md$/.test(f))).toHaveLength(18);
+    expect(files.filter((f) => /^\.pi\/skills\/[^/]+\/SKILL\.md$/.test(f))).toHaveLength(23);
     for (const rel of pkg.pi.skills) expect(files).toContain(`${rel}/SKILL.md`);
     expect(files).toContain("bin/pi-craft");
     expect(files).toContain("bin/pi-photocraft");
@@ -89,6 +90,10 @@ describe("craft-apps packaging", () => {
     expect(craft.stderr).not.toMatch(MODULE_ERRORS);
     expect(craft.status).toBe(0);
     expect(craft.stderr).toContain("pi-craft <command>");
+    const doc = spawnSync(process.execPath, [path.join(dest, "bin/pi-craft"), "doc", "prepare", "--help"], { cwd: tmp, encoding: "utf8", env: cleanEnv(), timeout: 30_000 });
+    expect(doc.stderr).not.toMatch(MODULE_ERRORS);
+    expect(doc.status).toBe(0);
+    expect(doc.stderr).toContain("--allow-missing");
     const apps = spawnSync(process.execPath, [path.join(dest, "bin/pi-craft"), "apps", "--json"], { cwd: tmp, encoding: "utf8", env: cleanEnv(), timeout: 30_000 });
     expect(apps.status).toBe(0);
     expect(JSON.parse(apps.stdout)).toHaveLength(13);

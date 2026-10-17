@@ -10,8 +10,12 @@ export const FIXTURES_DIR = path.join(PKG_DIR, "src", "__tests__", "fixtures", "
 
 export const SKILL_NAMES = ["craft-studio", ...APP_IDS] as const;
 
+/** Media workflow skills (add-craft-media-workflows): deliver an mp4/wav. */
+export const MEDIA_WORKFLOW_NAMES = ["craft-video-post", "craft-beat-cut", "craft-podcast-master", "craft-motion-titles"] as const;
+/** Office workflow skills (add-craft-office-workflows): deliver svg/png/tiff/pdf/docx. */
+export const OFFICE_WORKFLOW_NAMES = ["craft-brand-kit", "craft-doc-publish", "craft-deck", "craft-photo-pipeline", "craft-data-visual"] as const;
 /** Workflow skills (Layer 2 over the router + app skills). Linted as workflows, never as app skills. */
-export const WORKFLOW_SKILL_NAMES = ["craft-video-post", "craft-beat-cut", "craft-podcast-master", "craft-motion-titles"] as const;
+export const WORKFLOW_SKILL_NAMES = [...MEDIA_WORKFLOW_NAMES, ...OFFICE_WORKFLOW_NAMES] as const;
 export type WorkflowName = (typeof WORKFLOW_SKILL_NAMES)[number];
 
 /** Apps each workflow drives: its command ids are checked against the union of these apps' command lists. */
@@ -20,6 +24,11 @@ export const WORKFLOW_APPS: Record<WorkflowName, readonly string[]> = {
   "craft-beat-cut": ["filmcraft", "soundcraft", "effectcraft"],
   "craft-podcast-master": ["soundcraft", "filmcraft"],
   "craft-motion-titles": ["effectcraft", "filmcraft"],
+  "craft-brand-kit": ["vectorcraft", "photocraft", "designcraft", "pdfcraft"],
+  "craft-doc-publish": ["wordcraft", "pdfcraft"],
+  "craft-deck": ["deckcraft", "pdfcraft"],
+  "craft-photo-pipeline": ["lightcraft", "photocraft"],
+  "craft-data-visual": ["gridcraft", "vectorcraft", "designcraft", "deckcraft", "photocraft", "pdfcraft"],
 };
 
 /** Sibling skills / CLIs / packages each workflow's step 0 must name (soft references). */
@@ -32,6 +41,11 @@ export const WORKFLOW_SIBLINGS: Record<WorkflowName, { skills: string[]; package
   "craft-beat-cut": { skills: ["music-analysis", "music-edit-to-length", "beat-sync-video"], packages: ["music-production"], clis: [] },
   "craft-podcast-master": { skills: ["video-transcription", "speaker-id"], packages: ["video-transcription"], clis: ["pi-transcribe", "pi-voiceid"] },
   "craft-motion-titles": { skills: ["video-transcription", "speaker-id"], packages: ["video-transcription"], clis: [] },
+  "craft-brand-kit": { skills: ["anti-slop-brandkit"], packages: ["@blackbelt-technology/anti-slop-frontend"], clis: ["pi-nano-banana"] },
+  "craft-doc-publish": { skills: ["document-converter"], packages: ["@blackbelt-technology/pi-dashboard-document-converter", "@mermaid-js/mermaid-cli"], clis: ["mmdc", "pi-nano-banana"] },
+  "craft-deck": { skills: ["deck3d"], packages: ["@blackbelt-technology/pi-dashboard-deck3d"], clis: [] },
+  "craft-photo-pipeline": { skills: [], packages: [], clis: ["pi-nano-banana"] },
+  "craft-data-visual": { skills: [], packages: [], clis: [] },
 };
 
 export interface Skill {

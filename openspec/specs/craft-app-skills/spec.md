@@ -16,6 +16,10 @@ The package SHALL ship a `craft-studio` skill that teaches: which app to use for
 - **WHEN** an agent reads `craft-studio`
 - **THEN** it finds a workflow table naming `craft-video-post`, `craft-beat-cut`, `craft-podcast-master` and `craft-motion-titles`, and a "Craft jobs" section defining `craft-jobs/<slug>/`, `job.json` and the resume rule
 
+#### Scenario: Router lists the office workflows
+- **WHEN** an agent reads `craft-studio` after this change
+- **THEN** its workflow table also names `craft-brand-kit`, `craft-doc-publish`, `craft-deck`, `craft-photo-pipeline` and `craft-data-visual`, and states that `craft-doc-publish` is the default Markdown-to-templated-DOCX/PDF path while `document-converter` handles ingest, round-trip editing and PlantUML
+
 ### Requirement: One skill per app
 The package SHALL ship one skill per supported app (13 app skills, in addition to the router and any workflow skills), each teaching: what the app is for and its file formats; the exact CLI dialect (how to list/describe commands, run single and multiple commands, script files, open/save project files); how state persists between invocations; the discovery commands to use before any command id; known traps observed in testing; and two to four minimal recipes that end with a `pi-craft verify` call. Each skill description SHALL name the app, its domain and typical user phrasings. The per-app structure, description and recipe-count rules SHALL apply to app skills only; workflow skills are governed by their own capability.
 
@@ -50,8 +54,8 @@ A test SHALL extract every command id quoted in skill code blocks and check it a
 - **THEN** the offline drift check fails naming `craft-beat-cut` and the id
 
 ### Requirement: Skills declared in the package manifest
-All 18 skills (the router, 13 app skills and 4 media workflow skills) SHALL be declared under `pi.skills` in the package manifest and included in the published files.
+All 23 skills SHALL be declared under `pi.skills` in the package manifest and included in the published files: the router, 13 app skills, 4 media workflow skills and 5 office workflow skills.
 
 #### Scenario: Packed package contains all skills
 - **WHEN** the package is packed
-- **THEN** the tarball contains 18 `SKILL.md` files under `.pi/skills/`
+- **THEN** the tarball contains 23 `SKILL.md` files under `.pi/skills/`

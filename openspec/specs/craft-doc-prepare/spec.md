@@ -1,7 +1,9 @@
+# craft-doc-prepare Specification
+
 ## Purpose
 Prepare Markdown and a DOCX template so that WordCraft can produce a templated document headless: resolve the template and variables, fill every placeholder the WordCraft CLI cannot reach, and inline images and diagrams.
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: doc prepare invocation and report
 `pi-craft doc prepare <in.md> --out <dir>` SHALL accept these options: `--template <name>`, `--templates-dir <dir>`, repeatable `--var k=v`, repeatable `--allow-path <dir>`, `--allow-missing` and `--json`. It SHALL write `<dir>/template.filled.docx`, `<dir>/body.md` and `<dir>/prepare.json`, overwriting only those three files when they already exist and leaving other files in `<dir>` untouched. With `--json`, it SHALL also print the report to stdout as one JSON object. The report SHALL list: the template path; each variable with its source (`default`, `frontmatter`, `cli`, `system`); unresolved placeholders; warnings; TOC options; and Mermaid and image counts. Exit codes SHALL be `0` success (including `--help`), `1` failed operation or unresolved placeholders without `--allow-missing`, and `2` usage error.
@@ -69,10 +71,12 @@ Placeholders split across runs within one paragraph SHALL be replaced. Placehold
 ### Requirement: Body preparation
 `body.md` SHALL be the input with frontmatter removed and `{{ name }}` variables substituted; `<name>` SHALL NOT be substituted in the body. Image and diagram handling SHALL operate on the text before substitution, so image or diagram syntax that arrives through a variable value is never inlined or rendered.
 
-Each local image SHALL be inlined as a `data:` URI. Image paths SHALL resolve relative to the input file, after symlink resolution, and SHALL lie within the input's directory or an `--allow-path` directory. Absolute and `file://` paths outside those directories SHALL be refused. Remote image URLs SHALL be left unchanged and listed under `images.remote`.
+Each local image SHALL be inlined as a `data:` URI. Image paths SHALL resolve relative to the input file, after symlink resolution, and SHALL lie within the input's directory or an `--allow-path` directory. Absolute and `file://` paths outside those directories SHALL be refused. Only png, jpg, gif, webp and bmp files of at most 20 MB SHALL be inlined; any other file SHALL be skipped with a reason. Remote image URLs SHALL be left unchanged and listed under `images.remote`.
+
+When the template's document part owns an image relationship (for example a cover logo), WordCraft 0.7.0 maps a Markdown-imported image onto the template's first image. In that case every image and rendered diagram SHALL instead be written to `<dir>/images/<NNNN>.<ext>`, replaced in `body.md` by the token `CRAFTIMG<NNNN>`, and listed in `prepare.json` under `pictures` as `{marker, file, alt}`.
 
 Each Mermaid block SHALL be rendered to PNG and inlined:
-- with nano-banana when frontmatter `nano_banana.enabled` is true, using the style from the template's `nano-banana-styles.yaml` and the cache `.mermaid-cache/<md5 of style and source>.png`, falling back to `mmdc` on failure;
+- with nano-banana when frontmatter `nano_banana.enabled` is true, using the style from the template's `nano-banana-styles.yaml` and the cache `.mermaid-cache/<md5 of style name, style prompt and source>.png`, falling back to `mmdc` on failure. A cache entry SHALL be used only when it is a plain file holding a png; a symlinked entry or cache directory SHALL never be read or written through, and a generated png SHALL reach its cache name only by an atomic rename;
 - otherwise with host `mmdc`, spawned without a shell.
 
 When `mmdc` is unavailable, the block SHALL be left as code and counted as unrendered. PlantUML blocks SHALL be left as code and reported as warnings.
@@ -85,9 +89,17 @@ When `mmdc` is unavailable, the block SHALL be left as code and counted as unren
 - **WHEN** the Markdown references `../../secret.png` and no `--allow-path` covers it
 - **THEN** the image is not inlined and the report lists it under skipped with the reason
 
+#### Scenario: Template with images gets picture markers
+- **WHEN** the template owns a cover image and the Markdown has one image and one Mermaid block
+- **THEN** `body.md` contains `CRAFTIMG0001` and `CRAFTIMG0002` instead of `data:` URIs, `<dir>/images/` holds both files, and `pictures` lists them
+
 #### Scenario: Mermaid cache hit
 - **WHEN** a nano-banana-styled diagram with an unchanged source is prepared a second time
 - **THEN** the cached PNG is reused and the nano-banana CLI is not called
+
+#### Scenario: Symlinked cache entry ignored
+- **WHEN** `.mermaid-cache/<key>.png` is a symlink to a local file
+- **THEN** it is not a cache hit, the file it points at is not read into `body.md` or modified, and a freshly generated png replaces the link
 
 #### Scenario: mmdc missing
 - **WHEN** the input has a Mermaid block, nano-banana is not enabled, and `mmdc` is not on PATH

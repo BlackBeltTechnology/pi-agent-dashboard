@@ -4,7 +4,7 @@
  * `bin/pi-craft` and `bin/pi-photocraft` run them for a published install, where `tsx` is absent.
  * `@blackbelt-technology/*` workspace code (shared platform/exec, nano-banana
  * path helpers) is raw TypeScript and MUST be bundled; the explicit `external`
- * list names real npm dependencies only (there are none today).
+ * list names real npm dependencies only (there are none today: `yaml` and `fflate` are bundled too).
  * Run from `prepack`. See change: add-photocraft-plugin, add-craft-apps-core.
  */
 import { dirname, join } from "node:path";
@@ -22,7 +22,8 @@ for (const name of ["craft", "photocraft"]) {
     target: "node20",
     external: [],
     outfile: join(root, "dist", `${name}.js`),
-    banner: { js: "#!/usr/bin/env node" },
+    // `yaml` is CommonJS: its bundled `require("process")` etc. need a real require in an ESM bundle.
+    banner: { js: '#!/usr/bin/env node\nimport { createRequire as __craftRequire } from "node:module";\nconst require = __craftRequire(import.meta.url);' },
     legalComments: "none",
     logLevel: "info",
   });

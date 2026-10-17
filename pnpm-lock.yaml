@@ -508,12 +508,18 @@ importers:
       remark-math:
         specifier: ^6.0.0
         version: 6.0.0(supports-color@8.1.1)
+      remark-parse:
+        specifier: ^11.0.0
+        version: 11.0.0(supports-color@8.1.1)
       tailwindcss:
         specifier: ^4.1.0
         version: 4.3.3
       tsx:
         specifier: ^4.21.0
         version: 4.23.12
+      unified:
+        specifier: ^11.0.5
+        version: 11.0.5
       vite:
         specifier: ^6.0.0
         version: 6.4.3(@types/node@26.4.0)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.0)
@@ -652,6 +658,12 @@ importers:
       '@blackbelt-technology/pi-dashboard-shared':
         specifier: ^0.9.0
         version: link:../shared
+      fflate:
+        specifier: ^0.8.3
+        version: 0.8.3
+      yaml:
+        specifier: ^2.9.0
+        version: 2.9.0
     devDependencies:
       esbuild:
         specifier: ^0.28.2
