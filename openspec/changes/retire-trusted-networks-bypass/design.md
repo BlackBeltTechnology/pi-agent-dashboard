@@ -18,7 +18,9 @@ See proposal.md (Why). Current state, from source:
 - `/api/health` `trustPosture: { trustedHasLoopback } | null` behind `canDiscloseAccessPosture` (`localhost-guard.ts:106`: authenticated or genuine-local).
 - `cors-origin.ts:166` and the WS origin gate (`server.ts:1808`, `:3937`) also match the list (origin allowlists, not authentication).
 
-Prerequisites: `add-lan-knock-pairing` (knock route, private-range gate, `pairing.acceptLanRequests` default **off**, Request access landing) and `add-electron-server-windows`. Neither is archived yet; task 0.1 gates implementation.
+Prerequisites: `add-lan-knock-pairing` (knock route, private-range gate, `pairing.acceptLanRequests` default **off**, Request access landing) and `add-electron-server-windows`. Both are archived (`archive/2026-10-14-add-lan-knock-pairing`, PR #901; `archive/2026-10-14-add-electron-server-windows`, PR #908) and `openspec/specs/lan-knock-pairing/spec.md` exists; task 0.1 re-verifies.
+
+Sequencing: ships after `add-plugin-isolation-and-public-routes` (group `customer-web-chat`). Both MODIFY `trusted-networks` › "Guard jurisdiction and in-namespace public exceptions" and `bearer-device-auth` › "A device bearer's tier gates REST routes and WS-ticket minting"; archive replaces whole blocks, so before archiving this change re-base those two blocks on the main spec as left by that change (keep its public-namespace exception text, then apply the legacy/pair wording).
 
 ## Goals / Non-Goals
 
