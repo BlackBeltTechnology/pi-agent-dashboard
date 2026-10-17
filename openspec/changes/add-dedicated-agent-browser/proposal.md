@@ -50,6 +50,16 @@ Non-goals:
   - troubleshooting for the extension-frame detach and for a disabled extension.
 - `browser-plugin-settings`: Browser settings section shows the dedicated profile, its status, and an "open to sign in" action.
 
+## Dependencies
+
+Group `browser-agent` in `openspec/groups/groups.json`, execution order:
+
+1. `fix-browser-relay-pane-input`: hard dependency. Both modify `browser-relay`. It rewrites "Connect and CDP-URL lifecycle", which this change will also modify (connect for the dedicated profile), and both edit the connect handler in `packages/browser-plugin/src/server/routes.ts`. A MODIFIED requirement replaces the whole block on archive, so this change's delta must be written on top of its archived text.
+2. `fix-empty-status-subcard`: soft dependency. It moves the relay status subscription into `BrowserRelayFeed` and adds `hasRelayTabs` in `relay-store`. The dedicated instance's status and badge build on those, not on the old `BrowserRelayBadge` subscription.
+3. `add-dedicated-agent-browser` (this change).
+
+`improve-gmail-plugin-setup-ux` is independent.
+
 ## Impact
 
 - `packages/browser-plugin/src/server/`:
