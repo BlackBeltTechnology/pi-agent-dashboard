@@ -15,6 +15,7 @@ export type DocConverterErrorCode =
   | "PATH_NOT_ALLOWED" // request path outside configured roots or in a sensitive dir
   | "INGEST_FAILED"
   | "PRODUCE_FAILED"
+  | "MMDC_UNAVAILABLE" // mermaid render attempted but the headless browser cannot launch (arch/runtime)
   | "FILL_FAILED"
   | "PROFILE_FAILED"
   | "INTERNAL";

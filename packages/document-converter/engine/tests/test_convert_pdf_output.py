@@ -34,7 +34,7 @@ def test_render_pdf_argv_parses_to_the_requested_output(monkeypatch):
     """#507 repro: the output path must survive the argv round trip."""
     captured = {}
 
-    def fake_run_dc(args):
+    def fake_run_dc(args, classify_mmdc=False):
         captured["args"] = args
 
     monkeypatch.setattr(engine_cli, "_run_dc", fake_run_dc)
@@ -55,7 +55,7 @@ def test_render_pdf_argv_parses_to_the_requested_output(monkeypatch):
 def test_render_pdf_output_without_pdf_suffix_still_survives(monkeypatch):
     """The flag is extension-agnostic — callers pass arbitrary paths."""
     captured = {}
-    monkeypatch.setattr(engine_cli, "_run_dc", lambda args: captured.setdefault("args", args))
+    monkeypatch.setattr(engine_cli, "_run_dc", lambda args, classify_mmdc=False: captured.setdefault("args", args))
 
     engine_cli.cmd_render_pdf({"input": "/abs/doc.md", "output": "/abs/out/report"})
 

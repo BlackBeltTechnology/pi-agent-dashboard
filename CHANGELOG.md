@@ -80,6 +80,13 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Changed
 
+- **Document converter: mermaid diagrams now render on arm64 hosts (breaking, 0.10.0).** The
+  `pi-doc-engine` image (now `0.2.0`, also tagged `:latest`) provisions its headless browser per
+  architecture instead of an amd64-only binary. `DocConverterErrorCode` gains `MMDC_UNAVAILABLE`
+  (exhaustive switches must add a case), raised when a diagram render was attempted and the browser
+  cannot launch. Styled (nano-banana) rendering no longer guarantees "never hard-fails": it falls
+  back to mmdc and fails the call with `MMDC_UNAVAILABLE` when mmdc itself cannot run. Rebuild the
+  image (`npm run build:image -w @blackbelt-technology/pi-dashboard-document-converter`) to upgrade.
 - **Settings ▸ Packages is now Add-ons.** The page lives at `/settings/add-ons` (old
   `/settings/packages` and `?tab=packages` links redirect); the rail group is `ADD-ONS`.
   The page explains extensions, skills and dashboard plugins (dismissible card, part

@@ -24,9 +24,11 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import platform
 import re
 import subprocess
 import sys
+import tempfile
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
@@ -145,7 +147,8 @@ _MERMAID_BLOCK = re.compile(r"```mermaid\n(.*?)\n```", re.DOTALL)
 
 def _render_styled_diagrams(md_path: Path, style: str, cache_dir: Path) -> Path:
     """Replace each ```mermaid block with a cached <md5>.png, generating misses
-    via nano-banana CLI; fall back to mmdc per-diagram on any failure. Returns a
+    via nano-banana CLI; fall back to mmdc per-diagram on any failure (a broken
+    browser raises MMDC_UNAVAILABLE instead). Returns a
     rewritten temp .md placed IN THE SAME DIR so relative image paths resolve."""
     text = md_path.read_text(encoding="utf-8")
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -201,19 +204,53 @@ def _nano_banana(source: str, style: str, png: Path) -> bool:
         return False
 
 
+_DEFAULT_BROWSER = "/opt/chrome-headless-shell/chrome-headless-shell"
+_PROBE_FLAGS = ["--headless", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage", "--dump-dom", "about:blank"]
+
+
+def _browser_path() -> str:
+    return os.environ.get("PUPPETEER_EXECUTABLE_PATH") or _DEFAULT_BROWSER
+
+
+def browser_launch_probe() -> bool:
+    """Real headless launch with the flags /opt/puppeteer.json passes.
+
+    True when the browser starts and dumps a DOM; False on exec failure (arch
+    mismatch, missing file), non-zero exit, timeout, or no ``<html`` output.
+    Never raises. See change: fix-doc-engine-arm64-chromium (D6).
+    """
+    try:
+        proc = subprocess.run(
+            [_browser_path(), *_PROBE_FLAGS],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except Exception:  # noqa: BLE001 - OSError, TimeoutExpired, ...
+        return False
+    return proc.returncode == 0 and "<html" in (proc.stdout or "")
+
+
+def _unavailable(stderr: str) -> EngineError:
+    return EngineError(
+        "MMDC_UNAVAILABLE",
+        f"browser could not launch: {_browser_path()} (machine {platform.machine()})",
+        stderr,
+    )
+
+
 def _mmdc(source: str, png: Path) -> None:
     blk = png.with_suffix(".mmd")
     blk.write_text(source, encoding="utf-8")
-    env = dict(os.environ)
-    # Use the baked headless shell; never the host Chrome.
-    shell = os.environ.get("PUPPETEER_EXECUTABLE_PATH")
     proc = subprocess.run(
         ["mmdc", "-i", str(blk), "-o", str(png), "-b", "white", "-w", "1400", "-s", "2"],
         capture_output=True,
         text=True,
-        env=env,
+        env=dict(os.environ),
     )
     if proc.returncode != 0 or not png.exists():
+        if not browser_launch_probe():
+            raise _unavailable(proc.stderr)
         raise EngineError("MMDC_FAILED", "mermaid render failed", proc.stderr)
 
 
@@ -222,12 +259,27 @@ def _mmdc(source: str, png: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _run_dc(args: list[str]) -> subprocess.CompletedProcess:
+def _run_dc(args: list[str], classify_mmdc: bool = False) -> subprocess.CompletedProcess:
+    """Run document_converter. With ``classify_mmdc`` a failure is probed for a
+    broken browser, but only when the mmdc shim touched the render-attempt marker."""
     cmd = [sys.executable, "-m", "document_converter.cli", *args]
-    proc = subprocess.run(cmd, capture_output=True, text=True, cwd=str(ENGINE_DIR))
-    if proc.returncode != 0:
-        raise EngineError("PRODUCE_FAILED", f"document_converter exited {proc.returncode}", proc.stderr, proc.returncode)
-    return proc
+    marker: str | None = None
+    kwargs: dict = {}
+    if classify_mmdc:
+        fd, marker = tempfile.mkstemp(prefix="mmdc-marker-")
+        os.close(fd)
+        os.unlink(marker)  # the shim creates it only when mmdc runs
+        kwargs["env"] = {**os.environ, "PI_DOC_MMDC_MARKER": marker}
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, cwd=str(ENGINE_DIR), **kwargs)
+        if proc.returncode != 0:
+            if marker and os.path.exists(marker) and not browser_launch_probe():
+                raise _unavailable(proc.stderr)
+            raise EngineError("PRODUCE_FAILED", f"document_converter exited {proc.returncode}", proc.stderr, proc.returncode)
+        return proc
+    finally:
+        if marker and os.path.exists(marker):
+            os.unlink(marker)
 
 
 def cmd_render_docx(req: dict) -> dict:
@@ -249,7 +301,7 @@ def cmd_render_docx(req: dict) -> dict:
     if req.get("noToc"):
         args += ["--no-update-fields"]
     args += ["--non-interactive"]
-    _run_dc(args)
+    _run_dc(args, classify_mmdc=True)
     return _ok(output=out)
 
 
@@ -263,7 +315,7 @@ def cmd_render_pdf(req: dict) -> dict:
         args += ["--page-size", req["pageSize"]]
     if req.get("template"):
         args += ["--template", req["template"]]
-    _run_dc(args)
+    _run_dc(args, classify_mmdc=True)
     return _ok(output=out)
 
 
