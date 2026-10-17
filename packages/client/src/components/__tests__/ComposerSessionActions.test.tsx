@@ -730,7 +730,7 @@ describe("ComposerSessionActions STATUS group with the browser relay badge", () 
   const oneTab = {
     type: "browser_relay_status" as const,
     auditSeq: 1,
-    instances: [{ instanceId: "i1", profileDirectory: "OSS", state: "connected" as const, tabs: [{ tabId: 1, title: "T", url: "https://x.test", state: "live" as const }] }],
+    instances: [{ instanceId: "i1", profileDirectory: "OSS", host: "dashboard", state: "connected" as const, tabs: [{ tabId: 1, title: "T", url: "https://x.test", state: "live" as const }] }],
   };
 
   it("renders no STATUS group label with zero relay tabs", () => {
