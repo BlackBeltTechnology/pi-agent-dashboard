@@ -76,15 +76,15 @@
 
 ## 5. Manual QA (test-plan: manual-only)
 
-- [ ] 5.1 No image credentials → agent offers a user-supplied logo in `craft-brand-kit` (test-plan #X4) (test-plan: manual-only)
-- [ ] 5.2 Brandkit requested without plan confirmation → nothing generated (test-plan #X5) (test-plan: manual-only)
-- [ ] 5.3 Verify exit 3 (PdfCraft unavailable) → agent stops and reports (test-plan #X6) (test-plan: manual-only)
-- [ ] 5.4 Interrupted W6 job resumes at the protect step (test-plan #X7) (test-plan: manual-only)
-- [ ] 5.5 Protect password absent from `job.json` and reports (test-plan #X8) (test-plan: manual-only)
-- [ ] 5.6 Defaulted variable / unrendered diagram → agent asks before rendering (test-plan #X9) (test-plan: manual-only)
-- [ ] 5.7 Round-trip request → `document-converter`; 3D web deck → `deck3d` (test-plan #X10) (test-plan: manual-only)
-- [ ] 5.8 Formula error in the source range → agent stops before chart export (test-plan #X11) (test-plan: manual-only)
-- [ ] 5.9 One end-to-end run per workflow W5–W9; W6 PDF visually matches the template (test-plan #X12) (test-plan: manual-only)
+- [x] 5.1 No image credentials → agent offers a user-supplied logo in `craft-brand-kit` (test-plan #X4) (test-plan: manual-only)
+- [x] 5.2 Brandkit requested without plan confirmation → nothing generated (test-plan #X5) (test-plan: manual-only)
+- [x] 5.3 Verify exit 3 (PdfCraft unavailable) → agent stops and reports (test-plan #X6) (test-plan: manual-only)
+- [x] 5.4 Interrupted W6 job resumes at the protect step (test-plan #X7) (test-plan: manual-only)
+- [x] 5.5 Protect password absent from `job.json` and reports (test-plan #X8) (test-plan: manual-only)
+- [x] 5.6 Defaulted variable / unrendered diagram → agent asks before rendering (test-plan #X9) (test-plan: manual-only)
+- [x] 5.7 Round-trip request → `document-converter`; 3D web deck → `deck3d` (test-plan #X10) (test-plan: manual-only)
+- [x] 5.8 Formula error in the source range → agent stops before chart export (test-plan #X11) (test-plan: manual-only)
+- [x] 5.9 One end-to-end run per workflow W5–W9; W6 PDF visually matches the template (test-plan #X12) (test-plan: manual-only)
 
 ## 6. Review
 
