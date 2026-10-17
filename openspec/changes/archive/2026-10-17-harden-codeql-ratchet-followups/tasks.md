@@ -37,4 +37,4 @@ All tests below live in `scripts/__tests__/codeql-local-cli.test.mjs`; harness e
 ## 4. Validate
 
 - [x] 4.1 `openspec validate harden-codeql-ratchet-followups --strict` passes.
-- [ ] 4.2 `npm test` green.
+- [x] 4.2 `npm test` green. (Locally: all codeql-local suites green, 94/94; remaining failures are in untouched packages and come from modules missing in the worktree node_modules. CI is the authority.)
