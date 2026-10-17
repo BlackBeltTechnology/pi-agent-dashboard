@@ -180,6 +180,22 @@ describe("add-mermaid-auto-repair — i18n sweep (X4)", () => {
       expect(hu, `hu: ${key}`).toContain(`"${key}":`);
     }
   });
+
+  // See change: add-mermaid-ai-repair (test-plan X10)
+  it("AI repair action, pending, retry, badge, failure and disclosure keys are in both catalogues", () => {
+    for (const key of [
+      "preview.mermaid.aiFix",
+      "preview.mermaid.aiPending",
+      "preview.mermaid.aiRetry",
+      "preview.mermaid.aiFixed",
+      "preview.mermaid.aiFailed",
+      "preview.mermaid.aiNotRenderable",
+      "preview.mermaid.aiDisclosure",
+    ]) {
+      expect(zh, `zh-CN: ${key}`).toContain(`"${key}":`);
+      expect(hu, `hu: ${key}`).toContain(`"${key}":`);
+    }
+  });
 });
 
 describe("retro-ux-model-selector — i18n sweep (E21)", () => {

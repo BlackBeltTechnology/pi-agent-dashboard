@@ -14,3 +14,5 @@ REST endpoint request/response types. Sessions, events, spawn, file read/write (
 ## edit-pi-agent-settings
 
 `PiSettingsReadResponse`, `PiSettingsPatch`, `PutPiSettingsRequest`, `PutPiSettingsRawRequest`, `PiSettingsWriteResponse`, `PiSettingsConflict`, `PiMirrorResult`, `PiSettingsSyncResponse` — `/api/pi-settings*` bodies and the `piMirror` field of the config save. See change: edit-pi-agent-settings.
+
+`MermaidRepairRequest {code,error}`, `MermaidRepairData {code,model}`, `MermaidRepairErrorCode` (`disabled|bad_request|too_large|busy|timeout|provider_error|unparseable`), `MermaidRepairResponse` for `POST /api/mermaid/repair`. See change: add-mermaid-ai-repair.

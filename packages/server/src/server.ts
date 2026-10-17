@@ -251,6 +251,7 @@ import { registerKnownServersRoutes } from "./routes/known-servers-routes.js";
 import { registerLiveServerRoutes } from "./routes/live-server-routes.js";
 import { registerLocalProofRoutes } from "./routes/local-proof-routes.js";
 import { registerManifestRoute } from "./routes/manifest-route.js";
+import { registerMermaidRepairRoutes } from "./routes/mermaid-repair-routes.js";
 import { registerModelProxyApiKeyRoutes } from "./routes/model-proxy-api-key-routes.js";
 import { registerModelProxyDiagnosticsRoutes } from "./routes/model-proxy-diagnostics-routes.js";
 import { registerModelProxyRefreshRoutes } from "./routes/model-proxy-refresh-routes.js";
@@ -2297,6 +2298,20 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     return ids.length;
   };
   registerPiRetryRoutes(fastify, { networkGuard, reloadConnectedSessions });
+  // On-demand AI mermaid repair (opt-in via `mermaidRepair` config; 404 when off).
+  // See change: add-mermaid-ai-repair.
+  registerMermaidRepairRoutes(fastify, {
+    networkGuard,
+    getConfig: () => loadConfig().mermaidRepair,
+    getRegistry: async () => {
+      try {
+        return await getModelRegistry();
+      } catch {
+        return null;
+      }
+    },
+    getStreamSimple: getStreamSimpleFn,
+  });
   // pi global settings.json editor (typed form + raw JSON) and the
   // default-model mirror/drift repair. See change: edit-pi-agent-settings.
   registerPiSettingsRoutes(fastify, { networkGuard, reloadConnectedSessions, readDashboardConfig: loadConfig });
