@@ -2,11 +2,12 @@
  * POST /api/mermaid/repair — contract tests (test-plan #E7–#E14, #X1–#X7).
  * See change: add-mermaid-ai-repair.
  */
-import Fastify, { type FastifyInstance } from "fastify";
+
 import http from "node:http";
 import type { AddressInfo } from "node:net";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MermaidRepairConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import Fastify, { type FastifyInstance } from "fastify";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerMermaidRepairRoutes } from "../mermaid-repair-routes.js";
 
 const MODEL = "anthropic/m";

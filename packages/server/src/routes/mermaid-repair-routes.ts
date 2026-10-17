@@ -18,8 +18,8 @@ import type {
   MermaidRepairResponse,
 } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { FastifyInstance, FastifyReply } from "fastify";
-import { type RegistryLike, streamCompletion } from "../model-proxy/streamer.js";
 import type { RuntimeStreamSimpleFn } from "../model-proxy/registry-singleton.js";
+import { type RegistryLike, streamCompletion } from "../model-proxy/streamer.js";
 import type { NetworkGuard } from "./route-deps.js";
 
 /** Max `error` text accepted (chars). */

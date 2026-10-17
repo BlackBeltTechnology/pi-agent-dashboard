@@ -79,7 +79,6 @@ import { useWebSocket } from "./hooks/useWebSocket.js";
 import { fetchArchivedSessionById } from "./lib/api/archived-sessions-api.js";
 import { getInitialWsUrl, LAST_SERVER_KEY, performServerSwitch } from "./lib/api/server-switch.js";
 import { openStagingSocket } from "./lib/api/staging-socket.js";
-import { hydrateMermaidRepairConfig } from "./lib/preview/mermaid-repair-config.js";
 import { EMPTY_CANVAS_STATE } from "./lib/canvas/canvas-gate.js";
 // SubagentPopoutPage no longer imported by the shell — it's registered via
 // the subagents-plugin's `shell-overlay-route` claim and mounted through
@@ -137,6 +136,7 @@ import { usePeerAutoInstallReset } from "./lib/package/peer-auto-install-store.j
 import { dispatchPluginMessage } from "./lib/package/plugins-api.js";
 import { appendWsTicket, getApiBearer, isDevicePaired, mintWsTicket } from "./lib/pairing/device-auth.js";
 import { createEmbeddedAppShell } from "./lib/plugins/embedded-app-shell.js";
+import { hydrateMermaidRepairConfig } from "./lib/preview/mermaid-repair-config.js";
 import { buildHistoryPhaseMap, hasChatContent } from "./lib/replay/history-load-phase.js";
 import { extractUserPromptHistory } from "./lib/replay/message-history.js";
 import { rehydrateSession } from "./lib/replay/rehydrate-session.js";

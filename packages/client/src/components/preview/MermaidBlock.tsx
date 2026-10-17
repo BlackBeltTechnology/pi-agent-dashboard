@@ -11,8 +11,8 @@ import React, { useEffect, useId, useLayoutEffect, useRef, useState } from "reac
 import { useZoomPan } from "../../hooks/useZoomPan.js";
 import { repairMermaidWithAi } from "../../lib/api/mermaid-repair-api.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
-import { useMermaidRepairClientConfig } from "../../lib/preview/mermaid-repair-config.js";
 import { type RuleId, repairMermaid } from "../../lib/preview/mermaid-repair.js";
+import { useMermaidRepairClientConfig } from "../../lib/preview/mermaid-repair-config.js";
 import { copyText } from "../../lib/util/clipboard.js";
 import { CopyButton } from "../primitives/CopyButton.js";
 import { useThemeContext } from "../settings/ThemeProvider.js";
@@ -583,13 +583,70 @@ function AiBadge({
   );
 }
 
+/** Badge row above the diagram: AI-fixed pill when an AI fix is shown, else the rule-repair badge (if any). */
+function DiagramBadge({
+  code,
+  aiFixed,
+  originalOutcome,
+  outcome,
+  repaired,
+  showOriginal,
+  onToggle,
+}: {
+  code: string;
+  aiFixed: { model: string; fixedCode: string } | null;
+  originalOutcome: MermaidOutcome | null;
+  outcome: MermaidOutcome | null;
+  repaired: Extract<MermaidOutcome, { kind: "repaired" }> | null;
+  showOriginal: boolean;
+  onToggle: () => void;
+}) {
+  if (!aiFixed) return <RepairBadge code={code} outcome={repaired} showOriginal={showOriginal} onToggle={onToggle} />;
+  return (
+    <AiBadge
+      model={aiFixed.model}
+      originalCode={code}
+      originalError={originalOutcome?.kind === "error" ? originalOutcome.message : ""}
+      fixedSource={outcome?.kind === "repaired" ? outcome.code : aiFixed.fixedCode}
+      showOriginal={showOriginal}
+      onToggle={onToggle}
+    />
+  );
+}
+
 /**
- * On-demand AI repair state for one diagram. The result is accepted ONLY if
- * it renders (through the same queued render + sanitize path); a successful,
- * rendered fix is cached for the page lifetime. State is keyed on
- * `code + configured model`, so a source/model change discards it; the
- * request is aborted on unmount or key change.
- * See change: add-mermaid-ai-repair (design D3, D6).
+ * Ask the server for a fix and ACCEPT it only if it renders (same queued render
+ * + sanitize path as any diagram). Resolves to the new state plus the rendered
+ * outcome on success; `null` when aborted.
+ */
+async function requestValidatedFix(
+  code: string,
+  error: string,
+  resolved: string,
+  renderId: string,
+  signal: AbortSignal,
+): Promise<{ state: AiState; rendered?: MermaidOutcome } | null> {
+  try {
+    const res = await repairMermaidWithAi(code, error, signal);
+    if (signal.aborted) return null;
+    const rendered = await renderMermaid(renderId, res.code, resolved);
+    if (signal.aborted) return null;
+    if (rendered.kind === "error") {
+      const reason = i18nT("preview.mermaid.aiNotRenderable", undefined, "the returned diagram did not render either.");
+      return { state: { kind: "failed", reason } };
+    }
+    return { state: { kind: "fixed", fixedCode: res.code, model: res.model }, rendered };
+  } catch (err) {
+    if (signal.aborted) return null;
+    return { state: { kind: "failed", reason: err instanceof Error ? err.message : String(err) } };
+  }
+}
+
+/**
+ * On-demand AI repair state for one diagram. A successful, rendered fix is
+ * cached for the page lifetime. State is keyed on `code + configured model`,
+ * so a source/model change discards it; the request is aborted on unmount or
+ * key change. See change: add-mermaid-ai-repair (design D3, D6).
  */
 function useAiRepair(
   code: string,
@@ -604,6 +661,8 @@ function useAiRepair(
   const abortRef = useRef<AbortController | null>(null);
   const idBase = useId().replace(/:/g, "");
 
+  // Cleanup-only effect: aborts the in-flight request when the key changes or on unmount.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: aiKey is the intentional re-run trigger, not a read
   useEffect(
     () => () => {
       abortRef.current?.abort();
@@ -614,44 +673,27 @@ function useAiRepair(
 
   const failedOriginal = originalOutcome?.kind === "error" ? originalOutcome : null;
   const cached = cfg.enabled && failedOriginal ? _aiFixCache.get(aiKey) : undefined;
-  const state: AiState =
-    held && held.key === aiKey
-      ? held.state
-      : cached
-        ? { kind: "fixed", fixedCode: cached.fixedCode, model: cached.model }
-        : { kind: "idle" };
+  let state: AiState = { kind: "idle" };
+  if (held && held.key === aiKey) state = held.state;
+  else if (cached) state = { kind: "fixed", fixedCode: cached.fixedCode, model: cached.model };
 
   const start = () => {
     if (!failedOriginal || abortRef.current) return;
     const ac = new AbortController();
     abortRef.current = ac;
-    const set = (next: AiState) => {
-      if (!ac.signal.aborted) setHeld({ key: aiKey, state: next });
-    };
-    set({ kind: "pending" });
-    void (async () => {
-      try {
-        const res = await repairMermaidWithAi(code, failedOriginal.message, ac.signal);
-        if (ac.signal.aborted) return;
-        const result = await renderMermaid(`mermaid-${idBase}-ai${mermaidIdCounter++}`, res.code, resolved);
-        if (ac.signal.aborted) return;
-        if (result.kind === "error") {
-          set({
-            kind: "failed",
-            reason: i18nT("preview.mermaid.aiNotRenderable", undefined, "the returned diagram did not render either."),
-          });
-          return;
+    setHeld({ key: aiKey, state: { kind: "pending" } });
+    void requestValidatedFix(code, failedOriginal.message, resolved, `mermaid-${idBase}-ai${mermaidIdCounter++}`, ac.signal)
+      .then((out) => {
+        if (!out || ac.signal.aborted) return;
+        if (out.state.kind === "fixed" && out.rendered) {
+          _outcomeCache.set(cacheKey(out.state.fixedCode, themeId), out.rendered);
+          _aiFixCache.set(aiKey, { fixedCode: out.state.fixedCode, model: out.state.model });
         }
-        _outcomeCache.set(cacheKey(res.code, themeId), result);
-        _aiFixCache.set(aiKey, { fixedCode: res.code, model: res.model });
-        set({ kind: "fixed", fixedCode: res.code, model: res.model });
-      } catch (err) {
-        if (ac.signal.aborted) return;
-        set({ kind: "failed", reason: err instanceof Error ? err.message : String(err) });
-      } finally {
+        setHeld({ key: aiKey, state: out.state });
+      })
+      .finally(() => {
         if (abortRef.current === ac) abortRef.current = null;
-      }
-    })();
+      });
   };
 
   return { state, start, offer: cfg.enabled && failedOriginal !== null, model };
@@ -734,17 +776,16 @@ function useMermaidOutcome(code: string, themeId: string, key: string, resolved:
   return { outcome, svg, repaired, showOriginal, toggleShowOriginal };
 }
 
-export const MermaidBlock = React.memo(function MermaidBlock({ code, complete = true }: Props) {
-  const { resolved, themeName } = useThemeContext();
-  // Composite identity: accent palettes differ per named theme, so cache and
-  // re-render must key on both the named theme and its light/dark resolution.
-  const themeId = `${themeName}:${resolved}`;
-  const key = cacheKey(code, themeId);
+/**
+ * Which diagram the block shows: the original (with rule repair) or, once the
+ * user's AI fix was accepted, the fixed source — which renders through the
+ * normal outcome path under ITS OWN source, so a theme change re-renders it
+ * without a new request. See change: add-mermaid-ai-repair.
+ */
+function useDiagramView(code: string, themeId: string, key: string, resolved: string, complete: boolean) {
   const orig = useMermaidOutcome(code, themeId, key, resolved, complete);
   const aiCfg = useMermaidRepairClientConfig();
   const ai = useAiRepair(code, themeId, resolved, orig.outcome, aiCfg);
-  // An AI fix renders through the normal outcome path under ITS source, so a
-  // theme change re-renders it without a new request.
   const fixedCode = ai.state.kind === "fixed" ? ai.state.fixedCode : "";
   const fixedKey = cacheKey(fixedCode, themeId);
   const fixedView = useMermaidOutcome(fixedCode, themeId, fixedKey, resolved, complete && fixedCode !== "");
@@ -752,12 +793,36 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code, complete = 
   const aiControls = useAiControls(ai.state, ai.model, ai.start);
   const [aiShowOriginalFor, setAiShowOriginalFor] = useState<string | null>(null);
   const view = aiActive ? fixedView : orig;
-  const { outcome, svg } = view;
-  const repaired = aiActive ? null : orig.repaired;
   const showOriginal = aiActive ? aiShowOriginalFor === fixedKey : orig.showOriginal;
-  const toggleShowOriginal = aiActive
-    ? () => setAiShowOriginalFor(showOriginal ? null : fixedKey)
-    : orig.toggleShowOriginal;
+  return {
+    orig,
+    /** The accepted AI fix (model + source) while it is the displayed diagram. */
+    aiFixed: aiActive && ai.state.kind === "fixed" ? ai.state : null,
+    /** `ErrorView` slots for the AI repair control (empty when not offered). */
+    errorSlots: ai.offer ? { actions: aiControls.actions, notes: aiControls.notes } : {},
+    outcome: view.outcome,
+    svg: view.svg,
+    repaired: aiActive ? null : orig.repaired,
+    showOriginal,
+    toggleShowOriginal: aiActive
+      ? () => setAiShowOriginalFor(showOriginal ? null : fixedKey)
+      : orig.toggleShowOriginal,
+  };
+}
+
+export const MermaidBlock = React.memo(function MermaidBlock({ code, complete = true }: Props) {
+  const { resolved, themeName } = useThemeContext();
+  // Composite identity: accent palettes differ per named theme, so cache and
+  // re-render must key on both the named theme and its light/dark resolution.
+  const themeId = `${themeName}:${resolved}`;
+  const key = cacheKey(code, themeId);
+  const { orig, aiFixed, errorSlots, outcome, svg, repaired, showOriginal, toggleShowOriginal } = useDiagramView(
+    code,
+    themeId,
+    key,
+    resolved,
+    complete,
+  );
   const [focused, setFocused] = useState(false);
   const viewportRef = useRef<HTMLDivElement>(null);
   const refocusViewportRef = useRef(false);
@@ -833,7 +898,7 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code, complete = 
         code={code}
         message={outcome.message}
         headline={i18nT("preview.mermaid.errorHeadline", undefined, "This diagram could not be rendered.")}
-        {...(ai.offer ? { actions: aiControls.actions, notes: aiControls.notes } : {})}
+        {...errorSlots}
       />
     );
   }
@@ -858,23 +923,15 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code, complete = 
   // structure (first child div = viewport, only svg = the diagram) is unchanged.
   return (
     <>
-      {aiActive && ai.state.kind === "fixed" ? (
-        <AiBadge
-          model={ai.state.model}
-          originalCode={code}
-          originalError={orig.outcome?.kind === "error" ? orig.outcome.message : ""}
-          fixedSource={outcome?.kind === "repaired" ? outcome.code : ai.state.fixedCode}
-          showOriginal={showOriginal}
-          onToggle={toggleOriginal}
-        />
-      ) : (
-        <RepairBadge
-          code={code}
-          outcome={repaired}
-          showOriginal={showOriginal}
-          onToggle={toggleOriginal}
-        />
-      )}
+      <DiagramBadge
+        code={code}
+        aiFixed={aiFixed}
+        originalOutcome={orig.outcome}
+        outcome={outcome}
+        repaired={repaired}
+        showOriginal={showOriginal}
+        onToggle={toggleOriginal}
+      />
       <div className="mermaid-diagram relative my-2">
         {/* Viewport: clips zoomed/panned content. Hidden (not unmounted) while the
             original is shown, so zoom/pan state survives the toggle. */}
