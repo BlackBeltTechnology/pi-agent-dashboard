@@ -101,3 +101,7 @@
 - [ ] 7.2 M1 (test-plan: manual-only): with an Electron window open on 0.9.x under strict mode, upgrade the server to 1.0.0 · the window loses local proof until reloaded, and works after a reload.
 - [ ] 7.3 M2 (test-plan: manual-only): connect a real 0.9.0-era pre-proof pi bridge to a 1.0.0 server · it is refused and the server logs the retired-header line; `npm run reload` with the current extension reconnects.
 - [ ] 7.4 M3 (test-plan: manual-only): go 1.0.0 → 0.9.x → delete `token-epoch` → 1.0.0 · 0.9.x starts on the rotated token, and the re-upgrade rotates again.
+
+## Rebase note (from `fix-pairing-approval-credential`)
+
+`fix-pairing-approval-credential` also MODIFIES `qr-device-pairing` "Compare-code approval; code consumed on approval, not redemption" and `trust-and-credential-boundaries` "Opt-in local proof for loopback trust" (adds the refusal `reason`/`remedies` paragraph and the `next=` paragraph). Whichever archives second must rebase both MODIFIED blocks onto the shipped text, keeping both sets of additions (design.md "Ordering").

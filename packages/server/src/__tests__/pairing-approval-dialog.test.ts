@@ -6,9 +6,12 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { httpProofHeaders } from "@blackbelt-technology/pi-dashboard-shared/local-credential-proof.js";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerBearerAuth } from "../auth/bearer-auth.js";
+import { createLocalCredentialVerifier } from "../auth/local-credential.js";
+import { createLocalTrustContext, LOCAL_PROOF_COOKIE, signLocalProof } from "../auth/local-proof.js";
 import { createNetworkGuard } from "../auth/localhost-guard.js";
 import { PairedDeviceRegistry } from "../pairing/paired-devices.js";
 import { PairingManager, wirePendingHint } from "../pairing/pairing.js";
@@ -49,10 +52,32 @@ function pend(mgr: PairingManager) {
 /** A confirm code guaranteed to differ from `real`. */
 const wrong = (real: string) => (real === "11111111" ? "22222222" : "11111111");
 
-async function mkApp(opts: { trusted?: string[]; deviceBearer?: boolean } = {}) {
+/** The configured server port the refusal remedies are judged against. */
+const CONFIG_PORT = 8000;
+
+async function mkApp(
+  opts: { trusted?: string[]; deviceBearer?: boolean; loginAvailable?: () => boolean; proof?: boolean } = {},
+) {
   const { mgr, reg } = mkManager();
   const app = Fastify();
-  stampLegacyHook(app, LOCAL_TOKEN);
+  if (opts.proof) {
+    // Edge stamp that also verifies a real `X-Pi-Local-Proof` (what the CLI sends):
+    // inject has no socket, so the connection's own local address is supplied here.
+    const verifier = createLocalCredentialVerifier({ token: LOCAL_TOKEN, acceptLegacyToken: true, log: () => {} });
+    app.addHook("onRequest", async (request) => {
+      verifier.stamp(
+        {
+          headers: request.raw.headers,
+          method: request.method,
+          url: request.raw.url,
+          socket: { localAddress: "127.0.0.1", localPort: CONFIG_PORT },
+        },
+        { kind: "http", boundAt: 0 },
+      );
+    });
+  } else {
+    stampLegacyHook(app, LOCAL_TOKEN);
+  }
   apps.push(app);
   // Simulate a dashboard login session for the operator guard.
   app.addHook("onRequest", async (req) => {
@@ -66,6 +91,8 @@ async function mkApp(opts: { trusted?: string[]; deviceBearer?: boolean } = {}) 
     registry: reg,
     // Approval never honors bare loopback (D6): the operator presents the local token.
     localToken: LOCAL_TOKEN,
+    getPort: () => CONFIG_PORT,
+    ...(opts.loginAvailable ? { loginAvailable: opts.loginAvailable } : {}),
     hostAdmission: () => ({
       allowedHosts: [],
       publicBaseUrls: [],
@@ -86,6 +113,30 @@ const local = (app: FastifyInstance, method: "GET" | "POST", url: string, payloa
     headers: { ...(payload ? { "content-type": "application/json" } : {}), "x-pi-local-token": LOCAL_TOKEN, ...headers },
     ...(payload ? { payload: payload as Record<string, unknown> } : {}),
   });
+
+/** A real endpoint-bound `X-Pi-Local-Proof`, as `pi-dashboard pair` sends it. */
+const proofHeader = (method: "GET" | "POST", url: string) =>
+  httpProofHeaders(LOCAL_TOKEN, `http://127.0.0.1:${CONFIG_PORT}${url}`, method);
+
+/** Credential-less loopback request on the launcher origin (the dialog's own tab). */
+const bare = (
+  app: FastifyInstance,
+  url: string,
+  payload: unknown,
+  headers: Record<string, string> = {},
+  remoteAddress = "127.0.0.1",
+) =>
+  app.inject({
+    method: "POST",
+    url,
+    remoteAddress,
+    headers: { "content-type": "application/json", host: `localhost:${CONFIG_PORT}`, ...headers },
+    payload: payload as Record<string, unknown>,
+  });
+
+/** Request carrying a CLI-style proof header. */
+const withProof = (app: FastifyInstance, url: string, payload: unknown) =>
+  bare(app, url, payload, proofHeader("POST", url));
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-pairing-dlg-"));
@@ -474,5 +525,246 @@ describe("X8 — logs carry no metadata or secrets", () => {
       expect(l).not.toMatch(/[\r\n]/);
       for (const s of secrets) expect(l).not.toContain(s);
     }
+  });
+});
+
+describe("E7/E15/P3 — refusal body: device credential, non-disclosure, fault isolation", () => {
+  const bodyFor = (route: "approve" | "approve-pending", d: ReturnType<typeof pend>) =>
+    route === "approve" ? { code: d.code, confirmCode: d.confirmCode } : { pendingId: d.pendingId, confirmCode: d.confirmCode };
+
+  it.each(["approve", "approve-pending"] as const)("E7: device bearer on %s → device-credential, no remedies", async (route) => {
+    const { app, mgr, reg } = await mkApp({ deviceBearer: true, loginAvailable: () => true });
+    const phone = reg.add("phone");
+    const d = pend(mgr);
+    const res = await bare(app, `/api/pair/${route}`, bodyFor(route, d), { authorization: `Bearer ${phone.token}` });
+    expect(res.statusCode).toBe(401);
+    expect(res.json()).toEqual({
+      success: false,
+      error: "operator credential required",
+      reason: "device-credential",
+      remedies: [],
+    });
+  });
+
+  it.each(["approve", "approve-pending"] as const)("E15: %s refusal names nothing about the pending request", async (route) => {
+    const { app, mgr } = await mkApp();
+    const p = mgr.createPayload()!;
+    const r = mgr.redeem(p.code, { userAgent: "robson-phone", host: "office-mac", remoteAddress: "192.168.16.31" });
+    if (!r.ok) throw new Error("redeem failed");
+    const res = await bare(app, `/api/pair/${route}`, bodyFor(route, { code: p.code, ...r }));
+    expect(res.statusCode).toBe(401);
+    expect(Object.keys(res.json()).sort()).toEqual(["error", "reason", "remedies", "success"]);
+    expect(res.json().error).toBe("operator credential required");
+    for (const secret of [r.pendingId, "robson-phone", "192.168.16.31", "office-mac", r.confirmCode, p.code]) {
+      expect(res.body).not.toContain(secret);
+    }
+  });
+
+  it.each([
+    ["throwing", () => { throw new Error("login probe down"); }],
+    ["absent", undefined],
+  ] as const)("P3: %s loginAvailable thunk → 100/100 401, zero 5xx, no sign-in", async (_n, thunk) => {
+    const { app, mgr } = await mkApp({ loginAvailable: thunk });
+    const d = pend(mgr);
+    const statuses: number[] = [];
+    for (let i = 0; i < 100; i++) {
+      const res = await bare(app, "/api/pair/approve-pending", { pendingId: d.pendingId, confirmCode: d.confirmCode });
+      statuses.push(res.statusCode);
+      expect(res.json().remedies).not.toContain("sign-in");
+    }
+    expect(statuses.filter((c) => c === 401)).toHaveLength(100);
+    expect(statuses.some((c) => c >= 500)).toBe(false);
+  });
+
+  it("sign-in appears when the shared thunk reports a login method", async () => {
+    const { app, mgr } = await mkApp({ loginAvailable: () => true });
+    const d = pend(mgr);
+    const res = await bare(app, "/api/pair/approve-pending", { pendingId: d.pendingId, confirmCode: d.confirmCode });
+    expect(res.json().remedies).toEqual(["authorize-browser", "approve-on-host", "sign-in"]);
+  });
+});
+
+describe("E9/E11 — spoofed Host never earns authorize-browser and never 5xx", () => {
+  const post = async (host: string | null) => {
+    const { app, mgr } = await mkApp();
+    const d = pend(mgr);
+    const headers: Record<string, string> = { "content-type": "application/json" };
+    if (host !== null) headers.host = host;
+    return app.inject({
+      method: "POST",
+      url: "/api/pair/approve-pending",
+      remoteAddress: "127.0.0.1",
+      headers,
+      payload: { pendingId: d.pendingId, confirmCode: d.confirmCode },
+    });
+  };
+
+  it("other port (E9) → 401 with approve-on-host only", async () => {
+    const res = await post("localhost:9000");
+    expect(res.statusCode).toBe(401);
+    expect(res.json().remedies).toEqual(["approve-on-host"]);
+  });
+
+  // A Host that fails host admission itself (malformed, or naming another host) takes
+  // the design-D5 branch: the legacy two-key body, so it learns nothing and never 5xx.
+  // The helper-level `remedies` for these shapes is covered in pairing-refusal-remedies.test.ts.
+  it.each([
+    ["userinfo smuggle", "localhost:8000@evil"],
+    ["unterminated IPv6", "[::1"],
+  ])("%s → 401 legacy body, no remedies", async (_n, host) => {
+    const res = await post(host);
+    expect(res.statusCode).toBe(401);
+    expect(Object.keys(res.json())).toEqual(["success", "error"]);
+  });
+
+  it("LOCALHOST:8000 is the launcher origin (hostname is case-insensitive)", async () => {
+    const res = await post("LOCALHOST:8000");
+    expect(res.statusCode).toBe(401);
+    expect(res.json().remedies).toEqual(["authorize-browser", "approve-on-host"]);
+  });
+});
+
+describe("E14 — admission is exactly the pre-change set (6 rows × 2 routes)", () => {
+  const ctx = createLocalTrustContext(LOCAL_TOKEN, () => false);
+  const rows: Array<[string, (url: string) => Record<string, string>, string, number]> = [
+    ["session", () => ({ "x-test-session": "1" }), "127.0.0.1", 200],
+    ["proof cookie", () => ({ cookie: `${LOCAL_PROOF_COOKIE}=${signLocalProof(ctx)}` }), "127.0.0.1", 200],
+    ["X-Pi-Local-Proof", (url) => proofHeader("POST", url), "127.0.0.1", 200],
+    ["legacy X-Pi-Local-Token", () => ({ "x-pi-local-token": LOCAL_TOKEN }), "127.0.0.1", 200],
+    ["bare loopback", () => ({}), "127.0.0.1", 401],
+    ["device bearer", () => ({ authorization: "Bearer PLACEHOLDER" }), "127.0.0.1", 401],
+  ];
+  for (const route of ["approve", "approve-pending"] as const) {
+    it.each(rows)(`${route}: %s`, async (name, headersFor, ip, want) => {
+      const { app, mgr, reg } = await mkApp({ proof: true, deviceBearer: true });
+      const url = `/api/pair/${route}`;
+      const d = pend(mgr);
+      const headers = headersFor(url);
+      if (name === "device bearer") headers.authorization = `Bearer ${reg.add("phone").token}`;
+      const payload = route === "approve" ? { code: d.code, confirmCode: d.confirmCode } : { pendingId: d.pendingId, confirmCode: d.confirmCode };
+      const res = await bare(app, url, payload, headers, ip);
+      expect(res.statusCode).toBe(want);
+    });
+  }
+});
+
+describe("E16–E19 — deny uses the approval guard", () => {
+  const url = "/api/pair/deny";
+
+  it("E16: bare loopback deny → same reason/remedies as approve; P stays pending, code redeemable", async () => {
+    const { app, mgr } = await mkApp({ loginAvailable: () => true });
+    const d = pend(mgr);
+    const approveRefusal = await bare(app, "/api/pair/approve-pending", { pendingId: d.pendingId, confirmCode: d.confirmCode });
+    const res = await bare(app, url, { pendingId: d.pendingId });
+    expect(res.statusCode).toBe(401);
+    expect(res.json()).toEqual(approveRefusal.json());
+    expect(res.json().remedies).toEqual(["authorize-browser", "approve-on-host", "sign-in"]);
+    expect(mgr.poll(d.pendingId)).toEqual({ status: "pending" });
+    expect(mgr.redeem(d.code).ok).toBe(true);
+  });
+
+  it("E17: X-Pi-Local-Proof deny → 200, poll rejected, redeem refused", async () => {
+    const { app, mgr } = await mkApp({ proof: true });
+    const d = pend(mgr);
+    const res = await withProof(app, url, { pendingId: d.pendingId });
+    expect(res.statusCode).toBe(200);
+    expect(mgr.poll(d.pendingId)).toEqual({ status: "rejected" });
+    expect(mgr.redeem(d.code)).toEqual({ ok: false, error: "invalid_code" });
+  });
+
+  it("E18: device bearer deny → 401 device-credential; P unchanged", async () => {
+    const { app, mgr, reg } = await mkApp({ deviceBearer: true });
+    const phone = reg.add("phone");
+    const d = pend(mgr);
+    const res = await bare(app, url, { pendingId: d.pendingId }, { authorization: `Bearer ${phone.token}` });
+    expect(res.statusCode).toBe(401);
+    expect(res.json()).toMatchObject({ reason: "device-credential", remedies: [] });
+    expect(mgr.poll(d.pendingId)).toEqual({ status: "pending" });
+  });
+
+  it("E19: the pending feed still admits bare loopback", async () => {
+    const { app, mgr } = await mkApp();
+    pend(mgr);
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/pair/pending",
+      remoteAddress: "127.0.0.1",
+      headers: { host: `localhost:${CONFIG_PORT}` },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data).toHaveLength(1);
+  });
+});
+
+describe("X17 — the legacy `local()` helper still denies", () => {
+  it("legacy token deny → 200", async () => {
+    const { app, mgr } = await mkApp();
+    const d = pend(mgr);
+    expect((await local(app, "POST", "/api/pair/deny", { pendingId: d.pendingId })).statusCode).toBe(200);
+  });
+});
+
+describe("F6/F7/X18/X19 — CLI approvals (X-Pi-Local-Proof) share the budget, TTL and audit lines", () => {
+  const url = "/api/pair/approve-pending";
+  const logLines = () => {
+    const lines: string[] = [];
+    vi.spyOn(console, "log").mockImplementation((...a: unknown[]) => void lines.push(a.map(String).join(" ")));
+    return lines;
+  };
+
+  it("F6: one wrong CLI code then a wrong dialog code → attemptsLeft 4 then 3", async () => {
+    const { app, mgr } = await mkApp({ proof: true });
+    const d = pend(mgr);
+    const cli = await withProof(app, url, { pendingId: d.pendingId, confirmCode: wrong(d.confirmCode) });
+    expect(cli.statusCode).toBe(400);
+    expect(cli.json()).toEqual({ success: false, error: "mismatch", attemptsLeft: 4 });
+    const dialog = await bare(app, url, { pendingId: d.pendingId, confirmCode: wrong(d.confirmCode) }, { "x-test-session": "1" });
+    expect(dialog.json()).toEqual({ success: false, error: "mismatch", attemptsLeft: 3 });
+  });
+
+  it("F7: 5 wrong CLI codes then the correct one → 429 locked_out, not paired", async () => {
+    const { app, mgr, reg } = await mkApp({ proof: true });
+    const d = pend(mgr);
+    for (let i = 0; i < 5; i++) await withProof(app, url, { pendingId: d.pendingId, confirmCode: wrong(d.confirmCode) });
+    const res = await withProof(app, url, { pendingId: d.pendingId, confirmCode: d.confirmCode });
+    expect(res.statusCode).toBe(429);
+    expect(res.json()).toEqual({ success: false, error: "locked_out" });
+    expect(reg.list()).toHaveLength(0);
+  });
+
+  it("X18: correct code after the TTL, with no sweep since → refused, not paired", async () => {
+    const { app, mgr, reg } = await mkApp({ proof: true });
+    const d = pend(mgr);
+    clock += ttlOf(mgr, clock) + 1_000;
+    const res = await withProof(app, url, { pendingId: d.pendingId, confirmCode: d.confirmCode });
+    expect(res.statusCode).not.toBe(200);
+    expect(["expired", "no_pending"]).toContain(res.json().error);
+    expect(reg.list()).toHaveLength(0);
+  });
+
+  it("X19: CLI success / mismatch / lockout log lines have the dashboard approval's shape", async () => {
+    const shape = (l: string) => l.replace(/id=[0-9a-f]{8}/, "id=<8hex>").replace(/device=[0-9a-f]{1,8}/, "device=<id>");
+    const run = async (via: "cli" | "dialog") => {
+      const lines = logLines();
+      const { app, mgr } = await mkApp({ proof: true });
+      const send = (confirmCode: string, pendingId: string) =>
+        via === "cli"
+          ? withProof(app, url, { pendingId, confirmCode })
+          : bare(app, url, { pendingId, confirmCode }, { "x-test-session": "1" });
+      const a = pend(mgr);
+      await send(wrong(a.confirmCode), a.pendingId);
+      await send(a.confirmCode, a.pendingId);
+      const b = pend(mgr);
+      for (let i = 0; i < 5; i++) await send(wrong(b.confirmCode), b.pendingId);
+      vi.restoreAllMocks();
+      return lines.filter((l) => /^\[pairing\] (approved|mismatch|locked_out)/.test(l)).map(shape);
+    };
+    const cli = await run("cli");
+    const dialog = await run("dialog");
+    expect(cli.length).toBeGreaterThanOrEqual(7);
+    expect(cli).toEqual(dialog);
+    expect(cli.some((l) => l.startsWith("[pairing] approved"))).toBe(true);
+    expect(cli.some((l) => l.startsWith("[pairing] mismatch"))).toBe(true);
+    expect(cli.some((l) => l.startsWith("[pairing] locked_out"))).toBe(true);
   });
 });

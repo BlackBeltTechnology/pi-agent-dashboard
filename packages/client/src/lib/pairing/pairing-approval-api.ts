@@ -43,10 +43,37 @@ export async function listPending(): Promise<PendingPairing[]> {
   return json.success && Array.isArray(json.data) ? json.data : [];
 }
 
+/**
+ * What a credential refusal (401) tells the operator to do. Both are absent on
+ * an older server's bare two-key body; `remedies` values are NOT validated here
+ * (a newer server may add some) — the dialog ignores the ones it doesn't know.
+ * See change: fix-pairing-approval-credential.
+ */
+export interface RefusalRemedies {
+  reason?: string;
+  remedies?: string[];
+}
+
+/** The 401 body's exact `error` string for a missing operator credential. */
+const CREDENTIAL_REFUSAL_ERROR = "operator credential required";
+
+/** True for the 401 errors of the approval guard (this change's body + the older auth gate's). */
+export function isCredentialRefusalError(error: string): boolean {
+  return error === CREDENTIAL_REFUSAL_ERROR || error === "Authentication required";
+}
+
+/** Read the optional `reason` / `remedies` off a refusal body; malformed → undefined. */
+function refusalRemedies(json: { reason?: unknown; remedies?: unknown }): RefusalRemedies {
+  const out: RefusalRemedies = {};
+  if (typeof json.reason === "string") out.reason = json.reason;
+  if (Array.isArray(json.remedies)) out.remedies = json.remedies.filter((r): r is string => typeof r === "string");
+  return out;
+}
+
 export type ApprovePendingOutcome =
   | { ok: true; device: PairedDeviceView }
   | { ok: false; error: "mismatch"; attemptsLeft: number }
-  | { ok: false; error: string };
+  | ({ ok: false; error: string } & RefusalRemedies);
 
 /**
  * Approve by pendingId with the typed confirm code. Server outcomes resolve;
@@ -64,6 +91,8 @@ export async function approvePending(
     data?: PairedDeviceView;
     error?: string;
     attemptsLeft?: number;
+    reason?: unknown;
+    remedies?: unknown;
   }>(`${getApiBase()}/api/pair/approve-pending`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -78,15 +107,18 @@ export async function approvePending(
   if (json.error === "mismatch" && typeof json.attemptsLeft === "number") {
     return { ok: false, error: "mismatch", attemptsLeft: json.attemptsLeft };
   }
-  return { ok: false, error: json.error ?? "unknown" };
+  return { ok: false, error: json.error ?? "unknown", ...refusalRemedies(json) };
 }
 
 /** Deny a pending device. `no_pending` resolves `ok:false`; transport throws. */
-export async function denyPending(pendingId: string): Promise<{ ok: boolean; error?: string }> {
-  const { json } = await fetchJsonResponse<{ success: boolean; error?: string }>(`${getApiBase()}/api/pair/deny`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ pendingId }),
-  });
-  return json.success ? { ok: true } : { ok: false, error: json.error ?? "unknown" };
+export async function denyPending(pendingId: string): Promise<{ ok: boolean; error?: string } & RefusalRemedies> {
+  const { json } = await fetchJsonResponse<{ success: boolean; error?: string; reason?: unknown; remedies?: unknown }>(
+    `${getApiBase()}/api/pair/deny`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ pendingId }),
+    },
+  );
+  return json.success ? { ok: true } : { ok: false, error: json.error ?? "unknown", ...refusalRemedies(json) };
 }
