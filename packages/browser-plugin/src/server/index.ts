@@ -23,10 +23,13 @@
  *
  * See change: add-browser-relay.
  */
-import { OpenHandler } from "./open-handler.js";
+import { hostname } from "node:os";
+import { join } from "node:path";
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import { getDashboardConfigDir } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 import { AuditRing } from "./audit.js";
 import { canOpenChrome } from "./capability.js";
+import { OpenHandler } from "./open-handler.js";
 import { listChromeProfiles } from "./profiles.js";
 import { type RelayConfig, RelayManager } from "./relay/relay-manager.js";
 import { registerBrowserRoutes } from "./routes.js";
@@ -37,6 +40,29 @@ import { registerBrowserWsRoutes } from "./ws-routes.js";
 function dashboardPort(ctx: ServerPluginContext): number {
   const address = ctx.fastify.server.address();
   return typeof address === "object" && address !== null ? address.port : 0;
+}
+
+/**
+ * This server's own `/api/health` `instanceId` — the identity an operator host
+ * signs its registration against (design D2). Read over loopback (the route is
+ * unauthenticated and the plugin context exposes no instance id); memoised on
+ * success, retried after a failure. Never throws a value into a message: a
+ * failure just refuses the hello.
+ */
+function serverIdReader(ctx: ServerPluginContext): () => Promise<string> {
+  let cached: string | undefined;
+  return async () => {
+    if (cached) return cached;
+    const res = await fetch(`http://127.0.0.1:${dashboardPort(ctx)}/api/health`, {
+      signal: AbortSignal.timeout(5000),
+    });
+    const body = (await res.json()) as { instanceId?: unknown };
+    if (typeof body.instanceId !== "string" || body.instanceId.length === 0) {
+      throw new Error("health carries no instanceId");
+    }
+    cached = body.instanceId;
+    return cached;
+  };
 }
 
 async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
@@ -60,6 +86,12 @@ async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
     onStatusChange: () => status.broadcastNow(),
     onTabMetaChange: () => status.schedule(),
     onInstanceClosed: (instanceId) => openHandler.onInstanceClosed(instanceId),
+    // Operator hosts: key pins live in the dashboard config dir; bindings are in memory.
+    operatorHosts: {
+      pinsPath: join(getDashboardConfigDir(), "browser-plugin", "operator-hosts.json"),
+      getServerId: serverIdReader(ctx),
+    },
+    getServerLabel: () => `${hostname()}:${dashboardPort(ctx)}`,
   });
   // `browser/open` — bridge tools `browser_show_in_pane` / `browser_await_human`.
   // The caller's session id comes from the request lane, never the payload.
@@ -68,6 +100,7 @@ async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
 
   status = new BrowserRelayStatus({
     manager,
+    hosts: manager,
     audit,
     broadcast: (msg) => ctx.broadcastToSubscribers(msg),
     logger: ctx.logger,

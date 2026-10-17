@@ -17,7 +17,7 @@ interface Stub {
   setClientScreencast: (v: boolean) => void;
 }
 
-function stub(noFramesMs = 5): Stub {
+function stub(noFramesMs = 5, tee?: { carrier: FakeSocket; linkId: string }): Stub {
   const audit = new AuditRing();
   const sent: Stub["sent"] = [];
   let statusChanges = 0;
@@ -38,6 +38,7 @@ function stub(noFramesMs = 5): Stub {
       statusChanges += 1;
     },
     noFramesMs,
+    ...(tee ? { tee } : {}),
   });
   return {
     tap,
@@ -225,5 +226,123 @@ describe("teardown", () => {
     await s.tap.input(new FakeSocket(), 7, { kind: "bringToFront" });
     expect(spy).not.toHaveBeenCalled();
     expect(s.sent).toHaveLength(0);
+  });
+});
+
+/**
+ * Local frame viewers (change: add-operator-browser-relay, task 7.6, design
+ * D10) — test-plan #E25–#E28. The carrier is the viewer socket the instance's
+ * link rides on; it renders frames from its own tee instead of receiving them.
+ */
+describe("local viewers (D10)", () => {
+  const LINK = "l".repeat(32);
+  const tees = (socket: FakeSocket) => socket.json().filter((m) => m.type === "browser_host_tee");
+  const acks = (s: Stub) => s.sent.filter((c) => c.method === "Page.screencastFrameAck");
+
+  function withCarrier() {
+    const carrier = new FakeSocket();
+    return { carrier, s: stub(5, { carrier, linkId: LINK }) };
+  }
+
+  it("carrier subscribes local: tee on, no browser_relay_frame, frames still acked, screencast running (E25)", () => {
+    const { carrier, s } = withCarrier();
+    expect(s.tap.subscribe(carrier, 7, { local: true }).ok).toBe(true);
+    expect(tees(carrier)).toEqual([
+      { type: "browser_host_tee", linkId: LINK, instanceId: "inst-1", tabId: 7, on: true },
+    ]);
+    expect(s.sent.filter((c) => c.method === "Page.startScreencast")).toHaveLength(1);
+    for (let i = 0; i < 3; i++) s.tap.onEvent("pw-tab-1", "Page.screencastFrame", frame());
+    expect(frameCount(carrier)).toBe(0);
+    expect(acks(s)).toHaveLength(3);
+    expect(s.tap.handlesSession("pw-tab-1")).toBe(true);
+  });
+
+  it("another socket's local:true is a normal subscribe + audited local-ignored (E26)", () => {
+    const { s } = withCarrier();
+    const phone = new FakeSocket();
+    expect(s.tap.subscribe(phone, 7, { local: true }).ok).toBe(true);
+    for (let i = 0; i < 3; i++) s.tap.onEvent("pw-tab-1", "Page.screencastFrame", frame());
+    expect(frameCount(phone)).toBe(3);
+    expect(tees(phone)).toHaveLength(0);
+    const denied = s.audit.list().filter((e) => e.kind === "denied");
+    expect(denied.map((e) => e.detail)).toEqual(["browser_host:local-ignored"]);
+  });
+
+  it("local:true on an instance with no carrier is ignored the same way", () => {
+    const s = stub();
+    const viewer = new FakeSocket();
+    s.tap.subscribe(viewer, 7, { local: true });
+    s.tap.onEvent("pw-tab-1", "Page.screencastFrame", frame());
+    expect(frameCount(viewer)).toBe(1);
+    expect(s.audit.list().some((e) => e.detail === "browser_host:local-ignored")).toBe(true);
+  });
+
+  it("local → non-local on the same tab: tee off first, then frames; never both for one frame (E27)", () => {
+    const { carrier, s } = withCarrier();
+    s.tap.subscribe(carrier, 7, { local: true });
+    s.tap.onEvent("pw-tab-1", "Page.screencastFrame", frame());
+    expect(frameCount(carrier)).toBe(0);
+
+    s.tap.subscribe(carrier, 7);
+    s.tap.onEvent("pw-tab-1", "Page.screencastFrame", frame());
+    const order = carrier.json().map((m) => (m.type === "browser_host_tee" ? `tee:${m.on}` : m.type));
+    expect(order).toEqual(["tee:true", "tee:false", "browser_relay_frame"]);
+    // one subscription per (socket, tab): still a single start
+    expect(s.sent.filter((c) => c.method === "Page.startScreencast")).toHaveLength(1);
+  });
+
+  it("non-local → local: tee on, frames stop", () => {
+    const { carrier, s } = withCarrier();
+    s.tap.subscribe(carrier, 7);
+    s.tap.onEvent("pw-tab-1", "Page.screencastFrame", frame());
+    expect(frameCount(carrier)).toBe(1);
+    s.tap.subscribe(carrier, 7, { local: true });
+    s.tap.onEvent("pw-tab-1", "Page.screencastFrame", frame());
+    expect(frameCount(carrier)).toBe(1);
+    expect(tees(carrier).map((m) => m.on)).toEqual([true]);
+  });
+
+  it("a repeated local subscribe does not resend tee", () => {
+    const { carrier, s } = withCarrier();
+    s.tap.subscribe(carrier, 7, { local: true });
+    s.tap.subscribe(carrier, 7, { local: true });
+    expect(tees(carrier)).toHaveLength(1);
+  });
+
+  it("last local viewer unsubscribes: tee off sent and the screencast stops (E28)", () => {
+    const { carrier, s } = withCarrier();
+    s.tap.subscribe(carrier, 7, { local: true });
+    s.tap.unsubscribe(carrier, 7);
+    expect(tees(carrier).map((m) => m.on)).toEqual([true, false]);
+    expect(s.sent.some((c) => c.method === "Page.stopScreencast")).toBe(true);
+    expect(s.tap.tabIds).toEqual([]);
+  });
+
+  it("a local viewer keeps the screencast alive for a remote one and vice versa", () => {
+    const { carrier, s } = withCarrier();
+    const phone = new FakeSocket();
+    s.tap.subscribe(carrier, 7, { local: true });
+    s.tap.subscribe(phone, 7);
+    s.tap.unsubscribe(phone, 7);
+    expect(s.sent.some((c) => c.method === "Page.stopScreencast")).toBe(false);
+    s.tap.unsubscribe(carrier, 7);
+    expect(s.sent.some((c) => c.method === "Page.stopScreencast")).toBe(true);
+  });
+
+  it("carrier close (unsubscribeAll) sends no tee to a closed socket and stops the tab", () => {
+    const { carrier, s } = withCarrier();
+    s.tap.subscribe(carrier, 7, { local: true });
+    carrier.readyState = 3;
+    s.tap.unsubscribeAll(carrier);
+    expect(tees(carrier).map((m) => m.on)).toEqual([true]);
+    expect(s.tap.tabIds).toEqual([]);
+  });
+
+  it("a refused subscribe (client owns the screencast) never tees", () => {
+    const { s } = withCarrier();
+    s.setClientScreencast(true);
+    const phone = new FakeSocket();
+    expect(s.tap.subscribe(phone, 7, { local: true }).ok).toBe(false);
+    expect(tees(phone)).toHaveLength(0);
   });
 });

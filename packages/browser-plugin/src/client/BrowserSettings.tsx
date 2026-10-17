@@ -16,7 +16,11 @@
  * config), so other profiles' tokens survive and no token round-trips through
  * the client.
  *
- * See change: add-browser-relay (task 4.1).
+ * Electron only: a "This computer" block (`ThisComputerBlock`) lists the local
+ * machine's profiles, a write-only local token input and the stored operator
+ * consents. The rows above stay dashboard-host only.
+ *
+ * See change: add-browser-relay (task 4.1); add-operator-browser-relay (task 8.3).
  */
 
 import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
@@ -38,6 +42,8 @@ import {
   setBrowserEnabled,
   writeBrowserProfile,
 } from "./browser-api.js";
+import { getBrowserHost } from "./browser-host.js";
+import { ThisComputerBlock } from "./ThisComputerBlock.js";
 
 export function BrowserSettings(): React.ReactElement {
   const t = useT();
@@ -84,6 +90,8 @@ export function BrowserSettings(): React.ReactElement {
   }
 
   const rows = Object.values(profiles.profiles);
+  // Electron main window only (local-origin preload); absent in a plain browser.
+  const browserHost = getBrowserHost();
 
   return (
     <div className="space-y-3" data-testid="browser-settings">
@@ -131,6 +139,8 @@ export function BrowserSettings(): React.ReactElement {
           <ProfileRow key={profile.profileDirectory} profile={profile} status={status} onRefetch={refetch} />
         ))
       )}
+
+      {browserHost && <ThisComputerBlock bridge={browserHost} />}
     </div>
   );
 }

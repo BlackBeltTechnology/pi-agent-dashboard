@@ -45,7 +45,7 @@ export const CHROME_EXTENSION_ORIGIN = "chrome-extension://mmlmfjhmonkocbjadbfpl
  */
 export interface RelayAttacher {
   /** Live guid → its entry, or undefined (unknown / expired / malformed). */
-  resolve(guid: string): { claimed: boolean } | undefined;
+  resolve(guid: string): { claimed: boolean; operator?: boolean } | undefined;
   /** Attach an accepted extension socket. Returns false only for an unknown guid. */
   attachExtension(guid: string, ws: RelaySocket): boolean;
   /** Attach an accepted CDP client socket. Returns false only for an unknown guid. */
@@ -83,7 +83,11 @@ export function registerBrowserWsRoutes(ctx: ServerPluginContext, manager: Relay
     admitOrigins: [CHROME_EXTENSION_ORIGIN],
     handleUpgrade: (request: IncomingMessage, socket: Duplex, head: Buffer, meta) => {
       const guid = guidFromPath(request.url, BROWSER_EXT_PATH);
-      if (!guid || !manager.resolve(guid)) {
+      const live = guid ? manager.resolve(guid) : undefined;
+      // An operator-targeted guid is never dialled here: its extension arrives
+      // as a link over the carrier. A 404 keeps it indistinguishable from an
+      // unknown guid. See change: add-operator-browser-relay (D3).
+      if (!guid || !live || live.operator) {
         refuse(socket, 404, "Not Found");
         return;
       }

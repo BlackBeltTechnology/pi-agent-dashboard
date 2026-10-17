@@ -74,6 +74,12 @@ const WS_ROADS: Readonly<Record<string, readonly [HostAction, string]>> = {
   // plugins (core management)
   plugin_config_write: ["plugins.write", "plugin"],
   // plugin-owned core frames
+  browser_host_connect_result: ["plugin:browser:write", "plugin"],
+  browser_host_ext_close: ["plugin:browser:write", "plugin"],
+  browser_host_ext_data: ["plugin:browser:write", "plugin"],
+  browser_host_ext_open: ["plugin:browser:write", "plugin"],
+  browser_host_hello: ["plugin:browser:write", "plugin"],
+  browser_host_register: ["plugin:browser:write", "plugin"],
   browser_relay_input: ["plugin:browser:write", "plugin"],
   browser_relay_subscribe: ["plugin:browser:read", "plugin"],
   browser_relay_unsubscribe: ["plugin:browser:read", "plugin"],

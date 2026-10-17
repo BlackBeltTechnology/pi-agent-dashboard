@@ -12,6 +12,7 @@ import {
   usePluginConfigOf,
   usePluginLogger,
   usePluginMessage,
+  usePluginSocket,
 } from "../plugin-context.js";
 import { createSlotRegistry } from "../slot-registry.js";
 
@@ -309,5 +310,34 @@ describe("usePluginMessage", () => {
     );
     expect(() => act(() => ws.emitRaw("{not json"))).not.toThrow();
     expect(seen).toEqual([]);
+  });
+});
+
+// ── usePluginSocket — the live shell socket, per socket instance ──
+// See change: add-operator-browser-relay.
+describe("usePluginSocket", () => {
+  it("returns the provider's socket, the new instance after a reconnect, and null without a provider", () => {
+    const seen: Array<WebSocket | null> = [];
+    function Comp() {
+      seen.push(usePluginSocket());
+      return null;
+    }
+    const fake = (url: string) => ({ url, addEventListener() {}, removeEventListener() {} }) as unknown as WebSocket;
+    const a = fake("ws://a/ws");
+    const b = fake("ws://b/ws");
+    const tree = (ws: WebSocket | null) => (
+      <PluginContextProvider registry={createSlotRegistry()} ws={ws}>
+        <Comp />
+      </PluginContextProvider>
+    );
+    const { rerender, unmount } = render(tree(a));
+    expect(seen.at(-1)).toBe(a);
+    rerender(tree(b));
+    expect(seen.at(-1)).toBe(b);
+    rerender(tree(null));
+    expect(seen.at(-1)).toBeNull();
+    unmount();
+    render(<Comp />);
+    expect(seen.at(-1)).toBeNull();
   });
 });

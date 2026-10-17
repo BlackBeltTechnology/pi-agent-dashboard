@@ -2,11 +2,12 @@
  * REST surface for the browser plugin (change: add-browser-relay, task 2.9;
  * spec `browser-plugin-settings`).
  *
- * Six routes on the host Fastify instance:
+ * Seven routes (+ the per-profile PUT) on the host Fastify instance:
  *
- *   GET  /api/browser/status      → { enabled, canOpenChrome }
- *   GET  /api/browser/profiles    → rows keyed by profileDirectory (+ instances/tabs)
- *   POST /api/browser/connect     → { cdpUrl, instanceId } | 403/409/503/504
+ *   GET  /api/browser/status      → { enabled, canOpenChrome, operatorHosts: true }
+ *   GET  /api/browser/profiles    → rows keyed by profileDirectory (+ instances/tabs) + operatorHosts[]
+ *   POST /api/browser/connect     → { profileDirectory, host? } → { cdpUrl, instanceId } | 403/404/409/503/504
+ *   DELETE /api/browser/operator-hosts/:hostId → reset an operator host's key pin
  *   POST /api/browser/disconnect  → ?instanceId= (required) | 400/404
  *   GET  /api/browser/audit       → newest-first entries (optional ?profile=)
  *   PUT  /api/browser/enabled     → kill switch ({ enabled: boolean })
@@ -20,11 +21,13 @@
  * carries only `hasToken: boolean`. That is the one place a token could leak.
  */
 
+import { HOST_ID_PATTERN } from "@blackbelt-technology/pi-dashboard-shared/browser-host-identity.js";
 import type { BrowserRelayTabState } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { FastifyInstance } from "fastify";
 import type { AuditEntry, AuditRing } from "./audit.js";
-import { isRelayConnectPage, redactExtensionUrl } from "./redact.js";
+import type { OperatorHostInfo } from "./operator-hosts.js";
 import type { ProfileListResult, ProfileSource } from "./profiles.js";
+import { isRelayConnectPage, redactExtensionUrl } from "./redact.js";
 import type { BrowserProfileConfig, ConnectResult, RelayConfig, RelayLike } from "./relay/relay-manager.js";
 
 interface BrowserRouteTab {
@@ -52,8 +55,26 @@ interface BrowserRouteProfile {
   instances: BrowserRouteInstance[];
 }
 
+/**
+ * One operator profile row: the four registered fields plus the instances S
+ * knows. NO `hasToken`/`zeroDialog` — S cannot know the operator's local state.
+ */
+interface BrowserOperatorProfile {
+  profileDirectory: string;
+  label: string;
+  email?: string;
+  installed: boolean;
+  instances: BrowserRouteInstance[];
+}
+
+interface BrowserOperatorHost extends Omit<OperatorHostInfo, "profiles"> {
+  profiles: BrowserOperatorProfile[];
+}
+
 interface BrowserProfilesResponse {
   profiles: Record<string, BrowserRouteProfile>;
+  /** Bound operator hosts (online only). Served by this authenticated REST route only. */
+  operatorHosts: BrowserOperatorHost[];
   /** Set only on the synthetic-`Default` fallback; names the offending path. */
   warning?: string;
 }
@@ -61,6 +82,8 @@ interface BrowserProfilesResponse {
 interface BrowserStatusResponse {
   enabled: boolean;
   canOpenChrome: boolean;
+  /** This server supports operator browser hosts; clients send no `browser_host_*` without it. */
+  operatorHosts: true;
 }
 
 interface BrowserAuditResponse {
@@ -70,10 +93,13 @@ interface BrowserAuditResponse {
 /** The manager surface the routes need (narrow for tests; `RelayManager` fits). */
 export interface BrowserRoutesManager {
   readonly enabled: boolean;
-  connect(profileDirectory: string): Promise<ConnectResult>;
+  connect(profileDirectory: string, host?: string): Promise<ConnectResult>;
   disconnect(instanceId: string): boolean;
   setEnabled(enabled: boolean): Promise<void>;
   instances(profileDirectory?: string): RelayLike[];
+  /** Instances on one host (`"dashboard"` or an operator `hostId`). */
+  instancesOn(host: string, profileDirectory?: string): RelayLike[];
+  hosts: { list(): OperatorHostInfo[]; deletePin(hostId: string): boolean };
   profileConfig(profileDirectory: string): BrowserProfileConfig;
 }
 
@@ -183,12 +209,23 @@ function applyProfilePatch(current: RelayConfig, dir: string, patch: ProfilePatc
   return { ok: true, browsers, hasToken: typeof entry.token === "string" && entry.token.length > 0 };
 }
 
+/** `host` is optional; when present it must be a short non-empty string. */
+function isValidHost(host: unknown): host is string | undefined {
+  return host === undefined || (typeof host === "string" && host.length > 0 && host.length <= 128);
+}
+
+/** Omitted or `"dashboard"` = the dashboard-host path. */
+function isDashboardTarget(host: unknown): boolean {
+  return host === undefined || host === "dashboard";
+}
+
 export function registerBrowserRoutes(fastify: FastifyInstance, deps: BrowserRoutesDeps): void {
   const { manager, audit, logger } = deps;
 
   fastify.get("/api/browser/status", async (): Promise<BrowserStatusResponse> => ({
     enabled: manager.enabled,
     canOpenChrome: deps.canOpenChrome(),
+    operatorHosts: true,
   }));
 
   fastify.get<{ Querystring: { profileDirectory?: string } }>(
@@ -202,7 +239,8 @@ export function registerBrowserRoutes(fastify: FastifyInstance, deps: BrowserRou
       // is not discoverable on disk, and a profile could vanish from Local
       // State mid-session).
       const dirs = [...discovered.keys()];
-      for (const inst of manager.instances()) {
+      // Dashboard-host rows only: an operator's profiles are listed under their host.
+      for (const inst of manager.instancesOn("dashboard")) {
         if (!discovered.has(inst.profileDirectory)) dirs.push(inst.profileDirectory);
       }
       const rows: Record<string, BrowserRouteProfile> = {};
@@ -211,15 +249,27 @@ export function registerBrowserRoutes(fastify: FastifyInstance, deps: BrowserRou
         rows[dir] = rowFor(
           discovered.get(dir),
           dir,
-          manager.instances(dir),
+          manager.instancesOn("dashboard", dir),
           Boolean(manager.profileConfig(dir).token),
         );
       }
-      return warning ? { profiles: rows, warning } : { profiles: rows };
+      const operatorHosts: BrowserOperatorHost[] = manager.hosts.list().map((host) => ({
+        ...host,
+        profiles: host.profiles
+          .filter((p) => only === undefined || p.profileDirectory === only)
+          .map((p) => ({
+            profileDirectory: p.profileDirectory,
+            label: p.label,
+            ...(p.email ? { email: p.email } : {}),
+            installed: p.installed,
+            instances: manager.instancesOn(host.hostId, p.profileDirectory).map(instanceRow),
+          })),
+      }));
+      return warning ? { profiles: rows, operatorHosts, warning } : { profiles: rows, operatorHosts };
     },
   );
 
-  fastify.post<{ Body: { profileDirectory?: unknown } }>(
+  fastify.post<{ Body: { profileDirectory?: unknown; host?: unknown } }>(
     "/api/browser/connect",
     async (req, reply) => {
       if (!manager.enabled) {
@@ -231,12 +281,34 @@ export function registerBrowserRoutes(fastify: FastifyInstance, deps: BrowserRou
         reply.code(400);
         return { error: "profileDirectory is required" };
       }
-      const result = await manager.connect(profileDirectory);
+      // Optional operator host; omitted or "dashboard" = the dashboard-host path.
+      const host = req.body?.host;
+      if (!isValidHost(host)) {
+        reply.code(400);
+        return { error: "host must be a non-empty string" };
+      }
+      // Operator consent (≤ 60 s) plus the extension handshake (≤ 60 s) outlast
+      // Fastify's 10 s connectionTimeout: disable the per-socket timeout for this
+      // request and restore it once the response flushes (same shape as
+      // git-routes). A client abort destroys the socket, so nothing to restore.
+      // See change: add-operator-browser-relay (design D4).
+      const socket = req.raw.socket;
+      const prevTimeout = typeof socket?.timeout === "number" ? socket.timeout : undefined;
+      socket?.setTimeout?.(0);
+      if (typeof prevTimeout === "number") {
+        reply.raw.once("finish", () => {
+          if (socket && !socket.destroyed) socket.setTimeout(prevTimeout);
+        });
+      }
+      const result = await manager.connect(profileDirectory, host);
       if (!result.ok) {
         reply.code(result.status);
-        logger.warn(
-          `[browser-relay] connect refused profile=${profileDirectory} status=${result.status} reason=${result.reason ?? result.message ?? ""}`,
-        );
+        // Operator connects log their own `[browser-host] connect` line (no request-supplied text here).
+        if (isDashboardTarget(host)) {
+          logger.warn(
+            `[browser-relay] connect refused profile=${profileDirectory} status=${result.status} reason=${result.reason ?? result.message ?? ""}`,
+          );
+        }
         return result;
       }
       return result;
@@ -262,6 +334,18 @@ export function registerBrowserRoutes(fastify: FastifyInstance, deps: BrowserRou
       return { success: true };
     },
   );
+
+  // Reset an operator host's key pin (reinstalled operator). Same REST auth as
+  // every /api/browser/* route; tier `operate` in shared route-tiers. Not gated on
+  // the kill switch: it only forgets a public key.
+  fastify.delete<{ Params: { hostId: string } }>("/api/browser/operator-hosts/:hostId", async (req, reply) => {
+    const { hostId } = req.params;
+    if (!HOST_ID_PATTERN.test(hostId)) {
+      reply.code(400);
+      return { error: "invalid hostId" };
+    }
+    return { removed: manager.hosts.deletePin(hostId) };
+  });
 
   fastify.get<{ Querystring: { profile?: string } }>(
     "/api/browser/audit",

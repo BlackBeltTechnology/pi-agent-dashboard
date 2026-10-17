@@ -45,11 +45,11 @@ afterEach(() => {
 });
 
 class FakeAttacher implements RelayAttacher {
-  readonly live = new Map<string, { claimed: boolean }>();
+  readonly live = new Map<string, { claimed: boolean; operator?: boolean }>();
   readonly attachedExt: string[] = [];
   readonly attachedCdp: string[] = [];
 
-  resolve(guid: string): { claimed: boolean } | undefined {
+  resolve(guid: string): { claimed: boolean; operator?: boolean } | undefined {
     return this.live.get(guid);
   }
   attachExtension(guid: string, _ws: RelaySocket): boolean {
@@ -233,5 +233,35 @@ describe("registerBrowserWsRoutes", () => {
     expect(isOpen(r), JSON.stringify(r)).toBe(true);
     await new Promise((res) => setImmediate(res));
     expect(h.attacher.attachedCdp).toEqual([GUID]);
+  });
+
+  // change: add-operator-browser-relay (D3, test-plan #E17): an operator-targeted
+  // guid is never dialled directly — its extension arrives as a link over the carrier.
+  it("ext: an operator-targeted guid 404s (looks like an unknown guid) and never attaches (E17)", async () => {
+    const h = await harness();
+    h.attacher.live.set(GUID, { claimed: false, operator: true });
+    const r = await dial(`ws://127.0.0.1:${h.port}/ws/browser-ext/${GUID}`, {
+      origin: CHROME_EXTENSION_ORIGIN,
+    });
+    expect(isStatus(r, 404), JSON.stringify(r)).toBe(true);
+    expect(h.attacher.attachedExt).toEqual([]);
+  });
+
+  it("cdp: an operator-targeted guid still admits the agent's CDP client", async () => {
+    const h = await harness();
+    h.attacher.live.set(GUID, { claimed: false, operator: true });
+    const r = await dial(`ws://127.0.0.1:${h.port}/ws/browser-cdp/${GUID}`);
+    expect(isOpen(r), JSON.stringify(r)).toBe(true);
+    await new Promise((res) => setImmediate(res));
+    expect(h.attacher.attachedCdp).toEqual([GUID]);
+  });
+
+  it("ext: a dashboard guid (operator:false) still upgrades", async () => {
+    const h = await harness();
+    h.attacher.live.set(GUID, { claimed: false, operator: false });
+    const r = await dial(`ws://127.0.0.1:${h.port}/ws/browser-ext/${GUID}`, {
+      origin: CHROME_EXTENSION_ORIGIN,
+    });
+    expect(isOpen(r), JSON.stringify(r)).toBe(true);
   });
 });

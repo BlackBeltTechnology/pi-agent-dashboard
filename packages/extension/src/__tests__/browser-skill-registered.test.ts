@@ -7,11 +7,12 @@
  *
  * See change: ship-browser-skill-and-electron-cdp.
  */
-import { describe, it, expect } from "vitest";
+
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
+import { describe, expect, it } from "vitest";
 
 const here = path.dirname(url.fileURLToPath(import.meta.url));
 const pkgDir = path.resolve(here, "..", "..");
@@ -197,6 +198,28 @@ describe("browser skill — dashboard relay routing branches (X15)", () => {
     ["never fall back to the bundled browser", /Never fall back to the bundled browser/i],
   ])("dashboard-relay.md documents %s", (_label, pattern) => {
     expect(relay).toMatch(pattern);
+  });
+});
+
+describe("browser skill — operator host recipe (#E59)", () => {
+  const relay = fs.readFileSync(path.join(skillDir, "references", "dashboard-relay.md"), "utf-8");
+
+  it("gates `host` on the `operatorHosts: true` status precondition", () => {
+    expect(relay).toMatch(/`host`/);
+    expect(relay).toMatch(/operatorHosts: true/);
+    expect(relay).toMatch(/operatorHosts: true[\s\S]{0,200}`host`|`host`[\s\S]{0,200}operatorHosts: true/);
+  });
+
+  it.each(["unknown-host", "operator-denied", "consent-timeout", "no-chrome", "host-gone"])(
+    "documents the %s error",
+    (reason) => {
+      expect(relay).toContain(`\`${reason}\``);
+    },
+  );
+
+  it("states the own-computer rule and the never-fall-back rule for operator-denied", () => {
+    expect(relay).toMatch(/own computer/i);
+    expect(relay).toMatch(/operator-denied[\s\S]{0,300}(never|do not|not)[\s\S]{0,80}dashboard host/i);
   });
 });
 

@@ -45,6 +45,18 @@ export class FakeSocket implements RelaySocket {
     return this;
   }
 
+  off(event: string, listener: Listener): this {
+    this.listeners.set(
+      event,
+      (this.listeners.get(event) ?? []).filter((l) => l !== listener),
+    );
+    return this;
+  }
+
+  listenerCount(event: string): number {
+    return this.listeners.get(event)?.length ?? 0;
+  }
+
   emit(event: string, ...args: unknown[]): void {
     for (const listener of this.listeners.get(event) ?? []) (listener as (...a: unknown[]) => void)(...args);
   }

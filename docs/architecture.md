@@ -6883,6 +6883,198 @@ sequenceDiagram
 - `shell-headless` → `BrowserRelayFeed`: sole caller of `useRelayStatusFeed()`. Always-mounted `browser_relay_status` subscriber. Re-seeds from `GET /api/browser/profiles` on mount + each shell `connected`. Failed seed clears store; unmount clears store. `setRelayStatus` calls `bumpSlotClaimsVersion()` only when tab-count presence flips. See change: fix-empty-status-subcard.
 - `content-view` → `LiveViewTile`: one tile per `{instanceId, tabId}`; subscribe/unsubscribe lifecycle, JPEG frames, pointer/key/wheel → normalized `browser_relay_input`, no-frames + DevTools overlays.
 
+### Operator browser hosts
+
+Agent on S drives Chrome on operator machine O. Change: add-operator-browser-relay (D1–D11).
+Source: `packages/browser-plugin/src/server/{operator-hosts,relay/link-socket,relay/relay-manager}.ts`, `packages/electron/src/lib/browser-host/*`, `packages/browser-plugin/src/client/OperatorHostCarrier.tsx`, `packages/shared/src/{browser-protocol,browser-host-identity,browser-host-ipc,chrome-profiles}.ts`.
+
+See change: add-operator-browser-relay.
+
+#### Topology
+
+```mermaid
+flowchart LR
+  Agent["pi session (agent)"]
+  subgraph S["Dashboard server S"]
+    Inst["RelayInstance CDP /ws/browser-cdp/guid"]
+    Mgr["RelayManager + OperatorHostRegistry + LinkSocket"]
+    Gate["/ws gateway"]
+  end
+  subgraph O["Operator machine O"]
+    Renderer["main-window renderer OperatorHostCarrier"]
+    Main["Electron main shim 127.0.0.1:0 + identity + consent"]
+    Chrome["Chrome + Playwright extension"]
+  end
+  Agent -->|"cdpUrl ws://127.0.0.1:port/ws/browser-cdp/guid"| Inst
+  Inst --- Mgr
+  Mgr <-->|"browser_host_* over carrier /ws"| Gate
+  Gate <-->|"browserHost IPC"| Renderer
+  Renderer <-->|"IPC trusted senders"| Main
+  Chrome -->|"ws /ws/browser-ext/linkId"| Main
+```
+
+- Carrier = main-window renderer's existing `/ws`. No main-process WS: in-page switch holds no S credential in main.
+- `OperatorHostCarrier` (always mounted) bridges `window.piDashboard.browserHost` IPC ↔ `browser_host_*` WS.
+- Main-window-only trust: `browserHost` exposed only on local origin (`preload-main.ts:121`). `ipc-trust.ts` refuses other senders. Remote-origin window = no `browserHost` = never a carrier.
+- Every IPC channel: `trustedHandler` / `trustedListener`.
+- Shim: `127.0.0.1:0`. Starts with first registered link, stops when idle.
+- Chrome argv: `connect.html?mcpRelayUrl=ws://127.0.0.1:<shimPort>/ws/browser-ext/<linkId>` + `--profile-directory=<dir>`.
+
+#### Registration handshake
+
+```mermaid
+sequenceDiagram
+  participant C as OperatorHostCarrier
+  participant M as Electron main
+  participant S as Server S
+  C->>S: GET /api/browser/status
+  S-->>C: operatorHosts true
+  C->>S: browser_host_hello hostId publicKey
+  S-->>C: browser_host_challenge nonce serverId
+  C->>M: identity.sign nonce serverId
+  Note over M: refuses unless serverId = target /api/health instanceId
+  M-->>C: Ed25519 signature
+  C->>S: browser_host_register hostId signature label platform canOpenChrome profiles
+  Note over S: verify vs pinned key TOFU, host-active guard
+  S-->>C: browser_host_registered hostId
+```
+
+- Gate: carrier sends nothing unless `GET /api/browser/status` → `operatorHosts: true`. Old server would fall through `browser-gateway.ts:2417-2424`.
+- `hostId` = `host-` + first 32 hex of SHA-256(SPKI DER public key). Helper: `browser-host-identity.ts`.
+- Key: Ed25519, generated on first use. Private key in `browser-host-key.json` via `safeStorage` (0600).
+- No encryption → key in memory only. Next launch mints new identity.
+- Private key never leaves main.
+- Signed bytes: `"pi-browser-host-v1\n" + nonce + "\n" + serverId`.
+- `serverId` = S's `/api/health` `instanceId`. Binds to identity, not origin: stable behind tunnels, proxies, IP-vs-name.
+- `sign` refuses unless `serverId` = `instanceId` of switched-to target (Node fetch, `target.ts`).
+- TOFU pin: first verified key per `hostId` → `operator-hosts.json` (plugin data dir).
+- Other key for same `hostId` → refused, audited.
+- Pin prune: unseen > 90 d dropped. Max 256 pins, least recently seen dropped.
+- Pin reset: `DELETE /api/browser/operator-hosts/:hostId` (tier `operate`, `route-tiers.ts:32`).
+- One host per socket.
+- Register for `hostId` bound to other live socket with live links or pending connects → `host-active`.
+- Otherwise re-bind; old binding dropped. No live instance closed by newcomer.
+- Half-open carrier: gateway keepalive (2 missed pongs) closes socket → frees host.
+- Bounds: `label` ≤ 128; `platform` ≤ 64; ≤ 64 profiles; `profileDirectory` ≤ 128, no `/` or `\`; `email` ≤ 254. Violation → drop + audit.
+- `hostId` public (listed in `GET /api/browser/profiles`). Register needs private key.
+- Log: `[browser-host] register host=<hostId> profiles=<n> pin=<new|ok|mismatch>`.
+
+#### Connect flow
+
+1. `POST /api/browser/connect {profileDirectory, host}`. `host` omitted or `"dashboard"` → dashboard path, unchanged.
+2. Preflight, before any mint:
+   - kill switch off → 403;
+   - `host` not bound → 404 `unknown-host`;
+   - row missing or `installed: false` → 409 `not-installed`;
+   - live instance or pending on (host, `profileDirectory`) → 409 `busy` + `instanceId`;
+   - ≥ 8 links or ≥ 2 pending on host → 409 `host-busy`.
+3. S mints `guid` (URL credential, never leaves S), `linkId` (128-bit, wire id), `requestId`, `instanceId`. Keeps `linkId → {guid, requestId, socket}`.
+4. S → bound carrier only: `browser_host_connect {requestId, linkId, instanceId, profileDirectory, serverLabel}`. `serverLabel` display only.
+5. Main consent dialog, parented to main window. Buttons: Allow once / Always allow / Deny. Default and Escape = Deny. Auto-deny 55 s.
+6. Always → `browser-host-consent.json`. Keyed by real target server (origin + `instanceId`). New `instanceId` asks again.
+7. Allow → main registers `linkId` in shim, launches Chrome, sends `browser_host_connect_result {ok: true}`. Deny → `{ok: false, reason: "denied"}`, no Chrome.
+8. Handshake window starts at `ok: true`, not at request. Extension claims link → `browser_host_ext_open` → `LinkSocket` → instance.
+9. `ext_open` before `ok: true` → dropped + audited.
+10. Success → 200 `{cdpUrl, instanceId}`. `cdpUrl` = `ws://127.0.0.1:<port>/ws/browser-cdp/<guid>`.
+11. Any non-200 after step 4 → `browser_host_connect_cancel {requestId}`: main closes dialog, unregisters `linkId`, closes ext socket on link.
+
+Timers:
+
+| window | bound | constant |
+|---|---|---|
+| consent, main | 55 s auto-deny | `CONSENT_DIALOG_TIMEOUT_MS` (`consent.ts`) |
+| consent, S | 60 s → 504 `consent-timeout` | `CONSENT_TIMEOUT_MS` |
+| handshake | 60 s from `ok: true` → 504 | `CONNECT_TIMEOUT_MS` |
+| guid unclaimed | 60 s → expire | `GUID_EXPIRY_MS` |
+
+Outcomes:
+
+| status | `reason` | cause |
+|---|---|---|
+| 200 | — | handshake complete |
+| 403 | `disabled` | kill switch, or disabled during connect |
+| 403 | `operator-denied` | Deny, or auto-deny |
+| 404 | `unknown-host` | `host` not bound to live socket |
+| 409 | `not-installed` | profile missing or `installed: false` |
+| 409 | `busy` | live instance or pending on (host, profile) |
+| 409 | `host-busy` | ≥ 8 links or ≥ 2 pending on host |
+| 503 | `no-chrome` | `connect_result {reason: "no-chrome"}` |
+| 503 | `host-gone` | carrier closed before handshake |
+| 503 | `launch-failed` | other `connect_result` failure, or link closed |
+| 504 | `consent-timeout` | no `connect_result` within 60 s |
+| 504 | (message) | no handshake within 60 s of `ok: true` |
+
+Busy keyed (host, `profileDirectory`): dashboard and operator `Default` never collide.
+
+**Version skew.** Old server ignores `host`, drives its own Chrome. Agent recipe passes `host` only when `status.operatorHosts === true`.
+
+#### linkId vs guid
+
+| id | size | carried in | visible to |
+|---|---|---|---|
+| `guid` | 128 bit | `cdpUrl` path (agent → S) | S only. Never on carrier, logs, REST |
+| `linkId` | 128 bit | `browser_host_*`, shim path, Chrome argv | S, main, Chrome; local argv on O |
+| `requestId` | — | connect, result, cancel | S, main |
+| `instanceId` | `inst-…` | UI, audit, REST | public handle, cannot open socket |
+
+- `linkId` single-use. Shim registers it only after Allow. First extension socket wins. Lives ≤ 60 s.
+- Shim Origin check (`chrome-extension://mmlmfjhmonkocbjadbfplnigmagldckm`) is not auth. `linkId` is the credential. Same-user local processes already inside trust boundary.
+- Connect and link bound to one socket. S accepts `connect_result`, `ext_open`, `ext_data`, `ext_close` for that `linkId`/`requestId` only from that socket.
+
+#### Unicast
+
+- Every S → browser `browser_host_*` sent to bound carrier socket only. Never broadcast.
+- `operatorHosts[]` served only by `GET /api/browser/profiles`. Never on `/ws`.
+
+#### Limits
+
+| limit | value | enforced in | on breach |
+|---|---|---|---|
+| one `data` frame | ≤ 16 MiB (`LINK_MAX_DATA`) | `link-socket.ts` | close 1009 `message-too-big` |
+| links per host | ≤ 8 (`MAX_LINKS_PER_HOST`) | `relay-manager.ts` | 409 `host-busy` |
+| pending connects per host | ≤ 2 (`MAX_PENDING_PER_HOST`) | `relay-manager.ts` | 409 `host-busy` |
+| carrier `bufferedAmount` | > 32 MiB for 10 s (`CARRIER_CONGESTED_BYTES`, `CARRIER_CONGESTED_MS`) | `link-socket.ts` | every link on carrier close 1013 `carrier-congested` |
+
+- Extension traffic cannot skip like viewer frames. Congestion fails loud. Memory does not grow unbounded.
+
+#### Local tee
+
+- Pane on own host subscribes with `local: true` (after `browser_host_registered` names this host).
+- S sends no `browser_relay_frame` to carrier for that viewer. Counts it as viewer for tap start/keep/stop.
+- S sends `browser_host_tee {linkId, instanceId, tabId, on}`. `on: true` when mode becomes local; `on: false` when mode stops or subscription ends.
+- Main copies `Page.screencastFrame` where `source.tabId === tabId` and no `source.sessionId` → `onFrame`. Main still forwards event to S unchanged; S keeps acking.
+- `local: true` from any other socket → normal subscribe, audited `denied` / `browser_host:local-ignored`.
+
+#### Lifecycle
+
+- Carrier close → every instance on that carrier closes `host-gone`. Pending connects → 503 `host-gone`. Link sockets close 1006 `host-gone`.
+- Renderer navigate, reload or destroy → main cancels pending connects, closes links (same effect as `connect_cancel`). Carrier close follows.
+- Kill switch (`PUT /api/browser/enabled {false}`) closes all instances, operator ones included.
+- Consent revoke affects future connects only. Live instances stay open.
+
+#### Consent and token stay on O
+
+- Consent: `browser-host-consent.json` in userData. Unreadable → renamed `browser-host-consent.corrupt-<ts>.json`, treated empty.
+- Token: per profile, `safeStorage` only (memory-only fallback). Appended to connect URL locally. Never sent to S.
+- Two token stores, disjoint by host: server `plugins.browser.browsers.*` token → dashboard-host profiles; Electron token → operator profiles.
+- Operator instances: relay deny-list only. Server `browsers.*` (`token`, `zeroDialog`, `allowedDomains`) applies to dashboard-host profiles only.
+- Operator profile rows carry `{profileDirectory, label, email?, installed}` + S-added `instances`. No `hasToken` / `zeroDialog` (S cannot see Electron state).
+
+#### REST additions
+
+- `GET /api/browser/status` → `operatorHosts: true` (version gate).
+- `GET /api/browser/profiles` → `operatorHosts[]` (one row per live bound host; pins not listed).
+- `POST /api/browser/connect` → optional `host`.
+- `DELETE /api/browser/operator-hosts/:hostId` → forget pin.
+- `GET /api/browser/audit?profile=host:<hostId>` → host-level audit.
+
+#### Logs, audit, secrets
+
+- Log: `[browser-host] connect host=<hostId> profile=<dir> outcome=<status|reason> ms=<n>` (once per connect).
+- Log: `[browser-host] link close host=<hostId> reason=<reason>`.
+- Audit ring key `host:<hostId>`: pin mismatch, refused register, dropped `browser_host_*`, early `ext_open`, downgraded `local`.
+- Never in logs, audit, status or REST: guid, `linkId`, nonce, signature, pairing token, frame data.
+
 ## Bundled Package: deck3d
 
 `packages/deck3d` (`@blackbelt-technology/pi-dashboard-deck3d`) — deterministic Markdown → one self-contained offline 3D `deck.html`. Independent CLI + pi skill; not part of dashboard runtime.
