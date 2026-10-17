@@ -148,6 +148,32 @@ describe("kb_search scope selection", () => {
   });
 });
 
+describe("scope git and the AbortSignal (change: bound-kb-search-freshness)", () => {
+  it("F16: scope git with an already-aborted signal → cancelled result, no forge/git work", async () => {
+    const dir = docsRepo();
+    const spawned: string[][] = [];
+    const t = load({ git: (a) => (spawned.push(a), ""), spawnGit: ((a: string[]) => (spawned.push(a), undefined)) as unknown as GitScopeDeps["spawnGit"] });
+    const ac = new AbortController();
+    ac.abort();
+    const r = await t.search.execute("id", { query: "alpha", scope: "git" }, ac.signal as never, undefined, { cwd: dir });
+    expect(r.content[0].text).toBe("(cancelled — no results retrieved)");
+    expect(spawned).toHaveLength(0);
+  });
+
+  it("F17: scope git with a live (later-aborted) signal proceeds under its own budget; no docs freshness", async () => {
+    const dir = docsRepo();
+    fx.commit(dir, "fix alpha parser");
+    const t = load();
+    const freshness = vi.mocked(reindexModule.awaitFreshness);
+    freshness.mockClear();
+    const ac = new AbortController();
+    const r = await t.search.execute("id", { query: "alpha", scope: "git" }, ac.signal as never, undefined, { cwd: dir });
+    ac.abort(); // after the fact: nothing to cancel
+    expect(r.content[0].text).not.toContain("cancelled");
+    expect(freshness).not.toHaveBeenCalled();
+  });
+});
+
 describe("kb_get scope git", () => {
   it("E28: commit by unique prefix → full message, author, date, changed paths", async () => {
     const dir = docsRepo();

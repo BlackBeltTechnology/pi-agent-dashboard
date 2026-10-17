@@ -1,9 +1,9 @@
 // Tests for the kb_search tool's output contract (condensed default + json opt-in).
 // Folded from openspec/changes/slim-kb-search-output/test-plan.md (E1–E4, E10, E11, E13).
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { indexSource } from "@blackbelt-technology/pi-dashboard-kb";
+import { indexSource, SqliteFtsStore } from "@blackbelt-technology/pi-dashboard-kb";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import kbExtension from "../extension.js";
 
@@ -389,4 +389,50 @@ describe("kb tools: bounded, abortable freshness (bound-kb-search-freshness)", (
     expect(s.content[0].text).toBe(CANCELLED);
     expect(g.content[0].text).toBe(CANCELLED);
   });
+
+  it("F11: abort fired after the search → cancelled result, not a hit list", async () => {
+    const dir = project();
+    const t = tools();
+    await warm(t, dir);
+    const ac = new AbortController();
+    const real = SqliteFtsStore.prototype.search;
+    const spy = vi.spyOn(SqliteFtsStore.prototype, "search").mockImplementation(function (this: unknown, ...a: Parameters<typeof real>) {
+      const r = real.apply(this as never, a);
+      ac.abort();
+      return r;
+    });
+    try {
+      const r = await t.search.execute("i", { query: "token" }, ac.signal, undefined, { cwd: dir });
+      expect(r.content[0].text).toBe(CANCELLED);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("F12: abort during the verdict rename scan → cancelled line, no degraded GONE hit; scan child killed", async () => {
+    const dir = project();
+    const t = tools();
+    await warm(t, dir);
+    const bin = mkdtempSync(join(tmpdir(), "kb-gitstub-"));
+    dirs.push(bin);
+    const pidFile = join(bin, "pid");
+    writeFileSync(join(bin, "git"), `#!/usr/bin/env node\nrequire("fs").writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setTimeout(() => {}, 60000);\n`);
+    chmodSync(join(bin, "git"), 0o755);
+    const hit = { root: "docs", path: "AGENTS.md", headingPath: "DOX — x", chunkId: "x", docType: "agents", score: 1, snippet: "s", body: "| File | Purpose |\n|------|---------|\n| `missing-file.ts` | M. |\n" };
+    const spy = vi.spyOn(SqliteFtsStore.prototype, "search").mockReturnValue([hit] as never);
+    const prevPath = process.env.PATH;
+    process.env.PATH = `${bin}:${prevPath}`;
+    try {
+      const ac = new AbortController();
+      const p = t.search.execute("i", { query: "token" }, ac.signal, undefined, { cwd: dir });
+      for (let i = 0; i < 100 && !existsSync(pidFile); i++) await new Promise((r) => setTimeout(r, 20));
+      ac.abort();
+      const r = await p;
+      expect(r.content[0].text).toBe(CANCELLED);
+      expect(r.content[0].text).not.toContain("GONE");
+    } finally {
+      process.env.PATH = prevPath;
+      spy.mockRestore();
+    }
+  }, 15_000);
 });
