@@ -123,8 +123,10 @@ function abortRace(signal: AbortSignal): Promise<never> {
 
 /** A failure with a known envelope code (everything else maps to timeout/provider_error). */
 class RepairFailure extends Error {
-  constructor(readonly code: MermaidRepairErrorCode) {
+  readonly code: MermaidRepairErrorCode;
+  constructor(code: MermaidRepairErrorCode) {
     super(code);
+    this.code = code;
   }
 }
 

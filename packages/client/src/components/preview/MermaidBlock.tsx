@@ -9,9 +9,8 @@ import {
 import { Icon } from "@mdi/react";
 import React, { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { useZoomPan } from "../../hooks/useZoomPan.js";
-import { repairMermaidWithAi } from "../../lib/api/mermaid-repair-api.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
-import { type RuleId, repairMermaid } from "../../lib/preview/mermaid-repair.js";
+import type { RuleId } from "../../lib/preview/mermaid-repair.js";
 import { useMermaidRepairClientConfig } from "../../lib/preview/mermaid-repair-config.js";
 import { copyText } from "../../lib/util/clipboard.js";
 import { CopyButton } from "../primitives/CopyButton.js";
@@ -255,6 +254,9 @@ async function renderRepaired(
   original: string,
 ): Promise<MermaidOutcome> {
   try {
+    // Lazy: the rule set (~10 KB) is only needed once a render has failed.
+    // See change: add-mermaid-ai-repair (entry-chunk size guard).
+    const { repairMermaid } = await import("../../lib/preview/mermaid-repair.js");
     const repaired = repairMermaid(normalized);
     if (repaired.applied.length === 0) return { kind: "error", message: original };
     const svg = await renderOnce(mermaid, `${id}-r`, repaired.code, resolved);
@@ -627,6 +629,7 @@ async function requestValidatedFix(
   signal: AbortSignal,
 ): Promise<{ state: AiState; rendered?: MermaidOutcome } | null> {
   try {
+    const { repairMermaidWithAi } = await import("../../lib/api/mermaid-repair-api.js");
     const res = await repairMermaidWithAi(code, error, signal);
     if (signal.aborted) return null;
     const rendered = await renderMermaid(renderId, res.code, resolved);

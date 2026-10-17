@@ -126,8 +126,10 @@ describe("flow (F4–F9, X8, X9)", () => {
     const pending = await screen.findByRole("button", { name: /fixing with ai/i });
     expect((pending as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(pending);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    // The fetch helper is lazy-imported, so the request lands a tick after the click.
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     await act(async () => resolveFetch(okResponse()));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("F5: renderable result → SVG, AI-fixed badge naming the model, show-original + copy-fixed", async () => {
