@@ -95,3 +95,8 @@ presentations/*/deck.html
 
 # Generated at release time by scripts/generate-runtime-lock.mjs (change: electron-runtime-release-pipeline)
 packages/server/runtime-lock.json
+
+# Logs (runtime/debug output). Evidence logs stay committable.
+*.log
+!docs/repro/*.log
+!openspec/changes/**/measurements/*.log

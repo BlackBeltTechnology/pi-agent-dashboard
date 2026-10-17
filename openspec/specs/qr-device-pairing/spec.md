@@ -242,7 +242,8 @@ released client can pair using the highest mutually supported version.
 ### Requirement: Operator-side pairing view renders the payload
 The dashboard web client SHALL provide **exactly one** operator-side pairing
 view — the Gateway **"Connect a device"** surface, rendered by both the Gateway
-settings page and the toolbar Gateway dialog. On open it SHALL call
+settings page and the Remote access dialog's "Open it on the device" step
+(https endpoints only; that step renders its own plain-http link). On open it SHALL call
 `GET /api/pair/payload` and render the returned `{ v, id, code, urls[] }` payload
 BOTH as a scannable QR code AND as a copyable base64url string.
 

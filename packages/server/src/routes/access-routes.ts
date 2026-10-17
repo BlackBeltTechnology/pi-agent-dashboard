@@ -31,6 +31,9 @@
 import * as fs from "node:fs";
 import path from "node:path";
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { MIRROR_SOURCE_LABELS } from "@blackbelt-technology/pi-dashboard-shared/pi-trust-mirror.js";
+import { readPiTrustFileLockless } from "@blackbelt-technology/pi-dashboard-shared/pi-trust-mirror-snapshot.js";
+import { MIRROR_REASON_LABELS, type MirrorSourceKind } from "@blackbelt-technology/pi-dashboard-shared/pi-trust-mirror-types.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
 import { getPathDenial } from "../access/access-denials.js";
@@ -41,6 +44,7 @@ import {
   revokeGrant,
 } from "../access/access-grants.js";
 import { grantNamedPathSubject } from "../access/named-grant.js";
+import { getPiTrustMirror } from "../access/pi-trust-mirror-service.js";
 import { readRawConfig } from "../config-api.js";
 import { revokeTrust as revokeWorktreeTrust } from "../git-worktree/worktree-init-trust.js";
 import type { PreferencesStore } from "../persistence/preferences-store.js";
@@ -179,7 +183,16 @@ export function registerAccessRoutes(
         reply.code(400);
         return { success: false, error: "subject is required" } satisfies ApiResponse;
       }
-      const removed = revokeGrant(subject, scope);
+      // A persisted grant may be mirrored into pi trust: snapshot first, then the store.
+      const mirror = scope === "session" ? undefined : getPiTrustMirror();
+      let removed = false;
+      try {
+        if (mirror) mirror.revoke("accessGrants", subject, () => { removed = revokeGrant(subject, scope); });
+        else removed = revokeGrant(subject, scope);
+      } catch (err) {
+        reply.code(500);
+        return { success: false, error: `failed to revoke: ${(err as Error)?.message ?? String(err)}` } satisfies ApiResponse;
+      }
       if (!removed) {
         reply.code(404);
         return { success: false, error: "no such grant" } satisfies ApiResponse;
@@ -202,7 +215,15 @@ export function registerAccessRoutes(
       }
       // The store is keyed `repoRoot\0hash`; an absent hash means "every hook
       // fingerprint recorded for this repo", which is what the tab displays.
-      revokeWorktreeTrust(subject, hash ?? "");
+      try {
+        const mirror = getPiTrustMirror();
+        const revoke = () => revokeWorktreeTrust(subject, hash ?? "", { strict: mirror !== undefined });
+        if (mirror) mirror.revoke("worktreeInit", subject, revoke);
+        else revoke();
+      } catch (err) {
+        reply.code(500);
+        return { success: false, error: `failed to revoke: ${(err as Error)?.message ?? String(err)}` } satisfies ApiResponse;
+      }
       return { success: true } satisfies ApiResponse;
     },
   );
@@ -328,16 +349,27 @@ export function registerAccessRoutes(
         reply.code(400);
         return { success: false, error: "subject is required" } satisfies ApiResponse;
       }
-      preferencesStore.unpinDirectory(subject);
+      try {
+        const mirror = getPiTrustMirror();
+        const unpin = () => {
+          preferencesStore.unpinDirectory(subject);
+          preferencesStore.flush();
+        };
+        if (mirror) mirror.revoke("pinned", subject, unpin);
+        else preferencesStore.unpinDirectory(subject);
+      } catch (err) {
+        reply.code(500);
+        return { success: false, error: `failed to unpin: ${(err as Error)?.message ?? String(err)}` } satisfies ApiResponse;
+      }
       return { success: true } satisfies ApiResponse;
     },
   );
 
   // ── CREATE: the grant endpoint (design D12/D15/D20) ──────────────────
   fastify.post<{
-    Body: { denialId?: string; subject?: string; scope?: GrantScope; widenedFrom?: string };
+    Body: { denialId?: string; subject?: string; scope?: GrantScope; widenedFrom?: string; piTrust?: boolean };
   }>("/api/access/grants", { preHandler: networkGuard }, async (request, reply) => {
-    const { denialId, subject, scope, widenedFrom } = request.body ?? {};
+    const { denialId, subject, scope, widenedFrom, piTrust } = request.body ?? {};
 
     // (a) Cross-origin invocation is refused by the dashboard's global
     // `createMutationOriginGate` (`onRequest`, registered over every `/api/*`
@@ -399,6 +431,15 @@ export function registerAccessRoutes(
     }
     const result = outcome;
     const widened = outcome.widened;
+    // "Also trust this folder in pi" — stored with the (persisted) grant it belongs to.
+    if (typeof piTrust === "boolean" && result.grant.scope === "project") {
+      try {
+        getPiTrustMirror()?.setChoice("accessGrants", result.grant.subject, piTrust);
+        getPiTrustMirror()?.refresh();
+      } catch (err) {
+        console.warn(`[pi-trust-mirror] could not store the pi-trust choice: ${(err as Error)?.message}`);
+      }
+    }
 
     // Audited (STRIDE: Repudiation), mirroring the network-trust accept path
     // (`[network-trust] accepted pending request ip=…`). A grant is a PERSISTENT
@@ -411,6 +452,83 @@ export function registerAccessRoutes(
     );
     return { success: true, data: result.grant } satisfies ApiResponse;
   });
+
+  // ── pi trust mirror: disclosure + per-entry choice (change: mirror-dashboard-trust-to-pi) ──
+  // Read-only view of which durable entries confer pi trust, why the others do
+  // not, and pi's own recorded entries (read in place, never written).
+  fastify.get("/api/access/pi-trust", { preHandler: networkGuard }, async () => {
+    const mirror = getPiTrustMirror();
+    const config = loadConfig().piTrustMirror;
+    const agentDir = path.dirname(projectTrustPath());
+    const trustFile = readPiTrustFileLockless(agentDir);
+    const piEntries =
+      trustFile.kind === "ok" ? Object.entries(trustFile.data).map(([folder, decision]) => ({ folder, decision })) : [];
+    if (!mirror) {
+      return { success: true, data: { available: false, config, agentDir, piEntries, effective: [], ignored: [], entries: [], sourcesNotInstalled: [] } } satisfies ApiResponse;
+    }
+    const ev = mirror.evaluate();
+    const countedKeys = new Set<string>(ev.counted.map((c) => `${c.candidate.sourceKind}\u0000${c.candidate.key}`));
+    const reasonByKey = new Map<string, (typeof ev.ignored)[number]["reason"]>(ev.ignored.map((i) => [`${i.entry.sourceKind}\u0000${i.entry.key}`, i.reason]));
+    const entries = ev.candidates.map((c) => {
+      const k = `${c.sourceKind}\u0000${c.key}`;
+      const reason = reasonByKey.get(k);
+      return {
+        sourceKind: c.sourceKind,
+        sourceLabel: MIRROR_SOURCE_LABELS[c.sourceKind],
+        folder: c.key,
+        choice: c.choice ?? null,
+        byDefault: c.choice === undefined,
+        confers: countedKeys.has(k),
+        ...(reason ? { reason, reasonLabel: MIRROR_REASON_LABELS[reason] } : {}),
+      };
+    });
+    return {
+      success: true,
+      data: {
+        available: true,
+        config,
+        agentDir,
+        piEntries,
+        effective: ev.counted.map((c) => ({
+          folder: c.candidate.key,
+          sourceKind: c.candidate.sourceKind,
+          sourceLabel: MIRROR_SOURCE_LABELS[c.candidate.sourceKind],
+          coversSubfolders: true,
+        })),
+        ignored: entries.filter((e) => !e.confers),
+        entries,
+        sourcesNotInstalled: ev.sourcesNotInstalled,
+        choicesReadable: ev.choicesReadable,
+      },
+    } satisfies ApiResponse;
+  });
+
+  // Change one entry's "also trust in pi" choice (`null` = back to the source default).
+  fastify.put<{ Body: { sourceKind?: MirrorSourceKind; folder?: string; choice?: boolean | null } }>(
+    "/api/access/pi-trust/choice",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const { sourceKind, folder, choice } = request.body ?? {};
+      const kinds = ["worktreeInit", "workflow", "pinned", "folderWorkspaces", "accessGrants"];
+      if (!sourceKind || !kinds.includes(sourceKind) || typeof folder !== "string" || !(choice === null || typeof choice === "boolean")) {
+        reply.code(400);
+        return { success: false, error: "sourceKind, folder and choice (boolean|null) are required" } satisfies ApiResponse;
+      }
+      const mirror = getPiTrustMirror();
+      if (!mirror) {
+        reply.code(503);
+        return { success: false, error: "pi trust mirror is not available" } satisfies ApiResponse;
+      }
+      try {
+        mirror.setChoice(sourceKind, folder, choice);
+        mirror.rewriteSnapshot();
+      } catch (err) {
+        reply.code(500);
+        return { success: false, error: `choice not stored: ${(err as Error)?.message ?? String(err)}` } satisfies ApiResponse;
+      }
+      return { success: true } satisfies ApiResponse;
+    },
+  );
 
   // Diagnostics: confirms the containment hot path never re-reads the store.
   fastify.get("/api/access/store-stats", { preHandler: networkGuard }, async () => {

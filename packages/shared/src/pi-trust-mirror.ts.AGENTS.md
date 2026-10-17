@@ -1,0 +1,3 @@
+# pi-trust-mirror.ts — index
+
+Dashboard-trust → pi mirror shared core. `piTrustKey(path,{home})` = pi's trust-store key (realpath∘resolve, no Unicode-space normalisation; relative throws). `mirrorDenyRules`/`isMirrorDenied` (own deny list, reuses forbidden-subjects values read-only). `filterMirrorEntries` → counted + ignored-with-reason. `decidePiTrust` = implicit → recorded pi entry → dashboard trust (over `never`) → default. `findCoveringEntry`, `statFolderIdentity`, `identityMatches`. Node-only; client imports `pi-trust-mirror-types.ts`. Never writes trust.json. See change: mirror-dashboard-trust-to-pi.

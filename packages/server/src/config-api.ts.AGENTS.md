@@ -13,3 +13,4 @@ Adds `migrateSubagentTickThrottle()` — the one-shot boot rewrite of a material
 - `writeConfigPartial` shallow-merges `sessionList` (Settings sends only changed keys; keeps `archiveServiceSessionsOnEnd` opt-out). See change: archive-service-sessions-on-end.
 
 - `writeConfigPartial` deep-merges `pairing` (Settings sends only `acceptLanRequests`; sibling pairing keys survive). See change: add-lan-knock-pairing.
+Merges nested `piTrustMirror.sources` on PUT and refreshes the snapshot. See change: mirror-dashboard-trust-to-pi.

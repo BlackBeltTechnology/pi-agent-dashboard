@@ -33,7 +33,7 @@ import {
   transportOf,
   validatePiEntry,
 } from "./pi-rules.js";
-import type { ConfigIO, EffectiveServerView, EffectiveView, LayerStatus, Provenance, Scope } from "./types.js";
+import type { ConfigIO, EffectiveServerView, EffectiveView, LayerStatus, ProjectTrustSource, Provenance, Scope } from "./types.js";
 
 /** Credential-name pattern for record keys (key NAMES are never secret). */
 export function isSecretKey(name: string): boolean {
@@ -68,10 +68,26 @@ export function redactEntry(entry: Record<string, unknown>): Record<string, unkn
   return out;
 }
 
+function trustExtras(deps: EffectiveViewDeps, cwd: string): Pick<EffectiveView, "trustSource" | "trustCoverInteractive"> {
+  const out: Pick<EffectiveView, "trustSource" | "trustCoverInteractive"> = {};
+  try {
+    const source = deps.projectTrustSource?.(cwd);
+    if (source) out.trustSource = source;
+    if (deps.coverInteractive) out.trustCoverInteractive = deps.coverInteractive();
+  } catch {
+    /* additive disclosure only: never fails the view */
+  }
+  return out;
+}
+
 export interface EffectiveViewDeps {
   configIO: ConfigIO;
   paths: LayerPaths;
   isProjectTrusted?: (cwd: string) => boolean;
+  /** Optional: who decided the trust (absent → `trustSource` omitted). */
+  projectTrustSource?: (cwd: string) => ProjectTrustSource | undefined;
+  /** Optional: `piTrustMirror.coverInteractive` (absent → omitted). */
+  coverInteractive?: () => boolean;
 }
 
 export interface EffectiveViewReader {
@@ -221,6 +237,7 @@ export function createEffectiveViewReader(deps: EffectiveViewDeps): EffectiveVie
       scope: "project",
       cwd,
       trusted,
+      ...trustExtras(deps, cwd),
       servers: sortByName([...byName.values(), ...folderRows]),
       layers,
     };

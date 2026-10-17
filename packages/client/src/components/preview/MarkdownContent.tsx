@@ -5,12 +5,12 @@ import ReactMarkdown, { type Components, type Options } from "react-markdown";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
-import remarkFrontmatter from "remark-frontmatter";
-import remarkGfm from "remark-gfm";
-import remarkMath from "remark-math";
 import { tokenize } from "../../lib/chat/linkify-tool-output.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { MARKDOWN_REMARK_PLUGINS } from "../../lib/preview/markdown-remark-plugins.js";
 import { useMathEngine } from "../../lib/preview/math-engine.js";
+import { MermaidSourceContext, type MermaidSourceInfo } from "../../lib/preview/mermaid-source-context.js";
+import { parseOrdinalStamp, remarkMermaidOrdinal } from "../../lib/preview/remark-mermaid-ordinal.js";
 import { wrapAsciiTables } from "../../lib/preview/wrap-ascii-tables.js";
 import { useSessionAssets } from "../../lib/session/SessionAssetsContext.js";
 import { getSyntaxTheme } from "../../lib/theme/syntax-theme.js";
@@ -56,6 +56,13 @@ interface Props {
    * See change: fix-markdown-preview-relative-images.
    */
   imageBase?: ImageBase;
+  /**
+   * On-disk identity of this markdown (file previews only; MUST be a stable,
+   * memoized object — see `useMermaidSource`). Lets a repaired mermaid fence
+   * offer "Apply fix to file". Omit for chat and other file-less surfaces.
+   * See change: add-preview-apply-fix-to-file.
+   */
+  mermaidSource?: MermaidSourceInfo | null;
 }
 
 /**
@@ -510,7 +517,10 @@ function MarkdownCode({ node: _node, className, children, ...props }: React.Comp
   const codeString = String(children).replace(/\n$/, "");
 
   if (match && match[1] === "mermaid") {
-    return <MermaidBlock code={codeString} complete={isFencedBlockComplete(content, codeString)} />;
+    // Ordinal stamped by `remarkMermaidOrdinal` (absent for raw-HTML `<pre>` blocks → no apply-fix).
+    const stamp = (props as Record<string, unknown>)["data-mermaid-ordinal"] ?? (props as Record<string, unknown>).dataMermaidOrdinal;
+    const ordinal = parseOrdinalStamp(stamp);
+    return <MermaidBlock code={codeString} complete={isFencedBlockComplete(content, codeString)} ordinal={ordinal} />;
   }
 
   if (match) {
@@ -591,6 +601,10 @@ const MARKDOWN_COMPONENTS = {
   img: PiAssetImg,
 } satisfies Components;
 
+// Shared grammar + the ordinal stamp; one module constant keeps the plugin list
+// referentially stable. See change: add-preview-apply-fix-to-file.
+const REMARK_PLUGINS = [...MARKDOWN_REMARK_PLUGINS, remarkMermaidOrdinal];
+
 // Cheap delimiter probe (`$…`, `\(`, `\[`) deciding whether to fetch the lazy
 // math engine. A false positive (a price like "$5") only costs one cached
 // chunk fetch; every expression remark-math parses contains a `$`.
@@ -604,7 +618,7 @@ const REHYPE_PLUGINS_NO_MATH: NonNullable<Options["rehypePlugins"]> = [
   stripReactRefAttributes,
 ];
 
-export const MarkdownContent = React.memo(function MarkdownContent({ content, context, frontmatter = "hide", imageBase }: Props) {
+export const MarkdownContent = React.memo(function MarkdownContent({ content, context, frontmatter = "hide", imageBase, mermaidSource = null }: Props) {
   // ASCII table monospace fixer — disabled pending further refinement
   // const processedContent = useMemo(() => wrapAsciiTables(content), [content]);
   const processedContent = content;
@@ -656,6 +670,7 @@ export const MarkdownContent = React.memo(function MarkdownContent({ content, co
       <div ref={containerRef} className="markdown-content text-sm">
         {fm && <FrontmatterProperties raw={fm.raw} />}
         <ImageBaseContext.Provider value={imageBaseValue}>
+         <MermaidSourceContext.Provider value={mermaidSource}>
           {/* A sanitizer/render throw shows the source as plain text — never the
               raw tree — and the next content (streamed token) retries markdown.
               See change: sanitize-untrusted-rendered-content. */}
@@ -664,7 +679,7 @@ export const MarkdownContent = React.memo(function MarkdownContent({ content, co
             fallback={<div className="whitespace-pre-wrap break-words">{processedContent}</div>}
           >
             <ReactMarkdown
-              remarkPlugins={[remarkGfm, remarkMath, remarkFrontmatter]}
+              remarkPlugins={REMARK_PLUGINS}
               // Plugin order matters:
               //  - rehypeRaw FIRST so embedded HTML in markdown source is parsed
               //    before rehype-katex emits its own KaTeX HTML (KaTeX HTML must
@@ -691,6 +706,7 @@ export const MarkdownContent = React.memo(function MarkdownContent({ content, co
               {processedContent}
             </ReactMarkdown>
           </ErrorBoundary>
+         </MermaidSourceContext.Provider>
         </ImageBaseContext.Provider>
       </div>
     </MarkdownRenderContext.Provider>

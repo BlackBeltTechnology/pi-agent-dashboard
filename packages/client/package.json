@@ -89,8 +89,10 @@
     "remark-frontmatter": "^5.0.0",
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
+    "remark-parse": "^11.0.0",
     "tailwindcss": "^4.1.0",
     "tsx": "^4.21.0",
+    "unified": "^11.0.5",
     "vite": "^6.0.0",
     "wouter": "^3.9.0",
     "yaml": "^2.6.1"

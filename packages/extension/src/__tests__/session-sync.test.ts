@@ -4,6 +4,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { sendStateSync, handleSessionChange, replaySessionEntries, isLive } from "../session-sync.js";
 import type { BridgeContext } from "../bridge-context.js";
+import { __resetSpawnToken, captureSpawnTokenAtActivation } from "../spawn-token.js";
 
 function createMockBridgeContext(overrides?: Partial<BridgeContext>): BridgeContext {
   const sent: any[] = [];
@@ -159,9 +160,14 @@ describe("sendStateSync: spawnToken from env", () => {
     const prior = process.env[ENV_VAR];
     if (value === undefined) delete process.env[ENV_VAR];
     else process.env[ENV_VAR] = value;
+    // The token is captured + scrubbed at bridge ACTIVATION (not first register).
+    // See change: mirror-dashboard-trust-to-pi.
+    __resetSpawnToken();
+    captureSpawnTokenAtActivation();
     try {
       return fn();
     } finally {
+      __resetSpawnToken();
       if (prior === undefined) delete process.env[ENV_VAR];
       else process.env[ENV_VAR] = prior;
     }

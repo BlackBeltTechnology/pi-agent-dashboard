@@ -14,6 +14,7 @@ import {
   writeConfigFileSecure,
 } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { setWindowsGitSourceSetting } from "@blackbelt-technology/pi-dashboard-shared/platform/git-source.js";
+import { getPiTrustMirror } from "./access/pi-trust-mirror-service.js";
 import { refreshModelRegistry } from "./model-proxy/registry-singleton.js";
 
 const REDACTED = "***";
@@ -341,6 +342,18 @@ export function writeConfigPartial(partial: Record<string, any>): WriteConfigRes
       partial.openspec = { ...existing.openspec, ...partial.openspec };
     }
 
+    // Merge piTrustMirror (and its nested `sources`) so a partial PUT never drops a
+    // sibling switch. Read live by bridges; no restart. See change: mirror-dashboard-trust-to-pi.
+    if (partial.piTrustMirror) {
+      partial.piTrustMirror = {
+        ...existing.piTrustMirror,
+        ...partial.piTrustMirror,
+        ...(partial.piTrustMirror.sources || existing.piTrustMirror?.sources
+          ? { sources: { ...existing.piTrustMirror?.sources, ...partial.piTrustMirror.sources } }
+          : {}),
+      };
+    }
+
     // Merge agentPathGate sub-object (live-read by bridges; no restart required).
     // See change: ask-agent-file-access-in-chat.
     if (partial.agentPathGate) {
@@ -383,6 +396,9 @@ export function writeConfigPartial(partial: Record<string, any>): WriteConfigRes
 
     // Eager-refresh model proxy registry (config may affect proxy settings).
     refreshModelRegistry().catch(() => {});
+
+    // `piTrustMirror.sources` decides which entries the snapshot lists.
+    if (partial.piTrustMirror) getPiTrustMirror()?.refresh();
 
     // windowsGitSource change takes effect for newly spawned children
     // (existing children keep their PATH). Update the cached setting +

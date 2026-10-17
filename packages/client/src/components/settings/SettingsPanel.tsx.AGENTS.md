@@ -75,4 +75,4 @@ Copy actions go through `copyText` and ids through `randomUuid()` — non-secure
 ## add-services-settings-ui
 
 - New nav group Services (after Network): pages `services` ("All services") + `runtimes`; `:sub` interpreted for `services` only (`activeServiceId`); `useServices({onMessage, ws})` lives here (nav attention dot `nav-services-attention` + sr-only text). New prop `ws`. Pages render lazily via `services/ServicesPages`; no draft registered → not a Save Bar source. See change: add-services-settings-ui.
-
+Access tab renders `PiTrustMirrorSection`. See change: mirror-dashboard-trust-to-pi.
