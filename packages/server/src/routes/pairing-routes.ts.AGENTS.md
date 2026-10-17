@@ -13,3 +13,7 @@ Server-identity challenge + device-pairing routes. Exports `registerPairingRoute
 Operator guard reads `hasLocalCredential(headers)`. See change: loopback-credential-proof (D4).
 
 `POST /api/pair/request` — public knock route, listed in `PUBLIC_PAIRING_PREFIXES` (no operator guard). JSON-only (non-JSON → 415). Source address read from the raw socket peer, NEVER `request.ip` (XFF is attacker-controlled on a LAN knock). `approve-pending` takes an optional validated `tier`. New deps `getAcceptLanRequests`, `getLanInterfaces`. Tests: `__tests__/pair-request-route.test.ts`. See change: add-lan-knock-pairing.
+
+## fix-pairing-approval-credential
+
+Approval guard 401 (device bearer AND no-credential) sends `describeApprovalRefusal` body (`reason`, `remedies`; guard order unchanged, credential check before Host check); non-admitted Host or helper failure → legacy `{success,error}`. `POST /api/pair/deny` moved `operatorGuard` → `approvalGuard`; `GET /api/pair/pending` stays `operatorGuard`. New optional dep `loginAvailable` (shared thunk from `server.ts`); config port from `getPort`, absent ⇒ no `authorize-browser`. Tests: `pairing-refusal-remedies.test.ts`, `pairing-approval-dialog.test.ts`. See change: fix-pairing-approval-credential.

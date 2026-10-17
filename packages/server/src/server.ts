@@ -2860,6 +2860,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     localToken,
     localTrust,
     hostAdmission: () => getHostGateCtx().admission,
+    // Shared "is a login method configured" thunk (same instance as vault/services): drives the `sign-in` remedy.
+    loginAvailable,
     // Public (tunnel + configured public) base URLs, already TLS-gated.
     getReachableUrls: () => pairingManager.reachableUrls(),
     getPort: () => {

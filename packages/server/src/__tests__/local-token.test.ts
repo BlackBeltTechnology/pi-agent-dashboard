@@ -6,7 +6,7 @@
  */
 import nodeOs from "node:os";
 import nodePath from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 // ──────────────────────────────────────────────────────────────────────────
 // (test-plan #E17) One HOME root for every rendezvous artefact — task 2.0g.
@@ -40,5 +40,49 @@ describe("local token root (task 2.0g)", () => {
       nodePath.join(getDashboardConfigDir({ homedir }), "local"),
     );
     expect(defaultLocalTokenDir({ homedir }).startsWith(homedir)).toBe(true);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// (test-plan #X6) `readLocalTokenIfPresent` is read-only: the CLI approval verbs
+// must never leave a token file behind on a host where the server never ran.
+// See change: fix-pairing-approval-credential (D9).
+// ──────────────────────────────────────────────────────────────────────────
+describe("readLocalTokenIfPresent (X6)", () => {
+  it("returns null for a missing token path and performs zero mkdir / write calls", async () => {
+    const nodeFs = (await import("node:fs")).default;
+    const { readLocalTokenIfPresent } = await import("../auth/local-token.js");
+    const dir = nodePath.join(nodeOs.tmpdir(), `pi-token-absent-${Math.random()}`);
+    const mkdir = vi.spyOn(nodeFs, "mkdirSync");
+    const write = vi.spyOn(nodeFs, "writeFileSync");
+    const chmod = vi.spyOn(nodeFs, "chmodSync");
+    try {
+      expect(readLocalTokenIfPresent(dir)).toBeNull();
+      expect(mkdir).not.toHaveBeenCalled();
+      expect(write).not.toHaveBeenCalled();
+      expect(chmod).not.toHaveBeenCalled();
+      expect(nodeFs.existsSync(dir)).toBe(false);
+    } finally {
+      mkdir.mockRestore();
+      write.mockRestore();
+      chmod.mockRestore();
+    }
+  });
+
+  it("returns the trimmed token when present; null for an empty file or a directory", async () => {
+    const nodeFs = (await import("node:fs")).default;
+    const { readLocalTokenIfPresent } = await import("../auth/local-token.js");
+    const dir = nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), "pi-token-read-"));
+    try {
+      nodeFs.writeFileSync(nodePath.join(dir, "token"), "  secret-token\n");
+      expect(readLocalTokenIfPresent(dir)).toBe("secret-token");
+      nodeFs.writeFileSync(nodePath.join(dir, "token"), "");
+      expect(readLocalTokenIfPresent(dir)).toBeNull();
+      nodeFs.rmSync(nodePath.join(dir, "token"));
+      nodeFs.mkdirSync(nodePath.join(dir, "token"));
+      expect(readLocalTokenIfPresent(dir)).toBeNull();
+    } finally {
+      nodeFs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

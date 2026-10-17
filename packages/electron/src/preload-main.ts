@@ -32,6 +32,12 @@ export interface PiDashboardProbeResult {
   reason?: string;
 }
 
+/** Acknowledgement of a navigation request — never a URL or credential. */
+export interface PiDashboardNavigateResult {
+  navigated: boolean;
+  reason?: string;
+}
+
 export interface PiDashboardApi {
   requestLaunch: (force?: boolean) => Promise<PiDashboardLaunchOutcome>;
   openDoctor: () => void;
@@ -49,6 +55,14 @@ export interface PiDashboardApi {
    * a runtime requires a newer app. See change: electron-runtime-overlay-updates.
    */
   checkAppUpdate: () => Promise<void>;
+  /**
+   * Ask MAIN to navigate this window to a dashboard target. Main validates the
+   * sender and the target, mints local proof only for this host's configured
+   * server, performs the load itself, and returns only an acknowledgement — the
+   * renderer never receives a code or a bootstrap URL.
+   * See change: fix-pairing-approval-credential (D4).
+   */
+  navigateToServer: (target: string) => Promise<PiDashboardNavigateResult>;
   /**
    * Ask the app to open (or focus) the window for a known remote dashboard, or
    * start pairing with it. Present ONLY while this document is on the local
@@ -73,6 +87,7 @@ const piDashboard: PiDashboardApi = {
   readServerLog: (lines) => ipcRenderer.invoke("dashboard:read-server-log", { lines: lines ?? 20 }),
   probeServer: (url) => ipcRenderer.invoke("dashboard:probe-server", { url }),
   checkAppUpdate: () => ipcRenderer.invoke("dashboard:check-app-update"),
+  navigateToServer: (target) => ipcRenderer.invoke("dashboard:navigate-to-server", { target }),
   onStatus: (cb) => {
     const listener = (_e: unknown, payload: PiDashboardLaunchStatus) => cb(payload);
     ipcRenderer.on("dashboard:launch-status", listener);

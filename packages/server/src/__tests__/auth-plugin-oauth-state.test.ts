@@ -3,6 +3,8 @@
  * See change: harden-trust-and-credential-boundaries (D0/D1; T-E1..E4, X1..X4).
  */
 import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const exchange = vi.fn(async () => ({ accessToken: "access-token" }));
@@ -49,6 +51,53 @@ describe("sanitizeReturnUrl", () => {
     expect(sanitizeReturnUrl("/sessions?x=1")).toBe("/sessions?x=1");
     expect(sanitizeReturnUrl("%252F%252Fevil.example")).toBe("/");
     expect(sanitizeReturnUrl("/")).toBe("/");
+  });
+});
+
+// See change: fix-pairing-approval-credential (test-plan E20–E23): the one return-path predicate,
+// also used by `GET /auth/local-proof?next=`.
+describe("sanitizeReturnUrl — shared same-origin predicate (E20–E23)", () => {
+  it.each(["/settings/gateway", "/a?b=c#d", "/%2F%2Fevil.example", "/..//evil", "/a\u0020", "/a\u0080"])(
+    "E20/E22 keeps same-origin %j unchanged",
+    (v) => expect(sanitizeReturnUrl(v)).toBe(v),
+  );
+
+  it.each<unknown>([
+    "https://evil.example/steal",
+    "//evil.example",
+    "/\\evil.example",
+    "evil",
+    "",
+    undefined,
+    123,
+    ["/a"],
+    "HTTPS://evil",
+    "/\\/evil",
+  ])("E21 off-origin / non-string %j → /", (v) => expect(sanitizeReturnUrl(v)).toBe("/"));
+
+  it.each(["/\t/evil.example", "/\r\n/evil.example", "/\r\nSet-Cookie: x=y", "/a\u0000", "/a\u001f", "/a\u007f"])(
+    "E22 control character %j → /",
+    (v) => expect(sanitizeReturnUrl(v)).toBe("/"),
+  );
+
+  it("E23 exactly one definition, imported by local-proof-routes.ts", () => {
+    const root = path.resolve(__dirname, "..");
+    const defs: string[] = [];
+    const walk = (dir: string) => {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, e.name);
+        if (e.isDirectory()) {
+          if (e.name !== "__tests__" && e.name !== "node_modules") walk(full);
+        } else if (/\.tsx?$/.test(e.name) && /\b(?:function|const|let)\s+sanitizeReturnUrl\b/.test(fs.readFileSync(full, "utf8"))) {
+          defs.push(path.relative(root, full));
+        }
+      }
+    };
+    walk(root);
+    expect(defs).toHaveLength(1);
+    const routes = fs.readFileSync(path.join(root, "routes", "local-proof-routes.ts"), "utf8");
+    expect(routes).toMatch(/import\s*\{[^}]*\bsanitizeReturnUrl\b[^}]*\}\s*from\s*"\.\.\/auth\//);
+    expect(routes).toMatch(/sanitizeReturnUrl\(/);
   });
 });
 
