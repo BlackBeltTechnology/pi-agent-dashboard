@@ -117,7 +117,7 @@ function DiffRow({ line, kind }: { line: string | null; kind: "added" | "removed
   );
 }
 
-export function DiffView({ before, after, context }: { before: string; after: string; context?: number }) {
+function DiffView({ before, after, context }: { before: string; after: string; context?: number }) {
   const parts = diffLines(before, after);
   return (
     <pre
