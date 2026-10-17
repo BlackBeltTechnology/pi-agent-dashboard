@@ -3,7 +3,7 @@
  * invariants. Totality over the REAL registered route set (core + plugin
  * routes attributed at load) lives in `http-road-classification-live.test.ts`.
  */
-import { ROUTE_TIERS } from "@blackbelt-technology/pi-dashboard-shared/route-tiers.js";
+import { hasRouteTier, routeTier, ROUTE_TIERS } from "@blackbelt-technology/pi-dashboard-shared/route-tiers.js";
 import { describe, expect, it } from "vitest";
 import { classifyHttpRoad } from "../http-road-classification.js";
 
@@ -140,5 +140,12 @@ describe("proxied roads (18.37c)", () => {
   });
   it("other non-/api roads stay unclassified", () => {
     expect(classifyHttpRoad("GET", "/assets/x.js")).toBeUndefined();
+  });
+});
+
+describe("operator-host pin reset route (E34)", () => {
+  it("DELETE /api/browser/operator-hosts/:hostId is listed at operate", () => {
+    expect(hasRouteTier("DELETE", "/api/browser/operator-hosts/:hostId")).toBe(true);
+    expect(routeTier("DELETE", "/api/browser/operator-hosts/:hostId")).toBe("operate");
   });
 });

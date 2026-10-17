@@ -6,6 +6,12 @@
  * types were not in the ServerToBrowserMessage union.
  */
 import { describe, expect, it } from "vitest";
+import {
+  BROWSER_HOST_CLIENT_TYPES,
+  BROWSER_HOST_SERVER_TYPES,
+  type BrowserHostClientMessage,
+  type BrowserHostServerMessage,
+} from "../browser-protocol.js";
 import type {
   BatchAnswer,
   BatchQuestion,
@@ -503,5 +509,49 @@ describe("questions_update (add-pending-question-stack)", () => {
   it("BriefStatus covers the five lifecycle states", () => {
     const all: BriefStatus[] = ["provided", "pending", "ready", "failed", "unavailable"];
     expect(new Set(all).size).toBe(5);
+  });
+});
+
+
+// add-operator-browser-relay (test-plan #E32): every browser_host_* type lives
+// in exactly one union, and the runtime name lists track the unions exactly.
+type _HostClientInBrowserToServer = AssertExtends<BrowserHostClientMessage, BrowserToServerMessage>;
+type _HostServerInServerToBrowser = AssertExtends<BrowserHostServerMessage, ServerToBrowserMessage>;
+type _HostClientNotInServerToBrowser = AssertTrue<
+  Extract<BrowserHostClientMessage["type"], ServerToBrowserMessage["type"]> extends never ? true : never
+>;
+type _HostServerNotInBrowserToServer = AssertTrue<
+  Extract<BrowserHostServerMessage["type"], BrowserToServerMessage["type"]> extends never ? true : never
+>;
+type _ListCoversClient = AssertTrue<
+  BrowserHostClientMessage["type"] extends (typeof BROWSER_HOST_CLIENT_TYPES)[number] ? true : never
+>;
+type _ListCoversServer = AssertTrue<
+  BrowserHostServerMessage["type"] extends (typeof BROWSER_HOST_SERVER_TYPES)[number] ? true : never
+>;
+
+describe("browser_host_* message names (E32)", () => {
+  it("name lists are disjoint and unique", () => {
+    const c = new Set<string>(BROWSER_HOST_CLIENT_TYPES);
+    const sv = new Set<string>(BROWSER_HOST_SERVER_TYPES);
+    expect(c.size).toBe(BROWSER_HOST_CLIENT_TYPES.length);
+    expect(sv.size).toBe(BROWSER_HOST_SERVER_TYPES.length);
+    expect([...c].filter((t) => sv.has(t))).toEqual([]);
+    for (const t of [...c, ...sv]) expect(t.startsWith("browser_host_")).toBe(true);
+  });
+
+  it("server→browser frames never carry a guid, token or private key field", () => {
+    const sample: BrowserHostServerMessage[] = [
+      { type: "browser_host_challenge", nonce: "n", serverId: "s" },
+      { type: "browser_host_registered", hostId: "h" },
+      { type: "browser_host_connect", requestId: "r", linkId: "l", instanceId: "i", profileDirectory: "Default", serverLabel: "x" },
+      { type: "browser_host_connect_cancel", requestId: "r" },
+      { type: "browser_host_relay_data", linkId: "l", data: "d" },
+      { type: "browser_host_relay_close", linkId: "l", code: 1000 },
+      { type: "browser_host_tee", linkId: "l", instanceId: "i", tabId: 1, on: true },
+    ];
+    for (const m of sample) {
+      expect(Object.keys(m).filter((k) => /guid|token|privateKey/i.test(k))).toEqual([]);
+    }
   });
 });

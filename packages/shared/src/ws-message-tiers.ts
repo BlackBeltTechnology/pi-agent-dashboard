@@ -100,6 +100,12 @@ export const WS_MESSAGE_TIERS: Readonly<Record<string, Tier>> = {
   unpin_directory: "control",
 
   // ── operate: processes, terminals, trust, configuration ──
+  browser_host_connect_result: "operate",
+  browser_host_ext_close: "operate",
+  browser_host_ext_data: "operate",
+  browser_host_ext_open: "operate",
+  browser_host_hello: "operate",
+  browser_host_register: "operate",
   browser_relay_input: "operate",
   close_inline_terminal: "operate",
   create_terminal: "operate",

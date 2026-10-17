@@ -29,6 +29,7 @@ export interface RouteTierEntry {
  */
 export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "DELETE", path: "/api/access/bypass-hosts", tier: "operate" },
+  { method: "DELETE", path: "/api/browser/operator-hosts/:hostId", tier: "operate" },
   { method: "DELETE", path: "/api/access/cors-origin", tier: "operate" },
   { method: "DELETE", path: "/api/access/grants", tier: "operate" },
   { method: "DELETE", path: "/api/access/pinned-directory", tier: "operate" },
