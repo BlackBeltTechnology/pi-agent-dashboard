@@ -71,6 +71,41 @@ This is the silent-fallback failure mode in the wild (§13 hard rule, quoted in 
 - Multi-profile BREAKS the §15 parallelism ceiling: different profiles = different browser processes = different registrations → per-pi-session pinning, no active-tab clobbering. Bounded by provisioned profiles and ~529 MB per live Chrome.
 - SECURITY: repo doc recommends confining extension to dedicated automation profile. Host has it in work identity + personal identity too → `debugger` + `nativeMessaging` + `scripting` reach blackbelt.hu and semmi.se sessions.
 
+## Spike 2026-10-17 — extension providers detach on password-manager pages
+
+- Relay: browser-plugin, Playwright ext `mmlmfjhmonkocbjadbfplnigmagldckm` 0.4.0 → `Profile 21` (robert.csakany@blackbelt.hu; LastPass + iCloud Passwords installed).
+- No pairing token → Allow dialog.
+- `POST /api/browser/connect {"profileDirectory":"Profile 21"}` → 200 in 9 s (`connected in 8564ms`).
+- Just under Fastify `connectionTimeout: 10_000`. Bug tracked: `openspec/changes/fix-browser-relay-pane-input`.
+- `myaccount.google.com`, `github.com`, `example.com` → attach + read OK.
+- `the-internet.herokuapp.com/login` (password field) → controlled tab detached immediately. Reproduced twice.
+- server.log verbatim: `[browser-relay] instance Profile 21 close (extension-closed:All controlled tabs detached)`.
+- agent-browser silently relaunched into fresh `about:blank`. No error to caller.
+- `GET /api/browser/audit` → only `attach` / `navigate` / `createTarget`. No `detach`, despite browser-relay spec "Audit trail" listing `detach`. Gap.
+- Panerelay same profile → every command `CDP error (Page.enable): Cannot access a chrome-extension:// URL of different extension`.
+- Panerelay disabled in `Profile 21` + `Profile 23`: `Secure Preferences` → `extensions.settings.panplnkjlkoceaonlmpdekjphgmbggmi.disable_reasons: [1]`.
+- Side panel must open once to register `browserId` under `~/.panerelay/browsers/`.
+- Browser plugin ships `defaultEnabled: false` → `/api/browser/status` 404 → skill routing silently degraded to Panerelay.
+- Enable: `POST /api/plugins/browser/toggle {"enabled":true}` + `POST /api/restart` (`restartRequired: true`).
+- Control: Panerelay in clean `AgentAutomation` profile (extensions: Panerelay, Google Docs Offline only) → Google sign-in, OAuth consent, Admin console, bulk Gmail archive (~5,000 conversations, 3 accounts). Zero detaches.
+- Mechanism (inference, unverified): `chrome.debugger` cannot attach to / stay on target holding another extension's frame. Password managers inject such frames on password fields.
+- Verdict: real-profile extension providers unreliable exactly on login pages in profiles running a password manager.
+
+## Outside evidence — Claude Cowork Browser pane (Tatár Gábor, 2026-09/10)
+
+Capability study, Mac + Windows, tests `2026-09-07` … `2026-10-05`.
+
+- Browser pane = separate persistent cookie jar, real tab.
+- Works: URL, text, click, type, screenshot, scroll, JS.
+- Permission prompt per page load.
+- `localhost` via agent nav ✅. `localhost` new tab (`target=_blank` / `window.open`) ❌ silent (`publicHostsOnly`).
+- `file://` ❌.
+- "High-risk site" → `ERR_BLOCKED_BY_CLIENT` blocked Studio host on one machine. Not user-fixable.
+- Page changes not noticed → re-read after ~1.2 s (React re-render lag).
+- Pane blocked → fallback = user's own Chrome via Claude in Chrome extension.
+- Same two-tier shape: dedicated agent browser default, real-profile extension fallback.
+- Lesson "panel ≠ session": UI showed 5 skills, session got 3 → verify outcomes, not UI claims.
+
 ## Chrome API facts — VERIFIED
 
 - **`debugger` CANNOT be declared in `optional_permissions`.** From chrome.permissions doc exceptions table. Kills runtime T1→T2 escalation via `permissions.request()`.
@@ -137,16 +172,17 @@ graph LR
 
 ### Capability matrix — providers × capabilities
 
-| Capability | agent-browser bundled | Panerelay | ext T1 (`tabs`+`scripting`+`captureVisibleTab`) | ext T2 (+`debugger`) |
-|---|---|---|---|---|
-| dom read/script | ✅ | ❌ | ✅ (per-tab, injected) | ✅ full CDP |
-| trusted input | ✅ | ⚠️ reports success, does nothing | ✅ | ✅ |
-| screencast | ✅ | ❌ | ⚠️ `captureVisibleTab` polling only, quota-limited | ✅ `Page.startScreencast` |
-| network intercept | ❌ | ❌ | ❌ | ✅ `Network`/`Fetch` domains (spike 4) |
-| real profile/SSO/passkeys | ❌ | ✅ | ✅ | ✅ |
-| headless/always-on | ✅ | ❌ (needs Chrome running) | ❌ | ❌ |
-| parallel/isolated | ✅ | ⚠️ one Chrome, ambiguous | ✅ per profile | ✅ per profile |
-| works in docker+CI | ✅ | ❌ | ❌ | ❌ |
+| Capability | agent-browser bundled | Panerelay | ext T1 (`tabs`+`scripting`+`captureVisibleTab`) | ext T2 (+`debugger`) | dedicated CDP profile (`--user-data-dir` + loopback `--remote-debugging-port`, no extension) |
+|---|---|---|---|---|---|
+| dom read/script | ✅ | ❌ | ✅ (per-tab, injected) | ✅ full CDP | ✅ full CDP |
+| trusted input | ✅ | ⚠️ reports success, does nothing | ✅ | ✅ | ✅ |
+| screencast | ✅ | ❌ | ⚠️ `captureVisibleTab` polling only, quota-limited | ✅ `Page.startScreencast` | ✅ `Page.startScreencast` |
+| network intercept | ❌ | ❌ | ❌ | ✅ `Network`/`Fetch` domains (spike 4) | ✅ |
+| real profile/SSO/passkeys | ❌ | ✅ | ✅ | ✅ | ⚠️ own persistent profile, sign in once, no import of real-profile passkeys |
+| headless/always-on | ✅ | ❌ (needs Chrome running) | ❌ | ❌ | ⚠️ needs desktop Chrome, can run headed-in-background |
+| parallel/isolated | ✅ | ⚠️ one Chrome, ambiguous | ✅ per profile | ✅ per profile | ✅ one per user-data-dir |
+| works in docker+CI | ✅ | ❌ | ❌ | ❌ | ❌ |
+| password-manager frame tolerance | ✅ | ❌ | ❌ (unverified) | ❌ (spike 2026-10-17) | ✅ |
 
 Key readings:
 
@@ -154,6 +190,7 @@ Key readings:
 - Gaps are complementary.
 - Panerelay trusted-input cell = "reports success, does nothing".
 - ext T1 screencast = `captureVisibleTab` polling only, quota-limited.
+- Chrome M136+ blocks `--remote-debugging-port` only for default user-data dir → dedicated dir allowed.
 
 HARD RULE from §13, verbatim: "detect capabilities to pick a default; pin the choice explicitly; NEVER silently fall back. Silent fallback = 'why am I logged out of everything?'" — the observed `GLOBAL_DEFAULT=yes` breakage IS this failure mode.
 
@@ -164,6 +201,7 @@ Registry makes capability dishonesty declarable: consumer requests `input.truste
 1. Build registry FIRST, validate against the 2 providers that already exist (bundled agent-browser + Panerelay), zero new extension code.
 2. Then ext T1 and ext T2 are independent increments, shippable in either order.
 3. Never need to decide T1-vs-T2 up front.
+4. Registry step 1 now has a third provider candidate that works on this host: dedicated CDP profile (`--user-data-dir` + loopback `--remote-debugging-port`, no extension). See change: add-dedicated-agent-browser.
 
 Registry v1 scope = registration + capability resolution + liveness reaping. Eviction (§15 LRU, idle TTL, ~529 MB/browser, orphan reaping) = separate later change.
 
@@ -173,13 +211,15 @@ Registry v1 scope = registration + capability resolution + liveness reaping. Evi
 "browsers": {
   "work":       { "provider": "pi-ext",  "profile": "Profile 21" },
   "personal":   { "provider": "pi-ext",  "profile": "Profile 23" },
-  "automation": { "provider": "pi-ext",  "profile": "AgentAutomation" },
+  "automation": { "provider": "dedicated-cdp", "userDataDir": "<dashboard-data-dir>/agent-chrome" },
   "ci":         { "provider": "agent-browser-bundled" }
 },
 "defaultBrowser": "ci"
 ```
 
 Agent selects: `user_browser({ url, browser: "work" })`. AWS-named-profiles mental model.
+
+AgentAutomation profile was the only one that worked via extension — by luck (no password manager).
 
 ## Fork the whole browser — EVALUATED, REJECTED
 

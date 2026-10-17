@@ -21,6 +21,8 @@ Non-goals:
 - IME composition inside the frame (the text bridge covers it).
 - The pre-existing mismatch between the spec's `connect?profile=` query form and the handler's `profileDirectory` body. It is tracked as a follow-up.
 - The UX redesign on the pending `openspec/changes/add-operator-browser-relay/mockups/` board.
+- Controlled tabs detaching on pages with a password-manager frame (spike 2026-10-17, `Profile 21` with LastPass: `extension-closed:All controlled tabs detached`). Tracked by `add-dedicated-agent-browser`.
+- That extension-caused detach missing from the audit, although the "Audit trail" requirement lists `detach`. Also tracked by `add-dedicated-agent-browser`.
 
 ## Capabilities
 
