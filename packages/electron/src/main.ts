@@ -16,8 +16,8 @@
 
 import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import { isTrustedSenderUrl, type SenderEventLike, trustedHandler, trustedListener } from "./lib/ipc-trust.js";
 import { decideWillNavigate, openExternalIfAllowed } from "./lib/link-handling.js";
-import { isTrustedSenderUrl, trustedHandler, trustedListener, type SenderEventLike } from "./lib/ipc-trust.js";
 import { resolveCdpActivation } from "./lib/resolve-cdp-activation.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -95,6 +95,8 @@ import fs from "node:fs";
 import { handleCheckForUpdates, setupAppMenu, showDoctorDialog } from "./lib/app-menu.js";
 import { downloadAndInstall, initAutoUpdater, quitAndInstall } from "./lib/app-updater.js";
 import { registerBundledBridgeExtension } from "./lib/bridge-register.js";
+import { startBrowserHost } from "./lib/browser-host/electron-main.js";
+import type { BrowserHost } from "./lib/browser-host/ipc.js";
 import { isDashboardRunning } from "./lib/health-check.js";
 import {
   BundledServerMissingError,
@@ -124,8 +126,6 @@ import {
   setSpawnedPid,
   stopServerIfNeeded,
 } from "./lib/server-lifecycle.js";
-import { startBrowserHost } from "./lib/browser-host/electron-main.js";
-import type { BrowserHost } from "./lib/browser-host/ipc.js";
 import { type ServerWindowsHandle, startServerWindows } from "./lib/server-windows-main.js";
 import { createTray, destroyTray, type TrayOwnership } from "./lib/tray.js";
 import { startUpdateChecker } from "./lib/update-checker.js";

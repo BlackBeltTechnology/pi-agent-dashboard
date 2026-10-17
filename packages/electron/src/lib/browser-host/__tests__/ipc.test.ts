@@ -7,12 +7,12 @@
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import path from "node:path";
-import { BROWSER_HOST_CHANNELS as CH, type BrowserHostConnectAnswer, type BrowserHostFrame, type BrowserHostIdentity } from "@blackbelt-technology/pi-dashboard-shared/browser-host-ipc.js";
 import { verifyHostSignature } from "@blackbelt-technology/pi-dashboard-shared/browser-host-identity.js";
+import { type BrowserHostConnectAnswer, type BrowserHostFrame, type BrowserHostIdentity, BROWSER_HOST_CHANNELS as CH } from "@blackbelt-technology/pi-dashboard-shared/browser-host-ipc.js";
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import { isTrustedSenderUrl, type SenderEventLike, UntrustedSenderError } from "../../ipc-trust.js";
 import type { DialogPort } from "../consent.js";
-import { createBrowserHost, type BrowserHost } from "../ipc.js";
+import { type BrowserHost, createBrowserHost } from "../ipc.js";
 import { FakeExtension, fakeCrypto, noCrypto, tempDir, until } from "./fixtures.js";
 
 const LOCAL = "http://localhost:8000";

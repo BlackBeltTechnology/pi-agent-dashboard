@@ -25,11 +25,11 @@
  */
 import { hostname } from "node:os";
 import { join } from "node:path";
-import { OpenHandler } from "./open-handler.js";
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import { getDashboardConfigDir } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 import { AuditRing } from "./audit.js";
 import { canOpenChrome } from "./capability.js";
+import { OpenHandler } from "./open-handler.js";
 import { listChromeProfiles } from "./profiles.js";
 import { type RelayConfig, RelayManager } from "./relay/relay-manager.js";
 import { registerBrowserRoutes } from "./routes.js";

@@ -31,9 +31,6 @@ import type {
   ViewTarget,
 } from "./types.js";
 
-// Batch ask_user contracts live in protocol.ts; re-export so browser-side
-// consumers import from one place. See change: redesign-ask-user-question-cards.
-export type { QuestionsUpdateMessage };
 export type {
   BatchAnswer,
   BatchQuestion,
@@ -41,6 +38,9 @@ export type {
   InteractiveMethod,
   NotifyLevel,
 } from "./protocol.js";
+// Batch ask_user contracts live in protocol.ts; re-export so browser-side
+// consumers import from one place. See change: redesign-ask-user-question-cards.
+export type { QuestionsUpdateMessage };
 
 // ── Configurable chat display ───────────────────────────────────────
 // See change: configurable-chat-display.

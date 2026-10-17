@@ -2,11 +2,12 @@
  * BrowserPaneTab + BrowserTabLabel RTL (change: add-browser-editor-pane-tab).
  * Test-plan: #F2 #F3 #F4 #F5 #F6 #F7 #F8 #F9 #F10 #F11 #F12 #F16 #P2.
  */
+
+import type { InteractiveUiRequestSnapshot } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import type {
 	BrowserRelayStatusMessage,
 	BrowserRelayTabState,
 } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
-import type { InteractiveUiRequestSnapshot } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import { act, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

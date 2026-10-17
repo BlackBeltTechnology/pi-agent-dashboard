@@ -22,7 +22,7 @@
  *
  * See change: add-operator-browser-relay (D1, D4, D7, D9, D10).
  */
-import { BROWSER_HOST_CHANNELS as CH, type BrowserHostConnectAnswer } from "@blackbelt-technology/pi-dashboard-shared/browser-host-ipc.js";
+import { type BrowserHostConnectAnswer, BROWSER_HOST_CHANNELS as CH } from "@blackbelt-technology/pi-dashboard-shared/browser-host-ipc.js";
 import { buildChromeOpenCommand } from "@blackbelt-technology/pi-dashboard-shared/chrome-profiles.js";
 import { type SenderEventLike, trustedHandler, trustedListener } from "../ipc-trust.js";
 import { createConsentStore, type DialogPort, requestConsent, type ServerKey } from "./consent.js";

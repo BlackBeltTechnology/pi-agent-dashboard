@@ -7,7 +7,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { hostIdFromPublicKey, verifyHostSignature } from "@blackbelt-technology/pi-dashboard-shared/browser-host-identity.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createHostIdentity, type ChromePort } from "../identity.js";
+import { type ChromePort, createHostIdentity } from "../identity.js";
 import type { TargetPort } from "../target.js";
 import { fakeCrypto, noCrypto, tempDir } from "./fixtures.js";
 

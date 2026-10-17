@@ -22,8 +22,8 @@
  */
 import http from "node:http";
 import type { Socket } from "node:net";
-import { PLAYWRIGHT_EXTENSION_ID } from "@blackbelt-technology/pi-dashboard-shared/chrome-profiles.js";
 import type { BrowserHostExtEvent, Unsubscribe } from "@blackbelt-technology/pi-dashboard-shared/browser-host-ipc.js";
+import { PLAYWRIGHT_EXTENSION_ID } from "@blackbelt-technology/pi-dashboard-shared/chrome-profiles.js";
 import { type RawData, type WebSocket, WebSocketServer } from "ws";
 
 const LOOPBACK = "127.0.0.1";

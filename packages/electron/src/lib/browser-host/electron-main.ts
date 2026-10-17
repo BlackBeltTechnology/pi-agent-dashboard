@@ -12,7 +12,7 @@
  */
 import os from "node:os";
 import { spawn } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
-import { app, BrowserWindow, dialog, ipcMain, safeStorage } from "electron";
+import { app, type BrowserWindow, dialog, ipcMain, safeStorage } from "electron";
 import type { SenderEventLike } from "../ipc-trust.js";
 import { setRevokeAllHook } from "./consent.js";
 import { createChromePort } from "./identity.js";

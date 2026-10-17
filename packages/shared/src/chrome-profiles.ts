@@ -11,8 +11,7 @@
  *
  * See change: add-operator-browser-relay (design D8).
  */
-import { existsSync, readFileSync } from "node:fs";
-import { promises as fsp } from "node:fs";
+import { existsSync, promises as fsp, readFileSync } from "node:fs";
 import path from "node:path";
 
 /** The pinned Playwright Chrome Extension id. */

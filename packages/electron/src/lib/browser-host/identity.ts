@@ -17,14 +17,14 @@
  *
  * See change: add-operator-browser-relay (D2, D8).
  */
-import { createPrivateKey, generateKeyPairSync, type KeyObject, sign as edSign } from "node:crypto";
+import { createPrivateKey, sign as edSign, generateKeyPairSync, type KeyObject } from "node:crypto";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { buildHostSignedMessage, hostIdFromPublicKey } from "@blackbelt-technology/pi-dashboard-shared/browser-host-identity.js";
 import type { BrowserHostIdentity } from "@blackbelt-technology/pi-dashboard-shared/browser-host-ipc.js";
 import type { BrowserHostProfileRow } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { chromeUserDataDir, listChromeProfiles, type ProfileDiscoveryDeps } from "@blackbelt-technology/pi-dashboard-shared/chrome-profiles.js";
-import { canEncrypt, type CryptoPort, decrypt, encrypt, type EncryptedBlob, type FsPort, nodeFsPort, readVersionedJson, writeJsonAtomic } from "./store.js";
+import { type CryptoPort, canEncrypt, decrypt, type EncryptedBlob, encrypt, type FsPort, nodeFsPort, readVersionedJson, writeJsonAtomic } from "./store.js";
 import type { TargetPort } from "./target.js";
 
 const KEY_FILE = "browser-host-key.json";

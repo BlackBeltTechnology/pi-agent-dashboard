@@ -2,12 +2,13 @@
  * Relay store (change: add-browser-relay; simplified by add-browser-editor-pane-tab D10):
  * a plain snapshot store — no content-view gate, no dismiss/reopen.
  */
-import type { BrowserRelayStatusMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+
 import {
 	__resetSlotClaimsVersionForTests,
 	getSlotClaimsVersion,
 	subscribeSlotClaimsVersion,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
+import type { BrowserRelayStatusMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as store from "../relay-store.js";
 

@@ -6,12 +6,6 @@
  * types were not in the ServerToBrowserMessage union.
  */
 import { describe, expect, it } from "vitest";
-import {
-  BROWSER_HOST_CLIENT_TYPES,
-  BROWSER_HOST_SERVER_TYPES,
-  type BrowserHostClientMessage,
-  type BrowserHostServerMessage,
-} from "../browser-protocol.js";
 import type {
   BatchAnswer,
   BatchQuestion,
@@ -28,13 +22,19 @@ import type {
   BrowserRelayUnsubscribeMessage,
   BrowserToServerMessage,
   OpenSpecGetMessage,
-  QuestionsUpdateMessage,
   OpenSpecGetResultMessage,
+  QuestionsUpdateMessage,
   RecoveryDismissMessage,
   ServerToBrowserMessage,
   SessionsPageMessage,
   SessionsPageResultMessage,
   SessionsSnapshotMessage,
+} from "../browser-protocol.js";
+import {
+  BROWSER_HOST_CLIENT_TYPES,
+  BROWSER_HOST_SERVER_TYPES,
+  type BrowserHostClientMessage,
+  type BrowserHostServerMessage,
 } from "../browser-protocol.js";
 import type {
   AssetRegisterMessage,

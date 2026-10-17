@@ -3,7 +3,7 @@
  * invariants. Totality over the REAL registered route set (core + plugin
  * routes attributed at load) lives in `http-road-classification-live.test.ts`.
  */
-import { hasRouteTier, routeTier, ROUTE_TIERS } from "@blackbelt-technology/pi-dashboard-shared/route-tiers.js";
+import { hasRouteTier, ROUTE_TIERS, routeTier } from "@blackbelt-technology/pi-dashboard-shared/route-tiers.js";
 import { describe, expect, it } from "vitest";
 import { classifyHttpRoad } from "../http-road-classification.js";
 

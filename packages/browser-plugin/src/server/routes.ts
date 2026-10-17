@@ -26,8 +26,8 @@ import type { BrowserRelayTabState } from "@blackbelt-technology/pi-dashboard-sh
 import type { FastifyInstance } from "fastify";
 import type { AuditEntry, AuditRing } from "./audit.js";
 import type { OperatorHostInfo } from "./operator-hosts.js";
-import { isRelayConnectPage, redactExtensionUrl } from "./redact.js";
 import type { ProfileListResult, ProfileSource } from "./profiles.js";
+import { isRelayConnectPage, redactExtensionUrl } from "./redact.js";
 import type { BrowserProfileConfig, ConnectResult, RelayConfig, RelayLike } from "./relay/relay-manager.js";
 
 interface BrowserRouteTab {

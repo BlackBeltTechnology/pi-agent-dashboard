@@ -2,8 +2,9 @@
  * Local frame tee: copy only top-level-tab `Page.screencastFrame` events.
  * See change: add-operator-browser-relay (test-plan #E54 #P1).
  */
-import { describe, expect, it } from "vitest";
+
 import type { BrowserHostFrame } from "@blackbelt-technology/pi-dashboard-shared/browser-host-ipc.js";
+import { describe, expect, it } from "vitest";
 import { createTee } from "../tee.js";
 import { FakeExtension } from "./fixtures.js";
 

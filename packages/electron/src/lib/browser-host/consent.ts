@@ -19,8 +19,8 @@
  */
 import { createHash } from "node:crypto";
 import path from "node:path";
-import { sanitizeDisplayName } from "@blackbelt-technology/pi-dashboard-shared/display-name.js";
 import type { BrowserHostConsentRow } from "@blackbelt-technology/pi-dashboard-shared/browser-host-ipc.js";
+import { sanitizeDisplayName } from "@blackbelt-technology/pi-dashboard-shared/display-name.js";
 import type { MenuItemConstructorOptions } from "electron";
 import { type FsPort, nodeFsPort, readVersionedJson, writeJsonAtomic } from "./store.js";
 

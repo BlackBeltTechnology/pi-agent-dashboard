@@ -3,8 +3,8 @@
  * See change: add-operator-browser-relay (test-plan #E39 #E40 #E41 #E43 #X10).
  */
 import net from "node:net";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BrowserHostExtEvent } from "@blackbelt-technology/pi-dashboard-shared/browser-host-ipc.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createShim, type Shim } from "../shim.js";
 import { EXT_ORIGIN, FakeExtension, until } from "./fixtures.js";
 

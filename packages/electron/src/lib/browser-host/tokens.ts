@@ -11,7 +11,7 @@
  * See change: add-operator-browser-relay (D7).
  */
 import path from "node:path";
-import { canEncrypt, type CryptoPort, decrypt, encrypt, type EncryptedBlob, type FsPort, nodeFsPort, readVersionedJson, writeJsonAtomic } from "./store.js";
+import { type CryptoPort, canEncrypt, decrypt, type EncryptedBlob, encrypt, type FsPort, nodeFsPort, readVersionedJson, writeJsonAtomic } from "./store.js";
 
 const FILE = "browser-host-tokens.json";
 const VERSION = 1;

@@ -6,7 +6,7 @@
  * `dashboard:*` handlers additionally validate `event.senderFrame`
  * (`lib/ipc-trust.ts`). See change: harden-electron-renderer-boundary (VD5).
  */
-import { BROWSER_HOST_CHANNELS as CH, type BrowserHostBridge } from "@blackbelt-technology/pi-dashboard-shared/browser-host-ipc.js";
+import { type BrowserHostBridge, BROWSER_HOST_CHANNELS as CH } from "@blackbelt-technology/pi-dashboard-shared/browser-host-ipc.js";
 import { contextBridge, ipcRenderer } from "electron";
 
 // ── piDashboard API ───────────────────────────────────────────────────────────────────

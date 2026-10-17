@@ -1,19 +1,19 @@
-import React from "react";
-import { act, render, screen, fireEvent, cleanup } from "@testing-library/react";
-import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   ComposerContextGroup,
   createSlotRegistry,
   PluginContextProvider,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
+import type { DashboardSession, OpenSpecChange } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import React from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
-import { absentData, archiveEntry, knownData, makeChange, stubArchiveApi, withOpenSpecMap } from "../../test-support/attachmentHarness.js";
-import { ComposerSessionActions } from "../session/ComposerSessionActions.js";
-import { isComposerWorking } from "../../lib/chat/composer-liveness.js";
-import type { DashboardSession, OpenSpecChange } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { BrowserRelayBadge, hasRelayTabsForBadge } from "../../../../browser-plugin/src/client/index.js";
 import { __resetRelayStoreForTests, setRelayStatus } from "../../../../browser-plugin/src/client/relay-store.js";
+import { isComposerWorking } from "../../lib/chat/composer-liveness.js";
+import { absentData, archiveEntry, knownData, makeChange, stubArchiveApi, withOpenSpecMap } from "../../test-support/attachmentHarness.js";
+import { ComposerSessionActions } from "../session/ComposerSessionActions.js";
 
 afterEach(() => cleanup());
 

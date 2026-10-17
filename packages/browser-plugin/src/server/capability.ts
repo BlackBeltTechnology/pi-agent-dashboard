@@ -18,9 +18,8 @@
  *    research-verified form (docs/research/browser-relay-playwright-extension.md §7).
  */
 import { existsSync } from "node:fs";
-import { computeSystemOpen } from "@blackbelt-technology/pi-dashboard-shared/platform/system-open.js";
-
 import { chromeUserDataDir } from "@blackbelt-technology/pi-dashboard-shared/chrome-profiles.js";
+import { computeSystemOpen } from "@blackbelt-technology/pi-dashboard-shared/platform/system-open.js";
 
 // Pure helpers live in shared (consumed by Electron main too); re-exported
 // unchanged. See change: add-operator-browser-relay (design D8).

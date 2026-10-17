@@ -7,11 +7,12 @@
  *
  * See change: ship-browser-skill-and-electron-cdp.
  */
-import { describe, it, expect } from "vitest";
+
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
+import { describe, expect, it } from "vitest";
 
 const here = path.dirname(url.fileURLToPath(import.meta.url));
 const pkgDir = path.resolve(here, "..", "..");
