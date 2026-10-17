@@ -1,6 +1,6 @@
 ---
 name: obs-studio
-description: Set up, provision and drive OBS Studio from a pi session — detect or install OBS, enable obs-websocket with a stored secret, register it as a managed service, switch scenes, bind cameras and displays, virtual camera, recording, stream target, subtitles text, AI background removal, screenshots, diagnose blank sources and crashes. Use on "set up OBS", "switch OBS scene", "turn on the virtual camera", "start recording in OBS", "my OBS source is blank", "OBS safe mode / crash loop", "add the webcam to OBS", "OBS remote control", "provision OBS".
+description: Set up and drive OBS Studio from a pi session with the pi-obs CLI - detect/install, provision obs-websocket as a managed service, switch scenes, bind cameras and displays, virtual camera, recording, stream target, screenshots, diagnose blank sources and crashes. Use on "set up OBS", "switch OBS scene", "turn on the virtual camera", "my OBS source is blank", "OBS safe mode".
 ---
 
 # OBS Studio (`pi-obs`)

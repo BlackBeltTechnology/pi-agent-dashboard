@@ -21,7 +21,7 @@ export interface DashboardCli {
 
 /**
  * `prefix` (plugin server): an exact argv prefix such as
- * `[process.execPath, "--import", <loader>, <cli.ts>]`, spawned verbatim.
+ * the server's own node, loader flags and CLI entry (see `server/dashboard-cli-argv.ts`), spawned verbatim.
  * Otherwise `PI_DASHBOARD_BIN` / `pi-dashboard` through `buildSafeArgv`.
  */
 export function createDashboardCli(env: Record<string, string | undefined> = process.env, prefix?: readonly string[]): DashboardCli {
