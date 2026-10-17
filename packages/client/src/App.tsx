@@ -57,8 +57,8 @@ import { SessionSplitView, SplitRouteSync } from "./components/split/SessionSpli
 import { SplitWorkspaceProvider } from "./components/split/SplitWorkspaceContext.js";
 import { allTagsInUse } from "./components/tags/all-tags.js";
 import { CommitDialogProvider } from "./components/worktree/CommitDialog.js";
-import { WorktreeInitStack } from "./components/worktree/WorktreeInitStack.js";
 import { LazyWorktreeSpawnDialog } from "./components/worktree/lazy-worktree-dialogs.js";
+import { WorktreeInitStack } from "./components/worktree/WorktreeInitStack.js";
 import { useAppHidden } from "./hooks/useAppHidden.js";
 import { useContentViews } from "./hooks/useContentViews.js";
 import { useDocumentTitle } from "./hooks/useDocumentTitle.js";
@@ -80,11 +80,11 @@ import { fetchArchivedSessionById } from "./lib/api/archived-sessions-api.js";
 import { getInitialWsUrl, LAST_SERVER_KEY, performServerSwitch } from "./lib/api/server-switch.js";
 import { openStagingSocket } from "./lib/api/staging-socket.js";
 import { EMPTY_CANVAS_STATE } from "./lib/canvas/canvas-gate.js";
+import { composerLiveness, isComposerWorking } from "./lib/chat/composer-liveness.js";
 // SubagentPopoutPage no longer imported by the shell — it's registered via
 // the subagents-plugin's `shell-overlay-route` claim and mounted through
 // `<ShellOverlayRouteSlot>` below. See change: add-flow-agent-popout.
 import { applyPromptTimeout, carryInteractiveRequests, createInitialState, deriveBannerState, reduceEvent, resolveInteractiveRequest, type SessionState } from "./lib/chat/event-reducer.js";
-import { composerLiveness, isComposerWorking } from "./lib/chat/composer-liveness.js";
 import { normalizeFollowUpEntries } from "./lib/chat/followup-entries.js";
 import { nextBackfillRange } from "./lib/chat/history-gap.js";
 import { refreshChat } from "./lib/chat/refresh-chat.js";
@@ -137,6 +137,7 @@ import { dispatchPluginMessage } from "./lib/package/plugins-api.js";
 import { appendWsTicket, getApiBearer, isDevicePaired, mintWsTicket } from "./lib/pairing/device-auth.js";
 import { createEmbeddedAppShell } from "./lib/plugins/embedded-app-shell.js";
 import { hydrateMermaidRepairConfig } from "./lib/preview/mermaid-repair-config.js";
+import { reachabilityStore } from "./lib/remote-access/reachability-store.js";
 import { buildHistoryPhaseMap, hasChatContent } from "./lib/replay/history-load-phase.js";
 import { extractUserPromptHistory } from "./lib/replay/message-history.js";
 import { rehydrateSession } from "./lib/replay/rehydrate-session.js";
@@ -1247,6 +1248,16 @@ export default function App() {
       })
       .catch(() => {});
   }, []);
+
+  // Live bind facts for the toolbar Remote access button and its dialog (the
+  // server replays this on every connect, so a restart converges too).
+  // See change: add-remote-access-wizard.
+  useEffect(() => {
+    if (!onMessage) return;
+    return onMessage((msg: any) => {
+      if (msg?.type === "reachability_updated" && msg.reachability) reachabilityStore.set(msg.reachability);
+    });
+  }, [onMessage]);
 
   // Live re-hydration of the OpenSpec fleet switches: a PUT /api/config with
   // an openspec section (settings toggle, opt-out add/remove) broadcasts

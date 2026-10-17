@@ -42,8 +42,12 @@ Do **not** use it for ordinary automation — the bundled browser
 
 ```bash
 curl -s http://localhost:8000/api/browser/status
-# → {"enabled":true,"canOpenChrome":true}
+# → {"enabled":true,"canOpenChrome":true,"operatorHosts":true}
 ```
+
+`operatorHosts: true` means this dashboard can also drive the browser on an
+**operator's own computer** (see "Browser on the user's own computer" below).
+Its absence means an older dashboard: never pass `host` to `connect` then.
 
 Use the dashboard port (`8000` by default; `PI_DASHBOARD_PORT` overrides).
 Branch on the response:
@@ -52,7 +56,7 @@ Branch on the response:
 |---|---|---|
 | `404` | Plugin not loaded / disabled | The relay is not usable; report it. Do **not** fall back to the bundled browser for a login-state task. |
 | `{"enabled":false}` | Kill switch is off | Enable it (Step 1b) or ask the user to; a `connect` will `403` until then. |
-| `{"canOpenChrome":false}` | Host has no desktop Chrome (container / headless / no `Google Chrome`) | The relay cannot open a profile; `connect` will `503`. Stop. |
+| `{"canOpenChrome":false}` | Host has no desktop Chrome (container / headless / no `Google Chrome`) | The relay cannot open a profile on the dashboard host; `connect` will `503`. Stop — unless `operatorHosts: true` and Step 2 lists an online operator host with the profile you need (use it, see below). |
 
 ### Step 1b — Enable the relay (only if `enabled:false`)
 
@@ -74,6 +78,13 @@ Rows are keyed by `profileDirectory`. Pick one with `"installed":true`; match a
 `label` / `email` when the user named an account. A row's `instances` lists any
 live connection already holding that profile.
 
+When Step 1 reported `operatorHosts: true`, the response also carries
+`operatorHosts[]`: one entry per **online** operator computer —
+`{hostId, label, platform, online, canOpenChrome, profiles[]}` with the same
+profile rows (`profileDirectory`, `label`, `email`, `installed`, `instances`).
+The top-level `profiles` map is always the dashboard host's Chrome; operator
+profiles never appear in it.
+
 ## Step 3 — Connect
 
 ```bash
@@ -86,7 +97,8 @@ Success returns `{"cdpUrl":"ws://127.0.0.1:<port>/ws/browser-cdp/<guid>","instan
 **Keep the `instanceId`** — it is how you disconnect, and the only public handle
 to this instance.
 
-Branch on failure (the HTTP status is authoritative):
+Branch on failure (the HTTP status is authoritative; for an operator `host`
+see the extra reasons in the next section):
 
 | Status | `reason` | Meaning | Do |
 |---|---|---|---|
@@ -95,6 +107,44 @@ Branch on failure (the HTTP status is authoritative):
 | `409` | `busy` | The profile already hosts a live instance (and the dashboard is configured to allow one) | Reuse the existing `instanceId` if it is yours, or `disconnect` it first. Do not retry blindly. |
 | `503` | — | Host cannot open Chrome | Stop; do not fall back to the bundled browser for a login-state task. |
 | `504` | — | The extension did not connect within 60 s | Almost always the user did not click **Allow**, or the pairing token mismatched (the dashboard deliberately cannot tell these apart). Ask the user to allow / re-check the token, then retry once. |
+
+## Browser on the user's own computer (operator host)
+
+`connect` targets the **dashboard host** unless the body names an operator
+`hostId`:
+
+```bash
+curl -s -X POST http://localhost:8000/api/browser/connect \
+  -H 'content-type: application/json' \
+  -d '{"profileDirectory":"Default","host":"<hostId from Step 2 operatorHosts[]>"}'
+```
+
+Rules:
+
+- Pass `host` **only when** `GET /api/browser/status` reported
+  `operatorHosts: true`. Without it, do not pass `host`, and tell the user that
+  this dashboard cannot drive the browser on their computer.
+- When the user asks for the browser on **their own computer** (their laptop,
+  not the dashboard host), pass `host` if exactly one online operator host lists
+  that profile with `installed: true`. With several candidates, ask which one;
+  with none, say so — do not fall back to the dashboard host's Chrome.
+- The success response is the same (`cdpUrl`, `instanceId`); continue with Step 4.
+  The operator sees a consent prompt on their computer on the first connect.
+
+Operator-host failures (HTTP status is authoritative):
+
+| Status | `reason` | Meaning | Do |
+|---|---|---|---|
+| `404` | `unknown-host` | That `hostId` is not online (offline, renamed or never registered) | Re-read Step 2 `operatorHosts[]`; if it is gone, report that the user's computer is not connected to the dashboard. |
+| `409` | `host-busy` | The operator host is already busy with a connect | Wait briefly and retry once. |
+| `403` | `operator-denied` | The user declined the prompt on their computer | Report that the user declined and **halt**. Never retry, never fall back to the dashboard host's Chrome. |
+| `504` | `consent-timeout` | The user did not answer the prompt on their computer in time | Ask the user to be at their computer, then retry once. |
+| `503` | `no-chrome` | The operator computer has no desktop Chrome | Stop; report it. |
+| `503` | `host-gone` | The operator's dashboard window closed or reconnected mid-connect (the instance ends with it) | Re-read Step 2; reconnect once the host is back online. |
+
+An operator instance ends whenever that window's dashboard connection ends
+(window closed, reload, server switched, network lost) — treat `host-gone` as a
+normal end of the task, not a bug to retry in a loop.
 
 ## Step 4 — Attach the CDP client
 
@@ -142,7 +192,9 @@ client detaches or disconnects, but an explicit disconnect is faster.
   `Target detached: devtools`; live-view input stops until DevTools closes.
 - **Loopback only.** Both relay endpoints reject tunnel / non-loopback peers
   (checking `Host` and forwarding headers). A pi session that is not on the
-  dashboard host cannot use this recipe.
+  dashboard host cannot use this recipe. This holds for an operator `host` too:
+  the `cdpUrl` is still served by the dashboard, so the pi session must still
+  run on the dashboard host.
 
 ## Showing the page to the user, and handing over a login
 

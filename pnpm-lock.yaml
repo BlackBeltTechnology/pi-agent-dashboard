@@ -798,6 +798,9 @@ importers:
       electron-updater:
         specifier: ^6.3.0
         version: 6.8.9(supports-color@8.1.1)
+      ws:
+        specifier: ^8.18.0
+        version: 8.21.3
     devDependencies:
       '@electron-forge/cli':
         specifier: ^7.6.0
@@ -814,6 +817,9 @@ importers:
       '@types/semver':
         specifier: ^7.7.0
         version: 7.8.0
+      '@types/ws':
+        specifier: ^8.18.1
+        version: 8.18.1
       electron:
         specifier: 43.4.1
         version: 43.4.1(supports-color@8.1.1)
