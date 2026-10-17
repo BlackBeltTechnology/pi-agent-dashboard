@@ -108,7 +108,8 @@
               btn.querySelector(".server-label").textContent = s.label || s.host;
               btn.querySelector(".server-addr").textContent = s.host + ":" + s.port;
               btn.addEventListener("click", async () => {
-                if (!(await goTo("http://" + s.host + ":" + s.port))) {
+                var hostPart = s.host.indexOf(":") !== -1 && s.host.charAt(0) !== "[" ? "[" + s.host + "]" : s.host;
+                if (!(await goTo("http://" + hostPart + ":" + s.port))) {
                   statusEl.style.display = "block";
                   statusEl.textContent = "Could not open " + s.host + ":" + s.port;
                 }

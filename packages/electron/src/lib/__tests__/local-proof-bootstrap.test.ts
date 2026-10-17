@@ -253,9 +253,12 @@ describe("navigateToServer — mint faults degrade to the plain target (X11–X1
 
   it("X12 token unreadable: plain target, no mint request, no token file or directory created", async () => {
     const localDir = path.join(getDashboardConfigDir(), "local");
-    const { win, res } = await run({});
+    const fetchImpl = vi.fn(async () => { throw new Error("mint attempted without a token"); }) as unknown as typeof fetch;
+    // `token: null` = unreadable token, independent of whatever HOME the run uses.
+    const { win, res } = await run({ token: null, fetchImpl });
     expect(res).toEqual({ navigated: true });
     expect(win.loadURL).toHaveBeenCalledExactlyOnceWith("http://localhost:8000");
+    expect(fetchImpl).not.toHaveBeenCalled();
     expect(existsSync(path.join(localDir, "token"))).toBe(false);
     expect(existsSync(localDir)).toBe(false);
   });

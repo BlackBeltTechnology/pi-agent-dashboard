@@ -3886,7 +3886,7 @@ Rules:
 See change: fix-pairing-approval-credential.
 
 Cross-refs:
-- openspec/changes/fix-pairing-approval-credential/
+- openspec/changes/archive/2026-10-17-fix-pairing-approval-credential/
 - packages/server/src/cli.ts → `cmdPair`, `cmdOpen`, `validateOpenUrl`
 - packages/shared/src/launcher-origin.ts → `isLauncherOrigin`
 - packages/server/src/auth/local-token.ts → `readLocalTokenIfPresent`
