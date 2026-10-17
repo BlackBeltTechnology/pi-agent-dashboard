@@ -17,7 +17,7 @@ export interface Lease {
 }
 
 /** `Lease.holder` is caller-supplied display text; never longer than this. */
-export const MAX_HOLDER_LENGTH = 200;
+const MAX_HOLDER_LENGTH = 200;
 
 /** A live lease as an observer sees it: holder text + expiry, never the id. */
 export interface LeaseHolderView {

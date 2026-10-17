@@ -18,7 +18,7 @@ const TAILS = [200, 500, 2000] as const;
 const MARK = /(«secret:[^»]*»)/g;
 
 /** One line as text, with each redaction mark in its own highlighted span. */
-export function LogLine({ line }: { line: string }): ReactNode {
+function LogLine({ line }: { line: string }): ReactNode {
   return line.split(MARK).map((part, i) =>
     i % 2 === 1 ? (
       <mark key={`${part}-${i}`} data-testid="service-log-mark" className="rounded bg-[var(--tint-purple-bg)] px-0.5 text-[var(--tint-purple-fg)]">

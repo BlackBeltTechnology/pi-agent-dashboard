@@ -7,11 +7,10 @@
 import type { LogsUnavailableReason, ServiceStatus } from "@blackbelt-technology/pi-dashboard-shared/services/status.js";
 import { t as i18nT } from "../i18n/i18n.js";
 
-export type ServiceState = ServiceStatus["state"];
 export type Tone = "success" | "info" | "warning" | "error" | "neutral";
 
 /** Shape glyph + text: state is never conveyed by colour alone (WCAG 1.4.1). */
-export const STATE_META: Record<string, { label: string; tone: Tone; glyph: string }> = {
+const STATE_META: Record<string, { label: string; tone: Tone; glyph: string }> = {
   healthy: { label: "Healthy", tone: "success", glyph: "●" },
   idle: { label: "Idle", tone: "neutral", glyph: "○" },
   starting: { label: "Starting", tone: "info", glyph: "◐" },
@@ -85,7 +84,7 @@ const RUNNING: ReadonlySet<string> = new Set(["healthy", "idle", "starting", "st
 export const groupOf = (state: string): ServiceGroup => (ATTENTION.has(state) ? "attention" : RUNNING.has(state) ? "running" : "stopped");
 export const needsAttention = (s: Pick<ServiceStatus, "state">): boolean => ATTENTION.has(s.state);
 
-export const GROUP_ORDER: readonly ServiceGroup[] = ["attention", "running", "stopped"];
+const GROUP_ORDER: readonly ServiceGroup[] = ["attention", "running", "stopped"];
 const GROUP_LABEL_EN: Record<ServiceGroup, string> = { attention: "Needs attention", running: "Running", stopped: "Stopped" };
 export const groupLabel = (g: ServiceGroup): string => i18nT(`services.group.${g}`, undefined, GROUP_LABEL_EN[g]);
 

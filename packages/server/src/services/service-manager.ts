@@ -43,7 +43,6 @@ import {
 } from "@blackbelt-technology/pi-dashboard-shared/services/schema.js";
 import {
   type AddReview,
-  type LeaseHolder,
   LOGS_DEFAULT_TAIL,
   LOGS_MAX_TAIL,
   type LogsResponse,
@@ -123,7 +122,7 @@ export interface ServiceManagerDeps {
   kill?: KillFn;
 }
 
-export type { AddReview, LeaseHolder, ServiceList, ServiceStatus };
+export type { AddReview, ServiceList, ServiceStatus };
 
 export type AddRequest = { offer: string; dryRun?: boolean; update?: boolean } | { definition: unknown; dryRun?: boolean };
 

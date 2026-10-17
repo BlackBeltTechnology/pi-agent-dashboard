@@ -33,7 +33,7 @@ const volumeReason = (reason: VolumeOutcome["reason"]): string => {
 };
 
 /** Per-volume outcome list (reset-data and remove with purge). */
-export function VolumeReport({ volumes, testId }: { volumes: VolumeOutcome[]; testId: string }) {
+function VolumeReport({ volumes, testId }: { volumes: VolumeOutcome[]; testId: string }) {
   return (
     <ul data-testid={testId} className="m-0 list-none space-y-1 p-0 text-xs">
       {volumes.map((v) => (

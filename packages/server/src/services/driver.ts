@@ -62,7 +62,7 @@ export type ResetDataOutcome =
   | { kind: "rm-failed" }
   | { kind: "ok"; volumes: VolumeOutcome[] };
 
-export interface OwnedContainer {
+interface OwnedContainer {
   /** `pi.service` label. */
   serviceId: string;
   containerId: string;

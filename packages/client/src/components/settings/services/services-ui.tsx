@@ -8,7 +8,7 @@ import { mdiAlertCircleOutline, mdiCellphoneKey, mdiLockOutline, mdiLogin, mdiMo
 import type { ReactNode } from "react";
 import { t as i18nT } from "../../../lib/i18n/i18n.js";
 import type { ServicesResult } from "../../../lib/services/services-api.js";
-import { stateMeta, type Tone } from "../../../lib/services/services-model.js";
+import { stateMeta } from "../../../lib/services/services-model.js";
 import { Callout, TONE_PILL, VIcon } from "../vault/vault-ui.js";
 
 export function StatePill({ state }: { state: string }) {
@@ -40,7 +40,7 @@ export function Chip({ tone = "neutral", children, testId }: { tone?: keyof type
   );
 }
 
-export type KnownRemedy = "use-host" | "re-pair" | "sign-in";
+type KnownRemedy = "use-host" | "re-pair" | "sign-in";
 const REMEDY_ROWS: Record<KnownRemedy, { icon: string; fallback: string }> = {
   "use-host": { icon: mdiMonitor, fallback: "Open the dashboard on the computer that runs it." },
   "re-pair": {
@@ -120,8 +120,6 @@ export function ActionFailure({ failure, testId = "service-action-error" }: { fa
     </Callout>
   );
 }
-
-export const toneOf = (tone: Tone): Tone => tone;
 
 /** Section heading used by the detail page. */
 export function SectionTitle({ children, id }: { children: ReactNode; id?: string }) {
