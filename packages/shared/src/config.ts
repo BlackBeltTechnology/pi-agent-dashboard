@@ -512,6 +512,41 @@ export function parseKrokiConfig(raw: unknown): KrokiConfig {
 }
 
 /**
+ * On-demand AI mermaid repair settings. `model` is `provider/id` (id verbatim,
+ * no `:level`). `enabled` is the RESOLVED flag: configured-on but unusable
+ * (no model / `@role`) resolves to `false` with a `disabledReason`.
+ * See change: add-mermaid-ai-repair.
+ */
+export interface MermaidRepairConfig {
+  enabled: boolean;
+  model?: string;
+  maxChars: number;
+  timeoutMs: number;
+  disabledReason?: "no_model" | "role_refs_unsupported";
+}
+
+export const DEFAULT_MERMAID_REPAIR: MermaidRepairConfig = {
+  enabled: false,
+  maxChars: 20000,
+  timeoutMs: 30000,
+};
+
+export function parseMermaidRepairConfig(raw: unknown): MermaidRepairConfig {
+  const base = { maxChars: DEFAULT_MERMAID_REPAIR.maxChars, timeoutMs: DEFAULT_MERMAID_REPAIR.timeoutMs };
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { enabled: false, ...base };
+  const r = raw as Record<string, unknown>;
+  const maxChars = clampInt(r.maxChars, 1000, 50000, base.maxChars);
+  const timeoutMs = clampInt(r.timeoutMs, 5000, 120000, base.timeoutMs);
+  const model = typeof r.model === "string" && r.model.trim() ? r.model.trim() : undefined;
+  if (r.enabled !== true) return { enabled: false, ...(model ? { model } : {}), maxChars, timeoutMs };
+  if (!model) return { enabled: false, maxChars, timeoutMs, disabledReason: "no_model" };
+  if (model.startsWith("@")) {
+    return { enabled: false, model, maxChars, timeoutMs, disabledReason: "role_refs_unsupported" };
+  }
+  return { enabled: true, model, maxChars, timeoutMs };
+}
+
+/**
  * Resolve the effective Kroki endpoint URL according to the resolution ladder (design D5):
  * 1. Live KROKI_URL env override (highest precedence)
  * 2. Explicitly configured kroki.url
@@ -988,6 +1023,8 @@ export interface DashboardConfig {
   plugins: PluginsConfig;
   /** Kroki diagram render proxy settings. */
   kroki: KrokiConfig;
+  /** On-demand AI mermaid repair. See change: add-mermaid-ai-repair. */
+  mermaidRepair: MermaidRepairConfig;
   /** Model proxy configuration (OpenAI/Anthropic-compatible /v1/* endpoints). */
   modelProxy: ModelProxyConfig;
   /**
@@ -1354,6 +1391,7 @@ export function parseSubagentSaturation(raw: any): SubagentSaturationThresholds 
 const DEFAULTS: DashboardConfig = {
   plugins: {},
   kroki: { ...DEFAULT_KROKI_CONFIG },
+  mermaidRepair: { ...DEFAULT_MERMAID_REPAIR },
   modelProxy: { ...DEFAULT_MODEL_PROXY },
   port: DEFAULT_DASHBOARD_PORT,
   piPort: DEFAULT_GATEWAY_PORT,
@@ -2280,6 +2318,7 @@ export function loadConfig(): DashboardConfig {
           : defaults.windowsGitSource,
       modelProxy: parseModelProxyConfig(parsed.modelProxy),
       kroki: parseKrokiConfig(parsed.kroki),
+      mermaidRepair: parseMermaidRepairConfig(parsed.mermaidRepair),
       ...(typeof parsed.piSessionsDir === "string" && parsed.piSessionsDir.trim()
         ? { piSessionsDir: parsed.piSessionsDir }
         : {}),

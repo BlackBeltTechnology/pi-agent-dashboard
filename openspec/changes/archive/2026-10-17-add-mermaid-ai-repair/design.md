@@ -55,6 +55,20 @@ One structured log line per request: `[mermaid-repair] outcome=<code|ok|aborted>
 - [Slow provider] → `timeoutMs` (default/clamps per `shared-config` delta) via `AbortSignal.timeout`; abort → 504 `timeout`, any other throw → 502 `provider_error`.
 - [Sanitizer weaker than baseline spec text claims (regex vs DOMPurify)] → AI output uses the identical path, so it adds no new exposure; fix tracked by `sanitize-untrusted-rendered-content`.
 
+### Security-hardening review (task 4.1, against the implemented diff)
+
+| Area | Finding | Severity |
+|---|---|---|
+| Untrusted input caps | `code` ≤ `maxChars` (≤ 50000), `error` ≤ 2000, checked before any model call; Fastify's 1 MB `bodyLimit` still applies first and answers its own non-envelope 413 for pathological bodies | Info |
+| Output as untrusted | Model text is only ever returned as mermaid source; the client renders it through `renderMermaid` (mermaid `securityLevel: strict` + DOMPurify) and rejects it on a render error. Prompt-injection-shaped output gets no more reach than any diagram in a markdown file | None open |
+| AuthN/Z | `preHandler: networkGuard`; guard test asserts zero model calls for an unauthenticated remote caller | None open |
+| Spend/abuse | One in-flight request per server (`busy`), `maxTokens` ≤ 8192, timeout, disconnect aborts the provider call; sequential calls by an admitted caller are not rate-limited (accepted, D5) | Accepted |
+| Secret echo | Responses carry only static messages per error code — provider error text, `apiKey` and headers are never forwarded; credentials resolved server-side via `streamCompletion` (no `apiKey` override) | None open |
+| Logging | One `[mermaid-repair]` line with outcome/model/ms/chars; sentinel test proves no source, error text or model output | None open |
+| Config | `mermaidRepair` block carries no credentials; `@role` and model-less values resolve to disabled | None open |
+
+No open High findings.
+
 ## Migration Plan
 
 Additive. Lands after `add-mermaid-auto-repair`. Config block absent → feature hidden. Restart server for route + config; `npm run build` for client. Rollback: delete the block or revert.

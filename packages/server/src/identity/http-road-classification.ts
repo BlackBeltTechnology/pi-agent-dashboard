@@ -56,6 +56,8 @@ const FAMILY_BY_SEGMENT: Readonly<Record<string, Family>> = {
   file: "files",
   grep: "files",
   diagram: "files",
+  // on-demand AI mermaid repair (change: add-mermaid-ai-repair)
+  mermaid: "files",
   "reveal-in-file-manager": "files",
   "open-in-system": "files",
   "pi-resource-file": "files",
