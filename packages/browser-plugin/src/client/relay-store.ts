@@ -115,9 +115,13 @@ export function useRelayStatusFeed(): void {
     getBrowserProfiles()
       .then((res) => {
         if (!fresh()) return;
-        const instances: BrowserRelayInstanceStatus[] = Object.entries(res.profiles).flatMap(([profileDirectory, profile]) =>
-          profile.instances.map((inst) => ({ ...inst, profileDirectory })),
+        const dashboard: BrowserRelayInstanceStatus[] = Object.entries(res.profiles).flatMap(([profileDirectory, profile]) =>
+          profile.instances.map((inst) => ({ ...inst, profileDirectory, host: "dashboard" })),
         );
+        const operator: BrowserRelayInstanceStatus[] = (res.operatorHosts ?? []).flatMap((h) =>
+          h.profiles.flatMap((p) => p.instances.map((inst) => ({ ...inst, profileDirectory: p.profileDirectory, host: h.hostId }))),
+        );
+        const instances = [...dashboard, ...operator];
         setRelayStatus({ type: "browser_relay_status", instances, auditSeq: 0 });
       })
       .catch(() => {
@@ -131,10 +135,42 @@ export function useRelayStatusFeed(): void {
   useEffect(() => () => setRelayStatus(null), []);
 }
 
+// ── operator host registration (change: add-operator-browser-relay, D1/D10) ──
+//
+// The `hostId` THIS window's `OperatorHostCarrier` is registered as on the
+// current `/ws` socket, or `null` (not Electron, older server, refused, between
+// sockets). The pane reads it to decide `local: true`; only the carrier writes it.
+let operatorHostId: string | null = null;
+const operatorHostSubscribers = new Set<() => void>();
+
+export function getOperatorHostId(): string | null {
+  return operatorHostId;
+}
+
+export function setOperatorHostId(hostId: string | null): void {
+  if (operatorHostId === hostId) return;
+  operatorHostId = hostId;
+  for (const listener of operatorHostSubscribers) listener();
+}
+
+function subscribeOperatorHost(listener: () => void): () => void {
+  operatorHostSubscribers.add(listener);
+  return () => {
+    operatorHostSubscribers.delete(listener);
+  };
+}
+
+/** Reactive read of "registered as <hostId>" for this window. */
+export function useOperatorHostId(): string | null {
+  return useSyncExternalStore(subscribeOperatorHost, getOperatorHostId, getOperatorHostId);
+}
+
 /** Test-only: reset the store between cases. */
 export function __resetRelayStoreForTests(): void {
   status = null;
   snapshotSeq = 0;
   subscribers.clear();
+  operatorHostId = null;
+  operatorHostSubscribers.clear();
   bumpSlotClaimsVersion();
 }

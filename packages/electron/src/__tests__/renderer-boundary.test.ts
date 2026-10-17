@@ -119,3 +119,61 @@ describe("preload-main: openServerWindow only on the local dashboard origin", ()
     expect(ipcRenderer.invoke).toHaveBeenCalledWith("servers:open-from-dashboard", { host: "192.168.16.204", port: 8000 });
   });
 });
+
+// ── browserHost capability gating (add-operator-browser-relay, D1/D9, test-plan #E35) ─────
+describe("preload-main: browserHost only on the local dashboard origin", () => {
+  const exposedApi: Array<Record<string, unknown>> = [];
+
+  async function loadWith(origin: string | undefined, locationOrigin: string) {
+    vi.resetModules();
+    exposedApi.length = 0;
+    vi.doMock("electron", () => ({
+      contextBridge: { exposeInMainWorld: (_k: string, api: Record<string, unknown>) => { exposedApi.push(api); } },
+      ipcRenderer: { invoke: vi.fn(async () => undefined), send: vi.fn(), on: vi.fn(), removeListener: vi.fn() },
+    }));
+    const argv = process.argv;
+    process.argv = origin ? [...argv, `--pi-local-origin=${origin}`] : argv.filter((a) => !a.startsWith("--pi-local-origin="));
+    (globalThis as { location?: unknown }).location = { origin: locationOrigin };
+    try {
+      await import("../preload-main.js");
+    } finally {
+      process.argv = argv;
+    }
+    return exposedApi[0]!;
+  }
+
+  it("defined for the local origin, with exactly the contract surface", async () => {
+    const api = await loadWith("http://localhost:8000", "http://localhost:8000");
+    expect(Object.keys(api.browserHost as object).sort()).toEqual(
+      ["identity", "sign", "setTarget", "connect", "onConnect", "cancelConnect", "extSend", "extClose", "onExt", "tee", "onFrame", "setToken", "listConsents", "revokeConsent"].sort(),
+    );
+  });
+
+  it("undefined for a remote-origin document (VD5), another origin, or no passed origin", async () => {
+    expect((await loadWith("http://localhost:8000", "http://192.168.16.204:8000")).browserHost).toBeUndefined();
+    expect((await loadWith("http://localhost:8000", "http://localhost:9000")).browserHost).toBeUndefined();
+    expect((await loadWith(undefined, "http://localhost:8000")).browserHost).toBeUndefined();
+  });
+
+  it("connect forwards only the contract fields; channels are the shared names", async () => {
+    const api = await loadWith("http://localhost:8000", "http://localhost:8000");
+    const { ipcRenderer } = await import("electron");
+    const { BROWSER_HOST_CHANNELS: CH } = await import("@blackbelt-technology/pi-dashboard-shared/browser-host-ipc.js");
+    const bh = api.browserHost as Record<string, (...a: unknown[]) => unknown>;
+    await bh.connect!({ requestId: "R", linkId: "L", instanceId: "I", profileDirectory: "Default", serverLabel: "s", token: "leak", guid: "leak" });
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(CH.connect, { requestId: "R", linkId: "L", instanceId: "I", profileDirectory: "Default", serverLabel: "s" });
+    await bh.sign!("n", "I");
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(CH.sign, "n", "I");
+    await bh.extSend!("L", "data");
+    expect(ipcRenderer.send).toHaveBeenCalledWith(CH.extSend, "L", "data");
+  });
+
+  it("push subscriptions return a working unsubscribe", async () => {
+    const api = await loadWith("http://localhost:8000", "http://localhost:8000");
+    const { ipcRenderer } = await import("electron");
+    const off = (api.browserHost as { onFrame(cb: () => void): () => void }).onFrame(() => {});
+    expect(ipcRenderer.on).toHaveBeenCalledWith("browser-host:frame", expect.any(Function));
+    off();
+    expect(ipcRenderer.removeListener).toHaveBeenCalledWith("browser-host:frame", expect.any(Function));
+  });
+});

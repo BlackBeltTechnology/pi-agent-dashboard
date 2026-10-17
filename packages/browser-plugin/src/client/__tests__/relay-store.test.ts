@@ -18,6 +18,7 @@ function status(tabIds: number[]): BrowserRelayStatusMessage {
 			{
 				instanceId: "inst-1",
 				profileDirectory: "Fake",
+				host: "dashboard",
 				state: "connected",
 				tabs: tabIds.map((tabId) => ({ tabId, title: `tab ${tabId}`, url: "https://fake.test/", state: "live" as const })),
 			},

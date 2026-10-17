@@ -444,6 +444,7 @@ describe("browser relay payloads never carry secrets (E29)", () => {
         {
           instanceId: "inst-1",
           profileDirectory: "Default",
+          host: "dashboard",
           state: "connected",
           tabs: [{ tabId: 7, title: "t", url: "https://a.test/", state: "live" }],
         },

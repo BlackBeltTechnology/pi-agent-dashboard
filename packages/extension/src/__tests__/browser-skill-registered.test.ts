@@ -200,6 +200,28 @@ describe("browser skill — dashboard relay routing branches (X15)", () => {
   });
 });
 
+describe("browser skill — operator host recipe (#E59)", () => {
+  const relay = fs.readFileSync(path.join(skillDir, "references", "dashboard-relay.md"), "utf-8");
+
+  it("gates `host` on the `operatorHosts: true` status precondition", () => {
+    expect(relay).toMatch(/`host`/);
+    expect(relay).toMatch(/operatorHosts: true/);
+    expect(relay).toMatch(/operatorHosts: true[\s\S]{0,200}`host`|`host`[\s\S]{0,200}operatorHosts: true/);
+  });
+
+  it.each(["unknown-host", "operator-denied", "consent-timeout", "no-chrome", "host-gone"])(
+    "documents the %s error",
+    (reason) => {
+      expect(relay).toContain(`\`${reason}\``);
+    },
+  );
+
+  it("states the own-computer rule and the never-fall-back rule for operator-denied", () => {
+    expect(relay).toMatch(/own computer/i);
+    expect(relay).toMatch(/operator-denied[\s\S]{0,300}(never|do not|not)[\s\S]{0,80}dashboard host/i);
+  });
+});
+
 describe("browser skill — no bundled CLI", () => {
   it("agent-browser is NOT a runtime dep", () => {
     expect(pkgJson.dependencies?.["agent-browser"]).toBeUndefined();

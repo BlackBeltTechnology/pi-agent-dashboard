@@ -15,7 +15,16 @@
  *  - asks the relay to size the remote viewport to the pane (≤ 2 req/s, 16 px
  *    dead-band) unless the agent owns emulation;
  *  - shows Done while a `browser-takeover` prompt for this instance is pending
- *    in the owning session, answering that same prompt.
+ *    in the owning session, answering that same prompt;
+ *  - in the Electron window registered as the instance's operator host (the
+ *    carrier's "registered as H" and `instance.host === H`) every subscribe
+ *    carries `local: true` and frames come from `browserHost.onFrame` (the tee
+ *    in main), never from `browser_relay_frame`. A registration that lands (or
+ *    ends) after the pane subscribed re-subscribes ONCE in the new mode, without
+ *    an unsubscribe (the server keeps one subscription per socket+tab, mode =
+ *    the latest subscribe). The server's `browser_host_tee` to the carrier — not
+ *    this pane — drives `browserHost.tee`.
+ *    See change: add-operator-browser-relay (D10).
  */
 import {
   usePluginMessage,
@@ -27,7 +36,8 @@ import type { BrowserRelayFrameMessage } from "@blackbelt-technology/pi-dashboar
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { findRelayTab, useRelayStatus } from "./relay-store.js";
+import { getBrowserHost } from "./OperatorHostCarrier.js";
+import { findRelayTab, useOperatorHostId, useRelayStatus } from "./relay-store.js";
 import { parseBrowserTabPath } from "./tab-path.js";
 
 export interface BrowserPaneTabProps {
@@ -58,6 +68,11 @@ export function BrowserPaneTab({ path, session, isActive, onClose }: BrowserPane
   const ref = parseBrowserTabPath(path);
   const found = ref ? findRelayTab(status, ref.instanceId, ref.tabId) : undefined;
   const tab = found?.tab;
+  const registeredHostId = useOperatorHostId();
+  const browserHost = registeredHostId !== null ? getBrowserHost() : undefined;
+  const local = !!browserHost && !!found && found.instance.host === registeredHostId;
+  const localRef = useRef(local);
+  localRef.current = local;
   const instanceId = ref?.instanceId ?? "";
   const tabId = ref?.tabId ?? -1;
 
@@ -69,8 +84,16 @@ export function BrowserPaneTab({ path, session, isActive, onClose }: BrowserPane
   const areaRef = useRef<HTMLDivElement | null>(null);
 
   usePluginMessage<BrowserRelayFrameMessage>("browser_relay_frame", (msg) => {
-    if (msg.instanceId === instanceId && msg.tabId === tabId) setJpeg(msg.jpegBase64);
+    if (!localRef.current && msg.instanceId === instanceId && msg.tabId === tabId) setJpeg(msg.jpegBase64);
   });
+
+  // Local mode: frames arrive from main's tee, filtered to this (instance, tab).
+  useEffect(() => {
+    if (!local || !browserHost) return;
+    return browserHost.onFrame((f) => {
+      if (f.instanceId === instanceId && f.tabId === tabId && typeof f.jpegBase64 === "string") setJpeg(f.jpegBase64);
+    });
+  }, [local, browserHost, instanceId, tabId]);
 
   const detached = tab?.state === "detached";
   const viewable = !!tab && !detached;
@@ -79,13 +102,29 @@ export function BrowserPaneTab({ path, session, isActive, onClose }: BrowserPane
 
   // Subscribe while active + viewable; cleanup = unsubscribe (unmount, detach,
   // tab gone). Leaving `detached` flips `viewable` → exactly one new subscribe.
+  // `local` is read at subscribe time (ref) so a mode flip does not unsubscribe;
+  // `subscribedLocal` is the mode of the live subscription (null = none).
+  const subscribedLocal = useRef<boolean | null>(null);
+  const subscribe = useCallback(
+    (asLocal: boolean) => {
+      subscribedLocal.current = asLocal;
+      void send({ type: "browser_relay_subscribe", instanceId, tabId, ...(asLocal ? { local: true } : {}) });
+    },
+    [send, instanceId, tabId],
+  );
   useEffect(() => {
     if (!viewable || !isActive) return;
-    void send({ type: "browser_relay_subscribe", instanceId, tabId });
+    subscribe(localRef.current);
     return () => {
+      subscribedLocal.current = null;
       void send({ type: "browser_relay_unsubscribe", instanceId, tabId });
     };
-  }, [send, instanceId, tabId, viewable, isActive]);
+  }, [send, subscribe, instanceId, tabId, viewable, isActive]);
+  // The carrier's registration ack landed (or ended) after we subscribed: once
+  // more in the new mode, converging; never on mount (the effect above did it).
+  useEffect(() => {
+    if (subscribedLocal.current !== null && subscribedLocal.current !== local) subscribe(local);
+  }, [local, subscribe]);
 
   const sendInput = useCallback(
     (payload: Record<string, unknown>) => {

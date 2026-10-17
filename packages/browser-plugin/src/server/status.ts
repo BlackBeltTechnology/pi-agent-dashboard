@@ -20,9 +20,10 @@
  * can skip ONE viewer (see screencast-tap.ts), which a broadcast cannot do.
  */
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
-import type {
-  BrowserRelayStatusMessage,
-  BrowserRelayTabStatus,
+import {
+  BROWSER_HOST_CLIENT_TYPES,
+  type BrowserRelayStatusMessage,
+  type BrowserRelayTabStatus,
 } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { AuditRing } from "./audit.js";
 import { isRelayConnectPage, redactExtensionUrl } from "./redact.js";
@@ -54,8 +55,15 @@ interface StatusLogger {
   error(msg: string, ...args: unknown[]): void;
 }
 
+/** Sink for the browser→server `browser_host_*` messages (`RelayManager` fits). */
+export interface HostMessageHandler {
+  handleHostMessage(msg: unknown, ws: RelaySocket): void;
+}
+
 export interface BrowserRelayStatusDeps {
   manager: StatusManager;
+  /** Operator-host message handler; absent ⇒ no `browser_host_*` handler is registered. */
+  hosts?: HostMessageHandler;
   audit: AuditRing;
   broadcast(msg: BrowserRelayStatusMessage): void;
   logger: StatusLogger;
@@ -107,6 +115,7 @@ export class BrowserRelayStatus {
       instances: this.deps.manager.instances().map((inst) => ({
         instanceId: inst.instanceId,
         profileDirectory: inst.profileDirectory,
+        host: inst.host ?? "dashboard",
         state: inst.statusState(),
         tabs: inst.tabList().filter((tab) => !isRelayConnectPage(tab.url)).map(
           (tab): BrowserRelayTabStatus => ({
@@ -138,8 +147,16 @@ export class BrowserRelayStatus {
     }, this.coalesceMs);
   }
 
-  /** Register the three relay gateway handlers on `ctx`. */
+  /** Register the three relay gateway handlers (+ the `browser_host_*` ones) on `ctx`. */
   registerHandlers(ctx: ServerPluginContext): void {
+    const hosts = this.deps.hosts;
+    if (hosts) {
+      // Browser→server operator-host types only; the server→browser names are
+      // never registered (an inbound one would fall through to the pi gateway).
+      for (const type of BROWSER_HOST_CLIENT_TYPES) {
+        ctx.registerBrowserHandler(type, (msg, ws) => hosts.handleHostMessage(msg, ws as RelaySocket));
+      }
+    }
     ctx.registerBrowserHandler("browser_relay_subscribe", (msg, ws) =>
       this._onSubscribe(msg, ws as RelaySocket),
     );
@@ -165,7 +182,10 @@ export class BrowserRelayStatus {
       return;
     }
     this._trackClose(ws);
-    inst.subscribe(ws, ref.tabId);
+    // `local` is honoured by the tap only from the instance's carrier (D10).
+    const local = (msg as { local?: unknown }).local === true;
+    if (local) inst.subscribe(ws, ref.tabId, { local: true });
+    else inst.subscribe(ws, ref.tabId);
   }
 
   private _onUnsubscribe(msg: unknown, ws: RelaySocket): void {

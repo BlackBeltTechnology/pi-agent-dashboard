@@ -124,6 +124,8 @@ import {
   setSpawnedPid,
   stopServerIfNeeded,
 } from "./lib/server-lifecycle.js";
+import { startBrowserHost } from "./lib/browser-host/electron-main.js";
+import type { BrowserHost } from "./lib/browser-host/ipc.js";
 import { type ServerWindowsHandle, startServerWindows } from "./lib/server-windows-main.js";
 import { createTray, destroyTray, type TrayOwnership } from "./lib/tray.js";
 import { startUpdateChecker } from "./lib/update-checker.js";
@@ -555,6 +557,22 @@ function ensureServerWindows(): void {
   }
 }
 
+let browserHost: BrowserHost | null = null;
+
+/**
+ * Operator browser host (key, consent, loopback shim, `browserHost` IPC). Handlers register once;
+ * `attachWindow` rebinds them to each new main window. See change: add-operator-browser-relay.
+ */
+function ensureBrowserHost(): BrowserHost | null {
+  if (browserHost) return browserHost;
+  try {
+    browserHost = startBrowserHost({ getMainWindow: () => mainWindow, isTrustedSender, log });
+  } catch (err) {
+    log(`[browser-host] failed to start: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`);
+  }
+  return browserHost;
+}
+
 function createMainWindow(serverUrl: string, opts: { local?: boolean } = {}): BrowserWindow {
   const state = loadWindowState();
   const isLocal = opts.local !== false;
@@ -580,6 +598,7 @@ function createMainWindow(serverUrl: string, opts: { local?: boolean } = {}): Br
   });
 
   if (state.isMaximized) mainWindow.maximize();
+  ensureBrowserHost()?.attachWindow(mainWindow);
 
   // External-link hardening (issue #13, change: harden-external-link-handling).
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -665,6 +684,7 @@ async function quit(): Promise<void> {
   cleanupUpdateChecker?.();
   cleanupAutoUpdater?.();
   serverWindowsHandle?.dispose();
+  browserHost?.dispose();
   await stopServerIfNeeded();
   destroyTray();
   app.quit();
