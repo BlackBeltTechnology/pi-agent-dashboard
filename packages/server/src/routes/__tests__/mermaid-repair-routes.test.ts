@@ -90,6 +90,17 @@ describe("extraction", () => {
   });
 });
 
+describe("extraction fallback", () => {
+  it("E9b a stream with only a final done message still yields the diagram", async () => {
+    h.stream.mockReturnValue(
+      (async function* () {
+        yield { type: "done", message: { content: [{ type: "thinking", text: "x" }, { type: "text", text: "graph TD\nA-->B" }] } };
+      })(),
+    );
+    expect((await post(BAD)).json().data.code).toBe("graph TD\nA-->B");
+  });
+});
+
 describe("validation", () => {
   it("E10 input caps at the boundary", async () => {
     h.setConfig(cfg({ maxChars: 1000 }));

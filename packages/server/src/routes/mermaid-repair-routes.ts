@@ -61,12 +61,26 @@ function buildUserPrompt(code: string, error: string): string {
   ].join("\n");
 }
 
-/** Concatenate assistant text deltas; ignore thinking/tool-call events. */
-async function collectRepairText(events: AsyncIterable<{ type?: string; delta?: unknown; error?: { errorMessage?: string } }>): Promise<string> {
+/**
+ * Concatenate assistant text deltas; ignore thinking/tool-call events. A stream
+ * that delivers only a final `done` message (no deltas) falls back to that
+ * message's text parts (same as `questions/brief-runtime.ts`).
+ */
+async function collectRepairText(
+  events: AsyncIterable<{
+    type?: string;
+    delta?: unknown;
+    message?: { content?: Array<{ type?: string; text?: string }> };
+    error?: { errorMessage?: string };
+  }>,
+): Promise<string> {
   let out = "";
   for await (const ev of events) {
     if (ev?.type === "text_delta" && typeof ev.delta === "string") out += ev.delta;
     else if (ev?.type === "error") throw new Error(ev.error?.errorMessage || "provider error");
+    else if (ev?.type === "done" && !out) {
+      out = (ev.message?.content ?? []).filter((c) => c.type === "text").map((c) => c.text ?? "").join("");
+    }
   }
   return out;
 }
@@ -107,6 +121,87 @@ function abortRace(signal: AbortSignal): Promise<never> {
   });
 }
 
+/** A failure with a known envelope code (everything else maps to timeout/provider_error). */
+class RepairFailure extends Error {
+  constructor(readonly code: MermaidRepairErrorCode) {
+    super(code);
+  }
+}
+
+/** Pre-model validation, in spec order. Returns the failing code, or null when the body is usable. */
+function validate(cfg: MermaidRepairConfig, body: Partial<MermaidRepairRequest> | undefined): MermaidRepairErrorCode | null {
+  if (!cfg.enabled || !cfg.model) return "disabled";
+  if (!body || typeof body.code !== "string" || body.code.length === 0 || typeof body.error !== "string") {
+    return "bad_request";
+  }
+  if (body.code.length > cfg.maxChars || body.error.length > MAX_ERROR_CHARS) return "too_large";
+  return null;
+}
+
+/** One model completion for `body`; throws `RepairFailure("provider_error")` for an unusable registry/model. */
+async function generateRepairText(
+  deps: MermaidRepairRouteDeps,
+  model: string,
+  maxChars: number,
+  body: MermaidRepairRequest,
+  signal: AbortSignal,
+): Promise<string> {
+  const registry = await deps.getRegistry();
+  const streamSimple = deps.getStreamSimple();
+  if (!registry || !streamSimple) throw new RepairFailure("provider_error");
+  const { provider, modelId } = parseModelId(model);
+  const resolved = await registry.find(provider, modelId);
+  if (!resolved) throw new RepairFailure("provider_error");
+
+  const work = (async () => {
+    const events = await streamCompletion(
+      {
+        model: resolved,
+        messages: [{ role: "user", content: buildUserPrompt(body.code, body.error), timestamp: Date.now() }],
+        system: SYSTEM_PROMPT,
+        maxTokens: Math.min(Math.ceil(maxChars / 3), MAX_OUTPUT_TOKENS),
+        temperature: 0,
+        signal,
+      },
+      streamSimple,
+      registry,
+    );
+    return collectRepairText(events);
+  })();
+  work.catch(() => {}); // a late rejection after an abort race must not go unhandled
+  return Promise.race([work, abortRace(signal)]);
+}
+
+/** Size of the submitted diagram for the log line (0 when absent/malformed). */
+function inputChars(body: Partial<MermaidRepairRequest> | undefined): number {
+  return typeof body?.code === "string" ? body.code.length : 0;
+}
+
+/** Abort wiring for one request: client disconnect and the configured timeout both abort `signal`. */
+function watchAbort(reply: FastifyReply, timeoutMs: number) {
+  const disconnect = new AbortController();
+  const controller = new AbortController();
+  // Listen on the RESPONSE (request.raw "close" fires once the body is read).
+  reply.raw.on("close", () => {
+    if (!reply.raw.writableFinished) {
+      disconnect.abort();
+      controller.abort();
+    }
+  });
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  return {
+    signal: controller.signal,
+    disconnected: () => disconnect.signal.aborted,
+    failureCode: (err: unknown): MermaidRepairErrorCode =>
+      err instanceof RepairFailure ? err.code : timedOut ? "timeout" : "provider_error",
+    dispose: () => clearTimeout(timer),
+  };
+}
+
 export function registerMermaidRepairRoutes(fastify: FastifyInstance, deps: MermaidRepairRouteDeps): void {
   const log = deps.log ?? ((line: string) => console.log(line));
   let inFlight = false;
@@ -118,7 +213,7 @@ export function registerMermaidRepairRoutes(fastify: FastifyInstance, deps: Merm
       const started = Date.now();
       const cfg = deps.getConfig();
       const body = request.body as Partial<MermaidRepairRequest> | undefined;
-      const chars = typeof body?.code === "string" ? body.code.length : 0;
+      const chars = inputChars(body);
       const model = cfg.model ?? "-";
 
       const finish = (outcome: MermaidRepairErrorCode | "ok" | "aborted") => {
@@ -130,68 +225,26 @@ export function registerMermaidRepairRoutes(fastify: FastifyInstance, deps: Merm
         return { success: false, error: MESSAGES[code], code };
       };
 
-      if (!cfg.enabled || !cfg.model) return fail("disabled");
-      if (!body || typeof body.code !== "string" || body.code.length === 0 || typeof body.error !== "string") {
-        return fail("bad_request");
-      }
-      if (body.code.length > cfg.maxChars || body.error.length > MAX_ERROR_CHARS) return fail("too_large");
+      const invalid = validate(cfg, body);
+      if (invalid) return fail(invalid);
       if (inFlight) return fail("busy");
 
       inFlight = true;
-      const disconnect = new AbortController();
-      const controller = new AbortController();
-      // Listen on the RESPONSE (request.raw "close" fires once the body is read).
-      reply.raw.on("close", () => {
-        if (!reply.raw.writableFinished) {
-          disconnect.abort();
-          controller.abort();
-        }
-      });
-      let timedOut = false;
-      const timer = setTimeout(() => {
-        timedOut = true;
-        controller.abort();
-      }, cfg.timeoutMs);
-
+      const watch = watchAbort(reply, cfg.timeoutMs);
       try {
-        const registry = await deps.getRegistry();
-        const streamSimple = deps.getStreamSimple();
-        if (!registry || !streamSimple) return fail("provider_error");
-        const { provider, modelId } = parseModelId(cfg.model);
-        const resolved = await registry.find(provider, modelId);
-        if (!resolved) return fail("provider_error");
-
-        const maxTokens = Math.min(Math.ceil(cfg.maxChars / 3), MAX_OUTPUT_TOKENS);
-        const work = (async () => {
-          const events = await streamCompletion(
-            {
-              model: resolved,
-              messages: [{ role: "user", content: buildUserPrompt(body.code as string, body.error as string), timestamp: Date.now() }],
-              system: SYSTEM_PROMPT,
-              maxTokens,
-              temperature: 0,
-              signal: controller.signal,
-            },
-            streamSimple,
-            registry,
-          );
-          return collectRepairText(events);
-        })();
-        work.catch(() => {}); // a late rejection after an abort race must not go unhandled
-        const text = await Promise.race([work, abortRace(controller.signal)]);
-
+        const text = await generateRepairText(deps, model, cfg.maxChars, body as MermaidRepairRequest, watch.signal);
         const code = extractDiagram(text);
         if (!code || code.length > cfg.maxChars) return fail("unparseable");
         finish("ok");
-        return { success: true, data: { code, model: cfg.model } };
-      } catch {
-        if (disconnect.signal.aborted) {
+        return { success: true, data: { code, model } };
+      } catch (err) {
+        if (watch.disconnected()) {
           finish("aborted");
           return reply; // socket is gone — send nothing
         }
-        return fail(timedOut ? "timeout" : "provider_error");
+        return fail(watch.failureCode(err));
       } finally {
-        clearTimeout(timer);
+        watch.dispose();
         inFlight = false;
       }
     },
