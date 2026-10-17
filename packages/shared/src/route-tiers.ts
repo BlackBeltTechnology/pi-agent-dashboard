@@ -29,6 +29,7 @@ export interface RouteTierEntry {
  */
 export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "DELETE", path: "/api/access/bypass-hosts", tier: "operate" },
+  { method: "DELETE", path: "/api/browser/operator-hosts/:hostId", tier: "operate" },
   { method: "DELETE", path: "/api/access/cors-origin", tier: "operate" },
   { method: "DELETE", path: "/api/access/grants", tier: "operate" },
   { method: "DELETE", path: "/api/access/pinned-directory", tier: "operate" },
@@ -40,6 +41,8 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "DELETE", path: "/api/access/worktree-trust", tier: "operate" },
   { method: "DELETE", path: "/api/access/yolo", tier: "operate" },
   { method: "GET", path: "/api/access/grants", tier: "observe" },
+  // mirror-dashboard-trust-to-pi: read-only pi-trust disclosure; the choice write changes what pi trusts.
+  { method: "GET", path: "/api/access/pi-trust", tier: "observe" },
   { method: "GET", path: "/api/access/prompts", tier: "observe" },
   { method: "GET", path: "/api/access/store-stats", tier: "observe" },
   { method: "GET", path: "/api/access/yolo/roots", tier: "observe" },
@@ -436,6 +439,7 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "POST", path: "/api/vault/import/confirm", tier: "operate" },
   { method: "POST", path: "/api/vault/import/propose", tier: "operate" },
   { method: "POST", path: "/api/ws-ticket", tier: "operate" },
+  { method: "PUT", path: "/api/access/pi-trust/choice", tier: "operate" },
   { method: "PUT", path: "/api/config", tier: "operate" },
   { method: "PUT", path: "/api/kb/config", tier: "operate" },
   { method: "PUT", path: "/api/mcp-client/servers/:name", tier: "operate" },

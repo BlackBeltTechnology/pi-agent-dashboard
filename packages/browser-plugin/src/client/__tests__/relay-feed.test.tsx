@@ -38,7 +38,7 @@ const ws1 = (n: number): BrowserRelayStatusMessage => ({
 	type: "browser_relay_status",
 	auditSeq: 1,
 	instances: n
-		? [{ instanceId: "i1", profileDirectory: "OSS", state: "connected", tabs: Array.from({ length: n }, (_, i) => ({ tabId: i + 1, title: "t", url: "https://x.test", state: "live" as const })) }]
+		? [{ instanceId: "i1", profileDirectory: "OSS", host: "dashboard", state: "connected", tabs: Array.from({ length: n }, (_, i) => ({ tabId: i + 1, title: "t", url: "https://x.test", state: "live" as const })) }]
 		: [],
 });
 
@@ -63,6 +63,24 @@ describe("BrowserRelayFeed", () => {
 		renderWithPlugin(<span />, { connectionStatus: "connected" });
 		await waitFor(() => expect(tabCountNow()).toBe(1));
 		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+
+	it("the REST seed stamps `host` on every instance: dashboard rows \"dashboard\", operator rows their hostId", async () => {
+		const tab = { tabId: 1, title: "T", url: "https://x.test", state: "live" };
+		fetchMock.mockImplementation(async () => ({
+			ok: true,
+			json: async () => ({
+				profiles: { OSS: { instances: [{ instanceId: "i1", state: "connected", tabs: [tab] }] } },
+				operatorHosts: [
+					{ hostId: "host-aa", profiles: [{ profileDirectory: "Default", instances: [{ instanceId: "i2", state: "connected", tabs: [tab] }] }] },
+				],
+			}),
+		}));
+		renderWithPlugin(<span />, { connectionStatus: "connected" });
+		await waitFor(() => expect(tabCountNow()).toBe(2));
+		const byId = Object.fromEntries((getRelayStatus()?.instances ?? []).map((i) => [i.instanceId, i]));
+		expect(byId.i1).toMatchObject({ host: "dashboard", profileDirectory: "OSS" });
+		expect(byId.i2).toMatchObject({ host: "host-aa", profileDirectory: "Default" });
 	});
 
 	it("does not seed while disconnected", async () => {

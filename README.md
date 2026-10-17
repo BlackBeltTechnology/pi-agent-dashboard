@@ -362,6 +362,19 @@ OAuth2 authentication guards external (tunnel) access. Localhost is always ungua
 
 > **Security note:** `/api/spawn-failures` is reachable to any caller on deployments without auth; entries contain `cwd` paths. Enable auth before exposing via tunnel.
 
+### Approving a device pairing
+
+A new device asks to pair; the dashboard shows a "A device wants to connect" dialog. Approving needs a host credential, so a plain `localhost` tab can be refused. The dialog lists what to do; the universal path is a terminal on the machine that runs the server:
+
+```bash
+pi-dashboard pair list                      # pending requests (never shows the code)
+pi-dashboard pair approve [<pendingId>]     # prompts for the 8-digit code shown on the device
+pi-dashboard pair deny <pendingId>
+pi-dashboard open [--url <origin>]          # or authorize this browser tab, then press Approve again
+```
+
+Docker: `docker exec <container> pi-dashboard pair approve`. The CLI must run as the same OS user as the server. Per-setup table: "How do I approve a pending device pairing request?" in [docs/faq.md](docs/faq.md).
+
 ### Tunnel (zrok)
 
 The dashboard auto-connects a [zrok](https://zrok.io/) tunnel on start when `tunnel.enabled` is `true`. Install with `brew install zrok` (macOS) and run `zrok enable <token>` to enrol — the dashboard reads zrok's own config (`~/.zrok2/environment.json`), no keys are stored in the dashboard. Reserved shares provide persistent URLs across restarts.

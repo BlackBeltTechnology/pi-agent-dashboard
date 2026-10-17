@@ -13,6 +13,7 @@
  */
 import { defaultUrlTransform, type UrlTransform } from "react-markdown";
 import { defaultSchema, type Options as SanitizeSchema } from "rehype-sanitize";
+import { ORDINAL_STAMP_PATTERN } from "../../lib/preview/remark-mermaid-ordinal.js";
 
 const defaultAttributes = defaultSchema.attributes ?? {};
 
@@ -50,7 +51,10 @@ export const MARKDOWN_SCHEMA: SanitizeSchema = {
     // `footnote-label` that `aria-describedby` points at) survive.
     "*": [...withoutBareIdName, ["id", /^user-content-/, "footnote-label"], ["name", /^user-content-/]],
     // `math-*` classes are what remark-math emits for rehype-katex.
-    code: [["className", /^language-./, "math-inline", "math-display"]],
+    // `dataMermaidOrdinal` is the nonce-prefixed index `remarkMermaidOrdinal` stamps
+    // on mermaid fences (apply-fix block identity); raw HTML cannot forge the nonce.
+    // See change: add-preview-apply-fix-to-file.
+    code: [["className", /^language-./, "math-inline", "math-display"], ["dataMermaidOrdinal", new RegExp(ORDINAL_STAMP_PATTERN)]],
   },
   // remark already prefixes footnote ids; raw ids are dropped by the rule above.
   clobber: [],

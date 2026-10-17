@@ -712,6 +712,51 @@ Toggle applies live — no restart.
 
 See change: harden-trust-and-credential-boundaries.
 
+## Why is my project `mcp.json` server ignored (inactive) in a folder?
+
+Project MCP layer loads only in trusted folders. Untrusted → rows inactive (`project-not-trusted`).
+
+Two trust sources. Separate stores.
+- pi trust: `~/.pi/agent/trust.json`. Written by pi's own trust prompt.
+- Dashboard trust: durable dashboard sources. Mirrored into pi's decision at `project_trust` time. Never writes `trust.json`.
+
+Decision order (`decidePiTrust`):
+1. No trust-requiring resources in folder → trusted (implicit).
+2. Recorded pi entry (`trust.json`, true or false, nearest ancestor) → wins. Recorded refusal beats dashboard trust.
+3. Dashboard trust covers folder (subtree) → trusted.
+4. `defaultProjectTrust`. Dashboard trust overrides it, including `never`.
+
+See who trusts a folder:
+- Settings → Access → "Pi trust from the dashboard": effective list, per-entry choice, ignored rows with reason code.
+- Folder page banner: pi / dashboard (source + folder) / neither.
+- `GET /api/access/pi-trust`.
+
+Reason codes for withheld trust (server + bridge log): `forbidden-folder`, `recorded-entry`, `identity-mismatch`, `hook-changed`, `not-project-root`, `source-off`, `source-not-installed`, `choice-unreadable`, `store-unreadable`, `not-covered-session`.
+
+Trust from the dashboard:
+- Pin the folder, Add Folder, or worktree-init "Always trust" with "Also trust this folder in pi" checked.
+- Or Settings → Access → per-entry choice (`PUT /api/access/pi-trust/choice`).
+- Toggle prompt pre-selects Trust when dashboard trust covers the folder and nothing recorded. Nothing recorded until you choose.
+
+Why still ignored:
+- Recorded `false` for folder or ancestor in `~/.pi/agent/trust.json` → wins. Clear it via pi's own trust prompt or Settings → Access.
+- Terminal `pi` ignores dashboard trust by default. Set `piTrustMirror.coverInteractive: true` to include it.
+- Folder moved, re-created, or synced from another machine → identity (`dev`, `ino`, `birthtimeMs`) mismatch → fails closed. Re-trust the folder.
+- `pi --no-extensions` → bridge never decides. `pi mcp list` reads only `trust.json`, so dashboard-trusted servers show `not-checked-by-pi`.
+- Activation-cwd auto-trust does not apply in forbidden/temporary folders (`/tmp`, `~/Downloads`, `~/.ssh`, `$HOME`, …).
+
+Config `~/.pi/dashboard/config.json`:
+
+```json
+{ "piTrustMirror": { "enabled": true, "coverInteractive": false, "sources": { "accessGrants": true } } }
+```
+
+Source ids: `worktreeInit`, `workflow`, `pinned`, `folderWorkspaces`, `accessGrants` (default OFF).
+
+Rollback: `"enabled": false`. Bridge reads config live. Works with server down. Does NOT revert the bridge behaviour changes (recorded pi entry beats activation-cwd auto-trust; forbidden-folder auto-trust removed; spawn token removed from env).
+
+See change: mirror-dashboard-trust-to-pi.
+
 ## Pairing ≠ LAN access; how to get a secure road for LAN pairing
 
 Pairing not the plain-LAN path. Plain-LAN access = Network Guard / `bindHost` + trusted networks. See [How do I expose the dashboard on my LAN?](#how-do-i-expose-the-dashboard-on-my-lan).
@@ -3934,3 +3979,91 @@ Cross-refs:
 - docker/harness-audit.sh
 - docker/test-up.sh
 - docker/test-down.sh
+
+## How do I approve a pending device pairing request?
+
+Dialog Approve fails (401) when tab lacks `pi_dash_local` proof cookie. Terminal path: `pi-dashboard pair` on the host. Uses local token, mints `X-Pi-Local-Proof` per request. Never creates token file. No new trust: same token file as `pi-dashboard open`.
+
+Steps:
+1. `pi-dashboard pair list` — pendingId + device fields. Never prints code.
+2. Read 8-digit code off device.
+3. `pi-dashboard pair approve [<pendingId>]` — prompts for code (TTY). Omit id when exactly one pending.
+4. Optional: `--name <label>`, `--tier observe|control|operate` (omitted ⇒ server default).
+5. Deny: `pi-dashboard pair deny <pendingId>`.
+
+Rules:
+- Operator types code. Server never sends code to CLI.
+- Attempt budget shared with dialog: 5 attempts, then `locked_out`.
+- Code shape: spaces/dashes stripped, must be exactly 8 digits, else exit 2 before any request (no attempt spent).
+- `--code <digits>` visible in `ps` + shell history. Prefer prompt or stdin.
+- Stdin pipe (non-TTY, no `--code`): first line = code. EOF/empty ⇒ exit 2.
+
+### Desktop app (Electron)
+
+- Proof re-minted on every handoff to local dashboard URL (loading page, restart, startup-failure recovery, known-server pick).
+- Dialog Approve works. CLI not needed.
+
+### `pi-dashboard open` (browser on the host)
+
+- `pi-dashboard open` → `http://localhost:<port>` + proof cookie. Dialog Approve works in that tab.
+
+### `localhost` vs `127.0.0.1`
+
+- Proof cookie host-only: exact host string. `localhost` cookie never sent to `127.0.0.1`, LAN IP, or tunnel host.
+- Tab on `http://127.0.0.1:<port>`: Approve stays 401 after `pi-dashboard open` (targets `localhost`).
+- Fix: `pi-dashboard open --url http://127.0.0.1:<port>`, or use `pair approve`.
+- `--url` rules: `http`/`https`; host `localhost`, `127.0.0.0/8` or `[::1]`; port = configured server port only; origin only (no path, query, fragment, userinfo). Else exit 2, no code minted.
+- Dialog offers `authorize-browser` row only when request `Host` passes same rule.
+
+### Tunnel / LAN origin (zrok, tailscale, LAN IP)
+
+- `open --url` refuses non-loopback origin. Cookie cannot reach that origin from CLI.
+- Use `pi-dashboard pair approve <pendingId>` in host shell.
+
+### Headless / SSH
+
+- No browser needed. Run `pair list` / `pair approve` in SSH shell on server host.
+- SSH `-L` forward (local port ≠ configured port): `open --url` refuses. Use CLI.
+
+### Docker
+
+- Container user `pi` (`docker/Dockerfile` `USER pi`, `HOME=/home/pi`) = server user. `docker exec` default user matches.
+- Prompt: `docker exec -it <container> pi-dashboard pair approve [<pendingId>]`.
+- Pipe: `echo 12345678 | docker exec -i <container> pi-dashboard pair approve [<pendingId>]`.
+- List: `docker exec <container> pi-dashboard pair list`.
+
+### WSL
+
+- CLI must run on the **same OS and user** as the server. Token path = `~/.pi/dashboard/local/token` under that user's HOME.
+- WSL shell + server on Windows: different HOME ⇒ different token file. Exit 1 (`cannot read the local token`) or exit 3 HTTP 401 (`may belong to a different server or user`).
+- Server on Windows → run `pi-dashboard pair` from Windows shell. Server in WSL → run from WSL shell.
+
+### `host` set to a hostname
+
+- Proof binds IP literal. `pair` refuses before sending anything: exit 1, `is a name, not an IP address`.
+- Fix: set `"host"` in `config.json` to IP literal (`127.0.0.1` or LAN IP). Restart: `pi-dashboard restart`.
+- Unset, `localhost`, or IP literal: supported.
+
+### `--dev` (Vite dev server port)
+
+- Vite port ≠ configured server port. `open --url <vite origin>` refused (exit 2, message names configured port). No opt-in flag.
+- Dev client build hides `authorize-browser` row. `approve-on-host` row remains.
+- Use `http://localhost:<configured port>` or `pair approve`.
+
+### Exit statuses
+
+| Exit | Class | Cases |
+|---|---|---|
+| 0 | ok | approved, denied, listed |
+| 1 | credential / config | token unreadable; `host` is hostname; `open` failures |
+| 2 | usage / input | unknown verb/option, bad `--tier`, malformed or empty code, no id with 0 or >1 pending, `open --url` refused |
+| 3 | server refused | `mismatch` (attempts left), `locked_out`, `expired`, `no_pending`, HTTP 401 |
+| 4 | unreachable | connection refused, 5 s timeout |
+
+See change: fix-pairing-approval-credential.
+
+Cross-refs:
+- openspec/changes/archive/2026-10-17-fix-pairing-approval-credential/
+- packages/server/src/cli.ts → `cmdPair`, `cmdOpen`, `validateOpenUrl`
+- packages/shared/src/launcher-origin.ts → `isLauncherOrigin`
+- packages/server/src/auth/local-token.ts → `readLocalTokenIfPresent`

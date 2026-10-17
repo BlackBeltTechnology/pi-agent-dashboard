@@ -2,19 +2,21 @@
  * BrowserPaneTab + BrowserTabLabel RTL (change: add-browser-editor-pane-tab).
  * Test-plan: #F2 #F3 #F4 #F5 #F6 #F7 #F8 #F9 #F10 #F11 #F12 #F16 #P2.
  */
+
+import type { InteractiveUiRequestSnapshot } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import type {
 	BrowserRelayStatusMessage,
 	BrowserRelayTabState,
 } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
-import type { InteractiveUiRequestSnapshot } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import { act, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BrowserPaneTab } from "../BrowserPaneTab.js";
 import { BrowserTabLabel } from "../BrowserTabLabel.js";
+import { __resetOperatorHostForTests, setOperatorHostId } from "../operator-host-store.js";
 import { __resetRelayStoreForTests } from "../relay-store.js";
 import { parseBrowserTabPath } from "../tab-path.js";
-import { renderWithPlugin, SESSION } from "./test-utils.js";
+import { FAKE_HOST_ID, type FakeBrowserHost, installBrowserHost, makeFakeBrowserHost, renderWithPlugin, SESSION } from "./test-utils.js";
 
 interface TabSpec {
 	tabId: number;
@@ -25,7 +27,7 @@ interface TabSpec {
 	agentEmulation?: boolean;
 }
 
-function status(tabs: TabSpec[], instanceId = "i1"): BrowserRelayStatusMessage {
+function status(tabs: TabSpec[], instanceId = "i1", host = "dashboard"): BrowserRelayStatusMessage {
 	return {
 		type: "browser_relay_status",
 		auditSeq: 0,
@@ -33,6 +35,7 @@ function status(tabs: TabSpec[], instanceId = "i1"): BrowserRelayStatusMessage {
 			{
 				instanceId,
 				profileDirectory: "OSS",
+				host,
 				state: "connected",
 				tabs: tabs.map((tab) => ({
 					tabId: tab.tabId,
@@ -83,6 +86,7 @@ class FakeResizeObserver {
 
 beforeEach(() => {
 	__resetRelayStoreForTests();
+	__resetOperatorHostForTests();
 	resizeCallbacks = [];
 	vi.stubGlobal("PointerEvent", FakePointerEvent);
 	vi.stubGlobal("ResizeObserver", FakeResizeObserver);
@@ -90,7 +94,9 @@ beforeEach(() => {
 });
 afterEach(() => {
 	cleanup();
+	installBrowserHost(null);
 	__resetRelayStoreForTests();
+	__resetOperatorHostForTests();
 	vi.useRealTimers();
 	vi.restoreAllMocks();
 	vi.unstubAllGlobals();
@@ -486,3 +492,114 @@ async function flushMicro() {
 		await Promise.resolve();
 	});
 }
+
+// ── operator host local-frame path (change: add-operator-browser-relay) ─────────
+describe("operator local frames (#E55 #E56 #F2)", () => {
+	let host: FakeBrowserHost;
+	const hostFrame = (n: number, over: Partial<{ instanceId: string; tabId: number }> = {}) => ({
+		instanceId: over.instanceId ?? "i1",
+		tabId: over.tabId ?? 1,
+		jpegBase64: `local${n}`,
+		metadata: { deviceWidth: 1280, deviceHeight: 800, timestamp: n },
+	});
+	const subs = (send: ReturnType<typeof vi.fn>) => sent(send, "browser_relay_subscribe");
+	const imgSrc = (r: ReturnType<typeof mount>) => (r.queryByTestId("browser-pane-frame") as HTMLImageElement | null)?.src ?? null;
+
+	beforeEach(() => {
+		host = makeFakeBrowserHost();
+		installBrowserHost(host);
+	});
+
+	it("#E56 dashboard-host instance (even in a registered window): one subscribe without `local`, one unsubscribe", async () => {
+		setOperatorHostId(FAKE_HOST_ID);
+		const r = mount();
+		emitStatus(r, status([{ tabId: 1 }], "i1", "dashboard"));
+		await waitFor(() => expect(subs(r.send)).toHaveLength(1));
+		expect(subs(r.send)[0]).toEqual({ type: "browser_relay_subscribe", instanceId: "i1", tabId: 1 });
+		expect("local" in subs(r.send)[0]).toBe(false);
+		expect(host.onFrame).not.toHaveBeenCalled();
+		r.unmount();
+		expect(sent(r.send, "browser_relay_unsubscribe")).toEqual([{ type: "browser_relay_unsubscribe", instanceId: "i1", tabId: 1 }]);
+	});
+
+	it("#E55 registered window, instance on its host: subscribe `local:true`, frames from onFrame only", async () => {
+		setOperatorHostId(FAKE_HOST_ID);
+		const r = mount();
+		emitStatus(r, status([{ tabId: 1 }], "i1", FAKE_HOST_ID));
+		await waitFor(() => expect(subs(r.send)).toHaveLength(1));
+		expect(subs(r.send)[0]).toEqual({ type: "browser_relay_subscribe", instanceId: "i1", tabId: 1, local: true });
+
+		act(() => host.emitFrame(hostFrame(1)));
+		await waitFor(() => expect(imgSrc(r)).toContain("local1"));
+		// Other tabs/instances are not ours; a stray relay frame is not rendered in local mode.
+		act(() => host.emitFrame(hostFrame(2, { tabId: 2 })));
+		act(() => host.emitFrame(hostFrame(3, { instanceId: "other" })));
+		act(() => r.ws.emit(frame(9)));
+		expect(imgSrc(r)).toContain("local1");
+
+		r.unmount();
+		expect(host.listeners.frame).toBe(0);
+		expect(sent(r.send, "browser_relay_unsubscribe")).toHaveLength(1);
+	});
+
+	it("#E55 window not registered (phone / plain browser): no `local`, frames from browser_relay_frame, onFrame unused", async () => {
+		installBrowserHost(null);
+		const r = mount();
+		emitStatus(r, status([{ tabId: 1 }], "i1", FAKE_HOST_ID));
+		await waitFor(() => expect(subs(r.send)).toHaveLength(1));
+		expect("local" in subs(r.send)[0]).toBe(false);
+		act(() => r.ws.emit(frame(1)));
+		await waitFor(() => expect(imgSrc(r)).toContain("frame1"));
+	});
+
+	it("#E55 an Electron window registered as ANOTHER host does not go local", async () => {
+		setOperatorHostId("host-ffffffffffffffffffffffffffffffff");
+		const r = mount();
+		emitStatus(r, status([{ tabId: 1 }], "i1", FAKE_HOST_ID));
+		await waitFor(() => expect(subs(r.send)).toHaveLength(1));
+		expect("local" in subs(r.send)[0]).toBe(false);
+		expect(host.onFrame).not.toHaveBeenCalled();
+		act(() => r.ws.emit(frame(1)));
+		await waitFor(() => expect(imgSrc(r)).toContain("frame1"));
+	});
+
+	it("#F2 ack arrives after the pane opened: first subscribe has no `local`, then exactly one re-subscribe with it (no unsubscribe)", async () => {
+		const r = mount();
+		emitStatus(r, status([{ tabId: 1 }], "i1", FAKE_HOST_ID));
+		await waitFor(() => expect(subs(r.send)).toHaveLength(1));
+		expect("local" in subs(r.send)[0]).toBe(false);
+
+		act(() => setOperatorHostId(FAKE_HOST_ID)); // browser_host_registered
+		await waitFor(() => expect(subs(r.send)).toHaveLength(2));
+		expect(subs(r.send)[1]).toEqual({ type: "browser_relay_subscribe", instanceId: "i1", tabId: 1, local: true });
+		expect(sent(r.send, "browser_relay_unsubscribe")).toEqual([]);
+
+		// Converged: no further churn on an unrelated status push or a repeated ack.
+		emitStatus(r, status([{ tabId: 1 }], "i1", FAKE_HOST_ID));
+		act(() => setOperatorHostId(FAKE_HOST_ID));
+		await act(async () => {});
+		expect(subs(r.send)).toHaveLength(2);
+
+		act(() => host.emitFrame(hostFrame(1)));
+		await waitFor(() => expect(imgSrc(r)).toContain("local1"));
+	});
+
+	it("#F2 the registration ending (reconnect) re-subscribes once without `local`", async () => {
+		setOperatorHostId(FAKE_HOST_ID);
+		const r = mount();
+		emitStatus(r, status([{ tabId: 1 }], "i1", FAKE_HOST_ID));
+		await waitFor(() => expect(subs(r.send)).toHaveLength(1));
+		act(() => setOperatorHostId(null));
+		await waitFor(() => expect(subs(r.send)).toHaveLength(2));
+		expect("local" in subs(r.send)[1]).toBe(false);
+		expect(sent(r.send, "browser_relay_unsubscribe")).toEqual([]);
+	});
+
+	it("a background (inactive) pane tab holds no subscription even when the mode changes", async () => {
+		const r = mount({ isActive: false });
+		emitStatus(r, status([{ tabId: 1 }], "i1", FAKE_HOST_ID));
+		act(() => setOperatorHostId(FAKE_HOST_ID));
+		await act(async () => {});
+		expect(subs(r.send)).toEqual([]);
+	});
+});

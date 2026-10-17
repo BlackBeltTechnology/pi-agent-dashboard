@@ -16,8 +16,8 @@
 
 import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import { isTrustedSenderUrl, type SenderEventLike, trustedHandler, trustedListener } from "./lib/ipc-trust.js";
 import { decideWillNavigate, openExternalIfAllowed } from "./lib/link-handling.js";
-import { isTrustedSenderUrl, trustedHandler, trustedListener, type SenderEventLike } from "./lib/ipc-trust.js";
 import { resolveCdpActivation } from "./lib/resolve-cdp-activation.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -78,7 +78,7 @@ log(`execPath=${process.execPath}`);
 import { getFirstRunMarkerPath } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 // Disable GPU acceleration in VMs (prevents white screen on VMware/VirtualBox).
 import { isVirtualMachine } from "@blackbelt-technology/pi-dashboard-shared/platform/commands.js";
-import { loadWithLocalProof } from "./lib/local-proof-bootstrap.js";
+import { loadWithLocalProof, navigateToServer } from "./lib/local-proof-bootstrap.js";
 
 const isVM = isVirtualMachine();
 const disableGpu = process.env.ELECTRON_DISABLE_GPU || isVM;
@@ -95,6 +95,8 @@ import fs from "node:fs";
 import { handleCheckForUpdates, setupAppMenu, showDoctorDialog } from "./lib/app-menu.js";
 import { downloadAndInstall, initAutoUpdater, quitAndInstall } from "./lib/app-updater.js";
 import { registerBundledBridgeExtension } from "./lib/bridge-register.js";
+import { startBrowserHost } from "./lib/browser-host/electron-main.js";
+import type { BrowserHost } from "./lib/browser-host/ipc.js";
 import { isDashboardRunning } from "./lib/health-check.js";
 import {
   BundledServerMissingError,
@@ -135,6 +137,8 @@ import { promptZombieAdoption, stopZombieServer } from "./lib/zombie-adoption-di
 log("All imports loaded");
 
 let mainWindow: BrowserWindow | null = null;
+/** The `serverUrl` the main window was created for (`remoteUrl` in remote mode); part of the navigate-to-server allowlist. */
+let mainWindowServerUrl: string | undefined;
 let splashWindow: BrowserWindow | null = null;
 let isStartingUp = true;
 
@@ -463,6 +467,18 @@ function registerPiDashboardIpc(): void {
     return requestServerLaunch({ force: !!payload?.force });
   }, logRejectedSender));
 
+  // The loading page (and the local dashboard) ask MAIN to navigate; main does the
+  // loadURL (with local proof for this host's configured server) and answers with
+  // an acknowledgement only — no code/URL ever reaches the renderer.
+  // See change: fix-pairing-approval-credential (D4).
+  ipcMain.removeHandler("dashboard:navigate-to-server");
+  ipcMain.handle("dashboard:navigate-to-server", trustedHandler("dashboard:navigate-to-server", isTrustedSender, async (_event: SenderEventLike, payload: { target?: unknown } = {}) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return { navigated: false, reason: "no-window" };
+    const result = await navigateToServer(mainWindow, payload?.target, { config: loadMinimalConfig(), windowServerUrl: mainWindowServerUrl });
+    if (!result.navigated) log(`dashboard:navigate-to-server refused: ${result.reason ?? "unknown"}`);
+    return result;
+  }, logRejectedSender));
+
   ipcMain.removeHandler("dashboard:read-server-log");
   ipcMain.handle("dashboard:read-server-log", trustedHandler("dashboard:read-server-log", isTrustedSender, async (_event: SenderEventLike, payload: { lines?: number } = {}) => {
     return readServerLogTail(payload?.lines ?? 20);
@@ -555,9 +571,26 @@ function ensureServerWindows(): void {
   }
 }
 
+let browserHost: BrowserHost | null = null;
+
+/**
+ * Operator browser host (key, consent, loopback shim, `browserHost` IPC). Handlers register once;
+ * `attachWindow` rebinds them to each new main window. See change: add-operator-browser-relay.
+ */
+function ensureBrowserHost(): BrowserHost | null {
+  if (browserHost) return browserHost;
+  try {
+    browserHost = startBrowserHost({ getMainWindow: () => mainWindow, isTrustedSender, log });
+  } catch (err) {
+    log(`[browser-host] failed to start: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`);
+  }
+  return browserHost;
+}
+
 function createMainWindow(serverUrl: string, opts: { local?: boolean } = {}): BrowserWindow {
   const state = loadWindowState();
   const isLocal = opts.local !== false;
+  mainWindowServerUrl = serverUrl;
   try {
     localDashboardOrigin = isLocal ? new URL(serverUrl).origin : undefined;
   } catch {
@@ -580,6 +613,7 @@ function createMainWindow(serverUrl: string, opts: { local?: boolean } = {}): Br
   });
 
   if (state.isMaximized) mainWindow.maximize();
+  ensureBrowserHost()?.attachWindow(mainWindow);
 
   // External-link hardening (issue #13, change: harden-external-link-handling).
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -665,6 +699,7 @@ async function quit(): Promise<void> {
   cleanupUpdateChecker?.();
   cleanupAutoUpdater?.();
   serverWindowsHandle?.dispose();
+  browserHost?.dispose();
   await stopServerIfNeeded();
   destroyTray();
   app.quit();

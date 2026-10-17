@@ -1544,7 +1544,7 @@ New plugin `packages/mcp-client-plugin/`, id `mcp-client`. Sole owner of the two
 
 **Service.** `ctx.provide("mcp-client.config", …)` before any route registers. Factory `createMcpClientConfigService({ configIO, knownCwds, isProjectTrusted?, paths?, runner?, scratchCwd?, liveTimeoutMs?, liveCacheTtlMs? })` → `McpClientRuntime` = service + `getLiveState(scope, {fresh})`. Write-only paths never run `pi mcp list`.
 
-**Trust.** `isProjectTrusted(cwd)` INJECTED. Dashboard server supplies `host.isProjectTrusted` (see Bootstrap). Untrusted folder → its project layer never loads, its rows inactive (`project-not-trusted`). Hostless caller (apple-tools CLI) treats every project as untrusted → global writes only.
+**Trust.** `isProjectTrusted(cwd)` INJECTED. Dashboard server supplies `host.isProjectTrusted` (see Bootstrap; decision = shared `decidePiTrust`, see Pi trust mirror). Untrusted folder → its project layer never loads, its rows inactive (`project-not-trusted`). Dashboard-only trust → project rows active, live state `not-checked-by-pi`. Hostless caller (apple-tools CLI) treats every project as untrusted → global writes only.
 
 **Live state.** `src/core/live-state.ts` `createLiveStateReader({runner,timeoutMs,cacheTtlMs,now})` runs `pi mcp list --json` through the shared safe-spawn. `LIVE_STATE_TIMEOUT_MS` 30000, `LIVE_STATE_CACHE_TTL_MS` 30000. stdout parsed whatever the exit code — pi exits `1` whenever a server is disconnected or an entry invalid. Timeout aborts the signal → `{ok:false,reason:"timeout"}`; failures never cached. Global view spawns in an empty `mkdtemp` scratch dir so only the global layer loads.
 
@@ -1699,7 +1699,7 @@ Compatibility skew helpers in `pi-version-skew.ts` (`readPiCompatibility`, `read
 
 See change: collapse-model-proxy-onto-modelruntime.
 
-**Host project-trust service.** `packages/server/src/server.ts` registers `host.isProjectTrusted(cwd)` (awaited at boot) next to `host.knownFolderCwds`. `packages/server/src/pi/host-project-trust.ts` `createHostProjectTrust({recordedDecision, defaultProjectTrust})` / `loadHostProjectTrust(agentDir)` mirrors a session's own rule: the recorded `ProjectTrustStore` decision wins, else `defaultProjectTrust === "always"`. Unresolvable pi → always false. `mcp-client` injects it as `isProjectTrusted` so folder MCP rows load the project layer only in trusted folders. See change: migrate-mcp-to-pi-builtin.
+**Host project-trust service.** `packages/server/src/server.ts` registers `host.isProjectTrusted(cwd)` (awaited at boot) next to `host.knownFolderCwds`, plus `host.projectTrustSource` and `host.piTrustCoverInteractive`. `packages/server/src/pi/host-project-trust.ts` `createHostProjectTrustService` / `loadHostProjectTrustService` run shared `decidePiTrust` (pi's own rule + dashboard mirror; see Pi trust mirror). `coveringDashboardEntry` finds covering entry. Honours `PI_CODING_AGENT_DIR`. Pi core unresolvable → one log line (not silent untrusted). Legacy `createHostProjectTrust({recordedDecision, defaultProjectTrust})` kept for compat only; not the decision path. `mcp-client` injects it as `isProjectTrusted` so folder MCP rows load the project layer only in trusted folders. See change: migrate-mcp-to-pi-builtin, mirror-dashboard-trust-to-pi.
 
 #### Legacy `~/.pi-dashboard/` advisory
 
@@ -3158,6 +3158,105 @@ Gated surfaces: `control` / `operate` REST routes, browser WS (`/ws`, `/ws/termi
 
 See change: harden-trust-and-credential-boundaries.
 
+### Pi trust mirror (change: mirror-dashboard-trust-to-pi)
+
+Durable dashboard trust counts as trusted project for pi sessions on SAME machine. Decided at pi `project_trust` time. Never writes `~/.pi/agent/trust.json`. Pi's file stays pi-owned.
+
+**Files.**
+
+| File | Role |
+|---|---|
+| `~/.pi/dashboard/config.json` `piTrustMirror` | `enabled` (default `true`), `coverInteractive` (default `false`), `sources.<id>` |
+| `~/.pi/dashboard/pi-trust-mirror.json` | Snapshot. Mode `0600`. Server home-lock holder writes. Rebuilt at server boot. Entries: `key`, `sourceKind`, `dev`, `ino`, `birthtimeMs?`, `configRoot?`, `hookHash?`. `generation` counter. Warn log >5,000 entries. |
+| `~/.pi/dashboard/pi-trust-overrides.json` | Per-entry choice. Key `<sourceId>\0<canonical path>`. |
+| `~/.pi/agent/trust.json` | pi-owned. Read by bridge, never written by mirror. |
+
+**Durable sources** (`piTrustMirror.sources.<id>`). Defaults ON except `accessGrants`.
+
+| id | Covers |
+|---|---|
+| `worktreeInit` | Persisted hook trust. CURRENT hook hash re-checked each decision. |
+| `workflow` | Workflow slot. Reports `source-not-installed` until `add-project-workflows`. |
+| `pinned` | Pinned dirs. Docker `PI_WORKSPACES` → `PI_DASHBOARD_PIN_DIRS` seeds pins. |
+| `folderWorkspaces` | Folder workspaces. |
+| `accessGrants` | Project-root subjects only. Default OFF. |
+
+NOT counted: server-lifetime trust (session worktree trust, session access grants, YOLO), KB source trust. Deferred follow-up: server-lifetime trust; bridges on other machines.
+
+**Matching.**
+- Key form `piTrustKey` = `realpathSync(path.resolve)`. No Unicode-space normalisation. Source: `packages/shared/src/pi-trust-mirror.ts`.
+- Subtree: counted entry covers folder + everything below. `findCoveringEntry` = nearest ancestor-or-self key.
+- Identity: canonical path + `dev` + `ino` (+ `birthtimeMs` when recorded). Entry applies only on identity match.
+- Identity mismatch → fail closed. Other machine, re-created folder, moved folder.
+
+**Deny rules** `mirrorDenyRules`. Separate from grant-subject `forbidden-subjects` (unchanged).
+- Exact: `/`, `$HOME`, ancestors of `$HOME`, system dirs, broad parents (`/Users /home /Volumes /private /var/tmp /mnt /media`; win: drive root, `C:\Users`).
+- Subtree: `~/.ssh ~/.pi ~/.aws ~/.gnupg ~/.kube ~/.docker`, OS temp (`os.tmpdir`, `/tmp`, `/private/tmp`), `~/.cache`, `~/Downloads`.
+
+**Decision order** `decidePiTrust` (shared by bridge, `host.isProjectTrusted`, toggle gate). First match wins.
+
+```mermaid
+flowchart TD
+  A["project_trust / host.isProjectTrusted(cwd)"] --> B{"trust-requiring resources?"}
+  B -- no --> R0["trusted: implicit"]
+  B -- yes --> C{"pi recorded entry?"}
+  C -- "true / false" --> R1["pi decision wins"]
+  C -- none --> D{"mirror on AND covering entry?"}
+  D -- yes --> R2["trusted: dashboard source"]
+  D -- no --> R3["defaultProjectTrust"]
+```
+
+- `--approve` / `--no-approve` applied by pi first.
+- `--no-extensions`: bridge never decides.
+- `pi mcp list` reads only `trust.json`.
+- Dashboard trust overrides `defaultProjectTrust`, INCLUDING `never`.
+- Recorded pi entry (true or false, nearest ancestor) beats dashboard trust.
+
+**Bridge** `decideBridgeProjectTrust` (`packages/extension/src/project-trust.ts`).
+- No server round trip.
+- Per event: reads `config.json`, `trust.json` (lockless; BOM stripped; null = absent; bad shape/parse = undecided `store-unreadable`), snapshot.
+- Returns `{trusted:"yes", remember:false}` or undecided.
+- Dashboard-spawned headless sessions consult mirror always. Other sessions only if `coverInteractive`.
+- Reason codes logged when withheld: `forbidden-folder`, `recorded-entry`, `identity-mismatch`, `hook-changed`, `not-project-root`, `source-off`, `source-not-installed`, `choice-unreadable`, `store-unreadable`, `not-covered-session`.
+- p95 < 20 ms (1,000 entries, 20-deep cwd).
+- Spawn token: `PI_DASHBOARD_SPAWN_TOKEN` read + removed from env at bridge activation (`packages/extension/src/spawn-token.ts`). Process-global until first `session_register`. Agent-started nested pi never counts as dashboard-spawned.
+
+**Writes.**
+- Grant: choice file → source store → snapshot.
+- Revoke: snapshot rewritten WITHOUT entry FIRST → then source store. Failure of either = failed revoke. Browser gets `pi_trust_mirror_error {op,path,error}`.
+
+**Server modules.**
+- `packages/server/src/access/pi-trust-mirror-service.ts`: registry + snapshot + choices. Handle `getPiTrustMirror()`.
+- `packages/server/src/pi/host-project-trust.ts`: `createHostProjectTrustService`, `loadHostProjectTrustService`, `coveringDashboardEntry`. Registry keys `host.isProjectTrusted`, `host.projectTrustSource`, `host.piTrustCoverInteractive`.
+- `packages/server/src/pi/resource-toggle-trust.ts`: dashboard-trusted folder + nothing recorded → existing prompt, `Trust` pre-selected, source named, lasting effect stated. Payload `preselected:"trust"`, `dashboardSource`. Nothing recorded until operator chooses. Works under default `never`.
+
+**Routes / WS.**
+- `GET /api/access/pi-trust`: `config`, `agentDir`, `piEntries`, `effective`, `entries`, `ignored` (reason + label), `sourcesNotInstalled`.
+- `PUT /api/access/pi-trust/choice` `{sourceKind, folder, choice: boolean|null}`.
+- WS `pin_directory`, `add_folder_to_workspace`, `grant_response` accept `piTrust?`. `POST /api/git/worktree/init` accepts `piTrust?`.
+
+**MCP.** Effective view adds `trustSource`, `trustCoverInteractive`. Dashboard-only trust → project servers active, live state `not-checked-by-pi` + note. Config-writer global-write name collisions keep pi-only predicate (dashboard trust never changes them).
+
+**UI.**
+- Settings → Access → "Pi trust from the dashboard" (`packages/client/src/components/settings/PiTrustMirrorSection.tsx`): switches, effective list, per-entry choice, ignored rows (reason + label), pi `trust.json` entries + agent dir, disclosures.
+- Disclosures: precedence over `defaultProjectTrust` (incl `never`); scope; `--no-approve` / `--no-extensions` / pi CLI not covered; activation-cwd rule.
+- Folder page banner: pi / dashboard (source + folder; "dashboard sessions, not terminal pi" unless `coverInteractive`) / neither (links Settings → Access).
+
+**Breaking bridge behaviour.** NOT reverted by `enabled:false`.
+- (a) Recorded pi entry beats activation-cwd auto-trust.
+- (b) Activation-cwd auto-trust no longer applies in forbidden/temporary folders (logged).
+- (c) Spawn token removed from env at activation (see Bridge).
+
+**Rollback.** `piTrustMirror.enabled: false`. Bridge reads config live. Works with server down. Does not revert (a)-(c).
+
+**Security residuals.**
+- Hook trust widened to full project trust for the subtree. Checkbox text states it.
+- Covered subtree also trusts repos cloned/created later inside it.
+- Bridge `yes` pre-empts later user extensions' `project_trust`.
+- Same-user forging of snapshot ≈ writing `trust.json`. Accepted.
+
+See change: mirror-dashboard-trust-to-pi.
+
 ### Access Grants and Denial Remedies (change: add-access-grants-and-review)
 
 Companion to **Network Access Control** above. That section's universal `onRequest` guard is the network plane; this one is the filesystem plane. Both turn a terminal refusal into a remedy an operator can accept. Network plane: `403 network_not_allowed` → `BlockEventBuffer` → "Trust this network". Filesystem plane: a containment refusal → `denialId` → **grant** → next read admitted, no restart. The guard above is not re-explained here; see it for the network plane.
@@ -3713,7 +3812,7 @@ Payload plus handshake carry `v`. Server keeps backward-compatible pairing route
 
 #### Operator pairing view — client
 
-Operator-side pairing view = `packages/client/src/components/Gateway/GatewayPairQR.tsx`. Gateway settings page + toolbar Gateway dialog. ONE surface; Settings → Security renders a link (`security-pair-link` testid → `/settings/gateway`, scrolls `#connect-a-device`). `PairingView.tsx` deleted (duplicate; drifted non-compliant). `QrCodeDialog.tsx` deleted (orphan; no importer). `noSecureRoad` flag keys the no-secure-road block on the `no_reachable_endpoint` response; endpoint-count empty rendering remains separate. No server route changed. `/api/pair/payload` + `/api/pair/approve` already shipped by `add-server-keypair-pairing`. Change: `wire-nonzrok-pairing-view`, `collapse-pairing-into-gateway`.
+Operator-side pairing view = `packages/client/src/components/Gateway/GatewayPairQR.tsx`. Gateway settings page + toolbar Remote access dialog (`components/remote-access/RemoteAccessDialog.tsx`; step engine `lib/remote-access/steps.ts`). ONE surface; Settings → Security renders a link (`security-pair-link` testid → `/settings/gateway`, scrolls `#connect-a-device`). `PairingView.tsx` deleted (duplicate; drifted non-compliant). `QrCodeDialog.tsx` deleted (orphan; no importer). `noSecureRoad` flag keys the no-secure-road block on the `no_reachable_endpoint` response; endpoint-count empty rendering remains separate. No server route changed. `/api/pair/payload` + `/api/pair/approve` already shipped by `add-server-keypair-pairing`. Change: `wire-nonzrok-pairing-view`, `collapse-pairing-into-gateway`.
 
 On open calls `GET /api/pair/payload` → `{v,id,code,urls[]}`. Renders QR (`qrcode` dep, `QRCode.toCanvas` idiom) plus copy box holding the SAME deep link as the QR (`qrText`) — remote browser opens it directly; Electron shell `decodePayloadString` accepts the https form. Device accepts raw JSON or base64url via `decodePayloadString`. Shows fingerprint `id`, one-time code TTL countdown (~300s; server `CODE_TTL_MS`, client mirror `PAIRING_CODE_TTL_MS` in `GatewayPairQR.tsx`), advertised `urls[]`.
 
@@ -4424,7 +4523,7 @@ Host-first this change. tailscaled/zerotier-one in-container = follow-up. zrok s
 
 #### Client modules
 
-`packages/client/src/lib/gateway-{api,config-ops,endpoints,providers,setup}.ts`, `packages/client/src/components/Gateway/*`. Gateway settings page (Network nav) + tabbed Gateway dialog.
+`packages/client/src/lib/gateway-{api,config-ops,endpoints,providers,setup}.ts`, `packages/client/src/components/Gateway/*`. Gateway settings page (Network nav) + Remote access dialog (`components/remote-access/RemoteAccessDialog.tsx`; step engine `lib/remote-access/steps.ts`).
 
 #### zrok child steps
 
@@ -6882,6 +6981,198 @@ sequenceDiagram
 - `session-card-badge` → `BrowserRelayBadge`: reads relay module-store. Gate `shouldRender: "hasRelayTabsForBadge"` (true iff relay snapshot ≥1 tab); required by badge-gate rule, see [`plugin-claim-gates.md`](plugin-claim-gates.md). The relay is GLOBAL (no pi-session linkage), so this module-store feed is what lets the hook-less `content-view` predicate `isLiveViewActive` see it.
 - `shell-headless` → `BrowserRelayFeed`: sole caller of `useRelayStatusFeed()`. Always-mounted `browser_relay_status` subscriber. Re-seeds from `GET /api/browser/profiles` on mount + each shell `connected`. Failed seed clears store; unmount clears store. `setRelayStatus` calls `bumpSlotClaimsVersion()` only when tab-count presence flips. See change: fix-empty-status-subcard.
 - `content-view` → `LiveViewTile`: one tile per `{instanceId, tabId}`; subscribe/unsubscribe lifecycle, JPEG frames, pointer/key/wheel → normalized `browser_relay_input`, no-frames + DevTools overlays.
+
+### Operator browser hosts
+
+Agent on S drives Chrome on operator machine O. Change: add-operator-browser-relay (D1–D11).
+Source: `packages/browser-plugin/src/server/{operator-hosts,relay/link-socket,relay/relay-manager}.ts`, `packages/electron/src/lib/browser-host/*`, `packages/browser-plugin/src/client/OperatorHostCarrier.tsx`, `packages/shared/src/{browser-protocol,browser-host-identity,browser-host-ipc,chrome-profiles}.ts`.
+
+See change: add-operator-browser-relay.
+
+#### Topology
+
+```mermaid
+flowchart LR
+  Agent["pi session (agent)"]
+  subgraph S["Dashboard server S"]
+    Inst["RelayInstance CDP /ws/browser-cdp/guid"]
+    Mgr["RelayManager + OperatorHostRegistry + LinkSocket"]
+    Gate["/ws gateway"]
+  end
+  subgraph O["Operator machine O"]
+    Renderer["main-window renderer OperatorHostCarrier"]
+    Main["Electron main shim 127.0.0.1:0 + identity + consent"]
+    Chrome["Chrome + Playwright extension"]
+  end
+  Agent -->|"cdpUrl ws://127.0.0.1:port/ws/browser-cdp/guid"| Inst
+  Inst --- Mgr
+  Mgr <-->|"browser_host_* over carrier /ws"| Gate
+  Gate <-->|"browserHost IPC"| Renderer
+  Renderer <-->|"IPC trusted senders"| Main
+  Chrome -->|"ws /ws/browser-ext/linkId"| Main
+```
+
+- Carrier = main-window renderer's existing `/ws`. No main-process WS: in-page switch holds no S credential in main.
+- `OperatorHostCarrier` (always mounted) bridges `window.piDashboard.browserHost` IPC ↔ `browser_host_*` WS.
+- Main-window-only trust: `browserHost` exposed only on local origin (`preload-main.ts:121`). `ipc-trust.ts` refuses other senders. Remote-origin window = no `browserHost` = never a carrier.
+- Every IPC channel: `trustedHandler` / `trustedListener`.
+- Shim: `127.0.0.1:0`. Starts with first registered link, stops when idle.
+- Chrome argv: `connect.html?mcpRelayUrl=ws://127.0.0.1:<shimPort>/ws/browser-ext/<linkId>` + `--profile-directory=<dir>`.
+
+#### Registration handshake
+
+```mermaid
+sequenceDiagram
+  participant C as OperatorHostCarrier
+  participant M as Electron main
+  participant S as Server S
+  C->>S: GET /api/browser/status
+  S-->>C: operatorHosts true
+  C->>S: browser_host_hello hostId publicKey
+  S-->>C: browser_host_challenge nonce serverId
+  C->>M: identity.sign nonce serverId
+  Note over M: refuses unless serverId = target /api/health instanceId
+  M-->>C: Ed25519 signature
+  C->>S: browser_host_register hostId signature label platform canOpenChrome profiles
+  Note over S: verify vs pinned key TOFU, host-active guard
+  S-->>C: browser_host_registered hostId
+```
+
+- Gate: carrier sends nothing unless `GET /api/browser/status` → `operatorHosts: true`. Old server would fall through `browser-gateway.ts:2417-2424`.
+- `hostId` = `host-` + first 32 hex of SHA-256(SPKI DER public key). Helper: `browser-host-identity.ts`.
+- Key: Ed25519, generated on first use. Private key in `browser-host-key.json` via `safeStorage` (0600).
+- No encryption → key in memory only. Next launch mints new identity.
+- Private key never leaves main.
+- Signed bytes: `"pi-browser-host-v1\n" + nonce + "\n" + serverId`.
+- `serverId` = S's `/api/health` `instanceId`. Binds to identity, not origin: stable behind tunnels, proxies, IP-vs-name.
+- `sign` refuses unless `serverId` = `instanceId` of switched-to target (Node fetch, `target.ts`).
+- TOFU pin: first verified key per `hostId` → `operator-hosts.json` (plugin data dir).
+- Other key for same `hostId` → refused, audited.
+- Pin prune: unseen > 90 d dropped. Max 256 pins, least recently seen dropped.
+- Pin reset: `DELETE /api/browser/operator-hosts/:hostId` (tier `operate`, `route-tiers.ts:32`).
+- One host per socket.
+- Register for `hostId` bound to other live socket with live links or pending connects → `host-active`.
+- Otherwise re-bind; old binding dropped. No live instance closed by newcomer.
+- Half-open carrier: gateway keepalive (2 missed pongs) closes socket → frees host.
+- Bounds: `label` ≤ 128; `platform` ≤ 64; ≤ 64 profiles; `profileDirectory` ≤ 128, no `/` or `\`; `email` ≤ 254. Violation → drop + audit.
+- `hostId` public (listed in `GET /api/browser/profiles`). Register needs private key.
+- Log: `[browser-host] register host=<hostId> profiles=<n> pin=<new|ok|mismatch>`.
+
+#### Connect flow
+
+1. `POST /api/browser/connect {profileDirectory, host}`. `host` omitted or `"dashboard"` → dashboard path, unchanged.
+2. Preflight, before any mint:
+   - kill switch off → 403;
+   - `host` not bound → 404 `unknown-host`;
+   - row missing or `installed: false` → 409 `not-installed`;
+   - live instance or pending on (host, `profileDirectory`) → 409 `busy` + `instanceId`;
+   - ≥ 8 links or ≥ 2 pending on host → 409 `host-busy`.
+3. S mints `guid` (URL credential, never leaves S), `linkId` (128-bit, wire id), `requestId`, `instanceId`. Keeps `linkId → {guid, requestId, socket}`.
+4. S → bound carrier only: `browser_host_connect {requestId, linkId, instanceId, profileDirectory, serverLabel}`. `serverLabel` display only.
+5. Main consent dialog, parented to main window. Buttons: Allow once / Always allow / Deny. Default and Escape = Deny. Auto-deny 55 s.
+6. Always → `browser-host-consent.json`. Keyed by real target server (origin + `instanceId`). New `instanceId` asks again.
+7. Allow → main registers `linkId` in shim, launches Chrome, sends `browser_host_connect_result {ok: true}`. Deny → `{ok: false, reason: "denied"}`, no Chrome.
+8. Handshake window starts at `ok: true`, not at request. Extension claims link → `browser_host_ext_open` → `LinkSocket` → instance.
+9. `ext_open` before `ok: true` → dropped + audited.
+10. Success → 200 `{cdpUrl, instanceId}`. `cdpUrl` = `ws://127.0.0.1:<port>/ws/browser-cdp/<guid>`.
+11. Any non-200 after step 4 → `browser_host_connect_cancel {requestId}`: main closes dialog, unregisters `linkId`, closes ext socket on link.
+
+Timers:
+
+| window | bound | constant |
+|---|---|---|
+| consent, main | 55 s auto-deny | `CONSENT_DIALOG_TIMEOUT_MS` (`consent.ts`) |
+| consent, S | 60 s → 504 `consent-timeout` | `CONSENT_TIMEOUT_MS` |
+| handshake | 60 s from `ok: true` → 504 | `CONNECT_TIMEOUT_MS` |
+| guid unclaimed | 60 s → expire | `GUID_EXPIRY_MS` |
+
+Outcomes:
+
+| status | `reason` | cause |
+|---|---|---|
+| 200 | — | handshake complete |
+| 403 | `disabled` | kill switch, or disabled during connect |
+| 403 | `operator-denied` | Deny, or auto-deny |
+| 404 | `unknown-host` | `host` not bound to live socket |
+| 409 | `not-installed` | profile missing or `installed: false` |
+| 409 | `busy` | live instance or pending on (host, profile) |
+| 409 | `host-busy` | ≥ 8 links or ≥ 2 pending on host |
+| 503 | `no-chrome` | `connect_result {reason: "no-chrome"}` |
+| 503 | `host-gone` | carrier closed before handshake |
+| 503 | `launch-failed` | other `connect_result` failure, or link closed |
+| 504 | `consent-timeout` | no `connect_result` within 60 s |
+| 504 | (message) | no handshake within 60 s of `ok: true` |
+
+Busy keyed (host, `profileDirectory`): dashboard and operator `Default` never collide.
+
+**Version skew.** Old server ignores `host`, drives its own Chrome. Agent recipe passes `host` only when `status.operatorHosts === true`.
+
+#### linkId vs guid
+
+| id | size | carried in | visible to |
+|---|---|---|---|
+| `guid` | 128 bit | `cdpUrl` path (agent → S) | S only. Never on carrier, logs, REST |
+| `linkId` | 128 bit | `browser_host_*`, shim path, Chrome argv | S, main, Chrome; local argv on O |
+| `requestId` | — | connect, result, cancel | S, main |
+| `instanceId` | `inst-…` | UI, audit, REST | public handle, cannot open socket |
+
+- `linkId` single-use. Shim registers it only after Allow. First extension socket wins. Lives ≤ 60 s.
+- Shim Origin check (`chrome-extension://mmlmfjhmonkocbjadbfplnigmagldckm`) is not auth. `linkId` is the credential. Same-user local processes already inside trust boundary.
+- Connect and link bound to one socket. S accepts `connect_result`, `ext_open`, `ext_data`, `ext_close` for that `linkId`/`requestId` only from that socket.
+
+#### Unicast
+
+- Every S → browser `browser_host_*` sent to bound carrier socket only. Never broadcast.
+- `operatorHosts[]` served only by `GET /api/browser/profiles`. Never on `/ws`.
+
+#### Limits
+
+| limit | value | enforced in | on breach |
+|---|---|---|---|
+| one `data` frame | ≤ 16 MiB (`LINK_MAX_DATA`) | `link-socket.ts` | close 1009 `message-too-big` |
+| links per host | ≤ 8 (`MAX_LINKS_PER_HOST`) | `relay-manager.ts` | 409 `host-busy` |
+| pending connects per host | ≤ 2 (`MAX_PENDING_PER_HOST`) | `relay-manager.ts` | 409 `host-busy` |
+| carrier `bufferedAmount` | > 32 MiB for 10 s (`CARRIER_CONGESTED_BYTES`, `CARRIER_CONGESTED_MS`) | `link-socket.ts` | every link on carrier close 1013 `carrier-congested` |
+
+- Extension traffic cannot skip like viewer frames. Congestion fails loud. Memory does not grow unbounded.
+
+#### Local tee
+
+- Pane on own host subscribes with `local: true` (after `browser_host_registered` names this host).
+- S sends no `browser_relay_frame` to carrier for that viewer. Counts it as viewer for tap start/keep/stop.
+- S sends `browser_host_tee {linkId, instanceId, tabId, on}`. `on: true` when mode becomes local; `on: false` when mode stops or subscription ends.
+- Main copies `Page.screencastFrame` where `source.tabId === tabId` and no `source.sessionId` → `onFrame`. Main still forwards event to S unchanged; S keeps acking.
+- `local: true` from any other socket → normal subscribe, audited `denied` / `browser_host:local-ignored`.
+
+#### Lifecycle
+
+- Carrier close → every instance on that carrier closes `host-gone`. Pending connects → 503 `host-gone`. Link sockets close 1006 `host-gone`.
+- Renderer navigate, reload or destroy → main cancels pending connects, closes links (same effect as `connect_cancel`). Carrier close follows.
+- Kill switch (`PUT /api/browser/enabled {false}`) closes all instances, operator ones included.
+- Consent revoke affects future connects only. Live instances stay open.
+
+#### Consent and token stay on O
+
+- Consent: `browser-host-consent.json` in userData. Unreadable → renamed `browser-host-consent.corrupt-<ts>.json`, treated empty.
+- Token: per profile, `safeStorage` only (memory-only fallback). Appended to connect URL locally. Never sent to S.
+- Two token stores, disjoint by host: server `plugins.browser.browsers.*` token → dashboard-host profiles; Electron token → operator profiles.
+- Operator instances: relay deny-list only. Server `browsers.*` (`token`, `zeroDialog`, `allowedDomains`) applies to dashboard-host profiles only.
+- Operator profile rows carry `{profileDirectory, label, email?, installed}` + S-added `instances`. No `hasToken` / `zeroDialog` (S cannot see Electron state).
+
+#### REST additions
+
+- `GET /api/browser/status` → `operatorHosts: true` (version gate).
+- `GET /api/browser/profiles` → `operatorHosts[]` (one row per live bound host; pins not listed).
+- `POST /api/browser/connect` → optional `host`.
+- `DELETE /api/browser/operator-hosts/:hostId` → forget pin.
+- `GET /api/browser/audit?profile=host:<hostId>` → host-level audit.
+
+#### Logs, audit, secrets
+
+- Log: `[browser-host] connect host=<hostId> profile=<dir> outcome=<status|reason> ms=<n>` (once per connect).
+- Log: `[browser-host] link close host=<hostId> reason=<reason>`.
+- Audit ring key `host:<hostId>`: pin mismatch, refused register, dropped `browser_host_*`, early `ext_open`, downgraded `local`.
+- Never in logs, audit, status or REST: guid, `linkId`, nonce, signature, pairing token, frame data.
 
 ## Bundled Package: deck3d
 

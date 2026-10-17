@@ -1,7 +1,7 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-craft-apps",
   "version": "0.9.0",
-  "description": "Headless ArtCraft Crafting Apps for pi agents: provisions the <app>-cli binary of PhotoCraft, VectorCraft, FilmCraft, LightCraft, PdfCraft, EffectCraft, DesignCraft, FigCraft, WordCraft, SoundCraft, DeckCraft, CADCraft and GridCraft on demand, exposes them over bash and per-app confined stdio MCP servers, verifies outputs mechanically (pi-craft verify) and ships a router skill, one skill per app and four media workflow skills. Exposed as pi skills and the pi-craft / pi-photocraft CLI bins.",
+  "description": "Headless ArtCraft Crafting Apps for pi agents: provisions the <app>-cli binary of PhotoCraft, VectorCraft, FilmCraft, LightCraft, PdfCraft, EffectCraft, DesignCraft, FigCraft, WordCraft, SoundCraft, DeckCraft, CADCraft and GridCraft on demand, exposes them over bash and per-app confined stdio MCP servers, verifies outputs mechanically (pi-craft verify) and ships a router skill, one skill per app, four media workflow skills and five office workflow skills (brand kit, document publishing, decks, photo pipeline, data visuals), and the pi-craft doc prepare helper. Exposed as pi skills and the pi-craft / pi-photocraft CLI bins.",
   "type": "module",
   "repository": {
     "type": "git",
@@ -43,7 +43,12 @@
       ".pi/skills/craft-video-post",
       ".pi/skills/craft-beat-cut",
       ".pi/skills/craft-podcast-master",
-      ".pi/skills/craft-motion-titles"
+      ".pi/skills/craft-motion-titles",
+      ".pi/skills/craft-brand-kit",
+      ".pi/skills/craft-doc-publish",
+      ".pi/skills/craft-deck",
+      ".pi/skills/craft-photo-pipeline",
+      ".pi/skills/craft-data-visual"
     ],
     "tools": [
       {
@@ -84,7 +89,9 @@
   },
   "dependencies": {
     "@blackbelt-technology/pi-dashboard-nano-banana": "^0.9.0",
-    "@blackbelt-technology/pi-dashboard-shared": "^0.9.0"
+    "@blackbelt-technology/pi-dashboard-shared": "^0.9.0",
+    "fflate": "^0.8.3",
+    "yaml": "^2.9.0"
   },
   "devDependencies": {
     "esbuild": "^0.28.2",

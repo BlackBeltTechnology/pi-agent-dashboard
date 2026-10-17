@@ -101,6 +101,10 @@ export interface ToggleFailure {
   trustOptions?: TrustOption[];
   /** True when the folder is trusted implicitly today and this write changes that. */
   implicitlyTrusted?: boolean;
+  /** Dashboard trust covers the folder: select this option first. */
+  preselected?: "trust";
+  /** Which dashboard source covers the folder. */
+  dashboardSource?: string;
 }
 
 export type ToggleResult = { ok: true } | ToggleFailure;
@@ -254,6 +258,8 @@ export async function applyResourceToggle(req: ToggleRequest): Promise<ToggleRes
         trustRequired: true,
         trustOptions: trust.options,
         implicitlyTrusted: trust.implicitlyTrusted,
+        ...(trust.preselected ? { preselected: trust.preselected } : {}),
+        ...(trust.dashboardSource ? { dashboardSource: trust.dashboardSource } : {}),
       };
     }
   }

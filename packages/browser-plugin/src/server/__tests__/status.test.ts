@@ -17,7 +17,8 @@ import { BrowserRelayStatus, STATUS_COALESCE_MS, type StatusManager } from "../s
 class StubInstance implements RelayLike {
   readonly instanceId: string;
   readonly profileDirectory: string;
-  readonly subscribed: Array<{ ws: RelaySocket; tabId: number }> = [];
+  host?: string;
+  readonly subscribed: Array<{ ws: RelaySocket; tabId: number; opts?: { local?: boolean } }> = [];
   readonly unsubscribedAll: RelaySocket[] = [];
   readonly inputs: Array<{ tabId: number; msg: unknown; address?: string }> = [];
   private _tabs: RelayTabView[] = [];
@@ -43,8 +44,8 @@ class StubInstance implements RelayLike {
   statusState(): "connected" | "no-cdp-client" {
     return this._state;
   }
-  subscribe(ws: RelaySocket, tabId: number): { ok: boolean } {
-    this.subscribed.push({ ws, tabId });
+  subscribe(ws: RelaySocket, tabId: number, opts?: { local?: boolean }): { ok: boolean } {
+    this.subscribed.push(opts ? { ws, tabId, opts } : { ws, tabId });
     return { ok: true };
   }
   unsubscribe(ws: RelaySocket, tabId: number): void {
@@ -138,6 +139,7 @@ describe("BrowserRelayStatus.message", () => {
       {
         instanceId: "inst-1",
         profileDirectory: "Profile 1",
+        host: "dashboard",
         state: "connected",
         tabs: [
           { tabId: 5, title: "A", url: "https://a.test", state: "live" },
@@ -292,5 +294,63 @@ describe("relay gateway handlers (#3.6)", () => {
     close();
     expect(a.unsubscribedAll).toEqual([ws]);
     expect(b.unsubscribedAll).toEqual([ws]);
+  });
+});
+
+/** change: add-operator-browser-relay (task 7.6 / #E29, D10). */
+describe("operator-host wiring", () => {
+  it("composes `host` per instance: dashboard, operator hostId, and the Fake instance (E29)", () => {
+    const h = harness();
+    const dash = new StubInstance("inst-d", "Default");
+    const op = new StubInstance("inst-o", "Default");
+    op.host = `host-${"b".repeat(32)}`;
+    const fake = new StubInstance("inst-f", "Fake");
+    h.manager.list.push(dash, op, fake);
+    expect((h.status.message().instances as Array<{ host: string }>).map((i) => i.host)).toEqual([
+      "dashboard",
+      `host-${"b".repeat(32)}`,
+      "dashboard",
+    ]);
+  });
+
+  it("subscribe forwards `local:true` only when the message says exactly true", () => {
+    const h = harness();
+    const inst = new StubInstance("inst-1", "P");
+    h.manager.list.push(inst);
+    const { ws } = stubWs();
+    invoke(h, "browser_relay_subscribe", { instanceId: "inst-1", tabId: 5, local: true }, ws);
+    invoke(h, "browser_relay_subscribe", { instanceId: "inst-1", tabId: 5, local: "true" }, ws);
+    invoke(h, "browser_relay_subscribe", { instanceId: "inst-1", tabId: 5 }, ws);
+    expect(inst.subscribed.map((s) => s.opts)).toEqual([{ local: true }, undefined, undefined]);
+  });
+
+  it("registers exactly the six browser→server browser_host_* types, delegating to the host handler", () => {
+    const manager = new StubManager();
+    const handled: Array<{ msg: unknown; ws: unknown }> = [];
+    const handlers = new Map<string, (msg: unknown, ws: unknown) => void>();
+    const status = new BrowserRelayStatus({
+      manager,
+      hosts: { handleHostMessage: (msg, ws) => handled.push({ msg, ws }) },
+      audit: new AuditRing(),
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      broadcast: () => {},
+    });
+    status.registerHandlers({
+      registerBrowserHandler: (type: string, handler: (msg: unknown, ws: unknown) => void) => handlers.set(type, handler),
+    } as unknown as ServerPluginContext);
+    expect([...handlers.keys()].filter((t) => t.startsWith("browser_host_")).sort()).toEqual([
+      "browser_host_connect_result",
+      "browser_host_ext_close",
+      "browser_host_ext_data",
+      "browser_host_ext_open",
+      "browser_host_hello",
+      "browser_host_register",
+    ]);
+    const ws = {};
+    handlers.get("browser_host_hello")?.({ type: "browser_host_hello" }, ws);
+    expect(handled).toEqual([{ msg: { type: "browser_host_hello" }, ws }]);
+    // never the server→browser names (an inbound one must fall through, not be swallowed)
+    expect(handlers.has("browser_host_challenge")).toBe(false);
+    expect(handlers.has("browser_host_tee")).toBe(false);
   });
 });

@@ -10,7 +10,7 @@ Source of truth: `packages/craft-apps/README.md`, `packages/craft-apps/src/AGENT
 - `pi-craft` provisions `<app>-cli` on first use. No desktop app. Nothing installed system-wide.
 - Exposes each app over bash (`pi-craft <app> exec`) and opt-in per-app stdio MCP (`pi-craft <app> mcp`).
 - Verifies outputs mechanically (`pi-craft verify`).
-- Ships `craft-studio` router skill + 13 app skills + 4 media workflow skills.
+- Ships `craft-studio` router skill + 13 app skills + 4 media workflow skills + 5 office workflow skills (23 total).
 - Replaces `packages/photocraft` (`@blackbelt-technology/pi-dashboard-photocraft`). That package becomes a deprecation shim.
 - Standalone pi package. No dashboard client/server code.
 
@@ -196,17 +196,58 @@ pi-craft verify mix.wav --loudness -16±1 --max-peak -1
 pi-craft verify report.pdf --pages 12 --text-contains "Quarterly"
 ```
 
+### `pi-craft doc prepare`
+
+`pi-craft doc prepare <in.md> --out <dir> [--template <name>] [--templates-dir <dir>] [--var k=v]... [--allow-path <dir>]... [--allow-missing] [--json]`. Source `src/doc-prepare.ts`.
+
+| Code | Meaning |
+|---|---|
+| `0` | ok |
+| `1` | failed, or unresolved placeholders without `--allow-missing`. Bare `pi-craft doc` or unknown sub → `1`. |
+| `2` | usage error (bad `doc prepare` args) |
+
+- Writes `template.filled.docx`, `body.md`, `prepare.json` into `--out`. Overwrites only those 3. Atomic temp + rename.
+- Frontmatter engine keys: `template`, `templates_dir`, `language`, `document_title`, `document_name`, `enable_toc`, `toc_heading`, `nano_banana`.
+- Other scalars → variables. Structured non-engine keys → `ignored`.
+- Templates dir chain (first hit wins): `--templates-dir` > frontmatter `templates_dir` (realpath-confined to md dir or `--allow-path`) > `$PI_DOC_TEMPLATES_DIR` > `./templates` > `~/Documents/templates`.
+- Template name: `^[A-Za-z0-9_-]+$`.
+- Variable precedence, low → high: template `variables.xml` default < system < frontmatter < `--var`.
+- System vars: `$date` (en/hu/de/fr like doc-engine), `$fileName`, `$year`, `$month`, `$day`.
+- Report: source per var + `defaulted` list.
+- Fill: in-memory fflate unzip. `w:t` text only. `document.xml` incl. textboxes + all header/footer parts.
+- Split runs merged within one paragraph.
+- `{{ name }}` always. `<name>` only for manifest `syntax="both"` names.
+- Values XML-escaped. Untouched parts byte-identical. `logo:*` and `$toc` ignored.
+- Variable values substituted after image/diagram pass (cannot smuggle syntax).
+- Images → data URIs (realpath-confined; png/jpg/gif/webp/bmp ≤ 20 MB).
+- Template owns images → `CRAFTIMG<NNNN>` markers + `images/` files + `prepare.json.pictures`. WordCraft 0.7.0 maps imported images onto template `rId1`.
+- Mermaid → PNG via host `mmdc` (argv, no shell; `PUPPETEER_EXECUTABLE_PATH` if no Chromium).
+- `nano_banana.enabled` → `pi-nano-banana "Diagram:\n<src>\n\n<style>" --output <png>` (paid). Cache `.mermaid-cache/<md5(style name+prompt+source)>.png`. `mmdc` fallback.
+- No `mmdc` → block stays code + `mermaid.unrendered`.
+- PlantUML stays code + `warnings` entry.
+- Deps `yaml` + `fflate` bundled into `dist/craft.js` (esbuild banner `createRequire` for CJS yaml).
+- Report keys: `defaulted`, `unresolved`, `mermaid.unrendered`, `images.skipped`, `images.remote`, `warnings`, `pictures`.
+
 ## 7. Skills
 
 - `craft-studio`: router. App table, hand-off formats, loop, MCP vs bash, confinement policy.
 - 13 app skills: `photocraft`, `vectorcraft`, `filmcraft`, `lightcraft`, `pdfcraft`, `effectcraft`,
   `designcraft`, `figcraft`, `wordcraft`, `soundcraft`, `deckcraft`, `cadcraft`, `gridcraft`.
-- 4 workflow skills (`packages/craft-apps/.pi/skills/<name>/SKILL.md`):
+- 4 media workflow skills (`packages/craft-apps/.pi/skills/<name>/SKILL.md`):
   - `craft-video-post`: footage → redaction → alpha overlay → FilmCraft assembly → captions → SoundCraft mix → mp4.
   - `craft-beat-cut`: music-analysis → music-edit-to-length → beat-sync-video hits → FilmCraft downbeat cuts + scale-keyframe punches → mp4.
   - `craft-podcast-master`: transcribe → speaker-id → per-speaker stems → SoundCraft mix → ffmpeg two-pass loudnorm master → chapters sidecar → mp4 mux.
   - `craft-motion-titles`: names from SRT → EffectCraft `templates.create` lower-third alpha renders → FilmCraft V2 overlay.
-- Location: `packages/craft-apps/.pi/skills/<name>/SKILL.md`. Declared under `pi.skills`. 18 total.
+- Office workflow skills (5):
+  - `craft-brand-kit`: logo → VectorCraft trace/variants → PhotoCraft png/tif set → DesignCraft brand sheet → PdfCraft package.
+  - `craft-doc-publish`: Markdown → `pi-craft doc prepare` → WordCraft render (TOC, pictures) → pdf → optional PdfCraft package/protect.
+  - `craft-deck`: outline → DeckCraft slides → transition previews → PdfCraft handout. `deck3d` HTML deck = separate branch, never converted.
+  - `craft-photo-pipeline`: LightCraft develop + denoise → PhotoCraft retouch → webp/tif/jpg export set.
+  - `craft-data-visual`: GridCraft workbook + read-back → chart → VectorCraft badge + DesignCraft infographic → DeckCraft slide.
+- Location: `packages/craft-apps/.pi/skills/<name>/SKILL.md`. Declared under `pi.skills`. 23 total: router + 13 app + 4 media + 5 office.
+- `craft-studio` workflow table lists all 9.
+- Split: `craft-doc-publish` = default Markdown → templated DOCX/PDF. `document-converter` = ingest/OCR, round-trip, PlantUML, table profiles; fallback renderer.
+- Split: `craft-deck` = DeckCraft. `deck3d` = HTML/3D web deck.
 - Per app skill: dialect, document/project model, persistence flags, discovery commands, traps, 2–4 recipes.
 - Discovery-first. Never guess command ids. Ids churn between alpha releases.
 - Loop: plan → discover (`commands` / `describe` / `tools`) → execute → save → `pi-craft verify`.
@@ -277,9 +318,84 @@ Multi-app pipelines. One tool call per step. Each step output = file contract fo
 | 3 | EffectCraft | name + template → `03-titles/<name>.mov` (ProRes 4444 alpha) | `pi-craft verify --alpha` + `check: alpha` |
 | 4 | FilmCraft | footage + titles → `04-overlay/final.mp4` | `pi-craft verify` h264 + aac + `--frame-diff` |
 
+Office workflows (W5–W9):
+
+`craft-brand-kit`:
+
+| # | Tool | Input → Output | Gate |
+|---|---|---|---|
+| 0 | agent | request → `job.json` | `check: job` |
+| 1 | VectorCraft | `logo.svg` as-is; raster → `01-logo/logo.svg` (`imageTrace.makeAndExpand`, preset `Flat Logo`, `ignoreWhite`) | png preview → `pi-craft verify --size --alpha` |
+| 2 | VectorCraft | `logo.svg` → `02-variants/logo-black.svg`, `logo-white.svg` | png preview → `pi-craft verify --size` |
+| 3 | PhotoCraft | `logo.svg` → `03-raster/logo-<w>.png`, `logo-print.tif` | `pi-craft verify --size --alpha` (png only) |
+| 4 | DesignCraft | logo + name → `04-sheet/sheet.pdf` (`script`, `file.place`) | `pi-craft verify --pages --text-contains` |
+| 5 | PdfCraft | sheet → `05-package/brand-kit.pdf` | `pi-craft verify --pages --text-contains` |
+
+- svg never passed to `pi-craft verify`. Gated via png preview.
+- `anti-slop-brandkit`: only on explicit user request + approval. Derived assets labelled "concept".
+- Recipe `brand-kit-core`.
+
+`craft-doc-publish`:
+
+| # | Tool | Input → Output | Gate |
+|---|---|---|---|
+| 0 | agent | request → `job.json` | `check: job` |
+| 1 | `pi-craft doc prepare` | `report.md` + template → `01-prepare/` (`template.filled.docx`, `body.md`, `prepare.json`) | `check: prepare` (+ user confirms defaults) |
+| 2 | WordCraft | filled template + body → `02-render/out.docx`, `out.pdf` | `pi-craft verify --pages --text-contains` |
+| 3 | PdfCraft | pdf → `03-package/final.pdf` (optional) | `pi-craft verify` (before protecting) |
+
+- Use `run --file`. Never `--template`: drops header/footer parts.
+- Render order: `references.toc`, then `caret.docEnd` (TOC leaves caret above itself), then page break + body.
+- Pictures: per `CRAFTIMG` marker → `edit.find` + `insert.picture` + `edit.replaceAll`. Only when `prepare.json` has `pictures`.
+- Protect: password via 0600 temp script file. Never in `job.json`. Protected pdf cannot be probed by `verify`.
+- `document-converter` = fallback renderer.
+- Recipes `doc-publish-core`, `doc-publish-protect`.
+
+`craft-deck`:
+
+| # | Tool | Input → Output | Gate |
+|---|---|---|---|
+| 0 | agent | request → `job.json` | `check: job` |
+| 1 | agent | request → `01-outline/outline.md` | `check: outline` |
+| 2 | DeckCraft | outline → `02-deck/deck.pptx`, `deck.pdf` (`file.new {"blank":true}`, `slide.new`, `insert.picture`, `transition.set`) | `pi-craft verify --pages --text-contains` |
+| 3 | DeckCraft | deck → `03-transitions/t1.png` (`render-transition` previews, optional) | `pi-craft verify --size` |
+| 4 | PdfCraft | deck pdf → `04-handout/handout.pdf` | `pi-craft verify --pages --text-contains` |
+
+- `deck3d` HTML deck = alternative branch. Never converted from DeckCraft output.
+- Recipe `deck-core`.
+
+`craft-photo-pipeline`:
+
+| # | Tool | Input → Output | Gate |
+|---|---|---|---|
+| 0 | agent | request → `job.json` | `check: job` |
+| 1 | LightCraft | RAW → `01-develop/dev.png` (`render` develop; `detail.nrLuminance`, `detail.nrColor`) | `pi-craft verify --size` |
+| 2 | PhotoCraft | `dev.png` → `02-retouch/retouched.png` (`edit.contentAwareFill`; optional) | `pi-craft verify --size --frame-diff` |
+| 3 | PhotoCraft | master → `03-export/photo-<w>.webp`, `photo-print.tif`, `photo.jpg` | `pi-craft verify --size` |
+
+- AI denoise: opt-in. Needs user model + explicit licence ack.
+- `replace-region`: only with image credentials.
+- Recipe `photo-pipeline-core` (synthetic DNG from `synth-merge`).
+
+`craft-data-visual`:
+
+| # | Tool | Input → Output | Gate |
+|---|---|---|---|
+| 0 | agent | request → `job.json` | `check: job` |
+| 1 | GridCraft | data → `01-data/data.xlsx` | `check: readback` |
+| 2 | GridCraft + PdfCraft + PhotoCraft | workbook → `02-chart/chart.pdf`, `chart.png` | `pi-craft verify --pages --text-contains`, `--size` |
+| 3 | VectorCraft + DesignCraft | chart → `03-infographic/infographic.pdf` (badge: VectorCraft) | `pi-craft verify --pages --text-contains`, `--size` |
+| 4 | DeckCraft | infographic → `04-slide/slide.pptx`, `slide.pdf` | `pi-craft verify --pages --text-contains` |
+
+- `check: readback`: `gridcraft-cli cat --range`. GridCraft prints formula errors with exit 0. Fails on `#NAME?` `#DIV/0!` `#REF!` `#VALUE!` `#N/A` `#NUM!` `#NULL!`.
+- Chart image: `pdfcraft render` + PhotoCraft `image.trim`. Chart anchored at A1. GridCraft has no chart image command.
+- Recipe `data-visual-core`.
+
 Gates:
 
 - Every media step: `pi-craft verify <file> <assertions>`.
+- Office steps: `check: readback` / `check: prepare` for text/data; `pi-craft verify` for outputs; svg via png preview.
+- Office recipes need PdfCraft, WordCraft, VectorCraft, PhotoCraft, DesignCraft, DeckCraft, GridCraft, LightCraft + `ffmpeg` + `jq`.
 - Text artefacts (srt, json, txt): labelled runnable snippets, `` ```bash check: <label> ``.
 - Failed gate → `describe` re-discovery → retry. Max 2 retries, then stop.
 
@@ -317,14 +433,20 @@ Probed facts (FilmCraft 0.8.0, SoundCraft 0.7.0, EffectCraft 0.10.0, HyperFrames
 - Hits → cuts via jq. No helper script.
 - `mix` bash trap: write `${VAR}±0.1`, not `$VAR±0.1`.
 
+Probed facts (office, 2026-10): VectorCraft 0.12.0, GridCraft 0.7.0, DeckCraft 0.7.0, LightCraft 0.8.0, WordCraft 0.7.0, PdfCraft 0.8.0. Fixture pin for VectorCraft still 0.11.0.
+- `doc_protect` args: `open_password`, `permissions_password`.
+- `pdfcraft-cli run --script` cannot read `/dev/fd`. Use 0600 temp file.
+
 ### Tests
 
 | Test file | Mode | Checks |
 |---|---|---|
-| `skills.test.ts` | default | skill lint: 14 router/app skills + 4 workflow skills (workflow lint, executed `check:` snippets), frontmatter `name` = dir, required headings, recipe checks, offline drift vs `src/__tests__/fixtures/commands/<app>.json` |
+| `skills.test.ts` | default | skill lint: 14 router/app skills + 9 workflow skills (workflow lint, executed `check:` snippets; office lint E28-E37 runs `check: readback` / `check: prepare`), frontmatter `name` = dir, required headings, recipe checks, offline drift vs `src/__tests__/fixtures/commands/<app>.json` |
+| `doc-prepare.test.ts` | default | `pi-craft doc prepare`: E1-E24, picture markers, size cap. Fixtures: `src/__tests__/helpers/docx.ts` |
+| `packaging.test.ts` | default | 23 skills declared under `pi.skills` |
 | `skills-drift.test.ts` | `CRAFT_E2E=1` (nightly) | quoted command ids vs live provisioned binary list; workflow skills vs union of live lists of driven apps |
-| `skills-recipes.test.ts` | `CRAFT_E2E=1` | run every `recipe:` fence under `bash -e`; `CRAFT_RECIPE_APPS=a,b` subset; workflow recipes need `CRAFT_WORKFLOW_E2E=1` (+ `ffmpeg`, `jq`) |
-| `real-apps.test.ts` | `CRAFT_E2E=1` | genuine release binaries: provision + spawn per app |
+| `skills-recipes.test.ts` | `CRAFT_E2E=1` | run every `recipe:` fence under `bash -e`; `CRAFT_RECIPE_APPS=a,b` subset; workflow recipes need `CRAFT_WORKFLOW_E2E=1` (+ `ffmpeg`, `jq`; office recipes + the office apps above) |
+| `real-apps.test.ts` | `CRAFT_E2E=1` | genuine release binaries: provision + spawn per app. `CRAFT_WORKFLOW_E2E=1` adds real office publish (X1/X2) |
 | `real-binary.test.ts` | `PHOTOCRAFT_E2E=1` + `PHOTOCRAFT_BIN` | `replace-region` (no Gemini call) |
 
 Commands:

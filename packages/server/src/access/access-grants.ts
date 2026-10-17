@@ -45,6 +45,22 @@ import * as path from "node:path";
 import { getDashboardConfigDir } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 import { isUngrantableSubject } from "./forbidden-subjects.js";
 
+/**
+ * Notified after a PERSISTED grant is written or revoked. Feeds the pi-trust
+ * mirror snapshot; set once by the server. See change: mirror-dashboard-trust-to-pi.
+ */
+let grantsChanged: (() => void) | undefined;
+export function setGrantsChangedListener(fn: (() => void) | undefined): void {
+  grantsChanged = fn;
+}
+function notifyGrantsChanged(): void {
+  try {
+    grantsChanged?.();
+  } catch {
+    /* a listener never fails a grant */
+  }
+}
+
 /** `session` = in-memory, until server restart. `project` = persisted JSON. */
 export type GrantScope = "session" | "project";
 
@@ -360,6 +376,7 @@ export function recordGrant(input: RecordGrantInput): RecordGrantResult {
     return { ok: false, error: (err as Error)?.message ?? "write failed" };
   }
   cache = grants;
+  notifyGrantsChanged();
   return { ok: true, grant };
 }
 
@@ -394,5 +411,6 @@ export function revokeGrant(subject: string, scope?: GrantScope): boolean {
     return false;
   }
   cache = kept;
+  notifyGrantsChanged();
   return true;
 }

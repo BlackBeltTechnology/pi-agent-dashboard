@@ -226,7 +226,10 @@ import { createMetaPersistence } from "./persistence/meta-persistence.js";
 import { migrateCustomEntryFallbackOverrides } from "./persistence/migrate-custom-entry-fallback.js";
 import { needsMigration, runMigration } from "./persistence/migrate-persistence.js";
 import { createPreferencesStore } from "./persistence/preferences-store.js";
-import { loadHostProjectTrust } from "./pi/host-project-trust.js";
+import { createPiTrustMirrorService, setPiTrustMirror } from "./access/pi-trust-mirror-service.js";
+import { listGrants as listAccessGrants, setGrantsChangedListener } from "./access/access-grants.js";
+import { listPersistedTrust as listPersistedWorktreeTrust, setTrustChangedListener } from "./git-worktree/worktree-init-trust.js";
+import { loadHostProjectTrustService } from "./pi/host-project-trust.js";
 import { PiCoreChecker } from "./pi/pi-core-checker.js";
 import { PiCoreUpdater } from "./pi/pi-core-updater.js";
 import { createPiGateway } from "./pi/pi-gateway.js";
@@ -526,6 +529,26 @@ function resolvedPiVersion(): string | undefined {
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: legacy server wiring, grandfathered; decompose in a dedicated refactor, not piecemeal
 /** Plugin frames that are NOT domain events: replay-cached UI intents and settings echoes. */
 const NON_DOMAIN_PLUGIN_FRAMES: ReadonlySet<string> = new Set(["plugin_intents", "plugin_config_update"]);
+
+/**
+ * "Also trust this folder in pi": stored with the entry an allow-always just wrote
+ * (filesystem → persisted grant; cwd → pin). Best-effort — the grant itself already
+ * stands. See change: mirror-dashboard-trust-to-pi.
+ */
+function storePiTrustChoiceOfVerdict(
+  mirror: ReturnType<typeof createPiTrustMirrorService>,
+  msg: { verdict: string; plane: string; subject: string; piTrust?: boolean },
+): void {
+  if (msg.verdict !== "allow-always" || typeof msg.piTrust !== "boolean") return;
+  const kind = msg.plane === "filesystem" ? "accessGrants" : msg.plane === "cwd" ? "pinned" : null;
+  if (!kind) return;
+  try {
+    mirror.setChoice(kind, msg.subject, msg.piTrust);
+    mirror.refresh();
+  } catch (err) {
+    console.warn(`[pi-trust-mirror] could not store the pi-trust choice: ${(err as Error)?.message}`);
+  }
+}
 
 export async function createServer(config: ServerConfig): Promise<DashboardServer> {
   // Ensure bridge extension is registered in pi's global settings
@@ -1481,7 +1504,41 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // `defaultProjectTrust`), consumed by mcp-client to decide whether a
   // folder's `.pi/mcp.json` is active. Resolved once; an unresolvable pi reads
   // every project as untrusted. See change: migrate-mcp-to-pi-builtin (D3).
-  pluginServiceRegistry.set("host.isProjectTrusted", await loadHostProjectTrust());
+  // Durable dashboard trust is mirrored into pi's `project_trust` through a
+  // server-written snapshot (rebuilt now from the persisted stores, so a crash
+  // between a revoke's two writes heals at boot). See change: mirror-dashboard-trust-to-pi.
+  const piTrustMirror = createPiTrustMirrorService({
+    getConfig: () => loadConfig().piTrustMirror,
+    listPinned: () => preferencesStore.getPinnedDirectories(),
+    listWorkspaceFolders: () => preferencesStore.getWorkspaces().flatMap((w) => w.folders),
+    listWorktreeTrust: listPersistedWorktreeTrust,
+    listPersistedGrants: () => listAccessGrants().filter((g) => g.scope === "project"),
+  });
+  setPiTrustMirror(piTrustMirror);
+  try {
+    piTrustMirror.rebuildAtBoot();
+  } catch (err) {
+    console.warn(`[pi-trust-mirror] boot snapshot rebuild failed: ${(err as Error)?.message}`);
+  }
+  // Any source change refreshes the snapshot (coalesced); operator revokes additionally
+  // go through the ordered `revoke` path in their handlers.
+  let mirrorRefreshQueued = false;
+  const queueMirrorRefresh = (): void => {
+    if (mirrorRefreshQueued) return;
+    mirrorRefreshQueued = true;
+    setImmediate(() => {
+      mirrorRefreshQueued = false;
+      piTrustMirror.refresh();
+    });
+  };
+  preferencesStore.onPinsChanged?.(queueMirrorRefresh);
+  preferencesStore.onWorkspacesChanged(queueMirrorRefresh);
+  setGrantsChangedListener(queueMirrorRefresh);
+  setTrustChangedListener(queueMirrorRefresh);
+  const hostProjectTrust = await loadHostProjectTrustService();
+  pluginServiceRegistry.set("host.isProjectTrusted", hostProjectTrust.isProjectTrusted);
+  pluginServiceRegistry.set("host.projectTrustSource", hostProjectTrust.projectTrustSource);
+  pluginServiceRegistry.set("host.piTrustCoverInteractive", () => loadConfig().piTrustMirror.coverInteractive);
   // cwd-policy as the spawn funnel composes it, so the team plugin can refuse a
   // start whose skill set the policy would narrow. See change: add-team-skill-access (D7).
   pluginServiceRegistry.set("host.resolveCwdPolicy", (cwd: string) => cwdPolicyRegistry.resolve(cwd));
@@ -1903,9 +1960,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   });
   installGrantCoordinator(grantCoordinator);
   browserGateway.registerHandler("grant_response", (msg) => {
-    grantCoordinator.onResponse(msg).catch((err: unknown) => {
-      console.error(`[access-grant] grant_response failed: ${(err as Error)?.message ?? err}`);
-    });
+    grantCoordinator
+      .onResponse(msg)
+      .then(() => storePiTrustChoiceOfVerdict(piTrustMirror, msg))
+      .catch((err: unknown) => {
+        console.error(`[access-grant] grant_response failed: ${(err as Error)?.message ?? err}`);
+      });
   });
   setNetworkDenialObserver((request) => {
     grantCoordinator.onDenial(
@@ -2860,6 +2920,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     localToken,
     localTrust,
     hostAdmission: () => getHostGateCtx().admission,
+    // Shared "is a login method configured" thunk (same instance as vault/services): drives the `sign-in` remedy.
+    loginAvailable,
     // Public (tunnel + configured public) base URLs, already TLS-gated.
     getReachableUrls: () => pairingManager.reachableUrls(),
     getPort: () => {

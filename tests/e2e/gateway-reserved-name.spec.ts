@@ -1,5 +1,6 @@
 import { expect, type Page, test } from "./fixtures.js";
 import { gotoDashboard } from "./helpers/index.js";
+import { openAddressStep } from "./helpers/remote-access.js";
 
 /**
  * Browser E2E for change `add-zrok-custom-reserved-name` — Gateway Setup step 3
@@ -77,10 +78,8 @@ async function stubSetName(
 }
 
 async function openSetupTab(page: Page): Promise<void> {
-  const btn = page.getByTestId("tunnel-btn");
-  await expect(btn).toBeVisible({ timeout: 15_000 });
-  await btn.click();
-  await page.getByTestId("gateway-tab-setup").click();
+  // The reserved-name control is the Public address step of Share over the internet.
+  await openAddressStep(page);
 }
 
 test.describe("gateway reserved-name control", () => {

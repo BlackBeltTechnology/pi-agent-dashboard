@@ -2074,6 +2074,7 @@
  "packages/shared/src/tool-registry/__tests__/static-npm-strategy.test.ts": 0.006,
  "packages/shell/src/lib/keyring.test.ts": 0.012,
  "packages/shell/src/lib/protocol.test.ts": 0.006,
+ "packages/skill-atlas-plugin/src/server/__tests__/atlas-perf.test.ts": 8.7,
  "packages/subagents-plugin/src/client/__tests__/SubagentDetailView.test.tsx": 0.088,
  "packages/subagents-plugin/src/client/__tests__/SubagentPopoutPage.test.tsx": 0.078,
  "packages/subagents-plugin/src/client/__tests__/SubagentsSettings.test.tsx": 0.247,

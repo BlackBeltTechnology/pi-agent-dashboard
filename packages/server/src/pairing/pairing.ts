@@ -19,6 +19,7 @@
  */
 import crypto from "node:crypto";
 import type { PairingProvenance } from "@blackbelt-technology/pi-dashboard-shared/pairing-knock.js";
+import { INVISIBLE_OR_SEPARATOR } from "@blackbelt-technology/pi-dashboard-shared/terminal-safe.js";
 import {
   defaultTierForSource,
   isTier,
@@ -136,13 +137,6 @@ interface PendingDevice {
   remoteAddress?: string;
   forwardedFor?: string;
 }
-
-/**
- * Characters stripped from a requester name: control + format (bidi overrides,
- * zero-width), surrogates, private-use, line/paragraph separators, and the
- * blank-rendering Hangul fillers — all could fake a layout or an invisible name.
- */
-const INVISIBLE_OR_SEPARATOR = /[\p{Cc}\p{Cf}\p{Cs}\p{Co}\p{Zl}\p{Zp}\u115F\u1160\u3164\uFFA0]/gu;
 
 /**
  * Requester-name normaliser (design D16): non-string → absent; strip

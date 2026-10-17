@@ -44,6 +44,10 @@ export interface ToggleResourceResult {
   trustOptions?: ResourceTrustOption[];
   /** True when the folder is trusted implicitly today and this write changes that. */
   implicitlyTrusted?: boolean;
+  /** Durable dashboard trust covers the folder: select this option first. */
+  preselected?: "trust";
+  /** Which dashboard source covers the folder (`pinned folder`, ...). */
+  dashboardSource?: string;
 }
 
 /** POST /api/resources/toggle. Never throws on HTTP errors (network errors still throw). */
@@ -58,6 +62,8 @@ export async function toggleResource(args: ToggleResourceArgs): Promise<ToggleRe
     trustRequired?: boolean;
     trustOptions?: ResourceTrustOption[];
     implicitlyTrusted?: boolean;
+    preselected?: "trust";
+    dashboardSource?: string;
   }>;
   return {
     ok: res.ok && body?.success === true,
@@ -67,6 +73,8 @@ export async function toggleResource(args: ToggleResourceArgs): Promise<ToggleRe
     trustRequired: body?.data?.trustRequired,
     trustOptions: body?.data?.trustOptions,
     implicitlyTrusted: body?.data?.implicitlyTrusted,
+    preselected: body?.data?.preselected,
+    dashboardSource: body?.data?.dashboardSource,
   };
 }
 

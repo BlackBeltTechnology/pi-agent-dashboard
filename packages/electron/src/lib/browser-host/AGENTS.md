@@ -1,0 +1,15 @@
+# DOX — packages/electron/src/lib/browser-host
+
+Operator browser host: lets an agent on a dashboard server drive Chrome on THIS machine. Electron-free logic (injected ports), bound in `electron-main.ts`. See change: add-operator-browser-relay.
+
+| File | Purpose |
+|------|---------|
+| `consent.ts` | Consent per (server key, profile). Server key = WS target origin + target `/api/health` `instanceId`. `createConsentStore` → `browser-host-consent.json` (0600, atomic; corrupt → `browser-host-consent.corrupt-<ts>.json`, empty). `requestConsent` → `allow`\|`denied`\|`cancelled`; dialog = injected `DialogPort`; Allow once / Always allow / Deny, default + Escape Deny, 55 s auto-deny (`CONSENT_DIALOG_TIMEOUT_MS`), external `signal` closes it. `buildBrowserRelayMenuItem` + `setRevokeAllHook` = "Browser relay → Revoke all" (future connects only). |
+| `electron-main.ts` | Binds `createBrowserHost` to `ipcMain`, `safeStorage`, `dialog.showMessageBox({signal})`, `userData`, shared `spawn`. `startBrowserHost(opts)`; installs revoke-all hook + notice. Only Electron-touching file here. |
+| `identity.ts` | Ed25519 host key (`browser-host-key.json` via `safeStorage`; no encryption/`basic_text` → memory-only, fresh next run). `createHostIdentity` → `identity()` (`hostId`, `publicKey`, label, platform, `canOpenChrome`, bounded profiles) + `sign(nonce, serverId)` (refuses unless `serverId` == target's fetched `instanceId`). `createChromePort` over shared `chrome-profiles`. Private key never leaves. |
+| `ipc.ts` | `createBrowserHost`: serves `BROWSER_HOST_CHANNELS` via `trustedHandler`/`trustedListener` + attached-window check. Connect flow: no-chrome → server-unverified → consent → shim register → Chrome launch → answer. Caps: 4 pending, 8 links. `cancelConnect`, main-frame navigation, window destroy, target change close all links/dialogs. `attachWindow`, `revokeAll`, `dispose`. No linkId/URL/token in logs. |
+| `shim.ts` | Loopback `127.0.0.1:0` WS listener for the stock extension. Accepts only `/ws/browser-ext/<linkId>` for registered unclaimed link + pinned `chrome-extension://` Origin; else 404. One socket per link; 60 s unclaimed TTL; stops when idle. Host-side close emits no event. `buildOperatorConnectUrl` (replica of plugin `buildConnectUrl`; `token=` local only). Uses `ws`. |
+| `store.ts` | Shared persistence helpers: `canEncrypt`, `encrypt`/`decrypt` (`safeStorage` blob), `writeJsonAtomic` (0600), `readVersionedJson` (set aside corrupt). Reuses `CryptoPort`/`FsPort` of `server-keyring.ts`. |
+| `target.ts` | `createTarget`: WS target origin (http/https only, normalised) + `instanceId()` fetched from `<origin>/api/health` by main (Node fetch, 5 s, no redirects). `TargetPort`. |
+| `tee.ts` | `createTee(onFrame)`: copies `Page.screencastFrame` with `source.tabId` match + no `source.sessionId` from `chrome.debugger.onEvent` wire messages; read-only (caller forwards original). `set`/`drop`/`observe`. |
+| `tokens.ts` | `createTokenStore`: per-profile pairing token in `browser-host-tokens.json` via `safeStorage`; memory-only without encryption (never writes/clobbers). `get` main-process only. |

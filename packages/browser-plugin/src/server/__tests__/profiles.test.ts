@@ -2,6 +2,10 @@
  * Chrome profile discovery (change: add-browser-relay) — test-plan #E17
  * (listing) + #X9 (missing/corrupt Local State).
  */
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { listChromeProfiles as listChromeProfilesShared } from "@blackbelt-technology/pi-dashboard-shared/chrome-profiles.js";
 import { describe, expect, it, vi } from "vitest";
 import { listChromeProfiles } from "../profiles.js";
 
@@ -114,4 +118,72 @@ describe("listChromeProfiles fallback (X9)", () => {
     });
     expect(result.profiles[0].installed).toBe(true);
   });
+});
+
+/**
+ * #E52 — the plugin (vendored `installed` probe) and the shared helper (the
+ * Electron host's copy) must produce identical rows from the same on-disk
+ * fixtures. See change: add-operator-browser-relay (D8).
+ */
+describe("plugin ↔ shared parity (E52)", () => {
+  const EXT = "mmlmfjhmonkocbjadbfplnigmagldckm";
+
+  function withUserDataDir(setup: (dir: string) => void): { dir: string; done: () => void } {
+    const dir = mkdtempSync(join(tmpdir(), "chrome-parity-"));
+    setup(dir);
+    return { dir, done: () => rmSync(dir, { recursive: true, force: true }) };
+  }
+
+  const fixtures: Array<[string, (dir: string) => void]> = [
+    [
+      "duplicate labels + email + one installed via Extensions dir",
+      (dir) => {
+        writeFileSync(
+          join(dir, "Local State"),
+          JSON.stringify({
+            profile: {
+              info_cache: {
+                Default: { name: "Person 1" },
+                "Profile 1": { name: "Person 1" },
+                "Profile 2": { name: "Work", user_name: "me@corp.test" },
+              },
+            },
+          }),
+        );
+        mkdirSync(join(dir, "Profile 1", "Extensions", EXT), { recursive: true });
+      },
+    ],
+    [
+      "installed via a populated Preferences record, label fallback",
+      (dir) => {
+        writeFileSync(join(dir, "Local State"), JSON.stringify({ profile: { info_cache: { "Profile 3": {} } } }));
+        mkdirSync(join(dir, "Profile 3"), { recursive: true });
+        writeFileSync(
+          join(dir, "Profile 3", "Preferences"),
+          JSON.stringify({ extensions: { settings: { [EXT]: { state: 1 } } } }),
+        );
+      },
+    ],
+    [
+      "unparseable Local State → synthetic Default + warning",
+      (dir) => {
+        writeFileSync(join(dir, "Local State"), "{not json");
+        mkdirSync(join(dir, "Default", "Extensions"), { recursive: true });
+      },
+    ],
+  ];
+
+  for (const [name, setup] of fixtures) {
+    it(`identical rows: ${name}`, async () => {
+      const { dir, done } = withUserDataDir(setup);
+      try {
+        const viaPlugin = await listChromeProfiles({ userDataDir: dir });
+        const viaShared = await listChromeProfilesShared({ userDataDir: dir });
+        expect(viaPlugin.profiles).toEqual(viaShared.profiles);
+        expect(viaPlugin.warning).toEqual(viaShared.warning);
+      } finally {
+        done();
+      }
+    });
+  }
 });

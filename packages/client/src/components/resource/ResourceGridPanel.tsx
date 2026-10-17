@@ -126,6 +126,8 @@ export function ResourceGridPanel({ data, isLoading, error, refresh, activation,
           cwd={activation.trustPrompt.cwd}
           message={activation.trustPrompt.message}
           options={activation.trustPrompt.options}
+          preselected={activation.trustPrompt.preselected}
+          dashboardSource={activation.trustPrompt.dashboardSource}
           onChoose={activation.resolveTrust}
           onDismiss={activation.dismissTrust}
         />

@@ -6,7 +6,7 @@ The `pi-craft` command-line entry point gives agents and users one way to list, 
 ## Requirements
 
 ### Requirement: Subcommand dispatch and exit codes
-`pi-craft` SHALL accept `apps`, `status`, `install`, `launcher`, `verify` and `<app> <ensure|path|exec|mcp>`; with no arguments, an unknown subcommand or app, or `--help`, it SHALL print usage listing subcommands and app ids. Exit codes SHALL be `0` success, `1` usage error or failed operation, `69` provisioning failure; `exec` propagates the binary's exit code; `verify` uses its own codes.
+`pi-craft` SHALL accept `apps`, `status`, `install`, `launcher`, `verify`, `doc prepare` and `<app> <ensure|path|exec|mcp>`. With no arguments, an unknown subcommand or app, or `--help`, it SHALL print usage listing the subcommands and app ids. Exit codes SHALL be `0` success (including `--help`), `1` usage error or failed operation, and `69` provisioning failure. `pi-craft doc` with no or an unknown subcommand SHALL print usage and exit `1`. `exec` propagates the binary's exit code. `verify` and `doc prepare` use their own codes.
 
 #### Scenario: Unknown app
 - **WHEN** `pi-craft paintcraft path` is run
@@ -15,6 +15,10 @@ The `pi-craft` command-line entry point gives agents and users one way to list, 
 #### Scenario: Provisioning failure
 - **WHEN** `pi-craft filmcraft exec --version` needs the binary and provisioning fails
 - **THEN** the error is printed to stderr and the exit code is `69`
+
+#### Scenario: doc subcommand listed
+- **WHEN** `pi-craft --help` is run
+- **THEN** the usage lists `doc prepare`
 
 ### Requirement: Executable from a shell
 The `pi-craft` and `pi-photocraft` bins SHALL start from a plain shell with no TypeScript loader configured, both from the monorepo checkout and from an npm install (including pi's `~/.pi/agent/npm` prefix).

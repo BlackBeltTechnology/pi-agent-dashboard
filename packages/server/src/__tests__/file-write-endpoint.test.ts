@@ -41,6 +41,7 @@ describe("POST /api/file/write — directory scope", () => {
     cwd = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), "fw-cwd-")));
     await fsp.writeFile(path.join(cwd, "AGENTS.md"), "# original\n", "utf-8");
     await fsp.writeFile(path.join(cwd, "notes.txt"), "x\n", "utf-8");
+    await fsp.writeFile(path.join(cwd, "flow.mmd"), "graph TD\n  A-->B\n", "utf-8");
     app = makeApp([cwd]);
     await app.ready();
   });
@@ -60,6 +61,20 @@ describe("POST /api/file/write — directory scope", () => {
     expect(typeof body.data.mtime).toBe("number");
     expect(await fsp.readFile(target, "utf-8")).toBe("# edited\n");
     expect(body.data.mtime).toBe(await readMtime(target));
+  });
+
+  it("md-read + write accept a .mmd in directory scope (apply-fix round trip)", async () => {
+    const target = path.join(cwd, "flow.mmd");
+    const read = await app.inject({
+      method: "GET",
+      url: `/api/file/md-read?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(target)}`,
+    });
+    expect(read.statusCode).toBe(200);
+    const { content, mtime } = read.json().data;
+    expect(content).toBe("graph TD\n  A-->B\n");
+    const res = await write(app, { cwd, path: target, content: "flowchart TD\n  A-->B\n", mtime });
+    expect(res.statusCode).toBe(200);
+    expect(await fsp.readFile(target, "utf-8")).toBe("flowchart TD\n  A-->B\n");
   });
 
   it("rejects a non-markdown target with 403 and does not write", async () => {
@@ -170,6 +185,7 @@ describe("POST /api/file/write — global scope", () => {
     agentDir = path.join(home, ".pi", "agent");
     await fsp.mkdir(agentDir, { recursive: true });
     await fsp.writeFile(path.join(agentDir, "MEMORY.md"), "# mem\n", "utf-8");
+    await fsp.writeFile(path.join(agentDir, "flow.mmd"), "graph TD\n", "utf-8");
     await fsp.mkdir(path.join(home, "Documents"), { recursive: true });
     await fsp.writeFile(path.join(home, "Documents", "secret.md"), "# s\n", "utf-8");
     // Point the guard's default home (os.homedir → $HOME on POSIX) at the fake home.
@@ -191,6 +207,13 @@ describe("POST /api/file/write — global scope", () => {
     const res = await write(app, { path: target, content: "# updated\n", mtime });
     expect(res.statusCode).toBe(200);
     expect(await fsp.readFile(target, "utf-8")).toBe("# updated\n");
+  });
+
+  it("rejects a global-scope Mermaid source with 403 (directory scope only)", async () => {
+    const target = path.join(agentDir, "flow.mmd");
+    const res = await write(app, { path: target, content: "x\n", mtime: await readMtime(target) });
+    expect(res.statusCode).toBe(403);
+    expect(await fsp.readFile(target, "utf-8")).toBe("graph TD\n");
   });
 
   it("rejects a global-scope path outside ~/.pi/agent with 403", async () => {

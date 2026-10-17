@@ -12,9 +12,11 @@ import { useZoomPan } from "../../hooks/useZoomPan.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import type { RuleId } from "../../lib/preview/mermaid-repair.js";
 import { useMermaidRepairClientConfig } from "../../lib/preview/mermaid-repair-config.js";
+import { useMermaidSourceContext } from "../../lib/preview/mermaid-source-context.js";
 import { copyText } from "../../lib/util/clipboard.js";
 import { CopyButton } from "../primitives/CopyButton.js";
 import { useThemeContext } from "../settings/ThemeProvider.js";
+import { MermaidApplyFix } from "./MermaidApplyFix.js";
 import { mermaidConfig } from "./mermaid-config.js";
 import { computeFitScale, VIEWPORT_HEIGHT_CSS } from "./mermaid-fit.js";
 import { ZoomControls } from "./ZoomControls.js";
@@ -313,6 +315,13 @@ interface Props {
    * happens exactly once, when the code checksum is final.
    */
   complete?: boolean;
+  /**
+   * Index of this diagram among the mermaid blocks of its on-disk file (stamped
+   * by `remarkMermaidOrdinal`, or the AsciiDoc segment index; `0` for `.mmd`).
+   * With a `MermaidSourceContext` it enables "Apply fix to file" on a repaired
+   * diagram. Absent in chat and for raw-HTML blocks. See change: add-preview-apply-fix-to-file.
+   */
+  ordinal?: number;
 }
 
 // ── Zoom control buttons ────────────────────────────────────────────────────
@@ -813,8 +822,9 @@ function useDiagramView(code: string, themeId: string, key: string, resolved: st
   };
 }
 
-export const MermaidBlock = React.memo(function MermaidBlock({ code, complete = true }: Props) {
+export const MermaidBlock = React.memo(function MermaidBlock({ code, complete = true, ordinal }: Props) {
   const { resolved, themeName } = useThemeContext();
+  const fileSource = useMermaidSourceContext();
   // Composite identity: accent palettes differ per named theme, so cache and
   // re-render must key on both the named theme and its light/dark resolution.
   const themeId = `${themeName}:${resolved}`;
@@ -922,6 +932,14 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code, complete = 
     toggleShowOriginal();
   };
 
+  // The repaired source worth persisting: the AI fix (itself possibly rule-repaired
+  // on top) or the rule repair. See change: add-preview-apply-fix-to-file.
+  const fixedSource = aiFixed
+    ? outcome?.kind === "repaired"
+      ? outcome.code
+      : aiFixed.fixedCode
+    : (repaired?.code ?? null);
+
   // Badge + original view render as siblings BEFORE `.mermaid-diagram`, so its
   // structure (first child div = viewport, only svg = the diagram) is unchanged.
   return (
@@ -935,6 +953,9 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code, complete = 
         showOriginal={showOriginal}
         onToggle={toggleOriginal}
       />
+      {fileSource && ordinal !== undefined && fixedSource !== null ? (
+        <MermaidApplyFix source={fileSource} ordinal={ordinal} originalCode={code} fixedSource={fixedSource} />
+      ) : null}
       <div className="mermaid-diagram relative my-2">
         {/* Viewport: clips zoomed/panned content. Hidden (not unmounted) while the
             original is shown, so zoom/pan state survives the toggle. */}
