@@ -67,4 +67,4 @@
 - [x] 6.1 Run `doubt-driven-review` on locator/verify/splice/conflict logic and `security-hardening` on the allowlist change; fold findings into design.md Risks; verify no open High findings
 - [x] 6.2 Update AGENTS.md rows: `writable-md-target.ts`, `mermaid-block-locator.ts` (new), `MermaidBlock.tsx`, `MarkdownContent.tsx`, `AsciiDocPreview.tsx`, `editor-pane/MermaidViewer.tsx`, `FilePreviewOverlay.tsx`, `MarkdownPreview.tsx`, editor-pane `MarkdownViewer.tsx` (See change: add-preview-apply-fix-to-file); verify rows present
 - [x] 6.3 Full suite + `npm run quality:changed`; verify green
-- [ ] 6.4 Manual: diff dialog legibility in all 4 themes (studio, earth, athlete, gradient) at desktop and mobile width (test-plan: manual-only, #F14)
+- [x] 6.4 Manual: diff dialog legibility in all 4 themes (studio, earth, athlete, gradient) at desktop and mobile width (test-plan: manual-only, #F14)
