@@ -315,6 +315,20 @@ describe("IPC ↔ browser_host_* bridge", () => {
 		await waitFor(() => expect(host.cancelConnect).toHaveBeenCalledWith("rq1"));
 	});
 
+	it("audit #7: a cancelled connect leaves no pending entry (no second cancel at teardown, a late answer is dropped)", async () => {
+		const r = mount();
+		await register(r);
+		act(() => r.ws.emit({ type: "browser_host_connect", requestId: "rq1", linkId: "lk1", instanceId: "i", profileDirectory: "Default", serverLabel: "s" }));
+		await waitFor(() => expect(host.connect).toHaveBeenCalledTimes(1));
+		act(() => r.ws.emit({ type: "browser_host_connect_cancel", requestId: "rq1" }));
+		await waitFor(() => expect(host.cancelConnect).toHaveBeenCalledTimes(1));
+		act(() => host.emitConnectAnswer({ requestId: "rq1", ok: false, reason: "denied" }));
+		expect(ofType(r.send, "browser_host_connect_result")).toHaveLength(0);
+		r.setConnectionStatus("disconnected");
+		await waitFor(() => expect(getOperatorHostId()).toBeNull());
+		expect(host.cancelConnect).toHaveBeenCalledTimes(1);
+	});
+
 	it("relay_data/relay_close → extSend/extClose; extension events → ext_open/data/close", async () => {
 		const r = mount();
 		await register(r);

@@ -151,14 +151,23 @@ export async function requestConsent(req: ConsentRequest): Promise<ConsentDecisi
   req.signal?.addEventListener("abort", onExternalAbort, { once: true });
   const timer = setTimeout(() => controller.abort(), CONSENT_DIALOG_TIMEOUT_MS);
   try {
-    const server = sanitizeDisplayName(req.serverLabel, "a dashboard server");
+    // The identity shown is the VERIFIED target origin main fetched itself; the
+    // server-supplied label is secondary detail only (it can claim anything).
+    let originHost = req.serverKey.origin;
+    try {
+      originHost = new URL(req.serverKey.origin).host;
+    } catch {
+      /* keep the raw origin */
+    }
+    const server = sanitizeDisplayName(originHost, "a dashboard server");
+    const reportedAs = sanitizeDisplayName(req.serverLabel, "");
     const profile = sanitizeDisplayName(req.profileLabel, req.profileDirectory);
     let response: number;
     try {
       response = await req.dialog.show(
         {
           message: `${server} wants an agent to control Chrome profile ${profile} on this computer.`,
-          detail: "The agent will be able to read and operate the tabs you share from that profile. Chrome will still ask you to allow the connection unless you saved a token.",
+          detail: `${reportedAs ? `The server reports itself as "${reportedAs}". ` : ""}The agent will be able to read and operate the tabs you share from that profile. Chrome will still ask you to allow the connection unless you saved a token.`,
           buttons: ["Allow once", "Always allow", "Deny"],
           defaultId: DENY,
           cancelId: DENY,

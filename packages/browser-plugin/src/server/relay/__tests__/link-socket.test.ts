@@ -27,6 +27,17 @@ describe("LinkSocket", () => {
     expect(carrier.json()).toEqual([{ type: "browser_host_relay_data", linkId: "l".repeat(32), data: '{"id":1}' }]);
   });
 
+  it("detaches its carrier close listener when the link ends (no per-connect leak)", () => {
+    const carrier = new FakeSocket();
+    const before = carrier.listenerCount("close");
+    const a = makeLink(carrier, "a".repeat(32));
+    const b = makeLink(carrier, "b".repeat(32));
+    expect(carrier.listenerCount("close")).toBe(before + 2);
+    a.link.close(1000, "bye");
+    b.link.remoteClose(1000);
+    expect(carrier.listenerCount("close")).toBe(before);
+  });
+
   it("close → browser_host_relay_close {linkId, code, reason}, emits close once, readyState 3", () => {
     const { link, carrier, closes } = makeLink();
     link.close(1000, "bye");

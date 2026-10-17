@@ -101,6 +101,9 @@ interface Request {
   settled: boolean;
 }
 
+/** After a Deny, the same (server, profile) is auto-denied this long without a dialog. */
+const DENY_COOLDOWN_MS = 60_000;
+
 const str = (v: unknown, max: number): v is string => typeof v === "string" && v.length > 0 && v.length <= max;
 const obj = (v: unknown): Record<string, unknown> | null => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
 
@@ -123,6 +126,8 @@ export function createBrowserHost(deps: BrowserHostDeps): BrowserHost {
   let win: HostWindow | null = null;
   let detachWindow: (() => void) | null = null;
   const requests = new Map<string, Request>();
+  const now = deps.now ?? Date.now;
+  const deniedUntil = new Map<string, number>();
 
   const push = (channel: string, payload: unknown): void => {
     if (!win || win.webContents.isDestroyed?.()) return;
@@ -213,10 +218,20 @@ export function createBrowserHost(deps: BrowserHostDeps): BrowserHost {
       if (ctl.signal.aborted) return;
 
       const rows = await deps.chrome.listProfiles().catch(() => []);
-      const profileLabel = rows.find((p) => p.profileDirectory === req.profileDirectory)?.label ?? req.profileDirectory;
+      const row = rows.find((p) => p.profileDirectory === req.profileDirectory);
+      // Chrome silently creates a profile for an unknown directory: only launch ones this machine has.
+      if (!row) return fail("not-installed");
+      const profileLabel = row.label;
+      // A recent Deny holds for 60 s: a hostile or looping server cannot re-raise modal dialogs.
+      const denyKey = `${serverKey.origin}|${req.profileDirectory}`;
+      if ((deniedUntil.get(denyKey) ?? 0) > now()) return fail("denied");
       const decision = await requestConsent({ store: consents, dialog: deps.dialog, serverKey, serverLabel: req.serverLabel, profileDirectory: req.profileDirectory, profileLabel, signal: ctl.signal });
       if (decision === "cancelled" || ctl.signal.aborted) return;
-      if (decision === "denied") return fail("denied");
+      if (decision === "denied") {
+        deniedUntil.set(denyKey, now() + DENY_COOLDOWN_MS);
+        if (deniedUntil.size > 64) for (const [k, t] of deniedUntil) if (t <= now()) deniedUntil.delete(k);
+        return fail("denied");
+      }
 
       let port: number;
       try {

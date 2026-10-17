@@ -50,13 +50,14 @@ export class LinkSocket implements RelaySocket {
   private closed = false;
   private congestedSince?: number;
   private pollTimer?: unknown;
+  private readonly onCarrierClose = (): void => this._shutdown(1006, "host-gone");
 
   constructor(deps: LinkSocketDeps) {
     this.linkId = deps.linkId;
     this.carrier = deps.carrier;
     this.timers = deps.timers ?? REAL_TIMERS;
     // Carrier gone ⇒ the link is gone (no relay_close can be delivered).
-    this.carrier.on("close", (() => this._shutdown(1006, "host-gone")) as never);
+    this.carrier.on("close", this.onCarrierClose as never);
     // Sample once now so the 10 s window starts at link creation when the
     // carrier is already congested (polling alone would start it up to one
     // poll interval late).
@@ -121,6 +122,9 @@ export class LinkSocket implements RelaySocket {
   private _shutdown(code: number, reason: string): void {
     if (this.closed) return;
     this.closed = true;
+    // The carrier (SPA /ws) outlives every link: drop our listener or each
+    // connect leaks one closure (and the dead link behind it).
+    this.carrier.off?.("close", this.onCarrierClose as never);
     if (this.pollTimer !== undefined) {
       this.timers.clearTimeout(this.pollTimer);
       this.pollTimer = undefined;

@@ -109,6 +109,20 @@ describe("requestConsent dialog", () => {
     expect(`${seen!.message} ${seen!.detail ?? ""}`).toContain("Work");
   });
 
+  it("audit #1: the dialog names the VERIFIED target origin, never the server's own label as the identity", async () => {
+    let seen: DialogOptions | undefined;
+    await requestConsent({
+      store: store(),
+      dialog: { show: async (o) => ((seen = o), DENY) },
+      serverKey: S1,
+      serverLabel: "localhost:8000 (this computer)",
+      profileDirectory: "Default",
+      profileLabel: "Work",
+    });
+    expect(seen!.message).toContain(new URL(S1.origin).host);
+    expect(seen!.message).not.toContain("this computer)");
+  });
+
   it("Allow once → allow, nothing stored; Always allow → allow + stored (E44)", async () => {
     const s = store();
     expect(await ask(async () => ALLOW_ONCE, s)).toBe("allow");

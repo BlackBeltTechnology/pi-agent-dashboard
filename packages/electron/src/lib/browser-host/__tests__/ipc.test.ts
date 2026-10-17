@@ -54,7 +54,7 @@ const lastUrl = () => new URL(launches.at(-1)!.args.at(-1)!);
 const connectReq = (over: Record<string, unknown> = {}) => ({ requestId: "R1", linkId: LINK, instanceId: "inst-1", profileDirectory: "Default", serverLabel: "mac-home:8000", ...over });
 const portOfLaunch = () => Number(new URL(lastUrl().searchParams.get("mcpRelayUrl")!).port);
 
-function build(over: { crypto?: ReturnType<typeof fakeCrypto>; launch?: (cmd: string, args: string[]) => void } = {}) {
+function build(over: { crypto?: ReturnType<typeof fakeCrypto>; launch?: (cmd: string, args: string[]) => void; now?: () => number } = {}) {
   ipc = new FakeIpcMain();
   host = createBrowserHost({
     ipcMain: ipc,
@@ -63,7 +63,7 @@ function build(over: { crypto?: ReturnType<typeof fakeCrypto>; launch?: (cmd: st
     crypto: over.crypto ?? fakeCrypto(),
     platform: "linux",
     hostLabel: () => "operator-mac",
-    chrome: { canOpen: () => canOpen, listProfiles: async () => [{ profileDirectory: "Default", label: "Me", installed: true }] },
+    chrome: { canOpen: () => canOpen, listProfiles: async () => [{ profileDirectory: "Default", label: "Me", installed: true }, { profileDirectory: "Profile 1", label: "Other", installed: true }] },
     dialog: { show: (...a: Parameters<DialogPort["show"]>) => dialogShow(...a) } as DialogPort,
     launch: over.launch ?? ((cmd, args) => void launches.push({ cmd, args })),
     fetchImpl: (async () => {
@@ -71,6 +71,7 @@ function build(over: { crypto?: ReturnType<typeof fakeCrypto>; launch?: (cmd: st
       return { ok: true, json: async () => ({ instanceId: health.instanceId }) };
     }) as never,
     log: (l) => void logs.push(l),
+    now: over.now,
   });
   host.attachWindow(win as never);
 }
@@ -201,6 +202,32 @@ describe("connect → consent → launch (E39 E44 E45 E47 E53 X11)", () => {
     const file = JSON.parse(fs.readFileSync(path.join(tmp.dir, "browser-host-consent.json"), "utf8")) as { consents: Record<string, unknown> };
     expect(Object.keys(file.consents)).toHaveLength(1);
     expect((await invoke(CH.listConsents)) as unknown[]).toHaveLength(1);
+  });
+
+  it("audit #4: after a Deny the same (target, profile) is auto-denied for 60 s without a new dialog", async () => {
+    let t = 1_000_000;
+    host.dispose();
+    build({ now: () => t });
+    dialogShow.mockResolvedValue(DENY);
+    await connect({ requestId: "R1" });
+    await until(() => answers().length === 1);
+    await invoke(CH.connect, connectReq({ requestId: "R2", linkId: "link-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" }));
+    await until(() => answers().length === 2);
+    expect(answers().map((a) => a.reason)).toEqual(["denied", "denied"]);
+    expect(dialogShow).toHaveBeenCalledTimes(1);
+    expect(launches).toHaveLength(0);
+    t += 60_001;
+    await invoke(CH.connect, connectReq({ requestId: "R3", linkId: "link-cccccccccccccccccccccccccccccccc" }));
+    await until(() => answers().length === 3);
+    expect(dialogShow).toHaveBeenCalledTimes(2);
+  });
+
+  it("audit #5: a profileDirectory that is not one of this machine's profiles is refused (not-installed), no dialog, no launch", async () => {
+    await connect({ profileDirectory: "Profile 99" });
+    await until(() => answers().length === 1);
+    expect(answers()[0]).toMatchObject({ ok: false, reason: "not-installed" });
+    expect(dialogShow).not.toHaveBeenCalled();
+    expect(launches).toHaveLength(0);
   });
 
   it("E45: Deny → respondConnect(false,'denied'), no launch, no link", async () => {

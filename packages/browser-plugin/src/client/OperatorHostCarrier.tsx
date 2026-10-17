@@ -150,7 +150,11 @@ function bridgeToMain(c: Cycle, type: string, msg: Msg): void | Promise<void> {
     case "browser_host_connect":
       return onConnectRequest(c, msg);
     case "browser_host_connect_cancel":
-      if (isStr(msg.requestId)) swallow(bridge.cancelConnect(msg.requestId));
+      if (isStr(msg.requestId)) {
+        c.pending.delete(msg.requestId);
+        c.linkOf.delete(msg.requestId);
+        swallow(bridge.cancelConnect(msg.requestId));
+      }
       return;
     case "browser_host_relay_data":
       if (isStr(msg.linkId) && typeof msg.data === "string") swallow(bridge.extSend(msg.linkId, msg.data));
