@@ -38,6 +38,7 @@ design and tasks are written when the 1.0.0 horizon is scheduled.
 
 ## Impact
 
+- **Closes (security-boundary-audit):** S2r (tokenless loopback grace + legacy raw token).
 - `packages/server/src/server.ts` (the two switches + live-peer check), `auth/local-token.ts`
   (locked one-shot rotation), `cli.ts` (never rotates), `auth/local-credential.ts`
   (retired-header log), plus the listed specs and the docs Auth model section.

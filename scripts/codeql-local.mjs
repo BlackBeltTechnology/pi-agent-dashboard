@@ -532,8 +532,20 @@ function parseBaselineText(text, label) {
   return parsed;
 }
 
+/** Writes the canonical text and returns it (callers re-bind `last-run.json` to it). */
 function writeBaseline(top, baseline) {
-  atomicWrite(join(top, BASELINE_FILE), serializeBaseline(baseline));
+  const text = serializeBaseline(baseline);
+  atomicWrite(join(top, BASELINE_FILE), text);
+  return text;
+}
+
+const sha256 = (text) => createHash("sha256").update(text).digest("hex");
+/** Canonical baseline hash: formatting and entry order do not change it. See change: harden-codeql-ratchet-followups. */
+const baselineHash = (baseline) => sha256(serializeBaseline(baseline));
+
+/** Bind the recorded run to the baseline text just written (no-op without a record). */
+function rebindLastRun(cwd, last, text) {
+  if (last) atomicWrite(lastRunPath(cwd), JSON.stringify({ ...last, baselineHash: sha256(text) }));
 }
 
 function readIgnoreGlobs(top) {
@@ -708,7 +720,9 @@ function analyse(cwd, { packs, baseline, seed }) {
   }
 
   const versions = { codeql: version, packs: ranPackVersions(sarifs, packs) };
-  atomicWrite(join(dir, "last-run.json"), JSON.stringify({ snapshotId: tree, counts: countResults(results), results }));
+  const record = { snapshotId: tree, counts: countResults(results), results };
+  if (baseline) record.baselineHash = baselineHash(baseline);
+  atomicWrite(join(dir, "last-run.json"), JSON.stringify(record));
   return { results, warnings, versions, snapshotId: tree };
 }
 
@@ -747,7 +761,8 @@ function modeAnalyse(cwd, opts) {
       const [ruleId, file, lineHash] = JSON.parse(k);
       return { ruleId, file, lineHash, count, reason: "untriaged" };
     });
-    writeBaseline(top, { version: 1, codeql: run.versions.codeql, packs: run.versions.packs, entries });
+    const text = writeBaseline(top, { version: 1, codeql: run.versions.codeql, packs: run.versions.packs, entries });
+    rebindLastRun(cwd, readLastRun(cwd), text);
     say(`wrote ${BASELINE_FILE}: ${entries.length} entries, all "untriaged" (CodeQL ${run.versions.codeql})`);
     emit(json, jsonObject("pass", { versions: run.versions, warnings: run.warnings }));
     return 0;
@@ -768,11 +783,17 @@ function modeAnalyse(cwd, opts) {
   return decision.status === "pass" ? 0 : 1;
 }
 
-/** Shared by --prune/--accept: the last run, valid only for the current snapshot. */
-function requireFreshRun(cwd) {
+/**
+ * Shared by --prune/--accept: the last run, valid only for the current snapshot
+ * and for the baseline its verdict was computed from (`baselineHash`; a legacy
+ * record without one is accepted with a note).
+ */
+function requireFreshRun(cwd, baseline) {
   const last = readLastRun(cwd);
   if (!last) throw new CodeqlError("no recorded CodeQL run for this worktree; run the analysis first");
   if (last.snapshotId !== snapshotId(cwd)) throw new CodeqlError("the working tree changed since the recorded CodeQL run; re-run the analysis first");
+  if (last.baselineHash === undefined) console.error("CODEQL NOTE: the recorded run has no baseline hash; the baseline binding was not checked");
+  else if (last.baselineHash !== baselineHash(baseline)) throw new CodeqlError("baseline changed since the recorded run; re-run the analysis first");
   return last;
 }
 
@@ -788,9 +809,9 @@ function modePrune(cwd) {
   const top = topLevel(cwd);
   acquireLock(cwd);
   const baseline = readBaseline(top);
-  const last = requireFreshRun(cwd);
+  const last = requireFreshRun(cwd, baseline);
   const { baseline: next, changes } = pruneBaseline(baseline, last.counts);
-  writeBaseline(top, next);
+  rebindLastRun(cwd, last, writeBaseline(top, next));
   say(`pruned ${changes.length} entr${changes.length === 1 ? "y" : "ies"}`);
   for (const c of changes) {
     if (c.reason === "untriaged") continue;
@@ -805,10 +826,10 @@ function modeAccept(cwd, [ruleId, file, lineHash], reason) {
   const top = topLevel(cwd);
   acquireLock(cwd);
   const baseline = readBaseline(top);
-  const last = requireFreshRun(cwd);
+  const last = requireFreshRun(cwd, baseline);
   const res = acceptEntry(baseline, last.counts, { ruleId, file, lineHash, reason: reason ?? "" });
   if (!res.ok) throw new CodeqlError(`--accept refused: ${res.error}`);
-  writeBaseline(top, res.baseline);
+  rebindLastRun(cwd, last, writeBaseline(top, res.baseline));
   say(`accepted ${ruleId} ${file} ${lineHash} (${last.counts[keyOf(ruleId, file, lineHash)]}): ${reason}`);
   return verdictAfter(say, res.baseline, last);
 }
@@ -825,7 +846,11 @@ function modeTriage(cwd, [ruleId, file, lineHash], reason) {
   if (reason === undefined || reason === "untriaged") throw new CodeqlError("--triage needs a non-untriaged --reason");
   const why = reasonError(reason, ruleId);
   if (why) throw new CodeqlError(`--triage refused: ${why}`);
-  writeBaseline(top, { ...baseline, entries: baseline.entries.map((e) => (e === entry ? { ...e, reason } : e)) });
+  // Re-bind only a record bound to the pre-triage baseline: never launder a hand edit or a legacy record.
+  const last = readLastRun(cwd);
+  const bound = last?.baselineHash !== undefined && last.baselineHash === baselineHash(baseline);
+  const text = writeBaseline(top, { ...baseline, entries: baseline.entries.map((e) => (e === entry ? { ...e, reason } : e)) });
+  if (bound) rebindLastRun(cwd, last, text);
   say(`triaged ${ruleId} ${file} ${lineHash}: ${reason}`);
   return 0;
 }

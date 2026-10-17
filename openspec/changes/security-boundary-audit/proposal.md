@@ -44,6 +44,47 @@ surfaces — or did any door get left unlocked?
   existing control · gap · suggested remediation.
 - No product code changes in this change. Each actionable finding becomes a task
   and, where behavior changes, a follow-up OpenSpec change of its own.
+- No spec deltas (`skip_specs: true` in `.openspec.yaml`). The register is the
+  deliverable; behaviour requirements land in the follow-up changes.
+
+## Remediation Ownership (close-out rule)
+
+The register's `[x]` means **routed**, not fixed. This change delivers the
+register and its routing. The fixes are delivered by the owner changes. Every
+ticked finding line in `tasks.md` carries exactly one status:
+
+- **Closed by `<change>`.** The fix is in current code (checked 2026-10-17), and
+  the named change sits under `openspec/changes/archive/`. Residuals that owner
+  change explicitly accepted, with written rationale, count as closed (B10).
+- **Owner assigned → `<change>` (fix open).** An active change owns the fix, and
+  its `proposal.md` names the finding ID (`Closes` line or scope). The finding is
+  then tracked there.
+- **Split.** The fixed part is Closed, and the residual gets its own ID (`<id>r`,
+  or `S3b`) with an assigned owner.
+- **No gap (verified).** Re-checked against code and found not exploitable;
+  the line cites the evidence.
+
+The rule covers finding lines. V1–V5 are audit-procedure checks.
+
+An unticked finding line has no owner. This change archives only when it has
+no unticked finding lines. Archiving it does NOT mean the fixes have landed: the
+"Owner assigned" findings stay open in their owner changes.
+
+Reconciled against code on 2026-10-17:
+
+| Owner | Findings |
+|---|---|
+| `add-universal-network-guard` (archived) | S1 (root guard) |
+| `add-pi-gateway-transport-identity`, `loopback-credential-proof` (archived) | S2 core |
+| `sanitize-untrusted-rendered-content` (archived) | S3 (markdown / AsciiDoc / mermaid XSS) |
+| `fix-git-checkout-command-injection` (archived) | B1 (shell injection), B6 |
+| `harden-electron-renderer-boundary` (archived) | B2, B3, B10 (LAN/loopback allowed by design) |
+| `harden-trust-and-credential-boundaries` (archived) | B4 (same-origin), B5, B14 (opt-in proof), B15 (server denylist), B16 (`secure` on an https base), B25 |
+| `harden-untrusted-content-ingestion` (archived) | B11, B12 (incl. fetch byte cap + timeout), B13, B26 (`xlsx` CDN pin) |
+| `harden-server-capability-bounds` (active) | B7, B8, B9 |
+| `close-loopback-legacy-window` (active) | S2r (tokenless loopback grace, legacy raw token) |
+| `close-residual-audit-findings` (active) | S1r, S3b, B1r, B4r, B14r, B15r, B16r, B17, B18, B19, B20, B21, B22, B23, B24, B26r, R1, R2, R4, R5 |
+| no gap (verified) | R3 |
 
 ## Scope
 

@@ -429,19 +429,48 @@ Exit: `0` pass/skipped · `1` new alerts or growth violation · `2` error.
 - Materialized via `git checkout-index -a --prefix=<run>/src/`.
 - State: `$TMPDIR/pi-codeql/<sha1 of git rev-parse --show-toplevel>/`.
   - `lock/` — owner PID + start time.
-  - `last-run.json` — `{snapshotId, counts, results}`.
+  - `last-run.json` — `{snapshotId, counts, results, baselineHash}`.
+  - `baselineHash` = sha256 of `serializeBaseline(parsed baseline)`.
+  - Canonical: JSON formatting + entry order do not change it.
+  - Any emitted field (entries, counts, reasons, `codeql`, `packs`, `_comment`) changes it.
+  - Plain run records hash of baseline its verdict used.
+  - `--write-baseline` re-records hash of written baseline.
+  - Invalid JSON / schema fails earlier in `readBaseline` (exit 2).
   - `run-<pid>/` — per-run db + SARIF.
 - Live lock → second run, `--prune`, `--accept` exit 2.
 - `--prune` / `--accept` refuse when snapshot id ≠ last-run id ("re-run first").
+- `--prune` / `--accept` refuse (exit 2) when baseline no longer hashes to `baselineHash`: "baseline changed since the recorded run; re-run the analysis first".
+- Record without `baselineHash` (legacy) → accepted. stderr `CODEQL NOTE: … baseline binding was not checked`.
+- Every `--prune` / `--accept` write re-binds record. Any number of prunes/accepts after one run.
+- `--triage` re-binds only when record hash = pre-triage baseline hash. Never launders hand edit. No record → none written.
+- Fail-closed: `git pull` / rebase / stash rewriting baseline → next prune/accept asks for re-run.
+- Fail-closed: crash between baseline write and record write → next prune/accept asks for re-run.
+- Binding guards accidents, not adversaries. Record lives in `$TMPDIR` (same trust).
 - Needs ~repo-size temp space.
 
 ### Known limitation — local ≠ GitHub
 
-- Same commit `d739f4bd`: 150/179 matched by (rule, path, start line).
-- GitHub-only 29: `js/path-injection` ×23 (plugin server code), `js/missing-rate-limiting` ×5, `js/tainted-format-string` ×1.
-- Local-only 29: client/spike code (`js/xss` ×8, `js/request-forgery` ×9, …).
-- Ruled out: uninstalled deps, `cwd-guard` model, pack content (same sha).
-- Cause unknown. Evidence: `openspec/changes/archive/2026-10-14-add-local-codeql-ratchet/evidence/local-vs-github.md`.
+- Pre-switch (history), commit `d739f4bd`: 150/179 matched by (rule, path, start line). Cause then unknown.
+- Re-measured post-switch, commit `ce50677ee`, CLI 2.27.2, identical pack shas (`+a7057b836bf2…`).
+- Match = exact (rule, file, `primaryLocationLineHash`) multiset equality.
+- Shipped local run 179 vs CI 150 (js 124 + actions 26; python excluded).
+- Local-only 29, CI-only 0.
+- Cause 1 — local-only 29 (client code, all sourced from `fetch(...)` responses):
+  - Script passes `--threat-model=remote`; CI passes none.
+  - Same db without flag → local == CI exactly (150/150, 0/0).
+- Cause 2 — 29 plugin-server results lost at default→advanced switch, missing on BOTH sides:
+  - `js/path-injection` 23, `js/missing-rate-limiting` 5, `js/tainted-format-string` 1.
+  - Shared `paths-ignore` `**/__tests__/**` excludes only resolvable `Fastify()` → route-registrar call path.
+  - Example files: `packages/automation-plugin/src/__tests__/routes-stop.test.ts`, `packages/team-plugin/src/server/__tests__/harness.ts`.
+  - Production loads plugins dynamically. `FastifyInstance` is type-only import.
+  - No ignores + no flag → local == pre-switch default-setup CI exactly (179/179).
+- Ruled out: extractor coverage (identical per file), query suite, alerts API vs SARIF counts, pack/CLI drift, `cwd-guard`, CI `generated/extension-pack` (no effect on results).
+- Decision (2026-10-17) — align:
+  - Follow-up drops `--threat-model=remote`.
+  - Follow-up restores server coverage: un-ignore `__tests__` or data-extension model of registrar.
+  - Each = own MODIFIED delta.
+  - Until then: local gate covers 29 fetch-response client results; neither side covers 29 plugin-server results.
+- Evidence: change `harden-codeql-ratchet-followups` `evidence/local-vs-ci.md` (path moves under `openspec/changes/archive/<date>-…` on archive).
 - Seed gated: unmatched share > 5 % → stop for decision.
 
 ### Rollout
