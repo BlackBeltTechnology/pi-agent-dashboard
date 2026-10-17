@@ -1,21 +1,21 @@
 /**
  * Release-notes guard (change: fix-doc-engine-arm64-chromium): the breaking
- * `MMDC_UNAVAILABLE` contract change rides the 0.x minor channel and must be
- * announced in the root CHANGELOG.
+ * `MMDC_UNAVAILABLE` contract change must be announced in the root CHANGELOG.
+ * The package version is NOT asserted: workspaces release in lockstep
+ * (scripts/verify-lockfile-versions.mjs), so release-cut owns the bump.
  */
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-const PKG = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
 
 describe("document-converter release notes", () => {
-  it("E10: version >= 0.10.0 and CHANGELOG mentions MMDC_UNAVAILABLE", () => {
-    const { version } = JSON.parse(readFileSync(join(PKG, "package.json"), "utf8")) as { version: string };
-    const [maj, min] = version.split(".").map(Number);
-    expect(maj > 0 || min >= 10).toBe(true);
-    const changelog = readFileSync(join(PKG, "..", "..", "CHANGELOG.md"), "utf8");
-    expect(changelog).toContain("MMDC_UNAVAILABLE");
+  it("E10: CHANGELOG [Unreleased] announces MMDC_UNAVAILABLE as breaking", () => {
+    const changelog = readFileSync(join(ROOT, "CHANGELOG.md"), "utf8");
+    const unreleased = changelog.split(/^## \[/m)[1] ?? "";
+    expect(unreleased).toContain("MMDC_UNAVAILABLE");
+    expect(unreleased).toMatch(/breaking/i);
   });
 });

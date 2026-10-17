@@ -102,7 +102,7 @@ image runs as root, so an `mmdc` shim injects `--no-sandbox`; opencv needs
 `libgl1`; `@puppeteer/browsers` needs `unzip` (all handled in the Dockerfile).
 See `engine/README.md` for the JSON `docker run` contract.
 
-## Breaking in 0.10.0
+## Breaking (next release)
 
 `DocConverterErrorCode` gains `MMDC_UNAVAILABLE` (exhaustive `switch`es must add a case).
 It is raised when a mermaid render was attempted and the engine's headless browser cannot

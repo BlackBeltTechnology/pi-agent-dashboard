@@ -19,6 +19,7 @@ import { ObsSettings, ObsAppClaim, catalog as obs_studio_catalog } from "@blackb
 import { BrowserRelayBadge, hasRelayTabsForBadge, BrowserRelayFeed, BrowserTabLabel, catalog as browser_catalog } from "@blackbelt-technology/pi-dashboard-browser-plugin";
 import { catalog as flows_anthropic_bridge_catalog } from "@blackbelt-technology/pi-dashboard-flows-anthropic-bridge-plugin";
 import { QuotaWidget, catalog as quota_catalog } from "@blackbelt-technology/pi-dashboard-quota-plugin";
+import { DemoSettings, DemoToolRenderer, DemoAppRoute, DemoScopedAppRoute, DemoScopedFolderEntry, isDemoScopedFolder } from "@blackbelt-technology/demo-plugin";
 import { WebSearchEntryCard, catalog as web_access_catalog } from "@blackbelt-technology/pi-dashboard-web-access-plugin";
 import { lazyClaim } from "@blackbelt-technology/dashboard-plugin-runtime";
 
@@ -831,6 +832,68 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
   {
     manifest: {
+        "id": "demo",
+        "displayName": "Demo Plugin (fixture)",
+        "priority": 1000,
+        "claims": [
+            {
+                "slot": "settings-section",
+                "component": "DemoSettings",
+                "tab": "general"
+            },
+            {
+                "slot": "tool-renderer",
+                "component": "DemoToolRenderer",
+                "toolName": "DashboardDemo"
+            },
+            {
+                "slot": "shell-overlay-route",
+                "component": "DemoAppRoute",
+                "path": "/folder/:encodedCwd/demo-app/*?",
+                "depth": 2,
+                "parentPath": "/folder/:encodedCwd",
+                "presentation": "content"
+            },
+            {
+                "slot": "shell-overlay-route",
+                "component": "DemoScopedAppRoute",
+                "path": "/folder/:encodedCwd/demo-scoped/*?",
+                "depth": 2,
+                "parentPath": "/folder/:encodedCwd",
+                "presentation": "content"
+            },
+            {
+                "slot": "sidebar-folder-section",
+                "component": "DemoScopedFolderEntry",
+                "predicate": "isDemoScopedFolder"
+            }
+        ],
+        "client": "./src/client.tsx",
+        "server": "./src/server/index.ts",
+        "bridge": "./src/bridge/index.ts",
+        "fixture": true,
+        "vaultBindings": [
+            "POLY_PIZZA_KEY"
+        ],
+        "projectTypes": [
+            {
+                "type": "demo-scoped",
+                "markers": [
+                    ".pi/dashboard/demo-scoped"
+                ]
+            }
+        ]
+    },
+    claims: [
+      { pluginId: "demo", priority: 1000, slot: "settings-section", tab: "general", Component: DemoSettings },
+      { pluginId: "demo", priority: 1000, slot: "tool-renderer", toolName: "DashboardDemo", Component: DemoToolRenderer },
+      { pluginId: "demo", priority: 1000, slot: "shell-overlay-route", path: "/folder/:encodedCwd/demo-app/*?", depth: 2, parentPath: "/folder/:encodedCwd", presentation: "content", Component: DemoAppRoute },
+      { pluginId: "demo", priority: 1000, slot: "shell-overlay-route", path: "/folder/:encodedCwd/demo-scoped/*?", depth: 2, parentPath: "/folder/:encodedCwd", presentation: "content", Component: DemoScopedAppRoute },
+      { pluginId: "demo", priority: 1000, slot: "sidebar-folder-section", Component: DemoScopedFolderEntry, predicate: isDemoScopedFolder },
+    ],
+  },
+  {
+    manifest: {
         "id": "web-access",
         "displayName": "Web access",
         "priority": 1000,
@@ -856,4 +919,4 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "f5b094eeee15fc7c2d53e42cfdc13cddf00197ccfb6d1ec95ee43c005f5abbee";
+export const PLUGIN_REGISTRY_HASH = "2f454a725c135dee9a0e8050118821ef0efc68172fdcaecaa2fd83637ebce871";

@@ -80,7 +80,7 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Changed
 
-- **Document converter: mermaid diagrams now render on arm64 hosts (breaking, 0.10.0).** The
+- **Document converter: mermaid diagrams now render on arm64 hosts (breaking).** The
   `pi-doc-engine` image (now `0.2.0`, also tagged `:latest`) provisions its headless browser per
   architecture instead of an amd64-only binary. `DocConverterErrorCode` gains `MMDC_UNAVAILABLE`
   (exhaustive switches must add a case), raised when a diagram render was attempted and the browser
