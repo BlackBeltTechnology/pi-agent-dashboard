@@ -454,10 +454,11 @@
     "add-dedicated-agent-browser": "browser-agent",
     "fix-global-automation-duplicate-fire": "ui",
     "fix-automation-key-collision": "ui",
-    "improve-gmail-plugin-setup-ux": "ui",
+    "improve-gmail-plugin-setup-ux": "browser-agent",
     "add-automation-occurrence-guard": "ui",
     "fix-kb-index-integrity": "kowledge-base",
-    "add-kb-worktree-seed": "kowledge-base"
+    "add-kb-worktree-seed": "kowledge-base",
+    "add-gmail-auto-setup": "browser-agent"
   },
   "changeOrder": {
     "__ungrouped__": [
@@ -617,7 +618,9 @@
     "browser-agent": [
       "fix-browser-relay-pane-input",
       "fix-empty-status-subcard",
-      "add-dedicated-agent-browser"
+      "add-dedicated-agent-browser",
+      "improve-gmail-plugin-setup-ux",
+      "add-gmail-auto-setup"
     ],
     "kowledge-base": [
       "fix-kb-index-integrity",

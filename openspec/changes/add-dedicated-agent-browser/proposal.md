@@ -74,9 +74,10 @@ Group `browser-agent` in `openspec/groups/groups.json`, execution order:
 1. `fix-browser-relay-pane-input`: code-level dependency. It rewrites "Connect and CDP-URL lifecycle"; this change leaves that requirement untouched (the dedicated profile has its own route), but both edit `packages/browser-plugin/src/server/routes.ts`. Land it first to avoid a merge conflict.
 2. `fix-empty-status-subcard`: soft dependency. It moves the relay status subscription into `BrowserRelayFeed` and adds `hasRelayTabs` in `relay-store`. The dedicated instance's status and badge build on those, not on the old `BrowserRelayBadge` subscription.
 3. `add-dedicated-agent-browser` (this change).
-4. `add-gmail-auto-setup`: depends on this change. It drives the Cloud console in the dedicated profile through the `{cdpUrl, instanceId}` connect handle, so that handle and the profile's sign-in flow are its contract.
+4. `improve-gmail-plugin-setup-ux`: independent of this change; placed here because `add-gmail-auto-setup` builds on it.
+5. `add-gmail-auto-setup`: depends on this change. It drives the Cloud console in the dedicated profile through the `{cdpUrl, instanceId}` connect handle, so that handle and the profile's sign-in flow are its contract.
 
-`improve-gmail-plugin-setup-ux` is independent.
+
 
 ## Impact
 
