@@ -30,7 +30,7 @@ read -r -a DASH <<<"${PI_DASHBOARD_CMD:-pi-dashboard}"
 WORKDIR="$(mktemp -d)"
 QA_HOME="$WORKDIR/home"
 fail() { echo "FAIL: $*" >&2; exit 1; }
-stop_dash() { HOME="$QA_HOME" "${DASH[@]}" stop --port "$PORT" --pi-port "$PI_PORT" >/dev/null 2>&1 || true; }
+stop_dash() { HOME="$QA_HOME" PI_DASHBOARD_HOST=0.0.0.0 "${DASH[@]}" stop --port "$PORT" --pi-port "$PI_PORT" >/dev/null 2>&1 || true; }
 cleanup() { stop_dash; rm -rf "$WORKDIR"; }
 trap cleanup EXIT
 
@@ -51,7 +51,7 @@ fi
 
 mkdir -p "$QA_HOME/.pi/dashboard"
 printf '%s' '{"pairing":{"acceptLanRequests":true}}' >"$QA_HOME/.pi/dashboard/config.json"
-env HOME="$QA_HOME" "${DASH[@]}" start --port "$PORT" --pi-port "$PI_PORT" --no-tunnel >"$WORKDIR/start.log" 2>&1 &
+env HOME="$QA_HOME" PI_DASHBOARD_HOST=0.0.0.0 "${DASH[@]}" start --port "$PORT" --pi-port "$PI_PORT" --no-tunnel >"$WORKDIR/start.log" 2>&1 &
 waited=0
 until curl -fsS "http://localhost:$PORT/api/health" >/dev/null 2>&1; do
   sleep 1

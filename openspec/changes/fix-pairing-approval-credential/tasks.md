@@ -71,7 +71,7 @@ Test tasks carry `(test-plan #<id>)`; `test-plan.md` is the source of truth for 
 - [x] 4.9 Add the new i18n keys for the remedy rows.
 - [x] 4.10 Extend `packages/client/src/components/pairing-approval/__tests__/PairingApprovalHost.test.tsx` (see `packages/client/src/components/pairing-approval/__tests__/PairingApprovalHost.test.tsx`): Deny answered 401 with remedies; an open dialog for P then a `pair_pending_changed` without P (CLI deny) · click Deny / receive event · same remedy rows, dialog open, request still queued, Deny enabled; dialog closes with the "handled in another window" notice (test-plan #F4, #F5)
 - [x] 4.11 Implement the refused-Deny path in `PairingApprovalDialog.tsx` / `PairingApprovalHost.tsx` (deny path `:165`).
-- [ ] 4.12 Extend `tests/e2e/pairing-approval-dialog.spec.ts` (see `tests/e2e/pairing-approval-dialog.spec.ts`): docker harness tab at `http://localhost:<dashboardPort>` from `.pi-test-harness.json` (not the container's configured port, non-loopback peer) · redeem a code, then Approve with the device code · alert lists an `approve-on-host` row with copyable `pi-dashboard pair approve <id>`, no `authorize-browser` row, typed code retained (test-plan #F8)
+- [x] 4.12 Extend `tests/e2e/pairing-approval-dialog.spec.ts` (see `tests/e2e/pairing-approval-dialog.spec.ts`): docker harness tab at `http://localhost:<dashboardPort>` from `.pi-test-harness.json` (not the container's configured port, non-loopback peer) · redeem a code, then Approve with the device code · alert lists an `approve-on-host` row with copyable `pi-dashboard pair approve <id>`, no `authorize-browser` row, typed code retained (test-plan #F8)
 
 ## 5. Electron keeps local proof across handoffs
 
