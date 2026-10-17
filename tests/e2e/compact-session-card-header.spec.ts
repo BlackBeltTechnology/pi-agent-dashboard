@@ -3,7 +3,7 @@ import type { Locator, Page } from "@playwright/test";
 import { expect, test } from "./fixtures.js";
 import { contrastRatio, elementColors, setThemeMode } from "./helpers/computed-contrast.js";
 import { harnessContainer } from "./helpers/folder-collapse.js";
-import { expandFolder, FIXTURE_GIT, folderCard, gotoDashboard, pinDirectory } from "./helpers/index.js";
+import { expandFolder, FIXTURE_GIT, gotoDashboard, pinDirectory } from "./helpers/index.js";
 import { BASE_URL } from "./lifecycle.js";
 
 /**
@@ -248,6 +248,13 @@ test.describe("desktop card header — geometry and contrast", () => {
     const meta = card.getByTestId("session-card-meta-row");
     await expect(meta).toBeVisible();
     await expect(meta.locator(`[data-testid^="session-moved-badge-"]`)).toBeVisible();
+    // The context bar (preference on in the standard display preset) and the cost are measured too.
+    const bar = meta.getByTestId("context-usage-bar");
+    const cost = meta.getByText("$4.10");
+    await expect(bar, "context bar rendered").toBeVisible();
+    await expect(cost, "cost rendered").toBeVisible();
+    expect(inside(await box(bar), content), "context bar inside content box").toBe(true);
+    expect(inside(await box(cost), content), "cost inside content box").toBe(true);
     const kids = await meta.locator(":scope > *").all();
     expect(kids.length).toBeGreaterThanOrEqual(2);
     for (const [i, kid] of kids.entries()) expect(inside(await box(kid), content), `meta child ${i}`).toBe(true);
@@ -266,11 +273,13 @@ test.describe("desktop card header — geometry and contrast", () => {
     for (const mode of ["light", "dark"] as const) {
       await gotoDashboard(page);
       await setThemeMode(page, mode, "base");
+      // `reveal` pins/expands the fixture folder and un-collapses the seeded session's card.
       const home = page.getByTestId(`folder-home-row-${FIXTURE_GIT}`).first();
       await home.waitFor({ state: "visible", timeout: 30_000 });
       if ((await page.getByTestId(`folder-body-${FIXTURE_GIT}`).count()) === 0) await expandFolder(page, FIXTURE_GIT);
       const cardPill = cardOf(page, ids[0]).getByTestId("git-dirty-pill");
-      const headerPill = folderCard(page, FIXTURE_GIT).locator(`[data-testid="git-dirty-pill"]:not([data-testid^="folder-body-"] *)`).first();
+      // The folder header's pill: any dirty pill that is not inside a session card.
+      const headerPill = page.locator('[data-testid="git-dirty-pill"]:not([data-testid="session-card-desktop"] *)').first();
       for (const [where, pill] of [
         ["card", cardPill],
         ["folder header", headerPill],
