@@ -4,6 +4,9 @@ Files in this directory. One row per source file.
 
 | File | Purpose |
 |------|---------|
+| `__tests__/host-project-trust.test.ts` | Legacy decision table + real pi, plus shared decision, #E24 agent dir, #X10 boot log, #E27 no trust.json writes. See change: mirror-dashboard-trust-to-pi. |
+| `__tests__/pi-trust-mirror-service.test.ts` | #E1 #E3 #E4 #E19 #E20 #E22 #E26 #X5–#X9: registry, snapshot content, ordering and fault behaviour. See change: mirror-dashboard-trust-to-pi. |
+| `__tests__/resource-toggle-trust-mirror.test.ts` | #E17 #E18: pre-selection, recorded refusal, ancestor refusal, never, always. See change: mirror-dashboard-trust-to-pi. |
 | `auto-name-outcome-store.ts` | Bounded (500) in-memory retention of the last auto-naming outcome per session. Eviction prefers non-`stopped` entries; when `stopped` entries alone reach the bound the OLDEST stopped goes — the bound is absolute, protection is only an order. Served by `GET /api/auto-name-outcomes` so a stop latched with no subscribed client is still discoverable. See change: fix-auto-naming-reasoning-model. |
 | `browse.ts` | Directory-browse logic: `listDirectories` (readdir + tiered rank filter, cap 200, opt-in `.git`/`.pi` flag… → see `browse.ts.AGENTS.md` |
 | `cli.ts` | `pi-dashboard` CLI entry. Exports `parseArgs` (subcommand + flags), `buildConfig` (CLI+env+file merge →… → see `cli.ts.AGENTS.md` `buildConfig()` records `hostFlag` alongside the resolved `host`. See change: warn-unreachable-trusted-networks. |

@@ -31,6 +31,7 @@ import type {
 import { mdiShieldAlertOutline } from "@mdi/js";
 import { useId, useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { PiTrustCheckbox, usePiTrustChoice } from "./PiTrustCheckbox.js";
 import { GrantDialogYoloOffer } from "./YoloActivation.js";
 
 export interface GrantPromptDialogProps {
@@ -39,7 +40,8 @@ export interface GrantPromptDialogProps {
   now: number;
   /** Other prompts waiting behind this one. */
   queued: number;
-  onAnswer(verdict: GrantVerdict, subject: string): void;
+  /** `piTrust`: "Also trust this folder in pi" (path planes, `allow-always` only). */
+  onAnswer(verdict: GrantVerdict, subject: string, piTrust?: boolean): void;
 }
 
 const TITLE_EN: Record<AccessPlaneId, string> = {
@@ -74,6 +76,9 @@ export function GrantPromptDialog({ prompt, now, queued, onAnswer }: GrantPrompt
   const held = copy.mode === "held";
   const rungs = copy.ladder ?? [];
   const [selected, setSelected] = useState(subject);
+  // Access grants are not code-execution consent: the filesystem plane's source
+  // defaults OFF; a cwd allow-always is a pin, which defaults ON.
+  const [piTrust, setPiTrust] = usePiTrustChoice(plane === "cwd" ? "pinned" : "accessGrants");
   const ladderName = useId();
   const secondsLeft = Math.max(0, Math.ceil((prompt.expiresAt - now) / 1000));
   const deny = () => onAnswer("deny", subject);
@@ -185,6 +190,12 @@ export function GrantPromptDialog({ prompt, now, queued, onAnswer }: GrantPrompt
 
       {YOLO_PLANES.has(plane) && <GrantDialogYoloOffer subject={subject} />}
 
+      {YOLO_PLANES.has(plane) && (
+        <div className="mt-2">
+          <PiTrustCheckbox checked={piTrust} onChange={setPiTrust} testId="grant-pi-trust" />
+        </div>
+      )}
+
       <Dialog.Footer>
         <span data-testid="grant-dialog-dismiss-note" className="mr-auto text-xs text-[var(--text-tertiary)]">
           {i18nT("grantPrompt.dismissDenies", undefined, "Dismissing denies.")}
@@ -199,7 +210,7 @@ export function GrantPromptDialog({ prompt, now, queued, onAnswer }: GrantPrompt
         )}
         <Dialog.Action
           intent={VERDICT_INTENT}
-          onClick={() => onAnswer("allow-always", selected)}
+          onClick={() => onAnswer("allow-always", selected, YOLO_PLANES.has(plane) ? piTrust : undefined)}
           testId="grant-allow-always"
         >
           {i18nT("grantPrompt.allowAlways", undefined, "Allow always")}

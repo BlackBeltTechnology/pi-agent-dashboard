@@ -35,7 +35,7 @@ One row per file.
 | `README.md` | Docs for browser E2E. Prerequisites: Docker, `npx… → see `README.md.AGENTS.md` |
 | `fixtures/severity-baseline.json` | Severity theme-token baseline. → see `fixtures/severity-baseline.json.AGENTS.md` |
 | `access-grants-revoke.spec.ts` | L3 access-grant remedy journey: denial → gra… → see `access-grants-revoke.spec.ts.AGENTS.md` |
-| `access-grant-dialog.spec.ts` | L3 for the access-grant prompt dialog + YOLO UI (change… → see `access-grant-dialog.spec.ts.AGENTS.md` |
+| `access-grant-dialog.spec.ts` | L3 for the access-grant prompt dialog +… → see `access-grant-dialog.spec.ts.AGENTS.md` |
 | `anthropic-bridge-activation.spec.ts` | → see `anthropic-bridge-activation.spec.ts.AGENTS.md` |
 | `archive-fold.spec.ts` | L3 for the per-folder `Archive (N)` fold (test-plan #F4… → see `archive-fold.spec.ts.AGENTS.md` |
 | `asciidoc-preview.spec.ts` | L3 AsciiDoc preview styling (change: asciidoc-support… → see `asciidoc-preview.spec.ts.AGENTS.md` |
@@ -48,7 +48,7 @@ One row per file.
 | `drag-body-style.spec.ts` | #F23 — breakpoint flip unmounts dragger mid-drag; body… → see `drag-body-style.spec.ts.AGENTS.md` |
 | `idle-fx-pause.spec.ts` | L3 for idle FX pause (test-plan #F16-#F20): idle delay… → see `idle-fx-pause.spec.ts.AGENTS.md` |
 | `long-session-settle.spec.ts` | L3 test-plan #P4. → see `long-session-settle.spec.ts.AGENTS.md` |
-| `mobile-viewport-bound.spec.ts` | L3 mobile viewport bound (test-plan F12-F15, change… → see `mobile-viewport-bound.spec.ts.AGENTS.md` |
+| `mobile-viewport-bound.spec.ts` | L3 mobile viewport bound (test-plan… → see `mobile-viewport-bound.spec.ts.AGENTS.md` |
 | `bind-reachability-advisory.spec.ts` | L3 bind-vs-trust advisory. → see `bind-reachability-advisory.spec.ts.AGENTS.md` |
 | `blackhole-settings.spec.ts` | L3 spec (change: add-blackhole-plugin). Covers test-plan… → see `blackhole-settings.spec.ts.AGENTS.md` |
 | `blackhole-session-pipeline.spec.ts` | L3 blackhole session pipeline (add… → see `blackhole-session-pipeline.spec.ts.AGENTS.md` |
@@ -77,7 +77,7 @@ One row per file.
 | `keeper-log-health.spec.ts` | L3 (test-plan #F1, #F2): `/api/health` carries… → see `keeper-log-health.spec.ts.AGENTS.md` |
 | `ended-session-endedat.spec.ts` | L3 for the evidence-based `endedAt` invarian… → see `ended-session-endedat.spec.ts.AGENTS.md` |
 | `explicit-model-preserved.spec.ts` | L3 for `fix-default-model-clobbers-explicit-… → see `explicit-model-preserved.spec.ts.AGENTS.md` |
-| `extension-slash-inprocess.spec.ts` | L3 in-process extension slash dispatch (test… → see `extension-slash-inprocess.spec.ts.AGENTS.md` |
+| `extension-slash-inprocess.spec.ts` | L3 in-process extension slash dispatch… → see `extension-slash-inprocess.spec.ts.AGENTS.md` |
 | `enhance-tool-call-grouping.spec.ts` | L3 tool-call grouping → see `enhance-tool-call-grouping.spec.ts.AGENTS.md` |
 | `error-lifecycle.spec.ts` | Playwright spec. Single-card error-lifecycle surface… → see `error-lifecycle.spec.ts.AGENTS.md` |
 | `faux-ask.spec.ts` | Faux-provider ask_user round trip. → see `faux-ask.spec.ts.AGENTS.md` |
@@ -89,18 +89,18 @@ One row per file.
 | `flow-attach-before-run.spec.ts` | L3 attach-flow-before-run F15/F16. → see `flow-attach-before-run.spec.ts.AGENTS.md` |
 | `flow-live-no-double-render.spec.ts` | L3 (change: render-inline-reasonin… → see `flow-live-no-double-render.spec.ts.AGENTS.md` |
 | `flow-roundtrip.spec.ts` | L3 spec (change: add-flow-plugin-… → see `flow-roundtrip.spec.ts.AGENTS.md` |
-| `folder-action-banner.spec.ts` | L3 for `add-folder-action-banner` (test-plan #E6, #F1… → see `folder-action-banner.spec.ts.AGENTS.md` |
-| `folder-actions-menu.spec.ts` | Playwright spec. Folder actions menu after the slot-pill… → see `folder-actions-menu.spec.ts.AGENTS.md` |
+| `folder-action-banner.spec.ts` | L3 for `add-folder-action-banner`… → see `folder-action-banner.spec.ts.AGENTS.md` |
+| `folder-actions-menu.spec.ts` | Playwright spec. Folder actions menu… → see `folder-actions-menu.spec.ts.AGENTS.md` |
 | `folder-collapse-persistence.spec.ts` | L3 folder collapse persistence. → see `folder-collapse-persistence.spec.ts.AGENTS.md` |
 | `folder-collapse-seek.spec.ts` | L3 `persist-folder-collapse-server-side` #F5… → see `folder-collapse-seek.spec.ts.AGENTS.md` |
 | `folder-collapse-worktree.spec.ts` | L3 persist-folder-collapse-server-side #F4/#F7. → see `folder-collapse-worktree.spec.ts.AGENTS.md` |
-| `folder-membership-drag.spec.ts` | L3 for `drag-folders-across-workspaces` (test-plan… → see `folder-membership-drag.spec.ts.AGENTS.md` |
-| `followup-image-queue.spec.ts` | L3 for `fix-bridge-followup-image-drop` (test-plan #F1… → see `followup-image-queue.spec.ts.AGENTS.md` |
+| `folder-membership-drag.spec.ts` | L3 for `drag-folders-across-workspaces`… → see `folder-membership-drag.spec.ts.AGENTS.md` |
+| `followup-image-queue.spec.ts` | L3 for `fix-bridge-followup-image-drop`… → see `followup-image-queue.spec.ts.AGENTS.md` |
 | `gateway-board-mobile.spec.ts` | 6.8/6.9 (D11) — the readiness… → see `gateway-board-mobile.spec.ts.AGENTS.md` |
 | `gateway-origin-surfaces.spec.ts` | L3 for the transport/identity CLIENT surface… → see `gateway-origin-surfaces.spec.ts.AGENTS.md` |
 | `gateway-primary-offer.spec.ts` | F7/F8 of add-zrok-custom-reserved-name. → see `gateway-primary-offer.spec.ts.AGENTS.md` |
 | `gateway-qr-selector.spec.ts` | Browser E2E for the Gateway single-QR network selector… → see `gateway-qr-selector.spec.ts.AGENTS.md` |
-| `gateway-readiness-board.spec.ts` | F1–F6 + F9 — readiness board, poll lifecycle… → see `gateway-readiness-board.spec.ts.AGENTS.md` |
+| `gateway-readiness-board.spec.ts` | F1–F6 + F9 — readiness board, poll… → see `gateway-readiness-board.spec.ts.AGENTS.md` |
 | `gateway-reserved-name.spec.ts` | Setup step 3. → see `gateway-reserved-name.spec.ts.AGENTS.md` |
 | `gateway-url-action.spec.ts` | L3 spec (change: config-override-oauth-redirect-base… → see `gateway-url-action.spec.ts.AGENTS.md` |
 | `git-panel.spec.ts` | Scenario 5.2 spec. Calls `ensureGitSession`. Asserts… → see `git-panel.spec.ts.AGENTS.md` |
@@ -110,7 +110,7 @@ One row per file.
 | `host-gate-allow.spec.ts` | L3 for the Host-gate operator flow (test-plan #F9/#F10… → see `host-gate-allow.spec.ts.AGENTS.md` |
 | `host-pressure-badge.spec.ts` | L3 for `fix-false-unresponsive-badge` (#F3, #F4).… → see `host-pressure-badge.spec.ts.AGENTS.md` |
 | `history-backfill-gap.spec.ts` | L3. → see `history-backfill-gap.spec.ts.AGENTS.md` |
-| `history-backfill-perf.spec.ts` | L3 P1/P2 for `fix-lazy-history-backfill-ux`, metric… → see `history-backfill-perf.spec.ts.AGENTS.md` |
+| `history-backfill-perf.spec.ts` | L3 P1/P2 for… → see `history-backfill-perf.spec.ts.AGENTS.md` |
 | `inline-screenshot.spec.ts` | Playwright E2E for inline agent screenshot artifacts… → see `inline-screenshot.spec.ts.AGENTS.md` |
 | `inline-terminal-transcript.spec.ts` | L3 inline-terminal transcript → see `inline-terminal-transcript.spec.ts.AGENTS.md` |
 | `kb-folder-slot.spec.ts` | Playwright spec. KB folder slot end-to-end in Docker… → see `kb-folder-slot.spec.ts.AGENTS.md` |
@@ -161,6 +161,7 @@ One row per file.
 | `plugin-hash-parity.spec.ts` | L3 F3: clientBuild matched; banner hidden. → see `plugin-hash-parity.spec.ts.AGENTS.md` |
 | `plugin-settings-pages.spec.ts` | L3 spec (test-plan rows F1-F14, X1-X5, X7; change… → see `plugin-settings-pages.spec.ts.AGENTS.md` |
 | `popover-container-clip.spec.ts` | Browser E2E gate for `fix-popover-container-… → see `popover-container-clip.spec.ts.AGENTS.md` |
+| `pi-trust-mirror.spec.ts` | L3 pi trust mirror. → see `pi-trust-mirror.spec.ts.AGENTS.md` |
 | `project-trust-headless-spawn.spec.ts` | L3 spec (test-plan #X4… → see `project-trust-headless-spawn.spec.ts.AGENTS.md` |
 | `quota-context-strip.spec.ts` | L3 quota chips in context strip (F7–F9, X3). → see `quota-context-strip.spec.ts.AGENTS.md` |
 | `retro-ux-chat-rendering.spec.ts` | L3 → see `retro-ux-chat-rendering.spec.ts.AGENTS.md` |

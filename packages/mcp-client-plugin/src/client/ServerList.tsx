@@ -298,7 +298,7 @@ function ServerRow({
         </span>
         {live !== undefined && !(liveLoading && live === null) && (
           <span data-testid={`mcp-live-${key}`} className="text-[10px] text-[var(--text-tertiary)] flex-none">
-            {liveRow ? `${liveRow.state} · ${liveRow.tools} tools` : "state unknown"}
+            {liveRow ? (liveRow.state === "not-checked-by-pi" ? "not checked by pi" : `${liveRow.state} · ${liveRow.tools} tools`) : "state unknown"}
           </span>
         )}
         {needsAuth && (

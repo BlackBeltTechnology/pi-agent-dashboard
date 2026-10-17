@@ -20,7 +20,6 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { createHash } from "node:crypto";
 import { spawn } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import type { ChildProcess, SpawnOptions } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
@@ -39,24 +38,13 @@ function defaultHookEnv(): NodeJS.ProcessEnv {
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
-export interface ScriptRun {
-  type: "script";
-  command: string;
-}
-
-export interface AgentRun {
-  type: "agent";
-  prompt: string;
-  model?: string;
-  settings?: unknown;
-}
-
-export type InitRun = ScriptRun | AgentRun;
-
-export interface WorktreeInitHook {
-  gate: string;
-  run: InitRun;
-}
+// Pure hook shape + hash live in shared (the bridge re-hashes hooks from the
+// trust-mirror snapshot). Re-exported so existing importers are unchanged.
+// See change: mirror-dashboard-trust-to-pi.
+export type { ScriptRun, AgentRun, InitRun, WorktreeInitHook } from "@blackbelt-technology/pi-dashboard-shared/worktree-init-hook.js";
+export { normalizeHook, hookDefHash } from "@blackbelt-technology/pi-dashboard-shared/worktree-init-hook.js";
+import { normalizeHook } from "@blackbelt-technology/pi-dashboard-shared/worktree-init-hook.js";
+import type { WorktreeInitHook } from "@blackbelt-technology/pi-dashboard-shared/worktree-init-hook.js";
 
 // ── 1. readInitHook ─────────────────────────────────────────────────────────
 
@@ -82,27 +70,6 @@ export function readInitHook(repoRoot: string): WorktreeInitHook | null {
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
   const hook = (parsed as { worktreeInit?: unknown }).worktreeInit;
   return normalizeHook(hook);
-}
-
-/** Validate the raw `worktreeInit` value into a typed hook, else `null`. */
-export function normalizeHook(hook: unknown): WorktreeInitHook | null {
-  if (!hook || typeof hook !== "object" || Array.isArray(hook)) return null;
-  const h = hook as { gate?: unknown; run?: unknown };
-  if (typeof h.gate !== "string" || h.gate.length === 0) return null;
-  if (!h.run || typeof h.run !== "object" || Array.isArray(h.run)) return null;
-  const run = h.run as { type?: unknown; command?: unknown; prompt?: unknown; model?: unknown; settings?: unknown };
-  if (run.type === "script") {
-    if (typeof run.command !== "string" || run.command.length === 0) return null;
-    return { gate: h.gate, run: { type: "script", command: run.command } };
-  }
-  if (run.type === "agent") {
-    if (typeof run.prompt !== "string" || run.prompt.length === 0) return null;
-    const agent: AgentRun = { type: "agent", prompt: run.prompt };
-    if (typeof run.model === "string") agent.model = run.model;
-    if (run.settings !== undefined) agent.settings = run.settings;
-    return { gate: h.gate, run: agent };
-  }
-  return null;
 }
 
 // ── 2. evaluateGate ───────────────────────────────────────────────────────
@@ -416,20 +383,4 @@ function readTail(file: string, maxBytes: number): string {
   } catch {
     return "";
   }
-}
-
-// ── 4. hookDefHash ────────────────────────────────────────────────────────
-
-/** sha256 over a canonical (key-sorted) serialization of the hook. */
-export function hookDefHash(hook: WorktreeInitHook): string {
-  return createHash("sha256").update(canonicalize(hook)).digest("hex");
-}
-
-/** Deterministic JSON with recursively sorted object keys. */
-function canonicalize(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(canonicalize).join(",")}]`;
-  const obj = value as Record<string, unknown>;
-  const keys = Object.keys(obj).sort();
-  return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalize(obj[k])}`).join(",")}}`;
 }

@@ -2835,11 +2835,11 @@ export default function App() {
       <AddFoldersDialog
         workspaces={workspaces}
         sessionCwds={allSessionsList.map((s) => s.cwd)}
-        onPin={(dirPath) => {
+        onPin={(dirPath, piTrust) => {
           setPinnedDirectories((prev) => (prev.includes(dirPath) ? prev : [...prev, dirPath]));
-          send({ type: "pin_directory", path: dirPath });
+          send({ type: "pin_directory", path: dirPath, piTrust });
         }}
-        onAddFolderToWorkspace={(id, path) => send({ type: "add_folder_to_workspace", id, path })}
+        onAddFolderToWorkspace={(id, path, piTrust) => send({ type: "add_folder_to_workspace", id, path, piTrust })}
         onCreateWorkspace={(name) => send({ type: "create_workspace", name })}
         onCancel={() => setPinDialogOpen(false)}
         onOpenServers={() => { setPinDialogOpen(false); navigate("/settings/remote"); }}

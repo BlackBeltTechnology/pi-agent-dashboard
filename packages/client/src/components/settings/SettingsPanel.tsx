@@ -99,6 +99,7 @@ import { NodeRuntimeSection } from "./NodeRuntimeSection.js";
 import { PiRuntimeSection } from "./PiRuntimeSection.js";
 import { PiRuntimeStatusRow } from "./PiRuntimeStatusRow.js";
 import { PiSettingsSection } from "./PiSettingsSection.js";
+import { PiTrustMirrorSection } from "./PiTrustMirrorSection.js";
 import { PluginNotFoundNotice, PluginSettingsPage } from "./PluginSettingsPage.js";
 import { ProviderAuthSection } from "./ProviderAuthSection.js";
 import { PushNotificationsSection } from "./PushNotificationsSection.js";
@@ -2325,6 +2326,7 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
               <>
                 <AccessPromptsSection selectedCwd={selectedCwd} />
                 <AccessSection />
+                <PiTrustMirrorSection />
               </>
             )}
 

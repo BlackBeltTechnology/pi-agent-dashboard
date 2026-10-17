@@ -1031,6 +1031,18 @@ export interface RetrySessionErrorMessage {
 }
 
 /**
+ * Server → browser: a pin / unpin / workspace change could not be mirrored into
+ * pi trust (snapshot or choice write failed) — the operation was refused or
+ * only partly applied. Never a silent drop. See change: mirror-dashboard-trust-to-pi.
+ */
+export interface PiTrustMirrorErrorMessage {
+  type: "pi_trust_mirror_error";
+  op: "pin" | "unpin" | "workspace";
+  path: string;
+  error: string;
+}
+
+/**
  * Server → browser: a plugin server asked the viewers of `sessionId` to open
  * (or focus) the plugin tab `path` (`<pathPrefix>:<rest>`, prefix owned by the
  * calling plugin — enforced by the host). A client acts only while on that
@@ -1148,6 +1160,7 @@ export type ServerToBrowserMessage =
   | EditorTabOpenMessage
   | PluginActionErrorMessage
   | RetrySessionErrorMessage
+  | PiTrustMirrorErrorMessage
   | SessionAddedMessage
   | SessionUpdatedMessage
   | SessionRemovedMessage
@@ -1732,6 +1745,11 @@ export interface ReorderSessionsBrowserMessage {
 export interface PinDirectoryMessage {
   type: "pin_directory";
   path: string;
+  /**
+   * "Also trust this folder in pi" choice stored with the pin. Absent = the
+   * source default. See change: mirror-dashboard-trust-to-pi.
+   */
+  piTrust?: boolean;
 }
 
 export interface UnpinDirectoryMessage {
@@ -1874,6 +1892,8 @@ export interface AddFolderToWorkspaceMessage {
   type: "add_folder_to_workspace";
   id: string;
   path: string;
+  /** "Also trust this folder in pi" choice. See change: mirror-dashboard-trust-to-pi. */
+  piTrust?: boolean;
 }
 
 export interface RemoveFolderFromWorkspaceMessage {
@@ -2577,6 +2597,11 @@ export interface GrantResponseBrowserMessage {
   plane: AccessPlaneId;
   subject: string;
   verdict: GrantVerdict;
+  /**
+   * "Also trust this folder in pi", stored with an `allow-always` on a path plane.
+   * See change: mirror-dashboard-trust-to-pi.
+   */
+  piTrust?: boolean;
 }
 
 /**

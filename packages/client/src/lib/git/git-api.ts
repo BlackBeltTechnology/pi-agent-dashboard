@@ -371,7 +371,7 @@ export type WorktreeInitResult = WorktreeInitRanOk | WorktreeInitUntrusted | Wor
  * Progress events stream via the requestId-tagged WS channel.
  * See change: generalize-worktree-init-hook, add-session-scoped-init-trust.
  */
-export async function runWorktreeInit(params: { cwd: string; requestId?: string; confirmHash?: string; scope?: WorktreeInitTrustScope }): Promise<WorktreeInitResult> {
+export async function runWorktreeInit(params: { cwd: string; requestId?: string; confirmHash?: string; scope?: WorktreeInitTrustScope; piTrust?: boolean }): Promise<WorktreeInitResult> {
   const { json } = await fetchJsonResponse(`${getApiBase()}/api/git/worktree/init`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

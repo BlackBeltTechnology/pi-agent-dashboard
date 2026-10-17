@@ -82,6 +82,7 @@ import { createInstance, type BridgeState } from "./bridge-handlers/instance.js"
 import { createVaultDelivery } from "./vault-delivery.js";
 import { createVaultForwardFilter } from "./vault-forwarder.js";
 import { createVaultRedaction } from "./vault-redaction.js";
+import { captureSpawnTokenAtActivation } from "./spawn-token.js";
 import { registerSessionInfoChanged, registerProjectTrust, registerSessionStart, registerTurnEnd, registerSessionShutdown } from "./bridge-handlers/lifecycle.js";
 import { registerEnrichedForwarders, registerPassThroughForwarders } from "./bridge-handlers/forwarders.js";
 import { handleInboundMessage } from "./bridge-handlers/dispatch.js";
@@ -354,7 +355,9 @@ function initBridge(pi: ExtensionAPI) {
   // this module after the env was scrubbed — keeps the correct value instead
   // of regressing to false. See change: fix-spawn-token-env-leak.
   if (prev.dashboardSpawned === undefined) {
-    prev.dashboardSpawned = !!process.env.PI_DASHBOARD_SPAWN_TOKEN;
+    // Reads AND scrubs the token here (not at first register): nested pi the
+    // agent starts later never inherits it. See change: mirror-dashboard-trust-to-pi.
+    prev.dashboardSpawned = captureSpawnTokenAtActivation();
   }
   const dashboardSpawned = prev.dashboardSpawned;
   inst.dashboardSpawned = dashboardSpawned;

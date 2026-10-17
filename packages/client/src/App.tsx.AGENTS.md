@@ -63,3 +63,4 @@ Mounts `<ShellHeadlessSlot />` once in the `apiProvider` body (inside `PluginCon
 ## add-set-global-view
 
 - `ChatViewMenu` now `lazy()` (own chunk, off the `mdi-chunk-size` entry gzip cap); composer-strip mount wrapped in its own `<Suspense fallback={null}>`.
+Add-folders dialog forwards `piTrust` on pin / workspace add. See change: mirror-dashboard-trust-to-pi.

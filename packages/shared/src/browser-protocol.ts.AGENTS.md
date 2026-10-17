@@ -45,3 +45,4 @@ Deleted dead bootstrap state-snapshot, `bootstrap_status_update` and `bootstrap_
 `QuestionsUpdateMessage` (`questions_update`, rows only, from `question-types.ts`) added to `ServerToBrowserMessage`. See change: add-pending-question-stack.
 
 Server→browser: `ServicesChangedMessage` (`services_changed`, type only) — content-free managed-services hint; browsers refetch `GET /api/services`. See change: add-services-settings-ui.
+`piTrust?` on `pin_directory`/`add_folder_to_workspace`/`grant_response`; server→browser `pi_trust_mirror_error`. See change: mirror-dashboard-trust-to-pi.

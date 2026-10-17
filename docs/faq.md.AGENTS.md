@@ -26,6 +26,8 @@ See change: streamline-first-run. Claude tool-call fallback / peer auto-install 
 
 Gains "How do I pair a LAN device without TLS?" → opt-in knock: Gateway switch, `/pair?request`, code typed on dashboard machine, unencrypted-bearer caveat, refusal codes, bridge-container pointer. See change: add-lan-knock-pairing.
 
+Gains "Why is my project `mcp.json` server ignored (inactive) in a folder?" → project layer trusted-folders only (`project-not-trusted`). Two stores: pi `trust.json` vs dashboard mirror. Decision order (`decidePiTrust`), who-trusts views, reason codes, identity-mismatch fail-closed, `piTrustMirror` config, rollback. See change: mirror-dashboard-trust-to-pi.
+
 ## Change history (moved from docs/AGENTS.md row)
 
 See change: add-acp-session-driver, electron-runtime-overlay-updates, update-pi-core-1-0-adopt-apis, migrate-mcp-to-pi-builtin. host-gate default enforce; pairing revoke/approve operator-only. See change: harden-server-request-surfaces. `local_proof_required` FAQ. See change: harden-trust-and-credential-boundaries. Plugin-config partial write keeps omitted keys. See change: fix-plugin-config-partial-write. Gains TS-loader FAQ: PI_DASHBOARD_TS_LOADER no-longer-supported + booted-under-jiti warns → pi-dashboard stop && pi-dashboard start. See change: strip-only-native-ts-loader.

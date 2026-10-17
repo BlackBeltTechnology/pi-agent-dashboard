@@ -1544,7 +1544,7 @@ New plugin `packages/mcp-client-plugin/`, id `mcp-client`. Sole owner of the two
 
 **Service.** `ctx.provide("mcp-client.config", …)` before any route registers. Factory `createMcpClientConfigService({ configIO, knownCwds, isProjectTrusted?, paths?, runner?, scratchCwd?, liveTimeoutMs?, liveCacheTtlMs? })` → `McpClientRuntime` = service + `getLiveState(scope, {fresh})`. Write-only paths never run `pi mcp list`.
 
-**Trust.** `isProjectTrusted(cwd)` INJECTED. Dashboard server supplies `host.isProjectTrusted` (see Bootstrap). Untrusted folder → its project layer never loads, its rows inactive (`project-not-trusted`). Hostless caller (apple-tools CLI) treats every project as untrusted → global writes only.
+**Trust.** `isProjectTrusted(cwd)` INJECTED. Dashboard server supplies `host.isProjectTrusted` (see Bootstrap; decision = shared `decidePiTrust`, see Pi trust mirror). Untrusted folder → its project layer never loads, its rows inactive (`project-not-trusted`). Dashboard-only trust → project rows active, live state `not-checked-by-pi`. Hostless caller (apple-tools CLI) treats every project as untrusted → global writes only.
 
 **Live state.** `src/core/live-state.ts` `createLiveStateReader({runner,timeoutMs,cacheTtlMs,now})` runs `pi mcp list --json` through the shared safe-spawn. `LIVE_STATE_TIMEOUT_MS` 30000, `LIVE_STATE_CACHE_TTL_MS` 30000. stdout parsed whatever the exit code — pi exits `1` whenever a server is disconnected or an entry invalid. Timeout aborts the signal → `{ok:false,reason:"timeout"}`; failures never cached. Global view spawns in an empty `mkdtemp` scratch dir so only the global layer loads.
 
@@ -1699,7 +1699,7 @@ Compatibility skew helpers in `pi-version-skew.ts` (`readPiCompatibility`, `read
 
 See change: collapse-model-proxy-onto-modelruntime.
 
-**Host project-trust service.** `packages/server/src/server.ts` registers `host.isProjectTrusted(cwd)` (awaited at boot) next to `host.knownFolderCwds`. `packages/server/src/pi/host-project-trust.ts` `createHostProjectTrust({recordedDecision, defaultProjectTrust})` / `loadHostProjectTrust(agentDir)` mirrors a session's own rule: the recorded `ProjectTrustStore` decision wins, else `defaultProjectTrust === "always"`. Unresolvable pi → always false. `mcp-client` injects it as `isProjectTrusted` so folder MCP rows load the project layer only in trusted folders. See change: migrate-mcp-to-pi-builtin.
+**Host project-trust service.** `packages/server/src/server.ts` registers `host.isProjectTrusted(cwd)` (awaited at boot) next to `host.knownFolderCwds`, plus `host.projectTrustSource` and `host.piTrustCoverInteractive`. `packages/server/src/pi/host-project-trust.ts` `createHostProjectTrustService` / `loadHostProjectTrustService` run shared `decidePiTrust` (pi's own rule + dashboard mirror; see Pi trust mirror). `coveringDashboardEntry` finds covering entry. Honours `PI_CODING_AGENT_DIR`. Pi core unresolvable → one log line (not silent untrusted). Legacy `createHostProjectTrust({recordedDecision, defaultProjectTrust})` kept for compat only; not the decision path. `mcp-client` injects it as `isProjectTrusted` so folder MCP rows load the project layer only in trusted folders. See change: migrate-mcp-to-pi-builtin, mirror-dashboard-trust-to-pi.
 
 #### Legacy `~/.pi-dashboard/` advisory
 
@@ -3157,6 +3157,105 @@ Gated surfaces: `control` / `operate` REST routes, browser WS (`/ws`, `/ws/termi
 - Same-origin browser exchanges the device bearer once for an httpOnly `pi_dash_device` cookie (`POST /api/device-session`, `Path=/api/`, `SameSite=Strict`); `localStorage` keeps only the non-secret `pi-dashboard:device-paired` marker. Legacy stored bearers are exchanged and removed on startup; WS single-use tickets and the Electron keyring bearer unchanged.
 
 See change: harden-trust-and-credential-boundaries.
+
+### Pi trust mirror (change: mirror-dashboard-trust-to-pi)
+
+Durable dashboard trust counts as trusted project for pi sessions on SAME machine. Decided at pi `project_trust` time. Never writes `~/.pi/agent/trust.json`. Pi's file stays pi-owned.
+
+**Files.**
+
+| File | Role |
+|---|---|
+| `~/.pi/dashboard/config.json` `piTrustMirror` | `enabled` (default `true`), `coverInteractive` (default `false`), `sources.<id>` |
+| `~/.pi/dashboard/pi-trust-mirror.json` | Snapshot. Mode `0600`. Server home-lock holder writes. Rebuilt at server boot. Entries: `key`, `sourceKind`, `dev`, `ino`, `birthtimeMs?`, `configRoot?`, `hookHash?`. `generation` counter. Warn log >5,000 entries. |
+| `~/.pi/dashboard/pi-trust-overrides.json` | Per-entry choice. Key `<sourceId>\0<canonical path>`. |
+| `~/.pi/agent/trust.json` | pi-owned. Read by bridge, never written by mirror. |
+
+**Durable sources** (`piTrustMirror.sources.<id>`). Defaults ON except `accessGrants`.
+
+| id | Covers |
+|---|---|
+| `worktreeInit` | Persisted hook trust. CURRENT hook hash re-checked each decision. |
+| `workflow` | Workflow slot. Reports `source-not-installed` until `add-project-workflows`. |
+| `pinned` | Pinned dirs. Docker `PI_WORKSPACES` → `PI_DASHBOARD_PIN_DIRS` seeds pins. |
+| `folderWorkspaces` | Folder workspaces. |
+| `accessGrants` | Project-root subjects only. Default OFF. |
+
+NOT counted: server-lifetime trust (session worktree trust, session access grants, YOLO), KB source trust. Deferred follow-up: server-lifetime trust; bridges on other machines.
+
+**Matching.**
+- Key form `piTrustKey` = `realpathSync(path.resolve)`. No Unicode-space normalisation. Source: `packages/shared/src/pi-trust-mirror.ts`.
+- Subtree: counted entry covers folder + everything below. `findCoveringEntry` = nearest ancestor-or-self key.
+- Identity: canonical path + `dev` + `ino` (+ `birthtimeMs` when recorded). Entry applies only on identity match.
+- Identity mismatch → fail closed. Other machine, re-created folder, moved folder.
+
+**Deny rules** `mirrorDenyRules`. Separate from grant-subject `forbidden-subjects` (unchanged).
+- Exact: `/`, `$HOME`, ancestors of `$HOME`, system dirs, broad parents (`/Users /home /Volumes /private /var/tmp /mnt /media`; win: drive root, `C:\Users`).
+- Subtree: `~/.ssh ~/.pi ~/.aws ~/.gnupg ~/.kube ~/.docker`, OS temp (`os.tmpdir`, `/tmp`, `/private/tmp`), `~/.cache`, `~/Downloads`.
+
+**Decision order** `decidePiTrust` (shared by bridge, `host.isProjectTrusted`, toggle gate). First match wins.
+
+```mermaid
+flowchart TD
+  A["project_trust / host.isProjectTrusted(cwd)"] --> B{"trust-requiring resources?"}
+  B -- no --> R0["trusted: implicit"]
+  B -- yes --> C{"pi recorded entry?"}
+  C -- "true / false" --> R1["pi decision wins"]
+  C -- none --> D{"mirror on AND covering entry?"}
+  D -- yes --> R2["trusted: dashboard source"]
+  D -- no --> R3["defaultProjectTrust"]
+```
+
+- `--approve` / `--no-approve` applied by pi first.
+- `--no-extensions`: bridge never decides.
+- `pi mcp list` reads only `trust.json`.
+- Dashboard trust overrides `defaultProjectTrust`, INCLUDING `never`.
+- Recorded pi entry (true or false, nearest ancestor) beats dashboard trust.
+
+**Bridge** `decideBridgeProjectTrust` (`packages/extension/src/project-trust.ts`).
+- No server round trip.
+- Per event: reads `config.json`, `trust.json` (lockless; BOM stripped; null = absent; bad shape/parse = undecided `store-unreadable`), snapshot.
+- Returns `{trusted:"yes", remember:false}` or undecided.
+- Dashboard-spawned headless sessions consult mirror always. Other sessions only if `coverInteractive`.
+- Reason codes logged when withheld: `forbidden-folder`, `recorded-entry`, `identity-mismatch`, `hook-changed`, `not-project-root`, `source-off`, `source-not-installed`, `choice-unreadable`, `store-unreadable`, `not-covered-session`.
+- p95 < 20 ms (1,000 entries, 20-deep cwd).
+- Spawn token: `PI_DASHBOARD_SPAWN_TOKEN` read + removed from env at bridge activation (`packages/extension/src/spawn-token.ts`). Process-global until first `session_register`. Agent-started nested pi never counts as dashboard-spawned.
+
+**Writes.**
+- Grant: choice file → source store → snapshot.
+- Revoke: snapshot rewritten WITHOUT entry FIRST → then source store. Failure of either = failed revoke. Browser gets `pi_trust_mirror_error {op,path,error}`.
+
+**Server modules.**
+- `packages/server/src/access/pi-trust-mirror-service.ts`: registry + snapshot + choices. Handle `getPiTrustMirror()`.
+- `packages/server/src/pi/host-project-trust.ts`: `createHostProjectTrustService`, `loadHostProjectTrustService`, `coveringDashboardEntry`. Registry keys `host.isProjectTrusted`, `host.projectTrustSource`, `host.piTrustCoverInteractive`.
+- `packages/server/src/pi/resource-toggle-trust.ts`: dashboard-trusted folder + nothing recorded → existing prompt, `Trust` pre-selected, source named, lasting effect stated. Payload `preselected:"trust"`, `dashboardSource`. Nothing recorded until operator chooses. Works under default `never`.
+
+**Routes / WS.**
+- `GET /api/access/pi-trust`: `config`, `agentDir`, `piEntries`, `effective`, `entries`, `ignored` (reason + label), `sourcesNotInstalled`.
+- `PUT /api/access/pi-trust/choice` `{sourceKind, folder, choice: boolean|null}`.
+- WS `pin_directory`, `add_folder_to_workspace`, `grant_response` accept `piTrust?`. `POST /api/git/worktree/init` accepts `piTrust?`.
+
+**MCP.** Effective view adds `trustSource`, `trustCoverInteractive`. Dashboard-only trust → project servers active, live state `not-checked-by-pi` + note. Config-writer global-write name collisions keep pi-only predicate (dashboard trust never changes them).
+
+**UI.**
+- Settings → Access → "Pi trust from the dashboard" (`packages/client/src/components/settings/PiTrustMirrorSection.tsx`): switches, effective list, per-entry choice, ignored rows (reason + label), pi `trust.json` entries + agent dir, disclosures.
+- Disclosures: precedence over `defaultProjectTrust` (incl `never`); scope; `--no-approve` / `--no-extensions` / pi CLI not covered; activation-cwd rule.
+- Folder page banner: pi / dashboard (source + folder; "dashboard sessions, not terminal pi" unless `coverInteractive`) / neither (links Settings → Access).
+
+**Breaking bridge behaviour.** NOT reverted by `enabled:false`.
+- (a) Recorded pi entry beats activation-cwd auto-trust.
+- (b) Activation-cwd auto-trust no longer applies in forbidden/temporary folders (logged).
+- (c) Spawn token removed from env at activation (see Bridge).
+
+**Rollback.** `piTrustMirror.enabled: false`. Bridge reads config live. Works with server down. Does not revert (a)-(c).
+
+**Security residuals.**
+- Hook trust widened to full project trust for the subtree. Checkbox text states it.
+- Covered subtree also trusts repos cloned/created later inside it.
+- Bridge `yes` pre-empts later user extensions' `project_trust`.
+- Same-user forging of snapshot ≈ writing `trust.json`. Accepted.
+
+See change: mirror-dashboard-trust-to-pi.
 
 ### Access Grants and Denial Remedies (change: add-access-grants-and-review)
 
