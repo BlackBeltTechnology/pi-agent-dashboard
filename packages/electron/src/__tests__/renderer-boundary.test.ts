@@ -15,20 +15,47 @@ const read = (rel: string) => readFileSync(path.resolve(__dirname, "..", "..", r
 const stripComments = (s: string) => s.replace(/^\s*(\/\/|\*|\/\*).*$/gm, "");
 
 const exposed: string[] = [];
+const exposedApis: Array<Record<string, unknown>> = [];
 vi.mock("electron", () => ({
-  contextBridge: { exposeInMainWorld: (key: string) => { exposed.push(key); } },
+  contextBridge: {
+    exposeInMainWorld: (key: string, api?: Record<string, unknown>) => {
+      exposed.push(key);
+      if (api) exposedApis.push(api);
+    },
+  },
   ipcRenderer: { invoke: vi.fn(), send: vi.fn(), on: vi.fn(), removeListener: vi.fn() },
 }));
 
 describe("preload split (VD5)", () => {
   beforeEach(() => {
     exposed.length = 0;
+    exposedApis.length = 0;
     vi.resetModules();
   });
 
   it("T1: main-window preload exposes ONLY piDashboard (no remoteConnect / electron.doctor)", async () => {
     await import("../preload-main.js");
     expect(exposed).toEqual(["piDashboard"]);
+  });
+
+  it("E57: the exposed piDashboard API has exactly the closed key list (no openServerWindow off the local origin)", async () => {
+    const argv = process.argv;
+    process.argv = argv.filter((a) => !a.startsWith("--pi-local-origin="));
+    try {
+      await import("../preload-main.js");
+    } finally {
+      process.argv = argv;
+    }
+    expect(Object.keys(exposedApis[0]!).sort()).toEqual(
+      ["requestLaunch", "openDoctor", "readServerLog", "onStatus", "probeServer", "checkAppUpdate", "navigateToServer"].sort(),
+    );
+  });
+
+  it("navigateToServer sends only the target on dashboard:navigate-to-server", async () => {
+    await import("../preload-main.js");
+    const { ipcRenderer } = await import("electron");
+    await (exposedApis[0]!.navigateToServer as (t: string) => Promise<unknown>)("http://localhost:8000");
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith("dashboard:navigate-to-server", { target: "http://localhost:8000" });
   });
 
   it("T5: wizard preload exposes only its trusted-page bridges (connecting, electron(doctor), remoteConnect), never piDashboard", async () => {
@@ -55,12 +82,17 @@ describe("main.ts wiring", () => {
   });
 
   it("T2: every gated channel is registered through the sender-frame wrapper", () => {
-    for (const ch of ["request-launch", "read-server-log", "probe-server"]) {
+    for (const ch of ["request-launch", "read-server-log", "probe-server", "navigate-to-server"]) {
       expect(main, ch).toMatch(new RegExp(`ipcMain\\.handle\\("dashboard:${ch}", trustedHandler\\(`));
     }
     expect(main).toMatch(/ipcMain\.on\("dashboard:open-doctor", trustedListener\(/);
     // no ungated registration of the four privileged channels
-    expect(main).not.toMatch(/ipcMain\.handle\("dashboard:(request-launch|read-server-log|probe-server)", async/);
+    expect(main).not.toMatch(/ipcMain\.handle\("dashboard:(request-launch|read-server-log|probe-server|navigate-to-server)", async/);
+  });
+
+  it("X10: dashboard:navigate-to-server is registered via trustedHandler with isTrustedSender, never a raw handle", () => {
+    expect(main).toMatch(/ipcMain\.handle\("dashboard:navigate-to-server", trustedHandler\("dashboard:navigate-to-server", isTrustedSender,/);
+    expect(main).toContain("navigateToServer(mainWindow");
   });
 
   it("T3: shell.openExternal is only reachable through the scheme allowlist", () => {
@@ -117,5 +149,63 @@ describe("preload-main: openServerWindow only on the local dashboard origin", ()
     const { ipcRenderer } = await import("electron");
     await (api.openServerWindow as (t: unknown) => Promise<unknown>)({ host: "192.168.16.204", port: 8000, partition: "evil", url: "http://x/" });
     expect(ipcRenderer.invoke).toHaveBeenCalledWith("servers:open-from-dashboard", { host: "192.168.16.204", port: 8000 });
+  });
+});
+
+// ── browserHost capability gating (add-operator-browser-relay, D1/D9, test-plan #E35) ─────
+describe("preload-main: browserHost only on the local dashboard origin", () => {
+  const exposedApi: Array<Record<string, unknown>> = [];
+
+  async function loadWith(origin: string | undefined, locationOrigin: string) {
+    vi.resetModules();
+    exposedApi.length = 0;
+    vi.doMock("electron", () => ({
+      contextBridge: { exposeInMainWorld: (_k: string, api: Record<string, unknown>) => { exposedApi.push(api); } },
+      ipcRenderer: { invoke: vi.fn(async () => undefined), send: vi.fn(), on: vi.fn(), removeListener: vi.fn() },
+    }));
+    const argv = process.argv;
+    process.argv = origin ? [...argv, `--pi-local-origin=${origin}`] : argv.filter((a) => !a.startsWith("--pi-local-origin="));
+    (globalThis as { location?: unknown }).location = { origin: locationOrigin };
+    try {
+      await import("../preload-main.js");
+    } finally {
+      process.argv = argv;
+    }
+    return exposedApi[0]!;
+  }
+
+  it("defined for the local origin, with exactly the contract surface", async () => {
+    const api = await loadWith("http://localhost:8000", "http://localhost:8000");
+    expect(Object.keys(api.browserHost as object).sort()).toEqual(
+      ["identity", "sign", "setTarget", "connect", "onConnect", "cancelConnect", "extSend", "extClose", "onExt", "tee", "onFrame", "setToken", "listConsents", "revokeConsent"].sort(),
+    );
+  });
+
+  it("undefined for a remote-origin document (VD5), another origin, or no passed origin", async () => {
+    expect((await loadWith("http://localhost:8000", "http://192.168.16.204:8000")).browserHost).toBeUndefined();
+    expect((await loadWith("http://localhost:8000", "http://localhost:9000")).browserHost).toBeUndefined();
+    expect((await loadWith(undefined, "http://localhost:8000")).browserHost).toBeUndefined();
+  });
+
+  it("connect forwards only the contract fields; channels are the shared names", async () => {
+    const api = await loadWith("http://localhost:8000", "http://localhost:8000");
+    const { ipcRenderer } = await import("electron");
+    const { BROWSER_HOST_CHANNELS: CH } = await import("@blackbelt-technology/pi-dashboard-shared/browser-host-ipc.js");
+    const bh = api.browserHost as Record<string, (...a: unknown[]) => unknown>;
+    await bh.connect!({ requestId: "R", linkId: "L", instanceId: "I", profileDirectory: "Default", serverLabel: "s", token: "leak", guid: "leak" });
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(CH.connect, { requestId: "R", linkId: "L", instanceId: "I", profileDirectory: "Default", serverLabel: "s" });
+    await bh.sign!("n", "I");
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(CH.sign, "n", "I");
+    await bh.extSend!("L", "data");
+    expect(ipcRenderer.send).toHaveBeenCalledWith(CH.extSend, "L", "data");
+  });
+
+  it("push subscriptions return a working unsubscribe", async () => {
+    const api = await loadWith("http://localhost:8000", "http://localhost:8000");
+    const { ipcRenderer } = await import("electron");
+    const off = (api.browserHost as { onFrame(cb: () => void): () => void }).onFrame(() => {});
+    expect(ipcRenderer.on).toHaveBeenCalledWith("browser-host:frame", expect.any(Function));
+    off();
+    expect(ipcRenderer.removeListener).toHaveBeenCalledWith("browser-host:frame", expect.any(Function));
   });
 });

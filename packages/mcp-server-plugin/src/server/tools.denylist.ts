@@ -123,6 +123,12 @@ export const DENYLIST: readonly DenylistEntry[] = [
   // add-pending-question-stack: answers stay human-in-the-loop.
   { pattern: "/api/questions", reason: "agent prompt answers stay human-in-the-loop; follow-up" },
   { pattern: "/api/questions/", reason: "agent prompt answers stay human-in-the-loop; follow-up" },
+  { pattern: "browser_host_connect_result", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
+  { pattern: "browser_host_ext_close", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
+  { pattern: "browser_host_ext_data", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
+  { pattern: "browser_host_ext_open", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
+  { pattern: "browser_host_hello", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
+  { pattern: "browser_host_register", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "browser_relay_input", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "browser_relay_subscribe", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "browser_relay_unsubscribe", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },

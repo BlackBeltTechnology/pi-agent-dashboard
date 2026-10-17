@@ -46,13 +46,19 @@ afterEach(() => {
 });
 
 describe("browser plugin server entry", () => {
-  it("mounts both WS scopes, the three handlers and the REST routes", async () => {
+  it("mounts both WS scopes, the relay + operator-host handlers and the REST routes", async () => {
     const f = await makeFake();
     await registerPlugin(f.ctx);
     await f.app.ready();
     try {
       expect([...f.wsRoutes.keys()].sort()).toEqual(["browser-cdp", "browser-ext"]);
       expect([...f.handlers.keys()].sort()).toEqual([
+        "browser_host_connect_result",
+        "browser_host_ext_close",
+        "browser_host_ext_data",
+        "browser_host_ext_open",
+        "browser_host_hello",
+        "browser_host_register",
         "browser_relay_input",
         "browser_relay_subscribe",
         "browser_relay_unsubscribe",

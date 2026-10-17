@@ -24,6 +24,8 @@ export interface RelaySocket {
   send(data: string): void;
   close(code?: number, reason?: string): void;
   on(event: string, listener: (...args: never[]) => void): unknown;
+  /** Optional detach (a long-lived socket such as the operator carrier needs it). */
+  off?(event: string, listener: (...args: never[]) => void): unknown;
 }
 
 /** `ws` readyState values. */

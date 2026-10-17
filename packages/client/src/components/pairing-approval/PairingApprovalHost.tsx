@@ -19,8 +19,8 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import { type GrantPromptStore, grantPromptStore } from "../../lib/access-grants/grant-prompt-store.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { getDeviceBearer, isDevicePaired } from "../../lib/pairing/device-auth.js";
-import type { PendingPairing } from "../../lib/pairing/pairing-approval-api.js";
 import * as pairingApi from "../../lib/pairing/pairing-approval-api.js";
+import { isCredentialRefusalError, type PendingPairing } from "../../lib/pairing/pairing-approval-api.js";
 import { type PairingApprovalStore, pairingApprovalStore } from "../../lib/pairing/pairing-approval-store.js";
 import { Toast, useToast } from "../primitives/Toast.js";
 import { PairingApprovalDialog } from "./PairingApprovalDialog.js";
@@ -160,7 +160,7 @@ export function PairingApprovalHost({
         }}
         onDeny={async () => {
           answered.current.add(id);
-          let res: { ok: boolean; error?: string };
+          let res: Awaited<ReturnType<typeof api.denyPending>>;
           try {
             res = await api.denyPending(id);
           } catch (err) {
@@ -170,6 +170,11 @@ export function PairingApprovalHost({
           if (res.ok) return close();
           if (res.error === "no_pending") return handledElsewhere();
           answered.current.delete(id);
+          // Credential refusal: hand its remedies to the dialog, which stays open
+          // with the request still queued and Deny usable for a retry.
+          if (res.error !== undefined && isCredentialRefusalError(res.error)) {
+            return { reason: res.reason, remedies: res.remedies };
+          }
           throw new Error(res.error ?? "deny failed");
         }}
         onDismiss={() => {

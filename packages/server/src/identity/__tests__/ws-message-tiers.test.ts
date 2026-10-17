@@ -4,6 +4,7 @@
  * equals the `BrowserToServerMessage` union, so equality with that set here
  * makes the tier map total transitively. See change: add-passkey-user-auth.
  */
+import { BROWSER_HOST_CLIENT_TYPES } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { WS_MESSAGE_TIERS, wsMessageTier } from "@blackbelt-technology/pi-dashboard-shared/ws-message-tiers.js";
 import { describe, expect, it } from "vitest";
 import { NON_SESSION_MESSAGES, SESSION_LIST_MESSAGES, SESSION_OWNED_MESSAGES } from "../ws-message-scope.js";
@@ -30,5 +31,14 @@ describe("WS_MESSAGE_TIERS", () => {
     expect(wsMessageTier("kill_process")).toBe("operate");
     expect(wsMessageTier("create_terminal")).toBe("operate");
     expect(wsMessageTier("grant_response")).toBe("operate"); // POST /api/access/prompts/:id
+  });
+});
+
+describe("WS_MESSAGE_TIERS — browser_host_* (E33)", () => {
+  it("lists every browser→server browser_host_* type at operate", () => {
+    for (const t of BROWSER_HOST_CLIENT_TYPES) {
+      expect(Object.hasOwn(WS_MESSAGE_TIERS, t), t).toBe(true);
+      expect(wsMessageTier(t), t).toBe("operate");
+    }
   });
 });

@@ -231,4 +231,70 @@ describe("PairingApprovalHost", () => {
     await h.hint();
     expect(screen.queryByText("Pairing request handled in another window.")).toBeNull();
   });
+
+  describe("refused Deny and CLI answers (change: fix-pairing-approval-credential, F4/F5)", () => {
+    const REFUSED = {
+      ok: false,
+      error: "operator credential required",
+      reason: "no-credential",
+      remedies: ["authorize-browser", "approve-on-host"],
+    };
+
+    it("F4: a Deny answered 401 with remedies shows the same rows, keeps the dialog open, the request queued and Deny enabled", async () => {
+      vi.stubEnv("DEV", false);
+      try {
+        const h = setup();
+        h.api.denyPending.mockResolvedValueOnce(REFUSED as never);
+        h.setList([entry("aaa")]);
+        h.connect();
+        await screen.findByTestId("pairing-dialog");
+        fireEvent.click(screen.getByTestId("pairing-deny"));
+        await screen.findByTestId("pairing-dialog-remedies");
+        expect(screen.getAllByTestId("pairing-remedy-row").map((r) => r.getAttribute("data-remedy"))).toEqual([
+          "authorize-browser",
+          "approve-on-host",
+        ]);
+        expect(screen.getByTestId("pairing-dialog")).toBeTruthy();
+        expect(h.store.getState().pending.map((p) => p.pendingId)).toEqual(["aaa"]);
+        expect(h.store.getState().dismissed.has("aaa")).toBe(false);
+        expect((screen.getByTestId("pairing-deny") as HTMLButtonElement).disabled).toBe(false);
+        // Retry in place: the next Deny is sent again, nothing was retried on its own.
+        expect(h.api.denyPending).toHaveBeenCalledTimes(1);
+        fireEvent.click(screen.getByTestId("pairing-deny"));
+        await waitFor(() => expect(screen.queryByTestId("pairing-dialog")).toBeNull());
+        expect(h.api.denyPending).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
+
+    it("F4: a Deny refused by an older server (no remedies) keeps the dialog open with the legacy sentence", async () => {
+      const h = setup();
+      h.api.denyPending.mockResolvedValueOnce({ ok: false, error: "operator credential required" } as never);
+      h.setList([entry("aaa")]);
+      h.connect();
+      await screen.findByTestId("pairing-dialog");
+      fireEvent.click(screen.getByTestId("pairing-deny"));
+      const err = await screen.findByTestId("pairing-dialog-error");
+      expect(err.textContent).toContain("Approval needs an operator credential");
+      expect(screen.queryByTestId("pairing-dialog-remedies")).toBeNull();
+      expect(screen.getByTestId("pairing-dialog")).toBeTruthy();
+    });
+
+    it("F5: a CLI deny/approve (hint without P) closes the dialog with the handled-elsewhere notice, even after a refusal", async () => {
+      const h = setup();
+      h.api.approvePending.mockResolvedValueOnce(REFUSED as never);
+      h.setList([entry("aaa")]);
+      h.connect();
+      await screen.findByTestId("pairing-dialog");
+      fireEvent.change(screen.getByTestId("pairing-code-input"), { target: { value: "12345678" } });
+      fireEvent.click(screen.getByTestId("pairing-approve"));
+      await screen.findByTestId("pairing-dialog-remedies");
+
+      h.setList([]);
+      await h.hint();
+      await waitFor(() => expect(screen.queryByTestId("pairing-dialog")).toBeNull());
+      expect(screen.getByText("Pairing request handled in another window.")).toBeTruthy();
+    });
+  });
 });
