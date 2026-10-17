@@ -1,5 +1,6 @@
 import { expect, type Page, test } from "./fixtures.js";
 import { gotoDashboard } from "./helpers/index.js";
+import { openGatewayPage, openRemoteAccess } from "./helpers/remote-access.js";
 
 /**
  * Browser E2E for change `add-zrok-custom-reserved-name` — the readiness board
@@ -80,17 +81,15 @@ async function stubReadiness(
   return { count: () => count, inFlight: () => inFlight };
 }
 
-/** Open the Gateway dialog on its Setup tab, where the board lives. */
+/** Open Settings ▸ Network ▸ Gateway, where the board lives. */
 async function openSetupTab(page: Page): Promise<void> {
-  const btn = page.getByTestId("tunnel-btn");
-  await expect(btn).toBeVisible({ timeout: 15_000 });
-  await btn.click();
-  await page.getByTestId("gateway-tab-setup").click();
+  // The board and Make-primary live on Settings ▸ Network ▸ Gateway now.
+  await openGatewayPage(page);
 }
 
 test.describe("gateway readiness board", () => {
   // F1 — a tick fires IMMEDIATELY, not after one interval.
-  test("F1: opening the Setup tab fires a readiness request at once", async ({ page }) => {
+  test("F1: opening the Gateway page fires a readiness request at once", async ({ page }) => {
     await stubTunnelStatus(page, { status: "active", url: "https://x.shares.zrok.io", serverOs: "linux" });
     const readiness = await stubReadiness(page, BOARD);
     await gotoDashboard(page);
@@ -170,23 +169,22 @@ test.describe("gateway readiness board", () => {
     await expect(page.getByTestId("gateway-readiness-tailscale-label")).toHaveText("Connected", { timeout: 15_000 });
   });
 
-  // F2 — closing stops polling. The load-bearing one: a leaked timer keeps
-  // spawning ~4 subprocesses server-side every 5s for the life of the page.
-  test("F2: leaving the Setup tab stops readiness requests entirely", async ({ page }) => {
+  // F2 — the Remote access landing does not poll. The load-bearing one: a leaked
+  // timer keeps spawning ~4 subprocesses server-side every 5s for the life of
+  // the page. The dialog reads readiness once on open; only a provider-dependent
+  // step (or the Gateway page) polls. See change: add-remote-access-wizard.
+  test("F2: the Remote access landing reads readiness once and then stays silent", async ({ page }) => {
     await stubTunnelStatus(page, { status: "active", url: "https://x.shares.zrok.io", serverOs: "linux" });
     const readiness = await stubReadiness(page, BOARD);
     await gotoDashboard(page);
-    await openSetupTab(page);
+    await openRemoteAccess(page);
     await expect.poll(() => readiness.count(), { timeout: 10_000 }).toBeGreaterThanOrEqual(1);
-
-    // Leave the tab that owns the poll.
-    await page.getByTestId("gateway-tab-access").click();
     await page.waitForTimeout(1_000);
-    const afterClose = readiness.count();
+    const afterOpen = readiness.count();
 
-    // Three intervals' worth of silence.
+    // Three intervals' worth of silence on the landing.
     await page.waitForTimeout(15_000);
-    expect(readiness.count()).toBe(afterClose);
+    expect(readiness.count()).toBe(afterOpen);
   });
 
   // F3 — overlap suppression. A tick is bounded at 4s per provider against a

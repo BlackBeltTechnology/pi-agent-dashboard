@@ -177,6 +177,8 @@ export function registerResourceActivationRoutes(
             trustRequired: true,
             trustOptions: result.trustOptions,
             implicitlyTrusted: result.implicitlyTrusted,
+            ...(result.preselected ? { preselected: result.preselected } : {}),
+            ...(result.dashboardSource ? { dashboardSource: result.dashboardSource } : {}),
           },
         } satisfies ApiResponse;
       }

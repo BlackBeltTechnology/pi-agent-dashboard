@@ -611,6 +611,51 @@ export interface AccessGrantsConfig {
 }
 
 /**
+ * Dashboard trust → pi `project_trust` mirror. `enabled` (default true) lets
+ * durably dashboard-trusted folders count as trusted projects for pi sessions on
+ * the same machine; `coverInteractive` (default false) extends that to sessions
+ * not spawned headless by the dashboard; `sources.<id>` enable each durable source
+ * (all on except `accessGrants`). Rollback: `enabled: false` (read live by the
+ * bridge, works with the server down). See change: mirror-dashboard-trust-to-pi.
+ */
+export type PiTrustMirrorSourceId = "worktreeInit" | "workflow" | "pinned" | "folderWorkspaces" | "accessGrants";
+
+export interface PiTrustMirrorConfig {
+  enabled: boolean;
+  coverInteractive: boolean;
+  sources: Record<PiTrustMirrorSourceId, boolean>;
+}
+
+export const PI_TRUST_MIRROR_SOURCE_IDS: readonly PiTrustMirrorSourceId[] = [
+  "worktreeInit",
+  "workflow",
+  "pinned",
+  "folderWorkspaces",
+  "accessGrants",
+];
+
+export const DEFAULT_PI_TRUST_MIRROR: PiTrustMirrorConfig = {
+  enabled: true,
+  coverInteractive: false,
+  sources: { worktreeInit: true, workflow: true, pinned: true, folderWorkspaces: true, accessGrants: false },
+};
+
+export function parsePiTrustMirror(raw: unknown): PiTrustMirrorConfig {
+  const r = (raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {}) as Record<string, unknown>;
+  const src = (r.sources && typeof r.sources === "object" && !Array.isArray(r.sources) ? r.sources : {}) as Record<string, unknown>;
+  const sources = { ...DEFAULT_PI_TRUST_MIRROR.sources };
+  for (const id of PI_TRUST_MIRROR_SOURCE_IDS) {
+    if (typeof src[id] === "boolean") sources[id] = src[id] as boolean;
+  }
+  return {
+    enabled: typeof r.enabled === "boolean" ? r.enabled : DEFAULT_PI_TRUST_MIRROR.enabled,
+    coverInteractive:
+      typeof r.coverInteractive === "boolean" ? r.coverInteractive : DEFAULT_PI_TRUST_MIRROR.coverInteractive,
+    sources,
+  };
+}
+
+/**
  * Agent path gate: asks the operator before pi's read/write/edit tools touch
  * paths outside the session's roots. Default on.
  * `PI_DASHBOARD_AGENT_PATH_GATE=off|on` overrides per process.
@@ -902,6 +947,8 @@ export interface DashboardConfig {
    * See change: add-access-grant-dialog.
    */
   accessGrants: AccessGrantsConfig;
+  /** Dashboard trust → pi project_trust mirror. See change: mirror-dashboard-trust-to-pi. */
+  piTrustMirror: PiTrustMirrorConfig;
   agentPathGate: AgentPathGateConfig;
   /** Per-process bridge activation (see `BridgeActivationConfig`). */
   bridge: BridgeActivationConfig;
@@ -1419,6 +1466,7 @@ const DEFAULTS: DashboardConfig = {
   },
   devBuildOnReload: false,
   accessGrants: { promptEnabled: false },
+  piTrustMirror: { ...DEFAULT_PI_TRUST_MIRROR, sources: { ...DEFAULT_PI_TRUST_MIRROR.sources } },
   agentPathGate: { ...DEFAULT_AGENT_PATH_GATE },
   bridge: { ...DEFAULT_BRIDGE_ACTIVATION },
   defaultModel: "",
@@ -2292,6 +2340,7 @@ export function loadConfig(): DashboardConfig {
             ? parsed.accessGrants.promptEnabled
             : defaults.accessGrants.promptEnabled,
       },
+      piTrustMirror: parsePiTrustMirror(parsed.piTrustMirror),
       agentPathGate: parseAgentPathGate(parsed.agentPathGate),
       bridge: parseBridgeActivation(parsed.bridge),
       knownServers: parseKnownServers(parsed.knownServers),

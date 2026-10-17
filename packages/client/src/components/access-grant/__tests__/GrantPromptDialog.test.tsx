@@ -129,7 +129,9 @@ describe("GrantPromptDialog", () => {
     fireEvent.click(screen.getByTestId("grant-deny"));
     expect(onAnswer.mock.calls).toEqual([
       ["allow-once", "/Users/r/Project/side"],
-      ["allow-always", "/Users/r/Project/side"],
+      // allow-always on a path plane also carries the "Also trust this folder in pi"
+      // choice (a cwd allow-always is a pin: source default on).
+      ["allow-always", "/Users/r/Project/side", true],
       ["deny", "/Users/r/Project/side"],
     ]);
   });
@@ -167,7 +169,7 @@ describe("GrantPromptDialog", () => {
       expect(screen.getByTestId("grant-dialog-selected").textContent).toContain("/Users/r/Documents");
       expect(screen.getByTestId("grant-dialog-consequence").textContent).toContain("/Users/r/Documents");
       fireEvent.click(screen.getByTestId("grant-allow-always"));
-      expect(onAnswer).toHaveBeenCalledWith("allow-always", "/Users/r/Documents");
+      expect(onAnswer).toHaveBeenCalledWith("allow-always", "/Users/r/Documents", false);
     });
 
     it("keeps a deny on the denied subject even when a wider rung is selected", () => {

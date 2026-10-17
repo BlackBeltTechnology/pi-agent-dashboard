@@ -17,13 +17,26 @@ import { createConfigWriter } from "./config-writer.js";
 import { createEffectiveViewReader } from "./effective-view.js";
 import { defaultLayerPaths, type LayerPaths } from "./layers.js";
 import { createLiveStateReader } from "./live-state.js";
-import type { ConfigIO, LiveState, McpClientConfigService, PiMcpListRunner, Scope } from "./types.js";
+import type { ConfigIO, LiveState, McpClientConfigService, PiMcpListRunner, ProjectTrustSource, Scope } from "./types.js";
 
 export interface McpClientConfigServiceDeps {
   configIO: ConfigIO;
   knownCwds: () => string[];
   /** pi's project-trust rule (`host.isProjectTrusted`). Absent → untrusted. */
   isProjectTrusted?: (cwd: string) => boolean;
+  /**
+   * Who decided the trust (`host.projectTrustSource`). Absent → the view omits the
+   * source and a dashboard-only trust cannot be told apart (no "not checked by pi").
+   */
+  projectTrustSource?: (cwd: string) => ProjectTrustSource | undefined;
+  /** `piTrustMirror.coverInteractive` (for the folder page's scope sentence). */
+  coverInteractive?: () => boolean;
+  /**
+   * Trust by pi alone (ignores dashboard trust) — decides which GLOBAL writes
+   * collide with a folder entry, so dashboard trust never changes that set.
+   * Absent → derived from `isProjectTrusted` + `projectTrustSource`.
+   */
+  isProjectTrustedByPi?: (cwd: string) => boolean;
   /** Layer paths. Defaults to `$PI_CODING_AGENT_DIR/mcp.json` + `<cwd>/.pi/mcp.json`. */
   paths?: LayerPaths;
   /** Runs `pi mcp list --json`. Absent → live state reports `spawn-failed`. */
@@ -39,18 +52,36 @@ export interface McpClientRuntime extends McpClientConfigService {
   getLiveState(scope: Scope, opts?: { fresh?: boolean }): Promise<LiveState>;
 }
 
+/** Live state of a folder server trusted only by the dashboard. */
+export const NOT_CHECKED_BY_PI = "not-checked-by-pi";
+export const DASHBOARD_ONLY_NOTE =
+  "This folder is trusted by the dashboard only: running `pi mcp list` here (outside the dashboard) reports its servers as not loaded, because that command reads only pi's own trust store.";
+
+/** A source that is not pi's own decision (dashboard trust is not pi trust). */
+function trustedByPiOnly(deps: McpClientConfigServiceDeps): ((cwd: string) => boolean) | undefined {
+  if (deps.isProjectTrustedByPi) return deps.isProjectTrustedByPi;
+  const trusted = deps.isProjectTrusted;
+  if (!trusted) return undefined;
+  const source = deps.projectTrustSource;
+  return (cwd) => trusted(cwd) && source?.(cwd)?.kind !== "dashboard";
+}
+
 export function createMcpClientConfigService(deps: McpClientConfigServiceDeps): McpClientRuntime {
   const paths = deps.paths ?? defaultLayerPaths();
+  const piOnly = trustedByPiOnly(deps);
   const writer = createConfigWriter({
     configIO: deps.configIO,
     paths,
     knownCwds: deps.knownCwds,
-    ...(deps.isProjectTrusted ? { isProjectTrusted: deps.isProjectTrusted } : {}),
+    // Global-write collisions keep pi-only trust: dashboard trust never changes them.
+    ...(piOnly ? { isProjectTrusted: piOnly } : {}),
   });
   const viewReader = createEffectiveViewReader({
     configIO: deps.configIO,
     paths,
     ...(deps.isProjectTrusted ? { isProjectTrusted: deps.isProjectTrusted } : {}),
+    ...(deps.projectTrustSource ? { projectTrustSource: deps.projectTrustSource } : {}),
+    ...(deps.coverInteractive ? { coverInteractive: deps.coverInteractive } : {}),
   });
   const runner: PiMcpListRunner =
     deps.runner ?? (() => Promise.reject(new Error("no pi mcp list runner configured")));
@@ -92,7 +123,19 @@ export function createMcpClientConfigService(deps: McpClientConfigServiceDeps): 
     getLiveState(scope, opts) {
       const cwd = scope.kind === "project" ? scope.cwd : scratchCwd();
       if (scope.kind === "project") writer.targetPath(scope); // admission
-      return live.read(cwd, opts);
+      const read = live.read(cwd, opts);
+      if (scope.kind !== "project" || deps.projectTrustSource?.(cwd)?.kind !== "dashboard") return read;
+      // Trusted ONLY by the dashboard: `pi mcp list` reads just pi's own trust store
+      // (no approve flag), so it reports the folder's servers as not loaded. Report
+      // them as "not checked by pi" instead of disconnected.
+      return read.then((r) => {
+        if (!r.ok) return r;
+        const servers = { ...r.servers };
+        for (const s of viewReader.getEffectiveView(scope).servers) {
+          if (s.provenance === "pi-folder" && s.active) servers[s.name] = { state: NOT_CHECKED_BY_PI, tools: 0 };
+        }
+        return { ...r, servers, note: DASHBOARD_ONLY_NOTE };
+      });
     },
   };
 }

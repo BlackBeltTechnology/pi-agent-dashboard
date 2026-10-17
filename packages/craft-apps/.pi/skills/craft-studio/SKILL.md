@@ -45,7 +45,7 @@ formats below — no app embeds another.
 ## Workflow skills — chains of apps for whole jobs
 
 When a job spans several apps or sibling skills, use a workflow skill instead of improvising the chain. Each
-one has a step table (input → output), a `pi-craft verify` gate after every media step, a step 0 that checks
+one has a step table (input → output), a `pi-craft verify` gate after every artefact step, a step 0 that checks
 which sibling skills are available, and the **Craft jobs** convention below for resuming.
 
 | Workflow skill | Use it for | Drives |
@@ -54,6 +54,11 @@ which sibling skills are available, and the **Craft jobs** convention below for 
 | `craft-beat-cut` | cut footage on the music's downbeats with camera punches on the hits (`music-hits/1`) | FilmCraft, SoundCraft |
 | `craft-podcast-master` | recording → per-speaker tracks, cleanup, loudness-targeted master, optional chapters | SoundCraft (+ FilmCraft mux) |
 | `craft-motion-titles` | names / lines from an SRT or speaker-id → lower-third / title alpha overlays on a video | EffectCraft, FilmCraft |
+| `craft-brand-kit` | a logo (svg, or a raster traced to vector) → colour/mono variants, png/tiff export set, one-page brand sheet, pdf package | VectorCraft, PhotoCraft, DesignCraft, PdfCraft |
+| `craft-doc-publish` | Markdown + frontmatter + the company template → templated DOCX and PDF with TOC, images and Mermaid, optional package/protect | `pi-craft doc prepare`, WordCraft, PdfCraft |
+| `craft-deck` | an outline → DeckCraft slides (+ transition previews) → pdf handout; or an HTML deck with `deck3d` instead | DeckCraft, PdfCraft |
+| `craft-photo-pipeline` | RAW/photo → LightCraft develop + denoise → PhotoCraft retouch → web/print export set | LightCraft, PhotoCraft |
+| `craft-data-visual` | data → GridCraft workbook with a formula-error read-back → chart → infographic → slide | GridCraft, VectorCraft, DesignCraft, DeckCraft |
 
 Two splits to remember:
 
@@ -63,6 +68,12 @@ Two splits to remember:
   (`npx hyperframes render . --format mov`), otherwise places it as a full-frame segment.
 - **`craft-beat-cut` vs `hyperframes-showreel`.** Beat-synced cuts of a *footage timeline* → `craft-beat-cut`
   (FilmCraft). A composition-driven showreel with scenes on the beat grid → `hyperframes-showreel`.
+
+- **`craft-doc-publish` vs `document-converter`.** Markdown → a templated DOCX/PDF is `craft-doc-publish` by default (no
+  Docker; it keeps the template's cover, headers and footers). `document-converter` stays the choice for ingest and OCR of
+  existing PDF/DOCX/PPTX/XLSX, round-trip editing (extract a DOCX to Markdown, edit, merge back), PlantUML and table-width
+  profiles — and is the fallback renderer when WordCraft cannot be provisioned.
+- **`craft-deck` renderers.** DeckCraft (`pptx`/`pdf`) or `deck3d` (an HTML deck) — alternatives, never converted into each other.
 
 Workflows reference sibling skills softly: if a sibling is not installed they name the package that provides
 it and either offer a degraded path or stop.

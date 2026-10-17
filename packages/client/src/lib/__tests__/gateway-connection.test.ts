@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { gatewayIndicator, gatewayToggle, safeApprovalUrl } from "../gateway/gateway-connection.js";
+import { gatewayToggle, remoteAccessIndicator, safeApprovalUrl } from "../gateway/gateway-connection.js";
 
 describe("gatewayToggle — Setup Connect/Disconnect state", () => {
   it("offers Disconnect while this server holds any provider, listing them", () => {
@@ -63,24 +63,52 @@ describe("gatewayToggle rows — per-provider result", () => {
   });
 });
 
-describe("gatewayIndicator — toolbar colour/title across ALL providers", () => {
-  it("all planned connected → ok", () => {
-    expect(gatewayIndicator({ status: "active", url: "https://x", serverOs: "d", gateway: { connected: 2, expected: 2 } }))
-      .toMatchObject({ tone: "ok", title: "Gateway: 2/2 connected (click to open)" });
+describe("remoteAccessIndicator — toolbar dot + title (test-plan #E11)", () => {
+  const counts = (connected: number, expected: number, status: "active" | "inactive" = "inactive") =>
+    ({ status, ...(status === "active" ? { url: "https://x" } : {}), serverOs: "d", gateway: { connected, expected } }) as never;
+  const failedDetail = {
+    status: "active",
+    url: "https://x",
+    serverOs: "d",
+    gateway: { connected: 1, expected: 2 },
+    providers: [
+      { provider: "zrok", primary: true, state: "connected" },
+      { provider: "tailscale", primary: false, state: "failed", error: "boom" },
+    ],
+  } as never;
+
+  it("precedence: failed > partial > internet > network > local", () => {
+    expect(remoteAccessIndicator(failedDetail, "0.0.0.0").tone).toBe("failed");
+    expect(remoteAccessIndicator(counts(1, 2), "127.0.0.1").tone).toBe("partial");
+    expect(remoteAccessIndicator(counts(2, 2, "active"), "127.0.0.1").tone).toBe("internet");
+    expect(remoteAccessIndicator(counts(0, 1), "0.0.0.0")).toEqual({ tone: "network", title: "Remote access: listening on the network" });
+    expect(remoteAccessIndicator(counts(0, 1), "127.0.0.1")).toEqual({ tone: "local", title: "Remote access: this computer only" });
   });
-  it("some connected → partial", () => {
-    expect(gatewayIndicator({ status: "inactive", serverOs: "d", gateway: { connected: 1, expected: 2 } }))
-      .toMatchObject({ tone: "partial", title: "Gateway: 1/2 connected (click to open)" });
+
+  it("an unreadable bind host is unknown, not 'this computer only'", () => {
+    expect(remoteAccessIndicator(counts(0, 1), null)).toEqual({ tone: "local", title: "Remote access: network status unknown" });
+    // tunnel states still drive the dot while the bind is unknown
+    expect(remoteAccessIndicator(counts(2, 2, "active"), null).title).toBe("Remote access: internet on");
   });
-  it("none connected → off", () => {
-    expect(gatewayIndicator({ status: "inactive", serverOs: "d", gateway: { connected: 0, expected: 2 } }).tone).toBe("off");
+
+  it("a dropped provider is failed too; a tailscale-only gateway is internet", () => {
+    const dropped = { ...(failedDetail as object), providers: [{ provider: "zrok", primary: true, state: "dropped" }] } as never;
+    expect(remoteAccessIndicator(dropped, "127.0.0.1").tone).toBe("failed");
+    expect(remoteAccessIndicator({ status: "unavailable", serverOs: "d", gateway: { connected: 1, expected: 1 } }, "127.0.0.1").tone).toBe("internet");
   });
-  it("tailscale-only up while zrok binary is missing is still ok, not 'not set up'", () => {
-    expect(gatewayIndicator({ status: "unavailable", serverOs: "d", gateway: { connected: 1, expected: 1 } }).tone).toBe("ok");
+
+  it("older servers without counts fall back to the zrok status", () => {
+    expect(remoteAccessIndicator({ status: "active", url: "https://x", serverOs: "d" }, "127.0.0.1").tone).toBe("internet");
+    expect(remoteAccessIndicator(null, "127.0.0.1").tone).toBe("local");
   });
-  it("older server without counts falls back to the zrok status", () => {
-    expect(gatewayIndicator({ status: "active", url: "https://x", serverOs: "d" }).tone).toBe("ok");
-    expect(gatewayIndicator({ status: "unavailable", serverOs: "d" }).tone).toBe("unset");
-    expect(gatewayIndicator(null).tone).toBe("unset");
+
+  it("treats malformed 127.x hosts as non-loopback, like the step engine", () => {
+    expect(remoteAccessIndicator(counts(0, 1), "127.999.999.999").tone).toBe("network");
+    expect(remoteAccessIndicator(counts(0, 1), "127.0.0.2").tone).toBe("local");
+  });
+
+  it("appends the waiting-device count", () => {
+    expect(remoteAccessIndicator(counts(0, 1), "127.0.0.1", 1).title).toBe("Remote access: this computer only, 1 device waiting");
+    expect(remoteAccessIndicator(counts(0, 1), "127.0.0.1", 2).title).toBe("Remote access: this computer only, 2 devices waiting");
   });
 });

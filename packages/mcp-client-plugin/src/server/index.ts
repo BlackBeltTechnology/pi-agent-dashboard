@@ -14,12 +14,15 @@ import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin
 import type { IndeterminateInfo } from "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js";
 import { createRealConfigIO } from "../core/config-io.js";
 import { createMcpClientConfigService } from "../core/service.js";
+import type { ProjectTrustSource } from "../core/types.js";
 import { createPiMcpListRunner } from "./pi-runner.js";
 import { mountMcpClientRoutes } from "./routes.js";
 
 const SERVICE_KEY = "mcp-client.config";
 const HOST_KNOWN_FOLDERS = "host.knownFolderCwds";
 const HOST_PROJECT_TRUST = "host.isProjectTrusted";
+const HOST_PROJECT_TRUST_SOURCE = "host.projectTrustSource";
+const HOST_COVER_INTERACTIVE = "host.piTrustCoverInteractive";
 const HOST_CWD_ADMISSION_LOG = "host.cwdAdmissionOnIndeterminate";
 
 async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
@@ -30,10 +33,16 @@ async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
   if (!hostTrust) {
     ctx.logger.warn(`mcp-client: host service '${HOST_PROJECT_TRUST}' is unavailable — every project's .pi/mcp.json is shown as untrusted`);
   }
+  // Optional additive disclosure: who decided the trust, and whether dashboard
+  // trust also covers interactive pi. See change: mirror-dashboard-trust-to-pi.
+  const trustSource = ctx.consume<(cwd: string) => ProjectTrustSource | undefined>(HOST_PROJECT_TRUST_SOURCE);
+  const coverInteractive = ctx.consume<() => boolean>(HOST_COVER_INTERACTIVE);
   const runtime = createMcpClientConfigService({
     configIO: createRealConfigIO(),
     knownCwds,
     ...(hostTrust ? { isProjectTrusted: (cwd: string) => hostTrust(cwd) } : {}),
+    ...(trustSource ? { projectTrustSource: (cwd: string) => trustSource(cwd) } : {}),
+    ...(coverInteractive ? { coverInteractive: () => coverInteractive() } : {}),
     runner: createPiMcpListRunner(),
   });
 

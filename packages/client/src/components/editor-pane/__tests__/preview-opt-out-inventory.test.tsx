@@ -33,6 +33,7 @@ import { EmlPreview } from "../../preview/EmlPreview.js";
 import { HtmlPreview } from "../../preview/HtmlPreview.js";
 import { ImagePreview } from "../../preview/ImagePreview.js";
 import { MarkdownPreview } from "../../preview/MarkdownPreview.js";
+import { MermaidApplyFix } from "../../preview/MermaidApplyFix.js";
 import { PptxPreview } from "../../preview/PptxPreview.js";
 import { SpreadsheetPreview } from "../../preview/SpreadsheetPreview.js";
 import { VideoPreview } from "../../preview/VideoPreview.js";
@@ -102,6 +103,15 @@ const CASES: Case[] = [
   { file: "MarkdownViewer.tsx", el: () => <MarkdownViewer {...vp("a.md", "markdown")} /> },
   { file: "MermaidViewer.tsx", el: () => <MermaidViewer {...vp("a.mmd")} /> },
   { file: "MonacoBuffer.tsx", el: () => <MonacoBuffer {...vp("a.ts")} /> },
+  // "Apply fix to file": its md-read re-read goes through `usePreviewFetch` (opted out);
+  // the write POST is an exempt route. See change: add-preview-apply-fix-to-file.
+  {
+    file: "MermaidApplyFix.tsx",
+    el: () => (
+      <MermaidApplyFix source={{ cwd: "/proj", path: "a.md", kind: "md", reload: () => {} }} ordinal={0} originalCode="x" fixedSource="y" />
+    ),
+    act: (c) => fireEvent.click(c.querySelector('[data-testid="mermaid-apply-fix-button"]') as HTMLElement),
+  },
 ];
 
 const sources = DIRS.flatMap((dir) =>

@@ -4,3 +4,4 @@ REST routes: git branches, checkout, init, stash-pop. Adds `GET /api/git/head`, 
  Replaces `isMainWorktree` with tri-state `classifyRemoval`; memoizes resolution per distinct cwd per request; threads resolved `mainPath` into `removeWorktree`; clamps batch size via `resolveBatchCap` against `DashboardConfig.removeBatchCap`; returns HTTP 400 on `not_a_worktree` for merge and diff-stat endpoints. See change: apply-checkout-root-to-worktree-ops.
 
 After OK `/api/git/worktree/push` / `/pr` → `git_info_refresh {reason:"push"|"pr"}` via `sendToSession` to active sessions at/under the realpath'd worktree (`activeSessionsUnderResolved`). Merge never refreshes. See change: redesign-composer-session-strip.
+`POST /api/git/worktree/init` accepts `piTrust`; project-scope trust via `mirror.grant` (strict store write). See change: mirror-dashboard-trust-to-pi.

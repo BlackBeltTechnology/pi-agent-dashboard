@@ -724,6 +724,16 @@ export const SCENARIOS: Record<string, Scenario> = {
     expect: { text: "hello.txt" },
   },
 
+  // Same as `text-realfile`, but links the mermaid apply-fix markdown fixture so the
+  // FilePreviewOverlay (md surface) opens on a broken diagram. See change:
+  // add-preview-apply-fix-to-file.
+  "text-realfile-applyfix": {
+    script: [
+      fauxAssistantMessage([fauxText("preview /fixtures/sample-git/apply-fix.md for the broken diagram")]),
+    ],
+    expect: { text: "apply-fix.md" },
+  },
+
   // Assistant text with an inline-code span carrying a file path + a URL.
   // Inline code is linkified (markdown does not autolink inside code), so this
   // renders a real FileLink (button) and UrlLink (anchor) — the surfaces whose

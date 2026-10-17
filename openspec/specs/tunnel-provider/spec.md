@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change add-tunnel-providers. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Provider abstraction
 The tunnel core SHALL expose a `TunnelProvider` interface so a tunnel can be created by any of
 several providers (zrok, ngrok, tailscale, zerotier) through one seam. Provider-neutral
@@ -305,19 +307,22 @@ a memo — zrok and ngrok both do today — not only the one that surfaced the d
 ### Requirement: Readiness is polled only while the Gateway dialog is open
 Readiness evaluation shells out per provider (`which`, plus `zerotier-cli listnetworks` and
 `tailscale serve status --json`), so it SHALL NOT run unconditionally in the background. The client
-SHALL poll every 5 seconds while the Gateway dialog is open, evaluate once immediately on
-open, and stop polling when the dialog closes.
+SHALL evaluate readiness once immediately when the Remote access dialog (the former Gateway dialog)
+opens and once each time the operator returns to its landing, so the landing and task hints are
+current, and SHALL poll every 5 seconds only while a
+provider-dependent step (Choose provider, Install, Enable, Go online) is the current step. Polling
+SHALL stop when no such step is current and when the dialog closes.
 
 A poll SHALL be skipped while a previous evaluation is still in flight, so a slow provider
 CLI cannot queue overlapping subprocess batches.
 
 #### Scenario: Poll starts on open
-- **WHEN** the Gateway dialog opens
+- **WHEN** the Remote access dialog opens
 - **THEN** readiness SHALL be evaluated immediately
-- **AND** re-evaluated every 5 seconds thereafter
+- **AND** re-evaluated every 5 seconds thereafter while a provider-dependent step is current
 
 #### Scenario: Poll stops on close
-- **WHEN** the Gateway dialog closes
+- **WHEN** the Remote access dialog closes
 - **THEN** no further readiness evaluation SHALL be scheduled
 
 #### Scenario: Overlapping polls are suppressed
@@ -329,9 +334,14 @@ CLI cannot queue overlapping subprocess batches.
 - **WHEN** the user activates the refresh control
 - **THEN** a readiness evaluation SHALL run immediately without waiting for the next tick
 
+#### Scenario: Landing does not poll
+- **GIVEN** the dialog shows the status landing or a non-provider step
+- **WHEN** 5 seconds pass after the initial evaluation
+- **THEN** no further readiness evaluation SHALL be scheduled
+
 ### Requirement: Setup content is driven by readiness
-The Setup tab SHALL render each provider's readiness state, and the steps it offers for a
-provider SHALL depend on that state rather than being a fixed list. A step whose precondition
+The Gateway settings page and the Remote access dialog's provider steps SHALL render the
+primary provider's readiness state, and the steps they offer for a provider SHALL depend on that state rather than being a fixed list. A step whose precondition
 is already satisfied SHALL NOT be presented as outstanding work.
 
 #### Scenario: Not installed shows the install step
@@ -497,10 +507,10 @@ this server connected; the ungated `/api/tunnel-status` SHALL carry only the cou
 - **THEN** it SHALL be reported `dropped`, not `connected` and not `idle`
 
 #### Scenario: Toggle and toolbar follow the live state
-- **WHEN** the Gateway dialog or page is open
+- **WHEN** the Remote access dialog or the Gateway settings page is open
 - **THEN** the Connect/Disconnect toggle SHALL re-read the status every 5s (skipped while an action is in flight) and list each provider's state and reason
 - **AND** the toggle SHALL offer Disconnect iff this server holds at least one provider, independent of OS-level daemons the readiness board sees
-- **AND** the toolbar indicator SHALL be green when all planned providers are connected, amber when some are, and grey when none
+- **AND** the toolbar indicator SHALL follow the Remote access button states (`qr-code-dialog`): green when all planned providers are connected, amber when some are, red when a planned provider failed or dropped, and otherwise blue when the server listens on the network or grey
 - **AND** a Gateway with a connected non-zrok provider SHALL NOT be reported "not set up" merely because zrok is absent
 
 ### Requirement: Tailnet admin approval is surfaced, never awaited
@@ -534,4 +544,3 @@ fields SHALL be filled; a readiness failure SHALL leave the editor blank.
 - **GIVEN** tailscale is connected with `http://box.tailnet.ts.net:8000` and mesh `100.97.246.31`
 - **WHEN** the editor opens
 - **THEN** URL, `trusted-network` and CIDR `100.97.246.31` SHALL be pre-filled and the draft SHALL be valid as-is
-

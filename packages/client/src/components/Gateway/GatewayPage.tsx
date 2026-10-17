@@ -14,13 +14,15 @@
 import type { TunnelMode } from "@blackbelt-technology/pi-dashboard-shared/tunnel-provider.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
-import { getConfig, putConfig } from "../../lib/gateway/gateway-api.js";
+import { getConfig, getTunnelStatusDetail, putConfig } from "../../lib/gateway/gateway-api.js";
 import type { GatewayProviderId } from "../../lib/gateway/gateway-providers.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
 import { GatewayConnectToggle } from "./GatewayConnectToggle.js";
 import { GatewayEndpoints } from "./GatewayEndpoints.js";
 import { GatewayPairQR } from "./GatewayPairQR.js";
 import { GatewayProviderSection } from "./GatewayProviderSection.js";
+import { GatewayReadinessBoard } from "./GatewayReadinessBoard.js";
+import { GatewayDegradedBanner, GatewayReservedName } from "./GatewayReservedName.js";
 import { GatewaySetupGuide } from "./GatewaySetupGuide.js";
 import { GatewayUrlManager } from "./GatewayUrlManager.js";
 
@@ -32,6 +34,8 @@ export function GatewayPage() {
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [reservedName, setReservedNameState] = useState<string | undefined>();
+  const [degraded, setDegraded] = useState<{ configuredName: string; effectiveName?: string } | undefined>();
   const providerRef = useRef<HTMLDivElement>(null);
 
   // D3a: the page host MUST pass a setup handler — the component's navigate()
@@ -47,12 +51,21 @@ export function GatewayPage() {
   useEffect(() => {
     void getConfig()
       .then((cfg) => {
-        const tunnel = (cfg.tunnel as { provider?: GatewayProviderId; mode?: TunnelMode }) ?? {};
+        const tunnel =
+          (cfg.tunnel as { provider?: GatewayProviderId; mode?: TunnelMode; zrok?: { reservedName?: string } }) ?? {};
         if (tunnel.provider) setProvider(tunnel.provider);
         if (tunnel.mode) setMode(tunnel.mode);
+        setReservedNameState(tunnel.zrok?.reservedName);
       })
       .catch(() => {
         /* keep defaults on load failure */
+      });
+    // Degraded is a server-side stored-vs-served reconciliation, read from the
+    // GATED status twin (the ungated one redacts the configured name).
+    void getTunnelStatusDetail()
+      .then((s) => setDegraded(s?.status === "active" ? s.degraded : undefined))
+      .catch(() => {
+        /* absence of a status is not a degradation */
       });
   }, []);
 
@@ -88,6 +101,14 @@ export function GatewayPage() {
         tabIndex={-1}
         className="outline-none"
       >
+        {/* Readiness + Make-primary live here now that the tabbed dialog is gone.
+            The board polls while this page is mounted. */}
+        <GatewayReadinessBoard
+          active
+          primary={provider}
+          onSelectProvider={(id) => setProvider(id as GatewayProviderId)}
+        />
+        <div className="my-3 h-px bg-[var(--border-primary)]" />
         <GatewayProviderSection
           provider={provider}
           mode={mode}
@@ -101,6 +122,13 @@ export function GatewayPage() {
         <div className="mt-3">
           <GatewayConnectToggle dirty={dirty} />
         </div>
+      </div>
+
+      <div className="mt-3 space-y-3">
+        <GatewayDegradedBanner degraded={degraded} />
+        {provider === "zrok" && (
+          <GatewayReservedName stored={reservedName} onStoredChange={setReservedNameState} disabled={saving} />
+        )}
       </div>
 
       <Divider />

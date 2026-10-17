@@ -116,9 +116,16 @@ export function GrantPromptHost({
       prompt={current}
       now={now}
       queued={queue.length - 1}
-      onAnswer={(verdict, subject) => {
+      onAnswer={(verdict, subject, piTrust) => {
         if (!store.claim(current.promptId)) return;
-        send({ type: "grant_response", promptId: current.promptId, plane: current.plane, subject, verdict });
+        send({
+          type: "grant_response",
+          promptId: current.promptId,
+          plane: current.plane,
+          subject,
+          verdict,
+          ...(piTrust === undefined ? {} : { piTrust }),
+        });
       }}
     />
   );

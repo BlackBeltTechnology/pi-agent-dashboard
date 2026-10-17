@@ -22,6 +22,7 @@
 import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type React from "react";
 import { useMemo, useState } from "react";
+import { useLocation } from "wouter";
 import { isProjectOverride } from "../core/pi-rules.js";
 import type { EffectiveServerView, EffectiveView, Provenance, Scope } from "../core/types.js";
 import { ApiError, convertToOverride, removeServer, saveServer, scopeToWire, setProjectOverride } from "./api.js";
@@ -82,8 +83,67 @@ function NotAllowed(): React.ReactElement {
   );
 }
 
+/** Readable label of a dashboard trust source (mirrors the host's labels). */
+const SOURCE_LABEL: Record<string, string> = {
+  worktreeInit: "worktree-init trust",
+  workflow: "workflow trust",
+  pinned: "pinned folder",
+  folderWorkspaces: "folder workspace",
+  accessGrants: "access grant",
+};
+
+/**
+ * Who trusts this folder, per the host's decision order: pi's trust store (naming
+ * the recorded path), the dashboard (naming source + folder, and the scope), or —
+ * rendered by `UntrustedNotice` — neither. Reports the FOLDER's decision, not a
+ * session's command-line override. See change: mirror-dashboard-trust-to-pi.
+ */
+function TrustBanner({ view }: { view: EffectiveView }): React.ReactElement | null {
+  const t = useT();
+  const source = view.trustSource;
+  if (view.trusted !== true || !source) return null;
+  return (
+    <div
+      data-testid={source.kind === "dashboard" ? "mcp-folder-trusted-dashboard" : "mcp-folder-trusted-pi"}
+      role="status"
+      className="text-[11px] px-2 py-1.5 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)]"
+    >
+      {trustText(source, view.trustCoverInteractive === true, t)}
+    </div>
+  );
+}
+
+/** The folder's trust notice: "who trusts it", or the untrusted notice when nobody does. */
+function TrustNotices({ view }: { view: EffectiveView | null }): React.ReactElement | null {
+  if (!view) return null;
+  return view.trusted === false ? <UntrustedNotice /> : <TrustBanner view={view} />;
+}
+
+function trustText(
+  source: NonNullable<EffectiveView["trustSource"]>,
+  coverInteractive: boolean,
+  t: (key: string, params: undefined, fallback: string) => string,
+): string {
+  if (source.kind === "recorded") return `${t("mcpFolderTrustedByPi", undefined, "pi trusts this folder through")} ${source.path}.`;
+  if (source.kind === "implicit") {
+    return t("mcpFolderTrustedImplicit", undefined, "pi trusts this folder: it has no project resources that need trust.");
+  }
+  if (source.kind === "default") {
+    return t("mcpFolderTrustedDefault", undefined, "pi trusts this folder through its defaultProjectTrust setting.");
+  }
+  const label = SOURCE_LABEL[source.sourceKind] ?? source.sourceKind;
+  const scope = coverInteractive
+    ? t("mcpFolderTrustedScopeAll", undefined, "This applies to every pi session on this machine.")
+    : t("mcpFolderTrustedScopeDashboard", undefined, "This applies to dashboard sessions, not terminal pi.");
+  return (
+    `${t("mcpFolderTrustedByDashboard", undefined, "This folder is trusted by the dashboard")} — ${label} ${source.entry}. ${scope} ` +
+    t("mcpFolderTrustedNotChecked", undefined, "Running pi mcp list here, outside the dashboard, still reports its servers as not loaded.")
+  );
+}
+
 function UntrustedNotice(): React.ReactElement {
   const t = useT();
+  const [, navigate] = useLocation();
   return (
     <div
       data-testid="mcp-folder-untrusted"
@@ -94,7 +154,15 @@ function UntrustedNotice(): React.ReactElement {
         "mcpFolderUntrusted",
         undefined,
         "pi does not trust this project yet: folder servers stay inactive until the project is trusted. Headless sessions the dashboard starts in this folder trust it per run. Editing <cwd>/.pi/mcp.json stays allowed.",
-      )}
+      )}{" "}
+      <button
+        type="button"
+        data-testid="mcp-folder-untrusted-access-link"
+        onClick={() => navigate("/settings/access")}
+        className="underline text-[var(--accent-text,#60a5fa)]"
+      >
+        {t("mcpFolderOpenAccess", undefined, "Settings → Access")}
+      </button>
     </div>
   );
 }
@@ -406,7 +474,7 @@ function FolderMcpPageBody({ cwd }: { cwd: string }): React.ReactElement {
 
   return (
     <div className="space-y-2">
-      {view?.trusted === false && <UntrustedNotice />}
+      <TrustNotices view={view} />
       {actions.actionError && (
         <p
           data-testid="mcp-folder-action-error"

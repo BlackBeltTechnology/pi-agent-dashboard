@@ -5,3 +5,4 @@ Worktree-init hook engine. `readInitHook(repoRoot)` parses `.pi/settings.json#wo
 See change: align-ui-with-theme-tokens. ENOENT fallback line "failed to start".
 
 Hook child env (gate, script run, agent spawn) defaults to `defaultHookEnv()` = `stripDashboardHeapFlag({...process.env})` — drops dashboard's own `--max-old-space-size` stamp + `PI_DASHBOARD_HEAP_FLAG` marker; operator pins + unrelated `NODE_OPTIONS` kept; explicit `opts.env` verbatim. Fixes V8 OOM in `pnpm install`→`vite build` (#820). See change: strip-heap-flag-from-worktree-init.
+Hook types/`normalizeHook`/`hookDefHash` re-exported from shared `worktree-init-hook.ts`. See change: mirror-dashboard-trust-to-pi.

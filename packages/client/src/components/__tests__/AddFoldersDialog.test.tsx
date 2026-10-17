@@ -227,7 +227,7 @@ describe("AddFoldersDialog current-directory self-row", () => {
     await screen.findByTestId("path-picker-self");
     fireEvent.click(screen.getByTestId("path-picker-check-/home/user"));
     fireEvent.click(commit());
-    expect(onPin.mock.calls).toEqual([["/home/user"]]);
+    expect(onPin.mock.calls).toEqual([["/home/user", true]]);
     expect(onCancel).toHaveBeenCalled();
   });
 

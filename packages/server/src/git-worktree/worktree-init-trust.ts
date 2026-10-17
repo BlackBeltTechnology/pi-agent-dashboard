@@ -34,6 +34,15 @@ function trustKey(repoRoot: string, hash: string): string {
   return `${path.resolve(repoRoot)}\u0000${hash}`;
 }
 
+/**
+ * Notified after the persisted store is written. Feeds the pi-trust mirror
+ * snapshot; set once by the server. See change: mirror-dashboard-trust-to-pi.
+ */
+let trustChanged: (() => void) | undefined;
+export function setTrustChangedListener(fn: (() => void) | undefined): void {
+  trustChanged = fn;
+}
+
 /** Trust scope. `session` = memory-only; `project` = persisted JSON store. */
 export type TrustScope = "session" | "project";
 
@@ -58,14 +67,43 @@ function load(): TrustMap {
   return {};
 }
 
-function save(map: TrustMap): void {
+/**
+ * Persist the map. Default: a write failure is warned and swallowed (legacy
+ * behaviour — a grant must not crash a route). `strict` rethrows so a caller that
+ * reports success to the operator (revoking dashboard trust that is mirrored into
+ * pi) can report the failure instead. See change: mirror-dashboard-trust-to-pi.
+ */
+function save(map: TrustMap, strict = false): void {
   const p = storePath();
   try {
     fs.mkdirSync(path.dirname(p), { recursive: true });
     fs.writeFileSync(p, JSON.stringify(map, null, 2), "utf8");
+    try {
+      trustChanged?.();
+    } catch {
+      /* a listener never fails a grant */
+    }
   } catch (err) {
+    if (strict) throw err;
     console.warn(`[worktree-init-trust] failed to persist: ${(err as Error)?.message}`);
   }
+}
+
+/**
+ * The PERSISTED (project-scope) entries as `{ repoRoot, hash }` — never the
+ * in-memory session set (server-lifetime trust does not count toward the pi
+ * mirror). Keys are `path.resolve`d; the mirror translates them to pi's key form.
+ * See change: mirror-dashboard-trust-to-pi.
+ */
+export function listPersistedTrust(): Array<{ repoRoot: string; hash: string }> {
+  const out: Array<{ repoRoot: string; hash: string }> = [];
+  for (const [key, value] of Object.entries(load())) {
+    if (value !== true) continue;
+    const i = key.indexOf("\u0000");
+    if (i <= 0) continue;
+    out.push({ repoRoot: key.slice(0, i), hash: key.slice(i + 1) });
+  }
+  return out;
 }
 
 /**
@@ -84,7 +122,12 @@ export function isTrusted(repoRoot: string, hash: string): boolean {
  * and any omitted-field request preserves today's persistent behavior). A
  * `session` grant adds to the in-memory set and never writes disk.
  */
-export function recordTrust(repoRoot: string, hash: string, scope: TrustScope = "project"): void {
+export function recordTrust(
+  repoRoot: string,
+  hash: string,
+  scope: TrustScope = "project",
+  opts: { strict?: boolean } = {},
+): void {
   const key = trustKey(repoRoot, hash);
   if (scope === "session") {
     sessionTrust.add(key);
@@ -92,7 +135,7 @@ export function recordTrust(repoRoot: string, hash: string, scope: TrustScope = 
   }
   const map = load();
   map[key] = true;
-  save(map);
+  save(map, opts.strict === true);
 }
 
 /**
@@ -115,7 +158,7 @@ export function recordTrust(repoRoot: string, hash: string, scope: TrustScope = 
  * true — the button appeared to work and revoked nothing (found by the task 8.7
  * review; the route comment already claimed this semantics, unimplemented).
  */
-export function revokeTrust(repoRoot: string, hash?: string): void {
+export function revokeTrust(repoRoot: string, hash?: string, opts: { strict?: boolean } = {}): void {
   const matches = (key: string): boolean =>
     hash ? key === trustKey(repoRoot, hash) : key.startsWith(trustKey(repoRoot, ""));
 
@@ -129,5 +172,5 @@ export function revokeTrust(repoRoot: string, hash?: string): void {
       changed = true;
     }
   }
-  if (changed) save(map);
+  if (changed) save(map, opts.strict === true);
 }
