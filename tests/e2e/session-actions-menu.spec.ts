@@ -372,7 +372,8 @@ test.describe("session actions menu (L3)", () => {
 
     // Open a modal over it WITHOUT a mousedown (which would dismiss the popover).
     await page.getByTestId("folder-spawn-worktree-btn").first().evaluate((el) => (el as HTMLElement).click());
-    await expect(page.getByRole("dialog").first()).toBeVisible({ timeout: 15_000 });
+    // The popover itself carries role="dialog": wait for the MODAL one.
+    await expect(page.locator("[role='dialog'][aria-modal='true']").first()).toBeVisible({ timeout: 15_000 });
     const pb = (await popover.boundingBox())!;
     const owner = await page.evaluate(([x, y]) => {
       const el = document.elementFromPoint(x, y);
