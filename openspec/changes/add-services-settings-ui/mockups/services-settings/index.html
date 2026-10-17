@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Settings · Services — mockup (add-services-settings-ui)</title>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="app.css" />
+</head>
+<body>
+  <!-- Mockup-only controls. Not part of the proposed UI. -->
+  <div class="mockbar" role="region" aria-label="Mockup controls">
+    <span>Mockup</span>
+    <label>Theme
+      <select id="mock-theme">
+        <option value="dark">Base dark</option>
+        <option value="light">Base light</option>
+        <option value="nord">Nord dark</option>
+      </select>
+    </label>
+    <button type="button" id="mock-role" class="focus-ring">Caller: operate</button>
+    <span id="mock-ping" aria-live="off">ping: –</span>
+  </div>
+
+  <div class="settings" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+    <header class="settings-header">
+      <button type="button" class="icon-btn focus-ring" aria-label="Back">←</button>
+      <h1 id="settings-title">Settings</h1>
+      <button type="button" class="btn-secondary focus-ring" disabled>Restart</button>
+    </header>
+    <div class="settings-body">
+      <nav class="rail" aria-label="Settings" data-testid="settings-nav-rail" id="rail"></nav>
+      <main class="content" id="content" tabindex="-1"></main>
+    </div>
+  </div>
+
+  <div id="dialog-root"></div>
+  <div class="sr-only" aria-live="polite" id="announcer"></div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
