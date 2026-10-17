@@ -15,8 +15,10 @@ Standalone pi package (skills + CLIs). No dashboard client/server code. Supersed
 pi install npm:@blackbelt-technology/pi-dashboard-craft-apps
 ```
 
-Ships 14 skills (`craft-studio`, `photocraft`, `vectorcraft`, `filmcraft`, `lightcraft`, `pdfcraft`, `effectcraft`,
-`designcraft`, `figcraft`, `wordcraft`, `soundcraft`, `deckcraft`, `cadcraft`, `gridcraft`) and the bins `pi-craft` and
+Ships 18 skills — the router and one per app (`craft-studio`, `photocraft`, `vectorcraft`, `filmcraft`, `lightcraft`,
+`pdfcraft`, `effectcraft`, `designcraft`, `figcraft`, `wordcraft`, `soundcraft`, `deckcraft`, `cadcraft`, `gridcraft`)
+plus four media workflows (`craft-video-post`, `craft-beat-cut`, `craft-podcast-master`, `craft-motion-titles`;
+see [Workflow skills](#workflow-skills)) — and the bins `pi-craft` and
 `pi-photocraft` (plain-JS launchers over esbuild bundles — they run from a plain shell, including an agent's bash
 tool). Depends on `@blackbelt-technology/pi-dashboard-nano-banana` for `pi-photocraft replace-region`.
 `ffmpeg`/`ffprobe` are optional system tools used only by `pi-craft verify` media checks.
@@ -59,6 +61,26 @@ pi-craft verify title.mov --alpha --frame-diff 3:plain.mp4\>0.5
 pi-craft verify mix.wav --loudness -16±1 --max-peak -1
 pi-craft verify report.pdf --pages 12 --text-contains "Quarterly"
 ```
+
+## Workflow skills
+
+Four skills chain the apps with the sibling skills for whole media jobs. Each has a step table (input → output), a
+`pi-craft verify` gate after every media step (a documented `check:` snippet for srt/json artefacts), a step 0 that
+checks which sibling skills are installed (soft references — nothing is required), and the **Craft jobs** resume
+convention defined once in the `craft-studio` router (`craft-jobs/<slug>/NN-<step>/`, `job.json`).
+
+| Skill | Pipeline | Siblings (package) |
+|---|---|---|
+| `craft-video-post` | footage → (redaction) → alpha overlay → FilmCraft assembly → captions → SoundCraft mix → mp4 | `veo-generator`, `footage-redaction`, `hyperframes-showreel` (`video-production`), `video-transcription` |
+| `craft-beat-cut` | music map → music edit → hits → cuts on downbeats → punches → mp4 | `music-analysis`, `music-edit-to-length`, `beat-sync-video` (`music-production`, essential) |
+| `craft-podcast-master` | recording → stems per speaker → SoundCraft mix → `loudnorm` master → chapters → mux | `video-transcription`, `speaker-id` (`video-transcription`) |
+| `craft-motion-titles` | names from SRT → EffectCraft template alpha renders → FilmCraft overlay | `speaker-id`, `video-transcription` |
+
+Probed facts the skills rely on (FilmCraft 0.8.0, SoundCraft 0.7.0, EffectCraft 0.10.0, HyperFrames 0.8.168): captions are
+burned in with `export --settings '{"burnCaptions":true}'` after `captions.import`; an overlay needs a V2 source patch
+(`timeline.setTargeting … sourcePatch`); SoundCraft has no LUFS target (ffmpeg two-pass `loudnorm`); a HyperFrames
+`--format mov` render carries alpha; EffectCraft template projects include an opaque "Preview Background" solid.
+Workflow recipes run with `CRAFT_E2E=1 CRAFT_WORKFLOW_E2E=1` (needs `ffmpeg` and `jq`).
 
 ## Environment
 
@@ -110,6 +132,7 @@ on Linux), else the portable archive.
 ```bash
 npx vitest run packages/craft-apps                                   # unit + packaging + skill lint/drift (fake release server)
 CRAFT_E2E=1 CRAFT_HOME=/tmp/craft-home npx vitest run packages/craft-apps/src/__tests__/{real-apps,skills-recipes,skills-drift}.test.ts
+CRAFT_E2E=1 CRAFT_WORKFLOW_E2E=1 CRAFT_HOME=/tmp/craft-home npx vitest run packages/craft-apps/src/__tests__/skills-recipes.test.ts   # + workflow recipes
 CRAFT_HOME=/tmp/craft-home node --import tsx scripts/record-fixtures.mjs   # re-record src/__tests__/fixtures/commands/*.json
 PHOTOCRAFT_E2E=1 PHOTOCRAFT_BIN=/path/to/photocraft-cli npx vitest run packages/craft-apps real-binary   # region-replace
 node scripts/build.mjs                                               # dist/craft.js + dist/photocraft.js (also runs on prepack)

@@ -7,7 +7,7 @@
 Four workflow skills shipped by `packages/craft-apps` (Layer 2 over the router + app skills):
 
 - **`craft-video-post`** (W1) — footage/Veo clips → optional `footage-redaction` → FilmCraft assembly (sequence, cuts, alpha overlays on V2+) → captions from a `video-transcription` SRT (FilmCraft `captions.*` track when probe 0.1 confirms it, else EffectCraft-rendered caption overlays) → SoundCraft mix → FilmCraft delivery export. HyperFrames (`hyperframes-showreel`) stays the choice for code-driven motion; when probe 0.5 confirms an alpha render it is overlaid in FilmCraft, otherwise it is placed as a full-frame segment.
-- **`craft-beat-cut`** (W2) — `music-analysis` → `music-edit-to-length` → `beat-sync-video` hits (`music-hits/1`) → FilmCraft edits on downbeats → EffectCraft punch-ins → delivery export. Footage-timeline counterpart of `hyperframes-showreel`'s beat-synced composition; the router states the split.
+- **`craft-beat-cut`** (W2) — `music-analysis` → `music-edit-to-length` → `beat-sync-video` hits (`music-hits/1`) → FilmCraft edits on downbeats → FilmCraft scale-keyframe punch-ins on the hits (probe 0.3; no EffectCraft round trip) → delivery export. Footage-timeline counterpart of `hyperframes-showreel`'s beat-synced composition; the router states the split.
 - **`craft-podcast-master`** (W3) — recording → `video-transcription` + `speaker-id` → SoundCraft per-speaker tracks, cleanup, bounce → loudness target (ffmpeg `loudnorm`; SoundCraft only normalises to peak) → `pi-craft verify --loudness`; optional chapter markers from the SRT.
 - **`craft-motion-titles`** (W4) — names/lines from SRT or speaker-id → EffectCraft project from a template (`templates.*` / `file.newFromTemplate` / `essential.importTemplate`, exact path fixed by probe 0.4) with values set via `describe`-discovered commands → `render --format prores --prores 4444 --channels rgba` → FilmCraft overlay.
 
@@ -23,7 +23,7 @@ Every workflow: a step table with input/output file contract, a `pi-craft verify
 
 ## Impact
 
-- Code: 4 new `SKILL.md` under `packages/craft-apps/.pi/skills/` (+ at most one small helper script under `.pi/skills/craft-beat-cut/scripts/`, only if probe 0.3 shows the `music-hits/1` → FilmCraft edit translation cannot be expressed reliably by hand); `package.json` `pi.skills` (14 → 18); `craft-studio` router: workflow table + "Craft jobs" section.
+- Code: 4 new `SKILL.md` under `packages/craft-apps/.pi/skills/` (no helper script: probe 0.3 showed the `music-hits/1` → FilmCraft edit translation is expressible as `jq` recipes); `package.json` `pi.skills` (14 → 18); `craft-studio` router: workflow table + "Craft jobs" section.
 - Tests that pin the skill set change: `packages/craft-apps/src/__tests__/helpers/skills.ts` (new `WORKFLOW_SKILL_NAMES`; `SKILL_NAMES` stays router + apps), `packaging.test.ts` (14 → 18 declared / packed), `skills-recipes.test.ts` (workflow recipes behind a separate opt-in); a separate workflow lint set is added to `skills.test.ts`.
 - Sibling change `add-craft-office-workflows` now depends on this change (its proposal is updated).
 - Depends on: `add-craft-apps-core` (landed).
