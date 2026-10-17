@@ -1,0 +1,90 @@
+{
+  "name": "@blackbelt-technology/pi-dashboard-obs-studio-plugin",
+  "version": "0.9.0",
+  "description": "OBS Studio for pi agents and the dashboard \u2014 detect/install, obs-websocket provisioning as a managed service, the pi-obs CLI and skill, and a remote scene/virtual-camera/record panel.",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BlackBeltTechnology/pi-agent-dashboard",
+    "directory": "packages/obs-studio-plugin"
+  },
+  "bin": {
+    "pi-obs": "bin/pi-obs.mjs"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/client/index.tsx",
+      "default": "./src/client/index.tsx"
+    },
+    "./client": {
+      "types": "./src/client/index.tsx",
+      "default": "./src/client/index.tsx"
+    },
+    "./server": {
+      "types": "./src/server/index.ts",
+      "default": "./src/server/index.ts"
+    }
+  },
+  "files": [
+    "bin/",
+    "src/",
+    ".pi/",
+    "!**/AGENTS.md",
+    "!**/*.AGENTS.md",
+    "!**/__tests__",
+    "!**/*.test.ts",
+    "!**/*.test.tsx"
+  ],
+  "pi": {
+    "skills": [
+      ".pi/skills/obs-studio"
+    ]
+  },
+  "pi-dashboard-plugin": {
+    "id": "obs-studio",
+    "displayName": "OBS Studio",
+    "i18nCatalog": "catalog",
+    "priority": 215,
+    "client": "./src/client/index.tsx",
+    "server": "./src/server/index.ts",
+    "claims": [
+      {
+        "slot": "settings-section",
+        "component": "ObsSettings",
+        "tab": "general"
+      },
+      {
+        "slot": "shell-overlay-route",
+        "component": "ObsAppClaim",
+        "path": "/obs/*?",
+        "depth": 2,
+        "parentPath": "/settings/plugins/obs-studio",
+        "presentation": "content"
+      }
+    ]
+  },
+  "peerDependencies": {
+    "fastify": "^5.0.0",
+    "react": ">=18.0.0",
+    "react-dom": ">=18.0.0"
+  },
+  "dependencies": {
+    "@blackbelt-technology/dashboard-plugin-runtime": "^0.9.0",
+    "@blackbelt-technology/pi-dashboard-app-kit": "^0.9.0",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.9.0",
+    "@fastify/rate-limit": "^11.2.0",
+    "obs-websocket-js": "^5.0.6",
+    "wouter": "^3.9.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "ws": "^8.18.0"
+  }
+}

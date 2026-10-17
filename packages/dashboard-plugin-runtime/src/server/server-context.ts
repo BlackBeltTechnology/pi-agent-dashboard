@@ -1285,6 +1285,13 @@ export interface PluginIdentitySeam {
   authorize(principal: Principal, action: string, resource: HostResource): Promise<boolean>;
   /** Per-user storage `<plugin data>/users/<sha256(iss,sub)>` (created 0700). */
   userDataDir(principal: Principal): string;
+  /**
+   * Would this plugin route request pass the host's `/api/services` mutation check
+   * (operate bearer, operator session/principal, or locally trusted caller, strict-mode
+   * aware)? Read-only; grants nothing. Optional: absence MUST be treated as refusal.
+   * See change: add-obs-studio-plugin (D14).
+   */
+  hasOperateAuthority?(request: unknown): boolean;
 }
 
 /** Dependencies injected by the server to construct a ServerPluginContext. */

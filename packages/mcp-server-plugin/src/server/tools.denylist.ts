@@ -61,6 +61,8 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "/api/plugins/skill-atlas/", reason: "derived UI view over getpi_resources (skill relation graph); agents read skills directly" },
   { pattern: "/api/plugins/team/", reason: "per-user team app API (personas, projects, conversations); owner-gated, UI-only" },
   { pattern: "/api/plugins/gmail/", reason: "Google account sign-in, levels and revoke; credential-bearing, UI-only" },
+  // add-obs-studio-plugin: mirrors /api/services.
+  { pattern: "/api/plugins/obs-studio/", reason: "desktop/webcam pixels and live-production toggles; UI and CLI only" },
   { pattern: "/api/system-one/", reason: "decision-model config, key entry and managed-process control; UI-only" },
   { pattern: "/api/plugins/hermes-memory/", reason: "plugin-internal config" },
   { pattern: "/api/plugins/context-mode-settings/", reason: "plugin-internal config; writes a file under ~/.pi and alters session env" },

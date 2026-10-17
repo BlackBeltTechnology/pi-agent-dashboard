@@ -364,6 +364,20 @@
         "src/**/*.{ts,tsx,mjs}"
       ]
     },
+    "packages/obs-studio-plugin": {
+      "entry": [
+        "bin/pi-obs.mjs",
+        "src/bin/pi-obs.ts",
+        "src/client/index.tsx",
+        "src/server/index.ts",
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.{ts,tsx}",
+        "src/server/__tests__/fixtures/*.mjs"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx,mjs}"
+      ]
+    },
     "packages/goal-plugin": {
       "entry": [
         "src/client/index.tsx",

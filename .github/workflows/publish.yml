@@ -370,6 +370,7 @@ jobs:
             "@blackbelt-technology/pi-dashboard-blackhole-plugin"
             "@blackbelt-technology/pi-dashboard-web-access-plugin"
             "@blackbelt-technology/pi-dashboard-gmail-plugin"
+            "@blackbelt-technology/pi-dashboard-obs-studio-plugin"
             "@blackbelt-technology/pi-dashboard-system-one-plugin"
             "@blackbelt-technology/pi-dashboard-browser-plugin"
             "@blackbelt-technology/pi-dashboard-chat-gateway-plugin"

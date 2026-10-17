@@ -36,3 +36,5 @@ Row `GET /api/plugins/skill-atlas/graph` observe. See change: add-skill-atlas-sc
 `POST /api/pair/request` → `operate`. Public (unauthenticated) route, listed only so the tier-map completeness test stays exhaustive. See change: add-lan-knock-pairing.
 
 `GET /api/questions`, `GET /api/questions/:id` → `observe`; `POST /api/questions/:id/answer` and `POST /api/questions/:id/summarize` → `control`. See change: add-pending-question-stack.
+
+Rows `GET /api/plugins/obs-studio/{instances,:service/status}` → `observe`; `GET …/:service/screenshot`, `POST …/:service/{scene,virtualcam,record}` → `operate` (the plugin additionally requires `identity.hasOperateAuthority`). See change: add-obs-studio-plugin.

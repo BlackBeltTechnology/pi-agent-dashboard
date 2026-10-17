@@ -14,7 +14,7 @@ import { PLUGIN_REGISTRY } from "../generated/plugin-registry.js";
 
 const REACT_LAZY = Symbol.for("react.lazy");
 /** Plugins whose claim component is already a thin wrapper over an inline `lazy()`. */
-const THIN_WRAPPER_PLUGINS = new Set(["gmail", "hermes-memory", "skill-atlas"]);
+const THIN_WRAPPER_PLUGINS = new Set(["gmail", "hermes-memory", "skill-atlas", "obs-studio"]);
 const LAZY_SLOTS = new Set(["settings-section", "shell-overlay-route"]);
 
 /** Hot / visible-in-history slots: a suspense gap would pop in, so no claim here may name a `module` (design D5). */

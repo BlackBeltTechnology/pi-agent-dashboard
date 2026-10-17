@@ -20,6 +20,10 @@
  *                             another plugin's action. No policy ⇒ true.
  *   userDataDir(p)            `<plugin data root>/users/<sha256(iss,sub)>`, 0700,
  *                             stable per user, never derived from the raw `sub`.
+ *   hasOperateAuthority(req)  the `/api/services` mutation rule on a plugin route
+ *                             request (delegates to the host predicate with the
+ *                             live `localTrust`). Read-only; grants nothing.
+ *                             See change: add-obs-studio-plugin (D14).
  *
  * Pure over injected deps so the contract is unit-testable without a server.
  * See change: add-multi-user-identity-plane (D24).
@@ -29,6 +33,9 @@ import fs from "node:fs";
 import type { IncomingMessage } from "node:http";
 import path from "node:path";
 import type { HostAction, HostResource, Principal } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
+import type { FastifyRequest } from "fastify";
+import type { LocalTrustContext } from "../auth/local-proof.js";
+import { hasOperateAuthority } from "../auth/operate-required.js";
 import { isLocalOperator } from "./session-access.js";
 
 /** What a plugin sees; mirrored structurally by `ServerPluginContext.identity`. */
@@ -38,6 +45,7 @@ export interface PluginIdentity {
   principalOfUpgrade(request: IncomingMessage): Promise<Principal | null>;
   authorize(principal: Principal, action: string, resource: HostResource): Promise<boolean>;
   userDataDir(principal: Principal): string;
+  hasOperateAuthority(request: unknown): boolean;
 }
 
 export interface PluginIdentityDeps {
@@ -50,6 +58,8 @@ export interface PluginIdentityDeps {
   policy: { authorize(input: { principal: Principal; action: HostAction; resource: HostResource }): Promise<boolean> };
   /** `~/.pi/dashboard/plugins/<id>` for a plugin id. */
   pluginDataRoot: (pluginId: string) => string;
+  /** Strict-mode-aware local trust, as passed to the `/api/services` routes. See change: add-obs-studio-plugin. */
+  localTrust?: LocalTrustContext;
 }
 
 /** A plugin-chosen action name: short, no separator, so it cannot leave its namespace. */
@@ -93,6 +103,15 @@ export function createPluginIdentity(pluginId: string, deps: PluginIdentityDeps)
       const dir = path.join(deps.pluginDataRoot(pluginId), "users", key);
       fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
       return dir;
+    },
+
+    hasOperateAuthority(request) {
+      if (!request || typeof request !== "object") return false;
+      try {
+        return hasOperateAuthority(request as FastifyRequest, deps.localTrust);
+      } catch {
+        return false; // a malformed request is a refusal, never a throw into plugin code
+      }
     },
   };
 }

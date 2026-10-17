@@ -22,6 +22,7 @@
 @source "../../mcp-client-plugin/src/client";
 @source "../../system-one-plugin/src/client";
 @source "../../gmail-plugin/src/client";
+@source "../../obs-studio-plugin/src/client";
 @source "../../context-mode-settings-plugin/src/client";
 @source "../../hermes-memory-plugin/src/client";
 @source "../../kb-plugin/src/client";

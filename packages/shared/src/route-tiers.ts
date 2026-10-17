@@ -206,6 +206,12 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "GET", path: "/api/plugins/flows/files", tier: "observe" },
   { method: "GET", path: "/api/plugins/flows/flow-inputs", tier: "observe" },
   { method: "GET", path: "/api/plugins/gmail/state", tier: "operate" },
+  // add-obs-studio-plugin: instance list + status are reads (never start OBS);
+  // the screenshot (desktop / webcam pixels) and every toggle are `operate`,
+  // and the plugin additionally requires `identity.hasOperateAuthority`.
+  { method: "GET", path: "/api/plugins/obs-studio/instances", tier: "observe" },
+  { method: "GET", path: "/api/plugins/obs-studio/:service/status", tier: "observe" },
+  { method: "GET", path: "/api/plugins/obs-studio/:service/screenshot", tier: "operate" },
   { method: "GET", path: "/api/plugins/hermes-memory/config", tier: "operate" },
   { method: "GET", path: "/api/plugins/context-mode-settings/config", tier: "operate" },
   { method: "GET", path: "/api/preferences/auto-name", tier: "observe" },
@@ -361,6 +367,9 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "POST", path: "/api/plugins/automation/stop", tier: "control" },
   { method: "POST", path: "/api/plugins/automation/update", tier: "control" },
   { method: "POST", path: "/api/plugins/gmail/accounts", tier: "operate" },
+  { method: "POST", path: "/api/plugins/obs-studio/:service/record", tier: "operate" },
+  { method: "POST", path: "/api/plugins/obs-studio/:service/scene", tier: "operate" },
+  { method: "POST", path: "/api/plugins/obs-studio/:service/virtualcam", tier: "operate" },
   { method: "POST", path: "/api/plugins/gmail/accounts/:sub/level", tier: "operate" },
   { method: "POST", path: "/api/plugins/gmail/accounts/:sub/reauth", tier: "operate" },
   { method: "POST", path: "/api/provider-auth/flow/:flowId/input", tier: "operate" },

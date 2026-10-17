@@ -80,8 +80,15 @@ function walk(dir) {
       // payloads + REST error payloads whose machine code the client maps to
       // its own translated copy. The client subtree stays scanned.
       // See change: add-gmail-plugin.
+      //
+      // obs-studio-plugin/src/(core|bin|server)/ is the `pi-obs` CLI (agent-
+      // and terminal-facing diagnostics, `--json` payloads) and the panel's
+      // REST payloads (machine `error` codes; the client renders its own
+      // translated copy) plus the standalone page shell, whose strings come
+      // from the catalog at runtime. The client subtree stays scanned.
+      // See change: add-obs-studio-plugin.
       if (
-        /node_modules|__tests__|\.test\.|dist|templates|demo-plugin|dashboard-plugin-skill|mcp-server-plugin|keycloak-resolver-plugin\/src\/server|fixture-policy-plugin|browser-plugin\/src\/server|mcp-client-plugin\/src\/core|gmail-plugin\/src\/(server|bridge)/.test(
+        /node_modules|__tests__|\.test\.|dist|templates|demo-plugin|dashboard-plugin-skill|mcp-server-plugin|keycloak-resolver-plugin\/src\/server|fixture-policy-plugin|browser-plugin\/src\/server|mcp-client-plugin\/src\/core|gmail-plugin\/src\/(server|bridge)|obs-studio-plugin\/src\/(core|bin|server)/.test(
           p,
         )
       )

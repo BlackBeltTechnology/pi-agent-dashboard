@@ -376,6 +376,9 @@ importers:
       '@blackbelt-technology/pi-dashboard-mcp-client-plugin':
         specifier: ^0.9.0
         version: link:../mcp-client-plugin
+      '@blackbelt-technology/pi-dashboard-obs-studio-plugin':
+        specifier: ^0.9.0
+        version: link:../obs-studio-plugin
       '@blackbelt-technology/pi-dashboard-quota-plugin':
         specifier: ^0.9.0
         version: link:../quota-plugin
@@ -1291,6 +1294,46 @@ importers:
       vitest:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@26.4.0)(jsdom@29.1.1(@noble/hashes@2.4.0))(lightningcss@1.32.0)(supports-color@8.1.1)(terser@5.51.2)
+
+  packages/obs-studio-plugin:
+    dependencies:
+      '@blackbelt-technology/dashboard-plugin-runtime':
+        specifier: ^0.9.0
+        version: link:../dashboard-plugin-runtime
+      '@blackbelt-technology/pi-dashboard-app-kit':
+        specifier: ^0.9.0
+        version: link:../app-kit
+      '@blackbelt-technology/pi-dashboard-shared':
+        specifier: ^0.9.0
+        version: link:../shared
+      '@fastify/rate-limit':
+        specifier: ^11.2.0
+        version: 11.2.0
+      fastify:
+        specifier: ^5.0.0
+        version: 5.12.1
+      obs-websocket-js:
+        specifier: ^5.0.6
+        version: 5.0.8(supports-color@8.1.1)
+      wouter:
+        specifier: ^3.9.0
+        version: 3.10.0(react@19.2.8)
+    devDependencies:
+      '@types/react':
+        specifier: ^19.0.0
+        version: 19.2.18
+      '@types/react-dom':
+        specifier: ^19.0.0
+        version: 19.2.5(@types/react@19.2.18)
+      react:
+        specifier: ^19.0.0
+        version: 19.2.8
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.2.8(react@19.2.8)
+      ws:
+        specifier: ^8.18.0
+        version: 8.21.3
 
   packages/openspec-workflow: {}
 
@@ -3963,6 +4006,10 @@ packages:
       react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
       react-dom: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
 
+  '@msgpack/msgpack@2.8.0':
+    resolution: {integrity: sha512-h9u4u/jiIRKbq25PM+zymTyW6bhTzELvOoUd+AvYriWOAKpLGnIamaET3pnHYoI5iYphAHBI4ayx0MehR+VVPQ==}
+    engines: {node: '>= 10'}
+
   '@napi-rs/canvas-android-arm64@0.1.100':
     resolution: {integrity: sha512-hjhCKhntPv9+t4ckHymdx0phYNcVW+GKQR6Lzw2zE+pOVjOplSmtx9nNNknTjbEDLcuLZqA1y8ufKg1XfgftzQ==}
     engines: {node: '>= 10'}
@@ -6096,6 +6143,10 @@ packages:
     resolution: {integrity: sha512-uV2QOWP2nWzsy2aMp8aRibhi9dlzF5Hgh5SHaB9OiTGEyDTiJJyx0uy51QXdyWbtAHNua4XJzUKca3OzKUd3vA==}
     engines: {node: '>= 8'}
 
+  crypto-js@4.2.0:
+    resolution: {integrity: sha512-KALDyEYgpY+Rlob/iriUtjV6d5Eq+Y191A5g4UqLAi8CyGP9N1+FdVbkc1SxKc2r4YAYqG8JzO2KGL+AizD70Q==}
+    deprecated: Active development of CryptoJS has been discontinued. This library is no longer maintained.
+
   css-tree@3.2.1:
     resolution: {integrity: sha512-X7sjQzceUhu1u7Y/ylrRZFU2FS6LRiFVp6rKLPg23y3x3c3DOKAwuXGDp+PAGjh6CSnCjYeAul8pcT8bAl+lSA==}
     engines: {node: ^10 || ^12.20.0 || ^14.13.0 || >=15.0.0}
@@ -7614,6 +7665,11 @@ packages:
     resolution: {integrity: sha512-ajp0D8laIHeoYlhBTevpE2HUhqWaqLXFk6K/wV3Ok8kDraBZpZsifwVWaY8IfJntMRIo1VSksgKV+lXyet9Q7A==}
     engines: {node: ^20.19.0 || ^22.13.0 || >=24.0.0}
 
+  isomorphic-ws@5.0.0:
+    resolution: {integrity: sha512-muId7Zzn9ywDsyXgTIafTry2sV3nySZeUDe6YedVd1Hvuuep5AsIlqK+XefWpYTyJG5e503F2xIuT2lcU6rCSw==}
+    peerDependencies:
+      ws: '*'
+
   isstream@0.1.2:
     resolution: {integrity: sha512-Yljz7ffyPbrLpLngrMtZ7NduUgVvi6wG9RJ9IUcyCd59YQ911PBJphODUcbOVbqYfxe1wuYf/LJ8PauMRwsM/g==}
 
@@ -8637,6 +8693,10 @@ packages:
   object-keys@1.1.1:
     resolution: {integrity: sha512-NuAESUOUMrlIXOfHKzD6bpPu3tYt3xvjNdRIQ+FeT0lNb4K8WR70CaDxhuNguS2XG+GjkyMwOzsN5ZktImfhLA==}
     engines: {node: '>= 0.4'}
+
+  obs-websocket-js@5.0.8:
+    resolution: {integrity: sha512-QDnQJMr5wuCoYugK02ggZ1/cvESs4KJDEK+UhGg0Ry35jnY8tK1Xr3KoPjKyoD6sd8G+WdtIdzuY+yUyPtogQQ==}
+    engines: {node: '>16.0'}
 
   obug@2.1.4:
     resolution: {integrity: sha512-4a+OsYv9UktOJKE+l1A4OufDgdRF9PifWj+tJnHURo/P+WOxpG4GzUFL9qCalmWauao6ogiG+QvnCovwPoyAWA==}
@@ -10144,6 +10204,10 @@ packages:
   type-fest@1.4.0:
     resolution: {integrity: sha512-yGSza74xk0UG8k+pLh5oeoYirvIiWo5t0/o3zHHAO2tRDiZcxWP7fywNlXhqb6/r6sWvwi+RsyQMWhVLe4BVuA==}
     engines: {node: '>=10'}
+
+  type-fest@3.13.1:
+    resolution: {integrity: sha512-tLq3bSNx+xSpwvAJnzrK0Ep5CLNWjvFTOp71URMaAEWBfRb9nnJiBoUe0tF8bI4ZFO3omgBR6NvnbzVUT3Ly4g==}
+    engines: {node: '>=14.16'}
 
   type-is@2.1.0:
     resolution: {integrity: sha512-faYHw0anBbc/kWF3zFTEnxSFOAGUX9GFbOBthvDdLsIlEoWOFOtS0zgCiQYwIskL9iGXZL3kAXD8OoZ4GmMATA==}
@@ -13405,6 +13469,8 @@ snapshots:
       react: 19.2.8
       react-dom: 19.2.8(react@19.2.8)
 
+  '@msgpack/msgpack@2.8.0': {}
+
   '@napi-rs/canvas-android-arm64@0.1.100':
     optional: true
 
@@ -15550,6 +15616,8 @@ snapshots:
       shebang-command: 2.0.0
       which: 2.0.2
 
+  crypto-js@4.2.0: {}
+
   css-tree@3.2.1:
     dependencies:
       mdn-data: 2.27.1
@@ -17487,6 +17555,10 @@ snapshots:
       - '@noble/hashes'
       - canvas
 
+  isomorphic-ws@5.0.0(ws@8.21.3):
+    dependencies:
+      ws: 8.21.3
+
   isstream@0.1.2:
     optional: true
 
@@ -18857,6 +18929,20 @@ snapshots:
     optional: true
 
   object-keys@1.1.1: {}
+
+  obs-websocket-js@5.0.8(supports-color@8.1.1):
+    dependencies:
+      '@msgpack/msgpack': 2.8.0
+      crypto-js: 4.2.0
+      debug: 4.4.3(supports-color@8.1.1)
+      eventemitter3: 5.0.4
+      isomorphic-ws: 5.0.0(ws@8.21.3)
+      type-fest: 3.13.1
+      ws: 8.21.3
+    transitivePeerDependencies:
+      - bufferutil
+      - supports-color
+      - utf-8-validate
 
   obug@2.1.4: {}
 
@@ -20596,6 +20682,8 @@ snapshots:
   type-fest@0.21.3: {}
 
   type-fest@1.4.0: {}
+
+  type-fest@3.13.1: {}
 
   type-is@2.1.0:
     dependencies:
