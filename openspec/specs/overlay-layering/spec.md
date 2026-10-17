@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change add-overlay-layering-system. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: A single named z-index layer scale is the only source of stacking order
 
 The dashboard client SHALL define exactly one named z-index layer scale, exposed as CSS custom
@@ -64,6 +66,8 @@ card that establishes its own context paints over the overlay regardless of how 
 z-index is. Portaling to the layer root removes the overlay from those ancestor contexts, which is what
 actually prevents underlap; the layer token then orders it against the other portaled layers.
 
+**Dialog layer host.** Inside an open dialog, the top-level layer root for an anchored overlay SHALL be the layer host the dialog provides, not `<body>`. The overlay then stays inside the dialog's stacking context and focus trap, above the dialog's backdrop. It still escapes every stacking context inside the dialog. This is the behaviour `LayerPortal` already implements through its layer-host context.
+
 Where a component renders differently by form factor, ALL forms SHALL portal — a component MUST NOT
 portal on one breakpoint and render inline on another, because the inline form is the defect class.
 
@@ -105,6 +109,12 @@ permanent carve-out; the rule above is the end state it converges to.
 - **THEN** removing an entry (by portaling that popover) is allowed
 - **AND** adding a new entry is rejected — the backlog may only shrink
 
+#### Scenario: Popover opened inside a dialog portals into the dialog's layer host
+- **GIVEN** an open dialog that provides a layer host
+- **WHEN** an anchored popover is opened from a control inside it
+- **THEN** the popover SHALL render inside that layer host and paint above the dialog's backdrop
+- **AND** clicking the popover SHALL NOT dismiss the dialog
+
 ### Requirement: An open overlay SHALL paint above sibling content regardless of stacking context
 
 An open portaled overlay SHALL paint above all sibling content on the screen — session cards, folder
@@ -124,3 +134,21 @@ painting behind, or a sibling showing through, an open overlay) is a defect.
 - **THEN** the modal paints above the menu because `dialog` outranks `popover`
 - **AND** the outcome does not depend on which mounted first or their DOM order
 
+### Requirement: Shared overlay primitives use the layer scale and are covered by the ratchet
+
+Every portaled overlay primitive exported for host or plugin use from `packages/client-utils/src` SHALL render through the layer portal and take its stacking order from a layer token. This includes the `ui:popover` primitive (`Popover`). An anchored popover primitive SHALL paint at the `popover` layer token and SHALL NOT set a raw numeric z-index as an inline `zIndex` style. In-flow, non-portaled decorations keep the existing exemption.
+
+The raw-z ratchet SHALL additionally detect inline numeric `zIndex` values in style objects, in both `packages/client/src` and `packages/client-utils/src`. The utility-class scan keeps its current scope. This extension SHALL NOT add baseline entries: every inline occurrence it finds SHALL be fixed in the same change.
+
+#### Scenario: Popover primitive no longer outranks dialogs
+- **GIVEN** a `Popover` opened outside any dialog, and a modal dialog opened afterwards over the same region
+- **WHEN** both are visible
+- **THEN** the dialog SHALL paint above the popover
+
+#### Scenario: New inline zIndex is rejected
+- **WHEN** a change adds `style={{ zIndex: 1000 }}` to a component under `packages/client-utils/src`
+- **THEN** the raw-z ratchet SHALL fail and name the new occurrence
+
+#### Scenario: Scope extension does not grow the baseline
+- **WHEN** the ratchet runs with inline-`zIndex` detection after `Popover` adopts the `popover` token
+- **THEN** it SHALL report no inline occurrence and add no baseline entry

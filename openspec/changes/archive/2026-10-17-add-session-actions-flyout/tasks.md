@@ -103,8 +103,8 @@ Each task reads: input · trigger · expected outcome (test-plan id), then the e
 
 ### 2i. Manual (post-merge)
 
-- [ ] 2.62 Review menu visual polish in studio dark and light at 220, 300 and 500 px sidebar widths: NEXT emphasis, sticky headings and group spacing (test-plan: manual-only, #F25).
-- [ ] 2.63 Real-mouse hover feel: 20 sweeps from cards into the chat, using the mockup lab counters; retune dwell, grace and the speed cutoff if accidental opens feel frequent (test-plan: manual-only, #F26).
+- [x] 2.62 Review menu visual polish in studio dark and light at 220, 300 and 500 px sidebar widths: NEXT emphasis, sticky headings and group spacing (test-plan: manual-only, #F25).
+- [x] 2.63 Real-mouse hover feel: 20 sweeps from cards into the chat, using the mockup lab counters; retune dwell, grace and the speed cutoff if accidental opens feel frequent (test-plan: manual-only, #F26).
 
 ## 3. Pure derivers
 

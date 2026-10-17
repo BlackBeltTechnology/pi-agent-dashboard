@@ -526,7 +526,7 @@ OpenSpec group:
 - **Unattached** (`attachedProposal == null`): the group SHALL contain:
   - an `Attach change…` control that opens the change picker, disabled and labelled "No changes" when the folder has no changes;
   - an `Explore` button;
-  - a `⋯` overflow offering the same unattached workflow entries as the session card (e.g. New change…, Propose…), subject to the workflow configuration. Folder-level bulk actions MAY remain card-only.
+  - a `⋯` overflow offering the same unattached workflow entries as the desktop session card's actions menu (e.g. New change…, Propose…), subject to the workflow configuration. Folder-level bulk actions MAY remain card-only.
   - It SHALL NOT contain a lifecycle bar, a primary action, or an `Archive` button.
 - **Attached:** the group SHALL contain, in order:
   - a change chip showing the attached change name. It SHALL open a menu with `Open proposal` and `Detach`;
@@ -605,8 +605,8 @@ The strip SHALL additionally render every `composer-context-group` slot contribu
 
 #### Scenario: Composer and session card choose the same primary
 - **WHEN** the same attached session is shown in the composer strip and on its session card, for any `ChangeState` and workflow configuration
-- **THEN** both SHALL offer the same primary action
-- **AND** both overflows SHALL list the same workflow items, apart from `Detach`, which only the session card's overflow lists
+- **THEN** both SHALL derive the same OpenSpec primary action. On the desktop session card it is the actions menu's NEXT item, or a plain OPENSPEC item when Merge is NEXT.
+- **AND** the composer's `⋯` and the desktop session card's actions menu SHALL offer the same set of workflow items, though placement may differ (the menu shows Verify outside `More…`), apart from `Detach`, which only the session card's menu lists
 
 #### Scenario: Change chip offers detach
 - **WHEN** the user opens the change chip for attached change `"add-auth"` and activates `Detach`
