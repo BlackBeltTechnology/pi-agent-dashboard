@@ -8,7 +8,7 @@ import { nodeStub } from "./helpers/stubs.js";
 
 /**
  * Shell-executability invariants for `pi-craft` and the `pi-photocraft` alias (npm install + checkout)
- * and `pi-nano-banana` as a workspace bin, plus shipping of all 14 skills.
+ * and `pi-nano-banana` as a workspace bin, plus shipping of all 18 skills (router, 13 apps, 4 media workflows).
  *
  * See change: add-photocraft-plugin, add-craft-apps-core.
  */
@@ -55,8 +55,9 @@ function npmPack(cwd: string, tmp: string): string[] {
 }
 
 describe("craft-apps packaging", () => {
-  it("E23 the 14 skills are declared, have frontmatter, and ship in the tarball", () => {
-    expect(pkg.pi.skills).toHaveLength(14);
+  it("E23 the 18 skills are declared, have frontmatter, and ship in the tarball", () => {
+    expect(pkg.pi.skills).toHaveLength(18);
+    for (const wf of ["craft-video-post", "craft-beat-cut", "craft-podcast-master", "craft-motion-titles"]) expect(pkg.pi.skills).toContain(`.pi/skills/${wf}`);
     for (const rel of pkg.pi.skills) {
       const name = path.basename(rel);
       const text = fs.readFileSync(path.join(pkgDir, rel, "SKILL.md"), "utf8");
@@ -68,7 +69,7 @@ describe("craft-apps packaging", () => {
     expect(/^description: (.+)$/m.exec(photo)?.[1]).toMatch(/PhotoCraft.*nano-banana.*headless|headless.*PhotoCraft.*nano-banana/i);
     const tmp = scratchDir("pc-pack-list-");
     const [, ...files] = npmPack(pkgDir, tmp);
-    expect(files.filter((f) => /^\.pi\/skills\/[^/]+\/SKILL\.md$/.test(f))).toHaveLength(14);
+    expect(files.filter((f) => /^\.pi\/skills\/[^/]+\/SKILL\.md$/.test(f))).toHaveLength(18);
     for (const rel of pkg.pi.skills) expect(files).toContain(`${rel}/SKILL.md`);
     expect(files).toContain("bin/pi-craft");
     expect(files).toContain("bin/pi-photocraft");

@@ -1,7 +1,7 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-craft-apps",
   "version": "0.9.0",
-  "description": "Headless ArtCraft Crafting Apps for pi agents: provisions the <app>-cli binary of PhotoCraft, VectorCraft, FilmCraft, LightCraft, PdfCraft, EffectCraft, DesignCraft, FigCraft, WordCraft, SoundCraft, DeckCraft, CADCraft and GridCraft on demand, exposes them over bash and per-app confined stdio MCP servers, verifies outputs mechanically (pi-craft verify) and ships a router skill plus one skill per app. Exposed as pi skills and the pi-craft / pi-photocraft CLI bins.",
+  "description": "Headless ArtCraft Crafting Apps for pi agents: provisions the <app>-cli binary of PhotoCraft, VectorCraft, FilmCraft, LightCraft, PdfCraft, EffectCraft, DesignCraft, FigCraft, WordCraft, SoundCraft, DeckCraft, CADCraft and GridCraft on demand, exposes them over bash and per-app confined stdio MCP servers, verifies outputs mechanically (pi-craft verify) and ships a router skill, one skill per app and four media workflow skills. Exposed as pi skills and the pi-craft / pi-photocraft CLI bins.",
   "type": "module",
   "repository": {
     "type": "git",
@@ -39,7 +39,11 @@
       ".pi/skills/soundcraft",
       ".pi/skills/deckcraft",
       ".pi/skills/cadcraft",
-      ".pi/skills/gridcraft"
+      ".pi/skills/gridcraft",
+      ".pi/skills/craft-video-post",
+      ".pi/skills/craft-beat-cut",
+      ".pi/skills/craft-podcast-master",
+      ".pi/skills/craft-motion-titles"
     ],
     "tools": [
       {
