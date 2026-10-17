@@ -87,3 +87,16 @@ Pre-switch controls re-run post-switch: `node_modules` (absent on both sides, eq
 - Cause 2 coverage is lost on both sides; restoring it needs a shared-config change
   (e.g. stop ignoring `**/__tests__/**`, or model the plugin registrar entry point via a
   data extension), each its own MODIFIED delta.
+
+## Decision (task 3.2, 2026-10-17, user via ask_user)
+
+- Cause 1 → **(a) align.** A follow-up change drops `--threat-model=remote` from the
+  local analysis so local == CI. It needs its own MODIFIED delta of `codeql-local-ratchet`
+  (local analysis arguments), plus a baseline prune for the 29 fetch-response entries
+  and a dismissal re-check after its CI run. No config change lands in this change.
+- Cause 2 → **restore coverage in a follow-up.** Candidates: stop ignoring `**/__tests__/**`
+  (about 26 extra test-path results, shared `paths-ignore` edit) or add a data-extension model
+  that marks the plugin route registrars' `fastify` parameter as a Fastify server. Each
+  touches the shared configuration and is planned as its own MODIFIED delta.
+- Until the follow-ups land, the gate stays as shipped. The local gate covers the 29
+  fetch-response client results, which CI does not report. Neither side covers the 29 plugin-server results.

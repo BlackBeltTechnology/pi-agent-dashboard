@@ -30,11 +30,11 @@ All tests below live in `scripts/__tests__/codeql-local-cli.test.mjs`; harness e
 
 ## 3. Local/CI gap
 
-- [ ] 3.1 Run design D2 steps 0–2 at one post-switch commit and commit `evidence/local-vs-ci.md`: method, pack shas, per-variation set diffs (a)–(g), and the 29 lost server results from the CI SARIF diff (test-plan: manual-only, #M1).
-- [ ] 3.2 Use `ask_user` to choose (a) align local with CI or (b) keep it stricter and document. An (a) is re-planned as its own MODIFIED delta / follow-up change. No config change lands here (test-plan: manual-only, #M2).
-- [ ] 3.3 Via DocScribe, update `docs/code-quality.md`: the snapshot section's `last-run.json` shape and refusal rule, plus the known-limitation section with the measured local/CI relationship and the decision.
+- [x] 3.1 Run design D2 steps 0–2 at one post-switch commit and commit `evidence/local-vs-ci.md`: method, pack shas, per-variation set diffs (a)–(g), and the 29 lost server results from the CI SARIF diff (test-plan: manual-only, #M1).
+- [x] 3.2 Use `ask_user` to choose (a) align local with CI or (b) keep it stricter and document. An (a) is re-planned as its own MODIFIED delta / follow-up change. No config change lands here (test-plan: manual-only, #M2).
+- [x] 3.3 Via DocScribe, update `docs/code-quality.md`: the snapshot section's `last-run.json` shape and refusal rule, plus the known-limitation section with the measured local/CI relationship and the decision.
 
 ## 4. Validate
 
-- [ ] 4.1 `openspec validate harden-codeql-ratchet-followups --strict` passes.
+- [x] 4.1 `openspec validate harden-codeql-ratchet-followups --strict` passes.
 - [ ] 4.2 `npm test` green.
