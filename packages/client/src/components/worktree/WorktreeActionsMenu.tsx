@@ -144,7 +144,7 @@ function prSegmentParts(session: DashboardSession): {
  * text otherwise. Legacy bridges (number only) render `#N` alone.
  * See change: redesign-composer-session-strip (D6).
  */
-function PrSegment({ session, className }: { session: DashboardSession; className: string }) {
+export function PrSegment({ session, className = "" }: { session: DashboardSession; className?: string }) {
   const parts = prSegmentParts(session);
   if (!parts) return null;
   const body = (

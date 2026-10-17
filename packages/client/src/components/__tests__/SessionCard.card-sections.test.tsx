@@ -94,6 +94,9 @@ function renderCard(
 }
 
 const hasTitle = (t: string) => screen.queryAllByText(t, { selector: "span" }).length > 0;
+// The GIT subcard is gone: the `git` section now governs the header git row.
+// See change: compact-session-card-header.
+const hasGitRow = () => screen.queryByTestId("session-card-git-row") !== null;
 
 describe("useCardSectionVisible", () => {
   it("resolves from the provider snapshot and updates when the snapshot changes", () => {
@@ -131,7 +134,8 @@ describe("SessionCard desktop gating", () => {
 
   it("renders every section with no prefs", () => {
     renderCard({}, { session: { gitWorktree: { mainPath: CWD, name: "wt" } as never, cwd: `${CWD}/.worktrees/wt` }, processes: [PROC] });
-    for (const t of ["OPENSPEC", "GIT", "STATUS", "PROCESS", "FLOWS", "MEMORY"]) expect(hasTitle(t)).toBe(true);
+    for (const t of ["OPENSPEC", "STATUS", "PROCESS", "FLOWS", "MEMORY"]) expect(hasTitle(t)).toBe(true);
+    expect(hasTitle("GIT")).toBe(false);
     expect(screen.queryByTestId("kb-claim")).not.toBeNull();
     expect(screen.queryByText("#ui")).not.toBeNull();
     // The spawn actions are session-menu items.
@@ -141,7 +145,7 @@ describe("SessionCard desktop gating", () => {
 
   it.each([
     ["openspec", () => hasTitle("OPENSPEC")],
-    ["git", () => hasTitle("GIT")],
+    ["git", () => hasGitRow()],
     ["status", () => hasTitle("STATUS")],
     ["flows", () => hasTitle("FLOWS")],
     ["memory", () => hasTitle("MEMORY")],
@@ -179,12 +183,12 @@ describe("SessionCard desktop gating", () => {
   it("global hide applies; folder override beats global", () => {
     renderCard({ global: { flows: false, git: false }, folders: { [CWD]: { git: true } } });
     expect(hasTitle("FLOWS")).toBe(false);
-    expect(hasTitle("GIT")).toBe(true);
+    expect(hasGitRow()).toBe(true);
   });
 
   it("does not affect another folder", () => {
     renderCard({ folders: { "/other": { git: false } } });
-    expect(hasTitle("GIT")).toBe(true);
+    expect(hasGitRow()).toBe(true);
   });
 });
 
@@ -335,11 +339,11 @@ describe("session actions menu VIEW group (replaces the legend options menu)", (
   }
 
   it("no subcard legend carries an options button any more", () => {
-    renderCard({});
+    renderCard({}, { processes: [PROC] });
     expect(screen.queryByTestId("subcard-menu-git")).toBeNull();
     // capsule text stays exactly the title
-    const title = screen.getAllByText("GIT", { selector: "span" })[0];
-    expect(title.textContent).toBe("GIT");
+    const title = screen.getAllByText("PROCESS", { selector: "span" })[0];
+    expect(title.textContent).toBe("PROCESS");
   });
 
   it("Card sections… opens the folder's Session cards page without selecting the card", () => {

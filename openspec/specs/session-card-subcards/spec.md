@@ -35,36 +35,6 @@ The legend title SHALL be an absolutely-positioned `<span>` with class tokens: `
 - **WHEN** `<SessionSubcard title="FLOWS">{[]}</SessionSubcard>` is rendered
 - **THEN** the wrapper SHALL render nothing
 
-### Requirement: Desktop session card body groups sections into six subcards in order
-The desktop branch of `SessionCard.tsx` SHALL render its grouped sections as `SessionSubcard` instances in the following top-to-bottom order: `OPENSPEC`, `GIT`, `STATUS`, `PROCESS`, `FLOWS`, `MEMORY`.
-
-The header zone SHALL remain outside any subcard, above the first subcard. It contains:
-- the status chip, the name (double-click to rename), the time, the Archive / `⋯` / Exit controls;
-- the model + thinking-level line;
-- the activity row with context bar + cost.
-
-The header zone SHALL NOT contain action chips (Resume, Fork, +Session, +Worktree); those actions live in the session actions menu. No footer action row SHALL render below the last subcard. The `session-card-action-bar` slot's output renders in the session actions menu.
-
-The previous `WORKSPACE` subcard SHALL be removed and replaced by two sibling subcards `GIT` and `STATUS` rendered in that order. The `GIT` subcard hosts git branch / PR / worktree information as clickable status. It SHALL NOT host a worktree actions row; worktree actions live in the session actions menu's GIT group. The `STATUS` subcard hosts the `session-card-badge` slot (goal / automation badge contributions).
-
-#### Scenario: All six subcard titles appear in order when populated
-- **WHEN** a desktop session card is rendered with content for every subcard
-- **THEN** the rendered DOM SHALL contain centered title elements `OPENSPEC`, `GIT`, `STATUS`, `PROCESS`, `FLOWS`, `MEMORY` in that document order
-
-#### Scenario: Header zone stays outside subcards
-- **WHEN** a desktop session card is rendered
-- **THEN** the session name, model line, and activity/cost row SHALL render before the first `SessionSubcard` element
-- **AND** none of those elements SHALL be descendants of a `SessionSubcard`
-
-#### Scenario: WORKSPACE subcard no longer rendered
-- **WHEN** a desktop session card is rendered
-- **THEN** no element with title text `WORKSPACE` SHALL appear in the rendered DOM
-
-#### Scenario: No footer action row and no worktree actions row
-- **WHEN** a desktop session card is rendered for a worktree session with an action-bar plugin claim
-- **THEN** no element SHALL render below the last subcard
-- **AND** the GIT subcard SHALL NOT contain Push, Open PR, Merge or Close worktree controls
-
 ### Requirement: New plugin slot `session-card-flows` is reserved and consumed by FLOWS subcard
 A new dashboard plugin slot identifier `session-card-flows` SHALL be added to `SLOT_DEFINITIONS` in `packages/shared/src/dashboard-plugin/slot-types.ts`. Multiplicity SHALL be `many`. Payload tier SHALL be `react-only` (matching `session-card-action-bar` and `session-card-memory`). The slot SHALL render its claims inside the FLOWS subcard. When no plugin claims the slot, the subcard renders nothing.
 
@@ -182,51 +152,17 @@ The desktop branch of `SessionCard.tsx` SHALL consume the context and spread the
 - **WHEN** a SortableSessionCard is rendered
 - **THEN** the rendered DOM SHALL NOT contain an absolute-positioned span with the `mdiDragHorizontalVariant` icon path
 
-### Requirement: GIT subcard renders worktree pill when session is in a git worktree
-When `session.gitWorktree` is set, the `GIT` subcard SHALL render an inline `worktree` pill immediately after the existing `⎇ <branch>` GitInfo line. The branch line itself SHALL be unchanged.
-
-The pill SHALL carry class tokens consistent with other small badges: `inline-flex`, `items-center`, `px-1.5 py-px`, `rounded-full`, `text-[9px]`, `uppercase`, `tracking-wider`, `border border-[var(--border-subtle)]`, `text-[var(--text-muted)]`, `bg-[var(--bg-tertiary)]`. The pill SHALL carry `data-testid="worktree-pill"`.
-
-The pill SHALL render text `worktree`. When `session.gitWorktree.base` is also set, the pill's `title` attribute SHALL be `created from <base>`; when absent, `git worktree`. The pill SHALL NOT appear in the `STATUS` subcard.
-
-#### Scenario: Session in worktree shows pill inside GIT subcard
-- **WHEN** a session card is rendered for a session with `gitWorktree: { mainPath: "/repo", name: "feat-x" }` and `gitBranch: "feat/dark"`
-- **THEN** the rendered DOM SHALL contain a `GIT` titled subcard
-- **AND** the subcard SHALL contain the existing GitInfo line showing `⎇ feat/dark`
-- **AND** the subcard SHALL contain an inline element with `data-testid="worktree-pill"` and text `worktree`
-- **AND** the pill SHALL appear after the branch element in document order
-
-#### Scenario: Worktree pill does NOT appear in STATUS subcard
-- **WHEN** a session card is rendered for a session with `gitWorktree` set AND a plugin claims `session-card-badge`
-- **THEN** the `STATUS` titled subcard SHALL NOT contain any element with `data-testid="worktree-pill"`
-
-#### Scenario: Pill tooltip with known base
-- **WHEN** a session has `gitWorktree.base: "develop"`
-- **THEN** the pill's `title` attribute SHALL be `created from develop`
-
-#### Scenario: Pill tooltip without known base
-- **WHEN** a session has `gitWorktree` set but `gitWorktree.base` is absent
-- **THEN** the pill's `title` attribute SHALL be `git worktree`
-
-#### Scenario: Session in main checkout has no pill
-- **WHEN** a session card is rendered for a session with `gitWorktree` absent or `undefined`
-- **THEN** the rendered DOM SHALL NOT contain any element with `data-testid="worktree-pill"`
-
-#### Scenario: Branch text unchanged for worktree sessions
-- **WHEN** a session card is rendered for a worktree session
-- **THEN** the GitInfo line SHALL display `⎇ <branch>` exactly as it would for a non-worktree session (no replacement, no folder-name substitution)
-
-#### Scenario: Mobile session card omits worktree pill
-- **WHEN** the session card is rendered in mobile layout (no `SessionSubcard` wrappers)
-- **THEN** the worktree pill SHALL NOT be rendered
-- **AND** the mobile flat layout SHALL remain unchanged
-
-### Requirement: cwd-gone pill on session card
-The WORKSPACE subcard SHALL render a small red `cwd gone` pill (analogous to the existing `worktree` pill) when `session.cwdMissing === true`. The pill SHALL carry tooltip text "session's directory no longer exists".
+### Requirement: Missing-folder pill on session card
+The desktop session card's title row SHALL render a small red pill when `session.cwdMissing === true`, independent of git state. The pill reads `folder missing` (i18n key `common.cwdGone`) and carries `data-testid="cwd-gone-pill"`. Its tooltip states that the session's folder no longer exists. Placement and styling are defined by the `session-card-header` capability.
 
 #### Scenario: Pill renders for cwd-missing session
 - **WHEN** the card renders a session with `cwdMissing: true`
-- **THEN** the WORKSPACE subcard SHALL contain `[data-testid="cwd-gone-pill"]`
+- **THEN** the title row SHALL contain `[data-testid="cwd-gone-pill"]` with text `folder missing`
+- **AND** no `[data-testid="cwd-gone-pill"]` SHALL render inside the git row
+
+#### Scenario: Pill renders without git
+- **WHEN** the card renders a session with `cwdMissing: true` and no `gitBranch`
+- **THEN** the title row SHALL contain `[data-testid="cwd-gone-pill"]`
 
 #### Scenario: Pill absent for healthy session
 - **WHEN** `cwdMissing` is `undefined` or `false`
@@ -649,3 +585,75 @@ SHALL NOT be treated as empty.
   mode off
 - **AND** the session has at least one flow event (a flow ran or is running)
 - **THEN** an element with title text `FLOWS` SHALL appear
+
+### Requirement: Desktop session card body groups sections into five subcards in order
+The desktop branch of `SessionCard.tsx` SHALL render its grouped sections as `SessionSubcard` instances in the following top-to-bottom order: `OPENSPEC`, `STATUS`, `PROCESS`, `FLOWS`, `MEMORY`.
+
+The header zone SHALL remain outside any subcard, above the first subcard. Its rows are defined by the `session-card-header` capability:
+- the title row: status chip, name (double-click to rename), missing-folder pill, time, then the Archive / `⋯` / Exit controls;
+- the status row;
+- the git row;
+- the meta row: model, session chips, context bar, cost.
+
+The header zone SHALL NOT contain action chips (Resume, Fork, +Session, +Worktree); those actions live in the session actions menu. No footer action row SHALL render below the last subcard. The `session-card-action-bar` slot's output renders in the session actions menu.
+
+The worktree card-slot wrapper (`data-testid="worktree-card-section-gap"`) keeps its position directly after the OPENSPEC subcard, so it now precedes `STATUS`, and keeps its stacking tokens.
+
+There SHALL be no `GIT` subcard and no `WORKSPACE` subcard. Git branch / PR / worktree / dirty information is clickable status in the header git row. Worktree actions live in the session actions menu's GIT group. The `STATUS` subcard hosts the `session-card-badge` slot (goal / automation badge contributions).
+
+#### Scenario: All five subcard titles appear in order when populated
+- **WHEN** a desktop session card is rendered with content for every subcard
+- **THEN** the rendered DOM SHALL contain centered title elements `OPENSPEC`, `STATUS`, `PROCESS`, `FLOWS`, `MEMORY` in that document order
+
+#### Scenario: Header zone stays outside subcards
+- **WHEN** a desktop session card is rendered
+- **THEN** the session name, status row, git row and meta row SHALL render before the first `SessionSubcard` element
+- **AND** none of those elements SHALL be descendants of a `SessionSubcard`
+
+#### Scenario: GIT and WORKSPACE subcards no longer rendered
+- **WHEN** a desktop session card is rendered for a worktree session with `gitBranch` set
+- **THEN** no element with title text `GIT` or `WORKSPACE` SHALL appear in the rendered DOM
+
+#### Scenario: No footer action row and no worktree actions row
+- **WHEN** a desktop session card is rendered for a worktree session with an action-bar plugin claim
+- **THEN** no element SHALL render below the last subcard
+- **AND** the card SHALL NOT contain the Push, Open PR, Merge or Close worktree action buttons
+- **AND** the git row's PR status link (`data-testid="worktree-pr-segment"`) is clickable status, not one of these action buttons
+
+### Requirement: Header git row renders worktree pill when session is in a git worktree
+When the header git row renders (see `session-card-header`) and `session.gitWorktree` is set, the git row SHALL render an inline `worktree` pill as its **first** element, before the `⎇ <branch>` text. The branch text itself SHALL be unchanged.
+
+The pill SHALL carry class tokens `inline-flex`, `items-center`, `px-1.5 py-px`, `rounded-full`, `text-[11px]`, `font-semibold`, `flex-shrink-0`, `border border-[var(--tint-orange-border)]`, `text-[var(--tint-orange-fg)]`, `bg-[var(--tint-orange-bg)]`. It SHALL carry `data-testid="worktree-pill"`.
+
+The pill SHALL render the bare text `worktree`, never the worktree name. When `session.gitWorktree.base` is also set, the pill's `title` attribute SHALL be `created from <base>`; when absent, `git worktree`. The pill SHALL NOT appear in the `STATUS` subcard.
+
+#### Scenario: Session in worktree shows pill first in the git row
+- **WHEN** a session card is rendered for a session with `gitWorktree: { mainPath: "/repo", name: "feat-x" }` and `gitBranch: "feat/dark"`
+- **THEN** the rendered DOM SHALL NOT contain a `GIT` titled subcard
+- **AND** the header git row SHALL contain an element with `data-testid="worktree-pill"` and text `worktree`
+- **AND** the pill SHALL appear before the `feat/dark` branch element in document order
+
+#### Scenario: Worktree pill does NOT appear in STATUS subcard
+- **WHEN** a session card is rendered for a session with `gitWorktree` set AND a plugin claims `session-card-badge`
+- **THEN** the `STATUS` titled subcard SHALL NOT contain any element with `data-testid="worktree-pill"`
+
+#### Scenario: Pill tooltip with known base
+- **WHEN** a session has `gitWorktree.base: "develop"`
+- **THEN** the pill's `title` attribute SHALL be `created from develop`
+
+#### Scenario: Pill tooltip without known base
+- **WHEN** a session has `gitWorktree` set but `gitWorktree.base` is absent
+- **THEN** the pill's `title` attribute SHALL be `git worktree`
+
+#### Scenario: Session in main checkout has no pill
+- **WHEN** a session card is rendered for a session with `gitWorktree` absent or `undefined`
+- **THEN** the rendered DOM SHALL NOT contain any element with `data-testid="worktree-pill"`
+
+#### Scenario: Branch text unchanged for worktree sessions
+- **WHEN** a session card is rendered for a worktree session
+- **THEN** the git row SHALL display `⎇ <branch>` exactly as it would for a non-worktree session (no replacement, no folder-name substitution)
+
+#### Scenario: Mobile session card omits worktree pill
+- **WHEN** the session card is rendered in mobile layout (no `SessionSubcard` wrappers)
+- **THEN** the worktree pill SHALL NOT be rendered
+- **AND** the mobile flat layout SHALL remain unchanged

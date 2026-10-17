@@ -26,6 +26,15 @@ export function hasMovedAway(session: DashboardSession): boolean {
 }
 
 /**
+ * True when ANY session chip (Moved / Origin device / ACP driver) renders on the
+ * desktop card's meta row. The row gate and the chips share these predicates, so
+ * they cannot disagree. See change: compact-session-card-header (D8).
+ */
+export function metaChipsVisible(session: DashboardSession): boolean {
+  return hasMovedAway(session) || isRemoteOrigin(session) || isAcpSession(session);
+}
+
+/**
  * True for an ACP-agent session. Pi-only controls (Resume, Fork, Reload, Retry,
  * flows, terminal, file listing) are HIDDEN for it — removed, not shown then
  * refused (Nielsen H5). Absent `driver` ≡ pi.
