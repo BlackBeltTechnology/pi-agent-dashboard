@@ -23,3 +23,26 @@ Template: `~/Documents/templates/default/template.docx` (doc-engine `default`). 
 Command-name traps: `select.all`, not `edit.selectAll`; `text.insert`, not `text.type`.
 
 Conclusion: `pi-craft doc prepare` fills the template and the body before WordCraft runs (design D3). WordCraft then only appends the body, builds the TOC and exports.
+
+## Implementation re-run (task 0.2, 2026-10-17)
+
+Same binary (`wordcraft-cli` 0.7.0), real `~/Documents/templates/default`, filled by `pi-craft doc prepare`. Work dir `/tmp/w6`.
+
+| # | Command | Observation |
+|---|---|---|
+| 10 | `doc prepare` on the real template (frontmatter: client, document id, TOC on, `language: hu`) | Cover textbox, first-page header (`document_id`, `$date` as `2026. oktober 17.`) and footer filled; pdf text shows them. `logo:company` is an image slot, left in place. |
+| 11 | `run --file … caret.docEnd, text.pageBreak, references.toc, text.pageBreak, insert.textFromFile` (the design D3 order) | **Drift.** `references.toc` leaves the caret *above* the TOC, so the body lands before it: page 2 blank, body page 3, TOC after the body. |
+| 12 | Same with `caret.docEnd` after `references.toc` (before the second page break) | Cover, TOC (correct page numbers), body. Used by `craft-doc-publish`. |
+| 13 | A Markdown body with a `data:` image (Mermaid PNG) through `insert.textFromFile` into the real template | **Drift.** The image is written as `rId1`, which the template already uses (cover image): the body image is lost and the cover's first image shows instead. Same through a converted `body.docx`. |
+| 14 | `insert.picture {"path": …}` after `insert.textFromFile` | Correct (`rId2`, `image4.png`). |
+| 15 | Body with a marker paragraph `IMGMARK1`: `edit.find {"text":"IMGMARK1"}`, `insert.picture`, `edit.replaceAll {"text":"IMGMARK1","with":""}` | The picture sits where the marker was; the marker text is gone. Used by `doc prepare` when the template owns images (`prepare.json.pictures`, `CRAFTIMG<n>`). |
+| 16 | Host `mmdc` 11.12 | Needs a Chromium: without one it fails ("Could not find Chrome") → block stays code, `mermaid.unrendered`. `PUPPETEER_EXECUTABLE_PATH` (inherited by `doc prepare`) fixes it. |
+
+Other probes of this change (2026-10-17):
+
+- **0.1 VectorCraft 0.12.0**: `imageTrace.makeAndExpand` with `--params '{"preset":"Flat Logo","params":{"ignoreWhite":true}}'` round-trips png → svg; `vectorcraft-cli convert x.svg x.png --scale N` previews; the preview has an alpha channel.
+- **0.3 LightCraft 0.8.0**: no real camera RAW available; synthetic DNG from `synth-merge` develops. AI denoise (`denoise.models.install` / `.download`) needs a user-supplied model and `acknowledged: true` after the user accepted the licence — no model is bundled (`denoise.models.list` → `models: []`). The skill uses the classic sliders (`detail.nrLuminance`, `detail.nrColor`) and offers AI denoise only on request.
+- **0.4 GridCraft 0.7.0 / DeckCraft 0.7.0**: `insert.chart` works; there is **no chart image export command**. The chart comes from the sheet's pdf export (`run --in x.xlsx --out x.pdf`), `pdfcraft render`, and PhotoCraft `image.trim` (`basedOn: topLeft`) with the chart anchored at `A1`. DeckCraft `insert.picture` (png) + `convert … pdf` works; `transition.set` + `render-transition` previews work.
+- **0.5 tiff alpha**: ffprobe reports `rgba` for an alpha tiff and `pi-craft verify --alpha` passes. The spec still asserts `--alpha` on png only; no skill asserts it on tiff.
+- **0.6 `pi-nano-banana` for diagrams**: `pi-nano-banana "<prompt>" --output <png>` (prompt = `Diagram:` + source + the template style block + `AVOID:` negative); credentials by the CLI's own resolution. Any failure (no credentials, non-zero exit, no file) falls back to `mmdc`.
+- **PdfCraft 0.8.0 protect**: `doc_protect` takes `open_password` / `permissions_password` (not `owner_password`); `pdfcraft-cli run --script` cannot read `/dev/fd/N`, so the script goes through a `0600` temp file. A protected pdf cannot be probed by `pi-craft verify` (exit `0`/probe failed message): verify before protecting.

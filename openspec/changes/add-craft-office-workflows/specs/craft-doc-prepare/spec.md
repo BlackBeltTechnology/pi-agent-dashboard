@@ -69,7 +69,9 @@ Placeholders split across runs within one paragraph SHALL be replaced. Placehold
 ### Requirement: Body preparation
 `body.md` SHALL be the input with frontmatter removed and `{{ name }}` variables substituted; `<name>` SHALL NOT be substituted in the body. Image and diagram handling SHALL operate on the text before substitution, so image or diagram syntax that arrives through a variable value is never inlined or rendered.
 
-Each local image SHALL be inlined as a `data:` URI. Image paths SHALL resolve relative to the input file, after symlink resolution, and SHALL lie within the input's directory or an `--allow-path` directory. Absolute and `file://` paths outside those directories SHALL be refused. Remote image URLs SHALL be left unchanged and listed under `images.remote`.
+Each local image SHALL be inlined as a `data:` URI. Image paths SHALL resolve relative to the input file, after symlink resolution, and SHALL lie within the input's directory or an `--allow-path` directory. Absolute and `file://` paths outside those directories SHALL be refused. Only png, jpg, gif, webp and bmp files of at most 20 MB SHALL be inlined; any other file SHALL be skipped with a reason. Remote image URLs SHALL be left unchanged and listed under `images.remote`.
+
+When the template's document part owns an image relationship (for example a cover logo), WordCraft 0.7.0 maps a Markdown-imported image onto the template's first image. In that case every image and rendered diagram SHALL instead be written to `<dir>/images/<NNNN>.<ext>`, replaced in `body.md` by the token `CRAFTIMG<NNNN>`, and listed in `prepare.json` under `pictures` as `{marker, file, alt}`.
 
 Each Mermaid block SHALL be rendered to PNG and inlined:
 - with nano-banana when frontmatter `nano_banana.enabled` is true, using the style from the template's `nano-banana-styles.yaml` and the cache `.mermaid-cache/<md5 of style and source>.png`, falling back to `mmdc` on failure;
@@ -84,6 +86,10 @@ When `mmdc` is unavailable, the block SHALL be left as code and counted as unren
 #### Scenario: Image outside the tree refused
 - **WHEN** the Markdown references `../../secret.png` and no `--allow-path` covers it
 - **THEN** the image is not inlined and the report lists it under skipped with the reason
+
+#### Scenario: Template with images gets picture markers
+- **WHEN** the template owns a cover image and the Markdown has one image and one Mermaid block
+- **THEN** `body.md` contains `CRAFTIMG0001` and `CRAFTIMG0002` instead of `data:` URIs, `<dir>/images/` holds both files, and `pictures` lists them
 
 #### Scenario: Mermaid cache hit
 - **WHEN** a nano-banana-styled diagram with an unchanged source is prepared a second time

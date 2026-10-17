@@ -12,10 +12,13 @@ import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { provision } from "../provision.js";
 import { runVerify } from "../verify.js";
+import { partText, readDocx, realisticDocx } from "./helpers/docx.js";
 import { cleanupTmp, tmpDir } from "./helpers/fixtures.js";
 import { CRAFT_CLI, TSX } from "./helpers/paths.js";
 
 const enabled = !!process.env.CRAFT_E2E;
+/** The office-workflow publish test also needs several provisioned apps: the same opt-in as the workflow recipes. */
+const workflowEnabled = enabled && !!process.env.CRAFT_WORKFLOW_E2E;
 afterEach(cleanupTmp);
 
 const home = () => process.env.CRAFT_HOME ?? tmpDir("craft-real-");
@@ -110,6 +113,59 @@ describe.skipIf(!enabled)("real release binaries", () => {
       if (prev === undefined) delete process.env.CRAFT_HOME;
       else process.env.CRAFT_HOME = prev;
     }
+  }, 300_000);
+});
+
+/** `pi-craft <args>` through tsx with the shared cache; returns the spawn result. */
+function craft(args: string[], cwd: string, env: NodeJS.ProcessEnv = {}) {
+  return spawnSync(process.execPath, ["--import", TSX, CRAFT_CLI, ...args], {
+    cwd,
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+    timeout: 240_000,
+    env: { ...process.env, NODE_OPTIONS: "", CRAFT_HOME: home(), ...env },
+  });
+}
+
+describe.skipIf(!workflowEnabled)("craft-doc-publish with real binaries (office workflows)", () => {
+  /** doc prepare → WordCraft run --file (body appended after a page break) → pdf; returns the work dir. */
+  function publish(): string {
+    const work = tmpDir("craft-publish-");
+    const tpl = path.join(work, "templates", "default");
+    fs.mkdirSync(tpl, { recursive: true });
+    fs.writeFileSync(path.join(tpl, "template.docx"), realisticDocx());
+    fs.writeFileSync(
+      path.join(work, "report.md"),
+      "---\ndocument_title: Offer 2026\nclient_name: ACME Kft.\ndocument_id: DOC-7\nproject_name: Probe\n---\n# Offer 2026\n\nBody text here.\n",
+    );
+    const prep = craft(["doc", "prepare", "report.md", "--out", "01-prepare", "--templates-dir", "templates"], work);
+    expect(prep.status, prep.stderr).toBe(0);
+    fs.mkdirSync(path.join(work, "02-render"));
+    const d = path.join(work, "01-prepare");
+    const run = craft(
+      ["wordcraft", "exec", "run", "--file", path.join(d, "template.filled.docx"), "--cmd", "caret.docEnd={}", "--cmd", "text.pageBreak={}", "--cmd", `insert.textFromFile=${JSON.stringify({ path: path.join(d, "body.md") })}`, "--cmd", 'file.properties={"title":"Offer 2026"}', "--save", "02-render/out.docx"],
+      work,
+    );
+    expect(run.status, run.stderr).toBe(0);
+    const pdf = craft(["wordcraft", "exec", "convert", "02-render/out.docx", "02-render/out.pdf"], work);
+    expect(pdf.status, pdf.stderr).toBe(0);
+    return work;
+  }
+
+  it("X1 a templated pdf carries the filled cover, first-page header and body; the docx keeps its header/footer parts", () => {
+    const work = publish();
+    const v = craft(["verify", "02-render/out.pdf", "--pages", "2", "--text-contains", "Offer 2026", "--text-contains", "ACME Kft.", "--text-contains", "DOC-7"], work);
+    expect(v.status, v.stdout + v.stderr).toBe(0);
+    const parts = Object.keys(readDocx(fs.readFileSync(path.join(work, "02-render", "out.docx"))));
+    expect(parts.filter((n) => /^word\/(header|footer)\d*\.xml$/.test(n)).length).toBeGreaterThanOrEqual(3);
+    expect(partText(fs.readFileSync(path.join(work, "01-prepare", "template.filled.docx")), "word/header2.xml")).not.toContain("{{");
+      }, 300_000);
+
+  it("X2 the page-count gate fails when one page too many is expected", () => {
+    const work = publish();
+    const v = craft(["verify", "02-render/out.pdf", "--pages", "3"], work);
+    expect(v.status).toBe(1);
+    expect(v.stdout + v.stderr).toMatch(/expected 3\s+actual 2/);
   }, 300_000);
 });
 

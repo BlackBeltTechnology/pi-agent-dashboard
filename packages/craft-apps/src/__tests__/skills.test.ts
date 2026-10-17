@@ -8,8 +8,11 @@ import {
   checkSnippet,
   commandLines,
   fences,
+  fixtureUnion,
   loadFixture,
   loadSkill,
+  MEDIA_WORKFLOW_NAMES,
+  OFFICE_WORKFLOW_NAMES,
   PKG_DIR,
   quotedIds,
   SKILL_NAMES,
@@ -22,7 +25,7 @@ import {
 
 afterAll(cleanupTmp);
 
-/** `CRAFT_SKILLS=filmcraft,soundcraft` lints a subset (skill authors run it per skill; CI runs all 18). */
+/** `CRAFT_SKILLS=filmcraft,soundcraft` lints a subset (skill authors run it per skill; CI runs all 23). */
 const only = process.env.CRAFT_SKILLS?.split(",").filter(Boolean);
 const skills = SKILL_NAMES.filter((n) => !only || only.includes(n)).map((n) => loadSkill(n));
 const workflows = WORKFLOW_SKILL_NAMES.filter((n) => !only || only.includes(n)).map((n) => loadSkill(n));
@@ -156,8 +159,9 @@ const hasJq = spawnSync("jq", ["--version"]).status === 0;
 const router = () => loadSkill("craft-studio");
 
 describe("workflow skills (lint)", () => {
-  it.skipIf(!!only)("ships the four media workflow skills", () => {
-    expect(workflows.map((s) => s.name)).toEqual(["craft-video-post", "craft-beat-cut", "craft-podcast-master", "craft-motion-titles"]);
+  it.skipIf(!!only)("ships the four media and the five office workflow skills", () => {
+    expect(workflows.map((s) => s.name)).toEqual([...MEDIA_WORKFLOW_NAMES, ...OFFICE_WORKFLOW_NAMES]);
+    expect(OFFICE_WORKFLOW_NAMES).toEqual(["craft-brand-kit", "craft-doc-publish", "craft-deck", "craft-photo-pipeline", "craft-data-visual"]);
   });
 
   it("E2 frontmatter name == dir, description > 60 chars with a quoted user phrasing of >= 6 chars", () => {
@@ -205,8 +209,8 @@ describe("workflow skills (lint)", () => {
     }
   });
 
-  it("E6 the delivery gate asserts h264 + aac and a frame diff", () => {
-    for (const s of workflows) {
+  it("E6 the delivery gate of a media workflow asserts h264 + aac and a frame diff", () => {
+    for (const s of workflows.filter((w) => (MEDIA_WORKFLOW_NAMES as readonly string[]).includes(w.name))) {
       const last = stepSections(s.body).at(-1);
       const verifies = (last?.fences ?? []).flatMap((f) => commandLines(f.code)).filter((l) => /^pi-craft verify\b/.test(l));
       expect(
@@ -306,5 +310,150 @@ describe.skipIf(!hasJq)("workflow skill-level checks (executed)", () => {
     expect(runCheck("craft-beat-cut", "hits", path.join(dir, "valid.json"), "hits.json").status).toBe(0);
     expect(runCheck("craft-beat-cut", "hits", path.join(dir, "no-hits.json"), "hits.json").status).not.toBe(0);
     expect(runCheck("craft-beat-cut", "hits", path.join(dir, "schema0.json"), "hits.json").status).not.toBe(0);
+  });
+});
+
+// ── Office workflow skills (spec craft-office-workflow-skills) ───────────────────────────────────────
+
+const officeNames = OFFICE_WORKFLOW_NAMES.filter((n) => !only || only.includes(n));
+const officeSkills = officeNames.map((n) => loadSkill(n));
+const officeSkill = (n: (typeof OFFICE_WORKFLOW_NAMES)[number]) => loadSkill(n);
+
+/** `##`/`###` sections of a skill body: heading + text up to the next heading. */
+function sectionsOf(body: string): { heading: string; text: string }[] {
+  const parts = body.split(/^(?=#{2,3} )/m);
+  return parts.map((p) => ({ heading: /^#{2,3} (.*)$/m.exec(p)?.[1] ?? "", text: p }));
+}
+const lines = (body: string) => fences(body).flatMap((f) => commandLines(f.code));
+
+/** A step that exports an svg must preview it as a png and gate that with `--size`. */
+function expectSvgPreview(skill: string, st: { n: number; fences: { code: string }[] }): void {
+  const code = st.fences.map((f) => f.code).join("\n");
+  if (!/--export\s+\S+\.svg\b/.test(code)) return;
+  expect(code, `${skill} step ${st.n} makes an svg but has no png preview`).toMatch(/convert\s+\S+\.svg"?\s+"?\S+\.png/);
+  expect(code, `${skill} step ${st.n} svg preview needs --size`).toMatch(/pi-craft verify\s+"?\S+\.png"?[^\n]*--size/);
+}
+
+describe("office workflow skills (lint)", () => {
+  it("E28 the router lists the office workflows, the doc-publish default and the document-converter split", () => {
+    const t = router().body;
+    for (const n of OFFICE_WORKFLOW_NAMES) expect(t, `router misses ${n}`).toContain(n);
+    expect(t).toMatch(/craft-doc-publish[^.]*default|default[^.]*craft-doc-publish/);
+    expect(t).toMatch(/document-converter[\s\S]{0,300}(ingest|OCR)[\s\S]{0,300}round-trip[\s\S]{0,300}PlantUML/);
+    expect(t).toMatch(/deck3d/);
+  });
+
+  it("E29 svg is gated through a png preview; --alpha on png only", () => {
+    for (const s of officeSkills) {
+      for (const l of lines(s.body).filter((x) => /^pi-craft verify\b/.test(x))) {
+        const target = l.split(/\s+/)[2] ?? "";
+        expect(target, `${s.name} verifies an svg: ${l}`).not.toMatch(/\.svg\b/);
+        if (/--alpha\b/.test(l)) expect(target, `${s.name}: --alpha is for png only: ${l}`).toMatch(/\.png\b/);
+      }
+      for (const st of stepSections(s.body)) expectSvgPreview(s.name, st);
+    }
+  });
+
+  it("E29 the failed-gate text names the retry cap 2 and exit 3", () => {
+    for (const s of officeSkills) {
+      const fail = /^## When a gate fails\n([\s\S]*?)(?=^## )/m.exec(s.body)?.[1] ?? "";
+      expect(fail, s.name).toMatch(/at most 2\s+retries/i);
+      expect(fail, s.name).toMatch(/exit\s+`3`/);
+      expect(fail, s.name).toMatch(/stop and\s+report the\s+missing tool/);
+    }
+  });
+
+  it("E30 every office skill links the Craft jobs section; brand-kit and doc-publish keep secrets out of job.json", () => {
+    for (const s of officeSkills) {
+      expect(s.body, s.name).toMatch(/\*\*Craft jobs\*\* convention in `craft-studio`/);
+      expect(s.body, `${s.name} restates the slug rule`).not.toContain("[a-z0-9-]");
+    }
+    for (const n of ["craft-brand-kit", "craft-doc-publish"] as const) {
+      if (officeNames.includes(n)) expect(officeSkill(n).body, n).toMatch(/Passwords and API keys are never written to `job\.json`/);
+    }
+  });
+
+  it("E32 office ids resolve in the union of the mapped apps (including pdfcraft tool names)", () => {
+    const { known } = fixtureUnion(["vectorcraft", "wordcraft", "pdfcraft", "gridcraft", "deckcraft", "photocraft", "lightcraft", "designcraft"]);
+    for (const id of ["imageTrace.make", "imageTrace.makeAndExpand", "references.toc", "references.updateToc", "doc_protect", "insert.chart", "insert.picture"]) expect(known.has(id), id).toBe(true);
+  });
+
+  it.skipIf(!officeNames.includes("craft-doc-publish"))("E34 craft-doc-publish: run --file only, render gate with --pages + --text-contains, prepare gate checks the five report fields", () => {
+    const s = officeSkill("craft-doc-publish");
+    const all = lines(s.body);
+    expect(all.filter((l) => /wordcraft exec run\b/.test(l) && /--template\b/.test(l)), "never run --template").toEqual([]);
+    expect(all.some((l) => /wordcraft exec run\b[^\n]*--file\b/.test(l))).toBe(true);
+    const render = stepSections(s.body).find((x) => x.n === 2);
+    const verify = render?.fences.flatMap((f) => commandLines(f.code)).filter((l) => /^pi-craft verify\b/.test(l)) ?? [];
+    expect(verify.some((l) => l.includes("--pages") && l.includes("--text-contains"))).toBe(true);
+    const prepare = checkSnippet(s, "prepare");
+    for (const field of [".unresolved", ".mermaid.unrendered", ".images.skipped", ".images.remote", ".defaulted"]) expect(prepare, field).toContain(field);
+  });
+
+  it.skipIf(!officeNames.includes("craft-brand-kit"))("E35 craft-brand-kit: imageTrace by default; anti-slop-brandkit only behind an explicit request and approval; concept label", () => {
+    const s = officeSkill("craft-brand-kit");
+    const step1 = stepSections(s.body).find((x) => x.n === 1);
+    expect(step1?.text).toContain("imageTrace");
+    for (const sec of sectionsOf(s.body).filter((x) => x.text.includes("anti-slop-brandkit"))) {
+      expect(sec.text, `section "${sec.heading}"`).toMatch(/explicit/i);
+      expect(sec.text, `section "${sec.heading}"`).toMatch(/approv/i);
+    }
+    expect(s.body).toMatch(/\bconcept\b/i);
+    expect(lines(s.body).filter((l) => /anti-slop-brandkit/.test(l))).toEqual([]);
+  });
+
+  it.skipIf(!officeNames.includes("craft-deck"))("E36 craft-deck: the deck3d branch has no DeckCraft/PdfCraft step; pptx and HTML are never converted", () => {
+    const s = officeSkill("craft-deck");
+    const branch = sectionsOf(s.body).find((x) => /deck3d/.test(x.heading));
+    expect(branch, "a deck3d section").toBeTruthy();
+    expect(lines(branch?.text ?? "").filter((l) => /deckcraft|pdfcraft/i.test(l))).toEqual([]);
+    expect(s.body).not.toContain("deck3d-from-pptx");
+    expect(s.body).toMatch(/never converted|Do not convert/i);
+  });
+
+  it.skipIf(!officeNames.includes("craft-photo-pipeline"))("E37 craft-photo-pipeline stays inside photo develop/retouch/export", () => {
+    expect(officeSkill("craft-photo-pipeline").body).not.toMatch(/dataset|lora/i);
+  });
+
+  it("every office skill drives its mapped apps in the step table", () => {
+    for (const s of officeSkills) {
+      for (const app of WORKFLOW_APPS[s.name as keyof typeof WORKFLOW_APPS].filter((a) => ["craft-data-visual"].includes(s.name) === false)) {
+        expect(s.body.toLowerCase(), `${s.name} never uses ${app}`).toContain(app);
+      }
+    }
+  });
+});
+
+describe.skipIf(!hasJq)("office skill-level checks (executed)", () => {
+  const ERRORS = ["#NAME?", "#DIV/0!", "#REF!", "#VALUE!", "#N/A", "#NUM!", "#NULL!"];
+  const runReadback = (fixture: string) => {
+    const cwd = tmpDir("craft-readback-");
+    const bin = tmpDir("craft-readback-bin-");
+    fs.writeFileSync(path.join(cwd, "fixture.txt"), fixture);
+    fs.writeFileSync(path.join(bin, "pi-craft"), '#!/bin/sh\ncat "$FIXTURE"\n', { mode: 0o755 });
+    const code = checkSnippet(loadSkill("craft-data-visual"), "readback");
+    return spawnSync("bash", ["-e", "-o", "pipefail", "-c", code], { cwd, encoding: "utf8", env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, FIXTURE: path.join(cwd, "fixture.txt") } });
+  };
+
+  it("E33 the read-back check fails for each of the seven error values and passes on clean cells", () => {
+    for (const err of ERRORS) expect(runReadback(`Quarter  Ratio\nQ1  ${err}\nQ2  1.5\n`).status, err).not.toBe(0);
+    expect(runReadback("Quarter  Revenue\nQ1  120\nQ2  150\n").status).toBe(0);
+    expect(runReadback("").status, "an empty read-back is not a pass").not.toBe(0);
+  });
+
+  it("the prepare check passes only for a clean report with confirmed defaults", () => {
+    const run = (report: object, env: Record<string, string> = {}) => {
+      const cwd = tmpDir("craft-prepare-check-");
+      fs.writeFileSync(path.join(cwd, "prepare.json"), JSON.stringify(report));
+      return spawnSync("bash", ["-e", "-o", "pipefail", "-c", checkSnippet(loadSkill("craft-doc-publish"), "prepare")], { cwd, encoding: "utf8", env: { ...process.env, ...env } });
+    };
+    const clean = { unresolved: [], mermaid: { unrendered: 0 }, images: { skipped: [], remote: [] }, defaulted: [] };
+    expect(run(clean).status).toBe(0);
+    expect(run({ ...clean, unresolved: ["document_id"] }).status).not.toBe(0);
+    expect(run({ ...clean, mermaid: { unrendered: 1 } }).status).not.toBe(0);
+    expect(run({ ...clean, images: { skipped: [{ path: "x", reason: "y" }], remote: [] } }).status).not.toBe(0);
+    expect(run({ ...clean, images: { skipped: [], remote: ["https://x/y.png"] } }).status).not.toBe(0);
+    expect(run({ ...clean, defaulted: ["client_name"] }).status, "unconfirmed defaults").not.toBe(0);
+    expect(run({ ...clean, defaulted: ["client_name"] }, { DEFAULTS_CONFIRMED: "1" }).status).toBe(0);
   });
 });

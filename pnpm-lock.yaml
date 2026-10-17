@@ -652,6 +652,12 @@ importers:
       '@blackbelt-technology/pi-dashboard-shared':
         specifier: ^0.9.0
         version: link:../shared
+      fflate:
+        specifier: ^0.8.3
+        version: 0.8.3
+      yaml:
+        specifier: ^2.9.0
+        version: 2.9.0
     devDependencies:
       esbuild:
         specifier: ^0.28.2
