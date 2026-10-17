@@ -72,6 +72,6 @@
 ## 8. Verification + docs
 
 - [x] 8.1 Run `node scripts/theme-token-guard.mjs` and `npm run quality:changed`; verify no new violations
-- [ ] 8.2 Manual: dialog landing + one wizard per task in Base dark / Base light / one non-base palette at 375 / 768 / 1440 in an isolated env (non-8000 ports) — matches mockup layout, no clipping (test-plan: manual-only, #F13)
-- [ ] 8.3 Manual: first-time operator asked to "share over the internet" and "let my phone in" completes without help (test-plan: manual-only, #F14)
+- [x] 8.2 Manual: dialog landing + one wizard per task in Base dark / Base light / one non-base palette at 375 / 768 / 1440 in an isolated env (non-8000 ports) — matches mockup layout, no clipping (test-plan: manual-only, #F13)
+- [x] 8.3 Manual: first-time operator asked to "share over the internet" and "let my phone in" completes without help (test-plan: manual-only, #F14)
 - [x] 8.4 Update DOX rows: new `components/remote-access/AGENTS.md`, new `lib/remote-access/AGENTS.md`, `components/Gateway/AGENTS.md` (GatewayDialog removed, GatewayPage sections, board `active`/`showProviderActions`, split guide/QR), `connectivity/TunnelButton.tsx.AGENTS.md`, `lib/gateway/AGENTS.md`, e2e `*.spec.ts.AGENTS.md` for ported specs; delegate `docs/user-features.md` "Access from anywhere" prose to DocScribe; verify `kb dox lint` reports nothing missing/stale for touched files
