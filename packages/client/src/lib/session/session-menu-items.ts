@@ -270,7 +270,7 @@ const detachItem = (actions: SessionMenuActions): SessionMenuItem => ({
 });
 
 /** The attached, live-active change: lifecycle row, Open change, primary + workflow items. */
-function liveChangeItems(session: DashboardSession, ctx: SessionMenuCtx, change: OpenSpecChange, isEnded: boolean): OpenSpecBuild {
+function liveChangeItems(ctx: SessionMenuCtx, change: OpenSpecChange, isEnded: boolean): OpenSpecBuild {
   const { actions } = ctx;
   const state = deriveChangeState(change);
   const allDone = change.artifacts.length > 0 && change.artifacts.every((a) => a.status === "done" || a.status === "skipped");
@@ -333,7 +333,6 @@ function liveChangeItems(session: DashboardSession, ctx: SessionMenuCtx, change:
   const primaryItem = primary ? spec2item(primary, handlers[primary.key]) : undefined;
   if (primaryItem) items.push(primaryItem);
   for (const a of overflow) items.push(spec2item(a, handlers[a.key]));
-  void session;
   return { items, primary: primaryItem, subtitle: change.name };
 }
 
@@ -410,7 +409,7 @@ function buildOpenSpec(session: DashboardSession, ctx: SessionMenuCtx, isEnded: 
   }
   if (mode === "detach-only") return { items: [] };
   if (!attached) return unattachedItems(ctx, isEnded);
-  return liveChange ? liveChangeItems(session, ctx, liveChange, isEnded) : traceItems(ctx, attached);
+  return liveChange ? liveChangeItems(ctx, liveChange, isEnded) : traceItems(ctx, attached);
 }
 
 interface GitBuild {
@@ -438,14 +437,14 @@ function buildGit(session: DashboardSession, ctx: SessionMenuCtx): GitBuild {
   const blocked = (b: boolean) => (b ? { disabled: true, reason: STREAMING() } : {});
   if (wt.push) items.push({ id: "push", label: tr("worktree.push", "Push"), icon: mdiArrowUpBoldOutline, onSelect: actions.push, ...blocked(wt.push.blocked) });
   if (wt.openPr) items.push({ id: "open-pr", label: tr("worktree.openPr", "Open PR"), icon: mdiSourcePull, onSelect: actions.openPr, ...blocked(wt.openPr.blocked) });
-  if (wt.hasPr) {
-    const url = session.gitPrUrl ?? undefined;
+  // A PR with no known URL has nothing to open (the card shows plain `#N` text), so no dead item.
+  const prUrl = wt.hasPr ? (session.gitPrUrl ?? undefined) : undefined;
+  if (prUrl) {
     items.push({
       id: "view-pr",
       label: tr("sessionMenu.viewPr", "View PR #{number}", { number: session.gitPrNumber ?? 0 }),
       icon: mdiSourcePull,
-      onSelect: url ? () => actions.openUrl(url) : undefined,
-      disabled: !url,
+      onSelect: () => actions.openUrl(prUrl),
     });
   }
   if (wt.merge) {

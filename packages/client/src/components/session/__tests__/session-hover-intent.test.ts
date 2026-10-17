@@ -9,6 +9,7 @@ import {
   HOVER_CLOSE_GRACE_MS,
   HOVER_DWELL_MS,
   HOVER_SPEED_CUTOFF,
+  HOVER_SPEED_WINDOW_MS,
   HOVER_STRIP_PX,
   type HoverIntentHost,
 } from "../session-hover-intent.js";
@@ -106,6 +107,19 @@ describe("arming (F5, F6, F7)", () => {
     move(inner, R - 10);
     expect(opened).toEqual(["s1"]);
     expect(HOVER_SPEED_CUTOFF).toBe(0.4);
+  });
+
+  it("a fast entry that then comes to rest still opens once the speed window rolls over (no further move needed)", () => {
+    // sweep in quickly, then stop dead inside the strip
+    for (let i = 0; i < 6; i++) {
+      vi.setSystemTime(i * 10);
+      move(inner, R - 31 + i * 5);
+    }
+    vi.setSystemTime(60);
+    vi.advanceTimersByTime(HOVER_DWELL_MS - 60); // dwell timer fires while still "fast"
+    expect(opened).toEqual([]);
+    vi.advanceTimersByTime(HOVER_SPEED_WINDOW_MS + 5); // the re-check after the window rolled on
+    expect(opened).toEqual(["s1"]);
   });
 
   it("strip geometry: R−33 does not arm, R−32 and R−1 do (F7)", () => {

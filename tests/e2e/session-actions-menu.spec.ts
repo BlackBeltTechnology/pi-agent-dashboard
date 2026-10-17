@@ -106,9 +106,39 @@ async function detachIfAttached(page: Page): Promise<void> {
   else await closeSessionMenu(page);
 }
 
+/** A card pinned by id: `nth()` over a growing list re-resolves to a different card as ended pages load. */
+async function stableCard(page: Page, index: number): Promise<Locator> {
+  const id = await seededCards(page).nth(index).getAttribute("data-session-id");
+  return page.locator(`[data-testid='session-card-desktop'][data-session-id="${id}"]`);
+}
+
 /** Cards of the seeded ended sessions, in DOM order. */
 function seededCards(page: Page): Locator {
   return page.locator(plantedIds.map((id) => `[data-testid='session-card-desktop'][data-session-id="${id}"]`).join(","));
+}
+
+/**
+ * Scroll the sidebar until `card` sits ~150 px from the top of the viewport. The list keeps
+ * re-laying out while ended pages load, so converge over a few passes instead of trusting
+ * one measurement. A tall menu clamps to the viewport bottom for a card low on screen,
+ * which would mask the placement behaviour under test.
+ */
+async function parkCardHigh(page: Page, card: Locator): Promise<void> {
+  const scroller = page.getByTestId("session-list-scroll");
+  let stable = 0;
+  for (let i = 0; i < 30 && stable < 3; i++) {
+    const y = (await card.boundingBox())!.y;
+    if (Math.abs(y - 150) <= 3) {
+      stable++;
+    } else {
+      // The list may scroll itself back (e.g. reveal-selected after a page of ended cards loads): re-park.
+      stable = 0;
+      await scroller.evaluate((el, d) => {
+        el.scrollTop += d;
+      }, y - 150);
+    }
+    await page.waitForTimeout(250);
+  }
 }
 
 async function revealSeeded(page: Page): Promise<void> {
@@ -186,17 +216,30 @@ test.describe("session actions menu (L3)", () => {
       // scroll moves it from under the pointer; neutralise that cosmetic transform so the
       // assertion isolates the MENU's tracking (Δtop = Δcard.top ± 1 px).
       await page.addStyleTag({ content: "[data-session-card]{transform:none !important;transition:none !important}" });
-      const cards = seededCards(page);
-      const card = cards.nth(2);
+      const card = await stableCard(page, 2);
       await card.scrollIntoViewIfNeeded();
       const scroller = page.getByTestId("session-list-scroll");
-      // Park the card high in the viewport: a tall menu clamps to the viewport
-      // bottom for a card low on screen, which would mask the scroll tracking.
-      await scroller.evaluate((el, y) => {
-        el.scrollTop += y;
-      }, (await card.boundingBox())!.y - 150);
+      await parkCardHigh(page, card);
       const top = async (el: Locator) => (await el.boundingBox())!.y;
+      // The sidebar can still be re-laying out after a restart / fold expansion; measure only
+      // once the card has stopped moving (three equal reads, 150 ms apart).
+      const settle = async () => {
+        let same = 0;
+        let last = Number.NaN;
+        await expect
+          .poll(
+            async () => {
+              const y = await top(card);
+              same = y === last ? same + 1 : 0;
+              last = y;
+              return same >= 3;
+            },
+            { timeout: 15_000, intervals: [150] },
+          )
+          .toBe(true);
+      };
       const alignedAfterScroll = async (open: () => Promise<void>, expectAtCard: boolean) => {
+        await settle();
         await open();
         const panel = sessionMenuPanel(page);
         await expect(panel).toBeVisible();
@@ -244,15 +287,10 @@ test.describe("session actions menu (L3)", () => {
 
     test("F14: the menu paints above a neighbouring card, and below a dialog opened over it", async ({ page }) => {
       await revealSeeded(page);
-      const cards = seededCards(page);
-      const first = cards.nth(1);
-      const second = cards.nth(2);
+      const first = await stableCard(page, 1);
+      const second = first.locator("xpath=following::*[@data-testid='session-card-desktop'][1]");
       await first.scrollIntoViewIfNeeded();
-      // Park the first card high so the cards below it are on screen and the menu is not viewport-clamped.
-      await page.getByTestId("session-list-scroll").evaluate((el, y) => {
-        el.scrollTop += y;
-      }, (await first.boundingBox())!.y - 150);
-      await page.waitForTimeout(200);
+      await parkCardHigh(page, first);
       const fb = (await first.boundingBox())!;
       // Right-click near the card's left edge so the pointer-anchored menu lands over the cards below.
       await page.mouse.click(fb.x + 24, fb.y + fb.height - 6, { button: "right" });
@@ -288,7 +326,7 @@ test.describe("session actions menu (L3)", () => {
     test("P2: the menu is visible within 100 ms of a trigger click (p95 over 20 opens, 50 cards)", async ({ page }) => {
       await revealSeeded(page);
       expect(await page.locator("[data-testid='session-card-desktop']").count()).toBeGreaterThanOrEqual(SEED_COUNT);
-      const card = seededCards(page).nth(3);
+      const card = await stableCard(page, 3);
       await card.scrollIntoViewIfNeeded();
       const samples: number[] = [];
       for (let i = 0; i < 20; i++) {
@@ -321,13 +359,13 @@ test.describe("session actions menu (L3)", () => {
   test("F24: a ui:popover paints at the popover token (40) and a dialog opened over it wins the overlap", async ({ page }) => {
     const card = await ensureGitSession(page);
     await card.click({ position: { x: 6, y: 6 } });
-    // Attach a fixture change so the composer strip's OpenSpec `⋯` (client-utils Popover) exists.
+    // Attach a fixture change so the composer's change chip (a client-utils Popover) exists.
     await detachIfAttached(page);
     await chooseMenuItem(page, "openspec-attach", { card });
     await page.getByText("e2e-artifact-demo", { exact: false }).first().click();
-    const overflow = page.getByTestId("composer-openspec-overflow-btn");
-    await expect(overflow).toBeVisible({ timeout: 60_000 });
-    await overflow.click();
+    const chip = page.getByTestId("composer-change-chip");
+    await expect(chip).toBeVisible({ timeout: 60_000 });
+    await chip.click();
     const popover = page.getByTestId("ui-popover");
     await expect(popover).toBeVisible();
     expect(await popover.evaluate((el) => getComputedStyle(el).zIndex)).toBe("40");

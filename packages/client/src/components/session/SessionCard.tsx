@@ -1058,7 +1058,16 @@ export function SessionCard({
     ),
     [pluginNames],
   );
-  const menuListCtx = useMemo(() => ({ onActivate: () => setMenuOpen(false) }), [setMenuOpen]);
+  const menuListCtx = useMemo(
+    () => ({
+      onActivate: () => {
+        setMenuOpen(false);
+        // An intent action activated with the keyboard must not strand focus on <body>.
+        cardElRef.current?.querySelector<HTMLElement>("[data-testid^='session-actions-trigger-']")?.focus();
+      },
+    }),
+    [setMenuOpen],
+  );
 
   const attachedName = session.attachedProposal || undefined;
   const menuGroups = useMemo(() => {

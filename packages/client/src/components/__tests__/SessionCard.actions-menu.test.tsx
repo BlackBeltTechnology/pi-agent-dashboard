@@ -383,9 +383,11 @@ describe("plugin hosting in the PLUGINS group (F19, X1, F22, X3)", () => {
     const btn = screen.getByTestId("alpha-btn");
     expect(btn.closest("[role='group'][aria-label='Alpha plugin']")).toBeTruthy();
     expect(screen.getByTestId("session-menu-group-plugins").hasAttribute("hidden")).toBe(false);
+    btn.focus();
     fireEvent.click(btn);
     expect(screen.queryByTestId("session-actions-menu-s1")).toBeNull();
     expect(onSelect).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(trigger());
     // the claim stays mounted: reopening shows it again
     fireEvent.click(trigger());
     expect(screen.getByTestId("alpha-btn")).toBeTruthy();
@@ -432,9 +434,12 @@ describe("plugin hosting in the PLUGINS group (F19, X1, F22, X3)", () => {
     fireEvent.click(trigger());
     const items = screen.getAllByTestId("action-list-item");
     expect(items.map((i) => i.getAttribute("role"))).toEqual(["menuitem", "menuitem"]);
+    items[0].focus();
     fireEvent.click(items[0]);
     expect(sent).toEqual(["first"]);
     expect(screen.queryByTestId("session-actions-menu-s1")).toBeNull();
+    // keyboard users land back on the trigger, never on <body>
+    expect(document.activeElement).toBe(trigger());
   });
 
   it("X3: the goal plugin's claim renders in the menu (link chip → goal detail) while GoalChip stays on the card", () => {

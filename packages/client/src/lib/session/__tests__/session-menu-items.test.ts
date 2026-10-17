@@ -456,6 +456,13 @@ describe("deriveSessionMenu — working disables worktree mutations (E11)", () =
     expect(openUrl).toHaveBeenCalledWith("https://gh/pr/7");
     expect(g?.items.some((i) => i.id === "open-pr")).toBe(false);
   });
+
+  it("a PR with no known URL offers no View PR item (no dead end) and no Open PR", () => {
+    const s = makeSession({ gitPrNumber: 7, gitPrState: "open" });
+    const g = find(deriveSessionMenu(s, makeCtx(s)), "git");
+    expect(g?.items.some((i) => i.id === "view-pr")).toBe(false);
+    expect(g?.items.some((i) => i.id === "open-pr")).toBe(false);
+  });
 });
 
 describe("deriveSessionMenu — lifecycle row mirrors the stepper (E14)", () => {

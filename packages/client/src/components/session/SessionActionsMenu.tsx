@@ -233,7 +233,8 @@ function SessionActionsPanel({
     const onClick = (e: Event) => {
       const el = (e.target as Element | null)?.closest("button, a[href], [role='menuitem']") as HTMLElement | null;
       if (!el || !isEnabled(el)) return;
-      close(false);
+      // Same path as a host item: focus returns to the opener, never to <body>.
+      close(true);
     };
     pluginContainer.addEventListener("click", onClick);
     return () => {

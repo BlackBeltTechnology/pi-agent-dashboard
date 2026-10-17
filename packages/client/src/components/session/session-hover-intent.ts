@@ -100,8 +100,12 @@ export function createHoverIntent(doc: Document, host: HoverIntentHost): { destr
     if (!armed) return;
     const now = Date.now();
     if (now - armed.since < HOVER_DWELL_MS) return;
-    // Still too fast: stay armed, the next move re-checks.
-    if (speedAt(now) >= HOVER_SPEED_CUTOFF) return;
+    // Still too fast: stay armed and look again once the speed window has rolled
+    // on — a pointer that then comes to rest sends no further move to re-check.
+    if (speedAt(now) >= HOVER_SPEED_CUTOFF) {
+      armed.timer = setTimeout(tryOpen, HOVER_SPEED_WINDOW_MS);
+      return;
+    }
     const { id } = armed;
     disarm();
     host.open(id);
