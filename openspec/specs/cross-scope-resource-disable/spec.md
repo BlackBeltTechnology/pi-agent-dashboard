@@ -337,7 +337,7 @@ The toggle SHALL NOT skip recording on the grounds that the folder currently has
 
 The order SHALL be: a recorded decision decides; otherwise the configured default decides, where `always` proceeds **without recording**, `never` refuses without prompting, and `ask` prompts and records the choice.
 
-When the outcome is a prompt, the toggle SHALL NOT write, and SHALL return a `trust_required` result carrying the offered options. On approval the decision SHALL be persisted through pi's trust store and the toggle retried.
+When the outcome is a prompt, the toggle SHALL NOT write, and SHALL return a `trust_required` result carrying the offered options. A refusal recorded for the folder itself SHALL refuse as today; an inherited ancestor refusal SHALL prompt as today. When durable dashboard trust (`pi-trust-mirror`) covers the folder and nothing is recorded for it or an ancestor, the prompt SHALL also be returned when the configured default is `never`, SHALL pre-select the option that trusts the folder, SHALL name the dashboard source, and SHALL state that approving writes a lasting pi decision that terminal pi also honours and that unpinning does not remove; nothing SHALL be recorded until the operator chooses. On approval the decision SHALL be persisted through the dashboard's `persistTrustDecision` wrapper over pi's trust store and the toggle retried.
 
 #### Scenario: A folder with no trust-requiring resources still records a decision
 - **GIVEN** a cwd with no `.pi` directory, which pi currently loads as trusted
@@ -366,7 +366,7 @@ When the outcome is a prompt, the toggle SHALL NOT write, and SHALL return a `tr
 - **GIVEN** a cwd with no recorded decision
 - **WHEN** the configured default is `always`
 - **THEN** the toggle proceeds **without** recording a trust decision, so folders the user merely toggled are not enrolled permanently
-- **AND** when the configured default is `never`, the toggle is refused with an explanatory error and no prompt
+- **AND** when the configured default is `never` and no dashboard trust covers the cwd, the toggle is refused with an explanatory error and no prompt
 - **AND** when the configured default is `ask`, a trust prompt is returned
 
 #### Scenario: Tightening the default later stops applying prior disables
@@ -405,3 +405,9 @@ When the outcome is a prompt, the toggle SHALL NOT write, and SHALL return a `tr
 - **GIVEN** a cwd already trusted
 - **WHEN** a `local`-scope toggle is requested
 - **THEN** no trust prompt is returned and the toggle is applied directly
+
+#### Scenario: Dashboard-trusted folder pre-selects trust in the prompt
+- **GIVEN** a pinned cwd with no recorded decision and the default set to `ask`
+- **WHEN** a `local`-scope toggle is requested
+- **THEN** the response indicates trust is required, pre-selects trusting the folder, and names "pinned folder" as the reason
+- **AND** nothing is recorded and `<cwd>/.pi/settings.json` is not modified until the operator chooses
