@@ -96,11 +96,11 @@ One row per file.
 | `folder-collapse-worktree.spec.ts` | L3 persist-folder-collapse-server-side #F4/#F7. → see `folder-collapse-worktree.spec.ts.AGENTS.md` |
 | `folder-membership-drag.spec.ts` | L3 for `drag-folders-across-workspaces` (test-plan… → see `folder-membership-drag.spec.ts.AGENTS.md` |
 | `followup-image-queue.spec.ts` | L3 for `fix-bridge-followup-image-drop` (test-plan #F1… → see `followup-image-queue.spec.ts.AGENTS.md` |
-| `gateway-board-mobile.spec.ts` | 6.8/6.9 (D11) — the readiness… → see `gateway-board-mobile.spec.ts.AGENTS.md` |
+| `gateway-board-mobile.spec.ts` | 6.8/6.9 board at 375. → see `gateway-board-mobile.spec.ts.AGENTS.md` |
 | `gateway-origin-surfaces.spec.ts` | L3 for the transport/identity CLIENT surface… → see `gateway-origin-surfaces.spec.ts.AGENTS.md` |
-| `gateway-primary-offer.spec.ts` | F7/F8 of add-zrok-custom-reserved-name. → see `gateway-primary-offer.spec.ts.AGENTS.md` |
+| `gateway-primary-offer.spec.ts` | F7/F8 primary offer. → see `gateway-primary-offer.spec.ts.AGENTS.md` |
 | `gateway-qr-selector.spec.ts` | Browser E2E for the Gateway single-QR network selector… → see `gateway-qr-selector.spec.ts.AGENTS.md` |
-| `gateway-readiness-board.spec.ts` | F1–F6 + F9 — readiness board, poll lifecycle… → see `gateway-readiness-board.spec.ts.AGENTS.md` |
+| `gateway-readiness-board.spec.ts` | F1–F6, F9 board. → see `gateway-readiness-board.spec.ts.AGENTS.md` |
 | `gateway-reserved-name.spec.ts` | Setup step 3. → see `gateway-reserved-name.spec.ts.AGENTS.md` |
 | `gateway-url-action.spec.ts` | L3 spec (change: config-override-oauth-redirect-base… → see `gateway-url-action.spec.ts.AGENTS.md` |
 | `git-panel.spec.ts` | Scenario 5.2 spec. Calls `ensureGitSession`. Asserts… → see `git-panel.spec.ts.AGENTS.md` |
@@ -150,6 +150,7 @@ One row per file.
 | `oversized-event-liveness.spec.ts` | L3 per-event size ceiling. → see `oversized-event-liveness.spec.ts.AGENTS.md` |
 | `package-queue-visible.spec.ts` | Browser E2E gate for… → see `package-queue-visible.spec.ts.AGENTS.md` |
 | `pairing-qr.spec.ts` | Browser E2E for the camera-scannable pairing QR (change… → see `pairing-qr.spec.ts.AGENTS.md` |
+| `remote-access-wizard.spec.ts` | L3 dialog. → see `remote-access-wizard.spec.ts.AGENTS.md` |
 | `replay-live-tool-not-orphaned.spec.ts` | L3 restart mid-call → sidecar |
 | `runtime-extension-reload-convergence.spec.ts` | F5 → see `runtime-extension-reload-convergence.spec.ts.AGENTS.md` |
 | `runtime-updates-remote-local.spec.ts` | X14 → see `runtime-updates-remote-local.spec.ts.AGENTS.md` |
@@ -238,7 +239,7 @@ One row per file.
 | `untrusted-content-guard.spec.ts` | L3 spec. → see `untrusted-content-guard.spec.ts.AGENTS.md` |
 | `worktree-grouping-survives-remove.spec.ts` | L3 fix-worktree-grouping-l… → see `worktree-grouping-survives-remove.spec.ts.AGENTS.md` |
 | `worktree-init-feedback.spec.ts` | Playwright E2E for friendly worktree-init fe… → see `worktree-init-feedback.spec.ts.AGENTS.md` |
-| `zrok-v2-tunnel.spec.ts` | L3 (change: support-zrok-v2, F1/F2/F3). Stubs… → see `zrok-v2-tunnel.spec.ts.AGENTS.md` |
+| `zrok-v2-tunnel.spec.ts` | L3 zrok v2 F1–F3. → see `zrok-v2-tunnel.spec.ts.AGENTS.md` |
 | `mcp-session-token.spec.ts` | L3 MCP session token (wire-mcp-session-token). → see `mcp-session-token.spec.ts.AGENTS.md` |
 | `mcp-builtin-registration.spec.ts` | L3 built-in MCP registration. → see `mcp-builtin-registration.spec.ts.AGENTS.md` |
 | `apple-tools-activation.spec.ts` | L3 apple-tools activation. → see `apple-tools-activation.spec.ts.AGENTS.md` |

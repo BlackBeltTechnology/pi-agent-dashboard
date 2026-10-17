@@ -1,5 +1,6 @@
 import { expect, type Page, test } from "./fixtures.js";
 import { gotoDashboard } from "./helpers/index.js";
+import { openGatewayPage } from "./helpers/remote-access.js";
 
 /**
  * Browser E2E for tasks 6.8/6.9 (D11) — the readiness board at 375×667.
@@ -39,10 +40,7 @@ async function openBoardAt375(page: Page): Promise<void> {
     }),
   );
   await gotoDashboard(page);
-  const btn = page.getByTestId("tunnel-btn");
-  await expect(btn).toBeVisible({ timeout: 15_000 });
-  await btn.click();
-  await page.getByTestId("gateway-tab-setup").click();
+  await openGatewayPage(page);
   await expect(page.getByTestId("gateway-readiness-zrok")).toBeVisible({ timeout: 15_000 });
 }
 
