@@ -46,8 +46,29 @@ export interface BrowserRouteProfile {
   instances: BrowserRouteInstance[];
 }
 
+/** One profile an operator host offers, with the instances the server knows on it. No token state. */
+interface BrowserOperatorProfile {
+  profileDirectory: string;
+  label: string;
+  email?: string;
+  installed: boolean;
+  instances: BrowserRouteInstance[];
+}
+
+/** One online operator computer (`GET /profiles` `operatorHosts[]`; absent on an older server). */
+interface BrowserOperatorHost {
+  hostId: string;
+  label: string;
+  platform: string;
+  online: true;
+  canOpenChrome: boolean;
+  profiles: BrowserOperatorProfile[];
+}
+
 export interface BrowserProfilesResponse {
   profiles: Record<string, BrowserRouteProfile>;
+  /** Online operator hosts; omitted by a server without operator-host support. */
+  operatorHosts?: BrowserOperatorHost[];
   /** Set only on the synthetic-`Default` fallback; names the offending path. */
   warning?: string;
 }
@@ -55,6 +76,8 @@ export interface BrowserProfilesResponse {
 export interface BrowserStatusResponse {
   enabled: boolean;
   canOpenChrome: boolean;
+  /** Literal `true` only on a server that supports operator hosts; clients send no `browser_host_*` without it. */
+  operatorHosts?: true;
 }
 
 type AuditKind =

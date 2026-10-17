@@ -24,6 +24,7 @@
 import type { BrowserRelayFrameMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { AuditRing } from "../audit.js";
 import type { RelaySocket } from "./extension-socket.js";
+import { WS_OPEN } from "./extension-socket.js";
 import { buildViewerInputCommands, type FrameGeometry } from "./viewer-input.js";
 
 export type TapTabState = "live" | "no-frames" | "client-screencast-active";
@@ -65,14 +66,28 @@ export interface ScreencastTapDeps {
   agentEmulationActive?(tabId: number): boolean;
   /** Fired on any state/viewer change so the host can rebroadcast status. */
   onStatusChange(): void;
+  /**
+   * Operator-hosted instances only: the carrier socket that hosts this
+   * instance's link. Only that socket may subscribe `local` (it renders frames
+   * from its own tee instead of receiving `browser_relay_frame`).
+   * See change: add-operator-browser-relay (D10).
+   */
+  tee?: { carrier: RelaySocket; linkId: string };
   timers?: TapTimers;
   noFramesMs?: number;
   backpressureBytes?: number;
 }
 
+export interface SubscribeOptions {
+  /** The viewer asks to be a local (tee) viewer — honoured only from the carrier. */
+  local?: boolean;
+}
+
 interface View {
   tabId: number;
   viewers: Set<RelaySocket>;
+  /** Viewers (always the carrier) in local mode: counted, but sent tee instead of frames. */
+  localViewers: Set<RelaySocket>;
   geometry?: FrameGeometry;
   state: TapTabState;
   /** The relay (not the agent) set a device-metrics override for a viewer `resize`. */
@@ -132,7 +147,7 @@ export class ScreencastTap {
     return sessionId !== undefined && this.tappedSessions.has(sessionId);
   }
 
-  subscribe(viewer: RelaySocket, tabId: number): SubscribeResult {
+  subscribe(viewer: RelaySocket, tabId: number, opts: SubscribeOptions = {}): SubscribeResult {
     if (this.deps.clientScreencastActive(tabId)) {
       // The agent owns this tab's screencast; leave its parameters untouched.
       return { ok: false, state: "client-screencast-active", reason: "client-screencast-active" };
@@ -140,14 +155,38 @@ export class ScreencastTap {
     const sessionId = this.deps.sessionIdForTab(tabId);
     if (!sessionId) return { ok: false, state: "detached", reason: "no-session" };
 
+    // `local` is honoured only from the instance's own carrier; anyone else is
+    // handled as a normal viewer and the downgrade is audited (D10).
+    const isCarrier = this.deps.tee !== undefined && this.deps.tee.carrier === viewer;
+    const local = opts.local === true && isCarrier;
+    if (opts.local === true && !isCarrier) {
+      this.deps.audit.append({
+        profileDirectory: this.deps.profileDirectory,
+        instanceId: this.deps.instanceId,
+        kind: "denied",
+        detail: "browser_host:local-ignored",
+      });
+    }
+
     let view = this.views.get(tabId);
     const isNewTap = !view;
     if (!view) {
-      view = { tabId, viewers: new Set(), state: "no-frames", skipped: new Map() };
+      view = { tabId, viewers: new Set(), localViewers: new Set(), state: "no-frames", skipped: new Map() };
       this.views.set(tabId, view);
       this.tappedSessions.add(sessionId);
     }
     view.viewers.add(viewer);
+    // One subscription per (socket, tab); its mode follows the latest subscribe.
+    // Tee is signalled on mode transitions only, and a switch away from local
+    // sends `on:false` here — before any later frame reaches `_fanOut`.
+    const wasLocal = view.localViewers.has(viewer);
+    if (local && !wasLocal) {
+      view.localViewers.add(viewer);
+      this._tee(viewer, tabId, true);
+    } else if (!local && wasLocal) {
+      view.localViewers.delete(viewer);
+      this._tee(viewer, tabId, false);
+    }
     this.deps.audit.append({
       profileDirectory: this.deps.profileDirectory,
       instanceId: this.deps.instanceId,
@@ -179,6 +218,7 @@ export class ScreencastTap {
     if (!view) return;
     view.viewers.delete(viewer);
     view.skipped.delete(viewer);
+    if (view.localViewers.delete(viewer)) this._tee(viewer, tabId, false);
     if (view.viewers.size > 0) {
       this.deps.onStatusChange();
       return;
@@ -237,6 +277,7 @@ export class ScreencastTap {
   private _fanOut(view: View, frame: BrowserRelayFrameMessage): void {
     const payload = JSON.stringify(frame);
     for (const viewer of view.viewers) {
+      if (view.localViewers.has(viewer)) continue; // renders from its own tee
       if ((viewer.bufferedAmount ?? 0) > this.backpressureBytes) {
         view.skipped.set(viewer, (view.skipped.get(viewer) ?? 0) + 1);
         continue;
@@ -246,6 +287,19 @@ export class ScreencastTap {
       } catch (err) {
         this.deps.logger.warn("[browser-relay] frame send failed", err);
       }
+    }
+  }
+
+  /** Unicast `browser_host_tee` to the carrier (never broadcast; D10b). */
+  private _tee(viewer: RelaySocket, tabId: number, on: boolean): void {
+    const tee = this.deps.tee;
+    if (!tee || viewer.readyState !== WS_OPEN) return;
+    try {
+      viewer.send(
+        JSON.stringify({ type: "browser_host_tee", linkId: tee.linkId, instanceId: this.deps.instanceId, tabId, on }),
+      );
+    } catch (err) {
+      this.deps.logger.warn("[browser-relay] tee send failed", err);
     }
   }
 

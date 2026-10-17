@@ -76,6 +76,12 @@ export const SESSION_LIST_MESSAGES: ReadonlySet<string> = new Set([
 /** Global / workspace / terminal / openspec / roles / plugin / relay roads. */
 export const NON_SESSION_MESSAGES: ReadonlySet<string> = new Set([
   "add_folder_to_workspace",
+  "browser_host_connect_result",
+  "browser_host_ext_close",
+  "browser_host_ext_data",
+  "browser_host_ext_open",
+  "browser_host_hello",
+  "browser_host_register",
   "browser_relay_input",
   "browser_relay_subscribe",
   "browser_relay_unsubscribe",

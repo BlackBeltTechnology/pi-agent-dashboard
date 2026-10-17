@@ -7,7 +7,7 @@ Lets a pi session drive the user's real, logged-in Chrome profile over CDP by re
 
 ### Requirement: Extension dials in on a per-connection relay endpoint
 
-The dashboard SHALL expose a WebSocket endpoint `/ws/browser-ext/<guid>` that accepts exactly one connection from the pinned Playwright Chrome Extension per guid. The guid SHALL be at least 128 bits of randomness, minted server-side per connect request, never written to logs, and never persisted. A guid not claimed by an extension socket before the connect timeout (60 s) SHALL expire.
+The dashboard SHALL expose a WebSocket endpoint `/ws/browser-ext/<guid>` that accepts exactly one connection from the pinned Playwright Chrome Extension per guid. The guid SHALL be at least 128 bits of randomness, minted server-side per connect request, never written to logs, and never persisted. A guid not claimed by an extension socket before the connect timeout (60 s) SHALL expire. For a connect targeted at an operator browser host, the guid SHALL be claimable only by that host's operator link (see `browser-operator-host`) and never by an upgrade on `/ws/browser-ext/<guid>`; the one-extension-per-guid rule SHALL apply to the link.
 
 #### Scenario: Pinned extension connects
 
@@ -28,6 +28,11 @@ The dashboard SHALL expose a WebSocket endpoint `/ws/browser-ext/<guid>` that ac
 
 - **WHEN** an upgrade arrives for a guid the relay never minted or already expired
 - **THEN** the upgrade SHALL be rejected with HTTP 404
+
+#### Scenario: Operator-targeted guid is not claimable on the endpoint
+
+- **WHEN** a connect targeted at operator host H is pending and an upgrade arrives on `/ws/browser-ext/<guid>` for its guid from a loopback peer with the pinned Origin
+- **THEN** the upgrade SHALL be rejected with HTTP 404 and the guid SHALL remain claimable by H's link
 
 ### Requirement: Relay endpoints are loopback-only
 
@@ -74,7 +79,7 @@ Each guid SHALL map to its own tab group inside the target Chrome profile. Tabs 
 #### Scenario: Profile cannot host a second concurrent instance
 
 - **WHEN** the extension refuses a second concurrent relay connection from the same profile (behaviour established by the pre-implementation spike)
-- **THEN** `POST /api/browser/connect` for a profile that already has a live instance SHALL return 409 `{reason: "busy", instanceId}`, and the first instance SHALL be unaffected
+- **THEN** `POST /api/browser/connect` for a profile that already has a live instance on the same host (the dashboard host, or the same operator browser host) SHALL return 409 `{reason: "busy", instanceId}`, and the first instance SHALL be unaffected; a profile with the same `profileDirectory` on a different host SHALL NOT count as busy
 
 #### Scenario: CDP client disconnects
 
@@ -134,7 +139,7 @@ Matching rules for `allowedDomains`:
 
 ### Requirement: Audit trail
 
-The relay SHALL record, per guid, an in-memory ring (≥ 500 entries) of `{ts, profile, kind, detail}` for these kinds: `attach`, `detach`, `navigate`, `createTarget`, `denied`, `dropped`, `open`, `viewer-subscribe`, `viewer-subscribe-refused` and `viewer-input`. `detail` SHALL carry URLs (redacted per "Extension-internal URLs and the connect tab never reach a viewer") and method names only. It SHALL never carry request/response payloads, the guid or the token.
+The relay SHALL record, per guid, an in-memory ring (≥ 500 entries) of `{ts, profile, kind, detail}` for these kinds: `attach`, `detach`, `navigate`, `createTarget`, `denied`, `dropped`, `open`, `viewer-subscribe`, `viewer-subscribe-refused` and `viewer-input`. `detail` SHALL carry URLs (redacted per "Extension-internal URLs and the connect tab never reach a viewer") and method names only, except that entries for an operator browser host SHALL also carry the literal `host:<hostId>` and dropped operator messages SHALL carry `browser_host:<type>`. Host-level entries that belong to no guid SHALL be stored under the profile key `host:<hostId>`. It SHALL never carry request/response payloads, the guid or the token.
 
 #### Scenario: Audit read
 
@@ -146,9 +151,14 @@ The relay SHALL record, per guid, an in-memory ring (≥ 500 entries) of `{ts, p
 - **WHEN** the relay acknowledges and drops `Browser.setDownloadBehavior`
 - **THEN** the audit entry SHALL have kind `dropped`, not `denied`
 
+#### Scenario: Operator-hosted attach is attributable
+
+- **WHEN** an extension attaches through operator host H's link
+- **THEN** the `attach` entry's `detail` SHALL contain `host:<H>` and SHALL contain neither the guid nor the `linkId`
+
 ### Requirement: Profile discovery and capability
 
-`GET /api/browser/status` SHALL return `{enabled, canOpenChrome}` where `canOpenChrome` is true iff the host can open a URL in a named Chrome profile. `GET /api/browser/profiles` SHALL list Chrome profiles from the host's `Local State` profile cache with `{profileDirectory, label, email?, installed, hasToken, zeroDialog, instances: [{instanceId, tabs: [{tabId, title, url}]}]}` keyed by `profileDirectory` (labels are user-editable and may duplicate), where `installed` is true iff the pinned extension directory exists under that profile and `instances` lists live relay instances (empty = not connected). When the Chrome user-data directory or `Local State` is absent or unparseable, the response SHALL be 200 with a single synthetic row `{profileDirectory: "Default", label: "Default", installed: <dir check>, …}` and a `warning` string naming the path.
+`GET /api/browser/status` SHALL return `{enabled, canOpenChrome, operatorHosts: true}` where `canOpenChrome` is true iff the dashboard host can open a URL in a named Chrome profile and `operatorHosts: true` advertises operator browser host support. `GET /api/browser/profiles` SHALL list Chrome profiles from the host's `Local State` profile cache with `{profileDirectory, label, email?, installed, hasToken, zeroDialog, instances: [{instanceId, tabs: [{tabId, title, url}]}]}` keyed by `profileDirectory` (labels are user-editable and may duplicate), where `installed` is true iff the pinned extension directory exists under that profile and `instances` lists live relay instances (empty = not connected). The response SHALL additionally carry `operatorHosts` as specified in `browser-operator-host` (an empty array when none). When the Chrome user-data directory or `Local State` is absent or unparseable, the response SHALL be 200 with a single synthetic row `{profileDirectory: "Default", label: "Default", installed: <dir check>, …}` and a `warning` string naming the path.
 
 #### Scenario: Extension absent in a profile
 
@@ -162,7 +172,7 @@ The relay SHALL record, per guid, an in-memory ring (≥ 500 entries) of `{ts, p
 
 ### Requirement: Connect and CDP-URL lifecycle
 
-`POST /api/browser/connect?profile=<profileDirectory>` SHALL mint a guid, open the extension's `connect.html` in that profile with `protocolVersion=2` and, when the profile config sets `zeroDialog: true` and a token is stored, `token=<token>`, and return `{cdpUrl, instanceId}` once the extension handshake completes (timeout 60 s → 504 and the guid expires). The response is the only way to obtain a `cdpUrl`; no lookup endpoint SHALL exist. `POST /api/browser/disconnect?instanceId=<id>` SHALL close that relay instance, detaching its tabs; `instanceId` is required. `PUT /api/browser/enabled {enabled}` SHALL write `plugins.browser.enabled` and, when false, close every instance before responding.
+`POST /api/browser/connect?profile=<profileDirectory>` SHALL mint a guid, open the extension's `connect.html` in that profile with `protocolVersion=2` and, when the profile config sets `zeroDialog: true` and a token is stored, `token=<token>`, and return `{cdpUrl, instanceId}` once the extension handshake completes (timeout 60 s → 504 and the guid expires). An optional `host` selects where Chrome runs: omitted or `"dashboard"` targets the dashboard host as described here; a registered operator `hostId` targets that operator browser host as specified in `browser-operator-host`, with the same `cdpUrl` form. The response is the only way to obtain a `cdpUrl`; no lookup endpoint SHALL exist. `POST /api/browser/disconnect?instanceId=<id>` SHALL close that relay instance, detaching its tabs; `instanceId` is required. `PUT /api/browser/enabled {enabled}` SHALL write `plugins.browser.enabled` and, when false, close every instance before responding.
 
 #### Scenario: Zero-dialog token configured
 
@@ -184,17 +194,22 @@ The relay SHALL record, per guid, an in-memory ring (≥ 500 entries) of `{ts, p
 - **WHEN** `plugins.browser.enabled` is `false` (the plugin remains loaded; this is plugin config, distinct from the loader-level plugin toggle)
 - **THEN** every relay endpoint SHALL reject upgrades with 403, every `/api/browser/*` write except `PUT /api/browser/enabled` SHALL return 403, and live instances SHALL have been closed before the `PUT` that flipped the flag responded
 
+#### Scenario: Omitted host keeps today's behaviour
+
+- **WHEN** an agent calls `connect` without `host`
+- **THEN** the dashboard host's Chrome SHALL be opened and no `browser_host_*` message SHALL be sent to any client
+
 ### Requirement: Screencast tap for dashboard viewers
 
 While an instance is live, dashboard clients on the existing gated `/ws` browser gateway MAY subscribe with `browser_relay_subscribe {instanceId, tabId}`, where `tabId` is a Chrome tab id from `browser_relay_status`. The relay SHALL then:
 - start a screencast on that tab;
-- send each frame **only to subscribed sockets** as `browser_relay_frame {instanceId, tabId, jpegBase64, metadata}`, never broadcast;
+- send each frame **only to subscribed sockets** as `browser_relay_frame {instanceId, tabId, jpegBase64, metadata}`, never broadcast, except a socket that subscribed with `local: true` as the carrier of the instance's operator browser host, which receives no frames (see `browser-operator-host` "Local frame viewers");
 - acknowledge frames immediately;
 - skip frames per viewer whose socket buffer exceeds a threshold, rather than stalling the CDP client.
 
 There is no cap on viewers per tab; backpressure is the only regulator.
 
-`browser_relay_status` SHALL be broadcast on every instance/tab change and on every audit append, coalesced to at most one per 500 ms. It SHALL carry `{instances: [{instanceId, profileDirectory, state, tabs: [{tabId, title, url, state}]}], auditSeq}`.
+`browser_relay_status` SHALL be broadcast on every instance/tab change and on every audit append, coalesced to at most one per 500 ms. It SHALL carry `{instances: [{instanceId, profileDirectory, host, state, tabs: [{tabId, title, url, state}]}], auditSeq}`, where `host` is `"dashboard"` (including the test-only fake instance) or the operator `hostId`.
 
 If the CDP client already runs its own screencast on the requested tab, the subscribe SHALL be refused with tab state `client-screencast-active`, and the client's screencast SHALL be left untouched. While a tap is active, `Page.screencastFrame` events SHALL NOT be forwarded to the CDP client, and a CDP client's own `Page.startScreencast` SHALL be denied.
 

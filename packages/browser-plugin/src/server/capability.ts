@@ -18,21 +18,15 @@
  *    research-verified form (docs/research/browser-relay-playwright-extension.md §7).
  */
 import { existsSync } from "node:fs";
+import { chromeUserDataDir } from "@blackbelt-technology/pi-dashboard-shared/chrome-profiles.js";
 import { computeSystemOpen } from "@blackbelt-technology/pi-dashboard-shared/platform/system-open.js";
 
-/** Chrome's per-user data directory, by platform. */
-export function chromeUserDataDir(
-  platform: NodeJS.Platform = process.platform,
-  env: NodeJS.ProcessEnv = process.env,
-): string {
-  if (platform === "darwin") {
-    return `${env.HOME ?? ""}/Library/Application Support/Google/Chrome`;
-  }
-  if (platform === "win32") {
-    return `${env.LOCALAPPDATA ?? ""}\\Google\\Chrome\\User Data`;
-  }
-  return `${env.HOME ?? ""}/.config/google-chrome`;
-}
+// Pure helpers live in shared (consumed by Electron main too); re-exported
+// unchanged. See change: add-operator-browser-relay (design D8).
+export {
+  buildChromeOpenCommand,
+  chromeUserDataDir,
+} from "@blackbelt-technology/pi-dashboard-shared/chrome-profiles.js";
 
 export interface ChromeCapabilityDeps {
   env?: NodeJS.ProcessEnv;
@@ -53,37 +47,4 @@ export function canOpenChrome(deps: ChromeCapabilityDeps = {}): boolean {
   const exists = deps.exists ?? existsSync;
   if (!systemOpen()) return false;
   return exists(chromeUserDataDir(platform, env));
-}
-
-export interface OpenerCommand {
-  cmd: string;
-  args: string[];
-}
-
-/**
- * argv for "open `url` in Chrome profile `profileDirectory`". No shell string
- * anywhere — `profileDirectory` is user-supplied config and lands as its own
- * argv element, so a quote/space cannot inject.
- */
-export function buildChromeOpenCommand(
-  platform: NodeJS.Platform,
-  profileDirectory: string,
-  url: string,
-): OpenerCommand {
-  if (platform === "darwin") {
-    return {
-      cmd: "open",
-      args: ["-na", "Google Chrome", "--args", `--profile-directory=${profileDirectory}`, url],
-    };
-  }
-  if (platform === "win32") {
-    return {
-      cmd: "chrome.exe",
-      args: [`--profile-directory=${profileDirectory}`, url],
-    };
-  }
-  return {
-    cmd: "google-chrome",
-    args: [`--profile-directory=${profileDirectory}`, url],
-  };
 }

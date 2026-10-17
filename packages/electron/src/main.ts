@@ -16,8 +16,8 @@
 
 import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import { isTrustedSenderUrl, type SenderEventLike, trustedHandler, trustedListener } from "./lib/ipc-trust.js";
 import { decideWillNavigate, openExternalIfAllowed } from "./lib/link-handling.js";
-import { isTrustedSenderUrl, trustedHandler, trustedListener, type SenderEventLike } from "./lib/ipc-trust.js";
 import { resolveCdpActivation } from "./lib/resolve-cdp-activation.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -95,6 +95,8 @@ import fs from "node:fs";
 import { handleCheckForUpdates, setupAppMenu, showDoctorDialog } from "./lib/app-menu.js";
 import { downloadAndInstall, initAutoUpdater, quitAndInstall } from "./lib/app-updater.js";
 import { registerBundledBridgeExtension } from "./lib/bridge-register.js";
+import { startBrowserHost } from "./lib/browser-host/electron-main.js";
+import type { BrowserHost } from "./lib/browser-host/ipc.js";
 import { isDashboardRunning } from "./lib/health-check.js";
 import {
   BundledServerMissingError,
@@ -569,6 +571,22 @@ function ensureServerWindows(): void {
   }
 }
 
+let browserHost: BrowserHost | null = null;
+
+/**
+ * Operator browser host (key, consent, loopback shim, `browserHost` IPC). Handlers register once;
+ * `attachWindow` rebinds them to each new main window. See change: add-operator-browser-relay.
+ */
+function ensureBrowserHost(): BrowserHost | null {
+  if (browserHost) return browserHost;
+  try {
+    browserHost = startBrowserHost({ getMainWindow: () => mainWindow, isTrustedSender, log });
+  } catch (err) {
+    log(`[browser-host] failed to start: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`);
+  }
+  return browserHost;
+}
+
 function createMainWindow(serverUrl: string, opts: { local?: boolean } = {}): BrowserWindow {
   const state = loadWindowState();
   const isLocal = opts.local !== false;
@@ -595,6 +613,7 @@ function createMainWindow(serverUrl: string, opts: { local?: boolean } = {}): Br
   });
 
   if (state.isMaximized) mainWindow.maximize();
+  ensureBrowserHost()?.attachWindow(mainWindow);
 
   // External-link hardening (issue #13, change: harden-external-link-handling).
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -680,6 +699,7 @@ async function quit(): Promise<void> {
   cleanupUpdateChecker?.();
   cleanupAutoUpdater?.();
   serverWindowsHandle?.dispose();
+  browserHost?.dispose();
   await stopServerIfNeeded();
   destroyTray();
   app.quit();

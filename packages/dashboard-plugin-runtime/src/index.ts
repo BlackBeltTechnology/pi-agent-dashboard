@@ -77,6 +77,7 @@ export {
   usePluginMessage,
   usePluginRouter,
   usePluginSend,
+  usePluginSocket,
   useSessionData,
   useSessionEvents,
   useSessionInteractiveRequests,
