@@ -43,3 +43,5 @@ See change: add-browser-editor-pane-tab — `EditorTabOpenMessage {type:"editor_
 Deleted dead bootstrap state-snapshot, `bootstrap_status_update` and `bootstrap_ticket_complete` message types and their `ServerToBrowserMessage` union members. No producer/consumer; wire unchanged. Guarded by `removed-symbols-stay-gone.test.ts`. See change: cleanup-post-r3-spec-drift.
 
 `QuestionsUpdateMessage` (`questions_update`, rows only, from `question-types.ts`) added to `ServerToBrowserMessage`. See change: add-pending-question-stack.
+
+Server→browser: `ServicesChangedMessage` (`services_changed`, type only) — content-free managed-services hint; browsers refetch `GET /api/services`. See change: add-services-settings-ui.

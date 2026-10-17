@@ -4,20 +4,12 @@
  * Reports host-VM state; never starts or stops a host or guest VM.
  * See change: add-service-registry-core (D10, D11).
  */
+import type { RuntimeCapability, RuntimeReport } from "@blackbelt-technology/pi-dashboard-shared/services/status.js";
 import type { CommandRunner } from "./command-runner.js";
 
-type Capability = "ok" | "ok-destructive" | "cli-present" | "needs-secret" | "unavailable" | "unsupported";
+type Capability = RuntimeCapability;
 
-export interface RuntimeReport {
-  id: "docker" | "podman" | "qemu" | "virtualbox" | "vmware";
-  kind: "container" | "hypervisor";
-  installed: boolean;
-  version?: string;
-  /** Container runtimes only. */
-  reachable?: boolean;
-  hostVm?: "running" | "stopped" | "none" | "unknown";
-  capabilities: Record<string, Capability>;
-}
+export type { RuntimeReport };
 
 export interface RuntimeDetectDeps {
   run: CommandRunner;

@@ -2550,8 +2550,17 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       }
     },
     discoverOffers: () => discoverServiceOffers(resolveInstallRoot(fileURLToPath(import.meta.url))),
+    // Content-free hint (type only): Settings → Services refetches `GET /api/services`.
+    // The manager coalesces to ≤ 1 per 500 ms. See change: add-services-settings-ui.
+    onChange: () => browserGateway.broadcastToAll({ type: "services_changed" }),
   });
-  registerServiceRoutes(fastify, { manager: serviceManager, networkGuard, localTrust, loginAvailable });
+  registerServiceRoutes(fastify, {
+    manager: serviceManager,
+    networkGuard,
+    localTrust,
+    loginAvailable,
+    getTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []),
+  });
   // Credential vault: hub-owned accounts, bindings and per-project grants.
   // Management routes need operate authority or local trust; values never leave
   // through them. See change: add-credential-vault.

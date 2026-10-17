@@ -1233,7 +1233,8 @@ export type ServerToBrowserMessage =
   | GrantChannelMessage
   | GrantRequestMessage
   | GrantDismissMessage
-  | PairPendingChangedMessage;
+  | PairPendingChangedMessage
+  | ServicesChangedMessage;
 
 /**
  * Server push: drive the per-session auto-canvas surface (change: auto-canvas).
@@ -2778,4 +2779,15 @@ export interface GrantDismissMessage {
  */
 export interface PairPendingChangedMessage {
   type: "pair_pending_changed";
+}
+
+/**
+ * Server → browser: a managed service changed (state transition, pin, lease,
+ * add/update/remove, secret save, reset-data, prune). Deliberately content-free
+ * and type-only — the Settings → Services pages refetch `GET /api/services`
+ * (guarded); every other socket learns only "something changed".
+ * See change: add-services-settings-ui (D3).
+ */
+export interface ServicesChangedMessage {
+  type: "services_changed";
 }

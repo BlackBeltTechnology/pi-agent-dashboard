@@ -3200,7 +3200,7 @@ export default function App() {
           }
           detailPanel={
             settingsMatch ? (
-              <SettingsPanel onMessage={onMessage} onBack={goBack} selectedCwd={selectedCwd} groupByPrefs={groupByPrefs} onSetDefaultGroupBy={(mode) => send({ type: "set_default_group_by", mode })} />
+              <SettingsPanel onMessage={onMessage} ws={ws} onBack={goBack} selectedCwd={selectedCwd} groupByPrefs={groupByPrefs} onSetDefaultGroupBy={(mode) => send({ type: "set_default_group_by", mode })} />
             ) : tunnelSetupMatch ? (
               <ZrokInstallGuide onBack={goBack} />
             ) : pluginOverlayMatched ? (
@@ -3483,7 +3483,7 @@ export default function App() {
             }
           }
           return models;
-        })()} onMessage={onMessage} onBack={dismissOverlay} selectedCwd={selectedCwd} groupByPrefs={groupByPrefs} onSetDefaultGroupBy={(mode) => send({ type: "set_default_group_by", mode })} />
+        })()} onMessage={onMessage} ws={ws} onBack={dismissOverlay} selectedCwd={selectedCwd} groupByPrefs={groupByPrefs} onSetDefaultGroupBy={(mode) => send({ type: "set_default_group_by", mode })} />
           </RouteBackedOverlay>
         )}
         {/* Tunnel setup REPLACES settings rather than stacking on it (D5): at

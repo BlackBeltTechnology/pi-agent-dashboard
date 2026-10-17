@@ -27,7 +27,8 @@ import {
 import { readProcessCommandLine } from "@blackbelt-technology/pi-dashboard-shared/platform/process-scan.js";
 import type { NativeRecipe, ServiceDefinition } from "@blackbelt-technology/pi-dashboard-shared/services/schema.js";
 import type { CommandRunner } from "./command-runner.js";
-import type { AdoptResult, DriverInstance, PresenceResult, ServiceDriver, StartContext, StopOutcome } from "./driver.js";
+import type { AdoptResult, DriverInstance, DriverLogs, LogsRequest, PresenceResult, ServiceDriver, StartContext, StopOutcome } from "./driver.js";
+import { fileLogs, type OutputCapture } from "./output-capture.js";
 import { readJsonFile, type ServicesPaths, writePrivateFile } from "./paths.js";
 import { allocateLoopbackPort, loopbackEndpoint, type PortAllocator } from "./ports.js";
 import { startCommandSecretEnv } from "./secret-delivery.js";
@@ -56,6 +57,8 @@ export interface NativeDriverDeps {
   portHolders?: (port: number) => Promise<number[]>;
   /** Process-group id of `pid`, or null. */
   pgidOf?: (pid: number) => Promise<number | null>;
+  /** stdout/stderr → `services-run/<id>/output.log`; absent ⇒ `stdio: "ignore"`. */
+  output?: OutputCapture;
 }
 
 /** The executable a recipe runs: `bin`, else the package name sans scope/version. */
@@ -139,15 +142,27 @@ export class NativeDriver implements ServiceDriver {
     const ports: Record<string, number> = {};
     for (const name of Object.keys(r.ports)) ports[name] = await (this.deps.allocatePort ?? allocateLoopbackPort)();
     const { argv, spawnOptions } = buildSafeArgv(runner, runnerArgs(r, composeArgs(r.args, ports), "offline"), this.platform);
-    const child = (this.deps.spawn ?? spawn)(argv[0], argv.slice(1), {
-      ...spawnOptions,
-      detached: true,
-      stdio: "ignore",
-      env: { ...process.env, ...(r.env ?? {}), ...startCommandSecretEnv(def, ctx.secrets) },
-    });
+    // The child inherits an `O_APPEND` descriptor on output.log (truncated in
+    // place first), so the server never relays its output.
+    const fd = this.deps.output?.open(def.id);
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = (this.deps.spawn ?? spawn)(argv[0], argv.slice(1), {
+        ...spawnOptions,
+        detached: true,
+        stdio: fd === undefined ? "ignore" : ["ignore", fd, fd],
+        env: { ...process.env, ...(r.env ?? {}), ...startCommandSecretEnv(def, ctx.secrets) },
+      });
+    } catch (err) {
+      this.deps.output?.close(def.id);
+      throw err;
+    }
     const spawnError = new Promise<Error>((resolve) => child.once("error", resolve));
     child.unref();
-    if (!child.pid) throw await spawnError;
+    if (!child.pid) {
+      this.deps.output?.close(def.id);
+      throw await spawnError;
+    }
     const record: NativeInstanceFile = {
       pid: child.pid,
       argv, // never carries a secret: secrets go to env only
@@ -243,6 +258,10 @@ export class NativeDriver implements ServiceDriver {
       if (!held) return uncertain(`port ${port} is held by another process`);
     }
     return { kind: "running", instance: this.instanceFromRecord(def, rec) };
+  }
+
+  async logs(def: ServiceDefinition, _inst: DriverInstance | undefined, req: LogsRequest): Promise<DriverLogs> {
+    return fileLogs(this.deps.output, def.id, req.lines);
   }
 
   async remove(def: ServiceDefinition): Promise<void> {
