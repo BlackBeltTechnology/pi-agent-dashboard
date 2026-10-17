@@ -3914,6 +3914,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 resolveUpgrade: resolveUpgradePrincipal,
                 policy: policyRegistry,
                 pluginDataRoot: (pid) => path.join(os.homedir(), ".pi", "dashboard", "plugins", pid),
+                localTrust,
               }),
               registerBrowserLoginConfig: (loginConfig) => {
                 const id = plugin.manifest.id;

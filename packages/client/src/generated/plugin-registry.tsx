@@ -15,6 +15,7 @@ import { FolderTeamSection, catalog as team_catalog } from "@blackbelt-technolog
 import { MemorySubcard, shouldRenderMemorySubcard, isPipelineDetailActive, OmEntryCard, catalog as blackhole_catalog } from "@blackbelt-technology/pi-dashboard-blackhole-plugin";
 import { catalog as system_one_catalog } from "@blackbelt-technology/pi-dashboard-system-one-plugin";
 import { GmailSettings, catalog as gmail_catalog } from "@blackbelt-technology/pi-dashboard-gmail-plugin";
+import { ObsSettings, ObsAppClaim, catalog as obs_studio_catalog } from "@blackbelt-technology/pi-dashboard-obs-studio-plugin";
 import { BrowserRelayBadge, hasRelayTabsForBadge, BrowserRelayFeed, BrowserTabLabel, catalog as browser_catalog } from "@blackbelt-technology/pi-dashboard-browser-plugin";
 import { catalog as flows_anthropic_bridge_catalog } from "@blackbelt-technology/pi-dashboard-flows-anthropic-bridge-plugin";
 import { QuotaWidget, catalog as quota_catalog } from "@blackbelt-technology/pi-dashboard-quota-plugin";
@@ -700,6 +701,36 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
   {
     manifest: {
+        "id": "obs-studio",
+        "displayName": "OBS Studio",
+        "priority": 215,
+        "claims": [
+            {
+                "slot": "settings-section",
+                "component": "ObsSettings",
+                "tab": "general"
+            },
+            {
+                "slot": "shell-overlay-route",
+                "component": "ObsAppClaim",
+                "path": "/obs/*?",
+                "depth": 2,
+                "parentPath": "/settings/plugins/obs-studio",
+                "presentation": "content"
+            }
+        ],
+        "client": "./src/client/index.tsx",
+        "server": "./src/server/index.ts",
+        "i18nCatalog": "catalog"
+    },
+    claims: [
+      { pluginId: "obs-studio", priority: 215, slot: "settings-section", tab: "general", Component: ObsSettings },
+      { pluginId: "obs-studio", priority: 215, slot: "shell-overlay-route", path: "/obs/*?", depth: 2, parentPath: "/settings/plugins/obs-studio", presentation: "content", Component: ObsAppClaim },
+    ],
+    catalog: obs_studio_catalog,
+  },
+  {
+    manifest: {
         "id": "browser",
         "displayName": "Browser Relay",
         "priority": 500,
@@ -820,4 +851,4 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "e4dd926759a84366a62cfda14cb810598d00d25f3c540620ddcd94e0d26ec786";
+export const PLUGIN_REGISTRY_HASH = "25efef26feb0e9d3c3536468c110247030dbee5ec246021159c5e0337f009309";

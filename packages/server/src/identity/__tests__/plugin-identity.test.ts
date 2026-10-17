@@ -9,6 +9,8 @@ import os from "node:os";
 import path from "node:path";
 import type { Principal } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
 import { describe, expect, it, vi } from "vitest";
+import { createLocalTrustContext } from "../../auth/local-proof.js";
+import { hasOperateAuthority as hostHasOperateAuthority } from "../../auth/operate-required.js";
 import { createPluginIdentity, type PluginIdentityDeps } from "../plugin-identity.js";
 import { LOCAL_OPERATOR } from "../session-access.js";
 
@@ -125,5 +127,34 @@ describe("userDataDir — per-user, stable, isolated", () => {
   it("two plugins never share a directory for the same user", () => {
     const d = deps();
     expect(createPluginIdentity("a", d).userDataDir(anna)).not.toBe(createPluginIdentity("b", d).userDataDir(anna));
+  });
+});
+
+describe("hasOperateAuthority — parity with /api/services mutations (E15, add-obs-studio-plugin)", () => {
+  type Spec = { ip?: string; headers?: Record<string, string>; authVia?: string; principalTier?: string };
+  const req = (s: Spec) => ({ ip: s.ip ?? "192.168.16.220", headers: s.headers ?? {}, authVia: s.authVia, principalTier: s.principalTier });
+  const lenient = createLocalTrustContext("local-token-xyz", () => false);
+  const strict = createLocalTrustContext("local-token-xyz", () => true);
+  const matrix = [
+    ["operate bearer", req({ authVia: "device", principalTier: "operate" }), lenient, true],
+    ["observe bearer", req({ authVia: "device", principalTier: "observe" }), lenient, false],
+    ["control bearer", req({ authVia: "device", principalTier: "control" }), lenient, false],
+    ["operator session", req({ authVia: "session" }), lenient, true],
+    ["trusted-network, no credential", req({}), lenient, false],
+    ["loopback non-strict", req({ ip: "127.0.0.1" }), lenient, true],
+    ["loopback strict without proof", req({ ip: "127.0.0.1" }), strict, false],
+  ] as const;
+
+  it.each(matrix)("%s → %s, identical to the host check", (_l, request, localTrust, expected) => {
+    const id = createPluginIdentity("p", deps({ localTrust }));
+    const seam = id.hasOperateAuthority(request);
+    expect(seam).toBe(hostHasOperateAuthority(request as never, localTrust));
+    expect(seam).toBe(expected);
+  });
+
+  it("a malformed request is refused, never a throw", () => {
+    const id = createPluginIdentity("p", deps({ localTrust: lenient }));
+    expect(id.hasOperateAuthority(null)).toBe(false);
+    expect(id.hasOperateAuthority("x")).toBe(false);
   });
 });

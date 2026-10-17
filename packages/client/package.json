@@ -33,6 +33,7 @@
     "@blackbelt-technology/pi-dashboard-blackhole-plugin": "^0.9.0",
     "@blackbelt-technology/pi-dashboard-web-access-plugin": "^0.9.0",
     "@blackbelt-technology/pi-dashboard-gmail-plugin": "^0.9.0",
+    "@blackbelt-technology/pi-dashboard-obs-studio-plugin": "^0.9.0",
     "@blackbelt-technology/pi-dashboard-chat-gateway-plugin": "^0.9.0",
     "@blackbelt-technology/pi-dashboard-browser-plugin": "^0.9.0",
     "@blackbelt-technology/pi-dashboard-client-utils": "^0.9.0",

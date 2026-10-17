@@ -3,6 +3,7 @@
  * exit-code forwarding + lease release, and lease recovery across a server
  * restart. See change: add-service-registry-core (test-plan E43–E45, X6).
  */
+import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import net from "node:net";
 import { httpProofHeaders } from "@blackbelt-technology/pi-dashboard-shared/local-credential-proof.js";
@@ -165,5 +166,42 @@ describe("E22 — service verbs mint a fresh proof per request", () => {
     expect(seen.every((r) => r.url.startsWith("http://127.0.0.1:8000/"))).toBe(true);
     const nonces = seen.map((r) => r.headers["X-Pi-Local-Proof"].split(".")[2]);
     expect(new Set(nonces).size).toBe(2);
+  });
+});
+
+describe("X5 (add-obs-studio-plugin) — exec stdout carries only the child's bytes", () => {
+  /** A child stand-in: records its spawn options and exits after `ms`. */
+  function stubChild(ms: number, seen: Array<Record<string, unknown>>) {
+    return ((_cmd: string, _args: readonly string[], opts: Record<string, unknown>) => {
+      seen.push(opts);
+      const ee = new EventEmitter();
+      setTimeout(() => ee.emit("exit", 0, null), ms);
+      return ee;
+    }) as never;
+  }
+
+  it("success + release: exec itself writes nothing to stdout; the child inherits stdio", async () => {
+    const { app } = await harness();
+    const seen: Array<Record<string, unknown>> = [];
+    const r = await run(["exec", "docling", "--", "pi-obs", "serve", "--stdio"], { fetch: injectFetch(() => app), spawnChild: stubChild(30, seen) });
+    expect(r.code).toBe(0);
+    expect(r.out).toEqual([]);
+    expect(seen[0]).toMatchObject({ stdio: "inherit", shell: false });
+  });
+
+  it("heartbeat 404 → re-ensure path: still nothing on stdout", async () => {
+    const first = await harness();
+    let current: FastifyInstance | null = first.app;
+    const restarted = makeManager(first.root, { drivers: { "oci:docker": first.driver } });
+    const app2 = await buildApp(restarted.manager);
+    apps.push(app2);
+    const swap = setTimeout(() => {
+      current = app2;
+    }, 60);
+    const seen: Array<Record<string, unknown>> = [];
+    const r = await run(["exec", "docling", "--", "pi-obs", "serve", "--stdio"], { fetch: injectFetch(() => current), heartbeatMs: 40, spawnChild: stubChild(400, seen) });
+    clearTimeout(swap);
+    expect(r.code).toBe(0);
+    expect(r.out).toEqual([]);
   });
 });

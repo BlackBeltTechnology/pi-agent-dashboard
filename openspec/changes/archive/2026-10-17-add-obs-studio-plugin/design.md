@@ -110,7 +110,7 @@ Rejected: separate skill and plugin packages. They would duplicate `src/core` or
 
 ### D6. Panel: global app + settings entry
 - Claims:
-  - `shell-overlay-route` `{path:"/obs/*?", depth:1, presentation:"content"}` → `<EmbeddedApp>`, standalone `/apps/obs/`;
+  - `shell-overlay-route` `{path:"/obs/*?", depth:2, parentPath:"/settings/plugins/obs-studio", presentation:"content"}` (depth 2 + `parentPath` like the skill-atlas global claim: a depth-1 root claim degrades the cold-load underlay to the card list; Back returns to the settings card) → `<EmbeddedApp>`, standalone `/apps/obs/`;
   - `settings-section` → status card (state, auth state, OBS version, exposure warning, `recovery-suspended`, "Open OBS panel", provision hint).
 - Panel: instance picker, scene list + switch, virtual-camera and record toggles, program-scene preview. Opening the panel as an operator issues a screenshot request, which opens the bridge (D4).
 - **Preview:** jpg 640 px of the program scene, polled at 1 fps only while `document.visibilityState === "visible"`. After 3 consecutive errors it backs off to 0.2 fps and returns to 1 fps on the first success. Server-side cost 6–12 ms (F5).
