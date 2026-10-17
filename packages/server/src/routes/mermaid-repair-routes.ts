@@ -23,10 +23,10 @@ import type { RuntimeStreamSimpleFn } from "../model-proxy/registry-singleton.js
 import type { NetworkGuard } from "./route-deps.js";
 
 /** Max `error` text accepted (chars). */
-export const MAX_ERROR_CHARS = 2000;
+const MAX_ERROR_CHARS = 2000;
 const MAX_OUTPUT_TOKENS = 8192;
 
-export interface MermaidRepairRegistry extends RegistryLike {
+interface MermaidRepairRegistry extends RegistryLike {
   find(provider: string, modelId: string): Promise<unknown | null>;
 }
 
@@ -62,7 +62,7 @@ function buildUserPrompt(code: string, error: string): string {
 }
 
 /** Concatenate assistant text deltas; ignore thinking/tool-call events. */
-export async function collectRepairText(events: AsyncIterable<{ type?: string; delta?: unknown; error?: { errorMessage?: string } }>): Promise<string> {
+async function collectRepairText(events: AsyncIterable<{ type?: string; delta?: unknown; error?: { errorMessage?: string } }>): Promise<string> {
   let out = "";
   for await (const ev of events) {
     if (ev?.type === "text_delta" && typeof ev.delta === "string") out += ev.delta;
@@ -72,7 +72,7 @@ export async function collectRepairText(events: AsyncIterable<{ type?: string; d
 }
 
 /** First ```mermaid fenced block, else the trimmed text; drop a leading `mermaid` line. */
-export function extractDiagram(text: string): string {
+function extractDiagram(text: string): string {
   const fenced = /```mermaid[^\n]*\n([\s\S]*?)```/i.exec(text);
   let out = fenced ? fenced[1] : text.trim().replace(/^```mermaid[^\n]*\n?/i, "");
   out = out.trim().replace(/^mermaid[ \t]*\n/i, "");
