@@ -20,6 +20,6 @@ Measured (task 2.5, develop d739f4bd, CLI 2.27.2, packs cached, 8 threads): full
 
 Baseline binding: `baselineHash` = sha256(`serializeBaseline(parsed)`) — canonical, formatting/order-insensitive. Plain run records hash of baseline its verdict used; seed re-records hash of written baseline. `requireFreshRun(cwd, baseline)`: mismatch → exit 2 "baseline changed since the recorded run; re-run the analysis first"; hashless (legacy) record → `CODEQL NOTE:` on stderr, proceeds. `--prune`/`--accept` re-bind via `rebindLastRun` after write. `--triage` re-binds only when record hash = pre-triage baseline hash (no laundering); no record → none written.
 
-Known limit: local ≠ GitHub on same commit (150/179 matched); see `openspec/changes/archive/2026-10-14-add-local-codeql-ratchet/evidence/local-vs-github.md`.
+Known limit: local ≠ CI. Post-switch measured cause (`ce50677ee`): local-only 29 = explicit `--threat-model=remote` (fetch-response sources); 29 plugin-server results lost both sides = shared `paths-ignore` `**/__tests__/**`. Evidence: change `harden-codeql-ratchet-followups` `evidence/local-vs-ci.md`; pre-switch: archived `add-local-codeql-ratchet/evidence/local-vs-github.md`.
 
 See change: add-local-codeql-ratchet, harden-codeql-ratchet-followups.
