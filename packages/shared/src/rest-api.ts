@@ -1501,3 +1501,33 @@ export interface SelectNodeRuntimeRequest {
   /** Hand-set members the user chose to overwrite anyway. */
   discardHandSet?: string[];
 }
+
+// ── Mermaid AI repair (POST /api/mermaid/repair) ─────────────────────────────
+// See change: add-mermaid-ai-repair.
+
+export interface MermaidRepairRequest {
+  /** The diagram source that failed to render. */
+  code: string;
+  /** The parser/renderer error message. */
+  error: string;
+}
+
+export interface MermaidRepairData {
+  /** Corrected mermaid source (untrusted — the client renders + sanitizes it). */
+  code: string;
+  /** The configured `provider/id` that produced it. */
+  model: string;
+}
+
+export type MermaidRepairErrorCode =
+  | "disabled"
+  | "bad_request"
+  | "too_large"
+  | "busy"
+  | "timeout"
+  | "provider_error"
+  | "unparseable";
+
+export type MermaidRepairResponse =
+  | { success: true; data: MermaidRepairData }
+  | { success: false; error: string; code: MermaidRepairErrorCode };

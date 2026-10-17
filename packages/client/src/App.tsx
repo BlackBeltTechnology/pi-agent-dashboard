@@ -136,6 +136,7 @@ import { usePeerAutoInstallReset } from "./lib/package/peer-auto-install-store.j
 import { dispatchPluginMessage } from "./lib/package/plugins-api.js";
 import { appendWsTicket, getApiBearer, isDevicePaired, mintWsTicket } from "./lib/pairing/device-auth.js";
 import { createEmbeddedAppShell } from "./lib/plugins/embedded-app-shell.js";
+import { hydrateMermaidRepairConfig } from "./lib/preview/mermaid-repair-config.js";
 import { buildHistoryPhaseMap, hasChatContent } from "./lib/replay/history-load-phase.js";
 import { extractUserPromptHistory } from "./lib/replay/message-history.js";
 import { rehydrateSession } from "./lib/replay/rehydrate-session.js";
@@ -1224,6 +1225,9 @@ export default function App() {
         if (d.success && d.data?.plugins && typeof d.data.plugins === "object") {
           initPluginConfigs(d.data.plugins as Record<string, Record<string, unknown>>);
         }
+        // On-demand AI mermaid repair gate (opt-in; server resolves enabled/model).
+        // See change: add-mermaid-ai-repair.
+        hydrateMermaidRepairConfig(d);
         if (d.success) {
           setConfigFolderListMode(d.data?.folderListMode === "accordion" ? "accordion" : "classic");
           if (typeof d.data?.folderAttentionPeek === "boolean") setFolderAttentionPeek(d.data.folderAttentionPeek);

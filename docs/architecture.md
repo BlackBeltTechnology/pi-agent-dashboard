@@ -1836,6 +1836,29 @@ Failure modes (placeholders are visible, not silent):
 
 See change: `chat-markdown-local-images-and-math`.
 
+### Mermaid AI repair (change: add-mermaid-ai-repair)
+
+Opt-in, on-demand LLM repair for mermaid blocks that rule repair (`add-mermaid-auto-repair`) could not fix. Never automatic.
+
+- Trigger: `Fix with AI` button in mermaid error callout. Shown only when `mermaidRepair.enabled` and rule repair failed.
+- Config: `~/.pi/dashboard/config.json` → `mermaidRepair` `{ enabled (false), model ("provider/id"), maxChars (20000, clamp 1000–50000), timeoutMs (30000, clamp 5000–120000) }`.
+- `enabled:true` + no model → disabled, `disabledReason:"no_model"`.
+- `@role` model → disabled, `disabledReason:"role_refs_unsupported"` (interim).
+- Parser: `parseMermaidRepairConfig` (`packages/shared/src/config.ts`). Resolved block served by `GET /api/config`, no credentials.
+- Client mirror: `packages/client/src/lib/preview/mermaid-repair-config.ts`, hydrated in `App.tsx`.
+- Endpoint: `POST /api/mermaid/repair` `{code, error}` → `{success:true, data:{code, model}}`. Route: `packages/server/src/routes/mermaid-repair-routes.ts`. Behind `networkGuard`.
+- Credentials resolved server-side (same path as `model-proxy/streamer.ts`). Never sent to client.
+- Provider call: temperature 0; maxTokens = `min(ceil(maxChars/3), 8192)`.
+- Caps: `code` ≤ maxChars; `error` ≤ 2000. One in-flight request per server. Client disconnect aborts provider call.
+- Errors `{success:false, error, code}`: `disabled` 404, `bad_request` 400, `too_large` 413, `busy` 429, `timeout` 504, `provider_error` 502, `unparseable` 502. Model output never truncated server-side.
+- Output extraction: first `mermaid` fenced block, else trimmed text minus leading `mermaid` line.
+- Accept-only-if-renders: result goes through normal render + sanitize path (mermaid `securityLevel` strict + DOMPurify). Non-rendering → `AI fix failed`, original error kept, retry offered. Output = untrusted mermaid source, never HTML.
+- UI: purple `AI-fixed · <model>` pill (distinct from info `Auto-fixed`); show-original toggle; copy-fixed. Visible disclosure: source + error sent to configured model.
+- Client cache: page-lifetime, successes only, keyed by (original code, model). Failures not cached.
+- Logging: one line `[mermaid-repair] outcome=<ok|aborted|code> model=<ref> ms=<n> chars=<n>`. Never source, error, or output.
+- Rollback: delete `mermaidRepair` block (feature hides) or revert. No persisted state.
+- Deploy: restart server (route + config). `npm run build` for client.
+
 ### User image attachments — two-phase display fit
 
 Distinct path from local-image inlining above.

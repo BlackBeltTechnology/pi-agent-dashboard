@@ -25,134 +25,122 @@
       "order": 3
     },
     {
-      "id": "bundle-index-size",
-      "name": "Bundle & Index Size",
-      "color": "#06b6d4",
-      "order": 4
-    },
-    {
-      "id": "vault-access-remedy",
-      "name": "Vault Access Remedy",
-      "color": "#f97316",
-      "order": 5
-    },
-    {
-      "id": "client-ui-fixes",
-      "name": "Client UI fixes",
-      "color": "#eab308",
-      "order": 6
-    },
-    {
-      "id": "pi-update",
-      "name": "Pi Update",
-      "color": "#3b82f6",
-      "order": 7
-    },
-    {
       "id": "addons-hub",
       "name": "Addons Hub",
       "color": "#8b5cf6",
-      "order": 8
+      "order": 4
     },
     {
       "id": "project-workflows",
       "name": "Project Workflows",
       "color": "#14b8a6",
-      "order": 9
-    },
-    {
-      "id": "retro-ui",
-      "name": "Retro UI",
-      "color": "#3b82f6",
-      "order": 10
+      "order": 5
     },
     {
       "id": "update-to-node-26",
       "name": "Update to Node 26",
       "color": "#3b82f6",
-      "order": 11
-    },
-    {
-      "id": "lan-pairing-trust",
-      "name": "LAN Pairing & Trust",
-      "color": "#14b8a6",
-      "order": 12
+      "order": 6
     },
     {
       "id": "vault",
       "name": "Vault",
       "color": "#f97316",
-      "order": 13
+      "order": 7
     },
     {
       "id": "security",
       "name": "Security",
       "color": "#ef4444",
-      "order": 14
+      "order": 8
     },
     {
       "id": "copilot-assistant",
       "name": "Copilot / Assistant",
-      "order": 15
+      "order": 9
     },
     {
       "id": "customer-web-chat",
       "name": "Customer Web Chat",
-      "order": 16
+      "order": 10
     },
     {
       "id": "fix-mermaid",
       "name": "Fix mermaid",
       "color": "#3b82f6",
-      "order": 17
+      "order": 11
     },
     {
       "id": "unify-context-manager",
       "name": "Unify Context Manager",
       "color": "#06b6d4",
-      "order": 18
+      "order": 12
     },
     {
       "id": "ai-team",
       "name": "AI Team",
       "color": "#a855f7",
-      "order": 19
+      "order": 13
     },
     {
       "id": "next-phase",
       "name": "Next phase",
       "color": "#3b82f6",
-      "order": 20
-    },
-    {
-      "id": "kowledge-base",
-      "name": "Kowledge Base",
-      "color": "#f97316",
-      "order": 21
+      "order": 14
     },
     {
       "id": "electrun-execution",
       "name": "Electrun execution",
       "color": "#a855f7",
-      "order": 22
+      "order": 15
     },
     {
       "id": "future",
       "name": "Future",
       "color": "#f97316",
-      "order": 23
+      "order": 16
     },
     {
-      "id": "separate-functions-to-plugins",
-      "name": "Separate functions to plugins",
-      "color": "#ef4444",
-      "order": 24
+      "id": "retro-ui",
+      "name": "Retro UI",
+      "color": "#3b82f6",
+      "order": 17
     },
     {
       "id": "ui-extensions",
       "name": "UI Extensions",
       "color": "#eab308",
-      "order": 25
+      "order": 18
+    },
+    {
+      "id": "pi-trust-mirror",
+      "name": "Pi Trust Mirror",
+      "color": "#0ea5e9",
+      "order": 19
+    },
+    {
+      "id": "separate-functions-to-plugins",
+      "name": "Separate functions to plugins",
+      "color": "#ef4444",
+      "order": 20
+    },
+    {
+      "id": "lan-pairing-trust",
+      "name": "LAN Pairing & Trust",
+      "color": "#14b8a6",
+      "order": 21
+    },
+    {
+      "id": "kowledge-base",
+      "name": "Kowledge Base",
+      "color": "#f97316",
+      "order": 22
+    },
+    {
+      "id": "browser-agent",
+      "name": "Browser Agent",
+      "color": "#14b8a6",
+      "order": 23
     }
   ],
   "assignments": {
@@ -357,19 +345,10 @@
     "adopt-explore-mockups-into-changes": "ui",
     "show-session-history-load-state": "ui",
     "add-pairing-approval-dialog": "ui",
-    "update-pi-core-1-0-adopt-apis": "pi-update",
-    "add-radius-provider-login": "pi-update",
-    "add-pi-runtime-image-generation": "pi-update",
-    "migrate-mcp-to-pi-builtin": "pi-update",
     "fix-selected-card-light-wash": "ui",
     "electron-runtime-release-pipeline": "ui",
-    "render-nested-tool-calls": "pi-update",
-    "collapse-model-proxy-onto-modelruntime": "pi-update",
-    "count-non-message-usage": "pi-update",
-    "drop-mariozechner-pi-fork": "pi-update",
     "harden-review-and-fix-loop": "ui",
     "add-spec-collateral-scan": "ui",
-    "cleanup-stale-fork-specs": "pi-update",
     "tune-reverse-spec-for-rebuild-eval": "ui",
     "fix-gateway-socket-stale-owner": "ui",
     "fix-markdown-remount-storm": "ui",
@@ -413,15 +392,7 @@
     "migrate-typecheck-to-ts7": "update-to-node-26",
     "close-e2e-tooling-followups": "ui",
     "stabilize-mdns-server-identity": "lan-pairing-trust",
-    "add-lan-knock-pairing": "vault-access-remedy",
-    "add-electron-server-windows": "vault-access-remedy",
-    "retire-trusted-networks-bypass": "customer-web-chat",
-    "update-pi-core-1-1-adopt-apis": "pi-update",
-    "spawn-scope-no-mcp": "pi-update",
-    "mcp-client-project-overrides": "pi-update",
-    "fix-remote-relative-api-fetch": "client-ui-fixes",
-    "fix-canvas-chip-tray-overlay": "client-ui-fixes",
-    "render-unclaimed-custom-entries": "client-ui-fixes",
+    "retire-trusted-networks-bypass": "pi-trust-mirror",
     "add-credential-vault": "vault",
     "addons-hub-declutter": "addons-hub",
     "addons-hub-feature-catalog": "addons-hub",
@@ -436,10 +407,6 @@
     "add-project-scoped-apps": "ui",
     "add-photocraft-plugin": "ui",
     "harden-dashboard-start-detection": "ui",
-    "retro-ux-identity-connectivity": "client-ui-fixes",
-    "retro-ux-model-selector": "client-ui-fixes",
-    "retro-ux-chat-rendering": "client-ui-fixes",
-    "retro-ux-plugin-settings-forms": "client-ui-fixes",
     "add-claude-code-plugin": "ui",
     "add-pending-question-stack": "project-workflows",
     "add-kb-git-forge-scope": "ui",
@@ -447,11 +414,6 @@
     "add-plugin-spawn-worktree": "customer-web-chat",
     "add-project-workflows": "project-workflows",
     "add-workflow-auto-advance": "project-workflows",
-    "surface-operate-required-remedy": "vault-access-remedy",
-    "retro-ux-credential-vault": "vault-access-remedy",
-    "fix-kb-gitignore-excluded-parent": "bundle-index-size",
-    "shrink-client-entry-lazy-islands": "bundle-index-size",
-    "lazy-plugin-claim-modules": "bundle-index-size",
     "fix-codeql-small-findings": "codeql",
     "add-plugin-capability-routes": "customer-web-chat",
     "add-welcome-tutorial": "next-phase",
@@ -472,7 +434,7 @@
     "add-craft-office-workflows": "artcraft-craft-apps",
     "add-artcraft-studio": "artcraft-craft-apps",
     "fix-orphaned-ended-session-archive": "ui",
-    "fix-empty-status-subcard": "ui",
+    "fix-empty-status-subcard": "browser-agent",
     "add-plugin-spawn-agent-dir-isolation": "ui",
     "edit-pi-agent-settings": "ui",
     "add-plugin-isolation-and-public-routes": "customer-web-chat",
@@ -481,11 +443,21 @@
     "add-obs-studio-plugin": "ui",
     "add-services-settings-ui": "ui",
     "restyle-inline-terminal-button": "ui",
-    "fix-browser-relay-pane-input": "ui",
+    "fix-browser-relay-pane-input": "browser-agent",
     "add-remote-access-wizard": "ui",
     "add-operator-browser-relay": "ui",
     "audit-plugin-bundles-non-secure-context": "ui",
-    "add-request-access-remedy": "ui"
+    "add-request-access-remedy": "ui",
+    "mirror-dashboard-trust-to-pi": "pi-trust-mirror",
+    "add-session-actions-flyout": "ui",
+    "mirror-dashboard-trust-live-remote": "pi-trust-mirror",
+    "add-dedicated-agent-browser": "browser-agent",
+    "fix-global-automation-duplicate-fire": "ui",
+    "fix-automation-key-collision": "ui",
+    "improve-gmail-plugin-setup-ux": "ui",
+    "add-automation-occurrence-guard": "ui",
+    "fix-kb-index-integrity": "kowledge-base",
+    "add-kb-worktree-seed": "kowledge-base"
   },
   "changeOrder": {
     "__ungrouped__": [
@@ -498,31 +470,22 @@
       "implement-it",
       "retest-plain-language-hard-battery",
       "ab-test-rlm-delegation-claim",
-      "fix-npm12-remote-tarball-install"
-    ],
-    "bundle-index-size": [
-      "fix-kb-gitignore-excluded-parent",
-      "shrink-client-entry-lazy-islands",
-      "lazy-plugin-claim-modules"
-    ],
-    "vault-access-remedy": [
-      "surface-operate-required-remedy",
-      "retro-ux-credential-vault",
-      "add-lan-knock-pairing",
-      "add-electron-server-windows"
+      "fix-npm12-remote-tarball-install",
+      "fix-kb-index-integrity",
+      "close-residual-audit-findings"
     ],
     "ui": [
+      "add-session-actions-flyout",
       "restyle-inline-terminal-button",
       "add-services-settings-ui",
-      "fix-browser-relay-pane-input",
       "add-remote-access-wizard",
       "add-request-access-remedy",
       "add-operator-browser-relay",
       "audit-plugin-bundles-non-secure-context",
-      "add-obs-studio-plugin",
-      "edit-pi-agent-settings",
-      "fix-empty-status-subcard",
-      "fix-orphaned-ended-session-archive"
+      "fix-orphaned-ended-session-archive",
+      "add-automation-occurrence-guard",
+      "improve-gmail-plugin-setup-ux",
+      "fix-automation-key-collision"
     ],
     "addons-hub": [
       "addons-hub-feature-catalog",
@@ -644,8 +607,21 @@
       "close-loopback-legacy-window",
       "add-plugin-capability-routes",
       "add-plugin-isolation-and-public-routes",
-      "add-web-chat-plugin",
-      "retire-trusted-networks-bypass"
+      "add-web-chat-plugin"
+    ],
+    "pi-trust-mirror": [
+      "retire-trusted-networks-bypass",
+      "mirror-dashboard-trust-to-pi",
+      "mirror-dashboard-trust-live-remote"
+    ],
+    "browser-agent": [
+      "fix-browser-relay-pane-input",
+      "fix-empty-status-subcard",
+      "add-dedicated-agent-browser"
+    ],
+    "kowledge-base": [
+      "fix-kb-index-integrity",
+      "add-kb-worktree-seed"
     ]
   }
 }
