@@ -71,7 +71,7 @@
   "dependencies": {
     "@agentclientprotocol/sdk": "~1.8.0",
     "@blackbelt-technology/dashboard-plugin-runtime": "^0.9.0",
-    "@blackbelt-technology/pi-dashboard-document-converter": "^0.9.0",
+    "@blackbelt-technology/pi-dashboard-document-converter": "^0.10.0",
     "@blackbelt-technology/pi-dashboard-extension": "^0.9.0",
     "@blackbelt-technology/pi-dashboard-mcp-client-plugin": "^0.9.0",
     "@blackbelt-technology/pi-dashboard-shared": "^0.9.0",

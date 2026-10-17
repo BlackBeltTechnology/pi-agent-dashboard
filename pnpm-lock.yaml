@@ -1426,7 +1426,7 @@ importers:
         specifier: ^0.9.0
         version: link:../dashboard-plugin-runtime
       '@blackbelt-technology/pi-dashboard-document-converter':
-        specifier: ^0.9.0
+        specifier: ^0.10.0
         version: link:../document-converter
       '@blackbelt-technology/pi-dashboard-extension':
         specifier: ^0.9.0
