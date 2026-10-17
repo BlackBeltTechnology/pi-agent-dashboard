@@ -26,7 +26,7 @@ When the panel holds unsaved edits, a dismissal gesture SHALL prompt before disc
 
 The navigation + content layout SHALL be responsive. The wrapper element containing the nav and the content area SHALL stack vertically on narrow (mobile) viewports and arrange side-by-side on wide (desktop, `md` breakpoint and up) viewports. On mobile the navigation SHALL render as a full-width horizontal, horizontally-scrollable tab strip positioned above the content, and the content area SHALL fill the remaining space below it with a non-zero width. On desktop the navigation SHALL render as a fixed-width vertical rail to the left of the content. At no viewport width SHALL the content area collapse to zero width or be positioned outside the visible viewport.
 
-The nav groups SHALL render in this order: Models, Dashboard, Network, Add-ons, Resources, Advanced. The Models group SHALL render FIRST because it holds the settings that decide which model every session, agent and flow runs on (see "Models nav group"). The default page when no `:page` is given SHALL remain General.
+The nav groups SHALL render in this order: Models, Dashboard, Network, Services, Add-ons, Resources, Advanced. The Models group SHALL render FIRST because it holds the settings that decide which model every session, agent and flow runs on (see "Models nav group"). The default page when no `:page` is given SHALL remain General.
 
 The panel SHALL provide these pages (nav groups in brackets):
 - **Promoted plugin pages** [Models]: plugin settings pages promoted per "Models nav group", each addressed at `/settings/plugins/<pluginId>`
@@ -38,6 +38,8 @@ The panel SHALL provide these pages (nav groups in brackets):
 - **Security** [Network]: `auth.providers`, `auth.allowedUsers`, `auth.bypassUrls`, `auth.bypassHosts` (Trusted Networks)
 - **Providers** [Models]: Providers (one list of everything credentialed, plus an Add-provider dialog), API Proxy
 - **Add-ons** [Add-ons]: installed add-ons — extensions, skills and the packages that hold them (page id `add-ons`, formerly `Packages`)
+- **All services** [Services]: managed-service list, per-service detail at `/settings/services/<id>`, add-service flow, prune (instant-apply, not a Save Bar source)
+- **Runtimes** [Services]: container runtime and hypervisor report with capability matrix (read-only)
 - **Plugins** [Add-ons]: plugin activation index and per-plugin settings pages that are not promoted
 - **OpenSpec** [Add-ons]: background polling tuning
 - **Developer** [Advanced]: `devBuildOnReload`, `keeperLog.capturePiOutput`, diagnostics, tools, spawn failures, canvas types
@@ -51,7 +53,7 @@ A config key's Save Bar page attribution is resolved from `CONFIG_FIELD_PAGE` by
 #### Scenario: Page layout with nav rail
 - **WHEN** the user navigates to `/settings/general`
 - **THEN** the panel SHALL display a fixed header (back, "Settings" title, Restart)
-- **AND** a left nav rail listing the pages grouped under Models / Dashboard / Network / Add-ons / Resources / Advanced, with Models first
+- **AND** a left nav rail listing the pages grouped under Models / Dashboard / Network / Services / Add-ons / Resources / Advanced, with Models first
 - **AND** the active page's content beside the rail
 - **AND** the General page SHALL be selected when no `:page` is given
 
@@ -146,6 +148,12 @@ A config key's Save Bar page attribution is resolved from `CONFIG_FIELD_PAGE` by
 - **THEN** the URL SHALL return to `/session/abc`
 - **AND** SHALL NOT navigate to `/`
 
+#### Scenario: Services group sits between Network and Add-ons
+- **WHEN** the settings panel renders its nav rail
+- **THEN** the Services group SHALL appear after Network and before Add-ons
+- **AND** it SHALL contain the "All services" and "Runtimes" pages in that order
+- **AND** the "All services" page SHALL keep the page id and URL segment `services`
+
 ### Requirement: Canonical and legacy settings URLs
 The settings panel SHALL be addressable at the canonical path `/settings/:page?` and SHALL continue to honor the legacy query form `/settings?tab=<id>` indefinitely. Resolution SHALL run inside the single mounted panel in this order: (1) a valid route `:page`; (2) a valid legacy `?tab=<id>`, which SHALL trigger a history-`replace` navigation to `/settings/<id>`; (3) otherwise default to `/settings/general` via history-`replace`. The alias map `advanced → developer`, `servers → remote` and `packages → add-ons` SHALL be applied before validation so old links resolve to the new page homes; an aliased route `:page` SHALL be replace-navigated to its canonical id.
 
@@ -178,7 +186,7 @@ The settings panel SHALL be addressable at the canonical path `/settings/:page?`
 
 `VALID_SETTINGS_TABS` (and the `SettingsTab` type) SHALL enumerate the full set
 of page ids: `general, server, sessions, remote, security, providers, add-ons,
-plugins, openspec, skills, agents, extensions, prompts, themes, developer`. The
+plugins, openspec, services, runtimes, skills, agents, extensions, prompts, themes, developer`. The
 five resource page ids (`skills, agents, extensions, prompts, themes`) render
 the global-scope per-type resource card grids. `packages` SHALL NOT be a page id or a
 `SettingsTab` member; it survives only as a legacy URL alias of `add-ons`.
@@ -193,10 +201,12 @@ longer targets a page.
 The canonical settings route pattern `/settings/:page?` SHALL accept a second
 optional segment, so a three-segment plugin URL matches instead of falling
 through to the invalid-page redirect. The second segment SHALL be interpreted
-only when the first resolves to `plugins`, and SHALL be ignored for every other
-page id. The folder-scoped settings route SHALL NOT host plugin pages: plugin
-configuration is global, `plugins` is not a valid folder-settings page id, and
-that route renders a different component.
+only when the first resolves to `plugins` (a plugin id) or `services` (a
+service id, parsed into `activeServiceId`), and SHALL be ignored for every other
+page id. The folder-scoped settings route SHALL NOT host plugin or service pages: plugin
+configuration and managed services are global, `plugins`, `services` and
+`runtimes` are not valid folder-settings page ids, and that route renders a
+different component.
 
 #### Scenario: Plugin sub-route resolves to a plugin page
 - **WHEN** the user navigates to `/settings/plugins/roles` and plugin `roles` is installed
@@ -238,6 +248,16 @@ that route renders a different component.
 #### Scenario: Add-ons page id resolves
 - **WHEN** the user navigates to `/settings/add-ons`
 - **THEN** the panel SHALL render the Add-ons page
+
+#### Scenario: Service sub-route resolves to a service detail
+- **WHEN** the user navigates to `/settings/services/docling` and service `docling` is defined
+- **THEN** the panel SHALL render the `docling` service detail
+- **AND** `activeTab` SHALL be `services` with `activeServiceId` set to `docling`
+
+#### Scenario: Unknown service id falls back to the list
+- **WHEN** the user navigates to `/settings/services/not-defined`
+- **THEN** the panel SHALL render the service list with a notice that the requested service was not found
+- **AND** SHALL NOT render a blank page
 
 ### Requirement: Trusted Networks section on Security tab
 The Security tab SHALL include a "Trusted Networks" section that edits `config.auth.bypassHosts`. The section SHALL display existing entries as individual rows with per-entry remove (✕) buttons. The section SHALL provide a "+ Add Local Network" button that opens a dropdown listing the current host's non-loopback IPv4 network interfaces (fetched from `GET /api/network-interfaces`). The dropdown SHALL render each interface's `label` rather than its raw device name, and SHALL offer that interface's `suggestions` rather than its raw `cidr`. A suggestion marked `wide` SHALL be visually distinguished from a narrow one and SHALL carry the same "grants unauthenticated access to the whole range" explanation used by the block-event trust banner.
@@ -618,7 +638,7 @@ The panel SHALL persist changes via a single Save action that fans out to every 
 
 ### Requirement: Settings Save Bar
 
-Provider credentials and custom provider endpoints are NOT a Save Bar source: they commit on their own action at the point of edit and SHALL NOT contribute a draft, a baseline, or an unsaved-changes count.
+Provider credentials, custom provider endpoints, and every action on the Services and Runtimes pages are NOT a Save Bar source: they commit on their own action at the point of edit and SHALL NOT contribute a draft, a baseline, or an unsaved-changes count.
 
 The panel SHALL render a Save Bar that is present only when the draft is dirty (any source's draft differs from its baseline) and absent when the draft is clean. The Save Bar SHALL display the count of unsaved changes, a **Discard** action, and a **Save** action. The Save action SHALL always be interactive while the bar is visible (the bar's presence is the dirty signal; the Save control is never shown disabled-because-clean). The Save Bar SHALL reflect four states: **dirty** (idle, awaiting save), **saving** (in flight), **saved** (success — the bar dismisses as the draft re-baselines clean), and **error** (one or more sources failed — Retry offered).
 
@@ -667,6 +687,10 @@ The Save Bar SHALL additionally name every page that holds unsaved edits. Each n
 - **WHEN** the Save Bar names two pages and the user clicks Save
 - **THEN** a single fan-out SHALL commit the dirty sources of both pages
 - **AND** both pages' dirty indicators SHALL clear
+
+#### Scenario: Service actions do not dirty the draft
+- **WHEN** the user stops a service and saves a secret value on the Services pages
+- **THEN** the Save Bar SHALL stay absent and the unsaved-changes count SHALL be unchanged
 
 ### Requirement: Per-page dirty indicators
 

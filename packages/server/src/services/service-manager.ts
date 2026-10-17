@@ -18,6 +18,7 @@
  */
 import { createHash } from "node:crypto";
 import fs from "node:fs";
+import { isProcessAlive, type KillFn, signalZero } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
 import { findListenAddresses } from "@blackbelt-technology/pi-dashboard-shared/platform/process-scan.js";
 import {
   definitionFromOffer,
@@ -35,24 +36,42 @@ import {
   type EnsureState,
   type Exposure,
   effectiveTimings,
-  type ManagedDriverId,
+  SERVICE_ID_PATTERN,
   type ServiceDefinition,
   type UnavailableReason,
   validateDefinition,
 } from "@blackbelt-technology/pi-dashboard-shared/services/schema.js";
+import {
+  type AddReview,
+  LOGS_DEFAULT_TAIL,
+  LOGS_MAX_TAIL,
+  type LogsResponse,
+  type PruneCandidate,
+  type PruneRequest,
+  type PruneResult,
+  type PruneSkipped,
+  type ResetDataResult,
+  type ServiceList,
+  type ServiceStatus,
+  type VolumeOutcome,
+} from "@blackbelt-technology/pi-dashboard-shared/services/status.js";
 import { AttachedDriver, ExternalDriver } from "./attached-driver.js";
+import { CHANGE_COALESCE_MS, type ChangeCoalescer, createChangeCoalescer } from "./change-notifier.js";
 import type { CommandRunner } from "./command-runner.js";
 import { DefinitionsCorruptError, DefinitionsStore } from "./definitions-store.js";
 import type { AdoptResult, DriverInstance, ServiceDriver } from "./driver.js";
 import { createLimiter, PROBE_CONCURRENCY, probeHttp, probeTcp, probeWsFirstMessage } from "./health.js";
 import { LeaseTable } from "./leases.js";
+import { capLines, longestSecretLines, MIN_REDACTABLE_LENGTH, redactSecrets, splitLines } from "./log-text.js";
 import { NativeDriver } from "./native-driver.js";
 import { OciDriver } from "./oci-driver.js";
-import { ensurePrivateDir, type ServicesPaths } from "./paths.js";
+import { OutputCapture } from "./output-capture.js";
+import { ensurePrivateDir, readJsonFile, type ServicesPaths } from "./paths.js";
 import { RuntimeDetector as Detector, type RuntimeDetector, type RuntimeReport } from "./runtime-detect.js";
 import { removeSecretMounts } from "./secret-delivery.js";
-import { resolveServiceSecrets, storeSlotOf } from "./secrets-resolver.js";
+import { defaultSecretRef, resolveEachSecret, resolveServiceSecrets, storeSlotOf } from "./secrets-resolver.js";
 import { SecretsCorruptError, SecretsStore } from "./secrets-store.js";
+import { loadDigestKey, readStartRecord, type StartRecord, secretsDigest, writeStartRecord } from "./start-record.js";
 import {
   backoffMs,
   KeyedMutex,
@@ -91,58 +110,21 @@ export interface ServiceManagerDeps {
   leaseTtlMs?: number;
   startPollMs?: number;
   tickMs?: number;
+  /** Content-free "something about a service changed" hook (coalesced). */
+  onChange?: () => void;
+  /** Coalescing window of `onChange`; 0 = every change fires. Default 500 ms. */
+  changeCoalesceMs?: number;
+  /** Output-cap sweep period. Default 5 s. */
+  capMs?: number;
+  /** Output capture override (tests). */
+  output?: OutputCapture;
+  /** Signal-0 sender used by prune's liveness check (tests). */
+  kill?: KillFn;
 }
 
-export interface ServiceStatus {
-  id: string;
-  mode?: ServiceDefinition["mode"];
-  state: EnsureState | "idle" | "stopped" | "stopping";
-  reason?: UnavailableReason;
-  hint?: string;
-  driver?: DriverName;
-  endpoints?: Record<string, string>;
-  exposure?: Exposure;
-  startedBy?: "dashboard" | "external";
-  pinned: boolean;
-  leases: number;
-  retryAt?: string;
-  restartRequired?: boolean;
-  tried?: EnsurePayload["tried"];
-  origin?: ServiceDefinition["origin"];
-  updateAvailable?: boolean;
-  diff?: TemplateDiffEntry[];
-  secrets: Record<string, { configured: boolean }>;
-  errors?: string[];
-}
-
-export interface ServiceList {
-  instanceId?: string;
-  definitionsCorrupt?: boolean;
-  backupPath?: string;
-  secretsCorrupt?: boolean;
-  secretsBackupPath?: string;
-  services: ServiceStatus[];
-}
+export type { AddReview, ServiceList, ServiceStatus };
 
 export type AddRequest = { offer: string; dryRun?: boolean; update?: boolean } | { definition: unknown; dryRun?: boolean };
-
-export interface AddReview {
-  id: string;
-  mode: ServiceDefinition["mode"];
-  drivers?: ManagedDriverId[];
-  image?: string;
-  recipe?: { runner: string; package: string; bin?: string; args: string[] };
-  ports: string[];
-  volumes: string[];
-  binds: string[];
-  secrets: string[];
-  /** Where each secret comes from (ref or store slot) — shown so a cross-reference cannot hide. */
-  secretSources: Record<string, string>;
-  templateHash?: string;
-  diff?: TemplateDiffEntry[];
-  /** Native packages are fetched only by an explicit prefetch. */
-  needsPrefetch?: boolean;
-}
 
 export class ServiceError extends Error {
   readonly status: number;
@@ -170,6 +152,8 @@ interface Rec {
   idleResetAt?: number;
   fullHash?: string;
   exposure?: Exposure;
+  /** `start.json` of the current/last dashboard start (undefined = not read yet). */
+  start?: StartRecord | null;
 }
 
 /** Hash of the runtime-relevant definition fields (`pi.def-hash`). */
@@ -203,20 +187,27 @@ export class ServiceManager {
   /** Set by `dispose()`: a boot settling after shutdown must not start a scheduler. */
   private disposed = false;
   private pins = new Set<string>();
+  readonly output: OutputCapture;
+  private readonly notifier: ChangeCoalescer;
+  private capTimer?: ReturnType<typeof setInterval>;
+  private digestKeyCache?: Buffer;
 
   constructor(deps: ServiceManagerDeps) {
     this.deps = deps;
     this.definitions = new DefinitionsStore(deps.paths.definitions);
     this.secrets = new SecretsStore(deps.paths.secrets);
     this.leases = new LeaseTable(deps.leaseTtlMs);
+    this.output = deps.output ?? new OutputCapture(deps.paths);
+    this.notifier = createChangeCoalescer(() => deps.onChange?.(), deps.changeCoalesceMs ?? CHANGE_COALESCE_MS);
+    this.leases.onChange = () => this.notify();
     const common = { run: deps.run, resolveBinary: deps.resolveBinary, paths: deps.paths };
     const sleep = deps.sleep;
     const now = deps.now;
     const real: Record<DriverName, ServiceDriver> = {
       "oci:docker": new OciDriver({ ...common, runtime: "docker", sleep, now }),
       "oci:podman": new OciDriver({ ...common, runtime: "podman", sleep, now }),
-      native: new NativeDriver({ ...common, platform: deps.platform }),
-      attached: new AttachedDriver({ run: deps.run, platform: deps.platform, sleep, now }),
+      native: new NativeDriver({ ...common, platform: deps.platform, output: this.output }),
+      attached: new AttachedDriver({ run: deps.run, platform: deps.platform, sleep, now, output: this.output }),
       external: new ExternalDriver(),
     };
     for (const [name, d] of Object.entries(real) as Array<[DriverName, ServiceDriver]>) {
@@ -246,10 +237,26 @@ export class ServiceManager {
     (this.deps.log ?? console.log)(line);
   }
 
+  /** Something a Services page shows changed (content-free; coalesced). */
+  private notify(): void {
+    this.notifier.notify();
+  }
+
+  private digestKey(): Buffer {
+    this.digestKeyCache ??= loadDigestKey(this.deps.paths);
+    return this.digestKeyCache;
+  }
+
+  /** The start record of `rec`'s service, read once and cached (`null` = none on disk). */
+  private startOf(id: string, rec: Rec): StartRecord | null {
+    if (rec.start === undefined) rec.start = readStartRecord(this.deps.paths, id);
+    return rec.start;
+  }
+
   private rec(id: string): Rec {
     let r = this.recs.get(id);
     if (!r) {
-      r = { cell: new StateCell(id, (l) => this.log(l)), failures: 0 };
+      r = { cell: new StateCell(id, (l) => this.log(l), () => this.notify()), failures: 0 };
       this.recs.set(id, r);
     }
     return r;
@@ -398,6 +405,14 @@ export class ServiceManager {
     rec.cell.transition("failed", why.slice(0, 120));
   }
 
+  /** Definition changed since the start, OR a secret value was saved while it ran. */
+  private restartRequiredOf(id: string, def: ServiceDefinition, rec: Rec): boolean {
+    const inst = rec.instance;
+    if (!inst) return false;
+    if (inst.defHash && inst.defHash !== definitionHash(def)) return true;
+    return inst.startedBy === "dashboard" && this.startOf(id, rec)?.secretsSavedSinceStart === true;
+  }
+
   // ── ensure ────────────────────────────────────────────────────────────────
 
   private payload(def: ServiceDefinition | undefined, id: string, rec: Rec, leaseId?: string): EnsurePayload {
@@ -418,7 +433,7 @@ export class ServiceManager {
     if (def) {
       const u = this.updateInfo(def);
       if (u.updateAvailable) p.updateAvailable = true;
-      if (rec.instance?.defHash && rec.instance.defHash !== definitionHash(def)) p.restartRequired = true;
+      if (this.restartRequiredOf(id, def, rec)) p.restartRequired = true;
     }
     if (rec.tried && rec.tried.length > 0) p.tried = rec.tried;
     if (rec.hint && state !== "healthy") p.hint = rec.hint;
@@ -507,6 +522,7 @@ export class ServiceManager {
           }
           if (adopted.kind === "running") {
             rec.instance = adopted.instance;
+            rec.start = readStartRecord(this.deps.paths, def.id);
             const seen = await this.observe(def, rec, driver);
             if (seen === "healthy") {
               this.toHealthy(rec, "adopted, probe ok");
@@ -560,12 +576,14 @@ export class ServiceManager {
     const { startTimeoutMs } = effectiveTimings(def);
     rec.cell.transition("starting", "ensure");
     const startedAt = this.now();
+    const startedAtIso = new Date(startedAt).toISOString();
     try {
       rec.instance = await chosen.start(def, { secrets: secretValues, defHash: definitionHash(def), instanceId });
     } catch (err) {
       this.failStart(rec, `start failed: ${(err as Error).message}`);
       return this.payload(def, def.id, rec);
     }
+    if (rec.instance.startedBy === "dashboard") this.recordStart(def, rec, chosen, startedAtIso, secretValues);
     for (;;) {
       let ok = await this.probe(def, rec.instance!, chosen);
       if (!ok && chosen.onProbeFailed && !rec.instance!.tunnelPid) {
@@ -592,6 +610,31 @@ export class ServiceManager {
         return this.payload(def, def.id, rec);
       }
       await this.sleep(this.deps.startPollMs ?? 1_000);
+    }
+  }
+
+  /** Write `start.json` for a dashboard start (any driver). A failure must never fail the start. */
+  private recordStart(
+    def: ServiceDefinition,
+    rec: Rec,
+    driver: ServiceDriver,
+    startedAt: string,
+    secretValues: Record<string, string>,
+  ): void {
+    try {
+      const output = driver.name === "native" || driver.name === "attached" ? this.output.identity(def.id) : null;
+      const record: StartRecord = {
+        driver: driver.name,
+        startedAt,
+        secretsDigest: secretsDigest(this.digestKey(), secretValues),
+        secretsSavedSinceStart: false,
+        ...(output ? { output } : {}),
+      };
+      writeStartRecord(this.deps.paths, def.id, record);
+      rec.start = record;
+    } catch (err) {
+      rec.start = null;
+      this.log(`[services] ${def.id} start record not written: ${(err as Error).message}`);
     }
   }
 
@@ -659,12 +702,16 @@ export class ServiceManager {
       if (!d.canStop(def)) continue;
       // `remove` never force-signals: a recorded pid that no longer verifies is
       // dropped, not killed (it may have been reused by an unrelated group).
-      const r = await d.stop(def, rec.instance?.driver === d.name ? rec.instance : undefined, stopTimeoutMs, { force: opts.force === true });
+      const r = await d.stop(def, rec.instance?.driver === d.name ? rec.instance : undefined, stopTimeoutMs, {
+        force: opts.force === true,
+        instanceId: this.instanceId(),
+      });
       if (r === "stop-failed") outcome = "stop-failed";
     }
     if (outcome === "stopped") {
       rec.instance = undefined;
       rec.hint = undefined;
+      this.output.close(def.id);
       this.leases.dropService(def.id);
     } else {
       rec.hint = `the instance did not exit within ${stopTimeoutMs / 1000} s`;
@@ -685,6 +732,7 @@ export class ServiceManager {
       this.pins.delete(id);
     }
     this.resetIdle(this.rec(id));
+    this.notify();
     return { ok: true, pinned };
   }
 
@@ -720,7 +768,27 @@ export class ServiceManager {
       if (err instanceof SecretsCorruptError) throw new ServiceError(409, "secrets-corrupt", err.message);
       throw err;
     }
+    this.markSecretSaved(id);
+    this.notify();
     return { configured: true };
+  }
+
+  /**
+   * A value was saved while a dashboard-started instance runs: persist the mark
+   * in `start.json` so `restartRequired` survives a server restart.
+   */
+  private markSecretSaved(id: string): void {
+    const rec = this.recs.get(id);
+    if (rec?.instance?.startedBy !== "dashboard") return;
+    const record = readStartRecord(this.deps.paths, id);
+    if (!record) return;
+    record.secretsSavedSinceStart = true;
+    try {
+      writeStartRecord(this.deps.paths, id, record);
+      rec.start = record;
+    } catch (err) {
+      this.log(`[services] ${id} start record not updated: ${(err as Error).message}`);
+    }
   }
 
   /** Store-backed secrets of `def` → their slots (env:/keychain: refs are not store-backed). */
@@ -825,10 +893,21 @@ export class ServiceManager {
       if (!(err instanceof SecretsCorruptError)) throw err;
     }
     this.log(`[services] ${def.id} ${diff ? "updated" : "added"} (${def.origin === "user" ? "user" : def.origin.package})`);
+    this.notify();
     return { dryRun: false, review, secrets: this.secrets.configured(this.slotsOf(def)) };
   }
 
-  async remove(id: string, opts: { purgeData?: boolean } = {}): Promise<{ ok: boolean; hint?: string }> {
+  /** Volume names declared by every defined service OTHER than `id` (runtime-global names). */
+  private volumesDeclaredElsewhere(entries: Array<{ id: string; def?: ServiceDefinition }>, id: string): Set<string> {
+    const out = new Set<string>();
+    for (const e of entries) {
+      if (e.id === id || !e.def) continue;
+      for (const v of Object.keys(e.def.oci?.volumes ?? {})) out.add(v);
+    }
+    return out;
+  }
+
+  async remove(id: string, opts: { purgeData?: boolean } = {}): Promise<{ ok: boolean; hint?: string; volumes?: VolumeOutcome[] }> {
     const r = this.definitions.read();
     if (!r.ok) throw new ServiceError(409, "definitions-corrupt", new DefinitionsCorruptError(this.definitions.file, r.backupPath).message);
     const entry = r.entries.find((e) => e.id === id);
@@ -846,13 +925,18 @@ export class ServiceManager {
         async () => {
           const def = entry.def;
           const rec = this.rec(id);
+          const purged: VolumeOutcome[] = [];
           if (def) {
             const owned = rec.instance ? rec.instance.startedBy === "dashboard" : def.mode === "managed";
             if (owned && def.mode !== "external") {
               const res = await this.stopLocked(def, { removing: true, why: "remove" });
               if (!res.ok && res.state === "stop-failed") return { ok: false, hint: res.hint };
             }
-            for (const d of this.driversOf(def)) await d.remove(def, instanceId, { purgeData: opts.purgeData === true });
+            const sharedVolumes = this.volumesDeclaredElsewhere(r.entries, id);
+            for (const d of this.driversOf(def)) {
+              const res = (await d.remove(def, instanceId, { purgeData: opts.purgeData === true, sharedVolumes })) as { volumes?: VolumeOutcome[] } | undefined;
+              if (res?.volumes) purged.push(...res.volumes);
+            }
           }
           // Keep slots another definition still references (`store:<id>/<n>`).
           const keep = new Set<string>();
@@ -871,9 +955,11 @@ export class ServiceManager {
           });
           this.leases.dropService(id);
           this.pins.delete(id);
+          this.output.close(id);
           this.recs.delete(id);
           this.log(`[services] ${id} removed${opts.purgeData ? " (data purged)" : ""}`);
-          return { ok: true };
+          this.notify();
+          return { ok: true, ...(opts.purgeData ? { volumes: purged } : {}) };
         },
         this.deps.lockOptions,
       ),
@@ -908,6 +994,15 @@ export class ServiceManager {
     return worst;
   }
 
+  /** What the definition declares that the pages need: secret refs (never values) and named volumes. */
+  private declared(def: ServiceDefinition): Pick<ServiceStatus, "secretRefs" | "volumes"> {
+    const volumes = Object.keys(def.oci?.volumes ?? {});
+    return {
+      secretRefs: Object.fromEntries(Object.entries(def.secrets ?? {}).map(([n, sp]) => [n, sp.ref ?? defaultSecretRef(def.id, n)])),
+      ...(volumes.length > 0 ? { volumes } : {}),
+    };
+  }
+
   private statusOf(id: string, def: ServiceDefinition | undefined, errors?: string[]): ServiceStatus {
     const rec = this.recs.get(id);
     const now = this.now();
@@ -916,11 +1011,14 @@ export class ServiceManager {
       state: rec?.cell.state ?? "stopped",
       pinned: this.pins.has(id),
       leases: this.leases.live(id, now),
+      leaseHolders: this.leases.holders(id, now),
       secrets: def ? this.secrets.configured(this.slotsOf(def)) : {},
     };
     if (def) {
       s.mode = def.mode;
+      if (def.drivers) s.drivers = def.drivers;
       s.origin = def.origin;
+      Object.assign(s, this.declared(def));
       Object.assign(s, this.updateInfo(def));
     }
     if (errors) {
@@ -937,14 +1035,15 @@ export class ServiceManager {
         s.driver = rec.instance.driver;
         s.startedBy = rec.instance.startedBy;
         if (rec.cell.state === "healthy" || rec.cell.state === "idle") s.endpoints = { ...rec.instance.endpoints };
-        if (def && rec.instance.defHash && rec.instance.defHash !== definitionHash(def)) s.restartRequired = true;
+        if (def && this.restartRequiredOf(id, def, rec)) s.restartRequired = true;
       }
       if (rec.exposure) s.exposure = rec.exposure;
     }
     return s;
   }
 
-  async list(): Promise<ServiceList> {
+  async list(opts: { canOperate?: boolean } = {}): Promise<ServiceList> {
+    const caller = opts.canOperate === undefined ? {} : { canOperate: opts.canOperate };
     const r = this.definitions.read();
     const sec = this.secrets.status();
     const secFields = sec.corrupt ? { secretsCorrupt: true, secretsBackupPath: sec.backupPath } : {};
@@ -953,7 +1052,7 @@ export class ServiceManager {
         const s = this.statusOf(id, undefined);
         return { ...s, state: "unavailable" as const, reason: "invalid-definition" as const, endpoints: undefined };
       });
-      return { definitionsCorrupt: true, backupPath: r.backupPath, ...secFields, services };
+      return { definitionsCorrupt: true, backupPath: r.backupPath, ...secFields, ...caller, services };
     }
     for (const e of r.entries) if (e.def) this.noteDefinition(e.def, this.rec(e.id));
     await Promise.all(
@@ -962,7 +1061,7 @@ export class ServiceManager {
         if (rec?.instance && (rec.cell.state === "healthy" || rec.cell.state === "idle")) rec.exposure = await this.exposureOf(rec.instance);
       }),
     );
-    return { instanceId: r.instanceId, ...secFields, services: r.entries.map((e) => this.statusOf(e.id, e.def, e.errors)) };
+    return { instanceId: r.instanceId, ...secFields, ...caller, services: r.entries.map((e) => this.statusOf(e.id, e.def, e.errors)) };
   }
 
   /** `status <id>`: re-probes a running instance (spec: on every status). */
@@ -1015,6 +1114,303 @@ export class ServiceManager {
     return this.detector.detect();
   }
 
+  // ── logs ──────────────────────────────────────────────────────────────────
+
+  /** `tail` query value → N, or 400 `invalid-tail`. Absent = default; anything but 1–2000 is refused. */
+  static parseTail(raw: unknown): number {
+    if (raw === undefined) return LOGS_DEFAULT_TAIL;
+    const n = typeof raw === "string" && /^\d{1,6}$/.test(raw) ? Number(raw) : Number.NaN;
+    if (!Number.isInteger(n) || n < 1 || n > LOGS_MAX_TAIL) {
+      throw new ServiceError(400, "invalid-tail", `tail must be an integer from 1 to ${LOGS_MAX_TAIL}`);
+    }
+    return n;
+  }
+
+  /**
+   * The last `tail` lines of the current run's output, with every secret value
+   * replaced by `«secret:<name>»`. Fails CLOSED: an unreadable or too-short
+   * secret, or a secret changed since the start, withholds the output.
+   * See change: add-services-settings-ui (D5).
+   */
+  async logs(id: string, tailRaw?: unknown): Promise<LogsResponse> {
+    const n = ServiceManager.parseTail(tailRaw);
+    const found = this.lookup(id);
+    if (found.corrupt) throw new ServiceError(409, "definitions-corrupt", new DefinitionsCorruptError(this.definitions.file, found.backupPath).message);
+    const def = found.def;
+    if (!def) throw new ServiceError(404, "not-found", `no service "${id}"`);
+    if (def.mode === "external") return { available: false, reason: "external" };
+
+    const rec = this.recs.get(id);
+    const source = this.logSource(def, rec);
+    if ("unavailable" in source) return source.unavailable;
+    const { start, driver, externalStart } = source;
+
+    const redaction = await this.logRedaction(def, start);
+    if ("withheld" in redaction) return redaction.withheld;
+
+    await this.output.enforceCap(id, start.output ?? null);
+    const window = n + longestSecretLines(redaction.values.map((v) => v.value)) - 1;
+    const got = await driver.logs(def, rec?.instance, { instanceId: found.instanceId ?? "", lines: window, startedAt: start.startedAt });
+    if (!got.ok) return { available: false, reason: got.reason === "no-output" && externalStart ? "external" : got.reason };
+    const lines = capLines(splitLines(redactSecrets(got.text, redaction.values)), n);
+    return { available: true, driver: driver.name, lines, stale: rec?.instance === undefined };
+  }
+
+  /** Which driver's output (and start record) a logs read uses, or why there is none — before any secret is touched. */
+  private logSource(
+    def: ServiceDefinition,
+    rec: Rec | undefined,
+  ):
+    | { start: StartRecord; driver: ServiceDriver & Required<Pick<ServiceDriver, "logs">>; externalStart: boolean }
+    | { unavailable: Extract<LogsResponse, { available: false }> } {
+    const externalStart = rec?.instance?.startedBy === "external";
+    // An instance the dashboard did not start has no output file unless a past dashboard start made one.
+    if (externalStart && !fs.existsSync(this.deps.paths.outputLog(def.id))) return { unavailable: { available: false, reason: "external" } };
+    const start = readStartRecord(this.deps.paths, def.id);
+    const driver = start ? this.driverMap.get(rec?.instance?.driver ?? start.driver) : undefined;
+    if (!start || !driver?.logs) return { unavailable: { available: false, reason: "no-output" } };
+    return { start, driver: driver as ServiceDriver & Required<Pick<ServiceDriver, "logs">>, externalStart };
+  }
+
+  /**
+   * Per-secret resolution for the logs route: an unset secret is skipped, an unreadable or too-short
+   * one fails closed naming the first in declaration order, and a digest differing from the start
+   * record means the output was produced with other values.
+   */
+  private async logRedaction(
+    def: ServiceDefinition,
+    start: StartRecord,
+  ): Promise<{ values: Array<{ name: string; value: string }> } | { withheld: Extract<LogsResponse, { available: false }> }> {
+    const resolved = await resolveEachSecret(def, {
+      store: this.secrets,
+      env: this.deps.env ?? process.env,
+      platform: this.deps.platform ?? process.platform,
+      run: this.deps.run,
+      resolveBinary: this.deps.resolveBinary,
+    });
+    const values: Array<{ name: string; value: string }> = [];
+    for (const { name, resolution } of resolved) {
+      if (resolution.ok) {
+        if (resolution.value.length < MIN_REDACTABLE_LENGTH) return { withheld: { available: false, reason: "secret-too-short", secret: name } };
+        values.push({ name, value: resolution.value });
+      } else if (resolution.kind === "unreadable") {
+        return { withheld: { available: false, reason: "secret-unavailable", secret: name } };
+      }
+    }
+    const digest = secretsDigest(this.digestKey(), Object.fromEntries(values.map((v) => [v.name, v.value])));
+    if (digest !== start.secretsDigest) return { withheld: { available: false, reason: "secrets-changed" } };
+    return { values };
+  }
+
+  // ── reset-data / prune ────────────────────────────────────────────────────
+
+  /**
+   * Remove the data volumes of a stopped service (definition, secrets and run
+   * dir untouched). Refuses while anything may be running or its containers
+   * cannot be enumerated; the shared volume guard keeps a volume another
+   * definition declares or a foreign container uses.
+   */
+  async resetData(id: string): Promise<ResetDataResult> {
+    const r = this.definitions.read();
+    if (!r.ok) throw new ServiceError(409, "definitions-corrupt", new DefinitionsCorruptError(this.definitions.file, r.backupPath).message);
+    const def = r.entries.find((e) => e.id === id)?.def;
+    if (!def) throw new ServiceError(404, "not-found", `no service "${id}"`);
+    const instanceId = r.instanceId ?? "";
+    const shared = this.volumesDeclaredElsewhere(r.entries, id);
+    return this.mutex.run(id, () =>
+      withLifecycleLock(
+        this.deps.paths.lockTarget(id),
+        async () => {
+          this.assertResettable(def);
+          const volumes = await this.resetVolumes(def, instanceId, shared);
+          this.log(`[services] ${id} data reset (${volumes.length} volumes)`);
+          this.notify();
+          return { volumes };
+        },
+        this.deps.lockOptions,
+      ),
+    );
+  }
+
+  /** `stopped`, or `unavailable` for a reason other than the sticky ones (which may involve containers we do not own). */
+  private assertResettable(def: ServiceDefinition): void {
+    const rec = this.rec(def.id);
+    const { state, reason } = { state: rec.cell.state, reason: rec.cell.reason };
+    const resettable = !rec.instance && (state === "stopped" || (state === "unavailable" && !(reason && STICKY_REASONS.has(reason))));
+    if (!resettable) {
+      throw new ServiceError(409, "not-resettable", `${def.id} is ${state}${reason ? ` (${reason})` : ""}; stop it first (or wait until it is stopped)`);
+    }
+    if (Object.keys(def.oci?.volumes ?? {}).length === 0) throw new ServiceError(409, "no-data", `${def.id} declares no named volumes`);
+  }
+
+  private static resetRefusal(id: string, kind: "unreachable" | "busy" | "rm-failed"): ServiceError {
+    if (kind === "unreachable") {
+      return new ServiceError(409, "runtime-unreachable", "the container runtime could not list or inspect this service's containers; nothing was removed");
+    }
+    if (kind === "busy") return new ServiceError(409, "not-resettable", `a container of ${id} is running; stop it first`);
+    return new ServiceError(409, "not-resettable", `a container of ${id} could not be removed; no volume was touched`);
+  }
+
+  /** Remove containers then volumes through every runtime driver that has any; a failure aborts with 409. */
+  private async resetVolumes(def: ServiceDefinition, instanceId: string, shared: ReadonlySet<string>): Promise<VolumeOutcome[]> {
+    const merged = new Map<string, VolumeOutcome>();
+    let reached = false;
+    for (const d of this.driversOf(def)) {
+      const out = d.resetData ? await d.resetData(def, instanceId, shared) : ({ kind: "na" } as const);
+      if (out.kind === "na") continue;
+      if (out.kind !== "ok") throw ServiceManager.resetRefusal(def.id, out.kind);
+      reached = true;
+      for (const v of out.volumes) {
+        const prev = merged.get(v.name);
+        // Fail closed: a volume kept by ANY runtime is reported kept (another runtime reporting it gone must not mask it).
+        if (!prev || (prev.removed && !v.removed)) merged.set(v.name, v);
+      }
+    }
+    if (!reached) throw new ServiceError(409, "runtime-unreachable", "no container runtime is available to remove the volumes");
+    return [...merged.values()];
+  }
+
+  /** Liveness of a recorded pid: POSIX = the process GROUP (workers included); EPERM counts as alive. */
+  private recordedAlive(pid: number): boolean {
+    if ((this.deps.platform ?? process.platform) === "win32") return isProcessAlive(pid, { kill: this.deps.kill });
+    return signalZero(-pid, { kill: this.deps.kill }) !== "esrch";
+  }
+
+  /** Orphan containers and run dirs of services that are no longer defined. */
+  private async pruneCandidates(
+    defined: ReadonlySet<string>,
+    instanceId: string,
+    only?: ReadonlySet<string>,
+  ): Promise<{ candidates: PruneCandidate[]; skipped: PruneSkipped[]; unreachableRuntimes: Array<"docker" | "podman"> }> {
+    const wanted = (id: string) => !defined.has(id) && (!only || only.has(id));
+    const containers = await this.orphanContainers(instanceId, wanted);
+    return { ...containers, candidates: [...containers.candidates, ...this.deadRunDirs(wanted)] };
+  }
+
+  /** Containers labelled with this installation's `pi.owner` whose service is not defined, per reachable runtime. */
+  private async orphanContainers(
+    instanceId: string,
+    wanted: (id: string) => boolean,
+  ): Promise<{ candidates: PruneCandidate[]; skipped: PruneSkipped[]; unreachableRuntimes: Array<"docker" | "podman"> }> {
+    const candidates: PruneCandidate[] = [];
+    const skipped: PruneSkipped[] = [];
+    const unreachableRuntimes: Array<"docker" | "podman"> = [];
+    for (const runtime of ["docker", "podman"] as const) {
+      const listing = await this.driver(`oci:${runtime}`).listOwned?.(instanceId);
+      if (!listing || listing.state === "absent") continue;
+      if (listing.state === "unreachable") {
+        unreachableRuntimes.push(runtime);
+        continue;
+      }
+      for (const c of listing.containers.filter((x) => wanted(x.serviceId))) {
+        if (c.running) skipped.push({ id: c.serviceId, kind: "container", reason: "running" });
+        else candidates.push({ kind: "container", id: c.serviceId, containerId: c.containerId, runtime });
+      }
+    }
+    return { candidates, skipped, unreachableRuntimes };
+  }
+
+  /** `services-run/<id>/` directories of undefined services with no live recorded process (group-aware; EPERM = live). */
+  private deadRunDirs(wanted: (id: string) => boolean): PruneCandidate[] {
+    let dirs: string[] = [];
+    try {
+      dirs = fs.readdirSync(this.deps.paths.runRoot, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name);
+    } catch {
+      /* no run root yet */
+    }
+    return dirs
+      .filter((name) => SERVICE_ID_PATTERN.test(name) && wanted(name))
+      .filter((name) => {
+        const rec = readJsonFile<{ pid?: number }>(this.deps.paths.instanceFile(name));
+        return !(rec && Number.isInteger(rec.pid) && this.recordedAlive(rec.pid as number));
+      })
+      .map((name) => ({ kind: "run-dir" as const, id: name }));
+  }
+
+  /**
+   * Re-check one previewed id under its lifecycle lock (after re-reading `services.json`), then remove
+   * ONLY what is still a leftover: containers when a container candidate remains, the run dir only when
+   * the re-check still lists it (a live process group protects it).
+   */
+  private async pruneOne(
+    id: string,
+    instanceId: string,
+    definedNow: () => Set<string> | null,
+    previewed: ReadonlySet<PruneCandidate["kind"]>,
+    removed: string[],
+    skipped: PruneSkipped[],
+  ): Promise<void> {
+    const kind: PruneSkipped["kind"] = previewed.has("container") ? "container" : "run-dir";
+    const skip = (reason: string) => void skipped.push({ id, kind, reason });
+    const defined = definedNow();
+    if (!defined) return skip("services.json is missing or corrupt");
+    if (defined.has(id)) return skip("defined since the preview");
+    const again = await this.pruneCandidates(defined, instanceId, new Set([id]));
+    if (again.candidates.length === 0) return skip("no longer a leftover");
+    for (const runtime of ["docker", "podman"] as const) {
+      const cids = again.candidates.filter((c) => c.kind === "container" && c.runtime === runtime).map((c) => c.containerId as string);
+      if (cids.length > 0 && !(await this.driver(`oci:${runtime}`).removeContainers?.(cids))) {
+        return skip(`${runtime} could not remove the container`);
+      }
+    }
+    if (again.candidates.some((c) => c.kind === "run-dir")) {
+      fs.rmSync(this.deps.paths.runDir(id), { recursive: true, force: true });
+      this.output.close(id);
+    }
+    removed.push(id);
+  }
+
+  /**
+   * Remove dashboard-owned leftovers: containers of this installation whose
+   * service is no longer defined, and dead run dirs. Dry run first; the confirm
+   * considers only the previewed `ids` and re-checks each under its lifecycle
+   * lock after re-reading `services.json`.
+   */
+  async prune(req: PruneRequest): Promise<PruneResult> {
+    const r = this.definitions.read();
+    if (!r.ok) throw new ServiceError(409, "definitions-corrupt", new DefinitionsCorruptError(this.definitions.file, r.backupPath).message);
+    // A missing file reads as "zero services": every owned container and run dir would be a candidate.
+    if (!r.exists) throw new ServiceError(409, "definitions-missing", "services.json does not exist; refusing to prune (nothing is defined to compare against)");
+    const instanceId = r.instanceId ?? "";
+    const definedNow = () => {
+      const fresh = this.definitions.read();
+      return fresh.ok && fresh.exists ? new Set(fresh.entries.map((e) => e.id)) : null;
+    };
+    if (req.dryRun) {
+      const out = await this.pruneCandidates(new Set(r.entries.map((e) => e.id)), instanceId);
+      return { dryRun: true, ...out };
+    }
+    const wanted = new Set((Array.isArray(req.ids) ? req.ids : []).filter((x): x is string => typeof x === "string" && SERVICE_ID_PATTERN.test(x)));
+    const removed: string[] = [];
+    const skipped: PruneSkipped[] = [];
+    const first = await this.pruneCandidates(new Set(r.entries.map((e) => e.id)), instanceId, wanted);
+    const ids = [...new Set(first.candidates.map((c) => c.id))];
+    // A previewed id that has become a defined service meanwhile is reported (with the kind of leftover
+    // it had), not silently dropped; an id that was never a candidate is ignored.
+    const definedAtConfirm = new Set(r.entries.map((e) => e.id));
+    for (const id of [...wanted].filter((w) => !ids.includes(w) && definedAtConfirm.has(w))) {
+      const had = await this.pruneCandidates(new Set(), instanceId, new Set([id]));
+      const kind = had.candidates.some((c) => c.kind === "container") ? "container" : "run-dir";
+      skipped.push({ id, kind, reason: "defined since the preview" });
+    }
+    for (const id of ids) {
+      const previewed = new Set(first.candidates.filter((c) => c.id === id).map((c) => c.kind));
+      await this.mutex.run(id, () =>
+        withLifecycleLock(this.deps.paths.lockTarget(id), () => this.pruneOne(id, instanceId, definedNow, previewed, removed, skipped), this.deps.lockOptions),
+      );
+      // Taking the lock creates the run dir; a container-only leftover must not leave an empty one
+      // (non-recursive: a dir that holds anything is never touched).
+      try {
+        fs.rmdirSync(this.deps.paths.runDir(id));
+      } catch {
+        /* not empty, or already gone */
+      }
+    }
+    this.log(`[services] prune removed ${removed.length}, skipped ${skipped.length}`);
+    this.notify();
+    return { dryRun: false, removed, skipped };
+  }
+
   // ── boot adoption ─────────────────────────────────────────────────────────
 
   /**
@@ -1054,6 +1450,7 @@ export class ServiceManager {
         rec.hint = bad.hint;
       } else if (running) {
         rec.instance = running.instance;
+        rec.start = readStartRecord(this.deps.paths, def.id);
         rec.idleSince = now;
         rec.idleResetAt = now;
         rec.cell.init("idle", "adopted");
@@ -1130,11 +1527,39 @@ export class ServiceManager {
       this.tick().catch((err: unknown) => this.log(`[services] tick error: ${(err as Error).message}`));
     }, this.deps.tickMs ?? REPROBE_INTERVAL_MS);
     this.timer.unref?.();
+    // Output cap: an `fstat` of a local file per service, not a health probe —
+    // runs for every service with an output file, leased or not.
+    this.capTimer = setInterval(() => {
+      this.capOutputs().catch((err: unknown) => this.log(`[services] output cap error: ${(err as Error).message}`));
+    }, this.deps.capMs ?? 5_000);
+    this.capTimer.unref?.();
+  }
+
+  /** One output-cap sweep over every run dir that has an `output.log`. Exposed for tests. */
+  async capOutputs(): Promise<void> {
+    let names: string[];
+    try {
+      names = fs.readdirSync(this.deps.paths.runRoot);
+    } catch {
+      return;
+    }
+    await Promise.all(
+      names
+        .filter((n) => SERVICE_ID_PATTERN.test(n) && fs.existsSync(this.deps.paths.outputLog(n)))
+        .map((n) => {
+          const recorded = this.recs.get(n)?.start ?? readStartRecord(this.deps.paths, n);
+          return this.output.enforceCap(n, recorded?.output ?? null);
+        }),
+    );
   }
 
   dispose(): void {
     this.disposed = true;
     if (this.timer) clearInterval(this.timer);
     this.timer = undefined;
+    if (this.capTimer) clearInterval(this.capTimer);
+    this.capTimer = undefined;
+    this.notifier.dispose();
+    this.output.closeAll();
   }
 }

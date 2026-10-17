@@ -26,6 +26,11 @@ export interface RunResult {
   stdout: string;
   stderr: string;
   timedOut: boolean;
+  /**
+   * stdout or stderr reached the 4 MiB cap and the rest was dropped. Callers
+   * that need the whole output (logs) must treat this as a failure.
+   */
+  truncated?: boolean;
   /** Spawn failure (ENOENT, EACCES …). */
   error?: string;
 }
@@ -43,11 +48,12 @@ export const defaultCommandRunner: CommandRunner = (file, args, opts = {}) =>
     let stderr = "";
     let settled = false;
     let timedOut = false;
-    const finish = (r: Omit<RunResult, "stdout" | "stderr" | "timedOut">) => {
+    let truncated = false;
+    const finish = (r: Omit<RunResult, "stdout" | "stderr" | "timedOut" | "truncated">) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      resolve({ ...r, stdout, stderr, timedOut });
+      resolve({ ...r, stdout, stderr, timedOut, ...(truncated ? { truncated: true } : {}) });
     };
     let child: ReturnType<typeof spawn>;
     try {
@@ -65,11 +71,17 @@ export const defaultCommandRunner: CommandRunner = (file, args, opts = {}) =>
       child.kill("SIGKILL");
       finish({ code: null });
     }, opts.timeoutMs ?? 30_000);
-    child.stdout?.on("data", (d: Buffer) => {
-      if (stdout.length < MAX_OUTPUT) stdout += d.toString("utf8");
+    // `setEncoding` decodes across chunk boundaries: a multi-byte character split between two
+    // chunks must not become two U+FFFD (that would defeat exact-value log redaction).
+    child.stdout?.setEncoding("utf8");
+    child.stderr?.setEncoding("utf8");
+    child.stdout?.on("data", (d: string) => {
+      if (stdout.length < MAX_OUTPUT) stdout += d;
+      else truncated = true;
     });
-    child.stderr?.on("data", (d: Buffer) => {
-      if (stderr.length < MAX_OUTPUT) stderr += d.toString("utf8");
+    child.stderr?.on("data", (d: string) => {
+      if (stderr.length < MAX_OUTPUT) stderr += d;
+      else truncated = true;
     });
     child.on("error", (err) => finish({ code: null, error: err.message }));
     child.on("close", (code) => finish({ code }));

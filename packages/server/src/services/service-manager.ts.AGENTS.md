@@ -16,3 +16,13 @@
 - Audit hardening: `AddReview.secretSources`; `remove` refuses 409 before teardown on a corrupt secrets store and never force-signals (`stopLocked({removing:true})`); exposure cached per port 30 s; `status` carries `tried` when unavailable.
 
 Tests: `__tests__/state-machine.test.ts`, `leases.test.ts`, `adoption.test.ts`, `definitions-store.test.ts`, `oci-driver.test.ts`, `routes.test.ts`, `secrets.test.ts`. See change: add-service-registry-core.
+
+## add-services-settings-ui
+
+- Types moved to shared `services/status.ts` (`ServiceStatus` + `leaseHolders`/`secretRefs`/`volumes`/`drivers`, `ServiceList.canOperate`, `AddReview`).
+- `list({canOperate})`; deps `onChange` (coalesced 500 ms; `changeCoalesceMs:0` = raw), `capMs`, `output`, `kill`. `StateCell` + `LeaseTable` hooks, `pin`/`add`/`remove`/`setSecret`/`resetData`/`prune` all `notify()`.
+- Start record: `recordStart` writes `start.json` on every dashboard start (any driver); adoption reads it; `restartRequired` = defHash mismatch OR `secretsSavedSinceStart` (`markSecretSaved`).
+- `logs(id, tail)`: precedence external → no-output → per-secret fail-closed (`secret-unavailable|secret-too-short`) → digest (`secrets-changed`) → driver `logs` (`runtime-error|duplicate-instances|no-output`) → redact → last N → 512 KiB cut. `stale` = no running instance. `parseTail`: 1–2000 else 400 `invalid-tail`.
+- `resetData(id)` (state gate, `no-data`, shared volume guard, plain `rm`), `prune({dryRun}|{ids})` (orphan containers per runtime + dead run dirs; recheck per id under its lifecycle lock; 409 `definitions-missing`). `capOutputs()` sweeps `output.log` every 5 s (`startScheduler`).
+- Tests: `__tests__/logs.test.ts`, `output-capture.test.ts`, `reset-prune.test.ts`, `change-notify.test.ts`, `src/__tests__/services-authority.test.ts`.
+
