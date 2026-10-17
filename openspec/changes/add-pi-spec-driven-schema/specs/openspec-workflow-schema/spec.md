@@ -6,24 +6,24 @@ Dashboard-managed, project-local OpenSpec workflow schema `pi-spec-driven`. It i
 
 ### Requirement: Workflow schema is generated from the package base, stamped and validated
 
-The server SHALL generate the schema in a fresh scratch directory, never inside the repository:
+The server SHALL generate the schema in a fresh scratch directory, never inside the repository. Every CLI call of generation (`--version`, `schema which`, `schema fork`, `schema validate`) SHALL run with the scratch root as cwd and `XDG_DATA_HOME` set to an empty scratch directory, so no project or user schema can shadow the package base:
 
-1. Run `openspec schema which spec-driven --json` from the scratch root, with `XDG_DATA_HOME` set to an empty scratch directory. Abort unless it reports `source: "package"` and an empty `shadows` list.
+1. Run `openspec schema which spec-driven --json`. Abort unless it reports `source: "package"` and an empty `shadows` list.
 2. Run `openspec schema fork spec-driven pi-spec-driven --force` there.
 3. Apply the current patch set to the scratch `schema.yaml` with a comment-preserving YAML edit. If a patch's anchor text is not found, generation SHALL abort (a stamp never claims a patch that was not applied).
 4. Write the stamp `x-pi-dashboard: { derivedFrom: "spec-driven@<version>", patch: <CURRENT_PATCH>, previousDefault: <name> }`:
    - `<version>` is the `openspec --version` of the CLI that ran;
-   - `<name>` is the value supplied by the calling action: enable passes the default it recorded; Update and Adopt pass the existing stamp's `previousDefault`, or, when no stamp exists (`missing` / `unmanaged`), the `previousDefault` given in the request (kebab-case, resolvable, preselected `spec-driven` in the UI).
+   - `<name>` is the value supplied by the calling action (see "Schema names are validated before use"): enable passes the default it recorded; Update passes the request's `previousDefault` when given, else the existing stamp's; Adopt and an Update without a stamp (`generated: none`) require the request's `previousDefault` (the UI preselects `spec-driven`).
 5. Run `openspec schema validate pi-spec-driven` there.
 
-Only after validation SHALL the result be copied to the sibling `<root>/openspec/schemas/.fork-staging-<rand>/` and swapped in:
+Only after validation SHALL the result be copied to the sibling `<root>/openspec/schemas/.fork-staging-<rand>/` (a failed copy removes the staging directory and aborts) and swapped in:
 
-1. Re-check that the existing `pi-spec-driven/` is unchanged since its stamp was read (same `schema.yaml` content hash); otherwise abort.
-2. Rename the existing `pi-spec-driven/` to `pi-spec-driven.fork-backup-<pid>-<ts>`.
+1. If `pi-spec-driven/` exists, re-check that its whole-directory fingerprint (every file's relative path and content hash, as OpenSpec's own fork does) is unchanged since its status was read; otherwise abort.
+2. If it exists, rename it to `pi-spec-driven.fork-backup-<pid>-<ts>`.
 3. Rename the staging directory to `pi-spec-driven/`.
-4. Delete the backup.
+4. Delete the backup, if one was made.
 
-On Windows, every rename (including a restore) failing with `EPERM` / `EBUSY` / `EACCES` SHALL be retried up to 5 times within 2 s. A failure in steps 1–3 SHALL restore the backup and remove the staging directory, leaving the previous schema byte-identical; if the restore itself fails, the backup directory SHALL be left in place (OpenSpec discovery ignores it) and named in the error. A failure in step 4 SHALL NOT roll back: the backup is left and a warning returned. The scratch directory SHALL be removed in every case.
+On Windows, every rename (including a restore) failing with `EPERM` / `EBUSY` / `EACCES` SHALL be retried up to 5 times within 2 s. A failure in step 1 or 2 SHALL remove the staging directory and leave the previous schema untouched. A failure in step 3 SHALL rename the backup back (when one exists) and remove the staging directory, leaving the previous schema byte-identical; if that restore itself fails after retries, the backup directory SHALL be left in place (OpenSpec discovery ignores it) and named in the error. A failure in step 4 SHALL NOT roll back: the backup is left and a warning returned. The scratch directory SHALL be removed in every case.
 
 Patch v1 SHALL replace, in the `design` artifact instruction, the line `When to include design.md (create only if any apply):` with `When a full design.md is warranted (otherwise still create design.md containing one line "Not needed: <reason>"):`. This is author guidance only; the CLI only checks that the file exists.
 
@@ -48,7 +48,7 @@ Patch v1 SHALL replace, in the `design` artifact instruction, the line `When to 
 #### Scenario: Validation or swap failure keeps the previous schema
 
 - **GIVEN** an existing generated schema
-- **WHEN** validation fails, or the final rename fails after retries
+- **WHEN** validation fails, or the final rename fails after retries and the restore succeeds
 - **THEN** `openspec/schemas/pi-spec-driven/` SHALL be byte-identical to before
 - **AND** no `.fork-staging-*` or `*.fork-backup-*` directory SHALL remain
 
@@ -73,12 +73,12 @@ The server SHALL compare a generated schema's stamp `(base, patch)` with `(versi
 | Both components equal | `current` | — |
 | Neither component newer, at least one older | `outdated` | eligible for Update |
 | Either component newer, neither older | `newer` | never regenerated |
-| One component newer, the other older | `conflict` | never regenerated automatically |
+| One component newer, the other older | `conflict` | never regenerated (no action may regenerate it; resolve by aligning dashboard/CLI versions) |
 
 Further statuses:
 - `none`: no `pi-spec-driven/` directory exists.
 - A `pi-spec-driven/` that is a symlink, or that has no parseable stamp, SHALL be `unmanaged`. It is never overwritten, except through an explicit Adopt action the user confirms (Adopt is refused for a symlink).
-- For `newer`, the server SHALL run `openspec schema validate pi-spec-driven` with the local CLI, on the main thread through the spawn semaphore, memoized by (stamp, resolved CLI version) so it runs at most once per combination. If that fails, the status SHALL be `incompatible` and a notice SHALL tell the user to update their OpenSpec CLI.
+- For `newer` and `conflict`, the server SHALL run `openspec schema validate pi-spec-driven` with the local CLI and cwd = the repository root, on the main thread through the spawn semaphore, memoized by (cwd, whole-directory fingerprint, resolved CLI version) so it runs at most once per combination. If that fails, the status SHALL be `incompatible` and a notice SHALL tell the user to update their OpenSpec CLI.
 
 #### Scenario: Teammate on a newer dashboard
 
@@ -111,8 +111,8 @@ Enable SHALL run under the per-cwd lock and the write guard ("Every writing acti
    - `openspec/config.yaml` or `openspec/config.yml` exists (when both exist, `config.yaml` is read and edited, as the CLI does).
 3. If the configured schema is already `pi-spec-driven`, return the current status and write nothing (unpinned changes are handled by the Pin action).
 4. Otherwise:
-   1. Record the configured default as `previousDefault`: the config's `schema:` value, or `spec-driven` when the key is absent (the CLI's implicit default). It SHALL be a kebab-case id resolvable by the CLI, else refuse.
-   2. If the status is `none`, generate the schema with that `previousDefault`. If it is `current`, `outdated`, `newer` or `conflict`, keep the existing schema without regenerating (an outdated schema is reported, and changed only by an explicit Update); if its stamp's `previousDefault` differs from the recorded one, refuse and tell the user to resolve it via Update. Refuse when `unmanaged` or `incompatible`.
+   1. Record the configured default as `previousDefault`: the config's `schema:` value, or `spec-driven` when the key is absent (the CLI's implicit default). It SHALL pass "Schema names are validated before use", else refuse.
+   2. If the status is `none`, generate the schema with that `previousDefault`. If it is `current`, `outdated`, `newer` or `conflict` (the latter two only when the local `schema validate` passes), keep the existing schema without regenerating (an outdated schema is reported, and changed only by an explicit Update). If the kept stamp's `previousDefault` differs from the recorded one, refuse and tell the user to run Update with `previousDefault: <recorded>`, which rewrites the stamp. Refuse when `unmanaged` or `incompatible`.
    3. For every active change directory under `<root>/openspec/changes/` that has NO `.openspec.yaml`, create `.openspec.yaml` with no-clobber semantics (exclusive create; an existing file is never replaced), serialized by the YAML library as `{ schema: <previousDefault> }`. Active means excluding `archive/`, dot-directories and symlinks, matching OpenSpec's change enumeration. Existing `.openspec.yaml` files SHALL never be modified.
    4. Set the config file's `schema:` to `pi-spec-driven` with a comment-preserving edit.
 
@@ -162,10 +162,10 @@ If a step fails after generation, the already-written schema and pins SHALL rema
 
 ### Requirement: Disable restores the previous default without breaking pinned changes
 
-Disable SHALL require the configured schema to be `pi-spec-driven`; otherwise it SHALL write nothing and report the current default. It SHALL set the config file's `schema:` to the stamp's `previousDefault` (`spec-driven` when absent) and SHALL keep `openspec/schemas/pi-spec-driven/`.
+Disable SHALL require the configured schema to be `pi-spec-driven`; otherwise it SHALL write nothing and report the current default. It SHALL set the config file's `schema:` to the stamp's `previousDefault` and SHALL keep `openspec/schemas/pi-spec-driven/`. When the stamp is absent or unparseable (`none` / `unmanaged`), Disable SHALL require a request `previousDefault` plus `confirm: true` instead of assuming `spec-driven`. The value written SHALL pass "Schema names are validated before use", else Disable refuses.
 
-The `remove` action SHALL be refused when:
-- the schema is `unmanaged`;
+The `remove` action SHALL rename `pi-spec-driven/` to a `pi-spec-driven.fork-backup-<pid>-<ts>` name (ignored by OpenSpec discovery) and then delete it recursively, so an interrupted delete never leaves a partial schema. It SHALL be refused when:
+- the schema is `unmanaged` or `none`;
 - the config names `pi-spec-driven`;
 - any active change's `.openspec.yaml` names it.
 
@@ -195,13 +195,52 @@ Every action that writes (`enable`, `disable`, `update`, `adopt`, `pin`, `remove
 - the call returned a `root`, so a CLI without `status --all` cannot write;
 - `root.source` is `"nearest"`;
 - `realpathSync.native(root.path)` equals `realpathSync.native(cwd)`;
-- `openspec/`, `openspec/changes/` and `openspec/schemas/` (when present) are not symlinks.
+- `openspec/`, `openspec/changes/`, `openspec/schemas/` (when present) and the config file are not symlinks.
 
 #### Scenario: Foreign root refused for every action
 
 - **GIVEN** a cwd whose status-call `root.source` is `"declared"`
 - **WHEN** any of `pin`, `update` or `disable` is requested
 - **THEN** the server SHALL refuse and write nothing
+
+### Requirement: Schema names are validated before use
+
+Every schema name the server writes or records (`previousDefault` in a stamp or a request, `pinTo`, a value written to the config) SHALL be a kebab-case id, SHALL NOT be `pi-spec-driven` where it denotes a previous default, and SHALL resolve from the project schema directory or the package built-ins with the local CLI. A name that resolves only from the user schema directory (`XDG_DATA_HOME`) SHALL be refused, because teammates cannot resolve it. A stamp `previousDefault` that fails these rules SHALL be treated as absent.
+
+#### Scenario: User-level schema cannot become a committed default
+
+- **GIVEN** `team-flow` exists only in the operator's `XDG_DATA_HOME`
+- **WHEN** enable records `team-flow` as `previousDefault`, or a pin requests `pinTo: team-flow`
+- **THEN** the server SHALL refuse and write nothing
+
+### Requirement: Actions are allowed only in defined states
+
+The REST endpoint SHALL enforce, before any write:
+
+| Action | Allowed when |
+|---|---|
+| `enable` | configured ≠ `pi-spec-driven`; generated ∈ {`none`, `current`, `outdated`, `newer`*, `conflict`*} (* local validate passes) |
+| `disable` | configured = `pi-spec-driven` |
+| `update` | generated ∈ {`outdated`, `current`} (re-stamping `previousDefault`), or `none` while configured = `pi-spec-driven` |
+| `adopt` | generated = `unmanaged`, not a symlink, `confirm: true`, request `previousDefault` given |
+| `pin` | configured = `pi-spec-driven` |
+| `remove` | generated ∈ {`current`, `outdated`, `newer`, `conflict`, `incompatible`}, plus the reference rules of Disable/remove |
+
+Any other combination SHALL be refused with the current status in the response.
+
+Adopt SHALL regenerate `pi-spec-driven` from the package base through the full generation and swap procedure, replacing the unmanaged content (any hand customizations are discarded; the confirmation names this), and stamp it with the request's `previousDefault`.
+
+#### Scenario: Update refused on a conflict
+
+- **GIVEN** the schema status is `conflict`
+- **WHEN** `update` is requested
+- **THEN** the server SHALL refuse and the schema SHALL be unchanged
+
+#### Scenario: Update re-stamps the previous default
+
+- **GIVEN** a `current` schema whose stamp has `previousDefault: spec-driven`, after the repository default was changed to `team-flow` and the project disabled
+- **WHEN** `update` is requested with `previousDefault: team-flow`
+- **THEN** the stamp SHALL record `team-flow` and a following `enable` SHALL succeed
 
 ### Requirement: Pin only creates missing metadata
 
@@ -224,7 +263,7 @@ The `pin` action SHALL be allowed only while the configured schema is `pi-spec-d
 Every successful-poll payload, and the cached state served on demand, SHALL carry `OpenSpecData.workflowSchema` with the fields:
 - `configured: string | null`;
 - `generated: "none" | "current" | "outdated" | "newer" | "incompatible" | "conflict" | "unmanaged"`;
-- `missing: boolean` — the config names a schema that resolves in none of the project, user or package schema directories;
+- `missing: boolean` — the config file the CLI reads (`config.yaml`, else `config.yml`) names a schema that resolves in none of the project, user or package schema directories;
 - `unpinnedChanges: string[]` — the active changes (as enumerated by enable) without `.openspec.yaml`, detected by `stat` only, and computed only when `configured === "pi-spec-driven"`.
 
 Failure, disabled, opted-out and global-off payloads SHALL omit it. It SHALL be recomputed whenever the poll rebuilds data, and whenever the resolved CLI version changes. The filesystem part is computed in the poll worker; any CLI call it needs (`schema validate` for `newer`) runs on the main thread through the spawn semaphore, memoized.
@@ -265,7 +304,7 @@ The endpoint is `POST /api/openspec/workflow-schema`, with body `{ cwd, action, 
 - a `control`-tier entry in `packages/shared/src/route-tiers.ts`;
 - the MCP manifest completeness rules.
 
-Before any filesystem access it SHALL check, in order: the cwd is tracked or pinned (the init endpoint's known-target set); OpenSpec is enabled; the cwd is not opted out; `<cwd>/openspec/` exists.
+It SHALL check, in order: the cwd is tracked or pinned (the init endpoint's known-target set, a membership check with no filesystem access); OpenSpec is enabled; the cwd is not opted out. Only then SHALL it touch the filesystem, starting with `realpathSync.native(cwd)` and the `<cwd>/openspec/` existence check.
 
 Request validation:
 - `pinTo` SHALL be `pi-spec-driven` or the stamp's `previousDefault`.
@@ -276,7 +315,7 @@ Request validation:
 Execution rules:
 - Every target path SHALL be contained by `realpath(<root>)/openspec/`.
 - No shell interpolation SHALL be used.
-- A per-cwd lock, keyed by `realpathSync.native(cwd)` and shared with the init endpoint, SHALL reject a concurrent call with `409`. When REST init chains into enable, enable SHALL run inside init's held lock.
+- A per-cwd lock, keyed by `realpathSync.native(cwd)` and shared with the init endpoint (whose lock key becomes the same canonical path once its own tracked check has passed), SHALL reject a concurrent call with `409`. When REST init chains into enable, enable SHALL run inside init's held lock; init's admission gates count for it, and the write guard still applies.
 - Each call SHALL log the cwd, action, written paths, and stamp before and after.
 
 #### Scenario: Untracked cwd is rejected without filesystem access
