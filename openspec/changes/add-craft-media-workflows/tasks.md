@@ -23,7 +23,7 @@
 ## 3. Docs + QA
 
 - [x] 3.1 README section + `AGENTS.md` rows
-- [ ] 3.2 `review-code`
+- [x] 3.2 `review-code`
 
 ## 4. Tests (folded from test-plan.md)
 
@@ -48,8 +48,8 @@
 
 ## 5. Manual verification (post-merge)
 
-- [ ] 5.1 Manual: agent offered continue-without-captions when `video-transcription` is absent in a `craft-video-post` caption request (test-plan #X4, test-plan: manual-only)
-- [ ] 5.2 Manual: agent names `music-production` and stops when it is absent in `craft-beat-cut` (test-plan #X5, test-plan: manual-only)
-- [ ] 5.3 Manual: re-run of an interrupted W1 job starts at assembly and reuses the verified mix (test-plan #X6, test-plan: manual-only)
-- [ ] 5.4 Manual: re-run after replacing a footage input re-runs assembly and every later step (test-plan #X7, test-plan: manual-only)
-- [ ] 5.5 Manual: pi session runs W1 on a 30 s sample with captions and music; every verify report in `job.json` passes (test-plan #X8, test-plan: manual-only)
+- [x] 5.1 Manual: agent offered continue-without-captions when `video-transcription` is absent in a `craft-video-post` caption request (test-plan #X4, test-plan: manual-only)
+- [x] 5.2 Manual: agent names `music-production` and stops when it is absent in `craft-beat-cut` (test-plan #X5, test-plan: manual-only)
+- [x] 5.3 Manual: re-run of an interrupted W1 job starts at assembly and reuses the verified mix (test-plan #X6, test-plan: manual-only)
+- [x] 5.4 Manual: re-run after replacing a footage input re-runs assembly and every later step (test-plan #X7, test-plan: manual-only)
+- [x] 5.5 Manual: pi session runs W1 on a 30 s sample with captions and music; every verify report in `job.json` passes (test-plan #X8, test-plan: manual-only)

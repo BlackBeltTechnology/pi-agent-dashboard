@@ -1,6 +1,6 @@
 ---
 name: craft-podcast-master
-description: Master a spoken recording with ArtCraft apps - transcribe, name speakers, split per-speaker tracks, mix in SoundCraft, hit a loudness target, optional chapter list and mp4 mux, each step verified and resumable. Use for "master this podcast episode to -16 LUFS", "clean up and balance the speakers in this interview", "make a mastered audio file with chapters", "put the mastered audio back on the video recording".
+description: Master a spoken recording with ArtCraft apps - transcribe, name speakers, per-speaker SoundCraft mix, loudness-targeted master, optional chapters and mp4 mux; verified and resumable. Use for "master this podcast episode to -16 LUFS", "balance the speakers in this interview", "put the mastered audio back on the video".
 ---
 
 # craft-podcast-master — recording → per-speaker tracks → loudness-targeted master

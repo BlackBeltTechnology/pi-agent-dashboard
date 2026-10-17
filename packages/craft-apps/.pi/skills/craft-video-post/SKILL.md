@@ -1,6 +1,6 @@
 ---
 name: craft-video-post
-description: Post-production workflow for footage or Veo clips with ArtCraft apps - optional redaction, FilmCraft assembly with alpha overlays, captions from a transcript SRT, SoundCraft mix, mp4 h264+aac delivery, each step verified and resumable. Use for "edit these clips into a finished video with captions and music", "add a lower third and subtitles to my footage", "assemble the Veo shots and deliver an mp4", "post-produce this recording".
+description: Footage/Veo clips to a finished mp4 with ArtCraft apps - FilmCraft assembly and alpha overlays, SRT captions, SoundCraft mix, h264+aac delivery; verified and resumable. Use for "edit these clips into a finished video with captions and music", "add a lower third and subtitles to my footage", "post-produce this recording".
 ---
 
 # craft-video-post — footage → captions + overlays + mix → verified mp4

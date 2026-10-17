@@ -1,6 +1,6 @@
 ---
 name: craft-motion-titles
-description: Render name and title graphics from a transcript with ArtCraft apps - speaker names from an SRT or speaker-id, one EffectCraft template per name rendered as a ProRes 4444 alpha overlay, placed over the video in FilmCraft and delivered as mp4, each step verified and resumable. Use for "add lower thirds with the speakers' names", "make animated name titles from the transcript", "put a title card over my interview video", "batch-render name captions as transparent overlays".
+description: Name and title graphics from a transcript with ArtCraft apps - speaker names from an SRT, EffectCraft template alpha renders, FilmCraft overlay, mp4 delivery; verified and resumable. Use for "add lower thirds with the speakers' names", "make animated name titles from the transcript", "put a title card over my interview video".
 ---
 
 # craft-motion-titles — names from the transcript → alpha lower thirds → overlay on the video
