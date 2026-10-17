@@ -1,5 +1,6 @@
 import { expect, type Page, test } from "./fixtures.js";
 import { gotoDashboard } from "./helpers/index.js";
+import { openAddressStep } from "./helpers/remote-access.js";
 
 /**
  * Browser E2E for change `support-zrok-v2` (F1/F2/F3).
@@ -38,16 +39,16 @@ test.describe("support-zrok-v2 tunnel UI", () => {
     await expect(page.getByText("Official zrok documentation")).toBeVisible();
   });
 
-  // F2 — an active v2 tunnel drives the sidebar Gateway button to connected.
+  // F2 — an active v2 tunnel drives the toolbar Remote access button to internet-on.
   test("F2: active *.shares.zrok.io tunnel → connected indicator + v2 URL", async ({ page }) => {
     await stubTunnelStatus(page, { status: "active", url: V2_URL, serverOs: "linux" });
     await gotoDashboard(page);
 
     const btn = page.getByTestId("tunnel-btn");
     await expect(btn).toBeVisible({ timeout: 15_000 });
-    // Connected: green + the copyable v2 URL surfaces in the title.
-    await expect(btn).toHaveClass(/text-green-400/, { timeout: 15_000 });
-    await expect(btn).toHaveAttribute("title", new RegExp(V2_URL.replace(/[.]/g, "\\.")));
+    // Connected: the state is the dot tone AND its text (never colour alone).
+    await expect(btn).toHaveAttribute("data-tone", "internet", { timeout: 15_000 });
+    await expect(btn).toHaveAttribute("title", /Remote access: internet on/);
   });
 
   // F3 — the "Forget reserved URL" control fires disconnect {forget:true}.
@@ -77,10 +78,24 @@ test.describe("support-zrok-v2 tunnel UI", () => {
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true }) });
     });
 
+    // The wizard decides which steps are already satisfied from the gated status
+    // and readiness, so stub both: a connected zrok with a stored reserved name.
+    await page.route("**/api/tunnel-status-detail", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ status: "active", url: V2_URL, serverOs: "linux", connectedProviders: ["zrok"] }),
+      }),
+    );
+    await page.route("**/api/tunnel-readiness", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ success: true, data: { providers: [{ provider: "zrok", state: "connected", endpoints: [] }] } }),
+      }),
+    );
     await gotoDashboard(page);
-    const btn = page.getByTestId("tunnel-btn");
-    await expect(btn).toBeVisible({ timeout: 15_000 });
-    await btn.click(); // active → opens the Gateway dialog
+    await openAddressStep(page); // landing → Share over the internet → Public address
 
     const forget = page.getByTestId("gateway-forget-reserved");
     await expect(forget).toBeVisible({ timeout: 10_000 });

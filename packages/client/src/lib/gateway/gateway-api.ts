@@ -99,8 +99,17 @@ export async function getTunnelStatus(): Promise<TunnelStatus | null> {
   return null;
 }
 
+/** A 401/403 is a REFUSAL (this browser may not change it), not a failure. See change: add-remote-access-wizard. */
+function refusedError(res: Response): Error | null {
+  return res.status === 401 || res.status === 403
+    ? new Error(t("remoteAccess.err.refused", undefined, "This browser is not allowed to make the change."))
+    : null;
+}
+
 export async function connectTunnel(): Promise<void> {
   const res = await fetch(`${getApiBase()}/api/tunnel-connect`, { method: "POST" });
+  const refused = refusedError(res);
+  if (refused) throw refused;
   const data = res.ok ? await res.json() : null;
   if (!data?.ok) throw new Error(data?.error || t("err.connectTunnelFailed", undefined, "Failed to connect tunnel"));
 }
@@ -116,6 +125,8 @@ export async function disconnectTunnel(opts?: { forget?: boolean }): Promise<voi
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ forget: opts?.forget === true }),
   });
+  const refused = refusedError(res);
+  if (refused) throw refused;
   if (!res.ok) throw new Error(t("err.disconnectTunnelFailed", undefined, "Failed to disconnect tunnel"));
 }
 
