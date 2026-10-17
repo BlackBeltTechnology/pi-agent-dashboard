@@ -94,14 +94,14 @@ export class OutputCapture {
       () => this.enforceNow(id, recorded ?? null),
       () => this.enforceNow(id, recorded ?? null),
     );
-    const tail = next.then(
-      () => undefined,
-      () => undefined,
+    // The settled tail stays in the map: one resolved promise per service id, bounded by the ids.
+    this.chains.set(
+      id,
+      next.then(
+        () => undefined,
+        () => undefined,
+      ),
     );
-    this.chains.set(id, tail);
-    void tail.then(() => {
-      if (this.chains.get(id) === tail) this.chains.delete(id);
-    });
     return next;
   }
 

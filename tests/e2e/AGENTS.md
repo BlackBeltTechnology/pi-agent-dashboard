@@ -88,7 +88,7 @@ One row per file.
 | `fixtures.ts` | The suite's `test`/`expect` entry point — EVERY spec… → see `fixtures.ts.AGENTS.md` |
 | `flow-attach-before-run.spec.ts` | L3 attach-flow-before-run F15/F16. → see `flow-attach-before-run.spec.ts.AGENTS.md` |
 | `flow-live-no-double-render.spec.ts` | L3 (change: render-inline-reasonin… → see `flow-live-no-double-render.spec.ts.AGENTS.md` |
-| `flow-roundtrip.spec.ts` | L3 spec (change: add-flow-plugin-e2e-tests). Real pi-flows… → see `flow-roundtrip.spec.ts.AGENTS.md` |
+| `flow-roundtrip.spec.ts` | L3 spec (change: add-flow-plugin-… → see `flow-roundtrip.spec.ts.AGENTS.md` |
 | `folder-action-banner.spec.ts` | L3 for `add-folder-action-banner` (test-plan #E6, #F1… → see `folder-action-banner.spec.ts.AGENTS.md` |
 | `folder-actions-menu.spec.ts` | Playwright spec. Folder actions menu after the slot-pill… → see `folder-actions-menu.spec.ts.AGENTS.md` |
 | `folder-collapse-persistence.spec.ts` | L3 folder collapse persistence. → see `folder-collapse-persistence.spec.ts.AGENTS.md` |
@@ -146,7 +146,7 @@ One row per file.
 | `optimistic-prompt.spec.ts` | Playwright E2E for optimistic-prompt-progress. Two faux… → see `optimistic-prompt.spec.ts.AGENTS.md` |
 | `out-of-cwd-session-diffs.spec.ts` | L3 spec (change: opt-in-out-of-cwd-session-d… → see `out-of-cwd-session-diffs.spec.ts.AGENTS.md` |
 | `overlay-layering.spec.ts` | Browser E2E gate for `add-overlay-layering-system`… → see `overlay-layering.spec.ts.AGENTS.md` |
-| `overlay-layout.spec.ts` | L3 GENERIC reachability gate for ALL route-backed overlays… → see `overlay-layout.spec.ts.AGENTS.md` |
+| `overlay-layout.spec.ts` | L3 GENERIC reachability gate for… → see `overlay-layout.spec.ts.AGENTS.md` |
 | `oversized-event-liveness.spec.ts` | L3 per-event size ceiling. → see `oversized-event-liveness.spec.ts.AGENTS.md` |
 | `package-queue-visible.spec.ts` | Browser E2E gate for… → see `package-queue-visible.spec.ts.AGENTS.md` |
 | `pairing-qr.spec.ts` | Browser E2E for the camera-scannable pairing QR (change… → see `pairing-qr.spec.ts.AGENTS.md` |
@@ -157,7 +157,7 @@ One row per file.
 | `paging-empty-reply-exhausted.spec.ts` | L3 #F8: empty page reply hides… → see `paging-empty-reply-exhausted.spec.ts.AGENTS.md` |
 | `paging-exhausted-reconnect-rearm.spec.ts` | L3 #X4: reconnect re-arms exha… → see `paging-exhausted-reconnect-rearm.spec.ts.AGENTS.md` |
 | `pi-runtime.spec.ts` | L3 spec: version-neutral pi runtime verification vault… → see `pi-runtime.spec.ts.AGENTS.md` |
-| `pi-runtime-picker.spec.ts` | L3 spec for the Settings → Developer "Pi runtime" picker… → see `pi-runtime-picker.spec.ts.AGENTS.md` |
+| `pi-runtime-picker.spec.ts` | L3 spec for the Settings → Deve… → see `pi-runtime-picker.spec.ts.AGENTS.md` |
 | `plugin-hash-parity.spec.ts` | L3 F3: clientBuild matched; banner hidden. → see `plugin-hash-parity.spec.ts.AGENTS.md` |
 | `plugin-settings-pages.spec.ts` | L3 spec (test-plan rows F1-F14, X1-X5, X7; change… → see `plugin-settings-pages.spec.ts.AGENTS.md` |
 | `popover-container-clip.spec.ts` | Browser E2E gate for `fix-popover-container-… → see `popover-container-clip.spec.ts.AGENTS.md` |
@@ -186,6 +186,7 @@ One row per file.
 | `resource-scope-routes.spec.ts` | S-25 scope × path decision table: the 10 resource… → see `resource-scope-routes.spec.ts.AGENTS.md` |
 | `route-backed-overlay.spec.ts` | Route-backed overlay contract: S-12/S-12… → see `route-backed-overlay.spec.ts.AGENTS.md` |
 | `scroll-to-top.spec.ts` | Browser E2E gate for `fix-chat-scroll-to… → see `scroll-to-top.spec.ts.AGENTS.md` |
+| `services-settings.spec.ts` | → see `services-settings.spec.ts.AGENTS.md` |
 | `session-context-injection.spec.ts` | L3 context injection via `[[fa… → see `session-context-injection.spec.ts.AGENTS.md` |
 | `session-ended-orphan-heal.spec.ts` | L3 session-end orphan heal. → see `session-ended-orphan-heal.spec.ts.AGENTS.md` |
 | `session-heap-settings.spec.ts` | L3 heap settings copy, save round-trip, coup… → see `session-heap-settings.spec.ts.AGENTS.md` |

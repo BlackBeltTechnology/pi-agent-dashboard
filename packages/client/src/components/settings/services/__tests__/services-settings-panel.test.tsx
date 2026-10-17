@@ -75,6 +75,9 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+/**
+ * @structural-pin the folder-settings page list is a module-private const in ShellContent.tsx; it has no exported surface to assert against.
+ */
 describe("E32 — settings registry and route parse", () => {
   it("/settings/services renders the list", async () => {
     mount("/settings/services");

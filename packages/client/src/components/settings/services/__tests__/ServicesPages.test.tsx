@@ -381,6 +381,9 @@ describe("X13 — runtimes page", () => {
   });
 });
 
+/**
+ * @structural-pin F16: the colour-literal ban is a property of the source text itself — no rendered observable distinguishes a raw literal from a token.
+ */
 describe("F16 — theme tokens only", () => {
   it("no raw colour literal in the new client sources", () => {
     const roots = [

@@ -935,7 +935,7 @@ export class ServiceManager {
             }
             const sharedVolumes = this.volumesDeclaredElsewhere(r.entries, id);
             for (const d of this.driversOf(def)) {
-              const res = await d.remove(def, instanceId, { purgeData: opts.purgeData === true, sharedVolumes });
+              const res = (await d.remove(def, instanceId, { purgeData: opts.purgeData === true, sharedVolumes })) as { volumes?: VolumeOutcome[] } | undefined;
               if (res?.volumes) purged.push(...res.volumes);
             }
           }

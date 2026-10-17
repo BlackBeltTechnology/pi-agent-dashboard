@@ -94,7 +94,7 @@ export interface ServiceDriver {
     def: ServiceDefinition,
     instanceId: string,
     opts: { purgeData: boolean; sharedVolumes?: ReadonlySet<string> },
-  ): Promise<void | { volumes?: VolumeOutcome[] }>;
+  ): Promise<unknown>; // purge: `{ volumes?: VolumeOutcome[] }` — the per-volume outcome list
   /** OCI only: the image HEALTHCHECK status of a running container. */
   healthcheck?(def: ServiceDefinition, inst: DriverInstance): Promise<boolean>;
   /** OCI only: does the image declare a HEALTHCHECK (validated at add)? */
