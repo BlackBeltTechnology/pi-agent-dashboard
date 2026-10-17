@@ -244,7 +244,9 @@ export function locateMermaidBlock(
  *    substitutions (callouts, attribute refs) yield a mismatch → abort, the safe direction.
  */
 export function verifyMermaidBlock(located: LocatedMermaidBlock, displayed: string): boolean {
-  return located.kind === "adoc" ? located.value.trim() === displayed.trim() : located.value === displayed;
+  if (located.kind === "adoc") return located.value.trim() === displayed.trim();
+  // `.mmd`: the viewer's text may keep a leading BOM that `locate` strips from `value`.
+  return located.value === (located.kind === "mmd" ? displayed.replace(/^\uFEFF/, "") : displayed);
 }
 
 /** `file` with block `ordinal` replaced by `fixed`, or `null` when not located / not applicable. */

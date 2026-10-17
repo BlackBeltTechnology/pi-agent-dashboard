@@ -98,4 +98,14 @@ describe("remarkMermaidOrdinal ↔ locator parity", () => {
     expect(byCode.get("FORGED")).toBeUndefined();
     expect(byCode.get("FORGED2")).toBeUndefined();
   });
+
+  it("a fence body ending in blank lines still verifies against the rendered code", async () => {
+    const md = "```mermaid\nA-->B\n\n\n```\n\n```mermaid\nC-->D\n```\n";
+    renderMd(md);
+    await waitFor(() => expect(seen.length).toBeGreaterThanOrEqual(2));
+    for (const { code, ordinal } of seen) {
+      const loc = locateMermaidBlock(md, "md", ordinal as number);
+      expect(loc.ok && verifyMermaidBlock(loc, code), `ordinal ${ordinal}: ${JSON.stringify(code)}`).toBe(true);
+    }
+  });
 });

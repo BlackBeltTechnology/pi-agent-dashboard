@@ -189,6 +189,7 @@ describe("mmd — whole file (E16)", () => {
   it("verify is identity and ordinal ≠ 0 is not found", () => {
     const loc = locateMermaidBlock("\uFEFFgraph TD\n", "mmd", 0);
     expect(loc.ok && verifyMermaidBlock(loc, "graph TD\n")).toBe(true);
+    expect(loc.ok && verifyMermaidBlock(loc, "\uFEFFgraph TD\n")).toBe(true); // viewer text may keep the BOM
     expect(locateMermaidBlock("graph TD\n", "mmd", 1)).toEqual({ ok: false, reason: "not-found" });
   });
 });

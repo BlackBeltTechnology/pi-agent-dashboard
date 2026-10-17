@@ -57,14 +57,14 @@
 
 ## 5. Browser E2E (docker harness)
 
-- [ ] 5.1 E2E: md apply end-to-end — exemplar `tests/e2e/diagram-preview.spec.ts`; input session cwd with `docs/flow.md` holding a rule-repairable broken mermaid fence in a list item · trigger FilePreviewOverlay → Apply → Confirm · observable file read back via API differs only inside the block, preview converges with no auto-fixed badge (test-plan #F11)
-- [ ] 5.2 E2E: `.mmd` apply end-to-end — exemplar `tests/e2e/editor-pane.spec.ts`; input session cwd with broken `flow.mmd` · trigger editor-pane Mermaid tab → Apply → Confirm · observable file = fixed source with final newline preserved, tab shows no badge (test-plan #F12)
-- [ ] 5.3 E2E: AsciiDoc apply with real asciidoctor — exemplar `tests/e2e/asciidoc-preview.spec.ts`; input `guide.adoc` with a broken `[source,mermaid]` block plus a plantuml block · trigger AsciiDoc preview → Apply → Confirm · observable only lines between the mermaid delimiters change, no badge (test-plan #F13)
-- [ ] 5.4 E2E: real mtime race — exemplar `tests/e2e/editor-pane.spec.ts`; input file modified via API after the diff dialog opens · trigger Confirm · observable server 409, "file changed — reload" shown, disk content equals the external edit (test-plan #X7)
+- [x] 5.1 E2E: md apply end-to-end — exemplar `tests/e2e/diagram-preview.spec.ts`; input session cwd with `docs/flow.md` holding a rule-repairable broken mermaid fence in a list item · trigger FilePreviewOverlay → Apply → Confirm · observable file read back via API differs only inside the block, preview converges with no auto-fixed badge (test-plan #F11)
+- [x] 5.2 E2E: `.mmd` apply end-to-end — exemplar `tests/e2e/editor-pane.spec.ts`; input session cwd with broken `flow.mmd` · trigger editor-pane Mermaid tab → Apply → Confirm · observable file = fixed source with final newline preserved, tab shows no badge (test-plan #F12)
+- [x] 5.3 E2E: AsciiDoc apply with real asciidoctor — exemplar `tests/e2e/asciidoc-preview.spec.ts`; input `guide.adoc` with a broken `[source,mermaid]` block plus a plantuml block · trigger AsciiDoc preview → Apply → Confirm · observable only lines between the mermaid delimiters change, no badge (test-plan #F13)
+- [x] 5.4 E2E: real mtime race — exemplar `tests/e2e/editor-pane.spec.ts`; input file modified via API after the diff dialog opens · trigger Confirm · observable server 409, "file changed — reload" shown, disk content equals the external edit (test-plan #X7)
 
 ## 6. Review, docs, verification
 
-- [ ] 6.1 Run `doubt-driven-review` on locator/verify/splice/conflict logic and `security-hardening` on the allowlist change; fold findings into design.md Risks; verify no open High findings
+- [x] 6.1 Run `doubt-driven-review` on locator/verify/splice/conflict logic and `security-hardening` on the allowlist change; fold findings into design.md Risks; verify no open High findings
 - [x] 6.2 Update AGENTS.md rows: `writable-md-target.ts`, `mermaid-block-locator.ts` (new), `MermaidBlock.tsx`, `MarkdownContent.tsx`, `AsciiDocPreview.tsx`, `editor-pane/MermaidViewer.tsx`, `FilePreviewOverlay.tsx`, `MarkdownPreview.tsx`, editor-pane `MarkdownViewer.tsx` (See change: add-preview-apply-fix-to-file); verify rows present
 - [x] 6.3 Full suite + `npm run quality:changed`; verify green
 - [ ] 6.4 Manual: diff dialog legibility in all 4 themes (studio, earth, athlete, gradient) at desktop and mobile width (test-plan: manual-only, #F14)
