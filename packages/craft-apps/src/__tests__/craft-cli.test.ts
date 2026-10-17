@@ -73,6 +73,31 @@ describe("dispatch", () => {
   });
 });
 
+describe("doc dispatch (add-craft-office-workflows)", () => {
+  it("E25 --help lists doc prepare; doc --help 0; doc / doc bogus 1; doc prepare without --out 2", async () => {
+    const help = capture();
+    expect(await main(["--help"], help.deps)).toBe(0);
+    expect(help.err.join("")).toContain("doc prepare");
+    const docHelp = capture();
+    expect(await main(["doc", "--help"], docHelp.deps)).toBe(0);
+    expect(docHelp.err.join("")).toContain("pi-craft doc prepare");
+    for (const argv of [["doc"], ["doc", "bogus"]]) {
+      const c = capture();
+      expect(await main(argv, c.deps)).toBe(1);
+      expect(c.err.join("")).toContain("doc prepare");
+    }
+    const noOut = capture();
+    expect(await main(["doc", "prepare", "in.md"], noOut.deps)).toBe(2);
+    expect(noOut.err.join("")).toContain("--out");
+  });
+
+  it("doc prepare runs through the real entry", () => {
+    const r = runCli(["doc", "prepare", "--help"]);
+    expect(r.status).toBe(0);
+    expect(r.stderr).toContain("--allow-missing");
+  });
+});
+
 describe("apps", () => {
   it("apps --json lists 13 entries offline and exits 0", async () => {
     const c = capture();

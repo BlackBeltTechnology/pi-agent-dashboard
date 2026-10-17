@@ -15,9 +15,10 @@ Standalone pi package (skills + CLIs). No dashboard client/server code. Supersed
 pi install npm:@blackbelt-technology/pi-dashboard-craft-apps
 ```
 
-Ships 18 skills — the router and one per app (`craft-studio`, `photocraft`, `vectorcraft`, `filmcraft`, `lightcraft`,
+Ships 23 skills — the router and one per app (`craft-studio`, `photocraft`, `vectorcraft`, `filmcraft`, `lightcraft`,
 `pdfcraft`, `effectcraft`, `designcraft`, `figcraft`, `wordcraft`, `soundcraft`, `deckcraft`, `cadcraft`, `gridcraft`)
-plus four media workflows (`craft-video-post`, `craft-beat-cut`, `craft-podcast-master`, `craft-motion-titles`;
+plus four media workflows (`craft-video-post`, `craft-beat-cut`, `craft-podcast-master`, `craft-motion-titles`) and five
+office workflows (`craft-brand-kit`, `craft-doc-publish`, `craft-deck`, `craft-photo-pipeline`, `craft-data-visual`;
 see [Workflow skills](#workflow-skills)) — and the bins `pi-craft` and
 `pi-photocraft` (plain-JS launchers over esbuild bundles — they run from a plain shell, including an agent's bash
 tool). Depends on `@blackbelt-technology/pi-dashboard-nano-banana` for `pi-photocraft replace-region`.
@@ -36,6 +37,7 @@ tool). Depends on `@blackbelt-technology/pi-dashboard-nano-banana` for `pi-photo
 | `pi-craft <app> mcp [--root <dir>] [--compact]` | Stdio MCP server, `tools/call` forwarded one at a time. Confined apps run confined to `<dir>` (default cwd); the other seven refuse without `--allow-unconfined`. |
 | `pi-craft <app> mcp --register [--allow-unconfined] [--compact]` | Opt-in: add a `craft-<app>` entry (PhotoCraft: `photocraft`) with absolute paths to the project's `.pi/mcp.json`. |
 | `pi-craft verify <file> <assertion…> [--json]` | Mechanical checks: duration, streams, alpha, loudness/peak, size, fps, codec, frame diff, PDF pages/text. |
+| `pi-craft doc prepare <in.md> --out <dir> [--template <name>] [--templates-dir <dir>] [--var k=v]… [--allow-path <dir>]… [--allow-missing] [--json]` | Fill a doc-engine DOCX template (frontmatter / `--var` / template defaults / system variables, in body, cover textboxes, every header and footer, split runs), inline images and render Mermaid blocks. Writes `template.filled.docx`, `body.md`, `prepare.json`. Exit `0` ok · `1` failed or unresolved placeholders · `2` usage. See [doc prepare](#doc-prepare). |
 | `pi-craft launcher status\|install` | Craft Launcher state / checksum-verified installer (explicit only). |
 | `pi-photocraft …` | Compatibility alias of `pi-craft photocraft …` plus `replace-region`. |
 
@@ -62,10 +64,27 @@ pi-craft verify mix.wav --loudness -16±1 --max-peak -1
 pi-craft verify report.pdf --pages 12 --text-contains "Quarterly"
 ```
 
+### doc prepare
+
+The helper behind `craft-doc-publish` (no Docker, no pandoc). Reads the Markdown frontmatter with the doc-engine keys
+(`template`, `templates_dir`, `language`, `document_title`, `document_name`, `enable_toc`, `toc_heading`, `nano_banana`;
+other scalar keys are template variables) and resolves `<templates-dir>/<name>/template.docx` — `--templates-dir`, frontmatter
+`templates_dir` (confined to the input's tree or `--allow-path`), `$PI_DOC_TEMPLATES_DIR`, `./templates`, `~/Documents/templates`.
+Variable precedence, lowest first: template `variables.xml` default, system (`$date` localized en/hu/de/fr, `$fileName`,
+`$year`, `$month`, `$day`), frontmatter, `--var`. It fills `{{ name }}` (and `<name>` for names the template manifest marks
+`syntax="both"`) in `word/document.xml` including textboxes and in every header/footer, merging split runs within a paragraph;
+values are XML-escaped, untouched parts stay byte-identical, the docx is processed in memory. In the body it inlines local images
+(confined to the input's directory or `--allow-path`) and renders Mermaid blocks with the host `mmdc` (argv, no shell) or, with
+`nano_banana.enabled`, `pi-nano-banana` (paid; cached in `.mermaid-cache/<md5(style+source)>.png`, `mmdc` fallback). Variable values
+are substituted **after** image/diagram processing, so a value cannot smuggle an image path or diagram in. Without `mmdc` (or a
+browser for it — set `PUPPETEER_EXECUTABLE_PATH`) a diagram stays a code block and `prepare.json` counts it unrendered. When the
+template owns images, body images become `CRAFTIMG<n>` markers plus files under `images/` (WordCraft 0.7.0 would paste every
+Markdown-imported image onto the template's first one); `craft-doc-publish` step 2 puts them in with `insert.picture`.
+
 ## Workflow skills
 
-Four skills chain the apps with the sibling skills for whole media jobs. Each has a step table (input → output), a
-`pi-craft verify` gate after every media step (a documented `check:` snippet for srt/json artefacts), a step 0 that
+Nine skills (four media, five office) chain the apps with the sibling skills for whole media jobs. Each has a step table (input → output), a
+`pi-craft verify` gate after every artefact step (a documented `check:` snippet for srt/json artefacts), a step 0 that
 checks which sibling skills are installed (soft references — nothing is required), and the **Craft jobs** resume
 convention defined once in the `craft-studio` router (`craft-jobs/<slug>/NN-<step>/`, `job.json`).
 
@@ -75,12 +94,22 @@ convention defined once in the `craft-studio` router (`craft-jobs/<slug>/NN-<ste
 | `craft-beat-cut` | music map → music edit → hits → cuts on downbeats → punches → mp4 | `music-analysis`, `music-edit-to-length`, `beat-sync-video` (`music-production`, essential) |
 | `craft-podcast-master` | recording → stems per speaker → SoundCraft mix → `loudnorm` master → chapters → mux | `video-transcription`, `speaker-id` (`video-transcription`) |
 | `craft-motion-titles` | names from SRT → EffectCraft template alpha renders → FilmCraft overlay | `speaker-id`, `video-transcription` |
+| `craft-brand-kit` | user logo (svg, or traced raster) → VectorCraft variants → PhotoCraft png/tiff set → DesignCraft sheet → PdfCraft package | `anti-slop-brandkit` (opt-in, `@blackbelt-technology/anti-slop-frontend`), `pi-nano-banana` |
+| `craft-doc-publish` | Markdown + frontmatter + template → `pi-craft doc prepare` → WordCraft body/TOC → pdf → optional PdfCraft package/protect | `document-converter` (ingest, round-trip, PlantUML), `mmdc` |
+| `craft-deck` | outline → DeckCraft slides (+ transition previews) → PdfCraft handout; or `deck3d` HTML instead | `deck3d` |
+| `craft-photo-pipeline` | RAW → LightCraft develop/denoise → PhotoCraft retouch → export set | `pi-nano-banana` (generative `replace-region`) |
+| `craft-data-visual` | GridCraft data + read-back → chart → VectorCraft/DesignCraft infographic → DeckCraft slide | — |
 
 Probed facts the skills rely on (FilmCraft 0.8.0, SoundCraft 0.7.0, EffectCraft 0.10.0, HyperFrames 0.8.168): captions are
 burned in with `export --settings '{"burnCaptions":true}'` after `captions.import`; an overlay needs a V2 source patch
 (`timeline.setTargeting … sourcePatch`); SoundCraft has no LUFS target (ffmpeg two-pass `loudnorm`); a HyperFrames
 `--format mov` render carries alpha; EffectCraft template projects include an opaque "Preview Background" solid.
-Workflow recipes run with `CRAFT_E2E=1 CRAFT_WORKFLOW_E2E=1` (needs `ffmpeg` and `jq`).
+Office-workflow facts (probed 2026-10, WordCraft 0.7.0, VectorCraft 0.12.0, GridCraft 0.7.0, DeckCraft 0.7.0, LightCraft 0.8.0): the TOC
+is inserted before the body (`references.toc`, then `caret.docEnd`); GridCraft has no chart image command, the chart comes from its
+pdf export (`image.trim` cuts the page); LightCraft AI denoise needs a user-supplied model and an explicit licence acceptance;
+a protected pdf cannot be probed by `pi-craft verify`.
+Workflow recipes run with `CRAFT_E2E=1 CRAFT_WORKFLOW_E2E=1` (needs `ffmpeg` and `jq`; the office recipes also need PdfCraft,
+WordCraft, VectorCraft, PhotoCraft, DesignCraft, DeckCraft, GridCraft and LightCraft).
 
 ## Environment
 

@@ -115,13 +115,14 @@ pi-craft doc prepare <in.md> --out <dir> [--template <name>] [--templates-dir <d
    - Strip the frontmatter.
    - Process images and diagrams on the **original** text, before substitution. Then substitute `{{ name }}` in the text outside the already-processed blocks. Image or diagram syntax that arrives via a variable value is therefore never inlined or rendered; it stays literal and is reported under `warnings`. `<name>` is **not** substituted in the body, because it would collide with HTML.
    - Image and diagram handling:
-     - **Images.** Local images are inlined as `data:` URIs. Paths are resolved with `realpath` and must lie inside the md file's directory (or an `--allow-path` dir). Absolute and `file://` paths are refused unless they are covered by `--allow-path`. Remote `http(s)` images are left as-is and listed under `images.remote`, because WordCraft does not fetch them.
+     - **Images.** Local images are inlined as `data:` URIs. Paths are resolved with `realpath` and must lie inside the md file's directory (or an `--allow-path` dir). Absolute and `file://` paths are refused unless they are covered by `--allow-path`. Only png/jpg/gif/webp/bmp up to 20 MB are inlined; anything else is skipped with a reason. Remote `http(s)` images are left as-is and listed under `images.remote`, because WordCraft does not fetch them.
+     - **Picture markers (probe 0.2 drift).** WordCraft 0.7.0 maps a Markdown-imported image onto `rId1`, which a template with a cover image already uses. When the template's `word/_rels/document.xml.rels` has an image relationship, every body image and rendered diagram is therefore written to `<dir>/images/<NNNN>.<ext>` and replaced in `body.md` by the token `CRAFTIMG<NNNN>`; `prepare.json.pictures` lists `{marker, file, alt}`. The render step puts each in with `edit.find` + `insert.picture` + `edit.replaceAll`. Without template images the `data:` form stays.
      - **Mermaid** blocks are rendered as follows:
-       - with nano-banana (paid API) when `nano_banana.enabled`, using the template's `nano-banana-styles.yaml` and the cache `.mermaid-cache/<md5(style + source)>.png` next to the md, falling back to mmdc. Including the style in the key avoids stale reuse when the style changes, at the cost of file names that differ from doc-engine's `md5(source)`. The `pi-nano-banana` invocation mirrors document-converter's styled-diagram path; probe 0.6 pins the exact args;
+       - with nano-banana (paid API) when `nano_banana.enabled`, using the template's `nano-banana-styles.yaml` and the cache `.mermaid-cache/<md5(style + source)>.png` next to the md, falling back to mmdc. Including the style in the key avoids stale reuse when the style changes, at the cost of file names that differ from doc-engine's `md5(source)`. Pinned by probe 0.6: `pi-nano-banana "Diagram:\n<source>\n\n<style prompt>\n\nAVOID: <negative>" --output <cache png>` (the label keeps a source that starts with `-` from being read as an option);
        - otherwise with host `mmdc`, spawned with argv and no shell;
        - with no `mmdc`, the block stays code and `mermaid.unrendered` counts it.
 
-     Host `mmdc` is a deliberate deviation from doc-engine's Dockerized chrome-headless-shell, which exists to avoid host-Chrome conflicts. The `document-converter` requirement governs only that package. Mitigation: `mmdc` uses its own puppeteer-managed browser; a failed render counts as unrendered, never as a pass.
+     Host `mmdc` is a deliberate deviation from doc-engine's Dockerized chrome-headless-shell, which exists to avoid host-Chrome conflicts. The `document-converter` requirement governs only that package. Mitigation: `mmdc` uses its own puppeteer-managed browser (`PUPPETEER_EXECUTABLE_PATH` is inherited when it has none); a failed render counts as unrendered, never as a pass.
      - **PlantUML** blocks are not rendered. They are counted in `warnings`, and the skill routes PlantUML-heavy documents to `document-converter`.
 6. **Output.**
    - `<dir>/template.filled.docx` and `<dir>/body.md`.
@@ -134,14 +135,15 @@ W6 render step (in the skill; one step, one gate):
 ```
 pi-craft wordcraft exec run --file <dir>/template.filled.docx \
   --cmd 'caret.docEnd={}' --cmd 'text.pageBreak={}' \
-  [--cmd 'references.toc={"levels":N,"title":"<toc_heading>"}' --cmd 'text.pageBreak={}'] \
+  [--cmd 'references.toc={"levels":N,"title":"<toc_heading>"}' --cmd 'caret.docEnd={}' --cmd 'text.pageBreak={}'] \
   --cmd 'insert.textFromFile={"path":"<abs dir>/body.md"}' \
+  [--cmd 'edit.find={"text":"CRAFTIMG0001"}' --cmd 'insert.picture={"path":"<abs dir>/images/0001.png"}' --cmd 'edit.replaceAll={"text":"CRAFTIMG0001","with":""}'] \
   --cmd 'file.properties={"title":"<title>"}' [--cmd 'references.updateToc={}'] --save 02-render/out.docx
 pi-craft wordcraft exec convert 02-render/out.docx 02-render/out.pdf
 pi-craft verify 02-render/out.pdf --pages N --text-contains "<title>"
 ```
 
-`run --file` is required: `run --template` drops the template's header/footer parts (spike).
+`run --file` is required: `run --template` drops the template's header/footer parts (spike). `caret.docEnd` after `references.toc` is required: the TOC command leaves the caret above the TOC (probe 0.2).
 
 ### D4. Resumability: reuse the media Craft-jobs convention
 
@@ -194,7 +196,8 @@ The existing workflow lint, scoped by media, applies unchanged. Drift ids in off
 - **Passwords in argv.** PdfCraft/WordCraft protect passwords are passed as argv and are visible in the local process list during the call. The skill warns about this; the password is never persisted.
 - **Paid diagrams.** nano-banana diagrams are a paid API call, enabled only by the explicit frontmatter opt-in. The skill states the cost before running.
 - **New runtime code.** This change ships code in craft-apps. It is unit-tested with a fixture docx that has a VML/`wps` textbox, a first-page header and a split-run placeholder.
-- **New package dependencies.** `yaml` and `fflate` are new runtime dependencies of `@blackbelt-technology/pi-dashboard-craft-apps`. The versions already exist in the workspace (root `yaml`, `deck3d` `fflate`). `scripts/build.mjs` bundles them into `dist/craft.js`.
+- **New package dependencies.** `yaml` and `fflate` are new runtime dependencies of `@blackbelt-technology/pi-dashboard-craft-apps`. The versions already exist in the workspace (root `yaml`, `deck3d` `fflate`). `scripts/build.mjs` bundles them into `dist/craft.js`; `yaml` is CommonJS, so the bundle banner defines a `require` (`createRequire`).
+- **No chart image command in GridCraft (probe 0.4).** `craft-data-visual` takes the chart from the sheet's pdf export and trims the rendered page; the chart must be anchored at `A1` so the page shows the chart alone.
 
 ## Open Questions
 

@@ -6,16 +6,18 @@
  *   pi-craft install <app…>|--all             provision CLIs, one JSON report per app
  *   pi-craft launcher status|install          ArtCraft Craft Launcher source / installer
  *   pi-craft verify <file> [assertions…]      mechanical output checks (see `pi-craft verify --help`)
+ *   pi-craft doc prepare <in.md> --out <dir>  fill a docx template + prepare the body for WordCraft (`pi-craft doc --help`)
  *   pi-craft <app> ensure|path|exec|mcp       per-app provisioning, bash route, stdio MCP server
  *
  * Exit codes: 0 ok · 1 usage error / failed operation · 69 provisioning failure
- * (`exec` propagates the binary's own exit code; `verify` has its own codes).
+ * (`exec` propagates the binary's own exit code; `verify` and `doc prepare` have their own: 2 = usage).
  *
- * See change: add-craft-apps-core.
+ * See change: add-craft-apps-core, add-craft-office-workflows.
  */
 import * as fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { runAppCommand } from "../app-command.js";
+import { DOC_USAGE, prepareDoc } from "../doc-prepare.js";
 import { installLauncher, launcherStatus } from "../launcher-install.js";
 import { defaultLauncherPath } from "../mcp-register.js";
 import { defaultDeps, type ProvisionReport, provision } from "../provision.js";
@@ -32,6 +34,7 @@ commands:
   install <app…>|--all         provision <app>-cli for each app, print one JSON report per app
   launcher status|install      Craft Launcher state / checksum-verified installer (explicit only)
   verify <file> [assertions…]  mechanical output checks (pi-craft verify --help)
+  doc prepare <in.md> --out <dir>  fill a docx template, inline images/diagrams (pi-craft doc --help)
   <app> ensure                 provision <app>-cli and print a JSON report
   <app> path                   provision <app>-cli and print its absolute path
   <app> exec <args…>           run <app>-cli with <args…> verbatim (bash route)
@@ -53,6 +56,7 @@ export interface CliDeps {
   homedir: () => string;
   now: () => number;
   runVerify: (argv: string[]) => Promise<number>;
+  runDocPrepare: (argv: string[], io: { stdout: (t: string) => void; stderr: (t: string) => void }) => Promise<number>;
   installLauncher: () => Promise<{ version: string; asset: string; file: string; handoff: string }>;
 }
 
@@ -67,6 +71,7 @@ function defaultCliDeps(): CliDeps {
     homedir: d.homedir,
     now: d.now,
     runVerify: (argv) => runVerify(argv, {}),
+    runDocPrepare: (argv, io) => prepareDoc(argv, io),
     installLauncher: () => installLauncher(d),
   };
 }
@@ -163,6 +168,17 @@ async function launcherCommand(rest: string[], deps: CliDeps): Promise<number> {
   }
 }
 
+async function docCommand(rest: string[], deps: CliDeps): Promise<number> {
+  const [sub, ...more] = rest;
+  if (sub === "--help" || sub === "-h") {
+    deps.stderr(`${DOC_USAGE}\n`);
+    return 0;
+  }
+  if (sub === "prepare") return deps.runDocPrepare(more, { stdout: deps.stdout, stderr: deps.stderr });
+  deps.stderr(`${DOC_USAGE}\n`);
+  return 1;
+}
+
 export async function main(argv: string[], partial: Partial<CliDeps> = {}): Promise<number> {
   const deps: CliDeps = { ...defaultCliDeps(), ...partial };
   const [command, ...rest] = argv;
@@ -178,6 +194,8 @@ export async function main(argv: string[], partial: Partial<CliDeps> = {}): Prom
       return launcherCommand(rest, deps);
     case "verify":
       return deps.runVerify(rest);
+    case "doc":
+      return docCommand(rest, deps);
     case "--help":
     case "-h":
       deps.stderr(`${usage()}\n`);
