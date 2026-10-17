@@ -24,7 +24,7 @@ export function makeIdentity(): HostIdentity {
   return { hostId: hostIdFromPublicKey(pub), publicKey: pub, privateKey };
 }
 
-export function signFor(id: HostIdentity, nonce: string, serverId: string): string {
+function signFor(id: HostIdentity, nonce: string, serverId: string): string {
   return sign(null, Buffer.from(buildHostSignedMessage(nonce, serverId)), id.privateKey).toString("base64");
 }
 

@@ -56,7 +56,7 @@ interface StatusLogger {
 }
 
 /** Sink for the browser→server `browser_host_*` messages (`RelayManager` fits). */
-export interface HostMessageHandler {
+interface HostMessageHandler {
   handleHostMessage(msg: unknown, ws: RelaySocket): void;
 }
 

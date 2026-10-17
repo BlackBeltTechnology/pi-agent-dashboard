@@ -47,7 +47,7 @@ export interface BrowserRouteProfile {
 }
 
 /** One profile an operator host offers, with the instances the server knows on it. No token state. */
-export interface BrowserOperatorProfile {
+interface BrowserOperatorProfile {
   profileDirectory: string;
   label: string;
   email?: string;
@@ -56,7 +56,7 @@ export interface BrowserOperatorProfile {
 }
 
 /** One online operator computer (`GET /profiles` `operatorHosts[]`; absent on an older server). */
-export interface BrowserOperatorHost {
+interface BrowserOperatorHost {
   hostId: string;
   label: string;
   platform: string;

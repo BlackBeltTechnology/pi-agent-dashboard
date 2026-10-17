@@ -27,7 +27,6 @@ import { chromeUserDataDir } from "@blackbelt-technology/pi-dashboard-shared/chr
 export {
   buildChromeOpenCommand,
   chromeUserDataDir,
-  type OpenerCommand,
 } from "@blackbelt-technology/pi-dashboard-shared/chrome-profiles.js";
 
 export interface ChromeCapabilityDeps {

@@ -32,7 +32,7 @@ const PATH_RE = /^\/ws\/browser-ext\/([A-Za-z0-9_-]{1,128})$/;
 /** One extension frame ≤ 16 MiB (design D5). */
 const MAX_PAYLOAD = 16 * 1024 * 1024;
 /** An allowed link nobody dialled is dropped after this long (server handshake window is 60 s). */
-export const UNCLAIMED_LINK_TTL_MS = 60_000;
+const UNCLAIMED_LINK_TTL_MS = 60_000;
 const NOT_FOUND = "HTTP/1.1 404 Not Found\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
 
 export interface Shim {

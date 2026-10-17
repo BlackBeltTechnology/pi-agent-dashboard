@@ -54,7 +54,7 @@ export function createChromePort(deps: ProfileDiscoveryDeps = {}): ChromePort {
 }
 
 /** Drop rows that violate the bounds; truncate over-long labels. */
-export function boundProfiles(rows: BrowserHostProfileRow[]): BrowserHostProfileRow[] {
+function boundProfiles(rows: BrowserHostProfileRow[]): BrowserHostProfileRow[] {
   const out: BrowserHostProfileRow[] = [];
   for (const r of rows) {
     if (out.length >= MAX_PROFILES) break;

@@ -113,7 +113,7 @@ export function safeHostId(raw: unknown): string {
 }
 
 /** Audit profile key for host-level events (readable via `GET /audit?profile=host:<hostId>`). */
-export function hostAuditKey(hostId: unknown): string {
+function hostAuditKey(hostId: unknown): string {
   return `host:${safeHostId(hostId)}`;
 }
 

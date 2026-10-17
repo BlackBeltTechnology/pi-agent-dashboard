@@ -55,7 +55,7 @@ interface Emitter {
 }
 
 /** The main `BrowserWindow`, as far as this module needs it. */
-export interface HostWindow extends Emitter {
+interface HostWindow extends Emitter {
   webContents: Emitter & { send(channel: string, ...args: unknown[]): void; isDestroyed?(): boolean };
 }
 
