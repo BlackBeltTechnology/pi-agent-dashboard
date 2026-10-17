@@ -38,11 +38,29 @@ export interface ToggleError {
   kind: "server" | "network";
 }
 
+function toTrustPrompt(
+  cwd: string,
+  options: ResourceTrustOption[],
+  res: { error?: string; implicitlyTrusted?: boolean; preselected?: "trust"; dashboardSource?: string },
+): TrustPrompt {
+  return {
+    cwd,
+    message: res.error ?? "",
+    options,
+    implicitlyTrusted: res.implicitlyTrusted === true,
+    ...(res.preselected ? { preselected: res.preselected } : {}),
+    ...(res.dashboardSource ? { dashboardSource: res.dashboardSource } : {}),
+  };
+}
+
 export interface TrustPrompt {
   cwd: string;
   message: string;
   options: ResourceTrustOption[];
   implicitlyTrusted: boolean;
+  /** Durable dashboard trust covers the folder: the dialog pre-selects this option. */
+  preselected?: "trust";
+  dashboardSource?: string;
 }
 
 interface ToggleArgs {
@@ -111,12 +129,7 @@ export function useResourceActivation(cwd?: string): ResourceActivationControlle
         // state while the dialog is open. It flips only once the write lands.
         revert();
         setDeferred({ args, revert, apply });
-        setTrustPrompt({
-          cwd: args.cwd,
-          message: res.error ?? "",
-          options: res.trustOptions,
-          implicitlyTrusted: res.implicitlyTrusted === true,
-        });
+        setTrustPrompt(toTrustPrompt(args.cwd, res.trustOptions, res));
         return;
       }
       if (!res.ok) {

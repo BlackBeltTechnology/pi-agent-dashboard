@@ -38,6 +38,7 @@ import { checkoutRoots } from "@blackbelt-technology/pi-dashboard-shared/platfor
 import { evaluateGate, type GateResult, hookDefHash, type InitProgress, readInitHook, runInitHook, type WorktreeInitHook } from "../git-worktree/worktree-init.js";
 import { mapInitStderrToHint } from "../git-worktree/worktree-init-errors.js";
 import type { WorktreeInitRegistry } from "../git-worktree/worktree-init-registry.js";
+import { getPiTrustMirror } from "../access/pi-trust-mirror-service.js";
 import { isTrusted, recordTrust } from "../git-worktree/worktree-init-trust.js";
 import type { BrowserGateway } from "../pairing/browser-gateway.js";
 import { safeRealpathSync } from "../resolve-path.js";
@@ -474,7 +475,7 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
   //
   // Runs the declared hook for a checkout. TOFU-gated: an untrusted hook
   // returns `init_untrusted` carrying the def for the client to confirm.
-  fastify.post<{ Body: { cwd?: string; requestId?: string; confirmHash?: string; scope?: unknown } }>(
+  fastify.post<{ Body: { cwd?: string; requestId?: string; confirmHash?: string; scope?: unknown; piTrust?: boolean } }>(
     "/api/git/worktree/init",
     { preHandler: networkGuard },
     async (request, reply) => {
@@ -519,7 +520,21 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
           return { success: false, code: "bad_request", error: "invalid scope" } satisfies ApiResponse;
         }
         const scope = rawScope === "session" ? "session" : "project";
-        recordTrust(configRoot, hash, scope);
+        const mirror = scope === "project" ? getPiTrustMirror() : undefined;
+        if (mirror) {
+          // Choice → trust store (strict) → snapshot; a failure of the first two
+          // fails the grant. See change: mirror-dashboard-trust-to-pi.
+          try {
+            mirror.grant("worktreeInit", configRoot, typeof body.piTrust === "boolean" ? body.piTrust : undefined, () =>
+              recordTrust(configRoot, hash, "project", { strict: true }),
+            );
+          } catch (err) {
+            reply.code(500);
+            return { success: false, code: "trust_not_recorded", error: `trust not recorded: ${(err as Error)?.message ?? String(err)}` } satisfies ApiResponse;
+          }
+        } else {
+          recordTrust(configRoot, hash, scope);
+        }
       }
       if (!isTrusted(configRoot, hash)) {
         // Echo the hash so the client confirms with `confirmHash` without

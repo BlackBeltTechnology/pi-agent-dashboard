@@ -712,6 +712,51 @@ Toggle applies live — no restart.
 
 See change: harden-trust-and-credential-boundaries.
 
+## Why is my project `mcp.json` server ignored (inactive) in a folder?
+
+Project MCP layer loads only in trusted folders. Untrusted → rows inactive (`project-not-trusted`).
+
+Two trust sources. Separate stores.
+- pi trust: `~/.pi/agent/trust.json`. Written by pi's own trust prompt.
+- Dashboard trust: durable dashboard sources. Mirrored into pi's decision at `project_trust` time. Never writes `trust.json`.
+
+Decision order (`decidePiTrust`):
+1. No trust-requiring resources in folder → trusted (implicit).
+2. Recorded pi entry (`trust.json`, true or false, nearest ancestor) → wins. Recorded refusal beats dashboard trust.
+3. Dashboard trust covers folder (subtree) → trusted.
+4. `defaultProjectTrust`. Dashboard trust overrides it, including `never`.
+
+See who trusts a folder:
+- Settings → Access → "Pi trust from the dashboard": effective list, per-entry choice, ignored rows with reason code.
+- Folder page banner: pi / dashboard (source + folder) / neither.
+- `GET /api/access/pi-trust`.
+
+Reason codes for withheld trust (server + bridge log): `forbidden-folder`, `recorded-entry`, `identity-mismatch`, `hook-changed`, `not-project-root`, `source-off`, `source-not-installed`, `choice-unreadable`, `store-unreadable`, `not-covered-session`.
+
+Trust from the dashboard:
+- Pin the folder, Add Folder, or worktree-init "Always trust" with "Also trust this folder in pi" checked.
+- Or Settings → Access → per-entry choice (`PUT /api/access/pi-trust/choice`).
+- Toggle prompt pre-selects Trust when dashboard trust covers the folder and nothing recorded. Nothing recorded until you choose.
+
+Why still ignored:
+- Recorded `false` for folder or ancestor in `~/.pi/agent/trust.json` → wins. Clear it via pi's own trust prompt or Settings → Access.
+- Terminal `pi` ignores dashboard trust by default. Set `piTrustMirror.coverInteractive: true` to include it.
+- Folder moved, re-created, or synced from another machine → identity (`dev`, `ino`, `birthtimeMs`) mismatch → fails closed. Re-trust the folder.
+- `pi --no-extensions` → bridge never decides. `pi mcp list` reads only `trust.json`, so dashboard-trusted servers show `not-checked-by-pi`.
+- Activation-cwd auto-trust does not apply in forbidden/temporary folders (`/tmp`, `~/Downloads`, `~/.ssh`, `$HOME`, …).
+
+Config `~/.pi/dashboard/config.json`:
+
+```json
+{ "piTrustMirror": { "enabled": true, "coverInteractive": false, "sources": { "accessGrants": true } } }
+```
+
+Source ids: `worktreeInit`, `workflow`, `pinned`, `folderWorkspaces`, `accessGrants` (default OFF).
+
+Rollback: `"enabled": false`. Bridge reads config live. Works with server down. Does NOT revert the bridge behaviour changes (recorded pi entry beats activation-cwd auto-trust; forbidden-folder auto-trust removed; spawn token removed from env).
+
+See change: mirror-dashboard-trust-to-pi.
+
 ## Pairing ≠ LAN access; how to get a secure road for LAN pairing
 
 Pairing not the plain-LAN path. Plain-LAN access = Network Guard / `bindHost` + trusted networks. See [How do I expose the dashboard on my LAN?](#how-do-i-expose-the-dashboard-on-my-lan).

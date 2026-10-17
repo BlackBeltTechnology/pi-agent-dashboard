@@ -196,17 +196,39 @@ export interface LayerStatus {
   message?: string;
 }
 
+/**
+ * Who decided a folder's project trust (the host's `pi-trust-mirror` decision
+ * source). Browser-safe copy of the shared type — this package does not import it.
+ * See change: mirror-dashboard-trust-to-pi.
+ */
+export type ProjectTrustSource =
+  | { kind: "implicit" }
+  | { kind: "recorded"; path: string }
+  | { kind: "dashboard"; sourceKind: string; entry: string }
+  | { kind: "default"; value: "always" | "never" | "ask" };
+
 export interface EffectiveView {
   scope: "global" | "project";
   cwd?: string;
   /** Project views only: pi's trust decision for `cwd` (predicate absent → false). */
   trusted?: boolean;
+  /**
+   * Project views only: who decided `trusted`. Omitted when the host provides no
+   * accessor (or the decision failed).
+   */
+  trustSource?: ProjectTrustSource;
+  /**
+   * Project views only: `piTrustMirror.coverInteractive` — whether dashboard trust
+   * also covers terminal/interactive pi sessions. Omitted without the accessor.
+   */
+  trustCoverInteractive?: boolean;
   servers: EffectiveServerView[];
   layers: LayerStatus[];
 }
 
 /** One server's live state as `pi mcp list --json` reports it. */
 export interface LiveServerState {
+  /** pi's reported state, or `not-checked-by-pi` for a folder server trusted only by the dashboard. */
   state: string;
   tools: number;
   error?: string;

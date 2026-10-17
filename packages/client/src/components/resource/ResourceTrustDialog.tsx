@@ -27,11 +27,19 @@ interface Props {
   cwd: string;
   message: string;
   options: ResourceTrustOption[];
+  /**
+   * Durable dashboard trust already covers the folder: this option starts focused
+   * and marked, so Enter confirms it. Nothing is recorded until it is chosen.
+   * See change: mirror-dashboard-trust-to-pi.
+   */
+  preselected?: ResourceTrustOption["id"];
+  /** Label of the covering dashboard source, shown beside the pre-selection. */
+  dashboardSource?: string;
   onChoose: (id: ResourceTrustOption["id"]) => void;
   onDismiss: () => void;
 }
 
-export function ResourceTrustDialog({ cwd, message, options, onChoose, onDismiss }: Props): React.ReactElement {
+export function ResourceTrustDialog({ cwd, message, options, preselected, dashboardSource, onChoose, onDismiss }: Props): React.ReactElement {
   const dismiss = useCallback(() => onDismiss(), [onDismiss]);
 
   // Join the SHARED escape stack instead of listening on `document` directly.
@@ -72,14 +80,25 @@ export function ResourceTrustDialog({ cwd, message, options, onChoose, onDismiss
                 key={opt.id}
                 type="button"
                 data-testid={`resource-trust-option-${opt.id}`}
+                data-preselected={preselected === opt.id ? "true" : undefined}
+                aria-pressed={preselected ? preselected === opt.id : undefined}
+                // biome-ignore lint/a11y/noAutofocus: the pre-selected option is the dialog's primary action
+                autoFocus={preselected === opt.id}
                 onClick={() => onChoose(opt.id)}
-                className={`w-full text-left px-3 py-2 rounded border text-sm transition-colors ${
+                className={`w-full text-left px-3 py-2 rounded border text-sm transition-colors ${preselected === opt.id ? "ring-1 ring-[var(--accent-blue)] " : ""}${
                   opt.trusted
                     ? "border-[var(--border-subtle)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
                     : "border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
                 }`}
               >
                 {opt.label}
+                {preselected === opt.id && (
+                  <span className="ml-2 text-[11px] text-[var(--text-tertiary)]" data-testid="resource-trust-preselected-note">
+                    {dashboardSource
+                      ? i18nT("resources.trustPreselectedBy", { source: dashboardSource }, `pre-selected: the dashboard trusts this folder (${dashboardSource})`)
+                      : i18nT("resources.trustPreselected", undefined, "pre-selected")}
+                  </span>
+                )}
               </button>
             ))}
           </div>

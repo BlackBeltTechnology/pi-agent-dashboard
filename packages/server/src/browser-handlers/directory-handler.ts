@@ -7,6 +7,7 @@ import { isValidSectionId } from "@blackbelt-technology/pi-dashboard-shared/card
 import { archiveCompleted as openspecArchiveCompleted } from "@blackbelt-technology/pi-dashboard-shared/platform/openspec.js";
 import { normalizePath } from "@blackbelt-technology/pi-dashboard-shared/platform/paths.js";
 import { isGroupByMode } from "@blackbelt-technology/pi-dashboard-shared/session-group-by.js";
+import { getPiTrustMirror } from "../access/pi-trust-mirror-service.js";
 import { safeRealpathSync } from "../resolve-path.js";
 import type { BrowserHandlerContext } from "./handler-context.js";
 
@@ -28,8 +29,30 @@ export function handlePinDirectory(
   const { preferencesStore } = ctx;
   if (!preferencesStore) return;
   const resolved = canonicalizePath(msg.path);
-  preferencesStore.pinDirectory(resolved);
+  const mirror = getPiTrustMirror();
+  if (mirror) {
+    // Choice → pin (flushed past the debounce) → snapshot. A failed choice or
+    // pin write fails the pin. See change: mirror-dashboard-trust-to-pi.
+    try {
+      mirror.grant("pinned", resolved, typeof msg.piTrust === "boolean" ? msg.piTrust : undefined, () => {
+        preferencesStore.pinDirectory(resolved);
+        preferencesStore.flush();
+      });
+    } catch (err) {
+      reportMirrorError(ctx, "pin", resolved, err);
+      // The pin itself may have landed before the snapshot write failed.
+      if (!preferencesStore.getPinnedDirectories().includes(resolved)) return;
+    }
+  } else {
+    preferencesStore.pinDirectory(resolved);
+  }
   pinDirectorySideEffects(resolved, ctx);
+}
+
+function reportMirrorError(ctx: BrowserHandlerContext, op: "pin" | "unpin" | "workspace", path: string, err: unknown): void {
+  const error = err instanceof Error ? err.message : String(err);
+  console.error(`[pi-trust-mirror] ${op} ${path} failed: ${error}`);
+  ctx.sendTo(ctx.ws, { type: "pi_trust_mirror_error", op, path, error });
 }
 
 /**
@@ -88,7 +111,24 @@ export function handleUnpinDirectory(
   ctx: BrowserHandlerContext,
 ): void {
   if (ctx.preferencesStore) {
-    ctx.preferencesStore.unpinDirectory(canonicalizePath(msg.path));
+    const store = ctx.preferencesStore;
+    const resolved = canonicalizePath(msg.path);
+    const mirror = getPiTrustMirror();
+    if (mirror) {
+      // Snapshot without the entry FIRST, then the pin store; a failure of either
+      // fails the unpin and the folder stays pinned. See change: mirror-dashboard-trust-to-pi.
+      try {
+        mirror.revoke("pinned", resolved, () => {
+          store.unpinDirectory(resolved);
+          store.flush();
+        });
+      } catch (err) {
+        reportMirrorError(ctx, "unpin", resolved, err);
+        if (store.getPinnedDirectories().includes(resolved)) return;
+      }
+    } else {
+      store.unpinDirectory(resolved);
+    }
     ctx.sessionArchive?.rekey();
     ctx.broadcast({ type: "pinned_dirs_updated", paths: ctx.preferencesStore.getPinnedDirectories() });
   }
@@ -156,7 +196,25 @@ export function handleDeleteWorkspace(
   msg: Extract<BrowserToServerMessage, { type: "delete_workspace" }>,
   ctx: BrowserHandlerContext,
 ): void {
-  if (ctx.preferencesStore?.deleteWorkspace(msg.id)) broadcastWorkspaces(ctx);
+  const store = ctx.preferencesStore;
+  if (!store) return;
+  const mirror = getPiTrustMirror();
+  let deleted = false;
+  if (mirror) {
+    // Deleting a workspace removes every folder it holds from folder-workspaces trust.
+    const folders = store.getWorkspaces().find((w) => w.id === msg.id)?.folders ?? [];
+    try {
+      mirror.revokeMany(folders.map((folder) => ({ sourceKind: "folderWorkspaces" as const, folder })), () => {
+        deleted = store.deleteWorkspace(msg.id);
+        store.flush();
+      });
+    } catch (err) {
+      reportMirrorError(ctx, "workspace", msg.id, err);
+    }
+  } else {
+    deleted = store.deleteWorkspace(msg.id);
+  }
+  if (deleted) broadcastWorkspaces(ctx);
 }
 
 export function handleSetWorkspaceCollapsed(
@@ -292,14 +350,46 @@ export function handleAddFolderToWorkspace(
   msg: Extract<BrowserToServerMessage, { type: "add_folder_to_workspace" }>,
   ctx: BrowserHandlerContext,
 ): void {
-  if (ctx.preferencesStore?.addFolderToWorkspace(msg.id, msg.path)) broadcastWorkspaces(ctx);
+  const store = ctx.preferencesStore;
+  if (!store) return;
+  const mirror = getPiTrustMirror();
+  let added = false;
+  if (mirror) {
+    try {
+      mirror.grant("folderWorkspaces", canonicalizePath(msg.path), typeof msg.piTrust === "boolean" ? msg.piTrust : undefined, () => {
+        added = store.addFolderToWorkspace(msg.id, msg.path);
+        store.flush();
+      });
+    } catch (err) {
+      reportMirrorError(ctx, "workspace", msg.path, err);
+    }
+  } else {
+    added = store.addFolderToWorkspace(msg.id, msg.path);
+  }
+  if (added) broadcastWorkspaces(ctx);
 }
 
 export function handleRemoveFolderFromWorkspace(
   msg: Extract<BrowserToServerMessage, { type: "remove_folder_from_workspace" }>,
   ctx: BrowserHandlerContext,
 ): void {
-  if (ctx.preferencesStore?.removeFolderFromWorkspace(msg.id, msg.path)) broadcastWorkspaces(ctx);
+  const store = ctx.preferencesStore;
+  if (!store) return;
+  const mirror = getPiTrustMirror();
+  let removed = false;
+  if (mirror) {
+    try {
+      mirror.revoke("folderWorkspaces", canonicalizePath(msg.path), () => {
+        removed = store.removeFolderFromWorkspace(msg.id, msg.path);
+        store.flush();
+      });
+    } catch (err) {
+      reportMirrorError(ctx, "workspace", msg.path, err);
+    }
+  } else {
+    removed = store.removeFolderFromWorkspace(msg.id, msg.path);
+  }
+  if (removed) broadcastWorkspaces(ctx);
 }
 
 export function handleReorderWorkspaceFolders(
@@ -334,6 +424,8 @@ export function handleMoveFolderToWorkspace(
     preferencesStore.pinDirectory(canon);
     pinDirectorySideEffects(canon, ctx);
   }
+  // The folder's source row changed (workspace ⇄ pin); its choice is kept.
+  getPiTrustMirror()?.refresh();
   broadcastWorkspaces(ctx);
 }
 

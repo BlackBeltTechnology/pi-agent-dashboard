@@ -15,6 +15,7 @@ import type { BridgeContext } from "./bridge-context.js";
 import { extractFirstMessage, filterHiddenCommands, getCurrentModelString, safeCwd } from "./bridge-context.js";
 import { buildProviderCatalogue, toModelInfo } from "./provider-register.js";
 import { detectSessionSource } from "./source-detector.js";
+import { consumeSpawnToken } from "./spawn-token.js";
 import { detectIsGitRepo } from "./vcs-info.js";
 
 // minimatch's entry shape varies by version/runtime (v10 exposes a named
@@ -50,7 +51,8 @@ function stripThinkingLevel(pattern: string): string {
  * `:<thinkingLevel>` suffix is stripped before matching.
  */
 /**
- * Read the server-minted spawn correlation token and SCRUB it from the env.
+ * Consume the server-minted spawn correlation token (kept by `spawn-token.ts` since
+ * activation, where it was already SCRUBBED from the env — mirror-dashboard-trust-to-pi).
  *
  * Single-use by construction: a pi this pi later spawns (subagent, nested `pi`,
  * reload) must not inherit and re-report a consumed token
@@ -66,11 +68,7 @@ function stripThinkingLevel(pattern: string): string {
  * See change: spawn-correlation-token (Decision 3),
  * fix-tmux-session-shutdown-leak.
  */
-export function consumeSpawnToken(): string | undefined {
-  const token = process.env.PI_DASHBOARD_SPAWN_TOKEN;
-  delete process.env.PI_DASHBOARD_SPAWN_TOKEN;
-  return token;
-}
+export { consumeSpawnToken } from "./spawn-token.js";
 
 export function filterByEnabledModels<T extends { provider: string; id: string }>(models: T[]): T[] {
   try {
