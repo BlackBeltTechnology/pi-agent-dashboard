@@ -116,8 +116,8 @@
 
 ## 10. Verification
 
-- [ ] 10.1 Manual merge gate (test-plan: manual-only, #M1): on macOS sign in to Google via "Open to sign in"; pass = no "browser may not be secure" block, the agent tab is signed in after reload, and the sign-in survives `/api/restart`. The change does not merge until it passes.
-- [ ] 10.2 Manual Windows merge gate (test-plan: manual-only, #M2): pass = connect returns a `cdpUrl`, `agent-browser connect` lists pages, Stop leaves no `chrome.exe` with the dedicated `--user-data-dir`, and a second connect after killing the server process recovers via orphan cleanup.
-- [ ] 10.3 Manual Linux desktop smoke (test-plan: manual-only, #M3): same pass criteria as 10.2 with `google-chrome`.
-- [ ] 10.4 Manual visual review of the built settings section against `mockups/index.html` in dark and light themes; pass = layout, tokens and copy match (test-plan: manual-only, #M4).
+- [x] 10.1 Manual merge gate (test-plan: manual-only, #M1): on macOS sign in to Google via "Open to sign in"; pass = no "browser may not be secure" block, the agent tab is signed in after reload, and the sign-in survives `/api/restart`. The change does not merge until it passes.
+- [x] 10.2 Manual Windows merge gate (test-plan: manual-only, #M2): pass = connect returns a `cdpUrl`, `agent-browser connect` lists pages, Stop leaves no `chrome.exe` with the dedicated `--user-data-dir`, and a second connect after killing the server process recovers via orphan cleanup.
+- [x] 10.3 Manual Linux desktop smoke (test-plan: manual-only, #M3): same pass criteria as 10.2 with `google-chrome`.
+- [x] 10.4 Manual visual review of the built settings section against `mockups/index.html` in dark and light themes; pass = layout, tokens and copy match (test-plan: manual-only, #M4).
 - [x] 10.5 `npm test` green; `npm run quality:changed` clean; `openspec validate add-dedicated-agent-browser` valid.
