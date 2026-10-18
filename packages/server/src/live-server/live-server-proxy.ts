@@ -33,12 +33,11 @@ function stripDashboardCookies(cookie: string): string | undefined {
 }
 
 /** Drop upstream `Set-Cookie` lines that name a dashboard cookie (no planting/overwriting). */
-function filterSetCookie(value: string | string[] | undefined): string | string[] | undefined {
+function filterSetCookie(value: string | string[] | undefined): string[] | undefined {
   if (value === undefined) return undefined;
   const list = Array.isArray(value) ? value : [value];
   const kept = list.filter((line) => !line.trim().toLowerCase().startsWith(DASHBOARD_COOKIE_PREFIX));
-  if (kept.length === 0) return undefined;
-  return Array.isArray(value) ? kept : kept[0];
+  return kept.length === 0 ? undefined : kept;
 }
 
 /** A request/upgrade header bag the credential stripper edits in place. */
@@ -65,6 +64,25 @@ function stripDashboardCredentials(
     if (m && isDeviceBearer(m[1])) delete headers.authorization;
   }
   return headers;
+}
+
+/**
+ * Keep an upstream redirect inside the proxied prefix (`/live/<id>` or the
+ * capability prefix). A relative or root-relative `Location` is prefixed; an
+ * absolute redirect back to the SAME upstream (`http://127.0.0.1:<port>/…`) is
+ * rewritten into the prefix so the browser stays on the dashboard origin and the
+ * single-port tunnel keeps working. Foreign absolute redirects are untouched.
+ */
+function rewriteLocation(location: string, prefix: string, host: string, port: number): string {
+  if (location.startsWith("./")) return `${prefix}/${location.slice(2)}`;
+  if (location.startsWith("/")) return `${prefix}${location}`;
+  try {
+    const u = new URL(location);
+    if (u.hostname === host && u.port === String(port)) return `${prefix}${u.pathname}${u.search}`;
+  } catch {
+    /* not an absolute URL — leave as-is */
+  }
+  return location;
 }
 
 export interface LiveProxyDeps {
@@ -139,22 +157,7 @@ export function registerLiveServerProxy(
         }
         const location = headers.location;
         if (typeof location === "string") {
-          if (location.startsWith("./")) headers.location = `${prefix}/${location.slice(2)}`;
-          else if (location.startsWith("/")) headers.location = `${prefix}${location}`;
-          else {
-            // Rewrite an absolute redirect back to the SAME upstream
-            // (`http://127.0.0.1:<port>/…`) into the proxied prefix so the
-            // browser stays on the dashboard origin and the single-port tunnel
-            // keeps working. Foreign absolute redirects are left untouched.
-            try {
-              const u = new URL(location);
-              if (u.hostname === host && u.port === String(target.port)) {
-                headers.location = `${prefix}${u.pathname}${u.search}`;
-              }
-            } catch {
-              /* not an absolute URL — leave as-is */
-            }
-          }
+          headers.location = rewriteLocation(location, prefix, host, target.port);
         }
         return headers;
       },

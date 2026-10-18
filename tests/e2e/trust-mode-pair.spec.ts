@@ -51,20 +51,30 @@ test.describe("trust mode pair — end to end", () => {
       await setMode("pair");
 
       // Guarded API from this (non-loopback, listed by 0.0.0.0/0) peer: refused.
-      const denied = await request.get(`${BASE_URL}/api/sessions`);
+      // `/api/paired-devices` carries the per-route guard; the harness's OAuth seed
+      // sets `auth.bypassUrls: ["/"]`, which exempts every path from the UNIVERSAL hook.
+      const denied = await request.get(`${BASE_URL}/api/paired-devices`);
       expect(denied.status()).toBe(403);
       expect((await denied.json()).error).toBe("network_not_allowed");
 
-      // The shell still loads; its denied bar offers Request access.
+      // The shell still loads but the dashboard does not: the refused browser sees
+      // the denied bar with Request access. This harness seeds an OAuth provider
+      // (`PI_E2E_OAUTH=1`), where the client shows its sign-in gate for the same
+      // refusal instead; either way no dashboard renders in `pair`. The bar itself
+      // is pinned at L1 (ConnectionStatusBanner F8).
       await page.goto("/");
-      await expect(page.getByTestId("network-denied-request-access")).toBeVisible({ timeout: 30_000 });
+      await expect(
+        page.getByTestId("network-denied-request-access").or(page.getByText("Sign in to pi-dashboard")),
+      ).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByTestId("headerAppBar")).toHaveCount(0);
 
       // Back to legacy: the very next request is admitted — same process.
       await setMode("legacy");
-      const admitted = await request.get(`${BASE_URL}/api/sessions`);
+      const admitted = await request.get(`${BASE_URL}/api/paired-devices`);
       expect(admitted.status()).toBe(200);
       await gotoDashboard(page);
       await expect(page.getByTestId("network-denied-request-access")).toHaveCount(0);
+      await expect(page.getByText("Sign in to pi-dashboard")).toHaveCount(0);
     } finally {
       await setMode(original);
     }
@@ -93,7 +103,7 @@ const APP = [
   "const out = { script: true, image: false, fetch: false, ws: false, wsMessage: '' };",
   "const done = () => { document.getElementById('result').textContent = JSON.stringify(out); window.__result = out; };",
   "document.getElementById('pic').addEventListener('load', () => { out.image = true; done(); });",
-  "fetch('data.json').then((r) => r.json()).then((j) => { out.fetch = j.ok === true; done(); });",
+  "fetch('data.json', { mode: 'no-cors' }).then((r) => { out.fetch = r.type === 'opaque' || r.ok; done(); });",
   "const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + location.pathname + 'hmr');",
   "ws.onopen = () => { out.ws = true; done(); };",
   "ws.onmessage = (e) => { out.wsMessage = String(e.data); done(); };",
@@ -185,8 +195,12 @@ test.describe("trust mode pair — live preview capability (F11)", () => {
       await setMode("pair");
 
       const framed: string[] = [];
+      const fetchStatus: number[] = [];
       page.on("request", (r) => {
         if (r.url().includes("/~c/")) framed.push(`${r.resourceType()} ${new URL(r.url()).pathname}`);
+      });
+      page.on("response", (r) => {
+        if (r.url().includes("/~c/") && r.url().endsWith("/data.json")) fetchStatus.push(r.status());
       });
       const sockets: string[] = [];
       page.on("websocket", (w) => sockets.push(w.url()));
@@ -212,6 +226,9 @@ test.describe("trust mode pair — live preview capability (F11)", () => {
       // image, fetch and the HMR socket.
       const kinds = new Set(framed.map((s) => s.split(" ")[0]));
       for (const kind of ["document", "script", "image", "fetch"]) expect(kinds, `${kind} under /~c/`).toContain(kind);
+      // The frame is opaque-origin, so it cannot READ the fetch body (no CORS); the
+      // browser's own network log is what proves the fetch was admitted: 2xx.
+      expect(fetchStatus, "fetch answered 2xx under the capability path").toEqual([200]);
       expect(sockets.some((u) => u.includes("/~c/")), "WebSocket under the capability path").toBe(true);
 
       // The previewed app never saw a dashboard cookie.

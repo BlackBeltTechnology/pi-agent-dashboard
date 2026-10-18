@@ -13,8 +13,8 @@
  */
 import { describe, expect, it } from "vitest";
 import { authorizeWsUpgrade } from "../auth/auth-plugin.js";
-import { routeScopeForUrl } from "../auth/ws-ticket.js";
 import type { CoreWsRouteScope } from "../auth/ws-ticket.js";
+import { routeScopeForUrl } from "../auth/ws-ticket.js";
 import {
   type CapabilityPrincipal,
   LiveCapabilityStore,

@@ -6,10 +6,10 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { registerBearerAuth } from "../auth/bearer-auth.js";
 import { createNetworkGuard } from "../auth/localhost-guard.js";
+import { liveAcceptLanRequests, liveTrustedNetworks } from "../config-snapshot.js";
 import { PairedDeviceRegistry } from "../pairing/paired-devices.js";
 import { PAIRING_PROTOCOL_VERSION, PairingManager } from "../pairing/pairing.js";
 import { MAX_DEVICE_LABEL_BYTES, registerPairingRoutes } from "../routes/pairing-routes.js";
-import { liveAcceptLanRequests, liveTrustedNetworks } from "../config-snapshot.js";
 import { stampLegacyHook } from "../test-support/local-credential-stamp.js";
 import { type TrustModeHome, useTrustModeHome } from "../test-support/trust-mode-home.js";
 

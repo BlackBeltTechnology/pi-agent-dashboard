@@ -1,8 +1,8 @@
 import jwt from "jsonwebtoken";
-import { afterEach, beforeEach, describe, it, expect } from "vitest";
-import { validateWsUpgrade, escapeHtml, isBypassed } from "../auth/auth-plugin.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { COOKIE_NAME, signToken } from "../auth/auth.js";
+import { escapeHtml, isBypassed, validateWsUpgrade } from "../auth/auth-plugin.js";
 import { isBypassedHost } from "../auth/localhost-guard.js";
-import { signToken, COOKIE_NAME } from "../auth/auth.js";
 import { networkOnlySnapshot } from "../auth/network-trust-telemetry.js";
 import { admissionTrustedNetworks } from "../auth/trust-mode.js";
 import { type TrustModeHome, useTrustModeHome } from "../test-support/trust-mode-home.js";

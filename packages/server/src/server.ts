@@ -52,6 +52,7 @@ import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
+import { listGrants as listAccessGrants, setGrantsChangedListener } from "./access/access-grants.js";
 import { snapshotAccessGrantHealth } from "./access/access-health.js";
 import { AccessPlaneRegistry, isGrantPromptKilled } from "./access/access-plane.js";
 import { shouldIssuePromptCapability } from "./access/capability-issuance.js";
@@ -61,6 +62,7 @@ import { createCwdHold } from "./access/cwd-verdict.js";
 import { installGrantCoordinator } from "./access/denial-hold.js";
 import { GrantCoordinator } from "./access/grant-coordinator.js";
 import { ensureGrantStoreId } from "./access/grant-store-id.js";
+import { createPiTrustMirrorService, setPiTrustMirror } from "./access/pi-trust-mirror-service.js";
 import { createCorsPlane, createCwdPlane, createFilesystemPlane, createNetworkPlane } from "./access/planes.js";
 import { promptChannelCount } from "./access/prompt-channel.js";
 import { clearRefusal, isRefused, listRefusals, recordRefusal } from "./access/refusal-ledger.js";
@@ -121,9 +123,9 @@ import { setOAuthRegistryRuntimeSource } from "./auth/provider-auth-registry.js"
 import { readAuthJson } from "./auth/provider-auth-storage.js";
 import { countReloads, type RadiusMcpService } from "./auth/radius-mcp.js";
 import { createRouteTierGate } from "./auth/route-tier-gate.js";
+import { mintSpawnToken } from "./auth/spawn-token.js";
 import { admissionTrustedNetworks, effectiveTrustMode } from "./auth/trust-mode.js";
 import { decideBootTrustMode } from "./auth/trust-mode-boot.js";
-import { mintSpawnToken } from "./auth/spawn-token.js";
 import {
   type CoreWsRouteScope,
   extractTicket,
@@ -160,6 +162,7 @@ import { createPluginSessionCloseApi, createSessionCloserRegistry } from "./embe
 import { wireEvents } from "./event-wiring.js";
 import { createFileWatchManager } from "./file-watch-manager.js";
 import { createWorktreeInitRegistry } from "./git-worktree/worktree-init-registry.js";
+import { listPersistedTrust as listPersistedWorktreeTrust, setTrustChangedListener } from "./git-worktree/worktree-init-trust.js";
 import { identityDisarmedWarning, isIdentityEnforced } from "./identity/activation.js";
 import { buildAuthContext } from "./identity/auth-context.js";
 import { type BootstrapGrants, DENY_ALL_GRANTS, decideBootstrapGrants } from "./identity/bootstrap-grants.js";
@@ -191,7 +194,6 @@ import { bootParentPid, isBootParentProvablyDead } from "./lifecycle/boot-parent
 import { runBoundedStartup } from "./lifecycle/bounded-startup.js";
 import { startEphemeralParentWatch } from "./lifecycle/ephemeral-parent-watch.js";
 import { ensureInstanceId } from "./lifecycle/instance-id.js";
-import { createLiveServerManager } from "./live-server/live-server-manager.js";
 import {
   createLiveCapabilityHook,
   LiveCapabilityStore,
@@ -199,6 +201,7 @@ import {
   redactCapability,
   sessionKeyOf,
 } from "./live-server/live-capability.js";
+import { createLiveServerManager } from "./live-server/live-server-manager.js";
 import { handleLiveServerUpgrade, registerLiveServerProxy } from "./live-server/live-server-proxy.js";
 import { startEventLoopSampler } from "./metrics/eventloop-sampler.js";
 import { createEventLoopSpikeMetrics } from "./metrics/eventloop-spike-metrics.js";
@@ -213,9 +216,6 @@ import { fetchPackageMeta } from "./package/npm-search-proxy.js";
 import { logPackageHealthAtBoot } from "./package/package-health-scanner.js";
 import { type OperationResult, PackageManagerWrapper } from "./package/package-manager-wrapper.js";
 import { type BrowserGateway, createBrowserGateway } from "./pairing/browser-gateway.js";
-import type { SessionPresence } from "./questions/question-files.js";
-import { registerQuestionRoutes } from "./questions/question-routes.js";
-import { createQuestionStack, persistedPresence } from "./questions/question-stack.js";
 import { createRequestAccessAvailable, type KnockPeerDeps } from "./pairing/knock-admission.js";
 import { PairedDeviceRegistry } from "./pairing/paired-devices.js";
 import { PairingManager, wirePendingHint } from "./pairing/pairing.js";
@@ -237,9 +237,6 @@ import { createMetaPersistence } from "./persistence/meta-persistence.js";
 import { migrateCustomEntryFallbackOverrides } from "./persistence/migrate-custom-entry-fallback.js";
 import { needsMigration, runMigration } from "./persistence/migrate-persistence.js";
 import { createPreferencesStore } from "./persistence/preferences-store.js";
-import { createPiTrustMirrorService, setPiTrustMirror } from "./access/pi-trust-mirror-service.js";
-import { listGrants as listAccessGrants, setGrantsChangedListener } from "./access/access-grants.js";
-import { listPersistedTrust as listPersistedWorktreeTrust, setTrustChangedListener } from "./git-worktree/worktree-init-trust.js";
 import { loadHostProjectTrustService } from "./pi/host-project-trust.js";
 import { PiCoreChecker } from "./pi/pi-core-checker.js";
 import { PiCoreUpdater } from "./pi/pi-core-updater.js";
@@ -249,6 +246,9 @@ import * as pluginEventSeam from "./plugin-event-seam.js";
 import { pluginIntentCache } from "./plugin-intent-cache.js";
 import { createPluginRequestLane } from "./plugin-request-lane.js";
 import { createPushService, type PushService } from "./push/push-service.js";
+import type { SessionPresence } from "./questions/question-files.js";
+import { registerQuestionRoutes } from "./questions/question-routes.js";
+import { createQuestionStack, persistedPresence } from "./questions/question-stack.js";
 import { registerAccessPromptRoutes } from "./routes/access-prompt-routes.js";
 import { registerAccessRoutes } from "./routes/access-routes.js";
 import { registerAcpRoutes } from "./routes/acp-routes.js";
@@ -281,8 +281,8 @@ import { PUBLIC_PAIRING_PREFIXES, registerPairingRoutes } from "./routes/pairing
 import { registerPiChangelogRoutes } from "./routes/pi-changelog-routes.js";
 import { registerPiCoreRoutes } from "./routes/pi-core-routes.js";
 import { registerPiRetryRoutes } from "./routes/pi-retry-routes.js";
-import { registerPiSettingsRoutes } from "./routes/pi-settings-routes.js";
 import { registerPiRuntimeRoutes } from "./routes/pi-runtime-routes.js";
+import { registerPiSettingsRoutes } from "./routes/pi-settings-routes.js";
 import { registerPluginActivationRoutes, setPluginsEnabled } from "./routes/plugin-activation-routes.js";
 import { registerPluginConfigRoutes } from "./routes/plugin-config-routes.js";
 import { registerPreferencesAutoNameRoutes } from "./routes/preferences-auto-name-routes.js";
@@ -332,14 +332,14 @@ import { createSessionOrderManager, type SessionOrderManager } from "./session/s
 import { originOf } from "./session/session-origin.js";
 import { bootScanAllSessions } from "./session/session-scanner.js";
 import { sessionToMeta } from "./session/session-to-meta.js";
+import { createAbortSpawnedRun } from "./spawn-process/abort-spawned-run.js";
 import { setLocalAcpHost, spawnAcpSession, validatePluginAcpSpawn } from "./spawn-process/acp-spawn.js";
 import { CwdPolicyRegistry } from "./spawn-process/cwd-policy.js";
 import { keeperOptsFromSpawnResult } from "./spawn-process/headless-pid-registry.js";
 import { createIdleTimer } from "./spawn-process/idle-timer.js";
 import { getKeeperManager, setCwdPolicyRegistry, spawnPiSession } from "./spawn-process/process-manager.js";
-import { createAbortSpawnedRun } from "./spawn-process/abort-spawned-run.js";
-import { createSessionTerminator } from "./spawn-process/session-terminator.js";
 import { removePid, writePid } from "./spawn-process/server-pid.js";
+import { createSessionTerminator } from "./spawn-process/session-terminator.js";
 import { registerSpawnEnvContributorForPlugin, setSpawnEnvPluginEnabledCheck } from "./spawn-process/spawn-env-contributors.js";
 import { armSpawnWatchdog } from "./spawn-process/spawn-register-watchdog.js";
 import { createTerminalGateway } from "./terminal/terminal-gateway.js";

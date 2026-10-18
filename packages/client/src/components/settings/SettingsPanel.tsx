@@ -1,6 +1,7 @@
 import { FieldShell, NumberField, type RegisteredSource, SelectField, SettingsDraftProvider, type SettingsDraftRegistry, SettingsNotice, TextField, ToggleField, useSettingsDraftSource, useSlotIntents } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import type { TrustMode } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { VALID_SETTINGS_TABS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-types.js";
 import {
   DISPLAY_PRESETS,
@@ -54,6 +55,7 @@ import {
 import { fetchAutoInitWorktreePref, fetchAutoNameSessionsPref, setAutoInitWorktreePref, setAutoNameSessionsPref } from "../../lib/git/git-api.js";
 import { t as i18nT, LANGUAGE_OPTIONS, type Language, useI18n } from "../../lib/i18n/i18n.js";
 import { buildPiResourceFileUrl } from "../../lib/nav/route-builders.js";
+import { displayTrustMode, parseTrustPosture, resolveClientTrustMode, type TrustPosture } from "../../lib/network-trust/trust-posture.js";
 import { logRejection } from "../../lib/report-error.js";
 import { needsAttention } from "../../lib/services/services-model.js";
 import { RESERVED_SETTINGS_LABELS, resolveSettingsPromotions } from "../../lib/settings-promotions.js";
@@ -61,6 +63,7 @@ import { useCustomEventGroups } from "../../lib/state/custom-event-groups.js";
 import { useDisplayPrefsContext } from "../../lib/state/DisplayPrefsContext.js";
 import { PopoverBoundaryProvider } from "../../lib/state/PopoverBoundaryContext.js";
 import { randomUuid } from "../../lib/util/random-uuid.js";
+import { callout } from "../connectivity/connectivity-ui.js";
 import { KnownServersSection } from "../connectivity/KnownServersSection.js";
 import { NetworkDiscoverySection } from "../connectivity/NetworkDiscoverySection.js";
 import { PairedDevicesSection } from "../connectivity/PairedDevicesSection.js";
@@ -78,10 +81,6 @@ import type { ResourceType } from "../resource/ResourceCardGrid.js";
 import { RESOURCE_PAGE_TYPE, type ResourcePageId, ScopedResourceGrid } from "../resource/ScopedResourceGrid.js";
 import { AccessPromptsSection } from "./AccessPromptsSection.js";
 import { AccessSection } from "./AccessSection.js";
-import type { TrustMode } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import { displayTrustMode, parseTrustPosture, resolveClientTrustMode, type TrustPosture } from "../../lib/network-trust/trust-posture.js";
-import { callout } from "../connectivity/connectivity-ui.js";
-import { canRequestAccess, type NetworkTrustControls, NetworkTrustModeRadio, NetworkTrustNotices, PairRefusedPeer } from "./NetworkTrustParts.js";
 import { AgentPathGateSection } from "./AgentPathGateSection.js";
 import { AllowedHostsSection } from "./AllowedHostsSection.js";
 import { CanvasTypesSettingsSection } from "./CanvasTypesSettingsSection.js";
@@ -91,6 +90,7 @@ import { DiagnosticsSection } from "./DiagnosticsSection.js";
 import { FocusSettingsSection } from "./FocusSettingsSection.js";
 import { ModelProxySection } from "./ModelProxySection.js";
 import { ModelSelector } from "./ModelSelector.js";
+import { canRequestAccess, type NetworkTrustControls, NetworkTrustModeRadio, NetworkTrustNotices, PairRefusedPeer } from "./NetworkTrustParts.js";
 import { NodeRuntimeSection } from "./NodeRuntimeSection.js";
 // Curated pi-install picker; sits directly above the raw Tools escape hatch.
 // See change: select-pi-runtime-install (design D12).

@@ -2090,7 +2090,7 @@ describe("SettingsPanel Security ▸ Network access", () => {
       mockNetworkFetch({ config: { network: { trustMode: mode, trustModeOrigin: "operator" }, pairing: { acceptLanRequests: true } } });
       const base = global.fetch as unknown as ReturnType<typeof vi.fn>;
       global.fetch = vi.fn().mockImplementation((url: string, o?: any) =>
-        url === "/api/network-interfaces" ? Promise.resolve(jsonRes({ success: true, data: [iface] })) : base(url, o)) as unknown as typeof fetch;
+        url === "/api/network-interfaces" ? Promise.resolve(jsonRes({ success: true, data: [iface] })) : (base as unknown as (u: string, o?: unknown) => Promise<Response>)(url, o)) as unknown as typeof fetch;
       await openSecurity();
       fireEvent.click(screen.getByTestId("trusted-networks-add-local"));
       const offer = await screen.findByTestId("trusted-networks-offer-192.168.0.0/16");

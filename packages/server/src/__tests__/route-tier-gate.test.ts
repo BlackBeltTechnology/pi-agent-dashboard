@@ -15,10 +15,10 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerBearerAuth } from "../auth/bearer-auth.js";
 import { createNetworkGuard } from "../auth/localhost-guard.js";
-import { admissionTrustedNetworks } from "../auth/trust-mode.js";
-import { useTrustModeHome } from "../test-support/trust-mode-home.js";
 import { createRouteTierGate, type TierRefusal } from "../auth/route-tier-gate.js";
+import { admissionTrustedNetworks } from "../auth/trust-mode.js";
 import { PairedDeviceRegistry } from "../pairing/paired-devices.js";
+import { useTrustModeHome } from "../test-support/trust-mode-home.js";
 
 let tmpDir: string;
 const openApps: FastifyInstance[] = [];
@@ -42,7 +42,8 @@ interface App {
 
 async function mkApp(opts: { trusted?: string[] | (() => string[]) } = {}): Promise<App> {
   // A fixed list, or a live thunk (the server passes `admissionTrustedNetworks`).
-  const readTrusted = typeof opts.trusted === "function" ? opts.trusted : () => opts.trusted ?? [];
+  const fixed = opts.trusted;
+  const readTrusted: () => string[] = typeof fixed === "function" ? fixed : () => fixed ?? [];
   const reg = new PairedDeviceRegistry(path.join(tmpDir, "paired.json"));
   const tokens = {
     observe: reg.add("o", "manual", "observe").token,

@@ -5,9 +5,10 @@
  *
  * See change: improve-content-editor (live-server-preview §6).
  */
-import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+
 import type { Principal } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
 import type { Tier } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
+import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { COOKIE_NAME, type TokenPayload } from "../auth/auth.js";
 import {

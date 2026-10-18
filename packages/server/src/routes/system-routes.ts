@@ -31,8 +31,8 @@ import {
 } from "../auth/bind-reachability-service.js";
 import { canDiscloseAccessPosture, localhostGuard, loopbackCoveringEntries } from "../auth/localhost-guard.js";
 import { networkOnlySnapshot } from "../auth/network-trust-telemetry.js";
-import { effectiveTrustMode } from "../auth/trust-mode.js";
 import { getRegistryError } from "../auth/provider-auth-registry.js";
+import { effectiveTrustMode } from "../auth/trust-mode.js";
 import { deleteAuthProvider, readConfigRedacted, writeConfigPartial } from "../config-api.js";
 import type { DirectoryService } from "../directory-service.js";
 import {

@@ -25,9 +25,9 @@ import {
   parseIpAddress,
 } from "../auth/localhost-guard.js";
 import { isLoopback } from "../auth/loopback.js";
+import { admissionTrustedNetworks } from "../auth/trust-mode.js";
 import { buildNetworkInterfaceList } from "../routes/network-interfaces.js";
 import { PUBLIC_PAIRING_PREFIXES } from "../routes/pairing-routes.js";
-import { admissionTrustedNetworks } from "../auth/trust-mode.js";
 import { createTestServer, type TestServerHandle } from "../test-support/test-server.js";
 import { type TrustModeHome, useTrustModeHome } from "../test-support/trust-mode-home.js";
 import { blockEvents } from "../tunnel/tunnel-block-events.js";

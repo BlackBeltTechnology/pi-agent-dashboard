@@ -3,8 +3,8 @@ import { COOKIE_NAME, signToken } from "../auth/auth.js";
 import { authorizeWsUpgrade, validateWsUpgrade } from "../auth/auth-plugin.js";
 import { networkOnlySnapshot } from "../auth/network-trust-telemetry.js";
 import { admissionTrustedNetworks } from "../auth/trust-mode.js";
-import { WsTicketStore } from "../auth/ws-ticket.js";
 import type { CoreWsRouteScope, TicketConsumption } from "../auth/ws-ticket.js";
+import { WsTicketStore } from "../auth/ws-ticket.js";
 import { type TrustModeHome, useTrustModeHome } from "../test-support/trust-mode-home.js";
 
 const SECRET = "s".repeat(32);

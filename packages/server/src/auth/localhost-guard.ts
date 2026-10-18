@@ -7,13 +7,13 @@ import { isIPv4, isIPv6 } from "node:net";
 import os from "node:os";
 import { routeTier } from "@blackbelt-technology/pi-dashboard-shared/route-tiers.js";
 import type { FastifyReply, FastifyRequest } from "fastify";
+import { redactCapability } from "../live-server/live-capability.js";
 import { blockEvents } from "../tunnel/tunnel-block-events.js";
 import { isBypassed } from "./bypass-urls.js";
-import { redactCapability } from "../live-server/live-capability.js";
 import { hasLocalCredential } from "./local-credential.js";
 import { hasLocalProof, type LocalTrustContext } from "./local-proof.js";
-import { type NetworkOnlySource, noteNetworkOnlyAdmission } from "./network-trust-telemetry.js";
 import { isLoopback, isLoopbackRange } from "./loopback.js";
+import { type NetworkOnlySource, noteNetworkOnlyAdmission } from "./network-trust-telemetry.js";
 
 /**
  * Request headers a reverse proxy / tunnel injects. Their presence on a

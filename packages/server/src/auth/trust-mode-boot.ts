@@ -22,6 +22,23 @@ function configFile(): string {
   return path.join(os.homedir(), ".pi", "dashboard", "config.json");
 }
 
+/** True when `config.json` exists, is non-empty, and is not a JSON object. */
+function configFileUnparseable(): boolean {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(configFile(), "utf-8");
+  } catch {
+    return false; // absent → a fresh install, decide below
+  }
+  if (raw.trim() === "") return false;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return typeof parsed !== "object" || parsed === null || Array.isArray(parsed);
+  } catch {
+    return true;
+  }
+}
+
 export interface BootTrustDecision {
   /** What was decided (or the fallback used); `null` when a recognised/unrecognised value was already stored. */
   mode: TrustMode | null;
@@ -44,23 +61,12 @@ export function decideBootTrustMode(
   const load = deps.load ?? loadConfig;
 
   // A present-but-unparseable file is never decided or written.
-  let raw: string | null = null;
-  try {
-    raw = fs.readFileSync(configFile(), "utf-8");
-  } catch { /* absent → a fresh install, decide below */ }
-  if (raw !== null && raw.trim() !== "") {
-    let parsedOk = false;
-    try {
-      const parsed: unknown = JSON.parse(raw);
-      parsedOk = typeof parsed === "object" && parsed !== null && !Array.isArray(parsed);
-    } catch { /* unparseable */ }
-    if (!parsedOk) {
-      setBootTrustFallback("legacy");
-      console.error(
-        '[trusted-networks] config.json is unparseable — not deciding a trust mode; using "legacy" for this process',
-      );
-      return { mode: "legacy", persisted: false };
-    }
+  if (configFileUnparseable()) {
+    setBootTrustFallback("legacy");
+    console.error(
+      '[trusted-networks] config.json is unparseable — not deciding a trust mode; using "legacy" for this process',
+    );
+    return { mode: "legacy", persisted: false };
   }
 
   const config = load();

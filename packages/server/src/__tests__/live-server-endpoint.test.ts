@@ -6,9 +6,6 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createLiveServerManager } from "../live-server/live-server-manager.js";
-import { registerLiveServerRoutes } from "../routes/live-server-routes.js";
-import { registerLiveServerProxy } from "../live-server/live-server-proxy.js";
 import { createNetworkGuardHook, type GuardDenialLogEntry } from "../auth/localhost-guard.js";
 import { createRouteTierGate } from "../auth/route-tier-gate.js";
 import {
@@ -21,6 +18,9 @@ import {
   sessionKeyOf,
 } from "../live-server/live-capability.js";
 import type { LiveServerManager } from "../live-server/live-server-manager.js";
+import { createLiveServerManager } from "../live-server/live-server-manager.js";
+import { registerLiveServerProxy } from "../live-server/live-server-proxy.js";
+import { registerLiveServerRoutes } from "../routes/live-server-routes.js";
 
 function fakePrefs() {
   let store: any[] = [];

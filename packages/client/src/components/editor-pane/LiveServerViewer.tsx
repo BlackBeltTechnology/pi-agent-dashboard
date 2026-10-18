@@ -25,8 +25,8 @@ import { mdiOpenInNew, mdiPlay } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { useEffect, useState } from "react";
 import { getApiBase } from "../../lib/api/api-context.js";
-import { useI18n } from "../../lib/i18n/i18n.js";
 import { listLiveServers, mintLiveCapability, startLiveServer } from "../../lib/api/live-server-api.js";
+import { useI18n } from "../../lib/i18n/i18n.js";
 import type { ViewerProps } from "./types.js";
 
 /** Re-mint this long before the capability's absolute expiry. */
