@@ -67,7 +67,7 @@ export const WALK_YIELD_EVERY = 500;
 /** Supplementary time bound: also yield once this many ms passed since the last
  *  yield, so a slow filesystem (few entries per directory, high per-call latency)
  *  cannot starve the loop between entry-count yields. */
-export const WALK_YIELD_MAX_MS = 50;
+const WALK_YIELD_MAX_MS = 50;
 
 /** Escape every RegExp metacharacter in a literal. */
 function escapeRegExp(s: string): string {
