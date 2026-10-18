@@ -20,15 +20,15 @@ Files in `__tests__/`:
 
 | File | Purpose |
 |------|---------|
-| `chrome-process.test.ts` | `DedicatedChrome` supervision over fake spawn/pipe/process list/kill, real fs in temp HOME. #E4 #E5 #E6 #R3–#R6 #R9 #R10. |
-| `dedicated-deny.test.ts` | Pure deny set: method classification vs protocol.d.ts, cookie scrubbing, predicates. #E7 #E10 #E11. |
-| `dedicated-hidden.test.ts` | Hidden targets, proxy-served discovery and auto-attach. #F1–#F5. |
-| `dedicated-instance.test.ts` | `DedicatedInstance` over `FakeChromePipe`. #E7–#E13 #F1–#F5. |
-| `dedicated-real-chrome.integration.test.ts` | REAL Chrome behind the proxy + Playwright `connectOverCDP`: no listening TCP socket in process tree, page navigates, no leftover process after stop. Skips without Chrome / display / `ps`+`lsof`. #I2. |
-| `dedicated-real-clients.integration.test.ts` | Playwright `connectOverCDP` + `agent-browser connect` handshake, create tab, navigate through the deny set over `FakeChromePipe`; agent-browser skipped when absent. #I1. |
-| `dedicated-rig.ts` | Rig: `FakeChromePipe` + in-memory CDP client socket pair + recording `AuditRing`. |
-| `dedicated-tap.test.ts` | `TabIdMap` + `TapAdapter` over server-owned sessions (task 3.4). |
-| `fake-chrome-pipe.ts` | `FakeChromePipe` — scripted browser-level CDP endpoint (`PipeLike`): targets, flattened sessions, auto-attach pause, create/attach/detach/close; events before reply; async delivery, `flush()`. |
-| `fake-chrome.ts` | Fake Chrome child for `DedicatedChrome` tests: fd3 captures NUL frames, fd4 emitter, scripted replies per method. |
-| `pipe-framing.test.ts` | NUL framing: split/merged chunks, multi-byte UTF-8 across chunks. |
-| `process-identity.test.ts` | Parsers, matchers, one test vs real spawned dummy processes. #R5 #R6. |
+| `__tests__/chrome-process.test.ts` | `DedicatedChrome` supervision over fake spawn/pipe/process list/kill, real fs in temp HOME. #E4 #E5 #E6 #R3–#R6 #R9 #R10. |
+| `__tests__/dedicated-deny.test.ts` | Pure deny set: method classification vs protocol.d.ts, cookie scrubbing, predicates. #E7 #E10 #E11. |
+| `__tests__/dedicated-hidden.test.ts` | Hidden targets, proxy-served discovery and auto-attach. #F1–#F5. |
+| `__tests__/dedicated-instance.test.ts` | `DedicatedInstance` over `FakeChromePipe`. #E7–#E13 #F1–#F5. |
+| `__tests__/dedicated-real-chrome.integration.test.ts` | REAL Chrome behind the proxy + Playwright `connectOverCDP`: no listening TCP socket in process tree, page navigates, no leftover process after stop. Skips without Chrome / display / `ps`+`lsof`. #I2. |
+| `__tests__/dedicated-real-clients.integration.test.ts` | Playwright `connectOverCDP` + `agent-browser connect` handshake, create tab, navigate through the deny set over `FakeChromePipe`; agent-browser skipped when absent. #I1. |
+| `__tests__/dedicated-rig.ts` | Rig: `FakeChromePipe` + in-memory CDP client socket pair + recording `AuditRing`. |
+| `__tests__/dedicated-tap.test.ts` | `TabIdMap` + `TapAdapter` over server-owned sessions (task 3.4). |
+| `__tests__/fake-chrome-pipe.ts` | `FakeChromePipe` — scripted browser-level CDP endpoint (`PipeLike`): targets, flattened sessions, auto-attach pause, create/attach/detach/close; events before reply; async delivery, `flush()`. |
+| `__tests__/fake-chrome.ts` | Fake Chrome child for `DedicatedChrome` tests: fd3 captures NUL frames, fd4 emitter, scripted replies per method. |
+| `__tests__/pipe-framing.test.ts` | NUL framing: split/merged chunks, multi-byte UTF-8 across chunks. |
+| `__tests__/process-identity.test.ts` | Parsers, matchers, one test vs real spawned dummy processes. #R5 #R6. |

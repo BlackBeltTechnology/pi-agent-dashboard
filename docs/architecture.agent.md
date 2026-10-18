@@ -50,7 +50,9 @@ Web dashboard monitors + interacts with pi sessions. Three components + shared t
 - Git worktree lifecycle — 5 endpoints `/api/git/worktree/*`: remove/merge/push/pr/diff-stat. Localhost-gated. `/remove` checks `activeSessionsUnder`.
 - Child Process Scanning — bridge scans every 10s (`process-scanner.ts`), two-phase PGID capture. Reports procs ≥30s.
 - OpenSpec Polling (Server-Side) — master gate `DashboardConfig.openspec.enabled` (default true).
-  - OpenSpec polling cost model — naive fan-out explodes (67 spawns). Scheduler `directory-service.ts` applies 4 throttle layers.
+  - OpenSpec polling cost model — naive fan-out explodes (67 spawns per 60 s tick: 4 `list` + 63 `status`).
+  - Current poll: 1 spawn per cwd — `openspec status --all --json`, recipe `OPENSPEC_STATUS_ALL` (`packages/shared/src/platform/openspec.ts`), 30 s timeout. Spawn count independent of change count.
+  - Scheduler `directory-service.ts` applies 4 throttle layers; mtime gate probe = `probeTrackedPaths` (`packages/server/src/openspec/openspec-poll-fs-helpers.ts`), TOCTOU-safe pre/post probe.
 - OpenSpec board — route `/folder/:encodedCwd/openspec` (`OpenSpecBoardView`). Groups=columns, draggable cards (@dnd-kit).
 - OpenSpec session card UI — attached-change row: State pill (`StatePill.tsx` `deriveChangeState`), etc.
 - File Read API — `GET /api/file?cwd=&path=`. Localhost-only.

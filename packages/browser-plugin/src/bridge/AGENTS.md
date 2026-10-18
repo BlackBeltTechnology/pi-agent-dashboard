@@ -10,4 +10,4 @@ Files in `__tests__/`:
 
 | File | Purpose |
 |------|---------|
-| `bridge.test.ts` | Tool registration (now incl. `browser_connect`); `browser_connect` sends ONLY `target` (spoofed `sessionId` dropped), `unavailable` policy result is a normal result, lane error → error result; `browser/await-state` pending around the confirm and cleared in `finally`, failing signal never breaks the tool (#E20). See change: add-dedicated-agent-browser. |
+| `__tests__/bridge.test.ts` | Tool registration (now incl. `browser_connect`); `browser_connect` sends ONLY `target` (spoofed `sessionId` dropped), `unavailable` policy result is a normal result, lane error → error result; `browser/await-state` pending around the confirm and cleared in `finally`, failing signal never breaks the tool (#E20). See change: add-dedicated-agent-browser. |

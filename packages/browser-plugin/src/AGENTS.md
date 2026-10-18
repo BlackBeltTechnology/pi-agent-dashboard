@@ -10,5 +10,5 @@ Files in `__tests__/`:
 
 | File | Purpose |
 |------|---------|
-| `config-schema.test.ts` | `configSchema.json` accepts pre-dedicated and new configs; new defaults applied (`defaultBrowser` `@dedicated`, `onUnavailable` `ask`, `idleDisconnectMinutes` 30, `openLiveViewOnConnect` true, `allowedDomains` `[]`). Task 1.1. See change: add-dedicated-agent-browser. |
-| `manifest.test.ts` | Scenario E31/7.31. `validateManifest` accepts; id `browser`; `defaultEnabled:false`; claims `settings-section`+`session-card-badge`+`content-view` resolve to EXPORTED components from the client entry (imports the barrel); `token` writeOnly in configSchema; `allowMultipleInstancesPerProfile` boolean present. |
+| `__tests__/config-schema.test.ts` | `configSchema.json` accepts pre-dedicated and new configs; new defaults applied (`defaultBrowser` `@dedicated`, `onUnavailable` `ask`, `idleDisconnectMinutes` 30, `openLiveViewOnConnect` true, `allowedDomains` `[]`). Task 1.1. See change: add-dedicated-agent-browser. |
+| `__tests__/manifest.test.ts` | Scenario E31/7.31. `validateManifest` accepts; id `browser`; `defaultEnabled:false`; claims `settings-section`+`session-card-badge`+`content-view` resolve to EXPORTED components from the client entry (imports the barrel); `token` writeOnly in configSchema; `allowMultipleInstancesPerProfile` boolean present. |

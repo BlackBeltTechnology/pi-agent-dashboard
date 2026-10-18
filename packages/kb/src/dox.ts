@@ -26,7 +26,10 @@ import type { KbStore } from "./types.js";
 // carry per-file DOX rows per the Documentation Update Protocol, and excluding the
 // whole tree blinded the orphan check there. Only the non-source `.pi` subdirs
 // (caches, kb index, npm/git mirrors, flow run state) are skipped.
-const DEFAULT_EXCLUDE = /(^|\/)(node_modules|\.git|\.github|dist|build|out|\.next|coverage|\.kb|\.worktrees|\.reverse-spec-scratch|openspec|doc-example|bundled-extensions|mockups|research|site|Prompt stories)(\/|$)|(^|\/)\.pi\/(dashboard|npm|git|flows)(\/|$)|(^|\/)electron\/resources\/server(\/|$)|(^|\/)(CHANGELOG|CLAUDE)\.md$|^README\.md$/;
+// `openspec` is excluded only as an OpenSpec WORKSPACE (`openspec/{changes,specs,
+// groups}`) — a bare `openspec` segment also matched source dirs
+// (`packages/client/src/components/openspec/`), silently blinding lint there.
+const DEFAULT_EXCLUDE = /(^|\/)(node_modules|\.git|\.github|dist|build|out|\.next|coverage|\.kb|\.worktrees|\.reverse-spec-scratch|openspec\/(?:changes|specs|groups)|doc-example|bundled-extensions|mockups|research|site|Prompt stories)(\/|$)|(^|\/)\.pi\/(dashboard|npm|git|flows)(\/|$)|(^|\/)electron\/resources\/server(\/|$)|(^|\/)(CHANGELOG|CLAUDE)\.md$|^README\.md$/;
 /**
  * `AGENTS.override.md` (pi 0.84.0) REPLACES a directory's context rather than
  * adding to it, so it is listed first and shadows the other candidates in the
@@ -624,6 +627,12 @@ export function doxLint(opts: DoxLintOptions): DoxLintResult {
           ? globHit(ref, cwd)
           : existsSync(join(cwd, ref)) || existsSync(join(afDir, ref));
         if (!hit) issues.push({ kind: "broken-ref", agentsFile: afRel, path: ref, detail: `broken-ref: row prose cites ${ref}, which does not exist` });
+      }
+      // Glob row (`*.glb`, `shots/s*.png`) documents a file family: exists iff
+      // any file under the AGENTS.md dir matches. No hash → never stale.
+      if (rp.includes("*")) {
+        if (!globHit(rp, afDir)) issues.push({ kind: "orphan", agentsFile: afRel, path: rp, detail: `orphan: no file matches ${rp}` });
+        continue;
       }
       const abs = resolveRowPath(afDir, cwd, rp);
       const rel = relative(cwd, abs);
