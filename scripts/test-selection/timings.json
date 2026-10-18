@@ -2172,7 +2172,7 @@
  "scripts/__tests__/seed-sessions-window.test.mjs": 0.039,
  "scripts/__tests__/seed-settings-compaction.test.mjs": 0.008,
  "scripts/__tests__/seed-settings-default-model.test.mjs": 0.008,
- "scripts/__tests__/select-affected-tests-graph.test.mjs": 60,
+ "scripts/__tests__/select-affected-tests-graph.test.mjs": 34.5,
  "scripts/__tests__/severity-literal-guard.test.mjs": 0.053,
  "scripts/__tests__/ship-it-manifest.test.mjs": 0.01,
  "scripts/__tests__/ship-it-no-weakening.test.mjs": 0.005,

@@ -49,7 +49,8 @@ const withTimeout = <T>(p: Promise<T>, ms: number): Promise<T> =>
     );
   });
 
-export async function listPiThemes(scan: ScanThemes): Promise<string[]> {
+/** `degraded`: the scan failed or timed out, so only the built-ins are listed. */
+async function scanThemeNames(scan: ScanThemes): Promise<{ names: string[]; degraded: boolean }> {
   const names = new Set<string>(BUILTIN_PI_THEMES);
   try {
     const found = await withTimeout(scan(), SCAN_TIMEOUT_MS);
@@ -60,7 +61,44 @@ export async function listPiThemes(scan: ScanThemes): Promise<string[]> {
       if (name) names.add(name);
     }
   } catch {
-    return [...BUILTIN_PI_THEMES].sort();
+    return { names: [...BUILTIN_PI_THEMES].sort(), degraded: true };
   }
-  return [...names].sort();
+  return { names: [...names].sort(), degraded: false };
+}
+
+export interface ThemeLister {
+  list(): Promise<string[]>;
+  /** Drop the cached list (a settings write can change `packages` / `themes`). */
+  invalidate(): void;
+}
+
+/** A good result is reused this long; a degraded one is retried sooner. */
+const TTL_MS = 30_000;
+const DEGRADED_TTL_MS = 5_000;
+
+/**
+ * Theme lister with a short cache and in-flight de-duplication. The scan runs pi's
+ * package resolver plus synchronous fs walks, so repeating it on every
+ * `GET /api/pi-settings` would add event-loop latency to a hot read.
+ */
+export function createThemeLister(scan: ScanThemes, now: () => number = Date.now): ThemeLister {
+  let cached: { names: string[]; until: number } | null = null;
+  let inflight: Promise<string[]> | null = null;
+  return {
+    list() {
+      if (cached && now() < cached.until) return Promise.resolve(cached.names);
+      if (inflight !== null) return inflight;
+      const run = scanThemeNames(scan).then(({ names, degraded }) => {
+        cached = { names, until: now() + (degraded ? DEGRADED_TTL_MS : TTL_MS) };
+        return names;
+      });
+      inflight = run.finally(() => {
+        inflight = null;
+      });
+      return inflight;
+    },
+    invalidate() {
+      cached = null;
+    },
+  };
 }

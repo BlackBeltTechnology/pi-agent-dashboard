@@ -50,7 +50,7 @@ import {
   readPiSettings,
   writePiSettingsRaw,
 } from "../pi-agent-settings.js";
-import { listPiThemes, type ScanThemes } from "../pi-settings-themes.js";
+import { createThemeLister, type ScanThemes } from "../pi-settings-themes.js";
 import type { NetworkGuard } from "./route-deps.js";
 
 /** Request-body cap for the raw editor (design D6). */
@@ -119,6 +119,8 @@ export function registerPiSettingsRoutes(
       return scanPiResources(globalDir, { globalDir });
     });
 
+  const themeLister = createThemeLister(scanThemes);
+
   const logWrite = (route: string, outcome: string, reloaded?: number) => {
     console.log(`[pi-settings] ${route} ${outcome}${reloaded !== undefined ? ` reloaded=${reloaded}` : ""}`);
   };
@@ -150,6 +152,7 @@ export function registerPiSettingsRoutes(
 
   const ok = (route: string, r: Extract<PiSettingsWriteResult, { ok: true }>): PiSettingsWriteResponse => {
     // Apply to running sessions only after a successful write.
+    themeLister.invalidate();
     const reloadedSessions = reloadConnectedSessions();
     logWrite(route, "ok", reloadedSessions);
     return {
@@ -171,7 +174,7 @@ export function registerPiSettingsRoutes(
       raw: s.raw,
       etag: s.etag,
       ...(s.parseError ? { parseError: s.parseError } : {}),
-      themes: await listPiThemes(scanThemes),
+      themes: await themeLister.list(),
       legacyCredentials: detectLegacyCredentials(s.settings, readAuthSnapshotUnlocked()),
     };
   });
@@ -241,6 +244,7 @@ export function registerPiSettingsRoutes(
       }
       const r = await applyLegacyCredentialActions(actions as LegacyAction[], baseEtag, fsDeps);
       if (r.ok) {
+        themeLister.invalidate();
         const reloadedSessions = reloadConnectedSessions();
         logWrite("legacy-credentials", "ok", reloadedSessions);
         return {

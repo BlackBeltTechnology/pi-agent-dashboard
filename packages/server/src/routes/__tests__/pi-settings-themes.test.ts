@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { PiResource, PiResourcesResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { createThemeLister } from "../../pi-settings-themes.js";
 import { registerPiSettingsRoutes } from "../pi-settings-routes.js";
 
 /**
@@ -95,5 +96,68 @@ describe("pi-settings themes", () => {
     } finally {
       await real.close();
     }
+  });
+
+  it("caches the scan across reads and rescans after a settings write", async () => {
+    let calls = 0;
+    scan = async () => {
+      calls++;
+      return { global: scope([]), packages: [] };
+    };
+    await themes();
+    await themes();
+    expect(calls).toBe(1);
+    const etag = (await app.inject({ method: "GET", url: "/api/pi-settings" })).json().etag as string;
+    const put = await app.inject({ method: "PUT", url: "/api/pi-settings", payload: { patch: { steeringMode: "all" }, baseEtag: etag } });
+    expect(put.statusCode).toBe(200);
+    await themes();
+    expect(calls).toBe(2);
+  });
+});
+
+describe("createThemeLister", () => {
+  const empty = async () => ({ global: scope([]), packages: [] });
+  const scope = (themes: PiResource[]) => ({ extensions: [], skills: [], prompts: [], themes, agents: [] });
+
+  it("de-duplicates concurrent scans and reuses a good result for 30 s", async () => {
+    let t = 1_000;
+    let calls = 0;
+    const lister = createThemeLister(
+      async () => {
+        calls++;
+        return empty();
+      },
+      () => t,
+    );
+    await Promise.all([lister.list(), lister.list(), lister.list()]);
+    expect(calls).toBe(1);
+    t += 29_000;
+    await lister.list();
+    expect(calls).toBe(1);
+    t += 2_000;
+    await lister.list();
+    expect(calls).toBe(2);
+  });
+
+  it("retries a degraded (failed) scan after 5 s, not 30 s, and invalidate() forces a rescan", async () => {
+    let t = 1_000;
+    let calls = 0;
+    const lister = createThemeLister(
+      async () => {
+        calls++;
+        throw new Error("resolver exploded");
+      },
+      () => t,
+    );
+    expect(await lister.list()).toEqual(["dark", "light", "system"]);
+    t += 4_000;
+    await lister.list();
+    expect(calls).toBe(1);
+    t += 2_000;
+    await lister.list();
+    expect(calls).toBe(2);
+    lister.invalidate();
+    await lister.list();
+    expect(calls).toBe(3);
   });
 });
