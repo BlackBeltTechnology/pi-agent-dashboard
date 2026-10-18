@@ -90,6 +90,17 @@ describe("evaluateGate", () => {
     expect(res).toEqual({ needsInit: false });
   });
 
+  it("a kb database left by another writer after a failed install still counts as present (no re-init)", async () => {
+    // fix-kb-index-integrity (X3): when a kb index run fails its no-clobber install because
+    // another kb writer created the database, the file at dbPath is that writer's — the
+    // sentinel `test ! -f <dbPath>` must read "initialised", not fire init again.
+    const gate = "test ! -f .pi/dashboard/kb/index.db";
+    expect(await evaluateGate(tmp, hook(gate))).toEqual({ needsInit: true });
+    fs.mkdirSync(path.join(tmp, ".pi", "dashboard", "kb"), { recursive: true });
+    fs.writeFileSync(path.join(tmp, ".pi", "dashboard", "kb", "index.db"), "other writer's database");
+    expect(await evaluateGate(tmp, hook(gate))).toEqual({ needsInit: false });
+  });
+
   it("fails closed when the gate cannot be spawned", async () => {
     const res = await evaluateGate(tmp, hook("test ! -d node_modules"), {
       spawnFn: () => { throw new Error("spawn ENOENT"); },

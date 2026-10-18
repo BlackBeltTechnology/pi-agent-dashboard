@@ -6,7 +6,7 @@ Decisions applied (hard gate, answered by the user):
 - **K1** forced-pass cost → L1 timed test on a generated 600-file fixture, forced pass ≤ 1.5× first index (median of 3 runs each); the full-repo ≤ 1.3× number is recorded once in the PR (manual row M1).
 - **K2** dashboard job waiting on another process's first index → `/api/kb/stats` reports `jobStatus: "running"`, `indexing: true` for the whole wait.
 - **K3** CLI non-index commands during a live first index → print the building line, exit **75** (`EX_TEMPFAIL`).
-- **K4** install log line → `[kb] install=<link|rename|backup> retries=<n> ms=<n>`; failure `[kb] install-failed=<busy-timeout|backup-error:<errcode>|build-error> retries=<n> ms=<n>` (stderr).
+- **K4** install log line → `[kb] install=<link|rename|backup> retries=<n> ms=<n>`; failure `[kb] install-failed=<busy-timeout|backup-error:<errcode>> retries=<n> ms=<n>` (stderr).
 
 Legend: L1 = vitest. "Holder" = a child `node` process that opens `dbPath` with raw `node:sqlite`, sets WAL, writes, and stays open — a writer that does not honour the live-build marker (stands in for kb ≤0.9.0). Building line = `(index is still being built — no results available yet; retry shortly)`.
 
@@ -77,10 +77,8 @@ Exemplar harness files (verified exist):
 
 | id | requirement | technique | level | disposition | exemplar | input | trigger | expected observable (invariant) |
 |----|-------------|-----------|-------|-------------|----------|-------|---------|---------------------------------|
-| F1 | ext › Gate-forced pass does not stall a pull tool | state-convergence | L1 | automated | reindex.test.ts + kb-search-tool.test.ts | populated DB, every `gate:<root>` absent; `indexSource` gated on a deferred promise | `kb_search` twice while the pass is held | both return existing-index results before the deferred resolves; after resolve, `gate:<root>` written for each walked source |
 | F2 | plugin › Reindex job waits for a live first index (K2) | state-transition | L1 | automated | kb-routes.test.ts | no `dbPath`; live foreign tmp marker with fresh mtime | `POST /api/kb/reindex` → poll stats → builder installs (test writes the DB + removes tmp) | `202 {status:"running"}`; during wait `jobStatus:"running"`, `indexing:true`, no file created by the job; after install job walks; final `indexing:false`, `chunks>0`, `jobStatus:"idle"` |
 | F3 | plugin › Awaited first index dies | state-transition | L1 | automated | kb-routes.test.ts | as F2; marker's PID killed / mtime aged past 120 s, no DB produced | wait loop observes non-live | job builds through the first-index path; `chunks>0`; no file at `dbPath` before its own install |
-| F4 | ext › Debounced pass in flight is still awaited | state-convergence | L1 | automated | reindex.test.ts | populated, current records; markdown edit adds token `omega`; debounced pass held on a deferred | `kb_search "omega"` | `kb_search` resolves only after the deferred; result contains the edited file |
 | F5 | ext › own first index joins in-flight | state | L1 | automated | reindex.test.ts | no `dbPath`, no marker | `kb_search` and `kb_get` concurrently in one process | exactly one first-index build (walk spy 1); neither returns the building line |
 | F6 | pipeline › two simultaneous first indexes | state-convergence | L1 | automated | kb.test.ts (CLI spawn) | no `dbPath`; 300-file fixture | two `kb index` child processes started together | both exit 0; final DB file/chunk counts equal a single first index; one log line `install=link`, the other `install=backup` |
 
@@ -98,7 +96,6 @@ Exemplar harness files (verified exist):
 | X8 | mkb › Failed index leaves no artifact | regression | L1 | automated | index-atomicity.test.ts | all configured sources missing | `kb index` | exit ≠ 0; no file at `dbPath` (existing §1.1 test stays green) |
 | X9 | pipeline › Forced pass failing part-way leaves no file without rows | fault-injection (abort) | L1 | automated | index-atomicity.test.ts | populated 300-file DB; `readFileSync` spy throws a non-ENOENT error at file 250 under `--force` | pass | rejects; every file has ≥ 1 chunk; files 1–200 (committed batches) re-chunked, 201–300 prior |
 | X10 | ext › One failing source does not stop the others | fault-injection (abort) | L1 | automated | reindex.test.ts | 2 filesystem sources, records absent; source A's walk throws | `reindexNow` | source B indexed and `gate:B` written; `gate:A` absent; next pass forces A |
-| X11 | ext › Unawaited forced pass failure is swallowed | fault-injection (abort) | L1 | automated | reindex.test.ts | populated DB, records absent; `indexSource` rejects | `kb_search` (non-awaited start) | one warning logged; `process` `unhandledRejection` listener sees 0 events; next `kb_search` answers from the existing index |
 | X12 | pipeline › Concurrent writer during the record rebuild | fault-injection (concurrent writer) | L1 | automated | index-atomicity.test.ts | second connection inserts mapped chunks in a tight loop | new connection's first pass (rebuild) | pass completes or aborts before any per-file delete; afterwards no path has duplicate chunks |
 | X13 | plugin › Errored or untrusted source stays due / keeps chunks | fault-injection (abort) | L1 | automated | kb-routes.test.ts | 2 sources, records absent, one untrusted | reindex job settles | untrusted source's chunks unchanged and `gate:<it>` absent; trusted source re-chunked and recorded |
 | X14 | mkb › rollback compatibility | equivalence | L1 | automated | frontmatter-indexing.test.ts | DB after new-code passes | evaluate the pre-change gate predicate (`user_version < 3 \|\| facetConfigHash ≠ frontmatterConfigHash`) | false (old code would not force) |
@@ -108,10 +105,10 @@ Exemplar harness files (verified exist):
 
 ## Coverage summary
 
-- Requirements covered: 16/16 modified/added requirements (pipeline 5, mkb 4, fts5 3 incl. the added cache requirement, ext 2, plugin 1, wt-init 1); every added/modified scenario maps to ≥ 1 row.
-- Scenarios by class: edge 34 · perf 3 · frontend 6 · error 15
-- Scenarios by level: L1 57 · L2 0 · L3 0 · manual 1
-- Scenarios by disposition: automated 57 · manual-only 1
+- Requirements covered: 16/16 modified/added requirements (pipeline 5, mkb 4, fts5 3 incl. the added cache requirement, ext 2, plugin 1, wt-init 1); every added/modified scenario maps to ≥ 1 row. Re-baselined on the archived `bound-kb-search-freshness`: F1, F4, X11 dropped (their behaviour is the existing freshness budget / in-flight join / late-rejection handling, already covered by its tests); E30 asserts the existing `BUILDING_LINE` + `[]` json shape under a live-marker trigger.
+- Scenarios by class: edge 34 · perf 3 · frontend 4 · error 14
+- Scenarios by level: L1 55 · L2 0 · L3 0 · manual 1
+- Scenarios by disposition: automated 55 · manual-only 1
 
 ## New infra needed
 

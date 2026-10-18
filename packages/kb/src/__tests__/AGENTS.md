@@ -17,3 +17,11 @@ Files added by change add-kb-git-forge-scope. One row per file. (Older test rows
 | `helpers/synthetic-tree.ts` | Scaled synthetic trees: `makeDeepTree`, `makeWideDir`, `makeFlatFiles`, `makeFlatDirs`. See change: bound-kb-search-freshness. |
 | `helpers/lease-worker.mts` | Child process for the multi-process lease tests (`node --import tsx`); roles `sync` / `hang`. |
 | `walk-yield.test.ts` | Vitest: walk + gitignore pre-scan yield (timer fires, lag ≤250 ms), wide-dir R10 residual (P3, P4). See change: bound-kb-search-freshness. |
+
+Files added by change fix-kb-index-integrity.
+
+| File | Purpose |
+|------|---------|
+| `index-integrity-gate.test.ts` | Vitest for `indexOptionsHash` coverage, per-source gate records, back-compat stamps (E1–E5, X14). |
+| `index-integrity-graph.test.ts` | Vitest for qualified heading nodes, owned-row replacement, incremental==first-index graph, neighbors resolution, rowid-addressed deletes, record rebuild, vanished files, `data_version` df cache, perf ratio (E7–E21, E29, X9, X12, X15, P1, P2). |
+| `index-integrity-install.test.ts` | Vitest for the live-build marker, heartbeat, orphan sweep, `installIndex` branches/retries and `kb index` CLI concurrency with a holder connection (E22–E28, F6, X1–X5, X7). |

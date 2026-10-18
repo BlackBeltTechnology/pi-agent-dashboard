@@ -7,6 +7,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { DEFAULT_FACET_KEYS, DEFAULT_SEARCHABLE_KEYS, type FacetKeyConfig } from "./frontmatter.js";
+import type { IndexOptions } from "./indexer.js";
 
 function expandTilde(p: string): string {
   return p.startsWith("~/") ? join(homedir(), p.slice(2)) : p;
@@ -231,6 +232,43 @@ export function frontmatterConfigHash(fm: FrontmatterConfig): string {
     facetKeys: [...fm.facetKeys].map((f) => ({ key: f.key, type: f.type ?? "string" })).sort((a, b) => a.key.localeCompare(b.key)),
   };
   return createHash("sha256").update(JSON.stringify(norm)).digest("hex").slice(0, 16);
+}
+
+/** The slice of a resolved config the index gate hashes. */
+export interface IndexGateConfig {
+  frontmatter: FrontmatterConfig;
+  includeSourceMarkdown?: boolean;
+}
+
+/** Hash of every option that changes what an UNCHANGED file indexes to: the
+ *  frontmatter routing config and `includeSourceMarkdown` (it flips a file's
+ *  `doc_type`; unset normalizes to `true`, as the indexer reads it). Selection-only
+ *  options (include/exclude/extensions/gitignore/agents) are deliberately NOT in it:
+ *  an unchanged file keeps its rows and the next walk adds/prunes the rest.
+ *  See change: fix-kb-index-integrity (D6). */
+export function indexOptionsHash(cfg: IndexGateConfig): string {
+  const norm = {
+    fm: frontmatterConfigHash(cfg.frontmatter),
+    includeSourceMarkdown: cfg.includeSourceMarkdown !== false,
+  };
+  return createHash("sha256").update(JSON.stringify(norm)).digest("hex").slice(0, 16);
+}
+
+/** The ONE derivation of indexer options from a resolved config — every docs writer
+ *  (`kb index`, CLI auto-index, kb-extension reindex, dashboard reindex job) uses it,
+ *  so none can silently drop `frontmatter` (custom facet keys). */
+export function indexOptionsFromConfig(cfg: ResolvedConfig, overrides: Partial<IndexOptions> = {}): IndexOptions {
+  return {
+    indexAgentsFiles: cfg.indexAgentsFiles,
+    includeSourceMarkdown: cfg.includeSourceMarkdown,
+    include: cfg.include,
+    exclude: cfg.exclude,
+    extensions: cfg.extensions,
+    frontmatter: cfg.frontmatter,
+    respectGitignore: cfg.respectGitignore,
+    cwd: cfg.cwd,
+    ...overrides,
+  };
 }
 
 const isPlainObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);

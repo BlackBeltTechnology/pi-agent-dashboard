@@ -149,7 +149,7 @@ flowchart TD
   writer that ignores the live-build marker (kb ≤0.9.0) creates `dbPath` mid-build *and* holds a
   write lock for 30 s; that writer's own cold-start populate fills it. Specs state this exception.
 - Logged, one stderr line per install: `[kb] install=<link|rename|backup> retries=<n> ms=<n>`, or on
-  failure `[kb] install-failed=<busy-timeout|backup-error:<errcode>|build-error> retries=<n> ms=<n>` (K4).
+  failure `[kb] install-failed=<busy-timeout|backup-error:<errcode>> retries=<n> ms=<n>` (K4).
 
 ### D2 — One creation path and the live-build marker
 
@@ -161,8 +161,8 @@ flowchart TD
   are not queryable until the install (today they are, per 100-file commit).
 - A present `dbPath` (populated, legitimately empty, or an old husk) is indexed in place as today.
 - Live-build marker ⇔ a `<dbPath>.tmp-<pid>` exists, its PID is alive (`isProcessAlive`,
-  `index-run.ts:40-47`), and the newest mtime of the tmp file or its `-wal` is 0–120 s in the past.
-  A future mtime (clock skew) is not live. Heartbeat: the builder checks elapsed time in its
+  `index-run.ts:40-47`), and the newest mtime of the tmp file or its `-wal` is within 120 s of now (up to 2 s ahead of the clock is tolerated for timestamp rounding; a mtime further ahead is not trusted).
+  Heartbeat: the builder checks elapsed time in its
   per-file loop and calls `utimesSync` on the temp file every 30 s (a timer cannot fire inside a
   synchronous batch, `indexer.ts:55-61`, `:147-150`), in addition to the 100-file commits.
 - Orphan sweep (`sweepOrphanTemps`, `index-run.ts:53-72`): removes a temp whose PID is dead (as
@@ -173,10 +173,13 @@ flowchart TD
 - Absent `dbPath`, another process's marker live:
   - kb-extension pull tools return the line
     `(index is still being built — no results available yet; retry shortly)`; `kb_search` with
-    `format: "json"` appends `[]` as the final line (same string and shape as
-    `bound-kb-search-freshness`, `design.md:171`, `tasks.md:25` there). The check runs before any
-    store work; `getKb` moves inside the handled region of each `execute`
-    (`extension.ts:257-262`, `:303-308`, `:336-341`).
+    `format: "json"` appends `[]` as the final line — the existing `BUILDING_LINE` of
+    `reindex.ts` and the existing json shape of `kb_search` (`bound-kb-search-freshness`, archived).
+    The check runs before any store work. `getKb` no longer creates a store: on an absent `dbPath`
+    it returns `null`, and each `execute` treats a `null` store after its freshness wait as the
+    building result (a first index that outlasts the freshness budget is thereby reported as
+    building, as the cold-populate case is today). `freshnessStatus` likewise treats an absent
+    store as `building` unless the pass completed.
   - the debounced reindex skips without a warning;
   - the CLI's non-index commands print the same line and exit 75 (`EX_TEMPFAIL`, K3);
   - the dashboard reindex job waits (poll 1 s) while the marker stays live — a wedged builder stops
@@ -263,16 +266,7 @@ flowchart TD
   `facetConfigHash = frontmatterConfigHash(cfg.frontmatter)` — the *frontmatter-only* hash old code
   compares (`cli.ts:81-82`, `index-run.ts:103-104`), so old code does not force after a rollback.
   Consequence: after a rollback, old code does not force a source that failed under new code.
-- `kb_search` does **not** await a gate-forced pass when the index already has chunks: it starts the
-  pass (or finds that gate-forced pass in flight) and answers from the existing index. The in-flight
-  entry records whether it is gate-forced (`reindex.ts:160-161` returns one promise to every caller
-  today); a non-forced in-flight pass (e.g. a debounced pass after an edit) is still awaited, so
-  `kb_search` never misses a just-made edit. The non-awaiting starter owns a `.catch` that logs a
-  warning and swallows, like the debounced path (`reindex.ts:200-207`): an unhandled rejection
-  would end the process on Node ≥15. `kb_get`/`kb_neighbors` on a warm index
-  start no pass (unchanged). Cold-start populate (`chunks === 0`) is still awaited. The debounced
-  path runs gate-forced passes normally. The one-shot CLI awaits its gate-forced pass (it would
-  otherwise exit mid-walk). Labelling such answers as possibly stale is `bound-kb-search-freshness`'s.
+- **No non-awaiting path (re-baselined).** `bound-kb-search-freshness` (archived 2026-10-18) landed after this change was planned: `awaitFreshness` already bounds every pull tool's wait by the freshness budget (default 1500 ms), answers from the existing index on expiry with the stale line, and swallows a late rejection at pass creation (`reindexNow`'s `p.catch`). A gate-forced pass therefore stalls a pull tool for at most the budget — the stall this section originally removed — so no separate "start without awaiting" mode is added. The one-shot CLI awaits its gate-forced pass (it would otherwise exit mid-walk).
 - Callers: `runIndexAtomic`, `cli.ts runIndex`, `reindexNow` (per-source try/catch: one source's
   throw no longer aborts the others), `reindexAll` (keeps its per-source outcomes, stamps `ok`
   sources only).
@@ -309,14 +303,17 @@ flowchart TD
   the second installs by backup over the first. Correct, wasteful.
 - **Cold populate is no longer partially queryable**: until the session's first index installs, its
   own concurrent pull tools wait on the in-flight build, as cold populate is awaited today.
-- **Sequencing with `bound-kb-search-freshness`**: both MODIFY "Cold-start populate and freshness
-  reindex on pull tools". Archive this change first; task 7.1 rebases the other delta.
+- **Re-baselined on `bound-kb-search-freshness`** (archived 2026-10-18, merged into develop after this
+  change was planned): this change's deltas to "Cold-start populate and freshness reindex on pull
+  tools" and "LLM-facing pull retrieval" are rebased onto the post-freshness text (all of its
+  scenarios carried); the "Condensed default `kb_search` output" delta is dropped (the status-line
+  rule is already in main).
 
 ## Migration Plan
 
 1. Ship. No `SCHEMA_VERSION` bump.
 2. First upgraded writer per source: `item_rows` rebuilt on its first pass; per-source record
-   absent → forced pass (background for pull tools) → qualified heading nodes, no erosion,
+   absent → forced pass (a pull tool waits at most the freshness budget) → qualified heading nodes, no erosion,
    per-source record + back-compat stamps.
 3. No manual step; `kb index --force` remains the explicit heal.
 
@@ -328,6 +325,4 @@ on the first pass.
 
 ## Open Questions
 
-- None blocking. `bound-kb-search-freshness` rebases its delta of "Cold-start populate and freshness
-  reindex on pull tools" onto this change's text and maps the "index is still being built" result, the single creation path and the background
-  gate-forced pass into its pass-state labels (task 7.1).
+- None blocking.

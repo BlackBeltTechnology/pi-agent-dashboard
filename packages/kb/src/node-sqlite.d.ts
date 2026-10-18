@@ -23,6 +23,15 @@ declare module "node:sqlite" {
     enableDoubleQuotedStringLiterals?: boolean;
     allowExtension?: boolean;
   }
+  export interface BackupOptions {
+    source?: string;
+    target?: string;
+    rate?: number;
+    progress?: (info: { totalPages: number; remainingPages: number }) => void;
+  }
+  /** Module function (Node >= 22.19 / 24): online backup of `sourceDb` into the database file at
+   *  `path` in `rate`-page steps. NOT a `DatabaseSync` method. Resolves with the pages copied. */
+  export function backup(sourceDb: DatabaseSync, path: string, options?: BackupOptions): Promise<number>;
   export class DatabaseSync {
     constructor(path: string, options?: DatabaseSyncOptions);
     exec(sql: string): void;
