@@ -34,6 +34,8 @@ interface PackageBrowserProps {
   showInstalledSection?: boolean;
   /** Global Add-ons page: recommended entries already installed globally are not repeated as cards. */
   hideGlobalInstalledRecommended?: boolean;
+  /** Global sources the Add-ons hub turned off; their recommended card is not repeated. */
+  hubOffSources?: readonly string[];
 }
 
 export function PackageBrowser({
@@ -43,6 +45,7 @@ export function PackageBrowser({
   onConfirmInstall,
   showInstalledSection = true,
   hideGlobalInstalledRecommended = false,
+  hubOffSources,
 }: PackageBrowserProps) {
   const { t } = useI18n();
   const search = usePackageSearch();
@@ -179,7 +182,7 @@ export function PackageBrowser({
   return (
     <div className="flex flex-col gap-3" data-testid="package-browser">
       {/* Recommended extensions (curated by the dashboard) — shown above search */}
-      <RecommendedExtensions scope={scope} cwd={cwd} hideGlobalInstalled={hideGlobalInstalledRecommended} />
+      <RecommendedExtensions scope={scope} cwd={cwd} hideGlobalInstalled={hideGlobalInstalledRecommended} hubOffSources={hubOffSources} />
 
       {/* Installed Packages — every source shape, uniform PackageRow.
           Hidden in Settings → Packages where UnifiedPackagesSection already

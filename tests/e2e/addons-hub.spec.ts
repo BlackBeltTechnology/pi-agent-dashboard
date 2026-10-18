@@ -48,17 +48,20 @@ test.describe("Add-ons hub", () => {
     await expect(page.getByTestId("addons-explainer-toggle")).toHaveAttribute("aria-expanded", "true");
     await expect(page.getByTestId("addons-explainer-toggle")).toBeFocused();
 
-    // Recommended once: an entry with an installed row has no card in the Browse panel.
+    // Recommended once: an entry with an installed row has no card in the Discover tab.
+    await page.getByTestId("addons-tab-installed").waitFor({ state: "visible", timeout: 30_000 });
+    await expect(page.locator("[data-testid^='addon-row-']").first()).toBeVisible({ timeout: 30_000 });
+    const rowNames = await page
+      .locator("[data-testid^='addon-row-']")
+      .evaluateAll((els) => els.map((e) => (e.getAttribute("data-testid") ?? "").replace("addon-row-", "")));
+    await page.getByTestId("addons-tab-discover").click();
     await page.getByTestId("package-browser").waitFor({ state: "visible", timeout: 30_000 });
-    const rowIds = await page
-      .locator("[data-testid^='pkg-row-']")
-      .evaluateAll((els) => els.map((e) => e.getAttribute("data-testid") ?? ""));
     const cardIds = await page
       .locator("[data-testid^='rec-remove-']")
       .evaluateAll((els) => els.map((e) => (e.getAttribute("data-testid") ?? "").replace("rec-remove-", "")));
     // A card with a Remove action is an installed entry; installed-globally ones must not be cards.
     // (Folder-only installs legitimately keep a card, hence the harness has none.)
-    expect(cardIds.filter((id) => rowIds.some((r) => r.includes(id)))).toEqual([]);
+    expect(cardIds.filter((id) => rowNames.some((r) => r.includes(id)))).toEqual([]);
   });
 
   test("F4: Plugins subtree is collapsed by default at 375px, expands in place, persists across reload", async ({ page }) => {
@@ -81,5 +84,38 @@ test.describe("Add-ons hub", () => {
     await page.reload();
     await byTestId(page, "settingsContent").waitFor({ state: "visible", timeout: 15_000 });
     await expect(page.getByTestId("nav-plugins-toggle")).toHaveAttribute("aria-expanded", "true", { timeout: 30_000 });
+  });
+  // See change: addons-hub-feature-catalog (test-plan #F6, #F7).
+  test("F6: Goal off and on round-trips through the hub switch and the settings entry", async ({ page }) => {
+    await gotoDashboard(page);
+    const catalog = await page.request.get("/api/addons/catalog");
+    const features = ((await catalog.json()) as { features: Array<{ id: string; packages: unknown[] }> }).features;
+    const goal = features.find((f) => f.id === "plugin:goal");
+    test.skip(!goal || goal.packages.length === 0, "Goal's pi-goal-hermes package is not installed in this harness");
+
+    await page.goto("/settings/add-ons");
+    const sw = page.getByTestId("addon-switch-plugin:goal");
+    await expect(sw).toHaveAttribute("aria-checked", "true", { timeout: 30_000 });
+    await sw.click();
+    await page.getByTestId("addon-toggle-confirm-button").click();
+    await expect(sw).toHaveAttribute("aria-checked", "false", { timeout: 15_000 });
+
+    await page.reload();
+    await expect(page.getByTestId("addon-switch-plugin:goal")).toHaveAttribute("aria-checked", "false", { timeout: 30_000 });
+    const off = ((await (await page.request.get("/api/addons/catalog")).json()) as { features: Array<{ id: string; state: string }> }).features;
+    expect(off.find((f) => f.id === "plugin:goal")?.state).toBe("off");
+
+    await page.getByTestId("addon-switch-plugin:goal").click();
+    await expect(page.getByTestId("addon-switch-plugin:goal")).toHaveAttribute("aria-checked", "true", { timeout: 15_000 });
+  });
+
+  test("F7: the selected tab survives a reload", async ({ page }) => {
+    await gotoDashboard(page);
+    await page.goto("/settings/add-ons");
+    await page.getByTestId("addons-tab-discover").click();
+    await expect(page).toHaveURL(/\?tab=discover/);
+    await page.reload();
+    await expect(page.getByTestId("addons-tab-discover")).toHaveAttribute("aria-selected", "true", { timeout: 30_000 });
+    await expect(page.getByTestId("package-browser")).toBeVisible({ timeout: 30_000 });
   });
 });

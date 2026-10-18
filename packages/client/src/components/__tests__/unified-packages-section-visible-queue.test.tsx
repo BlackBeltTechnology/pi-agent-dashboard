@@ -11,7 +11,7 @@
  */
 
 import type {
-	InstalledPackage,
+	AddonFeature,
 	PiCoreStatus,
 } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -19,10 +19,12 @@ import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { packageQueue } from "../../lib/package/package-queue.js";
 import { UnifiedPackagesSection } from "../packages/UnifiedPackagesSection.js";
+import { feature, part } from "./addons-feature-fixtures.js";
 
 const PI = "@earendil-works/pi-coding-agent";
 const DASH = "@blackbelt-technology/pi-agent-dashboard";
 const EXT_SRC = "npm:@blackbelt-technology/pi-dashboard-subagents";
+const FEATURE_ID = `pkg:${EXT_SRC}`;
 
 const mockUsePiCoreVersions = vi.fn<() => {
 	status: PiCoreStatus | null;
@@ -30,8 +32,8 @@ const mockUsePiCoreVersions = vi.fn<() => {
 	error: string | null;
 	refresh: (force?: boolean) => Promise<void>;
 }>();
-const mockUseInstalledPackages = vi.fn<() => {
-	packages: InstalledPackage[];
+const mockUseAddonCatalog = vi.fn<() => {
+	features: AddonFeature[];
 	isLoading: boolean;
 	error: string | null;
 	refresh: () => Promise<void>;
@@ -40,8 +42,8 @@ const mockUseInstalledPackages = vi.fn<() => {
 vi.mock("../../hooks/usePiCoreVersions.js", () => ({
 	usePiCoreVersions: () => mockUsePiCoreVersions(),
 }));
-vi.mock("../../hooks/useInstalledPackages.js", () => ({
-	useInstalledPackages: () => mockUseInstalledPackages(),
+vi.mock("../../hooks/useAddonCatalog.js", () => ({
+	useAddonCatalog: () => mockUseAddonCatalog(),
 }));
 vi.mock("../../hooks/usePiChangelog.js", () => ({
 	usePiChangelog: () => ({ data: null, isLoading: false, error: null }),
@@ -59,7 +61,6 @@ function jsonResponse(payload: any, status = 200): Response {
 	});
 }
 const btn = (id: string) => screen.getByTestId(id) as HTMLButtonElement;
-const extId = `pkg-row-${EXT_SRC.replace(/[^a-z0-9]/gi, "-")}`;
 
 beforeEach(() => {
 	packageQueue.__resetForTests();
@@ -90,19 +91,12 @@ beforeEach(() => {
 		error: null,
 		refresh: vi.fn().mockResolvedValue(undefined),
 	});
-	mockUseInstalledPackages.mockReturnValue({
-		packages: [
-			{
-				source: EXT_SRC,
-				scope: "user",
-				filtered: false,
-				version: "0.1.1",
+	mockUseAddonCatalog.mockReturnValue({
+		features: [
+			feature(FEATURE_ID, {
 				displayName: "pi-dashboard-subagents",
-				isRecommended: true,
-				isBundled: false,
-				publishedVariantSource: EXT_SRC,
-				publishedVariantVersion: "0.1.2",
-			} as InstalledPackage,
+				packages: [part(EXT_SRC, { version: "0.1.1", publishedVariantSource: EXT_SRC, publishedVariantVersion: "0.1.2" })],
+			}),
 		],
 		isLoading: false,
 		error: null,
@@ -139,7 +133,7 @@ describe("UnifiedPackagesSection — visible queue (D9)", () => {
 		);
 
 		render(<UnifiedPackagesSection />);
-		await waitFor(() => expect(screen.getByTestId(`${extId}-update`)).toBeTruthy());
+		await waitFor(() => expect(screen.getByTestId(`addon-update-${FEATURE_ID}`)).toBeTruthy());
 
 		// 1. Start a core update — its POST stays pending.
 		await act(async () => {
@@ -150,12 +144,12 @@ describe("UnifiedPackagesSection — visible queue (D9)", () => {
 
 		// 2. The OTHER core row and the extension row are still CLICKABLE.
 		expect(btn(`pi-core-row-${DASH}-update`).disabled).toBe(false);
-		expect(btn(`${extId}-update`).disabled).toBe(false);
+		expect(btn(`addon-update-${FEATURE_ID}`).disabled).toBe(false);
 
 		// 3. Click both mid-flight.
 		await act(async () => {
 			fireEvent.click(btn(`pi-core-row-${DASH}-update`));
-			fireEvent.click(btn(`${extId}-update`));
+			fireEvent.click(btn(`addon-update-${FEATURE_ID}`));
 			await flush();
 		});
 
@@ -163,7 +157,7 @@ describe("UnifiedPackagesSection — visible queue (D9)", () => {
 		expect(packageQueue.getStateForSource(`pi-core:${DASH}`)).toBe("queued");
 		expect(packageQueue.getStateForSource(EXT_SRC)).toBe("queued");
 		expect(screen.getByTestId(`pi-core-row-${DASH}-queued`)).toBeTruthy();
-		expect(screen.getByTestId(`${extId}-queued`)).toBeTruthy();
+		expect(screen.getByTestId(`addon-queued-${FEATURE_ID}`)).toBeTruthy();
 		expect(screen.queryByText(/already in progress/i)).toBeNull();
 		// Only the running op has been POSTed.
 		expect(calls.filter((u) => u === "/api/pi-core/update")).toHaveLength(1);
@@ -311,16 +305,16 @@ describe("UnifiedPackagesSection — visible queue (D9)", () => {
 		);
 
 		render(<UnifiedPackagesSection />);
-		await waitFor(() => expect(screen.getByTestId(`${extId}-update`)).toBeTruthy());
+		await waitFor(() => expect(screen.getByTestId(`addon-update-${FEATURE_ID}`)).toBeTruthy());
 
 		// Idle: the menu's reset item is live (inline link is gone).
 		await act(async () => {
-			fireEvent.click(btn(`${extId}-menu`));
+			fireEvent.click(btn(`addon-menu-${FEATURE_ID}`));
 			await flush();
 		});
-		expect(btn(`${extId}-reset-to-published`).disabled).toBe(false);
+		expect(btn(`addon-reset-${FEATURE_ID}`).disabled).toBe(false);
 		await act(async () => {
-			fireEvent.click(btn(`${extId}-menu`));
+			fireEvent.click(btn(`addon-menu-${FEATURE_ID}`));
 			await flush();
 		});
 
@@ -333,15 +327,15 @@ describe("UnifiedPackagesSection — visible queue (D9)", () => {
 		// Reset-to-published is now locked, with the reason surfaced as a tooltip,
 		// and Move too (both inside the kebab menu).
 		await act(async () => {
-			fireEvent.click(btn(`${extId}-menu`));
+			fireEvent.click(btn(`addon-menu-${FEATURE_ID}`));
 			await flush();
 		});
-		const reset = btn(`${extId}-reset-to-published`);
+		const reset = btn(`addon-reset-${FEATURE_ID}`);
 		expect(reset.disabled).toBe(true);
 		expect(reset.title).toMatch(/can't be queued yet/i);
-		expect(btn(`${extId}-move`).disabled).toBe(true);
+		expect(btn(`addon-move-${FEATURE_ID}`).disabled).toBe(true);
 
 		// …while the queueable Update button stays enabled.
-		expect(btn(`${extId}-update`).disabled).toBe(false);
+		expect(btn(`addon-update-${FEATURE_ID}`).disabled).toBe(false);
 	});
 });

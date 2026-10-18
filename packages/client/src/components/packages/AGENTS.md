@@ -4,7 +4,11 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 
 | File | Purpose |
 |------|---------|
+| `AddonFeatureRow.tsx` | One Add-ons feature row: name, origin badge, `PartChip`s, version/update per package part, switch-styled `role="checkbox"` (`aria-checked` true/false/`mixed` + "partly on"), `⋮` menu (per-part Update/Move/Reset to published/Uninstall; none on core), expander "For the AI agent (pi)" / "For this dashboard". See change: addons-hub-feature-catalog. |
+| `AddonToggleConfirm.tsx` | `useAddonToggle` (off → dry run → `AddonToggleConfirm` dialog → toggle with `confirmToken`; 409 stale-confirmation re-shows fresh report), `AddonReloadBanner` (one-click `POST /api/resources/reload`), `rowAnchorId`. See change: addons-hub-feature-catalog. |
+| `AddonsDiscoverTab.tsx` | Discover tab: `PackageBrowser` (recommended panel + npm search + install-from-source) with install-confirm + README dialogs; `hubOffSources` hides recommended cards of hub-off features. See change: addons-hub-feature-catalog. |
 | `AddonsExplainer.tsx` | Exports `AddonsExplainer`. Add-ons page concept panel (disclosure button `aria-expanded`) + part-label legend; static Goal example. See change: addons-hub-declutter. |
+| `AddonsUpdatesTab.tsx` | Updates tab: updatable package parts + pi core, "Update all" enqueues parts then core FIFO via the package queue. Row rendering injected. `updatableParts`. See change: addons-hub-feature-catalog. |
 | `InstallBanner.tsx` | Mobile-only PWA install banner (`md:hidden`). Shows iOS Share→Add-to-Home-Screen hint or generic install… → see `InstallBanner.tsx.AGENTS.md` |
 | `InstallButton.tsx` | Icon-only install-app button (`mdiDownload`). Renders null when `!canInstall` or `isInstalled`. Exports `InstallButton`. |
 | `InstalledPackagesList.tsx` | Shared installed-packages list for Settings + Pi Resources. → see `InstalledPackagesList.tsx.AGENTS.md` |

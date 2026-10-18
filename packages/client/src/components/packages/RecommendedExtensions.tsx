@@ -17,6 +17,7 @@ import type {
   EnrichedRecommendedExtension,
   RecommendedExtensionStatus,
 } from "@blackbelt-technology/pi-dashboard-shared/recommended-extensions.js";
+import { sourcesMatch } from "@blackbelt-technology/pi-dashboard-shared/source-matching.js";
 import {
   mdiClockOutline,
   mdiDelete,
@@ -41,6 +42,12 @@ interface Props {
    * install keeps its card. See change: addons-hub-declutter (D4).
    */
   hideGlobalInstalled?: boolean;
+  /**
+   * Global package sources the hub turned off (all-empty filter form). Such an
+   * entry is not active in pi but the Installed tab shows it as an off row, so
+   * it gets no card here. See change: addons-hub-feature-catalog.
+   */
+  hubOffSources?: readonly string[];
 }
 
 function statusPillClass(status: RecommendedExtensionStatus, activeInPi: boolean): string {
@@ -73,12 +80,14 @@ function scopePillLabel(scope: "global" | "local" | null): string | null {
   return null;
 }
 
-export function RecommendedExtensions({ scope, cwd, hideGlobalInstalled = false }: Props) {
+export function RecommendedExtensions({ scope, cwd, hideGlobalInstalled = false, hubOffSources = [] }: Props) {
   const { recommended, isLoading, error, refresh } = useRecommendedExtensions();
   const ops = usePackageOperations(scope, cwd, refresh);
 
+  // Turned off from the hub: on disk, deliberately inactive — never "missing".
+  const isHubOff = (e: EnrichedRecommendedExtension) => hubOffSources.some((s) => sourcesMatch(s, e.source));
   // Entries that need installing in the user's eyes ("missing").
-  const missingEntries = recommended.filter((e) => !e.activeInPi);
+  const missingEntries = recommended.filter((e) => !e.activeInPi && !isHubOff(e));
   // "All missing already enqueued/running?" — disables the bulk button.
   const allMissingScheduled =
     missingEntries.length > 0 &&
@@ -88,14 +97,14 @@ export function RecommendedExtensions({ scope, cwd, hideGlobalInstalled = false 
     });
 
   const onInstallAllMissing = useCallback(() => {
-    for (const entry of recommended.filter((e) => !e.activeInPi)) {
+    for (const entry of recommended.filter((e) => !e.activeInPi && !isHubOff(e))) {
       const target =
         entry.installed.scope === "global" || entry.installed.scope === "local"
           ? entry.installed.scope
           : undefined;
       ops.install(entry.source, target);
     }
-  }, [recommended, ops]);
+  }, [recommended, ops, hubOffSources]);
 
   const onInstall = useCallback(
     (entry: EnrichedRecommendedExtension) => {
@@ -154,7 +163,9 @@ export function RecommendedExtensions({ scope, cwd, hideGlobalInstalled = false 
   // An on-disk-but-inactive global entry has no installed row, so it keeps its
   // Activate card instead of vanishing.
   const cards = hideGlobalInstalled
-    ? recommended.filter((e) => !(e.installed.scope === "global" && e.activeInPi))
+    ? recommended.filter(
+        (e) => !(e.installed.scope === "global" && (e.activeInPi || isHubOff(e))),
+      )
     : recommended;
 
   const missingRequired = recommended.filter(

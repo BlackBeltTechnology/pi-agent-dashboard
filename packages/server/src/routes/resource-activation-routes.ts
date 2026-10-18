@@ -38,6 +38,7 @@ import {
   type ToggleType,
 } from "../pi/resource-activation-toggle.js";
 import { persistTrustDecision, trustOptionsFor } from "../pi/resource-toggle-trust.js";
+import { withSettingsWriteLock } from "../pi/settings-write-lock.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
 import type { NetworkGuard } from "./route-deps.js";
 
@@ -52,21 +53,6 @@ const outstandingTrustChallenges = new Set<string>();
 /** Test seam: clear the outstanding challenges (simulates a fresh process). */
 export function __resetTrustChallenges(): void {
   outstandingTrustChallenges.clear();
-}
-
-// Per-settings-file write serialization (see file-routes.ts for the rationale).
-const settingsWriteLocks = new Map<string, Promise<unknown>>();
-function serializeWrite<T>(key: string, task: () => Promise<T>): Promise<T> {
-  const run = (settingsWriteLocks.get(key) ?? Promise.resolve()).then(task, task);
-  const tail = run.then(
-    () => {},
-    () => {},
-  );
-  settingsWriteLocks.set(key, tail);
-  void tail.then(() => {
-    if (settingsWriteLocks.get(key) === tail) settingsWriteLocks.delete(key);
-  });
-  return run;
 }
 
 /** Session ids governed by a scope: local → folder prefix-match, global → all. */
@@ -155,7 +141,7 @@ export function registerResourceActivationRoutes(
     }
 
     const key = settingsPathForScope(scope, body.cwd);
-    const result = await serializeWrite(key, () =>
+    const result = await withSettingsWriteLock(key, () =>
       applyResourceToggle({
         scope,
         cwd: body.cwd,

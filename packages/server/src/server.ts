@@ -200,6 +200,7 @@ import { getServerModelRuntime } from "./model-proxy/server-model-runtime.js";
 import { callPiAiStreamSimple } from "./model-proxy/streamer.js";
 import { currentGlobalWorkflowSignature } from "./openspec/global-signature.js";
 import { createOpenSpecGroupStore, joinGroupIdsToOpenSpecData } from "./openspec/openspec-group-store.js";
+import { fetchPackageMeta } from "./package/npm-search-proxy.js";
 import { logPackageHealthAtBoot } from "./package/package-health-scanner.js";
 import { type OperationResult, PackageManagerWrapper } from "./package/package-manager-wrapper.js";
 import { type BrowserGateway, createBrowserGateway } from "./pairing/browser-gateway.js";
@@ -241,6 +242,7 @@ import { createPushService, type PushService } from "./push/push-service.js";
 import { registerAccessPromptRoutes } from "./routes/access-prompt-routes.js";
 import { registerAccessRoutes } from "./routes/access-routes.js";
 import { registerAcpRoutes } from "./routes/acp-routes.js";
+import { registerAddonsRoutes } from "./routes/addons-routes.js";
 import { registerAttachmentRoutes } from "./routes/attachment-routes.js";
 import { registerCanvasTypesRoutes } from "./routes/canvas-types-routes.js";
 import { registerCustomEventGroupsRoutes } from "./routes/custom-event-groups-routes.js";
@@ -271,7 +273,7 @@ import { registerPiCoreRoutes } from "./routes/pi-core-routes.js";
 import { registerPiRetryRoutes } from "./routes/pi-retry-routes.js";
 import { registerPiSettingsRoutes } from "./routes/pi-settings-routes.js";
 import { registerPiRuntimeRoutes } from "./routes/pi-runtime-routes.js";
-import { registerPluginActivationRoutes } from "./routes/plugin-activation-routes.js";
+import { registerPluginActivationRoutes, setPluginsEnabled } from "./routes/plugin-activation-routes.js";
 import { registerPluginConfigRoutes } from "./routes/plugin-config-routes.js";
 import { registerPreferencesAutoNameRoutes } from "./routes/preferences-auto-name-routes.js";
 import { registerPreferencesDisplayRoutes } from "./routes/preferences-display-routes.js";
@@ -3019,6 +3021,15 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   registerPluginActivationRoutes(fastify, {
     networkGuard,
     broadcast: (msg) => browserGateway.broadcast(msg),
+  });
+  // Add-ons hub: feature catalog + combined feature toggle. See change: addons-hub-feature-catalog.
+  registerAddonsRoutes(fastify, {
+    networkGuard,
+    packageManagerWrapper,
+    broadcast: (msg) => browserGateway.broadcast(msg),
+    knownDirectories: () => directoryService.knownDirectories(),
+    lookupNpm: (name) => fetchPackageMeta(name),
+    setPluginsEnabled,
   });
   registerProviderRoutes(fastify, { networkGuard, piGateway, browserGateway, port: config.port });
 

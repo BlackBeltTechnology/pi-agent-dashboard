@@ -3,18 +3,19 @@
  *
  * See change: add-plugin-activation-ui.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import Fastify, { type FastifyInstance } from "fastify";
+
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { registerPluginActivationRoutes } from "../routes/plugin-activation-routes.js";
 import {
   clearDiscoveryCache,
   clearStatusStore,
   discoverPlugins,
   getPluginStatusStore,
 } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import Fastify, { type FastifyInstance } from "fastify";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { registerPluginActivationRoutes, setPluginsEnabled } from "../routes/plugin-activation-routes.js";
 
 const HOME_OVERRIDE = path.join(os.tmpdir(), "pi-dashboard-activation-test-" + process.pid);
 
@@ -307,5 +308,62 @@ describe("POST /api/plugins/:id/toggle", () => {
     );
     expect(cfg.plugins["dis-a"].enabled).toBe(false);
     expect(cfg.plugins["dis-b"].enabled).toBe(false);
+  });
+});
+
+// See change: addons-hub-feature-catalog (task 4.1, test-plan #E32): the
+// extracted `setPluginsEnabled` keeps the route's contract and adds dry run +
+// rollback for the Add-ons hub toggle.
+describe("setPluginsEnabled (shared by the hub toggle)", () => {
+  const cfgFile = () => path.join(HOME_OVERRIDE, ".pi", "dashboard", "config.json");
+  beforeEach(() => {
+    clearDiscoveryCache();
+    clearStatusStore();
+    fs.rmSync(HOME_OVERRIDE, { recursive: true, force: true });
+    originalHome = process.env.HOME;
+    process.env.HOME = HOME_OVERRIDE;
+  });
+  afterEach(() => {
+    if (originalHome !== undefined) process.env.HOME = originalHome;
+    else delete process.env.HOME;
+    fs.rmSync(HOME_OVERRIDE, { recursive: true, force: true });
+  });
+
+  function pair(suffix: string) {
+    return makeRepoRootWithPluginPair(
+      suffix,
+      { id: `${suffix}-a`, displayName: "A", enabledInConfig: true },
+      { id: `${suffix}-b`, displayName: "B", dependsOn: [`${suffix}-a`], enabledInConfig: true },
+    );
+  }
+
+  it("dry run returns the cascade and writes nothing", () => {
+    const repoRoot = pair("spe-dry");
+    const before = fs.readFileSync(cfgFile(), "utf-8");
+    const broadcasts: unknown[] = [];
+    const r = setPluginsEnabled("spe-dry-a", false, { broadcast: (m) => broadcasts.push(m), repoRoot }, { dryRun: true });
+    expect(r.ok && r.flips.map((f) => f.id)).toEqual(["spe-dry-a", "spe-dry-b"]);
+    expect(fs.readFileSync(cfgFile(), "utf-8")).toBe(before);
+    expect(broadcasts).toHaveLength(0);
+  });
+
+  it("rollback puts the previous plugin config back and re-broadcasts", () => {
+    const repoRoot = pair("spe-rb");
+    const broadcasts: unknown[] = [];
+    const r = setPluginsEnabled("spe-rb-a", false, { broadcast: (m) => broadcasts.push(m), repoRoot });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(JSON.parse(fs.readFileSync(cfgFile(), "utf-8")).plugins["spe-rb-b"].enabled).toBe(false);
+    r.rollback();
+    const cfg = JSON.parse(fs.readFileSync(cfgFile(), "utf-8"));
+    expect(cfg.plugins["spe-rb-a"].enabled).toBe(true);
+    expect(cfg.plugins["spe-rb-b"].enabled).toBe(true);
+    expect(broadcasts).toHaveLength(4); // 2 on toggle + 2 on rollback
+  });
+
+  it("unknown id → 404 result, blockers → 409 result", () => {
+    const repoRoot = pair("spe-err");
+    const deps = { broadcast: () => {}, repoRoot };
+    expect(setPluginsEnabled("nope", true, deps)).toMatchObject({ ok: false, status: 404 });
   });
 });

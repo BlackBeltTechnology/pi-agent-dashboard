@@ -9,10 +9,12 @@
  *
  * See change: improve-pi-update-detection.
  */
-import { describe, it, expect, beforeEach, afterEach, vi, beforeAll } from "vitest";
-import { render, waitFor, cleanup, act } from "@testing-library/react";
-import { ThemeProvider } from "../settings/ThemeProvider.js";
+
+import { act, cleanup, render, waitFor } from "@testing-library/react";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { UnifiedPackagesSection } from "../packages/UnifiedPackagesSection.js";
+import { ThemeProvider } from "../settings/ThemeProvider.js";
+import { feature, part } from "./addons-feature-fixtures.js";
 
 beforeAll(() => {
   Object.defineProperty(window, "matchMedia", {
@@ -40,19 +42,15 @@ function makeFetchMock() {
         { status: 200, headers: { "Content-Type": "application/json" } },
       );
     }
-    if (url.includes("/api/packages/installed")) {
+    if (url.includes("/api/addons/catalog")) {
       return new Response(
         JSON.stringify({
           success: true,
-          data: [
-            {
-              source: "npm:@blackbelt-technology/pi-dashboard-subagents",
-              scope: "user",
+          features: [
+            feature("pkg:npm:@blackbelt-technology/pi-dashboard-subagents", {
               displayName: "pi-dashboard-subagents",
-              isRecommended: false,
-              isBundled: false,
-              version: "0.1.0",
-            },
+              packages: [part("npm:@blackbelt-technology/pi-dashboard-subagents", { version: "0.1.0" })],
+            }),
           ],
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
