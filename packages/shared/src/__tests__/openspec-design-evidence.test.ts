@@ -4,6 +4,7 @@
  * See change: fix-openspec-design-detection.
  */
 import { describe, expect, it } from "vitest";
+import { buildOpenSpecData } from "../openspec-poller.js";
 import {
   evaluateLocalDesignSatisfaction,
   type DesignEvidenceProbe,
@@ -284,5 +285,38 @@ describe("createFsDesignEvidenceProbe — R3", () => {
     } finally {
       rmSync(d, { recursive: true, force: true });
     }
+  });
+});
+
+describe("evaluateLocalDesignSatisfaction — pi-spec-driven schema gate", () => {
+  it("#E29 pi-spec-driven + design-a.md present → evidence not evaluated, not satisfied", () => {
+    const calls = { r1: 0, r2: 0, r3: 0 };
+    const p: DesignEvidenceProbe = {
+      hasDesignFile: () => (calls.r1++, true),
+      hasDesignDirWithMd: () => (calls.r2++, true),
+      tasksHasCheckboxes: () => (calls.r3++, true),
+    };
+    expect(evaluateLocalDesignSatisfaction("/c", p, "pi-spec-driven")).toBe(false);
+    expect(calls).toEqual({ r1: 0, r2: 0, r3: 0 });
+  });
+
+  it("#E29 buildOpenSpecData keeps CLI design:ready for pi-spec-driven (probe spy 0 calls)", () => {
+    const calls = { count: 0 };
+    const p: DesignEvidenceProbe = {
+      hasDesignFile: () => (calls.count++, true),
+      hasDesignDirWithMd: () => (calls.count++, true),
+      tasksHasCheckboxes: () => (calls.count++, true),
+    };
+    const data = buildOpenSpecData(
+      { changes: [{ name: "x", status: "no-tasks", completedTasks: 0, totalTasks: 0 }] },
+      new Map<string, any>([["x", { schemaName: "pi-spec-driven", artifacts: [{ id: "design", status: "ready" }] }]]),
+      () => p,
+    );
+    expect(calls.count).toBe(0);
+    expect(data.changes[0].artifacts[0].status).toBe("ready");
+  });
+
+  it("other schemas keep evaluating evidence", () => {
+    expect(evaluateLocalDesignSatisfaction("/c", probe({ hasDesignFile: true }), "team-flow")).toBe(true);
   });
 });

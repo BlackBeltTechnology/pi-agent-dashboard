@@ -32,7 +32,7 @@ OpenSpec has no change-to-change dependency concept, so execution order lives on
 ### Modified Capabilities
 
 - `openspec-board`: dependency chips, execution-order view, dependency editor dialog, planning-reason hint, distinct artifact letter; drag rule scoped for the execution-order view; proposal-card contents include the chips.
-- `server-openspec-polling`: change-detection gate, watcher and TOCTOU stamp track `dependencies.yaml`, `changes/archive/` and main-spec existence (the TOCTOU stamp list also names the already-tracked `config.yml`); TOCTOU-kept entries still get a recomputed `dependencies` field.
+- `server-openspec-polling`: change-detection gate, watcher and TOCTOU stamp track `dependencies.yaml`, `changes/archive/` and main-spec existence; TOCTOU-kept entries still get a recomputed `dependencies` field.
 - `openspec-workflow-schema`: generator patch v2 (dependencies artifact and template); `workflowSchema.undeclaredChanges`.
 - `settings-panel`: Update confirmation states the patch-2 impact.
 - `plan-proposal-orchestrator`: `dependencies.yaml` is committed at the worktree boundary.
@@ -41,6 +41,7 @@ OpenSpec has no change-to-change dependency concept, so execution order lives on
 ## Dependencies
 
 - Blocked by: `add-pi-spec-driven-schema` (schema patch v2 extends its generator and stamp), and transitively `use-openspec-status-all` (schema-declared artifacts and the `.yaml` tracked paths come from `openspec status --all`).
+- Builds on: `move-workflow-schema-status-to-poll-worker` (archives first). Both changes write full MODIFIED copies of "Cwd-level change-detection gate for the status-all poll" (`server-openspec-polling`) and "Workflow schema status is reported separately from readiness" (`openspec-workflow-schema`). This change rebases both copies onto the text archived by that change before its own archive, and computes `undeclaredChanges` in that change's worker-safe `packages/server/src/openspec/workflow-schema-status.ts` (the per-tick `schemaStatus` worker request), not in `workflow-schema.ts`.
 - Blocks: none.
 
 ## Impact

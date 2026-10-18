@@ -64,8 +64,8 @@ intent-independent.
 #### Scenario: Primary intent
 
 - **WHEN** a `Confirm` is rendered with `intent="primary"` (or omitted)
-- **THEN** the action button SHALL render with the accent-primary
-  background
+- **THEN** the action button SHALL render with the `--accent-solid`
+  background (the `Dialog.Action` primary fill)
 
 #### Scenario: Danger intent
 

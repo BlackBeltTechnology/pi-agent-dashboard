@@ -49,13 +49,28 @@ export interface DesignEvidenceProbe {
   hasDesignDirWithMd(changeDir: string): boolean;
   /** R3: `<changeDir>/tasks.md` contains at least one Markdown checkbox. */
   tasksHasCheckboxes(changeDir: string): boolean;
+  /**
+   * Optional: the change's schema name resolved locally from its
+   * `.openspec.yaml` (fallback `openspec list` path, which carries no
+   * `schemaName`). Undefined when there is no metadata.
+   */
+  localSchemaName?(changeDir: string): string | undefined;
 }
 
-/** Pure rule evaluator. R1 → R2 → R3, short-circuits on first match. */
+/** Schema whose design artifact is authored, never inferred from local evidence. */
+export const PI_SPEC_DRIVEN_SCHEMA = "pi-spec-driven";
+
+/**
+ * Pure rule evaluator. R1 → R2 → R3, short-circuits on first match.
+ * `schemaName === "pi-spec-driven"` skips evidence entirely (no probe call).
+ * See change: add-pi-spec-driven-schema.
+ */
 export function evaluateLocalDesignSatisfaction(
   changeDir: string,
   probe: DesignEvidenceProbe,
+  schemaName?: string,
 ): boolean {
+  if (schemaName === PI_SPEC_DRIVEN_SCHEMA) return false;
   if (probe.hasDesignFile(changeDir)) return true;
   if (probe.hasDesignDirWithMd(changeDir)) return true;
   if (probe.tasksHasCheckboxes(changeDir)) return true;
@@ -63,6 +78,7 @@ export function evaluateLocalDesignSatisfaction(
 }
 
 const DESIGN_FILE_RE = /^design.*\.md$/;
+const SCHEMA_LINE_RE = /^schema:\s*["']?([^\s"'#]+)["']?\s*(?:#.*)?$/m;
 const CHECKBOX_RE = /^\s*-\s+\[[ xX]\]\s/m;
 
 /** Production probe — backed by the real filesystem. Sync, defensive. */
@@ -92,6 +108,14 @@ export function createFsDesignEvidenceProbe(): DesignEvidenceProbe {
         return false;
       } catch {
         return false;
+      }
+    },
+
+    localSchemaName(changeDir) {
+      try {
+        return SCHEMA_LINE_RE.exec(readFileSync(path.join(changeDir, ".openspec.yaml"), "utf8"))?.[1];
+      } catch {
+        return undefined;
       }
     },
 

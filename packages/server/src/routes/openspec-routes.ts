@@ -2,6 +2,7 @@
  * OpenSpec and Pi Resources REST API routes (localhost-only).
  */
 
+import { realpathSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import {
@@ -17,6 +18,9 @@ import {
   writeOpenSpecConfigFile,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/openspec.js";
 import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
+import { DEFAULT_OPENSPEC_POLL, type OpenSpecPollConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import type { Semaphore } from "@blackbelt-technology/pi-dashboard-shared/semaphore.js";
+import { inferPlatform, pathKey } from "@blackbelt-technology/pi-dashboard-shared/session-group-path.js";
 import type { ApiResponse, OpenSpecConfig } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
 import { type DirectoryService, hasOpenSpecRoot } from "../directory-service.js";
@@ -29,6 +33,15 @@ import {
   readTasks,
   toggleTask,
 } from "../openspec/openspec-tasks.js";
+import {
+  inspectSchema,
+  runWorkflowSchemaAction,
+  type WorkflowSchemaAction,
+  type WorkflowSchemaDeps,
+  type WorkflowSchemaRequest,
+  type WorkflowSchemaResult,
+  type WorkflowSchemaStamp,
+} from "../openspec/workflow-schema.js";
 import type { PreferencesStore } from "../persistence/preferences-store.js";
 import { type FolderCommandsResult, resolveFolderCommands } from "../pi/folder-commands.js";
 import { isWithinFolder, joinSkillProvenance, type SkillReporter, sessionCommandRegistry } from "../pi/session-skill-registry.js";
@@ -37,6 +50,27 @@ import type { NetworkGuard } from "./route-deps.js";
 
 /** Callback to broadcast an openspec_update after a successful toggle. */
 export type OpenSpecBroadcaster = (cwd: string) => void;
+
+/** The slice of `openspec.*` config the workflow-schema gates read (live, per request). */
+export type OpenSpecGateConfig = Pick<OpenSpecPollConfig, "enabled" | "optOutDirectories" | "workflowSchema">;
+
+const WORKFLOW_SCHEMA_ACTIONS: ReadonlySet<string> = new Set<WorkflowSchemaAction>([
+  "enable",
+  "disable",
+  "update",
+  "adopt",
+  "pin",
+  "remove",
+]);
+
+/** `realpathSync.native(cwd)`, or `cwd` itself when it does not resolve (lock key only). */
+function canonicalPath(cwd: string): string {
+  try {
+    return realpathSync.native(cwd);
+  } catch {
+    return cwd;
+  }
+}
 
 export function registerOpenSpecRoutes(
   fastify: FastifyInstance,
@@ -53,9 +87,16 @@ export function registerOpenSpecRoutes(
     piGateway?: { isSessionConnected(sessionId: string): boolean };
     /** Optional — called after a successful toggle to trigger openspec_update. */
     onOpenSpecChanged?: OpenSpecBroadcaster;
+    /** Live `openspec.*` config (gates + `workflowSchema.defaultForNewProjects`). Absent → defaults (enabled, no opt-outs, default off). */
+    getOpenSpecConfig?: () => OpenSpecGateConfig;
+    /** Spawn semaphore for the workflow-schema `newer`/`conflict` validate. Absent → pass-through. */
+    spawnSemaphore?: Semaphore;
+    /** Test seam: overrides for the workflow-schema module's collaborators (CLI, fs, clock…). */
+    workflowSchemaDeps?: Partial<WorkflowSchemaDeps>;
   },
 ) {
   const { sessionManager, preferencesStore, directoryService, networkGuard, onOpenSpecChanged, piGateway } = deps;
+  const gateConfig = (): OpenSpecGateConfig => deps.getOpenSpecConfig?.() ?? DEFAULT_OPENSPEC_POLL;
 
   // OpenSpec workflow config endpoint — returns the user's enabled
   // workflow commands so the client can render only the buttons /
@@ -333,7 +374,126 @@ export function registerOpenSpecRoutes(
   // Per-cwd serialization (X4): while an invocation is in flight for a cwd,
   // a second request is rejected 409 without spawning. The lock is released
   // on every exit path, including the 60s timeout (X3).
+  // Keyed by `realpathSync.native(cwd)`; shared with POST /api/openspec/workflow-schema.
   const inFlightInits = new Set<string>();
+
+  /** Stamp of the managed schema dir, or null (no/unreadable/unmanaged). */
+  async function readSchemaStamp(root: string): Promise<WorkflowSchemaStamp | null> {
+    try {
+      return (await inspectSchema(root, { localVersion: "" })).stamp;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * One workflow-schema action with the real spawn semaphore, the forced
+   * refresh (skipped when the caller refreshes right after), and the
+   * structured log line. The caller holds the per-cwd lock.
+   */
+  async function runLoggedWorkflowAction(
+    log: { info(obj: object, msg: string): void },
+    cwd: string,
+    root: string,
+    req: WorkflowSchemaRequest,
+    refresh: boolean,
+  ): Promise<WorkflowSchemaResult> {
+    const stampBefore = await readSchemaStamp(root);
+    const result = await runWorkflowSchemaAction(req, {
+      ...(deps.spawnSemaphore ? { semaphore: deps.spawnSemaphore } : {}),
+      refresh: refresh
+        ? async (c) => {
+            await directoryService.refreshOpenSpec(c);
+            onOpenSpecChanged?.(c);
+          }
+        : async () => undefined,
+      ...deps.workflowSchemaDeps,
+    });
+    const stampAfter = await readSchemaStamp(root);
+    log.info(
+      { event: "openspec.workflow-schema", cwd, action: req.action, ok: result.ok, written: result.written, stampBefore, stampAfter },
+      "openspec workflow-schema action",
+    );
+    return result;
+  }
+
+  // POST /api/openspec/workflow-schema — enable|disable|update|adopt|pin|remove
+  // the dashboard-managed `pi-spec-driven` schema for one project.
+  // Gate order: shape → tracked-or-pinned (membership, NO fs) → OpenSpec
+  // enabled → not opted out → fs (realpath + `<cwd>/openspec/`) → per-cwd lock.
+  // The allowed-state table + all name/containment checks live in
+  // `runWorkflowSchemaAction`. See change: add-pi-spec-driven-schema.
+  fastify.post<{ Body: Partial<Record<keyof WorkflowSchemaRequest, unknown>> }>(
+    "/api/openspec/workflow-schema",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const b = request.body ?? {};
+      const fail = (code: number, error: string, errCode?: string) => {
+        reply.code(code);
+        return { success: false, error, ...(errCode ? { code: errCode } : {}) } satisfies ApiResponse & { code?: string };
+      };
+
+      if (typeof b.cwd !== "string" || !b.cwd) return fail(400, "cwd required");
+      if (typeof b.action !== "string" || !WORKFLOW_SCHEMA_ACTIONS.has(b.action)) {
+        return fail(400, "action must be one of enable, disable, update, adopt, pin, remove");
+      }
+      if (b.confirm !== undefined && typeof b.confirm !== "boolean") return fail(400, "confirm must be a boolean");
+      if (b.pinTo !== undefined && typeof b.pinTo !== "string") return fail(400, "pinTo must be a string");
+      if (b.previousDefault !== undefined && typeof b.previousDefault !== "string") {
+        return fail(400, "previousDefault must be a string");
+      }
+      if (b.changes !== undefined && !(Array.isArray(b.changes) && b.changes.every((c) => typeof c === "string"))) {
+        return fail(400, "changes must be an array of strings");
+      }
+      const cwd = b.cwd;
+
+      if (!knownInitTargets().includes(cwd)) {
+        return fail(400, "cwd is not a known session or pinned directory", "untracked");
+      }
+      const cfg = gateConfig();
+      if (cfg.enabled === false) return fail(400, "OpenSpec is disabled", "openspec_disabled");
+      if (cfg.optOutDirectories.length > 0) {
+        const platform = inferPlatform([cwd, ...cfg.optOutDirectories]);
+        const key = pathKey(cwd, platform);
+        if (cfg.optOutDirectories.some((d) => pathKey(d, platform) === key)) {
+          return fail(400, "OpenSpec is opted out for this directory", "opted_out");
+        }
+      }
+
+      // Only now touch the filesystem.
+      let real: string;
+      try {
+        real = realpathSync.native(cwd);
+      } catch {
+        return fail(400, "cwd does not exist", "no_openspec");
+      }
+      const hasOpenspec = await fs
+        .stat(path.join(real, "openspec"))
+        .then((st) => st.isDirectory())
+        .catch(() => false);
+      if (!hasOpenspec) return fail(400, "no openspec/ directory in cwd", "no_openspec");
+
+      if (inFlightInits.has(real)) return fail(409, "an OpenSpec init or workflow-schema action is already in flight for this directory");
+      inFlightInits.add(real);
+      try {
+        const req: WorkflowSchemaRequest = {
+          cwd,
+          action: b.action as WorkflowSchemaAction,
+          ...(b.confirm !== undefined ? { confirm: b.confirm as boolean } : {}),
+          ...(b.pinTo !== undefined ? { pinTo: b.pinTo as string } : {}),
+          ...(b.changes !== undefined ? { changes: b.changes as string[] } : {}),
+          ...(b.previousDefault !== undefined ? { previousDefault: b.previousDefault as string } : {}),
+        };
+        const result = await runLoggedWorkflowAction(request.log, cwd, real, req, true);
+        if (result.ok) return { success: true, data: result } satisfies ApiResponse;
+        // Refusals (state table, validation, guard) carry the current status in `data`.
+        reply.code(result.partial ? 500 : 422);
+        return { success: false, error: result.error ?? "workflow-schema action failed", data: result } satisfies ApiResponse;
+      } finally {
+        inFlightInits.delete(real);
+      }
+    },
+  );
 
   fastify.post<{ Body: { cwd?: string; confirm?: boolean } }>(
     "/api/openspec/init",
@@ -395,11 +555,15 @@ export function registerOpenSpecRoutes(
         } satisfies ApiResponse;
       }
 
-      if (inFlightInits.has(cwd)) {
+      // The tracked check has passed: key the lock by the canonical path so
+      // two spellings of one directory (symlink) share it, and so does the
+      // workflow-schema endpoint. See change: add-pi-spec-driven-schema (D7).
+      const lockKey = canonicalPath(cwd);
+      if (inFlightInits.has(lockKey)) {
         reply.code(409);
         return { success: false, error: "an init is already in flight for this directory" } satisfies ApiResponse;
       }
-      inFlightInits.add(cwd);
+      inFlightInits.add(lockKey);
 
       try {
         // Heal a stale literal "expanded" profile BEFORE the spawn — init
@@ -444,17 +608,34 @@ export function registerOpenSpecRoutes(
           preferencesStore.setOpenSpecUpdateSignature(cwd, sig);
         }
         directoryService.invalidateOpenSpecSignatureCache();
+
+        // Chain `enable` for a project that had no `openspec/` before this init,
+        // when the global default is on. Runs inside THIS lock (no re-acquire);
+        // a failure never fails init and is reported in the response. The
+        // refresh below covers enable's forced refresh. See change:
+        // add-pi-spec-driven-schema (D7).
+        const chained: { workflowSchema?: WorkflowSchemaResult; workflowSchemaError?: string } = {};
+        if (!hasOpenspecRootAlready && gateConfig().workflowSchema.defaultForNewProjects) {
+          try {
+            const r = await runLoggedWorkflowAction(request.log, cwd, lockKey, { cwd, action: "enable" }, false);
+            if (r.ok) chained.workflowSchema = r;
+            else chained.workflowSchemaError = r.error ?? "enable failed";
+          } catch (err) {
+            chained.workflowSchemaError = err instanceof Error ? err.message : String(err);
+          }
+        }
+
         try {
           const data = await directoryService.refreshOpenSpec(cwd);
           onOpenSpecChanged?.(cwd);
-          return { success: true, data: { cwd, stdout: res.value, readiness: data.readiness } } satisfies ApiResponse;
+          return { success: true, data: { cwd, stdout: res.value, readiness: data.readiness, ...chained } } satisfies ApiResponse;
         } catch {
           // Refresh is best-effort; init itself succeeded.
           onOpenSpecChanged?.(cwd);
-          return { success: true, data: { cwd, stdout: res.value } } satisfies ApiResponse;
+          return { success: true, data: { cwd, stdout: res.value, ...chained } } satisfies ApiResponse;
         }
       } finally {
-        inFlightInits.delete(cwd);
+        inFlightInits.delete(lockKey);
       }
     },
   );

@@ -19,6 +19,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, rmSync } from "node:f
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
+import { buildOpenSpecData } from "../openspec-poller.js";
 
 const SCRIPT_PATH = path.resolve(
   __dirname,
@@ -170,5 +171,38 @@ describe("effective-status.sh — parity with evaluateLocalDesignSatisfaction", 
     } finally {
       rmSync(h.root, { recursive: true, force: true });
     }
+  });
+});
+
+describe("effective-status.sh — pi-spec-driven schema gate", () => {
+  const withSchema = (schemaName: string) => JSON.stringify({ ...JSON.parse(BASE_STATUS), schemaName });
+
+  it("#E28 pi-spec-driven + checkboxes → design stays ready; spec-driven + checkboxes → done", () => {
+    const results: Record<string, any> = {};
+    for (const schema of ["pi-spec-driven", "spec-driven"]) {
+      const h = setupHarness();
+      try {
+        writeFileSync(path.join(h.changeDir, "tasks.md"), "## 1. x\n\n- [ ] 1.1 do\n");
+        writeOpenspecStub(h.binDir, withSchema(schema));
+        results[schema] = runWrapper(h.root, h.binDir, h.changeName);
+      } finally {
+        rmSync(h.root, { recursive: true, force: true });
+      }
+    }
+    const design = (o: any) => o.artifacts.find((a: any) => a.id === "design").status;
+    expect(design(results["pi-spec-driven"])).toBe("ready");
+    expect(results["pi-spec-driven"].isComplete).toBe(false);
+    expect(design(results["spec-driven"])).toBe("done");
+  });
+
+  it("#E28 dashboard build agrees: pi-spec-driven stays ready, spec-driven promoted", () => {
+    const build = (schemaName: string) =>
+      buildOpenSpecData(
+        { changes: [{ name: "x", status: "no-tasks", completedTasks: 0, totalTasks: 0 }] },
+        new Map<string, any>([["x", { ...JSON.parse(withSchema(schemaName)) }]]),
+        () => ({ hasDesignFile: () => false, hasDesignDirWithMd: () => false, tasksHasCheckboxes: () => true }),
+      ).changes[0].artifacts.find((a) => a.id === "design")!.status;
+    expect(build("pi-spec-driven")).toBe("ready");
+    expect(build("spec-driven")).toBe("done");
   });
 });

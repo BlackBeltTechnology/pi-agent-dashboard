@@ -19,6 +19,7 @@ import { findBundledExtension, registerBridgeExtension } from "@blackbelt-techno
 import type { PackageOperationCompleteMessage, ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { AuthConfig, DashboardConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { CONFIG_DIR, CONFIG_FILE, getPluginConfig as getPluginConfigFromFile, loadConfig, resolvePublicBaseUrls, writeConfigFileSecure } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { createSemaphore } from "@blackbelt-technology/pi-dashboard-shared/semaphore.js";
 import { CustomEventGroupsStore } from "@blackbelt-technology/pi-dashboard-shared/custom-event-groups-store.js";
 import { parseLaunchSource } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
 import type { HostAction, HostResource, Principal } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
@@ -2520,6 +2521,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     directoryService,
     networkGuard,
     piGateway,
+    // Live (per-request) config for the workflow-schema gates + new-project default.
+    getOpenSpecConfig: () => loadConfig().openspec,
+    // Own bounded pool for the workflow-schema `newer`/`conflict` validate: the
+    // directory service's semaphore is not exposed. See change: add-pi-spec-driven-schema.
+    spawnSemaphore: createSemaphore(loadConfig().openspec.maxConcurrentSpawns),
     onOpenSpecChanged: (cwd) => {
       const data = directoryService.getOpenSpecData(cwd);
       if (data) browserGateway.broadcastToAll({ type: "openspec_update", cwd, data });

@@ -1413,7 +1413,7 @@ Message queues. Bridge owns `PromptQueue` per session.
 
 - Above `CommandInput`, `QueuePanel.tsx` shows chip per queued message.
 - Click "Clear all" drops entire queue (`queue_clear` action).
-- Bridge runs queued messages in order after current turn ends (on `agent_end`, drains via `pi.sendUserMessage`).
+- Bridge runs queued messages in order after current turn ends (on `agent_settled`, drains via `pi.sendUserMessage`).
 - Queue lost on bridge restart — in-memory only.
 
 Cross-refs:
@@ -1686,11 +1686,11 @@ Cross-refs:
 
 ## Why does /ctx-stats work in some sessions but not others?
 
-Now works in every session kind. Extension commands dispatch in-process via `pi.sendUserMessage(text, {expandPromptTemplates: true, deliverAs})` (step 9), ungated (pi 1.1.0 lockstep floor). No session-kind probe, no keeper UDS route.
+Now works in every session kind. Extension commands dispatch in-process via `pi.sendUserMessage(text, {expandPromptTemplates: true, deliverAs})` (step 9), ungated (pi 1.3.0 lockstep floor). No session-kind probe, no keeper UDS route.
 
 Pi runs `_tryExecuteExtensionCommand` FIRST — before its compaction guard, before `streamingBehavior` — so headless, tmux, terminal and user-launched sessions all dispatch the same way. `deliverAs` is inert for an extension command.
 
-Below the floor: no per-feature gate. A session running a pi below `piCompatibility.minimum` (1.1.0) shows the generic `piBelowFloor` warning on the session card + chat header; dispatch itself is ungated.
+Below the floor: no per-feature gate. A session running a pi below `piCompatibility.minimum` (1.3.0) shows the generic `piBelowFloor` warning on the session card + chat header; dispatch itself is ungated.
 
 Retired by change `retire-slash-dispatch-via-expand-prompt-templates`: Path B (`pi.dispatchCommand`, never shipped upstream), Path C (headless RPC via keeper UDS), Path D (tmux / Windows Terminal error). Keeper sidecar UNCHANGED — still the durable owner of pi's stdin across dashboard restarts.
 
@@ -2949,6 +2949,31 @@ Cross-refs:
 - packages/client/src/components/OpenSpecProfileSection.tsx
 - packages/server/src/routes/openspec-routes.ts
 - packages/shared/src/platform/openspec.ts
+
+## How do I enable the pi-spec-driven workflow schema?
+
+Settings → OpenSpec → OpenSpec Workflow Schema (`/settings/openspec#workflow-schema`). Pick project. Click Enable. Confirm dialog lists every path written.
+
+Enable writes (per project, nothing committed by dashboard):
+- `openspec/schemas/pi-spec-driven/` — generated from package `spec-driven` + patch v1, stamped `x-pi-dashboard`.
+- `.openspec.yaml` with `schema: <previous default>` in each active change lacking one. Keeps existing changes on their workflow.
+- `openspec/config.yaml` `schema: pi-spec-driven`.
+
+Commit those files yourself. Teammates without `openspec/schemas/pi-spec-driven/` get per-change `schema not found`.
+
+Refused when: no `openspec/config.yaml` or `config.yml`; `openspec/` or `changes/`, `schemas/`, `config.yaml` is a symlink; OpenSpec root is not the project dir (`root.source` ≠ `nearest`); stamp `unmanaged` or `incompatible`; stamp `previousDefault` ≠ config default (run Update with `previousDefault` set to the config value).
+
+Other actions:
+- Disable: restores previous default. Schema dir stays.
+- Update: re-stamps after a dashboard or OpenSpec CLI upgrade. Refused on `newer`, `conflict`, `incompatible`.
+- Remove: deletes schema dir. Refused while config or a local change pins it. Unmerged branches pinning it break.
+
+New projects: `openspec.workflowSchema.defaultForNewProjects` (Settings → OpenSpec). On = REST init enables for a directory that had no `openspec/` before init. Existing projects never switch on their own.
+
+Cross-refs:
+- docs/architecture.md (OpenSpec workflow schema section)
+- packages/server/src/openspec/workflow-schema.ts
+- packages/server/src/routes/openspec-routes.ts
 
 ## Why do the OpenSpec buttons do nothing?
 

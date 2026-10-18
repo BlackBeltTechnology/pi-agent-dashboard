@@ -174,6 +174,7 @@ caller's tier. Do not edit the table by hand.
 | `openspec_groups` | control | POST /api/openspec/groups |
 | `openspec_init` | control | POST /api/openspec/init |
 | `openspec_update` | control | POST /api/openspec/update |
+| `openspec_workflow_schema` | control | POST /api/openspec/workflow-schema |
 | `packages_check_updates` | operate | POST /api/packages/check-updates |
 | `packages_move` | operate | POST /api/packages/move |
 | `packages_reset_to_npm` | operate | POST /api/packages/reset-to-npm |

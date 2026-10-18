@@ -557,6 +557,21 @@ describe("writeConfigPartial — openspec readiness keys (add-openspec-init-affo
     expect(cfg.openspec.offerInitialization).toBe(false);
   });
 
+  it("a partial workflowSchema write merges without dropping sibling openspec keys (add-pi-spec-driven-schema)", () => {
+    fs.writeFileSync(configFile, JSON.stringify({
+      port: 8000,
+      openspec: { pollIntervalSeconds: 45, offerInitialization: false, optOutDirectories: ["/x"] },
+    }));
+    const result = writeConfigPartial({ openspec: { workflowSchema: { defaultForNewProjects: true } } });
+    expect(result.success).toBe(true);
+    const cfg = loadConfig();
+    expect(cfg.openspec.workflowSchema.defaultForNewProjects).toBe(true);
+    expect(cfg.openspec.pollIntervalSeconds).toBe(45);
+    expect(cfg.openspec.offerInitialization).toBe(false);
+    expect(cfg.openspec.optOutDirectories).toEqual(["/x"]);
+    expect(cfg.port).toBe(8000);
+  });
+
   it("kroki block survives save round-trip without field loss (test-plan #E10)", () => {
     fs.writeFileSync(configFile, JSON.stringify({
       port: 8000,

@@ -165,6 +165,21 @@ see [`docs/release-process.md`](docs/release-process.md).
   image all move to pi 1.1.0. A session on pi below 1.1.0 (including 1.0.x) shows the
   below-floor warning, and `/api/health` reports an error naming both versions.
   **Rollback:** revert the pin commit and run `pnpm install`; no data migrates.
+- **BREAKING (pi peers): the supported pi floor is now 1.3.0.** `piCompatibility`
+  `minimum`/`recommended`, the server dependency, every `@earendil-works` pi peer
+  (`>=1.3.0`) and devDependency (`^1.3.0`), the three workspace overrides and the Docker
+  image all move to pi 1.3.0. A session on pi below 1.3.0 (including 1.1.x and 1.2.x) shows the
+  below-floor warning, and `/api/health` reports an error naming both versions.
+  **Rollback:** revert the pin commit and run `pnpm install`; no data migrates.
+- **Queued follow-ups are delivered once the run has settled.** The bridge's follow-up buffer
+  now drains on pi's `agent_settled` event instead of `agent_end` plus a 100 ms x 20 idle-poll
+  loop, so a follow-up queued during an auto-retry chain or after an abort ships after the final
+  attempt, once.
+- **A dashboard Retry turn carries the session context.** On pi 1.3.0 the Retry turn goes through
+  the same prompt prelude as any other turn, so it now gets the session-context fragment, the kb
+  doctrine, role guidelines and the untrusted-content rule, and a team session's skill filter.
+- **New pi setting.** `sessionShareDestination` (`auto` / `gist` / `radius`, default `auto`) is
+  editable under Settings → pi → Sessions and context.
 - **Tool durations come from pi.** A tool row shows pi's recorded execution time
   (`durationMs`, pi 1.1.0) instead of the timestamp difference, live and after a reload;
   older events keep the timestamp fallback.
@@ -196,6 +211,10 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Fixed
 
+- **`!cmd` no longer loses its output on a busy session.** A single-bang command sent while the agent was starting or streaming made pi reject the follow-up, so the output never reached the model; it is now queued with `deliverAs: followUp` and delivered before the run settles.
+- **Discord invite points at the community server.** The invite link (README, site, sidebar
+  button, release docs) pointed at a personal server with an expiring invite; it now uses the
+  permanent Pi Dashboard invite `discord.gg/DrNebZ3pF5`.
 - **Same-named automations in different workspaces are now scheduled independently.** Two repos that each defined an automation with the same name (for example `deploy`) shared one scheduler and concurrency slot: one could leak a timer that could never be disposed, and one could be silently dropped while the other was running. Each automation is now identified by its scope and its own directory. An automation that was previously suppressed by an unrelated same-named one may now start running on its schedule — that is the fix taking effect, not a new automation appearing.
 - **Global automations no longer run twice per occurrence.** While a session (including the automation's own run) is open in the home directory, `~/.pi/automation` was also armed as a folder scope. It is now scanned, armed and listed once, under `global`.
 - **kb index no longer silently empties, erodes or conflates.** The docs index is installed with a
@@ -463,7 +482,7 @@ see [`docs/release-process.md`](docs/release-process.md).
   `DISCORD_RELEASE_WEBHOOK` repo secret. Prereleases are skipped, an unset
   secret skips cleanly, mentions are suppressed, and a webhook failure never
   fails the release. The community invite link moves to
-  `discord.gg/uQsJgsejb` (README, site, sidebar button).
+  `discord.gg/DrNebZ3pF5` (README, site, sidebar button).
 
 - **Radius sign-in.** Radius (Earendil's AI gateway) is now listed on the
   providers page (Account badge) and signs in through the usual

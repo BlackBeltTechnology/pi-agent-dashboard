@@ -1,7 +1,9 @@
 ## Purpose
 
 Define the unified `Dialog` primitive: a single modal building block rendered through `DialogPortal`, with consistent dismissal sources, focus management, ARIA semantics, visual baseline, size variants, header slot, composable footer/action subcomponents, action button intents, and testId hooks.
+
 ## Requirements
+
 ### Requirement: Dialog primitive renders via DialogPortal
 
 The `Dialog` component SHALL render its overlay and container as children
@@ -289,14 +291,19 @@ neither `title` nor `icon` is provided.
 
 The `Dialog.Action` button SHALL accept `intent="primary" | "danger" |
 "neutral"` (default `primary`) and apply visually distinct styles per
-intent.
+intent. The primary fill SHALL be `--accent-solid` (the contract's
+primary-button fill, 5.17:1 against white text), not `--accent-primary`,
+which measures 3.68:1 against white in every theme. (Found by the
+add-pi-spec-driven-schema UX review; applies to every dialog.)
 
 #### Scenario: Primary intent uses accent
 
 - **WHEN** a `Dialog.Action` is rendered with `intent="primary"` (or no
   intent)
-- **THEN** the button SHALL apply `bg-[var(--accent-primary)]` with a
-  hover state
+- **THEN** the button SHALL apply `bg-[var(--accent-solid)]` with white
+  text and a hover state
+- **AND** its text SHALL meet 4.5:1 against its background in base dark,
+  base light and nord dark
 
 #### Scenario: Danger intent uses red
 
@@ -338,4 +345,3 @@ target dialog parts deterministically.
 - **WHEN** a `Dialog` is rendered with `testId="confirm-action"`
 - **THEN** the dialog container SHALL have `data-testid="confirm-action"` and
   the overlay SHALL have `data-testid="confirm-action-overlay"`
-

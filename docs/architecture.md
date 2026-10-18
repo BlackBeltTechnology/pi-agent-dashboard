@@ -598,7 +598,8 @@ Pi owns the retry loop. Dashboard configures + observes + renders it. Attempts f
 - `agent_settled` carries NO `messages` (verified pi 0.81.1/0.83), so tracker remembers terminal disposition via `lastEndWasError` at `agent_end`.
 - `-1` sentinels REMOVED. `maxAttempts` / `delayMs` sourced read-only from pi settings via `packages/extension/src/pi-retry-settings.ts` (defaults 3 / 2000; unreadable → `delayMs: 0` → surface renders elapsed-only).
 - pi 0.83 exposes retry lifecycle events to RPC/SDK consumers ONLY. ExtensionAPI has no `auto_retry_*` and nothing on EventBus. `willRetry` in 0.83 is compaction-only (`session_before_compact`/`session_compact`). Bridge is extension → must observe-synthesize.
-- Native `agent_settled` guaranteed at the 1.1.0 lockstep floor (`piCompatibility.minimum == recommended == 1.1.0`). Bridge consumes the native settle unconditionally — no version gate, no floor-pi synthesis. Floor-pi synthesis module `packages/extension/src/agent-settled.ts` DELETED. `agent_settled` remains the SOLE terminal retry signal. See change: update-pi-core-0-85-adopt-apis.
+- Native `agent_settled` guaranteed at the 1.3.0 lockstep floor (`piCompatibility.minimum == recommended == 1.3.0`). Bridge consumes the native settle unconditionally — no version gate, no floor-pi synthesis. Floor-pi synthesis module `packages/extension/src/agent-settled.ts` DELETED. `agent_settled` remains the SOLE terminal retry signal. See change: update-pi-core-0-85-adopt-apis.
+- Bridge follow-up drain (`bridgeFollowUp`) triggers on `agent_settled`, not `agent_end`. Forwarder schedules `drainFollowupQueue()` via `setTimeout(0)`; pi clears run-active before `agent_settled`, so `isIdle()` is true. No retry loop: a false `isIdle()` returns, the next `agent_settled` drains. Gate sequence: `packages/extension/src/followup-drain.ts`. See change: update-pi-core-1-3-adopt-apis.
 
 **3. Settings write + reload-on-save** (`packages/server/src/pi-agent-settings.ts`).
 
@@ -1689,13 +1690,15 @@ pi/openspec/tsx are regular npm dependencies of `@blackbelt-technology/pi-dashbo
 
 `launchSource` (returned by `/api/health`) is `"electron" | "standalone" | "bridge"`, derived from `DASHBOARD_STARTER`. Client uses it via `useLaunchSource()` to hide pi-core update UI on Electron (immutable bundle has no writable target).
 
-Compatibility skew helpers in `pi-version-skew.ts` (`readPiCompatibility`, `readCurrentPiVersion`, `computeCompatibility`) survive as pure helpers. The pinned range is `minimum: "1.1.0"`, `recommended: "1.1.0"`, `maximum: null` (lockstep — one supported pi means no conditional code paths on that artifact). `piCompatibility` unchanged: a `@earendil-works/pi-coding-agent` range, a DIFFERENT artifact from the pi-ai pin below.
+Compatibility skew helpers in `pi-version-skew.ts` (`readPiCompatibility`, `readCurrentPiVersion`, `computeCompatibility`) survive as pure helpers. The pinned range is `minimum: "1.3.0"`, `recommended: "1.3.0"`, `maximum: null` (lockstep — one supported pi means no conditional code paths on that artifact). `piCompatibility` unchanged: a `@earendil-works/pi-coding-agent` range, a DIFFERENT artifact from the pi-ai pin below.
 
 1.1.0 adds: `tool_execution_end.durationMs` preferred for tool row duration; `samplingParamsByThinkingLevel` passthrough; `GET /api/provider-auth/legacy-provider-ids` (`azure-openai-responses` -> `azure` rename scan). See change: update-pi-core-1-1-adopt-apis.
 
+1.3.0 adds: follow-up drain on `agent_settled` (see `### Retry Lifecycle`). Single-bang `!cmd` output sent via `pi.sendUserMessage(msg, {deliverAs: "followUp"})`. Retry turn `before_agent_start` `messageType: "custom"` (pi ≥ 1.2.0) → gets session-context fragment, kb doctrine, role guidelines, untrusted-content guideline, team skill filter; also runs compaction check + `nextTurn` prelude. Typed setting `sessionShareDestination` (`auto`|`gist`|`radius`, default `auto`). Lockstep floor → 1.3.0. Dropped `@earendil-works/chord`. See change: update-pi-core-1-3-adopt-apis.
+
 **Below-floor session signal.** Replaces per-feature pi version gates. Bridge `sendPiVersionIfChanged` (`packages/extension/src/model-tracker.ts`) reads the running pi argv-anchored via `readRunningPiVersion` and sends `pi_version_update`; server runs `computePiBelowFloor(version, serverPiMinimum())` (`packages/server/src/pi/pi-version-skew.ts`) → sets `DashboardSession.piBelowFloor: { minimum } | null`; client `PiBelowFloorWarning` renders on `SessionCard` + `SessionHeader`. Unknown or unparseable version → no flag. `minimum` sourced from `piCompatibility.minimum`. See change: update-pi-core-1-0-adopt-apis.
 
-**pi-ai generation window.** Legacy generation REMOVED — the dashboard supports ONE **pi-ai** generation (pi >= 1.1.0). Supported range `>=1.1.0` (root `package.json` + `packages/extension/package.json` peerDependencies). Root devDependency pin `^1.1.0`. The server streams through pi-coding-agent's own **`ModelRuntime`** (ONE server runtime — see `### Single model runtime`), which owns module shape (factory API only), transcript normalization (`normalizeContext` before dispatch, else systemPrompt + tools drop silently) and OAuth relocation (`dist/oauth.js` is a TYPE-ONLY stub, never consulted; real loaders at `dist/auth/oauth/*.js`, a path NOT in the package `exports` map). `packages/extension/src/bridge.ts` streams through pi's own `ctx.modelRegistry.streamSimple`. The `packages/shared/src/piai-compat/` seam (`adaptPiAi`), its `api-table.ts` / `NON_TEXT_LAZY_FILES` helpers and `packages/shared/src/test-support/piai-factory-fixture.ts` are DELETED.
+**pi-ai generation window.** Legacy generation REMOVED — the dashboard supports ONE **pi-ai** generation (pi >= 1.3.0). Supported range `>=1.3.0` (root `package.json` + `packages/extension/package.json` peerDependencies). Root devDependency pin `^1.3.0`. The server streams through pi-coding-agent's own **`ModelRuntime`** (ONE server runtime — see `### Single model runtime`), which owns module shape (factory API only), transcript normalization (`normalizeContext` before dispatch, else systemPrompt + tools drop silently) and OAuth relocation (`dist/oauth.js` is a TYPE-ONLY stub, never consulted; real loaders at `dist/auth/oauth/*.js`, a path NOT in the package `exports` map). `packages/extension/src/bridge.ts` streams through pi's own `ctx.modelRegistry.streamSimple`. The `packages/shared/src/piai-compat/` seam (`adaptPiAi`), its `api-table.ts` / `NON_TEXT_LAZY_FILES` helpers and `packages/shared/src/test-support/piai-factory-fixture.ts` are DELETED.
 
 See change: collapse-model-proxy-onto-modelruntime.
 
@@ -2072,7 +2075,7 @@ flowchart TD
 
 **Feedback contract** — exactly one terminal `command_feedback` per reload, `command` field always `/reload`.
 
-**Bridge side** — terminal-hosted path only; ladder step 2 wins for dashboard-spawned sessions. `BridgeCommandOptions.reload` = `terminalReload.reload` (`createTerminalReload`, `packages/extension/src/terminal-reload.ts`). `ExtensionContext` has no `reload()`; only a command handler's `ExtensionCommandContext` does. So `reload()` self-dispatches `pi.sendUserMessage("/__dashboard_reload <token>", {expandPromptTemplates: true})` — pi runs `_tryExecuteExtensionCommand`, hands handler FRESH command ctx → `ctx.reload()`. No TUI bootstrap. Nothing callable captured — works every reload (retired captured-fn-on-`globalThis` path was single-use, stale ctx after first reload). No pi version gate (`update-pi-core-1-0-adopt-apis`): `supportsInProcessCommandDispatch` and `NO_RELOAD_PATH_REASON` retired — the check could never fail on a supported pi (1.1.0 floor). `BridgeCommandOptions.reload` returns `ReloadOutcome` (`{ok:true, handedOff:true}` | `{ok:false, reason}`). See change: fix-terminal-session-dashboard-reload.
+**Bridge side** — terminal-hosted path only; ladder step 2 wins for dashboard-spawned sessions. `BridgeCommandOptions.reload` = `terminalReload.reload` (`createTerminalReload`, `packages/extension/src/terminal-reload.ts`). `ExtensionContext` has no `reload()`; only a command handler's `ExtensionCommandContext` does. So `reload()` self-dispatches `pi.sendUserMessage("/__dashboard_reload <token>", {expandPromptTemplates: true})` — pi runs `_tryExecuteExtensionCommand`, hands handler FRESH command ctx → `ctx.reload()`. No TUI bootstrap. Nothing callable captured — works every reload (retired captured-fn-on-`globalThis` path was single-use, stale ctx after first reload). No pi version gate (`update-pi-core-1-0-adopt-apis`): `supportsInProcessCommandDispatch` and `NO_RELOAD_PATH_REASON` retired — the check could never fail on a supported pi (1.3.0 floor). `BridgeCommandOptions.reload` returns `ReloadOutcome` (`{ok:true, handedOff:true}` | `{ok:false, reason}`). See change: fix-terminal-session-dashboard-reload.
 
 **Token handshake** — slot `process.__pi_dashboard_pending_reload__ = {token, sessionId, state, armedAt}`. State `armed → started → delivered | expired`. Transitions compare-and-set — requesting instance `error` and reloaded instance `completed` mutually exclusive. `START_TIMEOUT_MS` = 5000, `FINISH_TIMEOUT_MS` = 60000, both measured from `armedAt`.
 
@@ -5425,7 +5428,7 @@ See change: add-radius-provider-login (D5, D6).
 
 **Non-goal.** Model proxy has no Radius OAuth refresh loader.
 
-**Dependency pin.** The server imports only `@earendil-works/pi-coding-agent` (`await import(...)`, public index `ModelRuntime`), never `@earendil-works/pi-ai` and never either package's `dist/` (both unreachable — export maps / hoisted `1.1.0`). Binding to the pi-ai copy pi-coding-agent was built against gives version parity by construction. Six governed pins move together: `packages/server/package.json` dep `^1.1.0`, `piCompatibility.minimum`, `piCompatibility.recommended`, the `pnpm-workspace.yaml` override, `docker/Dockerfile`, and `scripts/verify-release-deps.mjs` `minVersion` (`checkPiPinCoherence`). Every `@earendil-works` peer is `>=1.1.0` (optional, no upper bound); every `@earendil-works` devDependency is `^1.1.0`; `pnpm-workspace.yaml` overrides pin `pi-coding-agent`, `pi-ai`, `pi-tui`. See changes: update-pi-core-1-0-adopt-apis, update-pi-core-1-1-adopt-apis; floor moved to 1.1.0 in update-pi-core-1-1-adopt-apis.
+**Dependency pin.** The server imports only `@earendil-works/pi-coding-agent` (`await import(...)`, public index `ModelRuntime`), never `@earendil-works/pi-ai` and never either package's `dist/` (both unreachable — export maps / hoisted `1.3.0`). Binding to the pi-ai copy pi-coding-agent was built against gives version parity by construction. Six governed pins move together: `packages/server/package.json` dep `^1.3.0`, `piCompatibility.minimum`, `piCompatibility.recommended`, the `pnpm-workspace.yaml` override, `docker/Dockerfile`, and `scripts/verify-release-deps.mjs` `minVersion` (`checkPiPinCoherence`). Every `@earendil-works` peer is `>=1.3.0` (optional, no upper bound); every `@earendil-works` devDependency is `^1.3.0`; `pnpm-workspace.yaml` overrides pin `pi-coding-agent`, `pi-ai`, `pi-tui`. See changes: update-pi-core-1-0-adopt-apis, update-pi-core-1-1-adopt-apis, update-pi-core-1-3-adopt-apis; floor moved to 1.1.0 in update-pi-core-1-1-adopt-apis, to 1.3.0 in update-pi-core-1-3-adopt-apis.
 
 **Routes** (`packages/server/src/routes/provider-auth-routes.ts`):
 
@@ -5972,6 +5975,172 @@ Before pushing an archive: run `npm run spec:validate` locally. Corrupt archive 
 Retired capability with zero current requirements: tombstone (keep spec, one requirement naming successor) when it carries an authored `**DEPRECATED**` pointer, else delete. Zero-requirement spec does NOT validate.
 
 See change: repair-corrupted-main-specs.
+
+## OpenSpec workflow schema (`pi-spec-driven`)
+
+Dashboard-managed project schema. Base: OpenSpec built-in `spec-driven` + patch set (`CURRENT_PATCH = 1`). Opt-in per project. Never enabled on existing projects by default.
+
+Code:
+- `packages/server/src/openspec/workflow-schema.ts` — generation, stamp, state table, write guard, actions.
+- `packages/server/src/routes/openspec-routes.ts` — `POST /api/openspec/workflow-schema`, init chain.
+- `packages/server/src/directory-service.ts` — `workflowSchemaStatusFor` (poll status).
+- `packages/shared/src/types.ts` — `WorkflowSchemaGenerated`, `OpenSpecWorkflowSchemaStatus`.
+- `packages/shared/src/openspec-poller.ts`, `.pi/skills/openspec-shared/scripts/effective-status.sh` — R-rule skip.
+
+Spec: `openspec/changes/add-pi-spec-driven-schema/`. See change: add-pi-spec-driven-schema.
+
+### Generation
+
+Output: `<root>/openspec/schemas/pi-spec-driven/` (`schema.yaml` + forked templates).
+
+Stamp (top-level key `x-pi-dashboard` in `schema.yaml`):
+
+```yaml
+x-pi-dashboard:
+  derivedFrom: spec-driven@<cli-version>
+  patch: 1
+  previousDefault: spec-driven
+```
+
+```mermaid
+flowchart TD
+  A["scratch root + empty XDG_DATA_HOME"] --> B{"schema which spec-driven: source package, no shadows"}
+  B -- no --> X[abort, repo untouched]
+  B -- yes --> C["schema fork --force (scratch)"]
+  C --> D["YAML patch + x-pi-dashboard stamp (scratch)"]
+  D --> E{"schema validate (scratch)"}
+  E -- invalid --> X
+  E -- valid --> F["copy to openspec/schemas/.fork-staging-RAND"]
+  F --> G["rename pi-spec-driven to .fork-backup-PID-TS"]
+  G --> H["rename staging to pi-spec-driven"]
+  H --> I["delete backup; delete scratch; forced refresh"]
+  G -. fail .-> R["restore backup, remove staging"]
+  H -. fail .-> R
+```
+
+Steps (`generateWorkflowSchema`):
+1. Scratch root = fresh `os.tmpdir()` dir. Every CLI call (`--version`, `schema which/fork/validate`) runs with cwd = scratch and `XDG_DATA_HOME` = empty scratch dir. Blocks project and user shadows.
+2. `openspec schema which spec-driven --json`. Abort unless `source: "package"` and `shadows` empty.
+3. `openspec schema fork spec-driven pi-spec-driven --force` in scratch.
+4. YAML Document patch of scratch `schema.yaml` (comments kept). Patch v1 replaces anchor `When to include design.md (create only if any apply):` with `When a full design.md is warranted (otherwise still create design.md containing one line "Not needed: <reason>"):`. Anchor missing → abort. Author guidance only; CLI checks file existence.
+5. Write stamp. `base` = `openspec --version` of the CLI that ran.
+6. `openspec schema validate pi-spec-driven` in scratch.
+7. Copy (not rename: avoids `EXDEV` on bind mounts / cross-volume) into `openspec/schemas/.fork-staging-<rand>/`. Copy failure → remove staging, abort.
+8. Swap, under fingerprint re-check (paths + content hashes of existing `pi-spec-driven/`, same as OpenSpec fork):
+   - existing dir → rename to `pi-spec-driven.fork-backup-<pid>-<ts>`
+   - rename staging → `pi-spec-driven/`
+   - delete backup
+
+Failure matrix:
+- Fail before backup rename → remove staging. Previous schema untouched.
+- Fail on staging rename → rename backup back, remove staging. Previous schema byte-identical.
+- Restore fails after retries → backup left in place (discovery ignores `*.fork-backup-*`); error names it.
+- Fail on backup delete → no rollback; warning returned.
+- Scratch dir removed in every case.
+- Windows only: `EPERM` / `EBUSY` / `EACCES` on any rename (incl. restore) retried. 5 retries, delays 50/100/200/400/800 ms (1.55 s, within 2 s).
+
+### Stamp states
+
+`compareStamp(stamp, local)` on `(base, patch)`. `base` via `semver.compare`; `patch` numeric. Component-wise. Lexicographic comparison rejected: newer base would drop newer patch.
+
+| `generated` | Condition | Action |
+|---|---|---|
+| `none` | no `pi-spec-driven/` dir | Enable generates |
+| `current` | base and patch equal | none |
+| `outdated` | none newer, ≥1 older | Update offered |
+| `newer` | ≥1 newer, none older | none, never downgrade |
+| `conflict` | one newer, one older | report only; no action regenerates (align dashboard/CLI) |
+| `incompatible` | `newer` but local `schema validate` fails | notice: update OpenSpec CLI |
+| `unmanaged` | no parseable stamp, or `pi-spec-driven` is a symlink | Adopt, with confirm |
+
+`newer`/`conflict` validate locally before Enable keeps them.
+
+### Enable
+
+Order (`doEnable`): guard → record → generate → pin → switch.
+
+1. Write guard (below).
+2. `openspec/config.yaml` or `config.yml` must exist. Both present → `config.yaml` read and edited (CLI behavior).
+3. Config already `schema: pi-spec-driven` → return status, write nothing.
+4. Record `previousDefault` = config `schema:`, else `spec-driven` (CLI implicit default). Must be kebab-case, not `pi-spec-driven`, resolve via project/package dirs (empty `XDG_DATA_HOME`).
+5. Stamp state:
+   - `none` → generate with `previousDefault`.
+   - `current` / `outdated` / `newer` / `conflict` → keep, never regenerate. Refuse if stamp `previousDefault` ≠ recorded value (user runs Update with `previousDefault: <recorded>`).
+   - `unmanaged` / `incompatible` → refuse.
+6. Pin: each active change dir without `.openspec.yaml` → exclusive create, body `{ schema: <previousDefault> }` via YAML serializer. Active = excludes `archive/`, dot-dirs, symlinks.
+7. `config.yaml` `schema:` → `pi-spec-driven` (YAML Document edit).
+8. Forced refresh.
+
+Pins before switch: no poll sees unpinned change under new default. Existing `.openspec.yaml` never modified. File present without `schema:` left alone (per-change CLI error, surfaced by `use-openspec-status-all`).
+
+Partial failure: schema dir and pins stay. Default unchanged, so harmless. Re-run Enable completes.
+
+### Write guard
+
+Every writing action (`enable`, `disable`, `update`, `adopt`, `pin`, `remove`) runs under the per-cwd lock. Before any write:
+- Fresh `openspec status --all --json` in cwd (not cached poll). No `root` → refuse (CLI without `--all` cannot write).
+- `root.source === "nearest"`. Committed store pointer or declared root would redirect writes outside repo (`dist/core/root-selection.js:189-210`).
+- `realpath(root.path) === realpath(cwd)`.
+- `openspec/` exists, not a symlink. `changes/`, `schemas/`, `config.yaml`, `config.yml` not symlinks.
+
+Writes: temp file + rename (pins: exclusive create). All paths contained by `realpath(<root>)/openspec/`.
+
+Schema names: kebab-case only (`KEBAB` regex), written through YAML serializer. Blocks newline injection into `config.yaml` (e.g. `retire_capabilities: true`). User-level-only schemas refused as default or pin target: teammates cannot resolve them.
+
+### Actions
+
+| Action | Effect | Refused when |
+|---|---|---|
+| `enable` | see Enable | `unmanaged`, `incompatible`, stamp `previousDefault` mismatch |
+| `disable` | restore `previousDefault` (fallback `spec-driven`) in config; schema dir stays | config not `pi-spec-driven` → no-op |
+| `update` | regenerate with `previousDefault` (request value, else stamp's); re-stamps | allowed only for `outdated`, `current`, or `none` while enabled; refuses `newer`, `conflict`, `incompatible`, `unmanaged` |
+| `adopt` | regenerate over `unmanaged`; needs `confirm` + `previousDefault` | not `unmanaged` |
+| `pin` | create-only `.openspec.yaml` for `changes` | default not `pi-spec-driven`; `pinTo` not `pi-spec-driven` or stamp `previousDefault` |
+| `remove` | rename to `.fork-backup-*`, then delete | `none`, `unmanaged`; config names schema; active change pins it. Archived-only refs → warning + confirm |
+
+Remove sees only local working tree. Unmerged branches pinning `pi-spec-driven` break after Remove; response always warns.
+
+### Multi-user rules
+
+- Committed: `openspec/schemas/pi-spec-driven/`, `config.yaml` `schema:`, pins. Teammates receive via git.
+- Stamp never downgrades. Teammate on newer dashboard keeps newer schema. Mixed versions → `conflict`, reported only.
+- Teammate without schema dir (partial checkout): per-change `schema not found`; `workflowSchema.missing`; Update restores.
+- Change arriving by merge with no `.openspec.yaml` follows new default. Listed in `unpinnedChanges`. Known limitation of file-less changes.
+- Server never creates git commits. Response carries `worktree: { isWorktree, branch }`; UI shows branch when `isWorktree`.
+
+### Status (separate from readiness)
+
+`OpenSpecData.workflowSchema?: OpenSpecWorkflowSchemaStatus` = `{ configured, generated, missing, unpinnedChanges, affectedChanges }`.
+- Attached only to successful-poll payloads. Failure payload carries no schema status (`hasWorkflowSchemaStatus(readiness)` gate in `directory-service.ts`).
+- Computed on the MAIN thread, not the poll worker. `workflowSchemaStatusFor` (`directory-service.ts`) runs concurrently with the CLI spawn in `pollOne`, attached at finalize. Async fs reads only.
+- Only `newer` / `conflict` `schema validate` spawns. Routed through the shared spawn semaphore; memoized by (cwd, fingerprint, CLI version).
+- Readiness untouched. Missing schema dir → per-change `Unknown schema` errors, not `STALE`. `STALE` would disable every OpenSpec control on session cards.
+- Settings section: `/settings/openspec#workflow-schema` (`OpenSpecWorkflowSchemaSection.tsx`). Folder-section chip only links there.
+
+### REST endpoint
+
+`POST /api/openspec/workflow-schema`. Body: `{ cwd, action, confirm?, pinTo?, changes?, previousDefault? }`. `action` ∈ `enable | disable | update | adopt | pin | remove`.
+
+- `preHandler: networkGuard`. `control` tier in `packages/shared/src/route-tiers.ts`. MCP manifest completeness test applies.
+- Gate order: shape → tracked-or-pinned (membership, no fs) → OpenSpec enabled → not opted out → fs (`realpathSync.native(cwd)`, `<cwd>/openspec/` exists) → per-cwd lock.
+- Lock: `inFlightInits` set, key `realpathSync.native(cwd)`. Shared with `POST /api/openspec/init`. Concurrent call → `409`.
+- Validation: `pinTo` ∈ {`pi-spec-driven`, stamp `previousDefault`}. `changes` ⊆ active change names from fs enumeration. `previousDefault` kebab-case and resolvable.
+- Log per call: event `openspec.workflow-schema`, cwd, action, ok, written, `stampBefore`, `stampAfter`.
+
+### New-project default
+
+- Config: `openspec.workflowSchema.defaultForNewProjects` (boolean, default `false`, `packages/shared/src/config.ts`).
+- REST init chains Enable when flag on AND `<cwd>/openspec/` absent before init. Runs inside init's held lock.
+- Never triggers on repair or overwrite. Switching default of existing shared project is team decision.
+- project-init skill runs `openspec init` itself, discloses step in Step 3c preview, calls endpoint separately (own lock).
+
+### R1 / R2 / R3 skip
+
+Design-evidence promotion (R1 split files, R2 `design/` dir, R3 no design + tasks checkboxes) skipped when change `schemaName === "pi-spec-driven"`. Explicit `Not needed: <reason>` design file counts as done.
+
+- Dashboard: `packages/shared/src/openspec-poller.ts` — `evaluateLocalDesignSatisfaction(..., schemaName)`. `schemaName` from status entry; fallback `probe.localSchemaName`.
+- Skills: `.pi/skills/openspec-shared/scripts/effective-status.sh` — `jq -r '.schemaName'` gate on `openspec status --change <name> --json`.
+- Other schemas: rules unchanged. Fallback `list` path (no `schemaName`): keeps promoting.
 
 ## Electron Server Lifecycle
 

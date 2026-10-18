@@ -443,7 +443,7 @@ describe("ci-e2e-browser.yml — team / identity-matrix variant legs (#861)", ()
   it("(E3) the pi pin equals the Dockerfile pin exactly; the package.json floor is never consulted", () => {
     const dockerLiteral = piPin(DOCKERFILE);
     expect(dockerLiteral, "docker/Dockerfile no longer pins pi").toMatch(/^\d+\.\d+\.\d+$/);
-    for (const wrong of ["1.1.1", "1.0.9", "latest", ">=1.1.0"]) {
+    for (const wrong of ["1.1.0", "1.3.1", "1.0.9", "latest", ">=1.3.0"]) {
       const v = check(mutateJob("e2e-team", /pi-coding-agent@\S+/, `pi-coding-agent@${wrong}`)).join("\n");
       expect(v).toContain(`pi pin \`${wrong}\` != docker/Dockerfile pin \`${dockerLiteral}\``);
     }

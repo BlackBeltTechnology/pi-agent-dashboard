@@ -117,6 +117,12 @@ the wrong type (non-boolean) or `optOutDirectories` that is non-array, is
 undeterminable: **fail closed** (the server would silently use last-good values
 the skill cannot see).
 
+**Workflow-schema flag.** Also read `openspec.workflowSchema.defaultForNewProjects`
+from the same file as `ENABLE_SCHEMA`. Only a literal `true` makes it true; an
+absent file, key, or object — or any other value — is false. It never affects
+`OPENSPEC_MODE` and is never a reason to fail closed. It is used only in the
+`offer` flow (Steps 3c and 6).
+
 **Opt-out match.** Compare `TARGET` against every `optOutDirectories` entry with
 the dashboard's `pathKey` semantics: resolve to an absolute path, normalize
 separators to `/`, strip trailing separators, and lowercase unless the platform
@@ -195,6 +201,14 @@ asked; confirming this preview is the confirmation):
 - each legacy OpenSpec artifact detected in Step 3b, by path (e.g. `AGENTS.md` — the `OPENSPEC:START`/`OPENSPEC:END` marker block, or `.claude/commands/openspec/`), worded "may be removed"
 - the OpenSpec CLI may also remove other legacy OpenSpec files it recognizes beyond the paths listed
 - the OpenSpec CLI may migrate its global config profile (`~/.config/openspec`) — a machine-wide side effect
+
+When `OPENSPEC_MODE` is `offer` (confirmed) AND `ENABLE_SCHEMA` is true (the
+dashboard's `openspec.workflowSchema.defaultForNewProjects` is `true`), ALSO
+list, as the last item, the follow-up that Step 6 performs: after a successful
+init, request `POST /api/openspec/workflow-schema` with `{"cwd": TARGET,
+"action": "enable"}`, which writes `openspec/schemas/pi-spec-driven/` and
+`openspec/config.yaml`. Never list it for `repair` (switching an existing shared
+project's schema is a team decision) or when `ENABLE_SCHEMA` is false or absent.
 
 When the chosen profile is `coding`, ALSO disclose the possible side effect (see
 Step 4b) — NOT a file write:
@@ -348,6 +362,29 @@ exit, a missing `openspec` binary, or a still-missing skills directory, warn the
 user, include the actual contents (`ls .pi/skills`), and point them at
 `openspec init --tools pi --force` to run manually — do NOT error the init; the
 scaffold is already written.
+
+**Enable the `pi-spec-driven` workflow schema (only `offer`, only when
+`ENABLE_SCHEMA` is true).** After a successful init (exit 0, verification
+passed) in mode `offer` — the directory had no `openspec/` before — and only
+when `ENABLE_SCHEMA` was true in Step 3b and disclosed in the Step 3c preview,
+request the dashboard's enable flow, `POST /api/openspec/workflow-schema`:
+
+```bash
+curl -sS -X POST "http://localhost:${PORT:-8000}/api/openspec/workflow-schema" \
+  -H 'Content-Type: application/json' \
+  -d '{"cwd": "<TARGET>", "action": "enable"}'
+```
+
+`PORT` is `port` from `~/.pi/dashboard/config.json` (default `8000`). A
+`success: true` response lists the paths it wrote in `data.written`; report them
+in the summary (expect `openspec/schemas/pi-spec-driven/` and
+`openspec/config.yaml`). Skip this step — silently, with no request — when the
+user declined the `offer` (mode `skip`), in mode `repair`, and whenever
+`ENABLE_SCHEMA` is false or absent. When the dashboard is unreachable, the call
+fails, or it returns `success: false`, skip it, show the error if any, finish
+the init, and tell the user they can enable the schema later from Settings →
+OpenSpec → OpenSpec Workflow Schema. Do NOT error the init: the scaffold is
+already written.
 
 **Idempotent re-run:** a re-run after success lands in `skip` (row 7: both
 `./openspec/` and `.pi/skills/openspec-explore/` present) — no prompt, no

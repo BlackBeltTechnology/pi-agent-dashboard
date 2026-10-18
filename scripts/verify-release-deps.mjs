@@ -89,8 +89,11 @@ const RULES = [
       "See change: update-pi-core-1-0-adopt-apis. 1.1.0 moves the lockstep " +
       "floor once more (recorded tool durations, sampling-by-thinking-level, " +
       "the azure-openai-responses provider-id rename the dashboard surfaces). " +
-      "See change: update-pi-core-1-1-adopt-apis.",
-    minVersion: "1.1.0",
+      "See change: update-pi-core-1-1-adopt-apis. 1.3.0 moves it again " +
+      "(the follow-up drain keys on agent_settled, the busy `!cmd` send uses " +
+      "deliverAs followUp, the Retry turn carries the context fragment, the " +
+      "`sessionShareDestination` setting). See change: update-pi-core-1-3-adopt-apis.",
+    minVersion: "1.3.0",
   },
   {
     pkgPath: "packages/server/package.json",

@@ -57,6 +57,15 @@ export interface ReadinessInputs {
 export type BrokeReason = Extract<OpenSpecReadinessReason, "missing-changes-dir" | "cli-failed">;
 
 /**
+ * `OpenSpecData.workflowSchema` rides only on payloads of a successful poll of
+ * an enabled, non-opted-out, initialized project (READY / STALE); every other
+ * state omits it. See change: add-pi-spec-driven-schema.
+ */
+export function hasWorkflowSchemaStatus(readiness: OpenSpecReadiness): boolean {
+  return readiness.state === "READY" || readiness.state === "STALE";
+}
+
+/**
  * Derive the readiness fold. `extra.breakReason` records which
  * `initialized: false` branch the poll observed; it only shapes the BROKEN
  * reason and never overrides a higher-precedence state.

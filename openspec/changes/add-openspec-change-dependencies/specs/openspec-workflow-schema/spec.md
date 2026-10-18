@@ -93,12 +93,13 @@ Every successful-poll payload, and the cached state served on demand, SHALL carr
 - `unpinnedChanges: string[]` — the active changes (as enumerated by enable) without `.openspec.yaml`, detected by `stat` only, and computed only when `configured === "pi-spec-driven"`;
 - `affectedChanges: string[]` — the active changes (as enumerated by enable) that resolve to `pi-spec-driven` from files alone: their `.openspec.yaml` names it, or they have no `.openspec.yaml` and `configured === "pi-spec-driven"`. It is computed from files, not from the CLI's per-change `schemaName`, because a change whose schema cannot be loaded is reported without one. Sorted by name; the Update confirmation counts them;
 - `undeclaredChanges: string[]` — the members of `affectedChanges` without a regular `dependencies.yaml` file (`lstat` only), sorted by name; the Update to patch 2 counts them.
+- `projectSchemas: string[]` — the schema names under `<root>/openspec/schemas/` (directories that are not symlinks, not dot or transient `.fork-*` names, excluding `pi-spec-driven`), sorted. It feeds the previous-default selector in Settings, so the client never offers a user-level-only schema.
 
 Failure, disabled, opted-out and global-off payloads SHALL omit it. It SHALL be recomputed whenever the poll rebuilds data, and whenever the resolved CLI version changes. The filesystem part is computed in the poll worker; any CLI call it needs (`schema validate` for `newer`) runs on the main thread through the spawn semaphore, memoized.
 
 This status SHALL NOT alter `OpenSpecData.readiness` or any readiness-gated control. In particular, per-change errors caused by a missing schema ("Unknown schema …") SHALL NOT turn a successful status call into a readiness failure.
 
-The actions are offered in Settings (see `settings-panel` "OpenSpec Workflow Schema section"). The OpenSpec folder section SHALL show a non-blocking notice chip whenever any of these holds: `missing`, `outdated`, `newer`, `incompatible`, `conflict`, `unmanaged`, or a non-empty `unpinnedChanges`. The chip is a navigation link that opens that Settings section for the cwd; it performs no action itself.
+The actions are offered in Settings (see `settings-panel` "OpenSpec Workflow Schema section"). The OpenSpec folder section SHALL show a non-blocking notice chip whenever any of these holds: `missing`, `outdated`, `newer`, `incompatible`, `conflict`, `unmanaged`, or a non-empty `unpinnedChanges`. The chip is a navigation link that opens that Settings section for the cwd; it performs no action itself. It is a severity pill (the severity and the label of the Settings card pill in lower case, prefixed "Workflow schema:" — e.g. "Workflow schema: update available", "Workflow schema: 3 changes not pinned"; counts only, never change names), with an icon, text of at least 12 px and the contract's tap-target size.
 
 #### Scenario: Outdated schema does not disable session controls
 

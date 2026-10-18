@@ -1,9 +1,10 @@
 import { SLOT_PILL_LEGEND, SlotPill } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 import type { OpenSpecData, OpenSpecReadiness, OpenSpecReadinessReason } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { mdiClipboardTextOutline, mdiClose } from "@mdi/js";
+import { mdiAlert, mdiClipboardTextOutline, mdiClose, mdiInformationOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { useState } from "react";
+import { useLocation } from "wouter";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import {
   addOpenSpecOptOut,
@@ -12,6 +13,12 @@ import {
   runOpenSpecInit,
   runOpenSpecUpdate,
 } from "../../lib/openspec/openspec-config-api.js";
+import {
+  SEVERITY_PILL_CLASS,
+  workflowSchemaNeedsAttention,
+  workflowSchemaPresentation,
+  workflowSchemaSettingsHref,
+} from "../../lib/openspec/openspec-workflow-schema-api.js";
 
 /**
  * Folder-card OpenSpec slot. Single-line navigation entry to the full-page
@@ -259,6 +266,7 @@ export function FolderOpenSpecSection({ data, cwd, onOpenBoard, offerInitializat
   return (
     <>
       {renderVariant(readiness)}
+      {workflowSchemaNeedsAttention(data.workflowSchema) && <WorkflowSchemaChip cwd={cwd} data={data} />}
       {confirmKind !== null && (
         <OpenSpecConfirmDialog
           kind={confirmKind}
@@ -271,6 +279,39 @@ export function FolderOpenSpecSection({ data, cwd, onOpenBoard, offerInitializat
         />
       )}
     </>
+  );
+}
+
+/** Non-blocking notice: a navigation LINK to Settings → OpenSpec → Workflow
+ *  Schema (cwd carried in the query). It performs no action and sends no
+ *  request, so `openspec-frontend-actions` stays true. See change:
+ *  add-pi-spec-driven-schema. */
+function WorkflowSchemaChip({ cwd, data }: { cwd: string; data: OpenSpecData }) {
+  const [, navigate] = useLocation();
+  const s = data.workflowSchema;
+  if (!s) return null;
+  const href = workflowSchemaSettingsHref(cwd);
+  const p = workflowSchemaPresentation(s);
+  // Same severity as the Settings card pill (settings-panel / openspec-workflow-schema spec).
+  const tone = p.severity;
+  return (
+    <div data-folder-openspec-schema-notice={cwd} onClick={(e) => e.stopPropagation()}>
+      <a
+        href={href}
+        data-testid="folder-openspec-schema-chip"
+        title={i18nT("openspec.schemaChipTitle", undefined, "Open the OpenSpec Workflow Schema settings")}
+        onClick={(e) => {
+          // Let modified clicks open in a new tab; otherwise navigate in-app.
+          if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+          e.preventDefault();
+          navigate(href);
+        }}
+        className={`focus-ring mt-1 inline-flex items-center gap-1.5 rounded-full border px-3 tap-target text-[12px] font-semibold hover:underline ${SEVERITY_PILL_CLASS[tone]}`}
+      >
+        <Icon path={tone === "info" || tone === "neutral" ? mdiInformationOutline : mdiAlert} size={0.6} aria-hidden="true" />
+        {i18nT("openspec.schemaChipLabel", { label: p.chipLabel }, "Workflow schema: {label}")}
+      </a>
+    </div>
   );
 }
 

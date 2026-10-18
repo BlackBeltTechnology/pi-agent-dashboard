@@ -77,7 +77,7 @@ export type SpecsProbeFactory = (changeName: string) => SpecsEvidenceProbe;
 
 export function buildOpenSpecData(
   listResult: { changes?: Array<{ name: string; status: string; completedTasks: number; totalTasks: number }> } | null,
-  statusResults: Map<string, { artifacts?: Array<{ id: string; status: string }>; isComplete?: boolean } | null>,
+  statusResults: Map<string, { artifacts?: Array<{ id: string; status: string }>; isComplete?: boolean; schemaName?: string } | null>,
   probeFactory?: DesignProbeFactory,
   specsProbeFactory?: SpecsProbeFactory,
 ): OpenSpecData {
@@ -101,7 +101,11 @@ export function buildOpenSpecData(
       const designIdx = artifacts.findIndex((a) => a.id === "design");
       if (designIdx !== -1 && artifacts[designIdx].status === "ready") {
         const probe = probeFactory(c.name);
-        if (evaluateLocalDesignSatisfaction("", probe)) {
+        // pi-spec-driven skips evidence: per-change `schemaName` (status --all /
+        // status --change), else resolved locally from `.openspec.yaml` on the
+        // fallback `list` path. See change: add-pi-spec-driven-schema.
+        const schemaName = statusResult?.schemaName ?? probe.localSchemaName?.("");
+        if (evaluateLocalDesignSatisfaction("", probe, schemaName)) {
           artifacts[designIdx] = { ...artifacts[designIdx], status: "done" };
         }
       }
@@ -234,6 +238,7 @@ export function createFsProbeFactory(cwd: string): DesignProbeFactory {
       hasDesignFile: () => probe.hasDesignFile(changeDir),
       hasDesignDirWithMd: () => probe.hasDesignDirWithMd(changeDir),
       tasksHasCheckboxes: () => probe.tasksHasCheckboxes(changeDir),
+      localSchemaName: () => probe.localSchemaName?.(changeDir),
     };
   };
 }
@@ -477,7 +482,7 @@ export async function buildOpenSpecDataFromStatusAll(input: StatusAllBuildInput)
     completedTasks: c.completed,
     totalTasks: c.total,
   }));
-  const statusResults = new Map<string, { artifacts?: Array<{ id: string; status: string }>; isComplete?: boolean } | null>();
+  const statusResults = new Map<string, { artifacts?: Array<{ id: string; status: string }>; isComplete?: boolean; schemaName?: string } | null>();
   const extras: Record<string, TrackedExtras> = {};
   for (const c of counted) {
     const { entry } = c;
@@ -487,6 +492,7 @@ export async function buildOpenSpecDataFromStatusAll(input: StatusAllBuildInput)
       c.err
         ? null
         : {
+            ...(entry.schemaName ? { schemaName: entry.schemaName } : {}),
             artifacts: canonicalArtifactOrder(entry.artifacts ?? []).map((a) => ({ id: a.id, status: a.status })),
             ...(typeof entry.isComplete === "boolean" ? { isComplete: entry.isComplete } : {}),
           },
