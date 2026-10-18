@@ -616,6 +616,31 @@ describe("dox: kb dox lint", () => {
     expect(r.issues.filter((i) => i.kind === "orphan" && i.path === "api.ts").length).toBe(0);
   });
 
+  it("source dirs named `openspec` are linted; OpenSpec workspaces stay excluded", () => {
+    const src = join(dir, "src", "openspec");
+    mkdirSync(src, { recursive: true });
+    writeFileSync(join(src, "AGENTS.md"), "# DOX \u2014 src/openspec\n\n| File | Purpose |\n|---|---|\n| `gone.ts` | x |\n");
+    writeFileSync(join(src, "notes.md"), "# notes\n");
+    mkdirSync(join(dir, "openspec", "changes", "c1"), { recursive: true });
+    writeFileSync(join(dir, "openspec", "changes", "c1", "proposal.md"), "# p\n");
+    const issues = doxLint({ cwd: dir }).issues;
+    expect(issues.some((i) => i.kind === "orphan" && i.path === "gone.ts")).toBe(true);
+    expect(issues.some((i) => i.kind === "missing" && i.path === "src/openspec/notes.md")).toBe(true);
+    expect(issues.some((i) => (i.path ?? "").startsWith("openspec/"))).toBe(false);
+  });
+
+  it("glob row paths resolve against the owning AGENTS.md dir", () => {
+    const sub = join(dir, "src", "assets");
+    mkdirSync(join(sub, "shots"), { recursive: true });
+    writeFileSync(join(sub, "AGENTS.md"), "# DOX \u2014 src/assets\n\n| File | Purpose |\n|---|---|\n| `*.glb` | models |\n| `shots/s*.png` | snaps |\n| `none/*.json` | gone |\n");
+    writeFileSync(join(sub, "cube.glb"), "x");
+    writeFileSync(join(sub, "shots", "s1.png"), "x");
+    const orphans = doxLint({ cwd: dir }).issues.filter((i) => i.kind === "orphan").map((i) => i.path);
+    expect(orphans).not.toContain("*.glb");
+    expect(orphans).not.toContain("shots/s*.png");
+    expect(orphans).toContain("none/*.json");
+  });
+
   it("walks .pi/skills and .pi/agents (doctrine requires rows there)", () => {
     // .pi/skills/ carries per-skill rows per the Documentation Update Protocol.
     // Excluding all of .pi blinds the orphan check on that whole tree.

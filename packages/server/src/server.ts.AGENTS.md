@@ -84,3 +84,5 @@ One `knockPeerDeps: KnockPeerDeps = {hostAdmission: () => getHostGateCtx().admis
 ## retire-trusted-networks-bypass
 
 `decideBootTrustMode()` first in `createServer`. `admissionList` thunk (`admissionTrustedNetworks`) wired to every admission site: auth plugin, route-tier gate, `networkGuard`, universal hook, session API/services `getTrustedNetworks`, WS upgrade. Network denial observer returns early in `pair`. `createNetworkPlane({networkTrustActive})`. Live capability hook registered BEFORE bearer/OAuth/identity hooks. `liveCapabilities` store (`LiveCapabilityStore`, liveness re-checked at use). Live WS upgrade validates capability from the path.
+
+`createSessionArchive({... deleteEvents})` wires `deleteEvents` to `eventStore.deleteEventsForSession` (lazy closure; `eventStore` is built later) for fileless/superseded eviction. See change: fix-orphaned-ended-session-archive.

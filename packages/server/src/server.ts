@@ -735,6 +735,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     sessionManager,
     metaPersistence,
     getPinnedDirs: () => preferencesStore.getPinnedDirectories(),
+    // Fileless eviction (manual archive / supersede) has no file to reload the
+    // events from. `eventStore` is built later; the closure runs after boot.
+    // See change: fix-orphaned-ended-session-archive.
+    deleteEvents: (id) => { eventStore.deleteEventsForSession(id); },
   });
   const pendingArchiveIntents = createPendingArchiveIntentRegistry();
   // Stable per-boot id stamped into the liveness marker so cold start can
