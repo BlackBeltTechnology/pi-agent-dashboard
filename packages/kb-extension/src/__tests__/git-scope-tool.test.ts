@@ -11,7 +11,7 @@ import { useRepoFixture } from "./helpers/git-repo.js";
 
 vi.mock("../reindex.js", async (orig) => {
   const m = await orig<typeof import("../reindex.js")>();
-  return { ...m, reindexNow: vi.fn(m.reindexNow), ensurePopulated: vi.fn(m.ensurePopulated) };
+  return { ...m, reindexNow: vi.fn(m.reindexNow), ensurePopulated: vi.fn(m.ensurePopulated), awaitFreshness: vi.fn(m.awaitFreshness) };
 });
 
 const fx = useRepoFixture();
@@ -132,14 +132,45 @@ describe("kb_search scope selection", () => {
     const t = load();
     const reindex = vi.mocked(reindexModule.reindexNow);
     const populate = vi.mocked(reindexModule.ensurePopulated);
+    // The extension's docs freshness now goes through the bounded `awaitFreshness`
+    // (change: bound-kb-search-freshness), which owns starting the reindex.
+    const freshness = vi.mocked(reindexModule.awaitFreshness);
     reindex.mockClear();
     populate.mockClear();
+    freshness.mockClear();
     await call(t.search, dir, { query: "alpha", scope: "git" });
     await call(t.get, dir, { scope: "git", path: "commit/0000000" });
     expect(reindex).not.toHaveBeenCalled();
     expect(populate).not.toHaveBeenCalled();
+    expect(freshness).not.toHaveBeenCalled();
     await call(t.search, dir, { query: "alpha" });
-    expect(reindex).toHaveBeenCalled(); // the docs path still does
+    expect(freshness).toHaveBeenCalled(); // the docs path still does
+  });
+});
+
+describe("scope git and the AbortSignal (change: bound-kb-search-freshness)", () => {
+  it("F16: scope git with an already-aborted signal → cancelled result, no forge/git work", async () => {
+    const dir = docsRepo();
+    const spawned: string[][] = [];
+    const t = load({ git: (a) => (spawned.push(a), ""), spawnGit: ((a: string[]) => (spawned.push(a), undefined)) as unknown as GitScopeDeps["spawnGit"] });
+    const ac = new AbortController();
+    ac.abort();
+    const r = await t.search.execute("id", { query: "alpha", scope: "git" }, ac.signal as never, undefined, { cwd: dir });
+    expect(r.content[0].text).toBe("(cancelled — no results retrieved)");
+    expect(spawned).toHaveLength(0);
+  });
+
+  it("F17: scope git with a live (later-aborted) signal proceeds under its own budget; no docs freshness", async () => {
+    const dir = docsRepo();
+    fx.commit(dir, "fix alpha parser");
+    const t = load();
+    const freshness = vi.mocked(reindexModule.awaitFreshness);
+    freshness.mockClear();
+    const ac = new AbortController();
+    const r = await t.search.execute("id", { query: "alpha", scope: "git" }, ac.signal as never, undefined, { cwd: dir });
+    ac.abort(); // after the fact: nothing to cancel
+    expect(r.content[0].text).not.toContain("cancelled");
+    expect(freshness).not.toHaveBeenCalled();
   });
 });
 

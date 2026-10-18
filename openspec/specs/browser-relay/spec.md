@@ -172,7 +172,7 @@ The relay SHALL record, per guid, an in-memory ring (≥ 500 entries) of `{ts, p
 
 ### Requirement: Connect and CDP-URL lifecycle
 
-`POST /api/browser/connect?profile=<profileDirectory>` SHALL mint a guid, open the extension's `connect.html` in that profile with `protocolVersion=2` and, when the profile config sets `zeroDialog: true` and a token is stored, `token=<token>`, and return `{cdpUrl, instanceId}` once the extension handshake completes (timeout 60 s → 504 and the guid expires). An optional `host` selects where Chrome runs: omitted or `"dashboard"` targets the dashboard host as described here; a registered operator `hostId` targets that operator browser host as specified in `browser-operator-host`, with the same `cdpUrl` form. The response is the only way to obtain a `cdpUrl`; no lookup endpoint SHALL exist. `POST /api/browser/disconnect?instanceId=<id>` SHALL close that relay instance, detaching its tabs; `instanceId` is required. `PUT /api/browser/enabled {enabled}` SHALL write `plugins.browser.enabled` and, when false, close every instance before responding.
+`POST /api/browser/connect?profile=<profileDirectory>` SHALL mint a guid, open the extension's `connect.html` in that profile with `protocolVersion=2` and, when the profile config sets `zeroDialog: true` and a token is stored, `token=<token>`, and return `{cdpUrl, instanceId}` once the extension handshake completes (timeout 60 s → 504 and the guid expires). An optional `host` selects where Chrome runs: omitted or `"dashboard"` targets the dashboard host as described here; a registered operator `hostId` targets that operator browser host as specified in `browser-operator-host`, with the same `cdpUrl` form. The HTTP request SHALL stay open for the whole handshake window, independent of the server's idle connection timeout, and SHALL restore that timeout once the response is sent. The response is the only way to obtain a `cdpUrl`; no lookup endpoint SHALL exist. `POST /api/browser/disconnect?instanceId=<id>` SHALL close that relay instance, detaching its tabs; `instanceId` is required. `PUT /api/browser/enabled {enabled}` SHALL write `plugins.browser.enabled` and, when false, close every instance before responding.
 
 #### Scenario: Zero-dialog token configured
 
@@ -198,6 +198,11 @@ The relay SHALL record, per guid, an in-memory ring (≥ 500 entries) of `{ts, p
 
 - **WHEN** an agent calls `connect` without `host`
 - **THEN** the dashboard host's Chrome SHALL be opened and no `browser_host_*` message SHALL be sent to any client
+
+#### Scenario: Allow clicked after the server's idle connection timeout
+
+- **WHEN** `zeroDialog` is unset, the agent calls `connect`, and the user clicks Allow after the server's 10 s idle connection timeout but within 60 s
+- **THEN** `connect` SHALL respond 200 with `{cdpUrl, instanceId}` on that same request
 
 ### Requirement: Screencast tap for dashboard viewers
 

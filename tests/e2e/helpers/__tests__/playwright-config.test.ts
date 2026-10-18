@@ -16,6 +16,9 @@
  *
  * See openspec/changes/stabilize-browser-e2e/design.md D1, D2.
  */
+import { execFileSync } from "node:child_process";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -88,4 +91,44 @@ describe("playwright.config.ts — blob reporter for sharded CI (#433 part 2)", 
     expect(names).toContain("html");
     expect(names).not.toContain("blob");
   });
+});
+
+describe("playwright.config.ts — config-owned directories are not collected (#861)", () => {
+  // `tests/e2e/team/**` and `tests/e2e/identity-matrix/**` belong to their own
+  // configs / CI legs; the default config must never list them, whether or not a
+  // `pi` binary happens to be on PATH. See change: add-missing-ci-legs (D2).
+  const listSpecFiles = (env: NodeJS.ProcessEnv): string[] => {
+    const out = execFileSync("npx", ["playwright", "test", "--list", "--reporter=json"], {
+      cwd: REPO_ROOT,
+      env,
+      encoding: "utf8",
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    const report = JSON.parse(out.slice(out.indexOf("{"))) as {
+      suites: Array<{ file: string }>;
+    };
+    return report.suites.map((s) => s.file.replaceAll("\\", "/")).sort();
+  };
+
+  it("(E6) lists 0 specs under team/ or identity-matrix/, still lists browser-relay", () => {
+    const files = listSpecFiles({ ...process.env });
+    expect(files.filter((f) => /(^|\/)team\//.test(f))).toEqual([]);
+    expect(files.filter((f) => /(^|\/)identity-matrix\//.test(f))).toEqual([]);
+    expect(files).toContain("browser-relay.spec.ts");
+  }, 60_000);
+
+  it("(E7) a `pi` binary on PATH does not change the list (ownership is structural)", () => {
+    const bin = mkdtempSync(path.join(tmpdir(), "stub-pi-"));
+    try {
+      const stub = path.join(bin, "pi");
+      writeFileSync(stub, "#!/bin/sh\nexit 0\n");
+      chmodSync(stub, 0o755);
+      const without = listSpecFiles({ ...process.env });
+      const withPi = listSpecFiles({ ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}` });
+      expect(withPi).toEqual(without);
+      expect(withPi.filter((f) => /(^|\/)(team|identity-matrix)\//.test(f))).toEqual([]);
+    } finally {
+      rmSync(bin, { recursive: true, force: true });
+    }
+  }, 120_000);
 });

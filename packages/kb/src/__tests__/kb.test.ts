@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { chunkAsciiDoc, extractXrefs } from "../adoc-chunker.js";
@@ -9,7 +9,8 @@ import { chunkMarkdown, MIN_CHUNK_CHARS } from "../chunker.js";
 import { DEFAULTS, loadConfig } from "../config.js";
 import { agentsChain, countInlineRows, doxInit, doxLint, extractRefPaths, parseRowPaths, scanDoxRows } from "../dox.js";
 import { evaluate } from "../eval.js";
-import { docTypeOf, indexSource } from "../indexer.js";
+import { loadGitignoreMatcher } from "../gitignore.js";
+import { docTypeOf, indexSource, WALK_YIELD_EVERY, walk } from "../indexer.js";
 import { kbInit } from "../init.js";
 import { guardedFetch } from "../net-guard.js";
 import { classifyRef, filesystemResolver, httpsResolver, npmResolver, resolveAll, sourceIdentity } from "../sources.js";
@@ -17,6 +18,7 @@ import { SqliteFtsStore } from "../sqlite-store.js";
 import { canonicalSource, isTrusted, recordTrust } from "../trust.js";
 import type { KbStore } from "../types.js";
 import { startHttpsServer, testFetchOpts } from "./helpers/https-server.js";
+import { makeFlatFiles } from "./helpers/synthetic-tree.js";
 
 describe("chunker", () => {
   it("splits on headings and builds breadcrumb", () => {
@@ -1335,5 +1337,118 @@ describe("adoc indexing pipeline", () => {
   it("E12: an xref becomes a traversable graph edge", () => {
     const nbrs = store.neighbors("b.adoc", 1);
     expect(nbrs.some((n) => n.name === "c.asciidoc")).toBe(true);
+  });
+});
+
+describe("indexer: .worktrees built-in exclusion (bound-kb-search-freshness, E20–E24)", () => {
+  let d: string;
+  let store: SqliteFtsStore;
+  const BODY = "# Note\nA note body that is comfortably long enough to be indexed as its own chunk in the worktree exclusion tests.\n";
+  beforeEach(() => {
+    d = mkdtempSync(join(tmpdir(), "kb-wt-"));
+    store = new SqliteFtsStore(join(d, ".kb.db"));
+    store.init();
+  });
+  afterEach(() => {
+    store.close();
+    rmSync(d, { recursive: true, force: true });
+  });
+  const put = (rel: string, body = BODY) => {
+    mkdirSync(join(d, rel, ".."), { recursive: true });
+    writeFileSync(join(d, rel), body);
+  };
+  const pathsIndexed = () => store.listPaths("t");
+
+  it("E20: a non-gitignored .worktrees dir is never indexed", async () => {
+    put("docs/.worktrees/x/README.md");
+    put("docs/keep.md");
+    await indexSource(store, { root: "t", dir: join(d, "docs") });
+    expect(pathsIndexed()).toEqual(["keep.md"]);
+  });
+
+  it("E21: an include glob cannot re-admit a path under .worktrees", async () => {
+    put("docs/.worktrees/x/README.md");
+    put("docs/keep.md");
+    await indexSource(store, { root: "t", dir: join(d, "docs") }, { include: ["**/.worktrees/**", "**/*.md"] });
+    expect(pathsIndexed().some((p) => p.includes(".worktrees"))).toBe(false);
+  });
+
+  it("E22: a gitignore negation cannot re-admit .worktrees", async () => {
+    put("docs/.worktrees/x/README.md");
+    put("docs/keep.md");
+    writeFileSync(join(d, "docs", ".gitignore"), "!.worktrees/\n");
+    await indexSource(store, { root: "t", dir: join(d, "docs") }, { cwd: d });
+    expect(pathsIndexed().some((p) => p.includes(".worktrees"))).toBe(false);
+  });
+
+  it("E23: files indexed under .worktrees by a pre-change index leave the index (orphan removal)", async () => {
+    put("docs/.worktrees/x/README.md");
+    store.begin();
+    store.setFileState("t", ".worktrees/x/README.md", { mtimeMs: 1, sha256: "stale" });
+    store.insertChunk({ root: "t", path: ".worktrees/x/README.md", chunkId: "c1", headingPath: "Note", heading: "Note", level: 1, parentChunkId: null, docType: "doc", body: "orphan", bodyHash: "h" });
+    store.commit();
+    expect(store.listPaths("t")).toContain(".worktrees/x/README.md");
+    await indexSource(store, { root: "t", dir: join(d, "docs") });
+    expect(store.listPaths("t")).not.toContain(".worktrees/x/README.md");
+  });
+
+  it("E24: name precision — worktrees/ and .worktrees-notes/ ARE indexed", async () => {
+    put("docs/worktrees/a.md");
+    put("docs/.worktrees-notes/b.md");
+    await indexSource(store, { root: "t", dir: join(d, "docs") });
+    expect(pathsIndexed().sort()).toEqual([".worktrees-notes/b.md", "worktrees/a.md"]);
+  });
+});
+
+describe("indexer: async walk (bound-kb-search-freshness, E25 E27)", () => {
+  let d: string;
+  beforeEach(() => {
+    d = mkdtempSync(join(tmpdir(), "kb-walk-"));
+  });
+  afterEach(() => rmSync(d, { recursive: true, force: true }));
+
+  /** The pre-change synchronous walk, kept here as the recorded reference. */
+  function syncWalk(dir: string, base: string, out: string[], ignore: ReturnType<typeof loadGitignoreMatcher>): string[] {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const abs = join(dir, e.name);
+      const rel = relative(base, abs);
+      if (/(^|\/)(node_modules|\.git|\.worktrees|dist|build|\.next|coverage|\.kb)(\/|$)/.test(rel)) continue;
+      if (e.isDirectory()) {
+        if (ignore.isIgnoredDir(rel)) continue;
+        syncWalk(abs, base, out, ignore);
+      } else if (/\.(md|mdx|markdown|adoc|asciidoc)$/i.test(e.name) && !ignore.isIgnored(rel)) out.push(abs);
+    }
+    return out;
+  }
+
+  it("E25: selection parity — identical array, identical order, > WALK_YIELD_EVERY entries", async () => {
+    for (let i = 0; i < 12; i++) {
+      mkdirSync(join(d, `dir${i}`, "nested"), { recursive: true });
+      for (let j = 0; j < 30; j++) {
+        writeFileSync(join(d, `dir${i}`, `f${j}.md`), "x");
+        writeFileSync(join(d, `dir${i}`, `f${j}.txt`), "x");
+        writeFileSync(join(d, `dir${i}`, "nested", `n${j}.adoc`), "x");
+      }
+    }
+    writeFileSync(join(d, ".gitignore"), "dir3/\n*.adoc\n");
+    const gi = loadGitignoreMatcher(d, { cwd: d });
+    const expected = syncWalk(d, d, [], gi);
+    expect(expected.length).toBeGreaterThan(WALK_YIELD_EVERY / 2);
+    const actual = await walk(d, d, [], gi);
+    expect(actual).toEqual(expected);
+  });
+
+  it.each([
+    [WALK_YIELD_EVERY - 1, 0],
+    [WALK_YIELD_EVERY, 1],
+    [WALK_YIELD_EVERY + 1, 1],
+    [2 * WALK_YIELD_EVERY, 2],
+  ])("E27: %i entries → %i yields (single WALK_YIELD_EVERY constant)", async (entries, yields) => {
+    makeFlatFiles(d, entries);
+    let n = 0;
+    await walk(d, d, [], undefined, async () => {
+      n++;
+    });
+    expect(n).toBe(yields);
   });
 });

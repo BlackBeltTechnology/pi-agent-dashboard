@@ -1,0 +1,49 @@
+name: Site Drift Check
+
+# Backstop for deploy-site.yml's single push trigger (change: add-missing-ci-legs,
+# #579; design D6). A `site/**` push has silently produced NO workflow run at least
+# three times; each was patched by a manual dispatch. This daily check compares
+# the commit the LIVE site was deployed from (deploy-sha.txt, written by
+# deploy-site.yml) with the last site-relevant commit on develop and DISPATCHES
+# deploy-site.yml when the live site is behind.
+#
+# Deliberately:
+#   - separate from deploy-site.yml and OUTSIDE its `pages-deploy` concurrency
+#     group (that group cancels, it does not serialize — a check job inside it
+#     could cancel or be cancelled by a push deploy);
+#   - it never deploys itself: no `pages: write`, no `id-token: write`;
+#   - no dependency install and no cache (`actions: write` makes the job
+#     release-privileged under workflow-token-cache-contract.test.ts);
+#   - it skips (notice) while a deploy run is queued / in progress, and goes red
+#     only if the corrective dispatch is rejected.
+# Decision logic + its tests: scripts/site-drift-decision.mjs,
+# scripts/__tests__/site-drift-decision.test.mjs.
+# Contract: packages/shared/src/__tests__/site-deploy-workflow-contract.test.ts.
+
+on:
+  schedule:
+    - cron: '23 5 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: write # `gh workflow run deploy-site.yml`
+    steps:
+      # Full history: the check needs `git merge-base --is-ancestor` between the
+      # deployed SHA and the last site-relevant commit.
+      - uses: actions/checkout@v4
+        with:
+          ref: develop
+          fetch-depth: 0
+
+      - name: Compare live site marker with develop, dispatch a deploy on drift
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/site-drift-decision.mjs --ref origin/develop

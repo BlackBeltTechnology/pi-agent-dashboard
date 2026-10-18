@@ -197,6 +197,7 @@ export default function MarkdownViewer({ cwd, path }: ViewerProps) {
               frontmatter="properties"
               imageBase={imageBase}
               mermaidSource={mermaidSource}
+              staticSource
             />
           </div>
         )}

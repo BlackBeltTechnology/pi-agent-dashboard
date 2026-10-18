@@ -10,6 +10,7 @@ import os from "node:os";
 import path from "node:path";
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { fileKind } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
+import { repairAsciiDoc } from "@blackbelt-technology/pi-dashboard-shared/markup-repair/asciidoc.js";
 import { realpathAsync } from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
@@ -227,6 +228,36 @@ function getAsciidoctor(): any {
     asciidoctorInstance = factory();
   }
   return asciidoctorInstance;
+}
+
+interface AdocWarning {
+  text: string;
+  line: number | null;
+}
+
+/**
+ * One synchronous convert with asciidoctor's global logger swapped for an in-memory
+ * one, restored in `finally`. Synchronous ⇒ no cross-request interleaving.
+ * See change: add-md-adoc-markup-repair (design D3).
+ */
+function convertAdocCapturingWarnings(source: string): { html: string; warnings: AdocWarning[] } {
+  const adoc = getAsciidoctor();
+  const { LoggerManager, MemoryLogger } = adoc;
+  const prev = LoggerManager.getLogger();
+  const memory = MemoryLogger.create();
+  LoggerManager.setLogger(memory);
+  try {
+    // `showtitle`: embedded output otherwise drops the `= Title` doctitle.
+    const html = adoc.convert(source, { safe: "secure", standalone: false, attributes: { showtitle: "" } });
+    const warnings: AdocWarning[] = memory.getMessages().map((m: any) => {
+      const loc = m.getSourceLocation?.();
+      const line = loc?.getLineNumber?.();
+      return { text: String(m.getText?.() ?? ""), line: typeof line === "number" ? line : null };
+    });
+    return { html: String(html), warnings };
+  } finally {
+    LoggerManager.setLogger(prev);
+  }
 }
 
 // asciidoctor `safe:"secure"` still passes raw HTML through (`+++…+++`,
@@ -1099,7 +1130,7 @@ export function registerFileRoutes(
   // engine-only PDF render (`{mode:"pdf"}`; no in-process fallback — engine
   // absent → {success:false}; change: render-pptx-preview). Non-supported
   // extensions → 400. Same anti-traversal gate as `/api/file/raw`.
-  fastify.get<{ Querystring: { cwd?: string; path?: string } }>(
+  fastify.get<{ Querystring: { cwd?: string; path?: string; repair?: string } }>(
     "/api/file/render",
     { preHandler: networkGuard },
     async (request, reply) => {
@@ -1191,6 +1222,16 @@ export function registerFileRoutes(
         return { success: false, error: "path outside working directory", ...renderDecision.remedy } as unknown as ApiResponse;
       }
 
+      // Modification token, taken BEFORE the read: a concurrent write can only make it
+      // older than the content, so the apply-side verify fails safe ("file changed").
+      let mtime = 0;
+      try {
+        mtime = (await fs.stat(resolved)).mtimeMs;
+      } catch {
+        reply.code(404);
+        return { success: false, error: "not found" } satisfies ApiResponse;
+      }
+
       let source: string;
       if (renderDecision.viaGrant) {
         // Verified against the open handle (design D14, task 2.8) — a granted
@@ -1215,10 +1256,14 @@ export function registerFileRoutes(
       }
 
       try {
-        const adoc = getAsciidoctor();
-        // `showtitle`: embedded output otherwise drops the `= Title` doctitle.
-        const html = adoc.convert(source, { safe: "secure", standalone: false, attributes: { showtitle: "" } });
-        return { success: true, data: { html: await sanitizeAdocHtml(String(html)) } } satisfies ApiResponse;
+        // Markup repair is a pure source scan (shared with the client's apply path);
+        // `repair=0` serves the "view original rendering" toggle.
+        const repaired = request.query.repair === "0" ? { source, repairs: [] } : repairAsciiDoc(source);
+        const { html, warnings } = convertAdocCapturingWarnings(repaired.source);
+        return {
+          success: true,
+          data: { html: await sanitizeAdocHtml(html), repairs: repaired.repairs, warnings, mtime },
+        } satisfies ApiResponse;
       } catch (err) {
         const msg = err instanceof Error ? err.message : "render failed";
         reply.code(500);

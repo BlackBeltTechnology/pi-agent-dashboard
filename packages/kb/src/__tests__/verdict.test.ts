@@ -4,15 +4,16 @@
 
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { withEventLoopLag } from "./helpers/event-loop-lag.js";
 import { ackTargets } from "../dox-triage.js";
 import { readStaleness } from "../staleness.js";
 import type { KbHit } from "../types.js";
 import type { EnrichCtx, VerdictFs } from "../verdict.js";
-import { enrichHits } from "../verdict.js";
+import { enrichHits, RENAME_SCAN_TIMEOUT_MS } from "../verdict.js";
 
 const sha = (s: string | Buffer) => createHash("sha256").update(s).digest("hex");
 const git = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, encoding: "utf8" });
@@ -533,4 +534,122 @@ describe("verdict: disk-body default (store hits carry no body)", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+});
+
+describe("verdict: async bounded rename scan (bound-kb-search-freshness)", () => {
+  const dirs: string[] = [];
+  const mk = (p: string) => {
+    const d = mkdtempSync(join(tmpdir(), p));
+    dirs.push(d);
+    return d;
+  };
+  afterAll(() => {
+    for (const d of dirs) rmSync(d, { recursive: true, force: true });
+  });
+  const row = (f: string) => `| File | Purpose |\n|------|---------|\n| \`${f}\` | X. |\n`;
+  const RENAME = "R100\0old.ts\0new.ts\0";
+
+  /** A `git` stub (a node script) first on PATH. `body` runs inside the stub. */
+  async function withGitStub<T>(body: string, fn: () => Promise<T>): Promise<T> {
+    const bin = mk("verdict-stub-");
+    const stub = join(bin, "git");
+    writeFileSync(stub, `#!/usr/bin/env node\n${body}\n`);
+    chmodSync(stub, 0o755);
+    const prev = process.env.PATH;
+    process.env.PATH = `${bin}:${prev}`;
+    try {
+      return await fn();
+    } finally {
+      process.env.PATH = prev;
+    }
+  }
+  const absentHit = (f: string) => hit({ body: row(f) });
+
+  it("E29: a sync string runner and an async promise runner produce identical verdicts", async () => {
+    const cwd = mk("verdict-e29-");
+    const sync = await enrichHits([absentHit("old.ts")], { cwd, git: () => RENAME });
+    const asyncR = await enrichHits([absentHit("old.ts")], { cwd, git: async () => RENAME });
+    expect(sync[0].verdict).toEqual(asyncR[0].verdict);
+    expect(asyncR[0].verdict!.label).toBe("MOVED");
+    expect(asyncR[0].verdict!.movedTo).toEqual(["new.ts"]);
+  });
+
+  it("E30: three hits with absent subjects trigger exactly ONE scan (promise memoized)", async () => {
+    const cwd = mk("verdict-e30-");
+    let calls = 0;
+    await enrichHits([absentHit("old.ts"), absentHit("a.ts"), absentHit("b.ts")], {
+      cwd,
+      git: async () => {
+        calls++;
+        return RENAME;
+      },
+    });
+    expect(calls).toBe(1);
+  });
+
+  it("P5: ~500 staged renames — default async runner finishes under the timeout, lag bounded, MOVED", async () => {
+    const repo = mk("verdict-p5-");
+    git(repo, "init", "-q");
+    git(repo, "config", "user.email", "t@t.t");
+    git(repo, "config", "user.name", "t");
+    for (let i = 0; i < 500; i++) writeFileSync(join(repo, `f${i}.ts`), `export const v${i} = ${i}; // padding so rename similarity is stable\n`);
+    git(repo, "add", "-A");
+    git(repo, "commit", "-qm", "v1");
+    mkdirSync(join(repo, "moved"));
+    for (let i = 0; i < 500; i++) git(repo, "mv", `f${i}.ts`, `moved/f${i}.ts`);
+    const { result, maxDelayMs, elapsedMs } = await withEventLoopLag(() => enrichHits([absentHit("f7.ts")], { cwd: repo }));
+    expect(result[0].verdict!.label).toBe("MOVED");
+    expect(elapsedMs).toBeLessThan(RENAME_SCAN_TIMEOUT_MS);
+    expect(maxDelayMs).toBeLessThanOrEqual(250);
+  }, 30_000);
+
+  it("X5: a scan exceeding RENAME_SCAN_TIMEOUT_MS degrades to GONE within the bound", async () => {
+    const cwd = mk("verdict-x5-");
+    const { result, elapsedMs } = await withGitStub("setTimeout(() => {}, 60000);", () => withEventLoopLag(() => enrichHits([absentHit("old.ts")], { cwd })));
+    expect(result[0].verdict!.label).toBe("GONE");
+    expect(elapsedMs).toBeLessThan(RENAME_SCAN_TIMEOUT_MS + 400);
+  }, 15_000);
+
+  it.each([
+    [1500, "MOVED"],
+    [RENAME_SCAN_TIMEOUT_MS + 600, "GONE"],
+  ])("X6: a scan finishing at %i ms → %s (boundary pinned either side, not at 2000 ms exactly)", async (ms, label) => {
+    const cwd = mk("verdict-x6-");
+    const body = `setTimeout(() => process.stdout.write(${JSON.stringify(RENAME)}), ${ms});`;
+    const { result } = await withGitStub(body, () => withEventLoopLag(() => enrichHits([absentHit("old.ts")], { cwd })));
+    expect(result[0].verdict!.label).toBe(label);
+  }, 15_000);
+
+  it("X7: a non-git cwd (spawn/exit failure) degrades to GONE", async () => {
+    const cwd = mk("verdict-x7-");
+    const [h] = await enrichHits([absentHit("old.ts")], { cwd });
+    expect(h.verdict!.label).toBe("GONE");
+  });
+
+  it("X8: an abort kills the scan child and yields an empty rename map", async () => {
+    const cwd = mk("verdict-x8-");
+    const pidFile = join(cwd, "pid");
+    const body = `require("fs").writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setTimeout(() => {}, 60000);`;
+    const ac = new AbortController();
+    const t0 = Date.now();
+    const result = await withGitStub(body, async () => {
+      const p = enrichHits([absentHit("old.ts")], { cwd, signal: ac.signal });
+      for (let i = 0; i < 100 && !existsSync(pidFile); i++) await new Promise((r) => setTimeout(r, 20));
+      ac.abort();
+      return p;
+    });
+    expect(Date.now() - t0).toBeLessThan(RENAME_SCAN_TIMEOUT_MS);
+    expect(result[0].verdict!.label).toBe("GONE"); // empty map
+    const pid = Number(readFileSync(pidFile, "utf8"));
+    let alive = true;
+    for (let i = 0; i < 50 && alive; i++) {
+      try {
+        process.kill(pid, 0);
+        await new Promise((r) => setTimeout(r, 20));
+      } catch {
+        alive = false;
+      }
+    }
+    expect(alive).toBe(false);
+  }, 15_000);
 });
