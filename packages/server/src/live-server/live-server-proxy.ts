@@ -74,6 +74,9 @@ function stripDashboardCredentials(
  * single-port tunnel keeps working. Foreign absolute redirects are untouched.
  */
 function rewriteLocation(location: string, prefix: string, host: string, port: number): string {
+  // A redirect that climbs out of the prefix (`./../x`, `/../x`) would let the
+  // browser normalise it past the capability/target prefix: refuse it.
+  if (/(^|\/)\.\.(\/|$|\?|#)/.test(location.split(/[?#]/)[0])) return `${prefix}/`;
   if (location.startsWith("./")) return `${prefix}/${location.slice(2)}`;
   if (location.startsWith("/")) return `${prefix}${location}`;
   try {

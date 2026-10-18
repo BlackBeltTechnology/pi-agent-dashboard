@@ -994,7 +994,7 @@ export function isKnockListedPeer(
   list: readonly string[],
 ): boolean {
   if (!peer || hasProxyForwardingHeaders(headers)) return false;
-  const entries = list.filter((e) => !MATCH_ALL_ENTRIES.has(e.trim()));
+  const entries = list.map((e) => e.trim()).filter((e) => e !== "" && !MATCH_ALL_ENTRIES.has(e));
   return entries.length > 0 && isBypassedHost(peer, entries);
 }
 

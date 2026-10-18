@@ -57,7 +57,7 @@ export async function removeLiveServer(id: string): Promise<void> {
 export type CapabilityResult = { ok: true; path: string; expiresAt: number } | { ok: false; error: string };
 
 /** `/live/<id>/~c/<token>/` — the only shape the viewer will frame (never a URL the server merely names). */
-const CAPABILITY_PATH = /^\/live\/[A-Za-z0-9_-]+\/~c\/[A-Za-z0-9_-]+\/$/;
+const CAPABILITY_PATH = /^\/live\/[A-Za-z0-9_-]+\/~c\/[A-Za-z0-9_-]{22,}\/$/;
 
 /**
  * Mint a per-preview capability path (`control` tier). The preview frame is a

@@ -21,6 +21,9 @@ import type { Principal } from "@blackbelt-technology/pi-dashboard-shared/identi
 import type { Tier } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
 import type { TokenPayload } from "../auth/auth.js";
 
+// Lifetime note: a capability's life is bounded by its own idle/absolute limits and
+// by revocation (target removed, device revoked, logout / passkey revoke, restart).
+// It is deliberately independent of the minting session JWT's natural `exp`.
 export const CAPABILITY_IDLE_MS = 30 * 60_000;
 export const CAPABILITY_MAX_MS = 12 * 60 * 60_000;
 /** Hard cap on live tokens (oldest dropped): a loop minting tokens cannot grow memory. */

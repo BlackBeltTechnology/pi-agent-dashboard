@@ -14,7 +14,7 @@ import LiveServerViewer from "../LiveServerViewer.js";
 
 const originalFetch = globalThis.fetch;
 
-const CAP = "/live/abc12345/~c/tok_1/";
+const CAP = "/live/abc12345/~c/tok_1_padpadpadpadpadpadpad/";
 const TWELVE_HOURS = 12 * 60 * 60_000;
 
 beforeEach(() => {
@@ -181,7 +181,7 @@ describe("LiveServerViewer — capability mint and re-mint", () => {
         return Promise.resolve({
           ok: true,
           status: 200,
-          json: () => Promise.resolve({ success: true, path: `/live/abc12345/~c/tok_${n}/`, expiresAt: expiresAtOf(n) }),
+          json: () => Promise.resolve({ success: true, path: `/live/abc12345/~c/tok_${n}_padpadpadpadpadpadpad/`, expiresAt: expiresAtOf(n) }),
         });
       }
       return Promise.resolve({
@@ -207,7 +207,7 @@ describe("LiveServerViewer — capability mint and re-mint", () => {
     render(<LiveServerViewer path="live:http://localhost:5173/" />);
     await flush();
     expect(mints).toEqual(["POST /api/live-server/abc12345/capability"]);
-    expect(src()).toBe("/live/abc12345/~c/tok_1/");
+    expect(src()).toBe("/live/abc12345/~c/tok_1_padpadpadpadpadpadpad/");
     const sandbox = (screen.getByTestId("live-iframe").getAttribute("sandbox") ?? "").split(/\s+/).filter(Boolean).sort();
     expect(sandbox).toEqual(["allow-downloads", "allow-forms", "allow-popups", "allow-scripts"]);
     // The visible header never shows the token.
@@ -222,11 +222,11 @@ describe("LiveServerViewer — capability mint and re-mint", () => {
 
     await flush(11 * 3600_000 + 49 * 60_000 + 59_000);
     expect(mints).toHaveLength(1);
-    expect(src()).toBe("/live/abc12345/~c/tok_1/");
+    expect(src()).toBe("/live/abc12345/~c/tok_1_padpadpadpadpadpadpad/");
 
     await flush(1_000);
     expect(mints).toHaveLength(2);
-    expect(src()).toBe("/live/abc12345/~c/tok_2/");
+    expect(src()).toBe("/live/abc12345/~c/tok_2_padpadpadpadpadpadpad/");
     expect((screen.getByTestId("live-iframe").getAttribute("sandbox") ?? "")).not.toContain("allow-same-origin");
   });
 
@@ -238,7 +238,7 @@ describe("LiveServerViewer — capability mint and re-mint", () => {
     fireEvent.click(screen.getByTestId("live-confirm"));
     await flush();
     expect(mints).toHaveLength(2);
-    expect(src()).toBe("/live/abc12345/~c/tok_2/");
+    expect(src()).toBe("/live/abc12345/~c/tok_2_padpadpadpadpadpadpad/");
   });
 
   it("closing the frame cancels the pending re-mint", async () => {
@@ -274,10 +274,10 @@ describe("LiveServerViewer — capability mint and re-mint", () => {
     await flush();
     failMint = true;
     await flush(11 * 3600_000 + 50 * 60_000);
-    expect(src()).toBe("/live/abc12345/~c/tok_1/");
+    expect(src()).toBe("/live/abc12345/~c/tok_1_padpadpadpadpadpadpad/");
     failMint = false;
     await flush(30_000);
     expect(mints).toHaveLength(2);
-    expect(src()).toBe("/live/abc12345/~c/tok_2/");
+    expect(src()).toBe("/live/abc12345/~c/tok_2_padpadpadpadpadpadpad/");
   });
 });

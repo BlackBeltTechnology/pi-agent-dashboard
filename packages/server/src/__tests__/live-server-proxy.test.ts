@@ -42,6 +42,12 @@ class Upstream {
     this.server = http.createServer((req, res) => {
       const u = new URL(req.url ?? "/", "http://x");
       const seen: Seen = { method: req.method, url: req.url, headers: req.headers };
+      // Climbing redirects are keyed, not passed in the query: reply-from refuses a `..` in the request itself.
+      const CLIMBING = ["./../x", "/../api/sessions", "./a/../../b"];
+      if (u.pathname === "/redir-climb") {
+        res.writeHead(302, { location: CLIMBING[Number(u.searchParams.get("k"))] ?? "/" });
+        return res.end();
+      }
       if (u.pathname === "/redir") {
         res.writeHead(302, { location: u.searchParams.get("to") ?? "/" });
         return res.end();
@@ -165,6 +171,11 @@ describe("live-server proxy under a capability path", () => {
     it("upstream 302 to its own absolute origin → Location inside the capability prefix", async () => {
       const res = await get(`${prefix}/redir?to=${encodeURIComponent(`http://127.0.0.1:${upstream.port}/y?q=1`)}`);
       expect(res.headers.location).toBe(`${prefix}/y?q=1`);
+    });
+
+    it.each([0, 1, 2])("upstream 302 that climbs out of the prefix (#%i) is clamped to the prefix root", async (k) => {
+      const res = await get(`${prefix}/redir-climb?k=${k}`);
+      expect([res.statusCode, res.headers.location]).toEqual([302, `${prefix}/`]);
     });
 
     it("a foreign absolute redirect is left untouched", async () => {

@@ -3,7 +3,7 @@ import net from "node:net";
 import path from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import {
+import { 
   createLanInterfaceProvider,
   createNetworkGuard,
   createNetworkGuardHook,
@@ -13,7 +13,7 @@ import {
   guardPathname,
   ipToNum,
   isBypassedHost,
-  isGuardJurisdiction,
+  isGuardJurisdiction,isKnockListedPeer, 
   isOnLinkPrivate,
   isTrustedSource,
   knockSourceKey,
@@ -22,8 +22,7 @@ import {
   matchCidr,
   netmaskToCidrBits,
   networkAddress,
-  parseIpAddress,
-} from "../auth/localhost-guard.js";
+  parseIpAddress,} from "../auth/localhost-guard.js";
 import { isLoopback } from "../auth/loopback.js";
 import { admissionTrustedNetworks } from "../auth/trust-mode.js";
 import { buildNetworkInterfaceList } from "../routes/network-interfaces.js";
@@ -1500,5 +1499,19 @@ describe("trust mode — admission list at the guard sites", () => {
     expect(body.hint).toBe("Pair this device (Request access) or sign in.");
     expect(body.hint).not.toMatch(/trustedNetworks|trusted network|legacy|trust mode|\bmode\b/i);
     expect(body.reason).not.toMatch(/trustedNetworks|trusted network|legacy|trust mode|\bmode\b/i);
+  });
+});
+
+describe("isKnockListedPeer (knock eligibility from the raw list)", () => {
+  it("trims entries: a whitespace-padded hand edit still covers its peer", () => {
+    expect(isKnockListedPeer("198.51.100.7", {}, [" 198.51.100.0/24 "])).toBe(true);
+  });
+
+  it("ignores match-all entries (also when padded) and blank entries", () => {
+    expect(isKnockListedPeer("203.0.113.9", {}, [" 0.0.0.0/0", "::/0 ", "*.*.*.*", "  "])).toBe(false);
+  });
+
+  it("refuses any forwarding header, even from a listed peer", () => {
+    expect(isKnockListedPeer("198.51.100.7", { "x-forwarded-for": "203.0.113.9" }, ["198.51.100.0/24"])).toBe(false);
   });
 });
