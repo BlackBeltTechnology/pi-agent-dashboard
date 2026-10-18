@@ -32,6 +32,11 @@ import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { resolvePiAgentDir } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 import { PI_MANAGED_SETTINGS_KEYS } from "@blackbelt-technology/pi-dashboard-shared/pi-settings-keys.js";
+import {
+  checkPiSettingValue,
+  getPiSettingDef,
+  PI_SETTINGS_BLOCKS,
+} from "@blackbelt-technology/pi-dashboard-shared/pi-settings-schema.js";
 import type { PiMirrorResult, PiRetryPolicy, PiSettingsPatch } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { THINKING_LEVELS } from "@blackbelt-technology/pi-dashboard-shared/role-schema.js";
 
@@ -138,13 +143,40 @@ function sortKeys(v: unknown): unknown {
   return v;
 }
 
+/** 1-based line/column of a 0-based character offset, clamped into the text. */
+function lineColumnAt(text: string, position: number): { line: number; column: number } {
+  const upto = text.slice(0, Math.max(0, Math.min(position, text.length)));
+  const lines = upto.split("\n");
+  return { line: lines.length, column: (lines[lines.length - 1]?.length ?? 0) + 1 };
+}
+
+/**
+ * Describe a parse failure WITHOUT quoting file content. Node's `SyntaxError`
+ * message can embed source text (a truncated file holding an API key would leak
+ * it through `parseError`), so only the numeric position survives: the
+ * `line L column C` pair when the message carries it, else a position derived
+ * from `position N`, else a fixed reason. See change: pi-settings-full-coverage (D5b).
+ */
+function describeParseFailure(err: unknown, text: string): string {
+  const msg = err instanceof Error ? err.message : "";
+  const lc = /\(line (\d+) column (\d+)\)/.exec(msg);
+  if (lc) return `Invalid JSON at line ${lc[1]}, column ${lc[2]}`;
+  const pos = /\bposition (\d+)/.exec(msg);
+  if (pos) {
+    const { line, column } = lineColumnAt(text, Number(pos[1]));
+    return `Invalid JSON at line ${line}, column ${column}`;
+  }
+  return "Invalid JSON";
+}
+
 function parseText(raw: string): { obj?: Record<string, unknown>; error?: string } {
+  const text = stripBom(raw);
   try {
-    const parsed: unknown = JSON.parse(stripBom(raw));
+    const parsed: unknown = JSON.parse(text);
     if (!isPlainObject(parsed)) return { error: "settings.json must contain a JSON object" };
     return { obj: parsed };
   } catch (err) {
-    return { error: err instanceof Error ? err.message : "Invalid JSON" };
+    return { error: describeParseFailure(err, text) };
   }
 }
 
@@ -211,7 +243,8 @@ const LOCK_OPTIONS = {
   retries: { retries: 10, minTimeout: 20, maxTimeout: 20 },
 } as const;
 
-const formatJson = (obj: unknown): string => `${JSON.stringify(obj, null, 2)}\n`;
+/** 2-space JSON with a trailing newline — the on-disk format of every write. */
+export const formatJson = (obj: unknown): string => `${JSON.stringify(obj, null, 2)}\n`;
 
 async function resolveWriteTarget(path: string, fs: PiSettingsFs): Promise<string> {
   try {
@@ -315,73 +348,38 @@ export async function withPiSettingsLock<T, F = never>(
 
 // ── Typed form patch (design D3) ─────────────────────────────────────
 
-type LeafCheck = (v: unknown) => string | null;
-
-const isBool: LeafCheck = (v) => (typeof v === "boolean" ? null : "must be a boolean");
-const isNonNegInt: LeafCheck = (v) =>
-  typeof v === "number" && Number.isInteger(v) && v >= 0 ? null : "must be a non-negative integer";
-const oneOf =
-  (...allowed: readonly string[]): LeafCheck =>
-  (v) =>
-    typeof v === "string" && allowed.includes(v) ? null : `must be one of ${allowed.map((a) => `"${a}"`).join(", ")}`;
-
-const MODE = oneOf("all", "one-at-a-time");
-
-const TYPED_BLOCKS: Record<string, Record<string, LeafCheck>> = {
-  compaction: { enabled: isBool, reserveTokens: isNonNegInt, keepRecentTokens: isNonNegInt },
-  branchSummary: { reserveTokens: isNonNegInt, skipPrompt: isBool },
-};
-
-const TYPED_TOP: Record<string, LeafCheck> = {
-  steeringMode: MODE,
-  followUpMode: MODE,
-  defaultProjectTrust: oneOf("ask", "always", "never"),
-  hideThinkingBlock: isBool,
-  quietStartup: (v) => (v === true || v === false || v === "header" ? null : 'must be true, false or "header"'),
-};
-
 const isManaged = (k: string): boolean => (PI_MANAGED_SETTINGS_KEYS as readonly string[]).includes(k);
+
+const isBlock = (k: string): boolean => PI_SETTINGS_BLOCKS.includes(k);
 
 const JSON_HINT = "use the JSON editor for this key";
 
 const fieldError = (field: string, message: string): ValidationError => ({ field, message });
 
-/** Check each leaf of one `compaction`/`branchSummary` block. `strict`: unknown leaves are errors (the form). */
-function checkBlockLeaves(
-  key: string,
-  value: Record<string, unknown>,
-  allowNull: boolean,
-  strict: boolean,
-): ValidationError[] {
-  const errors: ValidationError[] = [];
-  for (const [leaf, lv] of Object.entries(value)) {
-    const check = TYPED_BLOCKS[key]?.[leaf];
-    if (!check) {
-      if (strict) errors.push(fieldError(`${key}.${leaf}`, `${key}.${leaf} is not a form field; ${JSON_HINT}`));
-      continue;
-    }
-    if (lv === undefined || (allowNull && lv === null)) continue;
-    const msg = check(lv);
-    if (msg) errors.push(fieldError(`${key}.${leaf}`, `${key}.${leaf} ${msg}`));
-  }
-  return errors;
+/** Check one dotted schema leaf (`block.leaf`, or a top-level key). `null` deletes and is always valid. */
+function checkLeaf(key: string, value: unknown): ValidationError[] {
+  const def = getPiSettingDef(key);
+  if (!def) return [fieldError(key, `${key} is not a form field; ${JSON_HINT}`)];
+  const msg = value === null ? null : checkPiSettingValue(def, value);
+  return msg ? [fieldError(key, `${key} ${msg}`)] : [];
 }
 
 function checkPatchBlock(key: string, value: unknown): ValidationError[] {
   if (value === null) return [fieldError(key, `${key} cannot be removed as a whole block; clear its fields instead`)];
   if (!isPlainObject(value)) return [fieldError(key, `${key} must be an object`)];
-  return checkBlockLeaves(key, value, true, true);
+  return Object.entries(value)
+    .filter(([, lv]) => lv !== undefined)
+    .flatMap(([leaf, lv]) => checkLeaf(`${key}.${leaf}`, lv));
 }
 
 function checkPatchKey(key: string, value: unknown): ValidationError[] {
   if (isManaged(key)) {
     return [fieldError(key, `${key} is managed by the Default model control and cannot be edited here`)];
   }
-  if (key in TYPED_BLOCKS) return checkPatchBlock(key, value);
-  const check = TYPED_TOP[key];
-  if (!check) return [fieldError(key, `${key} is not a form field; ${JSON_HINT}`)];
-  const msg = value === null ? null : check(value);
-  return msg ? [fieldError(key, `${key} ${msg}`)] : [];
+  if (isBlock(key)) return checkPatchBlock(key, value);
+  // A dotted top-level key would write a literal "a.b" property: blocks hold leaves.
+  if (key.includes(".")) return [fieldError(key, `${key} is not a form field; ${JSON_HINT}`)];
+  return checkLeaf(key, value);
 }
 
 /** Validate a typed leaf patch. Returns `[]` when valid. */
@@ -409,7 +407,7 @@ function applyLeafPatch(current: Record<string, unknown>, patch: PiSettingsPatch
   const next: Record<string, unknown> = { ...current };
   for (const [key, value] of Object.entries(patch as Record<string, unknown>)) {
     if (value === undefined) continue;
-    if (key in TYPED_BLOCKS) {
+    if (isBlock(key)) {
       const block = applyBlockPatch(next[key], value as Record<string, unknown>);
       if (block) next[key] = block;
     } else if (value === null) {
@@ -470,7 +468,7 @@ export async function applyPiSettingsPatch(
 
 const isStringArray = (v: unknown): boolean => Array.isArray(v) && v.every((x) => typeof x === "string");
 const isPosInt = (v: unknown): boolean => typeof v === "number" && Number.isInteger(v) && v >= 1;
-const isNonNeg = (v: unknown): boolean => isNonNegInt(v) === null;
+const isNonNeg = (v: unknown): boolean => typeof v === "number" && Number.isInteger(v) && v >= 0;
 
 /** A rule returns an error message, or null when the value is fine. */
 type Rule = (v: unknown) => string | null;
@@ -526,14 +524,47 @@ function validateRetryPartial(retry: unknown): ValidationError[] {
   return errors;
 }
 
-function validateRawKeys(obj: Record<string, unknown>): ValidationError[] {
+/**
+ * The 10 typed keys checked in raw mode, FROZEN at their pre-change set. The
+ * schema mirrors pi's docs at one point in time, so a strict raw check over it
+ * would block saving a file a newer pi accepts; the form stays strict because it
+ * only writes values it offers. See change: pi-settings-full-coverage (D2).
+ */
+export const RAW_LEGACY_TYPED: readonly string[] = Object.freeze([
+  "compaction.enabled",
+  "compaction.reserveTokens",
+  "compaction.keepRecentTokens",
+  "branchSummary.reserveTokens",
+  "branchSummary.skipPrompt",
+  "steeringMode",
+  "followUpMode",
+  "defaultProjectTrust",
+  "hideThinkingBlock",
+  "quietStartup",
+]);
+
+/** Blocks whose raw value must be an object when present (their legacy leaves are checked inside). */
+const RAW_LEGACY_BLOCKS: readonly string[] = ["compaction", "branchSummary"];
+
+/** The frozen legacy typed keys, checked in raw mode. */
+function validateLegacyTyped(obj: Record<string, unknown>): ValidationError[] {
   const errors: ValidationError[] = [];
-  for (const key of Object.keys(TYPED_BLOCKS)) {
-    if (obj[key] === undefined) continue;
-    if (isPlainObject(obj[key])) errors.push(...checkBlockLeaves(key, obj[key], false, false));
-    else errors.push(fieldError(key, `${key} must be an object`));
+  for (const block of RAW_LEGACY_BLOCKS) {
+    if (obj[block] !== undefined && !isPlainObject(obj[block])) errors.push(fieldError(block, `${block} must be an object`));
   }
-  for (const [key, check] of [...Object.entries(TYPED_TOP), ...Object.entries(RAW_KEY_RULES)]) {
+  for (const key of RAW_LEGACY_TYPED) {
+    const [head, leaf] = key.split(".");
+    const v = leaf === undefined ? obj[head] : asObject(obj[head])[leaf];
+    const def = getPiSettingDef(key);
+    const msg = v === undefined || !def ? null : checkPiSettingValue(def, v);
+    if (msg) errors.push(fieldError(key, `${key} ${msg}`));
+  }
+  return errors;
+}
+
+function validateRawKeys(obj: Record<string, unknown>): ValidationError[] {
+  const errors = validateLegacyTyped(obj);
+  for (const [key, check] of Object.entries(RAW_KEY_RULES)) {
     const msg = obj[key] === undefined ? null : check(obj[key]);
     if (msg) errors.push(fieldError(key, `${key} ${msg}`));
   }

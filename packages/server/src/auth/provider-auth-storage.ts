@@ -290,6 +290,36 @@ export async function writeCredential(provider: string, credential: AuthCredenti
   });
 }
 
+/**
+ * Persist an API-key credential only when the provider holds NO credential. The
+ * absence check and the write share one lock acquisition, so a credential saved
+ * concurrently through Settings → Providers is never overwritten. Used by the
+ * legacy settings.json key move. See change: pi-settings-full-coverage (D4).
+ */
+export async function writeCredentialIfAbsent(provider: string, credential: ApiKeyCredential): Promise<"written" | "exists"> {
+  return withLock(() => {
+    const checked = readAuthJsonChecked();
+    if (checked.corrupt && !checked.quarantined) throw corruptUnbackedRefusal();
+    const data = checked.data;
+    if (Object.hasOwn(data, provider)) return "exists" as const;
+    data[provider] = credential;
+    writeAuthJson(data, checked.corrupt ? 0o600 : undefined);
+    return "written" as const;
+  });
+}
+
+/**
+ * Snapshot of auth.json under the bounded lock (never creates it), reporting
+ * `corrupt` instead of hiding it — the legacy-credential plan treats a corrupt
+ * file as "cannot be relied on". See change: pi-settings-full-coverage (D4).
+ */
+export async function readAuthSnapshotLocked(signal?: AbortSignal): Promise<{ data: AuthData; corrupt: boolean }> {
+  return withLock(() => {
+    const checked = readAuthJsonChecked();
+    return { data: checked.data, corrupt: checked.corrupt };
+  }, refreshLockOptions(signal));
+}
+
 /** Remove one provider credential. Async — see `writeCredential`.
  *
  *  `expectedKind` carries the kind of the UI row the removal was addressed to

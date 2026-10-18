@@ -300,6 +300,18 @@ describe("settings page composition", () => {
     }
   });
 
+  // See change: pi-settings-full-coverage (test-plan #F1): pi's settings editor moved to its own page.
+  it("keeps pi's global settings editor off Sessions", async () => {
+    render(<SettingsPanel />);
+    await waitFor(() => screen.getByText("Interface"));
+    gotoPage("Sessions");
+    await waitFor(() => screen.getByText(/Session Strategy/i));
+    const content = screen.getByTestId("settings-content");
+    expect(content.textContent).not.toContain("pi settings (global)");
+    expect(screen.queryByTestId("pi-settings-section")).toBeNull();
+    expect(screen.queryByTestId("pi-settings-page")).toBeNull();
+  });
+
   // test-plan #F7
   it("nests the idle-shutdown delay beneath the toggle that gates it", async () => {
     render(<SettingsPanel />);

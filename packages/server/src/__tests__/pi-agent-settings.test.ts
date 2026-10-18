@@ -312,10 +312,10 @@ describe("pi-agent-settings", () => {
 
     it("E12 non-typed pi key is rejected with a JSON-editor pointer", async () => {
       seed({});
-      const r = await applyPiSettingsPatch({ shellPath: "/bin/sh" }, token(), deps);
+      const r = await applyPiSettingsPatch({ defaultTools: ["read"] }, token(), deps);
       expect(r.ok).toBe(false);
       const msg = JSON.stringify((r as { errors: unknown }).errors);
-      expect(msg).toContain("shellPath");
+      expect(msg).toContain("defaultTools");
       expect(msg).toMatch(/JSON/);
       expect(json()).toEqual({});
     });

@@ -52,6 +52,7 @@ Files in this directory. One row per source file.
 | `display-prefs.ts` | `DisplayPrefs` interface gates chat-view chrome (thinking, tool calls per kind, turn separators, debug… → see `display-prefs.ts.AGENTS.md` |
 | `doctor-core.ts` | Pure detection core. Types `DoctorCheck` / `DoctorReport` / `DoctorSection` (6:… → see… → see `doctor-core.ts.AGENTS.md` |
 | `electron-restart.ts` | `ELECTRON_RESTART_EXIT_CODE` (75) + `restartsViaElectron(env)` (Electron starter +… → see `electron-restart.ts.AGENTS.md` |
+| `enabled-models-match.ts` | `enabledModels` matching shared by the bridge extension and the pi settings scope editor: `stripThinkingLevel`, `matchesPattern(model,pattern)` (minimatch nocase on `provider/id` and bare `id`), `modelInScope(model,entries)`. Needs `minimatch` (dependency). See change: pi-settings-full-coverage. |
 | `event-forward-declaration.ts` | Contract for plugin forward declarations. Exports `REGISTER_EVENT_FORWARD_CHANNEL`, `BRIDGE_READY_CHANNEL`,… → see `event-forward-declaration.ts.AGENTS.md` |
 | `forbidden-subjects.ts` | Never-grantable subjects (moved from server). → see `forbidden-subjects.ts.AGENTS.md` |
 | `instance-directory.ts` | `listLocalInstances()` / `resolveInstanceRef()` / `formatInstanceLine()` — enumerates `gateway-*.sock` under… → see `instance-directory.ts.AGENTS.md` |
@@ -90,6 +91,7 @@ Files in this directory. One row per source file.
 | `path-containment.ts` | Boundary-correct `isPathInside(parent, child, platform?)` (sibling prefix `/repo-other` is NOT inside… → see `path-containment.ts.AGENTS.md` |
 | `pi-package-resolver.ts` | Walks `~/.pi/agent/settings.json#packages[]` + per-workspace `<cwd>/.pi/settings.json`. → see `pi-package-resolver.ts.AGENTS.md` |
 | `pi-settings-keys.ts` | `PI_MANAGED_SETTINGS_KEYS` (`defaultProvider`,`defaultModel`,`defaultThinkingLevel`) — pi `settings.json`… → see `pi-settings-keys.ts.AGENTS.md` |
+| `pi-settings-schema.ts` | Typed key schema of pi's global `settings.json` (49 keys: bool/enum/mixed/int/string/`enabledModels`): `PI_SETTINGS_SCHEMA` (`key`,`kind`,`options`,`min`,`max`,`def`,`category`,`label`,`hint`), `PI_SETTING_CATEGORIES`, `PI_SETTINGS_BLOCKS`, `checkPiSettingValue`, `getPiSettingDef`. Drives server patch validation AND client rows. Excludes `PI_MANAGED_SETTINGS_KEYS`. Parity test reads pi `docs/settings.md`. See change: pi-settings-full-coverage. |
 | `pi-trust-mirror-snapshot.ts` | Snapshot + trust-store readers shared by bridge and server. → see `pi-trust-mirror-snapshot.ts.AGENTS.md` |
 | `pi-trust-mirror-types.ts` | Browser-safe types: `MirrorSourceKind`, `MirrorIgnoreReason`, `MirrorWithheldReason`, `MIRROR_REASON_LABELS`,… → see `pi-trust-mirror-types.ts.AGENTS.md` |
 | `pi-trust-mirror.ts` | Dashboard-trust → pi mirror shared core. `piTrustKey(path,{home})` = pi's trust-store key (realpath∘resolve,… → see `pi-trust-mirror.ts.AGENTS.md` |

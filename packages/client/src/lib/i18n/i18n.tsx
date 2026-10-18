@@ -120,6 +120,8 @@ export const RESERVED_LABEL_TRANSLATIONS: Readonly<Record<string, readonly strin
   "settings.groupModels": ["模型", "Modellek"],
   "settings.groupDashboard": ["仪表板", "Irányítópult"],
   "settings.groupNetwork": ["网络", "Hálózat"],
+  "settings.groupPi": ["pi", "pi"],
+  "settings.piSettingsPage": ["pi 设置", "pi beállítások"],
   "settings.groupServices": ["服务", "Szolgáltatások"],
   "settings.groupAddons": ["附加组件", "Kiegészítők"],
   "settings.groupResources": ["资源", "Erőforrások"],

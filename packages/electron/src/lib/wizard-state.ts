@@ -16,7 +16,6 @@ import { hasAnyProviderCredential } from "@blackbelt-technology/pi-dashboard-sha
 function getManagedDir() { return path.join(os.homedir(), ".pi-dashboard"); }
 function getSettingsFile() { return path.join(getManagedDir(), "dashboard-settings.json"); }
 function getLegacyModeFile() { return path.join(getManagedDir(), "mode.json"); }
-function getPiSettings() { return path.join(os.homedir(), ".pi", "agent", "settings.json"); }
 function getRecommendedStateFile() { return path.join(getManagedDir(), "recommended.json"); }
 
 /** MRU cap for the recent-servers list. */
@@ -149,33 +148,6 @@ export function removeRecentRemote(url: string): RecentRemote[] {
  */
 export function isApiKeyConfigured(): boolean {
   return hasAnyProviderCredential();
-}
-
-/** Write an API key to pi's settings file. */
-export function writeApiKey(provider: string, key: string): void {
-  const settingsDir = path.dirname(getPiSettings());
-  mkdirSync(settingsDir, { recursive: true });
-
-  let data: any = {};
-  try {
-    if (existsSync(getPiSettings())) {
-      data = JSON.parse(readFileSync(getPiSettings(), "utf-8"));
-    }
-  } catch { /* start fresh */ }
-
-  // Write based on provider name
-  if (provider === "anthropic") {
-    data.anthropicApiKey = key;
-  } else if (provider === "openai") {
-    data.openaiApiKey = key;
-  } else {
-    // Generic: store in providers map
-    if (!data.providers) data.providers = {};
-    if (!data.providers[provider]) data.providers[provider] = {};
-    data.providers[provider].apiKey = key;
-  }
-
-  writeFileSync(getPiSettings(), JSON.stringify(data, null, 2) + "\n");
 }
 
 // ── Recommended extensions wizard state ─────────────────────────

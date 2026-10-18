@@ -1534,6 +1534,8 @@ export const huCatalog: Record<string, string> = {
   "settings.gateway": "Gateway",
   "settings.general": "Általános",
   "settings.groupAdvanced": "Speciális",
+  "settings.groupPi": "pi",
+  "settings.piSettingsPage": "pi beállítások",
   "settings.groupModels": "Modellek",
   "packages.requirementsPill": "követelmények",
   "packages.providedByPlugin": "A(z) {name} bővítmény biztosítja",
