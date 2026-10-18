@@ -32,7 +32,7 @@
 
 - [x] 5.1 Complete `evidence.md` → "Verification runs" (fixtures red→green, `pnpm install`, full vitest, `node scripts/verify-release-deps.mjs`).
 - [x] 5.2 Update AGENTS.md rows for touched files: `docker/Dockerfile.AGENTS.md`, the `scripts/verify-release-deps.mjs.AGENTS.md` sidecar (`minVersion` → `1.3.0`), the `packages/extension/src` rows for `bridge.ts`, `command-handler.ts`, `followup-buffer.ts`, `bridge-handlers/forwarders.ts` and `bridge-handlers/instance.ts`, and `packages/shared/src` `pi-settings-schema.ts` (`See change: update-pi-core-1-3-adopt-apis`).
-- [ ] 5.3 At archive time, update the `openspec/specs/mid-turn-prompt-queue/spec.md` Purpose line: follow-up drains after `agent_settled` (bridge buffer) or inside the run (pi-native). A delta cannot express this.
+- [x] 5.3 At archive time, update the `openspec/specs/mid-turn-prompt-queue/spec.md` Purpose line: follow-up drains after `agent_settled` (bridge buffer) or inside the run (pi-native). A delta cannot express this.
 
 ## 6. Tests (folded from test-plan.md)
 
