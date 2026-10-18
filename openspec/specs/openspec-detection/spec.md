@@ -4,10 +4,11 @@
 Maps raw `openspec status --json` output plus local file-system evidence into the dashboard's per-change artifact statuses and `isComplete` flag. This capability owns the R1/R2/R3 promotion rules and the shared skill helper that keep dashboard session-card buttons and OpenSpec workflow skills in agreement about a change's next-ready artifact.
 
 ## Requirements
+
 ### Requirement: Local design evidence promotes the design artifact status
 
 The dashboard SHALL post-process the per-change `artifacts` array returned
-by `openspec status --change <name> --json` so that the `design` artifact's
+by the OpenSpec status call (`openspec status --all --json`, or `openspec status --change <name> --json` on the fallback path) so that the `design` artifact's
 `status` is promoted from `"ready"` to `"done"` when local file-system
 evidence indicates design work is satisfied. The override MUST NOT alter
 any other artifact id, MUST NOT demote `"done"` to any other value, and
@@ -16,8 +17,8 @@ MUST NOT promote `"blocked"` directly to `"done"`.
 #### Scenario: design.md present satisfies design
 
 - **WHEN** the change directory contains a file named `design.md`
-- **THEN** `artifacts[design].status` SHALL be `"done"` regardless of the
-  CLI's verdict for that artifact.
+- **THEN** `artifacts[design].status` SHALL be `"done"` whenever the CLI
+  reports that artifact `ready` or `done` (a `blocked` verdict is never promoted).
 
 #### Scenario: split design files satisfy design
 
@@ -125,8 +126,7 @@ matrix without filesystem mocking or temporary directories.
 
 #### Scenario: production callers inject a real fs probe
 
-- **WHEN** `pollOpenSpec` (sync) or `pollOpenSpecAsync` (async) call
-  `buildOpenSpecData`
+- **WHEN** the production poll path builds data — the `openspec status --all` builder, or on the fallback path `deriveArtifactStatus` / `buildOpenSpecData`
 - **THEN** they SHALL pass a probe whose methods read from the real
   filesystem rooted at `<cwd>/openspec/changes/<name>/`.
 

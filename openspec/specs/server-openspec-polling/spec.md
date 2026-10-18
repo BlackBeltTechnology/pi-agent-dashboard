@@ -7,7 +7,7 @@ To avoid burst CPU usage when many active changes exist across multiple pinned d
 ## Requirements
 
 ### Requirement: Server polls openspec CLI per directory
-The server SHALL run `openspec list --json` and `openspec status --change <name> --json` for each known directory at a **configurable interval** (default 30 seconds, range 5–3600 seconds, controlled by `DashboardConfig.openspec.pollIntervalSeconds`) and broadcast results keyed by cwd to connected browsers. Each directory's poll SHALL be offset within the interval by a deterministic per-cwd phase (range 0 to `DashboardConfig.openspec.jitterSeconds`, default 5 s) so that polls do not all align on the same tick.
+The server SHALL obtain each known directory's change status through the OpenSpec status call — ONE `openspec status --all --json` invocation per poll (see "Poll paths use one `openspec status --all` spawn per directory"), or on the fallback path `openspec list --json` plus local derivation (see "Fallback when `openspec status --all` is unsupported") — at a **configurable interval** (default 30 seconds, range 5–3600 seconds, controlled by `DashboardConfig.openspec.pollIntervalSeconds`) and broadcast results keyed by cwd to connected browsers. Each directory's poll SHALL be offset within the interval by a deterministic per-cwd phase (range 0 to `DashboardConfig.openspec.jitterSeconds`, default 5 s) so that polls do not all align on the same tick.
 
 The set of **known directories** SHALL be the union of:
 - every explicitly **pinned** directory, and
@@ -42,7 +42,7 @@ A browser-initiated `openspec_refresh` SHALL be subject to the same admission ga
 #### Scenario: Ended session cwd is excluded from polling
 - **WHEN** every session in a given cwd has status `"ended"` and the cwd is not pinned
 - **THEN** the server SHALL NOT include that cwd in the known-directory set
-- **AND** the server SHALL NOT spawn `openspec list` / `openspec status` for it on periodic ticks
+- **AND** the server SHALL NOT spawn any `openspec` CLI process for it on periodic ticks
 
 #### Scenario: Hidden session does not extend poll load
 - **WHEN** an ended session is hidden via `POST /api/session/:id/hide`
@@ -82,6 +82,8 @@ A browser-initiated `openspec_refresh` SHALL be subject to the same admission ga
 - **THEN** no OpenSpec CLI process SHALL be spawned
 
 ### Requirement: Change-detection gate to avoid redundant CLI invocations
+
+**Scope (fallback path only):** this requirement governs polling when the resolved `openspec` CLI does not support `status --all` (see "Fallback when `openspec status --all` is unsupported"). When `--all` is supported, "Cwd-level change-detection gate for the status-all poll" applies instead.
 
 The server SHALL support an mtime-based change-detection gate that skips `openspec list` / `openspec status` CLI invocations when no tracked artifact in `openspec/changes/` has changed since the last successful poll. The gate SHALL be controlled by `DashboardConfig.openspec.changeDetection` with values `"mtime"` (default) and `"always"` (re-poll unconditionally, matching pre-change behavior).
 
@@ -204,7 +206,7 @@ NOTE: This is a third delta on the same `Change-detection gate to avoid redundan
 
 ### Requirement: Local specs evidence promotes the specs artifact status
 
-The dashboard SHALL post-process the per-change `artifacts` array returned by `openspec status --change <name> --json` so that the `specs` artifact's `status` is promoted from `"ready"` to `"done"` when local file-system evidence indicates spec authoring is satisfied. The override MUST NOT alter any other artifact id, MUST NOT demote `"done"` to any other value, and MUST NOT promote `"blocked"` directly to `"done"`.
+The dashboard SHALL post-process the per-change `artifacts` array returned by the OpenSpec status call (`openspec status --all --json`, or `openspec status --change <name> --json` on the fallback path) so that the `specs` artifact's `status` is promoted from `"ready"` to `"done"` when local file-system evidence indicates spec authoring is satisfied. The override MUST NOT alter any other artifact id, MUST NOT demote `"done"` to any other value, and MUST NOT promote `"blocked"` directly to `"done"`.
 
 The override SHALL be implemented as a pure rule evaluator in a new module `packages/shared/src/openspec-specs-evidence.ts`, parallel in shape to the existing `openspec-design-evidence.ts`, plus an injected probe factory threaded through `buildOpenSpecData(...)` and the production poll paths.
 
@@ -261,6 +263,9 @@ After the specs-artifact override is applied, the dashboard SHALL re-derive the 
 - **THEN** `isComplete` SHALL be the value reported by the CLI (no promotion to true based on a partial promotion).
 
 ### Requirement: TOCTOU-safe mtime stamping in the gated poll
+
+**Scope (fallback path only):** this requirement governs polling when the resolved `openspec` CLI does not support `status --all` (see "Fallback when `openspec status --all` is unsupported"). When `--all` is supported, "TOCTOU-safe stamping around the status-all invocation" applies instead.
+
 The server SHALL stamp into the per-change cache an mtime value that demonstrably reflects the file state observed by the `openspec status --change <name>` CLI invocation. The gated-poll implementation SHALL NOT update the per-change cache entry for `<name>` when the file-aware effective mtime of the tracked artifact paths changed during the CLI invocation.
 
 This requirement closes a latent race in which a write to `openspec/changes/<name>/{tasks,proposal,design}.md` (or to `openspec/changes/<name>/` itself, e.g. file creation) lands between the moment `openspec status` scans the directory and the moment the post-call `stat()` is taken. Without this requirement, the cache could record `{ mtimeMs: post-write, status: pre-write }`, after which the gate would correctly find `current mtime == cached mtime` on every subsequent tick and reuse the stale status indefinitely.
@@ -381,7 +386,7 @@ The server SHALL poll each directory at most once per polling interval, regardle
 
 ### Requirement: Server skips OpenSpec polling when `openspec.enabled` is false
 The server SHALL gate ALL OpenSpec polling on `DashboardConfig.openspec.enabled`. When `enabled === false`:
-- the per-directory poll loop SHALL not invoke `openspec list --json` or `openspec status --change <name> --json` for any directory;
+- the per-directory poll loop SHALL not invoke any `openspec` CLI command (`status --all`, or the fallback `list` / `status --change`) for any directory;
 - on-demand `openspec_refresh` requests from browsers SHALL NOT trigger CLI invocations and SHALL NOT broadcast (the refresh admission gate rejects them);
 - the in-memory `OpenSpecData` cache for every known cwd SHALL be cleared (set to `{ initialized: false, pending: false, changes: [] }`) the first time the disabled state is observed by the polling loop, and the corresponding `openspec_update` SHALL be broadcast to all connected browsers so existing UIs converge to the disabled-state shape.
 
@@ -411,7 +416,7 @@ When `enabled` flips back to `true` via `PUT /api/config` and `directoryService.
 
 ### Requirement: Push refresh on local filesystem change to openspec/changes/
 
-The server SHALL maintain a per-cwd filesystem watcher on `<cwd>/openspec/changes/` (recursive) for every known directory. When a write, rename, or create event affects a file whose relative path matches `tasks.md`, `proposal.md`, `design.md`, or `specs/**/*.md`, the server SHALL trigger an mtime-gated re-poll of that cwd within a debounce window of ≤ 1 second (default 300 ms), reusing the same `pollOne(cwd, force=false)` path as the periodic timer. The watcher SHALL NOT bypass the mtime-gate, the concurrency cap, or the broadcast dedup — it is a *trigger*, not a parallel poll path.
+The server SHALL maintain, for every known directory, a recursive filesystem watcher on `<cwd>/openspec/changes/`, plus a non-recursive watcher on `<cwd>/openspec/` (for `config.yaml`) and a recursive watcher on `<cwd>/openspec/schemas/` when it exists. Main specs under `<cwd>/openspec/specs/` SHALL NOT be watched. A relevant event is a write, rename, or create that affects: (a) a change directory itself (creation or rename of `changes/<change>/`), or under any `changes/<change>/` directory `tasks.md`, `proposal.md`, `design.md`, `specs/**/*.md` or `.openspec.yaml` (also for change directories not yet in the cached result); (b) under a change directory present in the cached `openspec status --all` result, a path matching one of that change's artifact outputs — tested against each `artifactPaths.<id>.resolvedOutputPath` (glob-aware, relativized against `root.path` as emitted and mapped onto the server's canonical `<cwd>/openspec/`, separator-normalized), so a not-yet-created output such as `dependencies.yaml` matches; or (c) `openspec/config.yaml` or any file under `openspec/schemas/`. On a relevant event the server SHALL trigger an mtime-gated re-poll of that cwd within a debounce window of ≤ 1 second (default 300 ms), reusing the same `pollOne(cwd, force=false)` path as the periodic timer. The watcher SHALL NOT bypass the mtime-gate, the concurrency cap, or the broadcast dedup — it is a *trigger*, not a parallel poll path.
 
 #### Scenario: User ticks a checkbox in tasks.md
 - **WHEN** an editor writes a modified `<cwd>/openspec/changes/<change>/tasks.md` and the file's mtime advances
@@ -423,13 +428,15 @@ The server SHALL maintain a per-cwd filesystem watcher on `<cwd>/openspec/change
 - **THEN** the watcher SHALL fire `pollOne` at most once (trailing-edge debounce)
 
 #### Scenario: Filename outside the openspec contract
-- **WHEN** a watcher event fires for `<cwd>/openspec/changes/<change>/README.md` or `<cwd>/openspec/changes/<change>/.openspec.yaml`
+- **WHEN** a watcher event fires for `<cwd>/openspec/changes/<change>/README.md` (not a tracked artifact output) or for a main spec under `<cwd>/openspec/specs/`
 - **THEN** the server SHALL NOT trigger a poll on that event alone
+- **AND WHEN** a watcher event fires for `<cwd>/openspec/changes/<change>/.openspec.yaml`, a schema-declared output such as `dependencies.yaml`, `openspec/config.yaml`, or a file under `openspec/schemas/`
+- **THEN** the server SHALL trigger the debounced gated re-poll
 
 #### Scenario: mtime-gate dedup still applies
 - **WHEN** two watcher events fire for the same `tasks.md` without an mtime advance between them (e.g. duplicate fs.watch event)
 - **THEN** the second `pollOne` call SHALL be skipped by the mtime-gate
-- **AND** at most one `openspec status` CLI spawn SHALL result
+- **AND** at most one OpenSpec status call SHALL result
 
 #### Scenario: openspec/changes/ directory does not exist
 - **WHEN** a cwd is registered that does not yet contain `openspec/changes/`
@@ -453,6 +460,8 @@ The server SHALL maintain a per-cwd filesystem watcher on `<cwd>/openspec/change
 - **THEN** all attached watchers SHALL be detached before process exit
 
 ### Requirement: Periodic poll derives artifact status without per-change CLI spawn
+
+**Scope (fallback path only):** this requirement governs polling when the resolved `openspec` CLI does not support `status --all` (see "Fallback when `openspec status --all` is unsupported"). When `--all` is supported, "Poll paths use one `openspec status --all` spawn per directory" applies instead.
 
 On the periodic / gated poll path (`force === false`), the server SHALL derive
 each change's per-artifact status (`proposal`, `design`, `tasks`, `specs`) and
@@ -514,6 +523,8 @@ followed by trailing junk, SHALL still yield `null` rather than a partial value.
 
 ### Requirement: Local derivation parity with CLI is guarded by test
 
+**Scope (fallback path only):** this requirement governs polling when the resolved `openspec` CLI does not support `status --all` (see "Fallback when `openspec status --all` is unsupported"). When `--all` is supported, "Status-all and task-count parity is guarded by test" applies instead.
+
 The derived per-artifact status SHALL match `openspec status --json` output
 artifact-for-artifact for a representative change set, enforced by an
 automated test that skips gracefully when the `openspec` CLI is unavailable.
@@ -548,7 +559,7 @@ The server SHALL broadcast a transitional `openspec_update` with
 `data: { initialized: false, pending: true, changes: [] }` at the start of any
 poll for a directory whose `<cwd>/openspec/changes/` directory exists (cheap
 synchronous fs detection) AND whose cached `OpenSpecData` does not yet hold
-`initialized: true`, **before** invoking the slow `openspec list` CLI. The
+`initialized: true`, **before** invoking the slow OpenSpec status call (`openspec status --all`, or `openspec list` on the fallback path). The
 authoritative `openspec_update` (with the final `initialized` payload) SHALL
 follow when the CLI returns.
 
@@ -568,7 +579,7 @@ hook in a fresh worktree) would otherwise jump straight from "no data" to
 - **WHEN** a new cwd registers and `<cwd>/openspec/changes/` already exists on
   disk but no `initialized` data is cached
 - **THEN** the server SHALL broadcast `openspec_update` with
-  `{ initialized: false, pending: true, changes: [] }` before the `openspec list`
+  `{ initialized: false, pending: true, changes: [] }` before the OpenSpec status
   CLI spawn
 - **AND** SHALL broadcast `openspec_update` with the final
   `{ initialized: true, changes: [...] }` payload when the CLI returns
@@ -602,7 +613,7 @@ hook in a fresh worktree) would otherwise jump straight from "no data" to
 #### Scenario: Pending clears on empty or failed terminal poll
 
 - **WHEN** a `pending: true` payload was broadcast for a cwd
-- **AND** the subsequent `openspec list` CLI returns no usable data (error or
+- **AND** the subsequent OpenSpec status call returns no usable data (error or
   empty), yielding `{ initialized: false }`
 - **THEN** the final broadcast SHALL carry `pending: false` (or omit `pending`)
   so the folder section resolves `!initialized && !pending` to render-nothing
@@ -610,11 +621,11 @@ hook in a fresh worktree) would otherwise jump straight from "no data" to
 
 ### Requirement: Periodic poll derivation runs off the main event loop
 
-On the periodic / gated poll path (`force === false`), the server SHALL perform per-change artifact derivation (local fs evidence probes) and payload serialization in a `worker_threads` worker, so this CPU-bound and synchronous-fs work does not block the main event loop that serves HTTP requests and WebSocket frames. The main thread SHALL retain ownership of the `openspec list` CLI spawn, the spawn-concurrency semaphore, the per-cwd cache, the mtime/TOCTOU gate stamping, and the broadcast.
+On the periodic / gated poll path (`force === false`), the server SHALL perform all per-change filesystem work — the pre-call tracked-path `stat` probe, the post-call TOCTOU re-stat, local task counting, promote-only evidence overrides, payload build (and, on the fallback path, local artifact derivation) — and payload serialization in a `worker_threads` worker, so this CPU-bound and synchronous-fs work does not block the main event loop that serves HTTP requests and WebSocket frames. The main thread SHALL retain ownership of the OpenSpec status CLI spawn (`openspec status --all`, or `openspec list` on the fallback path), the spawn-concurrency semaphore, the per-cwd cache, the mtime/TOCTOU gate stamping, and the broadcast.
 
-The worker behavior SHALL be governed by `DashboardConfig.openspec.useWorker` (default `true`). When `false`, derivation SHALL run in-process exactly as on the pre-worker path.
+The worker behavior SHALL be governed by `DashboardConfig.openspec.useWorker` (default `true`). When `false`, the same work SHALL run in-process, with file I/O performed as bounded async I/O (only JSON parsing and pure computation synchronous) so the per-turn budget keeps holding.
 
-The force-refresh path (authoritative `openspec status --change` per change) SHALL remain on its existing async-spawn path and SHALL NOT require the worker.
+The force-refresh path SHALL use the same single `openspec status --all` spawn (per-change `openspec status --change` only on the fallback path) and the same worker probe/build requests as the gated path.
 
 #### Scenario: Derived payload is byte-identical to in-process derivation
 - **WHEN** the worker derives `OpenSpecData` for a directory
@@ -643,9 +654,8 @@ turn label) into the event-loop stall buffer defined in `server-session-hydratio
 Attribution SHALL be per single synchronous turn, NEVER a sum across turns,
 because the tick's synchronous work is spread across many turns: the `setInterval`
 turn (`tickOpen`: the folder-head git-HEAD poll `tickFolderHeads`,
-`reconcileWatchers`, `computeKnownDirectories`) and, per directory, two turns
-split by the worker `await` — `dirPollPre` (root and list-signal `stat`s before
-the worker call) and `dirPollPost` (worker-response deserialization and the
+`reconcileWatchers`, `computeKnownDirectories`) and, per directory, the turns
+split by the `await`s — `dirPollPre` (the `changes/` existence check, the transitional pending emit and, on the fallback path, the list-signal `stat`s, before the first worker call), on the `--all` path `dirPollGate` (gate comparison of the worker's tracked-path probe result and the status CLI spawn) and `dirPollCli` (CLI stdout received → build request dispatched to the worker), and `dirPollPost` (worker-response deserialization and the
 broadcast after it resolves). The per-change TOCTOU mtime stamping runs inside the
 worker and is NOT a main-thread turn.
 
@@ -661,7 +671,7 @@ worker and is NOT a main-thread turn.
 ### Requirement: Per-turn main-thread work does not block the event loop
 
 The server SHALL NOT allow any single instrumented turn's synchronous main-thread
-work — `tickOpen`, `dirPollPre`, or `dirPollPost` — to block the main event loop
+work — `tickOpen`, `dirPollPre`, `dirPollGate`, `dirPollCli`, or `dirPollPost` — to block the main event loop
 for a duration that stalls WebSocket frame delivery to connected clients. Such
 work SHALL either run off the main thread, be gated so it performs no synchronous
 filesystem or child-process work when its inputs are unchanged, or yield to the
@@ -761,3 +771,238 @@ The server SHALL accept `openspec_get { requestId, cwd }` from a browser and rep
 #### Scenario: Never a force poll
 - **WHEN** `openspec_get` triggers a poll for a cwd whose tracked artifacts are unchanged since the last successful poll
 - **THEN** the mtime gate SHALL apply exactly as for a periodic poll
+
+### Requirement: Poll paths use one `openspec status --all` spawn per directory
+
+When the resolved CLI supports it, both the periodic / gated poll path (`force === false`) and the user-initiated force-refresh path (`force === true`) SHALL obtain per-change artifact status, `isComplete`, `schemaName` and `artifactPaths` from a single `openspec status --all --json` invocation per directory, through the spawn-concurrency semaphore, with a timeout of 30 s. The server SHALL NOT spawn `openspec list` or per-change `openspec status --change <name>` on either path while `--all` is supported.
+
+The existing pre-spawn short-circuit SHALL be retained: when `<cwd>/openspec/changes/` does not exist, no CLI SHALL be spawned and the directory SHALL resolve to `initialized: false` (readiness `missing-changes-dir`).
+
+The CLI verdict SHALL be the artifact status source for every schema; the existing promote-only design/specs evidence overrides SHALL still apply on top of it. `OpenSpecChange.artifacts` SHALL be emitted in canonical order — `proposal`, `design`, `specs`, `tasks` (those present) — followed by any other artifact ids in CLI order, on both the gated and the force path (previously the force path broadcast the CLI's `proposal, specs, design, tasks` order while the gated path used canonical order). `OpenSpecData.changes` SHALL be ordered by the probe's per-change effective mtime, newest first, ties by name; the probe SHALL enumerate `changes/*` directories itself (excluding `archive/`), so every change — including one created since the last poll and every change on a cold cache — has a probe mtime. (This approximates, but does not reproduce, `openspec list`'s recursive-mtime order; clients that re-sort are unaffected.) The transitional `pending` broadcast SHALL be emitted before the tracked-path probe is dispatched.
+
+A failure of the `--all` call on the force path SHALL NOT be retried within that refresh and SHALL NOT fall back to a per-change spawn fan-out; it SHALL be handled as a whole-call failure (see "Status-all output is validated as an envelope") — unless it is the call that first classifies the CLI as unsupported, in which case the fallback requirement governs.
+
+#### Scenario: Many changes, one spawn
+
+- **GIVEN** a cwd with 102 active changes
+- **WHEN** a gated poll for that cwd passes the change-detection gate
+- **THEN** exactly one `openspec status --all --json` process SHALL be spawned for that cwd
+- **AND** zero `openspec list` and zero `openspec status --change` processes SHALL be spawned
+
+#### Scenario: Force refresh is a single spawn
+
+- **WHEN** the user clicks the OpenSpec Refresh control for a cwd with N active changes
+- **THEN** exactly one `openspec status --all --json` process SHALL be spawned, independent of N
+- **AND** a failure of that call SHALL NOT trigger a second `--all` spawn or a per-change spawn fan-out (the only exception is the call that first classifies the CLI as unsupported — see the fallback requirement)
+
+#### Scenario: Cold force refresh that fails stays empty and broken
+
+- **GIVEN** a cwd with no cached OpenSpec data
+- **WHEN** a force refresh's `openspec status --all` is a whole-call failure
+- **THEN** the broadcast SHALL be `{ initialized: false, pending: false, changes: [] }` with readiness `BROKEN` / `cli-failed`
+- **AND** no further `openspec` process SHALL be spawned for that refresh
+
+#### Scenario: Most recently edited change first
+
+- **GIVEN** changes `a` (tracked files last modified yesterday) and `b` (`tasks.md` modified now)
+- **WHEN** the poll completes
+- **THEN** `changes` SHALL list `b` before `a`
+
+#### Scenario: Missing changes dir spawns nothing
+
+- **GIVEN** `<cwd>/openspec/` exists but `<cwd>/openspec/changes/` does not
+- **WHEN** any poll runs for that cwd
+- **THEN** no `openspec` process SHALL be spawned
+- **AND** readiness SHALL be `BROKEN` with reason `missing-changes-dir`
+
+#### Scenario: Custom schema artifacts are reported in stable order
+
+- **GIVEN** a change whose schema declares an extra artifact `dependencies` generating `dependencies.yaml`
+- **WHEN** the poll completes
+- **THEN** that change's `artifacts` SHALL list `proposal`, `design`, `specs`, `tasks`, then `dependencies`
+- **AND** `isComplete` SHALL be the CLI value (after promote-only overrides)
+
+### Requirement: Status-all output is validated as an envelope
+
+The `openspec status --all` recipe SHALL return raw stdout regardless of the process exit code, plus stderr when the exit code is non-zero (from the failed-execution result, not via a tolerate-and-drop-stderr path); JSON parsing (with the existing preamble tolerance) and classification SHALL run in the poll worker, or in-process when the worker is disabled or unhealthy. The fallback classification ("Fallback when `openspec status --all` is unsupported") SHALL be checked first; otherwise the result SHALL be classified:
+
+- **Whole-call failure** → handled exactly like today's failed OpenSpec CLI call: cached data becomes `{ initialized: false, pending: false, changes: [] }`, readiness `BROKEN` / `cli-failed`, and the next gated tick SHALL retry the call (one spawn per cwd per tick, the same retry cadence as today's failed `openspec list`, `directory-service.ts:918-933`). Applies when stdout has no parseable JSON; OR the top level carries `status` entries with `severity: "error"`; OR `root` is `null`; OR `root.source` is `"implicit"`.
+- **Success** → otherwise. Each change entry carrying `status: [{ severity: "error", code, message }]` and no `artifacts` SHALL map to an `OpenSpecChange` with `error: { code, message }`, `artifacts: []`, and task counts from the top-level `tasks.md` fallback (see "Local task counting follows OpenSpec's task-line rule"). An entry with neither `artifacts` nor `status` SHALL map the same way with `error.code: "unknown-entry"`. Before caching or broadcasting, control characters SHALL be stripped from `code` and `message`, `message` SHALL be collapsed to a single line of at most 500 characters and `code` truncated to 64 characters. (Paths inside messages remain visible to paired clients, as other cwd paths already are.)
+
+#### Scenario: One broken change does not blank the directory
+
+- **GIVEN** 102 active changes, one of which has an invalid `.openspec.yaml`
+- **WHEN** `openspec status --all --json` exits with code 1 and prints JSON for all 102
+- **THEN** the broadcast `OpenSpecData` SHALL contain all 102 changes with `initialized: true`
+- **AND** the broken change SHALL carry `error.code === "change_error"` and the (capped) CLI message
+
+#### Scenario: Unknown schema is a per-change error
+
+- **GIVEN** a change pinned to a schema that is not present locally
+- **WHEN** the poll completes
+- **THEN** only that change SHALL carry an `error` naming the missing schema
+
+#### Scenario: Whole-call failure payload is a CLI failure
+
+- **WHEN** `openspec status --all --json` prints `{ "changes": [], "root": null, "status": [{ "severity": "error", "code": "invalid_store_pointer", "message": "…" }] }` and exits 1
+- **THEN** the poll SHALL be treated as a CLI failure (readiness `cli-failed`)
+- **AND** the directory SHALL NOT be broadcast as `initialized: true` with zero changes
+
+#### Scenario: No JSON at all is still a failure
+
+- **WHEN** `openspec status --all` prints no JSON body
+- **THEN** the poll SHALL be treated as a CLI failure, not as an empty change list
+
+#### Scenario: Oversized error message is capped
+
+- **WHEN** a change's CLI error message is 4 000 characters across several lines
+- **THEN** the broadcast `error.message` SHALL be one line of at most 500 characters
+
+### Requirement: Local task counting follows OpenSpec's task-line rule
+
+The server SHALL compute `completedTasks`, `totalTasks` and the list-level `status` for each change locally, in the poll worker, using OpenSpec's task-line rule: every line matching `/^\s*[-*]\s*\[([\sxX])\]\s*(.*)/` counts (indented and fenced lines included); `x`/`X` is done. `status` SHALL be `no-tasks` when `totalTasks` is 0, `complete` when `completedTasks === totalTasks`, else `in-progress`.
+
+The counted files SHALL be selected as OpenSpec does:
+1. Determine `apply.tracks` for the change's `schemaName` by OpenSpec's schema resolution order: project-local `openspec/schemas/<name>/schema.yaml`, then the user schema directory (`$XDG_DATA_HOME/openspec/schemas/<name>/schema.yaml`, default `~/.local/share/…`), then the built-in package schema (`spec-driven` tracks `tasks.md`). The first existing file wins for any name, including `spec-driven`. Files are parsed with the `yaml` package and memoized by mtime; an unreadable or unparsable file means `apply.tracks` is absent.
+2. If `apply.tracks` is set, the tracked artifact is the one whose `outputPath` equals it (none matching → no tracked artifact). If it is absent, the tracked artifact is the one with id `tasks`.
+3. All of the tracked artifact's `existingOutputPaths` are counted and summed.
+4. When no tracked artifact or no existing output resolves (including change entries with an `error`), the top-level `<change>/tasks.md` is counted if present — as OpenSpec does when the change's metadata or schema cannot be resolved.
+
+This selection SHALL match OpenSpec's counts for every resolvable schema.
+
+The task-editor parser (`parseTasksMarkdown`) SHALL NOT be used for counts.
+
+#### Scenario: Indented sub-tasks count
+
+- **GIVEN** a `tasks.md` with 34 top-level and 3 indented `- [ ]` lines, 16 checked
+- **WHEN** the poll counts tasks
+- **THEN** `totalTasks` SHALL be 37 and `completedTasks` 16
+
+#### Scenario: Broken change still counts its tasks.md
+
+- **GIVEN** a change with an invalid `.openspec.yaml` and a `tasks.md` holding 9 checkboxes
+- **WHEN** the poll completes
+- **THEN** its `totalTasks` SHALL be 9, matching `openspec list --json`
+
+#### Scenario: Project schema tracks a different file
+
+- **GIVEN** a project-local schema whose `apply.tracks` is `plan.md` produced by artifact `plan`
+- **WHEN** the poll counts tasks for a change on that schema
+- **THEN** checkboxes in `plan.md` SHALL be counted and `tasks.md` SHALL be ignored
+
+#### Scenario: No tasks file
+
+- **WHEN** a change has no tracked output and no top-level `tasks.md`
+- **THEN** `totalTasks` and `completedTasks` SHALL be 0 and `status` SHALL be `no-tasks`
+
+### Requirement: Cwd-level change-detection gate for the status-all poll
+
+On the `--all` path the server SHALL support an mtime-based change-detection gate, controlled by `DashboardConfig.openspec.changeDetection` (`"mtime"` default, `"always"`), that skips the `openspec status --all` invocation for a directory when no tracked path changed since the last successful poll. The gate SHALL use file-aware effective mtime (max over tracked paths), because POSIX directory mtime does not advance on in-place edits. The tracked-path `stat` probe SHALL run in the poll worker when `useWorker` is true and the worker is healthy; otherwise it SHALL run in-process with bounded-concurrency async `stat`. The same applies to the post-call build: in-process file I/O (re-stats, task-file and schema reads) SHALL be async and bounded; only JSON parsing and pure computation MAY run synchronously. Paths reported by the CLI SHALL be relativized against `root.path` exactly as emitted (the CLI already canonicalizes it with `realpathSync.native`) and separator-normalized. The server SHALL canonicalize its own `<cwd>/openspec/` once per cwd with `realpathSync.native` and map CLI-relative paths onto its probe and watcher paths through that canonical root; a CLI path that would escape it SHALL be ignored. Symlinked subdirectories inside a change are not followed. The force path SHALL use the same probe and build requests as the gated path.
+
+Tracked paths for a directory SHALL be:
+- `<cwd>/openspec/` itself, `<cwd>/openspec/changes/`, `<cwd>/openspec/config.yaml`, and every directory and file under `<cwd>/openspec/schemas/` (directory mtimes catch deletions and renames that a max-over-files would miss);
+- for every change in the cached result: the change directory, its `.openspec.yaml`, the legacy fixed set (`tasks.md`, `proposal.md`, `design.md`, `specs/`, `specs/<cap>/`, `specs/<cap>/spec.md`), every path in `artifactPaths.<id>.existingOutputPaths`, the parent directory of each such path, for a non-glob output its `resolvedOutputPath` and that path's parent directory (so a not-yet-created output is detected when it appears), and for a glob output its static directory prefix (e.g. `specs/`) plus every directory beneath that prefix (so a first file created in an empty nested directory is detected).
+
+Before the first successful `--all` result (cold cache, or after a whole-call failure) the per-change set is the legacy fixed set for every enumerated change directory. Missing paths SHALL be skipped, not treated as zero; directory enumeration SHALL NOT throw on `ENOENT`.
+
+#### Scenario: Unchanged directory skips the CLI
+
+- **WHEN** the effective mtime equals the cached value
+- **THEN** the server SHALL reuse cached data and SHALL NOT spawn `openspec status --all`
+
+#### Scenario: In-place edit to any tracked artifact re-runs the CLI once
+
+- **WHEN** an external actor edits `tasks.md`, `proposal.md`, `design.md`, a `specs/<cap>/spec.md` or a schema-declared output such as `dependencies.yaml` in place
+- **THEN** the next gated poll SHALL spawn `openspec status --all` exactly once for that cwd
+
+#### Scenario: Metadata, config or schema edit re-runs the CLI
+
+- **WHEN** a change's `.openspec.yaml`, `openspec/config.yaml`, or a file under `openspec/schemas/` is created or edited
+- **THEN** the next gated poll SHALL spawn `openspec status --all` exactly once
+
+#### Scenario: Change added, removed or archived
+
+- **WHEN** a change directory appears, is deleted, or is moved to `archive/`
+- **THEN** `mtime(<cwd>/openspec/changes/)` SHALL advance and the next gated poll SHALL spawn `openspec status --all`
+- **AND** cache entries for changes absent from the result SHALL be pruned
+
+#### Scenario: No-op tick keeps the main thread free
+
+- **GIVEN** 107 unchanged changes
+- **WHEN** a gated tick runs
+- **THEN** the tracked-path stats SHALL run in the worker (or as yielding async stats when the worker is disabled or unhealthy)
+- **AND** no main-thread turn of that tick SHALL exceed the per-turn alarm threshold of "Per-turn main-thread work does not block the event loop"
+
+#### Scenario: Change-detection disabled
+
+- **WHEN** `changeDetection` is `"always"`
+- **THEN** every tick SHALL spawn `openspec status --all`
+
+#### Scenario: Force refresh bypasses the gate
+
+- **WHEN** `openspec_refresh { cwd }` is received or `refreshOpenSpec(cwd)` is called
+- **THEN** the gate SHALL be bypassed and `openspec status --all` SHALL run
+
+### Requirement: TOCTOU-safe stamping around the status-all invocation
+
+On the `--all` path the server SHALL take each change's pre-call effective mtime in the worker probe before invoking `openspec status --all` and re-take it in the worker after the call returns. A change whose effective mtime changed during the call SHALL be marked racy: its cache entry SHALL NOT be updated on this tick (previous entry preserved) and its stamp SHALL NOT advance, so the next gated tick re-polls. Non-racy changes SHALL be stamped with their pre-call mtime. The cwd-level stamp (`openspec/`, `changes/`, `config.yaml`, `schemas/**`) SHALL be the pre-call value; if any cwd-level path changed during the call, the cwd-level stamp SHALL NOT advance, so the next gated tick re-polls. A change present in the result but absent from the pre-call probe (created between probe and spawn) SHALL be applied from the result but left unstamped, so the next gated tick re-polls it once. A change deleted during the call SHALL be pruned (pruning wins over preservation). With `DEBUG` matching `pi-dashboard|openspec-poll`, each discard SHALL emit one `console.warn` naming the change and both mtimes; otherwise silent.
+
+#### Scenario: No write during the call
+
+- **WHEN** no tracked path changes between the pre-call and post-call stat
+- **THEN** every change SHALL be stamped with its pre-call mtime and the CLI result
+
+#### Scenario: Write during the call is discarded for that change only
+
+- **WHEN** `openspec/changes/foo/tasks.md` is written while `openspec status --all` runs
+- **THEN** `foo` SHALL keep its previous cache entry and stamp
+- **AND** other changes SHALL be updated from the result
+- **AND** the next gated tick SHALL spawn `openspec status --all` again
+
+#### Scenario: Change deleted during the call is pruned
+
+- **WHEN** `openspec/changes/bar/` is removed while `openspec status --all` runs
+- **THEN** `bar` SHALL NOT appear in the broadcast of this tick or later ticks
+
+#### Scenario: Bulk fast-forward authoring converges
+
+- **WHEN** `/opsx:ff` writes `proposal.md`, `design.md`, `specs/**` and `tasks.md` in rapid succession while a gated tick runs
+- **THEN** within one additional gated tick after authoring completes the broadcast SHALL carry the post-authoring statuses
+
+### Requirement: Fallback when `openspec status --all` is unsupported
+
+The server SHALL classify the resolved `openspec` CLI as not supporting `--all` when an `openspec status --all --json` call yields no JSON body and its stderr or stdout matches `/unknown option ['"]?--all/i`. On the call that first makes this classification, the same poll SHALL immediately continue on the fallback path (this is the only case in which one poll spawns more than one OpenSpec process). The classification SHALL be cached per resolved CLI installation, keyed by the `version` of the `@fission-ai/openspec` package found by resolving the CLI entry (`realpath` of the resolved binary or script, then walking up to the nearest `package.json` with that name). When no such `package.json` is found, the classification SHALL be cached for the process lifetime and re-evaluated on every force refresh. The `bin/openspec.js` shim's mtime SHALL NOT be used as a key: upgrades do not touch it. It SHALL be checked before envelope classification. While unsupported, the poll paths SHALL use the fallback path: `openspec list` plus local artifact derivation on the gated path and per-change `openspec status --change` on force refresh, as specified by the fallback-scoped requirements "Change-detection gate to avoid redundant CLI invocations", "TOCTOU-safe mtime stamping in the gated poll", "Periodic poll derives artifact status without per-change CLI spawn" and "Local derivation parity with CLI is guarded by test".
+
+#### Scenario: Old CLI keeps working
+
+- **GIVEN** an `openspec` CLI that rejects `status --all` with "error: unknown option '--all'"
+- **WHEN** gated polls run
+- **THEN** the first poll SHALL continue on the fallback path in the same poll and broadcast data (not `cli-failed`)
+- **AND** later polls SHALL spawn `openspec list` and derive artifacts locally, as before this change
+- **AND** SHALL NOT retry `--all` on later ticks while the resolved package `version` is unchanged
+
+#### Scenario: Upgraded CLI is picked up
+
+- **GIVEN** the CLI was classified unsupported
+- **WHEN** the resolved CLI is upgraded (its package `version` changes)
+- **THEN** the next poll SHALL try `openspec status --all` again
+
+### Requirement: Status-all and task-count parity is guarded by test
+
+An automated test SHALL assert, for the repo's active changes:
+- (a) every change WITHOUT a CLI error has an artifact list from `openspec status --all --json` equal (as a set of `id:status`) to `openspec status --change <name> --json`;
+- (b) every change WITH an error in `--all` also fails in the per-change call;
+- (c) locally counted `completedTasks`/`totalTasks` equal `openspec list --json` for every change present in both outputs whose schema is project-local or built-in.
+
+Per-change spawns SHALL run through a bounded concurrency pool. The test SHALL skip only when the CLI is genuinely absent; a parse failure SHALL fail the test.
+
+#### Scenario: Parity holds
+
+- **GIVEN** the CLI is available and the repo has active changes
+- **WHEN** the parity test runs
+- **THEN** artifact sets and task counts SHALL match per change
+
+#### Scenario: Parse failure is not a skip
+
+- **WHEN** the CLI is present but its output cannot be parsed
+- **THEN** the test SHALL fail rather than take the CLI-absent skip

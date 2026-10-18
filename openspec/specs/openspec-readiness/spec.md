@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change add-openspec-init-affordances. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Server SHALL report OpenSpec skill presence per cwd
 
 `OpenSpecData` SHALL carry an optional `hasOpenSpecSkills?: boolean`, computed in the same stat
@@ -26,7 +28,7 @@ behaviour and SHALL NOT infer absence.
 
 #### Scenario: Project initialized without pi tooling
 
-- **WHEN** a cwd contains a valid `<cwd>/openspec/` with `changes/` and `openspec list`
+- **WHEN** a cwd contains a valid `<cwd>/openspec/` with `changes/` and the OpenSpec status call (`openspec status --all`, or `openspec list` on the fallback path)
   succeeds, but no `<cwd>/.pi/skills/openspec-explore/` directory
 - **THEN** its broadcast `OpenSpecData` SHALL carry `initialized: true` **AND**
   `hasOpenSpecSkills: false`
@@ -57,7 +59,7 @@ NOT present a disabled or stale state.
 2. `OPTED_OUT` — the cwd is listed in `openspec.optOutDirectories`
 3. `PENDING` — a poll is in flight
 4. `ABSENT` — `<cwd>/openspec/` does not exist
-5. `BROKEN` — `openspec list` did not yield authoritative data
+5. `BROKEN` — the OpenSpec status call (`openspec status --all`, or `openspec list` on the fallback path) did not yield authoritative data
 6. `STALE` — skills are missing (subject to the worktree exemption), or a recorded signature
    differs from the current global signature
 7. `READY` — otherwise
@@ -95,7 +97,7 @@ legacy-fallback gate mid-transition.
 
 #### Scenario: Partially initialized directory
 
-- **WHEN** a cwd has `openspec/` but `openspec list` yielded no authoritative data
+- **WHEN** a cwd has `openspec/` but the OpenSpec status call (`openspec status --all`, or `openspec list` on the fallback path) yielded no authoritative data
 - **THEN** the emitted state SHALL be `BROKEN`
 
 #### Scenario: Valid project with no pi skills
@@ -118,7 +120,7 @@ legacy-fallback gate mid-transition.
 
 #### Scenario: Zero-proposal project is READY
 
-- **WHEN** a cwd has been initialized with no proposals authored, so `openspec list` returns
+- **WHEN** a cwd has been initialized with no proposals authored, so the OpenSpec status call (`openspec status --all`, or `openspec list` on the fallback path) returns
   `{ "changes": [] }`, its skills are present, and its recorded signature matches the current
   one
 - **THEN** the emitted state SHALL be `READY`
@@ -185,7 +187,7 @@ re-running init; `cli-failed` is not, and offering a destructive repair there wo
 
 - **WHEN** a cwd has `openspec/` but no `openspec/changes/`
 - **THEN** the reason SHALL be `missing-changes-dir`
-- **AND WHEN** a cwd has `openspec/changes/` but `openspec list` failed
+- **AND WHEN** a cwd has `openspec/changes/` but the OpenSpec status call (`openspec status --all`, or `openspec list` on the fallback path) failed
 - **THEN** the reason SHALL be `cli-failed`
 
 #### Scenario: Missing skills wins over profile staleness
@@ -342,4 +344,3 @@ interval. The response SHALL include the CLI's stdout and stderr.
 - **WHEN** the spawned CLI exits non-zero
 - **THEN** the response SHALL report failure and SHALL include the CLI's stderr
 - **AND** no update signature SHALL be recorded
-
