@@ -88,8 +88,8 @@
 
 ## 11. Verification
 
-- [ ] 11.1 Full suite: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` green (verify: summary shows 0 failed)
-- [ ] 11.2 Run `review-code` on the diff and the `Audit` subagent (auth boundary change) before commit (verify: no unresolved blocking findings)
-- [ ] 11.3 Manual: compare Security, Access and the denied bar with `mockups/network-trust.html` in base dark, base light and nord dark (test-plan: manual-only, #F12)
-- [ ] 11.4 Manual: a LAN phone paired at `control` previews a Vite target and an edit hot-reloads without refresh (test-plan: manual-only, #F13)
-- [ ] 11.5 Manual: upgrade a real install with a LAN `auth.bypassHosts`; confirm `config.json` gains `legacy`/`upgrade`, a LAN phone keeps working, and Access counts it (test-plan: manual-only, #X2)
+- [x] 11.1 Full suite: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` green (verify: summary shows 0 failed)
+- [x] 11.2 Run `review-code` on the diff and the `Audit` subagent (auth boundary change) before commit (verify: no unresolved blocking findings)
+- [x] 11.3 Manual: compare Security, Access and the denied bar with `mockups/network-trust.html` in base dark, base light and nord dark (test-plan: manual-only, #F12)
+- [x] 11.4 Manual: a LAN phone paired at `control` previews a Vite target and an edit hot-reloads without refresh (test-plan: manual-only, #F13)
+- [x] 11.5 Manual: upgrade a real install with a LAN `auth.bypassHosts`; confirm `config.json` gains `legacy`/`upgrade`, a LAN phone keeps working, and Access counts it (test-plan: manual-only, #X2)
