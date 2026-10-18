@@ -42,6 +42,12 @@ export interface SessionArchiveDeps {
   metaPersistence: Pick<MetaPersistence, "flush">;
   /** Pinned directory spellings (the group-path resolver's pin tier). */
   getPinnedDirs: () => string[];
+  /**
+   * Purge a session's in-memory events. Used by the fileless eviction paths,
+   * where nothing can reload them. Optional so minimal harnesses compile.
+   * See change: fix-orphaned-ended-session-archive.
+   */
+  deleteEvents?: (sessionId: string) => void;
   platform?: NodeJS.Platform;
   now?: () => number;
 }
@@ -77,6 +83,12 @@ export interface SessionArchive {
   rows(): ArchivedSessionSummary[];
   /** Archive an ended, non-live session. Caller handles idle-alive intent. */
   archiveSession(id: string, reason: ArchiveReason): ArchiveResult;
+  /**
+   * An ended session's transcript was taken over by a new registrant: evict the
+   * predecessor (no sidecar write, no index row). Re-validates `ended`; skips
+   * the `live` guard. See change: fix-orphaned-ended-session-archive.
+   */
+  evictSuperseded(id: string, byId: string): ArchiveResult;
   /** Restore an archived session into the live set as ended. */
   unarchiveSession(id: string): ArchiveResult;
   /** Delete an archived session's files and index row. */
@@ -134,7 +146,7 @@ export function createSessionArchive(deps: SessionArchiveDeps): SessionArchive {
     return new Set(dirs.map((d) => pathKey(d, platform)));
   };
 
-  function groupKeyFor(row: ArchivedSessionSummary, pinned: Set<string>): string {
+  function groupKeyFor(row: Pick<ArchivedSessionSummary, "cwd" | "gitWorktree">, pinned: Set<string>): string {
     const groupPath = resolveSessionGroupPath(
       { cwd: row.cwd, gitWorktree: row.gitWorktree },
       pinned,
@@ -202,6 +214,28 @@ export function createSessionArchive(deps: SessionArchiveDeps): SessionArchive {
     else index.set(key, [row]);
   }
 
+  /**
+   * Drop a session from the live set without persisting or indexing it, and
+   * broadcast `session_archived` with the UNCHANGED folder count (no row was
+   * inserted). Shared by the fileless manual archive and supersede.
+   * See change: fix-orphaned-ended-session-archive.
+   */
+  function evict(session: DashboardSession): ArchiveResult {
+    const key = groupKeyFor(
+      {
+        cwd: session.cwd,
+        gitWorktree: session.gitWorktree
+          ? { mainPath: session.gitWorktree.mainPath, name: session.gitWorktree.name }
+          : undefined,
+      },
+      pinnedKeys(),
+    );
+    sessionManager.remove(session.id);
+    deps.deleteEvents?.(session.id);
+    emitter?.sessionArchived(session.id, key, countFor(key));
+    return { ok: true };
+  }
+
   return {
     seed(rows) {
       rebuild(rows);
@@ -241,12 +275,17 @@ export function createSessionArchive(deps: SessionArchiveDeps): SessionArchive {
       return findRow(id) !== undefined;
     },
 
-    archiveSession(id, _reason) {
+    archiveSession(id, reason) {
       const session = sessionManager.get(id);
       if (!session) return { ok: false, error: "session not found" };
       if (session.live === true) return { ok: false, error: "session is live (interrupted)" };
       if (session.status !== "ended") return { ok: false, error: "session is not ended" };
-      if (!session.sessionFile) return { ok: false, error: "session file is unknown" };
+      if (!session.sessionFile) {
+        // Only a user-initiated archive may drop a transcript-less session;
+        // sweep / service-end / migration keep refusing it.
+        if (reason === "manual") return evict(session);
+        return { ok: false, error: "session file is unknown" };
+      }
 
       const archivedAt = now();
       try {
@@ -287,6 +326,14 @@ export function createSessionArchive(deps: SessionArchiveDeps): SessionArchive {
       const key = groupKeyFor(captured, pinnedKeys());
       emitter?.sessionArchived(id, key, countFor(key));
       return { ok: true };
+    },
+
+    evictSuperseded(id, byId) {
+      const session = sessionManager.get(id);
+      if (!session) return { ok: false, error: "session not found" };
+      if (session.status !== "ended") return { ok: false, error: "session is not ended" };
+      console.info(`[archive] superseded ${id} by ${byId}`);
+      return evict(session);
     },
 
     unarchiveSession(id) {

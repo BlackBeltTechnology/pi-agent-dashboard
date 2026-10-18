@@ -100,6 +100,8 @@ sequenceDiagram
 - **[Trade-off] Debounced sidecar write keyed by `F`.** `meta-persistence.ts` keys pending writes by file path (`pending: Map<sessionFile, …>`), so `S2`'s next `save(F, …)` replaces any queued `S1` write. An `S1` write that fires first is overwritten by `S2`'s first save. Dropping the pending `F` entry at supersede time was rejected: the entry carries no owner id, so it could just as well be `S2`'s own queued write. This race already exists at today's clear step and isn't widened by this change.
 - **[Unchanged] Sweeper and service-end archiving.** These never evict fileless sessions (D1 reason gate).
 
+- **[Verdict] Doubt-driven review of D2 (task 2.10).** `/new` creates a new file (no shared holder). `/fork` creates a new file. `/resume` and `--session F` / `--continue` reuse the header id; the same-id guard (`other.id !== sessionId`) keeps them out of the loop, and a same-id reconnect is pinned by test #E10. The one path that registers a DIFFERENT id on an ended holder's file is the re-header case (the incident), where the new owner shows the same transcript and the predecessor is by definition a stale duplicate. Verdict: no legitimate path needs the ended holder kept visible.
+
 ## Migration Plan
 
 There's no data migration. The change deploys as a server restart plus a client build. Rollback is a revert: the old behaviour (silent no-op) comes back and no persisted state is affected.

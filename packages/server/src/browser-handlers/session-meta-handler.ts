@@ -170,7 +170,16 @@ export async function handleArchiveSession(
   msg: Extract<BrowserToServerMessage, { type: "archive_session" }>,
   ctx: BrowserHandlerContext,
 ): Promise<void> {
-  await requestArchive(msg.sessionId, ctx);
+  const res = await requestArchive(msg.sessionId, ctx);
+  if (!res.ok) {
+    // Never a silent drop: tell the requester why the click did nothing.
+    // See change: fix-orphaned-ended-session-archive.
+    ctx.sendTo(ctx.ws, {
+      type: "archive_session_error",
+      sessionId: msg.sessionId,
+      error: res.error ?? "archive failed",
+    });
+  }
 }
 
 /**
