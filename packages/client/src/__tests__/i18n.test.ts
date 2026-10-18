@@ -318,7 +318,7 @@ describe("retro-ux-credential-vault — vault.* catalogue coverage (E27)", () =>
   }
   const STATES = ["delivered", "local-override", "inherited", "pending-confirmation", "no-account", "blocked-name", "revoked", "hub-unreachable", "vault-unavailable"];
   const dynamic = [
-    ...["use-host", "re-pair", "sign-in"].map((r) => `vault.operateRequired.${r}`),
+    ...["use-host", "re-pair", "request-access", "sign-in"].map((r) => `vault.operateRequired.${r}`),
     ...STATES.flatMap((s) => [`vault.state.${s}`, `vault.stateHelp.${s}`]),
   ];
 

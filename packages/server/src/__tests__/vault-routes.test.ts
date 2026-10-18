@@ -13,11 +13,15 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { effectiveSessionTier } from "../auth/auth-plugin.js";
 import { registerBearerAuth } from "../auth/bearer-auth.js";
-import { createLocalTrustContext } from "../auth/local-proof.js";
-import { createNetworkGuard } from "../auth/localhost-guard.js";
+import { createLocalTrustContext, signLocalProof } from "../auth/local-proof.js";
+import { createNetworkGuard, type LanInterface } from "../auth/localhost-guard.js";
 import { createRouteTierGate } from "../auth/route-tier-gate.js";
 import type { HostPolicy } from "../identity/host-access.js";
+import { createRequestAccessAvailable } from "../pairing/knock-admission.js";
 import { PairedDeviceRegistry } from "../pairing/paired-devices.js";
+import { PairingManager } from "../pairing/pairing.js";
+import { registerPairingRoutes } from "../routes/pairing-routes.js";
+import { stampLegacyHook } from "../test-support/local-credential-stamp.js";
 import { createBinding } from "../vault/vault-bindings.js";
 import type { ProjectView } from "../vault/vault-delivery-hub.js";
 import { createGrant, repoSubject } from "../vault/vault-grants.js";
@@ -48,6 +52,10 @@ async function mkApp(
     open?: ProjectView[];
     remembered?: VaultProjectEntry[];
     sessions?: Record<string, SessionState>;
+    /** Wire `requestAccessAvailable` (and, with `acceptLanRequests`, the real knock route). */
+    knock?: { interfaces: LanInterface[]; acceptLanRequests?: () => boolean };
+    /** Stamp the local-credential verdict at the edge, as `server.ts` does. */
+    stampLocal?: boolean;
   } = {},
 ) {
   const trusted = opts.trusted ?? TRUSTED;
@@ -62,6 +70,7 @@ async function mkApp(
   apps.push(app);
   await app.register(rateLimit, { global: true, max: 100_000, timeWindow: "1 minute" });
   app.decorateRequest("isAuthenticated", false);
+  if (opts.stampLocal) stampLegacyHook(app, "local-token-xyz");
   registerBearerAuth(app, { registry: reg });
   // Test-only: stamp a session / principal marker the real auth plugin / identity
   // resolver would set, so admission of those callers is exercised without them.
@@ -80,12 +89,28 @@ async function mkApp(
     networkGuard: createNetworkGuard([trusted], { localTrust }),
     localTrust,
     loginAvailable: opts.loginAvailable ?? (() => false),
+    requestAccessAvailable: opts.knock
+      ? createRequestAccessAvailable({ hostAdmission: () => ({}), getLanInterfaces: () => opts.knock?.interfaces ?? [] }, localTrust)
+      : undefined,
     hostPolicy: opts.hostPolicy,
     listOpenProjects: () => opts.open ?? [],
     projects: { list: () => opts.remembered ?? [] },
     getSessionBindingState: (id) =>
       opts.sessions?.[id] ?? (id === "s1" ? { bindings: [{ name: "GEMINI_API_KEY", state: "delivered" }], lastContactAt: 1 } : undefined),
   });
+  if (opts.knock?.acceptLanRequests) {
+    const pairing = new PairingManager({ registry: reg, getFingerprint: () => "sha256:test-fp", getReachableUrls: () => [] });
+    registerPairingRoutes(app, {
+      networkGuard: createNetworkGuard([trusted], { localTrust }),
+      identity: { fingerprint: "sha256:test-fp" } as never,
+      pairing,
+      registry: reg,
+      localTrust,
+      hostAdmission: () => ({}),
+      getAcceptLanRequests: opts.knock.acceptLanRequests,
+      getLanInterfaces: () => opts.knock?.interfaces ?? [],
+    });
+  }
   await app.ready();
   return { app, tokens, reg };
 }
@@ -461,5 +486,154 @@ describe("E10 ungranted names (D4)", () => {
     const { app, tokens } = await mkApp(false, { sessions });
     const res = await get(app, "resolved", bearer(tokens.operate));
     expect(res.json().data.ungranted).toEqual([]);
+  });
+});
+
+// ── add-request-access-remedy ──────────────────────────────────────────────
+describe("request-access remedy", () => {
+  const ON_LINK = "192.168.16.40";
+  const IFACE_24: LanInterface[] = [{ address: "192.168.16.1", netmask: "255.255.255.0" }];
+  const lan = { trusted: "192.168.16.0/24", knock: { interfaces: IFACE_24 } } as const;
+  const bearer = (t: string) => ({ authorization: `Bearer ${t}` });
+  const get = (app: FastifyInstance, remoteAddress: string, headers: Record<string, string> = {}, url = "/api/vault") =>
+    app.inject({ method: "GET", url, remoteAddress, headers });
+  const remedies = (res: { json: () => unknown }) => (res.json() as { remedies: string[] }).remedies;
+
+  it("E6 on-link browser without a credential → use-host + request-access", async () => {
+    const { app } = await mkApp(false, lan);
+    const res = await get(app, ON_LINK);
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toMatchObject({ error: "operate_required", reason: "no-credential", remedies: ["use-host", "request-access"] });
+  });
+
+  it("E7 all no-credential remedies in canonical order", async () => {
+    const { app } = await mkApp(false, { ...lan, loginAvailable: () => true });
+    expect(remedies(await get(app, ON_LINK))).toEqual(["use-host", "request-access", "sign-in"]);
+  });
+
+  it("E8 trusted peer off the knock gate → use-host only, vault message, no data", async () => {
+    const { app } = await mkApp(false, { trusted: "100.64.0.0/10", knock: { interfaces: [{ address: "100.64.0.1", netmask: "255.255.255.255" }] } });
+    const res = await get(app, "100.64.0.5");
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toEqual({
+      success: false, error: "operate_required", reason: "no-credential", remedies: ["use-host"],
+      message: "the vault needs an operate-tier credential or a locally trusted caller",
+    });
+  });
+
+  it("E9 a forwarded request gets no request-access", async () => {
+    const { app } = await mkApp(false, lan);
+    const res = await get(app, ON_LINK, { "x-forwarded-for": "203.0.113.9" });
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toMatchObject({ error: "operate_required", remedies: ["use-host"] });
+  });
+
+  it("E10 a non-admitted Host gets no request-access", async () => {
+    const { app } = await mkApp(false, lan);
+    const res = await get(app, ON_LINK, { host: "evil.test" });
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toMatchObject({ error: "operate_required" });
+    expect(remedies(res)).not.toContain("request-access");
+  });
+
+  it("E11 a verified local token or proof cookie gets no request-access", async () => {
+    const { app } = await mkApp(false, { ...lan, stampLocal: true });
+    const token = await get(app, ON_LINK, { "x-pi-local-token": "local-token-xyz" });
+    expect(token.statusCode).toBe(403);
+    expect(remedies(token)).toEqual(["use-host"]);
+    const cookie = signLocalProof(createLocalTrustContext("local-token-xyz", () => false));
+    const proof = await get(app, ON_LINK, { cookie: `pi_dash_local=${cookie}` });
+    expect(proof.statusCode).toBe(403);
+    expect(remedies(proof)).toEqual(["use-host"]);
+    // Control: neither credential → eligible.
+    expect(remedies(await get(app, ON_LINK))).toContain("request-access");
+  });
+
+  it("E12 an on-link low-tier device gets re-pair, never request-access", async () => {
+    const { app, tokens } = await mkApp(false, lan);
+    const res = await get(app, ON_LINK, bearer(tokens.control));
+    expect(res.json()).toMatchObject({ reason: "tier-too-low", remedies: ["use-host", "re-pair"] });
+  });
+
+  it("E13 a revoked bearer: off-gate → use-host; on-link → use-host + request-access", async () => {
+    const off = await mkApp(false, { trusted: "100.64.0.0/10", knock: { interfaces: [{ address: "100.64.0.1", netmask: "255.255.255.255" }] } });
+    const a = off.reg.add("gone", "manual", "operate");
+    off.reg.revoke(a.device.id);
+    const offRes = await get(off.app, "100.64.0.5", bearer(a.token));
+    expect(offRes.json()).toMatchObject({ reason: "no-credential", remedies: ["use-host"] });
+
+    const on = await mkApp(false, lan);
+    const b = on.reg.add("gone", "manual", "operate");
+    on.reg.revoke(b.device.id);
+    const onRes = await get(on.app, ON_LINK, bearer(b.token));
+    expect(onRes.json()).toMatchObject({ reason: "no-credential", remedies: ["use-host", "request-access"] });
+  });
+
+  it("E15 admission is unchanged: operate bearer, operator session, principal, loopback all get 200", async () => {
+    const { app, tokens } = await mkApp(false, { ...lan, hostPolicy: policy(true) });
+    const cases: Array<[string, string, Record<string, string>]> = [
+      ["operate bearer", ON_LINK, bearer(tokens.operate)],
+      ["operator session", ON_LINK, { "x-test-auth-via": "session", "x-test-tier": CLAIMLESS_TIER }],
+      ["principal", ON_LINK, { "x-test-auth-via": "principal", "x-test-principal": "alice" }],
+      ["loopback", "127.0.0.1", {}],
+    ];
+    for (const [label, remote, headers] of cases) expect((await get(app, remote, headers)).statusCode, label).toBe(200);
+  });
+
+  it("X5 an empty interface list fails closed: still a 403 with five keys, no request-access", async () => {
+    const { app } = await mkApp(false, { trusted: "192.168.16.0/24", knock: { interfaces: [] } });
+    const res = await get(app, ON_LINK);
+    expect(res.statusCode).toBe(403);
+    expect(Object.keys(res.json()).sort()).toEqual(["error", "message", "reason", "remedies", "success"]);
+    expect(remedies(res)).not.toContain("request-access");
+  });
+
+  it("X3 the body carries no address, subnet, host name, device or vault name", async () => {
+    const { app, reg } = await mkApp(false, { ...lan, loginAvailable: () => true });
+    const { device, token } = reg.add("robson-mbp", "manual", "control");
+    await store.addAccount({ provider: "gemini", label: "work-account-label", value: "abcdefgh12" });
+    for (const headers of [{}, bearer(token)]) {
+      const res = await get(app, ON_LINK, headers);
+      expect(res.statusCode).toBe(403);
+      expect(Object.keys(res.json()).sort()).toEqual(["error", "message", "reason", "remedies", "success"]);
+      for (const leak of ["192.168.", "/24", "localhost", device.id, "robson-mbp", "work-account-label", "abcdefgh12", "GEMINI_API_KEY"]) {
+        expect(res.body).not.toContain(leak);
+      }
+    }
+  });
+
+  describe("knock-equivalence (X1, X2)", () => {
+    const post = (app: FastifyInstance, remoteAddress: string, headers: Record<string, string> = {}) =>
+      app.inject({ method: "POST", url: "/api/pair/request", remoteAddress, headers: { "content-type": "application/json", ...headers }, payload: { name: "Laptop" } });
+
+    it("X1 the switch and live-knock state are not disclosed", async () => {
+      let accept = false;
+      const { app } = await mkApp(false, { ...lan, knock: { interfaces: IFACE_24, acceptLanRequests: () => accept } });
+      const off = await get(app, ON_LINK);
+      accept = true;
+      const on = await get(app, ON_LINK);
+      expect((await post(app, ON_LINK)).statusCode).toBe(200); // a live knock now pends for this peer
+      const pending = await get(app, ON_LINK);
+      expect(off.body).toContain("request-access");
+      expect(on.body).toBe(off.body);
+      expect(pending.body).toBe(off.body);
+    });
+
+    it("X2 request-access is present ⇔ the knock (switch off) answers knock_disabled", async () => {
+      const { app } = await mkApp(false, { ...lan, knock: { interfaces: IFACE_24, acceptLanRequests: () => false } });
+      const shapes: Array<[string, string, Record<string, string>, boolean]> = [
+        ["on-link, admitted Host", ON_LINK, {}, true],
+        ["forwarded", ON_LINK, { "x-forwarded-for": "203.0.113.9" }, false],
+        ["non-admitted Host", ON_LINK, { host: "evil.test" }, false],
+        ["off-link", "203.0.113.5", {}, false],
+      ];
+      for (const [label, remote, headers, present] of shapes) {
+        const vault = await get(app, remote, headers);
+        const knock = await post(app, remote, headers);
+        const offered = vault.statusCode === 403 && (vault.json() as { remedies?: string[] }).remedies?.includes("request-access") === true;
+        expect(offered, label).toBe(present);
+        expect((knock.json() as { error?: string }).error === "knock_disabled", label).toBe(present);
+      }
+    });
   });
 });

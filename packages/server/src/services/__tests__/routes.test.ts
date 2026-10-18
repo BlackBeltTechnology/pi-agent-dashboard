@@ -12,8 +12,9 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerBearerAuth } from "../../auth/bearer-auth.js";
 import { createLocalTrustContext } from "../../auth/local-proof.js";
-import { createNetworkGuard } from "../../auth/localhost-guard.js";
+import { createNetworkGuard, type LanInterface } from "../../auth/localhost-guard.js";
 import { createRouteTierGate } from "../../auth/route-tier-gate.js";
+import { createRequestAccessAvailable } from "../../pairing/knock-admission.js";
 import { PairedDeviceRegistry } from "../../pairing/paired-devices.js";
 import { registerServiceRoutes } from "../routes.js";
 import { buildApp, FakeDriver, makeManager, ociDef, tmpRoot, writeDefinitions } from "./helpers.js";
@@ -32,7 +33,12 @@ afterEach(async () => {
 const TRUSTED = "198.51.100.0/24";
 const sha = () => createHash("sha256").update(fs.readFileSync(path.join(root, "services.json"))).digest("hex");
 
-async function mkApp(strict: boolean, loginAvailable: () => boolean = () => false) {
+async function mkApp(
+  strict: boolean,
+  loginAvailable: () => boolean = () => false,
+  opts: { trusted?: string; knockInterfaces?: LanInterface[] } = {},
+) {
+  const trusted = opts.trusted ?? TRUSTED;
   const reg = new PairedDeviceRegistry(path.join(root, "paired.json"));
   const tokens = {
     observe: reg.add("o", "manual", "observe").token,
@@ -46,8 +52,16 @@ async function mkApp(strict: boolean, loginAvailable: () => boolean = () => fals
   await app.register(rateLimit, { global: true, max: 100_000, timeWindow: "1 minute" });
   app.decorateRequest("isAuthenticated", false);
   registerBearerAuth(app, { registry: reg });
-  app.addHook("onRequest", createRouteTierGate({ getTrustedNetworks: () => [TRUSTED], localTrust, logRefusal: () => {} }));
-  registerServiceRoutes(app, { manager, networkGuard: createNetworkGuard([TRUSTED], { localTrust }), localTrust, loginAvailable });
+  app.addHook("onRequest", createRouteTierGate({ getTrustedNetworks: () => [trusted], localTrust, logRefusal: () => {} }));
+  registerServiceRoutes(app, {
+    manager,
+    networkGuard: createNetworkGuard([trusted], { localTrust }),
+    localTrust,
+    loginAvailable,
+    requestAccessAvailable: opts.knockInterfaces
+      ? createRequestAccessAvailable({ hostAdmission: () => ({}), getLanInterfaces: () => opts.knockInterfaces ?? [] }, localTrust)
+      : undefined,
+  });
   await app.ready();
   return { app, tokens };
 }
@@ -212,5 +226,22 @@ describe("exposure — a port bound on all interfaces is flagged", () => {
     clock.advance(31_000);
     await manager.list();
     expect(scans).toBe(2);
+  });
+});
+
+// ── add-request-access-remedy (test-plan E14) ─────────────────────────────
+describe("E14 service mutation refusal follows the vault's request-access rule", () => {
+  const none = "service mutations need an operate-tier credential or a locally trusted caller";
+
+  it.each([
+    ["off-gate trusted peer", "100.64.0.0/10", [{ address: "100.64.0.1", netmask: "255.255.255.255" }], "100.64.0.5", ["use-host"]],
+    ["on-link trusted peer", "192.168.16.0/24", [{ address: "192.168.16.1", netmask: "255.255.255.0" }], "192.168.16.40", ["use-host", "request-access"]],
+  ] as const)("%s", async (_l, trusted, knockInterfaces, remoteAddress, remedies) => {
+    const { app } = await mkApp(false, () => false, { trusted, knockInterfaces: [...knockInterfaces] });
+    const before = sha();
+    const res = await app.inject({ method: "POST", url: "/api/services", remoteAddress, payload: attached });
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toEqual({ success: false, error: "operate_required", message: none, reason: "no-credential", remedies });
+    expect(sha()).toBe(before);
   });
 });

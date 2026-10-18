@@ -3824,7 +3824,7 @@ sequenceDiagram
 - Effects: on-link gate admits anyone reaching published port. Dialog shows one address for all requesters. Per-source limits act as one global lock.
 - Fix: host networking restores real peer addresses. TLS path: use QR pairing.
 
-Not yet: `request-access` remedy on `operate_required` refusal. Follow-up (design D10).
+`request-access` remedy on `operate_required`: present iff no credential + knock pre-switch gates pass (`knockPeerGate`). Discloses only `host_not_admitted` | `knock_not_lan`. Never reads `acceptLanRequests`. See `docs/credential-vault.md` §10. See change: add-request-access-remedy.
 
 #### Bearer device auth — D5/D7
 

@@ -25,7 +25,14 @@ import { signNonce } from "../auth/identity.js";
 import { hasLocalCredential } from "../auth/local-credential.js";
 import { createLocalTrustContext, hasLocalProof, type LocalTrustContext } from "../auth/local-proof.js";
 import { isLocallyTrusted, type LanInterface } from "../auth/localhost-guard.js";
-import { admitKnock, createRefusalLogger, KnockLimiter } from "../pairing/knock-admission.js";
+import {
+  admitKnock,
+  createRefusalLogger,
+  headerString,
+  KnockLimiter,
+  knockPeerInput,
+  knockPeerState,
+} from "../pairing/knock-admission.js";
 import type { PairedDeviceRegistry, PairedDeviceView } from "../pairing/paired-devices.js";
 import type { ApproveResult, PairingManager, PendingDeviceView } from "../pairing/pairing.js";
 import { SUPPORTED_PAIRING_VERSIONS } from "../pairing/pairing.js";
@@ -72,10 +79,6 @@ function approveFailure(
   return result.error === "mismatch"
     ? { success: false, error: result.error, attemptsLeft: result.attemptsLeft }
     : { success: false, error: result.error };
-}
-
-function headerString(v: unknown): string | undefined {
-  return typeof v === "string" ? v : Array.isArray(v) && typeof v[0] === "string" ? v[0] : undefined;
 }
 
 /**
@@ -335,15 +338,10 @@ export function registerPairingRoutes(
         return { success: false, error: "unsupported_media_type" };
       }
       const decision = admitKnock(
+        knockPeerInput(request),
         {
-          peer: request.socket.remoteAddress,
-          headers: request.headers as Record<string, unknown>,
-          host: headerString(request.headers.host),
-        },
-        {
-          hostAdmission: hostAdmission(),
+          ...knockPeerState({ hostAdmission, getLanInterfaces: deps.getLanInterfaces ?? (() => []) }),
           acceptLanRequests: deps.getAcceptLanRequests?.() === true,
-          interfaces: deps.getLanInterfaces?.() ?? [],
           liveKnocks: pairing.liveKnocks(),
           limiter: knockLimiter,
         },
