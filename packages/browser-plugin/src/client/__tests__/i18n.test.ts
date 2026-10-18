@@ -3,6 +3,8 @@
  * 4.4; add-dedicated-agent-browser, test-plan #F14). `catalog` ships UNPREFIXED
  * leaf keys under `plugin.browser.*`; every locale must carry the same key set
  * — a missing key silently falls back to the inline English string.
+ *
+ * @structural-pin scans client component sources for `t("key")` literals: a key used in a component but absent from the catalog silently falls back to English, which no rendered-output test of the other locales can observe
  */
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";

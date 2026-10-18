@@ -317,7 +317,7 @@ export class DedicatedChrome {
         windowsHide: false,
       });
     } catch (e) {
-      throw new DedicatedChromeError("launch-failed", `failed to spawn Chrome: ${(e as Error).message}`);
+      throw new DedicatedChromeError("launch-failed", `failed to start Chrome: ${(e as Error).message}`);
     }
     this.mode = "starting";
     this.attach(child);
