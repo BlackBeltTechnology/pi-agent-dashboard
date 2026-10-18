@@ -92,6 +92,7 @@ export type { RoleRefLabels, RoleRefProps } from "./RoleRef.js";
 export { RoleRef } from "./RoleRef.js";
 export type { SlotAccent, SlotPillProps, SlotSurface } from "./SlotPill.js";
 export { SLOT_PILL_LEGEND, SlotPill } from "./SlotPill.js";
+export { copyText, randomUuid } from "./secure-context.js";
 export {
   __resetSessionDataStoreForTests,
   clearSessionData,

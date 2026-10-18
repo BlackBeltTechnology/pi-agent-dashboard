@@ -1,6 +1,6 @@
 ## 1. Scan test first (red)
 
-- [ ] 1.1 Rework `packages/client/src/components/connectivity/__tests__/secure-context-scan.test.ts` per design D3 + D4:
+- [x] 1.1 Rework `packages/client/src/components/connectivity/__tests__/secure-context-scan.test.ts` per design D3 + D4:
   - Manifest-derived client roots: each `pi-dashboard-plugin.client` entry dir minus that manifest's `server`/`bridge` entry dirs, deduplicated by realpath.
   - Also scan existing `packages/*/src/client`, `client/src`, `client-utils/src`, and `dashboard-plugin-runtime/src` minus `server/ bridge/ vite-plugin/ test-support/`.
   - Widened `SECURE_API`: member, quoted-global, destructuring and bare-method arms over four APIs.
@@ -9,37 +9,37 @@
   - Add `client-utils/src/identity/login-flow.ts` (guarded `crypto?.subtle`) to the allowlist with a justifying comment.
 
   Verify `typescript` resolves from the test. Harness exemplar: the existing scan test itself.
-- [ ] 1.2 Fixture self-test of the matcher, in the same file (test-plan #E9).
+- [x] 1.2 Fixture self-test of the matcher, in the same file (test-plan #E9).
   - Input: one in-memory fixture per form: `navigator.clipboard.writeText(s)`, `navigator?.clipboard`, `navigator["clipboard"]`, `navigator?.["clipboard"]`, `crypto.randomUUID()`, `crypto?.subtle`, `globalThis.crypto.subtle`, `window["navigator"]`, `const { clipboard } = navigator;`, `const { randomUUID } = globalThis.crypto;`, `navigator.mediaDevices`, `m.getUserMedia(x)`, `m?.getUserMedia?.(x)`, `x.getDisplayMedia()`.
   - Trigger: run the matcher on each fixture.
   - Observable: every fixture reports ≥ 1 hit.
 
   Exemplar: `secure-context-scan.test.ts`. Verify: `npx vitest run packages/client/src/components/connectivity/__tests__/secure-context-scan.test.ts -t matcher` green.
-- [ ] 1.3 Fixture self-test of non-code forms (test-plan #E10).
+- [x] 1.3 Fixture self-test of non-code forms (test-plan #E10).
   - Input: `// navigator.clipboard.writeText(s)`, `/* crypto.randomUUID() */`, ``const u = `${p}//${h}`;``, `const r = /\/\//;`, `const s = "/*";`.
   - Trigger: matcher with parser-based comment stripping.
   - Observable: the comment fixtures give 0 hits. The template, regex and string fixtures give 0 hits, and exactly 1 hit once a real `navigator.clipboard` call is appended after each.
 
   Exemplar: `secure-context-scan.test.ts`. Verify with the same command.
-- [ ] 1.4 Root derivation, manifest outside `src/client` (test-plan #E11).
+- [x] 1.4 Root derivation, manifest outside `src/client` (test-plan #E11).
   - Input: repo at HEAD.
   - Trigger: compute scan roots.
   - Observable: roots include `quota-plugin/src`, `demo-plugin/src`, `flows-anthropic-bridge-plugin/src`, `grammar-plugin/src`, `roles-plugin/src` and every existing `packages/*/src/client`. They exclude each manifest's `server`/`bridge` dirs and `dashboard-plugin-runtime/src/{server,bridge,vite-plugin,test-support}`. No root appears twice.
 
   Exemplar: `secure-context-scan.test.ts`. Verify with the same command.
-- [ ] 1.5 Root derivation, package without a client (test-plan #E12).
+- [x] 1.5 Root derivation, package without a client (test-plan #E12).
   - Input: `fixture-policy-plugin`, `keycloak-resolver-plugin`, `mcp-server-plugin`.
   - Trigger: compute scan roots.
   - Observable: no ENOENT, and none of the three is in the roots.
 
   Exemplar: `secure-context-scan.test.ts`. Verify with the same command.
-- [ ] 1.6 mediaDevices is enforced by the scan only (test-plan #E15).
+- [x] 1.6 mediaDevices is enforced by the scan only (test-plan #E15).
   - Input: in-memory fixture path `packages/<fixture>/src/client/Mic.tsx` containing `navigator.mediaDevices.getUserMedia({audio:true})`.
   - Trigger: matcher plus root-membership check.
   - Observable: flagged as an offender unless allowlisted.
 
   Exemplar: `secure-context-scan.test.ts`. Verify with the same command.
-- [ ] 1.7 Red on the real tree (test-plan #E13).
+- [x] 1.7 Red on the real tree (test-plan #E13).
   - Input: repo after 1.1–1.6.
   - Trigger: run the scan.
   - Observable: FAILS with exactly 2 offenders, `gmail-plugin/src/client/GmailSettings.tsx` and `kb-plugin/src/client/KbTestSearch.tsx`.
@@ -48,7 +48,7 @@
 
 ## 2. Hoist helpers into the plugin runtime (D1)
 
-- [ ] 2.1 Runtime helper tests, red first. Create `packages/dashboard-plugin-runtime/src/__tests__/secure-context.test.ts`. Harness exemplar: `packages/dashboard-plugin-runtime/src/__tests__/oauth-flow-client.test.ts`; for the copy fallback, `packages/client/src/components/__tests__/CopyButton.test.tsx`. Stub `document.execCommand` explicitly. Cases:
+- [x] 2.1 Runtime helper tests, red first. Create `packages/dashboard-plugin-runtime/src/__tests__/secure-context.test.ts`. Harness exemplar: `packages/dashboard-plugin-runtime/src/__tests__/oauth-flow-client.test.ts`; for the copy fallback, `packages/client/src/components/__tests__/CopyButton.test.tsx`. Stub `document.execCommand` explicitly. Cases:
   - (test-plan #E1)
     - Input: `crypto.randomUUID` deleted, `getRandomValues` present.
     - Trigger: `randomUuid()` called 1000×.
@@ -79,14 +79,14 @@
     - Observable: `false`, no throw, 0 `<textarea>` left.
 
   Verify the file fails before 2.2: module missing.
-- [ ] 2.2 Add `packages/dashboard-plugin-runtime/src/secure-context.ts` with `randomUuid()` and `copyText()`, bodies moved verbatim from `packages/client/src/lib/util/{random-uuid,clipboard}.ts`. Re-export both from `packages/dashboard-plugin-runtime/src/index.ts`. Verify `npx vitest run packages/dashboard-plugin-runtime/src/__tests__/secure-context.test.ts` is green and `npm run lint` passes.
-- [ ] 2.3 Re-export equivalence (test-plan #E8).
+- [x] 2.2 Add `packages/dashboard-plugin-runtime/src/secure-context.ts` with `randomUuid()` and `copyText()`, bodies moved verbatim from `packages/client/src/lib/util/{random-uuid,clipboard}.ts`. Re-export both from `packages/dashboard-plugin-runtime/src/index.ts`. Verify `npx vitest run packages/dashboard-plugin-runtime/src/__tests__/secure-context.test.ts` is green and `npm run lint` passes.
+- [x] 2.3 Re-export equivalence (test-plan #E8).
   - Input: `packages/client/src/lib/util/random-uuid.ts` and `clipboard.ts` turned into re-exports from `@blackbelt-technology/dashboard-plugin-runtime`.
   - Trigger: import `randomUuid` and `copyText` from the client paths and from the runtime barrel.
   - Observable: the client exports are `===` the runtime exports.
 
   Add the case to `packages/client/src/lib/util/__tests__/random-uuid.test.ts` (exemplar: that file). Leave its existing E29 spawn-dispatch cases in place. Verify `npm run lint` passes and `npx vitest run packages/client/src/lib/util packages/client/src/components/__tests__/ToolsSection.install-dropdown.test.tsx packages/client/src/components/Gateway/__tests__/GatewayPairQR.test.tsx` is green.
-- [ ] 2.4 Allowlist integrity (test-plan #E14).
+- [x] 2.4 Allowlist integrity (test-plan #E14).
   - Input: the allowlist adds `dashboard-plugin-runtime/src/secure-context.ts` and removes the two client util entries.
   - Trigger: run the scan.
   - Observable: every entry exists on disk, and the two client util paths give 0 hits.
@@ -95,7 +95,7 @@
 
 ## 3. Fix plugin Copy actions (D2)
 
-- [ ] 3.1 kb copy tests, red first, in `packages/kb-plugin/src/client/__tests__/KbSourcesSearch.test.tsx` (exemplar: its `describe("KbTestSearch")` block, `:344`). Cases:
+- [x] 3.1 kb copy tests, red first, in `packages/kb-plugin/src/client/__tests__/KbSourcesSearch.test.tsx` (exemplar: its `describe("KbTestSearch")` block, `:344`). Cases:
   - (test-plan #F1)
     - Input: one hit `docs/a.md`, clipboard undefined, `execCommand` → `false`.
     - Trigger: click Copy.
@@ -118,13 +118,13 @@
     - Observable: no unhandled rejection, and `kb-search-copy-failed` shown.
 
   Verify the new cases fail before 3.2.
-- [ ] 3.2 `packages/kb-plugin/src/client/KbTestSearch.tsx`:
+- [x] 3.2 `packages/kb-plugin/src/client/KbTestSearch.tsx`:
   - `copy` awaits `copyText(path)`, with a latest-click-wins request counter.
   - `copied` is set only on `true`; otherwise show `data-testid="kb-search-copy-failed"` with `aria-live="polite"` and key `copyFailed`.
   - Add `copyFailed` to the `zh-CN` and `hu` maps in `packages/kb-plugin/src/i18n.ts` (English via the `t()` default arg).
 
   Verify `npx vitest run packages/kb-plugin` is green.
-- [ ] 3.3 Gmail copy tests, red first, in `packages/gmail-plugin/src/client/__tests__/panel.test.tsx` (exemplar: that file's existing `GmailSettings` renders). Cases:
+- [x] 3.3 Gmail copy tests, red first, in `packages/gmail-plugin/src/client/__tests__/panel.test.tsx` (exemplar: that file's existing `GmailSettings` renders). Cases:
   - (test-plan #F5)
     - Input: `Copyable` value `gcloud ...`, clipboard undefined, `execCommand` → `false`.
     - Trigger: click Copy.
@@ -139,20 +139,20 @@
     - Observable: final label "Copied", never "Copy failed" after the 2nd settled.
 
   Verify the new cases fail before 3.4.
-- [ ] 3.4 `packages/gmail-plugin/src/client/GmailSettings.tsx`, `Copyable` only:
+- [x] 3.4 `packages/gmail-plugin/src/client/GmailSettings.tsx`, `Copyable` only:
   - Use `copyText(value)` with a latest-click-wins counter.
   - Transient label Copied / Copy failed for 1500 ms in a `role="status"` region.
   - Add `copied` and `copyFailed` to the `zh-CN` and `hu` maps in `packages/gmail-plugin/src/i18n.ts` (English via the `t()` default arg).
   - If `improve-gmail-plugin-setup-ux` or `add-gmail-auto-setup` lands first, rebase over it. Do not reformat.
 
   Verify `npx vitest run packages/gmail-plugin` is green.
-- [ ] 3.5 i18n parity (test-plan #F8).
+- [x] 3.5 i18n parity (test-plan #F8).
   - Input: the new `copyFailed` (kb, gmail) and `copied` (gmail) keys in `zh-CN` and `hu`.
   - Trigger: run `packages/kb-plugin/src/__tests__/i18n.test.ts` and `packages/gmail-plugin/src/client/__tests__/client-entry.test.tsx`.
   - Observable: both green, and every new zh-CN/hu string non-empty.
 
   Exemplar: those two parity tests; extend them only if they don't already assert the new keys. Verify both files pass.
-- [ ] 3.6 Green on the real tree: re-run the 1.7 check, which turns from red to green.
+- [x] 3.6 Green on the real tree: re-run the 1.7 check, which turns from red to green.
   - Input: repo after 3.2 and 3.4.
   - Trigger: run the scan.
   - Observable: 0 offenders.
@@ -161,7 +161,7 @@
 
 ## 4. Docs + closeout
 
-- [ ] 4.1 Update DOX rows with `See change: audit-plugin-bundles-non-secure-context`:
+- [x] 4.1 Update DOX rows with `See change: audit-plugin-bundles-non-secure-context`:
   - `packages/dashboard-plugin-runtime/src/AGENTS.md` (`secure-context.ts` and its test);
   - `packages/client/src/lib/util/AGENTS.md` (`random-uuid.ts` and `clipboard.ts` are now re-exports);
   - `packages/kb-plugin/src/client/AGENTS.md` (KbTestSearch);
