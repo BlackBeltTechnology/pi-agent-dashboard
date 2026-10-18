@@ -84,11 +84,11 @@ function rawClock(startMs: number) {
   };
 }
 
-function scheduleAutomation(name: string, cron: string): DiscoveredAutomation {
+function scheduleAutomation(name: string, cron: string, base = "/repo"): DiscoveredAutomation {
   return {
     name,
     scope: "folder",
-    dir: `/repo/.pi/automation/${name}`,
+    dir: `${base}/.pi/automation/${name}`,
     valid: true,
     config: {
       on: { kind: "schedule", cron },
@@ -247,8 +247,8 @@ describe("scheduler cron fire", () => {
     });
     sched.armAll([scheduleAutomation("a", "* * * * *")]);
     // Re-arm same key with a new cron before any fire.
-    sched.rearmOne("folder:a", scheduleAutomation("a", "*/2 * * * *"));
-    expect(sched.armedKeys()).toEqual(["folder:a"]);
+    sched.rearmOne("folder:/repo/.pi/automation/a", scheduleAutomation("a", "*/2 * * * *"));
+    expect(sched.armedKeys()).toEqual(["folder:/repo/.pi/automation/a"]);
 
     clock.advanceTo(start + 2.5 * MIN);
     // Only the */2 trigger should have fired (at minute 32), exactly once.
@@ -314,6 +314,107 @@ describe("scheduler cron fire", () => {
     const sched = createScheduler({ registry: reg, onFire: () => {}, now: clock.now, setTimer: clock.setTimer });
     const invalid: DiscoveredAutomation = { name: "bad", scope: "folder", dir: "/x", valid: false, error: "boom" };
     sched.armAll([invalid, scheduleAutomation("good", "* * * * *")]);
-    expect(sched.armedKeys()).toEqual(["folder:good"]);
+    expect(sched.armedKeys()).toEqual(["folder:/repo/.pi/automation/good"]);
+  });
+});
+
+/**
+ * Same-named automations in different directories are independent units.
+ * See change: fix-automation-key-collision.
+ */
+describe("scheduler identity: scope + discovered path", () => {
+  const MIN_ = 60_000;
+  function setup() {
+    const reg = new TriggerRegistry();
+    reg.register(scheduleTrigger);
+    const start = new Date(2026, 5, 19, 10, 30, 0).getTime();
+    const clock = fakeClock(start);
+    const fires: string[] = [];
+    const sched = createScheduler({
+      registry: reg,
+      onFire: (a) => fires.push(a.dir),
+      now: clock.now,
+      setTimer: clock.setTimer,
+    });
+    const count = (dir: string) => fires.filter((d) => d === dir).length;
+    return { start, clock, fires, sched, count };
+  }
+  const X = "/x/.pi/automation/deploy";
+  const Y = "/y/.pi/automation/deploy";
+
+  it("E1: same-named automations in different directories are both scheduled", () => {
+    const { start, clock, sched, count } = setup();
+    sched.armAll([scheduleAutomation("deploy", "*/2 * * * *", "/x"), scheduleAutomation("deploy", "*/3 * * * *", "/y")]);
+    expect(sched.armedKeys()).toHaveLength(2);
+    clock.advanceTo(start + 6 * MIN_);
+    expect(count(X)).toBe(3);
+    expect(count(Y)).toBe(2);
+  });
+
+  it("E2: removing one same-named automation leaves the other running", () => {
+    const { start, clock, sched, count } = setup();
+    sched.armAll([scheduleAutomation("deploy", "*/2 * * * *", "/x"), scheduleAutomation("deploy", "*/2 * * * *", "/y")]);
+    sched.armAll([scheduleAutomation("deploy", "*/2 * * * *", "/y")]);
+    expect(sched.armedKeys()).toEqual([`folder:${Y}`]);
+    clock.advanceTo(start + 4 * MIN_);
+    expect(count(X)).toBe(0);
+    expect(count(Y)).toBe(2);
+  });
+
+  it("E3: a definition presented twice at one path is armed once", () => {
+    const { start, clock, sched, count } = setup();
+    const a = scheduleAutomation("deploy", "*/2 * * * *", "/x");
+    sched.armAll([a, a]);
+    expect(sched.armedKeys()).toEqual([`folder:${X}`]);
+    clock.advanceTo(start + 2 * MIN_);
+    expect(count(X)).toBe(1);
+  });
+
+  it("E4: no trigger survives disposal (leaked-timer defect)", () => {
+    const { start, clock, sched, fires } = setup();
+    const x = scheduleAutomation("deploy", "*/2 * * * *", "/x");
+    sched.armAll([x, x, scheduleAutomation("deploy", "*/2 * * * *", "/y")]);
+    sched.disposeAll();
+    expect(sched.armedKeys()).toEqual([]);
+    clock.advanceTo(start + 10 * MIN_);
+    expect(fires).toHaveLength(0);
+  });
+
+  it("E8: edit re-arms cleanly under the new key", () => {
+    const { start, clock, sched, count } = setup();
+    sched.armAll([scheduleAutomation("deploy", "*/2 * * * *", "/x"), scheduleAutomation("deploy", "*/5 * * * *", "/y")]);
+    sched.armAll([scheduleAutomation("deploy", "*/3 * * * *", "/x"), scheduleAutomation("deploy", "*/5 * * * *", "/y")]);
+    clock.advanceTo(start + 6 * MIN_);
+    expect(count(X)).toBe(2); // 10:33, 10:36 — none on the old */2 boundaries
+    expect(count(Y)).toBe(1); // 10:35
+  });
+
+  it("E9: directory rename disposes the old identity", () => {
+    const { start, clock, sched, count } = setup();
+    sched.armAll([scheduleAutomation("deploy", "*/2 * * * *", "/x")]);
+    sched.armAll([scheduleAutomation("deploy-v2", "*/2 * * * *", "/x")]);
+    expect(sched.armedKeys()).toEqual(["folder:/x/.pi/automation/deploy-v2"]);
+    clock.advanceTo(start + 4 * MIN_);
+    expect(count(X)).toBe(0);
+    expect(count("/x/.pi/automation/deploy-v2")).toBe(2);
+  });
+
+  it("X2: deleting a definition leaves its same-named sibling firing", () => {
+    const { start, clock, sched, count } = setup();
+    sched.armAll([scheduleAutomation("deploy", "*/2 * * * *", "/x"), scheduleAutomation("deploy", "*/2 * * * *", "/y")]);
+    clock.advanceTo(start + 2 * MIN_);
+    sched.armAll([scheduleAutomation("deploy", "*/2 * * * *", "/y")]);
+    clock.advanceTo(start + 6 * MIN_);
+    expect(count(X)).toBe(1); // only the pre-removal fire
+    expect(count(Y)).toBe(3);
+  });
+
+  it("X3: re-arm by caller-supplied key leaves no stale trigger", () => {
+    const { start, clock, sched, count } = setup();
+    sched.armAll([scheduleAutomation("deploy", "*/2 * * * *", "/x")]);
+    sched.rearmOne(`folder:${X}`, scheduleAutomation("deploy", "*/3 * * * *", "/x"));
+    expect(sched.armedKeys()).toEqual([`folder:${X}`]);
+    clock.advanceTo(start + 6 * MIN_);
+    expect(count(X)).toBe(2); // */3 only (10:33, 10:36); the */2 trigger is gone
   });
 });
