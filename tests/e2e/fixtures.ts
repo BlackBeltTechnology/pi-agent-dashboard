@@ -558,8 +558,11 @@ export const test = base.extend<{ reapSessions: void }, { trustBaselineAtWorkerS
       const { pre, preOk } = await takePreSnapshot(baselineFile);
 
       testBodyActive = true;
-      await use();
-      testBodyActive = false;
+      try {
+        await use();
+      } finally {
+        testBodyActive = false;
+      }
 
       // ---- RESTORE, then TRIPWIRE (sequential: no teardown-order assumption)
       const isolationFailures = await restoreAndTripwire(baselineFile, preTrust, testInfo.file);

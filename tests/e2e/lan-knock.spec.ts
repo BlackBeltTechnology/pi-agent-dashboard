@@ -50,13 +50,13 @@ const LAN_HOST = "127.0.0.1";
 const LAN_BASE = `http://${LAN_HOST}:${DASHBOARD_PORT}`;
 const NOBODY = ["198.51.100.0/24"]; // TEST-NET-2: matches no peer
 
-async function putConfig(request: APIRequestContext, partial: Record<string, unknown>): Promise<void> {
-  const res = await request.put("/api/config", { data: partial, headers: operatorHeaders() });
-  expect(res.ok(), await res.text()).toBe(true);
-}
-
 async function setAccept(request: APIRequestContext, on: boolean): Promise<void> {
-  await putConfig(request, { pairing: { acceptLanRequests: on } });
+  // Only the non-trust `pairing` key: trust-bearing keys go through `narrowTrust`.
+  const res = await request.put("/api/config", {
+    data: { pairing: { acceptLanRequests: on } },
+    headers: operatorHeaders(),
+  });
+  expect(res.ok(), await res.text()).toBe(true);
 }
 
 async function pendingIds(request: APIRequestContext): Promise<string[]> {
