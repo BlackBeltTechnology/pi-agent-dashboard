@@ -1,0 +1,80 @@
+/* Board chrome + the parts both columns share (settings shell, ToggleField).
+   Tokens only (tokens.css). As-built replica: asbuilt.css. Proposed recipes: schema.css. */
+
+* { box-sizing: border-box; }
+html { background: var(--bg-primary); color: var(--text-primary); }
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px; line-height: 1.45;
+}
+code, .mono { font-family: "SF Mono", Menlo, Monaco, Consolas, monospace; }
+svg.i { width: 1em; height: 1em; fill: currentColor; flex: none; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+button:disabled, [aria-disabled="true"] { cursor: not-allowed; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.focus-ring:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: inherit; }
+
+/* ── board chrome ─────────────────────────────────────────── */
+.toolbar {
+  position: sticky; top: 0; z-index: 40;
+  display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
+  padding: 8px 16px; background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-secondary);
+}
+.toolbar h1 { font-size: 14px; margin: 0 12px 0 0; }
+.seg { display: inline-flex; border: 1px solid var(--border-secondary); border-radius: 6px; overflow: hidden; }
+.seg button { padding: 4px 10px; font-size: 12px; color: var(--text-secondary); }
+.seg button[aria-pressed="true"] { background: var(--tint-blue-bg); color: var(--tint-blue-fg); }
+.seg button + button { border-left: 1px solid var(--border-secondary); }
+.seg button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.seg-label { font-size: 12px; color: var(--text-secondary); }
+.toolbar nav { margin-left: auto; display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.toolbar nav a { font-size: 12px; color: var(--link); }
+.toolbar nav a:hover { color: var(--link-hover); }
+main { padding: 16px; }
+.surface { margin: 0 0 32px; }
+.surface > h2 { font-size: 16px; margin: 0 0 4px; }
+.surface > p.verdict { margin: 0 0 12px; font-size: 12px; color: var(--text-secondary); }
+.state { margin: 0 0 16px; border: 1px solid var(--border-secondary); border-radius: 12px; overflow: hidden; }
+.state > header {
+  display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; padding: 6px 12px;
+  background: var(--bg-secondary); border-bottom: 1px solid var(--border-secondary); font-size: 12px;
+}
+.state > header code { color: var(--text-primary); font-weight: 600; }
+.state > header .finds { color: var(--text-secondary); }
+.state > .note { margin: 0; padding: 6px 12px; font-size: 12px; color: var(--text-secondary); border-top: 1px solid var(--border-secondary); background: var(--bg-secondary); }
+.pair { display: grid; gap: 0; grid-template-columns: 1fr 1fr; }
+body[data-view="asbuilt"] .pair, body[data-view="proposed"] .pair { grid-template-columns: 1fr; }
+body[data-view="asbuilt"] .col.proposed, body[data-view="proposed"] .col.asbuilt { display: none; }
+.col { padding: 12px; min-width: 0; }
+.col + .col { border-left: 1px solid var(--border-secondary); }
+.col > .tag { font-size: 11px; font-weight: 600; color: var(--text-secondary); margin: 0 0 8px; }
+.frame { width: var(--frame-w, 100%); max-width: 100%; background: var(--bg-primary); padding: 12px; border-radius: 8px; border: 1px dashed var(--border-secondary); }
+.col.proposed .frame { container-type: inline-size; container-name: frame; }
+
+/* shared: sidebar folder row that hosts the chip (not under review) */
+.fold { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border-subtle); background: var(--bg-tertiary); }
+.fold .fn { font-size: 12px; font-weight: 600; color: var(--text-primary); }
+.fold .fp { font-size: 11px; color: var(--text-secondary); word-break: break-all; }
+.fold-list > * + * { margin-top: 8px; }
+
+/* ── shared: settings shell + ToggleField (dashboard-plugin-runtime, unchanged) ── */
+.tf { display: block; }
+.tf-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; column-gap: 12px; row-gap: 4px; }
+.tf-label { font-size: 12px; line-height: 1.333; font-weight: 600; color: var(--text-primary); }
+.tf-hint { margin: 4px 0 0; font-size: 12px; line-height: 1.333; color: var(--text-secondary); }
+.tf-switch {
+  position: relative; height: 22px; width: 40px; flex: none; border-radius: 999px; border: 1px solid var(--border-strong); background: var(--bg-tertiary);
+}
+.tf-switch[aria-checked="true"] { border-color: var(--accent-solid); background: var(--accent-solid); }
+.tf-switch::after { content: ""; position: absolute; left: 2px; top: 2px; height: 16px; width: 16px; border-radius: 999px; background: var(--text-secondary); }
+.tf-switch[aria-checked="true"]::after { transform: translateX(18px); background: #fff; }
+.spin { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
+
+@media (max-width: 900px) {
+  .pair { grid-template-columns: 1fr; }
+  .col + .col { border-left: 0; border-top: 1px solid var(--border-secondary); }
+}
