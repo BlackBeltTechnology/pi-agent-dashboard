@@ -196,6 +196,10 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Fixed
 
+- **Discord invite points at the community server.** The invite link (README, site, sidebar
+  button, release docs) pointed at a personal server with an expiring invite; it now uses the
+  permanent Pi Dashboard invite `discord.gg/DrNebZ3pF5`.
+
 - **Same-named automations in different workspaces are now scheduled independently.** Two repos that each defined an automation with the same name (for example `deploy`) shared one scheduler and concurrency slot: one could leak a timer that could never be disposed, and one could be silently dropped while the other was running. Each automation is now identified by its scope and its own directory. An automation that was previously suppressed by an unrelated same-named one may now start running on its schedule — that is the fix taking effect, not a new automation appearing.
 - **Global automations no longer run twice per occurrence.** While a session (including the automation's own run) is open in the home directory, `~/.pi/automation` was also armed as a folder scope. It is now scanned, armed and listed once, under `global`.
 - **kb index no longer silently empties, erodes or conflates.** The docs index is installed with a
@@ -463,7 +467,7 @@ see [`docs/release-process.md`](docs/release-process.md).
   `DISCORD_RELEASE_WEBHOOK` repo secret. Prereleases are skipped, an unset
   secret skips cleanly, mentions are suppressed, and a webhook failure never
   fails the release. The community invite link moves to
-  `discord.gg/uQsJgsejb` (README, site, sidebar button).
+  `discord.gg/DrNebZ3pF5` (README, site, sidebar button).
 
 - **Radius sign-in.** Radius (Earendil's AI gateway) is now listed on the
   providers page (Account badge) and signs in through the usual
