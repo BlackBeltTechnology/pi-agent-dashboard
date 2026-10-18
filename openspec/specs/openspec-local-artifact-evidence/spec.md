@@ -8,7 +8,7 @@ Reconcile the OpenSpec CLI/mtime-gated artifact status with filesystem reality f
 
 ### Requirement: Promote-only reconciliation
 
-The system SHALL only promote an artifact's status upward from `ready` to `done` based on local evidence, and SHALL NOT demote, downgrade, or otherwise change any artifact the CLI already reports.
+The system SHALL only promote an artifact's status upward from `ready` to `done` based on local evidence, and SHALL NOT demote, downgrade, or otherwise change any artifact the CLI already reports. For the `design` artifact the reconciliation itself SHALL be skipped (evidence not evaluated) when the change's `schemaName` is `pi-spec-driven`.
 
 #### Scenario: CLI already satisfied
 
@@ -37,6 +37,8 @@ The system SHALL only promote an artifact's status upward from `ready` to `done`
 ### Requirement: Design-artifact local evidence
 
 The system SHALL treat the `design` artifact as satisfied locally when any one of three ordered, short-circuiting rules matches inside the change folder: (R1) a file matching `^design.*\.md$` exists, (R2) a `design/` subdirectory exists containing at least one `*.md` file, or (R3) `tasks.md` exists and contains at least one Markdown checkbox matching `^\s*-\s+\[[ xX]\]\s`.
+
+The design evidence SHALL NOT be evaluated for changes whose `schemaName` is `pi-spec-driven`: that schema declares a skipped design explicitly (`design.md` containing `Not needed: <reason>`), so their `design` status SHALL be the CLI verdict. Every other schema keeps the rules.
 
 #### Scenario: Split design files (R1)
 
@@ -68,6 +70,12 @@ The system SHALL treat the `design` artifact as satisfied locally when any one o
 
 - **WHEN** the change folder has no matching design file, no design subdirectory with markdown, and no `tasks.md` with a checkbox
 - **THEN** the design evidence evaluates not satisfied
+
+#### Scenario: Evidence ignored for the workflow schema
+
+- **WHEN** a change on `pi-spec-driven` has no `design.md` but its `tasks.md` contains checkboxes
+- **THEN** no rule SHALL be evaluated for `design`
+- **AND** `design` SHALL keep the CLI-reported status
 
 ### Requirement: Specs-artifact local evidence
 
