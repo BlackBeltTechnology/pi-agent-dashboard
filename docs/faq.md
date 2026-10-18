@@ -3848,6 +3848,138 @@ Cross-refs:
 - docs/architecture.md → mDNS Server Discovery → Dashboard-owned names
 - packages/server/src/auth/identity.ts
 
+## How do I run the team / identity-matrix E2E specs locally, and where do they run in CI?
+
+`playwright.config.ts` `testIgnore` excludes `tests/e2e/team/**` + `tests/e2e/identity-matrix/**`. Bare `npx playwright test` collects 0 of them. Config-owned.
+
+Local:
+
+- Team: `npm run test:e2e:team`. `pretest` builds team app via `npm run build:app --workspace=@blackbelt-technology/pi-dashboard-team-plugin`. Needs real `pi` CLI on PATH.
+- Identity matrix: `npm run build && npm run test:e2e:identity-matrix`.
+
+CI (`.github/workflows/ci-e2e-browser.yml`):
+
+- Job `e2e-team` → config `playwright.team.config.ts`.
+- Job `e2e-identity-matrix` → config `playwright.identity-matrix.config.ts`.
+- Both use shard matrix `if:` label gate: `e2e-browser` label on PR, always on `workflow_dispatch`.
+- Both `continue-on-error: ${{ github.event_name == 'pull_request' }}`.
+- Both install `pi` pinned to exact version in `docker/Dockerfile` (single source of truth; lint-checked).
+
+Skip reasons in 5 `pi`-gated specs name the leg, not issue #861.
+
+Identity-matrix `browser-login` / `security` / `setup-matrix` need `test-results/identity-matrix/state.json`. Only identity config `globalSetup` writes it. Specs moved with directory → were red in shards before.
+
+See change: add-missing-ci-legs.
+
+Cross-refs:
+- playwright.config.ts
+- .github/workflows/ci-e2e-browser.yml
+- packages/shared/src/__tests__/e2e-browser-workflow-contract.test.ts
+
+## Where are the browser-E2E CI legs and their HTML report artifacts?
+
+`ci-e2e-browser.yml` jobs:
+
+- `e2e` — 18 shards, uploads `blob-report-<n>`.
+- `e2e-browser-relay` — uploads `blob-report-relay`.
+- `e2e-team`, `e2e-identity-matrix` — variant legs.
+- `merge-report` — `needs: [e2e, e2e-browser-relay]`. Joins `blob-report-*` → artifact `playwright-report`.
+
+Variant legs do NOT join merge:
+
+- Run `--reporter=list,html`.
+- Upload own artifact: `playwright-report-team`, `playwright-report-identity-matrix`. `if: always()`.
+- Names deliberately outside `blob-report-*` pattern and distinct from `playwright-report`.
+- Red variant leg cannot break `merge-report`.
+
+Electron legs in `ci-e2e-electron.yml`:
+
+- PR → ubuntu + windows.
+- `workflow_dispatch` → ubuntu + windows + macOS.
+- Nightly `schedule` → macOS only. Every other job skipped on schedule.
+- macOS opt-in for PR: `gh workflow run ci-e2e-electron.yml --ref <branch>`.
+- No `labeled` trigger: label event cancels in-flight run via concurrency group.
+- macOS leg: advisory, arm64, 10x billing.
+- While #531 quarantine stands: zombie-adoption spec (`test.fixme(process.platform === "darwin", …/issues/531)`) NOT covered on macOS.
+
+See change: add-missing-ci-legs.
+
+Cross-refs:
+- .github/workflows/ci-e2e-browser.yml
+- .github/workflows/ci-e2e-electron.yml
+
+## The site did not deploy after a `site/**` push — what backstops it?
+
+`deploy-site.yml` push filter = fast path only. GitHub produced zero runs for some pushes (#579, ≥3 times: `d773f20a5`, 2026-05-26, 2026-05-30).
+
+Backstop: `.github/workflows/site-drift-check.yml`. Daily cron + `workflow_dispatch`.
+
+- `deploy-site.yml` build writes `site/dist/deploy-sha.txt` = `${{ github.sha }}` before upload.
+- Check runs `node scripts/site-drift-decision.mjs --ref origin/develop`.
+- Fetch `https://pi-dashboard.dev/deploy-sha.txt?ts=<epoch>`.
+- `LAST` = last commit on develop touching push-filter path set: `site/` minus `site/design-scratch/`, `packages/shell/`, `.github/workflows/deploy-site.yml`.
+- Up to date iff `git merge-base --is-ancestor LAST <deployed-sha>`.
+- Marker missing / unknown / not-a-SHA → stale.
+- Stale → `::warning::` + `gh workflow run deploy-site.yml --ref develop`.
+- Deploy run queued/in progress → `::notice::`, skip. Dispatch would cancel it via `pages-deploy` `cancel-in-progress`.
+- `gh run list` fails → `::notice::`, no dispatch, exit 0.
+- Dispatch rejected → `::error::`, job red.
+- Check job perms exactly `contents: read` + `actions: write`. No cache. Outside `pages-deploy` group.
+
+`deploy-site.yml` build/deploy skip unless `github.ref == 'refs/heads/develop'`. Feature-branch dispatch publishes nothing.
+
+Manual fast path after hand-published release stays: dispatch `sync-release-version`, then `deploy-site`.
+
+See change: add-missing-ci-legs.
+
+Cross-refs:
+- .github/workflows/deploy-site.yml
+- .github/workflows/site-drift-check.yml
+- scripts/site-drift-decision.mjs
+
+## Harness container vanished mid-run — who destroyed it, and what must I never run?
+
+Recorder: `docker/test-up.sh` starts `docker/harness-audit.sh <file> <project>` before `compose up`.
+
+- Events log: `${TMPDIR:-/tmp}/pi-dash-test/<project>.events.log`. Outside worktree → survives ship-it worktree removal. Subject to OS temp retention.
+- State file `.pi-test-harness.json` gains `recorderPid`, `eventsFile`, `containerId`.
+
+Teardown: `docker/test-down.sh`:
+
+- Appends `teardown-begin <ts> <project> <id>` before `compose down`.
+- Waits ≤10 s for that container's `destroy` line.
+- Stops recorder. Prints events path.
+
+Foreign destroy = `destroy` line for this boot's container id with no earlier `teardown-begin` for same id. Match by container id, never project (project name stable across boots).
+
+Playwright:
+
+- Managed mode: HARNESS DOWN message says `foreign actor` + quotes the `destroy` line.
+- Attach mode (`PW_E2E_USE_RUNNING=1`): cause undetermined. Message points at events dir.
+
+Recorder best-effort. Unusable `docker events` or unwritable dir → one stderr line: `harness-audit: lifecycle capture unavailable (<reason>); continuing`.
+Self-exits ≤ one 30 s poll after container gone. 12 h hard cap.
+Local only. CI runner has private daemon.
+
+FORBIDDEN while any harness is up. Never run:
+
+```bash
+docker ps -aq --filter 'name=pi-dash-test' | xargs -r docker rm -f
+docker container prune -f
+```
+
+First prefix-matches every worktree's harness. Second is daemon-wide.
+
+Supported teardown: `docker/test-down.sh` from owning worktree (scoped to its own compose project).
+
+See change: add-missing-ci-legs.
+
+Cross-refs:
+- docker/TESTING.md
+- docker/harness-audit.sh
+- docker/test-up.sh
+- docker/test-down.sh
+
 ## How do I approve a pending device pairing request?
 
 Dialog Approve fails (401) when tab lacks `pi_dash_local` proof cookie. Terminal path: `pi-dashboard pair` on the host. Uses local token, mints `X-Pi-Local-Proof` per request. Never creates token file. No new trust: same token file as `pi-dashboard open`.

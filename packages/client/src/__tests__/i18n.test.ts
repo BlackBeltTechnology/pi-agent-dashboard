@@ -337,3 +337,53 @@ describe("retro-ux-credential-vault — vault.* catalogue coverage (E27)", () =>
     expect(missing).toEqual({ en: [], zh: [], hu: [] });
   });
 });
+
+// See change: add-md-adoc-markup-repair (test-plan F11)
+describe("add-md-adoc-markup-repair — i18n sweep (F11)", () => {
+  const root = (() => {
+    const marker = join("src", "lib", "i18n", "i18n.tsx");
+    let dir = process.cwd();
+    for (let i = 0; i < 8; i++) {
+      if (existsSync(join(dir, marker))) return dir;
+      if (existsSync(join(dir, "packages", "client", marker))) return join(dir, "packages", "client");
+      const up = dirname(dir);
+      if (up === dir) break;
+      dir = up;
+    }
+    return process.cwd();
+  })();
+  const zh = readFileSync(join(root, "src/lib/i18n/i18n-zh-CN.ts"), "utf8");
+  const hu = readFileSync(join(root, "src/lib/i18n/i18n-hu.ts"), "utf8");
+  const component = readFileSync(join(root, "src/components/preview/MarkupRepairBanner.tsx"), "utf8");
+
+  const KEYS = [
+    "title",
+    "repair.A1",
+    "repair.A2",
+    "repair.M2",
+    "repair.M3",
+    "viewOriginal",
+    "apply",
+    "applyReading",
+    "applyDirtyHint",
+    "changed",
+    "reload",
+    "applyError",
+    "dialogTitle",
+    "dialogBody",
+    "diagramBlocked",
+  ].map((k) => `markupRepair.${k}`);
+
+  it("every markupRepair.* key is in both catalogues", () => {
+    for (const key of KEYS) {
+      expect(zh, `zh-CN: ${key}`).toContain(`"${key}":`);
+      expect(hu, `hu: ${key}`).toContain(`"${key}":`);
+    }
+  });
+
+  it("every markupRepair.* key the banner uses is covered by the list above", () => {
+    const used = [...component.matchAll(/"(markupRepair\.[\w.]+)"/g)].map((m) => m[1]);
+    expect(used.length).toBeGreaterThan(0);
+    for (const key of used) expect(KEYS, key).toContain(key);
+  });
+});

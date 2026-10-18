@@ -19,13 +19,13 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/codeql-local-cli.test.mjs` | `codeql-local.mjs` end to end against a fake `CODEQL_BIN` + temp git repos (test-plan #E2-#E13, #E16, #E23, #E25-#E29, #P1, #X1-#X5); `baseline binding` block: `baselineHash` refusal/re-bind (#E1-#E12, #X1). See change: add-local-codeql-ratchet, harden-codeql-ratchet-followups. |
 | `__tests__/codeql-local-real.test.mjs` | `codeql-local.mjs` against the REAL CodeQL CLI on tiny repos (#E4, #E18, #X6). `describe.skipIf` no `codeql` / uncached packs; uses the real HOME for the pack cache. See change: add-local-codeql-ratchet. |
 | `__tests__/codeql-local.test.mjs` | Pure decision logic of `codeql-local.mjs` (#E14, #E15, #E17, #E19-#E22, #E24, #E29 writer, #P1). See change: add-local-codeql-ratchet. |
-| `__tests__/coverage-config.test.mjs` | Coverage config shape; `coverage-unloaded` fixture stays unloaded (importer lint E29), excluded from root globs (E30), sampled scope pinned (E31). See change: triage-browser-e2e-offbox-poison. |
-| `__tests__/coverage-report.test.mjs` | Live coverage runs. E2 now SCOPED to `fixtures/coverage-unloaded` (unloaded file reported 0%; `SCOPED_RUN_TIMEOUT_MS` ≥ 1.5× recorded measurement). See change: triage-browser-e2e-offbox-poison. |
+| `__tests__/coverage-config.test.mjs` | Coverage config shape; `coverage-unloaded` fixture stays unloaded (E29-E31). See change: triage-browser-e2e-offbox-poison. |
+| `__tests__/coverage-report.test.mjs` | Live coverage runs; E2 scoped to `fixtures/coverage-unloaded`. See change: triage-browser-e2e-offbox-poison. |
 | `__tests__/client-isolate-gate.test.mjs` | Client isolate gate. |
-| `__tests__/e2e-fixture-import.test.mjs` | Guard tests for `check-e2e-fixture-import.mjs`: fixture-import decision table (E6/E7) + trust-write lint decision table and mutation check (E21/E22). See change: triage-browser-e2e-offbox-poison. |
-| `__tests__/e2e-reap-core.test.mjs` | L1 for `tests/e2e/reap-core.ts`: delta/settle/latch/budget + refusal verdict, `compareTrust`, baseline/worker-start/pre-read decisions, restore payload (E8-E18, X5-X16). See change: triage-browser-e2e-offbox-poison. |
-| `__tests__/e2e-trust-seed.test.mjs` | Runs the `docker/test-entrypoint.sh` config-seed `node -e` program verbatim: `PI_E2E_TRUSTED_NETWORKS` parsing (E23) + seed gating (E24/E25). See change: triage-browser-e2e-offbox-poison. |
-| `__tests__/fixtures/coverage-unloaded/` | Fixture project: one source file NO test imports (`src/unloaded.ts`) + green no-op test + `vitest.config.mjs` pinning `coverage.include` to it (scoped E2). See change: triage-browser-e2e-offbox-poison. |
+| `__tests__/e2e-fixture-import.test.mjs` | Guard tests for `check-e2e-fixture-import.mjs` (E6/E7, trust-write lint E21/E22). See change: triage-browser-e2e-offbox-poison. |
+| `__tests__/e2e-reap-core.test.mjs` | L1 for `tests/e2e/reap-core.ts` (reap, refusal verdict, trust isolation E8-E18, X5-X16). See change: triage-browser-e2e-offbox-poison. |
+| `__tests__/e2e-trust-seed.test.mjs` | Runs the `test-entrypoint.sh` config-seed program verbatim (E23-E25). See change: triage-browser-e2e-offbox-poison. |
+| `__tests__/fixtures/coverage-unloaded/` | Fixture: one source file no test imports + no-op test + pinned config (scoped E2). See change: triage-browser-e2e-offbox-poison. |
 | `__tests__/dependency-declarations.test.mjs` | Set-based manifest guarantees over ALL 32 non-private workspaces (not a sample). → see `__tests__/dependency-declarations.test.mjs.AGENTS.md` |
 | `__tests__/fixtures/codeql-harness.mjs` | Test harness for `codeql-local.mjs`: temp git repos, per-call fake-binary plan, SARIF + baseline builders. See change: add-local-codeql-ratchet. |
 | `__tests__/fixtures/coverage-failing/` | Red coverage fixture. |
@@ -68,6 +68,11 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/sync-served-client.test.mjs` | E15/E16/X3/X4: the `sync-served-client.mjs` outcome table over temp dirs — no-op (dest == source, source must… → see `__tests__/sync-served-client.test.mjs.AGENTS.md` |
 | `__tests__/verify-release-deps-client-build-deps.test.mjs` | Vitest tests for the E7 client build-dep rules in verify-release-deps.mjs. → see `__tests__/verify-release-deps-client-build-deps.test.mjs.AGENTS.md` |
 | `__tests__/theme-token-guard.test.mjs` | Scan/ratchet/bootstrap tests for all three guard arms. → see `__tests__/theme-token-guard.test.mjs.AGENTS.md` |
+| `__tests__/harness-audit-armed.test.mjs` | Armed rule + max lifetime + unscoped mode of project-scoped `docker/harness-audit.sh` (stub docker, injected poll/max). See change: add-missing-ci-legs. |
+| `__tests__/harness-recorder-helpers.mjs` | Shared docker stub + sandbox for the harness recorder tests (not a test file). See change: add-missing-ci-legs. |
+| `__tests__/site-drift-decision.test.mjs` | E21–E23/X7–X9: drift decision table, marker boundaries, LAST path set, fetch/`gh` faults (git fixture repos + stub `curl`/`gh`). See change: add-missing-ci-legs. |
+| `__tests__/test-down-recorder.test.mjs` | `test-down.sh` teardown marker, ≤10 s destroy wait, dead/absent recorder (stub docker). See change: add-missing-ci-legs. |
+| `__tests__/test-up-recorder.test.mjs` | `test-up.sh` lifecycle recorder: state fields, events path, ordering, re-up idempotence, best-effort faults. See change: add-missing-ci-legs. |
 | `__tests__/test-up-oversubscribe-guard.test.mjs` | Vitest tests for the co-resident harness oversubscription guard (change: stabilize-browser-e2e, #451 part 2)… → see `__tests__/test-up-oversubscribe-guard.test.mjs.AGENTS.md` |
 | `__tests__/test-up-port-derivation.test.mjs` | Vitest tests for parallel-worktree test-harness port/project derivation. → see `__tests__/test-up-port-derivation.test.mjs.AGENTS.md` |
 | `_windows-introspection-probe.ts` | Probe child for Windows introspection smoke. Imports real `isVirtualMachine` + `defaultGetCmdline` (relative… → see `_windows-introspection-probe.ts.AGENTS.md` |
@@ -104,6 +109,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `rebuild-and-restart.sh` | Build → verify served client → `pi-dashboard restart` → `npm run reload`. → see `rebuild-and-restart.sh.AGENTS.md` |
 | `rebuild-restart.sh` | Build (+ optional `--check` tsc) → verify served client (`node scripts/sync-served-client.mjs`) →… → see `rebuild-restart.sh.AGENTS.md` |
 | `refresh-vendor.mjs` | Owns the vendored-relay refresh: copy → verify upstream (in memory, before any write) → patch → rehash. → see `refresh-vendor.mjs.AGENTS.md` |
+| `site-drift-decision.mjs` | Decision script of `.github/workflows/site-drift-check.yml`: live `deploy-sha.txt` vs last site-relevant commit on `--ref` (push filter's path set); stale/unknown/missing marker → `::warning::` + `gh workflow run deploy-site.yml --ref develop`; skips (`::notice::`) while a deploy is queued/in progress or `gh run list` fails; exit 1 when the dispatch is rejected. See change: add-missing-ci-legs (#579). |
 | `sync-claude-plugin.mjs` | Derives the control skill's `references/api-reference.md` from the extension skill's (drops the bus-verbs section; fails when the heading is absent). `transformApiReference`, `SECTION_HEADING`. See change: add-claude-code-plugin. |
 | `sync-served-client.mjs` | Resolves the served destination via the SERVER's `resolveStaticClientDir` (jiti) and mirrors the fresh… → see `sync-served-client.mjs.AGENTS.md` |
 | `heap-probe.mjs` | CDP heap probe for a RUNNING dashboard: `SIGUSR1`s the pid (from `--pid` or `/api/health`), attaches to… → see `heap-probe.mjs.AGENTS.md` |

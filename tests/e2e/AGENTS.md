@@ -24,6 +24,7 @@ One row per file.
 | `lazy-islands.spec.ts` | L3 lazy islands → see `lazy-islands.spec.ts.AGENTS.md` |
 | `live-server-downloads.spec.ts` | L3 #F1/#X1 |
 | `local-credential-proof-nat.spec.ts` | L3 #X9: published-port proof. → see `local-credential-proof-nat.spec.ts.AGENTS.md` |
+| `markup-repair.spec.ts` | → see `markup-repair.spec.ts.AGENTS.md` |
 | `model-roles-promotion.spec.ts` | L3 spec. → see `model-roles-promotion.spec.ts.AGENTS.md` |
 | `gmail-plugin.spec.ts` | L3 gmail-plugin vs in-container fake Google: F1–… → see `gmail-plugin.spec.ts.AGENTS.md` |
 | `notify-collapse.spec.ts` | → see `notify-collapse.spec.ts.AGENTS.md` |
@@ -51,7 +52,7 @@ One row per file.
 | `long-session-settle.spec.ts` | L3 test-plan #P4. → see `long-session-settle.spec.ts.AGENTS.md` |
 | `mobile-viewport-bound.spec.ts` | L3 mobile viewport bound (test-plan… → see `mobile-viewport-bound.spec.ts.AGENTS.md` |
 | `bind-reachability-advisory.spec.ts` | L3 bind-vs-trust advisory. → see `bind-reachability-advisory.spec.ts.AGENTS.md` |
-| `blackhole-settings.spec.ts` | L3 spec (change: add-blackhole-plugin). Covers test-plan… → see `blackhole-settings.spec.ts.AGENTS.md` |
+| `blackhole-settings.spec.ts` | → see `blackhole-settings.spec.ts.AGENTS.md` |
 | `blackhole-session-pipeline.spec.ts` | L3 blackhole session pipeline (add… → see `blackhole-session-pipeline.spec.ts.AGENTS.md` |
 | `bridge-contention-health.spec.ts` | L3 contention health surface (test-plan #F6). → see `bridge-contention-health.spec.ts.AGENTS.md` |
 | `browser-relay.spec.ts` | L3 for the browser relay (change: add-browser-relay… → see `browser-relay.spec.ts.AGENTS.md` |
@@ -62,8 +63,8 @@ One row per file.
 | `chat-render-perf.spec.ts` | ADVISORY opt-in perf probe for `re… → see `chat-render-perf.spec.ts.AGENTS.md` |
 | `chat-transcript-virtualization.spec.ts` | L3 gate for virtualize-cha… → see `chat-transcript-virtualization.spec.ts.AGENTS.md` |
 | `compaction-boundary-replay.spec.ts` | L3 for change replay-compaction-bounda… → see `compaction-boundary-replay.spec.ts.AGENTS.md` |
-| `origin-gate.spec.ts` | L3 cross-site gates in browser reality (#F1-#F3): hostile… → see `origin-gate.spec.ts.AGENTS.md` |
-| `csp.spec.ts` | Baseline CSP e2e (§7). Asserts a CSP header (report-only… → see `csp.spec.ts.AGENTS.md` |
+| `origin-gate.spec.ts` | → see `origin-gate.spec.ts.AGENTS.md` |
+| `csp.spec.ts` | → see `csp.spec.ts.AGENTS.md` |
 | `ctx-running-render.spec.ts` | Browser E2E for `fix-ctx-running-render`. Drives… → see `ctx-running-render.spec.ts.AGENTS.md` |
 | `custom-entry-fallback.spec.ts` | L3 (change… → see `custom-entry-fallback.spec.ts.AGENTS.md` |
 | `custom-entry-om-renderer.spec.ts` | L3 (change: add-custom-entry-renderer-… → see `custom-entry-om-renderer.spec.ts.AGENTS.md` |
@@ -121,7 +122,7 @@ One row per file.
 | `lazy-mdi-icon-set.spec.ts` | L3 lazy MDI icon set (P1, F2). → see `lazy-mdi-icon-set.spec.ts.AGENTS.md` |
 | `lifecycle.ts` | Shared E2E lifecycle module. Port dynamic: probes free… → see `lifecycle.ts.AGENTS.md` |
 | `list-models-registry-ready.spec.ts` | L3 `list_models` registry-ready → see `list-models-registry-ready.spec.ts.AGENTS.md` |
-| `manage-worktrees.spec.ts` | L3 for the manage-worktrees surface (test-plan F4, F3, F7… → see `manage-worktrees.spec.ts.AGENTS.md` |
+| `manage-worktrees.spec.ts` | → see `manage-worktrees.spec.ts.AGENTS.md` |
 | `mcp-client-folder-mobile.spec.ts` | L3 mobile folder MCP page → see `mcp-client-folder-mobile.spec.ts.AGENTS.md` |
 | `mcp-client-settings-a11y.spec.ts` | L3 mcp-client settings a11y → see `mcp-client-settings-a11y.spec.ts.AGENTS.md` |
 | `mcp-client-project-override.spec.ts` | L3 F13–F15 → see `mcp-client-project-override.spec.ts.AGENTS.md` |
@@ -184,7 +185,7 @@ One row per file.
 | `remote-transcript-read.spec.ts` | L3 D12 READ half of add-pi-gateway-tra… → see `remote-transcript-read.spec.ts.AGENTS.md` |
 | `replay-delta-on-reload.spec.ts` | Playwright spec. Strategy A: reload of… → see `replay-delta-on-reload.spec.ts.AGENTS.md` |
 | `replay-in-flight-pill.spec.ts` | Playwright spec. → see `replay-in-flight-pill.spec.ts.AGENTS.md` |
-| `replay-truncate.spec.ts` | Playwright spec. Strategy B: full replay in fresh browser… → see `replay-truncate.spec.ts.AGENTS.md` |
+| `replay-truncate.spec.ts` | → see `replay-truncate.spec.ts.AGENTS.md` |
 | `resource-activation-trust.spec.ts` | L3 spec (change: project-scope-disable… → see `resource-activation-trust.spec.ts.AGENTS.md` |
 | `resource-scope-routes.spec.ts` | S-25 scope × path decision table: the 10 resource… → see `resource-scope-routes.spec.ts.AGENTS.md` |
 | `route-backed-overlay.spec.ts` | Route-backed overlay contract: S-12/S-12… → see `route-backed-overlay.spec.ts.AGENTS.md` |
@@ -196,7 +197,7 @@ One row per file.
 | `session-heap-settings.spec.ts` | L3 heap settings copy, save round-trip, coup… → see `session-heap-settings.spec.ts.AGENTS.md` |
 | `session-history-load-state.spec.ts` | Playwright spec. History-load states… → see `session-history-load-state.spec.ts.AGENTS.md` |
 | `session-list-group-by.spec.ts` | L3 Group by is server state. → see `session-list-group-by.spec.ts.AGENTS.md` |
-| `session-reap.spec.ts` | L3 gate on the reap fixture itself, driven headless over… → see `session-reap.spec.ts.AGENTS.md` |
+| `session-reap.spec.ts` | → see `session-reap.spec.ts.AGENTS.md` |
 | `session-spawn.spec.ts` | Scenario spec 5.1, authoritative WS round-trip. Clears… → see `session-spawn.spec.ts.AGENTS.md` |
 | `session-state-honesty.spec.ts` | L3 rendered-honesty gate (change… → see `session-state-honesty.spec.ts.AGENTS.md` |
 | `session-tags.spec.ts` | E2E for change add-session-tags (task 7.… → see `session-tags.spec.ts.AGENTS.md` |
@@ -223,12 +224,12 @@ One row per file.
 | `system-one-settings.spec.ts` | L3 Decision models settings (chang… → see `system-one-settings.spec.ts.AGENTS.md` |
 | `tail-only-loading-head.spec.ts` | L3 for the loading head's TERMINAL state… → see `tail-only-loading-head.spec.ts.AGENTS.md` |
 | `tail-only-scroll-perf.spec.ts` | ADVISORY opt-in scroll-smoothness… → see `tail-only-scroll-perf.spec.ts.AGENTS.md` |
-| `tail-only-settings.spec.ts` | L3 for the `replayWindowMode` control (F14, F15) plus X8. → see `tail-only-settings.spec.ts.AGENTS.md` |
+| `tail-only-settings.spec.ts` | → see `tail-only-settings.spec.ts.AGENTS.md` |
 | `tail-only-splice-anchor.spec.ts` | L3 gate for D7a (F9, F10, F18). Asserts the… → see `tail-only-splice-anchor.spec.ts.AGENTS.md` |
 | `tail-only-trigger-suppression.spec.ts` | L3 for D7's suppression mo… → see `tail-only-trigger-suppression.spec.ts.AGENTS.md` |
 | `table-copy.spec.ts` | Playwright spec (change: fix-table-copy-empty-clipboard… → see `table-copy.spec.ts.AGENTS.md` |
 | `terminal-reload-inprocess.spec.ts` | L3 terminal-hosted (tmux) `/reload`. → see `terminal-reload-inprocess.spec.ts.AGENTS.md` |
-| `terminal-tab.spec.ts` | Terminal-as-tab spec (change: terminals-in-tabbed-panes). → see `terminal-tab.spec.ts.AGENTS.md` |
+| `terminal-tab.spec.ts` | → see `terminal-tab.spec.ts.AGENTS.md` |
 | `terminal.spec.ts` | Scenario 5.4 spec. `ensureGitSession`, c… → see `terminal.spec.ts.AGENTS.md` |
 | `tmux-session-shutdown.spec.ts` | → see `tmux-session-shutdown.spec.ts.AGENTS.md` |
 | `tool-burst.spec.ts` | Playwright spec for temporal burst grouping. Sends… → see `tool-burst.spec.ts.AGENTS.md` |

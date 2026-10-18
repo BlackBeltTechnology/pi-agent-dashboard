@@ -19,6 +19,7 @@
  * See change: add-automation-plugin.
  */
 import os from "node:os";
+import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import type { ActionDescriptor, AutomationConfig, AutomationScope } from "../shared/automation-types.js";
 import { BUILTIN_ACTION_ALIASES } from "../shared/automation-types.js";
@@ -108,6 +109,12 @@ export interface AutomationRouteHooks {
    * `on.source` against the real registry. See change: work-source-seam.
    */
   workSourceIds?: () => ReadonlySet<string>;
+  /**
+   * Whether global-scope scanning is enabled (absent = true). `/list` uses it to
+   * avoid listing the home dir as a folder copy of the global scope.
+   * See change: fix-home-folder-scope-double-arm.
+   */
+  scanGlobalScope?: () => boolean;
 }
 
 export function mountAutomationRoutes(
@@ -192,8 +199,13 @@ export function mountAutomationRoutes(
   fastify.get("/api/plugins/automation/list", async (req) => {
     const q = (req.query ?? {}) as { cwd?: string };
     const { scanAutomations } = await import("./scanner.js");
+    const homeDir = os.homedir();
+    const globalOn = hooks.scanGlobalScope?.() ?? true;
+    // Global is always listed; with global on, a cwd of $HOME would list the same
+    // `~/.pi/automation` again as folder. See change: fix-home-folder-scope-double-arm.
+    const scanFolder = !!q.cwd && !(globalOn && path.resolve(q.cwd) === path.resolve(homeDir));
     const automations = scanAutomations(
-      { repoRoot: q.cwd, homeDir: os.homedir(), scanFolder: !!q.cwd, scanGlobal: true },
+      { repoRoot: q.cwd, homeDir, scanFolder, scanGlobal: true },
       hooks.triggerKinds?.() ?? FALLBACK_KINDS,
       hooks.actionIds?.(),
       hooks.workSourceIds?.(),

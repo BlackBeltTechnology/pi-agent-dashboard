@@ -66,6 +66,7 @@
  * See change: fix-e2e-harness-memory-exhaustion.
  */
 
+import fs from "node:fs";
 import path from "node:path";
 import { BusClient } from "@blackbelt-technology/pi-dashboard-bus-client";
 import type { SessionRemovedMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
@@ -77,8 +78,9 @@ import {
   writeConfig,
   writeRefusalLatch,
 } from "./helpers/trust-access.js";
-import { DASHBOARD_PORT, HEALTH_URL } from "./lifecycle.js";
+import { DASHBOARD_PORT, HEALTH_URL, MARKER_PATH, USE_RUNNING } from "./lifecycle.js";
 import {
+  attributeDestroy,
   buildRestorePayload,
   checkBudget,
   compareTrust,
@@ -110,6 +112,39 @@ export { expect };
 
 /** Module state — see the SINGLE-WORKER DEPENDENCY note above. */
 const latch = createLatch();
+
+/**
+ * #451 part 1: when the latch declares the harness dead, say WHO destroyed the
+ * container if the lifecycle record (docker/test-up.sh) can establish it. Reads
+ * the managed workspace's state file via the run marker; every failure degrades
+ * to "undetermined" — this is the failure path and must never throw.
+ */
+function destroyAttribution(): string {
+  try {
+    let containerId: string | undefined;
+    let eventsFile: string | undefined;
+    if (!USE_RUNNING) {
+      const marker = JSON.parse(fs.readFileSync(MARKER_PATH, "utf8")) as { workspace?: string };
+      const state = JSON.parse(fs.readFileSync(path.join(String(marker.workspace), ".pi-test-harness.json"), "utf8")) as {
+        containerId?: string;
+        eventsFile?: string;
+      };
+      containerId = state.containerId;
+      eventsFile = state.eventsFile;
+    }
+    let eventsText: string | null = null;
+    if (eventsFile) {
+      try {
+        eventsText = fs.readFileSync(eventsFile, "utf8");
+      } catch {
+        eventsText = null;
+      }
+    }
+    return attributeDestroy({ eventsText, containerId, eventsFile, attach: USE_RUNNING }).message;
+  } catch {
+    return attributeDestroy({ eventsText: null, attach: USE_RUNNING }).message;
+  }
+}
 
 const PROBE_TIMEOUT_MS = 10_000;
 const SHUTDOWN_ACK_TIMEOUT_MS = 15_000;
@@ -543,7 +578,7 @@ export const test = base.extend<{ reapSessions: void }, { trustBaselineAtWorkerS
         // The one loud announcement of the harness's death. The test running at
         // the moment of death fails on its own assertions (its probe passed), so
         // the honest guarantee is "at most one additional failure, then skips".
-        throw new Error(gate.message);
+        throw new Error(`${gate.message} ${destroyAttribution()}`);
       }
       if (gate.action === "skip") {
         testInfo.skip(true, gate.message);

@@ -676,3 +676,86 @@ export function buildRestorePayload(
   if (Object.keys(bypass).length > 0) payload.auth = { ...liveAuth, ...bypass };
   return payload;
 }
+
+// ---------------------------------------------------------------------------
+// #451 part 1 — name a foreign destroy of the harness container.
+// See change: add-missing-ci-legs (design D7).
+// ---------------------------------------------------------------------------
+
+export interface DestroyAttributionInput {
+  /** Contents of the harness lifecycle events file; null when missing/unreadable. */
+  eventsText: string | null;
+  /** This boot's container id (state file `containerId`). */
+  containerId?: string;
+  /** Absolute path of the events file (state file `eventsFile`). */
+  eventsFile?: string;
+  /** `PW_E2E_USE_RUNNING=1`: Playwright does not own or locate the workspace. */
+  attach: boolean;
+}
+
+export interface DestroyAttribution {
+  verdict: "foreign" | "undetermined";
+  /** Sentence to append to the HARNESS DOWN message ("" never — always says something). */
+  message: string;
+}
+
+/** Where `docker/test-up.sh` keeps the per-project lifecycle record (outside the worktree). */
+const EVENTS_DIR_HINT = "${TMPDIR:-/tmp}/pi-dash-test/";
+
+/**
+ * Was this boot's container destroyed by someone other than its own
+ * `test-down.sh`? Every match is by CONTAINER ID, never by project: the compose
+ * project name is stable across boots while the events file is appended across
+ * boots, so an earlier boot's `teardown-begin` must not explain away a foreign
+ * destroy of this boot's container.
+ *
+ *   foreign      = the file holds a `destroy` for this container id and NO
+ *                  `teardown-begin ... <id>` marker BEFORE it;
+ *   undetermined = anything else (attach mode, no state fields, no file, no
+ *                  destroy for this id, destroy preceded by our own marker).
+ *                  Never claimed foreign without evidence.
+ */
+export function attributeDestroy(input: DestroyAttributionInput): DestroyAttribution {
+  if (input.attach) {
+    return {
+      verdict: "undetermined",
+      message:
+        `Cause undetermined (attach mode: Playwright does not own the harness). ` +
+        `If it was recorded, the lifecycle events are under ${EVENTS_DIR_HINT}`,
+    };
+  }
+  const { containerId, eventsFile, eventsText } = input;
+  if (!containerId || !eventsFile) {
+    return {
+      verdict: "undetermined",
+      message: `Cause undetermined (the harness state file carries no container id / events file; lifecycle events, if recorded, are under ${EVENTS_DIR_HINT}).`,
+    };
+  }
+  if (eventsText === null) {
+    return {
+      verdict: "undetermined",
+      message: `Cause undetermined (events file ${eventsFile} is missing or unreadable).`,
+    };
+  }
+  const lines = eventsText.split("\n");
+  const destroyAt = lines.findIndex((l) => / destroy /.test(l) && l.trimEnd().endsWith(`id=${containerId}`));
+  if (destroyAt === -1) {
+    return {
+      verdict: "undetermined",
+      message: `Cause undetermined (no destroy event for container ${containerId} in ${eventsFile}).`,
+    };
+  }
+  const markerAt = lines.findIndex((l) => l.startsWith("teardown-begin ") && l.trimEnd().endsWith(` ${containerId}`));
+  if (markerAt !== -1 && markerAt < destroyAt) {
+    return {
+      verdict: "undetermined",
+      message: `Cause undetermined (the destroy of container ${containerId} follows this harness's own teardown marker, see ${eventsFile}).`,
+    };
+  }
+  return {
+    verdict: "foreign",
+    message:
+      `The container was destroyed by a foreign actor — not this harness's own teardown. ` +
+      `Recorded event: ${lines[destroyAt].trim()} (events file: ${eventsFile}).`,
+  };
+}

@@ -1,6 +1,6 @@
 import { mdiContentCopy, mdiTable } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import React, { useCallback, useEffect, useMemo, useRef } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown, { type Components, type Options } from "react-markdown";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import rehypeRaw from "rehype-raw";
@@ -8,6 +8,7 @@ import rehypeSanitize from "rehype-sanitize";
 import { tokenize } from "../../lib/chat/linkify-tool-output.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { MARKDOWN_REMARK_PLUGINS } from "../../lib/preview/markdown-remark-plugins.js";
+import { repairMarkdown } from "../../lib/preview/markup-repair-md.js";
 import { useMathEngine } from "../../lib/preview/math-engine.js";
 import { MermaidSourceContext, type MermaidSourceInfo } from "../../lib/preview/mermaid-source-context.js";
 import { parseOrdinalStamp, remarkMermaidOrdinal } from "../../lib/preview/remark-mermaid-ordinal.js";
@@ -23,6 +24,7 @@ import { UrlLink } from "../tool-renderers/UrlLink.js";
 import { extractFrontmatter, FrontmatterProperties } from "./FrontmatterProperties.js";
 import { ImageLightbox } from "./ImageLightbox.js";
 import { isExternalHref } from "./is-external-href.js";
+import { MarkupRepairBanner } from "./MarkupRepairBanner.js";
 import { MermaidBlock } from "./MermaidBlock.js";
 import { MARKDOWN_SCHEMA, safeUrlTransform } from "./markdown-sanitize.js";
 import { type ImageBase, resolveLocalImageSrc } from "./resolve-local-image-src.js";
@@ -63,6 +65,14 @@ interface Props {
    * See change: add-preview-apply-fix-to-file.
    */
   mermaidSource?: MermaidSourceInfo | null;
+  /**
+   * The content is a complete on-disk file, not a stream. Every mermaid fence is then
+   * complete by definition (M1: an EOF-unclosed or `~~~` fence renders instead of
+   * showing "Loading diagram…" forever) and unterminated top-level fences are repaired
+   * for display behind a `MarkupRepairBanner` (M2/M3). Default `false` = chat/streaming,
+   * unchanged. See change: add-md-adoc-markup-repair.
+   */
+  staticSource?: boolean;
 }
 
 /**
@@ -242,6 +252,8 @@ type MarkdownNodeProps = { node?: unknown };
 type MarkdownRenderContextValue = {
   /** Raw markdown source — drives the streaming `isFencedBlockComplete` gate. */
   content: string;
+  /** On-disk file: every mermaid fence is complete (skips the streaming gate). */
+  staticSource: boolean;
   toolContext?: ToolContext;
   syntaxStyle: ReturnType<typeof getSyntaxTheme>;
   onLoopbackClick: (event: React.MouseEvent, href: string) => void;
@@ -255,6 +267,7 @@ type MarkdownRenderContextValue = {
  */
 const DEFAULT_MARKDOWN_RENDER_CONTEXT: MarkdownRenderContextValue = {
   content: "",
+  staticSource: false,
   toolContext: undefined,
   syntaxStyle: getSyntaxTheme("dark"),
   onLoopbackClick: () => {},
@@ -512,7 +525,7 @@ function PiAssetImg(props: React.ImgHTMLAttributes<HTMLImageElement>) {
 }
 
 function MarkdownCode({ node: _node, className, children, ...props }: React.ComponentPropsWithoutRef<"code"> & MarkdownNodeProps) {
-  const { content, toolContext, syntaxStyle } = useMarkdownRenderContext();
+  const { content, staticSource, toolContext, syntaxStyle } = useMarkdownRenderContext();
   const match = /language-(\w+)/.exec(className || "");
   const codeString = String(children).replace(/\n$/, "");
 
@@ -520,7 +533,7 @@ function MarkdownCode({ node: _node, className, children, ...props }: React.Comp
     // Ordinal stamped by `remarkMermaidOrdinal` (absent for raw-HTML `<pre>` blocks → no apply-fix).
     const stamp = (props as Record<string, unknown>)["data-mermaid-ordinal"] ?? (props as Record<string, unknown>).dataMermaidOrdinal;
     const ordinal = parseOrdinalStamp(stamp);
-    return <MermaidBlock code={codeString} complete={isFencedBlockComplete(content, codeString)} ordinal={ordinal} />;
+    return <MermaidBlock code={codeString} complete={staticSource || isFencedBlockComplete(content, codeString)} ordinal={ordinal} />;
   }
 
   if (match) {
@@ -618,10 +631,22 @@ const REHYPE_PLUGINS_NO_MATH: NonNullable<Options["rehypePlugins"]> = [
   stripReactRefAttributes,
 ];
 
-export const MarkdownContent = React.memo(function MarkdownContent({ content, context, frontmatter = "hide", imageBase, mermaidSource = null }: Props) {
+export const MarkdownContent = React.memo(function MarkdownContent({ content, context, frontmatter = "hide", imageBase, mermaidSource = null, staticSource = false }: Props) {
+  // Markup repair (file previews only): memoized on content; "view original" shows the
+  // unrepaired text (the M1 completeness gate stays on — it is not a repair).
+  const markupRepair = useMemo(() => (staticSource ? repairMarkdown(content) : null), [staticSource, content]);
+  const repairActive = markupRepair !== null && markupRepair.repairs.length > 0;
+  const [viewOriginal, setViewOriginal] = useState(false);
+  const toggleOriginal = useCallback(() => setViewOriginal((v) => !v), []);
+  const repairApply = useMemo(() => ({ displayed: content, repair: repairMarkdown }), [content]);
+  // Per-diagram apply is disabled while a markup repair is displayed (ordinals on disk differ).
+  const effectiveMermaidSource = useMemo<MermaidSourceInfo | null>(
+    () => (mermaidSource && repairActive ? { ...mermaidSource, markupRepairActive: true } : mermaidSource),
+    [mermaidSource, repairActive],
+  );
   // ASCII table monospace fixer — disabled pending further refinement
   // const processedContent = useMemo(() => wrapAsciiTables(content), [content]);
-  const processedContent = content;
+  const processedContent = repairActive && !viewOriginal ? markupRepair.source : content;
   const mathEngine = useMathEngine(MATH_DELIMITER_RE.test(processedContent));
   const rehypePlugins = useMemo<NonNullable<Options["rehypePlugins"]>>(
     () =>
@@ -661,8 +686,8 @@ export const MarkdownContent = React.memo(function MarkdownContent({ content, co
   // being re-created per render, so an unchanged markdown tree keeps its DOM
   // node identity — and any Selection anchored in it — across re-renders.
   const markdownRenderContext = useMemo(
-    () => ({ content: processedContent, toolContext: context, syntaxStyle, onLoopbackClick }),
-    [processedContent, context, syntaxStyle, onLoopbackClick],
+    () => ({ content: processedContent, staticSource, toolContext: context, syntaxStyle, onLoopbackClick }),
+    [processedContent, staticSource, context, syntaxStyle, onLoopbackClick],
   );
 
   return (
@@ -670,7 +695,15 @@ export const MarkdownContent = React.memo(function MarkdownContent({ content, co
       <div ref={containerRef} className="markdown-content text-sm">
         {fm && <FrontmatterProperties raw={fm.raw} />}
         <ImageBaseContext.Provider value={imageBaseValue}>
-         <MermaidSourceContext.Provider value={mermaidSource}>
+         <MermaidSourceContext.Provider value={effectiveMermaidSource}>
+          {repairActive && (
+            <MarkupRepairBanner
+              repairs={markupRepair.repairs}
+              viewOriginal={viewOriginal}
+              onToggleOriginal={toggleOriginal}
+              apply={repairApply}
+            />
+          )}
           {/* A sanitizer/render throw shows the source as plain text — never the
               raw tree — and the next content (streamed token) retries markdown.
               See change: sanitize-untrusted-rendered-content. */}

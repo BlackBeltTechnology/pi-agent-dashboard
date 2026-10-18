@@ -291,7 +291,7 @@ export function registerBrowserRoutes(fastify: FastifyInstance, deps: BrowserRou
       // Fastify's 10 s connectionTimeout: disable the per-socket timeout for this
       // request and restore it once the response flushes (same shape as
       // git-routes). A client abort destroys the socket, so nothing to restore.
-      // See change: add-operator-browser-relay (design D4).
+      // See change: add-operator-browser-relay (design D4); pinned by fix-browser-relay-pane-input (D2).
       const socket = req.raw.socket;
       const prevTimeout = typeof socket?.timeout === "number" ? socket.timeout : undefined;
       socket?.setTimeout?.(0);

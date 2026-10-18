@@ -850,6 +850,13 @@
     {
       "ruleId": "js/path-injection",
       "file": "packages/server/src/routes/file-routes.ts",
+      "lineHash": "1e0e73a03196a493:1",
+      "count": 1,
+      "reason": "operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
+    },
+    {
+      "ruleId": "js/path-injection",
+      "file": "packages/server/src/routes/file-routes.ts",
       "lineHash": "3cc9700d6f2a8f0c:1",
       "count": 1,
       "reason": "github-dismissed (#336, false positive): False positive for a path-containment feature: the flagged expression IS the containment/verification guard, not a gap in one. Reviewed in bulk (same class) during ship of add-access-grants-and-review."
