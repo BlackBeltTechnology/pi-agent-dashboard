@@ -26,7 +26,7 @@ import path from "node:path";
 
 const require = createRequire(import.meta.url);
 
-/** The single-source pinned CLI (see `openspec-cli-version-single-source`; 1.6.0). */
+/** The single-source pinned CLI (see `openspec-cli-version-single-source`; 1.14.3). */
 const OPENSPEC_PKG = "@fission-ai/openspec";
 
 export interface ProvisionDeps {

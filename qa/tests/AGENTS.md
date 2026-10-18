@@ -24,8 +24,8 @@ Files in this directory. One row per file. Non-source area. See change: migrate-
 | `10-bundled-git.ps1` | Verifies bundled dugite-native git + sh on Windows. Forces `windowsGitSource=bundled` via `/api/config`,… → see `10-bundled-git.ps1.AGENTS.md` |
 | `10-faux-model.sh` | VM smoke: faux prompt round-trip on clean box. Node driver connects `/ws`, snapshots pre-existing sessions,… → see `10-faux-model.sh.AGENTS.md` |
 | `11-docker-zrok-v2.sh` | L2 (M6, change: support-zrok-v2). Builds the docker `base` stage, runs `docker run <img> zrok2 version` && `zrok version`, asserts both report v2.x (symlink resolves). |
-| `12-openspec-shim.ps1` | T-C1: extensionless openspec shim resolves `openspec --version` (→`1.6.0`) via `bash.exe -c` with no node on PATH. See change: provision-openspec-cli-in-sessions. |
-| `13-openspec-offline-regen.sh` | T-S2: offline `npx --no-install openspec init --tools pi --force` stamps `generatedBy: "1.6.0"`. See change: provision-openspec-cli-in-sessions. |
+| `12-openspec-shim.ps1` | T-C1: extensionless openspec shim resolves `openspec --version` (→`1.14.3`) via `bash.exe -c` with no node on PATH. See change: provision-openspec-cli-in-sessions. |
+| `13-openspec-offline-regen.sh` | T-S2: offline `npx --no-install openspec init --tools pi --force` stamps `generatedBy: "1.14.3"`. See change: provision-openspec-cli-in-sessions. |
 | `14-pi-resources-parity.sh` | P1/X10/X11: `GET /api/pi-resources` p95 across 10 refreshes within `PI_RESOURCES_P95_BUDGET_MS` (default… → see `14-pi-resources-parity.sh.AGENTS.md` |
 | `15-omit-dev-build.sh` | X1: a fresh checkout builds the client under `--omit=dev` (#357). → see `15-omit-dev-build.sh.AGENTS.md` |
 | `15-openspec-init.sh` | X8/X12: POST `/api/openspec/init` with a squatted `openspec` 0.0.0 stub earlier on PATH — stub never invoked… → see `15-openspec-init.sh.AGENTS.md` |

@@ -52,7 +52,7 @@ try {
         exit 1
     }
     if ("$out" -notmatch "1\.6\.0") {
-        Write-Host "FAIL: expected openspec 1.6.0, got: $out"
+        Write-Host "FAIL: expected openspec 1.14.3, got: $out"
         exit 1
     }
     Write-Host "openspec via Git Bash shim: $out"

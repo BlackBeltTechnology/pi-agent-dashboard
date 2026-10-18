@@ -60,9 +60,10 @@ const RULES = [
     evidence:
       "docs/repro/v0.5.3-clean-node22-linux-x64-2026-05-19.log STEP 1 — " +
       "node-pty 1.1.0 ships no linux-x64 prebuild; install fails on slim " +
-      "Debian. Must remain pinned at 1.2.0-beta.13+ until 1.2.0 stable. " +
+      "Debian. Must remain pinned at 1.2.0-beta.15+ until 1.2.0 stable " +
+      "(beta.13 → beta.15 in refresh-electron-bundled-components). " +
       "See change: enable-standalone-npm-install task 7.1.",
-    minVersion: "1.2.0-beta.13",
+    minVersion: "1.2.0-beta.15",
   },
   {
     pkgPath: "packages/server/package.json",
@@ -106,10 +107,11 @@ const RULES = [
       "installed copy the session shim resolves. Pinned EXACT (not ^1.6.0): the " +
       "vendored .pi/skills/openspec-* carry `generatedBy: 1.6.0`, so the CLI and " +
       "the skills must move together — a caret let a routine install drift the " +
-      "CLI out from under them unreviewed. 1.11.0 itself is CLI-compatible with " +
-      "openspec-poller.ts (`status --change <name> --json` unchanged, artifact " +
-      "shape unchanged + additive isPlanningComplete).",
-    minVersion: "1.11.0",
+      "CLI out from under them unreviewed. Floor raised 1.11.0 → 1.14.3 " +
+      "(refresh-electron-bundled-components): the 1.12–1.14.3 CLI JSON output " +
+      "changed only additively (`requires` edges on `status --json` in 1.12), so " +
+      "openspec-poller.ts (`status --change <name> --json`) stays compatible.",
+    minVersion: "1.14.3",
   },
   {
     pkgPath: "packages/extension/package.json",
@@ -119,8 +121,8 @@ const RULES = [
       "provision-openspec-cli-in-sessions task 1.4 — the bridge shim " +
       "(openspec-cli-shim.ts) require.resolves this dep, so it must travel with " +
       "the published extension into generic projects (no dashboard copy hoisted " +
-      "there). Floor tracks the single-source version 1.11.0.",
-    minVersion: "1.11.0",
+      "there). Floor tracks the single-source version 1.14.3.",
+    minVersion: "1.14.3",
   },
   {
     pkgPath: "packages/server/package.json",

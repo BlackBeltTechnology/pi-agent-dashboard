@@ -4,6 +4,8 @@ import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { deriveWindowsBuildVersion } from "./src/lib/build-version.js";
+// @ts-expect-error — plain .mjs module, no type declarations by design.
+import { createAfterCopyExtraResources } from "./scripts/relativize-extra-resource-links.mjs";
 
 // fileURLToPath handles Windows drive-letter paths correctly (new URL().pathname gives /C:/... which is invalid)
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -65,36 +67,58 @@ const config: ForgeConfig = {
     executableName: "pi-dashboard",
     icon: path.resolve(__dirname, "resources/icon"),
     appBundleId: "com.blackbelt-technology.pi-dashboard",
-    // macOS: support Monterey (12.0) and newer.
+    // macOS: support Ventura (13.0) and newer.
     //
-    // Electron dropped macOS 11 at v38 and macOS 10.15 at v33; the pinned
-    // runtime is on the 43 line, so 12.0 is the lowest OS the shipped binary
-    // can launch on. Both dropped versions are also past Apple's own security
-    // window (10.15 EOL 2022-09, 11 EOL 2023-09).
+    // Electron dropped macOS 12 at v44, macOS 11 at v38 and macOS 10.15 at v33;
+    // the pinned runtime is on the 44 line, so 13.0 is the lowest OS the shipped
+    // binary can launch on. The dropped versions are also past Apple's own
+    // security window (10.15 EOL 2022-09, 11 EOL 2023-09, 12 EOL 2024-09).
+    // Raised 12.0 -> 13.0 by refresh-electron-bundled-components.
     //
-    // The 12.0 floor is enforced at THREE points so a future runner-image
+    // The 13.0 floor is enforced at THREE points so a future runner-image
     // upgrade or source-built native module cannot silently raise it:
     //   1. extendInfo.LSMinimumSystemVersion (below) — user-visible min in Info.plist;
     //      Gatekeeper / launchd refuse to launch the app on older OSes.
     //   2. .github/workflows/_electron-build.yml step env
-    //      MACOSX_DEPLOYMENT_TARGET=12.0 — every Mach-O the build itself
+    //      MACOSX_DEPLOYMENT_TARGET=13.0 — every Mach-O the build itself
     //      COMPILES (custom binaries, any source-compiled node-gyp module)
-    //      declares 12.0 as its minos.
+    //      declares 13.0 as its minos.
     //   3. CI verification step that plutil-extracts the produced Info.plist
     //      and otool -l's the inner Mach-O, failing the job on any drift.
     //      NOTE: that binary is the renamed Electron PREBUILT, whose minos is
     //      baked upstream and only copied by the packager — so the otool leg is
     //      an upstream-floor tripwire, not a check on (2). It compares for
-    //      EQUALITY: at a 12.0 floor a below-floor value is reachable, unlike
+    //      EQUALITY: at a 13.0 floor a below-floor value is reachable, unlike
     //      at the old 10.15 target. See scripts/macos-floor.mjs, which is the
     //      single source of truth for the constants and the predicate.
     // See change: upgrade-electron-runtime (supersedes add-darwin-x64-build 6b).
     darwinDarkModeSupport: true,
     extendInfo: {
-      LSMinimumSystemVersion: "12.0",
+      LSMinimumSystemVersion: "13.0",
     },
     // macOS universal binary (arm64 + x64)
     ...(process.platform === "darwin" ? { arch: "universal" as any } : {}),
+    // @electron/packager >= 20 copies `extraResource` entries with `fs.cp` and no
+    // `verbatimSymlinks`, which rewrites every relative symlink (53
+    // `server/node_modules/.bin/*` links, `node/bin/npm`) to an ABSOLUTE
+    // build-host path; the packaged app then carries dangling links and
+    // `codesign --verify --strict` fails ("invalid destination for symbolic link
+    // in bundle"). This hook re-relativizes them after ALL entries are copied.
+    // Generic over the `extraResource` list below (no hard-coded names), so later
+    // resources are covered unchanged. Packager >= 19 hook signature: a single
+    // object argument. Guarded on every electron leg by
+    // scripts/scan-packaged-symlinks.mjs.
+    // Upstream: electron/packager `copyExtraResources` (platform.js) lacks
+    // `verbatimSymlinks`; the sibling `copyTemplate` defect is electron/packager#1964
+    // (see scripts/relativize-extra-resource-links.mjs for the status of the
+    // extra-resource issue).
+    // See change: refresh-electron-bundled-components (design D3).
+    afterCopyExtraResources: [
+      createAfterCopyExtraResources({
+        projectDir: __dirname,
+        getExtraResources: () => config.packagerConfig?.extraResource,
+      }),
+    ],
     extraResource: [
       ...extraResource,
       // electron-updater reads app-update.yml from resourcesPath at runtime.

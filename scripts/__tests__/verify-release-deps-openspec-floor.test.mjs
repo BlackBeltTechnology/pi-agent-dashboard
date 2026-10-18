@@ -9,8 +9,16 @@
  *
  * See change: provision-openspec-cli-in-sessions.
  */
-import { describe, expect, it } from "vitest";
-import { checkOpenspecFloorConsistency, floorOf } from "../verify-release-deps.mjs";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { afterEach, describe, expect, it } from "vitest";
+import {
+  checkOpenspecFloorConsistency,
+  collectFailures,
+  floorOf,
+} from "../verify-release-deps.mjs";
 
 const serverPkg = (range) => ({ dependencies: { "@fission-ai/openspec": range } });
 const extPkg = (range) => ({ dependencies: { "@fission-ai/openspec": range } });
@@ -41,5 +49,62 @@ describe("checkOpenspecFloorConsistency (T-S1)", () => {
     expect(floorOf("~1.6.0")).toBe("1.6.0");
     expect(floorOf("1.6.0")).toBe("1.6.0");
     expect(floorOf("*")).toBeNull();
+  });
+});
+
+/**
+ * test-plan #E16 (refresh-electron-bundled-components): the exact openspec pin
+ * moves with the single-source version. `1.14.3` passes the release gate; a
+ * leftover `1.11.0` declaration is reported as a `Stale pin`.
+ *
+ * Fixture repo: every file the gates read is copied from the real tree, then
+ * the openspec declaration of server + extension is overwritten.
+ *
+ * See change: refresh-electron-bundled-components.
+ */
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = path.resolve(HERE, "..", "..");
+const CARRIED = [
+  "packages/server/package.json",
+  "packages/extension/package.json",
+  "packages/shared/package.json",
+  "packages/client/package.json",
+  "docker/Dockerfile",
+  "pnpm-workspace.yaml",
+];
+const tmpDirs = [];
+afterEach(() => {
+  for (const dir of tmpDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
+});
+
+function fixtureWithOpenspec(version) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "verify-release-deps-openspec-"));
+  tmpDirs.push(root);
+  for (const rel of CARRIED) {
+    const dest = path.join(root, rel);
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.copyFileSync(path.join(REPO_ROOT, rel), dest);
+  }
+  for (const rel of ["packages/server/package.json", "packages/extension/package.json"]) {
+    const dest = path.join(root, rel);
+    const pkg = JSON.parse(fs.readFileSync(dest, "utf-8"));
+    pkg.dependencies["@fission-ai/openspec"] = version;
+    fs.writeFileSync(dest, JSON.stringify(pkg, null, 2));
+  }
+  return root;
+}
+
+describe("openspec exact pin is 1.14.3 (E16)", () => {
+  it("passes with server + extension declaring 1.14.3", () => {
+    const failures = collectFailures({ repoRoot: fixtureWithOpenspec("1.14.3") });
+    expect(failures.filter((f) => f.includes("@fission-ai/openspec"))).toEqual([]);
+  });
+
+  it("reports `Stale pin` for @fission-ai/openspec when 1.11.0 is declared", () => {
+    const failures = collectFailures({ repoRoot: fixtureWithOpenspec("1.11.0") });
+    const stale = failures.filter(
+      (f) => f.includes("Stale pin") && f.includes("@fission-ai/openspec"),
+    );
+    expect(stale.length).toBeGreaterThanOrEqual(1);
   });
 });

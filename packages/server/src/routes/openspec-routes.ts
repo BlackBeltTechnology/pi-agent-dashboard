@@ -63,6 +63,41 @@ const WORKFLOW_SCHEMA_ACTIONS: ReadonlySet<string> = new Set<WorkflowSchemaActio
   "remove",
 ]);
 
+// ── Legacy-artifact detection for the overwrite-confirm gate ──
+// Coarse mirror of the pinned CLI's `legacy-cleanup.js`: `--tools` alone
+// authorizes cleanup, and cleanup REMOVES marker blocks from root config
+// files and DELETES legacy slash-command dirs/files without further
+// prompting — so `<cwd>/openspec/` presence alone misses legacy projects
+// (AGENTS.md markers + .claude/commands/openspec/, no openspec/ dir) that
+// would be destructively edited on a plain Initialize. Markers + path list
+// mirror @fission-ai/openspec@1.14.3 dist/core/legacy-cleanup.js; version
+// drift degrades to fewer confirmations, never to a wrong refusal. See
+// change: add-openspec-init-affordances (review round 1).
+export const LEGACY_CONFIG_FILES = [
+  "CLAUDE.md", "CLINE.md", "CODEBUDDY.md", "COSTRICT.md",
+  "QODER.md", "IFLOW.md", "AGENTS.md", "QWEN.md",
+];
+const OPENSPEC_MARKER_START = "<!-- OPENSPEC:START -->";
+const OPENSPEC_MARKER_END = "<!-- OPENSPEC:END -->";
+export const LEGACY_COMMAND_DIRS = [
+  ".claude/commands/openspec", ".codebuddy/commands/openspec",
+  ".qoder/commands/openspec", ".lingma/commands/openspec",
+  ".crush/commands/openspec", ".gemini/commands/openspec",
+];
+export const LEGACY_COMMAND_FILE_DIRS = [
+  ".cursor/commands", ".windsurf/workflows", ".kilocode/workflows",
+  ".kiro/prompts", ".github/prompts", ".amazonq/prompts",
+  ".clinerules/workflows", ".roo/commands", ".augment/commands",
+  ".factory/commands", ".continue/prompts", ".agent/workflows",
+  ".iflow/commands", ".qwen/commands", ".codex/prompts",
+  // opencode + junie are the only `opsx-*` producers — without these two
+  // entries the opsx- prefix check below is dead code (review round 2).
+  ".opencode/command", ".junie/commands",
+  // 1.14.3 scopes CoStrict cleanup to `openspec-*.md` files (a directory entry
+  // would delete the live `opsx-*.md` commands), so it is a file dir here too.
+  ".cospec/openspec/commands",
+];
+
 /** `realpathSync.native(cwd)`, or `cwd` itself when it does not resolve (lock key only). */
 function canonicalPath(cwd: string): string {
   try {
@@ -315,39 +350,6 @@ export function registerOpenSpecRoutes(
   // memoized — a transient probe failure must not brick init until restart
   // (review round 1). See change: add-openspec-init-affordances.
   let initSupportProbe: Promise<boolean> | undefined;
-
-  // ── Legacy-artifact detection for the overwrite-confirm gate ──
-  // Coarse mirror of the pinned CLI's `legacy-cleanup.js`: `--tools` alone
-  // authorizes cleanup, and cleanup REMOVES marker blocks from root config
-  // files and DELETES legacy slash-command dirs/files without further
-  // prompting — so `<cwd>/openspec/` presence alone misses legacy projects
-  // (AGENTS.md markers + .claude/commands/openspec/, no openspec/ dir) that
-  // would be destructively edited on a plain Initialize. Markers + path list
-  // mirror @fission-ai/openspec@1.6.0 dist/core/legacy-cleanup.js; version
-  // drift degrades to fewer confirmations, never to a wrong refusal. See
-  // change: add-openspec-init-affordances (review round 1).
-  const LEGACY_CONFIG_FILES = [
-    "CLAUDE.md", "CLINE.md", "CODEBUDDY.md", "COSTRICT.md",
-    "QODER.md", "IFLOW.md", "AGENTS.md", "QWEN.md",
-  ];
-  const OPENSPEC_MARKER_START = "<!-- OPENSPEC:START -->";
-  const OPENSPEC_MARKER_END = "<!-- OPENSPEC:END -->";
-  const LEGACY_COMMAND_DIRS = [
-    ".claude/commands/openspec", ".codebuddy/commands/openspec",
-    ".qoder/commands/openspec", ".lingma/commands/openspec",
-    ".crush/commands/openspec", ".gemini/commands/openspec",
-    ".cospec/openspec/commands",
-  ];
-  const LEGACY_COMMAND_FILE_DIRS = [
-    ".cursor/commands", ".windsurf/workflows", ".kilocode/workflows",
-    ".kiro/prompts", ".github/prompts", ".amazonq/prompts",
-    ".clinerules/workflows", ".roo/commands", ".augment/commands",
-    ".factory/commands", ".continue/prompts", ".agent/workflows",
-    ".iflow/commands", ".qwen/commands", ".codex/prompts",
-    // opencode + junie are the only `opsx-*` producers — without these two
-    // entries the opsx- prefix check below is dead code (review round 2).
-    ".opencode/command", ".junie/commands",
-  ];
 
   async function hasLegacyOpenSpecArtifacts(cwd: string): Promise<boolean> {
     for (const f of LEGACY_CONFIG_FILES) {
