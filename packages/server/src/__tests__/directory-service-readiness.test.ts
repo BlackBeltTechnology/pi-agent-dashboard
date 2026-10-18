@@ -22,6 +22,7 @@ import { createDirectoryService, type DirectoryService } from "../directory-serv
 import { deriveOpenSpecReadiness, type ReadinessInputs } from "../openspec/readiness.js";
 import type { PreferencesStore } from "../persistence/preferences-store.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
+import type { CliCall } from "../openspec/workflow-schema.js";
 
 // ── git-operations mock: resolveConfigRoot is faked (configurable per test);
 // everything else stays real (folder-head-poll needs readHeadDisplayAsync).
@@ -784,7 +785,7 @@ describe("DirectoryService — OpenSpecData.workflowSchema (add-pi-spec-driven-s
     mkProject(repo, { skills: true });
     put(repo, "openspec/config.yaml", "schema: pi-spec-driven\n");
     stampedSchema(repo, "1.12.0", 1);
-    const cli = vi.fn(async () => ({ ok: true as const, stdout: JSON.stringify({ valid: false }) }));
+    const cli = vi.fn(async (_call: CliCall) => ({ ok: true as const, stdout: JSON.stringify({ valid: false }) }));
     make({ workflowSchema: { packageSchemasDir: async () => pkgSchemas, deps: { cli, validateMemo: new Map() } } });
     expect((await service.refreshOpenSpec(repo)).workflowSchema?.generated).toBe("incompatible");
     await service.refreshOpenSpec(repo);

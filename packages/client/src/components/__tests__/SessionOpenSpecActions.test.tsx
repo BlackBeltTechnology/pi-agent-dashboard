@@ -827,7 +827,7 @@ describe("attachment resolution headers", () => {
     const plain = html();
     expect(plain).toContain("apply-btn");
     expect(
-      html({ configured: "pi-spec-driven", generated: "outdated", missing: false, unpinnedChanges: [], affectedChanges: ["impl-change"] }),
+      html({ configured: "pi-spec-driven", generated: "outdated", missing: false, unpinnedChanges: [], affectedChanges: ["impl-change"], projectSchemas: [] }),
     ).toBe(plain);
   });
 });
