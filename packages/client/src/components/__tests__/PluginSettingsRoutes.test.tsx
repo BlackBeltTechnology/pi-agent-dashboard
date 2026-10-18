@@ -14,6 +14,7 @@ import { intentStore } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { PLUGIN_INTERNALS_KEY } from "../../lib/state/plugin-internals-pref.js";
 import { SettingsPanel } from "../settings/SettingsPanel.js";
 
 const { fetchAutoInitWorktreePref, setAutoInitWorktreePref } = vi.hoisted(() => ({
@@ -146,6 +147,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   localStorage.removeItem("dashboard:settings-plugins-expanded");
+  localStorage.removeItem(PLUGIN_INTERNALS_KEY);
   vi.unstubAllGlobals();
   intentStore.__resetForTests();
 });
@@ -204,6 +206,8 @@ describe("plugin settings routes", () => {
 
   // (test-plan #E11) — PluginRow has no version/description/source/icon fields.
   it("renders chrome from the real field set with no undefined artifacts", async () => {
+    // Slot claims are developer data: listed only with "Show plugin internals" on (#E28).
+    localStorage.setItem(PLUGIN_INTERNALS_KEY, "true");
     await mount("/settings/plugins/flows", [
       pluginRow({ id: "flows", displayName: "Flows", dependsOn: ["roles"] }),
     ]);

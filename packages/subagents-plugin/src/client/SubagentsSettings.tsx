@@ -16,8 +16,24 @@
  * See change: add-subagent-inspector §16.
  */
 
-import { usePluginConfig, useSettingsDraftSource, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+	SettingsNotice,
+	ToggleField,
+	usePluginConfig,
+	useSettingsDraftSource,
+	useT,
+} from "@blackbelt-technology/dashboard-plugin-runtime";
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { useLocation } from "wouter";
+
+/** Settings page of the Roles plugin ("Model roles"), where `@fast` gets its model. */
+const ROLES_SETTINGS_PATH = "/settings/plugins/roles";
+
+const OPEN_ROLES_BTN =
+	"focus-ring inline-flex min-h-[32px] items-center gap-1 rounded-md border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] px-2 text-[12px] font-semibold text-[var(--text-primary)] hover:bg-[var(--bg-hover)]";
+const CODE_CLS = "font-mono text-[12px] text-[var(--text-primary)]";
+/** `{role}` placeholder value; the translated sentence is split on it and each hit becomes a `<code>@fast</code>`. */
+const ROLE_MARK = "\u0001";
 
 interface SubagentsPluginConfig {
 	inheritContext?: boolean;
@@ -27,6 +43,9 @@ export function SubagentsSettings() {
 	// Buffered source: the toggle edits a local draft and persists via the
 	// host Settings panel's unified Save. See change: unify-settings-save-contract.
 	const t = useT();
+	const [, navigate] = useLocation();
+	/** Raw failure text (HTTP status + body) — only ever copied via "Copy details", never rendered. */
+	const [saveError, setSaveError] = useState<string | null>(null);
 	const config = usePluginConfig<SubagentsPluginConfig>();
 	const baseline = config.inheritContext ?? true;
 	const [draft, setDraft] = useState(baseline);
@@ -37,32 +56,51 @@ export function SubagentsSettings() {
 	useEffect(() => { if (!dirtyRef.current) setDraft(baseline); }, [baseline]);
 
 	const commit = useCallback(async () => {
-		const res = await fetch("/api/config/plugins/subagents", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ inheritContext: draftRef.current }),
-			credentials: "include",
-		});
+		// The host Save bar shows the thrown message, so it must be a human sentence;
+		// the raw status/body goes to the body notice's "Copy details" only.
+		const fail = (raw: string): never => {
+			setSaveError(raw);
+			throw new Error(
+				t("saveError", undefined, "Could not save the subagent settings. Check that the dashboard is running, then save again."),
+			);
+		};
+		let res: Response;
+		try {
+			res = await fetch("/api/config/plugins/subagents", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ inheritContext: draftRef.current }),
+				credentials: "include",
+			});
+		} catch (e) {
+			return fail(String(e));
+		}
 		if (!res.ok) {
 			const body = await res.text().catch(() => "");
-			throw new Error(
-				t("saveError", { status: res.status, detail: body || res.statusText }, "HTTP {status}: {detail}"),
-			);
+			fail(`HTTP ${res.status}: ${body || res.statusText}`);
 		}
+		setSaveError(null);
 	}, [t]);
-	const reset = useCallback(() => setDraft(baseline), [baseline]);
+	const reset = useCallback(() => {
+		setSaveError(null);
+		setDraft(baseline);
+	}, [baseline]);
 	useSettingsDraftSource({ id: "plugin:subagents", isDirty, commit, reset });
-	const checked = draft;
+
+	const [roleBefore, roleMiddle = "", roleAfter = ""] = t(
+		"rolesNotice",
+		{ role: ROLE_MARK },
+		"The bundled Explore agent uses {role}. Give {role} a model in Model roles, otherwise agents that use roles report “not configured yet”.",
+	).split(ROLE_MARK);
+	const role = <code className={CODE_CLS}>@fast</code>;
 
 	return (
 		<div className="space-y-3">
 			{/* No self-header: the host owns identity + status chrome on
 			    `/settings/plugins/<id>`, so a second heading double-headers
 			    (design D1). See change: plugin-settings-pages. */}
-			<p className="text-[11px] text-[var(--text-tertiary)]">
-				{t("producerSettingsPre", undefined, "Settings for the ")}
-				<code className="font-mono">pi-dashboard-subagents</code>
-				{t("producerSettingsPost", undefined, " producer.")}
+			<p className="text-xs text-[var(--text-secondary)]">
+				{t("settingsLead", undefined, "How sessions start subagents.")}
 			</p>
 
 			{/*
@@ -70,47 +108,46 @@ export function SubagentsSettings() {
 			  `dependsOn`. The bundled Explore agent resolves `@fast` via the
 			  standalone `role:resolve-model` event; an unconfigured role
 			  degrades to a structured "not configured yet" error at spawn time
-			  rather than blocking Subagents from loading. This disclaimer points
-			  users to configure Roles so `@fast` resolves.
+			  rather than blocking Subagents from loading. This notice points
+			  users to Model roles so `@fast` resolves.
 			  See change: roles-standalone-defaults-and-local-install-detection.
 			*/}
-			<div
-				data-testid="subagents-settings-roles-dep"
-				className="text-[11px] text-[var(--text-tertiary)] border border-[var(--border-secondary)] rounded px-2 py-1.5 bg-[var(--bg-tertiary)]"
+			<SettingsNotice
+				tone="info"
+				testId="subagents-settings-roles-dep"
+				actions={
+					<button type="button" className={OPEN_ROLES_BTN} onClick={() => navigate(ROLES_SETTINGS_PATH)}>
+						{t("openModelRoles", undefined, "Open Model roles")}
+					</button>
+				}
 			>
-				{t("rolesDepConfigurePre", undefined, "Configure the ")}
-				<code className="font-mono text-[var(--text-secondary)]">Roles</code>
-				{t("rolesDepPluginResolve", undefined, " plugin so the bundled ")}
-				<code className="font-mono">Explore</code>
-				{t("rolesDepAgentResolve", undefined, " agent can resolve ")}
-				<code className="font-mono">@fast</code>
-				{t("rolesDepIfNoModel", undefined, ". If no model is assigned to ")}
-				<code className="font-mono">@fast</code>
-				{t("rolesDepAgentsUsing", undefined, ", agents using ")}
-				<code className="font-mono">@role</code>
-				{t("rolesDepAliasesReport", undefined, " aliases report “not configured yet” when a session starts — Subagents still loads.")}
-			</div>
+				{roleBefore}
+				{role}
+				{roleMiddle}
+				{role}
+				{roleAfter}
+			</SettingsNotice>
 
-			<label className="flex items-start gap-2 cursor-pointer">
-				<input
-					type="checkbox"
-					className="mt-0.5"
-					checked={checked}
-					onChange={(e) => setDraft(e.target.checked)}
-				/>
-				<span className="flex-1">
-					<span className="block text-sm text-[var(--text-primary)]">
-						{t("forkContextLabel", undefined, "Fork parent context into every subagent")}
-					</span>
-					<span className="block text-[11px] text-[var(--text-tertiary)] mt-0.5">
-						{t(
-							"forkContextDescription",
-							undefined,
-							"When on, the subagent inherits a compressed copy of the parent's recent turns. When off, every subagent starts with an empty conversation (isolated).",
-						)}
-					</span>
-				</span>
-			</label>
+			{saveError !== null && (
+				<SettingsNotice tone="error" testId="subagents-save-error" details={saveError}>
+					{t("saveError", undefined, "Could not save the subagent settings. Check that the dashboard is running, then save again.")}
+				</SettingsNotice>
+			)}
+
+			<ToggleField
+				label={t("forkContextLabel", undefined, "Share the parent conversation")}
+				hint={t(
+					"forkContextDescription",
+					undefined,
+					"On: each subagent gets a compressed copy of the parent's recent turns. Off: each starts with an empty conversation.",
+				)}
+				value={draft}
+				onChange={(v) => {
+					setSaveError(null);
+					setDraft(v);
+				}}
+				testIds={{ control: "subagents-inherit-context" }}
+			/>
 		</div>
 	);
 }

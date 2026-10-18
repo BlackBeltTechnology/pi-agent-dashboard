@@ -8,16 +8,15 @@
  * "show incompatible" is on; off-machine backends are disabled while the
  * switch is off. See change: add-system-one-registry.
  */
-import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { ToggleField, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { ConsumerDeclaration } from "@blackbelt-technology/pi-system-one";
 import type React from "react";
 import { useEffect, useRef, useState } from "react";
 import type { BackendView, Draft } from "./api.js";
 import { EgressBadge } from "./EgressBadge.js";
 import { incompatibleWith, move, unusableReason } from "./model.js";
-
-const btn =
-  "inline-grid place-items-center w-8 h-8 max-sm:w-11 max-sm:h-11 rounded-md border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:bg-[var(--bg-surface)] disabled:opacity-40 disabled:cursor-not-allowed";
+import { OptionSelectField } from "./OptionSelectField.js";
+import { BTN, BTN_ICON } from "./settings-ui.js";
 
 export interface ChainEditorProps {
   idPrefix: string;
@@ -71,17 +70,17 @@ export function ChainEditor({ idPrefix, chain, draft, views, onChange, consumer 
               data-testid={`${idPrefix}-entry-${i}`}
               className="flex flex-wrap items-center gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-tertiary)] px-2 py-1.5"
             >
-              <span className="w-5 text-right text-[12px] text-[var(--text-secondary)]">{i + 1}</span>
-              <span className={`font-semibold ${why ? "line-through text-[var(--text-secondary)]" : "text-[var(--text-primary)]"}`}>{id}</span>
+              <span className="w-5 text-right text-xs text-[var(--text-secondary)]">{i + 1}</span>
+              <span className={`text-xs font-semibold ${why ? "line-through text-[var(--text-secondary)]" : "text-[var(--text-primary)]"}`}>{id}</span>
               <EgressBadge view={views[id]} />
-              {why && <span className="text-[12px] text-[var(--text-secondary)]">{why}</span>}
+              {why && <span className="text-xs text-[var(--text-secondary)]">{why}</span>}
               <span className="ml-auto flex gap-1">
                 <button
                   type="button"
                   ref={(el) => {
                     refs.current.set(`${id}:up`, el);
                   }}
-                  className={btn}
+                  className={BTN_ICON}
                   disabled={i === 0}
                   aria-label={t("moveUp", { id }, `Move ${id} up`)}
                   onClick={() => {
@@ -96,7 +95,7 @@ export function ChainEditor({ idPrefix, chain, draft, views, onChange, consumer 
                   ref={(el) => {
                     refs.current.set(`${id}:down`, el);
                   }}
-                  className={btn}
+                  className={BTN_ICON}
                   disabled={i === chain.length - 1}
                   aria-label={t("moveDown", { id }, `Move ${id} down`)}
                   onClick={() => {
@@ -108,7 +107,7 @@ export function ChainEditor({ idPrefix, chain, draft, views, onChange, consumer 
                 </button>
                 <button
                   type="button"
-                  className={btn}
+                  className={BTN_ICON}
                   disabled={chain.length <= 1}
                   aria-label={t("removeFromChain", { id }, `Remove ${id} from chain`)}
                   onClick={() => onChange(chain.filter((x) => x !== id))}
@@ -120,54 +119,44 @@ export function ChainEditor({ idPrefix, chain, draft, views, onChange, consumer 
           );
         })}
       </ol>
-      <div className="flex flex-wrap items-center gap-2">
-        <label className="sr-only" htmlFor={`${idPrefix}-add`}>
-          {t("backendToAdd", undefined, "Backend to add")}
-        </label>
-        <select
-          id={`${idPrefix}-add`}
-          data-testid={`${idPrefix}-add-select`}
-          className="min-w-[12rem] rounded border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] px-3 py-1.5 text-sm text-[var(--text-primary)]"
+      <div className="flex flex-wrap items-end gap-2">
+        <OptionSelectField
+          label={t("backendToAdd", undefined, "Backend to add")}
+          hint={null}
+          testIds={{ control: `${idPrefix}-add-select` }}
           value={current}
-          onChange={(e) => setPick(e.target.value)}
-        >
-          {offered.length === 0 && <option value="">{t("noMoreBackends", undefined, "No more backends")}</option>}
-          {offered.map((id) => {
-            const notes = [
-              incompat(id).length ? t("incompatibleNote", { reasons: incompat(id).join(", ") }, `incompatible: ${incompat(id).join(", ")}`) : null,
-              offDisabled(id) ? t("offMachineDisabledNote", undefined, "off-machine, disabled") : null,
-            ].filter(Boolean);
-            return (
-              <option key={id} value={id} disabled={offDisabled(id)}>
-                {notes.length ? `${id} (${notes.join("; ")})` : id}
-              </option>
-            );
-          })}
-        </select>
-        <button
-          type="button"
-          className="rounded-md border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] px-3 py-1.5 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-surface)] disabled:opacity-50"
-          disabled={!current}
-          onClick={() => current && onChange([...chain, current])}
-        >
+          onChange={setPick}
+          options={
+            offered.length === 0
+              ? [{ value: "", label: t("noMoreBackends", undefined, "No more backends") }]
+              : offered.map((id) => {
+                  const notes = [
+                    incompat(id).length ? t("incompatibleNote", { reasons: incompat(id).join(", ") }, `incompatible: ${incompat(id).join(", ")}`) : null,
+                    offDisabled(id) ? t("offMachineDisabledNote", undefined, "off-machine, disabled") : null,
+                  ].filter(Boolean);
+                  return { value: id, label: notes.length ? `${id} (${notes.join("; ")})` : id, disabled: offDisabled(id) };
+                })
+          }
+        />
+        <button type="button" className={BTN} disabled={!current} onClick={() => current && onChange([...chain, current])}>
           {t("addToChain", undefined, "Add to chain")}
         </button>
-        {consumer && (hiddenCount > 0 || showIncompat) && (
-          <label className="flex items-center gap-1.5 text-[12px] text-[var(--text-secondary)] cursor-pointer">
-            <input
-              type="checkbox"
-              data-testid={`${idPrefix}-show-incompat`}
-              checked={showIncompat}
-              onChange={(e) => setShowIncompat(e.target.checked)}
-            />
-            {hiddenCount
-              ? t("showIncompatibleCount", { count: hiddenCount }, `Show incompatible backends (${hiddenCount} hidden)`)
-              : t("showIncompatible", undefined, "Show incompatible backends")}
-          </label>
-        )}
       </div>
+      {consumer && (hiddenCount > 0 || showIncompat) && (
+        <ToggleField
+          label={
+            hiddenCount
+              ? t("showIncompatibleCount", { count: hiddenCount }, `Show incompatible backends (${hiddenCount} hidden)`)
+              : t("showIncompatible", undefined, "Show incompatible backends")
+          }
+          hint={null}
+          testIds={{ control: `${idPrefix}-show-incompat` }}
+          value={showIncompat}
+          onChange={setShowIncompat}
+        />
+      )}
       {consumer && showIncompat && (
-        <p className="m-0 text-[12px] text-[var(--text-secondary)]" data-testid={`${idPrefix}-incompat-warning`}>
+        <p className="m-0 text-xs text-[var(--text-secondary)]" data-testid={`${idPrefix}-incompat-warning`}>
           {t(
             "incompatibleWarning",
             undefined,
