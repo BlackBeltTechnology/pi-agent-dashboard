@@ -1,3 +1,5 @@
 # openspec-poller.ts — index
 
 Aggregates `openspec list`+`status` into `OpenSpecData`. `pollOpenSpec(cwd)` sync (bridge),… → see `openspec-poller.ts.AGENTS.md` `deriveArtifactStatus` reports `tasks: ready` (not `blocked`) when no tasks are authored but proposal+design+specs are all done — CLI parity. See change: fix-optimistic-prompt-stuck-sending.
+
+`status --all` path: `runOpenSpecStatusAll(cwd)` → raw `{stdout,stderr,exitCode,failure?}` (`statusAllRawFromResult`); `buildOpenSpecDataFromStatusAll({cwd,openspecDir,rootPath,entries,orderMtimes})` async → `{data, extras}`: local task counting (OpenSpec task-line rule; `apply.tracks` via `resolveApplyTracks`: project `openspec/schemas/<n>/schema.yaml` → user `$XDG_DATA_HOME/openspec/schemas`, first existing wins, memoized by mtime, `yaml`), canonical artifact order, per-change `error`, promote-only design/specs overrides, newest-first order. `userSchemasDir()` mirrors OpenSpec. Fallback path (`list`+`deriveArtifactStatus`) unchanged. `pollOpenSpecAsync` unused by server. See change: use-openspec-status-all.

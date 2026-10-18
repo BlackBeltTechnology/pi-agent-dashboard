@@ -17,11 +17,11 @@ One row per file.
 | `composer-liveness-reload.spec.ts` | → see `composer-liveness-reload.spec.ts.AGENTS.md` |
 | `composer-session-strip.spec.ts` | L3 redesign-composer-session-strip (F8–F12). → see `composer-session-strip.spec.ts.AGENTS.md` |
 | `context-mode-settings.spec.ts` | L3 F1/F2 → see `context-mode-settings.spec.ts.AGENTS.md` |
-| `first-run-create-project.spec.ts` | F16/F17 → see `first-run-create-project.spec.ts.AGENTS.md` |
+| `first-run-create-project.spec.ts` | → see `first-run-create-project.spec.ts.AGENTS.md` |
 | `hermes-model-override.spec.ts` | L3 F3 → see `hermes-model-override.spec.ts.AGENTS.md` |
 | `kb-settings-sources-search.spec.ts` | L3 KB settings sources + search. → see `kb-settings-sources-search.spec.ts.AGENTS.md` |
 | `known-server-stale-name.spec.ts` | L3 stale known-server name. → see `known-server-stale-name.spec.ts.AGENTS.md` |
-| `lazy-islands.spec.ts` | L3 lazy islands → see `lazy-islands.spec.ts.AGENTS.md` |
+| `lazy-islands.spec.ts` | → see `lazy-islands.spec.ts.AGENTS.md` |
 | `live-server-downloads.spec.ts` | L3 #F1/#X1 |
 | `local-credential-proof-nat.spec.ts` | L3 #X9: published-port proof. → see `local-credential-proof-nat.spec.ts.AGENTS.md` |
 | `model-roles-promotion.spec.ts` | L3 spec. → see `model-roles-promotion.spec.ts.AGENTS.md` |
@@ -29,7 +29,7 @@ One row per file.
 | `notify-collapse.spec.ts` | → see `notify-collapse.spec.ts.AGENTS.md` |
 | `pi-settings-editor.spec.ts` | L3 pi settings (#F13/#F14) |
 | `plugin-embedded-app.spec.ts` | L3 demo `"content"` embedded app (F1/F2). → see `plugin-embedded-app.spec.ts.AGENTS.md` |
-| `plugin-oauth-flow.spec.ts` | L3 demo-plugin seams, unmocked: F1 start → auth… → see `plugin-oauth-flow.spec.ts.AGENTS.md` |
+| `plugin-oauth-flow.spec.ts` | → see `plugin-oauth-flow.spec.ts.AGENTS.md` |
 | `preview-denial-remedy.spec.ts` | L3 preview denial remedy (#F1,#F4-#F13,#X1,#X2). → see `preview-denial-remedy.spec.ts.AGENTS.md` |
 | `provider-models-refresh.spec.ts` | L3: Refresh models row. → see `provider-models-refresh.spec.ts.AGENTS.md` |
 | `push-webhook-settings.spec.ts` | L3 #F9 push webhook. → see `push-webhook-settings.spec.ts.AGENTS.md` |
@@ -144,6 +144,7 @@ One row per file.
 | `openspec-init-affordances-folder.spec.ts` | L3 folder-section slice. → see `openspec-init-affordances-folder.spec.ts.AGENTS.md` |
 | `openspec-lifecycle-bar.spec.ts` | L3 compact-openspec-lifecycle-bar: board segment… → see `openspec-lifecycle-bar.spec.ts.AGENTS.md` |
 | `openspec-locality-gate.spec.ts` | L3 spec (change: scope-openspec-auto-att… → see `openspec-locality-gate.spec.ts.AGENTS.md` |
+| `openspec-status-all.spec.ts` | → see `openspec-status-all.spec.ts.AGENTS.md` |
 | `optimistic-prompt.spec.ts` | Playwright E2E for optimistic-prompt-progress. Two faux… → see `optimistic-prompt.spec.ts.AGENTS.md` |
 | `out-of-cwd-session-diffs.spec.ts` | L3 spec (change: opt-in-out-of-cwd-session-d… → see `out-of-cwd-session-diffs.spec.ts.AGENTS.md` |
 | `overlay-layering.spec.ts` | Browser E2E gate for `add-overlay-layering-system`… → see `overlay-layering.spec.ts.AGENTS.md` |

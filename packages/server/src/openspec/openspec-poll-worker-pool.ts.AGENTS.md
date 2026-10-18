@@ -1,3 +1,5 @@
 # openspec-poll-worker-pool.ts — index
 
 `createOpenSpecPollWorkerPool({size?, timeoutMs=10_000, useWorker=true, workerUrlOverride?})`. Fixed slots = `max(1, min(maxConcurrentSpawns, os.cpus().length))`. Lazy spawn per slot via `new Worker(url, {execArgv: process.execArgv})` so jiti hook propagates. FIFO queue when slots busy. Per-request timeout terminates worker + falls back in-process. `error` / non-zero `exit` marks slot dead; lazy respawn. `useWorker=false` → always in-process. Spawn-fail flips `workersDisabled = true` permanently. `dispose()` drains queue in-process then terminates workers. `process()` always resolves — tick never drops broadcast. See change: offload-openspec-poll-to-worker.
+
+Pool methods `process` (derive; never rejects), `probe` (tracked-path stats), `build` (status-all post-CLI). Generic `enqueue(kind, payload)`; worker/crash/timeout fallback runs the request in-process (probe/build async + bounded; a failure rejects to the caller = failed poll). See change: use-openspec-status-all.

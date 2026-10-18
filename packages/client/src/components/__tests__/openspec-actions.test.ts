@@ -101,3 +101,45 @@ describe("deriveOpenSpecActions (#E6)", () => {
     expect(deriveOpenSpecActions(base({ attached: false, found: false, isEnded: true })).unattached).toEqual([]);
   });
 });
+
+// A change with a CLI `error` derives to PLANNING (empty artifacts) and blocks
+// its rendered PLANNING candidates with the literal message.
+// See change: use-openspec-status-all (test-plan #F2, #F3, #F6).
+describe("deriveOpenSpecActions — change with a CLI error", () => {
+  const MSG = "Invalid YAML in metadata file";
+  const broken = (over: Partial<OpenSpecActionsCtx> = {}) =>
+    base({ state: ChangeState.PLANNING, error: MSG, ...over });
+
+  it("#F2 primary continue and the ff item are blocked with the literal reason; explore/detach are not; no archive", () => {
+    const r = deriveOpenSpecActions(broken());
+    expect(r.primary).toMatchObject({ key: "continue", blocked: true, blockedReason: MSG });
+    const ff = r.overflow.find((a) => a.key === "ff");
+    expect(ff).toMatchObject({ blocked: true, blockedReason: MSG });
+    expect(r.overflow.find((a) => a.key === "explore")?.blocked).toBe(false);
+    expect(r.overflow.find((a) => a.key === "detach")?.blocked).toBe(false);
+    const keys = [r.primary?.key, ...r.overflow.map((a) => a.key)];
+    expect(keys).not.toContain("archive");
+    expect(keys).not.toContain("archiveAnyway");
+  });
+
+  it("#F3 continue workflow disabled: ff is the blocked primary and no continue action exists", () => {
+    const wf = (w: string) => (WF.all as readonly string[]).includes(w) && w !== "continue";
+    const r = deriveOpenSpecActions(broken({ wf }));
+    expect(r.primary).toMatchObject({ key: "ff", blocked: true, blockedReason: MSG });
+    expect([r.primary?.key, ...r.overflow.map((a) => a.key)]).not.toContain("continue");
+  });
+
+  it("#F6 error + streaming: the reason is the error message, not the streaming reason; detach stays enabled", () => {
+    const r = deriveOpenSpecActions(broken({ working: true }));
+    expect(r.primary).toMatchObject({ blocked: true, blockedReason: MSG });
+    expect(r.primary?.blockedReasonKey).toBeUndefined();
+    expect(r.overflow.find((a) => a.key === "explore")).toMatchObject({ blocked: true, blockedReasonKey: "session.sessionIsStreaming" });
+    expect(r.overflow.find((a) => a.key === "detach")?.blocked).toBe(false);
+  });
+
+  it("no error → unchanged behaviour (no literal reason anywhere)", () => {
+    const r = deriveOpenSpecActions(base({ state: ChangeState.PLANNING }));
+    for (const a of [r.primary, ...r.overflow]) expect(a?.blockedReason).toBeUndefined();
+    expect(r.primary?.blocked).toBe(false);
+  });
+});

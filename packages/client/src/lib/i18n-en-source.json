@@ -169,6 +169,8 @@
   "openspec.detachChange": "Detach change",
   "openspec.lifecycle": "OpenSpec lifecycle",
   "openspec.moreActions": "More actions",
+  "openspec.changeError": "Error",
+  "openspec.changeErrorLabel": "Error: {message}",
   "openspec.archivedOn": "Archived {date}",
   "openspec.inMainCheckout": "In main checkout",
   "openspec.attachmentNotFound": "Not found",

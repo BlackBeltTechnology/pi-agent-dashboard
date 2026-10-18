@@ -84,6 +84,7 @@ describe("OPENSPEC_RECIPES registry", () => {
       "OPENSPEC_INIT_HELP",
       "OPENSPEC_LIST",
       "OPENSPEC_STATUS",
+      "OPENSPEC_STATUS_ALL",
       "OPENSPEC_UPDATE",
     ]);
   });

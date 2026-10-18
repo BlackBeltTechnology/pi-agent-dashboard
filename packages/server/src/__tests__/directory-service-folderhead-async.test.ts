@@ -27,6 +27,9 @@ vi.mock("@blackbelt-technology/pi-dashboard-shared/openspec-poller.js", async (i
   return {
     ...actual,
     pollOpenSpecAsync: vi.fn(async () => ({ initialized: false, changes: [] })),
+    // This suite exercises the fallback path (`list` + local derivation): the CLI
+    // "rejects" `--all` so the poll continues on it. See change: use-openspec-status-all.
+    runOpenSpecStatusAll: vi.fn(async () => ({ stdout: "", stderr: "error: unknown option '--all'", exitCode: 1 })),
     runOpenSpecList: (...args: any[]) => runOpenSpecListMock(...args),
     runOpenSpecStatus: vi.fn(async () => ({ name: "demo", status: "active", artifacts: [], completedTasks: 0, totalTasks: 1 })),
   };

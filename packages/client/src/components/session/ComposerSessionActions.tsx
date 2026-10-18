@@ -25,7 +25,7 @@ import { useAttachmentResolution } from "../../lib/openspec/useAttachmentResolut
 import { AttachmentTrace, isLiveActive } from "../openspec/AttachmentTrace.js";
 import { LazyAttachChangePicker, LazyExploreDialog, LazyNewChangeDialog, LazyProposeDialog, LazyTasksPopover } from "../openspec/lazy-openspec-dialogs.js";
 import { OpenSpecStepper } from "../openspec/OpenSpecStepper.js";
-import { type ActionSpec, deriveOpenSpecActions, type OpenSpecActionKey } from "../openspec/openspec-actions.js";
+import { type ActionSpec, blockedReasonText, deriveOpenSpecActions, type OpenSpecActionKey } from "../openspec/openspec-actions.js";
 import { type OverflowItem, OverflowMenu } from "../openspec/SessionOpenSpecActions.js";
 import { DialogPortal } from "../primitives/DialogPortal.js";
 import { WorktreeActionsMenu } from "../worktree/WorktreeActionsMenu.js";
@@ -383,6 +383,7 @@ export function ComposerSessionActions({
     showArchiveAnyway,
     includeDetach: false,
     idPrefix: "composer-",
+    error: change?.error?.message,
   });
   const send = (skill: string) => () => onSendPrompt?.(`/skill:${skill} ${attached}`);
   const handlers: Record<OpenSpecActionKey, () => void> = {
@@ -398,7 +399,7 @@ export function ComposerSessionActions({
     propose: () => setProposeOpen(true),
   };
   const label = (a: ActionSpec) => i18nT(a.labelKey, undefined, a.labelFallback);
-  const reason = (a: ActionSpec) => (a.blockedReasonKey ? i18nT(a.blockedReasonKey, undefined, "Session is streaming") : undefined);
+  const reason = (a: ActionSpec) => blockedReasonText(a, i18nT);
   const toItem = (a: ActionSpec): OverflowItem => ({
     testId: a.testId,
     label: label(a),

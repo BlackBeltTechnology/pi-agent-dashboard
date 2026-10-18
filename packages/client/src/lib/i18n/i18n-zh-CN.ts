@@ -185,6 +185,8 @@ export const zhCNCatalog: Record<string, string> = {
   "openspec.node.archive": "归档",
   "openspec.lifecycle": "OpenSpec 生命周期",
   "openspec.moreActions": "更多操作",
+  "openspec.changeError": "错误",
+  "openspec.changeErrorLabel": "错误：{message}",
   "openspec.archivedOn": "已归档 {date}",
   "openspec.inMainCheckout": "在主检出中",
   "openspec.attachmentNotFound": "未找到",

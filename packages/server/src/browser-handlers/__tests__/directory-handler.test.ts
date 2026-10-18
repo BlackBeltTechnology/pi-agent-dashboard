@@ -18,6 +18,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // the CLI). Stub it so the test exercises only the post-archive poll path.
 vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/openspec.js", () => ({
   archiveCompleted: vi.fn(),
+  // Cache key for the `--all`-unsupported verdict. See change: use-openspec-status-all.
+  resolveOpenSpecPackageVersion: vi.fn(async () => "1.0.0"),
 }));
 
 // The openspec_refresh admission-gate tests (harden-server-request-surfaces)
@@ -29,6 +31,9 @@ vi.mock("@blackbelt-technology/pi-dashboard-shared/openspec-poller.js", async (i
   return {
     ...actual,
     pollOpenSpecAsync: vi.fn(async () => ({ initialized: false, changes: [] })),
+    // This suite exercises the fallback path (`list` + local derivation): the CLI
+    // "rejects" `--all` so the poll continues on it. See change: use-openspec-status-all.
+    runOpenSpecStatusAll: vi.fn(async () => ({ stdout: "", stderr: "error: unknown option '--all'", exitCode: 1 })),
     runOpenSpecList: vi.fn(async () => ({ changes: [] })),
     runOpenSpecStatus: vi.fn(async () => ({ artifacts: [], isComplete: false })),
   };
@@ -54,7 +59,7 @@ import * as path from "node:path";
 import type { BrowserHandlerContext } from "../handler-context.js";
 import type { OpenSpecGetResultMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { OpenSpecData } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { pollOpenSpecAsync, runOpenSpecList, runOpenSpecStatus } from "@blackbelt-technology/pi-dashboard-shared/openspec-poller.js";
+import { pollOpenSpecAsync, runOpenSpecList, runOpenSpecStatus, runOpenSpecStatusAll } from "@blackbelt-technology/pi-dashboard-shared/openspec-poller.js";
 import { createDirectoryService, type DirectoryService } from "../../directory-service.js";
 import type { PreferencesStore } from "../../persistence/preferences-store.js";
 import type { SessionManager } from "../../session/memory-session-manager.js";
@@ -322,6 +327,7 @@ describe("openspec_refresh admission gates — harden-server-request-surfaces", 
     list: vi.mocked(runOpenSpecList),
     status: vi.mocked(runOpenSpecStatus),
     legacy: vi.mocked(pollOpenSpecAsync),
+    all: vi.mocked(runOpenSpecStatusAll),
   });
 
   const totalSpawns = (...spies: Array<ReturnType<typeof vi.fn>>) =>
@@ -395,7 +401,7 @@ describe("openspec_refresh admission gates — harden-server-request-surfaces", 
     handleOpenSpecRefresh({ type: "openspec_refresh", cwd } as any, h.ctx);
     await flush();
 
-    expect(totalSpawns(spawns.list, spawns.status, spawns.legacy)).toBe(0);
+    expect(totalSpawns(spawns.list, spawns.status, spawns.legacy, spawns.all)).toBe(0);
     expect(h.broadcast).not.toHaveBeenCalled();
   });
 
@@ -410,7 +416,7 @@ describe("openspec_refresh admission gates — harden-server-request-surfaces", 
     handleOpenSpecRefresh({ type: "openspec_refresh", cwd: h.tmp } as any, h.ctx);
     await flush();
 
-    expect(totalSpawns(spawns.list, spawns.status, spawns.legacy)).toBe(0);
+    expect(totalSpawns(spawns.list, spawns.status, spawns.legacy, spawns.all)).toBe(0);
     expect(h.broadcast).not.toHaveBeenCalled();
   });
 
@@ -421,7 +427,7 @@ describe("openspec_refresh admission gates — harden-server-request-surfaces", 
     handleOpenSpecRefresh({ type: "openspec_refresh", cwd: h.tmp } as any, h.ctx);
     await flush();
 
-    expect(totalSpawns(spawns.list, spawns.status, spawns.legacy)).toBe(0);
+    expect(totalSpawns(spawns.list, spawns.status, spawns.legacy, spawns.all)).toBe(0);
     expect(h.broadcast).not.toHaveBeenCalled();
   });
 
@@ -436,7 +442,7 @@ describe("openspec_refresh admission gates — harden-server-request-surfaces", 
     handleOpenSpecRefresh({ type: "openspec_refresh", cwd: h.tmp } as any, h.ctx);
     await flush();
 
-    expect(totalSpawns(spawns.list, spawns.status, spawns.legacy)).toBe(0);
+    expect(totalSpawns(spawns.list, spawns.status, spawns.legacy, spawns.all)).toBe(0);
     expect(h.broadcast).not.toHaveBeenCalled();
   });
 
@@ -450,7 +456,10 @@ describe("openspec_refresh admission gates — harden-server-request-surfaces", 
     spawns.legacy.mockClear();
 
     handleOpenSpecRefresh({ type: "openspec_refresh", cwd: h.tmp } as any, h.ctx);
-    await flush();
+    // The poll starts with real async fs I/O (CLI version / probe), which a
+    // fixed number of `setImmediate`s does not cover.
+    await vi.waitFor(() => expect(spawns.list).toHaveBeenCalledTimes(1), { timeout: 5000 });
+    await vi.waitFor(() => expect(openspecUpdatesTo(h.broadcast, h.tmp)).toHaveLength(1), { timeout: 5000 });
 
     // Force path bypasses the mtime gate: exactly one list spawn; the
     // changeless root means no per-change status spawn.
@@ -484,10 +493,10 @@ describe("openspec_refresh admission gates — harden-server-request-surfaces", 
     const spawns = spawnSpies();
 
     handleOpenSpecRefresh({ type: "openspec_refresh", cwd: h.tmp } as any, h.ctx);
-    await flush();
+    await vi.waitFor(() => expect(spawns.list).toHaveBeenCalledTimes(1), { timeout: 5000 });
+    await vi.waitFor(() => expect(openspecUpdatesTo(h.broadcast, h.tmp)).toHaveLength(1), { timeout: 5000 });
 
     expect(spawns.list).toHaveBeenCalledTimes(1);
-    expect(openspecUpdatesTo(h.broadcast, h.tmp)).toHaveLength(1);
   });
 
   it("E8 non-canonical cwd gates — pins the strict-equality trade-off", async () => {
@@ -497,7 +506,7 @@ describe("openspec_refresh admission gates — harden-server-request-surfaces", 
     handleOpenSpecRefresh({ type: "openspec_refresh", cwd: h.tmp + "/" } as any, h.ctx);
     await flush();
 
-    expect(totalSpawns(spawns.list, spawns.status, spawns.legacy)).toBe(0);
+    expect(totalSpawns(spawns.list, spawns.status, spawns.legacy, spawns.all)).toBe(0);
     expect(h.broadcast).not.toHaveBeenCalled();
   });
 
@@ -521,7 +530,7 @@ describe("openspec_refresh admission gates — harden-server-request-surfaces", 
     }
     await flush();
 
-    expect(totalSpawns(spawns.list, spawns.status, spawns.legacy)).toBe(0);
+    expect(totalSpawns(spawns.list, spawns.status, spawns.legacy, spawns.all)).toBe(0);
     expect(h.broadcast).not.toHaveBeenCalled();
   });
 });

@@ -18,7 +18,8 @@ import { OpenSpecStepper } from "./OpenSpecStepper.js";
 // ArtifactLettersButton removed — stepper P/D/S nodes are now clickable
 // and replace the standalone letters button. See change:
 // redesign-session-card-and-composer (stepper-click-to-open).
-import { type ActionSpec, deriveOpenSpecActions, type OpenSpecActionKey } from "./openspec-actions.js";
+import { type ActionSpec, blockedReasonText, deriveOpenSpecActions, type OpenSpecActionKey } from "./openspec-actions.js";
+import { OpenSpecErrorBadge } from "./OpenSpecErrorBadge.js";
 
 /**
  * Semantic palette — kept in sync with ComposerSessionActions so sidecard
@@ -318,7 +319,7 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
   // Bulk Archive shares the one working gate (streaming ∨ retrying, D9).
   const actionsDisabledGlobal = working;
   const label = (a: ActionSpec) => i18nT(a.labelKey, undefined, a.labelFallback);
-  const reason = (a: ActionSpec) => (a.blockedReasonKey ? i18nT(a.blockedReasonKey, undefined, "Session is streaming") : undefined);
+  const reason = (a: ActionSpec) => blockedReasonText(a, i18nT);
 
   const bulkArchiveButton = hasCompletedChanges && onBulkArchive && wf("bulk-archive") ? (
     <ActionButton
@@ -505,6 +506,7 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
   };
   const { primary, overflow } = deriveOpenSpecActions({
     attached: true, found: true, state, wf, isEnded, working, showArchiveAnyway, includeDetach: true, idPrefix: "",
+    error: change.error?.message,
   });
   const menuItems = overflow.map((a) => toItem(a, handlers[a.key]));
   // Archive segment mirrors the primary's gate (D6); Tasks locked while streaming (D4d).
@@ -524,6 +526,7 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
         ) : (
           <span className="text-[11px] truncate min-w-0" data-testid="attached-badge"><Icon path={mdiPaperclip} size={0.4} className="inline mr-0.5" /><span className="text-blue-400">{attached}</span></span>
         )}
+        {change.error && <OpenSpecErrorBadge error={change.error} />}
         <span className="flex-1" />
         {!statusOnly && primary && (
           <ActionButton
