@@ -51,6 +51,8 @@ export interface BrowserPaneTabProps {
 /** Resize requests: at most one per window, only past the dead-band. */
 const RESIZE_THROTTLE_MS = 500;
 const RESIZE_DEAD_BAND_PX = 16;
+/** The idle strip shows only after the tab stayed `no-frames` this long (a static page stops repainting). */
+const IDLE_NOTICE_DELAY_MS = 5000;
 
 /** A position normalized to `[0,1]` of the rendered box; `null` for a degenerate box. */
 function normalize(rect: { left: number; top: number; width: number; height: number }, x: number, y: number) {
@@ -95,6 +97,18 @@ export function BrowserPaneTab({ path, session, isActive, onClose }: BrowserPane
       if (f.instanceId === instanceId && f.tabId === tabId && typeof f.jpegBase64 === "string") setJpeg(f.jpegBase64);
     });
   }, [local, browserHost, instanceId, tabId]);
+
+  // Idle strip: shown only once `no-frames` has persisted; hidden at once on any other state.
+  const noFrames = tab?.state === "no-frames";
+  const [idle, setIdle] = useState(false);
+  useEffect(() => {
+    if (!noFrames) {
+      setIdle(false);
+      return;
+    }
+    const id = setTimeout(() => setIdle(true), IDLE_NOTICE_DELAY_MS);
+    return () => clearTimeout(id);
+  }, [noFrames]);
 
   const detached = tab?.state === "detached";
   const viewable = !!tab && !detached;
@@ -173,9 +187,12 @@ export function BrowserPaneTab({ path, session, isActive, onClose }: BrowserPane
   }, [resizeEnabled, sendInput]);
 
   // ── pointer / wheel / key ────────────────────────────────────────────────
+  // Only the rendered image is a valid target: no image, or a position on the
+  // letterbox (outside `[0,1]`), produces no input (the relay would refuse + audit it).
   const point = (clientX: number, clientY: number) => {
-    const el = imgRef.current ?? boxRef.current;
-    return el ? normalize(el.getBoundingClientRect(), clientX, clientY) : null;
+    const el = imgRef.current;
+    const p = el ? normalize(el.getBoundingClientRect(), clientX, clientY) : null;
+    return p && p.x >= 0 && p.x <= 1 && p.y >= 0 && p.y <= 1 ? p : null;
   };
   const onPointerUp = (e: React.PointerEvent) => {
     if (!canInput) return;
@@ -195,7 +212,11 @@ export function BrowserPaneTab({ path, session, isActive, onClose }: BrowserPane
   };
   const onKey = (keyType: "keyDown" | "keyUp") => (e: React.KeyboardEvent) => {
     if (!canInput) return;
-    sendInput({ kind: "key", keyType, key: e.key, code: e.code });
+    // CDP inserts a character only when `text` is set. Ctrl+Alt is AltGr, so it keeps text.
+    const typing = !e.metaKey && !(e.ctrlKey && !e.altKey);
+    const text =
+      keyType === "keyDown" && typing ? (e.key === "Enter" ? "\r" : [...e.key].length === 1 ? e.key : undefined) : undefined;
+    sendInput({ kind: "key", keyType, key: e.key, code: e.code, ...(text !== undefined ? { text } : {}) });
   };
 
   // ── text-entry bridge (soft keyboards) ───────────────────────────────────
@@ -245,7 +266,6 @@ export function BrowserPaneTab({ path, session, isActive, onClose }: BrowserPane
     );
   }
 
-  const idle = tab?.state === "no-frames";
   const bringToFront = () => sendInput({ kind: "bringToFront" });
 
   return (
@@ -280,7 +300,7 @@ export function BrowserPaneTab({ path, session, isActive, onClose }: BrowserPane
         )}
       </div>
 
-      {idle && (
+      {idle && noFrames && (
         <div data-testid="browser-pane-idle" className="flex shrink-0 items-center gap-2 border-b border-[var(--border-primary)] px-2 py-0.5 text-[11px] text-[var(--text-tertiary)]">
           <span>{t("noFramesOverlay", undefined, "No repaints — tab may be idle or in the background")}</span>
           <button type="button" className={BTN} onClick={bringToFront}>
