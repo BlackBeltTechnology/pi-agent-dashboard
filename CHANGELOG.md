@@ -166,6 +166,7 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Fixed
 
+- **Same-named automations in different workspaces are now scheduled independently.** Two repos that each defined an automation with the same name (for example `deploy`) shared one scheduler and concurrency slot: one could leak a timer that could never be disposed, and one could be silently dropped while the other was running. Each automation is now identified by its scope and its own directory. An automation that was previously suppressed by an unrelated same-named one may now start running on its schedule — that is the fix taking effect, not a new automation appearing.
 - **Global automations no longer run twice per occurrence.** While a session (including the automation's own run) is open in the home directory, `~/.pi/automation` was also armed as a folder scope. It is now scanned, armed and listed once, under `global`.
 - **kb index no longer silently empties, erodes or conflates.** The docs index is installed with a
   no-clobber hard link, or copied into an existing file through SQLite's online backup, instead of a

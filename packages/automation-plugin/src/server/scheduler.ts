@@ -15,7 +15,7 @@
  * See change: add-automation-plugin.
  */
 import type { DiscoveredAutomation } from "../shared/automation-types.js";
-import type { TriggerRegistry, Disposable, ArmDeps, FireContext } from "./trigger-registry.js";
+import type { ArmDeps, Disposable, FireContext, TriggerRegistry } from "./trigger-registry.js";
 
 export type OnFire = (automation: DiscoveredAutomation, ctx: FireContext) => void;
 
@@ -56,9 +56,16 @@ export interface SchedulerDeps extends Partial<ArmDeps> {
   warn?: (msg: string) => void;
 }
 
-/** Unique armed-key for an automation (scope + name distinguishes collisions). */
+/**
+ * Unique armed-key for an automation: scope + the absolute path of its own
+ * directory (`dir`), so same-named automations in different workspaces never
+ * share scheduler/concurrency state. Opaque identifier — nothing parses it.
+ * Not realpath'd: identity follows the discovered path, matching the
+ * `path.resolve` base dedupe in folderScopeBases().
+ * See change: fix-automation-key-collision.
+ */
 export function automationKey(a: DiscoveredAutomation): string {
-  return `${a.scope}:${a.name}`;
+  return `${a.scope}:${a.dir}`;
 }
 
 export interface Scheduler {
@@ -135,7 +142,10 @@ export function createScheduler(deps: SchedulerDeps): Scheduler {
       },
       armDeps,
     );
-    armed.set(automationKey(automation), { disposable });
+    // Never replace an armed trigger without disposing it (leaked-timer guard).
+    const key = automationKey(automation);
+    disposeKey(key);
+    armed.set(key, { disposable });
     log(`[scheduler] armed ${automationKey(automation)} (kind=${kind})`);
   }
 
