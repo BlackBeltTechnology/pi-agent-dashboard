@@ -264,7 +264,8 @@ Every successful-poll payload, and the cached state served on demand, SHALL carr
 - `configured: string | null`;
 - `generated: "none" | "current" | "outdated" | "newer" | "incompatible" | "conflict" | "unmanaged"`;
 - `missing: boolean` — the config file the CLI reads (`config.yaml`, else `config.yml`) names a schema that resolves in none of the project, user or package schema directories;
-- `unpinnedChanges: string[]` — the active changes (as enumerated by enable) without `.openspec.yaml`, detected by `stat` only, and computed only when `configured === "pi-spec-driven"`.
+- `unpinnedChanges: string[]` — the active changes (as enumerated by enable) without `.openspec.yaml`, detected by `stat` only, and computed only when `configured === "pi-spec-driven"`;
+- `affectedChanges: string[]` — the active changes (as enumerated by enable) that resolve to `pi-spec-driven` from files alone: their `.openspec.yaml` names it, or they have no `.openspec.yaml` and `configured === "pi-spec-driven"`. It is computed from files, not from the CLI's per-change `schemaName`, because a change whose schema cannot be loaded is reported without one. Sorted by name; the Update confirmation counts them.
 
 Failure, disabled, opted-out and global-off payloads SHALL omit it. It SHALL be recomputed whenever the poll rebuilds data, and whenever the resolved CLI version changes. The filesystem part is computed in the poll worker; any CLI call it needs (`schema validate` for `newer`) runs on the main thread through the spawn semaphore, memoized.
 
