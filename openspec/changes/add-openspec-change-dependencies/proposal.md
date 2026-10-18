@@ -41,6 +41,7 @@ OpenSpec has no change-to-change dependency concept, so execution order lives on
 ## Dependencies
 
 - Blocked by: `add-pi-spec-driven-schema` (schema patch v2 extends its generator and stamp), and transitively `use-openspec-status-all` (schema-declared artifacts and the `.yaml` tracked paths come from `openspec status --all`).
+- Builds on: `move-workflow-schema-status-to-poll-worker` (archives first). Both changes write full MODIFIED copies of "Cwd-level change-detection gate for the status-all poll" (`server-openspec-polling`) and "Workflow schema status is reported separately from readiness" (`openspec-workflow-schema`). This change rebases both copies onto the text archived by that change before its own archive, and computes `undeclaredChanges` in that change's worker-safe `packages/server/src/openspec/workflow-schema-status.ts` (the per-tick `schemaStatus` worker request), not in `workflow-schema.ts`.
 - Blocks: none.
 
 ## Impact
