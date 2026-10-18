@@ -5,7 +5,7 @@
  */
 import { withUiPrimitiveProvider } from "@blackbelt-technology/dashboard-plugin-runtime/test-support";
 import type { UiPrimitiveMap } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import type React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
@@ -418,6 +418,84 @@ describe("KbTestSearch", () => {
     await waitFor(() => expect(r.getByTestId("kb-search-hit")).toBeTruthy());
     fireEvent.click(r.getByTestId("kb-search-hit"));
     expect(writeText).toHaveBeenCalledWith("docs/a.md");
+    await waitFor(() => expect(r.getByTestId("kb-search-copied")).toBeTruthy());
+  });
+
+  // See change: audit-plugin-bundles-non-secure-context (test-plan #F1–#F4, #X1).
+  const stubExec = (impl: () => boolean) => {
+    (document as unknown as { execCommand: unknown }).execCommand = vi.fn(impl);
+  };
+  const noClipboard = () => Object.defineProperty(navigator, "clipboard", { value: undefined, configurable: true });
+  const showHits = async (hits: KbSearchHit[]) => {
+    searchFetch(() => jsonOk({ hits, tookMs: 1 }));
+    const r = render(<KbTestSearch cwd="/repo" dirty={false} />);
+    run(r);
+    await waitFor(() => expect(r.getAllByTestId("kb-search-hit").length).toBe(hits.length));
+    return r;
+  };
+
+  it("F1 copy failure shows a polite failure indicator, never 'copied'", async () => {
+    noClipboard();
+    stubExec(() => false);
+    const r = await showHits([hit()]);
+    fireEvent.click(r.getByTestId("kb-search-hit"));
+    const failed = await waitFor(() => r.getByTestId("kb-search-copy-failed"));
+    expect(failed.getAttribute("aria-live")).toBe("polite");
+    expect(r.queryByTestId("kb-search-copied")).toBeNull();
+  });
+
+  it("F2 execCommand fallback reports copied", async () => {
+    noClipboard();
+    stubExec(() => true);
+    const r = await showHits([hit()]);
+    fireEvent.click(r.getByTestId("kb-search-hit"));
+    await waitFor(() => expect(r.getByTestId("kb-search-copied")).toBeTruthy());
+    expect(r.queryByTestId("kb-search-copy-failed")).toBeNull();
+  });
+
+  it("F3 the copied confirmation clears after 1500 ms", async () => {
+    Object.defineProperty(navigator, "clipboard", { value: { writeText: vi.fn(async () => {}) }, configurable: true });
+    const r = await showHits([hit()]);
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    try {
+      fireEvent.click(r.getByTestId("kb-search-hit"));
+      await vi.waitFor(() => expect(r.getByTestId("kb-search-copied")).toBeTruthy());
+      await act(async () => {
+        vi.advanceTimersByTime(1500);
+      });
+      expect(r.queryByTestId("kb-search-copied")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("F4 latest click wins: a late failure of an earlier copy is ignored", async () => {
+    stubExec(() => false);
+    let rejectA!: (e: unknown) => void;
+    let resolveB!: () => void;
+    const writeText = vi
+      .fn()
+      .mockImplementationOnce(() => new Promise<void>((_, rej) => (rejectA = rej)))
+      .mockImplementationOnce(() => new Promise<void>((res) => (resolveB = res)));
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    const r = await showHits([hit({ chunkId: "a", path: "docs/a.md" }), hit({ chunkId: "b", path: "docs/b.md" })]);
+    const [a, b] = r.getAllByTestId("kb-search-hit");
+    fireEvent.click(a);
+    fireEvent.click(b);
+    await act(async () => resolveB());
+    await waitFor(() => expect(r.getByTestId("kb-search-copied")).toBeTruthy());
+    await act(async () => rejectA(new Error("late")));
     expect(r.getByTestId("kb-search-copied")).toBeTruthy();
+    expect(r.queryByTestId("kb-search-copy-failed")).toBeNull();
+  });
+
+  it("X1 rejected writeText plus throwing execCommand → failure indicator, no unhandled rejection", async () => {
+    Object.defineProperty(navigator, "clipboard", { value: { writeText: vi.fn(async () => { throw new DOMException("no", "NotAllowedError"); }) }, configurable: true });
+    stubExec(() => {
+      throw new Error("boom");
+    });
+    const r = await showHits([hit()]);
+    fireEvent.click(r.getByTestId("kb-search-hit"));
+    await waitFor(() => expect(r.getByTestId("kb-search-copy-failed")).toBeTruthy());
   });
 });
