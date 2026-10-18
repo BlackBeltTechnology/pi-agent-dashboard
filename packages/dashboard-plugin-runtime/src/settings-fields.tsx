@@ -24,9 +24,18 @@
  * See change: retro-ux-plugin-settings-forms (design D2),
  * retro-ux-plugin-settings-wave-2 (design D2).
  */
-import { mdiAlertCircleOutline, mdiAlertOutline, mdiCheckCircleOutline, mdiChevronRight, mdiInformationOutline } from "@mdi/js";
+import {
+  mdiAlertCircleOutline,
+  mdiAlertOutline,
+  mdiCheck,
+  mdiCheckCircleOutline,
+  mdiChevronRight,
+  mdiContentCopy,
+  mdiInformationOutline,
+  mdiRefresh,
+} from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { createContext, type ReactNode, useContext, useId } from "react";
+import { createContext, type ReactNode, useContext, useEffect, useId, useRef, useState } from "react";
 import { useRuntimeT } from "./plugin-context.js";
 
 /** `default` = value comes from the built-in default; `changed` = overridden. */
@@ -412,21 +421,85 @@ const NOTICE_TONE: Record<SettingsNoticeTone, { cls: string; icon: string }> = {
   },
 };
 
-/** Severity callout (`ui-contract.md` recipe). `error` announces itself (`role="alert"`). */
+const SMALL_BTN =
+  "focus-ring inline-flex min-h-[32px] items-center gap-1 rounded-md border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] px-2 text-[12px] font-semibold text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:cursor-not-allowed disabled:opacity-60";
+
+/**
+ * Copies `text` to the clipboard ("Copy details", "Copy command"). The copied
+ * text is never rendered: raw codes, HTTP statuses and parser messages live
+ * only in the clipboard payload.
+ */
+export function SettingsCopyButton({
+  text,
+  label,
+  copiedLabel,
+  testId,
+}: {
+  text: string;
+  label: string;
+  copiedLabel?: string;
+  testId?: string;
+}) {
+  const t = useRuntimeT();
+  const [copied, setCopied] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (timer.current) clearTimeout(timer.current);
+  }, []);
+  return (
+    <button
+      type="button"
+      data-testid={testId}
+      className={SMALL_BTN}
+      onClick={() => {
+        void navigator.clipboard?.writeText(text).then(
+          () => {
+            setCopied(true);
+            if (timer.current) clearTimeout(timer.current);
+            timer.current = setTimeout(() => setCopied(false), 1500);
+          },
+          () => {},
+        );
+      }}
+    >
+      <Icon path={copied ? mdiCheck : mdiContentCopy} size={0.55} aria-hidden="true" />
+      {copied ? (copiedLabel ?? t("settingsField.copied", undefined, "Copied")) : label}
+    </button>
+  );
+}
+
+/**
+ * Severity callout (`ui-contract.md` recipe). `error` announces itself (`role="alert"`).
+ * Optional action row: `onRetry` → "Try again", `details` → "Copy details"
+ * (the raw text is only copied, never shown), `actions` → caller buttons.
+ */
 export function SettingsNotice({
   tone,
   children,
   testId,
   role,
   className,
+  onRetry,
+  retryLabel,
+  retrying,
+  details,
+  actions,
 }: {
   tone: SettingsNoticeTone;
   children: ReactNode;
   testId?: string;
   role?: "status" | "alert";
   className?: string;
+  onRetry?: () => void;
+  retryLabel?: string;
+  retrying?: boolean;
+  /** Raw detail (codes, HTTP status, body) copied by "Copy details"; never rendered. */
+  details?: string | null;
+  actions?: ReactNode;
 }) {
+  const t = useRuntimeT();
   const { cls, icon } = NOTICE_TONE[tone];
+  const hasActions = Boolean(onRetry || details || actions);
   return (
     <div
       data-testid={testId}
@@ -435,7 +508,33 @@ export function SettingsNotice({
       className={`flex items-start gap-2 rounded-md border px-2.5 py-2 text-xs ${cls} ${className ?? ""}`}
     >
       <Icon path={icon} size={0.65} className="mt-0.5 shrink-0" aria-hidden="true" />
-      <div className="min-w-0 flex-1">{children}</div>
+      <div className="min-w-0 flex-1">
+        {children}
+        {hasActions ? (
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            {onRetry ? (
+              <button
+                type="button"
+                className={SMALL_BTN}
+                disabled={retrying}
+                data-testid={testId ? `${testId}-retry` : undefined}
+                onClick={onRetry}
+              >
+                <Icon path={mdiRefresh} size={0.55} aria-hidden="true" />
+                {retryLabel ?? t("settingsField.tryAgain", undefined, "Try again")}
+              </button>
+            ) : null}
+            {actions}
+            {details ? (
+              <SettingsCopyButton
+                text={details}
+                label={t("settingsField.copyDetails", undefined, "Copy details")}
+                testId={testId ? `${testId}-copy-details` : undefined}
+              />
+            ) : null}
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }

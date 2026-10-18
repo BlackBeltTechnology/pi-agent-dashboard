@@ -5,11 +5,12 @@
  * See change: retro-ux-plugin-settings-forms, retro-ux-plugin-settings-wave-2.
  */
 import { mdiCheck } from "@mdi/js";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   NumberField,
   SelectField,
+  SettingsCopyButton,
   SettingsFacts,
   SettingsGroup,
   SettingsItem,
@@ -372,5 +373,43 @@ describe("SettingsGroup meta (wave-2 #E5)", () => {
     expect(meta.className).toContain("text-[12px]");
     expect(meta.className).toContain("text-[var(--text-secondary)]");
     expect(summary.innerHTML).not.toContain("text-[11px]");
+  });
+});
+
+describe("SettingsNotice actions + SettingsCopyButton (wave-2 X-series helper)", () => {
+  it("renders Try again and Copy details; the raw detail is copied, never shown", async () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.assign(navigator, { clipboard: { writeText } });
+    const onRetry = vi.fn();
+    render(
+      <SettingsNotice tone="error" testId="n" onRetry={onRetry} details="HTTP 500: boom">
+        Could not save.
+      </SettingsNotice>,
+    );
+    const notice = screen.getByTestId("n");
+    expect(notice.textContent).not.toContain("HTTP 500");
+    expect(notice.textContent).not.toContain("boom");
+    fireEvent.click(screen.getByTestId("n-retry"));
+    expect(onRetry).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("n-copy-details"));
+    });
+    expect(writeText).toHaveBeenCalledWith("HTTP 500: boom");
+    expect(screen.getByTestId("n-copy-details").textContent).toContain("Copied");
+  });
+
+  it("renders no action row without actions", () => {
+    render(<SettingsNotice tone="info" testId="n">msg</SettingsNotice>);
+    expect(screen.getByTestId("n").querySelector("button")).toBeNull();
+  });
+
+  it("copy button copies its text", async () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.assign(navigator, { clipboard: { writeText } });
+    render(<SettingsCopyButton text="pi-obs provision" label="Copy command" testId="c" />);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("c"));
+    });
+    expect(writeText).toHaveBeenCalledWith("pi-obs provision");
   });
 });
