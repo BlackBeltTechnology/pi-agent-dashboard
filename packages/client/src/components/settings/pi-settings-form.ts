@@ -22,7 +22,7 @@ import type { PiSettingsPatch } from "../../lib/api/pi-settings-api.js";
 export type FormState = Record<string, string>;
 
 /** Typed rows rendered by the form. `enabledModels` has its own editor. */
-export const FORM_DEFS: readonly PiSettingDef[] = PI_SETTINGS_SCHEMA.filter((d) => d.key !== "enabledModels");
+const FORM_DEFS: readonly PiSettingDef[] = PI_SETTINGS_SCHEMA.filter((d) => d.key !== "enabledModels");
 
 const SCOPE_DEF = PI_SETTINGS_SCHEMA.find((d) => d.key === "enabledModels");
 export const ENABLED_MODELS_DEF: PiSettingDef = SCOPE_DEF ?? {
@@ -55,7 +55,7 @@ export function toForm(settings: Record<string, unknown>): FormState {
 }
 
 /** Form string → typed patch value (`null` = delete the key). */
-export function parseField(def: PiSettingDef, raw: string): unknown {
+function parseField(def: PiSettingDef, raw: string): unknown {
   if (raw === "") return null;
   switch (def.kind) {
     case "bool":
@@ -72,7 +72,7 @@ export function parseField(def: PiSettingDef, raw: string): unknown {
 }
 
 /** Message for an invalid value of a row (`label + reason`), or null. */
-export function fieldError(def: PiSettingDef, raw: string, label: string): string | null {
+function fieldError(def: PiSettingDef, raw: string, label: string): string | null {
   if (raw === "") return null;
   const msg = checkPiSettingValue(def, parseField(def, raw));
   return msg ? `${label} ${msg}` : null;
@@ -121,7 +121,7 @@ export function defaultText(def: PiSettingDef): string {
 
 // ── Extra rows: keys with their own editor, or JSON-only ──────────────
 
-export type ExtraRowKind = "link" | "json" | "default-model";
+type ExtraRowKind = "link" | "json" | "default-model";
 
 export interface ExtraRow {
   /** Raw key(s) shown on the row. */

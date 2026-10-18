@@ -19,7 +19,6 @@ import { getApiBase } from "./api-context.js";
 import { fetchJsonResponse } from "./fetch-json.js";
 
 export type {
-  PiLegacyAuthState,
   PiLegacyCredential,
   PiLegacyCredentialsResponse,
   PiSettingsConflict,

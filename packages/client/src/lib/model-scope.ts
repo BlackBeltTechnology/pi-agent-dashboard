@@ -46,9 +46,9 @@ export function buildScopeCatalogue(rows: readonly { id: string; provider: strin
   return { providers, models };
 }
 
-export type ScopeItemKind = "provider" | "pick" | "pattern";
+type ScopeItemKind = "provider" | "pick" | "pattern";
 
-export interface ScopeItem {
+interface ScopeItem {
   /** The stored entry, verbatim (thinking-level suffix included). */
   raw: string;
   kind: ScopeItemKind;
@@ -84,7 +84,7 @@ function pickOf(raw: string, catalogue: ScopeCatalogue): ScopeModel | null {
   return byFull(raw) ?? byFull(stripThinkingLevel(raw));
 }
 
-export function classifyEntry(raw: string, catalogue: ScopeCatalogue): ScopeItem {
+function classifyEntry(raw: string, catalogue: ScopeCatalogue): ScopeItem {
   const pick = pickOf(raw, catalogue);
   if (pick) return { raw, kind: "pick", target: pick.full };
   const provider = wholeProviderOf(stripThinkingLevel(raw), catalogue);
@@ -106,7 +106,7 @@ export function parseScope(entries: readonly string[], catalogue: ScopeCatalogue
 export const serializeScope = (parsed: ParsedScope): string[] => parsed.items.map((i) => i.raw);
 
 /** Order-insensitive identity of an entry list (dirty check). */
-export const scopeEntrySet = (entries: readonly string[]): Set<string> => new Set(entries);
+const scopeEntrySet = (entries: readonly string[]): Set<string> => new Set(entries);
 
 export function sameScopeEntries(a: readonly string[], b: readonly string[]): boolean {
   const sa = scopeEntrySet(a);

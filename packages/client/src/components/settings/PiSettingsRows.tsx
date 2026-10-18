@@ -20,8 +20,8 @@ const FIELD =
   "rounded border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] px-2 py-1 text-xs text-[var(--text-primary)]";
 const BTN = "rounded border border-[var(--border-secondary)] px-2 py-0.5 text-xs text-[var(--text-primary)]";
 
-/** Segmented control for at most three values. Exported for tests. */
-export function Segmented({
+/** Segmented control for at most three values. */
+function Segmented({
   testId,
   label,
   options,

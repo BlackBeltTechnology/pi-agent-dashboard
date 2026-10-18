@@ -15,7 +15,7 @@ import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 import type { PiResource, PiResourcesResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 
-export const BUILTIN_PI_THEMES = ["system", "dark", "light"] as const;
+const BUILTIN_PI_THEMES = ["system", "dark", "light"] as const;
 
 /** Bound on pi's resolver (it has its own 5 s budget; the settings read must not wait that long). */
 const SCAN_TIMEOUT_MS = 3_000;
