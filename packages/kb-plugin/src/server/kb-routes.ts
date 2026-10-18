@@ -239,7 +239,18 @@ const okOutcome = (r: ResolvedSpec): KbSourceOutcome => ({ ref: r.spec.ref, stat
 /** First index: all-or-nothing through the atomic path. Nothing on disk → nothing to build, no file. */
 async function firstIndex(cfg: ReturnType<typeof loadConfig>, resolved: ResolvedSpec[], outcomes: KbSourceOutcome[], log?: JobLog): Promise<KbReindexResult> {
   if (!resolved.some((r) => existsSync(r.src.dir))) return { changed: 0, chunks: 0, outcomes };
-  const r = await runIndexAtomic({ dbPath: cfg.dbAbsPath, sources: resolved.map((x) => ({ id: x.src.id, dir: x.src.dir })), indexOpts: indexOptionsFromConfig(cfg), gate: cfg });
+  let r: Awaited<ReturnType<typeof runIndexAtomic>>;
+  try {
+    r = await runIndexAtomic({ dbPath: cfg.dbAbsPath, sources: resolved.map((x) => ({ id: x.src.id, dir: x.src.dir })), indexOpts: indexOptionsFromConfig(cfg), gate: cfg });
+  } catch (e) {
+    // All-or-nothing: record every resolved source as failed so the per-source outcomes (and the
+    // job's error summary) reflect THIS run rather than a stale earlier one.
+    for (const x of resolved) {
+      outcomes.push({ ref: x.spec.ref, status: "error", error: errMsg(e), at: Date.now() });
+      log?.warn(`[kb-plugin] source failed ref=${x.spec.ref} ms=${Date.now() - x.started}: ${errMsg(e)}`);
+    }
+    return { changed: 0, chunks: 0, outcomes };
+  }
   for (const x of resolved) {
     outcomes.push(okOutcome(x));
     log?.info(`[kb-plugin] source ok ref=${x.spec.ref} kind=${kindOf(x.spec)} ms=${Date.now() - x.started}`);
@@ -295,6 +306,8 @@ export async function reindexAll(cwd: string, log?: JobLog, opts: { pollMs?: num
   const resolved = await resolveSpecs(cwd, cfg, outcomes, log);
   // Another process is building the first index: wait for it rather than create the database.
   while (!existsSync(cfg.dbAbsPath) && isFirstIndexLive(cfg.dbAbsPath)) await new Promise<void>((r) => setTimeout(r, opts.pollMs ?? 1000));
+  // The wait can be long: re-check so a folder removed meanwhile is not resurrected by the build (design D9).
+  if (!folderExists(cwd)) throw new Error("folder missing");
   return existsSync(cfg.dbAbsPath) ? indexInPlace(cwd, resolved, outcomes, log) : firstIndex(cfg, resolved, outcomes, log);
 }
 

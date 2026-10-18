@@ -142,3 +142,25 @@ describe("one derivation, per-source gate (D6)", () => {
     expect(rows(dbOf(b), chunks)).toEqual(rows(dbOf(a), chunks));
   });
 });
+
+describe("reindex job robustness (review follow-ups)", () => {
+  it("a failed atomic first index records an error outcome per resolved source (not a stale earlier outcome)", async () => {
+    const cwd = folder();
+    // a file where the db's parent directory must be: the build cannot create its temp file
+    writeFileSync(join(cwd, ".pi/dashboard/kb"), "not a directory");
+    const r = await reindexAll(cwd);
+    expect(r.outcomes?.filter((o) => o.status === "error").map((o) => o.ref)).toEqual(["docs"]);
+    expect(r.chunks).toBe(0);
+  });
+
+  it("a folder removed while the job waits for a live first index is not resurrected", async () => {
+    const cwd = folder();
+    const k = await foreignBuilder(cwd);
+    const job = reindexAll(cwd, undefined, { pollMs: 20 });
+    await new Promise((r) => setTimeout(r, 80));
+    rmSync(cwd, { recursive: true, force: true });
+    k.kill("SIGKILL");
+    await expect(job).rejects.toThrow(/folder missing/);
+    expect(existsSync(cwd)).toBe(false);
+  });
+});

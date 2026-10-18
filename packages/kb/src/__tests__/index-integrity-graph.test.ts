@@ -283,6 +283,25 @@ describe("index-addressed per-file replacement (D5)", () => {
     s2.close();
   });
 
+  it("E19b a bare heading node owned by ANOTHER file still gets every sharing file re-chunked", async () => {
+    put("a.md", body("Why"));
+    put("b.md", body("Why"));
+    const file = join(root, "x.db");
+    const s = newStore(file);
+    await run(s);
+    // an earlier release: one shared bare node whose path is the last writer (b.md)
+    s.read((db) => {
+      db.exec("DELETE FROM nodes WHERE name='a.md#Why'");
+      db.exec("UPDATE nodes SET name='Why' WHERE name='b.md#Why'");
+    });
+    s.close();
+    const s2 = newStore(file);
+    const st = await run(s2);
+    expect(st.changed).toBe(2); // b.md (owner) AND a.md (no node of its own)
+    expect(q(s2, "SELECT name FROM nodes WHERE type='heading' ORDER BY name").map((r) => r.name)).toEqual(["a.md#Why", "b.md#Why"]);
+    s2.close();
+  });
+
   it("E20 the chunk-rowid record is cleared on a chunks-schema migration", () => {
     const file = join(root, "old.db");
     const s = newStore(file);

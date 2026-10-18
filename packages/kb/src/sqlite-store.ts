@@ -344,7 +344,16 @@ export class SqliteFtsStore implements KbStore {
     this.mapVersion = this.immediate((db) => {
       db.exec("DELETE FROM item_rows");
       db.exec("INSERT OR IGNORE INTO item_rows(root,path,rid) SELECT root, path, rowid FROM chunks");
-      db.exec("DELETE FROM files WHERE path IN (SELECT path FROM nodes WHERE type='heading' AND path IS NOT NULL AND substr(name, 1, length(path) + 1) <> path || '#')");
+      const LEGACY = "type='heading' AND path IS NOT NULL AND substr(name, 1, length(path) + 1) <> path || '#'";
+      // Pre-fix (bare) heading nodes exist only after a rollback or a stale writer; skip the walk otherwise.
+      if (db.prepare(`SELECT 1 FROM nodes WHERE ${LEGACY} LIMIT 1`).get()) {
+        db.exec(`DELETE FROM files WHERE path IN (SELECT path FROM nodes WHERE ${LEGACY})`);
+        // A bare node is shared by every file with that heading path and only its last writer owns
+        // it: also re-chunk every file that has a chunk under such a bare node name.
+        db.exec(`DELETE FROM files WHERE path IN (
+          SELECT c.path FROM chunks c JOIN nodes n ON n.type='heading' AND n.name = c.heading_path
+          WHERE n.path IS NOT NULL AND substr(n.name, 1, length(n.path) + 1) <> n.path || '#')`);
+      }
       return Number((db.prepare("PRAGMA data_version").get() as { data_version: number }).data_version);
     });
   }
