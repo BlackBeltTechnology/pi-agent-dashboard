@@ -27,11 +27,12 @@ const UNLOADED_CONFIG = "scripts/__tests__/fixtures/coverage-unloaded/vitest.con
 const UNLOADED_FILE_SUFFIX = "scripts/__tests__/fixtures/coverage-unloaded/src/unloaded.ts";
 /**
  * Measured wall clock of the scoped `npm run test:coverage` invocation (spawn to
- * exit, including the npm and vitest start-up): ~1.2 s on a developer machine
- * (the vitest run itself reports 70 ms). The CI number is still to be recorded
- * from the next nightly (change task 6.0); until then this is the local figure.
+ * exit, including the npm and vitest start-up): 814 ms on CI (PR #955, run
+ * 39111480624, job `ci-scenarios`; ~1.2 s on a developer machine, vitest itself
+ * reports 74 ms). The full-repo invocation it replaced measured 736 s on the
+ * nightly (run 38504381607) against its 600 s ceiling.
  */
-const SCOPED_RUN_MEASURED_MS = 1_500;
+const SCOPED_RUN_MEASURED_MS = 814;
 /** Ceiling for the scoped run: at least 1.5x the measurement above (asserted below). */
 const SCOPED_RUN_TIMEOUT_MS = 120_000;
 /** X1 keeps its full ceiling: its failing fixture run is unrelated to #862. */
