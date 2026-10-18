@@ -205,7 +205,9 @@ describe("GrammarSettings", () => {
     await waitFor(() =>
       expect((getByTestId("grammar-debounce") as HTMLInputElement).value).toBe("1500"),
     );
-    expect(src().isDirty).toBe(false);
+    // The host registry learns `isDirty` in an effect after the render that shows
+    // the value — wait for it instead of racing it (flaked on a loaded CI runner).
+    await waitFor(() => expect(src().isDirty).toBe(false));
   });
 
   it("shows a 'pick a model' prompt when unset, hidden once set (E4)", async () => {
