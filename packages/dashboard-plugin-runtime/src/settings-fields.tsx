@@ -17,11 +17,16 @@
  * Must not import from `packages/client` or `client-utils` (the runtime sits
  * below both).
  *
- * See change: retro-ux-plugin-settings-forms (design D2).
+ * Wave 2 adds the read-only / repeated-content members `SettingsStatusPill`,
+ * `SettingsItem`, `SettingsFacts` and `SettingsTable`, and moves the group meta
+ * to 12 px (interactive-text floor).
+ *
+ * See change: retro-ux-plugin-settings-forms (design D2),
+ * retro-ux-plugin-settings-wave-2 (design D2).
  */
 import { mdiAlertCircleOutline, mdiAlertOutline, mdiCheckCircleOutline, mdiChevronRight, mdiInformationOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { type ReactNode, useId } from "react";
+import { createContext, type ReactNode, useContext, useId } from "react";
 import { useRuntimeT } from "./plugin-context.js";
 
 /** `default` = value comes from the built-in default; `changed` = overridden. */
@@ -462,10 +467,219 @@ export function SettingsGroup({
         className="focus-ring flex min-h-[44px] cursor-pointer select-none list-none items-center gap-2 rounded-lg px-3 text-sm font-semibold text-[var(--text-primary)] [&::-webkit-details-marker]:hidden"
       >
         <Icon path={mdiChevronRight} size={0.7} className="transition-transform group-open:rotate-90" aria-hidden="true" />
-        {title}
-        {meta ? <span className="ml-auto text-[11px] font-semibold text-[var(--text-secondary)]">{meta}</span> : null}
+        <InteractiveTextContext.Provider value={true}>{title}</InteractiveTextContext.Provider>
+        {meta ? <span className="ml-auto text-[12px] font-semibold text-[var(--text-secondary)]">{meta}</span> : null}
       </summary>
       <div className="space-y-3 px-3 pb-3 pt-1">{children}</div>
     </details>
+  );
+}
+
+// ── Wave 2: read-only and repeated content ───────────────────────────────
+
+/** True inside an interactive summary: pills there step up to the 12 px floor. */
+const InteractiveTextContext = createContext(false);
+
+export type SettingsStatusTone = "success" | "info" | "warning" | "error" | "neutral";
+
+const PILL_TONE: Record<SettingsStatusTone, { cls: string; icon: string | null }> = {
+  success: {
+    cls: "bg-[var(--severity-success-bg)] border-[var(--severity-success-border)] text-[var(--severity-success-fg)]",
+    icon: mdiCheckCircleOutline,
+  },
+  info: {
+    cls: "bg-[var(--severity-info-bg)] border-[var(--severity-info-border)] text-[var(--severity-info-fg)]",
+    icon: mdiInformationOutline,
+  },
+  warning: {
+    cls: "bg-[var(--severity-warning-bg)] border-[var(--severity-warning-border)] text-[var(--severity-warning-fg)]",
+    icon: mdiAlertOutline,
+  },
+  error: {
+    cls: "bg-[var(--severity-error-bg)] border-[var(--severity-error-border)] text-[var(--severity-error-fg)]",
+    icon: mdiAlertCircleOutline,
+  },
+  neutral: {
+    cls: "bg-[var(--severity-neutral-bg)] border-[var(--severity-neutral-border)] text-[var(--severity-neutral-fg)]",
+    icon: null,
+  },
+};
+
+/**
+ * Status pill: severity tone + optional decorative icon + a REQUIRED word.
+ * Colour is never the only signal (WCAG 1.4.1). 11 px; 12 px when it sits in an
+ * interactive element — automatic inside a `SettingsItem` / `SettingsGroup`
+ * summary, or forced with `interactive`. `icon` defaults per tone; `null` hides it.
+ */
+export function SettingsStatusPill({
+  tone,
+  children,
+  icon,
+  interactive,
+  testId,
+  status,
+}: {
+  tone: SettingsStatusTone;
+  children: ReactNode;
+  icon?: string | null;
+  interactive?: boolean;
+  testId?: string;
+  /** Raw machine status kept for tests/diagnostics as `data-status` (never shown). */
+  status?: string;
+}) {
+  const inInteractive = useContext(InteractiveTextContext);
+  const big = interactive ?? inInteractive;
+  const { cls, icon: toneIcon } = PILL_TONE[tone];
+  const path = icon === undefined ? toneIcon : icon;
+  return (
+    <span
+      data-testid={testId}
+      data-tone={tone}
+      data-status={status}
+      className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-1.5 py-px font-semibold ${
+        big ? "text-[12px]" : "text-[11px]"
+      } ${cls}`}
+    >
+      {path ? <Icon path={path} size={0.5} className="shrink-0" aria-hidden="true" /> : null}
+      {children}
+    </span>
+  );
+}
+
+/**
+ * Card for one repeated entity (profile, instance, server, binding).
+ * `collapsible` renders `<details>` whose `<summary>` holds the title AND the
+ * status area, so a collapsed card still shows its state. Actions never sit
+ * inside the summary (a control inside a `role=button` summary is a nested
+ * interactive element): collapsible items render them at the top of the body,
+ * non-collapsible items in the header row.
+ */
+export function SettingsItem({
+  title,
+  subtitle,
+  status,
+  actions,
+  collapsible,
+  defaultOpen = true,
+  testId,
+  summaryTestId,
+  children,
+}: {
+  title: ReactNode;
+  subtitle?: ReactNode;
+  status?: ReactNode;
+  actions?: ReactNode;
+  collapsible?: boolean;
+  defaultOpen?: boolean;
+  testId?: string;
+  summaryTestId?: string;
+  children?: ReactNode;
+}) {
+  const heading = (
+    <span className="min-w-0 flex-1">
+      <span className="block text-sm font-semibold text-[var(--text-primary)] break-words">{title}</span>
+      {subtitle ? <span className="block text-[12px] text-[var(--text-secondary)] break-words">{subtitle}</span> : null}
+    </span>
+  );
+  const statusRow = status ? <span className="flex flex-wrap items-center gap-1">{status}</span> : null;
+  const actionRow = actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null;
+  const shell = "rounded-lg border border-[var(--border-secondary)] bg-[var(--bg-secondary)]";
+  if (collapsible) {
+    return (
+      <details data-testid={testId} open={defaultOpen} className={`group ${shell}`}>
+        <summary
+          data-testid={summaryTestId}
+          className="focus-ring flex min-h-[44px] cursor-pointer select-none list-none items-center gap-2 rounded-lg px-3 py-1.5 [&::-webkit-details-marker]:hidden"
+        >
+          <Icon path={mdiChevronRight} size={0.7} className="shrink-0 transition-transform group-open:rotate-90 text-[var(--text-secondary)]" aria-hidden="true" />
+          {heading}
+          <InteractiveTextContext.Provider value={true}>{statusRow}</InteractiveTextContext.Provider>
+        </summary>
+        {actionRow || children ? (
+          <div className="space-y-3 px-3 pb-3 pt-1">
+            {actionRow}
+            {children}
+          </div>
+        ) : null}
+      </details>
+    );
+  }
+  return (
+    <div data-testid={testId} className={shell}>
+      <div data-testid={summaryTestId} className="flex min-h-[44px] flex-wrap items-center gap-2 px-3 py-1.5">
+        {heading}
+        {statusRow}
+        {actionRow}
+      </div>
+      {children ? <div className="space-y-3 px-3 pb-3 pt-1">{children}</div> : null}
+    </div>
+  );
+}
+
+/** Read-only term/value list: `<dl>`, terms `--text-secondary`, values `--text-primary`, 12 px. */
+export function SettingsFacts({ rows, testId }: { rows: readonly (readonly [ReactNode, ReactNode])[]; testId?: string }) {
+  return (
+    <dl data-testid={testId} className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1 text-[12px]">
+      {rows.map(([term, value], i) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: static read-only rows, order is the identity
+        <div key={i} className="contents">
+          <dt className="text-[var(--text-secondary)]">{term}</dt>
+          <dd className="min-w-0 break-words text-[var(--text-primary)]">{value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+export interface SettingsTableRow {
+  key: string;
+  cells: readonly ReactNode[];
+  testId?: string;
+}
+
+/**
+ * Read-only table: `th scope="col"`, 12 px, scrolls horizontally inside its
+ * wrapper instead of widening the page. The caption names the table for
+ * assistive tech (visually hidden: the enclosing group already shows a title).
+ */
+export function SettingsTable({
+  columns,
+  rows,
+  caption,
+  testId,
+}: {
+  columns: readonly ReactNode[];
+  rows: readonly SettingsTableRow[];
+  caption: string;
+  testId?: string;
+}) {
+  return (
+    <div data-testid={testId} className="max-w-full overflow-x-auto rounded-md border border-[var(--border-secondary)]">
+      <table className="w-full border-collapse text-left text-[12px]">
+        <caption className="sr-only">{caption}</caption>
+        <thead>
+          <tr className="bg-[var(--bg-tertiary)]">
+            {columns.map((c, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: column order is the identity
+              <th key={i} scope="col" className="whitespace-nowrap px-2 py-1.5 font-semibold text-[var(--text-secondary)]">
+                {c}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.key} data-testid={r.testId} className="border-t border-[var(--border-secondary)]">
+              {r.cells.map((c, i) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: cell order follows the columns
+                <td key={i} className="px-2 py-1.5 align-top text-[var(--text-primary)]">
+                  {c}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }

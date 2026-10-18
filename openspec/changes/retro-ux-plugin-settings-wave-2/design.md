@@ -88,6 +88,14 @@ The task order starts with the 10 missing `@source` lines (apple-tools, blackhol
 - Error text is one sentence naming the fix. Raw codes go behind "Copy details" (`ContentCopy` icon).
 - No literal backticks reach the UI: i18n strings that wrap code are split around a `<code>` element, as wave 1 did.
 
+### D9. Kit API review (task 2.8, doubt-driven-review before plugins consume it)
+Findings on the four new public props, reconciled in `settings-fields.tsx`:
+- **No `title` tooltip on `SettingsStatusPill`.** A tooltip-only explanation is the QU3 defect (keyboard/touch can't read it). Dropped; context goes in a visible notice or hint.
+- **Raw enum kept as `data-status`, never shown.** `SettingsStatusPill status="waiting_peers"` → `data-status`; existing tests that pin raw states keep a hook without the UI showing the token.
+- **Actions never inside a `<summary>`.** A button in a `role=button` summary is a nested interactive element (axe `nested-interactive`) and is the BH5 finding. Collapsible `SettingsItem`s render actions at the top of the body; non-collapsible items keep them in the header row.
+- **Pill size follows context.** Pills inside a `SettingsItem` / `SettingsGroup` summary get 12 px automatically (React context), so 15 call sites cannot forget the interactive floor; `interactive` forces it elsewhere.
+- **`SettingsTable` caption is required and `sr-only`.** The enclosing group already titles the table visually; the caption names it for assistive tech. Rows carry a stable `key` and optional `testId` so existing row testids survive.
+
 ## Risks / Trade-offs
 
 - [Four new public runtime components] → `doubt-driven-review` on their props before they land. They are presentation only, so reverting is cheap.
