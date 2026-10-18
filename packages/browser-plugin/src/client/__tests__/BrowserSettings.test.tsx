@@ -543,6 +543,9 @@ describe("BrowserSettings — profile list", () => {
 			expect(getByTestId("browser-installed-profiles")).toBeTruthy();
 			expect(getByTestId("browser-uninstalled-disclosure")).toBeTruthy();
 			expect(getByTestId("browser-instance-i1")).toBeTruthy();
+			for (const dir of ["Profile 21", "OSS", "Profile 99"]) {
+				expect(getByTestId(`browser-audit-empty-${dir}`)).toBeTruthy();
+			}
 		});
 
 		const installedList = getByTestId("browser-installed-profiles");
