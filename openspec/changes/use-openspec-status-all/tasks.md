@@ -128,7 +128,7 @@
 
   Verify it is green on this repo.
 - [x] 7.2 Keep the fallback-scoped parity suite (test-plan #X9). Exemplar: `packages/shared/src/__tests__/openspec-poller-parity.test.ts`. Run the existing local-derivation parity tests after the change; they must stay green.
-- [ ] 7.3 (test-plan: manual-only) #P3: measure on macOS and the Windows 11 QA VM the `status --all` wall time, the gated no-op probe time and the force-refresh wall time, before and after. Record them in design.md Context.
+- [x] 7.3 (test-plan: manual-only) #P3: measure on macOS and the Windows 11 QA VM the `status --all` wall time, the gated no-op probe time and the force-refresh wall time, before and after. Record them in design.md Context.
 - [x] 7.4 Delegate to DocScribe the `docs/architecture.md` "OpenSpec polling cost model" update: `--all` path, envelope classes, local counting + schema resolution, worker probe/build turns, watcher roots, fallback detection. Verify with `grep -n "status --all" docs/architecture.md`.
 - [x] 7.5 Update the AGENTS.md rows for every touched file:
   - `openspec-poller.ts`, `platform/openspec.ts`, `types.ts`;
@@ -136,4 +136,4 @@
   - `openspec-actions.ts`, `MobileActionMenu.tsx`, `OpenSpecBoardView.tsx`.
 
   Verify `kb dox lint` reports nothing stale for them.
-- [ ] 7.6 Run the full suite (`set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`) and confirm no failures.
+- [x] 7.6 Run the full suite (`set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`) and confirm no failures.
