@@ -151,7 +151,7 @@ export function AuditList({ profileDirectory }: AuditListProps): React.ReactElem
             testId: `browser-audit-row-${profileDirectory}-${i}`,
             cells: [
               formatTime(entry.ts),
-              <SettingsStatusPill key="event" tone={kindTone(entry.kind)} icon={null}>
+              <SettingsStatusPill key="event" tone={kindTone(entry.kind)} icon={null} status={entry.kind}>
                 {eventWord(entry.kind)}
               </SettingsStatusPill>,
               entry.detail,

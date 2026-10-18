@@ -116,6 +116,8 @@ describe("AuditList", () => {
 		expect(detach).toContain("Disconnected");
 		expect(detach).not.toMatch(/\bdetach\b/);
 		expect(detach).toContain("closed:All controlled tabs detached");
+		// Raw kind stays a machine hook on the pill, never visible text.
+		expect(getByTestId("browser-audit-row-Profile 21-0").querySelector('[data-status="detach"]')).not.toBeNull();
 
 		await waitFor(() => expect(getByTestId("browser-audit-row-@dedicated-0")).toBeTruthy());
 		const denied = getByTestId("browser-audit-row-@dedicated-0").textContent ?? "";

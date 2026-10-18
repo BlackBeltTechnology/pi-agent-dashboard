@@ -69,6 +69,11 @@ Profile actions (token save, `zeroDialog`, `allowedDomains`, Connect, Disconnect
 - **THEN** the section SHALL show an error notice (`browser-settings-error`) stating that Browser Relay settings are unavailable, with a "Try again" action
 - **AND** any raw error detail SHALL be available only behind a "Copy details" action
 
+#### Scenario: Password manager warning
+
+- **WHEN** a profile row reports `passwordManagers: ["LastPass"]`
+- **THEN** the row SHALL show a warning naming LastPass
+
 ### Requirement: Audit viewer
 
 Each profile card SHALL include an "Activity" group, collapsed by default, fed by `GET /api/browser/audit?profile=`, newest-first, showing time, event, and detail as a read-only table. The event column SHALL show a human event word (for example "Connected", "Token saved", "Denied"), never the raw audit `kind` token. The group summary SHALL state the entry count, or "none yet" when empty, and an empty group SHALL read "No activity yet." The list SHALL refresh when `browser_relay_status.auditSeq` changes. The existing `browser-audit-*` data-testids SHALL be preserved.
@@ -83,6 +88,11 @@ Each profile card SHALL include an "Activity" group, collapsed by default, fed b
 
 - **WHEN** a profile card is expanded for the first time
 - **THEN** its "Activity" group SHALL be collapsed and its summary SHALL show the entry count
+
+#### Scenario: Extension detach appears
+
+- **WHEN** the extension closes an instance after all controlled tabs detached
+- **THEN** the audit list for that profile SHALL show a "Disconnected" row (raw kind `detach` kept as the pill's `data-status`) with the cause within 2 s
 
 ### Requirement: This-computer block in the browser settings section
 
