@@ -318,3 +318,122 @@ describe("E15 — site/package.json stays dependency-free", () => {
     ).toBe(false);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// #579 — the deploy stops depending on ONE trigger (change: add-missing-ci-legs,
+// design D6). deploy-site.yml writes a source-SHA marker and publishes from
+// develop only; site-drift-check.yml (daily) dispatches a deploy when the live
+// site is behind. The pure check takes the two workflow texts so every variant
+// is exercised on a mutated copy.
+// ─────────────────────────────────────────────────────────────────────────────
+
+type WfJob = { if?: string; needs?: unknown; permissions?: unknown; concurrency?: unknown; steps?: Array<Record<string, any>> };
+type Wf = { on?: any; permissions?: unknown; concurrency?: unknown; jobs?: Record<string, WfJob> };
+
+const driftCheck = readWf("site-drift-check.yml");
+const driftScript = read("scripts/site-drift-decision.mjs");
+
+export function siteDriftViolations(deployYaml: string, driftYaml: string, script: string): string[] {
+  const out: string[] = [];
+  const deploy = parseYaml(deployYaml) as Wf;
+  const drift = parseYaml(driftYaml) as Wf;
+
+  // ── deploy-site.yml ──
+  const build = deploy.jobs?.build;
+  const steps = build?.steps ?? [];
+  const markerAt = steps.findIndex((s) => /deploy-sha\.txt/.test(String(s.run ?? "")));
+  const uploadAt = steps.findIndex((s) => /upload-pages-artifact/.test(String(s.uses ?? "")));
+  if (markerAt === -1) out.push("deploy-site.yml build: no marker step writing deploy-sha.txt");
+  else {
+    if (uploadAt !== -1 && markerAt > uploadAt) out.push("deploy-site.yml build: marker step runs after upload-pages-artifact (would not ship)");
+    if (!String(steps[markerAt].run).includes("${{ github.sha }}")) out.push("deploy-site.yml build: marker must be `${{ github.sha }}`, not a literal");
+  }
+  if (String(build?.if ?? "").trim() !== "github.ref == 'refs/heads/develop'") out.push("deploy-site.yml build: `if:` must be exactly `github.ref == 'refs/heads/develop'`");
+  const needs = ([] as unknown[]).concat(deploy.jobs?.deploy?.needs ?? []);
+  if (!needs.includes("build")) out.push("deploy-site.yml deploy: must `needs: build` so a non-develop dispatch skips it too");
+  const paths: string[] = deploy.on?.push?.paths ?? [];
+  for (const p of ["site/**", "!site/design-scratch/**", "packages/shell/**", ".github/workflows/deploy-site.yml"]) {
+    if (!paths.includes(p)) out.push(`deploy-site.yml on.push.paths: missing \`${p}\``);
+  }
+
+  // ── site-drift-check.yml ──
+  const schedule: Array<{ cron?: string }> = drift.on?.schedule ?? [];
+  if (schedule.length !== 1) out.push(`site-drift-check.yml on.schedule: exactly one entry required (got ${schedule.length})`);
+  else if (!/^\d{1,2} \d{1,2} \* \* \*$/.test(String(schedule[0].cron))) out.push(`site-drift-check.yml on.schedule: cron \`${schedule[0].cron}\` is not a single daily entry (M H * * *)`);
+  if (!drift.on || !("workflow_dispatch" in drift.on)) out.push("site-drift-check.yml on: workflow_dispatch missing");
+  if (JSON.stringify(drift.permissions) !== JSON.stringify({ contents: "read" })) out.push("site-drift-check.yml top-level permissions must be exactly {contents: read}");
+  const jobs = Object.entries(drift.jobs ?? {});
+  if (jobs.length !== 1) out.push("site-drift-check.yml: expected exactly one job");
+  for (const [id, job] of jobs) {
+    const perms = job.permissions as Record<string, string> | undefined;
+    const keys = Object.keys(perms ?? {}).sort().join(",");
+    if (keys !== "actions,contents" || perms?.contents !== "read" || perms?.actions !== "write") {
+      out.push(`site-drift-check.yml job ${id}: permissions must be exactly {contents: read, actions: write} (got ${JSON.stringify(perms)})`);
+    }
+    if (job.concurrency !== undefined) out.push(`site-drift-check.yml job ${id}: must not join a concurrency group (pages-deploy cancels)`);
+    for (const s of job.steps ?? []) {
+      if (/actions\/setup-node/.test(String(s.uses ?? "")) && s.with?.cache) out.push(`site-drift-check.yml job ${id}: setup-node cache in a release-privileged job`);
+      if (/actions\/cache/.test(String(s.uses ?? ""))) out.push(`site-drift-check.yml job ${id}: actions/cache in a release-privileged job`);
+    }
+    if (!(job.steps ?? []).some((s) => /node scripts\/site-drift-decision\.mjs/.test(String(s.run ?? "")))) {
+      out.push(`site-drift-check.yml job ${id}: does not run scripts/site-drift-decision.mjs`);
+    }
+  }
+  if (drift.concurrency !== undefined) out.push("site-drift-check.yml: top-level concurrency forbidden (must stay outside `pages-deploy`)");
+  if (!/arg\("workflow", "deploy-site\.yml"\)/.test(script) || !/arg\("dispatch-ref", "develop"\)/.test(script) || !/"workflow", "run", workflow, "--ref", dispatchRef/.test(script)) {
+    out.push("scripts/site-drift-decision.mjs: must dispatch `gh workflow run deploy-site.yml --ref develop`");
+  }
+  return out;
+}
+
+describe("#579 — deploy marker, develop-only publish, daily drift check", () => {
+  const check = (d = deploySite, c = driftCheck, s = driftScript) => siteDriftViolations(d, c, s);
+  const mutate = (text: string, from: string | RegExp, to: string): string => {
+    const next = text.replace(from, to);
+    expect(next, "fixture mutation did not change the workflow").not.toBe(text);
+    return next;
+  };
+
+  it("the real workflows satisfy the whole contract", () => {
+    expect(check()).toEqual([]);
+  });
+
+  it("(E17) the marker is written before the upload and from github.sha", () => {
+    const step = deploySite.match(/ {6}# Source-commit marker[\s\S]*?deploy-sha\.txt\n\n/)![0];
+    const moved = mutate(deploySite, step, "").replace(/(\n {2}deploy:)/, "$1").replace(/( {6}- name: Upload artifact\n[\s\S]*?path: site\/dist\n)/, `$1\n${step.trimEnd()}\n`);
+    expect(check(moved).join("\n")).toContain("marker step runs after upload-pages-artifact");
+    expect(check(mutate(deploySite, 'echo "${{ github.sha }}" >', 'echo "latest" >')).join("\n")).toContain("not a literal");
+    expect(check(mutate(deploySite, /\n {6}- name: Write deploy SHA marker\n.*\n.*\n/, "\n")).join("\n")).toContain("no marker step");
+  });
+
+  it("(E18) publish only from develop; deploy needs build", () => {
+    for (const bad of ["", "if: github.ref == 'refs/heads/main'\n    ", "if: github.ref == 'refs/heads/feature'\n    "]) {
+      const v = check(mutate(deploySite, "if: github.ref == 'refs/heads/develop'\n    ", bad)).join("\n");
+      expect(v, JSON.stringify(bad)).toContain("`if:` must be exactly");
+    }
+    expect(check(mutate(deploySite, "    needs: build\n", "")).join("\n")).toContain("deploy: must `needs: build`");
+  });
+
+  it("(E19) the push filter keeps the design-scratch exclusion and packages/shell", () => {
+    expect(check(mutate(deploySite, '      - "!site/design-scratch/**"\n', "")).join("\n")).toContain("`!site/design-scratch/**`");
+    expect(check(mutate(deploySite, '      - "packages/shell/**"\n', "")).join("\n")).toContain("`packages/shell/**`");
+  });
+
+  it("(E23b) exactly one daily cron entry", () => {
+    expect(check(deploySite, mutate(driftCheck, "'23 5 * * *'", "'23 5 * * 0'")).join("\n")).toContain("not a single daily entry");
+    expect(check(deploySite, mutate(driftCheck, "    - cron: '23 5 * * *'\n", "    - cron: '23 5 * * *'\n    - cron: '23 17 * * *'\n")).join("\n")).toContain("exactly one entry");
+    expect(check(deploySite, mutate(driftCheck, /  schedule:\n.*\n/, "")).join("\n")).toContain("exactly one entry");
+    expect(check(deploySite, mutate(driftCheck, "  workflow_dispatch:\n", "")).join("\n")).toContain("workflow_dispatch missing");
+  });
+
+  it("(E20) privilege and isolation of the drift workflow", () => {
+    const v = (c: string) => check(deploySite, c).join("\n");
+    expect(v(mutate(driftCheck, "      actions: write # `gh workflow run deploy-site.yml`\n", "      actions: write\n      pages: write\n"))).toContain("permissions must be exactly {contents: read, actions: write}");
+    expect(v(mutate(driftCheck, "      actions: write # `gh workflow run deploy-site.yml`\n", "      actions: write\n      id-token: write\n"))).toContain("permissions must be exactly");
+    expect(v(mutate(driftCheck, "permissions:\n  contents: read\n\njobs:", "permissions:\n  contents: read\n  actions: write\n\njobs:"))).toContain("top-level permissions must be exactly {contents: read}");
+    expect(v(mutate(driftCheck, "    timeout-minutes: 10\n", "    timeout-minutes: 10\n    concurrency:\n      group: pages-deploy\n"))).toContain("must not join a concurrency group");
+    expect(v(mutate(driftCheck, "    steps:\n", "    steps:\n      - uses: actions/setup-node@v4\n        with:\n          cache: pnpm\n"))).toContain("setup-node cache");
+    expect(v(mutate(driftCheck, "node scripts/site-drift-decision.mjs", "echo skipped"))).toContain("does not run scripts/site-drift-decision.mjs");
+    expect(check(deploySite, driftCheck, driftScript.replace('arg("dispatch-ref", "develop")', 'arg("dispatch-ref", "main")')).join("\n")).toContain("must dispatch `gh workflow run deploy-site.yml --ref develop`");
+  });
+});

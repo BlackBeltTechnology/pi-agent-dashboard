@@ -1,0 +1,19 @@
+= Markup Repair Fixture
+
+Intro paragraph before the diagram.
+
+[mermaid]
+----
+flowchart TD
+  A[Start] --> B[End]
+----
+
+== Before
+
+[source]
+----
+this listing is never closed
+
+== Next
+
+Paragraph after the listing.

@@ -34,7 +34,15 @@ export default defineConfig({
   // Playwright's default `**/*.test.ts` match would execute those files and
   // die with "Vitest failed to find the runner" — scope them out. See change:
   // surface-pi-runtime-on-general (gate restored after #553 landed the dir).
-  testIgnore: ["**/helpers/__tests__/**"],
+  //
+  // tests/e2e/team/** and tests/e2e/identity-matrix/** are CONFIG-OWNED: they run
+  // under playwright.team.config.ts / playwright.identity-matrix.config.ts (CI
+  // legs `e2e-team` / `e2e-identity-matrix`), so the default config must not also
+  // collect them ("every spec runs exactly once" is structural, not $PATH-
+  // dependent). Local entry points: `npm run test:e2e:team` and
+  // `npm run build && npm run test:e2e:identity-matrix`.
+  // See change: add-missing-ci-legs (#861, design D2).
+  testIgnore: ["**/helpers/__tests__/**", "tests/e2e/team/**", "tests/e2e/identity-matrix/**"],
   // Container boot is slow; first run may build the image. Keep generous.
   timeout: 60_000,
   // NO `globalTimeout`. A committed wall-clock budget cannot cover 168 specs and

@@ -274,3 +274,20 @@ describe("FilePreviewOverlay — stale link errors", () => {
     expect(err.textContent).toMatch(/no longer exists at src\/gone\.ts/i);
   });
 });
+
+// change: add-md-adoc-markup-repair (test-plan F7) — the overlay supplies file identity
+// (live-session cwd), so the markup-repair banner offers "Apply markup fix to file".
+describe("FilePreviewOverlay — markup repair banner (F7)", () => {
+  it("shows the banner with an apply action for a live-session cwd", async () => {
+    mockFileFetch("```sh\necho\n\n# Heading\nbody\n");
+    const { LiveSessionCwdsProvider } = await import("../../lib/preview/use-mermaid-source.js");
+    const { findByTestId } = renderOverlay(
+      <LiveSessionCwdsProvider cwdKey="/repo">
+        <FilePreviewOverlay cwd="/repo" path="notes.md" onClose={() => {}} />
+      </LiveSessionCwdsProvider>,
+    );
+    const banner = await findByTestId("markup-repair-banner");
+    expect(banner.textContent).toMatch(/line 1/);
+    expect(banner.querySelector('[data-testid="markup-repair-apply"]')).not.toBeNull();
+  });
+});
