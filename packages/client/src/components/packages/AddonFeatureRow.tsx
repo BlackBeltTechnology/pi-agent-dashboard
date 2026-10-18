@@ -79,7 +79,7 @@ export function AddonFeatureRow(props: AddonFeatureRowProps) {
 	const chips = featurePartChips(f);
 	const updatable = f.packages.filter((p) => updates.has(p.source));
 	const anyBusy = f.packages.some((p) => ["running", "queued"].includes(statusFor(p.source)));
-	const pkgItems = f.packages.filter((p) => p.sourceKind !== undefined);
+	const pkgItems = f.packages;
 	const label = (base: string, p: AddonPackagePart) => (multi ? `${base} — ${partName(p)}` : base);
 	const hasMenu = pkgItems.length > 0 || (f.plugin?.hasSettings && !!props.onOpenSettings);
 	const stateAttr = f.state === "partial" ? "mixed" : f.state === "on";
@@ -134,7 +134,7 @@ export function AddonFeatureRow(props: AddonFeatureRowProps) {
 				<div className="flex items-center gap-2 flex-shrink-0">
 					{f.packages.map((p) =>
 						p.version ? (
-							<span key={p.identity} className="text-[10px] text-[var(--text-muted)]" data-testid={`addon-version-${f.id}`}>
+							<span key={p.identity} className="text-[10px] text-[var(--text-muted)]" data-testid={`addon-version-${f.id}-${p.identity}`}>
 								{updates.has(p.source) ? (
 									<span className="text-[var(--accent-primary)]">{p.version} ↑</span>
 								) : (

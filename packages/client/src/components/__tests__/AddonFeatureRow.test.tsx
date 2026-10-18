@@ -14,11 +14,13 @@ vi.mock("../../hooks/useAddonCatalog.js", () => ({ useAddonCatalog: () => mockCa
 vi.mock("../../hooks/usePiCoreVersions.js", () => ({
 	usePiCoreVersions: () => ({ status: { packages: [], updatesAvailable: 0, lastChecked: null }, isLoading: false, error: null, refresh: vi.fn() }),
 }));
+const mockRemove = vi.fn();
+const mockMoveStates: Record<string, unknown> = {};
 vi.mock("../../hooks/usePackageOperations.js", () => ({
 	usePackageOperations: () => ({
 		operation: { operationId: null, status: "idle", message: "", source: "" },
-		install: vi.fn(), remove: vi.fn(), update: vi.fn(), coreUpdate: vi.fn(), move: vi.fn(), resetToNpm: vi.fn(),
-		moveStateFor: () => undefined, clearMove: vi.fn(), statusFor: () => "idle", messageFor: () => "",
+		install: vi.fn(), remove: mockRemove, update: vi.fn(), coreUpdate: vi.fn(), move: vi.fn(), resetToNpm: vi.fn(),
+		moveStateFor: (s: string) => mockMoveStates[s], clearMove: vi.fn(), statusFor: () => "idle", messageFor: () => "",
 		clearOperation: vi.fn(), queueDepth: 0, runningSource: null, isAnyRunning: false, handleMessage: vi.fn(),
 	}),
 }));
@@ -38,7 +40,10 @@ function withFeatures(features: AddonFeature[], updates: string[] = []) {
 	);
 }
 
-beforeEach(() => localStorage.clear());
+beforeEach(() => {
+	localStorage.clear();
+	for (const k of Object.keys(mockMoveStates)) delete mockMoveStates[k];
+});
 afterEach(() => {
 	cleanup();
 	vi.unstubAllGlobals();
@@ -104,5 +109,21 @@ describe("Installed tab feature rows", () => {
 		const post = (fetch as ReturnType<typeof vi.fn>).mock.calls.find(([u]) => String(u).includes("/toggle"));
 		const init = (post as unknown[] | undefined)?.[1] as RequestInit;
 		expect(JSON.parse(init.body as string)).toEqual({ enabled: false, dryRun: true });
+	});
+
+	// Review B1 (round 1): partial-success cleanup removes the part that was moved, not packages[0].
+	it("cleanup after a partial move removes that part's own source on a multi-package feature", () => {
+		const multi = feature("plugin:multi", {
+			displayName: "Multi",
+			plugin: plugin("multi"),
+			packages: [part("npm:@a/one"), part("npm:@a/two")],
+		});
+		withFeatures([multi]);
+		mockMoveStates["npm:@a/two"] = { moveId: "m1", source: "npm:@a/two", phase: "partial-success", message: "installed, remove failed" };
+		render(<UnifiedPackagesSection />);
+		const banner = within(screen.getByTestId("installed-pkg-partial-success"));
+		fireEvent.click(banner.getByRole("button", { name: /clean/i }));
+		expect(mockRemove).toHaveBeenCalledTimes(1);
+		expect(mockRemove).toHaveBeenCalledWith("npm:@a/two");
 	});
 });

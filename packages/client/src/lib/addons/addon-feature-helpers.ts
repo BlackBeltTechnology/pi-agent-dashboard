@@ -135,7 +135,7 @@ export function groupFeatures(features: readonly AddonFeature[], mode: AddonGrou
 			return SOURCE_GROUPS.map((g) => ({
 				key: g.key,
 				heading: g.heading(),
-				features: features.filter((f) => f.kind !== "core" && installSourceOf(f) === g.key),
+				features: features.filter((f) => installSourceOf(f) === g.key),
 			}));
 		case "az":
 			return [{ key: "az", heading: null, features: [...features] }];

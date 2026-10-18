@@ -415,7 +415,7 @@ export function UnifiedPackagesSection() {
 							<PackagePartialSuccessBanner
 								key={ms.moveId}
 								state={ms}
-								onCleanup={() => f.packages[0] && operations.remove(f.packages[0].source)}
+								onCleanup={() => operations.remove(ms.source)}
 								onDismiss={() => operations.clearMove(ms.moveId)}
 							/>
 						),
