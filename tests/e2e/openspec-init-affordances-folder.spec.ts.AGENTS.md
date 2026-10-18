@@ -33,3 +33,5 @@ route-aborted), and init-failure stderr surfacing.
      controls against a BROKEN dir to avoid depending on that path.
 
 Row summary (formerly inline in `tests/e2e/AGENTS.md`): L3 folder-section slice (add-openspec-init-affordances).
+
+Adds F10 (test-plan #F10, real CLI): Settings → OpenSpec → Enable pi-spec-driven writes `openspec/schemas/pi-spec-driven/` + config, pins file-less changes, section shows current. See change: add-pi-spec-driven-schema.

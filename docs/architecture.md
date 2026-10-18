@@ -5973,6 +5973,172 @@ Retired capability with zero current requirements: tombstone (keep spec, one req
 
 See change: repair-corrupted-main-specs.
 
+## OpenSpec workflow schema (`pi-spec-driven`)
+
+Dashboard-managed project schema. Base: OpenSpec built-in `spec-driven` + patch set (`CURRENT_PATCH = 1`). Opt-in per project. Never enabled on existing projects by default.
+
+Code:
+- `packages/server/src/openspec/workflow-schema.ts` — generation, stamp, state table, write guard, actions.
+- `packages/server/src/routes/openspec-routes.ts` — `POST /api/openspec/workflow-schema`, init chain.
+- `packages/server/src/directory-service.ts` — `workflowSchemaStatusFor` (poll status).
+- `packages/shared/src/types.ts` — `WorkflowSchemaGenerated`, `OpenSpecWorkflowSchemaStatus`.
+- `packages/shared/src/openspec-poller.ts`, `.pi/skills/openspec-shared/scripts/effective-status.sh` — R-rule skip.
+
+Spec: `openspec/changes/add-pi-spec-driven-schema/`. See change: add-pi-spec-driven-schema.
+
+### Generation
+
+Output: `<root>/openspec/schemas/pi-spec-driven/` (`schema.yaml` + forked templates).
+
+Stamp (top-level key `x-pi-dashboard` in `schema.yaml`):
+
+```yaml
+x-pi-dashboard:
+  derivedFrom: spec-driven@<cli-version>
+  patch: 1
+  previousDefault: spec-driven
+```
+
+```mermaid
+flowchart TD
+  A["scratch root + empty XDG_DATA_HOME"] --> B{"schema which spec-driven: source package, no shadows"}
+  B -- no --> X[abort, repo untouched]
+  B -- yes --> C["schema fork --force (scratch)"]
+  C --> D["YAML patch + x-pi-dashboard stamp (scratch)"]
+  D --> E{"schema validate (scratch)"}
+  E -- invalid --> X
+  E -- valid --> F["copy to openspec/schemas/.fork-staging-RAND"]
+  F --> G["rename pi-spec-driven to .fork-backup-PID-TS"]
+  G --> H["rename staging to pi-spec-driven"]
+  H --> I["delete backup; delete scratch; forced refresh"]
+  G -. fail .-> R["restore backup, remove staging"]
+  H -. fail .-> R
+```
+
+Steps (`generateWorkflowSchema`):
+1. Scratch root = fresh `os.tmpdir()` dir. Every CLI call (`--version`, `schema which/fork/validate`) runs with cwd = scratch and `XDG_DATA_HOME` = empty scratch dir. Blocks project and user shadows.
+2. `openspec schema which spec-driven --json`. Abort unless `source: "package"` and `shadows` empty.
+3. `openspec schema fork spec-driven pi-spec-driven --force` in scratch.
+4. YAML Document patch of scratch `schema.yaml` (comments kept). Patch v1 replaces anchor `When to include design.md (create only if any apply):` with `When a full design.md is warranted (otherwise still create design.md containing one line "Not needed: <reason>"):`. Anchor missing → abort. Author guidance only; CLI checks file existence.
+5. Write stamp. `base` = `openspec --version` of the CLI that ran.
+6. `openspec schema validate pi-spec-driven` in scratch.
+7. Copy (not rename: avoids `EXDEV` on bind mounts / cross-volume) into `openspec/schemas/.fork-staging-<rand>/`. Copy failure → remove staging, abort.
+8. Swap, under fingerprint re-check (paths + content hashes of existing `pi-spec-driven/`, same as OpenSpec fork):
+   - existing dir → rename to `pi-spec-driven.fork-backup-<pid>-<ts>`
+   - rename staging → `pi-spec-driven/`
+   - delete backup
+
+Failure matrix:
+- Fail before backup rename → remove staging. Previous schema untouched.
+- Fail on staging rename → rename backup back, remove staging. Previous schema byte-identical.
+- Restore fails after retries → backup left in place (discovery ignores `*.fork-backup-*`); error names it.
+- Fail on backup delete → no rollback; warning returned.
+- Scratch dir removed in every case.
+- Windows only: `EPERM` / `EBUSY` / `EACCES` on any rename (incl. restore) retried. 5 retries, delays 50/100/200/400/800 ms (1.55 s, within 2 s).
+
+### Stamp states
+
+`compareStamp(stamp, local)` on `(base, patch)`. `base` via `semver.compare`; `patch` numeric. Component-wise. Lexicographic comparison rejected: newer base would drop newer patch.
+
+| `generated` | Condition | Action |
+|---|---|---|
+| `none` | no `pi-spec-driven/` dir | Enable generates |
+| `current` | base and patch equal | none |
+| `outdated` | none newer, ≥1 older | Update offered |
+| `newer` | ≥1 newer, none older | none, never downgrade |
+| `conflict` | one newer, one older | report only; no action regenerates (align dashboard/CLI) |
+| `incompatible` | `newer` but local `schema validate` fails | notice: update OpenSpec CLI |
+| `unmanaged` | no parseable stamp, or `pi-spec-driven` is a symlink | Adopt, with confirm |
+
+`newer`/`conflict` validate locally before Enable keeps them.
+
+### Enable
+
+Order (`doEnable`): guard → record → generate → pin → switch.
+
+1. Write guard (below).
+2. `openspec/config.yaml` or `config.yml` must exist. Both present → `config.yaml` read and edited (CLI behavior).
+3. Config already `schema: pi-spec-driven` → return status, write nothing.
+4. Record `previousDefault` = config `schema:`, else `spec-driven` (CLI implicit default). Must be kebab-case, not `pi-spec-driven`, resolve via project/package dirs (empty `XDG_DATA_HOME`).
+5. Stamp state:
+   - `none` → generate with `previousDefault`.
+   - `current` / `outdated` / `newer` / `conflict` → keep, never regenerate. Refuse if stamp `previousDefault` ≠ recorded value (user runs Update with `previousDefault: <recorded>`).
+   - `unmanaged` / `incompatible` → refuse.
+6. Pin: each active change dir without `.openspec.yaml` → exclusive create, body `{ schema: <previousDefault> }` via YAML serializer. Active = excludes `archive/`, dot-dirs, symlinks.
+7. `config.yaml` `schema:` → `pi-spec-driven` (YAML Document edit).
+8. Forced refresh.
+
+Pins before switch: no poll sees unpinned change under new default. Existing `.openspec.yaml` never modified. File present without `schema:` left alone (per-change CLI error, surfaced by `use-openspec-status-all`).
+
+Partial failure: schema dir and pins stay. Default unchanged, so harmless. Re-run Enable completes.
+
+### Write guard
+
+Every writing action (`enable`, `disable`, `update`, `adopt`, `pin`, `remove`) runs under the per-cwd lock. Before any write:
+- Fresh `openspec status --all --json` in cwd (not cached poll). No `root` → refuse (CLI without `--all` cannot write).
+- `root.source === "nearest"`. Committed store pointer or declared root would redirect writes outside repo (`dist/core/root-selection.js:189-210`).
+- `realpath(root.path) === realpath(cwd)`.
+- `openspec/` exists, not a symlink. `changes/`, `schemas/`, `config.yaml`, `config.yml` not symlinks.
+
+Writes: temp file + rename (pins: exclusive create). All paths contained by `realpath(<root>)/openspec/`.
+
+Schema names: kebab-case only (`KEBAB` regex), written through YAML serializer. Blocks newline injection into `config.yaml` (e.g. `retire_capabilities: true`). User-level-only schemas refused as default or pin target: teammates cannot resolve them.
+
+### Actions
+
+| Action | Effect | Refused when |
+|---|---|---|
+| `enable` | see Enable | `unmanaged`, `incompatible`, stamp `previousDefault` mismatch |
+| `disable` | restore `previousDefault` (fallback `spec-driven`) in config; schema dir stays | config not `pi-spec-driven` → no-op |
+| `update` | regenerate with `previousDefault` (request value, else stamp's); re-stamps | allowed only for `outdated`, `current`, or `none` while enabled; refuses `newer`, `conflict`, `incompatible`, `unmanaged` |
+| `adopt` | regenerate over `unmanaged`; needs `confirm` + `previousDefault` | not `unmanaged` |
+| `pin` | create-only `.openspec.yaml` for `changes` | default not `pi-spec-driven`; `pinTo` not `pi-spec-driven` or stamp `previousDefault` |
+| `remove` | rename to `.fork-backup-*`, then delete | `none`, `unmanaged`; config names schema; active change pins it. Archived-only refs → warning + confirm |
+
+Remove sees only local working tree. Unmerged branches pinning `pi-spec-driven` break after Remove; response always warns.
+
+### Multi-user rules
+
+- Committed: `openspec/schemas/pi-spec-driven/`, `config.yaml` `schema:`, pins. Teammates receive via git.
+- Stamp never downgrades. Teammate on newer dashboard keeps newer schema. Mixed versions → `conflict`, reported only.
+- Teammate without schema dir (partial checkout): per-change `schema not found`; `workflowSchema.missing`; Update restores.
+- Change arriving by merge with no `.openspec.yaml` follows new default. Listed in `unpinnedChanges`. Known limitation of file-less changes.
+- Server never creates git commits. Response carries `worktree: { isWorktree, branch }`; UI shows branch when `isWorktree`.
+
+### Status (separate from readiness)
+
+`OpenSpecData.workflowSchema?: OpenSpecWorkflowSchemaStatus` = `{ configured, generated, missing, unpinnedChanges, affectedChanges }`.
+- Attached only to successful-poll payloads. Failure payload carries no schema status (`hasWorkflowSchemaStatus(readiness)` gate in `directory-service.ts`).
+- Computed on the MAIN thread, not the poll worker. `workflowSchemaStatusFor` (`directory-service.ts`) runs concurrently with the CLI spawn in `pollOne`, attached at finalize. Async fs reads only.
+- Only `newer` / `conflict` `schema validate` spawns. Routed through the shared spawn semaphore; memoized by (cwd, fingerprint, CLI version).
+- Readiness untouched. Missing schema dir → per-change `Unknown schema` errors, not `STALE`. `STALE` would disable every OpenSpec control on session cards.
+- Settings section: `/settings/openspec#workflow-schema` (`OpenSpecWorkflowSchemaSection.tsx`). Folder-section chip only links there.
+
+### REST endpoint
+
+`POST /api/openspec/workflow-schema`. Body: `{ cwd, action, confirm?, pinTo?, changes?, previousDefault? }`. `action` ∈ `enable | disable | update | adopt | pin | remove`.
+
+- `preHandler: networkGuard`. `control` tier in `packages/shared/src/route-tiers.ts`. MCP manifest completeness test applies.
+- Gate order: shape → tracked-or-pinned (membership, no fs) → OpenSpec enabled → not opted out → fs (`realpathSync.native(cwd)`, `<cwd>/openspec/` exists) → per-cwd lock.
+- Lock: `inFlightInits` set, key `realpathSync.native(cwd)`. Shared with `POST /api/openspec/init`. Concurrent call → `409`.
+- Validation: `pinTo` ∈ {`pi-spec-driven`, stamp `previousDefault`}. `changes` ⊆ active change names from fs enumeration. `previousDefault` kebab-case and resolvable.
+- Log per call: event `openspec.workflow-schema`, cwd, action, ok, written, `stampBefore`, `stampAfter`.
+
+### New-project default
+
+- Config: `openspec.workflowSchema.defaultForNewProjects` (boolean, default `false`, `packages/shared/src/config.ts`).
+- REST init chains Enable when flag on AND `<cwd>/openspec/` absent before init. Runs inside init's held lock.
+- Never triggers on repair or overwrite. Switching default of existing shared project is team decision.
+- project-init skill runs `openspec init` itself, discloses step in Step 3c preview, calls endpoint separately (own lock).
+
+### R1 / R2 / R3 skip
+
+Design-evidence promotion (R1 split files, R2 `design/` dir, R3 no design + tasks checkboxes) skipped when change `schemaName === "pi-spec-driven"`. Explicit `Not needed: <reason>` design file counts as done.
+
+- Dashboard: `packages/shared/src/openspec-poller.ts` — `evaluateLocalDesignSatisfaction(..., schemaName)`. `schemaName` from status entry; fallback `probe.localSchemaName`.
+- Skills: `.pi/skills/openspec-shared/scripts/effective-status.sh` — `jq -r '.schemaName'` gate on `openspec status --change <name> --json`.
+- Other schemas: rules unchanged. Fallback `list` path (no `schemaName`): keeps promoting.
+
 ## Electron Server Lifecycle
 
 Paired remote dashboards open in per-server Electron windows (own origin, device cookie): see [electron-server-windows.md](./electron-server-windows.md).

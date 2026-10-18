@@ -76,3 +76,7 @@ Copy actions go through `copyText` and ids through `randomUuid()` — non-secure
 
 - New nav group Services (after Network): pages `services` ("All services") + `runtimes`; `:sub` interpreted for `services` only (`activeServiceId`); `useServices({onMessage, ws})` lives here (nav attention dot `nav-services-attention` + sr-only text). New prop `ws`. Pages render lazily via `services/ServicesPages`; no draft registered → not a Save Bar source. See change: add-services-settings-ui.
 Access tab renders `PiTrustMirrorSection`. See change: mirror-dashboard-trust-to-pi.
+
+## add-pi-spec-driven-schema
+
+- OpenSpec page mounts `OpenSpecWorkflowSchemaSection` with `defaultForNewProjects` from `config.openspec.workflowSchema` + `onDefaultChange` (`update` draft; `OpenSpecConfigShape.workflowSchema?`). Only the default switch is a Save Bar source. **The OpenSpec Workflow Schema section is NOT a Save Bar source for its per-cwd actions**: enable/disable/update/adopt/pin/remove write to the repo immediately after a confirm dialog and register no draft. See change: add-pi-spec-driven-schema.

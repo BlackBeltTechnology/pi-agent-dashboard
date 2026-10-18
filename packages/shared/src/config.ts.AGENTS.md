@@ -41,3 +41,5 @@ Dashboard config loader. `loadConfig()` reads `~/.pi/dashboard/config.json` via 
 
 `MermaidRepairConfig {enabled=false, model?, maxChars=20000 (clamp 1000–50000), timeoutMs=30000 (clamp 5000–120000), disabledReason?: "no_model"|"role_refs_unsupported"}` + `parseMermaidRepairConfig`, `DEFAULT_MERMAID_REPAIR`, `DashboardConfig.mermaidRepair`. `enabled` is the RESOLVED flag: enabled-without-model → `no_model`; `@role` model → `role_refs_unsupported` (interim until `add-role-aware-model-refs`); wrong types → defaults, unknown fields dropped. Served by `GET /api/config`; no credentials. Tests: `__tests__/config-mermaid-repair.test.ts`. See change: add-mermaid-ai-repair.
 `piTrustMirror` config group: `PiTrustMirrorConfig`, `DEFAULT_PI_TRUST_MIRROR`, `parsePiTrustMirror` (enabled true, coverInteractive false, sources all on except accessGrants). See change: mirror-dashboard-trust-to-pi.
+
+`OpenSpecPollConfig.workflowSchema: { defaultForNewProjects: boolean }` (default `false`; `DEFAULT_OPENSPEC_POLL`); `parseOpenSpecPollConfig` accepts booleans only, else default. Read by project-init skill + init route. See change: add-pi-spec-driven-schema.
