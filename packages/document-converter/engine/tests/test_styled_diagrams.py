@@ -59,8 +59,9 @@ def test_cache_miss_generates_via_nano_banana(tmp_path, monkeypatch):
     monkeypatch.setattr(engine_cli, "_nano_banana", fake_nano)
     monkeypatch.setattr(engine_cli, "_mmdc", lambda *a, **k: calls.__setitem__("mmdc", calls["mmdc"] + 1))
 
-    engine_cli._render_styled_diagrams(md, "ros-3d", cache)
+    out = engine_cli._render_styled_diagrams(md, "ros-3d", cache)
     assert calls["mmdc"] == 0  # nano-banana succeeded; no fallback
+    assert "```mermaid" not in out.read_text(encoding="utf-8")
 
 
 def test_falls_back_to_mmdc_when_nano_fails(tmp_path, monkeypatch):

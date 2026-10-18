@@ -55,7 +55,7 @@ export interface RunnerResult {
 export type EngineRunner = (argv: string[], stdin: string) => Promise<RunnerResult>;
 
 export interface EngineConfig {
-  /** Image tag, e.g. `pi-doc-engine:0.1.0`. */
+  /** Image tag, e.g. `pi-doc-engine:0.2.0`. */
   image: string;
   /** Roots always mounted read-write (the facade puts `stagingDir` here). Created on demand. */
   writable?: string[];
@@ -312,6 +312,8 @@ function mapEngineCode(code: string): DocConverterError["code"] {
     case "INGEST_FAILED":
     case "DOCLING_UNAVAILABLE":
       return "INGEST_FAILED";
+    case "MMDC_UNAVAILABLE":
+      return "MMDC_UNAVAILABLE";
     case "PRODUCE_FAILED":
     case "MMDC_FAILED":
       return "PRODUCE_FAILED";

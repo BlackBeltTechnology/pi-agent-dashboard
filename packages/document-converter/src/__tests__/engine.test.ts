@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { type EngineConfig, type EngineRequest, type EngineRunner, runEngine } from "../engine.js";
-import { DocConverterError } from "../errors.js";
+import { DocConverterError, type DocConverterErrorCode } from "../errors.js";
 
 // Every request path lives under a per-suite mkdtemp root passed as
 // `workspaceRoot` — `/in.md`-style paths (mount dir `/`) can never be admitted.
@@ -71,6 +71,34 @@ describe("runEngine envelope handling", () => {
     await expect(
       runEngine(cfg({ runner }), { command: "convertToMarkdown", input: join(ws, "a.pdf") }),
     ).rejects.toMatchObject({ code: "INGEST_FAILED", message: "boom", stderr: "trace" });
+  });
+
+  it.each([
+    ["MMDC_UNAVAILABLE", "MMDC_UNAVAILABLE"],
+    ["MMDC_FAILED", "PRODUCE_FAILED"],
+    ["PRODUCE_FAILED", "PRODUCE_FAILED"],
+    ["SOMETHING_NEW", "INTERNAL"],
+  ])("maps engine code %s to %s keeping message + stderr", async (engineCode, expected) => {
+    const runner: EngineRunner = async () => ({
+      stdout: JSON.stringify({ ok: false, error: { code: engineCode, message: "m", stderr: "s" } }),
+      stderr: "",
+      exitCode: 1,
+    });
+    await expect(
+      runEngine(cfg({ runner }), { command: "renderPdf", input: join(ws, "a.md"), output: join(ws, "a.pdf") }),
+    ).rejects.toMatchObject({ code: expected, message: "m", stderr: "s" });
+  });
+
+  it("DocConverterErrorCode includes MMDC_UNAVAILABLE (type-level)", () => {
+    const describeCode = (c: DocConverterErrorCode): string => {
+      switch (c) {
+        case "MMDC_UNAVAILABLE":
+          return "mmdc";
+        default:
+          return "other";
+      }
+    };
+    expect(describeCode("MMDC_UNAVAILABLE")).toBe("mmdc");
   });
 
   it("rejects non-JSON stdout with BAD_RESPONSE on clean exit", async () => {
