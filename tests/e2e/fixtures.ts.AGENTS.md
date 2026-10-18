@@ -1,3 +1,5 @@
 # fixtures.ts — index
 
 The suite's `test`/`expect` entry point — EVERY spec imports from here, not `@playwright/test` (guard: `scripts/check-e2e-fixture-import.mjs`). Exports an `auto: true` reap fixture: probes `/api/health` through a shared latch, snapshots live session ids before/after each test body over `BusClient`, and shuts down ONLY the delta over the WS `shutdown` message (not REST — REST omits `closedReason:"manual"`, leaving cold-start recovery candidates). Liveness is judged with `isLiveSession`, never mere presence, because a closed session keeps its record until `session_removed`. Re-exports `expect` + the 4 Playwright types the suite uses. See change: fix-e2e-harness-memory-exhaustion.
+
+When the latch arms, the HARNESS DOWN error appends `attributeDestroy(...)` built from the managed workspace's `.pi-test-harness.json` (`containerId`, `eventsFile`) via `MARKER_PATH`; attach mode (`USE_RUNNING`) yields `undetermined`. Never throws on this failure path. See change: add-missing-ci-legs.
