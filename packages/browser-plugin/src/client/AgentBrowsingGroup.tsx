@@ -146,7 +146,7 @@ export function AgentBrowsingGroup({
             title={
               <>
                 {t("defaultDedicatedTitle", undefined, "Dedicated agent profile")}{" "}
-                <SettingsStatusPill tone="info" icon={null}>{t("recommended", undefined, "Recommended")}</SettingsStatusPill>
+                <SettingsStatusPill tone="info" icon={null} interactive>{t("recommended", undefined, "Recommended")}</SettingsStatusPill>
               </>
             }
             help={t(

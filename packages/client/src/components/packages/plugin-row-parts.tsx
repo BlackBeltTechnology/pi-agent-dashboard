@@ -101,7 +101,7 @@ export function CopyableErrorBlock({ text, testId }: { text: string; testId: str
           }
         }}
         title={i18nT("status.copyErrorToClipboard", undefined, "Copy error to clipboard")}
-        className={`shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] border ${ERR_BORDER} hover:opacity-80`}
+        className={`shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[12px] border ${ERR_BORDER} hover:opacity-80`}
         data-testid={`${testId}-copy`}
       >
         <Icon path={copied ? mdiCheck : mdiContentCopy} size={0.45} />
@@ -158,7 +158,7 @@ export function MissingRequirementsBlock({ row, inNotice = false }: { row: Plugi
               <button
                 type="button"
                 onClick={() => operations.install(rec.source)}
-                className={`px-2 py-0.5 rounded text-[11px] ${LINK_BG} ${LINK_BG_HOVER} ${LINK_FG} border ${LINK_BORDER}`}
+                className={`px-2 py-0.5 rounded text-[12px] ${LINK_BG} ${LINK_BG_HOVER} ${LINK_FG} border ${LINK_BORDER}`}
                 data-testid={`install-piExtension-${name}`}
               >
                 {i18nT("common.install2", undefined, "Install")}
@@ -167,7 +167,7 @@ export function MissingRequirementsBlock({ row, inNotice = false }: { row: Plugi
               <button
                 type="button"
                 onClick={() => navigate("/settings/add-ons")}
-                className="px-2 py-0.5 rounded text-[11px] bg-[var(--bg-tertiary)] hover:bg-[var(--bg-secondary)] text-[var(--text-secondary)] border border-[var(--border-secondary)]"
+                className="px-2 py-0.5 rounded text-[12px] bg-[var(--bg-tertiary)] hover:bg-[var(--bg-secondary)] text-[var(--text-secondary)] border border-[var(--border-secondary)]"
                 data-testid={`install-piExtension-link-${name}`}
               >
                 {i18nT("packages.installViaPackagesTab", undefined, "Install via Packages tab")}
