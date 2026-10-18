@@ -134,6 +134,30 @@ describe("registerDashboardContextInjector", () => {
     expect(r2.systemPrompt).toContain("You are pi session `S1`");
   });
 
+  // test-plan #E20 — pi >= 1.2.0 fires `before_agent_start` for a custom-message
+  // run (the dashboard Retry turn) with `messageType: "custom"` and NO `prompt`.
+  // The handler composes on `systemPrompt` only, so the Retry turn gains the
+  // session-context fragment. See change: update-pi-core-1-3-adopt-apis (design D2).
+  it("E20 a custom-message (Retry) start without `prompt` still gets the fragment", () => {
+    const pi = fakePi();
+    registerDashboardContextInjector(
+      pi as any,
+      () => ({ sessionId: "S9", attachedChange: "add-retry-ctx" }),
+      () => true,
+    );
+
+    const r = pi.fire({
+      messageType: "custom",
+      message: { role: "custom", customType: "pi-dashboard:retry", content: "", display: false },
+      systemPrompt: "body\nCurrent working directory: /x",
+      systemPromptOptions: { cwd: "/x" },
+    });
+
+    expect(r.systemPrompt).toContain("You are pi session `S9` running in `/x`.");
+    expect(r.systemPrompt).toContain("Attached OpenSpec change: `add-retry-ctx`");
+    expect(r.systemPrompt).not.toContain("Current working directory: /x");
+  });
+
   it("falls back to process.cwd() when systemPromptOptions.cwd absent", () => {
     const pi = fakePi();
     registerDashboardContextInjector(

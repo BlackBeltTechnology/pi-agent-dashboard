@@ -3,21 +3,22 @@
  * content builder.
  *
  * `bridge-followup-queue-drain.test.ts` covers the drain's GATES (idle,
- * TUI-coexistence, re-entrancy, empty-buffer) with a synchronous mirror. This
+ * TUI-coexistence, re-entrancy, empty-buffer). This
  * file covers what `fix-bridge-followup-image-drop` changes: what the drain
  * hands pi, and what happens to an entry's image bytes when it does. The
  * pop-before-send and no-re-push invariants are re-asserted HERE with entries
  * carrying images, because that is where losing them would be silent.
  *
- * The mirror below wires the REAL `createFollowupBuffer` and the REAL
- * `buildUserMessageContent`, so a regression in either fails these cases.
+ * The harness below drives the REAL `drainOneFollowup` over the REAL
+ * `createFollowupBuffer` (it builds content with the REAL
+ * `buildUserMessageContent`), so a regression in any of them fails these cases.
  *
  * Covers test-plan rows E3, E4, X1, X2, X3.
  *
- * See change: fix-bridge-followup-image-drop.
+ * See changes: fix-bridge-followup-image-drop, update-pi-core-1-3-adopt-apis.
  */
 import { describe, expect, it, vi } from "vitest";
-import { buildUserMessageContent } from "../command-handler.js";
+import { drainOneFollowup } from "../followup-drain.js";
 import { createFollowupBuffer, type FollowUpEntry } from "../followup-buffer.js";
 
 const PNG = { type: "image" as const, data: "PNGBYTES", mimeType: "image/png" };
@@ -32,17 +33,20 @@ function makeDrain(opts: { initial?: FollowUpEntry[]; throwOnSend?: boolean; max
     if (opts.throwOnSend) throw new Error("pi exploded");
   });
 
-  // Mirrors bridge.ts drainFollowupQueue AFTER its gates pass: pop first, emit,
-  // then hand pi the built content with NO send options.
-  const drainOnce = (): void => {
-    if (buffer.length === 0) return;
-    const entry = buffer.shift()!;
+  // The real gate sequence; the ctx probe reports an idle session with no pi
+  // queue, so the entry is popped, then handed to pi with NO send options.
+  const realShift = buffer.shift.bind(buffer);
+  buffer.shift = () => {
     callLog.push("shift");
-    try {
-      sendUserMessage(buildUserMessageContent(entry.text, entry.images));
-    } catch {
-      // INTENTIONAL: no re-push. Double-shipping is worse than dropping.
-    }
+    return realShift();
+  };
+  const drainOnce = (): void => {
+    drainOneFollowup({
+      buffer,
+      ctx: { hasPendingMessages: () => false, isIdle: () => true },
+      emitQueueUpdate: () => {},
+      sendUserMessage: (content) => sendUserMessage(content),
+    });
   };
 
   return { buffer, sendUserMessage, callLog, drainOnce };

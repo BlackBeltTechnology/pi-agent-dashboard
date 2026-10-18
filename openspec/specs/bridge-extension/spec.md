@@ -65,7 +65,7 @@ Routing order:
 2. `!<cmd>` → bash via `pi.exec()`, forward `bash_output` event + send to LLM
 3. `/compact [args]` → `ctx.compact()` with optional custom instructions
 4. `/` prefixed → `session.prompt(text)` for extension commands, skills, templates
-5. Default → `pi.sendUserMessage(text)`
+5. Default → `pi.sendUserMessage(text, { deliverAs })`, `deliverAs` defaulting to `"followUp"`
 
 In a team-confined session (the process carries `PI_EXT_TEAM_TOOLS`), the routing SHALL follow the team carve-out of `command-routing` "Command routing order": steps 1, 2 and 4 SHALL NOT run, `/skill:` is handled only for effective skills, and other `/` text is sent unexpanded or dropped.
 
@@ -79,7 +79,7 @@ In a team-confined session (the process carries `PI_EXT_TEAM_TOOLS`), the routin
 
 #### Scenario: Regular text unchanged
 - **WHEN** `send_prompt` arrives with text `explain this function`
-- **THEN** the handler SHALL call `sendUserMessage("explain this function")` as before
+- **THEN** the handler SHALL call `sendUserMessage("explain this function", { deliverAs: "followUp" })` as before
 
 The command handler SHALL also handle `kill_process` messages by calling `killProcessByPgid(pgid)` from the process-scanner module.
 

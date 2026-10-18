@@ -28,11 +28,11 @@ if [ ! -d "$GLOBAL_DIR/@blackbelt-technology/pi-dashboard" ]; then
   exit 1
 fi
 
-# --- pi lockstep floor (X4; change: update-pi-core-1-1-adopt-apis) ---------
+# --- pi lockstep floor (X4; changes: update-pi-core-1-1-adopt-apis, update-pi-core-1-3-adopt-apis) ---------
 # Every resolved copy of the governed pi packages must sit at or above the 1.1.0
 # floor; a copy left on an older pin means the lockstep (peers, overrides,
 # server dependency) did not publish coherently.
-PI_FLOOR="1.1.0"
+PI_FLOOR="1.3.0"
 BELOW=$(GLOBAL_DIR="$GLOBAL_DIR" PI_FLOOR="$PI_FLOOR" node -e '
 const fs = require("fs"), path = require("path");
 const floor = process.env.PI_FLOOR.split(".").map(Number);
