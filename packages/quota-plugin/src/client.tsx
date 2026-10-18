@@ -29,6 +29,7 @@ import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/das
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { computePace, formatResetIn, type Pace, type PaceSeverity, paceLabel } from "./pace.js";
+import { providerLabel } from "./quota-status.js";
 import type {
   ApiQuotaResponse,
   ProviderQuota,
@@ -37,18 +38,6 @@ import type {
 
 export { catalog } from "./i18n.js";
 
-// Display names only; providers.ts owns WHICH providers exist.
-const PROVIDER_LABELS: Record<string, string> = {
-  anthropic: "Anthropic",
-  "openai-codex": "Codex",
-  "github-copilot": "Copilot",
-  openrouter: "OpenRouter",
-  synthetic: "Synthetic",
-  zai: "Z.ai",
-  "kimi-coding": "Kimi Code",
-  "opencode-go": "OpenCode Go",
-};
-
 const SEVERITY_COLOR: Record<PaceSeverity, string> = {
   green: "#34d399",
   orange: "#fbbf24",
@@ -56,9 +45,6 @@ const SEVERITY_COLOR: Record<PaceSeverity, string> = {
   muted: "#71717a",
 };
 
-export function providerLabel(id: string): string {
-  return PROVIDER_LABELS[id] ?? id;
-}
 
 /**
  * Localized pace-state formatter. `paceLabel` (pure, in pace.ts) supplies the
@@ -174,48 +160,6 @@ export function useQuota(pollMs = 60_000): QuotaState {
   return { providers, lastUpdated, refresh, isRefreshing };
 }
 
-/**
- * Live per-provider state for the settings rows, from the same `/api/quota`
- * payload the widget reads: `reasons` = why an ENABLED provider produced
- * nothing (server-named cause), `withData` = providers that currently report at
- * least one window (a retained snapshot counts: the user can see it).
- *
- * Every provider is tickable — the plugin owns each contract, so there is no
- * peer to be missing. But a tick can still yield nothing (not signed in,
- * endpoint throttled) and silence there is indistinguishable from a bug; the
- * settings row prints a worded pill instead.
- *
- * Fetched once per mount (no poll): the Settings panel is short-lived.
- */
-export function useQuotaProviderStatus(): {
-  reasons: Record<string, QuotaUnavailableReason>;
-  withData: ReadonlySet<string>;
-} {
-  const [state, setState] = useState<{
-    reasons: Record<string, QuotaUnavailableReason>;
-    withData: ReadonlySet<string>;
-  }>({ reasons: {}, withData: new Set() });
-  useEffect(() => {
-    let alive = true;
-    void (async () => {
-      try {
-        const res = await fetch("/api/quota");
-        const json = (await res.json()) as ApiQuotaResponse;
-        if (!alive) return;
-        setState({
-          reasons: Object.fromEntries((json.unavailable ?? []).map((u) => [u.provider, u.reason])),
-          withData: new Set((json.providers ?? []).filter((p) => p.windows.length > 0).map((p) => p.provider)),
-        });
-      } catch {
-        if (alive) setState({ reasons: {}, withData: new Set() });
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, []);
-  return state;
-}
 
 /**
  * Grey `now` caption sitting directly BENEATH the tick, horizontally centred on
@@ -401,7 +345,7 @@ export function QuotaWidget({ session }: { session?: DashboardSession }) {
                 color: ringed ? "var(--text-primary, #e4e4e7)" : "var(--text-secondary, #a1a1aa)",
                 opacity: dimmed ? 0.5 : 1,
                 boxShadow: ringed
-                  ? "inset 0 0 0 1px color-mix(in srgb, var(--accent, #3b82f6) 35%, var(--border-subtle, rgba(82,82,91,0.6)))"
+                  ? "inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, var(--border-subtle, rgba(82,82,91,0.6)))"
                   : undefined,
               }}
             >
@@ -604,7 +548,7 @@ function SelectorPill({ label, active, onClick }: { label: string; active: boole
         padding: "2px 10px",
         borderRadius: 999,
         border: "1px solid var(--border-subtle, rgba(82,82,91,0.6))",
-        background: active ? "var(--accent, #3b82f6)" : "transparent",
+        background: active ? "var(--accent)" : "transparent",
         color: active ? "#fff" : "var(--text-secondary, #a1a1aa)",
         cursor: "pointer",
       }}

@@ -7,12 +7,12 @@
  * act immediately (not a Save Bar source).
  * See change: add-system-one-registry.
  */
-import { SettingsCopyButton, SettingsNotice, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { SelectField, SettingsCopyButton, SettingsNotice, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type React from "react";
 import { useRef, useState } from "react";
 import { ApiError, api, type BackendView, type ConsumerRow, type Draft, type EvalReport } from "./api.js";
 import { ConfirmDialog } from "./ConfirmDialog.js";
-import { OptionSelectField } from "./OptionSelectField.js";
+
 import { BTN } from "./settings-ui.js";
 
 export interface TestPanelProps {
@@ -101,7 +101,7 @@ export function TestPanel({ consumer, draft, views, revision, onSaved }: TestPan
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-end gap-2">
-        <OptionSelectField
+        <SelectField
           label={t("backendToTest", undefined, "Backend to test")}
           hint={null}
           testIds={{ control: `test-backend-${consumer.id}` }}

@@ -79,7 +79,9 @@ The task order starts with the 10 missing `@source` lines (apple-tools, blackhol
   - `--text-muted` / `--text-faint` on text;
   - a heading literal equal to the plugin `displayName` or id.
 
-  Counts may only shrink. This change brings all 15 to zero and deletes their baseline entries, so any later regression fails CI.
+  Counts may only shrink. This change brings all 15 settings bodies to zero, so any later regression fails CI.
+- **Two tiers (decided 2026-10-18 during ship-it).** The directories also hold non-settings surfaces (FlowGraph, AutomationBoard, goal chips, the quota widget, MCP folder pages) with ~430 pre-existing hits, so "every `.tsx` under the directory" and "no baseline entry for the 15" conflict. Resolution: scan the whole directory; every file in a settings body's render closure (`settingsClosure`: the claimed module, or — for a claim resolved through the client entry, like obs — only the imports the claimed component references, plus package-local imports) has NO baseline entry; other files are legacy entries that only shrink. To keep the quota settings closure clean, `providerLabel` + `useQuotaProviderStatus` moved from `client.tsx` (widget) into `quota-status.ts`.
+- `theme-token-guard` `SCAN_ROOTS` is derived from every manifest's `pi-dashboard-plugin.client` entry (`pluginClientRoots`). Newly scanned non-settings hits were adopted once into the baseline; accent-ramp fallbacks in the MCP folder pages and the quota widget were repaired instead (the real-tree test forbids baselining them).
 - The `settings-panel` rule that `hint` is enforced by the type checker, "no source-scanning test", is unaffected: this lint scans for native controls and identity headers, not for hints.
 
 ### D8. Copy rules

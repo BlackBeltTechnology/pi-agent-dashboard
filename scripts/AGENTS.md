@@ -60,6 +60,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/rebuild-scripts-gate.test.mjs` | X5 fault injection: both `rebuild-restart.sh` and `rebuild-and-restart.sh` run the served-client gate between… → see `__tests__/rebuild-scripts-gate.test.mjs.AGENTS.md` |
 | `__tests__/repair-meta-source.test.mjs` | Vitest unit tests for repair-meta-source.mjs. Asserts source:"dashboard" → cleaned (other fields preserved),… → see `__tests__/repair-meta-source.test.mjs.AGENTS.md` |
 | `__tests__/review-changes-parser.test.mjs` | Vitest unit tests for parseFindings + splitFindings (.pi/skills/implement/scripts/parse-findings.ts). → see `__tests__/review-changes-parser.test.mjs.AGENTS.md` |
+| `__tests__/settings-kit-guard.test.mjs` | Settings-kit ratchet tests: per-kind counts + negatives (#E33), exempt `ServerEditor.tsx`, closure, `main` fail/`--write` refuse-grow; real tree: covers 15 plugins, passes, no baseline entry in their settings closure (#E34). See change: retro-ux-plugin-settings-wave-2. |
 | `__tests__/severity-literal-guard.test.mjs` | Static guard: no raw `red-<NN(N)>` Tailwind literal (2- or 3-digit shade, so `red-50` is caught too) in the… → see `__tests__/severity-literal-guard.test.mjs.AGENTS.md` |
 | `__tests__/ship-it-manifest.test.mjs` | Vitest unit tests for ship-it `manifest.ts` (`.pi/skills/ship-it/scripts/`). → see `__tests__/ship-it-manifest.test.mjs.AGENTS.md` |
 | `__tests__/ship-it-no-weakening.test.mjs` | Vitest unit tests for ship-it `no-weakening.ts` assertNoWeakening. → see `__tests__/ship-it-no-weakening.test.mjs.AGENTS.md` |
@@ -144,6 +145,8 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `seed-settings-default-model.mjs` | Seeds pi `settings.json` with SPLIT `defaultProvider`+`defaultModel` so faux is the startup default (pi 0.84… → see `seed-settings-default-model.mjs.AGENTS.md` |
 | `select-affected-tests.mjs` | Affected-test selector CLI. → see `select-affected-tests.mjs.AGENTS.md` |
 | `test-selection/` | Selector modules + data. → see `test-selection/AGENTS.md` |
+| `settings-kit-baseline.json` | Shrink-only baseline for `settings-kit-guard.mjs`: `{counts}` map `<file>::<kind>` → count. Legacy non-settings files only; no entry for a file in the 15 plugins' settings closure. See change: retro-ux-plugin-settings-wave-2. |
+| `settings-kit-guard.mjs` | Settings-kit ratchet (design D7): scans every `.tsx` under each `settings-section` claim dir (`settingsClaims`/`settingsRoots`), counts checkbox/select/hex/rgb/palette/small-text/muted-text/identity; `settingsClosure` = settings render tree (must stay zero); `EXEMPT_FILES` = `mcp-client-plugin/src/client/ServerEditor.tsx`; `--write` shrink-only. `npm run settings-kit:guard`. See change: retro-ux-plugin-settings-wave-2. |
 | `spec-collateral.mjs` | Advisory OpenSpec post-archive contradiction scan; exit 0/2, never 1. → see `spec-collateral.mjs.AGENTS.md` |
 | `split-large-agents.mjs` | One-off Node script. Splits over-large directory `AGENTS.md` file-based. → see `split-large-agents.mjs.AGENTS.md` |
 | `stop-dashboard.sh` | Stops pi-dashboard server. Reads port from ~/.pi/dashboard/config.json (default 8000); lsof -ti :PORT; SIGTERM, SIGKILL fallback after 5s. |

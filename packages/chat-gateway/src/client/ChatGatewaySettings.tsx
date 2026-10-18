@@ -310,6 +310,7 @@ export function ChatGatewaySettings(_props: SlotProps<"settings-section">): Reac
         <TextField
           label="Bot token"
           type="password"
+          autoComplete="off"
           hint={
             configured
               ? "A token is saved. Paste a new one to replace it."

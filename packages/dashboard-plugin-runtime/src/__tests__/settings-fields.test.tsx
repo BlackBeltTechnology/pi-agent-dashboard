@@ -413,3 +413,27 @@ describe("SettingsNotice actions + SettingsCopyButton (wave-2 X-series helper)",
     expect(writeText).toHaveBeenCalledWith("pi-obs provision");
   });
 });
+
+describe("kit gaps found by the plugin migrations (wave 2)", () => {
+  it("SelectField keeps disabled options listed and disabled", () => {
+    render(
+      <SelectField
+        label="Backend"
+        value="a"
+        options={[
+          { value: "a", label: "Local" },
+          { value: "b", label: "Remote (off-machine is off)", disabled: true },
+        ]}
+        onChange={noop}
+        hint={null}
+      />,
+    );
+    const opt = screen.getByRole("option", { name: "Remote (off-machine is off)" }) as HTMLOptionElement;
+    expect(opt.disabled).toBe(true);
+  });
+
+  it("TextField passes autoComplete through", () => {
+    render(<TextField label="Token" type="password" autoComplete="off" value="" onChange={noop} hint={null} />);
+    expect(screen.getByLabelText("Token").getAttribute("autocomplete")).toBe("off");
+  });
+});

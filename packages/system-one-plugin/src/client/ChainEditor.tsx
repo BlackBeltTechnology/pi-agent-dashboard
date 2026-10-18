@@ -8,14 +8,14 @@
  * "show incompatible" is on; off-machine backends are disabled while the
  * switch is off. See change: add-system-one-registry.
  */
-import { ToggleField, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { SelectField, ToggleField, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { ConsumerDeclaration } from "@blackbelt-technology/pi-system-one";
 import type React from "react";
 import { useEffect, useRef, useState } from "react";
 import type { BackendView, Draft } from "./api.js";
 import { EgressBadge } from "./EgressBadge.js";
 import { incompatibleWith, move, unusableReason } from "./model.js";
-import { OptionSelectField } from "./OptionSelectField.js";
+
 import { BTN, BTN_ICON } from "./settings-ui.js";
 
 export interface ChainEditorProps {
@@ -120,7 +120,7 @@ export function ChainEditor({ idPrefix, chain, draft, views, onChange, consumer 
         })}
       </ol>
       <div className="flex flex-wrap items-end gap-2">
-        <OptionSelectField
+        <SelectField
           label={t("backendToAdd", undefined, "Backend to add")}
           hint={null}
           testIds={{ control: `${idPrefix}-add-select` }}

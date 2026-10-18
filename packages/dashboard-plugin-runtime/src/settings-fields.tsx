@@ -292,7 +292,8 @@ export function SelectField({
 }: FieldContract & {
   label: string;
   value: string;
-  options: { value: string; label: string }[];
+  /** `disabled` options stay listed (put the reason in `label`). */
+  options: { value: string; label: string; disabled?: boolean }[];
   onChange: (v: string) => void;
 }) {
   return (
@@ -311,7 +312,7 @@ export function SelectField({
           onChange={(e) => onChange(e.target.value)}
         >
           {options.map((o) => (
-            <option key={o.value} value={o.value}>
+            <option key={o.value} value={o.value} disabled={o.disabled}>
               {o.label}
             </option>
           ))}
@@ -328,6 +329,7 @@ export function TextField({
   type = "text",
   placeholder,
   mono,
+  autoComplete,
   ...rest
 }: FieldContract & {
   label: string;
@@ -335,6 +337,8 @@ export function TextField({
   onChange: (v: string) => void;
   type?: string;
   placeholder?: string;
+  /** e.g. `"off"` / `"new-password"` for write-only secrets. */
+  autoComplete?: string;
   /** Monospace value (ids, paths, keys). Stays on the 12 px step. */
   mono?: boolean;
 }) {
@@ -350,6 +354,7 @@ export function TextField({
           aria-describedby={dby}
           aria-invalid={invalid || undefined}
           type={type}
+          autoComplete={autoComplete}
           disabled={rest.disabled}
           className={`${CONTROL_BASE} w-full ${mono ? "font-mono text-[12px]" : ""}`}
           value={value}

@@ -1,7 +1,7 @@
 /**
  * Quota settings page — `settings-section` claim, loaded lazily through the
  * manifest `module` field so the settings UI stays out of the cold-landing
- * chunk. Helpers shared with the widget/dialog are imported from `./client.js`.
+ * chunk. Helpers shared with the widget/dialog are imported from `./quota-status.js`.
  * Built on the shared settings field kit: no identity header, a "Check quotas"
  * master switch, a visible ToS notice, a Providers group with worded status
  * pills, and a Retries group whose preview is an info notice.
@@ -20,7 +20,7 @@ import {
 } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { usePluginConfig, usePluginSend } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { providerLabel, useQuotaProviderStatus } from "./client.js";
+import { providerLabel, useQuotaProviderStatus } from "./quota-status.js";
 import { SUPPORTED_PROVIDERS } from "./providers.js";
 import type { QuotaPluginConfig, QuotaUnavailableReason } from "./types.js";
 
