@@ -21,8 +21,16 @@ import type { LegacyProviderIdEntry } from "@blackbelt-technology/pi-dashboard-s
 import { tryReadJson } from "./locked-json-file.js";
 import { getRuntimeAgentDir } from "./radius-override.js";
 
-const LEGACY_ID = "azure-openai-responses";
-const NEW_ID = "azure";
+/**
+ * pi's provider id renames (`old → current`). The single source: the settings
+ * legacy-credential detector normalises provider ids through it too.
+ * See change: pi-settings-full-coverage (design D5a).
+ */
+export const PI_RENAMED_PROVIDER_IDS: Readonly<Record<string, string>> = Object.freeze({
+  "azure-openai-responses": "azure",
+});
+
+const [[LEGACY_ID, NEW_ID]] = Object.entries(PI_RENAMED_PROVIDER_IDS) as [[string, string]];
 
 /** `id` itself, or `id/<model>` — the `/` boundary rejects `azure-openai-responses2`. */
 const isLegacy = (value: unknown): boolean =>

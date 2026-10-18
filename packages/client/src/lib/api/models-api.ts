@@ -60,3 +60,28 @@ export async function fetchModelCatalogue(): Promise<ModelCatalogueResult> {
     clearTimeout(timer);
   }
 }
+
+export type ScopeCatalogueResult =
+  | { status: "ok"; rows: { id: string; provider: string }[] }
+  | { status: "unavailable" };
+
+/**
+ * The FULL annotated catalogue (`GET /api/models?annotated=1`), including models
+ * of providers without credentials, as `{ id: "provider/modelId", provider }`
+ * rows. Feeds the pi settings page's model-scope editor. Never throws: any
+ * failure resolves to `unavailable`. See change: pi-settings-full-coverage (D7).
+ */
+export async function fetchScopeCatalogue(): Promise<ScopeCatalogueResult> {
+  try {
+    const { res, json } = await fetchJsonResponse<{ data?: { id?: unknown; provider?: unknown }[] }>(
+      `${getApiBase()}/api/models?annotated=1`,
+    );
+    if (!res.ok || !Array.isArray(json?.data)) return { status: "unavailable" };
+    const rows = json.data.flatMap((r) =>
+      typeof r.id === "string" && typeof r.provider === "string" ? [{ id: r.id, provider: r.provider }] : [],
+    );
+    return { status: "ok", rows };
+  } catch {
+    return { status: "unavailable" };
+  }
+}

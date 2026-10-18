@@ -338,6 +338,8 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "POST", path: "/api/packages/install", tier: "operate" },
   { method: "POST", path: "/api/packages/move", tier: "operate" },
   { method: "POST", path: "/api/packages/remove", tier: "operate" },
+  // pi-settings-full-coverage: moves a plain-text API key into auth.json (a credential write).
+  { method: "POST", path: "/api/pi-settings/legacy-credentials", tier: "operate" },
   { method: "POST", path: "/api/pi-settings/sync-defaults", tier: "operate" },
   { method: "POST", path: "/api/packages/reset-to-npm", tier: "operate" },
   { method: "POST", path: "/api/packages/update", tier: "operate" },

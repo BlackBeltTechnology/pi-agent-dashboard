@@ -1637,7 +1637,7 @@ describe("SettingsPanel Models nav group", () => {
     const groupLabels = Array.from(rail.querySelectorAll("[data-testid^='settings-nav-group-label-']")).map(
       (el) => (el.textContent ?? "").trim(),
     );
-    expect(groupLabels.length).toBe(7); // + Services (add-services-settings-ui)
+    expect(groupLabels.length).toBe(8); // + Services (add-services-settings-ui), + pi (pi-settings-full-coverage)
     for (const label of [...labels, ...groupLabels]) {
       expect(RESERVED_SETTINGS_LABELS.has(foldSettingsLabel(label))).toBe(true);
     }
@@ -1860,16 +1860,38 @@ describe("SettingsPanel pi settings + default-model mirror", () => {
     expect(screen.queryByTestId("default-model-pi-mirror-skipped")).toBeNull();
   });
 
-  it("F12 the pi settings section follows Retry on the Sessions page, with its notes", async () => {
+  it("F1 the rail has a pi settings item and the Sessions page has no pi settings section", async () => {
     global.fetch = mockFetch();
     render(<SettingsPanel availableModels={MODELS} />);
-    const retry = await screen.findByTestId("retry-settings-section");
-    const pi = await screen.findByTestId("pi-settings-section");
-    expect(retry.compareDocumentPosition(pi) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // No other section sits between them.
-    const sections = Array.from(document.querySelectorAll("[data-testid='retry-settings-section'], [data-testid='pi-settings-section'], section"));
-    expect(sections.indexOf(pi)).toBeGreaterThan(sections.indexOf(retry));
+    await screen.findByTestId("retry-settings-section");
+    expect(screen.queryByTestId("pi-settings-section")).toBeNull();
+    expect(screen.queryByTestId("pi-settings-page")).toBeNull();
+    const rail = await screen.findByTestId("settings-nav-rail");
+    const group = within(rail).getByTestId("settings-nav-group-pi");
+    expect(within(group).getByRole("button", { name: /pi settings/i })).toBeTruthy();
+  });
+
+  it("F1 the pi settings page renders its notes under /settings/pi-settings", async () => {
+    setPath("/settings/pi-settings");
+    global.fetch = mockFetch();
+    render(<SettingsPanel availableModels={MODELS} />);
+    await screen.findByTestId("pi-settings-page");
     await waitFor(() => expect(screen.getByTestId("pi-settings-reload-note").textContent).toMatch(/reloads running sessions/));
     expect(screen.getByTestId("pi-settings-scope-note").textContent).toMatch(/global file only/);
+    // The Sessions-only sections are not on this page.
+    expect(screen.queryByTestId("retry-settings-section")).toBeNull();
+  });
+
+  it("F1 the drift banner still shows on the new page when the dashboard default differs from pi's", async () => {
+    setPath("/settings/pi-settings");
+    global.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url === "/api/config") return json({ success: true, data: { ...mockConfig, defaultModel: "openai/gpt-4o" } });
+      if (url === "/api/pi-settings") {
+        return json({ success: true, settings: { defaultProvider: "anthropic", defaultModel: "x" }, raw: "{}", etag: "e", themes: [], legacyCredentials: [] });
+      }
+      return Promise.resolve({ ok: false, json: () => Promise.resolve(null) });
+    });
+    render(<SettingsPanel availableModels={MODELS} />);
+    expect(await screen.findByTestId("pi-settings-drift")).toBeTruthy();
   });
 });
