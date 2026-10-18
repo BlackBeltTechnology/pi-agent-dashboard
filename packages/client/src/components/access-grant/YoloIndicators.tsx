@@ -54,7 +54,7 @@ export function yoloRemainingLabel(session: YoloSessionView, now: number): strin
     : i18nT("yolo.left", { time: formatRemaining(ms) }, "{time} left");
 }
 
-/** Longest delay `setTimeout` accepts (2^31 - 1 ms); longer waits re-arm. */
+/** Longest delay `setTimeout` accepts (2^31 - 1 ms); real YOLO durations are minutes, so this is only a guard. */
 const MAX_TIMEOUT_MS = 2_147_483_647;
 
 /**
