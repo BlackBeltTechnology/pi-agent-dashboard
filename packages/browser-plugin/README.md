@@ -19,7 +19,14 @@ shown live in the dashboard editor pane.
   while the agent waits for a login takeover.
 - **Badge menu** (`session-card-badge` → `BrowserRelayBadge`) — lists every live
   relay tab: "Open in pane" / "Open all in pane" into that card's session.
-- **Agent tools** (bridge entry `src/bridge/index.ts`) — `browser_show_in_pane`
+- **Dedicated agent browser** (`@dedicated`, the default `browser_connect`
+  target) — a dashboard-owned Chrome profile only the agent uses, driven over
+  `--remote-debugging-pipe` (no extension, no TCP debug port): sign in once via
+  Settings → Open to sign in, then `agent-browser connect <cdpUrl>`. Needs
+  desktop Google Chrome and a display on the dashboard host. "Agent browsing"
+  settings pick the default browser, the unavailable fallback, idle
+  disconnect, live view on connect and global allowed domains.
+- **Agent tools** (bridge entry `src/bridge/index.ts`) — `browser_connect` (pick a browser per the dashboard's policy), `browser_show_in_pane`
   (open a tab in the calling session's pane, 5 s rate limit) and
   `browser_await_human` (open it, then block on a confirm the pane's Done
   answers; `done` / `cancelled`). The session id comes from the connection,
@@ -54,8 +61,9 @@ browser launch are supplied by the plugin's own `relay-instance` /
 `ctx.registerWsRoute` path, not the vendored HTTP listener.
 
 Config lives under `plugins.browser.*` in `~/.pi/dashboard/config.json`
-(`configSchema.json`): `enabled`, `defaultBrowser`,
-`allowMultipleInstancesPerProfile`, and per-profile
+(`configSchema.json`): `enabled`, `defaultBrowser`, `realProfile`,
+`onUnavailable`, `idleDisconnectMinutes`, `openLiveViewOnConnect`, global
+`allowedDomains`, `allowMultipleInstancesPerProfile`, and per-profile
 `browsers.<profileDirectory>.{ token (writeOnly), zeroDialog, allowedDomains }`.
 
-See changes: `add-browser-relay`, `add-browser-editor-pane-tab`.
+See changes: `add-browser-relay`, `add-browser-editor-pane-tab`, `add-dedicated-agent-browser`.

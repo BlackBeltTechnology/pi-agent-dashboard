@@ -172,7 +172,7 @@ graph LR
 
 ### Capability matrix — providers × capabilities
 
-| Capability | agent-browser bundled | Panerelay | ext T1 (`tabs`+`scripting`+`captureVisibleTab`) | ext T2 (+`debugger`) | dedicated CDP profile (`--user-data-dir` + loopback `--remote-debugging-port`, no extension) |
+| Capability | agent-browser bundled | Panerelay | ext T1 (`tabs`+`scripting`+`captureVisibleTab`) | ext T2 (+`debugger`) | dedicated `@dedicated` (`--remote-debugging-pipe`, no port, no extension) |
 |---|---|---|---|---|---|
 | dom read/script | ✅ | ❌ | ✅ (per-tab, injected) | ✅ full CDP | ✅ full CDP |
 | trusted input | ✅ | ⚠️ reports success, does nothing | ✅ | ✅ | ✅ |
@@ -180,7 +180,7 @@ graph LR
 | network intercept | ❌ | ❌ | ❌ | ✅ `Network`/`Fetch` domains (spike 4) | ✅ |
 | real profile/SSO/passkeys | ❌ | ✅ | ✅ | ✅ | ⚠️ own persistent profile, sign in once, no import of real-profile passkeys |
 | headless/always-on | ✅ | ❌ (needs Chrome running) | ❌ | ❌ | ⚠️ needs desktop Chrome, can run headed-in-background |
-| parallel/isolated | ✅ | ⚠️ one Chrome, ambiguous | ✅ per profile | ✅ per profile | ✅ one per user-data-dir |
+| parallel/isolated | ✅ | ⚠️ one Chrome, ambiguous | ✅ per profile | ✅ per profile | ⚠️ one CDP client at a time (409 `busy`) |
 | works in docker+CI | ✅ | ❌ | ❌ | ❌ | ❌ |
 | password-manager frame tolerance | ✅ | ❌ | ❌ (unverified) | ❌ (spike 2026-10-17) | ✅ |
 
@@ -201,7 +201,7 @@ Registry makes capability dishonesty declarable: consumer requests `input.truste
 1. Build registry FIRST, validate against the 2 providers that already exist (bundled agent-browser + Panerelay), zero new extension code.
 2. Then ext T1 and ext T2 are independent increments, shippable in either order.
 3. Never need to decide T1-vs-T2 up front.
-4. Registry step 1 now has a third provider candidate that works on this host: dedicated CDP profile (`--user-data-dir` + loopback `--remote-debugging-port`, no extension). See change: add-dedicated-agent-browser.
+4. Registry step 1 now has a third provider candidate that works on this host: dedicated Chrome over `--remote-debugging-pipe` (no TCP debug port, no extension), shipped as `@dedicated`. See change: add-dedicated-agent-browser.
 
 Registry v1 scope = registration + capability resolution + liveness reaping. Eviction (§15 LRU, idle TTL, ~529 MB/browser, orphan reaping) = separate later change.
 
@@ -220,6 +220,21 @@ Registry v1 scope = registration + capability resolution + liveness reaping. Evi
 Agent selects: `user_browser({ url, browser: "work" })`. AWS-named-profiles mental model.
 
 AgentAutomation profile was the only one that worked via extension — by luck (no password manager).
+
+### Dedicated provider = `@dedicated` (registry `automation`, `dedicated-cdp`)
+
+Shipped: change `add-dedicated-agent-browser`. Source: `openspec/changes/add-dedicated-agent-browser/design.md` D1, D2, D4, D6. Impl: `packages/browser-plugin/src/server/dedicated/`.
+
+- Key `@dedicated` ≙ registry `automation` (`provider: dedicated-cdp`). `@` prefix reserved for built-in targets.
+- Data dir `<config dir>/agent-chrome` (`~/.pi/dashboard/agent-chrome`), mode 0700, fixed. `userDataDir` not configurable.
+- Transport: `--remote-debugging-pipe`, fd 3/4, NUL-delimited JSON. No TCP debug port. No `--remote-debugging-port`, no `--enable-automation`, no `--headless`.
+- Chrome lifetime bound to server process group. Sign-ins persist on disk. Open tabs do not.
+- Exactly one CDP client at a time. Connect while live instance → 409 `{reason: "busy", instanceId, holder}`. Second `/ws/browser-cdp/<guid>` dial → close 1000 `Another CDP client already connected`.
+- Client path: `cdpUrl` = `ws://127.0.0.1:<port>/ws/browser-cdp/<guid>`. Served by the dashboard's loopback-only proxy (core local-peer gate). `Origin` header refused.
+- Proxy enforces: relay deny-list → dedicated deny set (`dedicated-deny.ts`) → hidden targets (server-owned sign-in tabs) → cookie header scrub.
+- Audit rows: `navigate`, `createTarget`, `denied`, `dropped`, `open`, `detach`.
+- No client within 30 s → instance closes (`detach` `no-cdp-client`). Chrome stays up.
+- Selection: `browser_connect` default `defaultBrowser: "@dedicated"`. Fallbacks `realProfile`, `@headless`. Never routes to Panerelay.
 
 ## Fork the whole browser — EVALUATED, REJECTED
 

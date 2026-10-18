@@ -25,7 +25,7 @@
  */
 import type { AuditRing } from "../audit.js";
 import { isRelayConnectPage, redactExtensionUrl } from "../redact.js";
-import { ACK_AND_DROP_METHODS, deniedMethod, denyError } from "./deny-list.js";
+import { ACK_AND_DROP_METHODS, deniedMethod, denyError, effectiveAllowedDomains } from "./deny-list.js";
 import {
   ExtensionSocket,
   type RelaySocket,
@@ -37,6 +37,11 @@ import { ExtensionProtocolV2 } from "./vendor/playwright-core/src/tools/mcp/cdpR
 
 /** `chrome.debugger.onDetach` reason when the user opened DevTools. */
 const DEVTOOLS_DETACH_REASON = "canceled_by_user";
+
+/** `chrome.debugger.onDetach` reason for an ordinary tab close — not audited. */
+const TARGET_CLOSED_DETACH_REASON = "target_closed";
+
+const EXTENSION_CLOSED_PREFIX = "extension-closed:";
 
 /** No CDP client after the handshake — the agent crashed or is on another host. */
 const DEFAULT_CDP_ATTACH_TIMEOUT_MS = 30_000;
@@ -60,7 +65,14 @@ const REAL_TIMERS: RelayTimers = {
 export interface RelayInstanceDeps {
   instanceId: string;
   profileDirectory: string;
+  /** Per-profile list; non-empty overrides the global list (see `effectiveAllowedDomains`). */
   allowedDomains: readonly string[];
+  /**
+   * Live getter for the global `allowedDomains` (read per command so a settings
+   * change applies without reconnecting). Default `() => []`.
+   * See change: add-dedicated-agent-browser (task 4.4).
+   */
+  globalAllowedDomains?: () => readonly string[];
   audit: AuditRing;
   logger: RelayLogger;
   /**
@@ -79,6 +91,12 @@ export interface RelayInstanceDeps {
    * broadcast storm. Falls back to `onStatusChange`.
    */
   onTabMetaChange?(): void;
+  /**
+   * The CDP client created a tab (`Target.createTarget` answered with a known
+   * tab session): live view on connect. May throw; swallowed.
+   * See change: add-dedicated-agent-browser (D7).
+   */
+  onAgentTabCreated?(tabId: number): void;
   timers?: RelayTimers;
   cdpAttachTimeoutMs?: number;
 }
@@ -180,6 +198,8 @@ export class RelayInstance {
   private closedReason?: string;
   /** Last `tabId:hasSession` signature; a change triggers `onStatusChange` (D2). */
   private lastViewableSig?: string;
+  /** Epoch ms of the last client CDP command or viewer input (idle sweep, D8). */
+  private _lastActivity = Date.now();
 
   constructor(deps: RelayInstanceDeps) {
     this.deps = deps;
@@ -235,6 +255,11 @@ export class RelayInstance {
 
   get hasCdpClient(): boolean {
     return this.cdp !== undefined;
+  }
+
+  /** Epoch ms of the last client-originated CDP command or viewer input. */
+  get lastActivity(): number {
+    return this._lastActivity;
   }
 
   get tapState(): ScreencastTap {
@@ -434,11 +459,22 @@ export class RelayInstance {
    */
   private _captureDetach(params: unknown): void {
     const [source, reason] = (params ?? []) as [{ tabId?: number }, unknown];
-    if (reason !== DEVTOOLS_DETACH_REASON || typeof source?.tabId !== "number") return;
+    if (reason !== DEVTOOLS_DETACH_REASON) {
+      // Any other reported cause (an extension such as a password manager
+      // taking the debugger, `replaced_with_devtools`, …) is audit-only; a
+      // normal tab close is not a detach worth recording. Viewer state and
+      // command errors stay as they were. See change: add-dedicated-agent-browser (D9).
+      if (typeof reason === "string" && reason !== "" && reason !== TARGET_CLOSED_DETACH_REASON) {
+        this._auditDetach(`extension:${reason}`);
+      }
+      return;
+    }
+    if (typeof source?.tabId !== "number") return;
     const detachedSession = this.sessionIdForTab(source.tabId);
     if (detachedSession) this.devtoolsDetachedSessions.add(detachedSession);
     this.devtoolsDetachedTabs.add(source.tabId);
     this.tap.markDetached(source.tabId);
+    this._auditDetach("devtools");
     this.deps.logger.info(
       `[browser-relay] instance ${this.deps.profileDirectory} tab=${source.tabId} detached: devtools`,
     );
@@ -529,6 +565,7 @@ export class RelayInstance {
   private async _handleCdp(message: WireCommand): Promise<void> {
     const { id, sessionId, method, params } = message;
     if (typeof id !== "number" || typeof method !== "string") return;
+    this._lastActivity = Date.now();
 
     if (this._tabDetachedFor(sessionId)) {
       this._sendToCdp({ id, sessionId, error: { code: -32000, message: "Target detached: devtools" } });
@@ -590,6 +627,7 @@ export class RelayInstance {
         this._auditNavigation(method, params);
       }
       this._sendToCdp({ id, sessionId, result });
+      if (method === "Target.createTarget") this._notifyAgentTab(result);
       if (method === "Page.navigate") this._refreshTabMetaForSession(sessionId);
     } catch (err) {
       // Unservable browser-level commands (no attached tab, …) get a real CDP
@@ -597,6 +635,23 @@ export class RelayInstance {
       this._sendToCdp({ id, sessionId, error: { code: -32000, message: (err as Error).message } });
     }
     this._checkViewability();
+  }
+
+  /** Live view on connect: map the created `targetId` to its tab and tell the manager. */
+  private _notifyAgentTab(result: unknown): void {
+    const hook = this.deps.onAgentTabCreated;
+    const targetId = (result as { targetId?: unknown } | undefined)?.targetId;
+    if (!hook || typeof targetId !== "string") return;
+    try {
+      for (const session of modelOf(this.protocol)._tabSessions.values()) {
+        if (session.targetInfo?.targetId === targetId && !this.connectSessions.has(session.sessionId)) {
+          hook(session.tabId);
+          return;
+        }
+      }
+    } catch (err) {
+      this.deps.logger.warn("[browser-relay] live view hook failed", (err as Error).message);
+    }
   }
 
   /** Acknowledge-and-drop verbs (`Browser.setDownloadBehavior`): `{}`, never forwarded, audited. */
@@ -672,7 +727,11 @@ export class RelayInstance {
 
   /** Answer a policy-denied verb with a CDP error. Returns true when refused. */
   private _refuseDenied(id: number, sessionId: string | undefined, method: string, params: unknown): boolean {
-    const denied = deniedMethod(method, params, this.deps.allowedDomains);
+    const denied = deniedMethod(
+      method,
+      params,
+      effectiveAllowedDomains(this.deps.allowedDomains, this.deps.globalAllowedDomains?.() ?? []),
+    );
     if (!denied) return false;
     this.deps.audit.append({
       profileDirectory: this.deps.profileDirectory,
@@ -706,6 +765,15 @@ export class RelayInstance {
     if (method === "Page.startScreencast") this.clientScreencasts.add(sessionId);
     if (method === "Page.stopScreencast") this.clientScreencasts.delete(sessionId);
     return false;
+  }
+
+  private _auditDetach(detail: string): void {
+    this.deps.audit.append({
+      profileDirectory: this.deps.profileDirectory,
+      instanceId: this.deps.instanceId,
+      kind: "detach",
+      detail,
+    });
   }
 
   private _auditNavigation(method: string, params: unknown): void {
@@ -841,6 +909,7 @@ export class RelayInstance {
       this._auditRefusedExtensionPage(tabId, "input");
       return Promise.resolve();
     }
+    this._lastActivity = Date.now();
     return this.tap.input(viewer, tabId, msg, remoteAddress);
   }
 
@@ -864,6 +933,11 @@ export class RelayInstance {
   private _finalize(reason: string, cdpReason: string, extensionReason: string): void {
     if (this.closedReason) return;
     this.closedReason = reason;
+    // Record why the extension side ended the instance (e.g. "All controlled
+    // tabs detached") BEFORE the manager drops it from status.
+    if (reason.startsWith(EXTENSION_CLOSED_PREFIX)) {
+      this._auditDetach(`closed:${reason.slice(EXTENSION_CLOSED_PREFIX.length)}`);
+    }
     this._clearCdpAttachTimer();
     this.ready.reject(new Error(reason));
     this.tap.closeAll(); // sends the best-effort emulation clear BEFORE the sockets close

@@ -4,13 +4,16 @@
  *
  * Seven routes (+ the per-profile PUT) on the host Fastify instance:
  *
- *   GET  /api/browser/status      → { enabled, canOpenChrome, operatorHosts: true }
+ *   GET  /api/browser/status      → { enabled, canOpenChrome, operatorHosts: true, dedicated?, settings }
  *   GET  /api/browser/profiles    → rows keyed by profileDirectory (+ instances/tabs) + operatorHosts[]
  *   POST /api/browser/connect     → { profileDirectory, host? } → { cdpUrl, instanceId } | 403/404/409/503/504
  *   DELETE /api/browser/operator-hosts/:hostId → reset an operator host's key pin
  *   POST /api/browser/disconnect  → ?instanceId= (required) | 400/404
  *   GET  /api/browser/audit       → newest-first entries (optional ?profile=)
  *   PUT  /api/browser/enabled     → kill switch ({ enabled: boolean })
+ *   PUT  /api/browser/settings    → partial "Agent browsing" settings (400 on any invalid field)
+ *   POST /api/browser/dedicated/connect {client?} | /open {url?} | /stop | /reset
+ *        → the dashboard-owned Chrome (change: add-dedicated-agent-browser, D11)
  *
  * WRITES (connect/disconnect) are refused 403 while the relay is disabled; the
  * PUT is the way back on. Reads always answer so the settings surface can render
@@ -23,12 +26,22 @@
 
 import { HOST_ID_PATTERN } from "@blackbelt-technology/pi-dashboard-shared/browser-host-identity.js";
 import type { BrowserRelayTabState } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { AuditEntry, AuditRing } from "./audit.js";
 import type { OperatorHostInfo } from "./operator-hosts.js";
 import type { ProfileListResult, ProfileSource } from "./profiles.js";
 import { isRelayConnectPage, redactExtensionUrl } from "./redact.js";
-import type { BrowserProfileConfig, ConnectResult, RelayConfig, RelayLike } from "./relay/relay-manager.js";
+import type {
+  BrowserProfileConfig,
+  ConnectResult,
+  DedicatedConnectResult,
+  DedicatedOpenResult,
+  DedicatedResetResult,
+  DedicatedStatusBody,
+  RelayConfig,
+  RelayLike,
+} from "./relay/relay-manager.js";
+import { effectiveSettings, validateSettingsPatch } from "./settings.js";
 
 interface BrowserRouteTab {
   tabId: number;
@@ -52,6 +65,8 @@ interface BrowserRouteProfile {
   installed: boolean;
   /** True when a pairing token is configured. The token itself never leaves. */
   hasToken: boolean;
+  /** Password-manager extensions installed in the profile (display names; `[]` when none). */
+  passwordManagers: string[];
   instances: BrowserRouteInstance[];
 }
 
@@ -82,6 +97,10 @@ interface BrowserProfilesResponse {
 interface BrowserStatusResponse {
   enabled: boolean;
   canOpenChrome: boolean;
+  /** Dedicated agent browser; omitted when the plugin has no dedicated wiring. */
+  dedicated?: DedicatedStatusBody;
+  /** Effective "Agent browsing" values (defaults filled in). */
+  settings: ReturnType<typeof effectiveSettings>;
   /** This server supports operator browser hosts; clients send no `browser_host_*` without it. */
   operatorHosts: true;
 }
@@ -101,6 +120,12 @@ export interface BrowserRoutesManager {
   instancesOn(host: string, profileDirectory?: string): RelayLike[];
   hosts: { list(): OperatorHostInfo[]; deletePin(hostId: string): boolean };
   profileConfig(profileDirectory: string): BrowserProfileConfig;
+  // Dedicated agent browser (change: add-dedicated-agent-browser, D11).
+  connectDedicated(opts: { client?: string }): Promise<DedicatedConnectResult>;
+  openDedicated(url: string): Promise<DedicatedOpenResult>;
+  stopDedicated(): Promise<void>;
+  resetDedicated(): Promise<DedicatedResetResult>;
+  dedicatedStatus(): Promise<DedicatedStatusBody | undefined>;
 }
 
 interface BrowserRoutesLogger {
@@ -151,6 +176,7 @@ function profileRow(
     ...(profile.email ? { email: profile.email } : {}),
     installed: profile.installed,
     hasToken,
+    passwordManagers: profile.passwordManagers ?? [],
     instances: instances.map(instanceRow),
   };
 }
@@ -168,6 +194,7 @@ function rowFor(
     label: dir,
     installed: true,
     hasToken,
+    passwordManagers: [],
     instances: instances.map(instanceRow),
   };
 }
@@ -219,14 +246,41 @@ function isDashboardTarget(host: unknown): boolean {
   return host === undefined || host === "dashboard";
 }
 
+/**
+ * A request that may outlast Fastify's 10 s `connectionTimeout` (operator
+ * consent + extension handshake, or a cold Chrome start): disable the per-socket
+ * timeout for it and restore it once the response flushes (same shape as
+ * git-routes). A client abort destroys the socket, so nothing to restore.
+ * See change: add-operator-browser-relay (design D4); pinned by fix-browser-relay-pane-input (D2).
+ */
+function disableSocketTimeout(req: FastifyRequest, reply: FastifyReply): void {
+  const socket = req.raw.socket;
+  const prevTimeout = typeof socket?.timeout === "number" ? socket.timeout : undefined;
+  socket?.setTimeout?.(0);
+  if (typeof prevTimeout === "number") {
+    reply.raw.once("finish", () => {
+      if (socket && !socket.destroyed) socket.setTimeout(prevTimeout);
+    });
+  }
+}
+
+/** Default sign-in page of `dedicated/open` when the body carries no `url`. */
+export const DEFAULT_SIGN_IN_URL = "https://accounts.google.com/";
+const MAX_CLIENT_LABEL = 64;
+
 export function registerBrowserRoutes(fastify: FastifyInstance, deps: BrowserRoutesDeps): void {
   const { manager, audit, logger } = deps;
 
-  fastify.get("/api/browser/status", async (): Promise<BrowserStatusResponse> => ({
-    enabled: manager.enabled,
-    canOpenChrome: deps.canOpenChrome(),
-    operatorHosts: true,
-  }));
+  fastify.get("/api/browser/status", async (): Promise<BrowserStatusResponse> => {
+    const dedicated = await manager.dedicatedStatus();
+    return {
+      enabled: manager.enabled,
+      canOpenChrome: deps.canOpenChrome(),
+      operatorHosts: true,
+      ...(dedicated ? { dedicated } : {}),
+      settings: effectiveSettings(deps.getConfig()),
+    };
+  });
 
   fastify.get<{ Querystring: { profileDirectory?: string } }>(
     "/api/browser/profiles",
@@ -240,8 +294,10 @@ export function registerBrowserRoutes(fastify: FastifyInstance, deps: BrowserRou
       // State mid-session).
       const dirs = [...discovered.keys()];
       // Dashboard-host rows only: an operator's profiles are listed under their host.
+      // `@`-prefixed keys are built-in targets (`@dedicated`), never a Chrome profile row.
       for (const inst of manager.instancesOn("dashboard")) {
-        if (!discovered.has(inst.profileDirectory)) dirs.push(inst.profileDirectory);
+        if (inst.profileDirectory.startsWith("@")) continue;
+        if (!discovered.has(inst.profileDirectory) && !dirs.includes(inst.profileDirectory)) dirs.push(inst.profileDirectory);
       }
       const rows: Record<string, BrowserRouteProfile> = {};
       for (const dir of dirs) {
@@ -288,18 +344,8 @@ export function registerBrowserRoutes(fastify: FastifyInstance, deps: BrowserRou
         return { error: "host must be a non-empty string" };
       }
       // Operator consent (≤ 60 s) plus the extension handshake (≤ 60 s) outlast
-      // Fastify's 10 s connectionTimeout: disable the per-socket timeout for this
-      // request and restore it once the response flushes (same shape as
-      // git-routes). A client abort destroys the socket, so nothing to restore.
-      // See change: add-operator-browser-relay (design D4); pinned by fix-browser-relay-pane-input (D2).
-      const socket = req.raw.socket;
-      const prevTimeout = typeof socket?.timeout === "number" ? socket.timeout : undefined;
-      socket?.setTimeout?.(0);
-      if (typeof prevTimeout === "number") {
-        reply.raw.once("finish", () => {
-          if (socket && !socket.destroyed) socket.setTimeout(prevTimeout);
-        });
-      }
+      // Fastify's 10 s connectionTimeout (see `disableSocketTimeout`).
+      disableSocketTimeout(req, reply);
       const result = await manager.connect(profileDirectory, host);
       if (!result.ok) {
         reply.code(result.status);
@@ -382,6 +428,11 @@ export function registerBrowserRoutes(fastify: FastifyInstance, deps: BrowserRou
       reply.code(400);
       return { error: "profileDirectory is required" };
     }
+    if (profileDirectory.startsWith("@")) {
+      // `@` is reserved for built-in targets (`@dedicated`): never a per-profile config key.
+      reply.code(400);
+      return { error: "profileDirectory must not start with @" };
+    }
     const result = applyProfilePatch(deps.getConfig(), profileDirectory, body);
     if (!result.ok) {
       reply.code(400);
@@ -390,5 +441,94 @@ export function registerBrowserRoutes(fastify: FastifyInstance, deps: BrowserRou
     await deps.updateConfig({ browsers: result.browsers });
     logger.info(`[browser-relay] profile config updated profile=${profileDirectory}`);
     return { profileDirectory, hasToken: result.hasToken };
+  });
+
+  // "Agent browsing" settings: PARTIAL body, validated as a whole, written through
+  // the same server-side config path as `/enabled` and `/profile` (never
+  // `plugin_config_write`, see above). Any invalid field → 400, nothing stored.
+  fastify.put<{ Body: unknown }>("/api/browser/settings", async (req, reply) => {
+    if (!manager.enabled) {
+      reply.code(403);
+      return { error: "disabled" };
+    }
+    const { profiles } = await deps.listProfiles();
+    const installed = new Set(profiles.filter((p) => p.installed).map((p) => p.profileDirectory));
+    const result = validateSettingsPatch(req.body ?? {}, installed);
+    if (!result.ok) {
+      reply.code(400);
+      return { error: result.error };
+    }
+    if (Object.keys(result.patch).length > 0) await deps.updateConfig(result.patch);
+    logger.info(`[browser-relay] settings updated keys=${Object.keys(result.patch).join(",")}`);
+    return { settings: effectiveSettings({ ...deps.getConfig(), ...result.patch }) };
+  });
+
+  // ── Dedicated agent browser (change: add-dedicated-agent-browser, D11) ─────
+  // Same universal guard as every /api/browser/* route; the returned `cdpUrl` is
+  // only usable from loopback because /ws/browser-cdp stays loopback-only.
+
+  const refuseBody = (reply: FastifyReply, result: { status: number; reason: string; message?: string; instanceId?: string; holder?: string }) => {
+    reply.code(result.status);
+    return {
+      error: result.reason,
+      reason: result.reason,
+      ...(result.message ? { message: result.message } : {}),
+      ...(result.instanceId ? { instanceId: result.instanceId } : {}),
+      ...(result.holder ? { holder: result.holder } : {}),
+    };
+  };
+
+  fastify.post<{ Body: { client?: unknown } | undefined }>("/api/browser/dedicated/connect", async (req, reply) => {
+    if (!manager.enabled) {
+      reply.code(403);
+      return { error: "disabled", reason: "disabled" };
+    }
+    const client = req.body?.client;
+    if (client !== undefined && (typeof client !== "string" || client.trim() === "" || client.length > MAX_CLIENT_LABEL)) {
+      reply.code(400);
+      return { error: `client must be a 1-${MAX_CLIENT_LABEL} character string` };
+    }
+    disableSocketTimeout(req, reply); // a cold Chrome start outlasts the 10 s connectionTimeout
+    const result = await manager.connectDedicated(typeof client === "string" ? { client: client.trim() } : {});
+    if (!result.ok) {
+      logger.warn(`[browser-relay] dedicated connect refused status=${result.status} reason=${result.reason}`);
+      return refuseBody(reply, result);
+    }
+    return { cdpUrl: result.cdpUrl, instanceId: result.instanceId };
+  });
+
+  fastify.post<{ Body: { url?: unknown } | undefined }>("/api/browser/dedicated/open", async (req, reply) => {
+    if (!manager.enabled) {
+      reply.code(403);
+      return { error: "disabled", reason: "disabled" };
+    }
+    const url = req.body?.url ?? DEFAULT_SIGN_IN_URL;
+    if (typeof url !== "string") {
+      reply.code(400);
+      return { error: "url must be a string", reason: "url-denied" };
+    }
+    disableSocketTimeout(req, reply);
+    const result = await manager.openDedicated(url);
+    if (!result.ok) return refuseBody(reply, result);
+    return { opened: true };
+  });
+
+  fastify.post("/api/browser/dedicated/stop", async (_req, reply) => {
+    if (!manager.enabled) {
+      reply.code(403);
+      return { error: "disabled", reason: "disabled" };
+    }
+    await manager.stopDedicated();
+    return { stopped: true };
+  });
+
+  fastify.post("/api/browser/dedicated/reset", async (_req, reply) => {
+    if (!manager.enabled) {
+      reply.code(403);
+      return { error: "disabled", reason: "disabled" };
+    }
+    const result = await manager.resetDedicated();
+    if (!result.ok) return refuseBody(reply, result);
+    return { reset: true };
   });
 }

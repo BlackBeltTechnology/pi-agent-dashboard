@@ -21,6 +21,11 @@
  * hand the socket to the relay manager's `attach*`. `meta.trackSocket` must be
  * called or a later plugin disable could not close the socket.
  *
+ * A DEDICATED instance (`@dedicated`, change: add-dedicated-agent-browser) uses the
+ * SAME `browser-cdp` scope — no extra route, so the core's genuinely-local-peer
+ * gate and the `Origin` refusal below apply to its `cdpUrl` unchanged; its guid is
+ * 404 on the ext scope.
+ *
  * The guid is the ONLY credential on these routes — no cookie, local token,
  * ticket or trusted-CIDR bypass is evaluated for a plugin scope (spec
  * browser-relay "Both endpoints").
@@ -45,7 +50,7 @@ export const CHROME_EXTENSION_ORIGIN = "chrome-extension://mmlmfjhmonkocbjadbfpl
  */
 export interface RelayAttacher {
   /** Live guid → its entry, or undefined (unknown / expired / malformed). */
-  resolve(guid: string): { claimed: boolean; operator?: boolean } | undefined;
+  resolve(guid: string): { claimed: boolean; operator?: boolean; dedicated?: boolean } | undefined;
   /** Attach an accepted extension socket. Returns false only for an unknown guid. */
   attachExtension(guid: string, ws: RelaySocket): boolean;
   /** Attach an accepted CDP client socket. Returns false only for an unknown guid. */
@@ -87,7 +92,8 @@ export function registerBrowserWsRoutes(ctx: ServerPluginContext, manager: Relay
       // An operator-targeted guid is never dialled here: its extension arrives
       // as a link over the carrier. A 404 keeps it indistinguishable from an
       // unknown guid. See change: add-operator-browser-relay (D3).
-      if (!guid || !live || live.operator) {
+      // A dedicated guid is the same: no extension ever dials it (Chrome is driven over the pipe).
+      if (!guid || !live || live.operator || live.dedicated) {
         refuse(socket, 404, "Not Found");
         return;
       }

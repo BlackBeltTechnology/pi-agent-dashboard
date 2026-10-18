@@ -17,10 +17,10 @@ const tool = (name: string) => createBrowserTools().find((t) => t.name === name)
 const ctxWith = (confirm: (...a: unknown[]) => Promise<boolean>): ToolContext => ({ hasUI: true, ui: { confirm: confirm as never } });
 
 describe("registration (5.1)", () => {
-  it("registers both tools via pi.registerTool", () => {
+  it("registers all tools via pi.registerTool", () => {
     const registerTool = vi.fn();
     activate({ pi: { registerTool } });
-    expect(registerTool.mock.calls.map((c) => c[0].name).sort()).toEqual(["browser_await_human", "browser_show_in_pane"]);
+    expect(registerTool.mock.calls.map((c) => c[0].name).sort()).toEqual(["browser_await_human", "browser_connect", "browser_show_in_pane"]);
   });
   it("is inert without registerTool", () => {
     expect(() => activate({})).not.toThrow();
@@ -66,6 +66,34 @@ describe("browser_await_human (#X13)", () => {
     expect(res.details.outcome).toBe("cancelled");
   });
 
+  it("signals browser/await-state pending around the confirm, and cleared in finally (idle hold, D8)", async () => {
+    const fn = lane({ ok: true, result: {} });
+    let during: unknown[][] = [];
+    const confirm = vi.fn(async () => {
+      during = [...(fn.mock.calls as unknown[][])];
+      return true;
+    });
+    await tool("browser_await_human").execute("1", params, undefined, undefined, ctxWith(confirm));
+    const states = (calls: unknown[][]) => calls.filter((c) => c[1] === "browser/await-state").map((c) => c[2]);
+    expect(states(during)).toEqual([{ instanceId: "inst-1", pending: true }]); // pending BEFORE the prompt blocks
+    expect(states(fn.mock.calls as unknown[][])).toEqual([
+      { instanceId: "inst-1", pending: true },
+      { instanceId: "inst-1", pending: false },
+    ]);
+  });
+
+  it("clears the pending signal when the prompt throws, and a failing signal never breaks the tool", async () => {
+    const fn = vi.fn(async (_p: string, type: string) => {
+      if (type === "browser/await-state") throw new Error("lane down");
+      return { ok: true, result: {} };
+    });
+    g[PLUGIN_REQUEST_SYMBOL] = fn;
+    const res = await tool("browser_await_human").execute("1", params, undefined, undefined, ctxWith(async () => { throw new Error("timeout"); }));
+    expect(res.details.outcome).toBe("cancelled");
+    const states = (fn.mock.calls as unknown as unknown[][]).filter((c) => c[1] === "browser/await-state").map((c) => (c[2] as { pending: boolean }).pending);
+    expect(states).toEqual([true, false]);
+  });
+
   it("no UI → cancelled/no-ui, no prompt and nothing opened", async () => {
     const fn = lane({ ok: true, result: {} });
     for (const ctx of [undefined, { hasUI: false }, { hasUI: true }] as Array<ToolContext | undefined>) {
@@ -81,5 +109,38 @@ describe("browser_await_human (#X13)", () => {
     const res = await tool("browser_await_human").execute("1", params, undefined, undefined, ctxWith(confirm));
     expect(res.details).toEqual({ outcome: "cancelled", reason: "disabled" });
     expect(confirm).not.toHaveBeenCalled();
+  });
+});
+
+describe("browser_connect (#E20)", () => {
+  it("calls browser/connect with ONLY target — a spoofed sessionId is dropped (the lane supplies the session)", async () => {
+    const result = { browser: "dedicated", instanceId: "i", cdpUrl: "ws://x", liveView: true, attempts: [] };
+    const fn = lane({ ok: true, result });
+    const res = await tool("browser_connect").execute("1", { target: "@dedicated", sessionId: "T", instanceId: "x" });
+    expect(fn).toHaveBeenCalledWith("browser", "browser/connect", { target: "@dedicated" });
+    expect(res.details).toEqual({ ok: true, ...result });
+    expect(JSON.parse(res.content[0].text)).toEqual(result);
+  });
+
+  it("no target (or a non-string one) sends an empty payload", async () => {
+    const fn = lane({ ok: true, result: { browser: "headless", attempts: [] } });
+    await tool("browser_connect").execute("1", {});
+    await tool("browser_connect").execute("2", { target: 5 });
+    expect((fn.mock.calls as unknown[][]).map((c) => c[2])).toEqual([{}, {}]);
+  });
+
+  it("an `unavailable` policy result is a normal (non-error) result the skill can act on", async () => {
+    const result = { unavailable: { target: "@dedicated", reason: "busy" }, options: [], attempts: [] };
+    lane({ ok: true, result });
+    const res = await tool("browser_connect").execute("1", {});
+    expect(res.details.unavailable).toEqual(result.unavailable);
+    expect(res.details.ok).toBe(true);
+  });
+
+  it("a lane/server error is an error result; lane absent → unavailable", async () => {
+    lane({ ok: false, error: "boom" });
+    expect((await tool("browser_connect").execute("1", {})).content[0].text).toBe("error: boom");
+    delete g[PLUGIN_REQUEST_SYMBOL];
+    expect((await tool("browser_connect").execute("1", {})).content[0].text).toBe("error: unavailable");
   });
 });

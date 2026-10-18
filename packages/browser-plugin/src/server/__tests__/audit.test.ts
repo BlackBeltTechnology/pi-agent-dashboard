@@ -3,7 +3,7 @@
  * (detail content) + the secret-freedom invariant from spec F2.
  */
 import { describe, expect, it } from "vitest";
-import { AUDIT_CAPACITY, AuditRing } from "../audit.js";
+import { AUDIT_CAPACITY, AuditRing, stripUrlQueryAndFragment } from "../audit.js";
 
 const GUID = "0123456789abcdef0123456789abcdef";
 const TOKEN = "s3cr3t-pairing-token";
@@ -74,7 +74,9 @@ describe("AuditRing detail content (E16)", () => {
     const denied = ring.append({ profileDirectory: "D", instanceId: "i", kind: "denied", detail: "Runtime.x" });
     const input = ring.append({ profileDirectory: "D", instanceId: "i", kind: "viewer-input", detail: "mouse" });
 
-    expect(nav.detail).toBe("https://a/b?q=1");
+    // Query + fragment are stripped for every profile (change: add-dedicated-agent-browser D9;
+    // this assertion was `https://a/b?q=1` before).
+    expect(nav.detail).toBe("https://a/b");
     expect(denied.detail).toBe("Runtime.x");
     expect(input.detail).toBe("mouse");
     for (const e of [nav, denied, input]) expect(typeof e.detail).toBe("string");
@@ -91,5 +93,43 @@ describe("AuditRing detail content (E16)", () => {
     });
     expect(typeof e.detail).toBe("string");
     expect(JSON.stringify(e)).not.toContain("secret");
+  });
+});
+
+describe("audit URL query stripping (E13)", () => {
+  it("navigate detail loses ?code=…#state=… for relay and dedicated profiles alike", () => {
+    const ring = new AuditRing();
+    for (const profileDirectory of ["Default", "@dedicated"]) {
+      const e = ring.append({
+        profileDirectory,
+        instanceId: "i",
+        kind: "navigate",
+        detail: "https://example.com/cb?code=abc#state=x",
+      });
+      expect(e.detail).toBe("https://example.com/cb");
+    }
+    expect(JSON.stringify(ring.list())).not.toMatch(/code=|state=/);
+  });
+
+  it("strips a fragment-only URL and about: URLs", () => {
+    expect(stripUrlQueryAndFragment("https://a.test/p#frag")).toBe("https://a.test/p");
+    expect(stripUrlQueryAndFragment("about:blank?x=1")).toBe("about:blank");
+  });
+
+  it("still redacts chrome-extension URLs", () => {
+    const ring = new AuditRing();
+    const e = ring.append({
+      profileDirectory: "D",
+      instanceId: "i",
+      kind: "navigate",
+      detail: "chrome-extension://abc/connect.html?token=SECRET#x",
+    });
+    expect(e.detail).toBe("chrome-extension://abc/connect.html");
+  });
+
+  it("leaves non-URL details untouched (method names, causes, tab notes)", () => {
+    for (const d of ["Page.navigate", "closed:All controlled tabs detached", "extension:some_reason", "tab:7 reason:no-session", "devtools", "auto"]) {
+      expect(stripUrlQueryAndFragment(d)).toBe(d);
+    }
   });
 });
