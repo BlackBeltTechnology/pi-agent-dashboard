@@ -2,7 +2,7 @@
 
 ### Requirement: Project-init applies the workflow schema only to new OpenSpec projects
 
-After project-init successfully runs `openspec init --tools pi --force` in mode `offer` (the target had no `openspec/` before), the skill SHALL request `POST /api/openspec/workflow-schema { cwd, action: "enable" }`, but only when the dashboard config sets `openspec.workflowSchema.defaultForNewProjects` to `true`. The step SHALL be listed in the Step 3c preview (paths `openspec/schemas/pi-spec-driven/` and `openspec/config.yaml`) before the user confirms, and the skill SHALL NOT request it when the user declines. It SHALL report the written paths in its summary.
+After project-init successfully runs `openspec init --tools pi --force` in mode `offer` (the target had no `openspec/` before), the skill SHALL request `POST /api/openspec/workflow-schema { cwd, action: "enable" }`, but only when the dashboard config sets `openspec.workflowSchema.defaultForNewProjects` to `true`. The step SHALL be listed in the pre-write preview (paths `openspec/schemas/pi-spec-driven/` and `openspec/config.yaml`) before the user confirms, and the skill SHALL NOT request it when the user declines. It SHALL report the written paths in its summary.
 
 In mode `repair` (an existing `openspec/`) the skill SHALL NOT request the enable flow. When the dashboard is unreachable, the call fails, or the flag is absent or false, the skill SHALL skip this step, complete the init, and say how to enable the schema later from Settings → OpenSpec.
 
