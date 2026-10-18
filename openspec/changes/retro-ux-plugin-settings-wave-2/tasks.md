@@ -100,6 +100,6 @@
 ## 7. Close-out
 
 - [x] 7.1 Update the directory `AGENTS.md` rows for every changed file (runtime, client settings, 15 plugin trees, scripts, tests); verify `kb dox lint` reports no stale/missing rows
-- [ ] 7.2 Run `review-code` on the full diff, then `npm test` and `npm run quality:changed`; verify all green
+- [x] 7.2 Run `review-code` on the full diff, then `npm test` and `npm run quality:changed`; verify all green
 - [ ] 7.3 Manual: compare `mockups/after/**` with the proposed column of `mockups/plugin-settings-wave-2.html` side by side (test-plan: manual-only, #F9)
 - [ ] 7.4 Manual: run the real provisioning flows (iMCP on macOS, Discord bot, OBS host, Chrome with the Playwright extension) and confirm states and notices match the board (test-plan: manual-only, #F10)

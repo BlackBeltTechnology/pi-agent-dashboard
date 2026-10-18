@@ -990,7 +990,7 @@ describe("BrowserSettings — wave-2 consistency", () => {
 		await waitFor(() => expect(queryByTestId("browser-relay-error")).toBeNull());
 		const puts = fetchMock.mock.calls.filter(([u, i]) => String(u).endsWith("/enabled") && (i as RequestInit)?.method === "PUT");
 		expect(puts).toHaveLength(2);
-		expect(JSON.parse(String((puts[1]?.[1] as RequestInit).body))).toEqual({ enabled: false });
+		expect(JSON.parse(String((puts[1][1] as RequestInit).body))).toEqual({ enabled: false });
 	});
 
 	it("initial load failure: an error notice with Try again, raw detail only behind Copy details", async () => {

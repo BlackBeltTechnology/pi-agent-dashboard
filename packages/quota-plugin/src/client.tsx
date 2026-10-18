@@ -33,7 +33,6 @@ import { providerLabel } from "./quota-status.js";
 import type {
   ApiQuotaResponse,
   ProviderQuota,
-  QuotaUnavailableReason,
 } from "./types.js";
 
 export { catalog } from "./i18n.js";
