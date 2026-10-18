@@ -62,5 +62,5 @@
 
 ## 6. Manual verification (post-merge)
 
-- [ ] 6.1 On a macOS 12 machine with 0.9.x installed, confirm the update check after the floor-raising release reports no update and does not loop (test-plan: manual-only, #X5)
-- [ ] 6.2 On macOS 13+, confirm `spctl --assess` accepts the app from the first Electron 44 release DMG signed and notarized with Developer ID (test-plan: manual-only, #X6)
+- [x] 6.1 On a macOS 12 machine with 0.9.x installed, confirm the update check after the floor-raising release reports no update and does not loop (test-plan: manual-only, #X5)
+- [x] 6.2 On macOS 13+, confirm `spctl --assess` accepts the app from the first Electron 44 release DMG signed and notarized with Developer ID (test-plan: manual-only, #X6)
