@@ -69,7 +69,7 @@ type Pending = {
   kind: PollWorkerKind;
   payload: PendingPayload;
   /** Resolves the caller's promise. */
-  resolve: (out: never) => void;
+  resolve: (out: unknown) => void;
   /** Rejects it (`probe` / `build` only — `process` never rejects). */
   reject: (err: unknown) => void;
   timeoutHandle: ReturnType<typeof setTimeout> | null;
@@ -230,7 +230,7 @@ export function createOpenSpecPollWorkerPool(opts: PollWorkerPoolOptions = {}): 
     const slot = slots[p.slotIndex];
     if (slot) slot.busy = false;
     if (p.kind === "derive") {
-      p.resolve(deriveInProcess(p.payload as PollWorkerRequest) as never);
+      p.resolve(deriveInProcess(p.payload as PollWorkerRequest));
     } else {
       // `probe` / `build`: async in-process run (bounded async I/O). A failure
       // here is a real error for the caller (it treats it as a failed poll).
@@ -312,7 +312,7 @@ export function createOpenSpecPollWorkerPool(opts: PollWorkerPoolOptions = {}): 
         id: nextId++,
         kind,
         payload: req,
-        resolve: resolveOuter,
+        resolve: (out) => resolveOuter(out as T),
         reject: rejectOuter,
         timeoutHandle: null,
         slotIndex: -1,
