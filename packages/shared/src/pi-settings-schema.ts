@@ -252,6 +252,8 @@ const checkString: KindCheck = (def, v) => {
   return def.nonEmpty && v.length === 0 ? "must be a non-empty string" : null;
 };
 
+// `[]` is valid on the wire (pi treats an empty `enabledModels` as "all models"); only the editor
+// refuses to SAVE an empty "Selected only" selection.
 const checkStringArray: KindCheck = (_def, v) =>
   Array.isArray(v) && v.every((x) => typeof x === "string" && x.length > 0) ? null : "must be an array of non-empty strings";
 
