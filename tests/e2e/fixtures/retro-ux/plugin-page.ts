@@ -83,7 +83,7 @@ export const all =
   };
 
 /** Make the page's first-render settle: every `<details>` under `scope` open so every field is probed. */
-export const openAll = (scope: Locator) =>
+const openAll = (scope: Locator) =>
   scope.evaluate((el) => {
     for (const d of el.querySelectorAll("details")) d.open = true;
   });
@@ -92,7 +92,7 @@ export const openAll = (scope: Locator) =>
  * Open a plugin page and wait for `ready`. Skips the navigation when the page is
  * already there (the matrix reloads in the theme first), then opens every group.
  */
-export const openPlugin =
+const openPlugin =
   (id: string, ready: (page: Page) => Locator, extra?: (page: Page) => Promise<void>) => async (page: Page) => {
     if (new URL(page.url()).pathname !== pluginPath(id)) await page.goto(pluginPath(id));
     await ready(page).waitFor({ state: "visible", timeout: 30_000 });

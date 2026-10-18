@@ -16,7 +16,7 @@ export const PLUGIN_INTERNALS_KEY = "pi-dashboard:show-plugin-internals";
 const listeners = new Set<() => void>();
 
 /** Read the preference; `false` on absence or unavailable storage. */
-export function loadShowPluginInternals(): boolean {
+function loadShowPluginInternals(): boolean {
   try {
     return globalThis.localStorage?.getItem(PLUGIN_INTERNALS_KEY) === "true";
   } catch {
@@ -25,7 +25,7 @@ export function loadShowPluginInternals(): boolean {
 }
 
 /** Persist the preference and notify mounted readers. */
-export function saveShowPluginInternals(on: boolean): void {
+function saveShowPluginInternals(on: boolean): void {
   try {
     globalThis.localStorage?.setItem(PLUGIN_INTERNALS_KEY, String(on));
   } catch (err) {
