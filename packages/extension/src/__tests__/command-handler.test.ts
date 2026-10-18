@@ -688,6 +688,85 @@ describe("CommandHandler", () => {
       }));
     });
 
+    // test-plan #E10: single-bang idle send carries exactly { deliverAs: "followUp" }.
+    // See change: update-pi-core-1-3-adopt-apis (design D3).
+    it("E10: !git status sends `$ git status…` once with exactly { deliverAs: \"followUp\" }", async () => {
+      const pi = createMockPi();
+      (pi as any).exec = vi.fn().mockResolvedValue({ stdout: "hi", stderr: "", exitCode: 0 });
+      const handler = createCommandHandler(pi as any, "s1", { eventSink: vi.fn() });
+
+      registryMock.bash = { ok: true, path: "/usr/bin/bash" };
+      await handler.handle({ type: "send_prompt", sessionId: "s1", text: "!git status" });
+
+      expect(pi.sendUserMessage).toHaveBeenCalledTimes(1);
+      const [message, options] = pi.sendUserMessage.mock.calls[0];
+      expect(message).toMatch(/^\$ git status\nhi/);
+      expect(options).toStrictEqual({ deliverAs: "followUp" });
+    });
+
+    // test-plan #E11: pi >= 1.2 is busy while a run starts, and a prompt() on a
+    // busy session without `streamingBehavior` is rejected.
+    it("E11: !ls on a streaming session is never sent without deliverAs", async () => {
+      const pi = createMockPi();
+      (pi as any).exec = vi.fn().mockResolvedValue({ stdout: "hi", stderr: "", exitCode: 0 });
+      const rejected: unknown[] = [];
+      pi.sendUserMessage.mockImplementation((_content: unknown, options?: { deliverAs?: string }) => {
+        if (!options?.deliverAs) rejected.push(_content);
+      });
+      const handler = createCommandHandler(pi as any, "s1", {
+        eventSink: vi.fn(),
+        isStreaming: () => true,
+      });
+
+      registryMock.bash = { ok: true, path: "/usr/bin/bash" };
+      await handler.handle({ type: "send_prompt", sessionId: "s1", text: "!ls" });
+
+      expect(pi.sendUserMessage).toHaveBeenCalledTimes(1);
+      expect(pi.sendUserMessage.mock.calls[0][1]).toStrictEqual({ deliverAs: "followUp" });
+      expect(rejected).toEqual([]);
+    });
+
+    // test-plan #E12: the silent paths still never reach the LLM.
+    it("E12: !!ls stays silent (bash_output only, no sendUserMessage)", async () => {
+      const pi = createMockPi();
+      (pi as any).exec = vi.fn().mockResolvedValue({ stdout: "out", stderr: "", exitCode: 0 });
+      const eventSink = vi.fn();
+      const handler = createCommandHandler(pi as any, "s1", { eventSink });
+
+      registryMock.bash = { ok: true, path: "/usr/bin/bash" };
+      await handler.handle({ type: "send_prompt", sessionId: "s1", text: "!!ls" });
+
+      expect(pi.sendUserMessage).not.toHaveBeenCalled();
+      expect(eventSink).toHaveBeenCalledWith(expect.objectContaining({
+        event: expect.objectContaining({ eventType: "bash_output" }),
+      }));
+    });
+
+    // test-plan #X1: compaction rejects every prompt path; the output card must
+    // still render and the handler must settle.
+    it("X1: a sendUserMessage that throws (compaction) still emits bash_output and resolves", async () => {
+      const pi = createMockPi();
+      (pi as any).exec = vi.fn().mockResolvedValue({ stdout: "out", stderr: "", exitCode: 0 });
+      pi.sendUserMessage.mockImplementation(() => {
+        throw new Error("Cannot submit a prompt while compaction is in progress");
+      });
+      const eventSink = vi.fn();
+      const handler = createCommandHandler(pi as any, "s1", { eventSink });
+
+      registryMock.bash = { ok: true, path: "/usr/bin/bash" };
+      await expect(
+        handler.handle({ type: "send_prompt", sessionId: "s1", text: "!ls" }),
+      ).resolves.not.toThrow();
+
+      expect(eventSink).toHaveBeenCalledWith(expect.objectContaining({
+        type: "event_forward",
+        event: expect.objectContaining({
+          eventType: "bash_output",
+          data: expect.objectContaining({ output: expect.stringContaining("out"), excludeFromContext: false }),
+        }),
+      }));
+    });
+
     it("emits a MissingToolError and never spawns when bash is unresolved", async () => {
       // See change: register-bash-and-tool-install-help (task 3.4).
       registryMock.bash = { ok: false, path: null };
@@ -1297,8 +1376,9 @@ describe("CommandHandler delivery routing (pi-native queues)", () => {
 
     await handler.handle({ type: "send_prompt", sessionId: "s1", text: "!ls" });
 
-    // Bash handler forwards stdout via sendUserMessage as its result, but
-    // delivery routing is not involved — no clearFollowUpQueue or deliverAs option.
+    // Bash handler forwards stdout via sendUserMessage as its result with its
+    // own fixed `{ deliverAs: "followUp" }` (design D3); the delivery routing
+    // and the queue clears are not involved.
     expect(pi.clearFollowUpQueue).not.toHaveBeenCalled();
     expect(pi.clearSteeringQueue).not.toHaveBeenCalled();
   });
@@ -1417,7 +1497,8 @@ describe("tryExecSlashTemplate (executable: bash slash pipeline)", () => {
 
     expect(ran).toBe(true);
     expect(eventSink).toHaveBeenCalled();
-    expect(pi.sendUserMessage).toHaveBeenCalled();
+    // test-plan #E12: the third silent-path case sends like a single-bang.
+    expect(pi.sendUserMessage).toHaveBeenCalledWith(expect.stringContaining("echo hi"), { deliverAs: "followUp" });
   });
 
   it("passes positional args after -- so $1, $2 bind in the body", async () => {

@@ -52,9 +52,9 @@ overrides:
   # @earendil-works pi peer lower bound / devDependency, and the checker's own
   # minVersion. Caught by the docker harness, not by any unit test.
   # See change: update-pi-core-0-85-adopt-apis, update-pi-core-1-0-adopt-apis.
-  "@earendil-works/pi-coding-agent": 1.1.0
-  "@earendil-works/pi-ai": 1.1.0
-  "@earendil-works/pi-tui": 1.1.0
+  "@earendil-works/pi-coding-agent": 1.3.0
+  "@earendil-works/pi-ai": 1.3.0
+  "@earendil-works/pi-tui": 1.3.0
 
 # pnpm 11 treats un-approved dependency build scripts as a FATAL error
 # (ERR_PNPM_IGNORED_BUILDS, non-zero exit) — which would red every CI
@@ -111,12 +111,11 @@ allowBuilds:
   sharp: true
 
 minimumReleaseAgeExclude:
-  - '@earendil-works/pi-agent-core@1.1.0'
-  - '@earendil-works/pi-ai@1.1.0'
-  - '@earendil-works/pi-coding-agent@1.1.0'
-  - '@earendil-works/pi-tui@1.1.0'
-  - '@earendil-works/pi-codemode@1.1.0'
-  - '@earendil-works/pi-mcp@1.1.0'
-  - '@earendil-works/chord@1.1.0'
+  - '@earendil-works/pi-agent-core@1.3.0'
+  - '@earendil-works/pi-ai@1.3.0'
+  - '@earendil-works/pi-coding-agent@1.3.0'
+  - '@earendil-works/pi-tui@1.3.0'
+  - '@earendil-works/pi-codemode@1.3.0'
+  - '@earendil-works/pi-mcp@1.3.0'
   - pi-mcp-adapter@2.19.0 || 5.0.0
-  - '@earendil-works/pi-telemetry@1.1.0'
+  - '@earendil-works/pi-telemetry@1.3.0'

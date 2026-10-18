@@ -40,6 +40,7 @@ Files in this directory. One row per source file.
 | `event-forwarder.ts` | Map pi event objects to `event_forward` protocol messages. Exports `mapEventToProtocol`. → see `event-forwarder.ts.AGENTS.md` |
 | `flow-event-wiring.ts` | Register pi-flows + pi-subagents event listeners on `pi.events`. → see `flow-event-wiring.ts.AGENTS.md` |
 | `followup-buffer.ts` | Bridge-owned follow-up buffer, extracted from `bridge.ts` so admission is testable + the byte ceiling… → see `followup-buffer.ts.AGENTS.md` |
+| `followup-drain.ts` | Pure follow-up drain gate sequence (`drainOneFollowup`): empty → pi-pending → idle → pop → emit → send → catch-and-drop. → see `followup-drain.ts.AGENTS.md` |
 | `git-link-builder.ts` | Parse SSH/HTTPS remote URLs into branch + PR links. Exports `parseRemoteUrl`, `detectPlatform`,… → see `git-link-builder.ts.AGENTS.md` |
 | `commit-draft.ts` | Pure AI-draft fallback ladder (no pi-SDK coupling). Exports `draftCommitMessage(deps)` → `{message, source}`,… → see `commit-draft.ts.AGENTS.md` |
 | `commit-draft-agent.ts` | pi-SDK-coupled half of AI-draft. Exports `buildSessionContextText(ctx, maxChars)` (compacts… → see `commit-draft-agent.ts.AGENTS.md` |

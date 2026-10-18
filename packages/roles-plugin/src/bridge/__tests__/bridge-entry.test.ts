@@ -23,6 +23,16 @@ function fakePi(roles: Record<string, unknown> | "throw" | "none") {
     fire(opts: Opts) {
       return beforeStart?.({ type: "before_agent_start", prompt: "hi", systemPromptOptions: opts });
     },
+    /** pi >= 1.2.0 custom-message run (the dashboard Retry turn): no `prompt`, no `images`. */
+    fireCustom(opts: Opts) {
+      return beforeStart?.({
+        type: "before_agent_start",
+        messageType: "custom",
+        message: { role: "custom", customType: "pi-dashboard:retry", content: "", display: false },
+        systemPrompt: "body",
+        systemPromptOptions: opts,
+      });
+    },
   };
 }
 
@@ -39,6 +49,17 @@ describe("roles-plugin bridge entry", () => {
     expect(bullet).toContain('model: "@<role>"');
     expect(bullet.indexOf("@fast → anthropic/claude-haiku-4-5")).toBeGreaterThan(-1);
     expect(bullet.indexOf("@fast")).toBeLessThan(bullet.indexOf("@review"));
+  });
+
+  // test-plan #E21 — the handler reads only `systemPromptOptions`.
+  // See change: update-pi-core-1-3-adopt-apis (design D2).
+  it("E21 a custom-message start without `prompt` neither throws nor skips the guideline", () => {
+    const pi = fakePi({ fast: "anthropic/claude-haiku-4-5" });
+    activate(pi);
+    const opts = withAgent();
+    expect(() => pi.fireCustom(opts)).not.toThrow();
+    expect(opts.toolGuidelines.Agent).toHaveLength(1);
+    expect(opts.toolGuidelines.Agent[0]).toContain("@fast → anthropic/claude-haiku-4-5");
   });
 
   it("lists at most 12 roles, sorted (E23)", () => {

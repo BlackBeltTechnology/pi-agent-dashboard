@@ -918,7 +918,7 @@ export function createCommandHandler(
           //   delivery="followUp" + streaming → ONLY notify bridge buffer
           //                                      (pi never sees it until
           //                                      drainFollowupQueue ships it
-          //                                      on agent_end as a fresh turn).
+          //                                      on agent_settled as a fresh turn).
           //   delivery="steer"    + streaming → forward to pi + shadow-record.
           //   any delivery        + idle      → forward to pi (fresh turn).
           //
@@ -1540,7 +1540,20 @@ async function handleBashCommand(
   // For ! (not !!), also send to LLM
   if (!excludeFromContext) {
     const message = `$ ${command}\n${output}`;
-    pi.sendUserMessage(message);
+    // `deliverAs: "followUp"`: pi >= 1.2 is busy while a run starts, and a
+    // `prompt()` on a busy session without `streamingBehavior` throws (the
+    // output never reaches the LLM). Idle → pi ignores it and starts a turn;
+    // busy → pi queues it and drains it before the run settles. The queued
+    // entry is pi-owned, so no dashboard follow-up chip.
+    // See change: update-pi-core-1-3-adopt-apis (design D3).
+    // Compaction rejects every prompt path (a sync throw in a stub; pi's
+    // extension-facing send is fire-and-forget). The `bash_output` card above
+    // already shows the output, so a refused send must not fail the handler.
+    try {
+      (pi.sendUserMessage as any)(message, { deliverAs: "followUp" });
+    } catch (err) {
+      console.warn("[dashboard] single-bang send refused — output not added to context:", err);
+    }
   }
 }
 

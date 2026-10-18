@@ -164,3 +164,22 @@ describe("P1: handler latency", () => {
     expect(p95).toBeLessThan(20);
   });
 });
+
+// test-plan #E21 (kb arm): pi >= 1.2.0 fires before_agent_start for a custom-message
+// run (the dashboard Retry turn) with `messageType: "custom"` and NO `prompt`.
+// The hook composes on systemPrompt / systemPromptOptions only.
+// See change: update-pi-core-1-3-adopt-apis (design D2).
+describe("E21: a custom-message (Retry) start is tolerated and still gets the doctrine", () => {
+  it("does not throw and inserts the DOX doctrine without a prompt", () => {
+    const hook = loadHook();
+    const customEvent = {
+      messageType: "custom",
+      message: { role: "custom", customType: "pi-dashboard:retry", content: "", display: false },
+      systemPrompt: BASE,
+      systemPromptOptions: { cwd, contextFiles: undefined },
+    };
+    let out: { systemPrompt?: string } | undefined;
+    expect(() => { out = hook(customEvent); }).not.toThrow();
+    expect(promptOf(out)).toContain(DOX_DELIMITER);
+  });
+});

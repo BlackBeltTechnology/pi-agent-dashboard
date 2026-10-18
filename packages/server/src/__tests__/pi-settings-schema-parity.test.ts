@@ -15,7 +15,7 @@ import { describe, expect, it } from "vitest";
  * sneaks into the typed set. See change: pi-settings-full-coverage (D1).
  */
 
-/** The typed set the spec enumerates (49 keys). */
+/** The typed set the spec enumerates (50 keys). */
 const SPEC_KEYS = {
   bool: [
     "hideThinkingBlock", "showCacheMissNotices", "compaction.enabled", "branchSummary.skipPrompt", "showHardwareCursor",
@@ -25,7 +25,7 @@ const SPEC_KEYS = {
   ],
   enum: [
     "cacheWarming", "steeringMode", "followUpMode", "doubleEscapeAction", "treeFilterMode", "defaultProjectTrust",
-    "codemode.mode", "markdown.mermaid", "transport",
+    "codemode.mode", "markdown.mermaid", "transport", "sessionShareDestination",
   ],
   mixed: ["quietStartup", "terminal.hyperlinks", "terminal.trueColor", "terminal.images"],
   int: [

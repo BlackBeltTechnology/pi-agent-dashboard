@@ -215,6 +215,21 @@ describe("#E25 guideline", () => {
     expect(event.systemPromptOptions.promptGuidelines.filter((g) => g === GUIDELINE)).toHaveLength(1);
   });
 
+  // test-plan #E21 (guard arm): pi >= 1.2.0 fires before_agent_start for a
+  // custom-message run (the dashboard Retry turn) with NO `prompt`; the guard
+  // reads systemPromptOptions only. See change: update-pi-core-1-3-adopt-apis.
+  it("E21 a custom-message start without `prompt` neither throws nor skips the rule", () => {
+    const guard = makeGuard();
+    const event = {
+      messageType: "custom",
+      message: { role: "custom", customType: "pi-dashboard:retry", content: "", display: false },
+      systemPrompt: "body",
+      systemPromptOptions: { promptGuidelines: ["existing"] },
+    };
+    expect(() => guard.onBeforeAgentStart(event)).not.toThrow();
+    expect(event.systemPromptOptions.promptGuidelines).toEqual(["existing", GUIDELINE]);
+  });
+
   it("adds nothing in off mode", () => {
     const event = { systemPromptOptions: { promptGuidelines: [] as string[] } };
     makeGuard({ mode: "off" }).onBeforeAgentStart(event);

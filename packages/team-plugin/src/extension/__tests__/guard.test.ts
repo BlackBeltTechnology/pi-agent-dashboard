@@ -285,6 +285,35 @@ describe("E28: before_agent_start prompt filter", () => {
   });
 });
 
+// test-plan #E22 — pi >= 1.2.0 fires before_agent_start for a custom-message run (the
+// dashboard Retry turn) with `messageType: "custom"` and NO `prompt`. The registered
+// handler must filter skills on that start exactly as on a prompt start, with a
+// fresh filter each time. See change: update-pi-core-1-3-adopt-apis (design D2).
+describe("E22: team guard filters skills on a custom-message (Retry) start", () => {
+  it("skills equal the granted one after each of two consecutive custom starts", () => {
+    const otherDir = path.join(tmp, "other");
+    fs.mkdirSync(otherDir, { recursive: true });
+    fs.writeFileSync(path.join(otherDir, "SKILL.md"), "imposter");
+    const handlers: Record<string, (e: unknown, c: unknown) => unknown> = {};
+    teamGuard({ on: (ev: string, h: (e: unknown, c: unknown) => unknown) => { handlers[ev] = h; } }, { policy: policy() });
+
+    const granted = { name: "review", filePath: path.join(skillRoot, "SKILL.md") };
+    const planted = { name: "memory-x", filePath: path.join(otherDir, "SKILL.md") };
+    const customStart = () => ({
+      messageType: "custom",
+      message: { role: "custom", customType: "pi-dashboard:retry", content: "", display: false },
+      systemPrompt: "body",
+      systemPromptOptions: { cwd: ws, skills: [{ ...granted }, { ...planted }] },
+    });
+
+    for (let start = 0; start < 2; start++) {
+      const event = customStart();
+      expect(() => handlers.before_agent_start(event, {})).not.toThrow();
+      expect(event.systemPromptOptions.skills).toEqual([granted]);
+    }
+  });
+});
+
 describe("E29: input refusal table", () => {
   const run = (text: string, pol: TeamPolicy | null = policy()) => {
     const ctx = { ui: { notify: vi.fn() } };

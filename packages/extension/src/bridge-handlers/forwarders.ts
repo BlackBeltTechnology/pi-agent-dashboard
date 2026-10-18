@@ -135,6 +135,19 @@ export function registerEnrichedForwarders(inst: BridgeInstance): void {
         if (retryEnd) {
           inst.sendSyntheticRetryEvent(retryEnd.eventType, retryEnd.data);
         }
+        // Bridge-owned follow-up drain: pop one entry from bridgeFollowUp and
+        // hand it to pi as a fresh turn (sendUserMessage, no deliverAs). pi
+        // clears its run-active flag BEFORE it emits `agent_settled`, so a
+        // timer scheduled here observes an idle session (a sendUserMessage made
+        // synchronously inside the settle emission would be deferred by pi into
+        // its own settle path, outside the bridge's error handling). One settle
+        // fires per run — after the LAST attempt of an auto-retry chain and
+        // after an abort — so the drain never probes between attempts. A false
+        // `isIdle()` (another run already started) makes the drain return; the
+        // next settle drains. After the abort-latch clear above, so a user
+        // abort is never resumed by the drain.
+        // See change: update-pi-core-1-3-adopt-apis (design D4).
+        setTimeout(() => inst.drainFollowupQueue(), 0);
       }
       if (eventType === "agent_end") {
         inst.shared.isAgentStreaming = false;
@@ -158,14 +171,9 @@ export function registerEnrichedForwarders(inst: BridgeInstance): void {
         // — it would wipe entries the user adds DURING the drain window.
         // See change: add-followup-edit-and-steer-cancel (per-entry-drain).
 
-        // Bridge-owned follow-up drain: pop one entry from bridgeFollowUp
-        // and hand it to pi as a fresh turn (sendUserMessage no deliverAs).
-        // Scheduled via setTimeout (not queueMicrotask) so pi's
-        // finishRun() can flip isStreaming=false BEFORE we call back.
-        // The drain function itself polls ctx.isIdle() and retries up to
-        // ~2s if pi hasn't transitioned yet.
-        // See change: rework-mid-turn-prompt-queue (post-smoke fix #3).
-        setTimeout(() => inst.drainFollowupQueue(0), 0);
+        // The follow-up drain no longer runs here: it moved to `agent_settled`
+        // (above), which fires once per run after pi is idle.
+        // See change: update-pi-core-1-3-adopt-apis (design D4).
 
         // Empty-actionable-turn guard: classify this turn's terminal shape.
         // A thinking-only / empty `stop` (no visible text, no tool call, no
@@ -277,7 +285,7 @@ export function registerEnrichedForwarders(inst: BridgeInstance): void {
       // land on the wire AFTER any pending message_end deferrals (which
       // also use setTimeout(0) — timer FIFO preserves order). Without this,
       // a follow-up user message_start emitted synchronously by pi during
-      // an agent_end drain would arrive BEFORE the preceding assistant
+      // an agent_settled drain would arrive BEFORE the preceding assistant
       // message_end, and the client reducer would append the user bubble
       // above the assistant's final response. ASSISTANT message_start stays
       // sync because message_update events fire sync and the reducer's
@@ -359,13 +367,16 @@ export function registerEnrichedForwarders(inst: BridgeInstance): void {
             // bridgeFollowUp ONLY for:
             //   (a) TUI-queued follow-ups draining through pi's natural
             //       queue (text not in bridgeFollowUp → indexOf=-1 → no-op)
-            //   (b) Any future code path that calls
-            //       pi.sendUserMessage(_, {deliverAs:"followUp"}) directly
-            //       (none exist in this codebase post-rework).
+            //   (b) Any code path that calls
+            //       pi.sendUserMessage(_, {deliverAs:"followUp"}) directly.
+            //       One exists: the single-bang `!cmd` output. Its text
+            //       (`$ cmd\n…`) is never a `bridgeFollowUp` entry, so the
+            //       matcher stays a no-op for it.
             // The follow-up matcher is therefore defense-in-depth; cost is
             // one indexOf per user message_start.
             //
-            // See change: rework-mid-turn-prompt-queue (design.md D9, R7).
+            // See changes: rework-mid-turn-prompt-queue (design.md D9, R7),
+            // update-pi-core-1-3-adopt-apis (design D3).
             const text = inst.extractUserMessageText(messageRef);
             if (text) {
               const sIdx = inst.bridgeSteering.indexOf(text);

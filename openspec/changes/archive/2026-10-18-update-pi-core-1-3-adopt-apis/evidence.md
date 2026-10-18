@@ -88,4 +88,61 @@ These live requirements mention `1.1.0` as historical anchors and stay true unde
 
 ## Verification runs
 
-<!-- filled during ship-it: fixtures red → green, pnpm install, full vitest, verify-release-deps -->
+Worktree `.worktrees/os-update-pi-core-1-3-adopt-apis`, macOS arm64, Node 24, pnpm 11.15.1, pi 1.3.0 installed.
+
+### Drain spike (task 3.0) — real pi 1.3.0 under the faux provider
+
+Driven with `pi --mode rpc` + `qa/fixtures/faux-provider.ext.ts` + a probe extension logging `ctx.isIdle()` synchronously and inside a `setTimeout(0)` scheduled from each handler. Retry settings `{maxRetries:3, baseDelayMs:300}`; the 503 scenario was a spike-local copy of the fixtures (not committed).
+
+| run | event order | `isIdle()` |
+|---|---|---|
+| normal turn | `agent_start` → `agent_end` → `agent_settled` | `agent_end` sync **false**; `agent_settled` sync **true**; `agent_settled` + `setTimeout(0)` **true** (`hasPendingMessages()` false) |
+| auto-retry chain (503 × 3, then ok) | `agent_start` → `agent_end` ×4, ONE `agent_settled` after the last | `agent_end` + `setTimeout(0)` **false** on all three failed attempts (the old drain would have polled here); `agent_settled` + `setTimeout(0)` **true** |
+| abort mid-stream (`slow-stream`, TPS 2) | `agent_start` → `agent_end` → `agent_settled {aborted:true}` | `agent_settled` + `setTimeout(0)` **true** |
+
+`isIdle()` was never false inside the `agent_settled` timer without a new run. This confirms design D4: one idle check, no retry loop.
+
+### Fixtures red → green (tasks 1.1, 1.4)
+
+Pin-encoding fixtures were edited to 1.3.0 first (`pi-version-skew.test.ts`, `verify-release-deps-pi-coherence.test.mjs`, `bundled-node-meets-pi-floor.test.ts`, `pi-version-update-handling.test.ts`, `e2e-browser-workflow-contract.test.ts`); no red run was recorded before the pins moved (the install had not yet been done in this worktree). After the pins moved and `pnpm install` ran: 5 files, 107 tests green.
+
+`minimumReleaseAge`: not configured in `pnpm-workspace.yaml` / `.npmrc`; pnpm 11.15.1 `config get minimum-release-age` prints `undefined`. `minimumReleaseAgeExclude` was still regenerated from the lockfile: pi-agent-core, pi-ai, pi-coding-agent, pi-tui, pi-codemode, pi-mcp, pi-telemetry at `1.3.0`; `@earendil-works/chord@1.1.0` dropped.
+
+### Install and gate (task 6.27, test-plan #X3)
+
+- `pnpm install --frozen-lockfile` → `Already up to date`, exit 0.
+- `node scripts/verify-release-deps.mjs` → `OK — 12 rules passed.`
+- `pnpm-lock.yaml`: `@earendil-works/chord` count 0; one copy of each pi package at `1.3.0` (`pi-agent-core`, `pi-ai`, `pi-codemode`, `pi-coding-agent`, `pi-mcp`, `pi-telemetry`, `pi-tui`); installed `node_modules/@earendil-works/pi-coding-agent` `1.3.0`.
+
+### Docker harness (tasks 6.23, 6.24, 6.28; test-plan #F1, #F2, #X4)
+
+Image built from the worktree (`docker/test-up.sh -d --build`); `docker exec … pi --version` → `1.3.0`. Run with `PW_E2E_USE_RUNNING=1` against the derived port from `.pi-test-harness.json`:
+
+- `pi-1-3-floor-smoke.spec.ts` passed (`/api/health` `current === "1.3.0"`, no below-floor error).
+- `followup-settle-drain.spec.ts` F1 and F2 passed.
+- `optimistic-prompt.spec.ts` (mid-turn queue chip) passed.
+- `long-session-settle.spec.ts` P4 and `pending-prompt-recovery.spec.ts` F1 failed on 240–300 s waits for a long-transcript tail; both are long-transcript replay specs unrelated to the follow-up drain. Not attributed to this change (the harness VM has 8 GB).
+
+### QA install floor (task 6.29, test-plan #X5)
+
+`qa/tests/01-install.sh` `PI_FLOOR="1.3.0"` edited and `bash -n` clean. The VM install itself (`qa/` clean-install run per OS) was NOT run locally; it executes in the VM smoke leg.
+
+### Full vitest (`npm test`)
+
+`Test Files 5 failed | 2882 passed | 51 skipped; Tests 8 failed | 37748 passed`. Re-run in isolation:
+- `host-gate-upgrade`, `dox-row`, `seed-engine-cli`: pass (load-sensitive flakes in the full run).
+- `repo-hygiene` byte cap: failed on `tests/e2e/AGENTS.md` (this change's two new rows pushed it over 30000 bytes); fixed by trimming row summaries (the `<File>.AGENTS.md` sidecars carry the detail) — `node scripts/dox-byte-gate.mjs` green.
+- `system-routes-restart-loader` (4 cases): fails identically on `develop` in the main checkout; pre-existing, unrelated.
+
+`npm run lint` (tsc7): only the three pre-existing `Promise.withResolvers` errors in `dashboard-plugin-runtime` remain (same count on the pre-change tree).
+
+### `1.1.0` sweep (task 1.6)
+
+Updated: every pi pin (listed above), `docs/architecture.md` / `docs/faq.md` floor statements, `docker/Dockerfile.AGENTS.md`, `scripts/verify-release-deps.mjs.AGENTS.md`, `qa/tests/AGENTS.md`, `tests/e2e/pi-1-3-floor-smoke.spec.ts{,.AGENTS.md}`. Justified anchors left unchanged (all remain true under a 1.3.0 floor):
+- `packages/mcp-client-plugin` `pi-rules.ts`, `effective-view.ts`, `types.ts`, `schema/mcp-config.schema.json`, its tests and AGENTS rows: mirror pi's MCP config validation; `dist/core/mcp-servers.js` and `dist/extensions/mcp/config.js` are byte-identical between 1.1.0 and 1.3.0.
+- `packages/client` `event-reducer.ts`, `state-replay.ts`, `models-json-reader.ts`, `internal-registry.ts`, `provider-register.ts` and their tests: "pi >= 1.1.0" feature anchors (`durationMs`, `samplingParamsByThinkingLevel`).
+- `packages/server` `model-proxy/*`, `routes/model-proxy-routes.ts`: "pi >= 1.1.0" OAuth-refresh anchors.
+- `docs/credential-vault.md`, `docs/credential-vault.agent.md`: spill-file mode `0600` since pi 1.1.0; `dist/utils/output-files.js` in 1.3.0 still sets `OUTPUT_FILE_MODE = 0o600`.
+- `docs/plans/iroh-transport-research.md`, `packages/music-production` (`beat-this==1.1.0`), `packages/electron` and `packages/shared` test fixtures (`openspec`/`pi-flows`/`PackageRow` versions): not pi pins.
+- `scripts/verify-release-deps.mjs` `node-pty 1.1.0` rule and the 1.1.0 evidence note: history; the note now continues to 1.3.0.
+- `openspec/specs/**`: change through this change's delta files only.
