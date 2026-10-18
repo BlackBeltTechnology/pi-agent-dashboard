@@ -1639,6 +1639,18 @@ export function wireEvents(deps: EventWiringDeps): void {
       if (msg.sessionFile) {
         for (const other of sessionManager.listAll()) {
           if (other.id !== sessionId && other.sessionFile === msg.sessionFile) {
+            // An ENDED holder has no bridge: the new registrant now owns the
+            // transcript, so evict the predecessor instead of leaving a
+            // fileless, un-archivable orphan. A non-ended holder is the
+            // two-live-bridges case and keeps the clear-and-broadcast.
+            // See change: fix-orphaned-ended-session-archive.
+            if (other.status === "ended") {
+              if (sessionArchive) {
+                sessionArchive.evictSuperseded(other.id, sessionId);
+                continue;
+              }
+              console.info("[archive] supersede skipped: archive unavailable");
+            }
             sessionManager.update(other.id, { sessionFile: undefined });
             browserGateway.broadcastSessionUpdated(other.id, { sessionFile: null });
           }

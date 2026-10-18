@@ -136,6 +136,11 @@ export function frameClassOf(
     case "grant_request":
     case "grant_dismiss":
       return { cls: "state", key: `grant:${msg.promptId}` };
+    // The reply to a rejected archive click: coalesces per session (latest
+    // wins) and is never shed — a shed one is a click with no feedback.
+    // See change: fix-orphaned-ended-session-archive.
+    case "archive_session_error":
+      return { cls: "state", key: `archive_session_error:${msg.sessionId}` };
     // Content-free pairing hint: coalescing state, never shed — a shed hint is
     // an approval dialog that never appears. See change: add-pairing-approval-dialog.
     case "pair_pending_changed":
