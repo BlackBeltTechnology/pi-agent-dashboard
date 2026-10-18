@@ -1548,6 +1548,13 @@ export function useMessageHandler(
         break;
       }
 
+      case "archive_session_error":
+        // A rejected archive click: tell the user why nothing happened. No
+        // state change — the card is still resident. See change:
+        // fix-orphaned-ended-session-archive.
+        showToast?.(msg.error, "error");
+        break;
+
       case "spawn_error": {
         // Enriches the spawn_result error with strategy + optional stderr tail.
         // Carried as its own message so esbuild preserves this switch case in
