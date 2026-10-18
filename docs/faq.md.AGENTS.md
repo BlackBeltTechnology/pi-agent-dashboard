@@ -28,6 +28,8 @@ Gains "How do I pair a LAN device without TLS?" → opt-in knock: Gateway switch
 
 Gains "Why is my project `mcp.json` server ignored (inactive) in a folder?" → project layer trusted-folders only (`project-not-trusted`). Two stores: pi `trust.json` vs dashboard mirror. Decision order (`decidePiTrust`), who-trusts views, reason codes, identity-mismatch fail-closed, `piTrustMirror` config, rollback. See change: mirror-dashboard-trust-to-pi.
 
+Gains browser-E2E baseline section: #683 quarantine re-derive commands, cluster → owner change map, unquarantine rule (CANDIDATE clusters only), trust isolation (`narrowTrust`, scopes, refusal latch, fault specs), `OffBoxError` message. See change: triage-browser-e2e-offbox-poison.
+
 ## Change history (moved from docs/AGENTS.md row)
 
 See change: add-acp-session-driver, electron-runtime-overlay-updates, update-pi-core-1-0-adopt-apis, migrate-mcp-to-pi-builtin. host-gate default enforce; pairing revoke/approve operator-only. See change: harden-server-request-surfaces. `local_proof_required` FAQ. See change: harden-trust-and-credential-boundaries. Plugin-config partial write keeps omitted keys. See change: fix-plugin-config-partial-write. Gains TS-loader FAQ: PI_DASHBOARD_TS_LOADER no-longer-supported + booted-under-jiti warns → pi-dashboard stop && pi-dashboard start. See change: strip-only-native-ts-loader.

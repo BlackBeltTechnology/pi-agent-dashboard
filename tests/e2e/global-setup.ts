@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { chromium } from "@playwright/test";
+import { recordTrustBaseline } from "./helpers/trust-access.js";
 import {
   captureHarnessFailure,
   DASHBOARD_PORT,
@@ -149,6 +150,22 @@ async function waitForHarnessOwnedSessions(port: number, timeoutMs = 60_000): Pr
   );
 }
 
+/**
+ * Record the freshly booted harness's trust posture ONCE, before any spec runs:
+ * the baseline the worker-start re-assert and the tripwire compare against, and
+ * whether the credential-free client is admitted (arms/disarms the refusal
+ * verdict). A transport failure on the admission mint aborts setup loudly —
+ * never recorded as "not admitted" (decision E3).
+ * See change: triage-browser-e2e-offbox-poison (design D2, D3).
+ */
+async function recordHarnessTrust(port: number): Promise<void> {
+  const file = await recordTrustBaseline(`http://localhost:${port}`);
+  console.log(
+    `[trust-baseline] credential=${file.credential} credentialFreeAdmitted=${file.credentialFreeAdmitted} ` +
+      `baseline=${file.baseline === null ? "null (L2 + tripwire + refusal verdict disarmed)" : "recorded"}`,
+  );
+}
+
 export default async function globalSetup(): Promise<void> {
   // Preflight FIRST: never pay the container boot only to die at browser launch.
   assertBrowserInstalled();
@@ -167,6 +184,7 @@ export default async function globalSetup(): Promise<void> {
     // Not managed by us — ensure no stale marker triggers a teardown.
     if (fs.existsSync(MARKER_PATH)) fs.rmSync(MARKER_PATH);
     await waitForHarnessOwnedSessions(DASHBOARD_PORT);
+    await recordHarnessTrust(DASHBOARD_PORT);
     return;
   }
 
@@ -272,4 +290,5 @@ export default async function globalSetup(): Promise<void> {
   if (project) process.env.PW_E2E_PROJECT = project;
 
   await waitForHarnessOwnedSessions(ports.dashboardPort);
+  await recordHarnessTrust(ports.dashboardPort);
 }

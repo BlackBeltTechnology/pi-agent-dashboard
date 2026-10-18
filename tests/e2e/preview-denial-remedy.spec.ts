@@ -11,9 +11,10 @@
  *
  * HARNESS STATE (mirrors access-grant-dialog.spec.ts)
  * ---------------------------------------------------
- * `beforeAll` flips `hostGate.mode=enforce` + `accessGrants.promptEnabled` in
- * the container; `afterAll` restores `config.json` and the grant stores
- * byte-for-byte and removes every probe directory and link.
+ * `beforeAll` flips `hostGate.mode=enforce` (through `narrowTrust`) +
+ * `accessGrants.promptEnabled` (in the container); `afterAll` restores
+ * `config.json` and the grant stores byte-for-byte and removes every probe
+ * directory and link.
  *
  * FRESH SUBJECTS: the 120 s post-answer backoff is per subject, so every test
  * creates its own outside directory. Agent auto-opens are an absolute-path
@@ -47,7 +48,7 @@
  */
 import { execSync } from "node:child_process";
 import type { Locator, Page, WebSocketRoute } from "@playwright/test";
-import { expect, test } from "./fixtures.js";
+import { expect, narrowTrust, test } from "./fixtures.js";
 import { ensureGitSession, FIXTURE_GIT, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 import { pairDeviceBearer } from "./helpers/bridge-credential.js";
 import { BASE_URL, DASHBOARD_PORT } from "./lifecycle.js";
@@ -160,7 +161,7 @@ let saved: Record<string, string | null> = {};
 test.describe("preview denial remedy (surface-denial-remedy-in-previews)", () => {
   test.skip(process.env.PI_DASHBOARD_DISABLE_GRANT_PROMPT === "1", "prompting force-disabled by the kill switch");
 
-  test.beforeAll(async () => {
+  test.beforeAll(async ({ request }) => {
     bearer = await pairDeviceBearer(BASE_URL);
     saved = JSON.parse(
       inContainer(`
@@ -171,7 +172,9 @@ test.describe("preview denial remedy (surface-denial-remedy-in-previews)", () =>
       `),
     );
     execSync(`docker exec ${containerName()} sh -c 'rm -rf ${ROOT} ${CANVAS}-* && mkdir -p ${ROOT}'`);
-    patchConfig({ hostGate: { mode: "enforce" }, accessGrants: { promptEnabled: true } });
+    // Trust-bearing key via narrowTrust (describe scope); `accessGrants` is not trust.
+    await narrowTrust(request, { hostGate: { mode: "enforce" } });
+    patchConfig({ accessGrants: { promptEnabled: true } });
   });
 
   test.afterAll(() => {
@@ -295,8 +298,9 @@ test.describe("preview denial remedy (surface-denial-remedy-in-previews)", () =>
     await expect(editor(page).locator(".pdfViewer .page").first()).toBeVisible({ timeout: 20_000 });
   });
 
-  test("#F10 the default config explains itself", async ({ page }) => {
-    patchConfig({ hostGate: { mode: "report" }, accessGrants: { promptEnabled: false } });
+  test("#F10 the default config explains itself", async ({ page, request }) => {
+    await narrowTrust(request, { hostGate: { mode: "report" } });
+    patchConfig({ accessGrants: { promptEnabled: false } });
     try {
       const id = await ready(page);
       const dir = freshDir("f10", { "a.png": "png" });
@@ -305,7 +309,7 @@ test.describe("preview denial remedy (surface-denial-remedy-in-previews)", () =>
       await expect(notice(page)).toContainText("Access prompts are off");
       await expect(notice(page).getByRole("button")).toHaveCount(0);
     } finally {
-      patchConfig({ hostGate: { mode: "enforce" }, accessGrants: { promptEnabled: true } });
+      patchConfig({ accessGrants: { promptEnabled: true } });
     }
   });
 

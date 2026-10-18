@@ -19,9 +19,13 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/codeql-local-cli.test.mjs` | `codeql-local.mjs` end to end against a fake `CODEQL_BIN` + temp git repos (test-plan #E2-#E13, #E16, #E23, #E25-#E29, #P1, #X1-#X5); `baseline binding` block: `baselineHash` refusal/re-bind (#E1-#E12, #X1). See change: add-local-codeql-ratchet, harden-codeql-ratchet-followups. |
 | `__tests__/codeql-local-real.test.mjs` | `codeql-local.mjs` against the REAL CodeQL CLI on tiny repos (#E4, #E18, #X6). `describe.skipIf` no `codeql` / uncached packs; uses the real HOME for the pack cache. See change: add-local-codeql-ratchet. |
 | `__tests__/codeql-local.test.mjs` | Pure decision logic of `codeql-local.mjs` (#E14, #E15, #E17, #E19-#E22, #E24, #E29 writer, #P1). See change: add-local-codeql-ratchet. |
-| `__tests__/coverage-config.test.mjs` | Coverage config shape. |
-| `__tests__/coverage-report.test.mjs` | Live coverage runs. |
+| `__tests__/coverage-config.test.mjs` | Coverage config shape; `coverage-unloaded` fixture stays unloaded (importer lint E29), excluded from root globs (E30), sampled scope pinned (E31). See change: triage-browser-e2e-offbox-poison. |
+| `__tests__/coverage-report.test.mjs` | Live coverage runs. E2 now SCOPED to `fixtures/coverage-unloaded` (unloaded file reported 0%; `SCOPED_RUN_TIMEOUT_MS` ≥ 1.5× recorded measurement). See change: triage-browser-e2e-offbox-poison. |
 | `__tests__/client-isolate-gate.test.mjs` | Client isolate gate. |
+| `__tests__/e2e-fixture-import.test.mjs` | Guard tests for `check-e2e-fixture-import.mjs`: fixture-import decision table (E6/E7) + trust-write lint decision table and mutation check (E21/E22). See change: triage-browser-e2e-offbox-poison. |
+| `__tests__/e2e-reap-core.test.mjs` | L1 for `tests/e2e/reap-core.ts`: delta/settle/latch/budget + refusal verdict, `compareTrust`, baseline/worker-start/pre-read decisions, restore payload (E8-E18, X5-X16). See change: triage-browser-e2e-offbox-poison. |
+| `__tests__/e2e-trust-seed.test.mjs` | Runs the `docker/test-entrypoint.sh` config-seed `node -e` program verbatim: `PI_E2E_TRUSTED_NETWORKS` parsing (E23) + seed gating (E24/E25). See change: triage-browser-e2e-offbox-poison. |
+| `__tests__/fixtures/coverage-unloaded/` | Fixture project: one source file NO test imports (`src/unloaded.ts`) + green no-op test + `vitest.config.mjs` pinning `coverage.include` to it (scoped E2). See change: triage-browser-e2e-offbox-poison. |
 | `__tests__/dependency-declarations.test.mjs` | Set-based manifest guarantees over ALL 32 non-private workspaces (not a sample). → see `__tests__/dependency-declarations.test.mjs.AGENTS.md` |
 | `__tests__/fixtures/codeql-harness.mjs` | Test harness for `codeql-local.mjs`: temp git repos, per-call fake-binary plan, SARIF + baseline builders. See change: add-local-codeql-ratchet. |
 | `__tests__/fixtures/coverage-failing/` | Red coverage fixture. |

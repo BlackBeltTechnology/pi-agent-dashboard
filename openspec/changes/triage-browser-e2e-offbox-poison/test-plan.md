@@ -109,3 +109,12 @@ Harness exemplars (verified present): `packages/bus-client/src/__tests__/offbox-
 - E23–E25: no unit harness exists for `docker/test-entrypoint.sh`. New `scripts/__tests__/e2e-trust-seed.test.mjs` extracts the config-seed `node -e '…'` program verbatim from the entrypoint and runs it with a tmp output path (E23), and asserts the shell gating structure statically (E24, E25). No entrypoint change (spec-sync only).
 - L3 fault specs (X3, X4, X8, X10, X11-L3, X14, X15, P5) live in `tests/e2e/harness-isolation-faults.spec.ts`, which SKIPS unless `PW_E2E_HARNESS_FAULTS=1` (same pattern as `network-guard.spec.ts`'s `PW_E2E_GUARD_UNTRUSTED`), runs only against a dedicated fresh harness, and is allowlisted by the E21 trust-write lint. It never runs in the default shards.
 - E20 is an extra test in `tests/e2e/network-guard.spec.ts` (runs only on its no-auth narrow leg, `PW_E2E_GUARD_UNTRUSTED=1`).
+
+---
+
+## Implementation deviations (ship-it)
+
+- X3, X4, P5, X11 (L3 half): not reproducible at L3 on a credentialed harness — the pre-test baseline check heals an undeclared network narrowing before the refusal verdict can latch; the cookie is ignored on the wide harness; `localhost` is always admitted by the host gate. The verdicts are pinned at L1 (E8, E9, E12, X7, X9, X11). See `design.md` "Implementation notes".
+- F3 (describe-scope session reap) and F7 (default-harness control): manual-only — observed in run logs, not asserted by a spec.
+- X14 is exercised as a leaked `afterAll` raw write (the lazy describe release cannot fail its own `afterAll`).
+- E19/F1/F2/F4/F5/F8 are asserted by small tests added to `lan-knock`, `mcp-tiered-token` and `host-gate-allow`; X8/X10/X14/X15 by `harness-isolation-faults.spec.ts` (verified against a fresh local harness).

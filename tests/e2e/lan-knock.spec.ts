@@ -21,8 +21,9 @@
  * --------------------------------
  * - The seed trusts every peer (`0.0.0.0/0`), which would make a paired device's
  *   tier and cookie unobservable; the suite narrows `trustedNetworks` to a range
- *   that matches nobody for its duration and restores it afterwards (the local
- *   token is the credential that can still write config).
+ *   that matches nobody for its duration through `narrowTrust` (describe scope,
+ *   restored by the reap fixture; the local token is the credential that can
+ *   still write config).
  * - Every device context reaches the server from the SAME docker-gateway source
  *   address, so the knock limiter treats them as one source: a deny starts a
  *   10-minute cooldown. Tests therefore run serially with the denying test LAST,
@@ -31,9 +32,10 @@
  * Exemplars: pairing-approval-dialog.spec.ts (two-page glue), pairing-qr.spec.ts.
  */
 import type { APIRequestContext, Browser, BrowserContext, Page } from "@playwright/test";
-import { expect, test } from "./fixtures.js";
+import { expect, narrowTrust, test } from "./fixtures.js";
 import { operatorHeaders } from "./helpers/bridge-credential.js";
 import { gotoDashboard } from "./helpers/index.js";
+import { readConfig } from "./helpers/trust-access.js";
 import { DASHBOARD_PORT } from "./lifecycle.js";
 
 /**
@@ -47,8 +49,6 @@ import { DASHBOARD_PORT } from "./lifecycle.js";
 const LAN_HOST = "127.0.0.1";
 const LAN_BASE = `http://${LAN_HOST}:${DASHBOARD_PORT}`;
 const NOBODY = ["198.51.100.0/24"]; // TEST-NET-2: matches no peer
-
-let originalTrusted: string[] = [];
 
 async function putConfig(request: APIRequestContext, partial: Record<string, unknown>): Promise<void> {
   const res = await request.put("/api/config", { data: partial, headers: operatorHeaders() });
@@ -98,16 +98,25 @@ async function deviceKnocks(
 test.describe.configure({ mode: "serial" });
 
 test.describe("LAN knock pairing", () => {
+  // Describe scope: `narrowTrust` from `beforeAll` lives for this file's tests and
+  // is restored (and the group's sessions reaped) when the next spec's first test
+  // starts — or by the worker-start baseline re-assert if the worker dies first.
   test.beforeAll(async ({ request }) => {
-    const cfg = await (await request.get("/api/config", { headers: operatorHeaders() })).json();
-    originalTrusted = (cfg.data?.trustedNetworks ?? cfg.trustedNetworks ?? []) as string[];
-    await putConfig(request, { trustedNetworks: NOBODY });
+    await narrowTrust(request, { trustedNetworks: NOBODY });
     await setAccept(request, false);
   });
 
   test.afterAll(async ({ request }) => {
     await setAccept(request, false);
-    await putConfig(request, { trustedNetworks: originalTrusted });
+  });
+
+  // E19/F1 — the describe-scope narrowing declared in `beforeAll` is still in force
+  // for every test of the group (the reap fixture neither restores it between tests
+  // nor treats it as a breach), while the credential-free client is refused by design.
+  test("E19: the describe-scope narrowing outlives each test of the group", async () => {
+    const operator = await readConfig(true);
+    expect(operator.status).toBe(200);
+    expect(operator.data?.trustedNetworks).toEqual(NOBODY);
   });
 
   test("F11: the switch is off by default; the device is told why and no dialog appears", async ({

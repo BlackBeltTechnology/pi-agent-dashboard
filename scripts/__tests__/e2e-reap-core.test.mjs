@@ -16,15 +16,30 @@
 
 import { describe, expect, it } from "vitest";
 import {
-  HARNESS_DOWN_MESSAGE,
-  LATCH_FAILURE_THRESHOLD,
-  RESIDUAL_SESSION_BUDGET,
+  buildRestorePayload,
   checkBudget,
+  compareTrust,
   computeDelta,
   createLatch,
   decideGate,
+  decidePreRead,
+  decidePreSnapshotError,
+  decideReassert,
+  decideRefusal,
+  decideWorkerStart,
+  droppedTrustKeys,
+  HARNESS_DOWN_MESSAGE,
+  HARNESS_POLICY_REFUSAL_ERRORS,
+  HARNESS_UNUSABLE_MESSAGE,
   isLiveSession,
+  LATCH_FAILURE_THRESHOLD,
+  narrowedKeys,
+  pickTrust,
+  RESIDUAL_SESSION_BUDGET,
+  recordBaseline,
+  recordCredentialFreeAdmission,
   settleSessionIds,
+  TRUST_KEYS,
 } from "../../tests/e2e/reap-core.ts";
 
 /** Deterministic fake clock + sleep, so settle tests never wall-clock wait. */
@@ -288,5 +303,286 @@ describe("checkBudget — residual-session budget (E5)", () => {
     ];
     expect(checkBudget(mixed, 3).ok).toBe(false); // unfiltered → 4 > 3
     expect(checkBudget(mixed.filter(isLiveSession), 3).ok).toBe(true); // filtered → 2
+  });
+});
+
+/**
+ * Refusal-aware latch + trust isolation (change: triage-browser-e2e-offbox-poison).
+ * test-plan #E8-#E18, #X5-#X7, #X9, #X11-#X13, #X16.
+ */
+const ARMED = { credentialFreeAdmitted: true, narrowingActive: false };
+const FULL_TRUST = () => ({
+  trustedNetworks: ["0.0.0.0/0"],
+  auth: { bypassHosts: [], bypassUrls: ["/"] },
+  allowedHosts: [],
+  hostGate: { mode: "enforce" },
+  requireLocalProof: false,
+  resolvedTrustedNetworks: ["0.0.0.0/0"],
+});
+
+describe("decideRefusal — harness-policy refusal verdict (E8-E13)", () => {
+  it("E8: network_not_allowed 403 latches and names harness, status, literal, reason", () => {
+    const d = decideRefusal({
+      status: 403,
+      error: "network_not_allowed",
+      message: "ticket mint denied: 403 network_not_allowed — Source IP not loopback",
+      ...ARMED,
+    });
+    expect(d.action).toBe("latch");
+    expect(d.message).toContain("HARNESS");
+    expect(d.message).toContain("403");
+    expect(d.message).toContain("network_not_allowed");
+    expect(d.message).toContain("Source IP not loopback");
+  });
+
+  it("E9: host_not_allowed 403 latches", () => {
+    expect(decideRefusal({ status: 403, error: "host_not_allowed", ...ARMED }).action).toBe("latch");
+  });
+
+  it.each([
+    ["unknown 403 literal", { status: 403, error: "forbidden" }, "forbidden"],
+    ["403 without literal", { status: 403 }, "403"],
+    ["401", { status: 401 }, "401"],
+  ])("E10: %s fails the test without latching", (_l, input, needle) => {
+    const d = decideRefusal({ ...input, ...ARMED });
+    expect(d.action).toBe("fail-no-latch");
+    expect(d.message).toContain(String(input.status));
+    expect(d.message).toContain(needle);
+  });
+
+  it("E11: a transport error (no status) is warn-continue — the liveness counter governs", () => {
+    expect(decideRefusal({ status: undefined, ...ARMED }).action).toBe("warn-continue");
+  });
+
+  it.each([
+    ["boot baseline refuses credential-free", { credentialFreeAdmitted: false, narrowingActive: false }],
+    ["declared narrowing active", { credentialFreeAdmitted: true, narrowingActive: true }],
+    ["both", { credentialFreeAdmitted: false, narrowingActive: true }],
+  ])("E12: disarmed (%s) → warn-continue even for a policy 403", (_l, flags) => {
+    expect(decideRefusal({ status: 403, error: "network_not_allowed", ...flags }).action).toBe("warn-continue");
+  });
+
+  it("E13: classification ignores message text; the literal list is one exact constant", () => {
+    const d = decideRefusal({
+      status: 403,
+      error: "forbidden",
+      message: "contains network_not_allowed in prose",
+      ...ARMED,
+    });
+    expect(d.action).toBe("fail-no-latch");
+    expect(HARNESS_POLICY_REFUSAL_ERRORS).toEqual(["network_not_allowed", "host_not_allowed"]);
+  });
+});
+
+describe("compareTrust — tripwire comparison (E14-E16, X16)", () => {
+  it("E14: identical over all 7 keys is ok", () => {
+    expect(TRUST_KEYS).toHaveLength(7);
+    expect(compareTrust(FULL_TRUST(), FULL_TRUST())).toMatchObject({ ok: true, breaches: [] });
+  });
+
+  it("E15: names each differing key with before/after", () => {
+    const after = FULL_TRUST();
+    after.trustedNetworks = [];
+    after.hostGate.mode = "off";
+    const r = compareTrust(FULL_TRUST(), after);
+    expect(r.ok).toBe(false);
+    expect(r.breaches.map((b) => b.key)).toEqual(["trustedNetworks", "hostGate.mode"]);
+    expect(r.breaches[0]).toMatchObject({ before: ["0.0.0.0/0"], after: [] });
+
+    const onlyDerived = FULL_TRUST();
+    onlyDerived.resolvedTrustedNetworks = [];
+    expect(compareTrust(FULL_TRUST(), onlyDerived).breaches.map((b) => b.key)).toEqual(["resolvedTrustedNetworks"]);
+  });
+
+  it("E16: absent list ≡ [] (defaults filled); a reordered list is a breach", () => {
+    const withEmpty = { ...FULL_TRUST(), auth: { bypassHosts: [], bypassUrls: [] } };
+    const absent = { ...FULL_TRUST(), auth: { bypassHosts: [] } };
+    expect(compareTrust(withEmpty, absent).ok).toBe(true);
+
+    const ab = { ...FULL_TRUST(), trustedNetworks: ["a", "b"] };
+    const ba = { ...FULL_TRUST(), trustedNetworks: ["b", "a"] };
+    const r = compareTrust(ab, ba);
+    expect(r.ok).toBe(false);
+    expect(r.breaches.map((b) => b.key)).toEqual(["trustedNetworks"]);
+  });
+
+  it("X16: a response missing requireLocalProof is dropped with a note, not a false breach", () => {
+    const missing = FULL_TRUST();
+    delete missing.requireLocalProof;
+    expect(droppedTrustKeys(missing)).toEqual(["requireLocalProof"]);
+    expect(compareTrust(FULL_TRUST(), missing).ok).toBe(true);
+    expect(pickTrust(missing)).not.toHaveProperty("requireLocalProof");
+  });
+});
+
+describe("worker-start re-assert + pre-read (E17, E18, X11)", () => {
+  const WIDE = FULL_TRUST();
+  const NARROW = { ...FULL_TRUST(), trustedNetworks: [] };
+
+  it("E17: baseline wide / live narrow → write the baseline back", () => {
+    expect(decideReassert(WIDE, NARROW)).toEqual({ action: "write", baseline: WIDE });
+  });
+
+  it("E17: baseline narrow / live narrow → no-op (never the seed values)", () => {
+    const narrowBoot = { ...FULL_TRUST(), trustedNetworks: ["127.0.0.1/32"] };
+    expect(decideReassert(narrowBoot, { ...narrowBoot })).toEqual({ action: "noop" });
+  });
+
+  it("E17: baseline null → no-op", () => {
+    expect(decideReassert(null, NARROW)).toEqual({ action: "noop" });
+  });
+
+  it("E18: registry empty + live ≠ baseline → re-assert and fail naming the last owner", () => {
+    const d = decidePreRead({
+      registryActive: false,
+      baseline: WIDE,
+      live: NARROW,
+      lastReleasedOwner: "lan-knock.spec.ts",
+    });
+    expect(d.action).toBe("reassert-and-fail");
+    expect(d.message).toContain("lan-knock.spec.ts");
+    expect(d.message).toContain("trustedNetworks");
+  });
+
+  it("E18: an active narrowing, equal reads, or a null baseline → no check", () => {
+    expect(decidePreRead({ registryActive: true, baseline: WIDE, live: NARROW }).action).toBe("none");
+    expect(decidePreRead({ registryActive: false, baseline: WIDE, live: FULL_TRUST() }).action).toBe("none");
+    expect(decidePreRead({ registryActive: false, baseline: null, live: NARROW }).action).toBe("none");
+  });
+
+  it("X11: a rejected operator credential latches with the status and error", () => {
+    const file = { baseline: WIDE, credential: true, credentialFreeAdmitted: true };
+    const d = decideWorkerStart(file, { status: 401, error: "unauthorized" });
+    expect(d).toEqual({ action: "latch", message: "operator credential rejected: 401 unauthorized" });
+  });
+
+  it("worker start re-asserts a narrowed harness and no-ops a healthy or unreadable one", () => {
+    const file = { baseline: WIDE, credential: true, credentialFreeAdmitted: true };
+    expect(decideWorkerStart(file, { status: 200, data: NARROW })).toEqual({ action: "reassert", baseline: WIDE });
+    expect(decideWorkerStart(file, { status: 200, data: FULL_TRUST() })).toEqual({ action: "noop" });
+    expect(decideWorkerStart({ ...file, baseline: null }, { status: 403 })).toEqual({ action: "noop" });
+  });
+});
+
+describe("refusal latch is sticky and coexists with liveness (X5-X7, X9)", () => {
+  it("X5: probe fails twice then succeeds → not latched (regression)", () => {
+    const latch = createLatch();
+    decideGate(latch, false);
+    decideGate(latch, false);
+    expect(decideGate(latch, true).action).toBe("run");
+    expect(latch.armed).toBe(false);
+  });
+
+  it("X6: three consecutive probe failures latch once, the rest skip (regression)", () => {
+    const latch = createLatch();
+    expect(decideGate(latch, false).action).toBe("run");
+    expect(decideGate(latch, false).action).toBe("run");
+    expect(decideGate(latch, false).action).toBe("fail");
+    expect(decideGate(latch, false).action).toBe("skip");
+  });
+
+  it("X7: a 401 at pre-snapshot fails naming 401 and touches neither latch nor liveness counter", () => {
+    const latch = createLatch();
+    decideGate(latch, false);
+    const before = latch.consecutiveFailures;
+    const d = decidePreSnapshotError({ name: "OffBoxError", status: 401, message: "ticket mint denied: 401" }, ARMED);
+    expect(d.action).toBe("fail-no-latch");
+    expect(d.message).toContain("401");
+    expect(latch.refused).toBe(false);
+    expect(latch.consecutiveFailures).toBe(before);
+  });
+
+  it("X7: an error without status keeps today's warn-and-continue", () => {
+    expect(decidePreSnapshotError(new Error("boom"), ARMED).action).toBe("warn-continue");
+    expect(decidePreSnapshotError("string", ARMED).action).toBe("warn-continue");
+  });
+
+  it("X9: after a refusal latch the retry (probe ok) is skipped and the latch stays armed", () => {
+    const latch = createLatch();
+    const d = decidePreSnapshotError({ status: 403, error: "network_not_allowed", message: "m" }, ARMED);
+    expect(d.action).toBe("latch");
+    latch.refuse(d.message);
+    const retry = decideGate(latch, true);
+    expect(retry).toEqual({ action: "skip", message: HARNESS_UNUSABLE_MESSAGE });
+    expect(latch.refused).toBe(true);
+    expect(decideGate(latch, true).action).toBe("skip");
+  });
+});
+
+describe("globalSetup baseline recording (X12, X13)", () => {
+  const fakeClock = () => {
+    let t = 0;
+    return { now: () => t, sleep: async (ms) => void (t += ms) };
+  };
+
+  it("X12: transport failures are retried and a later 200 records admitted=true", async () => {
+    let calls = 0;
+    const clock = fakeClock();
+    const admitted = await recordCredentialFreeAdmission({
+      mint: async () => {
+        calls += 1;
+        if (calls <= 2) throw new Error("connect ECONNREFUSED");
+        return { status: 200 };
+      },
+      budgetMs: 10_000,
+      ...clock,
+    });
+    expect(admitted).toBe(true);
+    expect(calls).toBe(3);
+  });
+
+  it("X12: a refusal is a real answer → false; transport that never answers throws, never false", async () => {
+    const clock = fakeClock();
+    expect(await recordCredentialFreeAdmission({ mint: async () => ({ status: 403 }), budgetMs: 1000, ...clock })).toBe(false);
+    await expect(
+      recordCredentialFreeAdmission({
+        mint: async () => {
+          throw new Error("ETIMEDOUT");
+        },
+        budgetMs: 2000,
+        ...clock,
+      }),
+    ).rejects.toThrow(/ETIMEDOUT/);
+  });
+
+  it("X13: no credential and a refused credential-free read → baseline null, nothing armed", () => {
+    const file = recordBaseline({ credential: false, credentialFreeAdmitted: false, config: null });
+    expect(file).toEqual({ baseline: null, credential: false, credentialFreeAdmitted: false });
+    expect(decideWorkerStart(file, { status: 403 })).toEqual({ action: "noop" });
+    expect(decidePreRead({ registryActive: false, baseline: file.baseline, live: {} }).action).toBe("none");
+    expect(decideRefusal({ status: 403, error: "network_not_allowed", ...ARMED, credentialFreeAdmitted: file.credentialFreeAdmitted }).action).toBe("warn-continue");
+  });
+
+  it("records the trust subset when a read path exists", () => {
+    const file = recordBaseline({ credential: true, credentialFreeAdmitted: true, config: { ...FULL_TRUST(), preferences: { x: 1 } } });
+    expect(file.baseline).toEqual(FULL_TRUST());
+  });
+});
+
+describe("narrowTrust restore payload (D3 L1)", () => {
+  it("narrowedKeys covers patch keys and declared touches, never the derived key", () => {
+    expect(
+      narrowedKeys({ trustedNetworks: [], auth: { bypassUrls: ["/v1/"] }, resolvedTrustedNetworks: [] }, ["allowedHosts"]),
+    ).toEqual(["trustedNetworks", "auth.bypassUrls", "allowedHosts"]);
+    expect(narrowedKeys({}, ["hostGate.mode", "resolvedTrustedNetworks"])).toEqual(["hostGate.mode"]);
+  });
+
+  it("buildRestorePayload writes only the narrowed keys, merging bypass keys onto the live auth", () => {
+    const payload = buildRestorePayload(
+      ["trustedNetworks", "auth.bypassUrls"],
+      FULL_TRUST(),
+      { secret: "***", providers: { github: {} }, bypassUrls: ["/v1/"], bypassHosts: ["x"] },
+    );
+    expect(payload).toEqual({
+      trustedNetworks: ["0.0.0.0/0"],
+      auth: { secret: "***", providers: { github: {} }, bypassUrls: ["/"], bypassHosts: ["x"] },
+    });
+  });
+
+  it("an absent list in the snapshot restores to [] and host-gate mode restores as {mode}", () => {
+    expect(buildRestorePayload(["allowedHosts", "hostGate.mode"], { hostGate: { mode: "report" } })).toEqual({
+      allowedHosts: [],
+      hostGate: { mode: "report" },
+    });
   });
 });

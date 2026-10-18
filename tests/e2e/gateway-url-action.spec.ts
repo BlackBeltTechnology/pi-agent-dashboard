@@ -1,4 +1,4 @@
-import { type APIRequestContext, expect, test } from "./fixtures.js";
+import { type APIRequestContext, expect, narrowTrust, test } from "./fixtures.js";
 import { gotoDashboard } from "./helpers/index.js";
 
 /**
@@ -19,8 +19,13 @@ import { gotoDashboard } from "./helpers/index.js";
  * This spec writes `cors.allowedOrigins`, `trustedNetworks` and `gateways` on
  * the SHARED harness. Every mutation is undone in a `try`/`finally`-equivalent
  * `afterAll` that restores the captured original values; a throw mid-test must
- * not leak a widened CORS list or a trusted network into later specs. The spec
- * never seeds an OAuth provider, so it cannot auth-gate the harness.
+ * not leak a widened CORS list into later specs. `trustedNetworks` is changed
+ * through the UI's Save, so it is declared per test with
+ * `narrowTrust(request, {}, { touches: ["trustedNetworks"] })`: the reap fixture
+ * restores it after the test (timeout and failure included) and its tripwire
+ * names this spec if anything else leaks. The spec never seeds an OAuth
+ * provider, so it cannot auth-gate the harness.
+ * See change: triage-browser-e2e-offbox-poison.
  */
 
 const GATEWAY = "https://pi-e2e-gateway.example.com";
@@ -47,14 +52,18 @@ test.describe.serial("gateway URL action", () => {
     original = await readConfig(request);
   });
 
+  test.beforeEach(async ({ request }) => {
+    await narrowTrust(request, {}, { touches: ["trustedNetworks"] });
+  });
+
   test.afterAll(async ({ request }) => {
-    // Restore EXACTLY what was there, whatever happened above.
+    // Restore EXACTLY what was there, whatever happened above (trustedNetworks is
+    // restored per test by narrowTrust).
     await request
       .put("/api/config", {
         data: {
           publicBaseUrls: original.publicBaseUrls ?? [],
           cors: { allowedOrigins: original.cors?.allowedOrigins ?? [] },
-          trustedNetworks: original.trustedNetworks ?? [],
           gateways: original.gateways ?? [],
         },
       })
