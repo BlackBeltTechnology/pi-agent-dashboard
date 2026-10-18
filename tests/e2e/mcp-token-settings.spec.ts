@@ -12,7 +12,7 @@
  */
 
 import { COOKIE_NAME, signToken } from "../../packages/server/src/auth/auth.js";
-import { expect, test } from "./fixtures.js";
+import { expect, narrowTrust, test } from "./fixtures.js";
 import { gotoDashboard } from "./helpers/index.js";
 import { BASE_URL } from "./lifecycle.js";
 
@@ -31,55 +31,22 @@ const E2E_AUTH_SECRET = "e2e-auth-secret-32-chars-longxxxx";
 const SESSION_USER = { sub: "e2e@example.com", name: "e2e operator", username: "e2e", provider: "github" };
 
 let sessionToken = "";
-/** SNAPSHOT of the harness config taken BEFORE the first mutation; afterAll
- * restores exactly what was captured (a reused, differently-seeded harness
- * must never be left with our narrowed trust-any values). */
-let preTestConfig: { trustedNetworks?: unknown; auth?: Record<string, unknown> } | null = null;
 
 function authedHeaders() {
   return { cookie: `${COOKIE_NAME}=${sessionToken}` };
-}
-
-async function readConfig(request: import("@playwright/test").APIRequestContext) {
-  return (await (await request.get("/api/config", { headers: authedHeaders() })).json()) as {
-    data?: { trustedNetworks?: unknown; auth?: Record<string, unknown> };
-  };
 }
 
 /**
  * Narrow the harness's trust-any seed so the auth hook actually runs the
  * cookie branch for the browser (`bypassHosts` from trust-any trustedNetworks
  * otherwise returns BEFORE the cookie validation, so `authVia` never lands).
- * Snapshots the harness config BEFORE the first mutation and restores it
- * verbatim in afterAll. Safe against racing: `workers: 1`.
+ * Test scope: `narrowTrust` snapshots here and the reap fixture restores right
+ * after each test, on failure and timeout too (#832).
+ * See change: triage-browser-e2e-offbox-poison.
  */
 async function armOperatorSession(request: import("@playwright/test").APIRequestContext): Promise<void> {
   sessionToken = signToken(SESSION_USER, E2E_AUTH_SECRET);
-  const cur = await readConfig(request);
-  preTestConfig = {
-    trustedNetworks: cur.data?.trustedNetworks,
-    auth: cur.data?.auth,
-  };
-  await request.put("/api/config", {
-    headers: authedHeaders(),
-    data: {
-      trustedNetworks: [],
-      auth: { ...(cur.data?.auth ?? {}), bypassUrls: ["/v1/"] },
-    },
-  });
-}
-
-async function restoreOperatorSession(request: import("@playwright/test").APIRequestContext): Promise<void> {
-  if (!preTestConfig) return;
-  const cur = await readConfig(request);
-  await request.put("/api/config", {
-    headers: authedHeaders(),
-    data: {
-      trustedNetworks: preTestConfig.trustedNetworks,
-      auth: { ...(cur.data?.auth ?? {}), bypassUrls: preTestConfig.auth?.bypassUrls ?? ["/"] },
-    },
-  });
-  preTestConfig = null;
+  await narrowTrust(request, { trustedNetworks: [], auth: { bypassUrls: ["/v1/"] } });
 }
 
 const SECTION_TITLE = "Paired Devices";
@@ -125,9 +92,6 @@ test.describe("MCP client token — Settings flow", () => {
     await context.addCookies([{ name: COOKIE_NAME, value: sessionToken, url: BASE_URL }]);
   });
 
-  test.afterAll(async ({ request }) => {
-    await restoreOperatorSession(request);
-  });
   test("F1 — create flow shows a copy-ready snippet whose host matches the page origin", async ({
     page,
   }) => {

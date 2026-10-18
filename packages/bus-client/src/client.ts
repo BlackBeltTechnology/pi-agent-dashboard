@@ -14,22 +14,21 @@
  * See OpenSpec change: add-dashboard-bus-client-scripting.
  */
 import crypto from "node:crypto";
-import { WebSocket as NodeWebSocket } from "ws";
 import type {
   BrowserToServerMessage,
-  ServerToBrowserMessage,
-  SessionsSnapshotMessage,
-  SessionAddedMessage,
-  SessionUpdatedMessage,
-  SessionRemovedMessage,
   ResumeResultBrowserMessage,
+  ServerToBrowserMessage,
+  SessionAddedMessage,
+  SessionRemovedMessage,
+  SessionsSnapshotMessage,
+  SessionUpdatedMessage,
   SpawnResultBrowserMessage,
 } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type {
   DashboardSession,
   SessionStatus,
 } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { discoverHost, discoverPort } from "./port-discovery.js";
+import { WebSocket as NodeWebSocket } from "ws";
 import {
   BusTimeoutError,
   NoPluginHandlerError,
@@ -37,6 +36,7 @@ import {
   TicketConsumedError,
   TicketExpiredError,
 } from "./errors.js";
+import { discoverHost, discoverPort } from "./port-discovery.js";
 import { isTicketExpired, TICKET_TTL_MS, type Ticket, type WsTicketScope } from "./ticket.js";
 
 /** PluginIds with a working server-side `plugin_action` handler as-built.
@@ -45,6 +45,30 @@ import { isTicketExpired, TICKET_TTL_MS, type Ticket, type WsTicketScope } from 
 export const KNOWN_PLUGIN_HANDLERS: readonly string[] = ["goal", "flows", "kb", "automation"] as const;
 
 const DEFAULT_WAIT_TIMEOUT_MS = 30_000;
+
+/**
+ * Build the `OffBoxError` for a 401/403 mint denial. The body is read as text
+ * and parsed inside a try: a proxy/gateway page (non-JSON) must never replace
+ * the denial with a parse failure. Only `error` and `reason` are surfaced —
+ * never `hint` or any other field (it may name hosts or tokens).
+ */
+async function denialError(res: Response): Promise<OffBoxError> {
+  let error: string | undefined;
+  let reason: string | undefined;
+  try {
+    const parsed: unknown = JSON.parse(await res.text());
+    if (parsed && typeof parsed === "object") {
+      const body = parsed as { error?: unknown; reason?: unknown };
+      if (typeof body.error === "string" && body.error) error = body.error;
+      if (typeof body.reason === "string" && body.reason) reason = body.reason;
+    }
+  } catch {
+    // Non-JSON / unreadable body → status-only error.
+  }
+  const detail = [error, reason && (error ? `— ${reason}` : reason)].filter(Boolean).join(" ");
+  const message = `ticket mint denied: ${res.status}${detail ? ` ${detail}` : ""}`;
+  return new OffBoxError(message, { status: res.status, error });
+}
 
 type AnyWebSocket = Pick<
   NodeWebSocket,
@@ -130,15 +154,16 @@ export class BusClient {
       );
     }
     if (res.status === 401 || res.status === 403) {
-      throw new OffBoxError();
+      throw await denialError(res);
     }
     const json = (await res.json()) as {
       success: boolean;
       data?: { ticket: string };
       error?: string;
+      reason?: string;
     };
     if (!json.success || !json.data?.ticket) {
-      throw new OffBoxError(`ws-ticket mint rejected: ${json.error ?? "unknown"}`);
+      throw new OffBoxError(`ws-ticket mint rejected: ${json.reason ?? json.error ?? "unknown"}`);
     }
     return { value: json.data.ticket, mintedAt: this.#clock(), ttlMs: TICKET_TTL_MS, scope };
   }

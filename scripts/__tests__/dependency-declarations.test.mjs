@@ -10,10 +10,11 @@
  * (test-plan E19–E26, P1).
  */
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { rangeIsSatisfiable, selectHostPeerRange, selectRange } from '../verify-published-imports.mjs';
+import { listWorkspaces, rangeIsSatisfiable, rootPackage, selectHostPeerRange, selectRange } from '../verify-published-imports.mjs';
 import { checkForbiddenPiPackages, checkPiRangeShapes, collectFailures, FORBIDDEN_PI_PACKAGES, piManifests } from '../verify-release-deps.mjs';
 
 const REPO_ROOT = resolve(import.meta.dirname, '..', '..');
@@ -357,15 +358,67 @@ describe.runIf(CI_SCENARIOS)('publish dry-run covers exactly the non-private set
 
 // This is the suite's single full-repository invocation of the checker: it
 // proves the budget AND the zero-findings exit code in one run. Duplicating it
-// elsewhere spawns `npm pack` across 32 workspaces twice, whose CPU spike
+// elsewhere spawns `npm pack` across every workspace twice, whose CPU spike
 // starves unrelated 5s-timeout tests running in parallel.
 //
-// The budget is per-repository wall-clock, so it tracks workspace COUNT: the
-// original 60 s was set at 32 workspaces and CI measured 72.9 s once the count
-// reached 37. Raised to 120 s — still a real ceiling (a 2x regression from the
-// current ~73 s trips it), not an unbounded allowance.
-describe.runIf(CI_SCENARIOS)('publish-correctness checker runtime budget (P1)', () => {
-  it('completes across all non-private workspaces in under 120 seconds', () => {
+// ONE budget, stated in openspec/specs/publish-correctness-verification/spec.md
+// and asserted here, scaled by the number of workspaces the checker walks:
+//
+//     budget_seconds = 30 + 3 * N,  N = listWorkspaces().length + (rootPackage() ? 1 : 0)
+//
+// Measured points (non-private `packages/*` workspaces): 72.9 s at 37 (the
+// original flat-120 s note) and 122.2 s at 56 (CI nightly run 38504381607, job
+// 115658811634). Slope (122.2 - 72.9) / (56 - 37) = 2.595 s per workspace,
+// rounded UP to 3. The 30 s base is a CHOSEN shared-runner contention
+// allowance, not a fit (a line through the two points has intercept ~ -23 s).
+// At today's N = 57 (56 workspaces + the non-private root) the budget is 201 s,
+// 1.64x the measured 122.2 s: a contended run passes, a 2x regression trips.
+// N is imported from the checker itself (verify-published-imports.mjs:672), so a
+// new workspace moves the ceiling by 3 s instead of breaching it.
+// See change: triage-browser-e2e-offbox-poison (design D5).
+export const budgetSeconds = (n) => 30 + 3 * n;
+export const withinBudget = (measuredSeconds, n) => measuredSeconds <= budgetSeconds(n);
+/** The failure message names the measurement, the budget and the N it came from. */
+export const budgetMessage = (measuredSeconds, n) =>
+  `measured ${Number(measuredSeconds.toFixed(3))}s vs budget ${budgetSeconds(n)}s (${n} workspaces)`;
+const budgetedWorkspaceCount = (root = REPO_ROOT) => listWorkspaces(root).length + (rootPackage(root) ? 1 : 0);
+
+describe('publish-correctness budget formula (E26-E28)', () => {
+  it.each([
+    [0, 30],
+    [1, 33],
+    [57, 201],
+    [58, 204],
+  ])('E26 budgetSeconds(%i) = %i', (n, expected) => {
+    expect(budgetSeconds(n)).toBe(expected);
+  });
+
+  it('E27 the boundary is inclusive and a breach names measured, budget and N', () => {
+    expect(withinBudget(201 - 0.001, 57)).toBe(true);
+    expect(withinBudget(201, 57)).toBe(true);
+    expect(withinBudget(201 + 0.001, 57)).toBe(false);
+    expect(budgetMessage(201.001, 57)).toBe('measured 201.001s vs budget 201s (57 workspaces)');
+  });
+
+  it("E28 N is the checker's own enumeration: non-private workspaces plus a non-private root", () => {
+    const root = mkdtempSync(join(tmpdir(), 'pi-budget-n-'));
+    const write = (dir, manifest) => {
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, 'package.json'), JSON.stringify(manifest));
+    };
+    write(join(root, 'packages', 'a'), { name: 'a' });
+    write(join(root, 'packages', 'b'), { name: 'b' });
+    write(join(root, 'packages', 'internal'), { name: 'internal', private: true });
+    writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'root' }));
+    expect(budgetedWorkspaceCount(root)).toBe(3);
+    writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'root', private: true }));
+    expect(budgetedWorkspaceCount(root)).toBe(2);
+  });
+});
+
+describe.runIf(CI_SCENARIOS)('publish-correctness checker runtime budget (P1, P2)', () => {
+  it('completes across all non-private workspaces within 30 + 3 * N seconds', () => {
+    const n = budgetedWorkspaceCount();
     const started = Date.now();
     execFileSync('node', [join(REPO_ROOT, 'scripts', 'verify-published-imports.mjs')], {
       cwd: REPO_ROOT,
@@ -373,8 +426,8 @@ describe.runIf(CI_SCENARIOS)('publish-correctness checker runtime budget (P1)', 
       maxBuffer: 64 * 1024 * 1024,
     });
     const elapsed = (Date.now() - started) / 1000;
-    expect(elapsed, `checker took ${elapsed.toFixed(1)}s`).toBeLessThan(120);
-  }, 180_000);
+    expect(withinBudget(elapsed, n), budgetMessage(elapsed, n)).toBe(true);
+  }, 400_000);
 });
 
 /* ------------------------------------------------------------------

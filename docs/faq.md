@@ -4067,3 +4067,70 @@ Cross-refs:
 - packages/server/src/cli.ts → `cmdPair`, `cmdOpen`, `validateOpenUrl`
 - packages/shared/src/launcher-origin.ts → `isLauncherOrigin`
 - packages/server/src/auth/local-token.ts → `readLocalTokenIfPresent`
+
+## Browser E2E baseline: #683 quarantine owners + trust isolation
+
+Quarantine = `test.fixme(true, ".../issues/683")` call sites in `tests/e2e`. Count drifts. Re-derive, never freeze:
+
+```bash
+grep -rc 'issues/683' tests/e2e --include=*.ts | awk -F: '{s+=$2} END {print s}'   # sites
+grep -rl 'issues/683' tests/e2e | wc -l                                              # files
+```
+
+- Time of writing: 101 sites / 44 files. Issue text (~33) stale.
+- Re-run both commands before quoting a count.
+
+### Cluster → owner
+
+Follow-up change names. None exist yet. Create via `openspec change new <name>`.
+
+| Cluster | Members | Owner change |
+|---|---|---|
+| openspec-init affordances | `openspec-init-affordances-folder`, `openspec-init-affordances-session-card`, `openspec-board-drop`, `openspec-board-worktree-availability` | `fix-e2e-openspec-init-affordances` |
+| subagent | `subagent-tick-throttle`, `subagent-pull-measurements`, `subagent-thin-tick-liveness`, `subagent-pull-under-load`, `subagent-inspector`, `subagent-fanout-admission`, `subagent-detail-dialog`, `subagent-fanout-measurement` | `fix-e2e-subagent-cluster` (related #679) |
+| chat scroll / virtualization | `selection-anchor`, `chat-transcript-virtualization`, `scroll-to-top`, `replay-in-flight-pill` | `fix-e2e-chat-geometry` |
+| queue / image / prompt lifecycle | `followup-image-queue`, `optimistic-prompt`, `pending-prompt-recovery`, `package-queue-visible` | `fix-e2e-prompt-queue` |
+| restart / boot / session lifecycle | `ended-session-endedat`, `status-reconcile`, `durable-session-diff`, `faux-ask`, `keeper-restart-survival`, `tmux-session-shutdown`, `spawn-correlation-recovery` | `fix-e2e-restart-cluster` (CANDIDATE: shares #832 root cause, restart axis) |
+| trust / token surfaces | `mcp-session-token`, `origin-gate` | CANDIDATE: re-check after #832 verdict |
+| misc UI | `folder-actions-menu`, `editor-pane`, `folder-membership-drag`, `terminal`, `inline-terminal-transcript`, `inline-screenshot`, `history-backfill-gap`, `flow-roundtrip`, `flow-live-no-double-render`, `anthropic-bridge-activation`, `automation-fanout`, `acp-automation`, `pi-runtime-picker`, `settings-default-model-catalogue`, `tool-created-files` | `fix-e2e-misc-reds` |
+
+### Unquarantine rule
+
+- Scope: CANDIDATE clusters only (restart; trust/token). Other clusters: owner change only.
+- Unquarantine only when BOTH:
+  - (a) original #683 failure log shows refusal signature: `OffBoxError`, `network_not_allowed`, `host_not_allowed`. Not geometry, assertion, or timing.
+  - (b) passes ≥3 consecutive dispatched runs after the fix.
+
+### Trust isolation (spec authors)
+
+- Change `trustedNetworks`, `auth.bypassHosts`, `auth.bypassUrls`, `allowedHosts`, `hostGate.mode`, `requireLocalProof` ONLY via `narrowTrust(request, patch, {touches?})` from `tests/e2e/fixtures.ts`.
+- Lint: `node scripts/check-e2e-fixture-import.mjs` (also `npm run lint:e2e`).
+- Scope `test` (call in test / `beforeEach`): restored by reap fixture after body, also on failure/timeout.
+- Scope `describe` (call in `beforeAll`): released when next spec file's first test starts.
+- UI-driven change: `narrowTrust(request, {}, { touches: ["allowedHosts"] })`.
+- Needs operator credential = harness auth configured (`PI_E2E_OAUTH=1`, managed default). No credential → call fails.
+- No credential: run spec on dedicated narrow-booted harness (`PI_E2E_TRUSTED_NETWORKS=127.0.0.1/32`). See `tests/e2e/network-guard.spec.ts`.
+
+### Harness guards
+
+- Worker start re-asserts boot baseline from `test-results/.trust-baseline.json`.
+- Tripwire: fails owning test on undeclared leak, then heals.
+- Refusal latch: unexpected 403 `network_not_allowed` / `host_not_allowed` at reap pre-snapshot → run declared unusable, rest skipped.
+- Latch persisted: `test-results/.harness-refused.json`.
+- Latch disarmed on narrow-booted harness or while `narrowTrust` active.
+- Deliberate-poisoning faults: `PW_E2E_HARNESS_FAULTS=1 npx playwright test tests/e2e/harness-isolation-faults.spec.ts` on FRESH harness only. Reused poisoned harness records poison as baseline.
+
+### Bus client denial
+
+- `OffBoxError` carries `.status` + `.error`.
+- Message: `ticket mint denied: <status> <error> — <reason>`.
+- Source: `packages/bus-client/src/errors.ts` (`OffBoxError`), `packages/bus-client/src/client.ts`.
+
+Cross-refs:
+- tests/e2e/fixtures.ts → `narrowTrust`
+- scripts/check-e2e-fixture-import.mjs
+- tests/e2e/network-guard.spec.ts
+- tests/e2e/harness-isolation-faults.spec.ts
+- openspec/changes/triage-browser-e2e-offbox-poison/
+
+See change: triage-browser-e2e-offbox-poison.

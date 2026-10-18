@@ -80,6 +80,8 @@ Only an *unexpected* refusal is a verdict. The refusal check SHALL be disarmed �
 
 Once the harness is declared unusable — dead or refusing — the current test SHALL fail with an unmistakable message naming the harness rather than the test's subject, and every subsequent test in the run SHALL be skipped rather than executed against it. A refusal declaration's message SHALL carry the status and the refusal reason the harness reported, so the run names its own cause without log mining. For a harness-down declaration the probe SHALL run before the declaration is consulted, so that a retried test re-probes rather than reporting as skipped. A refusal declaration is sticky for the rest of the run: it is not re-evaluated by a later probe or connection, so a retry of the test that observed the refusal, and every later test, SHALL be reported as skipped.
 
+The harness-down message SHALL additionally state the cause when the harness's lifecycle-event record establishes one. In managed mode the suite knows the harness workspace and SHALL read the events file and the container ID (`containerId`) named in its state file; "this run's harness container" means exactly that container ID, and every match below SHALL be by container ID, never by project name alone (the events file is appended across boots of the same project). When the file holds a `destroy` event for that container ID that is not preceded by a teardown marker carrying the same container ID, the message SHALL say the container was destroyed by a foreign actor, quote the matching event line with its timestamp and acting project, and point to the events file. When no such record exists, the message SHALL say the cause is undetermined rather than asserting one. In attach mode (`PW_E2E_USE_RUNNING=1`) the suite does not own the harness workspace; the message SHALL report the cause as undetermined and SHALL point to the per-project events directory (`${TMPDIR:-/tmp}/pi-dash-test/`) where the booting workspace's recorder writes.
+
 #### Scenario: Daemon death stops the run instead of cascading
 
 - **WHEN** the dashboard daemon dies partway through a run
@@ -144,6 +146,28 @@ Once the harness is declared unusable — dead or refusing — the current test 
 - **WHEN** the suite's client cannot reach the harness at all (connection refused, DNS failure, timeout)
 - **THEN** the suite SHALL NOT declare a policy refusal
 - **AND** the liveness probe and its 3-strike counter SHALL remain the only path to a harness-down declaration
+
+#### Scenario: A foreign destroy is named, not guessed
+
+- **GIVEN** a managed run whose events file contains a `destroy` for this run's harness container ID with no preceding teardown marker carrying that container ID
+- **AND** the file may contain teardown markers from earlier boots of the same project, carrying other container IDs
+- **WHEN** the harness is declared down
+- **THEN** the harness-down message SHALL state that the container was destroyed by a foreign actor
+- **AND** it SHALL quote the event line (timestamp and acting project) and name the file holding the full record
+
+#### Scenario: Attach mode does not guess
+
+- **GIVEN** a run with `PW_E2E_USE_RUNNING=1`
+- **WHEN** the harness is declared down
+- **THEN** the message SHALL report the cause as undetermined
+- **AND** it SHALL name where the booting workspace keeps the events file
+
+#### Scenario: Cause unknown is reported as unknown
+
+- **GIVEN** a run whose lifecycle-event record contains no destroy event for its container
+- **WHEN** the harness is declared down
+- **THEN** the message SHALL report the harness as down with the cause undetermined
+- **AND** it SHALL NOT attribute the death to a foreign actor
 
 ## ADDED Requirements
 

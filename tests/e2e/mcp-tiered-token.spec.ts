@@ -12,8 +12,10 @@
  */
 
 import { COOKIE_NAME, signToken } from "../../packages/server/src/auth/auth.js";
-import { expect, test } from "./fixtures.js";
+import { expect, narrowTrust, test } from "./fixtures.js";
+import { readBaselineFile, readConfig } from "./helpers/trust-access.js";
 import { BASE_URL } from "./lifecycle.js";
+import { compareTrust, pickTrust } from "./reap-core.js";
 
 const E2E_AUTH_SECRET = "e2e-auth-secret-32-chars-longxxxx";
 const SESSION_USER = { sub: "e2e@example.com", name: "e2e operator", username: "e2e", provider: "github" };
@@ -21,43 +23,18 @@ const MCP_VERSION = "2026-07-28";
 const META = { "io.modelcontextprotocol/protocolVersion": MCP_VERSION };
 
 let sessionToken = "";
-let preTestConfig: { trustedNetworks?: unknown; auth?: Record<string, unknown> } | null = null;
 
 const authedHeaders = () => ({ cookie: `${COOKIE_NAME}=${sessionToken}` });
 
+/**
+ * Narrow the harness trust seed so the auth hook runs the cookie branch.
+ * Test scope: `narrowTrust` snapshots here and the reap fixture restores right
+ * after the test — on failure and timeout too, where an `afterAll` never ran
+ * (#832). See change: triage-browser-e2e-offbox-poison.
+ */
 async function armOperatorSession(request: import("@playwright/test").APIRequestContext): Promise<void> {
   sessionToken = signToken(SESSION_USER, E2E_AUTH_SECRET);
-  // Capture the ORIGINAL snapshot ONCE: `beforeEach` runs per test, and a
-  // second call would otherwise snapshot the already-narrowed config.
-  if (!preTestConfig) {
-    const cur = (await (await request.get("/api/config", { headers: authedHeaders() })).json()).data as {
-      trustedNetworks?: unknown;
-      auth?: Record<string, unknown>;
-    };
-    preTestConfig = { trustedNetworks: cur?.trustedNetworks, auth: cur?.auth };
-  }
-  await request.put("/api/config", {
-    headers: authedHeaders(),
-    data: {
-      trustedNetworks: [],
-      auth: { ...((await (await request.get("/api/config", { headers: authedHeaders() })).json()).data?.auth ?? {}), bypassUrls: ["/v1/"] },
-    },
-  });
-}
-
-async function restoreOperatorSession(request: import("@playwright/test").APIRequestContext): Promise<void> {
-  if (!preTestConfig) return;
-  const cur = (await (await request.get("/api/config", { headers: authedHeaders() })).json()).data as {
-    auth?: Record<string, unknown>;
-  };
-  await request.put("/api/config", {
-    headers: authedHeaders(),
-    data: {
-      trustedNetworks: preTestConfig.trustedNetworks,
-      auth: { ...(cur?.auth ?? {}), bypassUrls: preTestConfig.auth?.bypassUrls ?? ["/"] },
-    },
-  });
-  preTestConfig = null;
+  await narrowTrust(request, { trustedNetworks: [], auth: { bypassUrls: ["/v1/"] } });
 }
 
 async function mint(
@@ -96,13 +73,30 @@ const rpc = (method: string, params: Record<string, unknown> = {}) => ({
 });
 
 test.describe("tiered MCP tokens", () => {
+  // F4/F2 — runs BEFORE this spec narrows: whatever ran before (a describe-scope
+  // group such as lan-knock, or this spec's own previous test) must have left the
+  // harness exactly at its boot baseline. Test-scope narrowing is restored by the
+  // reap fixture straight after each test; describe scope when this file's first
+  // test starts.
+  test.beforeEach(async () => {
+    const file = readBaselineFile();
+    test.skip(!file?.baseline, "no boot trust baseline recorded (no readable config path)");
+    const read = await readConfig(file?.credential ?? false);
+    expect(read.status).toBe(200);
+    expect(compareTrust(file?.baseline ?? undefined, pickTrust(read.data)).message).toBe("");
+  });
+
   test.beforeEach(async ({ request, context }) => {
     await armOperatorSession(request);
     await context.addCookies([{ name: COOKIE_NAME, value: sessionToken, url: BASE_URL }]);
   });
 
-  test.afterAll(async ({ request }) => {
-    await restoreOperatorSession(request);
+  test("F8 — while narrowed, the operator read works and the credential-free read is refused", async () => {
+    const operator = await readConfig(true);
+    expect(operator.status, "operator config read must be admitted while narrowed").toBe(200);
+    expect(operator.data?.trustedNetworks).toEqual([]);
+    const anonymous = await readConfig(false);
+    expect([401, 403]).toContain(anonymous.status);
   });
 
   test("F6 — an observe token cannot see or call send_prompt", async ({ request }) => {

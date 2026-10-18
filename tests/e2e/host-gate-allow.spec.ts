@@ -14,9 +14,12 @@
  *
  * HARNESS SAFETY (read before editing)
  * ------------------------------------
- * F9 writes `allowedHosts` on the SHARED harness. The original value is
- * captured in `beforeAll` and restored in `afterAll` whatever happens above, so
- * a throw mid-test cannot leak an admitted hostname into later specs. Nothing
+ * F9 writes `allowedHosts` on the SHARED harness through the UI's Save. It
+ * declares the key per test with `narrowTrust(request, {}, { touches:
+ * ["allowedHosts"] })`, so the reap fixture restores it after the test (timeout
+ * and failure included) and a throw mid-test cannot leak an admitted hostname
+ * into later specs. F3 removes the `hostGate` key from the file (a write a
+ * `PUT` cannot express) under the same `narrowTrust` declaration. Nothing
  * else is mutated: the mode control is never clicked (it would flip the gate to
  * `enforce` for every following spec).
  *
@@ -30,9 +33,11 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { type APIRequestContext, expect, type Page, test } from "./fixtures.js";
+import { type APIRequestContext, expect, narrowTrust, type Page, test } from "./fixtures.js";
 import { gotoDashboard } from "./helpers/index.js";
+import { readBaselineFile, readConfig as readTrustConfig } from "./helpers/trust-access.js";
 import { DASHBOARD_PORT, harnessProject, REPO_ROOT } from "./lifecycle.js";
+import { compareTrust, pickTrust } from "./reap-core.js";
 
 /** The name F9 admits. Not a real host — it only has to be non-admissible. */
 const ALLOW_HOST = "proxy-int.corp";
@@ -159,18 +164,11 @@ function axeSourcePath(): string {
 }
 
 test.describe.serial("host gate — Allow → Save → admitted", () => {
-  let original: ConfigSlice = {};
-
-  test.beforeAll(async ({ request }) => {
-    original = await readConfig(request);
-  });
-
-  test.afterAll(async ({ request }) => {
-    // Restore EXACTLY what was there. An admitted hostname left behind would
-    // silently change what every later spec's gate answers on.
-    await request
-      .put("/api/config", { data: { allowedHosts: original.allowedHosts ?? [] } })
-      .catch(() => {});
+  // An admitted hostname left behind would silently change what every later
+  // spec's gate answers on: `narrowTrust` snapshots it here and the reap fixture
+  // restores EXACTLY what was there after the test.
+  test.beforeEach(async ({ request }) => {
+    await narrowTrust(request, {}, { touches: ["allowedHosts"] });
   });
 
   // F9 — the whole operator loop, end to end, through the real file.
@@ -371,6 +369,19 @@ test.describe.serial("host gate — Allow → Save → admitted", () => {
   });
 });
 
+// F5 — a UI-saved `allowedHosts` declared with `touches` is restored by the reap
+// fixture: the next test (here, after F9) reads the boot baseline again.
+test.describe("host gate — F9's UI-saved allowedHosts does not outlive its test", () => {
+  test("F5: allowedHosts equals the boot baseline before this test runs", async () => {
+    const file = readBaselineFile();
+    test.skip(!file?.baseline, "no boot trust baseline recorded (no readable config path)");
+    const read = await readTrustConfig(file?.credential ?? false);
+    expect(read.status).toBe(200);
+    expect(compareTrust(file?.baseline ?? undefined, pickTrust(read.data)).message).toBe("");
+    expect((read.data?.allowedHosts as string[] | undefined) ?? []).not.toContain(ALLOW_HOST);
+  });
+});
+
 /**
  * F3 (harden-server-request-surfaces): the gate now defaults to `enforce`, so the
  * normal `localhost` path must still load end-to-end WITH a live WebSocket.
@@ -396,12 +407,15 @@ test.describe.serial("host gate — default enforce does not lock out localhost"
     page,
     request,
   }) => {
+    // Declare the key first: the snapshot restores the effective mode after the test.
+    await narrowTrust(request, {}, { touches: ["hostGate.mode"] });
     originalRaw = execFileSync(
       "docker",
       ["exec", harnessContainer(), "sh", "-c", `cat ${CONFIG_PATH}`],
       { encoding: "utf8", timeout: 30_000 },
     );
     const stripped = JSON.parse(originalRaw) as Record<string, unknown>;
+    // e2e-trust-write-ok(removing the key: PUT /api/config cannot express the absent-key default; declared via narrowTrust above)
     delete stripped.hostGate;
     execFileSync("docker", ["exec", "-i", harnessContainer(), "sh", "-c", `cat > ${CONFIG_PATH}`], {
       input: JSON.stringify(stripped),

@@ -27,9 +27,18 @@
  * Without `PW_E2E_GUARD_UNTRUSTED=1` the spec SKIPS with this reason, so the
  * shared default-harness run stays meaningful rather than silently green.
  *
+ * Harness-isolation facts pinned here, on the one harness where they can be
+ * observed (change: triage-browser-e2e-offbox-poison):
+ *   - this leg has no operator credential, so `narrowTrust` REFUSES to narrow
+ *     (E20) instead of locking the harness with no way back;
+ *   - the refusal latch is disarmed here — the boot baseline refuses the
+ *     credential-free client by design (`credentialFreeAdmitted:false`,
+ *     `baseline:null`), so no test below is skipped or failed by the gate (F6).
+ *
  * See change: add-universal-network-guard.
  */
-import { expect, test } from "./fixtures.js";
+import { expect, narrowTrust, test } from "./fixtures.js";
+import { readBaselineFile } from "./helpers/trust-access.js";
 import { BASE_URL } from "./lifecycle.js";
 
 const UNTRUSTED_HARNESS = process.env.PW_E2E_GUARD_UNTRUSTED === "1";
@@ -73,6 +82,30 @@ test.describe("universal network guard — shell loads, RCE route closed (S20)",
     // pass condition, so probe from loopback via the container-published port —
     // which is exactly the untrusted peer here, hence the expectation that this
     // read is ALSO denied: the buffer is for the operator, not for the prober.
+    const res = await request.get(`${BASE_URL}/api/tunnel/block-events`);
+    expect(res.status()).toBe(403);
+    expect((await res.json()).error).toBe("network_not_allowed");
+  });
+
+  test("E20: narrowTrust refuses on a harness with no operator credential and changes nothing", async ({
+    request,
+  }) => {
+    await expect(narrowTrust(request, { trustedNetworks: [] })).rejects.toThrow(
+      /harness has no operator credential.*dedicated leg/s,
+    );
+    const res = await request.get(`${BASE_URL}/api/tunnel/block-events`);
+    expect(res.status(), "a refused narrowTrust must not have touched the harness").toBe(403);
+  });
+
+  test("F6: a harness booted narrow records a disarmed baseline and is never widened by the fixtures", async ({
+    request,
+  }) => {
+    // Runs last: every earlier test executed (none latched, none skipped), and the
+    // worker-start re-assert did not widen the harness — a guarded endpoint still refuses.
+    const file = readBaselineFile();
+    expect(file, "globalSetup must have recorded .trust-baseline.json").toBeDefined();
+    expect(file?.credentialFreeAdmitted).toBe(false);
+    expect(file?.baseline).toBeNull();
     const res = await request.get(`${BASE_URL}/api/tunnel/block-events`);
     expect(res.status()).toBe(403);
     expect((await res.json()).error).toBe("network_not_allowed");
