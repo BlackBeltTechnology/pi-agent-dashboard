@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PiResource, PiResourcesResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
@@ -75,5 +75,25 @@ describe("pi-settings themes", () => {
     const res = await app.inject({ method: "GET", url: "/api/pi-settings" });
     expect(res.statusCode).toBe(200);
     expect(res.json().themes).toEqual(["dark", "light", "system"]);
+  });
+
+  it("the default scanner reads the configured agent dir (not ~/.pi/agent) and no project settings", async () => {
+    // No `scanThemes` seam: the real scanner runs against `agentDirEnv`.
+    const themesDir = join(dir, "themes");
+    mkdirSync(themesDir, { recursive: true });
+    writeFileSync(join(themesDir, "only-in-agent-dir.json"), '{"name":"only-in-agent-dir"}');
+    const real = Fastify();
+    registerPiSettingsRoutes(real, {
+      networkGuard: async () => {},
+      reloadConnectedSessions: () => 0,
+      readDashboardConfig: () => ({}),
+      fsDeps: { agentDirEnv: dir },
+    });
+    try {
+      const res = await real.inject({ method: "GET", url: "/api/pi-settings" });
+      expect(res.json().themes).toContain("only-in-agent-dir");
+    } finally {
+      await real.close();
+    }
   });
 });

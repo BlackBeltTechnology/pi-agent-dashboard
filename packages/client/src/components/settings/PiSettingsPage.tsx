@@ -558,7 +558,9 @@ export function PiSettingsPage({
       }
       setStatus(i18nT("piSettings.saved", { n: reloaded }, `Saved. Reloaded ${reloaded} connected session(s).`));
     } catch (e) {
-      if (e instanceof PiSettingsApiError && e.status === 409) setConflict(true);
+      // Only a stale token is "the file changed on disk"; a legacy-credential 409 (a credential
+      // appeared in Providers meanwhile) carries its own message, shown as an ordinary error.
+      if (e instanceof PiSettingsApiError && e.status === 409 && e.payload.error === "stale") setConflict(true);
       else if (e instanceof PiSettingsApiError && e.fieldErrors.length > 0) setFieldErrors(e.fieldErrors);
       else setError(errorMessage(e));
       throw e;

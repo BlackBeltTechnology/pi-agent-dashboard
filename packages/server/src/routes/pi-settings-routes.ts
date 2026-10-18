@@ -111,7 +111,13 @@ export function registerPiSettingsRoutes(
   const { networkGuard, reloadConnectedSessions, readDashboardConfig, fsDeps } = deps;
   const scanThemes: ScanThemes =
     deps.scanThemes ??
-    (() => scanPiResources(resolvePiAgentDir({ homedir: fsDeps?.home, agentDirEnv: fsDeps?.agentDirEnv })));
+    (() => {
+      // GLOBAL file only: the agent dir is BOTH the scan root (no project `.pi/settings.json`
+      // to pull local packages in) and `globalDir` (else the scanner defaults to `~/.pi/agent`
+      // and ignores `PI_CODING_AGENT_DIR`).
+      const globalDir = resolvePiAgentDir({ homedir: fsDeps?.home, agentDirEnv: fsDeps?.agentDirEnv });
+      return scanPiResources(globalDir, { globalDir });
+    });
 
   const logWrite = (route: string, outcome: string, reloaded?: number) => {
     console.log(`[pi-settings] ${route} ${outcome}${reloaded !== undefined ? ` reloaded=${reloaded}` : ""}`);

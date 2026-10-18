@@ -1945,7 +1945,7 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
                     )}
                     {piMirror && !piMirror.ok && (
                       <p className="mt-1 text-xs text-[var(--severity-warning-fg)]" data-testid="default-model-pi-mirror-warning">
-                        {i18nT("settings.piMirrorFailed", { error: piMirror.error ?? "error" }, `Saved, but pi's own default model could not be updated (${piMirror.error ?? "error"}). Use "Apply dashboard default to pi" in pi settings below.`)}
+                        {i18nT("settings.piMirrorFailed", { error: piMirror.error ?? "error" }, `Saved, but pi's own default model could not be updated (${piMirror.error ?? "error"}). Use "Apply dashboard default to pi" on Settings → pi → pi settings.`)}
                       </p>
                     )}
                     {piMirror?.ok && piMirror.skipped && (

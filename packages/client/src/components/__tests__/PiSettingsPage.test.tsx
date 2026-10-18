@@ -624,6 +624,9 @@ describe("PiSettingsPage", () => {
       pick(r, "steeringMode", "all");
       await commitFails(r);
       expect(r.save).not.toHaveBeenCalled();
+      // A credential-appeared 409 is not "the file changed on disk": its own message, no reload banner.
+      expect(r.queryByTestId("pi-settings-conflict")).toBeNull();
+      expect(r.getByTestId("pi-settings-error").textContent).toContain("already holds a credential for openai");
       expect(r.queryByTestId("pi-settings-legacy-queued-openaiApiKey")).toBeNull();
       expect(r.getByTestId("pi-settings-legacy-manual-openaiApiKey")).toBeTruthy();
     });

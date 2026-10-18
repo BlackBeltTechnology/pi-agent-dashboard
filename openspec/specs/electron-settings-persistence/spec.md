@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Persist the Electron dashboard shell's chosen launch mode (standalone, power-user, or remote), the remote server URL, and a most-recently-used list of previously-connected remote dashboards to a single JSON settings file in the user's home directory. Persist the recommended-extensions wizard state to a separate file, and detect/write pi provider API keys under `~/.pi/agent`. Provide read-with-defaults, write, and a one-time migration from the legacy settings file name.
+Persist the Electron dashboard shell's chosen launch mode (standalone, power-user, or remote), the remote server URL, and a most-recently-used list of previously-connected remote dashboards to a single JSON settings file in the user's home directory. Persist the recommended-extensions wizard state to a separate file, and detect pi provider API keys under `~/.pi/agent`. Provide read-with-defaults, write, and a one-time migration from the legacy settings file name.
 
 ## Requirements
 
@@ -147,11 +147,6 @@ The system SHALL create the target directory recursively before writing any sett
 #### Scenario: Managed directory is created before write
 
 - **WHEN** any dashboard or recommended-wizard settings file is written and `~/.pi-dashboard` does not yet exist
-- **THEN** the directory is created recursively before the file is written
-
-#### Scenario: pi agent directory is created before API-key write
-
-- **WHEN** an API key is written and `~/.pi/agent` does not yet exist
 - **THEN** the directory is created recursively before the file is written
 
 ### Requirement: API key detection

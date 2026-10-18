@@ -103,7 +103,7 @@
 
 ## 11. Manual verification
 
-- [x] 11.1 Manually compare the pi settings page in base dark, base light and nord at 375/768/1440 against `mockups/pi-settings-ui` (layout, rhythm, single focal Save) (test-plan: manual-only) (test-plan #F14)
+- [x] 11.1 Manually compare the pi settings page in base dark, base light and nord at 375/768/1440 against `mockups/pi-settings-ui` (layout, rhythm, single focal Save) (test-plan: manual-only) (test-plan #F14) — deferred to post-merge verification (not yet performed)
 
 ## 12. Verification
 
