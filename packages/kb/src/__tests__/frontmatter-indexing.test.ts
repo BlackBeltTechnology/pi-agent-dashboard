@@ -301,9 +301,10 @@ describe("schema-version + config-hash reindex gate", () => {
     const sources = [{ id: "t", dir }];
     await runIndexAtomic({ dbPath, sources }); // valid DB exists
 
-    // Inject a deterministic mid-index failure: a broken symlink whose statSync
-    // throws ENOENT during the walk, aborting the forced reindex mid-flight.
-    symlinkSync(join(dir, "does-not-exist"), join(dir, "broken.md"));
+    // Inject a deterministic mid-index failure: a self-referential symlink whose
+    // statSync throws ELOOP (not ENOENT — a vanished file is now treated as deleted,
+    // see change: fix-kb-index-integrity) aborting the forced reindex mid-flight.
+    symlinkSync(join(dir, "broken.md"), join(dir, "broken.md"));
     const s = new SqliteFtsStore(dbPath);
     s.setUserVersion(1); // force the reindex on next open
     s.close();

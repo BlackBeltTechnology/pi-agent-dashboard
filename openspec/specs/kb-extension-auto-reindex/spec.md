@@ -8,7 +8,7 @@ The standalone kb extension keeps the local markdown knowledge base fresh withou
 
 ### Requirement: Debounced hash-gated reindex on markdown edit
 
-Job 1 SHALL run whenever a `write`, `edit`, or `bash` tool result carries a path ending in `.md`, `.mdx`, `.markdown`, `.adoc`, or `.asciidoc`, scheduling a debounced incremental reindex whose actual re-chunking is gated by file content changes. Reindex eligibility and DOX-nudge eligibility SHALL be decided by independent predicates: scheduling a reindex for an AsciiDoc edit MUST NOT exempt that edit from Job 2's nudge decision.
+Job 1 SHALL run whenever a `write`, `edit`, or `bash` tool result carries a path ending in `.md`, `.mdx`, `.markdown`, `.adoc`, or `.asciidoc`, scheduling a debounced incremental reindex whose actual re-chunking is gated by file content changes. Reindex eligibility and DOX-nudge eligibility SHALL be decided by independent predicates: scheduling a reindex for an AsciiDoc edit MUST NOT exempt that edit from Job 2's nudge decision. Every reindex pass SHALL index with the full option set derived from the resolved configuration (including the frontmatter facet configuration) and SHALL apply the store's per-source schema-version / options-hash gate, exactly as the `kb index` CLI does. A failure while indexing one source SHALL NOT prevent the pass from indexing the remaining sources.
 
 #### Scenario: Markdown edit schedules a debounced reindex
 - **WHEN** a `write` or `edit` tool result reports a path matching `.md`/`.mdx`/`.markdown` (case-insensitive)
@@ -40,6 +40,22 @@ Job 1 SHALL run whenever a `write`, `edit`, or `bash` tool result carries a path
 #### Scenario: Reindex failure is swallowed
 - **WHEN** the debounced reindex rejects
 - **THEN** the error is logged as a warning and does not crash the session
+
+#### Scenario: Reindex converges a stale schema stamp
+- **GIVEN** the cwd's docs database carries no current per-source record
+- **WHEN** a debounced reindex runs and every source walks successfully
+- **THEN** it force-reindexes those sources and records the current schema version and options hash for each
+
+#### Scenario: One failing source does not stop the others
+- **GIVEN** a cwd with two filesystem sources
+- **WHEN** a reindex pass throws while indexing the first source
+- **THEN** the second source is still indexed and recorded
+- **AND** the first source keeps its previous record, so the next pass forces it again
+
+#### Scenario: Reindex honours custom frontmatter facets
+- **GIVEN** a configuration declaring a custom facet key
+- **WHEN** a debounced reindex re-chunks a file carrying that key
+- **THEN** the file's property rows include the custom facet value
 
 ### Requirement: AGENTS.md row acknowledgement
 
@@ -89,6 +105,8 @@ Job 2 SHALL, only when DOX enforcement is enabled, emit at most one nudge per ed
 ### Requirement: Cold-start populate and freshness reindex on pull tools
 
 The pull tools SHALL ensure the index reflects on-disk content before returning results, populating an empty index and refreshing a warm one, while never letting an indexing failure break retrieval. Calls that target the `git` scope SHALL NOT trigger the docs freshness reindex or cold-start populate; the `git` scope keeps its own freshness.
+
+While the cwd's docs database does not exist and a first index by another process is live (a `<dbPath>.tmp-<pid>` whose PID names a live process), the pull tools and the debounced reindex SHALL NOT create, open-for-write or populate the docs database; the pull tools SHALL instead return the index-is-being-built indication as the single model-facing line `(index is still being built — no results available yet; retry shortly)` (followed by `[]` as the final line when `kb_search` is called with `format: "json"`). That back-off SHALL be decided before any store is constructed for that cwd, and the debounced reindex SHALL skip without logging a warning. Populating a docs database that does not exist yet SHALL build through the atomic first-index path, and that build is an indexing pass in flight for the freshness rules above; two pull tools in one process SHALL join one build.
 
 The wait for that indexing pass SHALL be bounded by a freshness budget. The budget defaults to 1500 milliseconds and is overridable per session by the environment variable `KB_FRESHNESS_BUDGET_MS`, resolved by a single rule applied after trimming surrounding whitespace: a value consisting only of decimal digits is honoured, clamped down to a ceiling of 60000 milliseconds, with `0` meaning the tool never waits; every other value — absent, empty, negative, fractional, exponent-notation, unit-suffixed or otherwise non-digit — resolves to the default.
 
@@ -182,6 +200,27 @@ A tool that arrives while an indexing pass for its cwd is already in flight SHAL
 #### Scenario: Fresh answer carries no staleness report
 - **WHEN** the indexing pass completes within the freshness budget
 - **THEN** the result is returned without any staleness report
+
+#### Scenario: Pull tool backs off during another process's first index
+- **GIVEN** the cwd has no docs database and another live process is building `<dbPath>.tmp-<pid>`
+- **WHEN** `kb_search`, `kb_get` or `kb_neighbors` runs without `scope: "git"`
+- **THEN** no file is created at `dbPath` and no walk runs
+- **AND** the tool returns, without raising an error, the model-facing line `(index is still being built — no results available yet; retry shortly)`
+
+#### Scenario: Debounced reindex backs off during another process's first index
+- **GIVEN** the cwd has no docs database and another live process is building `<dbPath>.tmp-<pid>`
+- **WHEN** a debounced reindex fires
+- **THEN** no file is created at `dbPath` and the pass is skipped without error or warning
+
+#### Scenario: Dead build marker does not block
+- **GIVEN** the cwd has no docs database and a `<dbPath>.tmp-<pid>` whose PID names no live process
+- **WHEN** a pull tool runs
+- **THEN** the cold-start populate proceeds as for a never-indexed cwd
+
+#### Scenario: A pull tool's own first index is joined, not duplicated
+- **GIVEN** the cwd has no docs database and no live build marker
+- **WHEN** `kb_search` and `kb_get` run concurrently in one process
+- **THEN** exactly one first-index build runs and neither tool returns the index-is-being-built line unless the freshness budget elapses first
 
 ### Requirement: Working-directory removal self-heal
 

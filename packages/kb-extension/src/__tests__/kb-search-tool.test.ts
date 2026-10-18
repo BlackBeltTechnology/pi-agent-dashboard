@@ -3,14 +3,15 @@
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { indexSource, SqliteFtsStore } from "@blackbelt-technology/pi-dashboard-kb";
+import { indexSource, runIndexAtomic, SqliteFtsStore } from "@blackbelt-technology/pi-dashboard-kb";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import kbExtension from "../extension.js";
 
 // Passthrough mock so freshness tests can hang / reject `indexSource` per call.
 vi.mock("@blackbelt-technology/pi-dashboard-kb", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@blackbelt-technology/pi-dashboard-kb")>();
-  return { ...actual, indexSource: vi.fn(actual.indexSource) };
+  // `runIndexAtomic` is the cold (first-index) path, `indexSource` the warm one.
+  return { ...actual, indexSource: vi.fn(actual.indexSource), runIndexAtomic: vi.fn(actual.runIndexAtomic) };
 });
 
 type Tool = {
@@ -190,13 +191,18 @@ type IdxResult = Awaited<ReturnType<typeof indexSource>>;
 describe("kb tools: bounded, abortable freshness (bound-kb-search-freshness)", () => {
   const dirs: string[] = [];
   let actualIndexSource: typeof indexSource;
+  let actualRunIndexAtomic: typeof runIndexAtomic;
   beforeAll(async () => {
-    actualIndexSource = (await vi.importActual<typeof import("@blackbelt-technology/pi-dashboard-kb")>("@blackbelt-technology/pi-dashboard-kb")).indexSource;
+    const actual = await vi.importActual<typeof import("@blackbelt-technology/pi-dashboard-kb")>("@blackbelt-technology/pi-dashboard-kb");
+    actualIndexSource = actual.indexSource;
+    actualRunIndexAtomic = actual.runIndexAtomic;
   });
   afterEach(() => {
     delete process.env.KB_FRESHNESS_BUDGET_MS;
     vi.mocked(indexSource).mockReset();
     vi.mocked(indexSource).mockImplementation((...a) => actualIndexSource(...a));
+    vi.mocked(runIndexAtomic).mockReset();
+    vi.mocked(runIndexAtomic).mockImplementation((...a) => actualRunIndexAtomic(...a));
     for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
   });
 
@@ -214,6 +220,7 @@ describe("kb tools: bounded, abortable freshness (bound-kb-search-freshness)", (
     let release!: (v: IdxResult) => void;
     const p = new Promise<IdxResult>((r) => (release = r));
     vi.mocked(indexSource).mockImplementation(() => p);
+    vi.mocked(runIndexAtomic).mockImplementation(() => p as never); // cold dir: the first-index path
     return release;
   };
   const warm = async (t: ReturnType<typeof tools>, cwd: string) => (await t.search.execute("i", { query: "token" }, undefined, undefined, { cwd })).content[0].text;
@@ -279,6 +286,7 @@ describe("kb tools: bounded, abortable freshness (bound-kb-search-freshness)", (
     const t = tools();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.mocked(indexSource).mockRejectedValue(new Error("deterministic failure"));
+    vi.mocked(runIndexAtomic).mockRejectedValue(new Error("deterministic failure"));
     for (const r of await Promise.all([
       t.get.execute("i", { path: "auth.md" }, undefined, undefined, { cwd: dir }),
       t.neighbors.execute("i", { node: "auth.md" }, undefined, undefined, { cwd: dir }),

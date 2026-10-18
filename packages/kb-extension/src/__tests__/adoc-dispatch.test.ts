@@ -75,7 +75,7 @@ async function indexedContains(needle: string): Promise<boolean> {
   const state = createReindexState();
   try {
     await reindexNow(state, dir);
-    return getKb(state, dir).store.search(needle, { limit: 3 }).length > 0;
+    return getKb(state, dir)!.store.search(needle, { limit: 3 }).length > 0;
   } finally {
     closeKb(state);
   }
