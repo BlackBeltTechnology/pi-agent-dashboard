@@ -135,7 +135,11 @@ function matches(pat: Pattern, rel: string, dirMode: boolean): boolean {
   return pat.dirOnly ? false : pat.re.test(rel);
 }
 
-export function loadGitignoreMatcher(walkRoot: string, opts: GitignoreMatcherOptions = {}): GitignoreMatcher {
+/** Shared core of the sync and async loaders: seeds the pattern stack, and
+ *  exposes the ONE per-directory descend rule (`step`). Only the driver that
+ *  calls `step` differs between the loaders, so they cannot drift.
+ *  See change: bound-kb-search-freshness. */
+function createLoader(walkRoot: string, opts: GitignoreMatcherOptions): { step: (dir: string) => string[]; matcher: GitignoreMatcher } {
   const boundary = opts.cwd;
   const sets: { baseAbs: string; patterns: Pattern[] }[] = [];
 
@@ -172,10 +176,11 @@ export function loadGitignoreMatcher(walkRoot: string, opts: GitignoreMatcherOpt
 
   // 2. Descend: nested .gitignore files under the walk root (pre-order =
   //    shallow before deep). Pruned dirs are skipped — the walk never visits
-  //    them, so their patterns could never apply.
-  const scan = (dir: string) => {
+  //    them, so their patterns could never apply. `step` handles ONE directory
+  //    and returns the child directories to descend, in sorted order.
+  const step = (dir: string): string[] => {
     const rel = relative(walkRoot, dir).split(sep).join("/");
-    if (rel && opts.prune?.(rel)) return;
+    if (rel && opts.prune?.(rel)) return [];
     if (existsSync(join(dir, ".gitignore"))) {
       parseFile(join(dir, ".gitignore"));
     }
@@ -183,17 +188,20 @@ export function loadGitignoreMatcher(walkRoot: string, opts: GitignoreMatcherOpt
     try {
       entries = readdirSync(dir, { withFileTypes: true });
     } catch {
-      return;
+      return [];
     }
+    const children: string[] = [];
     for (const e of entries.sort((a, b) => a.name.localeCompare(b.name))) {
       if (!e.isDirectory() || e.name === ".git") continue;
       const child = join(dir, e.name);
       // Git never reads a .gitignore inside an excluded dir: test the child
-      // BEFORE recursing so its own file is never parsed. Perf only — verdicts
-      // below an excluded dir short-circuit on the ancestor anyway.
+      // BEFORE descending so its own file is never parsed. Perf only — verdicts
+      // below an excluded dir short-circuit on the ancestor anyway. Sibling
+      // subtrees never affect each other's verdict (their sets sit below it).
       if (dirIgnored(child)) continue;
-      scan(child);
+      children.push(child);
     }
+    return children;
   };
 
   // verdictFor / dirIgnored are declared BEFORE `scan(walkRoot)` runs: `scan`
@@ -226,10 +234,49 @@ export function loadGitignoreMatcher(walkRoot: string, opts: GitignoreMatcherOpt
     }
     return verdict;
   };
-  scan(walkRoot);
-
   return {
-    isIgnored: (rel) => verdictAbs(join(walkRoot, rel), false),
-    isIgnoredDir: (rel) => dirIgnored(join(walkRoot, rel)),
+    step,
+    matcher: {
+      isIgnored: (rel) => verdictAbs(join(walkRoot, rel), false),
+      isIgnoredDir: (rel) => dirIgnored(join(walkRoot, rel)),
+    },
   };
+}
+
+export function loadGitignoreMatcher(walkRoot: string, opts: GitignoreMatcherOptions = {}): GitignoreMatcher {
+  const { step, matcher } = createLoader(walkRoot, opts);
+  const scan = (dir: string) => {
+    for (const child of step(dir)) scan(child);
+  };
+  scan(walkRoot);
+  return matcher;
+}
+
+export interface YieldingLoaderOptions extends GitignoreMatcherOptions {
+  /** Directories processed between yields (indexer's `WALK_YIELD_EVERY`). */
+  yieldEvery: number;
+  /** Also yield when this many ms passed since the last yield (slow filesystems). */
+  yieldMaxMs?: number;
+  /** The yield itself (indexer's `yieldToEventLoop`; injectable for tests). */
+  yieldFn: () => Promise<void>;
+}
+
+/** Yielding sibling of `loadGitignoreMatcher`: identical pattern order (explicit
+ *  pre-order stack over the shared `step`), but awaits `yieldFn` every
+ *  `yieldEvery` directories so a deep tree never pins the event loop. A single
+ *  huge directory listing stays one blocking call (design R10). */
+export async function loadGitignoreMatcherYielding(walkRoot: string, opts: YieldingLoaderOptions): Promise<GitignoreMatcher> {
+  const { step, matcher } = createLoader(walkRoot, opts);
+  const stack = [walkRoot];
+  let visited = 0;
+  let last = performance.now();
+  while (stack.length) {
+    const children = step(stack.pop() as string);
+    for (let i = children.length - 1; i >= 0; i--) stack.push(children[i]);
+    if (++visited % opts.yieldEvery === 0 || (opts.yieldMaxMs !== undefined && performance.now() - last >= opts.yieldMaxMs)) {
+      await opts.yieldFn();
+      last = performance.now();
+    }
+  }
+  return matcher;
 }

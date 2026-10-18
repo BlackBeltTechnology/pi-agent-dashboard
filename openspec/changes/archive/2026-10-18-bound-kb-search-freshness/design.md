@@ -31,6 +31,22 @@ Provisional baseline, one warm macOS run while drafting (this repo, 4 sources, 2
 
 Caveats, stated because the budget default leans on this number: one host, one tree shape, warm only, no cold or deep-tree point, nothing from the Docker image or the Windows QA VM. It is an order-of-magnitude indication that the pre-search freshness pass costs hundreds of milliseconds on a repo with no pathology at all — not a calibration, and deliberately not compared against the 50 ms `store.search` median (`openspec/specs/kb-fts5-search-store/spec.md:315-319`), which measures a different stage on a different corpus size. Task 1.1 replaces it with warm + cold + deep-tree numbers before the default is frozen; the default stays overridable either way.
 
+### Measured baseline and after (tasks 1.1, 5.1, 6.62 — recorded once, K3)
+
+One macOS arm64 host, this repo (4 sources, 3,073 selected files). "Before" = `HEAD` indexer sources, "after" = this change, same script, same host, same session. Wall ms / max event-loop delay ms (`monitorEventLoopDelay`, 10 ms resolution).
+
+| Case | Before | After |
+|---|---|---|
+| This repo, warm, median of 5 (K2) | 765 ms (host noisy; drafting runs were 439–486) | **447 ms** (≤ baseline + 10 %) |
+| This repo, warm, max lag | 599 ms | 31 ms |
+| This repo, cold (empty index) | 116.6 s, lag 16.6 s | 97.0 s, lag 11.6 s |
+| Deep tree, 50,500 dirs (10,100 gitignored), cold | 2.57 s | 1.58 s, lag 20 ms |
+| Deep tree, warm | 2.39 s | 1.58 s, lag 21 ms |
+| Wide dir, 100,000 direct entries | 301 ms | 182 ms, lag 10 ms (R10 residual: one listing is not a problem at this size on this host) |
+| Rename scan `git diff HEAD -M -z`, this repo | 184 ms | 92 ms (async, 2000 ms timeout) |
+
+Findings: (1) the 1500 ms default is kept — warm pass 447 ms is ~3.4× headroom, deep tree pass is 1.6 s total (so a deep cold walk abandons the wait at the budget, background continues). (2) The cold full-repo pass spends its lag in the per-batch upsert (100 files per batch, FTS5 deletes/inserts), not in the walk; that is pre-existing, outside this change, and is why a cold first call returns the index-being-built line rather than waiting. (3) Slow-filesystem case (per-directory latency, test-plan X10): entry-count yields alone did not bound it (found while authoring X10), so a `WALK_YIELD_MAX_MS = 50` time-based supplementary yield was added to both traversals (D4).
+
 ## Goals
 
 - A `kb_search` / `kb_get` / `kb_neighbors` call has a bounded worst case regardless of tree shape.
@@ -146,7 +162,9 @@ The gitignore pre-scan is brought **into** scope here, because leaving it out wo
 
 **One descend rule, two drivers.** To keep the sync and async loaders from drifting, the per-directory decision is extracted once into a pure helper in `gitignore.ts` — given a directory, it applies the `prune` check, parses that directory's `.gitignore`, lists and sorts its entries, and returns the child directories to descend (skipping `.git` and `dirIgnored` children, `gitignore.ts:179-197`). The sync loader recurses over it; the async loader iterates over it with an explicit pre-order stack and yields every `WALK_YIELD_EVERY` directories. Only the driver differs. A parity test runs both loaders over several fixture trees (flat, nested `.gitignore` with negation, ignored parent with its own `.gitignore`, pruned dir) and asserts identical pattern lists in identical order. `walk()` needs no such split: it has a single (async) implementation after this change.
 
-**What the yields bound.** Yields happen every `WALK_YIELD_EVERY` entries *processed*; they bound deep and broad trees, not one huge directory, whose `readdirSync` is a single blocking call (R10).
+**Time-based supplement (added in ship-it after X10).** Entry counting alone does not bound a slow filesystem: 200 directories with a few entries each but 5 ms per `readdirSync` would run ~1 s without a yield. Both traversals therefore also yield once `WALK_YIELD_MAX_MS = 50` ms have passed since the last yield. Fast filesystems never hit it, so the entry-count BVA (E27/E28) is unchanged.
+
+**What the yields bound.** Yields happen every `WALK_YIELD_EVERY` entries *processed* (or `WALK_YIELD_MAX_MS`, whichever first); they bound deep and broad trees, not one huge directory, whose `readdirSync` is a single blocking call (R10).
 
 Alternatives considered:
 - **Worker thread for indexing** — rejected: a store handle cannot cross threads; it would need an IPC protocol and a second SQLite connection, for a case the yield fixes in a few lines.

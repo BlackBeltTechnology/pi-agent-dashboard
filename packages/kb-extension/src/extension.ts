@@ -40,9 +40,22 @@ import {
   insertFragment,
 } from "./doctrine.js";
 import { createGuard, type GuardInput, guardNoteSafe, type KbGuard, resolveGuardMode } from "./guard.js";
-import {acknowledgeRows,closeKb, 
-  createReindexState, 
-  decideNudge, ensurePopulated, getKb, nudgeText, type ReindexState,reindexNow, scheduleReindex, 
+import {
+  acknowledgeRows,
+  awaitFreshness,
+  BUILDING_LINE,
+  CANCELLED_LINE,
+  closeKb,
+  createReindexState,
+  decideNudge,
+  type FreshnessOutcome,
+  freshnessStatus,
+  getKb,
+  nudgeText,
+  type ReindexState,
+  resolveFreshnessBudgetMs,
+  scheduleReindex,
+  STALE_LINE,
 } from "./reindex.js";
 
 const WRITE_TOOLS = new Set(["write", "edit", "bash"]);
@@ -73,6 +86,19 @@ export function isForgeCommand(command: string): boolean {
  *  `globalThis[Symbol.for("pi-dashboard.context-manager.v1")].slots` is a WeakMap keyed by the
  *  session manager. Absent registry ⇒ this is a no-op and kb-extension runs on its own. */
 const CONTEXT_MANAGER_REGISTRY = Symbol.for("pi-dashboard.context-manager.v1");
+
+type TextResult = { content: Array<{ type: "text"; text: string }>; details: Record<string, unknown> };
+const textResult = (text: string, details: Record<string, unknown>): TextResult => ({ content: [{ type: "text", text }], details });
+/** Cancelled result, identical across the three tools. `json` = kb_search
+ *  `format: "json"`: the status line, then the bare `[]` as the final line.
+ *  Returned, never thrown: an AbortError would end the call in an error state. */
+const cancelledResult = (details: Record<string, unknown>, json = false): TextResult => textResult(json ? `${CANCELLED_LINE}\n[]` : CANCELLED_LINE, { ...details, aborted: true });
+
+/** Freshness wait shared by the three tools: budget from env, outcome → status. */
+async function freshness(state: ReindexState, cwd: string, start: "always" | "if-empty", signal: AbortSignal | undefined): Promise<{ outcome: FreshnessOutcome; status: ReturnType<typeof freshnessStatus> }> {
+  const outcome = await awaitFreshness(state, cwd, { start, budgetMs: resolveFreshnessBudgetMs(process.env.KB_FRESHNESS_BUDGET_MS), signal });
+  return { outcome, status: freshnessStatus(state, cwd, outcome) };
+}
 
 export interface KbExtensionOptions {
   /** Seams for the git scope (tests, embedding). */
@@ -234,10 +260,12 @@ export default function kbExtension(pi: ExtensionAPI, options: KbExtensionOption
         }),
       ),
     }),
-    async execute(_id: string, params: { query: string; limit?: number; doc_type?: "doc" | "agents" | "source-md"; format?: string; scope?: "docs" | "git"; kind?: "commit" | "pr" | "issue" }, _signal: AbortSignal | undefined, _onUpdate: unknown, ctx: Ctx) {
+    async execute(_id: string, params: { query: string; limit?: number; doc_type?: "doc" | "agents" | "source-md"; format?: string; scope?: "docs" | "git"; kind?: "commit" | "pr" | "issue" }, signal: AbortSignal | undefined, _onUpdate: unknown, ctx: Ctx) {
       const cwd = ctx?.cwd ?? process.cwd();
       // In-body allowlist: only exact lowercase "json" selects JSON; all else → condensed.
       const fmt = params.format === "json" ? "json" : "condensed";
+      // Entry cancel check runs BEFORE the empty-query guard (and applies to scope:"git").
+      if (signal?.aborted) return cancelledResult({ hits: 0 }, fmt === "json");
       const query = typeof params.query === "string" ? params.query : "";
       // Empty-query guard AFTER the format parse so it emits a format-appropriate marker.
       const gitMode = params.scope === "git";
@@ -251,15 +279,13 @@ export default function kbExtension(pi: ExtensionAPI, options: KbExtensionOption
         return { content: [{ type: "text", text: r.text }], details: r.details as Record<string, unknown> };
       }
       const docType = ["doc", "agents", "source-md"].includes(params.doc_type as string) ? params.doc_type : undefined;
-      // Freshness reindex (awaited so search sees fresh data). Guarded: a failed
-      // walk must not break the search — fall back to the existing index, matching
-      // the debounce path's graceful `.catch`. See change: fix-kb-index-feedback.
-      try {
-        await reindexNow(state, cwd);
-      } catch (e) {
-        console.warn(`[kb] freshness reindex failed, searching existing index: ${(e as Error).message}`);
-      }
+      // Freshness wait, BOUNDED (KB_FRESHNESS_BUDGET_MS) and abortable. Expiry
+      // abandons the wait, never the shared pass; a failed pass falls back to the
+      // existing index (awaitFreshness never throws). See change: bound-kb-search-freshness.
+      const fresh = await freshness(state, cwd, "always", signal);
+      if (fresh.status === "cancelled" || signal?.aborted) return cancelledResult({ hits: 0 }, fmt === "json");
       const { store, cfg } = getKb(state, cwd);
+      if (fresh.status === "building") return textResult(fmt === "json" ? `${BUILDING_LINE}\n[]` : BUILDING_LINE, { hits: 0, stale: true });
       // One shared mapping (design D2, fix-kb-eval-measurement-integrity).
       // expandGraph:false + rerank:false are this tool's long-standing behaviour
       // (never expand/rerank), now written down as explicit overrides instead of
@@ -268,6 +294,7 @@ export default function kbExtension(pi: ExtensionAPI, options: KbExtensionOption
         query,
         { limit, docType: docType as any, ...searchOptsFromConfig(cfg, { overrides: { expandGraph: false, rerank: false } }) },
       );
+      if (signal?.aborted) return cancelledResult({ hits: 0 }, fmt === "json");
       // Post-search trust-verdict enrichment (arm A) — async stage OUTSIDE the
       // store (design D10); store.search() stays sync. Labels only: ordering is
       // byte-identical with enrichment on or off (D1). Default ON for `agents`
@@ -276,14 +303,18 @@ export default function kbExtension(pi: ExtensionAPI, options: KbExtensionOption
       // FTS5 — every chunk fetch is a scan, and disk is what the row says now.
       // Guarded: a verdict failure must never break the search itself.
       try {
-        await enrichHits(hits, { cwd });
+        await enrichHits(hits, { cwd, signal });
       } catch (e) {
         console.warn(`[kb] verdict enrichment failed: ${(e as Error).message}`);
       }
-      const text = fmt === "json"
+      if (signal?.aborted) return cancelledResult({ hits: 0 }, fmt === "json");
+      const body = fmt === "json"
         ? JSON.stringify(hits.map((h, i) => ({ ...h, rank: i + 1 })))
         : renderHits(hits, { leading: "rank", parentGlyph: "\u2937 ", multiline: true });
-      return { content: [{ type: "text", text }], details: { hits: hits.length } };
+      // Status line in the MODEL-facing text (details is rendering-only); the
+      // json array stays byte-identical and remains the final line.
+      const stale = fresh.status === "stale";
+      return textResult(stale ? `${STALE_LINE}\n${body}` : body, stale ? { hits: hits.length, stale: true } : { hits: hits.length });
     },
   });
 
@@ -295,19 +326,21 @@ export default function kbExtension(pi: ExtensionAPI, options: KbExtensionOption
       node: Type.String({ description: "heading_path or file path" }),
       depth: Type.Optional(Type.Number({ default: 2 })),
     }),
-    async execute(_id: string, params: { node: string; depth?: number }, _signal: AbortSignal | undefined, _onUpdate: unknown, ctx: Ctx) {
+    async execute(_id: string, params: { node: string; depth?: number }, signal: AbortSignal | undefined, _onUpdate: unknown, ctx: Ctx) {
       const cwd = ctx?.cwd ?? process.cwd();
-      // Cold-start populate: an active-but-uninitialized KB would otherwise
-      // return empty here. Guarded like kb_search — a failed walk falls back to
-      // the existing index. See change: fix-kb-neighbors-get-cold-start.
-      try {
-        await ensurePopulated(state, cwd);
-      } catch (e) {
-        console.warn(`[kb] cold-start populate failed, using existing index: ${(e as Error).message}`);
-      }
+      if (signal?.aborted) return cancelledResult({ nodes: 0 });
+      // Cold-start populate (bounded + abortable): an active-but-uninitialized KB
+      // would otherwise return empty here. A mid-walk partial index is joined and
+      // labelled too. See changes: fix-kb-neighbors-get-cold-start, bound-kb-search-freshness.
+      const fresh = await freshness(state, cwd, "if-empty", signal);
+      if (fresh.status === "cancelled" || signal?.aborted) return cancelledResult({ nodes: 0 });
       const { store } = getKb(state, cwd);
+      if (fresh.status === "building") return textResult(BUILDING_LINE, { nodes: 0, stale: true });
       const nodes = store.neighbors(params.node as string, (params.depth as number) ?? 2);
-      return { content: [{ type: "text", text: JSON.stringify(nodes, null, 2) }], details: { nodes: nodes.length } };
+      if (signal?.aborted) return cancelledResult({ nodes: 0 });
+      const body = JSON.stringify(nodes, null, 2);
+      const stale = fresh.status === "stale";
+      return textResult(stale ? `${STALE_LINE}\n${body}` : body, stale ? { nodes: nodes.length, stale: true } : { nodes: nodes.length });
     },
   });
 
@@ -325,20 +358,19 @@ export default function kbExtension(pi: ExtensionAPI, options: KbExtensionOption
       section: Type.Optional(Type.String({ description: "heading_path breadcrumb" })),
       scope: Type.Optional(Type.Union([Type.Literal("docs"), Type.Literal("git")], { description: "'docs' (default) or 'git' (commit/<sha>, pr/<n>, issue/<n>)." })),
     }),
-    async execute(_id: string, params: { path: string; section?: string; scope?: "docs" | "git" }, _signal: AbortSignal | undefined, _onUpdate: unknown, ctx: Ctx) {
+    async execute(_id: string, params: { path: string; section?: string; scope?: "docs" | "git" }, signal: AbortSignal | undefined, _onUpdate: unknown, ctx: Ctx) {
       const cwd = ctx?.cwd ?? process.cwd();
+      if (signal?.aborted) return cancelledResult({ found: false });
       if (params.scope === "git") {
         bindGitProviders(ctx);
         const r = await gitScope.get({ path: String(params.path ?? "") }, { cwd });
         return { content: [{ type: "text", text: r.text }], details: r.details as Record<string, unknown> };
       }
-      // Cold-start populate (see kb_neighbors). See change: fix-kb-neighbors-get-cold-start.
-      try {
-        await ensurePopulated(state, cwd);
-      } catch (e) {
-        console.warn(`[kb] cold-start populate failed, using existing index: ${(e as Error).message}`);
-      }
+      // Cold-start populate, bounded + abortable (see kb_neighbors).
+      const fresh = await freshness(state, cwd, "if-empty", signal);
+      if (fresh.status === "cancelled" || signal?.aborted) return cancelledResult({ found: false });
       const { store, cfg } = getKb(state, cwd);
+      if (fresh.status === "building") return textResult(BUILDING_LINE, { found: false, suppressedSections: 0, stale: true });
       const root = cfg.resolvedSources[0]?.id ?? "";
       const chunk = store.getChunk(root, params.path as string, params.section as string | undefined);
       // Non-silent truncation (design D7): 53 of 636 indexed AGENTS files have
@@ -349,7 +381,9 @@ export default function kbExtension(pi: ExtensionAPI, options: KbExtensionOption
           ? `${chunk.body}\n\n(+${more} more section${more === 1 ? "" : "s"} in this file — pass \`section\` to fetch one)`
           : chunk.body
         : `(not found: ${params.path})`;
-      return { content: [{ type: "text", text }], details: { found: !!chunk, suppressedSections: more } };
+      if (signal?.aborted) return cancelledResult({ found: false });
+      const stale = fresh.status === "stale";
+      return textResult(stale ? `${STALE_LINE}\n${text}` : text, stale ? { found: !!chunk, suppressedSections: more, stale: true } : { found: !!chunk, suppressedSections: more });
     },
   });
 
@@ -478,4 +512,4 @@ export default function kbExtension(pi: ExtensionAPI, options: KbExtensionOption
   });
 }
 
-export { acknowledgeRows, closeKb, closeKbForCwd, createReindexState, decideNudge, ensurePopulated, getKb, nudgeText, reindexNow, scheduleReindex } from "./reindex.js";
+export { acknowledgeRows, awaitFreshness, closeKb, closeKbForCwd, createReindexState, decideNudge, ensurePopulated, getKb, nudgeText, reindexNow, resolveFreshnessBudgetMs, scheduleReindex } from "./reindex.js";

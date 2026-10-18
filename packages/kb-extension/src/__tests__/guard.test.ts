@@ -197,3 +197,14 @@ describe("guard: degrades silently (X1, task 5.5)", () => {
     expect(typeof guardNoteSafe(g, "bash", { command: "rg x" })).toBe("string");
   });
 });
+
+describe("guard: cancelled/stale kb calls still reset the chain (F19, change: bound-kb-search-freshness)", () => {
+  it("the guard keys on the tool NAME at tool_call time, so a cancelled kb_search resets clean-slate", () => {
+    const g = createGuard({ mode: "warn" });
+    search(g, 2);
+    expect(g.state().chain).toBe(2);
+    g.note("kb_search", { query: "x" }); // result (cancelled / stale / building) is never seen by the guard
+    expect(g.state()).toMatchObject({ chain: 0, firings: 0 });
+  });
+});
+

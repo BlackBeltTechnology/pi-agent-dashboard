@@ -13,4 +13,7 @@ Files added by change add-kb-git-forge-scope. One row per file. (Older test rows
 | `git-scope-store.test.ts` | Vitest for store additions: `replaceItem`, `ensureNode`, `pathPrefix`, `dedup:false`, `findPathsByPrefix`, `immediate` rollback. |
 | `git-scope-sync.test.ts` | Vitest for sync coordination (fake adapter + clock): budget, page cap, rate floor, back-off, interrupted page, cohorts, comments, log line (P1, P4, P6, X2, X3, X5–X7, X13, 6.1). |
 | `helpers/git-fixture.ts` | Fixtures: temp git repos, isolated HOME + index dir, `FakeForge`, `fakeClock`, `cliHttp`, `instrumentedStore`, `fastImport`. |
+| `helpers/event-loop-lag.ts` | `withEventLoopLag(fn)` → `{result,maxDelayMs,elapsedMs}` via `monitorEventLoopDelay` (K1 probe). See change: bound-kb-search-freshness. |
+| `helpers/synthetic-tree.ts` | Scaled synthetic trees: `makeDeepTree`, `makeWideDir`, `makeFlatFiles`, `makeFlatDirs`. See change: bound-kb-search-freshness. |
 | `helpers/lease-worker.mts` | Child process for the multi-process lease tests (`node --import tsx`); roles `sync` / `hang`. |
+| `walk-yield.test.ts` | Vitest: walk + gitignore pre-scan yield (timer fires, lag ≤250 ms), wide-dir R10 residual (P3, P4). See change: bound-kb-search-freshness. |

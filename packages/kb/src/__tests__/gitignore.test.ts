@@ -2,11 +2,12 @@
 // seeding / negation / deeper-override (E13/E14/E15 unit level), robustness (X2).
 // See change: fix-dox-lint-blind-rows, fix-kb-gitignore-excluded-parent.
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { loadGitignoreMatcher, patternMatches } from "../gitignore.js";
+import { loadGitignoreMatcher, loadGitignoreMatcherYielding, patternMatches } from "../gitignore.js";
+import { makeFlatDirs } from "./helpers/synthetic-tree.js";
 
 describe("gitignore pattern forms (E16 decision table)", () => {
   it.each([
@@ -262,5 +263,72 @@ describe("gitignore loader", () => {
     const m = loadGitignoreMatcher(d, { cwd: d });
     expect(m.isIgnored("quiet.md")).toBe(true);
     expect(m.isIgnored("loud.md")).toBe(false);
+  });
+});
+
+describe("yielding gitignore loader (bound-kb-search-freshness, E26 E28)", () => {
+  const tmps: string[] = [];
+  const mk = (files: Record<string, string>): string => {
+    const d = mkdtempSync(join(tmpdir(), "kb-gi-y-"));
+    tmps.push(d);
+    for (const [p, body] of Object.entries(files)) {
+      const abs = join(d, p);
+      mkdirSync(join(abs, ".."), { recursive: true });
+      writeFileSync(abs, body);
+    }
+    return d;
+  };
+  afterEach(() => {
+    for (const d of tmps.splice(0)) rmSync(d, { recursive: true, force: true });
+  });
+  const noYield = { yieldEvery: 500, yieldFn: async () => {} };
+
+  const fixtures: Array<[string, Record<string, string>]> = [
+    ["flat", { ".gitignore": "*.log\nbuild/\n", "a.md": "x", "b.log": "x", "build/c.md": "x" }],
+    ["nested + negation (deeper overrides)", { ".gitignore": "*.md\n", "a/.gitignore": "!keep.md\n", "a/keep.md": "x", "a/drop.md": "x", "b/.gitignore": "!b.md\n", "b/b.md": "x", "b/c/.gitignore": "*.md\n", "b/c/z.md": "x", "top.md": "x" }],
+    ["ignored parent with its own .gitignore", { ".gitignore": "gen/\n", "gen/.gitignore": "!x.md\n", "gen/x.md": "x", "src/.gitignore": "tmp*\n", "src/tmp1.md": "x", "src/ok.md": "x" }],
+    ["pruned dir", { ".gitignore": "*.tmp\n", "node_modules/.gitignore": "!x.md\n", "node_modules/x.md": "x", "ok/x.tmp": "x", "ok/y.md": "x" }],
+  ];
+  const paths = (d: string) => {
+    const out: Array<[string, boolean]> = [];
+    const walkDir = (rel: string, abs: string) => {
+      for (const e of readdirSync(abs, { withFileTypes: true })) {
+        const r = rel ? `${rel}/${e.name}` : e.name;
+        out.push([r, e.isDirectory()]);
+        if (e.isDirectory() && e.name !== ".git") walkDir(r, join(abs, e.name));
+      }
+    };
+    walkDir("", d);
+    return out;
+  };
+
+  it.each(fixtures)("E26: sync and yielding loaders agree on every path — %s", async (_label, files) => {
+    const d = mk(files);
+    const opts = { cwd: d, prune: (rel: string) => /(^|\/)node_modules(\/|$)/.test(rel) };
+    const sync = loadGitignoreMatcher(d, opts);
+    const async_ = await loadGitignoreMatcherYielding(d, { ...opts, ...noYield });
+    for (const [rel, isDir] of paths(d)) {
+      expect({ rel, v: isDir ? async_.isIgnoredDir(rel) : async_.isIgnored(rel) }).toEqual({ rel, v: isDir ? sync.isIgnoredDir(rel) : sync.isIgnored(rel) });
+    }
+  });
+
+  it.each([
+    [499, 0],
+    [500, 1],
+    [501, 1],
+    [1000, 2],
+  ])("E28: %i directories visited → %i yields", async (dirs, yields) => {
+    const d = mk({});
+    makeFlatDirs(d, dirs - 1); // + the walk root = `dirs` directories stepped
+    let n = 0;
+    await loadGitignoreMatcherYielding(d, { cwd: d, yieldEvery: 500, yieldFn: async () => void n++ });
+    expect(n).toBe(yields);
+  });
+
+  it("E22: the pre-scan never descends into .worktrees (prune), even under a negation", async () => {
+    const d = mk({ ".gitignore": "!.worktrees/\n", ".worktrees/w/.gitignore": "*.md\n", ".worktrees/w/x.md": "x", "ok.md": "x" });
+    const m = await loadGitignoreMatcherYielding(d, { cwd: d, prune: (rel) => /(^|\/)\.worktrees(\/|$)/.test(rel), ...noYield });
+    // The nested file was never parsed, so its pattern can't apply: x.md is not ignored by it.
+    expect(m.isIgnored(".worktrees/w/x.md")).toBe(false);
   });
 });
