@@ -200,12 +200,14 @@ import { getServerModelRuntime } from "./model-proxy/server-model-runtime.js";
 import { callPiAiStreamSimple } from "./model-proxy/streamer.js";
 import { currentGlobalWorkflowSignature } from "./openspec/global-signature.js";
 import { createOpenSpecGroupStore, joinGroupIdsToOpenSpecData } from "./openspec/openspec-group-store.js";
+import { fetchPackageMeta } from "./package/npm-search-proxy.js";
 import { logPackageHealthAtBoot } from "./package/package-health-scanner.js";
 import { type OperationResult, PackageManagerWrapper } from "./package/package-manager-wrapper.js";
 import { type BrowserGateway, createBrowserGateway } from "./pairing/browser-gateway.js";
 import type { SessionPresence } from "./questions/question-files.js";
 import { registerQuestionRoutes } from "./questions/question-routes.js";
 import { createQuestionStack, persistedPresence } from "./questions/question-stack.js";
+import { createRequestAccessAvailable, type KnockPeerDeps } from "./pairing/knock-admission.js";
 import { PairedDeviceRegistry } from "./pairing/paired-devices.js";
 import { PairingManager, wirePendingHint } from "./pairing/pairing.js";
 import type { TieredSocket } from "./pairing/ws-tier-gate.js";
@@ -241,6 +243,7 @@ import { createPushService, type PushService } from "./push/push-service.js";
 import { registerAccessPromptRoutes } from "./routes/access-prompt-routes.js";
 import { registerAccessRoutes } from "./routes/access-routes.js";
 import { registerAcpRoutes } from "./routes/acp-routes.js";
+import { registerAddonsRoutes } from "./routes/addons-routes.js";
 import { registerAttachmentRoutes } from "./routes/attachment-routes.js";
 import { registerCanvasTypesRoutes } from "./routes/canvas-types-routes.js";
 import { registerCustomEventGroupsRoutes } from "./routes/custom-event-groups-routes.js";
@@ -271,7 +274,7 @@ import { registerPiCoreRoutes } from "./routes/pi-core-routes.js";
 import { registerPiRetryRoutes } from "./routes/pi-retry-routes.js";
 import { registerPiSettingsRoutes } from "./routes/pi-settings-routes.js";
 import { registerPiRuntimeRoutes } from "./routes/pi-runtime-routes.js";
-import { registerPluginActivationRoutes } from "./routes/plugin-activation-routes.js";
+import { registerPluginActivationRoutes, setPluginsEnabled } from "./routes/plugin-activation-routes.js";
 import { registerPluginConfigRoutes } from "./routes/plugin-config-routes.js";
 import { registerPreferencesAutoNameRoutes } from "./routes/preferences-auto-name-routes.js";
 import { registerPreferencesDisplayRoutes } from "./routes/preferences-display-routes.js";
@@ -2614,11 +2617,21 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     // The manager coalesces to ≤ 1 per 500 ms. See change: add-services-settings-ui.
     onChange: () => browserGateway.broadcastToAll({ type: "services_changed" }),
   });
+  // The knock's pre-switch gate state, built ONCE: the pairing routes and the
+  // `request-access` remedy of vault / services refusals read the same Host
+  // admission and the same cached LAN-interface list, so the remedy cannot drift
+  // from the knock. See change: add-request-access-remedy (D1, D2, D4).
+  const knockPeerDeps: KnockPeerDeps = {
+    hostAdmission: () => getHostGateCtx().admission,
+    getLanInterfaces: createLanInterfaceProvider({ bindHost: config.host }),
+  };
+  const requestAccessAvailable = createRequestAccessAvailable(knockPeerDeps, localTrust);
   registerServiceRoutes(fastify, {
     manager: serviceManager,
     networkGuard,
     localTrust,
     loginAvailable,
+    requestAccessAvailable,
     getTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []),
   });
   // Credential vault: hub-owned accounts, bindings and per-project grants.
@@ -2630,6 +2643,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     networkGuard,
     localTrust,
     loginAvailable,
+    requestAccessAvailable,
     hostPolicy: policyRegistry,
     listOpenProjects: () => vaultDelivery.listOpenProjects(),
     projects: vaultProjects,
@@ -2919,7 +2933,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     registry: pairedDeviceRegistry,
     localToken,
     localTrust,
-    hostAdmission: () => getHostGateCtx().admission,
+    hostAdmission: knockPeerDeps.hostAdmission,
     // Shared "is a login method configured" thunk (same instance as vault/services): drives the `sign-in` remedy.
     loginAvailable,
     // Public (tunnel + configured public) base URLs, already TLS-gated.
@@ -2932,7 +2946,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     // the on-link gate scores the peer against the interfaces the bind covers.
     // See change: add-lan-knock-pairing.
     getAcceptLanRequests: liveAcceptLanRequests,
-    getLanInterfaces: createLanInterfaceProvider({ bindHost: config.host }),
+    getLanInterfaces: knockPeerDeps.getLanInterfaces,
   });
   // Operator user directory (passkeys). See change: add-passkey-user-auth.
   registerUserRoutes(fastify, {
@@ -3019,6 +3033,17 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   registerPluginActivationRoutes(fastify, {
     networkGuard,
     broadcast: (msg) => browserGateway.broadcast(msg),
+  });
+  // Add-ons hub: feature catalog + combined feature toggle. See change: addons-hub-feature-catalog.
+  registerAddonsRoutes(fastify, {
+    networkGuard,
+    packageManagerWrapper,
+    broadcast: (msg) => browserGateway.broadcast(msg),
+    knownDirectories: () => directoryService.knownDirectories(),
+    lookupNpm: (name) => fetchPackageMeta(name),
+    setPluginsEnabled,
+    // Fastify here runs with logger:false, so its log would drop every toggle line.
+    log: { info: (m) => console.log(m), warn: (m) => console.warn(m), error: (m) => console.error(m) },
   });
   registerProviderRoutes(fastify, { networkGuard, piGateway, browserGateway, port: config.port });
 

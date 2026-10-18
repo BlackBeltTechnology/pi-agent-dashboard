@@ -8,15 +8,18 @@
 import { useId } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 
-export type PartKind = "dashboard-ui" | "extension" | "skills" | "tools";
+export type PartKind = "dashboard-ui" | "extension" | "bridge" | "skills" | "prompts" | "themes";
 
-export const PART_KINDS: readonly PartKind[] = ["dashboard-ui", "extension", "skills", "tools"];
+/** Legend order. Tools are registered at runtime, so they have no static part label. */
+export const PART_KINDS: readonly PartKind[] = ["dashboard-ui", "extension", "bridge", "skills", "prompts", "themes"];
 
 const PART_STYLE: Record<PartKind, string> = {
 	"dashboard-ui": "border-blue-500/40 bg-blue-500/10 text-blue-300",
 	extension: "border-[var(--border-secondary)] bg-[var(--bg-tertiary)] text-[var(--text-secondary)]",
 	skills: "border-indigo-500/40 bg-indigo-500/15 text-indigo-400",
-	tools: "border-teal-500/40 bg-teal-500/10 text-teal-400",
+	bridge: "border-[var(--border-secondary)] bg-[var(--bg-tertiary)] text-[var(--text-muted)]",
+	prompts: "border-amber-500/40 bg-amber-500/10 text-amber-400",
+	themes: "border-pink-500/40 bg-pink-500/10 text-pink-400",
 };
 
 /** Localised chip text. */
@@ -28,8 +31,12 @@ export function partLabel(kind: PartKind): string {
 			return i18nT("addons.part.extension", undefined, "extension");
 		case "skills":
 			return i18nT("addons.part.skills", undefined, "skills");
-		case "tools":
-			return i18nT("addons.part.tools", undefined, "tools");
+		case "bridge":
+			return i18nT("addons.part.bridge", undefined, "bridge");
+		case "prompts":
+			return i18nT("addons.part.prompts", undefined, "prompts");
+		case "themes":
+			return i18nT("addons.part.themes", undefined, "themes");
 	}
 }
 
@@ -50,8 +57,16 @@ export function partDescription(kind: PartKind): string {
 			);
 		case "skills":
 			return i18nT("addons.part.skillsHelp", undefined, "Written know-how the AI reads when a task matches. No code runs.");
-		case "tools":
-			return i18nT("addons.part.toolsHelp", undefined, "Actions the AI agent can call, such as web search or browser control.");
+		case "bridge":
+			return i18nT(
+				"addons.part.bridgeHelp",
+				undefined,
+				"The dashboard installs it into pi so its dashboard plugin can talk to the AI agent.",
+			);
+		case "prompts":
+			return i18nT("addons.part.promptsHelp", undefined, "Ready-made prompts you can start from with a slash command.");
+		case "themes":
+			return i18nT("addons.part.themesHelp", undefined, "Colour themes for pi's terminal interface.");
 	}
 }
 

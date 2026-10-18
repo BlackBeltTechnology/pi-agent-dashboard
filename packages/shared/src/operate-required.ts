@@ -5,15 +5,16 @@
  *
  * Disclosure rule: the body has exactly these five keys and nothing about hosts,
  * networks, devices or vault posture. `sign-in` is the only configuration fact it
- * reveals (a usable login method exists).
- * See change: surface-operate-required-remedy.
+ * reveals (a usable login method exists). `request-access` reveals only what the
+ * public knock route already tells the same caller (Host admitted? on-link?).
+ * See change: surface-operate-required-remedy, add-request-access-remedy.
  */
 
 /** What the refused caller can do about it. A later change MAY add values. */
-export type OperateRemedy = "use-host" | "re-pair" | "sign-in";
+export type OperateRemedy = "use-host" | "re-pair" | "request-access" | "sign-in";
 
 /** Canonical relative order of the remedies defined here. */
-export const OPERATE_REMEDY_ORDER: readonly OperateRemedy[] = ["use-host", "re-pair", "sign-in"];
+export const OPERATE_REMEDY_ORDER: readonly OperateRemedy[] = ["use-host", "re-pair", "request-access", "sign-in"];
 
 /** Why the caller was refused. */
 export type OperateRequiredReason = "no-credential" | "tier-too-low";

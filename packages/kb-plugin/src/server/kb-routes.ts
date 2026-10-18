@@ -27,6 +27,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSyn
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import type { CwdHoldOrigin, ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import {
+  beginForcedSource,
   classifyRef,
   indexOptionsFromConfig,
   indexSource,
@@ -44,6 +45,7 @@ import {
   type SourceConfig,
   SqliteFtsStore,
   searchOptsFromConfig,
+  seedOptionsFromConfig,
   sourceGateIsStale,
   sourceHash,
   sourceSubject,
@@ -241,7 +243,7 @@ async function firstIndex(cfg: ReturnType<typeof loadConfig>, resolved: Resolved
   if (!resolved.some((r) => existsSync(r.src.dir))) return { changed: 0, chunks: 0, outcomes };
   let r: Awaited<ReturnType<typeof runIndexAtomic>>;
   try {
-    r = await runIndexAtomic({ dbPath: cfg.dbAbsPath, sources: resolved.map((x) => ({ id: x.src.id, dir: x.src.dir })), indexOpts: indexOptionsFromConfig(cfg), gate: cfg });
+    r = await runIndexAtomic({ dbPath: cfg.dbAbsPath, sources: resolved.map((x) => ({ id: x.src.id, dir: x.src.dir })), indexOpts: indexOptionsFromConfig(cfg), gate: cfg, seed: seedOptionsFromConfig(cfg) });
   } catch (e) {
     // All-or-nothing: record every resolved source as failed so the per-source outcomes (and the
     // job's error summary) reflect THIS run rather than a stale earlier one.
@@ -266,7 +268,7 @@ async function indexInPlace(cwd: string, resolved: ResolvedSpec[], outcomes: KbS
     for (const x of resolved) {
       try {
         const force = sourceGateIsStale(store, cfg, x.src.id);
-        const stats = await indexSource(store, { root: x.src.id, dir: x.src.dir }, indexOptionsFromConfig(cfg, { force }));
+        const stats = await indexSource(store, { root: x.src.id, dir: x.src.dir }, indexOptionsFromConfig(cfg, { force, onFirstBatch: force ? beginForcedSource(store, x.src.id) : undefined }));
         if (!stats.missing) stampSource(store, cfg, x.src.id);
         changed += stats.changed;
         outcomes.push(okOutcome(x));

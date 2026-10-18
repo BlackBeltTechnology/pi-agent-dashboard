@@ -5,6 +5,7 @@ Files in this directory. One row per source file.
 | File | Purpose |
 |------|---------|
 | `useActiveChatSelection.ts` | `useActiveChatSelection(containerRef, mapRange) → { isSelecting, isSelectingRef, selectionSpanRef,… → see `useActiveChatSelection.ts.AGENTS.md` |
+| `useAddonCatalog.ts` | `GET /api/addons/catalog` + refetch (debounced `ADDON_CATALOG_DEBOUNCE_MS`) on `pi-package-event` success and `plugin-config-update`. See change: addons-hub-feature-catalog. |
 | `useAnthropicPeerProbe.ts` | `useAnthropicPeerProbe() -> { peerMissing, peerReason, peerResolving, importFailed, refresh }` for the Anthropic OAuth row hint. → see `useAnthropicPeerProbe.ts.AGENTS.md` |
 | `useAppHidden.ts` | NEW. Exports `useAppHidden()` hook + `applyAppHiddenClass(root, hidden)`. → see `useAppHidden.ts.AGENTS.md` |
 | `useArchiveListing.ts` | Fetches `GET /api/openspec-archive?cwd=` into `entries: ArchiveEntry[]` with `isLoading`/`error`. → see `useArchiveListing.ts.AGENTS.md` |

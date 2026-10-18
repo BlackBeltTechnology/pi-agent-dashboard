@@ -77,6 +77,8 @@ const FAMILY_BY_SEGMENT: Readonly<Record<string, Family>> = {
   "model-proxy": "providers",
   // packages / runtimes / tools
   packages: "packages",
+  // Add-ons hub catalog + feature toggle. See change: addons-hub-feature-catalog.
+  addons: "packages",
   resources: "packages",
   "pi-resources": "packages",
   "pi-core": "packages",

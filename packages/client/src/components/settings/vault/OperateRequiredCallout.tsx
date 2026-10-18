@@ -9,12 +9,13 @@
  * callout foreground and are underlined (ui-contract a11y #7).
  * See change: surface-operate-required-remedy (mockups/ui-plan.md).
  */
-import { mdiCellphoneKey, mdiLockOutline, mdiLogin, mdiMonitor, mdiRefresh } from "@mdi/js";
+import { mdiAccountArrowRight, mdiCellphoneKey, mdiLockOutline, mdiLogin, mdiMonitor, mdiRefresh } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { useId } from "react";
 import { t as i18nT } from "../../../lib/i18n/i18n.js";
+import { requestAccessTarget } from "../../../lib/pairing/request-access-target.js";
 
-type KnownRemedy = "use-host" | "re-pair" | "sign-in";
+type KnownRemedy = "use-host" | "re-pair" | "request-access" | "sign-in";
 
 const ROWS: Record<KnownRemedy, { icon: string; fallback: string }> = {
   "use-host": { icon: mdiMonitor, fallback: "Open the dashboard on the computer that runs it." },
@@ -22,6 +23,11 @@ const ROWS: Record<KnownRemedy, { icon: string; fallback: string }> = {
     icon: mdiCellphoneKey,
     fallback:
       "This device is paired with less than Operate access, and access is fixed when a device is paired. On the host, revoke it in Paired devices, then pair it again with Operate access. Pairing needs an HTTPS address of this dashboard.",
+  },
+  "request-access": {
+    icon: mdiAccountArrowRight,
+    fallback:
+      "If this dashboard accepts requests from your local network, you can ask for access from this device. Someone at the dashboard computer approves it by typing a code.",
   },
   "sign-in": { icon: mdiLogin, fallback: "Sign in with an operator account." },
 };
@@ -31,14 +37,17 @@ const isKnown = (r: unknown): r is KnownRemedy => typeof r === "string" && Objec
 interface Props {
   /** As received; unknown or duplicate values are ignored. */
   remedies: readonly unknown[];
+  /** The API base of the server that refused (fixed at request time); decides where Request access leads. */
+  apiBase: string;
   /** A retry load is in flight: the control is disabled and the callout busy. */
   busy: boolean;
   onRetry: () => void;
 }
 
-export function OperateRequiredCallout({ remedies, busy, onRetry }: Props) {
+export function OperateRequiredCallout({ remedies, apiBase, busy, onRetry }: Props) {
   const labelId = useId();
   const rows = [...new Set(remedies)].filter(isKnown);
+  const access = requestAccessTarget(apiBase, window.location.origin);
   return (
     <div
       data-testid="vault-operate-required"
@@ -66,6 +75,19 @@ export function OperateRequiredCallout({ remedies, busy, onRetry }: Props) {
               <Icon path={ROWS[remedy].icon} size={0.67} className="shrink-0 mt-0.5" aria-hidden="true" />
               <span>
                 {i18nT(`vault.operateRequired.${remedy}`, undefined, ROWS[remedy].fallback)}
+                {remedy === "request-access" && (
+                  <>
+                    {" "}
+                    <a
+                      href={access.href}
+                      {...(access.newContext ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+                      data-testid="vault-operate-request-access"
+                      className="font-semibold underline text-inherit max-sm:inline-flex max-sm:items-center max-sm:min-h-[44px]"
+                    >
+                      {i18nT("vault.operateRequired.requestAccessLink", undefined, "Request access")}
+                    </a>
+                  </>
+                )}
                 {remedy === "sign-in" && (
                   <>
                     {" "}

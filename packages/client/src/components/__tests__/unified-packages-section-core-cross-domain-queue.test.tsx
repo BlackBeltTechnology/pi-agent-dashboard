@@ -10,18 +10,21 @@
  *
  * See change: unify-pi-core-into-package-queue.
  */
+
+import type {
+	AddonFeature,
+	PiCoreStatus,
+} from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type {
-	InstalledPackage,
-	PiCoreStatus,
-} from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { packageQueue } from "../../lib/package/package-queue.js";
 import { UnifiedPackagesSection } from "../packages/UnifiedPackagesSection.js";
+import { feature, part } from "./addons-feature-fixtures.js";
 
 const PI = "@earendil-works/pi-coding-agent";
 const EXT_SRC = "npm:@blackbelt-technology/pi-dashboard-subagents";
+const FEATURE_ID = `pkg:${EXT_SRC}`;
 
 const mockUsePiCoreVersions = vi.fn<() => {
 	status: PiCoreStatus | null;
@@ -30,8 +33,8 @@ const mockUsePiCoreVersions = vi.fn<() => {
 	refresh: (force?: boolean) => Promise<void>;
 }>();
 
-const mockUseInstalledPackages = vi.fn<() => {
-	packages: InstalledPackage[];
+const mockUseAddonCatalog = vi.fn<() => {
+	features: AddonFeature[];
 	isLoading: boolean;
 	error: string | null;
 	refresh: () => Promise<void>;
@@ -40,8 +43,8 @@ const mockUseInstalledPackages = vi.fn<() => {
 vi.mock("../../hooks/usePiCoreVersions.js", () => ({
 	usePiCoreVersions: () => mockUsePiCoreVersions(),
 }));
-vi.mock("../../hooks/useInstalledPackages.js", () => ({
-	useInstalledPackages: () => mockUseInstalledPackages(),
+vi.mock("../../hooks/useAddonCatalog.js", () => ({
+	useAddonCatalog: () => mockUseAddonCatalog(),
 }));
 vi.mock("../../hooks/usePiChangelog.js", () => ({
 	usePiChangelog: () => ({ data: null, isLoading: false, error: null }),
@@ -81,17 +84,12 @@ beforeEach(() => {
 		error: null,
 		refresh: vi.fn().mockResolvedValue(undefined),
 	});
-	mockUseInstalledPackages.mockReturnValue({
-		packages: [
-			{
-				source: EXT_SRC,
-				scope: "user",
-				filtered: false,
-				version: "0.1.1",
+	mockUseAddonCatalog.mockReturnValue({
+		features: [
+			feature(FEATURE_ID, {
 				displayName: "pi-dashboard-subagents",
-				isRecommended: true,
-				isBundled: false,
-			} as InstalledPackage,
+				packages: [part(EXT_SRC, { version: "0.1.1" })],
+			}),
 		],
 		isLoading: false,
 		error: null,
@@ -124,7 +122,7 @@ describe("UnifiedPackagesSection — cross-domain queueing", () => {
 		render(<UnifiedPackagesSection />);
 
 		// The auto check-updates pass makes the extension row offer Update.
-		const extTestId = `pkg-row-${EXT_SRC.replace(/[^a-z0-9]/gi, "-")}-update`;
+		const extTestId = `addon-update-${FEATURE_ID}`;
 		await waitFor(() => expect(screen.getByTestId(extTestId)).toBeTruthy());
 
 		// 1. Start the pi-core update — its POST stays pending.
