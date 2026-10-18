@@ -98,6 +98,13 @@ Findings on the four new public props, reconciled in `settings-fields.tsx`:
 - **Pill size follows context.** Pills inside a `SettingsItem` / `SettingsGroup` summary get 12 px automatically (React context), so 15 call sites cannot forget the interactive floor; `interactive` forces it elsewhere.
 - **`SettingsTable` caption is required and `sr-only`.** The enclosing group already titles the table visually; the caption names it for assistive tech. Rows carry a stable `key` and optional `testId` so existing row testids survive.
 
+### D10. Save-model review (task 4.50, doubt-driven-review)
+Verified: `plugin_config_write` is an awaited `POST /api/config/plugins/:id` (commit rejects on failure; the host lists failed sources); server merges `{ ...existing, ...body }`; the gate mapping and the write-only token hold. Reconciled findings:
+- **Ghost drafts (fixed).** Setting a field back to its stored value now drops the edit (flows gate `choose`, cost `edit`, apple-tools `editPath`), so a later broadcast (another tab, the installer reconciling the path) is adopted instead of becoming a phantom edit that the next Save would revert. Tests in each plugin pin it.
+- **chat-gateway after Save (fixed).** Commit no longer wipes the draft: sent values are held as `landed` until the next `plugin_config_update`, draft keys are pruned once the stored config matches, and the token is cleared only if it is still the one sent — no revert-to-old flash and no lost keystrokes typed during the request.
+- **apple-tools path** is trimmed before it is sent.
+- Accepted: cost validates unedited stored values too (a hand-edited out-of-range value shows its own field error); chat-gateway shows its inline error (Try again + Copy details) next to the host's save message.
+
 ## Risks / Trade-offs
 
 - [Four new public runtime components] → `doubt-driven-review` on their props before they land. They are presentation only, so reverting is cheap.

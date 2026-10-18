@@ -235,6 +235,17 @@ describe("host Save bar (#F4)", () => {
     await hostSave();
     await waitFor(() => expect(source().isDirty).toBe(false));
   });
+
+  // doubt-review 4.50 #2: the saved value stays on screen even when the
+  // `plugin_config_update` broadcast has not arrived (no revert-to-old flash).
+  it("keeps showing the saved value when no broadcast follows the commit", async () => {
+    configValue = { defaultCwd: "/old" };
+    renderPanel();
+    type("chat-gateway-default-cwd", "/repos/app");
+    await hostSave();
+    await waitFor(() => expect(source().isDirty).toBe(false));
+    expect((screen.getByTestId("chat-gateway-default-cwd") as HTMLInputElement).value).toBe("/repos/app");
+  });
 });
 
 describe("broadcast adoption (#F3)", () => {

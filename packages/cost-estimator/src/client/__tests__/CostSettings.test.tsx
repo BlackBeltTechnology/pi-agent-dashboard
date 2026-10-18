@@ -155,6 +155,21 @@ describe("CostSettings — draft, no keystroke write (F1)", () => {
   });
 });
 
+describe("CostSettings — no ghost drafts (doubt-review 4.50 #1)", () => {
+  it("a field typed back to its stored value leaves no edit; a later broadcast is adopted", async () => {
+    const { getByTestId, src } = mount({ seats: 2 });
+    type(getByTestId("cost-seats"), "9");
+    await waitFor(() => expect(src().isDirty).toBe(true));
+    type(getByTestId("cost-seats"), "2");
+    await waitFor(() => expect(src().isDirty).toBe(false));
+    act(() => {
+      applyPluginConfigUpdate({ type: "plugin_config_update", id: "cost-estimator", config: { seats: 6 } });
+    });
+    await waitFor(() => expect((getByTestId("cost-seats") as HTMLInputElement).value).toBe("6"));
+    expect(src().isDirty).toBe(false);
+  });
+});
+
 describe("CostSettings — shows the stored plan", () => {
   it("unset plan shows Metered with a Default pill, not Max 20×", () => {
     const { getByTestId, getAllByText } = mount({});

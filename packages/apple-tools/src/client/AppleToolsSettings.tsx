@@ -153,21 +153,25 @@ export function AppleToolsSettings() {
   const [pathEdit, setPathEdit] = useState<string | null>(null);
   // A broadcast that now equals the edit settles it, so a stale edit never shadows a later one.
   useEffect(() => {
-    setPathEdit((prev) => (prev !== null && prev === stored ? null : prev));
+    setPathEdit((prev) => (prev !== null && prev.trim() === stored ? null : prev));
   }, [stored]);
   const path = pathEdit ?? stored;
   const pathError = path.trim() === "" ? "Enter the path to imcp-server, or reset to the default." : null;
-  const isDirty = pathEdit !== null && pathEdit !== stored;
+  const isDirty = pathEdit !== null && pathEdit.trim() !== stored;
 
   const latest = useRef({ pathEdit, pathError, stored });
   latest.current = { pathEdit, pathError, stored };
   const commit = useCallback(async () => {
     const { pathEdit: edit, pathError: err, stored: current } = latest.current;
     if (err) throw new Error(err);
-    if (edit === null || edit === current) return;
-    await send({ type: "plugin_config_write", id: PLUGIN_ID, config: { imcpServerPath: edit } });
+    if (edit === null || edit.trim() === current) return;
+    await send({ type: "plugin_config_write", id: PLUGIN_ID, config: { imcpServerPath: edit.trim() } });
   }, [send]);
   const reset = useCallback(() => setPathEdit(null), []);
+  // Typing back the stored path drops the edit (no ghost draft that a later
+  // broadcast — e.g. the installer reconciling the path — would turn into an
+  // edit that reverts it). doubt-review 4.50 #1.
+  const editPath = (v: string) => setPathEdit(v === stored ? null : v);
   useSettingsDraftSource({ id: "plugin:apple-tools", isDirty, commit, reset });
 
   const refresh = useCallback(async (): Promise<StatusReadout | null> => {
@@ -371,10 +375,10 @@ export function AppleToolsSettings() {
             hint="Change this only if iMCP is installed somewhere other than Applications."
             mono
             value={path}
-            onChange={setPathEdit}
+            onChange={editPath}
             error={pathError}
             state={path === DEFAULT_PATH ? "default" : "changed"}
-            onReset={path === DEFAULT_PATH ? undefined : () => setPathEdit(DEFAULT_PATH)}
+            onReset={path === DEFAULT_PATH ? undefined : () => editPath(DEFAULT_PATH)}
             testIds={{ control: "apple-tools-path" }}
           />
 

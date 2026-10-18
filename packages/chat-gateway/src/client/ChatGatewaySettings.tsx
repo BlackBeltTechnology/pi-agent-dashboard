@@ -194,7 +194,13 @@ export function ChatGatewaySettings(_props: SlotProps<"settings-section">): Reac
   const config = usePluginConfig<ChatGatewayConfig>();
   const send = usePluginSend();
 
-  const saved = savedDraft(config);
+  // Values this page saved successfully, shown as "saved" until the next
+  // `plugin_config_update` replaces them — so a save never flashes the old
+  // values back while the broadcast is in flight (or lost).
+  const [landed, setLanded] = useState<Partial<Draft>>({});
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset on every config broadcast.
+  useEffect(() => setLanded({}), [config]);
+  const saved: Draft = { ...savedDraft(config), ...landed };
 
   // Only the EDITED keys live in `draft`; every other field shows the saved
   // value, so a clean page adopts a `plugin_config_update` broadcast and a dirty
@@ -206,6 +212,20 @@ export function ChatGatewaySettings(_props: SlotProps<"settings-section">): Reac
   const [notice, setNotice] = useState<{ details: string } | null>(null);
   const [bindings, setBindings] = useState<BindingsResponse | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+
+  // Drop draft keys the stored config now matches (our own save landing, or
+  // another writer saving the same value), so a later broadcast never turns a
+  // stale draft key into a ghost edit. Keyed on `config`: `saved` is derived.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `saved` derives from `config` + `landed`.
+  useEffect(() => {
+    setDraft((d) => {
+      const stale = (Object.keys(d) as Array<keyof Draft>).filter((k) => d[k] === saved[k]);
+      if (stale.length === 0) return d;
+      const next = { ...d };
+      for (const k of stale) delete next[k];
+      return next;
+    });
+  }, [config, landed]);
 
   const value: Draft = { ...saved, ...draft };
   const editedKeys = (Object.keys(draft) as Array<keyof Draft>).filter((k) => draft[k] !== saved[k]);
@@ -265,8 +285,14 @@ export function ChatGatewaySettings(_props: SlotProps<"settings-section">): Reac
     } finally {
       setBusy(false);
     }
-    setToken("");
-    setDraft({});
+    // Keep what was typed while the save was in flight: clear the token only if
+    // it is still the one sent, and leave edited keys to the prune effect above,
+    // which drops each once the stored config matches it (no revert-to-old flash).
+    const sentToken = partial.token;
+    setToken((t) => (t.trim() === sentToken ? "" : t));
+    const sent: Partial<Draft> = {};
+    for (const key of editedKeys) (sent as Record<string, unknown>)[key] = value[key];
+    setLanded((l) => ({ ...l, ...sent }));
     setNotice(null);
     setRefreshKey((k) => k + 1);
   }

@@ -294,6 +294,23 @@ describe("AppleToolsSettings — path draft on the host Save bar", () => {
     });
   });
 
+  // doubt-review 4.50 #1: an edit typed back to the stored value leaves no ghost
+  // draft, so the installer reconciling the path is adopted, not reverted.
+  it("an edit typed back to the stored path leaves no ghost: a later broadcast is adopted", async () => {
+    setFetch(fetchFor());
+    const { getByTestId, src } = mount({ imcpServerPath: "/a/imcp-server" });
+    const input = getByTestId("apple-tools-path");
+    fireEvent.change(input, { target: { value: "/b/imcp-server" } });
+    await waitFor(() => expect(src().isDirty).toBe(true));
+    fireEvent.change(input, { target: { value: "/a/imcp-server" } });
+    await waitFor(() => expect(src().isDirty).toBe(false));
+    act(() => {
+      applyPluginConfigUpdate({ type: "plugin_config_update", id: "apple-tools", config: { imcpServerPath: "/c/imcp-server" } });
+    });
+    await waitFor(() => expect((getByTestId("apple-tools-path") as HTMLInputElement).value).toBe("/c/imcp-server"));
+    expect(src().isDirty).toBe(false);
+  });
+
   it("an emptied path shows a field error and blocks the commit", async () => {
     setFetch(fetchFor());
     const { getByTestId, queryByRole, send, src } = mount({});

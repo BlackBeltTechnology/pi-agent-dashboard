@@ -168,6 +168,9 @@ export function FlowsAnthropicBridgeSettings() {
   }, [send]);
   const reset = useCallback(() => setPick(null), []);
   useSettingsDraftSource({ id: "plugin:flows-anthropic-bridge", isDirty, commit, reset });
+  // Picking the stored gate drops the pick (no ghost draft that a later
+  // broadcast would turn into an edit). doubt-review 4.50 #1.
+  const choose = (g: Gate) => setPick(g === stored ? null : g);
 
   const refreshButton = (
     <button
@@ -245,7 +248,7 @@ export function FlowsAnthropicBridgeSettings() {
     if (!step) return;
     e.preventDefault();
     const next = GATES[(index + step + GATES.length) % GATES.length];
-    setPick(next);
+    choose(next);
     document.getElementById(`flows-anthropic-bridge-gate-${next}`)?.focus();
   };
 
@@ -329,7 +332,7 @@ export function FlowsAnthropicBridgeSettings() {
                   aria-checked={checked}
                   tabIndex={tabStop ? 0 : -1}
                   data-testid={GATE_TESTID[g]}
-                  onClick={() => setPick(g)}
+                  onClick={() => choose(g)}
                   onKeyDown={(e) => onGateKey(e, i)}
                   className={`focus-ring min-h-[32px] rounded px-3 text-[12px] font-semibold ${
                     checked

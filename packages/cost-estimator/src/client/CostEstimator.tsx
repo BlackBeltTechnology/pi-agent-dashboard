@@ -326,7 +326,14 @@ export function CostSettings() {
   const reset = useCallback(() => setEdits({}), []);
   useSettingsDraftSource({ id: "plugin:cost-estimator", isDirty, commit, reset });
 
-  const edit = (patch: Edits) => setEdits((prev) => ({ ...prev, ...patch }));
+  // Setting a field back to its stored value drops the edit (no ghost draft that a
+  // later broadcast would turn into an edit). doubt-review 4.50 #1.
+  const edit = (patch: Edits) =>
+    setEdits((prev) => {
+      const next: Edits = { ...prev, ...patch };
+      for (const k of Object.keys(patch) as EditableKey[]) if (next[k] === config[k]) delete next[k];
+      return next;
+    });
   const state = (key: EditableKey) => (values[key] === DEFAULTS[key] ? "default" : "changed");
 
   return (

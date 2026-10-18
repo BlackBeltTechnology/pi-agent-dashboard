@@ -163,6 +163,26 @@ describe("Bridge gate mapping (E18)", () => {
     expect(selected(r)).toEqual(["Always on"]);
   });
 
+  // doubt-review 4.50 #1: re-picking the stored gate leaves no ghost pick, so a
+  // gate saved elsewhere is adopted instead of turning into a phantom edit.
+  it("re-picking the stored gate leaves no ghost: a later broadcast is adopted", async () => {
+    stubFetch(sessionsOk([]));
+    const r = mount({ forceCanonical: true, disableCanonical: false });
+    fireEvent.click(radio(r, "Off"));
+    await waitFor(() => expect(r.src().isDirty).toBe(true));
+    fireEvent.click(radio(r, "Always on"));
+    await waitFor(() => expect(r.src().isDirty).toBe(false));
+    act(() => {
+      applyPluginConfigUpdate({
+        type: "plugin_config_update",
+        id: "flows-anthropic-bridge",
+        config: { forceCanonical: false, disableCanonical: false },
+      });
+    });
+    await waitFor(() => expect(selected(r)).toEqual(["Automatic"]));
+    expect(r.src().isDirty).toBe(false);
+  });
+
   it("keeps the force/disable testids on the Always on / Off options and shows env vars as code in the hint", () => {
     stubFetch(sessionsOk([]));
     const r = mount({});
