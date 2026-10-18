@@ -37,7 +37,7 @@
 
 ## 4. Verify and land
 
-- [ ] 4.1 Run the full suite (`set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`, then `grep -nE 'FAIL|Tests +[0-9]+ (failed|passed)' /tmp/pi-test.log`). Verify there are no failures.
+- [x] 4.1 Run the full suite (`set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`, then `grep -nE 'FAIL|Tests +[0-9]+ (failed|passed)' /tmp/pi-test.log`). Verify there are no failures.
 - [x] 4.2 Update the `AGENTS.md` rows for `session-archive.ts`, `event-wiring.ts`, `session-meta-handler.ts`, `browser-gateway.ts`, `browser-protocol.ts`, `server.ts`, and `useMessageHandler.ts` with `See change: fix-orphaned-ended-session-archive`. Verify `node scripts/check-conventions.mjs` passes.
-- [ ] 4.3 Run the `review-code` skill on the full diff before commit and verify there are no blocking findings.
-- [ ] 4.4 Post-merge live check (test-plan: manual-only, #F3): after a server restart (`curl -X POST http://localhost:8000/api/restart`) and a client build (`npm run build`), click the archive button on an existing fileless ended card (e.g. `01a13a6a…`). It should disappear on the first click with no reload.
+- [x] 4.3 Run the `review-code` skill on the full diff before commit and verify there are no blocking findings.
+- [x] 4.4 Post-merge live check (test-plan: manual-only, #F3): after a server restart (`curl -X POST http://localhost:8000/api/restart`) and a client build (`npm run build`), click the archive button on an existing fileless ended card (e.g. `01a13a6a…`). It should disappear on the first click with no reload.
