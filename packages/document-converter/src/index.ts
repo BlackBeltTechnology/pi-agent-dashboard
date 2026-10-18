@@ -28,7 +28,7 @@ import type {
 } from "./types.js";
 
 export interface DocumentConverterConfig {
-  /** Image tag, e.g. `pi-doc-engine:0.1.0`. */
+  /** Image tag, e.g. `pi-doc-engine:0.2.0`. */
   image: string;
   /** Staging dir where ingest writes `.md` for kb. Created on demand. */
   stagingDir: string;

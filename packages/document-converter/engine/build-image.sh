@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Build the pi-doc-engine image from the in-repo vendored engine copy.
 #
-#   ./build-image.sh            # build pi-doc-engine:<IMAGE_VERSION>
-#   IMAGE_TAG=pi-doc-engine:dev ./build-image.sh
+#   ./build-image.sh            # build pi-doc-engine:<IMAGE_VERSION> + pi-doc-engine:latest
+#   IMAGE_TAG=pi-doc-engine:dev ./build-image.sh   # only that tag (no :latest)
 #
 # The build context is THIS directory only — the image must reference no
 # home-directory path. A guard below fails the build if a ~/Documents reference
@@ -11,7 +11,14 @@ set -euo pipefail
 
 ENGINE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IMAGE_VERSION="$(cat "$ENGINE_DIR/IMAGE_VERSION")"
-IMAGE_TAG="${IMAGE_TAG:-pi-doc-engine:${IMAGE_VERSION}}"
+# `:latest` is added only for the default tag, so the server's untagged default
+# image name (office-preview.ts) resolves to the freshly built image. Any
+# non-empty IMAGE_TAG builds exactly that tag.
+TAGS=()
+if [ -z "${IMAGE_TAG:-}" ]; then
+  IMAGE_TAG="pi-doc-engine:${IMAGE_VERSION}"
+  TAGS=(-t "pi-doc-engine:latest")
+fi
 
 # --- Guard: no home-dir / ~/Documents path may leak into the runtime Python ---
 # Scoped to *.py runtime source (the only code that ships); meta files (this
@@ -25,5 +32,5 @@ if grep -RInE "$GUARD_PAT" "$ENGINE_DIR" --include='*.py' \
 fi
 
 echo "Building ${IMAGE_TAG} from ${ENGINE_DIR} ..."
-docker build -t "${IMAGE_TAG}" "${ENGINE_DIR}"
+docker build -t "${IMAGE_TAG}" ${TAGS[@]+"${TAGS[@]}"} "${ENGINE_DIR}"
 echo "Built ${IMAGE_TAG}"

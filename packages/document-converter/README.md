@@ -14,7 +14,7 @@ touch Python, docling, pandoc, or the nano-banana CLI.
 import { createDocumentConverter } from "@blackbelt-technology/pi-dashboard-document-converter";
 
 const dc = createDocumentConverter({
-  image: "pi-doc-engine:0.1.0",
+  image: "pi-doc-engine:0.2.0",
   stagingDir: "/abs/kb-staging",
   // Files outside process.cwd() must sit under a configured root:
   mounts: ["/docs", "/out"],          // or workspaceRoot: "/abs/project"
@@ -97,17 +97,25 @@ Built from `engine/` (vendored Python; see `engine/VENDOR.md`):
 npm run build:image   # -> pi-doc-engine:$(cat engine/IMAGE_VERSION)
 ```
 
-Heavy (docling ML models + LibreOffice + pandoc + chrome-headless-shell). The
+Heavy (docling ML models + LibreOffice + pandoc + arch-selected headless browser: chrome-headless-shell on amd64, chromium on arm64). The
 image runs as root, so an `mmdc` shim injects `--no-sandbox`; opencv needs
 `libgl1`; `@puppeteer/browsers` needs `unzip` (all handled in the Dockerfile).
 See `engine/README.md` for the JSON `docker run` contract.
 
+## Breaking (next release)
+
+`DocConverterErrorCode` gains `MMDC_UNAVAILABLE` (exhaustive `switch`es must add a case).
+It is raised when a mermaid render was attempted and the engine's headless browser cannot
+launch. The earlier no-hard-fail guarantee for styled rendering is withdrawn: nano-banana
+failure falls back to mmdc, and a broken browser now fails the produce call with `MMDC_UNAVAILABLE`.
+Rebuild the image (`pi-doc-engine:0.2.0`) to pick up the arch-selected browser.
+
 ## Integration test (opt-in)
 
-Verified green against `pi-doc-engine:0.1.0`. Build the image, then:
+Build the image (`pi-doc-engine:0.2.0`), then:
 
 ```bash
-DOC_ENGINE_IMAGE=pi-doc-engine:0.1.0 \
+DOC_ENGINE_IMAGE=pi-doc-engine:0.2.0 \
   DOC_ENGINE_PDF=/abs/sample.pdf \
   DOC_ENGINE_TEMPLATES=/abs/templates \
   npx vitest run integration
