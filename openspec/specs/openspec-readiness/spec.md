@@ -120,9 +120,10 @@ legacy-fallback gate mid-transition.
 
 #### Scenario: Zero-proposal project is READY
 
-- **WHEN** a cwd has been initialized with no proposals authored, so the OpenSpec status call (`openspec status --all`, or `openspec list` on the fallback path) returns
-  `{ "changes": [] }`, its skills are present, and its recorded signature matches the current
-  one
+- **WHEN** a cwd has been initialized with no proposals authored, so `openspec status --all` returns
+  `{ "changes": [], "root": { "path": "/project/foo", "source": "nearest" } }` (or `openspec list`
+  on the fallback path returns `{ "changes": [] }`), its skills are present, and its recorded
+  signature matches the current one
 - **THEN** the emitted state SHALL be `READY`
 
 #### Scenario: Config change re-broadcasts only the affected cwd

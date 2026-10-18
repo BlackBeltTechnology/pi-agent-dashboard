@@ -176,6 +176,13 @@ describe("createStatusAllSupportCache (#E15)", () => {
     expect(c.isKnownUnsupported("1.1.0", false)).toBe(false);
     expect(c.isKnownUnsupported("1.0.0", false)).toBe(false); // verdict was cleared
   });
+  it("markSupported clears the verdict, so a force-refresh success is not undone by the next gated tick", () => {
+    const c = createStatusAllSupportCache();
+    c.markUnsupported(null);
+    expect(c.isKnownUnsupported(null, true)).toBe(false); // force re-evaluates …
+    c.markSupported(); // … and `--all` worked
+    expect(c.isKnownUnsupported(null, false)).toBe(false); // gated tick stays on `--all`
+  });
   it("unresolvable version: cached for the process, retried on force refresh", () => {
     const c = createStatusAllSupportCache();
     c.markUnsupported(null);

@@ -2704,7 +2704,7 @@ See change: add-folder-actions-menu.
 
 #### OpenSpec polling cost model
 
-Naive `for each cwd: list + for each change: status` fan-out. 4 pinned dirs × 63 active changes → **67 `openspec` CLI spawns per 60 s tick**. Each spawn ≈0.5 s user CPU (Node + module load). 8-core host → ~10 s plateau at 100 % CPU per cycle.
+Naive `for each cwd: list + for each change: status` fan-out. 4 pinned dirs with 63 active changes total (aggregate across dirs) → **67 `openspec` CLI spawns per 60 s tick** (4 `list` + 63 `status`). Each spawn ≈0.5 s user CPU (Node + module load). 8-core host → ~10 s plateau at 100 % CPU per cycle.
 
 Current poll: **one spawn per cwd** — `openspec status --all --json`. Recipe `OPENSPEC_STATUS_ALL` (`packages/shared/src/platform/openspec.ts`), 30 s timeout. Envelope carries every change's artifact status. Spawn count independent of change count.
 - Spike, 102 changes: ≈1.25 s macOS, ≈2.9 s Win11 VM.
@@ -2736,7 +2736,13 @@ The scheduler in `packages/server/src/directory-service.ts` applies four layers 
 
 **Envelope handling** (`classifyStatusAll`, `packages/shared/src/openspec-status-all.ts`, run in worker `build`). Checked in order:
 - `unsupported`: no JSON + stderr/stdout matches `/unknown option ['"]?--all/` → fallback path (below).
-- Whole-call failure: no JSON, top-level `status[severity=error]`, `root: null`, or `root.source === "implicit"` → `{initialized: false}` + readiness `BROKEN · cli-failed`. Retried next gated tick (one spawn/tick/cwd).
+- Whole-call failure → `{initialized: false}` + readiness `BROKEN · cli-failed`. Retried next gated tick (one spawn/tick/cwd). Triggers:
+  - no JSON;
+  - top-level `status[severity=error]`;
+  - `root: null`;
+  - `root` missing or no string `root.path` (`root-missing`);
+  - `root.source === "implicit"`;
+  - `changes` missing or non-array (`changes-missing`).
 - Success: full JSON. One broken change (exit 1) → `OpenSpecChange.error {code, message}`, `artifacts: []`. Sanitized: control chars stripped, message one line ≤500 chars, code ≤64 chars.
 - Entry with neither `artifacts` nor `status` → `error.code "unknown-entry"`.
 
@@ -2746,7 +2752,9 @@ The scheduler in `packages/server/src/directory-service.ts` applies four layers 
 - `allCwdMtime`, `allExtras` (per-change `TrackedExtras`; feeds probe + watcher output filter via `getOutputPatterns(cwd)`), `allData`.
 - Fallback only: `listMtimeMs`, `listResult`, `data`.
 - `serialized`: worker-stringified `data`, reused by broadcast.
-- Cache updated atomically per directory. Partial failure leaves prior snapshot intact; next tick retries.
+- Success: cache updated atomically per directory.
+- Whole-call failure (`failedPayload`, `refreshOpenSpec` catch): REPLACES `cache.data` with `{initialized: false, changes: [], hasOpenspecDir}` + `BROKEN · cli-failed`. Prior snapshot NOT kept. Clears `allCwdMtime` (→ undefined), `allExtras` (→ null), `allData` (→ undefined), `changes`, `listMtimeMs`, `listResult`, `serialized`. Next gated tick retries.
+- Per-change `error` (`OpenSpecChange.error`): NOT whole-call failure. Lives inside status-all data. Directory stays `initialized: true`.
 
 Refresh paths split into two camps:
 

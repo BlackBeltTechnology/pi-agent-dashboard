@@ -1095,6 +1095,7 @@ export function createDirectoryService(
     }
 
     applyStatusAllBuild(cache, out);
+    statusAllSupport.markSupported(); // a re-evaluating force refresh may flip a null-version verdict
     recordTurn("dirPollPost", postStart);
     const finalized = await finalizeOpenSpecData(cwd, out.data);
     cache.data = finalized;

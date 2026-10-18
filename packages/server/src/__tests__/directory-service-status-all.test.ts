@@ -364,6 +364,23 @@ describe("DirectoryService — openspec status --all path", () => {
       expect(out.changes).toHaveLength(3);
     });
 
+    it("#E15 null version: a force refresh that finds `--all` working clears the verdict (no path flip-flop)", async () => {
+      seedChanges(cwd, 3);
+      version = null;
+      oldCli();
+      make();
+      await service.pollDirectoryGated(cwd);
+      expect(cli.calls).toBe(1); // verdict cached for the process
+      h.cli = cli; // the CLI was upgraded in place; force refresh re-evaluates
+      cli.calls = 0;
+      await service.refreshOpenSpec(cwd);
+      expect(cli.calls).toBe(1);
+      await service.pollDirectoryGated(cwd); // the next gated tick must stay on `--all`
+      await service.pollDirectoryGated(cwd);
+      expect(cli.calls).toBe(1); // gate hit on the `--all` cache, no fallback switch, no retry
+      expect(data().changes).toHaveLength(3);
+    });
+
     it("#E15 unresolvable version: cached for the process, retried on force refresh", async () => {
       seedChanges(cwd, 3);
       version = null;

@@ -236,6 +236,8 @@ export interface StatusAllSupportCache {
    */
   isKnownUnsupported(version: string | null, force: boolean): boolean;
   markUnsupported(version: string | null): void;
+  /** A successful `--all` call clears any verdict (a re-evaluating force refresh can flip it back). */
+  markSupported(): void;
 }
 
 export function createStatusAllSupportCache(): StatusAllSupportCache {
@@ -260,6 +262,10 @@ export function createStatusAllSupportCache(): StatusAllSupportCache {
     markUnsupported(version) {
       marked = true;
       markedVersion = version;
+    },
+    markSupported() {
+      marked = false;
+      markedVersion = null;
     },
   };
 }
