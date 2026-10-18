@@ -4,7 +4,7 @@
  *
  * Harness glue copied from ./settings-page-composition.test.tsx.
  */
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SettingsPanel } from "../SettingsPanel.js";
 
@@ -351,7 +351,8 @@ describe("settings access page — network trust", () => {
     await openAccess(p);
     // Let the health read settle before asserting an absence.
     await waitFor(() => expect(fetchCalls.some((c) => c.url === "/api/health")).toBe(true));
-    await new Promise((r) => setTimeout(r, 20));
+    // Flush the state updates the settled read queued (no fixed-tick wait).
+    await act(async () => {});
     expect(screen.queryByTestId("access-network-trust-banner")).toBeNull();
   });
 
