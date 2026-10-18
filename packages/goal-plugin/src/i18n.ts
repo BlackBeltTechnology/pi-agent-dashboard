@@ -96,7 +96,7 @@ export const catalog = {
     settingsInstall: "将扩展安装到 pi 以激活。在会话中使用以下命令设置或控制目标：",
     autoRespawnDefaultLabel: "默认自动重启新目标",
     autoRespawnHelp:
-      "目标的会话终止时，启动一个新会话继续追求 — 受轮次预算和崩溃循环断路器限制。每个目标可以覆盖此设置。",
+      "目标的会话终止时，仪表板会重启一个新会话继续追求 — 受轮次预算和崩溃循环断路器限制。每个目标可以覆盖此设置。",
     autoRespawnBrowserNote: "仅保存在此浏览器中。",
     thisBrowser: "此浏览器",
   },

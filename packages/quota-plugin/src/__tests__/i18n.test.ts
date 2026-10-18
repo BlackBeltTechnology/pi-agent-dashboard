@@ -1,4 +1,6 @@
 /**
+ * @structural-pin the `t("key")` call sites in QuotaSettings.tsx are the only list of keys it resolves; no runtime path enumerates them
+ *
  * Catalog key-parity for the quota plugin's context-strip strings.
  *
  * `catalog` ships UNPREFIXED leaf keys under `plugin.quota.*`. Every locale

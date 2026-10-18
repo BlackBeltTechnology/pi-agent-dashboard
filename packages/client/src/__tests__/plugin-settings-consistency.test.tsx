@@ -286,10 +286,6 @@ async function mountPlugin(c: PluginCase): Promise<HTMLElement> {
   await waitFor(() =>
     expect(c.ready.startsWith("[") ? view.container.querySelector(c.ready) : view.queryByTestId(c.ready)).not.toBeNull(),
   );
-  // let post-load effects (second fetch, state flips) settle
-  await act(async () => {
-    await new Promise((r) => setTimeout(r, 0));
-  });
   return view.container;
 }
 

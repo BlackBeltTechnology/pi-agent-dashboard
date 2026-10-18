@@ -136,8 +136,26 @@ async function mount(path: string, rows: ReturnType<typeof pluginRow>[]) {
   await screen.findByTestId("settings-nav-rail");
 }
 
+/** Per-test in-memory storage: `npm test` backs Node's `localStorage` with ONE
+ * file shared by every parallel worker, so another file flipping the same key
+ * races this one (seen with `show-plugin-internals`). */
+function memoryStorage(): Storage {
+  const m = new Map<string, string>();
+  return {
+    get length() {
+      return m.size;
+    },
+    clear: () => m.clear(),
+    getItem: (k) => m.get(k) ?? null,
+    key: (i) => [...m.keys()][i] ?? null,
+    removeItem: (k) => void m.delete(k),
+    setItem: (k, v) => void m.set(k, String(v)),
+  };
+}
+
 beforeEach(() => {
   vi.restoreAllMocks();
+  vi.stubGlobal("localStorage", memoryStorage());
   // The Plugins rail subtree is collapsed by default; these tests assert on the
   // children, so pre-expand it (explicit user choice). See change: addons-hub-declutter.
   localStorage.setItem("dashboard:settings-plugins-expanded", "true");

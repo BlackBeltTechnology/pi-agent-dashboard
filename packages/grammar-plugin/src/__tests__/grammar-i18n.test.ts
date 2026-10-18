@@ -1,4 +1,6 @@
 /**
+ * @structural-pin the `t("key")` call sites are the only list of keys the settings body resolves; no runtime path enumerates them
+ *
  * E31 (retro-ux-plugin-settings-wave-2): every translatable key the settings
  * section resolves through `t("<key>", …)` exists in the shipped `hu` catalog.
  * English lives inline at the call site, so a key missing here silently shows
