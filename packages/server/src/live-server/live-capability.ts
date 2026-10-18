@@ -28,14 +28,20 @@ export const CAPABILITY_IDLE_MS = 30 * 60_000;
 export const CAPABILITY_MAX_MS = 12 * 60 * 60_000;
 /** Hard cap on live tokens (oldest dropped): a loop minting tokens cannot grow memory. */
 const MAX_TOKENS = 1024;
+/** Live tokens per minting principal: one caller's mint loop evicts only ITS OWN oldest tokens. */
+const MAX_TOKENS_PER_PRINCIPAL = 64;
 /** `/~c/<token>` anywhere in a path or `Referer`. Tokens are base64url. */
 const CAPABILITY_SEGMENT = /\/~c\/[A-Za-z0-9_-]+/g;
 const TOKEN_SHAPE = /^[A-Za-z0-9_-]{22,}$/;
 
 /** Who minted a capability — the identity and tier an accepted request carries. */
 export interface CapabilityPrincipal {
-  /** `device` (paired device), `session` (login/passkey session), `local` (no revocable credential). */
-  kind: "device" | "session" | "local";
+  /**
+   * `device` (paired device), `session` (login/passkey session), `local` (genuine
+   * same-host caller), `network` (admitted by network trust only — `legacy` mode;
+   * dies when the mode becomes `pair`).
+   */
+  kind: "device" | "session" | "local" | "network";
   /** Tier the minter held at mint time (absent for `local`). */
   tier?: Tier;
   deviceId?: string;
@@ -63,6 +69,10 @@ export interface LiveCapabilityStoreOptions {
   isTargetLive?: (targetId: string) => boolean;
 }
 
+/** Stable identity of a minting principal (device id, session key, else the shared "local"/"network" bucket). */
+const principalKey = (p: CapabilityPrincipal): string =>
+  p.deviceId ? `device:${p.deviceId}` : p.sessionKey ? `session:${p.sessionKey}` : p.kind;
+
 const hash = (token: string): string => crypto.createHash("sha256").update(token).digest("hex");
 
 /** sha256 of a session cookie value, for {@link CapabilityPrincipal.sessionKey}. */
@@ -88,6 +98,14 @@ export class LiveCapabilityStore {
     this.sweep(now);
     const token = crypto.randomBytes(32).toString("base64url");
     this.entries.set(hash(token), { targetId, principal, mintedAt: now, lastUsedAt: now });
+    // Evict within the minting principal first, so a mint loop cannot push out
+    // another user's active preview tokens.
+    const who = principalKey(principal);
+    let mine = [...this.entries].filter(([, e]) => principalKey(e.principal) === who);
+    while (mine.length > MAX_TOKENS_PER_PRINCIPAL) {
+      this.entries.delete(mine[0][0]);
+      mine = mine.slice(1);
+    }
     while (this.entries.size > MAX_TOKENS) {
       const oldest = this.entries.keys().next().value;
       if (oldest === undefined) break;
@@ -217,6 +235,7 @@ interface CapabilityRequestState {
  */
 export function createLiveCapabilityHook(store: LiveCapabilityStore) {
   return async function liveCapabilityHook(request: { url: string }): Promise<void> {
+    if (!request.url.startsWith("/live/")) return;
     const cap = parseCapabilityPath(request.url);
     if (!cap) return;
     const principal = store.validate(cap.targetId, cap.token);

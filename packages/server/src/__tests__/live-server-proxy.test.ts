@@ -43,7 +43,7 @@ class Upstream {
       const u = new URL(req.url ?? "/", "http://x");
       const seen: Seen = { method: req.method, url: req.url, headers: req.headers };
       // Climbing redirects are keyed, not passed in the query: reply-from refuses a `..` in the request itself.
-      const CLIMBING = ["./../x", "/../api/sessions", "./a/../../b"];
+      const CLIMBING = ["./../x", "/../api/sessions", "./a/../../b", "/%2e%2e/%2e%2e/api/x", "/a/%2E%2E/%2e%2e/b"];
       if (u.pathname === "/redir-climb") {
         res.writeHead(302, { location: CLIMBING[Number(u.searchParams.get("k"))] ?? "/" });
         return res.end();
@@ -69,7 +69,10 @@ class Upstream {
     // Hand-rolled upgrade: 101 + echo, recording what the proxy forwarded.
     this.server.on("upgrade", (req, socket) => {
       this.upgrades.push({ method: req.method, url: req.url, headers: req.headers });
-      socket.write("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n");
+      const cookies = (req.url ?? "").includes("setcookie")
+        ? "Set-Cookie: pi_dash_token=planted; Path=/\r\nSet-Cookie: myapp_session=y; Path=/\r\n"
+        : "";
+      socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n${cookies}\r\n`);
       socket.on("data", (d) => socket.write(d));
       socket.on("error", () => {});
     });
@@ -173,7 +176,7 @@ describe("live-server proxy under a capability path", () => {
       expect(res.headers.location).toBe(`${prefix}/y?q=1`);
     });
 
-    it.each([0, 1, 2])("upstream 302 that climbs out of the prefix (#%i) is clamped to the prefix root", async (k) => {
+    it.each([0, 1, 2, 3, 4])("upstream 302 that climbs out of the prefix (#%i) is clamped to the prefix root", async (k) => {
       const res = await get(`${prefix}/redir-climb?k=${k}`);
       expect([res.statusCode, res.headers.location]).toEqual([302, `${prefix}/`]);
     });
@@ -318,18 +321,18 @@ describe("live-server proxy under a capability path", () => {
 
     /** Perform an upgrade; resolves with the 101 socket after an echo round-trip. */
     const upgrade = (path: string, headers: Record<string, string>) =>
-      new Promise<{ echo: string }>((resolve, reject) => {
+      new Promise<{ echo: string; headers: http.IncomingHttpHeaders }>((resolve, reject) => {
         const req = http.request({
           host: "127.0.0.1",
           port: frontPort,
           path,
           headers: { Connection: "Upgrade", Upgrade: "websocket", ...headers },
         });
-        req.on("upgrade", (_res, socket) => {
+        req.on("upgrade", (res, socket) => {
           socket.once("data", (d) => {
             const echo = d.toString();
             socket.destroy();
-            resolve({ echo });
+            resolve({ echo, headers: res.headers });
           });
           socket.write("ping");
         });
@@ -359,6 +362,17 @@ describe("live-server proxy under a capability path", () => {
       const seen = upstream.upgrades[0];
       expect(seen.headers).not.toHaveProperty("cookie");
       expect(seen.headers.authorization).toBe(`Bearer ${APP_TOKEN}`);
+    });
+
+    it("the 101 handshake drops an upstream Set-Cookie naming a dashboard cookie and keeps the app's", async () => {
+      const { headers, echo } = await upgrade(`${prefix}/hmr-setcookie`, {});
+      expect(echo).toBe("ping"); // frames after the head still flow
+      expect(headers["set-cookie"]).toEqual(["myapp_session=y; Path=/"]);
+    });
+
+    it("the host's operator bearer (pi_op_…) is a dashboard credential and is stripped too", async () => {
+      await upgrade(`${prefix}/hmr`, { Authorization: "Bearer pi_op_abcdef" });
+      expect(upstream.upgrades[0].headers).not.toHaveProperty("authorization");
     });
 
     it("plain (non-capability) upgrade strips the same credentials", async () => {

@@ -1511,6 +1511,10 @@ describe("isKnockListedPeer (knock eligibility from the raw list)", () => {
     expect(isKnockListedPeer("203.0.113.9", {}, [" 0.0.0.0/0", "::/0 ", "*.*.*.*", "  "])).toBe(false);
   });
 
+  it.each(["1.2.3.4/0", "0.0.0.0/00", "::0/0", "*.*.*.*", "***"])("match-all spelling %s never makes a public peer eligible", (entry) => {
+    expect(isKnockListedPeer("203.0.113.9", {}, [entry])).toBe(false);
+  });
+
   it("refuses any forwarding header, even from a listed peer", () => {
     expect(isKnockListedPeer("198.51.100.7", { "x-forwarded-for": "203.0.113.9" }, ["198.51.100.0/24"])).toBe(false);
   });

@@ -2092,6 +2092,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     isTargetLive: (id) => liveServerManager.get(id) !== undefined,
     isPrincipalLive: (p) => {
       if (p.identityExpiresAt !== undefined && p.identityExpiresAt <= Date.now()) return false;
+      // Minted on network trust alone: only valid while network trust still authenticates.
+      if (p.kind === "network") return effectiveTrustMode().mode === "legacy";
       if (p.kind === "device") return pairedDeviceRegistry.list().some((d) => d.id === p.deviceId);
       if (p.kind === "session" && p.session) return effectiveSessionTier(p.session, passkeyService) !== null;
       return true;

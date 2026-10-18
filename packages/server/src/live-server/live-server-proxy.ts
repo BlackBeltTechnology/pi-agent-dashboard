@@ -61,7 +61,8 @@ function stripDashboardCredentials(
   const authz = headers.authorization;
   if (typeof authz === "string") {
     const m = /^Bearer\s+(.+)$/i.exec(authz.trim());
-    if (m && isDeviceBearer(m[1])) delete headers.authorization;
+    // Device bearers and the host's own operator (`pi_op_`) bearer are dashboard credentials.
+    if (m && (isDeviceBearer(m[1]) || m[1].startsWith("pi_op_"))) delete headers.authorization;
   }
   return headers;
 }
@@ -74,18 +75,32 @@ function stripDashboardCredentials(
  * single-port tunnel keeps working. Foreign absolute redirects are untouched.
  */
 function rewriteLocation(location: string, prefix: string, host: string, port: number): string {
-  // A redirect that climbs out of the prefix (`./../x`, `/../x`) would let the
-  // browser normalise it past the capability/target prefix: refuse it.
-  if (/(^|\/)\.\.(\/|$|\?|#)/.test(location.split(/[?#]/)[0])) return `${prefix}/`;
-  if (location.startsWith("./")) return `${prefix}/${location.slice(2)}`;
-  if (location.startsWith("/")) return `${prefix}${location}`;
+  const relative = location.startsWith("./") ? `${prefix}/${location.slice(2)}` : location.startsWith("/") ? `${prefix}${location}` : null;
+  if (relative !== null) return staysInside(relative, prefix) ? relative : `${prefix}/`;
   try {
     const u = new URL(location);
-    if (u.hostname === host && u.port === String(port)) return `${prefix}${u.pathname}${u.search}`;
+    if (u.hostname === host && u.port === String(port)) {
+      const rewritten = `${prefix}${u.pathname}${u.search}`;
+      return staysInside(rewritten, prefix) ? rewritten : `${prefix}/`;
+    }
   } catch {
     /* not an absolute URL — leave as-is */
   }
   return location;
+}
+
+/**
+ * Does `path` still resolve inside `prefix` once a browser applies RFC 3986
+ * dot-segment removal (WHATWG `URL` does, including `%2e`)? A redirect that
+ * climbs out (`./../x`, `/%2e%2e/api`) must not leave the capability/target prefix.
+ */
+function staysInside(path: string, prefix: string): boolean {
+  try {
+    const resolved = new URL(path.replace(/\\/g, "/"), "http://x").pathname;
+    return resolved === prefix || resolved.startsWith(`${prefix}/`);
+  } catch {
+    return false;
+  }
 }
 
 export interface LiveProxyDeps {
@@ -171,6 +186,36 @@ export function registerLiveServerProxy(
   fastify.all("/live/:id", forward);
 }
 
+/** Longest upstream 101 head we will buffer before giving up. */
+const MAX_HANDSHAKE_BYTES = 16 * 1024;
+
+/**
+ * Pipe the upstream's upgrade response to the browser, dropping any
+ * `Set-Cookie` that names a dashboard cookie from the 101 head (a previewed app
+ * must not plant or overwrite a dashboard credential over the WS handshake
+ * either); the frames after the head are piped untouched.
+ */
+function forwardHandshakeFiltered(upstream: net.Socket, socket: import("node:stream").Duplex): void {
+  let buf = Buffer.alloc(0);
+  const onData = (chunk: Buffer) => {
+    buf = Buffer.concat([buf, chunk]);
+    const end = buf.indexOf("\r\n\r\n");
+    if (end < 0) {
+      if (buf.length > MAX_HANDSHAKE_BYTES) upstream.destroy();
+      return;
+    }
+    upstream.off("data", onData);
+    const headText = buf.subarray(0, end).toString("latin1");
+    const filtered = headText
+      .split("\r\n")
+      .filter((line) => !/^set-cookie:\s*pi_dash_/i.test(line))
+      .join("\r\n");
+    socket.write(Buffer.concat([Buffer.from(`${filtered}\r\n\r\n`, "latin1"), buf.subarray(end + 4)]));
+    upstream.pipe(socket);
+  };
+  upstream.on("data", onData);
+}
+
 /** WebSocket upgrade forwarding (HMR / dev-server sockets). */
 export function handleLiveServerUpgrade(
   manager: LiveServerManager,
@@ -217,7 +262,7 @@ export function handleLiveServerUpgrade(
         `${headers}\r\n\r\n`,
     );
     if (head.length > 0) upstream.write(head);
-    upstream.pipe(socket);
+    forwardHandshakeFiltered(upstream, socket);
     socket.pipe(upstream);
   });
   // Bound the connect/upgrade handshake: a target that accepts TCP but never

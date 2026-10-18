@@ -11,6 +11,7 @@ import type { Tier } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { COOKIE_NAME, type TokenPayload } from "../auth/auth.js";
+import { canDiscloseAccessPosture } from "../auth/localhost-guard.js";
 import {
   type CapabilityPrincipal,
   type LiveCapabilityStore,
@@ -51,7 +52,9 @@ function capabilityPrincipalOf(request: FastifyRequest): CapabilityPrincipal {
       ...identityFields,
     };
   }
-  return { kind: "local", ...identityFields };
+  // No credential: a genuine same-host caller, or one admitted by network trust
+  // alone (`legacy`). The latter's tokens must not outlive a switch to `pair`.
+  return { kind: canDiscloseAccessPosture(request) ? "local" : "network", ...identityFields };
 }
 
 export function registerLiveServerRoutes(

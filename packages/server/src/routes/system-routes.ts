@@ -584,9 +584,11 @@ export function registerSystemRoutes(
       // `network.trustMode` is a security switch: only the two known values may
       // be WRITTEN (a hand-edited unknown value is judged fail-closed at read).
       // See change: retire-trusted-networks-bypass.
+      if ("network" in partial && (partial.network === null || typeof partial.network !== "object" || Array.isArray(partial.network))) {
+        return reply.code(400).send({ success: false, error: "network must be an object" });
+      }
       if (
-        partial.network !== null &&
-        typeof partial.network === "object" &&
+        partial.network !== undefined &&
         "trustMode" in partial.network &&
         partial.network.trustMode !== "pair" &&
         partial.network.trustMode !== "legacy"

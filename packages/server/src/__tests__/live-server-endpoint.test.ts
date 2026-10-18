@@ -512,3 +512,25 @@ describe("E23 — capability invalidation", () => {
     expect(fresh.size()).toBe(0);
   });
 });
+
+describe("LiveCapabilityStore bounds (audit)", () => {
+  it("a mint loop evicts only the minting principal's own oldest tokens", async () => {
+    const { LiveCapabilityStore } = await import("../live-server/live-capability.js");
+    const store = new LiveCapabilityStore();
+    const victim = store.mint("vite-5173", { kind: "device", deviceId: "victim", tier: "control" });
+    const first = store.mint("vite-5173", { kind: "device", deviceId: "attacker", tier: "control" });
+    for (let i = 0; i < 100; i++) store.mint("vite-5173", { kind: "device", deviceId: "attacker", tier: "control" });
+    expect(store.validate("vite-5173", victim.token)).not.toBeNull();
+    expect(store.validate("vite-5173", first.token)).toBeNull();
+  });
+
+  it("a network-trust token dies when the principal is no longer live (pair)", async () => {
+    const { LiveCapabilityStore } = await import("../live-server/live-capability.js");
+    let legacy = true;
+    const store = new LiveCapabilityStore({ isPrincipalLive: (p) => p.kind !== "network" || legacy });
+    const t = store.mint("vite-5173", { kind: "network" });
+    expect(store.validate("vite-5173", t.token)).not.toBeNull();
+    legacy = false;
+    expect(store.validate("vite-5173", t.token)).toBeNull();
+  });
+});

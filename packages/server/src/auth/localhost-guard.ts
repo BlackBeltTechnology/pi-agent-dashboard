@@ -976,8 +976,15 @@ export function isOnLinkPrivate(ip: string | undefined, interfaces: readonly Lan
   return false;
 }
 
-/** Entries that match every address — never a knock-eligibility grant. */
-const MATCH_ALL_ENTRIES: ReadonlySet<string> = new Set(["0.0.0.0/0", "::/0", "*.*.*.*"]);
+/**
+ * Does this entry match every address? `x/0` for any base or spelling (`0.0.0.0/00`,
+ * `::0/0`, `1.2.3.4/0`), or a wildcard of only `*` — never a knock-eligibility grant.
+ */
+function isMatchAllEntry(entry: string): boolean {
+  const slash = entry.indexOf("/");
+  if (slash >= 0) return Number.parseInt(entry.slice(slash + 1), 10) === 0;
+  return /^[*.]+$/.test(entry) && entry.includes("*");
+}
 
 /**
  * Knock eligibility from the configured list: may `peer` KNOCK because an entry
@@ -994,7 +1001,7 @@ export function isKnockListedPeer(
   list: readonly string[],
 ): boolean {
   if (!peer || hasProxyForwardingHeaders(headers)) return false;
-  const entries = list.map((e) => e.trim()).filter((e) => e !== "" && !MATCH_ALL_ENTRIES.has(e));
+  const entries = list.map((e) => e.trim()).filter((e) => e !== "" && !isMatchAllEntry(e));
   return entries.length > 0 && isBypassedHost(peer, entries);
 }
 

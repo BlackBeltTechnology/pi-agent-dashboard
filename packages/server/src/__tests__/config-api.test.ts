@@ -715,6 +715,29 @@ describe("config-api network trust mode", () => {
       await app.close();
     });
 
+    it("PUT a non-object `network` → 400 and the stored block survives; writeConfigPartial ignores it too", async () => {
+      fs.writeFileSync(configFile, JSON.stringify({ port: 8000, network: { trustMode: "pair", trustModeOrigin: "operator" } }));
+      const app = makeApp();
+      for (const network of [null, "x", [], 5]) {
+        const res = await app.inject({ method: "PUT", url: "/api/config", payload: { network } });
+        expect(res.statusCode, JSON.stringify(network)).toBe(400);
+      }
+      expect(raw().network).toEqual({ trustMode: "pair", trustModeOrigin: "operator" });
+      // The writer itself never lets a non-object replace the block (CLI / REST alike).
+      expect(writeConfigPartial({ network: null, autoShutdown: false }).success).toBe(true);
+      expect(raw().network).toEqual({ trustMode: "pair", trustModeOrigin: "operator" });
+      await app.close();
+    });
+
+    it("a hand-edited non-string trustMode reads as UNRECOGNISED (fail closed to pair), not as nothing stored", () => {
+      for (const trustMode of [true, 1]) {
+        fs.writeFileSync(configFile, JSON.stringify({ network: { trustMode } }));
+        const resolved = resolveTrustMode(loadConfig());
+        expect(resolved.mode, JSON.stringify(trustMode)).toBe("pair");
+        expect(resolved.unrecognised).toBe(String(trustMode));
+      }
+    });
+
     it('PUT network.trustMode "open" (or any unknown value) → 400 and nothing is written', async () => {
       fs.writeFileSync(configFile, JSON.stringify({ port: 8000, network: { trustMode: "legacy", trustModeOrigin: "upgrade" } }));
       const before = fs.readFileSync(configFile, "utf-8");

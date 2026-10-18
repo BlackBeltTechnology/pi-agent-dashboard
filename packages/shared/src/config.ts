@@ -186,7 +186,9 @@ export function resolveTrustMode(config: { network?: NetworkConfig } | null | un
 function parseNetworkConfig(raw: any): NetworkConfig | undefined {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
   const out: NetworkConfig = {};
-  if (typeof raw.trustMode === "string") out.trustMode = raw.trustMode;
+  // Any stored value passes through (stringified): a hand-edited `true` / `1` must
+  // read as UNRECOGNISED (fail closed to `pair`), not as "nothing stored" (`legacy`).
+  if (raw.trustMode !== undefined && raw.trustMode !== null) out.trustMode = String(raw.trustMode);
   if (typeof raw.trustModeOrigin === "string") out.trustModeOrigin = raw.trustModeOrigin;
   return Object.keys(out).length > 0 ? out : undefined;
 }

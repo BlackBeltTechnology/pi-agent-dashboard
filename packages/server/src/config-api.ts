@@ -287,7 +287,12 @@ export function writeConfigPartial(
     // stamps `operator` (or `upgrade` for the boot decision); a save that leaves
     // the mode unchanged keeps the stored origin whatever the caller sent.
     // See change: retire-trusted-networks-bypass (D2).
-    if (partial.network && typeof partial.network === "object" && !Array.isArray(partial.network)) {
+    // A non-object `network` (null, string, array…) would REPLACE the stored block
+    // and silently drop `trustMode`: never let it through.
+    if ("network" in partial && (typeof partial.network !== "object" || partial.network === null || Array.isArray(partial.network))) {
+      delete partial.network;
+    }
+    if (partial.network) {
       const existingNet: Record<string, any> =
         existing.network && typeof existing.network === "object" ? existing.network : {};
       const mergedNet: Record<string, any> = { ...existingNet, ...partial.network };
