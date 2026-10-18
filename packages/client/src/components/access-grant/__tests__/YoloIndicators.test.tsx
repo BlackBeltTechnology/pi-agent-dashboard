@@ -1,6 +1,8 @@
 /**
  * Active-YOLO signals (changes: add-access-grant-dialog 8b.7 / fix-yolo-indicator-overflow;
  * test-plan #E9-#E14, #F1-#F7).
+ *
+ * @structural-pin the hu / zh-CN catalogues are lazy chunks (no jsdom import path), so E14 reads their text to pin the added and deleted yolo.* keys
  */
 
 import { execFileSync } from "node:child_process";
