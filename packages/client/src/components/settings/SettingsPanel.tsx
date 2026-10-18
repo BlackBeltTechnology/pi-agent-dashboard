@@ -1,6 +1,7 @@
 import { FieldShell, NumberField, type RegisteredSource, SelectField, SettingsDraftProvider, type SettingsDraftRegistry, SettingsNotice, TextField, ToggleField, useSettingsDraftSource, useSlotIntents } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import type { TrustMode } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { VALID_SETTINGS_TABS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-types.js";
 import {
   DISPLAY_PRESETS,
@@ -25,7 +26,7 @@ import { DEFAULT_MEMORY_LIMITS } from "@blackbelt-technology/pi-dashboard-shared
 import { mergeModelOptions } from "@blackbelt-technology/pi-dashboard-shared/model-catalogue.js";
 import type { GroupByMode, GroupByPrefs } from "@blackbelt-technology/pi-dashboard-shared/session-group-by.js";
 import type { ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { mdiAlert, mdiArrowLeft, mdiBookOpenPageVariant, mdiCheckCircle, mdiChevronDown, mdiChevronRight, mdiChip, mdiClipboardText, mdiCloseCircle, mdiCog, mdiContentSave, mdiCubeOutline, mdiDelete, mdiFileDocumentEditOutline, mdiKey, mdiLoading, mdiLock, mdiPackageVariant, mdiPackageVariantClosed, mdiPalette, mdiPlay, mdiPlus, mdiPuzzle, mdiPuzzleOutline, mdiRestart, mdiRobotOutline, mdiServer, mdiShieldCheck, mdiShieldKey, mdiTextBoxOutline, mdiTune, mdiTunnel, mdiUpdate, mdiViewDashboard, mdiWeb, mdiWrench } from "@mdi/js";
+import { mdiAlert, mdiAlertOutline, mdiArrowLeft, mdiBookOpenPageVariant, mdiCheckCircle, mdiChevronDown, mdiChevronRight, mdiChip, mdiClipboardText, mdiCloseCircle, mdiCog, mdiContentSave, mdiCubeOutline, mdiDelete, mdiFileDocumentEditOutline, mdiKey, mdiLoading, mdiLock, mdiPackageVariant, mdiPackageVariantClosed, mdiPalette, mdiPlay, mdiPlus, mdiPuzzle, mdiPuzzleOutline, mdiRestart, mdiRobotOutline, mdiServer, mdiShieldCheck, mdiShieldKey, mdiTextBoxOutline, mdiTune, mdiTunnel, mdiUpdate, mdiViewDashboard, mdiWeb, mdiWrench } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useRoute } from "wouter";
@@ -54,6 +55,7 @@ import {
 import { fetchAutoInitWorktreePref, fetchAutoNameSessionsPref, setAutoInitWorktreePref, setAutoNameSessionsPref } from "../../lib/git/git-api.js";
 import { t as i18nT, LANGUAGE_OPTIONS, type Language, useI18n } from "../../lib/i18n/i18n.js";
 import { buildPiResourceFileUrl } from "../../lib/nav/route-builders.js";
+import { displayTrustMode, parseTrustPosture, resolveClientTrustMode, type TrustPosture } from "../../lib/network-trust/trust-posture.js";
 import { logRejection } from "../../lib/report-error.js";
 import { needsAttention } from "../../lib/services/services-model.js";
 import { RESERVED_SETTINGS_LABELS, resolveSettingsPromotions } from "../../lib/settings-promotions.js";
@@ -61,6 +63,7 @@ import { useCustomEventGroups } from "../../lib/state/custom-event-groups.js";
 import { useDisplayPrefsContext } from "../../lib/state/DisplayPrefsContext.js";
 import { PopoverBoundaryProvider } from "../../lib/state/PopoverBoundaryContext.js";
 import { randomUuid } from "../../lib/util/random-uuid.js";
+import { callout } from "../connectivity/connectivity-ui.js";
 import { KnownServersSection } from "../connectivity/KnownServersSection.js";
 import { NetworkDiscoverySection } from "../connectivity/NetworkDiscoverySection.js";
 import { PairedDevicesSection } from "../connectivity/PairedDevicesSection.js";
@@ -87,6 +90,7 @@ import { DiagnosticsSection } from "./DiagnosticsSection.js";
 import { FocusSettingsSection } from "./FocusSettingsSection.js";
 import { ModelProxySection } from "./ModelProxySection.js";
 import { ModelSelector } from "./ModelSelector.js";
+import { canRequestAccess, type NetworkTrustControls, NetworkTrustModeRadio, NetworkTrustNotices, PairRefusedPeer } from "./NetworkTrustParts.js";
 import { NodeRuntimeSection } from "./NodeRuntimeSection.js";
 // Curated pi-install picker; sits directly above the raw Tools escape hatch.
 // See change: select-pi-runtime-install (design D12).
@@ -243,6 +247,13 @@ interface Config {
   maxConcurrentSubagents?: number;
   trustedNetworks?: string[];
   /**
+   * How a network match is treated (`pair` | `legacy`). An unrecognised stored
+   * string is carried through untouched. See change: retire-trusted-networks-bypass.
+   */
+  network?: { trustMode?: string; trustModeOrigin?: string };
+  /** Only `acceptLanRequests` is edited here (Security ▸ Network access). */
+  pairing?: { acceptLanRequests?: boolean };
+  /**
    * Bare hostnames the Host gate additionally admits (`allowedHosts`). Bound
    * to the Security ▸ Allowed hostnames editor; written whole by Save.
    * See change: add-host-allowlist-admission.
@@ -314,7 +325,7 @@ export const CONFIG_FIELD_PAGE: Record<string, string> = {
   questionFirst: "sessions", askUserPromptTimeoutSeconds: "sessions", spawnRegisterTimeoutMs: "sessions", sessionList: "sessions",
   gitWorktreeEnabled: "sessions", dashboardName: "general", defaultModel: "sessions", defaultThinkingLevel: "sessions",
   windowsGitSource: "sessions", autoStart: "sessions",
-  trustedNetworks: "security", auth: "security", allowedHosts: "security", hostGate: "security", agentPathGate: "security",
+  trustedNetworks: "security", network: "security", pairing: "security", auth: "security", allowedHosts: "security", hostGate: "security", agentPathGate: "security",
   modelProxy: "providers",
   openspec: "openspec",
   devBuildOnReload: "developer", keeperLog: "developer",
@@ -398,6 +409,16 @@ export function computeConfigPartial(config: Config, original: Config): Record<s
   }
   if (JSON.stringify(config.trustedNetworks) !== JSON.stringify(original.trustedNetworks)) {
     partial.trustedNetworks = config.trustedNetworks ?? [];
+  }
+  // Trust mode: written as `trustMode` only — the server stamps the origin.
+  // `pairing` is FIELD-level (`acceptLanRequests` only): the draft also carries the
+  // server-owned `publicBaseUrls`, which this page must not write back.
+  // See change: retire-trusted-networks-bypass.
+  if (config.network?.trustMode !== original.network?.trustMode && config.network?.trustMode !== undefined) {
+    partial.network = { trustMode: config.network.trustMode };
+  }
+  if ((config.pairing?.acceptLanRequests === true) !== (original.pairing?.acceptLanRequests === true)) {
+    partial.pairing = { acceptLanRequests: config.pairing?.acceptLanRequests === true };
   }
   // Host-gate fields: each written WHOLE (design D1) — `allowedHosts` is a
   // replace-list server-side, so a partial list write would merge wrong.
@@ -792,10 +813,15 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
   // See change: bound-session-heap-and-gc-telemetry (D13, task 13.6).
   const [effectiveServerHeapMb, setEffectiveServerHeapMb] = useState<number | null | undefined>(undefined);
 
+  // Network-trust posture from the same health read (null when undisclosed to this caller).
+  // See change: retire-trusted-networks-bypass.
+  const [trustPosture, setTrustPosture] = useState<TrustPosture | null>(null);
+
   const refreshGitSourceReadout = useCallback(() => {
     return fetch(`${getApiBase()}/api/health`)
       .then((res) => (res.ok ? res.json() : null))
       .then((h) => {
+        setTrustPosture(parseTrustPosture(h));
         setGitSourceReadout(h?.gitSource ?? null);
         setGatewayEndpoint(h ? (h.piGatewayPort ?? null) : null);
         setEffectiveServerHeapMb(h ? (h.server?.effectiveMaxOldSpaceMb ?? null) : undefined);
@@ -910,6 +936,21 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
   const restartPendingForBindHost =
     !!reachability && reachability.resolvedBindHost !== reachability.pendingBindHost;
 
+  // Security ▸ Network access: the radio edits the DRAFT; the saved mode and the
+  // saved LAN-requests switch are read from the loaded baseline, never the draft.
+  const networkTrust = useMemo(() => {
+    if (!config) return null;
+    const draft = resolveClientTrustMode(config);
+    return {
+      draftMode: displayTrustMode(config, trustPosture),
+      savedMode: displayTrustMode(original, trustPosture),
+      unrecognised: draft.unrecognised,
+      posture: trustPosture,
+      lanSaved: original?.pairing?.acceptLanRequests === true,
+      lanDraft: config.pairing?.acceptLanRequests === true,
+    };
+  }, [config, original, trustPosture]);
+
   // Plugin draft state lives in the plugin component and dies on unmount, so
   // leaving a dirty plugin page must guard. Scoped to THIS page's sources —
   // keying off the panel-level `isDirty` would block a user with unsaved Server
@@ -954,7 +995,7 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
           const data = await res.json();
           if (!data.success) throw new Error(data.error || "config");
           setOriginal(JSON.parse(JSON.stringify(config)));
-          if (configPartial.windowsGitSource !== undefined) void refreshGitSourceReadout();
+          if (configPartial.windowsGitSource !== undefined || configPartial.network !== undefined) void refreshGitSourceReadout();
           setPiMirror(data.piMirror ?? null);
           return { restartRequired: !!data.restartRequired };
         },
@@ -2330,7 +2371,7 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
             {activeTab === "access" && (
               <>
                 <AccessPromptsSection selectedCwd={selectedCwd} />
-                <AccessSection />
+                <AccessSection configTrustMode={resolveClientTrustMode(original).mode} />
                 <PiTrustMirrorSection />
               </>
             )}
@@ -2435,7 +2476,17 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
                     />
                   </div>
                 </Section>
+                {networkTrust && (
                 <TrustedNetworksSection
+                  trust={{
+                    ...networkTrust,
+                    onModeChange: (mode) => update((c) => {
+                      c.network = { ...c.network, trustMode: mode };
+                      // Leaving Pair drops a drafted LAN-requests switch: that checkbox lives in the Pair callouts.
+                      if (mode !== "pair") c.pairing = { ...c.pairing, acceptLanRequests: original?.pairing?.acceptLanRequests === true };
+                    }),
+                    onLanChange: (on) => update((c) => { c.pairing = { ...c.pairing, acceptLanRequests: on }; }),
+                  }}
                   bypassHosts={config.auth?.bypassHosts ?? []}
                   legacyTrustedNetworks={config.trustedNetworks ?? []}
                   pendingBindHost={pendingBindHost}
@@ -2448,6 +2499,7 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
                     c.auth.bypassHosts = nets;
                   })}
                 />
+                )}
                 {/* Allowed hostnames — the Host gate's operator surface, between
                     the two network-trust neighbours. Mode + hostnames edit the
                     panel draft; the section itself never writes.
@@ -3064,9 +3116,12 @@ export function removeTrustedEntry(current: string[], entry: string): string[] {
 function BlockEventTrustBanner({
   trusted,
   onTrust,
+  mode = "legacy",
 }: {
   trusted: string[];
   onTrust: (entry: string) => void;
+  /** In `pair` mode a refusal is information only: no Trust action, just the way to request access. */
+  mode?: TrustMode;
 }) {
   const [events, setEvents] = useState<BlockEvent[]>([]);
   // IPs the operator has acted on this session. A wide-subnet trust (e.g.
@@ -3085,6 +3140,26 @@ function BlockEventTrustBanner({
     setDismissed((prev) => new Set(prev).add(ip));
     onTrust(entry);
   };
+
+  if (mode === "pair") {
+    // Refused peers stay listed (the operator's cue) — once an address is allowed the row
+    // flips from the allow action to the "have the device request access" note.
+    const refused = events.filter((e) => e.trustable);
+    if (refused.length === 0) return null;
+    return (
+      <div className="space-y-1.5 mb-2" data-testid="block-event-banner">
+        {refused.map((ev) => (
+          <PairRefusedPeer
+            key={ev.ip}
+            ip={ev.ip}
+            count={ev.count}
+            eligible={canRequestAccess(ev.ip, trusted)}
+            onAllow={() => onTrust(ev.ip)}
+          />
+        ))}
+      </div>
+    );
+  }
 
   const pending = events.filter((e) => e.trustable && !trusted.includes(e.ip) && !dismissed.has(e.ip));
   if (pending.length === 0) return null;
@@ -3230,6 +3305,7 @@ function UnreachableTrustedNetworksAdvisory({
 }
 
 function TrustedNetworksSection({
+  trust,
   bypassHosts,
   legacyTrustedNetworks,
   pendingBindHost,
@@ -3239,6 +3315,8 @@ function TrustedNetworksSection({
   onGoToServerPage,
   onChange,
 }: {
+  /** Mode radio + callout inputs, derived by the panel from its draft. See change: retire-trusted-networks-bypass. */
+  trust: NetworkTrustControls;
   bypassHosts: string[];
   legacyTrustedNetworks: string[];
   /** Effective bind host of the NEXT start, draft included. */
@@ -3320,11 +3398,31 @@ function TrustedNetworksSection({
     setManualEntry("");
   };
 
+  const pair = trust.draftMode === "pair";
+  // Migration callout stands in for the legacy full-access warning (the count already says it).
+  const migrationShown = trust.draftMode === "legacy" && trust.savedMode === "legacy" && (trust.posture?.networkOnly.distinctPeers ?? 0) > 0;
+
   return (
-    <Section title={t("settings.trustedNetworks", undefined, "Trusted Networks")}>
-      <p className="text-xs text-[var(--text-tertiary)] mb-2">
-        {t("settings.trustedNetworksDescription", undefined, "Devices matching these networks or hosts can access the dashboard without authentication. Accepts exact IP, wildcard, or CIDR.")}
-      </p>
+    <Section id="network-access" title={t("settings.networkAccess.title", undefined, "Network access")}>
+      <NetworkTrustModeRadio draftMode={trust.draftMode} onModeChange={trust.onModeChange} />
+      <NetworkTrustNotices {...trust} />
+
+      <div>
+        <p data-testid="trusted-networks-heading" className="mb-1 text-xs font-semibold text-[var(--text-secondary)]">
+          {pair
+            ? t("settings.networkAccess.pairListTitle", undefined, "Networks that may request access")
+            : t("settings.networkAccess.legacyListTitle", undefined, "Trusted networks — admitted without sign-in")}
+        </p>
+        <p data-testid="trusted-networks-description" className="text-xs text-[var(--text-tertiary)] mb-2">
+          {pair
+            ? t(
+                "settings.networkAccess.pairListHint",
+                undefined,
+                "Devices on private networks (192.168.x.x, 10.x.x.x, 172.16–31.x.x, Tailscale 100.64.0.0/10) can always request access. Add other ranges here; every device in an added range may request access. Listing a network never grants access by itself.",
+              )
+            : t("settings.trustedNetworksDescription", undefined, "Devices matching these networks or hosts can access the dashboard without authentication. Accepts exact IP, wildcard, or CIDR.")}
+        </p>
+      </div>
 
       {/* Reachability advisory FIRST — it explains why block events may be
           missing for the unreachable range. The two are independent and may
@@ -3337,8 +3435,8 @@ function TrustedNetworksSection({
         onGoToServerPage={onGoToServerPage}
       />
 
-      {/* Block-event "Trust this network?" banner (task 7.2). */}
-      <BlockEventTrustBanner trusted={bypassHosts} onTrust={addNetwork} />
+      {/* Block-event "Trust this network?" banner (task 7.2); information-only in pair mode. */}
+      <BlockEventTrustBanner trusted={bypassHosts} onTrust={addNetwork} mode={trust.draftMode} />
 
       {bypassHosts.length > 0 && (
         <div className="space-y-1 mb-2" data-testid="trusted-networks-list">
@@ -3400,7 +3498,9 @@ function TrustedNetworksSection({
                   data-wide={row.wide ? "true" : "false"}
                   title={
                     row.wide
-                      ? i18nT("settings.trustWholeRangeTitle", { range: row.value }, "Grants unauthenticated access to the whole {range} range")
+                      ? pair
+                        ? i18nT("settings.networkAccess.wideRangePair", { range: row.value }, "Every device in the {range} range may request access")
+                        : i18nT("settings.trustWholeRangeTitle", { range: row.value }, "Grants unauthenticated access to the whole {range} range")
                       : undefined
                   }
                   className={`w-full flex items-center justify-between px-3 py-1.5 text-xs text-left hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer ${
@@ -3470,9 +3570,14 @@ function TrustedNetworksSection({
         </p>
       )}
 
-      <p className="text-xs text-amber-400/80 mt-2">
-        {t("settings.trustedNetworksWarning", undefined, "Anyone on a trusted network has full access to the dashboard without authentication. Only use on private networks you control.")}
-      </p>
+      {!pair && !migrationShown && (
+        <div role="status" data-testid="trusted-networks-warning" className={callout("warning")}>
+          <Icon path={mdiAlertOutline} size={0.7} className="mt-0.5 shrink-0" aria-hidden="true" />
+          <p>
+            {t("settings.trustedNetworksWarning", undefined, "Anyone on a trusted network has full access to the dashboard without authentication. Only use on private networks you control.")}
+          </p>
+        </div>
+      )}
     </Section>
   );
 }
@@ -3624,9 +3729,9 @@ function ElectronRuntimeUpdates() {
   ) : null;
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, id, children }: { title: string; id?: string; children: React.ReactNode }) {
   return (
-    <div>
+    <div id={id}>
       <h2 className="text-sm font-semibold text-[var(--text-primary)] mb-3 pb-1 border-b border-[var(--border-secondary)]">
         {title}
       </h2>

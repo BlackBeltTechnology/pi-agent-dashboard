@@ -225,6 +225,8 @@ export function registerPairingRoutes(
     getAcceptLanRequests?: () => boolean;
     /** Non-internal interface addresses the server's bind covers (for the on-link gate). */
     getLanInterfaces?: () => LanInterface[];
+    /** Raw configured list for the knock address rule's list branch (both trust modes). See change: retire-trusted-networks-bypass (D7). */
+    getKnockEligibleNetworks?: () => string[];
     /** Injectable limiter / refusal logger (tests). */
     knockLimiter?: KnockLimiter;
     logKnockRefusal?: ReturnType<typeof createRefusalLogger>;
@@ -340,7 +342,11 @@ export function registerPairingRoutes(
       const decision = admitKnock(
         knockPeerInput(request),
         {
-          ...knockPeerState({ hostAdmission, getLanInterfaces: deps.getLanInterfaces ?? (() => []) }),
+          ...knockPeerState({
+            hostAdmission,
+            getLanInterfaces: deps.getLanInterfaces ?? (() => []),
+            getKnockEligibleNetworks: deps.getKnockEligibleNetworks,
+          }),
           acceptLanRequests: deps.getAcceptLanRequests?.() === true,
           liveKnocks: pairing.liveKnocks(),
           limiter: knockLimiter,

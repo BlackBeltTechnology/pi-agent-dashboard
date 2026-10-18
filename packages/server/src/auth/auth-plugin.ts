@@ -33,6 +33,7 @@ import { isBypassed } from "./bypass-urls.js";
 import { hasLocalCredential } from "./local-credential.js";
 import type { LocalTrustContext } from "./local-proof.js";
 import { isLocallyTrusted, isObserveApiRequest, isTrustedSource } from "./localhost-guard.js";
+import { noteNetworkOnlyAdmission } from "./network-trust-telemetry.js";
 import { renderLoginPasskeySection } from "./passkey/passkey-pages.js";
 import { registerPasskeyRoutes } from "./passkey/passkey-routes.js";
 import { PASSKEY_PROVIDER, type PasskeyService } from "./passkey/passkey-service.js";
@@ -58,8 +59,24 @@ export function escapeHtml(str: string): string {
 export interface AuthPluginOptions {
   authConfig: AuthConfig;
   port: number;
-  /** Merged trusted networks (top-level + auth.bypassHosts) */
+  /**
+   * Merged trusted networks (top-level + auth.bypassHosts) — the BOOT list. Used
+   * only as the embedder/test fallback when {@link readAdmissionTrustedNetworks}
+   * is absent; the server always passes the live thunk.
+   */
   resolvedTrustedNetworks?: string[];
+  /**
+   * The live, mode-dependent admission list (`[]` under `pair`), read PER
+   * REQUEST by the bypass-host skip. No copy is held, so a mode switch or list
+   * edit applies without a reload. See change: retire-trusted-networks-bypass (D1).
+   */
+  readAdmissionTrustedNetworks?: () => string[];
+  /**
+   * Told when a login session ends (`POST /auth/logout`), with the session
+   * cookie value, so the live-preview capabilities it minted can be revoked.
+   * See change: retire-trusted-networks-bypass (D5).
+   */
+  onSessionEnd?: (sessionCookie: string) => void;
   /** Local-IPC allowlist token granting genuine-local trust (D10). */
   localToken?: string;
   /** Strict local-proof context (`requireLocalProof`); absent ⇒ default behaviour. */
@@ -224,6 +241,8 @@ export async function registerAuthPlugin(
   options: AuthPluginOptions,
 ): Promise<AuthPluginHandle> {
   const { authConfig, port, resolvedTrustedNetworks, localToken, localTrust, passkeys } = options;
+  const readBypassHosts =
+    options.readAdmissionTrustedNetworks ?? (() => resolvedTrustedNetworks ?? authConfig.bypassHosts ?? []);
   passkeys?.configure(authConfig);
 
   // Mutable auth state — can be rebuilt at runtime via reloadAuth()
@@ -232,7 +251,6 @@ export async function registerAuthPlugin(
     providerRegistry: await buildProviderRegistry(authConfig.providers),
     allowedUsers: authConfig.allowedUsers,
     bypassUrls: authConfig.bypassUrls ?? [],
-    bypassHosts: resolvedTrustedNetworks ?? authConfig.bypassHosts ?? [],
     redirectBaseUrl: authConfig.redirectBaseUrl,
     groupTiers: authConfig.groupTiers,
   };
@@ -255,18 +273,15 @@ export async function registerAuthPlugin(
   }
 
   // Expose reload function on the fastify instance for runtime config updates
-  // `fullConfig` carries the reloaded `resolvedTrustedNetworks` (top-level
-  // `trustedNetworks` merged with `auth.bypassHosts`) so the reload applies the
-  // SAME merge boot does. Without it every auth-carrying `PUT /api/config`
-  // silently dropped top-level trusted networks from the gate until restart — a
-  // pre-existing defect (D15). Omitting it keeps the old auth-only behaviour
-  // for callers that have no full config to hand.
-  (fastify as any)._reloadAuth = async (newConfig: AuthConfig, fullConfig?: DashboardConfig) => {
+  // The bypass-host list is NOT reloaded here: the hook reads the live admission
+  // list per request (`readAdmissionTrustedNetworks`), so a reload has no copy to
+  // refresh. The second argument is accepted for caller compatibility only.
+  // See change: retire-trusted-networks-bypass (D1).
+  (fastify as any)._reloadAuth = async (newConfig: AuthConfig, _fullConfig?: DashboardConfig) => {
     authState.secret = ensureAuthSecret(newConfig);
     authState.providerRegistry = await buildProviderRegistry(newConfig.providers);
     authState.allowedUsers = newConfig.allowedUsers;
     authState.bypassUrls = newConfig.bypassUrls ?? [];
-    authState.bypassHosts = fullConfig?.resolvedTrustedNetworks ?? newConfig.bypassHosts ?? [];
     authState.redirectBaseUrl = newConfig.redirectBaseUrl;
     authState.groupTiers = newConfig.groupTiers;
     passkeys?.configure(newConfig);
@@ -440,7 +455,9 @@ export async function registerAuthPlugin(
   });
 
   // POST /auth/logout
-  fastify.post("/auth/logout", async (_request, reply) => {
+  fastify.post("/auth/logout", async (request, reply) => {
+    const sessionCookie = (request.cookies as Record<string, string | undefined> | undefined)?.[COOKIE_NAME];
+    if (sessionCookie) options.onSessionEnd?.(sessionCookie);
     reply.clearCookie(COOKIE_NAME, { path: "/" });
     return reply.redirect("/auth/login");
   });
@@ -501,13 +518,12 @@ export async function registerAuthPlugin(
     // Skip configured bypass URL prefixes
     if (isBypassed(request.url, authState.bypassUrls)) return;
 
-    // Skip configured bypass hosts (trusted source IPs). A relayed-loopback peer
-    // (tunnel agent) is never a trusted source. See change:
-    // fix-trusted-network-tunnel-bypass (D1).
-    if (isTrustedSource(request.ip, request.headers as Record<string, unknown>, authState.bypassHosts, localTrust)) return;
-
-    // Validate JWT cookie
+    // Validate JWT cookie — BEFORE the bypass-host skip, so a signed-in browser
+    // on a listed network is tagged `authVia = "session"` (and never counted as
+    // network-only) instead of being skipped unauthenticated. Admission is
+    // unchanged. See change: retire-trusted-networks-bypass (D3).
     const cookieToken = (request.cookies as any)?.[COOKIE_NAME];
+    let cookieRejected = false;
     if (cookieToken) {
       const payload = verifyToken(cookieToken, authState.secret);
       const tier = payload ? effectiveTier(payload) : null;
@@ -516,14 +532,27 @@ export async function registerAuthPlugin(
         // Additive marker: a dashboard login session (vs a device bearer).
         // `operatorGuard` on the token-mint route admits exactly this kind.
         (request as any).authVia = "session";
+        // The verified payload, so a live-preview capability minted from this
+        // request can re-check the session's liveness at every use.
+        (request as any).sessionPayload = payload;
         // Session tier for the route-tier gate. A JWT without the claim
         // predates it and keeps full access. See change: add-passkey-user-auth (D4).
         (request as any).principalTier = tier;
         return;
       }
-      // Invalid/expired — clear cookie
-      reply.clearCookie(COOKIE_NAME, { path: "/" });
+      cookieRejected = true;
     }
+
+    // Skip configured bypass hosts (trusted source IPs) — the live admission
+    // list, empty under `pair`. A relayed-loopback peer (tunnel agent) is never
+    // a trusted source. The skip leaves the request UNauthenticated, so the
+    // network guard counts it (not this hook) and today's behaviour holds: an
+    // invalid cookie on a bypass host is NOT cleared. See change:
+    // fix-trusted-network-tunnel-bypass (D1), retire-trusted-networks-bypass (D1, D3).
+    if (isTrustedSource(request.ip, request.headers as Record<string, unknown>, readBypassHosts(), localTrust)) return;
+
+    // Invalid/expired — clear cookie
+    if (cookieRejected) reply.clearCookie(COOKIE_NAME, { path: "/" });
 
     // Not authenticated — redirect or 401
     const accept = request.headers.accept || "";
@@ -576,7 +605,6 @@ export function validateWsUpgrade(
   // as loopback (with a forwarding header) is NOT trusted here (D10, narrowed).
   if (isLocallyTrusted({ ip: remoteAddress, headers: opts?.headers }, opts?.localTrust)) return true;
   if (opts?.localToken && hasLocalCredential(opts.headers)) return true;
-  if (isTrustedSource(remoteAddress, opts?.headers, trustedNetworks, opts?.localTrust)) return true;
   // Cross-origin device auth: a valid single-use ticket minted from an
   // authenticated REST call. The upgrade is refused unless it validates, so no
   // authenticated socket exists before auth (no TOCTOU). F6: only the ephemeral
@@ -585,8 +613,15 @@ export function validateWsUpgrade(
     if (opts.ticket && opts.consumeTicket(opts.ticket, opts.scope)) return true;
   }
   const token = parseAuthCookie(cookieHeader);
-  if (!token) return false;
-  return verifyToken(token, secret) !== null;
+  if (token && verifyToken(token, secret) !== null) return true;
+  // The network match comes LAST so a credential-bearing upgrade is never
+  // classified as network-only. `trustedNetworks` is the live admission list
+  // (empty under `pair`). See change: retire-trusted-networks-bypass (D3).
+  if (isTrustedSource(remoteAddress, opts?.headers, trustedNetworks, opts?.localTrust)) {
+    noteNetworkOnlyAdmission({ ip: remoteAddress });
+    return true;
+  }
+  return false;
 }
 
 /** Result of an identity-aware WS upgrade authorization (§9.2/§9.3). */
@@ -635,6 +670,14 @@ export function authorizeWsUpgrade(opts: {
   localTrust?: LocalTrustContext;
   requireIdentityTicket?: boolean;
   /**
+   * A VALIDATED live-preview capability for this upgrade's `/live/<id>/~c/<token>/`
+   * path (the caller validated it against the store). Honoured for the `live`
+   * scope only — never `/ws`, `/ws/terminal/*`, `/ws/bridge`. Under the identity
+   * floor only a capability minted by an identity principal passes.
+   * See change: retire-trusted-networks-bypass (D5).
+   */
+  liveCapability?: { identity?: Principal; identityExpiresAt?: number } | null;
+  /**
    * Extra liveness check for a cookie session (passkey sessions re-read the
    * directory: a revoked user's cookie opens no socket). Absent ⇒ any valid
    * JWT. See change: add-passkey-user-auth (D4).
@@ -654,16 +697,26 @@ export function authorizeWsUpgrade(opts: {
     localTrust,
     requireIdentityTicket,
     isSessionLive,
+    liveCapability,
   } = opts;
+  const capability = scope === "live" ? (liveCapability ?? null) : null;
 
   // Identity-ticket-only mode (§9.2): a principal-bearing ticket is the sole
   // authorizer. Consume it (single-use) and require a bound principal. Every
   // other branch is skipped so a used/absent/principal-less ticket is refused.
   if (requireIdentityTicket) {
-    if (!consumeTicket || !scope || !ticket) return { ok: false };
-    const consumed = consumeTicket(ticket, scope);
-    if (!consumed.ok || !consumed.principal) return { ok: false };
-    return { ok: true, principal: consumed.principal, principalExpiresAt: consumed.principalExpiresAt };
+    if (consumeTicket && scope && ticket) {
+      const consumed = consumeTicket(ticket, scope);
+      if (consumed.ok && consumed.principal) {
+        return { ok: true, principal: consumed.principal, principalExpiresAt: consumed.principalExpiresAt };
+      }
+    }
+    // A live-preview capability satisfies the floor only if an identity
+    // principal minted it.
+    if (capability?.identity) {
+      return { ok: true, principal: capability.identity, principalExpiresAt: capability.identityExpiresAt };
+    }
+    return { ok: false };
   }
 
   // Legacy allowances (order preserved from validateWsUpgrade), now surfacing
@@ -671,20 +724,31 @@ export function authorizeWsUpgrade(opts: {
   // still binds the socket.
   if (isLocallyTrusted({ ip: remoteAddress, headers }, localTrust)) return { ok: true };
   if (localToken && hasLocalCredential(headers)) return { ok: true };
-  // isTrustedSource (not isBypassedHost): a relayed loopback (tunnel presenting
-  // as 127.0.0.1 with forwarding headers) is never trusted by a trusted-network
-  // entry. See change: fix-trusted-network-tunnel-bypass.
-  if (trustedNetworks.length > 0 && isTrustedSource(remoteAddress, headers, trustedNetworks, localTrust)) return { ok: true };
   if (consumeTicket && scope && ticket) {
     const consumed = consumeTicket(ticket, scope);
     if (consumed.ok) {
       return { ok: true, principal: consumed.principal, principalExpiresAt: consumed.principalExpiresAt };
     }
   }
+  if (capability) {
+    return capability.identity
+      ? { ok: true, principal: capability.identity, principalExpiresAt: capability.identityExpiresAt }
+      : { ok: true };
+  }
   if (secret) {
     const token = parseAuthCookie(cookieHeader);
     const payload = token ? verifyToken(token, secret) : null;
     if (payload && (isSessionLive?.(payload) ?? true)) return { ok: true, session: payload };
+  }
+  // The network match comes AFTER the credential checks, so a ticketed / signed-in
+  // upgrade is never classified (or counted) as network-only. `trustedNetworks` is
+  // the live admission list (empty under `pair`). isTrustedSource (not
+  // isBypassedHost): a relayed loopback (tunnel presenting as 127.0.0.1 with
+  // forwarding headers) is never trusted by a trusted-network entry.
+  // See change: fix-trusted-network-tunnel-bypass, retire-trusted-networks-bypass (D3).
+  if (trustedNetworks.length > 0 && isTrustedSource(remoteAddress, headers, trustedNetworks, localTrust)) {
+    noteNetworkOnlyAdmission({ ip: remoteAddress });
+    return { ok: true };
   }
   return { ok: false };
 }

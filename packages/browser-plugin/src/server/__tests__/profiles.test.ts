@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { listChromeProfiles as listChromeProfilesShared } from "@blackbelt-technology/pi-dashboard-shared/chrome-profiles.js";
 import { describe, expect, it, vi } from "vitest";
-import { listChromeProfiles } from "../profiles.js";
+import { detectPasswordManagers, listChromeProfiles } from "../profiles.js";
 
 /** In-memory fs seam — no tmpfs needed, and it lets a test make a path "exist". */
 function fakeFs(files: Record<string, string>, dirs: string[] = []) {
@@ -62,7 +62,7 @@ describe("listChromeProfiles (E17)", () => {
       isInstalled: () => false,
     });
     expect(result.profiles).toEqual([
-      { profileDirectory: "Profile 3", label: "Profile 3", installed: false },
+      { profileDirectory: "Profile 3", label: "Profile 3", installed: false, passwordManagers: [] },
     ]);
   });
 });
@@ -78,7 +78,7 @@ describe("listChromeProfiles fallback (X9)", () => {
       isInstalled: () => false,
     });
     expect(result.profiles).toEqual([
-      { profileDirectory: "Default", label: "Default", installed: false },
+      { profileDirectory: "Default", label: "Default", installed: false, passwordManagers: [] },
     ]);
     expect(result.warning).toContain(`${USER_DATA}/Local State`);
   });
@@ -92,7 +92,12 @@ describe("listChromeProfiles fallback (X9)", () => {
       isInstalled: () => false,
     });
     expect(result.profiles).toHaveLength(1);
-    expect(result.profiles[0]).toEqual({ profileDirectory: "Default", label: "Default", installed: false });
+    expect(result.profiles[0]).toEqual({
+      profileDirectory: "Default",
+      label: "Default",
+      installed: false,
+      passwordManagers: [],
+    });
     expect(result.warning).toContain(LOCAL_STATE);
     expect(readFile).toHaveBeenCalled();
   });
@@ -179,11 +184,68 @@ describe("plugin ↔ shared parity (E52)", () => {
       try {
         const viaPlugin = await listChromeProfiles({ userDataDir: dir });
         const viaShared = await listChromeProfilesShared({ userDataDir: dir });
-        expect(viaPlugin.profiles).toEqual(viaShared.profiles);
+        // The plugin adds `passwordManagers` (change: add-dedicated-agent-browser, D10);
+        // every shared field must still be identical.
+        expect(viaPlugin.profiles.map(({ passwordManagers: _pm, ...row }) => row)).toEqual(viaShared.profiles);
         expect(viaPlugin.warning).toEqual(viaShared.warning);
       } finally {
         done();
       }
     });
   }
+});
+
+/**
+ * #E16 — password-manager detection from `<profile>/Extensions/<id>`.
+ * See change: add-dedicated-agent-browser (tasks 1.3, 9.16).
+ */
+describe("passwordManagers (E16)", () => {
+  const LASTPASS = "hdokiejnpimakedhajhdlcegeplioahd";
+  const ICLOUD = "pejdijmoenmkgeppbflobdenhhabjlaj";
+
+  it("reports LastPass / iCloud Passwords / both / none per profile from a fixture tree", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "chrome-pm-"));
+    try {
+      writeFileSync(
+        join(dir, "Local State"),
+        JSON.stringify({
+          profile: { info_cache: { Default: {}, "Profile 1": {}, "Profile 2": {}, "Profile 3": {} } },
+        }),
+      );
+      mkdirSync(join(dir, "Default", "Extensions", LASTPASS), { recursive: true });
+      mkdirSync(join(dir, "Profile 1", "Extensions", ICLOUD), { recursive: true });
+      mkdirSync(join(dir, "Profile 2", "Extensions", ICLOUD), { recursive: true });
+      mkdirSync(join(dir, "Profile 2", "Extensions", LASTPASS), { recursive: true });
+      mkdirSync(join(dir, "Profile 3", "Extensions", "someotherextensionidxxxxxxxxxxxx"), { recursive: true });
+
+      const { profiles } = await listChromeProfiles({ userDataDir: dir, isInstalled: () => false });
+      const byDir = Object.fromEntries(profiles.map((p) => [p.profileDirectory, p.passwordManagers]));
+      expect(byDir).toEqual({
+        Default: ["LastPass"],
+        "Profile 1": ["iCloud Passwords"],
+        "Profile 2": ["LastPass", "iCloud Passwords"],
+        "Profile 3": [],
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("detectPasswordManagers uses the injected exists seam", () => {
+    expect(detectPasswordManagers("/p/Default", (q) => q === `/p/Default/Extensions/${ICLOUD}`)).toEqual([
+      "iCloud Passwords",
+    ]);
+  });
+
+  it("the synthetic Default fallback row also carries passwordManagers", async () => {
+    const result = await listChromeProfiles({
+      userDataDir: USER_DATA,
+      exists: (p) => p === `${USER_DATA}/Default/Extensions/${LASTPASS}`,
+      readFile: () => {
+        throw new Error("unreadable");
+      },
+      isInstalled: () => false,
+    });
+    expect(result.profiles[0].passwordManagers).toEqual(["LastPass"]);
+  });
 });

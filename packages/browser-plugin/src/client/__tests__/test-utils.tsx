@@ -72,6 +72,8 @@ interface RenderOptions {
 	 * `browser_relay_status` subscriber. See change: fix-empty-status-subcard.
 	 */
 	feed?: boolean;
+	/** Sessions exposed to `useSessionState` (holder display-name resolution). */
+	sessions?: DashboardSession[];
 }
 
 type ShellConnectionStatus = "connecting" | "connected" | "disconnected" | "offline" | "auth_required";
@@ -95,6 +97,7 @@ export function renderWithPlugin(
 			send={send as unknown as (message: unknown) => void}
 			useSessionInteractiveRequests={options.interactiveRequests}
 			connectionStatus={connectionStatus}
+			sessions={options.sessions}
 		>
 			<CurrentPluginLayer pluginId={options.pluginId ?? "browser"}>
 				{options.feed === false ? null : <BrowserRelayFeed />}

@@ -16,7 +16,7 @@ Before the first successful `--all` result (cold cache, or after a whole-call fa
 
 - **WHEN** the effective mtime equals the cached value
 - **THEN** the server SHALL reuse cached data and SHALL NOT spawn `openspec status --all`
-- **AND** `OpenSpecData.workflowSchema` SHALL NOT be reused from that cached data: it is recomputed by the worker request of "Workflow-schema status is computed in the poll worker on every poll tick"
+- **AND** `OpenSpecData.workflowSchema` SHALL NOT be reused from that cached data: it is recomputed by the worker request of "Workflow-schema status is computed in the poll worker on every poll tick" (whose poll-configuration rebroadcast exception is not a tick)
 
 #### Scenario: In-place edit to any tracked artifact re-runs the CLI once
 
@@ -55,20 +55,28 @@ Before the first successful `--all` result (cold cache, or after a whole-call fa
 
 ### Requirement: Workflow-schema status is computed in the poll worker on every poll tick
 
-The filesystem part of `OpenSpecData.workflowSchema` (configured schema, stamp comparison, `missing`, `unpinnedChanges`, `affectedChanges`) SHALL be computed by a dedicated poll-worker request on every poll tick for a cwd, on every success path (cache-gate hit, status-all build, fallback list build, force refresh), and SHALL NOT be taken from the cached `OpenSpecData` of a previous tick: a `workflowSchema` carried by a reused cached payload SHALL be dropped, and the key SHALL be set only from the current tick's result. Apart from the pool's in-process fallback below, it SHALL NOT be computed on the main event loop.
+The filesystem part of `OpenSpecData.workflowSchema` (configured schema, stamp comparison, `missing`, `unpinnedChanges`, `affectedChanges`) SHALL be computed by a dedicated poll-worker request on every poll tick for a cwd, on every success path (cache-gate hit, status-all build, fallback list build, force refresh), and SHALL NOT be taken from the cached `OpenSpecData` of a previous tick: a finalized payload's `workflowSchema` SHALL be set only from the current tick's result, and any `workflowSchema` on the object being finalized SHALL be dropped first. The only exception is a poll-configuration change that re-derives readiness from the cached finalized payload without a tick; it MAY keep that payload's `workflowSchema` until the next tick. Attachment remains subject to the readiness rule of `openspec-workflow-schema` ("Workflow schema status is reported separately from readiness"). Apart from the pool's in-process fallback below, the computation SHALL NOT run on the main event loop.
 
-- The request SHALL be enqueued after the poll's tracked-path probe request and awaited when the payload is finalized, so it never delays the probe or the build; on a pool with more than one slot it runs concurrently with them.
-- Reads of the per-change `.openspec.yaml` files SHALL use bounded concurrency (at most 16 in flight per request), and the whole-directory content fingerprint SHALL be computed only when the stamp comparison is `newer` or `conflict`.
+- The request SHALL be enqueued at most once per tick. On the status-all path it SHALL be enqueued after the same cwd's tracked-path probe request; on the fallback list path, which has no probe, it SHALL be enqueued before the list spawn, and the tick that detects `--all` as unsupported SHALL reuse the request it already enqueued. It is awaited only when the payload is finalized; the build SHALL NOT wait for it. A tick that fails after enqueueing SHALL discard the result without an unhandled rejection.
+- Reads of the per-change `.openspec.yaml` files SHALL use bounded concurrency (at most 16 in flight per request). The stamp comparison SHALL be decided from the stamp alone, and the whole-directory content fingerprint SHALL be computed only when that comparison is `newer` or `conflict`.
+- The worker and the in-process fallback SHALL dispatch request kinds exhaustively: a request kind without a handler SHALL fail, never run another kind's body.
 - Worker unavailability, a worker error or a per-request timeout SHALL fall back to the same computation run as bounded async I/O in-process, through the pool's existing fallback; there SHALL be exactly one implementation of the computation, shared by both.
 - When the worker's comparison is `newer` or `conflict`, the worker SHALL return the whole-directory fingerprint instead of a verdict. The main thread SHALL run `openspec schema validate pi-spec-driven` through the shared spawn semaphore, memoized by (cwd, fingerprint, resolved CLI version), and report `incompatible` when it fails. No other CLI call SHALL be made for the status.
-- A computation failure SHALL omit `workflowSchema` for that tick, including when the reused cached payload carried one (the payload is otherwise unchanged) and SHALL be logged once per cwd with the fallback taken.
+- A computation failure SHALL omit `workflowSchema` for that tick, including when the previous tick's payload carried one (the payload is otherwise unchanged). It SHALL be logged once per run of consecutive failing ticks for that cwd, with the fallback taken; a successful tick re-arms the log.
 - The REST workflow-schema endpoint and the poll SHALL use the same spawn semaphore instance, including after the poll configuration resizes it.
 
 #### Scenario: CLI upgrade on a gate-hit tick
 
 - **GIVEN** a directory whose last poll gate-hit and whose stamp was `current` against CLI 1.11.0
 - **WHEN** the resolved CLI version becomes 1.12.0 without any tracked path moving
-- **THEN** the next tick SHALL report `generated === "outdated"` or `"newer"` according to the stamp comparison against 1.12.0
+- **THEN** the next tick SHALL report `generated === "outdated"`
+- **AND** no `openspec status --all` process SHALL be spawned for that tick
+
+#### Scenario: User-schema-directory change is seen on a gate-hit tick
+
+- **GIVEN** a directory whose config names a schema resolvable only from the user schema directory, and whose last tick reported `missing === false`
+- **WHEN** that schema is removed from the user schema directory without any tracked path moving
+- **THEN** the next tick SHALL report `workflowSchema.missing === true`
 - **AND** no `openspec status --all` process SHALL be spawned for that tick
 
 #### Scenario: `config.yml`-only default is seen on a gate-hit tick
@@ -85,7 +93,7 @@ The filesystem part of `OpenSpecData.workflowSchema` (configured schema, stamp c
 
 #### Scenario: Failure does not resurrect a cached status
 
-- **GIVEN** a gate-hit tick whose cached payload carries `workflowSchema.generated === "current"` and whose status computation throws in both the worker and the in-process fallback
+- **GIVEN** a previous tick that broadcast `workflowSchema.generated === "current"`, and a gate-hit tick whose status computation throws in both the worker and the in-process fallback
 - **WHEN** the tick finalizes
 - **THEN** the broadcast payload SHALL contain no `workflowSchema` key
 

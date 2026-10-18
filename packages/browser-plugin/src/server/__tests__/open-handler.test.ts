@@ -113,3 +113,41 @@ describe("rate limit (#E9 #E10)", () => {
     expect(s.h.limiterSize).toBe(0);
   });
 });
+
+describe("openAuto — live view on connect (#E21)", () => {
+  it("opens for the given session, audits detail `auto`, and neither checks nor consumes the 5 s limiter", () => {
+    const s = setup();
+    expect(s.h.openAuto("S", "inst-1", 42).path).toBe("browser:inst-1:42");
+    expect(s.openEditorTab).toHaveBeenCalledWith("S", "browser:inst-1:42");
+    expect(s.h.limiterSize).toBe(0);
+    s.advance(100);
+    // a following browser_show_in_pane within 5 s is NOT rate-limited by the auto open
+    expect(open(s.h, { instanceId: "inst-1", tabId: 42 }).path).toBe("browser:inst-1:42");
+    expect(s.openEditorTab).toHaveBeenCalledTimes(2);
+    expect(kinds(s.audit)).toEqual(["open:show accepted tab:42", "open:auto"]); // newest first
+    expect(kinds(s.audit).join()).not.toContain("rate-limited");
+  });
+
+  it("is exempt when a show was just accepted (auto after show within 5 s still opens)", () => {
+    const s = setup();
+    open(s.h, { instanceId: "inst-1", tabId: 42 });
+    expect(s.h.openAuto("S", "inst-1", 42).tabId).toBe(42);
+    expect(s.openEditorTab).toHaveBeenCalledTimes(2);
+  });
+
+  it("refusals are audited as `auto refused …`; a payload cannot request the exemption", () => {
+    const s = setup();
+    expect(() => s.h.openAuto("S", "inst-1", 7)).toThrow("unknown-tab");
+    expect(() => s.h.openAuto("S", "nope", 1)).toThrow("unknown-instance");
+    expect(kinds(s.audit)[1]).toBe("open:auto refused reason:unknown-tab tab:7");
+    open(s.h, { instanceId: "inst-1", tabId: 42 });
+    expect(() => open(s.h, { instanceId: "inst-1", tabId: 42, auto: true })).toThrow("rate-limited");
+  });
+
+  it("a host refusal of an auto open surfaces as an error and leaves the limiter untouched", () => {
+    const s = setup();
+    s.openEditorTab.mockImplementationOnce(() => { throw new Error("nope"); });
+    expect(() => s.h.openAuto("S", "inst-1", 42)).toThrow(/host-refused/);
+    expect(s.h.limiterSize).toBe(0);
+  });
+});

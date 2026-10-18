@@ -18,6 +18,19 @@
 
 import { redactExtensionUrl } from "./redact.js";
 
+/**
+ * Strip `?query` and `#fragment` from a URL-shaped detail (`scheme://…` or
+ * `about:`), so OAuth `code=` / `state=` / `authuser=` never reach the
+ * viewer-served ring. Non-URL details (method names, `closed:<reason>`,
+ * `tab:7 reason:…`, `mouse`) pass through untouched.
+ * See change: add-dedicated-agent-browser (D9).
+ */
+export function stripUrlQueryAndFragment(detail: string): string {
+  if (!/^(?:[a-z][a-z0-9+.-]*:\/\/|about:)/i.test(detail)) return detail;
+  const cut = detail.search(/[?#]/);
+  return cut === -1 ? detail : detail.slice(0, cut);
+}
+
 /** Kinds the spec enumerates. A caller may not invent its own. */
 type AuditKind =
   | "attach"
@@ -101,8 +114,11 @@ export class AuditRing {
       // Coerce: a caller passing a non-string (a payload object, most likely)
       // must never leak it into the audit — a URL/method is all that is allowed.
       // Redact on the way in: a `chrome-extension:` URL (the connect page) must
-      // never keep its token/guid query in a viewer-served ring.
-      detail: redactExtensionUrl(typeof input.detail === "string" ? input.detail : String(input.detail)),
+      // never keep its token/guid query in a viewer-served ring. Every other URL
+      // loses its query + fragment too (OAuth codes), for every profile.
+      detail: stripUrlQueryAndFragment(
+        redactExtensionUrl(typeof input.detail === "string" ? input.detail : String(input.detail)),
+      ),
     };
     this.entries.push(entry);
     this.seq += 1;

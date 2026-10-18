@@ -40,3 +40,5 @@ Row `GET /api/plugins/skill-atlas/graph` observe. See change: add-skill-atlas-sc
 Rows `GET /api/plugins/obs-studio/{instances,:service/status}` → `observe`; `GET …/:service/screenshot`, `POST …/:service/{scene,virtualcam,record}` → `operate` (the plugin additionally requires `identity.hasOperateAuthority`). See change: add-obs-studio-plugin.
 
 Services additions: `GET /api/services/:id/logs`, `POST /api/services/:id/reset-data`, `POST /api/services/prune` → tier operate (logs is a GET but returns process output). See change: add-services-settings-ui.
+
+`POST /api/live-server/:id/capability` → `control` (mints a live-preview capability URL). See change: retire-trusted-networks-bypass.

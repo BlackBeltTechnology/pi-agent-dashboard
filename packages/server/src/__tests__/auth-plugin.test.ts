@@ -1,7 +1,11 @@
-import { describe, it, expect } from "vitest";
-import { validateWsUpgrade, escapeHtml, isBypassed } from "../auth/auth-plugin.js";
+import jwt from "jsonwebtoken";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { COOKIE_NAME, signToken } from "../auth/auth.js";
+import { escapeHtml, isBypassed, validateWsUpgrade } from "../auth/auth-plugin.js";
 import { isBypassedHost } from "../auth/localhost-guard.js";
-import { signToken, COOKIE_NAME } from "../auth/auth.js";
+import { networkOnlySnapshot } from "../auth/network-trust-telemetry.js";
+import { admissionTrustedNetworks } from "../auth/trust-mode.js";
+import { type TrustModeHome, useTrustModeHome } from "../test-support/trust-mode-home.js";
 
 const SECRET = "test-secret-for-ws-auth-testing";
 
@@ -316,5 +320,144 @@ describe("E4 a boot-inert auth plugin stays false", () => {
     expect((app as any)._reloadAuth).toBeUndefined();
     expect(handle.hasUsableOAuthProvider()).toBe(false);
     await app.close();
+  });
+});
+
+// ── retire-trusted-networks-bypass: OAuth skip reads the LIVE admission list ──
+// E9 (OAuth leg) + E11 (credential-first ordering). The hook consults
+// `readAdmissionTrustedNetworks()` per request; the mode lives in a real
+// temp-HOME config.json.
+describe("OAuth hook — bypass hosts are the live, mode-dependent admission list", () => {
+  const AUTH_SECRET = "test-secret-32-chars-long-abcdef";
+  const LISTED = "192.168.16.20";
+  let th: TrustModeHome;
+  beforeEach(() => {
+    th = useTrustModeHome();
+  });
+  afterEach(() => {
+    th.restore();
+  });
+
+  async function app(opts: { live?: boolean; boot?: string[] } = {}) {
+    const { default: Fastify } = await import("fastify");
+    const { registerAuthPlugin } = await import("../auth/auth-plugin.js");
+    const a = Fastify();
+    await registerAuthPlugin(a, {
+      authConfig: { secret: AUTH_SECRET, providers: { github: { clientId: "cid", clientSecret: "csecret" } } },
+      port: 8000,
+      ...(opts.live === false ? {} : { readAdmissionTrustedNetworks: () => admissionTrustedNetworks() }),
+      ...(opts.boot ? { resolvedTrustedNetworks: opts.boot } : {}),
+    });
+    a.get("/api/sessions", async (req) => ({
+      isAuthenticated: (req as any).isAuthenticated === true,
+      authVia: (req as any).authVia ?? null,
+    }));
+    await a.ready();
+    return a;
+  }
+
+  const sessionCookie = (): string =>
+    signToken({ sub: "u@example.com", name: "U", username: "u", provider: "github" }, AUTH_SECRET);
+
+  // test-plan #E9 (OAuth leg)
+  it("E9: bypass host + listed peer, no cookie: legacy → skipped; pair → 401 JSON / redirect for html", async () => {
+    th.setTrustConfig({ trustMode: "legacy", trustedNetworks: ["10.0.0.0/8"] });
+    const a = await app();
+    const legacy = await a.inject({ method: "GET", url: "/api/sessions", remoteAddress: "10.0.0.5" });
+    expect(legacy.statusCode).toBe(200);
+    expect(legacy.json()).toEqual({ isAuthenticated: false, authVia: null });
+
+    th.setTrustConfig({ trustMode: "pair", trustedNetworks: ["10.0.0.0/8"] });
+    const json = await a.inject({ method: "GET", url: "/api/sessions", remoteAddress: "10.0.0.5" });
+    expect(json.statusCode).toBe(401);
+    const html = await a.inject({
+      method: "GET",
+      url: "/api/sessions",
+      remoteAddress: "10.0.0.5",
+      headers: { accept: "text/html" },
+    });
+    expect(html.statusCode).toBe(302);
+    expect(String(html.headers.location)).toContain("/auth/login");
+    await a.close();
+  });
+
+  // test-plan #E10 (OAuth leg): same plugin instance, no restart
+  it("E10: a mode change applies on the next request to the same plugin instance", async () => {
+    th.setTrustConfig({ trustMode: "pair", trustedNetworks: ["10.0.0.0/8"] });
+    const a = await app();
+    const get = async () => (await a.inject({ method: "GET", url: "/api/sessions", remoteAddress: "10.0.0.5" })).statusCode;
+    expect(await get()).toBe(401);
+    th.setTrustConfig({ trustMode: "legacy", trustedNetworks: ["10.0.0.0/8"] });
+    expect(await get()).toBe(200);
+    th.setTrustConfig({ trustMode: "pair", trustedNetworks: ["10.0.0.0/8"] });
+    expect(await get()).toBe(401);
+    await a.close();
+  });
+
+  it("without the live reader the boot list is the fallback (embedder / legacy callers)", async () => {
+    th.setTrustConfig({ trustMode: "pair", trustedNetworks: [] });
+    const a = await app({ live: false, boot: ["10.0.0.0/8"] });
+    const res = await a.inject({ method: "GET", url: "/api/sessions", remoteAddress: "10.0.0.5" });
+    await a.close();
+    expect(res.statusCode).toBe(200);
+  });
+
+  // test-plan #E11
+  it("E11: valid session cookie from a bypass host → authVia 'session' and authenticated (not network-only)", async () => {
+    th.setTrustConfig({ trustMode: "legacy", trustedNetworks: ["192.168.16.0/24"] });
+    const a = await app();
+    const res = await a.inject({
+      method: "GET",
+      url: "/api/sessions",
+      remoteAddress: LISTED,
+      cookies: { [COOKIE_NAME]: sessionCookie() },
+    });
+    await a.close();
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ isAuthenticated: true, authVia: "session" });
+    expect(networkOnlySnapshot().admissions).toBe(0);
+  });
+
+  it("E11: valid session cookie from a listed peer is authenticated in pair mode too", async () => {
+    th.setTrustConfig({ trustMode: "pair", trustedNetworks: ["192.168.16.0/24"] });
+    const a = await app();
+    const res = await a.inject({
+      method: "GET",
+      url: "/api/sessions",
+      remoteAddress: LISTED,
+      cookies: { [COOKIE_NAME]: sessionCookie() },
+    });
+    await a.close();
+    expect(res.statusCode).toBe(200);
+    expect(res.json().authVia).toBe("session");
+  });
+
+  it.each([
+    ["garbage", () => "not-a-jwt"],
+    ["expired", () => jwt.sign({ sub: "u@example.com", name: "U", username: "u", provider: "github" }, AUTH_SECRET, { expiresIn: -60 })],
+    ["wrong-secret", () => signToken({ sub: "u@example.com", name: "U", username: "u", provider: "github" }, "another-secret-32-chars-long-abcd")],
+  ])("E11: %s session cookie from a bypass host → skipped, NO cookie-clearing Set-Cookie", async (_l, mk) => {
+    th.setTrustConfig({ trustMode: "legacy", trustedNetworks: ["192.168.16.0/24"] });
+    const a = await app();
+    const res = await a.inject({
+      method: "GET",
+      url: "/api/sessions",
+      remoteAddress: LISTED,
+      cookies: { [COOKIE_NAME]: mk() },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ isAuthenticated: false, authVia: null });
+    expect(res.headers["set-cookie"], "no cookie-clearing on a bypass host").toBeUndefined();
+
+    // Control: the same rejected cookie from a NON-bypass host is refused AND cleared (today's behaviour).
+    const off = await a.inject({
+      method: "GET",
+      url: "/api/sessions",
+      remoteAddress: "203.0.113.9",
+      cookies: { [COOKIE_NAME]: mk() },
+    });
+    await a.close();
+    expect(off.statusCode).toBe(401);
+    expect(String(off.headers["set-cookie"])).toContain(`${COOKIE_NAME}=;`);
   });
 });

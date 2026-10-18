@@ -17,3 +17,5 @@ See change: add-browser-editor-pane-tab — `editor_tab_open` → `editor-tab-op
 `session_added` correlation honors `PendingSpawnEntry.focus === false`: Tier 1 skips `navigate`; Tiers 2/2.5 collect `kind:spawn` entries matching on `pathKey(entry.cwd)` (never `placeholderCwd`), withhold `navigate` only when ≥1 match and all no-focus (mixed → focus). Tier 2 consumes a match only when a no-focus entry is involved (default Tier 2 unchanged). Reconciled/hidden branches untouched. See change: openspec-board-spawn-no-focus.
 
 See change: add-pending-question-stack — `case "questions_update"` → `setQuestions(msg.questions)` (`lib/questions/question-store.ts`): full replacement, never merge.
+
+`case "archive_session_error"` → `showToast(msg.error, "error")`; no state change. `session_archived` from a fileless eviction carries the unchanged folder count and is handled by the existing delete-card path. See change: fix-orphaned-ended-session-archive.

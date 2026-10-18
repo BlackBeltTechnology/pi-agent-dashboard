@@ -45,6 +45,19 @@ async function openRoutedLivePane(page: import("@playwright/test").Page, html: s
       }),
     }),
   );
+  // The viewer frames a per-preview capability path (retire-trusted-networks-bypass),
+  // so the mint is routed too: the fixture target does not exist server-side.
+  await page.route("**/api/live-server/*/capability", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        success: true,
+        path: `/live/${FIXTURE_ID}/~c/fixtureTokenfixtureTokenfixtureToken/`,
+        expiresAt: Date.now() + 12 * 60 * 60 * 1000,
+      }),
+    }),
+  );
   await page.route("**/live/**", (route) =>
     route.fulfill({ status: 200, contentType: "text/html", body: html }),
   );

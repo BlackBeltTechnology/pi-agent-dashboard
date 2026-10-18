@@ -1031,6 +1031,19 @@ export interface RetrySessionErrorMessage {
 }
 
 /**
+ * Server → browser: an `archive_session` was rejected (running, interrupted,
+ * unknown id, archive unavailable, or a persist failure). Sent to the requester
+ * only — never a silent drop; the client surfaces a toast and changes no state.
+ * See change: fix-orphaned-ended-session-archive.
+ */
+export interface ArchiveSessionErrorMessage {
+  type: "archive_session_error";
+  sessionId: string;
+  /** Human-readable error description. */
+  error: string;
+}
+
+/**
  * Server → browser: a pin / unpin / workspace change could not be mirrored into
  * pi trust (snapshot or choice write failed) — the operation was refused or
  * only partly applied. Never a silent drop. See change: mirror-dashboard-trust-to-pi.
@@ -1160,6 +1173,7 @@ export type ServerToBrowserMessage =
   | EditorTabOpenMessage
   | PluginActionErrorMessage
   | RetrySessionErrorMessage
+  | ArchiveSessionErrorMessage
   | PiTrustMirrorErrorMessage
   | SessionAddedMessage
   | SessionUpdatedMessage

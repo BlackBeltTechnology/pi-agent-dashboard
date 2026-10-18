@@ -46,3 +46,5 @@ Deleted dead bootstrap state-snapshot, `bootstrap_status_update` and `bootstrap_
 
 Server→browser: `ServicesChangedMessage` (`services_changed`, type only) — content-free managed-services hint; browsers refetch `GET /api/services`. See change: add-services-settings-ui.
 `piTrust?` on `pin_directory`/`add_folder_to_workspace`/`grant_response`; server→browser `pi_trust_mirror_error`. See change: mirror-dashboard-trust-to-pi.
+
+Server→browser `ArchiveSessionErrorMessage` (`archive_session_error {sessionId, error}`): reply to the requester when `archive_session` is rejected. See change: fix-orphaned-ended-session-archive.

@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Retro UX wave 2 — plugin settings pages (as-built vs proposed)</title>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="mockup.css" />
+<link rel="stylesheet" href="board.css" />
+<script src="icons.js"></script>
+<script src="board-lib.js"></script>
+<script src="surfaces-a.js"></script>
+<script src="surfaces-b.js"></script>
+</head>
+<body data-view="both">
+<div class="toolbar" role="toolbar" aria-label="Board controls">
+  <h1>Plugin settings · wave 2</h1>
+  <span class="seg-label" id="lbl-theme">Theme</span>
+  <div class="seg" aria-labelledby="lbl-theme" data-group="theme">
+    <button aria-pressed="true" data-v="base-dark">Base dark</button>
+    <button aria-pressed="false" data-v="base-light">Base light</button>
+    <button aria-pressed="false" data-v="nord-dark">Nord dark</button>
+  </div>
+  <span class="seg-label" id="lbl-w">Frame</span>
+  <div class="seg" aria-labelledby="lbl-w" data-group="width">
+    <button aria-pressed="false" data-v="375">375</button>
+    <button aria-pressed="false" data-v="768">768</button>
+    <button aria-pressed="true" data-v="full">Full</button>
+  </div>
+  <span class="seg-label" id="lbl-v">Show</span>
+  <div class="seg" aria-labelledby="lbl-v" data-group="view">
+    <button aria-pressed="true" data-v="both">Side by side</button>
+    <button aria-pressed="false" data-v="asbuilt">As-built</button>
+    <button aria-pressed="false" data-v="proposed">Proposed</button>
+  </div>
+</div>
+<div class="shell">
+  <nav class="nav" aria-label="Surfaces" id="nav"></nav>
+  <main id="board"></main>
+</div>
+<script>
+const VERDICT = { redesign: ["warning", "Redesign"], polish: ["info", "Polish"] };
+const ORDER = [["Host", ["host"]], ["Redesign", SURFACES.filter((s) => s.verdict === "redesign" && s.id !== "host").map((s) => s.id)], ["Polish", SURFACES.filter((s) => s.verdict === "polish").map((s) => s.id)]];
+const byId = Object.fromEntries(SURFACES.map((s) => [s.id, s]));
+const themeMode = () => (document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark");
+const codeify = (s) => s.replace(/`([^`]+)`/g, (_, c) => `<code>${esc(c)}</code>`);
+
+function renderNav(cur) {
+  document.getElementById("nav").innerHTML = ORDER.map(([h, ids]) => `<h2>${h}</h2>${ids.map((id) => {
+    const s = byId[id]; const [tone, word] = VERDICT[s.verdict];
+    return `<a href="#${id}" ${id === cur ? 'aria-current="page"' : ""}>${ic(s.icon)}${s.title}<span class="v pill ${tone}">${word}</span></a>`;
+  }).join("")}`).join("");
+}
+function renderSurface(id) {
+  const s = byId[id] || SURFACES[0]; uid = 0;
+  const [tone, word] = VERDICT[s.verdict];
+  const states = s.states.map((st) => {
+    const img = st.asbuilt ? `<img alt="As-built ${s.title}, ${st.name}" src="asbuilt/${st.asbuilt}.${themeMode()}.png" data-base="${st.asbuilt}">` : `<p class="na">Not reachable on the live instance — proposed only.</p>`;
+    return `<section class="state" aria-label="${s.title}: ${st.name}"><header><code>${st.name}</code></header>
+      <div class="pair"><div class="col built"><p class="tag">As-built · live capture</p>${img}</div>
+      <div class="col prop"><p class="tag">Proposed</p><div class="frame">${st.proposed}</div></div></div></section>`;
+  }).join("");
+  document.getElementById("board").innerHTML = `<div class="surface-h"><h2>${s.title}</h2><span class="pill ${tone}">${word}</span></div>
+    <p class="surface-lead">${codeify(s.lead)}</p>
+    <ul class="finds-list">${s.finds.map(([fid, t]) => `<li><code class="id">${fid}</code>${codeify(t)}</li>`).join("")}</ul>${states}`;
+  renderNav(s.id);
+}
+function route() { renderSurface(location.hash.slice(1) || "host"); window.scrollTo(0, 0); }
+addEventListener("hashchange", route);
+
+document.querySelectorAll(".seg").forEach((seg) => seg.addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  seg.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+  const group = seg.dataset.group, v = b.dataset.v, html = document.documentElement;
+  if (group === "theme") {
+    const [pal, mode] = v.split("-");
+    mode === "light" ? html.setAttribute("data-theme", "light") : html.removeAttribute("data-theme");
+    pal === "nord" ? html.setAttribute("data-palette", "nord") : html.removeAttribute("data-palette");
+    document.querySelectorAll("img[data-base]").forEach((im) => { im.src = `asbuilt/${im.dataset.base}.${themeMode()}.png`; });
+  }
+  if (group === "width") document.body.style.setProperty("--frame-w", v === "full" ? "100%" : `${v}px`);
+  if (group === "view") document.body.dataset.view = v;
+}));
+route();
+const params = new URLSearchParams(location.search);
+for (const g of ["theme", "width", "view"]) if (params.get(g)) document.querySelector(`.seg[data-group="${g}"] button[data-v="${params.get(g)}"]`)?.click();
+</script>
+</body>
+</html>

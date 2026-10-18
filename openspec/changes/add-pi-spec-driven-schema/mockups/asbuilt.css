@@ -1,0 +1,73 @@
+/* AS-BUILT REPLICA — reproduces the shipped Tailwind classes 1:1, INCLUDING the
+   defects under review. The raw palette literals below ARE the finding (A1, A10),
+   not a recommendation. Scope: `.col.asbuilt` only.
+   Tailwind v4: palette = oklch; `text-[10px]` sets no line-height (inherits 1.5 from
+   preflight), `text-xs` = 12px/1.333, `text-sm` = 14px/1.428.
+   Sources (worktree os/add-pi-spec-driven-schema @ ccca3a548):
+   components/openspec/OpenSpecWorkflowSchemaSection.tsx, FolderOpenSpecSection.tsx
+   (WorkflowSchemaChip), client-utils/src/Dialog.tsx, dashboard-plugin-runtime ToggleField. */
+
+.col.asbuilt .frame { line-height: 1.5; font-size: 16px; }
+
+/* section shell (Section h2 + intro, `mt-6` dropped on the board) */
+.col.asbuilt .ab-h2 { font-size: 14px; line-height: 1.428; font-weight: 600; color: var(--text-primary); margin: 0 0 4px; padding-bottom: 4px; border-bottom: 1px solid var(--border-secondary); }
+.col.asbuilt .ab-intro { font-size: 12px; line-height: 1.333; color: var(--text-tertiary); margin: 0 0 12px; }
+.col.asbuilt .ab-list { margin: 12px 0 0; padding: 0; list-style: none; }
+.col.asbuilt .ab-list > * + * { margin-top: 6px; }
+.col.asbuilt .ab-empty { margin: 0; font-size: 11px; color: var(--text-muted); } /* text-[11px] text-muted */
+
+/* row: px-2.5 py-2 rounded border bg-tertiary */
+.col.asbuilt .ab-row { padding: 8px 10px; border-radius: 4px; border: 1px solid var(--border-subtle); background: var(--bg-tertiary); }
+.col.asbuilt .ab-row[data-selected] { border-color: oklch(62.3% 0.214 259.815 / 0.6); } /* border-blue-500/60 */
+.col.asbuilt .ab-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.col.asbuilt .ab-cwd { flex: 1 1 0%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--text-secondary); }
+.col.asbuilt .ab-status { font-size: 10px; color: var(--text-tertiary); }
+/* action button: text-[10px] px-2 py-1 rounded text-cyan-400 border border-cyan-500/40 bg-cyan-500/[0.06] disabled:opacity-35 */
+.col.asbuilt .ab-btn {
+  font-size: 10px; padding: 4px 8px; border-radius: 4px;
+  color: oklch(78.9% 0.154 211.53); border: 1px solid oklch(71.5% 0.143 215.221 / 0.4); background: oklch(71.5% 0.143 215.221 / 0.06);
+}
+.col.asbuilt .ab-btn:disabled { opacity: .35; }
+/* result: mt-1.5 text-[11px] text-green-400 | text-red-400 */
+.col.asbuilt .ab-result { margin-top: 6px; font-size: 11px; }
+.col.asbuilt .ab-result.ok { color: oklch(79.2% 0.209 151.711); }
+.col.asbuilt .ab-result.bad { color: oklch(70.4% 0.191 22.216); }
+.col.asbuilt .ab-result .blk { display: block; }
+.col.asbuilt .ab-result .files { font-family: "SF Mono", Menlo, Monaco, Consolas, monospace; font-size: 10px; color: var(--text-tertiary); }
+.col.asbuilt .ab-result .warn { color: oklch(85.2% 0.199 91.936); } /* text-yellow-400 */
+
+/* folder chip: focus-ring mt-1 inline-flex items-center gap-1 rounded-full border border-yellow-500/40 bg-yellow-500/[0.06] px-2 py-0.5 text-[10px] font-semibold text-yellow-400 hover:underline */
+.col.asbuilt .ab-chip {
+  display: inline-flex; align-items: center; gap: 4px; margin-top: 4px; border-radius: 999px; padding: 2px 8px;
+  border: 1px solid oklch(79.5% 0.184 86.047 / 0.4); background: oklch(79.5% 0.184 86.047 / 0.06);
+  font-size: 10px; font-weight: 600; color: oklch(85.2% 0.199 91.936); text-decoration: none;
+}
+.col.asbuilt .ab-chip:hover { text-decoration: underline; }
+
+/* Dialog (client-utils): inline scrim + panel `max-w-md w-full p-5 space-y-4 bg-primary border-primary rounded-lg shadow-xl` */
+.col.asbuilt .ab-scrim { position: relative; display: flex; justify-content: center; padding: 20px 8px; background: rgb(0 0 0 / 0.6); border-radius: 6px; } /* bg-black/60 */
+.col.asbuilt .ab-dlg {
+  position: relative; width: 100%; max-width: 448px; padding: 20px; background: var(--bg-primary); border: 1px solid var(--border-primary); border-radius: 8px;
+  box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+}
+.col.asbuilt .ab-dlg > * + * { margin-top: 16px; }
+.col.asbuilt .ab-dlg .x { position: absolute; top: 12px; right: 12px; display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 4px; color: var(--text-secondary); }
+.col.asbuilt .ab-dlg .hd { display: flex; align-items: center; gap: 12px; padding-right: 32px; }
+.col.asbuilt .ab-dlg h3 { margin: 0; font-size: 16px; line-height: 1.5; font-weight: 600; color: var(--text-primary); }
+.col.asbuilt .ab-dlg .bd { font-size: 12px; line-height: 1.625; color: var(--text-secondary); }
+.col.asbuilt .ab-dlg .bd > * + * { margin-top: 8px; }
+.col.asbuilt .ab-dlg .bd p { margin: 0; }
+.col.asbuilt .ab-dlg .bd p.m { font-family: "SF Mono", Menlo, Monaco, Consolas, monospace; font-size: 11px; word-break: break-all; }
+.col.asbuilt .ab-dlg .bd ul { margin: 0; padding-left: 16px; list-style: disc; font-family: "SF Mono", Menlo, Monaco, Consolas, monospace; font-size: 11px; }
+.col.asbuilt .ab-dlg .bd .warn { color: oklch(85.2% 0.199 91.936); }
+.col.asbuilt .ab-dlg .bd label { display: flex; align-items: center; gap: 8px; }
+.col.asbuilt .ab-dlg .bd select {
+  font: inherit; color: var(--text-secondary); border-radius: 4px; border: 1px solid var(--border-secondary); background: var(--bg-secondary); padding: 4px 6px;
+}
+.col.asbuilt .ab-dlg .ft { display: flex; justify-content: flex-end; align-items: center; gap: 8px; padding-top: 4px; }
+/* Dialog.Cancel / Dialog.Action: text-xs px-3 py-1.5 rounded … (no focus-ring class) */
+.col.asbuilt .ab-dlg .cancel { font-size: 12px; line-height: 1.333; padding: 6px 12px; border-radius: 4px; border: 1px solid var(--border-primary); color: var(--text-secondary); }
+.col.asbuilt .ab-dlg .act { font-size: 12px; line-height: 1.333; padding: 6px 12px; border-radius: 4px; border: 1px solid transparent; color: #fff; }
+.col.asbuilt .ab-dlg .act.primary { background: var(--accent-primary); }       /* bg-[var(--accent-primary)] text-white */
+.col.asbuilt .ab-dlg .act.danger { background: oklch(57.7% 0.245 27.325); }    /* bg-red-600 text-white */
+.col.asbuilt .ab-dlg .x { font-size: 19px; } /* mdiClose size 0.8 */

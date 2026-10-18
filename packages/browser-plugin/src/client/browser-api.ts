@@ -43,6 +43,8 @@ export interface BrowserRouteProfile {
   installed: boolean;
   /** True when a pairing token is configured — the token itself never arrives. */
   hasToken: boolean;
+  /** Display names of password-manager extensions installed in the profile (absent on an older server). */
+  passwordManagers?: string[];
   instances: BrowserRouteInstance[];
 }
 
@@ -73,9 +75,51 @@ export interface BrowserProfilesResponse {
   warning?: string;
 }
 
+/** Lifecycle of the dashboard-owned Chrome profile (`status.dedicated.state`). */
+export type DedicatedState = "not-created" | "stopped" | "starting" | "running";
+
+/** Who holds the live dedicated instance: a pi session and/or a REST `client` label. */
+export interface DedicatedHolder {
+  sessionId?: string;
+  client?: string;
+}
+
+/** `GET /status` `dedicated` block. Absent on a server without the dedicated browser. */
+export interface DedicatedStatus {
+  available: boolean;
+  reason?: "no-chrome" | "no-display";
+  state: DedicatedState;
+  dataDir: string;
+  downloadsDir: string;
+  sizeBytes?: number;
+  /** Epoch ms of the last client CDP command or `dedicated/open`. */
+  lastUsed?: number;
+  instanceId?: string;
+  holder?: DedicatedHolder;
+}
+
+/** The "Agent browsing" settings (`PUT /api/browser/settings`), read back from `status.settings`. */
+export interface AgentBrowsingSettings {
+  /** `"@dedicated"` | `"@headless"` | a `profileDirectory`. */
+  defaultBrowser: string;
+  realProfile?: string;
+  onUnavailable: "ask" | "next" | "stop";
+  idleDisconnectMinutes: 0 | 5 | 30 | 120;
+  allowMultipleInstancesPerProfile: boolean;
+  openLiveViewOnConnect: boolean;
+  allowedDomains: string[];
+}
+
+/** Partial body for `PUT /api/browser/settings`. */
+export type BrowserSettingsPatch = Partial<AgentBrowsingSettings>;
+
 export interface BrowserStatusResponse {
   enabled: boolean;
   canOpenChrome: boolean;
+  /** Dedicated agent profile; absent on an older server (the panel then hides). */
+  dedicated?: DedicatedStatus;
+  /** Current Agent browsing values. When absent the client falls back to the plugin config. */
+  settings?: Partial<AgentBrowsingSettings>;
   /** Literal `true` only on a server that supports operator hosts; clients send no `browser_host_*` without it. */
   operatorHosts?: true;
 }
@@ -86,7 +130,10 @@ type AuditKind =
   | "navigate"
   | "createTarget"
   | "denied"
+  | "dropped"
+  | "open"
   | "viewer-subscribe"
+  | "viewer-subscribe-refused"
   | "viewer-input";
 
 export interface AuditEntry {
@@ -105,6 +152,11 @@ export interface BrowserAuditResponse {
 export interface RelayConfig {
   enabled?: boolean;
   defaultBrowser?: string;
+  realProfile?: string;
+  onUnavailable?: AgentBrowsingSettings["onUnavailable"];
+  idleDisconnectMinutes?: AgentBrowsingSettings["idleDisconnectMinutes"];
+  openLiveViewOnConnect?: boolean;
+  allowedDomains?: string[];
   allowMultipleInstancesPerProfile?: boolean;
   /** Per-profile config as the CLIENT sees it. `token` is `writeOnly` server-side
    * (stripped from every GET/broadcast) and MUST never be rendered. */
@@ -185,3 +237,28 @@ export async function writeBrowserProfile(
   if (!res.ok) throw new Error(`PUT ${BASE}/profile failed: ${res.status}`);
   return (await res.json()) as { hasToken: boolean };
 }
+
+/** Write the Agent browsing settings (partial). Rejects on 400 (invalid) or 403 (relay disabled). */
+export async function putBrowserSettings(patch: BrowserSettingsPatch): Promise<void> {
+  const res = await fetch(`${BASE}/settings`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) throw new Error(`PUT ${BASE}/settings failed: ${res.status}`);
+}
+
+async function postDedicated(action: "open" | "stop" | "reset", body?: unknown): Promise<void> {
+  const res = await fetch(`${BASE}/dedicated/${action}`, {
+    method: "POST",
+    ...(body === undefined
+      ? {}
+      : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+  });
+  if (!res.ok) throw new Error(`POST ${BASE}/dedicated/${action} failed: ${res.status}`);
+}
+
+/** "Open to sign in": opens a hidden server-owned sign-in tab (server default URL when omitted). */
+export const openDedicated = (): Promise<void> => postDedicated("open", {});
+export const stopDedicated = (): Promise<void> => postDedicated("stop");
+export const resetDedicated = (): Promise<void> => postDedicated("reset");

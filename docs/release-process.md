@@ -216,7 +216,7 @@ One-time setup:
 Rollback: delete `DISCORD_RELEASE_WEBHOOK` secret (job skips, exits 0) or
 delete `discord-announce` job.
 
-Community invite: <https://discord.gg/uQsJgsejb>.
+Community invite: <https://discord.gg/DrNebZ3pF5>.
 
 ## Rollback: bad auto-update release
 

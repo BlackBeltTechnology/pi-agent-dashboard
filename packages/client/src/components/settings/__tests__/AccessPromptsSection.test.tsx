@@ -13,6 +13,8 @@ import { AccessPromptsSection } from "../AccessPromptsSection.js";
 type Call = { url: string; method: string; body?: unknown };
 let calls: Call[] = [];
 let view: AccessPromptsView;
+/** `/api/health` `trustPosture.trustMode`; `null` = undisclosed. */
+let trustMode: "pair" | "legacy" | null = null;
 
 function makeView(blockers: PromptingBlocker[] = ["disabled"]): AccessPromptsView {
   return {
@@ -73,11 +75,27 @@ function ok(data: unknown = null) {
 
 beforeEach(() => {
   calls = [];
+  trustMode = null;
   view = makeView();
   clearGrantChannel();
   global.fetch = vi.fn((url: string, init?: { method?: string; body?: string }) => {
     const method = init?.method ?? "GET";
     calls.push({ url, method, body: init?.body ? JSON.parse(init.body) : undefined });
+    if (url === "/api/health") {
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            trustPosture: trustMode && {
+              trustedHasLoopback: false,
+              trustMode,
+              trustModeOrigin: "operator",
+              networkOnly: { admissions: 0, distinctPeers: 0, lastAt: null },
+            },
+          }),
+      });
+    }
     if (url === "/api/access/prompts" && method === "GET") return ok(view);
     if (url.startsWith("/api/access/prompts/") && method === "POST") {
       const id = decodeURIComponent(url.split("/").pop() as string);
@@ -246,3 +264,47 @@ describe("AccessPromptsSection", () => {
     expect(document.querySelector("img")).toBeNull();
   });
 });
+
+// In `pair` mode a network denial is not a pending request; other planes are untouched.
+// See change: retire-trusted-networks-bypass (test-plan #F7).
+describe("AccessPromptsSection — network trust mode", () => {
+  const corsPending = {
+    promptId: "p-cors",
+    plane: "cors" as const,
+    subject: "https://example.test",
+    mode: "deferred" as const,
+    prompted: false,
+    recordedAt: 1,
+    expiresAt: Date.now() + 60_000,
+    hits: 1,
+    store: "cors.allowedOrigins",
+    copy: { mode: "deferred" as const, verdicts: ["allow-always", "deny"] as ("allow-always" | "deny")[], store: "cors.allowedOrigins" },
+  };
+
+  it("F7 pair: no network pending row; the CORS row is still answerable", async () => {
+    trustMode = "pair";
+    view = { ...view, pending: [...view.pending, corsPending] };
+    render(<AccessPromptsSection store={store()} />);
+    await waitFor(() => expect(screen.getAllByTestId("access-pending-row")).toHaveLength(2));
+    const text = screen.getAllByTestId("access-pending-row").map((r) => r.textContent).join("|");
+    expect(text).not.toContain("10.9.0.0/16");
+    expect(text).toContain("https://example.test");
+    const cors = screen.getAllByTestId("access-pending-row").find((r) => r.textContent?.includes("example.test"))!;
+    fireEvent.click(within(cors).getByTestId("access-pending-allow-always"));
+    await waitFor(() =>
+      expect(calls).toContainEqual({
+        url: "/api/access/prompts/p-cors",
+        method: "POST",
+        body: { plane: "cors", subject: "https://example.test", verdict: "allow-always" },
+      }),
+    );
+  });
+
+  it("F7 legacy: the network pending row is listed", async () => {
+    trustMode = "legacy";
+    render(<AccessPromptsSection store={store()} />);
+    await waitFor(() => expect(screen.getAllByTestId("access-pending-row")).toHaveLength(2));
+    expect(screen.getAllByTestId("access-pending-row").map((r) => r.textContent).join("|")).toContain("10.9.0.0/16");
+  });
+});
+

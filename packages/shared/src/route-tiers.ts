@@ -320,6 +320,7 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "POST", path: "/api/known-servers", tier: "operate" },
   { method: "POST", path: "/api/known-servers/accept-move", tier: "operate" },
   { method: "POST", path: "/api/known-servers/probe", tier: "operate" },
+  { method: "POST", path: "/api/live-server/:id/capability", tier: "control" },
   { method: "POST", path: "/api/live-server/start", tier: "operate" },
   { method: "POST", path: "/api/local-proof", tier: "operate" },
   { method: "POST", path: "/api/mcp-client/servers/:name/convert", tier: "operate" },

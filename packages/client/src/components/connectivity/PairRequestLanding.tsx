@@ -22,6 +22,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "../../lib/i18n/i18n.js";
 import { finishDevicePairing } from "../../lib/pairing/device-auth.js";
 import { confirmCodeAriaLabel, formatCountdown, groupConfirmCode } from "../../lib/pairing/knock-format.js";
+import {
+  clearStoredKnock,
+  clearStoredRefusal,
+  readStoredKnock,
+  type StoredKnock,
+  writeStoredKnock,
+  writeStoredRefusal,
+} from "../../lib/pairing/knock-state.js";
 import { postJson } from "../../lib/pairing/pair-protocol.js";
 import { requestAccess } from "../../lib/pairing/pairing-api.js";
 import { INPUT } from "./connectivity-ui.js";
@@ -30,13 +38,8 @@ import { CALLOUT_ERROR, CALLOUT_INFO, CALLOUT_SUCCESS, CALLOUT_WARNING, LANDING_
 
 type Phase = "intro" | "sending" | "waiting" | "approved" | "rejected" | "expired" | "missed" | "refused" | "keepFailed";
 
-/** The live knock this tab is waiting on. Persisted in `sessionStorage`. */
-interface StoredRequest {
-  pendingId: string;
-  confirmCode: string;
-  /** Epoch ms. */
-  expiresAt: number;
-}
+/** The live knock this tab is waiting on. Persisted in `sessionStorage` (see `lib/pairing/knock-state.ts`). */
+type StoredRequest = StoredKnock;
 
 interface PollResult {
   status: "pending" | "approved" | "rejected" | "unknown";
@@ -50,7 +53,6 @@ interface Refusal {
 }
 
 const POLL_INTERVAL_MS = 2000;
-const STORE_KEY = "pi-dashboard:pair-request";
 /** Placeholder swapped for the host element when rendering `{host}` templates. */
 const HOST_MARK = "\u0001";
 
@@ -59,33 +61,9 @@ const REFUSAL_COPY = KNOCK_REFUSAL_COPY;
 const REFUSAL_GENERIC = KNOCK_REFUSAL_GENERIC;
 const NO_RETRY = KNOCK_NO_RETRY;
 
-function readStored(): StoredRequest | null {
-  try {
-    const v = JSON.parse(sessionStorage.getItem(STORE_KEY) ?? "null") as Partial<StoredRequest> | null;
-    if (v && typeof v.pendingId === "string" && typeof v.confirmCode === "string" && typeof v.expiresAt === "number") {
-      return { pendingId: v.pendingId, confirmCode: v.confirmCode, expiresAt: v.expiresAt };
-    }
-  } catch {
-    /* corrupt or storage disabled — treat as no request */
-  }
-  return null;
-}
-
-function writeStored(req: StoredRequest): void {
-  try {
-    sessionStorage.setItem(STORE_KEY, JSON.stringify(req));
-  } catch {
-    /* storage disabled — the request still works, it just cannot survive a reload */
-  }
-}
-
-function clearStored(): void {
-  try {
-    sessionStorage.removeItem(STORE_KEY);
-  } catch {
-    /* ignore */
-  }
-}
+const readStored = readStoredKnock;
+const writeStored = writeStoredKnock;
+const clearStored = clearStoredKnock;
 
 /** True for `/pair?request` without a payload fragment (the QR flow owns a fragment). */
 export function isRequestMode(): boolean {
@@ -455,6 +433,7 @@ export function PairRequestLanding({ onPaired }: { onPaired?: (token: string) =>
   const send = useCallback(async () => {
     setError(null);
     setRefusal(null);
+    clearStoredRefusal();
     setPhase("sending");
     let result: Awaited<ReturnType<typeof requestAccess>>;
     try {
@@ -468,10 +447,13 @@ export function PairRequestLanding({ onPaired }: { onPaired?: (token: string) =>
     }
     if (!mounted.current) return;
     if (!result.ok) {
-      setRefusal({
+      const refused = {
         code: result.error,
         ...(result.retryAfter ? { cooldownUntil: Date.now() + result.retryAfter * 1000 } : {}),
-      });
+      };
+      setRefusal(refused);
+      // The denied bar reads it back (its refusal reason survives leaving this page).
+      writeStoredRefusal({ ...refused, at: Date.now() });
       setPhase("refused");
       return;
     }
