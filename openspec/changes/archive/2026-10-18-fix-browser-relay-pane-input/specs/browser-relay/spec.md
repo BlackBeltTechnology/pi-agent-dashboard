@@ -2,7 +2,7 @@
 
 ### Requirement: Connect and CDP-URL lifecycle
 
-`POST /api/browser/connect?profile=<profileDirectory>` SHALL mint a guid, open the extension's `connect.html` in that profile with `protocolVersion=2` and, when the profile config sets `zeroDialog: true` and a token is stored, `token=<token>`, and return `{cdpUrl, instanceId}` once the extension handshake completes (timeout 60 s → 504 and the guid expires). The HTTP request SHALL stay open for the whole handshake window, independent of the server's idle connection timeout, and SHALL restore that timeout once the response is sent. The response is the only way to obtain a `cdpUrl`; no lookup endpoint SHALL exist. `POST /api/browser/disconnect?instanceId=<id>` SHALL close that relay instance, detaching its tabs; `instanceId` is required. `PUT /api/browser/enabled {enabled}` SHALL write `plugins.browser.enabled` and, when false, close every instance before responding.
+`POST /api/browser/connect?profile=<profileDirectory>` SHALL mint a guid, open the extension's `connect.html` in that profile with `protocolVersion=2` and, when the profile config sets `zeroDialog: true` and a token is stored, `token=<token>`, and return `{cdpUrl, instanceId}` once the extension handshake completes (timeout 60 s → 504 and the guid expires). An optional `host` selects where Chrome runs: omitted or `"dashboard"` targets the dashboard host as described here; a registered operator `hostId` targets that operator browser host as specified in `browser-operator-host`, with the same `cdpUrl` form. The HTTP request SHALL stay open for the whole handshake window, independent of the server's idle connection timeout, and SHALL restore that timeout once the response is sent. The response is the only way to obtain a `cdpUrl`; no lookup endpoint SHALL exist. `POST /api/browser/disconnect?instanceId=<id>` SHALL close that relay instance, detaching its tabs; `instanceId` is required. `PUT /api/browser/enabled {enabled}` SHALL write `plugins.browser.enabled` and, when false, close every instance before responding.
 
 #### Scenario: Zero-dialog token configured
 
@@ -23,6 +23,11 @@
 
 - **WHEN** `plugins.browser.enabled` is `false` (the plugin remains loaded; this is plugin config, distinct from the loader-level plugin toggle)
 - **THEN** every relay endpoint SHALL reject upgrades with 403, every `/api/browser/*` write except `PUT /api/browser/enabled` SHALL return 403, and live instances SHALL have been closed before the `PUT` that flipped the flag responded
+
+#### Scenario: Omitted host keeps today's behaviour
+
+- **WHEN** an agent calls `connect` without `host`
+- **THEN** the dashboard host's Chrome SHALL be opened and no `browser_host_*` message SHALL be sent to any client
 
 #### Scenario: Allow clicked after the server's idle connection timeout
 

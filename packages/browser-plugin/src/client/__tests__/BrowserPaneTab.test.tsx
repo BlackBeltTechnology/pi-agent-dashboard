@@ -192,8 +192,12 @@ describe("frames, idle, detached (#F5 #F6)", () => {
 		emitStatus(r, status([{ tabId: 1 }]));
 		act(() => r.ws.emit(frame(1)));
 		await waitFor(() => expect(r.getByTestId("browser-pane-frame")).toBeTruthy());
+		vi.useFakeTimers();
 		emitStatus(r, status([{ tabId: 1, state: "no-frames" }]));
-		await waitFor(() => expect(r.getByTestId("browser-pane-idle")).toBeTruthy());
+		act(() => {
+			vi.advanceTimersByTime(5000);
+		});
+		expect(r.getByTestId("browser-pane-idle")).toBeTruthy();
 		expect(r.getByTestId("browser-pane-frame")).toBeTruthy();
 		const frameArea = r.getByTestId("browser-pane-frame-area");
 		expect(frameArea.contains(r.getByTestId("browser-pane-idle"))).toBe(false); // not over the frame
@@ -214,6 +218,80 @@ describe("frames, idle, detached (#F5 #F6)", () => {
 		emitStatus(r, status([{ tabId: 1, state: "detached", reason: "no-session" }]));
 		await waitFor(() => expect(r.getByTestId("browser-pane-nosession")).toBeTruthy());
 		expect(r.queryByTestId("browser-pane-waiting")).toBeNull();
+	});
+});
+
+describe("idle strip debounce (#F1–#F6, change: fix-browser-relay-pane-input)", () => {
+	async function framed() {
+		const r = mount();
+		emitStatus(r, status([{ tabId: 1 }]));
+		act(() => r.ws.emit(frame(1)));
+		await waitFor(() => expect(r.getByTestId("browser-pane-frame")).toBeTruthy());
+		vi.useFakeTimers();
+		return r;
+	}
+	const advance = (ms: number) =>
+		act(() => {
+			vi.advanceTimersByTime(ms);
+		});
+	const idle = (r: ReturnType<typeof mount>) => r.queryByTestId("browser-pane-idle");
+
+	it("#F1 the strip appears only after 5 s of no-frames; the frame stays", async () => {
+		const r = await framed();
+		emitStatus(r, status([{ tabId: 1, state: "no-frames" }]));
+		advance(4999);
+		expect(idle(r)).toBeNull();
+		advance(1);
+		expect(idle(r)).not.toBeNull();
+		expect(r.getByTestId("browser-pane-frame")).toBeTruthy();
+	});
+
+	it("#F2 a brief no-frames pause (twice 3 s) never shows the strip", async () => {
+		const r = await framed();
+		emitStatus(r, status([{ tabId: 1, state: "no-frames" }]));
+		advance(3000);
+		emitStatus(r, status([{ tabId: 1 }]));
+		emitStatus(r, status([{ tabId: 1, state: "no-frames" }]));
+		advance(3000);
+		expect(idle(r)).toBeNull();
+		emitStatus(r, status([{ tabId: 1 }]));
+		expect(idle(r)).toBeNull();
+	});
+
+	it("#F3 the strip goes away in the same render as any other state", async () => {
+		const r = await framed();
+		emitStatus(r, status([{ tabId: 1, state: "no-frames" }]));
+		advance(5000);
+		expect(idle(r)).not.toBeNull();
+		emitStatus(r, status([{ tabId: 1 }]));
+		expect(idle(r)).toBeNull();
+		emitStatus(r, status([{ tabId: 1, state: "no-frames" }]));
+		advance(5000);
+		expect(idle(r)).not.toBeNull();
+		emitStatus(r, status([{ tabId: 1, state: "detached", reason: "devtools" }]));
+		expect(idle(r)).toBeNull();
+		expect(r.getByTestId("browser-pane-devtools")).toBeTruthy();
+	});
+
+	it("#F4 re-entering no-frames restarts the 5 s timer", async () => {
+		const r = await framed();
+		emitStatus(r, status([{ tabId: 1, state: "no-frames" }]));
+		advance(5000);
+		emitStatus(r, status([{ tabId: 1 }]));
+		emitStatus(r, status([{ tabId: 1, state: "no-frames" }]));
+		advance(4999);
+		expect(idle(r)).toBeNull();
+	});
+
+	it("#F6 unmounting with a pending timer warns about nothing", async () => {
+		const r = await framed();
+		const err = vi.spyOn(console, "error").mockImplementation(() => {});
+		emitStatus(r, status([{ tabId: 1, state: "no-frames" }]));
+		advance(2000);
+		r.unmount();
+		expect(vi.getTimerCount()).toBe(0); // the idle timer was cleared, not left to fire
+		advance(5000);
+		expect(err).not.toHaveBeenCalled();
 	});
 });
 
@@ -267,6 +345,93 @@ describe("toolbar + input (#F7 #F8 #F9)", () => {
 		fireEvent.keyDown(box, { key: "a", code: "KeyA" });
 		fireEvent.keyUp(box, { key: "a", code: "KeyA" });
 		expect(inputs(r.send).slice(-2)).toMatchObject([{ kind: "key", keyType: "keyDown", key: "a" }, { kind: "key", keyType: "keyUp", key: "a" }]);
+	});
+
+	const keys = (r: Awaited<ReturnType<typeof ready>>) => inputs(r.send).filter((m) => m.kind === "key");
+	const keyDown = (r: Awaited<ReturnType<typeof ready>>, init: KeyboardEventInit) => {
+		fireEvent.keyDown(r.getByTestId("browser-pane-frame-box"), init);
+		return keys(r).at(-1) as Record<string, unknown>;
+	};
+
+	it("#E1 a plain printable keyDown carries text; keyUp does not", async () => {
+		const r = await ready();
+		const box = r.getByTestId("browser-pane-frame-box");
+		fireEvent.keyDown(box, { key: "a", code: "KeyA" });
+		fireEvent.keyUp(box, { key: "a", code: "KeyA" });
+		const [down, up] = keys(r);
+		expect(down).toMatchObject({ keyType: "keyDown", key: "a", text: "a" });
+		expect(up).toMatchObject({ keyType: "keyUp", key: "a" });
+		expect("text" in up).toBe(false);
+	});
+
+	it("#E2 text follows the modifier rule (AltGr keeps text; Ctrl/Meta drop it)", async () => {
+		const r = await ready();
+		expect(keyDown(r, { key: "A", shiftKey: true })).toMatchObject({ text: "A" });
+		expect(keyDown(r, { key: "@", ctrlKey: true, altKey: true })).toMatchObject({ text: "@" });
+		expect(keyDown(r, { key: "´", altKey: true })).toMatchObject({ text: "´" });
+		expect("text" in keyDown(r, { key: "a", ctrlKey: true })).toBe(false);
+		expect("text" in keyDown(r, { key: "a", metaKey: true })).toBe(false);
+		expect("text" in keyDown(r, { key: "a", ctrlKey: true, metaKey: true, altKey: true })).toBe(false);
+	});
+
+	it("#E3 only a single printable character carries text", async () => {
+		const r = await ready();
+		for (const key of ["ArrowLeft", "Backspace", "Dead", "Process", "Unidentified"]) {
+			expect("text" in keyDown(r, { key })).toBe(false);
+		}
+		expect(keyDown(r, { key: " " })).toMatchObject({ text: " " });
+		expect(keyDown(r, { key: "é" })).toMatchObject({ text: "é" });
+	});
+
+	it("#E4 Enter carries \\r under the same modifier rule", async () => {
+		const r = await ready();
+		expect(keyDown(r, { key: "Enter" })).toMatchObject({ text: "\r" });
+		expect("text" in keyDown(r, { key: "Enter", ctrlKey: true })).toBe(false);
+		expect("text" in keyDown(r, { key: "Enter", metaKey: true })).toBe(false);
+		expect(keyDown(r, { key: "Enter", ctrlKey: true, altKey: true })).toMatchObject({ text: "\r" });
+	});
+
+	it("#E5 clicks only inside the image rect (letterbox ignored)", async () => {
+		const r = await ready();
+		r.getByTestId("browser-pane-frame").getBoundingClientRect = () =>
+			({ left: 100, top: 50, width: 400, height: 200, right: 500, bottom: 250, x: 100, y: 50, toJSON: () => ({}) }) as DOMRect;
+		const box = r.getByTestId("browser-pane-frame-box");
+		for (const x of [99, 100, 300, 500, 501]) {
+			box.dispatchEvent(new FakePointerEvent("pointerup", { bubbles: true, clientX: x, clientY: 150, pointerType: "mouse" }));
+		}
+		expect(inputs(r.send).filter((m) => m.kind === "mouse").map((m) => m.x)).toEqual([0, 0.5, 1]);
+	});
+
+	it("#E6 move and wheel over the letterbox are dropped", async () => {
+		const r = await ready();
+		r.getByTestId("browser-pane-frame").getBoundingClientRect = () =>
+			({ left: 100, top: 50, width: 400, height: 200, right: 500, bottom: 250, x: 100, y: 50, toJSON: () => ({}) }) as DOMRect;
+		const box = r.getByTestId("browser-pane-frame-box");
+		box.dispatchEvent(new FakePointerEvent("pointermove", { bubbles: true, clientX: 50, clientY: 150, pointerType: "mouse" }));
+		fireEvent.wheel(box, { clientX: 50, clientY: 150, deltaY: 5 });
+		expect(inputs(r.send)).toHaveLength(0);
+		box.dispatchEvent(new FakePointerEvent("pointermove", { bubbles: true, clientX: 300, clientY: 150, pointerType: "mouse" }));
+		fireEvent.wheel(box, { clientX: 300, clientY: 150, deltaY: 5 });
+		expect(inputs(r.send)).toMatchObject([
+			{ kind: "mouse", action: "move", x: 0.5, y: 0.5 },
+			{ kind: "scroll", x: 0.5, y: 0.5 },
+		]);
+	});
+
+	it("#E7 no image yet: pointer and wheel produce nothing; after a frame a click does", async () => {
+		const r = mount();
+		emitStatus(r, status([{ tabId: 1 }]));
+		await waitFor(() => expect(r.getByTestId("browser-pane-waiting")).toBeTruthy());
+		const box = r.getByTestId("browser-pane-frame-box");
+		box.getBoundingClientRect = () => rect(600, 300);
+		box.dispatchEvent(new FakePointerEvent("pointerup", { bubbles: true, clientX: 300, clientY: 150, pointerType: "mouse" }));
+		fireEvent.wheel(box, { clientX: 300, clientY: 150, deltaY: 5 });
+		expect(inputs(r.send)).toHaveLength(0);
+		act(() => r.ws.emit(frame(1)));
+		await waitFor(() => expect(r.getByTestId("browser-pane-frame")).toBeTruthy());
+		r.getByTestId("browser-pane-frame").getBoundingClientRect = () => rect(600, 300);
+		box.dispatchEvent(new FakePointerEvent("pointerup", { bubbles: true, clientX: 300, clientY: 150, pointerType: "mouse" }));
+		expect(inputs(r.send)).toMatchObject([{ kind: "mouse", action: "click", x: 0.5, y: 0.5 }]);
 	});
 
 	it("#F7 Input off sends no input from the frame (nor the bridge, nor resize); Bring to front still works", async () => {

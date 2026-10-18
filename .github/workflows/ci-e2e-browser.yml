@@ -273,6 +273,122 @@ jobs:
           fi
           (cd "$ws" && "$GITHUB_WORKSPACE/docker/test-down.sh")
 
+  # ── e2e-team: the VARIANT-harness leg for tests/e2e/team/ ─────────────────
+  # These specs need the real `pi` CLI, a built team app and their own config
+  # (playwright.team.config.ts). They are config-owned: the default config's
+  # `testIgnore` excludes tests/e2e/team/**, so this leg is the ONLY one that
+  # runs them (change: add-missing-ci-legs, #861).
+  e2e-team:
+    name: e2e (team app, variant harness)
+    # Same label gate and advisory rule as the shard matrix: dispatch/nightly
+    # always, PRs opt-in, advisory on the PR path only.
+    if: >-
+      github.event_name != 'pull_request' ||
+      contains(github.event.pull_request.labels.*.name, 'e2e-browser')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    continue-on-error: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      # The real `pi` CLI, pinned to the version `docker/Dockerfile` installs for
+      # every other browser-E2E leg (single source of truth; the `>=` floor in
+      # package.json is a peer-compat floor, not a test pin). Pinned literal is
+      # lint-checked against the Dockerfile.
+      - name: Install pi CLI
+        run: npm i -g @earendil-works/pi-coding-agent@1.1.0
+
+      # Explicit build steps: pnpm does not run `pre*` scripts by default, so
+      # relying on `pretest:*` would silently run against a missing build.
+      - name: Build client
+        run: pnpm run build
+
+      - name: Build team app
+        run: npm run build:app --workspace=@blackbelt-technology/pi-dashboard-team-plugin
+
+      # Own HTML report (NOT a blob): this leg does not join `merge-report`.
+      - name: Run team E2E
+        run: pnpm exec playwright test --config playwright.team.config.ts --reporter=list,html
+        env:
+          CI: "1"
+
+      - name: Upload HTML report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-team
+          path: playwright-report
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # ── e2e-identity-matrix: the VARIANT-harness leg for identity-matrix/ ─────
+  # Config-owned like e2e-team: its `globalSetup` boots the matrix that
+  # browser-login/security/setup-matrix read (state.json), and multi-user needs
+  # `pi`. Needs a built client, not the team app (change: add-missing-ci-legs).
+  e2e-identity-matrix:
+    name: e2e (identity matrix, variant harness)
+    # Same label gate and advisory rule as the shard matrix: dispatch/nightly
+    # always, PRs opt-in, advisory on the PR path only.
+    if: >-
+      github.event_name != 'pull_request' ||
+      contains(github.event.pull_request.labels.*.name, 'e2e-browser')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    continue-on-error: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      # The real `pi` CLI, pinned to the version `docker/Dockerfile` installs for
+      # every other browser-E2E leg (single source of truth; the `>=` floor in
+      # package.json is a peer-compat floor, not a test pin). Pinned literal is
+      # lint-checked against the Dockerfile.
+      - name: Install pi CLI
+        run: npm i -g @earendil-works/pi-coding-agent@1.1.0
+
+      # Explicit build steps: pnpm does not run `pre*` scripts by default, so
+      # relying on `pretest:*` would silently run against a missing build.
+      - name: Build client
+        run: pnpm run build
+
+      # Own HTML report (NOT a blob): this leg does not join `merge-report`.
+      - name: Run identity-matrix E2E
+        run: pnpm exec playwright test --config playwright.identity-matrix.config.ts --reporter=list,html
+        env:
+          CI: "1"
+
+      - name: Upload HTML report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-identity-matrix
+          path: playwright-report
+          if-no-files-found: ignore
+          retention-days: 14
+
   # ── merge-report: one HTML artifact for the whole sharded run ─────────────
   merge-report:
     needs: [e2e, e2e-browser-relay]
