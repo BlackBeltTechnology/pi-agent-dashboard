@@ -1357,6 +1357,42 @@ export interface OpenSpecData {
    * See change: add-openspec-init-affordances.
    */
   readiness?: OpenSpecReadiness;
+  /**
+   * Workflow-schema status (`pi-spec-driven`). Successful-poll payloads only;
+   * omitted on failure / disabled / opted-out / global-off payloads.
+   * See change: add-pi-spec-driven-schema.
+   */
+  workflowSchema?: OpenSpecWorkflowSchemaStatus;
+}
+
+/**
+ * Status of the dashboard-managed `pi-spec-driven` workflow schema in a project.
+ * See change: add-pi-spec-driven-schema.
+ */
+export type WorkflowSchemaGenerated =
+  | "none"
+  | "current"
+  | "outdated"
+  | "newer"
+  | "incompatible"
+  | "conflict"
+  | "unmanaged";
+
+/**
+ * Workflow-schema status carried on successful-poll `OpenSpecData` payloads.
+ * Reported separately from `readiness`; never alters readiness-gated controls.
+ * See change: add-pi-spec-driven-schema.
+ */
+export interface OpenSpecWorkflowSchemaStatus {
+  /** `schema:` of the config file the CLI reads, or `null` when absent. */
+  configured: string | null;
+  generated: WorkflowSchemaGenerated;
+  /** Config names a schema that resolves in no project/user/package dir. */
+  missing: boolean;
+  /** Active changes without `.openspec.yaml`; only when `configured === "pi-spec-driven"`. */
+  unpinnedChanges: string[];
+  /** Active changes resolving to `pi-spec-driven` from files alone; sorted by name. */
+  affectedChanges: string[];
 }
 
 /** OpenSpec workflow phase detected from tool calls */

@@ -6,7 +6,7 @@ import { BASE_URL, DASHBOARD_PORT } from "./lifecycle.js";
 /**
  * Browser E2E — FOLDER-SECTION slice of change `add-openspec-init-affordances`.
  *
- * Covers test-plan #F1, #F2, #F3, #F12, #F13, #F14, #F15, #F16, #F17, #X9
+ * Covers test-plan #F1, #F2, #F3, #F10, #F12, #F13, #F14, #F15, #F16, #F17, #X9
  * (tasks 2.48–2.50, 2.59–2.65): the folder-header OpenSpec section's ABSENT
  * offer, height parity across states, init convergence, opt-out dismiss +
  * re-enable, and the two confirm-dialog flows — against the disposable docker
@@ -520,5 +520,50 @@ test.describe("openspec init affordances — folder section", () => {
     await expect(section(page, dir, "absent")).toBeVisible();
     await expect(section(page, dir, "")).toHaveCount(0);
     await expect(card.getByTestId("folder-openspec-count")).toHaveCount(0);
+  });
+
+  // test-plan #F10 — see change: add-pi-spec-driven-schema.
+  test("F10 (#5.7): Settings → OpenSpec → Enable pi-spec-driven writes config + pins file-less changes, section shows current", async ({ page }) => {
+    test.setTimeout(180_000);
+    const dir = makeDir("f10");
+    await gotoDashboard(page);
+    await pinAndExpand(page, dir);
+    await initDir(page, dir); // default schema: spec-driven (real CLI spawn)
+
+    // Two active changes: `alpha` already pinned, `beta` file-less.
+    dsh(
+      `mkdir -p ${dir}/openspec/changes/alpha ${dir}/openspec/changes/beta` +
+        ` && printf 'schema: spec-driven\\ncreated: 2026-01-01\\n' > ${dir}/openspec/changes/alpha/.openspec.yaml` +
+        ` && printf '## Why\\nalpha\\n' > ${dir}/openspec/changes/alpha/proposal.md` +
+        ` && printf '## Why\\nbeta\\n' > ${dir}/openspec/changes/beta/proposal.md`,
+    );
+
+    // Full navigation: the connect snapshot re-hydrates the per-cwd status.
+    await page.goto("/settings/openspec");
+    const row = page.getByTestId(`workflow-schema-row-${dir}`);
+    await expect(row).toBeVisible({ timeout: 60_000 });
+    const enable = page.getByTestId(`workflow-schema-enable-${dir}`);
+    await expect(enable).toBeVisible({ timeout: 60_000 });
+
+    await enable.click();
+    const dialog = page.getByTestId("workflow-schema-confirm");
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText("openspec/schemas/pi-spec-driven/");
+    await expect(dialog).toContainText("openspec/config.yaml");
+    // Nothing is written until the user confirms.
+    expect(dsh(`test -e ${dir}/openspec/schemas/pi-spec-driven && echo yes || echo no`).trim()).toBe("no");
+
+    await page.getByTestId("workflow-schema-confirm-action").click();
+    await expect(page.getByTestId(`workflow-schema-result-${dir}`)).toBeVisible({ timeout: 60_000 });
+    // An immediate action never opens the Save Bar.
+    await expect(page.getByTestId("save-btn")).toHaveCount(0);
+
+    // On disk.
+    expect(dsh(`cat ${dir}/openspec/config.yaml`)).toMatch(/^schema:\s*pi-spec-driven\s*$/m);
+    expect(dsh(`cat ${dir}/openspec/changes/beta/.openspec.yaml`)).toMatch(/^schema:\s*spec-driven\s*$/m);
+    expect(dsh(`cat ${dir}/openspec/changes/alpha/.openspec.yaml`)).toMatch(/^schema:\s*spec-driven\s*$/m);
+
+    // The section converges on `current` (next poll tick re-broadcasts the status).
+    await expect(page.getByTestId(`workflow-schema-status-${dir}`)).toContainText("current", { timeout: 60_000 });
   });
 });

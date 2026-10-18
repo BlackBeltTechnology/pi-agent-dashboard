@@ -267,4 +267,33 @@ describe("loadConfig — openspec optOutDirectories + offerInitialization (add-o
     );
     expect(loadConfig().openspec.offerInitialization).toBe(false);
   });
+
+  describe("workflowSchema.defaultForNewProjects (add-pi-spec-driven-schema)", () => {
+    it("defaults to false when the openspec block is missing", () => {
+      fs.writeFileSync(configFile, JSON.stringify({ port: 8000 }));
+      expect(loadConfig().openspec.workflowSchema.defaultForNewProjects).toBe(false);
+    });
+
+    it("defaults to false when the workflowSchema block is missing", () => {
+      fs.writeFileSync(configFile, JSON.stringify({ openspec: { pollIntervalSeconds: 45 } }));
+      expect(loadConfig().openspec.workflowSchema).toEqual({ defaultForNewProjects: false });
+    });
+
+    it("preserves explicit true", () => {
+      fs.writeFileSync(configFile, JSON.stringify({ openspec: { workflowSchema: { defaultForNewProjects: true } } }));
+      expect(loadConfig().openspec.workflowSchema.defaultForNewProjects).toBe(true);
+    });
+
+    it("falls back to false on a non-boolean value", () => {
+      for (const bad of ["true", 1, null, {}]) {
+        fs.writeFileSync(configFile, JSON.stringify({ openspec: { workflowSchema: { defaultForNewProjects: bad } } }));
+        expect(loadConfig().openspec.workflowSchema.defaultForNewProjects).toBe(false);
+      }
+    });
+
+    it("falls back to false when workflowSchema is not an object", () => {
+      fs.writeFileSync(configFile, JSON.stringify({ openspec: { workflowSchema: "yes" } }));
+      expect(loadConfig().openspec.workflowSchema.defaultForNewProjects).toBe(false);
+    });
+  });
 });

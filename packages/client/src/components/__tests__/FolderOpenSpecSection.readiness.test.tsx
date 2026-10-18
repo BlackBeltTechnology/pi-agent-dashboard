@@ -242,3 +242,54 @@ describe("FolderOpenSpecSection — failure surfacing", () => {
     expect(screen.getByTestId("openspec-init-over-confirm").textContent).toContain(CWD);
   });
 });
+
+// test-plan #F8 — non-blocking workflow-schema notice chip (a link, never an action).
+// See change: add-pi-spec-driven-schema.
+describe("FolderOpenSpecSection — workflow schema notice chip", () => {
+  const clear = { configured: "spec-driven", generated: "none" as const, missing: false, unpinnedChanges: [], affectedChanges: [] };
+
+  it("#F8 shows a link chip only when the schema needs attention; click performs no request", () => {
+    const { unmount } = render(
+      <FolderOpenSpecSection
+        cwd={CWD}
+        data={data({ readiness: { state: "READY" }, workflowSchema: { ...clear, generated: "conflict" } })}
+      />,
+    );
+    const chip = screen.getByTestId("folder-openspec-schema-chip") as HTMLAnchorElement;
+    expect(chip.tagName).toBe("A");
+    expect(chip.getAttribute("href")).toBe(`/settings/openspec?cwd=${encodeURIComponent(CWD)}#workflow-schema`);
+    // The READY pill is still rendered (non-blocking).
+    expect(screen.getByTestId("folder-openspec-open-board")).toBeTruthy();
+    (fetch as ReturnType<typeof vi.fn>).mockClear();
+    fireEvent.click(chip);
+    expect(fetch).not.toHaveBeenCalled();
+    unmount();
+
+    render(
+      <FolderOpenSpecSection cwd={CWD} data={data({ readiness: { state: "READY" }, workflowSchema: clear })} />,
+    );
+    expect(screen.queryByTestId("folder-openspec-schema-chip")).toBeNull();
+  });
+
+  it.each([
+    ["missing", { missing: true }],
+    ["outdated", { generated: "outdated" as const }],
+    ["newer", { generated: "newer" as const }],
+    ["incompatible", { generated: "incompatible" as const }],
+    ["unmanaged", { generated: "unmanaged" as const }],
+    ["unpinned", { configured: "pi-spec-driven", generated: "current" as const, unpinnedChanges: ["x"] }],
+  ])("#F8 chip for %s", (_n, over) => {
+    render(
+      <FolderOpenSpecSection
+        cwd={CWD}
+        data={data({ readiness: { state: "READY" }, workflowSchema: { ...clear, ...over } })}
+      />,
+    );
+    expect(screen.getByTestId("folder-openspec-schema-chip")).toBeTruthy();
+  });
+
+  it("#F8 a payload without workflowSchema renders no chip", () => {
+    render(<FolderOpenSpecSection cwd={CWD} data={data({ readiness: { state: "READY" } })} />);
+    expect(screen.queryByTestId("folder-openspec-schema-chip")).toBeNull();
+  });
+});

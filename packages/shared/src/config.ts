@@ -260,6 +260,18 @@ export interface OpenSpecPollConfig {
    * add-openspec-init-affordances.
    */
   offerInitialization: boolean;
+  /**
+   * Dashboard-managed `pi-spec-driven` workflow schema settings. See change:
+   * add-pi-spec-driven-schema.
+   */
+  workflowSchema: {
+    /**
+     * When `true`, a dashboard-performed init of a directory that had no
+     * `openspec/` also enables the `pi-spec-driven` schema. Never runs on
+     * repair/overwrite. Default `false`.
+     */
+    defaultForNewProjects: boolean;
+  };
 }
 
 /**
@@ -288,6 +300,7 @@ export const DEFAULT_OPENSPEC_POLL: OpenSpecPollConfig = {
   jitterSeconds: 5,
   optOutDirectories: [],
   offerInitialization: true,
+  workflowSchema: { defaultForNewProjects: false },
 };
 
 // ── Grammar / spell check ───────────────────────────────────────────
@@ -1764,6 +1777,12 @@ function parseOpenSpecPollConfig(raw: any): OpenSpecPollConfig {
       typeof raw.offerInitialization === "boolean"
         ? raw.offerInitialization
         : DEFAULT_OPENSPEC_POLL.offerInitialization,
+    workflowSchema: {
+      defaultForNewProjects:
+        typeof raw.workflowSchema?.defaultForNewProjects === "boolean"
+          ? raw.workflowSchema.defaultForNewProjects
+          : DEFAULT_OPENSPEC_POLL.workflowSchema.defaultForNewProjects,
+    },
   };
 }
 

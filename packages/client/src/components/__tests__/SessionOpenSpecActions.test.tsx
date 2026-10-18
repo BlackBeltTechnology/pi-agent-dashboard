@@ -1,4 +1,4 @@
-import type { DashboardSession, OpenSpecChange, OpenSpecConfig } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { DashboardSession, OpenSpecChange, OpenSpecConfig, OpenSpecData } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { CORE_WORKFLOWS, EXPANDED_WORKFLOWS } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { act, cleanup, fireEvent, render as rtlRender, screen, waitFor, within } from "@testing-library/react";
 import type React from "react";
@@ -798,5 +798,36 @@ describe("attachment resolution headers", () => {
       ),
     );
     expect(await screen.findByTestId("attachment-archived-badge")).toBeTruthy();
+  });
+
+  // test-plan #F9 — a workflow-schema status never changes session-card controls.
+  // See change: add-pi-spec-driven-schema.
+  it("#F9 outdated workflow schema leaves the OpenSpec controls identical", () => {
+    const html = (workflowSchema?: OpenSpecData["workflowSchema"]) => {
+      const data: OpenSpecData = {
+        initialized: true,
+        changes: [implementingChange],
+        readiness: { state: "READY" },
+        ...(workflowSchema ? { workflowSchema } : {}),
+      };
+      const { container, unmount } = render(
+        withOpenSpecMap(
+          { "/project/foo": data },
+          <SessionOpenSpecActions
+            session={makeSession({ attachedProposal: "impl-change", status: "active" })}
+            changes={data.changes}
+            {...defaultProps}
+          />,
+        ),
+      );
+      const out = container.innerHTML;
+      unmount();
+      return out;
+    };
+    const plain = html();
+    expect(plain).toContain("apply-btn");
+    expect(
+      html({ configured: "pi-spec-driven", generated: "outdated", missing: false, unpinnedChanges: [], affectedChanges: ["impl-change"] }),
+    ).toBe(plain);
   });
 });

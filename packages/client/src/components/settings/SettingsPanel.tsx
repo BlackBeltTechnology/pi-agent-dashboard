@@ -69,6 +69,7 @@ import { UsersSection } from "../connectivity/UsersSection.js";
 import { InstructionsPage } from "../DirectorySettings/InstructionsPage.js";
 import { GatewayPage } from "../Gateway/GatewayPage.js";
 import { OpenSpecProfileSection } from "../openspec/OpenSpecProfileSection.js";
+import { OpenSpecWorkflowSchemaSection } from "../openspec/OpenSpecWorkflowSchemaSection.js";
 import { useOverlayDismissGuard } from "../overlay/overlay-dismiss-guard.js";
 import { PiVersionAdvisory } from "../packages/PiVersionAdvisory.js";
 import { PluginsSection } from "../packages/PluginsSection.js";
@@ -260,6 +261,8 @@ interface Config {
     maxConcurrentSpawns?: number;
     changeDetection?: "mtime" | "always";
     jitterSeconds?: number;
+    /** See change: add-pi-spec-driven-schema. */
+    workflowSchema?: { defaultForNewProjects?: boolean };
   };
   /** Dashboard model proxy config. See change: add-dashboard-model-proxy. */
   modelProxy?: Record<string, any>;
@@ -2622,6 +2625,16 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
                 </Section>
                 {/* See change: add-openspec-profile-settings. */}
                 <OpenSpecProfileSection />
+                {/* Default switch = config draft (Save Bar); the per-cwd actions
+                    write immediately and are NOT a Save Bar source.
+                    See change: add-pi-spec-driven-schema. */}
+                <OpenSpecWorkflowSchemaSection
+                  defaultForNewProjects={config.openspec?.workflowSchema?.defaultForNewProjects ?? false}
+                  onDefaultChange={(v) => update((c) => {
+                    if (!c.openspec) c.openspec = { ...DEFAULT_OPENSPEC_UI };
+                    c.openspec.workflowSchema = { defaultForNewProjects: v };
+                  })}
+                />
               </>
             )}
 

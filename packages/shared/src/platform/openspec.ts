@@ -137,6 +137,49 @@ export const OPENSPEC_INIT_HELP: Recipe<WithCwd, string> = {
   parse: (out) => out,
 };
 
+/**
+ * `openspec --version` — the resolved CLI's version, trimmed. Callers that need
+ * hermetic output (workflow-schema generation) pass a scratch `cwd`.
+ * See change: add-pi-spec-driven-schema.
+ */
+export const OPENSPEC_VERSION: Recipe<WithCwd, string> = {
+  argv: () => ["openspec", "--version"],
+  parse: (out) => out.trim(),
+  timeout: OPENSPEC_TIMEOUT,
+};
+
+/**
+ * `openspec schema which <name> --json` — raw stdout (callers parse it; on
+ * "not found" the CLI exits 1 with JSON on stdout, which arrives through the
+ * failed-execution result). Callers pass `ctx.env.XDG_DATA_HOME` to hide
+ * user-level schemas. See change: add-pi-spec-driven-schema.
+ */
+export const OPENSPEC_SCHEMA_WHICH: Recipe<WithCwd & { name: string }, string> = {
+  argv: ({ name }) => ["openspec", "schema", "which", name, "--json"],
+  parse: (out) => out,
+  timeout: OPENSPEC_TIMEOUT,
+};
+
+/**
+ * `openspec schema fork <source> <name> --force` — copies a schema into
+ * `<cwd>/openspec/schemas/<name>`. See change: add-pi-spec-driven-schema.
+ */
+export const OPENSPEC_SCHEMA_FORK: Recipe<WithCwd & { source: string; name: string }, string> = {
+  argv: ({ source, name }) => ["openspec", "schema", "fork", source, name, "--force"],
+  parse: (out) => out,
+  timeout: OPENSPEC_TIMEOUT,
+};
+
+/**
+ * `openspec schema validate <name> --json` — raw stdout; an invalid schema
+ * exits non-zero. See change: add-pi-spec-driven-schema.
+ */
+export const OPENSPEC_SCHEMA_VALIDATE: Recipe<WithCwd & { name: string }, string> = {
+  argv: ({ name }) => ["openspec", "schema", "validate", name, "--json"],
+  parse: (out) => out,
+  timeout: OPENSPEC_TIMEOUT,
+};
+
 export const OPENSPEC_RECIPES = {
   OPENSPEC_LIST,
   OPENSPEC_STATUS,
@@ -147,6 +190,10 @@ export const OPENSPEC_RECIPES = {
   OPENSPEC_UPDATE,
   OPENSPEC_INIT,
   OPENSPEC_INIT_HELP,
+  OPENSPEC_VERSION,
+  OPENSPEC_SCHEMA_WHICH,
+  OPENSPEC_SCHEMA_FORK,
+  OPENSPEC_SCHEMA_VALIDATE,
 } as const;
 
 // ── Public API ──────────────────────────────────────────────────────────────
@@ -232,12 +279,13 @@ export function updateOr(input: WithCwd, fallback = ""): string {
 const OPENSPEC_PACKAGE_NAME = "@fission-ai/openspec";
 
 /**
- * `version` of the `@fission-ai/openspec` package the resolved CLI belongs to:
- * `realpath` of the resolved script, then the nearest ancestor `package.json`
- * with that name. `null` when nothing resolves. The `bin/openspec.js` shim's
- * mtime is NOT a key — upgrades do not touch it. See change: use-openspec-status-all.
+ * Install dir + `version` of the `@fission-ai/openspec` package the resolved CLI
+ * belongs to: `realpath` of the resolved script, then the nearest ancestor
+ * `package.json` with that name. `null` when nothing resolves. The
+ * `bin/openspec.js` shim's mtime is NOT a key — upgrades do not touch it.
+ * See change: use-openspec-status-all.
  */
-export async function resolveOpenSpecPackageVersion(): Promise<string | null> {
+export async function resolveOpenSpecPackageInfo(): Promise<{ dir: string; version: string | null } | null> {
   try {
     const argv = resolveExecutorArgv("openspec", []);
     if (!argv) return null;
@@ -248,7 +296,9 @@ export async function resolveOpenSpecPackageVersion(): Promise<string | null> {
     for (let i = 0; i < 12; i++) {
       try {
         const pkg = JSON.parse(await fs.promises.readFile(path.join(dir, "package.json"), "utf8"));
-        if (pkg?.name === OPENSPEC_PACKAGE_NAME) return typeof pkg.version === "string" ? pkg.version : null;
+        if (pkg?.name === OPENSPEC_PACKAGE_NAME) {
+          return { dir, version: typeof pkg.version === "string" ? pkg.version : null };
+        }
       } catch {
         // no package.json at this level (or unreadable) — keep walking up
       }
@@ -260,6 +310,17 @@ export async function resolveOpenSpecPackageVersion(): Promise<string | null> {
     // unresolvable CLI — caller treats null as "version unknown"
   }
   return null;
+}
+
+/** `version` of the resolved `@fission-ai/openspec` package, or `null`. See change: use-openspec-status-all. */
+export async function resolveOpenSpecPackageVersion(): Promise<string | null> {
+  return (await resolveOpenSpecPackageInfo())?.version ?? null;
+}
+
+/** `<package>/schemas` of the resolved CLI (the package built-in schemas), or `null`. See change: add-pi-spec-driven-schema. */
+export async function resolveOpenSpecPackageSchemasDir(): Promise<string | null> {
+  const info = await resolveOpenSpecPackageInfo();
+  return info ? path.join(info.dir, "schemas") : null;
 }
 
 /** `$XDG_DATA_HOME/openspec/schemas` (else the OS default), mirroring OpenSpec's `getUserSchemasDir`. */
