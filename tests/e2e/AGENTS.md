@@ -243,6 +243,7 @@ One row per file.
 | `vault-request-access.spec.ts` | L3 Vault callout Request access link (F3). → see `vault-request-access.spec.ts.AGENTS.md` |
 | `worktree-grouping-survives-remove.spec.ts` | L3 fix-worktree-grouping-l… → see `worktree-grouping-survives-remove.spec.ts.AGENTS.md` |
 | `worktree-init-feedback.spec.ts` | Playwright E2E for friendly worktree-init fe… → see `worktree-init-feedback.spec.ts.AGENTS.md` |
+| `yolo-indicator-layout.spec.ts` | L3 YOLO bar tint + composer strip layout (single line, row height, floor, hu >= zh-CN, 18-combo contrast, hover/keyboard/touch paths, hu catalogue faults). Test-plan #E1-#E8, #E19-#E21, #F8-#F12, #X1-#X3. See change: fix-yolo-indicator-overflow. |
 | `zrok-v2-tunnel.spec.ts` | L3 zrok v2 F1–F3. → see `zrok-v2-tunnel.spec.ts.AGENTS.md` |
 | `mcp-session-token.spec.ts` | L3 MCP session token (wire-mcp-session-token). → see `mcp-session-token.spec.ts.AGENTS.md` |
 | `mcp-builtin-registration.spec.ts` | L3 built-in MCP registration. → see `mcp-builtin-registration.spec.ts.AGENTS.md` |

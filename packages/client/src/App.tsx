@@ -7,6 +7,7 @@ import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRe
 import { Redirect, Route, Switch, useLocation, useRoute, useSearch, useSearchParams } from "wouter";
 import { useHistoryState } from "wouter/use-browser-location";
 import { GrantPromptHost } from "./components/access-grant/GrantPromptHost.js";
+import { YoloComposerStrip } from "./components/access-grant/YoloIndicators.js";
 import { CanvasDriver } from "./components/canvas/CanvasDriver.js";
 import { ChatView, type ChatViewHandle } from "./components/chat/ChatView.js";
 import { CommandInput } from "./components/chat/CommandInput.js";
@@ -2660,6 +2661,8 @@ export default function App() {
             onPromote={promoteFollowUpEntry}
             onClearAll={() => clearFollowUpEntries("all")}
           />
+          {/* Active-YOLO strip directly above the composer. See change: fix-yolo-indicator-overflow. */}
+          <YoloComposerStrip cwd={selectedSession?.cwd} />
           <CommandInput
             commands={selectedCommands}
             onSend={wrappedHandleSend}

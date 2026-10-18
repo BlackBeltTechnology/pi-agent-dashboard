@@ -10,8 +10,6 @@ import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { useAttachmentResolution } from "../../lib/openspec/useAttachmentResolution.js";
 import { getSessionDisplayName } from "../../lib/session/session-display-name.js";
 import { isAcpSession, isRemoteOrigin } from "../../lib/session/session-origin-view.js";
-import { YoloSessionIndicator } from "../access-grant/YoloIndicators.js";
-import { VaultBindingsChip } from "./VaultBindingsChip.js";
 import { useOptionalSessionDiff } from "../diff/SessionDiffContext.js";
 import { FooterSegmentSlot } from "../extension-ui/FooterSegmentSlot.js";
 import { AttachmentTrace } from "../openspec/AttachmentTrace.js";
@@ -28,6 +26,7 @@ import { TagChip } from "../tags/TagChip.js";
 import { TagEditor } from "../tags/TagEditor.js";
 import { CountBadges } from "./CountBadges.js";
 import { PiBelowFloorWarning } from "./PiBelowFloorWarning.js";
+import { VaultBindingsChip } from "./VaultBindingsChip.js";
 
 interface Props {
   session?: DashboardSession;
@@ -317,9 +316,6 @@ function MobileHeader({ session, showBack, onBack, isRenaming, onConfirmRename, 
           <PiBelowFloorWarning session={session} />
         </div>
       ) : null}
-      {/* Active-YOLO peer indicator: the sidebar pill is not rendered here.
-          See change: add-access-grant-dialog (8b.7). */}
-      <YoloSessionIndicator cwd={session.cwd} />
       <VaultBindingsChip sessionId={session.id} />
     </div>
   );
@@ -488,8 +484,6 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
       {/* Extension UI System (Phase 2): footer-segment decorator slot. */}
       {/* See change: add-extension-ui-decorations. */}
       <FooterSegmentSlot session={session} />
-      {/* Active-YOLO indicator when this session's cwd is in scope. See change: add-access-grant-dialog (8b.7). */}
-      <YoloSessionIndicator cwd={session.cwd} />
       {/* Vault key state for this session (hidden without bindings). See change: add-credential-vault. */}
       <VaultBindingsChip sessionId={session.id} />
       {/* Editable user-tag strip + read-only phase chip (D5: detail-header

@@ -1,7 +1,7 @@
 /**
- * YOLO on the session surface when the sidebar header is NOT rendered
- * (change: add-access-grant-dialog, task 8b.7; test-plan row 10.71 / #F5).
- * Mobile layout: SessionHeader renders alone, no SessionList, no pill.
+ * The session header carries no YOLO signal any more (change:
+ * fix-yolo-indicator-overflow D1; test-plan #E18). The remaining time lives on
+ * the composer strip.
  */
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { cleanup, render, screen } from "@testing-library/react";
@@ -24,18 +24,15 @@ beforeEach(() => {
 });
 afterEach(() => cleanup());
 
-describe("SessionHeader YOLO indicator", () => {
-  it.each([true, false])("mobile=%s: in-scope session shows active YOLO + remaining time, no sidebar present", (m) => {
+describe("SessionHeader has no YOLO indicator", () => {
+  it.each([true, false])("mobile=%s: in-scope session under live YOLO renders no YOLO element or text", (m) => {
     mobile = m;
-    render(<SessionHeader session={session("/repo/pkg")} state={createInitialState()} mobileActions={{}} />);
-    expect(screen.queryByTestId("header-app-bar")).toBeNull();
-    expect(screen.queryByTestId("yolo-pill")).toBeNull();
-    expect(screen.getByTestId("yolo-session-indicator").textContent).toMatch(/YOLO.*\d+:\d\d left/);
-  });
-
-  it("an out-of-scope session shows no indicator", () => {
-    mobile = true;
-    render(<SessionHeader session={session("/repo-secrets")} state={createInitialState()} mobileActions={{}} />);
+    const { container } = render(
+      <SessionHeader session={session("/repo/pkg")} state={createInitialState()} mobileActions={{}} />,
+    );
     expect(screen.queryByTestId("yolo-session-indicator")).toBeNull();
+    expect(screen.queryByTestId("yolo-pill")).toBeNull();
+    expect(screen.queryByTestId("yolo-composer-strip")).toBeNull();
+    expect(container.textContent ?? "").not.toMatch(/YOLO/);
   });
 });
