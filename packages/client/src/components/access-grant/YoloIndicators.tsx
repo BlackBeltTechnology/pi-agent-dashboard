@@ -76,7 +76,7 @@ function useLiveYoloSessionNoTick(store?: YoloStatusStore): YoloSessionView | nu
 }
 
 /** Static coverage sentence: scope x expiry selects one of four keys (no time in it). */
-export function yoloCoverageSentence(session: YoloSessionView): string {
+function yoloCoverageSentence(session: YoloSessionView): string {
   const forever = session.expiresAt === null;
   if (session.unscoped) {
     return forever

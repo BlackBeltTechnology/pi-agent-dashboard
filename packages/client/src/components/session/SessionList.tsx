@@ -341,7 +341,7 @@ interface Props {
 }
 
 // Re-export for backwards compatibility
-export { type DirectoryGroup, filterSessions, groupSessionsByDirectory } from "../../lib/session/session-grouping.js";
+export { type DirectoryGroup, groupSessionsByDirectory } from "../../lib/session/session-grouping.js";
 
 /**
  * Whether a folder group should be treated as a git repository for menu
