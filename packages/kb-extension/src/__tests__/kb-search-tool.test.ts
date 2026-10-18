@@ -1,10 +1,17 @@
 // Tests for the kb_search tool's output contract (condensed default + json opt-in).
 // Folded from openspec/changes/slim-kb-search-output/test-plan.md (E1–E4, E10, E11, E13).
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { indexSource, SqliteFtsStore } from "@blackbelt-technology/pi-dashboard-kb";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import kbExtension from "../extension.js";
+
+// Passthrough mock so freshness tests can hang / reject `indexSource` per call.
+vi.mock("@blackbelt-technology/pi-dashboard-kb", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@blackbelt-technology/pi-dashboard-kb")>();
+  return { ...actual, indexSource: vi.fn(actual.indexSource) };
+});
 
 type Tool = {
   name: string;
@@ -169,4 +176,263 @@ describe("kb_get tool: path-only fetch never truncates silently (design D7)", ()
     const res = await kbGet.execute("id", { path: "nope.md" }, undefined, undefined, { cwd: dir });
     expect(res.content[0].text).toContain("(not found: nope.md)");
   });
+});
+
+// --- change: bound-kb-search-freshness -------------------------------------
+const STALE = "(index refresh still running — results may be stale)";
+const BUILDING = "(index is still being built — no results available yet; retry shortly)";
+const CANCELLED = "(cancelled — no results retrieved)";
+
+type Res = { content: { type: string; text: string }[]; details: Record<string, unknown> };
+type AnyTool = { execute: (id: string, p: Record<string, unknown>, s: AbortSignal | undefined, u: undefined, ctx: { cwd: string }) => Promise<Res> };
+type IdxResult = Awaited<ReturnType<typeof indexSource>>;
+
+describe("kb tools: bounded, abortable freshness (bound-kb-search-freshness)", () => {
+  const dirs: string[] = [];
+  let actualIndexSource: typeof indexSource;
+  beforeAll(async () => {
+    actualIndexSource = (await vi.importActual<typeof import("@blackbelt-technology/pi-dashboard-kb")>("@blackbelt-technology/pi-dashboard-kb")).indexSource;
+  });
+  afterEach(() => {
+    delete process.env.KB_FRESHNESS_BUDGET_MS;
+    vi.mocked(indexSource).mockReset();
+    vi.mocked(indexSource).mockImplementation((...a) => actualIndexSource(...a));
+    for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  });
+
+  const project = () => { const d = setupProject(); dirs.push(d); return d; };
+  const tools = () => {
+    const t = loadTools() as unknown as Map<string, AnyTool>;
+    return { search: t.get("kb_search")!, get: t.get("kb_get")!, neighbors: t.get("kb_neighbors")!, all: [t.get("kb_search")!, t.get("kb_get")!, t.get("kb_neighbors")!] };
+  };
+  const callAll = (t: ReturnType<typeof tools>, cwd: string, signal?: AbortSignal) => [
+    t.search.execute("i", { query: "token" }, signal, undefined, { cwd }),
+    t.get.execute("i", { path: "auth.md" }, signal, undefined, { cwd }),
+    t.neighbors.execute("i", { node: "auth.md" }, signal, undefined, { cwd }),
+  ];
+  const hang = () => {
+    let release!: (v: IdxResult) => void;
+    const p = new Promise<IdxResult>((r) => (release = r));
+    vi.mocked(indexSource).mockImplementation(() => p);
+    return release;
+  };
+  const warm = async (t: ReturnType<typeof tools>, cwd: string) => (await t.search.execute("i", { query: "token" }, undefined, undefined, { cwd })).content[0].text;
+
+  it("E9/E11: timeout with chunks>0 → stale line then hits; json: line + byte-identical array as final line", async () => {
+    const dir = project();
+    const t = tools();
+    const doneCondensed = await warm(t, dir);
+    const doneJson = (await t.search.execute("i", { query: "token", format: "json" }, undefined, undefined, { cwd: dir })).content[0].text;
+    const release = hang();
+    process.env.KB_FRESHNESS_BUDGET_MS = "20";
+    const c = await t.search.execute("i", { query: "token" }, undefined, undefined, { cwd: dir });
+    expect(c.content[0].text).toBe(`${STALE}\n${doneCondensed}`);
+    expect(c.details.stale).toBe(true);
+    const j = (await t.search.execute("i", { query: "token", format: "json" }, undefined, undefined, { cwd: dir })).content[0].text;
+    expect(j).toBe(`${STALE}\n${doneJson}`);
+    expect(j.split("\n").pop()).toBe(doneJson);
+    release({ scanned: 0, changed: 0, deleted: 0, chunks: 0 });
+  });
+
+  it("E9/E12: cold index + timeout → being-built line, never a hit list; json = line + []", async () => {
+    const dir = project();
+    const t = tools();
+    hang();
+    process.env.KB_FRESHNESS_BUDGET_MS = "20";
+    const c = await t.search.execute("i", { query: "token" }, undefined, undefined, { cwd: dir });
+    expect(c.content[0].text).toBe(BUILDING);
+    const j = await t.search.execute("i", { query: "token", format: "json" }, undefined, undefined, { cwd: dir });
+    expect(j.content[0].text.split("\n")).toEqual([BUILDING, "[]"]);
+  });
+
+  it("E10: cold + timeout on kb_get / kb_neighbors → being-built replaces (not found)/empty list", async () => {
+    const dir = project();
+    const t = tools();
+    hang();
+    process.env.KB_FRESHNESS_BUDGET_MS = "20";
+    expect((await t.get.execute("i", { path: "auth.md" }, undefined, undefined, { cwd: dir })).content[0].text).toBe(BUILDING);
+    expect((await t.neighbors.execute("i", { node: "auth.md" }, undefined, undefined, { cwd: dir })).content[0].text).toBe(BUILDING);
+  });
+
+  it("E9: done → no status line (warm, pass finishes in budget)", async () => {
+    const dir = project();
+    const t = tools();
+    const text = await warm(t, dir);
+    expect(text).not.toContain("(index");
+    expect(text).not.toContain("(cancelled");
+  });
+
+  it("E9/X1: failed pass with existing chunks → stale line + existing hits (warn logged)", async () => {
+    const dir = project();
+    const t = tools();
+    const baseline = await warm(t, dir);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.mocked(indexSource).mockRejectedValue(new Error("walk exploded"));
+    const out = (await t.search.execute("i", { query: "token" }, undefined, undefined, { cwd: dir })).content[0].text;
+    expect(out).toBe(`${STALE}\n${baseline}`);
+    expect(warn.mock.calls.some((c) => String(c[0]).includes("walk exploded"))).toBe(true);
+    warn.mockRestore();
+  });
+
+  it("X2: failed pass on a cold index → well-formed, stale line, never the being-built line", async () => {
+    const dir = project();
+    const t = tools();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.mocked(indexSource).mockRejectedValue(new Error("deterministic failure"));
+    for (const r of await Promise.all([
+      t.get.execute("i", { path: "auth.md" }, undefined, undefined, { cwd: dir }),
+      t.neighbors.execute("i", { node: "auth.md" }, undefined, undefined, { cwd: dir }),
+    ])) {
+      expect(r.content[0].text.startsWith(STALE)).toBe(true);
+      expect(r.content[0].text).not.toContain(BUILDING);
+    }
+    warn.mockRestore();
+  });
+
+  it("E19: a completed-but-empty pass (source dir missing) → normal (not found), no being-built", async () => {
+    const dir = project();
+    rmSync(join(dir, "docs"), { recursive: true, force: true });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const t = tools();
+    await t.search.execute("i", { query: "token" }, undefined, undefined, { cwd: dir }); // first pass completes
+    const r = await t.get.execute("i", { path: "auth.md" }, undefined, undefined, { cwd: dir });
+    expect(r.content[0].text).toBe("(not found: auth.md)");
+    warn.mockRestore();
+  });
+
+  it("F5: budget 0, warm → pass starts in background, stale line, hits returned", async () => {
+    const dir = project();
+    const t = tools();
+    const baseline = await warm(t, dir);
+    const release = hang();
+    vi.mocked(indexSource).mockClear();
+    process.env.KB_FRESHNESS_BUDGET_MS = "0";
+    const out = (await t.search.execute("i", { query: "token" }, undefined, undefined, { cwd: dir })).content[0].text;
+    expect(indexSource).toHaveBeenCalledTimes(1);
+    expect(out).toBe(`${STALE}\n${baseline}`);
+    release({ scanned: 0, changed: 0, deleted: 0, chunks: 0 });
+  });
+
+  it("F7: budget 0 on a cold index → being-built on each of the three tools", async () => {
+    const dir = project();
+    const t = tools();
+    hang();
+    process.env.KB_FRESHNESS_BUDGET_MS = "0";
+    for (const r of await Promise.all(callAll(t, dir))) expect(r.content[0].text).toBe(BUILDING);
+  });
+
+  it("F13/F14: already-aborted signal → exactly the cancelled line on all three tools, nothing started, no throw", async () => {
+    const dir = project();
+    const t = tools();
+    vi.mocked(indexSource).mockClear();
+    for (const r of await Promise.all(callAll(t, dir, AbortSignal.abort()))) {
+      expect(r.content[0].text).toBe(CANCELLED);
+      expect(r.details.aborted).toBe(true);
+    }
+    expect(indexSource).not.toHaveBeenCalled();
+  });
+
+  it("E13: cancelled kb_search json → cancelled line then []", async () => {
+    const dir = project();
+    const r = await tools().search.execute("i", { query: "token", format: "json" }, AbortSignal.abort(), undefined, { cwd: dir });
+    expect(r.content[0].text.split("\n")).toEqual([CANCELLED, "[]"]);
+  });
+
+  it("E14: cancel takes precedence over the empty-query marker; no reindex started", async () => {
+    const dir = project();
+    const t = tools();
+    vi.mocked(indexSource).mockClear();
+    for (const q of ["", "  "]) {
+      expect((await t.search.execute("i", { query: q }, AbortSignal.abort(), undefined, { cwd: dir })).content[0].text).toBe(CANCELLED);
+      expect((await t.search.execute("i", { query: q, format: "json" }, AbortSignal.abort(), undefined, { cwd: dir })).content[0].text).toBe(`${CANCELLED}\n[]`);
+    }
+    expect(indexSource).not.toHaveBeenCalled();
+  });
+
+  it("E15: empty query with a live signal → existing marker, no reindex", async () => {
+    const dir = project();
+    const t = tools();
+    vi.mocked(indexSource).mockClear();
+    expect((await t.search.execute("i", { query: " " }, new AbortController().signal, undefined, { cwd: dir })).content[0].text).toBe("(no query)");
+    expect(indexSource).not.toHaveBeenCalled();
+  });
+
+  it("F9: abort mid-wait → each tool resolves with the cancelled line before the pass settles; no search/get/graph work", async () => {
+    const dir = project();
+    const t = tools();
+    const release = hang();
+    process.env.KB_FRESHNESS_BUDGET_MS = "30000";
+    const ac = new AbortController();
+    const pending = Promise.all(callAll(t, dir, ac.signal));
+    await new Promise((r) => setTimeout(r, 30));
+    const t0 = Date.now();
+    ac.abort();
+    for (const r of await pending) expect(r.content[0].text).toBe(CANCELLED);
+    expect(Date.now() - t0).toBeLessThan(1000);
+    release({ scanned: 0, changed: 0, deleted: 0, chunks: 0 });
+  });
+
+  it("F15: an absent signal behaves exactly like an unaborted one", async () => {
+    const dir = project();
+    const t = tools();
+    await warm(t, dir);
+    const a = await Promise.all(callAll(t, dir, undefined));
+    const b = await Promise.all(callAll(t, dir, new AbortController().signal));
+    expect(a.map((r) => r.content[0].text)).toEqual(b.map((r) => r.content[0].text));
+  });
+
+  it("F16: scope git + aborted signal → cancelled result on kb_search and kb_get, no forge/git work", async () => {
+    const dir = project();
+    const t = tools();
+    const s = await t.search.execute("i", { query: "x", scope: "git" }, AbortSignal.abort(), undefined, { cwd: dir });
+    const g = await t.get.execute("i", { path: "commit/abcdef1", scope: "git" }, AbortSignal.abort(), undefined, { cwd: dir });
+    expect(s.content[0].text).toBe(CANCELLED);
+    expect(g.content[0].text).toBe(CANCELLED);
+  });
+
+  it("F11: abort fired after the search → cancelled result, not a hit list", async () => {
+    const dir = project();
+    const t = tools();
+    await warm(t, dir);
+    const ac = new AbortController();
+    const real = SqliteFtsStore.prototype.search;
+    const spy = vi.spyOn(SqliteFtsStore.prototype, "search").mockImplementation(function (this: unknown, ...a: Parameters<typeof real>) {
+      const r = real.apply(this as never, a);
+      ac.abort();
+      return r;
+    });
+    try {
+      const r = await t.search.execute("i", { query: "token" }, ac.signal, undefined, { cwd: dir });
+      expect(r.content[0].text).toBe(CANCELLED);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("F12: abort during the verdict rename scan → cancelled line, no degraded GONE hit; scan child killed", async () => {
+    const dir = project();
+    const t = tools();
+    await warm(t, dir);
+    const bin = mkdtempSync(join(tmpdir(), "kb-gitstub-"));
+    dirs.push(bin);
+    const pidFile = join(bin, "pid");
+    writeFileSync(join(bin, "git"), `#!/usr/bin/env node\nrequire("fs").writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setTimeout(() => {}, 60000);\n`);
+    chmodSync(join(bin, "git"), 0o755);
+    const hit = { root: "docs", path: "AGENTS.md", headingPath: "DOX — x", chunkId: "x", docType: "agents", score: 1, snippet: "s", body: "| File | Purpose |\n|------|---------|\n| `missing-file.ts` | M. |\n" };
+    const spy = vi.spyOn(SqliteFtsStore.prototype, "search").mockReturnValue([hit] as never);
+    const prevPath = process.env.PATH;
+    process.env.PATH = `${bin}:${prevPath}`;
+    try {
+      const ac = new AbortController();
+      const p = t.search.execute("i", { query: "token" }, ac.signal, undefined, { cwd: dir });
+      for (let i = 0; i < 100 && !existsSync(pidFile); i++) await new Promise((r) => setTimeout(r, 20));
+      ac.abort();
+      const r = await p;
+      expect(r.content[0].text).toBe(CANCELLED);
+      expect(r.content[0].text).not.toContain("GONE");
+    } finally {
+      process.env.PATH = prevPath;
+      spy.mockRestore();
+    }
+  }, 15_000);
 });

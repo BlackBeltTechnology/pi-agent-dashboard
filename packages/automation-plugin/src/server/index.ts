@@ -121,6 +121,7 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
     // actually arm. See the FALLBACK_KINDS note in routes.ts.
     triggerKinds: () => engineRef?.registry.kinds() ?? new Set(["schedule"]),
     workSourceIds: () => engineRef?.workSources.ids() ?? new Set<string>(),
+    scanGlobalScope: () => ctx.getPluginConfig<AutomationPluginConfig>()?.scanGlobalScope !== false,
   });
   // plugin_action handler: run/stop/create dispatch to the SAME engine cores
   // and writer the REST routes call (no HTTP re-entry). Fan-out routes this
@@ -314,7 +315,13 @@ async function initEngine(ctx: ServerPluginContext): Promise<void> {
     const scopes: Array<{ base: string; scope: "folder" | "global" }> = [];
     if (cfg.scanGlobal) scopes.push({ base: homeDir, scope: "global" });
     if (cfg.scanFolder) {
-      for (const base of folderScopeBases()) scopes.push({ base, scope: "folder" });
+      // While global scanning is on, `~/.pi/automation` is already the global
+      // scope; a folder copy would double-arm it. See change: fix-home-folder-scope-double-arm.
+      const resolvedHome = path.resolve(homeDir);
+      for (const base of folderScopeBases()) {
+        if (cfg.scanGlobal && base === resolvedHome) continue;
+        scopes.push({ base, scope: "folder" });
+      }
     }
     return scopes;
   }

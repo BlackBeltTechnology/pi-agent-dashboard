@@ -1859,6 +1859,44 @@ Opt-in, on-demand LLM repair for mermaid blocks that rule repair (`add-mermaid-a
 - Rollback: delete `mermaidRepair` block (feature hides) or revert. No persisted state.
 - Deploy: restart server (route + config). `npm run build` for client.
 
+### Markdown / AsciiDoc markup repair (change: add-md-adoc-markup-repair)
+
+On-demand display repair for md/adoc FILE previews. Detect, fix for display, show banner, offer persist. Never chat, thinking, or streaming.
+
+- Scope: md/adoc never fail to parse. Broken markup mis-renders: one unterminated fence/delimiter swallows rest of file; bare `[mermaid]` adoc block stays plain listing.
+- Md: `repairMarkdown(src)` in `packages/client/src/lib/preview/markup-repair-md.ts`. Runs on renderer's own parse: `unified().use(remarkParse).use(MARKDOWN_REMARK_PLUGINS)`.
+- Md candidate: top-level fenced code node no later line closes.
+- Md M2: first look-alike closer (other fence char, or same char but shorter) REPLACED by valid closer.
+- Md M3: else closer INSERTED before blank line preceding first ATX heading.
+- Md skip: frontmatter (yaml node), blockquote, list-item fences never touched.
+- Md M1 (gate fix, not repair): `MarkdownContent staticSource` marks every mermaid fence `complete`. Fixes EOF-unclosed and `~~~mermaid` stuck on "Loading diagram…". Not reported, never written. Stays on in "view original".
+- `staticSource` passed only by on-disk surfaces: `FilePreviewOverlay`, editor-pane `MarkdownViewer`, `MarkdownPreview`, `MarkdownPreviewView`. Inventory: `packages/client/src/components/__tests__/markdown-static-source-inventory.test.ts`.
+- Adoc: `repairAsciiDoc(src)` in `packages/shared/src/markup-repair/asciidoc.ts`. Pure line scanner. No asciidoctor import. Server runs for display; client runs for apply.
+- Adoc A1: bare `[mermaid]` / `[mermaid,…]` on `----` / `....` block → `[source,mermaid…]`. Paragraph styles untouched.
+- Adoc A2: unterminated top-level `----` / `....` block → first same-char different-length delimiter replaced by exact opener; else closer inserted before blank line preceding next `== Title`.
+- Adoc skip: nested, list-attached, and `====`, `****`, `--`, `////`, `++++`, `|===` blocks untouched.
+- Both repairs: pure, idempotent. Per-line terminators kept (CRLF safe). Only replaced/inserted lines change.
+- Both repairs: reported `line` = original-source line (block opener; A1 = attribute line).
+- Result type: `MarkupRepairResult` in `packages/shared/src/markup-repair/types.ts`.
+- Server: `GET /api/file/render` in `packages/server/src/routes/file-routes.ts`. Order: stat mtime → read → `repairAsciiDoc` unless `?repair=0` → ONE convert → DOMPurify → `{html, repairs, warnings:[{text,line}], mtime}`.
+- Server: asciidoctor `MemoryLogger` swapped into `LoggerManager` for convert, restored in `finally`. Sync, no cross-request interleave.
+- Server: `safe:"secure"` unchanged. Repair runs before convert; sanitizer after. Repair never depends on warnings.
+- Banner: `packages/client/src/components/preview/MarkupRepairBanner.tsx`. Lists each repair + original line.
+- Banner `aria-pressed` toggle "View original rendering": md re-renders unrepaired client-side; adoc lazy one-shot `&repair=0` fetch, cached.
+- Banner optional "Apply markup fix to file" action.
+- Apply gate: only when `MermaidSourceContext` present (live-session cwd) and not `isDirty`.
+- Apply flow: `GET /api/file/md-read` → verify unchanged since display (md: content byte-equal to displayed; adoc: mtime equals render `mtime`) → whole-file diff in `MermaidApplyFix` `ConfirmDialog` (3 context lines) → `POST /api/file/write {content, mtime}` → reload.
+- Apply mismatch / 404 / 409 → "File changed — reload". Nothing written.
+- Repair displayed + unapplied: per-diagram "Apply fix to file" disabled ("Apply the markup fix first") via `MermaidSourceInfo.markupRepairActive`. On-disk block ordinals differ from repaired rendering. Re-enabled after reload.
+- i18n: `markupRepair.*` keys. EN inline default + hu + zh-CN catalogs.
+- False positives: inside already-broken block, look-alike line can be taken as intended closer.
+  - M2: three-backtick line inside unterminated four-backtick fence.
+  - M3: `# comment` after blank line in shell sample.
+  - A2: literal `-----` line.
+  - Banner names each with line. View-original reverts in view. Apply is diff-confirmed.
+- Rollback: revert. Response fields additive. No persisted state.
+- Deploy: restart server + `npm run build` for client.
+
 ### User image attachments — two-phase display fit
 
 Distinct path from local-image inlining above.

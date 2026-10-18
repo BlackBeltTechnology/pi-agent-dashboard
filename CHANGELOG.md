@@ -164,6 +164,7 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Fixed
 
+- **Global automations no longer run twice per occurrence.** While a session (including the automation's own run) is open in the home directory, `~/.pi/automation` was also armed as a folder scope. It is now scanned, armed and listed once, under `global`.
 - **Empty `STATUS` panel on session cards.** The STATUS subcard no longer renders as an empty,
   titled frame when the browser relay has no tabs. The browser badge is now gated, and the relay
   status feed moved to an always-mounted `shell-headless` claim that re-seeds on reconnect. The

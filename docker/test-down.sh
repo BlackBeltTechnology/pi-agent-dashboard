@@ -34,10 +34,69 @@ export HOST_CWD="${HOST_CWD:-/tmp}"
 # the same `image:` and `down` resolves cleanly.
 export TEST_IMAGE_TAG="$project"
 
+# ---------------------------------------------------------------- lifecycle marker
+# #451 part 1 (change: add-missing-ci-legs, design D7). Mark THIS teardown in the
+# project's lifecycle record BEFORE removing anything, so a `destroy` line for
+# this boot's container that is NOT preceded by this marker is attributable to a
+# foreign actor. Everything is matched by container ID (the project name is
+# stable across boots). A lost or never-started recorder never fails a teardown:
+# one warning, marker still written when the file is writable, no wait.
+state_field() { # <field> — scalar field of the state file ("" when absent)
+  [ -f "$STATE_FILE" ] || return 0
+  sed -n "s/.*\"$1\"[: ]*\"\{0,1\}\([^\",} ]*\).*/\1/p" "$STATE_FILE" | head -1
+}
+RECORDER_PID="$(state_field recorderPid)"
+EVENTS_FILE="$(state_field eventsFile)"
+CONTAINER_ID="$(state_field containerId)"
+if [ -z "$EVENTS_FILE" ]; then
+  EVENTS_FILE="$(printf '%s' "${TMPDIR:-/tmp}" | sed 's:/*$::')/pi-dash-test/${project}.events.log"
+fi
+if [ -z "$CONTAINER_ID" ]; then
+  # Attached boot (state has no ID): resolve it now, before compose removes it.
+  CONTAINER_ID="$(docker compose -p "$project" ps -aq 2>/dev/null | head -1 || true)" # -a: an attached run stopped by Ctrl-C leaves a stopped container
+fi
+
+# Alive AND still our recorder: a recycled PID (the state file often outlives a
+# dead recorder) must never be signalled.
+recorder_alive() {
+  [[ "$RECORDER_PID" =~ ^[0-9]+$ ]] && kill -0 "$RECORDER_PID" 2>/dev/null \
+    && ps -p "$RECORDER_PID" -o command= 2>/dev/null | grep -q 'harness-audit\.sh'
+}
+RECORDER_WAS_ALIVE=0
+if recorder_alive; then
+  RECORDER_WAS_ALIVE=1
+else
+  echo "harness-audit: lifecycle recorder is not running at teardown (pid ${RECORDER_PID:-none}); continuing" >&2
+fi
+printf 'teardown-begin %s %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$project" "$CONTAINER_ID" >> "$EVENTS_FILE" 2>/dev/null || true
+
+down_status=0
 docker compose -p "$project" \
   -f "${SCRIPT_DIR}/compose.yml" \
   -f "${SCRIPT_DIR}/compose.test.yml" \
-  down -v "$@"
+  down -v "$@" || down_status=$?
+
+# The event stream is asynchronous: stopping the recorder at once could drop the
+# very `destroy` line that tells own teardown from a foreign destroy. Wait (<=10 s)
+# for THAT container's destroy line, then stop the recorder.
+if [ "$RECORDER_WAS_ALIVE" = "1" ]; then
+  if [ -n "$CONTAINER_ID" ]; then
+    # PI_HARNESS_DESTROY_WAIT_SECS: tests inject a short wait; the default is 10 s.
+    for _ in $(seq 1 $(( ${PI_HARNESS_DESTROY_WAIT_SECS:-10} * 5 ))); do
+      grep -q " destroy .* id=${CONTAINER_ID}\$" "$EVENTS_FILE" 2>/dev/null && break
+      sleep 0.2
+    done
+  fi
+  kill "$RECORDER_PID" 2>/dev/null || true
+  for _ in $(seq 1 20); do
+    kill -0 "$RECORDER_PID" 2>/dev/null || break
+    sleep 0.1
+  done
+fi
+[ -f "$EVENTS_FILE" ] && echo "harness-audit: lifecycle events: ${EVENTS_FILE}"
+if [ "$down_status" -ne 0 ]; then
+  exit "$down_status"
+fi
 
 # Drop the per-worktree state file after a successful down.
 rm -f "$STATE_FILE"

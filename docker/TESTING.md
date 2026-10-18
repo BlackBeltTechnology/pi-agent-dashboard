@@ -92,21 +92,39 @@ Worktree harness container destroyed mid-run by outside action.
 
 Grep audit of every `docker … down|rm|prune|stop|kill` in-tree: all `-p`-scoped or own-container-named. Nothing in-repo reaches foreign `pi-dash-test-*` project. Destroy came from outside repo (manual action, Docker Desktop restart, out-of-tree prune).
 
-Not fix. Part 1 of #451 stays open.
+Not fix. Part 1 of #451 stays open until an occurrence is attributed. Change `add-missing-ci-legs` makes the next one self-attributing.
 
-Helper: `docker/harness-audit.sh <outfile>` runs `docker events` for `create`/`start`/`die`/`destroy`/`kill`, filtered to `project=pi-dash-test-*`. Appends. Start before `test-up.sh`; Ctrl-C stops.
+### Automatic capture (default, local-only)
 
-Usage:
+`docker/test-up.sh` starts a per-harness lifecycle recorder (`docker/harness-audit.sh <file> <project>`) BEFORE `compose up`, scoped to its own compose project. Every caller gets it: Playwright managed mode, `ship-it`, a manual harness. No second shell needed.
+
+- Events file: `${TMPDIR:-/tmp}/pi-dash-test/<project>.events.log`. Outside the worktree on purpose — `ship-it` removes the worktree right after teardown. Appended across boots; retention = OS temp policy (macOS purges `$TMPDIR` files unused ~3 days).
+- Lines: `<epoch> create|start|die|kill|destroy <name> project=<project> id=<container id>`, plus `boot <ISO ts> <project> <id>` per new container and `teardown-begin <ISO ts> <project> <id>` from `test-down.sh`.
+- State file `.pi-test-harness.json` gains `recorderPid`, `eventsFile`, `containerId`.
+- Re-up reuses a live recorder (one per project). A failed `compose up` kills the recorder it started.
+- Recorder self-terminates: unarmed until it has seen its container; once armed, exits on the first empty 30 s poll. Hard 12 h cap. Tunables: `PI_HARNESS_AUDIT_POLL_SECS`, `PI_HARNESS_AUDIT_MAX_SECS`.
+- Best-effort: `docker events` unusable or events dir unwritable → one stderr line `harness-audit: lifecycle capture unavailable (<reason>); continuing`, harness boots normally.
+- `test-down.sh` appends `teardown-begin` BEFORE `compose down`, waits ≤10 s (`PI_HARNESS_DESTROY_WAIT_SECS`) for the `destroy` line of that container id, stops the recorder, prints the events path. Dead/absent recorder → one warning, marker still written, no wait, exit 0.
+- Attribution is by container id, never by project: project name is stable across boots, id is not.
+- Playwright managed mode: harness-down message says "foreign actor" + quotes the `destroy` line when the file holds a `destroy` for this boot's container id with no earlier `teardown-begin` for the same id. Attach mode (`PW_E2E_USE_RUNNING=1`): cause undetermined, message points at `${TMPDIR:-/tmp}/pi-dash-test/`.
+- CI legs do not upload the file: each runner has a private daemon.
+
+Tests: `scripts/__tests__/test-up-recorder.test.mjs`, `test-down-recorder.test.mjs`, `harness-audit-armed.test.mjs`, classifier in `e2e-reap-core.test.mjs`; L2 `qa/tests/17-…`, `18-…`, `19-…`.
+
+### Manual recorder (unscoped)
+
+`docker/harness-audit.sh <outfile>` (no project) still records every `pi-dash-test-*` event until Ctrl-C. Use it to watch several worktrees at once.
+
+### Forbidden operator recipes
+
+The two destroyers seen in session logs are operator commands, not repo code. Never run while ANY harness is up:
+
 ```bash
-# shell 1
-docker/harness-audit.sh /tmp/harness-events.log
-# shell 2
-cd <worktree> && docker/test-up.sh -d --build
-PW_E2E_USE_RUNNING=1 npm run test:e2e
-docker/test-down.sh
+docker ps -aq --filter 'name=pi-dash-test' | xargs -r docker rm -f   # prefix-matches EVERY worktree's harness
+docker container prune -f                                          # daemon-wide
 ```
 
-`destroy` line not matching own `test-down.sh` = occurrence to attach to #451.
+Supported teardown: `docker/test-down.sh` run from the owning worktree (scoped to its own compose project).
 
 ## Path-parity mount
 

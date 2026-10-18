@@ -550,6 +550,91 @@ describe("GET /api/file/render (AsciiDoc)", () => {
   });
 });
 
+describe("GET /api/file/render (AsciiDoc) — markup repair", () => {
+  let app: FastifyInstance;
+  let tmp: string;
+
+  beforeEach(async () => {
+    tmp = await fsp.mkdtemp(path.join(os.tmpdir(), "file-render-repair-"));
+    app = makeApp([tmp]);
+    await app.ready();
+  });
+
+  afterEach(async () => {
+    await app.close();
+    await fsp.rm(tmp, { recursive: true, force: true });
+  });
+
+  const render = async (name: string, extra = ""): Promise<any> => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/file/render?cwd=${encodeURIComponent(tmp)}&path=${encodeURIComponent(name)}${extra}`,
+    });
+    expect(res.statusCode).toBe(200);
+    return res.json().data;
+  };
+
+  const BROKEN = "= Guide\n\n----\ncode\n\n== Next\n\nbody\n";
+
+  it("E19: a valid document reports empty repairs and warnings plus a numeric mtime", async () => {
+    await fsp.writeFile(path.join(tmp, "notes.adoc"), "= Title\n\nHello *world*.\n");
+    const data = await render("notes.adoc");
+    expect(data.repairs).toEqual([]);
+    expect(data.warnings).toEqual([]);
+    expect(typeof data.mtime).toBe("number");
+    expect(data.mtime).toBe((await fsp.stat(path.join(tmp, "notes.adoc"))).mtimeMs);
+  });
+
+  it("E20: an unterminated listing is repaired and renders the following section", async () => {
+    await fsp.writeFile(path.join(tmp, "guide.adoc"), BROKEN);
+    const data = await render("guide.adoc");
+    expect(data.repairs).toEqual([{ rule: "A2", line: 3 }]);
+    expect(data.html).toMatch(/<h2[^>]*>Next<\/h2>/);
+    expect(JSON.stringify(data.warnings)).not.toContain("unterminated listing block");
+  });
+
+  it("E21: repair=0 converts the original and surfaces the converter warning", async () => {
+    await fsp.writeFile(path.join(tmp, "guide.adoc"), BROKEN);
+    const data = await render("guide.adoc", "&repair=0");
+    expect(data.repairs).toEqual([]);
+    expect(data.warnings).toEqual([
+      expect.objectContaining({ text: "unterminated listing block", line: 3 }),
+    ]);
+    expect(data.html).not.toMatch(/<h2[^>]*>Next<\/h2>/);
+  });
+
+  it("E22: a bare [mermaid] block hydrates via A1", async () => {
+    await fsp.writeFile(path.join(tmp, "m.adoc"), "[mermaid]\n----\ngraph TD\n  A-->B\n----\n");
+    const data = await render("m.adoc");
+    expect(data.repairs).toEqual([{ rule: "A1", line: 1 }]);
+    expect(data.html).toContain('class="language-mermaid"');
+  });
+
+  it("E23: repair does not defeat secure mode (include stays neutralized)", async () => {
+    await fsp.writeFile(
+      path.join(tmp, "evil.adoc"),
+      "[mermaid]\n----\ngraph TD\n----\n\ninclude::/etc/passwd[]\n",
+    );
+    const data = await render("evil.adoc");
+    expect(data.repairs.length).toBeGreaterThan(0);
+    expect(data.html).not.toMatch(/root:.*:0:0:/);
+  });
+
+  it("E24: warnings do not leak between requests and the global logger is restored", async () => {
+    const { LoggerManager } = (await import("node:module")).createRequire(import.meta.url)("asciidoctor")();
+    await fsp.writeFile(path.join(tmp, "broken.adoc"), BROKEN);
+    await fsp.writeFile(path.join(tmp, "clean.adoc"), "= Clean\n\nfine\n");
+    const first = await render("broken.adoc", "&repair=0");
+    expect(first.warnings.length).toBeGreaterThan(0);
+    const before = LoggerManager.getLogger();
+    const second = await render("clean.adoc");
+    expect(second.warnings).toEqual([]);
+    expect(LoggerManager.getLogger()).toBe(before);
+    await render("broken.adoc", "&repair=0");
+    expect(LoggerManager.getLogger()).toBe(before);
+  });
+});
+
 // ── EML preview endpoints (change: add-eml-preview) ────────────────────────
 
 /** Build a raw multipart/mixed .eml with an HTML body + optional attachments. */

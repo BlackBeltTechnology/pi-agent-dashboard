@@ -6,7 +6,7 @@ import { join, relative } from "node:path";
 import { chunkAsciiDoc } from "./adoc-chunker.js";
 import { chunkMarkdown } from "./chunker.js";
 import { buildMeta, buildProperties, DEFAULT_FACET_KEYS, DEFAULT_SEARCHABLE_KEYS, type FacetKeyConfig } from "./frontmatter.js";
-import { type GitignoreMatcher, loadGitignoreMatcher } from "./gitignore.js";
+import { type GitignoreMatcher, loadGitignoreMatcherYielding } from "./gitignore.js";
 import type { DocType, KbStore } from "./types.js";
 
 export interface IndexSource {
@@ -40,7 +40,7 @@ export interface IndexStats {
 }
 
 const sha = (s: string | Buffer) => createHash("sha256").update(s).digest("hex");
-const DEFAULT_EXCLUDE = /(^|\/)(node_modules|\.git|dist|build|\.next|coverage|\.kb)(\/|$)/;
+const DEFAULT_EXCLUDE = /(^|\/)(node_modules|\.git|\.worktrees|dist|build|\.next|coverage|\.kb)(\/|$)/;
 /** Selectable source extensions. Widened together with `config.ts` defaults and
  *  the per-extension chunker dispatch (design D4) — widening one gate alone
  *  indexes zero extra files. */
@@ -59,6 +59,15 @@ const TITLE_EXT_RE = /\.(md|mdx|markdown|adoc|asciidoc)$/i;
  *  write lock so the reader is served. See change: fix-kb-index-feedback. */
 const YIELD_EVERY = 100;
 const yieldToEventLoop = (): Promise<void> => new Promise<void>((r) => setImmediate(r));
+/** Directory entries (walk) / directories (gitignore pre-scan) processed between
+ *  event-loop yields. One constant for both traversals. Bounds deep and broad
+ *  trees, not a single huge directory (one `readdirSync` call).
+ *  See change: bound-kb-search-freshness. */
+export const WALK_YIELD_EVERY = 500;
+/** Supplementary time bound: also yield once this many ms passed since the last
+ *  yield, so a slow filesystem (few entries per directory, high per-call latency)
+ *  cannot starve the loop between entry-count yields. */
+const WALK_YIELD_MAX_MS = 50;
 
 /** Escape every RegExp metacharacter in a literal. */
 function escapeRegExp(s: string): string {
@@ -81,15 +90,28 @@ function matchAny(pats: RegExp[], rel: string): boolean {
   return pats.some((re) => re.test(rel));
 }
 
-function walk(dir: string, base: string, out: string[] = [], ignore?: GitignoreMatcher): string[] {
+/** @internal exported for tests. Async + cooperative: yields every
+ *  `WALK_YIELD_EVERY` directory entries processed (counter spans the recursion). */
+export async function walk(
+  dir: string,
+  base: string,
+  out: string[] = [],
+  ignore?: GitignoreMatcher,
+  yieldFn: () => Promise<void> = yieldToEventLoop,
+  counter: { n: number; last: number } = { n: 0, last: performance.now() },
+): Promise<string[]> {
   for (const e of readdirSync(dir, { withFileTypes: true })) {
+    if (++counter.n % WALK_YIELD_EVERY === 0 || performance.now() - counter.last >= WALK_YIELD_MAX_MS) {
+      await yieldFn();
+      counter.last = performance.now();
+    }
     const abs = join(dir, e.name);
     const rel = relative(base, abs);
     if (DEFAULT_EXCLUDE.test(rel)) continue;
     if (e.isDirectory()) {
       // Excluded-parent rule: an ignored dir is never descended (git semantics).
       if (ignore?.isIgnoredDir(rel)) continue;
-      walk(abs, base, out, ignore);
+      await walk(abs, base, out, ignore, yieldFn, counter);
     } else if (SELECTABLE_RE.test(e.name) && !ignore?.isIgnored(rel)) out.push(abs);
   }
   return out;
@@ -122,8 +144,11 @@ export async function indexSource(store: KbStore, src: IndexSource, opts: IndexO
   const inc = opts.include?.map(globToRe);
   const exc = opts.exclude?.map(globToRe);
   const includeSourceMd = opts.includeSourceMarkdown !== false;
-  const gi = opts.respectGitignore === false ? undefined : loadGitignoreMatcher(src.dir, { cwd: opts.cwd, prune: (rel) => DEFAULT_EXCLUDE.test(rel) });
-  const files = walk(src.dir, src.dir, [], gi).filter((abs) => {
+  const gi =
+    opts.respectGitignore === false
+      ? undefined
+      : await loadGitignoreMatcherYielding(src.dir, { cwd: opts.cwd, prune: (rel) => DEFAULT_EXCLUDE.test(rel), yieldEvery: WALK_YIELD_EVERY, yieldMaxMs: WALK_YIELD_MAX_MS, yieldFn: yieldToEventLoop });
+  const files = (await walk(src.dir, src.dir, [], gi)).filter((abs) => {
     const rel = relative(src.dir, abs);
     if (src.include && !src.include(rel)) return false;
     if (inc && !matchAny(inc, rel)) return false;
