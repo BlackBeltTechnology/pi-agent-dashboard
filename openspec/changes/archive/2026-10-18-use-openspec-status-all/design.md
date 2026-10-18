@@ -100,7 +100,7 @@ Paths inside messages stay visible to paired clients, as cwd paths already are.
 ### D4. Tracked set and watchers
 
 **Gate tracked set.** Stats run in the worker probe, or as yielding async stats in-process when the worker is off or unhealthy.
-- cwd level: `openspec/` itself, `changes/`, `config.yaml`, and every directory and file under `schemas/`. Directory mtimes catch deletions and renames that a max-over-files misses.
+- cwd level: `openspec/` itself, `changes/`, `config.yaml`, `config.yml`, and every directory and file under `schemas/`. Directory mtimes catch deletions and renames that a max-over-files misses.
 - Per change:
   - the change dir and `.openspec.yaml`;
   - the legacy fixed set;
@@ -112,7 +112,7 @@ CLI paths are relativized against `root.path` exactly as emitted (the CLI alread
 
 **Watchers.**
 - Keep the recursive watcher on `openspec/changes/`. The root is unchanged, so the main-spec tree (~741 dirs here) is not watched.
-- Add a non-recursive watcher on `openspec/` for `config.yaml`.
+- Add a non-recursive watcher on `openspec/` for `config.yaml` and `config.yml` (the CLI reads either).
 - Add a recursive watcher on `openspec/schemas/` when it exists.
 
 The watcher filter is the union of:

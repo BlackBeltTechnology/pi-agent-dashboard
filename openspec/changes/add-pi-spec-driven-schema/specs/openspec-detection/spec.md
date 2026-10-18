@@ -50,7 +50,7 @@ by the OpenSpec status call (`openspec status --all --json`, or `openspec status
 `status` is promoted from `"ready"` to `"done"` when local file-system
 evidence indicates design work is satisfied. The override MUST NOT alter
 any other artifact id, MUST NOT demote `"done"` to any other value, and
-MUST NOT promote `"blocked"` directly to `"done"`. This override SHALL NOT apply to changes whose `schemaName` is `pi-spec-driven` (that schema declares a skipped design explicitly); for every other schema, or when `schemaName` is absent, it applies as before.
+MUST NOT promote `"blocked"` directly to `"done"`. This override SHALL NOT apply to changes whose `schemaName` is `pi-spec-driven` (that schema declares a skipped design explicitly); every other schema keeps it. Where the status source carries no `schemaName` (the fallback `openspec list` path), `schemaName` SHALL be resolved locally: the change's `.openspec.yaml` `schema:` value, else the project config default (`config.yaml`, else `config.yml`), else `spec-driven` — the same resolution the CLI applies, so the dashboard and `effective-status.sh` agree on every path.
 
 #### Scenario: design.md present satisfies design
 

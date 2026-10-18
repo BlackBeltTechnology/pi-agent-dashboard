@@ -110,7 +110,6 @@ test.describe("Settings → Services", () => {
   });
   test.afterEach(async ({ request }) => {
     await removeAll(request);
-    await op.restore(request);
   });
 
   test("F1 — a Start converges starting → healthy without a reload, no probing detail GET", async ({ page, request }) => {

@@ -38,15 +38,32 @@ export class TicketConsumedError extends BusError {
 }
 
 /**
- * Ticket mint denied because the caller is off-box / on an untrusted network.
- * The MVP is loopback-only; off-box scripting needs a paired-device bearer.
+ * Ticket mint denied (or the mint endpoint unreachable).
+ *
+ * Message contract: a policy denial renders `status` + the server's machine
+ * readable `error` literal + its human `reason`, e.g.
+ * `ticket mint denied: 403 network_not_allowed — <reason>`. An unreachable
+ * endpoint carries NO `status` and names the base URL instead, so the two are
+ * distinguishable from the typed fields and from the text alone. `hint` and any
+ * other body field is never copied (it may name hosts or tokens).
+ *
+ * `status` / `error` are typed so callers branch on them rather than parsing the
+ * message; `reason` is prose and is deliberately not a field.
+ * See OpenSpec change: triage-browser-e2e-offbox-poison.
  */
 export class OffBoxError extends BusError {
+  /** HTTP status the mint endpoint returned; undefined when it was never reached. */
+  readonly status?: number;
+  /** Machine-readable `error` literal from the denial body; undefined when absent. */
+  readonly error?: string;
   constructor(
     message = "ticket mint denied: off-box / untrusted network needs device pairing (loopback-only MVP)",
+    details: { status?: number; error?: string } = {},
   ) {
     super("off-box", message);
     this.name = "OffBoxError";
+    this.status = details.status;
+    this.error = details.error;
   }
 }
 

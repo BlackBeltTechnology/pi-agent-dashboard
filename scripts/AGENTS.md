@@ -19,9 +19,13 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/codeql-local-cli.test.mjs` | `codeql-local.mjs` end to end against a fake `CODEQL_BIN` + temp git repos (test-plan #E2-#E13, #E16, #E23, #E25-#E29, #P1, #X1-#X5); `baseline binding` block: `baselineHash` refusal/re-bind (#E1-#E12, #X1). See change: add-local-codeql-ratchet, harden-codeql-ratchet-followups. |
 | `__tests__/codeql-local-real.test.mjs` | `codeql-local.mjs` against the REAL CodeQL CLI on tiny repos (#E4, #E18, #X6). `describe.skipIf` no `codeql` / uncached packs; uses the real HOME for the pack cache. See change: add-local-codeql-ratchet. |
 | `__tests__/codeql-local.test.mjs` | Pure decision logic of `codeql-local.mjs` (#E14, #E15, #E17, #E19-#E22, #E24, #E29 writer, #P1). See change: add-local-codeql-ratchet. |
-| `__tests__/coverage-config.test.mjs` | Coverage config shape. |
-| `__tests__/coverage-report.test.mjs` | Live coverage runs. |
+| `__tests__/coverage-config.test.mjs` | Coverage config shape; `coverage-unloaded` fixture stays unloaded (E29-E31). See change: triage-browser-e2e-offbox-poison. |
+| `__tests__/coverage-report.test.mjs` | Live coverage runs; E2 scoped to `fixtures/coverage-unloaded`. See change: triage-browser-e2e-offbox-poison. |
 | `__tests__/client-isolate-gate.test.mjs` | Client isolate gate. |
+| `__tests__/e2e-fixture-import.test.mjs` | Guard tests for `check-e2e-fixture-import.mjs` (E6/E7, trust-write lint E21/E22). See change: triage-browser-e2e-offbox-poison. |
+| `__tests__/e2e-reap-core.test.mjs` | L1 for `tests/e2e/reap-core.ts` (reap, refusal verdict, trust isolation E8-E18, X5-X16). See change: triage-browser-e2e-offbox-poison. |
+| `__tests__/e2e-trust-seed.test.mjs` | Runs the `test-entrypoint.sh` config-seed program verbatim (E23-E25). See change: triage-browser-e2e-offbox-poison. |
+| `__tests__/fixtures/coverage-unloaded/` | Fixture: one source file no test imports + no-op test + pinned config (scoped E2). See change: triage-browser-e2e-offbox-poison. |
 | `__tests__/dependency-declarations.test.mjs` | Set-based manifest guarantees over ALL 32 non-private workspaces (not a sample). → see `__tests__/dependency-declarations.test.mjs.AGENTS.md` |
 | `__tests__/fixtures/codeql-harness.mjs` | Test harness for `codeql-local.mjs`: temp git repos, per-call fake-binary plan, SARIF + baseline builders. See change: add-local-codeql-ratchet. |
 | `__tests__/fixtures/coverage-failing/` | Red coverage fixture. |
