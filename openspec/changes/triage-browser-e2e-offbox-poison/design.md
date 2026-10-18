@@ -269,6 +269,33 @@ Deviations from the text above, each found by running the real harness, none cha
 
 **#862 budgets.** Scoped coverage fixture run: 0.35 s wall for `npm run test:coverage` (vitest itself 74 ms), ~1.2 s including spawn; reports `unloaded.ts` at 0% with 6 lines counted. `SCOPED_RUN_TIMEOUT_MS = 120_000 ≥ 1.5 × SCOPED_RUN_MEASURED_MS (1_500)`. The full-repo invocation's 736 s and the CI number for the scoped run are still to be recorded from the next nightly dispatch (task 6.0).
 
+## Bisect outcome
+
+Recorded from the two dispatches of `ci-e2e-browser.yml` (tasks 4.1, 4.2) plus a local reproduction. Verdict: **R2 — a spec narrowed trust and never restored it; no product defect.** The decision path was D4's `network_not_allowed` / "trust no longer seeded" branch, resolved at the spec, so the product-fix group (task 5) does not apply.
+
+| | Baseline (task 4.1) | Instrumented (task 4.2) |
+|---|---|---|
+| Run | 39103483317 on unmodified `develop` (a959ac206 + #895) | 39104241905 on `os/triage-browser-e2e-offbox-poison` |
+| Shard holding the `mcp-*` block | shard 10, 77 tests: `mcp-session-token`, `mcp-tiered-token`, `mcp-token-settings`, `mermaid-*`, `mobile-viewport-bound`, …, `openspec-artifact-dialog` | shard 8, 75 tests |
+| Outcome | **hung**: job cancelled by the 120-min cap (06:17 → 08:17Z), 120 results recorded | completed in **31.9 min**, 66 passed / 5 failed / 2 skipped |
+| `OffBoxError` lines in that shard's log | 107 | 0 |
+
+**First denial line, baseline, verbatim** (shard 10, 06:23:52Z, right after `mcp-session-token`, the first test of `mcp-tiered-token` passing in 67 ms):
+
+```
+[reap] teardown failed (diagnostic only): OffBoxError: ticket mint denied: off-box / untrusted network needs device pairing (loopback-only MVP)
+```
+
+Every later test then fails its pre-snapshot with the same line (the old bus client's fixed message — the unclassified 401/403 that D1 replaces), the `mermaid-*`, `mobile-viewport-bound` and `openspec-artifact-dialog` tests each burn a 60 s timeout plus a retry, and the shard never finishes. The instrumented run exercised the same files in the same order and had no refusal at all.
+
+**Root cause, reproduced locally in 3.5 s** (`develop` code, a fresh harness): the pre-change `mcp-token-settings.spec.ts` calls `armOperatorSession` from `beforeEach`, and unlike `mcp-tiered-token.spec.ts` (which carries "capture the ORIGINAL snapshot ONCE") it re-snapshots the config on every call. Test 2's `beforeEach` therefore snapshots the *already narrowed* config, and the `afterAll` "restore" writes the narrowed values back: after the spec's three tests `GET /api/config` reads `trustedNetworks: []` and `auth.bypassUrls: ["/v1/"]` and a credential-free ticket mint is refused. The spec has had three tests since 2026-09-14, so the latent defect predates the window; the bisect candidates in the "What changed" table (host gate `enforce`, strict local proof, relayed-loopback trust) are what turned the leftover narrowing from tolerated into fatal, but none of them needed to be touched — the narrowing is the defect. `mcp-builtin-registration` X2's `POST /api/restart` (open question 1) is not involved: it runs earlier in the shard, and the first refusal appears only after the narrowing spec.
+
+**Task 4.0 re-derivation** (failing run 37757227913, shard 10, 65 tests, same shape as the baseline above): ordered mutations ahead of X23 are `mcp-builtin-registration` X2's restart and nothing else, as the design assumed; but X23 is not where the poison starts — it starts at `mcp-tiered-token` / `mcp-token-settings`, after it. The `#832` claim that X23 poisons the harness is therefore a misattribution, as the proposal already suspected.
+
+**Observer effect (task 4.2).** The two runs fail the same number of distinct tests (199 vs 199); the sets differ by 16 each way, all dispersed over unrelated, order-sensitive files (identity-matrix, notify-*, preview-denial-remedy, poll-hot-paths, …) in shards whose composition shifted because this change adds spec files — consistent with run-to-run flakiness, not with the instrumentation. In the four shards whose test count is identical in both runs (1, 2, 5, 6) the wall clock moved by −1.4, −3.2, +0.3 and +0.3 min: the tripwire and pre-test read (≈ 2.8 ms per test measured locally) are below the run-to-run noise, which is the answer to task 3.9.
+
+**Decisions taken from the verdict:** 4.3 not applicable (baseline was red, not green); 4.4 done by task 3.4 (the offending spec, and every other raw writer, now goes through `narrowTrust`; shard re-run = run 39104241905); 4.5 / 4.6 not applicable (the refusal reason is a spec-made narrowing, not a lost seed, a host-gate or an identity verdict); task 5 (product fix) not applicable; 5.5 — no cluster is unquarantined: the two Candidate clusters' original #683 logs were not re-examined and one post-fix dispatch is not three consecutive green runs, so every #683 fixme stays.
+
 ## #683 triage (non-goal — follow-up changes)
 
 `test.fixme(true, ".../issues/683")` call sites today: **101 across 44 spec files** (the issue text says ~33). The count drifts, so it is re-derived rather than trusted — `grep -rc 'issues/683' tests/e2e --include=*.ts | awk -F: '{s+=$2} END {print s}'` for the total and `grep -rl 'issues/683' tests/e2e | wc -l` for the file count. Clusters, with the proposed owner change:
