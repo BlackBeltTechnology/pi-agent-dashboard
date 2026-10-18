@@ -238,13 +238,14 @@ One row per file.
 | `tool-created-files.spec.ts` | L3 spec (change: detect-tool-created-files, U1+U3).… → see `tool-created-files.spec.ts.AGENTS.md` |
 | `tool-output-links.spec.ts` | Playwright E2E for tool-output file-link behaviour… → see `tool-output-links.spec.ts.AGENTS.md` |
 | `tool-output-selection.spec.ts` | L3 selectable-tool-output-links (task 3.2). → see `tool-output-selection.spec.ts.AGENTS.md` |
+| `trust-mode-pair.spec.ts` | L3 pair mode. → see `trust-mode-pair.spec.ts.AGENTS.md` |
 | `ui-token-alignment.spec.ts` | L3 token-recipe gate (test-plan F1–F9, F11, E10,… → see `ui-token-alignment.spec.ts.AGENTS.md` |
 | `uncommitted-indicator-commit.spec.ts` | E2E uncommitted-indicator +… → see `uncommitted-indicator-commit.spec.ts.AGENTS.md` |
 | `untrusted-content-guard.spec.ts` | L3 spec. → see `untrusted-content-guard.spec.ts.AGENTS.md` |
 | `vault-request-access.spec.ts` | L3 Vault callout Request access link (F3). → see `vault-request-access.spec.ts.AGENTS.md` |
 | `worktree-grouping-survives-remove.spec.ts` | L3 fix-worktree-grouping-l… → see `worktree-grouping-survives-remove.spec.ts.AGENTS.md` |
 | `worktree-init-feedback.spec.ts` | Playwright E2E for friendly worktree-init fe… → see `worktree-init-feedback.spec.ts.AGENTS.md` |
-| `yolo-indicator-layout.spec.ts` | L3 YOLO bar tint + composer strip layout (single line, row height, floor, hu >= zh-CN, 18-combo contrast, hover/keyboard/touch paths, hu catalogue faults). Test-plan #E1-#E8, #E19-#E21, #F8-#F12, #X1-#X3. See change: fix-yolo-indicator-overflow. |
+| `yolo-indicator-layout.spec.ts` | L3 YOLO bar tint + composer strip layout (single line, row height, floor, hu >= zh-CN, 18-combo contrast,… → see `yolo-indicator-layout.spec.ts.AGENTS.md` |
 | `zrok-v2-tunnel.spec.ts` | L3 zrok v2 F1–F3. → see `zrok-v2-tunnel.spec.ts.AGENTS.md` |
 | `mcp-session-token.spec.ts` | L3 MCP session token (wire-mcp-session-token). → see `mcp-session-token.spec.ts.AGENTS.md` |
 | `mcp-builtin-registration.spec.ts` | L3 built-in MCP registration. → see `mcp-builtin-registration.spec.ts.AGENTS.md` |

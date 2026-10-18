@@ -10,6 +10,7 @@ const PKGS = path.resolve(__dirname, "../../..");
 // Reviewed unrelated writers (do not touch config.json).
 const ALLOW = new Set([
   "server/src/auth/locked-json-file.ts",
+  "server/src/test-support/trust-mode-home.ts", // test seam: seeds a throwaway $HOME config.json
   "shared/src/doctor-core.ts", // log rotation
   "shared/src/platform/openspec.ts", // ~/.config/openspec/config.json
   "shared/src/tool-registry/overrides.ts", // separate overrides file

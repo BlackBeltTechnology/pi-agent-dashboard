@@ -132,6 +132,23 @@ export function trustEntryCovers(entry: string, ip: string): boolean {
 }
 
 /**
+ * IPv6 loopback spellings the trust matcher cannot express but a hand-edited
+ * list may carry: `::1` (optionally `/128`) and IPv4-mapped `::ffff:127.x.y.z`
+ * (optionally `/104`..`/128`). Anything else IPv6 (`::/0`, `fe80::/10`) is NOT
+ * loopback-only. See change: retire-trusted-networks-bypass (design D2).
+ */
+function isLoopbackIpv6Entry(entry: string): boolean {
+  const [addr, bitsStr, ...rest] = entry.trim().toLowerCase().split("/");
+  if (rest.length > 0 || !addr) return false;
+  const bits = bitsStr === undefined ? null : /^\d{1,3}$/.test(bitsStr) ? Number.parseInt(bitsStr, 10) : Number.NaN;
+  if (bits !== null && Number.isNaN(bits)) return false;
+  if (addr === "::1" || addr === "0:0:0:0:0:0:0:1") return bits === null || bits === 128;
+  const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(addr);
+  if (mapped && isLoopbackIpv4(mapped[1])) return bits === null || (bits >= 104 && bits <= 128);
+  return false;
+}
+
+/**
  * True when EVERY address `entry` covers lies inside `127.0.0.0/8`.
  *
  * Such an entry is always reachable: the whole of `127.0.0.0/8` is served by the
@@ -141,6 +158,7 @@ export function trustEntryCovers(entry: string, ip: string): boolean {
  * Note `127.0.0.0/7` is NOT loopback-only — it also covers `126.x`.
  */
 export function isLoopbackOnlyEntry(entry: string): boolean {
+  if (isLoopbackIpv6Entry(entry)) return true;
   if (!isValidTrustEntry(entry)) return false;
   switch (entryKind(entry)) {
     case "cidr": {
@@ -205,8 +223,9 @@ export interface TrustedEntriesConfigShape {
 
 /**
  * The union of `auth.bypassHosts` and the legacy top-level `trustedNetworks`,
- * mirroring `hasGuardConfig()` and `resolvedTrustedNetworks` — both sources are
- * honoured by the runtime guard, so both must be scored.
+ * mirroring `hasGuardConfig()` and `resolvedTrustedNetworks`. Both lists are
+ * scored for the reachability advisory. In `pair` trust mode they do not admit
+ * requests (knock eligibility only); in `legacy` mode both still admit.
  */
 export function collectTrustedEntries(config: TrustedEntriesConfigShape | null | undefined): string[] {
   return [...(config?.trustedNetworks ?? []), ...(config?.auth?.bypassHosts ?? [])];

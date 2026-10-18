@@ -20,6 +20,12 @@
  * contract pins "revoke controls only" for arbitrary stored grants, whereas
  * every answer here settles an actual recorded denial.
  *
+ * In `pair` network-trust mode a network-plane denial is NOT a pending request (no
+ * network grant exists to answer with; the refused peer lives on Security ▸ Network
+ * access). The server raises none; this list also drops any stale one so the page
+ * never offers an answer that writes nothing. Other planes are unaffected.
+ * See change: retire-trusted-networks-bypass.
+ *
  * Refreshes on mount, whenever the prompt queue changes (a `grant_request` /
  * `grant_dismiss` frame bumps `store.getVersion()`), and on a slow poll so
  * unprompted denials (no frame is sent for them) still appear.
@@ -47,6 +53,7 @@ import { useHasGrantChannel } from "../../lib/access-grants/grant-channel.js";
 import { type GrantPromptStore, grantPromptStore } from "../../lib/access-grants/grant-prompt-store.js";
 import { yoloStatus } from "../../lib/access-grants/yolo-status.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { useTrustPosture } from "../../lib/network-trust/trust-posture.js";
 import { YoloAccessCard } from "../access-grant/YoloAccessCard.js";
 
 /** Background refresh while the page is open (unprompted denials send no frame). */
@@ -93,6 +100,7 @@ export function AccessPromptsSection({
 }) {
   const version = useSyncExternalStore(store.subscribe, store.getVersion);
   const hasChannel = useHasGrantChannel();
+  const { posture } = useTrustPosture();
   const [, navigate] = useLocation();
   const [view, setView] = useState<AccessPromptsView | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -183,7 +191,11 @@ export function AccessPromptsSection({
       {view && <YoloAccessCard yolo={view.yolo} base={selectedCwd} onChanged={() => void load()} />}
 
       {view && (
-        <PendingList pending={view.pending} busy={busy} onAnswer={answer} />
+        <PendingList
+          pending={posture?.trustMode === "pair" ? view.pending.filter((p) => p.plane !== "network") : view.pending}
+          busy={busy}
+          onAnswer={answer}
+        />
       )}
 
       {view && <VerdictList verdicts={view.verdicts} />}

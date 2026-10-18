@@ -300,10 +300,12 @@ request admitted via a paired-device bearer SHALL be refused with HTTP 403,
 `WWW-Authenticate: Bearer error="insufficient_scope" scope="<tier>"` and a
 logged refusal when the route's tier exceeds the row's tier. `/api/ws-ticket`
 SHALL require `operate`. Principals admitted by other means (browser cookie
-session, local token) SHALL see no change, and a bearer presented from a
-genuinely local or trusted-network address SHALL NOT be tier-refused (that
-network position is already fully trusted). The gate SHALL only refuse; it
-SHALL NOT admit a request that existing admission rules reject.
+session, local token) SHALL see no change. A bearer presented from a genuinely
+local address SHALL NOT be tier-refused. A bearer presented from a
+trusted-network address SHALL NOT be tier-refused **only when the effective
+trust mode is `"legacy"`**; in `"pair"` mode a network match grants no tier
+exemption. The gate SHALL only refuse; it SHALL NOT admit a request that
+existing admission rules reject.
 
 When `requireLocalProof` is enabled, the genuinely-local (loopback, non-forwarded) condition in this requirement is narrowed by the "Opt-in local proof for loopback trust" requirement of `trust-and-credential-boundaries`; with it disabled (the default) this requirement is unchanged.
 
@@ -327,6 +329,12 @@ When `requireLocalProof` is enabled, the genuinely-local (loopback, non-forwarde
 #### Scenario: Loopback bearer is not tier-refused
 - **WHEN** `requireLocalProof` is disabled and a request from a genuinely local address bears an `observe` device token and calls `POST /api/restart`
 - **THEN** the request SHALL NOT be refused on tier grounds
+
+#### Scenario: Trusted-network bearer exempt only in legacy mode
+- **GIVEN** `trustedNetworks: ["192.168.16.0/24"]`
+- **WHEN** a request from `192.168.16.20` bears an `observe` device token and calls `POST /api/restart`
+- **THEN** it SHALL NOT be tier-refused when the effective trust mode is `"legacy"`
+- **AND** it SHALL be refused with 403 `scope="operate"` when the effective trust mode is `"pair"`
 
 #### Scenario: Unlisted route fails closed
 - **WHEN** a route with no entry in the route→tier map is called with a `control` bearer

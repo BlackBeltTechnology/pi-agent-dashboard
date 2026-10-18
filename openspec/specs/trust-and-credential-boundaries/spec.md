@@ -152,7 +152,11 @@ exchange route SHALL be callable by a device of any tier. The cookie SHALL NOT
 be sent on WebSocket upgrades. A client whose API base is cross-origin SHALL
 keep the existing `Authorization: Bearer` behaviour unchanged. A bearer already stored in `localStorage` SHALL be
 exchanged and removed on next load. WebSocket access SHALL continue to use
-single-use tickets.
+single-use tickets, with one exception: a `live`-scope upgrade MAY instead be
+admitted by a live-preview capability path (see the `live-server-preview`
+capability), which is short-lived, bound to one preview, never the durable
+device credential, and never valid on core sockets (`/ws`, `/ws/terminal/*`,
+`/ws/bridge`).
 
 #### Scenario: pairing stores no bearer in localStorage
 - **WHEN** a browser completes pairing
@@ -177,6 +181,10 @@ single-use tickets.
 #### Scenario: WS ticket minted via cookie
 - **WHEN** a cookie-paired browser opens the WebSocket
 - **THEN** it SHALL mint a single-use ticket using the cookie, and the durable credential SHALL NOT ride the socket
+
+#### Scenario: live capability never opens a core socket
+- **WHEN** a `/ws` upgrade presents a live-preview capability path or token
+- **THEN** it SHALL NOT be admitted by it
 
 ### Requirement: Request-access remedy is the one recorded exception to the access-posture disclosure predicate
 

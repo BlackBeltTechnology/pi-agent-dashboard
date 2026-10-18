@@ -132,7 +132,15 @@ function normalizeSource(raw: string): string | null {
 
 /** Network: `config.trustedNetworks`, the exact source address and nothing wider. */
 export function createNetworkPlane(
-  deps: Pick<PlaneDeps, "readTrustedNetworks" | "writeConfigPartial">,
+  deps: Pick<PlaneDeps, "readTrustedNetworks" | "writeConfigPartial"> & {
+    /**
+     * Does a network match authenticate right now (`legacy` trust mode)? Absent ⇒
+     * yes. In `pair` an allow-always would add an address that grants nothing, so
+     * the verdict is refused and nothing is written.
+     * See change: retire-trusted-networks-bypass (D6).
+     */
+    networkTrustActive?: () => boolean;
+  },
 ): DeferredAccessPlane {
   const store = "config.trustedNetworks";
   return {
@@ -143,6 +151,7 @@ export function createNetworkPlane(
     keyOf: identity,
     describe: () => deferredCopy(store),
     async grant(req) {
+      if (deps.networkTrustActive && !deps.networkTrustActive()) return { ok: false, reason: "forbidden" };
       if (req.subject !== req.deniedSubject) return { ok: false, reason: "unnamed" };
       if (normalizeSource(req.subject) !== req.subject) return { ok: false, reason: "invalid-subject" };
       const current = deps.readTrustedNetworks();

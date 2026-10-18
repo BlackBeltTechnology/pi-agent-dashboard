@@ -19,6 +19,7 @@ import { type HostAdmissionOptions, isHostAdmitted } from "../auth/host-admissio
 import { hasLocalProof, type LocalTrustContext } from "../auth/local-proof.js";
 import {
   hasProxyForwardingHeaders,
+  isKnockListedPeer,
   isOnLinkPrivate,
   knockSourceKey,
   type LanInterface,
@@ -159,14 +160,28 @@ export function knockPeerInput(request: FastifyRequest): KnockAdmissionInput {
 export interface KnockPeerDeps {
   hostAdmission: () => HostAdmissionOptions;
   getLanInterfaces: () => LanInterface[];
+  /**
+   * The RAW configured list (`trustedNetworks` ∪ `auth.bypassHosts`) — knock
+   * eligibility, not admission: it is read in BOTH trust modes and never
+   * authenticates anything. Absent ⇒ no list branch.
+   * See change: retire-trusted-networks-bypass (D7).
+   */
+  getKnockEligibleNetworks?: () => string[];
 }
 
 /** The slice of {@link KnockAdmissionState} the pre-switch gates need. */
-type KnockPeerState = Pick<KnockAdmissionState, "hostAdmission" | "interfaces">;
+type KnockPeerState = Pick<KnockAdmissionState, "hostAdmission" | "interfaces"> & {
+  /** Raw configured list for the knock address rule's list branch. */
+  eligibleNetworks?: readonly string[];
+};
 
-/** The one gate-state builder: both deps are read per call (never captured). */
+/** The one gate-state builder: every dep is read per call (never captured). */
 export function knockPeerState(deps: KnockPeerDeps): KnockPeerState {
-  return { hostAdmission: deps.hostAdmission(), interfaces: deps.getLanInterfaces() };
+  return {
+    hostAdmission: deps.hostAdmission(),
+    interfaces: deps.getLanInterfaces(),
+    eligibleNetworks: deps.getKnockEligibleNetworks?.() ?? [],
+  };
 }
 
 /**
@@ -180,8 +195,12 @@ export function knockPeerGate(
   state: KnockPeerState,
 ): "host_not_admitted" | "knock_not_lan" | null {
   if (!isHostAdmitted(input.host, state.hostAdmission)) return "host_not_admitted";
-  if (hasProxyForwardingHeaders(input.headers) || !isOnLinkPrivate(input.peer, state.interfaces)) return "knock_not_lan";
-  return null;
+  if (hasProxyForwardingHeaders(input.headers)) return "knock_not_lan";
+  // Address rule: a default private on-link range OR the operator's configured
+  // list (no forwarding header, match-all entries ignored, not necessarily on-link).
+  if (isOnLinkPrivate(input.peer, state.interfaces)) return null;
+  if (isKnockListedPeer(input.peer, input.headers, state.eligibleNetworks ?? [])) return null;
+  return "knock_not_lan";
 }
 
 /**

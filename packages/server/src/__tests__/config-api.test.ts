@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { loadConfig, resolveTrustMode } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   computeBindReachability,
@@ -12,6 +13,7 @@ import {
   sameReachability,
 } from "../auth/bind-reachability-service.js";
 import { deleteAuthProvider, readConfigRedacted, writeConfigPartial } from "../config-api.js";
+import { registerSystemRoutes } from "../routes/system-routes.js";
 
 describe("config-api", () => {
   let testDir: string;
@@ -580,5 +582,173 @@ describe("writeConfigPartial — openspec readiness keys (add-openspec-init-affo
     const cfg = loadConfig();
     expect(cfg.sessionList.archiveAfterDays).toBe(14);
     expect(cfg.sessionList.archiveServiceSessionsOnEnd).toBe(false);
+  });
+});
+
+// ── retire-trusted-networks-bypass: `network` block merge + origin stamping ──
+// The origin is server-owned: any change to a stored `trustMode` stamps
+// `operator` (the boot decision passes `upgrade`); an unchanged mode keeps the
+// stored origin whatever the caller sent. See change: retire-trusted-networks-bypass (D2).
+describe("config-api network trust mode", () => {
+  let testDir: string;
+  let configFile: string;
+  let origHome: string | undefined;
+  const raw = () => JSON.parse(fs.readFileSync(configFile, "utf-8"));
+
+  beforeEach(() => {
+    testDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-config-api-network-"));
+    fs.mkdirSync(path.join(testDir, ".pi", "dashboard"), { recursive: true });
+    configFile = path.join(testDir, ".pi", "dashboard", "config.json");
+    origHome = process.env.HOME;
+    process.env.HOME = testDir;
+  });
+
+  afterEach(() => {
+    if (origHome === undefined) delete process.env.HOME;
+    else process.env.HOME = origHome;
+    fs.rmSync(testDir, { recursive: true, force: true });
+  });
+
+  // E6
+  it("#E6 stored legacy/upgrade → PUT pair stamps operator; the same mode again leaves it; a hand edit without origin reads operator", () => {
+    fs.writeFileSync(configFile, JSON.stringify({ port: 8000, network: { trustMode: "legacy", trustModeOrigin: "upgrade" } }));
+    expect(resolveTrustMode(loadConfig())).toEqual({ mode: "legacy", origin: "upgrade", unrecognised: null });
+
+    expect(writeConfigPartial({ network: { trustMode: "pair" } }).success).toBe(true);
+    expect(raw().network).toEqual({ trustMode: "pair", trustModeOrigin: "operator" });
+    expect(resolveTrustMode(loadConfig())).toEqual({ mode: "pair", origin: "operator", unrecognised: null });
+
+    // Same mode again: origin unchanged (even if the caller sends one).
+    fs.writeFileSync(configFile, JSON.stringify({ network: { trustMode: "pair", trustModeOrigin: "upgrade" } }));
+    expect(writeConfigPartial({ network: { trustMode: "pair", trustModeOrigin: "operator" } }).success).toBe(true);
+    expect(raw().network).toEqual({ trustMode: "pair", trustModeOrigin: "upgrade" });
+
+    // Hand edit with no origin at all reads as an operator decision.
+    fs.writeFileSync(configFile, JSON.stringify({ network: { trustMode: "legacy" } }));
+    expect(resolveTrustMode(loadConfig())).toEqual({ mode: "legacy", origin: "operator", unrecognised: null });
+  });
+
+  it("#E6 a caller cannot forge the origin on a mode change; the boot decision may stamp upgrade", () => {
+    fs.writeFileSync(configFile, JSON.stringify({ port: 8000 }));
+    expect(writeConfigPartial({ network: { trustMode: "legacy", trustModeOrigin: "upgrade" } }).success).toBe(true);
+    expect(raw().network).toEqual({ trustMode: "legacy", trustModeOrigin: "operator" });
+
+    fs.writeFileSync(configFile, JSON.stringify({ port: 8000 }));
+    expect(writeConfigPartial({ network: { trustMode: "legacy" } }, { trustModeOrigin: "upgrade" }).success).toBe(true);
+    expect(raw().network).toEqual({ trustMode: "legacy", trustModeOrigin: "upgrade" });
+  });
+
+  it("#E6 an unchanged mode with no stored origin does not invent one", () => {
+    fs.writeFileSync(configFile, JSON.stringify({ network: { trustMode: "pair" } }));
+    expect(writeConfigPartial({ network: { trustMode: "pair", trustModeOrigin: "upgrade" } }).success).toBe(true);
+    expect(raw().network).toEqual({ trustMode: "pair" });
+  });
+
+  // E7
+  it("#E7 partial {network:{trustMode}} keeps auth.bypassHosts; partial {auth:{bypassHosts}} keeps network incl. origin", () => {
+    fs.writeFileSync(configFile, JSON.stringify({
+      port: 8000,
+      network: { trustMode: "legacy", trustModeOrigin: "upgrade" },
+      auth: { secret: "real-secret", providers: {}, bypassHosts: ["10.0.0.0/8"] },
+    }));
+
+    expect(writeConfigPartial({ network: { trustMode: "pair" } }).success).toBe(true);
+    expect(raw().auth.bypassHosts).toEqual(["10.0.0.0/8"]);
+    expect(raw().auth.secret).toBe("real-secret");
+    expect(raw().network).toEqual({ trustMode: "pair", trustModeOrigin: "operator" });
+
+    expect(writeConfigPartial({ auth: { bypassHosts: ["192.168.16.0/24"] } }).success).toBe(true);
+    expect(raw().auth.bypassHosts).toEqual(["192.168.16.0/24"]);
+    expect(raw().network).toEqual({ trustMode: "pair", trustModeOrigin: "operator" });
+  });
+
+  it("#E7 a partial that carries only the origin cannot change it, and an unrelated key leaves the block untouched", () => {
+    fs.writeFileSync(configFile, JSON.stringify({ network: { trustMode: "legacy", trustModeOrigin: "upgrade" } }));
+    expect(writeConfigPartial({ network: { trustModeOrigin: "operator" } }).success).toBe(true);
+    expect(raw().network).toEqual({ trustMode: "legacy", trustModeOrigin: "upgrade" });
+    expect(writeConfigPartial({ autoShutdown: false }).success).toBe(true);
+    expect(raw().network).toEqual({ trustMode: "legacy", trustModeOrigin: "upgrade" });
+  });
+
+  it("#E7 an unrecognised stored mode survives an unrelated save untouched (never silently dropped)", () => {
+    fs.writeFileSync(configFile, JSON.stringify({ network: { trustMode: "open" } }));
+    expect(writeConfigPartial({ autoShutdown: false }).success).toBe(true);
+    expect(raw().network).toEqual({ trustMode: "open" });
+  });
+
+  it("#E7 readConfigRedacted returns the network block (GET round trip)", () => {
+    fs.writeFileSync(configFile, JSON.stringify({ network: { trustMode: "pair", trustModeOrigin: "upgrade" } }));
+    expect(readConfigRedacted().network).toEqual({ trustMode: "pair", trustModeOrigin: "upgrade" });
+  });
+
+  describe("routes", () => {
+    const makeApp = (): FastifyInstance => {
+      const app = Fastify();
+      (app as any)._reloadAuth = async () => {};
+      registerSystemRoutes(app, {
+        sessionManager: {} as never,
+        preferencesStore: { flush: () => {} } as never,
+        metaPersistence: { flushAll: () => {} } as never,
+        config: { port: 8000, piPort: 9999, dev: false } as never,
+        networkGuard: (async () => {}) as never,
+      } as never);
+      return app;
+    };
+
+    it("#E7 GET → PUT round trip keeps `network` and its origin", async () => {
+      fs.writeFileSync(configFile, JSON.stringify({ port: 8000, network: { trustMode: "legacy", trustModeOrigin: "upgrade" } }));
+      const app = makeApp();
+      const got = await app.inject({ method: "GET", url: "/api/config" });
+      expect(got.statusCode).toBe(200);
+      const body = got.json();
+      const config = body.data ?? body.config ?? body;
+      expect(config.network).toEqual({ trustMode: "legacy", trustModeOrigin: "upgrade" });
+
+      // The client echoes the whole block back on an unrelated save.
+      const put = await app.inject({ method: "PUT", url: "/api/config", payload: { network: config.network, autoShutdown: false } });
+      expect(put.statusCode).toBe(200);
+      expect(raw().network).toEqual({ trustMode: "legacy", trustModeOrigin: "upgrade" });
+
+      const flip = await app.inject({ method: "PUT", url: "/api/config", payload: { network: { trustMode: "pair" } } });
+      expect(flip.statusCode).toBe(200);
+      expect(raw().network).toEqual({ trustMode: "pair", trustModeOrigin: "operator" });
+      await app.close();
+    });
+
+    it("PUT a non-object `network` → 400 and the stored block survives; writeConfigPartial ignores it too", async () => {
+      fs.writeFileSync(configFile, JSON.stringify({ port: 8000, network: { trustMode: "pair", trustModeOrigin: "operator" } }));
+      const app = makeApp();
+      for (const network of [null, "x", [], 5]) {
+        const res = await app.inject({ method: "PUT", url: "/api/config", payload: { network } });
+        expect(res.statusCode, JSON.stringify(network)).toBe(400);
+      }
+      expect(raw().network).toEqual({ trustMode: "pair", trustModeOrigin: "operator" });
+      // The writer itself never lets a non-object replace the block (CLI / REST alike).
+      expect(writeConfigPartial({ network: null, autoShutdown: false }).success).toBe(true);
+      expect(raw().network).toEqual({ trustMode: "pair", trustModeOrigin: "operator" });
+      await app.close();
+    });
+
+    it("a hand-edited non-string trustMode reads as UNRECOGNISED (fail closed to pair), not as nothing stored", () => {
+      for (const trustMode of [true, 1]) {
+        fs.writeFileSync(configFile, JSON.stringify({ network: { trustMode } }));
+        const resolved = resolveTrustMode(loadConfig());
+        expect(resolved.mode, JSON.stringify(trustMode)).toBe("pair");
+        expect(resolved.unrecognised).toBe(String(trustMode));
+      }
+    });
+
+    it('PUT network.trustMode "open" (or any unknown value) → 400 and nothing is written', async () => {
+      fs.writeFileSync(configFile, JSON.stringify({ port: 8000, network: { trustMode: "legacy", trustModeOrigin: "upgrade" } }));
+      const before = fs.readFileSync(configFile, "utf-8");
+      const app = makeApp();
+      for (const trustMode of ["open", "", null, 1, "PAIR"]) {
+        const res = await app.inject({ method: "PUT", url: "/api/config", payload: { network: { trustMode } } });
+        expect(res.statusCode, JSON.stringify(trustMode)).toBe(400);
+        expect(res.json().error).toContain("network.trustMode");
+      }
+      expect(fs.readFileSync(configFile, "utf-8")).toBe(before);
+      await app.close();
+    });
   });
 });

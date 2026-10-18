@@ -1,13 +1,22 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   deriveInterfaceSuggestions,
   interfaceLabel,
+  isLoopbackOnlyEntry,
 } from "@blackbelt-technology/pi-dashboard-shared/bind-reachability.js";
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import Fastify from "fastify";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { suggestTrustEntries } from "../../../client/src/lib/gateway/gateway-config-ops.js";
+import { authorizeWsUpgrade } from "../auth/auth-plugin.js";
+import { createNetworkGuard } from "../auth/localhost-guard.js";
+import { admissionTrustedNetworks, effectiveTrustMode, resetTrustModeForTests } from "../auth/trust-mode.js";
+import { decideBootTrustMode } from "../auth/trust-mode-boot.js";
+import { writeConfigPartial } from "../config-api.js";
+import { resetConfigSnapshot } from "../config-snapshot.js";
 import { buildNetworkInterfaceList } from "../routes/network-interfaces.js";
 
 describe("trustedNetworks config", () => {
@@ -204,5 +213,236 @@ describe("unusable netmask", () => {
     expect(data).toHaveLength(1);
     expect(data[0].name).toBe("en0");
     expect(data.some((e) => e.cidr.endsWith("/0"))).toBe(false);
+  });
+});
+
+// ── retire-trusted-networks-bypass: network trust mode (test-plan E1–E5, E8) ──
+// The boot decision is made ONCE, persisted, and never re-derived from the list.
+// See change: retire-trusted-networks-bypass (design D2).
+describe("network trust mode: boot decision and live reads", () => {
+  let home: string;
+  let configPath: string;
+  let origHome: string | undefined;
+  let spies: Array<{ mockRestore: () => void }>;
+
+  const tn = (spy: ReturnType<typeof vi.spyOn>) =>
+    spy.mock.calls.filter((c: unknown[]) => String(c[0]).includes("[trusted-networks]"));
+  const seed = (cfg: unknown) => fs.writeFileSync(configPath, typeof cfg === "string" ? cfg : JSON.stringify(cfg));
+  const stored = () => JSON.parse(fs.readFileSync(configPath, "utf-8"));
+
+  let warn: ReturnType<typeof vi.spyOn>;
+  let error: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    home = fs.mkdtempSync(path.join(os.tmpdir(), "pi-trust-mode-"));
+    fs.mkdirSync(path.join(home, ".pi", "dashboard"), { recursive: true });
+    configPath = path.join(home, ".pi", "dashboard", "config.json");
+    origHome = process.env.HOME;
+    process.env.HOME = home;
+    resetConfigSnapshot();
+    resetTrustModeForTests();
+    warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    spies = [warn, error, log];
+  });
+
+  afterEach(() => {
+    for (const s of spies) s.mockRestore();
+    if (origHome === undefined) delete process.env.HOME;
+    else process.env.HOME = origHome;
+    resetConfigSnapshot();
+    resetTrustModeForTests();
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+
+  /** A guard over `admissionTrustedNetworks`, exactly as `server.ts` wires it. */
+  async function guardedGet(ip: string): Promise<number> {
+    const app = Fastify({ logger: false });
+    app.get("/api/sessions", { preHandler: createNetworkGuard(() => admissionTrustedNetworks()) }, async () => ({ ok: true }));
+    try {
+      return (await app.inject({ method: "GET", url: "/api/sessions", remoteAddress: ip })).statusCode;
+    } finally {
+      await app.close();
+    }
+  }
+
+  const wsOk = (ip: string) =>
+    authorizeWsUpgrade({
+      remoteAddress: ip,
+      secret: "s".repeat(32),
+      headers: {},
+      trustedNetworks: admissionTrustedNetworks(),
+    }).ok;
+
+  // E1 — decision table.
+  const table: Array<[string[], "pair" | "legacy"]> = [
+    [[], "pair"],
+    [["192.168.16.0/24"], "legacy"],
+    [["0.0.0.0/0"], "legacy"],
+    [["*.*.*.*"], "legacy"],
+    [["127.0.0.1", "127.0.0.4/30"], "pair"],
+    [["::1"], "pair"],
+    [["localhost"], "legacy"],
+    [["nas.local"], "legacy"],
+  ];
+  for (const [list, expected] of table) {
+    it(`#E1 no stored mode, list ${JSON.stringify(list)} → writes ${expected} with origin upgrade`, () => {
+      seed({ port: 8000, trustedNetworks: list });
+      const decision = decideBootTrustMode();
+      expect(decision).toEqual({ mode: expected, persisted: true });
+      expect(stored().network).toEqual({ trustMode: expected, trustModeOrigin: "upgrade" });
+      expect(stored().trustedNetworks).toEqual(list); // list untouched
+      expect(effectiveTrustMode()).toEqual({ mode: expected, origin: "upgrade" });
+    });
+  }
+
+  it("#E1 a fresh install (no config.json at all) decides pair and creates the file", () => {
+    expect(fs.existsSync(configPath)).toBe(false);
+    expect(decideBootTrustMode()).toEqual({ mode: "pair", persisted: true });
+    expect(stored().network).toEqual({ trustMode: "pair", trustModeOrigin: "upgrade" });
+  });
+
+  it("#E1 decides over auth.bypassHosts too (merged list), and does not wire through createServer", () => {
+    seed({ auth: { bypassHosts: ["192.168.16.0/24"] } });
+    expect(decideBootTrustMode().mode).toBe("legacy");
+    // `decideBootTrustMode` is a pure module-level function taking injectable
+    // `write`/`load`: no `createServer` is needed to exercise it. The single
+    // wiring site is asserted structurally: it is the first statement of createServer.
+    const src = fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "server.ts"), "utf-8");
+    const body = src.slice(src.indexOf("export async function createServer(")).split("\n").slice(1);
+    const firstStatement = body.map((l) => l.trim()).find((l) => l !== "" && !l.startsWith("//"));
+    expect(firstStatement).toBe("decideBootTrustMode();");
+  });
+
+  it("#E1 a stored mode is never re-decided (no write)", () => {
+    seed({ trustedNetworks: ["192.168.16.0/24"], network: { trustMode: "pair", trustModeOrigin: "operator" } });
+    const write = vi.fn();
+    expect(decideBootTrustMode({ write })).toEqual({ mode: null, persisted: false });
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  // E2 — never re-derived.
+  it("#E2 stored pair + a bypass host added later + re-decide → still pair, listed peer denied", async () => {
+    seed({ network: { trustMode: "pair", trustModeOrigin: "upgrade" } });
+    decideBootTrustMode();
+    seed({
+      network: { trustMode: "pair", trustModeOrigin: "upgrade" },
+      auth: { bypassHosts: ["198.51.100.23"] },
+    });
+    const before = fs.readFileSync(configPath, "utf-8");
+    expect(decideBootTrustMode()).toEqual({ mode: null, persisted: false }); // "reboot"
+    expect(fs.readFileSync(configPath, "utf-8")).toBe(before);
+    expect(effectiveTrustMode().mode).toBe("pair");
+    expect(admissionTrustedNetworks()).toEqual([]);
+    expect(await guardedGet("198.51.100.23")).toBe(403);
+    expect(wsOk("198.51.100.23")).toBe(false);
+  });
+
+  // E3 — unrecognised value fails closed, warns once, never rewrites.
+  it('#E3 stored trustMode "open" → effective pair, origin null, one warning, bytes unchanged', () => {
+    seed({ trustedNetworks: ["192.168.16.0/24"], network: { trustMode: "open" } });
+    const before = fs.readFileSync(configPath, "utf-8");
+    const write = vi.fn();
+    expect(decideBootTrustMode({ write })).toEqual({ mode: null, persisted: false });
+    for (let i = 0; i < 100; i++) {
+      expect(effectiveTrustMode()).toEqual({ mode: "pair", origin: null });
+      expect(admissionTrustedNetworks()).toEqual([]);
+    }
+    const warnings = tn(warn);
+    expect(warnings).toHaveLength(1);
+    expect(String(warnings[0][0])).toContain('"open"');
+    expect(tn(error)).toHaveLength(0);
+    expect(write).not.toHaveBeenCalled();
+    expect(fs.readFileSync(configPath, "utf-8")).toBe(before);
+  });
+
+  it("#E3 a different unrecognised value warns again (once per value)", () => {
+    seed({ network: { trustMode: "open" } });
+    effectiveTrustMode();
+    seed({ network: { trustMode: "wide-open" } });
+    effectiveTrustMode();
+    effectiveTrustMode();
+    const warnings = tn(warn).map((c: unknown[]) => String(c[0]));
+    expect(warnings).toHaveLength(2);
+    expect(warnings[1]).toContain('"wide-open"');
+  });
+
+  // E4 — unparseable file is never decided or written.
+  it("#E4 invalid-JSON config.json → bytes unchanged, effective legacy, one error", () => {
+    seed('{"auth":');
+    const write = vi.fn();
+    const decision = decideBootTrustMode({ write });
+    expect(decision).toEqual({ mode: "legacy", persisted: false });
+    expect(write).not.toHaveBeenCalled();
+    expect(fs.readFileSync(configPath, "utf-8")).toBe('{"auth":');
+    expect(effectiveTrustMode().mode).toBe("legacy");
+    expect(effectiveTrustMode().origin).toBeNull();
+    expect(tn(error)).toHaveLength(1);
+  });
+
+  // E5 — write failure fallback.
+  it("#E5 persist failure → process fallback applies at the guard and the WS, then a stored value wins live", async () => {
+    seed({ port: 8000 }); // empty list ⇒ decided pair
+    const decision = decideBootTrustMode({
+      write: () => {
+        throw new Error("EROFS: read-only file system");
+      },
+    });
+    expect(decision).toEqual({ mode: "pair", persisted: false });
+    expect(tn(error)).toHaveLength(1);
+    expect(String(tn(error)[0][0])).toContain("EROFS");
+    expect(stored()).toEqual({ port: 8000 }); // nothing written
+
+    expect(effectiveTrustMode()).toEqual({ mode: "pair", origin: null });
+    expect(await guardedGet("192.168.16.20")).toBe(403);
+    expect(wsOk("192.168.16.20")).toBe(false);
+
+    // Operator saves legacy + a list: applies on the next request, no restart.
+    const res = writeConfigPartial({ network: { trustMode: "legacy" }, trustedNetworks: ["192.168.16.0/24"] });
+    expect(res.success).toBe(true);
+    expect(effectiveTrustMode()).toEqual({ mode: "legacy", origin: "operator" });
+    expect(await guardedGet("192.168.16.20")).toBe(200);
+    expect(wsOk("192.168.16.20")).toBe(true);
+    expect(tn(error)).toHaveLength(1); // still just the one boot error
+  });
+
+  it("#E5 a write that reports { success: false } is handled like a throw", () => {
+    seed({ port: 8000 });
+    const decision = decideBootTrustMode({ write: () => ({ success: false, error: "disk full" }) });
+    expect(decision).toEqual({ mode: "pair", persisted: false });
+    expect(tn(error)).toHaveLength(1);
+    expect(effectiveTrustMode().mode).toBe("pair");
+  });
+
+  it("#E5 a fallback never overrides a recognised stored value", () => {
+    seed({ port: 8000, trustedNetworks: ["192.168.16.0/24"] });
+    decideBootTrustMode({ write: () => ({ success: false, error: "x" }) }); // fallback legacy
+    expect(effectiveTrustMode().mode).toBe("legacy");
+    seed({ port: 8000, trustedNetworks: ["192.168.16.0/24"], network: { trustMode: "pair" } });
+    expect(effectiveTrustMode().mode).toBe("pair");
+  });
+});
+
+// E8 — loopback-only classification feeds the boot decision (design D2).
+describe("isLoopbackOnlyEntry (E8)", () => {
+  it.each(["127.0.0.1", "127.0.0.4/30", "::1"])("#E8 %s is loopback-only", (entry) => {
+    expect(isLoopbackOnlyEntry(entry)).toBe(true);
+  });
+
+  it.each(["0.0.0.0/0", "*.*.*.*", "::/0", "192.168.16.0/24", "localhost", "nas.local"])(
+    "#E8 %s is NOT loopback-only",
+    (entry) => {
+      expect(isLoopbackOnlyEntry(entry)).toBe(false);
+    },
+  );
+
+  it("#E8 also accepts the IPv4-mapped loopback and ::1/128, and refuses wider IPv6 / out-of-range masks", () => {
+    expect(isLoopbackOnlyEntry("::ffff:127.0.0.1")).toBe(true);
+    expect(isLoopbackOnlyEntry("::1/128")).toBe(true);
+    expect(isLoopbackOnlyEntry("::1/64")).toBe(false);
+    expect(isLoopbackOnlyEntry("fe80::/10")).toBe(false);
+    expect(isLoopbackOnlyEntry("::ffff:192.168.1.1")).toBe(false);
+    expect(isLoopbackOnlyEntry("127.0.0.0/7")).toBe(false);
   });
 });
