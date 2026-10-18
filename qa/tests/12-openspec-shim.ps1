@@ -51,7 +51,7 @@ try {
         Write-Host "FAIL: shim did not resolve/run via bash.exe (exit $code): $out"
         exit 1
     }
-    if ("$out" -notmatch "1\.6\.0") {
+    if ("$out" -notmatch "1\.14\.3") {
         Write-Host "FAIL: expected openspec 1.14.3, got: $out"
         exit 1
     }

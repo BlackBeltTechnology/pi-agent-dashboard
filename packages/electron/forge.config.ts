@@ -75,7 +75,8 @@ const config: ForgeConfig = {
     // security window (10.15 EOL 2022-09, 11 EOL 2023-09, 12 EOL 2024-09).
     // Raised 12.0 -> 13.0 by refresh-electron-bundled-components.
     //
-    // The 13.0 floor is enforced at THREE points so a future runner-image
+    // The 13.0 floor is enforced at THREE points (plus an extractor canary, see
+    // scripts/verify-macos-floor.mjs) so a future runner-image
     // upgrade or source-built native module cannot silently raise it:
     //   1. extendInfo.LSMinimumSystemVersion (below) — user-visible min in Info.plist;
     //      Gatekeeper / launchd refuse to launch the app on older OSes.

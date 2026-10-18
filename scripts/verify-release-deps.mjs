@@ -104,7 +104,7 @@ const RULES = [
       "provision-openspec-cli-in-sessions task 1.4 — floor raised 1.3.0 → 1.6.0 " +
       "to match the version that generated the openspec-* skills " +
       "(generatedBy: 1.6.0). npm hoists the server + extension ranges to one " +
-      "installed copy the session shim resolves. Pinned EXACT (not ^1.6.0): the " +
+      "installed copy the session shim resolves. Pinned EXACT (not ^1.14.3): the " +
       "vendored .pi/skills/openspec-* carry `generatedBy: 1.6.0`, so the CLI and " +
       "the skills must move together — a caret let a routine install drift the " +
       "CLI out from under them unreviewed. Floor raised 1.11.0 → 1.14.3 " +

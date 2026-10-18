@@ -53,7 +53,7 @@ if [ -z "$SKILL" ]; then
   echo "FAIL: no regenerated openspec-*/SKILL.md found"
   exit 1
 fi
-if ! grep -Eq 'generatedBy:\s*"?1\.6\.0"?' "$SKILL"; then
+if ! grep -Eq 'generatedBy:\s*"?1\.14\.3"?' "$SKILL"; then
   echo "FAIL: $SKILL missing generatedBy 1.14.3"
   grep -i generatedBy "$SKILL" || true
   exit 1
