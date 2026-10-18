@@ -17,9 +17,11 @@ export function withSettingsWriteLock<T>(key: string, task: () => Promise<T>): P
     () => {},
   );
   locks.set(key, tail);
-  void tail.then(() => {
-    if (locks.get(key) === tail) locks.delete(key);
-  });
+  tail
+    .then(() => {
+      if (locks.get(key) === tail) locks.delete(key);
+    })
+    .catch(() => {});
   return run;
 }
 
