@@ -48,7 +48,7 @@ export interface PipeCallOptions {
   timeoutMs?: number;
 }
 
-export const DEFAULT_PIPE_CALL_TIMEOUT_MS = 15_000;
+const DEFAULT_PIPE_CALL_TIMEOUT_MS = 15_000;
 
 /**
  * One command over the pipe with its own reply listener. For the rare

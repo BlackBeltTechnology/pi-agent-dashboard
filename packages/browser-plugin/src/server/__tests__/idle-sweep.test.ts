@@ -1,7 +1,7 @@
 /** `IdleSweeper` (task 6.3, #R15 #R16). See change: add-dedicated-agent-browser. */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuditRing } from "../audit.js";
-import { IDLE_SWEEP_INTERVAL_MS, IdleSweeper } from "../idle-sweep.js";
+import { IdleSweeper } from "../idle-sweep.js";
 
 const MIN = 60_000;
 

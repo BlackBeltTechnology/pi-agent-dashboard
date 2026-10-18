@@ -69,12 +69,7 @@ export class OpenHandler {
   }
 
   private _open(payload: unknown, sessionId: string, auto: boolean): OpenResult {
-    const meta = { sessionId };
-    const p = (typeof payload === "object" && payload !== null ? payload : {}) as {
-      instanceId?: unknown;
-      tabId?: unknown;
-      kind?: unknown;
-    };
+    const p = asOpenPayload(payload);
     const kind: OpenKind = p.kind === "takeover" ? "takeover" : "show";
     const label = auto ? "auto" : kind;
     const instanceId = typeof p.instanceId === "string" ? p.instanceId.slice(0, 128) : "";
@@ -92,33 +87,23 @@ export class OpenHandler {
     const inst = instanceId ? this.deps.manager.find(instanceId) : undefined;
     if (!inst) return refuse("unknown-instance");
 
-    const tabs = inst.tabList().filter((t) => !isRelayConnectPage(t.url));
-    let tabId: number;
-    if (p.tabId === undefined) {
-      const last = tabs[tabs.length - 1];
-      if (!last) return refuse("no-tab", inst.profileDirectory);
-      tabId = last.tabId;
-    } else {
-      if (typeof p.tabId !== "number" || !Number.isInteger(p.tabId) || !tabs.some((t) => t.tabId === p.tabId)) {
-        return refuse("unknown-tab", inst.profileDirectory, typeof p.tabId === "number" ? p.tabId : undefined);
-      }
-      tabId = p.tabId;
-    }
+    const resolved = resolveTab(
+      inst.tabList().filter((t) => !isRelayConnectPage(t.url)),
+      p.tabId,
+    );
+    if ("refusal" in resolved) return refuse(resolved.refusal, inst.profileDirectory, resolved.tab);
+    const tabId = resolved.tabId;
 
     const t = this.now();
     this._prune(t);
-    if (kind === "show" && !auto) {
-      const key = `${meta.sessionId}\0${instanceId}`;
-      const last = this.lastShow.get(key);
-      if (last !== undefined && t - last < OPEN_RATE_LIMIT_MS) return refuse("rate-limited", inst.profileDirectory, tabId);
-      this.lastShow.set(key, t);
-    }
+    const limited = kind === "show" && !auto;
+    if (limited && !this._takeRateSlot(`${sessionId}\0${instanceId}`, t)) return refuse("rate-limited", inst.profileDirectory, tabId);
 
     const path = `browser:${instanceId}:${tabId}`;
     try {
-      this.deps.openEditorTab(meta.sessionId, path);
+      this.deps.openEditorTab(sessionId, path);
     } catch (err) {
-      if (kind === "show" && !auto) this.lastShow.delete(`${meta.sessionId}\0${instanceId}`);
+      if (limited) this.lastShow.delete(`${sessionId}\0${instanceId}`);
       return refuse(`host-refused:${(err as Error).message.slice(0, 80)}`, inst.profileDirectory, tabId);
     }
     this.deps.audit.append({
@@ -130,7 +115,34 @@ export class OpenHandler {
     return { path, instanceId, tabId };
   }
 
+  /** Consume the 5 s `show` slot for `key`; `false` (slot untouched) when still limited. */
+  private _takeRateSlot(key: string, t: number): boolean {
+    const last = this.lastShow.get(key);
+    if (last !== undefined && t - last < OPEN_RATE_LIMIT_MS) return false;
+    this.lastShow.set(key, t);
+    return true;
+  }
+
   private _prune(t: number): void {
     for (const [key, ts] of this.lastShow) if (t - ts >= OPEN_RATE_LIMIT_MS) this.lastShow.delete(key);
   }
+}
+
+/** Lane payload narrowed to the fields `_open` reads (everything else untrusted). */
+function asOpenPayload(payload: unknown): { instanceId?: unknown; tabId?: unknown; kind?: unknown } {
+  return typeof payload === "object" && payload !== null ? payload : {};
+}
+
+type TabResolution = { tabId: number } | { refusal: "no-tab" | "unknown-tab"; tab?: number };
+
+/** Pick the requested tab (default: the last non-connect-page tab) or name why it can't be used. */
+function resolveTab(tabs: ReadonlyArray<{ tabId: number }>, requested: unknown): TabResolution {
+  if (requested === undefined) {
+    const last = tabs[tabs.length - 1];
+    return last ? { tabId: last.tabId } : { refusal: "no-tab" };
+  }
+  if (typeof requested !== "number" || !Number.isInteger(requested) || !tabs.some((t) => t.tabId === requested)) {
+    return { refusal: "unknown-tab", ...(typeof requested === "number" ? { tab: requested } : {}) };
+  }
+  return { tabId: requested };
 }

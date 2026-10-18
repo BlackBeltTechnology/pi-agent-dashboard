@@ -11,7 +11,7 @@
  */
 import type { AuditRing } from "./audit.js";
 
-export const IDLE_SWEEP_INTERVAL_MS = 60_000;
+const IDLE_SWEEP_INTERVAL_MS = 60_000;
 
 export interface IdleSweepTimers {
   setInterval(fn: () => void, ms: number): unknown;
@@ -83,24 +83,32 @@ export class IdleSweeper {
     if (!d.enabled()) return;
     const t = this.now();
     const live = d.instances();
-    const ids = new Set(live.map((i) => i.instanceId));
-    for (const m of [this.seen, this.held]) for (const id of [...m.keys()]) if (!ids.has(id)) m.delete(id);
+    this.prune(new Set(live.map((i) => i.instanceId)));
     const limit = d.idleMinutes() * 60_000;
-    for (const { instanceId, profileDirectory } of live) {
-      if (!this.seen.has(instanceId)) this.seen.set(instanceId, t);
-      if (d.awaitPending(instanceId)) this.held.set(instanceId, t);
-      if (limit <= 0) continue;
-      const last = Math.max(d.activityOf(instanceId) ?? this.seen.get(instanceId)!, this.held.get(instanceId) ?? 0);
-      if (t - last <= limit) continue;
-      if (!d.isRegistered(instanceId)) continue;
-      try {
-        d.close(instanceId, "idle");
-      } catch {
-        continue; // one failing close must not stop the sweep
-      }
-      d.audit.append({ profileDirectory, instanceId, kind: "detach", detail: "idle" });
-      this.seen.delete(instanceId);
-      this.held.delete(instanceId);
+    for (const instance of live) this.sweepOne(instance, t, limit);
+  }
+
+  /** Drop bookkeeping for instances that are no longer live. */
+  private prune(liveIds: ReadonlySet<string>): void {
+    for (const m of [this.seen, this.held]) for (const id of [...m.keys()]) if (!liveIds.has(id)) m.delete(id);
+  }
+
+  /** Record activity bookkeeping for one instance and close it when idle past `limit`. */
+  private sweepOne({ instanceId, profileDirectory }: { instanceId: string; profileDirectory: string }, t: number, limit: number): void {
+    const d = this.deps;
+    if (!this.seen.has(instanceId)) this.seen.set(instanceId, t);
+    if (d.awaitPending(instanceId)) this.held.set(instanceId, t);
+    if (limit <= 0) return;
+    const last = Math.max(d.activityOf(instanceId) ?? this.seen.get(instanceId)!, this.held.get(instanceId) ?? 0);
+    if (t - last <= limit) return;
+    if (!d.isRegistered(instanceId)) return;
+    try {
+      d.close(instanceId, "idle");
+    } catch {
+      return; // one failing close must not stop the sweep
     }
+    d.audit.append({ profileDirectory, instanceId, kind: "detach", detail: "idle" });
+    this.seen.delete(instanceId);
+    this.held.delete(instanceId);
   }
 }

@@ -23,7 +23,7 @@ import {
 import { BTN, BTN_DANGER, BTN_PRIMARY, GROUP, HELP, Notice, Pill } from "./settings-ui.js";
 
 /** `1536` → `"1.5 KB"`, `412 MiB` → `"412 MB"`. */
-export function formatBytes(bytes: number): string {
+function formatBytes(bytes: number): string {
   const units = ["B", "KB", "MB", "GB", "TB"];
   let value = bytes;
   let unit = 0;
@@ -36,7 +36,7 @@ export function formatBytes(bytes: number): string {
 }
 
 /** Relative time in the UI language ("3 minutes ago"); falls back to the absolute time. */
-export function formatRelative(ts: number, language: string, now: number = Date.now()): string {
+function formatRelative(ts: number, language: string, now: number = Date.now()): string {
   try {
     const seconds = Math.round((ts - now) / 1000);
     const abs = Math.abs(seconds);

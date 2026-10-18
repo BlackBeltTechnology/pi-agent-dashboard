@@ -15,7 +15,7 @@ import type { ProcessInfo } from "../dedicated/process-identity.js";
 import { type FakeSocket, flush, socketPair } from "../relay/__tests__/fake-socket.js";
 import { type RelayConfig, RelayManager } from "../relay/relay-manager.js";
 
-export const SELF_PID = 4242;
+const SELF_PID = 4242;
 export const BINARY = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 export const silent = { info: () => {}, warn: () => {}, error: () => {} };
 

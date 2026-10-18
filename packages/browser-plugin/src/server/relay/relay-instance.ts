@@ -306,33 +306,34 @@ export class RelayInstance {
     const known = modelOf(this.protocol)._knownTabs;
     const states = this.tap.tabStates();
     const ids = known.size > 0 ? [...known.keys()] : [...this.knownTabs];
-    return ids
-      .filter((tabId) => !this.isConnectTab(tabId))
-      .map((tabId) => {
-        // Precedence: DevTools take-over; then no debugger session; then an
-        // active tap view (live / no-frames / client-screencast-active); then a
-        // client-run screencast; else `live`. `tap.tabStates()` only knows tabs
-        // with viewers, so the other branches must come from the instance.
-        const sessionId = this.sessionIdForTab(tabId);
-        const reason: RelayTabView["reason"] = this.devtoolsDetachedTabs.has(tabId)
-          ? "devtools"
-          : sessionId === undefined
-            ? "no-session"
-            : undefined;
-        const clientScreencast = sessionId !== undefined && this.clientScreencasts.has(sessionId);
-        const state: RelayTabView["state"] = reason
-          ? "detached"
-          : (states.get(tabId) ?? (clientScreencast ? "client-screencast-active" : "live"));
-        const meta = this._metaOf(tabId);
-        return {
-          tabId,
-          title: meta.title,
-          url: redactExtensionUrl(meta.url),
-          state,
-          ...(reason ? { reason } : {}),
-          ...(this.agentEmulationActive(tabId) ? { agentEmulation: true } : {}),
-        };
-      });
+    return ids.filter((tabId) => !this.isConnectTab(tabId)).map((tabId) => this._tabView(tabId, states));
+  }
+
+  /** One viewer-facing tab row (connect page already filtered by the caller). */
+  private _tabView(tabId: number, states: ReadonlyMap<number, RelayTabView["state"]>): RelayTabView {
+    // Precedence: DevTools take-over; then no debugger session; then an
+    // active tap view (live / no-frames / client-screencast-active); then a
+    // client-run screencast; else `live`. `tap.tabStates()` only knows tabs
+    // with viewers, so the other branches must come from the instance.
+    const sessionId = this.sessionIdForTab(tabId);
+    const reason: RelayTabView["reason"] = this.devtoolsDetachedTabs.has(tabId)
+      ? "devtools"
+      : sessionId === undefined
+        ? "no-session"
+        : undefined;
+    const clientScreencast = sessionId !== undefined && this.clientScreencasts.has(sessionId);
+    const state: RelayTabView["state"] = reason
+      ? "detached"
+      : (states.get(tabId) ?? (clientScreencast ? "client-screencast-active" : "live"));
+    const meta = this._metaOf(tabId);
+    return {
+      tabId,
+      title: meta.title,
+      url: redactExtensionUrl(meta.url),
+      state,
+      ...(reason ? { reason } : {}),
+      ...(this.agentEmulationActive(tabId) ? { agentEmulation: true } : {}),
+    };
   }
 
   statusState(): "connected" | "no-cdp-client" {
@@ -578,25 +579,45 @@ export class RelayInstance {
     }
     if (this._refuseDenied(id, sessionId, method, params)) return;
     if (this._ackAndDrop(id, sessionId, method)) return;
-    if (!sessionId && method === "Target.setDiscoverTargets") {
+    if (!sessionId && this._answerBrowserLevel(id, method, params)) return;
+    this._trackAgentEmulation(sessionId, method);
+    if (this._trackClientScreencast(id, sessionId, method)) return;
+
+    try {
+      if (!this.handshakeDone) await this.ready.promise;
+      const result = await this._runCdp(method, params, sessionId);
+      this._sendToCdp({ id, sessionId, result });
+      if (method === "Target.createTarget") this._notifyAgentTab(result);
+      if (method === "Page.navigate") this._refreshTabMetaForSession(sessionId);
+    } catch (err) {
+      // Unservable browser-level commands (no attached tab, …) get a real CDP
+      // error code rather than a bare message. See change: add-browser-editor-pane-tab.
+      this._sendToCdp({ id, sessionId, error: { code: -32000, message: (err as Error).message } });
+    }
+    this._checkViewability();
+  }
+
+  /** Answer a session-less browser-level command locally; `true` when handled (never forwarded). */
+  private _answerBrowserLevel(id: number, method: string, params: unknown): boolean {
+    if (method === "Target.setDiscoverTargets") {
       this._setDiscovery(params);
       this._sendToCdp({ id, result: {} });
-      return;
+      return true;
     }
-    if (!sessionId && method === "Target.getTargetInfo") {
+    if (method === "Target.getTargetInfo") {
       // Session-less = the BROWSER target (CDP). The vendored handler would
       // answer `undefined` (it only knows tab sessions), which Playwright
       // treats as a broken page link.
       this._sendToCdp({ id, result: { targetInfo: { targetId: "relay-browser", type: "browser", title: "", url: "", attached: true } } });
-      return;
+      return true;
     }
-    if (!sessionId && method === "Target.getTargets") {
+    if (method === "Target.getTargets") {
       // Tab-independent: answered from the attached top-level tabs (never the
       // connect page) so it works before any tab is attached.
       this._sendToCdp({ id, result: { targetInfos: this._attachedTargetInfos() } });
-      return;
+      return true;
     }
-    if (!sessionId && method === "Target.attachToTarget") {
+    if (method === "Target.attachToTarget") {
       // The tab is already attached by the model; hand back its relay session.
       const targetId = (params as { targetId?: unknown } | undefined)?.targetId;
       const session = [...modelOf(this.protocol)._tabSessions.values()].find(
@@ -607,34 +628,24 @@ export class RelayInstance {
           ? { id, result: { sessionId: session.sessionId } }
           : { id, error: { code: -32000, message: "No target with given id found" } },
       );
-      return;
+      return true;
     }
-    this._trackAgentEmulation(sessionId, method);
-    if (this._trackClientScreencast(id, sessionId, method)) return;
+    return false;
+  }
 
-    try {
-      if (!this.handshakeDone) await this.ready.promise;
-      let result: unknown;
-      if (method === "Browser.getVersion") {
-        result = {
-          protocolVersion: "1.3",
-          product: "Chrome/Extension-Bridge",
-          userAgent: "CDP-Bridge-Server/1.0.0",
-        };
-      } else {
-        const handled = await this.protocol.handleCDPCommand(method, params, sessionId);
-        result = handled ? handled.result : await this.protocol.forwardToExtension(method, params, sessionId);
-        this._auditNavigation(method, params);
-      }
-      this._sendToCdp({ id, sessionId, result });
-      if (method === "Target.createTarget") this._notifyAgentTab(result);
-      if (method === "Page.navigate") this._refreshTabMetaForSession(sessionId);
-    } catch (err) {
-      // Unservable browser-level commands (no attached tab, …) get a real CDP
-      // error code rather than a bare message. See change: add-browser-editor-pane-tab.
-      this._sendToCdp({ id, sessionId, error: { code: -32000, message: (err as Error).message } });
+  /** Serve one CDP command: fixed `Browser.getVersion`, else the protocol handler, else the extension. */
+  private async _runCdp(method: string, params: unknown, sessionId: string | undefined): Promise<unknown> {
+    if (method === "Browser.getVersion") {
+      return {
+        protocolVersion: "1.3",
+        product: "Chrome/Extension-Bridge",
+        userAgent: "CDP-Bridge-Server/1.0.0",
+      };
     }
-    this._checkViewability();
+    const handled = await this.protocol.handleCDPCommand(method, params, sessionId);
+    const result = handled ? handled.result : await this.protocol.forwardToExtension(method, params, sessionId);
+    this._auditNavigation(method, params);
+    return result;
   }
 
   /** Live view on connect: map the created `targetId` to its tab and tell the manager. */

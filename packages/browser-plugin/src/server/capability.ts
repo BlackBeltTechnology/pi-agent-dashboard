@@ -89,35 +89,40 @@ export function resolveChromeBinary(deps: ChromeBinaryDeps = {}): string | null 
   const platform = deps.platform ?? process.platform;
   const exists = deps.exists ?? existsSync;
 
-  if (platform === "darwin") {
-    const home = deps.home ?? env.HOME ?? homedir();
-    const rel = path.posix.join("Google Chrome.app", "Contents", "MacOS", "Google Chrome");
-    for (const base of ["/Applications", path.posix.join(home, "Applications")]) {
-      const candidate = path.posix.join(base, rel);
-      if (exists(candidate)) return candidate;
-    }
-    return null;
-  }
-  if (platform === "win32") {
-    for (const key of ["ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"]) {
-      const base = env[key];
-      if (!base) continue;
-      const candidate = path.win32.join(base, "Google", "Chrome", "Application", "chrome.exe");
-      if (exists(candidate)) return candidate;
-    }
-    return null;
-  }
-  if (platform === "linux") {
-    const which = deps.which ?? ((name: string) => whichOnPath(name, env, exists));
-    for (const name of LINUX_CHROME_COMMANDS) {
-      const found = which(name);
-      if (found) return found;
-    }
+  if (platform === "darwin") return resolveDarwinChrome(deps.home ?? env.HOME ?? homedir(), exists);
+  if (platform === "win32") return resolveWin32Chrome(env, exists);
+  if (platform === "linux") return resolveLinuxChrome(deps.which ?? ((name: string) => whichOnPath(name, env, exists)));
+  return null;
+}
+
+function resolveDarwinChrome(home: string, exists: (p: string) => boolean): string | null {
+  const rel = path.posix.join("Google Chrome.app", "Contents", "MacOS", "Google Chrome");
+  for (const base of ["/Applications", path.posix.join(home, "Applications")]) {
+    const candidate = path.posix.join(base, rel);
+    if (exists(candidate)) return candidate;
   }
   return null;
 }
 
-export type DedicatedUnavailableReason = "no-chrome" | "no-display";
+function resolveWin32Chrome(env: NodeJS.ProcessEnv, exists: (p: string) => boolean): string | null {
+  for (const key of ["ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"]) {
+    const base = env[key];
+    if (!base) continue;
+    const candidate = path.win32.join(base, "Google", "Chrome", "Application", "chrome.exe");
+    if (exists(candidate)) return candidate;
+  }
+  return null;
+}
+
+function resolveLinuxChrome(which: (name: string) => string | null | undefined): string | null {
+  for (const name of LINUX_CHROME_COMMANDS) {
+    const found = which(name);
+    if (found) return found;
+  }
+  return null;
+}
+
+type DedicatedUnavailableReason = "no-chrome" | "no-display";
 
 export interface DedicatedAvailability {
   available: boolean;

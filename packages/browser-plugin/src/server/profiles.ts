@@ -36,7 +36,7 @@ export type { ProfileDiscoveryDeps };
  * Ids verified against the Web Store 2026-10-17; add others only after the same
  * verification. See change: add-dedicated-agent-browser (D10).
  */
-export const PASSWORD_MANAGER_IDS: ReadonlyArray<{ id: string; name: string }> = [
+const PASSWORD_MANAGER_IDS: ReadonlyArray<{ id: string; name: string }> = [
   { id: "hdokiejnpimakedhajhdlcegeplioahd", name: "LastPass" },
   { id: "pejdijmoenmkgeppbflobdenhhabjlaj", name: "iCloud Passwords" },
 ];

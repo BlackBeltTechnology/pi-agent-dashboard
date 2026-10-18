@@ -9,12 +9,12 @@ import { DedicatedInstance, type DedicatedInstanceDeps } from "../dedicated-inst
 import { HiddenTargets } from "../hidden-targets.js";
 import { FakeChromePipe } from "./fake-chrome-pipe.js";
 
-export const silent = { info: () => {}, warn: () => {}, error: () => {} };
+const silent = { info: () => {}, warn: () => {}, error: () => {} };
 
 type Json = Record<string, unknown>;
 
 /** The agent's side of the CDP socket. */
-export class TestClient {
+class TestClient {
   private nextId = 1;
   readonly socket: FakeSocket;
   constructor(socket: FakeSocket) {

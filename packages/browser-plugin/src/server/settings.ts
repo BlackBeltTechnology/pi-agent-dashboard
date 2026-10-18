@@ -9,10 +9,10 @@
  */
 import type { RelayConfig } from "./relay/relay-manager.js";
 
-export const IDLE_MINUTES_CHOICES: readonly number[] = [0, 5, 30, 120];
-export const ON_UNAVAILABLE_CHOICES: readonly string[] = ["ask", "next", "stop"];
+const IDLE_MINUTES_CHOICES: readonly number[] = [0, 5, 30, 120];
+const ON_UNAVAILABLE_CHOICES: readonly string[] = ["ask", "next", "stop"];
 /** Built-in `defaultBrowser` targets; every other value must be an installed profile. */
-export const BUILTIN_TARGETS: readonly string[] = ["@dedicated", "@headless"];
+const BUILTIN_TARGETS: readonly string[] = ["@dedicated", "@headless"];
 const MAX_DOMAINS = 200;
 const MAX_DOMAIN_LENGTH = 253;
 const MAX_PROFILE_KEY = 128;
@@ -40,11 +40,6 @@ export function effectiveSettings(config: RelayConfig): EffectiveSettings {
     openLiveViewOnConnect: config.openLiveViewOnConnect !== false,
     allowedDomains: Array.isArray(config.allowedDomains) ? config.allowedDomains.filter((d): d is string => typeof d === "string") : [],
   };
-}
-
-/** The global allowed domains the fence uses (relay fallback + the dedicated profile). */
-export function globalAllowedDomains(config: RelayConfig): readonly string[] {
-  return effectiveSettings(config).allowedDomains;
 }
 
 export type SettingsPatchResult = { ok: true; patch: Partial<RelayConfig> } | { ok: false; error: string };

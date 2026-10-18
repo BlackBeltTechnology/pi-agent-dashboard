@@ -247,113 +247,100 @@ export class FakeChromePipe implements PipeLike {
       this.fail(cmd, "Session with given id not found.", -32001);
       return;
     }
-    switch (method) {
-      case "Browser.getVersion":
-        this.reply(cmd, {
-          protocolVersion: "1.3",
-          product: "Chrome/139.0.0.0",
-          revision: "@fake",
-          userAgent: "Mozilla/5.0 Chrome/139.0.0.0",
-          jsVersion: "13.9",
-        });
-        return;
-      case "Target.setDiscoverTargets": {
-        this.discover = p.discover === true;
-        if (this.discover) {
-          for (const t of this.targets.values()) this.emit({ method: "Target.targetCreated", params: { targetInfo: { ...t.info } } });
-        }
-        this.reply(cmd, {});
-        return;
+    const handler = this.commandHandlers[method];
+    if (handler) handler(cmd, p);
+    else this.handleSessionCommand(cmd, method, p);
+  }
+
+  /** Browser/Target/lifecycle command answers, keyed by CDP method. Unlisted methods fall to `handleSessionCommand`. */
+  private readonly commandHandlers: Record<string, (cmd: WireCommand, p: Record<string, unknown>) => void> = {
+    "Browser.getVersion": (cmd) =>
+      this.reply(cmd, {
+        protocolVersion: "1.3",
+        product: "Chrome/139.0.0.0",
+        revision: "@fake",
+        userAgent: "Mozilla/5.0 Chrome/139.0.0.0",
+        jsVersion: "13.9",
+      }),
+    "Target.setDiscoverTargets": (cmd, p) => {
+      this.discover = p.discover === true;
+      if (this.discover) {
+        for (const t of this.targets.values()) this.emit({ method: "Target.targetCreated", params: { targetInfo: { ...t.info } } });
       }
-      case "Target.setAutoAttach": {
-        if (cmd.sessionId) {
-          this.reply(cmd, {});
-          return;
-        }
-        const was = this.autoAttach.on;
-        this.autoAttach = { on: p.autoAttach === true, wait: p.waitForDebuggerOnStart === true };
-        if (this.autoAttach.on && !was) {
-          for (const [tid] of this.targets) {
-            if (![...this.sessionTarget.values()].includes(tid)) this.attach(tid, false);
-          }
-        }
-        if (!this.autoAttach.on) {
-          for (const [sid, tid] of [...this.sessionTarget]) {
-            if (this.waiting.delete(sid)) this.resumed.add(sid); // detaching a paused target resumes it
-            this.sessionTarget.delete(sid);
-            this.emit({ method: "Target.detachedFromTarget", params: { sessionId: sid, targetId: tid } });
-          }
-        }
-        this.reply(cmd, {});
-        return;
+      this.reply(cmd, {});
+    },
+    "Target.setAutoAttach": (cmd, p) => {
+      if (!cmd.sessionId) this.applyAutoAttach(p);
+      this.reply(cmd, {});
+    },
+    "Target.createTarget": (cmd, p) => {
+      const targetId = this.addTarget({
+        url: typeof p.url === "string" ? p.url : "about:blank",
+        browserContextId: typeof p.browserContextId === "string" ? p.browserContextId : undefined,
+      });
+      this.reply(cmd, { targetId });
+    },
+    "Target.attachToTarget": (cmd, p) => {
+      const targetId = String(p.targetId);
+      if (!this.targets.has(targetId)) return this.fail(cmd, "No target with given id found");
+      const sessionId = this.attach(targetId, false);
+      this.reply(cmd, { sessionId });
+    },
+    "Target.detachFromTarget": (cmd, p) => {
+      const sid = String(p.sessionId);
+      const tid = this.sessionTarget.get(sid);
+      if (tid === undefined) return this.fail(cmd, "Session with given id not found.", -32001);
+      this.sessionTarget.delete(sid);
+      this.waiting.delete(sid);
+      this.screencasting.delete(sid);
+      this.emit({ method: "Target.detachedFromTarget", params: { sessionId: sid, targetId: tid } });
+      this.reply(cmd, {});
+    },
+    "Target.closeTarget": (cmd, p) => {
+      const targetId = String(p.targetId);
+      if (!this.targets.has(targetId)) return this.fail(cmd, "No target with given id found");
+      this.closeTarget(targetId);
+      this.reply(cmd, { success: true });
+    },
+    "Target.getTargets": (cmd) => this.reply(cmd, { targetInfos: [...this.targets.values()].map((t) => ({ ...t.info })) }),
+    "Target.getTargetInfo": (cmd, p) => {
+      const t = this.targets.get(String(p.targetId ?? this.sessionTarget.get(cmd.sessionId ?? "") ?? ""));
+      if (t) this.reply(cmd, { targetInfo: { ...t.info } });
+      else this.reply(cmd, { targetInfo: { targetId: "browser", type: "browser", title: "", url: "", attached: true, canAccessOpener: false } });
+    },
+    "Target.getBrowserContexts": (cmd) => this.reply(cmd, { browserContextIds: [] }),
+    "Target.createBrowserContext": (cmd) => this.reply(cmd, { browserContextId: `ctx-${++this.contextSeq}` }),
+    "Target.disposeBrowserContext": (cmd) => this.reply(cmd, {}),
+    "Runtime.runIfWaitingForDebugger": (cmd) => {
+      if (cmd.sessionId && this.waiting.delete(cmd.sessionId)) this.resumed.add(cmd.sessionId);
+      this.reply(cmd, {});
+    },
+    "Page.startScreencast": (cmd) => {
+      if (cmd.sessionId) this.screencasting.add(cmd.sessionId);
+      this.reply(cmd, {});
+    },
+    "Page.stopScreencast": (cmd) => {
+      if (cmd.sessionId) this.screencasting.delete(cmd.sessionId);
+      this.reply(cmd, {});
+    },
+  };
+
+  /** Browser-level `Target.setAutoAttach`: attach to existing targets when turned on, detach all when turned off. */
+  private applyAutoAttach(p: Record<string, unknown>): void {
+    const was = this.autoAttach.on;
+    this.autoAttach = { on: p.autoAttach === true, wait: p.waitForDebuggerOnStart === true };
+    if (this.autoAttach.on && !was) {
+      for (const [tid] of this.targets) {
+        if (![...this.sessionTarget.values()].includes(tid)) this.attach(tid, false);
       }
-      case "Target.createTarget": {
-        const targetId = this.addTarget({
-          url: typeof p.url === "string" ? p.url : "about:blank",
-          browserContextId: typeof p.browserContextId === "string" ? p.browserContextId : undefined,
-        });
-        this.reply(cmd, { targetId });
-        return;
-      }
-      case "Target.attachToTarget": {
-        const targetId = String(p.targetId);
-        if (!this.targets.has(targetId)) return this.fail(cmd, "No target with given id found");
-        const sessionId = this.attach(targetId, false);
-        this.reply(cmd, { sessionId });
-        return;
-      }
-      case "Target.detachFromTarget": {
-        const sid = String(p.sessionId);
-        const tid = this.sessionTarget.get(sid);
-        if (tid === undefined) return this.fail(cmd, "Session with given id not found.", -32001);
-        this.sessionTarget.delete(sid);
-        this.waiting.delete(sid);
-        this.screencasting.delete(sid);
-        this.emit({ method: "Target.detachedFromTarget", params: { sessionId: sid, targetId: tid } });
-        this.reply(cmd, {});
-        return;
-      }
-      case "Target.closeTarget": {
-        const targetId = String(p.targetId);
-        if (!this.targets.has(targetId)) return this.fail(cmd, "No target with given id found");
-        this.closeTarget(targetId);
-        this.reply(cmd, { success: true });
-        return;
-      }
-      case "Target.getTargets":
-        this.reply(cmd, { targetInfos: [...this.targets.values()].map((t) => ({ ...t.info })) });
-        return;
-      case "Target.getTargetInfo": {
-        const t = this.targets.get(String(p.targetId ?? this.sessionTarget.get(cmd.sessionId ?? "") ?? ""));
-        if (t) this.reply(cmd, { targetInfo: { ...t.info } });
-        else this.reply(cmd, { targetInfo: { targetId: "browser", type: "browser", title: "", url: "", attached: true, canAccessOpener: false } });
-        return;
-      }
-      case "Target.getBrowserContexts":
-        this.reply(cmd, { browserContextIds: [] });
-        return;
-      case "Target.createBrowserContext":
-        this.reply(cmd, { browserContextId: `ctx-${++this.contextSeq}` });
-        return;
-      case "Target.disposeBrowserContext":
-        this.reply(cmd, {});
-        return;
-      case "Runtime.runIfWaitingForDebugger":
-        if (cmd.sessionId && this.waiting.delete(cmd.sessionId)) this.resumed.add(cmd.sessionId);
-        this.reply(cmd, {});
-        return;
-      case "Page.startScreencast":
-        if (cmd.sessionId) this.screencasting.add(cmd.sessionId);
-        this.reply(cmd, {});
-        return;
-      case "Page.stopScreencast":
-        if (cmd.sessionId) this.screencasting.delete(cmd.sessionId);
-        this.reply(cmd, {});
-        return;
-      default:
-        break;
     }
-    this.handleSessionCommand(cmd, method, p);
+    if (!this.autoAttach.on) {
+      for (const [sid, tid] of [...this.sessionTarget]) {
+        if (this.waiting.delete(sid)) this.resumed.add(sid); // detaching a paused target resumes it
+        this.sessionTarget.delete(sid);
+        this.emit({ method: "Target.detachedFromTarget", params: { sessionId: sid, targetId: tid } });
+      }
+    }
   }
 
   /** Page/Runtime answers Playwright's page init needs (mirrors the relay's scripted extension). */

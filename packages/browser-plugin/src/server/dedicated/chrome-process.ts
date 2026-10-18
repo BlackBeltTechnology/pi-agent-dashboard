@@ -75,10 +75,10 @@ export interface ChromeExitInfo {
 
 /** Server-owned command ids start here; `DedicatedInstance` keeps client ids below. */
 export const CHROME_INTERNAL_ID_BASE = 2_000_000_000;
-export const LAUNCH_TIMEOUT_MS = 15_000;
-export const STOP_GRACE_MS = 5_000;
-export const PIPE_EOF_GRACE_MS = 2_000;
-export const SIZE_CACHE_MS = 60_000;
+const LAUNCH_TIMEOUT_MS = 15_000;
+const STOP_GRACE_MS = 5_000;
+const PIPE_EOF_GRACE_MS = 2_000;
+const SIZE_CACHE_MS = 60_000;
 /** Pid-reuse tolerance when comparing a recorded owner start time. */
 const START_TIME_TOLERANCE_MS = 2_000;
 
@@ -97,7 +97,7 @@ export function buildChromeArgs(dataDir: string): string[] {
 }
 
 /** Preferences merged into `<dir>/Default/Preferences` before every launch (D2). */
-export const SEEDED_PREFERENCES: ReadonlyArray<readonly [readonly string[], boolean]> = [
+const SEEDED_PREFERENCES: ReadonlyArray<readonly [readonly string[], boolean]> = [
   [["credentials_enable_service"], false],
   [["profile", "password_manager_enabled"], false],
   [["signin", "allowed"], false],

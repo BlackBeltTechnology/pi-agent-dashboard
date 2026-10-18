@@ -265,8 +265,46 @@ function disableSocketTimeout(req: FastifyRequest, reply: FastifyReply): void {
 }
 
 /** Default sign-in page of `dedicated/open` when the body carries no `url`. */
-export const DEFAULT_SIGN_IN_URL = "https://accounts.google.com/";
+const DEFAULT_SIGN_IN_URL = "https://accounts.google.com/";
 const MAX_CLIENT_LABEL = 64;
+
+/** `GET /api/browser/profiles` body: discovered profiles ∪ live dashboard instances, plus operator hosts. */
+function buildProfilesResponse(
+  manager: BrowserRoutesManager,
+  { profiles, warning }: ProfileListResult,
+  only: string | undefined,
+): BrowserProfilesResponse {
+  const discovered = new Map(profiles.map((p) => [p.profileDirectory, p]));
+  // Union discovered profiles with every live instance's profile: a live
+  // instance ALWAYS renders (the `PI_BROWSER_RELAY_FAKE=1` harness profile
+  // is not discoverable on disk, and a profile could vanish from Local
+  // State mid-session).
+  const dirs = [...discovered.keys()];
+  // Dashboard-host rows only: an operator's profiles are listed under their host.
+  // `@`-prefixed keys are built-in targets (`@dedicated`), never a Chrome profile row.
+  for (const inst of manager.instancesOn("dashboard")) {
+    if (inst.profileDirectory.startsWith("@")) continue;
+    if (!discovered.has(inst.profileDirectory) && !dirs.includes(inst.profileDirectory)) dirs.push(inst.profileDirectory);
+  }
+  const rows: Record<string, BrowserRouteProfile> = {};
+  for (const dir of dirs) {
+    if (only !== undefined && dir !== only) continue;
+    rows[dir] = rowFor(discovered.get(dir), dir, manager.instancesOn("dashboard", dir), Boolean(manager.profileConfig(dir).token));
+  }
+  const operatorHosts: BrowserOperatorHost[] = manager.hosts.list().map((host) => ({
+    ...host,
+    profiles: host.profiles
+      .filter((p) => only === undefined || p.profileDirectory === only)
+      .map((p) => ({
+        profileDirectory: p.profileDirectory,
+        label: p.label,
+        ...(p.email ? { email: p.email } : {}),
+        installed: p.installed,
+        instances: manager.instancesOn(host.hostId, p.profileDirectory).map(instanceRow),
+      })),
+  }));
+  return warning ? { profiles: rows, operatorHosts, warning } : { profiles: rows, operatorHosts };
+}
 
 export function registerBrowserRoutes(fastify: FastifyInstance, deps: BrowserRoutesDeps): void {
   const { manager, audit, logger } = deps;
@@ -285,43 +323,7 @@ export function registerBrowserRoutes(fastify: FastifyInstance, deps: BrowserRou
   fastify.get<{ Querystring: { profileDirectory?: string } }>(
     "/api/browser/profiles",
     async (req): Promise<BrowserProfilesResponse> => {
-      const { profiles, warning } = await deps.listProfiles();
-      const only = req.query.profileDirectory;
-      const discovered = new Map(profiles.map((p) => [p.profileDirectory, p]));
-      // Union discovered profiles with every live instance's profile: a live
-      // instance ALWAYS renders (the `PI_BROWSER_RELAY_FAKE=1` harness profile
-      // is not discoverable on disk, and a profile could vanish from Local
-      // State mid-session).
-      const dirs = [...discovered.keys()];
-      // Dashboard-host rows only: an operator's profiles are listed under their host.
-      // `@`-prefixed keys are built-in targets (`@dedicated`), never a Chrome profile row.
-      for (const inst of manager.instancesOn("dashboard")) {
-        if (inst.profileDirectory.startsWith("@")) continue;
-        if (!discovered.has(inst.profileDirectory) && !dirs.includes(inst.profileDirectory)) dirs.push(inst.profileDirectory);
-      }
-      const rows: Record<string, BrowserRouteProfile> = {};
-      for (const dir of dirs) {
-        if (only !== undefined && dir !== only) continue;
-        rows[dir] = rowFor(
-          discovered.get(dir),
-          dir,
-          manager.instancesOn("dashboard", dir),
-          Boolean(manager.profileConfig(dir).token),
-        );
-      }
-      const operatorHosts: BrowserOperatorHost[] = manager.hosts.list().map((host) => ({
-        ...host,
-        profiles: host.profiles
-          .filter((p) => only === undefined || p.profileDirectory === only)
-          .map((p) => ({
-            profileDirectory: p.profileDirectory,
-            label: p.label,
-            ...(p.email ? { email: p.email } : {}),
-            installed: p.installed,
-            instances: manager.instancesOn(host.hostId, p.profileDirectory).map(instanceRow),
-          })),
-      }));
-      return warning ? { profiles: rows, operatorHosts, warning } : { profiles: rows, operatorHosts };
+      return buildProfilesResponse(manager, await deps.listProfiles(), req.query.profileDirectory);
     },
   );
 

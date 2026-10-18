@@ -24,7 +24,7 @@ import type {
 } from "./browser-api.js";
 import { GROUP, HELP, INPUT, Notice, Pill, Seg } from "./settings-ui.js";
 
-export const DEFAULT_SETTINGS: AgentBrowsingSettings = {
+const DEFAULT_SETTINGS: AgentBrowsingSettings = {
   defaultBrowser: "@dedicated",
   onUnavailable: "ask",
   idleDisconnectMinutes: 30,
@@ -58,7 +58,7 @@ export function resolveAgentSettings(
 }
 
 /** Parse the comma-separated domains editor into a clean list. */
-export function parseDomains(draft: string): string[] {
+function parseDomains(draft: string): string[] {
   return draft
     .split(",")
     .map((d) => d.trim())

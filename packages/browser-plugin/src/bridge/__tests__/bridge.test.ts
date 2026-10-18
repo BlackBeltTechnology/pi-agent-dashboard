@@ -1,6 +1,7 @@
 /** Bridge tools (task 5.1, 5.3; #X13). See change: add-browser-editor-pane-tab. */
-import { afterEach, describe, expect, it, vi } from "vitest";
+
 import { PLUGIN_REQUEST_SYMBOL } from "@blackbelt-technology/dashboard-plugin-runtime/bridge";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import activate, { createBrowserTools, type ToolContext } from "../index.js";
 
 const g = globalThis as Record<symbol, unknown>;
