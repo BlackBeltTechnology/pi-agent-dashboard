@@ -6,10 +6,10 @@
  *  - re-arm disposes the prior trigger (no duplicate fire)
  * See change: add-automation-plugin.
  */
-import { describe, it, expect } from "vitest";
-import { TriggerRegistry } from "../server/trigger-registry.js";
+import { describe, expect, it } from "vitest";
 import { scheduleTrigger } from "../server/schedule-trigger.js";
-import { createScheduler, setLongTimer, MAX_DELAY as SCHED_MAX_DELAY } from "../server/scheduler.js";
+import { createScheduler, MAX_DELAY as SCHED_MAX_DELAY, setLongTimer } from "../server/scheduler.js";
+import { TriggerRegistry } from "../server/trigger-registry.js";
 import type { DiscoveredAutomation } from "../shared/automation-types.js";
 
 /** A controllable fake clock + timer queue. */

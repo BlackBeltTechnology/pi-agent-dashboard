@@ -15,7 +15,7 @@
  * See change: add-automation-plugin.
  */
 import type { DiscoveredAutomation } from "../shared/automation-types.js";
-import type { TriggerRegistry, Disposable, ArmDeps, FireContext } from "./trigger-registry.js";
+import type { ArmDeps, Disposable, FireContext, TriggerRegistry } from "./trigger-registry.js";
 
 export type OnFire = (automation: DiscoveredAutomation, ctx: FireContext) => void;
 

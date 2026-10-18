@@ -14,9 +14,9 @@ import { ActionRegistry } from "../server/action-registry.js";
 import { buildRunDispatch, buildRunPrompt, createEngine, effectiveVisibility } from "../server/engine.js";
 import { collectFolderScopeBases } from "../server/folder-scope-contributions.js";
 import {
-  finishRun as storeFinishRun,
   listRuns,
   readChildRuns,
+  finishRun as storeFinishRun,
   startChildRun as storeStartChildRun,
   startParentRun as storeStartParentRun,
   startRun as storeStartRun,
@@ -1249,7 +1249,7 @@ describe("folder-scope contributions (union → scan/arm)", () => {
       engine.dispose();
     });
 
-    it("E7: same name across global and folder scopes arms both and fires each once", async () => {
+    it("E7 (task 2.15): same name across global and folder scopes arms both and fires each once", async () => {
       const home = tmp("auto-home7-");
       const proj = tmp("auto-proj7-");
       writeEnabledAutomation(home, "sync");
