@@ -35,7 +35,7 @@ const CARD_SECTION_META: readonly CardSectionMeta[] = [
     id: "git",
     group: "builtin",
     label: () => i18nT("session.subcardGit", undefined, "GIT"),
-    description: () => i18nT("cardSections.descGit", undefined, "Branch, ahead/behind, worktree pill and actions."),
+    description: () => i18nT("cardSections.descGit", undefined, "Header git row: branch, PR, worktree pill, uncommitted/ahead/behind."),
   },
   {
     id: "process",

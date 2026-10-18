@@ -376,13 +376,17 @@ describe("SessionCard", () => {
         contextUsage={{ tokens: 5000, contextWindow: 10000 }}
       />
     );
-    // Context bar, activity indicator, and cost should all be in the same parent row
+    // Context bar and cost share the meta row; the activity indicator (tool
+    // name) sits in the status row above it. See change: compact-session-card-header.
     const bar = screen.getByTestId("context-usage-bar");
-    const row = bar.parentElement!;
+    const row = screen.getByTestId("session-card-meta-row");
+    expect(row.contains(bar)).toBe(true);
     // Cost is in the same row
     expect(row.textContent).toContain("$1.50");
-    // Activity indicator (tool name) is in the same row
-    expect(row.textContent).toContain("Read");
+    // Activity indicator (tool name) is in the status row, before the meta row
+    const statusRow = screen.getByTestId("session-card-status-row");
+    expect(statusRow.textContent).toContain("Read");
+    expect(statusRow.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // Bar is compact (w-16, no percentage text)
     expect(bar.className).toContain("w-16");
     expect(screen.queryByTestId("context-usage-pct")).toBeNull();
@@ -737,7 +741,7 @@ describe("GroupGitInfo", () => {
 // ── Subcard structure (redesign-session-card-subcards) ────────────────────────
 
 describe("SessionCard subcard structure", () => {
-  it("renders OPENSPEC, GIT, PROCESS subcard titles in order when populated", () => {
+  it("renders OPENSPEC, PROCESS subcard titles in order when populated (GIT subcard removed)", () => {
     // An UNATTACHED READY session renders no OPENSPEC subcard any more (its
     // actions are menu items), so the session is attached to show one.
     const session = makeSession({ gitBranch: "feature/test", attachedProposal: "feat-a" });
@@ -766,7 +770,7 @@ describe("SessionCard subcard structure", () => {
     // The STATUS subcard (session-card-badge slot) is absent here because no
     // plugin claims session-card-badge in this test.
     const filtered = titles.filter((t) => t && /^(OPENSPEC|GIT|STATUS|PROCESS|FLOWS|MEMORY)$/.test(t));
-    expect(filtered).toEqual(["OPENSPEC", "GIT", "PROCESS"]);
+    expect(filtered).toEqual(["OPENSPEC", "PROCESS"]);
   });
 
   it("hides FLOWS subcard when no plugin claims session-card-flows", () => {

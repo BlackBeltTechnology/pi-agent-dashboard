@@ -123,7 +123,7 @@ describe("WorktreePill (standalone)", () => {
 });
 
 describe("GitInfo + worktree pill integration", () => {
-  it("renders branch unchanged AND the pill after the branch line when cwd is a worktree", () => {
+  it("renders branch unchanged AND the pill BEFORE the branch (header git row) when cwd is a worktree", () => {
     const session = mkSession({
       gitBranch: "feat/dark",
       gitWorktree: { mainPath: "/repo", name: "feat-dark", base: "develop" },
@@ -135,12 +135,11 @@ describe("GitInfo + worktree pill integration", () => {
     expect(container.textContent).not.toContain("feat-dark");
     const pill = screen.getByTestId("worktree-pill");
     expect(pill).toBeTruthy();
-    // Pill must appear AFTER the branch element in document order.
+    // Pill LEADS the git row: it precedes the branch element in document order.
+    // See change: compact-session-card-header.
     const branchEl = container.querySelector("span.truncate, a.truncate");
     expect(branchEl).toBeTruthy();
-    if (branchEl) {
-      expect(branchEl.compareDocumentPosition(pill) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    }
+    expect(branchEl!.compareDocumentPosition(pill) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
   });
 
   it("renders no pill for sessions in a plain checkout (gitWorktree absent)", () => {

@@ -35,6 +35,10 @@ describe("ci.yml — music-pytest job", () => {
     expect(j).toMatch(/pytest[^\n]*packages\/video-production\/tests\/redaction/);
   });
 
+  it("runs the document-converter engine pytests (E21)", () => {
+    expect(job()).toMatch(/pytest[^\n]*packages\/document-converter\/engine\/tests/);
+  });
+
   it("never installs the deep tier", () => {
     expect(job()).not.toMatch(/requirements-mir/);
   });

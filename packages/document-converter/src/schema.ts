@@ -21,7 +21,7 @@ export type LogoMap = Record<string, string>;
 /**
  * Opt-in styled-diagram rendering. When `enabled`, each Mermaid block is
  * replaced by a cached `.mermaid-cache/<md5>.png` generated via the nano-banana
- * CLI using the named `style`. Any failure falls back to mmdc.
+ * CLI using the named `style`. Any failure falls back to mmdc; if the browser cannot launch the call fails with `MMDC_UNAVAILABLE`.
  */
 export interface NanoBananaConfig {
   enabled: boolean;

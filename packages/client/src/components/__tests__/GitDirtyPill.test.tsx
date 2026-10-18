@@ -45,3 +45,20 @@ describe("GitDirtyPill", () => {
     expect(onClick).toHaveBeenCalledTimes(1);
   });
 });
+
+// See change: compact-session-card-header (test-plan E16).
+describe("GitDirtyPill severity-warning capsule", () => {
+  it("uses the --severity-warning-* triple, never the undefined --status-warning / #d97706", () => {
+    render(<GitDirtyPill status={mk({ dirtyCount: 5, ahead: 2, behind: 1 })} onClick={() => {}} />);
+    const pill = screen.getByTestId("git-dirty-pill");
+    const style = pill.getAttribute("style") ?? "";
+    expect(style).toContain("--severity-warning-bg");
+    expect(style).toContain("--severity-warning-fg");
+    expect(style).toContain("--severity-warning-border");
+    expect(style).not.toContain("--status-warning");
+    expect(style.toLowerCase()).not.toContain("#d97706");
+    expect(pill.getAttribute("title")).toContain("5");
+    expect(screen.getByTestId("git-ahead").textContent).toBe("↑2");
+    expect(screen.getByTestId("git-behind").textContent).toBe("↓1");
+  });
+});
