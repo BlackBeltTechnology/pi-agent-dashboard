@@ -126,11 +126,11 @@ describe("faults: capture is best-effort (decision L2)", () => {
 
   it("(X6) uncreatable $TMPDIR/pi-dash-test → boot proceeds, exactly one warning, no recorder left", () => {
     sb = makeSandbox();
-    // A regular FILE where the dir must go: mkdir -p fails even for root (CI runs
-    // as root, where chmod 555 would not block the write).
-    const blocker = path.join(sb.tmpdir, "not-a-dir");
-    writeFileSync(blocker, "x");
-    const r = up({ TMPDIR: `${blocker}/` });
+    // A regular FILE where `$TMPDIR/pi-dash-test` must go: mkdir -p fails even for
+    // root (CI runs as root, where chmod 555 would not block the write), while
+    // TMPDIR itself stays valid for the script's own `mktemp`.
+    writeFileSync(path.join(sb.tmpdir, "pi-dash-test"), "x");
+    const r = up();
     expect(r.status).toBe(0);
     expect(sb.dockerCalls().some((c) => c.startsWith("compose") && / up( |$)/.test(c))).toBe(true);
     const warnings = r.stderr.split("\n").filter((l) => l.startsWith("harness-audit:"));
