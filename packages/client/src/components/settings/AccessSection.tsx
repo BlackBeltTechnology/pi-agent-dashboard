@@ -76,7 +76,7 @@ function NetworkTrustBanner({ posture }: { posture: TrustPosture | null }) {
     e.preventDefault();
     navigate("/settings/security");
     // The section renders after the route swap — scroll once it exists.
-    requestAnimationFrame(() => document.getElementById("network-access")?.scrollIntoView({ block: "start" }));
+    requestAnimationFrame(() => document.getElementById("network-access")?.scrollIntoView?.({ block: "start" }));
   };
   return (
     <div role="status" data-testid="access-network-trust-banner" data-severity={severity} className={callout(severity)}>

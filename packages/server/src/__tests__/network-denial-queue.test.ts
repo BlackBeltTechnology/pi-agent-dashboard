@@ -403,7 +403,7 @@ describe("E18 — network-denial plane in pair mode", () => {
 
   type Broadcast = { type?: string; plane?: string; subject?: string };
   const grantRequests = (plane: string): Broadcast[] =>
-    broadcast.mock.calls.map((c) => c[0] as Broadcast).filter((m) => m.type === "grant_request" && m.plane === plane);
+    broadcast.mock.calls.map((c: unknown[]) => c[0] as Broadcast).filter((m: Broadcast) => m.type === "grant_request" && m.plane === plane);
 
   beforeAll(async () => {
     th = useTrustModeHome();

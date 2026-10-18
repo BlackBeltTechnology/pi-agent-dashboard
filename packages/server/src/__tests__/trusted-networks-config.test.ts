@@ -226,7 +226,7 @@ describe("network trust mode: boot decision and live reads", () => {
   let spies: Array<{ mockRestore: () => void }>;
 
   const tn = (spy: ReturnType<typeof vi.spyOn>) =>
-    spy.mock.calls.filter((c) => String(c[0]).includes("[trusted-networks]"));
+    spy.mock.calls.filter((c: unknown[]) => String(c[0]).includes("[trusted-networks]"));
   const seed = (cfg: unknown) => fs.writeFileSync(configPath, typeof cfg === "string" ? cfg : JSON.stringify(cfg));
   const stored = () => JSON.parse(fs.readFileSync(configPath, "utf-8"));
 
@@ -363,7 +363,7 @@ describe("network trust mode: boot decision and live reads", () => {
     seed({ network: { trustMode: "wide-open" } });
     effectiveTrustMode();
     effectiveTrustMode();
-    const warnings = tn(warn).map((c) => String(c[0]));
+    const warnings = tn(warn).map((c: unknown[]) => String(c[0]));
     expect(warnings).toHaveLength(2);
     expect(warnings[1]).toContain('"wide-open"');
   });
