@@ -70,7 +70,8 @@ While the banner is active and unapplied, per-diagram apply in that document is 
 - [Asciidoctor logger API differs from assumption] → task 1.1 spike; repair never depends on warnings.
 - [Display/apply drift] → same function per format; verify-before-write.
 - [Whole-file diff for large files] → dialog renders hunks with context.
-- [Depends on unlanded change] → explicit sequencing; tasks start with a precondition check.
+- [Depends on unlanded change] → explicit sequencing; tasks start with a precondition check. (Resolved: `add-preview-apply-fix-to-file` merged as #944 and `sanitize-untrusted-rendered-content` as #905 before implementation.)
+- [Pre-convert rewrite widens the secure convert's input] → security-hardening pass (task 7.1): `repairAsciiDoc` only (a) replaces `[mermaid` with `[source,mermaid` on an attribute line (rest of the attribute list kept verbatim — the author's own text, and an author can already write `[source,subs=macros]`, so no new capability), and (b) inserts/replaces a `----`/`....` delimiter line. It never emits `++++`, `pass:`, `include::` or `:attr:` lines (test E18 over every fixture; E23 end-to-end: `include::/etc/passwd[]` stays neutralized by `safe:"secure"`). Un-swallowed content renders as the author wrote it; DOMPurify still runs after convert, `safe:"secure"` unchanged. `repair=0` is a read-only query flag that only *removes* the rewrite. The apply path writes only `repair(content).source` after a byte-equal / mtime verify and the dependency's diff-confirmed, mtime-guarded write (409 ⇒ nothing written). No High findings.
 
 ## Migration Plan
 

@@ -330,6 +330,7 @@ function FilePreviewOverlayBody({ cwd, path, line, onClose }: Omit<Props, "prove
                 frontmatter="properties"
                 imageBase={imageBase}
                 mermaidSource={mermaidSource}
+                staticSource
               />
             )}
             {!error && !isImage && content !== null && !isMd && language && (
