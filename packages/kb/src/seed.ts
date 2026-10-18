@@ -6,7 +6,7 @@
 // the post-walk drop and the DOX acknowledgement copy. `index-run.ts` orders them.
 // Zero dependencies (kb is self-contained), so `findMainCheckout` is a local implementation
 // of `git-checkout-root-resolution`. See change: add-kb-worktree-seed.
-import { execFileSync } from "node:child_process";
+import { execFileSync } from "node:child_process"; // ban:child_process-ok (kb package is self-contained; reads the git checkout layout with argv-only calls, no pi-dashboard-shared dep)
 import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import * as sqlite from "node:sqlite";
@@ -59,7 +59,7 @@ function git(cwd: string, args: string[]): GitResult {
   }
 }
 
-const FOLD_CASE = process.platform === "darwin" || process.platform === "win32";
+const FOLD_CASE = process.platform === "darwin" || process.platform === "win32"; // platform-branch-ok: case-insensitive filesystem fold when comparing two checkout paths; kb has no shared dep
 /** realpath → no trailing separator → platform case fold; falls back to the lexical path. */
 function canon(p: string): string {
   let r: string;

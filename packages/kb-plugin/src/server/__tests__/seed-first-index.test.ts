@@ -1,3 +1,7 @@
+// @vitest-environment node
+//
+// node environment is required: this file reaches kb's sqlite store, which vite's client (jsdom)
+// environment refuses to bundle (`node:sqlite`). Same as kb-routes.test.ts.
 // The dashboard reindex job seeds a linked worktree's first index from the main checkout.
 // See change: add-kb-worktree-seed (test-plan E23 dashboard job, E11).
 import { execFileSync } from "node:child_process";
