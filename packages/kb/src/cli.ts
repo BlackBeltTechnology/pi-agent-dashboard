@@ -8,12 +8,13 @@ import { indexOptionsFromConfig, loadConfig, type ResolvedConfig, type ResolvedS
 import { agentsChain, doxInit, doxLint, listEmptyPurposeRows } from "./dox.js";
 import { ackTargets, applyDecisions, buildWorkItems } from "./dox-triage.js";
 import { evaluate, loadGolden } from "./eval.js";
-import { sourceGateIsStale, stampPass, stampSource } from "./index-gate.js";
+import { beginForcedSource, sourceGateIsStale, stampPass, stampSource } from "./index-gate.js";
 import { BUILDING_LINE, isFirstIndexLive, runIndexAtomic } from "./index-run.js";
 import { indexSource } from "./indexer.js";
 import { kbInit } from "./init.js";
 import { renderHits } from "./render.js";
 import { searchOptsFromConfig } from "./search-opts.js";
+import { seedOptionsFromConfig } from "./seed.js";
 import { classifyRef, type ResolvedSource as RResolvedSource, resolveAll } from "./sources.js";
 import { SqliteFtsStore } from "./sqlite-store.js";
 import { readStaleness } from "./staleness.js";
@@ -83,7 +84,7 @@ async function runIndex(cfg: ResolvedConfig, store: SqliteFtsStore, sources: RRe
   let scanned = 0, changed = 0, deleted = 0, chunks = 0;
   for (const s of sources) {
     const eff = force || sourceGateIsStale(store, cfg, s.id);
-    const st = await indexSource(store, { root: s.id, dir: s.dir }, indexOptionsFromConfig(cfg, { force: eff }));
+    const st = await indexSource(store, { root: s.id, dir: s.dir }, indexOptionsFromConfig(cfg, { force: eff, onFirstBatch: eff ? beginForcedSource(store, s.id) : undefined }));
     if (!st.missing) stampSource(store, cfg, s.id);
     scanned += st.scanned; changed += st.changed; deleted += st.deleted; chunks += st.chunks;
   }
@@ -108,6 +109,7 @@ async function openStoreForQuery(cfg: ResolvedConfig, sources: RResolvedSource[]
         sources: sources.map((x) => ({ id: x.id, dir: x.dir })),
         indexOpts: indexOptionsFromConfig(cfg),
         gate: cfg,
+        seed: seedOptionsFromConfig(cfg, { noSeed: !!flags["no-seed"], explicitSources: !!(flags.source as string[] | undefined)?.length, customDb: !!flags.db }),
       });
     } else {
       const mem = new SqliteFtsStore(":memory:");
@@ -135,7 +137,8 @@ async function sourcesForRun(cfg: ResolvedConfig, flags: Flags): Promise<RResolv
 const HELP = `kb — markdown knowledge base
 Usage:
   kb init    [--global] [--source <ref>]... [--dry-run] [--force] [--cwd <dir>]
-  kb index   [--source <dir>...] [--db <path>] [--force] [--refresh]
+  kb index   [--source <dir>...] [--db <path>] [--force] [--refresh] [--no-seed]
+             (--no-seed: skip seeding a linked worktree's first index from the main checkout)
   kb search  "<query>" [--limit N] [--root id] [--doc-type doc|agents|source-md]
              [--expand-parent|--no-expand-parent] [--expand-graph] [--rerank]
              [--expand-query] [--json] [--no-reindex] [--source <dir>...] [--db <path>]
@@ -290,6 +293,7 @@ async function runCmd(cmd: string, flags: Flags): Promise<void> {
       indexOpts: indexOptionsFromConfig(cfg, { force: !!flags.force }),
       gate: cfg,
       explicit,
+      seed: seedOptionsFromConfig(cfg, { noSeed: !!flags["no-seed"], explicitSources: explicit, customDb: !!flags.db }),
     });
     console.log(`indexed ${s.scanned} files (${s.changed} changed, ${s.deleted} deleted, ${s.chunks} chunks) in ${(performance.now() - t).toFixed(0)}ms`);
     console.log(JSON.stringify(s.counts));
