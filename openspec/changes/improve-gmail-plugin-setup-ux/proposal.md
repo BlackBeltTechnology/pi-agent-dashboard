@@ -38,8 +38,11 @@ _None._
 
 - `gmail-plugin`:
   - Guided OAuth client setup: existing-project path, project-ID validation with name-vs-ID guidance, the ID saved and cross-checked, the owner-account parameter on links and commands, consent copy covering the second-screen and checkbox shapes, and publishing guidance.
-  - Gmail setup wizard shows step progress and actionable errors: the mismatched or invalid project ID shown as an actionable error.
-  - Per-account permission levels and Account-scoped tools: an opt-in filter capability (`gmail.settings.basic`) with confirmed writes.
+  - Gmail setup wizard shows step progress and actionable errors: the mismatched or invalid project ID shown as an actionable error, and both states added to the probe matrix.
+  - Settings section is readable and guarded: the project ID and owner-account fields with hints and linked errors; the per-account filters control named after the account.
+  - Per-account permission levels: an orthogonal, opt-in filters option (`gmail.settings.basic`) kept across level changes and re-auth.
+  - Confirmed writes: filter create/delete are confirmed writes.
+  - New requirement "Opt-in Gmail filter management": `gmail_filters_list`, `gmail_filter_create`, `gmail_filter_delete` (label actions only; forwarding, `TRASH`/`SPAM` and match-all filters refused).
 
 ## Impact
 
@@ -47,12 +50,13 @@ _None._
   - `GmailSettings.tsx`: the step-1 fields, owner account, copy;
   - `wizard.ts`: `consoleLinks` / `gcloudCommands` with `authuser` / `--account`, ID validation, `ERROR_EN` for `scope_missing`.
 - `packages/gmail-plugin/src/server/`:
-  - `routes.ts`: persist the project ID and owner account;
+  - `routes.ts`: persist the project ID and owner account; immediate lowering regardless of status;
   - scopes and lease: an optional filter level;
   - bridge tools: the filter tool.
 - `packages/gmail-plugin/src/shared/scopes.ts`: optional `gmail.settings.basic`.
-- i18n catalogs (en, zh-CN, hu) for the new strings.
-- Config: `plugins.gmail` gains `projectId` and `ownerAccount`. Both are optional, with no migration.
+- i18n: zh-CN + hu catalog entries for new keys and the rewritten `errScopeMissing` / `consentHint` / `audienceHelp`; English stays the inline `t()` fallback.
+- Config: `plugins.gmail` gains `projectId` and `ownerAccount`; accounts gain an optional `filters` flag. All optional, with no migration (design D1, D6).
+- `packages/shared/src/route-tiers.ts`: the two new routes (`PUT /setup`, `POST /accounts/:sub/filters`) as `operate`.
 
 ## Discipline Skills
 
