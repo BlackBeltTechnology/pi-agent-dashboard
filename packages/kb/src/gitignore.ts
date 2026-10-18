@@ -255,6 +255,8 @@ export function loadGitignoreMatcher(walkRoot: string, opts: GitignoreMatcherOpt
 export interface YieldingLoaderOptions extends GitignoreMatcherOptions {
   /** Directories processed between yields (indexer's `WALK_YIELD_EVERY`). */
   yieldEvery: number;
+  /** Also yield when this many ms passed since the last yield (slow filesystems). */
+  yieldMaxMs?: number;
   /** The yield itself (indexer's `yieldToEventLoop`; injectable for tests). */
   yieldFn: () => Promise<void>;
 }
@@ -267,10 +269,14 @@ export async function loadGitignoreMatcherYielding(walkRoot: string, opts: Yield
   const { step, matcher } = createLoader(walkRoot, opts);
   const stack = [walkRoot];
   let visited = 0;
+  let last = performance.now();
   while (stack.length) {
     const children = step(stack.pop() as string);
     for (let i = children.length - 1; i >= 0; i--) stack.push(children[i]);
-    if (++visited % opts.yieldEvery === 0) await opts.yieldFn();
+    if (++visited % opts.yieldEvery === 0 || (opts.yieldMaxMs !== undefined && performance.now() - last >= opts.yieldMaxMs)) {
+      await opts.yieldFn();
+      last = performance.now();
+    }
   }
   return matcher;
 }
