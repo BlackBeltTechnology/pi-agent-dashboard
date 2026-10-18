@@ -12,7 +12,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuditRing } from "../audit.js";
 import type { OperatorHostInfo } from "../operator-hosts.js";
 import type { ProfileListResult } from "../profiles.js";
-import type { BrowserProfileConfig, ConnectResult, RelayConfig, RelayLike } from "../relay/relay-manager.js";
+import type {
+  BrowserProfileConfig,
+  ConnectResult,
+  DedicatedConnectResult,
+  DedicatedOpenResult,
+  DedicatedResetResult,
+  DedicatedStatusBody,
+  RelayConfig,
+  RelayLike,
+} from "../relay/relay-manager.js";
 import { type BrowserRoutesManager, registerBrowserRoutes } from "../routes.js";
 
 class StubInstance implements RelayLike {
@@ -91,6 +100,20 @@ class StubManager implements BrowserRoutesManager {
   profileConfig(profileDirectory: string): BrowserProfileConfig {
     return { token: this.tokens[profileDirectory] };
   }
+  // Dedicated agent browser: exercised against the real manager in routes-dedicated.test.ts.
+  async connectDedicated(): Promise<DedicatedConnectResult> {
+    return { ok: false, status: 503, reason: "no-chrome" };
+  }
+  async openDedicated(): Promise<DedicatedOpenResult> {
+    return { ok: false, status: 503, reason: "no-chrome" };
+  }
+  async stopDedicated(): Promise<void> {}
+  async resetDedicated(): Promise<DedicatedResetResult> {
+    return { ok: true };
+  }
+  async dedicatedStatus(): Promise<DedicatedStatusBody | undefined> {
+    return undefined;
+  }
 }
 
 interface Harness {
@@ -144,7 +167,21 @@ describe("GET /api/browser/status", () => {
   it("reports enabled + canOpenChrome", async () => {
     const res = await h.app.inject({ method: "GET", url: "/api/browser/status" });
     expect(res.statusCode).toBe(200);
-    expect(json(res)).toEqual({ enabled: true, canOpenChrome: true, operatorHosts: true });
+    // Spec delta add-dedicated-agent-browser: `status` also carries the effective Agent browsing `settings`
+    // (and `dedicated` when wired — the stub manager has none).
+    expect(json(res)).toEqual({
+      enabled: true,
+      canOpenChrome: true,
+      operatorHosts: true,
+      settings: {
+        defaultBrowser: "@dedicated",
+        onUnavailable: "ask",
+        idleDisconnectMinutes: 30,
+        allowMultipleInstancesPerProfile: false,
+        openLiveViewOnConnect: true,
+        allowedDomains: [],
+      },
+    });
   });
 });
 

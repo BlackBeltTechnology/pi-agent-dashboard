@@ -43,3 +43,4 @@ Dashboard config loader. `loadConfig()` reads `~/.pi/dashboard/config.json` via 
 `piTrustMirror` config group: `PiTrustMirrorConfig`, `DEFAULT_PI_TRUST_MIRROR`, `parsePiTrustMirror` (enabled true, coverInteractive false, sources all on except accessGrants). See change: mirror-dashboard-trust-to-pi.
 
 `OpenSpecPollConfig.workflowSchema: { defaultForNewProjects: boolean }` (default `false`; `DEFAULT_OPENSPEC_POLL`); `parseOpenSpecPollConfig` accepts booleans only, else default. Read by project-init skill + init route. See change: add-pi-spec-driven-schema.
+`NetworkConfig {trustMode?, trustModeOrigin?}` string passthrough in `DashboardConfig.network`. Types `TrustMode` (`pair`|`legacy`), `TrustModeOrigin`, `ResolvedTrustMode`. `resolveTrustMode(config)` → `{mode: pair|legacy|null, origin, unrecognised}`: absent → `mode:null`; unknown value → `pair` fail-closed + `unrecognised`; no origin → `operator`. See change: retire-trusted-networks-bypass.

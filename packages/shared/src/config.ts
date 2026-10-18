@@ -143,6 +143,56 @@ export interface IdentityConfig {
   policyTimeoutMs: number;
 }
 
+/** How a network match (`trustedNetworks` / `auth.bypassHosts`) is treated. See change: retire-trusted-networks-bypass. */
+export type TrustMode = "pair" | "legacy";
+/** Who decided the stored mode: the one-time boot decision or an operator write. */
+export type TrustModeOrigin = "upgrade" | "operator";
+
+/**
+ * `network` config block. Both fields are STRING passthrough at parse time: an
+ * unrecognised `trustMode` must survive a load/save round trip untouched and be
+ * judged by {@link resolveTrustMode} (fail closed), never silently dropped.
+ * See change: retire-trusted-networks-bypass (design D2).
+ */
+export interface NetworkConfig {
+  trustMode?: string;
+  trustModeOrigin?: string;
+}
+
+/** Result of {@link resolveTrustMode}. `mode: null` = no stored value at all. */
+export interface ResolvedTrustMode {
+  /** The effective mode, or `null` when nothing is stored (the caller supplies the fallback). */
+  mode: TrustMode | null;
+  /** `null` for an unrecognised stored value or when nothing is stored. */
+  origin: TrustModeOrigin | null;
+  /** The stored value when present but unrecognised, else `null`. */
+  unrecognised: string | null;
+}
+
+/**
+ * Read the trust mode out of a config. Absent → `{ mode: null }`;
+ * present-but-unrecognised → `pair` (fail closed) with the offending value
+ * reported; a stored mode without an origin (a hand edit) reads `operator`.
+ */
+export function resolveTrustMode(config: { network?: NetworkConfig } | null | undefined): ResolvedTrustMode {
+  const raw = config?.network?.trustMode;
+  if (raw === undefined || raw === null) return { mode: null, origin: null, unrecognised: null };
+  if (raw === "pair" || raw === "legacy") {
+    return { mode: raw, origin: config?.network?.trustModeOrigin === "upgrade" ? "upgrade" : "operator", unrecognised: null };
+  }
+  return { mode: "pair", origin: null, unrecognised: String(raw) };
+}
+
+function parseNetworkConfig(raw: any): NetworkConfig | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const out: NetworkConfig = {};
+  // Any stored value passes through (stringified): a hand-edited `true` / `1` must
+  // read as UNRECOGNISED (fail closed to `pair`), not as "nothing stored" (`legacy`).
+  if (raw.trustMode !== undefined && raw.trustMode !== null) out.trustMode = String(raw.trustMode);
+  if (typeof raw.trustModeOrigin === "string") out.trustModeOrigin = raw.trustModeOrigin;
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 export interface AuthConfig {
   secret: string;
   providers: Record<string, AuthProviderConfig>;
@@ -967,6 +1017,11 @@ export interface DashboardConfig {
   bridge: BridgeActivationConfig;
   /** Networks trusted for full access without authentication (CIDR, wildcard, exact IP) */
   trustedNetworks: string[];
+  /**
+   * Trust mode block. Absent until the boot decision writes it.
+   * See change: retire-trusted-networks-bypass.
+   */
+  network?: NetworkConfig;
   /**
    * Strict local proof. When true, bare loopback admits only `observe`-tier REST
    * routes; control/operate routes and WebSockets need the local-proof cookie
@@ -2328,6 +2383,7 @@ export function loadConfig(): DashboardConfig {
         : defaults.allowedHosts,
       hostGate: { mode: parseHostGateMode(parsed.hostGate?.mode) },
       trustedNetworks: parseTrustedNetworks(parsed.trustedNetworks),
+      ...(parseNetworkConfig(parsed.network) ? { network: parseNetworkConfig(parsed.network) } : {}),
       requireLocalProof: parsed.requireLocalProof === true,
       resolvedTrustedNetworks: [],
       cors: {

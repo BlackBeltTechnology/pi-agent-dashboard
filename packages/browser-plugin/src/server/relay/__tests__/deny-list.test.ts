@@ -8,6 +8,7 @@ import {
   ALWAYS_DENIED_METHODS,
   deniedMethod,
   denyError,
+  effectiveAllowedDomains,
   hostAllowed,
 } from "../deny-list.js";
 
@@ -116,5 +117,37 @@ describe("allowedDomains decision table (E14)", () => {
   it("is case-insensitive on the host and tolerant of a malformed entry", () => {
     expect(hostAllowed("github.com", ["GitHub.COM"])).toBe(true);
     expect(hostAllowed("github.com", ["", "  "])).toBe(false);
+  });
+});
+
+/**
+ * #E12 (pure half) — effective allowed domains: profile list when non-empty,
+ * else global. See change: add-dedicated-agent-browser (tasks 4.4, 9.12).
+ */
+describe("effectiveAllowedDomains + deniedMethod (E12)", () => {
+  const nav = { url: "https://example.com/" };
+  const decide = (global: string[], profile: string[]) =>
+    deniedMethod("Page.navigate", nav, effectiveAllowedDomains(profile, global));
+
+  it("([], []) → allowed", () => {
+    expect(decide([], [])).toBeNull();
+  });
+
+  it("(global [github.com], profile []) → denied", () => {
+    expect(decide(["github.com"], [])).toBe("Page.navigate");
+  });
+
+  it("(global [github.com], profile [example.com]) → allowed (profile overrides)", () => {
+    expect(decide(["github.com"], ["example.com"])).toBeNull();
+  });
+
+  it("dedicated (no profile list) uses global only: ([example.com]→allowed, [github.com]→denied)", () => {
+    expect(deniedMethod("Page.navigate", nav, effectiveAllowedDomains([], ["example.com"]))).toBeNull();
+    expect(deniedMethod("Page.navigate", nav, effectiveAllowedDomains(undefined, ["github.com"]))).toBe("Page.navigate");
+  });
+
+  it("returns [] for missing / malformed lists", () => {
+    expect(effectiveAllowedDomains(undefined, undefined)).toEqual([]);
+    expect(effectiveAllowedDomains([], "x" as unknown as string[])).toEqual([]);
   });
 });

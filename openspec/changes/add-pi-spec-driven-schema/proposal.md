@@ -31,6 +31,7 @@ A spike in a scratch copy confirmed that fork → patch → `schema validate` �
 - **Schema status outside readiness.** It is reported as `OpenSpecData.workflowSchema` (`configured`, `generated`, `missing`, `unpinnedChanges`), separately from readiness. Readiness and every readiness-gated control are unchanged. Notices appear in Settings → OpenSpec and as a non-blocking chip in the folder section.
 - **Global default for new projects.** Setting `openspec.workflowSchema.defaultForNewProjects` runs enable only after a dashboard-performed init of a directory that had no `openspec/` (project-init `offer`, or REST init of a fresh dir). It never runs on repair or overwrite.
 - **R1/R2/R3 scope.** These promote rules are skipped only for changes whose `schemaName` is `pi-spec-driven`, in both the dashboard and `effective-status.sh`; every other schema keeps them.
+- **UX design (retro mockup, approved 2026-10-18).** Mockup: mockups/ (in this change) — `ui-plan.md`, board `workflow-schema.html`, `audit.md` with measurements and the approval. Project cards with a status pill, a plain sentence and one recommended action (others in a More actions menu), per-action confirmation dialogs, result callouts that remind the dashboard never commits, a severity-pill folder chip. Remove is no longer offered while the config names the schema. Also fixes the shared `Dialog.Action` primary fill app-wide (`--accent-primary` 3.68:1 → `--accent-solid`).
 - **Settings section.** A new "OpenSpec Workflow Schema" section holds the `defaultForNewProjects` switch (saved via the Save Bar) and the per-cwd Enable / Disable / Update / Adopt / Pin / Remove actions, each confirmed with the list of paths to write. The folder-section chip only links there.
 
 ## Capabilities
@@ -45,6 +46,8 @@ A spike in a scratch copy confirmed that fork → patch → `schema validate` �
 - `settings-panel`: new "OpenSpec Workflow Schema" section.
 - `openspec-detection`: the dashboard and `effective-status.sh` both gate R1/R2/R3 on `schemaName`, so they keep agreeing; the design-evidence requirement is scoped the same way.
 - `server-openspec-polling`: the `status --all` poll skips the design override for `pi-spec-driven` changes.
+- `dialog-system`: the `Dialog.Action` primary intent fills with `--accent-solid` (contrast fix found by the UX review; every dialog).
+- `confirm-dialog`: the `Confirm` primary intent follows the same fill.
 - `project-init-skill`: applies the workflow schema after init in `offer` mode only, when the global default is on, disclosed in its preview.
 
 ## Dependencies
@@ -65,7 +68,7 @@ A spike in a scratch copy confirmed that fork → patch → `schema validate` �
 - **Skills.**
   - `.pi/skills/openspec-shared/scripts/effective-status.sh` (schema gate).
   - `packages/extension/.pi/skills/project-init/SKILL.md` (post-init step).
-- **Client.** Settings → OpenSpec section (`OpenSpecProfileSection.tsx` area) and the folder-section notice chip.
+- **Client.** Settings → OpenSpec section (`OpenSpecProfileSection.tsx` area) and the folder-section notice chip, per the approved mockup; the shared `Dialog.Action` in `packages/client-utils` (primary fill).
 - **Writes into user repos**, only on explicit actions:
   - `openspec/schemas/pi-spec-driven/**`
   - `openspec/config.yaml`

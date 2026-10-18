@@ -81,6 +81,10 @@ Creates the pi-trust-mirror service, boot snapshot rebuild, change listeners, `h
 
 One `knockPeerDeps: KnockPeerDeps = {hostAdmission: () => getHostGateCtx().admission, getLanInterfaces: createLanInterfaceProvider({bindHost: config.host})}` built before `registerServiceRoutes`. Pairing routes read `hostAdmission`/`getLanInterfaces` from it; `requestAccessAvailable = createRequestAccessAvailable(knockPeerDeps, localTrust)` passed to `registerServiceRoutes` + `registerVaultRoutes`. Exactly one `createLanInterfaceProvider(` call (`request-access-wiring.test.ts`).
 
+## retire-trusted-networks-bypass
+
+`decideBootTrustMode()` first in `createServer`. `admissionList` thunk (`admissionTrustedNetworks`) wired to every admission site: auth plugin, route-tier gate, `networkGuard`, universal hook, session API/services `getTrustedNetworks`, WS upgrade. Network denial observer returns early in `pair`. `createNetworkPlane({networkTrustActive})`. Live capability hook registered BEFORE bearer/OAuth/identity hooks. `liveCapabilities` store (`LiveCapabilityStore`, liveness re-checked at use). Live WS upgrade validates capability from the path.
+
 `createSessionArchive({... deleteEvents})` wires `deleteEvents` to `eventStore.deleteEventsForSession` (lazy closure; `eventStore` is built later) for fileless/superseded eviction. See change: fix-orphaned-ended-session-archive.
 
 OpenSpec routes deps gain `getOpenSpecConfig: () => loadConfig().openspec` (live per-request gates + new-project default) and `spawnSemaphore: createSemaphore(loadConfig().openspec.maxConcurrentSpawns)` (own bounded pool for workflow-schema validate; directory service's semaphore not exposed). See change: add-pi-spec-driven-schema.

@@ -7,3 +7,7 @@ Disconnection banner: appears only after active WebSocket has been non-`OPEN` fo
 ## add-request-access-remedy
 
 `requestAccess` uses `requestAccessTarget(apiBase, window.location.origin)` from `lib/pairing/request-access-target.ts`; `window.open(href,"_blank","noopener")` / `location.assign(href)` unchanged.
+
+## retire-trusted-networks-bypass
+
+Denied bar follows this tab's knock (`lib/pairing/knock-state.ts`, `useKnockView`, 1 s tick only while a countdown shows): idle ⇒ warning tokens, `network-denied-banner`, hint verbatim; pending ⇒ info tokens, `network-denied-request-pending` ("Waiting for approval on {host}. Type 4821 7730 there…", countdown); refused ⇒ error tokens, `network-denied-request-refused`, shared `knockRefusalCopy` reason. Request access stays the primary (`--accent-solid`), Settings → Servers secondary in every state. Offline banner unchanged. See change: retire-trusted-networks-bypass.

@@ -26,7 +26,13 @@
  */
 import crypto from "node:crypto";
 import type { AuditRing } from "../audit.js";
+import type { DedicatedAvailability } from "../capability.js";
 import { buildConnectUrl, openChromeProfile } from "../connect.js";
+import type { DedicatedChrome } from "../dedicated/chrome-process.js";
+import { DedicatedChromeError } from "../dedicated/chrome-process.js";
+import { checkOpenUrl } from "../dedicated/dedicated-deny.js";
+import { DEDICATED_PROFILE, type DedicatedHolder, DedicatedInstance } from "../dedicated/dedicated-instance.js";
+import { type HiddenTargets, openHiddenTab as openHiddenTabOnPipe } from "../dedicated/hidden-targets.js";
 import { type HostBinding, OperatorHostRegistry, type OperatorHostsDeps, safeHostId } from "../operator-hosts.js";
 import type { ProfileSource } from "../profiles.js";
 import { type RelaySocket, WS_OPEN } from "./extension-socket.js";
@@ -36,6 +42,8 @@ import type { RelayInstance, RelayLogger, RelayTabView, RelayTimers } from "./re
 import { RelayInstance as RelayInstanceClass } from "./relay-instance.js";
 
 const CONNECT_TIMEOUT_MS = 60_000;
+/** A dedicated instance whose CDP client never attaches closes after this long (D4). */
+const DEDICATED_NO_CLIENT_MS = 30_000;
 const GUID_EXPIRY_MS = 60_000;
 /** Operator consent window (the host's dialog auto-denies at 55 s). */
 const CONSENT_TIMEOUT_MS = 60_000;
@@ -62,6 +70,12 @@ export interface RelayConfig {
   enabled?: boolean;
   allowMultipleInstancesPerProfile?: boolean;
   defaultBrowser?: string;
+  /** Agent-browsing settings (change: add-dedicated-agent-browser, D6). */
+  realProfile?: string;
+  onUnavailable?: "ask" | "next" | "stop";
+  idleDisconnectMinutes?: 0 | 5 | 30 | 120;
+  openLiveViewOnConnect?: boolean;
+  allowedDomains?: string[];
   browsers?: Record<string, BrowserProfileConfig>;
 }
 
@@ -101,6 +115,11 @@ export interface RelayManagerDeps {
   onTabMetaChange?(): void;
   /** Fired when an instance is removed (close / expiry). See change: add-browser-editor-pane-tab. */
   onInstanceClosed?(instanceId: string): void;
+  /**
+   * An AGENT-created tab appeared on a live instance (relay or dedicated): live
+   * view on connect. Never fired for hidden sign-in tabs. See change: add-dedicated-agent-browser (D7).
+   */
+  onAgentTabCreated?(instanceId: string, tabId: number): void;
   timers?: RelayTimers;
   connectTimeoutMs?: number;
   guidExpiryMs?: number;
@@ -118,6 +137,61 @@ export interface RelayManagerDeps {
   consentTimeoutMs?: number;
   randomLinkId?(): string;
   randomRequestId?(): string;
+  /** Dedicated agent browser (change: add-dedicated-agent-browser). */
+  dedicated?: DedicatedDeps;
+}
+
+/** Dedicated agent browser wiring (change: add-dedicated-agent-browser, D4). Absent ⇒ dedicated is unavailable. */
+export interface DedicatedDeps {
+  /** The ONE supervisor of the dashboard-owned Chrome. */
+  chrome: DedicatedChrome;
+  /** The ONE hidden-target registry, shared by every instance and the standalone open. */
+  hidden: HiddenTargets;
+  availability(): DedicatedAvailability;
+  /** No-CDP-client timer (default 30 s). */
+  noClientMs?: number;
+}
+
+export type DedicatedFailReason =
+  | "disabled"
+  | "busy"
+  | "no-chrome"
+  | "no-display"
+  | "profile-in-use"
+  | "launch-failed"
+  | "owned-by-other-server"
+  | "url-denied"
+  | "open-failed";
+
+export type DedicatedConnectResult =
+  | { ok: true; cdpUrl: string; instanceId: string }
+  | {
+      ok: false;
+      status: 403 | 409 | 503;
+      reason: DedicatedFailReason;
+      instanceId?: string;
+      /** `busy` only: the holder's `sessionId` (browser_connect) or `client` label (REST). */
+      holder?: string;
+      message?: string;
+    };
+
+export type DedicatedOpenResult =
+  | { ok: true; targetId: string }
+  | { ok: false; status: 400 | 403 | 409 | 503; reason: DedicatedFailReason; message?: string };
+
+export type DedicatedResetResult = { ok: true } | { ok: false; status: 409; reason: "not-stopped"; message: string };
+
+/** `GET /status` `dedicated` block. */
+export interface DedicatedStatusBody {
+  available: boolean;
+  reason?: "no-chrome" | "no-display";
+  state: "not-created" | "stopped" | "starting" | "running";
+  dataDir: string;
+  downloadsDir: string;
+  sizeBytes?: number;
+  lastUsed?: number;
+  instanceId?: string;
+  holder?: DedicatedHolder;
 }
 
 export type ConnectResult =
@@ -221,6 +295,8 @@ export class RelayManager {
       onHostGone: (hostId, socket) => this._onHostGone(hostId, socket),
       hasActivity: (hostId) => this._hostEntries(hostId).length > 0,
     });
+    // Chrome's exit ends every server-owned hidden target (they die with it).
+    deps.dedicated?.hidden.bindChrome(deps.dedicated.chrome);
   }
 
   get enabled(): boolean {
@@ -251,11 +327,16 @@ export class RelayManager {
   }
 
   /** Resolve a live guid to its instance (used by both relay endpoints). */
-  resolve(guid: string): { instance: RelayLike; claimed: boolean; operator: boolean } | undefined {
+  resolve(guid: string): { instance: RelayLike; claimed: boolean; operator: boolean; dedicated: boolean } | undefined {
     if (!isValidGuid(guid)) return undefined;
     const entry = this.byGuid.get(guid);
     return entry
-      ? { instance: entry.instance, claimed: entry.claimed, operator: entry.hostLink !== undefined }
+      ? {
+          instance: entry.instance,
+          claimed: entry.claimed,
+          operator: entry.hostLink !== undefined,
+          dedicated: entry.instance instanceof DedicatedInstance,
+        }
       : undefined;
   }
 
@@ -372,11 +453,241 @@ export class RelayManager {
     }
     this.disableEpoch += 1;
     for (const entry of [...this.byInstanceId.values()]) entry.instance.close("disabled");
+    // The dedicated Chrome exits BEFORE the response: `Browser.close`, then the group kill after the grace.
+    await this._stopChrome();
   }
 
-  /** Tear everything down (server shutdown / plugin disable). */
+  /** Tear everything down (server shutdown / plugin disable). Also asks the dedicated Chrome to exit. */
   closeAll(reason = "shutdown"): void {
     for (const entry of [...this.byInstanceId.values()]) entry.instance.close(reason);
+    void this._stopChrome();
+  }
+
+  private async _stopChrome(): Promise<void> {
+    const chrome = this.deps.dedicated?.chrome;
+    if (!chrome) return;
+    try {
+      await chrome.stop();
+    } catch (err) {
+      this.deps.logger.warn("[browser-relay] dedicated Chrome stop failed", (err as Error).message);
+    }
+  }
+
+  // ── Dedicated agent browser (change: add-dedicated-agent-browser, D4/D11) ──
+
+  /** Live global `allowedDomains` (read per command: a settings change applies without reconnecting). */
+  private globalAllowedDomains(): readonly string[] {
+    const list = this.deps.getConfig().allowedDomains;
+    return Array.isArray(list) ? list.filter((d): d is string => typeof d === "string") : [];
+  }
+
+  /** The live dedicated instance, if any (at most one). */
+  liveDedicated(): DedicatedInstance | undefined {
+    for (const entry of this.byInstanceId.values()) if (entry.instance instanceof DedicatedInstance) return entry.instance;
+    return undefined;
+  }
+
+  /** Epoch ms of the last client command / viewer input of a live instance; `undefined` when it keeps none. */
+  activityOf(instanceId: string): number | undefined {
+    const last = (this.byInstanceId.get(instanceId)?.instance as { lastActivity?: unknown } | undefined)?.lastActivity;
+    return typeof last === "number" ? last : undefined;
+  }
+
+  /** Map a launch error to a connect/open refusal. */
+  private _launchFailure(err: unknown): { status: 409 | 503; reason: DedicatedFailReason; message: string } {
+    if (err instanceof DedicatedChromeError) {
+      if (err.code === "owned-by-other-server") return { status: 409, reason: "owned-by-other-server", message: err.message };
+      if (err.code === "profile-in-use") return { status: 503, reason: "profile-in-use", message: err.message };
+      return { status: 503, reason: "launch-failed", message: err.message };
+    }
+    return { status: 503, reason: "launch-failed", message: "dedicated Chrome failed to start" };
+  }
+
+  /** Availability + enabled gate shared by connect and open. */
+  private _dedicatedGate(): { ok: true; ded: DedicatedDeps } | { ok: false; status: 403 | 503; reason: DedicatedFailReason } {
+    if (!this.enabled) return { ok: false, status: 403, reason: "disabled" };
+    const ded = this.deps.dedicated;
+    if (!ded) return { ok: false, status: 503, reason: "no-chrome" };
+    const av = ded.availability();
+    if (!av.available) return { ok: false, status: 503, reason: av.reason ?? "no-chrome" };
+    return { ok: true, ded };
+  }
+
+  /** `holder` as the 409 body names it. */
+  private static _holderLabel(holder: DedicatedHolder | undefined): string | undefined {
+    return holder?.sessionId ?? holder?.client;
+  }
+
+  /**
+   * Mint a dedicated instance: ensure Chrome (single-flight), register under
+   * `@dedicated`, start the 30 s no-client timer. No handshake — the agent's CDP
+   * client dials `cdpUrl` itself.
+   */
+  async connectDedicated(opts: { client?: string; holder?: DedicatedHolder } = {}): Promise<DedicatedConnectResult> {
+    const gate = this._dedicatedGate();
+    if (!gate.ok) return gate;
+    const ded = gate.ded;
+    // Same epoch rule as `connect()`: a kill switch that completed while Chrome
+    // was starting must not be overtaken by this connect.
+    const epoch = this.disableEpoch;
+    const disabledSince = (): boolean => !this.enabled || this.disableEpoch !== epoch;
+
+    const busy = (live: DedicatedInstance): DedicatedConnectResult => ({
+      ok: false,
+      status: 409,
+      reason: "busy",
+      instanceId: live.instanceId,
+      ...(RelayManager._holderLabel(live.holder) ? { holder: RelayManager._holderLabel(live.holder) } : {}),
+    });
+    const early = this.liveDedicated();
+    if (early) return busy(early);
+
+    try {
+      await ded.chrome.ensureRunning();
+    } catch (err) {
+      if (disabledSince()) return { ok: false, status: 403, reason: "disabled" };
+      const f = this._launchFailure(err);
+      this.deps.logger.warn(`[browser-relay] dedicated connect refused reason=${f.reason}`);
+      return { ok: false, ...f };
+    }
+    if (disabledSince()) {
+      await this._stopChrome();
+      return { ok: false, status: 403, reason: "disabled" };
+    }
+    // A concurrent connect may have registered while Chrome was starting.
+    const raced = this.liveDedicated();
+    if (raced) return busy(raced);
+
+    const holder: DedicatedHolder | undefined =
+      opts.holder ?? (opts.client !== undefined ? { client: opts.client } : undefined);
+    const guid = this.randomGuid();
+    const instanceId = this.randomInstanceId();
+    const instance = new DedicatedInstance({
+      instanceId,
+      chrome: ded.chrome,
+      hidden: ded.hidden,
+      globalAllowedDomains: () => this.globalAllowedDomains(),
+      audit: this.deps.audit,
+      logger: this.deps.logger,
+      timers: this.timers,
+      holder,
+      onClosed: (reason) => {
+        const entry = this.byInstanceId.get(instanceId);
+        if (!entry) return;
+        entry.closeReason = reason;
+        this._remove(entry);
+      },
+      onStatusChange: () => this.deps.onStatusChange(),
+      onTabMetaChange: () => (this.deps.onTabMetaChange ?? this.deps.onStatusChange)(),
+      onAgentTabCreated: (tabId) => this.deps.onAgentTabCreated?.(instanceId, tabId),
+    });
+    const entry: Entry = { guid, instance, claimed: true };
+    this.byGuid.set(guid, entry);
+    this.byInstanceId.set(instanceId, entry);
+    // Chrome stays up when the instance dies; only the slot is released.
+    entry.expiryTimer = this.timers.setTimeout(() => {
+      entry.expiryTimer = undefined;
+      if (!instance.hasCdpClient) instance.closeWithDetach("no-cdp-client");
+    }, ded.noClientMs ?? DEDICATED_NO_CLIENT_MS);
+    this.deps.onStatusChange();
+    this.deps.logger.info(`[browser-relay] instance ${DEDICATED_PROFILE} open (dedicated connect)`);
+    return { ok: true, cdpUrl: `ws://127.0.0.1:${this.deps.getPort()}/ws/browser-cdp/${guid}`, instanceId };
+  }
+
+  /**
+   * `dedicated/open`: a hidden, server-owned tab (sign-in window). `https:` only
+   * and the effective allowed domains, else 400 before anything starts.
+   */
+  async openDedicated(url: string): Promise<DedicatedOpenResult> {
+    const gate = this._dedicatedGate();
+    if (!gate.ok) return gate;
+    const ded = gate.ded;
+    const check = checkOpenUrl(url, this.globalAllowedDomains());
+    if (!check.ok) return { ok: false, status: 400, reason: "url-denied", message: check.reason };
+    const epoch = this.disableEpoch;
+    const disabledSince = (): boolean => !this.enabled || this.disableEpoch !== epoch;
+
+    try {
+      await ded.chrome.ensureRunning();
+    } catch (err) {
+      if (disabledSince()) return { ok: false, status: 403, reason: "disabled" };
+      const f = this._launchFailure(err);
+      return { ok: false, ...f };
+    }
+    if (disabledSince()) {
+      await this._stopChrome();
+      return { ok: false, status: 403, reason: "disabled" };
+    }
+    try {
+      const live = this.liveDedicated();
+      if (live) return { ok: true, ...(await live.openHiddenTab(url)) }; // audits `open`, stamps lastUsed
+      ded.chrome.touch();
+      const opened = await openHiddenTabOnPipe(ded.chrome, ded.hidden, url);
+      // No instance to audit through: the open is audited here, exactly once.
+      this.deps.audit.append({ profileDirectory: DEDICATED_PROFILE, instanceId: "dedicated", kind: "open", detail: url });
+      return { ok: true, ...opened };
+    } catch (err) {
+      this.deps.logger.warn("[browser-relay] dedicated open failed", (err as Error).message);
+      return { ok: false, status: 503, reason: "open-failed", message: "could not open the sign-in tab" };
+    }
+  }
+
+  /** `dedicated/stop`: close the live instance, then the Chrome (graceful, 5 s, group kill). */
+  async stopDedicated(): Promise<void> {
+    this.liveDedicated()?.close("dedicated-stop");
+    await this._stopChrome();
+  }
+
+  /** `dedicated/reset`: delete the profile; only while Chrome is stopped. */
+  async resetDedicated(): Promise<DedicatedResetResult> {
+    const chrome = this.deps.dedicated?.chrome;
+    if (!chrome) return { ok: true };
+    if (this.liveDedicated()) return { ok: false, status: 409, reason: "not-stopped", message: "stop the dedicated browser first" };
+    try {
+      await chrome.reset();
+      return { ok: true };
+    } catch (err) {
+      if (err instanceof DedicatedChromeError && err.code === "not-stopped") {
+        return { ok: false, status: 409, reason: "not-stopped", message: err.message };
+      }
+      throw err;
+    }
+  }
+
+  /** The `GET /status` `dedicated` block; `undefined` when the plugin has no dedicated wiring. */
+  async dedicatedStatus(): Promise<DedicatedStatusBody | undefined> {
+    const ded = this.deps.dedicated;
+    if (!ded) return undefined;
+    const av = ded.availability();
+    const live = this.liveDedicated();
+    const sizeBytes = await ded.chrome.sizeBytes();
+    const lastUsed = ded.chrome.lastUsed;
+    return {
+      available: av.available,
+      ...(av.reason ? { reason: av.reason } : {}),
+      state: ded.chrome.state(),
+      dataDir: ded.chrome.dataDir,
+      downloadsDir: ded.chrome.downloadsDir,
+      ...(sizeBytes !== undefined ? { sizeBytes } : {}),
+      ...(lastUsed !== undefined ? { lastUsed } : {}),
+      ...(live ? { instanceId: live.instanceId } : {}),
+      ...(live?.holder ? { holder: { ...live.holder } } : {}),
+    };
+  }
+
+  /** The slice of dedicated status the `browser_connect` policy reads (sync, no I/O). */
+  dedicatedPolicyStatus(): { available: boolean; reason?: string; instanceId?: string; holder?: string } {
+    if (!this.enabled) return { available: false, reason: "disabled" };
+    const ded = this.deps.dedicated;
+    if (!ded) return { available: false, reason: "no-chrome" };
+    const av = ded.availability();
+    const live = this.liveDedicated();
+    return {
+      available: av.available,
+      ...(av.reason ? { reason: av.reason } : {}),
+      ...(live ? { instanceId: live.instanceId } : {}),
+      ...(live?.holder?.sessionId ? { holder: live.holder.sessionId } : {}),
+    };
   }
 
   /** Seed the test-only fake instance (PI_BROWSER_RELAY_FAKE=1). */
@@ -409,10 +720,12 @@ export class RelayManager {
       instanceId,
       profileDirectory,
       allowedDomains,
+      globalAllowedDomains: () => this.globalAllowedDomains(),
       audit: this.deps.audit,
       logger: this.deps.logger,
       timers: this.timers,
       operator,
+      onAgentTabCreated: (tabId) => this.deps.onAgentTabCreated?.(instanceId, tabId),
       onClosed: (reason) => {
         const entry = this.byInstanceId.get(instanceId);
         if (!entry) return;

@@ -30,7 +30,9 @@ import {
   sameReachability,
 } from "../auth/bind-reachability-service.js";
 import { canDiscloseAccessPosture, localhostGuard, loopbackCoveringEntries } from "../auth/localhost-guard.js";
+import { networkOnlySnapshot } from "../auth/network-trust-telemetry.js";
 import { getRegistryError } from "../auth/provider-auth-registry.js";
+import { effectiveTrustMode } from "../auth/trust-mode.js";
 import { deleteAuthProvider, readConfigRedacted, writeConfigPartial } from "../config-api.js";
 import type { DirectoryService } from "../directory-service.js";
 import {
@@ -518,6 +520,16 @@ export function registerSystemRoutes(
     "/api/tunnel/block-events",
     { preHandler: networkGuard },
     async (request, reply) => {
+      // Accept-to-trust exists only in `legacy`: in `pair` a network match grants
+      // nothing, so there is nothing to accept (the denied device pairs instead).
+      // See change: retire-trusted-networks-bypass (D6).
+      if (effectiveTrustMode().mode === "pair") {
+        return reply.code(403).send({
+          success: false,
+          error: "not_acceptable",
+          reason: "Network trust is off (pair mode) — the denied device must request access instead.",
+        });
+      }
       const ip = request.body?.ip;
       if (typeof ip !== "string" || ip.length === 0) {
         return reply.code(400).send({ success: false, error: "ip required" });
@@ -568,6 +580,20 @@ export function registerSystemRoutes(
         if (!check.ok) {
           return reply.code(400).send({ success: false, error: check.errors.join("; ") });
         }
+      }
+      // `network.trustMode` is a security switch: only the two known values may
+      // be WRITTEN (a hand-edited unknown value is judged fail-closed at read).
+      // See change: retire-trusted-networks-bypass.
+      if ("network" in partial && (partial.network === null || typeof partial.network !== "object" || Array.isArray(partial.network))) {
+        return reply.code(400).send({ success: false, error: "network must be an object" });
+      }
+      if (
+        partial.network !== undefined &&
+        "trustMode" in partial.network &&
+        partial.network.trustMode !== "pair" &&
+        partial.network.trustMode !== "legacy"
+      ) {
+        return reply.code(400).send({ success: false, error: 'network.trustMode must be "pair" or "legacy"' });
       }
       // `pairing.acceptLanRequests` is a security switch: boolean only, never
       // coerced. See change: add-lan-knock-pairing.
@@ -1075,11 +1101,26 @@ export function registerSystemRoutes(
     // Inert-entry flag: a loopback entry in trustedNetworks/bypassHosts never
     // admits tunnel traffic. Same disclosure gate as `accessGrants`.
     // See change: fix-trusted-network-tunnel-bypass (D3).
-    let trustPosture: { trustedHasLoopback: boolean } | null = null;
+    // Also carries the effective trust mode and the in-memory network-only
+    // admission counters (counts only — never a peer address). Zeroed in `pair`,
+    // where no network-only admission can occur.
+    // See change: retire-trusted-networks-bypass (D4).
+    let trustPosture: {
+      trustedHasLoopback: boolean;
+      trustMode: "pair" | "legacy";
+      trustModeOrigin: "upgrade" | "operator" | null;
+      networkOnly: { admissions: number; distinctPeers: number; lastAt: number | null };
+    } | null = null;
     if (canDiscloseAccessPosture(request)) {
       try {
         const trusted = readTrustedNetworks?.() ?? config.resolvedTrustedNetworks ?? [];
-        trustPosture = { trustedHasLoopback: loopbackCoveringEntries(trusted).length > 0 };
+        const { mode, origin } = effectiveTrustMode();
+        trustPosture = {
+          trustedHasLoopback: loopbackCoveringEntries(trusted).length > 0,
+          trustMode: mode,
+          trustModeOrigin: origin,
+          networkOnly: mode === "pair" ? { admissions: 0, distinctPeers: 0, lastAt: null } : networkOnlySnapshot(),
+        };
       } catch { /* keep null */ }
     }
     // Push errors name local config (file paths, missing keys): same

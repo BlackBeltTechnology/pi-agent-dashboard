@@ -35,3 +35,5 @@ Gains browser-E2E baseline section: #683 quarantine re-derive commands, cluster 
 ## Change history (moved from docs/AGENTS.md row)
 
 See change: add-acp-session-driver, electron-runtime-overlay-updates, update-pi-core-1-0-adopt-apis, migrate-mcp-to-pi-builtin. host-gate default enforce; pairing revoke/approve operator-only. See change: harden-server-request-surfaces. `local_proof_required` FAQ. See change: harden-trust-and-credential-boundaries. Plugin-config partial write keeps omitted keys. See change: fix-plugin-config-partial-write. Gains TS-loader FAQ: PI_DASHBOARD_TS_LOADER no-longer-supported + booted-under-jiti warns → pi-dashboard stop && pi-dashboard start. See change: strip-only-native-ts-loader.
+
+Gains LAN trust-mode FAQ: `network.trustMode` `pair`/`legacy` decision at first boot, `pair` knock eligibility, `legacy` network-only banner, rollback. Gains "Why does a live preview URL carry `/~c/<token>/`?" → per-preview capability, lifetimes, credential stripping. Pair-mode notes on tunnel/tailnet, plugin 403, CORS-blocked, knock refusals. See change: retire-trusted-networks-bypass.

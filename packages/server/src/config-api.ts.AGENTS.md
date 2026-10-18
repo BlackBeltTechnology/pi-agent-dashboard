@@ -14,3 +14,5 @@ Adds `migrateSubagentTickThrottle()` — the one-shot boot rewrite of a material
 
 - `writeConfigPartial` deep-merges `pairing` (Settings sends only `acceptLanRequests`; sibling pairing keys survive). See change: add-lan-knock-pairing.
 Merges nested `piTrustMirror.sources` on PUT and refreshes the snapshot. See change: mirror-dashboard-trust-to-pi.
+
+`writeConfigPartial(partial, opts?)` merges `network` field-level. Origin server-owned: change of stored `trustMode` → origin `operator`; boot passes `trustModeOrigin:"upgrade"`; unchanged mode keeps stored origin. See change: retire-trusted-networks-bypass.

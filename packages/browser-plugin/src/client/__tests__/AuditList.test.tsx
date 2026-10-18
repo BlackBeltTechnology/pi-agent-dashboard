@@ -64,4 +64,62 @@ describe("AuditList", () => {
 		expect(auditCalls).toHaveLength(3);
 		expect(queryByTestId("browser-audit-row-OSS-0")).toBeTruthy();
 	});
+
+	it("#F11 detach causes and @dedicated rows render under their profiles when auditSeq bumps", async () => {
+		const byProfile: Record<string, unknown[]> = { "Profile 21": [], "@dedicated": [] };
+		const fetchMock = vi.fn(async (url: string) => {
+			const profile = decodeURIComponent(new URL(url, "http://x.test").searchParams.get("profile") ?? "");
+			return jsonOk({ entries: byProfile[profile] ?? [] });
+		});
+		(globalThis as { fetch?: unknown }).fetch = fetchMock;
+
+		const { getByTestId, ws } = renderWithPlugin(
+			<>
+				<AuditList profileDirectory="Profile 21" />
+				<AuditList profileDirectory="@dedicated" />
+			</>,
+		);
+		await waitFor(() => expect(getByTestId("browser-audit-empty-Profile 21")).toBeTruthy());
+		await waitFor(() => expect(getByTestId("browser-audit-empty-@dedicated")).toBeTruthy());
+
+		byProfile["Profile 21"] = [
+			{
+				ts: 1_700_000_000_000,
+				profileDirectory: "Profile 21",
+				instanceId: "i1",
+				kind: "detach",
+				detail: "closed:All controlled tabs detached",
+			},
+		];
+		byProfile["@dedicated"] = [
+			{
+				ts: 1_700_000_001_000,
+				profileDirectory: "@dedicated",
+				instanceId: "d1",
+				kind: "denied",
+				detail: "Browser.close",
+			},
+			{
+				ts: 1_700_000_000_500,
+				profileDirectory: "@dedicated",
+				instanceId: "d1",
+				kind: "detach",
+				detail: "no-cdp-client",
+			},
+		];
+		act(() => ws.emit({ type: "browser_relay_status", instances: [], auditSeq: 9 }));
+
+		await waitFor(() => expect(getByTestId("browser-audit-row-Profile 21-0")).toBeTruthy());
+		const detach = getByTestId("browser-audit-row-Profile 21-0").textContent ?? "";
+		expect(detach).toContain("detach");
+		expect(detach).toContain("closed:All controlled tabs detached");
+
+		await waitFor(() => expect(getByTestId("browser-audit-row-@dedicated-0")).toBeTruthy());
+		const denied = getByTestId("browser-audit-row-@dedicated-0").textContent ?? "";
+		expect(denied).toContain("denied");
+		expect(denied).toContain("Browser.close");
+		expect(getByTestId("browser-audit-row-@dedicated-1").textContent).toContain("no-cdp-client");
+		// Rows live under their own profile's list only.
+		expect(getByTestId("browser-audit-Profile 21").contains(getByTestId("browser-audit-row-@dedicated-0"))).toBe(false);
+	});
 });

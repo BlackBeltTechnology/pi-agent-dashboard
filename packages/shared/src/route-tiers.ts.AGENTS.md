@@ -42,3 +42,4 @@ Rows `GET /api/plugins/obs-studio/{instances,:service/status}` → `observe`; `G
 Services additions: `GET /api/services/:id/logs`, `POST /api/services/:id/reset-data`, `POST /api/services/prune` → tier operate (logs is a GET but returns process output). See change: add-services-settings-ui.
 
 `POST /api/openspec/workflow-schema` → `control`. See change: add-pi-spec-driven-schema.
+`POST /api/live-server/:id/capability` → `control` (mints a live-preview capability URL). See change: retire-trusted-networks-bypass.
