@@ -18,6 +18,12 @@ describe("collectFolderScopeBases", () => {
     expect(FOLDER_SCOPE_CONTRIBUTION_PREFIX).toBe("automation.folderscope.");
   });
 
+  it("E10: contributed home base stays dropped (fix-home-folder-scope-double-arm)", () => {
+    const warn = vi.fn();
+    const out = collectFolderScopeBases([entry("automation.folderscope.x", { base: "/h" })], { warn, homeDir: "/h" });
+    expect(out).toEqual([]);
+  });
+
   it("E1: collects a valid contribution, resolving the base", () => {
     const warn = vi.fn();
     const out = collectFolderScopeBases([entry("automation.folderscope.a", { base: "/repo" })], { warn });
