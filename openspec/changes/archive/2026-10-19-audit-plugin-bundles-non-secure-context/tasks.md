@@ -169,5 +169,5 @@
   - `packages/client/src/components/connectivity/AGENTS.md` (scan-test row: manifest-derived roots, four APIs).
 
   Also add the helpers, with the runtime version that first carries them, under a new subsection of `## Import paths` in `packages/dashboard-plugin-runtime/README.md`. Verify `grep -rln audit-plugin-bundles-non-secure-context packages --include=AGENTS.md` lists all five (existence only; `review-code` checks row content).
-- [ ] 4.2 Run the full suite, `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`, and confirm it is green. Then run a `review-code` pass on the diff before commit.
-- [ ] 4.3 Post-merge handoff, deferred (test-plan: manual-only, #X2). Add a line to `openspec/changes/add-voice-assistant-dashboard-plugin/tasks.md` (or to the first change that adds a `navigator.mediaDevices` caller) requiring a capability check, an allowlist entry and a "reports unavailable, no throw" test. Verify: that tasks.md line exists.
+- [x] 4.2 Run the full suite, `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`, and confirm it is green. Then run a `review-code` pass on the diff before commit.
+- [x] 4.3 Post-merge handoff, deferred (test-plan: manual-only, #X2). Add a line to `openspec/changes/add-voice-assistant-dashboard-plugin/tasks.md` (or to the first change that adds a `navigator.mediaDevices` caller) requiring a capability check, an allowlist entry and a "reports unavailable, no throw" test. Verify: that tasks.md line exists.
