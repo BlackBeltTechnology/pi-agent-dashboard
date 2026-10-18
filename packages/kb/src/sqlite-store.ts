@@ -397,6 +397,50 @@ export class SqliteFtsStore implements KbStore {
   setMeta(k: string, v: string) {
     this.db.prepare("INSERT INTO kb_meta(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v").run(k, v);
   }
+  deleteMeta(k: string) {
+    this.db.prepare("DELETE FROM kb_meta WHERE k=?").run(k);
+  }
+
+  /** Every source root that owns rows (files, chunk map, properties) or a gate/engine record.
+   *  Run `reconcileChunkMap` first so `item_rows` covers every chunk. Seeding reads it to find
+   *  the roots of a snapshot. See change: add-kb-worktree-seed (D3). */
+  rootsPresent(): string[] {
+    const out = new Set<string>();
+    for (const sql of ["SELECT DISTINCT root AS r FROM files", "SELECT DISTINCT root AS r FROM item_rows", "SELECT DISTINCT root AS r FROM properties"]) {
+      for (const row of this.db.prepare(sql).all() as Array<{ r: string | null }>) if (row.r != null) out.add(row.r);
+    }
+    for (const row of this.db.prepare("SELECT k FROM kb_meta WHERE k LIKE 'gate:%' OR k LIKE 'engine:%'").all() as Array<{ k: string }>) {
+      out.add(row.k.slice(row.k.indexOf(":") + 1));
+    }
+    return [...out];
+  }
+
+  /** Remove every row a source `root` owns, in one transaction: per-path rows via `deleteByPath`
+   *  (chunks, heading nodes, owned edges, properties, file state), the file node demoted to a
+   *  placeholder (inbound links keep their target), its `gate:`/`engine:` records, then the
+   *  unreferenced path-less nodes. Needs a complete `item_rows` (`reconcileChunkMap`). A path
+   *  shared with another root loses that root's graph rows too (known limitation).
+   *  See change: add-kb-worktree-seed (D3). */
+  dropRoot(root: string): void {
+    this.immediate(() => {
+      const paths = new Set<string>();
+      for (const sql of ["SELECT path FROM files WHERE root=?", "SELECT DISTINCT path FROM item_rows WHERE root=?", "SELECT DISTINCT path FROM properties WHERE root=?"]) {
+        for (const r of this.prep(sql).all(root) as Array<{ path: string }>) paths.add(r.path);
+      }
+      for (const p of paths) {
+        this.deleteByPath(root, p);
+        this.demoteNode(p);
+      }
+      this.prep("DELETE FROM kb_meta WHERE k=? OR k=?").run(`gate:${root}`, `engine:${root}`);
+      this.sweepPlaceholders();
+    });
+  }
+
+  /** Set every file's stored mtime of `roots` to -1 so the next walk re-hashes each file
+   *  (content compare) instead of trusting an mtime recorded by another checkout. */
+  invalidateMtimes(roots: string[]): void {
+    for (const r of roots) this.prep("UPDATE files SET mtime_ms=-1 WHERE root=?").run(r);
+  }
 
   insertChunk(c: Chunk) {
     const r = this.insertChunkRow(c);

@@ -75,6 +75,8 @@ export interface VaultRoutesDeps {
   projects: Pick<VaultProjects, "list">;
   /** Live: is a usable login method configured? Drives the `sign-in` remedy of a refusal. */
   loginAvailable: () => boolean;
+  /** Offer the `request-access` remedy to a credential-less caller that passes the knock gates. */
+  requestAccessAvailable?: (request: FastifyRequest) => boolean;
   /** Plugins that declare vault bindings (manifest `vaultBindings`), for the approvals list. */
   getPluginDeclarations?: () => Array<{ pluginId: string; displayName: string; declared: string[] }>;
   /** Names + states (+ last contact, project) for one session, or undefined when unknown. Never values. */
@@ -136,7 +138,7 @@ export function registerVaultRoutes(fastify: FastifyInstance, deps: VaultRoutesD
   const { store, importer, networkGuard } = deps;
   const manageGuard = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
     if (!(await canManageVault(request, deps))) {
-      await sendOperateRequired(request, reply, { route: "vault", loginAvailable: deps.loginAvailable });
+      await sendOperateRequired(request, reply, { route: "vault", loginAvailable: deps.loginAvailable, requestAccessAvailable: deps.requestAccessAvailable });
     }
   };
   const manage = { preHandler: [networkGuard, manageGuard] };

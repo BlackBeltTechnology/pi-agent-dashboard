@@ -23,7 +23,6 @@ import {
 import type { HostGateMode } from "@blackbelt-technology/pi-dashboard-shared/host-admission.js";
 import { DEFAULT_MEMORY_LIMITS } from "@blackbelt-technology/pi-dashboard-shared/memory-limits.js";
 import { mergeModelOptions } from "@blackbelt-technology/pi-dashboard-shared/model-catalogue.js";
-import type { NpmPackageResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { GroupByMode, GroupByPrefs } from "@blackbelt-technology/pi-dashboard-shared/session-group-by.js";
 import type { ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { mdiAlert, mdiArrowLeft, mdiBookOpenPageVariant, mdiCheckCircle, mdiChevronDown, mdiChevronRight, mdiChip, mdiClipboardText, mdiCloseCircle, mdiCog, mdiContentSave, mdiCubeOutline, mdiDelete, mdiFileDocumentEditOutline, mdiKey, mdiLoading, mdiLock, mdiPackageVariant, mdiPackageVariantClosed, mdiPalette, mdiPlay, mdiPlus, mdiPuzzle, mdiPuzzleOutline, mdiRestart, mdiRobotOutline, mdiServer, mdiShieldCheck, mdiShieldKey, mdiTextBoxOutline, mdiTune, mdiTunnel, mdiUpdate, mdiViewDashboard, mdiWeb, mdiWrench } from "@mdi/js";
@@ -31,10 +30,8 @@ import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useRoute } from "wouter";
 import { useAsyncAction } from "../../hooks/useAsyncAction.js";
-import { useInstalledPackages } from "../../hooks/useInstalledPackages.js";
 import { useLaunchSource } from "../../hooks/useLaunchSource.js";
 import { useModelCatalogue } from "../../hooks/useModelCatalogue.js";
-import { usePackageOperations } from "../../hooks/usePackageOperations.js";
 import { usePersistedBoolean } from "../../hooks/usePersistedBoolean.js";
 import { usePiCompatibility } from "../../hooks/usePiCompatibility.js";
 import { usePiResources } from "../../hooks/usePiResources.js";
@@ -73,9 +70,6 @@ import { InstructionsPage } from "../DirectorySettings/InstructionsPage.js";
 import { GatewayPage } from "../Gateway/GatewayPage.js";
 import { OpenSpecProfileSection } from "../openspec/OpenSpecProfileSection.js";
 import { useOverlayDismissGuard } from "../overlay/overlay-dismiss-guard.js";
-import { PackageBrowser } from "../packages/PackageBrowser.js";
-import { PackageInstallConfirmDialog } from "../packages/PackageInstallConfirmDialog.js";
-import { PackageReadmeDialog } from "../packages/PackageReadmeDialog.js";
 import { PiVersionAdvisory } from "../packages/PiVersionAdvisory.js";
 import { PluginsSection } from "../packages/PluginsSection.js";
 import { UnifiedPackagesSection } from "../packages/UnifiedPackagesSection.js";
@@ -2528,7 +2522,6 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
               <>
                 <ElectronRuntimeUpdates />
                 <UnifiedPackagesSection />
-                <GlobalPackagesBrowseAndDialogs />
               </>
             )}
 
@@ -3840,69 +3833,6 @@ function ProviderSection({ providerKey, provider, onChange }: {
         </div>
       )}
     </div>
-  );
-}
-
-// ─── Global Packages Browse + Confirm-install Dialog ──────────────────────────
-//
-// The unified packages section above handles the installed-rows view
-// and the README dialog. This section keeps only the Browse Packages
-// search UI and its install-confirm dialog. See change:
-// consolidate-packages-settings-ui.
-
-function GlobalPackagesBrowseAndDialogs() {
-  const { t } = useI18n();
-  const installed = useInstalledPackages("global");
-  const operations = usePackageOperations("global", undefined, installed.refresh);
-  const [confirmInstall, setConfirmInstall] = useState<{ source: string; pkg?: NpmPackageResult } | null>(null);
-  const [readmePkg, setReadmePkg] = useState<NpmPackageResult | null>(null);
-
-  const handleConfirmInstall = (source: string, pkg?: NpmPackageResult) => {
-    setConfirmInstall({ source, pkg });
-  };
-
-  const doInstall = () => {
-    if (!confirmInstall) return;
-    operations.install(confirmInstall.source);
-    setConfirmInstall(null);
-  };
-
-  return (
-    <>
-      <Section title={t("common.browsePackages", undefined, "Browse Packages")}>
-        <PackageBrowser
-          scope="global"
-          onViewReadme={setReadmePkg}
-          onConfirmInstall={handleConfirmInstall}
-          // UnifiedPackagesSection above already shows global installed packages.
-          // See change: unify-workspace-package-management.
-          showInstalledSection={false}
-          // A recommended entry shown as an installed row is not repeated as a card.
-          // See change: addons-hub-declutter.
-          hideGlobalInstalledRecommended
-        />
-      </Section>
-
-      {confirmInstall && (
-        <PackageInstallConfirmDialog
-          source={confirmInstall.source}
-          packageName={confirmInstall.pkg?.name}
-          scope="global"
-          lockScope="global"
-          onConfirm={doInstall}
-          onCancel={() => setConfirmInstall(null)}
-        />
-      )}
-      {readmePkg && (
-        <PackageReadmeDialog
-          pkg={readmePkg}
-          installed={installed.packages.some((p) => p.source === `npm:${readmePkg.name}`)}
-          onInstall={() => { handleConfirmInstall(`npm:${readmePkg.name}`, readmePkg); setReadmePkg(null); }}
-          onUninstall={() => { operations.remove(`npm:${readmePkg.name}`); setReadmePkg(null); }}
-          onClose={() => setReadmePkg(null)}
-        />
-      )}
-    </>
   );
 }
 

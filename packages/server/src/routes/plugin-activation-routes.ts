@@ -13,7 +13,6 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { writeConfigFileSecure } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import {
   buildGraph,
   computeToggleImpact,
@@ -26,7 +25,9 @@ import {
   transitiveDependents,
 } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import { writeConfigFileSecure } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import type { FastifyInstance } from "fastify";
+import { PLUGIN_CONFIG_LOCK_KEY, withSettingsWriteLock } from "../pi/settings-write-lock.js";
 import type { NetworkGuard } from "./route-deps.js";
 
 // Resolved lazily so tests that override $HOME after import still work.
@@ -35,7 +36,7 @@ function configPaths() {
   return { dir, file: path.join(dir, "config.json") };
 }
 
-function readRawConfig(): Record<string, unknown> {
+export function readRawConfig(): Record<string, unknown> {
   try {
     return JSON.parse(fs.readFileSync(configPaths().file, "utf-8"));
   } catch {
@@ -148,6 +149,81 @@ function teardownDisabledWsRoutes(
   for (const flip of flips) registry.teardownPlugin(flip.id);
 }
 
+export interface SetPluginsEnabledDeps {
+  broadcast: (msg: ServerToBrowserMessage) => void;
+  repoRoot?: string;
+}
+
+export type SetPluginsEnabledResult =
+  | { ok: false; status: 404; error: string }
+  | { ok: false; status: 409; blockers: string[] }
+  | {
+      ok: true;
+      /** Every plugin id whose `enabled` flips, the toggled one first. */
+      flips: Array<{ id: string; enabled: boolean }>;
+      impact: { cascadeEnable: string[]; cascadeDisable: string[]; blockers: string[] };
+      /** Put the plugin config back as it was before this call (and re-broadcast). */
+      rollback: () => void;
+    };
+
+/**
+ * Enable/disable plugin `id` with its dependency cascade in ONE config write,
+ * broadcast one `plugin_config_update` per flipped id and tear down WS routes of
+ * disabled plugins. Shared by `POST /api/plugins/:id/toggle` and the Add-ons hub
+ * toggle (`POST /api/addons/:featureId/toggle`). `dryRun` computes the cascade
+ * only. NOT locked: callers wrap it in `withSettingsWriteLock(PLUGIN_CONFIG_LOCK_KEY)`.
+ *
+ * See change: addons-hub-feature-catalog (design D5).
+ */
+export function setPluginsEnabled(
+  id: string,
+  enabled: boolean,
+  deps: SetPluginsEnabledDeps,
+  opts: { dryRun?: boolean } = {},
+): SetPluginsEnabledResult {
+  const { broadcast, repoRoot } = deps;
+  const plugins = discoverPlugins(repoRoot);
+  if (!plugins.some((p) => p.manifest.id === id)) {
+    return { ok: false, status: 404, error: `Plugin "${id}" not found` };
+  }
+
+  const existing = readRawConfig();
+  const existingPlugins = (existing.plugins as Record<string, unknown> | undefined) ?? {};
+  const impact = toggleImpactFor(plugins, existingPlugins, id, enabled);
+  if (enabled && impact.blockers.length > 0) {
+    return { ok: false, status: 409, blockers: impact.blockers };
+  }
+
+  // Atomic cascade write: collect every id whose `enabled` flips, write them all
+  // in a single config write, then emit one plugin_config_update per affected id.
+  const flips = toggleFlips(id, enabled, impact);
+  const noop = () => {};
+  if (opts.dryRun) return { ok: true, flips, impact, rollback: noop };
+
+  const { nextPlugins, mergedPerId } = applyToggleFlips(existingPlugins, flips);
+  writeRawConfig({ ...existing, plugins: nextPlugins });
+  broadcastToggleUpdates(broadcast, mergedPerId, repoRoot);
+  teardownDisabledWsRoutes(enabled, flips);
+
+  const rollback = () => {
+    const current = readRawConfig();
+    const restored: Record<string, unknown> = { ...((current.plugins as Record<string, unknown> | undefined) ?? {}) };
+    const restoredBlocks = new Map<string, Record<string, unknown>>();
+    for (const flip of flips) {
+      if (flip.id in existingPlugins) {
+        restored[flip.id] = existingPlugins[flip.id];
+        restoredBlocks.set(flip.id, (existingPlugins[flip.id] as Record<string, unknown>) ?? {});
+      } else {
+        delete restored[flip.id];
+        restoredBlocks.set(flip.id, {});
+      }
+    }
+    writeRawConfig({ ...current, plugins: restored });
+    broadcastToggleUpdates(broadcast, restoredBlocks, repoRoot);
+  };
+  return { ok: true, flips, impact, rollback };
+}
+
 export function registerPluginActivationRoutes(
   fastify: FastifyInstance,
   deps: {
@@ -238,34 +314,18 @@ export function registerPluginActivationRoutes(
           .send({ success: false, error: "body.enabled must be boolean" });
       }
 
-      const plugins = discoverPlugins(repoRoot);
-      const found = plugins.find((p) => p.manifest.id === id);
-      if (!found) {
-        return reply
-          .status(404)
-          .send({ success: false, error: `Plugin "${id}" not found` });
-      }
-
-      const existing = readRawConfig();
-      const existingPlugins =
-        (existing.plugins as Record<string, unknown> | undefined) ?? {};
-
-      const impact = toggleImpactFor(plugins, existingPlugins, id, body.enabled);
-
-      if (body.enabled && impact.blockers.length > 0) {
+      const result = await withSettingsWriteLock(PLUGIN_CONFIG_LOCK_KEY, async () =>
+        setPluginsEnabled(id, body.enabled as boolean, { broadcast, repoRoot }),
+      );
+      if (!result.ok) {
+        if (result.status === 404) {
+          return reply.status(404).send({ success: false, error: result.error });
+        }
         return reply
           .status(409)
-          .send({ success: false, reason: "blockers", blockers: impact.blockers });
+          .send({ success: false, reason: "blockers", blockers: result.blockers });
       }
-
-      // Atomic cascade write: collect every id whose `enabled` flips, write
-      // them all in a single config write, then emit one plugin_config_update
-      // per affected id.
-      const flips = toggleFlips(id, body.enabled, impact);
-      const { nextPlugins, mergedPerId } = applyToggleFlips(existingPlugins, flips);
-      writeRawConfig({ ...existing, plugins: nextPlugins });
-      broadcastToggleUpdates(broadcast, mergedPerId, repoRoot);
-      teardownDisabledWsRoutes(body.enabled, flips);
+      const { impact } = result;
 
       return reply.status(200).send({
         success: true,

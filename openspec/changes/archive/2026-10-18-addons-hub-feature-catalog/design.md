@@ -94,3 +94,17 @@ A requirement on a package already claimed elsewhere is listed under the requiri
 ## Migration Plan
 
 Additive endpoints; client switches to the catalog. Two behaviour-preserving extractions (lock helper, `setPluginsEnabled`) plus a new lock on the plugin toggle route are covered by existing + new route tests. Rollback = revert; any entry still filtered by the hub stays filtered (documented in proposal Impact; visible in Resources).
+
+## Review findings — write/restore/rollback path (task 4.28, doubt-driven-review)
+
+Reviewed `addons/addons-service.ts` (`planToggle`/`applyToggle`), `addon-toggle-restore.ts`, `setPluginsEnabled` + `rollback`. No open blocker. Findings and dispositions:
+
+| # | Finding | Disposition |
+|---|---|---|
+| 1 | A hub toggle takes hub-queue → `runExclusive` → settings lock → plugin-config lock; the plain plugin toggle takes only plugin-config. Fixed acquisition order, so no cycle. Two hub toggles queue (not 409) on the outer hub lock; only a running package op gives 409 busy. | Accepted; covered by X2/X8. |
+| 2 | Compensation restores the settings file from its raw text (not by re-deriving entries), so formatting and unrelated keys survive a rollback. The plugin config is restored per flipped id from the pre-write blocks (`rollback`), not by calling `setPluginsEnabled(false)` — that would re-cascade onto plugins the operation never flipped. | Fixed in design vs. D5 wording; covered by X3/X4. |
+| 3 | The off path writes records first, then entries, then the plugin flip. A crash between steps leaves a record + unfiltered entry (next off re-records) or filtered entry + enabled plugin (`partial`, next off completes) — the D5 table. | Accepted; no journal. |
+| 4 | A package filtered off because only the toggled plugin required it stays "installed" in pi's `listConfiguredPackages`, so another disabled plugin's `requires.piExtensions` probe still reads it as satisfied while it loads nothing. Enabling that plugin later does not restore the entry. | Accepted limitation; the feature row for the package shows `off`/`partial` and the user turns it on there. Noted for the Add-ons copy. |
+| 5 | Settings JSON is re-serialised with 2-space indent; a hand-formatted file is reformatted on the first toggle. Equality for restore is JSON-value equality, so this is harmless to restore logic. | Accepted. |
+| 6 | The dashboard's own boot-time bridge registration (`plugin-bridge-register`) writes the same file without these locks. It runs at server start, before routes accept requests. | Accepted; same exposure as today's resource toggle. |
+| 7 | `confirmToken` is a digest of the plan report only; it does not bind to the settings file bytes. A hand edit between dry run and real call that does not change the report passes through, and the toggle then acts on the fresh state anyway (plan is recomputed under the locks). | Accepted. |

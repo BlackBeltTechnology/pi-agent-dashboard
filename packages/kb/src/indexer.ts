@@ -33,6 +33,10 @@ export interface IndexOptions {
    *  uses it to refresh its live-build marker on a clock (a timer cannot fire inside
    *  a synchronous batch). See change: fix-kb-index-integrity (D2). */
   heartbeat?: () => void;
+  /** Called once inside the FIRST batch's transaction (after `begin`, before any file work).
+   *  `beginForcedSource` uses it to clear the source's engine record atomically with the first
+   *  rewritten rows. See change: add-kb-worktree-seed (D6). */
+  onFirstBatch?: () => void;
 }
 export interface IndexStats {
   scanned: number;
@@ -181,6 +185,9 @@ export async function indexSource(store: KbStore, src: IndexSource, opts: IndexO
   store.reconcileChunkMap?.();
   store.begin();
   try {
+    // Runs inside the first batch's transaction: a kill before that batch commits leaves the
+    // prior (consistent) state, a kill after leaves the hook's effect. See change: add-kb-worktree-seed (D6).
+    opts.onFirstBatch?.();
     for (const abs of files) {
       if (sinceYield >= YIELD_EVERY) {
         store.commit();

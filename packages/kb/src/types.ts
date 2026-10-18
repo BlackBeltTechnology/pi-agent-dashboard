@@ -201,6 +201,7 @@ export interface KbStore {
   setUserVersion?(v: number): void;
   getMeta?(k: string): string | null;
   setMeta?(k: string, v: string): void;
+  deleteMeta?(k: string): void;
 
   // git-scope capabilities (optional — additive backend capabilities; the git
   // scope reports `unavailable: store backend lacks git support` without them).

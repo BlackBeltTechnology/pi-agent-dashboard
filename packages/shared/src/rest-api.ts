@@ -1562,3 +1562,126 @@ export type MermaidRepairErrorCode =
 export type MermaidRepairResponse =
   | { success: true; data: MermaidRepairData }
   | { success: false; error: string; code: MermaidRepairErrorCode };
+
+// ── Add-ons feature catalog (GET /api/addons/catalog, POST /api/addons/:id/toggle) ──
+// See change: addons-hub-feature-catalog.
+
+export type AddonFeatureKind = "core" | "agent-and-dashboard" | "dashboard-only" | "agent-only";
+
+/** Who delivers a feature. Derived, never configured. */
+export type AddonOrigin = "first-party" | "mixed" | "community" | "upstream";
+
+export type AddonFeatureState = "on" | "off" | "partial";
+
+/** Static contents counts of a pi package (tools are runtime-registered and omitted). */
+export interface AddonPackageContents {
+  extensions: number;
+  skills: number;
+  prompts: number;
+  themes: number;
+}
+
+/** One global-scope pi package owned by a feature. */
+export interface AddonPackagePart {
+  source: string;
+  scope: "user" | "project";
+  /** pi package identity (npm name, git URL without ref, resolved path). */
+  identity: string;
+  /** Source family: drives grouping and the first-party/author-label rules. */
+  sourceKind: "npm" | "git" | "local";
+  /** `package.json#name` when readable. */
+  packageName?: string;
+  version?: string;
+  description?: string;
+  installedPath?: string;
+  /** True when the global entry is the all-empty filter form (loads nothing). */
+  entryOff: boolean;
+  publishedVariantSource?: string;
+  publishedVariantVersion?: string;
+  contents: AddonPackageContents;
+}
+
+/** Dashboard-plugin part of a feature. */
+export interface AddonPluginPart {
+  id: string;
+  /** Manifest/config enabled flag. */
+  enabled: boolean;
+  loaded: boolean;
+  error?: string;
+  hasSettings: boolean;
+  missingRequirements: string[];
+  dependsOn: string[];
+}
+
+/** A package a feature references but does not own (claimed by another feature). */
+export interface AddonRequirementRef {
+  name: string;
+  featureId: string;
+}
+
+export interface AddonFeature {
+  /** `core:pi` | `core:dashboard-bridge` | `plugin:<pluginId>` | `pkg:<identity>`. */
+  id: string;
+  displayName: string;
+  description: string;
+  kind: AddonFeatureKind;
+  origin: AddonOrigin;
+  /** Distinct author labels of the non-first-party parts, in part order. */
+  authorLabels: string[];
+  state: AddonFeatureState;
+  plugin?: AddonPluginPart;
+  /** Managed bridge entry path (the plugin's plumbing, never an owned package). */
+  bridge?: { path: string };
+  packages: AddonPackagePart[];
+  requires: AddonRequirementRef[];
+  /** Feature ids of the plugins requiring this `pkg:` feature's package. */
+  requiredBy: string[];
+}
+
+export interface AddonCatalogResponse {
+  success: true;
+  features: AddonFeature[];
+}
+
+export interface AddonToggleRequest {
+  enabled: boolean;
+  dryRun?: boolean;
+  /** Digest of a previous dry-run report; the server rejects the toggle when it no longer matches. */
+  confirmToken?: string;
+}
+
+export interface AddonKeptOn {
+  source: string;
+  by: string[];
+}
+
+export interface AddonStillLoadedIn {
+  source: string;
+  folders: string[];
+}
+
+export interface AddonRestoreSkipped {
+  source: string;
+  reason: "edited" | "no-record";
+}
+
+export interface AddonToggleResponse {
+  success: true;
+  restartRequired: boolean;
+  dryRun?: boolean;
+  /** Feature ids turned off/on together with the requested one. */
+  cascaded: string[];
+  /** Sources rewritten into the all-empty filter form (or that would be, on a dry run). */
+  filtered: string[];
+  /** Sources whose recorded entry was put back (or that would be). */
+  restored: string[];
+  keptOn: AddonKeptOn[];
+  /** Plugins requiring a `pkg:` feature that was turned off (feature ids). */
+  requiredBy: string[];
+  restoreSkipped: AddonRestoreSkipped[];
+  stillLoadedIn: AddonStillLoadedIn[];
+  /** Present on a dry run: digest of the report. */
+  confirmToken?: string;
+  /** False only when a compensating write failed. */
+  consistent?: boolean;
+}

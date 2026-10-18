@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { admitKnock, type KnockAdmissionInput, type KnockAdmissionState, KnockLimiter } from "../knock-admission.js";
+import {
+  admitKnock,
+  type KnockAdmissionInput,
+  type KnockAdmissionState,
+  KnockLimiter,
+  knockPeerGate,
+  knockPeerInput,
+  knockPeerState,
+} from "../knock-admission.js";
 
 /**
  * Knock admission gates + limiter (test-plan #E5–#E13, #E15).
@@ -194,5 +202,57 @@ describe("KnockLimiter bounds", () => {
     const l = new KnockLimiter({ now: () => 0, maxSources: 3 });
     for (const k of ["a", "b", "c", "d"]) l.recordAdmitted(k);
     expect(l.size()).toBe(3);
+  });
+});
+
+// ── add-request-access-remedy: the shared pre-switch gate (test-plan E1, E3) ──
+describe("E1 knockPeerGate decision table", () => {
+  const gate = (i: Partial<KnockAdmissionInput>, interfaces = IFACES, hostAdmission = {}) =>
+    knockPeerGate(input(i), { hostAdmission, interfaces });
+
+  it.each([
+    ["non-admitted Host + on-link peer (Host checked first)", { host: "evil.test" }, IFACES, "host_not_admitted"],
+    ["admitted Host + X-Forwarded-For", { headers: { "x-forwarded-for": "203.0.113.9" } }, IFACES, "knock_not_lan"],
+    ["admitted Host + loopback", { peer: "127.0.0.1" }, IFACES, "knock_not_lan"],
+    ["missing peer", { peer: undefined }, IFACES, "knock_not_lan"],
+    ["100.64.0.5 on a /32 interface", { peer: "100.64.0.5" }, [{ address: "100.64.0.1", netmask: "255.255.255.255" }], "knock_not_lan"],
+    ["192.168.16.40 on 192.168.16.1/24", { peer: "192.168.16.40" }, [{ address: "192.168.16.1", netmask: "255.255.255.0" }], null],
+  ] as const)("%s → %s", (_l, over, interfaces, expected) => {
+    expect(gate(over as Partial<KnockAdmissionInput>, interfaces as typeof IFACES)).toBe(expected);
+  });
+
+  it("admitKnock keeps the same first two refusals (gate order)", () => {
+    const { state } = mk();
+    expect(admitKnock(input({ host: "evil.test", peer: "127.0.0.1" }), state)).toMatchObject({ error: "host_not_admitted" });
+    expect(admitKnock(input({ peer: "127.0.0.1" }), state)).toMatchObject({ error: "knock_not_lan" });
+  });
+});
+
+describe("E3 knockPeerInput normalisation", () => {
+  const fake = (headers: Record<string, unknown>, remoteAddress: string | undefined, ip = "10.9.9.9") =>
+    ({ headers, socket: { remoteAddress }, ip }) as unknown as Parameters<typeof knockPeerInput>[0];
+
+  it("host: first string of a string / array, undefined when absent", () => {
+    expect(knockPeerInput(fake({ host: "a:1" }, "1.2.3.4")).host).toBe("a:1");
+    expect(knockPeerInput(fake({ host: ["a", "b"] }, "1.2.3.4")).host).toBe("a");
+    expect(knockPeerInput(fake({}, "1.2.3.4")).host).toBeUndefined();
+  });
+  it("peer is the raw socket address, never request.ip", () => {
+    expect(knockPeerInput(fake({}, "192.168.16.40")).peer).toBe("192.168.16.40");
+    expect(knockPeerInput(fake({}, undefined)).peer).toBeUndefined();
+  });
+  it("carries the raw headers for the forwarding-header check", () => {
+    const headers = { "x-forwarded-for": "1.1.1.1" };
+    expect(knockPeerInput(fake(headers, "1.2.3.4")).headers).toBe(headers);
+  });
+});
+
+describe("knockPeerState", () => {
+  it("reads both deps live per call", () => {
+    let ifaces = IFACES;
+    const deps = { hostAdmission: () => ({}), getLanInterfaces: () => ifaces };
+    expect(knockPeerState(deps).interfaces).toBe(IFACES);
+    ifaces = [];
+    expect(knockPeerState(deps).interfaces).toEqual([]);
   });
 });

@@ -83,7 +83,7 @@ Files in this directory. One row per source file.
 | `openspec-design-evidence.ts` | Local-evidence override for OpenSpec `design` artifact. `evaluateLocalDesignSatisfaction(changeDir, probe)`… → see `openspec-design-evidence.ts.AGENTS.md` |
 | `openspec-poller.ts` | Aggregates `openspec list`+`status` into `OpenSpecData`. `pollOpenSpec(cwd)` sync (bridge),… → see… → see `openspec-poller.ts.AGENTS.md` |
 | `openspec-specs-evidence.ts` | Local-evidence override for OpenSpec `specs` artifact. `evaluateLocalSpecsSatisfaction(changeDir, probe)` =… → see `openspec-specs-evidence.ts.AGENTS.md` |
-| `operate-required.ts` | Wire types for the `operate_required` 403: `OperateRemedy`, `OPERATE_REMEDY_ORDER`, `OperateRequiredReason`, `OperateRequiredBody` (5 keys, no posture). See change: surface-operate-required-remedy. |
+| `operate-required.ts` | Wire types for the `operate_required` 403: `OperateRemedy`, `OPERATE_REMEDY_ORDER`, `OperateRequiredReason`, `OperateRequiredBody` (5 keys, no posture). `OperateRemedy` gains `request-access`; order `use-host, re-pair, request-access, sign-in`. See change: surface-operate-required-remedy, add-request-access-remedy. |
 | `pairing-knock-client.ts` | Native LAN-knock client: `ProveFn`, `proveExpected`, `sendKnock`, `knockServerWith`, `knockRequestBody`. See change: add-electron-server-windows (D2). |
 | `pairing-knock.ts` | Knock vocabulary shared by server + client: `KNOCK_REFUSALS`, `KnockRefusal`, `PairingProvenance`,… → see `pairing-knock.ts.AGENTS.md` |
 | `pairing-refusal.ts` | Pairing-approval 401 wire types (`PairingRefusalBody`, `PAIRING_REMEDY_ORDER`). → see `pairing-refusal.ts.AGENTS.md` |

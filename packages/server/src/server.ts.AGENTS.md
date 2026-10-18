@@ -76,3 +76,7 @@ Plugin ctx wires `getPiResources(cwd?, {fresh?})` (SWR read; fresh = `refreshPiR
 
 Builds `createQuestionStack` before `createBrowserGateway` (passed as trailing arg), `loadPersisted()` + `sweepAtBoot` using pre-normalization `persistedSessionPresence` captured in the cold-start restore loop. `registerQuestionRoutes` wired before `registerAccessPromptRoutes` (`sendToSession` via piGateway, `ownerOf` via `sessionManager`, `isResolverActive: identityEnforced`). See change: add-pending-question-stack.
 Creates the pi-trust-mirror service, boot snapshot rebuild, change listeners, `host.projectTrustSource`/`host.piTrustCoverInteractive`, `grant_response` piTrust choice. See change: mirror-dashboard-trust-to-pi.
+
+## add-request-access-remedy
+
+One `knockPeerDeps: KnockPeerDeps = {hostAdmission: () => getHostGateCtx().admission, getLanInterfaces: createLanInterfaceProvider({bindHost: config.host})}` built before `registerServiceRoutes`. Pairing routes read `hostAdmission`/`getLanInterfaces` from it; `requestAccessAvailable = createRequestAccessAvailable(knockPeerDeps, localTrust)` passed to `registerServiceRoutes` + `registerVaultRoutes`. Exactly one `createLanInterfaceProvider(` call (`request-access-wiring.test.ts`).

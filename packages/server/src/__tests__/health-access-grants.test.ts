@@ -168,6 +168,15 @@ describe("E14 /api/health trustPosture disclosure", () => {
     relayed: { remoteAddress: "127.0.0.1", headers: { "x-forwarded-for": "203.0.113.9" } },
   };
 
+  // add-request-access-remedy X4: the `request-access` remedy does not widen this predicate.
+  it("X4 an on-link trusted-network caller with no credential still gets null posture", async () => {
+    const app = await trustApp(["192.168.16.0/24"]);
+    const body = (await app.inject({ method: "GET", url: "/api/health", remoteAddress: "192.168.16.40" })).json();
+    expect(body.accessGrants).toBeNull();
+    expect(body.trustPosture).toBeNull();
+    expect(JSON.stringify(body)).not.toContain("request-access");
+  });
+
   for (const [trusted, flag] of [[["127.0.0.1"], true], [["192.168.16.0/24"], false]] as const) {
     it(`trusted ${JSON.stringify(trusted)}: genuine-local sees trustedHasLoopback=${flag}; others get null`, async () => {
       const app = await trustApp([...trusted]);

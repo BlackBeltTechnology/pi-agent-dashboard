@@ -12,6 +12,15 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Added
 
+- **A new git worktree's kb index starts from the main checkout's index.** The first docs
+  index in a linked worktree copies a consistent snapshot of the main checkout's index and
+  re-chunks only the files that differ (4 s instead of ~100 s on this repository), then
+  produces the same result as a cold first index. A source is reused only when the main
+  checkout recorded the same schema version, index options and kb engine for it. Each first
+  index prints `[kb] seed=<main> sources=<n>/<m>` or `[kb] seed-skipped=<reason>` on stderr.
+  Opt out with `seedFromMainWorktree: false` in `knowledge_base.json` or `kb index --no-seed`.
+  Every source now records the kb engine that produced its rows, so the first pass after
+  upgrading re-chunks each source once.
 - **`shell-headless` plugin slot.** A react-only slot mounted once at shell level, independent of
   layout, selection and session count, for zero-UI plugin-wide hooks such as message
   subscriptions. Claims take no props and must not declare `predicate`/`shouldRender` (the
@@ -157,6 +166,7 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Fixed
 
+- **Same-named automations in different workspaces are now scheduled independently.** Two repos that each defined an automation with the same name (for example `deploy`) shared one scheduler and concurrency slot: one could leak a timer that could never be disposed, and one could be silently dropped while the other was running. Each automation is now identified by its scope and its own directory. An automation that was previously suppressed by an unrelated same-named one may now start running on its schedule — that is the fix taking effect, not a new automation appearing.
 - **Global automations no longer run twice per occurrence.** While a session (including the automation's own run) is open in the home directory, `~/.pi/automation` was also armed as a folder scope. It is now scanned, armed and listed once, under `global`.
 - **kb index no longer silently empties, erodes or conflates.** The docs index is installed with a
   no-clobber hard link, or copied into an existing file through SQLite's online backup, instead of a

@@ -213,3 +213,45 @@ describe("RecommendedExtensions \u2014 hideGlobalInstalled (recommended once)", 
     expect((screen.getByTestId("rec-install-all-missing") as HTMLButtonElement).disabled).toBe(false);
   });
 });
+
+// See change: addons-hub-feature-catalog (task 6.3; test-plan E26)
+describe("RecommendedExtensions \u2014 hub-off entries (Discover tab)", () => {
+  const entry = (id: string, extra: Partial<EnrichedRecommendedExtension>) =>
+    makeEntry({ id, source: `src:${id}`, displayName: id, ...extra });
+
+  it("E26: a feature turned off by the hub has no card; the other states keep theirs", () => {
+    mockRecommended.mockReturnValue({
+      recommended: [
+        entry("pi-flows", { activeInPi: false, installed: { scope: "global" } as any }), // off by the hub
+        entry("global-inactive", { activeInPi: false, installed: { scope: "global" } as any }), // inactive for another reason
+        entry("pi-simplify", { activeInPi: true, installed: { scope: "local" } as any }), // folder only
+        entry("pi-image-fit", { activeInPi: false, installed: { scope: null } as any }), // not installed
+        entry("active-global", { activeInPi: true, installed: { scope: "global" } as any }),
+      ],
+      isLoading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+    render(<RecommendedExtensions scope="global" hideGlobalInstalled hubOffSources={["src:pi-flows"]} />);
+    expect(screen.queryByText("pi-flows")).toBeNull();
+    expect(screen.queryByText("active-global")).toBeNull();
+    expect((screen.getByText("global-inactive").closest("div.border") as HTMLElement).textContent).toMatch(/Activate/);
+    expect((screen.getByText("pi-simplify").closest("div.border") as HTMLElement).textContent).toContain("Local");
+    expect((screen.getByText("pi-image-fit").closest("div.border") as HTMLElement).textContent).toContain("Install");
+  });
+
+  it("Install all missing never re-installs a hub-off entry", () => {
+    mockRecommended.mockReturnValue({
+      recommended: [
+        entry("pi-flows", { activeInPi: false, installed: { scope: "global" } as any }),
+        entry("pi-image-fit", { activeInPi: false, installed: { scope: null } as any }),
+      ],
+      isLoading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+    render(<RecommendedExtensions scope="global" hideGlobalInstalled hubOffSources={["src:pi-flows"]} />);
+    fireEvent.click(screen.getByTestId("rec-install-all-missing"));
+    expect(installSpy.mock.calls.map((c) => c[0])).toEqual(["src:pi-image-fit"]);
+  });
+});

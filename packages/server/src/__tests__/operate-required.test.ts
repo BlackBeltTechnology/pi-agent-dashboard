@@ -8,6 +8,8 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import { describe, expect, it } from "vitest";
 import { createLocalTrustContext } from "../auth/local-proof.js";
 import { hasOperateAuthority, sendOperateRequired } from "../auth/operate-required.js";
+import { createRequestAccessAvailable } from "../pairing/knock-admission.js";
+import { stampedHeaders } from "../test-support/local-credential-stamp.js";
 
 type ReqSpec = { ip?: string; headers?: Record<string, string>; authVia?: string; principalTier?: string };
 const req = (s: ReqSpec = {}) => ({ ip: s.ip ?? "192.168.16.220", headers: s.headers ?? {}, authVia: s.authVia, principalTier: s.principalTier }) as unknown as FastifyRequest;
@@ -93,6 +95,87 @@ describe("P1 builder latency", () => {
     for (let i = 0; i < 1000; i++) {
       const { reply } = stubReply();
       await sendOperateRequired(r, reply, { route: "vault", loginAvailable });
+    }
+    expect(performance.now() - start).toBeLessThanOrEqual(1000);
+  });
+});
+
+// ── add-request-access-remedy (test-plan E4, E5, X5, P1) ──────────────────
+describe("E4 request-access presence decision table", () => {
+  const authVias = [
+    ["no credential", {}],
+    ["device control", { authVia: "device", principalTier: "control" }],
+    ["session control", { authVia: "session", principalTier: "control" }],
+    ["principal", { authVia: "principal" }],
+  ] as const;
+  const thunks = [
+    ["true", () => true],
+    ["false", () => false],
+    ["omitted", undefined],
+  ] as const;
+
+  it.each(
+    authVias.flatMap(([a, spec]) =>
+      thunks.flatMap(([t, fn]) => [true, false].map((login) => [a, spec, t, fn, login] as const)),
+    ),
+  )("authVia=%s thunk=%s login=%s", async (_a, spec, _t, fn, login) => {
+    const { reply, out } = stubReply();
+    await sendOperateRequired(req(spec), reply, { route: "vault", loginAvailable: () => login, requestAccessAvailable: fn });
+    const body = out.body as { remedies: string[]; reason: string };
+    expect(Object.keys(out.body as object).sort()).toEqual(["error", "message", "reason", "remedies", "success"]);
+    const expectPresent = (spec as ReqSpec).authVia === undefined && fn?.() === true;
+    expect(body.remedies.includes("request-access")).toBe(expectPresent);
+    if (body.remedies.includes("re-pair")) expect(body.remedies).not.toContain("request-access");
+    if (expectPresent) expect(body.remedies).toEqual(login ? ["use-host", "request-access", "sign-in"] : ["use-host", "request-access"]);
+  });
+
+  it("calls the thunk with the refused request", async () => {
+    const seen: unknown[] = [];
+    const r = req();
+    const { reply } = stubReply();
+    await sendOperateRequired(r, reply, { route: "vault", loginAvailable: () => false, requestAccessAvailable: (x) => (seen.push(x), true) });
+    expect(seen).toEqual([r]);
+  });
+});
+
+describe("E5 / X5 requestAccessAvailable thunk", () => {
+  const IFACE = [{ address: "192.168.16.1", netmask: "255.255.255.0" }];
+  const trust = createLocalTrustContext("local-token-xyz", () => true);
+  const mk = (interfaces = IFACE) => createRequestAccessAvailable({ hostAdmission: () => ({}), getLanInterfaces: () => interfaces }, trust);
+  const onLink = (headers: Record<string, string> = {}) =>
+    ({ ip: "192.168.16.40", socket: { remoteAddress: "192.168.16.40" }, headers: { host: "192.168.16.1:8000", ...headers } }) as unknown as FastifyRequest;
+
+  it("false with a valid X-Pi-Local-Token, true without", () => {
+    const thunk = mk();
+    expect(thunk(onLink())).toBe(true);
+    const stamped = { ...onLink(), headers: stampedHeaders({ host: "192.168.16.1:8000", "x-pi-local-token": "local-token-xyz" }, "local-token-xyz") };
+    expect(thunk(stamped as unknown as FastifyRequest)).toBe(false);
+  });
+
+  it("false with a verified pi_dash_local proof cookie", async () => {
+    const { signLocalProof } = await import("../auth/local-proof.js");
+    const cookie = signLocalProof(trust);
+    expect(mk()(onLink({ cookie: `pi_dash_local=${cookie}` }))).toBe(false);
+  });
+
+  it("an empty interface list fails closed", () => {
+    expect(mk([])(onLink())).toBe(false);
+  });
+});
+
+describe("P1 builder latency with the knock-gate thunk", () => {
+  it("1000 on-link refusals with the real thunk and all three login sources stay ≤ 1000 ms", async () => {
+    const { buildLoginAvailable } = await import("../auth/auth-plugin.js");
+    const loginAvailable = buildLoginAvailable(() => false, { isEnabled: () => false }, { enforced: () => true, loginConfigs: () => [{}] });
+    const requestAccessAvailable = createRequestAccessAvailable(
+      { hostAdmission: () => ({}), getLanInterfaces: () => [{ address: "192.168.16.1", netmask: "255.255.255.0" }] },
+      createLocalTrustContext("t", () => false),
+    );
+    const r = { ip: "192.168.16.40", socket: { remoteAddress: "192.168.16.40" }, headers: { host: "192.168.16.1:8000" } } as unknown as FastifyRequest;
+    const start = performance.now();
+    for (let i = 0; i < 1000; i++) {
+      const { reply } = stubReply();
+      await sendOperateRequired(r, reply, { route: "vault", loginAvailable, requestAccessAvailable });
     }
     expect(performance.now() - start).toBeLessThanOrEqual(1000);
   });
