@@ -26,9 +26,9 @@ Three recipes:
   Reference: [`references/electron.md`](references/electron.md).
 - **The user's own logged-in browser** — reach SSO/2FA-gated sites using the
   user's real cookies. Two paths:
-  - **Pi Dashboard browser relay** (preferred when the pi session runs on the
-    dashboard host) — pair the Playwright Chrome Extension, connect to a
-    loopback CDP URL. Reference:
+  - **Pi Dashboard browser** (preferred when the pi session runs on the
+    dashboard host) — `browser_connect` hands back a loopback CDP URL for the
+    dedicated profile or a Chrome profile (Playwright Chrome Extension). Reference:
     [`references/dashboard-relay.md`](references/dashboard-relay.md).
   - **Panerelay extension bridge** (legacy) — a native-messaging host for when
     there is no loopback dashboard. Reference:
@@ -108,11 +108,16 @@ tool the agent cannot sign into — route to a login-state recipe regardless of
 the probe. Pick by capability, in this order:
 
 1. **`references/dashboard-relay.md`** when the pi session runs on the
-   dashboard host and the probe's `RELAY` is a JSON object with
-   `"enabled":true` and `"canOpenChrome":true`. This is the preferred path;
-   it needs no extra install and the dashboard holds the pairing token.
+   dashboard host and the dashboard browser is available. This is the preferred
+   path; it needs no extra install. Call `browser_connect {}` first (it picks
+   the dedicated profile by default); without that tool, use the recipe's REST
+   fallback — the probe's `RELAY` must be a JSON object with `"enabled":true`
+   and either `dedicated.available` or `"canOpenChrome":true`. A `headless`
+   result from `browser_connect` for a login task is a stop, not a fallback.
 2. **`references/own-browser.md`** (legacy Panerelay bridge) only when the
-   relay is unavailable (`RELAY=unavailable`) or the session is remote.
+   dashboard browser is unavailable (`RELAY=unavailable`, `enabled:false`) or
+   the session is remote. `browser_connect` never routes to Panerelay; this
+   step is yours.
 
 The default bundled browser starts logged out and cannot be made to inherit
 those logins; `--profile` copies the profile and still loses macOS

@@ -13,7 +13,7 @@ Harness facts:
 - Routes: `routes.test.ts` stub-manager pattern; non-loopback WS upgrade as in `ws-routes.test.ts`.
 - Timers: `vi.useFakeTimers()`.
 - Client: `renderWithPlugin` + `FakeWs` in `packages/browser-plugin/src/client/__tests__/test-utils.tsx`.
-- L3: the docker harness has no display, so `status.dedicated` reports `no-display` there; L3 covers only the settings surface under that reality.
+- L3: the docker harness has no Chrome installed (and no display), so `status.dedicated` reports `no-chrome` there (binary check precedes the display check); L3 covers only the settings surface under that reality.
 
 Harness exemplars (verified on disk):
 - L1 capability/profiles ← `server/__tests__/capability.test.ts`, `server/__tests__/profiles.test.ts`
@@ -80,7 +80,7 @@ All paths above are under `packages/browser-plugin/src/` unless they start with 
 | F10 | BPS Capability missing | decision table | L1 | automated | (`canOpenChrome`, `dedicated.available`) ∈ {(false, true), (true, false)} | render | (false,true): profile-list notice, no Connect, dedicated choice enabled; (true,false): profile rows normal, dedicated choice disabled |
 | F11 | BPS Audit viewer | convergence | L1 | automated | audit gains `detach` `closed:All controlled tabs detached` and a `@dedicated` `denied` row | `browser_relay_status.auditSeq` bumps | both rows rendered under their profiles |
 | F12 | BPS Agent browsing group | state | L1 | automated | user picks "One of my Chrome profiles" with `Profile 21` | change | one `PUT /api/browser/settings` with `defaultBrowser` and `realProfile` = `Profile 21` |
-| F13 | BPS settings on a display-less host | convergence | L3 | automated | docker harness, plugin enabled | open Settings > Browser Relay | Agent browsing group rendered; dedicated panel shows the `no-display` reason and no buttons |
+| F13 | BPS settings on a display-less host | convergence | L3 | automated | docker harness, plugin enabled | open Settings > Browser Relay | Agent browsing group rendered; dedicated panel shows the `no-chrome` reason (the container ships no Chrome; `no-display` is covered by #E1) and no buttons |
 | F14 | BPS i18n | EP | L1 | automated | en, zh-CN, hu catalogs | completeness check | every new key present in all three |
 
 ### Error-handling

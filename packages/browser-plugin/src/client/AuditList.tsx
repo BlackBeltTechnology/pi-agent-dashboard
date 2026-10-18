@@ -12,7 +12,11 @@
  * instead swallowed a real change whenever it arrived after the mutation but
  * before any other status — the new row never appeared (e2e F4).
  *
- * See change: add-browser-relay (task 4.2).
+ * The list also serves the dedicated profile (`profileDirectory="@dedicated"`);
+ * `detach` rows carry their cause as `detail` (`devtools`, `extension:<reason>`,
+ * `closed:<reason>`, `no-cdp-client`, `idle`) and render as a warning pill.
+ *
+ * See change: add-browser-relay (task 4.2); add-dedicated-agent-browser (task 7.4).
  */
 import { usePluginMessage, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type {
@@ -21,9 +25,17 @@ import type {
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { type AuditEntry, getBrowserAudit } from "./browser-api.js";
+import { Pill } from "./settings-ui.js";
 
 export interface AuditListProps {
   profileDirectory: string;
+}
+
+/** Pill tone per audit kind: stops and refusals stand out, attaches read as healthy. */
+function kindTone(kind: AuditEntry["kind"]): "ok" | "neutral" | "warn" {
+  if (kind === "attach") return "ok";
+  if (kind === "detach" || kind === "denied" || kind === "viewer-subscribe-refused") return "warn";
+  return "neutral";
 }
 
 /** Locale-formatted wall-clock time for an audit row. */
@@ -93,7 +105,7 @@ export function AuditList({ profileDirectory }: AuditListProps): React.ReactElem
               className="text-[11px] text-[var(--text-secondary)]"
             >
               <span className="text-[var(--text-tertiary)]">{formatTime(entry.ts)}</span>{" "}
-              <span className="font-medium">{entry.kind}</span>{" "}
+              <Pill tone={kindTone(entry.kind)}>{entry.kind}</Pill>{" "}
               <span>{entry.detail}</span>
             </li>
           ))}

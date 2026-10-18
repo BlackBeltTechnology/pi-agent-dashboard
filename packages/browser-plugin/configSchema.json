@@ -12,12 +12,51 @@
     },
     "defaultBrowser": {
       "type": "string",
-      "description": "profileDirectory used when connect is requested without an explicit profile."
+      "description": "Browser used by browser_connect when no target is given. \"@dedicated\" (default) = the dashboard-owned Chrome profile; \"@headless\" = the headless provider (no cdpUrl); any other value is a Chrome profileDirectory (a pre-existing value keeps this meaning). The \"@\" prefix is reserved for built-in targets and is never a profileDirectory.",
+      "default": "@dedicated"
     },
     "allowMultipleInstancesPerProfile": {
       "type": "boolean",
-      "description": "When false (default), a second connect on a profile with a live instance gets 409 {reason:'busy'}; when true the relay allows concurrent instances on one profile (user decision under tasks.md 2.2b — both paths implemented; the connect logic honouring this flag lands with workstream 2c).",
+      "description": "When false (default), a second connect on a Chrome profile with a live instance gets 409 {reason:'busy'}; when true the relay allows concurrent instances on one Chrome profile. Does not apply to the dedicated browser, which is always single-client.",
       "default": false
+    },
+    "realProfile": {
+      "type": "string",
+      "description": "Chrome profileDirectory used for the \"my Chrome profile\" step of the browser_connect fallback chain. Written whenever the user picks a profile; kept when defaultBrowser changes back to \"@dedicated\"."
+    },
+    "onUnavailable": {
+      "type": "string",
+      "enum": [
+        "ask",
+        "next",
+        "stop"
+      ],
+      "description": "What browser_connect does when the chosen browser is unavailable: ask = return the options to the agent, next = try the next browser in the fallback chain, stop = stop the task.",
+      "default": "ask"
+    },
+    "idleDisconnectMinutes": {
+      "type": "integer",
+      "enum": [
+        0,
+        5,
+        30,
+        120
+      ],
+      "description": "Close an agent browser instance after this many minutes without client commands or viewer input. 0 = never.",
+      "default": 30
+    },
+    "openLiveViewOnConnect": {
+      "type": "boolean",
+      "description": "When true, the first agent-created tab after browser_connect opens in the live-view pane automatically.",
+      "default": true
+    },
+    "allowedDomains": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Global navigation guardrail, NOT a sandbox: Page.navigate / Target.createTarget to a host outside this list is denied. Exact host or leading-dot entry for subdomains. Empty = any host. A non-empty per-profile list overrides this one; the dedicated browser always uses this list.",
+      "default": []
     },
     "browsers": {
       "type": "object",

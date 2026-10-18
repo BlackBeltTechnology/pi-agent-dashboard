@@ -73,3 +73,18 @@ The recipe SHALL state:
 
 - **WHEN** the dashboard is down, `GET /api/browser/status` is 404, or it reports `enabled: false`, or neither the dedicated profile nor `canOpenChrome` is available
 - **THEN** the skill SHALL route to `references/own-browser.md` (legacy) only if that provider reports ready, otherwise halt with a clear message
+
+#### Scenario: User asks for their own computer's browser
+
+- **WHEN** the user asks to use the browser on their own computer, `GET /api/browser/status` reports `operatorHosts: true`, and `GET /api/browser/profiles` lists exactly one online operator host with an installed profile
+- **THEN** the skill SHALL call `connect` with that `host` and profile, and continue as for the dashboard host
+
+#### Scenario: Older server
+
+- **WHEN** `GET /api/browser/status` lacks `operatorHosts: true`
+- **THEN** the skill SHALL NOT pass `host`, and SHALL tell the user that this dashboard cannot drive the browser on their computer
+
+#### Scenario: Operator denies the connect
+
+- **WHEN** `connect` returns 403 `{reason: "operator-denied"}`
+- **THEN** the skill SHALL report that the user declined on their computer and halt; it SHALL NOT retry or fall back to the dashboard host's Chrome

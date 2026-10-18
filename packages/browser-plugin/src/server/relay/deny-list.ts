@@ -79,6 +79,19 @@ export function hostAllowed(host: string, allowedDomains: readonly string[]): bo
   return allowedDomains.some((entry) => matchesEntry(h, entry));
 }
 
+/**
+ * Effective navigation allow-list: the profile's own list when non-empty, else
+ * the global list (the dedicated profile has no own list and passes `[]`).
+ * Empty result = any host. See change: add-dedicated-agent-browser (D5/D11).
+ */
+export function effectiveAllowedDomains(
+  profileList: readonly string[] | undefined,
+  globalList: readonly string[] | undefined,
+): readonly string[] {
+  if (Array.isArray(profileList) && profileList.length > 0) return profileList;
+  return Array.isArray(globalList) ? globalList : [];
+}
+
 /** The URL a URL-policy method targets, when present and a string. */
 function urlParam(params: unknown): string | undefined {
   if (typeof params !== "object" || params === null) return undefined;
