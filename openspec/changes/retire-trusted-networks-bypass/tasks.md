@@ -59,6 +59,7 @@
 
 - [ ] 7.1 Test (L1, see `packages/server/src/__tests__/pairing.test.ts`): input `acceptLanRequests` on/off; lists `198.51.100.0/24`, `0.0.0.0/0`, `127.0.0.0/8` · trigger knocks from `198.51.100.7`; `203.0.113.9` unlisted; listed + `X-Forwarded-For`; `0.0.0.0/0` + `203.0.113.9`; `127.0.0.1` + XFF; setting off · observable pending device with no bearer until approval; address-gate code ×4; setting-disabled code (test-plan #E19)
 - [ ] 7.2 Implement the knock list branch: no forwarding header + raw list minus match-all entries (verify: 7.1 green; existing knock tests green)
+  - Coordination (`add-request-access-remedy`, task 8.1): put the list branch into `KnockPeerDeps` / `knockPeerState` / `knockPeerGate` in `packages/server/src/pairing/knock-admission.ts`, not at a call site, so the `request-access` remedy on `operate_required` follows the knock automatically. Verify: `grep -n "knockPeerGate\|knockPeerState" packages/server/src` shows the list read only inside those helpers.
 
 ## 8. Client (mockups/network-trust.html)
 

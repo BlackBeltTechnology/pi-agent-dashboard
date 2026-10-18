@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { ConnectionStatus } from "../../hooks/useWebSocket.js";
 import { getApiBase, useApiBase } from "../../lib/api/api-context.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { requestAccessTarget } from "../../lib/pairing/request-access-target.js";
 
 export interface ConnectionStatusBannerProps {
   status: ConnectionStatus;
@@ -65,8 +66,9 @@ export function ConnectionStatusBanner({
     // (active) server's own request page in a new context without an opener.
     // See change: add-lan-knock-pairing (design D10).
     const requestAccess = () => {
-      if (apiBase && apiBase !== window.location.origin) window.open(`${apiBase}/pair?request`, "_blank", "noopener");
-      else window.location.assign("/pair?request");
+      const { href, newContext } = requestAccessTarget(apiBase, window.location.origin);
+      if (newContext) window.open(href, "_blank", "noopener");
+      else window.location.assign(href);
     };
     return (
       <div

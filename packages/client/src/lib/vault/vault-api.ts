@@ -98,6 +98,8 @@ export interface VaultResult<T> {
   code?: string;
   /** `operate_required` only: what the caller can do about it, server order. Unvalidated. */
   remedies?: unknown[];
+  /** The API base this request was sent to (read once at request start), not the base current when the reply landed. */
+  base?: string;
 }
 
 interface Envelope<T> {
@@ -127,8 +129,9 @@ function transportFailure<T>(err: unknown): VaultResult<T> {
 async function call<T>(method: "GET" | "POST" | "PUT" | "DELETE", path: string, body?: unknown): Promise<VaultResult<T>> {
   let res: Response;
   let env: Envelope<T>;
+  const base = getApiBase();
   try {
-    ({ res, json: env } = await fetchJsonResponse<Envelope<T>>(`${getApiBase()}${path}`, {
+    ({ res, json: env } = await fetchJsonResponse<Envelope<T>>(`${base}${path}`, {
       method,
       headers: body === undefined ? undefined : { "content-type": "application/json" },
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -143,6 +146,7 @@ async function call<T>(method: "GET" | "POST" | "PUT" | "DELETE", path: string, 
     error: env.message ?? env.error,
     code: env.error,
     remedies: Array.isArray(env.remedies) ? env.remedies : undefined,
+    base,
   };
 }
 

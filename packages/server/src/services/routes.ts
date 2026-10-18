@@ -39,6 +39,8 @@ export interface ServiceRoutesDeps {
   getTrustedNetworks?: () => string[];
   /** Live: is a usable login method configured? Drives the `sign-in` remedy of a refusal. */
   loginAvailable: () => boolean;
+  /** Offer the `request-access` remedy to a credential-less caller that passes the knock gates. */
+  requestAccessAvailable?: (request: FastifyRequest) => boolean;
 }
 
 /** The request shape every handler reads (params / body / query are all optional). */
@@ -61,7 +63,7 @@ export function registerServiceRoutes(fastify: FastifyInstance, deps: ServiceRou
   const { manager, networkGuard } = deps;
   const mutationGuard = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
     if (!hasOperateAuthority(request, deps.localTrust)) {
-      await sendOperateRequired(request, reply, { route: "services", loginAvailable: deps.loginAvailable });
+      await sendOperateRequired(request, reply, { route: "services", loginAvailable: deps.loginAvailable, requestAccessAvailable: deps.requestAccessAvailable });
     }
   };
   const read = { preHandler: networkGuard };

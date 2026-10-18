@@ -206,6 +206,7 @@ import { type BrowserGateway, createBrowserGateway } from "./pairing/browser-gat
 import type { SessionPresence } from "./questions/question-files.js";
 import { registerQuestionRoutes } from "./questions/question-routes.js";
 import { createQuestionStack, persistedPresence } from "./questions/question-stack.js";
+import { createRequestAccessAvailable, type KnockPeerDeps } from "./pairing/knock-admission.js";
 import { PairedDeviceRegistry } from "./pairing/paired-devices.js";
 import { PairingManager, wirePendingHint } from "./pairing/pairing.js";
 import type { TieredSocket } from "./pairing/ws-tier-gate.js";
@@ -2614,11 +2615,21 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     // The manager coalesces to ≤ 1 per 500 ms. See change: add-services-settings-ui.
     onChange: () => browserGateway.broadcastToAll({ type: "services_changed" }),
   });
+  // The knock's pre-switch gate state, built ONCE: the pairing routes and the
+  // `request-access` remedy of vault / services refusals read the same Host
+  // admission and the same cached LAN-interface list, so the remedy cannot drift
+  // from the knock. See change: add-request-access-remedy (D1, D2, D4).
+  const knockPeerDeps: KnockPeerDeps = {
+    hostAdmission: () => getHostGateCtx().admission,
+    getLanInterfaces: createLanInterfaceProvider({ bindHost: config.host }),
+  };
+  const requestAccessAvailable = createRequestAccessAvailable(knockPeerDeps, localTrust);
   registerServiceRoutes(fastify, {
     manager: serviceManager,
     networkGuard,
     localTrust,
     loginAvailable,
+    requestAccessAvailable,
     getTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []),
   });
   // Credential vault: hub-owned accounts, bindings and per-project grants.
@@ -2630,6 +2641,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     networkGuard,
     localTrust,
     loginAvailable,
+    requestAccessAvailable,
     hostPolicy: policyRegistry,
     listOpenProjects: () => vaultDelivery.listOpenProjects(),
     projects: vaultProjects,
@@ -2919,7 +2931,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     registry: pairedDeviceRegistry,
     localToken,
     localTrust,
-    hostAdmission: () => getHostGateCtx().admission,
+    hostAdmission: knockPeerDeps.hostAdmission,
     // Shared "is a login method configured" thunk (same instance as vault/services): drives the `sign-in` remedy.
     loginAvailable,
     // Public (tunnel + configured public) base URLs, already TLS-gated.
@@ -2932,7 +2944,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     // the on-link gate scores the peer against the interfaces the bind covers.
     // See change: add-lan-knock-pairing.
     getAcceptLanRequests: liveAcceptLanRequests,
-    getLanInterfaces: createLanInterfaceProvider({ bindHost: config.host }),
+    getLanInterfaces: knockPeerDeps.getLanInterfaces,
   });
   // Operator user directory (passkeys). See change: add-passkey-user-auth.
   registerUserRoutes(fastify, {

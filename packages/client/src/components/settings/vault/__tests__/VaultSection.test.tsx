@@ -6,6 +6,7 @@
  */
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { setGlobalApiBase } from "../../../../lib/api/api-context.js";
 import { VaultSection } from "../VaultSection.js";
 import { callsTo, fail, html, makeOverview, ok as okResponse, stubVaultFetch } from "./vault-fixtures.js";
 
@@ -138,7 +139,7 @@ describe("VaultSection — operate refusal callout", () => {
       [["use-host"], ["use-host"]],
       [["use-host", "re-pair", "sign-in"], ["use-host", "re-pair", "sign-in"]],
       [["re-pair"], ["re-pair"]],
-      [["use-host", "request-access"], ["use-host"]],
+      [["use-host", "future-remedy"], ["use-host"]],
     ] as const) {
       stubVault([() => refusal([...remedies])]);
       const { unmount } = render(<VaultSection />);
@@ -222,6 +223,79 @@ describe("VaultSection — operate refusal callout", () => {
     // A rejected fetch is a `network` failure now: it names its cause instead of the raw error text.
     expect(line.textContent).toContain("Can't reach the dashboard server");
     expect(screen.queryByTestId("vault-operate-required")).toBeNull();
+  });
+});
+
+// ── add-request-access-remedy (test-plan E20–E22, F1, F2) ─────────────────
+describe("VaultSection — request-access remedy row", () => {
+  const refusal = (remedies: unknown[]) => ({
+    ok: false,
+    status: 403,
+    headers: JSON_HEADERS,
+    json: () => Promise.resolve({ success: false, error: "operate_required", message: "m", reason: "no-credential", remedies }),
+  });
+  /** `GET <base>/api/vault` answers from `queue` (last repeats); every other call succeeds empty. */
+  function stubVault(queue: Array<() => unknown>) {
+    let i = 0;
+    const fn = vi.fn((url: string) => {
+      if (url.endsWith("/api/vault")) return Promise.resolve(queue[Math.min(i++, queue.length - 1)]());
+      return Promise.resolve(ok(url.endsWith("/api/vault/import/candidates") ? [] : {}));
+    });
+    vi.stubGlobal("fetch", fn);
+    return fn;
+  }
+  afterEach(() => setGlobalApiBase(""));
+  const link = () => screen.getByTestId("vault-operate-request-access") as HTMLAnchorElement;
+
+  it("E20 on the page's own server: three rows in order; same-context link", async () => {
+    setGlobalApiBase(window.location.origin);
+    stubVault([() => refusal(["use-host", "request-access", "sign-in"])]);
+    render(<VaultSection />);
+    await screen.findByTestId("vault-operate-required");
+    expect(screen.getAllByTestId("vault-operate-remedy").map((r) => r.getAttribute("data-remedy"))).toEqual(["use-host", "request-access", "sign-in"]);
+    expect(link().getAttribute("href")).toBe("/pair?request");
+    expect(link().getAttribute("target")).toBeNull();
+    expect(link().textContent).toBe("Request access");
+  });
+
+  it("E21 another server: absolute link in a new context without an opener", async () => {
+    setGlobalApiBase("http://192.168.16.204:8000");
+    stubVault([() => refusal(["use-host", "request-access"])]);
+    render(<VaultSection />);
+    await screen.findByTestId("vault-operate-required");
+    expect(link().getAttribute("href")).toBe("http://192.168.16.204:8000/pair?request");
+    expect(link().getAttribute("target")).toBe("_blank");
+    expect(link().getAttribute("rel")).toContain("noopener");
+  });
+
+  it("F1 the link keeps targeting the refusing server after the active server switches", async () => {
+    setGlobalApiBase("http://192.168.16.204:8000");
+    stubVault([() => refusal(["use-host", "request-access"])]);
+    const { rerender } = render(<VaultSection />);
+    await screen.findByTestId("vault-operate-required");
+    setGlobalApiBase("http://192.168.16.31:8000"); // no reload
+    rerender(<VaultSection />);
+    expect(link().getAttribute("href")).toBe("http://192.168.16.204:8000/pair?request");
+  });
+
+  it("F2 retry stays single-flight with the new row", async () => {
+    let release: (v: unknown) => void = () => {};
+    const pending = new Promise((r) => { release = r; });
+    let n = 0;
+    const fn = vi.fn((url: string) => {
+      if (!url.endsWith("/api/vault")) return Promise.resolve(ok(url.endsWith("/api/vault/import/candidates") ? [] : {}));
+      return n++ === 0 ? Promise.resolve(refusal(["use-host", "request-access"])) : pending;
+    });
+    vi.stubGlobal("fetch", fn);
+    render(<VaultSection />);
+    const retry = await screen.findByTestId("vault-operate-retry");
+    fireEvent.click(retry);
+    fireEvent.click(retry);
+    await waitFor(() => expect((screen.getByTestId("vault-operate-retry") as HTMLButtonElement).disabled).toBe(true));
+    expect(screen.getByTestId("vault-operate-required").getAttribute("aria-busy")).toBe("true");
+    expect(fn.mock.calls.filter((c) => c[0] === "/api/vault")).toHaveLength(2);
+    release(refusal(["use-host", "request-access"]));
+    await waitFor(() => expect((screen.getByTestId("vault-operate-retry") as HTMLButtonElement).disabled).toBe(false));
   });
 });
 
