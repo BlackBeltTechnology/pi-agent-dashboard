@@ -116,7 +116,7 @@
   - the OPENSPEC subcard error badge.
 
   Verify #F1–#F7 are green and `npm run build` succeeds.
-- [ ] 6.7 Write the L3 convergence spec (test-plan #F8). Exemplar: `tests/e2e/archived-attachment.spec.ts`. Docker-harness project with 3 changes: corrupt `changes/c2/.openspec.yaml` on disk → the board shows an error badge on `c2` only; restore it → the badge disappears with no manual refresh. Verify it is green against the harness (`npm run test:e2e -- archived-attachment openspec-status-all`).
+- [x] 6.7 Write the L3 convergence spec (test-plan #F8). Exemplar: `tests/e2e/archived-attachment.spec.ts`. Docker-harness project with 3 changes: corrupt `changes/c2/.openspec.yaml` on disk → the board shows an error badge on `c2` only; restore it → the badge disappears with no manual refresh. Verify it is green against the harness (`npm run test:e2e -- archived-attachment openspec-status-all`).
 
 ## 7. Parity, measurement, docs
 
