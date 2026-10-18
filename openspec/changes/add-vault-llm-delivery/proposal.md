@@ -23,6 +23,7 @@ This is part 2 of 3 and depends on `add-credential-vault`, which provides the va
 - **Model proxy.** It routes vault bindings only for requests carrying an owned session key ("vault scope"); such a request resolves bare model ids within its binding and cannot address other providers. Vault-held accounts never land in `auth.json` and are not visible to other callers or to the plugin model runtime.
 - **Redaction** extends to LLM keys, lease tokens and proxy keys, with marker `[REDACTED:<binding name>]`.
 - **Plugins** can read declared `llm` bindings; OAuth bindings return access tokens only.
+- **Settings → Providers shows vault accounts.** Vault accounts appear under their provider with their scope and usage. A pi login row can be linked to the vault, and "Add provider" offers "another account" for a connected provider, which enrols into the vault. Granting stays on the Vault page, whose Accounts tab becomes the first and default tab.
 - **Sibling re-scoping** (tasks):
   - `add-oauth-key-sync-service` (keysync) becomes the vault's standalone team deployment. It is proxy-only and keeps its envelope encryption.
   - `add-cloud-sync-connector` takes OAuth from the vault.
@@ -37,6 +38,9 @@ This is part 2 of 3 and depends on `add-credential-vault`, which provides the va
 - `model-proxy-credential-routing`: credential-kind filtering counts the vault binding of an owned session key; credential writes and the single-refresh rule are per vault account for vault-held credentials. Other callers are unchanged.
 - `credential-vault` (from `add-credential-vault`; archive after it): `llm` bindings may deliver `oauth` accounts, while env bindings stay `key`-only.
 - `model-proxy`: "Model availability mirrors…" and "Model ID resolution" gain an owned-key branch (binding-only listing; bare ids resolve within the binding; no fallback). Other callers are unchanged.
+- `credential-vault`: "Vault page is organised by variable": tab order Accounts, Variables, Import, with Accounts as the default; `llm` binding cards in a Model providers group.
+- `provider-auth-ui`: vault account rows, "Link to vault" on pi login rows, a vault-only hub is not an empty state, and the row text size floor.
+- `provider-add-flow`: "Picker lists only providers that can be added" gains an "Another account for a connected provider" group.
 
 ## Impact
 
@@ -48,14 +52,16 @@ This is part 2 of 3 and depends on `add-credential-vault`, which provides the va
   - Failover before the first byte in the proxy.
   - Enrolment persist target.
 - **Bridge.** Provider overrides tracked apart from `providers.json` in the foundation's `process` registry, lease renewal, re-registration after reload, clone registration, and LLM precedence checks.
-- **Client.** OAuth accounts, link, enrolment, LLM bindings, pools, and a lease revocation notice.
-- **Mockup.** None yet. The vault page and session view are redesigned by `retro-ux-credential-vault` (`openspec/changes/retro-ux-credential-vault/mockups/vault.html`, design D10). This change adds its OAuth, link, enrolment, `llm` binding, pool and failover states to that board and gets them approved before task 7.6. They render in the "Sign-in accounts" section of the Accounts tab and in the variable cards. Landing order works both ways: if `retro-ux-credential-vault` lands first, 7.6 builds inside its tabs and cards; if this change lands first, `retro-ux-credential-vault` moves this UI into those sections.
+- **Client.** OAuth accounts, link, enrolment, LLM bindings, pools, and a lease revocation notice on the Vault page. Vault account rows, link and "another account" on Settings → Providers.
+- **Mockup.** Approved 2026-10-18 (decisions U1–U12): `mockups/vault-llm.html` (Vault page and session chip, 20 states) and `mockups/providers.html` (Settings → Providers, 7 states); plan in `mockups/ui-plan.md`. `retro-ux-credential-vault` landed first and is archived, so this UI builds inside its tabs and cards and reuses its board assets.
 - **Security.**
   - After revocation, a lease token stays valid upstream until it expires. Lease is for the user's own devices; proxy gives immediate revocation.
   - Linked logins keep today's pi and server refresh pair.
 - **pi version.** Several seams were observed on pi 1.1.0, but the repo pins 1.0.0. Task T0 re-verifies them; T6 verifies the proxy wire.
 - **Compatibility and rollback.** Additive: with no LLM bindings, and for unowned proxy keys, behaviour is identical. Disabling delivery unregisters every override and revokes every session key.
 - **Policy.** Pool failover across subscription accounts may conflict with provider terms, so it is opt-in and off by default.
+- **Remote delivery.** The foundation's trust gate refuses paired devices today (no TLS proof, `vault-delivery-hub.ts:10-13`), so remote lease and proxy delivery need `prove-vault-bridge-tls`. Hub sessions are unaffected.
+- **Related.** Access for new folders by default ("All my projects" reach, and the session offer when a model credential is missing) is planned in `add-vault-reach-all-projects`, which lands after this change.
 - **Known limitation.** A hub whose LLM accounts are all vault-backed shows "no providers" in onboarding until `credential-detection` counts the vault (follow-up).
 
 ## Discipline Skills

@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Providers page with vault accounts — UX board (add-vault-llm-delivery)</title>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="mockup.css" />
+<link rel="stylesheet" href="vault.css" />
+<link rel="stylesheet" href="llm.css" />
+<script src="icons.js"></script>
+</head>
+<body data-view="both">
+<div class="toolbar" role="toolbar" aria-label="Board controls">
+  <h1>Settings → Providers, with vault accounts (proposed, option A)</h1>
+  <span class="seg-label" id="lbl-theme">Theme</span>
+  <div class="seg" aria-labelledby="lbl-theme" data-group="theme">
+    <button aria-pressed="true" data-v="base-dark">Base dark</button>
+    <button aria-pressed="false" data-v="base-light">Base light</button>
+    <button aria-pressed="false" data-v="nord-dark">Nord dark</button>
+  </div>
+  <span class="seg-label" id="lbl-w">Frame</span>
+  <div class="seg" aria-labelledby="lbl-w" data-group="width">
+    <button aria-pressed="false" data-v="375">375</button>
+    <button aria-pressed="false" data-v="768">768</button>
+    <button aria-pressed="true" data-v="1440">1440</button>
+  </div>
+  <span class="seg-label" id="lbl-v">Show</span>
+  <div class="seg" aria-labelledby="lbl-v" data-group="view">
+    <button aria-pressed="true" data-v="both">Mockup + UX notes</button>
+    <button aria-pressed="false" data-v="proposed">Mockup only</button>
+  </div>
+  <a class="p-link" href="vault-llm.html" style="margin-left:auto">Vault board →</a>
+  <a class="p-link" href="../../add-vault-reach-all-projects/mockups/reach.html">Reach board →</a>
+</div>
+<main id="board"></main>
+
+<script>
+const ic = (n, cls = "") => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true"><path d="${ICON[n]}"/></svg>`;
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+let uid = 0; const nid = (p) => `${p}-${++uid}`;
+const pill = (tone, icon, text, attrs = "") => `<span class="pill ${tone}" ${attrs}>${icon ? ic(icon) : ""}${text}</span>`;
+const badge = (t, attrs = 'data-testid="provider-badge"') => `<span class="pbadge" ${attrs}>${t}</span>`;
+const vaultLink = (label = "Manage in Vault") => `<a class="p-linkc" href="#" data-testid="provider-vault-link">${label} ${ic("ArrowRight")}</a>`;
+const btn = (icon, text, cls = "secondary", attrs = "") => `<button class="p-btn sm ${cls}" ${attrs}>${ic(icon)}${text}</button>`;
+
+/* ── shipped rows (AuthRow / CustomEndpointRow), unchanged behaviour ── */
+function piRow(r, o = {}) {
+  return `<div class="prow" data-testid="provider-row" data-row-id="${r.id}" data-row-source="auth">
+    <div class="top"><div class="main"><div class="nm">${r.name}${badge(r.badge)}</div>
+      <div class="meta">${r.meta}</div>${r.vaultLine ?? ""}</div>
+      <div class="acts">${r.connected ? pill("success", "Check", "Connected") : ""}${r.acts}</div></div>${o.below ?? ""}</div>`;
+}
+/* ── new: vault account row, nested under its provider ── */
+function vaultRow(v) {
+  return `<div class="prow sub" data-testid="provider-row" data-row-id="${v.provider}" data-row-source="vault" data-account-id="${v.id}" aria-label="${v.provider} account ${v.label}, stored in the vault">
+    <div class="top"><div class="main"><div class="nm">${v.label}${badge(v.kindBadge)}${v.status ?? ""}</div>
+      <div class="meta">${v.meta}</div><div class="meta">${ic("FolderOutline")} ${v.usedBy}</div></div>
+      <div class="acts">${v.acts ?? vaultLink()}</div></div></div>`;
+}
+const linkedLine = (label, used) => `<div class="meta" data-testid="provider-vault-linked">${ic("LinkVariant")} Linked to vault as <strong>${label}</strong> · ${used} · ${vaultLink("Manage")}</div>`;
+
+const ROW_ANTHROPIC = { id: "anthropic", name: "Anthropic", badge: "Subscription", connected: true, meta: `${ic("ProgressClock")} expires in 47 min`,
+  vaultLine: linkedLine("personal", "default of <code>anthropic</code> for 1 project"), acts: btn("Close", "Sign out", "ghost") };
+const ROW_CODEX = (o = {}) => ({ id: "openai-codex", name: "ChatGPT Plus/Pro (Codex)", badge: "Subscription", connected: true, meta: `${ic("ProgressClock")} expires in 6 days`,
+  vaultLine: o.linked ? linkedLine("personal", "not used by any project yet") : "",
+  acts: `${o.linked ? "" : btn("LinkVariant", "Link to vault", "secondary", 'data-testid="provider-link-vault" aria-expanded="' + !!o.linkForm + '"')}${btn("Close", "Sign out", "ghost")}` });
+const ROW_OPENROUTER = { id: "openrouter", name: "OpenRouter", badge: "API key", meta: "<code>sk-or-v1-••••••••3f2a</code>", acts: `${btn("Pencil", "Edit", "ghost")}${btn("TrashCanOutline", "Remove", "ghost")}` };
+const ROW_GOOGLE = { id: "google", name: "Google Gemini", badge: "Environment", meta: "from GEMINI_API_KEY", acts: "" };
+
+const V_WORK = { id: "oa_w", provider: "anthropic", label: "work", kindBadge: "Vault · Subscription", status: pill("success", "CheckCircleOutline", "Signed in"),
+  meta: "token valid 38 min · ro•••@blackbelt.hu", usedBy: "As <code>anthropic-work</code> in video-feliratozas · for <code>anthropic</code> in deck3d" };
+const V_CODEX_TEAM = { id: "oa_c", provider: "openai-codex", label: "team", kindBadge: "Vault · Subscription", status: pill("error", "AlertCircleOutline", "Needs sign-in"),
+  meta: "The dashboard couldn't save a renewed sign-in.", usedBy: "For <code>openai-codex</code> in compsychletter · delivers nothing now",
+  acts: `${btn("Login", "Sign in again", "primary")}${vaultLink()}` };
+const V_GOOGLE = { id: "acc_g1", provider: "google", label: "personal", kindBadge: "Vault · API key",
+  meta: "Same key as <code>GEMINI_API_KEY</code>", usedBy: "As <code>google</code> in pi-agent-dashboard" };
+const V_NEW = { id: "oa_x", provider: "anthropic", label: "client-x", kindBadge: "Vault · Subscription", status: pill("success", "CheckCircleOutline", "Signed in"),
+  meta: "token valid 59 min", usedBy: "Not used by any project yet" };
+
+function page(body, o = {}) {
+  return `<div class="v-page"><div><h2 class="v-title">Providers</h2>
+    <p class="v-lead">Credentials pi can use to run models.</p></div>
+    <div class="scope" data-testid="provider-scope-legend">${ic("Laptop")}<span><strong>pi logins and keys</strong> work in every session on this dashboard.</span>
+      ${ic("ShieldKeyOutline")}<span><strong>Vault accounts</strong> reach only the projects you grant them to, on any connected device.</span></div>
+    <div class="toolbar-row"><button class="p-btn sm primary" data-testid="add-provider-button">${ic("Plus")}Add provider <span class="cnt">33 available</span></button></div>
+    ${o.top ?? ""}
+    <div class="prov-list">${body}</div></div>`;
+}
+const listRows = (o = {}) => [
+  piRow(ROW_ANTHROPIC, { below: "" }) + vaultRow(V_WORK) + (o.newAcc ? vaultRow(V_NEW) : ""),
+  piRow(ROW_CODEX(o), { below: o.linkForm ?? "" }) + vaultRow(V_CODEX_TEAM),
+  piRow(ROW_GOOGLE) + vaultRow(V_GOOGLE),
+  piRow(ROW_OPENROUTER),
+].join("");
+
+function linkForm() {
+  const l = nid("lb");
+  return `<form class="inset stack-3" onsubmit="return false" data-testid="provider-link-form"><div class="form-grid">
+    <div><label class="p-label" for="${l}">Label in the vault</label><input id="${l}" class="p-input" value="personal"></div>
+    <p class="p-meta full">Nothing is copied: pi keeps this login and keeps renewing it. The vault can then hand short-lived tokens of it to projects you grant, including on other devices.</p>
+    <p class="p-meta full">${ic("InformationOutline")} OpenAI doesn't say which account is signed in. If pi is later signed in with another account, the link follows it without warning.</p>
+    <div class="btn-row full"><button class="p-btn sm primary">${ic("LinkVariant")}Link to vault</button><button class="p-btn sm secondary">Cancel</button></div></div></form>`;
+}
+
+/* ── Add provider dialog (SearchableSelectDialog) ── */
+function picker() {
+  const opt = (t, d, b, sel) => `<div class="pick" role="option" aria-selected="${!!sel}"><div class="main"><div class="t">${t}</div><div class="d">${d}</div></div>${b ? badge(b, "") : ""}</div>`;
+  return `<div class="pdlg" role="dialog" aria-labelledby="pk-h" data-testid="provider-add-dialog"><header><h3 id="pk-h">Add provider</h3><button class="p-btn sm ghost icon" aria-label="Close">${ic("Close")}</button></header>
+    <div class="bd"><label class="sr-only" for="pk-s">Search providers</label><input id="pk-s" class="p-input" type="search" placeholder="Search providers…" value="anth">
+      <div role="listbox" aria-label="Providers">
+        <p class="pick-g">Another account for a connected provider</p>
+        ${opt("Anthropic (Claude Pro/Max)", "Sign in with a second account. Stored in the vault; your pi login stays.", "Vault", true)}
+        <p class="pick-g">API keys</p>
+        ${opt("Anthropic", "API key", "API key", false)}
+      </div></div></div>`;
+}
+function anotherPane(o = {}) {
+  const l = nid("al");
+  return `<div class="pdlg" role="dialog" aria-labelledby="ap-h" data-testid="provider-add-dialog"><header><button class="p-btn sm ghost">Back</button><h3 id="ap-h">Add another Anthropic account</h3><button class="p-btn sm ghost icon" aria-label="Close">${ic("Close")}</button></header>
+    <div class="bd">
+      <p class="p-help" style="margin:0">pi stays signed in as <strong>ro•••@gmail.com</strong>. This account is stored in the vault and is used only in projects you grant it to.</p>
+      <div><label class="p-label" for="${l}">Label</label><input id="${l}" class="p-input" value="client-x" aria-describedby="${l}-h"><p id="${l}-h" class="p-meta" style="margin-top:4px">How you tell it apart, for example work.</p></div>
+      ${o.waiting ? `<div class="signin-wait" role="status" aria-live="polite"><span class="spin" aria-hidden="true">${ic("Refresh")}</span><div><strong style="font-size:14px">Waiting for you to sign in…</strong><div class="p-meta">A browser window opened. You can close this dialog; the sign-in finishes in the background.</div></div></div>`
+        : `<p class="p-meta">A browser window will open. Sign in with the account you want stored as "client-x", not the one pi already uses.</p>`}
+    </div><footer>${o.waiting ? `<button class="p-btn sm secondary">Cancel sign-in</button>` : `<button class="p-btn sm primary" data-testid="dialog-sign-in">${ic("OpenInNew")}Sign in</button>`}</footer></div>`;
+}
+const doneCallout = `<div class="callout info" role="status" data-testid="provider-vault-added">${ic("CheckCircleOutline")}<div class="body"><strong>anthropic / client-x is saved in the vault.</strong> No project uses it yet.
+  <div class="btn-row"><button class="p-btn sm primary">${ic("ArrowRight")}Make it available to a project</button><button class="p-btn sm ghost">Later</button></div>
+  <p class="p-meta">Opens Vault → Variables with a new model provider for this account (for example <code>anthropic-client-x</code>), ready to grant.</p></div></div>`;
+
+function emptyVaultOnly() {
+  return `<div class="v-page"><div><h2 class="v-title">Providers</h2><p class="v-lead">Credentials pi can use to run models.</p></div>
+    <div class="toolbar-row"><button class="p-btn sm primary">${ic("Plus")}Add provider <span class="cnt">35 available</span></button></div>
+    <div class="callout info" role="status" data-testid="providers-vault-only">${ic("ShieldKeyOutline")}<div class="body"><strong>pi on this dashboard has no login of its own.</strong> Your 2 vault accounts reach only granted projects. A session outside those projects can't run a model.
+      <div class="btn-row"><button class="p-btn sm secondary">${ic("Plus")}Add provider</button><button class="p-btn sm secondary" data-testid="provider-vault-link">${ic("ShieldKeyOutline")}Open Vault</button></div></div></div>
+    <div class="prov-list">${vaultRow({ ...V_WORK, kindBadge: "Vault · Subscription" })}${vaultRow({ ...V_CODEX_TEAM })}</div></div>`.replace(/prow sub/g, "prow");
+}
+
+const N = (rule, cite) => `<li>${rule} <cite>${cite}</cite></li>`;
+const BOARD = [
+  { title: "Settings → Providers: vault accounts on the connected list", verdict: "option A · P1–P6 (new) · vault page keeps grants and variables", states: [
+    ["providers-list", "Vault accounts nested under their provider; the pi login shows its link", page(listRows()), [
+      N("Users look for 'my Claude accounts' on Providers. Every credential pi can use is now on this page.", "Jakob's Law; Nielsen #6 Recognition rather than recall"),
+      N("A vault account sits indented under the provider it belongs to, so 'two Anthropic accounts' reads at a glance.", "Gestalt proximity, lawsofux.com/law-of-proximity"),
+      N("The two-line scope legend answers the key question 'where does this work?': pi logins work everywhere here, vault accounts only in granted projects.", "Nielsen #2, #10"),
+      N("The badge names the kind in words ('Vault · Subscription'), keeping the shipped word-not-colour rule.", "redesign-providers-settings-page ui-plan; WCAG 1.4.1"),
+      N("Each vault row says where it is used. Granting stays on the Vault page (Manage in Vault), so there is one place for 'who gets what'.", "Nielsen #8 Minimalist design; single source of truth"),
+      N("needs-reauth is fixable on this page (Sign in again).", "Nielsen #9"),
+    ], "proposal Impact: Client (OAuth accounts); user decision A"],
+    ["link-to-vault", "pi login not yet linked: 'Link to vault' opens an inline form", page(listRows({ linkForm: linkForm() })), [
+      N("The action sits on the row it affects; the form is inline, with no navigation away.", "Fitts's Law, lawsofux.com/fitts-law; Nielsen #3"),
+      N("Says plainly that nothing is copied and pi keeps renewing; says the identity risk when the provider gives none.", "spec: Linking leaves auth.json untouched; design D2"),
+    ], "F1 (link appears with backend link; same server route as Vault → Accounts)"],
+    ["add-picker", "Add provider: new group 'Another account for a connected provider'", page(listRows(), { top: picker() }), [
+      N("Connected subscription providers come back into the picker, but only as 'another account', so the shipped rule 'picker = not configured' still holds for pi credentials.", "redesign-providers D4; Nielsen #5"),
+      N("The description says the outcome (stored in the vault; pi login stays) before any click.", "Nielsen #1"),
+    ], "spec: Additional OAuth account enrolment"],
+    ["add-another", "Pane: label first, then the provider's sign-in", page(listRows(), { top: anotherPane() }), [
+      N("Names the account pi already uses, so the user signs in with a different one. This prevents the linked-identity refusal before it happens.", "Nielsen #5 Error prevention"),
+      N("Reuses OAuthFlowView. The flow continues if the dialog closes (shipped D4).", "Jakob's Law"),
+    ], "design D7; same enrolment states as the Vault board (refused, no-identity warning)"],
+    ["add-another-waiting", "Sign-in in progress", page(listRows(), { top: anotherPane({ waiting: true }) }), [
+      N("Live status; you can close the dialog and the sign-in still finishes.", "WCAG 4.1.3; Nielsen #1"),
+    ], "design D7"],
+    ["add-another-done", "Saved: the next step is offered, not left implicit", page(listRows({ newAcc: true }), { top: doneCallout }), [
+      N("A vault account does nothing until it is granted, so the success message says so and offers the next step.", "Nielsen #1; Goal-gradient effect, lawsofux.com/goal-gradient-effect"),
+      N("'Later' leaves it in the list as 'Not used by any project yet'.", "Nielsen #3 User control"),
+    ], "spec: LLM bindings (grant needed to deliver)"],
+    ["vault-only", "Hub with only vault accounts: no misleading 'No providers configured'", emptyVaultOnly(), [
+      N("Replaces the false empty state with the true situation and its consequence.", "Nielsen #1; proposal Known limitation"),
+      N("Onboarding and credential-detection stay the follow-up change; this state is UI only.", "design Follow-ups"),
+    ], "proposal: Known limitation (vault-backed hub shows 'no providers')"],
+  ]},
+];
+
+document.getElementById("board").innerHTML = BOARD.map((s) => `<section class="surface"><h2>${s.title}</h2><p class="verdict">${s.verdict}</p>
+  ${s.states.map(([id, finds, mock, notes, spec]) => `<article class="state" id="${id}"><header><code>${id}</code><span class="finds">${finds}</span></header>
+    <div class="pair notes-pair"><div class="col proposed"><p class="tag">Proposed</p><div class="frame">${mock}</div></div>
+    <div class="col asbuilt notes"><h4>Why (cited rule)</h4><ul>${notes.join("")}</ul><p class="spec"><strong>Covers:</strong> ${spec}</p></div></div></article>`).join("")}
+</section>`).join("");
+
+const html = document.documentElement;
+function apply(group, v) {
+  if (group === "theme") {
+    const [pal, mode] = v.split("-");
+    mode === "light" ? html.setAttribute("data-theme", "light") : html.removeAttribute("data-theme");
+    pal === "nord" ? html.setAttribute("data-palette", "nord") : html.removeAttribute("data-palette");
+  }
+  if (group === "width") document.body.style.setProperty("--frame-w", v === "1440" ? "100%" : `${v}px`);
+  if (group === "view") document.body.dataset.view = v;
+}
+document.querySelectorAll(".seg").forEach((seg) => seg.addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  seg.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+  apply(seg.dataset.group, b.dataset.v);
+}));
+const params = new URLSearchParams(location.search);
+for (const g of ["theme", "width", "view"]) if (params.get(g)) document.querySelector(`.seg[data-group="${g}"] button[data-v="${params.get(g)}"]`)?.click();
+</script>
+</body>
+</html>

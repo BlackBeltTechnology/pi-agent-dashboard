@@ -312,6 +312,23 @@ flowchart LR
   - for leases, `expires in` or `expired`;
   - for proxy bindings, the key's last-used time.
 
+### D14: Settings UI (approved board)
+
+Boards approved 2026-10-18: `mockups/vault-llm.html` (Vault page, session chip) and `mockups/providers.html` (Settings → Providers). Decisions U1–U12 with cited rules and the testid map: `mockups/ui-plan.md`.
+
+- **Vault page.**
+  - Tab order Accounts, Variables, Import; Accounts is the default tab (U10). The first-run guide still replaces the content when the vault is empty.
+  - OAuth accounts form the "Sign-in accounts" group of the Accounts tab (retro-ux D10 slot), with backend, status (`ok`, `needs-reauth`, `identity-changed`), usage, and expiry or last refresh. They never show a token.
+  - `llm` bindings are variable cards in a "Model providers" group of the Variables tab (U1). Delivery labels are "Short-lived token" (`lease`), "Through this dashboard" (`proxy`) and "API key" (`key`) (U2). The form offers only valid deliveries; an unavailable one is shown disabled with its reason (U3).
+  - Pools: the order is changed with up/down buttons (U7), and failover asks for acknowledgement inline (U6). The lease caveat shows the real remaining time (U8).
+- **Settings → Providers** (U11). It reads the vault overview as a **third independent source** beside `/api/provider-auth/status` and `/api/providers`:
+  - It degrades like the other two: on a vault 403 (operate authority, foundation D6), a missing route on an older server, or an error, it renders no vault rows and no error state.
+  - Vault rows are keyed `(vault, accountId)` and nested under the row of their provider id (for a clone binding's account, under its base provider). They are a separate source, per "Rows are identified by source".
+  - "Link to vault" and "Another account" call the same routes as the Vault page (D10). On success they fire the section's single `handleChanged` funnel.
+  - "Another account" entries are excluded from the Add control's count, which keeps counting providers that can be added.
+  - A hub whose only LLM credentials are vault accounts renders a callout instead of the "No providers configured" empty state. Onboarding and `credential-detection` remain the follow-up.
+- **Row typography** (U12). Provider rows move to the 12 px badge and `--text-secondary` meta recipe, so pi and vault rows match. Text and testids are unchanged.
+
 ## Risks / Trade-offs
 
 - **A lease token stays valid upstream until expiry after revocation.** Mitigation: lease is for own devices; proxy gives immediate revocation; the UI states it.
