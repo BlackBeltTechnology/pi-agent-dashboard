@@ -1895,3 +1895,330 @@ describe("SettingsPanel pi settings + default-model mirror", () => {
     expect(await screen.findByTestId("pi-settings-drift")).toBeTruthy();
   });
 });
+
+// Security ▸ Network access: trust-mode radio, consequence/migration callouts,
+// pair-mode refused peers. See change: retire-trusted-networks-bypass
+// (test-plan #F1–#F6).
+describe("SettingsPanel Security ▸ Network access", () => {
+  const jsonRes = (body: unknown) => ({
+    ok: true,
+    status: 200,
+    headers: { get: (h: string) => (h.toLowerCase() === "content-type" ? "application/json" : null) },
+    json: () => Promise.resolve(body),
+  });
+
+  interface Scenario {
+    config?: Record<string, unknown>;
+    posture?: Record<string, unknown> | null;
+    blockEvents?: Array<{ ip: string; count: number; trustable: boolean }>;
+  }
+
+  let puts: any[];
+  let calls: Array<{ url: string; method: string }>;
+
+  function mockNetworkFetch(s: Scenario) {
+    puts = [];
+    calls = [];
+    const cfg = { ...mockConfig, auth: { secret: "", providers: {}, bypassHosts: ["192.168.16.0/24"] }, ...s.config };
+    global.fetch = vi.fn().mockImplementation((url: string, options?: any) => {
+      const method = options?.method ?? "GET";
+      calls.push({ url, method });
+      if (url === "/api/config" && method === "PUT") {
+        puts.push(JSON.parse(options.body));
+        return Promise.resolve(jsonRes({ success: true }));
+      }
+      if (url === "/api/config") return Promise.resolve(jsonRes({ success: true, data: cfg }));
+      if (url === "/api/health") return Promise.resolve(jsonRes({ trustPosture: s.posture ?? null }));
+      if (url === "/api/tunnel/block-events") {
+        const events = (s.blockEvents ?? []).map((e) => ({ firstSeen: 1, lastSeen: 2, ...e }));
+        return Promise.resolve(jsonRes({ success: true, data: { events } }));
+      }
+      return Promise.resolve({ ok: false, json: () => Promise.resolve(null) });
+    }) as unknown as typeof fetch;
+  }
+
+  const posture = (over: Record<string, unknown> = {}) => ({
+    trustedHasLoopback: false,
+    trustMode: "legacy",
+    trustModeOrigin: "upgrade",
+    networkOnly: { admissions: 9, distinctPeers: 3, lastAt: 1 },
+    ...over,
+  });
+
+  const radio = (mode: "pair" | "legacy") => screen.getByTestId(`network-trust-mode-${mode}`) as HTMLInputElement;
+  const openSecurity = async () => {
+    setPath("/settings/security");
+    render(<SettingsPanel />);
+    await waitFor(() => screen.getByTestId("network-trust-mode-pair"));
+  };
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    fetchAutoInitWorktreePref.mockResolvedValue(false);
+    setAutoInitWorktreePref.mockResolvedValue(true);
+  });
+  afterEach(() => cleanup());
+
+  // F1 — draft until Save; radio reflects the saved mode, not the list.
+  it("F1 mode radio is a draft: stays on the saved mode across list edits, writes only on Save", async () => {
+    mockNetworkFetch({ config: { network: { trustMode: "legacy", trustModeOrigin: "upgrade" } }, posture: posture() });
+    await openSecurity();
+    expect(radio("legacy").checked).toBe(true);
+
+    fireEvent.change(screen.getByTestId("trusted-networks-manual-input"), { target: { value: "10.1.2.3" } });
+    fireEvent.click(screen.getByTestId("trusted-networks-manual-add"));
+    expect(radio("legacy").checked).toBe(true);
+
+    fireEvent.click(radio("pair"));
+    expect(radio("pair").checked).toBe(true);
+    expect(puts).toEqual([]);
+
+    fireEvent.click(screen.getAllByTestId("save-btn")[0]);
+    await waitFor(() => expect(puts).toHaveLength(1));
+    expect(puts[0].network).toEqual({ trustMode: "pair" });
+    expect(puts[0].auth.bypassHosts).toContain("10.1.2.3");
+  });
+
+  it("F1 the radio group is labelled and each option states its consequence", async () => {
+    mockNetworkFetch({ config: { network: { trustMode: "pair", trustModeOrigin: "operator" } } });
+    await openSecurity();
+    const group = screen.getByRole("radiogroup", { name: "How devices on your network get in" });
+    expect(within(group).getAllByRole("radio")).toHaveLength(2);
+    expect(screen.getByRole("radio", { name: "Pair each device" })).toBeTruthy();
+    expect(screen.getByRole("radio", { name: "Trust whole networks" })).toBeTruthy();
+    expect(group.textContent).toContain("Recommended");
+  });
+
+  // F2 — consequence callout decision table.
+  it("F2 pair draft over saved legacy: counts device addresses, operate + in-page notes, LAN checkbox writes pairing", async () => {
+    mockNetworkFetch({
+      config: { network: { trustMode: "legacy", trustModeOrigin: "upgrade" }, pairing: { acceptLanRequests: false } },
+      posture: posture(),
+    });
+    await openSecurity();
+    expect(screen.queryByTestId("network-trust-mode-consequence")).toBeNull();
+    fireEvent.click(radio("pair"));
+    const callout = screen.getByTestId("network-trust-mode-consequence");
+    expect(callout.textContent).toContain("3 device addresses");
+    expect(callout.textContent).toMatch(/Operate tier/);
+    expect(callout.textContent).toMatch(/switch to this one in-page/);
+    expect(callout.textContent).toMatch(/can't request access while LAN requests are off/);
+    const box = within(callout).getByTestId("network-trust-accept-lan") as HTMLInputElement;
+    expect(box.checked).toBe(false);
+    fireEvent.click(box);
+    expect(box.checked).toBe(true);
+    expect(puts).toEqual([]);
+
+    fireEvent.click(screen.getAllByTestId("save-btn")[0]);
+    await waitFor(() => expect(puts).toHaveLength(1));
+    expect(puts[0].network).toEqual({ trustMode: "pair" });
+    expect(puts[0].pairing).toEqual({ acceptLanRequests: true });
+  });
+
+  it.each([
+    ["no recent devices", posture({ networkOnly: { admissions: 0, distinctPeers: 0, lastAt: null } })],
+    ["posture not disclosed", null],
+  ])("F2 pair draft with %s: no number in the callout", async (_name, p) => {
+    mockNetworkFetch({ config: { network: { trustMode: "legacy", trustModeOrigin: "upgrade" } }, posture: p });
+    await openSecurity();
+    fireEvent.click(radio("pair"));
+    const callout = screen.getByTestId("network-trust-mode-consequence");
+    expect(callout.textContent).not.toMatch(/\d+ device address/);
+    expect(callout.textContent).toMatch(/refused until each one pairs/);
+    expect(callout.textContent).toMatch(/Operate tier/);
+  });
+
+  it("F2 LAN requests already on: no checkbox; unchecking the draft back to legacy writes nothing", async () => {
+    mockNetworkFetch({
+      config: { network: { trustMode: "legacy", trustModeOrigin: "upgrade" }, pairing: { acceptLanRequests: true } },
+      posture: posture(),
+    });
+    await openSecurity();
+    fireEvent.click(radio("pair"));
+    expect(screen.queryByTestId("network-trust-accept-lan")).toBeNull();
+    expect(screen.getByTestId("network-trust-mode-consequence").textContent).not.toMatch(/LAN requests are off/);
+    fireEvent.click(radio("legacy"));
+    expect(screen.queryByTestId("network-trust-mode-consequence")).toBeNull();
+    // Back on the saved mode the draft is clean: nothing to save, nothing written.
+    expect(screen.queryAllByTestId("save-btn")).toHaveLength(0);
+    expect(puts).toEqual([]);
+  });
+
+  it("F2 switching back to the saved mode drops a drafted LAN-requests change", async () => {
+    mockNetworkFetch({ config: { network: { trustMode: "legacy", trustModeOrigin: "upgrade" } }, posture: posture() });
+    await openSecurity();
+    fireEvent.click(radio("pair"));
+    fireEvent.click(screen.getByTestId("network-trust-accept-lan"));
+    fireEvent.click(radio("legacy"));
+    expect(screen.queryAllByTestId("save-btn")).toHaveLength(0);
+    expect(puts).toEqual([]);
+  });
+
+  // F3 — mode-dependent copy.
+  it("F3 pair mode: 'may request access' heading, no full-access warning", async () => {
+    mockNetworkFetch({ config: { network: { trustMode: "pair", trustModeOrigin: "operator" }, pairing: { acceptLanRequests: true } } });
+    await openSecurity();
+    expect(screen.getByText("Networks that may request access")).toBeTruthy();
+    expect(screen.getByTestId("trusted-networks-description").textContent).toMatch(/listing a network never grants access/i);
+    expect(screen.queryByTestId("trusted-networks-warning")).toBeNull();
+    expect(screen.queryByText(/Trusted networks — admitted without sign-in/)).toBeNull();
+  });
+
+  it("F3 legacy mode: admitted-without-sign-in heading + warning only when no migration callout", async () => {
+    mockNetworkFetch({ config: { network: { trustMode: "legacy", trustModeOrigin: "operator" } }, posture: posture({ networkOnly: { admissions: 0, distinctPeers: 0, lastAt: null } }) });
+    await openSecurity();
+    expect(screen.getByText("Trusted networks — admitted without sign-in")).toBeTruthy();
+    expect(screen.getByTestId("trusted-networks-warning").textContent).toMatch(/full access to the dashboard without/);
+    expect(screen.queryByTestId("network-trust-migration")).toBeNull();
+  });
+
+  it("F3 legacy with network-only devices: migration callout replaces the warning", async () => {
+    mockNetworkFetch({ config: { network: { trustMode: "legacy", trustModeOrigin: "upgrade" } }, posture: posture() });
+    await openSecurity();
+    await waitFor(() => screen.getByTestId("network-trust-migration"));
+    expect(screen.getByTestId("network-trust-migration").textContent).toContain("3 device addresses");
+    expect(screen.queryByTestId("trusted-networks-warning")).toBeNull();
+    expect(screen.getByText("Trusted networks — admitted without sign-in")).toBeTruthy();
+  });
+
+  it("F3 wide-range wording follows the mode", async () => {
+    const iface = { name: "eth0", address: "192.168.1.10", label: "eth0", pointToPoint: false, suggestions: [{ value: "192.168.0.0/16", wide: true }] };
+    for (const [mode, expected] of [
+      ["legacy", /unauthenticated access to the whole/],
+      ["pair", /may request access/],
+    ] as const) {
+      mockNetworkFetch({ config: { network: { trustMode: mode, trustModeOrigin: "operator" }, pairing: { acceptLanRequests: true } } });
+      const base = global.fetch as unknown as ReturnType<typeof vi.fn>;
+      global.fetch = vi.fn().mockImplementation((url: string, o?: any) =>
+        url === "/api/network-interfaces" ? Promise.resolve(jsonRes({ success: true, data: [iface] })) : base(url, o)) as unknown as typeof fetch;
+      await openSecurity();
+      fireEvent.click(screen.getByTestId("trusted-networks-add-local"));
+      const offer = await screen.findByTestId("trusted-networks-offer-192.168.0.0/16");
+      expect(offer.getAttribute("title")).toMatch(expected);
+      if (mode === "pair") expect(offer.getAttribute("title")).not.toMatch(/unauthenticated/);
+      cleanup();
+    }
+  });
+
+  // F4 — refused peers in pair mode.
+  it("F4 pair: refused peers are info rows (no Trust testid); allow-requests adds exactly that address", async () => {
+    mockNetworkFetch({
+      config: { network: { trustMode: "pair", trustModeOrigin: "operator" }, pairing: { acceptLanRequests: true } },
+      blockEvents: [
+        { ip: "192.168.16.31", count: 4, trustable: true },
+        { ip: "198.51.100.23", count: 1, trustable: true },
+      ],
+    });
+    await openSecurity();
+    const eligible = await screen.findByTestId("block-event-192.168.16.31");
+    expect(eligible.textContent).toMatch(/Request access/);
+    expect(within(eligible).queryByRole("button")).toBeNull();
+    expect(document.querySelectorAll('[data-testid^="block-event-trust-"]')).toHaveLength(0);
+
+    const allow = screen.getByTestId("block-event-allow-requests-198.51.100.23");
+    expect(allow.textContent).toMatch(/Allow requests from 198\.51\.100\.23/);
+    fireEvent.click(allow);
+    expect(screen.getByTestId("trusted-networks-list").textContent).toContain("198.51.100.23");
+    expect(screen.getByTestId("trusted-networks-list").textContent).not.toMatch(/198\.51\.100\.0/);
+    expect(puts).toEqual([]);
+
+    fireEvent.click(screen.getAllByTestId("save-btn")[0]);
+    await waitFor(() => expect(puts).toHaveLength(1));
+    expect(puts[0].auth.bypassHosts).toEqual(["192.168.16.0/24", "198.51.100.23"]);
+    expect(puts[0].network).toBeUndefined();
+  });
+
+  it("F4 legacy keeps the Trust actions", async () => {
+    mockNetworkFetch({
+      config: { network: { trustMode: "legacy", trustModeOrigin: "operator" } },
+      posture: posture({ networkOnly: { admissions: 0, distinctPeers: 0, lastAt: null } }),
+      blockEvents: [{ ip: "198.51.100.23", count: 1, trustable: true }],
+    });
+    await openSecurity();
+    expect(await screen.findByTestId("block-event-trust-198.51.100.23")).toBeTruthy();
+    expect(screen.queryByTestId("block-event-allow-requests-198.51.100.23")).toBeNull();
+  });
+
+  // F5 — pair + LAN requests off; unrecognised stored value.
+  it("F5 pair with LAN requests off: info callout with a control that writes through Save", async () => {
+    mockNetworkFetch({ config: { network: { trustMode: "pair", trustModeOrigin: "operator" }, pairing: { acceptLanRequests: false } } });
+    await openSecurity();
+    const info = screen.getByTestId("network-trust-lan-off");
+    expect(info.textContent).toMatch(/can't request access/);
+    fireEvent.click(within(info).getByTestId("network-trust-accept-lan"));
+    expect(puts).toEqual([]);
+    fireEvent.click(screen.getAllByTestId("save-btn")[0]);
+    await waitFor(() => expect(puts).toHaveLength(1));
+    expect(puts[0].pairing).toEqual({ acceptLanRequests: true });
+    expect(puts[0].network).toBeUndefined();
+  });
+
+  it("F5 unrecognised stored value: Pair checked, warning names the value, explicit choice saves", async () => {
+    mockNetworkFetch({ config: { network: { trustMode: "open" }, pairing: { acceptLanRequests: false } } });
+    await openSecurity();
+    expect(radio("pair").checked).toBe(true);
+    const warn = screen.getByTestId("network-trust-unrecognised");
+    expect(warn.textContent).toContain('"open"');
+    expect(screen.getByTestId("network-trust-lan-off")).toBeTruthy();
+    fireEvent.click(within(warn).getByTestId("network-trust-save-explicit"));
+    expect(screen.queryByTestId("network-trust-unrecognised")).toBeNull();
+    fireEvent.click(screen.getAllByTestId("save-btn")[0]);
+    await waitFor(() => expect(puts).toHaveLength(1));
+    expect(puts[0].network).toEqual({ trustMode: "pair" });
+  });
+
+  // F6 — DOM order.
+  it("F6 order: radio → callout → heading → advisory → refused rows → list → add → warning", async () => {
+    mockNetworkFetch({
+      config: {
+        network: { trustMode: "legacy", trustModeOrigin: "operator" },
+        bindHost: "10.0.0.5",
+        reachability: { resolvedBindHost: "10.0.0.5", pendingBindHost: "10.0.0.5", unreachable: ["192.168.1.0/24"], bindHostSource: "config" },
+        auth: { secret: "", providers: {}, bypassHosts: ["192.168.1.0/24"] },
+      },
+      posture: posture({ trustModeOrigin: "operator" }),
+      blockEvents: [{ ip: "198.51.100.23", count: 1, trustable: true }],
+    });
+    await openSecurity();
+    await screen.findByTestId("network-trust-migration");
+    await screen.findByTestId("block-event-198.51.100.23");
+    await screen.findByTestId("unreachable-trusted-networks-advisory");
+    // The migration callout hides the warning; draft pair would hide the heading
+    // copy — so assert the full chain with the warning forced visible below.
+    const ids = [
+      "network-trust-mode-pair",
+      "network-trust-migration",
+      "trusted-networks-heading",
+      "unreachable-trusted-networks-advisory",
+      "block-event-198.51.100.23",
+      "trusted-networks-list",
+      "trusted-networks-manual-input",
+    ];
+    const els = ids.map((id) => screen.getByTestId(id));
+    for (let i = 1; i < els.length; i++) {
+      expect(
+        els[i - 1].compareDocumentPosition(els[i]) & Node.DOCUMENT_POSITION_FOLLOWING,
+        `${ids[i - 1]} must precede ${ids[i]}`,
+      ).toBeTruthy();
+    }
+  });
+
+  it("F6 the legacy warning comes last", async () => {
+    mockNetworkFetch({
+      config: { network: { trustMode: "legacy", trustModeOrigin: "operator" } },
+      posture: posture({ networkOnly: { admissions: 0, distinctPeers: 0, lastAt: null } }),
+    });
+    await openSecurity();
+    const add = screen.getByTestId("trusted-networks-manual-input");
+    const warn = screen.getByTestId("trusted-networks-warning");
+    expect(add.compareDocumentPosition(warn) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("F1 network is mapped to the Security page's dirty dot", async () => {
+    const { CONFIG_FIELD_PAGE, computeConfigPartial } = await import("../settings/SettingsPanel.js");
+    expect(CONFIG_FIELD_PAGE.network).toBe("security");
+    const base = { ...mockConfig, network: { trustMode: "legacy" } } as any;
+    expect(computeConfigPartial({ ...base, network: { trustMode: "pair" } }, base)).toEqual({ network: { trustMode: "pair" } });
+    expect(computeConfigPartial(base, base)).toEqual({});
+  });
+});

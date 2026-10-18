@@ -24,6 +24,9 @@ const mockConfig = {
 /** Mutable per-test aggregate snapshot served by GET /api/access/grants. */
 let accessFixture: Record<string, unknown> | null = null;
 
+/** Mutable `/api/health` `trustPosture` (null = not disclosed to this caller). */
+let postureFixture: Record<string, unknown> | null = null;
+
 /** Every fetch, recorded for the zero-writes assertion (task 7.7). */
 const fetchCalls: Array<{ url: string; method?: string }> = [];
 
@@ -51,6 +54,9 @@ function mockFetch() {
       const grants = accessFixture as { kbTrust: Array<{ hash: string }> };
       grants.kbTrust = grants.kbTrust.filter((k) => k.hash !== body.hash);
       return Promise.resolve(jsonOk(accessFixture));
+    }
+    if (url === "/api/health" && method === "GET") {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ trustPosture: postureFixture }) });
     }
     if (url === "/api/config" && method === "GET") {
       return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, data: mockConfig }) });
@@ -91,6 +97,7 @@ describe("settings access page", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     fetchCalls.length = 0;
+    postureFixture = null;
     setPath("/settings/general");
     global.fetch = mockFetch();
   });
@@ -290,3 +297,90 @@ describe("settings access page", () => {
     expect(within(future).queryByTestId("access-entry-via-agent-prompt")).toBeNull();
   });
 });
+
+// Network-trust surfaces on the Access page. See change: retire-trusted-networks-bypass
+// (test-plan #F7).
+describe("settings access page — network trust", () => {
+  const posture = (mode: "pair" | "legacy", origin: "upgrade" | "operator" | null, peers: number) => ({
+    trustedHasLoopback: false,
+    trustMode: mode,
+    trustModeOrigin: origin,
+    networkOnly: { admissions: peers * 3, distinctPeers: peers, lastAt: peers ? 1 : null },
+  });
+
+  async function openAccess(p: Record<string, unknown> | null) {
+    accessFixture = grantsFixture();
+    postureFixture = p;
+    setPath("/settings/access");
+    render(<SettingsPanel />);
+    await waitFor(() => screen.getByTestId("access-section"));
+    await waitFor(() => expect(screen.getAllByTestId("access-entry").length).toBeGreaterThan(0));
+  }
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    fetchCalls.length = 0;
+    global.fetch = mockFetch();
+  });
+  afterEach(() => cleanup());
+
+  it("F7 (legacy, upgrade, 3): warning banner with a count and a link to Security", async () => {
+    await openAccess(posture("legacy", "upgrade", 3));
+    const banner = await screen.findByTestId("access-network-trust-banner");
+    expect(banner.getAttribute("data-severity")).toBe("warning");
+    expect(banner.className).toContain("--severity-warning");
+    expect(banner.textContent).toContain("3 device addresses");
+    const link = within(banner).getByRole("link");
+    fireEvent.click(link);
+    await waitFor(() => expect(window.location.pathname).toBe("/settings/security"));
+  });
+
+  it("F7 (legacy, operator, 1): info banner", async () => {
+    await openAccess(posture("legacy", "operator", 1));
+    const banner = await screen.findByTestId("access-network-trust-banner");
+    expect(banner.getAttribute("data-severity")).toBe("info");
+    expect(banner.className).toContain("--severity-info");
+    expect(banner.textContent).toContain("1 device address");
+  });
+
+  it.each([
+    ["pair", posture("pair", "operator", 0)],
+    ["legacy with no network-only device", posture("legacy", "upgrade", 0)],
+    ["posture not disclosed", null],
+  ])("F7 no banner for %s", async (_n, p) => {
+    await openAccess(p);
+    // Let the health read settle before asserting an absence.
+    await waitFor(() => expect(fetchCalls.some((c) => c.url === "/api/health")).toBe(true));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByTestId("access-network-trust-banner")).toBeNull();
+  });
+
+  it("F7 network store headings follow the mode (revoke stays)", async () => {
+    await openAccess(posture("pair", "operator", 0));
+    const bypass = await waitFor(() => {
+      const el = screen.getByTestId("access-store-bypassHosts");
+      expect(el.textContent).toContain("May request access");
+      return el;
+    });
+    expect(bypass.textContent).toContain("auth.bypassHosts");
+    expect(screen.getByTestId("access-store-trustedNetworks").textContent).toContain("May request access — config.trustedNetworks");
+    expect(within(bypass).getByTestId("access-revoke")).toBeTruthy();
+  });
+
+  it("F7 legacy keeps the original store headings", async () => {
+    await openAccess(posture("legacy", "operator", 0));
+    expect(screen.getByTestId("access-store-bypassHosts").textContent).toContain("Auth bypass hosts — auth.bypassHosts");
+    expect(screen.getByTestId("access-store-trustedNetworks").textContent).toContain("Trusted networks — config.trustedNetworks");
+  });
+
+  it("F7 with the banner shown the section still has revoke buttons only", async () => {
+    await openAccess(posture("legacy", "upgrade", 3));
+    await screen.findByTestId("access-network-trust-banner");
+    const section = screen.getByTestId("access-section");
+    for (const button of within(section).getAllByRole("button")) {
+      expect(button.getAttribute("data-testid"), "non-revoke button found").toBe("access-revoke");
+    }
+    expect(within(section).queryAllByRole("textbox")).toEqual([]);
+  });
+});
+

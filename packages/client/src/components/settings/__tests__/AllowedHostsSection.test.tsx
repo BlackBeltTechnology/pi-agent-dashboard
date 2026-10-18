@@ -259,16 +259,16 @@ describe("AllowedHostsSection — Security page integration", () => {
 
   afterEach(() => cleanup());
 
-  // test-plan #F1 — composition: heading between Trusted Networks and Pair a
+  // test-plan #F1 — composition: heading between Network access and Pair a
   // device, radios, empty refusals copy.
-  it("renders the section between Trusted Networks and Pair a device", async () => {
+  it("renders the section between Network access and Pair a device", async () => {
     await renderSecurityPanel();
-    await waitFor(() => screen.getByText("Trusted Networks"));
+    await waitFor(() => screen.getByText("Network access"));
 
     const content = screen.getByTestId("settings-content");
     const text = content.textContent ?? "";
-    const positions = ["Trusted Networks", "Allowed hostnames", "Pair a device"].map((s) => text.indexOf(s));
-    positions.forEach((pos, i) => expect(pos, `"${["Trusted Networks", "Allowed hostnames", "Pair a device"][i]}" missing`).toBeGreaterThan(-1));
+    const positions = ["Network access", "Allowed hostnames", "Pair a device"].map((s) => text.indexOf(s));
+    positions.forEach((pos, i) => expect(pos, `"${["Network access", "Allowed hostnames", "Pair a device"][i]}" missing`).toBeGreaterThan(-1));
     for (let i = 1; i < positions.length; i++) {
       expect(positions[i], "Allowed hostnames must sit between its neighbours").toBeGreaterThan(positions[i - 1]);
     }

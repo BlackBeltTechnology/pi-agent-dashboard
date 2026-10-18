@@ -13,14 +13,76 @@
  */
 import net from "node:net";
 import type { FastifyInstance } from "fastify";
+import { stripCapabilitySegment } from "./live-capability.js";
 import type { LiveServerManager } from "./live-server-manager.js";
+
+/** Dashboard cookie namespace (`pi_dash_token`, `pi_dash_device`, `pi_dash_local`, …). */
+const DASHBOARD_COOKIE_PREFIX = "pi_dash_";
+
+/**
+ * Remove every dashboard cookie from a `Cookie` header value. Returns `undefined`
+ * when nothing remains (the header is then dropped), otherwise the remaining
+ * pairs byte-for-byte so the previewed app keeps its own session.
+ */
+function stripDashboardCookies(cookie: string): string | undefined {
+  const kept = cookie
+    .split(";")
+    .map((pair) => pair.trim())
+    .filter((pair) => pair.length > 0 && !pair.toLowerCase().startsWith(DASHBOARD_COOKIE_PREFIX));
+  return kept.length > 0 ? kept.join("; ") : undefined;
+}
+
+/** Drop upstream `Set-Cookie` lines that name a dashboard cookie (no planting/overwriting). */
+function filterSetCookie(value: string | string[] | undefined): string | string[] | undefined {
+  if (value === undefined) return undefined;
+  const list = Array.isArray(value) ? value : [value];
+  const kept = list.filter((line) => !line.trim().toLowerCase().startsWith(DASHBOARD_COOKIE_PREFIX));
+  if (kept.length === 0) return undefined;
+  return Array.isArray(value) ? kept : kept[0];
+}
+
+/** A request/upgrade header bag the credential stripper edits in place. */
+type HeaderBag = Record<string, unknown>;
+
+/**
+ * Strip dashboard credentials from headers bound for the preview upstream:
+ * every `pi_dash_*` cookie, and an `Authorization` header that verifies as a
+ * dashboard device bearer. Everything else is kept (the app's own session).
+ */
+function stripDashboardCredentials(
+  headers: HeaderBag,
+  isDeviceBearer: (token: string) => boolean,
+): HeaderBag {
+  const cookie = headers.cookie;
+  if (typeof cookie === "string") {
+    const remaining = stripDashboardCookies(cookie);
+    if (remaining === undefined) delete headers.cookie;
+    else headers.cookie = remaining;
+  }
+  const authz = headers.authorization;
+  if (typeof authz === "string") {
+    const m = /^Bearer\s+(.+)$/i.exec(authz.trim());
+    if (m && isDeviceBearer(m[1])) delete headers.authorization;
+  }
+  return headers;
+}
+
+export interface LiveProxyDeps {
+  /** Does this token verify as a dashboard device bearer? Absent ⇒ never strip `Authorization`. */
+  isDeviceBearer?: (token: string) => boolean;
+}
 
 /** localhost/::1 resolve to 127.0.0.1 for the upstream TCP connect. */
 function upstreamHost(host: string): string {
   return host === "::1" ? "::1" : "127.0.0.1";
 }
 
-export function registerLiveServerProxy(fastify: FastifyInstance, manager: LiveServerManager) {
+export function registerLiveServerProxy(
+  fastify: FastifyInstance,
+  manager: LiveServerManager,
+  deps: LiveProxyDeps = {},
+) {
+  const isDeviceBearer = deps.isDeviceBearer ?? (() => false);
   // Register the `@fastify/reply-from` proxy plugin. live-server-proxy is now
   // the SOLE consumer of the `from` decorator — the editor proxy that used to
   // provide it was deleted in change: remove-external-editor-integration, which
@@ -29,30 +91,52 @@ export function registerLiveServerProxy(fastify: FastifyInstance, manager: LiveS
   // See change: improve-content-editor, fix-live-server-proxy-reply-from.
   fastify.register(import("@fastify/reply-from"));
 
-  function resolve(url: string) {
+  /**
+   * `capabilityPrefix` is set (by the capability hook, only after the token
+   * validated) when the request arrived under `/live/<id>/~c/<token>/`: that
+   * exact segment is removed from the upstream path and kept in redirects.
+   */
+  function resolve(url: string, capabilityPrefix?: string) {
     const match = url.match(/^\/live\/([^/?]+)(.*)$/);
     if (!match) return null;
     const target = manager.get(match[1]);
     if (!target) return null;
-    const rest = match[2] || "";
+    let rest = match[2] || "";
+    if (capabilityPrefix && url.startsWith(capabilityPrefix)) rest = url.slice(capabilityPrefix.length);
     const subPath = rest.startsWith("?") ? `/${rest}` : rest.startsWith("/") ? rest : "/";
     return { target, subPath };
   }
 
   const forward = (request: import("fastify").FastifyRequest, reply: import("fastify").FastifyReply) => {
-    const resolved = resolve(request.url);
+    const capabilityPrefix = (request as { liveCapabilityPrefix?: string }).liveCapabilityPrefix;
+    const resolved = resolve(request.url, capabilityPrefix);
     if (!resolved) {
       return reply.code(404).send({ error: "live-server target not found" });
     }
     const { target, subPath } = resolved;
-    const prefix = `/live/${target.id}`;
+    // Redirects stay inside the capability prefix when the request used one.
+    const prefix = capabilityPrefix ?? `/live/${target.id}`;
     const host = upstreamHost(target.host);
     reply.from(`http://${host}:${target.port}${subPath}`, {
       rewriteRequestHeaders: (_req, headers) => {
         headers.host = `${host}:${target.port}`;
+        // Dashboard credentials never reach the previewed app; its own cookies
+        // and bearer pass through. See change: retire-trusted-networks-bypass (D5).
+        stripDashboardCredentials(headers as HeaderBag, isDeviceBearer);
+        // A forwarded Referer must not carry the capability token upstream.
+        if (typeof headers.referer === "string") headers.referer = stripCapabilitySegment(headers.referer);
         return headers;
       },
       rewriteHeaders: (headers) => {
+        // An upstream may not plant or overwrite a dashboard credential.
+        const setCookie = filterSetCookie(headers["set-cookie"] as string | string[] | undefined);
+        if (setCookie === undefined) delete headers["set-cookie"];
+        else headers["set-cookie"] = setCookie;
+        // The token is in this page's URL: keep it out of Referer headers the
+        // page sends to third parties unless the app set its own policy.
+        if (capabilityPrefix && headers["referrer-policy"] === undefined) {
+          headers["referrer-policy"] = "no-referrer";
+        }
         const location = headers.location;
         if (typeof location === "string") {
           if (location.startsWith("./")) headers.location = `${prefix}/${location.slice(2)}`;
@@ -87,6 +171,10 @@ export function handleLiveServerUpgrade(
   request: import("node:http").IncomingMessage,
   socket: import("node:stream").Duplex,
   head: Buffer,
+  deps: LiveProxyDeps & {
+    /** `/live/<id>/~c/<token>` when the upgrade was admitted by a validated capability. */
+    capabilityPrefix?: string;
+  } = {},
 ) {
   const match = request.url?.match(/^\/live\/([^/?]+)(.*)$/);
   if (!match) {
@@ -98,15 +186,22 @@ export function handleLiveServerUpgrade(
     socket.destroy();
     return;
   }
-  const rest = match[2] || "";
+  const capabilityPrefix = deps.capabilityPrefix;
+  let rest = match[2] || "";
+  if (capabilityPrefix && request.url?.startsWith(capabilityPrefix)) rest = request.url.slice(capabilityPrefix.length);
   const subPath = rest.startsWith("?") ? `/${rest}` : rest.startsWith("/") ? rest : "/";
   const host = upstreamHost(target.host);
+  const isDeviceBearer = deps.isDeviceBearer ?? (() => false);
 
   const upstream = net.connect(target.port, host, () => {
     // Clear the connect-phase timeout once the socket is established; the pipe
     // below owns the socket lifetime thereafter.
     upstream.setTimeout(0);
-    const headers = Object.entries(request.headers)
+    // Dashboard credentials never reach the previewed app (same rule as the
+    // HTTP path); a forwarded Referer loses any capability segment.
+    const forwarded = stripDashboardCredentials({ ...request.headers } as HeaderBag, isDeviceBearer);
+    if (typeof forwarded.referer === "string") forwarded.referer = stripCapabilitySegment(forwarded.referer);
+    const headers = Object.entries(forwarded)
       .filter(([k]) => !["host", "origin"].includes(k.toLowerCase()))
       .map(([k, v]) => `${k}: ${v}`)
       .join("\r\n");

@@ -594,11 +594,34 @@ To reach the dashboard from other machines, set the bind host (restart required)
 
 Resolution order: `--host` → `PI_DASHBOARD_HOST` → `config.bindHost` → `127.0.0.1`. One `bindHost` governs both HTTP + pi gateway.
 
-Selecting All interfaces with no auth providers and no trusted networks shows an exposure warning. Binding wide does not lower trust: request guard (`trustedNetworks` / auth) still applies per request.
+Selecting All interfaces with no auth providers and no trusted networks shows an exposure warning. Binding wide does not lower trust: request guard (auth + `network.trustMode`) still applies per request.
 
 Docker all-in-one already sets `PI_DASHBOARD_HOST=0.0.0.0` to stay reachable through published ports.
 
-See change: configurable-bind-host.
+Who admits LAN peers = `network.trustMode` (`~/.pi/dashboard/config.json`):
+- `pair` — network match authenticates nothing. Device pairs: `http://<lan-ip>:<port>/pair?request` → Request access → operator types code → Approve. Needs `pairing.acceptLanRequests: true` (Settings → Security → Network access offers it).
+- `legacy` — peer in `trustedNetworks` / `auth.bypassHosts` admitted without sign-in, full access.
+
+Mode decided once at first boot, persisted as `network.trustMode` + `network.trustModeOrigin: "upgrade"`:
+- `pair` iff every list entry loopback-only (`127.0.0.0/8`, `::1`). Empty list → `pair`.
+- Otherwise `legacy`. Hostnames (incl. `localhost`) and match-all (`0.0.0.0/0`, `::/0`, `*.*.*.*`) → `legacy`.
+- Never re-derived. Adding a range cannot widen admission.
+- Unrecognised stored value → `pair` + one `[trusted-networks]` warning. Value not rewritten.
+
+Switch: Settings → Security → Network access radio. Live, no restart. Operator write sets `trustModeOrigin: "operator"`.
+Rollback to old behaviour: choose "Trust whole networks" or set `network.trustMode: "legacy"`.
+
+`pair` list meaning: networks that MAY request access. Knock-eligible = default private on-link ranges ∪ list. Match-all entries ignored. Forwarding headers → never eligible.
+
+Consequences in `pair`:
+- Paired browser keeps working per tier (default `operate`).
+- `observe` / `control` devices lose what network trust granted. WS ticket needs `operate`.
+- In-page server switch to non-paired remote: no iframes, images, downloads.
+- Network-denial prompt and accept-to-trust off.
+
+`legacy`: Settings → Access shows "N device addresses reach this dashboard by network trust only". Counts only, never IPs. Source `/api/health` `trustPosture.networkOnly`. Window: 7 days or since restart.
+
+See change: configurable-bind-host, retire-trusted-networks-bypass.
 
 ## I added a trusted network and the device still cannot connect?
 
@@ -610,6 +633,8 @@ Diagnose:
 - Remediation on Settings → Server: set Listen Interface to `0.0.0.0` (All interfaces) or the NIC inside the trusted range. Restart required.
 
 Bind host wins over trust. `trustedNetworks` only ever admits peers the socket already accepts.
+
+Under `network.trustMode: "pair"` a listed network admits nothing. It only makes the device knock-eligible. Pair the device instead.
 
 See change: warn-unreachable-trusted-networks.
 
@@ -636,9 +661,11 @@ Symptom: plugin UI loads (app shell + static assets unaffected) but its API call
 
 Two remedies:
 - Enable auth — OAuth provider, or pair the device. Paired device sends the bearer token → `isAuthenticated` → guard admits.
-- Add the caller's network to Trusted Networks — Settings ▸ Servers, or Settings ▸ Security. Writes `auth.bypassHosts`. Applies live, no restart.
+- `legacy` only: add the caller's network to Trusted Networks — Settings ▸ Servers, or Settings ▸ Security (Network access). Writes `auth.bypassHosts`. Applies live, no restart. Under `pair` this admits nothing: pair the device.
 
 Same-host browser (`localhost`) unaffected — genuine-local passes.
+
+Denial body `hint` reads `Pair this device (Request access) or sign in.` in both trust modes.
 
 See change: add-universal-network-guard.
 
@@ -665,7 +692,7 @@ Also affected: same-host reverse proxy (nginx / Caddy / Traefik TLS front) setti
 
 Unaffected:
 - Genuine local use (loopback peer, no forwarding header). Trusted without any entry.
-- LAN CIDR entries (e.g. `192.168.16.0/24`).
+- LAN CIDR entries (e.g. `192.168.16.0/24`). Admit only under `legacy`.
 
 Loopback entry now inert. Redundant for local, ignored for tunnel.
 - Server logs once: `[trusted-networks] "127.0.0.1" covers loopback — ignored for tunnel-relayed requests; local requests are already trusted`.
@@ -759,7 +786,7 @@ See change: mirror-dashboard-trust-to-pi.
 
 ## Pairing ≠ LAN access; how to get a secure road for LAN pairing
 
-Pairing not the plain-LAN path. Plain-LAN access = Network Guard / `bindHost` + trusted networks. See [How do I expose the dashboard on my LAN?](#how-do-i-expose-the-dashboard-on-my-lan).
+Pairing not the plain-LAN path. Plain-LAN access = Network Guard / `bindHost` + pairing (`pair` mode) or trusted networks (`legacy`). See [How do I expose the dashboard on my LAN?](#how-do-i-expose-the-dashboard-on-my-lan).
 
 QR pairing needs a secure context. Client identity-verify uses `crypto.subtle` (Ed25519 verify). `crypto.subtle` undefined on plain-http non-localhost origin.
 
@@ -778,7 +805,7 @@ Paired bearer token replaces trusted networks. No `trustedNetworks` / OAuth need
 Opt-in LAN knock. Device asks, dashboard operator approves. Bearer travels plain http.
 
 Steps:
-1. On dashboard machine: Settings ▸ Gateway ▸ Connect a device ▸ "Devices on this network" → turn on "Accept requests from devices on this network". Live. No restart. Default off.
+1. On dashboard machine: Settings ▸ Security ▸ Network access, or Settings ▸ Gateway ▸ Connect a device ▸ "Devices on this network" → turn on "Accept requests from devices on this network" (`pairing.acceptLanRequests: true`). Live. No restart. Default off. Needed for LAN pairing under `pair` mode.
 2. On device: open `http://<lan-ip>:<port>/pair?request` (URL listed in panel, Copy action). Or Settings ▸ Network Discovery ▸ Connect on discovered server.
 3. Optional device name → Request access. Device shows 8-digit code (e.g. `4821 7730`).
 4. Dashboard machine: approval dialog pops. Shows device source address. Type code shown on device. Pick tier (default `operate`; `observe` / `control` for less). Approve.
@@ -792,7 +819,7 @@ Why unencrypted:
 
 Refusals (shown on device):
 - `knock_disabled` → turn switch on in Gateway.
-- `knock_not_lan` → device not on same local network, or request came via tunnel / reverse proxy.
+- `knock_not_lan` → device address not eligible (not private on-link range, not in trusted list), or request came via tunnel / reverse proxy.
 - `knock_rate_limited` → wait stated `retryAfter`. Cooldown 10 min after deny.
 - `knock_pending` → earlier request from this device waiting. Expires ≤5 min.
 - `knock_busy` → too many requests waiting. Retry shortly.
@@ -800,6 +827,22 @@ Refusals (shown on device):
 Container caveat: dashboard in Docker bridge network (shipped `docker/compose.yml`, Docker Desktop) sees every device as bridge gateway address. Dialog shows one address for all. Anyone reaching published port passes LAN check. Use host networking for real addresses. Details: `docs/architecture.md` §LAN knock pairing.
 
 See change: add-lan-knock-pairing.
+
+## Why does a live preview URL carry `/~c/<token>/`?
+
+Preview frame is sandboxed (opaque origin). Its images, `fetch` and HMR socket send no cookie. Viewer mints per-preview capability: `POST /api/live-server/:id/capability` (tier `control`) → `/live/<id>/~c/<token>/`.
+
+- Scope: one preview. Idle 30 min, absolute 12 h.
+- Dies with target removal, device revoke, session end, server restart.
+- Never valid for `/api`. Stripped before forwarding. Server logs redact token.
+- Proxy adds `Referrer-Policy: no-referrer` when absent. Strips capability segment from forwarded `Referer`.
+- Dashboard cookies `pi_dash_device`, `pi_dash_token` and device bearers not forwarded to previewed app. App's own cookies pass through.
+- Viewer frames capability path always (local and remote).
+- `observe` devices cannot mint (needs `control`).
+
+Previewed app sees token in its URL. Sharing preview URL shares access until idle expiry.
+
+See change: retire-trusted-networks-bypass.
 
 ## Why do all my PWA installs of the dashboard have the same name on the launcher?
 
@@ -841,12 +884,12 @@ Keys:
 - `auth.secret` — JWT signing secret (auto-generated if omitted)
 - `auth.providers` — provider → `{ clientId, clientSecret, issuerUrl? }`
 - `auth.allowedUsers` — usernames, emails, or `*@domain` wildcards. Empty = allow all
-- `auth.bypassHosts` — trusted networks (CIDR/wildcard/exact); written by Settings → Security → Trusted Networks
+- `auth.bypassHosts` — network list (CIDR/wildcard/exact); admits without sign-in only under `network.trustMode: "legacy"`; written by Settings → Security → Network access
 - `auth.bypassUrls` — path-prefix allowlist
 
 Callback URL: register `https://<tunnel-url>/auth/callback/<provider>` in OAuth provider settings. Tunnel URL stable across restarts via reserved share.
 
-JWT cookie `pi_dash_token` set on success (7-day expiry). WebSocket upgrades validated identically. `/auth/*`, `/api/health`, localhost, and trusted IPs bypass the `onRequest` hook.
+JWT cookie `pi_dash_token` set on success (7-day expiry). WebSocket upgrades validated identically. `/auth/*`, `/api/health`, localhost, and (`legacy` only) trusted IPs bypass the `onRequest` hook.
 
 Cross-refs:
 - README.md:213
@@ -3845,7 +3888,7 @@ See change: streamline-first-run.
 
 Label = cause the dashboard server observed. Browser probe fails at transport level → server probes the stored entry (`POST /api/known-servers/probe`, operator only).
 
-- `CORS-blocked` — server reaches entry, this browser does not. Fix: allow this browser's network on the remote (`trustedNetworks`), or check the path from this browser.
+- `CORS-blocked` — server reaches entry, this browser does not. Fix: pair this browser to the remote (Request access under `pair`), or under `legacy` allow this browser's network (`trustedNetworks`). Or check the path from this browser.
 - `Name not found` — server cannot resolve stored host (`ENOTFOUND` / `EAI_NONAME`). Usually remote renamed its `.local` name. No move suggestion → re-add server with its current address.
 - `Moved to <host>:<port>` + Update — same server (identity proof against stored `fingerprint`) answers at new on-link address. Update = operator accepts: rewrites entry `host`/`port`; label, fingerprint, `addedAt` kept. Nothing changes without the click.
 - `Unreachable` — refused, timeout, or other error. Check server running and port.

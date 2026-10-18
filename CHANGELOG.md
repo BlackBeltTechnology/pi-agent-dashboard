@@ -96,6 +96,29 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Changed
 
+- **BREAKING (security, opt-in): a network match can stop authenticating requests.** A new
+  `network.trustMode` (`"pair"` | `"legacy"`) decides what a `trustedNetworks` /
+  `auth.bypassHosts` match means. In `pair` the match no longer admits anyone: a LAN device
+  must be paired (Request access on its denied screen, approved on the dashboard) and the list
+  only says which networks *may request* access. This applies to every admission site at once
+  (HTTP guard, OAuth bypass, WebSocket upgrades, device-tier exemption) and changes live,
+  without a restart. **Existing installs keep working:** on first boot the server decides the
+  mode once — `legacy` when the list holds anything but loopback entries (so a LAN phone keeps
+  working), `pair` otherwise — and writes it to `config.json` with `trustModeOrigin: "upgrade"`.
+  It is never re-derived from the list, so adding a range cannot widen access. **Rollback:**
+  Settings → Security → Network access → "Trust whole networks" (or
+  `network.trustMode: "legacy"` in `config.json`); no downgrade needed. In `legacy`, Settings →
+  Access counts devices that reach the dashboard by network trust only, so you can pair them
+  before switching. A later release moves upgrade-origin `legacy` installs to `pair` once the
+  consumer audit has no blockers. Also in `pair`: the network-denial prompt and
+  accept-to-trust are off (the denied device pairs instead), and the denial body's hint now says
+  "pair this device or sign in" in both modes.
+- **Live previews authenticate through a per-preview capability path.** The preview frame is
+  sandboxed (opaque origin), so its images, fetches and HMR socket carried no cookie and worked
+  remotely only through network trust. The viewer now mints `/live/<id>/~c/<token>/` (needs
+  `control` tier; 30 min idle / 12 h, revoked with the device, session or target) and frames it.
+  The live proxy also stops forwarding dashboard cookies (`pi_dash_*`) and device bearers to the
+  previewed app, and drops upstream `Set-Cookie` for those names.
 - **Document converter: mermaid diagrams now render on arm64 hosts (breaking).** The
   `pi-doc-engine` image (now `0.2.0`, also tagged `:latest`) provisions its headless browser per
   architecture instead of an amd64-only binary. `DocConverterErrorCode` gains `MMDC_UNAVAILABLE`

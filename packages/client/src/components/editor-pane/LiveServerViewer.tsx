@@ -11,6 +11,13 @@
  * user gesture for it; `allow-downloads-without-user-activation` stays absent.
  * Remote/free-form hosts are refused by `validateLiveTarget`.
  *
+ * The frame carries no cookie (opaque origin), so it loads a per-preview
+ * capability path `/live/<id>/~c/<token>/` minted for this viewer
+ * (`POST /api/live-server/:id/capability`): minted before framing, on every
+ * reopen, and again `REMINT_LEAD_MS` before it expires. The token is only ever
+ * the frame's `src` / the Open link — never shown. See change:
+ * retire-trusted-networks-bypass (D5).
+ *
  * See change: improve-content-editor (live-server-preview §6.3).
  */
 import { isLoopbackUrl, type LiveServerTarget } from "@blackbelt-technology/pi-dashboard-shared/live-server.js";
@@ -19,8 +26,20 @@ import { Icon } from "@mdi/react";
 import { useEffect, useState } from "react";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
-import { listLiveServers, startLiveServer } from "../../lib/api/live-server-api.js";
+import { listLiveServers, mintLiveCapability, startLiveServer } from "../../lib/api/live-server-api.js";
 import type { ViewerProps } from "./types.js";
+
+/** Re-mint this long before the capability's absolute expiry. */
+const REMINT_LEAD_MS = 10 * 60_000;
+/** Retry cadence after a failed re-mint (the current token is still valid meanwhile). */
+const REMINT_RETRY_MS = 30_000;
+
+/** The capability the frame loads: the minted path (the plain path is display-only). */
+interface Capability {
+  targetId: string;
+  path: string;
+  expiresAt: number;
+}
 
 /**
  * Parse a `live:<url>` preset sentinel into a launch target + deep path.
@@ -63,6 +82,7 @@ export default function LiveServerViewer({ path: viewerPath }: Partial<ViewerPro
   const { t } = useI18n();
   const [servers, setServers] = useState<LiveServerTarget[]>([]);
   const [path, setPath] = useState<string | null>(null);
+  const [capability, setCapability] = useState<Capability | null>(null);
   const [deep, setDeep] = useState("");
   const [url, setUrl] = useState("http://localhost:5173");
   const [label, setLabel] = useState("");
@@ -74,6 +94,29 @@ export default function LiveServerViewer({ path: viewerPath }: Partial<ViewerPro
       .then(setServers)
       .catch(() => setError(t("editor.couldntLoadSavedTargets", undefined, "Couldn't load saved targets.")));
   }, []);
+
+  // Re-mint before the capability's absolute expiry and re-point the frame. A failed
+  // re-mint retries (the current token still works until `expiresAt`).
+  useEffect(() => {
+    if (!capability) return;
+    const { targetId, expiresAt } = capability;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const run = async () => {
+      const next = await mintLiveCapability(targetId);
+      if (cancelled) return;
+      if (next.ok) {
+        setCapability({ targetId, path: next.path, expiresAt: next.expiresAt });
+      } else if (Date.now() < expiresAt) {
+        timer = setTimeout(run, REMINT_RETRY_MS);
+      }
+    };
+    timer = setTimeout(run, Math.max(0, expiresAt - REMINT_LEAD_MS - Date.now()));
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [capability]);
 
   // Auto-launch a preset `live:<url>` target instead of showing the picker.
   // biome-ignore lint/correctness/useExhaustiveDependencies: launch closes over stable setters; launch once per preset path.
@@ -95,7 +138,15 @@ export default function LiveServerViewer({ path: viewerPath }: Partial<ViewerPro
         setError(res.error);
         return;
       }
+      // Mint BEFORE framing: the frame has no other credential. A refusal (tier, network)
+      // is shown; the bare `/live/<id>/` path is never framed.
+      const cap = await mintLiveCapability(res.target.id);
+      if (!cap.ok) {
+        setError(cap.error);
+        return;
+      }
       setPath(res.target.path);
+      setCapability({ targetId: res.target.id, path: cap.path, expiresAt: cap.expiresAt });
       setDeep(input.deep ?? "");
       setServers((prev) => (prev.some((s) => s.id === res.target.id) ? prev : [...prev, res.target]));
     } finally {
@@ -113,14 +164,18 @@ export default function LiveServerViewer({ path: viewerPath }: Partial<ViewerPro
     void launch({ ...parsed, label: label.trim() || undefined });
   };
 
-  if (path) {
+  if (path && capability) {
+    const frameSrc = `${getApiBase()}${capability.path}${deep}`;
     return (
       <div className="flex h-full min-h-0 flex-col">
         <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border-primary)] px-2 py-1 text-xs">
           <button
             type="button"
             data-testid="live-back"
-            onClick={() => setPath(null)}
+            onClick={() => {
+              setPath(null);
+              setCapability(null);
+            }}
             className="rounded px-2 py-0.5 text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)]"
           >
             {t("editor.backToTargets", undefined, "← Targets")}
@@ -128,7 +183,7 @@ export default function LiveServerViewer({ path: viewerPath }: Partial<ViewerPro
           <span className="truncate font-mono text-[var(--text-secondary)]">{path}</span>
           <span className="flex-1" />
           <a
-            href={`${getApiBase()}${path}${deep}`}
+            href={frameSrc}
             target="_blank"
             rel="noreferrer"
             className="flex items-center gap-1 rounded px-2 py-0.5 text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)]"
@@ -144,7 +199,7 @@ export default function LiveServerViewer({ path: viewerPath }: Partial<ViewerPro
           // allow-downloads = the frame may download (not an origin); Chrome does not
           // gate it on a user gesture. without-user-activation stays absent.
           sandbox="allow-scripts allow-forms allow-popups allow-downloads"
-          src={`${getApiBase()}${path}${deep}`}
+          src={frameSrc}
           title={t("editor.liveServerPreview", undefined, "Live server preview")}
           className="min-h-0 flex-1 border-0 bg-white"
         />

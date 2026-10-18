@@ -41,3 +41,5 @@ See change: fix-trusted-network-tunnel-bypass — `/api/health` additive `trustP
 `PUT /api/config`: after `writeConfigPartial`, a partial carrying `defaultModel`/`defaultThinkingLevel` calls `mirrorDefaultsToPi(loadConfig, keys)` (reads persisted config inside the pi settings lock); response adds `piMirror` (omitted when no mirror attempted); failure logged, never fails the save. See change: edit-pi-agent-settings.
 
 `/api/health` adds `questions` (store + brief-generation counters incl. `fallbacks`) when a question store is wired, via `browserGateway.getQuestionStats?.()`. See change: add-pending-question-stack.
+
+`/api/health` adds `trustPosture {trustedHasLoopback, trustMode, trustModeOrigin, networkOnly}` behind `canDiscloseAccessPosture`. `POST /api/tunnel/block-events` → 403 `not_acceptable` in `pair`. `PUT /api/config` → 400 unless `network.trustMode` ∈ `pair`|`legacy`. See change: retire-trusted-networks-bypass.

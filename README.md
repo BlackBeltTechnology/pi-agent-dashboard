@@ -282,6 +282,7 @@ CLI flags → environment variables → config file → built-in defaults.
 | `--pi-port` | `PI_DASHBOARD_PI_PORT` | `piPort` | `9999` | Pi extension WebSocket port |
 | `--dev` | — | — | `false` | Development mode (proxy to Vite) |
 | `--no-tunnel` | — | `tunnel.enabled` | `true` | Disable zrok tunnel |
+| — | — | `network.trustMode` | decided at first boot | LAN admission. `"pair"`: network match authenticates nothing, devices pair. `"legacy"`: listed networks admitted without sign-in. See [LAN access](#lan-access) |
 | — | — | `autoStart` | `true` | Bridge auto-starts server if not running |
 | — | — | `autoShutdown` | `false` | Server shuts down when idle |
 | — | — | `shutdownIdleSeconds` | `300` | Seconds idle before auto-shutdown |
@@ -374,6 +375,21 @@ pi-dashboard open [--url <origin>]          # or authorize this browser tab, the
 ```
 
 Docker: `docker exec <container> pi-dashboard pair approve`. The CLI must run as the same OS user as the server. Per-setup table: "How do I approve a pending device pairing request?" in [docs/faq.md](docs/faq.md).
+
+### LAN access
+
+Bind wide first: `bindHost` or `PI_DASHBOARD_HOST=0.0.0.0` (restart required). Then `network.trustMode` decides who admits LAN peers:
+
+- `pair` — network match authenticates nothing. Device requests access (`http://<lan-ip>:<port>/pair?request`); operator approves with typed code. Needs `pairing.acceptLanRequests: true` (Settings → Security → Network access). Listed networks = knock eligibility only (default private on-link ranges ∪ list; `0.0.0.0/0`, `::/0`, `*.*.*.*` ignored).
+- `legacy` — `trustedNetworks` / `auth.bypassHosts` entries admitted without sign-in, full access.
+
+First boot writes the mode once (`network.trustModeOrigin: "upgrade"`): `pair` iff every entry loopback-only (`127.0.0.0/8`, `::1`), else `legacy` (hostnames and match-all → `legacy`). Never re-derived from the list.
+
+Switch: Settings → Security → Network access (live, no restart). Rollback: "Trust whole networks" or `network.trustMode: "legacy"`.
+
+In `legacy`, Settings → Access shows the count of devices reaching the dashboard by network trust only (`/api/health` `trustPosture.networkOnly`; counts, no IPs).
+
+Details: [How do I expose the dashboard on my LAN?](docs/faq.md#how-do-i-expose-the-dashboard-on-my-lan).
 
 ### Tunnel (zrok)
 

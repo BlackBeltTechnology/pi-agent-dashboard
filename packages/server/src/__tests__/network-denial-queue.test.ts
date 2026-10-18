@@ -22,9 +22,14 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import Fastify from "fastify";
+import { createNetworkPlane } from "../access/planes.js";
+import { __resetPromptChannels, issuePromptChannel } from "../access/prompt-channel.js";
 import { createNetworkGuard, createNetworkGuardHook } from "../auth/localhost-guard.js";
+import { admissionTrustedNetworks } from "../auth/trust-mode.js";
 import { createTestServer, type TestServerHandle } from "../test-support/test-server.js";
+import { type TrustModeHome, useTrustModeHome } from "../test-support/trust-mode-home.js";
 import {
   acceptTargetFor,
   BlockEventBuffer,
@@ -226,6 +231,12 @@ describe("4.5–4.8 — pending queue route surface", () => {
   const routes: Array<{ method: string | string[]; url: string }> = [];
 
   beforeAll(async () => {
+    // Accept-to-trust exists only in `legacy` (a network match authenticates);
+    // seed the stored mode so the boot decision does not pick `pair` for an
+    // empty list. The `pair` behaviour is pinned in the E18 block below.
+    // See change: retire-trusted-networks-bypass (D6).
+    fs.mkdirSync(path.dirname(configFile()), { recursive: true });
+    fs.writeFileSync(configFile(), JSON.stringify({ network: { trustMode: "legacy", trustModeOrigin: "operator" } }));
     handle = await createTestServer({ onRoute: (r) => routes.push(r) });
   }, 60_000);
 
@@ -373,5 +384,145 @@ describe("X9 — ledger recording never disrupts the denial", () => {
     } finally {
       spy.mockRestore();
     }
+  });
+});
+
+// ─── E18 — the network plane goes quiet in `pair` (test-plan #E18) ───────────
+// A network match grants nothing in `pair`, so a network-guard denial is not a
+// trust request: the block event is still recorded, no network prompt is raised,
+// allow-always is refused and the block-events accept route is a 403. A CORS
+// denial keeps prompting. The denial observer lives inside `createServer`, so it
+// is driven for real: a standalone guard hook calls the module-level observer
+// the booted server installed. See change: retire-trusted-networks-bypass (D6).
+describe("E18 — network-denial plane in pair mode", () => {
+  const DENIED_LAN = "192.168.16.30";
+  let th: TrustModeHome;
+  let handle: TestServerHandle;
+  let broadcast: ReturnType<typeof vi.spyOn>;
+  let prevGate: string | undefined;
+
+  type Broadcast = { type?: string; plane?: string; subject?: string };
+  const grantRequests = (plane: string): Broadcast[] =>
+    broadcast.mock.calls.map((c) => c[0] as Broadcast).filter((m) => m.type === "grant_request" && m.plane === plane);
+
+  beforeAll(async () => {
+    th = useTrustModeHome();
+    // Prompting on + a stored mode; boot must not re-derive it.
+    th.setTrustConfig({ trustMode: "pair", extra: { accessGrants: { promptEnabled: true } } });
+    handle = await createTestServer();
+    prevGate = process.env.PI_DASHBOARD_HOST_GATE;
+    // Deferred planes prompt only under an enforced host gate.
+    process.env.PI_DASHBOARD_HOST_GATE = "enforce";
+    issuePromptChannel("operator-socket");
+  }, 60_000);
+
+  afterAll(async () => {
+    if (prevGate === undefined) delete process.env.PI_DASHBOARD_HOST_GATE;
+    else process.env.PI_DASHBOARD_HOST_GATE = prevGate;
+    __resetPromptChannels();
+    await handle?.stop();
+    th?.restore();
+  });
+
+  beforeEach(() => {
+    blockEvents.clear();
+    broadcast = vi.spyOn(handle.server.browserGateway, "broadcastToAll");
+  });
+  afterEach(() => {
+    broadcast.mockRestore();
+  });
+
+  /** The universal guard, fed the live admission list, denying a LAN peer. */
+  async function denyFromLan(): Promise<void> {
+    const app = Fastify();
+    app.get("/api/sessions", async () => ({ ok: true }));
+    app.addHook("onRequest", createNetworkGuardHook({ trustedNetworks: () => admissionTrustedNetworks() }));
+    const res = await app.inject({ method: "GET", url: "/api/sessions", remoteAddress: DENIED_LAN });
+    await app.close();
+    expect(res.statusCode).toBe(403);
+  }
+
+  const cfgJson = () => JSON.stringify(readRawConfig());
+  const post = (ip: string) =>
+    fetch(`http://127.0.0.1:${handle.httpPort}/api/tunnel/block-events`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ip }),
+    });
+
+  it("pair: a denial from 192.168.16.30 records a block event but raises NO network prompt", async () => {
+    th.setTrustConfig({ trustMode: "pair", extra: { accessGrants: { promptEnabled: true } } });
+    await denyFromLan();
+    expect(blockEvents.list().map((e) => e.ip)).toContain(DENIED_LAN);
+    expect(grantRequests("network")).toEqual([]);
+  });
+
+  it("control — legacy: the same denial DOES raise a network prompt (the harness can observe one)", async () => {
+    th.setTrustConfig({ trustMode: "legacy", extra: { accessGrants: { promptEnabled: true } } });
+    await denyFromLan();
+    expect(grantRequests("network").map((m) => m.subject)).toEqual([DENIED_LAN]);
+  });
+
+  it("pair: a CORS denial still raises a prompt", async () => {
+    th.setTrustConfig({ trustMode: "pair", extra: { accessGrants: { promptEnabled: true } } });
+    const res = await fetch(`http://127.0.0.1:${handle.httpPort}/api/health`, {
+      headers: { origin: "https://e18-denied.example.com" },
+    });
+    expect(res.status).toBeLessThan(500);
+    expect(grantRequests("cors").map((m) => m.subject)).toEqual(["https://e18-denied.example.com"]);
+    expect(grantRequests("network")).toEqual([]);
+  });
+
+  it("pair: POST /api/tunnel/block-events accept → 403 not_acceptable, config unchanged", async () => {
+    th.setTrustConfig({ trustMode: "pair", extra: { accessGrants: { promptEnabled: true } } });
+    blockEvents.record("203.0.113.9", { proxied: false });
+    const before = cfgJson();
+    const res = await post("203.0.113.9");
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toBe("not_acceptable");
+    expect(cfgJson()).toBe(before);
+    expect((readRawConfig() as { auth?: unknown }).auth).toBeUndefined();
+  });
+
+  it("control — legacy: the same accept succeeds and widens trust", async () => {
+    th.setTrustConfig({ trustMode: "legacy", extra: { accessGrants: { promptEnabled: true } } });
+    blockEvents.record("203.0.113.9", { proxied: false });
+    const res = await post("203.0.113.9");
+    expect(res.status).toBe(200);
+    expect((readRawConfig() as { auth?: { bypassHosts?: string[] } }).auth?.bypassHosts).toContain("203.0.113.9");
+  });
+});
+
+describe("E18 — createNetworkPlane networkTrustActive", () => {
+  const grantReq = { subject: "192.168.16.30", deniedSubject: "192.168.16.30", ancestors: [], origin: "s" };
+  const deps = (active?: () => boolean) => ({
+    readTrustedNetworks: () => [] as string[],
+    writeConfigPartial: vi.fn(() => ({ success: true })),
+    ...(active ? { networkTrustActive: active } : {}),
+  });
+
+  it("inactive (pair): allow-always is refused `forbidden` and NOTHING is written", async () => {
+    const d = deps(() => false);
+    expect(await createNetworkPlane(d).grant(grantReq)).toEqual({ ok: false, reason: "forbidden" });
+    expect(d.writeConfigPartial).not.toHaveBeenCalled();
+  });
+
+  it("active (legacy) or absent: the address is added", async () => {
+    for (const active of [() => true, undefined]) {
+      const d = deps(active);
+      const r = await createNetworkPlane(d).grant(grantReq);
+      expect(r.ok).toBe(true);
+      expect(d.writeConfigPartial).toHaveBeenCalledWith({ trustedNetworks: ["192.168.16.30"] });
+    }
+  });
+
+  it("is read per verdict: a mode switch between two grants applies without rebuilding the plane", async () => {
+    let active = false;
+    const d = deps(() => active);
+    const plane = createNetworkPlane(d);
+    expect((await plane.grant(grantReq)).ok).toBe(false);
+    active = true;
+    expect((await plane.grant(grantReq)).ok).toBe(true);
+    expect(d.writeConfigPartial).toHaveBeenCalledTimes(1);
   });
 });

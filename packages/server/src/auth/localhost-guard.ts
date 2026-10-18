@@ -9,8 +9,10 @@ import { routeTier } from "@blackbelt-technology/pi-dashboard-shared/route-tiers
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { blockEvents } from "../tunnel/tunnel-block-events.js";
 import { isBypassed } from "./bypass-urls.js";
+import { redactCapability } from "../live-server/live-capability.js";
 import { hasLocalCredential } from "./local-credential.js";
 import { hasLocalProof, type LocalTrustContext } from "./local-proof.js";
+import { type NetworkOnlySource, noteNetworkOnlyAdmission } from "./network-trust-telemetry.js";
 import { isLoopback, isLoopbackRange } from "./loopback.js";
 
 /**
@@ -368,8 +370,10 @@ function sendNetworkDenied(request: FastifyRequest, reply: FastifyReply, localTr
   reply.code(403).send({
     success: false,
     error: "network_not_allowed",
-    reason: "Source IP not loopback, not in trustedNetworks, and request not authenticated.",
-    hint: "Add this network to trustedNetworks (Settings → Servers) or sign in.",
+    // Identical in every trust mode: this body goes to credential-less callers
+    // and must not disclose the mode or point at a trusted list.
+    reason: "Source IP is not loopback and the request is not authenticated.",
+    hint: "Pair this device (Request access) or sign in.",
   });
 }
 
@@ -408,10 +412,19 @@ function hasNetworkPassCondition(
   }
   // Affirmative local-IPC token.
   if (opts.localToken && hasLocalCredential(headers)) return true;
+  // Credentials BEFORE the network match, so a request that holds one is never
+  // classified (or counted) as network-only. Admission outcomes are unchanged:
+  // both are "allow". See change: retire-trusted-networks-bypass (D3).
+  if ((request as any).isAuthenticated) return true;
   const trusted = opts.readTrusted();
   noteTrustedList(trusted);
-  if (isTrustedSource(request.ip, headers, trusted, opts.localTrust)) return true;
-  return Boolean((request as any).isAuthenticated);
+  if (isTrustedSource(request.ip, headers, trusted, opts.localTrust)) {
+    // Admitted by the network match alone — counted once per request (the
+    // per-route guard and the universal hook both evaluate it).
+    noteNetworkOnlyAdmission(request as unknown as NetworkOnlySource);
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -718,7 +731,8 @@ export function createNetworkGuardHook(opts: NetworkGuardHookOptions) {
   const emitDenial = (path: string, ip: string, reason: string): void =>
     logDenial({
       reason: sanitizeLogField(reason, 60),
-      path: sanitizeLogField(path),
+      // A live-preview capability token in a refused path must not reach the log.
+      path: sanitizeLogField(redactCapability(path)),
       ip: sanitizeLogField(ip, 60),
     });
 
@@ -960,6 +974,28 @@ export function isOnLinkPrivate(ip: string | undefined, interfaces: readonly Lan
     if (sameNetwork(peer.bytes, own.bytes, bits)) return true;
   }
   return false;
+}
+
+/** Entries that match every address — never a knock-eligibility grant. */
+const MATCH_ALL_ENTRIES: ReadonlySet<string> = new Set(["0.0.0.0/0", "::/0", "*.*.*.*"]);
+
+/**
+ * Knock eligibility from the configured list: may `peer` KNOCK because an entry
+ * of the raw trusted list covers it? Applies only to a request with NO
+ * proxy-forwarding header at all (as strict as the private-range branch), ignores
+ * match-all entries, and does not require the peer to be on-link. A relayed
+ * loopback peer is refused (it carries a forwarding header). It authenticates
+ * nothing — it only widens where a knock may come from.
+ * See change: retire-trusted-networks-bypass (D7).
+ */
+export function isKnockListedPeer(
+  peer: string | undefined,
+  headers: HeaderBag,
+  list: readonly string[],
+): boolean {
+  if (!peer || hasProxyForwardingHeaders(headers)) return false;
+  const entries = list.filter((e) => !MATCH_ALL_ENTRIES.has(e.trim()));
+  return entries.length > 0 && isBypassedHost(peer, entries);
 }
 
 /**

@@ -208,7 +208,15 @@ export function readRawConfig(): Record<string, any> {
  * Merge partial config into existing, preserving redacted secrets, write to disk.
  * Returns whether a restart is needed.
  */
-export function writeConfigPartial(partial: Record<string, any>): WriteConfigResult {
+export function writeConfigPartial(
+  partial: Record<string, any>,
+  /**
+   * `trustModeOrigin: "upgrade"` is passed ONLY by the one-time boot trust-mode
+   * decision. Every other writer (UI, REST, CLI) gets `"operator"` stamped when
+   * it changes a stored `network.trustMode`. See change: retire-trusted-networks-bypass (D2).
+   */
+  opts?: { trustModeOrigin?: "upgrade" },
+): WriteConfigResult {
   const { dir, file } = getConfigPaths();
   try {
     // Read raw file to preserve unknown fields
@@ -270,6 +278,28 @@ export function writeConfigPartial(partial: Record<string, any>): WriteConfigRes
       }
 
       partial.auth = mergedAuth;
+    }
+
+    // Merge the `network` block FIELD BY FIELD so writing `trustMode` never
+    // drops `trustModeOrigin` (and a partial carrying only `auth` leaves the
+    // block untouched — `{...existing, ...partial}` below only replaces keys the
+    // partial names). The origin is server-owned: a change to the stored mode
+    // stamps `operator` (or `upgrade` for the boot decision); a save that leaves
+    // the mode unchanged keeps the stored origin whatever the caller sent.
+    // See change: retire-trusted-networks-bypass (D2).
+    if (partial.network && typeof partial.network === "object" && !Array.isArray(partial.network)) {
+      const existingNet: Record<string, any> =
+        existing.network && typeof existing.network === "object" ? existing.network : {};
+      const mergedNet: Record<string, any> = { ...existingNet, ...partial.network };
+      const modeChanged = "trustMode" in partial.network && partial.network.trustMode !== existingNet.trustMode;
+      if (modeChanged) {
+        mergedNet.trustModeOrigin = opts?.trustModeOrigin ?? "operator";
+      } else if (existingNet.trustModeOrigin !== undefined) {
+        mergedNet.trustModeOrigin = existingNet.trustModeOrigin;
+      } else {
+        delete mergedNet.trustModeOrigin;
+      }
+      partial.network = mergedNet;
     }
 
     // Merge tunnel sub-object (deep-merge nested watchdog + per-provider
