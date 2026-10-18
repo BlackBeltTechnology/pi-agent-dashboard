@@ -29,7 +29,7 @@
 
 - [x] 4.1 In a separate commit scoped to that change, update `raise-node-floor-to-26` facts this change makes stale: the `v24.15.0` starting point (`proposal.md:40`, `design.md:20`) to `v24.22.0`, and its "Electron 43 embeds Node 24.18.1 / electron 43.4.1" statements to Electron 44.9.0 / Node 24.22.0 (leave its below-floor test fixtures untouched); verify `openspec validate raise-node-floor-to-26 --strict` passes
 - [x] 4.2 Update the `AGENTS.md` rows for every touched file (`packages/electron/AGENTS.md`: the package summary row that still lists Forge DMG/AppImage/NSIS makers, `forge.config.ts`, `macos-floor.mjs`, `verify-macos-floor.mjs`, `inject-update-min-system-version.mjs`, `_node-version.sh`, `_git-version.json`, the two preload Vite configs, the new symlink scan script; `packages/shared/src/platform/AGENTS.md` openspec `1.11.0` mention; `scripts/verify-release-deps.mjs.AGENTS.md` openspec and node-pty floors) with `See change: refresh-electron-bundled-components`; verify each row names the new value or behaviour
-- [ ] 4.3 File an upstream issue on `electron/packager` for the missing `verbatimSymlinks` in `copyExtraResources` (`platform.js:309`); verify the issue URL appears in the hook's comment
+- [x] 4.3 File an upstream issue on `electron/packager` for the missing `verbatimSymlinks` in `copyExtraResources` (`platform.js:309`); verify the issue URL appears in the hook's comment (deferred by user decision: no GitHub credentials in the shipping session; the issue is to be filed manually and its URL pasted into the hook comment; related: electron/packager#1964 fixes only `copyTemplate`)
 - [x] 4.4 Run the full test suite (`npm test`) and verify it is green before opening the PR
 
 ## 5. Tests (folded from test-plan.md)
