@@ -1033,8 +1033,12 @@ export function createDirectoryService(
       return reused;
     }
     const rawPromise = semaphore.run(() => runOpenSpecStatusAll(cwd));
+    // Read concurrently with the CLI; awaited before the `dirPollCli` turn
+    // starts so that turn never spans an await.
+    const groupsPromise = groupAssignmentsFor(cwd);
     recordTurn("dirPollGate", gateStart);
     const raw = await rawPromise;
+    const groupAssignments = await groupsPromise;
 
     // dirPollCli: CLI stdout received → build request dispatched.
     const cliStart = performance.now();
@@ -1057,7 +1061,6 @@ export function createDirectoryService(
       caches.set(cwd, cache);
       return empty;
     };
-    const groupAssignments = await groupAssignmentsFor(cwd);
     const cachedChanges: Record<string, OpenSpecChange> = {};
     for (const [name, entry] of cache.changes) cachedChanges[name] = entry.change;
     const buildPromise = pool.build({

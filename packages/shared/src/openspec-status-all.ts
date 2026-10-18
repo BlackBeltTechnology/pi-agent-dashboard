@@ -164,9 +164,12 @@ export function sanitizeChangeError(code: unknown, message: unknown): { code: st
  * maps to `unknown-entry`.
  */
 export function entryError(entry: StatusAllEntry): { code: string; message: string } | null {
-  if (Array.isArray(entry.artifacts)) return null;
   const list = Array.isArray(entry.status) ? entry.status : [];
-  const first = list.find((s) => s && s.severity === "error") ?? list[0];
+  const errorStatus = list.find((s) => s && s.severity === "error");
+  // `artifacts` present and non-empty ⇒ healthy; an empty list alongside an
+  // error status is still a broken change.
+  if (Array.isArray(entry.artifacts) && (entry.artifacts.length > 0 || !errorStatus)) return null;
+  const first = errorStatus ?? list[0];
   if (!first) return sanitizeChangeError("unknown-entry", "Unrecognised entry in openspec status output");
   return sanitizeChangeError(first.code ?? "change_error", first.message ?? "");
 }
@@ -345,12 +348,18 @@ export function matchesOutputPattern(relPath: string, pattern: string): boolean 
   const norm = relPath.replace(/\\/g, "/");
   if (!GLOB_CHARS.test(pattern)) return norm === pattern;
   // Minimal glob: `**` spans segments, `*` stays inside one segment.
+  // Only `*`, `**` and `?` are globs here; every other regex metacharacter
+  // (incl. `{}` / `[]`, brace expansion is not implemented) matches literally.
   const re = pattern
     .split("/")
-    .map((seg) => (seg === "**" ? ".*" : seg.replace(/[.+^${}()|\\]/g, "\\$&").replace(/\*/g, "[^/]*").replace(/\?/g, "[^/]")))
+    .map((seg) => (seg === "**" ? ".*" : seg.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, "[^/]*").replace(/\?/g, "[^/]")))
     .join("/")
     .replace(/\/\.\*\//g, "/(?:.*/)?");
-  return new RegExp(`^${re}$`).test(norm);
+  try {
+    return new RegExp(`^${re}$`).test(norm);
+  } catch {
+    return false; // a malformed pattern never throws into an fs.watch callback
+  }
 }
 
 // ── Bounded concurrency ─────────────────────────────────────────────────────

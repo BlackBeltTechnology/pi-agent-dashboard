@@ -246,3 +246,17 @@ describe("matchesOutputPattern", () => {
     expect(matchesOutputPattern("specs\\cap\\spec.md", "specs/**/*.md")).toBe(true);
   });
 });
+
+describe("review follow-ups (round 1)", () => {
+  it("entryError: empty artifacts alongside an error status is still a broken change", () => {
+    const e = entryError({ changeName: "x", artifacts: [], status: [{ severity: "error", code: "change_error", message: "boom" }] });
+    expect(e).toEqual({ code: "change_error", message: "boom" });
+    expect(entryError({ changeName: "x", artifacts: [] })).toBeNull();
+  });
+  it("matchesOutputPattern never throws on brace/bracket patterns and treats them literally", () => {
+    expect(() => matchesOutputPattern("a.md", "{a,b}.md")).not.toThrow();
+    expect(matchesOutputPattern("{a,b}.md", "{a,b}.md")).toBe(true);
+    expect(matchesOutputPattern("a.md", "{a,b}.md")).toBe(false);
+    expect(matchesOutputPattern("[1].md", "[1].md")).toBe(true);
+  });
+});
