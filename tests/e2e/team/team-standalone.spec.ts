@@ -14,7 +14,7 @@ import { expect, test } from "@playwright/test";
 import { type StaticApp, startStaticApp } from "./static-app.js";
 import { API, bootTeamHarness, enc, hasPi, type TeamHarness } from "./team-harness.js";
 
-test.skip(!hasPi, "needs the pi CLI on PATH to boot the dashboard; runs in no CI leg yet — https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/861");
+test.skip(!hasPi, "needs the pi CLI on PATH to boot the dashboard; runs on the `e2e-team` CI leg");
 test.describe.configure({ mode: "serial", timeout: 180_000 });
 
 let h: TeamHarness;

@@ -24,6 +24,12 @@ export interface MermaidSourceInfo {
   isDirty?: boolean;
   /** AsciiDoc: number of mermaid blocks the preview rendered (count-parity guard). */
   expectedCount?: number;
+  /**
+   * A markup repair is displayed but not yet applied to the file: block ordinals on
+   * disk would not match the repaired rendering, so per-diagram apply is disabled.
+   * See change: add-md-adoc-markup-repair.
+   */
+  markupRepairActive?: boolean;
 }
 
 export const MermaidSourceContext = createContext<MermaidSourceInfo | null>(null);

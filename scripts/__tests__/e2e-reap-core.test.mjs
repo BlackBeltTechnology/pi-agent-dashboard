@@ -19,6 +19,7 @@ import {
   HARNESS_DOWN_MESSAGE,
   LATCH_FAILURE_THRESHOLD,
   RESIDUAL_SESSION_BUDGET,
+  attributeDestroy,
   checkBudget,
   computeDelta,
   createLatch,
@@ -288,5 +289,62 @@ describe("checkBudget — residual-session budget (E5)", () => {
     ];
     expect(checkBudget(mixed, 3).ok).toBe(false); // unfiltered → 4 > 3
     expect(checkBudget(mixed.filter(isLiveSession), 3).ok).toBe(true); // filtered → 2
+  });
+});
+
+describe("attributeDestroy — a foreign destroy is named (E29, E30; #451 part 1)", () => {
+  // Events file as test-up.sh / test-down.sh / the recorder write it. Every match
+  // is by container id: X = this boot, Y = an earlier boot of the same project.
+  const FILE = "/tmp/pi-dash-test/pi-dash-test-1.events.log";
+  const marker = (id) => `teardown-begin 2026-10-14T10:00:00Z pi-dash-test-1 ${id}`;
+  const destroy = (id) => `1700000001 destroy harness project=pi-dash-test-1 id=${id}`;
+  const attribute = (lines, over = {}) =>
+    attributeDestroy({
+      eventsText: lines === null ? null : `${lines.join("\n")}\n`,
+      containerId: "X",
+      eventsFile: FILE,
+      attach: false,
+      ...over,
+    });
+
+  it("(a) marker X then destroy X → own teardown, never foreign", () => {
+    expect(attribute([marker("X"), destroy("X")]).verdict).toBe("undetermined");
+  });
+
+  it("(b) an EARLIER boot's marker (Y) does not mask a destroy of X → foreign", () => {
+    const r = attribute([marker("Y"), destroy("Y"), destroy("X")]);
+    expect(r.verdict).toBe("foreign");
+  });
+
+  it("(c) destroy X BEFORE the marker X → foreign (the marker came too late to explain it)", () => {
+    expect(attribute([destroy("X"), marker("X")]).verdict).toBe("foreign");
+  });
+
+  it("(d) only another container's destroy → undetermined", () => {
+    expect(attribute([marker("X"), destroy("Y")]).verdict).toBe("undetermined");
+  });
+
+  it("(e) events file missing → undetermined, never foreign", () => {
+    const r = attribute(null);
+    expect(r.verdict).toBe("undetermined");
+    expect(r.message).toContain(FILE);
+  });
+
+  it("(f) state lacks containerId or eventsFile → undetermined", () => {
+    expect(attribute([destroy("X")], { containerId: undefined }).verdict).toBe("undetermined");
+    expect(attribute([destroy("X")], { eventsFile: undefined }).verdict).toBe("undetermined");
+  });
+
+  it("(g) attach mode → undetermined + a pointer to the events dir, even with (b)'s file", () => {
+    const r = attribute([marker("Y"), destroy("X")], { attach: true });
+    expect(r.verdict).toBe("undetermined");
+    expect(r.message).toContain("${TMPDIR:-/tmp}/pi-dash-test/");
+  });
+
+  it("(E30) the foreign message says 'foreign', quotes the destroy line verbatim and names the file", () => {
+    const r = attribute([marker("Y"), destroy("X")]);
+    expect(r.message).toContain("foreign");
+    expect(r.message).toContain(destroy("X"));
+    expect(r.message).toContain(FILE);
   });
 });

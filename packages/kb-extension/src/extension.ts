@@ -50,12 +50,12 @@ import {
   decideNudge,
   type FreshnessOutcome,
   freshnessStatus,
-  getKb,
+  getKbOrEmpty,
   nudgeText,
   type ReindexState,
   resolveFreshnessBudgetMs,
-  scheduleReindex,
   STALE_LINE,
+  scheduleReindex,
 } from "./reindex.js";
 
 const WRITE_TOOLS = new Set(["write", "edit", "bash"]);
@@ -284,7 +284,7 @@ export default function kbExtension(pi: ExtensionAPI, options: KbExtensionOption
       // existing index (awaitFreshness never throws). See change: bound-kb-search-freshness.
       const fresh = await freshness(state, cwd, "always", signal);
       if (fresh.status === "cancelled" || signal?.aborted) return cancelledResult({ hits: 0 }, fmt === "json");
-      const { store, cfg } = getKb(state, cwd);
+      const { store, cfg } = getKbOrEmpty(state, cwd);
       if (fresh.status === "building") return textResult(fmt === "json" ? `${BUILDING_LINE}\n[]` : BUILDING_LINE, { hits: 0, stale: true });
       // One shared mapping (design D2, fix-kb-eval-measurement-integrity).
       // expandGraph:false + rerank:false are this tool's long-standing behaviour
@@ -334,7 +334,7 @@ export default function kbExtension(pi: ExtensionAPI, options: KbExtensionOption
       // labelled too. See changes: fix-kb-neighbors-get-cold-start, bound-kb-search-freshness.
       const fresh = await freshness(state, cwd, "if-empty", signal);
       if (fresh.status === "cancelled" || signal?.aborted) return cancelledResult({ nodes: 0 });
-      const { store } = getKb(state, cwd);
+      const { store } = getKbOrEmpty(state, cwd);
       if (fresh.status === "building") return textResult(BUILDING_LINE, { nodes: 0, stale: true });
       const nodes = store.neighbors(params.node as string, (params.depth as number) ?? 2);
       if (signal?.aborted) return cancelledResult({ nodes: 0 });
@@ -369,7 +369,7 @@ export default function kbExtension(pi: ExtensionAPI, options: KbExtensionOption
       // Cold-start populate, bounded + abortable (see kb_neighbors).
       const fresh = await freshness(state, cwd, "if-empty", signal);
       if (fresh.status === "cancelled" || signal?.aborted) return cancelledResult({ found: false });
-      const { store, cfg } = getKb(state, cwd);
+      const { store, cfg } = getKbOrEmpty(state, cwd);
       if (fresh.status === "building") return textResult(BUILDING_LINE, { found: false, suppressedSections: 0, stale: true });
       const root = cfg.resolvedSources[0]?.id ?? "";
       const chunk = store.getChunk(root, params.path as string, params.section as string | undefined);
@@ -512,4 +512,4 @@ export default function kbExtension(pi: ExtensionAPI, options: KbExtensionOption
   });
 }
 
-export { acknowledgeRows, awaitFreshness, closeKb, closeKbForCwd, createReindexState, decideNudge, ensurePopulated, getKb, nudgeText, reindexNow, resolveFreshnessBudgetMs, scheduleReindex } from "./reindex.js";
+export { acknowledgeRows, awaitFreshness, closeKb, closeKbForCwd, createReindexState, decideNudge, ensurePopulated, getKb, getKbOrEmpty, nudgeText, reindexNow, resolveFreshnessBudgetMs, scheduleReindex } from "./reindex.js";
