@@ -16,7 +16,7 @@ import type {
   WorkflowSchemaDeps,
 } from "../../openspec/workflow-schema.js";
 
-export const BASE_SCHEMA_YAML = `name: spec-driven
+const BASE_SCHEMA_YAML = `name: spec-driven
 version: 1
 description: Package base schema
 # a comment that must survive

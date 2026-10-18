@@ -1,7 +1,7 @@
 import { SLOT_PILL_LEGEND, SlotPill } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 import type { OpenSpecData, OpenSpecReadiness, OpenSpecReadinessReason } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { mdiClipboardTextOutline, mdiClose } from "@mdi/js";
+import { mdiAlert, mdiClipboardTextOutline, mdiClose, mdiInformationOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { useState } from "react";
 import { useLocation } from "wouter";
@@ -13,7 +13,12 @@ import {
   runOpenSpecInit,
   runOpenSpecUpdate,
 } from "../../lib/openspec/openspec-config-api.js";
-import { workflowSchemaNeedsAttention, workflowSchemaSettingsHref } from "../../lib/openspec/openspec-workflow-schema-api.js";
+import {
+  SEVERITY_PILL_CLASS,
+  workflowSchemaNeedsAttention,
+  workflowSchemaPresentation,
+  workflowSchemaSettingsHref,
+} from "../../lib/openspec/openspec-workflow-schema-api.js";
 
 /**
  * Folder-card OpenSpec slot. Single-line navigation entry to the full-page
@@ -286,11 +291,9 @@ function WorkflowSchemaChip({ cwd, data }: { cwd: string; data: OpenSpecData }) 
   const s = data.workflowSchema;
   if (!s) return null;
   const href = workflowSchemaSettingsHref(cwd);
-  const reason = s.missing
-    ? i18nT("openspec.schemaChipMissing", undefined, "schema missing")
-    : s.generated === "outdated" || s.generated === "newer" || s.generated === "incompatible" || s.generated === "conflict" || s.generated === "unmanaged"
-      ? i18nT("openspec.schemaChipState", { state: s.generated }, "schema {state}")
-      : i18nT("openspec.schemaChipUnpinned", { count: String(s.unpinnedChanges.length) }, "{count} unpinned change(s)");
+  const p = workflowSchemaPresentation(s);
+  // Same severity as the Settings card pill (settings-panel / openspec-workflow-schema spec).
+  const tone = p.severity;
   return (
     <div data-folder-openspec-schema-notice={cwd} onClick={(e) => e.stopPropagation()}>
       <a
@@ -303,10 +306,10 @@ function WorkflowSchemaChip({ cwd, data }: { cwd: string; data: OpenSpecData }) 
           e.preventDefault();
           navigate(href);
         }}
-        className="focus-ring mt-1 inline-flex items-center gap-1 rounded-full border border-yellow-500/40 bg-yellow-500/[0.06] px-2 py-0.5 text-[10px] font-semibold text-yellow-400 hover:underline"
+        className={`focus-ring mt-1 inline-flex items-center gap-1.5 rounded-full border px-3 tap-target text-[12px] font-semibold hover:underline ${SEVERITY_PILL_CLASS[tone]}`}
       >
-        <span aria-hidden="true">⚠</span>
-        {reason}
+        <Icon path={tone === "info" || tone === "neutral" ? mdiInformationOutline : mdiAlert} size={0.6} aria-hidden="true" />
+        {i18nT("openspec.schemaChipLabel", { label: p.chipLabel }, "Workflow schema: {label}")}
       </a>
     </div>
   );

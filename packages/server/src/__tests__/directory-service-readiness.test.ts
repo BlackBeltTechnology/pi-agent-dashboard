@@ -880,4 +880,24 @@ describe("DirectoryService — OpenSpecData.workflowSchema (add-pi-spec-driven-s
     expect(out.workflowSchema?.missing).toBe(missingDir);
     expect(out.readiness?.state).toBe("READY");
   });
+  it("#U15 projectSchemas lists only real project-authored schema dirs (no managed, staging, backup, or symlink)", async () => {
+    const repo = path.join(tmpRoot, "repo");
+    mkProject(repo, { skills: true });
+    put(repo, "openspec/config.yaml", "schema: spec-driven\n");
+    for (const d of ["team-flow", "pi-spec-driven", ".fork-staging-x", "pi-spec-driven.fork-backup-1-2"]) {
+      put(repo, `openspec/schemas/${d}/schema.yaml`, "name: x\n");
+    }
+    const target = fs.mkdtempSync(path.join(tmpRoot, "ext-target-"));
+    fs.symlinkSync(target, path.join(repo, "openspec/schemas/ext"), "dir");
+    const out = await make().refreshOpenSpec(repo);
+    expect(out.workflowSchema?.projectSchemas).toEqual(["team-flow"]);
+  });
+
+  it("#U15 projectSchemas is [] when openspec/schemas is absent", async () => {
+    const repo = path.join(tmpRoot, "repo");
+    mkProject(repo, { skills: true });
+    put(repo, "openspec/config.yaml", "schema: spec-driven\n");
+    const out = await make().refreshOpenSpec(repo);
+    expect(out.workflowSchema?.projectSchemas).toEqual([]);
+  });
 });

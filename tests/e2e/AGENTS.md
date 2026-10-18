@@ -39,10 +39,10 @@ One row per file.
 | `access-grants-revoke.spec.ts` | L3 access-grant remedy journey: denial → gra… → see `access-grants-revoke.spec.ts.AGENTS.md` |
 | `access-grant-dialog.spec.ts` | L3 for the access-grant prompt dialog +… → see `access-grant-dialog.spec.ts.AGENTS.md` |
 | `anthropic-bridge-activation.spec.ts` | → see `anthropic-bridge-activation.spec.ts.AGENTS.md` |
-| `archive-fold.spec.ts` | L3 for the per-folder `Archive (N)` fold (test-plan #F4… → see `archive-fold.spec.ts.AGENTS.md` |
+| `archive-fold.spec.ts` | → see `archive-fold.spec.ts.AGENTS.md` |
 | `asciidoc-preview.spec.ts` | L3 AsciiDoc preview styling (change: asciidoc-support… → see `asciidoc-preview.spec.ts.AGENTS.md` |
 | `diagram-preview.spec.ts` | L3 diagram preview (.puml and adoc hydration) in the… → see `diagram-preview.spec.ts.AGENTS.md` |
-| `automation-fanout.spec.ts` | L3 fan-out E2E (test-plan F5/F6). Creates an `actions:`… → see `automation-fanout.spec.ts.AGENTS.md` |
+| `automation-fanout.spec.ts` | → see `automation-fanout.spec.ts.AGENTS.md` |
 | `automation-identity-restart.spec.ts` | → see `automation-identity-restart.spec.ts.AGENTS.md` |
 | `automation-stop-tmux.spec.ts` | L3 (X19/X20). Stop kills a tmux run's real pi. → see `automation-stop-tmux.spec.ts.AGENTS.md` |
 | `background-stream-selection.spec.ts` | → see `background-stream-selection.spec.ts.AGENTS.md` |
@@ -70,7 +70,7 @@ One row per file.
 | `custom-entry-om-renderer.spec.ts` | L3 (change: add-custom-entry-renderer-… → see `custom-entry-om-renderer.spec.ts.AGENTS.md` |
 | `custom-entry-replay-parity.spec.ts` | L3 custom-entry replay parity → see `custom-entry-replay-parity.spec.ts.AGENTS.md` |
 | `custom-entry-web-search.spec.ts` | L3 F17/F18. → see `custom-entry-web-search.spec.ts.AGENTS.md` |
-| `dashboard-slash.spec.ts` | Browser E2E: spawn session → `/dashboard:server-health`… → see `dashboard-slash.spec.ts.AGENTS.md` |
+| `dashboard-slash.spec.ts` | → see `dashboard-slash.spec.ts.AGENTS.md` |
 | `directory-home.spec.ts` | L3 for the `/folder/:encodedCwd` directory home page… → see `directory-home.spec.ts.AGENTS.md` |
 | `editor-pane.spec.ts` | Playwright E2E for internal Monaco editor pane (change… → see `editor-pane.spec.ts.AGENTS.md` |
 | `durable-session-diff.spec.ts` | L3 (change… → see `durable-session-diff.spec.ts.AGENTS.md` |
@@ -107,7 +107,7 @@ One row per file.
 | `gateway-url-action.spec.ts` | L3 spec (change: config-override-oauth-redirect-base… → see `gateway-url-action.spec.ts.AGENTS.md` |
 | `git-panel.spec.ts` | Scenario 5.2 spec. Calls `ensureGitSession`. Asserts… → see `git-panel.spec.ts.AGENTS.md` |
 | `global-setup.ts` | Playwright globalSetup. `PW_E2E_USE_RUNNING=1` → only… → see `global-setup.ts.AGENTS.md` |
-| `global-teardown.ts` | Playwright globalTeardown. Managed (marker present, not… → see `global-teardown.ts.AGENTS.md` |
+| `global-teardown.ts` | → see `global-teardown.ts.AGENTS.md` |
 | `headless-reload-dispatch.spec.ts` | L3 fix-out-of-band-reload #F1–#F3. → see `headless-reload-dispatch.spec.ts.AGENTS.md` |
 | `host-gate-allow.spec.ts` | L3 for the Host-gate operator flow (test-plan #F9/#F10… → see `host-gate-allow.spec.ts.AGENTS.md` |
 | `host-pressure-badge.spec.ts` | L3 for `fix-false-unresponsive-badge` (#F3, #F4).… → see `host-pressure-badge.spec.ts.AGENTS.md` |
@@ -146,13 +146,13 @@ One row per file.
 | `openspec-lifecycle-bar.spec.ts` | L3 compact-openspec-lifecycle-bar: board segment… → see `openspec-lifecycle-bar.spec.ts.AGENTS.md` |
 | `openspec-locality-gate.spec.ts` | L3 spec (change: scope-openspec-auto-att… → see `openspec-locality-gate.spec.ts.AGENTS.md` |
 | `openspec-status-all.spec.ts` | → see `openspec-status-all.spec.ts.AGENTS.md` |
-| `optimistic-prompt.spec.ts` | Playwright E2E for optimistic-prompt-progress. Two faux… → see `optimistic-prompt.spec.ts.AGENTS.md` |
+| `optimistic-prompt.spec.ts` | → see `optimistic-prompt.spec.ts.AGENTS.md` |
 | `out-of-cwd-session-diffs.spec.ts` | L3 spec (change: opt-in-out-of-cwd-session-d… → see `out-of-cwd-session-diffs.spec.ts.AGENTS.md` |
 | `overlay-layering.spec.ts` | Browser E2E gate for `add-overlay-layering-system`… → see `overlay-layering.spec.ts.AGENTS.md` |
 | `overlay-layout.spec.ts` | L3 GENERIC reachability gate for… → see `overlay-layout.spec.ts.AGENTS.md` |
 | `oversized-event-liveness.spec.ts` | L3 per-event size ceiling. → see `oversized-event-liveness.spec.ts.AGENTS.md` |
 | `package-queue-visible.spec.ts` | Browser E2E gate for… → see `package-queue-visible.spec.ts.AGENTS.md` |
-| `pairing-qr.spec.ts` | Browser E2E for the camera-scannable pairing QR (change… → see `pairing-qr.spec.ts.AGENTS.md` |
+| `pairing-qr.spec.ts` | → see `pairing-qr.spec.ts.AGENTS.md` |
 | `remote-access-wizard.spec.ts` | L3 dialog. → see `remote-access-wizard.spec.ts.AGENTS.md` |
 | `replay-live-tool-not-orphaned.spec.ts` | L3 restart mid-call → sidecar |
 | `runtime-extension-reload-convergence.spec.ts` | F5 → see `runtime-extension-reload-convergence.spec.ts.AGENTS.md` |
@@ -172,6 +172,7 @@ One row per file.
 | `retro-ux-identity-connectivity.spec.ts` | L3 retro-ux probes. → see `retro-ux-identity-connectivity.spec.ts.AGENTS.md` |
 | `retro-ux-model-selector.spec.ts` | L3 retro-ux model selector. → see `retro-ux-model-selector.spec.ts.AGENTS.md` |
 | `retro-ux-plugin-settings-forms.spec.ts` | L3 E24. → see `retro-ux-plugin-settings-forms.spec.ts.AGENTS.md` |
+| `retro-ux-workflow-schema.spec.ts` | → see `retro-ux-workflow-schema.spec.ts.AGENTS.md` |
 | `real-flow-regression.spec.ts` | L3 opt-in real-flow regression. → see `real-flow-regression.spec.ts.AGENTS.md` |
 | `reap-core.ts` | Pure, side-effect-free reap logic, unit-tested at L1 in → see `reap-core.ts.AGENTS.md` |
 | `reasoning-auto-collapse.spec.ts` | Playwright E2E for reasoning-auto-collap… → see `reasoning-auto-collapse.spec.ts.AGENTS.md` |
@@ -228,7 +229,7 @@ One row per file.
 | `tail-only-settings.spec.ts` | → see `tail-only-settings.spec.ts.AGENTS.md` |
 | `tail-only-splice-anchor.spec.ts` | L3 gate for D7a (F9, F10, F18). Asserts the… → see `tail-only-splice-anchor.spec.ts.AGENTS.md` |
 | `tail-only-trigger-suppression.spec.ts` | L3 for D7's suppression mo… → see `tail-only-trigger-suppression.spec.ts.AGENTS.md` |
-| `table-copy.spec.ts` | Playwright spec (change: fix-table-copy-empty-clipboard… → see `table-copy.spec.ts.AGENTS.md` |
+| `table-copy.spec.ts` | → see `table-copy.spec.ts.AGENTS.md` |
 | `terminal-reload-inprocess.spec.ts` | L3 terminal-hosted (tmux) `/reload`. → see `terminal-reload-inprocess.spec.ts.AGENTS.md` |
 | `terminal-tab.spec.ts` | → see `terminal-tab.spec.ts.AGENTS.md` |
 | `terminal.spec.ts` | Scenario 5.4 spec. `ensureGitSession`, c… → see `terminal.spec.ts.AGENTS.md` |
@@ -245,7 +246,7 @@ One row per file.
 | `vault-request-access.spec.ts` | L3 Vault callout Request access link (F3). → see `vault-request-access.spec.ts.AGENTS.md` |
 | `worktree-grouping-survives-remove.spec.ts` | L3 fix-worktree-grouping-l… → see `worktree-grouping-survives-remove.spec.ts.AGENTS.md` |
 | `worktree-init-feedback.spec.ts` | Playwright E2E for friendly worktree-init fe… → see `worktree-init-feedback.spec.ts.AGENTS.md` |
-| `yolo-indicator-layout.spec.ts` | L3 YOLO bar tint + composer strip layout (single line, row height, floor, hu >= zh-CN, 18-combo contrast,… → see `yolo-indicator-layout.spec.ts.AGENTS.md` |
+| `yolo-indicator-layout.spec.ts` | L3 YOLO bar tint + composer strip layout. → see `yolo-indicator-layout.spec.ts.AGENTS.md` |
 | `zrok-v2-tunnel.spec.ts` | L3 zrok v2 F1–F3. → see `zrok-v2-tunnel.spec.ts.AGENTS.md` |
 | `mcp-session-token.spec.ts` | L3 MCP session token (wire-mcp-session-token). → see `mcp-session-token.spec.ts.AGENTS.md` |
 | `mcp-builtin-registration.spec.ts` | L3 built-in MCP registration. → see `mcp-builtin-registration.spec.ts.AGENTS.md` |

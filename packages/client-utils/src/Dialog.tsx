@@ -189,9 +189,12 @@ function DialogCancel({ onClick, children = "Cancel", testId }: DialogCancelProp
   );
 }
 
+// Primary fills with --accent-solid (white on it is 5.17:1 in every theme);
+// --accent-primary under white text is only 3.68:1.
+// See change: add-pi-spec-driven-schema.
 const INTENT_CLASS: Record<DialogIntent, string> = {
   primary:
-    "bg-[var(--accent-primary)] text-white hover:opacity-90 border border-transparent",
+    "bg-[var(--accent-solid)] text-white hover:opacity-90 border border-transparent",
   danger: "bg-red-600 text-white hover:bg-red-500 border border-transparent",
   neutral:
     "bg-transparent border border-[var(--border-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]",

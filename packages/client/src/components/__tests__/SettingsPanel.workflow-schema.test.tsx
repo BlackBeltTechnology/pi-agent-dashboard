@@ -74,7 +74,7 @@ describe("SettingsPanel — OpenSpec Workflow Schema section", () => {
 
   it("#F6 a per-cwd action never opens the Save Bar", async () => {
     const map = new Map<string, OpenSpecData>([
-      ["/repo/a", { initialized: true, changes: [], workflowSchema: { configured: null, generated: "none", missing: false, unpinnedChanges: [], affectedChanges: [] } } as OpenSpecData],
+      ["/repo/a", { initialized: true, changes: [], workflowSchema: { configured: null, generated: "none", missing: false, unpinnedChanges: [], affectedChanges: [], projectSchemas: [] } } as OpenSpecData],
     ]);
     render(
       <OpenSpecMapContext.Provider value={map}>
@@ -86,5 +86,29 @@ describe("SettingsPanel — OpenSpec Workflow Schema section", () => {
     await waitFor(() => expect(schemaPosts).toBe(1));
     expect(screen.queryByTestId("save-btn")).toBeNull();
     expect(puts).toHaveLength(0);
+  });
+
+  // #U10 — deep link: focus lands on the card heading once the status hydrates.
+  it("#U10 deep link focuses the target card heading and shows the 'Opened from folder' caption after hydration", async () => {
+    window.history.replaceState({}, "", "/settings/openspec?cwd=/repo/a#workflow-schema");
+    const status = { configured: null, generated: "none", missing: false, unpinnedChanges: [], affectedChanges: [], projectSchemas: [] };
+    const hydrated = new Map<string, OpenSpecData>([
+      ["/repo/a", { initialized: true, changes: [], workflowSchema: status } as OpenSpecData],
+      ["/repo/b", { initialized: true, changes: [], workflowSchema: status } as OpenSpecData],
+    ]);
+    const ui = (map: Map<string, OpenSpecData>) => (
+      <OpenSpecMapContext.Provider value={map}>
+        <SettingsPanel />
+      </OpenSpecMapContext.Provider>
+    );
+    const { rerender } = render(ui(new Map()));
+    await screen.findByRole("switch", { name: /default for new projects/i });
+    expect(screen.queryByText("Opened from folder")).toBeNull();
+
+    rerender(ui(hydrated));
+    const heading = await screen.findByRole("heading", { name: "a" });
+    await waitFor(() => expect(document.activeElement).toBe(heading));
+    expect(screen.getByText("Opened from folder")).toBeTruthy();
+    expect(screen.getAllByText("Opened from folder")).toHaveLength(1);
   });
 });

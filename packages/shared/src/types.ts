@@ -1393,6 +1393,12 @@ export interface OpenSpecWorkflowSchemaStatus {
   unpinnedChanges: string[];
   /** Active changes resolving to `pi-spec-driven` from files alone; sorted by name. */
   affectedChanges: string[];
+  /**
+   * Project-authored schemas in `openspec/schemas/` (real dirs only; excludes the
+   * managed `pi-spec-driven`, dot-prefixed staging and `*.fork-*` backups); sorted.
+   * See change: add-pi-spec-driven-schema.
+   */
+  projectSchemas: string[];
 }
 
 /** OpenSpec workflow phase detected from tool calls */

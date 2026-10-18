@@ -4,6 +4,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import type { Semaphore } from "@blackbelt-technology/pi-dashboard-shared/semaphore.js";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   compareStamp,
@@ -11,8 +12,7 @@ import {
   evaluateSchemaStatus,
   parseStamp,
 } from "../openspec/workflow-schema.js";
-import { makeFakeCli, mkRepo, stubDeps, writeSchemaDir, write } from "./helpers/workflow-schema-fixtures.js";
-import type { Semaphore } from "@blackbelt-technology/pi-dashboard-shared/semaphore.js";
+import { makeFakeCli, mkRepo, stubDeps, write, writeSchemaDir } from "./helpers/workflow-schema-fixtures.js";
 
 const roots: string[] = [];
 const repo = (...a: Parameters<typeof mkRepo>): string => {
@@ -110,6 +110,7 @@ describe("computeWorkflowSchemaStatus (poll-side status, no CLI)", () => {
       missing: false,
       unpinnedChanges: ["a"],
       affectedChanges: ["a", "b"],
+      projectSchemas: [],
     });
   });
 

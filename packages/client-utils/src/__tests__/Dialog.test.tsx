@@ -212,9 +212,11 @@ describe("Dialog", () => {
         </Dialog.Action>
       </Dialog>,
     );
-    expect(baseElement.querySelector("[data-testid='p']")!.className).toContain(
-      "bg-[var(--accent-primary)]",
-    );
+    // #U12 — primary fill is --accent-solid (5.17:1 under white), not
+    // --accent-primary (3.68:1). See change: add-pi-spec-driven-schema.
+    const primary = baseElement.querySelector("[data-testid='p']")!.className;
+    expect(primary).toContain("bg-[var(--accent-solid)]");
+    expect(primary).not.toContain("bg-[var(--accent-primary)]");
     expect(baseElement.querySelector("[data-testid='n']")!.className).toContain(
       "border-[var(--border-primary)]",
     );

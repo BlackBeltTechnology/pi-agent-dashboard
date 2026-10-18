@@ -15,8 +15,6 @@ import crypto from "node:crypto";
 import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import semver from "semver";
-import YAML from "yaml";
 import {
   OPENSPEC_SCHEMA_FORK,
   OPENSPEC_SCHEMA_VALIDATE,
@@ -25,15 +23,17 @@ import {
   OPENSPEC_VERSION,
   userSchemasDir,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/openspec.js";
-import { runAsync, type Recipe } from "@blackbelt-technology/pi-dashboard-shared/platform/runner.js";
+import { type Recipe, runAsync } from "@blackbelt-technology/pi-dashboard-shared/platform/runner.js";
 import type { Semaphore } from "@blackbelt-technology/pi-dashboard-shared/semaphore.js";
 import type {
   OpenSpecWorkflowSchemaStatus,
   WorkflowSchemaGenerated,
 } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import semver from "semver";
+import YAML from "yaml";
 
 export const CURRENT_PATCH = 1;
-export const WORKFLOW_SCHEMA_NAME = "pi-spec-driven";
+const WORKFLOW_SCHEMA_NAME = "pi-spec-driven";
 const BASE_SCHEMA = "spec-driven";
 const STAMP_KEY = "x-pi-dashboard";
 const DESIGN_ANCHOR = "When to include design.md (create only if any apply):";
@@ -207,7 +207,7 @@ const schemaDirOf = (root: string): string => path.join(schemasDirOf(root), WORK
 const changesDirOf = (root: string): string => path.join(root, "openspec", "changes");
 const rel = (root: string, p: string): string => path.relative(root, p).split(path.sep).join("/");
 
-export function isKebabCaseName(name: unknown): name is string {
+function isKebabCaseName(name: unknown): name is string {
   return typeof name === "string" && KEBAB.test(name);
 }
 
@@ -378,7 +378,7 @@ function inspectWithValidate(root: string, localVersion: string, deps: WorkflowS
 
 // ── Config + change enumeration (filesystem only) ───────────────────────────
 
-export interface ConfigFile {
+interface ConfigFile {
   path: string;
   doc: YAML.Document;
   /** `schema:` value; `null` when the key is absent. */
@@ -386,7 +386,7 @@ export interface ConfigFile {
 }
 
 /** `config.yaml` wins over `config.yml`, as the CLI reads. `null` when neither exists; throws on unparseable YAML / non-string `schema`. */
-export async function readConfigFile(root: string): Promise<ConfigFile | null> {
+async function readConfigFile(root: string): Promise<ConfigFile | null> {
   for (const name of ["config.yaml", "config.yml"]) {
     const p = path.join(root, "openspec", name);
     let text: string;
@@ -406,7 +406,7 @@ export async function readConfigFile(root: string): Promise<ConfigFile | null> {
 }
 
 /** Active changes as OpenSpec enumerates them: real directories only, no `archive/`, no dot-dirs, no symlinks. Sorted. */
-export async function enumerateActiveChanges(root: string): Promise<string[]> {
+async function enumerateActiveChanges(root: string): Promise<string[]> {
   let entries: import("node:fs").Dirent[];
   try {
     entries = await fsp.readdir(changesDirOf(root), { withFileTypes: true });
@@ -443,6 +443,29 @@ export interface ComputeStatusOptions extends InspectOptions {
 }
 
 /**
+ * Project-authored schema names under `<cwd>/openspec/schemas/`: real
+ * directories only (no symlinks), excluding dot-prefixed staging dirs,
+ * `*.fork-*` backups and the managed `pi-spec-driven`; sorted.
+ */
+async function listProjectSchemas(cwd: string): Promise<string[]> {
+  const dir = schemasDirOf(cwd);
+  let names: string[];
+  try {
+    names = await fsp.readdir(dir);
+  } catch {
+    return [];
+  }
+  const kept = await Promise.all(
+    names.map(async (name) => {
+      if (name.startsWith(".") || name.includes(".fork-") || name === WORKFLOW_SCHEMA_NAME) return null;
+      const st = await lstatOrNull(path.join(dir, name));
+      return st?.isDirectory() ? name : null;
+    }),
+  );
+  return kept.filter((n): n is string => n !== null).sort();
+}
+
+/**
  * `OpenSpecData.workflowSchema` from files + the stamp (poll-worker safe: no
  * CLI spawn except through `opts.validateLocal`). See "Workflow schema status
  * is reported separately from readiness". Runs on the poll hot path, so the
@@ -469,7 +492,13 @@ export async function computeWorkflowSchemaStatus(
   const pinsP = enumerateActiveChanges(cwd).then((names) =>
     Promise.all(names.map(async (name) => ({ name, pinned: await readChangeSchema(path.join(changesDirOf(cwd), name)) }))),
   );
-  const [configured, { generated }, missing, pins] = await Promise.all([configuredP, inspectP, missingP, pinsP]);
+  const [configured, { generated }, missing, pins, projectSchemas] = await Promise.all([
+    configuredP,
+    inspectP,
+    missingP,
+    pinsP,
+    listProjectSchemas(cwd),
+  ]);
 
   const unpinnedChanges: string[] = [];
   const affectedChanges: string[] = [];
@@ -483,18 +512,18 @@ export async function computeWorkflowSchemaStatus(
       affectedChanges.push(name);
     }
   }
-  return { configured, generated, missing, unpinnedChanges, affectedChanges };
+  return { configured, generated, missing, unpinnedChanges, affectedChanges, projectSchemas };
 }
 
 // ── Patch v1 + stamp ────────────────────────────────────────────────────────
 
-export type PatchResult = { ok: true; text: string } | { ok: false; error: string };
+type PatchResult = { ok: true; text: string } | { ok: false; error: string };
 
 /**
  * Comment-preserving patch v1 + stamp. Aborts when the design-instruction
  * anchor line is not found exactly once (a stamp never claims an unapplied patch).
  */
-export function patchAndStampSchemaYaml(
+function patchAndStampSchemaYaml(
   yamlText: string,
   stamp: { cliVersion: string; previousDefault: string },
 ): PatchResult {
@@ -1092,15 +1121,8 @@ export async function runWorkflowSchemaAction(
   }
 }
 
-// Named wrappers: the single dispatcher is the contract; these are conveniences for callers/tests.
-const named =
-  (action: WorkflowSchemaAction) =>
-  (req: Omit<WorkflowSchemaRequest, "action">, deps?: Partial<WorkflowSchemaDeps>): Promise<WorkflowSchemaResult> =>
-    runWorkflowSchemaAction({ ...req, action }, deps);
-
-export const enableWorkflowSchema = named("enable");
-export const disableWorkflowSchema = named("disable");
-export const updateWorkflowSchema = named("update");
-export const adoptWorkflowSchema = named("adopt");
-export const pinWorkflowSchema = named("pin");
-export const removeWorkflowSchema = named("remove");
+/** Pin wrapper over the single dispatcher (the contract), used by the poll tests. */
+export const pinWorkflowSchema = (
+  req: Omit<WorkflowSchemaRequest, "action">,
+  deps?: Partial<WorkflowSchemaDeps>,
+): Promise<WorkflowSchemaResult> => runWorkflowSchemaAction({ ...req, action: "pin" }, deps);

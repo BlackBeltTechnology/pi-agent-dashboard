@@ -1,0 +1,3 @@
+# retro-ux-workflow-schema.spec.ts — index
+
+L3 test-plan #U13. Six harness projects in six workflow-schema states (Not enabled, Enabled, Disabled/files kept, Update available via stamp `patch: 0`, Not managed via stamp-less `pi-spec-driven/`, 1 change not pinned), built through the real REST routes + `docker exec`. Settings → OpenSpec in base dark, base light, nord dark: `contrastFailures`, `sizeFailures`, `buttonsWithoutFocusIndicator` = 0 over the section and over the open Enable dialog. Poll interval dropped to 5 s for the run, restored in `afterAll`; fixtures removed. Exemplar: `retro-ux-credential-vault.spec.ts`. See change: add-pi-spec-driven-schema.

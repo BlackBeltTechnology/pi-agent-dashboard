@@ -246,7 +246,7 @@ describe("FolderOpenSpecSection — failure surfacing", () => {
 // test-plan #F8 — non-blocking workflow-schema notice chip (a link, never an action).
 // See change: add-pi-spec-driven-schema.
 describe("FolderOpenSpecSection — workflow schema notice chip", () => {
-  const clear = { configured: "spec-driven", generated: "none" as const, missing: false, unpinnedChanges: [], affectedChanges: [] };
+  const clear = { configured: "spec-driven", generated: "none" as const, missing: false, unpinnedChanges: [], affectedChanges: [], projectSchemas: [] };
 
   it("#F8 shows a link chip only when the schema needs attention; click performs no request", () => {
     const { unmount } = render(
@@ -291,5 +291,36 @@ describe("FolderOpenSpecSection — workflow schema notice chip", () => {
   it("#F8 a payload without workflowSchema renders no chip", () => {
     render(<FolderOpenSpecSection cwd={CWD} data={data({ readiness: { state: "READY" } })} />);
     expect(screen.queryByTestId("folder-openspec-schema-chip")).toBeNull();
+  });
+
+  // #U9 — chip is a severity pill: human label, counts only, token classes, MDI icon.
+  it.each([
+    ["update available", { configured: "pi-spec-driven", generated: "outdated" as const }, "Workflow schema: update available", "warning"],
+    ["disabled, files kept", { configured: "spec-driven", generated: "outdated" as const }, "Workflow schema: disabled, files kept", "neutral"],
+    ["files missing", { configured: "pi-spec-driven", generated: "none" as const, missing: true }, "Workflow schema: files missing", "error"],
+    ["newer version", { generated: "newer" as const }, "Workflow schema: newer version", "info"],
+    ["3 changes not pinned", { configured: "pi-spec-driven", generated: "current" as const, unpinnedChanges: ["alpha", "beta", "gamma"] }, "Workflow schema: 3 changes not pinned", "warning"],
+  ])("#U9 chip text + severity tokens for %s", (_n, over, text, severity) => {
+    render(
+      <FolderOpenSpecSection
+        cwd={CWD}
+        data={data({ readiness: { state: "READY" }, workflowSchema: { ...clear, ...over } })}
+      />,
+    );
+    const chip = screen.getByTestId("folder-openspec-schema-chip") as HTMLAnchorElement;
+    expect(chip.textContent).toBe(text);
+    expect(chip.textContent).not.toMatch(/alpha|beta|gamma/);
+    expect(chip.textContent).not.toContain("⚠");
+    expect(chip.className).toContain(`bg-[var(--severity-${severity}-bg)]`);
+    expect(chip.className).toContain(`text-[var(--severity-${severity}-fg)]`);
+    expect(chip.className).toContain(`border-[var(--severity-${severity}-border)]`);
+    expect(chip.className).not.toMatch(/\b(?:yellow|red|green|blue|cyan)-\d/);
+    expect(chip.className).toContain("tap-target");
+    expect(chip.querySelector("svg")).not.toBeNull();
+    expect(chip.tagName).toBe("A");
+    expect(chip.getAttribute("href")).toBe(`/settings/openspec?cwd=${encodeURIComponent(CWD)}#workflow-schema`);
+    (fetch as ReturnType<typeof vi.fn>).mockClear();
+    fireEvent.click(chip);
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

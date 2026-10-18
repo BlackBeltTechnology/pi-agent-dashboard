@@ -563,7 +563,8 @@ test.describe("openspec init affordances — folder section", () => {
     expect(dsh(`cat ${dir}/openspec/changes/beta/.openspec.yaml`)).toMatch(/^schema:\s*spec-driven\s*$/m);
     expect(dsh(`cat ${dir}/openspec/changes/alpha/.openspec.yaml`)).toMatch(/^schema:\s*spec-driven\s*$/m);
 
-    // The section converges on `current` (next poll tick re-broadcasts the status).
-    await expect(page.getByTestId(`workflow-schema-status-${dir}`)).toContainText("current", { timeout: 60_000 });
+    // The section converges on the "Enabled" pill (generated `current`; the next
+    // poll tick re-broadcasts the status). See change: add-pi-spec-driven-schema (UX redesign).
+    await expect(page.getByTestId(`workflow-schema-status-${dir}`)).toContainText("Enabled", { timeout: 60_000 });
   });
 });
