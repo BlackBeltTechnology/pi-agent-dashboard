@@ -107,5 +107,5 @@
 
 ## 12. Verification
 
-- [ ] 12.1 Run `npm test` with pipefail and grep for failures; verify there are 0 failed tests
-- [ ] 12.2 Run `npm run quality:changed` and `node scripts/theme-token-guard.mjs`; verify neither reports a new violation
+- [x] 12.1 Run `npm test` with pipefail and grep for failures; verify there are 0 failed tests
+- [x] 12.2 Run `npm run quality:changed` and `node scripts/theme-token-guard.mjs`; verify neither reports a new violation
