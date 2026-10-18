@@ -28,13 +28,13 @@ type StoreCounts = ReturnType<SqliteFtsStore["counts"]>;
 export const BUILDING_LINE = "(index is still being built — no results available yet; retry shortly)";
 
 /** A temp build whose newest mtime is within this window of now is "live". */
-export const LIVE_BUILD_WINDOW_MS = 120_000;
+const LIVE_BUILD_WINDOW_MS = 120_000;
 /** Tolerated mtime-ahead-of-clock (timestamp rounding / small skew); beyond it the mtime is not trusted. */
 const FUTURE_SKEW_MS = 2_000;
 /** A temp this old is litter whatever its PID (a recycled PID must not pin it forever). */
 const ORPHAN_AGE_MS = 60 * 60_000;
 /** Builder refreshes its temp's mtime this often (a timer cannot fire inside a synchronous batch). */
-export const HEARTBEAT_INTERVAL_MS = 30_000;
+const HEARTBEAT_INTERVAL_MS = 30_000;
 const DEFAULT_INSTALL_MAX_WAIT_MS = 30_000;
 
 export interface AtomicIndexSource {
