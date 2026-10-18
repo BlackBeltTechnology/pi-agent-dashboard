@@ -61,8 +61,7 @@ import { useCardSectionPrefs } from "../../lib/state/CardSectionsContext.js";
 import { type SessionMenuScope, SessionMenuScopeContext, type SessionMenuState, sessionScopeKey } from "../../lib/state/SessionMenuScopeContext.js";
 import { encodeFolderPath } from "../../lib/util/folder-encoding.js";
 import { truncatePathMiddle } from "../../lib/util/truncate-path.js";
-import { YoloPill } from "../access-grant/YoloIndicators.js";
-import { QuestionStack } from "../questions/QuestionStack.js";
+import { useYoloAppBar, YoloBarLink } from "../access-grant/YoloIndicators.js";
 import { TunnelButton } from "../connectivity/TunnelButton.js";
 import { FolderActionBanner } from "../folder/FolderActionBanner.js";
 import { FolderActionsMenu, type FolderMenuItem, type FolderMenuRadioGroup } from "../folder/FolderActionsMenu.js";
@@ -74,6 +73,7 @@ import { FolderOpenSpecSection } from "../openspec/FolderOpenSpecSection.js";
 import { InstallButton } from "../packages/InstallButton.js";
 import { PiLogo } from "../primitives/PiLogo.js";
 import { Toast, useToast } from "../primitives/Toast.js";
+import { QuestionStack } from "../questions/QuestionStack.js";
 import { ThemePicker } from "../settings/ThemePicker.js";
 import { ThemeToggle } from "../settings/ThemeToggle.js";
 import { allTagsInUse } from "../tags/all-tags.js";
@@ -86,8 +86,8 @@ import { PinnedTierDropZone } from "../workspace/PinnedTierDropZone.js";
 import { SortableWorkspace } from "../workspace/SortableWorkspace.js";
 import { SortableWorkspaceFolder } from "../workspace/SortableWorkspaceFolder.js";
 import { WorkspaceHeader } from "../workspace/WorkspaceHeader.js";
-import { ManageWorktreesDialog } from "../worktree/ManageWorktreesDialog.js";
 import { LazyBranchSwitchDialog, LazyWorktreeSpawnDialog } from "../worktree/lazy-worktree-dialogs.js";
+import { ManageWorktreesDialog } from "../worktree/ManageWorktreesDialog.js";
 import { ArchivedSessionRow } from "./ArchivedSessionRow.js";
 import { DashboardSpawnButtons } from "./DashboardSpawnButtons.js";
 import { FocusToggle } from "./FocusToggle.js";
@@ -400,6 +400,8 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
   const gitWorktreeEnabled = gitWorktreeEnabledProp ?? true;
   const now = Date.now();
   const [, navigate] = useLocation();
+  // Orange tint + title on the app bar while YOLO is live; never ticks. See change: fix-yolo-indicator-overflow.
+  const yoloAppBar = useYoloAppBar();
   const { messages, showToast, dismissToast } = useToast();
   const installPrompt = useInstallPrompt();
 
@@ -2816,7 +2818,13 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
     <SessionMenuScopeContext.Provider value={menuScopeValue}>
     <div className="w-full border-r border-[var(--border-primary)] flex flex-col min-h-0 h-full">
       <div className="border-b border-[var(--border-primary)]">
-        <div className="flex items-center justify-between px-3 py-1.5" data-testid="header-app-bar">
+        <div
+          {...yoloAppBar}
+          className={`relative flex items-center justify-between px-3 py-1.5 ${yoloAppBar.className ?? ""}`}
+          data-testid="header-app-bar"
+        >
+          {/* Focus-revealed link to Access while YOLO is live; out of flow. See change: fix-yolo-indicator-overflow. */}
+          <YoloBarLink />
           <div className="flex gap-1.5 items-center">
             <button onClick={() => navigate("/")} className="flex items-center leading-none text-blue-500 hover:text-blue-400 transition-colors" title={t("common.home", undefined, "Home")}>
               <PiLogo size={24} />
@@ -2827,8 +2835,6 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
           <div className="flex gap-1 items-center">
             <InstallButton canInstall={installPrompt.canInstall} isInstalled={installPrompt.isInstalled} prompt={installPrompt.prompt} />
             <TunnelButton showToast={showToast} />
-            {/* Conditional active-YOLO pill (sidebar-header row 1). See change: add-access-grant-dialog (8b.7). */}
-            <YoloPill />
             {/* Open-questions pill + panel; absent at 0, AFTER the YOLO slot. See change: add-pending-question-stack. */}
             <QuestionStack sessions={sessions} onOpenSession={openQuestionSession} />
             <FocusToggle />

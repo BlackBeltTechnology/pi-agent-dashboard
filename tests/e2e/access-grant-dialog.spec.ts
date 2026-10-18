@@ -375,10 +375,16 @@ test.describe.serial("access-grant prompt dialog (add-access-grant-dialog 10g)",
     }
   });
 
-  test("10.66 / #E50: no YOLO session, row 1 holds today's controls and no pill", async ({ page }) => {
+  test("10.66 / #E50 / #E15: no YOLO session, row 1 holds today's controls, untinted, no YOLO link", async ({ page }) => {
+    inContainer(`fetch("http://127.0.0.1:${DASHBOARD_PORT}/api/access/yolo", { method: "DELETE" })`);
     await openDashboard(page);
     await expect(page.getByTestId("tunnel-btn").first()).toBeVisible();
+    const row = page.getByTestId("header-app-bar");
+    await expect(row).not.toHaveAttribute("data-yolo", /.*/);
+    expect(await row.getAttribute("title")).toBeNull();
+    await expect(page.getByTestId("yolo-bar-link")).toHaveCount(0);
     await expect(page.getByTestId("yolo-pill")).toHaveCount(0);
+    await expect(page.getByTestId("yolo-composer-strip")).toHaveCount(0);
   });
 
   test("10.74 / #F8: YOLO from inside the dialog is not a verdict", async ({ page }) => {
@@ -416,19 +422,21 @@ test.describe.serial("access-grant prompt dialog (add-access-grant-dialog 10g)",
     await expect(page.getByTestId("yolo-access-root")).toContainText(FIXTURE_GIT);
     expect(promptsView().yolo.session?.roots).toHaveLength(1);
 
-    // #F6: the pill has no dismiss affordance and survives Escape.
+    // #F6: the tinted bar has no dismiss affordance and survives Escape; it adds no visible control.
     await page.goto("/");
-    const pill = page.getByTestId("yolo-pill");
-    await expect(pill).toBeVisible({ timeout: 15_000 });
-    await expect(pill.locator("button")).toHaveCount(0);
+    const row = page.getByTestId("header-app-bar");
+    await expect(row).toHaveAttribute("data-yolo", "scoped", { timeout: 15_000 });
+    await expect(row.locator("button", { hasText: /dismiss|close|hide/i })).toHaveCount(0);
     await page.keyboard.press("Escape");
-    await expect(pill).toBeVisible();
+    await expect(row).toHaveAttribute("data-yolo", "scoped");
+    await expect(page.getByTestId("yolo-pill")).toHaveCount(0);
 
-    // #F5: sidebar not rendered (mobile session view), the in-scope session surface still says so.
+    // #F5: sidebar not rendered (mobile session view), the composer strip still says so.
     await page.getByTestId("session-card-desktop").first().click();
     await page.setViewportSize({ width: 390, height: 844 });
-    await expect(page.getByTestId("yolo-session-indicator").first()).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByTestId("yolo-session-indicator").first()).toContainText(/\d+:\d\d/);
+    await expect(page.getByTestId("yolo-composer-strip").first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("yolo-composer-strip").first()).toContainText(/\d+:\d\d/);
+    await expect(page.getByTestId("yolo-session-indicator")).toHaveCount(0);
 
     // End it from the Access page.
     await page.setViewportSize({ width: 1280, height: 800 });

@@ -1,10 +1,12 @@
 /**
- * Sidebar header row 1 + the conditional YOLO pill (change:
- * add-access-grant-dialog, tasks 8b.7, 8b.7c; test-plan row 10.66 / #E50).
+ * Sidebar header row 1 under active YOLO: tint, no added control, no ticking
+ * (changes: add-access-grant-dialog 8b.7c; fix-yolo-indicator-overflow;
+ * test-plan #E16, #P1). The file name predates the pill's removal.
  */
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import type React from "react";
+import { Profiler } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
@@ -32,16 +34,20 @@ beforeEach(() => {
     })),
   });
 });
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
-function renderRow() {
-  render(
+function renderRow(onRender?: React.ProfilerOnRenderCallback) {
+  const list = (
     <TestRouter>
       <ThemeProvider>
         <SessionList sessions={[session]} onSelect={() => {}} />
       </ThemeProvider>
-    </TestRouter>,
+    </TestRouter>
   );
+  render(onRender ? <Profiler id="list" onRender={onRender}>{list}</Profiler> : list);
   return screen.getByTestId("header-app-bar");
 }
 
@@ -51,15 +57,19 @@ const rowTestIds = (row: HTMLElement) =>
   [...row.querySelectorAll("[data-testid]")].map((e) => e.getAttribute("data-testid"));
 
 describe("sidebar header row 1", () => {
-  it("no YOLO session: row 1 holds today's controls and no pill", () => {
+  it("no YOLO session: row 1 holds today's controls, untinted, no link, no YOLO testids", () => {
     const server = installFakeYoloServer({ now: NOW });
     yoloStatus.publish(view(server).yolo);
     const row = renderRow();
     for (const id of TODAY) expect(row.querySelector(`[data-testid="${id}"]`)).toBeTruthy();
     expect(rowTestIds(row)).not.toContain("yolo-pill");
+    expect(rowTestIds(row)).not.toContain("yolo-bar-link");
+    expect(row.dataset.yolo).toBeUndefined();
+    expect(row.getAttribute("title")).toBeNull();
+    expect(row.className).not.toContain("severity-warning");
   });
 
-  it("active YOLO: pill added beside the Gateway control, every existing control still present", () => {
+  it("E16 active YOLO: bar tinted with title + data-yolo, only the focus-revealed link is added", () => {
     const server = installFakeYoloServer({ now: NOW });
     yoloStatus.publish(view(server).yolo);
     const before = rowTestIds(renderRow());
@@ -69,13 +79,32 @@ describe("sidebar header row 1", () => {
     yoloStatus.publish(view(server).yolo);
     const row = renderRow();
     const after = rowTestIds(row);
-    expect(after.filter((id) => id !== "yolo-pill")).toEqual(before);
-    const pill = screen.getByTestId("yolo-pill");
-    expect(row.contains(pill)).toBe(true);
-    expect(pill.textContent).toMatch(/\d+:\d\d/);
-    // Beside the Gateway (TunnelButton) control.
-    const gateway = screen.getByTestId("tunnel-btn");
-    expect(after.indexOf("yolo-pill")).toBe(after.indexOf("tunnel-btn") + 1);
-    expect(row.contains(gateway)).toBe(true);
+    expect(after.filter((id) => id !== "yolo-bar-link")).toEqual(before);
+    expect(after).not.toContain("yolo-pill");
+    expect(row.dataset.yolo).toBe("scoped");
+    expect(row.className).toContain("bg-[var(--severity-warning-bg)]");
+    expect(row.className).toContain("shadow-[inset_0_-2px_0_var(--accent-orange-text)]");
+    expect(row.className.split(/\s+/)).toContain("relative");
+    expect(row.getAttribute("title")).toMatch(/^YOLO is on: .*Open Access to end it\.$/);
+    const link = screen.getByTestId("yolo-bar-link");
+    expect(row.firstElementChild).toBe(link);
+    expect(link.className.split(/\s+/)).toEqual(expect.arrayContaining(["opacity-0", "absolute"]));
+  });
+});
+
+describe("P1: the bar does not tick", () => {
+  it("SessionList commits at most once in 5 s of advanced time while YOLO is live", () => {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval", "setTimeout", "clearTimeout"] });
+    vi.setSystemTime(NOW);
+    const server = installFakeYoloServer({ now: NOW });
+    server.session = scopedSession(NOW, "/repo");
+    yoloStatus.publish(view(server).yolo);
+    let commits = 0;
+    renderRow(() => {
+      commits += 1;
+    });
+    commits = 0;
+    act(() => vi.advanceTimersByTime(5000));
+    expect(commits).toBeLessThanOrEqual(1);
   });
 });

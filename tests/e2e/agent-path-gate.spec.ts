@@ -240,6 +240,10 @@ test.describe("agent path gate × YOLO (L3)", () => {
     expect(await autoAllowed(page)).toBeGreaterThanOrEqual(before + 1);
     await page.goto("/settings/access");
     await expect(page.getByTestId("access-verdict-row").first()).toContainText(/agent path gate/i, { timeout: 15_000 });
+    // fix-yolo-indicator-overflow #X4: the auto-allow is recorded as answered by YOLO.
+    await expect(
+      page.locator('[data-testid="access-verdict-row"][data-answered-by="yolo"]').filter({ hasText: /agent path gate/i }).first(),
+    ).toBeVisible({ timeout: 15_000 });
 
     await endYolo(page);
     const again = await spawnFreshGitSession(page);

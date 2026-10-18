@@ -16,7 +16,7 @@ See change: move-slot-actions-to-menu — `folderMenuItems()` gains the HOST-sid
 
 Folder collapse is now SERVER-owned (change: persist-folder-collapse-server-side): props `collapsedGroups: string[]` + `onSetFolderCollapsed(path, collapsed)` replace the deleted `collapsedGroups` `useState` and the `pruneStaleCollapsedGroups` effect. `isFolderCollapsed`/`isGroupKeyCollapsed` canonicalize via `pathKey(group.cwd, collapsePlatform)`, with `collapsePlatform` sampled from session cwds + worktree main paths + pinned dirs. `resolveFoldAncestors` keys the folder ancestor off the RESOLVED group path (`resolveSessionGroupPath`), not `s.cwd`; every in-place expand (reveal, `seekToFolderOpenSpec`, ended-subgroup fallback) is ADD-ONLY — a guarded toggle would re-collapse a folder a second seek just opened. The reveal completion effect observes BOTH the `workspaces` and `collapsedGroupKeys` echoes. `FolderSpawnButtons` lives INSIDE the `!isCollapsed` body, so its expand guard is unreachable (F8).
 
-Row 1 (`header-app-bar`) renders conditional `YoloPill` right after `TunnelButton`; absent when no YOLO session, every existing control kept. See change: add-access-grant-dialog (tasks 8b.7).
+Row 1 (`header-app-bar`) spreads `useYoloAppBar()` (orange tint, `title`, `data-yolo`, `relative`) and renders `YoloBarLink` as first child while YOLO is live; adds no visible control, never ticks. `YoloPill` removed. See change: add-access-grant-dialog (tasks 8b.7), fix-yolo-indicator-overflow.
 
 ## session-list-group-by
 
@@ -42,4 +42,4 @@ See change: add-focus-mode-and-card-block-toggles.
 
 Selector escaping via `cssEscape` (`lib/css-escape.ts`); local `cssEscapeId` removed. See change: fix-codeql-small-findings.
 
-See change: add-pending-question-stack — row 1 mounts `<QuestionStack sessions onOpenSession={openQuestionSession}/>` right after `YoloPill` (absent at 0). `openQuestionSession(id)` clears session search, folder filter and tag axes, calls `onSelect(id)`, then `onSeekToCard?.(id)` (reveals collapsed workspace/folder/lane). Test: `__tests__/SessionList.question-pill.test.tsx`.
+See change: add-pending-question-stack — row 1 mounts `<QuestionStack sessions onOpenSession={openQuestionSession}/>` right after `TunnelButton` (YOLO adds no row-1 control; absent at 0). `openQuestionSession(id)` clears session search, folder filter and tag axes, calls `onSelect(id)`, then `onSeekToCard?.(id)` (reveals collapsed workspace/folder/lane). Test: `__tests__/SessionList.question-pill.test.tsx`.

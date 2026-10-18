@@ -31,6 +31,7 @@ import { useI18n } from "../../lib/i18n/i18n.js";
 import { isFolderPaneId } from "../../lib/layout/folder-pane-id.js";
 import { PopoverBoundaryProvider } from "../../lib/state/PopoverBoundaryContext.js";
 import { AgentSelect } from "../AgentSelect.js";
+import { YoloComposerStrip } from "../access-grant/YoloIndicators.js";
 import { CommandInput } from "../chat/CommandInput.js";
 import { EditorPane } from "../editor-pane/EditorPane.js";
 import { LayoutModeSwitch } from "../split/LayoutModeSwitch.js";
@@ -274,6 +275,8 @@ export function DirectoryHomeView({
         </div>
 
         <AgentSelect cwd={cwd} onChange={setAgent} className="mx-3 mb-1 flex items-center gap-2 text-xs" />
+        {/* Active-YOLO strip directly above the composer. See change: fix-yolo-indicator-overflow. */}
+        <YoloComposerStrip cwd={cwd} />
         <CommandInput
           commands={commands}
           commandsOrigin={commandsOrigin}

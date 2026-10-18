@@ -74,17 +74,17 @@ describe("sidebar header row 1 — open-questions pill (E17)", () => {
     expect(ids(row1).filter((id) => id !== "question-pill")).toEqual(before);
   });
 
-  it("sits immediately after the YOLO slot when YOLO is active", () => {
+  it("sits immediately after the Gateway control when YOLO is active (YOLO adds no row-1 control)", () => {
     const server = installFakeYoloServer({ now: NOW });
     server.session = scopedSession(NOW, "/repo");
     yoloStatus.publish(view(server).yolo);
     act(() => questionStore.set(rows(1)));
     const { row1 } = renderList([mk("s1")]);
     const order = ids(row1);
-    expect(order.indexOf("question-pill")).toBe(order.indexOf("yolo-pill") + 1);
+    expect(order.indexOf("question-pill")).toBe(order.indexOf("tunnel-btn") + 1);
   });
 
-  it("sits after the Gateway control when YOLO is off (the YOLO slot position)", () => {
+  it("sits after the Gateway control when YOLO is off", () => {
     act(() => questionStore.set(rows(1)));
     const { row1 } = renderList([mk("s1")]);
     const order = ids(row1);
