@@ -161,8 +161,8 @@ flowchart TD
   are not queryable until the install (today they are, per 100-file commit).
 - A present `dbPath` (populated, legitimately empty, or an old husk) is indexed in place as today.
 - Live-build marker ⇔ a `<dbPath>.tmp-<pid>` exists, its PID is alive (`isProcessAlive`,
-  `index-run.ts:40-47`), and the newest mtime of the tmp file or its `-wal` is 0–120 s in the past.
-  A future mtime (clock skew) is not live. Heartbeat: the builder checks elapsed time in its
+  `index-run.ts:40-47`), and the newest mtime of the tmp file or its `-wal` is within 120 s of now (up to 2 s ahead of the clock is tolerated for timestamp rounding; a mtime further ahead is not trusted).
+  Heartbeat: the builder checks elapsed time in its
   per-file loop and calls `utimesSync` on the temp file every 30 s (a timer cannot fire inside a
   synchronous batch, `indexer.ts:55-61`, `:147-150`), in addition to the 100-file commits.
 - Orphan sweep (`sweepOrphanTemps`, `index-run.ts:53-72`): removes a temp whose PID is dead (as

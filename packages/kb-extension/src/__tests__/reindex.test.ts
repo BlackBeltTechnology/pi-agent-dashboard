@@ -36,7 +36,7 @@ describe("reindex Job 1: edit .md → index reflects change", () => {
   it("reindexNow picks up an edited file without manual kb index", async () => {
     const state = createReindexState();
     await reindexNow(state, dir); // cold index
-    const { store } = getKb(state, dir);
+    const { store } = getKb(state, dir)!;
     expect(store.search("initial content padded", { limit: 3 }).length).toBeGreaterThan(0);
 
     // edit the file
@@ -123,6 +123,8 @@ describe("cwd removal: kb store does not resurrect the directory (husk regressio
     const state = createReindexState();
     await reindexNow(state, a);
     await reindexNow(state, b);
+    getKb(state, a); // the cold pass builds through the first-index path; opening is lazy
+    getKb(state, b);
     expect(state.kb.has(a)).toBe(true);
     expect(state.kb.has(b)).toBe(true);
 
@@ -145,7 +147,7 @@ describe("cold-start populate: ensurePopulated (kb_neighbors / kb_get)", () => {
     const dir = setupProject();
     const state = createReindexState();
     await ensurePopulated(state, dir); // cold KB — never indexed before
-    const { store } = getKb(state, dir);
+    const { store } = getKb(state, dir)!;
     expect(store.counts().chunks).toBeGreaterThan(0);
     // proves neighbors/get would now see real data instead of empty
     expect(store.search("initial content padded", { limit: 3 }).length).toBeGreaterThan(0);
@@ -160,7 +162,7 @@ describe("cold-start populate: ensurePopulated (kb_neighbors / kb_get)", () => {
     // Edit the source WITHOUT triggering a reindex.
     writeFileSync(join(dir, "docs", "guide.md"), "# Guide\nwarmskip token quokkas roam distant islands quietly here.\n");
     await ensurePopulated(state, dir); // chunks>0 → must skip the walk
-    const { store } = getKb(state, dir);
+    const { store } = getKb(state, dir)!;
     // The new content is NOT searchable — proves no walk ran on the warm path.
     expect(store.search("warmskip token quokkas", { limit: 3 }).length).toBe(0);
     expect(store.search("initial content padded", { limit: 3 }).length).toBeGreaterThan(0);
@@ -270,7 +272,7 @@ describe("Job 1 debounce for AsciiDoc edits (test-plan #E18, #X2)", () => {
       expect(state.timers.size).toBe(1); // pending, not yet run
       await new Promise((r) => setTimeout(r, 200));
       expect(state.timers.size).toBe(0);
-      const { store } = getKb(state, dir);
+      const { store } = getKb(state, dir)!;
       expect(store.search("asciidoc body padded", { limit: 3 })[0]?.path).toMatch(/spec\.adoc$/);
       closeKb(state);
     } finally { rmSync(dir, { recursive: true, force: true }); }
@@ -314,9 +316,10 @@ describe("X4: SQLITE_BUSY on the debounced reindex", () => {
     const dir = setupProject();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
+      const state = createReindexState();
+      await reindexNow(state, dir); // warm the index (the cold pass builds through the first-index path)
       const mocked = vi.mocked(indexSource);
       mocked.mockRejectedValueOnce(new Error("SQLITE_BUSY: database is locked"));
-      const state = createReindexState();
       scheduleReindex(state, dir, join(dir, "docs", "guide.md"), 10);
       await new Promise((r) => setTimeout(r, 250));
       expect(
@@ -326,7 +329,7 @@ describe("X4: SQLITE_BUSY on the debounced reindex", () => {
       // Not rethrown + state not poisoned: the next scheduled reindex indexes.
       scheduleReindex(state, dir, join(dir, "docs", "guide.md"), 10);
       await new Promise((r) => setTimeout(r, 400));
-      const { store } = getKb(state, dir);
+      const { store } = getKb(state, dir)!;
       expect(store.search("initial content padded", { limit: 3 }).length).toBeGreaterThan(0);
       closeKb(state);
     } finally {
@@ -422,7 +425,19 @@ describe("freshness budget parse (E1–E8)", () => {
 
 describe("awaitFreshness + completed set", () => {
   const dirs: string[] = [];
-  const proj = () => { const d = setupProject(); dirs.push(d); return d; };
+  // Warm index (built through the real first-index path) so the controlled passes below go
+  // through `indexSource`, which these tests mock; the cold path is covered in
+  // index-integrity-reindex.test.ts. See change: fix-kb-index-integrity.
+  const proj = () => {
+    const d = setupProject();
+    dirs.push(d);
+    return d;
+  };
+  const warmUp = async (d: string) => {
+    const s = createReindexState();
+    await reindexNow(s, d);
+    closeKb(s);
+  };
   afterEach(() => {
     vi.useRealTimers();
     vi.mocked(indexSource).mockReset();
@@ -452,6 +467,7 @@ describe("awaitFreshness + completed set", () => {
 
   it("E18/X4: a rejected pass → failed; completed lacks cwd; no unhandled rejection", async () => {
     const dir = proj();
+    await warmUp(dir);
     const state = createReindexState();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const unhandled = vi.fn();
@@ -471,6 +487,7 @@ describe("awaitFreshness + completed set", () => {
 
   it("X3: a pass rejecting AFTER every waiter timed out is handled and warned exactly once", async () => {
     const dir = proj();
+    await warmUp(dir);
     const state = createReindexState();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const unhandled = vi.fn();
@@ -492,6 +509,7 @@ describe("awaitFreshness + completed set", () => {
 
   it("F1/F2/F4: timeout abandons the wait not the work; later callers join; completion is recorded", async () => {
     const dir = proj();
+    await warmUp(dir);
     const state = createReindexState();
     const d = deferred<IndexResult>();
     vi.mocked(indexSource).mockImplementationOnce(() => d.promise);
@@ -536,6 +554,7 @@ describe("awaitFreshness + completed set", () => {
 
   it("P6/P7: fake clock — never-resolving pass resolves at the budget; 1499 → done, 1501 → timeout", async () => {
     const dir = proj();
+    await warmUp(dir);
     const state = createReindexState();
     vi.useFakeTimers();
     const never = deferred<IndexResult>();
@@ -552,6 +571,9 @@ describe("awaitFreshness + completed set", () => {
     closeKb(state);
 
     const dir2 = proj();
+    vi.useRealTimers();
+    await warmUp(dir2);
+    vi.useFakeTimers();
     const state2 = createReindexState();
     const fast = deferred<IndexResult>();
     vi.mocked(indexSource).mockImplementationOnce(() => fast.promise);
@@ -563,6 +585,9 @@ describe("awaitFreshness + completed set", () => {
     expect(out2).toBe("done");
 
     const dir3 = proj();
+    vi.useRealTimers();
+    await warmUp(dir3);
+    vi.useFakeTimers();
     const state3 = createReindexState();
     const slow = deferred<IndexResult>();
     vi.mocked(indexSource).mockImplementationOnce(() => slow.promise);
