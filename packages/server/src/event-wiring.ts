@@ -1644,7 +1644,10 @@ export function wireEvents(deps: EventWiringDeps): void {
             // fileless, un-archivable orphan. A non-ended holder is the
             // two-live-bridges case and keeps the clear-and-broadcast.
             // See change: fix-orphaned-ended-session-archive.
-            if (other.status === "ended") {
+            // Same transcript path on a DIFFERENT origin device is a
+            // different transcript: never evict across origins.
+            const sameOrigin = other.originDeviceId === sessionManager.get(sessionId)?.originDeviceId;
+            if (other.status === "ended" && sameOrigin) {
               if (sessionArchive) {
                 sessionArchive.evictSuperseded(other.id, sessionId);
                 continue;

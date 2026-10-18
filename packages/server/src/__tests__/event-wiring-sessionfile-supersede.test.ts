@@ -171,6 +171,17 @@ describe("register sessionFile supersede", () => {
     expect(rig.archivedMsgs.map((m) => m.sessionId)).toEqual(["S1"]);
   });
 
+  it("an ended holder from a different origin device is not evicted (same path, different transcript)", () => {
+    const rig = setup();
+    const F = transcript();
+    endedHolder(rig.sessionManager, "S1", F, { originDeviceId: "remote-dev" });
+
+    register(rig, "S2", F);
+
+    expect(rig.sessionManager.get("S1")).toBeDefined();
+    expect(rig.archivedMsgs).toEqual([]);
+  });
+
   it("#X6 without an archive service the legacy clear applies and a skip is logged", () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => {});
     const rig = setup({ withArchive: false });
