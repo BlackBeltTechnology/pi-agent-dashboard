@@ -26,7 +26,7 @@ import { mergeModelOptions } from "@blackbelt-technology/pi-dashboard-shared/mod
 import type { NpmPackageResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { GroupByMode, GroupByPrefs } from "@blackbelt-technology/pi-dashboard-shared/session-group-by.js";
 import type { ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { mdiAlert, mdiArrowLeft, mdiBookOpenPageVariant, mdiCheckCircle, mdiChevronDown, mdiChevronRight, mdiChip, mdiClipboardText, mdiCloseCircle, mdiCog, mdiContentSave, mdiCubeOutline, mdiDelete, mdiFileDocumentEditOutline, mdiKey, mdiLoading, mdiLock, mdiPackageVariant, mdiPackageVariantClosed, mdiPalette, mdiPlay, mdiPlus, mdiPuzzle, mdiPuzzleOutline, mdiRestart, mdiRobotOutline, mdiServer, mdiShieldCheck, mdiShieldKey, mdiTextBoxOutline, mdiTunnel, mdiUpdate, mdiViewDashboard, mdiWeb, mdiWrench } from "@mdi/js";
+import { mdiAlert, mdiArrowLeft, mdiBookOpenPageVariant, mdiCheckCircle, mdiChevronDown, mdiChevronRight, mdiChip, mdiClipboardText, mdiCloseCircle, mdiCog, mdiContentSave, mdiCubeOutline, mdiDelete, mdiFileDocumentEditOutline, mdiKey, mdiLoading, mdiLock, mdiPackageVariant, mdiPackageVariantClosed, mdiPalette, mdiPlay, mdiPlus, mdiPuzzle, mdiPuzzleOutline, mdiRestart, mdiRobotOutline, mdiServer, mdiShieldCheck, mdiShieldKey, mdiTextBoxOutline, mdiTune, mdiTunnel, mdiUpdate, mdiViewDashboard, mdiWeb, mdiWrench } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useRoute } from "wouter";
@@ -98,7 +98,7 @@ import { NodeRuntimeSection } from "./NodeRuntimeSection.js";
 // See change: select-pi-runtime-install (design D12).
 import { PiRuntimeSection } from "./PiRuntimeSection.js";
 import { PiRuntimeStatusRow } from "./PiRuntimeStatusRow.js";
-import { PiSettingsSection } from "./PiSettingsSection.js";
+import { PiSettingsPage } from "./PiSettingsPage.js";
 import { PiTrustMirrorSection } from "./PiTrustMirrorSection.js";
 import { PluginNotFoundNotice, PluginSettingsPage } from "./PluginSettingsPage.js";
 import { ProviderAuthSection } from "./ProviderAuthSection.js";
@@ -501,7 +501,9 @@ const SETTINGS_PAGE_ALIASES: Record<string, string> = {
 // `gateway` above. See change: add-access-grants-and-review.
 // `vault` is a built-in Network-group page (the credential vault), client route
 // whitelist only. See change: add-credential-vault.
-const VALID_PAGES = new Set<string>([...VALID_SETTINGS_TABS, "instructions", "gateway", "access", "vault"]);
+// `pi-settings` is the built-in pi group's page (pi's global settings.json editor),
+// client route whitelist only. See change: pi-settings-full-coverage.
+const VALID_PAGES = new Set<string>([...VALID_SETTINGS_TABS, "instructions", "gateway", "access", "vault", "pi-settings"]);
 
 // Global-scope resource card pages. Page id → the singular `PiResource.type` its
 // grid renders. See change: resources-card-tabs.
@@ -1175,6 +1177,13 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
       label: t("settings.groupModels", undefined, "Models"),
       items: [
         { id: "providers", label: t("settings.providers", undefined, "Providers"), icon: mdiKey },
+      ],
+    },
+    {
+      id: "pi",
+      label: t("settings.groupPi", undefined, "pi"),
+      items: [
+        { id: "pi-settings", label: t("settings.piSettingsPage", undefined, "pi settings"), icon: mdiTune },
       ],
     },
     {
@@ -2285,21 +2294,23 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
                 <Section title={t("settings.retry", undefined, "Retry")}>
                   <RetrySettingsSection />
                 </Section>
-                {/* pi's own global settings.json (typed form + raw JSON). The
-                    three default-model keys are mirrored from the Default model
-                    control above; `original` is the SAVED dashboard default, the
-                    drift baseline. See change: edit-pi-agent-settings. */}
-                <Section title={t("settings.piSettings", undefined, "pi settings (global)")}>
-                  <PiSettingsSection
-                    dashboardDefaults={original ?? undefined}
-                    refreshKey={piSettingsRefreshKey}
-                  />
-                </Section>
                 <Section title={t("settings.push.title", undefined, "Push notifications")}>
                   <PushNotificationsSection />
                 </Section>
                 <FocusSettingsSection />
               </>
+            )}
+
+            {/* pi's own global settings.json (typed form + scope editor + raw JSON). The
+                three default-model keys are mirrored from the Default model control on the
+                Sessions page; `original` is the SAVED dashboard default, the drift baseline.
+                See change: pi-settings-full-coverage (design D8). */}
+            {activeTab === "pi-settings" && (
+              <PiSettingsPage
+                dashboardDefaults={original ?? undefined}
+                refreshKey={piSettingsRefreshKey}
+                onNavigate={(page) => requestRailNavigate(`/settings/${page}`)}
+              />
             )}
 
             {activeTab === "gateway" && <GatewayPage />}

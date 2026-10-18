@@ -3,41 +3,20 @@
  * Extracted from bridge.ts for clarity.
  */
 
-import { bridgeExtensionIdentity } from "./extension-identity.js";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { matchesPattern, stripThinkingLevel } from "@blackbelt-technology/pi-dashboard-shared/enabled-models-match.js";
 import { replayEntriesAsEvents } from "@blackbelt-technology/pi-dashboard-shared/state-replay.js";
 import type { FlowInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { UsageTotals } from "@blackbelt-technology/pi-dashboard-shared/usage-totals.js";
-import * as minimatchNS from "minimatch";
 import type { BridgeContext } from "./bridge-context.js";
 import { extractFirstMessage, filterHiddenCommands, getCurrentModelString, safeCwd } from "./bridge-context.js";
+import { bridgeExtensionIdentity } from "./extension-identity.js";
 import { buildProviderCatalogue, toModelInfo } from "./provider-register.js";
 import { detectSessionSource } from "./source-detector.js";
 import { consumeSpawnToken } from "./spawn-token.js";
 import { detectIsGitRepo } from "./vcs-info.js";
-
-// minimatch's entry shape varies by version/runtime (v10 exposes a named
-// `minimatch`; v3/CJS-interop exposes it as the default). A namespace import
-// normalises across both.
-type MinimatchFn = (target: string, pattern: string, opts?: { nocase?: boolean }) => boolean;
-const minimatch: MinimatchFn =
-  (minimatchNS as { minimatch?: MinimatchFn }).minimatch ??
-  (minimatchNS as unknown as { default?: MinimatchFn }).default ??
-  (minimatchNS as unknown as MinimatchFn);
-
-// Mirror pi core (core/model-resolver.ts): a trailing `:<thinkingLevel>` on a
-// pattern selects a thinking level and is not part of the model match.
-const VALID_THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
-
-function stripThinkingLevel(pattern: string): string {
-  const colonIdx = pattern.lastIndexOf(":");
-  if (colonIdx !== -1 && VALID_THINKING_LEVELS.has(pattern.slice(colonIdx + 1))) {
-    return pattern.slice(0, colonIdx);
-  }
-  return pattern;
-}
 
 /**
  * Filter a models array to only include models matching the `enabledModels`
@@ -91,12 +70,7 @@ export function filterByEnabledModels<T extends { provider: string; id: string }
     }
     if (patterns.length === 0) return models;
 
-    return models.filter((m) => {
-      const fullId = `${m.provider}/${m.id}`;
-      return patterns.some(
-        (p) => minimatch(fullId, p, { nocase: true }) || minimatch(m.id, p, { nocase: true }),
-      );
-    });
+    return models.filter((m) => patterns.some((p) => matchesPattern(m, p)));
   } catch {
     return models; // fall back to full list on any error
   }

@@ -7,6 +7,8 @@
  * See change: edit-pi-agent-settings.
  */
 import type {
+  PiLegacyCredential,
+  PiLegacyCredentialsResponse,
   PiSettingsConflict,
   PiSettingsPatch,
   PiSettingsReadResponse,
@@ -17,6 +19,9 @@ import { getApiBase } from "./api-context.js";
 import { fetchJsonResponse } from "./fetch-json.js";
 
 export type {
+  PiLegacyAuthState,
+  PiLegacyCredential,
+  PiLegacyCredentialsResponse,
   PiSettingsConflict,
   PiSettingsPatch,
   PiSettingsReadResponse,
@@ -45,6 +50,12 @@ export class PiSettingsApiError extends Error {
   /** The `409` body (current server state), or null for other statuses. */
   get conflict(): PiSettingsConflict | null {
     return this.status === 409 ? (this.payload as unknown as PiSettingsConflict) : null;
+  }
+
+  /** Refreshed masked legacy-credential list carried by the legacy endpoint's `400` / `409` bodies. */
+  get legacyCredentials(): PiLegacyCredential[] | null {
+    const l = this.payload.legacyCredentials;
+    return Array.isArray(l) ? (l as PiLegacyCredential[]) : null;
   }
 
   /** Per-field errors of a `400`, when the server sent them. */
@@ -79,3 +90,10 @@ export const putPiSettingsRaw = (raw: string, baseEtag: string): Promise<PiSetti
 
 export const syncPiDefaults = (): Promise<PiSettingsSyncResponse> =>
   call("/api/pi-settings/sync-defaults", { method: "POST" });
+
+/** Move or remove legacy plain-text API keys. Sends key PATHS only; the server returns the refreshed masked list. */
+export const migrateLegacyCredentials = (
+  actions: { key: string; action: "move" | "remove" }[],
+  baseEtag: string,
+): Promise<PiLegacyCredentialsResponse> =>
+  call("/api/pi-settings/legacy-credentials", jsonInit("POST", { baseEtag, actions }));

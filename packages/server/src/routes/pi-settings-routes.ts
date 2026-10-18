@@ -6,17 +6,25 @@
  *   PUT  /api/pi-settings/raw            → whole-file raw write (256 KiB cap)
  *   POST /api/pi-settings/sync-defaults  → mirror the dashboard default
  *                                          model/thinking level into pi (drift repair)
+ *   POST /api/pi-settings/legacy-credentials → move/remove plain-text API keys
+ *                                          (settings.json → auth.json); key paths in,
+ *                                          masked list out — never a value
  *
  * Status map: 200 ok · 400 invalid/unparseable · 409 stale token (body carries
  * the current state) · 413 body too large · 503 lock busy. Typed/raw writes
  * reload every connected session on success only; sync-defaults never does
- * (defaults are read only at session construction). All routes sit behind the
+ * (defaults are read only at session construction). The parsed `settings` field of
+ * every response omits legacy API-key values (the masked `legacyCredentials` list
+ * and the stored `raw` text are the only carriers). All routes sit behind the
  * shared network guard, like `/api/config` and `/api/pi-retry`. Logs carry the
  * outcome and reload count only — never settings values.
  *
  * See change: edit-pi-agent-settings (design D1–D7).
  */
+import { resolvePiAgentDir } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 import type {
+  PiLegacyCredentialsRequest,
+  PiLegacyCredentialsResponse,
   PiSettingsConflict,
   PiSettingsReadResponse,
   PiSettingsSyncResponse,
@@ -26,6 +34,14 @@ import type {
 } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import {
+  applyLegacyCredentialActions,
+  detectLegacyCredentials,
+  type LegacyAction,
+  readAuthSnapshotUnlocked,
+  withoutLegacyValues,
+} from "../auth/pi-legacy-credentials.js";
+import { scanPiResources } from "../pi/pi-resource-scanner.js";
+import {
   applyPiSettingsPatch,
   type DashboardDefaults,
   type FsDeps,
@@ -34,12 +50,49 @@ import {
   readPiSettings,
   writePiSettingsRaw,
 } from "../pi-agent-settings.js";
+import { listPiThemes, type ScanThemes } from "../pi-settings-themes.js";
 import type { NetworkGuard } from "./route-deps.js";
 
 /** Request-body cap for the raw editor (design D6). */
 export const PI_SETTINGS_RAW_BODY_LIMIT = 256 * 1024;
 
 const ERROR_STATUS = { invalid: 400, parse: 400, stale: 409, busy: 503, io: 500 } as const;
+
+type LegacyFailure = Exclude<Awaited<ReturnType<typeof applyLegacyCredentialActions>>, { ok: true }>;
+
+/** HTTP status + body of a failed legacy-credentials request. No value ever appears in either. */
+function legacyFailure(r: LegacyFailure): { status: number; body: Record<string, unknown> } {
+  switch (r.error) {
+    case "stale":
+      return {
+        status: 409,
+        body: {
+          success: false,
+          error: "stale",
+          etag: r.state.etag,
+          settings: withoutLegacyValues(r.state.settings),
+          raw: r.state.raw,
+          legacyCredentials: r.legacy,
+        },
+      };
+    case "invalid":
+      return { status: 400, body: { success: false, error: r.message, legacyCredentials: r.legacy } };
+    case "conflict":
+      return { status: 409, body: { success: false, error: r.message, legacyCredentials: r.legacy } };
+    case "parse":
+      return { status: 400, body: { success: false, error: r.parseError, parseError: r.parseError } };
+    case "busy":
+      return { status: 503, body: { success: false, error: "busy" } };
+    case "io":
+      return { status: 500, body: { success: false, error: r.message, ...(r.legacy ? { legacyCredentials: r.legacy } : {}) } };
+  }
+}
+
+const isLegacyAction = (a: unknown): boolean =>
+  typeof a === "object" &&
+  a !== null &&
+  typeof (a as LegacyAction).key === "string" &&
+  ((a as LegacyAction).action === "move" || (a as LegacyAction).action === "remove");
 
 export function registerPiSettingsRoutes(
   fastify: FastifyInstance,
@@ -51,9 +104,14 @@ export function registerPiSettingsRoutes(
     readDashboardConfig: () => DashboardDefaults;
     /** Test seam: agent dir / fs overrides. */
     fsDeps?: FsDeps;
+    /** Test seam: theme resource scanner (default: pi's resolver, global + package themes). */
+    scanThemes?: ScanThemes;
   },
 ) {
   const { networkGuard, reloadConnectedSessions, readDashboardConfig, fsDeps } = deps;
+  const scanThemes: ScanThemes =
+    deps.scanThemes ??
+    (() => scanPiResources(resolvePiAgentDir({ homedir: fsDeps?.home, agentDirEnv: fsDeps?.agentDirEnv })));
 
   const logWrite = (route: string, outcome: string, reloaded?: number) => {
     console.log(`[pi-settings] ${route} ${outcome}${reloaded !== undefined ? ` reloaded=${reloaded}` : ""}`);
@@ -68,7 +126,7 @@ export function registerPiSettingsRoutes(
         success: false,
         error: "stale",
         etag: r.state.etag,
-        settings: r.state.settings,
+        settings: withoutLegacyValues(r.state.settings),
         raw: r.state.raw,
       } satisfies PiSettingsConflict;
     }
@@ -90,10 +148,11 @@ export function registerPiSettingsRoutes(
     logWrite(route, "ok", reloadedSessions);
     return {
       success: true,
-      settings: r.state.settings,
+      settings: withoutLegacyValues(r.state.settings),
       raw: r.state.raw,
       etag: r.state.etag,
       reloadedSessions,
+      legacyCredentials: detectLegacyCredentials(r.state.settings, readAuthSnapshotUnlocked()),
       ...(r.restoredKeys ? { restoredKeys: r.restoredKeys } : {}),
     };
   };
@@ -102,10 +161,12 @@ export function registerPiSettingsRoutes(
     const s = readPiSettings(fsDeps);
     return {
       success: true,
-      settings: s.settings,
+      settings: withoutLegacyValues(s.settings),
       raw: s.raw,
       etag: s.etag,
       ...(s.parseError ? { parseError: s.parseError } : {}),
+      themes: await listPiThemes(scanThemes),
+      legacyCredentials: detectLegacyCredentials(s.settings, readAuthSnapshotUnlocked()),
     };
   });
 
@@ -157,9 +218,37 @@ export function registerPiSettingsRoutes(
     return {
       success: true,
       piMirror: mirror,
-      settings: s.settings,
+      settings: withoutLegacyValues(s.settings),
       raw: s.raw,
       etag: s.etag,
     } satisfies PiSettingsSyncResponse;
   });
+
+  fastify.post<{ Body: PiLegacyCredentialsRequest }>(
+    "/api/pi-settings/legacy-credentials",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const { baseEtag, actions } = request.body ?? ({} as Partial<PiLegacyCredentialsRequest>);
+      if (typeof baseEtag !== "string") return reply.code(400).send({ success: false, error: "baseEtag is required" });
+      if (!Array.isArray(actions) || actions.length === 0 || !actions.every(isLegacyAction)) {
+        return reply.code(400).send({ success: false, error: "actions must be a non-empty list of { key, action: move|remove }" });
+      }
+      const r = await applyLegacyCredentialActions(actions as LegacyAction[], baseEtag, fsDeps);
+      if (r.ok) {
+        const reloadedSessions = reloadConnectedSessions();
+        logWrite("legacy-credentials", "ok", reloadedSessions);
+        return {
+          success: true,
+          settings: withoutLegacyValues(r.state.settings),
+          raw: r.state.raw,
+          etag: r.state.etag,
+          reloadedSessions,
+          legacyCredentials: r.legacy,
+        } satisfies PiLegacyCredentialsResponse;
+      }
+      logWrite("legacy-credentials", r.error);
+      const failure = legacyFailure(r);
+      return reply.code(failure.status).send(failure.body);
+    },
+  );
 }

@@ -1942,6 +1942,8 @@ export const zhCNCatalog: Record<string, string> = {
   "settings.discard": "放弃",
   "settings.gateway": "网关",
   "settings.groupAdvanced": "高级",
+  "settings.groupPi": "pi",
+  "settings.piSettingsPage": "pi 设置",
   "settings.groupModels": "模型",
   "packages.requirementsPill": "依赖缺失",
   "packages.providedByPlugin": "由 {name} 插件提供",

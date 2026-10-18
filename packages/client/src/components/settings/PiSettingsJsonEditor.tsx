@@ -1,6 +1,6 @@
 /**
  * Monaco JSON editor for the whole global pi `settings.json`. Lazily loaded by
- * `PiSettingsSection` (Monaco is heavy), and replaceable in tests via the
+ * `PiSettingsPage` (Monaco is heavy), and replaceable in tests via the
  * section's `JsonEditor` prop. Shares the dashboard Monaco bootstrap + theme.
  * See change: edit-pi-agent-settings (design D8).
  */
