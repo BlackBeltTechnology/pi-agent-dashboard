@@ -32,7 +32,7 @@ OpenSpec has no change-to-change dependency concept, so execution order lives on
 ### Modified Capabilities
 
 - `openspec-board`: dependency chips, execution-order view, dependency editor dialog, planning-reason hint, distinct artifact letter; drag rule scoped for the execution-order view; proposal-card contents include the chips.
-- `server-openspec-polling`: change-detection gate, watcher and TOCTOU stamp track `dependencies.yaml`, `changes/archive/` and main-spec existence (the TOCTOU stamp list also names the already-tracked `config.yml`); TOCTOU-kept entries still get a recomputed `dependencies` field.
+- `server-openspec-polling`: change-detection gate, watcher and TOCTOU stamp track `dependencies.yaml`, `changes/archive/` and main-spec existence; TOCTOU-kept entries still get a recomputed `dependencies` field.
 - `openspec-workflow-schema`: generator patch v2 (dependencies artifact and template); `workflowSchema.undeclaredChanges`.
 - `settings-panel`: Update confirmation states the patch-2 impact.
 - `plan-proposal-orchestrator`: `dependencies.yaml` is committed at the worktree boundary.
