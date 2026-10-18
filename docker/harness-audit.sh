@@ -103,16 +103,20 @@ if [ -n "$PROJECT" ]; then
 
   # An unusable event stream (permissions, no daemon) ends the pipeline at once;
   # a recorder that records nothing must not linger.
-  events_alive() { kill -0 "$EVENTS_PGID" 2>/dev/null; }
-  sleep 0.2
+  # `jobs -r` (running only): a finished-but-unreaped job still answers kill -0.
+  events_alive() { [ -n "$(jobs -r)" ]; }
+  sleep 0.4
   if ! events_alive; then
     echo "harness-audit: docker events ended immediately; exiting" >&2
     exit 1
   fi
 
   started="$(date +%s)"
+  # 1 s ticks: a dead event stream (or the lifetime cap) is noticed within a
+  # second even when the container poll interval is 30 s.
+  last_poll="$started"
   while :; do
-    sleep "$POLL" & wait $! || true
+    sleep 1 & wait $! || true
     if ! events_alive; then
       echo "harness-audit: docker events ended unexpectedly; exiting" >&2
       exit 1
@@ -121,6 +125,8 @@ if [ -n "$PROJECT" ]; then
       echo "harness-audit: ${MAX}s maximum lifetime reached; exiting" >&2
       exit 0
     fi
+    [ $(( $(date +%s) - last_poll )) -ge "$POLL" ] || continue
+    last_poll="$(date +%s)"
     ids="$(docker ps -q --filter "label=com.docker.compose.project=${PROJECT}" 2>/dev/null || true)"
     if [ -n "$ids" ]; then
       : > "$ARM" # a non-empty poll also arms (covers a missed create event)

@@ -347,7 +347,12 @@ export function variantLegViolations(workflow: string, dockerfile: string, confi
   const ignoresIdentity = /testIgnore:[^\]]*tests\/e2e\/identity-matrix\/\*\*/.test(config);
 
   for (const id of Object.keys(LEG_CONFIG)) {
-    const block = jobBlock(workflow, id);
+    // Comment-stripped: a `run:` line turned into a YAML comment must not satisfy
+    // any clause below (the job would run no specs yet still "contain" the text).
+    const block = jobBlock(workflow, id)
+      .split("\n")
+      .filter((l) => !/^\s*#/.test(l))
+      .join("\n");
     if (block === "") {
       // Spike-fallback shape (design D3): team leg + its testIgnore entry may be
       // absent TOGETHER; the identity leg is unconditional.
@@ -370,7 +375,7 @@ export function variantLegViolations(workflow: string, dockerfile: string, confi
     const dockerPin = piPin(dockerfile);
     if (pin !== dockerPin) out.push(`${id}: pi pin \`${pin}\` != docker/Dockerfile pin \`${dockerPin}\``);
 
-    if (!block.includes(`--config ${LEG_CONFIG[id]}`)) out.push(`${id}: does not run ${LEG_CONFIG[id]}`);
+    if (!new RegExp(`^ {8}run:\\s*pnpm exec playwright test --config ${LEG_CONFIG[id].replace(/\./g, "\\.")}\\b`, "m").test(block)) out.push(`${id}: no executable \`run:\` step runs ${LEG_CONFIG[id]}`);
     if (!/--reporter=list,html\b/.test(block)) out.push(`${id}: no \`--reporter=list,html\` (own HTML report)`);
     const upload = block.match(/- name: Upload HTML report\n((?: {8}.*\n?)+)/)?.[1] ?? "";
     if (!/if:\s*\$\{\{\s*always\(\)\s*\}\}/.test(upload)) out.push(`${id}: report upload missing or not \`if: always()\``);
@@ -457,6 +462,12 @@ describe("ci-e2e-browser.yml — team / identity-matrix variant legs (#861)", ()
     expect(check(mutateJob("e2e-team", "name: playwright-report-team", "name: blob-report-team")).join("\n")).toContain("`blob-report-team` must be named `playwright-report-team`");
     expect(check(mutateJob("e2e-identity-matrix", "name: playwright-report-identity-matrix", "name: playwright-report")).join("\n")).toContain("e2e-identity-matrix: report artifact `playwright-report`");
     expect(check(mutate("needs: [e2e, e2e-browser-relay]", "needs: [e2e, e2e-browser-relay, e2e-team]")).join("\n")).toContain("merge-report: needs must stay");
+  });
+
+  it("(E1) a run step demoted to a YAML comment is not a satisfied clause", () => {
+    const bad = mutateJob("e2e-team", /^( {8})run: (pnpm exec playwright test --config playwright\.team\.config\.ts.*)$/m, "$1# run: $2\n$1run: echo skipped");
+    const v = check(bad).join("\n");
+    expect(v).toContain("e2e-team: no executable `run:` step runs playwright.team.config.ts");
   });
 
   it("(E8) the workflow legs and the default config's testIgnore agree", () => {

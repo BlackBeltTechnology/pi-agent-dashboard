@@ -64,7 +64,7 @@ describe("teardown marker (E27)", () => {
     const r = down();
     expect(r.status).toBe(0);
     const calls = sb.dockerCalls();
-    const ps = calls.findIndex((c) => / ps -q/.test(c));
+    const ps = calls.findIndex((c) => / ps -a?q/.test(c));
     const dn = calls.findIndex((c) => / down /.test(c));
     expect(ps).toBeGreaterThanOrEqual(0);
     expect(ps).toBeLessThan(dn);

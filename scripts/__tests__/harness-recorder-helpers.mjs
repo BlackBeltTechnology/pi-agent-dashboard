@@ -48,7 +48,7 @@ case "$1" in
   info) printf '%s\\n' "\${FAKE_MEMTOTAL:-1099511627776}"; exit 0 ;;
   compose)
     case " $* " in
-      *" ps -q"*) [ -n "\${FAKE_CONTAINER_ID:-}" ] && printf '%s\\n' "$FAKE_CONTAINER_ID"; exit 0 ;;
+      *" ps -q"*|*" ps -aq"*) [ -n "\${FAKE_CONTAINER_ID:-}" ] && printf '%s\\n' "$FAKE_CONTAINER_ID"; exit 0 ;;
       *" up "*) [ "\${FAKE_UP_FAIL:-}" = "1" ] && exit 1; exit 0 ;;
       *" down "*)
         if [ -n "\${FAKE_DOWN_SNAPSHOT:-}" ] && [ -n "\${FAKE_EVENTS_LOG_FILE:-}" ]; then cp "$FAKE_EVENTS_LOG_FILE" "$FAKE_DOWN_SNAPSHOT" 2>/dev/null || : > "$FAKE_DOWN_SNAPSHOT"; fi
@@ -153,8 +153,10 @@ export function makeSandbox(envOverrides = {}) {
  * Started via a throwaway shell so it is reparented to init (like the real
  * recorder, which test-up.sh detaches) — a child of the vitest worker would stay
  * a zombie while that worker is blocked in spawnSync, and `kill -0` would lie.
+ * The command line carries `harness-audit.sh` (a trailing no-op keeps bash from
+ * exec-ing sleep directly) because test-up/test-down verify a recorder PID by it.
  */
 export function spawnSleeper(seconds = 60) {
-  const out = execFileSync("sh", ["-c", `sleep ${seconds} >/dev/null 2>&1 & echo $!`], { encoding: "utf8" });
+  const out = execFileSync("sh", ["-c", `bash -c 'sleep ${seconds}; : harness-audit.sh' >/dev/null 2>&1 & echo $!`], { encoding: "utf8" });
   return Number(out.trim());
 }

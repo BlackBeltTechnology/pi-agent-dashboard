@@ -53,10 +53,15 @@ if [ -z "$EVENTS_FILE" ]; then
 fi
 if [ -z "$CONTAINER_ID" ]; then
   # Attached boot (state has no ID): resolve it now, before compose removes it.
-  CONTAINER_ID="$(docker compose -p "$project" ps -q 2>/dev/null | head -1 || true)"
+  CONTAINER_ID="$(docker compose -p "$project" ps -aq 2>/dev/null | head -1 || true)" # -a: an attached run stopped by Ctrl-C leaves a stopped container
 fi
 
-recorder_alive() { [[ "$RECORDER_PID" =~ ^[0-9]+$ ]] && kill -0 "$RECORDER_PID" 2>/dev/null; }
+# Alive AND still our recorder: a recycled PID (the state file often outlives a
+# dead recorder) must never be signalled.
+recorder_alive() {
+  [[ "$RECORDER_PID" =~ ^[0-9]+$ ]] && kill -0 "$RECORDER_PID" 2>/dev/null \
+    && ps -p "$RECORDER_PID" -o command= 2>/dev/null | grep -q 'harness-audit\.sh'
+}
 RECORDER_WAS_ALIVE=0
 if recorder_alive; then
   RECORDER_WAS_ALIVE=1

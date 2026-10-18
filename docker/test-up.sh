@@ -109,7 +109,9 @@ PRIOR_EVENTS_FILE="$(state_field eventsFile)"
 
 start_recorder() {
   # Idempotent re-up: reuse a live recorder instead of spawning a second one.
-  if [[ "$PRIOR_RECORDER_PID" =~ ^[0-9]+$ ]] && kill -0 "$PRIOR_RECORDER_PID" 2>/dev/null; then
+  # Live AND still a harness-audit.sh: a recycled PID must never be adopted.
+  if [[ "$PRIOR_RECORDER_PID" =~ ^[0-9]+$ ]] && kill -0 "$PRIOR_RECORDER_PID" 2>/dev/null \
+    && ps -p "$PRIOR_RECORDER_PID" -o command= 2>/dev/null | grep -q 'harness-audit\.sh'; then
     RECORDER_PID="$PRIOR_RECORDER_PID"
     [ -n "$PRIOR_EVENTS_FILE" ] && EVENTS_FILE="$PRIOR_EVENTS_FILE"
     return 0

@@ -33,10 +33,9 @@ EVENTS_DIR="$ROOT/events"
 mkdir -p "$ROOT/a" "$ROOT/b" "$EVENTS_DIR"
 PROJ_A="$(derive_project "$(cd "$ROOT/a" && pwd)")"
 PROJ_B="$(derive_project "$(cd "$ROOT/b" && pwd)")"
-RECS=()
 
 cleanup() {
-  for pid in "${RECS[@]:-}"; do [ -n "$pid" ] && kill "$pid" 2>/dev/null || true; done
+  [ -f "$RECFILE" ] && while read -r pid; do [ -n "$pid" ] && kill "$pid" 2>/dev/null || true; done < "$RECFILE"
   # Only OUR two projects, each by its exact compose project name — never a
   # prefix filter (that would also remove other worktrees' harnesses).
   for d in a b; do
@@ -46,13 +45,18 @@ cleanup() {
 }
 trap cleanup EXIT
 
-start_harness() { # <dir> <project> → prints container id; records recorder pid in RECS
+# Recorder PIDs are collected in a FILE: start_harness runs inside $(...), so an
+# array append there would only change the subshell's copy and cleanup would
+# never see it (a failed boot step would leak the recorder).
+RECFILE="$ROOT/recorder.pids"
+: > "$RECFILE"
+start_harness() { # <dir> <project> → prints container id; appends the recorder pid to $RECFILE
   local dir="$1" proj="$2" ev="$EVENTS_DIR/$2.events.log" cid rec
   : > "$ev"
   # Recorder first (as test-up.sh does), then the container it must observe.
   PI_HARNESS_AUDIT_POLL_SECS=2 "$REPO_ROOT/docker/harness-audit.sh" "$ev" "$proj" >/dev/null 2>&1 &
   rec=$!
-  RECS+=("$rec")
+  echo "$rec" >> "$RECFILE"
   sleep 1
   # A real compose project (service name `pi-dashboard`, like docker/compose.yml)
   # on a minimal image, so test-down.sh's `compose down` really removes it.
