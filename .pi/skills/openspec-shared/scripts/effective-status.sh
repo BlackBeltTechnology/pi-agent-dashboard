@@ -17,6 +17,10 @@
 #   R2  design/ subdirectory containing at least one *.md
 #   R3  tasks.md exists AND contains a Markdown checkbox (^\s*-\s+\[[ xX]\]\s)
 #
+# Gate: when the CLI JSON reports `.schemaName == "pi-spec-driven"` the
+# override is skipped entirely (design is authored, never inferred).
+# See change: add-pi-spec-driven-schema.
+#
 # See change: fix-openspec-design-detection.
 
 set -euo pipefail
@@ -64,6 +68,13 @@ if [ "$satisfied" -eq 0 ] && [ -f "$CHANGE_DIR/tasks.md" ]; then
   if grep -qE '^[[:space:]]*-[[:space:]]+\[[[:space:]xX]\][[:space:]]' "$CHANGE_DIR/tasks.md" 2>/dev/null; then
     satisfied=1
   fi
+fi
+
+# Schema gate (needs jq; without jq the raw output passes through anyway).
+if command -v jq >/dev/null 2>&1 \
+  && [ "$(echo "$RAW" | jq -r '.schemaName // empty' 2>/dev/null || true)" = "pi-spec-driven" ]; then
+  echo "$RAW"
+  exit 0
 fi
 
 # Apply override via jq if available; otherwise pass raw through.

@@ -2950,6 +2950,31 @@ Cross-refs:
 - packages/server/src/routes/openspec-routes.ts
 - packages/shared/src/platform/openspec.ts
 
+## How do I enable the pi-spec-driven workflow schema?
+
+Settings → OpenSpec → OpenSpec Workflow Schema (`/settings/openspec#workflow-schema`). Pick project. Click Enable. Confirm dialog lists every path written.
+
+Enable writes (per project, nothing committed by dashboard):
+- `openspec/schemas/pi-spec-driven/` — generated from package `spec-driven` + patch v1, stamped `x-pi-dashboard`.
+- `.openspec.yaml` with `schema: <previous default>` in each active change lacking one. Keeps existing changes on their workflow.
+- `openspec/config.yaml` `schema: pi-spec-driven`.
+
+Commit those files yourself. Teammates without `openspec/schemas/pi-spec-driven/` get per-change `schema not found`.
+
+Refused when: no `openspec/config.yaml` or `config.yml`; `openspec/` or `changes/`, `schemas/`, `config.yaml` is a symlink; OpenSpec root is not the project dir (`root.source` ≠ `nearest`); stamp `unmanaged` or `incompatible`; stamp `previousDefault` ≠ config default (run Update with `previousDefault` set to the config value).
+
+Other actions:
+- Disable: restores previous default. Schema dir stays.
+- Update: re-stamps after a dashboard or OpenSpec CLI upgrade. Refused on `newer`, `conflict`, `incompatible`.
+- Remove: deletes schema dir. Refused while config or a local change pins it. Unmerged branches pinning it break.
+
+New projects: `openspec.workflowSchema.defaultForNewProjects` (Settings → OpenSpec). On = REST init enables for a directory that had no `openspec/` before init. Existing projects never switch on their own.
+
+Cross-refs:
+- docs/architecture.md (OpenSpec workflow schema section)
+- packages/server/src/openspec/workflow-schema.ts
+- packages/server/src/routes/openspec-routes.ts
+
 ## Why do the OpenSpec buttons do nothing?
 
 The dashboard derives one per-directory readiness state (`OpenSpecData.readiness`) and renders exactly the action that resolves that state. A button that does nothing means the state does not offer it. States and their fixes:

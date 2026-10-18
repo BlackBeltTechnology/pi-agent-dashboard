@@ -335,6 +335,7 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "POST", path: "/api/openspec/init", tier: "control" },
   { method: "POST", path: "/api/openspec/tasks/toggle", tier: "control" },
   { method: "POST", path: "/api/openspec/update", tier: "control" },
+  { method: "POST", path: "/api/openspec/workflow-schema", tier: "control" },
   { method: "POST", path: "/api/packages/check-updates", tier: "operate" },
   { method: "POST", path: "/api/packages/cleanup", tier: "operate" },
   { method: "POST", path: "/api/packages/install", tier: "operate" },

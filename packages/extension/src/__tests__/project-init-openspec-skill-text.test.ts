@@ -83,6 +83,47 @@ describe("project-init SKILL.md — OpenSpec detection text", () => {
 });
 
 /**
+ * @structural-pin SKILL.md is prose executed by an agent, so the workflow-schema enable step (test-plan #X5 of change add-pi-spec-driven-schema) is pinned in its text: previewed only for mode `offer` and only when the flag is true, requested after a successful init, skipped on decline / repair / an unreachable dashboard with a Settings hint
+ */
+describe("project-init SKILL.md — workflow-schema enable step (#X5)", () => {
+  const flat = (s: string) => s.replace(/\s+/g, " ");
+
+  it("X5: Step 3b reads the flag; only a literal true counts and it never changes OPENSPEC_MODE", () => {
+    const t = flat(STEP_3B);
+    expect(t).toContain("workflowSchema");
+    expect(t).toContain("defaultForNewProjects");
+    expect(t).toMatch(/only (a )?(literal )?`true`/i);
+    expect(t).toMatch(/absent[^.]*false/i);
+  });
+
+  it("X5: Step 3c previews the enable step only for `offer` and only when the flag is true", () => {
+    const t = flat(STEP_3C);
+    const i = t.indexOf("/api/openspec/workflow-schema");
+    expect(i).toBeGreaterThan(-1);
+    const para = t.slice(Math.max(0, i - 500), i + 500);
+    expect(para).toMatch(/`offer`/);
+    expect(para).toMatch(/defaultForNewProjects[^.]*`true`/);
+    expect(para).toContain("openspec/schemas/pi-spec-driven/");
+    expect(para).toContain("openspec/config.yaml");
+    expect(para).toMatch(/never[^.]*`repair`|not[^.]*`repair`/i);
+  });
+
+  it("X5: Step 6 requests enable after a successful init, skips otherwise, hints Settings", () => {
+    const t = flat(STEP_6);
+    expect(t).toContain("POST /api/openspec/workflow-schema");
+    expect(t).toMatch(/"action":\s*"enable"/);
+    expect(t).toMatch(/after[^.]*(successful|verif)[^.]*init/i);
+    expect(t).toMatch(/only[^.]*`offer`/i);
+    expect(t).toMatch(/decline/i);
+    expect(t).toMatch(/`repair`/);
+    expect(t).toMatch(/unreachable/i);
+    expect(t).toContain("Settings → OpenSpec");
+    expect(t).toMatch(/do NOT error/i);
+    expect(t).toMatch(/summary|written paths/i);
+  });
+});
+
+/**
  * @structural-pin the opt-out comparison is a shell one-liner embedded in SKILL.md; the test extracts it from the text and executes it, so the shipped snippet itself is what is verified
  */
 describe("project-init SKILL.md — embedded opt-out one-liner", () => {

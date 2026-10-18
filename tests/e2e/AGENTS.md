@@ -58,7 +58,7 @@ One row per file.
 | `browser-relay.spec.ts` | L3 for the browser relay (change: add-browser-re… → see `browser-relay.spec.ts.AGENTS.md` |
 | `bus-client-goal-plugin-action.spec.ts` | L3/P1 `BusClient` host scripting… → see `bus-client-goal-plugin-action.spec.ts.AGENTS.md` |
 | `chat-attachment-two-phase.spec.ts` | Two-phase attachment render E2E (change… → see `chat-attachment-two-phase.spec.ts.AGENTS.md` |
-| `chat-pane-below-floor-allocation.spec.ts` | L3 below-floor chat pane allocation.… → see `chat-pane-below-floor-allocation.spec.ts.AGENTS.md` |
+| `chat-pane-below-floor-allocation.spec.ts` | → see `chat-pane-below-floor-allocation.spec.ts.AGENTS.md` |
 | `chat-render-fx.spec.ts` | Browser E2E gate for `reduce-chat-render-cpu-umb… → see `chat-render-fx.spec.ts.AGENTS.md` |
 | `chat-render-perf.spec.ts` | ADVISORY opt-in perf probe for `re… → see `chat-render-perf.spec.ts.AGENTS.md` |
 | `chat-transcript-virtualization.spec.ts` | L3 gate for virtualize-cha… → see `chat-transcript-virtualization.spec.ts.AGENTS.md` |
@@ -174,6 +174,7 @@ One row per file.
 | `retro-ux-identity-connectivity.spec.ts` | L3 retro-ux probes. → see `retro-ux-identity-connectivity.spec.ts.AGENTS.md` |
 | `retro-ux-model-selector.spec.ts` | L3 retro-ux model selector. → see `retro-ux-model-selector.spec.ts.AGENTS.md` |
 | `retro-ux-plugin-settings-forms.spec.ts` | L3 E24. → see `retro-ux-plugin-settings-forms.spec.ts.AGENTS.md` |
+| `retro-ux-workflow-schema.spec.ts` | L3 U13. → see `retro-ux-workflow-schema.spec.ts.AGENTS.md` |
 | `real-flow-regression.spec.ts` | L3 opt-in real-flow regression. → see `real-flow-regression.spec.ts.AGENTS.md` |
 | `reap-core.ts` | Pure, side-effect-free reap logic, unit-tested a… → see `reap-core.ts.AGENTS.md` |
 | `reasoning-auto-collapse.spec.ts` | Playwright E2E for reasoning-auto-collap… → see `reasoning-auto-collapse.spec.ts.AGENTS.md` |
@@ -207,7 +208,7 @@ One row per file.
 | `sessions-page-stub-group.spec.ts` | L3 for the `sessions_page` stub-group… → see `sessions-page-stub-group.spec.ts.AGENTS.md` |
 | `settings-default-model-catalogue.spec.ts` | L3 gate on the zero-session… → see `settings-default-model-catalogue.spec.ts.AGENTS.md` |
 | `severity-contrast.spec.ts` | L3 gate for `unify-message-severity-colors` +… → see `severity-contrast.spec.ts.AGENTS.md` |
-| `settings-provider-auth-corrupt-authfile.spec.ts` | L3: corrupt auth.json… → see `settings-provider-auth-corrupt-authfile.spec.ts.AGENTS.md` |
+| `settings-provider-auth-corrupt-authfile.spec.ts` | → see `settings-provider-auth-corrupt-authfile.spec.ts.AGENTS.md` |
 | `skill-atlas.spec.ts` | L3 atlas plugin → see `skill-atlas.spec.ts.AGENTS.md` |
 | `skill-provenance.spec.ts` | L3 for the Resources skills grid (F1-F10, X7). F… → see `skill-provenance.spec.ts.AGENTS.md` |
 | `smoke.spec.ts` | Smoke spec, wiring proof only. Asserts shell ren… → see `smoke.spec.ts.AGENTS.md` |

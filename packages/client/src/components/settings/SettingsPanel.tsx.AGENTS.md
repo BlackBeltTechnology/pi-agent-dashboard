@@ -77,6 +77,10 @@ Copy actions go through `copyText` and ids through `randomUuid()` — non-secure
 - New nav group Services (after Network): pages `services` ("All services") + `runtimes`; `:sub` interpreted for `services` only (`activeServiceId`); `useServices({onMessage, ws})` lives here (nav attention dot `nav-services-attention` + sr-only text). New prop `ws`. Pages render lazily via `services/ServicesPages`; no draft registered → not a Save Bar source. See change: add-services-settings-ui.
 Access tab renders `PiTrustMirrorSection`. See change: mirror-dashboard-trust-to-pi.
 
+## add-pi-spec-driven-schema
+
+- OpenSpec page mounts `OpenSpecWorkflowSchemaSection` with `defaultForNewProjects` from `config.openspec.workflowSchema` + `onDefaultChange` (`update` draft; `OpenSpecConfigShape.workflowSchema?`). Only the default switch is a Save Bar source. **The OpenSpec Workflow Schema section is NOT a Save Bar source for its per-cwd actions**: enable/disable/update/adopt/pin/remove write to the repo immediately after a confirm dialog and register no draft. See change: add-pi-spec-driven-schema.
+
 ## retire-trusted-networks-bypass
 
 Security ▸ *Network access* (was Trusted Networks; `Section id="network-access"`): mode radio + callouts from `NetworkTrustParts.tsx`, draft-only. `Config` gains `network` + `pairing.acceptLanRequests`; `CONFIG_FIELD_PAGE` maps `network`/`pairing` → security; `computeConfigPartial` writes `network: {trustMode}` (server stamps origin) and field-level `pairing: {acceptLanRequests}`. Saved mode = `displayTrustMode(original, posture)`; posture comes from the existing `/api/health` read (`parseTrustPosture`) and refreshes after a Save that changes `network`. Leaving Pair drops a drafted LAN-requests change. `BlockEventTrustBanner` takes `mode`: pair ⇒ info rows, no `block-event-trust-*`; "allow requests" adds the exact address to the draft `auth.bypassHosts`. Order: radio → callout → heading → advisory → refused rows → list → add → legacy hint → legacy-only warning callout (`trusted-networks-warning`). Passes `configTrustMode` to `AccessSection`. See change: retire-trusted-networks-bypass.

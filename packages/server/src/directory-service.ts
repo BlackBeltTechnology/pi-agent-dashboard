@@ -29,14 +29,26 @@ import {
   createStatusAllSupportCache,
   type TrackedExtras,
 } from "@blackbelt-technology/pi-dashboard-shared/openspec-status-all.js";
-import { resolveOpenSpecPackageVersion } from "@blackbelt-technology/pi-dashboard-shared/platform/openspec.js";
+import {
+  resolveOpenSpecPackageSchemasDir,
+  resolveOpenSpecPackageVersion,
+} from "@blackbelt-technology/pi-dashboard-shared/platform/openspec.js";
 import type { PiResourcesResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { createSemaphore, type Semaphore } from "@blackbelt-technology/pi-dashboard-shared/semaphore.js";
 import { inferPlatform, pathKey } from "@blackbelt-technology/pi-dashboard-shared/session-group-path.js";
-import type { OpenSpecChange, OpenSpecData } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type {
+  OpenSpecChange,
+  OpenSpecData,
+  OpenSpecWorkflowSchemaStatus,
+} from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { computeFolderGroupKeys, createFolderHeadPoll, type FolderHeadPoll } from "./git-worktree/folder-head-poll.js";
 import type { EventLoopSpikeMetrics, EventLoopTurn } from "./metrics/eventloop-spike-metrics.js";
-import { type BrokeReason, deriveOpenSpecReadiness } from "./openspec/readiness.js";
+import { type BrokeReason, deriveOpenSpecReadiness, hasWorkflowSchemaStatus } from "./openspec/readiness.js";
+import {
+  computeWorkflowSchemaStatus,
+  makeValidateLocal,
+  type WorkflowSchemaDeps,
+} from "./openspec/workflow-schema.js";
 
 /**
  * Debounce for the folder-HEAD entry refresh, so a registration burst collapses
@@ -423,6 +435,17 @@ export interface DirectoryServiceOptions {
    */
   openspecVersionResolver?: () => Promise<string | null>;
   /**
+   * Test seams for `OpenSpecData.workflowSchema`: CLI/semaphore deps of the
+   * `newer`/`conflict` `schema validate`, the package-schemas dir resolver and
+   * the user-level schemas dir. Defaults are the real ones.
+   * See change: add-pi-spec-driven-schema.
+   */
+  workflowSchema?: {
+    deps?: Partial<WorkflowSchemaDeps>;
+    packageSchemasDir?: () => Promise<string | null>;
+    userSchemasDirPath?: string;
+  };
+  /**
    * Per-turn slow-tick alarm threshold (ms). Independent of the retained wall
    * `durationMs` alarm: fires when any single instrumented turn's synchronous
    * run exceeds this, naming the turn. Default 250. See change:
@@ -569,7 +592,12 @@ export function createDirectoryService(
    * every pollOne exit; the signature await is already-resolved in the
    * steady state (memoized per tick).
    */
-  async function finalizeOpenSpecData(cwd: string, d: OpenSpecData, breakReason?: BrokeReason): Promise<OpenSpecData> {
+  async function finalizeOpenSpecData(
+    cwd: string,
+    d: OpenSpecData,
+    breakReason?: BrokeReason,
+    schemaStatus?: Promise<OpenSpecWorkflowSchemaStatus | undefined>,
+  ): Promise<OpenSpecData> {
     const skills = d.hasOpenSpecSkills ?? hasOpenSpecSkillsFor(cwd);
     // Optional call: standalone directory-service constructions (tests) may
     // pass a narrower preferences-store stub without the signature API.
@@ -591,7 +619,46 @@ export function createDirectoryService(
       d,
       { breakReason },
     );
-    return { ...d, hasOpenSpecSkills: skills, readiness };
+    const out: OpenSpecData = { ...d, hasOpenSpecSkills: skills, readiness };
+    // Separate from readiness (never alters it): successful-poll payloads only —
+    // the success call sites pass the status promise `pollOne` started up front.
+    if (schemaStatus && breakReason === undefined && d.initialized === true && hasWorkflowSchemaStatus(readiness)) {
+      const workflowSchema = await schemaStatus;
+      if (workflowSchema) out.workflowSchema = workflowSchema;
+    }
+    return out;
+  }
+
+  // `OpenSpecData.workflowSchema` — computed on the main thread (async fs, small)
+  // by `pollOne` CONCURRENTLY with the CLI spawn / worker build, then attached at
+  // finalize, so the gated gate-hit, status-all, fallback and force paths all
+  // agree and the poll's wall time is not extended. The `newer`/`conflict`
+  // `schema validate` goes through the shared spawn semaphore, memoized by
+  // (cwd, fingerprint, CLI version). See change: add-pi-spec-driven-schema.
+  const workflowSchemaOpts = options.workflowSchema;
+  let packageSchemasDirMemo: { version: string | null; dir: string } | null = null;
+  async function packageSchemasDirFor(version: string | null): Promise<string | null> {
+    if (workflowSchemaOpts?.packageSchemasDir) return workflowSchemaOpts.packageSchemasDir();
+    if (packageSchemasDirMemo && packageSchemasDirMemo.version === version) return packageSchemasDirMemo.dir;
+    const dir = await resolveOpenSpecPackageSchemasDir();
+    if (dir) packageSchemasDirMemo = { version, dir };
+    return dir;
+  }
+  async function workflowSchemaStatusFor(
+    cwd: string,
+    version: string | null,
+  ): Promise<OpenSpecWorkflowSchemaStatus | undefined> {
+    try {
+      const localVersion = version ?? "";
+      return await computeWorkflowSchemaStatus(cwd, {
+        localVersion,
+        packageSchemasDir: () => packageSchemasDirFor(version),
+        ...(workflowSchemaOpts?.userSchemasDirPath ? { userSchemasDirPath: workflowSchemaOpts.userSchemasDirPath } : {}),
+        validateLocal: makeValidateLocal(cwd, localVersion, { semaphore, ...workflowSchemaOpts?.deps }),
+      });
+    } catch {
+      return undefined; // advisory only: never fail or alter a poll
+    }
   }
 
   /** Cleared disabled payload — allocation-only, no stat, no CLI. */
@@ -999,9 +1066,13 @@ export function createDirectoryService(
     cwd: string,
     force: boolean,
     cache: DirCache,
-    ctx: { hasOpenspecDir: boolean; cliVersion: string | null },
+    ctx: {
+      hasOpenspecDir: boolean;
+      cliVersion: string | null;
+      schemaStatus: Promise<OpenSpecWorkflowSchemaStatus | undefined>;
+    },
   ): Promise<OpenSpecData | null> {
-    const { hasOpenspecDir, cliVersion } = ctx;
+    const { hasOpenspecDir, cliVersion, schemaStatus } = ctx;
     const gateEnabled = cfg.changeDetection === "mtime" && !force;
     if (cache.mode !== "all") {
       cache.mode = "all";
@@ -1026,7 +1097,7 @@ export function createDirectoryService(
     const gateStart = performance.now();
     if (gateEnabled && statusAllGateHit(cache, pre)) {
       recordTurn("dirPollGate", gateStart);
-      const reused = await finalizeOpenSpecData(cwd, cache.allData as OpenSpecData);
+      const reused = await finalizeOpenSpecData(cwd, cache.allData as OpenSpecData, undefined, schemaStatus);
       cache.data = reused;
       cache.serialized = undefined;
       caches.set(cwd, cache);
@@ -1097,7 +1168,7 @@ export function createDirectoryService(
     applyStatusAllBuild(cache, out);
     statusAllSupport.markSupported(); // a re-evaluating force refresh may flip a null-version verdict
     recordTurn("dirPollPost", postStart);
-    const finalized = await finalizeOpenSpecData(cwd, out.data);
+    const finalized = await finalizeOpenSpecData(cwd, out.data, undefined, schemaStatus);
     cache.data = finalized;
     // The worker's serialized form no longer matches (readiness/skills are
     // attached on main); wrappers re-stringify once. See change:
@@ -1157,8 +1228,9 @@ export function createDirectoryService(
     // poll (`pollOneStatusAll` resolves `null`). See change:
     // use-openspec-status-all.
     const cliVersion = await resolveCliVersion();
+    const schemaStatus = workflowSchemaStatusFor(cwd, cliVersion); // concurrent with the poll
     if (!statusAllSupport.isKnownUnsupported(cliVersion, force)) {
-      const handled = await pollOneStatusAll(cwd, force, cache, { hasOpenspecDir, cliVersion });
+      const handled = await pollOneStatusAll(cwd, force, cache, { hasOpenspecDir, cliVersion, schemaStatus });
       if (handled) return handled;
     }
     if (cache.mode !== "fallback") {
@@ -1270,7 +1342,7 @@ export function createDirectoryService(
       // the cached form is invalidated (one extra stringify per tick — the
       // correctness cost of the fold). See change:
       // add-openspec-init-affordances.
-      const finalized = await finalizeOpenSpecData(cwd, out.data);
+      const finalized = await finalizeOpenSpecData(cwd, out.data, undefined, schemaStatus);
       cache.data = finalized;
       cache.serialized = undefined;
       caches.set(cwd, cache);
@@ -1380,7 +1452,7 @@ export function createDirectoryService(
 
     // Attach hasOpenSpecSkills + readiness (force path). See change:
     // add-openspec-init-affordances.
-    data = await finalizeOpenSpecData(cwd, data);
+    data = await finalizeOpenSpecData(cwd, data, undefined, schemaStatus);
 
     // Stamp the cache with the pre-call mtime — i.e. the mtime that
     // demonstrably reflects the file state observed by the CLI. Skip racy
@@ -2167,7 +2239,12 @@ export function createDirectoryService(
             },
             d,
           );
-          const payload: OpenSpecData = { ...d, readiness };
+          const { workflowSchema, ...rest } = d;
+          const payload: OpenSpecData = {
+            ...rest,
+            readiness,
+            ...(workflowSchema && hasWorkflowSchemaStatus(readiness) ? { workflowSchema } : {}),
+          };
           cache.data = payload;
           caches.set(cwd, cache);
           try {

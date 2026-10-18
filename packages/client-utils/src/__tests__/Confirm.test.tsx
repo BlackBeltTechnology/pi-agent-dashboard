@@ -61,6 +61,15 @@ describe("Confirm", () => {
     expect(getByText("Keep")).toBeTruthy();
   });
 
+  it("#U12 maps the default (primary) intent to the --accent-solid fill", () => {
+    const { baseElement } = render(
+      <Confirm open onClose={() => {}} onConfirm={() => {}} title="t" message="m" testId="c" />,
+    );
+    const cls = baseElement.querySelector("[data-testid='c-action']")!.className;
+    expect(cls).toContain("bg-[var(--accent-solid)]");
+    expect(cls).not.toContain("bg-[var(--accent-primary)]");
+  });
+
   it("maps danger intent to action button class", () => {
     const { baseElement } = render(
       <Confirm

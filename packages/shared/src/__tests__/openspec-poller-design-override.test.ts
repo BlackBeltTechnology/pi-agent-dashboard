@@ -5,8 +5,11 @@
  *
  * See change: fix-openspec-design-detection.
  */
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { buildOpenSpecData } from "../openspec-poller.js";
+import { buildOpenSpecData, createFsProbeFactory } from "../openspec-poller.js";
 import type { DesignEvidenceProbe } from "../openspec-design-evidence.js";
 
 function probe(satisfied: boolean, calls?: { count: number }): DesignEvidenceProbe {
@@ -221,5 +224,54 @@ describe("buildOpenSpecData design override", () => {
     ]);
     buildOpenSpecData(listResult, statusResults, () => probe(true, calls));
     expect(calls.count).toBe(0);
+  });
+});
+
+describe("buildOpenSpecData design override — pi-spec-driven schema gate", () => {
+  const checkboxProbe = (): DesignEvidenceProbe => ({
+    hasDesignFile: () => false,
+    hasDesignDirWithMd: () => false,
+    tasksHasCheckboxes: () => true,
+  });
+  const readyDesign = (schemaName?: string) =>
+    new Map<string, any>([
+      ["x", { ...(schemaName ? { schemaName } : {}), artifacts: [{ id: "design", status: "ready" }] }],
+    ]);
+  const designStatus = (data: ReturnType<typeof buildOpenSpecData>) =>
+    data.changes[0].artifacts.find((a) => a.id === "design")!.status;
+
+  it("#E27 status --all row schemaName pi-spec-driven + checkboxes → NOT promoted", () => {
+    expect(designStatus(buildOpenSpecData(listResult, readyDesign("pi-spec-driven"), checkboxProbe))).toBe("ready");
+  });
+
+  it("#E27 status --all row schemaName team-flow + checkboxes → promoted", () => {
+    expect(designStatus(buildOpenSpecData(listResult, readyDesign("team-flow"), checkboxProbe))).toBe("done");
+  });
+
+  describe("fallback list path resolves schemaName locally", () => {
+    function withChange(yaml: string | null, fn: (cwd: string) => void): void {
+      const cwd = mkdtempSync(path.join(tmpdir(), "poller-schema-gate-"));
+      try {
+        const dir = path.join(cwd, "openspec", "changes", "x");
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(path.join(dir, "tasks.md"), "- [ ] 1.1 do\n");
+        if (yaml !== null) writeFileSync(path.join(dir, ".openspec.yaml"), yaml);
+        fn(cwd);
+      } finally {
+        rmSync(cwd, { recursive: true, force: true });
+      }
+    }
+
+    it("#E27 .openspec.yaml naming pi-spec-driven + checkboxes → NOT promoted", () => {
+      withChange("schema: pi-spec-driven\ncreated: 2026-01-01\n", (cwd) => {
+        expect(designStatus(buildOpenSpecData(listResult, readyDesign(), createFsProbeFactory(cwd)))).toBe("ready");
+      });
+    });
+
+    it("#E27 no .openspec.yaml metadata + checkboxes → promoted", () => {
+      withChange(null, (cwd) => {
+        expect(designStatus(buildOpenSpecData(listResult, readyDesign(), createFsProbeFactory(cwd)))).toBe("done");
+      });
+    });
   });
 });
