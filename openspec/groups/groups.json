@@ -479,7 +479,8 @@
     "add-openspec-change-dependencies": "openspec-workflow",
     "pi-settings-full-coverage": "ui",
     "fix-home-folder-scope-double-arm": "automation-scheduler",
-    "fix-automation-key-collision": "automation-scheduler"
+    "fix-automation-key-collision": "automation-scheduler",
+    "move-workflow-schema-status-to-poll-worker": "openspec-workflow"
   },
   "changeOrder": {
     "__ungrouped__": [
@@ -645,6 +646,7 @@
     "openspec-workflow": [
       "use-openspec-status-all",
       "add-pi-spec-driven-schema",
+      "move-workflow-schema-status-to-poll-worker",
       "add-openspec-change-dependencies"
     ],
     "automation-scheduler": [
