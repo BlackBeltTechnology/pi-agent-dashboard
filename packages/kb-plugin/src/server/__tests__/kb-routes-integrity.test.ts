@@ -7,7 +7,7 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { indexSource, loadConfig, runIndexAtomic, SqliteFtsStore } from "@blackbelt-technology/pi-dashboard-kb";
+import { indexOptionsFromConfig, indexSource, loadConfig, runIndexAtomic, SqliteFtsStore } from "@blackbelt-technology/pi-dashboard-kb";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it } from "vitest";
 import { KbJobRegistry } from "../job-registry.js";
@@ -133,7 +133,7 @@ describe("one derivation, per-source gate (D6)", () => {
     const a = folder([{ kind: "filesystem", ref: "docs" }], extra);
     const b = folder([{ kind: "filesystem", ref: "docs" }], extra);
     const cfg = loadConfig(a);
-    await runIndexAtomic({ dbPath: cfg.dbAbsPath, sources: [{ id: "docs", dir: join(a, "docs") }], indexOpts: { frontmatter: cfg.frontmatter }, gate: cfg });
+    await runIndexAtomic({ dbPath: cfg.dbAbsPath, sources: [{ id: "docs", dir: join(a, "docs") }], indexOpts: indexOptionsFromConfig(cfg), gate: cfg });
     await reindexAll(b);
     const sel = "SELECT path, key, value FROM properties ORDER BY path, key, value";
     expect(rows(dbOf(b), sel).some((r) => r.key === "team" && r.value === "core")).toBe(true);

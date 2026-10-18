@@ -149,7 +149,7 @@ flowchart TD
   writer that ignores the live-build marker (kb ≤0.9.0) creates `dbPath` mid-build *and* holds a
   write lock for 30 s; that writer's own cold-start populate fills it. Specs state this exception.
 - Logged, one stderr line per install: `[kb] install=<link|rename|backup> retries=<n> ms=<n>`, or on
-  failure `[kb] install-failed=<busy-timeout|backup-error:<errcode>|build-error> retries=<n> ms=<n>` (K4).
+  failure `[kb] install-failed=<busy-timeout|backup-error:<errcode>> retries=<n> ms=<n>` (K4).
 
 ### D2 — One creation path and the live-build marker
 

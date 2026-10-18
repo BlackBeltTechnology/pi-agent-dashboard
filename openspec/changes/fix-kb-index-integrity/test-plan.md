@@ -6,7 +6,7 @@ Decisions applied (hard gate, answered by the user):
 - **K1** forced-pass cost → L1 timed test on a generated 600-file fixture, forced pass ≤ 1.5× first index (median of 3 runs each); the full-repo ≤ 1.3× number is recorded once in the PR (manual row M1).
 - **K2** dashboard job waiting on another process's first index → `/api/kb/stats` reports `jobStatus: "running"`, `indexing: true` for the whole wait.
 - **K3** CLI non-index commands during a live first index → print the building line, exit **75** (`EX_TEMPFAIL`).
-- **K4** install log line → `[kb] install=<link|rename|backup> retries=<n> ms=<n>`; failure `[kb] install-failed=<busy-timeout|backup-error:<errcode>|build-error> retries=<n> ms=<n>` (stderr).
+- **K4** install log line → `[kb] install=<link|rename|backup> retries=<n> ms=<n>`; failure `[kb] install-failed=<busy-timeout|backup-error:<errcode>> retries=<n> ms=<n>` (stderr).
 
 Legend: L1 = vitest. "Holder" = a child `node` process that opens `dbPath` with raw `node:sqlite`, sets WAL, writes, and stays open — a writer that does not honour the live-build marker (stands in for kb ≤0.9.0). Building line = `(index is still being built — no results available yet; retry shortly)`.
 

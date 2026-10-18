@@ -339,12 +339,14 @@ export class SqliteFtsStore implements KbStore {
   reconcileChunkMap(): void {
     if (this.existingOnly) return;
     if (this.mapVersion !== null && this.dataVersion() === this.mapVersion) return;
-    this.immediate((db) => {
+    // The version is read INSIDE the write transaction: no other connection can commit between the
+    // rebuild and the read, so `mapVersion` never claims a newer state than the rebuilt map.
+    this.mapVersion = this.immediate((db) => {
       db.exec("DELETE FROM item_rows");
       db.exec("INSERT OR IGNORE INTO item_rows(root,path,rid) SELECT root, path, rowid FROM chunks");
       db.exec("DELETE FROM files WHERE path IN (SELECT path FROM nodes WHERE type='heading' AND path IS NOT NULL AND substr(name, 1, length(path) + 1) <> path || '#')");
+      return Number((db.prepare("PRAGMA data_version").get() as { data_version: number }).data_version);
     });
-    this.mapVersion = this.dataVersion();
   }
 
   deletePropertiesByPath(root: string, path: string) {

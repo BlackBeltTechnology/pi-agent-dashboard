@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writ
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { indexOptionsHash, indexSource, loadConfig, runIndexAtomic, SqliteFtsStore } from "@blackbelt-technology/pi-dashboard-kb";
+import { indexOptionsFromConfig, indexOptionsHash, indexSource, loadConfig, runIndexAtomic, SqliteFtsStore } from "@blackbelt-technology/pi-dashboard-kb";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import kbExtension from "../extension.js";
 import { closeKb, createReindexState, reindexNow } from "../reindex.js";
@@ -71,7 +71,7 @@ describe("writers produce identical rows (E6)", () => {
     const a = project({ extra });
     const b = project({ extra });
     const cfgA = loadConfig(a);
-    await runIndexAtomic({ dbPath: cfgA.dbAbsPath, sources: cfgA.resolvedSources.map((s) => ({ id: s.id, dir: s.dir })), indexOpts: { frontmatter: cfgA.frontmatter }, gate: cfgA });
+    await runIndexAtomic({ dbPath: cfgA.dbAbsPath, sources: cfgA.resolvedSources.map((s) => ({ id: s.id, dir: s.dir })), indexOpts: indexOptionsFromConfig(cfgA), gate: cfgA });
     const state = createReindexState();
     await reindexNow(state, b);
     closeKb(state);
