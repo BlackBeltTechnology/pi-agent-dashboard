@@ -139,13 +139,14 @@ export interface Gathered {
   features: AddonFeature[];
 }
 
-export async function gatherCatalog(deps: AddonsDeps): Promise<Gathered> {
+export async function gatherCatalog(deps: AddonsDeps, opts: { skipRegistry?: boolean } = {}): Promise<Gathered> {
   const agentDir = agentDirOf(deps);
   const settingsPath = settingsPathOf(deps);
   const settings = readSettingsFile(settingsPath);
   const rows = await deps.packageManagerWrapper.listInstalled("global");
   const enriched = enrichInstalledRows(rows as never, undefined, { managedPaths: readManagedPaths(deps.log) });
-  await attachPublishedVariants(enriched, { lookupNpm: deps.lookupNpm });
+  // The toggle path never reads published variants; skip the registry lookup under its locks.
+  await attachPublishedVariants(enriched, { lookupNpm: opts.skipRegistry ? undefined : deps.lookupNpm });
 
   const packages: CatalogPackageInput[] = enriched.map((row) => {
     const info = readPackageInfo(row.installedPath);

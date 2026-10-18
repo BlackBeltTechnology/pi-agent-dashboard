@@ -168,10 +168,10 @@ export function RecommendedExtensions({ scope, cwd, hideGlobalInstalled = false,
       )
     : recommended;
 
-  const missingRequired = recommended.filter(
+  const missingRequired = missingEntries.filter(
     (e) => e.status === "required" && !e.activeInPi,
   ).length;
-  const missingSuggested = recommended.filter(
+  const missingSuggested = missingEntries.filter(
     (e) => e.status === "strongly-suggested" && !e.activeInPi,
   ).length;
 

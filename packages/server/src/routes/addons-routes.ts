@@ -74,7 +74,7 @@ export function registerAddonsRoutes(fastify: FastifyInstance, routeDeps: Addons
       try {
         // Dry run: same computation, no locks, no writes.
         if (body.dryRun) {
-          const g = await gatherCatalog(deps);
+          const g = await gatherCatalog(deps, { skipRegistry: true });
           const plan = planToggle(deps, g, readRestoreStore(log), featureId, enabled);
           if (!plan.ok) return reply.status(plan.status).send(plan.body);
           return reply
@@ -86,7 +86,7 @@ export function registerAddonsRoutes(fastify: FastifyInstance, routeDeps: Addons
           deps.packageManagerWrapper.runExclusive(() =>
             withSettingsWriteLock(settingsPathOf(deps), () =>
               withSettingsWriteLock(PLUGIN_CONFIG_LOCK_KEY, async () => {
-                const g = await gatherCatalog(deps);
+                const g = await gatherCatalog(deps, { skipRegistry: true });
                 gcRestoreRecords(g, log);
                 const store = readRestoreStore(log);
                 const plan = planToggle(deps, g, store, featureId, enabled);

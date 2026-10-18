@@ -63,7 +63,9 @@ export function useAddonToggle(features: readonly AddonFeature[], refresh: () =>
 					else setRowError({ featureId: feature.id, message });
 				}
 			} catch (err) {
-				setRowError({ featureId: feature.id, message: (err as Error).message });
+				// Network failure: leave the dialog usable (not stuck busy) with the reason.
+				if (pending) setPending({ ...pending, busy: false, error: (err as Error).message });
+				else setRowError({ featureId: feature.id, message: (err as Error).message });
 			} finally {
 				setBusyId(null);
 			}
@@ -146,8 +148,7 @@ export function AddonToggleConfirm({ pending, byId, onConfirm, onCancel }: Addon
 	if (feature.packages.length > 0) stops.push(i18nT("addons.toggle.stopsAgent", undefined, "the AI-agent part (pi extension)"));
 	return (
 		<div
-			role="dialog"
-			aria-modal="true"
+			role="group"
 			aria-labelledby="addon-toggle-title"
 			className="mb-2 p-3 rounded border border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-xs space-y-2"
 			data-testid="addon-toggle-confirm"
@@ -251,7 +252,7 @@ export function AddonReloadBanner({ onDismiss }: { onDismiss: () => void }) {
 				onClick={() => {
 					setState("busy");
 					void reloadResourceSessions("global")
-						.then(() => setState("done"))
+						.then((r) => setState(r.ok ? "done" : "idle"))
 						.catch(() => setState("idle"));
 				}}
 				className="flex items-center gap-1 font-medium text-[var(--accent-primary)] hover:underline"

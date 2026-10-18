@@ -1437,6 +1437,7 @@ export const zhCNCatalog: Record<string, string> = {
   "addons.tab.updates": "更新（{count}）",
   "addons.tab.discover": "发现",
   "addons.updates.none": "一切都是最新的。",
+  "addons.updates.checking": "正在检查更新…",
   "addons.local": "本地",
   "addons.partlyOn": "部分开启",
   "addons.row.details": "{name} 的详情",

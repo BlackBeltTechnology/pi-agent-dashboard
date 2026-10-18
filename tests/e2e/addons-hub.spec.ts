@@ -51,9 +51,10 @@ test.describe("Add-ons hub", () => {
     // Recommended once: an entry with an installed row has no card in the Discover tab.
     await page.getByTestId("addons-tab-installed").waitFor({ state: "visible", timeout: 30_000 });
     await expect(page.locator("[data-testid^='addon-row-']").first()).toBeVisible({ timeout: 30_000 });
-    const rowNames = await page
-      .locator("[data-testid^='addon-row-']")
-      .evaluateAll((els) => els.map((e) => (e.getAttribute("data-testid") ?? "").replace("addon-row-", "")));
+    const catalogRes = await page.request.get("/api/addons/catalog");
+    const rowNames = ((await catalogRes.json()) as { features: Array<{ packages: Array<{ source: string }> }> }).features.flatMap(
+      (f) => f.packages.map((p) => p.source),
+    );
     await page.getByTestId("addons-tab-discover").click();
     await page.getByTestId("package-browser").waitFor({ state: "visible", timeout: 30_000 });
     const cardIds = await page
@@ -61,7 +62,7 @@ test.describe("Add-ons hub", () => {
       .evaluateAll((els) => els.map((e) => (e.getAttribute("data-testid") ?? "").replace("rec-remove-", "")));
     // A card with a Remove action is an installed entry; installed-globally ones must not be cards.
     // (Folder-only installs legitimately keep a card, hence the harness has none.)
-    expect(cardIds.filter((id) => rowNames.some((r) => r.includes(id)))).toEqual([]);
+    expect(cardIds.filter((id) => rowNames.some((src) => src.includes(id)))).toEqual([]);
   });
 
   test("F4: Plugins subtree is collapsed by default at 375px, expands in place, persists across reload", async ({ page }) => {

@@ -51,4 +51,26 @@ describe("useAddonCatalog", () => {
 		});
 		expect(fetchMock).toHaveBeenCalledTimes(2);
 	});
+
+	// CodeRabbit follow-up: an older response must not overwrite a newer one.
+	it("a slow earlier response never overwrites a newer one", async () => {
+		const resolvers: Array<(r: Response) => void> = [];
+		fetchMock.mockReset();
+		fetchMock.mockImplementation(() => new Promise<Response>((res) => resolvers.push(res)));
+		const { result } = renderHook(() => useAddonCatalog());
+		await waitFor(() => expect(resolvers).toHaveLength(1));
+		act(() => {
+			void result.current.refresh();
+		});
+		await waitFor(() => expect(resolvers).toHaveLength(2));
+		const body = (id: string) => new Response(JSON.stringify({ success: true, features: [feature(id)] }));
+		await act(async () => {
+			resolvers[1](body("pkg:new"));
+		});
+		await waitFor(() => expect(result.current.features[0]?.id).toBe("pkg:new"));
+		await act(async () => {
+			resolvers[0](body("pkg:old"));
+		});
+		expect(result.current.features[0]?.id).toBe("pkg:new");
+	});
 });

@@ -20,10 +20,14 @@ export function useAddonCatalog() {
 	const mounted = useRef(true);
 	const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+	const latestRequest = useRef(0);
+
 	const refresh = useCallback(async () => {
+		// An older response must never overwrite a newer one (several callers refresh).
+		const request = ++latestRequest.current;
 		try {
 			const next = await fetchAddonCatalog();
-			if (!mounted.current) return;
+			if (!mounted.current || request !== latestRequest.current) return;
 			setFeatures(next);
 			setError(null);
 		} catch (err) {

@@ -26,6 +26,8 @@ export function updatableParts(features: readonly AddonFeature[], updates: Reado
 interface AddonsUpdatesTabProps {
 	features: readonly AddonFeature[];
 	updates: ReadonlySet<string>;
+	/** False until an update check has completed; avoids "up to date" before the first answer. */
+	checked?: boolean;
 	corePackages: readonly PiCorePackage[];
 	statusFor: (source: string) => string;
 	coreSource: (name: string) => string;
@@ -44,6 +46,13 @@ export function AddonsUpdatesTab(props: AddonsUpdatesTabProps) {
 		...core.map((p) => props.coreSource(p.name)),
 	].some((s) => ["running", "queued"].includes(props.statusFor(s)));
 
+	if (total === 0 && props.checked === false) {
+		return (
+			<p className="text-xs text-[var(--text-muted)] italic" data-testid="addons-updates-pending">
+				{i18nT("addons.updates.checking", undefined, "Checking for updates…")}
+			</p>
+		);
+	}
 	if (total === 0) {
 		return (
 			<p className="text-xs text-[var(--text-muted)] italic" data-testid="addons-updates-empty">

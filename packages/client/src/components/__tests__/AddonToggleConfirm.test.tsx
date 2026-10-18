@@ -157,4 +157,41 @@ describe("combined off confirmation", () => {
 		await waitFor(() => expect(toggleBodies(fn)).toEqual([{ enabled: true }]));
 		expect(screen.queryByTestId("addon-toggle-confirm")).toBeNull();
 	});
+
+	// CodeRabbit follow-up: a network error must not leave the dialog stuck busy.
+	it("a network error during confirmation re-enables the button and shows the reason", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (url: string, init?: RequestInit) => {
+				if (String(url).includes("/toggle")) {
+					if (JSON.parse(init?.body as string).dryRun) return json(report({ dryRun: true, filtered: ["npm:a"], confirmToken: "t" }));
+					throw new Error("socket hang up");
+				}
+				return json({ success: true, data: [] });
+			}),
+		);
+		render(<UnifiedPackagesSection />);
+		fireEvent.click(screen.getByTestId("addon-switch-plugin:goal"));
+		await screen.findByTestId("addon-toggle-confirm");
+		fireEvent.click(screen.getByTestId("addon-toggle-confirm-button"));
+		await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("socket hang up"));
+		expect((screen.getByTestId("addon-toggle-confirm-button") as HTMLButtonElement).disabled).toBe(false);
+	});
+
+	it("a failed session reload is not reported as done", async () => {
+		stub((b) => (b.dryRun ? json(report({ dryRun: true, filtered: ["npm:a"], confirmToken: "t" })) : json(report())));
+		const original = globalThis.fetch as ReturnType<typeof vi.fn>;
+		vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) =>
+			String(url).includes("/api/resources/reload") ? json({ success: false, error: "no" }, 500) : original(url, init),
+		));
+		render(<UnifiedPackagesSection />);
+		fireEvent.click(screen.getByTestId("addon-switch-plugin:goal"));
+		await screen.findByTestId("addon-toggle-confirm");
+		fireEvent.click(screen.getByTestId("addon-toggle-confirm-button"));
+		await screen.findByTestId("addon-reload-banner");
+		await act(async () => {
+			fireEvent.click(screen.getByTestId("addon-reload-button"));
+		});
+		expect(screen.getByTestId("addon-reload-button").textContent).not.toMatch(/reloaded/i);
+	});
 });

@@ -170,6 +170,7 @@ export function UnifiedPackagesSection() {
 	const operations = usePackageOperations("global", undefined, catalog.refresh);
 	const toggle = useAddonToggle(catalog.features, catalog.refresh);
 	const [updatesAvailable, setUpdatesAvailable] = useState<Set<string>>(new Set());
+	const [updateCheckDone, setUpdateCheckDone] = useState(false);
 	const [checkingUpdates, setCheckingUpdates] = useState(false);
 	const [readmePkg, setReadmePkg] = useState<NpmPackageResult | null>(null);
 	const [movePickerSource, setMovePickerSource] = useState<string | null>(null);
@@ -237,7 +238,10 @@ export function UnifiedPackagesSection() {
 					body: "{}",
 				});
 				const body = await res.json();
-				if (body.success) setUpdatesAvailable(new Set(body.data.map((u: { source: string }) => u.source)));
+				if (body.success) {
+					setUpdatesAvailable(new Set(body.data.map((u: { source: string }) => u.source)));
+					setUpdateCheckDone(true);
+				}
 			} catch {
 				/* swallow — next poll retries */
 			}
@@ -689,6 +693,7 @@ export function UnifiedPackagesSection() {
 					<AddonsUpdatesTab
 						features={catalog.features}
 						updates={updatesAvailable}
+						checked={updateCheckDone}
 						corePackages={hideCoreGroup ? [] : corePackages}
 						statusFor={operations.statusFor}
 						coreSource={piCoreSource}

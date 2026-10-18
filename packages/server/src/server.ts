@@ -3030,6 +3030,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     knownDirectories: () => directoryService.knownDirectories(),
     lookupNpm: (name) => fetchPackageMeta(name),
     setPluginsEnabled,
+    // Fastify here runs with logger:false, so its log would drop every toggle line.
+    log: { info: (m) => console.log(m), warn: (m) => console.warn(m), error: (m) => console.error(m) },
   });
   registerProviderRoutes(fastify, { networkGuard, piGateway, browserGateway, port: config.port });
 

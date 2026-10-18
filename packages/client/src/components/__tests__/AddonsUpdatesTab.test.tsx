@@ -52,4 +52,23 @@ describe("AddonsUpdatesTab", () => {
 		);
 		expect(screen.getByTestId("addons-updates-empty")).toBeTruthy();
 	});
+
+	it("does not claim everything is up to date before the first update check completes", () => {
+		render(
+			<AddonsUpdatesTab
+				features={[feature("pkg:npm:a", { packages: [part("npm:a")] })]}
+				updates={new Set()}
+				checked={false}
+				corePackages={[]}
+				statusFor={() => "idle"}
+				coreSource={(n) => n}
+				onUpdatePart={vi.fn()}
+				onUpdateCore={vi.fn()}
+				renderPartRow={() => null}
+				renderCoreRow={() => null}
+			/>,
+		);
+		expect(screen.queryByTestId("addons-updates-empty")).toBeNull();
+		expect(screen.getByTestId("addons-updates-pending")).toBeTruthy();
+	});
 });
