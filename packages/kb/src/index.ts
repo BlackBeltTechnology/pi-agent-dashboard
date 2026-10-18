@@ -13,7 +13,7 @@ export type { FacetKeyConfig, FmValue, ParsedFrontmatter, PropertyRow } from "./
 export { buildMeta, buildProperties, DEFAULT_FACET_KEYS, DEFAULT_SEARCHABLE_KEYS, parseFrontmatter, strictDate, strictNumber } from "./frontmatter.js";
 export type { ForgeAdapter, ForgeItem, ForgePage, GitKind, GitResult, GitScopeDeps, GitScopeOptions } from "./git-scope/index.js";
 export { createGitScope, GitScope } from "./git-scope/index.js";
-export { sourceGateIsStale, stampPass, stampSource } from "./index-gate.js";
+export { beginForcedSource, runningEngine, sourceGateIsStale, stampPass, stampSource } from "./index-gate.js";
 export type { AtomicIndexSource, InstallDeps, InstallResult, RunIndexAtomicOpts } from "./index-run.js";
 export { BUILDING_LINE, installIndex, isFirstIndexLive, makeHeartbeat, runIndexAtomic, sweepOrphanTemps } from "./index-run.js";
 export type { IndexOptions, IndexSource, IndexStats } from "./indexer.js";
@@ -24,6 +24,8 @@ export type { RenderOpts } from "./render.js";
 export { renderHits } from "./render.js";
 export type { SearchOptsOverrides } from "./search-opts.js";
 export { searchOptsFromConfig } from "./search-opts.js";
+export type { MainCheckout, SeedOptions, SeedSkipReason } from "./seed.js";
+export { findMainCheckout, seedOptionsFromConfig } from "./seed.js";
 export type { KbSourceKind, ResolveCtx, ResolvedSource, SourceResolver } from "./sources.js";
 export { classifyRef, KbUntrustedSourceError, resolveAll, resolverFor, sourceIdentity } from "./sources.js";
 export { SCHEMA_VERSION, SqliteFtsStore } from "./sqlite-store.js";

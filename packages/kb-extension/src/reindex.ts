@@ -12,6 +12,7 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import {
   type AckRecord,
   agentsChain,
+  beginForcedSource,
   indexOptionsFromConfig,
   indexSource,
   isFirstIndexLive,
@@ -22,6 +23,7 @@ import {
   runIndexAtomic,
   SqliteFtsStore,
   STALENESS_VERSION,
+  seedOptionsFromConfig,
   sourceGateIsStale,
   stalenessVersionOnDisk,
   stampPass,
@@ -244,7 +246,7 @@ async function buildFirstIndex(state: ReindexState, cwd: string): Promise<Reinde
   const sources = cfg.resolvedSources.map((s) => ({ id: s.id, dir: s.dir }));
   // Nothing indexable on disk: a completed (empty) pass; no file is created.
   const r = sources.some((s) => existsSync(s.dir))
-    ? await runIndexAtomic({ dbPath: cfg.dbAbsPath, sources, indexOpts: indexOptionsFromConfig(cfg), gate: cfg, log: warnInstallFailure })
+    ? await runIndexAtomic({ dbPath: cfg.dbAbsPath, sources, indexOpts: indexOptionsFromConfig(cfg), gate: cfg, log: warnInstallFailure, seed: seedOptionsFromConfig(cfg) })
     : { changed: 0, chunks: 0 };
   if (existsSync(cwd)) state.completed.add(cwd);
   return { changed: r.changed, chunks: r.chunks };
@@ -260,7 +262,7 @@ async function reindexExisting(state: ReindexState, cwd: string, kb: { store: Sq
   for (const s of cfg.resolvedSources) {
     try {
       const force = sourceGateIsStale(store, cfg, s.id);
-      const st = await indexSource(store, { root: s.id, dir: s.dir }, indexOptionsFromConfig(cfg, { force }));
+      const st = await indexSource(store, { root: s.id, dir: s.dir }, indexOptionsFromConfig(cfg, { force, onFirstBatch: force ? beginForcedSource(store, s.id) : undefined }));
       if (!st.missing) stampSource(store, cfg, s.id);
       changed += st.changed; chunks += st.chunks;
     } catch (e) {

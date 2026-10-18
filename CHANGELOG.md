@@ -12,6 +12,15 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Added
 
+- **A new git worktree's kb index starts from the main checkout's index.** The first docs
+  index in a linked worktree copies a consistent snapshot of the main checkout's index and
+  re-chunks only the files that differ (4 s instead of ~100 s on this repository), then
+  produces the same result as a cold first index. A source is reused only when the main
+  checkout recorded the same schema version, index options and kb engine for it. Each first
+  index prints `[kb] seed=<main> sources=<n>/<m>` or `[kb] seed-skipped=<reason>` on stderr.
+  Opt out with `seedFromMainWorktree: false` in `knowledge_base.json` or `kb index --no-seed`.
+  Every source now records the kb engine that produced its rows, so the first pass after
+  upgrading re-chunks each source once.
 - **`shell-headless` plugin slot.** A react-only slot mounted once at shell level, independent of
   layout, selection and session count, for zero-UI plugin-wide hooks such as message
   subscriptions. Claims take no props and must not declare `predicate`/`shouldRender` (the

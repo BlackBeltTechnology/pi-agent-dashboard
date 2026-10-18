@@ -18,8 +18,9 @@ import { existsSync, linkSync, readdirSync, renameSync, statSync, unlinkSync, ut
 import { basename, dirname, join } from "node:path";
 import * as sqlite from "node:sqlite";
 import type { IndexGateConfig } from "./config.js";
-import { sourceGateIsStale, stampPass, stampSource } from "./index-gate.js";
+import { beginForcedSource, sourceGateIsStale, stampPass, stampSource } from "./index-gate.js";
 import { type IndexOptions, type IndexStats, indexSource } from "./indexer.js";
+import { acceptSeed, copyStaleness, dropUnwalked, prepareSeed, type SeedOptions, type SeedPrep } from "./seed.js";
 import { SCHEMA_VERSION, SqliteFtsStore } from "./sqlite-store.js";
 
 type StoreCounts = ReturnType<SqliteFtsStore["counts"]>;
@@ -56,6 +57,11 @@ export interface RunIndexAtomicOpts {
   gate?: IndexGateConfig;
   /** Install log sink (default: stderr). */
   log?: (line: string) => void;
+  /** First-index seeding from the main checkout of a linked worktree (absent = no seeding, no
+   *  seed log line). Built by `seedOptionsFromConfig`. See change: add-kb-worktree-seed. */
+  seed?: SeedOptions;
+  /** Sink of the one `[kb] seed=…` / `[kb] seed-skipped=…` line per first index (default: stderr). */
+  seedLog?: (line: string) => void;
   /** Test seams. */
   install?: Partial<InstallDeps>;
   heartbeat?: HeartbeatDeps;
@@ -297,12 +303,92 @@ function legacyGateStale(store: SqliteFtsStore, facetConfigHash: string | undefi
   return ver < SCHEMA_VERSION || (facetConfigHash != null && storedHash !== facetConfigHash);
 }
 
+/** A failure between the snapshot and the install of a SEEDED build: the seed is abandoned and the
+ *  first index reruns once without it. */
+class SeededBuildError extends Error {
+  readonly original: unknown;
+  constructor(original: unknown) {
+    super(original instanceof Error ? original.message : String(original));
+    this.original = original;
+  }
+}
+
 export async function runIndexAtomic(opts: RunIndexAtomicOpts): Promise<IndexStats & { counts: StoreCounts }> {
-  const { dbPath, sources, indexOpts } = opts;
+  const { dbPath, sources } = opts;
   assertIndexable(sources, opts.explicit);
 
   sweepOrphanTemps(dbPath);
   const preexisting = existsSync(dbPath);
+  if (preexisting || !opts.seed) return build(opts, preexisting, null);
+
+  const tmp = `${dbPath}.tmp-${process.pid}`;
+  const seedLog = opts.seedLog ?? ((line: string) => process.stderr.write(`${line}\n`));
+  // A seed needs the per-source gate (acceptance reads its records); `force` rebuilds every file anyway.
+  const prep: SeedPrep =
+    opts.gate && !opts.indexOpts?.force ? prepareSeed(opts.seed, tmp, isFirstIndexLive) : { ok: false, reason: "disabled" };
+  if (!prep.ok) {
+    const r = await build(opts, false, null);
+    seedLog(`[kb] seed-skipped=${prep.reason}`);
+    return r;
+  }
+  try {
+    return await build(opts, false, prep);
+  } catch (e) {
+    if (!(e instanceof SeededBuildError)) throw e;
+    // build() already discarded the seeded temp; a failure of this rerun is a plain first-index failure.
+    const r = await build(opts, false, null);
+    seedLog("[kb] seed-skipped=snapshot-error");
+    return r;
+  }
+}
+
+/** Index one source, forcing it per the gate; a completed non-missing walk stamps the source. */
+async function walkOne(store: SqliteFtsStore, opts: RunIndexAtomicOpts, s: AtomicIndexSource, preexisting: boolean, legacyStale: boolean, heartbeat: (() => void) | undefined): Promise<IndexStats> {
+  const { indexOpts, gate } = opts;
+  const force = !!indexOpts?.force || legacyStale || (!!gate && preexisting && sourceGateIsStale(store, gate, s.id));
+  // A forced pass clears the source's engine record inside its first batch; `stampSource` rewrites it.
+  const onFirstBatch = force && gate ? beginForcedSource(store, s.id) : undefined;
+  const st = await indexSource(store, { root: s.id, dir: s.dir }, { ...indexOpts, force, heartbeat, onFirstBatch });
+  // A skipped (missing) source is not stamped, so it stays due.
+  if (gate && !st.missing) stampSource(store, gate, s.id);
+  return st;
+}
+
+/** Walk every source into `store`; for a seeded build first accept the snapshot's matching sources
+ *  and afterwards drop the ones whose walk reported them missing. Returns the totals and the roots
+ *  whose seeded rows are kept. */
+async function walkSources(
+  store: SqliteFtsStore,
+  opts: RunIndexAtomicOpts,
+  preexisting: boolean,
+  legacyStale: boolean,
+  heartbeat: (() => void) | undefined,
+  seeded: boolean,
+): Promise<{ total: IndexStats; keptRoots: string[] }> {
+  const { sources } = opts;
+  const total: IndexStats = { scanned: 0, changed: 0, deleted: 0, chunks: 0, parseFailures: 0 };
+  let keptRoots = seeded && opts.gate ? acceptSeed(store, opts.gate, sources.map((s) => s.id)) : [];
+  const missing: string[] = [];
+  for (const s of sources) {
+    const st = await walkOne(store, opts, s, preexisting, legacyStale, heartbeat);
+    if (st.missing) missing.push(s.id);
+    total.scanned += st.scanned;
+    total.changed += st.changed;
+    total.deleted += st.deleted;
+    total.chunks += st.chunks;
+    total.parseFailures = (total.parseFailures ?? 0) + (st.parseFailures ?? 0);
+  }
+  if (seeded) {
+    dropUnwalked(store, missing);
+    keptRoots = keptRoots.filter((r) => !missing.includes(r));
+  }
+  return { total, keptRoots };
+}
+
+/** One build: in place over an existing `dbPath`, or a first index into `<dbPath>.tmp-<pid>`
+ *  (seeded when `prep` is set) installed on success. */
+async function build(opts: RunIndexAtomicOpts, preexisting: boolean, prep: Extract<SeedPrep, { ok: true }> | null): Promise<IndexStats & { counts: StoreCounts }> {
+  const { dbPath, sources } = opts;
   const target = preexisting ? dbPath : `${dbPath}.tmp-${process.pid}`;
 
   const store = new SqliteFtsStore(target);
@@ -311,17 +397,11 @@ export async function runIndexAtomic(opts: RunIndexAtomicOpts): Promise<IndexSta
   const heartbeat = preexisting ? undefined : makeHeartbeat(target, opts.heartbeat);
   let ok = false;
   try {
-    const total: IndexStats = { scanned: 0, changed: 0, deleted: 0, chunks: 0, parseFailures: 0 };
-    for (const s of sources) {
-      const force = !!indexOpts?.force || legacyStale || (!!opts.gate && preexisting && sourceGateIsStale(store, opts.gate, s.id));
-      const st = await indexSource(store, { root: s.id, dir: s.dir }, { ...indexOpts, force, heartbeat });
-      // A skipped (missing) source is not stamped, so it stays due.
-      if (opts.gate && !st.missing) stampSource(store, opts.gate, s.id);
-      total.scanned += st.scanned;
-      total.changed += st.changed;
-      total.deleted += st.deleted;
-      total.chunks += st.chunks;
-      total.parseFailures = (total.parseFailures ?? 0) + (st.parseFailures ?? 0);
+    let walked: Awaited<ReturnType<typeof walkSources>>;
+    try {
+      walked = await walkSources(store, opts, preexisting, legacyStale, heartbeat, prep !== null);
+    } catch (e) {
+      throw prep ? new SeededBuildError(e) : e;
     }
     // Read counts from the still-open store so callers never need a second
     // openStore() connection just to report them (keeps `index` off openStore).
@@ -334,7 +414,12 @@ export async function runIndexAtomic(opts: RunIndexAtomicOpts): Promise<IndexSta
       await installIndex(target, dbPath, { log: opts.log, ...opts.install });
     }
     ok = true;
-    return { ...total, counts };
+    if (prep && opts.seed) {
+      const seedLog = opts.seedLog ?? ((line: string) => process.stderr.write(`${line}\n`));
+      seedLog(`[kb] seed=${prep.main} sources=${walked.keptRoots.length}/${sources.length}`);
+      copyStaleness(prep.main, prep.cwdRel, opts.seed.cwd, seedLog);
+    }
+    return { ...walked.total, counts };
   } finally {
     if (!ok) discardFailedRun(store, preexisting);
   }

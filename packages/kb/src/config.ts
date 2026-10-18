@@ -135,6 +135,8 @@ export interface KbConfig {
   rerank: RerankConfig;
   queryExpansion: QueryExpansionConfig;
   git: GitConfig;
+  /** Seed a linked worktree's first index from the main checkout's index (default true). */
+  seedFromMainWorktree: boolean;
   dbPath: string;
 }
 
@@ -217,6 +219,7 @@ export const DEFAULTS: KbConfig = {
       gitea: { tokenEnv: "GITEA_TOKEN" },
     },
   },
+  seedFromMainWorktree: true,
   dbPath: ".pi/dashboard/kb/index.db",
 };
 
@@ -311,6 +314,7 @@ export function validateConfig(c: Partial<KbConfig>, origin = "config"): KbConfi
   }
   if (typeof merged.maxFileCount !== "number" && merged.maxFileCount !== null) throw err("maxFileCount must be a number or null");
   if (typeof merged.dbPath !== "string" || !merged.dbPath) throw err("dbPath must be a non-empty string");
+  if (typeof merged.seedFromMainWorktree !== "boolean") throw err("seedFromMainWorktree must be a boolean");
   if (!/^(off|prf|synonym|agent)$/.test(merged.queryExpansion.mode)) throw err(`queryExpansion.mode "${merged.queryExpansion.mode}" unknown`);
   const gm = merged.readDiscipline?.guard?.mode;
   if (gm !== undefined && !/^(off|warn|block)$/.test(gm)) throw err(`readDiscipline.guard.mode "${gm}" unknown (off | warn | block)`);

@@ -3495,6 +3495,50 @@ Details: `docs/architecture.md` §Sources, trust & dashboard reindex.
 
 See change: improve-kb-settings-sources-and-search.
 
+## Why is a new worktree's kb index fast / how do I disable seeding?
+
+First kb index in linked git worktree seeds from main checkout snapshot. Measured this repo: ~4 s seeded vs ~104 s cold. Result equals cold first index.
+
+Mechanics:
+
+- `VACUUM INTO` main `dbPath` (same relative path) → worktree DB.
+- Normal walk then re-chunks only differing files. Files compared by content, not mtime.
+- Main checkout resolved per git rules (repo-local `core.worktree`, bare check). Needs git ≥ 2.31.
+- Main DB never written.
+
+Source reuse gate. Source reused only when main recorded:
+
+- same schema version.
+- same index-options hash.
+- same kb engine fingerprint (`engine:<root>` in `kb_meta`, from `packages/kb/engine-fingerprint.json` `srcHash`).
+
+Else that source builds from scratch.
+
+Upgrade:
+
+- First pass after kb upgrade re-chunks every source once (engine record absent).
+- Until main finishes that pass, worktree seeds 0 sources.
+
+Log. Every first index prints ONE stderr line:
+
+- `[kb] seed=<main> sources=<kept>/<passed>`
+- `[kb] seed-skipped=<reason>`
+
+Reasons, check order: `disabled`, `not-a-worktree`, `no-main-checkout`, `custom-dbpath`, `main-building`, `no-main-index`, `snapshot-error`.
+
+Disable:
+
+- Config `.pi/dashboard/knowledge_base.json`: `seedFromMainWorktree: false` (default `true`).
+- Or `kb index --no-seed`.
+- Explicit `--source` / `--db`, or `dbPath` outside worktree → also skip seeding.
+
+Failure:
+
+- Seed failure never fails run.
+- Rerun indexes once unseeded (`snapshot-error`).
+
+Side effect: main's `dox-staleness.json` copied once when worktree has none (legacy or v2 format).
+
 ## How do I connect Claude Code / Cursor to the dashboard MCP?
 
 Connect external MCP client via HTTP transport with bearer authentication.
