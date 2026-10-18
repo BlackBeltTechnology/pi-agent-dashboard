@@ -17,8 +17,8 @@
 
 | Launch path | Node | Source |
 |---|---|---|
-| Electron, packaged | bundled `BUNDLED_NODE_VERSION` v24.15.0 | `packages/electron/scripts/_node-version.sh:17` |
-| Electron, no bundled Node (dev / localLink / overlay) | Electron's own executable with `ELECTRON_RUN_AS_NODE=1`, embedded Node **24.18.1** (checked with `ELECTRON_RUN_AS_NODE=1 electron -p process.versions.node`, electron 43.4.1) | `packages/electron/src/lib/pick-node.ts:46-63`, `launch-source.ts:501` |
+| Electron, packaged | bundled `BUNDLED_NODE_VERSION` v24.22.0 | `packages/electron/scripts/_node-version.sh:17` |
+| Electron, no bundled Node (dev / localLink / overlay) | Electron's own executable with `ELECTRON_RUN_AS_NODE=1`, embedded Node **24.22.0** (checked with `ELECTRON_RUN_AS_NODE=1 electron -p process.versions.node`, electron 44.9.0) | `packages/electron/src/lib/pick-node.ts:46-63`, `launch-source.ts:501` |
 | `pi-dashboard` CLI | the user's Node (`process.execPath` of the wrapper; the guard runs in `cmdStart` before any spawn) | `packages/server/bin/pi-dashboard.mjs:188` |
 | Bridge auto-start | **pi's** Node: `launchDashboardServer` defaults `nodeBin` to `process.execPath` (`packages/shared/src/server-launcher.ts:232`); the bridge passes none (`packages/extension/src/server-launcher.ts:162`) | — |
 
@@ -125,7 +125,7 @@ flowchart TD
   refuses them.
 - The floor `26.0.0` admits early 26.x releases that were not individually probed; one boot check
   on `26.0.0` is tasked.
-- With Electron 43 (embedded Node 24.18.1) the Electron-executable rung never qualifies; it is
+- With Electron 44 (embedded Node 24.22.0) the Electron-executable rung never qualifies; it is
   kept so a future Electron that embeds Node 26 needs no spec change.
 - Loader tiers for Node 23.x stay in code but are unreachable through the server; removing them is
   a follow-up, not this change.
