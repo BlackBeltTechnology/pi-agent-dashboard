@@ -5,7 +5,7 @@
  * no daemon is touched. Pattern: test-up-oversubscribe-guard.test.mjs.
  */
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { isAlive, makeSandbox, readState, spawnSleeper, TEST_DOWN, TEST_UP, waitDead } from "./harness-recorder-helpers.mjs";
@@ -124,10 +124,13 @@ describe("faults: capture is best-effort (decision L2)", () => {
     expect(readState(sb.ws)).not.toHaveProperty("recorderPid");
   });
 
-  it("(X6) read-only $TMPDIR → boot proceeds, exactly one warning, no recorder left", () => {
+  it("(X6) uncreatable $TMPDIR/pi-dash-test → boot proceeds, exactly one warning, no recorder left", () => {
     sb = makeSandbox();
-    chmodSync(sb.tmpdir, 0o555);
-    const r = up();
+    // A regular FILE where the dir must go: mkdir -p fails even for root (CI runs
+    // as root, where chmod 555 would not block the write).
+    const blocker = path.join(sb.tmpdir, "not-a-dir");
+    writeFileSync(blocker, "x");
+    const r = up({ TMPDIR: `${blocker}/` });
     expect(r.status).toBe(0);
     expect(sb.dockerCalls().some((c) => c.startsWith("compose") && / up( |$)/.test(c))).toBe(true);
     const warnings = r.stderr.split("\n").filter((l) => l.startsWith("harness-audit:"));

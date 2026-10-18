@@ -24,6 +24,8 @@
  *     clean nightlies, then flipped in a separate change.
  *
  * Pattern: packages/shared/src/__tests__/nightly-workflow-contract.test.ts.
+ *
+ * @structural-pin the variant-leg cross-check reads playwright.config.ts to assert its testIgnore ownership matches the legs that exist; config text is the contract
  */
 import fs from "node:fs";
 import path from "node:path";
