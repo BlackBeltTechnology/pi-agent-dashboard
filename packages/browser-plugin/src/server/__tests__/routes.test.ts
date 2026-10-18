@@ -444,3 +444,100 @@ describe("PUT /api/browser/profile", () => {
     expect(h.updateConfig).not.toHaveBeenCalled();
   });
 });
+
+// Real-socket connect timeout behaviour (change: fix-browser-relay-pane-input, test-plan #X1–#X5).
+// 150 ms stands in for the production 10 s `connectionTimeout`.
+describe("POST /api/browser/connect over a real socket (#X1–#X5)", () => {
+  const SLOW_MS = 450;
+  let port = 0;
+  let socket: { timeout?: number } | undefined;
+  let setTimeoutCalls: number[] = [];
+  let timeoutDuring: number | undefined;
+
+  async function start(): Promise<void> {
+    await h.app.close();
+    h = await harness({ connectionTimeout: 150 });
+    socket = undefined;
+    timeoutDuring = undefined;
+    setTimeoutCalls = [];
+    h.app.server.on("request", (req) => {
+      socket = req.socket;
+      const orig = req.socket.setTimeout.bind(req.socket);
+      req.socket.setTimeout = ((ms: number, ...rest: unknown[]) => {
+        setTimeoutCalls.push(ms);
+        return (orig as (...a: unknown[]) => unknown)(ms, ...rest);
+      }) as typeof req.socket.setTimeout;
+    });
+    await h.app.listen({ port: 0, host: "127.0.0.1" });
+    port = (h.app.server.address() as { port: number }).port;
+  }
+  /** Stub `connect`: records the socket timeout while pending, resolves after SLOW_MS. */
+  function slow(result: ConnectResult): void {
+    h.manager.connect = async (p: string) => {
+      h.manager.connectCalls.push(p);
+      timeoutDuring = socket?.timeout;
+      await new Promise((r) => setTimeout(r, SLOW_MS));
+      return result;
+    };
+  }
+  const post = (body: unknown, signal?: AbortSignal) =>
+    fetch(`http://127.0.0.1:${port}/api/browser/connect`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+      signal,
+    });
+
+  it("#X1 a handshake slower than the idle timeout still delivers cdpUrl + instanceId", async () => {
+    await start();
+    slow({ ok: true, cdpUrl: "ws://127.0.0.1:1/ws/browser-cdp/late", instanceId: "inst-late" });
+    const res = await post({ profileDirectory: "Default" });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ cdpUrl: "ws://127.0.0.1:1/ws/browser-cdp/late", instanceId: "inst-late" });
+  });
+
+  it("#X2 a slow 504 is still delivered", async () => {
+    await start();
+    slow({ ok: false, status: 504 } as ConnectResult);
+    const res = await post({ profileDirectory: "Default" });
+    expect(res.status).toBe(504);
+  });
+
+  it("#X3 the socket timeout is 0 during the await and restored after the response", async () => {
+    await start();
+    slow({ ok: true, cdpUrl: "ws://127.0.0.1:1/x", instanceId: "i" });
+    const res = await post({ profileDirectory: "Default" });
+    await res.arrayBuffer();
+    expect(timeoutDuring).toBe(0);
+    await vi.waitFor(() => expect(socket?.timeout).toBe(150));
+  });
+
+  it("#X4 validation failures leave the socket timeout untouched", async () => {
+    await start();
+    h.manager.enabled = false;
+    expect((await post({ profileDirectory: "Default" })).status).toBe(403);
+    h.manager.enabled = true;
+    expect((await post({})).status).toBe(400);
+    expect(setTimeoutCalls).not.toContain(0);
+  });
+
+  it("#X5 a client abort mid-handshake neither re-runs connect nor wedges the server", async () => {
+    await start();
+    slow({ ok: true, cdpUrl: "ws://127.0.0.1:1/x", instanceId: "i" });
+    const unhandled = vi.fn();
+    process.on("unhandledRejection", unhandled);
+    try {
+      const ac = new AbortController();
+      const pending = post({ profileDirectory: "Default" }, ac.signal).catch((e: unknown) => e);
+      setTimeout(() => ac.abort(), 200);
+      expect(await pending).toBeInstanceOf(Error);
+      await new Promise((r) => setTimeout(r, SLOW_MS + 100)); // let the stub settle
+      expect(h.manager.connectCalls).toEqual(["Default"]);
+      const status = await fetch(`http://127.0.0.1:${port}/api/browser/status`);
+      expect(status.status).toBe(200);
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      process.off("unhandledRejection", unhandled);
+    }
+  });
+});
