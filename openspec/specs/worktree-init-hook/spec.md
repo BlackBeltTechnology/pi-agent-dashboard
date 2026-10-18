@@ -3,7 +3,9 @@
 ## Purpose
 
 Project-declared, gated initialization hook (`.pi/settings.json#worktreeInit`). Bash `gate` (exit 0 = needs init) + `run` spec (`script` | detached `agent`). TOFU trust keyed by `repoRoot + hash(def)`. Cached gate evaluation. Applies uniformly to new worktrees and the primary checkout.
+
 ## Requirements
+
 ### Requirement: Project-declared worktree-init hook
 
 A project MAY declare a single worktree-init hook in `.pi/settings.json` under the key `worktreeInit`. The hook shape SHALL be:
@@ -44,7 +46,7 @@ The same evaluation SHALL be used for a freshly created worktree and for the pri
 
 Because the gate is repo-declared bash, the server SHALL NOT evaluate it until the hook is trusted (TOFU). Init-status for an untrusted hook SHALL report hook presence without running the gate, and `needsInit` SHALL be unknown until trust is recorded. This closes a trust-boundary hole where merely viewing a directory would execute repo-declared code.
 
-A gate sentinel that guards a generated asset which can exist while empty — notably the kb index database, whose file is written the instant the store opens (`CREATE TABLE IF NOT EXISTS`) — SHALL be coherent. Coherence is achieved at the *producer*: when `kb index` guarantees no committed file at `dbPath` on failure (see `markdown-knowledge-base` › "kb index is atomic on failure"), a file at `dbPath` reflects a successful run and `test ! -f <index.db>` is a coherent sentinel. The gate SHALL NOT probe non-emptiness as a coherence mechanism: a *legitimately* empty index (0 chunks from a source set with no markdown) is a valid, fully-initialized index and is indistinguishable from — and MUST NOT be conflated with — a failure husk. The husk is eliminated at the source (atomicity), so a present index — empty or populated — SHALL NOT be treated as needing init.
+A gate sentinel that guards a generated asset which can exist while empty — notably the kb index database, whose file is written the instant the store opens (`CREATE TABLE IF NOT EXISTS`) — SHALL be coherent. Coherence is achieved at the *producer*: when `kb index` guarantees no committed file at `dbPath` on failure (see `markdown-knowledge-base` › "kb index is atomic on failure"), a file at `dbPath` reflects a successful run and `test ! -f <index.db>` is a coherent sentinel. The one stated exception — a failed run that leaves `dbPath` as the database a writer which does not honour the live-build marker created during the build — leaves a database that writer is populating; the sentinel SHALL treat it as present, and the failed run SHALL still be reported as a failed init run. The gate SHALL NOT probe non-emptiness as a coherence mechanism: a *legitimately* empty index (0 chunks from a source set with no markdown) is a valid, fully-initialized index and is indistinguishable from — and MUST NOT be conflated with — a failure husk. The husk is eliminated at the source (atomicity), so a present index — empty or populated — SHALL NOT be treated as needing init.
 
 #### Scenario: Untrusted hook does not run the gate
 
@@ -81,6 +83,13 @@ A gate sentinel that guards a generated asset which can exist while empty — no
 - **GIVEN** a checkout whose configured sources contain no markdown
 - **WHEN** a successful `kb index` leaves a present, valid 0-chunk `index.db`
 - **THEN** the gate `test ! -f index.db` SHALL exit non-zero (no init) — the empty index is a valid successful result, not a husk, and SHALL NOT re-fire the run
+
+#### Scenario: Install-exception database counts as present
+
+- **GIVEN** a worktree-init run whose `kb index` failed under the stated exception, leaving `dbPath` as another kb writer's database
+- **WHEN** the gate is evaluated afterwards
+- **THEN** the kb index sentinel reports the index as present
+- **AND** the init run that failed was reported as failed when it ended
 
 ### Requirement: Gate evaluation is cached and invalidated on run
 
@@ -355,6 +364,7 @@ repository and SHALL be unaffected by this requirement.
 - **AND** a child directory `P/child` that is not a git repository and has no `P/child/.pi/settings.json`
 - **WHEN** `resolveConfigRoot("P/child")` is called
 - **THEN** it SHALL return `null` (it SHALL NOT inherit `P`'s settings)
+
 ### Requirement: Init endpoints read a hook in a non-git directory
 
 The init-status and init endpoints SHALL report a declared hook for a non-git
@@ -533,4 +543,3 @@ Detection is out of scope for this change: no server code SHALL emit `setupOutda
 - **WHEN** init-status is returned
 - **THEN** the trust state SHALL be reported as revoked
 - **AND** `setupOutdated` SHALL NOT be set as a consequence of the hash change
-
