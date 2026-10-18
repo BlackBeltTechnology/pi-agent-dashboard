@@ -289,6 +289,7 @@ describe("idle strip debounce (#F1–#F6, change: fix-browser-relay-pane-input)"
 		emitStatus(r, status([{ tabId: 1, state: "no-frames" }]));
 		advance(2000);
 		r.unmount();
+		expect(vi.getTimerCount()).toBe(0); // the idle timer was cleared, not left to fire
 		advance(5000);
 		expect(err).not.toHaveBeenCalled();
 	});

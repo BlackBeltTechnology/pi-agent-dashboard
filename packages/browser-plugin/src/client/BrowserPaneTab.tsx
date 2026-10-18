@@ -54,7 +54,7 @@ const RESIZE_DEAD_BAND_PX = 16;
 /** The idle strip shows only after the tab stayed `no-frames` this long (a static page stops repainting). */
 const IDLE_NOTICE_DELAY_MS = 5000;
 
-/** A position normalized to `[0,1]` of the rendered box; `null` for a degenerate box. */
+/** A position normalized to `[0,1]` of the given rect (the rendered image); `null` for a degenerate box. */
 function normalize(rect: { left: number; top: number; width: number; height: number }, x: number, y: number) {
   if (rect.width <= 0 || rect.height <= 0) return null;
   return { x: (x - rect.left) / rect.width, y: (y - rect.top) / rect.height };
