@@ -71,4 +71,11 @@ Approved by the user in session on 2026-10-18 via `ask_user`, all eight with no 
 
 ## After capture
 
-_Empty until implementation; capture each state × 3 themes × 3 widths from the docker harness, every probe list empty._
+`mockups/after/<surface>/` — 44 states (15 plugin bodies + host chrome) × 3 themes (base dark, base light, nord dark) × 3 widths (375 / 768 / 1440) = 396 captures from the docker harness with `RETRO_UX_CAPTURE=1` (`tests/e2e/retro-ux-plugin-settings-wave-2.spec.ts`, 21 passed). Every contrast, size, focus and overflow list is empty (`E36`); `E37`–`E39`, `F7`, `F8` pass in the same run.
+
+Replica-vs-capture differences:
+- States are reached by `page.route` stubs of each plugin's REST/config routes (`tests/e2e/fixtures/retro-ux/plugin-*.ts`); real provisioning flows stay manual (`F10`).
+- Pills, items, facts and tables come from the runtime kit, not the board's HTML; sizes are the same 11 / 12 / 14 px steps (pills inside an interactive summary step up to 12 px automatically).
+- Collapsible item actions sit at the top of the item body, not in the summary (a control inside a `role=button` summary is a nested interactive element — design D9).
+- Probe-driven one-line fixes outside the board: `plugin-row-parts.tsx` copy/install buttons 11 → 12 px; browser "Recommended" pill inside the group summary marked interactive.
+- Host chrome "disabled" state needs both the row and the persisted `config.plugins.<id>.enabled` patched (the client seeds `enabled` from config).

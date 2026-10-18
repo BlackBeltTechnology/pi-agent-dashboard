@@ -95,13 +95,13 @@ One row per file.
 | `folder-actions-menu.spec.ts` | Playwright spec. Folder actions menu… → see `folder-actions-menu.spec.ts.AGENTS.md` |
 | `folder-collapse-persistence.spec.ts` | L3 folder collapse persistence. → see `folder-collapse-persistence.spec.ts.AGENTS.md` |
 | `folder-collapse-seek.spec.ts` | L3 `persist-folder-collapse-server-side` #F5… → see `folder-collapse-seek.spec.ts.AGENTS.md` |
-| `folder-collapse-worktree.spec.ts` | L3 persist-folder-collapse-server-side #F4/#F7. → see `folder-collapse-worktree.spec.ts.AGENTS.md` |
-| `folder-membership-drag.spec.ts` | L3 for `drag-folders-across-workspaces` (test-plan… → see `folder-membership-drag.spec.ts.AGENTS.md` |
-| `followup-image-queue.spec.ts` | L3 for `fix-bridge-followup-image-drop` (test-plan #F1… → see `followup-image-queue.spec.ts.AGENTS.md` |
+| `folder-collapse-worktree.spec.ts` | L3 persist-folder-collapse-server-side #F4… → see `folder-collapse-worktree.spec.ts.AGENTS.md` |
+| `folder-membership-drag.spec.ts` | L3 for `drag-folders-across-workspaces` (t… → see `folder-membership-drag.spec.ts.AGENTS.md` |
+| `followup-image-queue.spec.ts` | L3 for `fix-bridge-followup-image-drop` (t… → see `followup-image-queue.spec.ts.AGENTS.md` |
 | `gateway-board-mobile.spec.ts` | 6.8/6.9 board at 375. → see `gateway-board-mobile.spec.ts.AGENTS.md` |
 | `gateway-origin-surfaces.spec.ts` | L3 for the transport/identity CLIENT surface… → see `gateway-origin-surfaces.spec.ts.AGENTS.md` |
 | `gateway-primary-offer.spec.ts` | F7/F8 primary offer. → see `gateway-primary-offer.spec.ts.AGENTS.md` |
-| `gateway-qr-selector.spec.ts` | Browser E2E for the Gateway single-QR network selector… → see `gateway-qr-selector.spec.ts.AGENTS.md` |
+| `gateway-qr-selector.spec.ts` | Browser E2E for the Gateway single-QR netw… → see `gateway-qr-selector.spec.ts.AGENTS.md` |
 | `gateway-readiness-board.spec.ts` | F1–F6, F9 board. → see `gateway-readiness-board.spec.ts.AGENTS.md` |
 | `gateway-reserved-name.spec.ts` | Setup step 3. → see `gateway-reserved-name.spec.ts.AGENTS.md` |
 | `gateway-url-action.spec.ts` | L3 spec (change: config-override-oauth-redirect-base… → see `gateway-url-action.spec.ts.AGENTS.md` |
@@ -112,12 +112,12 @@ One row per file.
 | `host-gate-allow.spec.ts` | L3 for the Host-gate operator flow (test-plan #F9/#F10… → see `host-gate-allow.spec.ts.AGENTS.md` |
 | `host-pressure-badge.spec.ts` | L3 for `fix-false-unresponsive-badge` (#F3, #F4).… → see `host-pressure-badge.spec.ts.AGENTS.md` |
 | `history-backfill-gap.spec.ts` | → see `history-backfill-gap.spec.ts.AGENTS.md` |
-| `history-backfill-perf.spec.ts` | L3 P1/P2 for `fix-lazy-history-backfill-ux`, metric… → see `history-backfill-perf.spec.ts.AGENTS.md` |
+| `history-backfill-perf.spec.ts` | L3 P1/P2 for `fix-lazy-history-backfill-ux… → see `history-backfill-perf.spec.ts.AGENTS.md` |
 | `inline-screenshot.spec.ts` | Playwright E2E for inline agent screenshot artifacts… → see `inline-screenshot.spec.ts.AGENTS.md` |
 | `inline-terminal-transcript.spec.ts` | L3 inline-terminal transcript → see `inline-terminal-transcript.spec.ts.AGENTS.md` |
 | `kb-folder-slot.spec.ts` | Playwright spec. KB folder slot end-to-end in Docker… → see `kb-folder-slot.spec.ts.AGENTS.md` |
 | `lan-knock.spec.ts` | LAN knock L3 (F10–F14). → see `lan-knock.spec.ts.AGENTS.md` |
-| `large-session-replay.spec.ts` | L3 wire-level gate for `compact-warm-replay-stream`… → see `large-session-replay.spec.ts.AGENTS.md` |
+| `large-session-replay.spec.ts` | L3 wire-level gate for `compact-warm-repla… → see `large-session-replay.spec.ts.AGENTS.md` |
 | `lazy-feature-bootstrap.spec.ts` | L3 cold-landing gate (F1, P1). → see `lazy-feature-bootstrap.spec.ts.AGENTS.md` |
 | `lazy-mdi-icon-set.spec.ts` | L3 lazy MDI icon set (P1, F2). → see `lazy-mdi-icon-set.spec.ts.AGENTS.md` |
 | `lifecycle.ts` | Shared E2E lifecycle module. Port dynamic: probes free… → see `lifecycle.ts.AGENTS.md` |
@@ -143,7 +143,7 @@ One row per file.
 | `openspec-board-worktree-availability.spec.ts` | → see `openspec-board-worktree-availability.spec.ts.AGENTS.md` |
 | `openspec-connect-coverage.spec.ts` | → see `openspec-connect-coverage.spec.ts.AGENTS.md` |
 | `openspec-init-affordances-folder.spec.ts` | L3 folder-section slice. → see `openspec-init-affordances-folder.spec.ts.AGENTS.md` |
-| `openspec-lifecycle-bar.spec.ts` | L3 compact-openspec-lifecycle-bar: board segment… → see `openspec-lifecycle-bar.spec.ts.AGENTS.md` |
+| `openspec-lifecycle-bar.spec.ts` | L3 compact-openspec-lifecycle-bar: board s… → see `openspec-lifecycle-bar.spec.ts.AGENTS.md` |
 | `openspec-locality-gate.spec.ts` | L3 spec (change: scope-openspec-auto-att… → see `openspec-locality-gate.spec.ts.AGENTS.md` |
 | `openspec-status-all.spec.ts` | → see `openspec-status-all.spec.ts.AGENTS.md` |
 | `optimistic-prompt.spec.ts` | Playwright E2E for optimistic-prompt-progress. Two faux… → see `optimistic-prompt.spec.ts.AGENTS.md` |
@@ -163,7 +163,7 @@ One row per file.
 | `pi-runtime.spec.ts` | L3 spec: version-neutral pi runtime verification vault… → see `pi-runtime.spec.ts.AGENTS.md` |
 | `pi-runtime-picker.spec.ts` | L3 spec for the Settings → Deve… → see `pi-runtime-picker.spec.ts.AGENTS.md` |
 | `plugin-hash-parity.spec.ts` | L3 F3: clientBuild matched; banner hidden. → see `plugin-hash-parity.spec.ts.AGENTS.md` |
-| `plugin-settings-pages.spec.ts` | L3 spec (test-plan rows F1-F14, X1-X5, X7; change… → see `plugin-settings-pages.spec.ts.AGENTS.md` |
+| `plugin-settings-pages.spec.ts` | L3 spec (test-plan rows F1-F14, X1-X5, X7… → see `plugin-settings-pages.spec.ts.AGENTS.md` |
 | `popover-container-clip.spec.ts` | Browser E2E gate for `fix-popover-container-… → see `popover-container-clip.spec.ts.AGENTS.md` |
 | `pi-trust-mirror.spec.ts` | L3 pi trust mirror. → see `pi-trust-mirror.spec.ts.AGENTS.md` |
 | `project-trust-headless-spawn.spec.ts` | L3 spec (test-plan #X4… → see `project-trust-headless-spawn.spec.ts.AGENTS.md` |
@@ -172,6 +172,7 @@ One row per file.
 | `retro-ux-identity-connectivity.spec.ts` | L3 retro-ux probes. → see `retro-ux-identity-connectivity.spec.ts.AGENTS.md` |
 | `retro-ux-model-selector.spec.ts` | L3 retro-ux model selector. → see `retro-ux-model-selector.spec.ts.AGENTS.md` |
 | `retro-ux-plugin-settings-forms.spec.ts` | L3 E24. → see `retro-ux-plugin-settings-forms.spec.ts.AGENTS.md` |
+| `retro-ux-plugin-settings-wave-2.spec.ts` | L3 E36–E39, F7, F8. → see `retro-ux-plugin-settings-wave-2.spec.ts.AGENTS.md` |
 | `real-flow-regression.spec.ts` | L3 opt-in real-flow regression. → see `real-flow-regression.spec.ts.AGENTS.md` |
 | `reap-core.ts` | Pure, side-effect-free reap logic, unit-tested at L1 in → see `reap-core.ts.AGENTS.md` |
 | `reasoning-auto-collapse.spec.ts` | Playwright E2E for reasoning-auto-collap… → see `reasoning-auto-collapse.spec.ts.AGENTS.md` |
@@ -188,7 +189,7 @@ One row per file.
 | `replay-in-flight-pill.spec.ts` | Playwright spec. → see `replay-in-flight-pill.spec.ts.AGENTS.md` |
 | `replay-truncate.spec.ts` | → see `replay-truncate.spec.ts.AGENTS.md` |
 | `resource-activation-trust.spec.ts` | L3 spec (change: project-scope-disable… → see `resource-activation-trust.spec.ts.AGENTS.md` |
-| `resource-scope-routes.spec.ts` | S-25 scope × path decision table: the 10 resource… → see `resource-scope-routes.spec.ts.AGENTS.md` |
+| `resource-scope-routes.spec.ts` | S-25 scope × path decision table: the 10 r… → see `resource-scope-routes.spec.ts.AGENTS.md` |
 | `route-backed-overlay.spec.ts` | Route-backed overlay contract: S-12/S-12… → see `route-backed-overlay.spec.ts.AGENTS.md` |
 | `scroll-to-top.spec.ts` | Browser E2E gate for `fix-chat-scroll-to… → see `scroll-to-top.spec.ts.AGENTS.md` |
 | `services-settings.spec.ts` | → see `services-settings.spec.ts.AGENTS.md` |
@@ -245,7 +246,7 @@ One row per file.
 | `vault-request-access.spec.ts` | L3 Vault callout Request access link (F3). → see `vault-request-access.spec.ts.AGENTS.md` |
 | `worktree-grouping-survives-remove.spec.ts` | L3 fix-worktree-grouping-l… → see `worktree-grouping-survives-remove.spec.ts.AGENTS.md` |
 | `worktree-init-feedback.spec.ts` | Playwright E2E for friendly worktree-init fe… → see `worktree-init-feedback.spec.ts.AGENTS.md` |
-| `yolo-indicator-layout.spec.ts` | L3 YOLO bar tint + composer strip layout (single line, row height, floor, hu >= zh-CN, 18-combo contrast,… → see `yolo-indicator-layout.spec.ts.AGENTS.md` |
+| `yolo-indicator-layout.spec.ts` | L3 YOLO bar tint + composer strip layout… → see `yolo-indicator-layout.spec.ts.AGENTS.md` |
 | `zrok-v2-tunnel.spec.ts` | L3 zrok v2 F1–F3. → see `zrok-v2-tunnel.spec.ts.AGENTS.md` |
 | `mcp-session-token.spec.ts` | L3 MCP session token (wire-mcp-session-token). → see `mcp-session-token.spec.ts.AGENTS.md` |
 | `mcp-builtin-registration.spec.ts` | L3 built-in MCP registration. → see `mcp-builtin-registration.spec.ts.AGENTS.md` |
