@@ -645,6 +645,7 @@ describe("POST /api/openspec/workflow-schema (add-pi-spec-driven-schema)", () =>
     expect(res.statusCode).toBe(403);
     expect(fake.calls).toHaveLength(0);
 
+    /** @structural-pin MCP manifest coverage: the route row must exist in the static tools.manifest.ts table (#X3) */
     const manifest = nodeFs.readFileSync(
       path.resolve(__dirname, "../../../mcp-server-plugin/src/server/tools.manifest.ts"),
       "utf8",

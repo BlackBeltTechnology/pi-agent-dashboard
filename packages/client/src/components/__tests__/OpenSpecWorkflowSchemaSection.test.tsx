@@ -74,7 +74,7 @@ beforeEach(() => {
         );
       }
       if (url.includes("/api/openspec/workflow-schema")) {
-        if (schemaGate) await schemaGate;
+        if (schemaGate !== null) await schemaGate;
         return new Response(JSON.stringify(schemaResponse.body), { status: schemaResponse.status });
       }
       return new Response(JSON.stringify({ success: true, data: {} }), { status: 200 });
