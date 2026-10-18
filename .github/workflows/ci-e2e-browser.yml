@@ -308,7 +308,7 @@ jobs:
       # package.json is a peer-compat floor, not a test pin). Pinned literal is
       # lint-checked against the Dockerfile.
       - name: Install pi CLI
-        run: npm i -g @earendil-works/pi-coding-agent@1.1.0
+        run: npm i -g @earendil-works/pi-coding-agent@1.3.0
 
       # Explicit build steps: pnpm does not run `pre*` scripts by default, so
       # relying on `pretest:*` would silently run against a missing build.
@@ -367,7 +367,7 @@ jobs:
       # package.json is a peer-compat floor, not a test pin). Pinned literal is
       # lint-checked against the Dockerfile.
       - name: Install pi CLI
-        run: npm i -g @earendil-works/pi-coding-agent@1.1.0
+        run: npm i -g @earendil-works/pi-coding-agent@1.3.0
 
       # Explicit build steps: pnpm does not run `pre*` scripts by default, so
       # relying on `pretest:*` would silently run against a missing build.

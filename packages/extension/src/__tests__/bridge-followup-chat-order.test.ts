@@ -3,12 +3,12 @@
  *
  * Applies to BOTH drain boundaries:
  *   - Steer drain at `turn_end`     (Enter while streaming)
- *   - Follow-up drain at `agent_end` (Alt+Enter while streaming)
+ *   - Follow-up drain at `agent_settled` (Alt+Enter while streaming)
  *
  * Pi emits four events synchronously back-to-back at the drain boundary:
  *
  *   1. message_end   (assistant — the final response of the just-completed turn)
- *   2. turn_end OR agent_end (the drain boundary)
+ *   2. turn_end OR agent_settled (the drain boundary)
  *   3. message_start (user — the drained steer or follow-up text, e.g. "asd")
  *   4. message_end   (user — same text)
  *
@@ -28,7 +28,8 @@
  * sync and depend on the reducer having seen `message_start` first (to
  * reset `streamingTextFlushed`).
  *
- * See change: add-followup-edit-and-steer-cancel (chat-order scenario).
+ * See changes: add-followup-edit-and-steer-cancel (chat-order scenario),
+ * update-pi-core-1-3-adopt-apis (the follow-up drain boundary is agent_settled).
  */
 
 import { describe, it, expect } from "vitest";
@@ -68,13 +69,13 @@ class BridgeSim {
     }, 0);
   }
 
-  onAgentEnd(): void {
+  onAgentSettled(): void {
     // Sent sync.
-    this.wire.push({ eventType: "agent_end" });
+    this.wire.push({ eventType: "agent_settled" });
   }
 
   onTurnEnd(): void {
-    // Sent sync (mirrors agent_end).
+    // Sent sync (mirrors agent_settled).
     this.wire.push({ eventType: "turn_end" });
   }
 
@@ -90,13 +91,13 @@ describe("Bridge drained-followup chat-order invariant", () => {
   it("user message_start for drained follow-up lands AFTER preceding assistant message_end", async () => {
     const sim = new BridgeSim();
 
-    // Pi's sync emit order at agent_end with a queued follow-up:
+    // Pi's sync emit order at agent_settled with a queued follow-up:
     //   1. assistant message_end (the weather report)
-    //   2. agent_end
+    //   2. agent_settled
     //   3. user message_start ("asd" — the drained follow-up)
     //   4. user message_end ("asd")
     sim.onMessageEnd("assistant", "weather report");
-    sim.onAgentEnd();
+    sim.onAgentSettled();
     sim.onMessageStart("user", "asd");
     sim.onMessageEnd("user", "asd");
 
@@ -104,12 +105,12 @@ describe("Bridge drained-followup chat-order invariant", () => {
 
     const types = sim.wire.map((e) => `${e.eventType}:${e.role ?? "-"}`);
     // Expected wire order after the fix:
-    //   1. agent_end                 (sync, fires first)
+    //   1. agent_settled             (sync, fires first)
     //   2. assistant message_end     (deferred, FIFO #1)
     //   3. user message_start        (deferred, FIFO #2 — after the fix)
     //   4. user message_end          (deferred, FIFO #3)
     expect(types).toEqual([
-      "agent_end:-",
+      "agent_settled:-",
       "message_end:assistant",
       "message_start:user",
       "message_end:user",
@@ -141,7 +142,7 @@ describe("Bridge drained-followup chat-order invariant", () => {
 
     // Pi delivers two queued follow-ups in order ["a", "b"].
     sim.onMessageEnd("assistant", "final");
-    sim.onAgentEnd();
+    sim.onAgentSettled();
     sim.onMessageStart("user", "a");
     sim.onMessageEnd("user", "a");
     sim.onMessageStart("user", "b");
@@ -150,12 +151,12 @@ describe("Bridge drained-followup chat-order invariant", () => {
     await sim.flush();
 
     const summary = sim.wire.map((e) =>
-      e.eventType === "agent_end"
-        ? "agent_end"
+      e.eventType === "agent_settled"
+        ? "agent_settled"
         : `${e.eventType}:${e.role}:${e.content}`
     );
     expect(summary).toEqual([
-      "agent_end",
+      "agent_settled",
       "message_end:assistant:final",
       "message_start:user:a",
       "message_end:user:a",
@@ -173,7 +174,7 @@ describe("Bridge drained-followup chat-order invariant", () => {
     //   3. user message_start ("asd" — the drained steer)
     //   4. user message_end ("asd")
     // (Identical to the follow-up case but the drain boundary is turn_end
-    // instead of agent_end. The fix is uniform: defer USER message_start.)
+    // instead of agent_settled. The fix is uniform: defer USER message_start.)
     sim.onMessageEnd("assistant", "weather report");
     sim.onTurnEnd();
     sim.onMessageStart("user", "asd");

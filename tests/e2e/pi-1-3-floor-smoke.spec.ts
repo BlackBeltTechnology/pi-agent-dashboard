@@ -1,13 +1,13 @@
 import { expect, test } from "./fixtures.js";
 import { sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 
-// L3 — docker smoke on the 1.1.0 lockstep floor.
+// L3 — docker smoke on the 1.3.0 lockstep floor.
 //
-// change: update-pi-core-1-1-adopt-apis (test-plan #F3).
+// change: update-pi-core-1-3-adopt-apis (test-plan #X4; originally update-pi-core-1-1-adopt-apis #F3).
 //
 // The harness image installs `@earendil-works/pi-coding-agent@<docker/Dockerfile
 // pin>`, so this spec proves the whole floor move end to end: a session spawns
-// and registers on pi 1.1.0, `/api/health` reports that pi as the running one
+// and registers on pi 1.3.0, `/api/health` reports that pi as the running one
 // (no below-floor error), and a faux `read` tool call completes with a visible
 // duration on its row.
 //
@@ -15,9 +15,9 @@ import { sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 // `.pi-test-harness.json#dashboardPort` (see fixtures.ts / global-setup.ts).
 // Scenario args: qa/fixtures/faux-scenarios.ts → toolScenario("read", { path }).
 const READ_PATH = "src/example.ts";
-const FLOOR = "1.1.0";
+const FLOOR = "1.3.0";
 
-test.describe("pi 1.1.0 floor smoke", () => {
+test.describe("pi 1.3.0 floor smoke", () => {
   test.beforeEach(async ({ page }) => {
     // The container seeds NO display prefs; without toolCalls/toolResults no tool
     // group renders. Send a COMPLETE prefs object (see enhance-tool-call-grouping).
@@ -31,14 +31,14 @@ test.describe("pi 1.1.0 floor smoke", () => {
     expect(res.ok()).toBeTruthy();
   });
 
-  test("session registers on pi 1.1.0, health reports it, the tool row shows a duration", async ({ page }) => {
+  test("session registers on pi 1.3.0, health reports it, the tool row shows a duration", async ({ page }) => {
     const card = await spawnFreshGitSession(page);
     await card.click();
 
     await sendPrompt(page, "[[faux:tool-read]] go");
     await expect(page.getByText(READ_PATH).first()).toBeVisible({ timeout: 30_000 });
 
-    // /api/health: the running pi is the 1.1.0 floor and nothing is flagged.
+    // /api/health: the running pi is the 1.3.0 floor and nothing is flagged.
     await expect
       .poll(
         async () => {

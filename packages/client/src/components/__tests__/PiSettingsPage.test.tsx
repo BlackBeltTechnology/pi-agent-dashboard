@@ -173,6 +173,21 @@ describe("PiSettingsPage", () => {
       expect(r.getByTestId("pi-settings-changed-steeringMode").textContent).toMatch(/Changed/);
     });
 
+    // test-plan #E9 — pi 1.3.0 key. See change: update-pi-core-1-3-adopt-apis.
+    it("E9 sessionShareDestination renders in Sessions and context as an auto/gist/radius control showing pi's default", async () => {
+      const r = await mount();
+      const row = r.getByTestId("pi-settings-row-sessionShareDestination");
+      expect(r.getByTestId("pi-settings-category-sessions").contains(row)).toBe(true);
+      expect(r.getByTestId("pi-settings-category-sessions").querySelector("h3")?.textContent).toContain("Sessions and context");
+      const def = r.getByTestId("pi-settings-field-sessionShareDestination-default");
+      expect(def.textContent).toMatch(/Default \(auto\)/);
+      expect(def.getAttribute("aria-checked")).toBe("true");
+      for (const v of ["auto", "gist", "radius"]) {
+        expect(r.getByTestId(`pi-settings-field-sessionShareDestination-${v}`)).toBeTruthy();
+      }
+      expect(r.queryByTestId("pi-settings-changed-sessionShareDestination")).toBeNull();
+    });
+
     it("F3 a range error shows inline, blocks Save and keeps the page dirty", async () => {
       const r = await mount();
       setText(r, "autocompleteMaxVisible", "25");

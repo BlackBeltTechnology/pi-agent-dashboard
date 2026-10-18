@@ -158,7 +158,7 @@ export interface BridgeInstance {
   bridgeFollowUp: ReturnType<typeof createFollowupBuffer>;
   emitQueueUpdate: () => void;
   sendCommandFeedback: (command: string, message: string) => void;
-  drainFollowupQueue: (retryCount?: number) => void;
+  drainFollowupQueue: () => void;
   enqueueSystemFollowup: (text: string) => void;
   extractUserMessageText: (message: any) => string;
   sendSyntheticRetryEvent: (eventType: string, data: Record<string, unknown>) => void;

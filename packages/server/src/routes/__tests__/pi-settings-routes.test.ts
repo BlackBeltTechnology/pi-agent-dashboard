@@ -137,6 +137,32 @@ describe("pi-settings routes", () => {
       expect(res.json().errors[0].field).toBe("compaction.reserveTokens");
     });
 
+    // test-plan #E6 — pi 1.3.0 key. See change: update-pi-core-1-3-adopt-apis.
+    it("E6 sessionShareDestination: each enum value is written verbatim, null deletes it, other keys untouched", async () => {
+      const others = { steeringMode: "all", compaction: { enabled: false }, extra: [1, 2] };
+      seed(others);
+      for (const value of ["auto", "gist", "radius"]) {
+        const res = await typed({ sessionShareDestination: value }, (await get()).etag);
+        expect(res.statusCode).toBe(200);
+        expect(JSON.parse(onDisk())).toEqual({ ...others, sessionShareDestination: value });
+      }
+      const res = await typed({ sessionShareDestination: null }, (await get()).etag);
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(onDisk())).toEqual(others);
+    });
+
+    // test-plan #E7
+    it("E7 sessionShareDestination: an invalid value is a 400 field error and the file is byte-identical", async () => {
+      seed({ steeringMode: "all" });
+      const before = onDisk();
+      for (const bad of ["s3", true]) {
+        const res = await typed({ sessionShareDestination: bad }, (await get()).etag);
+        expect(res.statusCode).toBe(400);
+        expect(res.json().errors.map((e: { field: string }) => e.field)).toContain("sessionShareDestination");
+        expect(onDisk()).toBe(before);
+      }
+    });
+
     it("missing baseEtag → 400", async () => {
       const res = await app.inject({ method: "PUT", url: "/api/pi-settings", payload: { patch: {} } });
       expect(res.statusCode).toBe(400);

@@ -137,6 +137,7 @@ export const PI_SETTINGS_SCHEMA: readonly PiSettingDef[] = [
   intKey("compaction.keepRecentTokens", 20000, "sessions", "Compaction keep-recent tokens", "Recent tokens retained without summarization"),
   intKey("branchSummary.reserveTokens", 16384, "sessions", "Branch summary reserve tokens", "Tokens reserved when summarizing branch history"),
   bool("branchSummary.skipPrompt", false, "sessions", "Skip branch summary prompt", "Skip the branch-summary prompt and default to no summary"),
+  enumKey("sessionShareDestination", ["auto", "gist", "radius"], "auto", "sessions", "Share destination", "Where /share publishes a session: auto uses Radius when authenticated, else a GitHub gist; radius never falls back to a gist"),
 
   // Terminal and display
   {
