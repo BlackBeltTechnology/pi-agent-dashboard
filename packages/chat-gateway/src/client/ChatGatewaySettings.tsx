@@ -3,19 +3,36 @@
  *
  * Edits the gateway config through the canonical partial-write lane
  * (`plugin_config_write` → `POST /api/config/plugins/chat-gateway`), which
- * shallow-merges: the TOKEN is writeOnly and omitted from the read-back, so a
- * blank token field keeps the stored secret rather than erasing it.
+ * shallow-merges. The page buffers its edits into the host Save bar (draft
+ * source `plugin:chat-gateway`, no Save button of its own) and commits ONLY the
+ * keys the operator edited, so a key it does not own is never overwritten by a
+ * stale snapshot.
+ *
+ * The bot TOKEN is write-only: the draft holds just a "replace token" string,
+ * cleared after a commit / Discard / reset, never sent blank, never echoed from
+ * the server, and scrubbed out of every error text and "Copy details" payload.
  *
  * The bindings table is read-only and fetched from the plugin's own
  * `/api/chat-gateway/bindings` route (registered only when configured).
  *
- * See change: add-chat-gateway.
+ * See change: add-chat-gateway, retro-ux-plugin-settings-wave-2.
  */
 
+import {
+  SelectField,
+  SettingsGroup,
+  SettingsNotice,
+  SettingsStatusPill,
+  SettingsTable,
+  TextAreaField,
+  TextField,
+  ToggleField,
+  useSettingsDraftSource,
+} from "@blackbelt-technology/dashboard-plugin-runtime";
 import { usePluginConfig, usePluginSend } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import type { SlotProps } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-props.js";
 import type React from "react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { Binding, ChatGatewayConfig } from "../shared/types.js";
 import { TeamControlsPanel } from "./team-controls-panel.js";
 
@@ -23,6 +40,24 @@ interface BindingsResponse {
   bindings: Binding[];
   status: { running: boolean; boundChannels: number; pendingSpawns: number };
 }
+
+/** Editable form values, kept as the strings the operator types. */
+interface Draft {
+  enabled: boolean;
+  threadPerConversation: boolean;
+  mirrorDashboardSessions: boolean;
+  allowedRoots: string;
+  defaultCwd: string;
+  fixedMap: string;
+  allowlist: string;
+  admins: string;
+  groupChannels: string;
+  steerPrefix: string;
+  sessionVisibility: "hidden" | "shown";
+}
+
+const INVALID_FIELDS = "Fix the invalid fields before saving.";
+const SAVE_FAILED = "Couldn't save these settings. Your changes are still here.";
 
 function parseList(value: string): string[] {
   return value
@@ -44,56 +79,62 @@ function formatFixedMap(map: Record<string, string>): string {
     .join("\n");
 }
 
+/** Split one `channelKey=cwd` line on its first `=`; `null` when malformed. */
+function splitMapLine(line: string): [string, string] | null {
+  const trimmed = line.trim();
+  const eq = trimmed.indexOf("=");
+  if (eq <= 0) return null;
+  const key = trimmed.slice(0, eq).trim();
+  const cwd = trimmed.slice(eq + 1).trim();
+  return key.length > 0 && cwd.length > 0 ? [key, cwd] : null;
+}
+
 /** `channelKey=cwd` per line; the first `=` splits (cwd paths may contain none). */
 function parseFixedMap(value: string): Record<string, string> {
   const out: Record<string, string> = {};
   for (const line of value.split("\n")) {
-    const trimmed = line.trim();
-    if (trimmed.length === 0) continue;
-    const eq = trimmed.indexOf("=");
-    if (eq <= 0) continue;
-    const key = trimmed.slice(0, eq).trim();
-    const cwd = trimmed.slice(eq + 1).trim();
-    if (key.length > 0 && cwd.length > 0) out[key] = cwd;
+    const pair = splitMapLine(line);
+    if (pair) out[pair[0]] = pair[1];
   }
   return out;
 }
 
-export function ChatGatewaySettings(_props: SlotProps<"settings-section">): React.ReactElement {
-  const config = usePluginConfig<ChatGatewayConfig>();
-  const send = usePluginSend();
+/** 1-based numbers of the non-blank lines that are not `channelKey=folder`. */
+function badMapLines(value: string): number[] {
+  const bad: number[] = [];
+  value.split("\n").forEach((line, i) => {
+    if (line.trim().length > 0 && !splitMapLine(line)) bad.push(i + 1);
+  });
+  return bad;
+}
 
-  const [enabled, setEnabled] = useState(config?.enabled ?? true);
-  const [threadPerConversation, setThreadPerConversation] = useState(
-    config?.threadPerConversation ?? true,
-  );
-  const [mirrorDashboardSessions, setMirrorDashboardSessions] = useState(
-    config?.mirrorDashboardSessions ?? false,
-  );
-  const [token, setToken] = useState("");
-  const [allowedRoots, setAllowedRoots] = useState("");
-  const [defaultCwd, setDefaultCwd] = useState("");
-  const [fixedMap, setFixedMap] = useState("");
-  const [allowlist, setAllowlist] = useState("");
-  const [admins, setAdmins] = useState("");
-  const [groupChannels, setGroupChannels] = useState("");
-  const [steerPrefix, setSteerPrefix] = useState(config?.steerPrefix ?? "!");
-  const [sessionVisibility, setSessionVisibility] = useState<"hidden" | "shown">(
-    config?.sessionVisibility ?? "hidden",
-  );
+function mapLineError(bad: number[]): string | null {
+  if (bad.length === 0) return null;
+  return bad.length === 1
+    ? `Line ${bad[0]} is not in the form channelKey=folder, so it would be dropped.`
+    : `Lines ${bad.join(", ")} are not in the form channelKey=folder, so they would be dropped.`;
+}
 
-  const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
-  const [bindings, setBindings] = useState<BindingsResponse | null>(null);
+/**
+ * Remove every spelling of a secret (raw, trimmed, JSON-escaped, URL-encoded)
+ * from text that may be shown or copied. A server error can echo the request.
+ */
+function scrubSecret(text: string, secret: string): string {
+  const spellings = new Set<string>();
+  for (const s of [secret, secret.trim()]) {
+    if (s.length === 0) continue;
+    spellings.add(s);
+    spellings.add(JSON.stringify(s).slice(1, -1));
+    spellings.add(encodeURIComponent(s));
+  }
+  let out = text;
+  for (const s of [...spellings].sort((a, b) => b.length - a.length)) out = out.split(s).join("[token hidden]");
+  return out;
+}
 
-  // Once the user edits a field, stop mirroring late-hydrating config for THAT
-  // field only, so their typing is never clobbered while the other fields still
-  // fill in. A successful save clears the set and re-mirrors everything. A
-  // single global flag would leave untouched fields at their defaults and the
-  // next save would erase the hydrated values.
-  const dirtyFields = useRef<Set<string>>(new Set());
-
-  const saved = {
+/** The saved config as editable form values (defaults mirror the server's). */
+function savedDraft(config: ChatGatewayConfig | undefined): Draft {
+  return {
     enabled: config?.enabled ?? true,
     threadPerConversation: config?.threadPerConversation ?? true,
     mirrorDashboardSessions: config?.mirrorDashboardSessions ?? false,
@@ -106,24 +147,88 @@ export function ChatGatewaySettings(_props: SlotProps<"settings-section">): Reac
     steerPrefix: config?.steerPrefix ?? "!",
     sessionVisibility: config?.sessionVisibility ?? "hidden",
   };
+}
 
-  const savedKey = JSON.stringify(saved);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: mirror on the serialized snapshot only.
-  useEffect(() => {
-    const d = dirtyFields.current;
-    if (!d.has("enabled")) setEnabled(saved.enabled);
-    if (!d.has("threadPerConversation")) setThreadPerConversation(saved.threadPerConversation);
-    if (!d.has("mirrorDashboardSessions")) setMirrorDashboardSessions(saved.mirrorDashboardSessions);
-    if (!d.has("allowedRoots")) setAllowedRoots(saved.allowedRoots);
-    if (!d.has("defaultCwd")) setDefaultCwd(saved.defaultCwd);
-    if (!d.has("fixedMap")) setFixedMap(saved.fixedMap);
-    if (!d.has("allowlist")) setAllowlist(saved.allowlist);
-    if (!d.has("admins")) setAdmins(saved.admins);
-    if (!d.has("groupChannels")) setGroupChannels(saved.groupChannels);
-    if (!d.has("steerPrefix")) setSteerPrefix(saved.steerPrefix);
-    if (!d.has("sessionVisibility")) setSessionVisibility(saved.sessionVisibility);
-  }, [savedKey]);
+/** Header pill: Not set up (no gateway route yet) · Paused · Running · Not running. */
+function GatewayStatus({ bindings, enabled }: { bindings: BindingsResponse | null; enabled: boolean }): React.ReactElement {
+  if (!bindings) {
+    return (
+      <SettingsStatusPill tone="neutral" status="not-set-up" testId="chat-gateway-status">
+        Not set up · add a bot token
+      </SettingsStatusPill>
+    );
+  }
+  if (!enabled) {
+    return (
+      <SettingsStatusPill tone="neutral" icon={null} status="paused" testId="chat-gateway-status">
+        Paused
+      </SettingsStatusPill>
+    );
+  }
+  return bindings.status.running ? (
+    <SettingsStatusPill tone="success" status="running" testId="chat-gateway-status">
+      Running
+    </SettingsStatusPill>
+  ) : (
+    <SettingsStatusPill tone="warning" status="not-running" testId="chat-gateway-status">
+      Not running
+    </SettingsStatusPill>
+  );
+}
 
+const WIRE: { [K in keyof Draft]: (v: Draft[K]) => unknown } = {
+  enabled: (v) => v,
+  threadPerConversation: (v) => v,
+  mirrorDashboardSessions: (v) => v,
+  allowedRoots: parseLines,
+  defaultCwd: (v) => v,
+  fixedMap: parseFixedMap,
+  allowlist: parseList,
+  admins: parseList,
+  groupChannels: parseList,
+  steerPrefix: (v) => v,
+  sessionVisibility: (v) => v,
+};
+
+export function ChatGatewaySettings(_props: SlotProps<"settings-section">): React.ReactElement {
+  const config = usePluginConfig<ChatGatewayConfig>();
+  const send = usePluginSend();
+
+  const saved = savedDraft(config);
+
+  // Only the EDITED keys live in `draft`; every other field shows the saved
+  // value, so a clean page adopts a `plugin_config_update` broadcast and a dirty
+  // page keeps its edited keys while the rest adopt it.
+  const [draft, setDraft] = useState<Partial<Draft>>({});
+  // Write-only secret: the typed replacement only, never seeded from the server.
+  const [token, setToken] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<{ details: string } | null>(null);
+  const [bindings, setBindings] = useState<BindingsResponse | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  const value: Draft = { ...saved, ...draft };
+  const editedKeys = (Object.keys(draft) as Array<keyof Draft>).filter((k) => draft[k] !== saved[k]);
+  const tokenTyped = token.trim().length > 0;
+  const isDirty = editedKeys.length > 0 || tokenTyped;
+
+  const mapError = mapLineError(badMapLines(value.fixedMap));
+  const noAllowedFolders = parseLines(value.allowedRoots).length === 0;
+
+  function edit<K extends keyof Draft>(key: K) {
+    return (v: Draft[K]) => {
+      setNotice(null);
+      setDraft((d) => {
+        const next = { ...d };
+        if (v === saved[key]) delete next[key];
+        else next[key] = v;
+        return next;
+      });
+    };
+  }
+
+  // `refreshKey` re-reads the bindings after a successful commit.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refetch trigger only.
   useEffect(() => {
     let cancelled = false;
     void (async () => {
@@ -139,245 +244,232 @@ export function ChatGatewaySettings(_props: SlotProps<"settings-section">): Reac
     return () => {
       cancelled = true;
     };
-  }, [notice]);
+  }, [refreshKey]);
 
-  function markDirty<T>(field: string, setter: (v: T) => void) {
-    return (value: T) => {
-      dirtyFields.current.add(field);
-      setter(value);
-      setNotice(null);
-    };
-  }
-
-  async function save(): Promise<void> {
+  async function commit(): Promise<void> {
+    if (mapError) throw new Error(INVALID_FIELDS);
+    const partial: Record<string, unknown> = {};
+    for (const key of editedKeys) partial[key] = (WIRE[key] as (v: unknown) => unknown)(value[key]);
+    // A blank token means "keep the stored secret" — never send it, so a save
+    // cannot erase the token by omission-through-the-form.
+    if (tokenTyped) partial.token = token.trim();
+    if (Object.keys(partial).length === 0) return;
     setBusy(true);
-    setNotice(null);
     try {
-      const partial: Record<string, unknown> = {
-        enabled,
-        threadPerConversation,
-        mirrorDashboardSessions,
-        allowedRoots: parseLines(allowedRoots),
-        defaultCwd,
-        fixedMap: parseFixedMap(fixedMap),
-        allowlist: parseList(allowlist),
-        admins: parseList(admins),
-        groupChannels: parseList(groupChannels),
-        steerPrefix,
-        sessionVisibility,
-      };
-      // A blank token means "keep the stored secret" — never send it, so a
-      // save cannot erase the token by omission-through-the-form.
-      if (token.trim().length > 0) partial.token = token.trim();
       await send({ type: "plugin_config_write", id: "chat-gateway", config: partial });
-      setToken("");
-      dirtyFields.current.clear();
-      setNotice({ kind: "ok", text: "Saved." });
     } catch (err) {
-      setNotice({ kind: "error", text: err instanceof Error ? err.message : String(err) });
+      const raw = err instanceof Error ? err.message : String(err);
+      setNotice({ details: scrubSecret(raw, token) });
+      // The host shows this message: a sentence, never the raw server text.
+      throw new Error(SAVE_FAILED);
     } finally {
       setBusy(false);
     }
+    setToken("");
+    setDraft({});
+    setNotice(null);
+    setRefreshKey((k) => k + 1);
   }
 
-  const field = "w-full px-2 py-1 rounded border border-[var(--border-secondary)] bg-[var(--bg-primary)] text-xs";
-  const label = "block text-[11px] text-[var(--text-secondary)] mb-0.5";
+  function reset(): void {
+    setToken("");
+    setDraft({});
+    setNotice(null);
+  }
 
+  useSettingsDraftSource({ id: "plugin:chat-gateway", isDirty, commit, reset });
+
+  const configured = bindings !== null;
   return (
     <div className="space-y-3" data-testid="chat-gateway-settings">
-      <p className="text-xs text-[var(--text-secondary)]">
-        Drive dashboard pi sessions from Discord. Inert until a bot token is set; every
-        new session's cwd must be inside <code>allowedRoots</code>.
-      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <GatewayStatus bindings={bindings} enabled={saved.enabled} />
+      </div>
+      <p className="text-xs text-[var(--text-secondary)]">Drive dashboard sessions from Discord.</p>
 
-      <label className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
-        <input
-          type="checkbox"
-          data-testid="chat-gateway-enabled"
-          checked={enabled}
-          onChange={(e) => markDirty("enabled", setEnabled)(e.target.checked)}
+      {notice && (
+        <SettingsNotice
+          tone="error"
+          testId="chat-gateway-notice"
+          onRetry={() => void commit().catch(() => {})}
+          retrying={busy}
+          details={notice.details}
+        >
+          {SAVE_FAILED}
+        </SettingsNotice>
+      )}
+
+      <SettingsGroup title="Discord connection" testId="chat-gateway-group-connection">
+        <ToggleField
+          label="Answer Discord messages"
+          hint="Turn off to pause the gateway without losing its settings."
+          value={value.enabled}
+          onChange={edit("enabled")}
+          testIds={{ control: "chat-gateway-enabled" }}
         />
-        Enabled
-      </label>
-
-      <label className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
-        <input
-          type="checkbox"
-          data-testid="chat-gateway-thread-per-conversation"
-          checked={threadPerConversation}
-          onChange={(e) => markDirty("threadPerConversation", setThreadPerConversation)(e.target.checked)}
-        />
-        One thread per conversation (new channel message → new thread + session)
-      </label>
-
-      <label className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
-        <input
-          type="checkbox"
-          data-testid="chat-gateway-mirror-dashboard-sessions"
-          checked={mirrorDashboardSessions}
-          onChange={(e) => markDirty("mirrorDashboardSessions", setMirrorDashboardSessions)(e.target.checked)}
-        />
-        Show dashboard sessions on Discord (one thread each; sends their activity to Discord)
-      </label>
-
-      <div>
-        <span className={label}>Discord bot token</span>
-        <input
+        <TextField
+          label="Bot token"
           type="password"
-          autoComplete="off"
-          data-testid="chat-gateway-token"
-          value={token}
-          placeholder="Leave blank to keep the current token"
-          onChange={(e) => markDirty("token", setToken)(e.target.value)}
-          className={field}
-        />
-      </div>
-
-      <div>
-        <span className={label}>allowedRoots (one path per line — mandatory)</span>
-        <textarea
-          data-testid="chat-gateway-allowed-roots"
-          value={allowedRoots}
-          rows={3}
-          onChange={(e) => markDirty("allowedRoots", setAllowedRoots)(e.target.value)}
-          className={field}
-        />
-      </div>
-
-      <div>
-        <span className={label}>Default cwd (still gated by allowedRoots)</span>
-        <input
-          data-testid="chat-gateway-default-cwd"
-          value={defaultCwd}
-          onChange={(e) => markDirty("defaultCwd", setDefaultCwd)(e.target.value)}
-          className={field}
-        />
-      </div>
-
-      <div>
-        <span className={label}>Fixed map — one <code>channelKey=cwd</code> per line</span>
-        <textarea
-          data-testid="chat-gateway-fixed-map"
-          value={fixedMap}
-          rows={3}
-          placeholder="discord:123456789:-=/repos/proj"
-          onChange={(e) => markDirty("fixedMap", setFixedMap)(e.target.value)}
-          className={field}
-        />
-      </div>
-
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-        <div>
-          <span className={label}>Allowlist (L1 users)</span>
-          <input
-            data-testid="chat-gateway-allowlist"
-            value={allowlist}
-            onChange={(e) => markDirty("allowlist", setAllowlist)(e.target.value)}
-            className={field}
-          />
-        </div>
-        <div>
-          <span className={label}>Admins (L2 bind)</span>
-          <input
-            data-testid="chat-gateway-admins"
-            value={admins}
-            onChange={(e) => markDirty("admins", setAdmins)(e.target.value)}
-            className={field}
-          />
-        </div>
-        <div>
-          <span className={label}>Group channels (L4 opt-in)</span>
-          <input
-            data-testid="chat-gateway-group-channels"
-            value={groupChannels}
-            onChange={(e) => markDirty("groupChannels", setGroupChannels)(e.target.value)}
-            className={field}
-          />
-        </div>
-      </div>
-
-      <div>
-        <span className={label}>Steer prefix (mid-turn override)</span>
-        <input
-          data-testid="chat-gateway-steer-prefix"
-          value={steerPrefix}
-          onChange={(e) => markDirty("steerPrefix", setSteerPrefix)(e.target.value)}
-          className={`${field} max-w-[8rem]`}
-        />
-      </div>
-
-      <label className="block">
-        <span className={label}>Chat sessions on the board</span>
-        <select
-          data-testid="chat-gateway-session-visibility"
-          value={sessionVisibility}
-          onChange={(e) =>
-            markDirty("sessionVisibility", setSessionVisibility)(e.target.value as "hidden" | "shown")
+          hint={
+            configured
+              ? "A token is saved. Paste a new one to replace it."
+              : "Create a bot in the Discord developer portal and paste its token. Without it the gateway does nothing."
           }
-          className={`${field} max-w-[16rem]`}
-        >
-          <option value="hidden">Hidden (show with "show hidden")</option>
-          <option value="shown">Shown</option>
-        </select>
-      </label>
+          placeholder={configured ? "•••••••• saved" : "Paste bot token"}
+          value={token}
+          onChange={(v) => {
+            setNotice(null);
+            setToken(v);
+          }}
+          testIds={{ control: "chat-gateway-token" }}
+        />
+      </SettingsGroup>
 
-      <div className="flex items-center gap-2">
-        <button
-          type="button"
-          data-testid="chat-gateway-save"
-          disabled={busy}
-          onClick={() => void save()}
-          className="px-2 py-1 rounded border border-[var(--border-secondary)] text-xs hover:bg-[var(--bg-secondary)] disabled:opacity-50"
-        >
-          Save
-        </button>
-        {notice && (
-          <span
-            data-testid="chat-gateway-notice"
-            className={`text-[11px] ${notice.kind === "ok" ? "text-[var(--text-secondary)]" : "text-[var(--danger-text,var(--text-secondary))]"}`}
-          >
-            {notice.text}
-          </span>
+      <SettingsGroup title="Where sessions run" testId="chat-gateway-group-where">
+        {noAllowedFolders && (
+          <SettingsNotice tone="warning" testId="chat-gateway-allowed-roots-warning">
+            No allowed folders yet, so no session can start. Add at least one folder.
+          </SettingsNotice>
         )}
-      </div>
+        <TextAreaField
+          label="Allowed folders"
+          hint="One folder per line. Every new session's folder must be inside one of these. Required."
+          placeholder="/Users/you/Projects"
+          rows={3}
+          mono
+          value={value.allowedRoots}
+          onChange={edit("allowedRoots")}
+          testIds={{ control: "chat-gateway-allowed-roots" }}
+        />
+        <TextField
+          label="Default folder"
+          hint="Used when a channel has no folder below. Must be inside an allowed folder."
+          placeholder="/Users/you/Projects/app"
+          mono
+          value={value.defaultCwd}
+          onChange={edit("defaultCwd")}
+          testIds={{ control: "chat-gateway-default-cwd" }}
+        />
+        <TextAreaField
+          label="Channel folders"
+          hint={
+            <>
+              One <code>channelKey=folder</code> per line. Pins a channel to a folder.
+            </>
+          }
+          placeholder="discord:123456789:-=/repos/proj"
+          rows={3}
+          mono
+          value={value.fixedMap}
+          onChange={edit("fixedMap")}
+          error={mapError}
+          testIds={{ control: "chat-gateway-fixed-map", error: "chat-gateway-fixed-map-error" }}
+        />
+      </SettingsGroup>
 
-      <div>
-        <span className={label}>Pairing (L1)</span>
-        <span data-testid="chat-gateway-pairing-hint" className="text-[11px] text-[var(--text-tertiary)]">
-          A DM from an unknown user is paired only when it matches the current pairing code.
-          The code is printed to the server log at gateway startup (never returned over the API).
-        </span>
-      </div>
+      <SettingsGroup title="Who can use it" defaultOpen={false} testId="chat-gateway-group-access">
+        <TextField
+          label="Allowed users"
+          hint="Discord user ids, comma-separated. They can talk to sessions in direct messages."
+          placeholder="123456789012345678"
+          mono
+          value={value.allowlist}
+          onChange={edit("allowlist")}
+          testIds={{ control: "chat-gateway-allowlist" }}
+        />
+        <TextField
+          label="Admins"
+          hint="Can also bind channels to sessions."
+          mono
+          value={value.admins}
+          onChange={edit("admins")}
+          testIds={{ control: "chat-gateway-admins" }}
+        />
+        <TextField
+          label="Group channels"
+          hint="Channel ids where the bot answers everyone, not only allowed users."
+          mono
+          value={value.groupChannels}
+          onChange={edit("groupChannels")}
+          testIds={{ control: "chat-gateway-group-channels" }}
+        />
+      </SettingsGroup>
 
-      <div>
-        <span className={label}>Bindings</span>
+      <SettingsGroup title="Behaviour" defaultOpen={false} testId="chat-gateway-group-behaviour">
+        <ToggleField
+          label="New thread per conversation"
+          hint="A new channel message starts a new thread and a new session."
+          value={value.threadPerConversation}
+          onChange={edit("threadPerConversation")}
+          testIds={{ control: "chat-gateway-thread-per-conversation" }}
+        />
+        <ToggleField
+          label="Mirror dashboard sessions"
+          hint="Every dashboard session gets its own Discord thread and sends its activity there."
+          value={value.mirrorDashboardSessions}
+          onChange={edit("mirrorDashboardSessions")}
+          testIds={{ control: "chat-gateway-mirror-dashboard-sessions" }}
+        />
+        <TextField
+          label="Steer prefix"
+          hint="Start a message with this to interrupt a running turn."
+          mono
+          value={value.steerPrefix}
+          onChange={edit("steerPrefix")}
+          testIds={{ control: "chat-gateway-steer-prefix" }}
+        />
+        <SelectField
+          label="Chat sessions on the board"
+          hint="Hidden sessions appear when “Show hidden” is on."
+          value={value.sessionVisibility}
+          options={[
+            { value: "hidden", label: "Hidden" },
+            { value: "shown", label: "Shown" },
+          ]}
+          onChange={(v) => edit("sessionVisibility")(v as Draft["sessionVisibility"])}
+          testIds={{ control: "chat-gateway-session-visibility" }}
+        />
+      </SettingsGroup>
+
+      <SettingsNotice tone="info" testId="chat-gateway-pairing-hint">
+        Pairing: a direct message from an unknown user is accepted only when it contains the current pairing
+        code. The code is printed in the server log when the gateway starts.
+      </SettingsNotice>
+
+      <SettingsGroup
+        title="Bound channels"
+        meta={bindings && bindings.bindings.length > 0 ? String(bindings.bindings.length) : undefined}
+        testId="chat-gateway-group-bindings"
+      >
         {bindings && bindings.bindings.length > 0 ? (
-          <table data-testid="chat-gateway-bindings" className="w-full text-[11px]">
-            <thead>
-              <tr className="text-[var(--text-tertiary)] text-left">
-                <th className="font-normal">channel</th>
-                <th className="font-normal">session</th>
-                <th className="font-normal">cwd</th>
-                <th className="font-normal">source</th>
-              </tr>
-            </thead>
-            <tbody>
-              {bindings.bindings.map((b) => (
-                <tr key={`${b.platform}:${b.channelId}:${b.threadId ?? "-"}`}>
-                  <td className="truncate max-w-[8rem]">{b.channelId}</td>
-                  <td className="truncate max-w-[8rem]">{b.sessionId}</td>
-                  <td className="truncate max-w-[12rem]">{b.cwd}</td>
-                  <td>{b.source}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <SettingsTable
+            testId="chat-gateway-bindings"
+            caption="Bound channels"
+            columns={["Channel", "Session", "Folder", "Source"]}
+            rows={bindings.bindings.map((b) => ({
+              key: `${b.platform}:${b.channelId}:${b.threadId ?? "-"}`,
+              cells: [
+                <span key="c" className="break-all">
+                  {b.channelId}
+                </span>,
+                <span key="s" className="break-all">
+                  {b.sessionId}
+                </span>,
+                <code key="f" className="break-all">
+                  {b.cwd}
+                </code>,
+                b.source,
+              ],
+            }))}
+          />
         ) : (
-          <span data-testid="chat-gateway-bindings-empty" className="text-[11px] text-[var(--text-tertiary)]">
-            {bindings ? "No bound channels." : "Bindings appear once the gateway is configured and running."}
-          </span>
+          <p data-testid="chat-gateway-bindings-empty" className="text-xs text-[var(--text-secondary)]">
+            {bindings
+              ? "No channels are bound yet. They appear here once the gateway is running."
+              : "Bound channels appear here once the gateway is set up and running."}
+          </p>
         )}
-      </div>
+      </SettingsGroup>
 
       <TeamControlsPanel />
     </div>

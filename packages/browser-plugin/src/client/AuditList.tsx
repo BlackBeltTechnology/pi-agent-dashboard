@@ -14,27 +14,36 @@
  *
  * The list also serves the dedicated profile (`profileDirectory="@dedicated"`);
  * `detach` rows carry their cause as `detail` (`devtools`, `extension:<reason>`,
- * `closed:<reason>`, `no-cdp-client`, `idle`) and render as a warning pill.
+ * `closed:<reason>`, `no-cdp-client`, `idle`) and render with a warning pill.
  *
- * See change: add-browser-relay (task 4.2); add-dedicated-agent-browser (task 7.4).
+ * Rendered as a collapsed "Activity" group (count in the summary) holding a
+ * read-only table; the event column shows a human word, never the raw `kind`.
+ *
+ * See change: add-browser-relay (task 4.2); add-dedicated-agent-browser (task 7.4);
+ * retro-ux-plugin-settings-wave-2 (BR7).
  */
-import { usePluginMessage, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  SettingsGroup,
+  SettingsStatusPill,
+  SettingsTable,
+  usePluginMessage,
+  useT,
+} from "@blackbelt-technology/dashboard-plugin-runtime";
 import type {
   BrowserRelayStatusMessage,
 } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { type AuditEntry, getBrowserAudit } from "./browser-api.js";
-import { Pill } from "./settings-ui.js";
 
 export interface AuditListProps {
   profileDirectory: string;
 }
 
 /** Pill tone per audit kind: stops and refusals stand out, attaches read as healthy. */
-function kindTone(kind: AuditEntry["kind"]): "ok" | "neutral" | "warn" {
-  if (kind === "attach") return "ok";
-  if (kind === "detach" || kind === "denied" || kind === "viewer-subscribe-refused") return "warn";
+function kindTone(kind: AuditEntry["kind"]): "success" | "neutral" | "warning" {
+  if (kind === "attach") return "success";
+  if (kind === "detach" || kind === "denied" || kind === "viewer-subscribe-refused") return "warning";
   return "neutral";
 }
 
@@ -79,38 +88,77 @@ export function AuditList({ profileDirectory }: AuditListProps): React.ReactElem
     void fetchAudit();
   });
 
+  const eventWord = (kind: AuditEntry["kind"]): string => {
+    switch (kind) {
+      case "attach":
+        return t("auditEventAttach", undefined, "Connected");
+      case "detach":
+        return t("auditEventDetach", undefined, "Disconnected");
+      case "navigate":
+        return t("auditEventNavigate", undefined, "Navigated");
+      case "createTarget":
+        return t("auditEventCreateTarget", undefined, "Opened a tab");
+      case "denied":
+        return t("auditEventDenied", undefined, "Denied");
+      case "dropped":
+        return t("auditEventDropped", undefined, "Ignored");
+      case "open":
+        return t("auditEventOpen", undefined, "Opened in pane");
+      case "viewer-subscribe":
+        return t("auditEventViewerSubscribe", undefined, "Live view started");
+      case "viewer-subscribe-refused":
+        return t("auditEventViewerSubscribeRefused", undefined, "Live view refused");
+      default:
+        return t("auditEventViewerInput", undefined, "Live view input");
+    }
+  };
+
+  const title = t("auditTitle", undefined, "Activity");
+
   if (entries === null) {
     return (
-      <p data-testid={`browser-audit-loading-${profileDirectory}`} className="text-[11px] text-[var(--text-tertiary)]">
-        {t("loading", undefined, "Loading…")}
-      </p>
+      <SettingsGroup title={title} defaultOpen={false}>
+        <p data-testid={`browser-audit-loading-${profileDirectory}`} className="text-xs text-[var(--text-secondary)]">
+          {t("loading", undefined, "Loading…")}
+        </p>
+      </SettingsGroup>
     );
   }
 
+  const meta =
+    entries.length === 0
+      ? t("auditNone", undefined, "none yet")
+      : entries.length === 1
+        ? t("auditCountOne", undefined, "1 entry")
+        : t("auditCount", { n: entries.length }, `${entries.length} entries`);
+
   return (
-    <div data-testid={`browser-audit-${profileDirectory}`} className="mt-1">
-      <div className="text-[10px] uppercase tracking-wider text-[var(--text-tertiary)]">
-        {t("auditTitle", undefined, "Audit")}
-      </div>
+    <SettingsGroup title={title} meta={meta} defaultOpen={false} testId={`browser-audit-${profileDirectory}`}>
       {entries.length === 0 ? (
-        <p data-testid={`browser-audit-empty-${profileDirectory}`} className="text-[11px] text-[var(--text-tertiary)]">
-          {t("auditEmpty", undefined, "No audit entries.")}
+        <p data-testid={`browser-audit-empty-${profileDirectory}`} className="text-xs text-[var(--text-secondary)]">
+          {t("auditEmpty", undefined, "No activity yet.")}
         </p>
       ) : (
-        <ul className="space-y-0.5">
-          {entries.map((entry, i) => (
-            <li
-              key={`${entry.ts}-${entry.kind}-${i}`}
-              data-testid={`browser-audit-row-${profileDirectory}-${i}`}
-              className="text-[11px] text-[var(--text-secondary)]"
-            >
-              <span className="text-[var(--text-tertiary)]">{formatTime(entry.ts)}</span>{" "}
-              <Pill tone={kindTone(entry.kind)}>{entry.kind}</Pill>{" "}
-              <span>{entry.detail}</span>
-            </li>
-          ))}
-        </ul>
+        <SettingsTable
+          caption={title}
+          columns={[
+            t("auditColWhen", undefined, "When"),
+            t("auditColEvent", undefined, "Event"),
+            t("auditColDetail", undefined, "Detail"),
+          ]}
+          rows={entries.map((entry, i) => ({
+            key: `${entry.ts}-${entry.kind}-${i}`,
+            testId: `browser-audit-row-${profileDirectory}-${i}`,
+            cells: [
+              formatTime(entry.ts),
+              <SettingsStatusPill key="event" tone={kindTone(entry.kind)} icon={null}>
+                {eventWord(entry.kind)}
+              </SettingsStatusPill>,
+              entry.detail,
+            ],
+          }))}
+        />
       )}
-    </div>
+    </SettingsGroup>
   );
 }

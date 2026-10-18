@@ -25,7 +25,7 @@ import {
 } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import { withUiPrimitiveProvider } from "@blackbelt-technology/dashboard-plugin-runtime/test-support";
 import type { UiModelSelectorProps } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GrammarSettings } from "../GrammarSettings.js";
 import type { GrammarConfig } from "../grammar-config.js";
@@ -81,8 +81,10 @@ function jsonResponse(body: unknown, ok = true, status = 200) {
 function installFetch(opts: {
   grammar: GrammarConfig | Record<string, unknown>;
   postStatus?: number;
+  /** Fault injection: `GET /api/config` rejects while true (flip via `state.failGet`). */
+  failGet?: boolean;
 }) {
-  const state = { grammar: opts.grammar as Record<string, unknown> };
+  const state = { grammar: opts.grammar as Record<string, unknown>, failGet: !!opts.failGet };
   const postBodies: any[] = [];
   const mock = vi.fn(async (input: any, init?: RequestInit) => {
     const url = String(input);
@@ -96,6 +98,7 @@ function installFetch(opts: {
       return jsonResponse({ success: true });
     }
     if (url.endsWith("/api/config")) {
+      if (state.failGet) throw new TypeError("network down");
       return jsonResponse({ success: true, data: { plugins: { grammar: state.grammar } } });
     }
     if (url.endsWith("/api/models")) {
@@ -287,7 +290,7 @@ describe("GrammarSettings", () => {
     const section = getByTestId("grammar-settings");
     const selector = getByTestId("grammar-llm-model-selector");
     const offenders = Array.from(section.querySelectorAll<HTMLElement>("[style]")).filter(
-      (el) => !selector.contains(el), // host-injected primitive subtree is exempt
+      (el) => !selector.contains(el) && !el.closest("svg"), // host primitive + kit-owned @mdi icons are exempt
     );
     expect(offenders).toEqual([]);
     const html = section.className + section.innerHTML;
@@ -335,5 +338,172 @@ describe("GrammarSettings", () => {
     expect(prompt.className).not.toContain("text-[10px]");
     expect(prompt.querySelector("svg")).toBeTruthy();
     expect(prompt.getAttribute("role")).toBe("status");
+  });
+});
+
+describe("GrammarSettings — retro-ux wave 2 anatomy", () => {
+  beforeEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it("E7: the body repeats neither the plugin title nor its id", async () => {
+    const { getByTestId } = await mount({ grammar: baseGrammar() });
+    const section = getByTestId("grammar-settings");
+    expect(section.querySelector("h1, h2, h3")).toBeNull();
+    const repeats = Array.from(section.querySelectorAll("*")).filter((el) =>
+      ["Grammar & Spelling", "grammar"].includes((el.textContent ?? "").trim()),
+    );
+    expect(repeats).toEqual([]);
+  });
+
+  it("E8: in-body master switch is 'Check grammar in the composer', keeps its testid, writes enabled", async () => {
+    const { getByRole, getByTestId, src, postBodies } = await mount({ grammar: baseGrammar({ enabled: true }) });
+    const sw = getByRole("switch", { name: "Check grammar in the composer" });
+    expect(sw).toBe(getByTestId("grammar-enabled"));
+    expect(sw.getAttribute("aria-checked")).toBe("true");
+    for (const bad of ["Enabled", "Enable", "On"]) {
+      expect(() => getByRole("switch", { name: bad })).toThrow();
+    }
+    fireEvent.click(sw);
+    await waitFor(() => expect(src().isDirty).toBe(true));
+    await act(async () => {
+      await src().commit();
+    });
+    expect(postBodies[0].enabled).toBe(false);
+  });
+
+  it("groups Checking, Model, Advanced render in order; Advanced collapsed", async () => {
+    const { getByTestId } = await mount({ grammar: baseGrammar() });
+    const checking = getByTestId("grammar-group-checking") as HTMLDetailsElement;
+    const model = getByTestId("grammar-group-model") as HTMLDetailsElement;
+    const advanced = getByTestId("grammar-group-advanced") as HTMLDetailsElement;
+    expect(checking.open).toBe(true);
+    expect(model.open).toBe(true);
+    expect(advanced.open).toBe(false);
+    expect(checking.compareDocumentPosition(model) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(model.compareDocumentPosition(advanced) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(checking.querySelector("summary")?.textContent).toContain("Checking");
+    expect(model.querySelector("summary")?.textContent).toContain("Model");
+    expect(advanced.querySelector("summary")?.textContent).toContain("Advanced");
+  });
+
+  it("every field has a tied label (unit inside it) and a hint tied via aria-describedby", async () => {
+    const { getByTestId } = await mount({ grammar: baseGrammar() });
+    const debounce = getByTestId("grammar-debounce") as HTMLInputElement;
+    const label = debounce.ownerDocument.querySelector(`label[for="${debounce.id}"]`);
+    expect(label?.textContent).toContain("Wait after typing");
+    expect(label?.textContent).toContain("ms");
+    const desc = debounce.getAttribute("aria-describedby") ?? "";
+    expect(desc).not.toBe("");
+    expect(debounce.ownerDocument.getElementById(desc.split(" ")[0])?.textContent).toMatch(/300/);
+  });
+
+  it.each([
+    [3999, false],
+    [4000, true],
+    [4001, true],
+  ])("E13: Shortest text %i with Longest 4000 → invalid=%s", async (min, invalid) => {
+    // test-plan #E13 (BVA on min < max)
+    const { getByTestId, container, src, postBodies } = await mount({ grammar: baseGrammar({ maxChars: 4000 }) });
+    expect((getByTestId("grammar-group-advanced") as HTMLDetailsElement).open).toBe(false);
+    fireEvent.change(getByTestId("grammar-minchars"), { target: { value: String(min) } });
+    await waitFor(() => expect(src().isDirty).toBe(true));
+    const input = getByTestId("grammar-minchars");
+    if (invalid) {
+      expect(input.getAttribute("aria-invalid")).toBe("true");
+      const alert = container.querySelector('[role="alert"]');
+      expect(alert?.textContent).toContain("4000");
+      expect(alert?.id && input.getAttribute("aria-describedby")?.split(" ")).toContain(alert?.id);
+      expect((getByTestId("grammar-group-advanced") as HTMLDetailsElement).open).toBe(true);
+      await act(async () => {
+        await expect(src().commit()).rejects.toThrow();
+      });
+      expect(postBodies).toHaveLength(0);
+      expect(src().isDirty).toBe(true);
+      // Correcting the value clears the error and allows saving.
+      fireEvent.change(getByTestId("grammar-minchars"), { target: { value: "12" } });
+      await waitFor(() => expect(container.querySelector('[role="alert"]')).toBeNull());
+      expect(getByTestId("grammar-minchars").getAttribute("aria-invalid")).toBeNull();
+    } else {
+      expect(input.getAttribute("aria-invalid")).toBeNull();
+      expect(container.querySelector('[role="alert"]')).toBeNull();
+      await act(async () => {
+        await src().commit();
+      });
+      expect(postBodies).toHaveLength(1);
+      expect(postBodies[0].minChars).toBe(3999);
+    }
+  });
+
+  it("X4: a failed config load shows a notice with Try again; commit is off until a load succeeds", async () => {
+    // test-plan #X4 (fault injection: GET rejects on mount)
+    const { findByTestId, queryByTestId, getByTestId, src, postBodies, state } = await mount({
+      grammar: baseGrammar({ debounceMs: 1500 }),
+      failGet: true,
+    });
+    const notice = await findByTestId("grammar-load-error");
+    expect(notice.textContent).toContain("Could not load the grammar settings");
+    expect(notice.textContent).not.toMatch(/network down|TypeError/);
+    expect(getByTestId("grammar-load-error-retry")).toBeTruthy();
+    expect(src().isDirty).toBe(false);
+    await act(async () => {
+      await expect(src().commit()).rejects.toThrow();
+    });
+    expect(postBodies).toHaveLength(0);
+    // Try again recovers.
+    state.failGet = false;
+    fireEvent.click(getByTestId("grammar-load-error-retry"));
+    await waitFor(() => expect(queryByTestId("grammar-load-error")).toBeNull());
+    expect((getByTestId("grammar-debounce") as HTMLInputElement).value).toBe("1500");
+    fireEvent.change(getByTestId("grammar-debounce"), { target: { value: "2000" } });
+    await waitFor(() => expect(src().isDirty).toBe(true));
+    await act(async () => {
+      await src().commit();
+    });
+    expect(postBodies).toHaveLength(1);
+  });
+
+  it("X5: a failed save is a plain sentence; the raw status is only behind Copy details", async () => {
+    // test-plan #X5 (fault injection: POST → 500)
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    const { getByTestId, findByTestId, src } = await mount({ grammar: baseGrammar(), postStatus: 500 });
+    fireEvent.change(getByTestId("grammar-debounce"), { target: { value: "2000" } });
+    await waitFor(() => expect(src().isDirty).toBe(true));
+    let message = "";
+    await act(async () => {
+      await src()
+        .commit()
+        .catch((e: Error) => {
+          message = e.message;
+        });
+    });
+    expect(message).not.toBe("");
+    expect(message).not.toContain("grammar config save failed (500)");
+    const notice = await findByTestId("grammar-save-error");
+    expect(notice.textContent).not.toContain("grammar config save failed (500)");
+    expect(notice.textContent).not.toContain("500");
+    fireEvent.click(getByTestId("grammar-save-error-copy-details"));
+    await waitFor(() => expect(writeText).toHaveBeenCalled());
+    expect(String((writeText.mock.calls[0] as unknown[])[0])).toContain("grammar config save failed (500)");
+    expect(src().isDirty).toBe(true);
+  });
+
+  it("GR5: recommended models render as a table with a worded success pill at 12 px", async () => {
+    const { getByTestId } = await mount({ grammar: baseGrammar() });
+    const disc = getByTestId("grammar-recommended-models") as HTMLDetailsElement;
+    expect(disc.open).toBe(false);
+    const table = disc.querySelector("table");
+    expect(table).toBeTruthy();
+    expect(Array.from(table?.querySelectorAll("th") ?? []).map((th) => th.textContent)).toHaveLength(3);
+    const rows = Array.from(table?.querySelectorAll("tbody tr") ?? []);
+    expect(rows).toHaveLength(4);
+    const pill = rows[0].querySelector('[data-tone="success"]');
+    expect(pill?.textContent).toBe("Recommended");
+    expect(rows.slice(1).some((r) => r.querySelector("[data-tone]"))).toBe(false);
+    expect(disc.innerHTML).not.toMatch(/text-\[(9|9\.5|10|10\.5)px\]/);
+    expect(disc.innerHTML).not.toMatch(/--text-(muted|faint)/);
   });
 });

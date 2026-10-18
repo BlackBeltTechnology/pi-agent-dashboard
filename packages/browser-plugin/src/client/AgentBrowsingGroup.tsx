@@ -13,7 +13,13 @@
  * the extension. While the relay is disabled the whole group is read-only with
  * the reason (the server refuses every write then).
  */
-import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  SelectField,
+  SettingsNotice,
+  SettingsStatusPill,
+  ToggleField,
+  useT,
+} from "@blackbelt-technology/dashboard-plugin-runtime";
 import type React from "react";
 import { useEffect, useId, useState } from "react";
 import type {
@@ -22,7 +28,7 @@ import type {
   BrowserSettingsPatch,
   RelayConfig,
 } from "./browser-api.js";
-import { GROUP, HELP, INPUT, Notice, Pill, Seg } from "./settings-ui.js";
+import { BlurTextField, GROUP, HELP, Seg } from "./settings-ui.js";
 
 const DEFAULT_SETTINGS: AgentBrowsingSettings = {
   defaultBrowser: "@dedicated",
@@ -113,7 +119,7 @@ export function AgentBrowsingGroup({
 
   return (
     <section data-testid="browser-agent-browsing" aria-labelledby={`${ids}-h`} className={GROUP}>
-      <h3 id={`${ids}-h`} className="text-[13px] font-semibold text-[var(--text-primary)]">
+      <h3 id={`${ids}-h`} className="text-sm font-semibold text-[var(--text-primary)]">
         {t("agentBrowsingTitle", undefined, "Agent browsing")}
       </h3>
 
@@ -123,9 +129,9 @@ export function AgentBrowsingGroup({
         </p>
       )}
       {error && (
-        <Notice tone="warn" role="alert" testId="browser-agent-browsing-error">
+        <SettingsNotice tone="warning" role="alert" testId="browser-agent-browsing-error">
           {t("agentBrowsingError", undefined, "The setting could not be saved. The previous value was restored.")}
-        </Notice>
+        </SettingsNotice>
       )}
 
       <Row label={t("defaultBrowserLabel", undefined, "Default browser")} labelId={`${ids}-default`}>
@@ -140,7 +146,7 @@ export function AgentBrowsingGroup({
             title={
               <>
                 {t("defaultDedicatedTitle", undefined, "Dedicated agent profile")}{" "}
-                <Pill tone="info">{t("recommended", undefined, "Recommended")}</Pill>
+                <SettingsStatusPill tone="info" icon={null}>{t("recommended", undefined, "Recommended")}</SettingsStatusPill>
               </>
             }
             help={t(
@@ -163,20 +169,20 @@ export function AgentBrowsingGroup({
               "Uses your real logins. Pages with a password manager field disconnect the agent.",
             )}
           >
-            <select
-              data-testid="browser-real-profile-select"
-              aria-label={t("realProfilePicker", undefined, "Chrome profile for the agent")}
-              className={`${INPUT} mt-2 max-w-xs`}
-              disabled={realDisabled}
-              value={pickerValue ?? ""}
-              onChange={(e) => pickProfile(e.target.value)}
-            >
-              {installedProfiles.map((p) => (
-                <option key={p.profileDirectory} value={p.profileDirectory}>
-                  {`${p.email ?? p.label} (${p.profileDirectory})`}
-                </option>
-              ))}
-            </select>
+            <div className="mt-2 max-w-xs">
+              <SelectField
+                label={t("realProfilePicker", undefined, "Chrome profile for the agent")}
+                hint={null}
+                disabled={realDisabled}
+                value={pickerValue ?? ""}
+                options={installedProfiles.map((p) => ({
+                  value: p.profileDirectory,
+                  label: `${p.email ?? p.label} (${p.profileDirectory})`,
+                }))}
+                onChange={pickProfile}
+                testIds={{ control: "browser-real-profile-select" }}
+              />
+            </div>
           </ChoiceCard>
           <ChoiceCard
             id={`${ids}-headless`}
@@ -212,24 +218,20 @@ export function AgentBrowsingGroup({
         </p>
       </Row>
 
-      <Row label={t("idleLabel", undefined, "Disconnect when idle")} labelFor={`${ids}-idle`}>
-        <select
-          id={`${ids}-idle`}
-          data-testid="browser-idle-select"
-          className={`${INPUT} w-auto`}
-          disabled={readOnly}
-          value={String(settings.idleDisconnectMinutes)}
-          onChange={(e) => onChange({ idleDisconnectMinutes: Number(e.target.value) as AgentBrowsingSettings["idleDisconnectMinutes"] })}
-        >
-          <option value="5">{t("idle5", undefined, "After 5 minutes")}</option>
-          <option value="30">{t("idle30", undefined, "After 30 minutes")}</option>
-          <option value="120">{t("idle120", undefined, "After 2 hours")}</option>
-          <option value="0">{t("idleNever", undefined, "Never")}</option>
-        </select>
-        <p className={`${HELP} mt-1`}>
-          {t("idleHelp", undefined, "Closes the agent's tabs and frees the browser when no session has used it.")}
-        </p>
-      </Row>
+      <SelectField
+        label={t("idleLabel", undefined, "Disconnect when idle")}
+        hint={t("idleHelp", undefined, "Closes the agent's tabs and frees the browser when no session has used it.")}
+        disabled={readOnly}
+        value={String(settings.idleDisconnectMinutes)}
+        options={[
+          { value: "5", label: t("idle5", undefined, "After 5 minutes") },
+          { value: "30", label: t("idle30", undefined, "After 30 minutes") },
+          { value: "120", label: t("idle120", undefined, "After 2 hours") },
+          { value: "0", label: t("idleNever", undefined, "Never") },
+        ]}
+        onChange={(v) => onChange({ idleDisconnectMinutes: Number(v) as AgentBrowsingSettings["idleDisconnectMinutes"] })}
+        testIds={{ control: "browser-idle-select" }}
+      />
 
       <Row label={t("multiLabel", undefined, "Connections per Chrome profile")} labelId={`${ids}-multi`}>
         <Seg
@@ -251,45 +253,32 @@ export function AgentBrowsingGroup({
         </p>
       </Row>
 
-      <Row label={t("liveViewLabel", undefined, "Live view")} labelId={`${ids}-live`}>
-        <label className="flex items-start gap-2 text-xs text-[var(--text-secondary)]">
-          <input
-            type="checkbox"
-            data-testid="browser-live-view"
-            aria-labelledby={`${ids}-live`}
-            className="mt-0.5"
-            disabled={readOnly}
-            checked={settings.openLiveViewOnConnect}
-            onChange={(e) => onChange({ openLiveViewOnConnect: e.target.checked })}
-          />
-          <span>
-            {t("liveViewOption", undefined, "Open the browser tab in the session's pane when the agent connects")}
-          </span>
-        </label>
-      </Row>
+      <ToggleField
+        label={t("liveViewLabel", undefined, "Live view")}
+        hint={t("liveViewOption", undefined, "Open the browser tab in the session's pane when the agent connects")}
+        disabled={readOnly}
+        value={settings.openLiveViewOnConnect}
+        onChange={(openLiveViewOnConnect) => onChange({ openLiveViewOnConnect })}
+        testIds={{ control: "browser-live-view" }}
+      />
 
-      <Row label={t("globalDomainsLabel", undefined, "Allowed domains")} labelFor={`${ids}-domains`}>
-        <input
-          id={`${ids}-domains`}
-          data-testid="browser-global-domains"
-          className={INPUT}
-          disabled={readOnly}
-          placeholder={t("globalDomainsPlaceholder", undefined, "Any domain")}
-          value={domainsDraft}
-          onChange={(e) => setDomainsDraft(e.target.value)}
-          onBlur={() => {
-            const next = parseDomains(domainsDraft);
-            if (next.join(", ") !== savedDomains) onChange({ allowedDomains: next });
-          }}
-        />
-        <p className={`${HELP} mt-1`}>
-          {t(
-            "globalDomainsHelp",
-            undefined,
-            "Comma separated, for example google.com, github.com. Applies to every browser unless a profile sets its own. Guards address-bar navigation and new tabs only; scripts, link clicks and redirects can still leave the list.",
-          )}
-        </p>
-      </Row>
+      <BlurTextField
+        label={t("globalDomainsLabel", undefined, "Allowed domains")}
+        hint={t(
+          "globalDomainsHelp",
+          undefined,
+          "Comma separated, for example google.com, github.com. Applies to every browser unless a profile sets its own. Guards address-bar navigation and new tabs only; scripts, link clicks and redirects can still leave the list.",
+        )}
+        testId="browser-global-domains"
+        disabled={readOnly}
+        placeholder={t("globalDomainsPlaceholder", undefined, "Any domain")}
+        value={domainsDraft}
+        onChange={setDomainsDraft}
+        onBlur={() => {
+          const next = parseDomains(domainsDraft);
+          if (next.join(", ") !== savedDomains) onChange({ allowedDomains: next });
+        }}
+      />
     </section>
   );
 }
@@ -297,25 +286,17 @@ export function AgentBrowsingGroup({
 function Row({
   label,
   labelId,
-  labelFor,
   children,
 }: {
   label: string;
-  labelId?: string;
-  labelFor?: string;
+  labelId: string;
   children: React.ReactNode;
 }): React.ReactElement {
   return (
     <div className="grid grid-cols-1 gap-1 md:grid-cols-[12rem_1fr] md:gap-x-4 items-start">
-      {labelFor ? (
-        <label htmlFor={labelFor} className="pt-1 text-[13px] text-[var(--text-primary)]">
-          {label}
-        </label>
-      ) : (
-        <div id={labelId} className="pt-1 text-[13px] text-[var(--text-primary)]">
-          {label}
-        </div>
-      )}
+      <div id={labelId} className="pt-1 text-sm text-[var(--text-primary)]">
+        {label}
+      </div>
       <div className="min-w-0">{children}</div>
     </div>
   );
@@ -364,7 +345,7 @@ function ChoiceCard({
         />
         <div className="min-w-0 flex-1">
           <label htmlFor={id} className={`block ${disabled ? "cursor-not-allowed" : "cursor-pointer"}`}>
-            <span className="block text-[13px] font-medium text-[var(--text-primary)]">{title}</span>
+            <span className="block text-sm font-medium text-[var(--text-primary)]">{title}</span>
           </label>
           <div id={`${id}-help`} className={HELP}>
             {help}

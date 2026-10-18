@@ -175,18 +175,26 @@ export function useQuota(pollMs = 60_000): QuotaState {
 }
 
 /**
- * Reason-per-provider for every ENABLED provider that produced no quota, from
- * the same `/api/quota` payload.
+ * Live per-provider state for the settings rows, from the same `/api/quota`
+ * payload the widget reads: `reasons` = why an ENABLED provider produced
+ * nothing (server-named cause), `withData` = providers that currently report at
+ * least one window (a retained snapshot counts: the user can see it).
  *
- * Every provider is tickable now that the plugin owns each contract — there is
- * no peer to be missing. But a tick can still yield nothing (not signed in,
- * endpoint throttled), and silence there is indistinguishable from a bug. The
- * server names the cause; the settings row prints it.
+ * Every provider is tickable — the plugin owns each contract, so there is no
+ * peer to be missing. But a tick can still yield nothing (not signed in,
+ * endpoint throttled) and silence there is indistinguishable from a bug; the
+ * settings row prints a worded pill instead.
  *
  * Fetched once per mount (no poll): the Settings panel is short-lived.
  */
-export function useQuotaUnavailable(): Record<string, QuotaUnavailableReason> {
-  const [reasons, setReasons] = useState<Record<string, QuotaUnavailableReason>>({});
+export function useQuotaProviderStatus(): {
+  reasons: Record<string, QuotaUnavailableReason>;
+  withData: ReadonlySet<string>;
+} {
+  const [state, setState] = useState<{
+    reasons: Record<string, QuotaUnavailableReason>;
+    withData: ReadonlySet<string>;
+  }>({ reasons: {}, withData: new Set() });
   useEffect(() => {
     let alive = true;
     void (async () => {
@@ -194,16 +202,19 @@ export function useQuotaUnavailable(): Record<string, QuotaUnavailableReason> {
         const res = await fetch("/api/quota");
         const json = (await res.json()) as ApiQuotaResponse;
         if (!alive) return;
-        setReasons(Object.fromEntries((json.unavailable ?? []).map((u) => [u.provider, u.reason])));
+        setState({
+          reasons: Object.fromEntries((json.unavailable ?? []).map((u) => [u.provider, u.reason])),
+          withData: new Set((json.providers ?? []).filter((p) => p.windows.length > 0).map((p) => p.provider)),
+        });
       } catch {
-        if (alive) setReasons({});
+        if (alive) setState({ reasons: {}, withData: new Set() });
       }
     })();
     return () => {
       alive = false;
     };
   }, []);
-  return reasons;
+  return state;
 }
 
 /**
