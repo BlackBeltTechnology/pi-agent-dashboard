@@ -680,6 +680,11 @@ test.describe("YOLO hu catalogue faults", () => {
 test.describe("YOLO strip touch path", () => {
   test.use({ hasTouch: true });
 
+  // An unscoped session auto-allows every access prompt: never leave it on the shared harness.
+  test.afterEach(async ({ page }) => {
+    await endYolo(page);
+  });
+
   test("#F10 tapping the strip sentence opens Access; tapping the time does nothing", async ({ page, request }) => {
     await narrowTrust(request, { hostGate: { mode: "enforce" } });
     await ensureGitSession(page);
@@ -698,6 +703,5 @@ test.describe("YOLO strip touch path", () => {
     await expect(active).toContainText(/agent path gate/i);
     await expect(active).toContainText(/planes/i);
     await expect(active).toContainText(/every folder|everywhere/i);
-    await endYolo(page);
   });
 });

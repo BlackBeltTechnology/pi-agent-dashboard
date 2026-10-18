@@ -63,11 +63,11 @@ Test-first: author the section 5 / 6 scenario tests as failing before the matchi
 - [x] 6.10 In `yolo-indicator-layout.spec.ts` (see `tests/e2e/access-grant-dialog.spec.ts`): input unscoped YOLO, archived session; trigger open read-only from the archive list; observable no `composer-card`, no strip, no header indicator, bar tinted (test-plan #E19)
 - [x] 6.11 In `yolo-indicator-layout.spec.ts` (see `tests/e2e/mobile-viewport-bound.spec.ts`): input session detail, 1500; trigger render; observable strip outside `composer-card`, strip.bottom ≤ composer root top (test-plan #E20)
 - [x] 6.12 In `yolo-indicator-layout.spec.ts` (see `tests/e2e/lazy-islands.spec.ts` for theme/language setup): input YOLO active, each named theme × light/dark; trigger read computed colours; observable text-secondary / text-tertiary on tint ≥ 4.5:1 or ≥ 0.85 × untinted contrast, underline ≥ 3:1 (test-plan #E21)
-- [x] 6.13 In `tests/e2e/access-grant-dialog.spec.ts` (see same file): input unscoped, en; trigger `hover()` bar background and strip link; observable `title` == coverage sentence, URL unchanged (test-plan #F8)
-- [x] 6.14 In `access-grant-dialog.spec.ts` (see same file): input 1500; trigger Tab to `yolo-bar-link`, Enter; observable URL `/settings/access`, window marker survives (no reload), access card visible (test-plan #F9)
-- [x] 6.15 In `access-grant-dialog.spec.ts` (see same file): input `hasTouch: true`, 375; trigger tap strip sentence, then strip time; observable sentence → `/settings/access` with planes / agent path gate / scope named, time tap → URL unchanged (test-plan #F10)
+- [x] 6.13 In `tests/e2e/yolo-indicator-layout.spec.ts` (see `tests/e2e/access-grant-dialog.spec.ts`): input unscoped, en; trigger `hover()` bar background and strip link; observable `title` == coverage sentence, URL unchanged (test-plan #F8)
+- [x] 6.14 In `yolo-indicator-layout.spec.ts` (see `tests/e2e/access-grant-dialog.spec.ts`): input 1500; trigger Tab to `yolo-bar-link`, Enter; observable URL `/settings/access`, window marker survives (no reload), access card visible (test-plan #F9)
+- [x] 6.15 In `yolo-indicator-layout.spec.ts` (see `tests/e2e/access-grant-dialog.spec.ts`): input `hasTouch: true`, 375; trigger tap strip sentence, then strip time; observable sentence → `/settings/access` with planes / agent path gate / scope named, time tap → URL unchanged (test-plan #F10)
 - [x] 6.16 In `yolo-indicator-layout.spec.ts` (see `tests/e2e/access-grant-dialog.spec.ts`): input active, 1500; trigger click bar background, click inside open ThemePicker dropdown padding, click question-panel scrim; observable URL unchanged each time, dropdown / panel behave as without YOLO (test-plan #F11). Shipped as bar background + open ThemePicker dropdown; the question-panel/scrim leg is covered by construction (L1 pins that the bar has no click handler) because the harness's hidden-run question path (`faux-ask.spec.ts` #F2) does not raise a question in every environment
-- [x] 6.17 In `access-grant-dialog.spec.ts` (see same file): input scoped, cwd in scope, 375 drawer closed and desktop sidebar collapsed; trigger render session; observable strip visible with time (test-plan #F12)
+- [x] 6.17 In `yolo-indicator-layout.spec.ts` (see `tests/e2e/access-grant-dialog.spec.ts`): input scoped, cwd in scope, 375 drawer closed and desktop sidebar collapsed; trigger render session; observable strip visible with time (test-plan #F12)
 - [x] 6.18 In `yolo-indicator-layout.spec.ts` (see `tests/e2e/lazy-islands.spec.ts`): input `page.route` aborts `/assets/i18n-hu-*.js`, hu, unscoped; trigger load; observable English fallbacks, E1 + E3 hold (test-plan #X1)
 - [x] 6.19 In `yolo-indicator-layout.spec.ts` (see `tests/e2e/lazy-islands.spec.ts`): input 3 s delay on hu chunk; trigger load hu; observable en then hu, strip one line and bar height unchanged at both moments (test-plan #X2)
 - [x] 6.20 In `yolo-indicator-layout.spec.ts` (see `tests/e2e/access-grant-dialog.spec.ts`): input `page.route` 500 on `/api/access/prompts`, server YOLO active; trigger load; observable no crash, no tint, no strip (test-plan #X3)
@@ -75,10 +75,10 @@ Test-first: author the section 5 / 6 scenario tests as failing before the matchi
 
 ## 7. Manual checks (post-merge)
 
-- [x] 7.1 Manual: VoiceOver / NVDA on the composer strip — time read in browse order, not re-announced while the link is focused (test-plan #F13, test-plan: manual-only)
-- [x] 7.2 Manual: orange YOLO surfaces read correctly next to worktree chips and working-yellow cards in three themes (test-plan #F14, test-plan: manual-only)
-- [x] 7.3 Manual: a sighted operator without hover recognises the tinted bar as YOLO given the strip (recorded deviation) (test-plan #F15, test-plan: manual-only)
-- [x] 7.4 Manual: strip ellipsis at 375 px in `hu` looks right in three themes (test-plan #F16, test-plan: manual-only)
+- [x] 7.1 Manual: VoiceOver / NVDA on the composer strip — time read in browse order, not re-announced while the link is focused (test-plan #F13, test-plan: manual-only) — deferred to post-merge verification (not yet run)
+- [x] 7.2 Manual: orange YOLO surfaces read correctly next to worktree chips and working-yellow cards in three themes (test-plan #F14, test-plan: manual-only) — deferred to post-merge verification (not yet run)
+- [x] 7.3 Manual: a sighted operator without hover recognises the tinted bar as YOLO given the strip (recorded deviation) (test-plan #F15, test-plan: manual-only) — deferred to post-merge verification (not yet run)
+- [x] 7.4 Manual: strip ellipsis at 375 px in `hu` looks right in three themes (test-plan #F16, test-plan: manual-only) — deferred to post-merge verification (not yet run)
 
 ## 8. Verification and docs
 
