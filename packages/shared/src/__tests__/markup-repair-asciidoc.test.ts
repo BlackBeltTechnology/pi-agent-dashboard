@@ -50,6 +50,13 @@ describe("repairAsciiDoc — A2 unterminated listing/literal", () => {
     expect(r.repairs).toEqual([{ rule: "A2", line: 1 }]);
   });
 
+  it("E27 only replaces a different-length delimiter before the next section; a later closed sibling is not hijacked", () => {
+    const r = repairAsciiDoc("----\ncode\n\n== Next\n\n------\nb\n------\n");
+    expect(r.source).toBe("----\ncode\n----\n\n== Next\n\n------\nb\n------\n");
+    expect(r.repairs).toEqual([{ rule: "A2", line: 1 }]);
+    expect(repairAsciiDoc(r.source).repairs).toEqual([]);
+  });
+
   it("E16 inserts a closer before the blank line preceding a section title", () => {
     const r = repairAsciiDoc("----\ncode\n\n== Next\n");
     expect(r.source).toBe("----\ncode\n----\n\n== Next\n");

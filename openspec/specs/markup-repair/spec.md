@@ -32,7 +32,7 @@ In a markdown file preview, every mermaid fence SHALL be treated as complete and
 - **THEN** the diagram renders and no loading placeholder remains
 
 ### Requirement: Markdown block repair rules
-A fenced code block is unterminated when no closing fence (same character, length at least the opener's, indented at most 3 spaces) follows it before the end of the file. For an unterminated fenced code block in a markdown file preview, the repair SHALL replace the first following line consisting solely of three or more fence characters of the other fence character, or of the same character but shorter than the opener, with a valid closing fence (M2); otherwise it SHALL insert a closing fence before the blank line that precedes the first following ATX heading (M3); otherwise it SHALL apply no repair. A replaced line SHALL keep its own line ending and an inserted line SHALL use the block opener line's line ending. A fence that is properly closed SHALL NOT be altered.
+A fenced code block is unterminated when no closing fence (same character, length at least the opener's, indented at most 3 spaces) follows it before the end of the file. For an unterminated fenced code block in a markdown file preview, the repair SHALL replace the first following line consisting solely of three or more fence characters of the other fence character, or of the same character but shorter than the opener, with a valid closing fence (M2), considering only lines before the blank line that precedes the first following ATX heading; otherwise it SHALL insert a closing fence before that blank line (M3); otherwise it SHALL apply no repair. A replaced line SHALL keep its own line ending and an inserted line SHALL use the block opener line's line ending. A fence that is properly closed SHALL NOT be altered.
 
 #### Scenario: Mismatched closer character
 - **WHEN** a fence opened with ```` ``` ```` is followed later by a line `~~~` and never closed
@@ -42,12 +42,16 @@ A fenced code block is unterminated when no closing fence (same character, lengt
 - **WHEN** a fence opened with ```` ```` ```` is followed later by a line ```` ``` ```` and never closed
 - **THEN** that line is replaced by a closing ```` ```` ````
 
+#### Scenario: Later closed fence is not taken as the closer
+- **WHEN** a fence opened with ```` ``` ```` is never closed, is followed by a blank line and a heading, and a properly closed `~~~` block follows the heading
+- **THEN** a closing fence is inserted before the blank line preceding the heading and the later `~~~` block is left unchanged
+
 #### Scenario: Properly closed fence documenting a fence
 - **WHEN** a ```` ```` ```` fence contains a ```` ``` ```` line and is closed by ```` ```` ````
 - **THEN** no repair is applied
 
 ### Requirement: AsciiDoc repair rules
-The AsciiDoc preview SHALL render a bare `[mermaid]` or `[mermaid,…]` style applied to a `----` or `....` delimited block (optionally with block title or anchor lines between the style and the delimiter) as a mermaid source block so it hydrates as a diagram (A1); a `[mermaid]` style on a non-delimited paragraph SHALL NOT be rewritten. An unterminated `----` or `....` block that is not nested inside another delimited block SHALL have the first following delimiter line of the same character but different length replaced by the opener's exact delimiter, otherwise a closing delimiter SHALL be inserted before the blank line that precedes the next section title, otherwise no repair applies (A2). Other delimited block types SHALL NOT be repaired. Repair detection SHALL be a pure scan of the source, independent of converter diagnostics. The repair SHALL NOT introduce passthrough content, include directives or document attributes, and rendering SHALL remain in secure mode.
+The AsciiDoc preview SHALL render a bare `[mermaid]` or `[mermaid,…]` style applied to a `----` or `....` delimited block (optionally with block title or anchor lines between the style and the delimiter) as a mermaid source block so it hydrates as a diagram (A1); a `[mermaid]` style on a non-delimited paragraph SHALL NOT be rewritten. An unterminated `----` or `....` block that is not nested inside another delimited block SHALL have the first following delimiter line of the same character but different length replaced by the opener's exact delimiter, considering only lines before the blank line that precedes the next section title, otherwise a closing delimiter SHALL be inserted before that blank line, otherwise no repair applies (A2). Other delimited block types SHALL NOT be repaired. Repair detection SHALL be a pure scan of the source, independent of converter diagnostics. The repair SHALL NOT introduce passthrough content, include directives or document attributes, and rendering SHALL remain in secure mode.
 
 #### Scenario: Bare mermaid block hydrates
 - **WHEN** a previewed `.adoc` contains a bare `[mermaid]` block delimited by `----`
@@ -56,6 +60,10 @@ The AsciiDoc preview SHALL render a bare `[mermaid]` or `[mermaid,…]` style ap
 #### Scenario: Delimiter length mismatch
 - **WHEN** a listing opened with `----` is followed later by `-----` and never closed
 - **THEN** the `-----` line is replaced by `----`
+
+#### Scenario: Later closed sibling is not taken as the closer
+- **WHEN** a `----` listing is never closed, a section title follows, and a properly closed `------` block follows the title
+- **THEN** a closing `----` is inserted before the blank line preceding the title and the later block is left unchanged
 
 #### Scenario: Unterminated block before a section
 - **WHEN** a listing block is never closed and a section title `== Next` follows

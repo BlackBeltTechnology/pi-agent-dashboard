@@ -85,6 +85,13 @@ describe("repairMarkdown", () => {
     expect(r.source).toBe(src);
   });
 
+  it("E26: M2 only looks before the first blank+heading boundary; a later closed fence is not hijacked", () => {
+    const r = repairMarkdown("```\na\n\n# H\n\n~~~\nx\n~~~\n");
+    expect(r.source).toBe("```\na\n```\n\n# H\n\n~~~\nx\n~~~\n");
+    expect(r.repairs).toEqual([{ rule: "M3", line: 1 }]);
+    expect(repairMarkdown(r.source).repairs).toEqual([]);
+  });
+
   it("no fences at all is a fast no-op", () => {
     const src = "# Title\n\nbody\n";
     expect(repairMarkdown(src)).toEqual({ source: src, repairs: [] });

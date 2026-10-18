@@ -63,15 +63,24 @@ function isClosed(lines: Line[], opener: number, ch: string, length: number): bo
 
 type Fix = { rule: "M2"; at: number } | { rule: "M3"; before: number } | null;
 
-/** M2 (replace the first look-alike closer) else M3 (insert before the blank line preceding a heading). */
+/**
+ * M2 (replace the first look-alike closer) else M3 (insert before the blank line preceding a
+ * heading). M2 only looks BEFORE the first blank+heading boundary: past it, a "closer" would be
+ * the opener of a later, properly closed block.
+ */
 function planFix(lines: Line[], opener: number): Fix {
-  for (let x = opener + 1; x < lines.length; x++) {
+  let heading = -1;
+  for (let x = opener + 2; x < lines.length; x++) {
+    if (HEADING_RE.test(lines[x].text) && BLANK_RE.test(lines[x - 1].text)) {
+      heading = x;
+      break;
+    }
+  }
+  const limit = heading === -1 ? lines.length : heading - 1;
+  for (let x = opener + 1; x < limit; x++) {
     if (FENCE_LINE_RE.test(lines[x].text)) return { rule: "M2", at: x };
   }
-  for (let x = opener + 2; x < lines.length; x++) {
-    if (HEADING_RE.test(lines[x].text) && BLANK_RE.test(lines[x - 1].text)) return { rule: "M3", before: x - 1 };
-  }
-  return null;
+  return heading === -1 ? null : { rule: "M3", before: heading - 1 };
 }
 
 /** One repair of the first repairable unterminated top-level fence beyond `after`; null when none. */

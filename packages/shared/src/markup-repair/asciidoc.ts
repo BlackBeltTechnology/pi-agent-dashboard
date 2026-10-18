@@ -46,17 +46,26 @@ function a1Opener(lines: Line[], i: number): number {
 
 type A2Fix = { kind: "replace"; at: number } | { kind: "insert"; before: number } | null;
 
-/** A2: how to close the unterminated listing/literal block opened at `i` (delimiter `t`), if at all. */
+/**
+ * A2: how to close the unterminated listing/literal block opened at `i` (delimiter `t`), if at all.
+ * The look-alike delimiter is only searched BEFORE the next blank+section-title boundary: past it,
+ * it would be the opener of a later, properly closed sibling block.
+ */
 function a2Fix(lines: Line[], i: number, t: string): A2Fix {
+  let boundary = -1;
+  for (let x = i + 2; x < lines.length; x++) {
+    if (SECTION_RE.test(lines[x].text) && BLANK_RE.test(lines[x - 1].text)) {
+      boundary = x - 1;
+      break;
+    }
+  }
+  const limit = boundary === -1 ? lines.length : boundary;
   const ch = t[0];
-  for (let x = i + 1; x < lines.length; x++) {
+  for (let x = i + 1; x < limit; x++) {
     const lt = lines[x].text;
     if (lt.length >= 4 && lt.length !== t.length && lt === ch.repeat(lt.length)) return { kind: "replace", at: x };
   }
-  for (let x = i + 2; x < lines.length; x++) {
-    if (SECTION_RE.test(lines[x].text) && BLANK_RE.test(lines[x - 1].text)) return { kind: "insert", before: x - 1 };
-  }
-  return null;
+  return boundary === -1 ? null : { kind: "insert", before: boundary };
 }
 
 export function repairAsciiDoc(src: string): MarkupRepairResult {
