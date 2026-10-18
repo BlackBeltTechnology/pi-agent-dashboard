@@ -30,6 +30,7 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "/api/live-server/", reason: "live-server preview UI" },
   { pattern: "/api/node/", reason: "node runtime UI" },
   { pattern: "/api/preferences/", reason: "UI preferences" },
+  { pattern: "/api/addons/", reason: "Add-ons hub catalog + combined feature toggle (rewrites ~/.pi/agent/settings.json packages[]); Settings UI-only. See change: addons-hub-feature-catalog" },
   { pattern: "/api/packages/health", reason: "packages[] rot diagnostics; Settings UI-only. See change: add-package-health-cleanup" },
   { pattern: "/api/packages/cleanup", reason: "rewrites ~/.pi/agent/settings.json packages[]; user-mediated Settings UI-only. See change: add-package-health-cleanup" },
   { pattern: "/api/grammar/", reason: "UI-only" },

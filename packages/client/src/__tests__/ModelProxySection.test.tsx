@@ -264,7 +264,13 @@ describe("SettingsPanel — advisory hook removal (F1)", () => {
       path.resolve(__dirname, "..", "components", "settings", "SettingsPanel.tsx"),
       "utf8",
     );
-    const calls = source.match(/useInstalledPackages\("global"\)/g) ?? [];
+    // The Browse Packages block (its one `useInstalledPackages("global")` call) moved into the
+    // Add-ons Discover tab. See change: addons-hub-feature-catalog.
+    const discover = fs.readFileSync(
+      path.resolve(__dirname, "..", "components", "packages", "AddonsDiscoverTab.tsx"),
+      "utf8",
+    );
+    const calls = (source + discover).match(/useInstalledPackages\("global"\)/g) ?? [];
     expect(calls).toHaveLength(1);
     expect(source.includes("upstreamPiModelProxyInstalled")).toBe(false);
   });
