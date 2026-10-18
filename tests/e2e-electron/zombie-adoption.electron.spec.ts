@@ -62,8 +62,9 @@ test.afterEach(async () => {
 });
 
 test("shows the adoption modal with the zombie PID", async () => {
-  // #531 quarantine (darwin only, narrowest scope): the launch/close path hangs
-  // on macOS under Electron 43.4.1 and the previous 32.3.3 pin. Exit criteria:
+  // #531 quarantine (darwin only, narrowest scope): the launch/close path is
+  // reported to hang on macOS under Electron 43.4.1 and the previous 32.3.3 pin
+  // (#531); attribution (app vs harness) is still open — design D5. Exit criteria:
   // removed in the PR that fixes #531; re-tested on every Electron major bump via
   // `gh workflow run ci-e2e-electron.yml --ref <branch>`.
   // See change: add-missing-ci-legs (design D5).
@@ -84,8 +85,9 @@ test("shows the adoption modal with the zombie PID", async () => {
 });
 
 test("--no-zombie-prompt suppresses the modal", async () => {
-  // #531 quarantine (darwin only, narrowest scope): the launch/close path hangs
-  // on macOS under Electron 43.4.1 and the previous 32.3.3 pin. Exit criteria:
+  // #531 quarantine (darwin only, narrowest scope): the launch/close path is
+  // reported to hang on macOS under Electron 43.4.1 and the previous 32.3.3 pin
+  // (#531); attribution (app vs harness) is still open — design D5. Exit criteria:
   // removed in the PR that fixes #531; re-tested on every Electron major bump via
   // `gh workflow run ci-e2e-electron.yml --ref <branch>`.
   // See change: add-missing-ci-legs (design D5).
@@ -103,8 +105,9 @@ test("--no-zombie-prompt suppresses the modal", async () => {
 });
 
 test("Take ownership → tray flips to electron-owned (Restart server)", async () => {
-  // #531 quarantine (darwin only, narrowest scope): the launch/close path hangs
-  // on macOS under Electron 43.4.1 and the previous 32.3.3 pin. Exit criteria:
+  // #531 quarantine (darwin only, narrowest scope): the launch/close path is
+  // reported to hang on macOS under Electron 43.4.1 and the previous 32.3.3 pin
+  // (#531); attribution (app vs harness) is still open — design D5. Exit criteria:
   // removed in the PR that fixes #531; re-tested on every Electron major bump via
   // `gh workflow run ci-e2e-electron.yml --ref <branch>`.
   // See change: add-missing-ci-legs (design D5).

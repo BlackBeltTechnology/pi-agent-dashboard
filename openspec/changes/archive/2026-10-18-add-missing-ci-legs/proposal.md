@@ -1,0 +1,53 @@
+## Why
+
+Issues: https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/861, https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/531, https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/579, https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/451.
+
+Four separate silent-rot vectors: a test path, a platform path, a deploy trigger and an attribution gap. In each, a gate that is believed to run does not run, and nothing says so.
+
+- **#861 — five specs run in no CI leg.** `tests/e2e/team/*.spec.ts` (4) + `tests/e2e/identity-matrix/multi-user.spec.ts` skip at file scope unless `pi` is on `PATH` (`tests/e2e/team/team-llm.spec.ts:22`). They belong to `playwright.team.config.ts` / `playwright.identity-matrix.config.ts`, which only `package.json:105,107` invoke — no workflow does. `ci-e2e-browser.yml:112` shards the DEFAULT config, which discovers and skips them. This contradicts `playwright-e2e-qa` → "every spec SHALL run exactly once". (`tests/e2e/identity-matrix/` also holds three non-`pi` specs — `browser-login`, `security`, `setup-matrix` — that the shards collect today but cannot pass: they read `test-results/identity-matrix/state.json`, written only by the identity config's `bootMatrix` (`tests/e2e/identity-matrix/matrix-lifecycle.ts:21,218,232-234`), so on a fresh shard runner they throw ENOENT. Moving them with their directory fixes them; see design D2.)
+- **#531 — the darwin Electron path never runs.** `ci-e2e-electron.yml:46-47` matrices `[ubuntu-latest, windows-latest]`. `tests/e2e-electron/zombie-adoption.electron.spec.ts` hangs on macOS under both Electron 43.4.1 and the previous 32.3.3 pin, so the defect predates the runtime bump and has never been visible to CI.
+- **#579 — a `site/**` push did not deploy the site.** Verified: `d773f20a5` does touch `site/**`, the filter at that commit did cover `site/**`, no documented push-filter limit applies — and the commit produced NO workflow run at all. The same silent miss happened at least twice more (2026-05-26, 2026-05-30), each time patched by a manual dispatch. One trigger, no backstop, no alarm.
+- **#451 — part 1 only.** Part 2 (the co-resident memory guard) and the audit helper already landed in `stabilize-browser-e2e` (`openspec/specs/docker-test-harness/spec.md:118,158`). What remains: a foreign actor destroys a worktree's harness container mid-run and the run reports a wall of unattributable product failures. The in-tree grep audit (`docker/TESTING.md:93`) found no in-repo culprit, so the deliverable is attribution, not a fix.
+
+## What Changes
+
+- **#861** — two new variant-harness legs in `ci-e2e-browser.yml` (`e2e-team`, `e2e-identity-matrix`) that install the `pi` CLI, build the client (and team app) as explicit steps, and run the two dedicated configs with the shard matrix's gate and `continue-on-error`, each uploading its own HTML report (not joined to the merged shard report); the default config stops discovering those two directories (eight spec files; the three non-`pi` identity specs, broken in the shards today, move to and are fixed by the identity leg, which lands even if the `pi` headless spike fails), so "exactly once" becomes structural rather than dependent on whether `pi` happens to be on a runner's `PATH`.
+- **#531** — a macOS leg for the native-surface Electron suite, added through a `fromJSON` matrix keyed on `github.event_name` only: dispatch (all three OSes, any branch — the opt-in for a PR or an Electron bump), a new nightly schedule (macOS only — every other job in the workflow, incl. `runtime-overlay-e2e` and `job-object-windows`, is gated off `schedule`), PRs unchanged (Linux + Windows). No label trigger. Never on the PR path because GitHub-hosted macOS minutes bill at 10×. The existing Windows run step widens to `runner.os != 'Linux'` so the macOS leg actually runs specs. The zombie-adoption hang — including the `--no-zombie-prompt` arm, which by `electron-shell` spec must proceed without a modal — is treated as a product defect against an existing requirement: reproduced first, then fixed or quarantined with `test.fixme` carrying #531 under explicit exit criteria.
+- **#579** — the push path filter stays as the fast path and gains a separate daily drift-check workflow: the deploy embeds its source commit SHA in the artifact, the check compares the live SHA marker against the last site-relevant commit on `develop`, and on drift *dispatches* `deploy-site.yml` unless a deploy run is already queued/in progress (it never deploys itself, holds no Pages permission, and does not join `pages-deploy`); a failed run-list query skips with a notice, a rejected dispatch fails the check red. `deploy-site.yml` publishes only from `develop`.
+- **#451** — `docker/test-up.sh` starts a per-harness lifecycle-event recorder before `compose up` (one per project, reused on re-up; it self-exits only after it has seen its container and that container is gone, with a 12 h hard cap) writing to `${TMPDIR:-/tmp}/pi-dash-test/<project>.events.log` — outside the worktree, so ship-it's worktree removal does not delete it — and `docker/test-down.sh` marks its own teardown, waits (≤10 s) for the destroy line, then stops it, so every caller (Playwright managed mode, `ship-it`, a developer) captures by default; the existing harness-down short-circuit names a foreign destroy (with the event line) when the record establishes one — matched by this boot's container ID, so an earlier boot's teardown marker cannot mask it. Local-only: each CI runner owns a private Docker daemon. The known cross-project operator recipes are documented as forbidden.
+
+## Capabilities
+
+### Modified Capabilities
+
+- `openspec/specs/playwright-e2e-qa/spec.md` — variant legs own the `pi`-requiring specs; harness-down reporting attributes a foreign destroy.
+- `openspec/specs/ci-cd-pipeline/spec.md` — ADDED requirement: browser-E2E workflow carries the two new variant legs; repo-lint pins them. (The existing trigger requirement, incl. its `schedule` wording, is not restated.)
+- `openspec/specs/electron-qa-coverage/spec.md` — native-surface Electron suite gains a macOS leg with its own cadence.
+- `openspec/specs/marketing-site/spec.md` — Pages deploy is no longer single-trigger; a scheduled drift check backs it.
+- `openspec/specs/docker-test-harness/spec.md` — lifecycle-event capture is automatic for every `test-up.sh` harness, not opt-in only. (Because the recorder lives in `test-up.sh`/`test-down.sh`, `playwright-e2e-qa` → "Playwright manages the Docker test container lifecycle" is NOT modified: `globalSetup`/`globalTeardown` keep calling the same scripts.)
+
+### New Capabilities
+
+None.
+
+## Discipline Skills
+
+- `systematic-debugging` — #531 (the darwin hang is unexplained; `--no-zombie-prompt` hangs too, which the modal-race theory does not cover) and #451 (the destroyer is outside the repo).
+- `observability-instrumentation` — #451 attribution and the #579 drift check both add a signal where silence exists today.
+- `review-code` — before commit, per repo doctrine.
+
+## Non-goals
+
+- Making any of these legs a REQUIRED status check. Every leg added here is advisory in the sense of "not a required status check", like the suites it joins. The macOS Electron matrix entry deliberately carries no `continue-on-error` (the existing `electron-e2e` matrix has none either — only `job-object-windows` does, `ci-e2e-electron.yml:200`) so a darwin regression turns the run red instead of hiding.
+- Finding the #579 root cause retroactively. The push payload and webhook deliveries for 2026-06-22 are gone; the change buys a backstop, not a post-mortem.
+- Finding the #451 destroyer. No in-repo code can reach a foreign compose project (`docker/TESTING.md:93`); this change makes the next occurrence self-attributing.
+- Fixing the Doctor version-skew fetcher's hard-coded `http://localhost:8000/api/health`, which pins the spec's fake server to `FAKE_PORT = 8000` (`tests/e2e-electron/electron-lifecycle.ts:38-42`) and makes `doctor-version-skew.electron.spec.ts` unrunnable next to a live dashboard (named in #531, tracked separately; harmless on a fresh CI runner).
+- Enabling the commented-out browser-E2E nightly cron (`ci-e2e-browser.yml:35-36`, "land dark"); that belongs to `stabilize-browser-e2e` task 5.5. The new browser legs share the shard matrix's trigger gate and inherit whatever cadence it has.
+- Uploading the harness event file from CI legs: each GitHub runner has a private daemon, so the cross-worktree destroy cannot occur there.
+
+## Impact
+
+- **Files**: `.github/workflows/ci-e2e-browser.yml`, `.github/workflows/ci-e2e-electron.yml`, `.github/workflows/deploy-site.yml`, new `.github/workflows/site-drift-check.yml`, `playwright.config.ts`, `tests/e2e/team/*.spec.ts` + `tests/e2e/identity-matrix/multi-user.spec.ts` (skip reasons), `tests/e2e-electron/zombie-adoption.electron.spec.ts` (fix or quarantine), `docker/test-up.sh` / `docker/test-down.sh`, `docker/harness-audit.sh`, the harness-down reporting path under `tests/e2e/`, contract tests (`e2e-browser-workflow-contract.test.ts`, `site-deploy-workflow-contract.test.ts`, `e2e-fixme-guard.test.ts`), `docker/TESTING.md`, `docs/faq.md`.
+- **CI cost**: +2 ubuntu legs per labelled browser-E2E run (~15-20 min each, advisory). The macOS Electron leg is deliberately kept OFF the PR path filter — at 10× billing, adding it to the existing `packages/electron/**` filter would be the single largest cost line in the repo's CI. Nightly/dispatch only.
+- **Migration / compatibility / rollback**: workflow + test-harness changes only; no server, protocol or persisted-state change, so there is nothing to migrate and no compatibility window. Rollback is `git revert` of the workflow and config files; the only non-workflow surfaces are the Playwright `testIgnore` (local `npx playwright test` no longer collects `tests/e2e/team/**` / `tests/e2e/identity-matrix/**` — use `npm run test:e2e:team` / `npm run test:e2e:identity-matrix`) and the harness event recorder (best-effort, self-terminating). The drift check dispatches at most one deploy per scheduled interval; the dispatched run joins `pages-deploy` (`cancel-in-progress: true`, `deploy-site.yml:29-31`), so the check skips dispatch while any deploy run is queued or in progress — residual race documented in design Risks.
+- **Split**: this change bundles four unrelated issues on purpose (one planning pass over one problem class). `design.md` D0 recommends shipping it as four changes. `tasks.md` sections 1-4 map 1:1 to the four future split changes (section 5 splits by row), so the split is mechanical. Not split yet.
