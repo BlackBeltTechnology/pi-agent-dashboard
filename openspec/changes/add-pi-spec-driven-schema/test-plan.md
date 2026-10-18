@@ -52,6 +52,7 @@ Hard gate passed: every Triple is filled from spec-defined values (retry 5×/2 s
 | F8 | Workflow schema status… (folder chip) | EP | L1 | automated | folder with `workflowSchema.generated === conflict`; another with all clear | render | chip present only on the first; it is a link to `/settings/openspec#workflow-schema` with the cwd; no POST on click |
 | F9 | Session controls unaffected | EP | L1 | automated | attached session, READY readiness, generated `outdated` | render session card | OpenSpec controls identical to the same fixture without `workflowSchema` |
 | F10 | settings-panel … end to end | state-convergence | L3 | automated | docker-harness project initialized with default `spec-driven`, 2 changes (1 file-less) | Settings → OpenSpec → Enable → confirm | on disk: `config.yaml` names `pi-spec-driven`, the file-less change has `schema: spec-driven`; the section shows `current` |
+| F11 | Workflow schema status… (affectedChanges) | decision table | L1 | automated | `config.yaml` names `pi-spec-driven`; changes: `a` unpinned, `b` pinned `pi-spec-driven`, `c` pinned `spec-driven`; rows: schema dir present / schema dir missing (CLI reports `a`,`b` with `change_error`, no `schemaName`) | poll | `affectedChanges == ["a","b"]` in both rows |
 
 ### Error-handling
 
@@ -74,9 +75,9 @@ Hard gate passed: every Triple is filled from spec-defined values (retry 5×/2 s
 ## Coverage summary
 
 - Requirements covered: all 10 `openspec-workflow-schema` requirements; `settings-panel` new section + Save Bar exception; `project-init-skill`; the `pi-spec-driven` bypass in `openspec-detection` (2), `openspec-local-artifact-evidence` (2) and `server-openspec-polling` (covered by E27).
-- Scenarios by class: edge 25 · perf 0 · frontend 10 · error 11
-- Scenarios by level: L1 45 · L3 1
-- Scenarios by disposition: automated 46 · manual-only 0
+- Scenarios by class: edge 25 · perf 0 · frontend 11 · error 11
+- Scenarios by level: L1 46 · L3 1
+- Scenarios by disposition: automated 47 · manual-only 0
 
 ## New infra needed
 
