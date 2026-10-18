@@ -1,7 +1,9 @@
 /**
  * Tests that when a new session registers with a sessionFile already used by
- * another session, the old session's sessionFile is cleared.
- * This prevents resuming a stale session from loading the wrong conversation.
+ * an ENDED session, the old session is superseded (evicted via
+ * `session_archived`, never left as a fileless orphan). This prevents resuming
+ * a stale session from loading the wrong conversation AND an un-archivable card.
+ * See change: fix-orphaned-ended-session-archive.
  */
 import { describe, it, expect, afterAll } from "vitest";
 import { createTestServer, type TestServerHandle } from "../test-support/test-server.js";
@@ -37,7 +39,7 @@ describe("session file deduplication", () => {
     if (handle) await handle.stop();
   });
 
-  it("clears sessionFile from old session when new session registers with same file", async () => {
+  it("supersedes (evicts) the ended old session when a new session registers with the same file", async () => {
     handle = await createTestServer();
     server = handle.server;
     piPort = handle.piPort;
@@ -83,11 +85,15 @@ describe("session file deduplication", () => {
 
     const collected = await msgs;
 
-    // Should see session_updated for session-a clearing its sessionFile
+    // The ended predecessor is evicted with a `session_archived` frame, not
+    // left behind with a cleared sessionFile.
+    const evicted = collected.find((m: any) => m.type === "session_archived" && m.sessionId === "session-a");
+    expect(evicted).toBeDefined();
     const clearUpdate = collected.find(
-      (m: any) => m.type === "session_updated" && m.sessionId === "session-a" && "sessionFile" in (m.updates ?? {}) && m.updates.sessionFile === null,
+      (m: any) => m.type === "session_updated" && m.sessionId === "session-a" && m.updates?.sessionFile === null,
     );
-    expect(clearUpdate).toBeDefined();
+    expect(clearUpdate).toBeUndefined();
+    expect(server.sessionManager.get("session-a")).toBeUndefined();
 
     // Session B should have the sessionFile
     const addedB = collected.find(
