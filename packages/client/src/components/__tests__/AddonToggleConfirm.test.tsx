@@ -180,7 +180,7 @@ describe("combined off confirmation", () => {
 
 	it("a failed session reload is not reported as done", async () => {
 		stub((b) => (b.dryRun ? json(report({ dryRun: true, filtered: ["npm:a"], confirmToken: "t" })) : json(report())));
-		const original = globalThis.fetch as ReturnType<typeof vi.fn>;
+		const original = globalThis.fetch as typeof fetch;
 		vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) =>
 			String(url).includes("/api/resources/reload") ? json({ success: false, error: "no" }, 500) : original(url, init),
 		));
