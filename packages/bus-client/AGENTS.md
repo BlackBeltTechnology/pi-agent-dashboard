@@ -10,7 +10,7 @@ See change: add-dashboard-bus-client-scripting.
 | `src/index.ts` | Barrel. Exports `BusClient`, `connect()` factory, error classes, `Ticket`, denylist, port helpers, `GENERATED_VERBS`/`VERB_INTERFACE`. |
 | `src/client.ts` | `BusClient` class. `connect()`/`mintTicket()`/`connectWithTicket()` (ticket→WS→snapshot); `send<T extends BrowserToServerMessage>`; `waitFor`/`await`/`until` (structural, session-id keyed); `spawn`/`resume` (exact-correlated on spawnRequestId / resume_result.requestId, spawn fails fast on spawn_result failure — exact echo needs headless strategy); `prompt`; `plugin` (goal only, else NoPluginHandlerError); `read.sessions/session` (snapshot+deltas, metadata only). |
 | `src/ticket.ts` | `Ticket` type, `TICKET_TTL_MS`=15000, `isTicketExpired`. Local mint-time + TTL used to classify expired vs consumed before open. |
-| `src/errors.ts` | `BusError` + `.code`; `TicketExpiredError`, `TicketConsumedError`, `OffBoxError`, `BusTimeoutError`, `NoPluginHandlerError`. |
+| `src/errors.ts` | `BusError` + `.code`; `TicketExpiredError`, `TicketConsumedError`, `OffBoxError`, `BusTimeoutError`, `NoPluginHandlerError`. `OffBoxError` carries optional readonly `status` (HTTP) + `error` (guard literal); message = `ticket mint denied: <status> <error> — <reason>`; unreachable endpoint = no `status`, names base URL; `hint`/other body fields never copied. See change: triage-browser-e2e-offbox-poison. |
 | `src/port-discovery.ts` | `discoverPort`/`discoverHost`. Order: explicit → DASHBOARD_PORT/DASHBOARD_HOST env → ~/.pi/dashboard/config.json → 8000/localhost. |
 | `src/denylist.ts` | `CLIENT_INTERCEPTED_DENYLIST` (`plugin_config_write`), `isDenylisted`. Members intercepted to REST client-side; excluded from codegen. |
 | `src/codegen/generate-verbs.ts` | `enumerateUnion(file,name)` via TS compiler API; `generate()` writes `src/generated/verbs.ts`. Enumerates `BrowserToServerMessage` minus denylist. Run: `npm run codegen`. Emits `JSON.stringify(verbs, null, 2)` as is (identity `.replace(/\n/g, "\n")` removed; output byte-identical). See change: fix-codeql-small-findings. |
@@ -19,7 +19,7 @@ See change: add-dashboard-bus-client-scripting.
 | `src/__tests__/connect.test.ts` | C1 — connect mints ticket, opens WS, resolves on snapshot. |
 | `src/__tests__/ticket-expiry.test.ts` | C2 — expired ticket → TicketExpiredError (distinct from close). |
 | `src/__tests__/ticket-reuse.test.ts` | C3 — consumed single-use ticket reuse → TicketConsumedError. |
-| `src/__tests__/offbox-ticket-denied.test.ts` | C4 (L1 companion) — denied mint → OffBoxError, no hang. |
+| `src/__tests__/offbox-ticket-denied.test.ts` | C4 (L1 companion) — denied mint → OffBoxError, no hang. E1-E7/X1-X2 — typed `status`/`error`, reason in message, no hint copy, non-JSON body safe, unreachable shape distinct. See change: triage-browser-e2e-offbox-poison. |
 | `src/__tests__/send-types.test.ts` | S1 — runs `node scripts/tsc7.mjs -p tsconfig.fixtures.json` (TS 7) over the type-negative fixture; exit 0 proves bad sends rejected. |
 | `src/__tests__/fixtures/bad-send.ts` | S1 fixture. `@ts-expect-error`-guarded malformed sends + well-formed sends. |
 | `src/__tests__/verb-completeness.test.ts` | S2 — every GENERATED_VERBS entry has a server receiver (gateway switch / handlePiGatewayForward / registerHandler / plugin registerBrowserHandler). |

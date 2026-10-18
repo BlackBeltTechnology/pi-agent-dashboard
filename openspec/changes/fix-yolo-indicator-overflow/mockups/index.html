@@ -1,0 +1,541 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>fix-yolo-indicator-overflow — as-built vs proposed</title>
+<style>
+/* Tokens mirror packages/client/src/index.css (:root + [data-theme="light"]). */
+:root {
+  --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e;
+  --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#919191; --text-muted:#585858;
+  --border-primary:#252525; --border-secondary:#333333;
+  --accent-orange:#f97316; --accent-blue:#3b82f6;
+}
+[data-theme="light"] {
+  --bg-primary:#ffffff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0;
+  --text-primary:#1a1a1a; --text-secondary:#444444; --text-tertiary:#636363; --text-muted:#aaaaaa;
+  --border-primary:#e0e0e0; --border-secondary:#cccccc;
+}
+:root, [data-theme="light"] {
+  --tint-orange-bg: color-mix(in srgb, var(--accent-orange) 10%, var(--bg-tertiary));
+  --tint-orange-fg: color-mix(in srgb, var(--accent-orange) 46%, var(--text-primary));
+  --tint-orange-border: color-mix(in srgb, var(--accent-orange) 40%, transparent);
+  --severity-warning-bg: var(--tint-orange-bg);
+  --severity-warning-fg: var(--tint-orange-fg);
+  --severity-warning-border: var(--tint-orange-border);
+}
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg-primary); color:var(--text-secondary);
+  font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+.sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+.toolbar { position:sticky; top:0; z-index:5; display:flex; flex-wrap:wrap; gap:16px; align-items:center;
+  padding:10px 20px; background:var(--bg-secondary); border-bottom:1px solid var(--border-primary); }
+.toolbar h1 { font-size:14px; margin:0 12px 0 0; color:var(--text-primary); }
+.seg { display:inline-flex; border:1px solid var(--border-secondary); border-radius:6px; overflow:hidden; }
+.seg button { background:transparent; color:var(--text-secondary); border:0; padding:4px 10px; font:inherit; font-size:12px; cursor:pointer; }
+.seg button[aria-pressed="true"] { background:var(--bg-tertiary); color:var(--text-primary); font-weight:600; }
+.seg button:focus-visible, a:focus-visible, input:focus-visible { outline:2px solid var(--accent-blue); outline-offset:2px; }
+main { padding:20px; display:grid; gap:28px; max-width:1600px; }
+section > h2 { font-size:13px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-tertiary); margin:0 0 4px; }
+section > p { margin:0 0 12px; font-size:12px; color:var(--text-tertiary); max-width:900px; }
+.pair { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+@media (max-width: 1100px) { .pair { grid-template-columns:1fr; } }
+.col h3 { font-size:12px; margin:0 0 6px; color:var(--text-primary); display:flex; gap:8px; align-items:center; }
+.tag { font-size:10px; padding:1px 6px; border-radius:4px; border:1px solid var(--border-secondary); font-weight:600; }
+.tag.bad { color:#ef4444; border-color:#ef444466; }
+.tag.good { color:#22c55e; border-color:#22c55e66; }
+.frame { border:1px dashed var(--border-secondary); border-radius:8px; padding:8px; margin-bottom:10px; background:var(--bg-primary); overflow:hidden; }
+.frame-label { font-size:10px; color:var(--text-muted); margin-bottom:4px; font-family:ui-monospace,monospace; }
+.measure { font-size:10px; font-family:ui-monospace,monospace; color:var(--text-tertiary); margin-top:4px; }
+.measure b.bad { color:#ef4444; } .measure b.good { color:#22c55e; }
+
+/* ---- sidebar app bar (SessionList.tsx header-app-bar) ---- */
+.sidebar { background:var(--bg-secondary); border:1px solid var(--border-primary); }
+.appbar { display:flex; align-items:center; justify-content:space-between; padding:6px 12px; border-bottom:1px solid var(--border-primary); }
+.grp { display:flex; gap:4px; align-items:center; }
+.grp.left { gap:6px; }
+.logo { width:24px; height:24px; border-radius:6px; background:var(--accent-blue); color:#fff; font-weight:700; display:grid; place-items:center; font-size:12px; }
+.iconbtn { width:22px; height:22px; border-radius:4px; display:grid; place-items:center; color:var(--text-tertiary); flex-shrink:0; }
+.iconbtn svg { width:15px; height:15px; fill:currentColor; }
+.conn { font-size:10px; color:var(--text-tertiary); padding:4px 12px; display:flex; gap:6px; align-items:center; }
+.conn i { width:6px; height:6px; border-radius:50%; background:#22c55e; display:inline-block; }
+.card { margin:6px 8px; height:34px; border-radius:12px; background:var(--bg-tertiary); border:1px solid var(--border-primary); }
+
+/* ---- YOLO indicators ---- */
+.yolo { display:inline-flex; align-items:center; border-style:solid; border-color:var(--severity-warning-border);
+  background:var(--severity-warning-bg); color:var(--severity-warning-fg); border-radius:4px;
+  font-variant-numeric:tabular-nums; text-decoration:none; }
+.yolo svg { fill:currentColor; }
+.yolo.scoped { border-width:1px; } .yolo.unscoped { border-width:2px; font-weight:700; }
+.pill { gap:2px; padding:2px 6px; font-size:10px; line-height:1; }
+.pill svg { width:10.8px; height:10.8px; }
+.sess { gap:4px; padding:2px 6px; font-size:11px; align-self:flex-start; }
+.sess svg { width:12px; height:12px; }
+/* proposed (D2) */
+.yolo.p { white-space:nowrap; overflow:hidden; min-width:0; }
+.yolo.p svg, .yolo.p .t { flex-shrink:0; }
+.yolo.p .l { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+.yolo.p.pill { max-width:12rem; } .yolo.p.sess { max-width:22rem; }
+.yolo.p.mob { max-width:100%; }
+/* ALT (finding F2): anchor keeps its automatic min-size = marker + time floor; only label truncates. */
+.yolo.alt { white-space:nowrap; }
+.yolo.alt svg, .yolo.alt .t { flex-shrink:0; }
+.yolo.alt .l { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+.yolo.alt.pill { max-width:12rem; } .yolo.alt.sess { max-width:22rem; }
+.grp.fix { min-width:0; }
+
+/* ---- session header rows (SessionHeader.tsx) ---- */
+.hdr { padding:8px 16px; border:1px solid var(--border-primary); border-bottom-color:var(--border-primary);
+  display:flex; align-items:center; gap:16px; font-size:14px; background:var(--bg-primary); }
+.title { font-weight:500; color:var(--text-primary); display:flex; align-items:center; gap:4px; }
+.lms { display:inline-flex; border:1px solid var(--border-secondary); border-radius:4px; font-size:10px; }
+.lms span { padding:2px 6px; } .lms span:first-child { background:var(--bg-tertiary); color:var(--text-primary); }
+.seek { font-size:10px; padding:2px 6px; border-radius:4px; border:1px solid #3b82f666; color:#60a5fa; white-space:nowrap; }
+.muted { color:var(--text-tertiary); font-size:14px; white-space:nowrap; }
+.chip { font-size:11px; padding:2px 6px; border-radius:999px; border:1px solid var(--border-secondary); color:var(--text-secondary); white-space:nowrap; }
+.mhdr { padding:8px 12px; border:1px solid var(--border-primary); display:flex; flex-direction:column; font-size:14px; gap:4px; }
+.mrow { display:flex; align-items:center; gap:8px; min-width:0; }
+.mrow .title { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:block; }
+
+
+/* ---- composer replica (CommandInput.tsx composer-card) ---- */
+.cmp-wrap { background:var(--bg-primary); padding:8px; }
+.cmp { container-type:inline-size; background:var(--bg-tertiary); border:1px solid var(--border-secondary); border-radius:12px; padding:8px 10px 6px; }
+.cmp.tint { border-color:var(--severity-warning-border); }
+.cmp-in { display:flex; align-items:flex-end; gap:6px; }
+.cmp-ta { flex:1; min-height:38px; color:var(--text-muted); font-size:14px; padding:4px 2px; }
+.cmp-send { width:44px; height:44px; border-radius:10px; background:var(--accent-blue); display:grid; place-items:center; color:#fff; flex-shrink:0; }
+.cmp-send svg { width:18px; height:18px; fill:currentColor; }
+.cmp-hr { height:1px; background:var(--border-primary); margin:6px 0 4px; }
+.cmp-row { display:flex; align-items:center; gap:6px; min-width:0; }
+.cmp-btn { width:34px; height:30px; border-radius:8px; display:grid; place-items:center; color:var(--text-secondary); flex-shrink:0; font-size:18px; }
+.cmp-chip { height:30px; padding:0 8px; border-radius:8px; display:inline-flex; align-items:center; gap:4px; font-size:12px; color:var(--text-secondary); border:1px solid var(--border-secondary); white-space:nowrap; min-width:0; overflow:hidden; text-overflow:ellipsis; }
+.cmp-wide { display:none; } @container (min-width: 44rem) { .cmp-wide { display:inline-flex; } .cmp-more { display:none; } }
+.cmp-sp { flex:1; }
+/* composer YOLO chip: 30px row height, label folds below 30rem (same breakpoint as stop-after-turn label) */
+.yolo.cy { height:30px; gap:4px; padding:0 8px; font-size:12px; border-radius:8px; white-space:nowrap; flex-shrink:0; }
+.yolo.cy svg { width:14px; height:14px; flex-shrink:0; }
+.yolo.cy .l { display:none; } @container (min-width: 30rem) { .yolo.cy .l { display:inline; } }
+/* strip variant: banner above textarea */
+.cmp-strip { display:flex; align-items:center; gap:6px; margin:0 0 4px; padding:4px 10px; border-radius:8px;
+  background:var(--tint-yellow-bg); color:var(--tint-yellow-fg); border:1px solid var(--tint-yellow-border); font-size:12px; white-space:nowrap; overflow:hidden; }
+.cmp-strip svg { width:14px; height:14px; fill:currentColor; flex-shrink:0; }
+.cmp-strip .l { overflow:hidden; text-overflow:ellipsis; min-width:0; } .cmp-strip .t { margin-left:auto; flex-shrink:0; font-variant-numeric:tabular-nums; font-weight:600; }
+.cmp-strip.unscoped { font-weight:700; border-width:2px; }
+
+
+/* ---- real row 1 replica (user screenshot) + yellow options ---- */
+:root, [data-theme="light"] {
+  --accent-purple:#a855f7; --accent-yellow:#eab308; --accent-green:#22c55e;
+  --tint-purple-bg: color-mix(in srgb, var(--accent-purple) 10%, var(--bg-tertiary));
+  --tint-purple-fg: color-mix(in srgb, var(--accent-purple) 46%, var(--text-primary));
+  --tint-purple-border: color-mix(in srgb, var(--accent-purple) 40%, transparent);
+  /* PROPOSED new tokens (theme layer first, then ui-contract.md) */
+  --tint-yellow-bg: color-mix(in srgb, var(--accent-yellow) 14%, var(--bg-tertiary));
+  --tint-yellow-fg: color-mix(in srgb, var(--accent-yellow) 55%, var(--text-primary));
+  --tint-yellow-border: color-mix(in srgb, var(--accent-yellow) 55%, transparent);
+  --yolo-fill: var(--accent-yellow);
+  --yolo-on-fill: color-mix(in srgb, var(--accent-yellow) 12%, #000);
+  --yolo-bar-bg: color-mix(in srgb, var(--accent-yellow) 10%, var(--bg-secondary));
+}
+.rr { display:flex; align-items:center; justify-content:space-between; padding:6px 12px; background:var(--bg-secondary); border:1px solid var(--border-primary); }
+.rr.ybar { background:var(--yolo-bar-bg); border-bottom:2px solid var(--accent-yellow); }
+.rr .g { display:flex; align-items:center; gap:6px; }
+.rr .lg { color:var(--accent-blue); font-weight:800; font-size:18px; letter-spacing:-2px; }
+.rr .ic { width:22px; height:22px; display:grid; place-items:center; color:var(--text-tertiary); flex-shrink:0; }
+.rr .ic svg { width:15px; height:15px; fill:currentColor; }
+.rr .segm { display:inline-flex; border:1px solid var(--border-secondary); border-radius:6px; }
+.rr .segm .ic:last-child { color:var(--accent-blue); }
+.rr .qp { display:inline-flex; align-items:center; gap:2px; padding:2px 6px; border-radius:4px; border:1px solid var(--tint-purple-border); background:var(--tint-purple-bg); color:var(--tint-purple-fg); font-size:10px; line-height:1; flex-shrink:0; }
+.rr .srv { display:flex; align-items:center; gap:4px; color:var(--text-secondary); font-size:11px; white-space:nowrap; }
+.rr .srv i { width:6px; height:6px; border-radius:50%; background:var(--accent-green); }
+.yp { display:inline-flex; align-items:center; padding:2px 6px; border-radius:4px; font-size:10px; line-height:1; font-variant-numeric:tabular-nums; white-space:nowrap; flex-shrink:0; gap:3px; text-decoration:none; border-style:solid; }
+.yp.tint { background:var(--tint-yellow-bg); color:var(--tint-yellow-fg); border-color:var(--tint-yellow-border); }
+.yp.fill { background:var(--yolo-fill); color:var(--yolo-on-fill); border-color:color-mix(in srgb, var(--accent-yellow) 60%, #000); }
+.yp.scoped { border-width:1px; font-weight:600; } .yp.unscoped { border-width:2px; font-weight:800; }
+.tipwrap { position:relative; display:inline-flex; }
+.faketip { position:absolute; top:calc(100% + 6px); right:0; width:260px; white-space:normal; font-size:11px; line-height:1.35; font-weight:400;
+  background:var(--bg-tertiary); color:var(--text-primary); border:1px solid var(--border-secondary); border-radius:6px; padding:6px 8px; box-shadow:0 4px 12px #0006; z-index:2; }
+.rrframe { padding-bottom:84px; }
+
+
+/* ---- FINAL design (design.md D1–D7): orange, no bar click, time outside link ---- */
+:root { --accent-orange-text:#f97316; --bg-hover:#262626; }
+[data-theme="light"] { --accent-orange-text:#a64704; --bg-hover:#e8e8e8; }
+.rr.obar { background:var(--severity-warning-bg); box-shadow:inset 0 -2px 0 var(--accent-orange-text); position:relative; }
+.barlink { position:absolute; left:8px; top:100%; z-index:3; max-width:20rem; white-space:normal; font-size:12px; line-height:1.35;
+  padding:4px 8px; border-radius:4px; border:1px solid var(--border-secondary); background:var(--bg-secondary); color:var(--text-primary);
+  opacity:0; pointer-events:none; text-decoration:underline; }
+.barlink:focus, .barlink.force { opacity:1; pointer-events:auto; outline:2px solid var(--accent-blue); outline-offset:1px; }
+.fstrip-wrap { padding:8px 12px 0; flex-shrink:0; }
+.fstrip { display:flex; align-items:center; gap:6px; width:100%; min-width:0; white-space:nowrap; overflow:hidden; border-radius:8px;
+  border-style:solid; border-color:var(--severity-warning-border); background:var(--severity-warning-bg); color:var(--severity-warning-fg);
+  padding:4px 10px; font-size:12px; }
+.fstrip.scoped { border-width:1px; } .fstrip.unscoped { border-width:2px; font-weight:700; }
+.fstrip a { display:flex; align-items:center; gap:6px; flex:1; min-width:0; color:inherit; text-decoration:none; }
+.fstrip a:hover .l { text-decoration:underline; }
+.fstrip svg { width:14px; height:14px; fill:currentColor; flex-shrink:0; }
+.fstrip .l { overflow:hidden; text-overflow:ellipsis; min-width:0; }
+.fstrip .t { flex-shrink:0; font-variant-numeric:tabular-nums; font-weight:600; }
+.fcomp { border-top:1px solid var(--border-primary); padding:12px; }
+.fpane { background:var(--bg-primary); border:1px solid var(--border-primary); display:flex; flex-direction:column; }
+.fmsgs { padding:10px 12px; color:var(--text-tertiary); font-size:12px; min-height:46px; }
+.anno { font-size:10px; font-family:ui-monospace,monospace; color:var(--text-tertiary); margin-top:4px; }
+
+/* ---- squeeze ---- */
+.squeeze { resize:horizontal; overflow:hidden; border:1px dashed var(--accent-orange); padding:6px; display:flex; gap:4px; align-items:center; min-width:40px; }
+table { border-collapse:collapse; font-size:12px; width:100%; }
+th, td { border:1px solid var(--border-primary); padding:6px 8px; text-align:left; vertical-align:top; }
+th { color:var(--text-primary); background:var(--bg-secondary); font-weight:600; }
+code { font-family:ui-monospace,monospace; font-size:11px; color:var(--text-primary); }
+</style>
+</head>
+<body>
+<div class="toolbar" role="toolbar" aria-label="Board controls">
+  <h1>fix-yolo-indicator-overflow · #898 <span style="font-weight:400;color:var(--text-tertiary);font-size:11px">— §F = FINAL design; §R/§0/1–6 = exploration history</span></h1>
+  <div class="seg" data-ctl="theme" aria-label="Theme"><button data-v="dark" aria-pressed="true">Dark</button><button data-v="light" aria-pressed="false">Light</button></div>
+  <div class="seg" data-ctl="lang" aria-label="Locale"><button data-v="en" aria-pressed="true">en</button><button data-v="hu" aria-pressed="false">hu</button><button data-v="zh" aria-pressed="false">zh-CN</button></div>
+  <div class="seg" data-ctl="mode" aria-label="YOLO session"><button data-v="unscoped" aria-pressed="true">unscoped · 35:23</button><button data-v="scoped" aria-pressed="false">scoped · 35:23</button><button data-v="forever" aria-pressed="false">unscoped · env ∞</button></div>
+</div>
+
+<main id="board"></main>
+<!-- FINAL DESIGN differs from these frames: orange tokens (not yellow), no bar click, strip time outside the link. See ../design.md and ui-plan.md. -->
+
+<script>
+const SHIELD = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21,11C21,16.55 17.16,21.74 12,23C6.84,21.74 3,16.55 3,11V5L12,1L21,5V11M12,21C15.75,20 19,15.54 19,11.22V6.3L12,3.18L5,6.3V11.22C5,15.54 8.25,20 12,21M11,7H13V13H11V7M11,15H13V17H11V15Z"/></svg>';
+const DL = '<svg viewBox="0 0 24 24"><path d="M5,20H19V18H5M19,9H15V3H9V9H5L12,16L19,9Z"/></svg>';
+const AP = '<svg viewBox="0 0 24 24"><path d="M12,10A2,2 0 0,0 10,12A2,2 0 0,0 12,14A2,2 0 0,0 14,12A2,2 0 0,0 12,10M7.76,7.76C6.67,8.85 6,10.35 6,12C6,13.65 6.67,15.15 7.76,16.24L9.17,14.83C8.45,14.11 8,13.11 8,12C8,10.89 8.45,9.89 9.17,9.17L7.76,7.76M16.24,7.76L14.83,9.17C15.55,9.89 16,10.89 16,12C16,13.11 15.55,14.11 14.83,14.83L16.24,16.24C17.33,15.15 18,13.65 18,12C18,10.35 17.33,8.85 16.24,7.76Z"/></svg>';
+const TGT = '<svg viewBox="0 0 24 24"><path d="M12,2A10,10 0 1,0 22,12A10,10 0 0,0 12,2M12,20A8,8 0 1,1 20,12A8,8 0 0,1 12,20M12,7A5,5 0 1,0 17,12A5,5 0 0,0 12,7Z"/></svg>';
+
+// Strings: as-built = current catalogue values; proposed = D1/D5 compact + static coverage keys.
+const S = {
+  en: {
+    left: t => `${t} left`, until: "until the server stops",
+    asPillU: t => `YOLO everywhere ${t}`, asPill: t => `YOLO ${t}`,
+    asSessU: r => `YOLO everywhere: agent + dashboard file access auto-allowed on every folder · ${r}`,
+    asSess: r => `YOLO: agent + dashboard file access here auto-allowed · ${r}`,
+    asTitleU: r => `YOLO is on EVERYWHERE: agent and dashboard file access is auto-allowed on every folder (${r}). Open Access to end it.`,
+    asTitle: r => `YOLO is on: agent and dashboard file access in its folders is auto-allowed (${r}). Open Access to end it.`,
+    labU: "YOLO everywhere", lab: "YOLO",
+    cov: "YOLO is on: agent and dashboard file access in its folders is auto-allowed. Open Access to end it.",
+    covU: "YOLO is on everywhere: agent and dashboard file access is auto-allowed in every folder. Open Access to end it.",
+    covF: "YOLO is on until the server stops: agent and dashboard file access in its folders is auto-allowed. Open Access to end it.",
+    covUF: "YOLO is on everywhere until the server stops: agent and dashboard file access is auto-allowed in every folder. Open Access to end it.",
+    title: "fix-yolo-indicator-overflow", conn: "Local • Connected", changed: "Changed Files 4", elapsed: "12m 04s",
+  },
+  hu: {
+    left: t => `még ${t}`, until: "amíg a szerver le nem áll",
+    asPillU: t => `YOLO mindenhol ${t}`, asPill: t => `YOLO ${t}`,
+    asSessU: r => `YOLO mindenhol: minden mappában az ügynök + dashboard fájlhozzáférése automatikusan engedélyezett · ${r}`,
+    asSess: r => `YOLO: itt az ügynök + dashboard fájlhozzáférése automatikusan engedélyezett · ${r}`,
+    asTitleU: r => `A YOLO MINDENHOL be van kapcsolva: minden mappában az ügynök és a dashboard fájlhozzáférése automatikusan engedélyezett (${r}). A befejezéshez nyisd meg a Hozzáférés oldalt.`,
+    asTitle: r => `A YOLO be van kapcsolva: a mappáiban az ügynök és a dashboard fájlhozzáférése automatikusan engedélyezett (${r}). A befejezéshez nyisd meg a Hozzáférés oldalt.`,
+    labU: "YOLO mindenhol", lab: "YOLO",
+    cov: "A YOLO be van kapcsolva: a mappáiban az ügynök és a dashboard fájlhozzáférése automatikusan engedélyezett. A befejezéshez nyisd meg a Hozzáférés oldalt.",
+    covU: "A YOLO MINDENHOL be van kapcsolva: minden mappában az ügynök és a dashboard fájlhozzáférése automatikusan engedélyezett. A befejezéshez nyisd meg a Hozzáférés oldalt.",
+    covF: "A YOLO a szerver leállásáig be van kapcsolva: a mappáiban az ügynök és a dashboard fájlhozzáférése automatikusan engedélyezett. A befejezéshez nyisd meg a Hozzáférés oldalt.",
+    covUF: "A YOLO MINDENHOL be van kapcsolva a szerver leállásáig: minden mappában az ügynök és a dashboard fájlhozzáférése automatikusan engedélyezett. A befejezéshez nyisd meg a Hozzáférés oldalt.",
+    title: "fix-yolo-indicator-overflow", conn: "Helyi • Csatlakozva", changed: "Módosított fájlok 4", elapsed: "12p 04mp",
+  },
+  zh: {
+    left: t => `剩余 ${t}`, until: "直到服务器停止",
+    asPillU: t => `YOLO 全部 ${t}`, asPill: t => `YOLO ${t}`,
+    asSessU: r => `YOLO 全部位置：所有文件夹中智能体 + 仪表板的文件访问被自动允许 · ${r}`,
+    asSess: r => `YOLO：此处智能体 + 仪表板的文件访问被自动允许 · ${r}`,
+    asTitleU: r => `YOLO 已在所有位置开启：所有文件夹中智能体和仪表板的文件访问被自动允许（${r}）。打开访问页面以结束。`,
+    asTitle: r => `YOLO 已开启：其文件夹中智能体和仪表板的文件访问被自动允许（${r}）。打开访问页面以结束。`,
+    labU: "YOLO 全部", lab: "YOLO",
+    cov: "YOLO 已开启：其文件夹中智能体和仪表板的文件访问被自动允许。打开访问页面以结束。",
+    covU: "YOLO 已在所有位置开启：所有文件夹中智能体和仪表板的文件访问被自动允许。打开访问页面以结束。",
+    covF: "YOLO 已开启直到服务器停止：其文件夹中智能体和仪表板的文件访问被自动允许。打开访问页面以结束。",
+    covUF: "YOLO 已在所有位置开启直到服务器停止：所有文件夹中智能体和仪表板的文件访问被自动允许。打开访问页面以结束。",
+    title: "fix-yolo-indicator-overflow", conn: "本地 • 已连接", changed: "已更改文件 4", elapsed: "12分 04秒",
+  },
+};
+const st = { theme:"dark", lang:"en", mode:"unscoped" };
+let uid = 0;
+const esc = s => s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");
+
+function model() {
+  const L = S[st.lang], unscoped = st.mode !== "scoped", forever = st.mode === "forever";
+  const time = forever ? "\u221e" : "35:23";
+  const remaining = forever ? L.until : L.left("35:23");
+  return { L, unscoped, forever, time, remaining,
+    cov: unscoped ? (forever ? L.covUF : L.covU) : (forever ? L.covF : L.cov) };
+}
+// As-built: YoloIndicators.tsx today.
+function pillAs(m) {
+  const title = m.unscoped ? m.L.asTitleU(m.remaining) : m.L.asTitle(m.remaining);
+  return `<a href="#" class="yolo pill ${m.unscoped?"unscoped":"scoped"}" data-testid="yolo-pill" title="${esc(title)}" aria-label="${esc(title)}">${SHIELD}${esc(m.unscoped?m.L.asPillU(m.time):m.L.asPill(m.time))}</a>`;
+}
+function sessAs(m) {
+  return `<a href="#" role="status" class="yolo sess ${m.unscoped?"unscoped":"scoped"}" data-testid="yolo-session-indicator">${SHIELD}${esc(m.unscoped?m.L.asSessU(m.remaining):m.L.asSess(m.remaining))}</a>`;
+}
+// Proposed: D1 (compact + title + sibling sr-only describedby), D2 (shrink-proof), D2b (∞), D4 (no role=status).
+function yoloP(m, kind, extra="", v="p") {
+  const id = `yolo-desc-${++uid}`;
+  return `<a href="#" class="yolo ${v} ${kind} ${extra} ${m.unscoped?"unscoped":"scoped"}" data-testid="${kind==="pill"?"yolo-pill":"yolo-session-indicator"}" title="${esc(m.cov)}" aria-describedby="${id}">${SHIELD}<span class="l">${esc(m.unscoped?m.L.labU:m.L.lab)}</span><span class="t">${m.time}</span></a><span class="sr-only" id="${id}">${esc(m.cov)}</span>`;
+}
+
+function sidebar(m, w, yolo, fix=false) {
+  return `<div class="sidebar" style="width:${w}px" data-host="appbar">
+    <div class="appbar" data-row>
+      <div class="grp left"><span class="logo">π</span><span class="iconbtn">${TGT}</span><span class="iconbtn">${TGT}</span></div>
+      <div class="grp${fix?" fix":""}"><span class="iconbtn">${DL}</span><span class="iconbtn">${AP}</span>${yolo}<span class="iconbtn">${TGT}</span></div>
+    </div>
+    <div class="conn"><i></i>${esc(m.L.conn)}</div>
+    <div class="card"></div><div class="card"></div>
+  </div>`;
+}
+function desktopHdr(m, w, yolo) {
+  return `<div class="hdr" style="width:${w}px" data-row>
+    <span class="title">${esc(m.L.title)}</span>
+    <span class="lms"><span>Chat</span><span>Split</span></span>
+    <span class="seek">Seek</span>
+    <span class="muted">pi 0.74.2</span>
+    <span class="chip">${esc(m.L.changed)}</span>
+    <span class="muted">${esc(m.L.elapsed)}</span>
+    ${yolo}
+  </div>`;
+}
+function mobileHdr(m, w, yolo) {
+  return `<div class="mhdr" style="width:${w}px" data-row>
+    <div class="mrow"><span class="title">${esc(m.L.title)}</span><span class="muted" style="font-size:12px">${esc(m.L.elapsed)}</span></div>
+    <div class="mrow"><span class="chip">${esc(m.L.changed)}</span><span class="seek">Seek</span></div>
+    ${yolo}
+  </div>`;
+}
+
+const SEND = '<svg viewBox="0 0 24 24"><path d="M3 20V4l19 8z"/></svg>';
+function composer(m, w, variant) {
+  const id = `yolo-desc-${++uid}`;
+  const sr = `<span class="sr-only" id="${id}">${esc(m.cov)}</span>`;
+  const chip = variant==="chip" ? `<a href="#" class="yolo cy ${m.unscoped?"unscoped":"scoped"}" data-testid="yolo-composer-indicator" title="${esc(m.cov)}" aria-describedby="${id}">${SHIELD}<span class="l">${esc(m.unscoped?m.L.labU:m.L.lab)}</span><span class="t">${m.time}</span></a>${sr}` : "";
+  const strip = variant==="strip" ? `<a href="#" class="cmp-strip ${m.unscoped?"unscoped":""}" title="${esc(m.cov)}" aria-describedby="${id}" style="text-decoration:none">${SHIELD}<span class="l">${esc(m.cov)}</span><span class="t">${m.time}</span></a>${sr}` : "";
+  return `<div class="cmp-wrap" style="width:${w}px">${strip}<div class="cmp">
+    <div class="cmp-in"><div class="cmp-ta">Message…</div><span class="cmp-send">${SEND}</span></div>
+    <div class="cmp-hr"></div>
+    <div class="cmp-row" data-row>
+      <span class="cmp-btn">＋</span>
+      <span class="cmp-chip">claude-opus-4</span>
+      <span class="cmp-chip cmp-wide">thinking: high</span>
+      <span class="cmp-chip cmp-wide">Steer | Queue</span>
+      <span class="cmp-sp"></span>
+      ${chip}
+      <span class="cmp-btn cmp-more">⋯</span>
+    </div>
+  </div></div>`;
+}
+
+const I = {
+  pal:'<svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 0 0 0 18c.8 0 1.5-.7 1.5-1.5 0-.4-.2-.7-.4-1-.2-.3-.4-.6-.4-1 0-.8.7-1.5 1.5-1.5H16a5 5 0 0 0 5-5c0-4.4-4-8-9-8zm-5.5 9a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm3-4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm3 4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z"/></svg>',
+  sun:'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/></svg>',
+  mon:'<svg viewBox="0 0 24 24"><path d="M3 4h18v12H3zM8 20h8v-2H8z"/></svg>',
+  moon:'<svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9z"/></svg>',
+  qr:'<svg viewBox="0 0 24 24"><path d="M3 3h8v8H3zm2 2v4h4V5zm8-2h8v8h-8zm2 2v4h4V5zM3 13h8v8H3zm2 2v4h4v-4zm8-2h3v3h-3zm5 0h3v3h-3zm-5 5h3v3h-3zm5 0h3v3h-3z"/></svg>',
+  srv:'<svg viewBox="0 0 24 24"><path d="M4 3h16v6H4zm0 8h16v6H4zm2-6v2h2V5zm0 8v2h2v-2zM11 19h2v2h-2z"/></svg>',
+  dc:'<svg viewBox="0 0 24 24"><path d="M19 5a16 16 0 0 0-4-1l-.5 1a15 15 0 0 0-5 0L9 4a16 16 0 0 0-4 1C2.5 9 2 13 2.2 17a16 16 0 0 0 5 2.5l1-1.6a10 10 0 0 1-1.6-.8l.4-.3a11 11 0 0 0 10 0l.4.3-1.6.8 1 1.6a16 16 0 0 0 5-2.5c.3-4.6-.6-8.6-2.8-12zM9 14.5a1.7 1.7 0 1 1 0-3.4 1.7 1.7 0 0 1 0 3.4zm6 0a1.7 1.7 0 1 1 0-3.4 1.7 1.7 0 0 1 0 3.4z"/></svg>',
+  gear:'<svg viewBox="0 0 24 24"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm9 5.5v-3l-2.2-.4-.7-1.7 1.3-1.8-2.1-2.1-1.8 1.3-1.7-.7L13.5 3h-3l-.4 2.2-1.7.7-1.8-1.3-2.1 2.1 1.3 1.8-.7 1.7L3 10.5v3l2.2.4.7 1.7-1.3 1.8 2.1 2.1 1.8-1.3 1.7.7.3 2.1h3l.4-2.2 1.7-.7 1.8 1.3 2.1-2.1-1.3-1.8.7-1.7z"/></svg>',
+};
+function realRow(m, w, kind, tip) {
+  const time = m.time;
+  const pill = kind === "none" ? "" :
+    `<span class="tipwrap"><a href="#" class="yp ${kind==="tint"?"tint":"fill"} ${m.unscoped?"unscoped":"scoped"}" data-testid="yolo-pill" title="${esc(m.cov)}">YOLO ${time}</a>${tip?`<span class="faketip" aria-hidden="true">${esc(m.cov)}</span>`:""}</span>`;
+  return `<div class="rr ${kind==="bar"||kind==="baronly"?"ybar":""}" style="width:${w}px" data-row ${kind==="baronly"?`title="${esc(m.cov)}"`:""}>
+    <div class="g"><span class="lg">ππ</span><span class="ic">${I.pal}</span><span class="segm"><span class="ic">${I.sun}</span><span class="ic">${I.mon}</span><span class="ic">${I.moon}</span></span></div>
+    <div class="g"><span class="ic">${I.qr}</span>${kind==="baronly"?"":kind==="bar"?`<span class="tipwrap"><a href="#" class="yp fill ${m.unscoped?"unscoped":"scoped"}" title="${esc(m.cov)}">YOLO ${time}</a>${tip?`<span class="faketip" aria-hidden="true">${esc(m.cov)}</span>`:""}</span>`:pill}<span class="qp">? 1</span><span class="ic">${I.qr.replace(/M3 3.*/,'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 4a6 6 0 1 1 0 12 6 6 0 0 1 0-12z"/></svg>')}</span>
+      <span class="srv"><span class="ic">${I.srv}</span>192.168.16.203 <i></i> ${esc(m.L.conn.split("•")[1]||"Connected").trim()} ▾</span><span class="ic">${I.dc}</span><span class="ic">${I.gear}</span></div>
+  </div>`;
+}
+function rframe(label, html) { return `<div class="frame rrframe"><div class="frame-label">${label}</div><div data-frame>${html}</div><div class="measure"></div></div>`; }
+
+function finalRow(m, w, focused) {
+  const id = `fb-${++uid}`;
+  return `<div class="rr obar" style="width:${w}px" data-row data-yolo="${m.unscoped?"unscoped":"scoped"}" title="${esc(m.cov)}">
+    <a href="#" class="barlink ${focused?"force":""}" data-testid="yolo-bar-link">${esc(m.cov)}</a>
+    <div class="g"><span class="lg">ππ</span><span class="ic">${I.pal}</span><span class="segm"><span class="ic">${I.sun}</span><span class="ic">${I.mon}</span><span class="ic">${I.moon}</span></span></div>
+    <div class="g"><span class="ic">${I.qr}</span><span class="qp">? 1</span><span class="ic">${I.qr.replace(/M3 3.*/,'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 4a6 6 0 1 1 0 12 6 6 0 0 1 0-12z"/></svg>')}</span>
+      <span class="srv"><span class="ic">${I.srv}</span>192.168.16.203 <i></i> ${esc((m.L.conn.split("•")[1]||"Connected").trim())} ▾</span><span class="ic">${I.dc}</span><span class="ic">${I.gear}</span></div>
+  </div>`;
+}
+function finalStrip(m) {
+  const time = m.forever ? `<span aria-hidden="true">∞</span><span class="sr-only">no expiry</span>` : m.time;
+  return `<div class="fstrip-wrap"><div class="fstrip yolo ${m.unscoped?"unscoped":"scoped"}" data-testid="yolo-composer-strip" data-scope="${m.unscoped?"unscoped":"scoped"}">
+    <a href="#" title="${esc(m.cov)}">${SHIELD}<span class="l">${esc(m.cov)}</span></a><span class="t">${time}</span></div></div>`;
+}
+function finalPane(m, w) {
+  return `<div class="fpane" style="width:${w}px"><div class="fmsgs">… conversation …</div>${finalStrip(m)}
+    <div class="fcomp"><div class="cmp" style="container-type:inline-size"><div class="cmp-in"><div class="cmp-ta">Message…</div><span class="cmp-send">${SEND}</span></div>
+    <div class="cmp-hr"></div><div class="cmp-row"><span class="cmp-btn">＋</span><span class="cmp-chip">claude-opus-4</span><span class="cmp-chip cmp-wide">thinking: high</span><span class="cmp-chip cmp-wide">Steer | Queue</span><span class="cmp-sp"></span><span class="cmp-btn cmp-more">⋯</span></div></div></div></div>`;
+}
+function frame(label, html) {
+  return `<div class="frame"><div class="frame-label">${label}</div><div data-frame>${html}</div><div class="measure"></div></div>`;
+}
+
+function render() {
+  document.documentElement.dataset.theme = st.theme;
+  document.documentElement.lang = st.lang === "zh" ? "zh-CN" : st.lang;
+  uid = 0;
+  const m = model();
+  const pAsMob = sessAs(m).replace('class="yolo sess', 'class="yolo sess');
+  document.getElementById("board").innerHTML = `
+
+
+
+  <section>
+    <h2>F · FINAL design (design.md D1–D7) — committed plan</h2>
+    <p>Orange <code>--severity-warning-*</code> only (no new tokens). Pill and header indicator removed. Bar: tint + inset underline (<code>--accent-orange-text</code>), hover tooltip, <b>no click handler</b>, link revealed only on keyboard focus (first Tab stop, overlays below — no reflow). Strip above every in-scope composer: link = shield + static sentence (ellipsed), countdown <b>outside</b> the link. Toggle scope / env ∞ / theme / locale in the toolbar.</p>
+    ${frame("sidebar row 1 · YOLO on (hover = coverage sentence)", finalRow(m,640,false))}
+    <div class="frame" style="padding-bottom:100px"><div class="frame-label">sidebar row 1 · keyboard focus on the bar link (Tab) — overlay, row height unchanged</div>${finalRow(m,640,true)}</div>
+    ${frame("sidebar row 1 · YOLO off (today)", realRow(m,640,"none"))}
+    <div class="pair">
+      <div class="col">${frame("session composer · desktop 900 px", finalPane(m,900))}</div>
+      <div class="col">${frame("session composer · mobile 375 px (sentence ellipses, time stays)", finalPane(m,375))}</div>
+    </div>
+    ${frame("desktop session header 768 px · no YOLO indicator any more", desktopHdr(m,588,""))}
+    <div class="anno">degradation: drag the orange box ↓ — sentence ellipses first, shield + time stay (floor), then clips</div>
+    <div class="squeeze" style="width:320px;display:block">${finalStrip(m)}</div>
+  </section>
+  <section>
+    <h2>R · Real row 1 (from your screenshot) — yellow = YOLO mode, hover shows the YOLO</h2>
+    <p>Pill text = <code>YOLO {time}</code> only (no shield, no "everywhere"); unscoped = 2 px border + heavier weight. Native <code>title</code> on hover carries the static coverage sentence (shown here as a mock tooltip; the real one is the browser's). Needs new theme tokens — no yellow tint family exists today (only <code>--accent-yellow</code> #eab308).</p>
+    ${rframe("today (no YOLO)", realRow(m,640,"none"))}
+    ${rframe("Y1 · tint-yellow pill — same recipe as the purple <code>? 1</code> chip (new <code>--tint-yellow-*</code>)", realRow(m,640,"tint",true))}
+    ${rframe("Y2 · solid yellow pill — <code>--accent-yellow</code> fill, dark text (new <code>--yolo-fill</code>/<code>--yolo-on-fill</code>)", realRow(m,640,"fill",true))}
+    ${rframe("Y3 · whole app bar tinted yellow + 2 px yellow underline + solid pill (new <code>--yolo-bar-bg</code>)", realRow(m,640,"bar",true))}
+    ${rframe("<b>DECIDED</b> Y4 · tint only — app bar yellow + underline, NO pill (zero added width); hover the bar → coverage sentence", realRow(m,640,"baronly"))}
+    ${rframe("Y2 at drawer 300 px", realRow(m,300,"fill"))}
+  </section>
+  <section>
+    <h2>0 · Alternative placement — on the composer (where the prompt is given)</h2>
+    <p>The session-surface indicator moves from the header into <code>composer-settings-row</code> (<code>CommandInput.tsx</code>), after the existing <code>flex-1</code> spacer. Why: YOLO governs what happens to the prompt being sent, so it sits at the point of action; the spacer absorbs the width, so the header (F2) is no longer the battleground. Chip height 30 px matches model chip; label folds below <code>@[30rem]</code> (same container breakpoint as stop-after-turn) → shield + time only; time never clips. Card border tinted <code>--severity-warning-border</code> while YOLO is on. Variant B: full-width strip on top of the card carrying the coverage sentence itself (no hidden text needed).</p>
+    <div class="pair">
+      <div class="col"><h3>A · composer chip <span class="tag">rejected</span></h3>
+        ${frame("mobile 375 px (container &lt; 30rem → shield + time)", composer(m,375,"chip"))}
+        ${frame("split pane 620 px (≥ 30rem → label shown)", composer(m,620,"chip"))}
+        ${frame("desktop 900 px (≥ 44rem, all chips inline)", composer(m,900,"chip"))}
+      </div>
+      <div class="col"><h3>B · composer strip <span class="tag good">DECIDED</span> (yellow, above the card, one link)</h3>
+        ${frame("mobile 375 px", composer(m,375,"strip"))}
+        ${frame("split pane 620 px", composer(m,620,"strip"))}
+        ${frame("desktop 900 px", composer(m,900,"strip"))}
+      </div>
+    </div>
+    <p style="margin-top:8px">Spec impact: <code>access-grant-yolo</code> "unmissable" requires an indicator on the session surface — the composer qualifies and is present on mobile too. Sidebar <code>YoloPill</code> stays (row 1). Header indicator: drop, or keep as shield-only. Composer is absent on ended/read-only sessions → header fallback needed there.</p>
+  </section>
+  <section>
+    <h2>1 · Sidebar row 1 — YoloPill</h2>
+    <p>Host <code>header-app-bar</code> right group <code>flex gap-1 items-center</code>. As-built pill shrinks to min-content and wraps; proposed pill is <code>whitespace-nowrap min-w-0 max-w-[12rem]</code>, marker + time <code>shrink-0</code>, label <code>truncate</code>.</p>
+    <div class="pair">
+      <div class="col"><h3>As-built <span class="tag bad">wraps</span></h3>
+        ${frame("375 px · drawer 300 px", sidebar(m,300,pillAs(m)))}
+        ${frame("sidebar MIN_WIDTH 180 px", sidebar(m,180,pillAs(m)))}
+        ${frame("sidebar DEFAULT_WIDTH 500 px", sidebar(m,500,pillAs(m)))}
+      </div>
+      <div class="col"><h3>Proposed <span class="tag good">single line</span></h3>
+        ${frame("375 px · drawer 300 px", sidebar(m,300,yoloP(m,"pill")))}
+        ${frame("sidebar MIN_WIDTH 180 px", sidebar(m,180,yoloP(m,"pill")))}
+        ${frame("sidebar DEFAULT_WIDTH 500 px", sidebar(m,500,yoloP(m,"pill")))}
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>2 · Desktop session header — YoloSessionIndicator</h2>
+    <p>Host <code>flex items-center gap-4 text-sm</code> (<code>SessionHeader.tsx:427</code>). As-built: full sentence + <code>role="status"</code>; wraps and grows the row. Proposed: shield + compact label + time, <code>max-w-[22rem]</code>; coverage sentence moves to <code>title</code> + sibling <code>sr-only</code> via <code>aria-describedby</code>.</p>
+    <div class="pair">
+      <div class="col"><h3>As-built <span class="tag bad">row grows</span></h3>
+        ${frame("768 px · sidebar 500 (default) → main 268 px", desktopHdr(m,268,sessAs(m)))}
+        ${frame("768 px · sidebar 180 (min) → main 588 px", desktopHdr(m,588,sessAs(m)))}
+        ${frame("1500 px · main ≈ 1160 px (scaled to fit)", `<div style="zoom:.55">${desktopHdr(m,1160,sessAs(m))}</div>`)}
+      </div>
+      <div class="col"><h3>Proposed <span class="tag good">row height unchanged</span></h3>
+        ${frame("768 px · sidebar 500 (default) → main 268 px", desktopHdr(m,268,yoloP(m,"sess")))}
+        ${frame("768 px · sidebar 180 (min) → main 588 px", desktopHdr(m,588,yoloP(m,"sess")))}
+        ${frame("1500 px · main ≈ 1160 px (scaled to fit)", `<div style="zoom:.55">${desktopHdr(m,1160,yoloP(m,"sess"))}</div>`)}
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>3 · Mobile header (375 px) — stacked column</h2>
+    <p><code>MobileHeader</code> is <code>flex flex-col</code>; the indicator is <code>self-start</code>. It may add exactly one line (D7). Proposed adds <code>max-w-full</code> so a nowrap <code>self-start</code> item cannot overflow the column (D2/D6).</p>
+    <div class="pair">
+      <div class="col"><h3>As-built <span class="tag bad">adds 2–3 lines</span></h3>${frame("375 px", mobileHdr(m,375,pAsMob))}</div>
+      <div class="col"><h3>Proposed <span class="tag good">adds 1 line</span></h3>${frame("375 px", mobileHdr(m,375,yoloP(m,"sess","mob")))}</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>4 · Degradation order (D2 / D8) — drag the orange box's right edge</h2>
+    <p>Label ellipses first; shield and time stay. Below the floor (marker + time + padding + border) the anchor clips rather than overflowing.</p>
+    <div style="display:flex; gap:24px; flex-wrap:wrap">
+      <div><div class="frame-label">pill</div><div class="squeeze" style="width:150px">${yoloP(m,"pill")}</div></div>
+      <div><div class="frame-label">session indicator</div><div class="squeeze" style="width:150px">${yoloP(m,"sess")}</div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>5 · Findings from this board — need a decision</h2>
+    <p><b>F1</b> — at sidebar <code>MIN_WIDTH</code> 180 px the proposed pill still overflows row 1: the right group <code>flex gap-1 items-center</code> (<code>SessionList.tsx</code>) has no <code>min-w-0</code>, so its min-content includes the pill's full nowrap width. Indicator-only CSS cannot fix it. Option: add <code>min-w-0</code> to that group (1 class, outside <code>YoloIndicators.tsx</code>).<br>
+    <b>F2</b> — on the 768 px desktop header (main 268 px with default sidebar) the indicator is the <i>only</i> shrinkable item (<code>min-w-0 overflow-hidden</code>), so it collapses first to the bare shield and the time is clipped, while the title wraps. Option ALT: drop <code>min-w-0</code>/<code>overflow-hidden</code> from the anchor, keep <code>truncate</code> on the label → the anchor's automatic min size is exactly marker + time (the D8 floor), so the time never clips.</p>
+    <div class="pair">
+      <div class="col"><h3>Proposed (design as written)</h3>
+        ${frame("sidebar 180 px", sidebar(m,180,yoloP(m,"pill")))}
+        ${frame("768 px · main 268 px", desktopHdr(m,268,yoloP(m,"sess")))}
+      </div>
+      <div class="col"><h3>ALT · F1 group <code>min-w-0</code> + F2 floor-preserving anchor</h3>
+        ${frame("sidebar 180 px · DECIDED: group min-w-0 + proposed pill", sidebar(m,180,yoloP(m,"pill"),true))}
+        ${frame("768 px · main 268 px", desktopHdr(m,268,yoloP(m,"sess","","alt")))}
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>6 · Accessibility contract (D1 / D4)</h2>
+    <table>
+      <tr><th></th><th>As-built</th><th>Proposed</th></tr>
+      <tr><td>Role</td><td>session: <code>role="status"</code> live region — re-announces every 1 s tick</td><td>plain link, no live region on indicator or ancestors</td></tr>
+      <tr><td>Accessible name</td><td>pill: <code>aria-label</code> = long sentence with <code>{remaining}</code> (churns per tick); session: full visible sentence</td><td>visible content only: <code>${esc(m.unscoped?m.L.labU:m.L.lab)} ${m.time}</code></td></tr>
+      <tr><td>Description</td><td>pill: none beyond label; session: none</td><td>static, identical across ticks: “${esc(m.cov)}”</td></tr>
+      <tr><td>Pointer hover</td><td>pill: ticking title; session: none</td><td><code>title</code> = same static sentence (hover any proposed indicator)</td></tr>
+      <tr><td>Touch / keyboard w/o AT</td><td>—</td><td>one tap / Enter → <code>/settings/access</code> (YoloAccessCard explains coverage)</td></tr>
+      <tr><td>Env session (∞)</td><td>pill <code>∞</code>; session “until the server stops” inline</td><td>both show <code>∞</code> in time slot; words live in <code>yolo.coverage*Forever</code></td></tr>
+    </table>
+  </section>`;
+  measure();
+}
+
+// Live measurement: line count of each indicator + host row height.
+function measure() {
+  document.querySelectorAll(".frame").forEach(f => {
+    const a = f.querySelector(".yolo"); const out = f.querySelector(".measure");
+    if (!a || !out) return;
+    const cs = getComputedStyle(a);
+    const lh = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.45;
+    const inner = a.getBoundingClientRect().height - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) - parseFloat(cs.borderTopWidth) - parseFloat(cs.borderBottomWidth);
+    const lines = Math.max(1, Math.round(inner / lh));
+    const row = a.closest("[data-row]") || a.parentElement;
+    const over = a.getBoundingClientRect().right > row.getBoundingClientRect().right + 0.5;
+    out.innerHTML = `indicator: <b class="${lines>1?"bad":"good"}">${lines} line${lines>1?"s":""}</b> · ${Math.round(a.getBoundingClientRect().width)}×${Math.round(a.getBoundingClientRect().height)} px · host row ${Math.round(row.getBoundingClientRect().height)} px · overflow: <b class="${over?"bad":"good"}">${over?"yes":"no"}</b>`;
+  });
+}
+
+document.querySelectorAll(".seg").forEach(seg => seg.addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  st[seg.dataset.ctl] = b.dataset.v;
+  seg.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+  render();
+}));
+document.addEventListener("click", e => { if (e.target.closest("a.yolo")) e.preventDefault(); });
+window.addEventListener("resize", measure);
+new ResizeObserver(measure).observe(document.body);
+// Deep-link: #light,hu,scoped
+for (const tok of location.hash.slice(1).split(",")) for (const seg of document.querySelectorAll(".seg")) {
+  const b = seg.querySelector(`button[data-v="${tok}"]`); if (b) { st[seg.dataset.ctl] = tok; seg.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", String(x === b))); }
+}
+render();
+</script>
+</body>
+</html>

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Persist the Electron dashboard shell's chosen launch mode (standalone, power-user, or remote), the remote server URL, and a most-recently-used list of previously-connected remote dashboards to a single JSON settings file in the user's home directory. Persist the recommended-extensions wizard state to a separate file, and detect/write pi provider API keys under `~/.pi/agent`. Provide read-with-defaults, write, and a one-time migration from the legacy settings file name.
+Persist the Electron dashboard shell's chosen launch mode (standalone, power-user, or remote), the remote server URL, and a most-recently-used list of previously-connected remote dashboards to a single JSON settings file in the user's home directory. Persist the recommended-extensions wizard state to a separate file, and detect pi provider API keys under `~/.pi/agent`. Provide read-with-defaults, write, and a one-time migration from the legacy settings file name.
 
 ## Requirements
 
@@ -140,32 +140,6 @@ The system SHALL persist the recommended-extensions wizard state as JSON at `~/.
 - **WHEN** recommended-wizard completion is checked
 - **THEN** the system reports completed if and only if `recommended.json` exists
 
-### Requirement: API key detection and persistence
-
-The system SHALL detect whether any pi provider credential is configured and SHALL write a provider API key into pi's settings file at `~/.pi/agent/settings.json`.
-
-#### Scenario: Detect a configured provider credential
-
-- **WHEN** API-key configuration is checked
-- **THEN** detection is delegated to the shared provider-credential detector, which inspects both `~/.pi/agent/settings.json` and `~/.pi/agent/auth.json`
-- **AND** the result is true when any provider credential is present
-
-#### Scenario: Write a well-known provider key
-
-- **WHEN** an API key is written for provider `anthropic` or `openai`
-- **THEN** the key is stored under `anthropicApiKey` or `openaiApiKey` respectively in `~/.pi/agent/settings.json`
-- **AND** any existing settings content is preserved
-
-#### Scenario: Write a generic provider key
-
-- **WHEN** an API key is written for any other provider name
-- **THEN** the key is stored under `providers.<name>.apiKey` in `~/.pi/agent/settings.json`
-
-#### Scenario: Corrupt or absent pi settings starts fresh
-
-- **WHEN** an API key is written and `~/.pi/agent/settings.json` is absent or not valid JSON
-- **THEN** the write starts from an empty settings object rather than raising an error
-
 ### Requirement: Write directory creation invariant
 
 The system SHALL create the target directory recursively before writing any settings file.
@@ -175,7 +149,17 @@ The system SHALL create the target directory recursively before writing any sett
 - **WHEN** any dashboard or recommended-wizard settings file is written and `~/.pi-dashboard` does not yet exist
 - **THEN** the directory is created recursively before the file is written
 
-#### Scenario: pi agent directory is created before API-key write
+### Requirement: API key detection
 
-- **WHEN** an API key is written and `~/.pi/agent` does not yet exist
-- **THEN** the directory is created recursively before the file is written
+The system SHALL detect whether any pi provider credential is configured. It SHALL NOT write provider API keys into pi's settings file at `~/.pi/agent/settings.json`.
+
+#### Scenario: Detect a configured provider credential
+
+- **WHEN** API-key configuration is checked
+- **THEN** detection is delegated to the shared provider-credential detector, which inspects both `~/.pi/agent/settings.json` and `~/.pi/agent/auth.json`
+- **AND** the result is true when any provider credential is present
+
+#### Scenario: No settings.json credential writer exists
+
+- **WHEN** the Electron main process is searched for code that writes `anthropicApiKey`, `openaiApiKey`, or `providers.<name>.apiKey` into `~/.pi/agent/settings.json`
+- **THEN** no such writer exists

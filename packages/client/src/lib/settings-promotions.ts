@@ -52,6 +52,8 @@ const BUILT_IN_SETTINGS_LABELS: ReadonlyArray<readonly [string, string]> = [
   ["settings.groupModels", "Models"],
   ["settings.groupDashboard", "Dashboard"],
   ["settings.groupNetwork", "Network"],
+  ["settings.groupPi", "pi"],
+  ["settings.piSettingsPage", "pi settings"],
   ["settings.groupServices", "Services"],
   ["settings.groupAddons", "Add-ons"],
   ["settings.groupResources", "Resources"],

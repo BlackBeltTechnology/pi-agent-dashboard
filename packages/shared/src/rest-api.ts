@@ -132,6 +132,20 @@ export type PutPiRetryPolicyResponse = ApiResponse<PutPiRetryPolicyResult>;
 // ── pi settings editor (global ~/.pi/agent/settings.json) ───────────
 // See change: edit-pi-agent-settings.
 
+/** Auth state of a legacy settings.json key against `auth.json` (server-computed; no values cross the wire). */
+export type PiLegacyAuthState = "none" | "same" | "different";
+
+/** A plain-text API key found in pi's settings.json, masked. See change: pi-settings-full-coverage. */
+export interface PiLegacyCredential {
+  /** `anthropicApiKey` | `openaiApiKey` | `apiKey` | `providers.<id>.apiKey`. */
+  key: string;
+  /** Normalised auth.json provider id; `null` for the providerless top-level `apiKey`. */
+  provider: string | null;
+  auth: PiLegacyAuthState;
+  /** `…last4` for values of 32+ chars, otherwise fully masked. Never the value. */
+  masked: string;
+}
+
 /** GET /api/pi-settings body (also the 409 `stale` payload minus `error`). */
 export interface PiSettingsReadResponse {
   success: true;
@@ -141,20 +155,19 @@ export interface PiSettingsReadResponse {
   raw: string;
   /** Concurrency token; `"absent"` for no file. */
   etag: string;
-  /** Present when the file exists but is not a valid JSON object. */
+  /** Present when the file exists but is not a valid JSON object. Never quotes file content. */
   parseError?: string;
+  /** Theme names pi can resolve (built-ins plus global/package themes), sorted. */
+  themes: string[];
+  /** Plain-text API keys left in settings.json, masked. */
+  legacyCredentials: PiLegacyCredential[];
 }
 
-/** Leaf-key patch over the typed key set; a `null` leaf deletes the key. */
-export interface PiSettingsPatch {
-  compaction?: { enabled?: boolean | null; reserveTokens?: number | null; keepRecentTokens?: number | null };
-  branchSummary?: { reserveTokens?: number | null; skipPrompt?: boolean | null };
-  steeringMode?: "all" | "one-at-a-time" | null;
-  followUpMode?: "all" | "one-at-a-time" | null;
-  defaultProjectTrust?: "ask" | "always" | "never" | null;
-  hideThinkingBlock?: boolean | null;
-  quietStartup?: boolean | "header" | null;
-}
+/**
+ * Leaf-key patch over the typed key set (`pi-settings-schema.ts`); a `null` leaf
+ * deletes the key, `enabledModels` is replaced whole. Blocks hold dotted leaves.
+ */
+export type PiSettingsPatch = Record<string, unknown>;
 
 export interface PutPiSettingsRequest {
   patch: PiSettingsPatch;
@@ -175,6 +188,8 @@ export interface PiSettingsWriteResponse {
   reloadedSessions: number;
   /** Raw writes only: managed keys whose submitted value was replaced from disk. */
   restoredKeys?: string[];
+  /** Plain-text API keys still in settings.json after the write (a raw save can add or drop some). */
+  legacyCredentials: PiLegacyCredential[];
 }
 
 /** 409 body: the file changed after the client read it. */
@@ -202,6 +217,22 @@ export interface PiSettingsSyncResponse {
   settings: Record<string, unknown>;
   raw: string;
   etag: string;
+}
+
+/** POST /api/pi-settings/legacy-credentials body. Key paths only — never values. */
+export interface PiLegacyCredentialsRequest {
+  baseEtag: string;
+  actions: { key: string; action: "move" | "remove" }[];
+}
+
+/** Success: post-write state plus the refreshed masked list. */
+export interface PiLegacyCredentialsResponse {
+  success: true;
+  settings: Record<string, unknown>;
+  raw: string;
+  etag: string;
+  reloadedSessions: number;
+  legacyCredentials: PiLegacyCredential[];
 }
 
 // ── Session Spawn ───────────────────────────────────────────────────

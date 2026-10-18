@@ -158,6 +158,17 @@ see [`docs/release-process.md`](docs/release-process.md).
 ### Fixed
 
 - **Global automations no longer run twice per occurrence.** While a session (including the automation's own run) is open in the home directory, `~/.pi/automation` was also armed as a folder scope. It is now scanned, armed and listed once, under `global`.
+- **kb index no longer silently empties, erodes or conflates.** The docs index is installed with a
+  no-clobber hard link, or copied into an existing file through SQLite's online backup, instead of a
+  rename that replayed another process's WAL onto the finished build (an index that reported thousands
+  of files could read 0). Every writer builds an absent database through that atomic first-index path and
+  backs off while another process builds one ("index is still being built"). Re-chunking a file now
+  replaces only its own graph rows (inbound `references` survive) and heading nodes are qualified
+  `<file>#<heading>`, so the graph equals a first index after any sequence of edits. The schema /
+  options gate is per source and shared by the CLI, session extension and dashboard reindex job (custom
+  frontmatter facets are no longer dropped by the latter two); per-file deletes are rowid-addressed, so a
+  forced pass costs about a first index. **BREAKING (standalone `pi-dashboard-kb` consumers):**
+  `engines.node` is now `>=22.19.0` (SQLite `backup()`).
 - **Empty `STATUS` panel on session cards.** The STATUS subcard no longer renders as an empty,
   titled frame when the browser relay has no tabs. The browser badge is now gated, and the relay
   status feed moved to an always-mounted `shell-headless` claim that re-seeds on reconnect. The

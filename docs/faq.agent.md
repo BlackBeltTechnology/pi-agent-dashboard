@@ -152,3 +152,10 @@ Pull-only condensed map. Source: docs/faq.md. Question → key answer.
 - agent-browser MCP `eval` echoes JS source — use agent-browser CLI directly, dump output to file, read it.
 - jsdom can't render mermaid (CSSStyleSheet not defined) — use real browser (agent-browser mockup server) harness.
 - pi session "stuck in thinking" / only "memory savings" — not dashboard bug; set flushOnCompact/flushOnShutdown/reviewEnabled:false in `~/.pi/agent/hermes-memory-config.json`.
+
+## Browser E2E baseline (#683)
+- Quarantine count — re-derive: `grep -rc 'issues/683' tests/e2e --include=*.ts | awk -F: '{s+=$2} END {print s}'`. Never freeze. Time of writing 101 sites / 44 files.
+- Cluster owners — openspec-init → `fix-e2e-openspec-init-affordances`; subagent → `fix-e2e-subagent-cluster`; chat geometry → `fix-e2e-chat-geometry`; prompt queue → `fix-e2e-prompt-queue`; restart → `fix-e2e-restart-cluster` (CANDIDATE #832); trust/token → CANDIDATE; misc → `fix-e2e-misc-reds`.
+- Unquarantine CANDIDATE only if refusal signature in #683 log AND ≥3 consecutive green dispatched runs.
+- Trust knobs change ONLY via `narrowTrust()` in `tests/e2e/fixtures.ts`. Lint: `npm run lint:e2e`.
+- Refusal latch → `test-results/.harness-refused.json`. Fault specs need FRESH harness.

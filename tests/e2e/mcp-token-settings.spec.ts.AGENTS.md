@@ -6,4 +6,4 @@ The harness browser is docker-gateway-sourced (never loopback), so the D5 operat
 
 Row summary (formerly inline in `tests/e2e/AGENTS.md`): L3 for the Settings → Paired Devices MCP-client token flow (change:
 
-See change: align-ui-with-theme-tokens. F2/F3 Dismiss click scoped to `mcp-token-result` + `exact: true` — page-global match also hit folder "Dismiss the OpenSpec offer" buttons when shard order left folders pinned.
+See change: align-ui-with-theme-tokens. F2/F3 Dismiss click scoped to `mcp-token-result` + `exact: true` — page-global match also hit folder "Dismiss the OpenSpec offer" buttons when shard order left folders pinned. Trust narrowing via `narrowTrust` in `beforeEach` (test scope, restored by reap fixture); own `afterAll` restore + snapshot state removed. See change: triage-browser-e2e-offbox-poison.

@@ -1582,6 +1582,9 @@ importers:
       bonjour-service:
         specifier: 1.4.2
         version: 1.4.2
+      minimatch:
+        specifier: ^10.0.0
+        version: 10.2.6
       semver:
         specifier: ^7.7.1
         version: 7.8.5

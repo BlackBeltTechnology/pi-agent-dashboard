@@ -1,3 +1,3 @@
 # host-gate-allow.spec.ts — index
 
-L3 for the Host-gate operator flow (test-plan #F9/#F10, change: add-host-allowlist-admission). Security tab: `Allow <host>` moves a recent refusal into the draft, Save persists `allowedHosts`, Currently admitted shows it with the `allowed host` pill; keyboard-only traversal + axe on the section.
+L3 for the Host-gate operator flow (test-plan #F9/#F10, change: add-host-allowlist-admission). Security tab: `Allow <host>` moves a recent refusal into the draft, Save persists `allowedHosts`, Currently admitted shows it with the `allowed host` pill; keyboard-only traversal + axe on the section. F9 declares `allowedHosts` via `narrowTrust(..., {touches:["allowedHosts"]})` in `beforeEach` (replaces `afterAll` PUT); F3 declares `hostGate.mode` then removes the key in-container (lint marker `e2e-trust-write-ok`). See change: triage-browser-e2e-offbox-poison.
