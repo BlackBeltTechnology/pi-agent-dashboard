@@ -113,6 +113,11 @@ Every detach the agent did not request SHALL produce a `detach` entry whose `det
 - **WHEN** the extension reports a tab detach with reason `target_closed`
 - **THEN** no `detach` entry with detail `extension:target_closed` SHALL be appended
 
+#### Scenario: Operator-hosted attach is attributable
+
+- **WHEN** an extension attaches through operator host H's link
+- **THEN** the `attach` entry's `detail` SHALL contain `host:<H>` and SHALL contain neither the guid nor the `linkId`
+
 ### Requirement: Profile discovery and capability
 
 `GET /api/browser/status` SHALL return `{enabled, canOpenChrome, dedicated}` where `canOpenChrome` is true iff the host can open a URL in a named Chrome profile and `dedicated` is defined by the dedicated-agent-browser "Availability" requirement. `GET /api/browser/profiles` SHALL list Chrome profiles from the host's `Local State` profile cache with `{profileDirectory, label, email?, installed, passwordManagers, hasToken, zeroDialog, instances: [{instanceId, tabs: [{tabId, title, url}]}]}` keyed by `profileDirectory` (labels are user-editable and may duplicate), where `installed` is true iff the pinned extension directory exists under that profile, `passwordManagers` lists the display names of known password-manager extensions installed in that profile (empty when none), and `instances` lists live relay instances (empty = not connected). When the Chrome user-data directory or `Local State` is absent or unparseable, the response SHALL be 200 with a single synthetic row `{profileDirectory: "Default", label: "Default", installed: <dir check>, …}` and a `warning` string naming the path. The dedicated profile SHALL NOT appear in `GET /api/browser/profiles`.

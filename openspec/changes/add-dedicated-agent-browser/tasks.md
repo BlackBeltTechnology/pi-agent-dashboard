@@ -120,4 +120,4 @@
 - [ ] 10.2 Manual Windows merge gate (test-plan: manual-only, #M2): pass = connect returns a `cdpUrl`, `agent-browser connect` lists pages, Stop leaves no `chrome.exe` with the dedicated `--user-data-dir`, and a second connect after killing the server process recovers via orphan cleanup.
 - [ ] 10.3 Manual Linux desktop smoke (test-plan: manual-only, #M3): same pass criteria as 10.2 with `google-chrome`.
 - [ ] 10.4 Manual visual review of the built settings section against `mockups/index.html` in dark and light themes; pass = layout, tokens and copy match (test-plan: manual-only, #M4).
-- [ ] 10.5 `npm test` green; `npm run quality:changed` clean; `openspec validate add-dedicated-agent-browser` valid.
+- [x] 10.5 `npm test` green; `npm run quality:changed` clean; `openspec validate add-dedicated-agent-browser` valid.
