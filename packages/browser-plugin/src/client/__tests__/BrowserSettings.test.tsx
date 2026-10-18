@@ -538,7 +538,12 @@ describe("BrowserSettings — profile list", () => {
 	it("#F9 installed + synthetic rows keep every testid; uninstalled sit behind one disclosure with store links and no Connect", async () => {
 		installDab({ profiles: listFixture() });
 		const { getByTestId, queryByTestId } = renderWithPlugin(<BrowserSettings />);
-		await waitFor(() => expect(getByTestId("browser-installed-profiles")).toBeTruthy());
+		// Wait for every async source (profiles, status, relay feed) before asserting on rows.
+		await waitFor(() => {
+			expect(getByTestId("browser-installed-profiles")).toBeTruthy();
+			expect(getByTestId("browser-uninstalled-disclosure")).toBeTruthy();
+			expect(getByTestId("browser-instance-i1")).toBeTruthy();
+		});
 
 		const installedList = getByTestId("browser-installed-profiles");
 		for (const dir of ["Profile 21", "OSS", "Profile 99"]) {
