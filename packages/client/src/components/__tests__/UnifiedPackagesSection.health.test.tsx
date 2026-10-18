@@ -13,8 +13,8 @@ const installedRefresh = vi.fn().mockResolvedValue(undefined);
 vi.mock("../../hooks/usePiCoreVersions.js", () => ({
 	usePiCoreVersions: () => ({ status: null, isLoading: false, error: null, refresh: vi.fn().mockResolvedValue(undefined) }),
 }));
-vi.mock("../../hooks/useInstalledPackages.js", () => ({
-	useInstalledPackages: () => ({ packages: [], isLoading: false, error: null, refresh: installedRefresh }),
+vi.mock("../../hooks/useAddonCatalog.js", () => ({
+	useAddonCatalog: () => ({ features: [], isLoading: false, error: null, refresh: installedRefresh }),
 }));
 vi.mock("../../hooks/usePackageOperations.js", () => ({
 	usePackageOperations: () => ({

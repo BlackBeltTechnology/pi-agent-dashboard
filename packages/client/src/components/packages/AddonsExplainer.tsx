@@ -9,13 +9,29 @@
  *
  * See change: addons-hub-declutter.
  */
+
+import { RECOMMENDED_EXTENSIONS } from "@blackbelt-technology/pi-dashboard-shared/recommended-extensions.js";
+import type { AddonFeature } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { mdiChevronDown, mdiChevronRight } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { type RefObject, useId } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { PART_KINDS, PartChip } from "./PartChip.js";
 
+/** Worked example: first installed feature with both an extension and a dashboard plugin, else a static one. */
+function exampleFor(features: readonly AddonFeature[]): { name: string; extension: string; plugin: string } {
+	const f = features.find((x) => x.kind === "agent-and-dashboard");
+	if (f?.packages[0]) {
+		const p = f.packages[0];
+		return { name: f.displayName, extension: p.packageName ?? p.source, plugin: f.plugin?.id ?? f.displayName };
+	}
+	const rec = RECOMMENDED_EXTENSIONS.find((r) => r.dashboardPlugin);
+	return { name: rec?.displayName ?? "Goal", extension: rec?.source.replace(/^npm:/, "") ?? "@ricoyudog/pi-goal-hermes", plugin: rec?.dashboardPlugin ?? "goal" };
+}
+
 interface AddonsExplainerProps {
+	/** Catalog features; the worked example is the first `agent-and-dashboard` one. */
+	features?: readonly AddonFeature[];
 	expanded: boolean;
 	onToggle: () => void;
 	toggleRef: RefObject<HTMLButtonElement | null>;
@@ -31,8 +47,9 @@ function Concept({ title, where, body }: { title: string; where: string; body: s
 	);
 }
 
-export function AddonsExplainer({ expanded, onToggle, toggleRef }: AddonsExplainerProps) {
+export function AddonsExplainer({ features = [], expanded, onToggle, toggleRef }: AddonsExplainerProps) {
 	const regionId = useId();
+	const example = exampleFor(features);
 	return (
 		<div className="mb-3" data-testid="addons-explainer">
 			<button
@@ -98,14 +115,16 @@ export function AddonsExplainer({ expanded, onToggle, toggleRef }: AddonsExplain
 					</div>
 					<div>
 						<span className="font-semibold text-[var(--text-primary)]">
-							{i18nT("addons.example.title", undefined, "Example: Goal")}
+							{i18nT("addons.example.title", { name: example.name }, `Example: ${example.name}`)}
 						</span>
 						{": "}
-						{i18nT(
-							"addons.example.body",
-							undefined,
-							"an extension by @ricoyudog keeps the agent working toward a goal, and a dashboard plugin that ships with the dashboard shows its progress on the session card.",
-						)}
+						<span data-testid="addons-example-body">
+							{i18nT(
+								"addons.example.body",
+								{ extension: example.extension, plugin: example.plugin },
+								`the extension ${example.extension} changes what the AI agent can do, and the dashboard plugin ${example.plugin} shows and controls it here.`,
+							)}
+						</span>
 					</div>
 				</div>
 			</div>
