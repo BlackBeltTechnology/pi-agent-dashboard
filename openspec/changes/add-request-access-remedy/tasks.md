@@ -29,7 +29,7 @@ TDD: write each folded test task (sections 9–13) failing before the implementa
 ## 6. Verify
 
 - [x] 6.1 Run touched suites (`set -o pipefail; npx vitest run <files> 2>&1 | tee /tmp/pi-test.log`, then grep the summary) and `npm run quality:changed`; restart the server (`curl -X POST http://localhost:8000/api/restart`) and `npm run build`. Verify: zero failures, quality ratchet clean
-- [ ] 6.2 `security-hardening` + `Audit` subagent pass on the diff (new unauthenticated disclosure, raw-socket peer, Host-admission ordering, local-credential exclusion); `review-code` before commit. Verify: no open findings
+- [x] 6.2 `security-hardening` + `Audit` subagent pass on the diff (new unauthenticated disclosure, raw-socket peer, Host-admission ordering, local-credential exclusion); `review-code` before commit. Verify: no open findings
 
 ## 7. Docs
 
@@ -90,4 +90,4 @@ TDD: write each folded test task (sections 9–13) failing before the implementa
 
 ## 14. Manual
 
-- [ ] 14.1 On a 375 px viewport, check the Vault callout with three rows: copy wraps legibly, the Request access link is reachable (44 px target), the conditional wording reads naturally (test-plan: manual-only, #F4)
+- [x] 14.1 On a 375 px viewport, check the Vault callout with three rows: copy wraps legibly, the Request access link is reachable (44 px target), the conditional wording reads naturally (test-plan: manual-only, #F4)

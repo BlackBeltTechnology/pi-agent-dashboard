@@ -521,6 +521,11 @@ describe("request-access remedy", () => {
     });
   });
 
+  it("E8b off-gate trusted peer with a login method configured → use-host + sign-in", async () => {
+    const { app } = await mkApp(false, { trusted: "100.64.0.0/10", loginAvailable: () => true, knock: { interfaces: [{ address: "100.64.0.1", netmask: "255.255.255.255" }] } });
+    expect(remedies(await get(app, "100.64.0.5"))).toEqual(["use-host", "sign-in"]);
+  });
+
   it("E9 a forwarded request gets no request-access", async () => {
     const { app } = await mkApp(false, lan);
     const res = await get(app, ON_LINK, { "x-forwarded-for": "203.0.113.9" });
