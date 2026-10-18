@@ -1,3 +1,5 @@
 # openspec-poll-worker.ts — index
 
 Pure `deriveAndSerialize(req): {cwd, data, serialized, stampMtimes, racyNames}` + `parentPort` bootstrap. Worker computes pre + post call mtimes; reuses cached artifacts on `gateEnabled && cached.mtimeMs === preCallMtime`; runs `deriveArtifactStatus`; re-stats for TOCTOU and marks racy on mismatch; calls `buildOpenSpecData`; applies optional `groupId` join inline (`joinGroupIdsToOpenSpecData` shape); `JSON.stringify`s data in-worker so main loop never stringifies large payload. See change: offload-openspec-poll-to-worker.
+
+`buildFromStatusAll(req)` (kind `build`): classify (`unsupported`/`failed`/`ok`), parse, local counts, post-call re-probe (TOCTOU: racy keeps previous entry; created-between-probe-and-spawn unstamped; deleted pruned), stamp over the NEW tracked set when it grew, groupId join, serialize. Returns `{data, serialized, stampMtimes, racyNames, cwdStamp, extras}`. Bootstrap handles `kind` `derive|probe|build` (async). `finishPayload` shared join helper. See change: use-openspec-status-all.

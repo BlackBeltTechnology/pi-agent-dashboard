@@ -1,5 +1,8 @@
 /**
- * Per-cwd filesystem watcher on `<cwd>/openspec/changes/` (recursive).
+ * Per-cwd filesystem watchers: `<cwd>/openspec/changes/` (recursive, the
+ * required one), `<cwd>/openspec/` (non-recursive, for `config.yaml`) and
+ * `<cwd>/openspec/schemas/` (recursive, when it exists). Main specs under
+ * `<cwd>/openspec/specs/` are NOT watched.
  *
  * Trigger-only: invokes `onChange(cwd)` so callers (DirectoryService) fan the
  * event into the existing mtime-gated poll. The watcher does NOT bypass the
@@ -15,12 +18,13 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { matchesOutputPattern } from "@blackbelt-technology/pi-dashboard-shared/openspec-status-all.js";
 
 /**
- * Filename filter for watcher events. Matches the artifact set whose edits
- * actually affect openspec output:
+ * Legacy filename filter for events under `changes/<change>/`:
  *   - `tasks.md`, `proposal.md`, `design.md` at the change root
  *   - any `*.md` under any `specs/` subtree
+ *   - `.openspec.yaml` (change metadata — affects schema / error state)
  *
  * The watcher event filename is the relative path from the watch root
  * (`openspec/changes/`), so a typical match is
@@ -30,13 +34,48 @@ import * as path from "node:path";
  * (`my-change\\tasks.md`) match too.
  */
 const FILTER_RE =
-  /^[^/]+\/(?:tasks\.md|proposal\.md|design\.md|specs(?:\/.*)?\.md)$/;
+  /^[^/]+\/(?:tasks\.md|proposal\.md|design\.md|\.openspec\.yaml|specs(?:\/.*)?\.md)$/;
 
-/** Exported for unit tests. */
-export function matchesOpenSpecArtifact(relPath: string | null | undefined): boolean {
+/**
+ * Relevant events under `openspec/changes/` (path relative to that dir):
+ *   (a) creation/rename of a change dir itself (a single dot-free segment other
+ *       than `archive`), or a legacy artifact name under any `<change>/`
+ *       (also for change dirs not yet in the cached result);
+ *   (b) under a change in the cached `status --all` result, a path matching one
+ *       of that change's artifact outputs (`outputsByChange`), so a
+ *       not-yet-created output such as `dependencies.yaml` matches.
+ *
+ * Exported for unit tests.
+ */
+export function matchesOpenSpecArtifact(
+  relPath: string | null | undefined,
+  outputsByChange?: Record<string, string[]>,
+  eventType?: string,
+): boolean {
   if (!relPath) return false;
   const normalized = relPath.replace(/\\/g, "/");
-  return FILTER_RE.test(normalized);
+  if (FILTER_RE.test(normalized)) return true;
+  const slash = normalized.indexOf("/");
+  if (slash === -1) {
+    // A bare dir name is a change dir being created/renamed/removed. A plain
+    // `change` event on it is just its mtime moving (a file written inside),
+    // which is covered by the file-level filters above.
+    if (eventType !== undefined && eventType !== "rename") return false;
+    return !normalized.includes(".") && normalized !== "archive";
+  }
+  const change = normalized.slice(0, slash);
+  if (change === "archive") return false;
+  const patterns = outputsByChange?.[change];
+  if (!patterns) return false;
+  const rest = normalized.slice(slash + 1);
+  return patterns.some((pattern) => matchesOutputPattern(rest, pattern));
+}
+
+/** Relevant events on the non-recursive `openspec/` watcher: `config.yaml` and `schemas`. */
+export function matchesOpenSpecRootEvent(relPath: string | null | undefined): boolean {
+  if (!relPath) return false;
+  const normalized = relPath.replace(/\\/g, "/");
+  return normalized === "config.yaml" || normalized === "schemas";
 }
 
 export interface OpenSpecChangeWatcher {
@@ -60,6 +99,11 @@ export interface OpenSpecChangeWatcher {
 export interface OpenSpecChangeWatcherDeps {
   /** Called after the debounce window for a cwd whose events matched the filter. */
   onChange: (cwd: string) => void;
+  /**
+   * Artifact output patterns (relative to the change dir, forward slashes) per
+   * change from the cached `status --all` result for `cwd`. Optional.
+   */
+  getOutputPatterns?: (cwd: string) => Record<string, string[]> | undefined;
   /** Debounce window in ms (default 300). */
   debounceMs?: number;
   /** Optional logger; defaults to `console.warn` for failures only. */
@@ -67,7 +111,10 @@ export interface OpenSpecChangeWatcherDeps {
 }
 
 type WatcherEntry = {
+  /** The required recursive watcher on `openspec/changes/`. */
   watcher: fs.FSWatcher;
+  /** Extra watchers (`openspec/` non-recursive, `openspec/schemas/` recursive). */
+  extras: Map<"root" | "schemas", fs.FSWatcher>;
   debounceTimer: ReturnType<typeof setTimeout> | null;
 };
 
@@ -110,28 +157,73 @@ export function createOpenSpecChangeWatcher(
       }
       return false;
     }
-    const entry: WatcherEntry = { watcher, debounceTimer: null };
+    const entry: WatcherEntry = { watcher, extras: new Map(), debounceTimer: null };
     attached.set(cwd, entry);
     failedOnce.delete(cwd);
 
-    watcher.on("change", (_eventType, filename) => {
+    const onChangesEvent = (eventType: string, filename: string | Buffer | null) => {
       // filename may be Buffer; coerce to string. Node also emits `null`
       // on some platforms when the source is renamed underneath us.
       const rel = filename ? filename.toString() : null;
-      if (!matchesOpenSpecArtifact(rel)) return;
+      if (!matchesOpenSpecArtifact(rel, deps.getOutputPatterns?.(cwd), eventType)) return;
       scheduleFire(cwd);
-    });
+    };
     // Some platforms emit `rename` instead of (or alongside) `change`.
-    watcher.on("rename", (_eventType, filename) => {
-      const rel = filename ? filename.toString() : null;
-      if (!matchesOpenSpecArtifact(rel)) return;
-      scheduleFire(cwd);
-    });
+    watcher.on("change", onChangesEvent);
+    watcher.on("rename", onChangesEvent);
     watcher.on("error", (err) => {
       log(`[openspec-watcher] error on ${cwd}: ${err.message}`);
       detach(cwd);
     });
+
+    attachExtras(cwd, entry);
     return true;
+  }
+
+  /** `openspec/` (non-recursive) and `openspec/schemas/` (recursive); best-effort. */
+  function attachExtras(cwd: string, entry: WatcherEntry): void {
+    const openspecDir = path.join(cwd, "openspec");
+    if (!entry.extras.has("root")) {
+      try {
+        const w = fs.watch(openspecDir, { recursive: false, persistent: false });
+        const onRoot = (_e: string, filename: string | Buffer | null) => {
+          const rel = filename ? filename.toString() : null;
+          if (!matchesOpenSpecRootEvent(rel)) return;
+          // `schemas/` created after attach: start watching it now.
+          if (rel && rel.replace(/\\/g, "/") === "schemas") attachExtras(cwd, entry);
+          scheduleFire(cwd);
+        };
+        w.on("change", onRoot);
+        w.on("rename", onRoot);
+        w.on("error", () => closeExtra(entry, "root"));
+        entry.extras.set("root", w);
+      } catch {
+        // degraded: config.yaml edits are covered by the periodic poll
+      }
+    }
+    if (!entry.extras.has("schemas")) {
+      try {
+        const w = fs.watch(path.join(openspecDir, "schemas"), { recursive: true, persistent: false });
+        const onSchema = () => scheduleFire(cwd);
+        w.on("change", onSchema);
+        w.on("rename", onSchema);
+        w.on("error", () => closeExtra(entry, "schemas"));
+        entry.extras.set("schemas", w);
+      } catch {
+        // no schemas/ yet (or EMFILE) — retried when `schemas` appears under openspec/
+      }
+    }
+  }
+
+  function closeExtra(entry: WatcherEntry, key: "root" | "schemas"): void {
+    const w = entry.extras.get(key);
+    if (!w) return;
+    try {
+      w.close();
+    } catch {
+      // best effort
+    }
+    entry.extras.delete(key);
   }
 
   function detach(cwd: string): void {
@@ -146,6 +238,7 @@ export function createOpenSpecChangeWatcher(
     } catch {
       // close() is best-effort; ignore errors.
     }
+    for (const key of Array.from(entry.extras.keys())) closeExtra(entry, key);
     attached.delete(cwd);
   }
 

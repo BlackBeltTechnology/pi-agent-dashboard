@@ -123,6 +123,10 @@ describe.skipIf(skipFsWatch)("OpenSpecChangeWatcher (real fs.watch)", () => {
     const changesDir = path.join(cwd, "openspec", "changes", "demo");
     fs.mkdirSync(changesDir, { recursive: true });
     const irrelevantPath = path.join(changesDir, "README.md");
+    // FSEvents (macOS) replays recent history to a fresh watcher: let the
+    // `mkdir` above age out so its `rename demo` is not delivered to it (a
+    // change-dir rename IS relevant, see use-openspec-status-all).
+    await new Promise((r) => setTimeout(r, 600));
 
     const calls: string[] = [];
     const watcher = createOpenSpecChangeWatcher({
@@ -138,5 +142,35 @@ describe.skipIf(skipFsWatch)("OpenSpecChangeWatcher (real fs.watch)", () => {
     watcher.detachAll();
     fs.rmSync(cwd, { recursive: true, force: true });
     expect(calls).toEqual([]);
+  });
+});
+
+describe.skipIf(skipFsWatch)("OpenSpecChangeWatcher (real fs.watch) — config.yaml and schemas (#E13)", () => {
+  it("fires for openspec/config.yaml and openspec/schemas/** but not for openspec/specs/**", async () => {
+    const cwd = mkTmpDir();
+    fs.mkdirSync(path.join(cwd, "openspec", "changes", "demo"), { recursive: true });
+    fs.mkdirSync(path.join(cwd, "openspec", "schemas", "s"), { recursive: true });
+    fs.mkdirSync(path.join(cwd, "openspec", "specs", "cap"), { recursive: true });
+    await new Promise((r) => setTimeout(r, 600)); // let FSEvents history age out (see above)
+
+    const calls: string[] = [];
+    const watcher = createOpenSpecChangeWatcher({ onChange: (c) => calls.push(c), debounceMs: 50 });
+    watcher.attach(cwd);
+    await new Promise((r) => setTimeout(r, 150));
+
+    // Main specs are not watched.
+    fs.writeFileSync(path.join(cwd, "openspec", "specs", "cap", "spec.md"), "# main spec\n");
+    await new Promise((r) => setTimeout(r, 300));
+    expect(calls).toHaveLength(0);
+
+    fs.writeFileSync(path.join(cwd, "openspec", "config.yaml"), "schema: spec-driven\n");
+    await waitFor(() => calls.length >= 1, 2000);
+
+    const before = calls.length;
+    fs.writeFileSync(path.join(cwd, "openspec", "schemas", "s", "schema.yaml"), "name: s\n");
+    await waitFor(() => calls.length > before, 2000);
+
+    watcher.detachAll();
+    fs.rmSync(cwd, { recursive: true, force: true });
   });
 });

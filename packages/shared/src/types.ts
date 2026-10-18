@@ -990,6 +990,13 @@ export interface OpenSpecChange {
    * See change: add-openspec-change-grouping.
    */
   groupId?: string | null;
+  /**
+   * Per-change CLI error from `openspec status --all` (e.g. invalid
+   * `.openspec.yaml`, unknown schema). Control characters stripped, `message`
+   * one line ≤ 500 chars, `code` ≤ 64. When present `artifacts` is empty and
+   * OpenSpec actions are blocked for this change. See change: use-openspec-status-all.
+   */
+  error?: { code: string; message: string };
 }
 
 /** Schema version for the per-repo OpenSpec groups file at

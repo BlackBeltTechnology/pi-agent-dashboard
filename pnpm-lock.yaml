@@ -1588,6 +1588,9 @@ importers:
       semver:
         specifier: ^7.7.1
         version: 7.8.5
+      yaml:
+        specifier: ^2.9.0
+        version: 2.9.0
     devDependencies:
       '@types/semver':
         specifier: ^7.7.0

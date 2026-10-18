@@ -514,6 +514,8 @@ export const huCatalog: Record<string, string> = {
   "openspec.node.archive": "Archiválás",
   "openspec.lifecycle": "OpenSpec életciklus",
   "openspec.moreActions": "További műveletek",
+  "openspec.changeError": "Hiba",
+  "openspec.changeErrorLabel": "Hiba: {message}",
   "openspec.archivedOn": "Archiválva: {date}",
   "openspec.inMainCheckout": "A fő checkoutban",
   "openspec.attachmentNotFound": "Nem található",

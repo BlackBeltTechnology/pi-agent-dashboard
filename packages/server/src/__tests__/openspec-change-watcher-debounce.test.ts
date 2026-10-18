@@ -69,8 +69,10 @@ describe("OpenSpecChangeWatcher debounce", () => {
     watcher.attach("/cwd/a");
     watcher.attach("/cwd/b");
 
+    // Each attach opens three watchers (changes/, openspec/, openspec/schemas/);
+    // the first of each triple is the `changes/` watcher.
     fakeWatchers[0]!.emit("change", "change", "x/tasks.md");
-    fakeWatchers[1]!.emit("change", "change", "y/proposal.md");
+    fakeWatchers[3]!.emit("change", "change", "y/proposal.md");
     vi.advanceTimersByTime(250);
 
     expect(onChange).toHaveBeenCalledTimes(2);
@@ -97,7 +99,8 @@ describe("OpenSpecChangeWatcher debounce", () => {
     watcher.attach("/x");
     watcher.attach("/x");
     expect(watcher.size()).toBe(1);
-    expect(fakeWatchers.length).toBe(1);
+    // One attach = changes/ + openspec/ + openspec/schemas/ watchers; the second attach adds none.
+    expect(fakeWatchers.length).toBe(3);
   });
 
   it("rename events also trigger the debounce", () => {

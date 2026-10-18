@@ -21,10 +21,18 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Worker } from "node:worker_threads";
+import type { OpenSpecData } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import {
+  buildFromStatusAll,
   deriveAndSerialize,
+  type PollWorkerKind,
   type PollWorkerRequest,
   type PollWorkerResponse,
+  type ProbeRequest,
+  type ProbeResponse,
+  probeTrackedPaths,
+  type StatusAllBuildRequest,
+  type StatusAllBuildResponse,
 } from "./openspec-poll-worker.js";
 
 export interface PollWorkerPoolOptions {
@@ -41,15 +49,29 @@ export interface PollWorkerPoolOptions {
 export interface PollWorkerPool {
   /** Derive + serialize for a single cwd. Always resolves with correct data — never rejects. */
   process(req: PollWorkerRequest): Promise<PollWorkerResponse>;
+  /**
+   * `status --all` tracked-path probe (async stats; runs in the worker, or as
+   * bounded async I/O in-process when the worker is disabled/unhealthy).
+   * See change: use-openspec-status-all.
+   */
+  probe(req: ProbeRequest): Promise<ProbeResponse>;
+  /** `status --all` post-CLI build: classify, parse, count, re-probe, serialize. */
+  build(req: StatusAllBuildRequest): Promise<StatusAllBuildResponse>;
   dispose(): Promise<void>;
   /** Test-only: number of in-flight worker requests. */
   inFlight(): number;
 }
 
+type PendingPayload = PollWorkerRequest | ProbeRequest | StatusAllBuildRequest;
+
 type Pending = {
   id: number;
-  payload: PollWorkerRequest;
-  resolve: (out: PollWorkerResponse) => void;
+  kind: PollWorkerKind;
+  payload: PendingPayload;
+  /** Resolves the caller's promise. */
+  resolve: (out: unknown) => void;
+  /** Rejects it (`probe` / `build` only — `process` never rejects). */
+  reject: (err: unknown) => void;
   timeoutHandle: ReturnType<typeof setTimeout> | null;
   slotIndex: number;
 };
@@ -64,6 +86,36 @@ type Slot = {
 const DEBUG = typeof process !== "undefined" &&
   typeof process.env?.DEBUG === "string" &&
   /pi-dashboard|openspec-poll/.test(process.env.DEBUG);
+
+/** Log label for a request. */
+function labelOf(p: Pending): string {
+  const payload = p.payload as { cwd?: string; openspecDir?: string };
+  return payload.cwd ?? payload.openspecDir ?? "?";
+}
+
+/**
+ * In-process `derive`. A throw yields an empty payload so the broadcast
+ * pipeline doesn't throw (defensive: derivation is pure + try/catch-internal).
+ */
+function deriveInProcess(req: PollWorkerRequest): PollWorkerResponse {
+  try {
+    return deriveAndSerialize(req);
+  } catch (err) {
+    const data: OpenSpecData = { initialized: false, changes: [], hasOpenspecDir: req.hasOpenspecDir };
+    if (DEBUG) {
+      // eslint-disable-next-line no-console
+      console.warn(`[openspec-poll-worker-pool] in-process fallback threw for ${req.cwd}:`, err);
+    }
+    return { cwd: req.cwd, data, serialized: JSON.stringify(data), stampMtimes: {}, racyNames: [] };
+  }
+}
+
+/** In-process `probe` / `build` (async, bounded I/O). */
+function runAsyncInProcess(kind: PollWorkerKind, payload: PendingPayload): Promise<unknown> {
+  return kind === "probe"
+    ? probeTrackedPaths(payload as ProbeRequest)
+    : buildFromStatusAll(payload as StatusAllBuildRequest);
+}
 
 function defaultWorkerUrl(): string {
   // The worker entry is a sibling .ts module; the server's `--import` loader (inherited via
@@ -110,7 +162,7 @@ export function createOpenSpecPollWorkerPool(opts: PollWorkerPoolOptions = {}): 
         } else {
           if (DEBUG) {
             // eslint-disable-next-line no-console
-            console.warn(`[openspec-poll-worker-pool] worker error for ${p.payload.cwd}: ${msg.error}`);
+            console.warn(`[openspec-poll-worker-pool] worker error for ${labelOf(p)}: ${msg.error}`);
           }
           fallbackSettle(p);
         }
@@ -177,27 +229,13 @@ export function createOpenSpecPollWorkerPool(opts: PollWorkerPoolOptions = {}): 
     pending.delete(p.id);
     const slot = slots[p.slotIndex];
     if (slot) slot.busy = false;
-    let out: PollWorkerResponse;
-    try {
-      out = deriveAndSerialize(p.payload);
-    } catch (err) {
-      // Last-resort: emit an empty payload so the broadcast pipeline doesn't
-      // throw. Tests don't exercise this branch (derivation is pure +
-      // try/catch-internal); kept as a defensive guard.
-      const data = { initialized: false, changes: [], hasOpenspecDir: p.payload.hasOpenspecDir };
-      out = {
-        cwd: p.payload.cwd,
-        data: data as any,
-        serialized: JSON.stringify(data),
-        stampMtimes: {},
-        racyNames: [],
-      };
-      if (DEBUG) {
-        // eslint-disable-next-line no-console
-        console.warn(`[openspec-poll-worker-pool] in-process fallback threw for ${p.payload.cwd}:`, err);
-      }
+    if (p.kind === "derive") {
+      p.resolve(deriveInProcess(p.payload as PollWorkerRequest));
+    } else {
+      // `probe` / `build`: async in-process run (bounded async I/O). A failure
+      // here is a real error for the caller (it treats it as a failed poll).
+      runAsyncInProcess(p.kind, p.payload).then(p.resolve, p.reject);
     }
-    p.resolve(out);
     drainQueue();
   }
 
@@ -244,17 +282,17 @@ export function createOpenSpecPollWorkerPool(opts: PollWorkerPoolOptions = {}): 
     p.timeoutHandle = setTimeout(() => {
       if (DEBUG) {
         // eslint-disable-next-line no-console
-        console.warn(`[openspec-poll-worker-pool] timeout for ${p.payload.cwd} (${timeoutMs}ms)`);
+        console.warn(`[openspec-poll-worker-pool] timeout for ${labelOf(p)} (${timeoutMs}ms)`);
       }
       killSlot(slotIndex, /*fallbackAllPending*/ false);
       fallbackSettle(p);
     }, timeoutMs);
     try {
-      slots[slotIndex].worker!.postMessage({ id: p.id, payload: p.payload });
+      slots[slotIndex].worker!.postMessage({ id: p.id, kind: p.kind, payload: p.payload });
     } catch (err) {
       if (DEBUG) {
         // eslint-disable-next-line no-console
-        console.warn(`[openspec-poll-worker-pool] postMessage threw for ${p.payload.cwd}:`, err);
+        console.warn(`[openspec-poll-worker-pool] postMessage threw for ${labelOf(p)}:`, err);
       }
       killSlot(slotIndex, /*fallbackAllPending*/ false);
       fallbackSettle(p);
@@ -263,13 +301,19 @@ export function createOpenSpecPollWorkerPool(opts: PollWorkerPoolOptions = {}): 
 
   // NB: named `processRequest`, not `process`, so it does not shadow Node's
   // global `process` (used for `process.execArgv` in `spawnSlot`).
-  function processRequest(req: PollWorkerRequest): Promise<PollWorkerResponse> {
-    if (disposed) return Promise.resolve(deriveAndSerialize(req));
-    return new Promise<PollWorkerResponse>((resolveOuter) => {
+  function enqueue<T>(kind: PollWorkerKind, req: PendingPayload): Promise<T> {
+    if (disposed) {
+      return (kind === "derive"
+        ? Promise.resolve(deriveAndSerialize(req as PollWorkerRequest))
+        : runAsyncInProcess(kind, req)) as Promise<T>;
+    }
+    return new Promise<T>((resolveOuter, rejectOuter) => {
       const p: Pending = {
         id: nextId++,
+        kind,
         payload: req,
-        resolve: resolveOuter,
+        resolve: (out) => resolveOuter(out as T),
+        reject: rejectOuter,
         timeoutHandle: null,
         slotIndex: -1,
       };
@@ -285,7 +329,7 @@ export function createOpenSpecPollWorkerPool(opts: PollWorkerPoolOptions = {}): 
         Promise.resolve()
           .then(() => fallbackSettle(p))
           .catch((err: unknown) => {
-            console.warn(`[openspec-poll-worker-pool] in-process settle failed for ${p.payload.cwd}:`, err);
+            console.warn(`[openspec-poll-worker-pool] in-process settle failed for ${labelOf(p)}:`, err);
             pending.delete(p.id);
             const slot = slots[p.slotIndex];
             if (slot) slot.busy = false;
@@ -299,6 +343,10 @@ export function createOpenSpecPollWorkerPool(opts: PollWorkerPoolOptions = {}): 
         dispatch(p, idx);
       }
     });
+  }
+
+  function processRequest(req: PollWorkerRequest): Promise<PollWorkerResponse> {
+    return enqueue<PollWorkerResponse>("derive", req);
   }
 
   async function dispose(): Promise<void> {
@@ -321,5 +369,11 @@ export function createOpenSpecPollWorkerPool(opts: PollWorkerPoolOptions = {}): 
     return pending.size;
   }
 
-  return { process: processRequest, dispose, inFlight };
+  return {
+    process: processRequest,
+    probe: (req) => enqueue<ProbeResponse>("probe", req),
+    build: (req) => enqueue<StatusAllBuildResponse>("build", req),
+    dispose,
+    inFlight,
+  };
 }

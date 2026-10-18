@@ -89,6 +89,7 @@ import { DialogPortal } from "../primitives/DialogPortal.js";
 import { LazyTasksPopover } from "./lazy-openspec-dialogs.js";
 import { OpenSpecActivityBadge } from "./OpenSpecActivityBadge.js";
 import { OpenSpecGroupManager } from "./OpenSpecGroupManager.js";
+import { OpenSpecErrorBadge } from "./OpenSpecErrorBadge.js";
 import { OpenSpecStepper } from "./OpenSpecStepper.js";
 import { SessionOpenSpecActions } from "./SessionOpenSpecActions.js";
 
@@ -1083,6 +1084,7 @@ function ProposalCard(props: {
       {cardStripeFx ? <div className={`card-stripes-fx ${cardStripeFx}`} aria-hidden="true" /> : null}
       <div className="flex items-center gap-1.5">
         <span className="text-[var(--text-primary)] font-semibold text-[12px] flex-1 min-w-0 truncate" data-testid="board-card-name">{c.name}</span>
+        {c.error && <OpenSpecErrorBadge error={c.error} />}
       </div>
 
       {/* Lifecycle bar — its current segment + Tasks count replace the state

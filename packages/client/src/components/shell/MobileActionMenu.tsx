@@ -40,17 +40,20 @@ interface Props {
   onRefresh?: () => void;
 }
 
-function MenuRow({ icon, label, onClick, danger, disabled }: {
+function MenuRow({ icon, label, onClick, danger, disabled, title }: {
   icon: string;
   label: string;
   onClick: () => void;
   danger?: boolean;
   disabled?: boolean;
+  /** Tooltip — the blocked reason (a broken change's CLI error message). */
+  title?: string;
 }) {
   return (
     <button
       onClick={onClick}
       disabled={disabled}
+      title={title}
       className={`w-full flex items-center gap-3 px-4 py-3 text-sm text-left min-h-[44px] ${
         disabled
           ? "text-[var(--text-muted)] opacity-40 cursor-not-allowed"
@@ -209,6 +212,9 @@ export function MobileActionMenu({ session, openspecChanges, onRename, onArchive
             const change = attachmentResolution?.kind === "active" && attachmentResolution.cwd === session.cwd ? attachmentResolution.change : undefined;
             if (!change) return null;
             const state = deriveChangeState(change);
+            // A change with a CLI error blocks Continue / Fast-Forward (its
+            // message is the reason). See change: use-openspec-status-all.
+            const brokenReason = change.error?.message;
             return (
               <>
                 <div className="px-4 py-1.5 text-[10px] text-[var(--text-muted)] uppercase tracking-wider border-t border-[var(--border-primary)]">
@@ -223,8 +229,8 @@ export function MobileActionMenu({ session, openspecChanges, onRename, onArchive
                       )}
                       {state === ChangeState.PLANNING && onSendPrompt && (
                         <>
-                          <MenuRow icon={mdiChevronRight} label={i18nT("common.continue", undefined, "Continue")} onClick={() => act(() => onSendPrompt(`/skill:openspec-continue-change ${attached}`))} disabled={actionsDisabled} />
-                          <MenuRow icon={mdiFastForward} label={i18nT("git.fastForward", undefined, "Fast-Forward")} onClick={() => act(() => onSendPrompt(`/skill:openspec-ff-change ${attached}`))} disabled={actionsDisabled} />
+                          <MenuRow icon={mdiChevronRight} label={i18nT("common.continue", undefined, "Continue")} onClick={() => act(() => onSendPrompt(`/skill:openspec-continue-change ${attached}`))} disabled={actionsDisabled || brokenReason !== undefined} title={brokenReason} />
+                          <MenuRow icon={mdiFastForward} label={i18nT("git.fastForward", undefined, "Fast-Forward")} onClick={() => act(() => onSendPrompt(`/skill:openspec-ff-change ${attached}`))} disabled={actionsDisabled || brokenReason !== undefined} title={brokenReason} />
                         </>
                       )}
                       {(state === ChangeState.READY || state === ChangeState.IMPLEMENTING) && onSendPrompt && (

@@ -150,7 +150,7 @@ On both paths the server emits `proposal, design, specs, tasks` (those present),
 - **Counting-rule drift** if OpenSpec changes `TASK_LINE_PATTERN` or its file selection. Mitigation: a parity test against `openspec list`, with a bounded pool, skipping only when the CLI is absent.
 - **A schema-declared artifact that is not done keeps the change `PLANNING`** (`deriveChangeState`, `types.ts:1258-1267`), while the 4-segment stepper shows P/D/S as done. This is the correct semantics; explaining the extra artifact in the UI is scoped to `add-openspec-change-dependencies`.
 - **Very large repos** (≈4.8 ms marginal per change on macOS). Mitigation: a 30 s timeout. Revisit above ~1000 active changes.
-- **User-level (`XDG_DATA_HOME`) schemas are not read for `apply.tracks`.** Accepted: counting falls back to the `tasks` artifact or `tasks.md`, and the parity test excludes those changes.
+- **User-level (`XDG_DATA_HOME`) schemas ARE read for `apply.tracks` (D2) but are outside the gate and watchers.** The parity test excludes changes whose schema is shadowed from the user dir.
 
 ## Migration Plan
 

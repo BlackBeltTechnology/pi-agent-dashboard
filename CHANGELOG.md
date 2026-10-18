@@ -12,6 +12,13 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Added
 
+- **OpenSpec status in one spawn.** The server now reads every change's status with a single
+  `openspec status --all --json` per project (was `1 + N` spawns on refresh, ~25 s on macOS for 100
+  changes; now ~1.3 s). Custom workflow schemas are reported correctly, and one broken change
+  (invalid `.openspec.yaml`, unknown schema) shows an error badge on its card and blocks Continue /
+  Fast-forward instead of blanking the whole project. Edits to `openspec/config.yaml`, `schemas/**`
+  and schema-declared outputs now refresh the board. Older OpenSpec CLIs without `--all` keep
+  working through the previous `list` + local-derivation path.
 - **A new git worktree's kb index starts from the main checkout's index.** The first docs
   index in a linked worktree copies a consistent snapshot of the main checkout's index and
   re-chunks only the files that differ (4 s instead of ~100 s on this repository), then

@@ -20,21 +20,36 @@
  *
  * See change: consolidate-tool-resolution.
  */
-import { listOr, statusOr, OPENSPEC_LIST, OPENSPEC_STATUS } from "./platform/openspec.js";
-import { runAsync, unwrap } from "./platform/runner.js";
-import type { OpenSpecData, OpenSpecChange, OpenSpecArtifact } from "./types.js";
+
+import { existsSync, promises as fsp, readFileSync } from "node:fs";
+import path from "node:path";
+import { parse as parseYaml } from "yaml";
 import {
-  evaluateLocalDesignSatisfaction,
   createFsDesignEvidenceProbe,
   type DesignEvidenceProbe,
+  evaluateLocalDesignSatisfaction,
 } from "./openspec-design-evidence.js";
 import {
-  evaluateLocalSpecsSatisfaction,
   createFsSpecsEvidenceProbe,
+  evaluateLocalSpecsSatisfaction,
   type SpecsEvidenceProbe,
 } from "./openspec-specs-evidence.js";
-import { existsSync, readFileSync } from "node:fs";
-import path from "node:path";
+import {
+  canonicalArtifactOrder,
+  computeTrackedExtras,
+  countTasksFromContent,
+  entryError,
+  mapCliPath,
+  mapLimit,
+  type StatusAllEntry,
+  type StatusAllRaw,
+  selectTrackedArtifact,
+  type TrackedExtras,
+  taskListStatus,
+} from "./openspec-status-all.js";
+import { listOr, OPENSPEC_LIST, OPENSPEC_STATUS, OPENSPEC_STATUS_ALL, statusOr, userSchemasDir } from "./platform/openspec.js";
+import { type Result, runAsync, unwrap } from "./platform/runner.js";
+import type { OpenSpecArtifact, OpenSpecChange, OpenSpecData } from "./types.js";
 
 const EMPTY_DATA: OpenSpecData = { initialized: false, changes: [] };
 
@@ -309,4 +324,184 @@ export async function pollOpenSpecAsync(cwd: string): Promise<OpenSpecData> {
     createFsProbeFactory(cwd),
     createFsSpecsProbeFactory(cwd),
   );
+}
+
+// ── `openspec status --all` path ────────────────────────────────────────────
+
+/**
+ * Run `openspec status --all --json` for one cwd and return the RAW outcome
+ * regardless of exit code (a single broken change exits 1 with complete JSON).
+ * Never throws; spawn-level failures set `failure`. Classification and
+ * parsing happen later, off the main thread. See change: use-openspec-status-all.
+ */
+export async function runOpenSpecStatusAll(cwd: string): Promise<StatusAllRaw> {
+  return statusAllRawFromResult(await runAsync(OPENSPEC_STATUS_ALL, { cwd }, { cwd }));
+}
+
+/** Runner `Result` → raw outcome: stdout + stderr whatever the exit code; spawn-level failures set `failure`. */
+export function statusAllRawFromResult(result: Result<string>): StatusAllRaw {
+  if (result.ok) return { stdout: result.value, stderr: "", exitCode: 0 };
+  const err = result.error;
+  if (err.kind === "exit") {
+    return { stdout: err.stdout ?? "", stderr: err.stderr ?? "", exitCode: err.code ?? null };
+  }
+  return { stdout: "", stderr: "", exitCode: null, failure: err.kind };
+}
+
+/** schema.yaml path → `{ mtimeMs, applyTracks }`, memoized by mtime. */
+const schemaTracksMemo = new Map<string, { mtimeMs: number; tracks: string | undefined }>();
+
+async function readApplyTracks(schemaFile: string): Promise<{ exists: boolean; tracks: string | undefined }> {
+  let mtimeMs: number;
+  try {
+    mtimeMs = (await fsp.stat(schemaFile)).mtimeMs;
+  } catch {
+    return { exists: false, tracks: undefined };
+  }
+  const memo = schemaTracksMemo.get(schemaFile);
+  if (memo && memo.mtimeMs === mtimeMs) return { exists: true, tracks: memo.tracks };
+  let tracks: string | undefined;
+  try {
+    const doc = parseYaml(await fsp.readFile(schemaFile, "utf8")) as { apply?: { tracks?: unknown } } | null;
+    const t = doc?.apply?.tracks;
+    tracks = typeof t === "string" ? t : undefined;
+  } catch {
+    tracks = undefined; // unreadable / unparsable ⇒ `apply.tracks` absent
+  }
+  schemaTracksMemo.set(schemaFile, { mtimeMs, tracks });
+  return { exists: true, tracks };
+}
+
+/**
+ * `apply.tracks` for a schema by OpenSpec's resolution order: project-local
+ * `<openspec>/schemas/<name>/schema.yaml`, then the user schema dir; the first
+ * existing file wins (even when it declares no `apply.tracks`). The built-in
+ * package schemas are not read — `spec-driven` tracks `tasks.md`, which the
+ * "artifact with id `tasks`" default yields identically.
+ */
+export async function resolveApplyTracks(
+  schemaName: string | undefined,
+  openspecDir: string,
+  userDir: string = userSchemasDir(),
+): Promise<string | undefined> {
+  if (!schemaName || /[\\/]/.test(schemaName) || schemaName === "." || schemaName === ".." || /^[A-Za-z]:/.test(schemaName)) {
+    return undefined;
+  }
+  for (const dir of [path.join(openspecDir, "schemas"), userDir]) {
+    const r = await readApplyTracks(path.join(dir, schemaName, "schema.yaml"));
+    if (r.exists) return r.tracks;
+  }
+  return undefined;
+}
+
+async function countFile(file: string): Promise<{ total: number; completed: number }> {
+  try {
+    return countTasksFromContent(await fsp.readFile(file, "utf8"));
+  } catch {
+    return { total: 0, completed: 0 };
+  }
+}
+
+export interface StatusAllBuildInput {
+  cwd: string;
+  /** Server-canonical `<cwd>/openspec` directory (realpath). */
+  openspecDir: string;
+  /** `root.path` exactly as the CLI emitted it. */
+  rootPath: string;
+  entries: StatusAllEntry[];
+  /** Probe effective mtime per change — the sort key (newest first, ties by name). */
+  orderMtimes: Record<string, number | undefined>;
+  /** Test seam: user schema directory. */
+  userSchemasDir?: string;
+}
+
+export interface StatusAllBuildResult {
+  data: OpenSpecData;
+  /** Tracked extras per change, mapped onto `openspecDir`, for the gate and watcher. */
+  extras: Record<string, TrackedExtras>;
+}
+
+/** Local task counts for one entry (OpenSpec's file selection; top-level `tasks.md` fallback). */
+async function countEntryTasks(
+  entry: StatusAllEntry,
+  err: ReturnType<typeof entryError>,
+  input: StatusAllBuildInput,
+): Promise<{ total: number; completed: number }> {
+  const { openspecDir, rootPath } = input;
+  const tracks = err ? undefined : await resolveApplyTracks(entry.schemaName, openspecDir, input.userSchemasDir);
+  const tracked = err ? undefined : selectTrackedArtifact(entry.artifacts, tracks);
+  const files: string[] = [];
+  for (const p of tracked ? (entry.artifactPaths?.[tracked.id]?.existingOutputPaths ?? []) : []) {
+    const mapped = mapCliPath(p, rootPath, openspecDir);
+    if (mapped) files.push(mapped);
+  }
+  if (files.length === 0) files.push(path.join(openspecDir, "changes", entry.changeName, "tasks.md"));
+  let total = 0;
+  let completed = 0;
+  for (const f of files) {
+    const c = await countFile(f);
+    total += c.total;
+    completed += c.completed;
+  }
+  return { total, completed };
+}
+
+/** Newest-first by probe mtime, ties by name. */
+function byNewestThenName(orderMtimes: Record<string, number | undefined>) {
+  return (a: OpenSpecChange, b: OpenSpecChange): number => {
+    const ma = orderMtimes[a.name] ?? 0;
+    const mb = orderMtimes[b.name] ?? 0;
+    if (ma !== mb) return mb - ma;
+    return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+  };
+}
+
+/**
+ * Build `OpenSpecData` from a classified `status --all` envelope: local task
+ * counting (OpenSpec's task-line rule and file selection), canonical artifact
+ * order, per-change `error`, the promote-only design/specs overrides, and the
+ * newest-first change order. All file I/O is async and bounded.
+ * See change: use-openspec-status-all.
+ */
+export async function buildOpenSpecDataFromStatusAll(input: StatusAllBuildInput): Promise<StatusAllBuildResult> {
+  const { cwd, openspecDir, rootPath, entries, orderMtimes } = input;
+
+  const counted = await mapLimit(entries, 16, async (entry) => {
+    const err = entryError(entry);
+    return { entry, err, ...(await countEntryTasks(entry, err, input)) };
+  });
+
+  const listEntries = counted.map((c) => ({
+    name: c.entry.changeName,
+    status: taskListStatus(c.total, c.completed),
+    completedTasks: c.completed,
+    totalTasks: c.total,
+  }));
+  const statusResults = new Map<string, { artifacts?: Array<{ id: string; status: string }>; isComplete?: boolean } | null>();
+  const extras: Record<string, TrackedExtras> = {};
+  for (const c of counted) {
+    const { entry } = c;
+    extras[entry.changeName] = computeTrackedExtras(entry, rootPath, openspecDir, path.join(openspecDir, "changes", entry.changeName));
+    statusResults.set(
+      entry.changeName,
+      c.err
+        ? null
+        : {
+            artifacts: canonicalArtifactOrder(entry.artifacts ?? []).map((a) => ({ id: a.id, status: a.status })),
+            ...(typeof entry.isComplete === "boolean" ? { isComplete: entry.isComplete } : {}),
+          },
+    );
+  }
+
+  const built = buildOpenSpecData(
+    { changes: listEntries },
+    statusResults,
+    createFsProbeFactory(cwd),
+    createFsSpecsProbeFactory(cwd),
+  );
+  const errorByName = new Map(counted.filter((c) => c.err).map((c) => [c.entry.changeName, c.err!]));
+  const changes = built.changes
+    .map((c) => (errorByName.has(c.name) ? { ...c, error: errorByName.get(c.name)! } : c))
+    .sort(byNewestThenName(orderMtimes));
+  return { data: { initialized: true, changes }, extras };
 }
