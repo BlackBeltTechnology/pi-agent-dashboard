@@ -41,6 +41,21 @@ function recordSettingsPath(cwd: string): string {
   return path.join(canonical(cwd), ".pi", "settings.json");
 }
 
+/**
+ * `<cwd>/.pi` resolving outside the folder (a symlink escape) would redirect the settings
+ * write to an unrelated directory. An absent `.pi` is created inside `cwd`, so it is fine.
+ */
+function piDirEscapes(cwd: string): boolean {
+  let real: string;
+  try {
+    real = fs.realpathSync(path.join(cwd, ".pi"));
+  } catch {
+    return false;
+  }
+  const root = canonical(cwd);
+  return real !== root && !real.startsWith(root + path.sep);
+}
+
 function themeCount(cwd: string): number {
   try {
     return fs.readdirSync(path.join(cwd, ".pi", "themes")).filter((f) => f.endsWith(".json")).length;
@@ -263,6 +278,9 @@ export async function folderToggle(deps: AddonsDeps, args: FolderToggleArgs): Pr
   const feature = g.features.find((f) => f.id === featureId);
   const rejected = rejectFeature(feature, featureId);
   if (rejected || !feature) return rejected as Reply;
+  if (piDirEscapes(cwd)) {
+    return { status: 400, body: { success: false, error: "<cwd>/.pi resolves outside the folder; refusing to write through it" } };
+  }
 
   const piDir = path.join(cwd, ".pi");
   const projectFile = path.join(piDir, "settings.json");
