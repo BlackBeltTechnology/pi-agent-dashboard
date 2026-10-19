@@ -5,3 +5,5 @@ Identity-verified dashboard detection over GET /api/health. Exports `DashboardSt
 Health probe URL built with `formatHostPort` (IPv6 literal bracketed). See change: stabilize-mdns-server-identity.
 
 `DashboardStatus` gains optional `timedOut` (no attempt was definitive: every attempt timed out / reset — "held but silent"; absent on a refusal) and `instanceId` (from the health body, for ownership proof). Refusal = ECONNREFUSED / EADDRNOTAVAIL / ENETUNREACH / EAFNOSUPPORT (an IPv6-less host refuses `::1` with the latter). See change: harden-dashboard-start-detection.
+
+`DashboardStatus` gains optional owner fields `launchSource` (string), `bootParentAlive` (bool), `bootParentPid` (number), copied verbatim from `/api/health` only when well-typed; wording only, never a kill decision. See change: fix-cli-control-electron-server.

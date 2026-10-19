@@ -9,22 +9,22 @@ import { t as i18nT } from "../i18n/i18n.js";
 
 export type Tone = "success" | "info" | "warning" | "error" | "neutral";
 
-/** Shape glyph + text: state is never conveyed by colour alone (WCAG 1.4.1). */
-const STATE_META: Record<string, { label: string; tone: Tone; glyph: string }> = {
-  healthy: { label: "Healthy", tone: "success", glyph: "●" },
-  idle: { label: "Idle", tone: "neutral", glyph: "○" },
-  starting: { label: "Starting", tone: "info", glyph: "◐" },
-  stopping: { label: "Stopping", tone: "info", glyph: "◐" },
-  stopped: { label: "Stopped", tone: "neutral", glyph: "□" },
-  blocked: { label: "Not responding", tone: "warning", glyph: "◆" },
-  failed: { label: "Failed", tone: "error", glyph: "▲" },
-  "stop-failed": { label: "Stop failed", tone: "error", glyph: "▲" },
-  unavailable: { label: "Unavailable", tone: "error", glyph: "▲" },
+/** Label + tone: the pill adds an icon, so state is never conveyed by colour alone (WCAG 1.4.1). */
+const STATE_META: Record<string, { label: string; tone: Tone }> = {
+  healthy: { label: "Healthy", tone: "success" },
+  idle: { label: "Idle", tone: "neutral" },
+  starting: { label: "Starting", tone: "info" },
+  stopping: { label: "Stopping", tone: "info" },
+  stopped: { label: "Stopped", tone: "neutral" },
+  blocked: { label: "Not responding", tone: "warning" },
+  failed: { label: "Failed", tone: "error" },
+  "stop-failed": { label: "Stop failed", tone: "error" },
+  unavailable: { label: "Unavailable", tone: "error" },
 };
 
-export function stateMeta(state: string): { label: string; tone: Tone; glyph: string } {
+export function stateMeta(state: string): { label: string; tone: Tone } {
   const m = STATE_META[state];
-  return m ? { ...m, label: i18nT(`services.state.${state}`, undefined, m.label) } : { label: state, tone: "neutral", glyph: "□" };
+  return m ? { ...m, label: i18nT(`services.state.${state}`, undefined, m.label) } : { label: state, tone: "neutral" };
 }
 
 const REASON_EN: Record<string, string> = {

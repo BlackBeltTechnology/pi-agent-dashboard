@@ -112,20 +112,20 @@ After `reconcilePluginBridgePackages` completes during server startup, the serve
 
 ### Requirement: Settings UI SHALL surface health issues in the Packages section
 
-`UnifiedPackagesSection.tsx` SHALL fetch `/api/packages/health` on mount and SHALL render a `PackageHealthPanel` above the installed-packages list whenever the summary contains any non-`ok` entries.
+The Settings view SHALL fetch `/api/packages/health` through the shared Add-ons issue-count source (on Settings mount and after a cleanup Apply) and SHALL render the `PackageHealthPanel` inside the Add-ons **Issues** tab (see `addons-issues`) whenever the summary contains any non-`ok` entries; the panel SHALL NOT render above the installed list. The non-`ok` entry count SHALL contribute to the Issues tab count, which replaces the former `Issues (N)` section-header badge.
 
 #### Scenario: No issues renders nothing
 
 - **GIVEN** the health response has only `ok` entries
-- **WHEN** the user opens the Packages section
-- **THEN** no health panel SHALL render and no `Issues (N)` badge SHALL appear
+- **WHEN** the user opens the Add-ons page
+- **THEN** no health panel SHALL render and the health entries SHALL add nothing to the Issues tab count
 
 #### Scenario: Issues render an expanded panel with badge
 
 - **GIVEN** the health response contains stale, missing, or duplicate entries
-- **WHEN** the user first opens the section in a browser session
-- **THEN** the section header SHALL show `Issues (N)` with N equal to non-ok entry count
-- **AND** the `PackageHealthPanel` SHALL render auto-expanded
+- **WHEN** the user first opens the Issues tab in a browser session
+- **THEN** the Issues tab count SHALL include N, the non-ok entry count
+- **AND** the `PackageHealthPanel` SHALL render auto-expanded inside the Issues tab
 - **AND** sub-sections SHALL render only for non-empty status groups
 
 #### Scenario: Missing-path duplicate members are pre-checked for drop

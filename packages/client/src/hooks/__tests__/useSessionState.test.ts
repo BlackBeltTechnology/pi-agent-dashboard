@@ -127,6 +127,23 @@ describe("applySessionMessage (pure reducer)", () => {
     );
   });
 
+  it("prompt_request copies metadata.allowOther === true into params (test-plan #E16)", () => {
+    const mk = (promptId: string, metadata?: Record<string, unknown>) =>
+      ({
+        type: "prompt_request",
+        sessionId: SID,
+        promptId,
+        prompt: { question: "Pick", type: "select", options: ["a", "b"], ...(metadata ? { metadata } : {}) },
+        component: { type: "select", props: {} },
+        placement: "inline",
+      }) as ServerToBrowserMessage;
+    let acc = applySessionMessage(createSessionAccumulator(), mk("opted", { allowOther: true }));
+    acc = applySessionMessage(acc, mk("plain"));
+    const reqs = acc.state.interactiveRequests;
+    expect(reqs.find((r) => r.requestId === "opted")?.params.allowOther).toBe(true);
+    expect(reqs.find((r) => r.requestId === "plain")?.params).not.toHaveProperty("allowOther");
+  });
+
   it("prompt_received routes to applyPromptReceived (fresh=false drops pendingPrompt)", () => {
     const acc = {
       state: { ...createInitialState(), pendingPrompt: { text: "q", status: "sending" as const } },

@@ -1,26 +1,30 @@
 /**
- * Shared bits of the Services pages: state pill (glyph + text, never colour
- * alone), chips, the operate banner/callout, and the inline action error.
- * Theme tokens only — no raw colour literal, text ≥ 12 px, 44 px touch targets
- * below `sm`. See change: add-services-settings-ui.
+ * Shared bits of the Services pages: state pill (icon + text, never colour
+ * alone), chips, the operate banner/callout, and the inline action error. The
+ * pill, callout and error are the runtime kit's `SettingsStatusPill`,
+ * `SettingsNotice` and `SettingsActionError`.
+ * Theme tokens only — no raw colour literal. See change: add-services-settings-ui,
+ * align-ui-contract-recipes.
  */
-import { mdiAlertCircleOutline, mdiCellphoneKey, mdiLockOutline, mdiLogin, mdiMonitor } from "@mdi/js";
-import type { ReactNode } from "react";
+import { SettingsActionError, SettingsNotice, SettingsStatusPill } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { mdiCellphoneKey, mdiLoading, mdiLockOutline, mdiLogin, mdiMonitor } from "@mdi/js";
+import { type ReactNode, useId } from "react";
 import { t as i18nT } from "../../../lib/i18n/i18n.js";
 import type { ServicesResult } from "../../../lib/services/services-api.js";
 import { stateMeta } from "../../../lib/services/services-model.js";
-import { Callout, TONE_PILL, VIcon } from "../vault/vault-ui.js";
 
-export function StatePill({ state }: { state: string }) {
+/** States that are in progress: their icon spins (and stops under reduced motion). */
+const IN_PROGRESS = new Set(["starting", "stopping"]);
+
+/** `interactive`: the pill sits inside a button/row, so it uses the kit's 12 px floor instead of 11 px. */
+export function StatePill({ state, interactive }: { state: string; interactive?: boolean }) {
   const m = stateMeta(state);
+  const busy = IN_PROGRESS.has(state);
   return (
-    <span
-      data-testid="service-state-pill"
-      data-state={state}
-      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-semibold whitespace-nowrap ${TONE_PILL[m.tone]}`}
-    >
-      <span aria-hidden="true">{m.glyph}</span>
-      <span>{m.label}</span>
+    <span data-testid="service-state-pill" data-state={state} className="inline-flex">
+      <SettingsStatusPill tone={m.tone} icon={busy ? mdiLoading : undefined} spinning={busy} interactive={interactive}>
+        {m.label}
+      </SettingsStatusPill>
     </span>
   );
 }
@@ -62,62 +66,66 @@ const isKnownRemedy = (r: unknown): r is KnownRemedy => typeof r === "string" &&
 export function ServicesOperateCallout({ remedies, title, why, testId }: { remedies?: readonly unknown[]; title: string; why: string; testId: string }) {
   const rows = (remedies ? [...new Set(remedies)].filter(isKnownRemedy) : ALL_REMEDIES) as KnownRemedy[];
   return (
-    <Callout tone="warning" icon={mdiLockOutline} role="status" testId={testId}>
+    <SettingsNotice
+      tone="warning"
+      icon={mdiLockOutline}
+      role="status"
+      testId={testId}
+      remedies={rows.map((r) => ({
+        id: r,
+        icon: REMEDY_ROWS[r].icon,
+        content: (
+          <>
+            {i18nT(`services.remedy.${r}`, undefined, REMEDY_ROWS[r].fallback)}
+            {r === "sign-in" && (
+              <>
+                {" "}
+                <a href="/auth/login" className="font-semibold underline text-inherit">
+                  {i18nT("services.remedy.signInLink", undefined, "Sign in")}
+                </a>
+              </>
+            )}
+          </>
+        ),
+      }))}
+    >
       <strong className="block font-semibold">{title}</strong>
       <p className="mt-1">{why}</p>
-      {rows.length > 0 && (
-        <ul className="m-0 mt-2 list-none space-y-1 p-0" data-testid={`${testId}-remedies`}>
-          {rows.map((r) => (
-            <li key={r} data-remedy={r} className="flex items-start gap-2">
-              <VIcon path={REMEDY_ROWS[r].icon} className="mt-0.5" />
-              <span>
-                {i18nT(`services.remedy.${r}`, undefined, REMEDY_ROWS[r].fallback)}
-                {r === "sign-in" && (
-                  <>
-                    {" "}
-                    <a href="/auth/login" className="font-semibold underline text-inherit">
-                      {i18nT("services.remedy.signInLink", undefined, "Sign in")}
-                    </a>
-                  </>
-                )}
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </Callout>
+    </SettingsNotice>
   );
 }
 
 /**
- * The failure of one action, shown AT the action: the server's code and hint,
- * or — for 403 `operate_required` — its reason and remedies. Never a toast.
+ * The failure of one action, shown AT the action: one plain sentence, with the
+ * server's code and message behind "Copy details" (never in the visible text) —
+ * or, for 403 `operate_required`, its reason and remedies. Never a toast.
+ * `id` is the alert's element id; point the failed control's `aria-describedby` at it.
  */
-export function ActionFailure({ failure, testId = "service-action-error" }: { failure: ServicesResult<unknown> | null; testId?: string }) {
+export function ActionFailure({ failure, testId = "service-action-error", id }: { failure: ServicesResult<unknown> | null; testId?: string; id?: string }) {
+  const autoId = useId();
   if (!failure || failure.ok) return null;
   if (failure.code === "operate_required") {
+    // The refused button points `aria-describedby` at `id`, so the notice needs that element too.
     return (
-      <ServicesOperateCallout
-        testId={`${testId}-operate`}
-        remedies={failure.remedies ?? []}
-        title={i18nT("services.operateRequired.title", undefined, "This needs operate access")}
-        why={
-          failure.reason === "tier-too-low"
-            ? i18nT("services.operateRequired.tierTooLow", undefined, "This device's credential is below operate access, so it cannot change services.")
-            : i18nT("services.operateRequired.noCredential", undefined, "Changing services needs an operator credential or a trusted local caller.")
-        }
-      />
+      <div id={id ?? autoId}>
+        <ServicesOperateCallout
+          testId={`${testId}-operate`}
+          remedies={failure.remedies ?? []}
+          title={i18nT("services.operateRequired.title", undefined, "This needs operate access")}
+          why={
+            failure.reason === "tier-too-low"
+              ? i18nT("services.operateRequired.tierTooLow", undefined, "This device's credential is below operate access, so it cannot change services.")
+              : i18nT("services.operateRequired.noCredential", undefined, "Changing services needs an operator credential or a trusted local caller.")
+          }
+        />
+      </div>
     );
   }
+  const details = [failure.code, failure.error].filter(Boolean).join(": ");
   return (
-    <Callout tone="error" icon={mdiAlertCircleOutline} role="alert" testId={testId}>
-      {failure.code && (
-        <code data-testid={`${testId}-code`} className="mr-1 font-mono font-semibold">
-          {failure.code}
-        </code>
-      )}
-      <span data-testid={`${testId}-message`}>{failure.error}</span>
-    </Callout>
+    <SettingsActionError id={id ?? autoId} testId={testId} details={details || null}>
+      {i18nT("services.actionFailed", undefined, "That didn't work. Try again; if it keeps failing, copy the details.")}
+    </SettingsActionError>
   );
 }
 

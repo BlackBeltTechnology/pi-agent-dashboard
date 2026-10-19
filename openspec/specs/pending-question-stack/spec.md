@@ -241,7 +241,17 @@ prompt type: `confirm` → `"true"`/`"false"`; `select` → one of the options;
 `multiselect` → a JSON-encoded array of distinct options (empty array allowed,
 distinct from cancel); `input` and `editor` → any string including empty;
 `batch` → a JSON-encoded array with one entry per sub-question, each valid for
-that sub-question's type. Invalid → `400`, nothing transmitted. REST answers are
+that sub-question's type. When the prompt (or batch sub-question) is opted into
+the inline Other answer, a `select` answer MAY instead be one custom string, and
+a `multiselect` array MAY contain at most one custom string beside distinct
+options. Opted in means it carries `allowOther: true` and none of its options is
+already an "Other" option, by the same definition the dashboard uses to show the
+inline "Other" row. A custom string is one that is not exactly an option, is non-empty, and has no
+leading or trailing whitespace (the shape the dashboard UI produces); a padded
+non-option string is invalid. Duplicates remain invalid. The question
+record and the question detail SHALL keep the prompt's opt-in, so validation and
+the question dialog can apply it. A valid answer SHALL be transmitted exactly as
+posted. Invalid → `400`, nothing transmitted. REST answers are
 text-only: image attachments that the dashboard chat can add to `input` and
 `batch` answers are not supported on this road.
 
@@ -276,7 +286,45 @@ them in the dashboard chat.
 #### Scenario: Invalid option
 
 - **WHEN** a select answer is not one of the options
+- **AND** the prompt does not carry `allowOther: true`
 - **THEN** the server SHALL return `400` and the question SHALL stay open
+
+#### Scenario: Custom select answer accepted
+
+- **WHEN** a select prompt carrying `allowOther: true` receives the answer `"something else"`
+- **THEN** the answer SHALL be transmitted unchanged
+
+#### Scenario: Blank custom answer rejected
+
+- **WHEN** a select prompt carrying `allowOther: true` receives the answer `"   "` (not an option)
+- **THEN** the server SHALL return `400` and the question SHALL stay open
+
+#### Scenario: Multiselect with one custom value
+
+- **WHEN** a multiselect prompt with options `["A","B"]` carrying `allowOther: true` receives `["A","D"]`
+- **THEN** the answer SHALL be accepted
+- **WHEN** it receives `["D","E"]` (two custom values)
+- **THEN** the server SHALL return `400`
+
+#### Scenario: Padded custom answer rejected
+
+- **WHEN** a select prompt carrying `allowOther: true` with options `["A","B"]` receives `" A "`
+- **THEN** the server SHALL return `400`
+
+#### Scenario: Own Other option disables custom
+
+- **WHEN** a select prompt carrying `allowOther: true` has options `["Approve","Other (describe)"]` and receives `"maybe"`
+- **THEN** the server SHALL return `400`
+
+#### Scenario: Duplicate custom value rejected
+
+- **WHEN** a multiselect prompt carrying `allowOther: true` receives `["D","D"]`
+- **THEN** the server SHALL return `400`
+
+#### Scenario: Batch sub-question opt-out
+
+- **WHEN** a batch answer gives a custom value to a select sub-question that does not carry `allowOther: true`
+- **THEN** the server SHALL return `400`
 
 #### Scenario: Both answer and cancel
 

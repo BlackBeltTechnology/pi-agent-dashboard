@@ -39,6 +39,8 @@ export interface AppOptions {
   lookupNpm?: (name: string) => Promise<{ version?: string } | null>;
   /** Also mount the plain plugin routes (for the concurrency test). */
   withPluginRoutes?: boolean;
+  /** Folder toggle trust gate; default proceeds (the real gate reads the real `~/.pi/agent`). */
+  resolveTrust?: (cwd: string) => Promise<import("../pi/resource-toggle-trust.js").TrustGateResult>;
 }
 
 export class AddonsEnv {
@@ -49,6 +51,8 @@ export class AddonsEnv {
   readonly restoreFile: string;
   readonly configFile: string;
   readonly rows: RawRow[] = [];
+  /** Folders created by `makeFolder`; they are admitted by the shared `admitCwd` guard. */
+  readonly folders: string[] = [];
   readonly logs = { info: [] as string[], warn: [] as string[], error: [] as string[] };
   readonly broadcasts: unknown[] = [];
   busy = false;
@@ -139,8 +143,37 @@ export class AddonsEnv {
     fs.writeFileSync(path.join(dir, ".pi", "settings.json"), typeof json === "string" ? json : JSON.stringify(json));
   }
 
+  /** A real folder (admitted as a known cwd). */
+  makeFolder(name: string): string {
+    const dir = path.join(this.home, "folders", name);
+    fs.mkdirSync(dir, { recursive: true });
+    this.folders.push(dir);
+    return dir;
+  }
+
+  /** Register an installed folder-scope package row (`<cwd>/.pi` install). */
+  addFolderPackage(source: string, opts: { name?: string; dir?: string } = {}): string {
+    const dir = opts.dir ?? path.join(this.home, "pkgs", `project-${(opts.name ?? source).replace(/[^\w.@-]/g, "_")}`);
+    fs.mkdirSync(dir, { recursive: true });
+    if (opts.name) fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: opts.name, version: "1.0.0" }));
+    this.rows.push({ source, scope: "project", filtered: false, installedPath: dir });
+    return dir;
+  }
+
+  readFolderSettings(dir: string): { packages?: unknown[]; [k: string]: unknown } {
+    return JSON.parse(fs.readFileSync(path.join(dir, ".pi", "settings.json"), "utf-8"));
+  }
+
+  folderSettingsRaw(dir: string): string | undefined {
+    try {
+      return fs.readFileSync(path.join(dir, ".pi", "settings.json"), "utf-8");
+    } catch {
+      return undefined;
+    }
+  }
+
   async makeApp(opts: AppOptions = {}): Promise<FastifyInstance> {
-    const app = Fastify({ logger: false });
+    const app = Fastify({ logger: false, maxParamLength: 1024 }); // mirrors server.ts
     const logs = this.logs;
     registerAddonsRoutes(app, {
       networkGuard: async () => undefined,
@@ -158,11 +191,12 @@ export class AddonsEnv {
       },
       broadcast: (m) => this.broadcasts.push(m),
       repoRoot: this.repoRoot,
-      knownDirectories: () => opts.knownDirs ?? [],
+      knownDirectories: () => [...(opts.knownDirs ?? []), ...this.folders],
       lookupNpm: opts.lookupNpm ?? (async () => null),
       agentDir: () => this.agentDir,
       setPluginsEnabled: opts.setPluginsEnabled ?? setPluginsEnabled,
       writeSettingsText: opts.writeSettingsText,
+      resolveTrust: opts.resolveTrust ?? (async () => ({ outcome: "proceed" as const })),
       log: {
         info: (m) => logs.info.push(m),
         warn: (m) => logs.warn.push(m),
@@ -193,6 +227,18 @@ export class AddonsEnv {
   async catalog() {
     const res = await (this.app as FastifyInstance).inject({ method: "GET", url: "/api/addons/catalog" });
     return { status: res.statusCode, body: res.json() as { success: boolean; features: any[] } };
+  }
+
+  async folderCatalog(cwd: string) {
+    const res = await (this.app as FastifyInstance).inject({
+      method: "GET",
+      url: `/api/addons/catalog?scope=local&cwd=${encodeURIComponent(cwd)}`,
+    });
+    return { status: res.statusCode, body: res.json() as { success: boolean; features: any[]; folder?: any; error?: string } };
+  }
+
+  async folderToggle(featureId: string, cwd: string, enabled: boolean, extra: Record<string, unknown> = {}) {
+    return this.toggle(featureId, { scope: "local", cwd, enabled, ...extra });
   }
 
   async cleanup(): Promise<void> {

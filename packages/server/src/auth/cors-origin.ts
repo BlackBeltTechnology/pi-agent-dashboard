@@ -59,6 +59,8 @@ export interface CorsOriginOptions {
   publicBaseUrls?: string[];
   /** The boot-time bind address — host-admission only. */
   bindHost?: string;
+  /** TLS-listener certificate names (live) — host-admission only. See change: add-tailscale-cert-tls. */
+  tlsListenerNames?: () => string[];
   /**
    * Host-gate rollout mode (live). In `enforce` the same-origin-by-Host rule
    * additionally requires the `Host` to be admissible (D1); in `report` it is

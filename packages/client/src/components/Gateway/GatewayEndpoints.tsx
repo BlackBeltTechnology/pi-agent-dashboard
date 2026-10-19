@@ -15,7 +15,7 @@
  */
 
 import type { TunnelEndpoint } from "@blackbelt-technology/pi-dashboard-shared/tunnel-provider.js";
-import { mdiCheck, mdiContentCopy, mdiPlus } from "@mdi/js";
+import { mdiAlert, mdiCheck, mdiContentCopy, mdiLockOutline, mdiPlus } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { useCallback, useEffect, useState } from "react";
 import { getConfig, putConfig } from "../../lib/gateway/gateway-api.js";
@@ -27,14 +27,25 @@ import {
 import { getGatewayEndpoints } from "../../lib/gateway/gateway-endpoints.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
 import { copyText } from "../../lib/util/clipboard.js";
+import { BTN_ICON_GHOST, severityPill } from "../connectivity/connectivity-ui.js";
 
-const KIND_CLASS: Record<string, string> = {
-  public: "bg-[var(--green-soft,#132d1c)] text-[#5dd67f]",
-  mesh: "bg-[#152a3a] text-[#5cb8e6]",
-  magicdns: "bg-[#152a3a] text-[#5cb8e6]",
-  lan: "bg-[#2a2440] text-[#b79cf0]",
-  local: "bg-[var(--bg-secondary)] text-[var(--text-secondary)]",
+/**
+ * Kind = the contract's neutral chip with the kind as a WORD. The identity
+ * tints are reserved for other meanings (`ui-contract.md` § Colour roles), so
+ * the label — not a hue — distinguishes the kinds. An unknown kind falls back
+ * to its own name rather than another kind's look.
+ * See change: add-tailscale-cert-tls (D11).
+ */
+const KIND_LABEL: Record<string, { key: string; fallback: string }> = {
+  local: { key: "gateway.kind.local", fallback: "Local" },
+  lan: { key: "gateway.kind.lan", fallback: "LAN" },
+  mesh: { key: "gateway.kind.mesh", fallback: "Mesh" },
+  magicdns: { key: "gateway.kind.magicdns", fallback: "MagicDNS" },
+  public: { key: "gateway.kind.public", fallback: "Public" },
+  domain: { key: "gateway.kind.domain", fallback: "Domain" },
 };
+const KIND_CHIP =
+  "inline-flex shrink-0 items-center rounded-full border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] px-1.5 py-0.5 text-[11px] font-semibold whitespace-nowrap text-[var(--text-primary)]";
 
 function EndpointRow({ ep }: { ep: TunnelEndpoint }) {
   const { t } = useI18n();
@@ -45,37 +56,39 @@ function EndpointRow({ ep }: { ep: TunnelEndpoint }) {
       setTimeout(() => setCopied(false), 1200);
     }
   };
+  const kind = KIND_LABEL[ep.kind];
   return (
     <div
-      className="flex items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--bg-secondary)] px-2.5 py-1.5"
+      className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-tertiary)] px-2.5 py-1.5"
       data-testid="gateway-endpoint"
     >
-      <span
-        className={`rounded px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide ${KIND_CLASS[ep.kind] ?? KIND_CLASS.local}`}
-      >
-        {ep.kind}
+      <span className={KIND_CHIP} data-kind={ep.kind}>
+        {kind ? t(kind.key, undefined, kind.fallback) : ep.kind}
       </span>
-      <code className="flex-1 truncate font-mono text-[11.5px] text-[var(--text-secondary)]" title={ep.url}>
+      <code className="min-w-0 flex-[1_1_200px] truncate font-mono text-xs text-[var(--text-secondary)]" title={ep.url}>
         {ep.url}
       </code>
       {ep.kind !== "local" &&
         (ep.tls ? (
-          <span className="rounded border border-[#23502f] px-1.5 py-px text-[9.5px] text-[var(--green,#2ea043)]">
-            TLS
+          <span className={severityPill("success")} data-testid="gateway-endpoint-tls">
+            <Icon path={mdiLockOutline} size={0.5} aria-hidden="true" />
+            {t("gateway.https", undefined, "HTTPS")}
           </span>
         ) : (
-          <span className="rounded border border-[#4a3c14] px-1.5 py-px text-[9.5px] text-[var(--amber,#d29922)]">
-            {t("gateway.noTls", undefined, "no TLS")}
+          <span className={severityPill("warning")} data-testid="gateway-endpoint-notls">
+            <Icon path={mdiAlert} size={0.5} aria-hidden="true" />
+            {t("gateway.noTlsLabel", undefined, "No TLS")}
           </span>
         ))}
       <button
         type="button"
         onClick={copy}
+        aria-label={t("gateway.copyEndpoint", { url: ep.url }, "Copy {url}")}
         title={copied ? t("gateway.copied", undefined, "Copied!") : t("gateway.copy", undefined, "Copy")}
         data-testid="gateway-endpoint-copy"
-        className="shrink-0 text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+        className={BTN_ICON_GHOST}
       >
-        <Icon path={copied ? mdiCheck : mdiContentCopy} size={0.6} />
+        <Icon path={copied ? mdiCheck : mdiContentCopy} size={0.6} aria-hidden="true" />
       </button>
     </div>
   );
@@ -151,7 +164,7 @@ export function GatewayEndpoints({ endpoints: provided, onEndpointsChange }: Pro
           inputMode="url"
           placeholder="https://dashboard.example.com"
           data-testid="gateway-add-https-input"
-          className="flex-1 rounded border border-[var(--border)] bg-[var(--bg-secondary)] px-2.5 py-1.5 font-mono text-[11.5px] text-[var(--text-primary)]"
+          className="flex-1 rounded border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] px-2.5 py-1.5 font-mono text-[11.5px] text-[var(--text-primary)]"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
@@ -163,17 +176,17 @@ export function GatewayEndpoints({ endpoints: provided, onEndpointsChange }: Pro
           disabled={saving || draft.trim().length === 0}
           data-testid="gateway-add-https-btn"
           onClick={() => void addUrl()}
-          className="flex items-center gap-1 rounded border border-[var(--border)] px-2.5 py-1.5 text-[12px] text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] disabled:opacity-50"
+          className="flex items-center gap-1 rounded border border-[var(--border-secondary)] px-2.5 py-1.5 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-50"
         >
           <Icon path={mdiPlus} size={0.6} /> {saving ? t("gateway.adding", undefined, "Adding…") : t("gateway.addHttpsUrl", undefined, "Add HTTPS URL")}
         </button>
       </div>
       {error && (
-        <p className="mt-1.5 text-xs text-[var(--danger,#ef4444)]" data-testid="gateway-add-https-error">
+        <p className="mt-1.5 text-xs text-[var(--severity-error-fg)]" data-testid="gateway-add-https-error">
           {error}
         </p>
       )}
-      <p className="mt-1.5 text-[10.5px] text-[var(--text-secondary)]">
+      <p className="mt-1.5 text-xs text-[var(--text-secondary)]">
         {t(
           "gateway.addUrlHint",
           undefined,

@@ -1,3 +1,4 @@
+import { isOtherAllowed } from "@blackbelt-technology/pi-dashboard-shared/prompt-answer.js";
 import { mdiCheckboxMarkedOutline, mdiCheckCircle } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useState } from "react";
@@ -5,6 +6,7 @@ import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { MarkdownContent } from "../preview/MarkdownContent.js";
 import { AnsweredOption } from "./AnsweredOption.js";
 import { InlineMarkdown } from "./InlineMarkdown.js";
+import { OtherOption } from "./OtherOption.js";
 import type { InteractiveRendererProps } from "./types.js";
 
 export function MultiselectRenderer({ params, status, result, onRespond, onCancel }: InteractiveRendererProps) {
@@ -14,6 +16,14 @@ export function MultiselectRenderer({ params, status, result, onRespond, onCance
   const selectedValues = (result as any)?.values as string[] | undefined;
 
   const [checked, setChecked] = useState<Set<string>>(new Set());
+  // Inline "Other" (opt-in). See change: add-ask-user-inline-other.
+  const otherAllowed = isOtherAllowed({ allowOther: params.allowOther as boolean | undefined, options });
+  const [otherActive, setOtherActive] = useState(false);
+  const [otherText, setOtherText] = useState("");
+  const otherTrimmed = otherText.trim();
+  const otherBlocked = otherAllowed && otherActive && !otherTrimmed;
+  // Select all touches only the listed options; the custom value is appended on submit, de-duplicated.
+  const submitValues = Array.from(new Set([...checked, ...(otherAllowed && otherActive && otherTrimmed ? [otherTrimmed] : [])]));
 
   // Derived: are all real options currently checked? Drives the synthetic
   // "Select all" row's checkbox state and its click behavior.
@@ -63,6 +73,11 @@ export function MultiselectRenderer({ params, status, result, onRespond, onCance
           {options.map((option) => (
             <AnsweredOption key={option} title={option} picked={picks.includes(option)} />
           ))}
+          {picks
+            .filter((v) => !options.includes(v))
+            .map((v) => (
+              <AnsweredOption key={`other:${v}`} title={v} label={i18nT("common.other", undefined, "Other")} picked />
+            ))}
         </div>
       </div>
     );
@@ -109,13 +124,24 @@ export function MultiselectRenderer({ params, status, result, onRespond, onCance
             <span className="text-[var(--text-primary)]">{option}</span>
           </label>
         ))}
+        {otherAllowed && (
+          <OtherOption
+            variant="checkbox"
+            active={otherActive}
+            text={otherText}
+            onActiveChange={setOtherActive}
+            onTextChange={setOtherText}
+            onSubmit={() => onRespond({ values: submitValues })}
+          />
+        )}
       </div>
       <div className="flex gap-2 ml-6">
         <button
-          onClick={() => onRespond({ values: Array.from(checked) })}
-          className="px-3 py-1 text-xs rounded bg-blue-600 hover:bg-blue-500 text-white transition-colors"
+          onClick={() => onRespond({ values: submitValues })}
+          disabled={otherBlocked}
+          className="px-3 py-1 text-xs rounded bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white transition-colors"
         >
-          {i18nT("common.submit", undefined, "Submit")}{checked.size > 0 ? ` (${checked.size})` : ""}
+          {i18nT("common.submit", undefined, "Submit")}{submitValues.length > 0 ? ` (${submitValues.length})` : ""}
         </button>
         <button
           onClick={onCancel}

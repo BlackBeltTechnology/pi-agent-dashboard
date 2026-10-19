@@ -9,12 +9,17 @@
  * same container never finds a stale listener.
  */
 import { execFileSync } from "node:child_process";
-import type { APIRequestContext, WebSocketRoute } from "@playwright/test";
+import type { APIRequestContext, Locator, WebSocketRoute } from "@playwright/test";
 import { expect, type Page, test } from "./fixtures.js";
 import {
+  buttonBoxes,
   buttonsWithoutFocusIndicator,
   contrastFailures,
+  contrastRatio,
+  elementColors,
   measureText,
+  ownBackground,
+  resolveColor,
   setThemeMode,
 } from "./helpers/computed-contrast.js";
 import { resolveContainer } from "./helpers/container-proc.js";
@@ -337,17 +342,97 @@ test.describe("Settings → Services", () => {
     }
   });
 
-  test("X10 — a refused action shows the server's code and hint at the action", async ({ page, request }) => {
+  // change: align-ui-contract-recipes — the server's code and message moved from the visible
+  // text into "Copy details"; the failed button is described by the error sentence.
+  test("X10 — a refused action shows one sentence at the action; the code and hint are only copied", async ({ page, request }) => {
     await add(request, attachedDef("e2e-x10"));
     await page.route("**/api/services/e2e-x10/start", (route) =>
       route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ success: false, error: "lifecycle-lock-timeout", message: "another start is in progress" }) }),
     );
     await openDetail(page, "e2e-x10");
-    await page.getByTestId("service-action-start").click();
+    await page.evaluate(() => {
+      (window as unknown as { __copied: string[] }).__copied = [];
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: { writeText: (t: string) => ((window as unknown as { __copied: string[] }).__copied.push(t), Promise.resolve()) },
+      });
+    });
+    const start = page.getByTestId("service-action-start");
+    await start.click();
     const err = page.getByTestId("service-action-error");
-    await expect(err).toContainText("lifecycle-lock-timeout");
-    await expect(err).toContainText("another start is in progress");
+    await expect(err).toBeVisible();
+    await expect(err).not.toContainText("lifecycle-lock-timeout");
+    await expect(err).not.toContainText("another start is in progress");
+    await expect(start).toHaveAttribute("aria-describedby", (await err.getAttribute("id")) ?? "");
+    await err.getByRole("button", { name: /copy details/i }).click();
+    const copied = await page.evaluate(() => (window as unknown as { __copied: string[] }).__copied.join("\n"));
+    expect(copied).toContain("lifecycle-lock-timeout");
+    expect(copied).toContain("another start is in progress");
     await expect(page.getByTestId("toast-action")).toHaveCount(0);
+  });
+
+  // test-plan #F1 (align-ui-contract-recipes): a palette switch recolours the pills, no reload.
+  // Settings opens as a dialog whose scrim covers the sidebar (where the ThemePicker lives), so the
+  // palette is changed from the dashboard and the Services page is re-entered by in-app navigation:
+  // `__noReload` proves the document was never reloaded in between.
+  // Tones covered: success (a running service) and neutral (a stopped one); the warning tone has no
+  // deterministic state on this harness (`blocked` needs a service that is healthy, then stops answering).
+  test("F1 (align) — switching base dark → nord dark recolours the state pills without a reload", async ({ page, request }) => {
+    await add(request, attachedDef("e2e-pal-run"));
+    await add(request, attachedDef("e2e-pal-off"));
+    expect((await request.post("/api/services/e2e-pal-run/start", { headers: op.headers() })).ok()).toBe(true);
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await openList(page);
+    await setThemeMode(page, "dark", "base");
+    await expectRunning(page, "e2e-pal-run");
+    await page.evaluate(() => {
+      (window as unknown as { __noReload: boolean }).__noReload = true;
+    });
+    const before = (await resolveColor(page, "var(--severity-success-bg)")).join(",");
+    // In-app navigation (wouter listens to popstate): leave Settings, change the palette, come back.
+    const navigate = (path: string) =>
+      page.evaluate((to) => {
+        window.history.pushState({}, "", to);
+        window.dispatchEvent(new PopStateEvent("popstate"));
+      }, path);
+    await navigate("/");
+    await expect(page.getByTestId("settings-nav-rail")).toHaveCount(0);
+    await page.getByTestId("theme-picker-trigger").click();
+    await page.getByTestId("theme-option-nord").click();
+    await navigate("/settings/services");
+    await expect(page.getByTestId("services-list-page")).toBeVisible({ timeout: 20_000 });
+    await expect.poll(async () => (await resolveColor(page, "var(--severity-success-bg)")).join(",")).not.toBe(before);
+
+    const ownColor = (el: Locator) =>
+      el.evaluate((e) => {
+        const cv = document.createElement("canvas").getContext("2d", { willReadFrequently: true })!;
+        cv.fillStyle = "#000";
+        cv.fillStyle = getComputedStyle(e).color;
+        cv.fillRect(0, 0, 1, 1);
+        const d = cv.getImageData(0, 0, 1, 1).data;
+        return [d[0], d[1], d[2]];
+      });
+    for (const [id, tone] of [["e2e-pal-run", "success"], ["e2e-pal-off", "neutral"]] as const) {
+      const inner = pill(page, id).locator("[data-tone]");
+      await expect(inner).toHaveAttribute("data-tone", tone);
+      expect(await ownBackground(inner), `${id} background`).toEqual(await resolveColor(page, `var(--severity-${tone}-bg)`));
+      expect(await ownColor(inner), `${id} text`).toEqual(await resolveColor(page, `var(--severity-${tone}-fg)`));
+      const { fg, bg } = await elementColors(inner);
+      expect(contrastRatio(fg, bg), `${id} contrast in nord dark`).toBeGreaterThanOrEqual(4.5);
+    }
+    expect(await page.evaluate(() => (window as unknown as { __noReload?: boolean }).__noReload)).toBe(true);
+  });
+
+  // test-plan #F4: the desktop rail items meet the 36 px target floor.
+  test("F4 (align) — every settings rail button is at least 36 px tall at 1280×800", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await gotoDashboard(page);
+    await page.goto("/settings/general");
+    const rail = page.getByTestId("settings-nav-rail");
+    await expect(rail).toBeVisible({ timeout: 20_000 });
+    const boxes = await buttonBoxes(rail);
+    expect(boxes.length).toBeGreaterThan(5);
+    expect(boxes.filter((b) => b.h < 36)).toEqual([]);
   });
 
   test("X11 — operate_required shows its reason and remedies at the action", async ({ page, request }) => {
@@ -379,8 +464,20 @@ test.describe("Settings → Services", () => {
       const banner = page.getByTestId("services-definitions-corrupt");
       await expect(banner).toBeVisible();
       await expect(banner).toContainText("services.json");
+      // The refusal's code is behind "Copy details", not in the visible sentence (align-ui-contract-recipes).
+      await page.evaluate(() => {
+        (window as unknown as { __copied: string[] }).__copied = [];
+        Object.defineProperty(navigator, "clipboard", {
+          configurable: true,
+          value: { writeText: (t: string) => ((window as unknown as { __copied: string[] }).__copied.push(t), Promise.resolve()) },
+        });
+      });
       await page.getByTestId("services-prune-open").click();
-      await expect(page.getByTestId("service-action-error")).toContainText("definitions-corrupt");
+      const err = page.getByTestId("service-action-error");
+      await expect(err).toBeVisible();
+      await expect(err).not.toContainText("definitions-corrupt");
+      await err.getByRole("button", { name: /copy details/i }).click();
+      expect(await page.evaluate(() => (window as unknown as { __copied: string[] }).__copied.join("\n"))).toContain("definitions-corrupt");
     } finally {
       exec('rm -f "$HOME/.pi/dashboard/services.json"');
     }

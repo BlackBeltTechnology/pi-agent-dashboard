@@ -6,10 +6,12 @@
  */
 import { mdiCheck } from "@mdi/js";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   NumberField,
   SelectField,
+  SettingsActionError,
   SettingsCopyButton,
   SettingsFacts,
   SettingsGroup,
@@ -435,5 +437,308 @@ describe("kit gaps found by the plugin migrations (wave 2)", () => {
   it("TextField passes autoComplete through", () => {
     render(<TextField label="Token" type="password" autoComplete="off" value="" onChange={noop} hint={null} />);
     expect(screen.getByLabelText("Token").getAttribute("autocomplete")).toBe("off");
+  });
+});
+
+// ── align-ui-contract-recipes: kit extensions (test-plan #E3 #E4 #E5 #X1 #X2) ──
+
+describe("SettingsStatusPill spinning (align #E3)", () => {
+  it("adds animate-spin + motion-reduce:animate-none to the icon only when spinning", () => {
+    const { rerender } = render(
+      <SettingsStatusPill tone="info" spinning testId="pill">
+        Running
+      </SettingsStatusPill>,
+    );
+    const on = screen.getByTestId("pill").querySelector("svg")?.getAttribute("class") ?? "";
+    expect(on).toContain("animate-spin");
+    expect(on).toContain("motion-reduce:animate-none");
+    rerender(
+      <SettingsStatusPill tone="info" testId="pill">
+        Running
+      </SettingsStatusPill>,
+    );
+    const off = screen.getByTestId("pill").querySelector("svg")?.getAttribute("class") ?? "";
+    expect(off).not.toContain("animate-spin");
+    expect(off).not.toContain("motion-reduce:animate-none");
+  });
+});
+
+describe("SettingsStatusPill size (align #E4)", () => {
+  it("is 11 px alone and 12 px inside a SettingsItem summary", () => {
+    render(
+      <>
+        <SettingsStatusPill tone="info" testId="alone">
+          Alone
+        </SettingsStatusPill>
+        <SettingsItem
+          title="Item"
+          collapsible
+          status={
+            <SettingsStatusPill tone="info" testId="inside">
+              Inside
+            </SettingsStatusPill>
+          }
+        />
+      </>,
+    );
+    expect(screen.getByTestId("alone").className).toContain("text-[11px]");
+    expect(screen.getByTestId("inside").className).toContain("text-[12px]");
+  });
+});
+
+describe("SettingsNotice remedies (align #E5)", () => {
+  it("renders remedy rows in the order given, links stay focusable", () => {
+    render(
+      <SettingsNotice
+        tone="warning"
+        testId="n"
+        remedies={[
+          { icon: "M0 0h1v1z", content: <span>First</span> },
+          { icon: "M0 0h2v2z", content: <a href="/auth/login">Sign in</a> },
+          { icon: "M0 0h3v3z", content: <span>Third</span> },
+        ]}
+      >
+        Needs access.
+      </SettingsNotice>,
+    );
+    const rows = screen.getByTestId("n").querySelectorAll("ul > li");
+    expect([...rows].map((r) => r.textContent)).toEqual(["First", "Sign in", "Third"]);
+    const link = screen.getByRole("link", { name: "Sign in" });
+    link.focus();
+    expect(document.activeElement).toBe(link);
+    for (const r of rows) expect(r.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+  });
+
+  it("a props-only notice renders no remedy container", () => {
+    render(
+      <SettingsNotice tone="info" testId="n">
+        msg
+      </SettingsNotice>,
+    );
+    expect(screen.getByTestId("n").querySelector("ul")).toBeNull();
+    expect(screen.getByTestId("n").getAttribute("aria-busy")).toBeNull();
+  });
+});
+
+describe("SettingsNotice busy retry (align #X2)", () => {
+  it("is aria-busy while retrying; retry is disabled; a second click does not re-fire", async () => {
+    let release: () => void = () => {};
+    const onRetry = vi.fn(() => new Promise<void>((r) => { release = r; }));
+    function Harness() {
+      const [retrying, setRetrying] = useState(false);
+      return (
+        <SettingsNotice
+          tone="error"
+          testId="n"
+          retrying={retrying}
+          onRetry={() => {
+            setRetrying(true);
+            void onRetry().then(() => setRetrying(false));
+          }}
+        >
+          Failed.
+        </SettingsNotice>
+      );
+    }
+    render(<Harness />);
+    expect(screen.getByTestId("n").getAttribute("aria-busy")).toBe("false");
+    const retry = screen.getByTestId("n-retry") as HTMLButtonElement;
+    fireEvent.click(retry);
+    fireEvent.click(retry);
+    expect(onRetry).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("n").getAttribute("aria-busy")).toBe("true");
+    expect(retry.disabled).toBe(true);
+    await act(async () => {
+      release();
+    });
+    expect(screen.getByTestId("n").getAttribute("aria-busy")).toBe("false");
+    expect(retry.disabled).toBe(false);
+  });
+});
+
+describe("SettingsActionError (align 2.2)", () => {
+  it("renders a role=alert sentence with the given id and no details button", () => {
+    render(
+      <SettingsActionError id="err-1" testId="e">
+        Could not stop the service.
+      </SettingsActionError>,
+    );
+    const el = screen.getByTestId("e");
+    expect(el.getAttribute("role")).toBe("alert");
+    expect(el.id).toBe("err-1");
+    expect(el.textContent).toBe("Could not stop the service.");
+    expect(el.querySelector("button")).toBeNull();
+    expect(el.className).toContain("text-[var(--severity-error-fg)]");
+    expect(el.className).toContain("text-xs");
+    expect(el.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+    expect(el.outerHTML).not.toMatch(PALETTE);
+    expect(el.outerHTML).not.toMatch(HEX);
+  });
+
+  it("copies details through the copy button and never renders them", async () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.assign(navigator, { clipboard: { writeText } });
+    render(
+      <SettingsActionError id="err-2" testId="e" details="stop_failed: permission denied">
+        Could not stop the service.
+      </SettingsActionError>,
+    );
+    expect(screen.getByTestId("e").textContent).not.toContain("stop_failed");
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("e-copy-details"));
+    });
+    expect(writeText).toHaveBeenCalledWith("stop_failed: permission denied");
+  });
+});
+
+describe("SettingsCopyButton failure (align #X1)", () => {
+  const original = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+  afterEach(() => {
+    if (original) Object.defineProperty(navigator, "clipboard", original);
+    else Reflect.deleteProperty(navigator, "clipboard");
+  });
+
+  it("shows the failure label, never Copied, when navigator.clipboard is undefined", async () => {
+    Object.defineProperty(navigator, "clipboard", { value: undefined, configurable: true });
+    render(<SettingsCopyButton text="x" label="Copy details" testId="c" />);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("c"));
+    });
+    expect(screen.getByTestId("c").textContent).toContain("Copy failed");
+    expect(screen.getByTestId("c").textContent).not.toContain("Copied");
+  });
+
+  it("shows the failure label when writeText rejects", async () => {
+    const writeText = vi.fn(() => Promise.reject(new Error("denied")));
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    render(<SettingsCopyButton text="x" label="Copy details" testId="c" />);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("c"));
+    });
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("c").textContent).toContain("Copy failed");
+    expect(screen.getByTestId("c").textContent).not.toContain("Copied");
+  });
+
+  it("shows the failure label when writeText throws synchronously", async () => {
+    const writeText = vi.fn(() => {
+      throw new Error("not allowed");
+    });
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    render(<SettingsCopyButton text="x" label="Copy details" testId="c" />);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("c"));
+    });
+    expect(screen.getByTestId("c").textContent).toContain("Copy failed");
+  });
+});
+
+describe("doubt-review findings on the kit props (align 2.5)", () => {
+  const originalClipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+  afterEach(() => {
+    if (originalClipboard) Object.defineProperty(navigator, "clipboard", originalClipboard);
+    else Reflect.deleteProperty(navigator, "clipboard");
+  });
+
+  it("non-error notices default to role=status, error to alert, an explicit role wins", () => {
+    for (const tone of ["info", "warning", "success"] as const) {
+      const { container } = render(<SettingsNotice tone={tone}>m</SettingsNotice>);
+      expect((container.firstElementChild as HTMLElement).getAttribute("role")).toBe("status");
+      cleanup();
+    }
+    const { container } = render(<SettingsNotice tone="error">m</SettingsNotice>);
+    expect((container.firstElementChild as HTMLElement).getAttribute("role")).toBe("alert");
+    cleanup();
+    const explicit = render(
+      <SettingsNotice tone="info" role="alert">
+        m
+      </SettingsNotice>,
+    );
+    expect((explicit.container.firstElementChild as HTMLElement).getAttribute("role")).toBe("alert");
+  });
+
+  it("copy result is announced through a live region, not only a label swap", async () => {
+    Object.defineProperty(navigator, "clipboard", { value: undefined, configurable: true });
+    render(<SettingsCopyButton text="x" label="Copy details" testId="c" />);
+    const region = screen.getByRole("status");
+    expect(region.textContent).toBe("");
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("c"));
+    });
+    expect(screen.getByRole("status").textContent).toBe("Copy failed");
+  });
+});
+
+describe("notice hooks needed to migrate core callouts (align 4)", () => {
+  it("retrying={false} reports aria-busy=false; no retrying prop leaves it off", () => {
+    const { container, rerender } = render(
+      <SettingsNotice tone="info" retrying={false}>
+        m
+      </SettingsNotice>,
+    );
+    expect((container.firstElementChild as HTMLElement).getAttribute("aria-busy")).toBe("false");
+    rerender(<SettingsNotice tone="info">m</SettingsNotice>);
+    expect((container.firstElementChild as HTMLElement).hasAttribute("aria-busy")).toBe(false);
+  });
+
+  it("remedy rows carry their id as data-remedy and the shared remedyTestId", () => {
+    render(
+      <SettingsNotice
+        tone="info"
+        remedyTestId="row"
+        remedies={[
+          { icon: "M0 0h1v1z", id: "use-host", content: "A" },
+          { icon: "M0 0h1v1z", id: "sign-in", content: "B" },
+        ]}
+      >
+        m
+      </SettingsNotice>,
+    );
+    const rows = screen.getAllByTestId("row");
+    expect(rows.map((r) => r.getAttribute("data-remedy"))).toEqual(["use-host", "sign-in"]);
+  });
+
+  it("a row without an id has no data-remedy attribute", () => {
+    render(
+      <SettingsNotice tone="info" remedies={[{ icon: "M0 0h1v1z", content: "A" }]}>
+        m
+      </SettingsNotice>,
+    );
+    expect(document.querySelector("[data-remedy]")).toBeNull();
+  });
+
+  it("the remedy list is named: default 'What you can do', overridable", () => {
+    const { unmount } = render(
+      <SettingsNotice tone="info" remedies={[{ icon: "M0 0h1v1z", content: "A" }]}>
+        m
+      </SettingsNotice>,
+    );
+    expect(screen.getByRole("list", { name: "What you can do" })).toBeTruthy();
+    unmount();
+    render(
+      <SettingsNotice tone="info" remediesLabel="Mit tehetsz" remedies={[{ icon: "M0 0h1v1z", content: "A" }]}>
+        m
+      </SettingsNotice>,
+    );
+    expect(screen.getByRole("list", { name: "Mit tehetsz" })).toBeTruthy();
+  });
+
+  it("icon overrides the tone icon", () => {
+    const { container } = render(
+      <SettingsNotice tone="warning" icon="M0 0h9v9z">
+        m
+      </SettingsNotice>,
+    );
+    expect(container.querySelector("svg path")?.getAttribute("d")).toBe("M0 0h9v9z");
+  });
+
+  it("retryTestId overrides the derived retry test id", () => {
+    render(
+      <SettingsNotice tone="error" testId="n" onRetry={() => {}} retryTestId="custom-retry">
+        m
+      </SettingsNotice>,
+    );
+    expect(screen.getByTestId("custom-retry")).toBeTruthy();
+    expect(screen.queryByTestId("n-retry")).toBeNull();
   });
 });

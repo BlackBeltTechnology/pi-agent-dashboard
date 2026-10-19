@@ -163,3 +163,42 @@ test.describe("folder Resources activation — trust, failures and presentation"
     await expect(notice).toContainText(/whole-file diff/i);
   });
 });
+
+/**
+ * change: addons-hub-folder-view (test-plan #F10) — the Add-ons folder switch
+ * goes through the same trust gate and the same trust endpoint as the Resources
+ * toggle: a needed decision is a 403 `trustRequired`, the follow-up
+ * `POST /api/resources/trust` is accepted (the challenge was registered by the
+ * add-ons toggle), and the toggle is retried.
+ */
+test.describe("folder Add-ons switch — trust flow", () => {
+  const ADDONS_URL = `/folder/${Buffer.from(FIXTURE_GIT).toString("base64url")}/settings/add-ons`;
+
+  test("F10: turning a From Global row off asks for trust when the folder needs a decision, records it via the shared endpoint, then writes", async ({ page }) => {
+    await gotoDashboard(page);
+    await page.goto(ADDONS_URL);
+    await expect(page.getByTestId("folder-addons-strip")).toBeVisible({ timeout: 30_000 });
+    const sw = page.locator('[data-testid^="folder-addon-switch-"]').first();
+    await sw.waitFor({ state: "visible", timeout: 30_000 }); // the harness ships global packages (docker/test-entrypoint.sh)
+    const row = page.locator('[data-testid^="folder-addon-row-"]').first();
+
+    await sw.click();
+    // Real server, real trust state: a folder that needs a decision asks (403 trustRequired → dialog);
+    // an already-trusted one writes straight away. Either way the row ends up off.
+    const dialog = page.getByTestId("resource-trust-dialog");
+    const offBadge = row.locator('[data-testid^="folder-addon-state-"]');
+    // Wait for whichever comes first (isVisible() does not wait): the prompt, or the completed off state.
+    await expect(dialog.or(offBadge)).toBeVisible({ timeout: 15_000 });
+    if (await dialog.isVisible()) {
+      const trust = page.waitForResponse((r) => r.url().includes("/api/resources/trust") && r.request().method() === "POST");
+      await dialog.getByTestId("resource-trust-option-trust").click();
+      // The add-ons toggle registered the challenge, so the shared endpoint accepts the decision (not 409).
+      expect((await trust).status()).toBe(200);
+    }
+    await expect(offBadge).toHaveText("off in this folder", { timeout: 15_000 });
+
+    // Leave the shared fixture as found: turn it back on.
+    await sw.click();
+    await expect(row.locator('[data-testid^="folder-addon-state-"]')).toHaveCount(0, { timeout: 15_000 });
+  });
+});

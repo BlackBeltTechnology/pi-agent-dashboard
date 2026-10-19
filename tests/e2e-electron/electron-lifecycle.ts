@@ -61,7 +61,7 @@ export interface FakeHealth {
 export interface FakeHealthServer {
   port: number;
   /** Requests received, for assertions (e.g. POST /api/shutdown). */
-  readonly requests: Array<{ method: string; url: string }>;
+  readonly requests: Array<{ method: string; url: string; body?: string }>;
   setHealth(next: FakeHealth): void;
   close(): Promise<void>;
 }
@@ -78,10 +78,17 @@ export async function startFakeHealthServer(
   const port = opts.port ?? FAKE_PORT;
   const healthDelayMs = opts.healthDelayMs ?? 400;
   let health: FakeHealth = { ok: true, ...initial };
-  const requests: Array<{ method: string; url: string }> = [];
+  const requests: Array<{ method: string; url: string; body?: string }> = [];
 
   const server: Server = createServer((req, res) => {
-    requests.push({ method: req.method ?? "", url: req.url ?? "" });
+    const entry: { method: string; url: string; body?: string } = { method: req.method ?? "", url: req.url ?? "" };
+    requests.push(entry);
+    if (req.method === "POST") {
+      // Record the body (e.g. `{userQuit:true}` on the quit-time shutdown).
+      let body = "";
+      req.on("data", (chunk) => { body += chunk; });
+      req.on("end", () => { entry.body = body; });
+    }
     const url = req.url ?? "";
     if (url.startsWith("/api/health")) {
       setTimeout(() => {
@@ -213,6 +220,12 @@ export function resolvePackagedBinary(): string {
 export async function launchElectron(opts: {
   home: string;
   zombiePrompt?: boolean;
+  /**
+   * Isolated Chromium user-data dir (`--user-data-dir`). The single-instance lock lives
+   * there, so a spec that must run beside an already-running installed app (which holds
+   * the default lock and makes a second launch quit at once) passes its own.
+   */
+  userDataDir?: string;
 }): Promise<ElectronApplication> {
   // --no-sandbox is required for Electron to launch on CI Linux (no SUID
   // chrome-sandbox helper under xvfb); harmless on macOS/Windows. Mirrors the
@@ -222,6 +235,7 @@ export async function launchElectron(opts: {
   // authorisation prompt in an unsigned build. The mock keychain keeps the app unattended-runnable.
   if (process.platform === "darwin") args.push("--use-mock-keychain");
   if (opts.zombiePrompt === false) args.push("--no-zombie-prompt");
+  if (opts.userDataDir) args.push(`--user-data-dir=${opts.userDataDir}`);
   const env: Record<string, string> = {
     ...process.env,
     HOME: opts.home,
@@ -296,8 +310,11 @@ export async function captureMenuTemplates(app: ElectronApplication): Promise<vo
     const g = globalThis as any;
     g.__menuTemplates = [];
     const orig = Menu.buildFromTemplate.bind(Menu);
+    g.__menuClicks = {};
     Menu.buildFromTemplate = ((template: any[]) => {
       try {
+        // Keep the live click handlers in the main process (not serialisable).
+        for (const i of template ?? []) if (i?.label && typeof i.click === "function") g.__menuClicks[i.label] = i.click;
         g.__menuTemplates.push(
           (template ?? []).map((i) => ({ label: i?.label, enabled: i?.enabled, type: i?.type })),
         );
@@ -305,6 +322,21 @@ export async function captureMenuTemplates(app: ElectronApplication): Promise<vo
       return orig(template);
     }) as any;
   });
+}
+
+/**
+ * Invoke the click handler of the most recent captured menu item with `label`
+ * (e.g. the tray's "Quit", which runs the graceful `quit()` path that
+ * `app.close()` skips). Requires `captureMenuTemplates` first.
+ */
+export async function clickCapturedMenuItem(app: ElectronApplication, label: string): Promise<void> {
+  const found = await app.evaluate((_electron, wanted) => {
+    const click = (globalThis as any).__menuClicks?.[wanted];
+    if (typeof click !== "function") return false;
+    click();
+    return true;
+  }, label);
+  if (!found) throw new Error(`[electron-e2e] captured menu item not found: ${label}`);
 }
 
 /** Read the recorded menu templates (array of item arrays) from the main process. */
