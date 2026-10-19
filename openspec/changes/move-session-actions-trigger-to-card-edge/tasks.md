@@ -62,7 +62,7 @@ Folded from `test-plan.md` (automated, L3). Extend `tests/e2e/session-actions-me
 
 ## 4. Manual
 
-- [ ] 4.1 Visual balance of the left drag bead and right pill in dark and light, on two palettes, at rest / hover / open, using the change's mockup (`mockups/session-card-edge-trigger/`) as the reference (test-plan #F11, manual-only).
+- [x] 4.1 Visual balance of the left drag bead and right pill in dark and light, on two palettes, at rest / hover / open, using the change's mockup (`mockups/session-card-edge-trigger/`) as the reference (test-plan #F11, manual-only).
 
 ## 5. Docs and closeout
 
