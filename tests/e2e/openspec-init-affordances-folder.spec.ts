@@ -20,7 +20,7 @@ import { BASE_URL, DASHBOARD_PORT } from "./lifecycle.js";
  * `docker exec` mutations (rm -rf .pi, mkdir openspec) converge within one
  * tick. See change: add-openspec-init-affordances.
  *
- * In-container recipes (empirically verified against openspec CLI 1.6.0):
+ * In-container recipes (empirically verified against openspec CLI 1.14.3):
  * - BROKEN · cli-failed: `<cwd>/openspec/changes/demo/tasks.md` made a
  *   self-referential symlink. `openspec list --json` prints a `status`
  *   error array and EXITS 1 (ELOOP stat); the runner maps exit≠0 to

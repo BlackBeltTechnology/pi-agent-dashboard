@@ -12,12 +12,14 @@
     --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#919191; --text-muted:#585858;
     --border-subtle:rgba(255,255,255,.06); --border-primary:#252525; --border-secondary:#333333;
     --accent-soft:rgba(59,130,246,.15);
+    --accent-green-text:#22c55e; --accent-blue-text:#508ff7; --accent-orange-text:#f97316; --accent-red-text:#f26262; --accent-yellow-text:#eab308;
   }
   [data-theme="light"] {
     --bg-primary:#ffffff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0; --bg-hover:rgba(0,0,0,.04);
     --text-primary:#1a1a1a; --text-secondary:#444444; --text-tertiary:#636363; --text-muted:#aaaaaa;
     --border-subtle:rgba(0,0,0,.06); --border-primary:#e0e0e0; --border-secondary:#cccccc;
     --accent-soft:rgba(59,130,246,.12);
+    --accent-green-text:#147237; --accent-blue-text:#0a5ade; --accent-orange-text:#a64704; --accent-red-text:#c61111; --accent-yellow-text:#7c5f04;
   }
   :root {
     --accent-green:#22c55e; --accent-blue:#3b82f6; --accent-orange:#f97316; --accent-red:#ef4444; --accent-yellow:#eab308;
@@ -54,16 +56,18 @@
   body:not(.tones) .it.next { font-weight:600; color:var(--text-primary); background:var(--accent-soft); }
   body:not(.tones) .badge { color:#fbbf24; }
 
-  /* AFTER (this change): icon-only tone colour; danger hover; NEXT blue tint; badge token */
-  body.tones .it[data-tone="go"]:not([aria-disabled="true"]) .ic { color:var(--tint-green-fg); }
-  body.tones .it[data-tone="create"]:not([aria-disabled="true"]) .ic { color:var(--tint-blue-fg); }
-  body.tones .it[data-tone="caution"]:not([aria-disabled="true"]) .ic { color:var(--tint-orange-fg); }
-  body.tones .it[data-tone="danger"]:not([aria-disabled="true"]) .ic { color:var(--tint-red-fg); }
-  body.tones .it[data-tone="danger"]:not([aria-disabled="true"]):hover,
-  body.tones .it[data-tone="danger"]:not([aria-disabled="true"]):focus-visible { background:var(--tint-red-bg); }
-  body.tones .it.next { font-weight:600; color:var(--tint-blue-fg); background:var(--tint-blue-bg); border:1px solid var(--tint-blue-border); border-radius:6px; margin:2px 6px; width:calc(100% - 12px); }
-  body.tones .it.next .ic { color:var(--tint-blue-fg); }
-  body.tones .badge { color:var(--tint-orange-fg); }
+  /* AFTER (this change, as specified): icon-only text-role tone colour; danger hover/focus pins label red;
+     NEXT outlined (decorative border) with blue icon; disabled rows drop colour; badge text-role token */
+  body.tones .it[data-action-tone="go"]:not([aria-disabled="true"]) .ic { color:var(--accent-green-text); }
+  body.tones .it[data-action-tone="create"]:not([aria-disabled="true"]) .ic { color:var(--accent-blue-text); }
+  body.tones .it[data-action-tone="caution"]:not([aria-disabled="true"]) .ic { color:var(--accent-orange-text); }
+  body.tones .it[data-action-tone="danger"]:not([aria-disabled="true"]) .ic { color:var(--accent-red-text); }
+  body.tones .it[data-action-tone="danger"]:not([aria-disabled="true"]):hover,
+  body.tones .it[data-action-tone="danger"]:not([aria-disabled="true"]):focus-visible { background:var(--tint-red-bg); color:var(--accent-red-text); }
+  body.tones .it.next { font-weight:600; color:var(--text-primary); background:transparent; border:1px solid var(--tint-blue-border); border-radius:6px; margin:2px 6px; width:calc(100% - 12px); }
+  body.tones .it.next:hover { background:var(--bg-hover); }
+  body.tones .it.next .ic { color:var(--accent-blue-text); }
+  body.tones .badge { color:var(--accent-orange-text); }
 
   /* Lifecycle row: before = letters only; after = state bar via statusPresentation tokens */
   .lc { display:flex; gap:4px; padding:4px 12px 6px; }
@@ -72,9 +76,11 @@
   body:not(.tones) .seg[data-state="done"] { color:var(--tint-green-fg); border-color:var(--border-secondary); }
   body:not(.tones) .seg[data-state="current"] { color:var(--text-primary); border-color:var(--accent-blue); }
   body.tones .seg i { display:block; }
-  body.tones .seg[data-state="done"], body.tones .seg[data-state="skipped"] { --seg-color:var(--status-idle); color:var(--status-idle); }
-  body.tones .seg[data-state="current"] { --seg-color:var(--status-working); color:var(--status-working); }
-  body.tones .seg[data-state="todo"] { --seg-color:var(--text-muted); }
+  body.tones .seg[data-state="done"], body.tones .seg[data-state="skipped"] { --seg-color:var(--accent-green-text); color:var(--accent-green-text); }
+  body.tones .seg[data-state="current"] { --seg-color:var(--accent-yellow-text); color:var(--accent-yellow-text); }
+  body.tones .seg[data-state="todo"] { --seg-color:var(--text-tertiary); color:var(--text-tertiary); }
+  .seg b { display:none; font-weight:700; margin-right:2px; }
+  body.tones .seg b { display:inline; }
   .seg[data-state="skipped"] { cursor:default; }
 
   .legend { max-width:300px; color:var(--text-secondary); font-size:12px; }
@@ -98,31 +104,31 @@
       <div class="gh">Next</div>
       <button class="it next" role="menuitem"><span class="ic">&#9654;&#xFE0E;</span>Apply tasks</button>
       <div class="gh">Session</div>
-      <button class="it" role="menuitem" data-tone="create"><span class="ic">&#x2442;</span>Fork</button>
-      <button class="it" role="menuitem" data-tone="go"><span class="ic">+</span>New session</button>
-      <button class="it" role="menuitem" data-tone="caution"><span class="ic">&#x2387;</span>New worktree session</button>
+      <button class="it" role="menuitem" data-action-tone="create"><span class="ic">&#x2442;</span>Fork</button>
+      <button class="it" role="menuitem" data-action-tone="go"><span class="ic">+</span>New session</button>
+      <button class="it" role="menuitem" data-action-tone="caution"><span class="ic">&#x2387;</span>New worktree session</button>
       <button class="it" role="menuitem"><span class="ic">&#x270E;&#xFE0E;</span>Rename&hellip;</button>
       <button class="it" role="menuitem"><span class="ic">&#x25A4;</span>Archive session</button>
-      <button class="it" role="menuitem" data-tone="danger"><span class="ic">&#x2715;</span>Exit pi session</button>
+      <button class="it" role="menuitem" data-action-tone="danger"><span class="ic">&#x2715;</span>Exit pi session</button>
       <div class="gh">OpenSpec <small>add-obs-studio-plugin</small></div>
       <div class="lc" role="group" aria-label="Lifecycle">
-        <button class="seg" data-state="done" aria-label="Proposal, done"><i></i>P</button>
-        <button class="seg" data-state="done" aria-label="Design, done"><i></i>D</button>
-        <span class="seg" data-state="skipped" aria-label="Specs, skipped"><i></i>&ndash;</span>
-        <button class="seg" data-state="current" aria-label="Tasks, current"><i></i>T</button>
-        <span class="seg" data-state="todo" aria-label="Archive, todo"><i></i>A</span>
+        <button class="seg" data-state="done" aria-label="Proposal, done"><i></i><span><b>&#x2713;</b>P</span></button>
+        <button class="seg" data-state="done" aria-label="Design, done"><i></i><span><b>&#x2713;</b>D</span></button>
+        <span class="seg" data-state="skipped" aria-label="Specs, skipped"><i></i><span><b>&ndash;</b>S</span></span>
+        <button class="seg" data-state="current" aria-label="Tasks, current"><i></i><span><b>&#x25B8;</b>T</span></button>
+        <span class="seg" data-state="todo" aria-label="Archive, todo"><i></i><span><b>&#x25CB;</b>A</span></span>
       </div>
       <button class="it" role="menuitem"><span class="ic">&#x2197;&#xFE0E;</span>Open change</button>
-      <button class="it" role="menuitem" data-tone="go"><span class="ic">&#x2714;&#xFE0E;</span>Verify</button>
-      <button class="it" role="menuitem" data-tone="create"><span class="ic">+</span>New change&hellip;</button>
+      <button class="it" role="menuitem" data-action-tone="go"><span class="ic">&#x2714;&#xFE0E;</span>Verify</button>
+      <button class="it" role="menuitem" data-action-tone="create"><span class="ic">+</span>New change&hellip;</button>
       <div class="gh">Git <small>os/add-obs-studio-plugin</small></div>
-      <button class="it" role="menuitem" data-tone="caution"><span class="ic">&#x25CF;&#xFE0E;</span>Commit 3 changes&hellip;</button>
+      <button class="it" role="menuitem" data-action-tone="caution"><span class="ic">&#x25CF;&#xFE0E;</span>Commit 3 changes&hellip;</button>
       <button class="it" role="menuitem"><span class="ic">&#x2387;</span>Switch branch&hellip;</button>
       <button class="it" role="menuitem" aria-disabled="true"><span class="ic">&#x2191;&#xFE0E;</span>Push<span class="reason">session is working</span></button>
-      <button class="it" role="menuitem" data-tone="create"><span class="ic">&#x21C4;&#xFE0E;</span>Open PR</button>
-      <button class="it" role="menuitem" data-tone="danger"><span class="ic">&#x2612;</span>Close worktree&hellip;</button>
+      <button class="it" role="menuitem" data-action-tone="create"><span class="ic">&#x21C4;&#xFE0E;</span>Open PR</button>
+      <button class="it" role="menuitem" data-action-tone="danger"><span class="ic">&#x2612;</span>Close worktree&hellip;</button>
       <div class="gh">Plugins</div>
-      <button class="it" role="menuitem" data-tone="danger"><span class="ic">&#x25A0;&#xFE0E;</span>Stop recording <small style="margin-left:auto;color:var(--text-tertiary)">obs &middot; tone: danger</small></button>
+      <button class="it" role="menuitem" data-action-tone="danger"><span class="ic">&#x25A0;&#xFE0E;</span>Stop recording <small style="margin-left:auto;color:var(--text-tertiary)">obs &middot; tone: danger</small></button>
       <button class="it" role="menuitem"><span class="ic">&#x2699;&#xFE0E;</span>Run flow&hellip;</button>
     </div>
   </section>
@@ -134,34 +140,34 @@
       <button class="it" role="menuitem"><span class="ic">&#x25A4;</span>OpenSpec archive</button>
       <button class="it" role="menuitem"><span class="ic">&#x2630;</span>OpenSpec specs</button>
       <div class="gh">Workspace</div>
-      <button class="it" role="menuitem" data-tone="create"><span class="ic">+</span>Add to workspace</button>
-      <button class="it" role="menuitem" data-tone="danger"><span class="ic">&minus;</span>Remove from workspace</button>
+      <button class="it" role="menuitem"><span class="ic">+</span>Add to workspace <small style="margin-left:auto;color:var(--text-tertiary)">node item</small></button>
+      <button class="it" role="menuitem"><span class="ic">&minus;</span>Remove from workspace</button>
       <button class="it" role="menuitem"><span class="ic">&#x2699;&#xFE0E;</span>Team settings&hellip;</button>
-      <button class="it" role="menuitem" data-tone="danger"><span class="ic">&#x26D3;&#xFE0E;</span>Disable team</button>
+      <button class="it" role="menuitem" data-action-tone="danger"><span class="ic">&#x26D3;&#xFE0E;</span>Disable team</button>
       <div class="gh">Directory</div>
       <button class="it" role="menuitem"><span class="ic">&#x2316;</span>Pin</button>
       <button class="it" role="menuitem"><span class="ic">&#x2387;</span>Manage worktrees</button>
       <button class="it" role="menuitem"><span class="ic">&#x2699;&#xFE0E;</span>Directory Settings</button>
-      <button class="it" role="menuitem" data-tone="caution"><span class="ic">&#x2692;&#xFE0E;</span>Project setup&hellip; <span class="badge">&#x25CF; update</span></button>
-      <button class="it" role="menuitem" data-tone="caution"><span class="ic">&#x2672;&#xFE0E;</span>Clean up broken (2)</button>
-      <button class="it" role="menuitem" data-tone="create"><span class="ic">&#x2316;</span>New goal</button>
-      <button class="it" role="menuitem" data-tone="create"><span class="ic">&#x23F1;&#xFE0E;</span>New automation</button>
+      <button class="it" role="menuitem" data-action-tone="caution"><span class="ic">&#x2692;&#xFE0E;</span>Project setup&hellip; <span class="badge">&#x25CF; update</span></button>
+      <button class="it" role="menuitem" data-action-tone="caution"><span class="ic">&#x2672;&#xFE0E;</span>Clean up broken (2)</button>
+      <button class="it" role="menuitem" data-action-tone="create"><span class="ic">&#x2316;</span>New goal</button>
+      <button class="it" role="menuitem" data-action-tone="create"><span class="ic">&#x23F1;&#xFE0E;</span>New automation</button>
       <div class="gh">Maintenance</div>
       <button class="it" role="menuitem"><span class="ic">&#x21BB;&#xFE0E;</span>Refresh folder</button>
-      <button class="it" role="menuitem" data-tone="caution"><span class="ic">&#x26C1;&#xFE0E;</span>KB reindex <span class="badge">stale</span></button>
+      <button class="it" role="menuitem" data-action-tone="caution"><span class="ic">&#x26C1;&#xFE0E;</span>KB reindex <span class="badge">stale</span></button>
     </div>
   </section>
 
   <section class="col legend">
     <h2>Tone vocabulary (UiTone)</h2>
     <table>
-      <tr><td><span class="sw" style="background:var(--tint-green-fg)"></span><b>go</b></td><td>positive / proceed: Resume, New session, Verify, Merge</td></tr>
-      <tr><td><span class="sw" style="background:var(--tint-blue-fg)"></span><b>create</b></td><td>make something new: Fork, New change, Propose, Open PR, Add to workspace, New goal</td></tr>
-      <tr><td><span class="sw" style="background:var(--tint-orange-fg)"></span><b>caution</b></td><td>pending / side effects: Commit, New worktree session, Clean up broken, Project setup (update), KB reindex</td></tr>
-      <tr><td><span class="sw" style="background:var(--tint-red-fg)"></span><b>danger</b></td><td>destructive: Stop, Exit, Close worktree, Remove from workspace, Disable team</td></tr>
+      <tr><td><span class="sw" style="background:var(--accent-green-text)"></span><b>go</b></td><td>positive / proceed: Resume, New session, Verify, Merge</td></tr>
+      <tr><td><span class="sw" style="background:var(--accent-blue-text)"></span><b>create</b></td><td>make something new: Fork, New change, Propose, Open PR, Enable OpenSpec, New goal, Enable team</td></tr>
+      <tr><td><span class="sw" style="background:var(--accent-orange-text)"></span><b>caution</b></td><td>pending / side effects: Commit, New worktree session, Clean up broken, Project setup (update), KB reindex</td></tr>
+      <tr><td><span class="sw" style="background:var(--accent-red-text)"></span><b>danger</b></td><td>ends a process or discards work: Exit, Close worktree, Disable team</td></tr>
       <tr><td><b>neutral</b></td><td>everything else (no tone)</td></tr>
     </table>
-    <div class="note">Colour is <b>icon-only</b>; labels keep the neutral colour (WCAG 1.4.1). NEXT uses the blue tint triple. Lifecycle bars reuse the card stepper's <code>statusPresentation</code> colours (done <code>--status-idle</code>, current <code>--status-working</code>). The badge moves from raw <code>text-amber-400</code> to <code>--tint-orange-fg</code>. Plugins set <code>tone</code> on <code>FolderMenuContribution</code> / <code>UiActionListItem</code>; an unknown tone renders neutral.</div>
+    <div class="note">Matches the reconciled spec. Colour is <b>icon-only</b> via text-role tokens <code>--accent-&lt;hue&gt;-text</code> (≥5.64:1 on every palette); labels keep the neutral colour. Danger rows on hover/focus: <code>--tint-red-bg</code> with icon + label <code>--accent-red-text</code>. NEXT is outlined (decorative border) with a blue icon, no fill. Lifecycle segments show a bar and a distinct glyph per state (✓ ▸ – ○). Badge: <code>--accent-orange-text</code>. Hook: <code>data-action-tone</code>. Remove from workspace and the add-to-workspace node item stay neutral. Plugins set <code>tone</code>; an unknown tone renders neutral.</div>
   </section>
 </main>
 <script>

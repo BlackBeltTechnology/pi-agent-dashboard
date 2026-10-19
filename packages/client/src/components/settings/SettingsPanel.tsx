@@ -36,6 +36,7 @@ import { useModelCatalogue } from "../../hooks/useModelCatalogue.js";
 import { usePersistedBoolean } from "../../hooks/usePersistedBoolean.js";
 import { usePiCompatibility } from "../../hooks/usePiCompatibility.js";
 import { usePiResources } from "../../hooks/usePiResources.js";
+import { useAddonIssues } from "../../hooks/useAddonIssues.js";
 import { usePluginList, usePluginToggle } from "../../hooks/usePluginToggle.js";
 import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
 import { useResourceActivation } from "../../hooks/useResourceActivation.js";
@@ -697,6 +698,8 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
   // `services_changed` / reconnect only — never the probing detail GET).
   const services = useServices({ onMessage, ws });
   const servicesNeedingAttention = (services.list?.services ?? []).filter(needsAttention).length;
+  // Add-ons rail badge: the same count the Issues tab shows. See change: addons-hub-folder-view.
+  const addonIssueCount = useAddonIssues().count;
 
   // Plugin rows back the nav children, the plugin page, and the Save Bar's
   // `Plugins › <name>` labels. See change: plugin-settings-pages (task 4.2).
@@ -1417,6 +1420,7 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
                   <button
                     onClick={() => requestRailNavigate("/settings/" + item.id)}
                     aria-current={active ? "page" : undefined}
+                    aria-describedby={item.id === "add-ons" && addonIssueCount > 0 ? "nav-addons-issues-desc" : undefined}
                     className={`${item.id === "plugins" ? "flex-1 min-w-0" : "w-full"} flex items-center gap-2.5 px-3 py-2 rounded-md text-sm ${RAIL_ITEM} ${
                       active ? RAIL_ACTIVE : RAIL_IDLE
                     }`}
@@ -1430,6 +1434,21 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
                           {t("settings.servicesAttention", { count: servicesNeedingAttention }, `${servicesNeedingAttention} services need attention`)}
                         </span>
                       </span>
+                    )}
+                    {item.id === "add-ons" && addonIssueCount > 0 && (
+                      <>
+                        {/* Excluded from the button's accessible name (it stays "Add-ons"); announced as its description. */}
+                        <span
+                          data-testid="nav-addons-issues"
+                          aria-hidden="true"
+                          className="ml-auto text-[11px] leading-none px-1.5 py-0.5 rounded-full bg-[var(--severity-warning-bg)] text-[var(--severity-warning-fg)] border border-[var(--severity-warning-border)]"
+                        >
+                          {addonIssueCount}
+                        </span>
+                        <span id="nav-addons-issues-desc" aria-hidden="true" className="sr-only">
+                          {t("settings.addonsIssues", { count: addonIssueCount }, `${addonIssueCount} add-on issues`)}
+                        </span>
+                      </>
                     )}
                     {dirtyPages.has(item.id) && (
                       <span

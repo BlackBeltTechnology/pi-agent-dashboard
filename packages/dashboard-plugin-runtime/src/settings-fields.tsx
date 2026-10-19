@@ -37,6 +37,7 @@ import {
 import { Icon } from "@mdi/react";
 import { createContext, type ReactNode, useContext, useEffect, useId, useRef, useState } from "react";
 import { useRuntimeT } from "./plugin-context.js";
+import { copyText } from "./secure-context.js";
 
 /** `default` = value comes from the built-in default; `changed` = overridden. */
 export type SettingsFieldState = "default" | "changed";
@@ -456,19 +457,14 @@ export function SettingsCopyButton({
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => setResult("idle"), 1500);
   };
+  // `copyText` = the clipboard API with a textarea fallback (a bare `navigator.clipboard` is
+  // undefined on non-secure plain-http LAN origins). A refused or impossible copy says so,
+  // never "Copied".
   const copy = () => {
-    // A missing clipboard (insecure context) and a rejected or throwing write are
-    // the same outcome: say so, never "Copied".
-    try {
-      const write = navigator.clipboard?.writeText(text);
-      if (!write) return settle("failed");
-      write.then(
-        () => settle("copied"),
-        () => settle("failed"),
-      );
-    } catch {
-      settle("failed");
-    }
+    copyText(text).then(
+      (ok) => settle(ok ? "copied" : "failed"),
+      () => settle("failed"),
+    );
   };
   const resultLabel =
     result === "copied"

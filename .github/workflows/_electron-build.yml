@@ -168,7 +168,7 @@ jobs:
         # See change: upgrade-electron-runtime.
         if: matrix.platform == 'darwin'
         shell: bash
-        run: echo "MACOSX_DEPLOYMENT_TARGET=12.0" >> "$GITHUB_ENV"
+        run: echo "MACOSX_DEPLOYMENT_TARGET=13.0" >> "$GITHUB_ENV"
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile ${{ matrix.platform == 'linux' && matrix.arch == 'arm64' && '--ignore-scripts' || '' }}
@@ -476,7 +476,7 @@ jobs:
         # is self-documenting and correct even if that export is ever moved.
         # See change: upgrade-electron-runtime.
         env:
-          MACOSX_DEPLOYMENT_TARGET: "12.0"
+          MACOSX_DEPLOYMENT_TARGET: "13.0"
         run: |
           set -euo pipefail
           cd packages/electron
@@ -491,6 +491,14 @@ jobs:
             echo "::error::Forge .app not found under out/"; ls -laR out | head -50 || true; exit 1
           fi
           echo "App bundle: $APP_PATH"
+          # Forge 8 / packager 20 guards (refresh-electron-bundled-components D7):
+          # (1) no absolute / dangling / root-escaping symlink in the packaged
+          #     resources, (2) both preload files exist, (3) the bundle passes
+          #     `codesign --verify --deep --strict` after an ad-hoc sign of a COPY
+          #     (runs on every leg, not only those with APPLE_IDENTITY).
+          node scripts/scan-packaged-symlinks.mjs "$APP_PATH/Contents/Resources" "$APP_PATH"
+          node scripts/assert-packaged-preloads.mjs
+          bash scripts/codesign-strict-check.sh "$APP_PATH"
           # 2. Wrap into a DMG + emit latest-mac.yml + app-update.yml. Do NOT
           #    re-sign (Forge already did): disable cert auto-discovery.
           export CSC_IDENTITY_AUTO_DISCOVERY=false
@@ -516,6 +524,9 @@ jobs:
             echo "::error::Forge packaged dir not found under out/"; ls -la out || true; exit 1
           fi
           echo "Packaged dir: $PKG_DIR"
+          # Forge 8 / packager 20 guards (refresh-electron-bundled-components D7).
+          node scripts/scan-packaged-symlinks.mjs "$PKG_DIR/resources" "$PKG_DIR"
+          node scripts/assert-packaged-preloads.mjs
           # 2. AppImage + latest-linux.yml + app-update.yml from the packaged dir.
           npx electron-builder --linux AppImage \
             --prepackaged "$PKG_DIR" \
@@ -713,7 +724,7 @@ jobs:
               exit 1
             '
 
-      - name: Verify macOS deployment target floor (12.0)
+      - name: Verify macOS deployment target floor (13.0)
         # Defensive check: extract LSMinimumSystemVersion from the produced
         # Info.plist and otool the inner Mach-O minos. Fail the job on any
         # drift so a future runner-image upgrade cannot silently raise the
@@ -752,17 +763,17 @@ jobs:
           INFO_PLIST=$(find "$APP" -path '*/Contents/Info.plist' -maxdepth 2 2>/dev/null | head -1 || true)
           MIN_OS=$(plutil -extract LSMinimumSystemVersion raw "$INFO_PLIST" 2>/dev/null || echo "missing")
           echo "  Info.plist ($INFO_PLIST) LSMinimumSystemVersion = $MIN_OS"
-          if [ "$MIN_OS" != "12.0" ]; then
-            echo "::error::LSMinimumSystemVersion is '$MIN_OS', expected '12.0'. Pin via packagerConfig.extendInfo in packages/electron/forge.config.ts. See change: upgrade-electron-runtime."
+          if [ "$MIN_OS" != "13.0" ]; then
+            echo "::error::LSMinimumSystemVersion is '$MIN_OS', expected '13.0'. Pin via packagerConfig.extendInfo in packages/electron/forge.config.ts. See change: upgrade-electron-runtime."
             hdiutil detach "$MOUNT_POINT" -quiet || true
             exit 1
           fi
           # 2. Mach-O LC_BUILD_VERSION minos for the main binary.
           # Both arches expect the SAME major now: the old x64→10 / arm64→11
           # asymmetry was a Catalina artefact (arm64 slices cannot declare
-          # below 11), and at a 12.0 floor the two converge. The comparison is
+          # below 11), and at a 13.0 floor the two converge. The comparison is
           # EQUALITY, not the previous upward-only `-gt`: below-floor was
-          # unreachable at 10.15 but is reachable at 12.0.
+          # unreachable at 10.15 but is reachable at 13.0.
           # The extractor is multi-slice safe (a fat Mach-O emits one
           # load-command set per arch) and lives in a Node script so it is
           # covered by L1 tests. It first runs an extractor CANARY over the
@@ -787,7 +798,7 @@ jobs:
             exit 1
           fi
           hdiutil detach "$MOUNT_POINT" -quiet || true
-          echo "✓ Deployment target floor verified: 12.0"
+          echo "✓ Deployment target floor verified: 13.0"
 
       - name: Launch-smoke the .app
         # Dynamic boot proof: exec the just-built .app's inner Mach-O and
@@ -797,7 +808,7 @@ jobs:
         # Windows/Linux GH runners) provides a real Aqua/WindowServer
         # session. Each leg execs its OWN native arch — macos-14→arm64,
         # macos-15-intel→x64 — so there is no cross-arch exec. Boot-proof,
-        # NOT floor-proof: runner OS (14/15) is above the 12.0 floor; the
+        # NOT floor-proof: runner OS (14/15) is above the 13.0 floor; the
         # static otool minos check above is the (label-only) floor guard.
         # See change: add-macos-electron-launch-smoke.
         if: matrix.platform == 'darwin'
@@ -825,6 +836,12 @@ jobs:
           ..\..\node_modules\.bin\electron-forge.cmd package --arch=${{ matrix.arch }} --platform=win32
           Write-Host "Packaged output:"
           Get-ChildItem out\ -ErrorAction SilentlyContinue | Format-Table
+          # Forge 8 / packager 20 guards (refresh-electron-bundled-components D7).
+          $pkgDir = "out\PI-Dashboard-win32-${{ matrix.arch }}"
+          node scripts\scan-packaged-symlinks.mjs "$pkgDir\resources" "$pkgDir"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts\assert-packaged-preloads.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build Windows ZIP and NSIS Setup.exe
         if: matrix.platform == 'win32'

@@ -4,6 +4,7 @@ import { contextModeStates } from "./fixtures/retro-ux/context-mode.js";
 import { gmailStates } from "./fixtures/retro-ux/gmail.js";
 import { hermesStates } from "./fixtures/retro-ux/hermes.js";
 import { kbPillStates } from "./fixtures/retro-ux/kb-pill.js";
+import { packageHealthStates } from "./fixtures/retro-ux/package-health.js";
 import { expect, test } from "./fixtures.js";
 import { resolveEvidencePath } from "./helpers/evidence-path.js";
 import { gotoDashboard } from "./helpers/index.js";
@@ -28,6 +29,8 @@ const SURFACES: Record<string, UiState[]> = {
   hermes: hermesStates,
   gmail: gmailStates,
   "kb-pill": kbPillStates,
+  // Add-ons Issues tab (change: addons-hub-folder-view, test-plan F17).
+  "package-health": packageHealthStates,
 };
 
 const cell = (r: CaptureResult) => `${r.state} ${r.theme}-${r.mode} ${r.width}px`;
