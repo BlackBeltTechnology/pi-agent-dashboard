@@ -8,9 +8,9 @@
  *
  * See change: improve-kb-settings-sources-and-search (design D8).
  */
-import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { copyText, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type React from "react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { KbSearchDocType, KbSearchResponse } from "../shared/kb-plugin-types.js";
 import { searchKb } from "./kb-api.js";
 
@@ -39,6 +39,8 @@ export function KbTestSearch({ cwd, dirty }: { cwd: string; dirty: boolean }): R
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<KbSearchResponse | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+  const [copyFailed, setCopyFailed] = useState<string | null>(null);
+  const copySeq = useRef(0);
 
   const submit = async (e?: React.FormEvent): Promise<void> => {
     e?.preventDefault();
@@ -56,10 +58,17 @@ export function KbTestSearch({ cwd, dirty }: { cwd: string; dirty: boolean }): R
     }
   };
 
-  const copy = (path: string): void => {
-    void navigator.clipboard?.writeText(path);
-    setCopied(path);
-    setTimeout(() => setCopied((c) => (c === path ? null : c)), 1500);
+  const copy = async (path: string): Promise<void> => {
+    const seq = ++copySeq.current;
+    const ok = await copyText(path);
+    if (seq !== copySeq.current) return; // a later click superseded this one
+    setCopied(ok ? path : null);
+    setCopyFailed(ok ? null : path);
+    setTimeout(() => {
+      if (seq !== copySeq.current) return;
+      setCopied(null);
+      setCopyFailed(null);
+    }, 1500);
   };
 
   const field = "text-[12px] bg-transparent border border-[var(--border-subtle)] rounded px-2 py-1 text-[var(--text-secondary)] focus:outline-none focus:border-indigo-500/60";
@@ -105,7 +114,7 @@ export function KbTestSearch({ cwd, dirty }: { cwd: string; dirty: boolean }): R
             </div>
           )}
           {result.hits.map((h) => (
-            <button type="button" key={h.chunkId} onClick={() => copy(h.path)} data-testid="kb-search-hit" className="block w-full text-left px-2 py-1.5 mb-1 rounded border border-[var(--border-subtle)] hover:border-indigo-500/50">
+            <button type="button" key={h.chunkId} onClick={() => void copy(h.path)} data-testid="kb-search-hit" className="block w-full text-left px-2 py-1.5 mb-1 rounded border border-[var(--border-subtle)] hover:border-indigo-500/50">
               <div className="flex items-center gap-2 text-[12px]">
                 <span className="font-mono text-[var(--text-secondary)] truncate">{h.path}{h.headingPath ? ` :: ${h.headingPath}` : ""}</span>
                 <span className="ml-auto text-[10px] text-[var(--text-muted)]">{h.root} · {h.docType} · {h.score.toFixed(2)}</span>
@@ -116,6 +125,9 @@ export function KbTestSearch({ cwd, dirty }: { cwd: string; dirty: boolean }): R
                 )}
               </div>
               {copied === h.path && <div className="text-[10px] text-green-400" data-testid="kb-search-copied">{t("copied", undefined, "Path copied")}</div>}
+              {copyFailed === h.path && (
+                <div className="text-[10px] text-red-400" aria-live="polite" data-testid="kb-search-copy-failed">{t("copyFailed", undefined, "Copy failed")}</div>
+              )}
             </button>
           ))}
         </div>

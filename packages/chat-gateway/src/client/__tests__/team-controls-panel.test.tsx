@@ -15,7 +15,9 @@ const handlers = new Map<string, (msg: unknown) => void>();
 const sendMock = vi.fn(async (_msg: unknown) => {});
 let configValue: Record<string, unknown> = {};
 
-vi.mock("@blackbelt-technology/dashboard-plugin-runtime/context", () => ({
+vi.mock("@blackbelt-technology/dashboard-plugin-runtime/context", async (importOriginal) => ({
+  // Keep the real module: the settings kit reads `useRuntimeT` from it.
+  ...(await importOriginal<Record<string, unknown>>()),
   usePluginConfig: () => configValue,
   usePluginSend: () => sendMock,
   usePluginMessage: (type: string, handler: (msg: unknown) => void) => {
@@ -101,18 +103,20 @@ describe("TeamControlsPanel (8.1)", () => {
     expect(screen.getByTestId("team-principals-ws_1").textContent).toContain("u_bob");
     expect(screen.getByTestId("team-principals-ws_1").textContent).toContain("control");
     expect(screen.getByTestId("team-roles-ws_1").textContent).toContain("r_ops");
-    // The binding's effective policy, not just the global one.
-    expect(screen.getByTestId("team-binding-ws_1").textContent).toContain("names-and-diffs");
+    // The binding's effective policy, not just the global one — as a human
+    // word, never the raw `names-and-diffs` enum (retro-ux-plugin-settings-wave-2).
+    expect(screen.getByTestId("team-binding-ws_1").textContent).toContain("names and diffs");
+    expect(screen.getByTestId("team-binding-ws_1").textContent).not.toContain("names-and-diffs");
   });
 
   it("shows the disarm state and offers re-arm only when disarmed", () => {
     render(<TeamControlsPanel />);
     push({ disarmed: false });
-    expect(screen.getByTestId("team-disarm-state").textContent).toContain("armed");
+    expect(screen.getByTestId("team-disarm-state").textContent).toContain("Armed");
     expect(screen.queryByTestId("team-rearm")).toBeNull();
 
     push({ disarmed: true });
-    expect(screen.getByTestId("team-disarm-state").textContent).toContain("DISARMED");
+    expect(screen.getByTestId("team-disarm-state").textContent).toContain("Disarmed");
     expect(screen.getByTestId("team-rearm")).toBeTruthy();
   });
 
@@ -175,9 +179,13 @@ describe("TeamControlsPanel (8.1)", () => {
       ],
     });
     expect(screen.getByTestId("team-config-error").textContent).toContain("FAIL-CLOSED");
-    expect(screen.getByTestId("team-binding-problem-ws_1").textContent).toContain(
-      "provisioning_requires_guild_id",
-    );
+    // Raw codes never render (CG7/X6): a sentence shows, the code is only
+    // copyable through "Copy details".
+    const problem = screen.getByTestId("team-binding-problem-ws_1");
+    expect(problem.textContent).not.toContain("provisioning_requires_guild_id");
+    expect(screen.getByTestId("team-binding-problem-ws_1-copy-details")).toBeTruthy();
+    expect(screen.getByTestId("team-config-error").textContent).not.toContain("role_cannot_map");
+    expect(screen.getByTestId("team-config-error-copy-details")).toBeTruthy();
   });
 });
 
@@ -295,7 +303,11 @@ describe("write reporting", () => {
     act(() => {
       handlers.get(CONFIG_MESSAGE)?.({ ok: false, reason: "reconcile_failed: boom" });
     });
-    expect(screen.getByTestId("team-write-notice").textContent).toContain("reconcile_failed: boom");
+    // The refusal is a sentence; the raw reason is only in "Copy details".
+    const notice = screen.getByTestId("team-write-notice");
+    expect(notice.textContent).toMatch(/couldn.t apply/i);
+    expect(notice.textContent).not.toContain("reconcile_failed");
+    expect(screen.getByTestId("team-write-notice-copy-details")).toBeTruthy();
   });
 
   it("adopts the refreshed surface the write returned", () => {
@@ -304,7 +316,7 @@ describe("write reporting", () => {
     act(() => {
       handlers.get(CONFIG_MESSAGE)?.({ ok: true, surface: makeSurface({ disarmed: false }) });
     });
-    expect(screen.getByTestId("team-disarm-state").textContent).toContain("armed");
+    expect(screen.getByTestId("team-disarm-state").textContent).toContain("Armed");
     expect(screen.queryByTestId("team-rearm")).toBeNull();
   });
 
@@ -316,6 +328,42 @@ describe("write reporting", () => {
     });
     // A refused write changed nothing, so the panel must not blank itself.
     expect(screen.getByTestId("team-binding-ws_1")).toBeTruthy();
-    expect(screen.getByTestId("team-disarm-state").textContent).toContain("DISARMED");
+    expect(screen.getByTestId("team-disarm-state").textContent).toContain("Disarmed");
+  });
+});
+
+describe("status pills and tables (CG7)", () => {
+  it("shows the armed state, levels and mirror as pills with human words", () => {
+    render(<TeamControlsPanel />);
+    push();
+    const pill = screen.getByTestId("team-disarm-state");
+    expect(pill.getAttribute("data-status")).toBe("armed");
+    expect(pill.getAttribute("data-tone")).toBe("success");
+  });
+
+  it("puts Re-arm beside the Disarmed pill and marks the pill as an error", () => {
+    render(<TeamControlsPanel />);
+    push({ disarmed: true });
+    expect(screen.getByTestId("team-disarm-state").getAttribute("data-tone")).toBe("error");
+    expect(screen.getByTestId("team-disarm-state").textContent).toMatch(/refused/i);
+  });
+
+  it("renders the log outcome as a word pill, never the raw enum", () => {
+    render(<TeamControlsPanel />);
+    push({
+      log: [
+        { at: 2, principal: "u_2", channelId: "c", verb: "abort", outcome: "refused", reason: "disarmed" },
+        { at: 1, principal: "u_1", channelId: "c", verb: "status", outcome: "permitted" },
+      ],
+    });
+    const rows = screen.getAllByTestId("team-log-row");
+    expect(rows[0].querySelectorAll("td")[3].textContent).toBe("Refused");
+    expect(rows[1].querySelectorAll("td")[3].textContent).toBe("Done");
+  });
+
+  it("paints no undeclared --danger-text token", () => {
+    const { container } = render(<TeamControlsPanel />);
+    push({ disarmed: true, configError: "x" });
+    expect(container.innerHTML).not.toContain("danger-text");
   });
 });
