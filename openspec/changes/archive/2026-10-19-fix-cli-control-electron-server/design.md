@@ -127,3 +127,35 @@ No data migration. All new fields are additive and optional, and readers tolerat
 ## Open Questions
 
 None blocking. Windows `taskkill` behaviour (H5) is recorded only; D4's `/api/shutdown` path removes most of the dependency on it.
+
+## Root-cause log
+
+Isolated repro, macOS, 2026-10-19. `HOME=$(mktemp -d)`, `--port 18655 --pi-port 18656`, repo CLI wrapper `packages/server/bin/pi-dashboard.mjs`. The "fake Electron" server ran with `DASHBOARD_STARTER=Electron PI_DASHBOARD_ELECTRON_INSTANCE=<uuid>` under a long-lived node parent. The live :8000 dashboard was never touched.
+
+**1.1 Health shape (confirmed H1 input).** `/api/health` → `launchSource:"electron"`, `launchSourceEffective:"electron"`, `bootParentAlive:true`, `bootParentPid:33794`, `instanceId` = `instances/18656.id`. No `starter` key. `server.pid`, `server.lock.meta.json` (pid 33796, ppid 33794) agree. Finding: `bootParentPid` is the direct parent of the server process, here the `bin/pi-dashboard.mjs` wrapper's pid (the harness parent was the wrapper's parent). In the packaged app it is the Electron main only when Electron spawns the server directly; the D8 note wording stays "started by the desktop app (pid N)" and is never used for a kill decision.
+
+**1.2 Today's code against that server (same HOME).**
+- `pi-dashboard status --port 18655 --pi-port 18656` → `Dashboard server is running (pid 33796) on port 18655`, exit 0. No desktop-app mention (that is the gap).
+- Bare `pi-dashboard --port 18655 --pi-port 18656` → `[home-lock] rendezvous mode: attach`; gateway socket bind refused (`verdict=live recordedOwnerPid=33796`); `falling back to 127.0.0.1:18656`; then `Failed to start dashboard: Error: listen EADDRINUSE 127.0.0.1:18655` with a stack, `code:'EADDRINUSE'` on the error itself (HTTP bind, not a gateway wrapper `cause`), exit 1, 4.4 s. Confirms H2 and D5's error shape. `server.pid`, lock metadata and `instances/18656.id` byte-identical before and after.
+- `pi-dashboard stop --port 18655 --pi-port 18656` → `Dashboard server stopped (pid 33796)`, exit 0; the child exited 0; boot record `exitIntent:"signal"` (no announce, no quiesce). Confirms stop already works through the PID file, and shows the unannounced intent that D4 changes.
+
+**1.3 H3 (env/port skew): reproduced.** Same HOME, no `--port`: `pi-dashboard status` resolves `config.json` port 8000 and reports the foreign live dashboard (`not owned by this HOME`, exit 1). With `PI_DASHBOARD_PORT=18700 PI_DASHBOARD_PI_PORT=18701` it prints `Dashboard server is not running` (exit 1) although an owned server is alive on 18655. With the right env it reports running (exit 0). This is the specified behaviour (`Status subcommand`: resolved port only, "SHALL NOT report a dashboard on a different port") and the likeliest reading of the issue's "status fails" when a shell exports the port variables or Electron runs on a non-default port. Not changed here (resolved-port semantics are a deliberate contract); the FAQ entry in task 5.4 documents it. **H4 (CLI version skew):** not reproduced, needs an older published CLI; the CLI only reads fields that old servers also publish (`pid`, `instanceId`), and new owner fields are optional, so skew degrades to today's messages. **H5 (Windows):** not run; recorded for manual M2.
+
+**1.4 H6 (non-pinned terminal session respawn): not reproduced live.** A real pi session needs a provider. The race is documented at `cli.ts` `cmdRestart` (unannounced SIGTERM closes the bridge WS; non-pinned bridges auto-start). Covered by X8 (real server + fake bridge socket: announce frame precedes close) in place of the live repro.
+
+**1.5 H1 on the real app: not run.** Quitting the user's live packaged app would kill their running dashboard. Static confirmation: `/api/health` has no `starter` (1.1) and `server-lifecycle.ts:580` reads `health.starter`, so `decideShutdownOnQuit` never sees `Electron`. The quit path is exercised by F1 (fake health) and manual M1.
+
+**1.6 Gate: covered.** H1, H2, H3 (existing contract, documented), H6 are all covered by `specs/` and `tasks.md`; no amendment needed.
+
+**4.20 After (fixed tree, same isolated harness).**
+```
+$ pi-dashboard status --port 18655 --pi-port 18656
+Dashboard server is running (pid 34671) on port 18655 (started by the pi-dashboard desktop app)      # exit 0
+$ pi-dashboard --port 18655 --pi-port 18656
+Dashboard server is already running (pid 34671) (started by the pi-dashboard desktop app)            # exit 1, no stack
+$ pi-dashboard stop --port 18655 --pi-port 18656
+Dashboard server stopped (pid 34671)
+Note: this server was started by the pi-dashboard desktop app (pid 34670). The app stays open and shows its reconnect page: use Start server there to bring the server back, or quit the app.   # exit 0
+boot-state exitIntent: "shutdown"      # was "signal" before
+```
+30 s later `/api/health` on 18655 still refuses (no replacement server). The H6 live bridge was not available (no provider); the announce is covered by X8 (fake bridge receives `server_restarting`/`shutdown`/60000 before the close). `server.lock` / `server.lock.meta.json` persist after any clean exit (pre-existing; the hold `server.lock.lock` and `server.pid` are released), so test-plan X6 asserts those two, not the former.

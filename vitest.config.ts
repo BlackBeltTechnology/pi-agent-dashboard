@@ -63,6 +63,7 @@ export default defineConfig({
       "packages/extension",
       "packages/image-fit-extension",
       "packages/untrusted-content-guard",
+      "packages/path-containment-guard",
       "packages/mockup-loop",
       "packages/nano-banana",
       "packages/craft-apps",

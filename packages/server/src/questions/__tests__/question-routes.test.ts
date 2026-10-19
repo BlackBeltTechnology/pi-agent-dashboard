@@ -198,6 +198,64 @@ describe("question REST roads", () => {
     });
   });
 
+  // test-plan #E14 #X3 — See change: add-ask-user-inline-other
+  describe("inline Other opt-in (test-plan #E14, #X3)", () => {
+    it("opted-in select accepts a custom answer, transmitted unchanged; detail exposes allowOther", async () => {
+      const { store } = makeStore();
+      store.onTracked("s1", promptMsg("s1", "p1", { metadata: { allowOther: true } }));
+      const id = idOf(store);
+      const { app, send } = await makeApp(store);
+      const detail = await app.inject({ method: "GET", url: `/api/questions/${id}` });
+      expect(detail.json().data.allowOther).toBe(true);
+      const res = await post(app, id, { answer: "C" });
+      expect(res.statusCode).toBe(200);
+      expect(send).toHaveBeenCalledWith("s1", expect.objectContaining({ promptId: "p1", answer: "C" }));
+    });
+
+    it("a prompt without the opt-in rejects the custom answer (400) and stays open", async () => {
+      const { store } = makeStore();
+      store.onTracked("s1", promptMsg("s1", "p1"));
+      const id = idOf(store);
+      const { app, send } = await makeApp(store);
+      const detail = await app.inject({ method: "GET", url: `/api/questions/${id}` });
+      expect(detail.json().data).not.toHaveProperty("allowOther");
+      expect((await post(app, id, { answer: "C" })).statusCode).toBe(400);
+      expect(send).not.toHaveBeenCalled();
+      expect(store.listRows()).toHaveLength(1);
+    });
+
+    it("opted-in prompt with its own Other option rejects custom text", async () => {
+      const { store } = makeStore();
+      store.onTracked("s1", promptMsg("s1", "p1", { options: ["A", "Other (describe)"], metadata: { allowOther: true } }));
+      const { app } = await makeApp(store);
+      expect((await post(app, idOf(store), { answer: "C" })).statusCode).toBe(400);
+    });
+
+    it("opted-in batch sub-question accepts custom text; others do not", async () => {
+      const { store } = makeStore();
+      const questions = [
+        { method: "select", title: "a", options: ["A", "B"], allowOther: true },
+        { method: "select", title: "b", options: ["A", "B"] },
+      ];
+      store.onTracked("s1", promptMsg("s1", "p1", { type: "batch", options: undefined, metadata: { questions } }));
+      const { app } = await makeApp(store);
+      const id = idOf(store);
+      expect((await post(app, id, { answer: JSON.stringify([{ value: "C" }, { value: "A" }]) })).statusCode).toBe(200);
+      store.onTracked("s1", promptMsg("s1", "p2", { type: "batch", options: undefined, metadata: { questions } }));
+      const id2 = idOf(store);
+      expect((await post(app, id2, { answer: JSON.stringify([{ value: "A" }, { value: "C" }]) })).statusCode).toBe(400);
+    });
+
+    it("the persisted question file never carries allowOther", async () => {
+      const { store } = makeStore();
+      store.onTracked("s1", promptMsg("s1", "p1", { metadata: { allowOther: true } }));
+      const dir = path.join(home, ".pi", "dashboard", "questions");
+      const files = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.endsWith(".json")) : [];
+      expect(files.length).toBeGreaterThan(0);
+      for (const f of files) expect(fs.readFileSync(path.join(dir, f), "utf8")).not.toContain("allowOther");
+    });
+  });
+
   describe("answer validation (test-plan #E6)", () => {
     const batchSubs = [
       { method: "select", question: "a?", options: ["x", "y"] },

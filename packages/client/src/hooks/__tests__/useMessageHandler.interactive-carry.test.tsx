@@ -163,3 +163,28 @@ describe("useMessageHandler interactive-request carry (design D8)", () => {
     expect(uiRows(state, "ui-p1")).toHaveLength(0);
   });
 });
+
+// test-plan #E16 — See change: add-ask-user-inline-other
+describe("useMessageHandler carries the inline-Other opt-in into params (E16)", () => {
+  const withMeta = (promptId: string, metadata?: Record<string, unknown>): ServerToBrowserMessage =>
+    ({
+      type: "prompt_request",
+      sessionId: SID,
+      promptId,
+      prompt: { question: "Pick", type: "select", options: ["a", "b"], ...(metadata ? { metadata } : {}) },
+      component: { type: "select", props: {} },
+      placement: "inline",
+    }) as ServerToBrowserMessage;
+
+  it("params.allowOther === true only for an opted-in prompt", () => {
+    const { dispatch, sessionStatesRef } = setup();
+    dispatch(withMeta("opted", { allowOther: true }));
+    dispatch(withMeta("plain"));
+    dispatch(withMeta("false", { allowOther: false }));
+    const reqs = sessionStatesRef.current.get(SID)!.interactiveRequests;
+    const byId = (id: string) => reqs.find((r) => r.requestId === id)!;
+    expect(byId("opted").params.allowOther).toBe(true);
+    expect(byId("plain").params).not.toHaveProperty("allowOther");
+    expect(byId("false").params).not.toHaveProperty("allowOther");
+  });
+});

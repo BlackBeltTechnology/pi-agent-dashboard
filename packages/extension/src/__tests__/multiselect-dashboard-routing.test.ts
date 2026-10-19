@@ -8,6 +8,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { decodeMultiselectAnswer } from "../multiselect-decode.js";
+import { patchUiForPromptBus } from "../bridge-handlers/ui-prompt-patch.js";
 
 // ──────────────────────────────────────────────────────────────────────
 // `decodeMultiselectAnswer` — pure helper used by both the runtime patch
@@ -199,4 +200,45 @@ describe("ui-prompt-patch.ts source regression guard", () => {
   // capture and the TUI `prompt.type === "multiselect"` arm were removed by
   // change `fix-multiselect-tui-arm-self-cancel`. The inverse-guard for that
   // removal lives in `no-tui-multiselect-arm-regression.test.ts`.
+});
+
+// #E8 — real patch, recording bus. See change: add-ask-user-inline-other.
+describe("real ctx.ui patch carries the allowOther opt-in", () => {
+  function setup(answer: string) {
+    const requests: Array<{ type: string; metadata?: Record<string, unknown> }> = [];
+    const bus = {
+      request: vi.fn(async (args: { type: string; metadata?: Record<string, unknown> }) => {
+        requests.push(args);
+        return { cancelled: false, answer };
+      }),
+      registerAdapter: vi.fn(),
+    };
+    const ctx: any = { hasUI: false, ui: {} };
+    patchUiForPromptBus(
+      { sessionId: "s1", connection: { send: vi.fn() }, getEmittedAssetHashes: () => new Set() } as any,
+      ctx,
+      bus as any,
+    );
+    return { ctx, requests };
+  }
+
+  it("select: metadata.allowOther === true and the custom answer is returned verbatim", async () => {
+    const { ctx, requests } = setup("x");
+    await expect(ctx.ui.select("Pick", ["A", "B"], { allowOther: true })).resolves.toBe("x");
+    expect(requests[0].metadata).toEqual({ allowOther: true });
+  });
+
+  it("multiselect: metadata.allowOther === true and the custom value is returned", async () => {
+    const { ctx, requests } = setup('["A","x"]');
+    await expect(ctx.ui.multiselect("Pick", ["A", "B"], { allowOther: true })).resolves.toEqual(["A", "x"]);
+    expect(requests[0].metadata).toEqual({ allowOther: true });
+  });
+
+  it("default and allowOther:false emit no key", async () => {
+    const { ctx, requests } = setup("A");
+    await ctx.ui.select("Pick", ["A", "B"]);
+    await ctx.ui.select("Pick", ["A", "B"], { allowOther: false });
+    expect(requests[0].metadata).toBeUndefined();
+    expect(requests[1].metadata).toBeUndefined();
+  });
 });

@@ -30,7 +30,7 @@
 import { randomUUID } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
-import type { DashboardStarter } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
+import { type DashboardStarter, starterFromHealth } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
 import { isValidHeapMb, stampHeapFlag } from "@blackbelt-technology/pi-dashboard-shared/heap-flags.js";
 import { DEFAULT_SERVER_HEAP } from "@blackbelt-technology/pi-dashboard-shared/heap-limits.js";
 import type { LaunchSource, SourceKind } from "@blackbelt-technology/pi-dashboard-shared/launch-source-types.js";
@@ -192,7 +192,7 @@ function defaultHealthProbe(port: number): Promise<HealthProbeResult> {
       if (!data || data.ok !== true || typeof data.pid !== "number") {
         return { running: false };
       }
-      const starter = data.starter as DashboardStarter | undefined;
+      const starter = starterFromHealth(data);
       const url = `http://localhost:${port}`;
       return { running: true, starter, url };
     })

@@ -12,3 +12,5 @@ Owns one `QuestionRecord` per pending PromptBus prompt. `createQuestionStore(dep
 - `onChange(listener)` kinds `added|brief|hidden|removed`; `getStats()` → `/api/health#questions`.
 
 Tests: `__tests__/question-store.test.ts`, `question-gateway.test.ts`, `question-wiring.integration.test.ts`. See change: add-pending-question-stack.
+
+Inline Other: `QuestionRecord.allowOther?: true` set in `onTracked` from live `metadata.allowOther === true`; exposed on `QuestionDetail`; NEVER persisted (recomputed on rebind from the re-sent prompt). See change: add-ask-user-inline-other.

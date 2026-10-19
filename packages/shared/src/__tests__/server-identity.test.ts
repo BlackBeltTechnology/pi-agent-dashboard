@@ -330,4 +330,43 @@ describe("isDashboardRunning timedOut partition", () => {
       .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ ok: true, pid: 9 }) });
     expect(await isDashboardRunning(8000, "localhost", noSleep)).toEqual({ running: true, pid: 9 });
   });
+
+  // See change: fix-cli-control-electron-server (test-plan #E2, design D3).
+  describe("owner fields from /api/health", () => {
+    const body = (extra: Record<string, unknown>) => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ ok: true, pid: 7, ...extra }),
+      });
+    };
+
+    it("copies well-typed launchSource / bootParentAlive / bootParentPid verbatim", async () => {
+      body({ launchSource: "electron", bootParentAlive: true, bootParentPid: 4242 });
+      expect(await isDashboardRunning(8000)).toEqual({
+        running: true,
+        pid: 7,
+        launchSource: "electron",
+        bootParentAlive: true,
+        bootParentPid: 4242,
+      });
+    });
+
+    it("drops mistyped owner fields", async () => {
+      body({ launchSource: 5, bootParentAlive: "true", bootParentPid: "4242" });
+      const r = await isDashboardRunning(8000);
+      expect(r.running).toBe(true);
+      expect(r).not.toHaveProperty("launchSource");
+      expect(r).not.toHaveProperty("bootParentAlive");
+      expect(r).not.toHaveProperty("bootParentPid");
+    });
+
+    it("omits owner keys when absent", async () => {
+      body({});
+      const r = await isDashboardRunning(8000);
+      expect(r.running).toBe(true);
+      expect(Object.keys(r)).not.toEqual(expect.arrayContaining(["launchSource"]));
+      expect(r).not.toHaveProperty("bootParentAlive");
+      expect(r).not.toHaveProperty("bootParentPid");
+    });
+  });
 });

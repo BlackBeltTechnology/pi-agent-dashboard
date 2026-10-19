@@ -1,8 +1,10 @@
+import * as fs from "node:fs";
+import os from "node:os";
 import nodePath from "node:path";
 import { parseAgentPathGate, resolveAgentPathGate } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { describe, expect, it, vi } from "vitest";
 import { createPathGateHandler, type GatePrompter, type PathGateDeps } from "../handler.js";
-import type { ResolveEnv } from "../resolve.js";
+import { defaultResolveEnv, type ResolveEnv } from "../resolve.js";
 import { Suppression } from "../suppression.js";
 import { createYoloLink } from "../yolo-link.js";
 
@@ -28,6 +30,8 @@ function harness(opts: {
   grant?: PathGateDeps["requestGrant"];
   hasUI?: boolean;
   cwd?: () => string;
+  env?: ResolveEnv;
+  roots?: string[];
 } = {}) {
   let t = 0;
   const timers: Array<{ at: number; fn: () => void; done: boolean }> = [];
@@ -66,7 +70,7 @@ function harness(opts: {
   let n = 0;
   const deps: PathGateDeps = {
     getConfig: () => opts.cfg ?? { enabled: true, timeoutSeconds: 120 },
-    getRoots: async (grants) => ({ workspace: ["/w/repo"], readOnly: [], readWrite: [], grants }),
+    getRoots: async (grants) => ({ workspace: opts.roots ?? ["/w/repo"], readOnly: [], readWrite: [], grants }),
     getGrants: () => [],
     getSensitiveDirs: () => ["/h/.ssh", "/h/.pi"],
     isUngrantable: (s) => s === "/h" || s.startsWith("/h/.ssh"),
@@ -77,7 +81,7 @@ function harness(opts: {
     log: (l) => logs.push(l),
     counters,
     sessionId: () => "S1",
-    env,
+    env: opts.env ?? env,
     now: () => t,
     setTimer: (fn, ms) => { const x = { at: t + ms, fn, done: false }; timers.push(x); return x; },
     clearTimer: (h) => { (h as { done: boolean }).done = true; },
@@ -95,6 +99,29 @@ function harness(opts: {
 }
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
+
+describe("path-gate handler — symlink loop (X10, change: add-path-containment-guard-extension)", () => {
+  it("X10 a symlink loop blocks as error with exactly one error log line", async () => {
+    const tmp = fs.mkdtempSync(nodePath.join(os.tmpdir(), "pg-loop-"));
+    try {
+      const real = fs.realpathSync(tmp);
+      fs.mkdirSync(nodePath.join(real, "repo"));
+      fs.symlinkSync("b", nodePath.join(real, "repo", "a"));
+      fs.symlinkSync("a", nodePath.join(real, "repo", "b"));
+      const h = harness({
+        cwd: () => nodePath.join(real, "repo"),
+        env: defaultResolveEnv(),
+        roots: [nodePath.join(real, "repo")],
+      });
+      const r = await h.call("write", nodePath.join(real, "repo", "a"));
+      expect(r).toMatchObject({ block: true });
+      expect(r!.reason).toContain("error");
+      expect(h.logs.filter((l) => l.startsWith("[path-gate] error"))).toHaveLength(1);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("path-gate handler", () => {
   it("E10 non-gated tool returns undefined with no UI call", async () => {
@@ -187,6 +214,8 @@ describe("path-gate handler", () => {
     await h.call("read", "/h/.ssh/id_rsa");
     expect(h.selects[0].metadata).toMatchObject({ kind: "agent-path-gate", sensitive: true, access: "read", toolCallId: "tc1" });
     expect(h.selects[0].options).toEqual(["Allow once", "Deny"]);
+    // Non-opted prompt: no inline-Other key (test-plan #X3, add-ask-user-inline-other).
+    expect(h.selects[0].metadata).not.toHaveProperty("allowOther");
   });
 
   it("the prompt TITLE (all a TUI shows) names the path and flags a sensitive location (review B2)", async () => {

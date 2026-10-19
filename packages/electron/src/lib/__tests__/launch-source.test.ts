@@ -10,20 +10,20 @@
  * All I/O probes are injected as mocks — no real filesystem, network, or
  * child processes.
  */
-import { describe, it, expect, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  selectLaunchSource,
-  parsePreferOverride,
-  PinnedSourceUnavailableError,
   BundledServerMissingError,
   getBundledCliPath,
-  getOverlayCliPath,
   getLocalCliPath,
+  getOverlayCliPath,
   getServerReadyDeadlineMs,
   type LaunchSourceOpts,
   type LaunchSourceProbes,
+  PinnedSourceUnavailableError,
+  parsePreferOverride,
   type RuntimeLaunchInputs,
   runtimeIdentityEnv,
+  selectLaunchSource,
 } from "../launch-source.js";
 
 function makeProbes(overrides: Partial<LaunchSourceProbes> = {}): Partial<LaunchSourceProbes> {
@@ -74,6 +74,32 @@ describe("selectLaunchSource — attach", () => {
     const result = await selectLaunchSource(baseOpts({ probes }));
     expect(result.kind).toBe("attach");
     if (result.kind === "attach") expect(result.starter).toBe("Standalone");
+  });
+});
+
+// See change: fix-cli-control-electron-server (test-plan #E12): the DEFAULT attach
+// probe reads the published `launchSource`, since /api/health has no `starter`.
+describe("selectLaunchSource — default attach probe", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  async function attachWith(health: Record<string, unknown>) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ ok: true, pid: 1, ...health }), { status: 200 })),
+    );
+    return selectLaunchSource(baseOpts({ probes: { existsSync: vi.fn().mockReturnValue(false) } }));
+  }
+
+  it("launchSource bridge with no starter → attach starter Bridge", async () => {
+    const result = await attachWith({ launchSource: "bridge" });
+    expect(result.kind).toBe("attach");
+    if (result.kind === "attach") expect(result.starter).toBe("Bridge");
+  });
+
+  it("legacy starter-only server still maps", async () => {
+    const result = await attachWith({ starter: "Electron" });
+    if (result.kind === "attach") expect(result.starter).toBe("Electron");
+    else throw new Error("expected attach");
   });
 });
 

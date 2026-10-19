@@ -140,4 +140,99 @@ describe("pi-dashboard stop (real processes)", () => {
     expect(r.stdout).not.toContain("not owned by this HOME");
     expect(await waitFor(async () => !(await answers(port)), 6_000)).toBe(true);
   }, 150_000);
+
+  // ── Announced shutdown (X6-X8) ────────────────────────────────────────────
+  // See change: fix-cli-control-electron-server (test-plan #X6, #X7, #X8; design D4).
+
+  /** Boot a real dashboard in a fresh temp HOME on free ports; resolves once /api/health answers. */
+  async function bootOwnDashboard(prefix: string, config?: Record<string, unknown>) {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+    cleanup.push(() => fs.rmSync(home, { recursive: true, force: true }));
+    if (config) {
+      fs.mkdirSync(path.join(home, ".pi", "dashboard"), { recursive: true });
+      fs.writeFileSync(path.join(home, ".pi", "dashboard", "config.json"), JSON.stringify(config));
+    }
+    const port = await freePort();
+    const piPort = await freePort();
+    const proc = spawn(process.execPath, [WRAPPER, "--port", String(port), "--pi-port", String(piPort), "--no-tunnel"], {
+      stdio: "ignore",
+      env: { ...process.env, HOME: home, USERPROFILE: home },
+    });
+    cleanup.push(() => proc.kill("SIGKILL"));
+    expect(await waitFor(() => answers(port), 60_000), `dashboard did not boot on :${port}`).toBe(true);
+    const dash = path.join(home, ".pi", "dashboard");
+    const exitIntent = (): string | null => {
+      try {
+        return JSON.parse(fs.readFileSync(path.join(dash, "boot-state.json"), "utf-8")).exitIntent ?? null;
+      } catch {
+        return null;
+      }
+    };
+    return { home, port, piPort, dash, proc, exitIntent, args: ["--port", String(port), "--pi-port", String(piPort)] };
+  }
+
+  it("X6: stop of an owned server goes through /api/shutdown (intent shutdown), releases the lock and PID file", async () => {
+    const t0 = Date.now();
+    const d = await bootOwnDashboard("stop-real-x6-");
+    const r = runStop(d.home, d.args);
+    expect(r.stdout).toContain("Dashboard server stopped");
+    expect(await waitFor(async () => !(await answers(d.port)), 5_000)).toBe(true);
+    expect(d.exitIntent()).toBe("shutdown");
+    // The proper-lockfile hold (`server.lock.lock`) is released and the PID file is
+    // removed. `server.lock` / `server.lock.meta.json` persist by design after ANY
+    // clean exit (signal path too); the metadata names a dead pid, which every
+    // reader (classifier, stop sweep) already treats as stale.
+    for (const f of ["server.lock.lock", "server.pid"]) {
+      expect(fs.existsSync(path.join(d.dash, f)), f).toBe(false);
+    }
+    const metaFile = path.join(d.dash, "server.lock.meta.json");
+    if (fs.existsSync(metaFile)) {
+      const metaPid = JSON.parse(fs.readFileSync(metaFile, "utf-8")).pid as number;
+      expect(() => process.kill(metaPid, 0)).toThrow();
+    }
+    expect(Date.now() - t0).toBeLessThan(150_000);
+  }, 150_000);
+
+  it("X7: under requireLocalProof the request is accepted (intent shutdown, not signal)", async () => {
+    const d = await bootOwnDashboard("stop-real-x7-", { requireLocalProof: true });
+    const r = runStop(d.home, d.args);
+    expect(r.stdout).toContain("Dashboard server stopped");
+    expect(await waitFor(async () => !(await answers(d.port)), 5_000)).toBe(true);
+    expect(d.exitIntent()).toBe("shutdown");
+  }, 150_000);
+
+  // POSIX: the bridge dials the unix gateway socket; Windows has no such transport.
+  it.skipIf(process.platform === "win32")(
+    "X8: connected bridges get server_restarting(shutdown, 60 s quiesce) before the socket closes",
+    async () => {
+      const { WebSocket } = await import("ws");
+      const d = await bootOwnDashboard("stop-real-x8-");
+      const sock = path.join(d.dash, `gateway-${d.piPort}.sock`);
+      const ws = new WebSocket(`ws+unix://${sock}:/`);
+      cleanup.push(() => ws.terminate());
+      const frames: Array<Record<string, unknown>> = [];
+      ws.on("message", (raw) => {
+        try {
+          frames.push(JSON.parse(String(raw)));
+        } catch {
+          /* ignore */
+        }
+      });
+      const closed = new Promise<void>((res) => ws.once("close", () => res()));
+      await new Promise<void>((res, rej) => {
+        ws.once("open", () => res());
+        ws.once("error", rej);
+      });
+      ws.send(JSON.stringify({ type: "session_register", sessionId: "x8-fake-bridge", cwd: os.tmpdir(), source: "cli" }));
+      await delay(1000); // let the gateway register the connection
+
+      const r = runStop(d.home, d.args);
+      expect(r.stdout).toContain("Dashboard server stopped");
+      await Promise.race([closed, delay(10_000)]);
+      const restarting = frames.find((f) => f.type === "server_restarting");
+      expect(restarting).toMatchObject({ type: "server_restarting", reason: "shutdown", quiesceMs: 60000 });
+      expect(await waitFor(async () => !(await answers(d.port)), 5_000)).toBe(true);
+    },
+    150_000,
+  );
 });

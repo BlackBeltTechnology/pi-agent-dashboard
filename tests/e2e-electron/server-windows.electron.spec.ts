@@ -66,7 +66,6 @@ const BENIGN_HEALTH = {
   version: "0.0.0",
   launchSource: "standalone",
   launchSourceEffective: "standalone",
-  starter: "Standalone",
   bootParentPid: process.pid,
   ppid: process.pid,
   bootParentAlive: true,

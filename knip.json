@@ -447,6 +447,17 @@
         "src/**/*.{ts,tsx,mjs}"
       ]
     },
+    "packages/path-containment-guard": {
+      "entry": [
+        "src/scope.ts",
+        "src/extension.ts",
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx,mjs}"
+      ]
+    },
     "packages/kb": {
       "entry": [
         "src/index.ts",
