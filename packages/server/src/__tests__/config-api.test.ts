@@ -12,7 +12,7 @@ import {
   safeComputeBindReachability,
   sameReachability,
 } from "../auth/bind-reachability-service.js";
-import { deleteAuthProvider, readConfigRedacted, writeConfigPartial } from "../config-api.js";
+import { deleteAuthProvider, readConfigRedacted, readConfigState, writeConfigPartial } from "../config-api.js";
 import { registerSystemRoutes } from "../routes/system-routes.js";
 
 describe("config-api", () => {
@@ -55,6 +55,22 @@ describe("config-api", () => {
       const config = readConfigRedacted();
       expect(config.auth).toBeUndefined();
       expect(config.port).toBe(3000);
+    });
+  });
+
+  describe("readConfigState (add-acme-dns01-certs)", () => {
+    it("absent: file missing", () => {
+      expect(readConfigState()).toEqual({ state: "absent", raw: null });
+    });
+    it("ok: parses to a JSON object", () => {
+      fs.writeFileSync(configFile, JSON.stringify({ port: 1234, tls: { sources: [] } }));
+      expect(readConfigState()).toEqual({ state: "ok", raw: { port: 1234, tls: { sources: [] } } });
+    });
+    it("corrupt: unparsable or not an object", () => {
+      for (const body of ["{ not json", "null", "[1,2]", "42", '"x"']) {
+        fs.writeFileSync(configFile, body);
+        expect(readConfigState()).toEqual({ state: "corrupt", raw: null });
+      }
     });
   });
 
@@ -185,6 +201,17 @@ describe("config-api", () => {
       expect(result.success).toBe(true);
       const written = JSON.parse(fs.readFileSync(configFile, "utf-8"));
       expect(written.auth.bypassUrls).toEqual(["/webhooks/", "/metrics"]);
+    });
+
+    // add-plugin-capability-routes #E6: trust list survives write; `[]` clears it.
+    it("persists auth.capabilityRoutePlugins and clears it with an empty array", () => {
+      fs.writeFileSync(configFile, JSON.stringify({ auth: { capabilityRoutePlugins: ["x"] } }));
+      expect(loadConfig().auth?.capabilityRoutePlugins).toEqual(["x"]);
+      writeConfigPartial({ auth: { allowedUsers: ["alice"] } });
+      expect(JSON.parse(fs.readFileSync(configFile, "utf-8")).auth.capabilityRoutePlugins).toEqual(["x"]);
+      const result = writeConfigPartial({ auth: { capabilityRoutePlugins: [] } });
+      expect(result.success).toBe(true);
+      expect(JSON.parse(fs.readFileSync(configFile, "utf-8")).auth.capabilityRoutePlugins).toEqual([]);
     });
 
     it("should persist reattachPlacement (change: reattach-move-to-front)", () => {

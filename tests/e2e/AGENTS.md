@@ -14,9 +14,12 @@ One row per file.
 | `apply-fix-to-file.spec.ts` | → see `apply-fix-to-file.spec.ts.AGENTS.md` |
 | `archive-service-sessions-on-end.spec.ts` | L3 #F1/#F5 servi… → see `archive-service-sessions-on-end.spec.ts.AGENTS.md` |
 | `archived-attachment.spec.ts` | → see `archived-attachment.spec.ts.AGENTS.md` |
+| `changed-on-disk-content-gate.spec.ts` | L3 |
 | `composer-liveness-reload.spec.ts` | → see `composer-liveness-reload.spec.ts.AGENTS.md` |
 | `composer-session-strip.spec.ts` | L3 redesign-composer-session-strip (F8–F12). → see `composer-session-strip.spec.ts.AGENTS.md` |
 | `context-mode-settings.spec.ts` | L3 F1/F2 → see `context-mode-settings.spec.ts.AGENTS.md` |
+| `craft-web-editor.spec.ts` | L3 WordCraft F1–F9, X7, P1/P2. → see `craft-web-editor.spec.ts.AGENTS.md` |
+| `editor-pane-file-handler.spec.ts` | L3 F1–F3, F11, F12, X9. → see `editor-pane-file-handler.spec.ts.AGENTS.md` |
 | `first-run-create-project.spec.ts` | → see `first-run-create-project.spec.ts.AGENTS.md` |
 | `first-run-skip-providers.spec.ts` | → see `first-run-skip-providers.spec.ts.AGENTS.md` |
 | `hermes-model-override.spec.ts` | L3 F3 → see `hermes-model-override.spec.ts.AGENTS.md` |
@@ -29,7 +32,7 @@ One row per file.
 | `model-roles-promotion.spec.ts` | L3 spec. → see `model-roles-promotion.spec.ts.AGENTS.md` |
 | `gmail-plugin.spec.ts` | L3 gmail-plugin vs in-container fake Google: F1–… → see `gmail-plugin.spec.ts.AGENTS.md` |
 | `notify-collapse.spec.ts` | → see `notify-collapse.spec.ts.AGENTS.md` |
-| `pi-settings-editor.spec.ts` | L3 pi settings (#F13/#F14) |
+| `pi-settings-editor.spec.ts` | L3 pi settings #F13/#F14 |
 | `plugin-embedded-app.spec.ts` | L3 demo `"content"` embedded app (F1/F2). → see `plugin-embedded-app.spec.ts.AGENTS.md` |
 | `plugin-oauth-flow.spec.ts` | → see `plugin-oauth-flow.spec.ts.AGENTS.md` |
 | `preview-denial-remedy.spec.ts` | L3 preview denial remedy (#F1,#F4-#F13,#X1,#X2). → see `preview-denial-remedy.spec.ts.AGENTS.md` |
@@ -71,10 +74,9 @@ One row per file.
 | `custom-entry-om-renderer.spec.ts` | L3 (change: add-custom-entry-renderer-… → see `custom-entry-om-renderer.spec.ts.AGENTS.md` |
 | `custom-entry-replay-parity.spec.ts` | L3 custom-entry replay parity → see `custom-entry-replay-parity.spec.ts.AGENTS.md` |
 | `custom-entry-web-search.spec.ts` | L3 F17/F18. → see `custom-entry-web-search.spec.ts.AGENTS.md` |
-| `dashboard-slash.spec.ts` | → see `dashboard-slash.spec.ts.AGENTS.md` |
+| `dashboard-slash.spec.ts` | Browser E2E: spawn session → `/dashboard:server-… → see `dashboard-slash.spec.ts.AGENTS.md` |
 | `directory-home.spec.ts` | L3 for the `/folder/:encodedCwd` directory home… → see `directory-home.spec.ts.AGENTS.md` |
-| `editor-pane.spec.ts` | → see `editor-pane.spec.ts.AGENTS.md` |
-| `editor-pane-file-handlers.spec.ts` | → see `editor-pane-file-handlers.spec.ts.AGENTS.md` |
+| `editor-pane.spec.ts` | Playwright E2E for internal Monaco editor pane… → see `editor-pane.spec.ts.AGENTS.md` |
 | `durable-session-diff.spec.ts` | L3 (change… → see `durable-session-diff.spec.ts.AGENTS.md` |
 | `empty-model-selector.spec.ts` | L3 for `open-empty-model-selector`. Proves the… → see `empty-model-selector.spec.ts.AGENTS.md` |
 | `model-favorites-cross-surface.spec.ts` | L3 F3 of… → see `model-favorites-cross-surface.spec.ts.AGENTS.md` |
@@ -97,7 +99,7 @@ One row per file.
 | `folder-actions-menu.spec.ts` | Playwright spec. Folder actions menu… → see `folder-actions-menu.spec.ts.AGENTS.md` |
 | `folder-collapse-persistence.spec.ts` | L3 folder collapse persistence. → see `folder-collapse-persistence.spec.ts.AGENTS.md` |
 | `folder-collapse-seek.spec.ts` | L3 `persist-folder-collapse-server-side` #F5… → see `folder-collapse-seek.spec.ts.AGENTS.md` |
-| `folder-collapse-worktree.spec.ts` | L3 persist-folder-collapse-server-side #F4/#F7. → see `folder-collapse-worktree.spec.ts.AGENTS.md` |
+| `folder-collapse-worktree.spec.ts` | → see `folder-collapse-worktree.spec.ts.AGENTS.md` |
 | `folder-membership-drag.spec.ts` | L3 for `drag-folders-across-worksp… → see `folder-membership-drag.spec.ts.AGENTS.md` |
 | `followup-image-queue.spec.ts` | L3 for `fix-bridge-followup-image-drop` (test-pl… → see `followup-image-queue.spec.ts.AGENTS.md` |
 | `followup-settle-drain.spec.ts` | L3 follow-up drain on `agent_settled`. → see `followup-settle-drain.spec.ts.AGENTS.md` |
@@ -115,7 +117,7 @@ One row per file.
 | `host-gate-allow.spec.ts` | L3 for the Host-gate operator flow (test-plan #F… → see `host-gate-allow.spec.ts.AGENTS.md` |
 | `host-pressure-badge.spec.ts` | L3 for `fix-false-unresponsive-badge` (#F3, #F4).… → see `host-pressure-badge.spec.ts.AGENTS.md` |
 | `history-backfill-gap.spec.ts` | → see `history-backfill-gap.spec.ts.AGENTS.md` |
-| `history-backfill-perf.spec.ts` | L3 P1/P2 for `fix-lazy-history-backfill-ux`, met… → see `history-backfill-perf.spec.ts.AGENTS.md` |
+| `history-backfill-perf.spec.ts` | → see `history-backfill-perf.spec.ts.AGENTS.md` |
 | `inline-screenshot.spec.ts` | Playwright E2E for inline agent screenshot artif… → see `inline-screenshot.spec.ts.AGENTS.md` |
 | `inline-terminal-transcript.spec.ts` | L3 inline-terminal transcript → see `inline-terminal-transcript.spec.ts.AGENTS.md` |
 | `kb-folder-slot.spec.ts` | Playwright spec. KB folder slot end-to-end in Do… → see `kb-folder-slot.spec.ts.AGENTS.md` |
@@ -157,7 +159,7 @@ One row per file.
 | `package-queue-visible.spec.ts` | Browser E2E gate for… → see `package-queue-visible.spec.ts.AGENTS.md` |
 | `pairing-qr.spec.ts` | Browser E2E for the camera-scannable pairing QR… → see `pairing-qr.spec.ts.AGENTS.md` |
 | `remote-access-wizard.spec.ts` | L3 dialog. → see `remote-access-wizard.spec.ts.AGENTS.md` |
-| `replay-live-tool-not-orphaned.spec.ts` | L3 restart mid-call → sidecar |
+| `replay-live-tool-not-orphaned.spec.ts` | L3 restart mid-call |
 | `retro-ux-plugin-settings-wave-2.spec.ts` | L3 E36–E39, F7, F8. → see `retro-ux-plugin-settings-wave-2.spec.ts.AGENTS.md` |
 | `runtime-extension-reload-convergence.spec.ts` | F5 → see `runtime-extension-reload-convergence.spec.ts.AGENTS.md` |
 | `runtime-updates-remote-local.spec.ts` | X14 → see `runtime-updates-remote-local.spec.ts.AGENTS.md` |
@@ -185,10 +187,10 @@ One row per file.
 | `recommended-local-name-match.spec.ts` | L3 spec (test-plan #F3, change… → see `recommended-local-name-match.spec.ts.AGENTS.md` |
 | `recommended-requires.spec.ts` | E2E for recommended-extension `requires` probe. → see `recommended-requires.spec.ts.AGENTS.md` |
 | `reconcile-heal.spec.ts` | Playwright spec (task 5.1, change… → see `reconcile-heal.spec.ts.AGENTS.md` |
-| `redesign-provider-add-flow.spec.ts` | L3: Add-provider dialog + section-owne… → see `redesign-provider-add-flow.spec.ts.AGENTS.md` |
+| `redesign-provider-add-flow.spec.ts` | → see `redesign-provider-add-flow.spec.ts.AGENTS.md` |
 | `redesign-providers-list.spec.ts` | L3: the connected list. → see `redesign-providers-list.spec.ts.AGENTS.md` |
 | `reducer-poisoned-cache-heal.spec.ts` | L3 reducer-poisoned cache heal. → see `reducer-poisoned-cache-heal.spec.ts.AGENTS.md` |
-| `registry-shed-sidebar-convergence.spec.ts` | L3 #F7: shed registry burs… → see `registry-shed-sidebar-convergence.spec.ts.AGENTS.md` |
+| `registry-shed-sidebar-convergence.spec.ts` | → see `registry-shed-sidebar-convergence.spec.ts.AGENTS.md` |
 | `remote-transcript-read.spec.ts` | L3 D12 READ half of add-pi-gateway-tra… → see `remote-transcript-read.spec.ts.AGENTS.md` |
 | `replay-delta-on-reload.spec.ts` | Playwright spec. Strategy A: reload of… → see `replay-delta-on-reload.spec.ts.AGENTS.md` |
 | `replay-in-flight-pill.spec.ts` | Playwright spec. → see `replay-in-flight-pill.spec.ts.AGENTS.md` |
@@ -209,7 +211,7 @@ One row per file.
 | `session-state-honesty.spec.ts` | L3 rendered-honesty gate (change… → see `session-state-honesty.spec.ts.AGENTS.md` |
 | `session-tags.spec.ts` | E2E for change add-session-tags (task 7.… → see `session-tags.spec.ts.AGENTS.md` |
 | `sessions-page-stub-group.spec.ts` | L3 for the `sessions_page` stub-group… → see `sessions-page-stub-group.spec.ts.AGENTS.md` |
-| `settings-default-model-catalogue.spec.ts` | L3 gate on the zero-session… → see `settings-default-model-catalogue.spec.ts.AGENTS.md` |
+| `settings-default-model-catalogue.spec.ts` | → see `settings-default-model-catalogue.spec.ts.AGENTS.md` |
 | `severity-contrast.spec.ts` | L3 gate for `unify-message-severity-colors` +… → see `severity-contrast.spec.ts.AGENTS.md` |
 | `settings-provider-auth-corrupt-authfile.spec.ts` | → see `settings-provider-auth-corrupt-authfile.spec.ts.AGENTS.md` |
 | `skill-atlas.spec.ts` | L3 atlas plugin → see `skill-atlas.spec.ts.AGENTS.md` |
@@ -249,7 +251,7 @@ One row per file.
 | `uncommitted-indicator-commit.spec.ts` | E2E uncommitted-indicator +… → see `uncommitted-indicator-commit.spec.ts.AGENTS.md` |
 | `untrusted-content-guard.spec.ts` | L3 spec. → see `untrusted-content-guard.spec.ts.AGENTS.md` |
 | `vault-request-access.spec.ts` | L3 Vault callout Request access link (F3). → see `vault-request-access.spec.ts.AGENTS.md` |
-| `worktree-grouping-survives-remove.spec.ts` | L3 fix-worktree-grouping-l… → see `worktree-grouping-survives-remove.spec.ts.AGENTS.md` |
+| `worktree-grouping-survives-remove.spec.ts` | → see `worktree-grouping-survives-remove.spec.ts.AGENTS.md` |
 | `worktree-init-feedback.spec.ts` | Playwright E2E for friendly worktree-init fe… → see `worktree-init-feedback.spec.ts.AGENTS.md` |
 | `yolo-indicator-layout.spec.ts` | L3 YOLO bar tint + composer strip… → see `yolo-indicator-layout.spec.ts.AGENTS.md` |
 | `zrok-v2-tunnel.spec.ts` | L3 zrok v2 F1–F3. → see `zrok-v2-tunnel.spec.ts.AGENTS.md` |

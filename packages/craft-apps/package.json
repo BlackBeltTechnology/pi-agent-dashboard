@@ -90,8 +90,10 @@
   "dependencies": {
     "@blackbelt-technology/pi-dashboard-nano-banana": "^0.9.0",
     "@blackbelt-technology/pi-dashboard-shared": "^0.9.0",
+    "@types/yauzl": "^3.4.0",
     "fflate": "^0.8.3",
-    "yaml": "^2.9.0"
+    "yaml": "^2.9.0",
+    "yauzl": "^3.4.0"
   },
   "devDependencies": {
     "esbuild": "^0.28.2",

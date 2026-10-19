@@ -7,14 +7,16 @@
  * See change: improve-content-editor (tasks §3.3).
  */
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useCallback, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Terminal keep-alive probes (change: add-lazy-terminal-diff-bootstrap). The
 // real TerminalView opens an xterm + WebSocket; the contract under test is the
 // MOUNT lifecycle, so a probe counts mounts per terminal id. `vi.hoisted` keeps
 // the counters available to the hoisted `vi.mock` factory.
-const { mockMountCounts, resetMountCounts } = vi.hoisted(() => ({
+const { mockMountCounts, resetMountCounts, monacoMounts } = vi.hoisted(() => ({
+  monacoMounts: { count: 0 },
   mockMountCounts: {} as Record<string, number>,
   resetMountCounts: () => {
     for (const k of Object.keys(mockMountCounts)) delete mockMountCounts[k];
@@ -40,7 +42,17 @@ vi.mock("../../../lib/api/api-context.js", () => ({ getApiBase: () => "" }));
 
 // Keep the keep-alive tests off the heavyweight Monaco chunk (opening a
 // `monaco` file tab must not pull `monaco-editor` into the jsdom test).
-vi.mock("../MonacoBuffer.js", () => ({ default: () => <div data-testid="monaco-viewer" /> }));
+vi.mock("../MonacoBuffer.js", async () => {
+  const React = await import("react");
+  return {
+    default: () => {
+      React.useEffect(() => {
+        monacoMounts.count++;
+      }, []);
+      return React.createElement("div", { "data-testid": "monaco-viewer" });
+    },
+  };
+});
 
 import { TREE_VISIBLE_KEY_PREFIX } from "../../../lib/util/tree-visible.js";
 import { SplitWorkspaceProvider, useSplitWorkspace } from "../../split/SplitWorkspaceContext.js";
@@ -287,5 +299,156 @@ describe("EditorPane — terminal keep-alive (lazy layer + activation latch)", (
     fireEvent.click(screen.getByTestId("open-t1"));
     await screen.findByTestId("terminal-view-t1");
     expect(mockMountCounts.t1).toBe(1);
+  });
+});
+
+// ── Changed-on-disk verification wiring (baseline before mount, Refresh, activation) ─
+// See change: gate-changed-on-disk-by-content (test-plan #F1, #F9, #F10).
+describe("EditorPane — changed-on-disk verification wiring", () => {
+  let disk: Map<string, string>;
+  let digestCalls: Array<{ path: string; purpose: string }>;
+  let digestDelayMs: number;
+  let setCand!: React.Dispatch<React.SetStateAction<Map<string, number>>>;
+  let setSession!: React.Dispatch<React.SetStateAction<string>>;
+  let gen = 0;
+  const onWatchFiles = vi.fn();
+
+  function Host() {
+    const [cand, setC] = useState<Map<string, number>>(new Map());
+    const [session, setS] = useState("sV");
+    setCand = setC;
+    setSession = setS;
+    const onClear = useCallback((p: string, g?: number) => {
+      setC((prev) => {
+        if (!prev.has(p) || (g !== undefined && prev.get(p) !== g)) return prev;
+        const n = new Map(prev);
+        n.delete(p);
+        return n;
+      });
+    }, []);
+    return (
+      <SplitWorkspaceProvider
+        sessionId={session}
+        cwd="/proj"
+        orientation="h"
+        changeDetection
+        changedFiles={cand}
+        onClearChanged={onClear}
+        onWatchFiles={onWatchFiles}
+      >
+        <EditorPane />
+        <OpenProbe />
+        <div data-testid="candidate-count">{cand.size}</div>
+      </SplitWorkspaceProvider>
+    );
+  }
+
+  function OpenProbe() {
+    const { openInSplit } = useSplitWorkspace();
+    return (
+      <>
+        <button type="button" data-testid="open-foo" onClick={() => openInSplit("foo.ts")}>
+          foo
+        </button>
+        <button type="button" data-testid="open-bar-bg" onClick={() => openInSplit("bar.ts", undefined, undefined, { background: true })}>
+          bar
+        </button>
+      </>
+    );
+  }
+
+  beforeEach(() => {
+    disk = new Map([["foo.ts", "S"], ["bar.ts", "B"]]);
+    digestCalls = [];
+    digestDelayMs = 0;
+    onWatchFiles.mockClear();
+    monacoMounts.count = 0;
+    gen = 0;
+    globalThis.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url.includes("/api/file/digest")) {
+        const u = new URL(url, "http://x");
+        const path = u.searchParams.get("path") ?? "";
+        digestCalls.push({ path, purpose: u.searchParams.get("purpose") ?? "" });
+        const body = JSON.stringify({ success: true, data: { sha1: disk.get(path) ?? "none", size: 1, mtime: 1 } });
+        return new Promise<Response>((resolve) => setTimeout(() => resolve(new Response(body, { status: 200 })), digestDelayMs));
+      }
+      return Promise.resolve(new Response(JSON.stringify({ success: true, data: { entries: [] } }), { status: 200 }));
+    }) as unknown as typeof fetch;
+  });
+
+  it("F1: the viewer is not mounted until the baseline digest resolves, then mounts once", async () => {
+    digestDelayMs = 200;
+    render(<Host />);
+    fireEvent.click(screen.getByTestId("open-foo"));
+    await waitFor(() => expect(digestCalls).toEqual([{ path: "foo.ts", purpose: "baseline" }]));
+    expect(screen.queryByTestId("monaco-viewer")).toBeNull();
+    expect(screen.getByText("Loading viewer…")).toBeTruthy();
+    await waitFor(() => expect(screen.getByTestId("monaco-viewer")).toBeTruthy(), { timeout: 2000 });
+    expect(monacoMounts.count).toBe(1);
+  });
+
+  it("F9: Refresh clears the banner, re-captures the baseline, re-sends the watch set and remounts the viewer", async () => {
+    render(<Host />);
+    fireEvent.click(screen.getByTestId("open-foo"));
+    await waitFor(() => expect(screen.getByTestId("monaco-viewer")).toBeTruthy());
+    disk.set("foo.ts", "S2");
+    act(() => setCand((prev) => new Map(prev).set("foo.ts", ++gen)));
+    await waitFor(() => expect(screen.getByTestId("changed-on-disk-banner")).toBeTruthy(), { timeout: 2000 });
+
+    const baselinesBefore = digestCalls.filter((c) => c.purpose === "baseline").length;
+    const mountsBefore = monacoMounts.count;
+    onWatchFiles.mockClear();
+    fireEvent.click(screen.getByTestId("changed-refresh"));
+    await waitFor(() => expect(screen.queryByTestId("changed-on-disk-banner")).toBeNull());
+    await waitFor(() => expect(monacoMounts.count).toBe(mountsBefore + 1));
+    expect(digestCalls.filter((c) => c.purpose === "baseline").length).toBe(baselinesBefore + 1);
+    expect(onWatchFiles).toHaveBeenCalledWith("sV", "/proj", ["foo.ts"]);
+    // The new baseline is S2: an identical rewrite no longer banners.
+    act(() => setCand((prev) => new Map(prev).set("foo.ts", ++gen)));
+    // The candidate is verified (digest == new baseline) and cleared; only then is "no banner" meaningful.
+    await waitFor(() => expect(screen.getByTestId("candidate-count").textContent).toBe("0"), { timeout: 3000 });
+    expect(screen.queryByTestId("changed-on-disk-banner")).toBeNull();
+  });
+
+  it("review-B1: switching to a session whose active tab has the SAME path/key still captures a baseline before the viewer mounts (review B1)", async () => {
+    render(<Host />);
+    // sV: open foo.ts, mount (so its split state persists with foo.ts active).
+    fireEvent.click(screen.getByTestId("open-foo"));
+    await waitFor(() => expect(screen.getByTestId("monaco-viewer")).toBeTruthy(), { timeout: 3000 });
+    // sW: open the same file, so BOTH sessions persist foo.ts as the active tab.
+    act(() => setSession("sW"));
+    fireEvent.click(screen.getByTestId("open-foo"));
+    await waitFor(() => expect(screen.getByTestId("monaco-viewer")).toBeTruthy(), { timeout: 3000 });
+    // Switch back: sV's persisted tab is active at once, so the viewer key is unchanged.
+    const baselinesBefore = digestCalls.filter((c) => c.purpose === "baseline").length;
+    act(() => setSession("sV"));
+    await waitFor(() => expect(digestCalls.filter((c) => c.purpose === "baseline").length).toBe(baselinesBefore + 1), { timeout: 3000 });
+    await waitFor(() => expect(screen.getByTestId("monaco-viewer")).toBeTruthy(), { timeout: 3000 });
+    // An identical-bytes candidate must now be quiet (it banners when no baseline was captured).
+    act(() => setCand((prev) => new Map(prev).set("foo.ts", ++gen)));
+    await waitFor(() => expect(screen.getByTestId("candidate-count").textContent).toBe("0"), { timeout: 3000 });
+    expect(screen.queryByTestId("changed-on-disk-banner")).toBeNull();
+  }, 20_000);
+
+  it("F10: activating a background tab re-captures its baseline and clears its candidate and banner", async () => {
+    render(<Host />);
+    fireEvent.click(screen.getByTestId("open-foo"));
+    await waitFor(() => expect(screen.getByTestId("monaco-viewer")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("open-bar-bg")); // bar.ts: background, no baseline yet
+    disk.set("bar.ts", "B2");
+    act(() => setCand((prev) => new Map(prev).set("bar.ts", ++gen)));
+    // bar.ts has no baseline, so its candidate is verified (and banners) in the background.
+    await waitFor(() => expect(digestCalls.some((c) => c.path === "bar.ts" && c.purpose === "verify")).toBe(true), { timeout: 3000 });
+    // foo.ts is active: no banner for it.
+    expect(screen.queryByTestId("changed-on-disk-banner")).toBeNull();
+
+    const baselinesBefore = digestCalls.filter((c) => c.path === "bar.ts" && c.purpose === "baseline").length;
+    fireEvent.click(screen.getByText("bar.ts")); // activate the tab
+    await waitFor(() =>
+      expect(digestCalls.filter((c) => c.path === "bar.ts" && c.purpose === "baseline").length).toBe(baselinesBefore + 1),
+    );
+    await waitFor(() => expect(screen.getByTestId("monaco-viewer")).toBeTruthy());
+    expect(screen.queryByTestId("changed-on-disk-banner")).toBeNull();
   });
 });

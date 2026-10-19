@@ -113,6 +113,8 @@ export default defineConfig({
       // integrity + manifest tests; relay-instance/manager tests land with
       // workstream 2c. A package absent here never runs its tests.
       "packages/browser-plugin",
+      // craft-web-plugin (change: edit-office-in-pane-with-craft-web): craft-web server (provisioning, mount, validator), shim and CraftFrameHost tests.
+      "packages/craft-web-plugin",
       "packages/blackhole-plugin",
       // web-access-plugin (change: render-unclaimed-custom-entries): pi-web-access card + parser.
       "packages/web-access-plugin",

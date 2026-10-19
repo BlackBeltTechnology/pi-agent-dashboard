@@ -1,347 +1,470 @@
 /**
  * `POST /api/file/write-binary` — the save road for `editor-pane-file-handler`
- * edit claims (change: add-editor-pane-file-handlers, design D4).
- *
- * Registered as an ENCAPSULATED Fastify plugin holding only this route, so its
- * `application/octet-stream` Buffer parser and 128 MiB `bodyLimit` never reach
- * another route (the rest keep Fastify's 1 MiB default).
+ * plugins. Registered in an ENCAPSULATED Fastify plugin so the
+ * `application/octet-stream` Buffer parser (and its 128 MiB body limit) never
+ * leaks to other routes (their 1 MiB default stays).
  *
  * Query: `cwd`, `path`, `mode=overwrite|copy`, `claim=<pluginId>/<claimId>`,
- * `expectSha1` (REQUIRED for overwrite — absent is a 400, never "skip the check").
- * Body: the raw bytes. Success: `{ success:true, data:{ mtime, sha1, path } }`
- * (`path` = absolute; for a copy the new file's path).
+ * `expectSha1` (REQUIRED for overwrite; absent → 400). Body: raw bytes.
+ * 200 `{success:true, data:{path, mtime, sha1}}` (path is cwd-relative);
+ * 409 `{success:false, error, sha1?, mtime?}` on content conflict (no
+ * sha1/mtime when the file is gone) or "no free name"; 400/403/413/422/503
+ * per `file-write-binary` order documented in the handler.
  *
- * Refusals (nothing is written): 400 bad query · 403 unknown cwd / unknown,
- * disabled or non-edit claim / outside cwd / extension not claimed / validator
- * `enabled()` false · 409 content changed since the snapshot (`sha1?`, `mtime?`
- * top-level; none when the file is gone) or no free copy name · 413 over the
- * claim's `maxBytes` (or the 128 MiB body limit) · 422 validator rejected / timed
- * out · 503 validator pool busy (retryable) or the claim's `validator: true`
- * plugin server entry is not loaded/registered (fail closed).
+ * Order: query → claim (enabled edit claim; validator `enabled()`) → known cwd
+ * → target authz (`isWritableHandlerTarget`) → fail-closed validator check →
+ * size cap → validator (worker pool, BEFORE the lock) → under the realpath
+ * lock: content-hash conflict check → tmp+rename (mode preserved) | copy via `wx`.
  *
- * Order: authorize → size → validator (BEFORE the lock, so a slow validator never
- * stalls other saves) → per-realpath lock shared with `/api/file/write` →
- * content-hash check → tmp + rename keeping the file mode. Copy: exclusive create
- * (`wx`), `<stem>.<copySuffix>[-n].<ext>`, never overwrites.
+ * See change: add-editor-pane-file-handlers (D4).
  */
 import { createHash, randomBytes } from "node:crypto";
-import { constants as fsConstants } from "node:fs";
+import { createReadStream } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { HANDLER_MAX_BYTES } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js";
+import {
+  FILE_HANDLER_COPY_SUFFIX_RE,
+  HANDLER_MAX_BYTES,
+  parseFileHandlerClaimKey,
+} from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/file-handler.js";
+import type { PluginClaim } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js";
+import { DIGEST_CEILING_BYTES } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
 import type { FastifyInstance } from "fastify";
-import { decodeFileUri } from "../lib/decode-file-uri.js";
-import { sha1OfHandle } from "../lib/file-digest.js";
-import { FileValidatorBusyError, type FileValidatorPool } from "../lib/file-validator-pool.js";
-import { lockKeyFor, serializeWrite } from "../lib/file-write-lock.js";
+import { serializeWrite } from "../lib/file-write-lock.js";
 import { within } from "../lib/path-containment.js";
 import {
-  copyBasename,
-  type HandlerClaimInfo,
   type HandlerTarget,
   isWritableHandlerTarget,
-  MAX_COPY_ATTEMPTS,
 } from "../lib/writable-handler-target.js";
-import type { SessionManager } from "../session/memory-session-manager.js";
 import type { NetworkGuard } from "./route-deps.js";
 
-/** A registered validator, as the route needs it (`FileValidatorRegistration` structurally). */
-export interface RegisteredValidator {
-  modulePath: string;
+/** A claim as resolved from the server-side plugin registry at request time. */
+export interface HandlerClaimInfo {
+  pluginId: string;
+  claim: PluginClaim;
+  /** Plugin enabled right now (config resolution read at request time). */
+  enabled: boolean;
+  /** Plugin's server entry is loaded (`getPluginStatusStore().getStatus(id)?.loaded`). */
+  serverLoaded: boolean;
+}
+
+/** Structural view of a registered validator (see `FileValidatorRegistration`). */
+export interface HandlerValidatorRef {
+  moduleUrl: string;
   enabled?: () => boolean;
 }
 
-export interface FileWriteBinaryDeps {
-  sessionManager: Pick<SessionManager, "listAll">;
-  networkGuard: NetworkGuard;
-  /** Claim from the server-loaded plugin registry + the plugin's enabled state, read per request. */
-  resolveClaim: (pluginId: string, claimId: string) => HandlerClaimInfo | null;
-  /** `getPluginStatusStore().getStatus(id)?.loaded === true`. */
-  isPluginServerLoaded: (pluginId: string) => boolean;
-  getValidator: (pluginId: string, claimId: string) => RegisteredValidator | undefined;
-  pool: FileValidatorPool;
-  /** Observability sink; defaults to `console.info`. */
+/** Structural view of the worker pool (see `FileValidatorPool`). */
+interface HandlerValidatorPool {
+  run(job: {
+    moduleUrl: string;
+    bytes: Buffer;
+    ext: string;
+  }): Promise<
+    | { kind: "ok"; bytes: Buffer }
+    | { kind: "rejected"; reason: string }
+    | { kind: "error"; reason: string }
+    | { kind: "timeout" }
+    | { kind: "busy" }
+  >;
+}
+
+export interface FileHandlerDeps {
+  /** `claim` query value (`<pluginId>/<claimId>`) → live claim info, or `undefined` when unknown. */
+  resolveClaim(claimKey: string): HandlerClaimInfo | undefined;
+  getValidator(
+    pluginId: string,
+    claimId: string,
+  ): HandlerValidatorRef | undefined;
+  validatorPool: HandlerValidatorPool;
+  /** One structured line per outcome (counts only, cwd-relative path). Default `console.info`. */
   log?: (line: string) => void;
 }
 
-const CLAIM_RE = /^([^/\s]+)\/([a-z][a-z0-9-]{0,31})$/;
+export interface FileWriteBinaryRouteDeps {
+  sessionManager: { listAll(): ReadonlyArray<{ cwd: string }> };
+  networkGuard: NetworkGuard;
+  fileHandlers?: FileHandlerDeps;
+}
+
+interface Query {
+  cwd?: string;
+  path?: string;
+  mode?: string;
+  claim?: string;
+  expectSha1?: string;
+}
+
 const SHA1_RE = /^[0-9a-f]{40}$/;
+const MAX_COPY_ATTEMPTS = 99;
 
-const sha1Hex = (bytes: Buffer): string => createHash("sha1").update(bytes).digest("hex");
-
-type Fail = { code: number; error: string; extra?: Record<string, unknown>; outcome: string };
-
-type Query = { cwd?: string; path?: string; mode?: string; claim?: string; expectSha1?: string };
-type ValidatorVerdict = Awaited<ReturnType<FileValidatorPool["validate"]>>;
-
-/** Parse + shape-check the query (400s). `relForLog` is filled in later by `authorize`. */
-function parseQuery(
-  q: Query,
-):
-  | Fail
-  | { cwd: string; rawPath: string; mode: "overwrite" | "copy"; pluginId: string; claimId: string; expectSha1?: string } {
-  const mode = q.mode === "overwrite" || q.mode === "copy" ? q.mode : undefined;
-  const claimMatch = typeof q.claim === "string" ? CLAIM_RE.exec(q.claim) : null;
-  const cwd = typeof q.cwd === "string" && q.cwd ? q.cwd : undefined;
-  if (!cwd || typeof q.path !== "string" || !q.path || !mode || !claimMatch) {
-    return {
-      code: 400,
-      error: "cwd, path, mode (overwrite|copy) and claim (<pluginId>/<claimId>) are required",
-      outcome: "bad-request",
-    };
-  }
-  const expectSha1 = typeof q.expectSha1 === "string" ? q.expectSha1.toLowerCase() : undefined;
-  if (mode === "overwrite" && (!expectSha1 || !SHA1_RE.test(expectSha1))) {
-    return { code: 400, error: "expectSha1 (hex sha1 of the snapshot) is required for overwrite", outcome: "bad-request" };
-  }
-  return { cwd, rawPath: q.path, mode, pluginId: claimMatch[1], claimId: claimMatch[2], expectSha1 };
+async function sha1OfFile(file: string): Promise<string> {
+  const hash = createHash("sha1");
+  for await (const chunk of createReadStream(file))
+    hash.update(chunk as Buffer);
+  return hash.digest("hex");
 }
 
-/** Run the pool; a saturated pool is a retryable 503 `Fail`, any other throw propagates. */
-async function runPool(
-  pool: FileValidatorPool,
-  modulePath: string,
-  body: Buffer,
-  ext: string,
-): Promise<ValidatorVerdict | Fail> {
+const NO_HANDLERS: FileHandlerDeps = {
+  resolveClaim: () => undefined,
+  getValidator: () => undefined,
+  validatorPool: {
+    run: async () => ({ kind: "error", reason: "no validator pool" }),
+  },
+};
+
+type Outcome = { code: number; body: Record<string, unknown> };
+const fail = (
+  code: number,
+  error: string,
+  extra: Record<string, unknown> = {},
+): Outcome => ({
+  code,
+  body: { success: false, error, ...extra },
+});
+
+interface WriteCtx {
+  target: HandlerTarget;
+  bytes: Buffer;
+  sha1: string;
+  rel: (p: string) => string;
+}
+
+/** Overwrite under the realpath lock: content-hash check, then tmp + rename keeping the file mode. */
+async function overwrite(
+  ctx: WriteCtx,
+  expectSha1: string,
+  reauthorize: () => Promise<HandlerTarget | null>,
+): Promise<Outcome> {
+  const again = await reauthorize();
+  if (!again || again.real !== ctx.target.real)
+    return fail(403, "target is not a writable handler file in scope");
+  const real = again.real;
+  let current: import("node:fs").Stats;
   try {
-    return await pool.validate(modulePath, body, ext);
+    current = await fs.stat(real);
+  } catch {
+    return fail(409, "file no longer exists"); // gone → no sha1 (client hides Reload)
+  }
+  if (!current.isFile()) return fail(403, "target is not a regular file");
+  if (current.size > DIGEST_CEILING_BYTES)
+    return fail(409, "file too large to verify", { mtime: current.mtimeMs });
+  const currentSha1 = await sha1OfFile(real).catch(() => null);
+  if (currentSha1 === null) return fail(409, "file no longer exists");
+  if (currentSha1 !== expectSha1) {
+    return fail(409, "file changed on disk since it was loaded", {
+      sha1: currentSha1,
+      mtime: current.mtimeMs,
+    });
+  }
+  const tmp = path.join(
+    path.dirname(real),
+    `.${path.basename(real)}.${randomBytes(8).toString("hex")}.tmp`,
+  );
+  try {
+    await fs.writeFile(tmp, ctx.bytes, { flag: "wx" });
+    await fs.chmod(tmp, current.mode & 0o777);
+    await fs.rename(tmp, real);
   } catch (err) {
-    if (err instanceof FileValidatorBusyError) {
-      return { code: 503, error: "validator is busy; retry shortly", extra: { retryable: true }, outcome: "busy" };
-    }
-    throw err;
+    await fs.rm(tmp, { force: true }).catch(() => {});
+    return fail(500, err instanceof Error ? err.message : "write failed");
   }
+  const after = await fs.stat(real);
+  return {
+    code: 200,
+    body: {
+      success: true,
+      data: {
+        path: ctx.rel(ctx.target.requested),
+        mtime: after.mtimeMs,
+        sha1: ctx.sha1,
+      },
+    },
+  };
 }
 
-/** One observability line: claim, mode, byte count, outcome, cwd-relative path only. */
-function outcomeLine(q: Query, bytes: number, outcome: string, relPath: string): string {
-  const mode = q.mode === "copy" || q.mode === "overwrite" ? q.mode : "?";
-  return `[file-write-binary] claim=${JSON.stringify(q.claim ?? "")} mode=${mode} bytes=${bytes} outcome=${outcome} path=${JSON.stringify(relPath)}`;
-}
-
-const forbidden = (error: string): Fail => ({ code: 403, error, outcome: "forbidden" });
-
-export async function registerFileWriteBinaryRoutes(fastify: FastifyInstance, deps: FileWriteBinaryDeps): Promise<void> {
-  const log = deps.log ?? ((line: string) => console.info(line));
-
-  /** 403 authorization: claim, plugin switch, known cwd, target. Nothing is read or written. */
-  async function authorize(
-    p: { cwd: string; rawPath: string; mode: "overwrite" | "copy"; pluginId: string; claimId: string },
-    onPath: (relForLog: string) => void,
-  ): Promise<
-    | Fail
-    | { claim: HandlerClaimInfo; validator?: RegisteredValidator; target: Extract<HandlerTarget, { ok: true }>; requested: string }
-  > {
-    const claim = deps.resolveClaim(p.pluginId, p.claimId);
-    if (!claim) return forbidden("unknown file-handler claim");
-    const validator = deps.getValidator(p.pluginId, p.claimId);
-    // The plugin's own switch is evaluated before anything else for the claim.
-    if (validator?.enabled && !safeEnabled(validator.enabled)) {
-      return forbidden("saves through this claim are disabled by its plugin");
+/** Copy: `<stem>.<suffix>.<ext>`, then `-2`…`-99`, via exclusive create (never overwrites). */
+async function copy(ctx: WriteCtx, suffix: string): Promise<Outcome> {
+  const { target, bytes } = ctx;
+  const base = path.basename(target.requested);
+  const dot = base.lastIndexOf(".");
+  const stem = base.slice(0, dot);
+  const extRaw = base.slice(dot);
+  // Source mode: the source file's (only when it exists inside the cwd), else 0644 (umask applies at create).
+  let mode = 0o644;
+  let explicitMode = false;
+  try {
+    if (within(target.real, target.root)) {
+      const st = await fs.stat(target.real);
+      if (st.isFile()) {
+        mode = st.mode & 0o777;
+        explicitMode = true;
+      }
     }
-    if (!deps.sessionManager.listAll().some((s) => s.cwd === p.cwd)) return forbidden("unknown session path");
-    const requested = path.resolve(p.cwd, decodeFileUri(p.rawPath));
-    onPath(within(requested, path.resolve(p.cwd)) ? path.relative(p.cwd, requested) || "." : "<outside-cwd>");
-    const target = await isWritableHandlerTarget(requested, { cwd: p.cwd, claim, mode: p.mode });
-    if (!target.ok) return forbidden("target is not a writable file for this handler claim");
-    if (p.mode === "copy" && !claim.copySuffix) return forbidden("claim declares no copySuffix");
-    return { claim, validator, target, requested };
+  } catch {
+    /* source gone → default mode */
   }
-
-  /** The validator gate (before the lock): fail closed when declared-but-absent, then run it in the pool. */
-  async function validate(
-    a: { claim: HandlerClaimInfo; validator?: RegisteredValidator; target: { ext: string } },
-    pluginId: string,
-    claimRef: string,
-    body: Buffer,
-  ): Promise<Fail | null> {
-    if (a.claim.validator && (!deps.isPluginServerLoaded(pluginId) || !a.validator)) {
-      return { code: 503, error: "the claim's validator is not available; try again after the plugin is loaded", outcome: "unavailable" };
+  for (let n = 1; n <= MAX_COPY_ATTEMPTS; n++) {
+    const name =
+      n === 1
+        ? `${stem}.${suffix}${extRaw}`
+        : `${stem}.${suffix}-${n}${extRaw}`;
+    const dest = path.join(target.dir, name);
+    let fh: import("node:fs/promises").FileHandle;
+    try {
+      fh = await fs.open(dest, "wx", mode);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "EEXIST") continue;
+      return fail(500, err instanceof Error ? err.message : "write failed");
     }
-    if (!a.validator) return null;
-    const verdict = await runPool(deps.pool, a.validator.modulePath, body, a.target.ext);
-    if ("code" in verdict) return verdict;
-    if (verdict.ok) return null;
-    const outcome = verdict.kind === "reject" ? "rejected" : verdict.kind;
-    log(`[file-write-binary] validator claim=${JSON.stringify(claimRef)} bytes=${body.length} outcome=${outcome}`);
+    try {
+      await fh.writeFile(bytes);
+      if (explicitMode) await fh.chmod(mode);
+      await fh.close();
+    } catch (err) {
+      await fh.close().catch(() => {});
+      await fs.rm(dest, { force: true }).catch(() => {});
+      return fail(500, err instanceof Error ? err.message : "write failed");
+    }
+    const st = await fs.stat(dest);
     return {
-      code: 422,
-      error: verdict.kind === "timeout" ? "validator timed out" : `validator rejected the content: ${verdict.reason}`,
-      outcome,
+      code: 200,
+      body: {
+        success: true,
+        data: {
+          path: ctx.rel(path.join(path.dirname(target.requested), name)),
+          mtime: st.mtimeMs,
+          sha1: ctx.sha1,
+        },
+      },
     };
   }
+  return fail(409, "no free name for the copy");
+}
 
-  await fastify.register(async (scope) => {
-    // Only raw bytes: no inherited JSON/text parsers (a wrong content type must never read as an empty body).
+export function registerFileWriteBinaryRoute(
+  fastify: FastifyInstance,
+  deps: FileWriteBinaryRouteDeps,
+): void {
+  const { sessionManager, networkGuard } = deps;
+  const handlers = deps.fileHandlers ?? NO_HANDLERS;
+  const log = handlers.log ?? ((line: string) => console.info(line));
+
+  fastify.register(async (scope) => {
+    // Octet-stream only: the default JSON/text parsers are removed in THIS scope, so any
+    // other content type is a 415 (and the 128 MiB limit applies to nothing else).
     scope.removeAllContentTypeParsers();
     scope.addContentTypeParser(
       "application/octet-stream",
       { parseAs: "buffer", bodyLimit: HANDLER_MAX_BYTES },
-      (_request, body, done) => done(null, body),
+      (_req, body, done) => done(null, body),
     );
 
-    scope.post<{ Querystring: Query }>(
+    scope.post<{ Querystring: Query; Body: Buffer }>(
       "/api/file/write-binary",
-      { preHandler: deps.networkGuard, bodyLimit: HANDLER_MAX_BYTES },
+      { preHandler: networkGuard, bodyLimit: HANDLER_MAX_BYTES },
       async (request, reply) => {
-        const q = request.query;
-        if (!Buffer.isBuffer(request.body)) {
-          log(outcomeLine(q, 0, "unsupported-media-type", "-"));
-          reply.code(415);
-          return { success: false, error: "Content-Type must be application/octet-stream with a body" };
-        }
-        const body = request.body;
-        let relForLog = "-";
-        const done = (outcome: string): void => log(outcomeLine(q, body.length, outcome, relForLog));
-        const refuse = (f: Fail) => {
-          done(f.outcome);
-          reply.code(f.code);
-          return { success: false, error: f.error, ...(f.extra ?? {}) };
+        const q = request.query ?? {};
+        const bytesIn = Buffer.isBuffer(request.body)
+          ? request.body
+          : Buffer.alloc(0);
+        const send = (
+          o: Outcome,
+          logCtx: { relPath?: string; note?: string },
+        ): Record<string, unknown> => {
+          reply.code(o.code);
+          log(
+            `[file-write-binary] outcome=${o.code === 200 ? "ok" : o.code === 409 ? "conflict" : `refused-${o.code}`} claim=${q.claim ?? "-"} mode=${q.mode ?? "-"} bytes=${bytesIn.length}` +
+              (logCtx.relPath ? ` path=${logCtx.relPath}` : "") +
+              (logCtx.note ? ` ${logCtx.note}` : ""),
+          );
+          return o.body;
         };
-
-        const parsed = parseQuery(q);
-        if ("code" in parsed) return refuse(parsed);
-        const auth = await authorize(parsed, (r) => {
-          relForLog = r;
-        });
-        if ("code" in auth) return refuse(auth);
-        const { claim, target, requested } = auth;
-
-        if (body.length > claim.maxBytes) {
-          return refuse({ code: 413, error: `body exceeds the claim limit of ${claim.maxBytes} bytes`, outcome: "too-large" });
-        }
-        const invalid = await validate(auth, parsed.pluginId, q.claim as string, body);
-        if (invalid) return refuse(invalid);
-
-        const written = await performWrite(target, requested, body, claim, parsed.expectSha1);
-        if ("code" in written) return refuse(written);
-        done("ok");
-        return { success: true, data: written };
+        return handle(q, bytesIn, send);
       },
     );
   });
-}
 
-type Written = { mtime: number; sha1: string; path: string };
+  type Send = (
+    o: Outcome,
+    c: { relPath?: string; note?: string },
+  ) => Record<string, unknown>;
+  const isOutcome = (x: unknown): x is Outcome =>
+    typeof x === "object" && x !== null && "code" in x && "body" in x;
 
-/** Overwrite (under the realpath lock) or exclusive-create copy; returns the response data. */
-async function performWrite(
-  target: Extract<HandlerTarget, { ok: true }>,
-  requested: string,
-  body: Buffer,
-  claim: HandlerClaimInfo,
-  expectSha1: string | undefined,
-): Promise<Written | Fail> {
-  if (target.kind === "overwrite") {
-    const result = await serializeWrite(await lockKeyFor(target.real), () =>
-      overwriteUnderLock(target.real, body, expectSha1 as string),
-    );
-    return "code" in result ? result : { mtime: result.mtime, sha1: result.sha1, path: requested };
+  interface Parsed {
+    cwd: string;
+    path: string;
+    mode: "overwrite" | "copy";
+    claimKey: { pluginId: string; claimId: string };
+    expectSha1?: string;
   }
-  const result = await createCopy(target.realDir, requested, claim.copySuffix as string, body);
-  if ("code" in result) return result;
-  return { mtime: result.mtime, sha1: result.sha1, path: path.join(path.dirname(requested), result.name) };
-}
 
-function safeEnabled(fn: () => boolean): boolean {
-  try {
-    return fn() !== false;
-  } catch {
-    return false; // a throwing predicate refuses (fail closed)
-  }
-}
-
-async function overwriteUnderLock(
-  real: string,
-  body: Buffer,
-  expectSha1: string,
-): Promise<{ mtime: number; sha1: string } | Fail> {
-  let current: import("node:fs").Stats;
-  let currentSha1: string;
-  try {
-    // Non-blocking open + fstat: a FIFO planted at the path cannot hang the lock.
-    const fh = await fs.open(real, fsConstants.O_RDONLY | (fsConstants.O_NONBLOCK ?? 0));
-    try {
-      current = await fh.stat();
-      if (!current.isFile()) {
-        return { code: 403, error: "target is not a regular file", outcome: "forbidden" };
-      }
-      currentSha1 = await sha1OfHandle(fh, new AbortController().signal);
-    } finally {
-      await fh.close().catch(() => {});
+  /** Phase 1 — query + body shape (400s). */
+  function parseRequest(q: Query, bytesIn: Buffer): Parsed | Outcome {
+    if (bytesIn.length === 0) return fail(400, "empty body");
+    const claimKey =
+      typeof q.claim === "string" ? parseFileHandlerClaimKey(q.claim) : null;
+    if (
+      !q.cwd ||
+      !q.path ||
+      (q.mode !== "overwrite" && q.mode !== "copy") ||
+      !claimKey
+    ) {
+      return fail(
+        400,
+        "cwd, path, mode (overwrite|copy) and claim (<plugin>/<claim>) are required",
+      );
     }
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-      return { code: 409, error: "file no longer exists", outcome: "conflict" };
+    if (
+      q.mode === "overwrite" &&
+      !(typeof q.expectSha1 === "string" && SHA1_RE.test(q.expectSha1))
+    ) {
+      return fail(400, "expectSha1 is required for overwrite");
     }
-    return { code: 500, error: "write failed", outcome: "error" };
-  }
-  // Content comparison, not mtime: a timestamp-preserving rewrite is still a conflict.
-  if (currentSha1 !== expectSha1) {
     return {
-      code: 409,
-      error: "file changed on disk since it was loaded",
-      extra: { sha1: currentSha1, mtime: current.mtimeMs },
-      outcome: "conflict",
+      cwd: q.cwd,
+      path: q.path,
+      mode: q.mode,
+      claimKey,
+      expectSha1: q.expectSha1,
     };
   }
-  const tmpPath = path.join(path.dirname(real), `.${path.basename(real)}.${randomBytes(8).toString("hex")}.tmp`);
-  try {
-    await fs.writeFile(tmpPath, body, { flag: "wx" });
-    await fs.chmod(tmpPath, current.mode & 0o777); // keep the original permissions
-    await fs.rename(tmpPath, real);
-  } catch (err) {
-    await fs.rm(tmpPath, { force: true }).catch(() => {});
-    return { code: 500, error: "write failed", outcome: "error" };
-  }
-  return { mtime: (await fs.stat(real)).mtimeMs, sha1: sha1Hex(body) };
-}
 
-/** Write `body` into the freshly created exclusive handle; remove the file on failure. */
-async function fillCopy(
-  fh: import("node:fs/promises").FileHandle,
-  dest: string,
-  body: Buffer,
-  srcMode: number | undefined,
-): Promise<Fail | null> {
-  try {
-    await fh.writeFile(body);
-    if (srcMode !== undefined) await fh.chmod(srcMode);
-    await fh.close();
-    return null;
-  } catch (err) {
-    await fh.close().catch(() => {});
-    await fs.rm(dest, { force: true }).catch(() => {});
-    return { code: 500, error: "write failed", outcome: "error" };
+  interface Resolved {
+    info: HandlerClaimInfo;
+    claim: PluginClaim;
+    validator: HandlerValidatorRef | undefined;
   }
-}
 
-async function createCopy(
-  realDir: string,
-  requested: string,
-  suffix: string,
-  body: Buffer,
-): Promise<{ name: string; mtime: number; sha1: string } | Fail> {
-  // Source permissions, or `0644 & ~umask` (the kernel applies the umask to the
-  // open mode) when the source no longer exists.
-  const srcMode = await fs.lstat(requested).then(
-    (st) => st.mode & 0o777,
-    () => undefined,
-  );
-  for (let attempt = 1; attempt <= MAX_COPY_ATTEMPTS; attempt++) {
-    const name = copyBasename(requested, suffix, attempt);
-    const dest = path.join(realDir, name);
-    let fh: import("node:fs/promises").FileHandle;
-    try {
-      fh = await fs.open(dest, "wx", srcMode ?? 0o644);
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === "EEXIST") continue;
-      return { code: 500, error: "write failed", outcome: "error" };
+  /** Phase 2 — enabled edit claim, validator `enabled()` switch, known session cwd (403s). */
+  function resolveHandler(p: Parsed, claimParam: string): Resolved | Outcome {
+    const info = handlers.resolveClaim(claimParam);
+    const claim = info?.claim;
+    if (
+      !info ||
+      !claim ||
+      claim.slot !== "editor-pane-file-handler" ||
+      !info.enabled ||
+      claim.mode !== "edit"
+    ) {
+      return fail(403, "no enabled edit claim for this handler");
     }
-    const failed = await fillCopy(fh, dest, body, srcMode);
-    if (failed) return failed;
-    return { name, mtime: (await fs.stat(dest)).mtimeMs, sha1: sha1Hex(body) };
+    const validator = handlers.getValidator(info.pluginId, p.claimKey.claimId);
+    if (validator?.enabled && !safeEnabled(validator.enabled))
+      return fail(403, "saves for this handler are switched off");
+    if (!sessionManager.listAll().some((s) => s.cwd === p.cwd))
+      return fail(403, "unknown session path");
+    return { info, claim, validator };
   }
-  return { code: 409, error: "no free name for the copy", outcome: "no-free-name" };
+
+  /** Phase 4 — run the plugin validator off-thread; the body comes back re-attached. */
+  async function runValidator(
+    r: Resolved,
+    bytesIn: Buffer,
+    ext: string,
+  ): Promise<{ bytes: Buffer } | { out: Outcome; note: string }> {
+    if (!r.validator) return { bytes: bytesIn };
+    const out = await handlers.validatorPool.run({
+      moduleUrl: r.validator.moduleUrl,
+      bytes: bytesIn,
+      ext,
+    });
+    if (out.kind === "ok") return { bytes: out.bytes };
+    if (out.kind === "busy")
+      return {
+        out: fail(503, "validator busy; retry"),
+        note: "validator=busy",
+      };
+    const msg =
+      out.kind === "timeout"
+        ? "validator timed out"
+        : out.kind === "rejected"
+          ? `rejected: ${out.reason}`
+          : "validator failed";
+    return { out: fail(422, msg), note: `validator=${out.kind}` };
+  }
+
+  async function handle(
+    q: Query,
+    bytesIn: Buffer,
+    send: Send,
+  ): Promise<Record<string, unknown>> {
+    const parsed = parseRequest(q, bytesIn);
+    if (isOutcome(parsed)) return send(parsed, {});
+    const resolved = resolveHandler(parsed, q.claim as string);
+    if (isOutcome(resolved)) return send(resolved, {});
+    const { info, claim, validator } = resolved;
+    const authz = (): Promise<HandlerTarget | null> =>
+      isWritableHandlerTarget(parsed.path, {
+        cwd: parsed.cwd,
+        claim: {
+          extensions: claim.extensions ?? [],
+          mode: claim.mode ?? "preview",
+        },
+        mode: parsed.mode,
+      });
+    const target = await authz();
+    if (!target)
+      return send(
+        fail(403, "target is not a writable handler file in scope"),
+        {},
+      );
+    const rel = (p: string): string =>
+      path.relative(path.resolve(parsed.cwd), p).split(path.sep).join("/");
+    const relPath = rel(target.requested);
+    if (claim.validator === true && (!info.serverLoaded || !validator)) {
+      return send(
+        fail(
+          503,
+          "required validator is not loaded; retry after the plugin restarts",
+        ),
+        { relPath },
+      );
+    }
+    if (
+      parsed.mode === "copy" &&
+      !(
+        typeof claim.copySuffix === "string" &&
+        FILE_HANDLER_COPY_SUFFIX_RE.test(claim.copySuffix)
+      )
+    ) {
+      return send(fail(403, "claim has no copySuffix"), { relPath });
+    }
+    if (bytesIn.length > (claim.maxBytes ?? HANDLER_MAX_BYTES))
+      return send(fail(413, "body exceeds the handler size limit"), {
+        relPath,
+      });
+
+    const validated = await runValidator(resolved, bytesIn, target.ext);
+    if ("out" in validated)
+      return send(validated.out, { relPath, note: validated.note });
+    const bytes = validated.bytes;
+    const wctx: WriteCtx = {
+      target,
+      bytes,
+      sha1: createHash("sha1").update(bytes).digest("hex"),
+      rel,
+    };
+    const outcome =
+      parsed.mode === "copy"
+        ? await copy(wctx, claim.copySuffix as string)
+        : await serializeWrite(target.real, () =>
+            overwrite(wctx, parsed.expectSha1 as string, authz),
+          );
+    const conflict =
+      parsed.mode === "overwrite" && outcome.code === 409
+        ? `conflict=${outcome.body.sha1 ? "changed" : "missing"}`
+        : undefined;
+    return send(outcome, { relPath, note: conflict });
+  }
+}
+
+/** Evaluate a plugin's main-thread `enabled()` predicate; a throw counts as off. */
+function safeEnabled(fn: () => boolean): boolean {
+  try {
+    return fn() === true;
+  } catch {
+    return false;
+  }
 }

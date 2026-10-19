@@ -1,0 +1,86 @@
+{
+  "name": "@blackbelt-technology/pi-dashboard-craft-web-plugin",
+  "version": "0.9.0",
+  "description": "Dashboard plugin that edits Office documents (.docx, and later .xlsx/.pptx) in the editor pane by embedding the matching ArtCraft web build (WordCraft first) in a sandboxed opaque-origin frame as an editor-pane-file-handler edit mode. Builds are provisioned on demand (checksum-verified GitHub release, shim injected), served read-only through ctx.serveApp under an enforced CSP with no programmatic network access, and saved only through the core write-binary path behind an OOXML content validator. Disabled by default (defaultEnabled: false) \u2014 opt in via settings.",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BlackBeltTechnology/pi-agent-dashboard",
+    "directory": "packages/craft-web-plugin"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/client/index.tsx",
+      "default": "./src/client/index.tsx"
+    },
+    "./client": {
+      "types": "./src/client/index.tsx",
+      "default": "./src/client/index.tsx"
+    },
+    "./server": {
+      "types": "./src/server/index.ts",
+      "default": "./src/server/index.ts"
+    }
+  },
+  "files": [
+    "src/",
+    "configSchema.json",
+    "!**/AGENTS.md",
+    "!**/*.AGENTS.md",
+    "!**/__tests__",
+    "!**/*.test.ts",
+    "!**/*.test.tsx"
+  ],
+  "pi-dashboard-plugin": {
+    "id": "craft-web",
+    "displayName": "Craft Web Editors",
+    "i18nCatalog": "catalog",
+    "priority": 400,
+    "client": "./src/client/index.tsx",
+    "server": "./src/server/index.ts",
+    "configSchema": "./configSchema.json",
+    "defaultEnabled": false,
+    "claims": [
+      {
+        "slot": "editor-pane-file-handler",
+        "component": "WordCraftHandler",
+        "module": "./src/client/handlers.tsx",
+        "id": "wordcraft",
+        "extensions": [
+          ".docx"
+        ],
+        "mode": "edit",
+        "label": "Edit in WordCraft",
+        "keepAlive": {
+          "max": 3
+        },
+        "maxBytes": 41943040,
+        "firstOverwriteNotice": "Saves are re-rendered by WordCraft's own writer; formatting of unsupported features may change. A copy is the safe way to compare.",
+        "copySuffix": "wordcraft",
+        "validator": true
+      }
+    ]
+  },
+  "peerDependencies": {
+    "fastify": "^5.0.0",
+    "react": ">=18.0.0",
+    "react-dom": ">=18.0.0"
+  },
+  "dependencies": {
+    "@blackbelt-technology/dashboard-plugin-runtime": "^0.9.0",
+    "@blackbelt-technology/pi-dashboard-craft-apps": "^0.9.0",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.9.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "fastify": "^5.0.0",
+    "fflate": "^0.8.3",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  }
+}

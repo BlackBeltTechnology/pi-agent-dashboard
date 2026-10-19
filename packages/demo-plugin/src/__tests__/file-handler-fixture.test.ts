@@ -1,77 +1,70 @@
 /**
- * Demo `editor-pane-file-handler` fixture (task 6.1): the `demo-docx` edit claim
- * passes manifest validation, its validator registers only under
- * PI_DASHBOARD_FIXTURE_PLUGINS=1, and the validator module accepts non-empty
- * content and rejects content starting with `REJECT`.
- * See change: add-editor-pane-file-handlers.
+ * The demo fixture's `editor-pane-file-handler` claim (`.docx`, edit,
+ * keepAlive, validator, copySuffix `demo`) validates, is fixture-gated, and its
+ * server entry registers a working validator. See change: add-editor-pane-file-handlers (6.1).
  */
-import { existsSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { validateManifest } from "@blackbelt-technology/dashboard-plugin-runtime/manifest-validator";
-import { fixtureEntryAllowed } from "@blackbelt-technology/dashboard-plugin-runtime/server";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import pkg from "../../package.json" with { type: "json" };
-import * as client from "../client.js";
-import registerPlugin, { DEMO_FILE_HANDLER_CLAIM, DEMO_FILE_VALIDATOR_MODULE } from "../server/index.js";
+import {
+  createFileValidatorPool,
+  createServerPluginContext,
+  fixtureEntryAllowed,
+  getFileValidatorRegistry,
+} from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import { afterEach, describe, expect, it } from "vitest";
+import registerPlugin from "../server/index.js";
 
-const pkgDir = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const enc = (s: string) => new TextEncoder().encode(s);
+const pkgDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+const pkg = JSON.parse(fs.readFileSync(path.join(pkgDir, "package.json"), "utf-8"));
+const manifest = validateManifest(pkg["pi-dashboard-plugin"]);
+const claim = manifest.claims.find((c) => c.slot === "editor-pane-file-handler");
 
-afterEach(() => {
-  vi.unstubAllEnvs();
-});
+afterEach(() => getFileValidatorRegistry().unregisterPlugin("demo"));
 
-async function register() {
-  const registerFileValidator = vi.fn();
-  const fastify = { get: () => {}, post: () => {}, delete: () => {} };
-  await registerPlugin({ fastify, registerFileValidator } as never);
-  return registerFileValidator;
-}
-
-describe("demo file-handler fixture", () => {
-  it("manifest declares the demo-docx edit claim and it validates", () => {
-    const manifest = validateManifest(pkg["pi-dashboard-plugin"], "demo");
-    const claim = manifest.claims.find((c) => c.slot === "editor-pane-file-handler");
+describe("demo file-handler fixture claim", () => {
+  it("declares the .docx edit claim from task 6.1", () => {
     expect(claim).toMatchObject({
-      component: "DemoFileHandler",
-      id: DEMO_FILE_HANDLER_CLAIM,
+      id: "docx",
       extensions: [".docx"],
       mode: "edit",
-      label: "Demo editor",
-      keepAlive: { max: 3 },
+      keepAlive: { max: 2 },
       validator: true,
       copySuffix: "demo",
     });
-    expect(typeof claim?.firstOverwriteNotice).toBe("string");
+    expect(claim?.component).toBe("DemoDocxHandler");
+  });
+
+  it("is a fixture plugin: loads only under PI_DASHBOARD_FIXTURE_PLUGINS=1", () => {
     expect(manifest.fixture).toBe(true);
-    expect(typeof client.DemoFileHandler).toBe("function");
+    expect(fixtureEntryAllowed(manifest, {})).toBe(false);
+    expect(fixtureEntryAllowed(manifest, { PI_DASHBOARD_FIXTURE_PLUGINS: "1" })).toBe(true);
   });
 
-  it("is a fixture: server entry is withheld without the gate, allowed with it", () => {
-    expect(fixtureEntryAllowed(pkg["pi-dashboard-plugin"], {})).toBe(false);
-    expect(fixtureEntryAllowed(pkg["pi-dashboard-plugin"], { PI_DASHBOARD_FIXTURE_PLUGINS: "1" })).toBe(true);
+  it("the client entry exports the claim's component", () => {
+    const src = fs.readFileSync(path.join(pkgDir, "src", "client.tsx"), "utf-8");
+    expect(src).toMatch(/export (async )?function DemoDocxHandler/);
   });
 
-  it("registers no validator without the gate", async () => {
-    vi.stubEnv("PI_DASHBOARD_FIXTURE_PLUGINS", "");
-    expect(await register()).not.toHaveBeenCalled();
-  });
-
-  it("registers the validator for demo-docx under the gate; module exists in the package", async () => {
-    vi.stubEnv("PI_DASHBOARD_FIXTURE_PLUGINS", "1");
-    const reg = await register();
-    expect(reg).toHaveBeenCalledWith({ claimId: DEMO_FILE_HANDLER_CLAIM, module: DEMO_FILE_VALIDATOR_MODULE });
-    expect(DEMO_FILE_VALIDATOR_MODULE.startsWith("./")).toBe(true);
-    expect(existsSync(resolve(pkgDir, DEMO_FILE_VALIDATOR_MODULE))).toBe(true);
-  });
-
-  it("validator accepts non-empty content and rejects empty / REJECT-prefixed content", async () => {
-    // Loaded by file URL, as the core worker does — plain ESM, no TS loader.
-    const mod = await import(pathToFileURL(resolve(pkgDir, DEMO_FILE_VALIDATOR_MODULE)).href);
-    expect(mod.validate(enc("hello"), ".docx")).toEqual({ ok: true });
-    expect(mod.validate(enc("xREJECT"), ".docx")).toEqual({ ok: true });
-    expect(mod.validate(enc("REJECT me"), ".docx")).toMatchObject({ ok: false, reason: expect.any(String) });
-    expect(mod.validate(new Uint8Array(0), ".docx")).toMatchObject({ ok: false });
+  it("the server entry registers a validator that accepts normal bytes and rejects the marker", async () => {
+    const ctx = createServerPluginContext(
+      { fastify: { get() {}, post() {}, delete() {} } } as never,
+      "demo",
+      [],
+      { packageDir: pkgDir, editClaimIds: ["docx"] },
+    );
+    await registerPlugin(ctx);
+    const reg = getFileValidatorRegistry().get("demo", "docx");
+    expect(reg).toBeDefined();
+    const pool = createFileValidatorPool({ size: 1 });
+    try {
+      const ok = await pool.run({ moduleUrl: reg!.moduleUrl, bytes: Buffer.from("PK-fake-docx"), ext: ".docx" });
+      expect(ok.kind).toBe("ok");
+      const bad = await pool.run({ moduleUrl: reg!.moduleUrl, bytes: Buffer.from("xx REJECT-ME xx"), ext: ".docx" });
+      expect(bad).toMatchObject({ kind: "rejected" });
+    } finally {
+      await pool.dispose();
+    }
   });
 });

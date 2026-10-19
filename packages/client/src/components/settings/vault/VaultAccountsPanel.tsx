@@ -9,7 +9,7 @@
  */
 
 import { isDeliverableEnvName } from "@blackbelt-technology/pi-dashboard-shared/vault-delivery.js";
-import { mdiAlertOutline, mdiAutorenew, mdiEyeOutline, mdiKeyVariant, mdiPlus, mdiRefresh, mdiTrashCanOutline } from "@mdi/js";
+import { mdiAlertOutline, mdiArrowRight, mdiAutorenew, mdiEyeOutline, mdiKeyVariant, mdiPlus, mdiRefresh, mdiTrashCanOutline } from "@mdi/js";
 import { type ReactNode, type RefObject, useEffect, useId, useRef, useState } from "react";
 import { t as i18nT } from "../../../lib/i18n/i18n.js";
 import {
@@ -46,8 +46,9 @@ import {
 const MIN_KEY_LENGTH = 8;
 const KNOWN_PROVIDERS = ["gemini", "openai", "anthropic", "soniox", "assemblyai"];
 
-type Group = "key" | "signin" | "service" | "other";
+type Group = "key" | "signin" | "service" | "tls" | "other";
 const groupOf = (a: VaultAccountView): Group => {
+  if (a.kind === "tls-solver") return "tls";
   if (a.namespace.startsWith("service:")) return "service";
   if (a.kind === "key") return "key";
   return a.kind === "oauth" ? "signin" : "other";
@@ -247,6 +248,35 @@ function AccountRow({
           {i18nT("vault.revoke", undefined, "Revoke")}
         </button>
       </div>
+    </li>
+  );
+}
+
+/**
+ * A `tls-solver` account (DNS-01 secret of a Domain certificates source): names only, what uses it, a link
+ * to the Gateway. No rotate / revoke: the source's editor owns its secrets. Never a value.
+ * See change: add-acme-dns01-certs (credential-vault "TLS solver accounts").
+ */
+function TlsAccountRow({ account }: { account: VaultAccountView }) {
+  const sourceId = account.namespace.startsWith("tls:") ? account.namespace.slice("tls:".length) : account.namespace;
+  return (
+    <li className={ROW_CLASS} data-testid={`vault-account-${account.id}`}>
+      <VIcon path={mdiKeyVariant} size={0.8} className="mt-1 text-[var(--text-secondary)]" />
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2 text-sm font-semibold text-[var(--text-primary)]">
+          <span data-testid="vault-account-label" className="min-w-0 truncate">
+            {account.label}
+          </span>
+          <StatusPill tone="neutral" label={account.provider} />
+        </div>
+        <p className={HELP_CLASS} data-testid="vault-account-tls-usage">
+          {i18nT("vault.tls.usedBy", { id: sourceId }, "Gateway source {id}")}
+        </p>
+      </div>
+      <a href="/settings/gateway" data-testid="vault-account-tls-link" className={`${GHOST_BUTTON_CLASS} no-underline`}>
+        {i18nT("vault.tls.openGateway", undefined, "Open in Gateway")}
+        <VIcon path={mdiArrowRight} size={0.6} />
+      </a>
     </li>
   );
 }
@@ -529,7 +559,7 @@ export function VaultAccountsPanel({
     if (formOpen) providerRef.current?.focus();
   }, [formOpen]);
 
-  const groups: Record<Group, VaultAccountView[]> = { key: [], signin: [], service: [], other: [] };
+  const groups: Record<Group, VaultAccountView[]> = { key: [], signin: [], service: [], tls: [], other: [] };
   for (const a of overview.accounts) groups[groupOf(a)].push(a);
   const row = (a: VaultAccountView) => <AccountRow key={a.id} account={a} overview={overview} disabled={disabled} onChanged={onChanged} onError={setError} />;
   const formId = `${ids}-form`;
@@ -583,6 +613,17 @@ export function VaultAccountsPanel({
           hint={i18nT("vault.servicesHint", undefined, "Keys of managed services, by name only.")}
         >
           {groups.service.map(row)}
+        </AccountGroup>
+      )}
+      {groups.tls.length > 0 && (
+        <AccountGroup
+          testId="vault-accounts-tls"
+          title={i18nT("vault.tlsAccounts", undefined, "TLS certificates")}
+          hint={i18nT("vault.tlsHint", undefined, "DNS credentials of Domain certificates sources, by name only. Change them in the Gateway.")}
+        >
+          {groups.tls.map((a) => (
+            <TlsAccountRow key={a.id} account={a} />
+          ))}
         </AccountGroup>
       )}
       {groups.other.length > 0 && (

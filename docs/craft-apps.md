@@ -99,6 +99,46 @@ Output: `ProvisionError` → exit `69`. Report JSON: `app`, `version`, `source`
 
 Cache layout: `<CRAFT_HOME>/<app>/<version>/`. Identical to old `tools/photocraft/<version>`, so old installs = cache hits.
 
+## 3b. Web builds (`provisionWeb`)
+
+Browser build of an app, for in-page hosts (`craft-web-plugin`). Separate from the CLI cache. See change: edit-office-in-pane-with-craft-web (D2).
+
+- Entry: `provisionWeb(app, {root, shimVersion, postInstall?, ...deps})` in `src/provision.ts`. Import `@blackbelt-technology/pi-dashboard-craft-apps/provision.js`.
+- Asset: `<app>-web-<ver>.zip` from GitHub release. `SHA256SUMS.txt` fail-closed (`downloadVerified`).
+- Shared install core: `installVerified({asset, release, cacheDir, list, extract, validate})`. CLI path and web path both use it.
+- Resolution order (never "latest"; `<APP>_BIN`/`<APP>_VERSION` ignored):
+  1. `<APP>_WEB_DIR` → copied to `dir-<digest12>`, post-processed; operator dir never mutated.
+  2. `<APP>_WEB_VERSION` pin.
+  3. Registry `webVersion`.
+  4. None → `not-verified`.
+- `CRAFT_SOURCE=launcher` without `<APP>_WEB_DIR` → `launcher-source`, no network.
+- Layout: `<root>/<app>-web/<version>-s<shimVersion>/` (`dir-<digest12>-s<shimVersion>/` for overrides).
+- `<root>/<app>-web/current` → symlink to key dir (POSIX, rename-swap). win32: junction, rename-then-remove, not atomic (503 window).
+- `root` default `CRAFT_HOME`. Plugin passes `ctx.dataDir` (`~/.pi/dashboard/plugin-data/craft-web/`). Disjoint from `<CRAFT_HOME>/<app>/`.
+- Staging `.staging-<pid>-<rand>/` under `<root>/<app>-web/`; swept after 1 h (`sweepStaleStaging`).
+- Cross-process race: `EEXIST` on final rename → verify existing tree, use it.
+- Zip guard (`src/zip-guard.ts`, `yauzl`, central directory only):
+  - ≤ 2000 entries (`ZIP_MAX_ENTRIES`);
+  - ≤ 512 MiB uncompressed (`ZIP_MAX_UNCOMPRESSED_BYTES`);
+  - reject absolute names, `..`, NUL, encrypted, duplicate names;
+  - reject symlink / non-regular entries (unix mode in `externalFileAttributes`);
+  - directory entries need trailing `/`.
+- Post-extract: `assertTreeSafe`; `hoistSingleTopLevelDir` (release zip wraps site in `<app>-web-<ver>/`); require `index.html`.
+- `postInstall(ctx)` runs on staging tree before rename. Plugin-supplied; `craft-apps` stays dashboard-agnostic.
+- Cache hit: `webTreeValid` (damaged tree → rm + re-provision).
+- Errors: `ProvisionWebError` (extends `ProvisionError`), `.code`:
+  - `checksum-mismatch`;
+  - `offline`;
+  - `launcher-source`;
+  - `extract-failed`;
+  - `not-verified`;
+  - `release-unavailable`;
+  - `invalid-dir`.
+- Plugin HTTP mapping (`craft-web-plugin/src/server/service.ts`): offline 503; checksum-mismatch 502; extract-failed 502; launcher-source 409; not-verified 409.
+- Report `WebReport`: `{app, version, source: registry|env-version|env-dir, asset, cacheHit, dir, current, shimVersion, durationMs}`.
+- Env: `<APP>_WEB_DIR`, `<APP>_WEB_VERSION`, `CRAFT_SOURCE`. Prefix = upper app id (`WORDCRAFT_WEB_DIR`).
+- Tests: `src/__tests__/provision-web.test.ts` (E14b hoist etc.).
+
 ## 4. Craft Launcher probe (why `managed` is default)
 
 Probe 0.3, Craft Launcher v0.4.1, macOS:

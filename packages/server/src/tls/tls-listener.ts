@@ -34,6 +34,7 @@ import {
   resolveSourceId,
   validateSourceEntry,
 } from "./source-registry.js";
+import { acmeSourceType } from "./sources/acme/acme-source.js";
 import { tailscaleSourceType } from "./sources/tailscale-cert.js";
 import type { CertSource } from "./types.js";
 
@@ -67,6 +68,7 @@ export interface TlsListenerDeps {
 /** Register the built-in source types (tests may pre-register a stub under the same type). */
 function ensureBuiltinCertSourceTypes(): void {
   if (!getCertSourceType(tailscaleSourceType.type)) registerCertSourceType(tailscaleSourceType);
+  if (!getCertSourceType(acmeSourceType.type)) registerCertSourceType(acmeSourceType);
 }
 
 function isLoopbackHost(host: string): boolean {
@@ -300,6 +302,11 @@ export class TlsListener {
   async trigger(sourceId: string, name?: string): Promise<void> {
     if (this.enabled && !this.server) await this.reconcile();
     await this.manager.trigger(sourceId, name);
+  }
+
+  /** Re-read one source's readiness now (forced) so status reflects a credentials save. `false` = unknown source. */
+  async refreshReadiness(sourceId: string): Promise<boolean> {
+    return this.manager.refreshReadiness(sourceId);
   }
 
   // ── read side ────────────────────────────────────────────────────────

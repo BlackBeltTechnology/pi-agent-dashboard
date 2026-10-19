@@ -1,0 +1,34 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "@blackbelt-technology/pi-dashboard-craft-web-plugin/configSchema",
+  "title": "Craft Web Editors config",
+  "description": "Plugin config persisted under plugins['craft-web'].* in ~/.pi/dashboard/config.json. The plugin is OPT-IN (manifest defaultEnabled:false). Per-app switches are enforced server-side too: prepare and saves are refused for a disabled app. Read live (no restart) by status, prepare and the file-validator enabled() switch.",
+  "type": "object",
+  "properties": {
+    "apps": {
+      "type": "object",
+      "description": "Per-app switches. An app without a verified web build version contributes no handler regardless of this flag.",
+      "properties": {
+        "wordcraft": { "$ref": "#/definitions/app" },
+        "gridcraft": { "$ref": "#/definitions/app" },
+        "deckcraft": { "$ref": "#/definitions/app" }
+      },
+      "additionalProperties": false,
+      "default": {}
+    }
+  },
+  "additionalProperties": true,
+  "definitions": {
+    "app": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "When false the app's mode shows as disabled, prepare is refused (403) and saves through its claim are refused (403).",
+          "default": true
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

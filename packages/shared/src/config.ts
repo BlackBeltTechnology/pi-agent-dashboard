@@ -8,6 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { type AcpAgentConfig, type AcpSettings, DEFAULT_ACP_SETTINGS, parseAcpAgents, parseAcpSettings } from "./acp/acp-config.js";
+import { MAX_PREVIEW_BYTES } from "./file-kind.js";
 import {
   DEFAULT_SERVER_HEAP,
   DEFAULT_SESSION_HEAP,
@@ -199,6 +200,12 @@ export interface AuthConfig {
   allowedUsers?: string[];
   bypassUrls?: string[];
   bypassHosts?: string[];
+  /**
+   * Manifest ids of NON-bundled plugins trusted to mount `serveApp` apps (bundled
+   * plugins are trusted by package-directory membership). Read at activation
+   * (restart-effective). Default `[]`. See change: add-plugin-capability-routes (D2).
+   */
+  capabilityRoutePlugins?: string[];
   /** Base URL for OAuth redirect URIs — overrides the tunnel URL when set. */
   redirectBaseUrl?: string;
   /** Admin email override — can list/revoke every user's proxy API keys. */
@@ -337,6 +344,32 @@ export interface VaultConfig {
 }
 
 export const DEFAULT_VAULT_CONFIG: VaultConfig = { deliveryEnabled: true, offlineGraceHours: VAULT_GRACE_DEFAULT_HOURS };
+
+/**
+ * Editor pane config. `largeFileLimitMb` gates the rich viewers' too-large
+ * fallback only; the digest ceiling (256 MiB) and office conversion caps stay
+ * fixed. See change: gate-changed-on-disk-by-content (D6).
+ */
+export interface EditorConfig {
+  /** Rich-viewer too-large threshold in MiB. Integer, clamped to [1, 256]. Default 10. */
+  largeFileLimitMb: number;
+}
+
+export const EDITOR_LARGE_FILE_LIMIT_MIN_MB = 1;
+export const EDITOR_LARGE_FILE_LIMIT_MAX_MB = 256;
+
+export const DEFAULT_EDITOR_CONFIG: EditorConfig = {
+  largeFileLimitMb: MAX_PREVIEW_BYTES / (1024 * 1024),
+};
+
+export function parseEditorConfig(raw: any): EditorConfig {
+  const fallback = DEFAULT_EDITOR_CONFIG.largeFileLimitMb;
+  const v = raw && typeof raw === "object" ? raw.largeFileLimitMb : undefined;
+  const n = typeof v === "number" && Number.isFinite(v) ? Math.round(v) : fallback;
+  return {
+    largeFileLimitMb: Math.min(EDITOR_LARGE_FILE_LIMIT_MAX_MB, Math.max(EDITOR_LARGE_FILE_LIMIT_MIN_MB, n)),
+  };
+}
 
 export const DEFAULT_OPENSPEC_POLL: OpenSpecPollConfig = {
   enabled: true,
@@ -517,6 +550,30 @@ export interface TlsSourceEntry {
   type: string;
   id?: string;
   [key: string]: unknown;
+}
+
+/**
+ * ACME (DNS-01) certificate source entry stored in `tls.sources[]` (type "acme").
+ * Solver secrets are NEVER stored here — they live in the credential vault
+ * (namespace `tls:<id>`). `configured` is a read-only projection on
+ * `GET /api/config`, stripped on write.
+ * See change: add-acme-dns01-certs (design D5).
+ */
+export type AcmeSolverConfig =
+  | { type: "cloudflare"; zoneId?: string; configured?: boolean }
+  | { type: "acme-dns"; server: string; subdomain: string; fulldomain: string; configured?: boolean };
+
+export interface AcmeSourceEntry extends TlsSourceEntry {
+  type: "acme";
+  id: string;
+  domains: string[];
+  email: string;
+  agreeTos: boolean;
+  /** `staging` | `production` | canonical `https://` directory URL. */
+  directory: string;
+  /** Operator assertion; only meaningful for a custom directory. */
+  advertise?: boolean;
+  solver: AcmeSolverConfig;
 }
 
 /**
@@ -1013,6 +1070,8 @@ export interface DashboardConfig {
   serverHeap: ServerHeapConfig;
   /** OpenSpec background polling behavior (interval, concurrency, change detection, jitter) */
   openspec: OpenSpecPollConfig;
+  /** Editor pane tuning (rich-viewer large-file gate). See change: gate-changed-on-disk-by-content. */
+  editor: EditorConfig;
   /** Credential-vault delivery switches. See change: add-credential-vault. */
   vault: VaultConfig;
   /** Session behavior — hydration worker offload toggle. */
@@ -1602,6 +1661,7 @@ const DEFAULTS: DashboardConfig = {
   sessionHeap: { ...DEFAULT_SESSION_HEAP },
   serverHeap: { ...DEFAULT_SERVER_HEAP },
   openspec: { ...DEFAULT_OPENSPEC_POLL },
+  editor: { ...DEFAULT_EDITOR_CONFIG },
   vault: { ...DEFAULT_VAULT_CONFIG },
   sessions: { ...DEFAULT_SESSIONS },
   sessionList: { ...DEFAULT_SESSION_LIST },
@@ -1668,7 +1728,8 @@ function parseAuthConfig(raw: any): AuthConfig | undefined {
   const hasHosts = Array.isArray(raw.bypassHosts) && raw.bypassHosts.length > 0;
   const hasUrls = Array.isArray(raw.bypassUrls) && raw.bypassUrls.length > 0;
   const hasPasskeys = raw.passkeys?.enabled === true;
-  if (!hasProviders && !hasHosts && !hasUrls && !hasPasskeys) return undefined;
+  const hasCapabilityPlugins = Array.isArray(raw.capabilityRoutePlugins) && raw.capabilityRoutePlugins.length > 0;
+  if (!hasProviders && !hasHosts && !hasUrls && !hasPasskeys && !hasCapabilityPlugins) return undefined;
 
   // Validate each provider has at least clientId and clientSecret.
   // validProviders may end up empty when providers is {} or all entries
@@ -1692,7 +1753,7 @@ function parseAuthConfig(raw: any): AuthConfig | undefined {
   // If providers was declared but all entries are malformed AND there is no
   // bypass content, fall back to undefined — same "nothing auth-relevant"
   // rule as the top-level gate.
-  if (Object.keys(validProviders).length === 0 && !hasHosts && !hasUrls && !hasPasskeys) {
+  if (Object.keys(validProviders).length === 0 && !hasHosts && !hasUrls && !hasPasskeys && !hasCapabilityPlugins) {
     return undefined;
   }
 
@@ -1704,6 +1765,9 @@ function parseAuthConfig(raw: any): AuthConfig | undefined {
     ...(Array.isArray(raw.allowedUsers) ? { allowedUsers: raw.allowedUsers } : Array.isArray(raw.allowedEmails) ? { allowedUsers: raw.allowedEmails } : {}),
     bypassUrls: Array.isArray(raw.bypassUrls) ? raw.bypassUrls.filter((u: unknown) => typeof u === "string") : [],
     bypassHosts: Array.isArray(raw.bypassHosts) ? raw.bypassHosts.filter((u: unknown) => typeof u === "string") : [],
+    capabilityRoutePlugins: Array.isArray(raw.capabilityRoutePlugins)
+      ? raw.capabilityRoutePlugins.filter((u: unknown) => typeof u === "string")
+      : [],
     ...(typeof raw.redirectBaseUrl === "string" && raw.redirectBaseUrl.trim()
       ? { redirectBaseUrl: raw.redirectBaseUrl.trim() }
       : {}),
@@ -2428,6 +2492,7 @@ export function loadConfig(): DashboardConfig {
       sessionHeap: parseSessionHeap(parsed.sessionHeap),
       serverHeap: parseServerHeap(parsed.serverHeap),
       openspec: parseOpenSpecPollConfig(parsed.openspec),
+      editor: parseEditorConfig(parsed.editor),
       vault: parseVaultConfig(parsed.vault),
       sessions: parseSessionsConfig(parsed.sessions),
       sessionList: parseSessionListConfig(parsed.sessionList),

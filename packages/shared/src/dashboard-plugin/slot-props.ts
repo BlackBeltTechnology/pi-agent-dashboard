@@ -110,30 +110,51 @@ export interface EditorPaneTabLabelProps {
 }
 
 /**
- * Props passed to an `editor-pane-file-handler` body component. Core owns the
- * save policy (first-overwrite notice, conflict dialog, own-save suppression);
- * the handler only sees the outcome. Contract notes:
- * - call `setDirty` as soon as the document is loaded; until then the state is
- *   `"unknown"`, which every guard treats as dirty and which is never evictable;
- * - core trusts `setDirty(false)`: a handler that reports clean while holding
- *   edits loses them on eviction.
+ * Why a handler `save()` did not write. `busy` is retryable (validator pool
+ * overflow / save in flight). See change: add-editor-pane-file-handlers (D3).
+ */
+export type FileHandlerSaveFailureReason = "cancelled" | "conflict-unresolved" | "rejected" | "too-large" | "busy";
+
+/** Result of `FileHandlerProps.save()`. */
+export type FileHandlerSaveResult =
+  | { ok: true; path: string; mtime: number; sha1: string }
+  | { ok: false; reason: FileHandlerSaveFailureReason; message: string };
+
+/** Consistent bytes + content token returned by `FileHandlerProps.snapshot()`. */
+export interface FileHandlerSnapshot {
+  bytes: ArrayBuffer;
+  size: number;
+  mtime: number;
+  /** Content token: lower-case hex SHA-1 of `bytes`; the overwrite conflict reference. */
+  sha1: string;
+}
+
+/**
+ * Props passed to an `editor-pane-file-handler` body component (versioned with
+ * the slot; new fields are optional-additive).
  *
- * `context` is the plugin's `PluginContext` (opaque here, like `pluginContext`
- * on other slots). See change: add-editor-pane-file-handlers (D3).
+ * Contract notes:
+ * - Call `setDirty(...)` as soon as the document is loaded. Until the first
+ *   call the state is `"unknown"`, which core treats as dirty for every guard
+ *   (an `"unknown"` instance is never evicted).
+ * - Core trusts `setDirty(false)`: a handler that reports clean while holding
+ *   edits may lose them when its instance is evicted to free resources.
+ * - `save()` runs core policy (first-overwrite notice, conflict dialog,
+ *   `POST /api/file/write-binary`); the handler only sees the outcome.
+ *
+ * See change: add-editor-pane-file-handlers (D3).
  */
 export interface FileHandlerProps {
+  /** Session working directory the file lives under. */
   cwd: string;
+  /** File path as opened in the tab (cwd-relative or absolute, as the tab holds it). */
   path: string;
   session: DashboardSession | null;
+  /** True while this instance's tab is the pane's active tab. */
   isActive: boolean;
-  snapshot(): Promise<{ bytes: ArrayBuffer; size: number; mtime: number; sha1: string }>;
-  save(
-    bytes: ArrayBuffer,
-    opts: { target: "overwrite" | "copy" },
-  ): Promise<
-    | { ok: true; path: string; mtime: number; sha1: string }
-    | { ok: false; reason: "cancelled" | "conflict-unresolved" | "rejected" | "too-large" | "busy"; message: string }
-  >;
+  /** Consistent digest-bracketed read; rejects with `too-large` above the claim's `maxBytes`. */
+  snapshot(): Promise<FileHandlerSnapshot>;
+  save(bytes: ArrayBuffer, opts: { target: "overwrite" | "copy" }): Promise<FileHandlerSaveResult>;
   setDirty(state: boolean | "unknown"): void;
   context: AnyPluginContext;
 }

@@ -7,18 +7,25 @@
  * new paths get an `fs.watch`, gone paths are closed. `clearConnection` tears
  * every watcher for a disconnected browser down so no file descriptors leak.
  *
- * Best-effort: `fs.watch` is path-based, and a rename-in-place edit (tmp +
- * rename) detaches the watch from the new inode. On a `rename` event the
- * watcher therefore re-attaches synchronously when the path is a regular file
- * again, else re-probes at 100/300/600/1000 ms and then drops the key. The
- * banner is a hint, not a guarantee; the pane's manual refresh stays
- * authoritative.
+ * `fs.watch` is path-based but binds to the inode, so an atomic replace
+ * (tmp + `rename`: the pane's own Save, formatters, `git checkout`) leaves the
+ * watcher on the old inode and later changes would go unseen. On a `rename`
+ * event the entry therefore re-attaches SYNCHRONOUSLY to the path (only if it
+ * is a regular file); a path that is missing (delete + quick re-create) is
+ * retried at 100/300/600/1000 ms, then the key is dropped. A path replaced by a
+ * non-regular file (directory, FIFO) drops the key at once. `change` events
+ * never re-attach (no fd churn). Every event is still only a *candidate*: the
+ * client verifies it against a content digest before showing the banner.
  *
- * See change: split-editor-workspace, add-editor-pane-file-handlers
- * (minimal slice of gate-changed-on-disk-by-content D5).
+ * Timers (retry + debounce) live on the per-key entry and are cancelled by
+ * reconcile-removal / `clearConnection`, so no retry can resurrect a dropped
+ * key. Handlers act only on the watcher instance the entry still holds, so a
+ * stale `error`/event from a replaced watcher never touches its successor.
+ *
+ * See change: split-editor-workspace, gate-changed-on-disk-by-content (D5).
  */
 
-import { existsSync, type FSWatcher, statSync, watch } from "node:fs";
+import { type FSWatcher, statSync, watch } from "node:fs";
 import path from "node:path";
 
 /** Synchronous logical containment: `abs` equals or sits under `cwd`. */
@@ -45,150 +52,172 @@ export interface FileWatchManager {
   clearConnection(ws: object): void;
   /** Total live `fs.watch` handles (tests / diagnostics). */
   activeWatchCount(): number;
+  /** Pending retry + debounce timers on held keys (tests / diagnostics). */
+  pendingTimerCount(): number;
+}
+
+/** Test seams: the `fs.watch` factory. */
+export interface FileWatchManagerDeps {
+  watchFn?: typeof watch;
 }
 
 const CHANGE_DEBOUNCE_MS = 40;
-/** Delays (ms after the `rename` event) at which a vanished path is re-probed before the key is dropped. */
-const REATTACH_RETRY_AT_MS = [100, 300, 600, 1000] as const;
+/** Delays (ms after the `rename`) at which a missing path is retried before the key is dropped. */
+const REATTACH_RETRY_DELAYS_MS = [100, 300, 600, 1000] as const;
 
-/** Per-key state. The debounce timer lives here (not on a watcher) so it survives a re-attach. */
-interface WatchEntry {
-  /** Current `fs.watch` handle; `null` while waiting for a deleted path to reappear. */
-  watcher: FSWatcher | null;
-  debounce: NodeJS.Timeout | null;
-  retry: NodeJS.Timeout | null;
-}
+type PathState = "file" | "other" | "missing";
 
-function isRegularFileSync(abs: string): boolean {
+function pathState(abs: string): PathState {
   try {
-    return statSync(abs).isFile();
+    return statSync(abs).isFile() ? "file" : "other";
   } catch {
-    return false;
+    return "missing";
   }
 }
 
-function closeWatcherQuietly(w: FSWatcher | null): void {
-  try {
-    w?.close();
-  } catch {
-    /* already closed */
-  }
-}
+/**
+ * One watched (connection, session, path) key: the live `fs.watch` handle plus
+ * the retry and debounce timers that belong to it. `drop` is invoked when the
+ * key must leave the manager's map (retries exhausted, non-regular file,
+ * watcher error); `release` frees the handle + retry timer, `cancel` also
+ * silences a pending debounce so nothing fires after a teardown.
+ */
+class WatchedFile {
+  private watcher: FSWatcher | null = null;
+  private retryTimer: NodeJS.Timeout | null = null;
+  private debounceTimer: NodeJS.Timeout | null = null;
+  private cancelled = false;
 
-export function createFileWatchManager(): FileWatchManager {
-  // ws → keyString → entry. keyString = `${sessionId}\u0000${relPath}`.
-  const byConnection = new Map<object, Map<string, WatchEntry>>();
+  private readonly abs: string;
+  private readonly watchFn: typeof watch;
+  private readonly emit: () => void;
+  private readonly drop: (self: WatchedFile) => void;
 
-  const keyOf = (k: WatchKey) => `${k.sessionId}\u0000${k.relPath}`;
-
-  /**
-   * Cancel timers, close the handle, forget the key. Safe to call twice.
-   * `keepPending`: a path dropped because it vanished must still report that
-   * change, so its already-scheduled (<= 40 ms) debounce is left to fire.
-   */
-  function closeWatcher(map: Map<string, WatchEntry>, keyString: string, keepPending = false): void {
-    const entry = map.get(keyString);
-    if (!entry) return;
-    if (entry.debounce && !keepPending) clearTimeout(entry.debounce);
-    if (entry.retry) clearTimeout(entry.retry);
-    if (!keepPending) entry.debounce = null;
-    entry.retry = null;
-    closeWatcherQuietly(entry.watcher);
-    entry.watcher = null;
-    map.delete(keyString);
+  constructor(abs: string, watchFn: typeof watch, emit: () => void, drop: (self: WatchedFile) => void) {
+    this.abs = abs;
+    this.watchFn = watchFn;
+    this.emit = emit;
+    this.drop = drop;
   }
 
-  /**
-   * Attach an `fs.watch` for `entry` and wire its events. Every callback checks
-   * `entry.watcher === w`, so a superseded watcher can neither schedule changes
-   * nor close its successor. Returns false when the path is unwatchable.
-   */
-  function attach(
-    map: Map<string, WatchEntry>,
-    keyString: string,
-    entry: WatchEntry,
-    abs: string,
-    notify: () => void,
-  ): boolean {
+  hasWatcher(): boolean {
+    return this.watcher !== null;
+  }
+
+  pendingTimers(): number {
+    return (this.retryTimer ? 1 : 0) + (this.debounceTimer ? 1 : 0);
+  }
+
+  /** Bind a fresh watcher to the path. Throws if the path cannot be watched. */
+  attach(): void {
+    const watcher = this.watchFn(this.abs, (eventType) => {
+      if (this.watcher !== watcher) return; // stale instance
+      if (eventType === "rename") this.reattach();
+      this.scheduleChange();
+    });
+    watcher.on("error", () => {
+      // Act only on the instance still held: an old watcher's late `error`
+      // must not close its re-attached successor.
+      if (this.watcher === watcher) this.drop(this);
+    });
+    this.watcher = watcher;
+  }
+
+  /** Free the handle + retry timer; a pending debounce still fires once. */
+  release(): void {
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+    this.retryTimer = null;
+    this.closeHandle();
+  }
+
+  /** Explicit teardown: release AND cancel the debounce. */
+  cancel(): void {
+    this.cancelled = true;
+    if (this.debounceTimer) clearTimeout(this.debounceTimer);
+    this.debounceTimer = null;
+    this.release();
+  }
+
+  private closeHandle(): void {
+    const w = this.watcher;
+    this.watcher = null;
     try {
-      const w: FSWatcher = watch(abs, (eventType) => {
-        if (entry.watcher !== w) return; // superseded
-        schedule(entry, notify);
-        // Atomic replace (tmp + rename) detaches the watch from the old inode:
-        // `rename` is the signal to follow the path to its new inode.
-        if (eventType === "rename") reattach(map, keyString, entry, abs, notify);
-      });
-      w.on("error", () => {
-        if (entry.watcher === w) closeWatcher(map, keyString);
-      });
-      entry.watcher = w;
-      return true;
+      w?.close();
     } catch {
-      return false;
+      /* already closed */
     }
   }
 
-  function schedule(entry: WatchEntry, notify: () => void): void {
-    if (entry.debounce) return; // debounce a burst of events into one
-    entry.debounce = setTimeout(() => {
-      entry.debounce = null;
-      notify();
+  private scheduleChange(): void {
+    if (this.debounceTimer) return; // debounce a burst of events into one
+    this.debounceTimer = setTimeout(() => {
+      this.debounceTimer = null;
+      if (!this.cancelled) this.emit();
     }, CHANGE_DEBOUNCE_MS);
   }
 
-  /** Synchronous re-attach when the path is a regular file again, else bounded retries, then drop. */
-  function reattach(
-    map: Map<string, WatchEntry>,
-    keyString: string,
-    entry: WatchEntry,
-    abs: string,
-    notify: () => void,
-  ): void {
-    closeWatcherQuietly(entry.watcher);
-    entry.watcher = null;
-    if (isRegularFileSync(abs)) {
-      if (attach(map, keyString, entry, abs, notify)) return;
-    } else if (existsSync(abs)) {
-      closeWatcher(map, keyString, true); // replaced by a directory etc.: never watch it
-      return;
-    }
-    let attempt = 0;
-    const tick = (): void => {
-      entry.retry = null;
-      if (map.get(keyString) !== entry) return; // torn down meanwhile
-      if (isRegularFileSync(abs) && attach(map, keyString, entry, abs, notify)) {
-        schedule(entry, notify); // the file reappeared after the last candidate
-        return;
-      }
-      attempt++;
-      if (attempt >= REATTACH_RETRY_AT_MS.length) {
-        closeWatcher(map, keyString, true);
-        return;
-      }
-      entry.retry = setTimeout(tick, REATTACH_RETRY_AT_MS[attempt] - REATTACH_RETRY_AT_MS[attempt - 1]);
-      entry.retry.unref?.();
-    };
-    entry.retry = setTimeout(tick, REATTACH_RETRY_AT_MS[0]);
-    entry.retry.unref?.();
+  /** `rename`: the old inode is gone — bind to whatever is at the path now. */
+  private reattach(): void {
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+    this.retryTimer = null;
+    this.closeHandle();
+    const state = pathState(this.abs);
+    if (state === "other") return this.drop(this); // never watch a directory / FIFO
+    if (state === "file" && this.tryAttach()) return;
+    this.retry(0);
   }
 
-  /** Close this session's watchers whose key is no longer desired (other sessions untouched). */
-  function removeUndesired(map: Map<string, WatchEntry>, sessionId: string, desired: Set<string>): void {
-    const sessionPrefix = `${sessionId}\u0000`;
-    for (const existing of [...map.keys()]) {
-      if (existing.startsWith(sessionPrefix) && !desired.has(existing)) closeWatcher(map, existing);
+  private tryAttach(): boolean {
+    try {
+      this.attach();
+      return true;
+    } catch {
+      return false; // vanished between stat and watch
     }
   }
 
-  /** Watch `rel` under `cwd` (synchronous, cwd-contained); unwatchable paths are skipped. */
-  function addWatcher(
-    map: Map<string, WatchEntry>,
+  /** Retry a missing path at the bounded delays, then drop the key. */
+  private retry(attempt: number): void {
+    if (attempt >= REATTACH_RETRY_DELAYS_MS.length) return this.drop(this);
+    const prev = attempt === 0 ? 0 : REATTACH_RETRY_DELAYS_MS[attempt - 1];
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+      const state = pathState(this.abs);
+      if (state === "other") return this.drop(this);
+      if (state === "file" && this.tryAttach()) return this.scheduleChange(); // re-created: have the client re-verify
+      this.retry(attempt + 1);
+    }, REATTACH_RETRY_DELAYS_MS[attempt] - prev);
+  }
+}
+
+export function createFileWatchManager(deps: FileWatchManagerDeps = {}): FileWatchManager {
+  const watchFn = deps.watchFn ?? watch;
+  // ws → keyString → entry. keyString = `${sessionId}\u0000${relPath}`.
+  const byConnection = new Map<object, Map<string, WatchedFile>>();
+
+  const keyOf = (k: WatchKey) => `${k.sessionId}\u0000${k.relPath}`;
+
+  function closeEntry(map: Map<string, WatchedFile>, keyString: string): void {
+    map.get(keyString)?.cancel();
+    map.delete(keyString);
+  }
+
+  function addWatch(
+    map: Map<string, WatchedFile>,
     keyString: string,
     abs: string,
-    notify: () => void,
+    emit: () => void,
   ): void {
-    const entry: WatchEntry = { watcher: null, debounce: null, retry: null };
-    if (attach(map, keyString, entry, abs, notify)) map.set(keyString, entry);
+    const entry = new WatchedFile(abs, watchFn, emit, (self) => {
+      self.release();
+      if (map.get(keyString) === self) map.delete(keyString);
+    });
+    try {
+      entry.attach();
+      map.set(keyString, entry);
+    } catch {
+      /* file vanished / unwatchable — skip */
+    }
   }
 
   return {
@@ -198,26 +227,43 @@ export function createFileWatchManager(): FileWatchManager {
         map = new Map();
         byConnection.set(ws, map);
       }
-      removeUndesired(map, sessionId, new Set(relPaths.map((rel) => keyOf({ sessionId, relPath: rel }))));
+      const held = map;
+
+      // Desired keys for THIS session (other sessions on the same ws untouched).
+      const desired = new Set(relPaths.map((rel) => keyOf({ sessionId, relPath: rel })));
+
+      // Remove watchers for this session's paths that are no longer desired.
+      const sessionPrefix = `${sessionId}\u0000`;
+      for (const existing of [...held.keys()]) {
+        if (existing.startsWith(sessionPrefix) && !desired.has(existing)) closeEntry(held, existing);
+      }
+
+      // Add watchers for newly-desired paths (synchronous, cwd-contained).
       for (const rel of relPaths) {
         const keyString = keyOf({ sessionId, relPath: rel });
-        if (map.has(keyString)) continue; // already watched
+        if (held.has(keyString)) continue; // already watched
         const abs = path.resolve(cwd, rel);
         if (!withinCwd(abs, cwd)) continue; // never watch outside cwd
-        addWatcher(map, keyString, abs, () => onChange(sessionId, rel));
+        addWatch(held, keyString, abs, () => onChange(sessionId, rel));
       }
     },
 
     clearConnection(ws) {
       const map = byConnection.get(ws);
       if (!map) return;
-      for (const key of [...map.keys()]) closeWatcher(map, key);
+      for (const key of [...map.keys()]) closeEntry(map, key);
       byConnection.delete(ws);
     },
 
     activeWatchCount() {
       let n = 0;
-      for (const map of byConnection.values()) n += map.size;
+      for (const map of byConnection.values()) for (const e of map.values()) if (e.hasWatcher()) n++;
+      return n;
+    },
+
+    pendingTimerCount() {
+      let n = 0;
+      for (const map of byConnection.values()) for (const e of map.values()) n += e.pendingTimers();
       return n;
     },
   };

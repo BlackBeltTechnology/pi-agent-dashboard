@@ -19,6 +19,7 @@ import {
   transitiveDependents,
 } from "../dependency-graph.js";
 import { validateManifest } from "../manifest-validator.js";
+import { getFileValidatorRegistry } from "./file-validator-registry.js";
 import { fixtureEntryAllowed } from "./fixture-gate.js";
 import { createPluginStatusStore, type PluginStatusStore } from "./plugin-status-store.js";
 import {
@@ -28,7 +29,6 @@ import {
   setCachedReport,
 } from "./requirement-probes.js";
 import type { ServerPluginContext } from "./server-context.js";
-import { getFileValidatorRegistry } from "./file-validator-registry.js";
 import { getWsRouteRegistry } from "./ws-route-registry.js";
 
 // ── Discovery cache ────────────────────────────────────────────────────────
@@ -283,9 +283,12 @@ export function deterministicSerializePlugins(
           ...(c.labelComponent !== undefined ? { labelComponent: c.labelComponent } : {}),
           // resource-page-section page filter. See change: add-skill-atlas-screen.
           ...(c.resourceType !== undefined ? { resourceType: c.resourceType } : {}),
-          // editor-pane-file-handler fields: every edit must change the hash.
-          // Spread only when present so other plugins' hashes are unchanged.
-          // See change: add-editor-pane-file-handlers.
+          // Lazy component module: a module-only edit must change the hash.
+          // See change: lazy-plugin-claim-modules.
+          ...(c.module !== undefined ? { module: c.module } : {}),
+          // editor-pane-file-handler fields: any single-field edit must change
+          // the hash; spread-when-present so other plugins' hashes are
+          // unchanged. See change: add-editor-pane-file-handlers.
           ...(c.id !== undefined ? { id: c.id } : {}),
           ...(c.extensions !== undefined ? { extensions: c.extensions } : {}),
           ...(c.mode !== undefined ? { mode: c.mode } : {}),
@@ -295,9 +298,6 @@ export function deterministicSerializePlugins(
           ...(c.firstOverwriteNotice !== undefined ? { firstOverwriteNotice: c.firstOverwriteNotice } : {}),
           ...(c.copySuffix !== undefined ? { copySuffix: c.copySuffix } : {}),
           ...(c.validator !== undefined ? { validator: c.validator } : {}),
-          // Lazy component module: a module-only edit must change the hash.
-          // See change: lazy-plugin-claim-modules.
-          ...(c.module !== undefined ? { module: c.module } : {}),
         }))
         .sort((a, b) =>
           [a.slot, a.component, a.predicate, a.command, a.path]
@@ -451,6 +451,7 @@ export async function loadServerEntries(deps: ServerLoadDeps): Promise<void> {
       // must not stay live (spec add-browser-relay / plugin-ws-route). No-op
       // for a plugin that owns none.
       getWsRouteRegistry().teardownPlugin(manifest.id);
+      getFileValidatorRegistry().unregisterPlugin(manifest.id);
       store.setStatus({
         id: manifest.id,
         displayName: manifest.displayName,
@@ -481,6 +482,9 @@ export async function loadServerEntries(deps: ServerLoadDeps): Promise<void> {
       continue;
     }
 
+    // A re-activation pass starts from a clean validator set (stale entries from a
+    // previous activation must not satisfy the fail-closed check).
+    getFileValidatorRegistry().unregisterPlugin(manifest.id);
     const ctx = deps.createContext(plugin);
     // Open the plugin's WS-route activation window around its server entry:
     // `ctx.registerWsRoute` succeeds only inside this window (spec
@@ -514,7 +518,6 @@ export async function loadServerEntries(deps: ServerLoadDeps): Promise<void> {
       // A failed activation must not leave its WS routes live (spec
       // add-browser-relay / plugin-ws-route: disable OR failure tears down).
       getWsRouteRegistry().teardownPlugin(manifest.id);
-      // Nor a half-registered file validator (add-editor-pane-file-handlers).
       getFileValidatorRegistry().unregisterPlugin(manifest.id);
       const msg = e instanceof Error ? e.message : String(e);
       store.setStatus({

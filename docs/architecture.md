@@ -1105,7 +1105,6 @@ First-party slots (React, possibly also descriptor):
 - `settings-section` — a section in the Settings page (replaces today's hardcoded `Background polling (OpenSpec)` section). React for first-party plugins; descriptor (RJSF/UiField) for third-party extensions.
 - `resource-page-section` — section above resource grid on Folder + Global Skills/Agents/Extensions/Prompts/Themes pages. Multiplicity `many`, react-only. Props `ResourcePageSectionProps` (`resourceType`, `scope: "folder"|"global"`, `cwd?`, `pluginContext`). Claim `resourceType` filter. First claimant: `skill-atlas`. See change: add-skill-atlas-screen; [`skill-atlas.md`](skill-atlas.md).
 - `shell-headless` — always-mounted zero-UI host for plugin-wide hooks (e.g. message subscriptions). Multiplicity `many`, react-only. Props `Record<string, never>`; predicate input `never`. Claim renders `null`. Consumer `ShellHeadlessSlot()` (`packages/dashboard-plugin-runtime/src/slot-consumers.tsx`): calls `useSlotClaimsVersion()`, renders each claim via `renderClaim` (SlotErrorBoundary + Suspense + CurrentPluginLayer). No wrapper element. No intents rendered. Mounted once in `packages/client/src/App.tsx` inside `apiProvider` body (inside `PluginContextProvider`), every layout branch (desktop, mobile, focus), independent of selection/session count. Runtime enable/disable mounts/unmounts claim. `manifest-validator.ts` REJECTS `predicate`/`shouldRender` on `shell-headless` claim (error names plugin + slot). See change: fix-empty-status-subcard.
-- `editor-pane-file-handler` — alternative preview/edit mode for workspace files by extension. Multiplicity `many`, react-only. Props `FileHandlerProps` (`snapshot`, `save`, `setDirty`, `cwd`, `path`, `session`, `isActive`, `context`). Claim `{ component, id, extensions, mode, label, … }`. Writes via `POST /api/file/write-binary`. Max 3 live instances per page. See change: add-editor-pane-file-handlers; [`plugin-seams.md`](plugin-seams.md#editor-pane-file-handlers-editor-pane-file-handler-slot).
 - `tool-renderer` — React component for a specific `tool_call` by `toolName` (replaces today's hardcoded `tool-renderers/registry.ts`).
 
 Descriptor-only slots (existing in `extension-ui-system`): `management-modal`, `footer-segment`, `agent-metric`, `breadcrumb`, `gate`, `toast`, `rjsf-form`.
@@ -3161,7 +3160,17 @@ v2–v4 follow-on (pin-to-split, create-file, edit-with-conflicts) deferred to s
 
 Content search: `GET /api/grep` → `rg` preferred, bounded JS fallback. Filename search: bridge `list_files` walk (`.gitignore`-aware, softened budget).
 
-Changed-on-disk: browser `watch_files` (open files only) → `file-watch-manager` `fs.watch` → `file_changed` broadcast → per-tab banner (Refresh, no auto-reload). Torn down on disconnect.
+Changed-on-disk: browser `watch_files` (open files only) → `file-watch-manager` `fs.watch` → `file_changed` broadcast (candidate only).
+- Baseline: `EditorPane` awaits `captureBaseline(path)` → GET `/api/file/digest?cwd&path&purpose=baseline` before mount. Stored in `use-change-verification.ts` (per session+cwd; session pane only, `changeDetection` prop).
+- Candidate: `useMessageHandler` stamps monotonic gen per `file_changed` → `changedOnDisk: Map<sessionId, Map<path, gen>>` → 150 ms settle → GET `/api/file/digest?purpose=verify`.
+- sha1 == baseline → silent clear. Differs / 404 / refused / error / no sha1 → banner (Refresh, no auto-reload). Failure never silent.
+- `GET /api/file/digest` → `{ size, mtime, sha1 }`, no content. Same read gate as `GET /api/file` (`gateReadPath`, `routes/file-routes.ts`; containment `[cwd, ~/.pi]`; grant-only verified open). `quiet` containment (no denial record, never held). `Cache-Control: no-store`. Route tier `observe`, MCP denylisted.
+- `DIGEST_CEILING_BYTES` = 256 MiB fixed; above → no `sha1` → banner. Hashing behind 2-wide two-lane gate (`lib/digest-gate.ts`; baseline lane before verify; client abort releases slot).
+- Own Save: `POST /api/file/write` → `{ mtime, size, sha1 }`. In-pane writers use `useTrackedFileWrite` (`split/tracked-file-write.ts`) → tab rebaselined, own Save never banners. `bodyLimit` 600 MiB; 413 above 256 MiB.
+- Watch survives atomic replace: `file-watch-manager.ts` re-attaches sync on `rename` (regular files only); retries 100/300/600/1000 ms for delete+re-create, then drops key.
+- Refresh + WS reconnect re-send `watch_files` (`watchNonce`, `connectionGeneration`) + 1 s mount catch-up verification.
+- `editor.largeFileLimitMb` (default 10, clamp 1–256; Settings ▸ General; live via `config_updated {section:"editor"}`) gates rich viewers (`CappedViewer`). Office caps and digest ceiling fixed.
+- Torn down on disconnect.
 
 Rail = vertical stack: `ChangesRailSection` (Changes) above the project tree. `openChanges()` reveals it (`changesRevealSignal`); `openDiffTab()` opens a `diff:` viewer tab. See change: add-change-summary-table.
 
@@ -4031,6 +4040,18 @@ flowchart LR
 - Enable switch writes `tls.enabled`. Live reconcile, no restart.
 - Polls `/api/health.tls` every 5 s.
 - "Use <ip>" sets `tls.host` to Tailscale IPv4. Clients still connect by cert name (IP URL = no SNI = fail).
+
+#### Domain certificates: `acme` source (change: add-acme-dns01-certs)
+
+Guide: [ACME DNS-01 domain certificates](acme-dns01-certs.md). Setup, limits, troubleshooting.
+
+- Source type `acme` via `registerCertSourceType`. Code: `packages/server/src/tls/sources/acme/`.
+- Solvers: `cloudflare` (`solvers/cloudflare.ts`), `acme-dns` (`solvers/acme-dns.ts`). Authoritative propagation check (`dns.ts`); DoH only as fallback.
+- Protocol: `acme-client` (`acme-source.ts`). Stages: `order` → `dns-publish` → `propagation` → `validation` → `finalize`.
+- Gates: `credentials`, `dns-cname`, `dns-zone`. Gate-blocked names make no CA or DNS call.
+- Secrets: vault namespace `tls:<sourceId>`, kind `tls-solver`. Never in `config.json`. GC: `gc.ts`.
+- Routes: `PUT`/`DELETE /api/tls/acme/:sourceId`, `PUT /api/tls/acme/:sourceId/credentials` (`packages/server/src/routes/acme-routes.ts`). Tier `operate`.
+- Production certs advertised as `domain` endpoint. Staging and wildcard names served, never listed.
 
 ### Gateway URL Management
 

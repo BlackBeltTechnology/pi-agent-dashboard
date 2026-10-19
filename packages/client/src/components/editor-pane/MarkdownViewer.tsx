@@ -17,13 +17,13 @@ import { Icon } from "@mdi/react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { eligibleFetch, usePreviewFetch } from "../../lib/access-grants/preview-provenance.js";
 import { getApiBase } from "../../lib/api/api-context.js";
-import { useFileWrite } from "../split/use-file-write.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
 import { useMermaidSource } from "../../lib/preview/use-mermaid-source.js";
 import { DenialNotice } from "../preview/DenialNotice.js";
 import { type DenialFailure, denialFetch } from "../preview/denial-fetch.js";
 import { MarkdownContent } from "../preview/MarkdownContent.js";
 import { dirname } from "../preview/resolve-local-image-src.js";
+import { useTrackedFileWrite } from "../split/tracked-file-write.js";
 import { ChangedOnDiskBanner } from "./ChangedOnDiskBanner.js";
 import type { ViewerProps } from "./types.js";
 
@@ -36,6 +36,7 @@ const basename = (p: string): string => p.slice(Math.max(p.lastIndexOf("/"), p.l
 
 export default function MarkdownViewer({ cwd, path }: ViewerProps) {
   const { t } = useI18n();
+  const trackedWrite = useTrackedFileWrite();
   const editable = fileKind(absOf(cwd, path)).editable;
   const [content, setContent] = useState<string | null>(null);
   const [buffer, setBuffer] = useState("");
@@ -88,28 +89,28 @@ export default function MarkdownViewer({ cwd, path }: ViewerProps) {
 
   const dirty = content !== null && buffer !== content;
 
-  const writeFile = useFileWrite();
   const onSave = useCallback(async () => {
     if (mtime === null || saving) return;
     setSaving(true);
     setError(null);
     try {
-      const r = await writeFile({ cwd, path, content: buffer, mtime });
-      if (r.ok) {
+      const res = await trackedWrite(path, { cwd, path, content: buffer, mtime });
+      const body = await res.json();
+      if (res.status === 200 && body.success) {
         setContent(buffer);
-        setMtime(r.body.data?.mtime ?? mtime);
+        setMtime(body.data?.mtime ?? mtime);
         setConflict(false);
-      } else if (r.status === 409) {
+      } else if (res.status === 409) {
         setConflict(true);
       } else {
-        setError(r.body?.error ?? t("editor.saveFailed", { status: r.status }, "Save failed ({status})"));
+        setError(body.error ?? t("editor.saveFailed", { status: res.status }, "Save failed ({status})"));
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : t("common.networkError", undefined, "Network error"));
     } finally {
       setSaving(false);
     }
-  }, [cwd, path, buffer, mtime, saving, writeFile]);
+  }, [cwd, path, buffer, mtime, saving, trackedWrite]);
 
   // Hook order: declared before any early return. Stable identity keeps MarkdownContent's React.memo guard effective. See change: fix-markdown-remount-storm (D3).
   const imageBase = useMemo(() => ({ cwd, dir: absOf(cwd, dirname(path)) }), [cwd, path]);

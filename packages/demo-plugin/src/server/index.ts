@@ -7,19 +7,15 @@
  * - the credential persisted via `ctx.credentials` under key `demo-account`.
  * See change: expose-plugin-credential-and-oauth-seams (D8).
  */
-import {
-  fixturePluginsEnabled,
-  type PluginOAuthLoginFlow,
-  type ServerPluginContext,
+import type {
+  PluginOAuthLoginFlow,
+  ServerPluginContext,
 } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 
 export const DEMO_ACCOUNT_KEY = "demo-account";
 export const DEMO_ECHO_TYPE = "demo/echo";
 /** The vault binding the demo manifest declares (`vaultBindings`). See change: add-credential-vault. */
 export const DEMO_VAULT_BINDING = "POLY_PIZZA_KEY";
-/** `editor-pane-file-handler` edit claim id + its validator module. See change: add-editor-pane-file-handlers. */
-export const DEMO_FILE_HANDLER_CLAIM = "demo-docx";
-export const DEMO_FILE_VALIDATOR_MODULE = "./src/file-handler/validator.mjs";
 
 /** Fake login: auth URL + paste prompt; the answer `ok` yields a dummy credential. */
 export const demoLoginFlow: PluginOAuthLoginFlow = {
@@ -73,13 +69,9 @@ export default async function registerPlugin(ctx: ServerPluginContext): Promise<
     return { binding: DEMO_VAULT_BINDING, present: typeof value === "string", length: typeof value === "string" ? value.length : null };
   });
 
-  // Validator for the `demo-docx` edit claim (`validator: true` → saves fail
-  // closed without it). Self-gated like the bridge: the loader already skips
-  // fixture server entries without the flag; this is defence in depth.
-  // See change: add-editor-pane-file-handlers (task 6.1).
-  if (fixturePluginsEnabled()) {
-    ctx.registerFileValidator?.({ claimId: DEMO_FILE_HANDLER_CLAIM, module: DEMO_FILE_VALIDATOR_MODULE });
-  }
+  // Validator for the `.docx` file-handler claim (`validator: true`): without this the
+  // claim is NOT writable (503, fail closed). `?.`: tolerate a host older than the seam. See change: add-editor-pane-file-handlers (6.1).
+  ctx.registerFileValidator?.({ claimId: "docx", module: "./src/server/docx-validator.mjs" });
 
   ctx.fastify.delete("/api/plugins/demo/account", async () => {
     await ctx.credentials?.remove(DEMO_ACCOUNT_KEY);

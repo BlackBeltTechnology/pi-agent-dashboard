@@ -15,7 +15,6 @@ import { ConnectionStatusBanner } from "./components/connectivity/ConnectionStat
 import { ServerSelector } from "./components/connectivity/ServerSelector.js";
 import { DirectorySettings, type DirectorySettingsPage } from "./components/DirectorySettings/DirectorySettings.js";
 import { SessionDiffProvider } from "./components/diff/SessionDiffContext.js";
-import { FileHandlerLayer } from "./components/editor-pane/file-handlers/FileHandlerLayer.js";
 import { FolderEditorView } from "./components/folder/FolderEditorView.js";
 import { FolderSplitProvider } from "./components/folder/FolderSplitProvider.js";
 import { ArchiveBrowserView } from "./components/openspec/ArchiveBrowserView.js";
@@ -138,6 +137,7 @@ import { usePeerAutoInstallReset } from "./lib/package/peer-auto-install-store.j
 import { dispatchPluginMessage } from "./lib/package/plugins-api.js";
 import { appendWsTicket, getApiBearer, isDevicePaired, mintWsTicket } from "./lib/pairing/device-auth.js";
 import { createEmbeddedAppShell } from "./lib/plugins/embedded-app-shell.js";
+import { hydrateEditorLimitsConfig } from "./lib/preview/editor-limits-config.js";
 import { hydrateMermaidRepairConfig } from "./lib/preview/mermaid-repair-config.js";
 import { reachabilityStore } from "./lib/remote-access/reachability-store.js";
 import { buildHistoryPhaseMap, hasChatContent } from "./lib/replay/history-load-phase.js";
@@ -174,6 +174,11 @@ const ChatViewMenu = lazy(() =>
 );
 const PairingApprovalHost = lazy(() =>
   import("./components/pairing-approval/PairingApprovalHost.js").then((m) => ({ default: m.PairingApprovalHost })),
+);
+// Page-level file-handler instance layer: its own chunk, off the entry gzip cap (mdi-chunk-size).
+// See change: add-editor-pane-file-handlers.
+const FileHandlerLayer = lazy(() =>
+  import("./components/editor-pane/file-handler/FileHandlerLayer.js").then((m) => ({ default: m.FileHandlerLayer })),
 );
 const FileDiffView = lazy(() =>
   import("./components/diff/FileDiffView.js").then((m) => ({ default: m.FileDiffView })),
@@ -1236,6 +1241,9 @@ export default function App() {
         // On-demand AI mermaid repair gate (opt-in; server resolves enabled/model).
         // See change: add-mermaid-ai-repair.
         hydrateMermaidRepairConfig(d);
+        // Editor large-file limit mirror (the CappedViewer gate waits on it).
+        // See change: gate-changed-on-disk-by-content.
+        hydrateEditorLimitsConfig(d);
         if (d.success) {
           setConfigFolderListMode(d.data?.folderListMode === "accordion" ? "accordion" : "classic");
           if (typeof d.data?.folderAttentionPeek === "boolean") setFolderAttentionPeek(d.data.folderAttentionPeek);
@@ -1273,10 +1281,18 @@ export default function App() {
   useEffect(() => {
     if (!onMessage) return;
     return onMessage((msg: any) => {
-      if (msg?.type !== "config_updated" || (msg.section !== "openspec" && msg.section !== "sessions")) return;
+      if (
+        msg?.type !== "config_updated" ||
+        (msg.section !== "openspec" && msg.section !== "sessions" && msg.section !== "editor")
+      ) {
+        return;
+      }
       fetch(`${apiBase}/api/config`)
         .then((r) => r.json())
         .then((d) => {
+          // A raised/lowered editor large-file limit re-gates open tabs live.
+          // See change: gate-changed-on-disk-by-content.
+          if (msg.section === "editor") hydrateEditorLimitsConfig(d);
           if (d?.success && msg.section === "sessions") {
             setConfigFolderListMode(d.data?.folderListMode === "accordion" ? "accordion" : "classic");
             if (typeof d.data?.folderAttentionPeek === "boolean") setFolderAttentionPeek(d.data.folderAttentionPeek);
@@ -1390,8 +1406,13 @@ export default function App() {
 
   // Clear subscriptions on reconnect so sessions get re-subscribed
   const prevStatusRef = useRef(status);
+  // Bumped on every (re)connect: the server dropped this browser's file watchers,
+  // so the editor pane re-declares its open files and re-verifies their
+  // baselines. See change: gate-changed-on-disk-by-content (D1).
+  const [connectionGeneration, setConnectionGeneration] = useState(0);
   useEffect(() => {
     if (status === "connected" && prevStatusRef.current !== "connected") {
+      setConnectionGeneration((g) => g + 1);
       subscribedRef.current.clear();
       // sessionOrderMap is replaced atomically by the on-connect
       // `sessions_snapshot` message — no pre-reset needed.
@@ -3113,14 +3134,14 @@ export default function App() {
             onRenameTerminal={handleRenameTerminal}
             onTerminalTitle={handleTerminalTitle}
             changeDetection
-            connectionGeneration={snapshotGeneration}
-            onClearChanged={(path, generation) => {
+            connectionGeneration={connectionGeneration}
+            onClearChanged={(path, gen) => {
               if (!selectedId) return;
               setChangedOnDisk((prev) => {
                 const paths = prev.get(selectedId);
-                if (!paths?.has(path)) return prev;
-                // A generation-scoped clear is a no-op once a newer event arrived.
-                if (generation !== undefined && paths.get(path) !== generation) return prev;
+                // With `gen`, clear only if the candidate is still that
+                // generation (a newer event must survive). No `gen` = unconditional.
+                if (!paths || !paths.has(path) || (gen !== undefined && paths.get(path) !== gen)) return prev;
                 const next = new Map(prev);
                 const copy = new Map(paths);
                 copy.delete(path);
@@ -3139,15 +3160,18 @@ export default function App() {
               {/* Non-modal "waiting for file access" toast (own tray, both layouts).
                   See change: ask-agent-file-access-in-chat. */}
               <FileAccessToastHost sessions={sessions} selectedId={selectedId} onOpen={handleSelect} />
-              {/* Page-level plugin file-handler instances (kept alive across tab / pane /
-                  session switches; positioned over the session pane body).
-                  See change: add-editor-pane-file-handlers. */}
-              <FileHandlerLayer />
               {/* Return pill for embedded plugin apps (both layouts). See change: add-plugin-app-host. */}
               <EmbeddedAppReturnPill />
               {/* Always-mounted zero-UI plugin hosts (e.g. the browser relay feed),
                   ONCE for every layout branch. See change: fix-empty-status-subcard. */}
               <ShellHeadlessSlot />
+              {/* Page-level host of every plugin file-handler instance — OUTSIDE
+                  EditorPane/SplitWorkspace so closing the pane or switching
+                  tabs/sessions never unmounts an instance. See change:
+                  add-editor-pane-file-handlers (D5). */}
+              <Suspense fallback={null}>
+                <FileHandlerLayer />
+              </Suspense>
               {/* D22 sign-in dialog: ONE instance for every layout branch (it is
                   `fixed inset-0`, so it need not sit inside the banner slots,
                   which a session route renders twice). */}

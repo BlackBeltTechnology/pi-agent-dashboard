@@ -28,10 +28,10 @@ import {
 } from "../lib/chat/history-gap.js";
 import { dispatchInitEvent } from "../lib/git/worktree-init-bus.js";
 import { t } from "../lib/i18n/i18n.js";
+import { setQuestions } from "../lib/questions/question-store.js";
 import { clearLoadingHistory, HYDRATE_CEILING_MS, rearmLoadingHistory } from "../lib/replay/loading-history.js";
 import type { ReplayPersister } from "../lib/replay/replay-persist.js";
 import { inferPlatform, pathKey, resolveSessionGroupPath } from "../lib/session/session-grouping.js";
-import { setQuestions } from "../lib/questions/question-store.js";
 import { clearRecoveryOffer, setRecoveryOffer } from "../lib/state/recovery-offer-bus.js";
 import { pushSpawnErrorToast } from "../lib/state/spawn-error-toast-bus.js";
 import { isVisibleCwd } from "../lib/util/cwd-visibility.js";
@@ -110,7 +110,6 @@ export interface MessageHandlerSetters {
   // pluginize-flows-via-registry.
   setFileResults: React.Dispatch<React.SetStateAction<{ query: string; files: FileEntry[] } | null>>;
   /** Per-session set of rel-paths that changed on disk (editor-pane banner). See change: split-editor-workspace. */
-  /** sessionId → (relPath → generation); the generation bumps on every `file_changed`. */
   setChangedOnDisk: React.Dispatch<React.SetStateAction<Map<string, Map<string, number>>>>;
   setOpenspecMap: React.Dispatch<React.SetStateAction<Map<string, OpenSpecData>>>;
   /**
@@ -318,7 +317,7 @@ export interface MessageHandlerDeps {
   openspecGetInflightRef?: React.MutableRefObject<Map<string, OpenSpecGetInflight>>;
 }
 
-/** Monotonic `file_changed` generation (see the `file_changed` case). */
+/** Monotonic generation stamped on every `file_changed` candidate. Module-level: never restarts. */
 let fileChangedGeneration = 0;
 
 export function useMessageHandler(
@@ -965,10 +964,10 @@ export function useMessageHandler(
         // pane surfaces a per-tab banner (no auto-reload).
         // See change: split-editor-workspace.
         if (typeof msg.path !== "string" || typeof msg.sessionId !== "string") break;
-        // Every event is a fresh verification candidate: a module-wide counter
-        // (taken OUTSIDE the updater so a StrictMode double-invoke cannot skip
-        // numbers) keeps generations monotonic even after an entry is cleared.
-        // See change: gate-changed-on-disk-by-content (D1).
+        // Every event is a NEW candidate: the generation is unique and monotonic
+        // (module-level, never restarts after a clear), so a later event for a
+        // path whose earlier candidate was verified+cleared is never mistaken for
+        // an already-handled one. See change: gate-changed-on-disk-by-content (D1).
         {
           const generation = ++fileChangedGeneration;
           setChangedOnDisk((prev) => {

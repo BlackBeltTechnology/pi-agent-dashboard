@@ -31,10 +31,10 @@ function makeFakeContext(): ServerPluginContext {
     abortSession: () => false,
     shutdownSession: async () => false,
     openEditorTab: () => {},
+    registerFileValidator: () => {},
     abortSpawnedRun: async () => false,
     registerSessionCloser: () => {},
     requestSessionClose: async () => false,
-    registerFileValidator: () => {},
     registerCwdPolicy: () => {},
     unregisterCwdPolicy: () => {},
     provide: () => {},
@@ -50,6 +50,8 @@ function makeFakeContext(): ServerPluginContext {
     listWorkspaces: () => [],
     onWorkspacesChanged: () => () => {},
     registerWsRoute: () => {},
+    serveApp: () => {},
+    dataDir: "",
     logger: { info: () => {}, warn: () => {}, error: () => {} },
   };
 }

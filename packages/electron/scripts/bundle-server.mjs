@@ -123,6 +123,8 @@ const BUNDLED_WORKSPACE_PKGS = [
   "mcp-server-plugin", // chat-gateway
   "session-distiller", // cost-estimator
   "system-one", // system-one-plugin
+  "craft-apps", // craft-web-plugin (provisionWeb)
+  "nano-banana", // craft-apps
 ];
 for (const pkg of BUNDLED_WORKSPACE_PKGS) {
   cpSync(

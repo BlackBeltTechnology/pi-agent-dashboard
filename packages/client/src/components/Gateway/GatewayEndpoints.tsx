@@ -14,8 +14,9 @@
  * See changes: add-tunnel-providers, config-override-oauth-redirect-base.
  */
 
+import { hasTlsDetail, type TlsStatus } from "@blackbelt-technology/pi-dashboard-shared/tls-status.js";
 import type { TunnelEndpoint } from "@blackbelt-technology/pi-dashboard-shared/tunnel-provider.js";
-import { mdiAlert, mdiCheck, mdiContentCopy, mdiLockOutline, mdiPlus } from "@mdi/js";
+import { mdiAlert, mdiCheck, mdiContentCopy, mdiInformationOutline, mdiLockOutline, mdiPlus } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { useCallback, useEffect, useState } from "react";
 import { getConfig, putConfig } from "../../lib/gateway/gateway-api.js";
@@ -25,6 +26,7 @@ import {
   type PublicBaseUrlsConfigShape,
 } from "../../lib/gateway/gateway-config-ops.js";
 import { getGatewayEndpoints } from "../../lib/gateway/gateway-endpoints.js";
+import { getTlsStatus } from "../../lib/gateway/tls-api.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
 import { copyText } from "../../lib/util/clipboard.js";
 import { BTN_ICON_GHOST, severityPill } from "../connectivity/connectivity-ui.js";
@@ -98,10 +100,29 @@ interface Props {
   /** Provide endpoints to render statically (tests); otherwise fetched. */
   endpoints?: TunnelEndpoint[];
   onEndpointsChange?: (eps: TunnelEndpoint[]) => void;
+  /** Provide the TLS status (tests); otherwise read once on mount. */
+  tlsStatus?: TlsStatus | null;
 }
 
-export function GatewayEndpoints({ endpoints: provided, onEndpointsChange }: Props) {
+/** Names of held certificates of a staging domain source: served, but never listed (devices don't trust them). */
+function stagingNames(status: TlsStatus | null | undefined): string[] {
+  if (!status || !hasTlsDetail(status)) return [];
+  const staging = new Set(status.sources.filter((s) => s.type === "acme" && (s.details?.staging === true || s.details?.staging === "true")).map((s) => s.id));
+  return status.certs.filter((c) => c.held && staging.has(c.sourceId) && !c.name.startsWith("*.")).map((c) => c.name);
+}
+
+export function GatewayEndpoints({ endpoints: provided, onEndpointsChange, tlsStatus }: Props) {
   const { t } = useI18n();
+  const [readStatus, setReadStatus] = useState<TlsStatus | null>(null);
+  useEffect(() => {
+    if (tlsStatus !== undefined) return;
+    getTlsStatus()
+      .then(setReadStatus)
+      .catch(() => {
+        /* no TLS status: no staging note */
+      });
+  }, [tlsStatus]);
+  const staging = stagingNames(tlsStatus !== undefined ? tlsStatus : readStatus);
   const [endpoints, setEndpoints] = useState<TunnelEndpoint[]>(provided ?? []);
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
@@ -155,6 +176,12 @@ export function GatewayEndpoints({ endpoints: provided, onEndpointsChange }: Pro
         ) : (
           endpoints.map((ep) => <EndpointRow key={`${ep.kind}:${ep.url}`} ep={ep} />)
         )}
+        {staging.map((name) => (
+          <p key={name} className="flex items-center gap-1 text-[11px] text-[var(--text-secondary)]" data-testid="gateway-endpoint-staging-note">
+            <Icon path={mdiInformationOutline} size={0.5} className="flex-none" aria-hidden="true" />
+            <span>{t("gateway.acme.endpointStaging", { name }, "{name} isn't listed: it has a staging certificate, which devices don't trust.")}</span>
+          </p>
+        ))}
       </div>
 
       {/* Add HTTPS URL (task 6.4) */}

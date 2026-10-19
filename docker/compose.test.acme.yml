@@ -1,0 +1,145 @@
+# Opt-in ACME DNS-01 overlay for the E2E harness (Pebble + fake DNS + solver
+# doubles). Layered through the EXISTING hook — no new switch:
+#
+#   PI_E2E_SEED=1 TEST_EXTRA_COMPOSE=compose.test.acme.yml docker/test-up.sh -d --build
+#   docker/test-down.sh          # env var not needed: list read from the state file
+#
+# See change: add-acme-dns01-certs (design D10).
+#
+# ── Reachability (from the pi-dashboard container; nothing is host-published) ──
+#   https://pebble.test:14000/dir     ACME directory (Pebble 2.8.0)
+#   https://pebble.test:15000/roots/0 Pebble ISSUING root (random per start)
+#   challtestsrv.test:8053            DNS (udp+tcp), authoritative for any name
+#   http://challtestsrv.test:8055     challtestsrv management API
+#                                     (/set-txt /clear-txt /set-cname /clear-cname /add-a)
+#   http://cf-shim.test:8080/client/v4 Cloudflare API shim (= PI_E2E_CLOUDFLARE_API,
+#                                     the full API base like the real one)
+#   https://acme-dns.test:8443        acme-dns double      (acme-dns `server`;
+#                                     https required, leaf from acme-certs)
+#   http://acme-dns.test:8080         acme-dns double, plain http (debug only)
+#   dash.test                         network alias of the pi-dashboard container
+#   Specs reach these from the host via
+#   `docker compose -p <project> exec pi-dashboard node -e 'fetch(...)'`.
+#
+# ── Fixed test values ──
+#   Test zone:            dash.test
+#   Cloudflare token:     pi-e2e-cloudflare-token-0123456789abcdef  (Bearer)
+#   Cloudflare zone id:   0123456789abcdef0123456789abcdef          (name dash.test)
+#   acme-dns username:    5f1e7b2a-3c4d-4e5f-8a9b-0c1d2e3f4a5b       (X-Api-User)
+#   acme-dns password:    piE2eAcmeDnsTestKey0123456789abcdefABCD    (X-Api-Key)
+#   acme-dns subdomain:   d420c923-bbd7-4056-ab64-c3ca54c9b3cf
+#   acme-dns fulldomain:  d420c923-bbd7-4056-ab64-c3ca54c9b3cf.auth.dash.test
+#   CNAME for acme-dns:   _acme-challenge.dash.test -> <fulldomain>  (set via
+#                         challtestsrv /set-cname; challtestsrv follows it for TXT)
+#
+# ── Trust ──
+#   `acme-certs` (one-shot, alpine/openssl) generates a throwaway listener root +
+#   pebble.test + acme-dns.test leaves into the `acme-certs` volume (docker/acme-test/gen-certs.sh;
+#   nothing committed, root key deleted after signing). Pebble serves the leaf;
+#   the dashboard gets NODE_EXTRA_CA_CERTS=/acme-certs/root.pem — set ONLY here,
+#   never by server code. Certificates Pebble ISSUES chain to its random issuing
+#   root (/roots/0 above), not to this listener root.
+#
+# Pebble env: PEBBLE_VA_NOSLEEP=1 (no validation delay), PEBBLE_WFE_NONCEREJECT=0
+# (no random badNonce), PEBBLE_AUTHZREUSE=0 (every order runs a fresh challenge),
+# retryAfter 1 s (docker/acme-test/pebble-config.json). DNS-01 lookups go to
+# challtestsrv (`-dnsserver`).
+#
+# Server overrides (honoured only with PI_E2E_SEED=1 and a localhost / *.test host):
+#   PI_E2E_CLOUDFLARE_API=http://cf-shim.test:8080/client/v4
+#   PI_E2E_DNS_AUTHORITATIVE=challtestsrv.test:8053  (a hostname: resolve it before
+#                                                     dns.Resolver#setServers)
+services:
+  pi-dashboard:
+    depends_on:
+      acme-certs:
+        condition: service_completed_successfully
+      pebble:
+        condition: service_started
+      challtestsrv:
+        condition: service_started
+      cf-shim:
+        condition: service_started
+      acme-dns:
+        condition: service_started
+    environment:
+      PI_E2E_SEED: "${PI_E2E_SEED:-1}"
+      NODE_EXTRA_CA_CERTS: "/acme-certs/root.pem"
+      PI_E2E_CLOUDFLARE_API: "http://cf-shim.test:8080/client/v4"
+      PI_E2E_DNS_AUTHORITATIVE: "challtestsrv.test:8053"
+    volumes:
+      - "acme-certs:/acme-certs:ro"
+    networks:
+      default:
+        aliases: ["dash.test"]
+
+  acme-certs:
+    image: alpine/openssl:3.5.4
+    entrypoint: ["sh", "/acme-test/gen-certs.sh"]
+    volumes:
+      - "./acme-test:/acme-test:ro"
+      - "acme-certs:/certs"
+    restart: "no"
+
+  pebble:
+    image: ghcr.io/letsencrypt/pebble:2.8.0
+    command: ["-config", "/acme-test/pebble-config.json", "-dnsserver", "challtestsrv.test:8053"]
+    environment:
+      PEBBLE_VA_NOSLEEP: "1"
+      PEBBLE_VA_ALWAYS_VALID: "0"
+      PEBBLE_WFE_NONCEREJECT: "0"
+      PEBBLE_AUTHZREUSE: "0"
+    depends_on:
+      acme-certs:
+        condition: service_completed_successfully
+      challtestsrv:
+        condition: service_started
+    volumes:
+      - "./acme-test:/acme-test:ro"
+      - "acme-certs:/certs:ro"
+    mem_limit: 256m
+    networks:
+      default:
+        aliases: ["pebble.test"]
+
+  challtestsrv:
+    image: ghcr.io/letsencrypt/pebble-challtestsrv:2.8.0
+    command: ["-dns01", ":8053", "-management", ":8055", "-http01", "", "-https01", "", "-tlsalpn01", "", "-doh", ""]
+    mem_limit: 128m
+    networks:
+      default:
+        aliases: ["challtestsrv.test"]
+
+  cf-shim:
+    image: node:24-alpine
+    command: ["node", "/acme-test/cf-shim/server.mjs"]
+    environment:
+      PORT: "8080"
+      CHALLTESTSRV_URL: "http://challtestsrv.test:8055"
+    volumes:
+      - "./acme-test:/acme-test:ro"
+    mem_limit: 128m
+    networks:
+      default:
+        aliases: ["cf-shim.test"]
+
+  acme-dns:
+    image: node:24-alpine
+    command: ["node", "/acme-test/acme-dns/server.mjs"]
+    environment:
+      PORT: "8080"
+      TLS_PORT: "8443"
+      CHALLTESTSRV_URL: "http://challtestsrv.test:8055"
+    depends_on:
+      acme-certs:
+        condition: service_completed_successfully
+    volumes:
+      - "./acme-test:/acme-test:ro"
+      - "acme-certs:/certs:ro"
+    mem_limit: 128m
+    networks:
+      default:
+        aliases: ["acme-dns.test"]
+
+volumes:
+  acme-certs: {}

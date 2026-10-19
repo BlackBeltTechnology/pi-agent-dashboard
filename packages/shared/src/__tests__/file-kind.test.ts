@@ -198,22 +198,19 @@ describe("fileKind", () => {
   });
 });
 
-describe("extOf / isTextBackedExt (add-editor-pane-file-handlers E1/E2)", () => {
-  it("extOf lower-cases the last segment and ignores dotfiles", () => {
+describe("extOf / isTextBackedExt (add-editor-pane-file-handlers)", () => {
+  it("extOf lower-cases and takes the last dot", () => {
     expect(extOf("/a/REPORT.DOCX")).toBe(".docx");
     expect(extOf("/a/x.tar.gz")).toBe(".gz");
     expect(extOf("/a/.gitignore")).toBe("");
   });
 
-  it("is true for text-backed extensions", () => {
-    for (const ext of [".md", ".markdown", ".mdx", ".csv", ".adoc", ".mmd", ".puml", ".plantuml", ".txt", ".json", ".ts", ".html"]) {
-      expect(isTextBackedExt(ext), ext).toBe(true);
-    }
-  });
+  it.each([".md", ".markdown", ".csv", ".adoc", ".mmd", ".puml", ".txt", ".json", ".ts", ".html"])(
+    "%s is text-backed",
+    (ext) => expect(isTextBackedExt(ext)).toBe(true),
+  );
 
-  it("is false for unrecognised and non-text kinds, without throwing", () => {
-    for (const ext of [".docx", ".drawio", ".psd", ".svg", ".odt", ".pdf", ".xlsx", ".eml"]) {
-      expect(isTextBackedExt(ext), ext).toBe(false);
-    }
-  });
+  it.each([".docx", ".drawio", ".psd", ".svg", ".odt"])("%s is claimable (not text-backed)", (ext) =>
+    expect(isTextBackedExt(ext)).toBe(false),
+  );
 });

@@ -19,7 +19,7 @@ import { usePreviewFetch } from "../../lib/access-grants/preview-provenance.js";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import type { MermaidSourceInfo } from "../../lib/preview/mermaid-source-context.js";
-import { useFileWrite } from "../split/use-file-write.js";
+import { useTrackedFileWrite } from "../split/tracked-file-write.js";
 
 interface Props {
   source: MermaidSourceInfo;
@@ -242,6 +242,7 @@ export function ConfirmDialog({
 }
 
 export function MermaidApplyFix({ source, ordinal, originalCode, fixedSource }: Props) {
+  const trackedWrite = useTrackedFileWrite();
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
   const buttonRef = useRef<HTMLButtonElement>(null);
   const hintId = useId();
@@ -278,30 +279,35 @@ export function MermaidApplyFix({ source, ordinal, originalCode, fixedSource }: 
     queueMicrotask(() => buttonRef.current?.focus());
   }, []);
 
-  const writeFile = useFileWrite();
   const confirm = useCallback(async () => {
     if (phase.kind !== "confirm" || inFlight.current) return;
     inFlight.current = true;
     const held = phase;
     setPhase({ ...held, kind: "writing" });
     try {
-      const r = await writeFile({ cwd: source.cwd, path: source.path, content: held.content, mtime: held.mtime });
-      if (r.status === 409) {
+      const res = await trackedWrite(source.path, {
+        cwd: source.cwd,
+        path: source.path,
+        content: held.content,
+        mtime: held.mtime,
+      });
+      if (res.status === 409) {
         setPhase({ kind: "changed" });
         return;
       }
-      if (r.ok) {
+      const body = await res.json().catch(() => null);
+      if (res.status === 200 && body?.success) {
         setPhase({ kind: "idle" });
         source.reload();
         return;
       }
-      fail(r.body?.error ?? `HTTP ${r.status}`);
+      fail(body?.error ?? `HTTP ${res.status}`);
     } catch (e) {
       fail(e);
     } finally {
       inFlight.current = false;
     }
-  }, [phase, source, fail, writeFile]);
+  }, [phase, source, fail, trackedWrite]);
 
   const showDialog = phase.kind === "confirm" || phase.kind === "writing";
 

@@ -1,16 +1,9 @@
-import { afterAll, describe, expect, it, vi } from "vitest";
-import { mkdirSync, mkdtempSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { EventEmitter } from "node:events";
+import { mkdirSync, mkdtempSync, renameSync, rmSync, unlinkSync, watch, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { createFileWatchManager } from "../file-watch-manager.js";
-
-// Pass-through spy so tests can see how many `fs.watch` handles were opened and
-// reach an individual watcher (error-handler test).
-vi.mock("node:fs", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("node:fs")>();
-  return { ...actual, watch: vi.fn(actual.watch) };
-});
-import { watch as watchSpy } from "node:fs";
 
 const cleanup: string[] = [];
 afterAll(() => {
@@ -93,165 +86,222 @@ describe("FileWatchManager", () => {
     mgr.clearConnection(wsB);
     expect(mgr.activeWatchCount()).toBe(0);
   });
+});
 
-  describe("atomic replace (tmp + rename)", () => {
-    /** Replace `name` the way the editor/agents do: write a tmp sibling, rename over. */
-    function replace(root: string, name: string, content: string): void {
-      const tmpPath = join(root, `.${name}.tmp`);
-      writeFileSync(tmpPath, content);
-      renameSync(tmpPath, join(root, name));
+// ── Watch survives atomic replace + quick re-create ──────────────────────────
+// See change: gate-changed-on-disk-by-content (D5; test-plan #X1–#X7).
+
+function atomicReplace(root: string, name: string, content: string): void {
+  const tmpFile = join(root, `.${name}.tmp`);
+  writeFileSync(tmpFile, content);
+  renameSync(tmpFile, join(root, name));
+}
+
+describe("FileWatchManager — atomic replace (X1)", () => {
+  for (const delay of [0, 20, 500]) {
+    it(`still reports a write ${delay} ms after a tmp+rename; one watcher throughout`, async () => {
+      const root = tmp();
+      writeFileSync(join(root, "foo.ts"), "a");
+      const onChange = vi.fn();
+      const mgr = createFileWatchManager();
+      mgr.setWatched(wsA, "s1", root, ["foo.ts"], onChange);
+      await wait(50);
+
+      atomicReplace(root, "foo.ts", "b");
+      await wait(delay);
+      writeFileSync(join(root, "foo.ts"), "c");
+      await wait(300);
+
+      expect(onChange).toHaveBeenCalledWith("s1", "foo.ts");
+      expect(mgr.activeWatchCount()).toBe(1);
+      mgr.clearConnection(wsA);
+    });
+  }
+
+  it("a write after the re-attach is reported by the NEW watcher (second event)", async () => {
+    const root = tmp();
+    writeFileSync(join(root, "foo.ts"), "a");
+    const onChange = vi.fn();
+    const mgr = createFileWatchManager();
+    mgr.setWatched(wsA, "s1", root, ["foo.ts"], onChange);
+    await wait(50);
+    atomicReplace(root, "foo.ts", "b");
+    await wait(200);
+    const afterRename = onChange.mock.calls.length;
+    expect(afterRename).toBeGreaterThanOrEqual(1);
+    writeFileSync(join(root, "foo.ts"), "c");
+    await wait(200);
+    expect(onChange.mock.calls.length).toBeGreaterThan(afterRename);
+    mgr.clearConnection(wsA);
+  });
+});
+
+describe("FileWatchManager — delete + re-create (X2, X3)", () => {
+  it("X2: re-attaches at the 300 ms retry when the file returns at 250 ms; later writes fire", async () => {
+    const root = tmp();
+    writeFileSync(join(root, "foo.ts"), "a");
+    const onChange = vi.fn();
+    const mgr = createFileWatchManager();
+    mgr.setWatched(wsA, "s1", root, ["foo.ts"], onChange);
+    await wait(50);
+
+    unlinkSync(join(root, "foo.ts"));
+    await wait(250);
+    writeFileSync(join(root, "foo.ts"), "b");
+    await wait(450); // past the 300 ms retry
+    expect(mgr.activeWatchCount()).toBe(1);
+
+    onChange.mockClear();
+    await wait(100);
+    writeFileSync(join(root, "foo.ts"), "c");
+    await wait(250);
+    expect(onChange).toHaveBeenCalledWith("s1", "foo.ts");
+    mgr.clearConnection(wsA);
+  });
+
+  describe("X3 (fake timers)", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("drops the key after the last retry when the file never returns; no timers left", async () => {
+      const root = tmp();
+      writeFileSync(join(root, "foo.ts"), "a");
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const onChange = vi.fn();
+      const mgr = createFileWatchManager();
+      mgr.setWatched(wsA, "s1", root, ["foo.ts"], onChange);
+      const armed = Date.now();
+      while (Date.now() - armed < 60) await new Promise((r) => setImmediate(r)); // let the watch arm
+      unlinkSync(join(root, "foo.ts"));
+      // Real I/O delivers the `rename` event; wait for the manager's timers to appear.
+      const t0 = Date.now();
+      while (mgr.pendingTimerCount() === 0 && Date.now() - t0 < 2000) await new Promise((r) => setImmediate(r));
+      expect(mgr.pendingTimerCount()).toBeGreaterThan(0);
+
+      await vi.advanceTimersByTimeAsync(1100);
+      expect(mgr.activeWatchCount()).toBe(0);
+      expect(mgr.pendingTimerCount()).toBe(0);
+      expect(onChange).toHaveBeenCalledTimes(1);
+      mgr.clearConnection(wsA);
+    });
+  });
+});
+
+describe("FileWatchManager — replaced by a directory (X4)", () => {
+  it("drops the key (never watches a directory) and signals once", async () => {
+    const root = tmp();
+    writeFileSync(join(root, "foo.ts"), "a");
+    const onChange = vi.fn();
+    const mgr = createFileWatchManager();
+    mgr.setWatched(wsA, "s1", root, ["foo.ts"], onChange);
+    await wait(50);
+
+    renameSync(join(root, "foo.ts"), join(root, "foo.ts.bak"));
+    mkdirSync(join(root, "foo.ts"));
+    await wait(300);
+
+    expect(mgr.activeWatchCount()).toBe(0);
+    expect(mgr.pendingTimerCount()).toBe(0);
+    expect(onChange).toHaveBeenCalledTimes(1);
+    mgr.clearConnection(wsA);
+  });
+});
+
+describe("FileWatchManager — retry vs teardown (X5)", () => {
+  async function deleteAndWaitForRetry(root: string, mgr: ReturnType<typeof createFileWatchManager>) {
+    unlinkSync(join(root, "foo.ts"));
+    for (let i = 0; i < 100 && mgr.pendingTimerCount() === 0; i++) await wait(5);
+    expect(mgr.pendingTimerCount()).toBeGreaterThan(0);
+  }
+
+  it("clearConnection during a pending retry creates no watcher afterwards", async () => {
+    const root = tmp();
+    writeFileSync(join(root, "foo.ts"), "a");
+    const onChange = vi.fn();
+    const mgr = createFileWatchManager();
+    mgr.setWatched(wsA, "s1", root, ["foo.ts"], onChange);
+    await wait(50);
+    await deleteAndWaitForRetry(root, mgr);
+    mgr.clearConnection(wsA);
+    writeFileSync(join(root, "foo.ts"), "b"); // would be re-attached by a leaked retry
+    await wait(1200);
+    expect(mgr.activeWatchCount()).toBe(0);
+    expect(mgr.pendingTimerCount()).toBe(0);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("reconcile removal during a pending retry creates no watcher afterwards", async () => {
+    const root = tmp();
+    writeFileSync(join(root, "foo.ts"), "a");
+    const onChange = vi.fn();
+    const mgr = createFileWatchManager();
+    mgr.setWatched(wsA, "s1", root, ["foo.ts"], onChange);
+    await wait(50);
+    await deleteAndWaitForRetry(root, mgr);
+    mgr.setWatched(wsA, "s1", root, [], onChange);
+    writeFileSync(join(root, "foo.ts"), "b");
+    await wait(1200);
+    expect(mgr.activeWatchCount()).toBe(0);
+    expect(mgr.pendingTimerCount()).toBe(0);
+    expect(onChange).not.toHaveBeenCalled();
+    mgr.clearConnection(wsA);
+  });
+});
+
+describe("FileWatchManager — stale watcher instance (X6)", () => {
+  it("an old watcher's late `error` does not close its re-attached successor", async () => {
+    const root = tmp();
+    writeFileSync(join(root, "foo.ts"), "a");
+    interface Fake extends EventEmitter {
+      closed: boolean;
+      close(): void;
+      cb: (eventType: string) => void;
     }
+    const made: Fake[] = [];
+    const fakeWatch = ((_p: string, cb: (eventType: string) => void) => {
+      const w = new EventEmitter() as Fake;
+      w.closed = false;
+      w.close = () => {
+        w.closed = true;
+      };
+      w.cb = cb;
+      made.push(w);
+      return w;
+    }) as unknown as typeof watch;
+    const mgr = createFileWatchManager({ watchFn: fakeWatch });
+    mgr.setWatched(wsA, "s1", root, ["foo.ts"], vi.fn());
+    expect(made).toHaveLength(1);
 
-    it("keeps firing for writes after a tmp+rename replace; one key throughout", async () => {
-      const root = tmp();
-      writeFileSync(join(root, "foo.ts"), "a");
-      const onChange = vi.fn();
-      const mgr = createFileWatchManager();
-      mgr.setWatched(wsA, "s1", root, ["foo.ts"], onChange);
-      await wait(50);
+    made[0].cb("rename"); // path still a regular file → synchronous re-attach
+    expect(made).toHaveLength(2);
+    expect(made[0].closed).toBe(true);
 
-      replace(root, "foo.ts", "b");
-      await wait(150);
-      expect(onChange).toHaveBeenCalledTimes(1);
-      expect(mgr.activeWatchCount()).toBe(1);
+    made[0].emit("error", new Error("late"));
+    expect(made[1].closed).toBe(false);
+    expect(mgr.activeWatchCount()).toBe(1);
 
-      // In-place write on the NEW inode, then a second replace + immediate write.
-      writeFileSync(join(root, "foo.ts"), "c");
-      await wait(150);
-      expect(onChange).toHaveBeenCalledTimes(2);
-      replace(root, "foo.ts", "d");
-      await wait(20);
-      writeFileSync(join(root, "foo.ts"), "e");
-      await wait(200);
-      expect(onChange.mock.calls.length).toBeGreaterThanOrEqual(3);
-      expect(mgr.activeWatchCount()).toBe(1);
-      mgr.clearConnection(wsA);
-      expect(mgr.activeWatchCount()).toBe(0);
-    });
+    made[0].cb("change"); // stale events from the old instance are ignored too
+    mgr.clearConnection(wsA);
+    expect(made[1].closed).toBe(true);
+  });
+});
 
-    it("re-attaches via the retry when the file is re-created after a delete", async () => {
-      const root = tmp();
-      writeFileSync(join(root, "foo.ts"), "a");
-      const onChange = vi.fn();
-      const mgr = createFileWatchManager();
-      mgr.setWatched(wsA, "s1", root, ["foo.ts"], onChange);
-      await wait(50);
-
-      unlinkSync(join(root, "foo.ts"));
-      await wait(250);
-      writeFileSync(join(root, "foo.ts"), "re-created");
-      await wait(150); // past the 300 ms retry
-      expect(mgr.activeWatchCount()).toBe(1);
-      const before = onChange.mock.calls.length;
-      writeFileSync(join(root, "foo.ts"), "later");
-      await wait(150);
-      expect(onChange.mock.calls.length).toBeGreaterThan(before);
-      mgr.clearConnection(wsA);
-    });
-
-    it("drops the key ~1000 ms after a delete that is never re-created", async () => {
-      const root = tmp();
-      writeFileSync(join(root, "foo.ts"), "a");
-      const onChange = vi.fn();
-      const mgr = createFileWatchManager();
-      mgr.setWatched(wsA, "s1", root, ["foo.ts"], onChange);
-      await wait(50);
-
-      unlinkSync(join(root, "foo.ts"));
-      await wait(150);
-      expect(onChange).toHaveBeenCalledWith("s1", "foo.ts"); // the delete itself is reported
-      expect(mgr.activeWatchCount()).toBe(1); // still retrying
-      await wait(1000);
-      expect(mgr.activeWatchCount()).toBe(0);
-    });
-
-    it("drops the key (no directory watch) when the path becomes a directory", async () => {
-      const root = tmp();
-      writeFileSync(join(root, "foo.ts"), "a");
-      const onChange = vi.fn();
-      const mgr = createFileWatchManager();
-      mgr.setWatched(wsA, "s1", root, ["foo.ts"], onChange);
-      await wait(50);
-      const opened = vi.mocked(watchSpy).mock.calls.length;
-
-      renameSync(join(root, "foo.ts"), join(root, "moved.ts"));
-      mkdirSync(join(root, "foo.ts"));
-      await wait(150);
-
-      expect(mgr.activeWatchCount()).toBe(0);
-      expect(vi.mocked(watchSpy).mock.calls.length).toBe(opened); // no new watch on the directory
-      expect(onChange).toHaveBeenCalledTimes(1);
-    });
-
-    it("clearConnection cancels a pending retry: nothing is attached afterwards", async () => {
-      const root = tmp();
-      writeFileSync(join(root, "foo.ts"), "a");
-      const onChange = vi.fn();
-      const mgr = createFileWatchManager();
-      mgr.setWatched(wsA, "s1", root, ["foo.ts"], onChange);
-      await wait(50);
-      unlinkSync(join(root, "foo.ts"));
-      await wait(50);
-      mgr.clearConnection(wsA);
-      const opened = vi.mocked(watchSpy).mock.calls.length;
-      writeFileSync(join(root, "foo.ts"), "back");
-      await wait(450);
-      expect(vi.mocked(watchSpy).mock.calls.length).toBe(opened);
-      expect(mgr.activeWatchCount()).toBe(0);
-    });
-
-    it("reconcile removal cancels a pending retry", async () => {
-      const root = tmp();
-      writeFileSync(join(root, "foo.ts"), "a");
-      const mgr = createFileWatchManager();
-      mgr.setWatched(wsA, "s1", root, ["foo.ts"], vi.fn());
-      await wait(50);
-      unlinkSync(join(root, "foo.ts"));
-      await wait(50);
-      mgr.setWatched(wsA, "s1", root, [], vi.fn());
-      const opened = vi.mocked(watchSpy).mock.calls.length;
-      writeFileSync(join(root, "foo.ts"), "back");
-      await wait(450);
-      expect(vi.mocked(watchSpy).mock.calls.length).toBe(opened);
-      expect(mgr.activeWatchCount()).toBe(0);
-      mgr.clearConnection(wsA);
-    });
-
-    it("an error on the superseded watcher does not close its successor", async () => {
-      const root = tmp();
-      writeFileSync(join(root, "foo.ts"), "a");
-      const onChange = vi.fn();
-      const mgr = createFileWatchManager();
-      const before = vi.mocked(watchSpy).mock.results.length;
-      mgr.setWatched(wsA, "s1", root, ["foo.ts"], onChange);
-      await wait(50);
-      const oldWatcher = vi.mocked(watchSpy).mock.results[before].value as import("node:fs").FSWatcher;
-
-      replace(root, "foo.ts", "b");
-      await wait(150);
-      oldWatcher.emit("error", new Error("EPERM on the old inode"));
-
-      expect(mgr.activeWatchCount()).toBe(1);
-      const calls = onChange.mock.calls.length;
-      writeFileSync(join(root, "foo.ts"), "c");
-      await wait(150);
-      expect(onChange.mock.calls.length).toBeGreaterThan(calls);
-      mgr.clearConnection(wsA);
-    });
-
-    it("in-place writes do not churn the watcher", async () => {
-      const root = tmp();
-      writeFileSync(join(root, "foo.ts"), "a");
-      const mgr = createFileWatchManager();
-      const before = vi.mocked(watchSpy).mock.calls.length;
-      mgr.setWatched(wsA, "s1", root, ["foo.ts"], vi.fn());
-      await wait(50);
-      for (let i = 0; i < 5; i++) {
-        writeFileSync(join(root, "foo.ts"), `v${i}`);
-        await wait(60);
-      }
-      expect(vi.mocked(watchSpy).mock.calls.length - before).toBe(1);
-      mgr.clearConnection(wsA);
-    });
+describe("FileWatchManager — no churn on in-place writes (X7)", () => {
+  it("five in-place writes keep the same watcher instance", async () => {
+    const root = tmp();
+    writeFileSync(join(root, "foo.ts"), "a");
+    const spy = vi.fn(watch);
+    const mgr = createFileWatchManager({ watchFn: spy as unknown as typeof watch });
+    const onChange = vi.fn();
+    mgr.setWatched(wsA, "s1", root, ["foo.ts"], onChange);
+    await wait(50);
+    for (let i = 0; i < 5; i++) {
+      writeFileSync(join(root, "foo.ts"), `v${i}`);
+      await wait(80);
+    }
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalled();
+    mgr.clearConnection(wsA);
   });
 });

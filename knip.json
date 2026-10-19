@@ -229,6 +229,7 @@
         "src/index.ts",
         "src/plugin-context.tsx",
         "src/server/index.ts",
+        "src/server/file-validator-worker.mjs",
         "src/vite-plugin/index.ts",
         "src/manifest-validator.ts",
         "src/test-support/index.ts",
@@ -256,8 +257,8 @@
       "entry": [
         "src/client.tsx",
         "src/server/index.ts",
+        "src/server/docx-validator.mjs",
         "src/bridge/index.ts",
-        "src/file-handler/validator.mjs",
         "**/vitest.config.ts",
         "**/__tests__/**/*.test.{ts,tsx}"
       ],
@@ -527,6 +528,19 @@
       ],
       "project": [
         "src/**/*.{ts,tsx,mjs}"
+      ]
+    },
+    "packages/craft-web-plugin": {
+      "entry": [
+        "src/client/index.tsx",
+        "src/server/index.ts",
+        "src/server/ooxml-validator.mjs",
+        "src/shim/craft-shim.js",
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx,mjs,js}"
       ]
     },
     "packages/mcp-client-plugin": {

@@ -63,19 +63,18 @@
       },
       {
         "slot": "editor-pane-file-handler",
-        "component": "DemoFileHandler",
-        "id": "demo-docx",
+        "component": "DemoDocxHandler",
+        "id": "docx",
         "extensions": [
           ".docx"
         ],
         "mode": "edit",
-        "label": "Demo editor",
+        "label": "Edit (demo)",
         "keepAlive": {
-          "max": 3
+          "max": 2
         },
         "validator": true,
-        "copySuffix": "demo",
-        "firstOverwriteNotice": "Demo editor saves the textarea as plain UTF-8 bytes. This overwrites the original file."
+        "copySuffix": "demo"
       }
     ],
     "projectTypes": [
@@ -90,7 +89,6 @@
   "dependencies": {
     "@blackbelt-technology/dashboard-plugin-runtime": "^0.9.0",
     "@blackbelt-technology/pi-dashboard-app-kit": "^0.9.0",
-    "@blackbelt-technology/pi-dashboard-shared": "^0.9.0",
     "wouter": "^3.9.0"
   },
   "devDependencies": {

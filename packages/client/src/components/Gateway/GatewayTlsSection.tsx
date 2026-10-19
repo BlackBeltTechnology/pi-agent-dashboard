@@ -28,6 +28,7 @@ import { useTlsStatus } from "../../lib/gateway/use-tls-status.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
 import { copyText } from "../../lib/util/clipboard.js";
 import { BTN_PRIMARY, BTN_SECONDARY, BTN_SMALL, callout, errorMessage, HELP, INPUT, INSET, LABEL, META, severityPill } from "../connectivity/connectivity-ui.js";
+import { GatewayAcmeAdd } from "./GatewayAcmeSource.js";
 import { tlsSourceGroupFor } from "./tls-source-groups.js";
 
 /** Gates that belong to the listener (shown with its fields); the rest sit with their source group. */
@@ -254,7 +255,7 @@ export function GatewayTlsSection({ onSetupRequested, now = Date.now }: Props) {
     );
   };
 
-  const issueCtx = { now: clock, issue, renderGate, busyKey };
+  const issueCtx = { now: clock, issue, renderGate, busyKey, refresh: () => void refresh(true) };
 
   // ── render ──
   const head = (
@@ -516,6 +517,7 @@ export function GatewayTlsSection({ onSetupRequested, now = Date.now }: Props) {
                   />
                 );
               })}
+              <GatewayAcmeAdd sourceIds={detail.sources.map((s) => s.id)} onChanged={() => void refresh(true)} />
             </div>
           </div>
 

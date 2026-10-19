@@ -15,13 +15,6 @@ export interface SettingsNavHint {
   order?: number;
 }
 
-/**
- * Core ceiling for an `editor-pane-file-handler` claim's `maxBytes` and for the
- * `POST /api/file/write-binary` body limit (128 MiB). Shared by the manifest
- * validator and the server. See change: add-editor-pane-file-handlers.
- */
-export const HANDLER_MAX_BYTES = 128 * 1024 * 1024;
-
 export interface PluginClaim {
   /** The slot this claim targets. */
   slot: SlotId;
@@ -63,28 +56,32 @@ export interface PluginClaim {
   pathPrefix?: string;
   /**
    * For `editor-pane-file-handler` slot: claim id, `^[a-z][a-z0-9-]{0,31}$`,
-   * unique within the plugin. Addressed as `<pluginId>/<id>`.
+   * unique within the plugin. The claim is addressed as `<pluginId>/<id>`.
+   * See change: add-editor-pane-file-handlers (D1).
    */
   id?: string;
   /**
-   * For `editor-pane-file-handler`: claimed file extensions — non-empty, each
-   * `^\.[a-z0-9][a-z0-9+-]{0,15}$` (lower-case, single segment, no wildcard).
-   * Text-backed extensions (`isTextBackedExt`) are rejected.
+   * For `editor-pane-file-handler`: non-empty list of lower-case single-segment
+   * extensions (`^\.[a-z0-9][a-z0-9+-]{0,15}$`). Text-backed extensions
+   * (`isTextBackedExt`) are rejected.
    */
   extensions?: string[];
-  /** For `editor-pane-file-handler`: `preview` (read-only) or `edit` (saves via write-binary). */
+  /** For `editor-pane-file-handler`: `"preview"` (read-only) or `"edit"` (may save). */
   mode?: "preview" | "edit";
   /** For `editor-pane-file-handler`: switcher label, ≤ 40 chars. */
   label?: string;
-  /** For `editor-pane-file-handler`: keep the instance mounted when inactive; `max` 1..3. */
+  /** For `editor-pane-file-handler`: keep the instance alive across tab switches; `max` 1..3. */
   keepAlive?: { max: number };
-  /** For `editor-pane-file-handler`: per-claim size cap, ≤ `HANDLER_MAX_BYTES` (default = ceiling). */
+  /** For `editor-pane-file-handler`: size ceiling in bytes, ≤ HANDLER_MAX_BYTES (128 MiB); default = ceiling. */
   maxBytes?: number;
   /** For `editor-pane-file-handler`: first-overwrite notice text, ≤ 300 chars. */
   firstOverwriteNotice?: string;
-  /** For `editor-pane-file-handler` edit claims: `^[a-z][a-z0-9-]{1,31}$`; copies are `<stem>.<copySuffix>.<ext>`. Required for `mode: "edit"`. */
+  /** For `editor-pane-file-handler` edit mode: `<stem>.<copySuffix>.<ext>` suffix, `^[a-z][a-z0-9-]{1,31}$` (required for edit). */
   copySuffix?: string;
-  /** For `editor-pane-file-handler`: `true` = saves require the plugin's registered validator (fail closed). */
+  /**
+   * For `editor-pane-file-handler`: `true` = saves require the plugin's
+   * `ctx.registerFileValidator` validator; fail closed (503) while it is not loaded.
+   */
   validator?: boolean;
   /**
    * For `resource-page-section` slot: restrict the section to one resource

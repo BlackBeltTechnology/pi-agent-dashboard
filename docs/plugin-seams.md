@@ -7,6 +7,7 @@ exposed on `ServerPluginContext` from
 `@blackbelt-technology/dashboard-plugin-runtime/server`. Worked example:
 `packages/demo-plugin` (fixture).
 First production consumer: `packages/gmail-plugin` → see [`gmail-plugin.md`](gmail-plugin.md).
+Consumers: `packages/craft-web-plugin` (`ctx.serveApp`, `editor-pane-file-handler`, `ctx.dataDir`) → see [`craft-web-plugin.md`](craft-web-plugin.md).
 
 See change: `expose-plugin-credential-and-oauth-seams`.
 
@@ -199,109 +200,6 @@ Claim fields: `component` (tab body), `pathPrefix`, optional `labelComponent` (t
 
 See change: `add-browser-editor-pane-tab`.
 
-## Editor-pane file handlers (`editor-pane-file-handler` slot)
-
-React-only slot, multiplicity many. Attaches to real workspace files by extension. Adds alternative preview/edit modes beside the built-in viewer. Design: openspec `add-editor-pane-file-handlers` (D1–D7). See change: `add-editor-pane-file-handlers`.
-
-Claim fields (`PluginClaim`, `packages/shared/src/dashboard-plugin/manifest-types.ts`):
-
-| Field | Req | Rule |
-|---|---|---|
-| `component` | yes | handler body (`module` lazy ok) |
-| `id` | yes | `^[a-z][a-z0-9-]{0,31}$`, unique per plugin |
-| `extensions` | yes | non-empty; each `^\.[a-z0-9][a-z0-9+-]{0,15}$`; no wildcard, no multi-dot |
-| `mode` | yes | `preview` \| `edit` |
-| `label` | yes | ≤ 40 chars |
-| `keepAlive` | no | `{ max: 1..3 }` |
-| `maxBytes` | no | ≤ `HANDLER_MAX_BYTES` (128 MiB); default = ceiling |
-| `firstOverwriteNotice` | no | ≤ 300 chars |
-| `validator` | no | `true` = saves need registered validator (fail closed) |
-| `copySuffix` | edit: yes | `^[a-z][a-z0-9-]{1,31}$` |
-
-Validation:
-
-- Text-backed ext rejected: `isTextBackedExt(ext)` (`packages/shared/src/file-kind.ts`). True when `fileKind("/x"+ext)` is `editable`, or recognised kind with viewer in `monaco|markdown|mermaid|asciidoc|html|diagram`.
-- Text stays on `/api/file/write`. Unrecognised ext (`.drawio`, `.psd`) stays claimable.
-- Extensions also rejected via frozen deny list `HANDLER_DENIED_EXTS` (`packages/shared/src/file-kind.ts`, `isUnclaimableHandlerExt`).
-- Deny list groups: secrets (`.env` `.npmrc` `.pem` `.key` `.crt` …), scripts (`.ps1` `.bat` `.cmd` …), plain text (`.patch` `.diff` `.jsonl` `.ipynb` `.lock` …).
-- List fixed. Claimable set does not shift when `fileKind` learns a kind.
-- Ordering: plugin `priority` → plugin id → claim id. No per-claim priority.
-- Two plugins may claim same ext. Switcher lists both.
-
-### `FileHandlerProps` (`slot-props.ts`)
-
-```ts
-{ cwd, path, session, isActive,
-  snapshot(): Promise<{ bytes, size, mtime, sha1 }>,
-  save(bytes, { target: "overwrite" | "copy" }): Promise<{ ok: true, path, mtime, sha1 } | { ok: false, reason, message }>,
-  setDirty(state: boolean | "unknown"),
-  context: PluginContext }
-```
-
-- `save` reasons: `cancelled` · `conflict-unresolved` · `rejected` · `too-large` · `busy`.
-- `snapshot` = digest bracket: `GET /api/file/digest` → `GET /api/file/raw` (`no-store`) → digest. Accept when `sha1₁ = sha1₂ = sha1(bytes)`. Retry ×3, then reject. Size over `maxBytes` → refused before content fetch.
-- Snapshot sets changed-on-disk baseline to its `sha1`.
-- `setDirty` initial = `"unknown"`. Call as soon as doc loaded. `"unknown"` = dirty for guards, never evictable.
-- Core trusts `setDirty(false)`. Lying handler loses edits on eviction.
-- `save` overwrite sends `expectSha1` = last snapshot/save sha1.
-- 409 → conflict dialog: Reload (confirm if dirty) · Save as copy · Overwrite anyway (explicit exception: replaces current disk content) · Cancel.
-- Success: wrapped in `trackedFileWrite`. Own save: no banner, including watch events during flight.
-- First overwrite per instance with `firstOverwriteNotice`: Overwrite · Save as copy · Cancel. Later overwrites don't ask. Reset on tab close, reload, instance close.
-
-### `POST /api/file/write-binary` (`packages/server/src/routes/file-write-binary-routes.ts`)
-
-- Body: raw bytes, `application/octet-stream`, `bodyLimit` 128 MiB. Encapsulated Fastify plugin (only this route gets the parser).
-- Query: `cwd`, `path`, `mode=overwrite|copy`, `expectSha1` (required for overwrite), `claim=<pluginId>/<claimId>`.
-- Tier `control` (`packages/shared/src/route-tiers.ts`). `networkGuard` preHandler.
-- 200 `{ success:true, data:{ mtime, sha1, path } }`.
-- 400 bad query · missing `expectSha1` on overwrite.
-- 403 unknown cwd · path/realpath outside `<cwd>/**` · requested or real ext not in `claim.extensions` · claim missing · plugin disabled · `mode` ≠ `edit` · `enabled()` false · non-regular target.
-- 409 overwrite: content sha1 ≠ `expectSha1` (or file gone). Body top-level `sha1?`, `mtime?` (absent when gone). Copy: no free name (`-99` exhausted).
-- 413 body > claim `maxBytes`.
-- 415 Content-Type not `application/octet-stream` or body missing (only octet-stream parser installed in this route's scope).
-- 500 generic `write failed`. No paths in body.
-- 422 validator rejected, threw, or timed out.
-- 503 validator pool busy (`retryable: true`) or `validator: true` claim without loaded validator.
-- Overwrite: under realpath lock; hash-compare, not mtime. tmp + rename; keeps file mode. Lock key = realpath, shared with `/api/file/write`.
-- Copy: `<stem>.<copySuffix>.<ext>`, then `-2`…`-99` via exclusive `wx`. Never overwrites. Mode = source's, else `0644` & umask.
-- Residual: external writer racing between hash and rename not excluded (same as text route).
-
-### `ctx.registerFileValidator`
-
-```ts
-ctx.registerFileValidator({ claimId, module, enabled? });
-// module exports validate(bytes, ext) → { ok: true } | { ok: false, reason }
-```
-
-- Own edit claims only. Foreign `claimId` throws.
-- `module`: relative, no `..`, realpath-confined to plugin package.
-- `enabled?()`: main-thread predicate, checked first. `false` → 403. Lets a plugin refuse saves live.
-- Runs in `worker_threads` pool (`packages/server/src/lib/file-validator-pool.ts`): 2 workers, queue 8, 11th → 503. Timeout 5 s → `terminate()`. Bytes transferred.
-- Runs before per-target lock. Slow validator never stalls text saves.
-- Validator can only reject.
-- Fail closed: `validator: true` claim writable only while plugin server entry loaded (`getPluginStatusStore().getStatus(id)?.loaded`) and validator registered. Live re-enable → 503 until restart.
-
-### Keep-alive, cap, guards (client)
-
-- Layer `FileHandlerLayer` mounted once at app shell, outside `EditorPane`/`SplitWorkspace`. Instances survive pane close, layout change, tab switch, session switch.
-- Handler modes only in session editor panes. Folder panes: no switcher.
-- Instance key: `sessionId + cwd + normalize(path) + claim`. Same file+claim in one session shares instance.
-- Mode state: `handlerMode: "<pluginId>/<claimId>"` on tab (`editor-pane-state`). Missing/disabled claim → built-in view for that tab only.
-- Built-in `CappedViewer` not mounted while handler mode active. No preview fetch / conversion.
-- Cap: `MAX_LIVE_HANDLERS = 3` per page (`file-handler-logic.ts`). `keepAlive.max` lowers own share. LRU = oldest activation.
-- Eviction: LRU with `setDirty(false)` only. Tab shows "Editor closed to save memory — Resume". None evictable → dialog: save or discard one. Cancel aborts mount.
-- Claim without `keepAlive`: closed on tab inactive only if state `false`. Else hidden, counts to cap.
-- Plugin disabled live: component ref kept. `false` → closed, built-in view. Unsaved/unknown → overlay: Re-enable · Discard (confirm). Server refuses saves.
-- Guarded discard (state `true`/`"unknown"`): mode switch, last-tab close, banner/manual refresh, conflict Reload, plugin disable, `beforeunload`. Eviction never auto-discards.
-- Refresh on handler tab: `remount(instanceKey)` after guard. Banner clears only when remount proceeds.
-- Deleted/renamed file: instance stays. Next overwrite → 409 → copy offered.
-
-### Limits and residuals
-
-- Large-file limit gates built-in view only. Handler gated by `claim.maxBytes`.
-- Outside session cwd: mode shown unavailable ("outside the session folder").
-- D7 residual: sandboxed opaque-origin frames can issue credential-less loopback GET `/api/*`. CORS hides response; side-effecting GETs still run. Follow-up hardening in shared genuine-local predicate. Handler plugins that frame third-party code must document this.
-
 ## Opening plugin tabs
 
 ONE navigation opens one or more tabs: `/session/<id>/editor?tab=<path>[&tab=...]`.
@@ -421,6 +319,101 @@ First-party adoption (lazy):
 - Already lazy before this change (unchanged): gmail, hermes-memory, skill-atlas heavy parts.
 
 Known follow-up (not in this change): `yaml` (~98 KB raw) still in entry via client `FrontmatterProperties` + flows `flow-idle-state.ts`.
+
+## Editor-pane file handlers (`editor-pane-file-handler` slot)
+
+React slot, multiplicity many. Attaches to real workspace files by extension. Mode switch per tab; core owns writes, conflicts, eviction, guards. See change: add-editor-pane-file-handlers (D1–D5).
+
+Claim fields (`PluginClaim`, validated by `manifest-validator.ts`):
+
+| Field | Req | Rule |
+|---|---|---|
+| `component` | yes | handler body (may be lazy `module`) |
+| `id` | yes | `^[a-z][a-z0-9-]{0,31}$`, unique per plugin |
+| `extensions` | yes | non-empty; each `^\.[a-z0-9][a-z0-9+-]{0,15}$` (`FILE_HANDLER_EXT_RE`) |
+| `mode` | yes | `preview` \| `edit` |
+| `label` | yes | ≤ 40 chars |
+| `keepAlive` | no | `{max: 1..3}` |
+| `maxBytes` | no | ≤ `HANDLER_MAX_BYTES` (128 MiB) |
+| `firstOverwriteNotice` | no | ≤ 300 chars |
+| `validator` | no | `true` = saves need registered validator (fail closed) |
+| `copySuffix` | edit: yes | `^[a-z][a-z0-9-]{1,31}$` |
+
+- Text-backed extensions rejected (`isTextBackedExt`, from `fileKind`). Text saves stay on `/api/file/write`.
+- Unknown extensions claimable (`.drawio`, `.psd`).
+- Two plugins may claim same extension; switcher lists both.
+- Ordering: plugin `priority` → plugin id → claim id.
+- Tab state: `handlerMode: "<pluginId>/<claimId>"` in `editor-pane-state`; unset = built-in view.
+- Handler modes only in session-scoped panes; files outside session cwd → "outside the session folder".
+
+`FileHandlerProps` (`@blackbelt-technology/pi-dashboard-shared/dashboard-plugin`):
+
+```ts
+interface FileHandlerProps {
+  cwd: string; path: string; session: DashboardSession | null; isActive: boolean;
+  snapshot(): Promise<{ bytes: ArrayBuffer; size: number; mtime: number; sha1: string }>;
+  save(bytes: ArrayBuffer, opts: { target: "overwrite" | "copy" }):
+    Promise<{ ok: true; path: string; mtime: number; sha1: string }
+      | { ok: false; reason: "cancelled" | "conflict-unresolved" | "rejected" | "too-large" | "busy"; message: string }>;
+  setDirty(state: boolean | "unknown"): void;   // initial "unknown"
+  context: PluginContext;
+}
+```
+
+- `snapshot()`: `GET /api/file/digest` → `GET /api/file/raw` (`no-store`) → digest again. Accept when digests match and `sha1(bytes)` matches. Retry 3×, then reject. Size > `maxBytes` → `too-large` before content fetch. Mtime-only change tolerated.
+- `save()` → `POST /api/file/write-binary` (below). First overwrite per instance shows `firstOverwriteNotice` dialog.
+- `setDirty("unknown")` = dirty for every guard. Call `setDirty(false|true)` once document loaded.
+- Keep-alive: `MAX_LIVE_HANDLERS = 3` per page. LRU eviction of instances with state `false` only. Dirty/unknown never evicted; no evictable → save-or-discard dialog.
+- **Caveat:** eviction trusts `setDirty(false)`. Handler reporting clean while holding edits loses them. Plugin is trusted code.
+- Guards on every core discard when state `true`/`"unknown"`: mode switch, last-tab close, refresh, conflict Reload, plugin disable overlay, `beforeunload`.
+
+### `POST /api/file/write-binary`
+
+- Body: raw `application/octet-stream`, `bodyLimit` 128 MiB (encapsulated parser).
+- Query: `cwd`, `path`, `mode=overwrite|copy`, `expectSha1` (required for overwrite, absent → 400), `claim=<pluginId>/<claimId>`.
+- Tier `control`; `networkGuard`.
+- Order: query → claim (enabled edit claim, validator `enabled()`) → known cwd → target authz (`isWritableHandlerTarget`) → fail-closed validator check → size cap → validator (before lock) → realpath lock: hash check → tmp+rename | copy.
+- `200 {success:true, data:{path, mtime, sha1}}`.
+- `409 {success:false, error, sha1?, mtime?}` content conflict; no `sha1`/`mtime` when file gone.
+- `400` bad query / missing `expectSha1`. `403` unknown cwd, escape, ext mismatch, claim disabled, mode not edit. `413` size. `422` validator rejected. `503` validator pool overflow or validator not loaded (restart pending).
+- Overwrite: requested AND realpath ext must be in `claim.extensions`.
+- Copy: `<stem>.<copySuffix>.<ext>`, then `-2`…`-99` via `wx`. Never overwrites.
+- Mode preserved on overwrite; copy takes source mode (or `0644` masked by umask if source gone).
+
+### Validators (`ctx.registerFileValidator`)
+
+- `registerFileValidator({ claimId, module, enabled? })`. `claimId` must name own edit claim else throws.
+- `module`: relative, no `..`, realpath-confined to plugin package. Exports `validate(bytes, ext) → {ok} | {ok:false, reason}`.
+- Pool: `worker_threads`, 2 workers, FIFO queue 8, overflow → 503. Hard `terminate()` at 5 s → 422. Bytes transferred.
+- Validator can only reject. Throw / timeout / `ok:false` → 422.
+- `enabled()` false → 403 (main thread, live, no restart).
+- Claim with `validator: true` and no loaded validator → 503 (fail closed). Restart-effective.
+- Lock key = realpath for both `/api/file/write` and `write-binary`.
+
+See change: add-editor-pane-file-handlers.
+
+## Static app mounts (`ctx.serveApp`, `ctx.dataDir`)
+
+Serves a static site at `/apps/<appId>/`. Trusted plugins only (bundled, or `auth.capabilityRoutePlugins`). Untrusted call mounts nothing, logs once.
+
+```ts
+ctx.serveApp({
+  appId: "craft-wordcraft",            // ^[a-z0-9-]+$, unique
+  dir: path.join(ctx.dataDir, "wordcraft-web/current"),
+  csp: (request) => policy(request),    // string or fn of request; required
+  crossOriginFrame: true,               // ACAO * (no credentials) + CORP cross-origin
+});
+```
+
+- `dir` must realpath inside plugin package root or `ctx.dataDir`, else throw. May be absent → 503 until it exists.
+- Realpath resolved per request: symlink swap (`current`) needs no re-registration.
+- Extensions: `.html .js .mjs .css .svg .png .jpg .jpeg .gif .webp .ico .woff .woff2 .wasm`.
+- `.gz` sibling served when client accepts gzip: `Content-Encoding: gzip`, `Vary: Accept-Encoding`. Global compressor bypassed for mount.
+- `GET /apps/<appId>` → 308 to trailing slash. Falls back to `index.html`.
+- `csp` sent enforced on every response. Function evaluated per response; throw → 500.
+- `ctx.dataDir` = `~/.pi/dashboard/plugin-data/<pluginId>/`, mode `0700`, created on first access.
+- Mounts restart-effective: disable does not unmount until restart.
+- See change: add-plugin-capability-routes (D5).
 
 ## Trust boundary
 

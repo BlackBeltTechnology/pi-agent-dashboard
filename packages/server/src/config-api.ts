@@ -205,6 +205,30 @@ export function readRawConfig(): Record<string, any> {
 }
 
 /**
+ * Three-way read of `config.json` for callers that must not act on a file they
+ * cannot trust: `absent` (missing), `ok` (parses to a JSON object) or `corrupt`
+ * (exists but unparsable or not an object). `writeConfigPartial` starts from `{}`
+ * on corrupt, which would drop every other key; per-entry writers and GC check this first.
+ * See change: add-acme-dns01-certs (D5).
+ */
+export function readConfigState(): { state: "absent" | "ok" | "corrupt"; raw: Record<string, any> | null } {
+  const { file } = getConfigPaths();
+  let text: string;
+  try {
+    text = fs.readFileSync(file, "utf-8");
+  } catch (err) {
+    return { state: (err as NodeJS.ErrnoException)?.code === "ENOENT" ? "absent" : "corrupt", raw: null };
+  }
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return { state: "corrupt", raw: null };
+    return { state: "ok", raw: parsed as Record<string, any> };
+  } catch {
+    return { state: "corrupt", raw: null };
+  }
+}
+
+/**
  * Merge partial config into existing, preserving redacted secrets, write to disk.
  * Returns whether a restart is needed.
  */
@@ -275,6 +299,10 @@ export function writeConfigPartial(
       }
       if (partial.auth.bypassUrls !== undefined) {
         mergedAuth.bypassUrls = partial.auth.bypassUrls;
+      }
+      // add-plugin-capability-routes (D2): `!== undefined` so `[]` clears the trust list.
+      if (partial.auth.capabilityRoutePlugins !== undefined) {
+        mergedAuth.capabilityRoutePlugins = partial.auth.capabilityRoutePlugins;
       }
 
       partial.auth = mergedAuth;
@@ -375,6 +403,12 @@ export function writeConfigPartial(
     // Merge openspec sub-object (no restart required — live-reconfigured)
     if (partial.openspec) {
       partial.openspec = { ...existing.openspec, ...partial.openspec };
+    }
+
+    // Merge editor sub-object (live-read by the client mirror; no restart).
+    // See change: gate-changed-on-disk-by-content.
+    if (partial.editor && typeof partial.editor === "object") {
+      partial.editor = { ...existing.editor, ...partial.editor };
     }
 
     // Merge piTrustMirror (and its nested `sources`) so a partial PUT never drops a

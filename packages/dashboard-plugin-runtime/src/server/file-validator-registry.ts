@@ -1,63 +1,116 @@
 /**
- * Registry of plugin file validators for `editor-pane-file-handler` edit claims
- * (change: add-editor-pane-file-handlers D4).
+ * Registry of plugin file validators (`ctx.registerFileValidator`). Process
+ * singleton like `ws-route-registry`; keyed by `(pluginId, claimId)`. The
+ * `write-binary` route reads it at request time; the loader clears a plugin's
+ * entries when it is disabled or its activation fails.
  *
- * A plugin's server entry calls `ctx.registerFileValidator({ claimId, module,
- * enabled? })`; `createServerPluginContext` has already vetted it (own edit
- * claim, module path confined to the plugin package) and stores the resolved
- * ABSOLUTE module path here. The server's `POST /api/file/write-binary` looks a
- * validator up per request and runs it in a bounded worker pool. A validator can
- * only reject a save; it can never admit what core refuses.
- *
- * Singleton (`getFileValidatorRegistry`), like the WS route registry: the
- * context factory and the route must see ONE registry without threading it
- * through every call site. Keyed `<pluginId>/<claimId>`; a second registration
- * for the same claim replaces the first.
+ * See change: add-editor-pane-file-handlers (D4).
  */
+import fs from "node:fs";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 
-export interface FileValidatorRegistration {
-  pluginId: string;
+/** Options a plugin server entry passes to `ctx.registerFileValidator`. */
+export interface RegisterFileValidatorOptions {
+  /** One of the registering plugin's OWN `editor-pane-file-handler` edit claim ids. */
   claimId: string;
-  /** Absolute, realpath-confined path of the validator module (exports `validate(bytes, ext)`). */
-  modulePath: string;
   /**
-   * Main-thread predicate evaluated before anything else for this claim. `false`
-   * refuses the save (403), so a plugin can switch off a sub-feature without a
-   * restart. Absent = always enabled.
+   * Package-relative path (no `..`, realpath-confined to the plugin package) of a
+   * plain-JS ESM module (`.mjs`/`.js`; it runs in a worker thread, no TS loader)
+   * exporting `validate(bytes: Uint8Array, ext: string) => {ok:true} | {ok:false, reason?:string}`
+   * (may be async). A validator can only reject.
+   */
+  module: string;
+  /**
+   * Optional main-thread predicate evaluated before anything else for the claim;
+   * `false` (or a throw) refuses saves with 403, so a plugin can switch a
+   * sub-feature off without a restart.
    */
   enabled?: () => boolean;
 }
 
-export class FileValidatorRegistry {
-  private byClaim = new Map<string, FileValidatorRegistration>();
+export type RegisterFileValidatorFn = (opts: RegisterFileValidatorOptions) => void;
 
-  private key(pluginId: string, claimId: string): string {
-    return `${pluginId}/${claimId}`;
+export interface FileValidatorRegistration {
+  pluginId: string;
+  claimId: string;
+  /** `file://` URL of the realpath-confined validator module. */
+  moduleUrl: string;
+  enabled?: () => boolean;
+}
+
+export class FileValidatorRegistry {
+  private readonly byKey = new Map<string, FileValidatorRegistration>();
+
+  private static key(pluginId: string, claimId: string): string {
+    return `${pluginId}\0${claimId}`;
   }
 
-  register(reg: FileValidatorRegistration): void {
-    this.byClaim.set(this.key(reg.pluginId, reg.claimId), reg);
+  set(reg: FileValidatorRegistration): void {
+    this.byKey.set(FileValidatorRegistry.key(reg.pluginId, reg.claimId), reg);
   }
 
   get(pluginId: string, claimId: string): FileValidatorRegistration | undefined {
-    return this.byClaim.get(this.key(pluginId, claimId));
+    return this.byKey.get(FileValidatorRegistry.key(pluginId, claimId));
   }
 
-  /** Drop every validator a plugin registered (activation failure / teardown). */
   unregisterPlugin(pluginId: string): void {
-    for (const [k, v] of this.byClaim) if (v.pluginId === pluginId) this.byClaim.delete(k);
+    for (const [k, v] of this.byKey) if (v.pluginId === pluginId) this.byKey.delete(k);
+  }
+
+  clear(): void {
+    this.byKey.clear();
   }
 }
 
-let _registry: FileValidatorRegistry | null = null;
-
-/** Process-wide registry (context factory + write-binary route). */
+let singleton: FileValidatorRegistry | null = null;
 export function getFileValidatorRegistry(): FileValidatorRegistry {
-  if (!_registry) _registry = new FileValidatorRegistry();
-  return _registry;
+  if (!singleton) singleton = new FileValidatorRegistry();
+  return singleton;
 }
 
-/** Reset the singleton (tests). */
-export function clearFileValidatorRegistry(): void {
-  _registry = null;
+/** Plugin identity the context was created for (from its manifest + discovery). */
+export interface FileHandlerPluginInfo {
+  packageDir: string;
+  /** Ids of the plugin's own `editor-pane-file-handler` claims with `mode: "edit"`. */
+  editClaimIds: readonly string[];
+}
+
+function isWithin(child: string, root: string): boolean {
+  const rel = path.relative(root, child);
+  return rel === "" || (!rel.startsWith(`..${path.sep}`) && rel !== ".." && !path.isAbsolute(rel));
+}
+
+/**
+ * Validate `opts` against the calling plugin and register. Throws when the claim
+ * is not one of the plugin's own edit claims, or the module path is absolute,
+ * contains `..`, is missing, or resolves (via symlink) outside the package.
+ */
+export function registerFileValidatorFor(
+  pluginId: string,
+  info: FileHandlerPluginInfo | undefined,
+  opts: RegisterFileValidatorOptions,
+  registry: FileValidatorRegistry = getFileValidatorRegistry(),
+): void {
+  const fail: (msg: string) => never = (msg) => {
+    throw new Error(`[plugin:${pluginId}] registerFileValidator refused: ${msg}`);
+  };
+  if (!opts || typeof opts.claimId !== "string" || typeof opts.module !== "string") fail("claimId and module are required");
+  if (opts.enabled !== undefined && typeof opts.enabled !== "function") fail("enabled must be a function");
+  if (!info || !info.editClaimIds.includes(opts.claimId)) {
+    fail(`"${opts.claimId}" is not one of this plugin's own editor-pane-file-handler edit claims`);
+  }
+  if (!opts.module.trim() || path.isAbsolute(opts.module) || opts.module.split(/[\\/]/).includes("..")) {
+    fail(`module "${opts.module}" must be a package-relative path without ".."`);
+  }
+  let realRoot: string;
+  let realModule: string;
+  try {
+    realRoot = fs.realpathSync(info.packageDir);
+    realModule = fs.realpathSync(path.resolve(realRoot, opts.module));
+  } catch {
+    return fail(`module "${opts.module}" does not exist in the plugin package`);
+  }
+  if (!isWithin(realModule, realRoot)) fail(`module "${opts.module}" resolves outside the plugin package`);
+  registry.set({ pluginId, claimId: opts.claimId, moduleUrl: pathToFileURL(realModule).href, enabled: opts.enabled });
 }

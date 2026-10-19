@@ -91,6 +91,15 @@ export interface FileKindResult {
 export const MAX_PREVIEW_BYTES = 10 * 1024 * 1024;
 
 /**
+ * Fixed ceiling (256 MiB) for the content digest + the markdown write body.
+ * Equals the `editor.largeFileLimitMb` max, so the changed-on-disk banner stays
+ * exact for every file a rich viewer can open; deliberately NOT configurable.
+ * `MAX_PREVIEW_BYTES` is only the DEFAULT of that setting now — the enforced
+ * value is `editor.largeFileLimitMb`. See change: gate-changed-on-disk-by-content (D4, D6).
+ */
+export const DIGEST_CEILING_BYTES = 256 * 1024 * 1024;
+
+/**
  * Per-kind office preview size caps (bytes). Single source of truth: the server
  * gates (413) read these defaults and the client names the real limit in the
  * too-large notice. Decks run large (corpus median 4.2 MB, tail 258 MB); the
@@ -235,7 +244,11 @@ function isAbsolutePath(p: string): boolean {
   return p.startsWith("/") || /^[A-Za-z]:[\\/]/.test(p) || p.startsWith("\\\\");
 }
 
-/** Lowercased extension including the leading dot, or `""` when none. */
+/**
+ * Lowercased extension including the leading dot, or `""` when none. Exported
+ * so file-handler matching (client switcher + server write route) shares one
+ * normalization. See change: add-editor-pane-file-handlers.
+ */
 export function extOf(absPath: string): string {
   const lastSlash = Math.max(absPath.lastIndexOf("/"), absPath.lastIndexOf("\\"));
   const base = lastSlash >= 0 ? absPath.slice(lastSlash + 1) : absPath;
@@ -357,45 +370,19 @@ export function fileKind(absPath: string, sniff?: Buffer | string): FileKindResu
   return { kind: "unknown", mimeType: mimeOf("text/plain"), viewer: "monaco", editable: false };
 }
 
-/** Viewers whose content is text-backed (served and written as text). */
-const TEXT_BACKED_VIEWERS: ReadonlySet<ViewerKind> = new Set<ViewerKind>([
-  "monaco",
-  "markdown",
-  "mermaid",
-  "asciidoc",
-  "html",
-  "diagram",
-]);
+/** Viewers whose files are text-backed (edited through `/api/file/write`, never a file handler). */
+const TEXT_BACKED_VIEWERS: ReadonlySet<string> = new Set(["monaco", "markdown", "mermaid", "asciidoc", "html", "diagram"]);
 
 /**
- * True when `ext` (lower-case, leading dot, e.g. `".md"`) is text-backed: the
- * classifier reports it `editable`, or a *recognised* kind (`kind !== "unknown"`)
- * rendered by a text viewer. Unrecognised extensions (`.drawio`, `.psd`) are
- * not text-backed. Used by the plugin manifest validator to keep
- * `editor-pane-file-handler` claims off text files. Probes with an absolute
- * path because `fileKind` throws on relative ones.
- * See change: add-editor-pane-file-handlers.
+ * True when `ext` (leading dot, any case) names a text-backed kind a plugin file
+ * handler must NOT claim: `fileKind` says editable, or a *recognised* kind
+ * (`kind !== "unknown"`) whose viewer is a text viewer. Unrecognised extensions
+ * (`.drawio`, `.psd`) fall through to `{kind:"unknown"}` and stay claimable.
+ * Probes with an absolute path (`fileKind` throws on relative ones).
+ * See change: add-editor-pane-file-handlers (D1).
  */
 export function isTextBackedExt(ext: string): boolean {
   const r = fileKind(`/x${ext}`);
   if (r.editable) return true;
   return r.kind !== "unknown" && TEXT_BACKED_VIEWERS.has(r.viewer);
-}
-
-/**
- * Frozen extensions `fileKind` does not classify as text but a file-handler claim must
- * never own: secrets, executable scripts and plain-text formats. A fixed list, so the
- * claimable set does not shift when the classifier learns a new kind.
- * See change: add-editor-pane-file-handlers.
- */
-const HANDLER_DENIED_EXTS: ReadonlySet<string> = new Set([
-  ".env", ".npmrc", ".pem", ".key", ".crt", ".cer", ".pfx", ".p12", ".asc", ".gpg",
-  ".ps1", ".bat", ".cmd", ".command", ".fish", ".vbs", ".applescript", ".desktop", ".reg",
-  ".patch", ".diff", ".jsonl", ".ndjson", ".ipynb", ".tex", ".srt", ".vtt", ".lock",
-  ".properties", ".tf", ".swift", ".kt", ".pl", ".r", ".dart",
-]);
-
-/** True when a file-handler claim may not own `ext`: text-backed, or on the frozen deny list. */
-export function isUnclaimableHandlerExt(ext: string): boolean {
-  return HANDLER_DENIED_EXTS.has(ext) || isTextBackedExt(ext);
 }

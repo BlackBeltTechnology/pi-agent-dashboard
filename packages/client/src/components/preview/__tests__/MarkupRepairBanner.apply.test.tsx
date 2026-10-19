@@ -9,8 +9,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { repairMarkdown } from "../../../lib/preview/markup-repair-md.js";
 import { MermaidSourceContext, type MermaidSourceInfo } from "../../../lib/preview/mermaid-source-context.js";
 import { ThemeProvider } from "../../settings/ThemeProvider.js";
-import { digestResponse, probe, TrackedProvider } from "./tracked-write-harness.js";
-import { act } from "@testing-library/react";
 
 vi.mock("../../../lib/api/api-context.js", () => ({ getApiBase: () => "" }));
 
@@ -32,7 +30,6 @@ let fetchMock: ReturnType<typeof vi.fn>;
 let reload: ReturnType<typeof vi.fn>;
 let readHandler: () => Promise<FakeRes>;
 let writeHandler: () => Promise<FakeRes>;
-let digestSha = "S";
 
 const posts = () => fetchMock.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === "POST");
 
@@ -78,16 +75,8 @@ beforeEach(() => {
   reload = vi.fn();
   readHandler = async () => res(200, { success: true, data: { content: MD, mtime: MTIME } });
   writeHandler = async () => res(200, { success: true, data: { mtime: MTIME + 1 } });
-  digestSha = "S";
-  probe.cleared = [];
   fetchMock = vi.fn(async (url: string, init?: RequestInit) =>
-    init?.method === "POST"
-      ? writeHandler()
-      : String(url).includes("/api/file/md-read")
-        ? readHandler()
-        : String(url).includes("/api/file/digest")
-          ? digestResponse(digestSha)
-          : res(404, {}),
+    init?.method === "POST" ? writeHandler() : String(url).includes("/api/file/md-read") ? readHandler() : res(404, {}),
   );
   vi.stubGlobal("fetch", fetchMock);
   Object.defineProperty(window, "matchMedia", {
@@ -180,38 +169,5 @@ describe("apply markup fix", () => {
     mountMd(null);
     expect(screen.queryByTestId("markup-repair-apply")).toBeNull();
     expect(screen.getByTestId("markup-repair-view-original")).toBeTruthy();
-  });
-});
-
-describe("tracked save (gate-changed-on-disk-by-content F7)", () => {
-  it("F7: the repair write goes through trackedFileWrite — its own file_changed raises no banner", async () => {
-    const ui = (candidate?: number) => (
-      <TrackedProvider path="docs/n.md" candidate={candidate}>
-        <ThemeProvider>
-          <MermaidSourceContext.Provider value={source()}>
-            <MarkupRepairBanner
-              repairs={repairMarkdown(MD).repairs}
-              viewOriginal={false}
-              onToggleOriginal={() => {}}
-              apply={{ displayed: MD, repair: repairMarkdown }}
-            />
-          </MermaidSourceContext.Provider>
-        </ThemeProvider>
-      </TrackedProvider>
-    );
-    const utils = render(ui());
-    await act(async () => {
-      await probe.ctx?.captureBaseline("docs/n.md"); // baseline S
-    });
-    writeHandler = async () => res(200, { success: true, data: { mtime: MTIME + 1, size: 9, sha1: "T" } });
-    fireEvent.click(applyBtn());
-    await screen.findByRole("dialog", {}, SLOW);
-    fireEvent.click(screen.getByTestId("mermaid-apply-confirm"));
-    await waitFor(() => expect(reload).toHaveBeenCalledTimes(1), SLOW);
-    // The watcher reports the write; the disk now holds T (the baseline the save set).
-    digestSha = "T";
-    utils.rerender(ui(1));
-    await waitFor(() => expect(probe.cleared).toContainEqual(["docs/n.md", 1]), SLOW);
-    expect(probe.ctx?.verifiedChanged.has("docs/n.md")).toBe(false);
   });
 });

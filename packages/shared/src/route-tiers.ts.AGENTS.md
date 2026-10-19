@@ -45,3 +45,11 @@ Services additions: `GET /api/services/:id/logs`, `POST /api/services/:id/reset-
 `POST /api/live-server/:id/capability` → `control` (mints a live-preview capability URL). See change: retire-trusted-networks-bypass.
 
 `POST /api/tls/issue` → `operate` (TLS cert "issue now"; authorized like `PUT /api/config`). See change: add-tailscale-cert-tls.
+
+`PUT`/`DELETE /api/tls/acme/:sourceId` and `PUT /api/tls/acme/:sourceId/credentials` → `operate` (acme cert source entry + vault-backed solver secrets). See change: add-acme-dns01-certs.
+
+Adds `GET /api/file/digest` (observe). See change: gate-changed-on-disk-by-content.
+
+`POST /api/file/write-binary` → `control`. See change: add-editor-pane-file-handlers.
+
+`GET /api/plugins/craft-web/status` → `observe`; `POST /api/plugins/craft-web/prepare/:app` + `POST /api/plugins/craft-web/csp-report` → `control`. See change: edit-office-in-pane-with-craft-web.

@@ -8,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
-import { createGatedProviderAuth, createIsPiExtensionInstalled, createServerPluginContext, discoverPlugins, fixtureEntryAllowed, getFileValidatorRegistry, getPluginStatusStore, getWsRouteRegistry, loadServerEntries, pluginSpawnToSessionOptions, redactPluginConfigForClient, refreshRequirementProbesFor, resolvePluginEnabled } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import { createGatedProviderAuth, createIsPiExtensionInstalled, createServerPluginContext, discoverPlugins, fixtureEntryAllowed, getFileValidatorPool, getFileValidatorRegistry, getPluginStatusStore, getWsRouteRegistry, loadServerEntries, pluginSpawnToSessionOptions, redactPluginConfigForClient, refreshRequirementProbesFor, resolvePluginEnabled } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import {
   createMcpClientConfigService,
   createRealConfigIO,
@@ -19,8 +19,8 @@ import { findBundledExtension, registerBridgeExtension } from "@blackbelt-techno
 import type { PackageOperationCompleteMessage, ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { AuthConfig, DashboardConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { CONFIG_DIR, CONFIG_FILE, getPluginConfig as getPluginConfigFromFile, loadConfig, resolvePublicBaseUrls, writeConfigFileSecure } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import { createSemaphore } from "@blackbelt-technology/pi-dashboard-shared/semaphore.js";
 import { CustomEventGroupsStore } from "@blackbelt-technology/pi-dashboard-shared/custom-event-groups-store.js";
+import { parseFileHandlerClaimKey } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/file-handler.js";
 import { parseLaunchSource } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
 import type { HostAction, HostResource, Principal } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
 import { advertiseDashboard, createBrowser, type DashboardBrowser, type DiscoveredServer, resolveAdvertisedAddresses, stopAdvertising } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
@@ -40,6 +40,7 @@ import {
   readRuntimeRequest,
   readRuntimeState,
 } from "@blackbelt-technology/pi-dashboard-shared/runtime-overlay/state.js";
+import { createSemaphore } from "@blackbelt-technology/pi-dashboard-shared/semaphore.js";
 import { proveServerIdentity } from "@blackbelt-technology/pi-dashboard-shared/server-pinning.js";
 import { discoverServiceOffers } from "@blackbelt-technology/pi-dashboard-shared/services/offers.js";
 import { isRecoveryCandidate, isShutdownWindowCandidate, mergeSessionMeta, type SessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
@@ -102,11 +103,6 @@ import {
   resolveHostGateMode,
 } from "./auth/host-gate.js";
 import { ensureServerIdentity } from "./auth/identity.js";
-import {
-  MAIN_CONNECTION_TIMEOUT_MS,
-  MAIN_KEEP_ALIVE_TIMEOUT_MS,
-  TlsListener,
-} from "./tls/tls-listener.js";
 import { createLocalCredentialVerifier, hasLocalCredential, listenWithProofFloor } from "./auth/local-credential.js";
 import { createLocalTrustContext, LocalProofCodeStore } from "./auth/local-proof.js";
 import { ensureLocalToken } from "./auth/local-token.js";
@@ -129,6 +125,7 @@ import { setOAuthRegistryRuntimeSource } from "./auth/provider-auth-registry.js"
 import { readAuthJson } from "./auth/provider-auth-storage.js";
 import { countReloads, type RadiusMcpService } from "./auth/radius-mcp.js";
 import { createRouteTierGate } from "./auth/route-tier-gate.js";
+import { createHostServeApp } from "./auth/serve-app-host.js";
 import { mintSpawnToken } from "./auth/spawn-token.js";
 import { admissionTrustedNetworks, effectiveTrustMode } from "./auth/trust-mode.js";
 import { decideBootTrustMode } from "./auth/trust-mode-boot.js";
@@ -263,10 +260,7 @@ import { registerAttachmentRoutes } from "./routes/attachment-routes.js";
 import { registerCanvasTypesRoutes } from "./routes/canvas-types-routes.js";
 import { registerCustomEventGroupsRoutes } from "./routes/custom-event-groups-routes.js";
 import { registerDoctorRoutes } from "./routes/doctor-routes.js";
-import { HANDLER_MAX_BYTES } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js";
 import { registerFileRoutes } from "./routes/file-routes.js";
-import { registerFileWriteBinaryRoutes } from "./routes/file-write-binary-routes.js";
-import { createFileValidatorPool } from "./lib/file-validator-pool.js";
 import { registerFolderProjectRoutes } from "./routes/folder-project-routes.js";
 import { registerGitRoutes } from "./routes/git-routes.js";
 import { registerGrepRoutes } from "./routes/grep-routes.js";
@@ -306,6 +300,10 @@ import { registerRuntimeRoutes } from "./routes/runtime-routes.js";
 import { registerSessionRoutes, type ToolResultStats } from "./routes/session-routes.js";
 import { registerSystemRoutes } from "./routes/system-routes.js";
 import { registerTlsRoutes } from "./routes/tls-routes.js";
+import { registerAcmeRoutes } from "./routes/acme-routes.js";
+import { createAcmeCredentials } from "./tls/sources/acme/credentials.js";
+import { configureAcmeRuntime } from "./tls/sources/acme/runtime.js";
+import { acmeGc } from "./tls/sources/acme/gc.js";
 import { registerToolRoutes } from "./routes/tool-routes.js";
 import { registerUserRoutes } from "./routes/user-routes.js";
 import {
@@ -354,13 +352,18 @@ import { registerSpawnEnvContributorForPlugin, setSpawnEnvPluginEnabledCheck } f
 import { armSpawnWatchdog } from "./spawn-process/spawn-register-watchdog.js";
 import { createTerminalGateway } from "./terminal/terminal-gateway.js";
 import { createTerminalManager, deriveTranscriptCapBytes } from "./terminal/terminal-manager.js";
+import {
+  MAIN_CONNECTION_TIMEOUT_MS,
+  MAIN_KEEP_ALIVE_TIMEOUT_MS,
+  TlsListener,
+} from "./tls/tls-listener.js";
 import { cleanupStaleZrok, createTunnel, deleteTunnel, detectZrokBinary, ensureReservedName, getTunnelUrl, liveTunnelOrigins, scavengeOrphanZrokProcesses } from "./tunnel/tunnel.js";
 import { startTunnelWatchdog, stopTunnelWatchdog } from "./tunnel/tunnel-watchdog.js";
 import { createVaultDeliveryHub } from "./vault/vault-delivery-hub.js";
 import { createVaultImport, defaultKnownLocations } from "./vault/vault-import.js";
 import { createPluginVaultReader } from "./vault/vault-plugin-read.js";
 import { createVaultProjects } from "./vault/vault-projects.js";
-import { registerVaultRoutes } from "./vault/vault-routes.js";
+import { createVaultManageGuard, registerVaultRoutes } from "./vault/vault-routes.js";
 import { createVaultStore } from "./vault/vault-store.js";
 
 export interface ServerConfig {
@@ -1725,6 +1728,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // requests and pushes on every vault write / config change; values travel only
   // on the session-private bridge lane. See change: add-credential-vault.
   const vaultStore = createVaultStore();
+  // ACME DNS-01 certificate source: solver secrets live in this vault (kind `tls-solver`).
+  // GC of orphaned namespaces/account keys runs once at start. See change: add-acme-dns01-certs.
+  configureAcmeRuntime({ credentials: createAcmeCredentials(vaultStore) });
+  acmeGc().catch(() => undefined);
   // Remembered projects for the vault project picker; a sibling of vault.json, created on the first recorded project.
   const vaultProjects = createVaultProjects({ file: path.join(path.dirname(vaultStore.filePath), "vault-projects.json") });
   const vaultDelivery = createVaultDeliveryHub({
@@ -2508,32 +2515,33 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     const cwd = typeof msg?.cwd === "string" ? msg.cwd : undefined;
     if (cwd) worktreeInitRegistry.unsubscribeCwd(cwd, ws);
   });
-  registerFileRoutes(fastify, { sessionManager, preferencesStore, networkGuard });
-  // Handler-plugin saves: encapsulated octet-stream route; claim + enabled state
-  // are read per request from the discovered manifests / config, the validator
-  // from the registry `ctx.registerFileValidator` fills. See change: add-editor-pane-file-handlers.
-  const fileValidatorPool = createFileValidatorPool();
-  fastify.addHook("onClose", async () => fileValidatorPool.dispose());
-  await registerFileWriteBinaryRoutes(fastify, {
+  registerFileRoutes(fastify, {
     sessionManager,
+    preferencesStore,
     networkGuard,
-    pool: fileValidatorPool,
-    getValidator: (pluginId, claimId) => getFileValidatorRegistry().get(pluginId, claimId),
-    isPluginServerLoaded: (pluginId) => getPluginStatusStore().getStatus(pluginId)?.loaded === true,
-    resolveClaim: (pluginId, claimId) => {
-      const manifest = discoverPlugins().find((p) => p.manifest.id === pluginId)?.manifest;
-      const claim = manifest?.claims.find((c) => c.slot === "editor-pane-file-handler" && c.id === claimId);
-      if (!manifest || !fixtureEntryAllowed(manifest) || !claim?.extensions || (claim.mode !== "edit" && claim.mode !== "preview")) return null;
-      return {
-        pluginId,
-        claimId,
-        mode: claim.mode,
-        extensions: claim.extensions,
-        maxBytes: claim.maxBytes ?? HANDLER_MAX_BYTES,
-        copySuffix: claim.copySuffix,
-        validator: claim.validator === true,
-        pluginEnabled: resolvePluginEnabled(getPluginConfigFromFile(loadConfig(), pluginId), manifest.defaultEnabled),
-      };
+    // Plugin file-handler seams for POST /api/file/write-binary: live claim registry
+    // (read at request time: enabled + server entry loaded), registered validators,
+    // bounded worker pool. See change: add-editor-pane-file-handlers (D4).
+    fileHandlers: {
+      resolveClaim: (key) => {
+        const ref = parseFileHandlerClaimKey(key);
+        if (!ref) return undefined;
+        const plugin = discoverPlugins().find((p) => p.manifest.id === ref.pluginId);
+        if (!plugin || !fixtureEntryAllowed(plugin.manifest)) return undefined;
+        const claim = plugin.manifest.claims.find((c) => c.slot === "editor-pane-file-handler" && c.id === ref.claimId);
+        if (!claim) return undefined;
+        return {
+          pluginId: ref.pluginId,
+          claim,
+          enabled: resolvePluginEnabled(
+            getPluginConfigFromFile(loadConfig(), ref.pluginId) as Record<string, unknown>,
+            plugin.manifest.defaultEnabled,
+          ),
+          serverLoaded: getPluginStatusStore().getStatus(ref.pluginId)?.loaded === true,
+        };
+      },
+      getValidator: (pluginId, claimId) => getFileValidatorRegistry().get(pluginId, claimId),
+      validatorPool: getFileValidatorPool(),
     },
   });
   registerGrepRoutes(fastify, { sessionManager, networkGuard });
@@ -2789,6 +2797,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       discoverPlugins()
         .filter((p) => (p.manifest.vaultBindings?.length ?? 0) > 0)
         .map((p) => ({ pluginId: p.manifest.id, displayName: p.manifest.displayName, declared: p.manifest.vaultBindings ?? [] })),
+  });
+  // ACME certificate sources: per-entry config routes + vault-backed solver credentials
+  // (the credentials route answers exactly like a vault management route).
+  // See change: add-acme-dns01-certs.
+  registerAcmeRoutes(fastify, {
+    networkGuard,
+    manageGuard: createVaultManageGuard({ localTrust, loginAvailable, requestAccessAvailable, hostPolicy: policyRegistry }),
+    listener: tlsListener,
   });
   // Pi runtime discovery + atomic dual selection. See change: select-pi-runtime-install.
   registerPiRuntimeRoutes(fastify, { registry: getDefaultRegistry(), networkGuard });
@@ -3995,6 +4011,13 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               // this is NOT trust-gated. See change:
               // relocate-goal-product-to-plugin (D1-#7).
               networkGuard,
+              // `ctx.serveApp`: trust-gated (bundled plugin dir OR `auth.capabilityRoutePlugins`),
+              // mounts `/apps/<appId>/`. See change: add-plugin-capability-routes (D2, D5).
+              serveApp: createHostServeApp({
+                fastify,
+                plugin: { packageDir: plugin.packageDir, manifestId: plugin.manifest.id },
+                readConfiguredIds: () => loadConfig().auth?.capabilityRoutePlugins ?? [],
+              }),
               // Emit a configured pi event into a session (relayed as a
               // `plugin_emit_event` control message; the in-session bridge
               // re-emits it on pi.events). Same trust gate as abortSession.
@@ -4192,9 +4215,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
             // Own file-handler edit claims + package dir gate `ctx.registerFileValidator`. See change: add-editor-pane-file-handlers (D4).
             {
               packageDir: plugin.packageDir,
-              ownedEditClaimIds: plugin.manifest.claims.flatMap((c) =>
-                c.slot === "editor-pane-file-handler" && c.mode === "edit" && c.id ? [c.id] : [],
-              ),
+              editClaimIds: plugin.manifest.claims.flatMap((c) => (c.slot === "editor-pane-file-handler" && c.mode === "edit" && c.id ? [c.id] : [])),
             },
           )),
         });

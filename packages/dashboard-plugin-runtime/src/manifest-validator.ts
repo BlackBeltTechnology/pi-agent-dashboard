@@ -8,12 +8,20 @@ import {
   RESERVED_PANE_TAB_PREFIXES,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/editor-pane-tab.js";
 import {
+  FILE_HANDLER_COPY_SUFFIX_RE,
+  FILE_HANDLER_EXT_RE,
+  FILE_HANDLER_ID_RE,
+  FILE_HANDLER_KEEPALIVE_MAX,
+  FILE_HANDLER_LABEL_MAX,
+  FILE_HANDLER_NOTICE_MAX,
   HANDLER_MAX_BYTES,
-  type PluginClaim,
-  type PluginManifest,
-  type PluginRequirements,
-  type ProjectTypeRule,
-  type SettingsNavHint,
+} from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/file-handler.js";
+import type {
+  PluginClaim,
+  PluginManifest,
+  PluginRequirements,
+  ProjectTypeRule,
+  SettingsNavHint,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js";
 import {
   MAX_MARKERS_PER_TYPE,
@@ -26,103 +34,10 @@ import {
   SLOT_DEFINITIONS,
   type SlotId,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-types.js";
-import { isUnclaimableHandlerExt } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
+import { isTextBackedExt } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
 
 /** Valid `resource-page-section` `resourceType` values. See change: add-skill-atlas-screen. */
 const RESOURCE_PAGE_TYPES: ReadonlySet<string> = new Set(["skill", "agent", "extension", "prompt", "theme"]);
-
-const FILE_HANDLER_ID_RE = /^[a-z][a-z0-9-]{0,31}$/;
-const FILE_HANDLER_EXT_RE = /^\.[a-z0-9][a-z0-9+-]{0,15}$/;
-const FILE_HANDLER_COPY_SUFFIX_RE = /^[a-z][a-z0-9-]{1,31}$/;
-const FILE_HANDLER_MAX_LABEL = 40;
-const FILE_HANDLER_MAX_NOTICE = 300;
-
-/** Normalised `editor-pane-file-handler` claim fields (see {@link validateFileHandlerClaim}). */
-type FileHandlerFields = Pick<
-  PluginClaim,
-  "id" | "extensions" | "mode" | "label" | "keepAlive" | "maxBytes" | "firstOverwriteNotice" | "copySuffix" | "validator"
->;
-
-type FileHandlerFail = (msg: string) => never;
-
-function fileHandlerExtensions(raw: unknown, fail: FileHandlerFail): string[] {
-  if (!Array.isArray(raw) || raw.length === 0) return fail('"extensions" must be a non-empty array');
-  return raw.map((ext: unknown) => {
-    if (typeof ext !== "string" || !FILE_HANDLER_EXT_RE.test(ext)) {
-      return fail(`extension ${JSON.stringify(ext)} must match ${FILE_HANDLER_EXT_RE}`);
-    }
-    if (isUnclaimableHandlerExt(ext)) {
-      return fail(`extension "${ext}" is text-backed or reserved (secrets, scripts, plain text) and cannot be claimed (text files use /api/file/write)`);
-    }
-    return ext;
-  });
-}
-
-/** Optional numeric/size-ish fields: keepAlive, maxBytes, firstOverwriteNotice. */
-function fileHandlerLimits(c: Record<string, unknown>, fail: FileHandlerFail): Partial<FileHandlerFields> {
-  const out: Partial<FileHandlerFields> = {};
-  if (c.keepAlive !== undefined) {
-    const max = (c.keepAlive as { max?: unknown } | null)?.max;
-    if (typeof max !== "number" || !Number.isInteger(max) || max < 1 || max > 3) {
-      fail('"keepAlive.max" must be an integer from 1 to 3');
-    }
-    out.keepAlive = { max: max as number };
-  }
-  if (c.maxBytes !== undefined) {
-    const n = c.maxBytes;
-    if (typeof n !== "number" || !Number.isInteger(n) || n < 1 || n > HANDLER_MAX_BYTES) {
-      fail(`"maxBytes" must be an integer from 1 to ${HANDLER_MAX_BYTES}`);
-    }
-    out.maxBytes = n as number;
-  }
-  if (c.firstOverwriteNotice !== undefined) {
-    const n = c.firstOverwriteNotice;
-    if (typeof n !== "string" || n.length > FILE_HANDLER_MAX_NOTICE) {
-      fail(`"firstOverwriteNotice" must be a string of at most ${FILE_HANDLER_MAX_NOTICE} characters`);
-    }
-    out.firstOverwriteNotice = n as string;
-  }
-  return out;
-}
-
-function checkFileHandlerLabelAndSuffix(c: Record<string, unknown>, fail: FileHandlerFail): void {
-  if (c.mode !== "preview" && c.mode !== "edit") fail('"mode" must be "preview" or "edit"');
-  if (typeof c.label !== "string" || !c.label.trim() || c.label.length > FILE_HANDLER_MAX_LABEL) {
-    fail(`"label" must be a non-empty string of at most ${FILE_HANDLER_MAX_LABEL} characters`);
-  }
-  if (c.copySuffix === undefined) {
-    if (c.mode === "edit") fail('mode "edit" requires "copySuffix"');
-  } else if (typeof c.copySuffix !== "string" || !FILE_HANDLER_COPY_SUFFIX_RE.test(c.copySuffix)) {
-    fail(`"copySuffix" must match ${FILE_HANDLER_COPY_SUFFIX_RE}`);
-  }
-}
-
-/**
- * Validate + normalise the `editor-pane-file-handler` claim fields (design D1).
- * Every error names the plugin (via {@link ManifestValidationError}), the slot
- * and the offending field. See change: add-editor-pane-file-handlers.
- */
-function validateFileHandlerClaim(c: Record<string, unknown>, pluginId: string, index: number): FileHandlerFields {
-  const fail: FileHandlerFail = (msg) => {
-    throw new ManifestValidationError(pluginId, `claims[${index}] slot "editor-pane-file-handler" ${msg}`);
-  };
-  if (typeof c.component !== "string" || !c.component.trim()) fail('requires a non-empty "component"');
-  if (typeof c.id !== "string" || !FILE_HANDLER_ID_RE.test(c.id)) {
-    fail(`id ${JSON.stringify(c.id)} must match ${FILE_HANDLER_ID_RE}`);
-  }
-  const extensions = fileHandlerExtensions(c.extensions, fail);
-  checkFileHandlerLabelAndSuffix(c, fail);
-  if (c.validator !== undefined && typeof c.validator !== "boolean") fail('"validator" must be a boolean');
-  return {
-    id: c.id as string,
-    extensions,
-    mode: c.mode as "preview" | "edit",
-    label: c.label as string,
-    ...fileHandlerLimits(c, fail),
-    ...(c.copySuffix !== undefined ? { copySuffix: c.copySuffix as string } : {}),
-    ...(c.validator !== undefined ? { validator: c.validator as boolean } : {}),
-  };
-}
 
 /**
  * Validate the optional `projectTypes` marker rules (fatal on any violation).
@@ -246,6 +161,80 @@ function validateNavHint(raw: unknown, pluginId: string, index: number): Setting
     label: value(fields.label),
     ...(description ? { description } : {}),
     ...(typeof n.order === "number" ? { order: n.order } : {}),
+  };
+}
+
+/** The normalized `editor-pane-file-handler` fields of a claim. */
+type FileHandlerFields = Pick<
+  PluginClaim,
+  "id" | "extensions" | "mode" | "label" | "keepAlive" | "maxBytes" | "firstOverwriteNotice" | "copySuffix" | "validator"
+>;
+
+/**
+ * Validate + normalize the `editor-pane-file-handler` claim fields (fatal on
+ * any violation). Text-backed extensions are rejected via `isTextBackedExt`
+ * so the set stays derived from `fileKind`. See change: add-editor-pane-file-handlers (D1).
+ */
+function validateFileHandlerClaim(c: Record<string, unknown>, pluginId: string, index: number): FileHandlerFields {
+  const at = `claims[${index}] slot "editor-pane-file-handler"`;
+  const fail = (msg: string): never => {
+    throw new ManifestValidationError(pluginId, `${at} ${msg}`);
+  };
+  if (typeof c.component !== "string" || !c.component.trim()) fail('requires a non-empty "component"');
+  if (typeof c.id !== "string" || !FILE_HANDLER_ID_RE.test(c.id)) {
+    fail(`.id must match ${FILE_HANDLER_ID_RE} (got ${JSON.stringify(c.id)})`);
+  }
+  if (!Array.isArray(c.extensions) || c.extensions.length === 0) fail('"extensions" must be a non-empty array');
+  const extensions = c.extensions as unknown[];
+  for (const ext of extensions) {
+    if (typeof ext !== "string" || !FILE_HANDLER_EXT_RE.test(ext)) {
+      fail(`extension ${JSON.stringify(ext)} must match ${FILE_HANDLER_EXT_RE} (lower-case, single segment, leading dot)`);
+    }
+    if (isTextBackedExt(ext as string)) {
+      fail(`extension "${ext}" is a text-backed file kind (edited through /api/file/write) and cannot be claimed`);
+    }
+  }
+  if (c.mode !== "preview" && c.mode !== "edit") fail('"mode" must be "preview" or "edit"');
+  if (typeof c.label !== "string" || !c.label.trim() || c.label.length > FILE_HANDLER_LABEL_MAX) {
+    fail(`"label" must be a non-empty string of at most ${FILE_HANDLER_LABEL_MAX} chars`);
+  }
+  let keepAlive: { max: number } | undefined;
+  if (c.keepAlive !== undefined) {
+    const k = c.keepAlive as { max?: unknown } | null;
+    const max = k && typeof k === "object" ? k.max : undefined;
+    if (typeof max !== "number" || !Number.isInteger(max) || max < 1 || max > FILE_HANDLER_KEEPALIVE_MAX) {
+      fail(`"keepAlive" must be { max: 1..${FILE_HANDLER_KEEPALIVE_MAX} }`);
+    }
+    keepAlive = { max: max as number };
+  }
+  if (
+    c.maxBytes !== undefined &&
+    (typeof c.maxBytes !== "number" || !Number.isInteger(c.maxBytes) || c.maxBytes < 1 || c.maxBytes > HANDLER_MAX_BYTES)
+  ) {
+    fail(`"maxBytes" must be an integer in 1..${HANDLER_MAX_BYTES}`);
+  }
+  if (
+    c.firstOverwriteNotice !== undefined &&
+    (typeof c.firstOverwriteNotice !== "string" || !c.firstOverwriteNotice.trim() || c.firstOverwriteNotice.length > FILE_HANDLER_NOTICE_MAX)
+  ) {
+    fail(`"firstOverwriteNotice" must be a non-empty string of at most ${FILE_HANDLER_NOTICE_MAX} chars`);
+  }
+  if (c.validator !== undefined && typeof c.validator !== "boolean") fail('"validator" must be a boolean');
+  const copySuffixGiven = c.copySuffix !== undefined;
+  if (copySuffixGiven && (typeof c.copySuffix !== "string" || !FILE_HANDLER_COPY_SUFFIX_RE.test(c.copySuffix))) {
+    fail(`"copySuffix" must match ${FILE_HANDLER_COPY_SUFFIX_RE}`);
+  }
+  if (c.mode === "edit" && !copySuffixGiven) fail('mode "edit" requires "copySuffix"');
+  return {
+    id: c.id as string,
+    extensions: [...(extensions as string[])],
+    mode: c.mode as "preview" | "edit",
+    label: c.label as string,
+    ...(keepAlive ? { keepAlive } : {}),
+    ...(typeof c.maxBytes === "number" ? { maxBytes: c.maxBytes } : {}),
+    ...(typeof c.firstOverwriteNotice === "string" ? { firstOverwriteNotice: c.firstOverwriteNotice } : {}),
+    ...(typeof c.copySuffix === "string" ? { copySuffix: c.copySuffix } : {}),
+    ...(typeof c.validator === "boolean" ? { validator: c.validator } : {}),
   };
 }
 
@@ -431,9 +420,8 @@ function validateClaim(claim: unknown, pluginId: string, index: number): PluginC
     }
   }
 
-  // editor-pane-file-handler: file-type-addressed handler; fields validated +
-  // normalised by validateFileHandlerClaim (D1). Duplicate ids within a plugin
-  // are checked in validateManifest. See change: add-editor-pane-file-handlers.
+  // editor-pane-file-handler: id/extensions/mode/label + optional bounds.
+  // See change: add-editor-pane-file-handlers (D1).
   const fileHandler = slotId === "editor-pane-file-handler" ? validateFileHandlerClaim(c, pluginId, index) : undefined;
 
   // resource-page-section: optional `resourceType` must name a resource page.
@@ -693,7 +681,7 @@ export function validateManifest(raw: unknown, fallbackId = "unknown"): PluginMa
       if (fileHandlerIds.has(claim.id)) {
         throw new ManifestValidationError(
           pluginId,
-          `duplicate editor-pane-file-handler claim id "${claim.id}"`,
+          `duplicate editor-pane-file-handler claim for id "${claim.id}"`,
         );
       }
       fileHandlerIds.add(claim.id);

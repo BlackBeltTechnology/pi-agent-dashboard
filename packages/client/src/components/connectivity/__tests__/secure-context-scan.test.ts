@@ -27,6 +27,7 @@ const ALLOWLIST = new Set([
   "client-utils/src/identity/dpop.ts", // DPoP is inherently secure-context; capability-checked (D17)
   "client-utils/src/identity/pkce.ts", // already guards `crypto.subtle` with a pure-JS fallback
   "client-utils/src/identity/login-flow.ts", // guarded `crypto?.subtle` capability check (reports insecure-context)
+  "client/src/lib/sha1.ts", // capability-checked `crypto.subtle` with a pure-JS SHA-1 fallback (file-handler snapshot token)
 ]);
 
 /** Four secure-context APIs, member / quoted-global / destructuring / bare-method forms. */

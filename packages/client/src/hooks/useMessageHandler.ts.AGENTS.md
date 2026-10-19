@@ -20,4 +20,4 @@ See change: add-pending-question-stack — `case "questions_update"` → `setQue
 
 `case "archive_session_error"` → `showToast(msg.error, "error")`; no state change. `session_archived` from a fileless eviction carries the unchanged folder count and is handled by the existing delete-card path. See change: fix-orphaned-ended-session-archive.
 
-See change: gate-changed-on-disk-by-content — `file_changed` writes `changedOnDisk: Map<sessionId, Map<path, generation>>`; generation from a module-wide monotonic counter (taken outside the updater), so every event is a fresh candidate.
+`file_changed` stamps a unique monotonic generation (module-level counter) per candidate. See change: gate-changed-on-disk-by-content.

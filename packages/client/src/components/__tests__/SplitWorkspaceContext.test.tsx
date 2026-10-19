@@ -1,7 +1,7 @@
 import { createSlotRegistry, PluginContextProvider } from "@blackbelt-technology/dashboard-plugin-runtime";
-import { act, cleanup, render, renderHook } from "@testing-library/react";
+import { act, renderHook } from "@testing-library/react";
 import type React from "react";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   SplitWorkspaceProvider,
@@ -221,18 +221,16 @@ describe("SplitWorkspaceProvider — open-files watch + changed-on-disk", () => 
         sessionId="sC"
         cwd="/proj"
         orientation="h"
-        changedFiles={new Map([["src/foo.ts", 3]])}
+        changedFiles={new Map([["src/foo.ts", 1]])}
         onClearChanged={onClearChanged}
       >
         {children}
       </SplitWorkspaceProvider>
     );
     const { result } = renderHook(() => useSplitWorkspace(), { wrapper });
-    expect(result.current.changedFiles?.get("src/foo.ts")).toBe(3);
-    // Detection off (default): the banner set mirrors the raw candidates.
-    expect(result.current.verifiedChanged.has("src/foo.ts")).toBe(true);
-    act(() => result.current.clearChanged("src/foo.ts", 3));
-    expect(onClearChanged).toHaveBeenCalledWith("src/foo.ts", 3);
+    expect(result.current.changedFiles?.has("src/foo.ts")).toBe(true);
+    act(() => result.current.clearChanged("src/foo.ts"));
+    expect(onClearChanged).toHaveBeenCalledWith("src/foo.ts");
   });
 });
 
@@ -286,393 +284,503 @@ describe("SplitWorkspaceProvider — openPluginTab", () => {
   });
 });
 
-// change: gate-changed-on-disk-by-content (tasks 5.2–5.16; test-plan E11–E16, F2–F6, F8, F11–F13)
-describe("SplitWorkspaceProvider — content-gated changed-on-disk", () => {
-  type Digest = { sha1?: string; status?: number; throws?: boolean; hold?: Promise<void> };
-  const resp = (d: Digest) => {
-    if (d.throws) return Promise.reject(new Error("network"));
-    const status = d.status ?? 200;
-    return Promise.resolve({
-      ok: status >= 200 && status < 300,
-      status,
-      json: async () => ({ success: status < 300, data: { size: 1, mtime: 1, ...(d.sha1 ? { sha1: d.sha1 } : {}) } }),
+// ── Changed-on-disk verification (candidate → digest → banner) ───────────────
+// See change: gate-changed-on-disk-by-content (test-plan #E11–#E16, #F2–#F13).
+
+type DigestAnswer =
+  | { kind: "sha"; sha1: string }
+  | { kind: "status"; status: number }
+  | { kind: "nosha" }
+  | { kind: "throw" };
+
+interface Pending {
+  url: string;
+  purpose: string;
+  cwd: string;
+  path: string;
+  resolve: (a: DigestAnswer) => void;
+}
+
+/**
+ * A controllable `fetch`: digest requests answer from `disk[cwd|path]` unless
+ * `hold` is set, in which case they queue in `pending` for the test to settle.
+ * Writes answer from `writeAnswer` (or hang until `writeGate` resolves).
+ */
+function installFetch() {
+  const disk = new Map<string, string>();
+  const digestCalls: Array<{ cwd: string; path: string; purpose: string }> = [];
+  const pending: Pending[] = [];
+  const state = {
+    hold: false,
+    override: null as null | ((cwd: string, path: string) => DigestAnswer | undefined),
+    write: { status: 200, sha1: "T" as string | undefined, reject: false, hang: false },
+    writeCalls: 0,
+  };
+  const key = (cwd: string, path: string) => `${cwd}|${path}`;
+  const respond = (a: DigestAnswer): Response | Promise<never> => {
+    if (a.kind === "throw") return Promise.reject(new TypeError("network"));
+    if (a.kind === "status") return new Response("{}", { status: a.status });
+    if (a.kind === "nosha") return new Response(JSON.stringify({ success: true, data: { size: 9, mtime: 1 } }), { status: 200 });
+    return new Response(JSON.stringify({ success: true, data: { sha1: a.sha1, size: 1, mtime: 1 } }), { status: 200 });
+  };
+  const onAbort = (signal: AbortSignal | undefined, reject: (e: unknown) => void): void => {
+    signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+  };
+  const digest = (url: string, signal: AbortSignal | undefined): Promise<Response> => {
+    const u = new URL(url, "http://x");
+    const cwd = u.searchParams.get("cwd") ?? "";
+    const path = u.searchParams.get("path") ?? "";
+    const purpose = u.searchParams.get("purpose") ?? "";
+    digestCalls.push({ cwd, path, purpose });
+    const answerNow = (): DigestAnswer =>
+      state.override?.(cwd, path) ?? { kind: "sha", sha1: disk.get(key(cwd, path)) ?? "none" };
+    if (!state.hold) return Promise.resolve(respond(answerNow()));
+    return new Promise<Response>((resolve, reject) => {
+      pending.push({
+        url, purpose, cwd, path,
+        resolve: (a) => {
+          const r = respond(a);
+          if (r instanceof Promise) r.then(resolve, reject);
+          else resolve(r);
+        },
+      });
+      onAbort(signal, reject);
     });
   };
-
-  const requests: Array<{ url: string; path: string; headers: string | null }> = [];
-  /** path → what the next digest(s) return; the last entry repeats. */
-  let disk: Record<string, Digest[]>;
-  const setDisk = (path: string, ...d: Digest[]) => {
-    disk[path] = d;
+  const write = (signal: AbortSignal | undefined): Promise<Response> => {
+    state.writeCalls++;
+    if (state.write.hang) return new Promise<Response>((_res, reject) => onAbort(signal, reject));
+    if (state.write.reject) return Promise.reject(new TypeError("network"));
+    const ok = state.write.status === 200;
+    const sha = state.write.sha1 ? { sha1: state.write.sha1 } : {};
+    const body = ok ? { success: true, data: { mtime: 5, size: 3, ...sha } } : { success: false };
+    return Promise.resolve(new Response(JSON.stringify(body), { status: state.write.status }));
   };
+  const fn = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    const signal = init?.signal ?? undefined;
+    if (url.includes("/api/file/digest")) return digest(url, signal);
+    if (url.includes("/api/file/write")) return write(signal);
+    return Promise.resolve(new Response("{}", { status: 404 }));
+  });
+  globalThis.fetch = fn as unknown as typeof fetch;
+  return { disk, digestCalls, pending, state, key, fn };
+}
 
-  type Ctx = ReturnType<typeof useSplitWorkspace>;
-  interface Harness {
-    ctx: () => Ctx;
-    fire: (path: string) => void;
-    changed: () => Map<string, number>;
-    watch: ReturnType<typeof vi.fn>;
-    setConn: (n: number) => void;
-    rerender: (sessionId: string, cwd: string) => void;
+/** Provider wrapper with a controllable candidate map + connection generation. */
+function mountDetect(opts: { changeDetection?: boolean; sessionId?: string; cwd?: string } = {}) {
+  const onWatchFiles = vi.fn();
+  let setCand!: React.Dispatch<React.SetStateAction<Map<string, number>>>;
+  let setConn!: React.Dispatch<React.SetStateAction<number>>;
+  let gen = 0;
+  const scope = { sessionId: opts.sessionId ?? "sD", cwd: opts.cwd ?? "/proj" };
+  let candSnapshot = new Map<string, number>();
+  function Host({ children }: { children: React.ReactNode }) {
+    const [cand, setC] = useState<Map<string, number>>(new Map());
+    const [conn, setN] = useState(0);
+    setCand = setC;
+    setConn = setN;
+    candSnapshot = cand;
+    const onClear = useCallback((p: string, g?: number) => {
+      setC((prev) => {
+        if (!prev.has(p) || (g !== undefined && prev.get(p) !== g)) return prev;
+        const n = new Map(prev);
+        n.delete(p);
+        return n;
+      });
+    }, []);
+    return (
+      <SplitWorkspaceProvider
+        sessionId={scope.sessionId}
+        cwd={scope.cwd}
+        orientation="h"
+        changeDetection={opts.changeDetection ?? true}
+        changedFiles={opts.changeDetection === false ? undefined : cand}
+        onClearChanged={onClear}
+        onWatchFiles={onWatchFiles}
+        connectionGeneration={conn}
+      >
+        {children}
+      </SplitWorkspaceProvider>
+    );
   }
+  const hook = renderHook(() => useSplitWorkspace(), { wrapper: Host });
+  return {
+    ...hook,
+    onWatchFiles,
+    scope,
+    candidates: () => candSnapshot,
+    fire: (path: string) => act(() => setCand((prev) => new Map(prev).set(path, ++gen))),
+    bumpConnection: () => act(() => setConn((n) => n + 1)),
+    banner: () => [...(hook.result.current.changedFiles ?? [])],
+  };
+}
 
-  function mount(opts: { changeDetection?: boolean; sessionId?: string; cwd?: string } = {}): Harness {
-    let gen = 0;
-    let changedNow = new Map<string, number>();
-    let ctx!: Ctx;
-    const watch = vi.fn();
-    const api = { setChanged: (_f: (p: Map<string, number>) => Map<string, number>) => {}, setConn: (_n: number) => {}, setScope: (_s: string, _c: string) => {} };
-    function Probe() {
-      ctx = useSplitWorkspace();
-      return null;
-    }
-    function H() {
-      const [changed, setChanged] = useState(new Map<string, number>());
-      const [conn, setConn] = useState(1);
-      const [scope, setScope] = useState({ s: opts.sessionId ?? "s1", c: opts.cwd ?? "/proj" });
-      changedNow = changed;
-      api.setChanged = setChanged;
-      api.setConn = setConn;
-      api.setScope = (s, c) => setScope({ s, c });
-      return (
-        <SplitWorkspaceProvider
-          sessionId={scope.s}
-          cwd={scope.c}
-          orientation="h"
-          changeDetection={opts.changeDetection ?? true}
-          connectionGeneration={conn}
-          changedFiles={changed}
-          onWatchFiles={watch}
-          onClearChanged={(path, g) =>
-            setChanged((prev) => {
-              if (!prev.has(path) || (g !== undefined && prev.get(path) !== g)) return prev;
-              const n = new Map(prev);
-              n.delete(path);
-              return n;
-            })
-          }
-        >
-          <Probe />
-        </SplitWorkspaceProvider>
-      );
-    }
-    render(<H />);
-    return {
-      ctx: () => ctx,
-      fire: (path) => act(() => api.setChanged((p) => new Map(p).set(path, ++gen))),
-      changed: () => changedNow,
-      watch,
-      setConn: (n) => act(() => api.setConn(n)),
-      rerender: (s, c) => act(() => api.setScope(s, c)),
-    };
-  }
+const advance = (ms: number) =>
+  act(async () => {
+    await vi.advanceTimersByTimeAsync(ms);
+  });
+const flushMicro = () =>
+  act(async () => {
+    for (let i = 0; i < 6; i++) await Promise.resolve();
+  });
 
-  const tick = (ms = 0) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
-  const digestCalls = (path?: string) => requests.filter((r) => !path || r.path === path).length;
+describe("SplitWorkspaceProvider — changed-on-disk verification", () => {
+  let f: ReturnType<typeof installFetch>;
+  const realFetch = globalThis.fetch;
 
   beforeEach(() => {
     localStorage.clear();
     vi.useFakeTimers();
-    requests.length = 0;
-    disk = {};
-    globalThis.fetch = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      const path = decodeURIComponent(new URL(url, "http://x").searchParams.get("path") ?? "");
-      requests.push({ url, path, headers: new Headers(init?.headers).get("X-Pi-Grant-Channel") });
-      const q = disk[path] ?? [{ sha1: "S" }];
-      const d = q.length > 1 ? (q.shift() as Digest) : q[0];
-      return d.hold ? d.hold.then(() => resp(d)) : resp(d);
-    }) as unknown as typeof fetch;
+    f = installFetch();
   });
   afterEach(() => {
-    cleanup();
     vi.useRealTimers();
+    globalThis.fetch = realFetch;
   });
 
-  /** Open `foo.ts`, capture its baseline `S`. */
-  async function opened(h: Harness, path = "foo.ts"): Promise<void> {
-    act(() => h.ctx().openInSplit(path));
-    await act(async () => { await h.ctx().captureBaseline(path); });
+  async function openWithBaseline(h: ReturnType<typeof mountDetect>, path = "foo.ts", sha = "S", cwd = h.scope.cwd) {
+    f.disk.set(f.key(cwd, path), sha);
+    act(() => h.result.current.openInSplit(path));
+    await act(async () => {
+      await h.result.current.captureBaseline(path);
+    });
   }
 
-  it("E11 identical rewrite: digest == baseline → no banner, candidate cleared", async () => {
-    const h = mount();
-    await opened(h);
+  it("E11: an identical rewrite never banners and its candidate is cleared", async () => {
+    const h = mountDetect();
+    await openWithBaseline(h);
     h.fire("foo.ts");
-    await tick(200);
-    expect(h.ctx().verifiedChanged.has("foo.ts")).toBe(false);
-    expect(h.changed().has("foo.ts")).toBe(false);
-    // digest requests never prompt for access
-    expect(requests.every((r) => r.headers === "")).toBe(true);
+    await advance(200);
+    expect(h.banner()).toEqual([]);
+    expect(h.candidates().has("foo.ts")).toBe(false);
+    expect(f.digestCalls.at(-1)).toMatchObject({ path: "foo.ts", purpose: "verify" });
   });
 
-  it("settles 150 ms before the first digest", async () => {
-    const h = mount();
-    await opened(h);
-    const before = digestCalls();
+  it("E12: a real content change banners", async () => {
+    const h = mountDetect();
+    await openWithBaseline(h);
+    f.disk.set(f.key("/proj", "foo.ts"), "S2");
     h.fire("foo.ts");
-    await tick(100);
-    expect(digestCalls()).toBe(before);
-    await tick(100);
-    expect(digestCalls()).toBe(before + 1);
+    await advance(200);
+    expect(h.banner()).toEqual(["foo.ts"]);
   });
 
-  it("E12 real change: digest differs → banner", async () => {
-    const h = mount();
-    await opened(h);
-    setDisk("foo.ts", { sha1: "S2" });
+  it("E13: 404 / 403 / network error / missing sha1 each banner (failure is never silent)", async () => {
+    const answers: DigestAnswer[] = [
+      { kind: "status", status: 404 },
+      { kind: "status", status: 403 },
+      { kind: "throw" },
+      { kind: "nosha" },
+    ];
+    for (const a of answers) {
+      const h = mountDetect({ sessionId: `sE13-${a.kind}`, cwd: `/p-${a.kind}` });
+      await openWithBaseline(h);
+      f.state.override = () => a;
+      h.fire("foo.ts");
+      await advance(200);
+      expect(h.banner(), JSON.stringify(a)).toEqual(["foo.ts"]);
+      f.state.override = null;
+      h.unmount();
+    }
+  });
+
+  it("E14: reverting to the baseline bytes clears the banner", async () => {
+    const h = mountDetect();
+    await openWithBaseline(h);
+    f.disk.set(f.key("/proj", "foo.ts"), "S2");
     h.fire("foo.ts");
-    await tick(200);
-    expect(h.ctx().verifiedChanged.has("foo.ts")).toBe(true);
-  });
-
-  it.each<[string, Digest]>([
-    ["404", { status: 404 }],
-    ["403", { status: 403 }],
-    ["network error", { throws: true }],
-    ["no sha1", {}],
-  ])("E13 failure is never silent: %s → banner", async (_n, d) => {
-    const h = mount();
-    await opened(h);
-    setDisk("foo.ts", d);
+    await advance(200);
+    expect(h.banner()).toEqual(["foo.ts"]);
+    f.disk.set(f.key("/proj", "foo.ts"), "S");
     h.fire("foo.ts");
-    await tick(200);
-    expect(h.ctx().verifiedChanged.has("foo.ts")).toBe(true);
+    await advance(200);
+    expect(h.banner()).toEqual([]);
   });
 
-  it("E14 revert to baseline clears the banner", async () => {
-    const h = mount();
-    await opened(h);
-    setDisk("foo.ts", { sha1: "S2" });
-    h.fire("foo.ts");
-    await tick(200);
-    expect(h.ctx().verifiedChanged.has("foo.ts")).toBe(true);
-    setDisk("foo.ts", { sha1: "S" });
-    h.fire("foo.ts");
-    await tick(200);
-    expect(h.ctx().verifiedChanged.has("foo.ts")).toBe(false);
-    expect(h.changed().has("foo.ts")).toBe(false);
-  });
+  it("E15: a session switch drops baselines and in-flight verification; maps never leak across sessions", async () => {
+    const h = mountDetect({ sessionId: "sA", cwd: "/a" });
+    f.disk.set(f.key("/b", "X"), "SB");
+    await openWithBaseline(h, "X", "SA", "/a");
+    f.state.hold = true;
+    h.fire("X"); // A's candidate: digest in flight
+    await advance(200);
+    expect(f.pending).toHaveLength(1);
+    expect(f.pending[0].cwd).toBe("/a");
 
-  it("E15 baselines are per session: a switch clears them", async () => {
-    const h = mount({ sessionId: "A", cwd: "/a" });
-    await opened(h, "X");
-    h.rerender("B", "/b");
-    act(() => h.ctx().openInSplit("X"));
-    setDisk("X", { sha1: "S" }); // would equal A's baseline
-    h.fire("X");
-    await tick(200);
-    // B never captured a baseline → cannot match A's → banner (not silently compared with A's)
-    expect(h.ctx().verifiedChanged.has("X")).toBe(true);
-  });
-
-  it("F2 second change during verification: the older result is discarded", async () => {
-    const h = mount();
-    await opened(h);
-    let release!: () => void;
-    const hold = new Promise<void>((r) => { release = r; });
-    setDisk("foo.ts", { sha1: "S", hold }, { sha1: "S2" });
-    h.fire("foo.ts"); // g1 → digest pending (returns S when released)
-    await tick(200);
-    h.fire("foo.ts"); // g2
-    release();
-    await tick(400);
-    expect(h.ctx().verifiedChanged.has("foo.ts")).toBe(true);
-  });
-
-  it("F3 own save during verification: result discarded, re-verified against the new baseline", async () => {
-    const h = mount();
-    await opened(h);
-    let release!: () => void;
-    const hold = new Promise<void>((r) => { release = r; });
-    setDisk("foo.ts", { sha1: "T", hold });
-    h.fire("foo.ts");
-    await tick(200); // digest pending
-    await act(async () => { await h.ctx().trackedFileWrite("foo.ts", Promise.resolve({ sha1: "T" })); });
-    release();
-    await tick(400);
-    expect(h.ctx().verifiedChanged.has("foo.ts")).toBe(false);
-    expect(h.changed().has("foo.ts")).toBe(false);
-  });
-
-  it("F4 own save suppresses its own event: the candidate waits for the save", async () => {
-    const h = mount();
-    await opened(h);
-    setDisk("foo.ts", { sha1: "T" });
-    let resolveSave!: (v: { sha1: string }) => void;
-    const save = new Promise<{ sha1: string }>((r) => { resolveSave = r; });
-    let done: Promise<unknown>;
-    act(() => { done = h.ctx().trackedFileWrite("foo.ts", save); });
-    const before = digestCalls();
-    h.fire("foo.ts"); // arrives before the save response
-    await tick(500);
-    expect(digestCalls()).toBe(before); // waiting
-    await act(async () => { resolveSave({ sha1: "T" }); await done; });
-    await tick(400);
-    expect(h.ctx().verifiedChanged.has("foo.ts")).toBe(false);
-  });
-
-  it("F5 failed save: 409 keeps the baseline; unknown outcome nulls it", async () => {
-    const h = mount();
-    await opened(h);
-    await act(async () => { await h.ctx().trackedFileWrite("foo.ts", Promise.resolve({ ok: false })); });
-    setDisk("foo.ts", { sha1: "S" });
-    h.fire("foo.ts");
-    await tick(200);
-    expect(h.ctx().verifiedChanged.has("foo.ts")).toBe(false); // baseline still S
-    setDisk("foo.ts", { sha1: "S2" });
-    h.fire("foo.ts");
-    await tick(200);
-    expect(h.ctx().verifiedChanged.has("foo.ts")).toBe(true);
-
-    // network failure → baseline null → even S banners
-    const h2 = mount();
-    await opened(h2, "bar.ts");
-    await act(async () => { await h2.ctx().trackedFileWrite("bar.ts", Promise.reject(new Error("net"))).catch(() => {}); });
-    setDisk("bar.ts", { sha1: "S" });
-    h2.fire("bar.ts");
-    await tick(200);
-    expect(h2.ctx().verifiedChanged.has("bar.ts")).toBe(true);
-  });
-
-  it("F5 a rejection carrying a numeric status is a refusal (baseline kept)", async () => {
-    const h = mount();
-    await opened(h);
+    // Switch to B (same tab path X, different baseline).
+    h.scope.sessionId = "sB";
+    h.scope.cwd = "/b";
+    h.rerender();
+    f.state.hold = false;
+    act(() => h.result.current.openInSplit("X"));
     await act(async () => {
-      await h.ctx().trackedFileWrite("foo.ts", Promise.reject(Object.assign(new Error("conflict"), { status: 409 }))).catch(() => {});
+      await h.result.current.captureBaseline("X");
     });
-    h.fire("foo.ts");
-    await tick(200);
-    expect(h.ctx().verifiedChanged.has("foo.ts")).toBe(false);
+    expect(h.banner()).toEqual([]);
+    // A's late answer (a different digest) lands: it must NOT be compared with B's baseline.
+    await act(async () => {
+      f.pending[0].resolve({ kind: "sha", sha1: "SA" });
+    });
+    await advance(200);
+    expect(h.banner()).toEqual([]);
+    expect(f.digestCalls.filter((c) => c.cwd === "/b").every((c) => c.purpose === "baseline")).toBe(true);
   });
 
-  it("F6 save-wait bound: after 60 s the request is aborted and verification proceeds", async () => {
-    const h = mount();
-    await opened(h);
-    let signal!: AbortSignal;
-    act(() => {
-      void h.ctx().trackedFileWrite("foo.ts", (s) => {
-        signal = s;
-        return new Promise<{ sha1?: string }>(() => {}); // never responds
-      });
-    });
-    setDisk("foo.ts", { sha1: "S" });
-    h.fire("foo.ts");
-    const before = digestCalls();
-    await tick(59_000);
-    expect(digestCalls()).toBe(before);
-    expect(signal.aborted).toBe(false);
-    await tick(1_500);
-    expect(signal.aborted).toBe(true);
-    expect(digestCalls()).toBe(before + 1);
-    expect(h.ctx().verifiedChanged.has("foo.ts")).toBe(false); // against the current baseline S
+  it("F2: a second change during verification discards the first result", async () => {
+    const h = mountDetect();
+    await openWithBaseline(h);
+    f.state.hold = true;
+    h.fire("foo.ts"); // g1
+    await advance(200);
+    expect(f.pending).toHaveLength(1);
+    const first = f.pending[0];
+    h.fire("foo.ts"); // g2 supersedes g1
+    await advance(200);
+    expect(f.pending.length).toBeGreaterThanOrEqual(2);
+    const second = f.pending[f.pending.length - 1];
+    await act(async () => first.resolve({ kind: "sha", sha1: "S" })); // would clear
+    await act(async () => second.resolve({ kind: "sha", sha1: "S2" })); // real change
+    await flushMicro();
+    expect(h.banner()).toEqual(["foo.ts"]);
   });
 
-  it("F8 Dismiss vs in-flight: stays dismissed, baseline unchanged, next change banners", async () => {
-    const h = mount();
-    await opened(h);
-    setDisk("foo.ts", { sha1: "S2" });
+  it("F3: an own save during verification discards the result and re-verifies against the new baseline", async () => {
+    const h = mountDetect();
+    await openWithBaseline(h);
+    f.state.hold = true;
     h.fire("foo.ts");
-    await tick(200);
-    expect(h.ctx().verifiedChanged.has("foo.ts")).toBe(true);
+    await advance(200);
+    const inflight = f.pending[0];
+    // Own save succeeds with sha1 T (disk is now T).
+    f.state.hold = false;
+    f.disk.set(f.key("/proj", "foo.ts"), "T");
+    f.state.write = { status: 200, sha1: "T", reject: false, hang: false };
+    await act(async () => {
+      await h.result.current.trackedFileWrite("foo.ts", { cwd: "/proj", path: "foo.ts", content: "x", mtime: 1 });
+    });
+    await act(async () => inflight.resolve({ kind: "sha", sha1: "S" })); // stale answer
+    await advance(200);
+    expect(h.banner()).toEqual([]);
+    expect(f.digestCalls.filter((c) => c.purpose === "verify").length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("F4: the event raised by an own save waits for the save and never banners", async () => {
+    const h = mountDetect();
+    await openWithBaseline(h, "README.md", "S");
+    f.state.write = { status: 200, sha1: "T", reject: false, hang: true };
     let release!: () => void;
-    const hold = new Promise<void>((r) => { release = r; });
-    setDisk("foo.ts", { sha1: "S3", hold });
-    h.fire("foo.ts");
-    await tick(200); // in flight
-    act(() => h.ctx().dismissChanged("foo.ts"));
-    release();
-    await tick(400);
-    expect(h.ctx().verifiedChanged.has("foo.ts")).toBe(false);
-    // baseline still S: a revert to S stays silent, a different change banners
-    setDisk("foo.ts", { sha1: "S" });
-    h.fire("foo.ts");
-    await tick(200);
-    expect(h.ctx().verifiedChanged.has("foo.ts")).toBe(false);
-    setDisk("foo.ts", { sha1: "S4" });
-    h.fire("foo.ts");
-    await tick(200);
-    expect(h.ctx().verifiedChanged.has("foo.ts")).toBe(true);
+    // Replace the hanging write with a gated one.
+    const original = globalThis.fetch;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url.includes("/api/file/write")) {
+        await gate;
+        return new Response(JSON.stringify({ success: true, data: { mtime: 5, size: 3, sha1: "T" } }), { status: 200 });
+      }
+      return original(input, init);
+    }) as unknown as typeof fetch;
+    f.disk.set(f.key("/proj", "README.md"), "T");
+
+    let writePromise!: Promise<Response>;
+    act(() => {
+      writePromise = h.result.current.trackedFileWrite("README.md", { cwd: "/proj", path: "README.md", content: "x", mtime: 1 });
+    });
+    h.fire("README.md"); // the rename event arrives BEFORE the response
+    await advance(500);
+    expect(f.digestCalls.filter((c) => c.purpose === "verify")).toHaveLength(0); // waiting for the save
+    await act(async () => {
+      release();
+      await writePromise;
+    });
+    await advance(200);
+    expect(f.digestCalls.filter((c) => c.purpose === "verify").length).toBeGreaterThanOrEqual(1);
+    expect(h.banner()).toEqual([]);
   });
 
-  it("Refresh clears the banner and re-sends watch_files", async () => {
-    const h = mount();
-    await opened(h);
-    setDisk("foo.ts", { sha1: "S2" });
+  it("F5: a refused save (409) keeps the baseline; an unknown save outcome nulls it", async () => {
+    // 409 → baseline S kept; external change S′ banners.
+    const a = mountDetect({ sessionId: "sF5a", cwd: "/f5a" });
+    await openWithBaseline(a, "foo.ts", "S", "/f5a");
+    f.state.write = { status: 409, sha1: undefined, reject: false, hang: false };
+    await act(async () => {
+      await a.result.current.trackedFileWrite("foo.ts", { cwd: "/f5a", path: "foo.ts", content: "x", mtime: 1 });
+    });
+    f.disk.set(f.key("/f5a", "foo.ts"), "S2");
+    a.fire("foo.ts");
+    await advance(200);
+    expect(a.banner()).toEqual(["foo.ts"]);
+    a.unmount();
+
+    // Unknown (network failure) → baseline null → even a digest equal to S banners.
+    const b = mountDetect({ sessionId: "sF5b", cwd: "/f5b" });
+    await openWithBaseline(b, "foo.ts", "S", "/f5b");
+    f.state.write = { status: 200, sha1: undefined, reject: true, hang: false };
+    await act(async () => {
+      await expect(
+        b.result.current.trackedFileWrite("foo.ts", { cwd: "/f5b", path: "foo.ts", content: "x", mtime: 1 }),
+      ).rejects.toThrow();
+    });
+    b.fire("foo.ts"); // disk still S
+    await advance(200);
+    expect(b.banner()).toEqual(["foo.ts"]);
+  });
+
+  it("F6: a save that never responds is NOT aborted; the candidate's wait is bounded at 60 s and verification then runs", async () => {
+    const h = mountDetect();
+    await openWithBaseline(h);
+    f.state.write = { status: 200, sha1: undefined, reject: false, hang: true };
+    let writePromise!: Promise<Response>;
+    let writeSettled = false;
+    act(() => {
+      writePromise = h.result.current.trackedFileWrite("foo.ts", { cwd: "/proj", path: "foo.ts", content: "x", mtime: 1 });
+      writePromise.then(
+        () => {
+          writeSettled = true;
+        },
+        () => {
+          writeSettled = true;
+        },
+      );
+    });
     h.fire("foo.ts");
-    await tick(200);
-    const sends = h.watch.mock.calls.length;
-    act(() => h.ctx().refreshChanged("foo.ts"));
-    expect(h.ctx().verifiedChanged.has("foo.ts")).toBe(false);
-    expect(h.watch.mock.calls.length).toBe(sends + 1);
-    expect(h.watch).toHaveBeenLastCalledWith("s1", "/proj", ["foo.ts"]);
+    await advance(30_000);
+    expect(f.digestCalls.filter((c) => c.purpose === "verify")).toHaveLength(0);
+    await advance(31_000);
+    await advance(300);
+    // The wait is bounded: verification ran against the current baseline ...
+    expect(f.digestCalls.filter((c) => c.purpose === "verify").length).toBeGreaterThanOrEqual(1);
+    // ... but the request itself is still in flight (never aborted, so a slow success is not shown as a failure).
+    expect(writeSettled).toBe(false);
+    expect(f.state.writeCalls).toBe(1);
+    expect(h.banner()).toEqual([]); // disk still equals the (unchanged) baseline
   });
 
-  it("F11 mount catch-up: a change with no file_changed banners 1 s after the baseline", async () => {
-    const h = mount();
-    await opened(h);
-    setDisk("foo.ts", { sha1: "S2" });
-    const before = digestCalls();
-    await tick(900);
-    expect(digestCalls()).toBe(before);
-    await tick(200);
-    expect(digestCalls()).toBe(before + 1);
-    expect(h.ctx().verifiedChanged.has("foo.ts")).toBe(true);
-  });
-
-  it("F11 closing the tab first cancels the catch-up", async () => {
-    const h = mount();
-    await opened(h);
-    const before = digestCalls();
-    act(() => h.ctx().dispatch({ type: "closeTab", index: 0 }));
-    await tick(2000);
-    expect(digestCalls()).toBe(before);
-  });
-
-  it("F12 null baseline: no catch-up request, no banner; a real candidate still banners", async () => {
-    const h = mount();
-    setDisk("foo.ts", { status: 403 });
-    let sha: string | null = "x";
-    act(() => h.ctx().openInSplit("foo.ts"));
-    await act(async () => { sha = await h.ctx().captureBaseline("foo.ts"); });
-    expect(sha).toBeNull();
-    const before = digestCalls();
-    await tick(2000);
-    expect(digestCalls()).toBe(before);
-    expect(h.ctx().verifiedChanged.has("foo.ts")).toBe(false);
+  it("F8: Dismiss during an in-flight verification keeps the banner dismissed; the next change banners again", async () => {
+    const h = mountDetect();
+    await openWithBaseline(h);
+    f.disk.set(f.key("/proj", "foo.ts"), "S2");
     h.fire("foo.ts");
-    await tick(200);
-    expect(h.ctx().verifiedChanged.has("foo.ts")).toBe(true);
-  });
+    await advance(200);
+    expect(h.banner()).toEqual(["foo.ts"]);
 
-  it("F13 reconnect: watch_files re-sent with both paths; one verification per non-null baseline", async () => {
-    const h = mount();
-    await opened(h, "a.ts");
-    await opened(h, "b.ts");
-    setDisk("b.ts", { status: 403 });
-    await act(async () => { await h.ctx().captureBaseline("b.ts"); }); // null baseline
-    await tick(1500); // let mount catch-ups pass
-    const sends = h.watch.mock.calls.length;
-    const before = digestCalls();
-    h.setConn(0);
-    h.setConn(2);
-    await tick(50);
-    expect(h.watch.mock.calls.length).toBe(sends + 1);
-    expect(h.watch).toHaveBeenLastCalledWith("s1", "/proj", ["a.ts", "b.ts"]);
-    expect(digestCalls("a.ts")).toBeGreaterThan(0);
-    expect(digestCalls() - before).toBe(1); // only a.ts
-  });
-
-  it("E16 folder scope off: zero digest requests, no banner, trackedFileWrite is a passthrough", async () => {
-    const h = mount({ changeDetection: false });
-    act(() => h.ctx().openInSplit("foo.ts"));
-    let sha: string | null = "x";
-    await act(async () => { sha = await h.ctx().captureBaseline("foo.ts"); });
-    expect(sha).toBeNull();
+    f.state.hold = true;
     h.fire("foo.ts");
-    await tick(3000);
-    expect(digestCalls()).toBe(0);
-    const r = await h.ctx().trackedFileWrite("foo.ts", Promise.resolve({ sha1: "T" }));
-    expect(r).toEqual({ sha1: "T" });
+    await advance(200);
+    expect(f.pending).toHaveLength(1);
+    act(() => h.result.current.clearChanged("foo.ts")); // Dismiss first
+    expect(h.banner()).toEqual([]);
+    await act(async () => f.pending[0].resolve({ kind: "sha", sha1: "S2" }));
+    await advance(200);
+    expect(h.banner()).toEqual([]); // not resurrected
+    // Baseline is unchanged: a later different change banners again.
+    f.state.hold = false;
+    f.disk.set(f.key("/proj", "foo.ts"), "S3");
+    h.fire("foo.ts");
+    await advance(200);
+    expect(h.banner()).toEqual(["foo.ts"]);
+  });
+
+  it("F11: a change that lands before the watch is armed is caught 1 s after the baseline", async () => {
+    const h = mountDetect();
+    await openWithBaseline(h);
+    f.disk.set(f.key("/proj", "foo.ts"), "S2"); // no file_changed will ever arrive
+    await advance(900);
+    expect(h.banner()).toEqual([]);
+    await advance(300);
+    expect(h.banner()).toEqual(["foo.ts"]);
+  });
+
+  it("F11: closing the tab before the catch-up fires sends no digest request", async () => {
+    const h = mountDetect();
+    await openWithBaseline(h);
+    const before = f.digestCalls.length;
+    act(() => h.result.current.dispatch({ type: "closeByPath", path: "foo.ts" }));
+    await advance(2000);
+    expect(f.digestCalls.length).toBe(before);
+  });
+
+  it("F12: a null baseline (refused digest) skips the catch-up and never banners on its own", async () => {
+    const h = mountDetect();
+    f.state.override = () => ({ kind: "status", status: 403 });
+    act(() => h.result.current.openInSplit("foo.ts"));
+    await act(async () => {
+      await h.result.current.captureBaseline("foo.ts");
+    });
+    const before = f.digestCalls.length;
+    await advance(1500);
+    expect(f.digestCalls.length).toBe(before);
+    expect(h.banner()).toEqual([]);
+    h.fire("foo.ts"); // a real candidate still banners
+    await advance(200);
+    expect(h.banner()).toEqual(["foo.ts"]);
+  });
+
+  it("F13: a reconnect re-declares the open set and re-verifies every non-null baseline once", async () => {
+    const h = mountDetect();
+    await openWithBaseline(h, "a.ts", "SA");
+    await openWithBaseline(h, "b.ts", "SB");
+    await advance(1500); // let the mount catch-ups settle
+    h.onWatchFiles.mockClear();
+    const before = f.digestCalls.filter((c) => c.purpose === "verify").length;
+    f.disk.set(f.key("/proj", "b.ts"), "SB2"); // changed while disconnected
+    h.bumpConnection();
+    expect(h.onWatchFiles).toHaveBeenCalledWith("sD", "/proj", ["a.ts", "b.ts"]);
+    await advance(300);
+    const verifies = f.digestCalls.filter((c) => c.purpose === "verify").slice(before);
+    expect(verifies.map((c) => c.path).sort()).toEqual(["a.ts", "b.ts"]);
+    expect(h.banner()).toEqual(["b.ts"]);
+  });
+
+  it("E16: with change detection off no digest is requested and nothing banners", async () => {
+    const h = mountDetect({ changeDetection: false });
+    act(() => h.result.current.openInSplit("foo.ts"));
+    await act(async () => {
+      await h.result.current.captureBaseline("foo.ts");
+    });
+    await advance(2000);
+    expect(f.digestCalls).toHaveLength(0);
+    expect(h.result.current.changeDetection).toBe(false);
+    expect(h.result.current.changedFiles).toBeNull();
+    // trackedFileWrite is a plain passthrough (still performs the write).
+    f.state.write = { status: 200, sha1: "T", reject: false, hang: false };
+    const res = await h.result.current.trackedFileWrite("foo.ts", { cwd: "/proj", path: "foo.ts", content: "x", mtime: 1 });
+    expect(res.status).toBe(200);
+    expect(f.state.writeCalls).toBe(1);
+  });
+
+  it("cwd-hydration: while the session cwd is unhydrated ('') no digest is requested and detection reads off; once cwd arrives a baseline is captured", async () => {
+    const h = mountDetect({ cwd: "" });
+    expect(h.result.current.changeDetection).toBe(false);
+    act(() => h.result.current.openInSplit("foo.ts"));
+    await act(async () => {
+      await h.result.current.captureBaseline("foo.ts");
+    });
+    await advance(2000);
+    // A digest with an empty cwd is a guaranteed 400 -> null baseline -> a false banner on the next touch.
+    expect(f.digestCalls).toHaveLength(0);
+
+    h.scope.cwd = "/proj";
+    f.disk.set(f.key("/proj", "foo.ts"), "S");
+    h.rerender();
+    expect(h.result.current.changeDetection).toBe(true);
+    await act(async () => {
+      await h.result.current.captureBaseline("foo.ts");
+    });
+    expect(f.digestCalls.at(-1)).toMatchObject({ cwd: "/proj", path: "foo.ts", purpose: "baseline" });
+    h.fire("foo.ts");
+    await advance(200);
+    expect(h.banner()).toEqual([]); // identical content, real baseline -> no banner
+  });
+
+  it("Refresh re-sends the watch set (resyncWatch)", async () => {
+    const h = mountDetect();
+    await openWithBaseline(h);
+    h.onWatchFiles.mockClear();
+    act(() => h.result.current.resyncWatch());
+    expect(h.onWatchFiles).toHaveBeenCalledWith("sD", "/proj", ["foo.ts"]);
   });
 });

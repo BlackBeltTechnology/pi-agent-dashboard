@@ -6,4 +6,4 @@ See change: surface-denial-remedy-in-previews — `OpenFile.autoOpened` persiste
 
 See change: add-browser-editor-pane-tab — `VALID_VIEWERS` derived from `OPEN_PATH_VIEWERS ∪ PSEUDO_TAB_VIEWERS` (`viewer-kinds.ts`); `dropUnknownViewers` drops only unknown-viewer entries before `isValidState` (structure stays all-or-nothing); `activeIndex` keeps surviving active tab, else clamps (D2).
 
-See change: add-editor-pane-file-handlers — optional `OpenFile.handlerMode` (`"<pluginId>/<claimId>"`, persisted); action `setHandlerMode{path,handlerMode}` (undefined removes the key). `dropMalformedHandlerModes` drops ONLY a non-string field before `isValidState`; unknown claim kept, resolved at render (built-in view).
+See change: add-editor-pane-file-handlers — `OpenFile.handlerMode?: "<pluginId>/<claimId>"` (undefined = built-in); action `setHandlerMode {path, mode}` (no-op on unknown path/unchanged); `dropInvalidHandlerModes` strips a non-string value for that tab before `isValidState` (which also has the explicit `typeof` check); unknown claims are NOT validated at load (resolved at render).

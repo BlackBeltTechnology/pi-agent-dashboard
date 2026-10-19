@@ -12,7 +12,10 @@
  *   3. a static/SPA surface (`*`, `/*`, `/manifest.json`, `/sw.js`, …), or
  *   4. inside an EXPLICITLY ENUMERATED independently-authenticated namespace
  *      (`/mcp` — which authenticates in-handler from the device token and
- *      deliberately distrusts `request.isAuthenticated`).
+ *      deliberately distrusts `request.isAuthenticated`), or
+ *   5. a `/apps/<appId>` route mounted through `ctx.serveApp` (static,
+ *      extension-allowlisted, no data) — recognised via the mount registry with
+ *      prefix matching, never a loose `/apps/` prefix.
  *
  * Set 4 is the point of the "enumerated" part: adding a namespace to it is a
  * visible code change in one place, never an implicit fall-through.
@@ -21,8 +24,11 @@
  * Covers test-plan #S17 and #S24.
  */
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import url from "node:url";
+import { AppMountRegistry, getAppMountRegistry, mountApp } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import Fastify from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { isGuardJurisdiction } from "../auth/localhost-guard.js";
 import { createServer, type DashboardServer } from "../server.js";
@@ -103,9 +109,10 @@ function isUnder(candidate: string, prefix: string): boolean {
   return candidate === prefix || candidate.startsWith(`${prefix}/`);
 }
 
-function isCovered(routeUrl: string): boolean {
+function isCovered(routeUrl: string, mounts: AppMountRegistry = getAppMountRegistry()): boolean {
   if (isGuardJurisdiction(routeUrl)) return true;
   if (STATIC_PUBLIC.has(routeUrl)) return true;
+  if (mounts.coversRoute(routeUrl)) return true;
   if (isUnder(routeUrl, AUTH_PREFIX)) return true;
   return INDEPENDENTLY_AUTHENTICATED.some((ns) => isUnder(routeUrl, ns));
 }
@@ -139,6 +146,43 @@ describe("S17: every registered route is guarded or explicitly exempt", () => {
     for (const u of ["/sw.js", "/manifest.json", "/", "/settings", "/auth/status", "/mcp"]) {
       expect(isGuardJurisdiction(u), u).toBe(false);
     }
+  });
+});
+
+// add-plugin-capability-routes #E16: only `serveApp` mounts pass in /apps/*.
+describe("E16: /apps mounts are enumerated, not ignored", () => {
+  it("a serveApp mount passes; a hand-rolled /apps/rogue/* is reported as an offender", async () => {
+    const registry = new AppMountRegistry();
+    const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ns-cov-")));
+    const collected: RegisteredRoute[] = [];
+    const app = Fastify({ logger: false });
+    app.addHook("onRoute", (r) => {
+      collected.push({ method: r.method, url: r.url });
+    });
+    try {
+      mountApp(
+        { fastify: app, pluginId: "wall", packageRoot: tmp, dataDir: path.join(tmp, "data"), logger: { info() {}, warn() {}, error() {} }, registry },
+        { dir: path.join(tmp, "dist"), csp: "default-src 'none'" },
+      );
+      app.get("/apps/rogue/*", async () => "rogue");
+      app.get("/apps/wallpaper/*", async () => "look-alike");
+      await app.ready();
+      const offenders = collected.filter((r) => !isCovered(r.url, registry)).map((r) => `${String(r.method)} ${r.url}`);
+      expect(collected.some((r) => r.url === "/apps/wall/*")).toBe(true);
+      expect(offenders.length).toBeGreaterThan(0);
+      expect(offenders.every((o) => o.includes("/apps/rogue/") || o.includes("/apps/wallpaper/"))).toBe(true);
+      expect(offenders.some((o) => o.includes("/apps/rogue/*"))).toBe(true);
+      expect(offenders.some((o) => o.includes("/apps/wallpaper/*"))).toBe(true);
+      expect(offenders.some((o) => o.includes("/apps/wall/") || o.endsWith("/apps/wall"))).toBe(false);
+    } finally {
+      await app.close();
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("the guard does not jurisdiction-block a mounted /apps path (it is outside /api|/v1|/editor|/live)", () => {
+    expect(isGuardJurisdiction("/apps/craft-wordcraft/index.html")).toBe(false);
+    expect(isGuardJurisdiction("/apps/craft-wordcraft")).toBe(false);
   });
 });
 

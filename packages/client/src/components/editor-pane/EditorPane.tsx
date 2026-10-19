@@ -18,12 +18,12 @@ import { fileKind } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js
 import { mdiClose, mdiConsoleLine, mdiFileTreeOutline, mdiMagnify, mdiRefresh, mdiWeb } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { ErrorBoundary } from "../primitives/ErrorBoundary.js";
 import { grepContents } from "../../lib/api/grep-api.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
 import { useRailWidth } from "../../lib/layout/rail-width.js";
-import { useTreeVisible } from "../../lib/util/tree-visible.js";
 import { stripTermId } from "../../lib/layout/use-terminal-pane-tabs.js";
+import { useTreeVisible } from "../../lib/util/tree-visible.js";
+import { ErrorBoundary } from "../primitives/ErrorBoundary.js";
 import { SplitDivider } from "../split/SplitDivider.js";
 import { useSplitWorkspace } from "../split/SplitWorkspaceContext.js";
 import { ChangedOnDiskBanner } from "./ChangedOnDiskBanner.js";
@@ -31,21 +31,25 @@ import { ChangesRailSection } from "./ChangesRailSection.js";
 import { EditorFileTree } from "./EditorFileTree.js";
 import { EditorSearchPanel } from "./EditorSearchPanel.js";
 import { EditorTabs } from "./EditorTabs.js";
+import { FileHandlerAnchor } from "./file-handler/FileHandlerAnchor.js";
+import { FileModeSwitcher } from "./file-handler/FileModeSwitcher.js";
+import { useFileHandlerPane } from "./file-handler/use-file-handler-pane.js";
+
 // D3 (change: add-lazy-terminal-diff-bootstrap): the keep-alive terminal layer
 // is a lazy boundary. `React.lazy` fires its import as soon as it is rendered,
 // so the mount is gated on the sticky `terminalActivated` latch — NOT on "a
 // terminal tab exists" (already true on a reload with persisted term tabs and
 // on every folder pane).
 const TerminalPaneLayer = lazy(() => import("./TerminalPaneLayer.js").then((m) => ({ default: m.TerminalPaneLayer })));
+
+import { EditorPaneTabLabelSlot, useShellSessionOrNull } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { useServerCapabilities } from "../../hooks/useServerCapabilities.js";
 import { PreviewProvenance } from "../../lib/access-grants/preview-provenance.js";
 import { CappedViewer } from "./CappedViewer.js";
-import { EditorPaneTabLabelSlot, useShellSessionOrNull } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { PluginTabHost, pluginTabPrefix } from "./PluginTabHost.js";
 import { pseudoTabRegistry } from "./pseudo-tab-registry.js";
-import { isPseudoTabViewer, type OpenPathViewer } from "./viewer-kinds.js";
 import { TabActions, type TabActionTarget } from "./TabActions.js";
-import { useFileHandlerPane } from "./file-handlers/use-file-handler-pane.js";
+import { isPseudoTabViewer, type OpenPathViewer } from "./viewer-kinds.js";
 
 const absOf = (cwd: string, rel: string): string => (rel ? `${cwd}/${rel}` : cwd);
 
@@ -62,11 +66,11 @@ export function EditorPane() {
     consumePendingScroll,
     fileResults,
     onFilenameSearch,
+    changedFiles,
+    clearChanged,
     changeDetection,
-    verifiedChanged,
     captureBaseline,
-    dismissChanged,
-    refreshChanged,
+    resyncWatch,
     changesRevealSignal,
     openDiffTab,
     terminal,
@@ -109,6 +113,14 @@ export function EditorPane() {
     }
   }, [changesRevealSignal, setTreeVisible]);
   const [refreshNonce, setRefreshNonce] = useState(0);
+  // Fail-safe ordering (changed-on-disk verification): a file tab's content
+  // baseline is read BEFORE its viewer mounts, so a change landing in between
+  // can only produce a false-positive banner, never a silently stale view.
+  // `baselineReadyKey` is the `viewerKey` whose baseline has been stored.
+  // See change: gate-changed-on-disk-by-content (D2).
+  const [baselineReadyKey, setBaselineReadyKey] = useState<string | null>(null);
+  const captureBaselineRef = useRef(captureBaseline);
+  captureBaselineRef.current = captureBaseline;
   const [searchOpen, setSearchOpen] = useState(false);
   const [railWidth, setRailWidth] = useRailWidth(sessionId);
 
@@ -138,6 +150,11 @@ export function EditorPane() {
 
   const activeTab = state.activeIndex >= 0 ? state.openFiles[state.activeIndex] : null;
   const activePath = activeTab?.path ?? null;
+  // Plugin file-handler modes (session-scoped panes only — `changeDetection` is
+  // the session-pane flag). See change: add-editor-pane-file-handlers.
+  const fh = useFileHandlerPane({ sessionId, cwd, sessionPane: changeDetection, state, dispatch });
+  const stateRef = useRef(state);
+  stateRef.current = state;
 
   // System-open tab actions (D9). Gated on the server capability; only a real
   // file or a url tab exposes an action (virtual live-server/diff/terminal do
@@ -164,52 +181,28 @@ export function EditorPane() {
 
   const lineForTab = scrollTo && scrollTo.path === activePath ? scrollTo.line : undefined;
 
-  // Baseline-before-mount (change: gate-changed-on-disk-by-content, D2). With
-  // change detection on, a real file tab awaits `captureBaseline` before its
-  // viewer mounts, so the baseline is always read BEFORE the viewer's content
-  // (a race can only produce a false-positive banner, never a silent stale
-  // view). The gate re-runs on activation and on Refresh (path + nonce). `line`
-  // / provenance remounts do not re-gate.
-  //
-  // A tab showing a plugin file-handler mode is exempt: the handler's `snapshot()`
-  // sets the baseline, and a recapture on activation would hide changes made while
-  // a kept-alive instance held older bytes. The mode is part of the gate key, so
-  // switching back to the built-in view recaptures. See change: add-editor-pane-file-handlers.
-  // `changeDetection` doubles as the session-pane flag (the folder pane leaves it off).
-  const fh = useFileHandlerPane({ enabled: changeDetection, sessionId, cwd, openFiles: state.openFiles, activeTab, dispatch });
-  const baselineGated = changeDetection && !!activeTab && !isPseudoTabViewer(activeTab.viewer) && !fh.handlerActive;
-  const baselineGateKey = activePath ? `${activePath}:${refreshNonce}:${activeTab?.handlerMode ?? ""}` : null;
-  const [baselineReadyKey, setBaselineReadyKey] = useState<string | null>(null);
+  // The mount key of the active FILE tab's viewer (open, activation, Refresh and
+  // provenance/line changes all change it); `null` for pseudo/plugin tabs, which
+  // are never watched or baselined. `autoOpened` is in the key: a provenance
+  // change remounts the tab so its next request uses the new eligibility
+  // (surface-denial-remedy-in-previews, D4). Scoped to (session, cwd): a switch drops the
+  // per-scope baseline store, so an identical path:nonce key must still recapture one.
+  // A handler-mode tab has no built-in viewer: no baseline read here (the handler's
+  // `snapshot()` sets the baseline) and `refreshNonce` does not key it.
+  const fileViewerKey =
+    activeTab && !isPseudoTabViewer(activeTab.viewer) && !fh.handlerView
+      ? `${sessionId}\u0000${cwd}\u0000${activeTab.path}:${refreshNonce}:${lineForTab ?? ""}:${activeTab.autoOpened === true}`
+      : null;
   useEffect(() => {
-    if (!baselineGated || !activePath || !baselineGateKey) return;
-    let cancelled = false;
-    void captureBaseline(activePath).then(() => {
-      if (!cancelled) setBaselineReadyKey(baselineGateKey);
+    if (!changeDetection || !fileViewerKey || !activePath) return;
+    let active = true;
+    void captureBaselineRef.current(activePath).then(() => {
+      if (active) setBaselineReadyKey(fileViewerKey);
     });
     return () => {
-      cancelled = true;
+      active = false;
     };
-  }, [baselineGated, activePath, baselineGateKey, captureBaseline]);
-  const baselineReady = !baselineGated || baselineReadyKey === baselineGateKey;
-
-  // Refresh (banner button + header reload): re-mount the viewer (re-fetch + new
-  // baseline via the gate above), clear the banner/candidate, re-send `watch_files`.
-  //
-  // On a handler tab the viewer is not keyed: the layer re-mounts the instance after
-  // the unsaved-edits guard, and the banner clears only once that proceeds (Cancel
-  // leaves it shown). See change: add-editor-pane-file-handlers (D5).
-  const { refreshHandler } = fh;
-  const refreshActive = useCallback(() => {
-    const handled = refreshHandler();
-    if (handled !== null) {
-      void handled.then((ok) => {
-        if (ok && activePath) refreshChanged(activePath);
-      });
-      return;
-    }
-    setRefreshNonce((n) => n + 1);
-    if (activePath) refreshChanged(activePath);
-  }, [activePath, refreshChanged, refreshHandler]);
+  }, [changeDetection, fileViewerKey, activePath]);
 
   let body: React.ReactNode;
   if (!activeTab) {
@@ -229,10 +222,8 @@ export function EditorPane() {
     // mis-routed kind instead of deferring it to a runtime `<undefined/>`.
     // Never replace this with a cast.
     const viewer = activeTab.viewer;
-    // `autoOpened` is in the key: a provenance change on the active tab remounts
-    // it, so its next request uses the new eligibility (surface-denial-remedy-in-previews, D4).
     const autoOpened = activeTab.autoOpened === true;
-    const viewerKey = `${activeTab.path}:${refreshNonce}:${lineForTab ?? ""}:${autoOpened}`;
+    const viewerKey = fileViewerKey ?? "";
     const viewerProps = {
       cwd,
       path: activeTab.path,
@@ -248,10 +239,7 @@ export function EditorPane() {
     const activeIdx = state.activeIndex;
     const PseudoTabViewerComponent =
       isPseudoTabViewer(viewer) && viewer !== "plugin" ? pseudoTabRegistry[viewer] : null;
-    body = fh.handlerActive ? (
-      // The overlay (FileHandlerLayer, app shell) is anchored to this element.
-      <div ref={fh.anchorRef} data-testid="file-handler-anchor" className="min-h-0 flex-1" />
-    ) : (
+    body = (
       <PreviewProvenance autoOpened={autoOpened}>
         <Suspense fallback={<div className="p-4 text-sm text-[var(--text-tertiary)]">{t("editor.loadingViewer", undefined, "Loading viewer…")}</div>}>
           {viewer === "plugin" ? (
@@ -264,12 +252,16 @@ export function EditorPane() {
             />
           ) : PseudoTabViewerComponent ? (
             <PseudoTabViewerComponent key={viewerKey} {...viewerProps} />
-          ) : isPseudoTabViewer(viewer) ? null : baselineReady ? (
-            <CappedViewer key={viewerKey} viewer={viewer} {...viewerProps} />
+          ) : isPseudoTabViewer(viewer) ? null : fh.handlerView && fh.activeKey ? (
+            // Plugin file-handler mode: the page-level layer aligns the live
+            // instance over this anchor; CappedViewer is NOT mounted.
+            <FileHandlerAnchor instanceKey={fh.activeKey} />
+          ) : changeDetection && baselineReadyKey !== viewerKey ? (
+            // Baseline first (D2): the digest round-trip is the price of the
+            // fail-safe ordering; a failed digest still resolves (null baseline).
+            <div className="p-4 text-sm text-[var(--text-tertiary)]">{t("editor.loadingViewer", undefined, "Loading viewer…")}</div>
           ) : (
-            <div data-testid="baseline-pending" className="p-4 text-sm text-[var(--text-tertiary)]">
-              {t("editor.loadingViewer", undefined, "Loading viewer…")}
-            </div>
+            <CappedViewer key={viewerKey} viewer={viewer} {...viewerProps} />
           )}
         </Suspense>
       </PreviewProvenance>
@@ -333,7 +325,7 @@ export function EditorPane() {
         {activeTab && (
           <button
             type="button"
-            onClick={refreshActive}
+            onClick={() => (fh.handlerView ? void fh.refreshHandler() : setRefreshNonce((n) => n + 1))}
             className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
             title={t("editor.reloadFile", undefined, "Reload file")}
           >
@@ -363,7 +355,15 @@ export function EditorPane() {
             const termId = f?.viewer === "terminal" ? stripTermId(f.path) : null;
             // D4 — closing a terminal tab kills its terminal.
             if (termId) terminal.closeTerminalTab(termId);
-            else fh.closeTabGuarded(i, () => dispatch({ type: "closeTab", index: i }));
+            else if (f?.handlerMode && changeDetection) {
+              // Closing the last tab of a handler instance with unsaved/unknown
+              // edits asks first; re-resolve the index afterwards (async).
+              void fh.guardTabClose(i).then((ok) => {
+                if (!ok) return;
+                const idx = stateRef.current.openFiles.findIndex((t) => t.path === f.path);
+                if (idx >= 0) dispatch({ type: "closeTab", index: idx });
+              });
+            } else dispatch({ type: "closeTab", index: i });
           }}
           onReorder={(from, to) => dispatch({ type: "reorderTabs", from, to })}
         />
@@ -411,11 +411,36 @@ export function EditorPane() {
               onClose={() => setSearchOpen(false)}
             />
           )}
-          {activePath && verifiedChanged.has(activePath) && (
+          {activePath && changedFiles?.has(activePath) && (
             <ChangedOnDiskBanner
               fileName={activePath}
-              onRefresh={refreshActive}
-              onDismiss={() => dismissChanged(activePath)}
+              onRefresh={() => {
+                if (fh.handlerView) {
+                  // Handler tab: guard, then re-mount the handler from a fresh
+                  // snapshot; the banner clears only once that proceeds (Cancel
+                  // leaves it shown). See change: add-editor-pane-file-handlers (D5).
+                  void fh.refreshHandler().then((ok) => {
+                    if (!ok) return;
+                    clearChanged(activePath);
+                    resyncWatch();
+                  });
+                  return;
+                }
+                setRefreshNonce((n) => n + 1);
+                clearChanged(activePath);
+                // Re-declare the open set so a key the server dropped (a long
+                // delete) is restored. See change: gate-changed-on-disk-by-content (D5).
+                resyncWatch();
+              }}
+              onDismiss={() => clearChanged(activePath)}
+            />
+          )}
+          {activeTab && fh.matching.length > 0 && (
+            <FileModeSwitcher
+              claims={fh.matching}
+              selected={fh.handlerView ? activeTab.handlerMode : undefined}
+              outsideCwd={fh.outsideCwd}
+              onSelect={(m) => void fh.selectMode(m)}
             />
           )}
           {/* File viewer + keep-alive terminal layer share the body region.
@@ -423,7 +448,6 @@ export function EditorPane() {
               term tab is active `body` is the null placeholder and the layer's
               active terminal fills. See change: terminals-in-tabbed-panes. */}
           <div className="min-h-0 flex-1 flex flex-col">
-            {fh.switcher}
             {body}
             {/* D3: mount the lazy layer only once a terminal tab has been the
                 active tab. The `Suspense` fallback fills the same pane-body

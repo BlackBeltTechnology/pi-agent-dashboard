@@ -6,4 +6,6 @@ Pure browser-safe viewer classifier. `fileKind(absPath, sniff?)` → `{ kind, mi
 
 See change: add-browser-editor-pane-tab — `ViewerKind` gains `plugin` (explicit-open pseudo-tab kind, never returned by `fileKind()`).
 
-See change: add-editor-pane-file-handlers — exports `extOf(absPath)` (lower-cased last-dot extension) and `isTextBackedExt(ext)` (probe `"/x"+ext`; true when `editable`, or recognised kind with viewer in monaco/markdown/mermaid/asciidoc/html/diagram). Used by the manifest validator to reject text-backed `editor-pane-file-handler` claims.
+`DIGEST_CEILING_BYTES` (256 MiB); `MAX_PREVIEW_BYTES` is only the default of `editor.largeFileLimitMb`. See change: gate-changed-on-disk-by-content.
+
+`extOf(absPath)` exported (lower-cased last-dot extension; shared by file-handler switcher + `write-binary`). `isTextBackedExt(ext)` — true when `fileKind('/x'+ext)` is editable or a recognised kind with viewer in monaco/markdown/mermaid/asciidoc/html/diagram; manifest validator rejects such claims. See change: add-editor-pane-file-handlers.

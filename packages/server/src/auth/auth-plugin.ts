@@ -4,6 +4,7 @@
  */
 
 import crypto from "node:crypto";
+import { getAppMountRegistry } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import type { AuthConfig, DashboardConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import type { Principal } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
 import type { Tier } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
@@ -478,6 +479,29 @@ export async function registerAuthPlugin(
     return { authenticated: false };
   });
 
+  /**
+   * Verify the dashboard session cookie and, when valid, tag the request as a
+   * signed-in session. Never refuses. `none` = no cookie, `rejected` = invalid.
+   */
+  const tagSessionCookie = (request: FastifyRequest): "session" | "rejected" | "none" => {
+    const cookieToken = (request.cookies as any)?.[COOKIE_NAME];
+    if (!cookieToken) return "none";
+    const payload = verifyToken(cookieToken, authState.secret);
+    const tier = payload ? effectiveTier(payload) : null;
+    if (!payload || !tier) return "rejected";
+    (request as any).isAuthenticated = true;
+    // Additive marker: a dashboard login session (vs a device bearer).
+    // `operatorGuard` on the token-mint route admits exactly this kind.
+    (request as any).authVia = "session";
+    // The verified payload, so a live-preview capability minted from this
+    // request can re-check the session's liveness at every use.
+    (request as any).sessionPayload = payload;
+    // Session tier for the route-tier gate. A JWT without the claim
+    // predates it and keeps full access. See change: add-passkey-user-auth (D4).
+    (request as any).principalTier = tier;
+    return "session";
+  };
+
   // ─── onRequest Hook ─────────────────────────────────────────────────────
 
   fastify.addHook("onRequest", async (request: FastifyRequest, reply: FastifyReply) => {
@@ -504,8 +528,13 @@ export async function registerAuthPlugin(
     // credential yet; these are gated by the one-time code + approval).
     if (PUBLIC_PAIRING_PREFIXES.some((p) => request.url.startsWith(p))) return;
 
-    // Skip health endpoint
-    if (request.url === "/api/health") return;
+    // Skip health endpoint (public) — but still tag a valid session cookie, so the
+    // health disclosure predicate (`canDiscloseAccessPosture`) sees a signed-in
+    // off-box browser. Tagging only: health never refuses. See change: add-acme-dns01-certs.
+    if (request.url === "/api/health") {
+      tagSessionCookie(request);
+      return;
+    }
 
     // Skip the identity-plane pre-auth login descriptor (D16): an
     // unauthenticated browser must read it BEFORE it holds a token. It
@@ -515,6 +544,12 @@ export async function registerAuthPlugin(
     // Skip /v1/* — proxy auth gate handles those
     if (request.url.startsWith("/v1/")) return;
 
+    // Skip `ctx.serveApp` mounts (`/apps/<appId>/…`): a trusted plugin's static, extension-
+    // allowlisted app shell carrying no data, so a phone loads it without signing in. Matched
+    // against the mount registry (exact ids), never a loose `/apps/` prefix.
+    // See change: add-plugin-capability-routes (D5).
+    if (getAppMountRegistry().isMountPath(request.url)) return;
+
     // Skip configured bypass URL prefixes
     if (isBypassed(request.url, authState.bypassUrls)) return;
 
@@ -522,26 +557,9 @@ export async function registerAuthPlugin(
     // on a listed network is tagged `authVia = "session"` (and never counted as
     // network-only) instead of being skipped unauthenticated. Admission is
     // unchanged. See change: retire-trusted-networks-bypass (D3).
-    const cookieToken = (request.cookies as any)?.[COOKIE_NAME];
-    let cookieRejected = false;
-    if (cookieToken) {
-      const payload = verifyToken(cookieToken, authState.secret);
-      const tier = payload ? effectiveTier(payload) : null;
-      if (payload && tier) {
-        (request as any).isAuthenticated = true;
-        // Additive marker: a dashboard login session (vs a device bearer).
-        // `operatorGuard` on the token-mint route admits exactly this kind.
-        (request as any).authVia = "session";
-        // The verified payload, so a live-preview capability minted from this
-        // request can re-check the session's liveness at every use.
-        (request as any).sessionPayload = payload;
-        // Session tier for the route-tier gate. A JWT without the claim
-        // predates it and keeps full access. See change: add-passkey-user-auth (D4).
-        (request as any).principalTier = tier;
-        return;
-      }
-      cookieRejected = true;
-    }
+    const cookie = tagSessionCookie(request);
+    if (cookie === "session") return;
+    const cookieRejected = cookie === "rejected";
 
     // Skip configured bypass hosts (trusted source IPs) — the live admission
     // list, empty under `pair`. A relayed-loopback peer (tunnel agent) is never

@@ -68,6 +68,6 @@ Mounts `<ShellHeadlessSlot />` once in the `apiProvider` body (inside `PluginCon
 
 Add-folders dialog forwards `piTrust` on pin / workspace add. See change: mirror-dashboard-trust-to-pi.
 
-See change: gate-changed-on-disk-by-content — `changedOnDisk` is `Map<sessionId, Map<path, generation>>`; session `SplitWorkspaceProvider` gets `changeDetection`, `connectionGeneration={snapshotGeneration}`, `onClearChanged(path, gen?)` (generation-scoped clear).
+`changedOnDisk` is `Map<sessionId, Map<path, generation>>`; the session `SplitWorkspaceProvider` gets `changeDetection` + `connectionGeneration` (bumped on every WS (re)connect); `onClearChanged(path, gen?)` clears only a still-current generation; the `config_updated` filter gains `editor` (re-hydrates `editor-limits-config`). See change: gate-changed-on-disk-by-content.
 
-See change: add-editor-pane-file-handlers — `<FileHandlerLayer />` mounted once inside `SplitWorkspaceProvider` beside `FileAccessToastHost` (page-level plugin file-handler instances; outlives `SplitWorkspace`/`EditorPane`).
+See change: add-editor-pane-file-handlers — mounts `<FileHandlerLayer />` (a `React.lazy` chunk inside `<Suspense fallback={null}>`) once inside `SessionDiffProvider` beside `{children}` (outside EditorPane/SplitWorkspace, both layouts).

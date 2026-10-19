@@ -1,16 +1,17 @@
 /**
  * Fallback mounted instead of a rich viewer when the opened file exceeds
- * `MAX_PREVIEW_BYTES` (D7). Shows a short notice + an **Open raw** affordance
+ * the configured editor large-file limit (D7). Shows a short notice + an **Open raw** affordance
  * that streams the untransformed bytes from `/api/file/raw`, so a huge file is
  * never rendered uncapped in the pane.
  *
- * See change: open-view-command-in-editor-pane (D7).
+ * See change: open-view-command-in-editor-pane (D7),
+ *             gate-changed-on-disk-by-content (D6).
  */
-import { MAX_PREVIEW_BYTES } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
 import { mdiFileAlertOutline, mdiOpenInNew } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
+import { useEditorLimits } from "../../lib/preview/editor-limits-config.js";
 
 interface Props {
   cwd: string;
@@ -18,7 +19,8 @@ interface Props {
   /** Actual file size in bytes, for the human-readable notice. */
   size?: number;
   /**
-   * Limit to name in the notice, in bytes. Defaults to `MAX_PREVIEW_BYTES`; the
+   * Limit to name in the notice, in bytes. Defaults to the configured editor
+   * large-file limit (`resolveEditorLimitBytes()`); the
    * office previews pass their per-kind `OFFICE_SIZE_CAPS` entry on a 413.
    * See change: harden-untrusted-content-ingestion (D6).
    */
@@ -27,10 +29,12 @@ interface Props {
 
 const MB = 1024 * 1024;
 
-export function TooLargePreview({ cwd, path, size, cap = MAX_PREVIEW_BYTES }: Props) {
+export function TooLargePreview({ cwd, path, size, cap }: Props) {
   const { t } = useI18n();
+  const limits = useEditorLimits();
+  const effectiveCap = cap ?? limits.bytes;
   const rawHref = `${getApiBase()}/api/file/raw?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(path)}`;
-  const capMb = Math.round(cap / MB);
+  const capMb = Math.round(effectiveCap / MB);
   const sizeMb = typeof size === "number" ? (size / MB).toFixed(1) : null;
   return (
     <div

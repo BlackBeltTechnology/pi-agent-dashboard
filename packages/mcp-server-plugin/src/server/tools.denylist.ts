@@ -22,6 +22,10 @@ export const DENYLIST: readonly DenylistEntry[] = [
   // See change: add-provider-models-refresh.
   { pattern: "/api/providers/:name/refresh", reason: "UI-only Settings → Refresh models trigger" },
   { pattern: "/api/browse/create-project", reason: "UI-only first-run convenience; agents use file_mkdir" },
+  // See change: gate-changed-on-disk-by-content.
+  { pattern: "/api/file/digest", reason: "internal editor-pane changed-on-disk verification; no agent use (agents use file_read)" },
+  // See change: add-editor-pane-file-handlers.
+  { pattern: "/api/file/write-binary", reason: "internal editor-pane plugin file-handler save (octet-stream, conflict-token flow); no agent use" },
   { pattern: "/api/electron/", reason: "Electron-only" },
   // Stages, activates and rolls back the dashboard runtime (downloads + runs
   // code; Electron-only). Never an LLM action. See change: electron-runtime-overlay-updates.
@@ -100,9 +104,6 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "/api/tools", reason: "tool-registry UI" },
   { pattern: "/api/open-in-system", reason: "UI-only" },
   { pattern: "/api/reveal-in-file-manager", reason: "UI-only" },
-  // See change: add-editor-pane-file-handlers.
-  { pattern: "/api/file/digest", reason: "internal editor-pane content-hash verification; no agent use" },
-  { pattern: "/api/file/write-binary", reason: "editor-pane file-handler plugin save (binary body, per-claim authz); UI-only" },
   { pattern: "/api/pinned-dirs", reason: "UI-only" },
   { pattern: "/api/favorite-models", reason: "UI-only" },
   { pattern: "/api/custom-event-groups", reason: "UI-only" },

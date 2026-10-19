@@ -1009,6 +1009,70 @@ Notes:
 
 See change: add-tailscale-cert-tls. Architecture: [Built-in TLS listener](architecture.md).
 
+## HTTPS on a private IP without Tailscale (domain certificate)?
+
+Source `acme`: Let's Encrypt cert for `dash.<your-domain>` via DNS-01. Host needs no inbound port. Setup: [ACME DNS-01 domain certificates](acme-dns01-certs.md).
+
+- Needs: owned domain, A record `dash.<domain>` → mesh IP (your job), Built-in HTTPS on.
+- Gateway → Built-in HTTPS → Domain certificates → Add domain certificate.
+- Starts on `staging` (browser warns, not advertised). Switch `directory` to `production` after clean issue.
+
+See change: add-acme-dns01-certs.
+
+## Why does my domain certificate show "ACME credentials gate" / `credentials`?
+
+Hint shows cause. Solver secret missing, rejected, or vault unreadable. No CA or DNS call made while gated.
+
+- "Cloudflare API token is not saved" → paste token, Save.
+- "Cloudflare token cannot read zones" → token needs Zone → Zone → Read, or set `zoneId`.
+- "acme-dns rejected the credentials (HTTP 401)" → re-enter `username`/`password` from `POST <server>/register`.
+- "credential vault unavailable" → vault file unreadable. Fix vault first.
+
+Secrets live in credential vault namespace `tls:<id>`, never `config.json`. See [ACME DNS-01 domain certificates](acme-dns01-certs.md#step-1-cloudflare-solver).
+
+See change: add-acme-dns01-certs.
+
+## Why does `dash.example.com` show a staging / not trusted certificate?
+
+Expected while `directory: "staging"`. Staging certs come from Let's Encrypt staging CA: browser does not trust them. They are served but never advertised.
+
+Fix: after staging issues cleanly, set `directory` to `production` in the Domain certificates editor. Changing directory re-issues each name. Browser then trusts the cert.
+
+See change: add-acme-dns01-certs. Guide: [Staging → production](acme-dns01-certs.md#step-3-staging--production).
+
+## Why does my ACME `_acme-challenge` CNAME check fail?
+
+Gate `dns-cname`. Hint shows exact record: `_acme-challenge.<domain> CNAME <fulldomain>`.
+
+- Record missing at registrar → create it, then Check now.
+- Wildcard `*.x` uses owner `_acme-challenge.x`. One CNAME covers apex and wildcard.
+- Check runs against authoritative NS, not recursive resolver. Cached negative answer cannot mask fix.
+- Propagation timeout (180 s) naming a server → that NS lagging or dead. Error names the server.
+
+See change: add-acme-dns01-certs. Troubleshooting: [ACME DNS-01 domain certificates](acme-dns01-certs.md#troubleshooting).
+
+## Why is my ACME domain certificate renewal blocked?
+
+Row shows "Renewal blocked: `<gate>`". Cert inside renewal window; a gate for its name is unmet. Gate-skipped names count no failure, so no backoff error appears.
+
+- `credentials` gate → fix solver secret.
+- `dns-cname` gate → fix CNAME.
+- `dns-zone` gate → token needs that zone.
+
+Gate clears → renewal runs on next check (every 15 min or on Check now).
+
+See change: add-acme-dns01-certs.
+
+## Why does acme-dns say "registration busy"?
+
+acme-dns registration holds one order at a time. Names issue serially. Queued attempt waited past its allowance.
+
+- Normal under many names. First issue ≈ 2–4 min per name.
+- Fix: split names across registrations. One acme-dns source per few names.
+- Two sources on the same `(server, subdomain)` → Gateway rejects with 400.
+
+See change: add-acme-dns01-certs. Guide: [acme-dns solver](acme-dns01-certs.md#step-2-acme-dns-solver-any-dns-provider).
+
 ## Why do some endpoints get a link QR instead of the pairing QR?
 
 Two QR kinds. **Pairing QR** = secure payload `{v,id,code,urls[]}`, `urls[]` TLS-only (https/wss, incl. MagicDNS). **Link QR** = per no-TLS http mesh/LAN endpoint; encodes bare URL string only — no pairing payload, no crypto.subtle, no bearer.

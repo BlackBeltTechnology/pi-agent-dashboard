@@ -18,7 +18,7 @@ import { usePreviewFetch } from "../../lib/access-grants/preview-provenance.js";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { type MermaidSourceInfo, useMermaidSourceContext } from "../../lib/preview/mermaid-source-context.js";
-import { useFileWrite } from "../split/use-file-write.js";
+import { useTrackedFileWrite } from "../split/tracked-file-write.js";
 import { ConfirmDialog } from "./MermaidApplyFix.js";
 
 export interface MarkupRepairApply {
@@ -91,6 +91,7 @@ function repairText(r: MarkupRepair): string {
 export function MarkupRepairBanner({ repairs, viewOriginal, onToggleOriginal, apply }: Props) {
   const source: MermaidSourceInfo | null = useMermaidSourceContext();
   const { fetch: previewFetch } = usePreviewFetch();
+  const trackedWrite = useTrackedFileWrite();
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
   const inFlight = useRef(false);
   const hintId = useId();
@@ -123,27 +124,32 @@ export function MarkupRepairBanner({ repairs, viewOriginal, onToggleOriginal, ap
     queueMicrotask(() => buttonRef.current?.focus());
   }, []);
 
-  const writeFile = useFileWrite();
   const confirm = useCallback(async () => {
     if (!source || phase.kind !== "confirm" || inFlight.current) return;
     inFlight.current = true;
     const held = phase;
     setPhase({ ...held, kind: "writing" });
     try {
-      const r = await writeFile({ cwd: source.cwd, path: source.path, content: held.after, mtime: held.mtime });
-      if (r.status === 409) return setPhase({ kind: "changed" });
-      if (r.ok) {
+      const res = await trackedWrite(source.path, {
+        cwd: source.cwd,
+        path: source.path,
+        content: held.after,
+        mtime: held.mtime,
+      });
+      if (res.status === 409) return setPhase({ kind: "changed" });
+      const body = await res.json().catch(() => null);
+      if (res.status === 200 && body?.success) {
         setPhase({ kind: "idle" });
         source.reload();
         return;
       }
-      fail(r.body?.error ?? `HTTP ${r.status}`);
+      fail(body?.error ?? `HTTP ${res.status}`);
     } catch (e) {
       fail(e);
     } finally {
       inFlight.current = false;
     }
-  }, [phase, source, fail, writeFile]);
+  }, [phase, source, fail, trackedWrite]);
 
   const canApply = source !== null && apply !== undefined;
   const showDialog = phase.kind === "confirm" || phase.kind === "writing";

@@ -15,11 +15,11 @@
 import { mdiContentSave, mdiEyeOutline, mdiPencilOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { lazy, type ReactNode, Suspense, useCallback, useEffect, useState } from "react";
-import { getApiBase } from "../../lib/api/api-context.js";
-import { useFileWrite } from "../split/use-file-write.js";
-import { useI18n } from "../../lib/i18n/i18n.js";
-import { ChangedOnDiskBanner } from "./ChangedOnDiskBanner.js";
 import { usePreviewFetch } from "../../lib/access-grants/preview-provenance.js";
+import { getApiBase } from "../../lib/api/api-context.js";
+import { useI18n } from "../../lib/i18n/i18n.js";
+import { useTrackedFileWrite } from "../split/tracked-file-write.js";
+import { ChangedOnDiskBanner } from "./ChangedOnDiskBanner.js";
 
 const MarkdownEditor = lazy(() =>
   import("./MarkdownEditor.js").then((m) => ({ default: m.MarkdownEditor })),
@@ -41,6 +41,7 @@ export function EditablePreviewTab({ cwd, path, preview, testIdPrefix }: Props) 
   // provenance (surface-denial-remedy-in-previews, D4).
   const { fetch: previewFetch } = usePreviewFetch();
   const { t } = useI18n();
+  const trackedWrite = useTrackedFileWrite();
   const [content, setContent] = useState<string | null>(null);
   const [buffer, setBuffer] = useState("");
   const [mtime, setMtime] = useState<number | null>(null);
@@ -80,28 +81,28 @@ export function EditablePreviewTab({ cwd, path, preview, testIdPrefix }: Props) 
 
   const dirty = content !== null && buffer !== content;
 
-  const writeFile = useFileWrite();
   const onSave = useCallback(async () => {
     if (mtime === null || saving) return;
     setSaving(true);
     setError(null);
     try {
-      const r = await writeFile({ cwd, path, content: buffer, mtime });
-      if (r.ok) {
+      const res = await trackedWrite(path, { cwd, path, content: buffer, mtime });
+      const body = await res.json();
+      if (res.status === 200 && body.success) {
         setContent(buffer);
-        setMtime(r.body.data?.mtime ?? mtime);
+        setMtime(body.data?.mtime ?? mtime);
         setConflict(false);
-      } else if (r.status === 409) {
+      } else if (res.status === 409) {
         setConflict(true);
       } else {
-        setError(r.body?.error ?? t("editor.saveFailed", { status: r.status }, "Save failed ({status})"));
+        setError(body.error ?? t("editor.saveFailed", { status: res.status }, "Save failed ({status})"));
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : t("common.networkError", undefined, "Network error"));
     } finally {
       setSaving(false);
     }
-  }, [cwd, path, buffer, mtime, saving, t, writeFile]);
+  }, [cwd, path, buffer, mtime, saving, t, trackedWrite]);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
