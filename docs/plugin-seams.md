@@ -222,6 +222,9 @@ Validation:
 
 - Text-backed ext rejected: `isTextBackedExt(ext)` (`packages/shared/src/file-kind.ts`). True when `fileKind("/x"+ext)` is `editable`, or recognised kind with viewer in `monaco|markdown|mermaid|asciidoc|html|diagram`.
 - Text stays on `/api/file/write`. Unrecognised ext (`.drawio`, `.psd`) stays claimable.
+- Extensions also rejected via frozen deny list `HANDLER_DENIED_EXTS` (`packages/shared/src/file-kind.ts`, `isUnclaimableHandlerExt`).
+- Deny list groups: secrets (`.env` `.npmrc` `.pem` `.key` `.crt` …), scripts (`.ps1` `.bat` `.cmd` …), plain text (`.patch` `.diff` `.jsonl` `.ipynb` `.lock` …).
+- List fixed. Claimable set does not shift when `fileKind` learns a kind.
 - Ordering: plugin `priority` → plugin id → claim id. No per-claim priority.
 - Two plugins may claim same ext. Switcher lists both.
 
@@ -255,6 +258,8 @@ Validation:
 - 403 unknown cwd · path/realpath outside `<cwd>/**` · requested or real ext not in `claim.extensions` · claim missing · plugin disabled · `mode` ≠ `edit` · `enabled()` false · non-regular target.
 - 409 overwrite: content sha1 ≠ `expectSha1` (or file gone). Body top-level `sha1?`, `mtime?` (absent when gone). Copy: no free name (`-99` exhausted).
 - 413 body > claim `maxBytes`.
+- 415 Content-Type not `application/octet-stream` or body missing (only octet-stream parser installed in this route's scope).
+- 500 generic `write failed`. No paths in body.
 - 422 validator rejected, threw, or timed out.
 - 503 validator pool busy (`retryable: true`) or `validator: true` claim without loaded validator.
 - Overwrite: under realpath lock; hash-compare, not mtime. tmp + rename; keeps file mode. Lock key = realpath, shared with `/api/file/write`.

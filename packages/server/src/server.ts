@@ -2523,7 +2523,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     resolveClaim: (pluginId, claimId) => {
       const manifest = discoverPlugins().find((p) => p.manifest.id === pluginId)?.manifest;
       const claim = manifest?.claims.find((c) => c.slot === "editor-pane-file-handler" && c.id === claimId);
-      if (!manifest || !claim?.extensions || (claim.mode !== "edit" && claim.mode !== "preview")) return null;
+      if (!manifest || !fixtureEntryAllowed(manifest) || !claim?.extensions || (claim.mode !== "edit" && claim.mode !== "preview")) return null;
       return {
         pluginId,
         claimId,

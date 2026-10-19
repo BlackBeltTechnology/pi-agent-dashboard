@@ -218,6 +218,12 @@ describe("validateManifest — editor-pane-file-handler", () => {
     }
   });
 
+  it("audit: rejects the frozen deny list (secrets, scripts, plain text) even when fileKind does not know them", () => {
+    for (const ext of [".env", ".pem", ".key", ".ps1", ".bat", ".patch", ".jsonl", ".ipynb", ".lock", ".kt"]) {
+      expect(() => validateManifest(handlerManifest({ extensions: [ext] })), ext).toThrow(/editor-pane-file-handler/);
+    }
+  });
+
   it("#E2 accepts unrecognised / non-text extensions; isTextBackedExt is false for each", () => {
     for (const ext of [".docx", ".drawio", ".psd", ".svg"]) {
       expect(isTextBackedExt(ext), ext).toBe(false);

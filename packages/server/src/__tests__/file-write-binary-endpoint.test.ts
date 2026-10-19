@@ -261,6 +261,19 @@ describe("E15–E17 overwrite conflict by content", () => {
     expect((await fsp.readFile(target)).toString()).toBe("seed");
   });
 
+  it("audit: a non-octet-stream body is a 415 and never truncates the file", async () => {
+    const target = path.join(h.cwd, "r.docx");
+    await fsp.writeFile(target, "seed");
+    const qs = new URLSearchParams({ cwd: h.cwd, path: "r.docx", mode: "overwrite", claim: "demo/word", expectSha1: sha1("seed") });
+    for (const [type, payload] of [["text/plain", "mine"], ["application/json", JSON.stringify({ a: 1 })]] as const) {
+      const res = await h.app.inject({ method: "POST", url: `/api/file/write-binary?${qs}`, headers: { "content-type": type }, payload });
+      expect(res.statusCode, type).toBe(415);
+    }
+    const bodyless = await h.app.inject({ method: "POST", url: `/api/file/write-binary?${qs}` });
+    expect(bodyless.statusCode).toBe(415);
+    expect((await fsp.readFile(target)).toString()).toBe("seed");
+  });
+
   it("E17: a file deleted after the snapshot is a 409 without sha1", async () => {
     const res = await h.overwrite("gone.docx", "mine", sha1("whatever"));
     expect(res.statusCode).toBe(409);

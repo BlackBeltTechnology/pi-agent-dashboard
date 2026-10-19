@@ -173,6 +173,8 @@ export async function registerFileWriteBinaryRoutes(fastify: FastifyInstance, de
   }
 
   await fastify.register(async (scope) => {
+    // Only raw bytes: no inherited JSON/text parsers (a wrong content type must never read as an empty body).
+    scope.removeAllContentTypeParsers();
     scope.addContentTypeParser(
       "application/octet-stream",
       { parseAs: "buffer", bodyLimit: HANDLER_MAX_BYTES },
@@ -184,7 +186,12 @@ export async function registerFileWriteBinaryRoutes(fastify: FastifyInstance, de
       { preHandler: deps.networkGuard, bodyLimit: HANDLER_MAX_BYTES },
       async (request, reply) => {
         const q = request.query;
-        const body = Buffer.isBuffer(request.body) ? request.body : Buffer.alloc(0);
+        if (!Buffer.isBuffer(request.body)) {
+          log(outcomeLine(q, 0, "unsupported-media-type", "-"));
+          reply.code(415);
+          return { success: false, error: "Content-Type must be application/octet-stream with a body" };
+        }
+        const body = request.body;
         let relForLog = "-";
         const done = (outcome: string): void => log(outcomeLine(q, body.length, outcome, relForLog));
         const refuse = (f: Fail) => {
@@ -268,7 +275,7 @@ async function overwriteUnderLock(
     if ((err as NodeJS.ErrnoException).code === "ENOENT") {
       return { code: 409, error: "file no longer exists", outcome: "conflict" };
     }
-    return { code: 500, error: err instanceof Error ? err.message : "write failed", outcome: "error" };
+    return { code: 500, error: "write failed", outcome: "error" };
   }
   // Content comparison, not mtime: a timestamp-preserving rewrite is still a conflict.
   if (currentSha1 !== expectSha1) {
@@ -286,7 +293,7 @@ async function overwriteUnderLock(
     await fs.rename(tmpPath, real);
   } catch (err) {
     await fs.rm(tmpPath, { force: true }).catch(() => {});
-    return { code: 500, error: err instanceof Error ? err.message : "write failed", outcome: "error" };
+    return { code: 500, error: "write failed", outcome: "error" };
   }
   return { mtime: (await fs.stat(real)).mtimeMs, sha1: sha1Hex(body) };
 }
@@ -306,7 +313,7 @@ async function fillCopy(
   } catch (err) {
     await fh.close().catch(() => {});
     await fs.rm(dest, { force: true }).catch(() => {});
-    return { code: 500, error: err instanceof Error ? err.message : "write failed", outcome: "error" };
+    return { code: 500, error: "write failed", outcome: "error" };
   }
 }
 
@@ -318,7 +325,7 @@ async function createCopy(
 ): Promise<{ name: string; mtime: number; sha1: string } | Fail> {
   // Source permissions, or `0644 & ~umask` (the kernel applies the umask to the
   // open mode) when the source no longer exists.
-  const srcMode = await fs.stat(requested).then(
+  const srcMode = await fs.lstat(requested).then(
     (st) => st.mode & 0o777,
     () => undefined,
   );
@@ -330,7 +337,7 @@ async function createCopy(
       fh = await fs.open(dest, "wx", srcMode ?? 0o644);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === "EEXIST") continue;
-      return { code: 500, error: err instanceof Error ? err.message : "write failed", outcome: "error" };
+      return { code: 500, error: "write failed", outcome: "error" };
     }
     const failed = await fillCopy(fh, dest, body, srcMode);
     if (failed) return failed;

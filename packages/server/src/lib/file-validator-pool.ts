@@ -103,7 +103,7 @@ export function createFileValidatorPool(opts: FileValidatorPoolOptions = {}): Fi
   }
 
   function spawn(slot: Slot): Worker {
-    const w = new Worker(WORKER_SOURCE, { eval: true });
+    const w = new Worker(WORKER_SOURCE, { eval: true, resourceLimits: { maxOldGenerationSizeMb: 256, maxYoungGenerationSizeMb: 64 } });
     w.unref(); // an idle validator worker must not hold the process open
     w.on("message", (m: { id: number; ok?: boolean; reason?: string; error?: string }) => {
       if (slot.worker !== w || slot.job?.id !== m.id) return; // stale
