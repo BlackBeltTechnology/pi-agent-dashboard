@@ -24,6 +24,7 @@ import {
 } from "../../lib/session/session-menu-items.js";
 import type { SessionMenuSource } from "../../lib/state/SessionMenuScopeContext.js";
 import { attrEscape } from "../../lib/util/attr-escape.js";
+import type { SegmentState } from "../openspec/OpenSpecStepper.js";
 
 const ITEM_BASE =
   "flex w-full min-h-[36px] max-sm:min-h-[44px] items-center gap-2 px-3 py-1.5 text-left text-sm focus-ring";
@@ -346,7 +347,7 @@ function MenuEntry({ item, onActivate }: { item: SessionMenuItem; onActivate: (i
           ? `font-semibold text-[var(--text-primary)] border border-[var(--tint-blue-border)] ${NEUTRAL_INTERACTION}`
           : inert
             ? `text-[var(--text-secondary)] cursor-not-allowed ${FOCUS_BG}`
-            : dangerRow || `text-[var(--text-primary)] ${NEUTRAL_INTERACTION}`
+            : `text-[var(--text-primary)] ${dangerRow || NEUTRAL_INTERACTION}`
       }`}
     >
       {item.icon ? <Icon path={item.icon} size={0.55} className={`shrink-0 ${iconTone}`.trim()} /> : null}
@@ -363,7 +364,7 @@ function MenuEntry({ item, onActivate }: { item: SessionMenuItem; onActivate: (i
 }
 
 /** Lifecycle segment glyph + text-role colour per state (distinct glyph, never colour alone). */
-const SEGMENT_LOOK: Record<string, { glyph: string; cls: string }> = {
+const SEGMENT_LOOK: Record<SegmentState, { glyph: string; cls: string }> = {
   done: { glyph: "✓", cls: "border-[var(--accent-green-text)] text-[var(--accent-green-text)]" },
   skipped: { glyph: "–", cls: "border-[var(--accent-green-text)] text-[var(--accent-green-text)]" },
   current: { glyph: "▸", cls: "border-[var(--accent-yellow-text)] text-[var(--accent-yellow-text)]" },

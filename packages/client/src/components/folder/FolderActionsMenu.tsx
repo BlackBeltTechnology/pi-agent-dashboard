@@ -326,8 +326,10 @@ export function FolderActionsMenu({ cwd, items, open, onOpenChange, radioGroup }
                   className={`flex w-full min-h-[44px] items-center gap-3 px-3 py-2 text-left text-sm ${
                     item.disabled
                       ? "text-[var(--text-muted)] cursor-not-allowed"
-                      : toneRowClass(item.tone, { disabled: false }) ||
-                        "text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                      : `text-[var(--text-secondary)] ${
+                          toneRowClass(item.tone, { disabled: false }) ||
+                          "hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                        }`
                   }`}
                 >
                   <Icon

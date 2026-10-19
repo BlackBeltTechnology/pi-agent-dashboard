@@ -51,6 +51,9 @@ test.describe("action menu tones (L3)", () => {
     const rename = sessionMenuItem(page, "rename");
     await expect(rename).not.toHaveAttribute("data-action-tone", /.+/);
 
+    // at rest the danger label matches a neutral item's label
+    expect(colorDistance(await own(exit, "color"), await own(rename, "color"))).toBeLessThanOrEqual(1);
+
     await exit.hover();
     await expect.poll(async () => colorDistance(await own(exit, "backgroundColor"), await resolveColor(page, "var(--tint-red-bg)"))).toBeLessThanOrEqual(1);
     expect(colorDistance(await own(exit, "color"), await resolveColor(page, "var(--accent-red-text)"))).toBeLessThanOrEqual(1);

@@ -304,6 +304,8 @@ describe("tone rendering", () => {
     expect(panelItem("bad").hasAttribute("data-action-tone")).toBe(false);
     expect(panelItem("dis").getAttribute("data-action-tone")).toBe("danger");
     expect(panelItem("dis").className).toContain("hover:bg-[var(--tint-red-bg)]");
+    // rest label colour = neutral item's (B1)
+    expect(panelItem("dis").className).toContain("text-[var(--text-secondary)]");
   });
 
   it("E16: a disabled toned item keeps the attribute but looks inert", () => {

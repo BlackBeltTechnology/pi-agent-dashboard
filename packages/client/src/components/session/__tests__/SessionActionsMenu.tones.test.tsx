@@ -49,6 +49,8 @@ describe("MenuEntry tone (E10)", () => {
     expect(el("danger").getAttribute("data-action-tone")).toBe("danger");
     expect(cls(iconOf("danger"))).toContain("text-[var(--accent-red-text)]");
     expect(cls(el("danger"))).toContain("hover:bg-[var(--tint-red-bg)]");
+    // rest label colour = neutral item's (B1)
+    expect(cls(el("danger"))).toContain("text-[var(--text-primary)]");
 
     expect(el("danger-off").getAttribute("data-action-tone")).toBe("danger");
     expect(cls(iconOf("danger-off"))).not.toContain("accent-red");
