@@ -56,7 +56,7 @@ Two gaps remain:
 ## Impact
 
 - New: `packages/extension/src/__tests__/eventbus-rpc-probe-not-forwarded.test.ts`, plus `packages/extension/src/__tests__/helpers/event-bus-host.ts` (the extracted two-facade host).
-- Edited tests: `eventbus-foreign-emit-forwarding.test.ts` (imports the extracted helper), `source-guards-not-vacuous.test.ts` (one `GUARDS` row).
+- Edited tests: `eventbus-foreign-emit-forwarding.test.ts` (imports the extracted helper), `source-guards-not-vacuous.test.ts` (two `GUARDS` rows).
 - Comment-only edits: `packages/extension/src/bridge.ts`, `packages/extension/src/flow-event-wiring.ts`, `packages/extension/src/subagent-frame-buffer.ts`.
 - AGENTS rows:
   - `packages/extension/src/AGENTS.md`: new test row.

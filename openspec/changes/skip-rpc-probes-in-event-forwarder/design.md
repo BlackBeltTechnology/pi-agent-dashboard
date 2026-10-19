@@ -75,8 +75,8 @@ No bridge-entry init test. The default export wraps `initBridge` in a try/catch 
 ### D2: The probe list lives in the test
 `RPC_PROBE_CHANNELS` is test-owned. Production code gains no channel knowledge.
 
-### D3: Async `model:resolve` is covered by the static set only
-`model:resolve` fills `probe.auth` after an `await`. The round-trip case uses synchronous channels only.
+### D3: Async `model:resolve` is covered by a dedicated case (X1)
+`model:resolve` fills `probe.auth` after an `await`. The whole-class round trip (E4) uses synchronous handlers; test-plan X1 covers the async fill with a `setTimeout(0)` flush and asserts nothing is sent before or after it.
 
 ### D4: Spec shape
 - `catch-all-event-forwarding`: ADDED "RPC probe channels are kept out of the core forwarding map". It is a prohibition on map input and states its relation to "A channel added to the mapping is forwarded without further wiring" (that scenario describes what a map entry does; this one forbids probe entries). It does not restate the existing no-wrap or not-forwarded consequences of "EventBus forwarding via per-channel subscription". Plugin declarations are scoped out.
