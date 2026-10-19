@@ -62,6 +62,12 @@
         "firstOverwriteNotice": "Saves are re-rendered by WordCraft's own writer; formatting of unsupported features may change. A copy is the safe way to compare.",
         "copySuffix": "wordcraft",
         "validator": true
+      },
+      {
+        "slot": "settings-section",
+        "component": "CraftWebSettings",
+        "module": "./src/client/CraftWebSettings.tsx",
+        "tab": "general"
       }
     ]
   },

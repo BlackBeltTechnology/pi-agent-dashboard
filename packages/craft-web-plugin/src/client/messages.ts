@@ -54,6 +54,27 @@ export const EN = {
   targetOverwrite: "Overwrite",
   targetCopy: "Copy",
   frameTitle: "{app} editor",
+  // Settings section. See change: track-latest-craft-web-version.
+  settingsEnable: "Enable {app}",
+  settingsEnableHint: "When off, the Edit in {app} mode is unavailable and saves through it are refused.",
+  settingsVersion: "Version",
+  settingsVersionHint: "Latest follows new releases (checked at most once a day). Latest builds are not verified with this dashboard. The {env} environment variable overrides this.",
+  settingsPinned: "Verified (recommended)",
+  settingsLatest: "Latest release",
+  settingsInstalled: "Installed",
+  settingsLatestKnown: "Latest release",
+  settingsNotChecked: "Not checked yet",
+  statusInstalled: "Installed",
+  statusUpdate: "Update available",
+  statusNotDownloaded: "Not downloaded",
+  statusDisabled: "Disabled",
+  statusRestart: "Restart required",
+  statusUnavailable: "Unavailable",
+  statusFailed: "Failed: {reason}",
+  updateTo: "Update to {version}",
+  saveFirst: "Save your changes first.",
+  settingsStatusRestart: "Restart the server to load the plugin, then reload this page.",
+  settingsStatusUnreachable: "Could not load the editor status.",
 } as const;
 
 export type MsgKey = keyof typeof EN;

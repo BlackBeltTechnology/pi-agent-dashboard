@@ -9,6 +9,8 @@ import { getApp } from "@blackbelt-technology/pi-dashboard-craft-apps/registry.j
 import { OFFICE_SIZE_CAPS } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
 import { describe, expect, it } from "vitest";
 import { validateManifest } from "../../../dashboard-plugin-runtime/src/manifest-validator.js";
+import * as settingsModule from "../client/CraftWebSettings.js";
+import { CLAIMED_WEB_APP_IDS } from "../client/craft-apps-table.js";
 import * as clientBarrel from "../client/handlers.js";
 import { CLAIMED_APPS, CRAFT_WEB_APPS } from "../server/apps.js";
 
@@ -44,6 +46,14 @@ describe("craft-web manifest (E1)", () => {
 
   it("claims exactly the apps of the server table", () => {
     expect(claims.map((c) => c.id).sort()).toEqual([...CLAIMED_APPS].sort());
+    expect([...CLAIMED_WEB_APP_IDS].sort()).toEqual([...CLAIMED_APPS].sort());
+  });
+
+  it("declares the settings-section claim backed by the lazy CraftWebSettings module (track-latest-craft-web-version)", () => {
+    const s = validated.claims.filter((c) => c.slot === "settings-section");
+    expect(s).toHaveLength(1);
+    expect(s[0].module).toBe("./src/client/CraftWebSettings.tsx");
+    expect(typeof (settingsModule as Record<string, unknown>)[String(s[0].component)]).toBe("function");
   });
 
   it("every claim's app has a verified registry webVersion", () => {

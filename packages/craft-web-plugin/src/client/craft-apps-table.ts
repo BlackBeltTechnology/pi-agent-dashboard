@@ -22,3 +22,6 @@ export const CRAFT_WEB_APPS: Readonly<Record<string, CraftWebApp>> = {
   gridcraft: { id: "gridcraft", label: "GridCraft", extension: ".xlsx", maxBytes: OFFICE_SIZE_CAPS.sheet },
   deckcraft: { id: "deckcraft", label: "DeckCraft", extension: ".pptx", maxBytes: OFFICE_SIZE_CAPS.pptx },
 };
+
+/** Apps with a manifest claim (settings fallback when status is unavailable); pinned to the server table by `manifest.test.ts`. */
+export const CLAIMED_WEB_APP_IDS: readonly string[] = ["wordcraft"];

@@ -12,15 +12,18 @@
 import path from "node:path";
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import {
+  latestWebVersion,
   type ProvisionDeps,
   ProvisionWebError,
   type ProvisionWebFn,
+  readLatestCache,
+  type WebChannel,
   type WebErrorCode,
   type WebPostInstallContext,
 } from "@blackbelt-technology/pi-dashboard-craft-apps/provision.js";
 import { envPrefix, getApp } from "@blackbelt-technology/pi-dashboard-craft-apps/registry.js";
 import { CLAIMED_APPS, CRAFT_WEB_APPS, isClaimedApp } from "./apps.js";
-import { appEnabled, type CraftWebConfig } from "./config.js";
+import { appChannel, appEnabled, type CraftWebConfig } from "./config.js";
 import { createPostInstall, readBuildInfo } from "./post-install.js";
 import { createShimVersionReader } from "./shim.js";
 
@@ -41,12 +44,18 @@ interface AppStatus {
   reason?: StatusReason;
   message?: string;
   enabled: boolean;
-  /** Prepared (or, before the first prepare, the registry-pinned) version. */
+  /** Version channel: `latest` via config `apps.<app>.version` or `<APP>_WEB_VERSION=latest`. */
+  channel: WebChannel;
+  /** Prepared version; otherwise the version a prepare would install (pin, or known latest). */
   version?: string;
   /** Prepared: real download bytes; otherwise the approximate size. */
   sizeGzip: number;
   /** Shim version of the prepared tree, when one is prepared. */
   shimVersion?: number;
+  /** Version of the prepared build (any status), when one is prepared. */
+  installedVersion?: string;
+  /** Known latest web version (latest channel only). */
+  latestVersion?: string;
   preparing: boolean;
   /** CSP violations the host forwarded since the server started. */
   cspViolations: number;
@@ -79,6 +88,8 @@ export interface CraftWebServiceDeps {
   postInstall?: (ctx: WebPostInstallContext) => void | Promise<void>;
   shimVersion?: () => number;
   now?: () => number;
+  /** Metadata-only latest lookup (default craft-apps `latestWebVersion`). */
+  latestWebVersion?: (app: string, opts: Partial<ProvisionDeps> & { root?: string }) => Promise<string | undefined>;
 }
 
 const FAILURE_STATUS: Partial<Record<WebErrorCode, { reason: PrepareFailureReason; httpStatus: number }>> = {
@@ -106,6 +117,38 @@ export function createCraftWebService(deps: CraftWebServiceDeps): CraftWebServic
   const postInstall = deps.postInstall ?? createPostInstall();
   const env = (): NodeJS.ProcessEnv => deps.provisionDeps?.env ?? process.env;
   const currentDir = (app: string): string => path.join(deps.dataDir, `${app}-web`, "current");
+  const lookupLatest = deps.latestWebVersion ?? latestWebVersion;
+  const refreshing = new Set<string>();
+
+  /** Env `<APP>_WEB_VERSION=latest` wins over config; an explicit env pin/dir is handled by `registryPin`. */
+  const channelOf = (app: string): WebChannel =>
+    env()[`${envPrefix(getApp(app))}_WEB_VERSION`]?.trim().toLowerCase() === "latest" ? "latest" : appChannel(deps.getConfig(), app);
+
+  /** Known latest version in the latest channel (a `<APP>_WEB_DIR` override decides alone). */
+  const latestFor = (app: string, channel: WebChannel): string | undefined =>
+    channel === "latest" && !env()[`${envPrefix(getApp(app))}_WEB_DIR`]?.trim() ? knownLatest(app) : undefined;
+
+  /**
+   * Version a prepare would install. Pinned: registry pin (undefined under an env override); latest: the known
+   * latest. `keepPrepared`: a failed latest update keeps the prepared build usable (D3); a pin mismatch never does.
+   */
+  const target = (app: string, channel: WebChannel): { want?: string; keepPrepared: boolean } => {
+    const latest = latestFor(app, channel);
+    return { want: registryPin(app) ?? latest, keepPrepared: latest !== undefined && lastFailure.has(app) };
+  };
+
+  /** Latest version from the 24 h cache (sync); when unknown, start one background metadata refresh. */
+  const knownLatest = (app: string): string | undefined => {
+    const tag = readLatestCache(path.join(deps.dataDir, `${app}-web`), now());
+    if (tag) return tag.replace(/^v/, "");
+    if (!refreshing.has(app)) {
+      refreshing.add(app);
+      void lookupLatest(app, { ...deps.provisionDeps, root: deps.dataDir })
+        .catch(() => undefined)
+        .finally(() => refreshing.delete(app));
+    }
+    return undefined;
+  };
 
   const preparing = new Map<string, Promise<PrepareOutcome>>();
   const lastFailure = new Map<string, { reason: StatusReason; message: string }>();
@@ -116,14 +159,24 @@ export function createCraftWebService(deps: CraftWebServiceDeps): CraftWebServic
   const registryPin = (app: string): string | undefined => {
     const prefix = envPrefix(getApp(app));
     const e = env();
-    if (e[`${prefix}_WEB_DIR`]?.trim() || e[`${prefix}_WEB_VERSION`]?.trim()) return undefined;
+    if (e[`${prefix}_WEB_DIR`]?.trim() || e[`${prefix}_WEB_VERSION`]?.trim() || channelOf(app) === "latest") return undefined;
     return getApp(app).webVersion?.replace(/^v/, "");
   };
 
+  /** Status plus the installed / known-latest versions the settings section shows. */
   function appStatus(app: string): AppStatus {
+    const s = computeStatus(app);
+    const installedVersion = readBuildInfo(currentDir(app))?.version;
+    const latestVersion = s.enabled ? latestFor(app, s.channel) : undefined;
+    return { ...s, ...(installedVersion ? { installedVersion } : {}), ...(latestVersion ? { latestVersion } : {}) };
+  }
+
+  function computeStatus(app: string): AppStatus {
     const enabled = appEnabled(deps.getConfig(), app);
+    const channel = channelOf(app);
     const base = {
       enabled,
+      channel,
       preparing: preparing.has(app),
       cspViolations: cspCounts.get(app) ?? 0,
       sizeGzip: CRAFT_WEB_APPS[app].approxDownloadBytes,
@@ -141,14 +194,14 @@ export function createCraftWebService(deps: CraftWebServiceDeps): CraftWebServic
     if (!deps.isMounted(app)) return blocked("restart-required", {}, "The plugin was enabled after the server started; restart the server");
 
     const build = readBuildInfo(currentDir(app));
-    const pin = registryPin(app);
+    const { want, keepPrepared } = target(app, channel);
     const failure = lastFailure.get(app);
     const fail = (fallback: StatusReason, extra: Partial<AppStatus>): AppStatus =>
       failure ? blocked(failure.reason, extra, failure.message) : blocked(fallback, extra);
-    if (!build) return fail("not-prepared", { version: pin ?? verified });
+    if (!build) return fail("not-prepared", { version: want ?? verified });
     const prepared = { version: build.version, sizeGzip: build.sizeGzip, shimVersion: build.shimVersion };
     if (build.shimVersion !== shimVersion()) return fail("shim-outdated", prepared);
-    if (pin !== undefined && build.version !== pin) return fail("not-prepared", { ...prepared, version: pin, sizeGzip: base.sizeGzip });
+    if (want !== undefined && build.version !== want && !keepPrepared) return fail("not-prepared", { ...prepared, version: want, sizeGzip: base.sizeGzip });
     return { ...base, ...prepared, status: "ok" };
   }
 
@@ -170,6 +223,7 @@ export function createCraftWebService(deps: CraftWebServiceDeps): CraftWebServic
       const report = await deps.provisionWeb(app, {
         ...deps.provisionDeps,
         root: deps.dataDir,
+        channel: channelOf(app),
         shimVersion: shimVersion(),
         postInstall,
         log: (m: string) => logger.info(m),
