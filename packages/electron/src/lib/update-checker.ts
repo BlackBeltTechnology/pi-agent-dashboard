@@ -2,7 +2,8 @@
  * Checks for newer versions of pi and openspec.
  * Runs on launch and every 24 hours.
  *
- * Update strategy is derived from health.starter (Phase C):
+ * Update strategy is derived from the server's starter, read from health `launchSource`
+ * (legacy `starter` fallback) via `starterFromHealth`:
  *   - "Electron"   → in-app updater handles version checks
  *   - "Standalone" → notify to run `npm update -g @blackbelt-technology/pi-agent-dashboard`
  *   - "Bridge"     → notify to update pi for a new dashboard version

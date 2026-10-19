@@ -574,12 +574,12 @@ const QUIT_EXIT_WAIT_MS = 5000;
  * the server's exit. Never throws; a cap expiry just returns.
  * See change: fix-cli-control-electron-server (design D7).
  */
-async function waitForServerExit(port: number): Promise<void> {
+async function waitForServerExit(base: string): Promise<void> {
   const deadline = Date.now() + QUIT_EXIT_WAIT_MS;
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, QUIT_EXIT_POLL_MS));
     try {
-      const res = await fetch(`http://localhost:${port}/api/health`, { signal: AbortSignal.timeout(1000) });
+      const res = await fetch(`${base}/api/health`, { signal: AbortSignal.timeout(1000) });
       if (!res.ok) return;
     } catch {
       return;
@@ -609,7 +609,7 @@ export async function stopServerIfNeeded(): Promise<void> {
           try {
             const shutdownUrl = `${localApiBase(config)}/api/shutdown`;
             await fetch(shutdownUrl, userQuitShutdownInit(shutdownUrl));
-            await waitForServerExit(port);
+            await waitForServerExit(localApiBase(config));
           } catch { /* already stopped */ }
         }
       }
