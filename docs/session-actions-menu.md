@@ -5,7 +5,11 @@ Change: add-session-actions-flyout. Decisions cited as D1–D13 in `openspec/cha
 
 ## 1. What it is
 
-- Desktop card header: `⋯` trigger, `data-testid=session-actions-trigger-<id>`.
+- Desktop card right edge: 13×26 pill trigger, centred (`top-1/2`), mirrors left drag bead. `data-testid=session-actions-trigger-<id>`.
+- Trigger always visible. Faint at rest (`--text-tertiary` dots, `--border-subtle`). Full emphasis (`--text-secondary`, `--border-primary`) on card hover, focus-visible, `aria-expanded`.
+- Inline 3-dot SVG (`fill=currentColor`), not `mdiDotsVertical`.
+- 24 px hit box via `::before` spanning [R−18, R+6]. Lives in reserved right gutter: desktop card `pr-[18px]` (was `pr-2`).
+- Wrapper class `card-edge-trigger` (`position:absolute; z-index:20` in `index.css`). Mounted last direct child of card `<li>` → last in Tab order.
 - Mobile card: unchanged. No menu. `pluginContainer` = `null` when `isMobile`.
 - Menu root: `SessionActionsMenu.tsx`, rendered via `LayerPortal` at `z-popover`.
 - Items derived by pure `deriveSessionMenu(session, ctx)` in `lib/session/session-menu-items.ts` → `SessionMenuGroup[]`.
@@ -19,7 +23,7 @@ Entry points (all open same menu, D11):
 
 | Source | Trigger | Focus |
 |---|---|---|
-| `trigger` | click `session-actions-trigger-<id>` | moves to first enabled item |
+| `trigger` | click edge pill `session-actions-trigger-<id>`. Click on hover-opened menu pins it (source → `trigger`). Click on click-opened menu closes it. | moves to first enabled item |
 | `hover` | pointer dwell in right strip (see §6) | never moves focus; opener = `null` |
 | `contextmenu` | right-click on card | moves to first enabled item, at pointer |
 | `keyboard` | `Shift+F10` or `ContextMenu` key on card | moves to first enabled item |
@@ -127,7 +131,7 @@ Two claims, two slots, two gates.
 
 | Testid | Element |
 |---|---|
-| `session-actions-trigger-<id>` | header `⋯` trigger |
+| `session-actions-trigger-<id>` | card-edge pill trigger |
 | `session-actions-menu-<id>` | menu panel (`role="menu"`) |
 | `session-menu-group-<groupId>` | group wrapper; `groupId` ∈ `next`, `session`, `openspec`, `git`, `view` |
 | `session-menu-group-plugins` | PLUGINS group |

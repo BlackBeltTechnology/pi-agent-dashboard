@@ -20,9 +20,9 @@ import type React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
+import { GoalControl } from "../../../../goal-plugin/src/client/GoalControl.js";
 import { CardSectionsProvider } from "../../lib/state/CardSectionsContext.js";
 import { SessionCard } from "../session/SessionCard.js";
-import { GoalControl } from "../../../../goal-plugin/src/client/GoalControl.js";
 
 vi.mock("../../hooks/useMobile.js", () => ({ useMobile: vi.fn(() => false) }));
 vi.mock("../../lib/git/git-api.js", async (orig) => ({
@@ -266,13 +266,66 @@ describe("condensed desktop card (E18, E19, E21, E30)", () => {
     expect(document.querySelector("[role='menu']")).toBeNull();
   });
 
-  it("E30: the trigger glyph is mdiDotsVertical, differs from the folder trigger, and no card control uses mdiDotsHorizontal", () => {
+  it("E30: the trigger glyph is an inline three-dot SVG (not mdiDotsVertical), differs from the folder trigger, and no card control uses mdiDotsHorizontal", () => {
     card(makeSession({ gitBranch: "feat", gitWorktree: { mainPath: "/repo", name: "feat" } as never, attachedProposal: "add-auth" }), full);
     const d = (el: Element) => el.querySelector("path")?.getAttribute("d");
-    expect(d(trigger())).toBe(mdiDotsVertical);
+    expect(trigger().querySelectorAll("svg circle").length).toBe(3);
+    expect(d(trigger())).toBeUndefined();
     expect(mdiDotsVertical).not.toBe(mdiFolderCogOutline);
     const triggers = Array.from(screen.getByTestId("session-card-desktop").querySelectorAll("[aria-haspopup]"));
     expect(triggers.map(d)).not.toContain(mdiDotsHorizontal);
+    expect(triggers.map(d)).not.toContain(mdiDotsVertical);
+  });
+});
+
+/**
+ * The trigger sits on the card's right edge, outside the header row.
+ * See change: move-session-actions-trigger-to-card-edge (test-plan E1, E2, E18, F10).
+ */
+describe("edge trigger placement", () => {
+  const liOf = () => document.querySelector("[data-session-card]") as HTMLElement;
+  const wrapper = () => trigger().parentElement as HTMLElement;
+
+  it("E1: the trigger wrapper is an absolute card-edge child of the card root, right after the content row, not in the header", () => {
+    card(makeSession(), { onRename: () => {} });
+    const archive = screen.getByTestId("session-archive-btn");
+    const header = archive.parentElement as HTMLElement;
+    expect(header.contains(trigger())).toBe(false);
+    expect(header.contains(screen.getByTestId("session-close-btn"))).toBe(true);
+    expect(wrapper().parentElement).toBe(liOf());
+    const prev = wrapper().previousElementSibling as HTMLElement;
+    expect(prev.className).toContain("flex");
+    expect(prev.contains(header)).toBe(true);
+    const cls = wrapper().className.split(/\s+/);
+    expect(cls).toContain("absolute");
+    expect(cls).toContain("card-edge-trigger");
+  });
+
+  it("E2: an ended card's header holds Archive but no trigger; the trigger is on the card; no inline action chips", () => {
+    card(makeSession({ status: "ended", sessionFile: "/sess/x.jsonl" }), { onResume: () => {}, onSpawnWorktree: () => {} });
+    const header = screen.getByTestId("session-archive-btn").parentElement as HTMLElement;
+    expect(header.querySelector("[data-testid^='session-actions-trigger-']")).toBeNull();
+    expect(wrapper().parentElement).toBe(liOf());
+    expect(screen.queryByTestId("session-card-resume")).toBeNull();
+    expect(screen.queryByTestId("session-card-spawn-sibling")).toBeNull();
+  });
+
+  it.each([
+    ["hidden", { isHidden: true }, makeSession(), "opacity-40"],
+    ["closing", {}, makeSession({ closing: true } as Partial<DashboardSession>), "opacity-50"],
+  ])("E18: a %s (dimmed) card still renders a working trigger", (_n, props, session, dim) => {
+    card(session, props as never);
+    expect(liOf().className).toContain(dim);
+    fireEvent.click(trigger());
+    expect(trigger().getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("F10: Escape from a trigger-opened menu returns focus to the moved trigger", () => {
+    card(makeSession());
+    fireEvent.click(trigger());
+    fireEvent.keyDown(screen.getByTestId("session-actions-menu-s1"), { key: "Escape" });
+    expect(screen.queryByTestId("session-actions-menu-s1")).toBeNull();
+    expect(document.activeElement).toBe(trigger());
   });
 });
 

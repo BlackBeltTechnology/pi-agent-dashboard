@@ -233,3 +233,16 @@ describe("destroy", () => {
     expect(opened).toEqual([]);
   });
 });
+
+describe("edge trigger pill (move-session-actions-trigger-to-card-edge F4)", () => {
+  it("resting on the trigger button inside the strip (pill or its ::before hit area) never arms", () => {
+    card.insertAdjacentHTML("beforeend", '<span><button id="edge" data-testid="session-actions-trigger-s1">...</button></span>');
+    const edge = document.getElementById("edge") as HTMLElement;
+    for (let t = 0; t < 500; t += 50) {
+      vi.setSystemTime(t);
+      move(edge, R - 12, 40);
+    }
+    vi.advanceTimersByTime(HOVER_DWELL_MS * 2);
+    expect(opened).toEqual([]);
+  });
+});

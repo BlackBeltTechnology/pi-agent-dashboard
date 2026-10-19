@@ -1339,7 +1339,7 @@ export function SessionCard({
          the 9px connector from the folder's directory rail (drawn by
          SessionList on the list container) into this card.
          See change: session-card-directory-rail. */
-      className={`group/card relative isolate pl-1.5 pr-2 py-2 cursor-pointer rounded-xl shadow-[inset_0_1px_0_var(--elevation-rim),0_4px_8px_var(--shadow-card)] border hover:shadow-[inset_0_1px_0_var(--elevation-rim),0_6px_12px_var(--shadow-card)] hover:-translate-y-0.5 transition-all duration-200 before:content-[''] before:absolute before:-left-[11px] before:top-[19px] before:w-[9px] before:h-0.5 before:rounded-full before:bg-[var(--rail-directory)] ${
+      className={`group/card relative isolate pl-1.5 pr-[18px] py-2 cursor-pointer rounded-xl shadow-[inset_0_1px_0_var(--elevation-rim),0_4px_8px_var(--shadow-card)] border hover:shadow-[inset_0_1px_0_var(--elevation-rim),0_6px_12px_var(--shadow-card)] hover:-translate-y-0.5 transition-all duration-200 before:content-[''] before:absolute before:-left-[11px] before:top-[19px] before:w-[9px] before:h-0.5 before:rounded-full before:bg-[var(--rail-directory)] ${
         isSelected
           ? "border-[var(--tint-blue-border)] bg-[var(--bg-primary)] ring-1 ring-[var(--tint-blue-border)] card-selected-ring"
           : "border-[var(--border-subtle)] bg-[var(--bg-primary)]"
@@ -1457,17 +1457,6 @@ export function SessionCard({
             <Icon path={mdiArchiveOutline} size={0.45} />
           </button>
         )}
-        <SessionActionsMenu
-          session={session}
-          ctx={menuCtx}
-          open={menuOpen}
-          source={menuScope.state.source}
-          point={menuScope.state.point}
-          opener={menuScope.state.opener}
-          cardRef={cardElRef}
-          onOpenChange={setMenuOpen}
-          pluginContainer={pluginContainer}
-        />
         {isAlive && onShutdown && (
           <button
             onClick={(e) => {
@@ -1718,6 +1707,21 @@ export function SessionCard({
         )}
       </div>{/* end card content */}
       </div>{/* end flex row */}
+      {/* Session actions trigger: a centred pill on the card's right edge,
+          mirroring the left drag bead. Last card child so it is last in Tab
+          order; the `pr-[18px]` gutter keeps its 24px hit box free of controls.
+          See change: move-session-actions-trigger-to-card-edge. */}
+      <SessionActionsMenu
+        session={session}
+        ctx={menuCtx}
+        open={menuOpen}
+        source={menuScope.state.source}
+        point={menuScope.state.point}
+        opener={menuScope.state.opener}
+        cardRef={cardElRef}
+        onOpenChange={setMenuOpen}
+        pluginContainer={pluginContainer}
+      />
       {/* Idle-alive archive confirmation (ended archives without a dialog).
           Portalled by Dialog — placement in the tree is irrelevant. */}
       {dialog && (

@@ -19,6 +19,7 @@
 import { execFileSync } from "node:child_process";
 import crypto from "node:crypto";
 import { expect, type Locator, type Page, test } from "./fixtures.js";
+import { buttonBoxes, resolveColor } from "./helpers/computed-contrast.js";
 import { byTestId, ensureGitSession, expandFolder, FIXTURE_GIT, gotoDashboard, spawnFreshGitSession } from "./helpers/index.js";
 import {
   chooseMenuItem,
@@ -30,8 +31,107 @@ import {
   sessionMenuPanel,
   sessionMenuTrigger,
 } from "./helpers/session-actions-menu.js";
-import { buttonBoxes, resolveColor } from "./helpers/computed-contrast.js";
 import { DASHBOARD_PORT, harnessProject } from "./lifecycle.js";
+
+
+// ── Edge trigger (change: move-session-actions-trigger-to-card-edge) ─────────────────────────
+// The trigger is a centred pill on the card's right edge (R = the card's border-box right
+// edge): the button spans [R−7, R+6] × 26 px and its `::before` hit box [R−18, R+6]. jsdom has no
+// layout, so the geometry (centring, clearance, overlap, clipping, stacking) is asserted here.
+
+interface EdgeGeometry {
+  R: number;
+  cy: number;
+  card: { x: number; y: number; w: number; h: number };
+  pill: { x: number; y: number; w: number; h: number };
+}
+
+async function edgeGeometry(card: Locator): Promise<EdgeGeometry> {
+  const c = (await card.boundingBox())!;
+  const t = (await sessionMenuTrigger(card).boundingBox())!;
+  return {
+    R: c.x + c.width,
+    cy: c.y + c.height / 2,
+    card: { x: c.x, y: c.y, w: c.width, h: c.height },
+    pill: { x: t.x, y: t.y, w: t.width, h: t.height },
+  };
+}
+
+/** The card's right border-box edge and the trigger's rects, read in ONE coordinate space (zoom-safe). */
+async function edgeRects(card: Locator) {
+  return card.evaluate((li) => {
+    const r = (el: Element) => {
+      const b = el.getBoundingClientRect();
+      return { left: b.left, right: b.right, top: b.top, bottom: b.bottom };
+    };
+    const trigger = li.querySelector("[data-testid^='session-actions-trigger-']") as HTMLElement;
+    // Nearest ancestor drawing a right border = the folder enclosure.
+    let border: { left: number } | null = null;
+    for (let el = li.parentElement; el && !border; el = el.parentElement) {
+      const cs = getComputedStyle(el);
+      if (Number.parseFloat(cs.borderRightWidth) > 0 && cs.borderRightStyle !== "none") {
+        border = { left: el.getBoundingClientRect().right - Number.parseFloat(cs.borderRightWidth) };
+      }
+    }
+    // Nearest clipping ancestor on the x axis.
+    let clipRight = Number.POSITIVE_INFINITY;
+    for (let el = li.parentElement; el; el = el.parentElement) {
+      if (getComputedStyle(el).overflowX !== "visible") {
+        clipRight = Math.min(clipRight, el.getBoundingClientRect().right - (el.offsetWidth - el.clientWidth));
+        break;
+      }
+    }
+    return { card: r(li), pill: r(trigger), folderBorder: border, clipRight };
+  });
+}
+
+/** The trigger's hit rect (`::before` width × button height) must overlap no other control or descendant box. */
+const hitRectOverlaps = (card: Locator) =>
+  card.evaluate((li) => {
+    const trigger = li.querySelector("[data-testid^='session-actions-trigger-']") as HTMLElement;
+    const t = trigger.getBoundingClientRect();
+    const width = Number.parseFloat(getComputedStyle(trigger, "::before").width);
+    const hit = { left: t.right - width, right: t.right, top: t.top, bottom: t.bottom };
+    const isControl = (el: Element) => el.matches("button, a, [role=button]");
+    const bad = Array.from(li.querySelectorAll("*"))
+      .filter((el) => !trigger.parentElement?.contains(el) && (isControl(el) || getComputedStyle(el).position !== "absolute"))
+      .filter((el) => {
+        const b = el.getBoundingClientRect();
+        return b.width > 0 && b.height > 0 && b.left < hit.right && b.right > hit.left && b.top < hit.bottom && b.bottom > hit.top;
+      })
+      .map((el) => el.getAttribute("data-testid") ?? el.tagName);
+    return { width, height: t.height, bad };
+  });
+
+async function expectNoHitOverlap(cards: Locator[], label: string): Promise<void> {
+  for (const card of cards) {
+    await card.scrollIntoViewIfNeeded();
+    const o = await hitRectOverlaps(card);
+    expect(o.width, `${label}: hit width`).toBeGreaterThanOrEqual(24);
+    expect(o.height, `${label}: hit height`).toBeGreaterThanOrEqual(24);
+    expect(o.bad, `${label}: controls inside the hit rect`).toEqual([]);
+  }
+}
+
+async function setZoom(page: Page, z: string): Promise<void> {
+  await page.evaluate((v) => {
+    (document.documentElement.style as CSSStyleDeclaration & { zoom: string }).zoom = v;
+  }, z);
+}
+
+/** Every desktop card currently on screen (seeded ended cards + any live session). */
+function allCards(page: Page): Locator {
+  return page.locator("[data-testid='session-card-desktop']");
+}
+
+async function tabTo(page: Page, target: Locator, from: Locator): Promise<void> {
+  await from.focus();
+  for (let i = 0; i < 40; i++) {
+    if (await target.evaluate((el) => el === document.activeElement)) return;
+    await page.keyboard.press("Tab");
+  }
+  throw new Error("could not Tab to the trigger");
+}
 
 const SEED_PREFIX = "e2e-sam";
 const SEED_COUNT = 50;
@@ -286,6 +386,198 @@ test.describe("session actions menu (L3)", () => {
       }, false);
     });
 
+    // ── Edge trigger geometry (move-session-actions-trigger-to-card-edge) ───────────────────
+
+    /** Cards worth measuring: a seeded (minimal ended) card plus a live session card when present. */
+    async function shapes(page: Page): Promise<Locator[]> {
+      await revealSeeded(page);
+      await page.addStyleTag({ content: "[data-session-card]{transition:none !important}" });
+      const seeded = await stableCard(page, 1);
+      await seeded.scrollIntoViewIfNeeded();
+      const out = [seeded];
+      const live = allCards(page).filter({ hasNot: page.locator(plantedIds.map((id) => `[data-session-id="${id}"]`).join(",")) }).first();
+      if (await live.isVisible().catch(() => false)) out.push(live);
+      return out;
+    }
+
+    test("E7: the pill is vertically centred on the card (±1 px) and straddles the right edge", async ({ page }) => {
+      await ensureGitSession(page);
+      for (const card of await shapes(page)) {
+        await card.scrollIntoViewIfNeeded();
+        const g = await edgeGeometry(card);
+        expect(Math.abs(g.pill.y + g.pill.h / 2 - g.cy), `centre offset on a ${Math.round(g.card.h)} px card`).toBeLessThanOrEqual(1);
+        expect(g.pill.x).toBeLessThan(g.R);
+        expect(g.pill.x + g.pill.w).toBeGreaterThan(g.R);
+      }
+    });
+
+    test("E8/E10: at 90/100/125% zoom the pill clears the folder border by ≥1 px and its focus ring is not clipped", async ({ page }) => {
+      const [card] = await shapes(page);
+      for (const zoom of [0.9, 1, 1.25]) {
+        await page.evaluate((z) => {
+          (document.documentElement.style as CSSStyleDeclaration & { zoom: string }).zoom = String(z);
+        }, zoom);
+        await card.scrollIntoViewIfNeeded();
+        await sessionMenuTrigger(card).focus();
+        const m = await edgeRects(card);
+        if (m.folderBorder) expect(m.pill.right, `zoom ${zoom}: pill right vs folder border`).toBeLessThanOrEqual(m.folderBorder.left - 1 + 0.01);
+        // outline = 2 px width + 2 px offset around the 13 px pill
+        const ringRight = m.pill.right + 4 * zoom;
+        expect(ringRight, `zoom ${zoom}: focus ring right vs clip edge`).toBeLessThan(m.clipRight);
+      }
+      await page.evaluate(() => {
+        (document.documentElement.style as CSSStyleDeclaration & { zoom: string }).zoom = "";
+      });
+    });
+
+    test("E9: the list scroller never scrolls sideways with the trigger focused, and keeps the pill inside its right clearance", async ({ page }) => {
+      const [card] = await shapes(page);
+      await sessionMenuTrigger(card).focus();
+      const scroller = page.getByTestId("session-list-scroll");
+      const dims = await scroller.evaluate((el) => ({ sw: el.scrollWidth, cw: el.clientWidth, right: el.getBoundingClientRect().right }));
+      expect(dims.sw).toBe(dims.cw);
+      const m = await edgeRects(card);
+      expect(m.pill.right + 4).toBeLessThanOrEqual(dims.right);
+    });
+
+    test("E11: the hit area is real: ::before has content and the point R−10 resolves to the trigger", async ({ page }) => {
+      const [card] = await shapes(page);
+      const trigger = sessionMenuTrigger(card);
+      expect(await trigger.evaluate((el) => getComputedStyle(el, "::before").content)).not.toBe("none");
+      const g = await edgeGeometry(card);
+      const hit = await page.evaluate(
+        ([x, y]) => (document.elementFromPoint(x, y)?.closest("[data-testid^='session-actions-trigger-']") as HTMLElement | null)?.dataset.testid ?? null,
+        [g.R - 10, g.cy],
+      );
+      expect(hit).toBe(await trigger.getAttribute("data-testid"));
+    });
+
+    test("E12/E13: the 24×26 hit rect overlaps no other control, at 100% and 125% zoom and at the 180 px minimum sidebar", async ({ page }) => {
+      await ensureGitSession(page);
+      const cards = await shapes(page);
+      await expectNoHitOverlap(cards, "100%");
+      await setZoom(page, "1.25");
+      await expectNoHitOverlap(cards, "125%");
+      await setZoom(page, "");
+      // Minimum sidebar width: drag the splitter to x = 180.
+      const hb = (await page.getByTestId("drag-handle").boundingBox())!;
+      await page.mouse.move(hb.x + hb.width / 2, hb.y + 200);
+      await page.mouse.down();
+      await page.mouse.move(180, hb.y + 200, { steps: 8 });
+      await page.mouse.up();
+      await expectNoHitOverlap(cards, "180px sidebar");
+    });
+
+    test("E14: a click anywhere in the hit area opens the menu and never selects the card", async ({ page }) => {
+      const [card] = await shapes(page);
+      const url = page.url();
+      const g = await edgeGeometry(card);
+      for (const dx of [3, 15]) {
+        await page.mouse.click(g.R - dx, g.cy);
+        await expect(sessionMenuPanel(page)).toBeVisible();
+        await closeSessionMenu(page);
+        await page.mouse.move(2, 2); // leave the card so the hover lift does not move the target
+      }
+      expect(page.url()).toBe(url);
+    });
+
+    test("E15: selecting a card does not change its height and the wrapper stays absolutely positioned", async ({ page }) => {
+      const [card] = await shapes(page);
+      const before = (await card.boundingBox())!.height;
+      await card.click({ position: { x: 20, y: 6 } });
+      await expect(card).toHaveClass(/card-selected-ring/);
+      const after = (await card.boundingBox())!.height;
+      expect(Math.abs(after - before)).toBeLessThanOrEqual(0.5);
+      const pos = await sessionMenuTrigger(card).evaluate((el) => getComputedStyle(el.parentElement as HTMLElement).position);
+      expect(pos).toBe("absolute");
+    });
+
+    test("E16: the trigger comes after ✕ in Tab order and Enter opens the menu on its first enabled item", async ({ page }) => {
+      await ensureGitSession(page);
+      const card = allCards(page).filter({ has: page.getByTestId("session-close-btn") }).first();
+      await card.scrollIntoViewIfNeeded();
+      const trigger = sessionMenuTrigger(card);
+      const close = card.getByTestId("session-close-btn");
+      await tabTo(page, trigger, close);
+      await expect(trigger).toBeFocused();
+      await page.keyboard.press("Enter");
+      await expect(sessionMenuPanel(page)).toBeVisible();
+      await expect(sessionMenuPanel(page).locator("[role='menuitem']:not([aria-disabled='true'])").first()).toBeFocused();
+      await closeSessionMenu(page);
+    });
+
+    test("F6/F7: dots are --text-tertiary at rest (opacity 1) and --text-secondary on hover, focus and when open", async ({ page }) => {
+      const [card] = await shapes(page);
+      const trigger = sessionMenuTrigger(card);
+      const rgb = async (token: string) => (await resolveColor(page, `var(${token})`)).join(",");
+      const colour = async () => (await trigger.evaluate((el) => getComputedStyle(el).color)).match(/\d+/g)!.slice(0, 3).join(",");
+      await page.mouse.move(2, 2);
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+      expect(await colour()).toBe(await rgb("--text-tertiary"));
+      expect(await trigger.evaluate((el) => getComputedStyle(el).opacity)).toBe("1");
+      const g = await edgeGeometry(card);
+      await page.mouse.move(g.card.x + 40, g.card.y + 4);
+      expect(await colour()).toBe(await rgb("--text-secondary"));
+      await page.mouse.move(2, 2);
+      await trigger.focus();
+      await page.keyboard.press("Shift+Tab");
+      await page.keyboard.press("Tab");
+      expect(await colour()).toBe(await rgb("--text-secondary"));
+      await page.keyboard.press("Enter"); // open: aria-expanded variant (proves Tailwind generated it)
+      await expect(trigger).toHaveAttribute("aria-expanded", "true");
+      await page.mouse.move(2, 2);
+      expect(await colour()).toBe(await rgb("--text-secondary"));
+      await closeSessionMenu(page);
+    });
+
+    test("F2/F5: a click pins a hover-opened menu across a pointer leave; a dwell in the strip off the pill still opens", async ({ page }) => {
+      const [card] = await shapes(page);
+      const g = await edgeGeometry(card);
+      // F5: rest off the pill, inside the 32 px strip.
+      await page.mouse.move(g.R - 20, g.card.y + 12);
+      await page.mouse.move(g.R - 20, g.card.y + 12.4);
+      await expect(sessionMenuPanel(page)).toBeVisible({ timeout: 3_000 });
+      // F2: click the pill (pins), leave for 600 ms, the menu is still open.
+      await sessionMenuTrigger(card).click();
+      await expect(sessionMenuTrigger(card)).toHaveAttribute("aria-expanded", "true");
+      await page.mouse.move(g.R + 400, g.cy, { steps: 6 });
+      await page.waitForTimeout(600);
+      await expect(sessionMenuPanel(page)).toBeVisible();
+      await expect(sessionMenuTrigger(card)).toHaveAttribute("aria-expanded", "true");
+      await sessionMenuTrigger(card).click();
+      await expect(sessionMenuPanel(page)).toHaveCount(0);
+      await expect(sessionMenuTrigger(card)).toHaveAttribute("aria-expanded", "false");
+    });
+
+    test("F9: right-click on the pill opens the session menu at the pointer (native menu suppressed)", async ({ page }) => {
+      const [card] = await shapes(page);
+      const g = await edgeGeometry(card);
+      await page.mouse.click(g.pill.x + g.pill.w / 2, g.cy, { button: "right" });
+      await expect(sessionMenuPanel(page)).toBeVisible();
+      await expect(sessionMenuTrigger(card)).toHaveAttribute("aria-expanded", "true");
+      await closeSessionMenu(page);
+    });
+
+    test("X1: a slow panel chunk still flips aria-expanded at once and renders the panel when it lands", async ({ page }) => {
+      await page.route("**/*SessionActionsPanel*.js", async (route) => {
+        await new Promise((r) => setTimeout(r, 1_500));
+        await route.continue();
+      });
+      const [card] = await shapes(page);
+      const trigger = sessionMenuTrigger(card);
+      await trigger.click();
+      await expect(trigger).toHaveAttribute("aria-expanded", "true");
+      await expect(sessionMenuPanel(page)).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByText(/failed to load/i)).toHaveCount(0);
+      await closeSessionMenu(page);
+      // second run: an early second click closes with no orphan portal
+      await trigger.click();
+      await trigger.click();
+      await expect(trigger).toHaveAttribute("aria-expanded", "false");
+      await page.waitForTimeout(2_000);
+      await expect(page.locator("[data-testid^='session-actions-menu-']")).toHaveCount(0);
+    });
+
     test("F14: the menu paints above a neighbouring card, and below a dialog opened over it", async ({ page }) => {
       await revealSeeded(page);
       const first = await stableCard(page, 1);
@@ -442,5 +734,22 @@ test.describe("touch targets at 375×800 (align-ui-contract-recipes)", () => {
 
     const overflow = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth }));
     expect(overflow.sw).toBe(overflow.cw);
+  });
+});
+
+// test-plan #F8 (move-session-actions-trigger-to-card-edge): on a touch device at desktop width the
+// trigger is visible at rest (there is no hover to reveal it) and a tap opens the menu.
+test.describe("edge trigger on touch (move-session-actions-trigger-to-card-edge)", () => {
+  test.use({ hasTouch: true, viewport: { width: 1280, height: 800 } });
+
+  test("F8: the trigger is visible at rest and a tap opens the menu; nothing opens without the tap", async ({ page }) => {
+    const card = await ensureGitSession(page);
+    const trigger = sessionMenuTrigger(card);
+    await expect(trigger).toBeVisible();
+    expect(await trigger.evaluate((el) => getComputedStyle(el).opacity)).toBe("1");
+    await page.waitForTimeout(800);
+    await expect(sessionMenuPanel(page)).toHaveCount(0);
+    await trigger.tap();
+    await expect(sessionMenuPanel(page)).toBeVisible();
   });
 });

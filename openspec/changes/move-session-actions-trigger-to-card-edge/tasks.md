@@ -2,25 +2,25 @@
 
 Folded from `test-plan.md` (automated, L1). Write each test, see it fail for the expected reason, then implement in section 2.
 
-- [ ] 1.1 E1 trigger out of header. Exemplar: `packages/client/src/components/__tests__/SessionCard.actions-menu.test.tsx`. Triple: desktop card for alive `s1` · render · `session-actions-trigger-s1` is not in the header row; its wrapper is a direct child of `[data-session-card]` right after the content flex row and carries `absolute` + `card-edge-trigger`; the header has Archive and ✕ (test-plan #E1).
-- [ ] 1.2 E2 ended-card header. Exemplar: `packages/client/src/components/__tests__/SessionCard.test.tsx` "No action chips" case, plus `SessionCard.card-sections.test.tsx`. Triple: ended session with `sessionFile` in git · render · header has Archive and no trigger; the trigger exists on the card; no Resume/Fork/+Session/+Worktree (test-plan #E2).
-- [ ] 1.3 E3 reserved gutter. Exemplar: `SessionCard.test.tsx:1131` (the existing `pr-2` pin, rewritten). Triple: desktop card · render · className has `pr-[18px]` and not `pr-2`; the comment explains the trigger gutter (test-plan #E3).
-- [ ] 1.4 E4 pill markup. Exemplar: `packages/client/src/components/session/__tests__/SessionActionsMenu.test.tsx`. Triple: `SessionActionsMenu` for `s1` · render · inline SVG with 3 circles, `fill="currentColor"`, `aria-hidden="true"`; no `mdiDotsVertical` path; button has `focus-ring`, `inline-flex`, `before:content-['']`, `before:w-[24px]` and lacks `min-h-[44px]` / `sm:min-h-[32px]`; wrapper lacks `relative` (test-plan #E4).
-- [ ] 1.5 E5 selected-ring escape rule. Exemplar: `packages/client/src/__tests__/selected-card-fx-css.test.ts`. Triple: `index.css` source · parse · `.card-edge-trigger` declares `position: absolute; z-index: 20` at an offset after `.card-selected-ring > *` (test-plan #E5).
-- [ ] 1.6 E6 contrast across palettes. Exemplar: `packages/client/src/lib/__tests__/theme-body-text-contrast.test.ts`. Triple: `--text-tertiary` and `--text-secondary` vs `--bg-primary` for base dark/light plus every `themes.ts` palette × mode · compute WCAG ratio · every pair ≥ 3.00, with a failing synthetic fixture (`#8a8a8a`/`#e1e2e7`) proving the assertion bites (test-plan #E6).
-- [ ] 1.7 E17 mobile has no trigger. Exemplar: the mobile-layout cases in `SessionCard.actions-menu.test.tsx`. Triple: mobile render · render · no `session-actions-trigger-*` in the DOM (test-plan #E17).
-- [ ] 1.8 E18 dimmed card. Exemplar: `SessionCard.test.tsx` hidden / closing cases. Triple: card with `isHidden`, and separately `session.closing` · render · root has `opacity-40` / `opacity-50`; the trigger is rendered and clicking it calls `onOpenChange(true, …)` (test-plan #E18).
-- [ ] 1.9 F1 click pins a hover-opened menu. Exemplar: `SessionActionsMenu.test.tsx`. Triple: rendered `open` with source `"hover"` · click the trigger · `onOpenChange(true, { source: "trigger", opener: <button> })`, never `false` (test-plan #F1).
-- [ ] 1.10 F3 toggle unchanged for click-open. Exemplar: `SessionActionsMenu.test.tsx`. Triple: `open` with source `"trigger"` · click the trigger · `onOpenChange(false)` once (test-plan #F3).
-- [ ] 1.11 F4 resting on the pill or its hit area never arms. Exemplar: `packages/client/src/components/session/__tests__/session-hover-intent.test.ts`. Triple: pointermove targets = the trigger button inside the strip · samples < 0.4 px/ms for 500 ms · no `open` callback (test-plan #F4).
-- [ ] 1.12 F7 `aria-expanded:` variant present. Exemplar: `SessionActionsMenu.test.tsx`. Triple: trigger with `aria-expanded="true"` · read className · it contains the `aria-expanded:` emphasis classes (computed check in 3.6) (test-plan #F7).
-- [ ] 1.13 F10 Escape refocuses the moved trigger. Exemplar: the existing Escape case in `SessionCard.actions-menu.test.tsx`. Triple: menu opened by a trigger click · Escape · menu closed; `document.activeElement` is `session-actions-trigger-s1` (test-plan #F10).
-- [ ] 1.14 X2 unmount under a pinned menu. Exemplar: the "Card unmounts under an open menu" case in `packages/client/src/components/session/__tests__/SessionList.actions-menu.test.tsx`. Triple: menu pinned via the F1 path on `s1` · remove `s1` from the list · no `session-actions-menu-s1` remains; focus goes to the session region (test-plan #X2).
+- [x] 1.1 E1 trigger out of header. Exemplar: `packages/client/src/components/__tests__/SessionCard.actions-menu.test.tsx`. Triple: desktop card for alive `s1` · render · `session-actions-trigger-s1` is not in the header row; its wrapper is a direct child of `[data-session-card]` right after the content flex row and carries `absolute` + `card-edge-trigger`; the header has Archive and ✕ (test-plan #E1).
+- [x] 1.2 E2 ended-card header. Exemplar: `packages/client/src/components/__tests__/SessionCard.test.tsx` "No action chips" case, plus `SessionCard.card-sections.test.tsx`. Triple: ended session with `sessionFile` in git · render · header has Archive and no trigger; the trigger exists on the card; no Resume/Fork/+Session/+Worktree (test-plan #E2).
+- [x] 1.3 E3 reserved gutter. Exemplar: `SessionCard.test.tsx:1131` (the existing `pr-2` pin, rewritten). Triple: desktop card · render · className has `pr-[18px]` and not `pr-2`; the comment explains the trigger gutter (test-plan #E3).
+- [x] 1.4 E4 pill markup. Exemplar: `packages/client/src/components/session/__tests__/SessionActionsMenu.test.tsx`. Triple: `SessionActionsMenu` for `s1` · render · inline SVG with 3 circles, `fill="currentColor"`, `aria-hidden="true"`; no `mdiDotsVertical` path; button has `focus-ring`, `inline-flex`, `before:content-['']`, `before:w-[24px]` and lacks `min-h-[44px]` / `sm:min-h-[32px]`; wrapper lacks `relative` (test-plan #E4).
+- [x] 1.5 E5 selected-ring escape rule. Exemplar: `packages/client/src/__tests__/selected-card-fx-css.test.ts`. Triple: `index.css` source · parse · `.card-edge-trigger` declares `position: absolute; z-index: 20` at an offset after `.card-selected-ring > *` (test-plan #E5).
+- [x] 1.6 E6 contrast across palettes. Exemplar: `packages/client/src/lib/__tests__/theme-body-text-contrast.test.ts`. Triple: `--text-tertiary` and `--text-secondary` vs `--bg-primary` for base dark/light plus every `themes.ts` palette × mode · compute WCAG ratio · every pair ≥ 3.00, with a failing synthetic fixture (`#8a8a8a`/`#e1e2e7`) proving the assertion bites (test-plan #E6).
+- [x] 1.7 E17 mobile has no trigger. Exemplar: the mobile-layout cases in `SessionCard.actions-menu.test.tsx`. Triple: mobile render · render · no `session-actions-trigger-*` in the DOM (test-plan #E17).
+- [x] 1.8 E18 dimmed card. Exemplar: `SessionCard.test.tsx` hidden / closing cases. Triple: card with `isHidden`, and separately `session.closing` · render · root has `opacity-40` / `opacity-50`; the trigger is rendered and clicking it calls `onOpenChange(true, …)` (test-plan #E18).
+- [x] 1.9 F1 click pins a hover-opened menu. Exemplar: `SessionActionsMenu.test.tsx`. Triple: rendered `open` with source `"hover"` · click the trigger · `onOpenChange(true, { source: "trigger", opener: <button> })`, never `false` (test-plan #F1).
+- [x] 1.10 F3 toggle unchanged for click-open. Exemplar: `SessionActionsMenu.test.tsx`. Triple: `open` with source `"trigger"` · click the trigger · `onOpenChange(false)` once (test-plan #F3).
+- [x] 1.11 F4 resting on the pill or its hit area never arms. Exemplar: `packages/client/src/components/session/__tests__/session-hover-intent.test.ts`. Triple: pointermove targets = the trigger button inside the strip · samples < 0.4 px/ms for 500 ms · no `open` callback (test-plan #F4).
+- [x] 1.12 F7 `aria-expanded:` variant present. Exemplar: `SessionActionsMenu.test.tsx`. Triple: trigger with `aria-expanded="true"` · read className · it contains the `aria-expanded:` emphasis classes (computed check in 3.6) (test-plan #F7).
+- [x] 1.13 F10 Escape refocuses the moved trigger. Exemplar: the existing Escape case in `SessionCard.actions-menu.test.tsx`. Triple: menu opened by a trigger click · Escape · menu closed; `document.activeElement` is `session-actions-trigger-s1` (test-plan #F10).
+- [x] 1.14 X2 unmount under a pinned menu. Exemplar: the "Card unmounts under an open menu" case in `packages/client/src/components/session/__tests__/SessionList.actions-menu.test.tsx`. Triple: menu pinned via the F1 path on `s1` · remove `s1` from the list · no `session-actions-menu-s1` remains; focus goes to the session region (test-plan #X2).
 
 ## 2. Implementation
 
-- [ ] 2.1 `packages/client/src/index.css`: add `.card-edge-trigger { position:absolute; z-index:20; }` next to `.card-drag-bead`, after `.card-selected-ring > *` (design D2). Verify: 1.5 passes.
-- [ ] 2.2 `packages/client/src/components/session/SessionActionsMenu.tsx`: restyle the trigger. Keep the testid, ARIA, `onKeyDown`, and the `onPointerEnter`/`onFocus` prefetch.
+- [x] 2.1 `packages/client/src/index.css`: add `.card-edge-trigger { position:absolute; z-index:20; }` next to `.card-drag-bead`, after `.card-selected-ring > *` (design D2). Verify: 1.5 passes.
+- [x] 2.2 `packages/client/src/components/session/SessionActionsMenu.tsx`: restyle the trigger. Keep the testid, ARIA, `onKeyDown`, and the `onPointerEnter`/`onFocus` prefetch.
   - Wrapper `<span>`: drop `relative inline-flex`; use `absolute card-edge-trigger right-[-7px] top-1/2 -translate-y-1/2`.
   - Button: drop the `min-h`/`min-w` classes; keep `focus-ring inline-flex items-center justify-center flex-shrink-0`. Make it a `relative` 13×26 rounded pill with `--bg-primary` background and `--border-subtle` border, holding an inline 3×13 three-dot SVG (`fill="currentColor"`, `aria-hidden="true"`, `focusable="false"`).
   - Hit box: `before:content-[''] before:absolute before:top-0 before:bottom-0 before:right-0 before:w-[24px]`.
@@ -28,14 +28,14 @@ Folded from `test-plan.md` (automated, L1). Write each test, see it fail for the
   - Full emphasis (`text-[var(--text-secondary)]`, border `--border-primary`) under `group-hover/card:`, `focus-visible:` and `aria-expanded:`; `--bg-hover` on hover of the pill itself (design D3).
 
   Verify: 1.4 and 1.12 pass.
-- [ ] 2.3 `packages/client/src/components/session/SessionCard.tsx` (desktop branch only):
+- [x] 2.3 `packages/client/src/components/session/SessionCard.tsx` (desktop branch only):
   - Remove `<SessionActionsMenu>` from the header row and mount it as a direct child of the card root `<li>`, immediately after the content flex row (`</div>{/* end flex row */}`), with the same props.
   - Change the card root's `pr-2` to `pr-[18px]`.
   - Leave the mobile branch untouched.
 
   Verify: 1.1, 1.2, 1.3, 1.7 and 1.8 pass, and the existing Shift+F10, right-click and hover-open tests in `SessionList.actions-menu.test.tsx` still pass.
-- [ ] 2.4 Click-pins-hover-open (design D4b). Pass the current menu open source from `SessionCard` into `SessionActionsMenu`. In `onClick`: if `open && source === "hover"`, call `onOpenChange(true, { source: "trigger", opener: triggerRef.current })`; otherwise keep the toggle. Verify: 1.9, 1.10 and 1.14 pass.
-- [ ] 2.5 Confirm the programmatic refocus paths (`SessionCard.tsx:1054,1095`, `querySelector("[data-testid^='session-actions-trigger-']")`) land on the moved trigger. Verify: 1.13 passes, and the existing keyboard-open tests pass.
+- [x] 2.4 Click-pins-hover-open (design D4b). Pass the current menu open source from `SessionCard` into `SessionActionsMenu`. In `onClick`: if `open && source === "hover"`, call `onOpenChange(true, { source: "trigger", opener: triggerRef.current })`; otherwise keep the toggle. Verify: 1.9, 1.10 and 1.14 pass.
+- [x] 2.5 Confirm the programmatic refocus paths (`SessionCard.tsx:1054,1095`, `querySelector("[data-testid^='session-actions-trigger-']")`) land on the moved trigger. Verify: 1.13 passes, and the existing keyboard-open tests pass.
 
 ## 3. L3 tests (Playwright vs the docker harness)
 
@@ -66,6 +66,6 @@ Folded from `test-plan.md` (automated, L3). Extend `tests/e2e/session-actions-me
 
 ## 5. Docs and closeout
 
-- [ ] 5.1 Update the `SessionActionsMenu.tsx` and `SessionCard.tsx` rows in `packages/client/src/components/session/AGENTS.md` and `SessionCard.tsx.AGENTS.md`: edge trigger, `card-edge-trigger`, reserved `pr-[18px]` gutter, click-pins-hover-open, header no longer hosts the trigger, `See change: move-session-actions-trigger-to-card-edge`. Verify: `kb dox lint` is clean for these paths.
-- [ ] 5.2 Delegate the "entry points" section of `docs/session-actions-menu.md` to DocScribe in caveman style: header trigger → centred edge pill, always visible, 24 px hit box in the reserved gutter, click pins a hover-opened menu. Verify: the doc no longer says the trigger is in the header.
+- [x] 5.1 Update the `SessionActionsMenu.tsx` and `SessionCard.tsx` rows in `packages/client/src/components/session/AGENTS.md` and `SessionCard.tsx.AGENTS.md`: edge trigger, `card-edge-trigger`, reserved `pr-[18px]` gutter, click-pins-hover-open, header no longer hosts the trigger, `See change: move-session-actions-trigger-to-card-edge`. Verify: `kb dox lint` is clean for these paths.
+- [x] 5.2 Delegate the "entry points" section of `docs/session-actions-menu.md` to DocScribe in caveman style: header trigger → centred edge pill, always visible, 24 px hit box in the reserved gutter, click pins a hover-opened menu. Verify: the doc no longer says the trigger is in the header.
 - [ ] 5.3 Full client test run: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`, then grep for the summary line. Verify: no new failures.
