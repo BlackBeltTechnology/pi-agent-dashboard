@@ -6,7 +6,7 @@ In the session actions menu:
 
 - group headings SHALL be at least 11 px, semibold, in the secondary text colour;
 - each menu item SHALL be at least 44 px tall below the `sm` breakpoint and at least 36 px tall from `sm`;
-- host-rendered item labels, the `More…` expander and its count SHALL use the primary text colour, and the PLUGINS group container SHALL set the primary text colour so that plugin output which does not set its own colour inherits it.
+- host-rendered item labels and the `More…` expander SHALL use the primary text colour, the `More…` count SHALL be at least 12 px in the secondary text colour, and the PLUGINS group container SHALL set the primary text colour so that plugin output which does not set its own colour inherits it.
 
 A disabled item's reason SHALL render as its own line under the label, at least 12 px in the secondary text colour, linked to the item for assistive technology. The reason SHALL wrap rather than be truncated into a trailing span. All enabled menu text and every disabled reason SHALL meet 4.5:1 contrast against the menu background in base dark, base light and nord dark.
 
@@ -16,8 +16,8 @@ A disabled item's reason SHALL render as its own line under the label, at least 
 - **AND** every menu item SHALL be at least 36 px tall
 
 #### Scenario: Touch viewport targets
-- **WHEN** the menu opens in a 375 px viewport
-- **THEN** every menu item SHALL be at least 44 px tall
+- **WHEN** a menu item renders below the `sm` breakpoint
+- **THEN** it SHALL be at least 44 px tall (the menu only exists in the desktop layout, which is not shown below 768 px, so this floor is pinned at the class level, not in a narrow browser)
 
 #### Scenario: Disabled reason is readable
 - **WHEN** New worktree session is disabled because the session's directory no longer exists

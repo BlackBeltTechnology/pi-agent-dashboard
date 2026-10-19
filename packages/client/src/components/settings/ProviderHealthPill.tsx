@@ -1,19 +1,20 @@
 /**
  * Health pill for custom-endpoint surfaces (dialog pane + connected row).
  *
- * Five registers per provider-connection-test: connected (green, model count),
- * error (yellow, HTTP status), unreachable (red, no status), not tested
+ * Five registers per provider-connection-test: connected (success, model count),
+ * error (warning, HTTP status), unreachable (error, no status), not tested
  * (neutral), plus the pending register a single-provider write shows while its
- * detached probe is in flight (F10). Credential rows (subscription / API key /
+ * detached probe is in flight (F10). Rendered by the shared status pill; the raw
+ * error text sits behind "Copy details" (align-ui-contract-recipes). Credential rows (subscription / API key /
  * environment) render NO pill at all — the pill is scoped to custom endpoints
  * by design D8.
  *
  * Moved from SettingsPanel.tsx's LlmProviderCard (the Save-bar draft card this
  * change deletes). See change: redesign-providers-settings-page.
  */
-import { mdiAlert, mdiCheckCircle, mdiCloseCircle, mdiLoading } from "@mdi/js";
-import { Icon } from "@mdi/react";
-import React from "react";
+import { SettingsActionError, SettingsStatusPill, type SettingsStatusTone } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { mdiLoading } from "@mdi/js";
+import { type ReactNode, useId } from "react";
 import type { ProviderHealth } from "../../lib/api/providers-api.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 
@@ -54,21 +55,31 @@ export function derivePillView(args: {
     : { kind: "unreachable", error: health.error ?? "" };
 }
 
+/** The pill itself: the shared status pill in a wrapper that keeps the stable test id and state. */
+function HealthPill({ state, tone, icon, spinning, children }: { state: string; tone: SettingsStatusTone; icon?: string; spinning?: boolean; children: ReactNode }) {
+  return (
+    <span data-testid="health-pill" data-state={state} className="inline-flex">
+      <SettingsStatusPill tone={tone} icon={icon} spinning={spinning}>
+        {children}
+      </SettingsStatusPill>
+    </span>
+  );
+}
+
 export function ProviderHealthPill({ view }: { view: PillView }) {
+  const errorId = useId();
   if (view.kind === "testing") {
     return (
-      <div className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)]" data-testid="health-pill" data-state="testing">
-        <Icon path={mdiLoading} size={0.45} className="animate-spin" />
+      <HealthPill state="testing" tone="info" icon={mdiLoading} spinning>
         {i18nT("common.testing", undefined, "Testing...")}
-      </div>
+      </HealthPill>
     );
   }
   if (view.kind === "pending") {
     return (
-      <div className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)]" data-testid="health-pill" data-state="pending">
-        <Icon path={mdiLoading} size={0.45} className="animate-spin" />
+      <HealthPill state="pending" tone="info" icon={mdiLoading} spinning>
         {i18nT("providers.pendingProbe", undefined, "Checking connection…")}
-      </div>
+      </HealthPill>
     );
   }
   if (view.kind === "ok") {
@@ -76,34 +87,28 @@ export function ProviderHealthPill({ view }: { view: PillView }) {
       ? i18nT("settings.connectedModels", { count: view.modelCount }, `Connected · ${view.modelCount} models`)
       : i18nT("settings.connectedOnly", undefined, "Connected");
     return (
-      <div className="flex items-center gap-1.5 text-xs text-green-400" data-testid="health-pill" data-state="ok">
-        <Icon path={mdiCheckCircle} size={0.5} />
+      <HealthPill state="ok" tone="success">
         {label}
-      </div>
+      </HealthPill>
     );
   }
   if (view.kind === "not-tested") {
     return (
-      <div className="flex items-center gap-1.5 text-xs text-[var(--text-tertiary)]" data-testid="health-pill" data-state="not-tested">
+      <HealthPill state="not-tested" tone="neutral">
         {i18nT("settings.providerNotTested", undefined, "Not tested")}
-      </div>
+      </HealthPill>
     );
   }
   const isError = view.kind === "error";
   return (
     <>
-      <div
-        className={`flex items-center gap-1.5 text-xs ${isError ? "text-yellow-400" : "text-red-400"}`}
-        data-testid="health-pill"
-        data-state={view.kind}
-      >
-        <Icon path={isError ? mdiAlert : mdiCloseCircle} size={0.5} />
+      <HealthPill state={view.kind} tone={isError ? "warning" : "error"}>
         {isError ? String(view.status) : i18nT("settings.providerUnreachable", undefined, "Unreachable")}
-      </div>
+      </HealthPill>
       {view.error && (
-        <div className="font-mono text-[11px] text-[var(--text-tertiary)] break-all whitespace-pre-wrap" data-testid="provider-error-line">
-          {view.error}
-        </div>
+        <SettingsActionError id={errorId} testId="provider-error-line" details={view.error}>
+          {i18nT("providers.healthErrorLine", undefined, "The connection test didn't pass. Copy the details to see why.")}
+        </SettingsActionError>
       )}
     </>
   );

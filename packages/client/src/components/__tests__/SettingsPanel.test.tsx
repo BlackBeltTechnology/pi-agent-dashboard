@@ -1612,7 +1612,7 @@ describe("SettingsPanel Models nav group", () => {
     render(<SettingsPanel />);
     const rail = await screen.findByTestId("settings-nav-rail");
     const dot = await within(rail).findByTestId("nav-plugin-status-roles");
-    expect(dot.className).toContain("--accent-red");
+    expect(dot.className).toContain("--severity-error-fg"); // severity token (align-ui-contract-recipes), no raw accent fill
     expect(dot.getAttribute("aria-label")).toBe("error");
     expect(within(rail).getByTestId("nav-promoted-roles").contains(dot)).toBe(true);
   });

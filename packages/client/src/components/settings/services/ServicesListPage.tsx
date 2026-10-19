@@ -41,7 +41,7 @@ function ServiceRow({ s, now, onOpen }: { s: ServiceStatus; now: number; onOpen:
       >
         <span className="flex flex-wrap items-center gap-2">
           <span className="font-semibold text-[var(--text-primary)]">{s.id}</span>
-          <StatePill state={s.state} />
+          <StatePill state={s.state} interactive />
           {s.mode && <Chip>{s.mode}</Chip>}
           {s.driver && <Chip>{s.driver}</Chip>}
           {s.pinned && <Chip testId="service-pinned">{i18nT("services.pinned", undefined, "Pinned")}</Chip>}

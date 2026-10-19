@@ -12,7 +12,7 @@
 
 import type { ServiceStatus } from "@blackbelt-technology/pi-dashboard-shared/services/status.js";
 import { mdiAlertCircleOutline, mdiArrowLeft, mdiRefresh } from "@mdi/js";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import type { UseServices } from "../../../hooks/useServices.js";
 import { t as i18nT } from "../../../lib/i18n/i18n.js";
 import { addService, getService, runVerb, type ServicesResult, type ServiceVerb } from "../../../lib/services/services-api.js";
@@ -152,32 +152,36 @@ function ActionBar({
   disabled,
   onVerb,
   onForce,
+  failed,
 }: {
   s: ServiceStatus;
   disabled: boolean;
   onVerb: (v: ServiceVerb) => void;
   onForce: () => void;
+  /** The verb whose refusal is on screen and the id of that error, so the button is described by it. */
+  failed?: { verb: string; id: string } | null;
 }) {
   const a = actionsFor(s);
+  const desc = (verb: string) => (failed?.verb === verb ? failed.id : undefined);
   return (
     <div className="flex flex-wrap gap-2" role="group" aria-label={i18nT("services.actions", undefined, "Actions")} data-testid="service-actions">
       {a.start && (
-        <button type="button" className={PRIMARY_BUTTON_CLASS} disabled={disabled} onClick={() => onVerb("start")} data-testid={`service-action-${a.start}`}>
+        <button type="button" className={PRIMARY_BUTTON_CLASS} disabled={disabled} aria-describedby={desc("start")} onClick={() => onVerb("start")} data-testid={`service-action-${a.start}`}>
           {a.start === "try-again" ? i18nT("services.action.tryAgain", undefined, "Try again") : i18nT("services.action.start", undefined, "Start")}
         </button>
       )}
       {a.retry && (
-        <button type="button" className={PRIMARY_BUTTON_CLASS} disabled={disabled} onClick={() => onVerb("retry")} data-testid="service-action-retry">
+        <button type="button" className={PRIMARY_BUTTON_CLASS} disabled={disabled} aria-describedby={desc("retry")} onClick={() => onVerb("retry")} data-testid="service-action-retry">
           {i18nT("services.action.retry", undefined, "Retry now")}
         </button>
       )}
       {a.prefetch && (
-        <button type="button" className={BUTTON_CLASS} disabled={disabled} onClick={() => onVerb("prefetch")} data-testid="service-action-prefetch">
+        <button type="button" className={BUTTON_CLASS} disabled={disabled} aria-describedby={desc("prefetch")} onClick={() => onVerb("prefetch")} data-testid="service-action-prefetch">
           {i18nT("services.action.prefetch", undefined, "Download package")}
         </button>
       )}
       {a.stop && (
-        <button type="button" className={BUTTON_CLASS} disabled={disabled} onClick={() => onVerb("stop")} data-testid="service-action-stop">
+        <button type="button" className={BUTTON_CLASS} disabled={disabled} aria-describedby={desc("stop")} onClick={() => onVerb("stop")} data-testid="service-action-stop">
           {i18nT("services.action.stop", undefined, "Stop")}
         </button>
       )}
@@ -187,12 +191,12 @@ function ActionBar({
         </button>
       )}
       {a.pin && (
-        <button type="button" className={BUTTON_CLASS} disabled={disabled} onClick={() => onVerb("pin")} data-testid="service-action-pin">
+        <button type="button" className={BUTTON_CLASS} disabled={disabled} aria-describedby={desc("pin")} onClick={() => onVerb("pin")} data-testid="service-action-pin">
           {i18nT("services.action.pin", undefined, "Keep running (pin)")}
         </button>
       )}
       {a.unpin && (
-        <button type="button" className={BUTTON_CLASS} disabled={disabled} onClick={() => onVerb("unpin")} data-testid="service-action-unpin">
+        <button type="button" className={BUTTON_CLASS} disabled={disabled} aria-describedby={desc("unpin")} onClick={() => onVerb("unpin")} data-testid="service-action-unpin">
           {i18nT("services.action.unpin", undefined, "Unpin")}
         </button>
       )}
@@ -206,6 +210,8 @@ export function ServiceDetailPage({ id, services, navigate }: { id: string; serv
   const [probing, setProbing] = useState(false);
   const [busyVerb, setBusyVerb] = useState<string | null>(null);
   const [failure, setFailure] = useState<ServicesResult<unknown> | null>(null);
+  const [failedVerb, setFailedVerb] = useState<string | null>(null);
+  const failureId = useId();
   const [dialog, setDialog] = useState<Dialog>(null);
 
   // The probing GET: once on open, and on an explicit Refresh.
@@ -219,6 +225,7 @@ export function ServiceDetailPage({ id, services, navigate }: { id: string; serv
   useEffect(() => {
     setProbed(null);
     setFailure(null);
+    setFailedVerb(null);
     void probe();
   }, [id]);
 
@@ -228,9 +235,13 @@ export function ServiceDetailPage({ id, services, navigate }: { id: string; serv
   const perform = async (verb: ServiceVerb) => {
     setBusyVerb(verb);
     setFailure(null);
+    setFailedVerb(null);
     const res = await runVerb(id, verb);
     setBusyVerb(null);
-    if (!res.ok) setFailure(res);
+    if (!res.ok) {
+      setFailure(res);
+      setFailedVerb(verb);
+    }
     void services.refetch();
   };
 
@@ -238,9 +249,13 @@ export function ServiceDetailPage({ id, services, navigate }: { id: string; serv
     if (!s || s.origin === undefined || s.origin === "user") return;
     setBusyVerb("update");
     setFailure(null);
+    setFailedVerb(null);
     const res = await addService({ offer: `${s.origin.package}#${s.id}`, update: true }, false);
     setBusyVerb(null);
-    if (!res.ok) setFailure(res);
+    if (!res.ok) {
+      setFailure(res);
+      setFailedVerb("update");
+    }
     void services.refetch();
   };
 
@@ -283,8 +298,8 @@ export function ServiceDetailPage({ id, services, navigate }: { id: string; serv
       )}
 
       <WhyCallout s={s} now={now} />
-      <ActionBar s={s} disabled={off} onVerb={perform} onForce={() => setDialog("force")} />
-      <ActionFailure failure={failure} />
+      <ActionBar s={s} disabled={off} onVerb={perform} onForce={() => setDialog("force")} failed={failure && !failure.ok && failedVerb ? { verb: failedVerb, id: failureId } : null} />
+      <ActionFailure failure={failure} id={failureId} />
       <StatusSection s={s} />
       <UpdateSection s={s} disabled={off} onApply={applyUpdate} />
       <ServiceSecretsSection service={s} disabled={off} onSaved={() => void services.refetch()} />

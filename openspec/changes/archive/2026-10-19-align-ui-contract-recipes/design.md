@@ -63,6 +63,7 @@ Current state on `develop` (after #966 `add-pi-spec-driven-schema` and #967 `ret
 
 Then it renders `SettingsStatusPill`. An explicit `icon` key resolves through `useMdiIconByKey` (lazy, as today) and is passed as `icon={resolved ?? undefined}`, so the tone default shows until the key resolves or when it is unknown. `running` passes `icon={mdiLoading}` with the new `spinning` prop (D3). The raw maps and `useIsLightTheme` are deleted. `tooltip` becomes `title` on a wrapper span.
 
+- **Decided in implementation.** `running` always shows the spinning `mdiLoading` and ignores an explicit `icon` key (a progress state needs the progress glyph, and it skips the lazy 2.8 MB set). The kit's neutral tone has no default glyph, so `muted` passes `mdiMinusCircleOutline` itself: test-plan #E1 expects an icon on every state, and changing the kit's neutral default would alter the 31 plugin call sites. `data-status-pill` and `title` sit on a thin wrapper span, because `SettingsStatusPill` only exposes `data-status`.
 - **Visual impact.** Base palettes change too: `running` goes from green to info-blue, and `warn` goes from yellow to the orange-derived warning triple. This is intended; one meaning, one colour.
 
 ### D3. Kit extensions, all additive
@@ -72,6 +73,7 @@ Then it renders `SettingsStatusPill`. An explicit `icon` key resolves through `u
   - New prop `remedies?: { icon: string; content: ReactNode }[]`, rendered as rows under `children` in the order given. Callers filter unknown remedies first, as vault does today. `content` may hold links, which the vault "Request access" row needs.
   - `aria-busy` is set while `retrying`.
   - Existing props are unchanged. `details` keeps its shipped behaviour: copied by "Copy details", never rendered.
+- **Added during migration** (cycle 3, below): `SettingsNotice` `icon`, `remediesLabel`, `remedyTestId`, `retryTestId`, remedy `id`; explicit `retrying={false}` → `aria-busy="false"`.
 - **`SettingsActionError` (new).** Props `{ id, children, details?, testId? }`. Renders `role="alert"`, `mt-1 flex items-start gap-1 text-xs text-[var(--severity-error-fg)]`, a static `mdiAlertCircleOutline`, the sentence, and a `SettingsCopyButton` when `details` is set. Exported from the runtime barrel.
 - **`SettingsCopyButton`.** When `navigator.clipboard` is missing or rejects, it shows the existing failure label instead of "Copied". Its behaviour is checked and fixed if needed. #969 already made it secure-context-safe.
 
@@ -173,6 +175,57 @@ Rows for patterns with no reference implementation in this change (tabs, filter 
 - **[11 px pill vs the 12 px interactive floor]** → The kit already switches to 12 px inside interactive elements; the probe covers both.
 - **[Plugin-set colours inside the menu]** → The host only sets the inherited colour. A plugin that paints `--text-tertiary` itself still fails contrast; the plugin wave owns that.
 - **[ArtifactChip / `statusPresentation`]** → The helper keeps `--status-*` (`client-utils-status-presentation` MODIFIED). The pill change does not touch it.
+
+## Implementation deviations (task 5)
+
+Found while migrating; none changes behaviour beyond what D4 lists.
+
+- **Plugin list has no `waiting_peers`.** The planned scenario and test #E8 assumed the plugin list shows a `waiting_peers` state. `waiting_peers` is a field of the shared `plugin-status.ts` type that no client component renders. The list's pill shows `unknown / error / disabled / not-loaded / enabled`. It now shows words ("Status unknown", "Failed to load", "Off", "Not loaded", "On", reusing the settings page's `packages.pill*` keys plus one new key `packages.pillOn`), with the raw state in `data-status`. **Reworded at ship time:** the `shared-status-recipes` scenario "Raw code stays out of the visible text" (and test-plan #E8, task 12.8) now describe a failed-to-load plugin ("Failed to load", `data-status="error"`).
+- **The settings page keeps `CopyableErrorBlock`.** `PluginSettingsPage` has a deliberate load-error exception (#E30: one sentence AND the full copyable error text) and an e2e spec pins its `-copy` test id. Only the plugin LIST's error blocks became `SettingsNotice` + `details` (new `PluginErrorNotice`).
+- **`ProviderHealthPill` testing/pending** were plain text rows; they are now info pills with a spinning icon.
+- **Vault pills stay 12 px** (`interactive`), because `retro-ux-credential-vault` requires text in controls at 12 px and `VaultBindingsChip.test` guards it. Services list-row pills (inside a `<button>`) are 12 px too; the detail header pill is 11 px.
+- **`stateMeta` lost its `glyph`** field (orphaned by the pill migration).
+- **Vault operate-required retry button: 44 → 32 px below `sm`.** It now uses the kit's `SettingsNotice` retry button (`min-h-[32px]`, the approved contract notice row) instead of its old `max-sm:min-h-[44px]` button. Not a spec violation; a candidate kit follow-up (a touch step-up for the notice buttons).
+
+### Found while writing the L3 specs (tasks 12.15–12.18)
+
+- **The session actions menu does not exist below 768 px.** `SessionCard` switches to its mobile layout when width < 768 or height < 600 (`useMobile`), and only the desktop layout renders `SessionActionsMenu`. So the `max-sm:min-h-[44px]` item class is unreachable on this build, and the `session-actions-menu` scenario "Touch viewport targets" (menu at 375 px) cannot be observed. The 36 px floor is pinned at L1 and measured at desktop width; the rail half of test #F3 runs at 375×800. **Reworded at ship time:** the `session-actions-menu` scenario "Touch viewport targets" now states the floor at the class level and says the menu is desktop-only; test-plan #F3 and task 12.17 cover the rail only. Making the menu available on touch would be a separate change.
+- **There is no "Settings → Appearance" theme control.** The theme picker lives in the sidebar, which the Settings dialog's scrim covers. Test #F1 changes the palette from the dashboard and re-enters Services by in-app navigation; `__noReload` proves no reload happened.
+- **No deterministic warning pill on the harness** (`blocked` needs a service that is healthy, then stops answering). #F1 covers the success and neutral tones.
+- **The settings rail strip does not scroll the current item into view** at 375 px (pre-existing; the item is in the DOM with its bar, off-screen to the right). Candidate follow-up.
+- **`SettingsCopyButton` merged with #969's `copyText()`**: the copy goes through `copyText()` (clipboard API, textarea fallback for plain-http origins); a refused or impossible copy now sets the "Copy failed" state and live region.
+
+## Kit props doubt review (task 2.5, 2026-10-18)
+
+Fresh-context, cross-model: `@propose-review-1` then `@propose-review-2` (both non-Claude, probed clean), artifact = the `settings-fields.tsx` diff, no author reasoning. 2 cycles, stop condition met (cycle 2: no blocking findings).
+
+**Fixed**
+- Non-error notices had no role, against the spec ("other tones as status") and leaving `aria-busy` inert. `SettingsNotice` now defaults to `role="status"` (error stays `alert`; explicit `role` wins). The one intended default change in the kit. The full suite (run with the worktree's own package links) found one test that assumed a single `status` region on the page (`ContextModeSettings` E11); it now picks the region that announces the unsaved count. An earlier per-package run of the 18 `ByRole("status")` consumers had imported the main checkout's kit through the parent `node_modules`, so it proved nothing; `pnpm install` in the worktree fixed that.
+- "Copy failed" was a silent label swap. `SettingsCopyButton` now has a standing `sr-only` `role="status"` live region. It renders a fragment (button + span); no caller targets the root.
+- `SettingsNotice` cognitive complexity went 16 → 17. Extracted `RemedyList` and `NoticeActions`; it is now under the cap.
+- D3 said the copy failure label "exists"; it did not. Added `settingsField.copyFailed` (en fallback, hu, zh-CN).
+- Test hygiene: the clipboard stub is restored in `afterEach`.
+
+**Accepted trade-offs**
+- `spinning` is a no-op without an icon, and rotates whatever glyph is shown. Documented on the prop: pair it with `mdiLoading`. `ui:status-pill` does this for `running`.
+- `SettingsActionError` does not enforce one sentence or id uniqueness. The caller owns both; documented (derive the id from the row id).
+- `remedies` filtering stays with callers (D3). Positional keys: a remedy list is static per failure.
+- The kit holds no pending state: `retrying` is caller-driven. **Task 4.2 carries the check** that the vault retry sets `retrying` synchronously, so two fast clicks send one request (test #X4).
+- Each `SettingsCopyButton` adds an unnamed `role="status"` region. A "Copy failed" announcement follows the user's own click on a focused button, so the focus supplies the context. A plugin test that asks for a single `status` role on a page with several copy buttons would need `within()`.
+- No `failedLabel` prop, no accessible name on the remedy list, no size cap on `details`, and the width jump on copy: nits.
+
+**Noise**
+- "`ui:status-pill` has no `spinning`": the public props are frozen and `running` passes `spinning` internally (task 3).
+- "`motion-reduce:` may be missing from plugin builds": the host compiles one stylesheet with `@source "../../dashboard-plugin-runtime/src"` (`packages/client/src/index.css:17`).
+- "plugin-row load error needs a unique `SettingsActionError` id": that consumer is a `SettingsNotice`.
+
+### Cycle 3: kit props added during the migration (2026-10-18)
+
+Migrating vault and services needed five more additive `SettingsNotice` props, because the existing tests and the vault spec pin test ids, `data-remedy` values and a named list: `icon` (tone-icon override, e.g. the lock), `remediesLabel` (list name, default "What you can do"), `remedyTestId` (every row), `retryTestId`, and remedy `id` (→ `data-remedy`, also the key). `retrying={false}` now reports `aria-busy="false"` (absent when `retrying` is omitted). Exported type `SettingsRemedy`. Reviewed by `@propose-review-2` on the delta, with the real consumers named: no blocking findings.
+
+- **Accepted, second intended default change:** a caller that already passes a boolean `retrying` now gets `aria-busy="false"` instead of no attribute. Identical for assistive tech; the vault spec and its tests require the explicit `"false"`.
+- **Noise:** "id-less rows lost `data-remedy=""`": `remedies` is new in this change, so nothing on develop relied on it. "Label default is English-only in core": core renders inside `PluginContextProvider` (`App.tsx:3059`), so `settingsField.remediesLabel` translates (hu, zh-CN added).
+- **Nits accepted:** duplicate ids fail soft (both callers dedupe); `retryTestId` replaces the derived id by design.
 
 ## Migration Plan
 

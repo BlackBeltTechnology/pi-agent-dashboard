@@ -430,7 +430,9 @@ describe("OpenSpecWorkflowSchemaSection", () => {
     const dialog = await screen.findByTestId("workflow-schema-confirm");
     expect(within(dialog).getByRole("heading", { name: "Adopt pi-spec-driven in pi-9router-proxy?" })).toBeTruthy();
     expect(confirmBtn().textContent).toBe("Adopt and regenerate");
-    expect(confirmBtn().className).toContain("bg-red-600");
+    // Destructive confirm = the danger intent: red tint triple, no raw red fill (align-ui-contract-recipes).
+    expect(confirmBtn().className).toContain("bg-[var(--tint-red-bg)]");
+    expect(confirmBtn().className).not.toContain("bg-red-600");
     expect(within(dialog).getByText(/hand customizations are discarded/i).closest("[data-severity]")?.getAttribute("data-severity")).toBe("warning");
   });
 
@@ -464,7 +466,9 @@ describe("OpenSpecWorkflowSchemaSection", () => {
     expect(within(dialog).getByText("Files removed")).toBeTruthy();
     expect(paths(dialog)).toEqual(["openspec/schemas/pi-spec-driven/"]);
     expect(confirmBtn().textContent).toBe("Remove schema files");
-    expect(confirmBtn().className).toContain("bg-red-600");
+    // Destructive confirm = the danger intent: red tint triple, no raw red fill (align-ui-contract-recipes).
+    expect(confirmBtn().className).toContain("bg-[var(--tint-red-bg)]");
+    expect(confirmBtn().className).not.toContain("bg-red-600");
     expect(within(dialog).getByText(/unmerged branches may still pin/i).closest("[data-severity]")?.getAttribute("data-severity")).toBe("warning");
   });
 

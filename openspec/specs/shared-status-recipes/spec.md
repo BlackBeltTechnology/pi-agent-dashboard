@@ -1,8 +1,9 @@
-## Purpose
+# shared-status-recipes Specification
 
+## Purpose
 One status pill, one notice and one inline action error for every dashboard surface, core and plugin, so state and failure read the same everywhere and stay token-sourced in every theme palette.
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: One status pill shows tone, icon and a human word
 
@@ -32,9 +33,9 @@ When the caller supplies no icon, the pill SHALL show the tone's default icon, p
 - **THEN** its progress icon SHALL NOT animate
 
 #### Scenario: Raw code stays out of the visible text
-- **WHEN** the plugin list shows a plugin in the `waiting_peers` state
-- **THEN** the visible word SHALL be a human phrase such as "Waiting for peers"
-- **AND** `waiting_peers` SHALL be available only as an attribute value
+- **WHEN** the plugin list shows a plugin whose load failed
+- **THEN** the visible word SHALL be a human phrase such as "Failed to load"
+- **AND** the raw state (`error`) SHALL be available only as an attribute value
 
 ### Requirement: One notice anatomy for callouts and banners
 
