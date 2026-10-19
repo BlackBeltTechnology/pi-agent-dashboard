@@ -102,10 +102,13 @@ describe("#E6 certificate selection per SNI name", () => {
     expect(await handshakeEventually(port, "host.example.ts.net")).toMatchObject({ ok: true, cn: "host.example.ts.net" });
     expect(await handshakeEventually(port, "dash.example.com")).toMatchObject({ ok: true, cn: "*.example.com" });
     for (const name of ["a.b.example.com", "example.com", "other.test"]) {
-      expect((await handshake(port, name)).ok).toBe(false);
+      const r = await handshake(port, name);
+      expect(r.ok, `${name}: ${JSON.stringify(r)}`).toBe(false);
     }
-    expect((await handshake(port, undefined)).ok).toBe(false); // no SNI (IP URL)
-    expect((await handshake(port, "127.0.0.1")).ok).toBe(false); // IP literal sends no SNI
+    const noSni = await handshake(port, undefined); // no SNI (IP URL)
+    expect(noSni.ok, `no SNI: ${JSON.stringify(noSni)}`).toBe(false);
+    const ipSni = await handshake(port, "127.0.0.1"); // IP literal sends no SNI
+    expect(ipSni.ok, `ip SNI: ${JSON.stringify(ipSni)}`).toBe(false);
   });
 
   it("a session resumed after its name was pruned also fails", async () => {
