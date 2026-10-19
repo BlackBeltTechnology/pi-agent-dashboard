@@ -65,7 +65,7 @@ describe("status --all per-turn budget", () => {
       prefs(),
       sessions(),
       { ...DEFAULT_OPENSPEC_POLL, useWorker },
-      { eventLoopSpikes: spikes, eventLoopSpikeFloorMs: DEFAULT_FLOOR, openspecVersionResolver: async () => "1.11.0" },
+      { eventLoopSpikes: spikes, eventLoopSpikeFloorMs: DEFAULT_FLOOR, openspecVersionResolver: async () => "1.14.3" },
     );
     await service.pollDirectoryGated(cwd); // cold poll (builds the cache)
     vi.mocked(fs.statSync).mockClear();

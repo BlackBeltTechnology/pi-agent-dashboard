@@ -159,7 +159,7 @@ function UntrustedNotice(): React.ReactElement {
         type="button"
         data-testid="mcp-folder-untrusted-access-link"
         onClick={() => navigate("/settings/access")}
-        className="underline text-[var(--accent-text,#60a5fa)]"
+        className="underline text-[var(--accent-text)]"
       >
         {t("mcpFolderOpenAccess", undefined, "Settings → Access")}
       </button>

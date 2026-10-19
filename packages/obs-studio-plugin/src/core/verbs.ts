@@ -63,6 +63,40 @@ async function setOutput(obs: GuardedObs, statusType: string, start: string, sto
 export const vcam = (obs: GuardedObs, on: boolean) => setOutput(obs, "GetVirtualCamStatus", "StartVirtualCam", "StopVirtualCam", on);
 export const record = (obs: GuardedObs, on: boolean) => setOutput(obs, "GetRecordStatus", "StartRecord", "StopRecord", on);
 
+export type OutputName = "stream" | "record" | "vcam";
+const OUTPUTS: ReadonlyArray<[OutputName, string, string]> = [
+  ["stream", "GetStreamStatus", "StopStream"],
+  ["record", "GetRecordStatus", "StopRecord"],
+  ["vcam", "GetVirtualCamStatus", "StopVirtualCam"],
+];
+
+/**
+ * Stop every active stream/record/virtual-camera output, then poll until they
+ * report inactive (`attempts` x `intervalMs`). OBS asks to confirm an exit
+ * while any output runs, so `pi-obs stop` calls this before quitting.
+ */
+export async function stopOutputs(
+  obs: GuardedObs,
+  opts: { sleep: (ms: number) => Promise<void>; attempts?: number; intervalMs?: number },
+): Promise<{ stopped: OutputName[]; stillActive: OutputName[] }> {
+  const supported = OUTPUTS.filter(([, get]) => obs.conn.availableRequests.has(get));
+  const isActive = async (get: string) => (await obs.request<{ outputActive?: boolean }>(get)).outputActive === true;
+  const stopped: OutputName[] = [];
+  for (const [name, get, stop] of supported) {
+    if (!(await isActive(get))) continue;
+    await obs.request(stop);
+    stopped.push(name);
+  }
+  let stillActive: OutputName[] = [];
+  for (let i = 0; i < (opts.attempts ?? 20); i++) {
+    stillActive = [];
+    for (const [name, get] of supported) if (stopped.includes(name) && (await isActive(get))) stillActive.push(name);
+    if (stillActive.length === 0) break;
+    await opts.sleep(opts.intervalMs ?? 250);
+  }
+  return { stopped, stillActive };
+}
+
 /** Set a custom RTMP target. `key` comes from stdin; it is never returned or logged. */
 export async function streamTarget(obs: GuardedObs, server: string, key: string): Promise<{ server: string; keySet: boolean }> {
   await obs.request("SetStreamServiceSettings", {

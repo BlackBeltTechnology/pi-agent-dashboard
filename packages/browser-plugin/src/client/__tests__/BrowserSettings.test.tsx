@@ -4,7 +4,7 @@
  * kill switch, and capability-missing.
  */
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BrowserSettings } from "../BrowserSettings.js";
 import type {
@@ -116,7 +116,7 @@ describe("BrowserSettings", () => {
 		await waitFor(() =>
 			expect((getByTestId("browser-token-input-OSS") as HTMLInputElement).value).toBe(""),
 		);
-		await waitFor(() => expect(getByTestId("browser-has-token-OSS").textContent).toBe("Token set"));
+		await waitFor(() => expect(getByTestId("browser-has-token-OSS").textContent).toBe("Paired"));
 		expect((getByTestId("browser-zero-dialog-OSS") as HTMLInputElement).disabled).toBe(false);
 
 		// The token is never rendered anywhere.
@@ -456,7 +456,7 @@ describe("BrowserSettings — dedicated profile panel", () => {
 		await waitFor(() => expect(getByTestId("browser-agent-browsing")).toBeTruthy());
 		expect(getByTestId("browser-agent-browsing-disabled").textContent).toContain("Browser relay disabled");
 		const group = getByTestId("browser-agent-browsing");
-		const controls = group.querySelectorAll("input, select");
+		const controls = group.querySelectorAll("input, select, button[role=switch]");
 		expect(controls.length).toBeGreaterThan(5);
 		for (const c of controls) expect((c as HTMLInputElement).disabled, c.getAttribute("data-testid") ?? c.outerHTML).toBe(true);
 
@@ -579,7 +579,7 @@ describe("BrowserSettings — profile list", () => {
 
 		// One disclosure for the three uninstalled profiles.
 		const disclosure = getByTestId("browser-uninstalled-disclosure");
-		expect(disclosure.textContent).toContain("3 more profiles without the extension");
+		expect(disclosure.textContent).toContain("3 · extension missing");
 		const uninstalled = getByTestId("browser-uninstalled-profiles");
 		for (const dir of ["Profile 31", "Profile 32", "Profile 33"]) {
 			expect(uninstalled.contains(getByTestId(`browser-store-link-${dir}`))).toBe(true);
@@ -601,7 +601,7 @@ describe("BrowserSettings — profile list", () => {
 	it("#F9 singular disclosure label for one uninstalled profile; none when all installed", async () => {
 		installDab({ profiles: { OSS: row("OSS"), P2: row("P2", { installed: false }) } });
 		const first = renderWithPlugin(<BrowserSettings />);
-		await waitFor(() => expect(first.getByTestId("browser-uninstalled-disclosure").textContent).toContain("1 more profile without the extension"));
+		await waitFor(() => expect(first.getByTestId("browser-uninstalled-disclosure").textContent).toContain("1 · extension missing"));
 		first.unmount();
 		installDab({ profiles: { OSS: row("OSS") } });
 		const second = renderWithPlugin(<BrowserSettings />);
@@ -661,7 +661,7 @@ describe("BrowserSettings — Agent browsing group", () => {
 		expect((getByTestId("browser-on-unavailable-next") as HTMLInputElement).checked).toBe(true);
 		expect((getByTestId("browser-idle-select") as HTMLSelectElement).value).toBe("120");
 		expect((getByTestId("browser-multi-several") as HTMLInputElement).checked).toBe(true);
-		expect((getByTestId("browser-live-view") as HTMLInputElement).checked).toBe(false);
+		expect(getByTestId("browser-live-view").getAttribute("aria-checked")).toBe("false");
 		expect((getByTestId("browser-global-domains") as HTMLInputElement).value).toBe("google.com, github.com");
 	});
 
@@ -673,7 +673,7 @@ describe("BrowserSettings — Agent browsing group", () => {
 		expect((getByTestId("browser-on-unavailable-ask") as HTMLInputElement).checked).toBe(true);
 		expect((getByTestId("browser-idle-select") as HTMLSelectElement).value).toBe("30");
 		expect((getByTestId("browser-multi-one") as HTMLInputElement).checked).toBe(true);
-		expect((getByTestId("browser-live-view") as HTMLInputElement).checked).toBe(true);
+		expect(getByTestId("browser-live-view").getAttribute("aria-checked")).toBe("true");
 		expect((getByTestId("browser-global-domains") as HTMLInputElement).value).toBe("");
 	});
 
@@ -769,6 +769,309 @@ describe("BrowserSettings — Agent browsing group", () => {
 		const groups = getAllByRole("radiogroup");
 		expect(groups.length).toBeGreaterThanOrEqual(2);
 		for (const g of groups) expect(g.getAttribute("aria-labelledby")).toBeTruthy();
-		expect(getByTestId("browser-real-profile-select").getAttribute("aria-label")).toBeTruthy();
+		expect((getByTestId("browser-real-profile-select") as HTMLSelectElement).labels?.[0]?.textContent).toBeTruthy();
+	});
+});
+
+
+// ── Wave 2: settings consistency (change: retro-ux-plugin-settings-wave-2) ──
+function jsonFail(status: number): Response {
+	return { ok: false, status, headers: new Headers(), json: async () => ({}) } as unknown as Response;
+}
+
+/** A fetch fake: `handler` may return a body, or a `Response` to force a failure. */
+function installRoutes(handler: (url: string, init?: RequestInit) => unknown) {
+	const mock = vi.fn(async (url: string, init?: RequestInit) => {
+		const out = handler(url, init);
+		return out && typeof out === "object" && "ok" in (out as object) ? (out as Response) : jsonOk(out);
+	});
+	(globalThis as { fetch?: unknown }).fetch = mock;
+	return mock;
+}
+
+describe("BrowserSettings — wave-2 consistency", () => {
+	const row = (dir: string, over: Partial<BrowserRouteProfile> = {}) =>
+		profile({ profileDirectory: dir, label: `L-${dir}`, ...over });
+
+	function baseRoutes(profiles: Record<string, BrowserRouteProfile>, extra: (url: string, init?: RequestInit) => unknown = () => undefined) {
+		return installRoutes((url, init) => {
+			const custom = extra(url, init);
+			if (custom !== undefined) return custom;
+			if (url.endsWith("/status")) return { enabled: true, canOpenChrome: true };
+			if (url.includes("/profiles")) return { profiles };
+			return { entries: [] };
+		});
+	}
+
+	it("#E22 groups profiles: 1 card under the extension heading, collapsed 'Other Chrome profiles' with a count, pills in every summary", async () => {
+		baseRoutes({
+			A: row("A"),
+			B: row("B", { installed: false }),
+			C: row("C", { installed: false }),
+			D: row("D", { installed: false }),
+		});
+		const { getByTestId, getByRole, container } = renderWithPlugin(<BrowserSettings />);
+		await waitFor(() => expect(getByTestId("browser-profile-A")).toBeTruthy());
+
+		const heading = getByRole("heading", { name: "Chrome profiles with the extension" });
+		expect(heading).toBeTruthy();
+		const installed = getByTestId("browser-installed-profiles");
+		expect(installed.querySelectorAll('[data-testid^="browser-summary-"]')).toHaveLength(1);
+		expect(installed.contains(getByTestId("browser-profile-A"))).toBe(true);
+
+		const other = getByTestId("browser-uninstalled-profiles");
+		expect(other.tagName).toBe("DETAILS");
+		expect((other as HTMLDetailsElement).open).toBe(false);
+		const summary = getByTestId("browser-uninstalled-disclosure");
+		expect(summary.textContent).toContain("Other Chrome profiles");
+		expect(summary.textContent).toContain("3 · extension missing");
+		for (const dir of ["B", "C", "D"]) expect(other.contains(getByTestId(`browser-profile-${dir}`)), dir).toBe(true);
+
+		// Status is a word in every card summary (visible while collapsed), never colour alone.
+		const a = getByTestId("browser-summary-A").textContent ?? "";
+		expect(a).toContain("Extension installed");
+		expect(a).toContain("Not paired");
+		for (const dir of ["B", "C", "D"]) expect(getByTestId(`browser-summary-${dir}`).textContent).toContain("Extension missing");
+		expect(container.querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
+	});
+
+	it("#E22 a collapsed card still shows the Paired and Connected · N tabs words", async () => {
+		baseRoutes({ A: row("A", { hasToken: true, instances: [liveInstance] }) });
+		const { getByTestId } = renderWithPlugin(<BrowserSettings />);
+		await waitFor(() => expect(getByTestId("browser-summary-A")).toBeTruthy());
+		const card = getByTestId("browser-profile-A") as HTMLDetailsElement;
+		card.open = false;
+		const text = getByTestId("browser-summary-A").textContent ?? "";
+		expect(text).toContain("Paired");
+		expect(text).toContain("Connected · 1 tabs");
+		expect(getByTestId("browser-has-token-A").textContent).toBe("Paired");
+	});
+
+	it("#E23 zero-dialog without a token is disabled and says why through aria-describedby", async () => {
+		baseRoutes({ A: row("A", { hasToken: false }) });
+		const { getByTestId } = renderWithPlugin(<BrowserSettings />);
+		await waitFor(() => expect(getByTestId("browser-zero-dialog-A")).toBeTruthy());
+		const sw = getByTestId("browser-zero-dialog-A");
+		expect(sw.getAttribute("role")).toBe("switch");
+		expect((sw as HTMLButtonElement).disabled).toBe(true);
+		const described = (sw.getAttribute("aria-describedby") ?? "").split(" ").map((id) => document.getElementById(id)?.textContent ?? "");
+		expect(described.join(" ")).toContain("Pair this profile first");
+	});
+
+	it("#E23 with a token the hint explains the 60 s timeout instead and the switch is usable", async () => {
+		baseRoutes({ A: row("A", { hasToken: true }) });
+		const { getByTestId } = renderWithPlugin(<BrowserSettings />);
+		await waitFor(() => expect(getByTestId("browser-zero-dialog-A")).toBeTruthy());
+		const sw = getByTestId("browser-zero-dialog-A") as HTMLButtonElement;
+		expect(sw.disabled).toBe(false);
+		const described = (sw.getAttribute("aria-describedby") ?? "").split(" ").map((id) => document.getElementById(id)?.textContent ?? "").join(" ");
+		expect(described).toContain("60 s timeout");
+		expect(described).not.toContain("Pair this profile first");
+	});
+
+	it("#E6 #E8 the relay switch is named 'Relay connections' (testid kept); no checkbox, no Enabled control, no plugin-name heading", async () => {
+		baseRoutes({ A: row("A") });
+		const { getByTestId, getByRole, container, queryByRole } = renderWithPlugin(<BrowserSettings />);
+		await waitFor(() => expect(getByTestId("browser-profile-A")).toBeTruthy());
+		const sw = getByRole("switch", { name: "Relay connections" });
+		expect(sw).toBe(getByTestId("browser-enabled-toggle"));
+		expect(sw.getAttribute("aria-checked")).toBe("true");
+		expect(container.querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
+		for (const name of ["Enabled", "Enable", "On"]) expect(queryByRole("switch", { name })).toBeNull();
+		for (const h of container.querySelectorAll("h1,h2,h3,h4,h5,h6")) {
+			expect(h.textContent).not.toMatch(/^(Browser Relay|browser)$/);
+		}
+		// every switch has an accessible name
+		for (const s of container.querySelectorAll('[role="switch"]')) {
+			expect(s.id && container.querySelector(`label[for="${s.id}"]`), s.getAttribute("data-testid") ?? "").toBeTruthy();
+		}
+	});
+
+	it("relay off: an info notice says no session can reach Chrome", async () => {
+		installRoutes((url) => {
+			if (url.endsWith("/status")) return { enabled: false, canOpenChrome: true };
+			if (url.includes("/profiles")) return { profiles: { A: row("A") } };
+			return { entries: [] };
+		});
+		const { getByTestId } = renderWithPlugin(<BrowserSettings />);
+		await waitFor(() => expect(getByTestId("browser-relay-off")).toBeTruthy());
+		expect(getByTestId("browser-relay-off").getAttribute("data-tone")).toBe("info");
+		expect(getByTestId("browser-relay-off").textContent).toContain("No session can reach Chrome");
+		expect((getByTestId("browser-enabled-toggle") as HTMLButtonElement).getAttribute("aria-checked")).toBe("false");
+	});
+
+	it("#X1 a failed token save is scoped to that profile's card; the token is kept and never leaks into the notice or Copy details", async () => {
+		const TOKEN = "s3cr3t-tok-AAA";
+		let fail = true;
+		const fetchMock = baseRoutes({ A: row("A"), B: row("B") }, (url, init) => {
+			if (url.endsWith("/profile") && init?.method === "PUT") {
+				const body = JSON.parse(String(init.body)) as { profileDirectory: string };
+				if (body.profileDirectory === "A" && fail) return jsonFail(500);
+				return { profileDirectory: body.profileDirectory, hasToken: true };
+			}
+			return undefined;
+		});
+		const written: string[] = [];
+		Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: vi.fn(async (t: string) => void written.push(t)) } });
+
+		const { getByTestId, queryByTestId } = renderWithPlugin(<BrowserSettings />);
+		await waitFor(() => expect(getByTestId("browser-token-input-A")).toBeTruthy());
+		fireEvent.change(getByTestId("browser-token-input-A"), { target: { value: TOKEN } });
+		fireEvent.click(getByTestId("browser-token-save-A"));
+
+		const cardA = getByTestId("browser-profile-A");
+		const notice = await waitFor(() => within(cardA).getByTestId("browser-error-A"));
+		expect(notice.getAttribute("role")).toBe("alert");
+		expect(notice.textContent).toContain("The token was not saved");
+		expect(within(notice).getByRole("button", { name: "Try again" })).toBeTruthy();
+		expect(notice.textContent).not.toContain(TOKEN);
+		expect(notice.textContent).not.toMatch(/500/);
+
+		// B and the relay switch are untouched and usable; the typed token stays in A's input.
+		expect(queryByTestId("browser-error-B")).toBeNull();
+		expect(within(getByTestId("browser-profile-B")).queryByRole("alert")).toBeNull();
+		expect((getByTestId("browser-token-input-A") as HTMLInputElement).value).toBe(TOKEN);
+		expect((getByTestId("browser-enabled-toggle") as HTMLButtonElement).disabled).toBe(false);
+		expect((getByTestId("browser-token-input-B") as HTMLInputElement).disabled).toBe(false);
+		fireEvent.change(getByTestId("browser-token-input-B"), { target: { value: "bbb" } });
+		expect((getByTestId("browser-token-save-B") as HTMLButtonElement).disabled).toBe(false);
+
+		// Copy details carries diagnostics but not the token.
+		await act(async () => {
+			fireEvent.click(within(notice).getByRole("button", { name: "Copy details" }));
+		});
+		await waitFor(() => expect(written).toHaveLength(1));
+		expect(written[0]).not.toContain(TOKEN);
+		expect(JSON.stringify(fetchMock.mock.calls.filter(([u]) => !String(u).endsWith("/profile")))).not.toContain(TOKEN);
+
+		// Try again resends the kept token.
+		fail = false;
+		fireEvent.click(within(notice).getByRole("button", { name: "Try again" }));
+		await waitFor(() => expect(queryByTestId("browser-error-A")).toBeNull());
+		const puts = fetchMock.mock.calls.filter(([u, i]) => String(u).endsWith("/profile") && (i as RequestInit)?.method === "PUT");
+		expect(puts.filter(([, i]) => String((i as RequestInit).body).includes(TOKEN))).toHaveLength(2);
+		await waitFor(() => expect((getByTestId("browser-token-input-A") as HTMLInputElement).value).toBe(""));
+	});
+
+	it("#X1 a failed zero-dialog write reverts the switch and shows the error in that card only", async () => {
+		baseRoutes({ A: row("A", { hasToken: true }), B: row("B", { hasToken: true }) }, (url, init) => {
+			if (url.endsWith("/profile") && init?.method === "PUT") return jsonFail(500);
+			return undefined;
+		});
+		const { getByTestId, queryByTestId } = renderWithPlugin(<BrowserSettings />);
+		await waitFor(() => expect(getByTestId("browser-zero-dialog-A")).toBeTruthy());
+		fireEvent.click(getByTestId("browser-zero-dialog-A"));
+		await waitFor(() => expect(getByTestId("browser-error-A")).toBeTruthy());
+		expect(getByTestId("browser-zero-dialog-A").getAttribute("aria-checked")).toBe("false");
+		expect(queryByTestId("browser-error-B")).toBeNull();
+	});
+
+	it("#X2 a failed relay switch write reverts the switch, shows an error with Try again, and keeps the profile list", async () => {
+		let fail = true;
+		const fetchMock = baseRoutes({ A: row("A") }, (url, init) => {
+			if (url.endsWith("/enabled") && init?.method === "PUT") return fail ? jsonFail(500) : { enabled: false };
+			return undefined;
+		});
+		const { getByTestId, queryByTestId } = renderWithPlugin(<BrowserSettings />);
+		await waitFor(() => expect(getByTestId("browser-profile-A")).toBeTruthy());
+		expect(getByTestId("browser-enabled-toggle").getAttribute("aria-checked")).toBe("true");
+
+		fireEvent.click(getByTestId("browser-enabled-toggle"));
+		const notice = await waitFor(() => getByTestId("browser-relay-error"));
+		expect(notice.getAttribute("role")).toBe("alert");
+		expect(within(notice).getByRole("button", { name: "Try again" })).toBeTruthy();
+		expect(notice.textContent).not.toMatch(/500|PUT/);
+		expect(getByTestId("browser-enabled-toggle").getAttribute("aria-checked")).toBe("true");
+		expect(getByTestId("browser-profile-A")).toBeTruthy();
+		expect(queryByTestId("browser-settings-error")).toBeNull();
+
+		fail = false;
+		fireEvent.click(within(notice).getByRole("button", { name: "Try again" }));
+		await waitFor(() => expect(queryByTestId("browser-relay-error")).toBeNull());
+		const puts = fetchMock.mock.calls.filter(([u, i]) => String(u).endsWith("/enabled") && (i as RequestInit)?.method === "PUT");
+		expect(puts).toHaveLength(2);
+		expect(JSON.parse(String((puts[1][1] as RequestInit).body))).toEqual({ enabled: false });
+	});
+
+	it("initial load failure: an error notice with Try again, raw detail only behind Copy details", async () => {
+		let down = true;
+		installRoutes((url) => {
+			if (down) return jsonFail(503);
+			if (url.endsWith("/status")) return { enabled: true, canOpenChrome: true };
+			if (url.includes("/profiles")) return { profiles: { A: row("A") } };
+			return { entries: [] };
+		});
+		const { getByTestId, queryByTestId } = renderWithPlugin(<BrowserSettings />);
+		const notice = await waitFor(() => getByTestId("browser-settings-error"));
+		expect(notice.getAttribute("role")).toBe("alert");
+		expect(notice.textContent).toMatch(/settings are unavailable/i);
+		expect(notice.textContent).not.toMatch(/503|GET|failed:/);
+		expect(within(notice).getByRole("button", { name: "Copy details" })).toBeTruthy();
+		down = false;
+		fireEvent.click(within(notice).getByRole("button", { name: "Try again" }));
+		await waitFor(() => expect(getByTestId("browser-profile-A")).toBeTruthy());
+		expect(queryByTestId("browser-settings-error")).toBeNull();
+	});
+
+	it("the unreadable-profile-list warning shows a sentence, the raw path only behind Copy details", async () => {
+		installRoutes((url) => {
+			if (url.endsWith("/status")) return { enabled: true, canOpenChrome: true };
+			if (url.includes("/profiles")) return { profiles: { A: row("A") }, warning: "/Users/u/Library/Chrome/Local State" };
+			return { entries: [] };
+		});
+		const { getByTestId } = renderWithPlugin(<BrowserSettings />);
+		await waitFor(() => expect(getByTestId("browser-profiles-warning")).toBeTruthy());
+		expect(getByTestId("browser-profiles-warning").textContent).not.toContain("/Users/u");
+		expect(within(getByTestId("browser-profiles-warning")).getByRole("button", { name: "Copy details" })).toBeTruthy();
+	});
+
+	it("the store link and Connect are contract controls: link uses --link, Connect is not a primary button", async () => {
+		baseRoutes({ A: row("A"), B: row("B", { installed: false }) });
+		const { getByTestId } = renderWithPlugin(<BrowserSettings />);
+		await waitFor(() => expect(getByTestId("browser-store-link-B")).toBeTruthy());
+		expect(getByTestId("browser-store-link-B").className).toContain("--link");
+		expect(getByTestId("browser-connect-A").className).not.toContain("--accent-solid");
+	});
+});
+
+describe("BrowserSettings — This computer block (wave 2)", () => {
+	it("each host token input has a visible label and Revoke is a danger action", async () => {
+		const host = makeFakeBrowserHost({ profiles: [{ profileDirectory: "Default", label: "Person 1", installed: true }] });
+		host.setConsents([{ key: "k1", serverOrigin: "http://dash.test:8000", profileDirectory: "Default", grantedAt: 1 }]);
+		installBrowserHost(host);
+		installFetch((url) => {
+			if (url.endsWith("/status")) return { enabled: true, canOpenChrome: true, operatorHosts: true };
+			if (url.includes("/profiles")) return { profiles: { OSS: profile() } };
+			return { entries: [] };
+		});
+		const { getByTestId } = renderWithPlugin(<BrowserSettings />);
+		await waitFor(() => expect(getByTestId("browser-host-consent-revoke-k1")).toBeTruthy());
+		const input = getByTestId("browser-host-token-input-Default") as HTMLInputElement;
+		expect(input.labels?.[0]?.textContent).toContain("Pairing token");
+		expect(getByTestId("browser-host-consent-revoke-k1").className).toContain("--severity-error");
+		// the section keeps an accessible name and the existing heading structure
+		expect(getByTestId("browser-this-computer").textContent).toContain("This computer");
+	});
+
+	it("a failed setToken shows the sentence with Try again, keeps the draft, and the retry resends it", async () => {
+		const host = makeFakeBrowserHost({ profiles: [{ profileDirectory: "Default", label: "Person 1", installed: true }] });
+		installBrowserHost(host);
+		installFetch((url) => {
+			if (url.endsWith("/status")) return { enabled: true, canOpenChrome: true, operatorHosts: true };
+			if (url.includes("/profiles")) return { profiles: { OSS: profile() } };
+			return { entries: [] };
+		});
+		(host.setToken as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("untrusted"));
+		const { getByTestId, queryByTestId } = renderWithPlugin(<BrowserSettings />);
+		await waitFor(() => expect(getByTestId("browser-host-token-input-Default")).toBeTruthy());
+		fireEvent.change(getByTestId("browser-host-token-input-Default"), { target: { value: "zz-secret-9" } });
+		fireEvent.click(getByTestId("browser-host-token-save-Default"));
+		const err = await waitFor(() => getByTestId("browser-host-token-error-Default"));
+		expect(err.getAttribute("role")).toBe("alert");
+		expect(err.textContent).toContain("Could not save the token.");
+		expect(err.textContent).not.toContain("zz-secret-9");
+		fireEvent.click(within(err).getByRole("button", { name: "Try again" }));
+		await waitFor(() => expect(host.setToken).toHaveBeenCalledTimes(2));
+		await waitFor(() => expect(queryByTestId("browser-host-token-error-Default")).toBeNull());
 	});
 });

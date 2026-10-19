@@ -8,9 +8,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { FolderMcpPage } from "../FolderMcpPage.js";
 import { __resetNotTrackedCache, invalidateEffective } from "../hooks.js";
 
-vi.mock("@blackbelt-technology/dashboard-plugin-runtime", () => ({
-  useT: () => (_key: string, _params?: unknown, fallback?: string) => fallback ?? _key,
-}));
+vi.mock("@blackbelt-technology/dashboard-plugin-runtime", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@blackbelt-technology/dashboard-plugin-runtime")>();
+  return {
+    ...actual,
+    useT: () => (_key: string, _params?: unknown, fallback?: string) => fallback ?? _key,
+  };
+});
 
 const CWD = "/repo/override-wt";
 
@@ -131,7 +135,7 @@ describe("F2: the switch calls setEnabled at project scope", () => {
     const sw = (await screen.findByTestId("mcp-server-toggle-pi-global:docs")) as HTMLInputElement;
     fireEvent.click(sw);
     expect((await screen.findByTestId("mcp-server-error-pi-global:docs")).textContent).toContain("boom");
-    expect(sw.checked).toBe(true);
+    expect(sw.getAttribute("aria-checked")).toBe("true");
   });
 });
 
@@ -264,7 +268,7 @@ describe("F9: untrusted project", () => {
     fireEvent.click(sw);
     await waitFor(() => expect(calls.some((c) => c.url.endsWith("/enabled"))).toBe(true));
     expect((await screen.findByTestId("mcp-folder-pending-pi-global:docs")).textContent).toContain("applies once the project is trusted");
-    await waitFor(() => expect(sw.checked).toBe(true));
+    await waitFor(() => expect(sw.getAttribute("aria-checked")).toBe("true"));
   });
 
   it("an existing untrusted override shows on the global row, not as a second row", async () => {

@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change provision-openspec-cli-in-sessions. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Bridge SHALL make the openspec CLI resolvable in-session
 
 The bridge extension SHALL ensure that, for any pi session it runs in, the
@@ -25,9 +27,9 @@ directory and prepending that directory to the session process's `PATH` so that
 
 - **WHEN** the shim's `openspec` is invoked
 - **THEN** it SHALL execute the `@fission-ai/openspec` resolved for the extension
-  at the single-source version (see `openspec-cli-version-single-source`; `1.11.0`),
+  at the single-source version (see `openspec-cli-version-single-source`; `1.14.3`),
   lockfile-resolved, requiring no network fetch and no `npx`-latest download
-- **AND** `openspec --version` SHALL report the single-source version (`1.11.0`)
+- **AND** `openspec --version` SHALL report the single-source version (`1.14.3`)
 
 ### Requirement: PATH prepend SHALL be idempotent and non-destructive
 
@@ -84,4 +86,3 @@ the session silently unprovisioned.
 - **THEN** bridge init SHALL continue and skip the PATH prepend — not throw
 - **AND** a diagnostic SHALL be logged
 - **AND** a dashboard-visible `missingTool`-style signal SHALL be emitted
-

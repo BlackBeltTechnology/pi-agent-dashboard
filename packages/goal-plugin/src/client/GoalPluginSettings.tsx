@@ -7,41 +7,46 @@
  *
  * See change: add-goal-continuation-plugin.
  */
-import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { SettingsStatusPill, ToggleField, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type React from "react";
 import { useState } from "react";
 import { getAutoRespawnDefault, setAutoRespawnDefault } from "./goal-settings.js";
 
+/** Settings body. The switch is an immediate per-browser preference (localStorage), not a host Save-bar source (design D4 exception). */
 export function GoalPluginSettings(): React.ReactElement {
   const t = useT();
   const [autoRespawn, setAutoRespawn] = useState<boolean>(() => getAutoRespawnDefault());
+  const code = "font-mono text-[12px] text-[var(--text-primary)]";
   return (
-    <div className="text-[13px] text-[var(--text-secondary)] space-y-2">
+    <div className="space-y-3 text-xs text-[var(--text-secondary)]">
       <p>
         {t("settingsIntro1", undefined, "The autonomous goal loop, judge model, and turn budget are owned by the")}{" "}
-        <code className="font-mono text-[12px]">@ricoyudog/pi-goal-hermes</code>{" "}
+        <code className={code}>@ricoyudog/pi-goal-hermes</code>{" "}
         {t("settingsIntro2", undefined, "pi extension. This plugin surfaces its status as a session-card chip.")}
       </p>
-      <p className="text-[var(--text-muted)]">
+      <p>
         {t("settingsInstall", undefined, "Install the extension into pi to activate. Set or control a goal from a session using")}{" "}
-        <code className="font-mono text-[12px]">/goal &lt;objective&gt;</code>.
+        <code className={code}>/goal &lt;objective&gt;</code>.
       </p>
-      <label className="flex items-center gap-2 pt-1" data-testid="goal-settings-auto-respawn-default">
-        <input
-          type="checkbox"
-          checked={autoRespawn}
-          onChange={(e) => {
-            setAutoRespawn(e.target.checked);
-            setAutoRespawnDefault(e.target.checked);
+      <div className="space-y-1">
+        <SettingsStatusPill tone="neutral" icon={null} testId="goal-settings-browser-pill">
+          {t("thisBrowser", undefined, "This browser")}
+        </SettingsStatusPill>
+        <ToggleField
+          label={t("autoRespawnDefaultLabel", undefined, "Auto-restart new goals by default")}
+          hint={`${t(
+            "autoRespawnHelp",
+            undefined,
+            "When a goal's session dies, start a new one to keep going — limited by the turn budget and a crash-loop breaker. Each goal can override this.",
+          )} ${t("autoRespawnBrowserNote", undefined, "Saved in this browser only.")}`}
+          value={autoRespawn}
+          onChange={(v) => {
+            setAutoRespawn(v);
+            setAutoRespawnDefault(v);
           }}
+          testIds={{ control: "goal-settings-auto-respawn-default" }}
         />
-        <span>
-          {t("autoRespawnDefaultLabel", undefined, "Auto-restart new goals by default")}
-          <span className="block text-[11px] text-[var(--text-muted)]">
-            {t("autoRespawnHelp", undefined, "When a goal's driver session dies, the dashboard starts a new one to keep pursuing — bounded by the turn budget and a crash-loop breaker. Off by default; each goal can override.")}
-          </span>
-        </span>
-      </label>
+      </div>
     </div>
   );
 }

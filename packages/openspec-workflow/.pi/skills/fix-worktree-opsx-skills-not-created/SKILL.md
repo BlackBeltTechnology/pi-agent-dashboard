@@ -16,7 +16,7 @@ Use when a git worktree lacks the OpenSpec lifecycle skills (`.pi/skills/openspe
    ```bash
    pnpm exec openspec init --tools pi --force
    ```
-   `pnpm exec` uses the declared local dependency and fails when the binary is absent. In a repository that does not declare the CLI, use the version-pinned scoped package explicitly: `npx @fission-ai/openspec@1.6.0 init --tools pi --force`.
+   `pnpm exec` uses the declared local dependency and fails when the binary is absent. In a repository that does not declare the CLI, use the version-pinned scoped package explicitly: `npx @fission-ai/openspec@1.14.3 init --tools pi --force`.
 5. Verify the CLI reports setup success. Check the lifecycle skills this repository requires by name: `openspec-explore`, `openspec-propose`, `openspec-apply-change`, `openspec-update-change`, and `openspec-archive-change`.
 6. Check `git status --short`. Generated `openspec-*` skill directories should remain ignored. Review any tracked context-file rewrite before continuing.
 

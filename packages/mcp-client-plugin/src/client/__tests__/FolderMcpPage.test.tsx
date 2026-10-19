@@ -13,9 +13,13 @@ import schemaDoc from "../../../schema/mcp-config.schema.json";
 import { FolderMcpPage } from "../FolderMcpPage.js";
 import { __resetNotTrackedCache, invalidateEffective } from "../hooks.js";
 
-vi.mock("@blackbelt-technology/dashboard-plugin-runtime", () => ({
-  useT: () => (_key: string, _params?: unknown, fallback?: string) => fallback ?? _key,
-}));
+vi.mock("@blackbelt-technology/dashboard-plugin-runtime", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@blackbelt-technology/dashboard-plugin-runtime")>();
+  return {
+    ...actual,
+    useT: () => (_key: string, _params?: unknown, fallback?: string) => fallback ?? _key,
+  };
+});
 
 const SCHEMA = schemaDoc as unknown as Record<string, unknown>;
 const CWD = "/repo/wt";
@@ -283,7 +287,7 @@ describe("folder enable/disable writes", () => {
     );
     renderPage();
     const toggle = await screen.findByTestId("mcp-server-toggle-pi-folder:srv");
-    expect((toggle as HTMLInputElement).checked).toBe(false);
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
 
     fireEvent.click(toggle); // enable → needs-choice
     const panel = await screen.findByTestId("mcp-folder-needs-choice");

@@ -24,9 +24,25 @@ import type {
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULTS, KNOWN_KEYS, validateBlackholeConfig } from "../../shared/blackhole-config.js";
 import { BlackholeSettings, buildPayload, toDraft } from "../BlackholeSettings.js";
+
+/** Last text written to the (stubbed) clipboard by a "Copy details" / "Copy command" button. */
+let clipboardText = "";
+
+beforeEach(() => {
+  clipboardText = "";
+  Object.defineProperty(navigator, "clipboard", {
+    value: {
+      writeText: (text: string) => {
+        clipboardText = text;
+        return Promise.resolve();
+      },
+    },
+    configurable: true,
+  });
+});
 
 afterEach(() => {
   cleanup();
@@ -239,7 +255,8 @@ describe("parse-error state renders no form (X1, X3)", () => {
     const { getByTestId, container } = renderSettings();
     await waitFor(() => expect(getByTestId("blackhole-parse-error")).toBeTruthy());
 
-    expect(getByTestId("blackhole-parse-message").textContent).toContain("Unexpected token");
+    // Parser text is raw detail: it travels only through "Copy details" (see X11 below).
+    expect(getByTestId("blackhole-parse-message").textContent).not.toContain("Unexpected token");
     expect(getByTestId("blackhole-file-path").textContent).toContain("pi-blackhole-config.json");
     expect(getByTestId("blackhole-recheck")).toBeTruthy();
     expect((getByTestId("blackhole-save-blocked") as HTMLButtonElement).disabled).toBe(true);
@@ -569,7 +586,12 @@ describe("Base model and recommended defaults (4.1-4.10)", () => {
       }
     });
 
-    expect(getByTestId("blackhole-save-error").textContent).toContain("observerModel.thinking must be one of");
+    // The server's validation text is a body: one human sentence is shown, the text is copyable.
+    expect(getByTestId("blackhole-save-error").textContent).not.toContain("observerModel.thinking must be one of");
+    expect(getByTestId("blackhole-save-error").textContent).toContain("Could not save");
+    expect(clipboardText).toBe("");
+    fireEvent.click(getByTestId("blackhole-save-error-copy-details"));
+    await waitFor(() => expect(clipboardText).toContain("observerModel.thinking must be one of"));
     expect(sources.get("plugin:blackhole")?.isDirty).toBe(true);
   });
 
@@ -692,5 +714,120 @@ describe("BlackholeSettings token hygiene (retro-ux-model-selector)", () => {
   it("E16: no severity token carries a hex fallback", () => {
     const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "BlackholeSettings.tsx"), "utf8");
     expect(src).not.toMatch(/var\(--severity-[a-z-]+,#/);
+  });
+});
+
+
+describe("blackhole errors are human sentences with details behind Copy details (X11)", () => {
+  // test-plan #X11: config unparseable → error notice with Check again + Copy details
+  // (parser text only there); registry 503 → notice with Retry, no `503` visible;
+  // no `--accent-red` class anywhere.
+  it("X11: unparseable config → sentence + Check again + Copy details; parser text only in the copy", async () => {
+    (globalThis as { fetch?: unknown }).fetch = mockFetch({
+      configStatus: 409,
+      config: {
+        status: "parse-error",
+        filePath: "/tmp/agent/pi-blackhole/pi-blackhole-config.json",
+        message: "Unexpected token } in JSON at position 34",
+      },
+    });
+    const { getByTestId, getByText, container } = renderSettings();
+    await waitFor(() => expect(getByTestId("blackhole-parse-error")).toBeTruthy());
+    const notice = getByTestId("blackhole-parse-error");
+    expect(notice.getAttribute("role")).toBe("alert");
+    expect(notice.textContent).toContain("can't be read");
+    expect(notice.textContent).not.toContain("Unexpected token");
+    expect(getByTestId("blackhole-recheck").textContent).toBe("Check again");
+    expect(getByText("Copy details")).toBeTruthy();
+    expect(container.innerHTML).not.toContain("accent-red");
+    expect(container.querySelector("pre")).toBeNull();
+
+    fireEvent.click(getByText("Copy details"));
+    await waitFor(() => expect(clipboardText).toContain("Unexpected token } in JSON at position 34"));
+  });
+
+  it("X11: registry 503 → notice with Retry, no `503` visible, no accent-red", async () => {
+    (globalThis as { fetch?: unknown }).fetch = mockFetch({ installed: true, modelsStatus: 503, models: {} });
+    const { getByTestId, container } = renderSettings();
+    await waitFor(() => expect(getByTestId("blackhole-registry-unavailable")).toBeTruthy());
+    const notice = getByTestId("blackhole-registry-unavailable");
+    expect(notice.textContent).not.toContain("503");
+    expect(within(notice).getByTestId("blackhole-registry-retry-banner").textContent).toBe("Retry");
+    expect(container.innerHTML).not.toContain("accent-red");
+    fireEvent.click(within(notice).getByText("Copy details"));
+    await waitFor(() => expect(clipboardText).toContain("503"));
+  });
+
+  it("a failed config load → human sentence + Try again, raw error only copyable", async () => {
+    (globalThis as { fetch?: unknown }).fetch = vi.fn(async (url: string) => {
+      if (url.includes("/status")) return jsonRes({ installed: true });
+      throw new Error("ECONNRESET socket hang up");
+    });
+    const { getByTestId, getByText, container } = renderSettings();
+    await waitFor(() => expect(getByTestId("blackhole-load-error")).toBeTruthy());
+    expect(getByTestId("blackhole-load-error").textContent).not.toContain("ECONNRESET");
+    expect(getByText("Try again")).toBeTruthy();
+    expect(container.innerHTML).not.toContain("accent-red");
+    fireEvent.click(getByText("Copy details"));
+    await waitFor(() => expect(clipboardText).toContain("ECONNRESET"));
+  });
+
+  it("not installed → copyable command in <code>, no literal backticks", async () => {
+    (globalThis as { fetch?: unknown }).fetch = mockFetch({ installed: false });
+    const { getByTestId, getByText } = renderSettings();
+    await waitFor(() => expect(getByTestId("blackhole-not-installed")).toBeTruthy());
+    expect(getByTestId("blackhole-install-command").tagName).toBe("CODE");
+    expect(getByTestId("blackhole-not-installed").textContent).not.toContain("`");
+    fireEvent.click(getByText("Copy command"));
+    await waitFor(() => expect(clipboardText).toBe("pi install npm:pi-blackhole"));
+  });
+});
+
+describe("blackhole scalar fields use the kit", () => {
+  it("no native checkbox; booleans are switches; every field carries its key chip", async () => {
+    (globalThis as { fetch?: unknown }).fetch = mockFetch({ installed: true });
+    const { getByTestId, container } = renderSettings();
+    await waitFor(() => expect(getByTestId("blackhole-settings")).toBeTruthy());
+    expect(container.querySelector('input[type="checkbox"]')).toBeNull();
+    const memory = getByTestId("blackhole-input-memory");
+    expect(memory.getAttribute("role")).toBe("switch");
+    expect(memory.getAttribute("aria-checked")).toBe("true");
+    expect(container.innerHTML).not.toContain("accent-red");
+    expect(container.innerHTML).not.toContain("accent-green");
+    expect(container.innerHTML).not.toContain("accent-blue");
+    // The master switch is not labelled "Enable…".
+    const label = container.querySelector(`label[for="${memory.id}"]`);
+    expect(label?.textContent ?? "").not.toMatch(/^\s*(enable|enabled|on)\b/i);
+  });
+
+  it("an edited field shows Changed + Reset; Reset restores the default into the draft", async () => {
+    (globalThis as { fetch?: unknown }).fetch = mockFetch({ installed: true });
+    const sources = new Map<string, RegisteredSource>();
+    const { getByTestId, queryByTestId } = renderSettings(sources);
+    await waitFor(() => expect(getByTestId("blackhole-settings")).toBeTruthy());
+    expect(queryByTestId("blackhole-reset-observeAfterTokens")).toBeNull();
+    fireEvent.change(getByTestId("blackhole-input-observeAfterTokens"), { target: { value: "20000" } });
+    expect(getByTestId("blackhole-default-badge-observeAfterTokens").textContent).toBe("Changed");
+    expect(sources.get("plugin:blackhole")?.isDirty).toBe(true);
+    fireEvent.click(getByTestId("blackhole-reset-observeAfterTokens"));
+    expect((getByTestId("blackhole-input-observeAfterTokens") as HTMLInputElement).value).toBe("15000");
+    expect(getByTestId("blackhole-default-badge-observeAfterTokens").textContent).toBe("Default");
+    expect(sources.get("plugin:blackhole")?.isDirty).toBe(false);
+  });
+
+  it("an emptied or out-of-range number shows a field error and blocks the commit", async () => {
+    const puts: unknown[] = [];
+    (globalThis as { fetch?: unknown }).fetch = mockFetch({ installed: true, onPut: (b) => puts.push(b) });
+    const sources = new Map<string, RegisteredSource>();
+    const { getByTestId, queryByTestId } = renderSettings(sources);
+    await waitFor(() => expect(getByTestId("blackhole-settings")).toBeTruthy());
+    const input = getByTestId("blackhole-input-observeAfterTokens");
+    fireEvent.change(input, { target: { value: "" } });
+    expect(getByTestId("blackhole-error-observeAfterTokens").textContent).toBe("Enter a whole number of 1 or more.");
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+    await expect(sources.get("plugin:blackhole")?.commit()).rejects.toThrow();
+    expect(puts).toEqual([]);
+    fireEvent.change(input, { target: { value: "1" } });
+    expect(queryByTestId("blackhole-error-observeAfterTokens")).toBeNull();
   });
 });

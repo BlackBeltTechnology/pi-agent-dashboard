@@ -238,3 +238,72 @@ describe("AutomationSettings — picker-backed default model", () => {
     expect(pickerRenders).toBeLessThanOrEqual(2);
   });
 });
+
+describe("AutomationSettings — kit fields + retention validation", () => {
+  const typeRetention = (el: HTMLElement, value: string) => fireEvent.change(el, { target: { value } });
+
+  // test-plan #E12: BVA on "Runs to keep": "" and 0 are invalid (no silent 100), 1 is valid.
+  for (const c of [
+    { value: "", invalid: true },
+    { value: "0", invalid: true },
+    { value: "1", invalid: false },
+  ]) {
+    it(`E12: retention ${JSON.stringify(c.value)} → ${c.invalid ? "field error, commit blocked" : "valid"}`, async () => {
+      const { getByTestId, queryByRole, src, send } = mount({ automation: { retentionPerAutomation: 50 } });
+      const input = getByTestId("automation-retention") as HTMLInputElement;
+      typeRetention(input, c.value);
+      if (c.invalid) {
+        await waitFor(() => expect(queryByRole("alert")).not.toBeNull());
+        expect(input.getAttribute("aria-invalid")).toBe("true");
+        // No silent snap to 100.
+        expect(input.value).toBe(c.value);
+        await expect(src().commit()).rejects.toThrow();
+        expect(send).not.toHaveBeenCalled();
+      } else {
+        expect(queryByRole("alert")).toBeNull();
+        expect(input.getAttribute("aria-invalid")).toBeNull();
+        await src().commit();
+        expect(writtenPayload(send).retentionPerAutomation).toBe(1);
+      }
+    });
+  }
+
+  it("commit sends only the edited keys", async () => {
+    const { getByTestId, src, send } = mount({ automation: { retentionPerAutomation: 50 } });
+    typeRetention(getByTestId("automation-retention"), "7");
+    await src().commit();
+    expect(writtenPayload(send)).toEqual({ retentionPerAutomation: 7 });
+  });
+
+  it("scan scopes are kit switches, no native checkbox or select", async () => {
+    const { getByTestId, container, src } = mount({});
+    expect(container.querySelector('input[type="checkbox"]')).toBeNull();
+    expect(container.querySelector("select")).not.toBeNull(); // SelectField is the kit's own
+    const sw = getByTestId("automation-scan-folder");
+    expect(sw.getAttribute("role")).toBe("switch");
+    expect(sw.getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(sw);
+    await waitFor(() => expect(src().isDirty).toBe(true));
+    expect(getByTestId("automation-scan-folder").getAttribute("aria-checked")).toBe("false");
+  });
+
+  it("groups: Runs / Where automations are found / Model; picker sits inside a labelled field", () => {
+    const { getByText, getByTestId } = mount({});
+    getByText("Runs");
+    getByText("Where automations are found");
+    getByText("Model");
+    const wrapper = getByTestId("automation-default-model");
+    expect(wrapper.getAttribute("role")).toBe("group");
+    expect(wrapper.getAttribute("aria-label")).toBe("Fallback model");
+    expect(wrapper.getAttribute("aria-describedby")).toBeTruthy();
+    expect(wrapper.closest("label")).toBeNull();
+  });
+
+  it("a clean draft adopts a late plugin_config_update", async () => {
+    const { getByTestId } = mount({ automation: { retentionPerAutomation: 50 } });
+    act(() => {
+      applyPluginConfigUpdate({ type: "plugin_config_update", id: "automation", config: { retentionPerAutomation: 20 } });
+    });
+    await waitFor(() => expect((getByTestId("automation-retention") as HTMLInputElement).value).toBe("20"));
+  });
+});

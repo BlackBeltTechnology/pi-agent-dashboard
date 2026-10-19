@@ -1,14 +1,26 @@
 /**
  * Quota settings page — `settings-section` claim, loaded lazily through the
  * manifest `module` field so the settings UI stays out of the cold-landing
- * chunk. Helpers shared with the widget/dialog are imported from `./client.js`.
+ * chunk. Helpers shared with the widget/dialog are imported from `./quota-status.js`.
+ * Built on the shared settings field kit: no identity header, a "Check quotas"
+ * master switch, a visible ToS notice, a Providers group with worded status
+ * pills, and a Retries group whose preview is an info notice.
  *
- * See change: lazy-plugin-claim-modules.
+ * See changes: lazy-plugin-claim-modules, retro-ux-plugin-settings-wave-2.
  */
-import { useSettingsDraftSource, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  NumberField,
+  SettingsGroup,
+  SettingsNotice,
+  SettingsStatusPill,
+  type SettingsStatusTone,
+  ToggleField,
+  useSettingsDraftSource,
+  useT,
+} from "@blackbelt-technology/dashboard-plugin-runtime";
 import { usePluginConfig, usePluginSend } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { providerLabel, useQuotaUnavailable } from "./client.js";
+import { providerLabel, useQuotaProviderStatus } from "./quota-status.js";
 import { SUPPORTED_PROVIDERS } from "./providers.js";
 import type { QuotaPluginConfig, QuotaUnavailableReason } from "./types.js";
 
@@ -61,7 +73,7 @@ function computeSchedule(
   return { seq, totalMs: sleepMs + (maxAttempts + 1) * REQUEST_TIMEOUT_MS };
 }
 
-/** Retry schedule preview — backoff sequence + honest wall-clock total. */
+/** Retry schedule preview — backoff sequence + honest wall-clock total, as an info notice. */
 function SchedulePreview({
   maxAttempts,
   baseDelayMs,
@@ -75,101 +87,73 @@ function SchedulePreview({
 }) {
   const { seq, totalMs } = computeSchedule(maxAttempts, baseDelayMs, maxDelayMs);
   return (
-    <div
-      data-testid="quota-retry-preview"
-      style={{ fontSize: 10, color: "var(--text-muted, #71717a)", marginTop: 6, lineHeight: 1.5 }}
-    >
+    <SettingsNotice tone="info" testId="quota-retry-preview">
       <div>
         {t("retryPreviewTotal", undefined, "Worst-case wait before a provider is marked unavailable:")}{" "}
-        <b data-testid="quota-retry-total" style={{ color: "var(--text-secondary, #a1a1aa)" }}>
+        <strong data-testid="quota-retry-total">
           {maxAttempts === 0 ? t("retryNone", undefined, "no retries") : humanMs(totalMs)}
-        </b>
+        </strong>
       </div>
       {seq.length > 0 && (
-        <div data-testid="quota-retry-sequence" style={{ fontFamily: "monospace", marginTop: 2 }}>
+        <div data-testid="quota-retry-sequence" className="mt-0.5 font-mono text-[12px]">
           {seq.join(" → ")}
         </div>
       )}
-      <div style={{ marginTop: 2 }}>
+      <div className="mt-0.5">
         {t(
           "retryMultiCallCaveat",
           undefined,
           "Includes each attempt's request timeout. A provider that issues multiple calls per attempt (e.g. Copilot) may exceed this.",
         )}
       </div>
-    </div>
-  );
-}
-
-/** A labelled number input for a retry field. */
-function RetryNumField({
-  label,
-  testId,
-  value,
-  onChange,
-  disabled,
-  min,
-  max,
-  step,
-}: {
-  label: string;
-  testId: string;
-  value: number;
-  onChange: (v: number) => void;
-  disabled?: boolean;
-  min: number;
-  max?: number;
-  step: number;
-}) {
-  return (
-    <label style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 4 }}>
-      <span style={{ width: 130, color: "var(--text-secondary, #a1a1aa)" }}>{label}</span>
-      <input
-        type="number"
-        data-testid={testId}
-        value={value}
-        min={min}
-        max={max}
-        step={step}
-        disabled={disabled}
-        onChange={(e) => onChange(Number(e.target.value))}
-        style={{
-          width: 90,
-          fontSize: 11,
-          padding: "2px 6px",
-          borderRadius: 4,
-          border: "1px solid var(--border-subtle, rgba(82,82,91,0.6))",
-          background: "var(--bg-tertiary, rgba(63,63,70,0.5))",
-          color: "var(--text-primary, #e4e4e7)",
-          opacity: disabled ? 0.4 : 1,
-        }}
-      />
-    </label>
+    </SettingsNotice>
   );
 }
 
 /**
- * settings-section: printed ToS warning (NOT a gate) + master enable +
- * per-provider toggles. Edits buffer into a draft and commit through the host
- * Settings panel's global Save (`useSettingsDraftSource`) — no local button.
+ * settings-section: printed ToS warning (NOT a gate) + master switch +
+ * per-provider switches + retry policy. Edits buffer into a draft and commit
+ * through the host Settings panel's global Save (`useSettingsDraftSource`) — no
+ * local button.
  */
 export function QuotaSettings() {
   const t = useT();
   const config = usePluginConfig<QuotaPluginConfig>();
   const send = usePluginSend();
-  const unavailable = useQuotaUnavailable();
+  const { reasons, withData } = useQuotaProviderStatus();
 
-  /** Plain-language cause for a ticked provider that returned nothing. */
-  const reasonText = (reason: QuotaUnavailableReason): string => {
+  /** Worded pill for a ticked provider: server-named reason, else "Signed in" when it reports data. */
+  const statusPill = (id: string) => {
+    const reason: QuotaUnavailableReason | undefined = reasons[id];
+    if (reason) {
+      const [word, tone] = reasonPill(reason);
+      return (
+        <SettingsStatusPill tone={tone} testId={`quota-provider-${id}-reason`} status={reason}>
+          {word}
+        </SettingsStatusPill>
+      );
+    }
+    if (withData.has(id)) {
+      return (
+        <SettingsStatusPill tone="success" testId={`quota-provider-${id}-status`} status="ok">
+          {t("signedIn", undefined, "Signed in")}
+        </SettingsStatusPill>
+      );
+    }
+    return null;
+  };
+
+  /** Pill word + tone for a ticked provider that returned nothing. */
+  const reasonPill = (reason: QuotaUnavailableReason): [string, SettingsStatusTone] => {
     switch (reason) {
       case "no-credential":
-        return t("reasonNoCredential", undefined, "not signed in");
+        return [t("reasonNoCredential", undefined, "Not signed in"), "neutral"];
       case "peer-rejected":
-        return t("reasonRejected", undefined, "provider refused the request");
+        return [t("reasonRejected", undefined, "Request refused"), "warning"];
       case "no-data":
-        return t("reasonNoData", undefined, "no quota reported");
+        return [t("reasonNoData", undefined, "No quota reported"), "neutral"];
       case "no-adapter":
-        return t("reasonNoAdapter", undefined, "not supported");
+        return [t("reasonNoAdapter", undefined, "Not supported"), "neutral"];
     }
   };
 
@@ -190,6 +174,15 @@ export function QuotaSettings() {
   const setRetry = (patch: Partial<NonNullable<QuotaPluginConfig["retry"]>>) =>
     setDraft((d) => ({ ...d, retry: { ...(d.retry ?? {}), ...patch } }));
 
+  // An emptied number input is an invalid draft value (NaN), never coerced to 0.
+  // Only checked while retries are on: the fields are disabled otherwise.
+  const emptyError = (v: number | undefined): string | null =>
+    retry.enabled && v !== undefined && !Number.isFinite(v) ? t("numberRequired", undefined, "Enter a number.") : null;
+  const maxAttemptsError = emptyError(retry.maxAttempts);
+  const baseDelayError = emptyError(retry.baseDelayMs);
+  const maxDelayError = emptyError(retry.maxDelayMs);
+  const retryInvalid = Boolean(maxAttemptsError || baseDelayError || maxDelayError);
+
   const isDirty =
     draft.enabled !== base.enabled ||
     JSON.stringify(draft.retry ?? {}) !== JSON.stringify(base.retry ?? {}) ||
@@ -202,131 +195,109 @@ export function QuotaSettings() {
   draftRef.current = draft;
   const baseRef = useRef(base);
   baseRef.current = base;
+  const invalidRef = useRef(retryInvalid);
+  invalidRef.current = retryInvalid;
 
   const commit = useCallback(async () => {
+    if (invalidRef.current) {
+      throw new Error(t("saveBlockedInvalid", undefined, "Fix the invalid fields before saving."));
+    }
     await send({ type: "plugin_config_write", id: "quota", config: draftRef.current });
-  }, [send]);
+  }, [send, t]);
   const reset = useCallback(() => setDraft(baseRef.current), []);
   useSettingsDraftSource({ id: "plugin:quota", isDirty, commit, reset });
 
+  const enabledCount = SUPPORTED_PROVIDERS.filter((id) => draft.providers?.[id]?.enabled).length;
+  const unitMs = t("unitMs", undefined, "ms");
+
   return (
-    <section
-      data-testid="quota-settings"
-      style={{ padding: 12, border: "1px solid var(--border-subtle, rgba(82,82,91,0.5))", borderRadius: 6, marginBottom: 12 }}
-    >
-      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 8 }}>
-        <h3 style={{ fontSize: 13, fontWeight: 600, margin: 0 }}>{t("heading", undefined, "Provider Quota")}</h3>
-        <span style={{ fontSize: 10, color: "var(--text-muted, #71717a)" }}>quota</span>
-      </div>
+    <section data-testid="quota-settings" className="space-y-3 text-xs text-[var(--text-secondary)]">
+      <ToggleField
+        label={t("enableQuota", undefined, "Check quotas")}
+        hint={t(
+          "enableQuotaHint",
+          undefined,
+          "Shows remaining quota in the composer. Turn off to stop all checks; the plugin stays on.",
+        )}
+        value={!!draft.enabled}
+        onChange={(v) => setDraft((d) => ({ ...d, enabled: v }))}
+        testIds={{ control: "quota-enable" }}
+      />
 
-      <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12, marginBottom: 10 }}>
-        <input
-          type="checkbox"
-          data-testid="quota-enable"
-          checked={!!draft.enabled}
-          onChange={(e) => setDraft((d) => ({ ...d, enabled: e.target.checked }))}
-        />
-        {t("enableQuota", undefined, "Enable quota tracking")}
-      </label>
-
-      <fieldset style={{ border: "none", padding: 0, margin: 0, fontSize: 11 }}>
-        <legend style={{ fontSize: 11, color: "var(--text-secondary, #a1a1aa)", padding: 0, marginBottom: 4 }}>
-          {t("providersLegend", undefined, "Enable per provider")}
-        </legend>
+      <SettingsGroup
+        title={t("providersLegend", undefined, "Providers")}
+        meta={t("providersOn", { on: enabledCount, total: SUPPORTED_PROVIDERS.length }, `${enabledCount} of ${SUPPORTED_PROVIDERS.length} on`)}
+      >
+        <SettingsNotice tone="warning" testId="quota-tos-warning">
+          {t(
+            "tosBody",
+            undefined,
+            "Quota checks call undocumented provider endpoints that may break the provider's terms. Use for personal, local setups only.",
+          )}
+        </SettingsNotice>
         {/* Every provider is tickable: the plugin owns every contract, so there
-            is no peer that can be missing. A tick that yields nothing gets an
-            inline reason instead of silence. */}
+            is no peer that can be missing. A tick that yields nothing gets a
+            worded pill (the field's description) instead of silence. */}
         {SUPPORTED_PROVIDERS.map((id) => {
           const ticked = !!draft.providers?.[id]?.enabled;
-          const reason = ticked ? unavailable[id] : undefined;
           return (
-          <label
-            key={id}
-            style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 3, flexWrap: "wrap" }}
-          >
-            <input
-              type="checkbox"
-              data-testid={`quota-provider-${id}`}
-              checked={ticked}
-              onChange={(e) => setProvider(id, e.target.checked)}
-            />
-            {providerLabel(id)}
-            {reason && (
-              <span
-                data-testid={`quota-provider-${id}-reason`}
-                style={{ fontSize: 10, color: "var(--text-muted, #71717a)" }}
-              >
-                {reasonText(reason)}
-              </span>
-            )}
-            {/* The ToS caveat is Anthropic-specific, so it sits on that row
-                alone rather than as a banner over every provider. */}
-            {id === "anthropic" && (
-              <span
-                data-testid="quota-tos-warning"
-                title={t(
-                  "tosBody",
-                  undefined,
-                  "Quota tracking calls undocumented provider endpoints that may violate provider terms. Personal/local use only.",
-                )}
-                style={{ fontSize: 10, color: "#fbbf24", cursor: "help" }}
-              >
-                ⚠ {t("tosTitle", undefined, "Warning")}
-              </span>
-            )}
-          </label>
+            <div key={id} data-testid={`quota-provider-${id}-row`}>
+              <ToggleField
+                label={providerLabel(id)}
+                hint={ticked ? statusPill(id) : null}
+                value={ticked}
+                onChange={(v) => setProvider(id, v)}
+                testIds={{ control: `quota-provider-${id}` }}
+              />
+            </div>
           );
         })}
-      </fieldset>
+      </SettingsGroup>
 
-      {/* Transient-retry block (mirrors the shell's RetrySettingsSection element
-          vocabulary; the schedule helper is reproduced, not imported — the
-          client cannot reach the server tree). Off by default. */}
-      <fieldset
-        data-testid="quota-retry"
-        style={{ border: "none", padding: 0, margin: "12px 0 0", fontSize: 11 }}
-      >
-        <legend style={{ fontSize: 11, color: "var(--text-secondary, #a1a1aa)", padding: 0, marginBottom: 4 }}>
-          {t("retryLegend", undefined, "Retry transient failures")}
-        </legend>
-        <label style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 8 }}>
-          <input
-            type="checkbox"
-            data-testid="quota-retry-enabled"
-            checked={!!retry.enabled}
-            onChange={(e) => setRetry({ enabled: e.target.checked })}
-          />
-          {t("retryEnable", undefined, "Retry on HTTP 429/5xx, timeout, or network error")}
-        </label>
-        <RetryNumField
+      {/* Transient-retry block (the schedule helper is reproduced, not imported —
+          the client cannot reach the server tree). Off by default. */}
+      <SettingsGroup title={t("retryLegend", undefined, "Retries")} testId="quota-retry">
+        <ToggleField
+          label={t("retryEnable", undefined, "Retry failed checks")}
+          hint={t("retryEnableHint", undefined, "On HTTP 429/5xx, timeouts and network errors.")}
+          value={!!retry.enabled}
+          onChange={(v) => setRetry({ enabled: v })}
+          testIds={{ control: "quota-retry-enabled" }}
+        />
+        <NumberField
           label={t("retryMaxAttempts", undefined, "Max retries")}
-          testId="quota-retry-maxAttempts"
+          hint={t("retryMaxAttemptsHint", undefined, "0–5 retries after the first try.")}
+          error={maxAttemptsError}
+          allowEmpty
+          step={1}
+          disabled={!retry.enabled}
           value={retry.maxAttempts ?? 3}
           onChange={(v) => setRetry({ maxAttempts: v })}
-          disabled={!retry.enabled}
-          min={0}
-          max={RETRY_MAX_ATTEMPTS}
-          step={1}
+          testIds={{ control: "quota-retry-maxAttempts" }}
         />
-        <RetryNumField
-          label={t("retryBaseDelay", undefined, "Base delay (ms)")}
-          testId="quota-retry-baseDelayMs"
+        <NumberField
+          label={t("retryBaseDelay", undefined, "First wait")}
+          unit={unitMs}
+          hint={t("retryBaseDelayHint", undefined, "Doubles after each retry. 100–10000.")}
+          error={baseDelayError}
+          allowEmpty
+          step={100}
+          disabled={!retry.enabled}
           value={retry.baseDelayMs ?? 1000}
           onChange={(v) => setRetry({ baseDelayMs: v })}
-          disabled={!retry.enabled}
-          min={100}
-          max={10000}
-          step={100}
+          testIds={{ control: "quota-retry-baseDelayMs" }}
         />
-        <RetryNumField
-          label={t("retryMaxDelay", undefined, "Max delay (ms)")}
-          testId="quota-retry-maxDelayMs"
+        <NumberField
+          label={t("retryMaxDelay", undefined, "Longest wait")}
+          unit={unitMs}
+          hint={t("retryMaxDelayHint", undefined, "The wait never grows past this. 100–60000.")}
+          error={maxDelayError}
+          allowEmpty
+          step={1000}
+          disabled={!retry.enabled}
           value={retry.maxDelayMs ?? 60000}
           onChange={(v) => setRetry({ maxDelayMs: v })}
-          disabled={!retry.enabled}
-          min={100}
-          max={60000}
-          step={1000}
+          testIds={{ control: "quota-retry-maxDelayMs" }}
         />
         {retry.enabled && (
           <SchedulePreview
@@ -336,7 +307,7 @@ export function QuotaSettings() {
             t={t}
           />
         )}
-      </fieldset>
+      </SettingsGroup>
     </section>
   );
 }

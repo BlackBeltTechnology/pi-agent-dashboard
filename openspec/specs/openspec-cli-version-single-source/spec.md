@@ -2,11 +2,13 @@
 
 ## Purpose
 TBD - created by archiving change provision-openspec-cli-in-sessions. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: The monorepo SHALL resolve one installed openspec version
 
 Every in-repo `@fission-ai/openspec` declaration SHALL use the SAME EXACT
-version (`1.11.0`, no caret) so the package manager hoists a single installed
+version (`1.14.3`, no caret) so the package manager hoists a single installed
 copy across all workspaces (server poller, extension shim). The repo SHALL NOT
 use a root `overrides` entry for this dep (it publishes with the root tarball and
 is redundant with hoisting).
@@ -20,15 +22,15 @@ generated, so a CLI upgrade SHALL be an explicit edit plus a skill regeneration.
 #### Scenario: One installed version across workspaces
 
 - **WHEN** `pnpm install` runs at the repo root with server and extension both
-  declaring `1.11.0`
+  declaring `1.14.3`
 - **THEN** `pnpm why -r @fission-ai/openspec` SHALL show a single resolved
-  `1.11.0` copy owned by both workspaces (no duplicate trees). The check is
+  `1.14.3` copy owned by both workspaces (no duplicate trees). The check is
   workspace-recursive on purpose: `npm ls` without `--workspaces` reads the root
   project only, so it cannot see the server and extension importers at all.
 
 #### Scenario: A caret range is not an accepted declaration
 
-- **WHEN** any workspace declares `@fission-ai/openspec` as a range (`^1.11.0`)
+- **WHEN** any workspace declares `@fission-ai/openspec` as a range (`^1.14.3`)
   rather than the exact version
 - **THEN** that declaration SHALL be treated as drift, because it permits the CLI
   to advance without regenerating the `generatedBy` skills
@@ -42,9 +44,9 @@ missing bin is a hard error rather than a silent network fetch, and the required
 
 #### Scenario: Regen is offline-hard and preserves flags
 
-- **WHEN** worktree-init runs with the installed openspec at `1.11.0` and no network
+- **WHEN** worktree-init runs with the installed openspec at `1.14.3` and no network
 - **THEN** it SHALL regenerate the `openspec-*` skills via the local bin (exit 0)
-- **AND** a regenerated `SKILL.md` `generatedBy` SHALL read `1.11.0`
+- **AND** a regenerated `SKILL.md` `generatedBy` SHALL read `1.14.3`
 - **AND** with the bin absent it SHALL error (not silently fetch)
 
 ### Requirement: CI SHALL fail on openspec version drift
@@ -59,4 +61,3 @@ CI on `develop` (not only at release).
 - **WHEN** the extension's `@fission-ai/openspec` floor diverges from the server's
 - **THEN** `verify-release-deps.mjs` SHALL exit non-zero naming the drifted site
 - **AND** this check SHALL run in the `ci.yml` develop pipeline
-

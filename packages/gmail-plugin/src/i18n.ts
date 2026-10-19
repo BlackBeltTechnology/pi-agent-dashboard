@@ -17,7 +17,9 @@ export const catalog = {
       "“内部”仅允许项目所属 Workspace 组织的账户：只有当你要连接的每个账户都属于该组织时才选择它。否则选择“外部”，并将要连接的每个地址添加为测试用户。测试模式下令牌 7 天后过期；“发布应用”可获得更长期的令牌，但会显示未验证应用警告。",
     clientHelp: "应用类型：桌面应用。下载 JSON。若链接已变更：API 和服务 → 凭据。",
     consentHint: "在 Google 同意屏幕上勾选每一项权限（全选）。Gmail 权限可能默认未勾选。",
+    copied: "已复制",
     copy: "复制",
+    copyFailed: "复制失败",
     createProject: "创建项目",
     crossOrgHint: "项目 Workspace 组织之外的账户需要“外部”目标对象，并将每个账户添加为测试用户（第 3 步）。",
     enableGmail: "启用 Gmail API",
@@ -112,7 +114,9 @@ export const catalog = {
       "Alkalmazástípus: Asztali alkalmazás. Töltsd le a JSON-t. Ha a link elköltözött: API-k és szolgáltatások → Hitelesítő adatok.",
     consentHint:
       "A Google hozzájárulási képernyőjén pipálj be minden engedélyt (Összes kijelölése). A Gmail-engedély kezdetben kipipálatlan lehet.",
+    copied: "Másolva",
     copy: "Másolás",
+    copyFailed: "A másolás nem sikerült",
     createProject: "Projekt létrehozása",
     crossOrgHint:
       "A projekt Workspace-szervezetén kívüli fiókokhoz Külső célközönség kell, minden fiókot tesztfelhasználóként felvéve (3. lépés).",

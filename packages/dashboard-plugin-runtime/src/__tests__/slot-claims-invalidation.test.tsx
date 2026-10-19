@@ -38,6 +38,19 @@ import { createSlotRegistry } from "../slot-registry.js";
 
 const session = { id: "019fe770-a0a4-70bb-ac85-2e92e6aa8216" } as DashboardSession;
 
+/**
+ * `Promise.withResolvers` without the ES2024 lib: this package type-checks against
+ * ES2023 (tsconfig `lib`), and the typings only resolved by accident while a
+ * hoisted @types/node@22 happened to declare it.
+ */
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+
 /** Mount a probe that reports `useSlotHasClaimsForSession` for session-card-memory. */
 function mountGate(shouldRender: () => boolean, onRender?: () => void) {
   const registry = createSlotRegistry();
@@ -200,7 +213,7 @@ describe("folder project cache + predicates", () => {
 
   // test-plan #F7
   it("a response landing after clearFolderProjects is discarded and the folder refetched", async () => {
-    const first = Promise.withResolvers<Response>();
+    const first = deferred<Response>();
     fetchMock.mockReturnValueOnce(first.promise);
     fetchMock.mockResolvedValue(ok({ id: null, types: ["fresh"], source: "detected" }));
     const gate = folderHasProjectType("stale");
@@ -217,8 +230,8 @@ describe("folder project cache + predicates", () => {
 
   // test-plan #F8
   it("invalidating one folder leaves the other's in-flight response intact", async () => {
-    const a = Promise.withResolvers<Response>();
-    const b = Promise.withResolvers<Response>();
+    const a = deferred<Response>();
+    const b = deferred<Response>();
     fetchMock.mockImplementation((url: string) => {
       const cwd = decodeURIComponent(url.split("cwd=")[1]);
       if (fetched().filter((c) => c === cwd).length > 1) return Promise.resolve(ok({ id: "b2", types: [], source: "none" }));

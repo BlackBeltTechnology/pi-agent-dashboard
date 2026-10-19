@@ -96,6 +96,18 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Changed
 
+- **BREAKING (macOS 12): the minimum macOS is now 13 (Ventura).** Electron 44 dropped macOS 12, so
+  the app declares `LSMinimumSystemVersion 13.0`, and the update gate moves to Darwin 22. Macs on
+  macOS 12 (Monterey) stay on their installed 0.9.x build and are not offered the update; every
+  other platform is unaffected.
+- **Bundled components refreshed.** Electron 43.4.1 → 44.9.0, Electron Forge 7 → 8.0.1, bundled
+  Node v24.15.0 → v24.22.0, the Windows git bundle (dugite-native) v2.53.0-3 → v2.53.0-4, the
+  openspec CLI 1.11.0 → 1.14.3, node-pty 1.2.0-beta.13 → 1.2.0-beta.15 and koffi 3.1 → 3.3.3.
+  The unused `@pengx17/electron-forge-maker-appimage` dependency and its patch are removed
+  (AppImage has been built by electron-builder).
+- **Task counts follow OpenSpec 1.14.3.** `status --all` now counts a task the way the CLI does:
+  `+` and ordered-list markers, and non-`x` checkbox markers such as `[~]`, count as unfinished
+  tasks; link bullets still do not.
 - **BREAKING (security, opt-in): a network match can stop authenticating requests.** A new
   `network.trustMode` (`"pair"` | `"legacy"`) decides what a `trustedNetworks` /
   `auth.bypassHosts` match means. In `pair` the match no longer admits anyone: a LAN device
@@ -217,6 +229,10 @@ see [`docs/release-process.md`](docs/release-process.md).
   - `pi-dashboard status` says when the desktop app started the running server; bare `pi-dashboard` on a served port prints "already running (pid N)" and exits 1 instead of a bind-failure stack.
   - The Electron update checker and Doctor see the real starter: Bridge servers skip the managed check, Standalone servers get the npm recommendation.
 
+- **Packaged apps no longer carry build-host symlinks.** Electron Forge 8 (packager 20) copies
+  bundled resources without preserving relative symlinks, which left 53 absolute, dangling
+  `server/node_modules/.bin/*` links and failed `codesign --verify --strict`. A packaging hook now
+  rewrites them to relative links, and every electron CI leg scans the result.
 - **`!cmd` no longer loses its output on a busy session.** A single-bang command sent while the agent was starting or streaming made pi reject the follow-up, so the output never reached the model; it is now queued with `deliverAs: followUp` and delivered before the run settles.
 - **Discord invite points at the community server.** The invite link (README, site, sidebar
   button, release docs) pointed at a personal server with an expiring invite; it now uses the

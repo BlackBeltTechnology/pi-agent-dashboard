@@ -6,10 +6,11 @@
  * See change: promote-model-roles-settings (test-plan #F6–#F9, #X3).
  */
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PluginToggle } from "../../hooks/usePluginToggle.js";
 import type { PluginRow } from "../../lib/package/plugins-api.js";
 import type { SettingsPromotion } from "../../lib/settings-promotions.js";
+import { PLUGIN_INTERNALS_KEY } from "../../lib/state/plugin-internals-pref.js";
 import { PluginSettingsPage } from "../settings/PluginSettingsPage.js";
 
 vi.mock("../../hooks/usePackageOperations.js", () => ({
@@ -68,10 +69,30 @@ function renderPage(row: PluginRow, promo: SettingsPromotion = promotion) {
   return render(<PluginSettingsPage row={row} toggle={toggle()} onNavigate={() => {}} promotion={promo} />);
 }
 
-afterEach(() => cleanup());
+// Node's experimental localStorage global shadows jsdom's under some runners.
+beforeEach(() => {
+  const store: Record<string, string> = {};
+  vi.stubGlobal("localStorage", {
+    getItem: (k: string) => store[k] ?? null,
+    setItem: (k: string, v: string) => {
+      store[k] = v;
+    },
+    removeItem: (k: string) => {
+      delete store[k];
+    },
+    clear: () => {},
+  });
+  Object.defineProperty(window, "localStorage", { value: globalThis.localStorage, configurable: true });
+});
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 describe("PluginSettingsPage — compact chrome", () => {
   it("F6: healthy promoted page shows title, lede, provenance + toggle, no pill; metadata behind the disclosure", () => {
+    // Slot claims are developer data: only listed when "Show plugin internals" is on (#E28).
+    localStorage.setItem(PLUGIN_INTERNALS_KEY, "true");
     renderPage(rolesRow());
     expect(screen.getByTestId("plugin-page-title").textContent).toBe("Model roles");
     expect(screen.getByTestId("plugin-page-lede").textContent).toBe(promotion.description);
@@ -95,11 +116,11 @@ describe("PluginSettingsPage — compact chrome", () => {
 
   it("F7: header pill only for unhealthy rows, never inside the disclosure", () => {
     const cases: Array<[PluginRow, string | null]> = [
-      [rolesRow({ enabled: false }), "disabled"],
-      [rolesRow({ error: "boom" }), "error"],
-      [rolesRow({ loaded: false }), "not loaded"],
-      [rolesRow(null), "unknown"],
-      [rolesRow({ missingRequirements: ["pi-roles"] }), "requirements"],
+      [rolesRow({ enabled: false }), "Off"],
+      [rolesRow({ error: "boom" }), "Failed to load"],
+      [rolesRow({ loaded: false }), "Not loaded"],
+      [rolesRow(null), "Status unknown"],
+      [rolesRow({ missingRequirements: ["pi-roles"] }), "Needs setup"],
       [rolesRow(), null],
     ];
     for (const [row, label] of cases) {
@@ -142,7 +163,7 @@ describe("PluginSettingsPage — compact chrome", () => {
 
   it("X3: a load error shows the error pill and the copy-on-click block", () => {
     renderPage(rolesRow({ loaded: false, error: "Bridge path conflict: x" }));
-    expect(screen.getByTestId("plugin-page-pill").textContent).toBe("error");
+    expect(screen.getByTestId("plugin-page-pill").textContent).toBe("Failed to load");
     expect(screen.getByTestId("plugin-status-error-roles").textContent).toContain("Bridge path conflict: x");
     // Nothing of the plugin's own is mounted in the body slot.
     expect(screen.getByTestId("plugin-page-body-roles").children).toHaveLength(0);

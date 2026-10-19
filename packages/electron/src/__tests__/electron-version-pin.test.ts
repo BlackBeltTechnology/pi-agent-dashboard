@@ -42,7 +42,7 @@ const forgeSource = fs.readFileSync(
 const LITERAL_SEMVER = /^\d+\.\d+\.\d+(-[A-Za-z0-9.-]+)?$/;
 
 /** The lowest Electron major on a currently-supported release line. */
-const MIN_SUPPORTED_MAJOR = 43;
+const MIN_SUPPORTED_MAJOR = 44;
 
 /**
  * @structural-pin build-contract pin on forge.config.ts text: the shipped Electron version and macOS floor are source constants
@@ -54,7 +54,7 @@ describe("E1: the electron devDependency is a literal version, not a range", () 
     expect(pinned).toMatch(LITERAL_SEMVER);
   });
 
-  it.each(["^43.0.0", "~43.0.0", "^43.4.1", "latest", "43.x"])(
+  it.each(["^44.0.0", "~44.0.0", "^44.9.0", "latest", "44.x"])(
     "rejects the range spelling %s",
     (range) => {
       // Without these the regex assertion above would be vacuous.
@@ -63,7 +63,7 @@ describe("E1: the electron devDependency is a literal version, not a range", () 
   );
 
   it("accepts a prerelease literal", () => {
-    expect("44.0.0-beta.1").toMatch(LITERAL_SEMVER);
+    expect("45.0.0-beta.1").toMatch(LITERAL_SEMVER);
   });
 });
 
@@ -75,8 +75,9 @@ describe("E2: the pinned major is on a supported release line", () => {
   });
 
   it.each([
-    { version: "43.4.1", ok: true },
-    { version: "44.0.0", ok: true },
+    { version: "44.9.0", ok: true },
+    { version: "45.0.0", ok: true },
+    { version: "43.4.1", ok: false },
     { version: "42.9.3", ok: false },
     { version: "32.3.3", ok: false },
   ])("$version → allowed=$ok", ({ version, ok }) => {
@@ -87,7 +88,7 @@ describe("E2: the pinned major is on a supported release line", () => {
 
 describe("E3: forge.config.ts declares the macOS floor", () => {
   it("sets extendInfo.LSMinimumSystemVersion to the shared floor constant", () => {
-    expect(MACOS_FLOOR_MARKETING).toBe("12.0");
+    expect(MACOS_FLOOR_MARKETING).toBe("13.0");
     expect(forgeSource).toMatch(
       new RegExp(
         `LSMinimumSystemVersion\\s*:\\s*["']${MACOS_FLOOR_MARKETING.replace(".", "\\.")}["']`,
@@ -108,7 +109,7 @@ describe("E3: forge.config.ts declares the macOS floor", () => {
   });
 
   it("names the live floor by OS release, not just by number", () => {
-    expect(forgeSource).toMatch(/Monterey/);
+    expect(forgeSource).toMatch(/Ventura/);
   });
 
   it("documents the three-point floor enforcement it still relies on", () => {

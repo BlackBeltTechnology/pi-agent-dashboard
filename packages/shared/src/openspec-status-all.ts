@@ -176,8 +176,15 @@ export function entryError(entry: StatusAllEntry): { code: string; message: stri
 
 // ── Task counting (OpenSpec's rule) ─────────────────────────────────────────
 
-/** Verbatim copy of OpenSpec's `TASK_LINE_PATTERN` (utils/task-progress.js). */
-const TASK_LINE_PATTERN = /^\s*[-*]\s*\[([\sxX])\]\s*(.*)/;
+/**
+ * Verbatim copy of OpenSpec's `TASK_LINE_PATTERN` (utils/task-progress.js) at
+ * 1.14.3: any CommonMark list marker (`-`, `*`, `+`, `1.`, `1)`) and a one-token
+ * checkbox (`[~]`, `[]`, `[ x ]` count as not-done), link bullets excluded.
+ * Re-copy it on every CLI bump; the `status --all` parity suite
+ * (`openspec-status-all-parity.shard*.test.ts`) is the oracle.
+ * See change: refresh-electron-bundled-components.
+ */
+const TASK_LINE_PATTERN = /^\s*(?:[-*+]|\d{1,9}[.)])\s*\[(?:\s*([^\]\s]?)\s*\](?![([])|\s+\])\s*(.*)/;
 
 /** Mirrors OpenSpec's `countTasksFromContent`: every matching line counts. */
 export function countTasksFromContent(content: string): { total: number; completed: number } {
@@ -187,7 +194,7 @@ export function countTasksFromContent(content: string): { total: number; complet
     const m = TASK_LINE_PATTERN.exec(line);
     if (!m) continue;
     total++;
-    if (m[1].toLowerCase() === "x") completed++;
+    if ((m[1] ?? "").toLowerCase() === "x") completed++;
   }
   return { total, completed };
 }
