@@ -31,11 +31,11 @@ import { type FileDigest, fetchFileDigest } from "../../lib/file-digest.js";
 import { plainFileWrite } from "./tracked-file-write.js";
 
 /** Let a burst of events (a pi `write`, a formatter) settle before hashing. */
-export const SETTLE_MS = 150;
+const SETTLE_MS = 150;
 /** Mount-time catch-up: covers a change landing before `watch_files` reached the server. */
-export const CATCH_UP_MS = 1000;
+const CATCH_UP_MS = 1000;
 /** Bound on waiting for an own save (and on the save request itself). */
-export const SAVE_WAIT_MS = 60_000;
+const SAVE_WAIT_MS = 60_000;
 
 interface Run {
   ac: AbortController;

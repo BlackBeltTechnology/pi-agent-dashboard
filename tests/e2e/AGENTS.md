@@ -30,7 +30,7 @@ One row per file.
 | `model-roles-promotion.spec.ts` | L3 spec. → see `model-roles-promotion.spec.ts.AGENTS.md` |
 | `gmail-plugin.spec.ts` | L3 gmail-plugin vs in-container fake Google: F1–… → see `gmail-plugin.spec.ts.AGENTS.md` |
 | `notify-collapse.spec.ts` | → see `notify-collapse.spec.ts.AGENTS.md` |
-| `pi-settings-editor.spec.ts` | L3 pi settings (#F13/#F14) |
+| `pi-settings-editor.spec.ts` | L3 pi settings #F13/#F14 |
 | `plugin-embedded-app.spec.ts` | L3 demo `"content"` embedded app (F1/F2). → see `plugin-embedded-app.spec.ts.AGENTS.md` |
 | `plugin-oauth-flow.spec.ts` | → see `plugin-oauth-flow.spec.ts.AGENTS.md` |
 | `preview-denial-remedy.spec.ts` | L3 preview denial remedy (#F1,#F4-#F13,#X1,#X2). → see `preview-denial-remedy.spec.ts.AGENTS.md` |
@@ -157,7 +157,7 @@ One row per file.
 | `package-queue-visible.spec.ts` | Browser E2E gate for… → see `package-queue-visible.spec.ts.AGENTS.md` |
 | `pairing-qr.spec.ts` | Browser E2E for the camera-scannable pairing QR… → see `pairing-qr.spec.ts.AGENTS.md` |
 | `remote-access-wizard.spec.ts` | L3 dialog. → see `remote-access-wizard.spec.ts.AGENTS.md` |
-| `replay-live-tool-not-orphaned.spec.ts` | L3 restart mid-call → sidecar |
+| `replay-live-tool-not-orphaned.spec.ts` | L3 restart mid-call |
 | `retro-ux-plugin-settings-wave-2.spec.ts` | L3 E36–E39, F7, F8. → see `retro-ux-plugin-settings-wave-2.spec.ts.AGENTS.md` |
 | `runtime-extension-reload-convergence.spec.ts` | F5 → see `runtime-extension-reload-convergence.spec.ts.AGENTS.md` |
 | `runtime-updates-remote-local.spec.ts` | X14 → see `runtime-updates-remote-local.spec.ts.AGENTS.md` |
