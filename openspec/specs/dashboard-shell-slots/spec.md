@@ -1000,7 +1000,7 @@ A claimed extension SHALL be rejected when the shared file-kind classifier treat
 **Versioning.** Adding the slot SHALL be a minor version of `pi-dashboard-shared`; plugins that do not reference it SHALL be unaffected.
 
 #### Scenario: Validator accepts a well-formed claim
-- **WHEN** a manifest declares an `editor-pane-file-handler` claim with a component, `id: "word"`, `extensions: [".docx"]`, `mode: "edit"` and a label
+- **WHEN** a manifest declares an `editor-pane-file-handler` claim with a component, `id: "word"`, `extensions: [".docx"]`, `mode: "edit"`, a copy suffix and a label
 - **THEN** the validator SHALL accept it
 
 #### Scenario: Validator rejects a text extension

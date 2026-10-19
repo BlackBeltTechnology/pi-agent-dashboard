@@ -161,23 +161,24 @@ async function overwrite(
     path.dirname(real),
     `.${path.basename(real)}.${randomBytes(8).toString("hex")}.tmp`,
   );
+  let mtimeMs: number;
   try {
     await fs.writeFile(tmp, ctx.bytes, { flag: "wx" });
     await fs.chmod(tmp, current.mode & 0o777);
+    // Stat BEFORE the rename (it keeps the inode): a stat failure then still hits the tmp cleanup below.
+    mtimeMs = (await fs.stat(tmp)).mtimeMs;
     await fs.rename(tmp, real);
   } catch {
     await fs.rm(tmp, { force: true }).catch(() => {});
     return fail(500, "write failed");
   }
-  const after = await fs.stat(real).catch(() => null);
-  if (!after) return fail(500, "write failed");
   return {
     code: 200,
     body: {
       success: true,
       data: {
         path: ctx.rel(ctx.target.requested),
-        mtime: after.mtimeMs,
+        mtime: mtimeMs,
         sha1: ctx.sha1,
       },
     },
@@ -218,24 +219,24 @@ async function copy(ctx: WriteCtx, suffix: string): Promise<Outcome> {
       if ((err as NodeJS.ErrnoException).code === "EEXIST") continue;
       return fail(500, "write failed");
     }
+    let mtimeMs: number;
     try {
       await fh.writeFile(bytes);
       if (explicitMode) await fh.chmod(mode);
+      mtimeMs = (await fh.stat()).mtimeMs;
       await fh.close();
     } catch {
       await fh.close().catch(() => {});
       await fs.rm(dest, { force: true }).catch(() => {});
       return fail(500, "write failed");
     }
-    const st = await fs.stat(dest).catch(() => null);
-    if (!st) return fail(500, "write failed");
     return {
       code: 200,
       body: {
         success: true,
         data: {
           path: ctx.rel(path.join(path.dirname(target.requested), name)),
-          mtime: st.mtimeMs,
+          mtime: mtimeMs,
           sha1: ctx.sha1,
         },
       },
