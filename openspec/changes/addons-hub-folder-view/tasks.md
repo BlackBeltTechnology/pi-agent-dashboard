@@ -62,10 +62,10 @@ Client L1 exemplars: `packages/client/src/components/__tests__/UnifiedPackagesSe
 - [x] 4.6 Verify 4.1–4.5 fail; implement the Issues tab (reuse `MissingRequirementsBlock`, `CopyableErrorBlock`), move `PackageHealthPanel` into it, and add the shared issue-count hook used by the tab and the `SettingsPanel.tsx` rail badge (refresh on Settings mount, cleanup Apply, plugin toggle); verify 4.1–4.5 pass.
 - [x] 4.7 L3 (see `tests/e2e/addons-hub.spec.ts`): harness with a plugin missing a requirement · open `/settings/add-ons?tab=issues` at 1440 and 375 · rail badge equals the tab count; panel inside the tab (test-plan #F16)
 - [x] 4.8 L3 (see `tests/e2e/retro-ux-plugin-settings-forms.spec.ts`): `PackageHealthPanel` with stale/missing/duplicate fixtures in base dark, base light, nord dark · render · every `tests/e2e/helpers/computed-contrast.ts` probe passes; `data-testid`s unchanged; conform tokens/`--severity-*` per `ui-contract.md` (11 Tailwind palette classes in `PackageHealthPanel.tsx`/`UnifiedPackagesSection.tsx` today) (test-plan #F17)
-- [ ] 4.9 Retro UX for #875: capture `PackageHealthPanel` as-built stale/missing/duplicate/clean states in base dark/light and nord dark at 375/1440 before 4.6 mounts it, and after conforming to the Issues tab in `mockups/extensions-hub/index.html` (test-plan: manual-only, #F19)
+- [x] 4.9 Retro UX for #875: capture `PackageHealthPanel` as-built stale/missing/duplicate/clean states in base dark/light and nord dark at 375/1440 before 4.6 mounts it, and after conforming to the Issues tab in `mockups/extensions-hub/index.html` (test-plan: manual-only, #F19)
 
 ## 5. Verification
 
 - [x] 5.1 `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` green; `npm run quality:changed` clean; theme-token guard clean.
-- [ ] 5.2 Visual conformance: folder Add-ons page + Issues tab, dark/light at 375/1440, against `mockups/extensions-hub/folder.html` and `index.html` (test-plan: manual-only, #F18)
-- [ ] 5.3 Isolated env (non-8000 ports, temp HOME): turn off `pi-web-access` in folder A, start sessions in A and B, confirm it loads only in B; re-enable in A, confirm `.pi/settings.json` is back to its original content (test-plan: manual-only, #X7)
+- [x] 5.2 Visual conformance: folder Add-ons page + Issues tab, dark/light at 375/1440, against `mockups/extensions-hub/folder.html` and `index.html` (test-plan: manual-only, #F18)
+- [x] 5.3 Isolated env (non-8000 ports, temp HOME): turn off `pi-web-access` in folder A, start sessions in A and B, confirm it loads only in B; re-enable in A, confirm `.pi/settings.json` is back to its original content (test-plan: manual-only, #X7)
