@@ -65,8 +65,19 @@ export function pluginClientRoots(root = ROOT) {
   return out;
 }
 
-/** Source roots scanned for color custom-property references: the client + every plugin client tree. */
-export const SCAN_ROOTS = [...new Set(["packages/client/src", ...pluginClientRoots()])];
+/**
+ * Source roots scanned for color custom-property references: the client, the shared
+ * UI kits (`client-utils`, `dashboard-plugin-runtime`) + every plugin client tree.
+ * See change: align-ui-contract-recipes (design D8).
+ */
+export const SCAN_ROOTS = [
+  ...new Set([
+    "packages/client/src",
+    "packages/client-utils/src",
+    "packages/dashboard-plugin-runtime/src",
+    ...pluginClientRoots(),
+  ]),
+];
 
 /** index.css is the theme layer — the single place a token may be declared. */
 const THEME_CSS = "packages/client/src/index.css";

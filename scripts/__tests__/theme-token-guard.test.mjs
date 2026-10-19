@@ -140,6 +140,26 @@ describe("Gmail plugin client is guarded", () => {
   });
 });
 
+// The shared UI kits are scanned too (test-plan #E14).
+// See change: align-ui-contract-recipes (design D8).
+describe("shared UI kit roots are guarded (#E14)", () => {
+  for (const dir of ["packages/client-utils/src", "packages/dashboard-plugin-runtime/src"]) {
+    it(`SCAN_ROOTS lists ${dir}`, () => {
+      expect(SCAN_ROOTS).toContain(dir);
+    });
+    it(`a hex fallback under ${dir} is a new violation`, () => {
+      const root = mkdtempSync(join(tmpdir(), "theme-guard-kit-"));
+      mkdirSync(join(root, dir), { recursive: true });
+      mkdirSync(join(root, "packages", "client", "src"), { recursive: true });
+      writeFileSync(join(root, "packages", "client", "src", "index.css"), readFileSync(join(REPO_ROOT, "packages/client/src/index.css"), "utf8"));
+      writeFileSync(join(root, dir, "Kit.tsx"), 'const a = "border-[var(--accent-primary,#60a5fa)]";\n');
+      const { fallback } = scan({ root, roots: SCAN_ROOTS.filter((r) => r === dir) });
+      expect(fallback[`${dir}/Kit.tsx::--accent-primary`]).toBe(1);
+      expect(ratchet(fallback, loadBaseline().fallback).added.length).toBeGreaterThan(0);
+    });
+  }
+});
+
 // Wave 2: every plugin client tree is scanned, not three hand-picked ones
 // (test-plan #E35). See change: retro-ux-plugin-settings-wave-2.
 describe("every plugin client tree is guarded (#E35)", () => {
