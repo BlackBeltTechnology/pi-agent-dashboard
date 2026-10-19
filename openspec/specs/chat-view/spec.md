@@ -504,10 +504,10 @@ overlap its neighbour — the message with the image visually disappears (issue 
 ### Requirement: Composer is a unified container with model/thinking inside and session actions above
 The chat view's composer (`CommandInput`) SHALL render as a single bordered container ("the card") that holds, top-to-bottom:
 1. an optional attachments row;
-2. an **input row**: the textarea, with the inline-terminal control and the single morphing action button (send/stop) on its trailing side. Both controls SHALL be aligned to the textarea's bottom edge, so they stay beside the last line as the draft grows;
-3. a **settings row**: the `＋` attach control, the `ModelSelector` chip, the `ThinkingLevelSelector` chip, and a `Steer | Queue` delivery control.
+2. an **input row**: the textarea, with the single morphing action button (send/stop) on its trailing side. The action button SHALL be aligned to the textarea's bottom edge, so it stays beside the last line as the draft grows;
+3. a **settings row**: the `＋` attach control, the `ModelSelector` chip, the `ThinkingLevelSelector` chip, a `Steer | Queue` delivery control, and the inline-terminal control. The inline-terminal control SHALL render as a bordered chip with the same height, radius and border token as the delivery control, showing a terminal icon and a visible `Terminal` text label; its accessible name SHALL stay "Open inline terminal". The text label MAY collapse to icon-only when the composer container is too narrow to fit it without overflowing the settings row; the collapsed chip SHALL keep its border and accessible name.
 
-The settings row SHALL NOT contain the action button or the inline-terminal control. The textarea SHALL NOT draw a focus indicator of its own. The card's focus border SHALL be the single focus indicator and SHALL meet 3:1 non-text contrast against the surrounding surface. The standalone StatusBar model row SHALL NOT render for the selected session; model and thinking level SHALL be reachable only from the composer.
+The settings row SHALL NOT contain the action button. The input row SHALL NOT contain the inline-terminal control. The textarea SHALL NOT draw a focus indicator of its own. The card's focus border SHALL be the single focus indicator and SHALL meet 3:1 non-text contrast against the surrounding surface. The standalone StatusBar model row SHALL NOT render for the selected session; model and thinking level SHALL be reachable only from the composer.
 
 When and only when the chat view is bound to a session, a `ComposerSessionActions` context strip SHALL render **above** the card (not inside the StatusBar). It SHALL carry the OpenSpec and Git groups and the same `onSendPrompt` / `onReadArtifact` / refresh callbacks, plus `onAttach` / `onDetach`. Relocating the strip SHALL NOT change its slot wiring.
 
@@ -526,7 +526,7 @@ OpenSpec group:
 - **Unattached** (`attachedProposal == null`): the group SHALL contain:
   - an `Attach change…` control that opens the change picker, disabled and labelled "No changes" when the folder has no changes;
   - an `Explore` button;
-  - a `⋯` overflow offering the same unattached workflow entries as the session card (e.g. New change…, Propose…), subject to the workflow configuration. Folder-level bulk actions MAY remain card-only.
+  - a `⋯` overflow offering the same unattached workflow entries as the desktop session card's actions menu (e.g. New change…, Propose…), subject to the workflow configuration. Folder-level bulk actions MAY remain card-only.
   - It SHALL NOT contain a lifecycle bar, a primary action, or an `Archive` button.
 - **Attached:** the group SHALL contain, in order:
   - a change chip showing the attached change name. It SHALL open a menu with `Open proposal` and `Detach`;
@@ -555,11 +555,21 @@ At most one control in the whole strip SHALL render as a filled primary. When th
 The strip SHALL additionally render every `composer-context-group` slot contribution between the Git group and the Status group. These contributions SHALL NOT be subject to the working-state disable that gates the strip's action buttons. The strip SHALL render whenever at least one host group or one `composer-context-group` contribution is present.
 
 #### Scenario: Composer renders as one container with toolbar controls
-- **WHEN** the chat view is bound to a session
+- **WHEN** the chat view is bound to a session and the composer container is at least as wide as its natural inline width
 - **THEN** the composer SHALL render a single card containing an input row and a settings row
-- **AND** the input row SHALL contain the textarea, the inline-terminal control and the action button
-- **AND** the settings row SHALL contain `＋`, the model chip, the thinking chip and the delivery control, and SHALL NOT contain the action button
+- **AND** the input row SHALL contain the textarea and the action button, and SHALL NOT contain the inline-terminal control
+- **AND** the settings row SHALL contain `＋`, the model chip, the thinking chip, the delivery control and the inline-terminal chip, and SHALL NOT contain the action button
+- **AND** the inline-terminal chip SHALL show its `Terminal` label when the label fits, and MAY render icon-only otherwise (narrower composers fold it into `⋯`, see Mobile composer adaptation)
 - **AND** no standalone StatusBar model row SHALL render for that session
+
+#### Scenario: Inline-terminal chip matches the delivery control
+- **WHEN** the composer container is wide enough to render the terminal chip inline
+- **THEN** the chip's rendered height and border radius SHALL equal those of the `Steer | Queue` delivery control
+- **AND** the chip SHALL have an accessible name of "Open inline terminal"
+
+#### Scenario: Inline-terminal chip never overflows the settings row
+- **WHEN** the composer container is 1 px wider than the fold threshold and the longest model id is selected
+- **THEN** the settings row SHALL NOT overflow horizontally
 
 #### Scenario: Action button follows a growing draft
 - **WHEN** the user types a four-line draft
@@ -605,8 +615,8 @@ The strip SHALL additionally render every `composer-context-group` slot contribu
 
 #### Scenario: Composer and session card choose the same primary
 - **WHEN** the same attached session is shown in the composer strip and on its session card, for any `ChangeState` and workflow configuration
-- **THEN** both SHALL offer the same primary action
-- **AND** both overflows SHALL list the same workflow items, apart from `Detach`, which only the session card's overflow lists
+- **THEN** both SHALL derive the same OpenSpec primary action. On the desktop session card it is the actions menu's NEXT item, or a plain OPENSPEC item when Merge is NEXT.
+- **AND** the composer's `⋯` and the desktop session card's actions menu SHALL offer the same set of workflow items, though placement may differ (the menu shows Verify outside `More…`), apart from `Detach`, which only the session card's menu lists
 
 #### Scenario: Change chip offers detach
 - **WHEN** the user opens the change chip for attached change `"add-auth"` and activates `Detach`
@@ -740,7 +750,7 @@ The fold threshold SHALL sit above the composer's natural inline width, so the f
 
 #### Scenario: Wide composer keeps controls inline
 - **WHEN** the composer container is at least as wide as its natural inline width
-- **THEN** thinking level and `Steer | Queue` SHALL render inline in the settings row, and the inline terminal SHALL render inline in the input row
+- **THEN** thinking level, `Steer | Queue` and the labelled inline-terminal chip SHALL render inline in the settings row
 - **AND** the `⋯` overflow control SHALL be hidden
 
 #### Scenario: Action button meets touch-target minimum

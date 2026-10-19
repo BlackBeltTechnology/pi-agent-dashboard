@@ -7,11 +7,12 @@
  *
  * See change: ship-browser-skill-and-electron-cdp.
  */
-import { describe, it, expect } from "vitest";
+
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
+import { describe, expect, it } from "vitest";
 
 const here = path.dirname(url.fileURLToPath(import.meta.url));
 const pkgDir = path.resolve(here, "..", "..");
@@ -197,6 +198,114 @@ describe("browser skill — dashboard relay routing branches (X15)", () => {
     ["never fall back to the bundled browser", /Never fall back to the bundled browser/i],
   ])("dashboard-relay.md documents %s", (_label, pattern) => {
     expect(relay).toMatch(pattern);
+  });
+});
+
+describe("browser skill — operator host recipe (#E59)", () => {
+  const relay = fs.readFileSync(path.join(skillDir, "references", "dashboard-relay.md"), "utf-8");
+
+  it("gates `host` on the `operatorHosts: true` status precondition", () => {
+    expect(relay).toMatch(/`host`/);
+    expect(relay).toMatch(/operatorHosts: true/);
+    expect(relay).toMatch(/operatorHosts: true[\s\S]{0,200}`host`|`host`[\s\S]{0,200}operatorHosts: true/);
+  });
+
+  it.each(["unknown-host", "operator-denied", "consent-timeout", "no-chrome", "host-gone"])(
+    "documents the %s error",
+    (reason) => {
+      expect(relay).toContain(`\`${reason}\``);
+    },
+  );
+
+  it("states the own-computer rule and the never-fall-back rule for operator-denied", () => {
+    expect(relay).toMatch(/own computer/i);
+    expect(relay).toMatch(/operator-denied[\s\S]{0,300}(never|do not|not)[\s\S]{0,80}dashboard host/i);
+  });
+});
+
+describe("browser skill — dedicated-browser recipe text (#E25)", () => {
+  // test-plan #E25 — change: add-dedicated-agent-browser.
+  // Prose is hard-wrapped: collapse whitespace so phrases match across line breaks.
+  const flat = (t: string): string => t.replace(/\s+/g, " ");
+  const relay = flat(fs.readFileSync(path.join(skillDir, "references", "dashboard-relay.md"), "utf-8"));
+  const skill = flat(fs.readFileSync(path.join(skillDir, "SKILL.md"), "utf-8"));
+
+  it("names browser_connect as the primary recipe, before the REST fallback", () => {
+    expect(relay).toContain("browser_connect");
+    expect(relay.indexOf("## Primary recipe")).toBeGreaterThan(-1);
+    expect(relay.indexOf("## Primary recipe")).toBeLessThan(relay.indexOf("## Fallback recipe"));
+    expect(skill).toContain("browser_connect");
+  });
+
+  it("names dedicated/open and the {profileDirectory} body form", () => {
+    expect(relay).toContain("dedicated/open");
+    expect(relay).toContain("{profileDirectory}");
+    expect(relay).toMatch(/"profileDirectory":"Default"/);
+    expect(relay).toMatch(/dedicated\/\{connect,open,stop,reset\}/);
+  });
+
+  it("forbids reading, copying or launching a browser on the profile dir, and reading the downloads dir", () => {
+    expect(relay).toMatch(/MUST NOT read, copy, or launch a browser on the dedicated profile directory/);
+    expect(relay).toContain("~/.pi/dashboard/agent-chrome");
+    expect(relay).toMatch(/MUST NOT read the dedicated downloads directory/);
+    expect(relay).toContain("~/.pi/dashboard/agent-chrome-downloads");
+    expect(relay).toMatch(/unless its task names a file/);
+  });
+
+  it("makes a headless result for a login task a stop, not a fallback", () => {
+    expect(relay).toMatch(/\{browser: "headless"\}[^\n]*login[\s\S]{0,200}\*\*Stop\.\*\*/);
+    expect(relay).toMatch(/never a fallback/i);
+    expect(skill).toMatch(/`headless`\s+result[\s\S]{0,120}login task[\s\S]{0,40}stop, not a fallback/);
+  });
+
+  it("states the same-user limit and that browser_connect never routes to Panerelay", () => {
+    expect(relay).toMatch(/same OS user/);
+    expect(relay).toMatch(/`browser_connect` \*\*never\*\* routes to Panerelay/);
+    expect(skill).toMatch(/`browser_connect` never routes to Panerelay/);
+  });
+
+  it("SKILL.md still references references/challenge.md", () => {
+    expect(skill).toContain("references/challenge.md");
+  });
+});
+
+describe("browser skill — dedicated login wall routing (#R18)", () => {
+  // test-plan #R18 — change: add-dedicated-agent-browser.
+  const relay = fs
+    .readFileSync(path.join(skillDir, "references", "dashboard-relay.md"), "utf-8")
+    .replace(/\s+/g, " ");
+  const section = (heading: string, next: string): string => {
+    const a = relay.indexOf(heading);
+    const b = relay.indexOf(next, a + heading.length);
+    expect(a, `missing ${heading}`).toBeGreaterThan(-1);
+    expect(b, `missing ${next}`).toBeGreaterThan(a);
+    return relay.slice(a, b);
+  };
+
+  it("routes a dedicated login wall to dedicated/open + ask_user, never credentials in the agent's tab", () => {
+    const wall = section("### Login wall in the dedicated profile", "### Chrome profile closes");
+    expect(wall).toContain("POST /api/browser/dedicated/open");
+    expect(wall).toMatch(/"url":/);
+    expect(wall).toContain("ask_user");
+    expect(wall).toMatch(/reload your own tab/i);
+    expect(wall).toMatch(/do not ask for credentials/i);
+  });
+
+  it("scopes browser_await_human to Chrome profiles and non-sign-in steps", () => {
+    const scope = section("**Scope of `browser_await_human`:**", "### Login wall in the dedicated profile");
+    expect(scope).toMatch(/\*\*Chrome profile\*\*: use it for any human step — login/);
+    expect(scope).toMatch(/\*\*Dedicated profile\*\*: use it only for \*\*non-sign-in\*\* steps/);
+    expect(scope).toMatch(/sign-in goes through `dedicated\/open` \+ `ask_user`/);
+  });
+
+  it("diagnoses a password-manager detach from the audit closed:/extension: details", () => {
+    const pm = section("### Chrome profile closes on a password page", "## Dedicated profile — limits");
+    expect(pm).toContain("GET /api/browser/audit");
+    expect(pm).toContain("closed:");
+    expect(pm).toContain("extension:");
+    expect(pm).toMatch(/password-manager/i);
+    expect(pm).toMatch(/dedicated\s+profile/);
+    expect(pm).toMatch(/Do \*\*not\*\* retry the same page/);
   });
 });
 

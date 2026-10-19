@@ -258,3 +258,121 @@ describe("ConnectionStatusBanner — network denied: Request access (F9)", () =>
     expect(screen.getByTestId("network-denied-request-access")).toBeDefined();
   });
 });
+
+// retire-trusted-networks-bypass — the denied bar follows the knock (test-plan #F8):
+// idle → Request access; pending → the waiting code; refused → the server's reason.
+describe("ConnectionStatusBanner — network denied: knock state (F8)", () => {
+  const KNOCK_KEY = "pi-dashboard:pair-request";
+  const REFUSAL_KEY = "pi-dashboard:pair-request-refusal";
+
+  const renderDenied = (onOpenServers: () => void = vi.fn()) =>
+    render(
+      <ConnectionStatusBanner
+        status="offline"
+        currentServerHost="home-imac"
+        inFlightSwitch={false}
+        networkDenied={{ hint: "This device isn't paired with home-imac." }}
+        onOpenServers={onOpenServers}
+      />,
+    );
+
+  beforeEach(() => sessionStorage.clear());
+  afterEach(() => {
+    cleanup();
+    sessionStorage.clear();
+    vi.useRealTimers();
+  });
+
+  /** Request access primary, Settings → Servers secondary, whatever the knock state. */
+  const expectActions = () => {
+    const primary = screen.getByRole("button", { name: "Request access" });
+    expect(primary.className).toContain("--accent-solid");
+    const servers = screen.getByRole("button", { name: /servers/i });
+    expect(servers.className).not.toContain("--accent-solid");
+  };
+
+  it("idle: warning bar with the hint, Request access primary + Settings → Servers secondary", () => {
+    renderDenied();
+    const bar = screen.getByTestId("network-denied-banner");
+    expect(bar.className).toContain("--severity-warning-bg");
+    expect(bar.textContent).toContain("This device isn't paired with home-imac.");
+    expect(screen.queryByTestId("network-denied-request-pending")).toBeNull();
+    expect(screen.queryByTestId("network-denied-request-refused")).toBeNull();
+    expectActions();
+  });
+
+  it("pending: shows the grouped code, the host and a countdown on info tokens", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T12:00:00Z"));
+    sessionStorage.setItem(
+      KNOCK_KEY,
+      JSON.stringify({ pendingId: "p1", confirmCode: "48217730", expiresAt: Date.now() + 272_000 }),
+    );
+    renderDenied();
+    const bar = screen.getByTestId("network-denied-request-pending");
+    expect(bar.className).toContain("--severity-info-bg");
+    expect(bar.textContent).toContain("Waiting for approval on home-imac");
+    expect(bar.textContent).toContain("4821 7730");
+    expect(bar.textContent).toContain("4:32");
+    expectActions();
+    // The countdown ticks; at expiry the bar falls back to the plain denial.
+    act(() => vi.advanceTimersByTime(2_000));
+    expect(screen.getByTestId("network-denied-request-pending").textContent).toContain("4:30");
+    act(() => vi.advanceTimersByTime(271_000));
+    expect(screen.queryByTestId("network-denied-request-pending")).toBeNull();
+    expect(screen.getByTestId("network-denied-banner")).toBeDefined();
+  });
+
+  it("refused knock_disabled: error bar with the server's reason, never 'trust the network'", () => {
+    sessionStorage.setItem(REFUSAL_KEY, JSON.stringify({ code: "knock_disabled", at: Date.now() }));
+    renderDenied();
+    const bar = screen.getByTestId("network-denied-request-refused");
+    expect(bar.className).toContain("--severity-error-bg");
+    expect(bar.textContent).toMatch(/isn't accepting requests from the network/);
+    expect(bar.textContent).not.toMatch(/trust/i);
+    expectActions();
+  });
+
+  it("refused knock_rate_limited: the cooldown is formatted into the reason", () => {
+    sessionStorage.setItem(
+      REFUSAL_KEY,
+      JSON.stringify({ code: "knock_rate_limited", at: Date.now(), cooldownUntil: Date.now() + 120_000 }),
+    );
+    renderDenied();
+    expect(screen.getByTestId("network-denied-request-refused").textContent).toMatch(/request again in 2:0\d/);
+  });
+
+  it("an old refusal no longer describes the device: back to the plain denial", () => {
+    sessionStorage.setItem(REFUSAL_KEY, JSON.stringify({ code: "knock_disabled", at: Date.now() - 11 * 60_000 }));
+    renderDenied();
+    expect(screen.queryByTestId("network-denied-request-refused")).toBeNull();
+    expect(screen.getByTestId("network-denied-banner")).toBeDefined();
+  });
+
+  it("no palette classes in any denied state", () => {
+    for (const seed of [
+      () => {},
+      () => sessionStorage.setItem(KNOCK_KEY, JSON.stringify({ pendingId: "p", confirmCode: "11112222", expiresAt: Date.now() + 60_000 })),
+      () => {
+        sessionStorage.clear();
+        sessionStorage.setItem(REFUSAL_KEY, JSON.stringify({ code: "knock_disabled", at: Date.now() }));
+      },
+    ]) {
+      seed();
+      const { container, unmount } = renderDenied();
+      expect(container.innerHTML).not.toMatch(/amber-/);
+      unmount();
+    }
+  });
+
+  it("Request access still navigates to /pair?request in the refused and pending states", () => {
+    const assign = vi.fn();
+    const originalLocation = window.location;
+    Object.defineProperty(window, "location", { configurable: true, value: { ...originalLocation, origin: "http://x", assign } });
+    sessionStorage.setItem(REFUSAL_KEY, JSON.stringify({ code: "knock_disabled", at: Date.now() }));
+    renderDenied();
+    fireEvent.click(screen.getByRole("button", { name: "Request access" }));
+    expect(assign).toHaveBeenCalledWith("/pair?request");
+    Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
+  });
+});

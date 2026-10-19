@@ -93,7 +93,7 @@ describe("ContextModeSettings", () => {
 
   // test-plan #E11 — retro-ux-plugin-settings-forms
   it("E11: default badge + reset ids render; an invalid edit is announced and counted", async () => {
-    const { findByTestId, getByTestId, getByRole } = mount(vi.fn(async () => jsonOk(effective({ "search.maxResultsAfter": { value: 5, isDefault: false } }))));
+    const { findByTestId, getByTestId, getAllByRole } = mount(vi.fn(async () => jsonOk(effective({ "search.maxResultsAfter": { value: 5, isDefault: false } }))));
     const input = (await findByTestId("cms-input-search.maxResultsAfter")) as HTMLInputElement;
     expect(getByTestId("cms-default-badge-search.windowMs")).toBeTruthy();
     expect(getByTestId("cms-reset-search.maxResultsAfter")).toBeTruthy();
@@ -103,7 +103,9 @@ describe("ContextModeSettings", () => {
     expect(err.getAttribute("role")).toBe("alert");
     expect(input.getAttribute("aria-invalid")).toBe("true");
     expect(input.getAttribute("aria-describedby")?.split(" ")).toContain(err.id);
-    await waitFor(() => expect(getByRole("status", { name: "" }).textContent).toMatch(/1 unsaved change/));
+    // A notice (info tone) is a status region too since align-ui-contract-recipes, so pick the one that
+    // announces the unsaved count instead of assuming there is exactly one status on the page.
+    await waitFor(() => expect(getAllByRole("status").filter((el) => /1 unsaved change/.test(el.textContent ?? "")).length).toBe(1));
   });
 
   // test-plan #F3

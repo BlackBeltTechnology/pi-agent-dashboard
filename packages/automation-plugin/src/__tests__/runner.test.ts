@@ -4,14 +4,15 @@
  */
 import { describe, expect, it } from "vitest";
 import { createRunner } from "../server/runner.js";
+import { automationKey } from "../server/scheduler.js";
 import type { Concurrency, DiscoveredAutomation } from "../shared/automation-types.js";
 
 let counter = 0;
-function automation(concurrency: Concurrency, name = "nightly"): DiscoveredAutomation {
+function automation(concurrency: Concurrency, name = "nightly", base = "/repo"): DiscoveredAutomation {
   return {
     name,
     scope: "folder",
-    dir: `/repo/.pi/automation/${name}`,
+    dir: `${base}/.pi/automation/${name}`,
     valid: true,
     config: {
       on: { kind: "schedule", cron: "* * * * *" },
@@ -24,16 +25,22 @@ function automation(concurrency: Concurrency, name = "nightly"): DiscoveredAutom
   };
 }
 
+const NIGHTLY = "folder:/repo/.pi/automation/nightly";
+
 function makeRunner() {
   const started: string[] = [];
+  const startedDirs: string[] = [];
+  const logs: string[] = [];
   const runner = createRunner({
     startRun: (a) => {
       const runId = `run-${++counter}-${a.name}`;
       started.push(runId);
+      startedDirs.push(a.dir);
       return { runId };
     },
+    log: (m) => logs.push(m),
   });
-  return { runner, started };
+  return { runner, started, startedDirs, logs };
 }
 
 describe("runner concurrency", () => {
@@ -43,10 +50,10 @@ describe("runner concurrency", () => {
     runner.fire(a); // starts run 1
     runner.fire(a); // active → dropped
     expect(started).toHaveLength(1);
-    expect(runner.queuedCount("folder:nightly")).toBe(0);
+    expect(runner.queuedCount(NIGHTLY)).toBe(0);
 
     // After the active run completes, a new fire starts again.
-    runner.completeRun("folder:nightly");
+    runner.completeRun(NIGHTLY);
     runner.fire(a);
     expect(started).toHaveLength(2);
   });
@@ -57,11 +64,11 @@ describe("runner concurrency", () => {
     runner.fire(a); // starts run 1
     runner.fire(a); // queued
     expect(started).toHaveLength(1);
-    expect(runner.queuedCount("folder:nightly")).toBe(1);
+    expect(runner.queuedCount(NIGHTLY)).toBe(1);
 
-    runner.completeRun("folder:nightly"); // drains queue → starts run 2
+    runner.completeRun(NIGHTLY); // drains queue → starts run 2
     expect(started).toHaveLength(2);
-    expect(runner.queuedCount("folder:nightly")).toBe(0);
+    expect(runner.queuedCount(NIGHTLY)).toBe(0);
   });
 
   it("queue preserves multiple deferred fires in FIFO order", () => {
@@ -70,11 +77,11 @@ describe("runner concurrency", () => {
     runner.fire(a); // run active
     runner.fire(a); // q1
     runner.fire(a); // q2
-    expect(runner.queuedCount("folder:nightly")).toBe(2);
-    runner.completeRun("folder:nightly"); // start q1
-    expect(runner.queuedCount("folder:nightly")).toBe(1);
-    runner.completeRun("folder:nightly"); // start q2
-    expect(runner.queuedCount("folder:nightly")).toBe(0);
+    expect(runner.queuedCount(NIGHTLY)).toBe(2);
+    runner.completeRun(NIGHTLY); // start q1
+    expect(runner.queuedCount(NIGHTLY)).toBe(1);
+    runner.completeRun(NIGHTLY); // start q2
+    expect(runner.queuedCount(NIGHTLY)).toBe(0);
     expect(started).toHaveLength(3);
   });
 
@@ -84,7 +91,54 @@ describe("runner concurrency", () => {
     runner.fire(a);
     runner.fire(a);
     expect(started).toHaveLength(2);
-    expect(runner.queuedCount("folder:nightly")).toBe(0);
+    expect(runner.queuedCount(NIGHTLY)).toBe(0);
+  });
+
+  // Identity is scope + discovered path, not name. See change: fix-automation-key-collision.
+  const X = "/x/.pi/automation/deploy";
+  const Y = "/y/.pi/automation/deploy";
+
+  it("E10: same-named automations do not block each other under skip", () => {
+    const { runner, startedDirs, logs } = makeRunner();
+    runner.fire(automation("skip", "deploy", "/x")); // /x active
+    runner.fire(automation("skip", "deploy", "/y"));
+    expect(startedDirs).toEqual([X, Y]);
+    expect(logs.some((l) => l.includes("skip: drop overlapping"))).toBe(false);
+  });
+
+  it("E11: skip still drops an overlapping fire of the same definition", () => {
+    const { runner, startedDirs, logs } = makeRunner();
+    const a = automation("skip", "deploy", "/x");
+    runner.fire(a);
+    runner.fire(a);
+    expect(startedDirs).toEqual([X]);
+    const skips = logs.filter((l) => l.includes("skip: drop overlapping"));
+    expect(skips).toHaveLength(1);
+    expect(skips[0]).toContain(`folder:${X}`);
+  });
+
+  it("E12: queue defers only the same definition", () => {
+    const { runner, startedDirs } = makeRunner();
+    const x = automation("queue", "deploy", "/x");
+    const y = automation("queue", "deploy", "/y");
+    runner.fire(x); // /x active
+    runner.fire(x); // queued
+    runner.fire(y); // different definition → starts immediately
+    expect(startedDirs).toEqual([X, Y]);
+    expect(runner.queuedCount(automationKey(x))).toBe(1);
+    expect(runner.queuedCount(automationKey(y))).toBe(0);
+  });
+
+  it("X1: queue drain targets the completing definition only", () => {
+    const { runner, startedDirs } = makeRunner();
+    const x = automation("queue", "deploy", "/x");
+    const y = automation("queue", "deploy", "/y");
+    runner.fire(x); runner.fire(x); // x: active + 1 queued
+    runner.fire(y); runner.fire(y); // y: active + 1 queued
+    expect(startedDirs).toEqual([X, Y]);
+    runner.completeRun(automationKey(x));
+    expect(startedDirs).toEqual([X, Y, X]);
+    expect(runner.queuedCount(automationKey(y))).toBe(1);
   });
 
   it("queued fires retain their own per-fire ctx value (no collapse)", () => {
@@ -99,8 +153,8 @@ describe("runner concurrency", () => {
     runner.fire(a, { firedAt: 1, value: "/spool/a.pdf" }); // starts run 1 (a.pdf)
     runner.fire(a, { firedAt: 2, value: "/spool/b.pdf" }); // queued (b.pdf)
     runner.fire(a, { firedAt: 3, value: "/spool/c.pdf" }); // queued (c.pdf)
-    runner.completeRun("folder:nightly"); // drains → run 2 (b.pdf)
-    runner.completeRun("folder:nightly"); // drains → run 3 (c.pdf)
+    runner.completeRun(NIGHTLY); // drains → run 2 (b.pdf)
+    runner.completeRun(NIGHTLY); // drains → run 3 (c.pdf)
     expect(values).toEqual(["/spool/a.pdf", "/spool/b.pdf", "/spool/c.pdf"]);
   });
 });
@@ -146,8 +200,8 @@ describe("runner fire-slot ownership (fan-out)", () => {
 
   it("X5: a queued fire starts only after the whole occurrence is terminal", () => {
     const engine = makeEngine([]);
-    const key = "folder:q";
     const a = fanout("q", 3, "queue");
+    const key = automationKey(a);
     engine.runner.fire(a); // parent1 + 3 children
     const p1 = engine.runner.activeRunId(key)!;
     const kids1 = readChildRuns(repo, parents("q").find((r) => r.runId === p1)!);

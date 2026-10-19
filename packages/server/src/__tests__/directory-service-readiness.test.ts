@@ -22,6 +22,7 @@ import { createDirectoryService, type DirectoryService } from "../directory-serv
 import { deriveOpenSpecReadiness, type ReadinessInputs } from "../openspec/readiness.js";
 import type { PreferencesStore } from "../persistence/preferences-store.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
+import type { CliCall } from "../openspec/workflow-schema.js";
 
 // ── git-operations mock: resolveConfigRoot is faked (configurable per test);
 // everything else stays real (folder-head-poll needs readHeadDisplayAsync).
@@ -46,6 +47,9 @@ vi.mock("@blackbelt-technology/pi-dashboard-shared/openspec-poller.js", async (i
   return {
     ...actual,
     pollOpenSpecAsync: vi.fn(async () => ({ initialized: true, changes: [] })),
+    // This suite exercises the fallback path (`list` + local derivation): the CLI
+    // "rejects" `--all` so the poll continues on it. See change: use-openspec-status-all.
+    runOpenSpecStatusAll: vi.fn(async () => ({ stdout: "", stderr: "error: unknown option '--all'", exitCode: 1 })),
     runOpenSpecList: vi.fn(async () => ({ changes: [] })),
     runOpenSpecStatus: vi.fn(async () => null),
   };
@@ -687,5 +691,214 @@ describe("DirectoryService — reconfigurePolling readiness diffing (add-openspe
     const out = await service.pollDirectoryGated(opted);
     expect(out.readiness).toEqual({ state: "OPTED_OUT" });
     expect(runOpenSpecList).not.toHaveBeenCalled();
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════
+// Workflow schema status — separate from readiness (add-pi-spec-driven-schema)
+// ══════════════════════════════════════════════════════════════════
+
+describe("DirectoryService — OpenSpecData.workflowSchema (add-pi-spec-driven-schema)", () => {
+  let service: DirectoryService;
+  let tmpRoot: string;
+  let pkgSchemas: string;
+
+  const put = (cwd: string, rel: string, text: string): void => {
+    fs.mkdirSync(path.dirname(path.join(cwd, rel)), { recursive: true });
+    fs.writeFileSync(path.join(cwd, rel), text);
+  };
+  const stampedSchema = (cwd: string, base: string, patch: number): void =>
+    put(
+      cwd,
+      "openspec/schemas/pi-spec-driven/schema.yaml",
+      `name: pi-spec-driven\nx-pi-dashboard:\n  derivedFrom: spec-driven@${base}\n  patch: ${patch}\n  previousDefault: spec-driven\n`,
+    );
+  const make = (extra: Record<string, unknown> = {}): DirectoryService =>
+    (service = createDirectoryService(
+      makePrefs(),
+      makeSessionMgr(),
+      { ...DEFAULT_OPENSPEC_POLL, useWorker: false },
+      {
+        openspecVersionResolver: async () => "1.11.0",
+        workflowSchema: { packageSchemasDir: async () => pkgSchemas, userSchemasDirPath: path.join(tmpRoot, "no-user") },
+        ...extra,
+      },
+    ));
+  /** `status --all` envelope for `cwd`: names in `broken` get an "Unknown schema" per-change error, exit 1. */
+  const statusAll = async (cwd: string, broken: string[]) => {
+    const { renderStatusAll } = await import("./helpers/status-all-fixture.js");
+    const raw = renderStatusAll(cwd);
+    const env = JSON.parse(raw.stdout) as { changes: Array<{ changeName: string }> };
+    env.changes = env.changes.map((c) =>
+      broken.includes(c.changeName)
+        ? ({ changeName: c.changeName, status: [{ severity: "error", code: "change_error", message: "Unknown schema 'pi-spec-driven'" }] } as never)
+        : c,
+    );
+    return { stdout: JSON.stringify(env), stderr: "", exitCode: broken.length > 0 ? 1 : 0 };
+  };
+  const useStatusAll = async (cwd: string, broken: string[]): Promise<void> => {
+    const { runOpenSpecStatusAll } = await import("@blackbelt-technology/pi-dashboard-shared/openspec-poller.js");
+    const raw = await statusAll(cwd, broken);
+    (runOpenSpecStatusAll as any).mockImplementationOnce(async () => raw);
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    fakeConfigRoot = (cwd) => cwd;
+    tmpRoot = fs.realpathSync(mkTmpRoot());
+    pkgSchemas = path.join(tmpRoot, "pkg-schemas");
+    fs.mkdirSync(path.join(pkgSchemas, "spec-driven"), { recursive: true });
+    fs.writeFileSync(path.join(pkgSchemas, "spec-driven", "schema.yaml"), "name: spec-driven\n");
+  });
+  afterEach(() => {
+    service?.stopPolling();
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
+  it("#F1 outdated generated schema is reported beside READY readiness", async () => {
+    const repo = path.join(tmpRoot, "repo");
+    mkProject(repo, { skills: true });
+    put(repo, "openspec/config.yaml", "schema: pi-spec-driven\n");
+    stampedSchema(repo, "1.10.0", 1);
+    const out = await make().refreshOpenSpec(repo);
+    expect(out.readiness?.state).toBe("READY");
+    expect(out.workflowSchema?.generated).toBe("outdated");
+    expect(out.workflowSchema?.configured).toBe("pi-spec-driven");
+    expect(service.getOpenSpecData(repo)?.workflowSchema?.generated).toBe("outdated"); // served on demand
+  });
+
+  it("#F1 status is recomputed on a gated tick after config.yaml changes (no change mtime moved)", async () => {
+    const repo = path.join(tmpRoot, "repo");
+    mkProject(repo, { skills: true });
+    put(repo, "openspec/config.yaml", "schema: spec-driven\n");
+    make();
+    await service.refreshOpenSpec(repo);
+    expect(service.getOpenSpecData(repo)?.workflowSchema).toMatchObject({ configured: "spec-driven", generated: "none" });
+    put(repo, "openspec/config.yaml", "schema: pi-spec-driven\n");
+    stampedSchema(repo, "1.11.0", 1);
+    const out = await service.pollDirectoryGated(repo);
+    expect(out.workflowSchema).toMatchObject({ configured: "pi-spec-driven", generated: "current" });
+  });
+
+  it("#F1 newer stamp: local `schema validate` runs once through the spawn semaphore and is memoized", async () => {
+    const repo = path.join(tmpRoot, "repo");
+    mkProject(repo, { skills: true });
+    put(repo, "openspec/config.yaml", "schema: pi-spec-driven\n");
+    stampedSchema(repo, "1.12.0", 1);
+    const cli = vi.fn(async (_call: CliCall) => ({ ok: true as const, stdout: JSON.stringify({ valid: false }) }));
+    make({ workflowSchema: { packageSchemasDir: async () => pkgSchemas, deps: { cli, validateMemo: new Map() } } });
+    expect((await service.refreshOpenSpec(repo)).workflowSchema?.generated).toBe("incompatible");
+    await service.refreshOpenSpec(repo);
+    await service.pollDirectoryGated(repo);
+    expect(cli).toHaveBeenCalledTimes(1);
+    expect(cli.mock.calls[0]![0]).toEqual({ op: "validate", name: "pi-spec-driven" });
+  });
+
+  it("#F2 missing schema dir with 2 per-change 'Unknown schema' errors keeps readiness READY", async () => {
+    const repo = path.join(tmpRoot, "repo");
+    mkProject(repo, { skills: true });
+    put(repo, "openspec/config.yaml", "schema: pi-spec-driven\n");
+    for (const n of ["a", "b", "c"]) put(repo, `openspec/changes/${n}/proposal.md`, "# p\n");
+    for (const n of ["a", "b"]) put(repo, `openspec/changes/${n}/.openspec.yaml`, "schema: pi-spec-driven\n");
+    await useStatusAll(repo, ["a", "b"]);
+    const out = await make().refreshOpenSpec(repo);
+    expect(out.initialized).toBe(true);
+    expect(out.readiness?.state).toBe("READY");
+    expect(out.workflowSchema?.missing).toBe(true);
+    const byName = Object.fromEntries(out.changes.map((c) => [c.name, c]));
+    expect(byName.a?.error).toBeTruthy();
+    expect(byName.b?.error).toBeTruthy();
+    expect(byName.c?.error).toBeUndefined();
+  });
+
+  it("#F3 unpinned merged change is listed; pinning it empties the list", async () => {
+    const repo = path.join(tmpRoot, "repo");
+    mkProject(repo, { skills: true });
+    put(repo, "openspec/config.yaml", "schema: pi-spec-driven\n");
+    stampedSchema(repo, "1.11.0", 1);
+    put(repo, "openspec/changes/foo/.openspec.yaml", "schema: spec-driven\n");
+    put(repo, "openspec/changes/bar/proposal.md", "# p\n");
+    const { runOpenSpecList } = await import("@blackbelt-technology/pi-dashboard-shared/openspec-poller.js");
+    (runOpenSpecList as any).mockResolvedValue({
+      changes: ["bar", "foo"].map((name) => ({ name, status: "in-progress", completedTasks: 0, totalTasks: 0 })),
+    });
+    make();
+    expect((await service.refreshOpenSpec(repo)).workflowSchema?.unpinnedChanges).toEqual(["bar"]);
+
+    const { pinWorkflowSchema } = await import("../openspec/workflow-schema.js");
+    const { makeFakeCli, stubDeps } = await import("./helpers/workflow-schema-fixtures.js");
+    const res = await pinWorkflowSchema({ cwd: repo, pinTo: "spec-driven", changes: ["bar"] }, stubDeps(makeFakeCli()));
+    expect(res.ok).toBe(true);
+    expect(fs.readFileSync(path.join(repo, "openspec/changes/bar/.openspec.yaml"), "utf8")).toBe("schema: spec-driven\n");
+    expect((await service.refreshOpenSpec(repo)).workflowSchema?.unpinnedChanges).toEqual([]);
+  });
+
+  it("#F3 unpinnedChanges stays empty when the configured schema is not pi-spec-driven", async () => {
+    const repo = path.join(tmpRoot, "repo");
+    mkProject(repo, { skills: true });
+    put(repo, "openspec/config.yaml", "schema: spec-driven\n");
+    put(repo, "openspec/changes/bar/proposal.md", "# p\n");
+    const out = await make().refreshOpenSpec(repo);
+    expect(out.workflowSchema?.unpinnedChanges).toEqual([]);
+  });
+
+  it("#F4 whole-call failure payload carries no workflowSchema key", async () => {
+    const repo = path.join(tmpRoot, "repo");
+    mkProject(repo, { skills: true });
+    put(repo, "openspec/config.yaml", "schema: pi-spec-driven\n");
+    stampedSchema(repo, "1.10.0", 1);
+    const { runOpenSpecStatusAll } = await import("@blackbelt-technology/pi-dashboard-shared/openspec-poller.js");
+    (runOpenSpecStatusAll as any).mockImplementationOnce(async () => ({ stdout: "not json", stderr: "boom", exitCode: 1 }));
+    const out = await make().refreshOpenSpec(repo);
+    expect(out.readiness).toEqual({ state: "BROKEN", reason: "cli-failed" });
+    expect("workflowSchema" in out).toBe(false);
+  });
+
+  it("#F4 disabled and opted-out payloads carry no workflowSchema key", async () => {
+    const repo = path.join(tmpRoot, "repo");
+    mkProject(repo, { skills: true });
+    put(repo, "openspec/config.yaml", "schema: pi-spec-driven\n");
+    const off = createDirectoryService(makePrefs(), makeSessionMgr(), { ...DEFAULT_OPENSPEC_POLL, enabled: false });
+    expect("workflowSchema" in (await off.refreshOpenSpec(repo))).toBe(false);
+    service = createDirectoryService(makePrefs(), makeSessionMgr(), { ...DEFAULT_OPENSPEC_POLL, optOutDirectories: [repo] });
+    expect("workflowSchema" in (await service.pollDirectoryGated(repo))).toBe(false);
+  });
+
+  it.each([
+    ["schema dir present", false],
+    ["schema dir missing", true],
+  ] as const)("#F11 affectedChanges == [a, b] (%s)", async (_label, missingDir) => {
+    const repo = path.join(tmpRoot, "repo");
+    mkProject(repo, { skills: true });
+    put(repo, "openspec/config.yaml", "schema: pi-spec-driven\n");
+    if (!missingDir) stampedSchema(repo, "1.11.0", 1);
+    put(repo, "openspec/changes/a/proposal.md", "# p\n"); // unpinned
+    put(repo, "openspec/changes/b/.openspec.yaml", "schema: pi-spec-driven\n");
+    put(repo, "openspec/changes/c/.openspec.yaml", "schema: spec-driven\n");
+    await useStatusAll(repo, missingDir ? ["a", "b"] : []);
+    const out = await make().refreshOpenSpec(repo);
+    expect(out.workflowSchema?.affectedChanges).toEqual(["a", "b"]);
+    expect(out.workflowSchema?.missing).toBe(missingDir);
+    expect(out.readiness?.state).toBe("READY");
+  });
+  it("#U15 projectSchemas lists only real project-authored schema dirs (no managed, staging, backup, or symlink)", async () => {
+    const repo = path.join(tmpRoot, "repo");
+    mkProject(repo, { skills: true });
+    put(repo, "openspec/config.yaml", "schema: spec-driven\n");
+    for (const d of ["team-flow", "pi-spec-driven", ".fork-staging-x", "pi-spec-driven.fork-backup-1-2"]) {
+      put(repo, `openspec/schemas/${d}/schema.yaml`, "name: x\n");
+    }
+    const target = fs.mkdtempSync(path.join(tmpRoot, "ext-target-"));
+    fs.symlinkSync(target, path.join(repo, "openspec/schemas/ext"), "dir");
+    const out = await make().refreshOpenSpec(repo);
+    expect(out.workflowSchema?.projectSchemas).toEqual(["team-flow"]);
+  });
+
+  it("#U15 projectSchemas is [] when openspec/schemas is absent", async () => {
+    const repo = path.join(tmpRoot, "repo");
+    mkProject(repo, { skills: true });
+    put(repo, "openspec/config.yaml", "schema: spec-driven\n");
+    const out = await make().refreshOpenSpec(repo);
+    expect(out.workflowSchema?.projectSchemas).toEqual([]);
   });
 });

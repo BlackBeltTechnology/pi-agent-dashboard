@@ -25,6 +25,7 @@ vi.mock("../../../lib/theme/monaco-theme.js", () => ({ buildMonacoTheme: () => (
 vi.mock("@monaco-editor/react", () => ({ __esModule: true, default: () => <div data-testid="monaco" /> }));
 
 import { GRANT_CHANNEL_HEADER, installGrantChannelFetch, setGrantChannel } from "../../../lib/access-grants/grant-channel.js";
+import { MermaidSourceContext } from "../../../lib/preview/mermaid-source-context.js";
 import { AsciiDocPreview } from "../../preview/AsciiDocPreview.js";
 import { AudioPreview } from "../../preview/AudioPreview.js";
 import { DiagramPreview } from "../../preview/DiagramPreview.js";
@@ -33,6 +34,8 @@ import { EmlPreview } from "../../preview/EmlPreview.js";
 import { HtmlPreview } from "../../preview/HtmlPreview.js";
 import { ImagePreview } from "../../preview/ImagePreview.js";
 import { MarkdownPreview } from "../../preview/MarkdownPreview.js";
+import { MarkupRepairBanner } from "../../preview/MarkupRepairBanner.js";
+import { MermaidApplyFix } from "../../preview/MermaidApplyFix.js";
 import { PptxPreview } from "../../preview/PptxPreview.js";
 import { SpreadsheetPreview } from "../../preview/SpreadsheetPreview.js";
 import { VideoPreview } from "../../preview/VideoPreview.js";
@@ -102,6 +105,31 @@ const CASES: Case[] = [
   { file: "MarkdownViewer.tsx", el: () => <MarkdownViewer {...vp("a.md", "markdown")} /> },
   { file: "MermaidViewer.tsx", el: () => <MermaidViewer {...vp("a.mmd")} /> },
   { file: "MonacoBuffer.tsx", el: () => <MonacoBuffer {...vp("a.ts")} /> },
+  // "Apply fix to file": its md-read re-read goes through `usePreviewFetch` (opted out);
+  // the write POST is an exempt route. See change: add-preview-apply-fix-to-file.
+  {
+    file: "MermaidApplyFix.tsx",
+    el: () => (
+      <MermaidApplyFix source={{ cwd: "/proj", path: "a.md", kind: "md", reload: () => {} }} ordinal={0} originalCode="x" fixedSource="y" />
+    ),
+    act: (c) => fireEvent.click(c.querySelector('[data-testid="mermaid-apply-fix-button"]') as HTMLElement),
+  },
+  // "Apply markup fix to file": md-read via `usePreviewFetch` (opted out); the write POST is exempt.
+  // See change: add-md-adoc-markup-repair.
+  {
+    file: "MarkupRepairBanner.tsx",
+    el: () => (
+      <MermaidSourceContext.Provider value={{ cwd: "/proj", path: "a.md", kind: "md", reload: () => {} }}>
+        <MarkupRepairBanner
+          repairs={[{ rule: "M3", line: 1 }]}
+          viewOriginal={false}
+          onToggleOriginal={() => {}}
+          apply={{ displayed: "x", repair: (s) => ({ source: s, repairs: [] }) }}
+        />
+      </MermaidSourceContext.Provider>
+    ),
+    act: (c) => fireEvent.click(c.querySelector('[data-testid="markup-repair-apply"]') as HTMLElement),
+  },
 ];
 
 const sources = DIRS.flatMap((dir) =>

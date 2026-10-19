@@ -12,6 +12,10 @@
  * eliminate-electron-runtime-install (task 3.2). It is the single source
  * of truth for arm-aware client gating (e.g. hiding pi-core update UI
  * under Electron, since bundled node_modules/ is read-only there).
+ *
+ * Consumers (Electron quit / Doctor / update-checker / attach probe, and the CLI
+ * owner messages) read `launchSource`; `starter` stays absent. The #E8 case pins
+ * that contract. See change: fix-cli-control-electron-server (design D6).
  */
 
 import { DEFAULT_MEMORY_LIMITS } from "@blackbelt-technology/pi-dashboard-shared/memory-limits.js";
@@ -92,6 +96,18 @@ describe("GET /api/health — shape", () => {
     // Electron is never promoted regardless of bridge count / uptime.
     expect(body.launchSourceEffective).toBe("electron");
     assertOwnershipShape(body);
+  });
+
+  it("#E8 DASHBOARD_STARTER=Electron publishes launchSource and no legacy starter", async () => {
+    process.env.DASHBOARD_STARTER = "Electron";
+    handle = await createTestServer();
+    const res = await fetch(`http://localhost:${handle.httpPort}/api/health`);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.launchSource).toBe("electron");
+    expect("starter" in body).toBe(false);
+    expect(typeof body.version).toBe("string");
+    expect(typeof body.mode).toBe("string");
+    expect(typeof body.pid).toBe("number");
   });
 
   it("surfaces per-hop dropped-frame counters (fix-stuck-tool-card-on-dropped-event)", async () => {

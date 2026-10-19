@@ -9,11 +9,18 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ActionRegistry } from "../server/action-registry.js";
 import { buildRunDispatch, buildRunPrompt, createEngine, effectiveVisibility } from "../server/engine.js";
 import { collectFolderScopeBases } from "../server/folder-scope-contributions.js";
-import { listRuns, readChildRuns, startRun as storeStartRun } from "../server/run-store.js";
+import {
+  listRuns,
+  readChildRuns,
+  finishRun as storeFinishRun,
+  startChildRun as storeStartChildRun,
+  startParentRun as storeStartParentRun,
+  startRun as storeStartRun,
+} from "../server/run-store.js";
 import type { DiscoveredAutomation, RunRecord } from "../shared/automation-types.js";
 
 /** The single parent occurrence for `name` (fan-out model: one fire = one parent). */
@@ -25,6 +32,10 @@ function parentRun(repoBase: string, name: string, runId?: string): RunRecord {
 function children(repoBase: string, name: string, runId?: string): RunRecord[] {
   return readChildRuns(repoBase, parentRun(repoBase, name, runId));
 }
+
+/** Armed/runner key: scope + the automation's own directory (see change: fix-automation-key-collision). */
+const keyOf = (scope: "folder" | "global", base: string, name: string): string =>
+  `${scope}:${path.join(base, ".pi", "automation", name)}`;
 
 let repo: string;
 beforeEach(() => {
@@ -613,7 +624,7 @@ describe("engine run lifecycle", () => {
     const engine = makeEngine(calls);
     promptAutomation("nightly", "x");
     engine.start();
-    expect(engine.scheduler.armedKeys()).toContain("folder:nightly");
+    expect(engine.scheduler.armedKeys()).toContain(keyOf("folder", repo, "nightly"));
     engine.dispose();
   });
 });
@@ -641,7 +652,7 @@ describe("session-death finalize + stale-run reaper", () => {
     const a = promptAutomation("pull", "x"); // concurrency: skip
     engine.runner.fire(a);
     await flushSpawn();
-    const key = "folder:pull";
+    const key = keyOf("folder", repo, "pull");
     const runId = engine.runner.activeRunId(key)!;
     expect(runId).toBeTruthy();
     engine.onSessionRegistered("sess-1", repo);
@@ -701,7 +712,7 @@ describe("session-death finalize + stale-run reaper", () => {
     const a = promptAutomation("pull", "x");
     engine.runner.fire(a);
     await flushSpawn();
-    const key = "folder:pull";
+    const key = keyOf("folder", repo, "pull");
     const runId = engine.runner.activeRunId(key)!;
     engine.onSessionRegistered("sess-1", repo);
     const started = readChildRuns(repo, parentRun(repo, "pull", runId))[0]!.startedAt;
@@ -733,7 +744,7 @@ describe("session-death finalize + stale-run reaper", () => {
     const { engine, terminations } = makeReaperEngine(nowRef, 1000);
     engine.runner.fire(promptAutomation("pull", "x"));
     await flushSpawn();
-    const runId = engine.runner.activeRunId("folder:pull")!;
+    const runId = engine.runner.activeRunId(keyOf("folder", repo, "pull"))!;
     engine.onSessionRegistered("sess-q", repo);
     const started = readChildRuns(repo, parentRun(repo, "pull", runId))[0]!.startedAt;
 
@@ -762,6 +773,40 @@ describe("session-death finalize + stale-run reaper", () => {
     const after = listRuns(repo, "pull").find((r) => r.runId === orphan.runId)!;
     expect(after.status).toBe("error");
     expect(after.error).toContain("max age");
+  });
+
+  it("reaper finalizes an orphan PARENT (prior process) whose children are all terminal", () => {
+    const nowRef = { v: Date.now() };
+    const { engine } = makeReaperEngine(nowRef, 1000);
+    const parent = storeStartParentRun(repo, "pull");
+    const child = storeStartChildRun(repo, parent.runId, "pull", { actionLabel: "prompt" });
+    storeFinishRun(repo, child.runId, { status: "error", error: "session died" });
+    nowRef.v = parent.startedAt + 2000;
+    engine.reapStaleRuns();
+    const after = listRuns(repo, "pull").find((r) => r.runId === parent.runId)!;
+    expect(after.status).toBe("error");
+    expect(after.endedAt).toBeTypeOf("number");
+  });
+
+  it("reaper finalizes an orphan parent in the same sweep that reaps its stale child", () => {
+    const nowRef = { v: Date.now() };
+    const { engine } = makeReaperEngine(nowRef, 1000);
+    const parent = storeStartParentRun(repo, "pull");
+    storeStartChildRun(repo, parent.runId, "pull", { actionLabel: "prompt" });
+    nowRef.v = parent.startedAt + 2000;
+    engine.reapStaleRuns();
+    expect(listRuns(repo, "pull").find((r) => r.runId === parent.runId)!.status).toBe("error");
+  });
+
+  it("reaper leaves a young orphan parent with terminal children alone (within maxAge)", () => {
+    const nowRef = { v: Date.now() };
+    const { engine } = makeReaperEngine(nowRef, 1000);
+    const parent = storeStartParentRun(repo, "pull");
+    const child = storeStartChildRun(repo, parent.runId, "pull", { actionLabel: "prompt" });
+    storeFinishRun(repo, child.runId, { status: "done", result: "ok" });
+    nowRef.v = parent.startedAt + 500;
+    engine.reapStaleRuns();
+    expect(listRuns(repo, "pull").find((r) => r.runId === parent.runId)!.status).toBe("running");
   });
 
   it("reaper is disabled when maxRunAgeMs <= 0", () => {
@@ -1101,7 +1146,7 @@ describe("folder-scope contributions (union → scan/arm)", () => {
     const bases = composeBases([], [contrib(repo)]);
     const engine = engineForScopes(() => bases.map((base) => ({ base, scope: "folder" })));
     engine.start();
-    expect(engine.scheduler.armedKeys()).toContain("folder:intake");
+    expect(engine.scheduler.armedKeys()).toContain(keyOf("folder", repo, "intake"));
     engine.dispose();
   });
 
@@ -1111,11 +1156,11 @@ describe("folder-scope contributions (union → scan/arm)", () => {
     expect(bases).toEqual([path.resolve(repo)]);
     const engine = engineForScopes(() => bases.map((base) => ({ base, scope: "folder" })));
     engine.start();
-    expect(engine.scheduler.armedKeys()).toEqual(["folder:dedup"]);
+    expect(engine.scheduler.armedKeys()).toEqual([keyOf("folder", repo, "dedup")]);
     engine.dispose();
   });
 
-  it("E7: contributed base == home dir arms under global only, never as folder", () => {
+  it("E7 (test-plan #E6): contributed base == home dir arms under global only, never as folder", () => {
     const home = tmp("auto-home-");
     writeEnabledAutomation(home, "homeauto");
     const folderBases = composeBases([], [contrib(home)], { homeDir: home });
@@ -1129,8 +1174,8 @@ describe("folder-scope contributions (union → scan/arm)", () => {
     );
     engine.start();
     const keys = engine.scheduler.armedKeys();
-    expect(keys).toContain("global:homeauto");
-    expect(keys).not.toContain("folder:homeauto");
+    expect(keys).toContain(keyOf("global", home, "homeauto"));
+    expect(keys).not.toContain(keyOf("folder", home, "homeauto"));
     engine.dispose();
   });
 
@@ -1142,7 +1187,7 @@ describe("folder-scope contributions (union → scan/arm)", () => {
     expect(bases).not.toContain(path.resolve(pinned));
     const engine = engineForScopes(() => bases.map((base) => ({ base, scope: "folder" })));
     engine.start();
-    expect(engine.scheduler.armedKeys()).not.toContain("folder:pinned");
+    expect(engine.scheduler.armedKeys()).not.toContain(keyOf("folder", pinned, "pinned"));
     engine.dispose();
   });
 
@@ -1160,7 +1205,63 @@ describe("folder-scope contributions (union → scan/arm)", () => {
     expect(engine.scheduler.armedKeys()).toEqual([]); // documented boundary: no re-arm trigger
     // A later trigger (refresh) does arm it — proving the boundary, not a defect.
     engine.refresh();
-    expect(engine.scheduler.armedKeys()).toContain("folder:late");
+    expect(engine.scheduler.armedKeys()).toContain(keyOf("folder", late, "late"));
     engine.dispose();
+  });
+
+  // ── Identity = scope + discovered path. See change: fix-automation-key-collision.
+  describe("identity: scope + discovered path", () => {
+    afterEach(() => { vi.useRealTimers(); });
+
+    function countingEngine(scopes: Array<{ base: string; scope: "folder" | "global" }>, calls: unknown[]) {
+      return createEngine({
+        spawnSession: async (o) => { calls.push(o); return { success: true, spawnToken: `tok-${calls.length}` }; },
+        listScopes: () => scopes,
+        config: () => ({
+          defaultVisibility: "hidden", retention: 100, defaultModel: "anthropic/claude-sonnet-4-5",
+          scanFolder: true, scanGlobal: true, maxRunAgeMs: 30 * 60 * 1000,
+        }),
+        readRoles: () => ({ fast: "anthropic/claude-haiku-4-5" }),
+        warn: () => {},
+      });
+    }
+
+    async function fireOnePeriod(engine: ReturnType<typeof countingEngine>): Promise<void> {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(2026, 5, 19, 10, 30, 0));
+      engine.start();
+      await vi.advanceTimersByTimeAsync(60_000);
+      await vi.advanceTimersByTimeAsync(0);
+    }
+
+    it.skipIf(process.platform === "win32")("E5: identity is the discovered path — a symlinked spelling is a second definition", async () => {
+      const real = fs.realpathSync(tmp("auto-real-"));
+      writeEnabledAutomation(real, "deploy");
+      const link = path.join(tmp("auto-linkdir-"), "L");
+      fs.symlinkSync(real, link);
+      const calls: unknown[] = [];
+      const engine = countingEngine([{ base: real, scope: "folder" }, { base: link, scope: "folder" }], calls);
+      await fireOnePeriod(engine);
+      expect(engine.scheduler.armedKeys().sort()).toEqual(
+        [keyOf("folder", real, "deploy"), keyOf("folder", link, "deploy")].sort(),
+      );
+      expect(calls).toHaveLength(2); // one fire per armed definition for the occurrence
+      engine.dispose();
+    });
+
+    it("E7 (task 2.15): same name across global and folder scopes arms both and fires each once", async () => {
+      const home = tmp("auto-home7-");
+      const proj = tmp("auto-proj7-");
+      writeEnabledAutomation(home, "sync");
+      writeEnabledAutomation(proj, "sync");
+      const calls: unknown[] = [];
+      const engine = countingEngine([{ base: home, scope: "global" }, { base: proj, scope: "folder" }], calls);
+      await fireOnePeriod(engine);
+      expect(engine.scheduler.armedKeys().sort()).toEqual(
+        [keyOf("global", home, "sync"), keyOf("folder", proj, "sync")].sort(),
+      );
+      expect(calls).toHaveLength(2);
+      engine.dispose();
+    });
   });
 });

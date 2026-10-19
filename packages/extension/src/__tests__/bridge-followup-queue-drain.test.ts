@@ -1,28 +1,27 @@
 /**
- * Tests for the bridge-owned-follow-up drain loop.
+ * Tests for the bridge-owned-follow-up drain.
  *
- * Pure mirror of bridge.ts `drainFollowupQueue()`:
+ * Drives the REAL gate sequence in `followup-drain.ts` (`drainOneFollowup`) over
+ * the REAL `createFollowupBuffer`; only the `isDraining` re-entrancy lock lives
+ * in `bridge.ts` and is mirrored by the last block here:
  *
- *   1. Re-entrancy lock (isDraining boolean, set→try→finally clear)
+ *   1. Empty-buffer gate (bridgeFollowUp.length > 0)
  *   2. TUI-coexistence gate (ctx.hasPendingMessages() === false)
- *   3. Empty-buffer gate (bridgeFollowUp.length > 0)
+ *   3. Idle gate (ctx.isIdle() === true) — ONE check, no retry timer: the next
+ *      `agent_settled` drains (design D4)
  *   4. POP FIRST (bridgeFollowUp.shift() before any pi call)
  *   5. Emit BEFORE send (emitQueueUpdate runs before pi.sendUserMessage)
  *   6. Single send, no deliverAs (fresh-turn semantics)
  *   7. Catch + drop on pi error (no re-push)
  *
- * NOTE: an earlier draft included `ctx.isIdle()` as a gate. Smoke test
- * showed that `ctx.isIdle()` returns false at microtask time even though
- * `agent_end` has already fired, blocking the drain. The gate was
- * removed: `agent_end` by definition means the agent ended, and the
- * `ctx.hasPendingMessages()` gate handles the TUI-coexistence concern.
- *
  * Spec: mid-turn-prompt-queue — Requirement "Bridge follow-up drain loop
- * runs on agent_end with pop-before-send invariant".
+ * runs on agent_settled with pop-before-send invariant".
  *
- * See change: rework-mid-turn-prompt-queue.
+ * See changes: rework-mid-turn-prompt-queue, update-pi-core-1-3-adopt-apis.
  */
 import { describe, it, expect, vi } from "vitest";
+import { drainOneFollowup } from "../followup-drain.js";
+import { createFollowupBuffer } from "../followup-buffer.js";
 
 type AnyMock = ((...args: any[]) => any) & ReturnType<typeof vi.fn>;
 
@@ -38,7 +37,8 @@ interface CtxLike {
 interface Harness {
   pi: PiLike;
   ctx: CtxLike;
-  buffer: string[];
+  /** Texts currently in the real buffer. */
+  readonly buffer: string[];
   emit: AnyMock;
   callLog: string[];
   drainOnce: () => void;
@@ -72,45 +72,39 @@ function makeHarness(opts: {
     }) as AnyMock;
   }
 
-  const buffer: string[] = [...(opts.initial ?? [])];
+  const real = createFollowupBuffer();
+  for (const text of opts.initial ?? []) real.push({ text });
+  const texts = (): string[] => real.entries().map((e) => e.text);
+  // Spy on the real shift so the call log shows pop-before-send.
+  const shift = real.shift.bind(real);
+  real.shift = () => {
+    const entry = shift();
+    if (entry) callLog.push(`buffer.shift:${entry.text}`);
+    return entry;
+  };
   const emit = vi.fn(() => {
-    callLog.push(`emit:${JSON.stringify([...buffer])}`);
+    callLog.push(`emit:${JSON.stringify(texts())}`);
   }) as AnyMock;
 
-  // Mirror bridge.ts drainFollowupQueue 1:1 (post-smoke-fix #3:
-  // sendUserMessage with NO deliverAs after ctx.isIdle() returns true).
-  // The retry loop is omitted from this synchronous harness; tests that
-  // exercise the not-idle branch verify no-pi-call directly.
-  let isDraining = false;
   const drainOnce = (): void => {
-    if (isDraining) return;
-    if (buffer.length === 0) return;
-    if (typeof ctx.hasPendingMessages === "function") {
-      try { if (ctx.hasPendingMessages()) return; } catch { /* swallow */ }
-    }
-    const idle = (() => {
-      try { return ctx.isIdle?.() === true; } catch { return false; }
-    })();
-    if (!idle) return; // real code retries via setTimeout; harness just bails
-    isDraining = true;
-    try {
-      // POP FIRST.
-      const entry = buffer.shift()!;
-      callLog.push(`buffer.shift:${entry}`);
-      // EMIT BEFORE SEND.
-      emit();
-      // SEND with NO deliverAs (fresh turn).
-      try {
-        pi.sendUserMessage(entry);
-      } catch {
-        // INTENTIONAL no re-push.
-      }
-    } finally {
-      isDraining = false;
-    }
+    drainOneFollowup({
+      buffer: real,
+      ctx,
+      emitQueueUpdate: emit,
+      sendUserMessage: (content) => pi.sendUserMessage(content),
+    });
   };
 
-  return { pi, ctx, buffer, emit, callLog, drainOnce };
+  return {
+    pi,
+    ctx,
+    get buffer() {
+      return texts();
+    },
+    emit,
+    callLog,
+    drainOnce,
+  } as Harness;
 }
 
 describe("drainFollowupQueue: pop-before-send invariant", () => {
@@ -137,13 +131,13 @@ describe("drainFollowupQueue: pop-before-send invariant", () => {
     h.drainOnce();
     // After ctx.isIdle()=true, pi.sendUserMessage(entry) starts a fresh
     // turn via Agent.prompt(). deliverAs is intentionally omitted because
-    // pi's followUpQueue is no longer being drained post-agent_end.
+    // pi's followUpQueue is no longer being drained once the run has settled.
     expect(h.pi.sendUserMessage).toHaveBeenCalledWith("a");
     expect(h.pi.sendUserMessage.mock.calls[0]).toHaveLength(1);
   });
 });
 
-describe("drainFollowupQueue: one entry per agent_end", () => {
+describe("drainFollowupQueue: one entry per agent_settled", () => {
   it("drains only ONE entry per call", () => {
     const h = makeHarness({ initial: ["a", "b", "c"], hasPendingMessages: false });
     h.drainOnce();
@@ -152,7 +146,7 @@ describe("drainFollowupQueue: one entry per agent_end", () => {
     expect(h.pi.sendUserMessage).toHaveBeenCalledWith("a");
   });
 
-  it("drains in FIFO order across multiple agent_end fires", () => {
+  it("drains in FIFO order across multiple agent_settled fires", () => {
     const h = makeHarness({ initial: ["a", "b", "c"], hasPendingMessages: false });
     h.drainOnce(); // → "a"
     h.drainOnce(); // → "b"
@@ -165,10 +159,13 @@ describe("drainFollowupQueue: one entry per agent_end", () => {
     }
   });
 
-  it("bails when ctx.isIdle returns false (transition window)", () => {
+  it("bails when ctx.isIdle returns false, with no retry timer (the next settle drains)", () => {
+    vi.useFakeTimers();
     const h = makeHarness({ initial: ["a"], hasPendingMessages: false, idle: false });
     h.drainOnce();
-    // Pi still in transition — buffer untouched, no pi call.
+    // Another run already started — buffer untouched, no pi call, no timer.
+    expect(vi.getTimerCount()).toBe(0);
+    vi.useRealTimers();
     expect(h.buffer).toEqual(["a"]);
     expect(h.pi.sendUserMessage).not.toHaveBeenCalled();
     expect(h.emit).not.toHaveBeenCalled();

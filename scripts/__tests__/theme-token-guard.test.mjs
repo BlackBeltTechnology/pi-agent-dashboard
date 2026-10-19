@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { loadBaseline, main, NON_TEXT_PAINT_FILES, ratchet, SCAN_ROOTS, scan, total } from "../theme-token-guard.mjs";
+import { loadBaseline, main, NON_TEXT_PAINT_FILES, pluginClientRoots, ratchet, SCAN_ROOTS, scan, total } from "../theme-token-guard.mjs";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const FILE_ICON = "packages/client/src/lib/preview/file-icon.ts";
@@ -137,6 +137,68 @@ describe("Gmail plugin client is guarded", () => {
     const { undeclared } = scan({ root, roots: [GMAIL] });
     expect(undeclared[`${GMAIL}/Row.tsx::--border`]).toBe(1);
     expect(ratchet(undeclared, loadBaseline().undeclared).added.length).toBeGreaterThan(0);
+  });
+});
+
+// The shared UI kits are scanned too (test-plan #E14).
+// See change: align-ui-contract-recipes (design D8).
+describe("shared UI kit roots are guarded (#E14)", () => {
+  for (const dir of ["packages/client-utils/src", "packages/dashboard-plugin-runtime/src"]) {
+    it(`SCAN_ROOTS lists ${dir}`, () => {
+      expect(SCAN_ROOTS).toContain(dir);
+    });
+    it(`a hex fallback under ${dir} is a new violation`, () => {
+      const root = mkdtempSync(join(tmpdir(), "theme-guard-kit-"));
+      mkdirSync(join(root, dir), { recursive: true });
+      mkdirSync(join(root, "packages", "client", "src"), { recursive: true });
+      writeFileSync(join(root, "packages", "client", "src", "index.css"), readFileSync(join(REPO_ROOT, "packages/client/src/index.css"), "utf8"));
+      writeFileSync(join(root, dir, "Kit.tsx"), 'const a = "border-[var(--accent-primary,#60a5fa)]";\n');
+      const { fallback } = scan({ root, roots: SCAN_ROOTS.filter((r) => r === dir) });
+      expect(fallback[`${dir}/Kit.tsx::--accent-primary`]).toBe(1);
+      expect(ratchet(fallback, loadBaseline().fallback).added.length).toBeGreaterThan(0);
+    });
+  }
+});
+
+// Wave 2: every plugin client tree is scanned, not three hand-picked ones
+// (test-plan #E35). See change: retro-ux-plugin-settings-wave-2.
+describe("every plugin client tree is guarded (#E35)", () => {
+  it("SCAN_ROOTS lists the client and each plugin client tree", () => {
+    expect(SCAN_ROOTS[0]).toBe("packages/client/src");
+    for (const dir of [
+      "packages/quota-plugin/src",
+      "packages/grammar-plugin/src",
+      "packages/flows-anthropic-bridge-plugin/src",
+      "packages/apple-tools/src/client",
+      "packages/browser-plugin/src/client",
+      "packages/chat-gateway/src/client",
+      "packages/cost-estimator/src/client",
+      "packages/blackhole-plugin/src/client",
+      "packages/mcp-client-plugin/src/client",
+      "packages/system-one-plugin/src/client",
+      "packages/obs-studio-plugin/src/client",
+      "packages/goal-plugin/src/client",
+      "packages/subagents-plugin/src/client",
+      "packages/automation-plugin/src/client",
+      "packages/flows-plugin/src/client",
+      "packages/gmail-plugin/src/client",
+    ]) {
+      expect(SCAN_ROOTS).toContain(dir);
+    }
+    expect(SCAN_ROOTS).toEqual(expect.arrayContaining(pluginClientRoots()));
+  });
+
+  it("a hex fallback added to QuotaSettings.tsx fails and names the file", () => {
+    const QUOTA = "packages/quota-plugin/src";
+    const root = mkdtempSync(join(tmpdir(), "theme-guard-quota-"));
+    mkdirSync(join(root, QUOTA), { recursive: true });
+    mkdirSync(join(root, "packages", "client", "src"), { recursive: true });
+    writeFileSync(join(root, "packages", "client", "src", "index.css"), readFileSync(join(REPO_ROOT, "packages/client/src/index.css"), "utf8"));
+    writeFileSync(join(root, QUOTA, "QuotaSettings.tsx"), 'const a = "text-[var(--text-primary,#fbbf24)]";\n');
+    const { fallback } = scan({ root, roots: [QUOTA] });
+    const r = ratchet(fallback, loadBaseline().fallback);
+    expect(r.ok).toBe(false);
+    expect(r.added[0].key).toBe(`${QUOTA}/QuotaSettings.tsx::--text-primary`);
   });
 });
 

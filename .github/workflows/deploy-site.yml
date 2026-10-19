@@ -32,6 +32,11 @@ concurrency:
 
 jobs:
   build:
+    # Publish from develop ONLY. `workflow_dispatch` has no ref guard of its own,
+    # so a manual dispatch from a feature branch would otherwise publish that
+    # branch and a non-develop marker. `deploy` needs `build`, so it skips too.
+    # See change: add-missing-ci-legs (#579, design D6).
+    if: github.ref == 'refs/heads/develop'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -79,6 +84,13 @@ jobs:
         run: |
           mkdir -p site/dist/app
           cp -r packages/shell/dist/* site/dist/app/
+
+      # Source-commit marker for site-drift-check.yml: the live site is compared
+      # with develop by SHA, so there is no artifact to normalise. Written BEFORE
+      # the artifact upload, or it would not ship.
+      - name: Write deploy SHA marker
+        working-directory: .
+        run: echo "${{ github.sha }}" > site/dist/deploy-sha.txt
 
       - name: Configure Pages
         uses: actions/configure-pages@v5

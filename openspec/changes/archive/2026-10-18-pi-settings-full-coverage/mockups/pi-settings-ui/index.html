@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pi settings page: full settings.json coverage (mockup)</title>
+<style>
+/* Tokens copied verbatim from packages/client/src/index.css (base dark + light). */
+:root{
+  --bg-primary:#0a0a0a;--bg-secondary:#141414;--bg-tertiary:#1e1e1e;--bg-surface:#2a2a2a;--bg-hover:rgba(255,255,255,.06);--bg-overlay:rgba(0,0,0,.6);
+  --text-primary:#e5e5e5;--text-secondary:#b0b0b0;--text-tertiary:#919191;--text-muted:#585858;
+  --border-primary:#252525;--border-secondary:#333333;--border-subtle:rgba(255,255,255,.06);--border-strong:#808080;
+  --accent-blue:#3b82f6;--accent-green:#22c55e;--accent-orange:#f97316;--accent-red:#ef4444;--accent-purple:#a855f7;
+  --accent-primary:#3b82f6;--accent-solid:#2563eb;--accent-blue-text:#508ff7;--link:#60a5fa;
+  --focus-ring:var(--accent-primary);--shadow-card:rgba(0,0,0,.4);--elevation-rim:rgba(255,255,255,.10);
+}
+[data-theme="light"]{
+  --bg-primary:#ffffff;--bg-secondary:#fafafa;--bg-tertiary:#f0f0f0;--bg-surface:#e0e0e0;--bg-hover:rgba(0,0,0,.04);--bg-overlay:rgba(0,0,0,.3);
+  --text-primary:#1a1a1a;--text-secondary:#444444;--text-tertiary:#636363;--text-muted:#aaaaaa;
+  --border-primary:#e0e0e0;--border-secondary:#cccccc;--border-subtle:rgba(0,0,0,.06);--border-strong:#777777;
+  --accent-primary:#2563eb;--accent-blue-text:#0a5ade;--link:#1d4ed8;--shadow-card:rgba(0,0,0,.08);--elevation-rim:rgba(255,255,255,.9);
+}
+:root,[data-theme="light"]{
+  --tint-blue-bg:color-mix(in srgb,var(--accent-blue) 10%,var(--bg-tertiary));
+  --tint-blue-fg:color-mix(in srgb,var(--accent-blue) 46%,var(--text-primary));
+  --tint-blue-border:color-mix(in srgb,var(--accent-blue) 40%,transparent);
+  --tint-orange-bg:color-mix(in srgb,var(--accent-orange) 10%,var(--bg-tertiary));
+  --tint-orange-fg:color-mix(in srgb,var(--accent-orange) 46%,var(--text-primary));
+  --tint-orange-border:color-mix(in srgb,var(--accent-orange) 40%,transparent);
+  --tint-red-bg:color-mix(in srgb,var(--accent-red) 10%,var(--bg-tertiary));
+  --tint-red-fg:color-mix(in srgb,var(--accent-red) 46%,var(--text-primary));
+  --tint-red-border:color-mix(in srgb,var(--accent-red) 40%,transparent);
+  --tint-green-bg:color-mix(in srgb,var(--accent-green) 10%,var(--bg-tertiary));
+  --tint-green-fg:color-mix(in srgb,var(--accent-green) 46%,var(--text-primary));
+  --tint-green-border:color-mix(in srgb,var(--accent-green) 40%,transparent);
+  --severity-info-bg:var(--tint-blue-bg);--severity-info-fg:var(--tint-blue-fg);--severity-info-border:var(--tint-blue-border);
+  --severity-warning-bg:var(--tint-orange-bg);--severity-warning-fg:var(--tint-orange-fg);--severity-warning-border:var(--tint-orange-border);
+  --severity-error-bg:var(--tint-red-bg);--severity-error-fg:var(--tint-red-fg);--severity-error-border:var(--tint-red-border);
+  --severity-success-bg:var(--tint-green-bg);--severity-success-fg:var(--tint-green-fg);--severity-success-border:var(--tint-green-border);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg-primary);color:var(--text-primary);font:14px/1.45 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--focus-ring);outline-offset:1px}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+/* mockup chrome (not part of the design) */
+.bar{position:sticky;top:0;z-index:30;display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px 16px;background:var(--bg-secondary);border-bottom:1px solid var(--border-primary)}
+.bar h1{font-size:12px;font-weight:600;margin:0 auto 0 0;color:var(--text-secondary)}
+
+.seg{display:inline-flex;border:1px solid var(--border-secondary);border-radius:6px;overflow:hidden;flex-shrink:0}
+.seg button{background:transparent;border:0;color:var(--text-secondary);font-size:12px;padding:0 10px;min-height:32px;cursor:pointer;white-space:nowrap}
+.seg button+button{border-left:1px solid var(--border-secondary)}
+.seg button[aria-pressed="true"]{background:var(--tint-blue-bg);color:var(--tint-blue-fg);font-weight:600}
+
+/* settings shell (mirrors SettingsPanel rail + page) */
+.shell{display:grid;grid-template-columns:200px 1fr;min-height:calc(100vh - 49px)}
+.rail{background:var(--bg-secondary);border-right:1px solid var(--border-primary);padding:10px 8px;position:sticky;top:49px;height:calc(100vh - 49px);overflow:auto}
+.rail .grp{font-size:12px;font-weight:600;color:var(--text-secondary);padding:12px 10px 4px}
+.rail a{display:flex;align-items:center;gap:8px;padding:0 10px;min-height:32px;border-radius:6px;color:var(--text-secondary);text-decoration:none;font-size:13px}
+.rail a:hover{background:var(--bg-hover)}
+.rail a[aria-current="page"]{background:var(--bg-tertiary);color:var(--text-primary);font-weight:600}
+.rail .new{margin-left:auto;font-size:11px;padding:0 6px;border-radius:999px;background:var(--tint-green-bg);color:var(--tint-green-fg);border:1px solid var(--tint-green-border)}
+.mobile-nav{display:none}
+
+main{padding:20px 24px 96px;max-width:860px;min-width:0}
+.row > *{min-width:0}
+.pagehead{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap}
+.pagehead h2{font-size:18px;margin:0}
+.pagehead .sub{flex-basis:100%;margin:2px 0 0;font-size:12px;color:var(--text-secondary)}
+.pagehead .sub code{font-size:12px}
+.pagehead .seg{margin-left:auto}
+
+.callout{border:1px solid;border-radius:6px;padding:10px 12px;font-size:13px;margin-top:16px}
+.callout.warning{background:var(--severity-warning-bg);border-color:var(--severity-warning-border);color:var(--severity-warning-fg)}
+.callout.info{background:var(--severity-info-bg);border-color:var(--severity-info-border);color:var(--severity-info-fg)}
+.callout .title{display:flex;align-items:center;gap:8px;font-weight:600}
+.callout ul{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:6px}
+.callout li{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.callout li .what{min-width:0;flex:1}
+.callout .btn{border:1px solid currentColor;background:transparent;border-radius:6px;padding:0 10px;min-height:32px;font-size:12px;font-weight:600;cursor:pointer;color:inherit}
+.callout .done{font-size:12px;font-weight:600}
+
+/* toolbar: search + jump chips */
+.tools{position:sticky;top:49px;z-index:10;background:var(--bg-primary);padding:12px 0 8px;margin-top:8px;border-bottom:1px solid var(--border-primary)}
+.searchrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.search{flex:1;min-width:220px;position:relative}
+.search input{width:100%;min-height:36px;padding:6px 10px 6px 32px;border-radius:6px;border:1px solid var(--border-secondary);background:var(--bg-tertiary);font-size:13px}
+.search svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);width:14px;height:14px;fill:var(--text-tertiary)}
+.check{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--text-secondary);min-height:32px;cursor:pointer}
+.check input{width:16px;height:16px;accent-color:var(--accent-primary)}
+.jumps{display:flex;gap:6px;overflow-x:auto;margin-top:8px;padding-bottom:2px;scrollbar-width:thin}
+.jumps a{position:relative;flex-shrink:0;font-size:12px;padding:0 10px;min-height:28px;display:inline-flex;align-items:center;gap:6px;border-radius:999px;border:1px solid var(--border-secondary);color:var(--text-secondary);text-decoration:none;background:var(--bg-tertiary)}
+.jumps a .n{color:var(--text-secondary);font-size:11px}
+.jumps a .dot{width:6px;height:6px;border-radius:50%;background:var(--accent-blue)}
+
+/* sections */
+section.cat{margin-top:20px;scroll-margin-top:150px}
+section.cat > h3{display:flex;align-items:baseline;gap:8px;font-size:13px;font-weight:600;margin:0 0 8px;color:var(--text-secondary)}
+section.cat > h3 .count{font-weight:400;font-size:12px;color:var(--text-secondary)}
+.card{border:1px solid var(--border-secondary);border-radius:12px;background:var(--bg-secondary);box-shadow:inset 0 1px 0 var(--elevation-rim),0 4px 8px var(--shadow-card)}
+.row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 16px;padding:12px 16px;border-top:1px solid var(--border-primary);align-items:center}
+.row:first-child{border-top:0}
+.row.hidden{display:none}
+.lab{display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0}
+.lab label,.lab .l{font-size:12px;font-weight:600;color:var(--text-primary)}
+.key{font-size:11px;color:var(--text-secondary);background:var(--bg-tertiary);border:1px solid var(--border-subtle);border-radius:4px;padding:0 5px}
+.pill{font-size:11px;font-weight:600;border-radius:999px;padding:0 7px;border:1px solid;display:inline-flex;align-items:center;gap:4px}
+.pill.mod{background:var(--tint-blue-bg);color:var(--tint-blue-fg);border-color:var(--tint-blue-border)}
+.pill.mod::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.pill.glob{background:var(--tint-green-bg);color:var(--tint-green-fg);border-color:var(--tint-green-border)}
+.hint{grid-column:1 / -1;font-size:12px;color:var(--text-secondary);margin:0;max-width:72ch}
+.hint.err{color:var(--severity-error-fg);background:var(--severity-error-bg);border:1px solid var(--severity-error-border);border-radius:6px;padding:2px 8px;justify-self:start}
+.ctl{display:flex;align-items:center;gap:6px;justify-content:flex-end}
+.ctl input[type=number],.ctl input[type=text],.ctl select{min-height:32px;border-radius:4px;border:1px solid var(--border-secondary);background:var(--bg-tertiary);padding:4px 8px;font-size:13px}
+.ctl input[type=number]{width:120px}
+.ctl input[type=text]{width:220px}
+.ctl select{min-width:170px}
+.ctl input[aria-invalid="true"]{border-color:var(--severity-error-border);box-shadow:0 0 0 1px var(--severity-error-border)}
+.ctl input::placeholder{color:var(--text-tertiary)}
+.reset{border:0;background:transparent;color:var(--text-secondary);width:32px;height:32px;border-radius:6px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
+.reset:hover{background:var(--bg-hover)}
+.reset[hidden]{display:inline-flex;visibility:hidden}
+.reset svg{width:16px;height:16px;fill:currentColor}
+.linkbtn{font-size:12px;font-weight:600;color:var(--text-primary);background:var(--bg-tertiary);border:1px solid var(--border-secondary);border-radius:6px;padding:0 10px;min-height:32px;display:inline-flex;align-items:center;gap:6px;text-decoration:none;cursor:pointer}
+.linkbtn svg{width:14px;height:14px;fill:currentColor}
+.ro{font-size:12px;color:var(--text-secondary)}
+.unit{display:inline-block;min-width:44px}
+.budgets{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+.budgets label{display:grid;gap:2px;font-size:11px;color:var(--text-secondary)}
+.budgets input{width:100%!important}
+
+/* model scope editor */
+#scopebox{grid-column:1 / -1}
+.scope{margin-top:8px;border:1px solid var(--border-subtle);background:var(--bg-tertiary);border-radius:8px}
+.scope-head{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px 10px;border-bottom:1px solid var(--border-primary)}
+.scope-head .sum{font-size:12px;color:var(--text-secondary);margin-left:auto}
+.scope-head .sum b{color:var(--text-primary)}
+.scope-head input{min-height:32px;border-radius:4px;border:1px solid var(--border-secondary);background:var(--bg-secondary);padding:4px 8px;font-size:13px;width:200px}
+.prov{border-top:1px solid var(--border-primary)}
+.prov:first-child{border-top:0}
+.prov-row{display:flex;align-items:center;gap:8px;padding:0 10px;min-height:40px}
+.prov-row .exp{border:0;background:transparent;width:28px;height:28px;border-radius:6px;cursor:pointer;color:var(--text-secondary);display:inline-flex;align-items:center;justify-content:center}
+.prov-row .exp svg{width:16px;height:16px;fill:currentColor;transition:transform .15s}
+.prov[data-open="true"] .exp svg{transform:rotate(90deg)}
+.prov-row label{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;cursor:pointer;min-height:32px}
+.prov-row .meta{margin-left:auto;font-size:12px;color:var(--text-secondary)}
+.prov-row .auth{font-size:11px;color:var(--text-secondary)}
+input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent-primary);cursor:pointer}
+.models{display:none;padding:2px 10px 8px 46px;columns:2 220px;column-gap:16px}
+.prov[data-open="true"] .models{display:block}
+.models label{display:flex;align-items:center;gap:8px;font-size:12px;min-height:28px;break-inside:avoid;cursor:pointer}
+.models label.off{display:none}
+.patterns{padding:10px;border-top:1px solid var(--border-primary)}
+.patterns .l{font-size:12px;font-weight:600}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
+.chip{display:inline-flex;align-items:center;gap:4px;font-size:12px;border-radius:999px;padding:0 4px 0 8px;min-height:28px;background:var(--bg-secondary);border:1px solid var(--border-secondary)}
+.chip .m{color:var(--text-secondary);font-size:11px}
+.chip button{border:0;background:transparent;width:24px;height:24px;border-radius:50%;cursor:pointer;color:var(--text-secondary)}
+.chip button:hover{background:var(--bg-hover)}
+.addpat{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.addpat input{min-height:32px;border-radius:4px;border:1px solid var(--border-secondary);background:var(--bg-secondary);padding:4px 8px;font-size:13px;width:240px}
+.addpat .prev{font-size:12px;color:var(--text-secondary)}
+details.json{padding:8px 10px;border-top:1px solid var(--border-primary);font-size:12px;color:var(--text-secondary)}
+details.json summary{cursor:pointer;min-height:24px}
+details.json pre{margin:6px 0 0;padding:8px;border-radius:6px;background:var(--bg-secondary);border:1px solid var(--border-primary);color:var(--text-primary);font-size:11px;overflow:auto}
+
+details.managed > summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;padding:12px 16px;font-size:12px;font-weight:600;color:var(--text-secondary);min-height:44px}
+details.managed > summary::-webkit-details-marker{display:none}
+details.managed[open] > summary{border-bottom:1px solid var(--border-primary)}
+details.managed > summary svg{width:16px;height:16px;fill:currentColor;transition:transform .15s}
+details.managed[open] > summary svg{transform:rotate(90deg)}
+
+.empty{display:none;text-align:center;padding:32px 16px;font-size:13px;color:var(--text-secondary)}
+.empty.on{display:block}
+
+/* unified save bar (SettingsPanel footer) */
+.savebar{position:fixed;left:200px;right:0;bottom:0;z-index:20;display:flex;align-items:center;gap:8px;padding:10px 24px;background:var(--bg-secondary);border-top:1px solid var(--border-primary);transform:translateY(100%);transition:transform .15s}
+.savebar.on{transform:none}
+.savebar .msg{font-size:13px;color:var(--text-secondary);margin-right:auto}
+.savebar .msg b{color:var(--text-primary)}
+.btn2{border:1px solid var(--border-secondary);background:var(--bg-tertiary);color:var(--text-primary);border-radius:6px;padding:0 12px;min-height:36px;cursor:pointer;font-size:13px}
+.btn1{border:0;background:var(--accent-solid);color:#fff;font-weight:600;border-radius:6px;padding:0 14px;min-height:36px;cursor:pointer;font-size:13px}
+.btn1:disabled{background:var(--bg-tertiary);color:var(--text-secondary);cursor:not-allowed}
+
+mark{background:var(--tint-orange-bg);color:inherit;border-radius:2px;outline:1px solid var(--tint-orange-border)}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+@media (max-width:767px){
+  .shell{grid-template-columns:1fr}
+  .rail{display:none}
+  .mobile-nav{display:block;margin-bottom:12px}
+  .mobile-nav select{width:100%;min-height:44px;border-radius:6px;border:1px solid var(--border-secondary);background:var(--bg-tertiary);padding:0 10px}
+  main{padding:16px 14px 110px}
+  .pagehead .seg{margin-left:0}
+  .row{grid-template-columns:1fr}
+  .callout li{flex-direction:column;align-items:stretch}
+  .bar h1{flex-basis:100%}
+  .ctl .seg{display:flex;width:100%}
+  .ctl .seg button{flex:1 1 auto;padding:0 6px;white-space:normal;line-height:1.2}
+  .ctl{justify-content:flex-start;flex-wrap:wrap}
+  .ctl input[type=text]{width:100%;flex:1}
+  .ctl select{flex:1}
+  .seg button,.linkbtn,.callout .btn,.btn1,.btn2{min-height:44px}
+  .budgets{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .savebar{left:0;padding:10px 14px}
+  .scope-head input{width:100%}
+  .models{padding-left:14px}
+  .tools{top:49px}
+}
+</style>
+</head>
+<body>
+
+<div class="bar" role="region" aria-label="Mockup controls">
+  <h1>Mockup · pi settings page (all settings.json keys)</h1>
+  <div class="seg" role="group" aria-label="Theme">
+    <button type="button" data-theme-btn="dark" aria-pressed="true">Dark</button>
+    <button type="button" data-theme-btn="light" aria-pressed="false">Light</button>
+  </div>
+</div>
+
+<div class="shell">
+  <nav class="rail" aria-label="Settings sections">
+    <div class="grp">Models</div>
+    <a href="#">Providers</a>
+    <a href="#">Roles</a>
+    <div class="grp">pi</div>
+    <a href="#" aria-current="page">pi settings <span class="new">new</span></a>
+    <div class="grp">Dashboard</div>
+    <a href="#">General</a><a href="#">Server</a><a href="#">Sessions</a>
+    <div class="grp">Network</div>
+    <a href="#">Remote Servers</a><a href="#">Gateway</a><a href="#">Security</a>
+    <div class="grp">Add-ons</div>
+    <a href="#">Add-ons</a><a href="#">Plugins</a><a href="#">OpenSpec</a>
+    <div class="grp">Resources</div>
+    <a href="#">Skills</a>
+  </nav>
+
+  <main>
+    <div class="mobile-nav"><label class="sr-only" for="mnav">Settings section</label>
+      <select id="mnav"><option>Providers</option><option>Roles</option><option selected>pi settings</option><option>Sessions</option><option>Add-ons</option></select></div>
+
+    <div class="pagehead">
+      <h2>pi settings</h2>
+      <div class="seg" role="group" aria-label="Editor mode">
+        <button type="button" aria-pressed="true">Form</button>
+        <button type="button" aria-pressed="false">JSON</button>
+      </div>
+      <p class="sub">Global file <code class="mono">~/.pi/agent/settings.json</code>. Saving reloads 4 running sessions. A project <code class="mono">.pi/settings.json</code> can still override these values.</p>
+    </div>
+
+    <div class="callout warning" id="legacy" role="region" aria-labelledby="legacy-t">
+      <div class="title" id="legacy-t">
+        <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M13 14h-2V9h2m0 9h-2v-2h2M1 21h22L12 2 1 21Z"/></svg>
+        2 API keys are stored as plain text in settings.json
+      </div>
+      <ul>
+        <li data-legacy="anthropic">
+          <span class="what"><code class="mono">anthropicApiKey</code> <span class="mono">sk-ant-…a3F9</span>. Anthropic is already set up in Providers, so this copy is a duplicate.</span>
+          <button class="btn" type="button" data-act="remove">Remove from settings.json</button>
+        </li>
+        <li data-legacy="openai">
+          <span class="what"><code class="mono">openaiApiKey</code> <span class="mono">sk-proj-…Q7mL</span>. OpenAI isn't set up in Providers yet.</span>
+          <button class="btn" type="button" data-act="move">Move to Providers</button>
+        </li>
+      </ul>
+    </div>
+
+    <div class="tools">
+      <div class="searchrow">
+        <div class="search">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 3a6.5 6.5 0 0 1 5.25 10.33l5.46 5.46-1.42 1.42-5.46-5.46A6.5 6.5 0 1 1 9.5 3m0 2a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9Z"/></svg>
+          <label class="sr-only" for="q">Filter settings</label>
+          <input id="q" type="search" placeholder="Filter settings by name, key or description" autocomplete="off">
+        </div>
+        <label class="check"><input type="checkbox" id="onlymod"> Changed from default only</label>
+      </div>
+      <nav class="jumps" id="jumps" aria-label="Jump to category"></nav>
+    </div>
+
+    <div id="cats"></div>
+    <p class="empty" id="empty" role="status"></p>
+  </main>
+</div>
+
+<div class="savebar" id="savebar" role="region" aria-label="Unsaved changes">
+  <span class="msg" id="savemsg" aria-live="polite"></span>
+  <button class="btn2" type="button" id="discard">Discard</button>
+  <button class="btn1" type="button" id="save">Save</button>
+</div>
+
+<script>
+const I_RESET='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5V1L7 6l5 5V7a6 6 0 1 1-6 6H4a8 8 0 1 0 8-8Z"/></svg>';
+const I_GO='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.6 16.6 13.2 12 8.6 7.4 10 6l6 6-6 6-1.4-1.4Z"/></svg>';
+const I_JSON='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3a2 2 0 0 0-2 2v4a2 2 0 0 1-2 2H3v2h1a2 2 0 0 1 2 2v4a2 2 0 0 0 2 2h2v-2H8v-5a2 2 0 0 0-2-2 2 2 0 0 0 2-2V5h2V3H8Zm8 0a2 2 0 0 1 2 2v4a2 2 0 0 0 2 2h1v2h-1a2 2 0 0 0-2 2v4a2 2 0 0 1-2 2h-2v-2h2v-5a2 2 0 0 1 2-2 2 2 0 0 1-2-2V5h-2V3h2Z"/></svg>';
+
+/* Current values = the user's real settings.json (only these keys are set). */
+const CURRENT={theme:"dark"};
+
+/* Schema derived from pi docs/settings.md. kind: bool | choice | int | text | budgets | scope | link | json | ro */
+const CATS=[
+ {id:"model",name:"Model and thinking",rows:[
+  {kind:"link",label:"Default model",key:"defaultProvider · defaultModel · defaultThinkingLevel",value:"anthropic / claude-opus-5-5 · medium",to:"Sessions → Default model",hint:"Set by the dashboard's Default model control and mirrored into pi."},
+  {kind:"scope",label:"Model cycling scope",key:"enabledModels",hint:"Which models Ctrl+P cycles through, which one pi picks at startup, and which ones the dashboard model picker lists. Roles and subagents can still name any model."},
+  {kind:"bool",key:"hideThinkingBlock",label:"Hide thinking blocks",def:false,hint:"Collapse model reasoning in the transcript."},
+  {kind:"bool",key:"showCacheMissNotices",label:"Cache notices",def:false,hint:"Show notices for cache misses, cache warming, compaction usage and provider recovery."},
+  {kind:"choice",key:"cacheWarming",label:"Prompt cache warming",opts:["off","streaming","idle"],def:"streaming",hint:"Keep provider prompt caches warm during runs, or also between runs with idle."},
+  {kind:"budgets",key:"thinkingBudgets",label:"Thinking budgets",hint:"Token budget per thinking level. Leave empty for pi's built-in budgets."},
+  {kind:"json",key:"modelThinkingLevels",label:"Per-model thinking levels",hint:"Object keyed by provider/modelId."}]},
+ {id:"interaction",name:"Interaction",rows:[
+  {kind:"choice",key:"steeringMode",label:"Steering mode",opts:["all","one-at-a-time"],def:"one-at-a-time",hint:"How queued steering messages are delivered."},
+  {kind:"choice",key:"followUpMode",label:"Follow-up mode",opts:["all","one-at-a-time"],def:"one-at-a-time",hint:"How queued follow-up messages are delivered."},
+  {kind:"text",key:"externalEditor",label:"External editor",ph:"$VISUAL / $EDITOR",hint:"Command opened by the external-editor key."},
+  {kind:"choice",key:"doubleEscapeAction",label:"Double Escape",opts:["tree","fork","none"],def:"tree",hint:"Action for double Escape with an empty editor."},
+  {kind:"choice",key:"treeFilterMode",label:"/tree filter",opts:["default","no-tools","user-only","labeled-only","all"],def:"default",hint:"Initial filter used by /tree."},
+  {kind:"choice",key:"defaultProjectTrust",label:"Default project trust",opts:["ask","always","never"],def:"ask",hint:"Trust applied to a project you haven't decided on yet."}]},
+ {id:"tools",name:"Tools",rows:[
+  {kind:"json",key:"defaultTools",label:"Default tools",hint:"Array of tool names; +name adds, -name removes."},
+  {kind:"choice",key:"codemode.mode",label:"Codemode presentation",opts:["on","only"],def:"on",hint:"How the codemode tool presents other tools while it is active."},
+  {kind:"int",key:"codemode.inlineBudget",label:"Codemode inline budget",def:3000,min:0,unit:"tokens",hint:"Tokens the codemode description may spend on tool declarations."}]},
+ {id:"sessions",name:"Sessions and context",rows:[
+  {kind:"text",key:"sessionDir",label:"Session directory",ph:"~/.pi/agent/sessions",hint:"Where pi stores session files. PI_CODING_AGENT_SESSION_DIR overrides it."},
+  {kind:"bool",key:"compaction.enabled",label:"Auto-compaction",def:true,hint:"Compact long conversations automatically."},
+  {kind:"int",key:"compaction.reserveTokens",label:"Compaction reserve",def:16384,min:0,unit:"tokens",hint:"Tokens kept free for the reply."},
+  {kind:"int",key:"compaction.keepRecentTokens",label:"Compaction keep-recent",def:20000,min:0,unit:"tokens",hint:"Recent tokens never summarised."},
+  {kind:"json",key:"compaction.modelOverrides",label:"Per-model compaction",hint:"Object keyed by provider/modelId."},
+  {kind:"int",key:"branchSummary.reserveTokens",label:"Branch summary reserve",def:16384,min:0,unit:"tokens",hint:"Tokens kept free for a branch summary."},
+  {kind:"bool",key:"branchSummary.skipPrompt",label:"Skip branch summary prompt",def:false,hint:"Don't ask before summarising a branch."}]},
+ {id:"terminal",name:"Terminal and display",rows:[
+  {kind:"choice",key:"theme",label:"Terminal theme",opts:["system","dark","light"],def:"system",free:true,hint:"Built-in or custom pi theme. system follows the terminal. This doesn't change the dashboard's own theme."},
+  {kind:"choice",key:"quietStartup",label:"Quiet startup",opts:["false","true","header"],def:"false",hint:"Hide the startup header and resource list. header keeps only the header."},
+  {kind:"choice",key:"tuiMode",label:"TUI mode",opts:["regular","fullscreen"],def:"fullscreen",hint:"Interactive terminal UI mode."},
+  {kind:"choice",key:"fullscreenExitOutput",label:"On fullscreen exit",opts:["transcript","resume-hint"],def:"transcript",hint:"What pi prints when fullscreen mode exits."},
+  {kind:"choice",key:"fullscreenScrollbar",label:"Fullscreen scrollbar",opts:["auto","always","hidden"],def:"auto",hint:"Transcript scrollbar behaviour."},
+  {kind:"bool",key:"fullscreenCopyOnSelect",label:"Copy on select",def:true,hint:"Copy selected text automatically in fullscreen mode."},
+  {kind:"int",key:"fullscreenWheelScrollLines",label:"Wheel scroll lines",def:"auto",min:1,max:100,auto:true,hint:"Lines per wheel event, 1 to 100. Empty means auto."},
+  {kind:"int",key:"editorPaddingX",label:"Editor padding",def:0,min:0,max:3,unit:"cells",hint:"Horizontal editor padding, 0 to 3."},
+  {kind:"choice",key:"outputPad",label:"Transcript padding",opts:["0","1"],def:"1",hint:"Horizontal padding for messages and tool output."},
+  {kind:"int",key:"autocompleteMaxVisible",label:"Autocomplete entries",def:5,min:3,max:20,hint:"Visible autocomplete entries, 3 to 20."},
+  {kind:"bool",key:"showHardwareCursor",label:"Hardware cursor",def:false,hint:"Use the terminal cursor instead of pi's drawn cursor."},
+  {kind:"bool",key:"terminal.showImages",label:"Inline images",def:true,hint:"Display inline images when the terminal supports them."},
+  {kind:"int",key:"terminal.imageWidthCells",label:"Image width",def:60,min:1,unit:"cells",hint:"Preferred inline image width."},
+  {kind:"choice",key:"terminal.images",label:"Image protocol",opts:["auto","kitty","iterm2","false"],def:"auto",hint:"Override inline-image protocol detection."},
+  {kind:"choice",key:"terminal.hyperlinks",label:"Hyperlinks",opts:["auto","true","false"],def:"auto",hint:"Override OSC 8 hyperlink detection."},
+  {kind:"choice",key:"terminal.trueColor",label:"True colour",opts:["auto","true","false"],def:"auto",hint:"Override true-colour detection."},
+  {kind:"bool",key:"terminal.clearOnShrink",label:"Clear on shrink",def:false,hint:"Clear empty rows when rendered content shrinks."},
+  {kind:"bool",key:"terminal.showTerminalProgress",label:"Tab progress",def:false,hint:"Show OSC 9;4 progress in the terminal tab."},
+  {kind:"bool",key:"images.autoResize",label:"Resize images",def:true,hint:"Shrink images to at most 2000×2000 before sending them to a model."},
+  {kind:"bool",key:"images.blockImages",label:"Block images",def:false,hint:"Never send images to models."},
+  {kind:"choice",key:"markdown.mermaid",label:"Mermaid rendering",opts:["off","final","streaming"],def:"streaming",hint:"When Mermaid diagrams render."},
+  {kind:"text",key:"markdown.codeBlockIndent",label:"Code block indent",ph:"2 spaces",hint:"Prefix used to indent rendered code blocks."}]},
+ {id:"network",name:"Network",rows:[
+  {kind:"choice",key:"transport",label:"Transport",opts:["auto","sse","websocket","websocket-cached"],def:"auto",hint:"Preferred transport for providers that support several."},
+  {kind:"text",key:"httpProxy",label:"HTTP proxy",ph:"http://proxy:3128",hint:"Applied as HTTP_PROXY and HTTPS_PROXY for pi's HTTP clients."},
+  {kind:"int",key:"httpIdleTimeoutMs",label:"HTTP idle timeout",def:300000,min:0,unit:"ms",hint:"0 disables the timeout."},
+  {kind:"int",key:"websocketConnectTimeoutMs",label:"WebSocket connect timeout",def:15000,min:0,unit:"ms",hint:"0 disables the timeout."},
+  {kind:"link",label:"Retry",key:"retry.* (7 keys)",value:"",to:"Sessions → Retry",hint:"Agent and provider retry already have their own editor."}]},
+ {id:"shell",name:"Shell",rows:[
+  {kind:"text",key:"shellPath",label:"Shell",ph:"/bin/zsh",hint:"Shell executable. A leading ~ is allowed."},
+  {kind:"text",key:"shellCommandPrefix",label:"Command prefix",ph:"none",hint:"Prepended to every shell command."},
+  {kind:"json",key:"npmCommand",label:"npm command",hint:"Command and arguments as an array."}]},
+ {id:"resources",name:"Resources",rows:[
+  {kind:"link",label:"Packages",key:"packages",value:"32 installed",to:"Add-ons"},
+  {kind:"link",label:"Extensions and skills",key:"extensions · skills",value:"1 extension · 1 skill path",to:"Skills"},
+  {kind:"json",key:"prompts",label:"Prompt paths",hint:"Prompt-template files or directories."},
+  {kind:"json",key:"themes",label:"Theme paths",hint:"Custom theme files or directories."},
+  {kind:"bool",key:"enableSkillCommands",label:"Skill slash commands",def:true,hint:"Register skills as /skill:name commands."}]},
+ {id:"updates",name:"Updates and privacy",rows:[
+  {kind:"bool",key:"collapseChangelog",label:"Short changelog",def:false,hint:"Show a condensed changelog after an update."},
+  {kind:"bool",key:"enableInstallTelemetry",label:"Install telemetry",def:true,hint:"Anonymous install and update reports."},
+  {kind:"bool",key:"enableAnalytics",label:"Analytics",def:false,hint:"Opt in to analytics data sharing."},
+  {kind:"bool",key:"warnings.anthropicExtraUsage",label:"Anthropic extra-usage warning",def:true,hint:"Warn when subscription auth may use paid extra usage."}]},
+];
+const MANAGED=[["dashboardPluginBridges","8 bridges"],["_dashboardManagedPackages","8 paths"],["lastChangelogVersion","0.84.1"]];
+
+/* Real model catalogue (models-store.json), trimmed. */
+const PROVIDERS=[
+ {id:"anthropic",auth:true,models:["claude-fable-5","claude-haiku-4-5","claude-haiku-5-5","claude-opus-4-8","claude-opus-5","claude-opus-5-5","claude-sonnet-4-5","claude-sonnet-5","claude-sonnet-5-5"],total:17},
+ {id:"opencode-go",auth:true,models:["cat-jam-free","claude-haiku-5-5","deepseek-v4-pro","deepseek-v4.1-flash","glm-5.3","gpt-6-luna","grok-4.7","kimi-k3","minimax-m3","muse-spark-1.2-contributor","muse-spark-1.3-contributor","qwen3.8-max"],total:31},
+ {id:"openai-codex",auth:true,models:["gpt-5.5","gpt-5.6-sol","gpt-6-astra","gpt-6-luna","gpt-6-sol","gpt-6.1-sol"],total:9},
+ {id:"zai",auth:true,models:["glm-4.7","glm-5-turbo","glm-5.2","glm-5.3","glm-5.3-flash","glm-5.3-highspeed"],total:7},
+ {id:"deepseek",auth:true,models:["deepseek-flash","deepseek-v4-pro"],total:2},
+ {id:"nvidia",auth:true,models:["moonshotai/kimi-k2.6","nvidia/nemotron-3-ultra-550b-a55b","meta/muse-glimmer-30b"],total:19},
+ {id:"openai",auth:false,models:["gpt-4.1","gpt-5","gpt-5-mini","gpt-6"],total:45},
+ {id:"google",auth:false,models:["gemini-2.5-pro","gemini-3.5-flash","gemini-3.8-flash"],total:23},
+ {id:"google-vertex",auth:false,models:["gemini-2.5-pro","gemini-3.8-flash","gemini-4-argon"],total:14},
+];
+/* Scope state: mirrors the 11 patterns now in settings.json. */
+const INITIAL_SCOPE={mode:"selected",whole:new Set(["anthropic","openai","openai-codex","zai","google","google-vertex","deepseek","nvidia"]),picks:new Set(["opencode-go/muse-spark-1.3-contributor"]),patterns:["openrouter/*","synthetic/*"]};
+let scope=cloneScope(INITIAL_SCOPE);
+function cloneScope(s){return{mode:s.mode,whole:new Set(s.whole),picks:new Set(s.picks),patterns:[...s.patterns]}}
+
+const values={...CURRENT};          // live draft
+const baseline={...CURRENT};        // saved
+const errors={};
+
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const fmt=v=>typeof v==="number"?v.toLocaleString("en-US"):String(v);
+const idOf=k=>"f-"+k.replace(/[^\w]/g,"-");
+
+function control(r){
+  const id=idOf(r.key),v=values[r.key];
+  if(r.kind==="bool"||(r.kind==="choice"&&r.opts.length<=3&&!r.free)){
+    const opts=r.kind==="bool"?[["","Default ("+(r.def?"on":"off")+")"],["true","On"],["false","Off"]]
+      :[["","Default ("+r.def+")"],...r.opts.filter(o=>o!==String(r.def)).map(o=>[o,o])];
+    const cur=v===undefined?"":String(v);
+    return `<div class="seg" role="radiogroup" aria-labelledby="${id}-l">${opts.map(([val,lab])=>`<button type="button" role="radio" aria-checked="${cur===val}" aria-pressed="${cur===val}" data-k="${r.key}" data-v="${val}">${esc(lab)}</button>`).join("")}</div>`;
+  }
+  if(r.kind==="choice"){
+    const cur=v===undefined?"":String(v);
+    const list=r.free&&cur&&!r.opts.includes(cur)?[...r.opts,cur]:r.opts;
+    return `<select id="${id}" data-k="${r.key}" aria-describedby="${id}-h"><option value="">Default (${esc(r.def)})</option>${list.map(o=>`<option ${cur===o?"selected":""}>${esc(o)}</option>`).join("")}${r.free?'<option value="__custom">Custom theme…</option>':""}</select>`;
+  }
+  if(r.kind==="int"){
+    const ph=r.auto?"auto":"Default: "+fmt(r.def);
+    return `<input id="${id}" type="number" inputmode="numeric" data-k="${r.key}" ${r.min!=null?`min="${r.min}"`:""} ${r.max!=null?`max="${r.max}"`:""} placeholder="${ph}" value="${v??""}" aria-describedby="${id}-h" aria-invalid="${!!errors[r.key]}"><span class="ro unit">${r.unit||""}</span>`;
+  }
+  if(r.kind==="text") return `<input id="${id}" type="text" data-k="${r.key}" placeholder="${esc(r.ph||"")}" value="${esc(v??"")}" aria-describedby="${id}-h" spellcheck="false">`;
+  if(r.kind==="link") return `${r.value?`<span class="ro">${esc(r.value)}</span>`:""}<a class="linkbtn" href="#">${esc(r.to)} ${I_GO}</a>`;
+  if(r.kind==="json") return `<span class="ro">Not set</span><button type="button" class="linkbtn" data-json="${r.key}">${I_JSON} Edit in JSON</button>`;
+  return "";
+}
+
+function rowHTML(r){
+  if(r.kind==="scope") return scopeRowHTML(r);
+  const id=idOf(r.key),set=values[r.key]!==undefined&&r.kind!=="link"&&r.kind!=="json";
+  const budgets=r.kind==="budgets";
+  const err=errors[r.key];
+  return `<div class="row" data-key="${esc(r.key)}" data-search="${esc((r.label+" "+r.key+" "+(r.hint||"")).toLowerCase())}" data-set="${set}">
+    <div class="lab">${r.kind==="link"||budgets?`<span class="l" id="${id}-l">${esc(r.label)}</span>`:`<label id="${id}-l" for="${id}">${esc(r.label)}</label>`}
+      <code class="key mono">${esc(r.key)}</code>${set?'<span class="pill mod">Changed</span>':""}</div>
+    <div class="ctl">${budgets?"":control(r)}${r.kind==="link"||r.kind==="json"||budgets?"":`<button type="button" class="reset" data-reset="${r.key}" title="Reset to pi default" aria-label="Reset ${esc(r.label)} to pi default" ${set?"":"hidden"}>${I_RESET}</button>`}</div>
+    ${budgets?`<div class="budgets" style="grid-column:1/-1">${[["minimal",1024],["low",4096],["medium",10240],["high",32768]].map(([l,d])=>`<label>${l}<input type="number" min="0" placeholder="${fmt(d)}" data-k="thinkingBudgets.${l}" style="min-height:32px;border-radius:4px;border:1px solid var(--border-secondary);background:var(--bg-tertiary);padding:4px 8px"></label>`).join("")}</div>`:""}
+    ${err?`<p class="hint err" id="${id}-h" role="alert">${esc(err)}</p>`:r.hint?`<p class="hint" id="${id}-h">${esc(r.hint)}</p>`:""}
+  </div>`;
+}
+
+/* ── model scope editor ───────────────────────────── */
+function inScope(p,m){return scope.whole.has(p)||scope.picks.has(p+"/"+m)||scope.patterns.some(pt=>globHit(pt,p+"/"+m))}
+function globHit(pt,s){const re=new RegExp("^"+pt.split("*").map(x=>x.replace(/[.+?^${}()|[\]\\]/g,"\\$&")).join(".*")+"$","i");return re.test(s)||(!pt.includes("/")&&re.test(s.split("/").slice(1).join("/")))}
+function scopeCounts(){let n=0,t=0;for(const p of PROVIDERS){t+=p.total;n+=scope.whole.has(p.id)?p.total:p.models.filter(m=>inScope(p.id,m)).length}return{n,t}}
+function scopeArray(){if(scope.mode==="all")return null;return[...[...scope.whole].map(p=>p+"/*"),...scope.patterns,...scope.picks]}
+function scopeChanged(){return JSON.stringify(scopeArray())!==JSON.stringify((()=>{const s=scope;scope=cloneScope(INITIAL_SCOPE);const a=scopeArray();scope=s;return a})())}
+
+function scopeRowHTML(r){
+  const ch=scopeChanged();
+  return `<div class="row" data-key="enabledModels" data-search="${esc((r.label+" enabledModels models scope cycling ctrl+p "+r.hint).toLowerCase())}" data-set="true">
+    <div class="lab"><span class="l" id="scope-l">${esc(r.label)}</span><code class="key mono">enabledModels</code><span class="pill mod">Changed</span>${ch?'<span class="pill mod">Unsaved</span>':""}</div>
+    <div class="ctl"><div class="seg" role="radiogroup" aria-labelledby="scope-l">
+      <button type="button" role="radio" data-scope-mode="all" aria-checked="${scope.mode==="all"}" aria-pressed="${scope.mode==="all"}">All models (default)</button>
+      <button type="button" role="radio" data-scope-mode="selected" aria-checked="${scope.mode==="selected"}" aria-pressed="${scope.mode==="selected"}">Selected only</button></div></div>
+    <p class="hint">${esc(r.hint)}</p>
+    <div id="scopebox"></div>
+  </div>`;
+}
+
+const openProv=new Set(["opencode-go"]);
+let mfilter="";
+function renderScope(){
+  const box=document.getElementById("scopebox");if(!box)return;
+  if(scope.mode==="all"){box.innerHTML="";return}
+  const {n,t}=scopeCounts();
+  const provs=PROVIDERS.map(p=>{
+    const sel=scope.whole.has(p.id)?p.total:p.models.filter(m=>inScope(p.id,m)).length;
+    const state=scope.whole.has(p.id)?"all":sel>0?"some":"none";
+    const vis=p.models.filter(m=>!mfilter||(p.id+"/"+m).toLowerCase().includes(mfilter));
+    if(mfilter&&!vis.length&&!p.id.includes(mfilter))return"";
+    const open=openProv.has(p.id)||!!mfilter;
+    return `<div class="prov" data-open="${open}">
+      <div class="prov-row">
+        <button type="button" class="exp" data-exp="${p.id}" aria-expanded="${open}" aria-label="Show ${p.id} models">${I_GO}</button>
+        <label><input type="checkbox" data-prov="${p.id}" ${state==="all"?"checked":""} data-indet="${state==="some"}"> ${p.id}</label>
+        ${state==="all"?`<span class="pill glob mono" title="Saved as ${p.id}/*">${p.id}/*</span>`:""}
+        <span class="meta">${state==="all"?"all "+p.total:sel+" of "+p.total}${p.auth?"":' · <span class="auth">no credentials</span>'}</span>
+      </div>
+      <div class="models">${vis.map(m=>{const by=scope.whole.has(p.id)?"provider":(!scope.picks.has(p.id+"/"+m)&&inScope(p.id,m))?"pattern":"";
+        return `<label><input type="checkbox" data-model="${p.id}/${m}" ${inScope(p.id,m)?"checked":""} ${by?"disabled":""}> <span class="mono">${esc(m)}</span>${by==="pattern"?' <span class="ro">(via pattern)</span>':""}</label>`}).join("")}
+        ${p.total>p.models.length?`<span class="ro" style="display:block;padding:4px 0">+ ${p.total-p.models.length} more…</span>`:""}</div>
+    </div>`}).join("");
+  box.innerHTML=`<div class="scope">
+    <div class="scope-head"><label class="sr-only" for="mf">Filter models</label><input id="mf" type="search" placeholder="Filter models" value="${esc(mfilter)}">
+      <span class="sum" aria-live="polite"><b>${n}</b> of ${t} models in scope</span></div>
+    ${provs}
+    <div class="patterns"><span class="l">Custom patterns</span> <span class="ro">Globs such as <code class="mono">*sonnet*</code> or <code class="mono">openrouter/*</code>, for providers or models not listed above.</span>
+      <div class="chips">${scope.patterns.map((pt,i)=>`<span class="chip"><span class="mono">${esc(pt)}</span><button type="button" data-unpat="${i}" aria-label="Remove pattern ${esc(pt)}">×</button></span>`).join("")}</div>
+      <div class="addpat"><label class="sr-only" for="np">New pattern</label><input id="np" class="mono" placeholder="Add pattern, e.g. *sonnet*"><button type="button" class="btn2" id="addp">Add</button><span class="prev" id="npprev" aria-live="polite"></span></div>
+    </div>
+    <details class="json"><summary>Show what gets saved</summary><pre class="mono">${esc(JSON.stringify({enabledModels:scopeArray()},null,2))}</pre></details>
+  </div>`;
+  box.querySelectorAll("[data-indet=true]").forEach(c=>c.indeterminate=true);
+}
+
+/* ── page render ───────────────────────────────────── */
+function render(){
+  document.getElementById("cats").innerHTML=CATS.map(c=>`<section class="cat" id="cat-${c.id}" aria-labelledby="h-${c.id}">
+    <h3 id="h-${c.id}">${c.name} <span class="count" data-count="${c.id}"></span></h3>
+    <div class="card">${c.rows.map(rowHTML).join("")}</div></section>`).join("")+
+   `<section class="cat" id="cat-managed"><div class="card"><details class="managed"><summary>${I_GO} Written by the dashboard and pi (read-only, 3 keys)</summary>
+     ${MANAGED.map(([k,v])=>`<div class="row"><div class="lab"><code class="key mono">${k}</code></div><div class="ctl"><span class="ro">${v}</span></div></div>`).join("")}
+     <div class="row"><p class="hint" style="margin:0">Change these only in JSON mode, and only if you know why.</p></div></details></div></section>`;
+  renderScope();filter();updateSave();
+}
+
+function filter(){
+  const q=document.getElementById("q").value.trim().toLowerCase();
+  const only=document.getElementById("onlymod").checked;
+  let shown=0;
+  CATS.forEach(c=>{
+    const sec=document.getElementById("cat-"+c.id);let n=0;
+    sec.querySelectorAll(".row[data-key]").forEach(row=>{
+      const ok=(!q||row.dataset.search.includes(q))&&(!only||row.dataset.set==="true"||dirtyKeys().includes(row.dataset.key));
+      row.classList.toggle("hidden",!ok);if(ok)n++;
+      const lab=row.querySelector(".lab label,.lab .l");if(lab){const t=lab.textContent;lab.innerHTML=q&&t.toLowerCase().includes(q)?esc(t).replace(new RegExp("("+q.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+")","i"),"<mark>$1</mark>"):esc(t)}
+    });
+    sec.hidden=n===0;shown+=n;
+    sec.querySelector("[data-count]").textContent=q||only?`${n} of ${c.rows.length}`:`${c.rows.length}`;
+  });
+  document.getElementById("cat-managed").hidden=!!(q||only);
+  const e=document.getElementById("empty");e.classList.toggle("on",shown===0);
+  e.textContent=shown===0?`No settings match "${q}". Try a key such as terminal.images, or clear the filter.`:"";
+  document.getElementById("jumps").innerHTML=CATS.filter(c=>!document.getElementById("cat-"+c.id).hidden).map(c=>{
+    const mod=c.rows.some(r=>values[r.key]!==undefined&&r.kind!=="link")||(c.id==="model");
+    return `<a href="#cat-${c.id}">${mod?'<span class="dot" aria-hidden="true"></span>':""}${c.name}${mod?'<span class="sr-only"> (has changed settings)</span>':""}</a>`}).join("");
+}
+
+function dirtyKeys(){const ks=new Set([...Object.keys(values),...Object.keys(baseline)]);const d=[...ks].filter(k=>values[k]!==baseline[k]);if(scopeChanged())d.push("enabledModels");return d}
+function updateSave(){
+  const d=dirtyKeys(),bad=Object.keys(errors).length;
+  document.getElementById("savebar").classList.toggle("on",d.length>0||legacyPending.size>0);
+  const parts=[];if(d.length)parts.push(`<b>${d.length}</b> unsaved setting change${d.length>1?"s":""}`);if(legacyPending.size)parts.push(`<b>${legacyPending.size}</b> API key cleanup${legacyPending.size>1?"s":""}`);
+  document.getElementById("savemsg").innerHTML=parts.join(" · ")+(bad?` · <span style="color:var(--severity-error-fg)">fix ${bad} error${bad>1?"s":""} first</span>`:"");
+  document.getElementById("save").disabled=bad>0;
+}
+
+function findRow(k){for(const c of CATS)for(const r of c.rows)if(r.key===k)return r}
+function setVal(k,raw){
+  const r=findRow(k);
+  if(raw===""||raw==null){delete values[k];delete errors[k]}
+  else if(r&&r.kind==="int"){const n=Number(raw);
+    if(!Number.isInteger(n)||(r.min!=null&&n<r.min)||(r.max!=null&&n>r.max))errors[k]=`${r.label} must be a whole number${r.max!=null?` from ${r.min} to ${r.max}`:r.min!=null?` of ${r.min} or more`:""}.`;
+    else delete errors[k];values[k]=raw}
+  else values[k]=raw;
+}
+
+/* ── events ────────────────────────────────────────── */
+document.addEventListener("click",e=>{
+  const t=e.target.closest("button,a");if(!t)return;
+  if(t.dataset.themeBtn){document.documentElement.dataset.theme=t.dataset.themeBtn;document.querySelectorAll("[data-theme-btn]").forEach(b=>b.setAttribute("aria-pressed",b===t))}
+  else if(t.dataset.k!==undefined&&t.dataset.v!==undefined){setVal(t.dataset.k,t.dataset.v);rerenderRow(t.dataset.k)}
+  else if(t.dataset.reset){setVal(t.dataset.reset,"");rerenderRow(t.dataset.reset)}
+  else if(t.dataset.scopeMode){scope.mode=t.dataset.scopeMode;rerenderRow("enabledModels")}
+  else if(t.dataset.exp){openProv.has(t.dataset.exp)?openProv.delete(t.dataset.exp):openProv.add(t.dataset.exp);renderScope()}
+  else if(t.dataset.unpat!==undefined){scope.patterns.splice(+t.dataset.unpat,1);renderScope();refreshScopePill()}
+  else if(t.id==="addp"){const v=document.getElementById("np").value.trim();if(v&&!scope.patterns.includes(v)){scope.patterns.push(v);renderScope();refreshScopePill();document.getElementById("np").focus()}}
+  else if(t.dataset.act){const li=t.closest("li");legacyPending.add(li.dataset.legacy);
+    li.querySelector(".btn").outerHTML=`<span class="done">✓ ${t.dataset.act==="move"?"Moves to Providers":"Gets removed"} when you save · <button class="btn" type="button" data-undo="${li.dataset.legacy}" style="min-height:28px">Undo</button></span>`;updateSave()}
+  else if(t.dataset.undo){legacyPending.delete(t.dataset.undo);location.hash="";renderLegacy();updateSave()}
+  else if(t.id==="discard"){for(const k of Object.keys(values))delete values[k];Object.assign(values,baseline);for(const k in errors)delete errors[k];scope=cloneScope(INITIAL_SCOPE);legacyPending.clear();renderLegacy();render()}
+  else if(t.id==="save"){Object.keys(baseline).forEach(k=>delete baseline[k]);Object.assign(baseline,values);INITIAL_SCOPE.mode=scope.mode;INITIAL_SCOPE.whole=new Set(scope.whole);INITIAL_SCOPE.picks=new Set(scope.picks);INITIAL_SCOPE.patterns=[...scope.patterns];
+    if(legacyPending.size){document.getElementById("legacy").outerHTML='<div class="callout info" role="status">API keys cleaned up. settings.json no longer holds plain-text keys.</div>';legacyPending.clear()}
+    document.getElementById("savemsg").textContent="Saved. Reloaded 4 running sessions.";render();document.getElementById("savebar").classList.add("on");setTimeout(()=>updateSave(),1800)}
+});
+document.addEventListener("change",e=>{
+  const t=e.target;
+  if(t.dataset.prov){const p=t.dataset.prov;if(t.checked){scope.whole.add(p);[...scope.picks].filter(x=>x.startsWith(p+"/")).forEach(x=>scope.picks.delete(x))}else scope.whole.delete(p);renderScope();refreshScopePill()}
+  else if(t.dataset.model){t.checked?scope.picks.add(t.dataset.model):scope.picks.delete(t.dataset.model);renderScope();refreshScopePill()}
+  else if(t.tagName==="SELECT"&&t.dataset.k){if(t.value==="__custom"){const v=prompt("Custom theme name");if(v)setVal(t.dataset.k,v)}else setVal(t.dataset.k,t.value);rerenderRow(t.dataset.k)}
+  else if(t.id==="onlymod")filter();
+});
+document.addEventListener("input",e=>{
+  const t=e.target;
+  if(t.id==="q")filter();
+  else if(t.id==="mf"){mfilter=t.value.toLowerCase();const pos=t.selectionStart;renderScope();const n=document.getElementById("mf");n.focus();n.setSelectionRange(pos,pos)}
+  else if(t.id==="np"){const v=t.value.trim();let n=0;if(v)for(const p of PROVIDERS)for(const m of p.models)if(globHit(v,p.id+"/"+m))n++;document.getElementById("npprev").textContent=v?`matches ${n} listed model${n===1?"":"s"}`:""}
+  else if(t.dataset.k&&(t.type==="number"||t.type==="text")){setVal(t.dataset.k,t.value);const row=t.closest(".row");const set=values[t.dataset.k]!==undefined;
+    row.dataset.set=set;row.querySelector(".reset").hidden=!set;t.setAttribute("aria-invalid",!!errors[t.dataset.k]);
+    const r=findRow(t.dataset.k),h=row.querySelector(".hint");const id=idOf(t.dataset.k);
+    const nh=errors[t.dataset.k]?`<p class="hint err" id="${id}-h" role="alert">${esc(errors[t.dataset.k])}</p>`:`<p class="hint" id="${id}-h">${esc(r.hint)}</p>`;h.outerHTML=nh;
+    const lab=row.querySelector(".lab");const pill=lab.querySelector(".pill.mod");if(set&&!pill)lab.insertAdjacentHTML("beforeend",'<span class="pill mod">Changed</span>');if(!set&&pill)pill.remove();updateSave()}
+});
+document.addEventListener("keydown",e=>{if(e.target.id==="np"&&e.key==="Enter")document.getElementById("addp").click()});
+
+function rerenderRow(k){
+  const old=document.querySelector(`.row[data-key="${CSS.escape(k)}"]`);const r=findRow(k);
+  if(k==="enabledModels"){old.outerHTML=scopeRowHTML(r);renderScope()}else old.outerHTML=rowHTML(r);
+  const nr=document.querySelector(`.row[data-key="${CSS.escape(k)}"] [data-k][aria-checked="true"], .row[data-key="${CSS.escape(k)}"] select`);if(nr)nr.focus();
+  filter();updateSave();
+}
+function refreshScopePill(){const lab=document.querySelector('.row[data-key="enabledModels"] .lab');const has=[...lab.querySelectorAll(".pill")].some(p=>p.textContent==="Unsaved");
+  if(scopeChanged()&&!has)lab.insertAdjacentHTML("beforeend",'<span class="pill mod">Unsaved</span>');if(!scopeChanged()&&has)[...lab.querySelectorAll(".pill")].find(p=>p.textContent==="Unsaved").remove();updateSave()}
+
+const legacyPending=new Set();
+const LEGACY_HTML=document.getElementById("legacy").outerHTML;
+function renderLegacy(){const el=document.getElementById("legacy");if(el)el.outerHTML=LEGACY_HTML}
+
+render();
+</script>
+</body>
+</html>

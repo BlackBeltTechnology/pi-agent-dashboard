@@ -53,3 +53,30 @@ export async function startLiveServer(input: {
 export async function removeLiveServer(id: string): Promise<void> {
   await fetch(`${getApiBase()}/api/live-server/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
+
+export type CapabilityResult = { ok: true; path: string; expiresAt: number } | { ok: false; error: string };
+
+/** `/live/<id>/~c/<token>/` — the only shape the viewer will frame (never a URL the server merely names). */
+const CAPABILITY_PATH = /^\/live\/[A-Za-z0-9_-]+\/~c\/[A-Za-z0-9_-]{22,}\/$/;
+
+/**
+ * Mint a per-preview capability path (`control` tier). The preview frame is a
+ * sandboxed opaque origin that carries no cookie, so this URL is the credential:
+ * it is framed, never displayed or logged. The response is flat (`path`,
+ * `expiresAt`), not under `data`.
+ * See change: retire-trusted-networks-bypass (D5).
+ */
+export async function mintLiveCapability(id: string): Promise<CapabilityResult> {
+  let res: Response;
+  try {
+    res = await fetch(`${getApiBase()}/api/live-server/${encodeURIComponent(id)}/capability`, { method: "POST" });
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "network error" };
+  }
+  const body = await res.json().catch(() => null);
+  if (!res.ok || !body?.success) return { ok: false, error: body?.error ?? `capability mint failed (${res.status})` };
+  if (typeof body.path !== "string" || !CAPABILITY_PATH.test(body.path) || typeof body.expiresAt !== "number") {
+    return { ok: false, error: "capability mint returned an unexpected response" };
+  }
+  return { ok: true, path: body.path, expiresAt: body.expiresAt };
+}

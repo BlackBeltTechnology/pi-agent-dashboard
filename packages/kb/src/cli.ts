@@ -4,17 +4,19 @@
 // Shipped bin builds to dist/cli.js (build step deferred).
 import { existsSync, readFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
-import { frontmatterConfigHash, loadConfig, type ResolvedConfig, type ResolvedSource } from "./config.js";
+import { indexOptionsFromConfig, loadConfig, type ResolvedConfig, type ResolvedSource } from "./config.js";
 import { agentsChain, doxInit, doxLint, listEmptyPurposeRows } from "./dox.js";
 import { ackTargets, applyDecisions, buildWorkItems } from "./dox-triage.js";
 import { evaluate, loadGolden } from "./eval.js";
-import { runIndexAtomic } from "./index-run.js";
+import { beginForcedSource, sourceGateIsStale, stampPass, stampSource } from "./index-gate.js";
+import { BUILDING_LINE, isFirstIndexLive, runIndexAtomic } from "./index-run.js";
 import { indexSource } from "./indexer.js";
 import { kbInit } from "./init.js";
 import { renderHits } from "./render.js";
 import { searchOptsFromConfig } from "./search-opts.js";
+import { seedOptionsFromConfig } from "./seed.js";
 import { classifyRef, type ResolvedSource as RResolvedSource, resolveAll } from "./sources.js";
-import { SCHEMA_VERSION, SqliteFtsStore } from "./sqlite-store.js";
+import { SqliteFtsStore } from "./sqlite-store.js";
 import { readStaleness } from "./staleness.js";
 import { defaultPromptTrust } from "./trust.js";
 import type { DocType, SearchOpts } from "./types.js";
@@ -75,20 +77,47 @@ function openStore(cfg: ResolvedConfig): SqliteFtsStore {
   return store;
 }
 async function runIndex(cfg: ResolvedConfig, store: SqliteFtsStore, sources: RResolvedSource[], force = false) {
-  // Apply the same schema-version / facet-config gate as runIndexAtomic so the
-  // auto-index-on-search path also picks up new structures after an upgrade or a
+  // Apply the same per-source schema-version / options-hash gate as runIndexAtomic so
+  // the auto-index-on-search path also picks up new structures after an upgrade or a
   // frontmatter-config change (else the DB stays stale until an explicit `index`).
-  const hash = frontmatterConfigHash(cfg.frontmatter);
-  const stale = (store.getUserVersion?.() ?? 0) < SCHEMA_VERSION || (store.getMeta?.("facetConfigHash") ?? null) !== hash;
-  const eff = force || stale;
+  // A source is stamped only after it was walked; skipped/failed ones stay due.
   let scanned = 0, changed = 0, deleted = 0, chunks = 0;
   for (const s of sources) {
-    const st = await indexSource(store, { root: s.id, dir: s.dir }, { force: eff, indexAgentsFiles: cfg.indexAgentsFiles, includeSourceMarkdown: cfg.includeSourceMarkdown, include: cfg.include, exclude: cfg.exclude, extensions: cfg.extensions, frontmatter: cfg.frontmatter, respectGitignore: cfg.respectGitignore, cwd: cfg.cwd });
+    const eff = force || sourceGateIsStale(store, cfg, s.id);
+    const st = await indexSource(store, { root: s.id, dir: s.dir }, indexOptionsFromConfig(cfg, { force: eff, onFirstBatch: eff ? beginForcedSource(store, s.id) : undefined }));
+    if (!st.missing) stampSource(store, cfg, s.id);
     scanned += st.scanned; changed += st.changed; deleted += st.deleted; chunks += st.chunks;
   }
-  store.setUserVersion?.(SCHEMA_VERSION);
-  store.setMeta?.("facetConfigHash", hash);
+  stampPass(store, cfg);
   return { scanned, changed, deleted, chunks };
+}
+
+/** Open the docs store for a non-index command WITHOUT ever creating `dbPath` in place:
+ *  an absent DB is built through the atomic first-index path (temp file → no-clobber
+ *  install), or — while another process is building it — reported as still being built
+ *  (exit 75, EX_TEMPFAIL). With no indexable source nothing is built and an empty
+ *  in-memory store answers. See change: fix-kb-index-integrity (D2). */
+async function openStoreForQuery(cfg: ResolvedConfig, sources: RResolvedSource[], flags: Flags): Promise<SqliteFtsStore> {
+  if (!existsSync(cfg.dbAbsPath)) {
+    if (isFirstIndexLive(cfg.dbAbsPath)) {
+      console.log(BUILDING_LINE);
+      process.exit(75);
+    }
+    if (!flags["no-reindex"] && sources.some((s) => existsSync(s.dir))) {
+      await runIndexAtomic({
+        dbPath: cfg.dbAbsPath,
+        sources: sources.map((x) => ({ id: x.id, dir: x.dir })),
+        indexOpts: indexOptionsFromConfig(cfg),
+        gate: cfg,
+        seed: seedOptionsFromConfig(cfg, { noSeed: !!flags["no-seed"], explicitSources: !!(flags.source as string[] | undefined)?.length, customDb: !!flags.db }),
+      });
+    } else {
+      const mem = new SqliteFtsStore(":memory:");
+      mem.init();
+      return mem;
+    }
+  }
+  return openStore(cfg);
 }
 
 /** Resolve sources for a run. --source overrides (filesystem, sync); otherwise
@@ -108,7 +137,8 @@ async function sourcesForRun(cfg: ResolvedConfig, flags: Flags): Promise<RResolv
 const HELP = `kb — markdown knowledge base
 Usage:
   kb init    [--global] [--source <ref>]... [--dry-run] [--force] [--cwd <dir>]
-  kb index   [--source <dir>...] [--db <path>] [--force] [--refresh]
+  kb index   [--source <dir>...] [--db <path>] [--force] [--refresh] [--no-seed]
+             (--no-seed: skip seeding a linked worktree's first index from the main checkout)
   kb search  "<query>" [--limit N] [--root id] [--doc-type doc|agents|source-md]
              [--expand-parent|--no-expand-parent] [--expand-graph] [--rerank]
              [--expand-query] [--json] [--no-reindex] [--source <dir>...] [--db <path>]
@@ -260,16 +290,17 @@ async function runCmd(cmd: string, flags: Flags): Promise<void> {
     const s = await runIndexAtomic({
       dbPath: cfg.dbAbsPath,
       sources: sources.map((x) => ({ id: x.id, dir: x.dir })),
-      indexOpts: { force: !!flags.force, indexAgentsFiles: cfg.indexAgentsFiles, includeSourceMarkdown: cfg.includeSourceMarkdown, include: cfg.include, exclude: cfg.exclude, extensions: cfg.extensions, frontmatter: cfg.frontmatter, respectGitignore: cfg.respectGitignore, cwd: cfg.cwd },
-      facetConfigHash: frontmatterConfigHash(cfg.frontmatter),
+      indexOpts: indexOptionsFromConfig(cfg, { force: !!flags.force }),
+      gate: cfg,
       explicit,
+      seed: seedOptionsFromConfig(cfg, { noSeed: !!flags["no-seed"], explicitSources: explicit, customDb: !!flags.db }),
     });
     console.log(`indexed ${s.scanned} files (${s.changed} changed, ${s.deleted} deleted, ${s.chunks} chunks) in ${(performance.now() - t).toFixed(0)}ms`);
     console.log(JSON.stringify(s.counts));
     return;
   }
 
-  const store = openStore(cfg);
+  const store = await openStoreForQuery(cfg, sources, flags);
   try {
     if (cmd === "search") {
       const q = flags._[1];

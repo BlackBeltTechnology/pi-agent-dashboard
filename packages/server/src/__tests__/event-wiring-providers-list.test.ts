@@ -9,11 +9,11 @@
  *              fix-providers-list-spurious-models-refreshed,
  *              simplify-model-selection-channels.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
-import { createServer, type DashboardServer } from "../server.js";
-import { _resetForTests, getLatestCatalogue } from "../package/provider-catalogue-cache.js";
 import { getAuthStatus } from "../auth/provider-auth-storage.js";
+import { _resetForTests, getLatestCatalogue } from "../package/provider-catalogue-cache.js";
+import { createServer, type DashboardServer } from "../server.js";
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -79,7 +79,7 @@ describe("providers_list — server wiring", () => {
     expect(cached).toHaveLength(2);
     expect(cached.map((p) => p.id).sort()).toEqual(["deepseek", "fireworks"]);
 
-    const status = getAuthStatus();
+    const status = await getAuthStatus();
     const deepseekRow = status.find((r) => r.id === "deepseek");
     const fireworksRow = status.find((r) => r.id === "fireworks");
     expect(deepseekRow).toBeDefined();

@@ -60,7 +60,7 @@ The command handler SHALL process `send_prompt` text in this exact order:
 8. Check for `/` prefix matching a known **user-defined flow name** (from `getFlowsList()`) → emit `flow:run` event
 9. Check for `/` prefix matching a known **extension command** (`source: "extension"` in `pi.getCommands()`, excluding `DASHBOARD_NATIVE_COMMANDS` and `__`-prefixed names; evaluated inside `tryDispatchExtensionCommand`, which returns `false` if `getCommands()` throws) → dispatch in-process via `pi.sendUserMessage(text, { expandPromptTemplates: true, deliverAs })`
 10. Check for `/` prefix → fall through to template expansion + `pi.sendUserMessage()` (handles skills, prompt templates, unrecognized slashes)
-11. Default (no `/` prefix) → `pi.sendUserMessage(text)` (existing passthrough behavior)
+11. Default (no `/` prefix) → `pi.sendUserMessage(text, { deliverAs })`, with `deliverAs` defaulting to `"followUp"` (existing passthrough behavior; pi ignores `deliverAs` when idle and queues the message when a run is already starting or streaming)
 
 **Team-confined sessions** (the process carries `PI_EXT_TEAM_TOOLS`): before step 1 the handler SHALL apply the shared `parseSkillCommand` rule. A `/skill:<name>` (single or multi-line) SHALL be expanded only when `<name>` is in the session's effective skill set (`PI_EXT_TEAM_SKILLS`), from that skill's own `SKILL.md`. Otherwise it SHALL be refused with `command_feedback` and `prompt_received { fresh: false }`, and never queued. For all other text, only step 3 (`/compact`) and step 11 (passthrough, sent with prompt-template expansion disabled and without disk or registry expansion) SHALL apply. Steps 1–2 and 4–10 SHALL NOT run in a team-confined session, whatever the input's line structure.
 
@@ -231,3 +231,21 @@ The bridge SHALL NOT feature-detect `pi.dispatchCommand` and SHALL NOT emit
 #### Scenario: Exactly one terminal event
 - **WHEN** any single dispatch invocation fires
 - **THEN** the recorded `command_feedback` events for that command text SHALL contain EXACTLY ONE `started` and EXACTLY ONE terminal event (`completed` xor `error`)
+
+### Requirement: Single-bang output is delivered as a follow-up when the session is busy
+
+When a single-bang command (`!<command>`) sends the command and its output to the LLM, the bridge SHALL call `pi.sendUserMessage(message, { deliverAs: "followUp" })`. On an idle session pi ignores `deliverAs` and starts a turn. On a busy session (a run starting or streaming, pi ≥ 1.2.0) pi queues the message into the running run, instead of rejecting a send without `deliverAs` and dropping the output. While pi is compacting it rejects every prompt, `deliverAs` or not; the output is then not delivered to the LLM and stays visible in its `bash_output` card. Double-bang (`!!`) and exec templates with `excludeFromContext: true` SHALL still not call `sendUserMessage`.
+
+#### Scenario: Idle single-bang send carries deliverAs followUp
+- **WHEN** `send_prompt` text is `!git status` on an idle session
+- **THEN** the handler SHALL call `pi.sendUserMessage` with the command and output, and options `{ deliverAs: "followUp" }`
+
+#### Scenario: Busy single-bang send is not dropped
+- **GIVEN** the session's agent is streaming
+- **WHEN** `send_prompt` text is `!ls`
+- **THEN** the handler SHALL call `pi.sendUserMessage` with `{ deliverAs: "followUp" }`
+- **AND** SHALL NOT call it without options
+
+#### Scenario: Double-bang still never sends
+- **WHEN** `send_prompt` text is `!!ls`
+- **THEN** the handler SHALL NOT call `pi.sendUserMessage`

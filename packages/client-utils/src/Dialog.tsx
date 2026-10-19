@@ -1,6 +1,6 @@
 import { mdiClose } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import React, {
+import {
   type ReactNode,
   useCallback,
   useId,
@@ -109,7 +109,7 @@ export function Dialog({
     <DialogPortal>
       <div className="fixed inset-0 z-dialog flex items-center justify-center">
         <div
-          className="absolute inset-0 bg-black/60"
+          className="absolute inset-0 bg-[var(--bg-overlay)]"
           onClick={onClose}
           data-testid={testId ? `${testId}-overlay` : undefined}
         />
@@ -121,7 +121,7 @@ export function Dialog({
           aria-label={!title ? ariaLabel : undefined}
           tabIndex={-1}
           data-testid={testId}
-          className={`relative w-full mx-4 ${SIZE_MAX_W[size]} ${SIZE_MAX_H[size]} ${flush ? "overflow-hidden flex flex-col min-h-0" : "overflow-y-auto p-5 space-y-4"} bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-lg shadow-xl focus:outline-none`}
+          className={`relative w-full mx-4 ${SIZE_MAX_W[size]} ${SIZE_MAX_H[size]} ${flush ? "overflow-hidden flex flex-col min-h-0" : "overflow-y-auto p-5 space-y-4"} bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-xl shadow-xl focus:outline-none`}
         >
           {/* Standard close affordance on every non-flush dialog (Escape +
               backdrop also close). Absolutely positioned; the headered branch
@@ -133,22 +133,22 @@ export function Dialog({
               onClick={onClose}
               aria-label="Close"
               data-testid={testId ? `${testId}-close` : undefined}
-              className="absolute top-3 right-3 z-10 flex items-center justify-center w-7 h-7 rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)] transition-colors"
+              className="absolute top-2 right-2 z-10 flex items-center justify-center min-h-[44px] min-w-[44px] sm:min-h-[36px] sm:min-w-[36px] rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)] transition-colors"
             >
               <Icon path={mdiClose} size={0.8} />
             </button>
           )}
           {hasHeader && (
-            <div className="flex items-center gap-3 pr-8">
+            <div className="flex items-center gap-3 pr-12">
               {icon && (
-                <div className="flex-shrink-0 flex items-center justify-center w-9 h-9 rounded-md bg-[var(--accent-primary)]/15 text-[var(--accent-primary)]">
+                <div className="flex-shrink-0 flex items-center justify-center w-9 h-9 rounded-md border border-[var(--severity-info-border)] bg-[var(--severity-info-bg)] text-[var(--severity-info-fg)]">
                   <Icon path={icon} size={0.85} />
                 </div>
               )}
               {title && (
                 <h3
                   id={titleId}
-                  className="text-base font-semibold text-[var(--text-primary)]"
+                  className="text-lg font-semibold text-[var(--text-primary)]"
                 >
                   {title}
                 </h3>
@@ -170,6 +170,11 @@ function DialogFooter({ children }: { children: ReactNode }) {
   );
 }
 
+// Shared by every action and Cancel: contract target size (44 px below `sm`,
+// 36 px from `sm`) and semibold text. See change: align-ui-contract-recipes.
+const ACTION_BASE =
+  "inline-flex items-center justify-center text-xs font-semibold px-3 rounded transition-colors min-h-[44px] sm:min-h-[36px]";
+
 interface DialogCancelProps {
   onClick: () => void;
   children?: ReactNode;
@@ -182,17 +187,21 @@ function DialogCancel({ onClick, children = "Cancel", testId }: DialogCancelProp
       type="button"
       onClick={onClick}
       data-testid={testId}
-      className="text-xs px-3 py-1.5 rounded border border-[var(--border-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+      className={`${ACTION_BASE} border border-[var(--border-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]`}
     >
       {children}
     </button>
   );
 }
 
+// Primary fills with --accent-solid (white on it is 5.17:1 in every theme);
+// --accent-primary under white text is only 3.68:1.
+// See change: add-pi-spec-driven-schema.
 const INTENT_CLASS: Record<DialogIntent, string> = {
   primary:
-    "bg-[var(--accent-primary)] text-white hover:opacity-90 border border-transparent",
-  danger: "bg-red-600 text-white hover:bg-red-500 border border-transparent",
+    "bg-[var(--accent-solid)] text-white hover:opacity-90 border border-transparent",
+  danger:
+    "bg-[var(--tint-red-bg)] text-[var(--tint-red-fg)] border border-[var(--tint-red-border)] hover:opacity-90",
   neutral:
     "bg-transparent border border-[var(--border-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]",
 };
@@ -218,7 +227,7 @@ function DialogAction({
       onClick={onClick}
       disabled={disabled}
       data-testid={testId}
-      className={`text-xs px-3 py-1.5 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${INTENT_CLASS[intent]}`}
+      className={`${ACTION_BASE} disabled:opacity-50 disabled:cursor-not-allowed ${INTENT_CLASS[intent]}`}
     >
       {children}
     </button>

@@ -17,6 +17,9 @@ vi.mock("@blackbelt-technology/pi-dashboard-shared/openspec-poller.js", async (i
   return {
     ...actual,
     pollOpenSpecAsync: vi.fn(async () => ({ initialized: false, changes: [] })),
+    // This suite exercises the fallback path (`list` + local derivation): the CLI
+    // "rejects" `--all` so the poll continues on it. See change: use-openspec-status-all.
+    runOpenSpecStatusAll: vi.fn(async () => ({ stdout: "", stderr: "error: unknown option '--all'", exitCode: 1 })),
     runOpenSpecList: vi.fn(async () => null),
     runOpenSpecStatus: vi.fn(async () => null),
   };
@@ -714,7 +717,7 @@ describe("DirectoryService", () => {
       const sessionManager = createMockSessionManager();
       service = createDirectoryService(stateStore, sessionManager);
       await service.refreshOpenSpec("/x");
-      service.reconfigurePolling({ enabled: true, pollIntervalSeconds: 60, maxConcurrentSpawns: 5, changeDetection: "mtime", jitterSeconds: 0, useWorker: true, optOutDirectories: [], offerInitialization: true });
+      service.reconfigurePolling({ enabled: true, pollIntervalSeconds: 60, maxConcurrentSpawns: 5, changeDetection: "mtime", jitterSeconds: 0, useWorker: true, optOutDirectories: [], offerInitialization: true, workflowSchema: { defaultForNewProjects: false } });
       expect(service.getOpenSpecData("/x")).toBeDefined();
     });
   });

@@ -75,3 +75,18 @@ Plugin ctx wires `getPiResources(cwd?, {fresh?})` (SWR read; fresh = `refreshPiR
 `registerPairingRoutes` wired with `getAcceptLanRequests: liveAcceptLanRequests` and `getLanInterfaces: createLanInterfaceProvider({bindHost: config.host})`. See change: add-lan-knock-pairing.
 
 Builds `createQuestionStack` before `createBrowserGateway` (passed as trailing arg), `loadPersisted()` + `sweepAtBoot` using pre-normalization `persistedSessionPresence` captured in the cold-start restore loop. `registerQuestionRoutes` wired before `registerAccessPromptRoutes` (`sendToSession` via piGateway, `ownerOf` via `sessionManager`, `isResolverActive: identityEnforced`). See change: add-pending-question-stack.
+Creates the pi-trust-mirror service, boot snapshot rebuild, change listeners, `host.projectTrustSource`/`host.piTrustCoverInteractive`, `grant_response` piTrust choice. See change: mirror-dashboard-trust-to-pi.
+
+## add-request-access-remedy
+
+One `knockPeerDeps: KnockPeerDeps = {hostAdmission: () => getHostGateCtx().admission, getLanInterfaces: createLanInterfaceProvider({bindHost: config.host})}` built before `registerServiceRoutes`. Pairing routes read `hostAdmission`/`getLanInterfaces` from it; `requestAccessAvailable = createRequestAccessAvailable(knockPeerDeps, localTrust)` passed to `registerServiceRoutes` + `registerVaultRoutes`. Exactly one `createLanInterfaceProvider(` call (`request-access-wiring.test.ts`).
+
+## retire-trusted-networks-bypass
+
+`decideBootTrustMode()` first in `createServer`. `admissionList` thunk (`admissionTrustedNetworks`) wired to every admission site: auth plugin, route-tier gate, `networkGuard`, universal hook, session API/services `getTrustedNetworks`, WS upgrade. Network denial observer returns early in `pair`. `createNetworkPlane({networkTrustActive})`. Live capability hook registered BEFORE bearer/OAuth/identity hooks. `liveCapabilities` store (`LiveCapabilityStore`, liveness re-checked at use). Live WS upgrade validates capability from the path.
+
+`createSessionArchive({... deleteEvents})` wires `deleteEvents` to `eventStore.deleteEventsForSession` (lazy closure; `eventStore` is built later) for fileless/superseded eviction. See change: fix-orphaned-ended-session-archive.
+
+OpenSpec routes deps gain `getOpenSpecConfig: () => loadConfig().openspec` (live per-request gates + new-project default) and `spawnSemaphore: createSemaphore(loadConfig().openspec.maxConcurrentSpawns)` (own bounded pool for workflow-schema validate; directory service's semaphore not exposed). See change: add-pi-spec-driven-schema.
+
+Optional TLS listener: `const tlsListener = new TlsListener({dataRoot ~/.pi/dashboard/tls, getTlsConfig, beforeBind, dispatch})` built right after `Fastify({keepAliveTimeout: MAIN_KEEP_ALIVE_TIMEOUT_MS, connectionTimeout: MAIN_CONNECTION_TIMEOUT_MS})`. `dispatch.request` = `fastify.server.emit("request")`, `clientError` forwarded, `upgrade` = the named `onUpgrade` switch (extracted from the inline `fastify.server.on("upgrade")`; shared by both transports). Proof floor per transport: `tlsBoundAt` (set by `beforeBind` immediately before the TLS bind) vs `httpBoundAt`, chosen by `socket.encrypted` in the `onRequest` stamp and `onUpgrade`. `markReady()` runs after the main listen (failure-isolated); `tlsListener.stop()` in `stop()` + startup teardown; `server.tls` exposes it. `tlsListenerNames` feeds `getHostGateCtx().admission` AND `corsOpts()`; `tlsListenerUrls()` feeds the pairing `getReachableUrls` closure and (via `registerSystemRoutes` dep `tls`) `GET /api/tunnel/endpoints`; `registerTlsRoutes` mounts `POST /api/tls/issue`. See change: add-tailscale-cert-tls.

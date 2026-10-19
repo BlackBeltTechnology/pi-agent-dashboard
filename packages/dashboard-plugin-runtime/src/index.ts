@@ -77,6 +77,7 @@ export {
   usePluginMessage,
   usePluginRouter,
   usePluginSend,
+  usePluginSocket,
   useSessionData,
   useSessionEvents,
   useSessionInteractiveRequests,
@@ -91,6 +92,7 @@ export type { RoleRefLabels, RoleRefProps } from "./RoleRef.js";
 export { RoleRef } from "./RoleRef.js";
 export type { SlotAccent, SlotPillProps, SlotSurface } from "./SlotPill.js";
 export { SLOT_PILL_LEGEND, SlotPill } from "./SlotPill.js";
+export { copyText, randomUuid } from "./secure-context.js";
 export {
   __resetSessionDataStoreForTests,
   clearSessionData,
@@ -116,13 +118,22 @@ export type {
   SettingsFieldState,
   SettingsFieldTestIds,
   SettingsNoticeTone,
+  SettingsRemedy,
+  SettingsStatusTone,
+  SettingsTableRow,
 } from "./settings-fields.js";
 export {
   FieldShell,
   NumberField,
   SelectField,
+  SettingsActionError,
+  SettingsCopyButton,
+  SettingsFacts,
   SettingsGroup,
+  SettingsItem,
   SettingsNotice,
+  SettingsStatusPill,
+  SettingsTable,
   TextAreaField,
   TextField,
   ToggleField,

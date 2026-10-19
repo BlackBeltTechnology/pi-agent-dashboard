@@ -270,6 +270,12 @@ export interface PreferencesStore {
    * unsubscribe fn. See change: add-chat-gateway-team-controls.
    */
   onWorkspacesChanged(handler: () => void): () => void;
+  /**
+   * Subscribe to pinned-directory mutations (pin / unpin / replace / reorder),
+   * notified synchronously after the in-memory change. Feeds the pi-trust mirror
+   * snapshot. Returns unsubscribe. See change: mirror-dashboard-trust-to-pi.
+   */
+  onPinsChanged?(handler: () => void): () => void;
   // ── configurable-chat-display ──────────────────────────────
   /** Returns `undefined` when display prefs have never been seeded. */
   getDisplayPrefs(): DisplayPrefs | undefined;
@@ -694,6 +700,16 @@ let dirty =
   // every mutator below after a successful mutation — NOT from the browser
   // broadcast, so correctness does not depend on any transport.
   const workspaceListeners = new Set<() => void>();
+  const pinListeners = new Set<() => void>();
+  function notifyPins(): void {
+    for (const handler of [...pinListeners]) {
+      try {
+        handler();
+      } catch (err) {
+        console.error("[preferences-store] onPinsChanged handler threw", err);
+      }
+    }
+  }
 
   function notifyWorkspaces(): void {
     // Per-subscriber isolation: a throwing handler must neither block other
@@ -733,12 +749,14 @@ let dirty =
     setPinnedDirectories(dirs: string[]): void {
       pinnedDirectories = [...dirs];
       scheduleSave();
+      notifyPins();
     },
 
     pinDirectory(dirPath: string): void {
       if (pinnedDirectories.includes(dirPath)) return;
       pinnedDirectories.push(dirPath);
       scheduleSave();
+      notifyPins();
     },
 
     unpinDirectory(dirPath: string): void {
@@ -746,11 +764,20 @@ let dirty =
       if (idx === -1) return;
       pinnedDirectories.splice(idx, 1);
       scheduleSave();
+      notifyPins();
     },
 
     reorderPinnedDirs(dirs: string[]): void {
       pinnedDirectories = [...dirs];
       scheduleSave();
+      notifyPins();
+    },
+
+    onPinsChanged(handler: () => void): () => void {
+      pinListeners.add(handler);
+      return () => {
+        pinListeners.delete(handler);
+      };
     },
 
     getCollapsedFolders(): string[] {

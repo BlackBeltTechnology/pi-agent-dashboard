@@ -30,10 +30,12 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { MIRROR_SOURCE_LABELS } from "@blackbelt-technology/pi-dashboard-shared/pi-trust-mirror.js";
+import { coveringDashboardEntry } from "./host-project-trust.js";
 import { getPiCore, type PiSettingsManager } from "./pi-resource-activation.js";
 
 /** pi records trust under the canonicalized folder path; match that spelling. */
-function canonical(p: string): string {
+export function canonical(p: string): string {
   try {
     return fs.realpathSync(path.resolve(p));
   } catch {
@@ -58,7 +60,16 @@ export interface TrustOption {
 export type TrustGateResult =
   | { outcome: "proceed" }
   | { outcome: "refused"; error: string }
-  | { outcome: "prompt"; options: TrustOption[]; implicitlyTrusted: boolean; message: string };
+  | {
+      outcome: "prompt";
+      options: TrustOption[];
+      implicitlyTrusted: boolean;
+      message: string;
+      /** Durable dashboard trust covers the folder: the option to select first. */
+      preselected?: "trust";
+      /** Label of the dashboard source that covers the folder (`pinned folder`, ...). */
+      dashboardSource?: string;
+    };
 
 /** Dashboard-authored equivalents of pi's own trust options, minus session-only. */
 export function trustOptionsFor(cwd: string): TrustOption[] {
@@ -136,6 +147,27 @@ export async function resolveToggleTrust(
   const inheritedRefusal = entry?.decision === false;
   const dflt = settingsManager.getDefaultProjectTrust();
   if (dflt === "always" && !inheritedRefusal) return { outcome: "proceed" };
+
+  // Durable dashboard trust covers the folder and nothing is recorded for it or an
+  // ancestor: prompt (even under `never`) with "Trust" pre-selected. Nothing is
+  // recorded until the operator chooses — the decision is a lasting pi record that
+  // terminal pi also honours. See change: mirror-dashboard-trust-to-pi.
+  const covering = entry === null ? coveringDashboardEntry(cwd) : null;
+  if (covering) {
+    const source = MIRROR_SOURCE_LABELS[covering.sourceKind];
+    return {
+      outcome: "prompt",
+      options: trustOptionsFor(cwd),
+      implicitlyTrusted: !hasTrustRequiringProjectResources(cwd),
+      preselected: "trust",
+      dashboardSource: source,
+      message:
+        `The dashboard already trusts this folder (${source}). ${EXPLICIT_NOTE} ` +
+        "Approving writes a lasting pi trust decision that terminal pi also honours; " +
+        "unpinning or revoking the dashboard entry does not remove it.",
+    };
+  }
+
   if (dflt === "never") {
     return {
       outcome: "refused",

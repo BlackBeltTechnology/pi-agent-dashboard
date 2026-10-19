@@ -2,11 +2,15 @@
  * Tests for handleAttachProposal / handleDetachProposal.
  * See change: fix-mobile-attach-proposal-display.
  */
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { SessionsPageResultMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { createMemorySessionManager, type SessionManager } from "../../session/memory-session-manager.js";
 import type { BrowserHandlerContext } from "../handler-context.js";
-import { handleAttachProposal, handleDetachProposal, handleRenameSession, handleListSessions, handleRemoveTagGlobally, handleSessionsPage, handleSetSessionDisplayPrefs, handleSetSessionProcessDrawer, handleSetSessionTags, pushAttachProposalChanged } from "../session-meta-handler.js";
+import { createSessionArchive } from "../../session/session-archive.js";
+import { handleArchiveSession, handleAttachProposal, handleDetachProposal, handleRenameSession, handleListSessions, handleRemoveTagGlobally, handleSessionsPage, handleSetSessionDisplayPrefs, handleSetSessionProcessDrawer, handleSetSessionTags, pushAttachProposalChanged } from "../session-meta-handler.js";
 
 interface PiSent {
   sessionId: string;
@@ -729,5 +733,99 @@ describe("browser rename / detach provenance", () => {
     const { ctx } = makeCtx(mgr);
     handleAttachProposal({ type: "attach_proposal", sessionId: "s1", changeName: "add-z" } as any, ctx);
     expect(mgr.get("s1")).toMatchObject({ name: "add-z", nameSource: "user" });
+  });
+});
+
+describe("handleArchiveSession — rejection reply (fix-orphaned-ended-session-archive)", () => {
+  const WS_A = { id: "ws-A" };
+
+  function archiveRig(opts: { withArchive?: boolean; sessionFileUnderRegularFile?: boolean } = {}) {
+    const mgr = createMemorySessionManager();
+    const sent: Array<{ ws: unknown; msg: any }> = [];
+    const broadcasts: any[] = [];
+    const sessionArchive = createSessionArchive({
+      sessionManager: mgr,
+      metaPersistence: { flush: () => {} },
+      getPinnedDirs: () => [],
+      platform: "linux",
+    });
+    const piSends: unknown[] = [];
+    const ctx = {
+      ws: WS_A,
+      sessionManager: mgr,
+      piGateway: { sendToSession: (_id: string, m: unknown) => { piSends.push(m); return true; } },
+      broadcast: (m: any) => { broadcasts.push(m); },
+      sendTo: (ws: unknown, msg: any) => { sent.push({ ws, msg }); },
+      metaPersistence: { flush: () => {} },
+      ...(opts.withArchive === false ? {} : { sessionArchive }),
+      pendingArchiveIntents: { record: () => {}, clear: () => {} },
+      endSession: async () => {},
+    } as unknown as BrowserHandlerContext;
+    return { mgr, ctx, sent, broadcasts };
+  }
+
+  const errors = (sent: Array<{ ws: unknown; msg: any }>) => sent.filter((s) => s.msg.type === "archive_session_error");
+
+  function restoreEnded(mgr: SessionManager, id: string, over: Record<string, unknown> = {}) {
+    mgr.restore({ id, cwd: "/w", source: "tui", status: "ended", startedAt: 1, endedAt: 2, ...over } as any);
+  }
+
+  it("#X1 a running session replies to the requester only", async () => {
+    const { mgr, ctx, sent, broadcasts } = archiveRig();
+    registerSession(mgr, "S", { status: "streaming" });
+
+    await handleArchiveSession({ type: "archive_session", sessionId: "S" } as any, ctx);
+
+    expect(sent).toEqual([{ ws: WS_A, msg: { type: "archive_session_error", sessionId: "S", error: "session is running" } }]);
+    expect(broadcasts).toEqual([]);
+  });
+
+  it("#X2 an unknown id replies 'session not found'", async () => {
+    const { ctx, sent } = archiveRig();
+
+    await handleArchiveSession({ type: "archive_session", sessionId: "nope" } as any, ctx);
+
+    expect(sent).toEqual([{ ws: WS_A, msg: { type: "archive_session_error", sessionId: "nope", error: "session not found" } }]);
+  });
+
+  it("#X3a no archive service replies 'archive unavailable'", async () => {
+    const { mgr, ctx, sent } = archiveRig({ withArchive: false });
+    restoreEnded(mgr, "S");
+
+    await handleArchiveSession({ type: "archive_session", sessionId: "S" } as any, ctx);
+
+    expect(sent.map((s) => s.msg.error)).toEqual(["archive unavailable"]);
+  });
+
+  it("#X3b a persist failure replies with the error and keeps the session resident", async () => {
+    const { mgr, ctx, sent } = archiveRig();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "archive-x3b-"));
+    const blocker = path.join(dir, "blocker");
+    fs.writeFileSync(blocker, "");
+    // The sidecar's parent is a regular file → the write throws (ENOTDIR).
+    restoreEnded(mgr, "S", { sessionFile: path.join(blocker, "S.jsonl") });
+    try {
+      await handleArchiveSession({ type: "archive_session", sessionId: "S" } as any, ctx);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+
+    expect(errors(sent)).toHaveLength(1);
+    expect(errors(sent)[0].ws).toBe(WS_A);
+    expect(errors(sent)[0].msg.error).toMatch(/EEXIST|ENOTDIR|ENOENT/);
+    expect(mgr.get("S")).toBeDefined();
+  });
+
+  it("#X4 success (fileless ended, or idle-alive pending) sends no error", async () => {
+    const a = archiveRig();
+    restoreEnded(a.mgr, "S");
+    await handleArchiveSession({ type: "archive_session", sessionId: "S" } as any, a.ctx);
+    expect(errors(a.sent)).toEqual([]);
+    expect(a.mgr.get("S")).toBeUndefined();
+
+    const b = archiveRig();
+    registerSession(b.mgr, "I", { status: "idle" });
+    await handleArchiveSession({ type: "archive_session", sessionId: "I" } as any, b.ctx);
+    expect(errors(b.sent)).toEqual([]);
   });
 });

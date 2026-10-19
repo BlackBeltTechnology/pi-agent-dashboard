@@ -19,6 +19,13 @@ export default defineConfig({
     // See change: add-git-checkout-root-resolver.
     alias: {
       "@blackbelt-technology/pi-dashboard-shared": path.resolve(__dirname, "../shared/src"),
+      // Worktree-local runtime so `copyText` resolves (the hoisted link escapes to the main checkout).
+      // See change: audit-plugin-bundles-non-secure-context.
+      "@blackbelt-technology/dashboard-plugin-runtime/server": path.resolve(__dirname, "../dashboard-plugin-runtime/src/server/index.ts"),
+      "@blackbelt-technology/dashboard-plugin-runtime/bridge": path.resolve(__dirname, "../dashboard-plugin-runtime/src/bridge/index.ts"),
+      "@blackbelt-technology/dashboard-plugin-runtime/context": path.resolve(__dirname, "../dashboard-plugin-runtime/src/plugin-context.tsx"),
+      "@blackbelt-technology/dashboard-plugin-runtime/test-support": path.resolve(__dirname, "../dashboard-plugin-runtime/src/test-support/index.ts"),
+      "@blackbelt-technology/dashboard-plugin-runtime": path.resolve(__dirname, "../dashboard-plugin-runtime/src/index.ts"),
     },
   },
 });

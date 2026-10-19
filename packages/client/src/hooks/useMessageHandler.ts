@@ -1548,6 +1548,13 @@ export function useMessageHandler(
         break;
       }
 
+      case "archive_session_error":
+        // A rejected archive click: tell the user why nothing happened. No
+        // state change — the card is still resident. See change:
+        // fix-orphaned-ended-session-archive.
+        showToast?.(msg.error, "error");
+        break;
+
       case "spawn_error": {
         // Enriches the spawn_result error with strategy + optional stderr tail.
         // Carried as its own message so esbuild preserves this switch case in
@@ -1854,6 +1861,8 @@ export function useMessageHandler(
               // For method "batch": sub-questions travel in metadata.questions.
               // See change: redesign-ask-user-question-cards.
               questions: msg.prompt?.metadata?.questions,
+              // Inline "Other" opt-in (core metadata key). See change: add-ask-user-inline-other.
+              ...(msg.prompt?.metadata?.allowOther === true ? { allowOther: true } : {}),
               _promptBusComponent: msg.component,
               _promptBusPlacement: msg.placement,
               // Namespaced plugin data (`ctx.ui.*` `pluginMeta`), exposed to

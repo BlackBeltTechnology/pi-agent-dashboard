@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   addRecentRemote,
@@ -9,7 +10,6 @@ import {
   listRecentRemotes,
   readModeFile,
   removeRecentRemote,
-  writeApiKey,
   writeModeFile,
 } from "../lib/wizard-state.js";
 
@@ -54,8 +54,9 @@ describe("wizard-state", () => {
     expect(isApiKeyConfigured()).toBe(false);
   });
 
-  it("isApiKeyConfigured returns true after writeApiKey", () => {
-    writeApiKey("anthropic", "sk-test-123");
+  // Detection still reads the legacy settings.json field; nothing here writes it.
+  it("isApiKeyConfigured returns true for a legacy settings.json API key", () => {
+    fs.writeFileSync(path.join(testDir, ".pi", "agent", "settings.json"), JSON.stringify({ anthropicApiKey: "sk-test-123" }));
     expect(isApiKeyConfigured()).toBe(true);
   });
 
@@ -71,13 +72,20 @@ describe("wizard-state", () => {
     expect(isApiKeyConfigured()).toBe(true);
   });
 
-  it("writeApiKey creates settings file if missing", () => {
-    const settingsFile = path.join(testDir, ".pi", "agent", "settings.json");
-    expect(fs.existsSync(settingsFile)).toBe(false);
-    writeApiKey("openai", "sk-openai-123");
-    expect(fs.existsSync(settingsFile)).toBe(true);
-    const data = JSON.parse(fs.readFileSync(settingsFile, "utf-8"));
-    expect(data.openaiApiKey).toBe("sk-openai-123");
+  // See change: pi-settings-full-coverage (test-plan #E22): provider keys are stored
+  // through Settings → Providers (auth.json); no Electron code writes settings.json credentials.
+  it("no Electron source writes a provider API key into pi's settings.json", () => {
+    const walk = (dir: string): string[] =>
+      fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+        const p = path.join(dir, e.name);
+        if (e.isDirectory()) return e.name === "__tests__" || e.name === "node_modules" ? [] : walk(p);
+        return /\.(ts|tsx|mjs|js)$/.test(e.name) && !/\.test\./.test(e.name) ? [p] : [];
+      });
+    const srcRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+    // Built from parts so this file itself never matches a grep for the removed writer.
+    const writer = ["write", "ApiKey"].join("");
+    const offenders = walk(srcRoot).filter((f) => new RegExp(`${writer}|\\.(anthropicApiKey|openaiApiKey)\\s*=(?!=)|\\.apiKey\\s*=(?!=)`).test(fs.readFileSync(f, "utf-8")));
+    expect(offenders).toEqual([]);
   });
 
   // ── mode.json → dashboard-settings.json migration (2B.4) ────────────

@@ -16,6 +16,7 @@ import type { ElectronApplication } from "@playwright/test";
 import { expect, test } from "@playwright/test";
 import {
   captureMenuTemplates,
+  clickCapturedMenuItem,
   FAKE_PORT,
   type FakeHealth,
   type FakeHealthServer,
@@ -37,7 +38,8 @@ const zombieHealth: FakeHealth = {
   version: "0.5.4",
   launchSource: "electron",
   launchSourceEffective: "electron",
-  starter: "Electron",
+  // No `starter`: the real /api/health stopped publishing it (change:
+  // fix-cli-control-electron-server). The app reads `launchSource`.
   bootParentPid: 999999, // some prior, now-dead Electron
   ppid: 1,               // reparented away
   bootParentAlive: false,
@@ -62,6 +64,13 @@ test.afterEach(async () => {
 });
 
 test("shows the adoption modal with the zombie PID", async () => {
+  // #531 quarantine (darwin only, narrowest scope): the launch/close path is
+  // reported to hang on macOS under Electron 43.4.1 and the previous 32.3.3 pin
+  // (#531); attribution (app vs harness) is still open — design D5. Exit criteria:
+  // removed in the PR that fixes #531; re-tested on every Electron major bump via
+  // `gh workflow run ci-e2e-electron.yml --ref <branch>`.
+  // See change: add-missing-ci-legs (design D5).
+  test.fixme(process.platform === "darwin", "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/531");
   server = await startFakeHealthServer(zombieHealth);
   home = makeThrowawayHome(server.port);
   app = await launchElectron({ home, zombiePrompt: true });
@@ -78,6 +87,13 @@ test("shows the adoption modal with the zombie PID", async () => {
 });
 
 test("--no-zombie-prompt suppresses the modal", async () => {
+  // #531 quarantine (darwin only, narrowest scope): the launch/close path is
+  // reported to hang on macOS under Electron 43.4.1 and the previous 32.3.3 pin
+  // (#531); attribution (app vs harness) is still open — design D5. Exit criteria:
+  // removed in the PR that fixes #531; re-tested on every Electron major bump via
+  // `gh workflow run ci-e2e-electron.yml --ref <branch>`.
+  // See change: add-missing-ci-legs (design D5).
+  test.fixme(process.platform === "darwin", "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/531");
   server = await startFakeHealthServer(zombieHealth);
   home = makeThrowawayHome(server.port);
   app = await launchElectron({ home, zombiePrompt: false });
@@ -91,6 +107,13 @@ test("--no-zombie-prompt suppresses the modal", async () => {
 });
 
 test("Take ownership → tray flips to electron-owned (Restart server)", async () => {
+  // #531 quarantine (darwin only, narrowest scope): the launch/close path is
+  // reported to hang on macOS under Electron 43.4.1 and the previous 32.3.3 pin
+  // (#531); attribution (app vs harness) is still open — design D5. Exit criteria:
+  // removed in the PR that fixes #531; re-tested on every Electron major bump via
+  // `gh workflow run ci-e2e-electron.yml --ref <branch>`.
+  // See change: add-missing-ci-legs (design D5).
+  test.fixme(process.platform === "darwin", "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/531");
   server = await startFakeHealthServer(zombieHealth);
   home = makeThrowawayHome(server.port);
   app = await launchElectron({ home, zombiePrompt: true });
@@ -116,4 +139,35 @@ test("Take ownership → tray flips to electron-owned (Restart server)", async (
       { timeout: 15_000 },
     )
     .toBe(true);
+});
+
+test("Take ownership → quit stops the adopted server (reads launchSource, no starter)", async () => {
+  // See change: fix-cli-control-electron-server (test-plan #F1). Same #531 quarantine as above.
+  test.fixme(process.platform === "darwin", "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/531");
+  server = await startFakeHealthServer(zombieHealth);
+  home = makeThrowawayHome(server.port);
+  app = await launchElectron({ home, zombiePrompt: true });
+  await stubDialog(app, /* "Take ownership" */ 0);
+  await captureMenuTemplates(app);
+  await app.firstWindow();
+
+  await expect
+    .poll(async () => (await readDialogCalls(app!)).length, { timeout: 30_000 })
+    .toBeGreaterThan(0);
+  // Adoption took effect once the tray offers "Restart server" (ownership = electron).
+  await expect
+    .poll(async () => (await readMenuTemplates(app!)).some((t) => t.some((i) => i.label === "Restart server")), {
+      timeout: 15_000,
+    })
+    .toBe(true);
+
+  await clickCapturedMenuItem(app, "Quit");
+
+  await expect
+    .poll(() => server!.requests.filter((r) => r.method === "POST" && r.url.startsWith("/api/shutdown")).length, {
+      timeout: 15_000,
+    })
+    .toBe(1);
+  const post = server.requests.find((r) => r.method === "POST" && r.url.startsWith("/api/shutdown"))!;
+  expect(JSON.parse(post.body ?? "{}")).toEqual({ userQuit: true });
 });

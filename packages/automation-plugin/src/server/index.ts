@@ -121,6 +121,7 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
     // actually arm. See the FALLBACK_KINDS note in routes.ts.
     triggerKinds: () => engineRef?.registry.kinds() ?? new Set(["schedule"]),
     workSourceIds: () => engineRef?.workSources.ids() ?? new Set<string>(),
+    scanGlobalScope: () => ctx.getPluginConfig<AutomationPluginConfig>()?.scanGlobalScope !== false,
   });
   // plugin_action handler: run/stop/create dispatch to the SAME engine cores
   // and writer the REST routes call (no HTTP re-entry). Fan-out routes this
@@ -314,7 +315,13 @@ async function initEngine(ctx: ServerPluginContext): Promise<void> {
     const scopes: Array<{ base: string; scope: "folder" | "global" }> = [];
     if (cfg.scanGlobal) scopes.push({ base: homeDir, scope: "global" });
     if (cfg.scanFolder) {
-      for (const base of folderScopeBases()) scopes.push({ base, scope: "folder" });
+      // While global scanning is on, `~/.pi/automation` is already the global
+      // scope; a folder copy would double-arm it. See change: fix-home-folder-scope-double-arm.
+      const resolvedHome = path.resolve(homeDir);
+      for (const base of folderScopeBases()) {
+        if (cfg.scanGlobal && base === resolvedHome) continue;
+        scopes.push({ base, scope: "folder" });
+      }
     }
     return scopes;
   }
@@ -362,7 +369,7 @@ async function initEngine(ctx: ServerPluginContext): Promise<void> {
   // "Used by" reporting for the roles plugin (Kind A). The roles plugin may be
   // absent or load later, so look the service up in `onReady` (after every
   // plugin registered); absent → no-op. See change: add-role-aware-model-refs.
-  ctx.fastify.addHook("onReady", async () => {
+  const registerRolesUsage = (): void => {
     const roles = ctx.consume<{
       registerUsage(owner: string, fn: () => Array<{ label: string; ref: string }>): () => void;
     }>("roles.bindings");
@@ -382,7 +389,16 @@ async function initEngine(ctx: ServerPluginContext): Promise<void> {
       return automationRoleUsage(discovered);
     });
     ctx.onShutdown(dispose);
-  });
+  };
+  // initEngine is deferred (ENGINE_INIT_DELAY_MS), so it normally runs AFTER
+  // the server is listening, where addHook throws. Every plugin is registered
+  // by then — register immediately. The throw must never abort init: the
+  // run-delivery onEvent handler below would be lost and runs stay `running`.
+  try {
+    ctx.fastify.addHook("onReady", async () => registerRolesUsage());
+  } catch {
+    registerRolesUsage();
+  }
 
   // Per-run transcript buffer (run sessionId → captured assistant text),
   // flushed to result.md on `agent_end`. `runPrompt` holds the injected

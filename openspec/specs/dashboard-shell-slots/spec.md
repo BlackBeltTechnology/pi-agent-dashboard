@@ -245,11 +245,42 @@ Each `settings-section` contribution SHALL receive `pluginContext` (React varian
 
 The host SHALL render the plugin's identity, status, enable toggle, and error/requirement state around every contribution. A contribution SHALL NOT be responsible for, and SHALL NOT be able to suppress, that chrome. A contribution SHALL NOT render viewport-fixed elements (such as a `position: fixed` save bar); committing edits is the Save Bar's responsibility.
 
+The host chrome SHALL follow these presentation rules:
+
+- A "← Plugins" back link SHALL render above the chrome card (12 px semibold `--text-secondary`, `ui-contract.md` tap-target: 44 px tall below `sm`, 32 px from `sm`), keeping `data-testid="plugin-page-back-to-index"`; there SHALL be no back link at the bottom of the page.
+- The chrome card SHALL show the display name as the page title (`text-lg`), the plugin id at 11 px or larger in `--text-secondary`, and the enable control as a `role="switch"` with the visible label "Enabled" (keeping `data-testid="plugin-page-toggle-<id>"`).
+- A status pill SHALL render only when the plugin is not healthy, with the words "Off", "Not loaded", "Needs setup", "Failed to load" or "Status unknown"; a healthy, enabled, loaded plugin with all requirements met SHALL show no status pill.
+- Dependency metadata ("Needs …" / "Used by …") SHALL render when the plugin declares any; slot claims SHALL render only when the Developer "Show plugin internals" preference is on, inside a collapsed "Plugin internals" disclosure.
+- Error, missing-requirement, restart-required, disabled and not-found banners SHALL use the severity callout recipe (`--severity-*` tokens); no chrome text SHALL be painted with an `--accent-<hue>` fill token, a Tailwind palette class, or `--text-muted`, and no chrome text SHALL be smaller than 11 px.
+- The contribution body SHALL be wrapped by the host in a container (`data-testid="plugin-page-body-<id>"`) that spaces its direct children uniformly.
+- A plugin load error is diagnostic output: the chrome SHALL show a one-sentence "This plugin failed to load." notice and keep the full error text in the existing copyable error block (an explicit exception to the plugin-body rule that raw errors sit only behind "Copy details").
+- The compact chrome variant for promoted plugins (see `dashboard-plugin-loader`) keeps its title, lede and provenance layout and SHALL follow the same switch, pill-word, slot-claim, token, text-size and back-link rules.
+
 #### Scenario: Plugin section appears on its own page under host chrome
 
 - **WHEN** the user opens `/settings/plugins/flows` and the Flows plugin claims `settings-section` with `component: "FlowsSettings"`
-- **THEN** the page SHALL render host chrome (display name, id, status pill, enable toggle, dependency and slot metadata) followed by `FlowsSettings`
+- **THEN** the page SHALL render a "← Plugins" back link, then host chrome (display name, id, "Enabled" switch, dependency metadata), followed by `FlowsSettings`
 - **AND** no core settings page SHALL render `FlowsSettings`
+
+#### Scenario: Healthy plugin shows no status pill
+
+- **WHEN** `/settings/plugins/flows` renders for an enabled, loaded plugin with no missing requirement
+- **THEN** the chrome SHALL show no status pill
+
+#### Scenario: Unhealthy plugin states its problem in words
+
+- **WHEN** the apple-tools plugin is enabled and loaded but a required file is missing
+- **THEN** the chrome SHALL show a "Needs setup" pill and a warning callout naming the missing file
+
+#### Scenario: Body children are evenly spaced
+
+- **WHEN** a plugin body renders two top-level blocks
+- **THEN** the computed vertical gap between them SHALL equal the host spacing step, without either block setting its own margin
+
+#### Scenario: Slot claims hidden by default
+
+- **WHEN** the Developer "Show plugin internals" preference is off
+- **THEN** the chrome SHALL NOT show the plugin's slot claim names
 
 #### Scenario: Third-party extension contributes descriptor settings
 
@@ -473,8 +504,8 @@ The shell SHALL NOT directly import or render any `Flow*` component.
 All flow rendering SHALL go through slot consumers populated by
 `flows-plugin` claims. Specifically:
 
-- `FlowActivityBadge` rendered via `session-card-badge` slot.
-- `SessionFlowActions` rendered via `session-card-flows` slot.
+- The flow status part of `SessionFlowActions` (the running / completed flow badge and its abort control) rendered via the `session-card-flows` slot, inside the FLOWS subcard.
+- The flow actions (Run Flow…, Open flow…, New / Edit…, Delete) rendered via the `session-card-action-bar` slot. On the desktop session card their output appears in the session actions menu's PLUGINS group.
 - `FlowDashboard` and `FlowArchitect` rendered via
   `content-header-sticky` slot.
 - `FlowAgentDetail`, `FlowArchitectDetail`, `FlowYamlPreview`
@@ -518,10 +549,11 @@ Slot consumers receive the standard prop contract for their slot
 
 #### Scenario: SessionFlowActions renders inside FLOWS subcard
 
-- **GIVEN** a session whose `flowsList` is non-empty OR whose `commandsList` includes `flows:new`
+- **GIVEN** a session with a running flow, whose `commandsList` includes a flows-namespaced command
 - **WHEN** the desktop session card is rendered
-- **THEN** `<SessionFlowActions>` SHALL render exactly once inside the FLOWS subcard via the `session-card-flows` slot
-- **AND** SHALL NOT render via the `session-card-action-bar` slot
+- **THEN** the flow status SHALL render exactly once inside the FLOWS subcard via the `session-card-flows` slot
+- **AND** the flow actions SHALL NOT render inside the FLOWS subcard
+- **AND** they SHALL render via the `session-card-action-bar` slot in the session actions menu's PLUGINS group
 
 ### Requirement: New plugin slot `session-card-flows` is reserved and consumed by FLOWS subcard
 

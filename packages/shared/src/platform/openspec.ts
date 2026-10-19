@@ -14,9 +14,12 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { type Recipe, type Result, run, runAsync, unwrap } from "./runner.js";
+import { parseJsonOrNull } from "../openspec-status-all.js";
+import { type Recipe, type Result, resolveExecutorArgv, run, runAsync, unwrap } from "./runner.js";
 
 const OPENSPEC_TIMEOUT = 10_000;
+/** `openspec status --all` runs the status computation for every change in one process. */
+export const OPENSPEC_STATUS_ALL_TIMEOUT = 30_000;
 /** `openspec update` regenerates project skill files; allow more headroom. */
 const OPENSPEC_UPDATE_TIMEOUT = 30_000;
 /** Init copies templates + writes skills; bounded per the init endpoint contract (60s). */
@@ -31,33 +34,6 @@ interface WithCwd {
 // server-side call sites. See change: add-openspec-profile-settings.
 export { CORE_WORKFLOWS, EXPANDED_WORKFLOWS } from "../types.js";
 
-/**
- * Parse JSON from stdout; returns null on parse failure.
- *
- * Tolerates a non-JSON PREAMBLE. `openspec` prints a one-off telemetry notice
- * on its first run under a given HOME, ahead of the JSON body — strict parsing
- * turned that into "no changes", so a fresh HOME (new container, new user, CI)
- * silently produced an empty OpenSpec panel on the first poll.
- * See test: platform/__tests__/openspec-json-preamble.test.ts.
- */
-function parseJsonOrNull(out: string): unknown | null {
-  const trimmed = out.trim();
-  if (!trimmed) return null;
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    // Retry from the first JSON opener. Only a leading preamble is recovered;
-    // trailing junk still fails, and output with no opener stays null.
-    const start = trimmed.search(/[[{]/);
-    if (start <= 0) return null;
-    try {
-      return JSON.parse(trimmed.slice(start));
-    } catch {
-      return null;
-    }
-  }
-}
-
 // ── Recipes ─────────────────────────────────────────────────────────────────
 
 export const OPENSPEC_LIST: Recipe<WithCwd, unknown | null> = {
@@ -70,6 +46,21 @@ export const OPENSPEC_STATUS: Recipe<WithCwd & { change: string }, unknown | nul
   argv: ({ change }) => ["openspec", "status", "--change", change, "--json"],
   parse: parseJsonOrNull,
   timeout: OPENSPEC_TIMEOUT,
+};
+
+/**
+ * `openspec status --all --json` — every change's schema-aware status in ONE
+ * spawn. Returns the RAW stdout (JSON parsing and envelope classification run
+ * in the poll worker). A non-zero exit (e.g. one broken change → exit 1 with
+ * the rest of the JSON complete) arrives as `{ kind: "exit", stdout, stderr }`
+ * from the failed-execution result, so callers read stdout + stderr regardless
+ * of the exit code — this recipe deliberately does NOT use `tolerate`, which
+ * would drop stderr. See change: use-openspec-status-all.
+ */
+export const OPENSPEC_STATUS_ALL: Recipe<WithCwd, string> = {
+  argv: () => ["openspec", "status", "--all", "--json"],
+  parse: (out) => out,
+  timeout: OPENSPEC_STATUS_ALL_TIMEOUT,
 };
 
 /**
@@ -120,9 +111,10 @@ export const OPENSPEC_UPDATE: Recipe<WithCwd, string> = {
 
 /**
  * `openspec init <cwd> --tools pi --force` — the exact argv the init endpoint
- * runs. Pinned against `@fission-ai/openspec@1.6.0`, which registers ONLY
- * `--tools`, `--force`, `--profile` on `init`: `--no-animation` /
- * `--no-copilot-cloud` do not exist and commander is strict. `--profile` is
+ * runs. Pinned against `@fission-ai/openspec@1.14.3`, whose `init` registers
+ * `--tools`, `--force`, `--profile`, `--language`, `--no-animation`,
+ * `--copilot-cloud` and `--no-copilot-cloud` (1.6.0 had only the first three;
+ * commander is strict, so an unregistered flag is an error). `--profile` is
  * deliberately absent — the CLI validates it to `core|custom` only, while the
  * dashboard's profile may be the alias `expanded`; the endpoint heals the
  * global config instead and lets init read it. `--tools pi` is what writes
@@ -146,15 +138,63 @@ export const OPENSPEC_INIT_HELP: Recipe<WithCwd, string> = {
   parse: (out) => out,
 };
 
+/**
+ * `openspec --version` — the resolved CLI's version, trimmed. Callers that need
+ * hermetic output (workflow-schema generation) pass a scratch `cwd`.
+ * See change: add-pi-spec-driven-schema.
+ */
+export const OPENSPEC_VERSION: Recipe<WithCwd, string> = {
+  argv: () => ["openspec", "--version"],
+  parse: (out) => out.trim(),
+  timeout: OPENSPEC_TIMEOUT,
+};
+
+/**
+ * `openspec schema which <name> --json` — raw stdout (callers parse it; on
+ * "not found" the CLI exits 1 with JSON on stdout, which arrives through the
+ * failed-execution result). Callers pass `ctx.env.XDG_DATA_HOME` to hide
+ * user-level schemas. See change: add-pi-spec-driven-schema.
+ */
+export const OPENSPEC_SCHEMA_WHICH: Recipe<WithCwd & { name: string }, string> = {
+  argv: ({ name }) => ["openspec", "schema", "which", name, "--json"],
+  parse: (out) => out,
+  timeout: OPENSPEC_TIMEOUT,
+};
+
+/**
+ * `openspec schema fork <source> <name> --force` — copies a schema into
+ * `<cwd>/openspec/schemas/<name>`. See change: add-pi-spec-driven-schema.
+ */
+export const OPENSPEC_SCHEMA_FORK: Recipe<WithCwd & { source: string; name: string }, string> = {
+  argv: ({ source, name }) => ["openspec", "schema", "fork", source, name, "--force"],
+  parse: (out) => out,
+  timeout: OPENSPEC_TIMEOUT,
+};
+
+/**
+ * `openspec schema validate <name> --json` — raw stdout; an invalid schema
+ * exits non-zero. See change: add-pi-spec-driven-schema.
+ */
+export const OPENSPEC_SCHEMA_VALIDATE: Recipe<WithCwd & { name: string }, string> = {
+  argv: ({ name }) => ["openspec", "schema", "validate", name, "--json"],
+  parse: (out) => out,
+  timeout: OPENSPEC_TIMEOUT,
+};
+
 export const OPENSPEC_RECIPES = {
   OPENSPEC_LIST,
   OPENSPEC_STATUS,
+  OPENSPEC_STATUS_ALL,
   OPENSPEC_ARCHIVE_COMPLETED,
   OPENSPEC_CONFIG_LIST,
   OPENSPEC_CONFIG_PROFILE,
   OPENSPEC_UPDATE,
   OPENSPEC_INIT,
   OPENSPEC_INIT_HELP,
+  OPENSPEC_VERSION,
+  OPENSPEC_SCHEMA_WHICH,
+  OPENSPEC_SCHEMA_FORK,
+  OPENSPEC_SCHEMA_VALIDATE,
 } as const;
 
 // ── Public API ──────────────────────────────────────────────────────────────
@@ -233,6 +273,64 @@ export function update(input: WithCwd): Result<string> {
 
 export function updateOr(input: WithCwd, fallback = ""): string {
   return unwrap(update(input), fallback);
+}
+
+// ── Installed-CLI version (status --all support cache key) ──────────────────
+
+const OPENSPEC_PACKAGE_NAME = "@fission-ai/openspec";
+
+/**
+ * Install dir + `version` of the `@fission-ai/openspec` package the resolved CLI
+ * belongs to: `realpath` of the resolved script, then the nearest ancestor
+ * `package.json` with that name. `null` when nothing resolves. The
+ * `bin/openspec.js` shim's mtime is NOT a key — upgrades do not touch it.
+ * See change: use-openspec-status-all.
+ */
+export async function resolveOpenSpecPackageInfo(): Promise<{ dir: string; version: string | null } | null> {
+  try {
+    const argv = resolveExecutorArgv("openspec", []);
+    if (!argv) return null;
+    // Executor topology: `[node, <script>.js, ...]`. A bare PATH binary (no
+    // registry yet) is tried as-is — an npm `.bin` symlink realpaths into the package.
+    const script = argv.find((a) => /\.(?:[cm]?js)$/i.test(a)) ?? argv[0];
+    let dir = path.dirname(await fs.promises.realpath(script));
+    for (let i = 0; i < 12; i++) {
+      try {
+        const pkg = JSON.parse(await fs.promises.readFile(path.join(dir, "package.json"), "utf8"));
+        if (pkg?.name === OPENSPEC_PACKAGE_NAME) {
+          return { dir, version: typeof pkg.version === "string" ? pkg.version : null };
+        }
+      } catch {
+        // no package.json at this level (or unreadable) — keep walking up
+      }
+      const parent = path.dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+  } catch {
+    // unresolvable CLI — caller treats null as "version unknown"
+  }
+  return null;
+}
+
+/** `version` of the resolved `@fission-ai/openspec` package, or `null`. See change: use-openspec-status-all. */
+export async function resolveOpenSpecPackageVersion(): Promise<string | null> {
+  return (await resolveOpenSpecPackageInfo())?.version ?? null;
+}
+
+/** `<package>/schemas` of the resolved CLI (the package built-in schemas), or `null`. See change: add-pi-spec-driven-schema. */
+export async function resolveOpenSpecPackageSchemasDir(): Promise<string | null> {
+  const info = await resolveOpenSpecPackageInfo();
+  return info ? path.join(info.dir, "schemas") : null;
+}
+
+/** `$XDG_DATA_HOME/openspec/schemas` (else the OS default), mirroring OpenSpec's `getUserSchemasDir`. */
+export function userSchemasDir(env: NodeJS.ProcessEnv = process.env): string {
+  if (env.XDG_DATA_HOME) return path.join(env.XDG_DATA_HOME, "openspec", "schemas");
+  if (process.platform === "win32") {
+    return path.join(env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local"), "openspec", "schemas");
+  }
+  return path.join(os.homedir(), ".local", "share", "openspec", "schemas");
 }
 
 // ── Global config file write (expanded/custom path) ─────────────────────────

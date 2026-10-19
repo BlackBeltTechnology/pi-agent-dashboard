@@ -2,12 +2,18 @@
  * `/api/health` access-grant counters (change: add-access-grant-dialog, task 9.3;
  * test-plan #E23 diagnosability).
  */
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type AccessGrantHealth, snapshotAccessGrantHealth } from "../access/access-health.js";
 import { AccessPlaneRegistry } from "../access/access-plane.js";
 import { GrantCoordinator } from "../access/grant-coordinator.js";
 import { createFilesystemPlane } from "../access/planes.js";
+import { noteNetworkOnlyAdmission, resetNetworkTrustTelemetryForTests } from "../auth/network-trust-telemetry.js";
+import { resetTrustModeForTests } from "../auth/trust-mode.js";
+import { resetConfigSnapshot } from "../config-snapshot.js";
 import { registerSystemRoutes } from "../routes/system-routes.js";
 
 const apps: FastifyInstance[] = [];
@@ -142,13 +148,42 @@ describe("9.3 access-grant counters", () => {
   });
 });
 
-// test-plan #E14 — additive `trustPosture` on /api/health, disclosed only to
-// an authenticated or genuinely-local caller. See change:
-// fix-trusted-network-tunnel-bypass (D3).
-describe("E14 /api/health trustPosture disclosure", () => {
+// test-plan #E14 / #E17 — additive `trustPosture` on /api/health, disclosed only
+// to an authenticated or genuinely-local caller. See change:
+// fix-trusted-network-tunnel-bypass (D3), retire-trusted-networks-bypass (D4).
+describe("E14/E17 /api/health trustPosture disclosure", () => {
+  let home: string;
+  let origHome: string | undefined;
+
+  beforeEach(() => {
+    home = fs.mkdtempSync(path.join(os.tmpdir(), "pi-health-trust-"));
+    fs.mkdirSync(path.join(home, ".pi", "dashboard"), { recursive: true });
+    origHome = process.env.HOME;
+    process.env.HOME = home;
+    resetConfigSnapshot();
+    resetTrustModeForTests();
+    resetNetworkTrustTelemetryForTests();
+  });
+
+  afterEach(() => {
+    if (origHome === undefined) delete process.env.HOME;
+    else process.env.HOME = origHome;
+    resetConfigSnapshot();
+    resetTrustModeForTests();
+    resetNetworkTrustTelemetryForTests();
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+
+  const setMode = (network: Record<string, string> | undefined) =>
+    fs.writeFileSync(path.join(home, ".pi", "dashboard", "config.json"), JSON.stringify(network ? { network } : {}));
+
   async function trustApp(trusted: string[]): Promise<FastifyInstance> {
     const app = Fastify({ logger: false });
     apps.push(app);
+    // Stands in for the auth hooks: tags a request carrying `x-test-auth`.
+    app.addHook("onRequest", async (request) => {
+      if (request.headers["x-test-auth"]) (request as any).isAuthenticated = true;
+    });
     registerSystemRoutes(app, {
       sessionManager: { listActive: () => [], listAll: () => [] },
       preferencesStore: { flush: () => {} },
@@ -168,11 +203,26 @@ describe("E14 /api/health trustPosture disclosure", () => {
     relayed: { remoteAddress: "127.0.0.1", headers: { "x-forwarded-for": "203.0.113.9" } },
   };
 
+  // add-request-access-remedy X4: the `request-access` remedy does not widen this predicate.
+  it("X4 an on-link trusted-network caller with no credential still gets null posture", async () => {
+    const app = await trustApp(["192.168.16.0/24"]);
+    const body = (await app.inject({ method: "GET", url: "/api/health", remoteAddress: "192.168.16.40" })).json();
+    expect(body.accessGrants).toBeNull();
+    expect(body.trustPosture).toBeNull();
+    expect(JSON.stringify(body)).not.toContain("request-access");
+  });
+
   for (const [trusted, flag] of [[["127.0.0.1"], true], [["192.168.16.0/24"], false]] as const) {
     it(`trusted ${JSON.stringify(trusted)}: genuine-local sees trustedHasLoopback=${flag}; others get null`, async () => {
+      setMode({ trustMode: "legacy", trustModeOrigin: "upgrade" });
       const app = await trustApp([...trusted]);
       const local = (await app.inject({ method: "GET", url: "/api/health", ...callers.genuineLocal })).json();
-      expect(local.trustPosture).toEqual({ trustedHasLoopback: flag });
+      expect(local.trustPosture).toEqual({
+        trustedHasLoopback: flag,
+        trustMode: "legacy",
+        trustModeOrigin: "upgrade",
+        networkOnly: { admissions: 0, distinctPeers: 0, lastAt: null },
+      });
       expect(local).toHaveProperty("accessGrants", null);
       for (const c of [callers.remote, callers.relayed]) {
         const body = (await app.inject({ method: "GET", url: "/api/health", ...c })).json();
@@ -181,4 +231,58 @@ describe("E14 /api/health trustPosture disclosure", () => {
       }
     });
   }
+
+  // E17 — legacy with two network-only peers.
+  it("#E17 legacy + 2 network-only peers: object for local and authenticated callers, null for network-admitted / remote; no IP leaks", async () => {
+    setMode({ trustMode: "legacy", trustModeOrigin: "operator" });
+    noteNetworkOnlyAdmission({ ip: "192.168.16.20" });
+    noteNetworkOnlyAdmission({ ip: "192.168.16.21" });
+    noteNetworkOnlyAdmission({ ip: "192.168.16.21" }); // same peer again: 3 admissions, 2 peers
+    const app = await trustApp(["192.168.16.0/24"]);
+
+    const bodies: string[] = [];
+    const call = async (init: { remoteAddress: string; headers?: Record<string, string> }) => {
+      const res = await app.inject({ method: "GET", url: "/api/health", ...init });
+      bodies.push(res.body);
+      return res.json();
+    };
+
+    const local = await call({ remoteAddress: "127.0.0.1" });
+    const authed = await call({ remoteAddress: "198.51.100.7", headers: { "x-test-auth": "1" } });
+    const lan = await call({ remoteAddress: "192.168.16.40" }); // network-admitted, no credential
+    const remote = await call({ remoteAddress: "203.0.113.9" });
+
+    for (const body of [local, authed]) {
+      expect(body.trustPosture).toMatchObject({ trustMode: "legacy", trustModeOrigin: "operator" });
+      expect(body.trustPosture.networkOnly.distinctPeers).toBe(2);
+      expect(body.trustPosture.networkOnly.admissions).toBe(3);
+      expect(typeof body.trustPosture.networkOnly.lastAt).toBe("number");
+    }
+    expect(lan.trustPosture).toBeNull();
+    expect(remote.trustPosture).toBeNull();
+    for (const b of bodies) {
+      expect(b).not.toContain("192.168.16.20");
+      expect(b).not.toContain("192.168.16.21");
+    }
+  });
+
+  it("#E17 pair mode reports the mode with a zeroed networkOnly even if counters hold stale peers", async () => {
+    noteNetworkOnlyAdmission({ ip: "192.168.16.20" });
+    setMode({ trustMode: "pair", trustModeOrigin: "upgrade" });
+    const app = await trustApp(["192.168.16.0/24"]);
+    const body = (await app.inject({ method: "GET", url: "/api/health", ...callers.genuineLocal })).json();
+    expect(body.trustPosture).toEqual({
+      trustedHasLoopback: false,
+      trustMode: "pair",
+      trustModeOrigin: "upgrade",
+      networkOnly: { admissions: 0, distinctPeers: 0, lastAt: null },
+    });
+  });
+
+  it("#E17 an unrecognised stored mode reports fail-closed pair with a null origin", async () => {
+    setMode({ trustMode: "open" });
+    const app = await trustApp([]);
+    const body = (await app.inject({ method: "GET", url: "/api/health", ...callers.genuineLocal })).json();
+    expect(body.trustPosture).toMatchObject({ trustMode: "pair", trustModeOrigin: null });
+  });
 });

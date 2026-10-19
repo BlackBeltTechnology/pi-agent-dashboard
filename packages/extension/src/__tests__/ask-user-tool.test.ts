@@ -9,6 +9,7 @@ vi.mock("typebox", () => ({
     Array: vi.fn(() => ({})),
     Union: vi.fn(() => ({})),
     Literal: vi.fn(() => ({})),
+    Boolean: vi.fn(() => ({})),
   },
 }));
 
@@ -659,5 +660,180 @@ describe("ask_user message carriage into prompt metadata (E22)", () => {
     await ctx.ui.editor("Edit", "prefill", { message: MESSAGE });
     expect(requests[0].type).toBe("editor");
     expect(requests[0].metadata?.message).toBe(MESSAGE);
+  });
+});
+
+// ── Inline Other — See change: add-ask-user-inline-other ───────────────
+describe("ask_user inline Other opt-in", () => {
+  function setup(answers: { select?: unknown; multiselect?: unknown; batch?: unknown } = {}) {
+    const pi = createMockPi();
+    registerAskUserTool(pi as any);
+    const tool = pi.registerTool.mock.calls[0][0];
+    const ctx = {
+      ui: {
+        confirm: vi.fn().mockResolvedValue(true),
+        select: vi.fn().mockResolvedValue("select" in answers ? answers.select : "A"),
+        multiselect: vi.fn().mockResolvedValue("multiselect" in answers ? answers.multiselect : ["A"]),
+        input: vi.fn().mockResolvedValue("hello"),
+        batch: vi.fn().mockResolvedValue("batch" in answers ? answers.batch : []),
+      },
+    };
+    return { tool, ctx };
+  }
+  const run = (tool: any, ctx: any, args: any) =>
+    tool.execute("id", tool.prepareArguments(args), undefined, undefined, ctx);
+
+  // #E9
+  it.each([
+    ["absent", {}, true],
+    ["true", { allowOther: true }, true],
+    ["false", { allowOther: false }, false],
+  ])("single select/multiselect with allowOther %s", async (_n, extra, opted) => {
+    const { tool, ctx } = setup();
+    await run(tool, ctx, { method: "select", title: "Q", options: ["A", "B"], ...extra });
+    await run(tool, ctx, { method: "multiselect", title: "Q", options: ["A", "B"], ...extra });
+    const o1 = ctx.ui.select.mock.calls[0][2];
+    const o2 = ctx.ui.multiselect.mock.calls[0][2];
+    expect(o1?.allowOther === true).toBe(opted);
+    expect(o2?.allowOther === true).toBe(opted);
+  });
+
+  it("confirm/input never get allowOther", async () => {
+    const { tool, ctx } = setup();
+    await run(tool, ctx, { method: "confirm", title: "Q", allowOther: true });
+    await run(tool, ctx, { method: "input", title: "Q", allowOther: true });
+    expect(JSON.stringify(ctx.ui.confirm.mock.calls[0])).not.toContain("allowOther");
+    expect(ctx.ui.input.mock.calls[0][2]?.allowOther).toBeUndefined();
+  });
+
+  // #E10
+  it("batch fan-out: top-level false, per-sub overrides win", async () => {
+    const { tool, ctx } = setup();
+    const questions = [
+      { method: "select", title: "s0", options: ["A", "B"] },
+      { method: "multiselect", title: "s1", options: ["A", "B"], allowOther: true },
+      { method: "select", title: "s2", options: ["A", "B"], allowOther: false },
+      { method: "confirm", title: "c" },
+      { method: "input", title: "i" },
+    ];
+    await run(tool, ctx, { method: "batch", title: "T", allowOther: false, questions });
+    const sent = ctx.ui.batch.mock.calls[0][1];
+    expect(sent[0].allowOther).toBeUndefined();
+    expect(sent[1].allowOther).toBe(true);
+    expect(sent[2].allowOther).toBeUndefined();
+    expect(sent[3].allowOther).toBeUndefined();
+    expect(sent[4].allowOther).toBeUndefined();
+    await run(tool, ctx, { method: "batch", title: "T", questions });
+    expect(ctx.ui.batch.mock.calls[1][1][0].allowOther).toBe(true);
+  });
+
+  // #E11
+  it("rescue: allowCustom alias and boolean coercion", async () => {
+    const { tool } = setup();
+    const a = tool.prepareArguments({ method: "select", title: "Q", options: ["A", "B"], allowCustom: false });
+    expect(a.allowOther).toBe(false);
+    expect("allowCustom" in a).toBe(false);
+    expect(a.options).toEqual(["A", "B"]);
+    expect(tool.prepareArguments({ method: "select", title: "Q", options: ["A"], allowOther: "false" }).allowOther).toBe(false);
+    expect(tool.prepareArguments({ method: "select", title: "Q", options: ["A"], allowOther: "true" }).allowOther).toBe(true);
+    const dropped = tool.prepareArguments({ method: "select", title: "Q", options: ["A"], allowOther: "yes" });
+    expect("allowOther" in dropped).toBe(false);
+    const c = tool.prepareArguments({ method: "select", title: "Q", options: ["A", "B"], allowCustom: true });
+    expect(c.allowOther).toBe(true);
+    expect(c.options).toEqual(["A", "B"]);
+    const b = tool.prepareArguments({
+      method: "batch",
+      title: "T",
+      questions: [{ method: "select", title: "s", options: ["A", "B"], allowCustom: false }],
+    });
+    expect(b.questions[0].allowOther).toBe(false);
+    expect("allowCustom" in b.questions[0]).toBe(false);
+  });
+
+  it("rescue: alias loses to an explicit allowOther", () => {
+    const { tool } = setup();
+    const a = tool.prepareArguments({ method: "select", title: "Q", options: ["A"], allowOther: true, allowCustom: false });
+    expect(a.allowOther).toBe(true);
+    expect("allowCustom" in a).toBe(false);
+  });
+
+  it("rescued stringified allowOther:false reaches dispatch as an opt-out", async () => {
+    const { tool, ctx } = setup();
+    await run(tool, ctx, { method: "select", title: "Q", options: ["A", "B"], allowOther: "false" });
+    expect(ctx.ui.select.mock.calls[0][2]?.allowOther).toBeUndefined();
+  });
+
+  // #E12
+  it("result text flags custom answers; option answers unchanged", async () => {
+    const sel = setup({ select: "C" });
+    const r1 = await run(sel.tool, sel.ctx, { method: "select", title: "Q", options: ["A", "B"] });
+    expect(r1.content[0].text).toBe('Custom answer (not one of the options).\nUser responded: "C"');
+    expect(r1.details.result).toBe("C");
+
+    const opt = setup({ select: "A" });
+    const r2 = await run(opt.tool, opt.ctx, { method: "select", title: "Q", options: ["A", "B"] });
+    expect(r2.content[0].text).toBe('User responded: "A"');
+
+    const multi = setup({ multiselect: ["A", "D"] });
+    const r3 = await run(multi.tool, multi.ctx, { method: "multiselect", title: "Q", options: ["A", "B"] });
+    expect(r3.content[0].text).toBe('Custom values (not among the options): ["D"].\nUser responded: ["A","D"]');
+    expect(r3.details.result).toEqual(["A", "D"]);
+
+    const cancelled = setup({ select: undefined });
+    const r4 = await run(cancelled.tool, cancelled.ctx, { method: "select", title: "Q", options: ["A", "B"] });
+    expect(r4.content[0].text).toBe("User responded: undefined");
+  });
+
+  it("batch lines: (custom) only on select/multiselect", async () => {
+    const { tool, ctx } = setup({
+      batch: [{ value: "C" }, { value: "free text" }, { confirmed: true }, { values: ["A", "D"] }, { value: "A" }],
+    });
+    const r = await run(tool, ctx, {
+      method: "batch",
+      title: "T",
+      questions: [
+        { method: "select", title: "s", options: ["A", "B"] },
+        { method: "input", title: "i" },
+        { method: "confirm", title: "c" },
+        { method: "multiselect", title: "m", options: ["A", "B"] },
+        { method: "select", title: "s2", options: ["A", "B"] },
+      ],
+    });
+    const lines = r.content[0].text.split("\n").filter((l: string) => /^ {2}\d\./.test(l));
+    expect(lines[0]).toBe('  1. s: "C" (custom)');
+    expect(lines[1]).toBe('  2. i: "free text"');
+    expect(lines[2]).toBe("  3. c: true");
+    expect(lines[3]).toBe('  4. m: ["A","D"] (custom)');
+    expect(lines[4]).toBe('  5. s2: "A"');
+    expect(r.details.results).toEqual(["C", "free text", true, ["A", "D"], "A"]);
+  });
+
+  // #E17
+  it("select dispatch passes the title, options and allowOther opts", async () => {
+    const { tool, ctx } = setup();
+    await run(tool, ctx, { method: "select", title: "Pick one", options: ["A", "B"] });
+    expect(ctx.ui.select).toHaveBeenCalledWith("Pick one", ["A", "B"], expect.objectContaining({ allowOther: true }));
+  });
+
+  // #E18
+  it("existing rescues still work and empty args stay empty", async () => {
+    const { tool, ctx } = setup({ batch: [{ value: "A" }] });
+    const stringified = tool.prepareArguments({
+      questions: JSON.stringify([{ method: "select", title: "Pick", options: ["a", "b"] }]),
+    });
+    expect(stringified.method).toBe("batch");
+    expect(stringified.title).toBe("Pick");
+    await expect(tool.execute("id", stringified, undefined, undefined, ctx)).resolves.toBeDefined();
+    const wrapped = tool.prepareArguments({ questions: [{ method: "confirm", title: "Proceed?" }] });
+    expect(wrapped.method).toBe("batch");
+    const wrappedInput = tool.prepareArguments({
+      method: "batch",
+      questions: [{ question: "Q", input_type: { method: "select", options: ["x"] } }],
+    });
+    expect(wrappedInput.questions[0]).toMatchObject({ method: "select", title: "Q", options: ["x"] });
+    const noTitle = tool.prepareArguments({ method: "batch", questions: [{ method: "confirm", question: "Proceed?" }] });
+    expect(noTitle.title).toBe("Proceed?");
+    const empty = tool.prepareArguments({});
+    for (const k of ["method", "title", "questions", "allowOther"]) expect(k in empty).toBe(false);
   });
 });

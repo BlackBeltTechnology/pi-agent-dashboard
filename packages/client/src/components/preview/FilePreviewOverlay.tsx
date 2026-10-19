@@ -1,11 +1,12 @@
 import { useEscapeDismiss } from "@blackbelt-technology/pi-dashboard-client-utils/escape-stack";
 import { mdiClose, mdiLoading } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import React, { type ComponentType, useEffect, useMemo, useRef, useState } from "react";
+import React, { type ComponentType, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { eligibleFetch, PreviewProvenance, usePreviewFetch } from "../../lib/access-grants/preview-provenance.js";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { useMermaidSource } from "../../lib/preview/use-mermaid-source.js";
 import { logRejection } from "../../lib/report-error.js";
 import { getSyntaxTheme } from "../../lib/theme/syntax-theme.js";
 import { DialogPortal } from "../primitives/DialogPortal.js";
@@ -125,6 +126,12 @@ function FilePreviewOverlayBody({ cwd, path, line, onClose }: Omit<Props, "prove
   const [denial, setDenial] = useState<DenialFailure | null>(null);
   const { fetch: previewFetch, optedOut } = usePreviewFetch();
   const [asked, setAsked] = useState(false);
+  // Bumped by "Apply fix to file" (reload after a write / conflict) to re-fetch the content.
+  const [reloadNonce, setReloadNonce] = useState(0);
+  const reload = useCallback(() => {
+    setContent(null);
+    setReloadNonce((n) => n + 1);
+  }, []);
   const textUrl = `${getApiBase()}/api/file?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(path)}`;
   const imageUrl = `${getApiBase()}/api/file/raw?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(path)}`;
   const onCloseRef = useRef(onClose);
@@ -180,7 +187,7 @@ function FilePreviewOverlayBody({ cwd, path, line, onClose }: Omit<Props, "prove
     return () => {
       cancelled = true;
     };
-  }, [cwd, path, textUrl, isImage, isRich, asked, previewFetch, optedOut]);
+  }, [cwd, path, textUrl, isImage, isRich, asked, previewFetch, optedOut, reloadNonce]);
 
   // Escape dismissal routes through the shared escape-stack so an Escape opened
   // above another dismissible surface peels only this overlay.
@@ -188,6 +195,8 @@ function FilePreviewOverlayBody({ cwd, path, line, onClose }: Omit<Props, "prove
   useEscapeDismiss(true, onClose);
   // Stable identity keeps MarkdownContent's React.memo guard effective. See change: fix-markdown-remount-storm (D3).
   const imageBase = useMemo(() => ({ cwd, dir: absOf(cwd, dirname(path)) }), [cwd, path]);
+  // On-disk identity for "Apply fix to file" (null unless cwd is a live session cwd).
+  const mermaidSource = useMermaidSource({ cwd, path, kind: "md", reload });
 
   // Backdrop click dismiss. The backdrop element is the dim layer over the
   // message area only (see render): clicking it closes; clicks inside the panel
@@ -320,6 +329,8 @@ function FilePreviewOverlayBody({ cwd, path, line, onClose }: Omit<Props, "prove
                 content={content}
                 frontmatter="properties"
                 imageBase={imageBase}
+                mermaidSource={mermaidSource}
+                staticSource
               />
             )}
             {!error && !isImage && content !== null && !isMd && language && (

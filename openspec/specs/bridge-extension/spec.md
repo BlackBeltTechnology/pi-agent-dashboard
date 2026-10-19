@@ -65,7 +65,7 @@ Routing order:
 2. `!<cmd>` → bash via `pi.exec()`, forward `bash_output` event + send to LLM
 3. `/compact [args]` → `ctx.compact()` with optional custom instructions
 4. `/` prefixed → `session.prompt(text)` for extension commands, skills, templates
-5. Default → `pi.sendUserMessage(text)`
+5. Default → `pi.sendUserMessage(text, { deliverAs })`, `deliverAs` defaulting to `"followUp"`
 
 In a team-confined session (the process carries `PI_EXT_TEAM_TOOLS`), the routing SHALL follow the team carve-out of `command-routing` "Command routing order": steps 1, 2 and 4 SHALL NOT run, `/skill:` is handled only for effective skills, and other `/` text is sent unexpanded or dropped.
 
@@ -79,7 +79,7 @@ In a team-confined session (the process carries `PI_EXT_TEAM_TOOLS`), the routin
 
 #### Scenario: Regular text unchanged
 - **WHEN** `send_prompt` arrives with text `explain this function`
-- **THEN** the handler SHALL call `sendUserMessage("explain this function")` as before
+- **THEN** the handler SHALL call `sendUserMessage("explain this function", { deliverAs: "followUp" })` as before
 
 The command handler SHALL also handle `kill_process` messages by calling `killProcessByPgid(pgid)` from the process-scanner module.
 
@@ -132,7 +132,7 @@ When the bridge reconnects to the dashboard server, the UI proxy's pending reque
 - **THEN** existing pending requests in the UI proxy SHALL remain in their current state (resolved by TUI or timed out)
 
 ### Requirement: Bridge registers ask_user tool
-The bridge extension SHALL register an `ask_user` tool via `pi.registerTool()` during `initBridge()`. The tool SHALL have the same parameters, description, promptSnippet, and promptGuidelines as the current `.pi/extensions/ask-user.ts`. The tool's `execute` method SHALL call `ctx.ui.confirm`, `ctx.ui.select`, `ctx.ui.input`, or `ctx.ui.multiselect` based on the `method` parameter — which are already proxied by the UI proxy to the dashboard.
+The bridge extension SHALL register an `ask_user` tool via `pi.registerTool()` during `initBridge()`. The tool's parameters, description, promptSnippet and promptGuidelines are defined by the `ask-user-tool` capability. The tool's `execute` method SHALL call `ctx.ui.confirm`, `ctx.ui.select`, `ctx.ui.input`, or `ctx.ui.multiselect` based on the `method` parameter — which are already proxied by the UI proxy to the dashboard. For `select` and `multiselect` the options argument SHALL carry `allowOther: true` unless the call opted out (see `ask-user-tool`).
 
 #### Scenario: ask_user tool registered on init
 - **WHEN** `initBridge(pi)` runs
@@ -144,7 +144,7 @@ The bridge extension SHALL register an `ask_user` tool via `pi.registerTool()` d
 
 #### Scenario: ask_user select call
 - **WHEN** the LLM calls `ask_user` with `method: "select"`, `title: "Pick one"`, and `options: ["A", "B"]`
-- **THEN** the tool SHALL call `ctx.ui.select("Pick one", ["A", "B"])` and return the result
+- **THEN** the tool SHALL call `ctx.ui.select("Pick one", ["A", "B"], opts)` where `opts.allowOther` is `true`, and return the result
 
 ### Requirement: Dashboard-spawned sessions override existing ask_user
 When `PI_DASHBOARD_SPAWNED` environment variable is set to `"1"`, the bridge SHALL always register the `ask_user` tool, overriding any existing tool with the same name. The dashboard is the primary UI for these sessions and must control the ask_user flow.
@@ -736,27 +736,43 @@ The bridge SHALL register `pi.on("session_info_changed", ...)` (pi 0.80.3+, try/
 
 ### Requirement: Bridge auto-decides project_trust for dashboard-spawned headless sessions in the activation cwd
 
-The bridge SHALL capture `activationCwd = process.cwd()` at bridge **activation** (before any `project_trust` event can fire — the event is emitted during resource-loader reload, ahead of `session_start`). It SHALL register a `project_trust` handler (pi 0.79.0+) that reads `eventCwd` from its own per-event `ctx` argument inside try/catch, and decides "trust" for this run ONLY when all hold: `dashboardSpawned === true`, `isHeadlessRpcSession(...)` is true, AND `eventCwd === activationCwd`. Any other case — including a `ctx.cwd` read that throws — SHALL defer to pi's default. Trust SHALL be per-run (not remembered) in v1. `ctx.isProjectTrusted()` SHALL be logging-only.
+The bridge SHALL capture `activationCwd = process.cwd()` and whether the session is dashboard-spawned at bridge **activation** (before any `project_trust` event can fire — the event is emitted during resource-loader reload, ahead of `session_start`); dashboard-spawned SHALL be derived once from the single-use spawn token present at activation, which the bridge SHALL then remove from its process environment while keeping the value for its first registration. It SHALL register a `project_trust` handler (pi 0.79.0+) as a personal extension that reads `eventCwd` from the event's `cwd`, falling back to its own per-event `ctx` argument, inside try/catch; any error SHALL yield undecided. When pi's trust store file (of the running pi's agent directory, read without pi's lock) holds a recorded entry for `eventCwd` or an ancestor, or cannot be read, parsed or validated, the handler SHALL return undecided, so pi's own resolution applies — a deliberate change: a dashboard-spawned headless session in an activation cwd the user recorded as untrusted no longer auto-trusts. Otherwise it SHALL decide "trust" for this run when `dashboardSpawned === true`, `isHeadlessRpcSession(...)` is true, the canonical forms of `eventCwd` and `activationCwd` are equal, AND `eventCwd` is not a folder the `pi-trust-mirror` forbidden-folder rules exclude (also a deliberate change: dashboard spawns in temporary, `~/Downloads`, `~/.cache` or forbidden folders no longer auto-trust). In every other case it SHALL resolve `eventCwd` through the `pi-trust-mirror` decision from the snapshot — consulting dashboard trust for sessions other than dashboard-spawned headless ones only when `piTrustMirror.coverInteractive` is true — and SHALL decide "trust" for this run when that yields dashboard trust, returning undecided otherwise, and logging the reason when a dashboard-spawned session is denied trust it would have had before this change. Trust SHALL be per-run (never remembered). `ctx.isProjectTrusted()` SHALL be logging-only. Because pi applies the first yes/no among extension handlers, a "trust" from the bridge takes precedence over a later user extension's refusal; this SHALL be documented. Dashboard trust covers subtrees, so this auto-decision is deliberately widened from the exact activation directory to folders dashboard trust covers.
 
 #### Scenario: Dashboard-spawned headless session in its activation cwd auto-trusts
-- **WHEN** a dashboard-spawned headless RPC session raises `project_trust` while `eventCwd` equals `activationCwd`
+- **WHEN** a dashboard-spawned headless RPC session raises `project_trust` while `eventCwd` equals `activationCwd`, the folder is not forbidden, and pi's trust store has no recorded entry for it or an ancestor
 - **THEN** the handler SHALL decide "trust" for this run
 
+#### Scenario: Recorded refusal beats the activation-cwd rule
+- **WHEN** a dashboard-spawned headless RPC session raises `project_trust` in its activation cwd and `trust.json` records `false` for that cwd
+- **THEN** the handler SHALL return undecided, and pi's recorded refusal SHALL apply
+
+#### Scenario: Activation cwd in a temporary folder does not auto-trust
+- **WHEN** a dashboard-spawned headless RPC session raises `project_trust` in its activation cwd `/private/tmp/clone`
+- **THEN** the handler SHALL return undecided
+
 #### Scenario: Interactive/TUI session defers
-- **WHEN** an interactive (non-headless) session raises `project_trust`
-- **THEN** the handler SHALL defer to pi's default
+- **WHEN** an interactive (non-headless) session raises `project_trust`, `piTrustMirror.coverInteractive` is false, and dashboard trust covers `eventCwd`
+- **THEN** the handler SHALL return undecided
+
+#### Scenario: Interactive session uses dashboard trust only when covered
+- **WHEN** an interactive session raises `project_trust` in a pinned folder and `piTrustMirror.coverInteractive` is true
+- **THEN** the handler SHALL decide "trust" for this run
 
 #### Scenario: Cwd differs from the activation cwd defers
-- **WHEN** a headless session raises `project_trust` with `eventCwd` different from `activationCwd`
-- **THEN** the handler SHALL defer to pi's default
+- **WHEN** a dashboard-spawned headless session raises `project_trust` with `eventCwd` different from `activationCwd` and dashboard trust does not cover `eventCwd`
+- **THEN** the handler SHALL return undecided
+
+#### Scenario: Cwd differs from the activation cwd but dashboard trust covers it
+- **WHEN** a dashboard-spawned headless session raises `project_trust` with `eventCwd` different from `activationCwd` and dashboard trust covers `eventCwd`
+- **THEN** the handler SHALL decide "trust" for this run
 
 #### Scenario: Non-dashboard-spawned session defers
-- **WHEN** a session with `dashboardSpawned === false` raises `project_trust`
-- **THEN** the handler SHALL defer to pi's default
+- **WHEN** a session with `dashboardSpawned === false` raises `project_trust` and `piTrustMirror.coverInteractive` is false
+- **THEN** the handler SHALL return undecided
 
 #### Scenario: ctx.cwd read that throws defers
-- **WHEN** reading `eventCwd` from the event `ctx` throws (stale/replaced session)
-- **THEN** the handler SHALL defer to pi's default (no crash)
+- **WHEN** the event carries no `cwd` and reading it from the event `ctx` throws (stale/replaced session)
+- **THEN** the handler SHALL return undecided (no crash)
 
 ### Requirement: Bridge WebSocket survives session replacement
 
@@ -918,3 +934,22 @@ When the value is non-serializable or too large, the bridge SHALL drop it, raise
 #### Scenario: Oversized plugin metadata is dropped
 - **WHEN** `pluginMeta` serializes to more than 2 KiB
 - **THEN** the prompt SHALL be raised without `metadata.plugin`
+
+### Requirement: Dialog prompts carry the inline Other opt-in
+The bridge's patched `ctx.ui.select` and `ctx.ui.multiselect` SHALL accept an optional `opts.allowOther` boolean. When it is exactly `true`, the emitted `prompt_request` SHALL carry `metadata.allowOther: true`, including when `allowOther` is the only metadata the call supplies. When it is absent or not `true`, the bridge SHALL omit `metadata.allowOther`, and the prompt SHALL render exactly as before. `allowOther` SHALL be a core metadata key and SHALL NOT be settable through `opts.pluginMeta`. Batch sub-questions SHALL carry their own `allowOther: true` inside `metadata.questions[i]` when opted in. For an opted-in prompt the bridge SHALL return a custom answer to the caller unchanged: `ctx.ui.select` resolves to the custom string, and `ctx.ui.multiselect` resolves to an array that includes it. The TUI presentation SHALL ignore `allowOther`.
+
+#### Scenario: Opt-in reaches the dashboard
+- **WHEN** an extension calls `ctx.ui.select("Pick", ["A", "B"], { allowOther: true })` with no message, toolCallId or pluginMeta
+- **THEN** the `prompt_request` SHALL carry `metadata.allowOther: true`
+
+#### Scenario: Default emits nothing
+- **WHEN** an extension calls `ctx.ui.select("Pick", ["A", "B"])` or passes `{ allowOther: false }`
+- **THEN** the `prompt_request` metadata SHALL NOT contain `allowOther`
+
+#### Scenario: pluginMeta cannot set the core key
+- **WHEN** an extension passes `{ pluginMeta: { allowOther: true } }`
+- **THEN** the value SHALL stay under `metadata.plugin` and SHALL NOT set `metadata.allowOther`
+
+#### Scenario: Custom answer returned verbatim
+- **WHEN** the dashboard answers an opted-in `select` prompt with `"something else"`
+- **THEN** `ctx.ui.select` SHALL resolve to `"something else"`

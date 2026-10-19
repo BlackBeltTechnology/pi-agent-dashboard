@@ -724,6 +724,8 @@ export interface BatchQuestion {
   message?: string;
   options?: string[];
   placeholder?: string;
+  /** Opt this select/multiselect step into the inline "Other" answer. See change: add-ask-user-inline-other. */
+  allowOther?: boolean;
 }
 
 /**

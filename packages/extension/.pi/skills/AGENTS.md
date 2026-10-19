@@ -8,6 +8,7 @@ pi-dashboard bridge extension; ship inside the published package. Rows relocated
 |------|---------|
 | `browser/SKILL.md` | Router for bundled `browser` skill. Step 0a preflight (`pi-dashboard-ensure`, registry check, never auto-install); Step 1 challenge hook → `references/challenge.md`;… → see `browser/SKILL.md.AGENTS.md` |
 | `browser/references/challenge.md` | AUTHORED. Pause/resume discipline for interactive anti-bot challenges (Turnstile, hCaptcha, reCAPTCHA, browser check); keep the same session, hand completion to the user, resume it. → see `browser/references/challenge.md.AGENTS.md` |
+| `browser/references/dashboard-relay.md` | AUTHORED. Drive user's real logged-in Chrome via Pi Dashboard browser relay (same host): Playwright Chrome Extension pairs with dashboard, returns loopback CDP URL for `agent-browser connect`. |
 | `browser/references/electron.md` | Vendored agent-browser Electron-app automation reference. → see `browser/references/electron.md.AGENTS.md` |
 | `browser/references/own-browser.md` | AUTHORED. Drive the user's own logged-in browser via Panerelay… → see `browser/references/own-browser.md.AGENTS.md` |
 | `browser/references/web.md` | Vendored agent-browser core reference. Core loop: `snapshot -i` → @eN refs; waits, semantic `find`, tabs,… → see `browser/references/web.md.AGENTS.md` |

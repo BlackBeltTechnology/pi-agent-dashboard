@@ -5,20 +5,13 @@
  * least 12 px; touch targets are 32 / 36 px (44 px below `sm` for buttons).
  * See change: add-credential-vault; retro-ux-credential-vault (D6, D8, D9).
  */
+import { SettingsActionError, SettingsNotice, SettingsStatusPill, type SettingsStatusTone } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { mdiAlertCircleOutline, mdiAlertOutline, mdiCheckCircleOutline, mdiInformationOutline, mdiProgressClock } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { type ReactNode, type RefObject, useCallback, useEffect, useId, useRef, useState } from "react";
 import { t as i18nT } from "../../../lib/i18n/i18n.js";
 
-export type Tone = "success" | "info" | "warning" | "error" | "neutral";
-
-const TONE_PILL: Record<Tone, string> = {
-  success: "bg-[var(--severity-success-bg)] text-[var(--severity-success-fg)] border-[var(--severity-success-border)]",
-  info: "bg-[var(--severity-info-bg)] text-[var(--severity-info-fg)] border-[var(--severity-info-border)]",
-  warning: "bg-[var(--severity-warning-bg)] text-[var(--severity-warning-fg)] border-[var(--severity-warning-border)]",
-  error: "bg-[var(--severity-error-bg)] text-[var(--severity-error-fg)] border-[var(--severity-error-border)]",
-  neutral: "bg-[var(--severity-neutral-bg)] text-[var(--severity-neutral-fg)] border-[var(--severity-neutral-border)]",
-};
+export type Tone = SettingsStatusTone;
 
 // ── control recipes ───────────────────────────────────────────────────────
 export const INPUT_CLASS =
@@ -28,7 +21,7 @@ const BUTTON_BASE =
 export const BUTTON_CLASS = `${BUTTON_BASE} border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:text-[var(--text-secondary)] disabled:hover:bg-[var(--bg-tertiary)]`;
 export const PRIMARY_BUTTON_CLASS = `${BUTTON_BASE} bg-[var(--accent-solid)] text-white hover:brightness-110 disabled:bg-[var(--bg-tertiary)] disabled:text-[var(--text-secondary)] disabled:hover:brightness-100`;
 export const GHOST_BUTTON_CLASS = `${BUTTON_BASE} text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] disabled:opacity-60 disabled:hover:bg-transparent`;
-const DANGER_BUTTON_CLASS = `${BUTTON_BASE} border border-[var(--tint-red-border)] bg-[var(--tint-red-bg)] text-[var(--tint-red-fg)] disabled:opacity-60`;
+export const DANGER_BUTTON_CLASS = `${BUTTON_BASE} border border-[var(--tint-red-border)] bg-[var(--tint-red-bg)] text-[var(--tint-red-fg)] disabled:opacity-60`;
 export const LABEL_CLASS = "block text-xs font-semibold text-[var(--text-primary)] mb-1";
 export const HELP_CLASS = "text-xs text-[var(--text-secondary)]";
 export const SECTION_TITLE_CLASS = "flex items-center gap-1.5 text-xs font-semibold text-[var(--text-primary)]";
@@ -63,13 +56,10 @@ export async function runOp(
 // ── status pills (design D9) ──────────────────────────────────────────────
 export function StatusPill({ tone, icon, label, testId, labelTestId }: { tone: Tone; icon?: string; label: string; testId?: string; labelTestId?: string }) {
   return (
-    <span
-      data-testid={testId}
-      className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-xs font-semibold whitespace-nowrap ${TONE_PILL[tone]}`}
-    >
-      {icon && <VIcon path={icon} size={0.55} />}
+    // 12 px, as the vault's text-in-controls floor requires (retro-ux-credential-vault).
+    <SettingsStatusPill tone={tone} icon={icon ?? null} testId={testId} interactive>
       <span data-testid={labelTestId}>{label}</span>
-    </span>
+    </SettingsStatusPill>
   );
 }
 
@@ -142,7 +132,7 @@ export function usedByLine(count: number): string {
   return i18nT("vault.defaultImpactMany", { count }, "Used by {count} projects that don't pick their own account.");
 }
 
-// ── callout + field error ─────────────────────────────────────────────────
+// ── callout + field error (the shared notice and inline action error) ─────
 export function Callout({
   tone,
   icon,
@@ -157,29 +147,24 @@ export function Callout({
   children: ReactNode;
 }) {
   return (
-    <div data-testid={testId} role={role} className={`flex items-start gap-2 rounded-md border p-3 text-xs ${TONE_PILL[tone]}`}>
-      <VIcon path={icon} className="mt-0.5" />
-      <div className="min-w-0 flex-1">{children}</div>
-    </div>
+    <SettingsNotice tone={tone} icon={icon} role={role} testId={testId}>
+      {children}
+    </SettingsNotice>
   );
 }
 
 export function ErrorLine({ error, testId }: { error: string | null; testId: string }) {
+  const id = useId();
   if (!error) return null;
   return (
-    <Callout tone="error" icon={mdiAlertCircleOutline} role="alert" testId={testId}>
+    <SettingsActionError id={id} testId={testId}>
       {error}
-    </Callout>
+    </SettingsActionError>
   );
 }
 
 export function FieldError({ id, children }: { id: string; children: ReactNode }) {
-  return (
-    <p id={id} role="alert" className="mt-1 flex items-start gap-1 text-xs text-[var(--severity-error-fg)]">
-      <VIcon path={mdiAlertCircleOutline} className="mt-0.5" />
-      <span>{children}</span>
-    </p>
-  );
+  return <SettingsActionError id={id}>{children}</SettingsActionError>;
 }
 
 /** Plugin approval: an `<input type="checkbox" role="switch">` styled as a switch (its `checked` state is the contract). */
@@ -274,7 +259,7 @@ export function ConfirmImpact({
           cancel();
         }
       }}
-      className={`flex items-start gap-2 rounded-md border p-3 text-xs ${TONE_PILL.warning}`}
+      className="flex items-start gap-2 rounded-md border border-[var(--severity-warning-border)] bg-[var(--severity-warning-bg)] p-3 text-xs text-[var(--severity-warning-fg)]"
     >
       <VIcon path={mdiAlertOutline} className="mt-0.5" />
       <div className="min-w-0 flex-1">

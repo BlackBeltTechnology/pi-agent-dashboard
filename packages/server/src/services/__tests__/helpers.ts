@@ -32,7 +32,7 @@ export class FakeClock {
   }
 }
 
-interface RunCall {
+export interface RunCall {
   file: string;
   args: string[];
   env?: NodeJS.ProcessEnv;

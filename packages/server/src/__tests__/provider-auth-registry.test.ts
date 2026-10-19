@@ -8,22 +8,23 @@
  * See change: delegate-provider-oauth-to-pi-ai (D1, D3).
  */
 
-import fs from "node:fs";
-import path from "node:path";
 import { createHash } from "node:crypto";
+import fs from "node:fs";
 import os from "node:os";
+import path from "node:path";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { DashboardCredentialStore } from "../auth/dashboard-credential-store.js";
 import {
   FLOW_TYPE_HINT,
   getOAuthRegistry,
   getRegistryError,
+  getRegistryRuntime,
   initOAuthRegistry,
   mapProviders,
   oauthRegistryReady,
   resolveVersionFallback,
   setOAuthRegistryRuntimeSource,
 } from "../auth/provider-auth-registry.js";
-import { DashboardCredentialStore } from "../auth/dashboard-credential-store.js";
 import {
   disposeModelRegistry,
   getModelProxyStatus,
@@ -310,6 +311,63 @@ describe("failure degradation (X10 support)", () => {
       log: () => {},
     });
     expect(getRegistryError()).toContain("unknown");
+  });
+});
+
+/**
+ * The registry retains the resolved runtime for the api-key fallback catalogue
+ * (test-plan #E12). See change: fix-provider-catalogue-first-run (D3).
+ */
+describe("runtime retention + generation guard (E12)", () => {
+  afterEach(() => {
+    setOAuthRegistryRuntimeSource(getServerModelRuntime);
+  });
+
+  it("(a) keeps the runtime when it exposes no OAuth provider (error still set)", async () => {
+    const runtime = { getProviders: () => [{ id: "deepseek" }], checkAuth: async () => undefined };
+    await initOAuthRegistry({ getRuntime: async () => ({ runtime }), log: () => {} });
+    expect(getRegistryRuntime()).toBe(runtime);
+    expect(getRegistryError()).not.toBeNull();
+  });
+
+  it("(b) clears the runtime when the source rejects", async () => {
+    await initOAuthRegistry({
+      getRuntime: async () => ({ runtime: { getProviders: () => [] } }),
+      log: () => {},
+    });
+    await initOAuthRegistry({
+      getRuntime: async () => {
+        throw new ModelRuntimeUnavailableError("nope", undefined);
+      },
+      log: () => {},
+    });
+    expect(getRegistryRuntime()).toBeUndefined();
+  });
+
+  it("(b') clears the runtime for a handle without getProviders", async () => {
+    await initOAuthRegistry({ getRuntime: async () => ({ runtime: {} }) as never, log: () => {} });
+    expect(getRegistryRuntime()).toBeUndefined();
+  });
+
+  it("(c) a stale in-flight init writes neither the runtime nor the snapshot", async () => {
+    let release!: (h: unknown) => void;
+    const deferred = new Promise<unknown>((r) => (release = r));
+    setOAuthRegistryRuntimeSource(undefined);
+    const inflight = initOAuthRegistry({ getRuntime: () => deferred as never, log: () => {} });
+    setOAuthRegistryRuntimeSource(async () => {
+      throw new Error("other");
+    });
+    const before = getOAuthRegistry();
+    release({
+      runtime: {
+        getProviders: () => [{ id: "late", auth: { oauth: { name: "Late" } } }],
+        checkAuth: async () => undefined,
+      },
+    });
+    await inflight;
+    expect(getRegistryRuntime()).toBeUndefined();
+    expect(getOAuthRegistry()).toEqual(before);
+    expect(getOAuthRegistry().some((e) => e.id === "late")).toBe(false);
   });
 });
 

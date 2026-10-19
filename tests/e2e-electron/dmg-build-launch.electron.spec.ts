@@ -67,9 +67,10 @@ async function closeApp(a: ElectronApplication): Promise<void> {
 const healthyHealth: FakeHealth = {
   pid: process.pid,
   version: "0.5.4",
-  launchSource: "cli",
-  launchSourceEffective: "cli",
-  starter: "CLI",
+  // The ONE deliberately legacy-only fake (a pre-2026-05-26 server: `starter`,
+  // no `launchSource`), so the app's `starter` fallback stays covered. Every
+  // other fake publishes the real shape. See change: fix-cli-control-electron-server.
+  starter: "Standalone",
   bootParentAlive: true,
   activeBridgeCount: 1,
   platform: process.platform,

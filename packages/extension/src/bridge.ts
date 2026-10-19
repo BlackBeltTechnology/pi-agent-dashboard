@@ -21,7 +21,6 @@ import type { BridgeContext } from "./bridge-context.js";
 import { extractLatestTurnWindow, } from "./bridge-context.js";
 import { mintBridgeTicket, readDeviceToken, withTicket } from "./bridge-ticket-client.js";
 import {
-  buildUserMessageContent,
   createCommandHandler,
   tryExecSlashTemplate,
   validateImages,
@@ -46,6 +45,7 @@ import {
   SUBAGENT_EVENT_MAP,
 } from "./flow-event-wiring.js";
 import { createFollowupBuffer } from "./followup-buffer.js";
+import { drainOneFollowup } from "./followup-drain.js";
 import { createPollingHolder, drainDisposables, ensureDisposable, teardownPreviousIncarnation } from "./bridge-polling.js";
 import { createGitTracker, type GitTracker } from "./git-tracker.js";
 import { createPrStatusScheduler, type PrStatusScheduler } from "./pr-status.js";
@@ -82,6 +82,7 @@ import { createInstance, type BridgeState } from "./bridge-handlers/instance.js"
 import { createVaultDelivery } from "./vault-delivery.js";
 import { createVaultForwardFilter } from "./vault-forwarder.js";
 import { createVaultRedaction } from "./vault-redaction.js";
+import { captureSpawnTokenAtActivation } from "./spawn-token.js";
 import { registerSessionInfoChanged, registerProjectTrust, registerSessionStart, registerTurnEnd, registerSessionShutdown } from "./bridge-handlers/lifecycle.js";
 import { registerEnrichedForwarders, registerPassThroughForwarders } from "./bridge-handlers/forwarders.js";
 import { handleInboundMessage } from "./bridge-handlers/dispatch.js";
@@ -354,7 +355,9 @@ function initBridge(pi: ExtensionAPI) {
   // this module after the env was scrubbed — keeps the correct value instead
   // of regressing to false. See change: fix-spawn-token-env-leak.
   if (prev.dashboardSpawned === undefined) {
-    prev.dashboardSpawned = !!process.env.PI_DASHBOARD_SPAWN_TOKEN;
+    // Reads AND scrubs the token here (not at first register): nested pi the
+    // agent starts later never inherits it. See change: mirror-dashboard-trust-to-pi.
+    prev.dashboardSpawned = captureSpawnTokenAtActivation();
   }
   const dashboardSpawned = prev.dashboardSpawned;
   inst.dashboardSpawned = dashboardSpawned;
@@ -505,7 +508,7 @@ function initBridge(pi: ExtensionAPI) {
   // • bridgeFollowUp (BRIDGE-OWNED BUFFER) — authoritative store for
   //   dashboard-originated follow-up entries while the agent is streaming.
   //   Pi never sees these entries until `drainFollowupQueue()` ships them
-  //   one-at-a-time on `agent_end`. Mutated by `bufferFollowupSend`,
+  //   one-at-a-time on `agent_settled`. Mutated by `bufferFollowupSend`,
   //   `drainFollowupQueue`, and the four mutation handlers (edit / remove /
   //   promote / clear).
   //
@@ -603,94 +606,40 @@ function initBridge(pi: ExtensionAPI) {
     }
     emitQueueUpdate();
   }
+  let isDraining = false;
   /**
-   * Drain loop: on `agent_end`, pop the front of `bridgeFollowUp` and ship it
-   * to pi as a fresh-turn `sendUserMessage` (no `deliverAs`). Pop-before-send
+   * Drain the bridge-owned follow-up buffer: on `agent_settled` (and from
+   * `enqueueSystemFollowup`), pop the front of `bridgeFollowUp` and ship it to
+   * pi as a fresh-turn `sendUserMessage` (no `deliverAs`). Pop-before-send
    * invariant: the entry is shifted off the buffer BEFORE the pi call. If
    * `pi.sendUserMessage` throws, the entry is LOST by design (double-shipping
    * is worse than dropping).
    *
-   * Gates (all must pass): re-entrancy lock, idle, pi.hasPendingMessages,
-   * non-empty buffer. One entry per agent_end — the next agent_end re-enters
+   * Gates (the pure sequence in `followup-drain.ts`): re-entrancy lock (here),
+   * non-empty buffer, pi.hasPendingMessages, idle. A false `isIdle()` returns
+   * without popping and without re-scheduling: pi clears its run-active flag
+   * BEFORE it emits `agent_settled`, so a drain scheduled from the settle sees
+   * an idle session unless another run already started, and then the next
+   * `agent_settled` drains. One entry per settle — the next settle re-enters
    * this function for the next entry (natural serialization).
    *
-   * See change: rework-mid-turn-prompt-queue (design.md D2).
+   * Why no `deliverAs`: once the run has settled pi no longer reads its
+   * follow-up queue, so a `{deliverAs:"followUp"}` entry would never drain.
+   *
+   * See changes: rework-mid-turn-prompt-queue (design.md D2),
+   * update-pi-core-1-3-adopt-apis (design D4: agent_settled trigger, no
+   * idle-retry loop).
    */
-  let isDraining = false;
-  /**
-   * Drain the bridge-owned follow-up buffer by handing one entry to pi
-   * as a fresh-turn `sendUserMessage` (no `deliverAs`).
-   *
-   * Why no `deliverAs`: pi's agent loop calls `getFollowUpMessages()` only
-   * while the loop is active. Once `agent_end` fires and the loop's
-   * `executor` returns, pi's `finishRun()` flips `isStreaming = false` and
-   * `activeRun = undefined`. After that point, anything queued into pi's
-   * internal followUpQueue NEVER drains — pi has stopped reading it.
-   * (Verified at pi-coding-agent pi-agent-core/agent.js: `finishRun()` clears
-   * `isStreaming` + `activeRun`, and `getFollowUpMessages` is only supplied to
-   * the loop while a run is active. Re-verified against pi 0.84.1 — behaviour
-   * unchanged, line numbers moved. See change: update-pi-core-0-84-adopt-apis.)
-   *
-   * Two retry loops handle the transition window correctly:
-   *  - retryCount tracks how many setTimeout retries we've done
-   *  - if pi.isStreaming is still true (transition), we wait + retry
-   *  - once truly idle, sendUserMessage(entry) starts a fresh turn
-   *
-   * See change: rework-mid-turn-prompt-queue (post-smoke fix #3).
-   */
-  function drainFollowupQueue(retryCount = 0): void {
+  function drainFollowupQueue(): void {
     if (isDraining) return;
-    if (bridgeFollowUp.length === 0) return;
-
-    // TUI-coexistence gate: if pi has its own queued items (TUI alt+enter
-    // sends), wait for pi to drain those first via its own loop. The
-    // method lives on `ctx` (verified at pi 0.76.0 extensions/types.d.ts:227).
-    if (typeof inst.cachedCtx?.hasPendingMessages === "function") {
-      try {
-        if (inst.cachedCtx.hasPendingMessages()) return;
-      } catch { /* probe failure non-fatal */ }
-    }
-
-    // Idle gate: pi flips isStreaming=false in finishRun() AFTER the
-    // executor returns from runAgentLoop. queueMicrotask runs inside the
-    // executor (too early), so we use setTimeout to escape the loop AND
-    // poll for isIdle with bounded retries.
-    const idle = (() => {
-      try { return inst.cachedCtx?.isIdle?.() === true; } catch { return false; }
-    })();
-    if (!idle) {
-      if (retryCount < 20) { // ~2s total (20 × 100ms)
-        setTimeout(() => drainFollowupQueue(retryCount + 1), 100);
-      } else {
-        console.warn("[dashboard] drainFollowupQueue: pi never idled after 2s; giving up");
-      }
-      return;
-    }
-
     isDraining = true;
     try {
-      // POP FIRST. Once shifted, the entry exists only on this stack frame.
-      const entry = bridgeFollowUp.shift()!;
-      // Emit immediately so wire-state matches buffer-state BEFORE the pi call.
-      emitQueueUpdate();
-
-      // Hand to pi as a fresh turn (no deliverAs). Pi is now idle, so
-      // pi.sendUserMessage starts a new run via Agent.prompt().
-      //
-      // NO send options, deliberately: `{deliverAs:"followUp"}` here is a
-      // known-broken path (pi has already exited `getFollowUpMessages()`, so
-      // the entry would never drain). `buildUserMessageContent` supplies the
-      // content shape WITHOUT inheriting the steer/idle send options.
-      // See change: fix-bridge-followup-image-drop (design D6).
-      try {
-        (pi.sendUserMessage as any)(buildUserMessageContent(entry.text, entry.images));
-      } catch (err) {
-        console.warn(
-          "[dashboard] drainFollowupQueue: pi.sendUserMessage threw — entry lost:",
-          err,
-        );
-        // INTENTIONAL: no re-push. Double-shipping is worse than dropping.
-      }
+      drainOneFollowup({
+        buffer: bridgeFollowUp,
+        ctx: inst.cachedCtx,
+        emitQueueUpdate,
+        sendUserMessage: (content) => (pi.sendUserMessage as any)(content),
+      });
     } finally {
       isDraining = false;
     }
@@ -699,14 +648,15 @@ function initBridge(pi: ExtensionAPI) {
   /**
    * System-originated follow-up enqueue. Unlike `bufferFollowupSend`, this
    * does NOT gate on `isAgentStreaming` — it is called by plugin bridges
-   * (via the `dashboard:enqueue-followup` pi.event) AFTER `agent_end` has
-   * fired, by which point `isAgentStreaming` is already `false` and the
-   * streaming gate would silently discard the entry.
+   * (via the `dashboard:enqueue-followup` pi.event) AFTER the run's terminal
+   * events have fired, by which point `isAgentStreaming` is already `false`
+   * and the streaming gate would silently discard the entry.
    *
    * Routes through the SINGLE existing `drainFollowupQueue` path so a
    * plugin-requested continuation cannot race or double-inject against
    * user follow-ups: both share the one `bridgeFollowUp` buffer and the
-   * `isDraining` lock, shipping one entry per `agent_end`.
+   * `isDraining` lock, shipping one entry per settle. It ships at once when
+   * the session is idle, otherwise on the next `agent_settled`.
    *
    * Text-only by design — the plugin path has no image source — so it wraps
    * into a `{ text }` entry. Subject to BOTH buffer bounds, with the refusal
@@ -714,9 +664,9 @@ function initBridge(pi: ExtensionAPI) {
    * nudge is a lost plugin continuation, and attributing it to `send_prompt`
    * would misreport a programmatic refusal as a user action (design D8).
    *
-   * Schedules `drainFollowupQueue(0)` via
+   * Schedules `drainFollowupQueue()` via
    * `setTimeout(…, 0)` so the drain re-runs AFTER the async judge verdict
-   * resolves (the bridge's own `agent_end` drain already ran against an
+   * resolves (the bridge's own `agent_settled` drain already ran against an
    * empty buffer by then).
    *
    * Generic infrastructure — not goal-specific. See change:
@@ -731,7 +681,7 @@ function initBridge(pi: ExtensionAPI) {
       return;
     }
     emitQueueUpdate();
-    setTimeout(() => drainFollowupQueue(0), 0);
+    setTimeout(() => drainFollowupQueue(), 0);
   }
   inst.enqueueSystemFollowup = enqueueSystemFollowup;
   /**
@@ -1568,11 +1518,13 @@ function initBridge(pi: ExtensionAPI) {
       // Fallback: route the user prompt based on delivery + streaming state.
       //
       //   delivery="followUp" + streaming → buffer in bridgeFollowUp ONLY
-      //                                      (pi never sees it until drain).
+      //                                      (pi never sees it until drain on
+      //                                      agent_settled).
       //   delivery="steer"    + streaming → pi.sendUserMessage({deliverAs:"steer"})
       //                                      + shadow append via recordSteerSent.
-      //   any delivery        + idle      → pi.sendUserMessage no deliverAs
-      //                                      (fresh turn). No buffer push.
+      //   any delivery        + idle      → pi.sendUserMessage with {deliverAs}
+      //                                      (pi ignores it when idle and starts
+      //                                      a fresh turn). No buffer push.
       //
       // Capture pre-send streaming state BEFORE any pi call — idle sends
       // synchronously fire agent_start which flips isAgentStreaming.
@@ -1599,7 +1551,7 @@ function initBridge(pi: ExtensionAPI) {
       const expanded = expandPromptTemplateFromDisk(text, process.cwd(), pi);
       if (buffered) {
         // Bridge-owned buffer path — do NOT call pi.sendUserMessage. The
-        // drain loop on agent_end will ship the entry as a fresh turn.
+        // drain on agent_settled will ship the entry as a fresh turn.
         bufferFollowupSend(expanded);
       } else {
         // Idle send or steer send — forward to pi directly.
@@ -2057,7 +2009,7 @@ function initBridge(pi: ExtensionAPI) {
   // pi-coding-agent 0.71+ — see _emitExtensionEvent allowlist). Bridge
   // tracks the shadow queues itself; drain happens on observed boundaries:
   // turn_end drains steering (pi's mode:"all" delivers all queued steers),
-  // agent_end drains follow-up (pi has no more tool calls).
+  // agent_settled drains follow-up (pi is idle, no more tool calls).
   // See change: add-followup-edit-and-steer-cancel.
   // Bridge shadow steering queue: per-entry drain matcher in the
   // `message_start` handler removes each entry as pi delivers it. No bulk

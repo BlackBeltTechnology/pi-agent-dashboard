@@ -16,22 +16,25 @@ import { isDeepStrictEqual } from "node:util";
 
 import type { ProviderAuthStatus } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { ProviderInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { getLatestCatalogue } from "../package/provider-catalogue-cache.js";
+import { getLatestCatalogue, isCatalogueReady } from "../package/provider-catalogue-cache.js";
+import { readProvidersFromDisk } from "../package/provider-probe.js";
 import {
-  getOAuthRegistry,
-  type OAuthRegistryEntry,
-} from "./provider-auth-handlers.js";
-import {
+  _resetQuarantineDedupForTests as _resetLockedJsonQuarantineDedup,
   type CheckedJsonRead,
   corruptUnbackedRefusal as corruptUnbackedRefusal_,
   LOCK_OPTIONS,
   type NotPromise,
-  _resetQuarantineDedupForTests as _resetLockedJsonQuarantineDedup,
   readJsonChecked,
   tryReadJson,
   withLockedJsonFile,
   writeJsonAtomic,
 } from "./locked-json-file.js";
+import {
+  getOAuthRegistry,
+  type OAuthRegistryEntry,
+} from "./provider-auth-handlers.js";
+import { getRegistryRuntime } from "./provider-auth-registry.js";
+import { buildRuntimeCatalogue } from "./runtime-provider-catalogue.js";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -290,6 +293,36 @@ export async function writeCredential(provider: string, credential: AuthCredenti
   });
 }
 
+/**
+ * Persist an API-key credential only when the provider holds NO credential. The
+ * absence check and the write share one lock acquisition, so a credential saved
+ * concurrently through Settings → Providers is never overwritten. Used by the
+ * legacy settings.json key move. See change: pi-settings-full-coverage (D4).
+ */
+export async function writeCredentialIfAbsent(provider: string, credential: ApiKeyCredential): Promise<"written" | "exists"> {
+  return withLock(() => {
+    const checked = readAuthJsonChecked();
+    if (checked.corrupt && !checked.quarantined) throw corruptUnbackedRefusal();
+    const data = checked.data;
+    if (Object.hasOwn(data, provider)) return "exists" as const;
+    data[provider] = credential;
+    writeAuthJson(data, checked.corrupt ? 0o600 : undefined);
+    return "written" as const;
+  });
+}
+
+/**
+ * Snapshot of auth.json under the bounded lock (never creates it), reporting
+ * `corrupt` instead of hiding it — the legacy-credential plan treats a corrupt
+ * file as "cannot be relied on". See change: pi-settings-full-coverage (D4).
+ */
+export async function readAuthSnapshotLocked(signal?: AbortSignal): Promise<{ data: AuthData; corrupt: boolean }> {
+  return withLock(() => {
+    const checked = readAuthJsonChecked();
+    return { data: checked.data, corrupt: checked.corrupt };
+  }, refreshLockOptions(signal));
+}
+
 /** Remove one provider credential. Async — see `writeCredential`.
  *
  *  `expectedKind` carries the kind of the UI row the removal was addressed to
@@ -500,8 +533,22 @@ export function _buildAuthStatus(
 
 // ── Public API: status / OAuth meta / id resolution ─────────────────────────
 
-export function getAuthStatus(): ProviderAuthStatus[] {
-  return _buildAuthStatus(getLatestCatalogue(), readAuthJson(), getOAuthRegistry());
+/**
+ * The catalogue the api-key rows derive from: the bridge's push when held,
+ * else a fallback built from the server's own runtime (never stored), else
+ * `[]`. See change: fix-provider-catalogue-first-run (D2).
+ */
+export async function resolveCatalogue(): Promise<ProviderInfo[]> {
+  if (isCatalogueReady()) return getLatestCatalogue();
+  return buildRuntimeCatalogue(getRegistryRuntime(), {
+    customIds: Object.keys(readProvidersFromDisk()),
+    authData: tryReadAuthJson(),
+    env: process.env,
+  });
+}
+
+export async function getAuthStatus(): Promise<ProviderAuthStatus[]> {
+  return _buildAuthStatus(await resolveCatalogue(), readAuthJson(), getOAuthRegistry());
 }
 
 export function getOAuthProvidersMeta(

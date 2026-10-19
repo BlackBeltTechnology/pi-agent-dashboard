@@ -132,6 +132,20 @@ export type PutPiRetryPolicyResponse = ApiResponse<PutPiRetryPolicyResult>;
 // ── pi settings editor (global ~/.pi/agent/settings.json) ───────────
 // See change: edit-pi-agent-settings.
 
+/** Auth state of a legacy settings.json key against `auth.json` (server-computed; no values cross the wire). */
+export type PiLegacyAuthState = "none" | "same" | "different";
+
+/** A plain-text API key found in pi's settings.json, masked. See change: pi-settings-full-coverage. */
+export interface PiLegacyCredential {
+  /** `anthropicApiKey` | `openaiApiKey` | `apiKey` | `providers.<id>.apiKey`. */
+  key: string;
+  /** Normalised auth.json provider id; `null` for the providerless top-level `apiKey`. */
+  provider: string | null;
+  auth: PiLegacyAuthState;
+  /** `…last4` for values of 32+ chars, otherwise fully masked. Never the value. */
+  masked: string;
+}
+
 /** GET /api/pi-settings body (also the 409 `stale` payload minus `error`). */
 export interface PiSettingsReadResponse {
   success: true;
@@ -141,20 +155,19 @@ export interface PiSettingsReadResponse {
   raw: string;
   /** Concurrency token; `"absent"` for no file. */
   etag: string;
-  /** Present when the file exists but is not a valid JSON object. */
+  /** Present when the file exists but is not a valid JSON object. Never quotes file content. */
   parseError?: string;
+  /** Theme names pi can resolve (built-ins plus global/package themes), sorted. */
+  themes: string[];
+  /** Plain-text API keys left in settings.json, masked. */
+  legacyCredentials: PiLegacyCredential[];
 }
 
-/** Leaf-key patch over the typed key set; a `null` leaf deletes the key. */
-export interface PiSettingsPatch {
-  compaction?: { enabled?: boolean | null; reserveTokens?: number | null; keepRecentTokens?: number | null };
-  branchSummary?: { reserveTokens?: number | null; skipPrompt?: boolean | null };
-  steeringMode?: "all" | "one-at-a-time" | null;
-  followUpMode?: "all" | "one-at-a-time" | null;
-  defaultProjectTrust?: "ask" | "always" | "never" | null;
-  hideThinkingBlock?: boolean | null;
-  quietStartup?: boolean | "header" | null;
-}
+/**
+ * Leaf-key patch over the typed key set (`pi-settings-schema.ts`); a `null` leaf
+ * deletes the key, `enabledModels` is replaced whole. Blocks hold dotted leaves.
+ */
+export type PiSettingsPatch = Record<string, unknown>;
 
 export interface PutPiSettingsRequest {
   patch: PiSettingsPatch;
@@ -175,6 +188,8 @@ export interface PiSettingsWriteResponse {
   reloadedSessions: number;
   /** Raw writes only: managed keys whose submitted value was replaced from disk. */
   restoredKeys?: string[];
+  /** Plain-text API keys still in settings.json after the write (a raw save can add or drop some). */
+  legacyCredentials: PiLegacyCredential[];
 }
 
 /** 409 body: the file changed after the client read it. */
@@ -202,6 +217,22 @@ export interface PiSettingsSyncResponse {
   settings: Record<string, unknown>;
   raw: string;
   etag: string;
+}
+
+/** POST /api/pi-settings/legacy-credentials body. Key paths only — never values. */
+export interface PiLegacyCredentialsRequest {
+  baseEtag: string;
+  actions: { key: string; action: "move" | "remove" }[];
+}
+
+/** Success: post-write state plus the refreshed masked list. */
+export interface PiLegacyCredentialsResponse {
+  success: true;
+  settings: Record<string, unknown>;
+  raw: string;
+  etag: string;
+  reloadedSessions: number;
+  legacyCredentials: PiLegacyCredential[];
 }
 
 // ── Session Spawn ───────────────────────────────────────────────────
@@ -786,6 +817,17 @@ export interface LegacyProviderIdEntry {
 /** `GET /api/provider-auth/legacy-provider-ids`. Empty list when nothing matched. */
 export interface LegacyProviderIdsResponse {
   legacyProviderIds: LegacyProviderIdEntry[];
+}
+
+/**
+ * `GET /api/provider-auth/catalogue-ready`. `ready`: a bridge catalogue is held.
+ * `fallback`: not ready, but the server's runtime supplies api-key rows.
+ * Optional so a client tolerates an older server.
+ * See change: fix-provider-catalogue-first-run (D4).
+ */
+export interface CatalogueReadyResponse {
+  ready: boolean;
+  fallback?: boolean;
 }
 
 export interface ProviderAuthStatus {
@@ -1500,4 +1542,222 @@ export interface SelectNodeRuntimeRequest {
   root: string;
   /** Hand-set members the user chose to overwrite anyway. */
   discardHandSet?: string[];
+}
+
+// ── Mermaid AI repair (POST /api/mermaid/repair) ─────────────────────────────
+// See change: add-mermaid-ai-repair.
+
+export interface MermaidRepairRequest {
+  /** The diagram source that failed to render. */
+  code: string;
+  /** The parser/renderer error message. */
+  error: string;
+}
+
+export interface MermaidRepairData {
+  /** Corrected mermaid source (untrusted — the client renders + sanitizes it). */
+  code: string;
+  /** The configured `provider/id` that produced it. */
+  model: string;
+}
+
+export type MermaidRepairErrorCode =
+  | "disabled"
+  | "bad_request"
+  | "too_large"
+  | "busy"
+  | "timeout"
+  | "provider_error"
+  | "unparseable";
+
+export type MermaidRepairResponse =
+  | { success: true; data: MermaidRepairData }
+  | { success: false; error: string; code: MermaidRepairErrorCode };
+
+// ── Add-ons feature catalog (GET /api/addons/catalog, POST /api/addons/:id/toggle) ──
+// See change: addons-hub-feature-catalog.
+
+export type AddonFeatureKind = "core" | "agent-and-dashboard" | "dashboard-only" | "agent-only";
+
+/** Who delivers a feature. Derived, never configured. */
+export type AddonOrigin = "first-party" | "mixed" | "community" | "upstream";
+
+export type AddonFeatureState = "on" | "off" | "partial";
+
+/** Static contents counts of a pi package (tools are runtime-registered and omitted). */
+export interface AddonPackageContents {
+  extensions: number;
+  skills: number;
+  prompts: number;
+  themes: number;
+}
+
+/** One global-scope pi package owned by a feature. */
+export interface AddonPackagePart {
+  source: string;
+  scope: "user" | "project";
+  /** pi package identity (npm name, git URL without ref, resolved path). */
+  identity: string;
+  /** Source family: drives grouping and the first-party/author-label rules. */
+  sourceKind: "npm" | "git" | "local";
+  /** `package.json#name` when readable. */
+  packageName?: string;
+  version?: string;
+  description?: string;
+  installedPath?: string;
+  /** True when the global entry is the all-empty filter form (loads nothing). */
+  entryOff: boolean;
+  publishedVariantSource?: string;
+  publishedVariantVersion?: string;
+  contents: AddonPackageContents;
+}
+
+/** Dashboard-plugin part of a feature. */
+export interface AddonPluginPart {
+  id: string;
+  /** Manifest/config enabled flag. */
+  enabled: boolean;
+  loaded: boolean;
+  error?: string;
+  hasSettings: boolean;
+  missingRequirements: string[];
+  dependsOn: string[];
+}
+
+/** A package a feature references but does not own (claimed by another feature). */
+export interface AddonRequirementRef {
+  name: string;
+  featureId: string;
+}
+
+export interface AddonFeature {
+  /** `core:pi` | `core:dashboard-bridge` | `plugin:<pluginId>` | `pkg:<identity>`. */
+  id: string;
+  displayName: string;
+  description: string;
+  kind: AddonFeatureKind;
+  origin: AddonOrigin;
+  /** Distinct author labels of the non-first-party parts, in part order. */
+  authorLabels: string[];
+  state: AddonFeatureState;
+  plugin?: AddonPluginPart;
+  /** Managed bridge entry path (the plugin's plumbing, never an owned package). */
+  bridge?: { path: string };
+  packages: AddonPackagePart[];
+  requires: AddonRequirementRef[];
+  /** Feature ids of the plugins requiring this `pkg:` feature's package. */
+  requiredBy: string[];
+  /** Folder mode only (`?scope=local&cwd=`); absent on `core:*` features. See change: addons-hub-folder-view. */
+  folderState?: AddonFolderState;
+  /** Folder mode: a restore record exists on this machine for every package turned off here. */
+  restoreRecorded?: boolean;
+  /** Folder mode: agents the feature's packages contribute (pi deltas cannot filter them). */
+  packageAgents?: number;
+  /** Folder mode, `added-here` only: resources that load here vs the packages' total. */
+  loading?: { loaded: number; total: number };
+}
+
+/** Per-feature state in one folder (design D1/D2 of addons-hub-folder-view). */
+export type AddonFolderState =
+  | "inherited"
+  | "added-here"
+  | "off-here"
+  | "partly-off-here"
+  | "off-globally"
+  | "dashboard-only";
+
+/** Loose resources under `<cwd>/.pi` (not delivered by a package). */
+export interface AddonLooseCounts {
+  skills: number;
+  agents: number;
+  prompts: number;
+  extensions: number;
+  themes: number;
+}
+
+export interface AddonFolderInfo {
+  cwd: string;
+  looseCounts: AddonLooseCounts;
+  /** Set when `<cwd>/.pi/settings.json` could not be parsed; no folder state beyond inherited/dashboard-only/off-globally. */
+  settingsError?: string;
+}
+
+export interface AddonCatalogResponse {
+  success: true;
+  features: AddonFeature[];
+  /** Present in folder mode. */
+  folder?: AddonFolderInfo;
+}
+
+export interface AddonToggleRequest {
+  enabled: boolean;
+  /** `local` = this folder only (needs `cwd`); omitted/`global` = the global toggle. */
+  scope?: "local" | "global";
+  cwd?: string;
+  /** Local enable: also remove an `autoload:false` entry the dashboard does not own (user-confirmed). */
+  removeUnowned?: boolean;
+  dryRun?: boolean;
+  /** Digest of a previous dry-run report; the server rejects the toggle when it no longer matches. */
+  confirmToken?: string;
+}
+
+export interface AddonKeptOn {
+  source: string;
+  by: string[];
+}
+
+export interface AddonStillLoadedIn {
+  source: string;
+  folders: string[];
+}
+
+export interface AddonRestoreSkipped {
+  source: string;
+  reason: "edited" | "no-record";
+}
+
+export interface AddonToggleResponse {
+  success: true;
+  restartRequired: boolean;
+  dryRun?: boolean;
+  /** Feature ids turned off/on together with the requested one. */
+  cascaded: string[];
+  /** Sources rewritten into the all-empty filter form (or that would be, on a dry run). */
+  filtered: string[];
+  /** Sources whose recorded entry was put back (or that would be). */
+  restored: string[];
+  keptOn: AddonKeptOn[];
+  /** Plugins requiring a `pkg:` feature that was turned off (feature ids). */
+  requiredBy: string[];
+  restoreSkipped: AddonRestoreSkipped[];
+  stillLoadedIn: AddonStillLoadedIn[];
+  /** Present on a dry run: digest of the report. */
+  confirmToken?: string;
+  /** False only when a compensating write failed. */
+  consistent?: boolean;
+}
+
+/** A project entry a folder re-enable left in place (`notOwned`) and why. */
+export interface AddonFolderNotOwned {
+  source: string;
+  reason: "no-record" | "edited" | "narrowed";
+  /** The entry as found, for the confirmation dialog. */
+  entry: unknown;
+}
+
+/** `POST /api/addons/:id/toggle` with `scope: "local"` success body. */
+export interface AddonFolderToggleResponse {
+  success: true;
+  scope: "local";
+  cwd: string;
+  /** False when nothing was written (everything kept on, already off, nothing to restore). */
+  changed: boolean;
+  /** Sources written as the all-empty delta. */
+  filtered: string[];
+  /** Sources whose recorded entry was put back (or removed because none existed). */
+  restored: string[];
+  /** Sources removed by a confirmed `removeUnowned`. */
+  removed: string[];
+  keptOn: AddonKeptOn[];
+  notOwned: AddonFolderNotOwned[];
 }

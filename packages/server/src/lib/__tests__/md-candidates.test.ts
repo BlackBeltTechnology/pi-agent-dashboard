@@ -28,6 +28,8 @@ beforeAll(async () => {
   await fs.writeFile(path.join(cwd, "AGENTS.md"), "# a");
   await fs.writeFile(path.join(cwd, "README.md"), "# r");
   await fs.writeFile(path.join(cwd, "notes.txt"), "x"); // non-md excluded
+  await fs.writeFile(path.join(cwd, "b.mmd"), "graph TD"); // writable but not a picker candidate
+  await fs.writeFile(path.join(cwd, "c.mermaid"), "graph TD");
   await fs.writeFile(path.join(cwd, ".pi", "skills", "impl", "SKILL.md"), "# s");
   await fs.writeFile(path.join(cwd, "node_modules", "pkg", "DOC.md"), "# skip"); // heavy dir skipped
   await fs.writeFile(path.join(root, "sibling", "evil.md"), "# e");
@@ -52,6 +54,8 @@ describe("enumerateMdCandidates — directory scope", () => {
   it("excludes non-markdown, heavy dirs, and symlink escapes (picker ⊆ guard)", async () => {
     const got = (await enumerateMdCandidates({ cwd })).map((c) => c.relPath);
     expect(got).not.toContain("notes.txt");
+    expect(got).not.toContain("b.mmd");
+    expect(got).not.toContain("c.mermaid");
     expect(got.some((r) => r.includes("node_modules"))).toBe(false);
     expect(got).not.toContain("escape.md");
   });

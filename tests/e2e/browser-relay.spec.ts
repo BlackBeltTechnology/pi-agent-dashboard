@@ -139,7 +139,7 @@ test.describe("browser relay — settings surface (F1-F4)", () => {
     await page.getByTestId("browser-token-save-Fake").click();
 
     await expect(input).toHaveValue("");
-    await expect(page.getByTestId("browser-has-token-Fake")).toContainText("Token set", {
+    await expect(page.getByTestId("browser-has-token-Fake")).toContainText("Paired", {
       timeout: 10_000,
     });
     await expect(page.getByTestId("browser-zero-dialog-Fake")).toBeEnabled();
@@ -232,6 +232,36 @@ test.describe("browser relay — settings surface (F1-F4)", () => {
       .toBeGreaterThan(before);
     await expect(rows.first()).toContainText(/evaluate/i);
     await expect(rows.first()).toContainText(/denied/i);
+  });
+
+  test("F13: Agent browsing group renders; the dedicated panel shows its unavailable reason and no actions", async ({
+    page,
+    request,
+  }) => {
+    await gotoSettings(page);
+    await expect(page.getByTestId("browser-agent-browsing")).toBeVisible();
+    // The plugin is enabled in this harness, so the group is editable (not the read-only notice).
+    await expect(page.getByTestId("browser-agent-browsing-disabled")).toHaveCount(0);
+
+    // The container has no Google Chrome on PATH (docker/Dockerfile installs none), and
+    // `dedicatedAvailability()` checks the binary BEFORE the display, so the reason the
+    // image really yields is `no-chrome` (not `no-display`; the latter needs a Chrome
+    // binary on a display-less host). Server and UI must agree on it.
+    const status = (await (await request.get("/api/browser/status")).json()) as {
+      dedicated?: { available?: boolean; reason?: string };
+    };
+    expect(status.dedicated?.available).toBe(false);
+    expect(status.dedicated?.reason).toBe("no-chrome");
+
+    const panel = page.getByTestId("browser-dedicated-panel");
+    await expect(panel).toBeVisible();
+    await expect(panel.getByTestId("browser-dedicated-reason")).toHaveAttribute("data-reason", "no-chrome");
+    // No action is offered for an unavailable host, and the dedicated default is not selectable.
+    for (const id of ["open", "stop", "reset"]) {
+      await expect(page.getByTestId(`browser-dedicated-${id}`)).toHaveCount(0);
+    }
+    await expect(panel.getByRole("button")).toHaveCount(0);
+    await expect(page.getByTestId("browser-default-dedicated")).toBeDisabled();
   });
 });
 

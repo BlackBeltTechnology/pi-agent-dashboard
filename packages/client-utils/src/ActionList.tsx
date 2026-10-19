@@ -12,6 +12,8 @@ import { sendPluginAction } from "@blackbelt-technology/dashboard-plugin-runtime
 // Icon is an MDI key string, resolved lazily via useMdiIconByKey.
 import type { UiActionListProps } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import Icon from "@mdi/react";
+import { useContext } from "react";
+import { ActionListMenuContext } from "./ActionListMenuContext.js";
 import { useMdiIconByKey } from "./mdi-by-key.js";
 
 /**
@@ -35,22 +37,49 @@ interface ExtendedActionItem {
   };
 }
 
+function runAction(a: ExtendedActionItem): void {
+  if (a.dataAction) {
+    sendPluginAction(a.dataAction.pluginId, a.dataAction.sessionId ?? null, a.dataAction.action, a.dataAction.payload);
+  }
+  if (a.onClick) a.onClick();
+}
+
 export function ActionList({ actions }: UiActionListProps) {
+  const menu = useContext(ActionListMenuContext);
   if (!actions || actions.length === 0) return null;
+  if (menu) {
+    // Menu context: vertical menuitems. Disabled items stay focusable
+    // (aria-disabled) and neither dispatch nor report activation.
+    return (
+      <div className="flex flex-col items-stretch">
+        {(actions as ExtendedActionItem[]).map((a, i) => (
+          <button
+            key={i}
+            type="button"
+            role="menuitem"
+            data-testid="action-list-item"
+            aria-disabled={a.disabled ? "true" : undefined}
+            title={a.tooltip}
+            onClick={() => {
+              if (a.disabled) return;
+              runAction(a);
+              menu.onActivate?.();
+            }}
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] aria-disabled:opacity-50 aria-disabled:cursor-not-allowed transition-colors"
+          >
+            {a.icon ? <IconByKey iconKey={a.icon} /> : null}
+            <span>{a.label}</span>
+          </button>
+        ))}
+      </div>
+    );
+  }
   return (
     <div className="flex flex-row flex-wrap gap-1 items-center">
       {(actions as ExtendedActionItem[]).map((a, i) => {
         const handleClick = () => {
           if (a.disabled) return;
-          if (a.dataAction) {
-            sendPluginAction(
-              a.dataAction.pluginId,
-              a.dataAction.sessionId ?? null,
-              a.dataAction.action,
-              a.dataAction.payload,
-            );
-          }
-          if (a.onClick) a.onClick();
+          runAction(a);
         };
         return (
           <button

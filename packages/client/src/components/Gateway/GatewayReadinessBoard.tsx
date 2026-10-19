@@ -13,24 +13,13 @@
  * See change: add-zrok-custom-reserved-name (D6/D7/D11).
  */
 import type { ProviderReadiness } from "@blackbelt-technology/pi-dashboard-shared/tunnel-provider.js";
-import { READINESS_POLL_INTERVAL_MS } from "@blackbelt-technology/pi-dashboard-shared/tunnel-provider.js";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { GatewayConfigShape } from "../../lib/gateway/gateway-action.js";
-import { getConfig, getProviderReadiness } from "../../lib/gateway/gateway-api.js";
+import { getConfig } from "../../lib/gateway/gateway-api.js";
 import { safeApprovalUrl } from "../../lib/gateway/gateway-connection.js";
-import {
-  INITIAL_POLL_STATE,
-  onClose,
-  onOpen,
-  onTickError,
-  onTickResult,
-  onTickStart,
-  READINESS_LABEL,
-  readinessSeverity,
-  secondsSinceCheck,
-  shouldTick,
-} from "../../lib/gateway/readiness-poll.js";
+import { READINESS_LABEL, readinessSeverity } from "../../lib/gateway/readiness-poll.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
+import { type ReadinessPoll, useReadinessPoll } from "../../lib/remote-access/use-readiness-poll.js";
 import { GatewayProviderActions } from "./GatewayProviderActions.js";
 
 const SEVERITY_COLOR = {
@@ -40,16 +29,27 @@ const SEVERITY_COLOR = {
 } as const;
 
 export function GatewayReadinessBoard({
-  open,
+  active,
   primary,
   onSelectProvider,
+  poll,
+  showProviderActions = true,
 }: {
-  open: boolean;
+  /** The host wants live readiness (Gateway page mounted / a provider-dependent step is current). */
+  active: boolean;
   primary?: string;
   onSelectProvider?: (id: string) => void;
+  /**
+   * Controlled mode: the host (the Remote access dialog) owns the readiness
+   * loop and passes its result, so the board neither polls nor double-fetches.
+   */
+  poll?: ReadinessPoll;
+  /** Make-primary / register offers per row. The wizard hides them (they stay in Settings). */
+  showProviderActions?: boolean;
 }) {
   const { t } = useI18n();
-  const [state, setState] = useState(INITIAL_POLL_STATE);
+  const own = useReadinessPoll(active && !poll);
+  const state = poll ?? own;
   const [now, setNow] = useState(() => Date.now());
   // Config backs the registration offer (is this URL already a gateway?) and
   // the primary-switch copy. Re-read on demand, NOT on every readiness tick —
@@ -70,52 +70,14 @@ export function GatewayReadinessBoard({
         /* an unreadable config offers nothing; it must not blank the board */
       });
   }, []);
-  // Read inside the interval callback so the scheduler never closes over a
-  // stale `inFlight` — the whole point of overlap suppression.
-  const stateRef = useRef(state);
-  stateRef.current = state;
-
-  const tick = useCallback(async () => {
-    if (!shouldTick(stateRef.current)) return;
-    // Mark in-flight on the REF synchronously. `setState` does not refresh the
-    // ref until the next render, so two calls in the same frame — the immediate
-    // tick plus a fast Refresh click — would both observe `inFlight: false` and
-    // both fire. `disabled={state.inFlight}` is render-bound too, so it does
-    // not close that window either.
-    stateRef.current = onTickStart(stateRef.current);
-    setState((s) => onTickStart(s));
-    try {
-      const providers = await getProviderReadiness();
-      setState((s) => onTickResult(s, providers, Date.now()));
-    } catch {
-      setState((s) => onTickError(s));
-    }
-  }, []);
 
   useEffect(() => {
-    if (!open) {
-      setState((s) => onClose(s));
-      return;
-    }
-    setState((s) => onOpen(s));
     refreshConfig();
-    // The ref is refreshed on RENDER, and this effect runs before React has
-    // re-rendered with `open: true` — so without this line `shouldTick` reads a
-    // stale `open: false`, suppresses the first tick, and the board shows
-    // "Checking…" for a full interval. F1 requires a tick immediately on open.
-    stateRef.current = onOpen(stateRef.current);
-    void tick();
-    const id = setInterval(() => void tick(), READINESS_POLL_INTERVAL_MS);
     const stamp = setInterval(() => setNow(Date.now()), 1000);
-    // Cleanup is the entire guarantee that nothing polls while closed.
-    return () => {
-      clearInterval(id);
-      clearInterval(stamp);
-      setState((s) => onClose(s));
-    };
-  }, [open, tick, refreshConfig]);
+    return () => clearInterval(stamp);
+  }, [refreshConfig]);
 
-  const age = secondsSinceCheck(state, now);
+  const age = state.lastCheckedAt === undefined ? null : Math.max(0, Math.floor((now - state.lastCheckedAt) / 1000));
   // The badge tracks the PERSISTED primary, not the dialog's unsaved provider
   // selection — otherwise clicking a row would relabel the primary before any
   // write, which is exactly the one-click switch D10 forbids.
@@ -137,7 +99,7 @@ export function GatewayReadinessBoard({
             type="button"
             data-testid="gateway-readiness-refresh"
             disabled={state.inFlight}
-            onClick={() => void tick()}
+            onClick={() => void state.tick()}
             className="rounded border border-[var(--border-primary)] px-2 py-1 text-[11px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-50"
           >
             {t("gateway.readiness.refresh", undefined, "Refresh")}
@@ -156,6 +118,7 @@ export function GatewayReadinessBoard({
             config={config}
             configLoaded={configLoaded}
             onConfigChange={refreshConfig}
+            showActions={showProviderActions}
           />
         ))}
       </ul>
@@ -171,6 +134,7 @@ function ReadinessRow({
   config,
   configLoaded,
   onConfigChange,
+  showActions,
 }: {
   readiness: ProviderReadiness;
   isPrimary: boolean;
@@ -180,6 +144,7 @@ function ReadinessRow({
   config: GatewayConfigShape;
   configLoaded: boolean;
   onConfigChange: () => void;
+  showActions: boolean;
 }) {
   const { t } = useI18n();
   const severity = readinessSeverity(readiness.state);
@@ -248,18 +213,20 @@ function ReadinessRow({
           collapsed to the SELECTED provider only — the row opens it. Hiding it
           unconditionally would strand the actions with no mobile path to them;
           showing it on every row puts a five-row board past the viewport. */}
-      <div
-        data-testid={`gateway-readiness-actions-slot-${readiness.provider}`}
-        className={selected ? undefined : "max-[559px]:hidden"}
-      >
-        <GatewayProviderActions
-        readiness={readiness}
-        isPrimary={isPrimary}
-          config={config}
-          configLoaded={configLoaded}
-          onConfigChange={onConfigChange}
-        />
-      </div>
+      {showActions && (
+        <div
+          data-testid={`gateway-readiness-actions-slot-${readiness.provider}`}
+          className={selected ? undefined : "max-[559px]:hidden"}
+        >
+          <GatewayProviderActions
+            readiness={readiness}
+            isPrimary={isPrimary}
+            config={config}
+            configLoaded={configLoaded}
+            onConfigChange={onConfigChange}
+          />
+        </div>
+      )}
     </li>
   );
 }

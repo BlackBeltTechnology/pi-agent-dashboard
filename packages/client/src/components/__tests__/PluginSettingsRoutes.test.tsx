@@ -14,6 +14,7 @@ import { intentStore } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { PLUGIN_INTERNALS_KEY } from "../../lib/state/plugin-internals-pref.js";
 import { SettingsPanel } from "../settings/SettingsPanel.js";
 
 const { fetchAutoInitWorktreePref, setAutoInitWorktreePref } = vi.hoisted(() => ({
@@ -135,8 +136,26 @@ async function mount(path: string, rows: ReturnType<typeof pluginRow>[]) {
   await screen.findByTestId("settings-nav-rail");
 }
 
+/** Per-test in-memory storage: `npm test` backs Node's `localStorage` with ONE
+ * file shared by every parallel worker, so another file flipping the same key
+ * races this one (seen with `show-plugin-internals`). */
+function memoryStorage(): Storage {
+  const m = new Map<string, string>();
+  return {
+    get length() {
+      return m.size;
+    },
+    clear: () => m.clear(),
+    getItem: (k) => m.get(k) ?? null,
+    key: (i) => [...m.keys()][i] ?? null,
+    removeItem: (k) => void m.delete(k),
+    setItem: (k, v) => void m.set(k, String(v)),
+  };
+}
+
 beforeEach(() => {
   vi.restoreAllMocks();
+  vi.stubGlobal("localStorage", memoryStorage());
   // The Plugins rail subtree is collapsed by default; these tests assert on the
   // children, so pre-expand it (explicit user choice). See change: addons-hub-declutter.
   localStorage.setItem("dashboard:settings-plugins-expanded", "true");
@@ -146,6 +165,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   localStorage.removeItem("dashboard:settings-plugins-expanded");
+  localStorage.removeItem(PLUGIN_INTERNALS_KEY);
   vi.unstubAllGlobals();
   intentStore.__resetForTests();
 });
@@ -204,6 +224,8 @@ describe("plugin settings routes", () => {
 
   // (test-plan #E11) — PluginRow has no version/description/source/icon fields.
   it("renders chrome from the real field set with no undefined artifacts", async () => {
+    // Slot claims are developer data: listed only with "Show plugin internals" on (#E28).
+    localStorage.setItem(PLUGIN_INTERNALS_KEY, "true");
     await mount("/settings/plugins/flows", [
       pluginRow({ id: "flows", displayName: "Flows", dependsOn: ["roles"] }),
     ]);
@@ -272,7 +294,7 @@ describe("plugin nav-rail membership", () => {
       expect(within(rail).getByTestId("nav-plugin-automation")).toBeTruthy();
     });
     const dot = within(rail).getByTestId("nav-plugin-status-automation");
-    expect(dot.className).toContain("--accent-red");
+    expect(dot.className).toContain("--severity-error-fg"); // severity token (align-ui-contract-recipes), no raw accent fill
   });
 
   // (test-plan #E10)

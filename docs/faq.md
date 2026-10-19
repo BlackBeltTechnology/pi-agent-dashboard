@@ -302,6 +302,42 @@ pi-dashboard status --port 8000    # port 8000 only
 pi-dashboard start --port 8001     # separate instance
 ```
 
+## How do `pi-dashboard` CLI and the desktop app's server interact?
+
+Desktop app (Electron) starts its own bundled server. CLI sees it as owned when same `HOME`.
+
+- Electron spawns server: `DASHBOARD_STARTER=Electron`, foreground CLI child, same `HOME`.
+- Writes `~/.pi/dashboard/server.pid`, `server.lock.meta.json`, `instances/<piPort>.id`. Same-`HOME` CLI reads them → owned.
+- `/api/health` publishes `launchSource` (`electron` | `standalone` | `bridge`), `bootParentAlive`, `bootParentPid`.
+- No `starter` field since 2026-05-26. Consumers read `launchSource`.
+
+`pi-dashboard status` on owned server:
+- `Dashboard server is running (pid N) on port P (started by the pi-dashboard desktop app)`.
+- Port resolution: `--port` > `PI_DASHBOARD_PORT` > `~/.pi/dashboard/config.json` > default `8000`.
+
+Env/port skew:
+- Shell exports `PI_DASHBOARD_PORT` / `PI_DASHBOARD_PI_PORT`. App reads `config.json` only.
+- CLI inspects other port → `Dashboard server is not running` (exit `1`) or `not owned by this HOME`.
+- Fix: pass `--port <n> --pi-port <n>`, or `unset PI_DASHBOARD_PORT PI_DASHBOARD_PI_PORT`.
+
+`pi-dashboard stop` on health-proven owned server:
+- `POST` loopback `/api/shutdown` first. Exit intent `shutdown`. Bridges suppress auto-start for 60 s quiesce.
+- `SIGTERM` fallback if `/api/shutdown` fails.
+- Prints note: app stays open, shows reconnect page. Next: `Start server` in app, or quit app.
+- App does not respawn after CLI stop. Watchdog → reconnect page. Only exit `75` respawns.
+
+Bare `pi-dashboard` with served port:
+- Prints `Dashboard server is already running (pid N) (started by the pi-dashboard desktop app)`. Exit `1`, no stack.
+- Use `pi-dashboard status` or `pi-dashboard start` instead.
+
+Quit app:
+- Stops server it started. Reads `launchSource`, waits ≤ 5 s.
+- Server from `pi-dashboard start` is attached. App never stops it.
+
+Different `HOME`:
+- Server → `not owned by this HOME`.
+- `pi-dashboard stop --force` kills it anyway. DANGEROUS: kills another user's/HOME's dashboard.
+
 ## Why does `server.log` show `[home-lock] could not establish the rendezvous ... E_INSTANCE_UNRESPONSIVE`?
 
 File: `~/.pi/dashboard/server.log`.
@@ -594,11 +630,34 @@ To reach the dashboard from other machines, set the bind host (restart required)
 
 Resolution order: `--host` → `PI_DASHBOARD_HOST` → `config.bindHost` → `127.0.0.1`. One `bindHost` governs both HTTP + pi gateway.
 
-Selecting All interfaces with no auth providers and no trusted networks shows an exposure warning. Binding wide does not lower trust: request guard (`trustedNetworks` / auth) still applies per request.
+Selecting All interfaces with no auth providers and no trusted networks shows an exposure warning. Binding wide does not lower trust: request guard (auth + `network.trustMode`) still applies per request.
 
 Docker all-in-one already sets `PI_DASHBOARD_HOST=0.0.0.0` to stay reachable through published ports.
 
-See change: configurable-bind-host.
+Who admits LAN peers = `network.trustMode` (`~/.pi/dashboard/config.json`):
+- `pair` — network match authenticates nothing. Device pairs: `http://<lan-ip>:<port>/pair?request` → Request access → operator types code → Approve. Needs `pairing.acceptLanRequests: true` (Settings → Security → Network access offers it).
+- `legacy` — peer in `trustedNetworks` / `auth.bypassHosts` admitted without sign-in, full access.
+
+Mode decided once at first boot, persisted as `network.trustMode` + `network.trustModeOrigin: "upgrade"`:
+- `pair` iff every list entry loopback-only (`127.0.0.0/8`, `::1`). Empty list → `pair`.
+- Otherwise `legacy`. Hostnames (incl. `localhost`) and match-all (`0.0.0.0/0`, `::/0`, `*.*.*.*`) → `legacy`.
+- Never re-derived. Adding a range cannot widen admission.
+- Unrecognised stored value → `pair` + one `[trusted-networks]` warning. Value not rewritten.
+
+Switch: Settings → Security → Network access radio. Live, no restart. Operator write sets `trustModeOrigin: "operator"`.
+Rollback to old behaviour: choose "Trust whole networks" or set `network.trustMode: "legacy"`.
+
+`pair` list meaning: networks that MAY request access. Knock-eligible = default private on-link ranges ∪ list. Match-all entries ignored. Forwarding headers → never eligible.
+
+Consequences in `pair`:
+- Paired browser keeps working per tier (default `operate`).
+- `observe` / `control` devices lose what network trust granted. WS ticket needs `operate`.
+- In-page server switch to non-paired remote: no iframes, images, downloads.
+- Network-denial prompt and accept-to-trust off.
+
+`legacy`: Settings → Access shows "N device addresses reach this dashboard by network trust only". Counts only, never IPs. Source `/api/health` `trustPosture.networkOnly`. Window: 7 days or since restart.
+
+See change: configurable-bind-host, retire-trusted-networks-bypass.
 
 ## I added a trusted network and the device still cannot connect?
 
@@ -610,6 +669,8 @@ Diagnose:
 - Remediation on Settings → Server: set Listen Interface to `0.0.0.0` (All interfaces) or the NIC inside the trusted range. Restart required.
 
 Bind host wins over trust. `trustedNetworks` only ever admits peers the socket already accepts.
+
+Under `network.trustMode: "pair"` a listed network admits nothing. It only makes the device knock-eligible. Pair the device instead.
 
 See change: warn-unreachable-trusted-networks.
 
@@ -636,9 +697,11 @@ Symptom: plugin UI loads (app shell + static assets unaffected) but its API call
 
 Two remedies:
 - Enable auth — OAuth provider, or pair the device. Paired device sends the bearer token → `isAuthenticated` → guard admits.
-- Add the caller's network to Trusted Networks — Settings ▸ Servers, or Settings ▸ Security. Writes `auth.bypassHosts`. Applies live, no restart.
+- `legacy` only: add the caller's network to Trusted Networks — Settings ▸ Servers, or Settings ▸ Security (Network access). Writes `auth.bypassHosts`. Applies live, no restart. Under `pair` this admits nothing: pair the device.
 
 Same-host browser (`localhost`) unaffected — genuine-local passes.
+
+Denial body `hint` reads `Pair this device (Request access) or sign in.` in both trust modes.
 
 See change: add-universal-network-guard.
 
@@ -665,7 +728,7 @@ Also affected: same-host reverse proxy (nginx / Caddy / Traefik TLS front) setti
 
 Unaffected:
 - Genuine local use (loopback peer, no forwarding header). Trusted without any entry.
-- LAN CIDR entries (e.g. `192.168.16.0/24`).
+- LAN CIDR entries (e.g. `192.168.16.0/24`). Admit only under `legacy`.
 
 Loopback entry now inert. Redundant for local, ignored for tunnel.
 - Server logs once: `[trusted-networks] "127.0.0.1" covers loopback — ignored for tunnel-relayed requests; local requests are already trusted`.
@@ -712,9 +775,54 @@ Toggle applies live — no restart.
 
 See change: harden-trust-and-credential-boundaries.
 
+## Why is my project `mcp.json` server ignored (inactive) in a folder?
+
+Project MCP layer loads only in trusted folders. Untrusted → rows inactive (`project-not-trusted`).
+
+Two trust sources. Separate stores.
+- pi trust: `~/.pi/agent/trust.json`. Written by pi's own trust prompt.
+- Dashboard trust: durable dashboard sources. Mirrored into pi's decision at `project_trust` time. Never writes `trust.json`.
+
+Decision order (`decidePiTrust`):
+1. No trust-requiring resources in folder → trusted (implicit).
+2. Recorded pi entry (`trust.json`, true or false, nearest ancestor) → wins. Recorded refusal beats dashboard trust.
+3. Dashboard trust covers folder (subtree) → trusted.
+4. `defaultProjectTrust`. Dashboard trust overrides it, including `never`.
+
+See who trusts a folder:
+- Settings → Access → "Pi trust from the dashboard": effective list, per-entry choice, ignored rows with reason code.
+- Folder page banner: pi / dashboard (source + folder) / neither.
+- `GET /api/access/pi-trust`.
+
+Reason codes for withheld trust (server + bridge log): `forbidden-folder`, `recorded-entry`, `identity-mismatch`, `hook-changed`, `not-project-root`, `source-off`, `source-not-installed`, `choice-unreadable`, `store-unreadable`, `not-covered-session`.
+
+Trust from the dashboard:
+- Pin the folder, Add Folder, or worktree-init "Always trust" with "Also trust this folder in pi" checked.
+- Or Settings → Access → per-entry choice (`PUT /api/access/pi-trust/choice`).
+- Toggle prompt pre-selects Trust when dashboard trust covers the folder and nothing recorded. Nothing recorded until you choose.
+
+Why still ignored:
+- Recorded `false` for folder or ancestor in `~/.pi/agent/trust.json` → wins. Clear it via pi's own trust prompt or Settings → Access.
+- Terminal `pi` ignores dashboard trust by default. Set `piTrustMirror.coverInteractive: true` to include it.
+- Folder moved, re-created, or synced from another machine → identity (`dev`, `ino`, `birthtimeMs`) mismatch → fails closed. Re-trust the folder.
+- `pi --no-extensions` → bridge never decides. `pi mcp list` reads only `trust.json`, so dashboard-trusted servers show `not-checked-by-pi`.
+- Activation-cwd auto-trust does not apply in forbidden/temporary folders (`/tmp`, `~/Downloads`, `~/.ssh`, `$HOME`, …).
+
+Config `~/.pi/dashboard/config.json`:
+
+```json
+{ "piTrustMirror": { "enabled": true, "coverInteractive": false, "sources": { "accessGrants": true } } }
+```
+
+Source ids: `worktreeInit`, `workflow`, `pinned`, `folderWorkspaces`, `accessGrants` (default OFF).
+
+Rollback: `"enabled": false`. Bridge reads config live. Works with server down. Does NOT revert the bridge behaviour changes (recorded pi entry beats activation-cwd auto-trust; forbidden-folder auto-trust removed; spawn token removed from env).
+
+See change: mirror-dashboard-trust-to-pi.
+
 ## Pairing ≠ LAN access; how to get a secure road for LAN pairing
 
-Pairing not the plain-LAN path. Plain-LAN access = Network Guard / `bindHost` + trusted networks. See [How do I expose the dashboard on my LAN?](#how-do-i-expose-the-dashboard-on-my-lan).
+Pairing not the plain-LAN path. Plain-LAN access = Network Guard / `bindHost` + pairing (`pair` mode) or trusted networks (`legacy`). See [How do I expose the dashboard on my LAN?](#how-do-i-expose-the-dashboard-on-my-lan).
 
 QR pairing needs a secure context. Client identity-verify uses `crypto.subtle` (Ed25519 verify). `crypto.subtle` undefined on plain-http non-localhost origin.
 
@@ -733,7 +841,7 @@ Paired bearer token replaces trusted networks. No `trustedNetworks` / OAuth need
 Opt-in LAN knock. Device asks, dashboard operator approves. Bearer travels plain http.
 
 Steps:
-1. On dashboard machine: Settings ▸ Gateway ▸ Connect a device ▸ "Devices on this network" → turn on "Accept requests from devices on this network". Live. No restart. Default off.
+1. On dashboard machine: Settings ▸ Security ▸ Network access, or Settings ▸ Gateway ▸ Connect a device ▸ "Devices on this network" → turn on "Accept requests from devices on this network" (`pairing.acceptLanRequests: true`). Live. No restart. Default off. Needed for LAN pairing under `pair` mode.
 2. On device: open `http://<lan-ip>:<port>/pair?request` (URL listed in panel, Copy action). Or Settings ▸ Network Discovery ▸ Connect on discovered server.
 3. Optional device name → Request access. Device shows 8-digit code (e.g. `4821 7730`).
 4. Dashboard machine: approval dialog pops. Shows device source address. Type code shown on device. Pick tier (default `operate`; `observe` / `control` for less). Approve.
@@ -747,7 +855,7 @@ Why unencrypted:
 
 Refusals (shown on device):
 - `knock_disabled` → turn switch on in Gateway.
-- `knock_not_lan` → device not on same local network, or request came via tunnel / reverse proxy.
+- `knock_not_lan` → device address not eligible (not private on-link range, not in trusted list), or request came via tunnel / reverse proxy.
 - `knock_rate_limited` → wait stated `retryAfter`. Cooldown 10 min after deny.
 - `knock_pending` → earlier request from this device waiting. Expires ≤5 min.
 - `knock_busy` → too many requests waiting. Retry shortly.
@@ -755,6 +863,22 @@ Refusals (shown on device):
 Container caveat: dashboard in Docker bridge network (shipped `docker/compose.yml`, Docker Desktop) sees every device as bridge gateway address. Dialog shows one address for all. Anyone reaching published port passes LAN check. Use host networking for real addresses. Details: `docs/architecture.md` §LAN knock pairing.
 
 See change: add-lan-knock-pairing.
+
+## Why does a live preview URL carry `/~c/<token>/`?
+
+Preview frame is sandboxed (opaque origin). Its images, `fetch` and HMR socket send no cookie. Viewer mints per-preview capability: `POST /api/live-server/:id/capability` (tier `control`) → `/live/<id>/~c/<token>/`.
+
+- Scope: one preview. Idle 30 min, absolute 12 h.
+- Dies with target removal, device revoke, session end, server restart.
+- Never valid for `/api`. Stripped before forwarding. Server logs redact token.
+- Proxy adds `Referrer-Policy: no-referrer` when absent. Strips capability segment from forwarded `Referer`.
+- Dashboard cookies `pi_dash_device`, `pi_dash_token` and device bearers not forwarded to previewed app. App's own cookies pass through.
+- Viewer frames capability path always (local and remote).
+- `observe` devices cannot mint (needs `control`).
+
+Previewed app sees token in its URL. Sharing preview URL shares access until idle expiry.
+
+See change: retire-trusted-networks-bypass.
 
 ## Why do all my PWA installs of the dashboard have the same name on the launcher?
 
@@ -796,12 +920,12 @@ Keys:
 - `auth.secret` — JWT signing secret (auto-generated if omitted)
 - `auth.providers` — provider → `{ clientId, clientSecret, issuerUrl? }`
 - `auth.allowedUsers` — usernames, emails, or `*@domain` wildcards. Empty = allow all
-- `auth.bypassHosts` — trusted networks (CIDR/wildcard/exact); written by Settings → Security → Trusted Networks
+- `auth.bypassHosts` — network list (CIDR/wildcard/exact); admits without sign-in only under `network.trustMode: "legacy"`; written by Settings → Security → Network access
 - `auth.bypassUrls` — path-prefix allowlist
 
 Callback URL: register `https://<tunnel-url>/auth/callback/<provider>` in OAuth provider settings. Tunnel URL stable across restarts via reserved share.
 
-JWT cookie `pi_dash_token` set on success (7-day expiry). WebSocket upgrades validated identically. `/auth/*`, `/api/health`, localhost, and trusted IPs bypass the `onRequest` hook.
+JWT cookie `pi_dash_token` set on success (7-day expiry). WebSocket upgrades validated identically. `/auth/*`, `/api/health`, localhost, and (`legacy` only) trusted IPs bypass the `onRequest` hook.
 
 Cross-refs:
 - README.md:213
@@ -864,6 +988,26 @@ Child (zrok/ngrok) = server owns child process, PID + watchdog. Daemon (tailscal
 Gateway UI → "Add HTTPS URL". Appends to `pairing.publicBaseUrls` via auth-gated `PUT /api/config`. No new route.
 
 https/wss only. Gate authoritative server-side at read time in `reachableUrls()`; plain-http dropped before advertisement. Endpoint surfaces in `GET /api/tunnel/endpoints` as tagged `{kind, url, tls}`.
+
+## HTTPS on the tailnet (built-in TLS listener)
+
+No reverse proxy. Dashboard serves HTTPS itself with a Tailscale cert. Off by default.
+
+Steps:
+1. Tailscale admin console → DNS → enable HTTPS Certificates.
+2. Gateway page → Built-in HTTPS → switch on.
+3. Listen on → "Use <ip>" (Tailscale IPv4). Needed so other devices reach it. Default `127.0.0.1` = this machine only.
+4. Connect by MagicDNS name (`https://<name>.<tailnet>.ts.net:8443`), not IP. No SNI on IP URL → handshake fails.
+
+Notes:
+- Device name appears in public CT logs (certificate transparency). Opt-in only.
+- Phones need HTTPS to pair and receive notifications.
+- Devices still pair. Or add `100.64.0.0/10` as trusted network (Security page). See [My Tailscale device is not trusted after Add Local Network?](#my-tailscale-device-is-not-trusted-after-add-local-network).
+- OAuth sign-in not supported from TLS origin. Login returns to resolved redirect base. Pair instead.
+- Device paired over TLS → cookie `pi_dash_device` is `Secure`. Use the TLS origin. `http://<name>:8000` will not send it.
+- Rollback: switch off. Listener closes. Certs stay on disk, inert.
+
+See change: add-tailscale-cert-tls. Architecture: [Built-in TLS listener](architecture.md).
 
 ## Why do some endpoints get a link QR instead of the pairing QR?
 
@@ -1325,7 +1469,7 @@ Message queues. Bridge owns `PromptQueue` per session.
 
 - Above `CommandInput`, `QueuePanel.tsx` shows chip per queued message.
 - Click "Clear all" drops entire queue (`queue_clear` action).
-- Bridge runs queued messages in order after current turn ends (on `agent_end`, drains via `pi.sendUserMessage`).
+- Bridge runs queued messages in order after current turn ends (on `agent_settled`, drains via `pi.sendUserMessage`).
 - Queue lost on bridge restart — in-memory only.
 
 Cross-refs:
@@ -1598,11 +1742,11 @@ Cross-refs:
 
 ## Why does /ctx-stats work in some sessions but not others?
 
-Now works in every session kind. Extension commands dispatch in-process via `pi.sendUserMessage(text, {expandPromptTemplates: true, deliverAs})` (step 9), ungated (pi 1.1.0 lockstep floor). No session-kind probe, no keeper UDS route.
+Now works in every session kind. Extension commands dispatch in-process via `pi.sendUserMessage(text, {expandPromptTemplates: true, deliverAs})` (step 9), ungated (pi 1.3.0 lockstep floor). No session-kind probe, no keeper UDS route.
 
 Pi runs `_tryExecuteExtensionCommand` FIRST — before its compaction guard, before `streamingBehavior` — so headless, tmux, terminal and user-launched sessions all dispatch the same way. `deliverAs` is inert for an extension command.
 
-Below the floor: no per-feature gate. A session running a pi below `piCompatibility.minimum` (1.1.0) shows the generic `piBelowFloor` warning on the session card + chat header; dispatch itself is ungated.
+Below the floor: no per-feature gate. A session running a pi below `piCompatibility.minimum` (1.3.0) shows the generic `piBelowFloor` warning on the session card + chat header; dispatch itself is ungated.
 
 Retired by change `retire-slash-dispatch-via-expand-prompt-templates`: Path B (`pi.dispatchCommand`, never shipped upstream), Path C (headless RPC via keeper UDS), Path D (tmux / Windows Terminal error). Keeper sidecar UNCHANGED — still the durable owner of pi's stdin across dashboard restarts.
 
@@ -2862,6 +3006,31 @@ Cross-refs:
 - packages/server/src/routes/openspec-routes.ts
 - packages/shared/src/platform/openspec.ts
 
+## How do I enable the pi-spec-driven workflow schema?
+
+Settings → OpenSpec → OpenSpec Workflow Schema (`/settings/openspec#workflow-schema`). Pick project. Click Enable. Confirm dialog lists every path written.
+
+Enable writes (per project, nothing committed by dashboard):
+- `openspec/schemas/pi-spec-driven/` — generated from package `spec-driven` + patch v1, stamped `x-pi-dashboard`.
+- `.openspec.yaml` with `schema: <previous default>` in each active change lacking one. Keeps existing changes on their workflow.
+- `openspec/config.yaml` `schema: pi-spec-driven`.
+
+Commit those files yourself. Teammates without `openspec/schemas/pi-spec-driven/` get per-change `schema not found`.
+
+Refused when: no `openspec/config.yaml` or `config.yml`; `openspec/` or `changes/`, `schemas/`, `config.yaml` is a symlink; OpenSpec root is not the project dir (`root.source` ≠ `nearest`); stamp `unmanaged` or `incompatible`; stamp `previousDefault` ≠ config default (run Update with `previousDefault` set to the config value).
+
+Other actions:
+- Disable: restores previous default. Schema dir stays.
+- Update: re-stamps after a dashboard or OpenSpec CLI upgrade. Refused on `newer`, `conflict`, `incompatible`.
+- Remove: deletes schema dir. Refused while config or a local change pins it. Unmerged branches pinning it break.
+
+New projects: `openspec.workflowSchema.defaultForNewProjects` (Settings → OpenSpec). On = REST init enables for a directory that had no `openspec/` before init. Existing projects never switch on their own.
+
+Cross-refs:
+- docs/architecture.md (OpenSpec workflow schema section)
+- packages/server/src/openspec/workflow-schema.ts
+- packages/server/src/routes/openspec-routes.ts
+
 ## Why do the OpenSpec buttons do nothing?
 
 The dashboard derives one per-directory readiness state (`OpenSpecData.readiness`) and renders exactly the action that resolves that state. A button that does nothing means the state does not offer it. States and their fixes:
@@ -3450,6 +3619,50 @@ Details: `docs/architecture.md` §Sources, trust & dashboard reindex.
 
 See change: improve-kb-settings-sources-and-search.
 
+## Why is a new worktree's kb index fast / how do I disable seeding?
+
+First kb index in linked git worktree seeds from main checkout snapshot. Measured this repo: ~4 s seeded vs ~104 s cold. Result equals cold first index.
+
+Mechanics:
+
+- `VACUUM INTO` main `dbPath` (same relative path) → worktree DB.
+- Normal walk then re-chunks only differing files. Files compared by content, not mtime.
+- Main checkout resolved per git rules (repo-local `core.worktree`, bare check). Needs git ≥ 2.31.
+- Main DB never written.
+
+Source reuse gate. Source reused only when main recorded:
+
+- same schema version.
+- same index-options hash.
+- same kb engine fingerprint (`engine:<root>` in `kb_meta`, from `packages/kb/engine-fingerprint.json` `srcHash`).
+
+Else that source builds from scratch.
+
+Upgrade:
+
+- First pass after kb upgrade re-chunks every source once (engine record absent).
+- Until main finishes that pass, worktree seeds 0 sources.
+
+Log. Every first index prints ONE stderr line:
+
+- `[kb] seed=<main> sources=<kept>/<passed>`
+- `[kb] seed-skipped=<reason>`
+
+Reasons, check order: `disabled`, `not-a-worktree`, `no-main-checkout`, `custom-dbpath`, `main-building`, `no-main-index`, `snapshot-error`.
+
+Disable:
+
+- Config `.pi/dashboard/knowledge_base.json`: `seedFromMainWorktree: false` (default `true`).
+- Or `kb index --no-seed`.
+- Explicit `--source` / `--db`, or `dbPath` outside worktree → also skip seeding.
+
+Failure:
+
+- Seed failure never fails run.
+- Rerun indexes once unseeded (`snapshot-error`).
+
+Side effect: main's `dox-staleness.json` copied once when worktree has none (legacy or v2 format).
+
 ## How do I connect Claude Code / Cursor to the dashboard MCP?
 
 Connect external MCP client via HTTP transport with bearer authentication.
@@ -3756,7 +3969,7 @@ See change: streamline-first-run.
 
 Label = cause the dashboard server observed. Browser probe fails at transport level → server probes the stored entry (`POST /api/known-servers/probe`, operator only).
 
-- `CORS-blocked` — server reaches entry, this browser does not. Fix: allow this browser's network on the remote (`trustedNetworks`), or check the path from this browser.
+- `CORS-blocked` — server reaches entry, this browser does not. Fix: pair this browser to the remote (Request access under `pair`), or under `legacy` allow this browser's network (`trustedNetworks`). Or check the path from this browser.
 - `Name not found` — server cannot resolve stored host (`ENOTFOUND` / `EAI_NONAME`). Usually remote renamed its `.local` name. No move suggestion → re-add server with its current address.
 - `Moved to <host>:<port>` + Update — same server (identity proof against stored `fingerprint`) answers at new on-link address. Update = operator accepts: rewrites entry `host`/`port`; label, fingerprint, `addedAt` kept. Nothing changes without the click.
 - `Unreachable` — refused, timeout, or other error. Check server running and port.
@@ -3802,3 +4015,290 @@ See change: stabilize-mdns-server-identity.
 Cross-refs:
 - docs/architecture.md → mDNS Server Discovery → Dashboard-owned names
 - packages/server/src/auth/identity.ts
+
+## How do I run the team / identity-matrix E2E specs locally, and where do they run in CI?
+
+`playwright.config.ts` `testIgnore` excludes `tests/e2e/team/**` + `tests/e2e/identity-matrix/**`. Bare `npx playwright test` collects 0 of them. Config-owned.
+
+Local:
+
+- Team: `npm run test:e2e:team`. `pretest` builds team app via `npm run build:app --workspace=@blackbelt-technology/pi-dashboard-team-plugin`. Needs real `pi` CLI on PATH.
+- Identity matrix: `npm run build && npm run test:e2e:identity-matrix`.
+
+CI (`.github/workflows/ci-e2e-browser.yml`):
+
+- Job `e2e-team` → config `playwright.team.config.ts`.
+- Job `e2e-identity-matrix` → config `playwright.identity-matrix.config.ts`.
+- Both use shard matrix `if:` label gate: `e2e-browser` label on PR, always on `workflow_dispatch`.
+- Both `continue-on-error: ${{ github.event_name == 'pull_request' }}`.
+- Both install `pi` pinned to exact version in `docker/Dockerfile` (single source of truth; lint-checked).
+
+Skip reasons in 5 `pi`-gated specs name the leg, not issue #861.
+
+Identity-matrix `browser-login` / `security` / `setup-matrix` need `test-results/identity-matrix/state.json`. Only identity config `globalSetup` writes it. Specs moved with directory → were red in shards before.
+
+See change: add-missing-ci-legs.
+
+Cross-refs:
+- playwright.config.ts
+- .github/workflows/ci-e2e-browser.yml
+- packages/shared/src/__tests__/e2e-browser-workflow-contract.test.ts
+
+## Where are the browser-E2E CI legs and their HTML report artifacts?
+
+`ci-e2e-browser.yml` jobs:
+
+- `e2e` — 18 shards, uploads `blob-report-<n>`.
+- `e2e-browser-relay` — uploads `blob-report-relay`.
+- `e2e-team`, `e2e-identity-matrix` — variant legs.
+- `merge-report` — `needs: [e2e, e2e-browser-relay]`. Joins `blob-report-*` → artifact `playwright-report`.
+
+Variant legs do NOT join merge:
+
+- Run `--reporter=list,html`.
+- Upload own artifact: `playwright-report-team`, `playwright-report-identity-matrix`. `if: always()`.
+- Names deliberately outside `blob-report-*` pattern and distinct from `playwright-report`.
+- Red variant leg cannot break `merge-report`.
+
+Electron legs in `ci-e2e-electron.yml`:
+
+- PR → ubuntu + windows.
+- `workflow_dispatch` → ubuntu + windows + macOS.
+- Nightly `schedule` → macOS only. Every other job skipped on schedule.
+- macOS opt-in for PR: `gh workflow run ci-e2e-electron.yml --ref <branch>`.
+- No `labeled` trigger: label event cancels in-flight run via concurrency group.
+- macOS leg: advisory, arm64, 10x billing.
+- While #531 quarantine stands: zombie-adoption spec (`test.fixme(process.platform === "darwin", …/issues/531)`) NOT covered on macOS.
+
+See change: add-missing-ci-legs.
+
+Cross-refs:
+- .github/workflows/ci-e2e-browser.yml
+- .github/workflows/ci-e2e-electron.yml
+
+## The site did not deploy after a `site/**` push — what backstops it?
+
+`deploy-site.yml` push filter = fast path only. GitHub produced zero runs for some pushes (#579, ≥3 times: `d773f20a5`, 2026-05-26, 2026-05-30).
+
+Backstop: `.github/workflows/site-drift-check.yml`. Daily cron + `workflow_dispatch`.
+
+- `deploy-site.yml` build writes `site/dist/deploy-sha.txt` = `${{ github.sha }}` before upload.
+- Check runs `node scripts/site-drift-decision.mjs --ref origin/develop`.
+- Fetch `https://pi-dashboard.dev/deploy-sha.txt?ts=<epoch>`.
+- `LAST` = last commit on develop touching push-filter path set: `site/` minus `site/design-scratch/`, `packages/shell/`, `.github/workflows/deploy-site.yml`.
+- Up to date iff `git merge-base --is-ancestor LAST <deployed-sha>`.
+- Marker missing / unknown / not-a-SHA → stale.
+- Stale → `::warning::` + `gh workflow run deploy-site.yml --ref develop`.
+- Deploy run queued/in progress → `::notice::`, skip. Dispatch would cancel it via `pages-deploy` `cancel-in-progress`.
+- `gh run list` fails → `::notice::`, no dispatch, exit 0.
+- Dispatch rejected → `::error::`, job red.
+- Check job perms exactly `contents: read` + `actions: write`. No cache. Outside `pages-deploy` group.
+
+`deploy-site.yml` build/deploy skip unless `github.ref == 'refs/heads/develop'`. Feature-branch dispatch publishes nothing.
+
+Manual fast path after hand-published release stays: dispatch `sync-release-version`, then `deploy-site`.
+
+See change: add-missing-ci-legs.
+
+Cross-refs:
+- .github/workflows/deploy-site.yml
+- .github/workflows/site-drift-check.yml
+- scripts/site-drift-decision.mjs
+
+## Harness container vanished mid-run — who destroyed it, and what must I never run?
+
+Recorder: `docker/test-up.sh` starts `docker/harness-audit.sh <file> <project>` before `compose up`.
+
+- Events log: `${TMPDIR:-/tmp}/pi-dash-test/<project>.events.log`. Outside worktree → survives ship-it worktree removal. Subject to OS temp retention.
+- State file `.pi-test-harness.json` gains `recorderPid`, `eventsFile`, `containerId`.
+
+Teardown: `docker/test-down.sh`:
+
+- Appends `teardown-begin <ts> <project> <id>` before `compose down`.
+- Waits ≤10 s for that container's `destroy` line.
+- Stops recorder. Prints events path.
+
+Foreign destroy = `destroy` line for this boot's container id with no earlier `teardown-begin` for same id. Match by container id, never project (project name stable across boots).
+
+Playwright:
+
+- Managed mode: HARNESS DOWN message says `foreign actor` + quotes the `destroy` line.
+- Attach mode (`PW_E2E_USE_RUNNING=1`): cause undetermined. Message points at events dir.
+
+Recorder best-effort. Unusable `docker events` or unwritable dir → one stderr line: `harness-audit: lifecycle capture unavailable (<reason>); continuing`.
+Self-exits ≤ one 30 s poll after container gone. 12 h hard cap.
+Local only. CI runner has private daemon.
+
+FORBIDDEN while any harness is up. Never run:
+
+```bash
+docker ps -aq --filter 'name=pi-dash-test' | xargs -r docker rm -f
+docker container prune -f
+```
+
+First prefix-matches every worktree's harness. Second is daemon-wide.
+
+Supported teardown: `docker/test-down.sh` from owning worktree (scoped to its own compose project).
+
+See change: add-missing-ci-legs.
+
+Cross-refs:
+- docker/TESTING.md
+- docker/harness-audit.sh
+- docker/test-up.sh
+- docker/test-down.sh
+
+## How do I approve a pending device pairing request?
+
+Dialog Approve fails (401) when tab lacks `pi_dash_local` proof cookie. Terminal path: `pi-dashboard pair` on the host. Uses local token, mints `X-Pi-Local-Proof` per request. Never creates token file. No new trust: same token file as `pi-dashboard open`.
+
+Steps:
+1. `pi-dashboard pair list` — pendingId + device fields. Never prints code.
+2. Read 8-digit code off device.
+3. `pi-dashboard pair approve [<pendingId>]` — prompts for code (TTY). Omit id when exactly one pending.
+4. Optional: `--name <label>`, `--tier observe|control|operate` (omitted ⇒ server default).
+5. Deny: `pi-dashboard pair deny <pendingId>`.
+
+Rules:
+- Operator types code. Server never sends code to CLI.
+- Attempt budget shared with dialog: 5 attempts, then `locked_out`.
+- Code shape: spaces/dashes stripped, must be exactly 8 digits, else exit 2 before any request (no attempt spent).
+- `--code <digits>` visible in `ps` + shell history. Prefer prompt or stdin.
+- Stdin pipe (non-TTY, no `--code`): first line = code. EOF/empty ⇒ exit 2.
+
+### Desktop app (Electron)
+
+- Proof re-minted on every handoff to local dashboard URL (loading page, restart, startup-failure recovery, known-server pick).
+- Dialog Approve works. CLI not needed.
+
+### `pi-dashboard open` (browser on the host)
+
+- `pi-dashboard open` → `http://localhost:<port>` + proof cookie. Dialog Approve works in that tab.
+
+### `localhost` vs `127.0.0.1`
+
+- Proof cookie host-only: exact host string. `localhost` cookie never sent to `127.0.0.1`, LAN IP, or tunnel host.
+- Tab on `http://127.0.0.1:<port>`: Approve stays 401 after `pi-dashboard open` (targets `localhost`).
+- Fix: `pi-dashboard open --url http://127.0.0.1:<port>`, or use `pair approve`.
+- `--url` rules: `http`/`https`; host `localhost`, `127.0.0.0/8` or `[::1]`; port = configured server port only; origin only (no path, query, fragment, userinfo). Else exit 2, no code minted.
+- Dialog offers `authorize-browser` row only when request `Host` passes same rule.
+
+### Tunnel / LAN origin (zrok, tailscale, LAN IP)
+
+- `open --url` refuses non-loopback origin. Cookie cannot reach that origin from CLI.
+- Use `pi-dashboard pair approve <pendingId>` in host shell.
+
+### Headless / SSH
+
+- No browser needed. Run `pair list` / `pair approve` in SSH shell on server host.
+- SSH `-L` forward (local port ≠ configured port): `open --url` refuses. Use CLI.
+
+### Docker
+
+- Container user `pi` (`docker/Dockerfile` `USER pi`, `HOME=/home/pi`) = server user. `docker exec` default user matches.
+- Prompt: `docker exec -it <container> pi-dashboard pair approve [<pendingId>]`.
+- Pipe: `echo 12345678 | docker exec -i <container> pi-dashboard pair approve [<pendingId>]`.
+- List: `docker exec <container> pi-dashboard pair list`.
+
+### WSL
+
+- CLI must run on the **same OS and user** as the server. Token path = `~/.pi/dashboard/local/token` under that user's HOME.
+- WSL shell + server on Windows: different HOME ⇒ different token file. Exit 1 (`cannot read the local token`) or exit 3 HTTP 401 (`may belong to a different server or user`).
+- Server on Windows → run `pi-dashboard pair` from Windows shell. Server in WSL → run from WSL shell.
+
+### `host` set to a hostname
+
+- Proof binds IP literal. `pair` refuses before sending anything: exit 1, `is a name, not an IP address`.
+- Fix: set `"host"` in `config.json` to IP literal (`127.0.0.1` or LAN IP). Restart: `pi-dashboard restart`.
+- Unset, `localhost`, or IP literal: supported.
+
+### `--dev` (Vite dev server port)
+
+- Vite port ≠ configured server port. `open --url <vite origin>` refused (exit 2, message names configured port). No opt-in flag.
+- Dev client build hides `authorize-browser` row. `approve-on-host` row remains.
+- Use `http://localhost:<configured port>` or `pair approve`.
+
+### Exit statuses
+
+| Exit | Class | Cases |
+|---|---|---|
+| 0 | ok | approved, denied, listed |
+| 1 | credential / config | token unreadable; `host` is hostname; `open` failures |
+| 2 | usage / input | unknown verb/option, bad `--tier`, malformed or empty code, no id with 0 or >1 pending, `open --url` refused |
+| 3 | server refused | `mismatch` (attempts left), `locked_out`, `expired`, `no_pending`, HTTP 401 |
+| 4 | unreachable | connection refused, 5 s timeout |
+
+See change: fix-pairing-approval-credential.
+
+Cross-refs:
+- openspec/changes/archive/2026-10-17-fix-pairing-approval-credential/
+- packages/server/src/cli.ts → `cmdPair`, `cmdOpen`, `validateOpenUrl`
+- packages/shared/src/launcher-origin.ts → `isLauncherOrigin`
+- packages/server/src/auth/local-token.ts → `readLocalTokenIfPresent`
+
+## Browser E2E baseline: #683 quarantine owners + trust isolation
+
+Quarantine = `test.fixme(true, ".../issues/683")` call sites in `tests/e2e`. Count drifts. Re-derive, never freeze:
+
+```bash
+grep -rc 'issues/683' tests/e2e --include=*.ts | awk -F: '{s+=$2} END {print s}'   # sites
+grep -rl 'issues/683' tests/e2e | wc -l                                              # files
+```
+
+- Time of writing: 101 sites / 44 files. Issue text (~33) stale.
+- Re-run both commands before quoting a count.
+
+### Cluster → owner
+
+Follow-up change names. None exist yet. Create via `openspec change new <name>`.
+
+| Cluster | Members | Owner change |
+|---|---|---|
+| openspec-init affordances | `openspec-init-affordances-folder`, `openspec-init-affordances-session-card`, `openspec-board-drop`, `openspec-board-worktree-availability` | `fix-e2e-openspec-init-affordances` |
+| subagent | `subagent-tick-throttle`, `subagent-pull-measurements`, `subagent-thin-tick-liveness`, `subagent-pull-under-load`, `subagent-inspector`, `subagent-fanout-admission`, `subagent-detail-dialog`, `subagent-fanout-measurement` | `fix-e2e-subagent-cluster` (related #679) |
+| chat scroll / virtualization | `selection-anchor`, `chat-transcript-virtualization`, `scroll-to-top`, `replay-in-flight-pill` | `fix-e2e-chat-geometry` |
+| queue / image / prompt lifecycle | `followup-image-queue`, `optimistic-prompt`, `pending-prompt-recovery`, `package-queue-visible` | `fix-e2e-prompt-queue` |
+| restart / boot / session lifecycle | `ended-session-endedat`, `status-reconcile`, `durable-session-diff`, `faux-ask`, `keeper-restart-survival`, `tmux-session-shutdown`, `spawn-correlation-recovery` | `fix-e2e-restart-cluster` (CANDIDATE: shares #832 root cause, restart axis) |
+| trust / token surfaces | `mcp-session-token`, `origin-gate` | CANDIDATE: re-check after #832 verdict |
+| misc UI | `folder-actions-menu`, `editor-pane`, `folder-membership-drag`, `terminal`, `inline-terminal-transcript`, `inline-screenshot`, `history-backfill-gap`, `flow-roundtrip`, `flow-live-no-double-render`, `anthropic-bridge-activation`, `automation-fanout`, `acp-automation`, `pi-runtime-picker`, `settings-default-model-catalogue`, `tool-created-files` | `fix-e2e-misc-reds` |
+
+### Unquarantine rule
+
+- Scope: CANDIDATE clusters only (restart; trust/token). Other clusters: owner change only.
+- Unquarantine only when BOTH:
+  - (a) original #683 failure log shows refusal signature: `OffBoxError`, `network_not_allowed`, `host_not_allowed`. Not geometry, assertion, or timing.
+  - (b) passes ≥3 consecutive dispatched runs after the fix.
+
+### Trust isolation (spec authors)
+
+- Change `trustedNetworks`, `auth.bypassHosts`, `auth.bypassUrls`, `allowedHosts`, `hostGate.mode`, `requireLocalProof` ONLY via `narrowTrust(request, patch, {touches?})` from `tests/e2e/fixtures.ts`.
+- Lint: `node scripts/check-e2e-fixture-import.mjs` (also `npm run lint:e2e`).
+- Scope `test` (call in test / `beforeEach`): restored by reap fixture after body, also on failure/timeout.
+- Scope `describe` (call in `beforeAll`): released when next spec file's first test starts.
+- UI-driven change: `narrowTrust(request, {}, { touches: ["allowedHosts"] })`.
+- Needs operator credential = harness auth configured (`PI_E2E_OAUTH=1`, managed default). No credential → call fails.
+- No credential: run spec on dedicated narrow-booted harness (`PI_E2E_TRUSTED_NETWORKS=127.0.0.1/32`). See `tests/e2e/network-guard.spec.ts`.
+
+### Harness guards
+
+- Worker start re-asserts boot baseline from `test-results/.trust-baseline.json`.
+- Tripwire: fails owning test on undeclared leak, then heals.
+- Refusal latch: unexpected 403 `network_not_allowed` / `host_not_allowed` at reap pre-snapshot → run declared unusable, rest skipped.
+- Latch persisted: `test-results/.harness-refused.json`.
+- Latch disarmed on narrow-booted harness or while `narrowTrust` active.
+- Deliberate-poisoning faults: `PW_E2E_HARNESS_FAULTS=1 npx playwright test tests/e2e/harness-isolation-faults.spec.ts` on FRESH harness only. Reused poisoned harness records poison as baseline.
+
+### Bus client denial
+
+- `OffBoxError` carries `.status` + `.error`.
+- Message: `ticket mint denied: <status> <error> — <reason>`.
+- Source: `packages/bus-client/src/errors.ts` (`OffBoxError`), `packages/bus-client/src/client.ts`.
+
+Cross-refs:
+- tests/e2e/fixtures.ts → `narrowTrust`
+- scripts/check-e2e-fixture-import.mjs
+- tests/e2e/network-guard.spec.ts
+- tests/e2e/harness-isolation-faults.spec.ts
+- openspec/changes/triage-browser-e2e-offbox-poison/
+
+See change: triage-browser-e2e-offbox-poison.

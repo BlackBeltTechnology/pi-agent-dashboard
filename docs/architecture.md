@@ -598,7 +598,8 @@ Pi owns the retry loop. Dashboard configures + observes + renders it. Attempts f
 - `agent_settled` carries NO `messages` (verified pi 0.81.1/0.83), so tracker remembers terminal disposition via `lastEndWasError` at `agent_end`.
 - `-1` sentinels REMOVED. `maxAttempts` / `delayMs` sourced read-only from pi settings via `packages/extension/src/pi-retry-settings.ts` (defaults 3 / 2000; unreadable → `delayMs: 0` → surface renders elapsed-only).
 - pi 0.83 exposes retry lifecycle events to RPC/SDK consumers ONLY. ExtensionAPI has no `auto_retry_*` and nothing on EventBus. `willRetry` in 0.83 is compaction-only (`session_before_compact`/`session_compact`). Bridge is extension → must observe-synthesize.
-- Native `agent_settled` guaranteed at the 1.1.0 lockstep floor (`piCompatibility.minimum == recommended == 1.1.0`). Bridge consumes the native settle unconditionally — no version gate, no floor-pi synthesis. Floor-pi synthesis module `packages/extension/src/agent-settled.ts` DELETED. `agent_settled` remains the SOLE terminal retry signal. See change: update-pi-core-0-85-adopt-apis.
+- Native `agent_settled` guaranteed at the 1.3.0 lockstep floor (`piCompatibility.minimum == recommended == 1.3.0`). Bridge consumes the native settle unconditionally — no version gate, no floor-pi synthesis. Floor-pi synthesis module `packages/extension/src/agent-settled.ts` DELETED. `agent_settled` remains the SOLE terminal retry signal. See change: update-pi-core-0-85-adopt-apis.
+- Bridge follow-up drain (`bridgeFollowUp`) triggers on `agent_settled`, not `agent_end`. Forwarder schedules `drainFollowupQueue()` via `setTimeout(0)`; pi clears run-active before `agent_settled`, so `isIdle()` is true. No retry loop: a false `isIdle()` returns, the next `agent_settled` drains. Gate sequence: `packages/extension/src/followup-drain.ts`. See change: update-pi-core-1-3-adopt-apis.
 
 **3. Settings write + reload-on-save** (`packages/server/src/pi-agent-settings.ts`).
 
@@ -1477,6 +1478,16 @@ Automation plugin = `packages/automation-plugin/`. Schedule-triggered background
 - Registration requires CANONICAL containment (no lexical fallback — symlink-escape guard).
 - `resolve()` matches canonical-OR-lexical (fail-toward-applying).
 - See change: add-plugin-spawn-scope.
+- Pkg `packages/path-containment-guard` → `@blackbelt-technology/pi-path-containment-guard`. Opt-in pi extension. Loaded only via `-e` / `scope.extensions`; no `pi.extensions` entry. README: `packages/path-containment-guard/README.md`.
+- Fail-closed, non-interactive. Rejects `read|write|edit|grep|find|ls` outside `allowedRoots` + any `deniedTools`. Codes: `tool_denied`, `path_outside_roots`, `invalid_path`, `config_invalid`, `error`.
+- Config env: `PI_EXT_PATH_CONTAINMENT_GUARD_ALLOWED_ROOTS`, `PI_EXT_PATH_CONTAINMENT_GUARD_DENIED_TOOLS` (JSON arrays), via `extensionConfig["path-containment-guard"]`.
+- Plugin helper `withPathContainmentGuard({allowedRoots, deniedTools?}, baseScope?)` merges `-e` entry + `extensionConfig` into spawn scope.
+- Shared resolver `packages/shared/src/tool-path-resolve.ts` (moved from `packages/extension/src/path-gate/resolve.ts`, which re-exports). Used by path-gate + guard.
+- Security fix: `canonicalizeTarget` follows dangling symlinks. Write through in-root dangling link no longer escapes path-gate unprompted. Loop → hop bound 40 → path-gate blocks `error`.
+- Spawn env ownership: `buildSpawnEnv` strips inherited `PI_EXT_<NAME>_*` for every name in `scope.extensionConfig`, after env contributors, then projects own config. `PI_EXT_PATH_CONTAINMENT_GUARD_*` never inherited by any spawn.
+- Name const `PATH_CONTAINMENT_GUARD_EXT_NAME` in `packages/shared/src/path-containment-guard-name.ts`.
+- Not a sandbox. Shell/MCP tools not path-checked. List them in `deniedTools`.
+- See change: add-path-containment-guard-extension.
 
 ### Plugin Session Lifecycle Declarations (`hide-chat-gateway-sessions`)
 
@@ -1544,7 +1555,7 @@ New plugin `packages/mcp-client-plugin/`, id `mcp-client`. Sole owner of the two
 
 **Service.** `ctx.provide("mcp-client.config", …)` before any route registers. Factory `createMcpClientConfigService({ configIO, knownCwds, isProjectTrusted?, paths?, runner?, scratchCwd?, liveTimeoutMs?, liveCacheTtlMs? })` → `McpClientRuntime` = service + `getLiveState(scope, {fresh})`. Write-only paths never run `pi mcp list`.
 
-**Trust.** `isProjectTrusted(cwd)` INJECTED. Dashboard server supplies `host.isProjectTrusted` (see Bootstrap). Untrusted folder → its project layer never loads, its rows inactive (`project-not-trusted`). Hostless caller (apple-tools CLI) treats every project as untrusted → global writes only.
+**Trust.** `isProjectTrusted(cwd)` INJECTED. Dashboard server supplies `host.isProjectTrusted` (see Bootstrap; decision = shared `decidePiTrust`, see Pi trust mirror). Untrusted folder → its project layer never loads, its rows inactive (`project-not-trusted`). Dashboard-only trust → project rows active, live state `not-checked-by-pi`. Hostless caller (apple-tools CLI) treats every project as untrusted → global writes only.
 
 **Live state.** `src/core/live-state.ts` `createLiveStateReader({runner,timeoutMs,cacheTtlMs,now})` runs `pi mcp list --json` through the shared safe-spawn. `LIVE_STATE_TIMEOUT_MS` 30000, `LIVE_STATE_CACHE_TTL_MS` 30000. stdout parsed whatever the exit code — pi exits `1` whenever a server is disconnected or an entry invalid. Timeout aborts the signal → `{ok:false,reason:"timeout"}`; failures never cached. Global view spawns in an empty `mkdtemp` scratch dir so only the global layer loads.
 
@@ -1689,17 +1700,19 @@ pi/openspec/tsx are regular npm dependencies of `@blackbelt-technology/pi-dashbo
 
 `launchSource` (returned by `/api/health`) is `"electron" | "standalone" | "bridge"`, derived from `DASHBOARD_STARTER`. Client uses it via `useLaunchSource()` to hide pi-core update UI on Electron (immutable bundle has no writable target).
 
-Compatibility skew helpers in `pi-version-skew.ts` (`readPiCompatibility`, `readCurrentPiVersion`, `computeCompatibility`) survive as pure helpers. The pinned range is `minimum: "1.1.0"`, `recommended: "1.1.0"`, `maximum: null` (lockstep — one supported pi means no conditional code paths on that artifact). `piCompatibility` unchanged: a `@earendil-works/pi-coding-agent` range, a DIFFERENT artifact from the pi-ai pin below.
+Compatibility skew helpers in `pi-version-skew.ts` (`readPiCompatibility`, `readCurrentPiVersion`, `computeCompatibility`) survive as pure helpers. The pinned range is `minimum: "1.3.0"`, `recommended: "1.3.0"`, `maximum: null` (lockstep — one supported pi means no conditional code paths on that artifact). `piCompatibility` unchanged: a `@earendil-works/pi-coding-agent` range, a DIFFERENT artifact from the pi-ai pin below.
 
 1.1.0 adds: `tool_execution_end.durationMs` preferred for tool row duration; `samplingParamsByThinkingLevel` passthrough; `GET /api/provider-auth/legacy-provider-ids` (`azure-openai-responses` -> `azure` rename scan). See change: update-pi-core-1-1-adopt-apis.
 
+1.3.0 adds: follow-up drain on `agent_settled` (see `### Retry Lifecycle`). Single-bang `!cmd` output sent via `pi.sendUserMessage(msg, {deliverAs: "followUp"})`. Retry turn `before_agent_start` `messageType: "custom"` (pi ≥ 1.2.0) → gets session-context fragment, kb doctrine, role guidelines, untrusted-content guideline, team skill filter; also runs compaction check + `nextTurn` prelude. Typed setting `sessionShareDestination` (`auto`|`gist`|`radius`, default `auto`). Lockstep floor → 1.3.0. Dropped `@earendil-works/chord`. See change: update-pi-core-1-3-adopt-apis.
+
 **Below-floor session signal.** Replaces per-feature pi version gates. Bridge `sendPiVersionIfChanged` (`packages/extension/src/model-tracker.ts`) reads the running pi argv-anchored via `readRunningPiVersion` and sends `pi_version_update`; server runs `computePiBelowFloor(version, serverPiMinimum())` (`packages/server/src/pi/pi-version-skew.ts`) → sets `DashboardSession.piBelowFloor: { minimum } | null`; client `PiBelowFloorWarning` renders on `SessionCard` + `SessionHeader`. Unknown or unparseable version → no flag. `minimum` sourced from `piCompatibility.minimum`. See change: update-pi-core-1-0-adopt-apis.
 
-**pi-ai generation window.** Legacy generation REMOVED — the dashboard supports ONE **pi-ai** generation (pi >= 1.1.0). Supported range `>=1.1.0` (root `package.json` + `packages/extension/package.json` peerDependencies). Root devDependency pin `^1.1.0`. The server streams through pi-coding-agent's own **`ModelRuntime`** (ONE server runtime — see `### Single model runtime`), which owns module shape (factory API only), transcript normalization (`normalizeContext` before dispatch, else systemPrompt + tools drop silently) and OAuth relocation (`dist/oauth.js` is a TYPE-ONLY stub, never consulted; real loaders at `dist/auth/oauth/*.js`, a path NOT in the package `exports` map). `packages/extension/src/bridge.ts` streams through pi's own `ctx.modelRegistry.streamSimple`. The `packages/shared/src/piai-compat/` seam (`adaptPiAi`), its `api-table.ts` / `NON_TEXT_LAZY_FILES` helpers and `packages/shared/src/test-support/piai-factory-fixture.ts` are DELETED.
+**pi-ai generation window.** Legacy generation REMOVED — the dashboard supports ONE **pi-ai** generation (pi >= 1.3.0). Supported range `>=1.3.0` (root `package.json` + `packages/extension/package.json` peerDependencies). Root devDependency pin `^1.3.0`. The server streams through pi-coding-agent's own **`ModelRuntime`** (ONE server runtime — see `### Single model runtime`), which owns module shape (factory API only), transcript normalization (`normalizeContext` before dispatch, else systemPrompt + tools drop silently) and OAuth relocation (`dist/oauth.js` is a TYPE-ONLY stub, never consulted; real loaders at `dist/auth/oauth/*.js`, a path NOT in the package `exports` map). `packages/extension/src/bridge.ts` streams through pi's own `ctx.modelRegistry.streamSimple`. The `packages/shared/src/piai-compat/` seam (`adaptPiAi`), its `api-table.ts` / `NON_TEXT_LAZY_FILES` helpers and `packages/shared/src/test-support/piai-factory-fixture.ts` are DELETED.
 
 See change: collapse-model-proxy-onto-modelruntime.
 
-**Host project-trust service.** `packages/server/src/server.ts` registers `host.isProjectTrusted(cwd)` (awaited at boot) next to `host.knownFolderCwds`. `packages/server/src/pi/host-project-trust.ts` `createHostProjectTrust({recordedDecision, defaultProjectTrust})` / `loadHostProjectTrust(agentDir)` mirrors a session's own rule: the recorded `ProjectTrustStore` decision wins, else `defaultProjectTrust === "always"`. Unresolvable pi → always false. `mcp-client` injects it as `isProjectTrusted` so folder MCP rows load the project layer only in trusted folders. See change: migrate-mcp-to-pi-builtin.
+**Host project-trust service.** `packages/server/src/server.ts` registers `host.isProjectTrusted(cwd)` (awaited at boot) next to `host.knownFolderCwds`, plus `host.projectTrustSource` and `host.piTrustCoverInteractive`. `packages/server/src/pi/host-project-trust.ts` `createHostProjectTrustService` / `loadHostProjectTrustService` run shared `decidePiTrust` (pi's own rule + dashboard mirror; see Pi trust mirror). `coveringDashboardEntry` finds covering entry. Honours `PI_CODING_AGENT_DIR`. Pi core unresolvable → one log line (not silent untrusted). Legacy `createHostProjectTrust({recordedDecision, defaultProjectTrust})` kept for compat only; not the decision path. `mcp-client` injects it as `isProjectTrusted` so folder MCP rows load the project layer only in trusted folders. See change: migrate-mcp-to-pi-builtin, mirror-dashboard-trust-to-pi.
 
 #### Legacy `~/.pi-dashboard/` advisory
 
@@ -1835,6 +1848,67 @@ Failure modes (placeholders are visible, not silent):
 | `pi-asset:<hash>` arrived before its `asset_register` | dashed-bordered `⦿ <alt> (loading…)` span; auto-swaps when bytes arrive |
 
 See change: `chat-markdown-local-images-and-math`.
+
+### Mermaid AI repair (change: add-mermaid-ai-repair)
+
+Opt-in, on-demand LLM repair for mermaid blocks that rule repair (`add-mermaid-auto-repair`) could not fix. Never automatic.
+
+- Trigger: `Fix with AI` button in mermaid error callout. Shown only when `mermaidRepair.enabled` and rule repair failed.
+- Config: `~/.pi/dashboard/config.json` → `mermaidRepair` `{ enabled (false), model ("provider/id"), maxChars (20000, clamp 1000–50000), timeoutMs (30000, clamp 5000–120000) }`.
+- `enabled:true` + no model → disabled, `disabledReason:"no_model"`.
+- `@role` model → disabled, `disabledReason:"role_refs_unsupported"` (interim).
+- Parser: `parseMermaidRepairConfig` (`packages/shared/src/config.ts`). Resolved block served by `GET /api/config`, no credentials.
+- Client mirror: `packages/client/src/lib/preview/mermaid-repair-config.ts`, hydrated in `App.tsx`.
+- Endpoint: `POST /api/mermaid/repair` `{code, error}` → `{success:true, data:{code, model}}`. Route: `packages/server/src/routes/mermaid-repair-routes.ts`. Behind `networkGuard`.
+- Credentials resolved server-side (same path as `model-proxy/streamer.ts`). Never sent to client.
+- Provider call: temperature 0; maxTokens = `min(ceil(maxChars/3), 8192)`.
+- Caps: `code` ≤ maxChars; `error` ≤ 2000. One in-flight request per server. Client disconnect aborts provider call.
+- Errors `{success:false, error, code}`: `disabled` 404, `bad_request` 400, `too_large` 413, `busy` 429, `timeout` 504, `provider_error` 502, `unparseable` 502. Model output never truncated server-side.
+- Output extraction: first `mermaid` fenced block, else trimmed text minus leading `mermaid` line.
+- Accept-only-if-renders: result goes through normal render + sanitize path (mermaid `securityLevel` strict + DOMPurify). Non-rendering → `AI fix failed`, original error kept, retry offered. Output = untrusted mermaid source, never HTML.
+- UI: purple `AI-fixed · <model>` pill (distinct from info `Auto-fixed`); show-original toggle; copy-fixed. Visible disclosure: source + error sent to configured model.
+- Client cache: page-lifetime, successes only, keyed by (original code, model). Failures not cached.
+- Logging: one line `[mermaid-repair] outcome=<ok|aborted|code> model=<ref> ms=<n> chars=<n>`. Never source, error, or output.
+- Rollback: delete `mermaidRepair` block (feature hides) or revert. No persisted state.
+- Deploy: restart server (route + config). `npm run build` for client.
+
+### Markdown / AsciiDoc markup repair (change: add-md-adoc-markup-repair)
+
+On-demand display repair for md/adoc FILE previews. Detect, fix for display, show banner, offer persist. Never chat, thinking, or streaming.
+
+- Scope: md/adoc never fail to parse. Broken markup mis-renders: one unterminated fence/delimiter swallows rest of file; bare `[mermaid]` adoc block stays plain listing.
+- Md: `repairMarkdown(src)` in `packages/client/src/lib/preview/markup-repair-md.ts`. Runs on renderer's own parse: `unified().use(remarkParse).use(MARKDOWN_REMARK_PLUGINS)`.
+- Md candidate: top-level fenced code node no later line closes.
+- Md M2: first look-alike closer (other fence char, or same char but shorter) REPLACED by valid closer.
+- Md M3: else closer INSERTED before blank line preceding first ATX heading.
+- Md skip: frontmatter (yaml node), blockquote, list-item fences never touched.
+- Md M1 (gate fix, not repair): `MarkdownContent staticSource` marks every mermaid fence `complete`. Fixes EOF-unclosed and `~~~mermaid` stuck on "Loading diagram…". Not reported, never written. Stays on in "view original".
+- `staticSource` passed only by on-disk surfaces: `FilePreviewOverlay`, editor-pane `MarkdownViewer`, `MarkdownPreview`, `MarkdownPreviewView`. Inventory: `packages/client/src/components/__tests__/markdown-static-source-inventory.test.ts`.
+- Adoc: `repairAsciiDoc(src)` in `packages/shared/src/markup-repair/asciidoc.ts`. Pure line scanner. No asciidoctor import. Server runs for display; client runs for apply.
+- Adoc A1: bare `[mermaid]` / `[mermaid,…]` on `----` / `....` block → `[source,mermaid…]`. Paragraph styles untouched.
+- Adoc A2: unterminated top-level `----` / `....` block → first same-char different-length delimiter replaced by exact opener; else closer inserted before blank line preceding next `== Title`.
+- Adoc skip: nested, list-attached, and `====`, `****`, `--`, `////`, `++++`, `|===` blocks untouched.
+- Both repairs: pure, idempotent. Per-line terminators kept (CRLF safe). Only replaced/inserted lines change.
+- Both repairs: reported `line` = original-source line (block opener; A1 = attribute line).
+- Result type: `MarkupRepairResult` in `packages/shared/src/markup-repair/types.ts`.
+- Server: `GET /api/file/render` in `packages/server/src/routes/file-routes.ts`. Order: stat mtime → read → `repairAsciiDoc` unless `?repair=0` → ONE convert → DOMPurify → `{html, repairs, warnings:[{text,line}], mtime}`.
+- Server: asciidoctor `MemoryLogger` swapped into `LoggerManager` for convert, restored in `finally`. Sync, no cross-request interleave.
+- Server: `safe:"secure"` unchanged. Repair runs before convert; sanitizer after. Repair never depends on warnings.
+- Banner: `packages/client/src/components/preview/MarkupRepairBanner.tsx`. Lists each repair + original line.
+- Banner `aria-pressed` toggle "View original rendering": md re-renders unrepaired client-side; adoc lazy one-shot `&repair=0` fetch, cached.
+- Banner optional "Apply markup fix to file" action.
+- Apply gate: only when `MermaidSourceContext` present (live-session cwd) and not `isDirty`.
+- Apply flow: `GET /api/file/md-read` → verify unchanged since display (md: content byte-equal to displayed; adoc: mtime equals render `mtime`) → whole-file diff in `MermaidApplyFix` `ConfirmDialog` (3 context lines) → `POST /api/file/write {content, mtime}` → reload.
+- Apply mismatch / 404 / 409 → "File changed — reload". Nothing written.
+- Repair displayed + unapplied: per-diagram "Apply fix to file" disabled ("Apply the markup fix first") via `MermaidSourceInfo.markupRepairActive`. On-disk block ordinals differ from repaired rendering. Re-enabled after reload.
+- i18n: `markupRepair.*` keys. EN inline default + hu + zh-CN catalogs.
+- False positives: inside already-broken block, look-alike line can be taken as intended closer.
+  - M2: three-backtick line inside unterminated four-backtick fence.
+  - M3: `# comment` after blank line in shell sample.
+  - A2: literal `-----` line.
+  - Banner names each with line. View-original reverts in view. Apply is diff-confirmed.
+- Rollback: revert. Response fields additive. No persisted state.
+- Deploy: restart server + `npm run build` for client.
 
 ### User image attachments — two-phase display fit
 
@@ -2011,7 +2085,7 @@ flowchart TD
 
 **Feedback contract** — exactly one terminal `command_feedback` per reload, `command` field always `/reload`.
 
-**Bridge side** — terminal-hosted path only; ladder step 2 wins for dashboard-spawned sessions. `BridgeCommandOptions.reload` = `terminalReload.reload` (`createTerminalReload`, `packages/extension/src/terminal-reload.ts`). `ExtensionContext` has no `reload()`; only a command handler's `ExtensionCommandContext` does. So `reload()` self-dispatches `pi.sendUserMessage("/__dashboard_reload <token>", {expandPromptTemplates: true})` — pi runs `_tryExecuteExtensionCommand`, hands handler FRESH command ctx → `ctx.reload()`. No TUI bootstrap. Nothing callable captured — works every reload (retired captured-fn-on-`globalThis` path was single-use, stale ctx after first reload). No pi version gate (`update-pi-core-1-0-adopt-apis`): `supportsInProcessCommandDispatch` and `NO_RELOAD_PATH_REASON` retired — the check could never fail on a supported pi (1.1.0 floor). `BridgeCommandOptions.reload` returns `ReloadOutcome` (`{ok:true, handedOff:true}` | `{ok:false, reason}`). See change: fix-terminal-session-dashboard-reload.
+**Bridge side** — terminal-hosted path only; ladder step 2 wins for dashboard-spawned sessions. `BridgeCommandOptions.reload` = `terminalReload.reload` (`createTerminalReload`, `packages/extension/src/terminal-reload.ts`). `ExtensionContext` has no `reload()`; only a command handler's `ExtensionCommandContext` does. So `reload()` self-dispatches `pi.sendUserMessage("/__dashboard_reload <token>", {expandPromptTemplates: true})` — pi runs `_tryExecuteExtensionCommand`, hands handler FRESH command ctx → `ctx.reload()`. No TUI bootstrap. Nothing callable captured — works every reload (retired captured-fn-on-`globalThis` path was single-use, stale ctx after first reload). No pi version gate (`update-pi-core-1-0-adopt-apis`): `supportsInProcessCommandDispatch` and `NO_RELOAD_PATH_REASON` retired — the check could never fail on a supported pi (1.3.0 floor). `BridgeCommandOptions.reload` returns `ReloadOutcome` (`{ok:true, handedOff:true}` | `{ok:false, reason}`). See change: fix-terminal-session-dashboard-reload.
 
 **Token handshake** — slot `process.__pi_dashboard_pending_reload__ = {token, sessionId, state, armedAt}`. State `armed → started → delivered | expired`. Transitions compare-and-set — requesting instance `error` and reloaded instance `completed` mutually exclusive. `START_TIMEOUT_MS` = 5000, `FINISH_TIMEOUT_MS` = 60000, both measured from `armedAt`.
 
@@ -2637,39 +2711,114 @@ See change: add-folder-actions-menu.
 3. Changes are broadcast to all connected browsers via `openspec_update { cwd, data }`.
 4. Browsers can request immediate refresh via `openspec_refresh { cwd }`. User-initiated refresh **bypasses the mtime gate** (force-mode) but still respects the concurrency cap — see *Refresh paths* below.
 5. New directories (pinned or from new sessions) trigger immediate discovery + polling (eager; bypasses jitter + mtime gate).
-6. Each `OpenSpecChange` carries optional `isComplete?: boolean`. Periodic/gated path re-derives `isComplete` locally from `deriveArtifactStatus` (true iff every derived artifact done). Force-refresh path takes `isComplete` from `openspec status --change <name> --json`. Indicates artifact-authoring completeness only — orthogonal to task tally — never feeds `deriveChangeState`. Dashboard uses it solely to gate **Archive anyway** escape hatch (see “OpenSpec session card”). See change: optimize-openspec-poll-derive-artifacts-locally.
+6. Each `OpenSpecChange` carries optional `isComplete?: boolean`. Source = CLI `isComplete` from the single `openspec status --all --json` spawn (gated AND force path). Promote-only design/specs override: `true` iff every artifact done/skipped. Fallback path (CLI without `--all`): gated re-derives via `deriveArtifactStatus`; force takes it from `openspec status --change <name> --json`. Indicates artifact-authoring completeness only — orthogonal to task tally — never feeds `deriveChangeState`. Dashboard uses it solely to gate **Archive anyway** escape hatch (see “OpenSpec session card”). See change: optimize-openspec-poll-derive-artifacts-locally. See change: use-openspec-status-all.
 7. Browsers pull cached state on demand: `openspec_get { requestId, cwd }`. `directoryService.getOrPollOpenSpec(cwd)` gate order: `!enabled` → `GLOBAL_OFF`; opted-out → `OPTED_OUT`; untracked (cwd ∉ registry cwds ∪ pinned) → `ABSENT`; no `<cwd>/openspec/` root → `ABSENT` (`hasOpenspecDir: false`). Gated reply = single `final: true` placeholder naming the gate state, no CLI spawn. Cache hit → one `final: true` reply with cached payload, no spawn. Cold miss → immediate `final: false` `PENDING` placeholder + ONE shared per-cwd gated poll (`openspecGetInFlight: Map<cwd, Promise>`, entry deleted on settle — concurrent `openspec_get` for one cold cwd share one poll); poll = `pollAndBroadcastIfChanged(cwd)` — same function the scheduler tick calls (prev-JSON compare → `pollDirectoryGated` → broadcast only on change or emitted pending), mtime-gated, semaphore-serialized, does NOT add cwd to periodic poll set. On resolve, unicast `final: true` outcome; on reject, unicast `final: true` `BROKEN · cli-failed` placeholder — requester always receives its final reply. Reply is `openspec_get_result { requestId, cwd, data, final }` — UNICAST to requesting browser only, never broadcast; final outcome reaches other browsers only when it differs from cache (ordinary tick broadcast discipline). Delivered under `state` frame class. See change: fix-connect-snapshot-frame-loss.
+8. Each `OpenSpecChange` carries optional `error?: {code, message}` (per-change CLI error from `--all` envelope). `message` ≤500 chars, one line; `code` ≤64 chars. Error change: `artifacts: []`, derives `PLANNING`. Board card + OPENSPEC subcard show error badge. Continue / FF blocked; blocked reason = literal `message`. See change: use-openspec-status-all.
 
 #### OpenSpec polling cost model
 
-A naive `for each cwd: list + for each change: status` fan-out explodes quickly: 4 pinned dirs with 63 total active changes → **67 `openspec` CLI spawns per 60 s tick**, each costing ~0.5 s user CPU just for Node + module load. On an 8-core host that produces a rectangular ~10 s plateau at 100 % CPU every cycle.
+Naive `for each cwd: list + for each change: status` fan-out. 4 pinned dirs with 63 active changes total (aggregate across dirs) → **67 `openspec` CLI spawns per 60 s tick** (4 `list` + 63 `status`). Each spawn ≈0.5 s user CPU (Node + module load). 8-core host → ~10 s plateau at 100 % CPU per cycle.
+
+Current poll: **one spawn per cwd** — `openspec status --all --json`. Recipe `OPENSPEC_STATUS_ALL` (`packages/shared/src/platform/openspec.ts`), 30 s timeout. Envelope carries every change's artifact status. Spawn count independent of change count.
+- Spike, 102 changes: ≈1.25 s macOS, ≈2.9 s Win11 VM.
+- Force refresh, old `1 + N` fan-out: ≈25 s / ≈38 s.
+- `openspec list` + per-change `status --change` not spawned on this path.
+- `runOpenSpecStatusAll` (`packages/shared/src/openspec-poller.ts`) returns raw `{stdout, stderr, exitCode, failure?}` for any exit code. No tolerate flag.
 
 The scheduler in `packages/server/src/directory-service.ts` applies four layers of throttling (all configurable under `DashboardConfig.openspec`):
 
-1. **mtime gate** (`changeDetection: "mtime" | "always"`, default `mtime`) — skips `openspec list` and `openspec status --change X` when no tracked artifact changed since last successful poll. Uses **file-aware effective mtime** (max over fixed file set) rather than directory mtime alone, because POSIX directory mtime advances only on entry create/delete/rename + misses in-place file edits. List-step signal unions `<changes>/` with each known `<change>/tasks.md`; per-change signal unions `<change>/` with `tasks.md`, `proposal.md`, `design.md`, **plus entire `specs/**` subtree** (`specs/` itself, every immediate `specs/<cap>/`, every `specs/<cap>/spec.md`). Missing files/dirs (e.g. change with no `design.md` or no `specs/` yet) skipped, not zero — `readdirSync` on `specs/` try/catch-wrapped so absence yields empty fan-out. `stat` ~10 µs vs. ~500 ms per CLI spawn; steady state drops 67 spawns/tick to 0–2. **TOCTOU-safe**: each per-change iteration captures `preCallMtime` before awaiting `runOpenSpecStatus` + stamps THAT value into cache; if post-call effective mtime differs, entry racy + cache left untouched (next gated tick re-polls because post-write mtime no longer matches preserved cached value). Without guard, write landing during CLI call would stamp `{ mtimeMs: post-write, status: pre-write }` + latch stale status indefinitely — trivially triggered by `/opsx:ff` mid-poll. **Defense in depth**: `buildOpenSpecData` also accepts `SpecsProbeFactory` (parallel to existing `DesignProbeFactory`) that promotes `specs: ready → done` whenever any `specs/**/*.md` found locally — promote-only, never demote, never `blocked → done`. So even if future blind spot creeps in, dashboard cannot under-report `specs` as ready when ≥1 spec file exists. See changes: `fix-openspec-specs-mtime-gate-blind-spot`, `fix-openspec-mtime-gate-toctou`, `fix-openspec-mtime-gate-blind-spots`.
-2. **Concurrency cap** (`maxConcurrentSpawns`, default 3, range 1–16) — an in-repo semaphore (`packages/shared/src/semaphore.ts`) serializes CLI spawns across all directories. Burst-work spreads uniformly over the interval instead of pinning every core.
+1. **mtime gate** (`changeDetection: "mtime" | "always"`, default `mtime`) — skips the `status --all` spawn when no tracked path changed since last successful poll.
+   - Gate uses file-aware probe, not directory mtime alone. POSIX dir mtime misses in-place file edits.
+   - Probe = `probeTrackedPaths` (`packages/server/src/openspec/openspec-poll-fs-helpers.ts`).
+   - Cwd-level set: `openspec/`, `openspec/changes/`, `openspec/config.yaml`, every dir + file under `openspec/schemas/`.
+   - Per change: change dir, `.openspec.yaml`, `tasks.md`, `proposal.md`, `design.md`, `specs/<cap>/spec.md`.
+   - Per change: each `existingOutputPaths` entry + parents; non-glob schema output + parent (outputs not yet created); glob prefix + every dir beneath.
+   - Enumerates `openspec/changes/*` itself. Skips `archive` and dot-dirs.
+   - CLI paths relativized against `root.path`, mapped onto server-canonical `realpath(<cwd>/openspec)`. Escaping paths ignored.
+   - Gate hit = cwd stamp equal + same change set + every change stamped at probed mtime. Hit → no spawn; reuse `cache.allData` (re-finalized for readiness + skills).
+   - **TOCTOU-safe**: pre-probe before spawn, post-probe after CLI output (worker `build`). Stamp = pre-call mtime.
+   - Change moved during call → racy: prior entry + stamp kept; next tick re-polls.
+   - Change created between probe and spawn → applied unstamped; re-polled once.
+   - Change deleted during call → pruned.
+   - cwd-level path moved during call → cwd stamp not advanced → next tick spawns.
+   - Tracked extras set changed vs probe → stamp from re-probe over new set. Else first tick after cold poll always respawns.
+2. **Concurrency cap** (`maxConcurrentSpawns`, default 3, range 1–16) — in-repo semaphore (`packages/shared/src/semaphore.ts`) serializes CLI spawns across all directories. Burst-work spreads uniformly over the interval instead of pinning every core.
 3. **Per-cwd jitter** (`jitterSeconds`, default 5) — each known directory is assigned a deterministic phase offset `fnv1a32(cwd) % (jitterSeconds * 1000)` within the interval so polls don't all align on the same scheduling boundary.
 4. **pi-resources stale-while-revalidate** — no timer. `GET /api/pi-resources` scans on demand. Cold miss awaits; entry stale (watch event or `now - scannedAt ≥ 5 min`) served at once + one deduped background rescan; `refresh=true` awaits. Per-cwd in-flight dedupe.
    Watcher `packages/server/src/pi/pi-resources-watcher.ts`: per-cwd `<cwd>/.pi` + `skills|prompts|extensions|agents|themes`, plus one shared global `~/.pi/agent` set. Reconcile rides the OpenSpec poll tick before its gates (runs with OpenSpec disabled). Idle >10 min releases watchers, KEEPS data. Caps: 16 watched, 64 data.
 
-Cache shape (per cwd): `{ listMtimeMs, listResult, changes: Map<name, { mtimeMs, change }>, data }`. Cache is updated atomically per directory — a partial failure leaves the previous snapshot intact and the next tick retries.
+**Envelope handling** (`classifyStatusAll`, `packages/shared/src/openspec-status-all.ts`, run in worker `build`). Checked in order:
+- `unsupported`: no JSON + stderr/stdout matches `/unknown option ['"]?--all/` → fallback path (below).
+- Whole-call failure → `{initialized: false}` + readiness `BROKEN · cli-failed`. Retried next gated tick (one spawn/tick/cwd). Triggers:
+  - no JSON;
+  - top-level `status[severity=error]`;
+  - `root: null`;
+  - `root` missing or no string `root.path` (`root-missing`);
+  - `root.source === "implicit"`;
+  - `changes` missing or non-array (`changes-missing`).
+- Success: full JSON. One broken change (exit 1) → `OpenSpecChange.error {code, message}`, `artifacts: []`. Sanitized: control chars stripped, message one line ≤500 chars, code ≤64 chars.
+- Entry with neither `artifacts` nor `status` → `error.code "unknown-entry"`.
+
+**Cache shape** (per cwd, `DirCache` in `directory-service.ts`):
+- `changes: Map<name, { mtimeMs, change }>` — shared by both paths. Path switch clears stamps.
+- `mode: "all" | "fallback" | undefined`.
+- `allCwdMtime`, `allExtras` (per-change `TrackedExtras`; feeds probe + watcher output filter via `getOutputPatterns(cwd)`), `allData`.
+- Fallback only: `listMtimeMs`, `listResult`, `data`.
+- `serialized`: worker-stringified `data`, reused by broadcast.
+- Success: cache updated atomically per directory.
+- Whole-call failure (`failedPayload`, `refreshOpenSpec` catch): REPLACES `cache.data` with `{initialized: false, changes: [], hasOpenspecDir}` + `BROKEN · cli-failed`. Prior snapshot NOT kept. Clears `allCwdMtime` (→ undefined), `allExtras` (→ null), `allData` (→ undefined), `changes`, `listMtimeMs`, `listResult`, `serialized`. Next gated tick retries.
+- Per-change `error` (`OpenSpecChange.error`): NOT whole-call failure. Lives inside status-all data. Directory stays `initialized: true`.
 
 Refresh paths split into two camps:
 
-- **User-initiated** (`openspec_refresh` WebSocket message → `refreshOpenSpec(cwd)`) **bypasses** the gate via `pollOne(cwd, true)`. The gate is heuristic; the CLI is authoritative. When the user clicks the refresh icon they expect fresh data, never silently-cached data — force-mode is the manual escape hatch for any future gate blind spot. Cost: `1 + N` spawns per click. Per-click is rare and the user is already waiting.
-- **Internal / periodic** (`pollDirectoryGated(cwd)`, `onDirectoryAdded(cwd)`, `handleOpenSpecBulkArchive` post-archive refresh) **honor** the gate via `pollOne(cwd, false)`. Periodic path DERIVES per-artifact status from local files via `deriveArtifactStatus(changeDir, listEntry, probes)` (`packages/shared/src/openspec-poller.ts`) — no per-change `openspec status` spawn. Spawns at most `1` (`openspec list`) per cwd per tick, independent of change count (was `1 + N`). Derive rules: `proposal` done iff `proposal.md` exists; `design` done iff design evidence probe (R1/R2/R3); `specs` done iff ≥1 `specs/**/*.md` per specs probe; `tasks` done iff `totalTasks > 0` else `blocked`; `isComplete` true iff every artifact done. Parity test asserts derived status equals `buildOpenSpecData(runOpenSpecStatus(...))` artifact-for-artifact. Force-refresh still spawns `openspec status` per change (authoritative). See change: optimize-openspec-poll-derive-artifacts-locally.
+- **User-initiated** (`openspec_refresh` WebSocket message → `refreshOpenSpec(cwd)`) **bypasses** the gate via `pollOne(cwd, true)`. The gate is heuristic; the CLI is authoritative. When the user clicks the refresh icon they expect fresh data, never silently-cached data — force-mode is the manual escape hatch for any future gate blind spot. Cost: **one `status --all` spawn per click** (fallback path: `1 + N`). Catch = whole-call failure → `BROKEN · cli-failed`; no respawn, no fan-out.
+- **Internal / periodic** (`pollDirectoryGated(cwd)`, `onDirectoryAdded(cwd)`, `handleOpenSpecBulkArchive` post-archive refresh) **honor** the gate via `pollOne(cwd, false)`. Pre-probe → gate compare → spawn only on miss. At most `1` spawn per cwd per tick, independent of change count.
 
-All paths still go through the semaphore, so a refresh-button storm cannot overload the host. See changes: `fix-openspec-mtime-gate-toctou` (current contract), `fix-openspec-mtime-gate-blind-spots` (file-aware gate).
+All paths still go through the semaphore, so a refresh-button storm cannot overload the host. See changes: `use-openspec-status-all` (current contract), `fix-openspec-mtime-gate-toctou`, `fix-openspec-mtime-gate-blind-spots` (file-aware gate).
 
 Live reconfiguration: `PUT /api/config` with an `openspec` block calls `directoryService.reconfigurePolling(cfg)` — the timer cadence and semaphore max are updated without a server restart; in-flight polls finish on their old config.
 
 Observability: `DEBUG=pi-dashboard:openspec-poll` (or any `DEBUG=...pi-dashboard...`) emits one line per tick with dir count, queue size, and wall time. Any tick over 5 s logs a WARN hinting at `pollIntervalSeconds` / `maxConcurrentSpawns` as knobs.
 
-**Per-turn event-loop attribution.** Poll tick synchronous work spread across many event-loop turns, not one. `scheduleOpenSpecTick` times each instrumented turn with `performance.now()` and self-records `{at, ms, turn}` into the `eventLoopSpikes` buffer (`/api/health`) when a single turn's synchronous run ≥ floor (100 ms). Turns: `tickOpen` (the `setInterval` fire: folder-head reads + `reconcileWatchers` + `computeKnownDirectories`), `dirPollPre` (a dir's `setTimeout` fire prefix, incl. `pollOne` sync work before the worker `await`), `dirPollPost` (broadcast continuation after the worker resolves). Never summed across the `await` — pre/post timed as separate turns. Per-change TOCTOU stamp runs in the worker → not a main-thread turn. Retained wall `durationMs > 5 s` alarm stays (catches an overdue tick). Added per-turn alarm fires at 250 ms, names the turn — blind spot the wall alarm missed (jitter stagger keeps `durationMs` ≈ `jitterSeconds`, so wall alarm never saw sub-second single-turn stalls). Dedicated `monitorEventLoopDelay` sampler (own histogram, 1 s cadence) records `turn: null` for stalls no instrumented turn owns (GC, hydration deserialize, WS on-connect). See change: attribute-openspec-poll-eventloop-stalls.
+#### Fallback path (`list` + local derive)
+
+Taken when `--all` unsupported by installed CLI. Per-CLI-installation verdict.
+- Cache key = `version` of resolved `@fission-ai/openspec` package. `resolveOpenSpecPackageVersion`: realpath of resolved script → nearest `package.json`. Shim mtime NOT used.
+- Unresolvable version → cached for process; retried on force refresh.
+- Version change (upgrade) → `--all` retried next poll.
+- Poll that first detects `unsupported` continues on fallback in the SAME poll.
+
+Gated tick: `openspec list` (1 spawn/cwd) + local `deriveArtifactStatus(changeDir, listEntry, probes)` (`packages/shared/src/openspec-poller.ts`).
+- Gate signal: list-step unions `<changes>/` with each known `<change>/tasks.md`. Per-change unions `<change>/`, `tasks.md`, `proposal.md`, `design.md`, entire `specs/**` subtree. Missing files/dirs skipped, not zero. `readdirSync` on `specs/` try/catch-wrapped.
+- Derive rules: `proposal` done iff `proposal.md` exists; `design` done iff design evidence probe (R1/R2/R3); `specs` done iff ≥1 `specs/**/*.md` per specs probe; `tasks` done iff `totalTasks > 0` else `blocked`; `isComplete` true iff every artifact done.
+- Defense in depth: `buildOpenSpecData` accepts `SpecsProbeFactory` (parallel to `DesignProbeFactory`). Promotes `specs: ready → done` when any `specs/**/*.md` found locally. Promote-only; never `blocked → done`.
+- Parity test: derived status == `buildOpenSpecData(runOpenSpecStatus(...))` artifact-for-artifact.
+
+Force refresh: `openspec status --change <name> --json` per change (`1 + N`, authoritative). Per-change gate + TOCTOU same as before.
+
+See changes: `optimize-openspec-poll-derive-artifacts-locally`, `fix-openspec-specs-mtime-gate-blind-spot`.
+
+**Per-turn event-loop attribution.** Poll tick sync work spread across many event-loop turns, not one. `scheduleOpenSpecTick` times each instrumented turn with `performance.now()` and self-records `{at, ms, turn}` into `eventLoopSpikes` (`/api/health`) when a turn's synchronous run ≥ floor (100 ms). `EventLoopTurn` type: `packages/server/src/metrics/eventloop-spike-metrics.ts`. Turns:
+- `tickOpen` — `setInterval` fire: folder-head reads + `reconcileWatchers` + `computeKnownDirectories`.
+- `dirPollPre` — dir `setTimeout` fire prefix → awaits version, canonical dir, probe.
+- `dirPollGate` — gate compare + CLI dispatch.
+- `dirPollCli` — CLI stdout received → worker `build` dispatched.
+- `dirPollPost` — worker `build` resolved → response applied + broadcast.
+
+Flow: `dirPollPre` → await version/canonical dir/probe → `dirPollGate` → await CLI → `dirPollCli` → await build → `dirPollPost`. Never summed across `await`; each segment timed as own turn. Worker-side classify/parse/count/stamp runs off main thread → not a turn. Retained wall `durationMs > 5 s` alarm stays (catches an overdue tick). Per-turn alarm fires at 250 ms, names the turn — covers sub-second single-turn stalls the wall alarm missed (jitter stagger keeps `durationMs` ≈ `jitterSeconds`). Dedicated `monitorEventLoopDelay` sampler (1 s cadence) records `turn: null` for stalls no instrumented turn owns (GC, hydration deserialize, WS on-connect). See change: attribute-openspec-poll-eventloop-stalls.
 
 **Folder-head reads async (non-blocking).** Live attribution pinned the recurring ~700 ms stall to `tickOpen → tickFolderHeads`: 3 `execSync` git-HEAD spawns per folder × ~11 folders ≈ 33 blocking subprocesses on the `setInterval` turn, every tick. Fix: `readHeadDisplayAsync` (`git-operations.ts`) reads HEAD via async `execFile` (never blocks the loop; branch/sha only, skips the `.gitmodules` submodule probe the sync `readHead` keeps for the worktree dialog). `folder-head-poll.ts` `poll`/`refreshOne` now async; fan-out via `mapBounded` concurrency cap (default 4). `tickFolderHeads` kicked off without blocking, `await`ed before the openspec fan-out so per-cwd `git_head_update` still precedes `openspec_update`. Chosen over mtime-gating (which risks suppressing a same-mtime branch switch). Guard test `directory-service-folderhead-async.test.ts`: ordering + branch-switch-reflects. Post-fix live: 0 `tickOpen` spikes over ~3 ticks (was 100 % reliable). See change: attribute-openspec-poll-eventloop-stalls.
 
-**OpenSpec poll worker.** Heavy per-tick CPU work runs on a `worker_threads` pool. Main thread owns `openspec list` spawn, the FIFO semaphore, the `DirCache`, and the WebSocket broadcast. Worker owns: pre-call + post-call effective mtimes, `deriveArtifactStatus`, `buildOpenSpecData`, optional `groupId` join (`joinGroupIdsToOpenSpecData` shape, fed via `getOpenSpecGroupAssignments(cwd)`), and `JSON.stringify(data)`. Worker emits `{cwd, data, serialized, stampMtimes, racyNames}`; main thread copies `serialized` into `DirCache.serialized` and stamps per-change mtimes from `stampMtimes`, skipping entries in `racyNames` (TOCTOU racy → cache untouched, semantics unchanged from previous in-process gate). Pool sizing: fixed slots = `max(1, min(maxConcurrentSpawns, os.cpus().length))`. Lifecycle: lazy spawn per slot on first request via `new Worker(url, {execArgv: process.execArgv})` so the loader hook propagates; `stopPolling()` calls `dispose()` (drains queue in-process then terminates workers); `reconfigurePolling()` disposes pool so it respawns lazily at the new `maxConcurrentSpawns`. Fallback: spawn fail / worker crash / non-zero exit / per-request timeout (default 10 s) terminates the slot and runs the request in-process; `pool.process()` never rejects, so the tick never drops a broadcast. `OpenSpecPollConfig.useWorker = false` (default `true`) takes the permanent in-process path — no `worker_threads` spawn ever. Serialize-once: worker stringifies `data` once; `onWatcherFired` + the periodic tick diff against `cache.serialized ?? JSON.stringify(...)`; `browserGateway.broadcastOpenSpecUpdate(cwd, serialized)` builds the envelope by string concat (`'{"type":"openspec_update","cwd":' + JSON.stringify(cwd) + ',"data":' + serialized + '}'`) — large `data` never re-stringifies per subscriber. Force-refresh path (user-clicked `refreshOpenSpec`) is unchanged: still spawns authoritative `openspec status` per change in main thread, clears `cache.serialized`, uses the legacy broadcast shape. `openspec_update` payload bytes are identical to the pre-worker shape; parity test enforces. See change: offload-openspec-poll-to-worker.
+**OpenSpec poll worker.** Heavy per-tick CPU runs on `worker_threads` pool (`packages/server/src/openspec/openspec-poll-worker-pool.ts`; worker entry `openspec-poll-worker.ts`). Main thread owns `openspec status --all --json` spawn, FIFO semaphore, `DirCache`, WebSocket broadcast. Pool methods:
+- `process(req)` — kind `derive`: fallback path. Local derive + `buildOpenSpecData` from legacy `list` output.
+- `probe(req)` — kind `probe`: `probeTrackedPaths` stats. Runs pre-call and post-call.
+- `build(req)` — kind `build`: `classifyStatusAll` + parse + task counting + post re-probe + `JSON.stringify`. Returns `StatusAllBuildResponse`: `{kind: "unsupported"}` | `{kind: "failed", reason}` | `{kind: "ok", data, serialized, stampMtimes, racyNames, cwdStamp, …}`.
+- Task counting: `TASK_LINE_PATTERN` `/^\s*[-*]\s*\[([\sxX])\]\s*(.*)/`. File = `apply.tracks` from `openspec/schemas/<name>/schema.yaml`; else user dir `$XDG_DATA_HOME/openspec/schemas` (first existing wins; memoized by mtime; `yaml` pkg); else artifact id `tasks`. Sums that artifact's `existingOutputPaths`. Fallback: top-level `tasks.md`. `openspec list` not spawned. `buildOpenSpecDataFromStatusAll` in `packages/shared/src/openspec-poller.ts`.
+- Main thread stamps per-change mtimes from `stampMtimes`, skips `racyNames` (cache untouched), sets `cwdStamp`.
+
+Pool sizing: fixed slots = `max(1, min(maxConcurrentSpawns, os.cpus().length))`. Lifecycle: lazy spawn per slot on first request via `new Worker(url, {execArgv: process.execArgv})` so the loader hook propagates; `stopPolling()` calls `dispose()` (drains queue in-process then terminates workers); `reconfigurePolling()` disposes pool so it respawns lazily at the new `maxConcurrentSpawns`. Fallback: spawn fail / worker crash / non-zero exit / per-request timeout (default 10 s) terminates the slot and runs the request in-process. In-process `probe`/`build` are async + bounded (no sync `statSync`). `pool.process()` never rejects, so the tick never drops a broadcast. `OpenSpecPollConfig.useWorker = false` (default `true`) takes the permanent in-process path — no `worker_threads` spawn ever. Serialize-once: worker stringifies `data` once; `onWatcherFired` + the periodic tick diff against `cache.serialized ?? JSON.stringify(...)`; `browserGateway.broadcastOpenSpecUpdate(cwd, serialized)` builds the envelope by string concat (`'{"type":"openspec_update","cwd":' + JSON.stringify(cwd) + ',"data":' + serialized + '}'`) — large `data` never re-stringifies per subscriber. `openspec_update` payload bytes identical to the pre-worker shape; parity test enforces. See change: offload-openspec-poll-to-worker.
+
+Parity tests: `openspec-status-all-parity*.test.ts` (3 shards). `--all` artifacts == `status --change`; `error` ⇔ per-change failure; counts == `list`. Budget: `directory-service-status-all-budget.test.ts` — no-op tick with 107 unchanged changes → no instrumented turn above floor. See change: use-openspec-status-all.
 
 **Session-load worker.** Session-event hydration (JSONL parse + replay) runs on a `worker_threads` pool, off main event loop. `packages/server/src/session-load-worker.ts` exports `loadAndReplay(req)`: runs `loadSessionEntries` (JSONL parse + tree-walk) and `replayEntriesAsEvents(...).map(m => m.event)` projection IN-WORKER; only final `events` array crosses thread boundary. `parentPort` bootstrap wires `loadAndReplay` onto a thread; tests + fallback import function directly. Worker output `{jobId, success, events, error, entryCount?}`. `packages/server/src/session-load-worker-pool.ts` runs fixed slots = `max(1, min(maxConcurrentSpawns, os.cpus().length))`; FIFO queue when slots busy; per-request timeout default `30000ms`; lazy spawn per slot via `new Worker(url, {execArgv: process.execArgv})` so loader hook propagates. Main thread owns per-session `loadingSet` dedup, `eventStore.insertEvent`, and `session_updated` + `event_replay` broadcast (in `directory-service.ts::loadSessionEvents` + `browser-handlers/subscription-handler.ts`); worker never touches store or sockets. `cancel(jobId)`: queued job dropped from queue, resolves `"cancelled"`; in-flight job abandoned, its result discarded on arrival, worker NOT terminated for plain cancel (only timeout/crash terminates slot). `directory-service.ts` exposes `cancelLoad(sessionId)` via `inFlightLoadJobs` map; `subscription-handler.ts` unsubscribe case calls `cancelLoad` when `getSubscribers(sessionId).length === 0`; `subscription-handler.ts` treats `result.error === "cancelled"` as no-op (no `dataUnavailable`, no replay). Fallback: spawn fail / worker crash / non-zero exit / per-request timeout → in-process `loadAndReplay` for that request; `pool.load().result` never rejects. Config: `DashboardConfig.sessions.useLoadWorker` (default `true`) in `packages/shared/src/config.ts`; `false` → permanent in-process path, no `worker_threads` spawn. Plumbed `server.ts` `ServerConfig.sessions` → `cli.ts` → `createDirectoryService` `options.useLoadWorker`. `events` bytes identical to in-process projection; parity test enforces (`packages/server/src/__tests__/session-load-worker.test.ts`). Copies `openspec-poll-worker-pool` scaffold, not extracted (rule-of-three deferred to third consumer). See change: offload-session-events-load-to-worker.
 
@@ -2707,7 +2856,7 @@ One server-derived per-cwd readiness state gates every OpenSpec affordance — f
 - `init --help` support probe cached per process; unsupported CLI refused with diagnostic naming the resolved binary, before any spawn.
 - Per-cwd lock: second request while an invocation is in flight → `409 Conflict`, no second spawn.
 - 60 s timeout — runner kills the process, partial stderr returned, lock released.
-- argv exactly `<resolved-cli> init <cwd> --tools pi --force`, passed as an array, never a shell string. No `--profile` (CLI accepts only `core|custom`; dashboard profile may be alias `expanded`); no `--no-animation`/`--no-copilot-cloud` (pinned CLI 1.6.0 registers only `--tools`/`--force`/`--profile`; commander strict). `--tools pi` writes `.pi/skills/openspec-*` + `.pi/prompts/opsx-*.md` — omitting it reproduces the dead-buttons defect.
+- argv exactly `<resolved-cli> init <cwd> --tools pi --force`, passed as an array, never a shell string. No `--profile` (CLI accepts only `core|custom`; dashboard profile may be alias `expanded`). Pinned CLI 1.14.3 registers `--tools`/`--force`/`--profile`/`--language`/`--no-animation`/`--copilot-cloud`/`--no-copilot-cloud` (older CLIs: first three only; commander strict). Argv passes none of the extras. `--tools pi` writes `.pi/skills/openspec-*` + `.pi/prompts/opsx-*.md` — omitting it reproduces the dead-buttons defect.
 - `healExpandedProfileConfig` before the spawn (mirrors the update route).
 - Success: records the cwd's update signature, invalidates the signature cache, forces `refreshOpenSpec` so the new readiness broadcasts without waiting for the poll interval. Failure: `{ success: false, error, stderr? }`.
 
@@ -3134,6 +3283,105 @@ Gated surfaces: `control` / `operate` REST routes, browser WS (`/ws`, `/ws/termi
 - Same-origin browser exchanges the device bearer once for an httpOnly `pi_dash_device` cookie (`POST /api/device-session`, `Path=/api/`, `SameSite=Strict`); `localStorage` keeps only the non-secret `pi-dashboard:device-paired` marker. Legacy stored bearers are exchanged and removed on startup; WS single-use tickets and the Electron keyring bearer unchanged.
 
 See change: harden-trust-and-credential-boundaries.
+
+### Pi trust mirror (change: mirror-dashboard-trust-to-pi)
+
+Durable dashboard trust counts as trusted project for pi sessions on SAME machine. Decided at pi `project_trust` time. Never writes `~/.pi/agent/trust.json`. Pi's file stays pi-owned.
+
+**Files.**
+
+| File | Role |
+|---|---|
+| `~/.pi/dashboard/config.json` `piTrustMirror` | `enabled` (default `true`), `coverInteractive` (default `false`), `sources.<id>` |
+| `~/.pi/dashboard/pi-trust-mirror.json` | Snapshot. Mode `0600`. Server home-lock holder writes. Rebuilt at server boot. Entries: `key`, `sourceKind`, `dev`, `ino`, `birthtimeMs?`, `configRoot?`, `hookHash?`. `generation` counter. Warn log >5,000 entries. |
+| `~/.pi/dashboard/pi-trust-overrides.json` | Per-entry choice. Key `<sourceId>\0<canonical path>`. |
+| `~/.pi/agent/trust.json` | pi-owned. Read by bridge, never written by mirror. |
+
+**Durable sources** (`piTrustMirror.sources.<id>`). Defaults ON except `accessGrants`.
+
+| id | Covers |
+|---|---|
+| `worktreeInit` | Persisted hook trust. CURRENT hook hash re-checked each decision. |
+| `workflow` | Workflow slot. Reports `source-not-installed` until `add-project-workflows`. |
+| `pinned` | Pinned dirs. Docker `PI_WORKSPACES` → `PI_DASHBOARD_PIN_DIRS` seeds pins. |
+| `folderWorkspaces` | Folder workspaces. |
+| `accessGrants` | Project-root subjects only. Default OFF. |
+
+NOT counted: server-lifetime trust (session worktree trust, session access grants, YOLO), KB source trust. Deferred follow-up: server-lifetime trust; bridges on other machines.
+
+**Matching.**
+- Key form `piTrustKey` = `realpathSync(path.resolve)`. No Unicode-space normalisation. Source: `packages/shared/src/pi-trust-mirror.ts`.
+- Subtree: counted entry covers folder + everything below. `findCoveringEntry` = nearest ancestor-or-self key.
+- Identity: canonical path + `dev` + `ino` (+ `birthtimeMs` when recorded). Entry applies only on identity match.
+- Identity mismatch → fail closed. Other machine, re-created folder, moved folder.
+
+**Deny rules** `mirrorDenyRules`. Separate from grant-subject `forbidden-subjects` (unchanged).
+- Exact: `/`, `$HOME`, ancestors of `$HOME`, system dirs, broad parents (`/Users /home /Volumes /private /var/tmp /mnt /media`; win: drive root, `C:\Users`).
+- Subtree: `~/.ssh ~/.pi ~/.aws ~/.gnupg ~/.kube ~/.docker`, OS temp (`os.tmpdir`, `/tmp`, `/private/tmp`), `~/.cache`, `~/Downloads`.
+
+**Decision order** `decidePiTrust` (shared by bridge, `host.isProjectTrusted`, toggle gate). First match wins.
+
+```mermaid
+flowchart TD
+  A["project_trust / host.isProjectTrusted(cwd)"] --> B{"trust-requiring resources?"}
+  B -- no --> R0["trusted: implicit"]
+  B -- yes --> C{"pi recorded entry?"}
+  C -- "true / false" --> R1["pi decision wins"]
+  C -- none --> D{"mirror on AND covering entry?"}
+  D -- yes --> R2["trusted: dashboard source"]
+  D -- no --> R3["defaultProjectTrust"]
+```
+
+- `--approve` / `--no-approve` applied by pi first.
+- `--no-extensions`: bridge never decides.
+- `pi mcp list` reads only `trust.json`.
+- Dashboard trust overrides `defaultProjectTrust`, INCLUDING `never`.
+- Recorded pi entry (true or false, nearest ancestor) beats dashboard trust.
+
+**Bridge** `decideBridgeProjectTrust` (`packages/extension/src/project-trust.ts`).
+- No server round trip.
+- Per event: reads `config.json`, `trust.json` (lockless; BOM stripped; null = absent; bad shape/parse = undecided `store-unreadable`), snapshot.
+- Returns `{trusted:"yes", remember:false}` or undecided.
+- Dashboard-spawned headless sessions consult mirror always. Other sessions only if `coverInteractive`.
+- Reason codes logged when withheld: `forbidden-folder`, `recorded-entry`, `identity-mismatch`, `hook-changed`, `not-project-root`, `source-off`, `source-not-installed`, `choice-unreadable`, `store-unreadable`, `not-covered-session`.
+- p95 < 20 ms (1,000 entries, 20-deep cwd).
+- Spawn token: `PI_DASHBOARD_SPAWN_TOKEN` read + removed from env at bridge activation (`packages/extension/src/spawn-token.ts`). Process-global until first `session_register`. Agent-started nested pi never counts as dashboard-spawned.
+
+**Writes.**
+- Grant: choice file → source store → snapshot.
+- Revoke: snapshot rewritten WITHOUT entry FIRST → then source store. Failure of either = failed revoke. Browser gets `pi_trust_mirror_error {op,path,error}`.
+
+**Server modules.**
+- `packages/server/src/access/pi-trust-mirror-service.ts`: registry + snapshot + choices. Handle `getPiTrustMirror()`.
+- `packages/server/src/pi/host-project-trust.ts`: `createHostProjectTrustService`, `loadHostProjectTrustService`, `coveringDashboardEntry`. Registry keys `host.isProjectTrusted`, `host.projectTrustSource`, `host.piTrustCoverInteractive`.
+- `packages/server/src/pi/resource-toggle-trust.ts`: dashboard-trusted folder + nothing recorded → existing prompt, `Trust` pre-selected, source named, lasting effect stated. Payload `preselected:"trust"`, `dashboardSource`. Nothing recorded until operator chooses. Works under default `never`.
+
+**Routes / WS.**
+- `GET /api/access/pi-trust`: `config`, `agentDir`, `piEntries`, `effective`, `entries`, `ignored` (reason + label), `sourcesNotInstalled`.
+- `PUT /api/access/pi-trust/choice` `{sourceKind, folder, choice: boolean|null}`.
+- WS `pin_directory`, `add_folder_to_workspace`, `grant_response` accept `piTrust?`. `POST /api/git/worktree/init` accepts `piTrust?`.
+
+**MCP.** Effective view adds `trustSource`, `trustCoverInteractive`. Dashboard-only trust → project servers active, live state `not-checked-by-pi` + note. Config-writer global-write name collisions keep pi-only predicate (dashboard trust never changes them).
+
+**UI.**
+- Settings → Access → "Pi trust from the dashboard" (`packages/client/src/components/settings/PiTrustMirrorSection.tsx`): switches, effective list, per-entry choice, ignored rows (reason + label), pi `trust.json` entries + agent dir, disclosures.
+- Disclosures: precedence over `defaultProjectTrust` (incl `never`); scope; `--no-approve` / `--no-extensions` / pi CLI not covered; activation-cwd rule.
+- Folder page banner: pi / dashboard (source + folder; "dashboard sessions, not terminal pi" unless `coverInteractive`) / neither (links Settings → Access).
+
+**Breaking bridge behaviour.** NOT reverted by `enabled:false`.
+- (a) Recorded pi entry beats activation-cwd auto-trust.
+- (b) Activation-cwd auto-trust no longer applies in forbidden/temporary folders (logged).
+- (c) Spawn token removed from env at activation (see Bridge).
+
+**Rollback.** `piTrustMirror.enabled: false`. Bridge reads config live. Works with server down. Does not revert (a)-(c).
+
+**Security residuals.**
+- Hook trust widened to full project trust for the subtree. Checkbox text states it.
+- Covered subtree also trusts repos cloned/created later inside it.
+- Bridge `yes` pre-empts later user extensions' `project_trust`.
+- Same-user forging of snapshot ≈ writing `trust.json`. Accepted.
+
+See change: mirror-dashboard-trust-to-pi.
 
 ### Access Grants and Denial Remedies (change: add-access-grants-and-review)
 
@@ -3664,7 +3912,7 @@ sequenceDiagram
 - Effects: on-link gate admits anyone reaching published port. Dialog shows one address for all requesters. Per-source limits act as one global lock.
 - Fix: host networking restores real peer addresses. TLS path: use QR pairing.
 
-Not yet: `request-access` remedy on `operate_required` refusal. Follow-up (design D10).
+`request-access` remedy on `operate_required`: present iff no credential + knock pre-switch gates pass (`knockPeerGate`). Discloses only `host_not_admitted` | `knock_not_lan`. Never reads `acceptLanRequests`. See `docs/credential-vault.md` §10. See change: add-request-access-remedy.
 
 #### Bearer device auth — D5/D7
 
@@ -3690,7 +3938,7 @@ Payload plus handshake carry `v`. Server keeps backward-compatible pairing route
 
 #### Operator pairing view — client
 
-Operator-side pairing view = `packages/client/src/components/Gateway/GatewayPairQR.tsx`. Gateway settings page + toolbar Gateway dialog. ONE surface; Settings → Security renders a link (`security-pair-link` testid → `/settings/gateway`, scrolls `#connect-a-device`). `PairingView.tsx` deleted (duplicate; drifted non-compliant). `QrCodeDialog.tsx` deleted (orphan; no importer). `noSecureRoad` flag keys the no-secure-road block on the `no_reachable_endpoint` response; endpoint-count empty rendering remains separate. No server route changed. `/api/pair/payload` + `/api/pair/approve` already shipped by `add-server-keypair-pairing`. Change: `wire-nonzrok-pairing-view`, `collapse-pairing-into-gateway`.
+Operator-side pairing view = `packages/client/src/components/Gateway/GatewayPairQR.tsx`. Gateway settings page + toolbar Remote access dialog (`components/remote-access/RemoteAccessDialog.tsx`; step engine `lib/remote-access/steps.ts`). ONE surface; Settings → Security renders a link (`security-pair-link` testid → `/settings/gateway`, scrolls `#connect-a-device`). `PairingView.tsx` deleted (duplicate; drifted non-compliant). `QrCodeDialog.tsx` deleted (orphan; no importer). `noSecureRoad` flag keys the no-secure-road block on the `no_reachable_endpoint` response; endpoint-count empty rendering remains separate. No server route changed. `/api/pair/payload` + `/api/pair/approve` already shipped by `add-server-keypair-pairing`. Change: `wire-nonzrok-pairing-view`, `collapse-pairing-into-gateway`.
 
 On open calls `GET /api/pair/payload` → `{v,id,code,urls[]}`. Renders QR (`qrcode` dep, `QRCode.toCanvas` idiom) plus copy box holding the SAME deep link as the QR (`qrText`) — remote browser opens it directly; Electron shell `decodePayloadString` accepts the https form. Device accepts raw JSON or base64url via `decodePayloadString`. Shows fingerprint `id`, one-time code TTL countdown (~300s; server `CODE_TTL_MS`, client mirror `PAIRING_CODE_TTL_MS` in `GatewayPairQR.tsx`), advertised `urls[]`.
 
@@ -3699,6 +3947,89 @@ Approval: operator types numeric confirm code shown on device → `POST /api/pai
 `no_reachable_endpoint` → empty state. Pairing needs secure context. Empty state offers Start tunnel (`/tunnel-setup`) plus `http://localhost` same-machine note. Never implies plain-http LAN pairs in a browser.
 
 Gate: `reachableUrls()` (`packages/server/src/pairing.ts`) read-time filter (D4/D14) advertises only secure `wss`/`https` endpoints. Keeps `urls[]` secure. `createPayload()` returns null when no reachable url → route returns `{success:false,error:"no_reachable_endpoint"}` (HTTP 200).
+
+### Built-in TLS listener (change: add-tailscale-cert-tls)
+
+Optional second `https.Server`. Off by default (`tls.enabled: false`). Serves the SAME Fastify app as the main listener.
+Config: `tls: { enabled, port: 8443, host: "127.0.0.1", sources: [] }`. Defaults: `DEFAULT_TLS`, `DEFAULT_TLS_PORT`, `DEFAULT_TLS_HOST` in `packages/shared/src/config.ts`.
+Code: `packages/server/src/tls/`. Wiring: `packages/server/src/server.ts` (`tlsListener`). Routes: `packages/server/src/routes/tls-routes.ts`. Status type: `packages/shared/src/tls-status.ts`.
+
+```mermaid
+flowchart LR
+    Client["Client (SNI = cert name)"] -->|"https :8443"| TLS["TlsListener https.Server"]
+    Plain["Client (http)"] -->|"http :8000"| Main["Main listener"]
+    TLS -->|"request / upgrade / clientError"| F["Fastify (one route table)"]
+    Main --> F
+    F --> G["host admission → network guard → auth"]
+    Store["TlsCertStore (SNI map)"] -.->|"SNICallback"| TLS
+    Mgr["CertManager"] -->|"hot swap"| Store
+    Src["sources: tailscale"] --> Mgr
+```
+
+#### Dispatch
+
+- `request` → `fastify.server.emit("request")`. `upgrade` → shared `onUpgrade` switch. `clientError` → forwarded.
+- One route table, one gate chain, two transports.
+- Timeouts match main: `keepAliveTimeout`, `setTimeout(connectionTimeout)`, `requestTimeout = 0`.
+- Plaintext on TLS port → `tlsClientError` swallowed.
+
+#### SNI map and session resumption
+
+- `TlsCertStore`: exact name → single-label wildcard → fail. No default cert.
+- No SNI or no match → handshake error.
+- Resumption off: `SSL_OP_NO_TICKET`, `resumeSession` → no-op. Every full handshake with SNI runs `SNICallback`, so pruned or replaced names stop at next connect.
+
+#### CertManager
+
+- Key: `(sourceId, name)`. Single-flight. `trigger()` joins running attempt.
+- Gate-before-obtain: unmet source or name gate → no `obtain()`, no failure. Re-check every 15 min.
+- Attempt deadline: `attemptTimeoutMs` (default 10 min). Tailscale: 180 s (CLI bound 120 s + margin). Late result discarded.
+- Backoff: 5 min doubling, cap 6 h. Floor = `RetryAfterError`. `failures`, `nextAttemptAt` persisted in `meta.json`.
+- Renew when remaining validity < 1/3. Evaluated by `tick()` every 12 h.
+- Prune only when source `names()` returns a list. `null` keeps held certs.
+- Hot swap into `TlsCertStore`. Entry swap atomic; open connections keep old context.
+
+#### Certificate sources
+
+- Pluggable: `registerCertSourceType`. Id `^[a-z0-9][a-z0-9-]{0,31}$`, unique. `tailscale` reserved as default id.
+- `tailscale` source: runs `tailscale cert` into private `0700` temp dir. Own 120 s runner.
+- Gates: `tailscale-running`, `https-certs`. Name = MagicDNS name from `tailscale status --json`.
+- `details.ipv4` → UI one-click `tls.host`.
+- Disk: `~/.pi/dashboard/tls/<sourceId>/<name>/{cert.pem,key.pem,meta.json}`.
+- Key `0600`. Write order: tmp → chmod key → rename key → rename cert → `meta.json` last.
+- Keys never in any API response.
+
+#### Bind and failure isolation
+
+- Binds `tls.host:tls.port`. Loopback host: binds, advertises nothing.
+- Bind error `EADDRNOTAVAIL` / `EADDRINUSE` → retry 1 min doubling, cap 15 min. Immediate retry on reconcile / trigger.
+- Failure never touches main listener. Reported as `bindError`.
+- `stop()` closes all connections. Certs stay on disk.
+
+#### Local-credential proof floor
+
+- `beforeBind` records `tlsBoundAt` / `httpBoundAt`.
+- Per request: `socket.encrypted` → `tlsBoundAt`, else `httpBoundAt` (`server.ts`).
+
+#### Host admission and advertising
+
+- Cert names admitted by host admission: exact only, source `tls-listener` (`packages/server/src/auth/host-admission.ts`).
+- Advertisable names (bound + non-loopback) → `tlsListenerUrls()` → `https://<name>[:<port>]`, `tls: true`.
+- Feeds `GET /api/tunnel/endpoints` (`tlsEndpoints`) and pairing reachable URLs.
+
+#### Status and issue API
+
+- `GET /api/health.tls`: all callers get `{enabled, bound}`. Detail (`port`, `host`, `bindError`, `gates`, `sources`, `certs`) only for authed or genuinely-local callers.
+- `POST /api/tls/issue { sourceId, name? }` → `202`. Tier `operate` (`packages/shared/src/route-tiers.ts`), same auth as `PUT /api/config`.
+- `409` listener disabled. `404` unknown source, or name absent from source list.
+- `PUT /api/config` `tls` block → `validateTlsConfigWrite` (port unique vs `port`, `piPort`, `modelProxy.secondPort`) → `reconcile`.
+
+#### UI
+
+- Gateway page → "Built-in HTTPS" section (`packages/client/src/components/Gateway/GatewayTlsSection.tsx`).
+- Enable switch writes `tls.enabled`. Live reconcile, no restart.
+- Polls `/api/health.tls` every 5 s.
+- "Use <ip>" sets `tls.host` to Tailscale IPv4. Clients still connect by cert name (IP URL = no SNI = fail).
 
 ### Gateway URL Management
 
@@ -4401,7 +4732,7 @@ Host-first this change. tailscaled/zerotier-one in-container = follow-up. zrok s
 
 #### Client modules
 
-`packages/client/src/lib/gateway-{api,config-ops,endpoints,providers,setup}.ts`, `packages/client/src/components/Gateway/*`. Gateway settings page (Network nav) + tabbed Gateway dialog.
+`packages/client/src/lib/gateway-{api,config-ops,endpoints,providers,setup}.ts`, `packages/client/src/components/Gateway/*`. Gateway settings page (Network nav) + Remote access dialog (`components/remote-access/RemoteAccessDialog.tsx`; step engine `lib/remote-access/steps.ts`).
 
 #### zrok child steps
 
@@ -5190,7 +5521,7 @@ See change: add-radius-provider-login (D5, D6).
 
 **Non-goal.** Model proxy has no Radius OAuth refresh loader.
 
-**Dependency pin.** The server imports only `@earendil-works/pi-coding-agent` (`await import(...)`, public index `ModelRuntime`), never `@earendil-works/pi-ai` and never either package's `dist/` (both unreachable — export maps / hoisted `1.1.0`). Binding to the pi-ai copy pi-coding-agent was built against gives version parity by construction. Six governed pins move together: `packages/server/package.json` dep `^1.1.0`, `piCompatibility.minimum`, `piCompatibility.recommended`, the `pnpm-workspace.yaml` override, `docker/Dockerfile`, and `scripts/verify-release-deps.mjs` `minVersion` (`checkPiPinCoherence`). Every `@earendil-works` peer is `>=1.1.0` (optional, no upper bound); every `@earendil-works` devDependency is `^1.1.0`; `pnpm-workspace.yaml` overrides pin `pi-coding-agent`, `pi-ai`, `pi-tui`. See changes: update-pi-core-1-0-adopt-apis, update-pi-core-1-1-adopt-apis; floor moved to 1.1.0 in update-pi-core-1-1-adopt-apis.
+**Dependency pin.** The server imports only `@earendil-works/pi-coding-agent` (`await import(...)`, public index `ModelRuntime`), never `@earendil-works/pi-ai` and never either package's `dist/` (both unreachable — export maps / hoisted `1.3.0`). Binding to the pi-ai copy pi-coding-agent was built against gives version parity by construction. Six governed pins move together: `packages/server/package.json` dep `^1.3.0`, `piCompatibility.minimum`, `piCompatibility.recommended`, the `pnpm-workspace.yaml` override, `docker/Dockerfile`, and `scripts/verify-release-deps.mjs` `minVersion` (`checkPiPinCoherence`). Every `@earendil-works` peer is `>=1.3.0` (optional, no upper bound); every `@earendil-works` devDependency is `^1.3.0`; `pnpm-workspace.yaml` overrides pin `pi-coding-agent`, `pi-ai`, `pi-tui`. See changes: update-pi-core-1-0-adopt-apis, update-pi-core-1-1-adopt-apis, update-pi-core-1-3-adopt-apis; floor moved to 1.1.0 in update-pi-core-1-1-adopt-apis, to 1.3.0 in update-pi-core-1-3-adopt-apis.
 
 **Routes** (`packages/server/src/routes/provider-auth-routes.ts`):
 
@@ -5737,6 +6068,172 @@ Before pushing an archive: run `npm run spec:validate` locally. Corrupt archive 
 Retired capability with zero current requirements: tombstone (keep spec, one requirement naming successor) when it carries an authored `**DEPRECATED**` pointer, else delete. Zero-requirement spec does NOT validate.
 
 See change: repair-corrupted-main-specs.
+
+## OpenSpec workflow schema (`pi-spec-driven`)
+
+Dashboard-managed project schema. Base: OpenSpec built-in `spec-driven` + patch set (`CURRENT_PATCH = 1`). Opt-in per project. Never enabled on existing projects by default.
+
+Code:
+- `packages/server/src/openspec/workflow-schema.ts` — generation, stamp, state table, write guard, actions.
+- `packages/server/src/routes/openspec-routes.ts` — `POST /api/openspec/workflow-schema`, init chain.
+- `packages/server/src/directory-service.ts` — `workflowSchemaStatusFor` (poll status).
+- `packages/shared/src/types.ts` — `WorkflowSchemaGenerated`, `OpenSpecWorkflowSchemaStatus`.
+- `packages/shared/src/openspec-poller.ts`, `.pi/skills/openspec-shared/scripts/effective-status.sh` — R-rule skip.
+
+Spec: `openspec/changes/add-pi-spec-driven-schema/`. See change: add-pi-spec-driven-schema.
+
+### Generation
+
+Output: `<root>/openspec/schemas/pi-spec-driven/` (`schema.yaml` + forked templates).
+
+Stamp (top-level key `x-pi-dashboard` in `schema.yaml`):
+
+```yaml
+x-pi-dashboard:
+  derivedFrom: spec-driven@<cli-version>
+  patch: 1
+  previousDefault: spec-driven
+```
+
+```mermaid
+flowchart TD
+  A["scratch root + empty XDG_DATA_HOME"] --> B{"schema which spec-driven: source package, no shadows"}
+  B -- no --> X[abort, repo untouched]
+  B -- yes --> C["schema fork --force (scratch)"]
+  C --> D["YAML patch + x-pi-dashboard stamp (scratch)"]
+  D --> E{"schema validate (scratch)"}
+  E -- invalid --> X
+  E -- valid --> F["copy to openspec/schemas/.fork-staging-RAND"]
+  F --> G["rename pi-spec-driven to .fork-backup-PID-TS"]
+  G --> H["rename staging to pi-spec-driven"]
+  H --> I["delete backup; delete scratch; forced refresh"]
+  G -. fail .-> R["restore backup, remove staging"]
+  H -. fail .-> R
+```
+
+Steps (`generateWorkflowSchema`):
+1. Scratch root = fresh `os.tmpdir()` dir. Every CLI call (`--version`, `schema which/fork/validate`) runs with cwd = scratch and `XDG_DATA_HOME` = empty scratch dir. Blocks project and user shadows.
+2. `openspec schema which spec-driven --json`. Abort unless `source: "package"` and `shadows` empty.
+3. `openspec schema fork spec-driven pi-spec-driven --force` in scratch.
+4. YAML Document patch of scratch `schema.yaml` (comments kept). Patch v1 replaces anchor `When to include design.md (create only if any apply):` with `When a full design.md is warranted (otherwise still create design.md containing one line "Not needed: <reason>"):`. Anchor missing → abort. Author guidance only; CLI checks file existence.
+5. Write stamp. `base` = `openspec --version` of the CLI that ran.
+6. `openspec schema validate pi-spec-driven` in scratch.
+7. Copy (not rename: avoids `EXDEV` on bind mounts / cross-volume) into `openspec/schemas/.fork-staging-<rand>/`. Copy failure → remove staging, abort.
+8. Swap, under fingerprint re-check (paths + content hashes of existing `pi-spec-driven/`, same as OpenSpec fork):
+   - existing dir → rename to `pi-spec-driven.fork-backup-<pid>-<ts>`
+   - rename staging → `pi-spec-driven/`
+   - delete backup
+
+Failure matrix:
+- Fail before backup rename → remove staging. Previous schema untouched.
+- Fail on staging rename → rename backup back, remove staging. Previous schema byte-identical.
+- Restore fails after retries → backup left in place (discovery ignores `*.fork-backup-*`); error names it.
+- Fail on backup delete → no rollback; warning returned.
+- Scratch dir removed in every case.
+- Windows only: `EPERM` / `EBUSY` / `EACCES` on any rename (incl. restore) retried. 5 retries, delays 50/100/200/400/800 ms (1.55 s, within 2 s).
+
+### Stamp states
+
+`compareStamp(stamp, local)` on `(base, patch)`. `base` via `semver.compare`; `patch` numeric. Component-wise. Lexicographic comparison rejected: newer base would drop newer patch.
+
+| `generated` | Condition | Action |
+|---|---|---|
+| `none` | no `pi-spec-driven/` dir | Enable generates |
+| `current` | base and patch equal | none |
+| `outdated` | none newer, ≥1 older | Update offered |
+| `newer` | ≥1 newer, none older | none, never downgrade |
+| `conflict` | one newer, one older | report only; no action regenerates (align dashboard/CLI) |
+| `incompatible` | `newer` but local `schema validate` fails | notice: update OpenSpec CLI |
+| `unmanaged` | no parseable stamp, or `pi-spec-driven` is a symlink | Adopt, with confirm |
+
+`newer`/`conflict` validate locally before Enable keeps them.
+
+### Enable
+
+Order (`doEnable`): guard → record → generate → pin → switch.
+
+1. Write guard (below).
+2. `openspec/config.yaml` or `config.yml` must exist. Both present → `config.yaml` read and edited (CLI behavior).
+3. Config already `schema: pi-spec-driven` → return status, write nothing.
+4. Record `previousDefault` = config `schema:`, else `spec-driven` (CLI implicit default). Must be kebab-case, not `pi-spec-driven`, resolve via project/package dirs (empty `XDG_DATA_HOME`).
+5. Stamp state:
+   - `none` → generate with `previousDefault`.
+   - `current` / `outdated` / `newer` / `conflict` → keep, never regenerate. Refuse if stamp `previousDefault` ≠ recorded value (user runs Update with `previousDefault: <recorded>`).
+   - `unmanaged` / `incompatible` → refuse.
+6. Pin: each active change dir without `.openspec.yaml` → exclusive create, body `{ schema: <previousDefault> }` via YAML serializer. Active = excludes `archive/`, dot-dirs, symlinks.
+7. `config.yaml` `schema:` → `pi-spec-driven` (YAML Document edit).
+8. Forced refresh.
+
+Pins before switch: no poll sees unpinned change under new default. Existing `.openspec.yaml` never modified. File present without `schema:` left alone (per-change CLI error, surfaced by `use-openspec-status-all`).
+
+Partial failure: schema dir and pins stay. Default unchanged, so harmless. Re-run Enable completes.
+
+### Write guard
+
+Every writing action (`enable`, `disable`, `update`, `adopt`, `pin`, `remove`) runs under the per-cwd lock. Before any write:
+- Fresh `openspec status --all --json` in cwd (not cached poll). No `root` → refuse (CLI without `--all` cannot write).
+- `root.source === "nearest"`. Committed store pointer or declared root would redirect writes outside repo (`dist/core/root-selection.js:189-210`).
+- `realpath(root.path) === realpath(cwd)`.
+- `openspec/` exists, not a symlink. `changes/`, `schemas/`, `config.yaml`, `config.yml` not symlinks.
+
+Writes: temp file + rename (pins: exclusive create). All paths contained by `realpath(<root>)/openspec/`.
+
+Schema names: kebab-case only (`KEBAB` regex), written through YAML serializer. Blocks newline injection into `config.yaml` (e.g. `retire_capabilities: true`). User-level-only schemas refused as default or pin target: teammates cannot resolve them.
+
+### Actions
+
+| Action | Effect | Refused when |
+|---|---|---|
+| `enable` | see Enable | `unmanaged`, `incompatible`, stamp `previousDefault` mismatch |
+| `disable` | restore `previousDefault` (fallback `spec-driven`) in config; schema dir stays | config not `pi-spec-driven` → no-op |
+| `update` | regenerate with `previousDefault` (request value, else stamp's); re-stamps | allowed only for `outdated`, `current`, or `none` while enabled; refuses `newer`, `conflict`, `incompatible`, `unmanaged` |
+| `adopt` | regenerate over `unmanaged`; needs `confirm` + `previousDefault` | not `unmanaged` |
+| `pin` | create-only `.openspec.yaml` for `changes` | default not `pi-spec-driven`; `pinTo` not `pi-spec-driven` or stamp `previousDefault` |
+| `remove` | rename to `.fork-backup-*`, then delete | `none`, `unmanaged`; config names schema; active change pins it. Archived-only refs → warning + confirm |
+
+Remove sees only local working tree. Unmerged branches pinning `pi-spec-driven` break after Remove; response always warns.
+
+### Multi-user rules
+
+- Committed: `openspec/schemas/pi-spec-driven/`, `config.yaml` `schema:`, pins. Teammates receive via git.
+- Stamp never downgrades. Teammate on newer dashboard keeps newer schema. Mixed versions → `conflict`, reported only.
+- Teammate without schema dir (partial checkout): per-change `schema not found`; `workflowSchema.missing`; Update restores.
+- Change arriving by merge with no `.openspec.yaml` follows new default. Listed in `unpinnedChanges`. Known limitation of file-less changes.
+- Server never creates git commits. Response carries `worktree: { isWorktree, branch }`; UI shows branch when `isWorktree`.
+
+### Status (separate from readiness)
+
+`OpenSpecData.workflowSchema?: OpenSpecWorkflowSchemaStatus` = `{ configured, generated, missing, unpinnedChanges, affectedChanges }`.
+- Attached only to successful-poll payloads. Failure payload carries no schema status (`hasWorkflowSchemaStatus(readiness)` gate in `directory-service.ts`).
+- Computed on the MAIN thread, not the poll worker. `workflowSchemaStatusFor` (`directory-service.ts`) runs concurrently with the CLI spawn in `pollOne`, attached at finalize. Async fs reads only.
+- Only `newer` / `conflict` `schema validate` spawns. Routed through the shared spawn semaphore; memoized by (cwd, fingerprint, CLI version).
+- Readiness untouched. Missing schema dir → per-change `Unknown schema` errors, not `STALE`. `STALE` would disable every OpenSpec control on session cards.
+- Settings section: `/settings/openspec#workflow-schema` (`OpenSpecWorkflowSchemaSection.tsx`). Folder-section chip only links there.
+
+### REST endpoint
+
+`POST /api/openspec/workflow-schema`. Body: `{ cwd, action, confirm?, pinTo?, changes?, previousDefault? }`. `action` ∈ `enable | disable | update | adopt | pin | remove`.
+
+- `preHandler: networkGuard`. `control` tier in `packages/shared/src/route-tiers.ts`. MCP manifest completeness test applies.
+- Gate order: shape → tracked-or-pinned (membership, no fs) → OpenSpec enabled → not opted out → fs (`realpathSync.native(cwd)`, `<cwd>/openspec/` exists) → per-cwd lock.
+- Lock: `inFlightInits` set, key `realpathSync.native(cwd)`. Shared with `POST /api/openspec/init`. Concurrent call → `409`.
+- Validation: `pinTo` ∈ {`pi-spec-driven`, stamp `previousDefault`}. `changes` ⊆ active change names from fs enumeration. `previousDefault` kebab-case and resolvable.
+- Log per call: event `openspec.workflow-schema`, cwd, action, ok, written, `stampBefore`, `stampAfter`.
+
+### New-project default
+
+- Config: `openspec.workflowSchema.defaultForNewProjects` (boolean, default `false`, `packages/shared/src/config.ts`).
+- REST init chains Enable when flag on AND `<cwd>/openspec/` absent before init. Runs inside init's held lock.
+- Never triggers on repair or overwrite. Switching default of existing shared project is team decision.
+- project-init skill runs `openspec init` itself, discloses step in Step 3c preview, calls endpoint separately (own lock).
+
+### R1 / R2 / R3 skip
+
+Design-evidence promotion (R1 split files, R2 `design/` dir, R3 no design + tasks checkboxes) skipped when change `schemaName === "pi-spec-driven"`. Explicit `Not needed: <reason>` design file counts as done.
+
+- Dashboard: `packages/shared/src/openspec-poller.ts` — `evaluateLocalDesignSatisfaction(..., schemaName)`. `schemaName` from status entry; fallback `probe.localSchemaName`.
+- Skills: `.pi/skills/openspec-shared/scripts/effective-status.sh` — `jq -r '.schemaName'` gate on `openspec status --change <name> --json`.
+- Other schemas: rules unchanged. Fallback `list` path (no `schemaName`): keeps promoting.
 
 ## Electron Server Lifecycle
 
@@ -6859,6 +7356,198 @@ sequenceDiagram
 - `session-card-badge` → `BrowserRelayBadge`: reads relay module-store. Gate `shouldRender: "hasRelayTabsForBadge"` (true iff relay snapshot ≥1 tab); required by badge-gate rule, see [`plugin-claim-gates.md`](plugin-claim-gates.md). The relay is GLOBAL (no pi-session linkage), so this module-store feed is what lets the hook-less `content-view` predicate `isLiveViewActive` see it.
 - `shell-headless` → `BrowserRelayFeed`: sole caller of `useRelayStatusFeed()`. Always-mounted `browser_relay_status` subscriber. Re-seeds from `GET /api/browser/profiles` on mount + each shell `connected`. Failed seed clears store; unmount clears store. `setRelayStatus` calls `bumpSlotClaimsVersion()` only when tab-count presence flips. See change: fix-empty-status-subcard.
 - `content-view` → `LiveViewTile`: one tile per `{instanceId, tabId}`; subscribe/unsubscribe lifecycle, JPEG frames, pointer/key/wheel → normalized `browser_relay_input`, no-frames + DevTools overlays.
+
+### Operator browser hosts
+
+Agent on S drives Chrome on operator machine O. Change: add-operator-browser-relay (D1–D11).
+Source: `packages/browser-plugin/src/server/{operator-hosts,relay/link-socket,relay/relay-manager}.ts`, `packages/electron/src/lib/browser-host/*`, `packages/browser-plugin/src/client/OperatorHostCarrier.tsx`, `packages/shared/src/{browser-protocol,browser-host-identity,browser-host-ipc,chrome-profiles}.ts`.
+
+See change: add-operator-browser-relay.
+
+#### Topology
+
+```mermaid
+flowchart LR
+  Agent["pi session (agent)"]
+  subgraph S["Dashboard server S"]
+    Inst["RelayInstance CDP /ws/browser-cdp/guid"]
+    Mgr["RelayManager + OperatorHostRegistry + LinkSocket"]
+    Gate["/ws gateway"]
+  end
+  subgraph O["Operator machine O"]
+    Renderer["main-window renderer OperatorHostCarrier"]
+    Main["Electron main shim 127.0.0.1:0 + identity + consent"]
+    Chrome["Chrome + Playwright extension"]
+  end
+  Agent -->|"cdpUrl ws://127.0.0.1:port/ws/browser-cdp/guid"| Inst
+  Inst --- Mgr
+  Mgr <-->|"browser_host_* over carrier /ws"| Gate
+  Gate <-->|"browserHost IPC"| Renderer
+  Renderer <-->|"IPC trusted senders"| Main
+  Chrome -->|"ws /ws/browser-ext/linkId"| Main
+```
+
+- Carrier = main-window renderer's existing `/ws`. No main-process WS: in-page switch holds no S credential in main.
+- `OperatorHostCarrier` (always mounted) bridges `window.piDashboard.browserHost` IPC ↔ `browser_host_*` WS.
+- Main-window-only trust: `browserHost` exposed only on local origin (`preload-main.ts:121`). `ipc-trust.ts` refuses other senders. Remote-origin window = no `browserHost` = never a carrier.
+- Every IPC channel: `trustedHandler` / `trustedListener`.
+- Shim: `127.0.0.1:0`. Starts with first registered link, stops when idle.
+- Chrome argv: `connect.html?mcpRelayUrl=ws://127.0.0.1:<shimPort>/ws/browser-ext/<linkId>` + `--profile-directory=<dir>`.
+
+#### Registration handshake
+
+```mermaid
+sequenceDiagram
+  participant C as OperatorHostCarrier
+  participant M as Electron main
+  participant S as Server S
+  C->>S: GET /api/browser/status
+  S-->>C: operatorHosts true
+  C->>S: browser_host_hello hostId publicKey
+  S-->>C: browser_host_challenge nonce serverId
+  C->>M: identity.sign nonce serverId
+  Note over M: refuses unless serverId = target /api/health instanceId
+  M-->>C: Ed25519 signature
+  C->>S: browser_host_register hostId signature label platform canOpenChrome profiles
+  Note over S: verify vs pinned key TOFU, host-active guard
+  S-->>C: browser_host_registered hostId
+```
+
+- Gate: carrier sends nothing unless `GET /api/browser/status` → `operatorHosts: true`. Old server would fall through `browser-gateway.ts:2417-2424`.
+- `hostId` = `host-` + first 32 hex of SHA-256(SPKI DER public key). Helper: `browser-host-identity.ts`.
+- Key: Ed25519, generated on first use. Private key in `browser-host-key.json` via `safeStorage` (0600).
+- No encryption → key in memory only. Next launch mints new identity.
+- Private key never leaves main.
+- Signed bytes: `"pi-browser-host-v1\n" + nonce + "\n" + serverId`.
+- `serverId` = S's `/api/health` `instanceId`. Binds to identity, not origin: stable behind tunnels, proxies, IP-vs-name.
+- `sign` refuses unless `serverId` = `instanceId` of switched-to target (Node fetch, `target.ts`).
+- TOFU pin: first verified key per `hostId` → `operator-hosts.json` (plugin data dir).
+- Other key for same `hostId` → refused, audited.
+- Pin prune: unseen > 90 d dropped. Max 256 pins, least recently seen dropped.
+- Pin reset: `DELETE /api/browser/operator-hosts/:hostId` (tier `operate`, `route-tiers.ts:32`).
+- One host per socket.
+- Register for `hostId` bound to other live socket with live links or pending connects → `host-active`.
+- Otherwise re-bind; old binding dropped. No live instance closed by newcomer.
+- Half-open carrier: gateway keepalive (2 missed pongs) closes socket → frees host.
+- Bounds: `label` ≤ 128; `platform` ≤ 64; ≤ 64 profiles; `profileDirectory` ≤ 128, no `/` or `\`; `email` ≤ 254. Violation → drop + audit.
+- `hostId` public (listed in `GET /api/browser/profiles`). Register needs private key.
+- Log: `[browser-host] register host=<hostId> profiles=<n> pin=<new|ok|mismatch>`.
+
+#### Connect flow
+
+1. `POST /api/browser/connect {profileDirectory, host}`. `host` omitted or `"dashboard"` → dashboard path, unchanged.
+2. Preflight, before any mint:
+   - kill switch off → 403;
+   - `host` not bound → 404 `unknown-host`;
+   - row missing or `installed: false` → 409 `not-installed`;
+   - live instance or pending on (host, `profileDirectory`) → 409 `busy` + `instanceId`;
+   - ≥ 8 links or ≥ 2 pending on host → 409 `host-busy`.
+3. S mints `guid` (URL credential, never leaves S), `linkId` (128-bit, wire id), `requestId`, `instanceId`. Keeps `linkId → {guid, requestId, socket}`.
+4. S → bound carrier only: `browser_host_connect {requestId, linkId, instanceId, profileDirectory, serverLabel}`. `serverLabel` display only.
+5. Main consent dialog, parented to main window. Buttons: Allow once / Always allow / Deny. Default and Escape = Deny. Auto-deny 55 s.
+6. Always → `browser-host-consent.json`. Keyed by real target server (origin + `instanceId`). New `instanceId` asks again.
+7. Allow → main registers `linkId` in shim, launches Chrome, sends `browser_host_connect_result {ok: true}`. Deny → `{ok: false, reason: "denied"}`, no Chrome.
+8. Handshake window starts at `ok: true`, not at request. Extension claims link → `browser_host_ext_open` → `LinkSocket` → instance.
+9. `ext_open` before `ok: true` → dropped + audited.
+10. Success → 200 `{cdpUrl, instanceId}`. `cdpUrl` = `ws://127.0.0.1:<port>/ws/browser-cdp/<guid>`.
+11. Any non-200 after step 4 → `browser_host_connect_cancel {requestId}`: main closes dialog, unregisters `linkId`, closes ext socket on link.
+
+Timers:
+
+| window | bound | constant |
+|---|---|---|
+| consent, main | 55 s auto-deny | `CONSENT_DIALOG_TIMEOUT_MS` (`consent.ts`) |
+| consent, S | 60 s → 504 `consent-timeout` | `CONSENT_TIMEOUT_MS` |
+| handshake | 60 s from `ok: true` → 504 | `CONNECT_TIMEOUT_MS` |
+| guid unclaimed | 60 s → expire | `GUID_EXPIRY_MS` |
+
+Outcomes:
+
+| status | `reason` | cause |
+|---|---|---|
+| 200 | — | handshake complete |
+| 403 | `disabled` | kill switch, or disabled during connect |
+| 403 | `operator-denied` | Deny, or auto-deny |
+| 404 | `unknown-host` | `host` not bound to live socket |
+| 409 | `not-installed` | profile missing or `installed: false` |
+| 409 | `busy` | live instance or pending on (host, profile) |
+| 409 | `host-busy` | ≥ 8 links or ≥ 2 pending on host |
+| 503 | `no-chrome` | `connect_result {reason: "no-chrome"}` |
+| 503 | `host-gone` | carrier closed before handshake |
+| 503 | `launch-failed` | other `connect_result` failure, or link closed |
+| 504 | `consent-timeout` | no `connect_result` within 60 s |
+| 504 | (message) | no handshake within 60 s of `ok: true` |
+
+Busy keyed (host, `profileDirectory`): dashboard and operator `Default` never collide.
+
+**Version skew.** Old server ignores `host`, drives its own Chrome. Agent recipe passes `host` only when `status.operatorHosts === true`.
+
+#### linkId vs guid
+
+| id | size | carried in | visible to |
+|---|---|---|---|
+| `guid` | 128 bit | `cdpUrl` path (agent → S) | S only. Never on carrier, logs, REST |
+| `linkId` | 128 bit | `browser_host_*`, shim path, Chrome argv | S, main, Chrome; local argv on O |
+| `requestId` | — | connect, result, cancel | S, main |
+| `instanceId` | `inst-…` | UI, audit, REST | public handle, cannot open socket |
+
+- `linkId` single-use. Shim registers it only after Allow. First extension socket wins. Lives ≤ 60 s.
+- Shim Origin check (`chrome-extension://mmlmfjhmonkocbjadbfplnigmagldckm`) is not auth. `linkId` is the credential. Same-user local processes already inside trust boundary.
+- Connect and link bound to one socket. S accepts `connect_result`, `ext_open`, `ext_data`, `ext_close` for that `linkId`/`requestId` only from that socket.
+
+#### Unicast
+
+- Every S → browser `browser_host_*` sent to bound carrier socket only. Never broadcast.
+- `operatorHosts[]` served only by `GET /api/browser/profiles`. Never on `/ws`.
+
+#### Limits
+
+| limit | value | enforced in | on breach |
+|---|---|---|---|
+| one `data` frame | ≤ 16 MiB (`LINK_MAX_DATA`) | `link-socket.ts` | close 1009 `message-too-big` |
+| links per host | ≤ 8 (`MAX_LINKS_PER_HOST`) | `relay-manager.ts` | 409 `host-busy` |
+| pending connects per host | ≤ 2 (`MAX_PENDING_PER_HOST`) | `relay-manager.ts` | 409 `host-busy` |
+| carrier `bufferedAmount` | > 32 MiB for 10 s (`CARRIER_CONGESTED_BYTES`, `CARRIER_CONGESTED_MS`) | `link-socket.ts` | every link on carrier close 1013 `carrier-congested` |
+
+- Extension traffic cannot skip like viewer frames. Congestion fails loud. Memory does not grow unbounded.
+
+#### Local tee
+
+- Pane on own host subscribes with `local: true` (after `browser_host_registered` names this host).
+- S sends no `browser_relay_frame` to carrier for that viewer. Counts it as viewer for tap start/keep/stop.
+- S sends `browser_host_tee {linkId, instanceId, tabId, on}`. `on: true` when mode becomes local; `on: false` when mode stops or subscription ends.
+- Main copies `Page.screencastFrame` where `source.tabId === tabId` and no `source.sessionId` → `onFrame`. Main still forwards event to S unchanged; S keeps acking.
+- `local: true` from any other socket → normal subscribe, audited `denied` / `browser_host:local-ignored`.
+
+#### Lifecycle
+
+- Carrier close → every instance on that carrier closes `host-gone`. Pending connects → 503 `host-gone`. Link sockets close 1006 `host-gone`.
+- Renderer navigate, reload or destroy → main cancels pending connects, closes links (same effect as `connect_cancel`). Carrier close follows.
+- Kill switch (`PUT /api/browser/enabled {false}`) closes all instances, operator ones included.
+- Consent revoke affects future connects only. Live instances stay open.
+
+#### Consent and token stay on O
+
+- Consent: `browser-host-consent.json` in userData. Unreadable → renamed `browser-host-consent.corrupt-<ts>.json`, treated empty.
+- Token: per profile, `safeStorage` only (memory-only fallback). Appended to connect URL locally. Never sent to S.
+- Two token stores, disjoint by host: server `plugins.browser.browsers.*` token → dashboard-host profiles; Electron token → operator profiles.
+- Operator instances: relay deny-list only. Server `browsers.*` (`token`, `zeroDialog`, `allowedDomains`) applies to dashboard-host profiles only.
+- Operator profile rows carry `{profileDirectory, label, email?, installed}` + S-added `instances`. No `hasToken` / `zeroDialog` (S cannot see Electron state).
+
+#### REST additions
+
+- `GET /api/browser/status` → `operatorHosts: true` (version gate).
+- `GET /api/browser/profiles` → `operatorHosts[]` (one row per live bound host; pins not listed).
+- `POST /api/browser/connect` → optional `host`.
+- `DELETE /api/browser/operator-hosts/:hostId` → forget pin.
+- `GET /api/browser/audit?profile=host:<hostId>` → host-level audit.
+
+#### Logs, audit, secrets
+
+- Log: `[browser-host] connect host=<hostId> profile=<dir> outcome=<status|reason> ms=<n>` (once per connect).
+- Log: `[browser-host] link close host=<hostId> reason=<reason>`.
+- Audit ring key `host:<hostId>`: pin mismatch, refused register, dropped `browser_host_*`, early `ext_open`, downgraded `local`.
+- Never in logs, audit, status or REST: guid, `linkId`, nonce, signature, pairing token, frame data.
 
 ## Bundled Package: deck3d
 

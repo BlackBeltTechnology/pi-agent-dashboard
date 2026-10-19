@@ -19,7 +19,7 @@
     ".": "./src/index.ts"
   },
   "engines": {
-    "node": ">=22.13.0"
+    "node": ">=22.19.0"
   },
   "scripts": {
     "build": "node ../../scripts/tsc7.mjs -p tsconfig.json && node bin/lib/engine-fingerprint.mjs --write .",

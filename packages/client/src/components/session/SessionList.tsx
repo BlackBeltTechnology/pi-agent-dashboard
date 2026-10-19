@@ -8,7 +8,7 @@ import { DndContext, type DragEndEvent, type DragOverEvent, type DragStartEvent,
 import { arrayMove, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { mdiArchiveOutline, mdiBroom, mdiChevronDown, mdiChevronRight, mdiChevronUp, mdiClipboardCheckOutline, mdiClose, mdiCog, mdiConsoleLine, mdiFileDocumentOutline, mdiFolder, mdiFolderOpen, mdiPin, mdiPlus, mdiPuzzleOutline, mdiRefresh, mdiSourceBranch, mdiTextBoxCheckOutline, mdiViewGridPlus } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { ARCHIVE_PAGE_SIZE, useArchivedSessions } from "../../hooks/useArchivedSessions.js";
 import { useFlipOnLaneChange } from "../../hooks/useFlipOnLaneChange.js";
@@ -58,10 +58,10 @@ import {
 } from "../../lib/session/session-lanes.js";
 import { selectedCardScrollFingerprint } from "../../lib/session/session-list-scroll.js";
 import { useCardSectionPrefs } from "../../lib/state/CardSectionsContext.js";
+import { type SessionMenuScope, SessionMenuScopeContext, type SessionMenuState, sessionScopeKey } from "../../lib/state/SessionMenuScopeContext.js";
 import { encodeFolderPath } from "../../lib/util/folder-encoding.js";
 import { truncatePathMiddle } from "../../lib/util/truncate-path.js";
-import { YoloPill } from "../access-grant/YoloIndicators.js";
-import { QuestionStack } from "../questions/QuestionStack.js";
+import { useYoloAppBar, YoloBarLink } from "../access-grant/YoloIndicators.js";
 import { TunnelButton } from "../connectivity/TunnelButton.js";
 import { FolderActionBanner } from "../folder/FolderActionBanner.js";
 import { FolderActionsMenu, type FolderMenuItem, type FolderMenuRadioGroup } from "../folder/FolderActionsMenu.js";
@@ -73,6 +73,7 @@ import { FolderOpenSpecSection } from "../openspec/FolderOpenSpecSection.js";
 import { InstallButton } from "../packages/InstallButton.js";
 import { PiLogo } from "../primitives/PiLogo.js";
 import { Toast, useToast } from "../primitives/Toast.js";
+import { QuestionStack } from "../questions/QuestionStack.js";
 import { ThemePicker } from "../settings/ThemePicker.js";
 import { ThemeToggle } from "../settings/ThemeToggle.js";
 import { allTagsInUse } from "../tags/all-tags.js";
@@ -85,9 +86,8 @@ import { PinnedTierDropZone } from "../workspace/PinnedTierDropZone.js";
 import { SortableWorkspace } from "../workspace/SortableWorkspace.js";
 import { SortableWorkspaceFolder } from "../workspace/SortableWorkspaceFolder.js";
 import { WorkspaceHeader } from "../workspace/WorkspaceHeader.js";
-import { BranchSwitchDialog } from "../worktree/BranchSwitchDialog.js";
+import { LazyBranchSwitchDialog, LazyWorktreeSpawnDialog } from "../worktree/lazy-worktree-dialogs.js";
 import { ManageWorktreesDialog } from "../worktree/ManageWorktreesDialog.js";
-import { WorktreeSpawnDialog } from "../worktree/WorktreeSpawnDialog.js";
 import { ArchivedSessionRow } from "./ArchivedSessionRow.js";
 import { DashboardSpawnButtons } from "./DashboardSpawnButtons.js";
 import { FocusToggle } from "./FocusToggle.js";
@@ -100,7 +100,7 @@ import { SortableSessionCard } from "./SortableSessionCard.js";
 import { SpawnErrorBanner } from "./SpawnErrorBanner.js";
 
 /** Community invite surfaced in the app header. */
-const DISCORD_INVITE_URL = "https://discord.gg/uQsJgsejb";
+const DISCORD_INVITE_URL = "https://discord.gg/DrNebZ3pF5";
 /** Discord brand glyph — @mdi/js 7.x ships no brand icons, so the path is inlined. */
 const mdiDiscordPath =
   "M20.317 4.369A19.79 19.79 0 0 0 15.446 3c-.21.375-.455.88-.624 1.28a18.27 18.27 0 0 0-5.644 0A12.6 12.6 0 0 0 8.548 3a19.74 19.74 0 0 0-4.874 1.372C.605 8.98-.232 13.475.186 17.905a19.9 19.9 0 0 0 6.026 3.05c.485-.66.917-1.362 1.29-2.1a12.9 12.9 0 0 1-2.03-.978c.17-.125.337-.256.498-.39a14.2 14.2 0 0 0 12.06 0c.163.135.33.266.5.39-.647.383-1.33.71-2.033.98a15.8 15.8 0 0 0 1.29 2.099 19.86 19.86 0 0 0 6.03-3.05c.49-5.138-.838-9.593-3.5-13.537ZM8.02 15.21c-1.182 0-2.152-1.086-2.152-2.42 0-1.332.95-2.42 2.152-2.42 1.21 0 2.18 1.096 2.16 2.42 0 1.334-.95 2.42-2.16 2.42Zm7.96 0c-1.183 0-2.152-1.086-2.152-2.42 0-1.332.95-2.42 2.152-2.42 1.21 0 2.18 1.096 2.16 2.42 0 1.334-.95 2.42-2.16 2.42Z";
@@ -341,7 +341,7 @@ interface Props {
 }
 
 // Re-export for backwards compatibility
-export { type DirectoryGroup, filterSessions, groupSessionsByDirectory } from "../../lib/session/session-grouping.js";
+export { type DirectoryGroup, groupSessionsByDirectory } from "../../lib/session/session-grouping.js";
 
 /**
  * Whether a folder group should be treated as a git repository for menu
@@ -400,6 +400,8 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
   const gitWorktreeEnabled = gitWorktreeEnabledProp ?? true;
   const now = Date.now();
   const [, navigate] = useLocation();
+  // Orange tint + title on the app bar while YOLO is live; never ticks. See change: fix-yolo-indicator-overflow.
+  const yoloAppBar = useYoloAppBar();
   const { messages, showToast, dismissToast } = useToast();
   const installPrompt = useInstallPrompt();
 
@@ -949,7 +951,49 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
   // Folder actions menu open flag, keyed by folder SCOPE (`folder:<cwd>`) the
   // same way `addToWsMenuFor` is — a cwd key would co-open a folder row and a
   // same-cwd card. See change: add-folder-actions-menu.
-  const [folderMenuFor, setFolderMenuFor] = React.useState<string | null>(null);
+  //
+  // The SAME state also keys SESSION menus (`session:<id>`) — one actions menu is
+  // open at a time across both scopes, so opening one closes the other. It also
+  // records how a session menu opened (hover / click / right-click / keyboard).
+  // See change: add-session-actions-flyout (D6).
+  const [menuState, setMenuState] = React.useState<SessionMenuState>({ menuFor: null });
+  const folderMenuFor = menuState.menuFor;
+  const setFolderMenuFor = React.useCallback((next: string | null) => setMenuState({ menuFor: next }), []);
+  const menuScopeValue = React.useMemo<SessionMenuScope>(() => ({ state: menuState, setState: setMenuState }), [menuState]);
+  const menuStateRef = React.useRef(menuState);
+  menuStateRef.current = menuState;
+  // Hover intent (strip on each card's right edge). ONE document listener; refs
+  // only — see `session-hover-intent.ts`. The controller is code-split (only a
+  // fine-hover device ever loads it) and torn down on unmount.
+  React.useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    const fine = window.matchMedia("(hover: hover) and (pointer: fine)");
+    if (!fine.matches) return;
+    let destroyed = false;
+    let controller: { destroy(): void } | null = null;
+    void import("./session-hover-intent.js").then(({ createHoverIntent }) => {
+      if (destroyed) return;
+      controller = createHoverIntent(document, {
+        matches: () => fine.matches,
+        suppressed: () => {
+          const st = menuStateRef.current;
+          if (st.menuFor !== null && st.source !== "hover") return true;
+          return document.querySelector("[role='dialog'][aria-modal='true']") !== null;
+        },
+        open: (id) => setMenuState({ menuFor: sessionScopeKey(id), source: "hover" }),
+        close: () => setMenuState((cur) => (cur.source === "hover" ? { menuFor: null } : cur)),
+        hoverOpenFor: () => {
+          const st = menuStateRef.current;
+          return st.source === "hover" && st.menuFor?.startsWith("session:") ? st.menuFor.slice("session:".length) : null;
+        },
+        menuEl: () => document.querySelector<HTMLElement>("[role='menu'][data-testid^='session-actions-menu-']"),
+      });
+    });
+    return () => {
+      destroyed = true;
+      controller?.destroy();
+    };
+  }, []);
   // Broken-session cleanup confirm (moved off the deleted FolderActionBar into
   // the folder actions menu). See change: add-folder-action-banner.
   const [cleanupCwd, setCleanupCwd] = React.useState<string | null>(null);
@@ -2771,9 +2815,16 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
   }
 
   return (
+    <SessionMenuScopeContext.Provider value={menuScopeValue}>
     <div className="w-full border-r border-[var(--border-primary)] flex flex-col min-h-0 h-full">
       <div className="border-b border-[var(--border-primary)]">
-        <div className="flex items-center justify-between px-3 py-1.5" data-testid="header-app-bar">
+        <div
+          {...yoloAppBar}
+          className={`relative flex items-center justify-between px-3 py-1.5 ${yoloAppBar.className ?? ""}`}
+          data-testid="header-app-bar"
+        >
+          {/* Focus-revealed link to Access while YOLO is live; out of flow. See change: fix-yolo-indicator-overflow. */}
+          <YoloBarLink />
           <div className="flex gap-1.5 items-center">
             <button onClick={() => navigate("/")} className="flex items-center leading-none text-blue-500 hover:text-blue-400 transition-colors" title={t("common.home", undefined, "Home")}>
               <PiLogo size={24} />
@@ -2784,8 +2835,6 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
           <div className="flex gap-1 items-center">
             <InstallButton canInstall={installPrompt.canInstall} isInstalled={installPrompt.isInstalled} prompt={installPrompt.prompt} />
             <TunnelButton showToast={showToast} />
-            {/* Conditional active-YOLO pill (sidebar-header row 1). See change: add-access-grant-dialog (8b.7). */}
-            <YoloPill />
             {/* Open-questions pill + panel; absent at 0, AFTER the YOLO slot. See change: add-pending-question-stack. */}
             <QuestionStack sessions={sessions} onOpenSession={openQuestionSession} />
             <FocusToggle />
@@ -2961,7 +3010,7 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
           </div>
         )}
       </div>
-      <div ref={listRef} data-testid="session-list-scroll" className="flex-1 overflow-y-auto">
+      <div ref={listRef} data-testid="session-list-scroll" data-session-list-region="" tabIndex={-1} className="flex-1 overflow-y-auto outline-none">
       {/* session-list-group-by: widget-bar probes feeding the status-lane
           classifier, and the polite lane-change announcement. */}
       {askUserCandidates.map((x) => (
@@ -3155,7 +3204,8 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
         );
       })()}
       {worktreeDialogCwd && (
-        <WorktreeSpawnDialog
+        <Suspense fallback={null}>
+        <LazyWorktreeSpawnDialog
           cwd={worktreeDialogCwd}
           onCancel={() => setWorktreeDialogCwd(null)}
           onSpawnStart={(c) => addSpawningCwd?.(c)}
@@ -3171,9 +3221,11 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
             void maybeAutoInitWorktreeOnSpawn(path);
           }}
         />
+        </Suspense>
       )}
       {worktreeForChange && (
-        <WorktreeSpawnDialog
+        <Suspense fallback={null}>
+        <LazyWorktreeSpawnDialog
           cwd={worktreeForChange.cwd}
           initialBranch={`os/${worktreeForChange.changeName}`}
           attachProposal={worktreeForChange.changeName}
@@ -3188,15 +3240,18 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
             void maybeAutoInitWorktreeOnSpawn(path);
           }}
         />
+        </Suspense>
       )}
       {branchDialogCwd && (
-        <BranchSwitchDialog
+        <Suspense fallback={null}>
+        <LazyBranchSwitchDialog
           cwd={branchDialogCwd}
           onClose={() => {
             branchCache.delete(branchDialogCwd);
             setBranchDialogCwd(null);
           }}
         />
+        </Suspense>
       )}
       <Toast messages={messages} onDismiss={dismissToast} />
 
@@ -3205,6 +3260,7 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
           nothing unless identity is enforced and a principal resolved. */}
       <SignedInUserBar connected={connected === true} />
     </div>
+    </SessionMenuScopeContext.Provider>
   );
 }
 

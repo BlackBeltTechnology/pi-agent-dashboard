@@ -5,6 +5,9 @@
  *   GET    /api/services/offers               discovered `pi.services` offers
  *   GET    /api/services/runtimes             runtime detection report
  *   GET    /api/services/:id                  status (re-probes a running instance)
+ *   GET    /api/services/:id/logs?tail=N      redacted output tail (operate authority)
+ *   POST   /api/services/:id/reset-data       remove the data volumes of a stopped service
+ *   POST   /api/services/prune                { dryRun: true } | { dryRun: false, ids }
  *   POST   /api/services                      add { offer | definition, dryRun?, update? }
  *   DELETE /api/services/:id?purgeData=true   remove
  *   POST   /api/services/:id/ensure           { holder? } → ensure payload (+ lease)
@@ -13,7 +16,8 @@
  *   POST   /api/services/:id/{start,stop,retry,pin,unpin,prefetch}
  *   PUT    /api/services/:id/secrets/:name    { value } → { configured } (never echoed)
  *
- * Reads sit behind the network guard. EVERY mutation additionally needs an
+ * Reads sit behind the network guard — except `/logs`, which returns process
+ * output and needs the same authority as a mutation. EVERY mutation additionally needs an
  * `operate`-tier device bearer, an authenticated operator session, or a
  * locally trusted caller (`isLocallyTrusted`, strict-mode aware). A
  * trusted-network or `observe`/`control` caller is refused: a user-origin
@@ -22,7 +26,7 @@
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { LocalTrustContext } from "../auth/local-proof.js";
-import { hasOperateAuthority, sendOperateRequired } from "../auth/operate-required.js";
+import { canOperate, hasOperateAuthority, sendOperateRequired } from "../auth/operate-required.js";
 import type { NetworkGuard } from "../routes/route-deps.js";
 import { ServiceError, type ServiceManager } from "./service-manager.js";
 
@@ -31,8 +35,12 @@ export interface ServiceRoutesDeps {
   networkGuard: NetworkGuard;
   /** Strict local-proof context (`requireLocalProof`). */
   localTrust?: LocalTrustContext;
+  /** Live trusted-network list — `canOperate` applies the same route-tier exemptions as the gate. */
+  getTrustedNetworks?: () => string[];
   /** Live: is a usable login method configured? Drives the `sign-in` remedy of a refusal. */
   loginAvailable: () => boolean;
+  /** Offer the `request-access` remedy to a credential-less caller that passes the knock gates. */
+  requestAccessAvailable?: (request: FastifyRequest) => boolean;
 }
 
 /** The request shape every handler reads (params / body / query are all optional). */
@@ -55,7 +63,7 @@ export function registerServiceRoutes(fastify: FastifyInstance, deps: ServiceRou
   const { manager, networkGuard } = deps;
   const mutationGuard = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
     if (!hasOperateAuthority(request, deps.localTrust)) {
-      await sendOperateRequired(request, reply, { route: "services", loginAvailable: deps.loginAvailable });
+      await sendOperateRequired(request, reply, { route: "services", loginAvailable: deps.loginAvailable, requestAccessAvailable: deps.requestAccessAvailable });
     }
   };
   const read = { preHandler: networkGuard };
@@ -72,10 +80,13 @@ export function registerServiceRoutes(fastify: FastifyInstance, deps: ServiceRou
       }
     };
 
-  fastify.get("/api/services", read, wrap(() => manager.list()));
+  const operateDeps = { getTrustedNetworks: deps.getTrustedNetworks ?? (() => []), localTrust: deps.localTrust };
+  fastify.get("/api/services", read, wrap((req) => manager.list({ canOperate: canOperate(req, operateDeps) })));
   fastify.get("/api/services/offers", read, wrap(async () => manager.listOffers()));
   fastify.get("/api/services/runtimes", read, wrap(() => manager.runtimes()));
   fastify.get("/api/services/:id", read, wrap((req) => manager.status(req.params.id)));
+  // Output can carry secret values: operate authority although it is a GET.
+  fastify.get("/api/services/:id/logs", write, wrap((req) => manager.logs(req.params.id, req.query.tail)));
 
   fastify.post("/api/services", write, wrap(async (req) => {
     const body = req.body ?? {};
@@ -113,6 +124,13 @@ export function registerServiceRoutes(fastify: FastifyInstance, deps: ServiceRou
   fastify.post("/api/services/:id/pin", write, wrap((req) => manager.pin(req.params.id, true)));
   fastify.post("/api/services/:id/unpin", write, wrap((req) => manager.pin(req.params.id, false)));
   fastify.post("/api/services/:id/prefetch", write, wrap((req) => manager.prefetch(req.params.id)));
+  fastify.post("/api/services/:id/reset-data", write, wrap((req) => manager.resetData(req.params.id)));
+  fastify.post("/api/services/prune", write, wrap((req) => {
+    const body = req.body ?? {};
+    if (body.dryRun === false) return manager.prune({ dryRun: false, ids: Array.isArray(body.ids) ? (body.ids as string[]) : [] });
+    if (body.dryRun === true) return manager.prune({ dryRun: true });
+    throw new ServiceError(400, "bad-request", "body needs { dryRun: true } or { dryRun: false, ids: string[] }");
+  }));
 
   fastify.put(
     "/api/services/:id/secrets/:name",

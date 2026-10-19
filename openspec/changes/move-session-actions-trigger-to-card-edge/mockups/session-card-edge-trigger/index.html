@@ -1,0 +1,555 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Session card — edge trigger (move-session-actions-trigger-to-card-edge)</title>
+<style>
+  /* Token subset copied from packages/client/src/index.css (studio dark + light). */
+  :root, [data-theme="dark"] {
+    --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e; --bg-hover:rgba(255,255,255,.06);
+    --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#919191;
+    --border-subtle:rgba(255,255,255,.06); --border:rgba(255,255,255,.12);
+    --rail-directory:rgba(255,255,255,.22); --link:#60a5fa;
+    --accent-blue:#3b82f6; --accent-green:#22c55e; --accent-orange:#f97316; --accent-red:#ef4444; --accent-amber:#eab308; --accent-purple:#a855f7;
+    --shadow-card:rgba(0,0,0,.4); --elevation-rim:rgba(255,255,255,.10);
+  }
+  [data-theme="light"] {
+    --bg-primary:#ffffff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0; --bg-hover:rgba(0,0,0,.04);
+    --text-primary:#1a1a1a; --text-secondary:#444; --text-tertiary:#636363;
+    --border-subtle:rgba(0,0,0,.06); --border:rgba(0,0,0,.14);
+    --rail-directory:rgba(0,0,0,.18); --link:#2563eb;
+    --shadow-card:rgba(0,0,0,.08); --elevation-rim:rgba(255,255,255,.9);
+  }
+  /* Layer scale copied verbatim from packages/client/src/index.css (spec overlay-layering). */
+  :root { --z-base:0; --z-raised:10; --z-sidebar:20; --z-overlay:30; --z-popover:40; --z-dialog:50; --z-toast:60; --z-lightbox:70; }
+  :root {
+    --tint-green-bg:color-mix(in srgb,var(--accent-green) 10%,var(--bg-tertiary));
+    --tint-green-fg:color-mix(in srgb,var(--accent-green) 46%,var(--text-primary));
+    --tint-orange-bg:color-mix(in srgb,var(--accent-orange) 10%,var(--bg-tertiary));
+    --tint-orange-fg:color-mix(in srgb,var(--accent-orange) 46%,var(--text-primary));
+    --tint-orange-border:color-mix(in srgb,var(--accent-orange) 40%,transparent);
+    --tint-blue-bg:color-mix(in srgb,var(--accent-blue) 10%,var(--bg-tertiary));
+    --tint-blue-fg:color-mix(in srgb,var(--accent-blue) 46%,var(--text-primary));
+    --tint-blue-border:color-mix(in srgb,var(--accent-blue) 40%,transparent);
+    --tint-red-bg:color-mix(in srgb,var(--accent-red) 12%,var(--bg-tertiary));
+    --tint-red-fg:color-mix(in srgb,var(--accent-red) 50%,var(--text-primary));
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font:13px/1.35 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; background:var(--bg-primary); color:var(--text-primary); height:100vh; display:flex; flex-direction:column; overflow:hidden; }
+  button { font:inherit; color:inherit; }
+  .focus-ring:focus-visible, .card:focus-visible { outline:2px solid var(--accent-blue); outline-offset:1px; }
+
+  /* ── Lab panel ── */
+  #lab { display:flex; flex-wrap:wrap; gap:6px 18px; align-items:center; padding:8px 12px; border-bottom:1px solid var(--border); background:var(--bg-secondary); font-size:12px; }
+  #lab label { display:inline-flex; align-items:center; gap:6px; color:var(--text-secondary); }
+  #lab input[type=range] { width:100px; }
+  #lab output { min-width:44px; font-variant-numeric:tabular-nums; color:var(--text-primary); }
+  #lab .grp { display:inline-flex; flex-wrap:wrap; gap:6px 10px; align-items:center; padding-right:14px; border-right:1px solid var(--border-subtle); }
+  #lab button { background:var(--bg-tertiary); border:1px solid var(--border); border-radius:6px; padding:3px 8px; cursor:pointer; }
+  #stats { display:flex; gap:14px; padding:6px 12px; font-size:12px; border-bottom:1px solid var(--border); background:var(--bg-secondary); color:var(--text-secondary); font-variant-numeric:tabular-nums; flex-wrap:wrap; }
+  #stats b { color:var(--text-primary); }
+  #stats .bad b { color:var(--accent-red); }
+  #stats .good b { color:var(--accent-green); }
+
+  /* ── App shell ── */
+  #app { flex:1; display:flex; min-height:0; }
+  #sidebar { flex:none; background:var(--bg-secondary); border-right:1px solid var(--border); overflow-y:auto; padding:10px 10px 40px 30px; position:relative; }
+  #sidebar .folder { font-weight:600; font-size:12px; color:var(--text-secondary); margin:4px 0 8px -16px; }
+  #sidebar .rail { position:absolute; left:18px; top:34px; bottom:20px; width:2px; background:var(--rail-directory); border-radius:1px; }
+  #chat { flex:1; min-width:0; padding:18px 28px; overflow:hidden; position:relative; }
+  #chat .msg { max-width:680px; padding:10px 12px; border-radius:10px; background:var(--bg-tertiary); margin:0 0 12px; color:var(--text-secondary); }
+  #chat .msg.user { background:var(--tint-blue-bg); margin-left:auto; }
+  #chat .hint { position:absolute; left:28px; bottom:16px; right:28px; padding:10px 12px; border:1px dashed var(--border); border-radius:10px; color:var(--text-tertiary); font-size:12px; }
+
+  /* ── Condensed session card: state on the card, verbs in the flyout ── */
+  .card { position:relative; isolation:isolate; list-style:none; margin:0 0 10px; padding:6px 18px 8px 6px; /* 18px = reserved trigger gutter (was 8px) */ border-radius:12px; background:var(--bg-primary); border:1px solid var(--border); box-shadow:inset 0 1px 0 var(--elevation-rim),0 4px 8px var(--shadow-card); cursor:pointer; }
+  .card::before { content:""; position:absolute; left:-11px; top:22px; width:9px; height:2px; background:var(--rail-directory); }
+  .card.selected { border-color:var(--tint-blue-border); box-shadow:0 0 0 1px var(--tint-blue-border),0 4px 8px var(--shadow-card); }
+  .card.flyout-open { border-color:var(--tint-blue-border); }
+  .row { display:flex; align-items:center; gap:8px; min-width:0; }
+  .chip { width:22px; height:22px; flex:none; border-radius:50%; display:grid; place-items:center; background:var(--bg-tertiary); position:relative; font-size:12px; }
+  .chip .dot { position:absolute; right:-2px; bottom:-2px; width:8px; height:8px; border-radius:50%; border:2px solid var(--bg-primary); background:var(--accent-green); }
+  .chip .dot.ended { background:var(--text-tertiary); } .chip .dot.busy { background:var(--accent-blue); }
+  .name { font-weight:600; font-size:14px; flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ib { flex:none; width:32px; height:32px; display:grid; place-items:center; border:0; background:transparent; border-radius:6px; color:var(--text-secondary); cursor:pointer; position:relative; }
+  .ib:hover { background:var(--bg-hover); color:var(--text-primary); }
+  .ib.close:hover { background:var(--tint-red-bg); color:var(--tint-red-fg); }
+  .ib.more[aria-expanded="true"] { background:var(--tint-blue-bg); color:var(--tint-blue-fg); }
+  .ib .badge { position:absolute; top:3px; right:3px; font-size:9px; line-height:1; color:var(--accent-amber); }
+  .time { font-size:11px; color:var(--text-secondary); flex:none; }
+  .model { font-size:12px; color:var(--text-tertiary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .meta { font-size:11px; margin-top:2px; min-height:24px; }
+  .meta .act { flex:1; min-width:0; color:var(--text-secondary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .stop { flex:none; height:24px; padding:0 7px; border-radius:6px; border:1px solid color-mix(in srgb,var(--accent-red) 40%,transparent); background:var(--tint-red-bg); color:var(--tint-red-fg); font-size:11px; font-weight:600; cursor:pointer; }
+  .ctx { width:60px; height:6px; border-radius:3px; background:var(--bg-tertiary); overflow:hidden; flex:none; }
+  .ctx i { display:block; height:100%; background:var(--accent-green); }
+  .cost { color:var(--text-tertiary); flex:none; }
+  .sub { position:relative; margin-top:12px; border:1px solid var(--border); border-radius:10px; padding:11px 8px 6px; }
+  .sub .legend { position:absolute; top:-8px; left:50%; transform:translateX(-50%); padding:0 6px; background:var(--bg-primary); font-size:11px; font-weight:600; letter-spacing:.08em; color:var(--text-secondary); }
+  .sub a, .lnk { color:var(--link); text-decoration:none; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; background:none; border:0; padding:0; cursor:pointer; }
+  .sub a:hover, .lnk:hover { text-decoration:underline; }
+  .pill { flex:none; font-size:11px; padding:1px 6px; border-radius:999px; border:1px solid var(--border); color:var(--text-secondary); background:transparent; cursor:pointer; }
+  .pill.wt { border-color:var(--tint-orange-border); color:var(--tint-orange-fg); background:var(--tint-orange-bg); cursor:default; }
+  .pill.dirty { color:var(--accent-amber); }
+  .pill.pr { color:var(--tint-green-fg); }
+  /* Stepper (unchanged from compact-openspec-lifecycle-bar): each segment a 24 px clickable row. */
+  .stepper { display:flex; gap:3px; margin-top:4px; }
+  .seg { flex:1; min-width:0; height:24px; display:flex; flex-direction:column; justify-content:flex-start; gap:3px; border:0; background:transparent; padding:0; cursor:pointer; text-align:left; }
+  .seg.t { flex:2.4; }
+  .seg i { display:block; height:6px; border-radius:3px; background:var(--bg-tertiary); }
+  .seg.done i { background:var(--accent-green); } .seg.cur i { background:color-mix(in srgb,var(--accent-amber) 55%,var(--bg-tertiary)); } .seg.skip i { background:repeating-linear-gradient(135deg,var(--bg-tertiary) 0 3px,transparent 3px 6px); }
+  .seg span { font-size:10px; letter-spacing:.06em; color:var(--text-tertiary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .seg.done span { color:var(--tint-green-fg); } .seg.cur span { color:var(--accent-amber); }
+  .seg:hover i { filter:brightness(1.25); } .seg:focus-visible { outline:2px solid var(--accent-blue); outline-offset:1px; border-radius:3px; }
+  .proc { font-size:11px; color:var(--text-secondary); }
+  .proc code { font-size:11px; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+  /* Hover-zone visuals (pointer-events:none — detection is geometric, never blocks ✕). */
+  .zone { position:absolute; top:0; right:0; bottom:0; pointer-events:none; border-radius:0 12px 12px 0; opacity:0; transition:opacity .12s; }
+  body.show-zone .zone { opacity:1; background:repeating-linear-gradient(135deg,color-mix(in srgb,var(--accent-orange) 22%,transparent) 0 4px,transparent 4px 8px); outline:1px dashed color-mix(in srgb,var(--accent-orange) 60%,transparent); outline-offset:-1px; }
+  .zone .arm { position:absolute; left:0; bottom:0; width:100%; height:0; background:color-mix(in srgb,var(--accent-blue) 45%,transparent); }
+  /* Edge trigger = THE session actions trigger (no header ⋯). Centred on the right border,
+     13×26 visible pill inside the 7px card→folder gap; transparent ::before hit box 24×26
+     reaching 17px inward (WCAG 2.5.8). Faint at rest (always visible, touch too), full on
+     card hover / focus-visible / open. See change: move-session-actions-trigger-to-card-edge. */
+  .tab { position:absolute; right:-7px; top:50%; transform:translateY(-50%); width:13px; height:26px; padding:0; border-radius:7px; background:var(--bg-primary); border:1px solid var(--border-subtle); display:grid; place-items:center; cursor:pointer; z-index:20; transition:border-color .12s, background .12s; }
+  .tab::before { content:""; position:absolute; top:-1px; bottom:-1px; right:-1px; width:24px; } /* lies in gutter: no overlap with ✕/Archive/subcards */
+  body.show-hit .tab::before { outline:1px dashed var(--accent-orange); }
+  .tab svg { width:3px; height:13px; fill:var(--text-tertiary); transition:fill .12s; } /* faint = grey token >=3:1, never an opacity cut */
+  body:not(.show-tab) .tab { opacity:0; } body:not(.show-tab) .card:hover .tab, body:not(.show-tab) .tab[aria-expanded="true"], body:not(.show-tab) .tab:focus-visible { opacity:1; }
+  .card:hover .tab, .tab:focus-visible, .tab[aria-expanded="true"] { border-color:var(--border); }
+  .card:hover .tab svg, .tab:focus-visible svg, .tab[aria-expanded="true"] svg { fill:var(--text-secondary); }
+  .tab:hover { background:var(--bg-hover); } .tab:hover svg { fill:var(--text-primary); }
+  .tab[aria-expanded="true"] { background:var(--tint-blue-bg); border-color:var(--tint-blue-border); }
+  .tab[aria-expanded="true"] svg { fill:var(--tint-blue-fg); }
+  .tab .badge { position:absolute; top:-7px; right:-1px; font-size:9px; line-height:1; color:var(--accent-amber); }
+
+  /* ── Flyout: portaled, position:fixed, popover layer token ── */
+  #flyout { position:fixed; z-index:var(--z-popover); width:300px; max-height:calc(100vh - 16px); overflow-y:auto; overscroll-behavior:contain; background:var(--bg-primary); border:1px solid var(--border); border-radius:12px; box-shadow:inset 0 1px 0 var(--elevation-rim),0 12px 28px var(--shadow-card),0 2px 6px var(--shadow-card); padding:6px; display:none; }
+  #flyout.open { display:block; animation:fly .12s ease-out; }
+  @keyframes fly { from { opacity:0; transform:translateX(-6px); } }
+  #flyout .h { position:sticky; top:-6px; background:var(--bg-primary); font-size:10px; font-weight:700; letter-spacing:.08em; color:var(--text-tertiary); padding:7px 8px 3px; display:flex; gap:6px; z-index:1; }
+  #flyout .h small { font-weight:500; letter-spacing:0; color:var(--text-tertiary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #flyout [role=menuitem] { display:flex; align-items:center; gap:8px; width:100%; min-height:32px; padding:4px 8px; border:0; background:transparent; border-radius:6px; text-align:left; cursor:pointer; font-size:13px; }
+  #flyout [role=menuitem]:hover, #flyout [role=menuitem]:focus-visible { background:var(--bg-hover); outline:none; }
+  #flyout [role=menuitem]:focus-visible { box-shadow:inset 0 0 0 2px var(--accent-blue); }
+  #flyout [role=menuitem][aria-disabled=true] { color:var(--text-tertiary); cursor:not-allowed; }
+  #flyout [role=menuitem].next { background:var(--tint-blue-bg); color:var(--tint-blue-fg); font-weight:600; border:1px solid var(--tint-blue-border); }
+  #flyout [role=menuitem].danger:hover { background:var(--tint-red-bg); color:var(--tint-red-fg); }
+  #flyout .ic { width:18px; text-align:center; flex:none; }
+  #flyout .ic.g { color:var(--tint-green-fg); } #flyout .ic.b { color:var(--tint-blue-fg); } #flyout .ic.o { color:var(--tint-orange-fg); } #flyout .ic.r { color:var(--tint-red-fg); }
+  #flyout .kbd { margin-left:auto; font-size:11px; color:var(--text-tertiary); }
+  /* Stepper mirrored in the menu: five artifact menuitems in one row. */
+  #flyout .steps { display:flex; gap:3px; padding:2px 4px 4px; }
+  #flyout .steps [role=menuitem] { flex:1; min-width:0; flex-direction:column; align-items:stretch; gap:3px; min-height:36px; padding:4px 3px; font-size:10px; letter-spacing:.04em; }
+  #flyout .steps [role=menuitem] i { display:block; height:5px; border-radius:3px; background:var(--bg-tertiary); }
+  #flyout .steps .done i { background:var(--accent-green); } #flyout .steps .done { color:var(--tint-green-fg); }
+  #flyout .steps .cur i { background:color-mix(in srgb,var(--accent-amber) 55%,var(--bg-tertiary)); } #flyout .steps .cur { color:var(--accent-amber); }
+  #flyout .steps .skip i { background:repeating-linear-gradient(135deg,var(--bg-tertiary) 0 3px,transparent 3px 6px); }
+  #flyout .steps span { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-align:center; }
+  #flyout .goal { display:flex; align-items:center; gap:6px; white-space:nowrap; padding:6px 8px; margin:2px 0; border-radius:8px; background:color-mix(in srgb,var(--accent-amber) 8%,var(--bg-tertiary)); font-size:12px; }
+  #flyout .goal .v { color:var(--tint-green-fg); }
+  #flyout .goal [role=menuitem] { width:auto; min-height:24px; margin-left:auto; padding:0 6px; border:1px solid var(--border); font-size:11px; }
+  #flyout .goal [role=menuitem] + [role=menuitem] { margin-left:0; }
+  #flyout .moreRow { color:var(--text-secondary); font-size:12px; min-height:28px; }
+  #flyout .rare { border-left:2px solid var(--border-subtle); margin-left:12px; padding-left:2px; }
+  #flyout .sep { height:1px; background:var(--border-subtle); margin:4px 2px; }
+  #flyout .foot { font-size:11px; color:var(--text-tertiary); padding:4px 8px 2px; }
+  #bridge { position:fixed; z-index:var(--z-popover); pointer-events:none; display:none; }
+  body.show-zone #bridge.on { display:block; background:color-mix(in srgb,var(--accent-blue) 14%,transparent); outline:1px dashed color-mix(in srgb,var(--accent-blue) 50%,transparent); }
+
+  /* Layer-order probes: dialog (50) must cover the popover layer (40); toast (60) above dialog. */
+  #scrim { position:fixed; inset:0; z-index:var(--z-dialog); background:rgba(0,0,0,.45); display:none; place-items:center; }
+  #scrim.open { display:grid; }
+  #scrim .dlg { width:360px; background:var(--bg-primary); border:1px solid var(--border); border-radius:12px; padding:16px; box-shadow:0 20px 40px var(--shadow-card); }
+  #scrim button { height:28px; padding:0 10px; border-radius:6px; border:1px solid var(--tint-blue-border); background:var(--tint-blue-bg); color:var(--tint-blue-fg); cursor:pointer; }
+  #toast { position:fixed; left:50%; bottom:20px; transform:translateX(-50%); z-index:var(--z-toast); background:var(--bg-tertiary); border:1px solid var(--border); border-radius:8px; padding:8px 12px; display:none; }
+  #toast.open { display:block; }
+  /* Lab chrome only — on the toast layer like a transient notification. */
+  #log { position:fixed; right:10px; bottom:10px; width:340px; max-height:180px; overflow:hidden; font:11px/1.4 ui-monospace,Menlo,monospace; background:var(--bg-secondary); border:1px solid var(--border); border-radius:8px; padding:6px 8px; color:var(--text-secondary); z-index:var(--z-toast); }
+  #log:empty { display:none; }
+  #log div.acc { color:var(--accent-red); } #log div.ok { color:var(--accent-green); }
+</style>
+</head>
+<body class="show-tab">
+
+<div id="lab" aria-label="Tuning panel">
+  <span class="grp">
+    <label>W strip <input id="W" type="range" min="4" max="64" step="2" value="32"><output id="Wo"></output></label>
+    <label>D dwell <input id="D" type="range" min="0" max="900" step="25" value="300"><output id="Do"></output></label>
+    <label>Speed cut <input id="S" type="range" min="0.05" max="2" step="0.05" value="0.4"><output id="So"></output></label>
+    <label>G close grace <input id="G" type="range" min="0" max="800" step="25" value="300"><output id="Go"></output></label>
+  </span>
+  <span class="grp">
+    <label>Extent <select id="extent"><option value="full" selected>full card height</option><option value="top">header→meta rows only</option></select></label>
+    <label><input id="ignoreBtn" type="checkbox" checked> ignore over a button</label>
+    <label><input id="bridgeOn" type="checkbox" checked> bridge</label>
+    <label><input id="suppress" type="checkbox" checked> no arming while a dialog/menu is open</label>
+  </span>
+  <span class="grp">
+    <label>Sidebar <select id="sbw"><option>300</option><option>400</option><option selected>500</option><option>220</option></select> px</label>
+    <label><input id="showZone" type="checkbox"> outline zone</label>
+    <label><input id="showTab" type="checkbox" checked> faint at rest (off = hover-only, NON-SHIPPABLE comparison)</label>
+    <label><input id="showHit" type="checkbox" onchange="document.body.classList.toggle('show-hit', this.checked)"> show 24px hit box</label>
+    <label><input id="touch" type="checkbox"> simulate touch</label>
+    <button id="theme" type="button">Theme</button>
+    <button id="reset" type="button">Reset counters</button>
+    <button id="dlgTest" type="button" title="Opens a z-dialog modal in 2 s — open the flyout meanwhile">Dialog in 2s</button>
+    <button id="toastTest" type="button" title="Shows a z-toast in 2 s">Toast in 2s</button>
+  </span>
+</div>
+
+<div id="stats" aria-live="polite">
+  <span>chat crossings <b id="cx">0</b></span>
+  <span>strip entries <b id="se">0</b></span>
+  <span class="good">filtered pass-throughs <b id="fp">0</b></span>
+  <span>hover opens <b id="ho">0</b></span>
+  <span class="bad" title="hover-opened, then closed without invoking any item">accidental opens <b id="ao">0</b> (<b id="ar">0%</b> of crossings) · never entered <b id="an">0</b></span>
+  <span class="good">hover→action <b id="ha">0</b> · median <b id="hm">–</b></span>
+  <span>click opens <b id="co">0</b></span>
+  <span>right-click opens <b id="rc">0</b></span>
+  <span>speed <b id="sp">0.00</b> px/ms</span>
+</div>
+
+<div id="app">
+  <aside id="sidebar"><div class="rail"></div><div class="folder">📁 pi-agent-dashboard</div><ul id="cards" style="padding:0;margin:0"></ul></aside>
+  <main id="chat">
+    <div class="msg user">Add an OBS Studio plugin that can start/stop recording from the session card.</div>
+    <div class="msg">Reading <code>packages/dashboard-plugin-runtime</code>… The plugin will contribute to the session-card-action-bar slot and a settings page.</div>
+    <div class="msg">I'll draft the proposal first: proposal.md, design.md, specs, tasks.md (61 tasks).</div>
+    <div class="msg user">Sounds good, keep the card compact.</div>
+    <div class="msg">Proposal written. Next step: apply.</div>
+    <div class="hint"><b>Edge trigger (this change):</b> the dots pill centred on each card's right border IS the trigger — no header ⋯. Always visible (faint), full on hover / focus / open; click toggles.<br><b>Other ways in, same menu:</b> hover the card's right edge off the pill (dwell) · right-click anywhere on the card (or focus a card and press <kbd>Shift</kbd>+<kbd>F10</kbd> / ContextMenu).<br>
+      <b>Stays on the card:</b> stepper P·D·S·T·A (click a segment = open artifact), branch / dirty / PR pills, Stop ⏹ while a tool runs, Archive 🗄, Exit ✕. Everything else lives only in the menu, and the card's clickable items are in the menu too.<br>
+      <b>Accidental-open test:</b> sweep into this chat pane 20–30× from different cards; every hover-open that closes without an action is counted.</div>
+  </main>
+</div>
+
+<div id="bridge"></div>
+<div id="flyout" role="menu" aria-label="Session actions"></div>
+<div id="scrim"><div class="dlg" role="dialog" aria-modal="true" aria-label="Layer probe"><b>z-dialog (50)</b><p style="color:var(--text-secondary)">This modal must paint ABOVE the open flyout (z-popover 40). No flyout pixel may show through.</p><button id="dlgClose" type="button">Close</button></div></div>
+<div id="toast" role="status">z-toast (60) — above dialogs and popovers</div>
+<div id="log" aria-hidden="true"></div>
+
+<script>
+/* ── Fixture sessions: each exercises a different action mix ── */
+const SESSIONS = [
+  { id:"a", name:"add-obs-studio-plugin", model:"anthropic/claude-opus-5-5 (medium)", time:"18m", state:"idle", cost:"$0.26", ctx:6,
+    change:{ name:"add-obs-studio-plugin", steps:["done","done","done","cur","todo"], tasks:"0/61", next:"apply" },
+    git:{ branch:"develop", dirty:3 }, goal:{ turns:"12/40", verdict:"on track" }, flows:true },
+  { id:"b", name:"fix-session-reclaim-tmux", model:"openai/gpt-5.2 (high)", time:"2h", state:"ended", cost:"$1.84", ctx:41,
+    change:{ name:"fix-session-reclaim-tmux", steps:["done","done","done","cur","todo"], tasks:"14/76", next:"apply" },
+    git:{ branch:"os/fix-session-reclaim-tmux", worktree:true, pr:{ n:812, state:"open", checks:"passing" } } },
+  { id:"c", name:"edit-pi-agent-settings", model:"anthropic/claude-sonnet-5 (low)", time:"4m", state:"busy", tool:"bash  npm test -- settings", cost:"$0.07", ctx:12,
+    git:{ branch:"os/edit-pi-agent-settings", worktree:true }, flows:true },
+  { id:"d", name:"security-boundary-audit-with-a-very-long-session-name", model:"google/gemini-3-pro", time:"1d", state:"ended", cost:"$3.10", ctx:78,
+    change:{ name:"security-boundary-audit", steps:["done","done","skip","cur","todo"], tasks:"43/52", next:"verify" },
+    git:{ branch:"develop" } },
+];
+const STEP_NAMES = ["Proposal","Design","Specs","Tasks","Archive"], STEP_SHORT = ["P","D","S","T","A"];
+const NEXT = { apply:{ ic:"▶", label:"Apply tasks" }, verify:{ ic:"✔", label:"Verify" }, archive:{ ic:"🗄", label:"Archive change" }, continue:{ ic:"›", label:"Continue artifacts" } };
+
+const $ = (s, r=document) => r.querySelector(s);
+const cfg = {};
+const fmt = { W:v=>v+"px", D:v=>v+"ms", S:v=>(+v).toFixed(2), G:v=>v+"ms" };
+function readCfg(){
+  ["W","D","S","G"].forEach(k => { cfg[k] = +$("#"+k).value; $("#"+k+"o").textContent = fmt[k]($("#"+k).value); });
+  cfg.extent = $("#extent").value; cfg.ignoreBtn = $("#ignoreBtn").checked; cfg.bridge = $("#bridgeOn").checked; cfg.touch = $("#touch").checked; cfg.suppress = $("#suppress").checked;
+  document.body.classList.toggle("show-zone", $("#showZone").checked);
+  // Touch keeps the faint-at-rest trigger: it is the only visible way in without hover.
+  document.body.classList.toggle("show-tab", $("#showTab").checked);
+  $("#sidebar").style.width = $("#sbw").value + "px";
+  document.querySelectorAll(".zone").forEach(z => { z.style.width = cfg.W + "px"; layoutZone(z.closest(".card"), z); });
+  if (openId) placeFlyout();
+}
+function layoutZone(card, z){
+  if (cfg.extent === "top") { const m = $(".meta", card); z.style.bottom = (card.clientHeight - m.offsetTop - m.offsetHeight) + "px"; }
+  else z.style.bottom = "0px";
+}
+
+/* ── Card: state only. Kept inline: Archive, ⋯, Exit, Stop, stepper + git pills (clickable status). ── */
+const dots = '<svg viewBox="0 0 3 13" aria-hidden="true"><circle cx="1.5" cy="1.5" r="1.5"/><circle cx="1.5" cy="6.5" r="1.5"/><circle cx="1.5" cy="11.5" r="1.5"/></svg>';
+function stepperHtml(c){
+  return `<div class="stepper">${c.steps.map((st,i) => `<button type="button" class="seg ${st} ${i===3?"t":""}" data-step="${i}" title="${STEP_NAMES[i]}${st==="skip"?" (skipped)":""}">
+    <i></i><span>${st==="done"?"✓ ":""}${i===3 ? "TASKS "+c.tasks : STEP_NAMES[i].toUpperCase()}</span></button>`).join("")}</div>`;
+}
+function cardHtml(s){
+  const alive = s.state !== "ended";
+  const act = s.state === "busy" ? `<span class="act">⟳ ${s.tool}</span><button class="stop focus-ring" data-act="stop" title="Stop running tool">⏹ Stop</button>` : `<span class="act">${alive?"Idle":"Ended"}</span>`;
+  const g = s.git;
+  return `
+<li class="card" data-id="${s.id}" tabindex="0" aria-label="${s.name} session. Press Shift+F10 for actions.">
+  <div class="row">
+    <span class="chip" title="pi — ${s.state}">🤖<span class="dot ${s.state==="ended"?"ended":s.state==="busy"?"busy":""}"></span></span>
+    <span class="name" title="Double-click to rename">${s.name}</span>
+    <span class="time">${s.time}</span>
+    ${s.state!=="busy"?'<button class="ib focus-ring" data-act="archive" title="Archive session">🗄</button>':""}
+    ${alive?'<button class="ib close focus-ring" data-act="exit" title="Exit pi session">✕</button>':""}
+  </div>
+  <div class="row"><span class="model">${s.model}</span></div>
+  <div class="row meta">${act}<span class="ctx"><i style="width:${s.ctx}%"></i></span><span class="cost">${s.cost}</span></div>
+  ${s.change?`<div class="sub"><span class="legend">OPENSPEC</span>
+    <div class="row"><a href="#" data-act="open-change">📎 ${s.change.name}</a></div>${stepperHtml(s.change)}</div>`:""}
+  <div class="sub"><span class="legend">GIT</span>
+    <div class="row"><button class="lnk" data-act="switch-branch" title="Switch branch">⎇ ${g.branch}</button>
+      ${g.worktree?'<span class="pill wt" title="git worktree">worktree</span>':""}
+      ${g.dirty?`<button class="pill dirty" data-act="commit" title="Commit changes">● ${g.dirty} changed</button>`:""}
+      ${g.pr?`<button class="pill pr" data-act="open-pr" title="Pull request ${g.pr.n}">PR #${g.pr.n} · ${g.pr.checks}</button>`:""}</div></div>
+  <span class="zone"><span class="arm"></span></span>
+  <button type="button" class="tab focus-ring" title="Session actions" aria-label="Session actions" aria-haspopup="menu" aria-expanded="false" data-more data-testid="session-actions-trigger-${s.id}">${dots}${s.goal?'<span class="badge" title="goal active">⚑</span>':""}</button>
+</li>`;
+}
+$("#cards").innerHTML = SESSIONS.map(cardHtml).join("");
+$(".card").classList.add("selected");
+
+/* ── Flyout: union of the existing derivers — one list, grouped by verb, empty groups omitted ── */
+function mi(id, ic, cls, label, opts={}){
+  return `<button role="menuitem" tabindex="-1" class="focus-ring ${opts.cls||""}" data-act="${id}" data-testid="session-menu-${id}"${opts.disabled?' aria-disabled="true"':""} title="${opts.title||label}"><span class="ic ${cls}">${ic}</span>${label}${opts.kbd?`<span class="kbd">${opts.kbd}</span>`:""}</button>`;
+}
+// Rare items fold behind ONE inline "More…" expander per group (no hover submenu — misfire-free, arrows keep roving).
+function group(title, items, sub="", rare=[]){
+  let r = rare.filter(Boolean), list = items.filter(Boolean);
+  if (r.length < 2) { list = list.concat(r); r = []; } // a More\u2026 row hiding ONE item saves nothing
+  const body = list.join("");
+  if (!body && !r.length) return "";
+  const more = r.length ? `<button role="menuitem" tabindex="-1" class="focus-ring moreRow" data-more-group="${title}" aria-expanded="false" data-testid="session-menu-more-${title.toLowerCase()}"><span class="ic">▸</span>More…<span class="kbd">${r.length}</span></button><div class="rare" hidden>${r.join("")}</div>` : "";
+  return `<div class="h">${title}${sub?`<small>${sub}</small>`:""}</div>${body}${more}`;
+}
+function menuHtml(s){
+  const alive = s.state !== "ended", busy = s.state === "busy", c = s.change, g = s.git;
+  const out = [];
+  // Exactly ONE emphasised primary per card (isMergePrimary, D6): Merge wins only once the change is done.
+  const mergePrimary = !!(g.worktree && g.pr && g.pr.checks === "passing" && (!c || c.next === "archive"));
+  if (mergePrimary) out.push(group("NEXT", [mi("merge","⤵","g","Merge into develop", { cls:"next" })]));
+  // NEXT — the single OpenSpec primary (same deriveOpenSpecActions as card + composer)
+  else if (c && NEXT[c.next]) out.push(group("NEXT", [mi("os-"+c.next, NEXT[c.next].ic, "b", NEXT[c.next].label, { cls:"next", disabled:busy, title: busy?"Busy — wait for the agent":"" })]));
+  // SESSION
+  out.push(group("SESSION", [
+    !alive && mi("resume","▶","g","Resume", { title:"continue same session" }),
+    mi("fork","⑂","b","Fork", { title:"new session from this point" }),
+    mi("spawn-sibling","+","g","New session", { title:"same folder + attached proposal" }),
+    !g.worktree && mi("spawn-worktree","⎇","o","New worktree session"),
+    mi("rename","✎","","Rename…", { kbd:"dbl-click name" }),
+    busy && mi("stop","⏹","r","Stop running tool", { cls:"danger" }),
+    !busy && mi("archive","🗄","","Archive"),
+    alive && mi("exit","✕","r","Exit pi session", { cls:"danger" }),
+  ]));
+  // OPENSPEC — stepper mirrored as five artifact items, then the rest of deriveOpenSpecActions
+  if (c) {
+    const steps = `<div class="steps" role="group" aria-label="Artifacts">${c.steps.map((st,i) =>
+      `<button role="menuitem" tabindex="-1" class="focus-ring ${st}" data-act="step-${i}" data-testid="session-menu-step-${STEP_SHORT[i]}" title="${i===3?"Open tasks":i===4?"Archive":"Read "+STEP_NAMES[i].toLowerCase()}${st==="skip"?" (skipped)":""}"${st==="skip"||(i===4&&st!=="done")?' aria-disabled="true"':""}><i></i><span>${i===3?c.tasks:STEP_SHORT[i]}</span></button>`).join("")}</div>`;
+    out.push(group("OPENSPEC", [steps,
+      mi("os-open","📎","","Open change", { title:c.name }),
+      c.next!=="verify" && mi("os-verify","✔","g","Verify"),
+    ], c.name, [
+      mi("os-ff","⏩","","Fast-forward artifacts"),
+      mi("os-explore","🧭","","Explore…"),
+      mi("os-archive-anyway","🗄","o","Archive anyway"),
+      mi("os-detach","⛓","","Detach change"),
+    ]));
+  } else {
+    out.push(group("OPENSPEC", [mi("os-attach","📎","","Attach change…"), mi("os-new","+","b","New change…"), mi("os-propose","💡","b","Propose…")]));
+  }
+  // GIT — card pills + WorktreeActionsMenu items
+  out.push(group("GIT", [
+    g.dirty && mi("commit","●","o",`Commit ${g.dirty} changes…`),
+    mi("switch-branch","⎇","","Switch branch…", { title:g.branch }),
+    g.worktree && mi("push","↑","","Push"),
+    g.worktree && !g.pr && mi("open-pr","⇄","","Open PR"),
+    g.pr && mi("open-pr","⇄","g",`View PR #${g.pr.n}`, { title:`${g.pr.state}, checks ${g.pr.checks}` }),
+    g.worktree && !mergePrimary && mi("merge","⤵","g","Merge into develop"),
+  ], g.branch, [
+    g.worktree && mi("close-worktree","✕","r","Close worktree…", { cls:"danger" }),
+  ]));
+  // PLUGINS — session-card-action-bar contributions as menu items (useSessionMenuItem)
+  const plug = [];
+  if (s.goal) plug.push(`<div class="goal">⚑ goal ${s.goal.turns} · <span class="v">${s.goal.verdict}</span>${mi("goal-pause","⏸","","Pause")}${mi("goal-open","↗","","Open")}</div>`);
+  if (s.flows) { plug.push(mi("flow-review","⚙","","Run flow: review")); plug.push(mi("flow-new","✚","","New flow…")); }
+  out.push(group("PLUGINS", plug));
+  // VIEW — former per-section legend ⋯ menus, folded into one group
+  // VIEW — the per-section legend ⋯ menus collapse into ONE entry (the Card sections page owns per-section hide).
+  out.push(group("VIEW", [mi("section-settings","⚙","","Card sections…", { title:"Show / hide OPENSPEC, GIT, PROCESS… for this folder" })]));
+  out.push('<div class="sep"></div><div class="foot">⋯ · right edge · right-click · Shift+F10 — Esc closes</div>');
+  return out.join("");
+}
+
+/* ── State ── */
+const stats = { cx:0, se:0, fp:0, ho:0, ao:0, an:0, ha:[], co:0, rc:0 };
+let openId = null, openedBy = null, enteredFlyout = false, closeTimer = null, anchorPt = null, returnFocus = null;
+let armId = null, armStart = 0, armCheck = null, stripEnterAt = 0;
+let samples = [], lastX = null;
+const fly = $("#flyout"), bridge = $("#bridge");
+
+function log(msg, cls=""){ const d = document.createElement("div"); d.className = cls; d.textContent = new Date().toLocaleTimeString([], {hour12:false}) + "  " + msg; const L = $("#log"); L.prepend(d); while (L.children.length > 12) L.lastChild.remove(); }
+function renderStats(){
+  for (const k of ["cx","se","fp","ho","ao","an","co","rc"]) $("#"+k).textContent = stats[k];
+  $("#ar").textContent = stats.cx ? Math.round(100*stats.ao/stats.cx)+"%" : "0%";
+  $("#ha").textContent = stats.ha.length; const m = [...stats.ha].sort((a,b)=>a-b)[Math.floor(stats.ha.length/2)]; $("#hm").textContent = m!=null ? m+"ms" : "–";
+}
+function speed(){
+  const now = performance.now();
+  if (!samples.length || now - samples[samples.length-1].t > 60) return 0;
+  const recent = samples.filter(p => now - p.t <= 100);
+  if (recent.length < 2) return 0;
+  const a = recent[0], b = recent[recent.length-1];
+  return Math.hypot(b.x-a.x, b.y-a.y) / Math.max(1, b.t-a.t);
+}
+const cardEl = id => $(`.card[data-id="${id}"]`);
+const sess = id => SESSIONS.find(s => s.id === id);
+function inRect(x, y, r){ return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom; }
+
+function zoneHit(x, y, target){
+  const card = target && target.closest ? target.closest(".card") : null;
+  if (!card) return null;
+  const r = card.getBoundingClientRect();
+  if (x < r.right - cfg.W || x > r.right) return null;
+  if (cfg.extent === "top") { const m = $(".meta", card).getBoundingClientRect(); if (y > m.bottom) return null; }
+  if (cfg.ignoreBtn && target.closest("button, a")) return null;
+  return card.dataset.id;
+}
+
+function placeFlyout(){
+  const card = cardEl(openId); if (!card) return;
+  const h = fly.offsetHeight, w = fly.offsetWidth;
+  if (anchorPt) { // right-click: at the pointer, clamped to the viewport
+    fly.style.left = Math.min(anchorPt.x, window.innerWidth - w - 8) + "px";
+    fly.style.top = Math.max(8, Math.min(anchorPt.y, window.innerHeight - h - 8)) + "px";
+    bridge.classList.remove("on"); return;
+  }
+  const r = card.getBoundingClientRect(), gap = 8;
+  fly.style.left = Math.min(r.right + gap, window.innerWidth - w - 8) + "px";
+  fly.style.top = Math.min(Math.max(8, r.top), window.innerHeight - h - 8) + "px";
+  const f = fly.getBoundingClientRect();
+  Object.assign(bridge.style, { left:(r.right - cfg.W)+"px", width:Math.max(0, f.left - r.right + cfg.W)+"px", top:Math.min(r.top,f.top)+"px", height:(Math.max(r.bottom,f.bottom) - Math.min(r.top,f.top))+"px" });
+  bridge.classList.toggle("on", cfg.bridge);
+}
+function open(id, by, pt=null){
+  if (openId) close(openId === id ? "reopen" : "swap");
+  openId = id; openedBy = by; anchorPt = pt; enteredFlyout = false; clearTimeout(closeTimer); closeTimer = null;
+  fly.innerHTML = menuHtml(sess(id)); fly.scrollTop = 0; fly.classList.add("open"); placeFlyout();
+  const card = cardEl(id); card.classList.add("flyout-open"); $("[data-more]", card).setAttribute("aria-expanded","true");
+  returnFocus = by === "context" || by === "kbd-context" ? card : $("[data-more]", card);
+  const label = sess(id).name.slice(0,24);
+  if (by === "hover") { stats.ho++; log(`hover-open ${label}`); }
+  else { if (by === "click") stats.co++; else stats.rc++; log(`${by}-open ${label}`); firstItem()?.focus(); }
+  renderStats();
+}
+const items = () => [...fly.querySelectorAll('[role=menuitem]')].filter(el => !el.closest("[hidden]"));
+const firstItem = () => items().find(i => i.getAttribute("aria-disabled") !== "true") || items()[0];
+function close(reason, refocus=false){
+  if (!openId) return;
+  const card = cardEl(openId);
+  if (openedBy === "hover" && reason !== "action") {
+    stats.ao++; if (!enteredFlyout) stats.an++;
+    log(`ACCIDENTAL open (${reason})${enteredFlyout ? " — passed through flyout" : " — never entered flyout"}`, "acc");
+  }
+  card.classList.remove("flyout-open"); $("[data-more]", card).setAttribute("aria-expanded","false");
+  fly.classList.remove("open"); bridge.classList.remove("on");
+  if (refocus && returnFocus) returnFocus.focus();
+  openId = null; openedBy = null; anchorPt = null; clearTimeout(closeTimer); closeTimer = null;
+  renderStats();
+}
+function disarm(filtered){
+  if (!armId) return;
+  if (filtered && openId !== armId) { stats.fp++; renderStats(); }
+  armId = null; clearInterval(armCheck); armCheck = null;
+  document.querySelectorAll(".zone .arm").forEach(a => a.style.height = "0");
+}
+function arm(id){
+  disarm(false); armId = id; armStart = performance.now(); stripEnterAt = armStart; stats.se++; renderStats();
+  armCheck = setInterval(() => {
+    const el = $(".zone .arm", cardEl(id));
+    const p = cfg.D ? Math.min(1, (performance.now()-armStart)/cfg.D) : 1;
+    if (el) el.style.height = (p*100) + "%";
+    if (p >= 1 && speed() < cfg.S && openId !== id) { const keep = stripEnterAt; disarm(false); stripEnterAt = keep; open(id, "hover"); }
+  }, 30);
+}
+
+/* ── Pointer: arming, keep-alive, crossings ── */
+document.addEventListener("pointermove", e => {
+  if (e.pointerType !== "mouse" && e.pointerType !== "pen") return;
+  const now = performance.now(), x = e.clientX, y = e.clientY;
+  samples.push({x, y, t:now}); if (samples.length > 20) samples.shift();
+  $("#sp").textContent = speed().toFixed(2);
+  const chatR = $("#chat").getBoundingClientRect(), inChat = inRect(x, y, chatR);
+  const inFly = fly.classList.contains("open") && inRect(x, y, fly.getBoundingClientRect());
+  const inBridge = bridge.classList.contains("on") && inRect(x, y, bridge.getBoundingClientRect());
+  if (lastX != null && lastX < chatR.left && x >= chatR.left) { stats.cx++; renderStats(); }
+  lastX = x;
+  if (cfg.touch) return;
+
+  // Never arm while a dialog or a click/right-click-opened menu is up: the user is aiming at THAT.
+  const busy = cfg.suppress && ($("#scrim").classList.contains("open") || (openId && openedBy !== "hover"));
+  const zid = busy ? null : zoneHit(x, y, e.target);
+  if (zid && zid !== openId) { if (armId !== zid) arm(zid); }
+  else if (armId && zid !== armId) disarm(true);
+
+  if (openId && openedBy === "hover") {
+    if (inFly) enteredFlyout = true;
+    const overOwnCard = e.target.closest && e.target.closest(".card")?.dataset.id === openId;
+    if (inFly || inBridge || overOwnCard) { clearTimeout(closeTimer); closeTimer = null; }
+    else if (!closeTimer) closeTimer = setTimeout(() => close(inChat ? "left to chat" : "left"), cfg.G);
+  }
+});
+
+/* ── Clicks: card-inline controls, menu items, outside dismiss ── */
+document.addEventListener("click", e => {
+  const more = e.target.closest("[data-more]");
+  if (more) { e.stopPropagation(); const id = more.closest(".card").dataset.id; openId === id && openedBy !== "hover" ? close("toggle", true) : open(id, "click"); return; }
+  const moreRow = e.target.closest("#flyout [data-more-group]");
+  if (moreRow) { // expand inline; menu stays open, focus lands on the first revealed item
+    const rare = moreRow.nextElementSibling, opening = rare.hidden;
+    rare.hidden = !opening; moreRow.setAttribute("aria-expanded", String(opening));
+    moreRow.querySelector(".ic").textContent = opening ? "▾" : "▸";
+    moreRow.lastElementChild.textContent = opening ? "" : rare.querySelectorAll("[role=menuitem]").length;
+    if (opening) { enteredFlyout = true; rare.querySelector("[role=menuitem]")?.focus(); log(`more… ${moreRow.dataset.moreGroup}`); }
+    if (!anchorPt) placeFlyout();
+    return;
+  }
+  const item = e.target.closest("#flyout [data-act]");
+  if (item) {
+    if (item.getAttribute("aria-disabled") === "true") { log(`(disabled) ${item.dataset.act}`); return; } // stays open, focusable (APG)
+    if (openedBy === "hover") { const dt = Math.round(performance.now() - stripEnterAt); stats.ha.push(dt); log(`✓ menu ${item.dataset.act} via hover in ${dt}ms`, "ok"); }
+    else log(`✓ menu ${item.dataset.act} via ${openedBy}`, "ok");
+    close("action", true); return;
+  }
+  if (openId && !e.target.closest("#flyout")) close("outside click");
+  const inline = e.target.closest(".card [data-act], .card [data-step]");
+  if (inline) { e.preventDefault(); e.stopPropagation(); log(`✓ card ${inline.dataset.act || "step-"+STEP_NAMES[inline.dataset.step]}`, "ok"); return; }
+  const card = e.target.closest(".card");
+  if (card) document.querySelectorAll(".card").forEach(c => c.classList.toggle("selected", c === card));
+});
+document.addEventListener("dblclick", e => { const n = e.target.closest(".card .name"); if (n) log("✓ card rename (dbl-click)", "ok"); });
+// Right-click anywhere on a card → same menu at the pointer.
+document.addEventListener("contextmenu", e => {
+  const card = e.target.closest(".card"); if (!card || cfg.touch) return;
+  e.preventDefault(); disarm(false); open(card.dataset.id, "context", { x:e.clientX, y:e.clientY });
+});
+document.addEventListener("keydown", e => {
+  const card = document.activeElement?.closest?.(".card");
+  if (!openId && card && (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10"))) { e.preventDefault(); open(card.dataset.id, "kbd-context"); return; }
+  if (!openId) return;
+  const its = items(), i = its.indexOf(document.activeElement);
+  if (e.key === "Escape") { e.preventDefault(); close("escape", true); }
+  else if (e.key === "ArrowDown") { e.preventDefault(); its[(i+1) % its.length]?.focus(); }
+  else if (e.key === "ArrowUp") { e.preventDefault(); its[(i-1+its.length) % its.length]?.focus(); }
+  else if (e.key === "Home") { e.preventDefault(); its[0]?.focus(); }
+  else if (e.key === "End") { e.preventDefault(); its[its.length-1]?.focus(); }
+  else if (e.key === "Tab") { close("tab"); }
+});
+// Capture-phase scroll: inner-scroller (sidebar list) events don't bubble — spec overlay-layering.
+// The flyout's OWN scroll must not re-place it.
+window.addEventListener("scroll", e => { if (openId && e.target !== fly && !anchorPt) placeFlyout(); else if (openId && anchorPt && e.target !== fly) close("scroll"); }, true);
+window.addEventListener("resize", () => openId && placeFlyout());
+
+$("#dlgTest").addEventListener("click", () => { log("dialog in 2s — open the flyout now"); setTimeout(() => { $("#scrim").classList.add("open"); $("#dlgClose").focus(); }, 2000); });
+$("#dlgClose").addEventListener("click", () => $("#scrim").classList.remove("open"));
+$("#toastTest").addEventListener("click", () => setTimeout(() => { $("#toast").classList.add("open"); setTimeout(() => $("#toast").classList.remove("open"), 3000); }, 2000));
+["W","D","S","G","extent","ignoreBtn","bridgeOn","suppress","sbw","showZone","showTab","touch"].forEach(id => $("#"+id).addEventListener("input", readCfg));
+$("#theme").addEventListener("click", () => { const h = document.documentElement; h.dataset.theme = h.dataset.theme === "dark" ? "light" : "dark"; });
+$("#reset").addEventListener("click", () => { Object.assign(stats, { cx:0, se:0, fp:0, ho:0, ao:0, an:0, ha:[], co:0, rc:0 }); renderStats(); $("#log").innerHTML = ""; });
+readCfg(); renderStats();
+</script>
+</body>
+</html>

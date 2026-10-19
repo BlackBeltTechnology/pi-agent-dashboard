@@ -9,6 +9,7 @@
  * See change: plugin-settings-pages.
  */
 
+import { SettingsNotice, SettingsStatusPill } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { RECOMMENDED_EXTENSIONS } from "@blackbelt-technology/pi-dashboard-shared/recommended-extensions.js";
 import { mdiAlert, mdiCheck, mdiContentCopy } from "@mdi/js";
 import Icon from "@mdi/react";
@@ -19,61 +20,69 @@ import { t as i18nT } from "../../lib/i18n/i18n.js";
 import type { PluginRow } from "../../lib/package/plugins-api.js";
 import { copyText } from "../../lib/util/clipboard.js";
 
-// Theme-aware fragments built on the dashboard's `--accent-*` CSS vars
-// (defined in packages/client/src/index.css for both dark and light :root).
-// Uses the same `color-mix(in_srgb, var(--accent-X) NN%, transparent)` pattern
-// the rest of the codebase uses (EditToolRenderer, DiffView, etc).
-export const WARN_FG = "text-[var(--accent-yellow)]";
-export const WARN_BG = "bg-[color-mix(in_srgb,var(--accent-yellow)_12%,transparent)]";
-export const WARN_BORDER = "border-[color-mix(in_srgb,var(--accent-yellow)_40%,transparent)]";
-const ERR_FG = "text-[var(--accent-red)]";
-const ERR_BG = "bg-[color-mix(in_srgb,var(--accent-red)_12%,transparent)]";
-const ERR_BORDER = "border-[color-mix(in_srgb,var(--accent-red)_40%,transparent)]";
-const OK_FG = "text-[var(--accent-green)]";
-const OK_BG = "bg-[color-mix(in_srgb,var(--accent-green)_15%,transparent)]";
-const OK_BORDER = "border-[color-mix(in_srgb,var(--accent-green)_40%,transparent)]";
-export const LINK_FG = "text-[var(--accent-blue)]";
-export const LINK_BG = "bg-[color-mix(in_srgb,var(--accent-blue)_12%,transparent)]";
-export const LINK_BG_HOVER = "hover:bg-[color-mix(in_srgb,var(--accent-blue)_22%,transparent)]";
-export const LINK_BORDER = "border-[color-mix(in_srgb,var(--accent-blue)_40%,transparent)]";
+// Severity-token fragments (`ui-contract.md`: `--severity-*` is text-safe on its
+// own `-bg`; a raw `--accent-<hue>` FILL is not a text colour). `WARN_*`/`LINK_*`
+// stay exported for existing consumers; `ERR_*` is private.
+// See change: retro-ux-plugin-settings-wave-2 (design D5).
+export const WARN_FG = "text-[var(--severity-warning-fg)]";
+export const WARN_BG = "bg-[var(--severity-warning-bg)]";
+export const WARN_BORDER = "border-[var(--severity-warning-border)]";
+const ERR_FG = "text-[var(--severity-error-fg)]";
+const ERR_BG = "bg-[var(--severity-error-bg)]";
+const ERR_BORDER = "border-[var(--severity-error-border)]";
+export const LINK_FG = "text-[var(--severity-info-fg)]";
+export const LINK_BG = "bg-[var(--severity-info-bg)]";
+export const LINK_BG_HOVER = "hover:opacity-80";
+export const LINK_BORDER = "border-[var(--severity-info-border)]";
 
+/** The activation list's pill: the shared status pill with a human word; the raw state stays in `data-status`. */
 export function StatusPill({ row }: { row: PluginRow }) {
   const status = row.status;
   if (!status) {
     return (
-      <span className="px-1.5 py-0.5 text-[10px] rounded bg-[var(--bg-tertiary)] text-[var(--text-tertiary)] border border-[var(--border-secondary)]">
-        unknown
-      </span>
+      <SettingsStatusPill tone="neutral" status="unknown">
+        {i18nT("packages.pillStatusUnknown", undefined, "Status unknown")}
+      </SettingsStatusPill>
     );
   }
   if (status.error) {
     return (
-      <span
-        className={`px-1.5 py-0.5 text-[10px] rounded ${ERR_BG} ${ERR_FG} border ${ERR_BORDER}`}
-        title={status.error}
-      >
-        error
-      </span>
+      <SettingsStatusPill tone="error" status="error">
+        {i18nT("packages.pillFailedToLoad", undefined, "Failed to load")}
+      </SettingsStatusPill>
     );
   }
   if (!status.enabled) {
     return (
-      <span className="px-1.5 py-0.5 text-[10px] rounded bg-[var(--bg-tertiary)] text-[var(--text-muted)] border border-[var(--border-secondary)]">
-        disabled
-      </span>
+      <SettingsStatusPill tone="neutral" status="disabled">
+        {i18nT("packages.pillOff", undefined, "Off")}
+      </SettingsStatusPill>
     );
   }
   if (!status.loaded) {
     return (
-      <span className={`px-1.5 py-0.5 text-[10px] rounded ${WARN_BG} ${WARN_FG} border ${WARN_BORDER}`}>
-        {i18nT("common.notLoaded", undefined, "not loaded")}
-      </span>
+      <SettingsStatusPill tone="warning" status="not-loaded">
+        {i18nT("packages.pillNotLoaded", undefined, "Not loaded")}
+      </SettingsStatusPill>
     );
   }
   return (
-    <span className={`px-1.5 py-0.5 text-[10px] rounded ${OK_BG} ${OK_FG} border ${OK_BORDER}`}>
-      enabled
-    </span>
+    <SettingsStatusPill tone="success" status="enabled">
+      {i18nT("packages.pillOn", undefined, "On")}
+    </SettingsStatusPill>
+  );
+}
+
+/**
+ * An error in the plugin LIST: one sentence, the raw text (a stack, an HTTP
+ * message) only behind "Copy details". The plugin settings page keeps
+ * `CopyableErrorBlock`, whose full visible text is that page's load-error exception.
+ */
+export function PluginErrorNotice({ text, sentence, testId }: { text: string; sentence?: string; testId: string }) {
+  return (
+    <SettingsNotice tone="error" testId={testId} details={text}>
+      {sentence ?? i18nT("packages.pluginFailedToLoad", undefined, "This plugin failed to load.")}
+    </SettingsNotice>
   );
 }
 
@@ -98,7 +107,7 @@ export function CopyableErrorBlock({ text, testId }: { text: string; testId: str
           }
         }}
         title={i18nT("status.copyErrorToClipboard", undefined, "Copy error to clipboard")}
-        className={`shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] border ${ERR_BORDER} hover:opacity-80`}
+        className={`shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[12px] border ${ERR_BORDER} hover:opacity-80`}
         data-testid={`${testId}-copy`}
       >
         <Icon path={copied ? mdiCheck : mdiContentCopy} size={0.45} />
@@ -108,7 +117,7 @@ export function CopyableErrorBlock({ text, testId }: { text: string; testId: str
   );
 }
 
-export function MissingRequirementsBlock({ row }: { row: PluginRow }) {
+export function MissingRequirementsBlock({ row, inNotice = false }: { row: PluginRow; /** Rendered inside a `SettingsNotice` that already carries the warning icon + tone. */ inNotice?: boolean }) {
   const missing = row.status?.missingRequirements ?? [];
   const operations = usePackageOperations("global");
   const [, navigate] = useLocation();
@@ -135,7 +144,7 @@ export function MissingRequirementsBlock({ row }: { row: PluginRow }) {
   }
 
   return (
-    <div className="mt-2 space-y-1.5">
+    <div className={inNotice ? "space-y-1.5" : "mt-2 space-y-1.5"}>
       {piExtMissing.map((name) => {
         const rec = recommendedFor(name);
         return (
@@ -144,7 +153,7 @@ export function MissingRequirementsBlock({ row }: { row: PluginRow }) {
             className={`flex items-center gap-2 text-[11px] ${WARN_FG}`}
             data-testid={`missing-piExtension-${name}`}
           >
-            <Icon path={mdiAlert} size={0.5} />
+            {inNotice ? null : <Icon path={mdiAlert} size={0.5} />}
             <span>
               {i18nT("packages.requiresPiExtension", undefined, "requires pi extension")}{" "}
               <code className="px-1 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-primary)]">
@@ -155,7 +164,7 @@ export function MissingRequirementsBlock({ row }: { row: PluginRow }) {
               <button
                 type="button"
                 onClick={() => operations.install(rec.source)}
-                className={`px-2 py-0.5 rounded text-[10px] ${LINK_BG} ${LINK_BG_HOVER} ${LINK_FG} border ${LINK_BORDER}`}
+                className={`px-2 py-0.5 rounded text-[12px] ${LINK_BG} ${LINK_BG_HOVER} ${LINK_FG} border ${LINK_BORDER}`}
                 data-testid={`install-piExtension-${name}`}
               >
                 {i18nT("common.install2", undefined, "Install")}
@@ -164,7 +173,7 @@ export function MissingRequirementsBlock({ row }: { row: PluginRow }) {
               <button
                 type="button"
                 onClick={() => navigate("/settings/add-ons")}
-                className="px-2 py-0.5 rounded text-[10px] bg-[var(--bg-tertiary)] hover:bg-[var(--bg-secondary)] text-[var(--text-secondary)] border border-[var(--border-secondary)]"
+                className="px-2 py-0.5 rounded text-[12px] bg-[var(--bg-tertiary)] hover:bg-[var(--bg-secondary)] text-[var(--text-secondary)] border border-[var(--border-secondary)]"
                 data-testid={`install-piExtension-link-${name}`}
               >
                 {i18nT("packages.installViaPackagesTab", undefined, "Install via Packages tab")}
@@ -179,7 +188,7 @@ export function MissingRequirementsBlock({ row }: { row: PluginRow }) {
           className={`flex items-center gap-2 text-[11px] ${WARN_FG}`}
           data-testid={`missing-binary-${name}`}
         >
-          <Icon path={mdiAlert} size={0.5} />
+          {inNotice ? null : <Icon path={mdiAlert} size={0.5} />}
           <span>
             {i18nT("common.requiresBinaryOnPath", undefined, "requires binary on PATH:")}{" "}
             <code className="px-1 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-primary)]">
@@ -194,7 +203,7 @@ export function MissingRequirementsBlock({ row }: { row: PluginRow }) {
           className={`flex items-center gap-2 text-[11px] ${WARN_FG}`}
           data-testid={`missing-service-${name}`}
         >
-          <Icon path={mdiAlert} size={0.5} />
+          {inNotice ? null : <Icon path={mdiAlert} size={0.5} />}
           <span>
             {i18nT("common.requiresService", undefined, "requires service:")}{" "}
             <code className="px-1 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-primary)]">
@@ -209,7 +218,7 @@ export function MissingRequirementsBlock({ row }: { row: PluginRow }) {
           className={`flex items-center gap-2 text-[11px] ${WARN_FG}`}
           data-testid={`missing-path-${name}`}
         >
-          <Icon path={mdiAlert} size={0.5} />
+          {inNotice ? null : <Icon path={mdiAlert} size={0.5} />}
           <span>
             {i18nT("common.requiresPath", undefined, "requires file:")}{" "}
             <code className="px-1 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-primary)]">

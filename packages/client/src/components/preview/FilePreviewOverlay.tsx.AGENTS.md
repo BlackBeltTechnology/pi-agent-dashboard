@@ -5,3 +5,5 @@ Modal overlay. Reads file via `/api/file?cwd&path`. Routes by ext: `.md`/`.mdx` 
 See change: surface-denial-remedy-in-previews — `provenance` prop (default operator) → inner `FilePreviewOverlayBody` under its own `PreviewProvenance`. Text load via `usePreviewFetch`; 403 with `denialId` → `DenialNotice`, other failures keep `friendlyReadError`. Image: same-origin → `useBlobImage`; cross-origin `<img>` failure → notice `unknown`.
 
 `imageBase` memoised on cwd/path. See change: fix-markdown-remount-storm.
+
+Apply fix to file: `reloadNonce` + `reload`, `useMermaidSource({kind:"md"})` → `MarkdownContent mermaidSource`. See change: add-preview-apply-fix-to-file.

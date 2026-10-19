@@ -7,7 +7,10 @@
  * Disclosure: the body has exactly five keys (`OperateRequiredBody`). The request's
  * ip, headers and auth markers are read only to derive `reason` and `use-host`;
  * none of them is emitted. `sign-in` is the one server-configuration fact exposed.
- * See change: surface-operate-required-remedy.
+ * `request-access` is the deliberate exception to `canDiscloseAccessPosture`: it
+ * discloses exactly what the public knock route already answers the same caller
+ * (Host admitted? on-link?), never the operator switch or a trusted network.
+ * See change: surface-operate-required-remedy, add-request-access-remedy.
  */
 
 import {
@@ -19,6 +22,7 @@ import {
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { LocalTrustContext } from "./local-proof.js";
 import { isLocallyTrusted } from "./localhost-guard.js";
+import { tierRefusalFor } from "./route-tier-gate.js";
 
 /** Which route family is refusing — selects the fixed message. */
 type OperateRoute = "vault" | "services";
@@ -52,16 +56,40 @@ export function hasOperateAuthority(request: FastifyRequest, localTrust?: LocalT
   return isLocallyTrusted({ ip: request.ip, headers: request.headers as Record<string, unknown> }, localTrust);
 }
 
+/**
+ * Would a mutating (`operate`-gated) route accept this request? Exactly the two
+ * checks such a route passes: `hasOperateAuthority` AND the route-tier gate at
+ * tier `operate` (a `control`-tier login session passes the first, is refused
+ * by the second). One predicate shared by `GET /api/services` (`canOperate`)
+ * so the client's gating never disagrees with the server.
+ * See change: add-services-settings-ui (D8).
+ */
+export function canOperate(
+  request: FastifyRequest,
+  deps: { getTrustedNetworks: () => string[]; localTrust?: LocalTrustContext },
+): boolean {
+  return (
+    hasOperateAuthority(request, deps.localTrust) &&
+    tierRefusalFor(request, "operate", deps.getTrustedNetworks, deps.localTrust) === null
+  );
+}
+
 export interface SendOperateRequiredOptions {
   route: OperateRoute;
   /** Called per refusal: is a usable login method configured right now? */
   loginAvailable: () => boolean;
+  /**
+   * Would the knock's pre-switch gates pass for this caller (and does it hold no
+   * verified local credential)? Absent ⇒ `request-access` is never offered.
+   */
+  requestAccessAvailable?: (request: FastifyRequest) => boolean;
 }
 
 /** Derive reason + remedies for a refused request. Pure of side effects. */
 function describeOperateRefusal(
   request: FastifyRequest,
   loginAvailable: () => boolean,
+  requestAccessAvailable?: (request: FastifyRequest) => boolean,
 ): { reason: OperateRequiredReason; remedies: OperateRemedy[] } {
   const marked = request as Marked;
   // A paired device or a login session below `operate` holds a credential that is too weak.
@@ -74,6 +102,8 @@ function describeOperateRefusal(
   // `use-host` is withheld from a caller already on the host, proof or not.
   if (!isLocallyTrusted({ ip: request.ip, headers: request.headers as Record<string, unknown> })) wanted.add("use-host");
   if (reason === "tier-too-low" && marked.authVia === "device") wanted.add("re-pair");
+  // Only a caller holding no verified credential at all (a revoked bearer counts as none).
+  if (marked.authVia === undefined && requestAccessAvailable?.(request) === true) wanted.add("request-access");
   if (loginAvailable()) wanted.add("sign-in");
   return { reason, remedies: OPERATE_REMEDY_ORDER.filter((r) => wanted.has(r)) };
 }
@@ -84,7 +114,7 @@ export async function sendOperateRequired(
   reply: FastifyReply,
   opts: SendOperateRequiredOptions,
 ): Promise<void> {
-  const { reason, remedies } = describeOperateRefusal(request, opts.loginAvailable);
+  const { reason, remedies } = describeOperateRefusal(request, opts.loginAvailable, opts.requestAccessAvailable);
   const body: OperateRequiredBody = {
     success: false,
     error: "operate_required",

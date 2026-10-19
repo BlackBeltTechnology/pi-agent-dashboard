@@ -16,8 +16,19 @@ export interface Lease {
   expiresAt: number;
 }
 
+/** `Lease.holder` is caller-supplied display text; never longer than this. */
+const MAX_HOLDER_LENGTH = 200;
+
+/** A live lease as an observer sees it: holder text + expiry, never the id. */
+export interface LeaseHolderView {
+  holder?: string;
+  expiresAt: string;
+}
+
 export class LeaseTable {
   readonly ttlMs: number;
+  /** Called after a lease is created, released or swept as expired. */
+  onChange?: () => void;
   private readonly leases = new Map<string, Lease>();
   /** serviceId → when its last live lease ended (release or expiry). */
   private readonly lastEnded = new Map<string, number>();
@@ -27,8 +38,10 @@ export class LeaseTable {
   }
 
   create(serviceId: string, now: number, holder?: string): Lease {
-    const lease: Lease = { leaseId: randomUUID(), serviceId, expiresAt: now + this.ttlMs, ...(holder ? { holder } : {}) };
+    const h = holder?.slice(0, MAX_HOLDER_LENGTH);
+    const lease: Lease = { leaseId: randomUUID(), serviceId, expiresAt: now + this.ttlMs, ...(h ? { holder: h } : {}) };
     this.leases.set(lease.leaseId, lease);
+    this.onChange?.();
     return lease;
   }
 
@@ -50,6 +63,7 @@ export class LeaseTable {
     if (!l) return undefined;
     this.leases.delete(leaseId);
     if (this.live(l.serviceId, now) === 0) this.lastEnded.set(l.serviceId, now);
+    this.onChange?.();
     return l;
   }
 
@@ -61,8 +75,10 @@ export class LeaseTable {
 
   /** Remove expired leases; record when each service's last lease ended. */
   sweep(now: number): void {
+    let expired = false;
     for (const [id, l] of this.leases) {
       if (now >= l.expiresAt) {
+        expired = true;
         this.leases.delete(id);
         if (this.live(l.serviceId, now) === 0) {
           const prev = this.lastEnded.get(l.serviceId) ?? 0;
@@ -70,6 +86,18 @@ export class LeaseTable {
         }
       }
     }
+    if (expired) this.onChange?.();
+  }
+
+  /** Live leases of `serviceId` as holder text + ISO expiry (never the lease id). */
+  holders(serviceId: string, now: number): LeaseHolderView[] {
+    const out: LeaseHolderView[] = [];
+    for (const l of this.leases.values()) {
+      if (l.serviceId === serviceId && now < l.expiresAt) {
+        out.push({ ...(l.holder ? { holder: l.holder } : {}), expiresAt: new Date(l.expiresAt).toISOString() });
+      }
+    }
+    return out;
   }
 
   lastEndedAt(serviceId: string): number | undefined {

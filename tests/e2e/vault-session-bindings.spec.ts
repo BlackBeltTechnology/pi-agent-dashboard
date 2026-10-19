@@ -33,11 +33,10 @@ test.describe("credential vault — session bindings", () => {
     seed = new VaultSeed(request, () => op.headers());
     await seed.reset();
   });
-  // Restore per TEST, not per file: a timed-out test must not leave the harness's
-  // trust seed narrowed for every spec that runs after it.
-  test.afterEach(async ({ request }) => {
+  // Trust narrowing is restored per TEST by the reap fixture (narrowTrust), so a
+  // timed-out test cannot leave the harness narrowed for later specs.
+  test.afterEach(async () => {
     await seed.reset();
-    await op.restore(request);
   });
 
   test("F2 — pending confirmation converges to delivered without a reload", async ({ page }) => {

@@ -5,6 +5,9 @@ Files in this directory. One row per source file.
 | File | Purpose |
 |------|---------|
 | `useActiveChatSelection.ts` | `useActiveChatSelection(containerRef, mapRange) → { isSelecting, isSelectingRef, selectionSpanRef,… → see `useActiveChatSelection.ts.AGENTS.md` |
+| `useAddonIssues.ts` | Subscribes to `addon-issues-store` (plugin issues + `packages[]` health, one count for the Issues tab and the Settings rail badge); refresh on mount + `plugin-config-update`. See change: addons-hub-folder-view. |
+| `useFolderAddons.ts` | Folder Add-ons page state: folder catalog fetch, switch flow (no local flip before the server confirms; row error on failure), `keptOn`/`notOwned`(`removeUnowned` retry)/trust prompt (replays after `submitResourceTrust`), reload offer. See change: addons-hub-folder-view. |
+| `useAddonCatalog.ts` | `GET /api/addons/catalog` + refetch (debounced `ADDON_CATALOG_DEBOUNCE_MS`) on `pi-package-event` success and `plugin-config-update`. See change: addons-hub-feature-catalog. |
 | `useAnthropicPeerProbe.ts` | `useAnthropicPeerProbe() -> { peerMissing, peerReason, peerResolving, importFailed, refresh }` for the Anthropic OAuth row hint. → see `useAnthropicPeerProbe.ts.AGENTS.md` |
 | `useAppHidden.ts` | NEW. Exports `useAppHidden()` hook + `applyAppHiddenClass(root, hidden)`. → see `useAppHidden.ts.AGENTS.md` |
 | `useArchiveListing.ts` | Fetches `GET /api/openspec-archive?cwd=` into `entries: ArchiveEntry[]` with `isLoading`/`error`. → see `useArchiveListing.ts.AGENTS.md` |
@@ -57,10 +60,12 @@ Files in this directory. One row per source file.
 | `useProvidersReady.ts` | Polls `/api/providers` + `/api/provider-auth/status`, returns `ProvidersReadyState` (`loading`, `ready`,… → see `useProvidersReady.ts.AGENTS.md` |
 | `useRecommendedExtensions.ts` | Fetches `GET /api/packages/recommended`, returns `EnrichedRecommendedExtension[]` +… → see `useRecommendedExtensions.ts.AGENTS.md` |
 | `useRuntimeStatus.ts` | NEW. GET `/api/runtime/status` + `runtime-update-event` refresh/progress. Sequenced loads (stale response dropped), unmount-safe, fetch errors → `error`. Exports `useRuntimeStatus`, types `RuntimeStatus`/`RuntimeInfo`. See change: electron-runtime-overlay-updates. |
+| `useServices.ts` | `useServices({onMessage, ws, delayMs?, fetchList?})` → `{list, loading, error, refetch, canOperate}`. Refetches ONLY `GET /api/services`, after a random 100–400 ms delay (burst collapses; single-flight + one trailing), on `services_changed` and on reconnect; no timer polling. Tests: `__tests__/useServices.test.tsx`. See change: add-services-settings-ui. |
 | `useSessionActions.ts` | Session action callbacks extracted from App.tsx. Sends… → see `useSessionActions.ts.AGENTS.md` Swaps hide/unhide for `handleArchiveSession` and `handleUnarchiveSession`. See change: archive-sessions-lazy-load. |
 | `useSessionDiff.ts` | Fetches `GET /api/session-diff?sessionId=`, returns `SessionDiffResponse` + `isLoading`/`error`/`refresh`. Refetches on `sessionId` change. Exports `useSessionDiff`, `UseSessionDiffResult`. |
 | `useSessionState.ts` | Embed-side session-state accumulator. Exports `useSessionState(sessionId?)` (`{state, apply, reset}`) and the… → see `useSessionState.ts.AGENTS.md` |
 | `useSidebarState.ts` | Persists sidebar `width` + `collapsed` to `localStorage` (`dashboard:sidebar-width`,… → see `useSidebarState.ts.AGENTS.md` |
+| `useSideFlyoutPosition.ts` | Side placement for the session flyout: `computeSideFlyoutPosition` (card.right+8, clamp, maxHeight) + hook writing `left/top/maxHeight` through refs on capture-phase scroll (ignores the panel's own scroll), resize and card `ResizeObserver`. Anchor and point modes; never React state. See change: add-session-actions-flyout. |
 | `useStaleToolReconcile.ts` | Session-scoped stale running-tool heal (survives transcript virtualization). → see `useStaleToolReconcile.ts.AGENTS.md` |
 | `useSubagentResyncCadence.ts` | Open-inspector liveness (D4 v1): a mounted detail view re-fires `subagent_resync_request` on a backoff… → see `useSubagentResyncCadence.ts.AGENTS.md` |
 | `useSwipeBack.ts` | iOS-style left-edge swipe-back gesture. Touch listeners decide horizontal vs vertical after 10px, triggers… → see `useSwipeBack.ts.AGENTS.md` |

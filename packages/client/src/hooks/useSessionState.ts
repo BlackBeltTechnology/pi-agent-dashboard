@@ -172,6 +172,8 @@ function addPromptBusRequest(
       options: msg.prompt?.options,
       defaultValue: msg.prompt?.defaultValue,
       questions: msg.prompt?.metadata?.questions,
+      // Inline "Other" opt-in (core metadata key). See change: add-ask-user-inline-other.
+      ...(msg.prompt?.metadata?.allowOther === true ? { allowOther: true } : {}),
       _promptBusComponent: msg.component,
       _promptBusPlacement: msg.placement,
     },

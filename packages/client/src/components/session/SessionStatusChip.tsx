@@ -55,6 +55,17 @@ function ringTooltipText(phase: Exclude<HistoryLoadPhase, "idle">, startedAt: nu
   return `${i18nT("status.historyStillLoading", undefined, "Still loading history")} · ${Math.floor(elapsed / 1000)}s`;
 }
 
+/**
+ * Desktop status-chip width + the title row's gap = the text column's left
+ * indent (16 px + 8 px = 24 px = `ml-6`). Rows 2–4 of the desktop card header
+ * use `SESSION_TEXT_COLUMN_CLASS` so they start at the session name's left
+ * edge; change these three together.
+ * See change: compact-session-card-header (D2).
+ */
+export const DESKTOP_CHIP_WIDTH_CLASS = "w-4";
+export const TITLE_ROW_GAP_CLASS = "gap-2";
+export const SESSION_TEXT_COLUMN_CLASS = "ml-6";
+
 export function SessionStatusChip({
   variant,
   sessionId,
@@ -86,7 +97,7 @@ export function SessionStatusChip({
   const srText = ringPhase ? staticRingText(ringPhase) : "";
 
   const className = variant === "desktop"
-    ? `relative inline-flex flex-shrink-0 items-center justify-center w-4 h-4 rounded-full bg-[var(--bg-tertiary)] shadow-sm ${colorClass}`
+    ? `relative inline-flex flex-shrink-0 items-center justify-center ${DESKTOP_CHIP_WIDTH_CLASS} h-4 rounded-full bg-[var(--bg-tertiary)] shadow-sm ${colorClass}`
     : `relative inline-flex flex-shrink-0 ${colorClass}`;
 
   return (

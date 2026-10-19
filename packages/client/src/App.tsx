@@ -7,6 +7,7 @@ import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRe
 import { Redirect, Route, Switch, useLocation, useRoute, useSearch, useSearchParams } from "wouter";
 import { useHistoryState } from "wouter/use-browser-location";
 import { GrantPromptHost } from "./components/access-grant/GrantPromptHost.js";
+import { YoloComposerStrip } from "./components/access-grant/YoloIndicators.js";
 import { CanvasDriver } from "./components/canvas/CanvasDriver.js";
 import { ChatView, type ChatViewHandle } from "./components/chat/ChatView.js";
 import { CommandInput } from "./components/chat/CommandInput.js";
@@ -57,8 +58,8 @@ import { SessionSplitView, SplitRouteSync } from "./components/split/SessionSpli
 import { SplitWorkspaceProvider } from "./components/split/SplitWorkspaceContext.js";
 import { allTagsInUse } from "./components/tags/all-tags.js";
 import { CommitDialogProvider } from "./components/worktree/CommitDialog.js";
+import { LazyWorktreeSpawnDialog } from "./components/worktree/lazy-worktree-dialogs.js";
 import { WorktreeInitStack } from "./components/worktree/WorktreeInitStack.js";
-import { WorktreeSpawnDialog } from "./components/worktree/WorktreeSpawnDialog.js";
 import { useAppHidden } from "./hooks/useAppHidden.js";
 import { useContentViews } from "./hooks/useContentViews.js";
 import { useDocumentTitle } from "./hooks/useDocumentTitle.js";
@@ -80,11 +81,11 @@ import { fetchArchivedSessionById } from "./lib/api/archived-sessions-api.js";
 import { getInitialWsUrl, LAST_SERVER_KEY, performServerSwitch } from "./lib/api/server-switch.js";
 import { openStagingSocket } from "./lib/api/staging-socket.js";
 import { EMPTY_CANVAS_STATE } from "./lib/canvas/canvas-gate.js";
+import { composerLiveness, isComposerWorking } from "./lib/chat/composer-liveness.js";
 // SubagentPopoutPage no longer imported by the shell — it's registered via
 // the subagents-plugin's `shell-overlay-route` claim and mounted through
 // `<ShellOverlayRouteSlot>` below. See change: add-flow-agent-popout.
 import { applyPromptTimeout, carryInteractiveRequests, createInitialState, deriveBannerState, reduceEvent, resolveInteractiveRequest, type SessionState } from "./lib/chat/event-reducer.js";
-import { composerLiveness, isComposerWorking } from "./lib/chat/composer-liveness.js";
 import { normalizeFollowUpEntries } from "./lib/chat/followup-entries.js";
 import { nextBackfillRange } from "./lib/chat/history-gap.js";
 import { refreshChat } from "./lib/chat/refresh-chat.js";
@@ -136,6 +137,8 @@ import { usePeerAutoInstallReset } from "./lib/package/peer-auto-install-store.j
 import { dispatchPluginMessage } from "./lib/package/plugins-api.js";
 import { appendWsTicket, getApiBearer, isDevicePaired, mintWsTicket } from "./lib/pairing/device-auth.js";
 import { createEmbeddedAppShell } from "./lib/plugins/embedded-app-shell.js";
+import { hydrateMermaidRepairConfig } from "./lib/preview/mermaid-repair-config.js";
+import { reachabilityStore } from "./lib/remote-access/reachability-store.js";
 import { buildHistoryPhaseMap, hasChatContent } from "./lib/replay/history-load-phase.js";
 import { extractUserPromptHistory } from "./lib/replay/message-history.js";
 import { rehydrateSession } from "./lib/replay/rehydrate-session.js";
@@ -207,6 +210,7 @@ import { ApiContext, deriveApiBase, setGlobalApiBase, VITE_API_URL } from "./lib
 import { buildContextUsageMap } from "./lib/context-usage.js";
 import { t as i18nT, registerPluginCatalog, useI18n } from "./lib/i18n/i18n.js";
 import { loginRedirectFor } from "./lib/identity/login-session.js";
+import { LiveSessionCwdsProvider, liveCwdKey } from "./lib/preview/use-mermaid-source.js";
 import { runUrgencyMigration } from "./lib/session/group-by-migration.js";
 import { deriveRetryProjection } from "./lib/session/retry-projection.js";
 import { SessionAssetsProvider } from "./lib/session/SessionAssetsContext.js";
@@ -1173,6 +1177,10 @@ export default function App() {
   // exactness. Ended cards and stub groups never enter the set.
   // See change: fix-connect-snapshot-frame-loss.
   const archiveSessionList = useMemo(() => [...sessions.values()], [sessions]);
+  // Live session cwds → gates "Apply fix to file" in file previews (md-read/write
+  // 403 any other cwd). A primitive key keeps the provider value stable across
+  // session churn. See change: add-preview-apply-fix-to-file.
+  const sessionCwdKey = useMemo(() => liveCwdKey(archiveSessionList.map((s) => s.cwd)), [archiveSessionList]);
   const archiveCandidates = useArchiveEntries(archiveCwd, openspecMap);
   const renderedCwds = useMemo(
     () =>
@@ -1224,6 +1232,9 @@ export default function App() {
         if (d.success && d.data?.plugins && typeof d.data.plugins === "object") {
           initPluginConfigs(d.data.plugins as Record<string, Record<string, unknown>>);
         }
+        // On-demand AI mermaid repair gate (opt-in; server resolves enabled/model).
+        // See change: add-mermaid-ai-repair.
+        hydrateMermaidRepairConfig(d);
         if (d.success) {
           setConfigFolderListMode(d.data?.folderListMode === "accordion" ? "accordion" : "classic");
           if (typeof d.data?.folderAttentionPeek === "boolean") setFolderAttentionPeek(d.data.folderAttentionPeek);
@@ -1243,6 +1254,16 @@ export default function App() {
       })
       .catch(() => {});
   }, []);
+
+  // Live bind facts for the toolbar Remote access button and its dialog (the
+  // server replays this on every connect, so a restart converges too).
+  // See change: add-remote-access-wizard.
+  useEffect(() => {
+    if (!onMessage) return;
+    return onMessage((msg: any) => {
+      if (msg?.type === "reachability_updated" && msg.reachability) reachabilityStore.set(msg.reachability);
+    });
+  }, [onMessage]);
 
   // Live re-hydration of the OpenSpec fleet switches: a PUT /api/config with
   // an openspec section (settings toggle, opt-out add/remove) broadcasts
@@ -2640,6 +2661,8 @@ export default function App() {
             onPromote={promoteFollowUpEntry}
             onClearAll={() => clearFollowUpEntries("all")}
           />
+          {/* Active-YOLO strip directly above the composer. See change: fix-yolo-indicator-overflow. */}
+          <YoloComposerStrip cwd={selectedSession?.cwd} />
           <CommandInput
             commands={selectedCommands}
             onSend={wrappedHandleSend}
@@ -2831,11 +2854,11 @@ export default function App() {
       <AddFoldersDialog
         workspaces={workspaces}
         sessionCwds={allSessionsList.map((s) => s.cwd)}
-        onPin={(dirPath) => {
+        onPin={(dirPath, piTrust) => {
           setPinnedDirectories((prev) => (prev.includes(dirPath) ? prev : [...prev, dirPath]));
-          send({ type: "pin_directory", path: dirPath });
+          send({ type: "pin_directory", path: dirPath, piTrust });
         }}
-        onAddFolderToWorkspace={(id, path) => send({ type: "add_folder_to_workspace", id, path })}
+        onAddFolderToWorkspace={(id, path, piTrust) => send({ type: "add_folder_to_workspace", id, path, piTrust })}
         onCreateWorkspace={(name) => send({ type: "create_workspace", name })}
         onCancel={() => setPinDialogOpen(false)}
         onOpenServers={() => { setPinDialogOpen(false); navigate("/settings/remote"); }}
@@ -3066,6 +3089,7 @@ export default function App() {
       <EmbeddedAppShellProvider shell={embeddedAppShell}>
       <FolderMenuProvider>
       <ShellSessionsProvider value={sessions}>
+      <LiveSessionCwdsProvider cwdKey={sessionCwdKey}>
         <ErrorBoundary fallback={
           <div className="min-h-screen flex items-center justify-center p-8 bg-[var(--bg-primary)] text-[var(--text-primary)]" data-testid="shell-error-fallback">
             <div className="text-center space-y-2">
@@ -3121,6 +3145,7 @@ export default function App() {
             </SessionDiffProvider>
           </SplitWorkspaceProvider>
         </ErrorBoundary>
+      </LiveSessionCwdsProvider>
       </ShellSessionsProvider>
       </FolderMenuProvider>
       </EmbeddedAppShellProvider>
@@ -3196,7 +3221,7 @@ export default function App() {
           }
           detailPanel={
             settingsMatch ? (
-              <SettingsPanel onMessage={onMessage} onBack={goBack} selectedCwd={selectedCwd} groupByPrefs={groupByPrefs} onSetDefaultGroupBy={(mode) => send({ type: "set_default_group_by", mode })} />
+              <SettingsPanel onMessage={onMessage} ws={ws} onBack={goBack} selectedCwd={selectedCwd} groupByPrefs={groupByPrefs} onSetDefaultGroupBy={(mode) => send({ type: "set_default_group_by", mode })} />
             ) : tunnelSetupMatch ? (
               <ZrokInstallGuide onBack={goBack} />
             ) : pluginOverlayMatched ? (
@@ -3479,7 +3504,7 @@ export default function App() {
             }
           }
           return models;
-        })()} onMessage={onMessage} onBack={dismissOverlay} selectedCwd={selectedCwd} groupByPrefs={groupByPrefs} onSetDefaultGroupBy={(mode) => send({ type: "set_default_group_by", mode })} />
+        })()} onMessage={onMessage} ws={ws} onBack={dismissOverlay} selectedCwd={selectedCwd} groupByPrefs={groupByPrefs} onSetDefaultGroupBy={(mode) => send({ type: "set_default_group_by", mode })} />
           </RouteBackedOverlay>
         )}
         {/* Tunnel setup REPLACES settings rather than stacking on it (D5): at
@@ -3517,7 +3542,8 @@ export default function App() {
         />
       )}
       {boardWorktreeForChange && (
-        <WorktreeSpawnDialog
+        <Suspense fallback={null}>
+        <LazyWorktreeSpawnDialog
           cwd={boardWorktreeForChange.cwd}
           initialBranch={`os/${boardWorktreeForChange.changeName}`}
           attachProposal={boardWorktreeForChange.changeName}
@@ -3534,6 +3560,7 @@ export default function App() {
             void maybeAutoInitWorktreeOnSpawn(path);
           }}
         />
+        </Suspense>
       )}
       {addFoldersDialog}
     </div>

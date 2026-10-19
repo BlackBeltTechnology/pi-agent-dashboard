@@ -23,12 +23,12 @@ The config module SHALL support a top-level `trustedNetworks` field of type `str
 - **THEN** `resolvedTrustedNetworks` SHALL be an empty array
 
 ### Requirement: Network guard factory
-The `localhost-guard` module SHALL export a `createNetworkGuard(trustedNetworks: string[] | (() => string[]))` function that returns a Fastify preHandler. The returned handler SHALL allow requests that satisfy any of: (a) genuinely local — loopback peer (`127.0.0.1`, `::1`, `::ffff:127.0.0.1`) **and** no proxy-forwarding header, (b) a valid local-IPC token, (c) `isTrustedSource(ip, headers, trustedNetworks)` is `true`, or (d) `request.isAuthenticated` is `true` (set by the auth `onRequest` hook).
+The `localhost-guard` module SHALL export a `createNetworkGuard(trustedNetworks: string[] | (() => string[]))` function that returns a Fastify preHandler. The returned handler SHALL allow requests that satisfy any of: (a) genuinely local — loopback peer (`127.0.0.1`, `::1`, `::ffff:127.0.0.1`) **and** no proxy-forwarding header, (b) a valid local-IPC token, (c) `request.isAuthenticated` is `true` (set by the auth `onRequest` hooks), or (d) **only when the effective trust mode is `"legacy"`**, `isTrustedSource(ip, headers, trustedNetworks)` is `true`. Condition (c) SHALL be evaluated before (d).
 
 All other requests SHALL receive a **403 with a self-describing JSON body** of the shape `{ success: false, error: "network_not_allowed", reason: string, hint: string }`:
-- `error` SHALL be the machine-readable literal `"network_not_allowed"` (replacing the prior human string `"Access denied"`), so clients can branch on policy-denial vs transport failure.
-- `reason` SHALL describe the cause (e.g. `"source IP not loopback, not in trustedNetworks, and request not authenticated"`).
-- `hint` SHALL describe the remedy (e.g. `"Add this network to trustedNetworks (Settings → Servers) or sign in."`).
+- `error` SHALL be the machine-readable literal `"network_not_allowed"`, so clients can branch on policy-denial vs transport failure.
+- `reason` SHALL describe the cause (e.g. `"source IP not loopback and request not authenticated"`).
+- `hint` SHALL describe the remedy: pairing this device (Request access) or signing in. It SHALL be identical in both trust modes (the body is sent to credential-less callers and SHALL NOT disclose the mode) and SHALL NOT suggest adding the network to a trusted list.
 
 The existing `localhostGuard` export SHALL be preserved for backward compatibility.
 
@@ -36,7 +36,7 @@ When `requireLocalProof` is enabled, the genuinely-local (loopback, non-forwarde
 
 #### Scenario: Loopback IP allowed
 - **WHEN** `requireLocalProof` is disabled and a request arrives from `127.0.0.1` with no proxy-forwarding header
-- **THEN** the guard SHALL allow the request regardless of trustedNetworks or authentication
+- **THEN** the guard SHALL allow the request regardless of trustedNetworks, trust mode or authentication
 
 #### Scenario: Relayed loopback not allowed by loopback alone
 - **WHEN** a request arrives from `127.0.0.1` carrying `X-Forwarded-For`, is not authenticated, and carries no local-IPC token
@@ -46,7 +46,12 @@ When `requireLocalProof` is enabled, the genuinely-local (loopback, non-forwarde
 - **WHEN** `trustedNetworks` is empty, `request.isAuthenticated` is `false`, and a request arrives from `192.168.1.5`
 - **THEN** the guard SHALL return 403
 - **AND** the response body SHALL be `{ success: false, error: "network_not_allowed", reason, hint }` where `error` is exactly `"network_not_allowed"`
-- **AND** `hint` SHALL name the remedy (add to `trustedNetworks` or authenticate)
+- **AND** `hint` SHALL name the remedy (pair this device or sign in)
+
+#### Scenario: Hint does not disclose the mode
+- **WHEN** the guard denies the same request once in `"pair"` mode and once in `"legacy"` mode
+- **THEN** both bodies SHALL be identical
+- **AND** neither `hint` SHALL mention adding the network to `trustedNetworks`
 
 #### Scenario: Authenticated request allowed
 - **WHEN** `request.isAuthenticated` is `true`
@@ -61,7 +66,7 @@ deny-by-default: a request is allowed only if it satisfies a pass condition or a
 in-namespace public exception. This replaces reliance on per-route
 `preHandler: networkGuard` opt-in as the primary enforcement mechanism.
 Route files SHALL continue to receive the guard via their `RouteDeps`
-`networkGuard` field (created once from `resolvedTrustedNetworks` at startup);
+`networkGuard` field (created once at startup over the live admission-list thunk);
 that threading remains valid but is no longer the protection boundary.
 
 Jurisdiction and in-namespace exception matching SHALL operate on the parsed
@@ -71,14 +76,15 @@ near-miss prefix (`/apiv2`, `/api/healthz`) changes the decision.
 
 The guard SHALL be registered as the **last** `onRequest` hook unconditionally —
 after the host gate, CORS, the mutation-origin gate, CSP, `registerBearerAuth`,
-`registerAuthPlugin` (when configured), the route-tier gate, and the model-proxy
+`registerAuthPlugin` (when configured), the live-preview capability hook, the route-tier gate, and the model-proxy
 auth gate (when configured) — so `request.isAuthenticated` reflects every auth
 source when the guard evaluates. "Last" SHALL NOT be expressed relative to a
 conditional hook.
 
-The guard SHALL read the trusted-network set through the live thunk (the same
-source `createNetworkGuard` uses), never a boot snapshot, so a CIDR added at
-runtime admits without a restart.
+The guard SHALL read the admission list (the trusted-network set in `"legacy"`
+mode, empty in `"pair"` mode) through the live thunk, never a boot snapshot, so a
+CIDR added at runtime in `"legacy"` mode admits without a restart and a switch to
+`"pair"` mode stops admitting without a restart.
 
 A denial by the universal guard SHALL preserve the existing denial contract: the
 `network_not_allowed` response body clients branch on, and the `blockEvents`
@@ -100,25 +106,33 @@ required for a route to be protected.
 - **AND** the denial SHALL be recorded in the `blockEvents` buffer exposed by `GET /api/tunnel/block-events`
 
 #### Scenario: runtime-added trusted CIDR admits without restart
-- **WHEN** a CIDR is added to the trusted-network set while the server is running and a request arrives from that network
+- **WHEN** the effective trust mode is `"legacy"`, a CIDR is added to the trusted-network set while the server is running, and a request arrives from that network
 - **THEN** the guard SHALL allow it without a restart
 
 #### Scenario: Session route uses network guard
-- **WHEN** a request to `POST /api/sessions/:id/prompt` arrives from a trusted network IP
+- **WHEN** the effective trust mode is `"legacy"` and a request to `POST /api/sessions/:id/prompt` arrives from a trusted network IP
 - **THEN** the route SHALL allow the request (guard passes)
+
+#### Scenario: Session route denies a listed peer in pair mode
+- **WHEN** the effective trust mode is `"pair"` and an unauthenticated request to `POST /api/sessions/:id/prompt` arrives from a listed network IP
+- **THEN** the route SHALL return 403
 
 #### Scenario: File route uses network guard
 - **WHEN** a request to `GET /api/browse` arrives from an untrusted IP
 - **THEN** the route SHALL return 403
 
 ### Requirement: WebSocket upgrade respects trusted networks
-The WebSocket upgrade handler in `server.ts` SHALL check trusted networks in addition to genuine-local, local-IPC token, ticket and auth. A connection SHALL be allowed without authentication when `isTrustedSource(remoteAddress, headers, trustedNetworks)` is `true`. The `validateWsUpgrade` function SHALL accept the trusted networks list and the upgrade headers and SHALL use `isTrustedSource`.
+The WebSocket upgrade handler in `server.ts` SHALL check genuine-local, local-IPC token, ticket and auth, and — **only when the effective trust mode is `"legacy"`** — trusted networks. When the identity floor requires a principal-bearing ticket for the upgrade's scope, that rule SHALL take precedence over every allowance in this requirement, in both modes. In `"legacy"` mode a connection SHALL be allowed without authentication when `isTrustedSource(remoteAddress, headers, trustedNetworks)` is `true`; credential checks (ticket, cookie) SHALL be evaluated before this network match. The `validateWsUpgrade` function SHALL accept the admission list and the upgrade headers and SHALL use `isTrustedSource`.
 
 When `requireLocalProof` is enabled, the genuinely-local (loopback, non-forwarded) condition in this requirement is narrowed by the "Opt-in local proof for loopback trust" requirement of `trust-and-credential-boundaries`; with it disabled (the default) this requirement is unchanged.
 
 #### Scenario: WebSocket from trusted network without auth
-- **WHEN** a WebSocket upgrade arrives from `192.168.1.42` with `trustedNetworks: ["192.168.1.0/24"]` and no auth cookie
+- **WHEN** the identity floor is not enforced, the effective trust mode is `"legacy"`, and a WebSocket upgrade arrives from `192.168.1.42` with `trustedNetworks: ["192.168.1.0/24"]` and no auth cookie
 - **THEN** the upgrade SHALL proceed
+
+#### Scenario: WebSocket from listed network without auth in pair mode
+- **WHEN** the effective trust mode is `"pair"` and a WebSocket upgrade arrives from `192.168.1.42` with `trustedNetworks: ["192.168.1.0/24"]`, no ticket and no auth cookie
+- **THEN** the upgrade SHALL be rejected
 
 #### Scenario: WebSocket from untrusted IP without auth
 - **WHEN** a WebSocket upgrade arrives from `203.0.113.5` with no auth cookie and auth is configured
@@ -144,11 +158,15 @@ The auth plugin SHALL use `fastify.decorateRequest('isAuthenticated', false)` at
 - **THEN** `request.isAuthenticated` SHALL remain `false`
 
 ### Requirement: Auth plugin reads merged trusted networks
-The auth plugin `onRequest` hook SHALL skip authentication for requests for which `isTrustedSource(request.ip, request.headers, resolvedTrustedNetworks)` is `true` (the merged list). A loopback-range peer carrying a proxy-forwarding header SHALL NOT skip authentication.
+**Only when the effective trust mode is `"legacy"`**, and only after a presented session cookie has been validated (a valid session SHALL authenticate the request as such), the auth plugin `onRequest` hook SHALL skip authentication for requests for which `isTrustedSource(request.ip, request.headers, resolvedTrustedNetworks)` is `true` (the merged list, read live per request). In `"pair"` mode the hook SHALL NOT skip authentication on a network match. A loopback-range peer carrying a proxy-forwarding header SHALL NOT skip authentication in either mode.
 
 #### Scenario: Auth bypassed for trusted network IP
-- **WHEN** auth is configured and a request arrives from an IP in `resolvedTrustedNetworks` without being a relayed loopback request
+- **WHEN** the effective trust mode is `"legacy"`, auth is configured and a request arrives from an IP in `resolvedTrustedNetworks` without being a relayed loopback request
 - **THEN** the auth hook SHALL skip authentication for that request
+
+#### Scenario: Auth required for listed IP in pair mode
+- **WHEN** the effective trust mode is `"pair"`, auth is configured and a request arrives from an IP in `resolvedTrustedNetworks` with no session cookie
+- **THEN** the auth hook SHALL require authentication
 
 #### Scenario: Auth not bypassed for relayed loopback
 - **WHEN** auth is configured, `resolvedTrustedNetworks` contains `127.0.0.1`, and a request arrives from `127.0.0.1` with `X-Forwarded-For`
@@ -243,7 +261,7 @@ The top-level `config.trustedNetworks` field SHALL remain readable and SHALL con
 ### Requirement: auth.bypassHosts honored without OAuth providers
 The config module SHALL treat `config.auth.bypassHosts` and `config.auth.bypassUrls` as first-class configuration fields that are honored at load time regardless of whether `config.auth.providers` is present or non-empty. Specifically, `loadConfig()` SHALL produce a non-empty `resolvedTrustedNetworks` array whenever `config.auth.bypassHosts` contains entries, even if `config.auth.providers` is `{}` or absent. The existing merge semantics (deduplication, precedence, wildcard/CIDR/exact-IP formats) SHALL continue to apply.
 
-The auth plugin SHALL continue to no-op when `providerRegistry.size === 0`: no OAuth routes registered, no `onRequest` hook installed. Cookie parsing (`@fastify/cookie`) SHALL be registered once at server level, independent of providers, and SHALL NOT by itself authenticate any request. The bypassHosts behaviour SHALL be served entirely through `resolvedTrustedNetworks` and the network guard.
+The auth plugin SHALL continue to no-op when `providerRegistry.size === 0`: no OAuth routes registered, no `onRequest` hook installed. Cookie parsing (`@fastify/cookie`) SHALL be registered once at server level, independent of providers, and SHALL NOT by itself authenticate any request. The bypassHosts behaviour SHALL be served entirely through `resolvedTrustedNetworks` and the network guard, and SHALL admit by network match only in `"legacy"` trust mode.
 
 #### Scenario: bypassHosts configured without providers
 - **WHEN** config contains `{ "auth": { "providers": {}, "bypassHosts": ["192.168.1.0/24"] } }` and no top-level `trustedNetworks`
@@ -271,21 +289,25 @@ The auth plugin SHALL continue to no-op when `providerRegistry.size === 0`: no O
 - **AND** the entries SHALL be deduplicated (if the same entry appears in both lists, it appears once in the result)
 
 #### Scenario: Auth plugin stays inactive with bypassHosts-only config
-- **WHEN** the server starts with `{ "auth": { "providers": {}, "bypassHosts": ["192.168.1.0/24"] } }`
+- **WHEN** the server starts with `{ "auth": { "providers": {}, "bypassHosts": ["192.168.1.0/24"] } }` and no `network.trustMode`
 - **THEN** no OAuth routes (`/auth/login`, `/auth/callback`, etc.) SHALL be registered
 - **AND** the auth plugin SHALL register no cookie plugin of its own (the server-level cookie parser is unaffected)
 - **AND** `request.isAuthenticated` SHALL default to `false` for all requests
-- **AND** the network guard SHALL still admit requests from `192.168.1.0/24` via `resolvedTrustedNetworks`
+- **AND** the effective trust mode SHALL be `"legacy"` and the network guard SHALL still admit requests from `192.168.1.0/24` via `resolvedTrustedNetworks`
 
 ### Requirement: WebSocket upgrade admits bypassHosts trust without OAuth
-The WebSocket upgrade handler in `server.ts` SHALL admit a connection from an IP matching `resolvedTrustedNetworks` regardless of whether OAuth is configured. When `config.authConfig` is absent or its resolved provider registry is empty, the upgrade SHALL NOT require a JWT cookie; the IP match alone SHALL be sufficient to proceed.
+**Only when the effective trust mode is `"legacy"`**, the WebSocket upgrade handler in `server.ts` SHALL admit a connection from an IP matching `resolvedTrustedNetworks` regardless of whether OAuth is configured. When `config.authConfig` is absent or its resolved provider registry is empty and the mode is `"legacy"`, the upgrade SHALL NOT require a JWT cookie; the IP match alone SHALL be sufficient to proceed. In `"pair"` mode the IP match SHALL NOT be sufficient.
 
 When `requireLocalProof` is enabled, `isTrustedSource` SHALL additionally return `false` for a loopback-range peer that presents no local proof (local token or local-proof cookie), as specified by the "Opt-in local proof for loopback trust" requirement of `trust-and-credential-boundaries`; with it disabled (the default) this requirement is unchanged.
 
 #### Scenario: WebSocket upgrade from bypassHosts-only trusted network
-- **WHEN** config is `{ "auth": { "providers": {}, "bypassHosts": ["192.168.1.0/24"] } }` and a WebSocket upgrade request arrives from `192.168.1.42` with no auth cookie
+- **WHEN** config is `{ "auth": { "providers": {}, "bypassHosts": ["192.168.1.0/24"] } }` (effective mode `"legacy"`) and a WebSocket upgrade request arrives from `192.168.1.42` with no auth cookie
 - **THEN** the upgrade SHALL proceed (101 Switching Protocols)
 - **AND** the connection SHALL NOT be rejected with 403 or 401
+
+#### Scenario: WebSocket upgrade from listed network in pair mode
+- **WHEN** config is `{ "network": { "trustMode": "pair" }, "auth": { "providers": {}, "bypassHosts": ["192.168.1.0/24"] } }` and a WebSocket upgrade request arrives from `192.168.1.42` with no ticket and no auth cookie
+- **THEN** the upgrade SHALL be rejected with 403
 
 #### Scenario: WebSocket upgrade from untrusted IP in bypassHosts-only config
 - **WHEN** config is `{ "auth": { "providers": {}, "bypassHosts": ["192.168.1.0/24"] } }` and a WebSocket upgrade request arrives from `10.0.0.5` (not in trusted list)
@@ -319,7 +341,8 @@ The guard SHALL act only on requests within its jurisdiction namespaces (`/api/*
 in-namespace public exceptions without a pass condition: `GET /api/health`, the
 `PUBLIC_PAIRING_PREFIXES` paths, and configured `auth.bypassUrls` prefixes. All
 other in-jurisdiction requests SHALL require a pass condition (loopback /
-genuine-local, trusted-network IP, or `isAuthenticated`).
+genuine-local, local-IPC token, `isAuthenticated`, or — in `"legacy"` trust mode
+only — a trusted-network IP).
 
 #### Scenario: health endpoint reachable unauthenticated
 - **WHEN** an unauthenticated, untrusted request arrives at `GET /api/health`
@@ -506,12 +529,17 @@ observable. The log line SHALL NOT include request bodies or secrets.
 
 ### Requirement: Trusted networks are reviewable and revocable from Access settings
 
-Every configured trusted network SHALL be listed in `Settings → Access` and SHALL offer a revoke action that removes it through the existing configuration write path.
+Every configured trusted network SHALL be listed in `Settings → Access` and SHALL offer a revoke action that removes it through the existing configuration write path. The list SHALL be labelled according to the effective trust mode: in `"legacy"` mode as networks admitted without sign-in; in `"pair"` mode as networks that **may request access** (knock eligibility), with no wording that implies they are admitted.
 
 #### Scenario: Configured entries are listed
 
 - **WHEN** the Access page is opened and trusted networks are configured
 - **THEN** each entry SHALL be listed with its CIDR, wildcard, or exact host value
+
+#### Scenario: Pair-mode label
+
+- **WHEN** the Access page is opened and the effective trust mode is `"pair"`
+- **THEN** the list SHALL be described as networks that may request access, not as trusted or admitted networks
 
 #### Scenario: Revoking removes the entry
 
@@ -520,18 +548,23 @@ Every configured trusted network SHALL be listed in `Settings → Access` and SH
 
 #### Scenario: Revocation takes effect without restart
 
-- **GIVEN** the guard reads trusted networks through the live configuration snapshot
+- **GIVEN** the guard reads trusted networks through the live configuration snapshot and the effective trust mode is `"legacy"`
 - **WHEN** an entry is revoked
 - **THEN** a subsequent request from that peer SHALL be denied without a server restart
 
 ### Requirement: Trust is acquirable by accepting a pending access request
 
-A trusted network entry SHALL be addable by accepting a pending access request derived from a recorded denial, in addition to the existing tunnel banner and settings paths. Acceptance SHALL be available only for entries classified as trustable.
+**Only when the effective trust mode is `"legacy"`**, a trusted network entry SHALL be addable by accepting a pending access request derived from a recorded denial, in addition to the existing tunnel banner and settings paths. Acceptance SHALL be available only for entries classified as trustable. In `"pair"` mode no accept-to-trust action SHALL be offered for a pending network access request; the denied device is directed to pairing instead.
 
 #### Scenario: Accepting a pending request adds trust
 
-- **WHEN** a trusted client accepts a pending access request for a trustable peer
+- **WHEN** the effective trust mode is `"legacy"` and a trusted client accepts a pending access request for a trustable peer
 - **THEN** that peer SHALL be added to trusted networks
+
+#### Scenario: No accept-to-trust in pair mode
+
+- **WHEN** the effective trust mode is `"pair"` and a pending network access request is shown
+- **THEN** no action that adds the peer to trusted networks SHALL be offered
 
 #### Scenario: Loopback or proxied peer cannot be accepted
 
@@ -540,14 +573,20 @@ A trusted network entry SHALL be addable by accepting a pending access request d
 
 ### Requirement: A network denial may be answered by prompt
 
-A recorded network denial MAY raise a dialog naming the denied source. An
-allow-always verdict SHALL add the corresponding entry to the trusted-networks
-configuration; an allow-once verdict SHALL NOT be offered on this plane, because
-the denied request is never suspended and there is nothing to allow once.
+**Only when the effective trust mode is `"legacy"`**, a recorded network denial
+MAY raise a dialog naming the denied source. An allow-always verdict SHALL add the
+corresponding entry to the trusted-networks configuration; an allow-once verdict
+SHALL NOT be offered on this plane, because the denied request is never suspended
+and there is nothing to allow once.
+
+In `"pair"` mode a network denial SHALL still be recorded in the block-event
+buffer but SHALL NOT raise a network-plane grant prompt; the operator is instead
+prompted only when the denied device knocks (the pairing approval dialog of the
+`lan-knock-pairing` capability).
 
 #### Scenario: Allow always trusts the source
 
-- **WHEN** an operator answers allow-always on a network denial
+- **WHEN** the effective trust mode is `"legacy"` and an operator answers allow-always on a network denial
 - **THEN** the trusted-networks configuration SHALL gain the entry
 - **AND** the source's next attempt SHALL be admitted
 
@@ -555,6 +594,13 @@ the denied request is never suspended and there is nothing to allow once.
 
 - **WHEN** a dialog is raised for a network denial
 - **THEN** it SHALL offer only allow-always and deny
+
+#### Scenario: No network grant prompt in pair mode
+
+- **GIVEN** grant prompting is enabled, an operator channel is connected, and the effective trust mode is `"pair"`
+- **WHEN** a request from `192.168.16.30` is denied by the network guard
+- **THEN** the block event SHALL be recorded
+- **AND** no network-plane grant prompt SHALL be raised
 
 #### Scenario: The entry is revocable
 
@@ -564,7 +610,7 @@ the denied request is never suspended and there is nothing to allow once.
 ### Requirement: Relayed loopback requests are never trusted by network entry
 Every decision that admits or exempts a request because its source IP matches `trustedNetworks` / `auth.bypassHosts` SHALL go through a single predicate `isTrustedSource(ip, headers, trusted)` exported from `localhost-guard.ts`. The predicate SHALL return `false` when the socket peer is in the loopback range — any address in `127.0.0.0/8`, `::1`, or IPv4-mapped `::ffff:127.0.0.0/104` (not only the literal `127.0.0.1`) — **and** the request carries any proxy-forwarding header (the core `PROXY_FORWARDING_HEADERS` list used by `isGenuinelyLocal`), regardless of the trusted entries. Otherwise it SHALL return the result of `isBypassedHost(ip, trusted)`.
 
-This applies to: the HTTP network guard and universal hook, the OAuth `onRequest` bypass-host skip, the WebSocket upgrade with auth configured, the WebSocket upgrade with auth not configured, and the device-tier exemption.
+This applies to: the HTTP network guard and universal hook, the OAuth `onRequest` bypass-host skip, the WebSocket upgrade with auth configured, the WebSocket upgrade with auth not configured, and the device-tier exemption. At each of these admission sites the `trusted` argument SHALL be the mode-dependent admission list (empty in `"pair"` mode), per "Network match does not authenticate in pair mode".
 
 When `requireLocalProof` is enabled, `isTrustedSource` SHALL additionally return `false` for a loopback-range peer that presents no local proof (local token or local-proof cookie), as specified by the "Opt-in local proof for loopback trust" requirement of `trust-and-credential-boundaries`; with it disabled (the default) this requirement is unchanged.
 
@@ -603,12 +649,30 @@ When `requireLocalProof` is enabled, `isTrustedSource` SHALL additionally return
 - **THEN** it SHALL be admitted by the genuine-local condition, independent of `trustedNetworks`
 
 #### Scenario: LAN trusted CIDR unaffected
-- **GIVEN** `trustedNetworks: ["192.168.16.0/24"]`
+- **GIVEN** `trustedNetworks: ["192.168.16.0/24"]` and effective trust mode `"legacy"`
 - **WHEN** a request arrives from peer `192.168.16.20`, with or without forwarding headers
 - **THEN** the trusted-network pass condition SHALL admit it
 
+#### Scenario: LAN trusted CIDR does not admit in pair mode
+- **GIVEN** `trustedNetworks: ["192.168.16.0/24"]` and effective trust mode `"pair"`
+- **WHEN** an unauthenticated request arrives from peer `192.168.16.20`
+- **THEN** no trusted-network pass condition SHALL admit it
+
 ### Requirement: Loopback trusted entries are reported as inert
-When the resolved trusted list (`trustedNetworks` merged with `auth.bypassHosts`) contains entries matching a loopback probe (`127.0.0.1`, `::1`, `::ffff:127.0.0.1`), the server SHALL log one `[trusted-networks]` warning naming each such entry and stating it is ignored for tunnel-relayed requests. The warning SHALL be deduplicated by the set of loopback-covering entries, not by the config file stamp, and SHALL NOT be recomputed while the resolved trusted-list array is unchanged (per-request cost on a snapshot cache hit is a reference compare). `/api/health` SHALL include an additive field `trustPosture: { trustedHasLoopback: boolean } | null`, non-null only when `canDiscloseAccessPosture(request)` is true.
+When the resolved trusted list (`trustedNetworks` merged with `auth.bypassHosts`) contains entries matching a loopback probe (`127.0.0.1`, `::1`, `::ffff:127.0.0.1`), the server SHALL log one `[trusted-networks]` warning naming each such entry and stating it is ignored for tunnel-relayed requests. The warning SHALL be deduplicated by the set of loopback-covering entries, not by the config file stamp, and SHALL NOT be recomputed while the resolved trusted-list array is unchanged (per-request cost on a snapshot cache hit is a reference compare).
+
+`/api/health` SHALL include an additive field `trustPosture`, non-null only when `canDiscloseAccessPosture(request)` is true, of the shape:
+
+```
+trustPosture: {
+  trustedHasLoopback: boolean,
+  trustMode: "pair" | "legacy",
+  trustModeOrigin: "upgrade" | "operator" | null,
+  networkOnly: { admissions: number, distinctPeers: number, lastAt: number | null }
+} | null
+```
+
+`trustModeOrigin` SHALL be `null` for an unrecognised stored value. `networkOnly` SHALL reflect the in-memory counters of "Network-only admissions are observed in legacy mode" (all zero / `null` in `"pair"` mode). Peer addresses SHALL NOT be included in `/api/health`.
 
 #### Scenario: Warning on load
 - **WHEN** the server resolves a trusted list containing `"127.0.0.1"`
@@ -622,8 +686,14 @@ When the resolved trusted list (`trustedNetworks` merged with `auth.bypassHosts`
 #### Scenario: Health flag gated by disclosure
 - **GIVEN** the trusted list contains a loopback entry
 - **WHEN** a genuine-local caller requests `/api/health`
-- **THEN** the response SHALL include `trustPosture: { trustedHasLoopback: true }`
+- **THEN** the response SHALL include `trustPosture` with `trustedHasLoopback: true`, the effective `trustMode`, `trustModeOrigin`, and `networkOnly`
 - **AND** an unauthenticated non-local caller SHALL receive `trustPosture: null`
+
+#### Scenario: Health reports network-only admissions
+- **GIVEN** effective mode `"legacy"` and two distinct peers made network-only admissions
+- **WHEN** a genuine-local caller requests `/api/health`
+- **THEN** `trustPosture.networkOnly.distinctPeers` SHALL be `2`
+- **AND** no peer address SHALL appear in the response
 
 ### Requirement: Relayed-loopback denials raise no network grant prompt
 When the network guard denies a request whose peer is in the loopback range and which carries a proxy-forwarding header, it SHALL still record the block event (marked non-trustable) but SHALL NOT notify the network-denial observer, so no network-plane grant prompt offering to trust the loopback address is raised.
@@ -638,3 +708,167 @@ When the network guard denies a request whose peer is in the loopback range and 
 - **GIVEN** grant prompting is enabled and an operator channel is connected
 - **WHEN** a request from untrusted peer `192.168.16.30` is denied
 - **THEN** the network-denial observer SHALL be notified as today
+
+### Requirement: Network trust mode
+The config module SHALL support `network.trustMode` (`"pair"` | `"legacy"`) and `network.trustModeOrigin` (`"upgrade"` | `"operator"`).
+
+**One-time decision at boot.** When the server starts, the configuration file parses, and `network.trustMode` is absent, it SHALL decide the mode once and persist it through the existing partial config write: `"pair"` if every entry of the resolved trusted list (`trustedNetworks` merged with `auth.bypassHosts`) is **loopback-only** — it admits no address outside `127.0.0.0/8`, `::1` and `::ffff:127.0.0.0/104` — (an empty list included), otherwise `"legacy"`. A match-all entry such as `0.0.0.0/0` or `*.*.*.*` is not loopback-only, and neither is any hostname entry (including `localhost`) — undecidable entries fall to `"legacy"` so an upgrade never locks a LAN user out; together with `trustModeOrigin: "upgrade"`. If the write fails, the server SHALL hold the decided mode as a process-level fallback, consulted only while the stored configuration holds no recognised `network.trustMode` (a stored value always wins, so a later successful operator save applies live), log one `[trusted-networks]` error, and decide again on the next boot. If the configuration file exists but cannot be parsed, the server SHALL NOT decide or write; it SHALL use `"legacy"` for the process as the fallback and log one `[trusted-networks]` error.
+
+**Never re-derived.** Once `network.trustMode` holds a recognised value, the mode SHALL NOT change because the list changes — adding, removing or revoking entries SHALL leave the mode as stored. Any configuration write that changes a stored `network.trustMode` (UI, REST, CLI) SHALL set `trustModeOrigin: "operator"`; a stored mode with no origin (a hand edit) SHALL read as `"operator"`; a save that leaves the mode unchanged SHALL NOT touch the origin. Only the boot decision writes `"upgrade"`. A partial config write SHALL merge the `network` block field by field, so writing one of its fields never drops the other, and writing `network` never drops `auth` fields (or the reverse).
+
+**Unrecognised value.** A present but unrecognised `network.trustMode` SHALL resolve to `"pair"` (fail closed), SHALL log one `[trusted-networks]` warning naming the value (once per process per distinct value, however often the mode is read), and SHALL NOT be overwritten by the boot decision.
+
+The effective mode SHALL be read live through the same configuration snapshot the network guard reads, so an operator change takes effect without a restart.
+
+#### Scenario: Fresh install decides pair
+- **WHEN** the server boots with no `network.trustMode` and an empty resolved list
+- **THEN** config SHALL be written with `network.trustMode: "pair"` and `network.trustModeOrigin: "upgrade"`
+
+#### Scenario: Existing install with a LAN list decides legacy
+- **WHEN** the server boots with no `network.trustMode` and `auth.bypassHosts: ["192.168.16.0/24"]`
+- **THEN** config SHALL be written with `network.trustMode: "legacy"` and `network.trustModeOrigin: "upgrade"`
+- **AND** a peer at `192.168.16.20` SHALL still be admitted without sign-in
+
+#### Scenario: Match-all list decides legacy
+- **WHEN** the server boots with no `network.trustMode` and a resolved list of only `["0.0.0.0/0"]` (or `["*.*.*.*"]`)
+- **THEN** the decided mode SHALL be `"legacy"`
+
+#### Scenario: Loopback-only list decides pair
+- **WHEN** the server boots with no `network.trustMode` and a resolved list of only `["127.0.0.1", "127.0.0.4/30"]`
+- **THEN** the decided mode SHALL be `"pair"`
+
+#### Scenario: Adding a range never flips the mode
+- **GIVEN** `network.trustMode: "pair"` is stored
+- **WHEN** `198.51.100.23` is added to `auth.bypassHosts` and the server later restarts
+- **THEN** the effective mode SHALL remain `"pair"` and `198.51.100.23` SHALL NOT be admitted without a credential
+
+#### Scenario: Operator choice is recorded
+- **WHEN** an operator saves `network.trustMode: "legacy"` from the Security page
+- **THEN** config SHALL hold `network.trustModeOrigin: "operator"`
+
+#### Scenario: Unknown value fails closed
+- **WHEN** config holds `network.trustMode: "open"`
+- **THEN** the effective mode SHALL be `"pair"`, one `[trusted-networks]` warning naming `"open"` SHALL be logged, and the stored value SHALL NOT be rewritten
+
+#### Scenario: Boot write failure
+- **WHEN** the boot decision cannot be persisted
+- **THEN** every admission site SHALL use the decided mode for this process and one `[trusted-networks]` error SHALL be logged
+- **AND** a later successful write of `network.trustMode: "legacy"` SHALL take effect on the next request without a restart
+
+#### Scenario: Unparseable config is never overwritten
+- **GIVEN** `config.json` exists but is not valid JSON
+- **WHEN** the server boots
+- **THEN** the file SHALL NOT be written, the effective mode SHALL be `"legacy"` for the process, and one `[trusted-networks]` error SHALL be logged
+
+#### Scenario: Hostname entry decides legacy
+- **WHEN** the server boots with no `network.trustMode` and a resolved list of only `["localhost"]` or `["nas.local"]`
+- **THEN** the decided mode SHALL be `"legacy"`
+
+#### Scenario: REST write records operator origin
+- **WHEN** `PUT /api/config` changes `network.trustMode` from `"legacy"` to `"pair"` without naming an origin
+- **THEN** config SHALL hold `network.trustModeOrigin: "operator"`
+
+#### Scenario: Partial write keeps the origin
+- **GIVEN** config holds `network: { trustMode: "legacy", trustModeOrigin: "upgrade" }`
+- **WHEN** a partial write carries only `auth.bypassHosts`
+- **THEN** both `network` fields SHALL be unchanged
+
+#### Scenario: Mode change applies without restart
+- **GIVEN** the effective mode is `"legacy"` and peer `192.168.16.20` is admitted by the list
+- **WHEN** `network.trustMode` is written as `"pair"` while the server runs
+- **THEN** the next unauthenticated HTTP request and the next ticketless WebSocket upgrade from `192.168.16.20` SHALL be denied without a restart
+
+### Requirement: Network match does not authenticate in pair mode
+When the effective trust mode is `"pair"`, a match of the socket peer against `trustedNetworks` / `auth.bypassHosts` SHALL NOT satisfy any admission or exemption decision. This SHALL hold at every site that consults the trusted list for admission: the HTTP network guard (per-route and universal hook), the OAuth `onRequest` bypass-host skip, the WebSocket upgrade with auth configured, the WebSocket upgrade with auth not configured, and the device-tier exemption. All of these sites SHALL obtain the list they match against **per request** from a single live source that yields an empty list under `"pair"`; no site SHALL hold a boot-time or reload-time copy of the list for admission.
+
+Genuine-local callers (loopback, no forwarding header, subject to `requireLocalProof`), the local-IPC token, an authenticated login session, a valid device bearer or device cookie, a valid WebSocket ticket, and a valid model-proxy key SHALL be admitted exactly as before. The list itself SHALL remain stored, listed and editable; in `"pair"` mode it governs knock eligibility only (see the `lan-knock-pairing` capability). The CORS origin allowlist and the WebSocket origin gate MAY continue to match the list; they grant no credential.
+
+#### Scenario: LAN peer in the list is denied in pair mode
+- **GIVEN** effective mode `"pair"` and `auth.bypassHosts: ["192.168.16.0/24"]`
+- **WHEN** `GET /api/sessions` arrives from `192.168.16.20` with no credential
+- **THEN** the response SHALL be 403 with `error: "network_not_allowed"`
+
+#### Scenario: WebSocket from a listed peer needs a ticket in pair mode
+- **GIVEN** effective mode `"pair"`, auth not configured, and `trustedNetworks: ["192.168.16.0/24"]`
+- **WHEN** a `/ws` upgrade arrives from `192.168.16.20` with no ticket and no cookie
+- **THEN** the upgrade SHALL be rejected
+
+#### Scenario: OAuth bypass-host skip is inert in pair mode
+- **GIVEN** effective mode `"pair"`, auth configured, and `auth.bypassHosts: ["10.0.0.0/8"]`
+- **WHEN** a request arrives from `10.0.0.5` with no session cookie
+- **THEN** the auth hook SHALL NOT skip authentication
+
+#### Scenario: Listed peer bearing a device credential keeps its tier
+- **GIVEN** effective mode `"pair"` and `trustedNetworks: ["192.168.16.0/24"]`
+- **WHEN** a request from `192.168.16.20` bearing an `observe` device credential calls `POST /api/restart`
+- **THEN** the request SHALL be refused with 403 `insufficient_scope` (no trusted-network tier exemption)
+
+#### Scenario: Paired browser on the LAN keeps working
+- **GIVEN** effective mode `"pair"`
+- **WHEN** a browser at `192.168.16.20` holding a valid device cookie requests `GET /api/sessions`
+- **THEN** the request SHALL be served
+
+#### Scenario: Genuine local unaffected
+- **WHEN** `requireLocalProof` is disabled, effective mode is `"pair"`, and a request arrives from `127.0.0.1` with no forwarding header
+- **THEN** it SHALL be admitted
+
+#### Scenario: Legacy mode keeps today's behaviour
+- **GIVEN** effective mode `"legacy"` and `trustedNetworks: ["192.168.16.0/24"]`
+- **WHEN** `GET /api/sessions` arrives from `192.168.16.20` with no credential
+- **THEN** the request SHALL be admitted
+
+### Requirement: Network-only admissions are observed in legacy mode
+In `"legacy"` mode the server SHALL record every **network-only admission** — an HTTP request or WebSocket upgrade admitted solely because its peer matched the trusted list, with no other pass condition holding (not genuine-local, no local-IPC token, no valid login session, no valid device credential, no valid ticket). An admission skipped through by the OAuth bypass-host rule leaves the request unauthenticated and is counted at the network guard. To make this classification truthful, every admission site — including the OAuth `onRequest` hook, which SHALL validate a presented session cookie before applying the bypass-host skip — SHALL evaluate credential-based pass conditions before the network match, without changing which requests are admitted. On a bypass-host request an invalid or expired session cookie SHALL NOT be cleared (today's behaviour); a single-use ticket presented with a listed peer address MAY be consumed. A WebSocket upgrade has one attribution point and is counted there. A request SHALL be counted at most once, however many guards evaluate it.
+
+The server SHALL keep, in memory, the count of network-only admissions and the set of distinct peer addresses, each peer keyed by its most recent admission time (a repeat refreshes it), over a rolling window of 7 days or the server's uptime, whichever is shorter. The set SHALL be capped at 256 peers, evicting the least recently seen. It SHALL log one `[trusted-networks]` line per peer at most once per hour naming the peer and stating it reaches the dashboard by network trust only. In `"pair"` mode no network-only admission can occur and none SHALL be recorded.
+
+#### Scenario: Unauthenticated LAN request counts once
+- **GIVEN** effective mode `"legacy"` and `trustedNetworks: ["192.168.16.0/24"]`
+- **WHEN** `GET /api/sessions` (a route that also carries a per-route network guard) arrives from `192.168.16.20` with no credential
+- **THEN** the network-only admission count SHALL increase by exactly one and `192.168.16.20` SHALL be in the distinct-peer set
+
+#### Scenario: Paired device on a trusted network does not count
+- **GIVEN** effective mode `"legacy"` and `trustedNetworks: ["192.168.16.0/24"]`
+- **WHEN** a request from `192.168.16.20` presents a valid device cookie
+- **THEN** it SHALL be admitted and SHALL NOT be counted as network-only
+
+#### Scenario: Signed-in browser on a bypass host does not count
+- **GIVEN** effective mode `"legacy"`, auth configured, and `auth.bypassHosts: ["192.168.16.0/24"]`
+- **WHEN** a request from `192.168.16.20` presents a valid login session cookie
+- **THEN** it SHALL be marked authenticated by the session and SHALL NOT be counted as network-only
+
+#### Scenario: Ticketed WebSocket on a trusted network does not count
+- **GIVEN** effective mode `"legacy"` and `trustedNetworks: ["192.168.16.0/24"]`
+- **WHEN** a `/ws` upgrade from `192.168.16.20` presents a valid ticket
+- **THEN** the ticket SHALL be consumed, the upgrade admitted, and it SHALL NOT be counted as network-only
+
+#### Scenario: Log is rate-limited per peer
+- **WHEN** `192.168.16.20` makes 50 network-only admissions within one hour
+- **THEN** exactly one `[trusted-networks]` line naming `192.168.16.20` SHALL be logged in that hour
+
+#### Scenario: Peer set is bounded and recency-ordered
+- **GIVEN** 256 peers are recorded and the oldest-inserted peer was seen again a minute ago
+- **WHEN** a 257th distinct peer is admitted network-only
+- **THEN** the least recently seen peer SHALL be evicted, not the re-seen one
+
+### Requirement: Access settings show the migration banner
+When the effective trust mode is `"legacy"` and at least one network-only admission was recorded in the window, `Settings → Access` SHALL show a banner stating how many distinct device addresses reach the dashboard by network trust only, with a link to the Security tab's network access section, where devices are paired and the mode is switched. When `trustModeOrigin` is `"upgrade"` the banner SHALL be a warning; when it is `"operator"` it SHALL be informational and state that network trust is the operator's choice. The banner SHALL NOT be shown in `"pair"` mode. The Access page itself SHALL gain no grant-creation or mode control (its revoke-only contract stands). The data SHALL come from `/api/health` `trustPosture` (see "Loopback trusted entries are reported as inert").
+
+#### Scenario: Banner names the device count
+- **GIVEN** effective mode `"legacy"`, origin `"upgrade"`, and 3 distinct network-only peers in the window
+- **WHEN** an operator opens `Settings → Access`
+- **THEN** a warning banner SHALL state that 3 devices reach this dashboard by network trust only and link to the Security network access section
+
+#### Scenario: Operator opt-in is informational
+- **GIVEN** effective mode `"legacy"`, origin `"operator"`, and at least one network-only peer
+- **WHEN** `Settings → Access` opens
+- **THEN** the banner SHALL be informational and state that network trust is the operator's choice
+
+#### Scenario: Network-admitted caller learns nothing
+- **GIVEN** effective mode `"legacy"` and a caller admitted only by a listed LAN address, with no credential
+- **WHEN** it opens `Settings → Access`
+- **THEN** `trustPosture` SHALL be `null` for it and no banner SHALL be shown (it must sign in or pair to see the posture)
+
+#### Scenario: No banner in pair mode
+- **WHEN** the effective mode is `"pair"`
+- **THEN** no network-trust migration banner SHALL be shown

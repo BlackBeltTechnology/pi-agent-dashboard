@@ -18,7 +18,9 @@ vi.mock("../health-check.js", () => ({
   isDashboardRunning: vi.fn(async () => ({ running: true, pid: 1 })),
 }));
 
+import { runLoadingPage } from "../../__tests__/loading-page-harness.js";
 import { isDashboardRunning } from "../health-check.js";
+import { navigateToServer } from "../local-proof-bootstrap.js";
 import { didWeStartServer, ensureServer } from "../server-lifecycle.js";
 import { readModeFile, writeModeFile } from "../wizard-state.js";
 
@@ -75,5 +77,52 @@ describe("remote wizard mode", () => {
     expect(mockHealth).toHaveBeenCalledTimes(1);
     expect(readModeFile()).toMatchObject({ mode: "standalone" });
     expect((readModeFile() as { remoteUrl?: string }).remoteUrl).toBeUndefined();
+  });
+});
+
+// ── Remote attach through the loading page (E63, X16) ───────────────────────────
+// See change: fix-pairing-approval-credential.
+describe("remote attach via the loading page → main navigateToServer", () => {
+  const REMOTE = "http://192.168.16.242:8000";
+  const search = `?serverUrl=${encodeURIComponent(REMOTE)}`;
+
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  function wire(probeOk: boolean) {
+    const win = { loadURL: vi.fn(async (_u: string) => {}) };
+    const mintFetch = vi.fn(async () => new Response("{}", { status: 200 })) as unknown as typeof fetch;
+    const rendererFetch = vi.fn(async () => ({ ok: true }));
+    const probeServer = vi.fn(async (_u: string) => ({ ok: probeOk }));
+    const navigate = vi.fn((t: string) =>
+      navigateToServer(win, t, { config: { port: 8000, knownServers: [] }, windowServerUrl: REMOTE, fetchImpl: mintFetch, token: "tok" }),
+    );
+    const page = runLoadingPage({
+      search,
+      piDashboard: { probeServer, navigateToServer: navigate, readServerLog: async () => "" },
+      fetchImpl: rendererFetch,
+    });
+    return { win, mintFetch, rendererFetch, probeServer, navigate, page };
+  }
+
+  it("E63 healthy remote: main probe → loadURL(remoteUrl) unchanged; no renderer fetch gate; mint 0", async () => {
+    const { win, mintFetch, rendererFetch, probeServer, page } = wire(true);
+    await vi.advanceTimersByTimeAsync(1100);
+    expect(probeServer).toHaveBeenCalledWith(REMOTE);
+    expect(rendererFetch).not.toHaveBeenCalled();
+    expect(win.loadURL).toHaveBeenCalledExactlyOnceWith(REMOTE);
+    expect(mintFetch).not.toHaveBeenCalled();
+    expect(page.hrefAssignments).toEqual([]);
+  });
+
+  it("X16 unreachable remote: probe not-reachable, error UI after ~15 s, no navigation", async () => {
+    const { win, navigate, mintFetch, page } = wire(false);
+    await vi.advanceTimersByTimeAsync(14000);
+    expect(page.els.error?.style.display).not.toBe("block");
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(page.els.error!.style.display).toBe("block");
+    expect(navigate).not.toHaveBeenCalled();
+    expect(win.loadURL).not.toHaveBeenCalled();
+    expect(mintFetch).not.toHaveBeenCalled();
   });
 });

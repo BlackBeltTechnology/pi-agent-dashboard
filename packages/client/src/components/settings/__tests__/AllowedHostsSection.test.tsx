@@ -259,16 +259,16 @@ describe("AllowedHostsSection — Security page integration", () => {
 
   afterEach(() => cleanup());
 
-  // test-plan #F1 — composition: heading between Trusted Networks and Pair a
+  // test-plan #F1 — composition: heading between Network access and Pair a
   // device, radios, empty refusals copy.
-  it("renders the section between Trusted Networks and Pair a device", async () => {
+  it("renders the section between Network access and Pair a device", async () => {
     await renderSecurityPanel();
-    await waitFor(() => screen.getByText("Trusted Networks"));
+    await waitFor(() => screen.getByText("Network access"));
 
     const content = screen.getByTestId("settings-content");
     const text = content.textContent ?? "";
-    const positions = ["Trusted Networks", "Allowed hostnames", "Pair a device"].map((s) => text.indexOf(s));
-    positions.forEach((pos, i) => expect(pos, `"${["Trusted Networks", "Allowed hostnames", "Pair a device"][i]}" missing`).toBeGreaterThan(-1));
+    const positions = ["Network access", "Allowed hostnames", "Pair a device"].map((s) => text.indexOf(s));
+    positions.forEach((pos, i) => expect(pos, `"${["Network access", "Allowed hostnames", "Pair a device"][i]}" missing`).toBeGreaterThan(-1));
     for (let i = 1; i < positions.length; i++) {
       expect(positions[i], "Allowed hostnames must sit between its neighbours").toBeGreaterThan(positions[i - 1]);
     }
@@ -379,6 +379,22 @@ describe("AllowedHostsSection — Security page integration", () => {
     // import the server-side derive helper.
     const src = readFileSync(`${import.meta.dirname}/../AllowedHostsSection.tsx`, "utf8");
     expect(src).not.toMatch(/isHostAdmitted/);
+  });
+
+  // test-plan #E45 (add-tailscale-cert-tls) — a TLS-listener certificate name is
+  // listed with the `TLS certificate` pill, links to Gateway and offers no remove.
+  it("lists a TLS-listener certificate name with its pill and a Gateway link, no remove", async () => {
+    gateFixture = {
+      ...GATE_DEFAULT,
+      admitted: [{ host: "host.example.ts.net", source: "tls-listener" }],
+    };
+    await renderSecurityPanel();
+    await waitFor(() => expect(screen.getByText("host.example.ts.net")).toBeTruthy());
+    const row = screen.getByText("host.example.ts.net").closest("li");
+    expect(within(row!).getByText("TLS certificate")).toBeTruthy();
+    expect(within(row!).queryByRole("button", { name: /remove/i })).toBeNull();
+    fireEvent.click(within(row!).getByRole("button", { name: /Gateway/ }));
+    expect(window.location.pathname).toBe("/settings/gateway");
   });
 
   // test-plan #F5 (Save half) — the panel Save persists the appended host.

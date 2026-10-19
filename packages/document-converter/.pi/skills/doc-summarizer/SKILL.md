@@ -25,7 +25,7 @@ Call the facade; never invoke Python, docling, or pdftotext directly.
 ```ts
 import { createDocumentConverter } from "@blackbelt-technology/pi-dashboard-document-converter";
 const dc = createDocumentConverter({
-  image: "pi-doc-engine:0.1.0",
+  image: "pi-doc-engine:0.2.0",
   stagingDir: "/abs/staging",
   mounts: ["/docs"],   // files outside cwd need a root (mounts or workspaceRoot), else PATH_NOT_ALLOWED
 });

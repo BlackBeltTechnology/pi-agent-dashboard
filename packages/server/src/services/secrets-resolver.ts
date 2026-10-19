@@ -15,9 +15,16 @@ import { SecretsCorruptError, type SecretsStore } from "./secrets-store.js";
 
 export const KEYCHAIN_TIMEOUT_MS = 10_000;
 
+/**
+ * `unset`: the value was never provided (store slot absent, env var absent) —
+ * nothing exists to leak. `unreadable`: it may exist but cannot be read
+ * (corrupt store, locked keychain, malformed ref) — the logs route fails closed.
+ */
+export type SecretFailureKind = "unset" | "unreadable";
+
 export type SecretResolution =
   | { ok: true; value: string }
-  | { ok: false; reason: "secret-unavailable"; hint: string };
+  | { ok: false; reason: "secret-unavailable"; kind: SecretFailureKind; hint: string };
 
 export interface SecretResolverDeps {
   store: SecretsStore;
@@ -28,7 +35,12 @@ export interface SecretResolverDeps {
   resolveBinary: (name: string) => string | null;
 }
 
-const unavailable = (hint: string): SecretResolution => ({ ok: false, reason: "secret-unavailable", hint });
+const unavailable = (hint: string, kind: SecretFailureKind = "unreadable"): SecretResolution => ({
+  ok: false,
+  reason: "secret-unavailable",
+  kind,
+  hint,
+});
 
 /** The default ref for a declared secret without one. */
 export function defaultSecretRef(id: string, name: string): string {
@@ -68,7 +80,7 @@ export async function resolveSecretRef(ref: string, deps: SecretResolverDeps): P
     if (slash <= 0) return unavailable(`malformed store ref ${JSON.stringify(ref)}`);
     try {
       const v = deps.store.get(rest.slice(0, slash), rest.slice(slash + 1));
-      return v === undefined ? unavailable(`secret ${rest} is not set (pi-dashboard service secret set …)`) : { ok: true, value: v };
+      return v === undefined ? unavailable(`secret ${rest} is not set (pi-dashboard service secret set …)`, "unset") : { ok: true, value: v };
     } catch (err) {
       if (err instanceof SecretsCorruptError) {
         return unavailable(`the secret store is corrupt; backup: ${err.backupPath ?? "not written"}`);
@@ -78,7 +90,7 @@ export async function resolveSecretRef(ref: string, deps: SecretResolverDeps): P
   }
   if (scheme === "env") {
     const v = deps.env[rest];
-    return typeof v === "string" && v.length > 0 ? { ok: true, value: v } : unavailable(`env var ${rest} is not set`);
+    return typeof v === "string" && v.length > 0 ? { ok: true, value: v } : unavailable(`env var ${rest} is not set`, "unset");
   }
   if (scheme === "keychain") {
     const slash = rest.indexOf("/");
@@ -112,4 +124,22 @@ export async function resolveServiceSecrets(
     values[name] = r.value;
   }
   return { ok: true, values };
+}
+
+/**
+ * Resolve every declared secret SEPARATELY and in parallel (declaration order
+ * in the result). The logs route needs each outcome — an unset secret is
+ * skipped, an unreadable one fails closed — rather than first-failure-wins.
+ * See change: add-services-settings-ui (D5).
+ */
+export async function resolveEachSecret(
+  def: ServiceDefinition,
+  deps: SecretResolverDeps,
+): Promise<Array<{ name: string; resolution: SecretResolution }>> {
+  return Promise.all(
+    Object.entries(def.secrets ?? {}).map(async ([name, spec]) => ({
+      name,
+      resolution: await resolveSecretRef(spec.ref ?? defaultSecretRef(def.id, name), deps),
+    })),
+  );
 }

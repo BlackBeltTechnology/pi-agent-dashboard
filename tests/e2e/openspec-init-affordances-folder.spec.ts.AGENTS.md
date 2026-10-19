@@ -21,7 +21,7 @@ route-aborted), and init-failure stderr surfacing.
 - Documented in-container recipes (header comment of the spec):
   - cli-failed = `changes/demo/tasks.md` self-referential symlink (`openspec
     list --json` exits 1 on ELOOP); invalid YAML / config-as-dir / changes-as-
-    file / chmod 000 / symlink loop are all tolerated by CLI 1.6.0.
+    file / chmod 000 / symlink loop are all tolerated by CLI 1.14.3.
   - init failure = dangling `<cwd>/openspec` symlink (guard stat passes
     unconfirmed, CLI mkdir fails ENOENT exit 1 → 500 + stderr).
 - Two PRODUCT GAPS documented in-code (not fixed by the spec, per mandate):
@@ -33,3 +33,5 @@ route-aborted), and init-failure stderr surfacing.
      controls against a BROKEN dir to avoid depending on that path.
 
 Row summary (formerly inline in `tests/e2e/AGENTS.md`): L3 folder-section slice (add-openspec-init-affordances).
+
+Adds F10 (test-plan #F10, real CLI): Settings → OpenSpec → Enable pi-spec-driven writes `openspec/schemas/pi-spec-driven/` + config, pins file-less changes, section shows current. See change: add-pi-spec-driven-schema.

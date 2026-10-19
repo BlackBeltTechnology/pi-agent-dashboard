@@ -143,6 +143,56 @@ export interface IdentityConfig {
   policyTimeoutMs: number;
 }
 
+/** How a network match (`trustedNetworks` / `auth.bypassHosts`) is treated. See change: retire-trusted-networks-bypass. */
+export type TrustMode = "pair" | "legacy";
+/** Who decided the stored mode: the one-time boot decision or an operator write. */
+export type TrustModeOrigin = "upgrade" | "operator";
+
+/**
+ * `network` config block. Both fields are STRING passthrough at parse time: an
+ * unrecognised `trustMode` must survive a load/save round trip untouched and be
+ * judged by {@link resolveTrustMode} (fail closed), never silently dropped.
+ * See change: retire-trusted-networks-bypass (design D2).
+ */
+export interface NetworkConfig {
+  trustMode?: string;
+  trustModeOrigin?: string;
+}
+
+/** Result of {@link resolveTrustMode}. `mode: null` = no stored value at all. */
+export interface ResolvedTrustMode {
+  /** The effective mode, or `null` when nothing is stored (the caller supplies the fallback). */
+  mode: TrustMode | null;
+  /** `null` for an unrecognised stored value or when nothing is stored. */
+  origin: TrustModeOrigin | null;
+  /** The stored value when present but unrecognised, else `null`. */
+  unrecognised: string | null;
+}
+
+/**
+ * Read the trust mode out of a config. Absent → `{ mode: null }`;
+ * present-but-unrecognised → `pair` (fail closed) with the offending value
+ * reported; a stored mode without an origin (a hand edit) reads `operator`.
+ */
+export function resolveTrustMode(config: { network?: NetworkConfig } | null | undefined): ResolvedTrustMode {
+  const raw = config?.network?.trustMode;
+  if (raw === undefined || raw === null) return { mode: null, origin: null, unrecognised: null };
+  if (raw === "pair" || raw === "legacy") {
+    return { mode: raw, origin: config?.network?.trustModeOrigin === "upgrade" ? "upgrade" : "operator", unrecognised: null };
+  }
+  return { mode: "pair", origin: null, unrecognised: String(raw) };
+}
+
+function parseNetworkConfig(raw: any): NetworkConfig | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const out: NetworkConfig = {};
+  // Any stored value passes through (stringified): a hand-edited `true` / `1` must
+  // read as UNRECOGNISED (fail closed to `pair`), not as "nothing stored" (`legacy`).
+  if (raw.trustMode !== undefined && raw.trustMode !== null) out.trustMode = String(raw.trustMode);
+  if (typeof raw.trustModeOrigin === "string") out.trustModeOrigin = raw.trustModeOrigin;
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 export interface AuthConfig {
   secret: string;
   providers: Record<string, AuthProviderConfig>;
@@ -260,6 +310,18 @@ export interface OpenSpecPollConfig {
    * add-openspec-init-affordances.
    */
   offerInitialization: boolean;
+  /**
+   * Dashboard-managed `pi-spec-driven` workflow schema settings. See change:
+   * add-pi-spec-driven-schema.
+   */
+  workflowSchema: {
+    /**
+     * When `true`, a dashboard-performed init of a directory that had no
+     * `openspec/` also enables the `pi-spec-driven` schema. Never runs on
+     * repair/overwrite. Default `false`.
+     */
+    defaultForNewProjects: boolean;
+  };
 }
 
 /**
@@ -288,6 +350,7 @@ export const DEFAULT_OPENSPEC_POLL: OpenSpecPollConfig = {
   jitterSeconds: 5,
   optOutDirectories: [],
   offerInitialization: true,
+  workflowSchema: { defaultForNewProjects: false },
 };
 
 // ── Grammar / spell check ───────────────────────────────────────────
@@ -445,6 +508,62 @@ export interface ProxyApiKey {
   hash: string;
 }
 
+/**
+ * One configured TLS certificate source. `type` is a registered source type
+ * (server-side registry); the rest is type-specific and validated by that type.
+ * `id` is optional on disk — the tailscale type defaults to `"tailscale"`.
+ */
+export interface TlsSourceEntry {
+  type: string;
+  id?: string;
+  [key: string]: unknown;
+}
+
+/**
+ * Optional native TLS listener (second port serving the same routes).
+ * Absent block = off. See change: add-tailscale-cert-tls.
+ */
+export interface TlsConfig {
+  enabled: boolean;
+  /** Listen port. Default 8443. */
+  port: number;
+  /** Bind address (IP literal or `localhost`). Default `127.0.0.1`, independent of `bindHost`. */
+  host: string;
+  /** Certificate sources, in ownership-priority order. */
+  sources: TlsSourceEntry[];
+}
+
+export const DEFAULT_TLS_PORT = 8443;
+export const DEFAULT_TLS_HOST = "127.0.0.1";
+
+export const DEFAULT_TLS: TlsConfig = {
+  enabled: false,
+  port: DEFAULT_TLS_PORT,
+  host: DEFAULT_TLS_HOST,
+  sources: [],
+};
+
+/** Tolerant loader for the `tls` block: bad fields fall back to their defaults. */
+export function parseTlsConfig(raw: unknown): TlsConfig {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { ...DEFAULT_TLS, sources: [] };
+  const r = raw as Record<string, unknown>;
+  const port =
+    typeof r.port === "number" && Number.isInteger(r.port) && r.port >= 1 && r.port <= 65535
+      ? r.port
+      : DEFAULT_TLS_PORT;
+  const sources = Array.isArray(r.sources)
+    ? r.sources.filter(
+        (e): e is TlsSourceEntry => !!e && typeof e === "object" && !Array.isArray(e),
+      )
+    : [];
+  return {
+    enabled: r.enabled === true,
+    port,
+    host: typeof r.host === "string" && r.host.trim() ? r.host.trim() : DEFAULT_TLS_HOST,
+    sources,
+  };
+}
+
 export interface ModelProxyConfig {
   /** Master toggle. Default true. */
   enabled: boolean;
@@ -512,6 +631,41 @@ export function parseKrokiConfig(raw: unknown): KrokiConfig {
 }
 
 /**
+ * On-demand AI mermaid repair settings. `model` is `provider/id` (id verbatim,
+ * no `:level`). `enabled` is the RESOLVED flag: configured-on but unusable
+ * (no model / `@role`) resolves to `false` with a `disabledReason`.
+ * See change: add-mermaid-ai-repair.
+ */
+export interface MermaidRepairConfig {
+  enabled: boolean;
+  model?: string;
+  maxChars: number;
+  timeoutMs: number;
+  disabledReason?: "no_model" | "role_refs_unsupported";
+}
+
+export const DEFAULT_MERMAID_REPAIR: MermaidRepairConfig = {
+  enabled: false,
+  maxChars: 20000,
+  timeoutMs: 30000,
+};
+
+export function parseMermaidRepairConfig(raw: unknown): MermaidRepairConfig {
+  const base = { maxChars: DEFAULT_MERMAID_REPAIR.maxChars, timeoutMs: DEFAULT_MERMAID_REPAIR.timeoutMs };
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { enabled: false, ...base };
+  const r = raw as Record<string, unknown>;
+  const maxChars = clampInt(r.maxChars, 1000, 50000, base.maxChars);
+  const timeoutMs = clampInt(r.timeoutMs, 5000, 120000, base.timeoutMs);
+  const model = typeof r.model === "string" && r.model.trim() ? r.model.trim() : undefined;
+  if (r.enabled !== true) return { enabled: false, ...(model ? { model } : {}), maxChars, timeoutMs };
+  if (!model) return { enabled: false, maxChars, timeoutMs, disabledReason: "no_model" };
+  if (model.startsWith("@")) {
+    return { enabled: false, model, maxChars, timeoutMs, disabledReason: "role_refs_unsupported" };
+  }
+  return { enabled: true, model, maxChars, timeoutMs };
+}
+
+/**
  * Resolve the effective Kroki endpoint URL according to the resolution ladder (design D5):
  * 1. Live KROKI_URL env override (highest precedence)
  * 2. Explicitly configured kroki.url
@@ -573,6 +727,51 @@ export interface AccessGrantsConfig {
    * here means that toggle must merge first, or it silently drops the field.
    */
   promptEnabled: boolean;
+}
+
+/**
+ * Dashboard trust → pi `project_trust` mirror. `enabled` (default true) lets
+ * durably dashboard-trusted folders count as trusted projects for pi sessions on
+ * the same machine; `coverInteractive` (default false) extends that to sessions
+ * not spawned headless by the dashboard; `sources.<id>` enable each durable source
+ * (all on except `accessGrants`). Rollback: `enabled: false` (read live by the
+ * bridge, works with the server down). See change: mirror-dashboard-trust-to-pi.
+ */
+export type PiTrustMirrorSourceId = "worktreeInit" | "workflow" | "pinned" | "folderWorkspaces" | "accessGrants";
+
+export interface PiTrustMirrorConfig {
+  enabled: boolean;
+  coverInteractive: boolean;
+  sources: Record<PiTrustMirrorSourceId, boolean>;
+}
+
+export const PI_TRUST_MIRROR_SOURCE_IDS: readonly PiTrustMirrorSourceId[] = [
+  "worktreeInit",
+  "workflow",
+  "pinned",
+  "folderWorkspaces",
+  "accessGrants",
+];
+
+export const DEFAULT_PI_TRUST_MIRROR: PiTrustMirrorConfig = {
+  enabled: true,
+  coverInteractive: false,
+  sources: { worktreeInit: true, workflow: true, pinned: true, folderWorkspaces: true, accessGrants: false },
+};
+
+export function parsePiTrustMirror(raw: unknown): PiTrustMirrorConfig {
+  const r = (raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {}) as Record<string, unknown>;
+  const src = (r.sources && typeof r.sources === "object" && !Array.isArray(r.sources) ? r.sources : {}) as Record<string, unknown>;
+  const sources = { ...DEFAULT_PI_TRUST_MIRROR.sources };
+  for (const id of PI_TRUST_MIRROR_SOURCE_IDS) {
+    if (typeof src[id] === "boolean") sources[id] = src[id] as boolean;
+  }
+  return {
+    enabled: typeof r.enabled === "boolean" ? r.enabled : DEFAULT_PI_TRUST_MIRROR.enabled,
+    coverInteractive:
+      typeof r.coverInteractive === "boolean" ? r.coverInteractive : DEFAULT_PI_TRUST_MIRROR.coverInteractive,
+    sources,
+  };
 }
 
 /**
@@ -867,11 +1066,18 @@ export interface DashboardConfig {
    * See change: add-access-grant-dialog.
    */
   accessGrants: AccessGrantsConfig;
+  /** Dashboard trust → pi project_trust mirror. See change: mirror-dashboard-trust-to-pi. */
+  piTrustMirror: PiTrustMirrorConfig;
   agentPathGate: AgentPathGateConfig;
   /** Per-process bridge activation (see `BridgeActivationConfig`). */
   bridge: BridgeActivationConfig;
   /** Networks trusted for full access without authentication (CIDR, wildcard, exact IP) */
   trustedNetworks: string[];
+  /**
+   * Trust mode block. Absent until the boot decision writes it.
+   * See change: retire-trusted-networks-bypass.
+   */
+  network?: NetworkConfig;
   /**
    * Strict local proof. When true, bare loopback admits only `observe`-tier REST
    * routes; control/operate routes and WebSockets need the local-proof cookie
@@ -988,8 +1194,12 @@ export interface DashboardConfig {
   plugins: PluginsConfig;
   /** Kroki diagram render proxy settings. */
   kroki: KrokiConfig;
+  /** On-demand AI mermaid repair. See change: add-mermaid-ai-repair. */
+  mermaidRepair: MermaidRepairConfig;
   /** Model proxy configuration (OpenAI/Anthropic-compatible /v1/* endpoints). */
   modelProxy: ModelProxyConfig;
+  /** Optional native TLS listener. See change: add-tailscale-cert-tls. */
+  tls: TlsConfig;
   /**
    * Operator override for the pi sessions root the dashboard scans. When set
    * (non-blank), it is the highest-precedence input to
@@ -1354,7 +1564,9 @@ export function parseSubagentSaturation(raw: any): SubagentSaturationThresholds 
 const DEFAULTS: DashboardConfig = {
   plugins: {},
   kroki: { ...DEFAULT_KROKI_CONFIG },
+  mermaidRepair: { ...DEFAULT_MERMAID_REPAIR },
   modelProxy: { ...DEFAULT_MODEL_PROXY },
+  tls: { ...DEFAULT_TLS, sources: [] },
   port: DEFAULT_DASHBOARD_PORT,
   piPort: DEFAULT_GATEWAY_PORT,
   bindHost: "127.0.0.1",
@@ -1381,6 +1593,7 @@ const DEFAULTS: DashboardConfig = {
   },
   devBuildOnReload: false,
   accessGrants: { promptEnabled: false },
+  piTrustMirror: { ...DEFAULT_PI_TRUST_MIRROR, sources: { ...DEFAULT_PI_TRUST_MIRROR.sources } },
   agentPathGate: { ...DEFAULT_AGENT_PATH_GATE },
   bridge: { ...DEFAULT_BRIDGE_ACTIVATION },
   defaultModel: "",
@@ -1678,6 +1891,12 @@ function parseOpenSpecPollConfig(raw: any): OpenSpecPollConfig {
       typeof raw.offerInitialization === "boolean"
         ? raw.offerInitialization
         : DEFAULT_OPENSPEC_POLL.offerInitialization,
+    workflowSchema: {
+      defaultForNewProjects:
+        typeof raw.workflowSchema?.defaultForNewProjects === "boolean"
+          ? raw.workflowSchema.defaultForNewProjects
+          : DEFAULT_OPENSPEC_POLL.workflowSchema.defaultForNewProjects,
+    },
   };
 }
 
@@ -2223,6 +2442,7 @@ export function loadConfig(): DashboardConfig {
         : defaults.allowedHosts,
       hostGate: { mode: parseHostGateMode(parsed.hostGate?.mode) },
       trustedNetworks: parseTrustedNetworks(parsed.trustedNetworks),
+      ...(parseNetworkConfig(parsed.network) ? { network: parseNetworkConfig(parsed.network) } : {}),
       requireLocalProof: parsed.requireLocalProof === true,
       resolvedTrustedNetworks: [],
       cors: {
@@ -2254,6 +2474,7 @@ export function loadConfig(): DashboardConfig {
             ? parsed.accessGrants.promptEnabled
             : defaults.accessGrants.promptEnabled,
       },
+      piTrustMirror: parsePiTrustMirror(parsed.piTrustMirror),
       agentPathGate: parseAgentPathGate(parsed.agentPathGate),
       bridge: parseBridgeActivation(parsed.bridge),
       knownServers: parseKnownServers(parsed.knownServers),
@@ -2279,7 +2500,9 @@ export function loadConfig(): DashboardConfig {
           ? parsed.windowsGitSource
           : defaults.windowsGitSource,
       modelProxy: parseModelProxyConfig(parsed.modelProxy),
+      tls: parseTlsConfig(parsed.tls),
       kroki: parseKrokiConfig(parsed.kroki),
+      mermaidRepair: parseMermaidRepairConfig(parsed.mermaidRepair),
       ...(typeof parsed.piSessionsDir === "string" && parsed.piSessionsDir.trim()
         ? { piSessionsDir: parsed.piSessionsDir }
         : {}),

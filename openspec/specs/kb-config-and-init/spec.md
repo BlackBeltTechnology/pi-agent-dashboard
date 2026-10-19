@@ -56,7 +56,7 @@ The KB SHALL merge layers left-to-right, and for the known nested option groups 
 - **THEN** the resolved `git.forge` has `minSyncIntervalSeconds: 900` and `pagesPerSync: 2`
 
 ### Requirement: Configuration validation
-The KB SHALL validate the merged configuration shape and throw a precise error when a constraint is violated. The validated constraints SHALL be: `sources` is an array; each source has a string `ref`; each source `kind` is one of `filesystem`, `npm`, `git`, `https` (defaulting to `filesystem` when omitted); `maxFileCount` is a number or null; `dbPath` is a non-empty string; `queryExpansion.mode` is one of `off`, `prf`, `synonym`, `agent`; `doctrine.inject` is one of `kb`, `off`; `doctrine.write` is a boolean; and, within the `git` group, `enabled` and `forge.enabled` are booleans, `remote` and `forge.gitea.tokenEnv` are non-empty strings, every count, interval, cap and wait (`searchWaitMs`, `commits.maxInitial`, `commits.maxPathsPerCommit`, `forge.minSyncIntervalSeconds`, `forge.hintedMinSyncIntervalSeconds`, `forge.firstSyncWindowDays`, `forge.firstSyncMaxItems`, `forge.pagesPerSync`, `forge.leaseSeconds`) is a positive number, `forge.rateFloorPercent` is between 0 and 100 inclusive, and every `forge.hosts` value is one of `github`, `gitlab`, `gitea`, and `forge.hintedMinSyncIntervalSeconds` does not exceed `forge.minSyncIntervalSeconds`. A git-group violation SHALL name the offending key.
+The KB SHALL validate the merged configuration shape and throw a precise error when a constraint is violated. The validated constraints SHALL be: `sources` is an array; each source has a string `ref`; each source `kind` is one of `filesystem`, `npm`, `git`, `https` (defaulting to `filesystem` when omitted); `maxFileCount` is a number or null; `dbPath` is a non-empty string; `queryExpansion.mode` is one of `off`, `prf`, `synonym`, `agent`; `doctrine.inject` is one of `kb`, `off`; `doctrine.write` is a boolean; `seedFromMainWorktree` is a boolean (default `true`); and, within the `git` group, `enabled` and `forge.enabled` are booleans, `remote` and `forge.gitea.tokenEnv` are non-empty strings, every count, interval, cap and wait (`searchWaitMs`, `commits.maxInitial`, `commits.maxPathsPerCommit`, `forge.minSyncIntervalSeconds`, `forge.hintedMinSyncIntervalSeconds`, `forge.firstSyncWindowDays`, `forge.firstSyncMaxItems`, `forge.pagesPerSync`, `forge.leaseSeconds`) is a positive number, `forge.rateFloorPercent` is between 0 and 100 inclusive, and every `forge.hosts` value is one of `github`, `gitlab`, `gitea`, and `forge.hintedMinSyncIntervalSeconds` does not exceed `forge.minSyncIntervalSeconds`. A git-group violation SHALL name the offending key.
 
 #### Scenario: Source missing ref
 - **WHEN** a source entry lacks a string `ref`
@@ -81,6 +81,10 @@ The KB SHALL validate the merged configuration shape and throw a precise error w
 #### Scenario: Non-positive git cap
 - **WHEN** `git.forge.pagesPerSync` is `0`
 - **THEN** validation throws an error naming `git.forge.pagesPerSync`
+
+#### Scenario: Non-boolean seedFromMainWorktree
+- **WHEN** `seedFromMainWorktree` is set to a non-boolean value such as `"yes"`
+- **THEN** validation throws an error naming `seedFromMainWorktree`
 
 ### Requirement: Source resolution
 The KB SHALL derive filesystem sources from both the legacy `roots[]` alias and the `sources[]` list, resolving each relative `ref` against the working directory, applying any `subdir`, and defaulting priority to 0. It SHALL also resolve `dbPath` and `sourceCacheDir` to absolute paths, expanding a leading `~/` in the cache dir to the home directory.

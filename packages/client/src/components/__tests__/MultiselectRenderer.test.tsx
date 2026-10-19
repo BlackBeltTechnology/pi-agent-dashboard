@@ -284,3 +284,80 @@ describe("MultiselectRenderer — resolved shows message body (change: fix-ask-u
     expect(screen.queryByText(MSG)).toBeNull();
   });
 });
+
+// ── Inline Other — test-plan #F6 #F7. See change: add-ask-user-inline-other ──
+describe("MultiselectRenderer inline Other", () => {
+  const props = {
+    requestId: "req-o",
+    method: "multiselect",
+    params: { title: "Pick", options: ["A", "B", "C"], allowOther: true },
+  };
+  const mount = (onRespond = vi.fn()) => {
+    render(<MultiselectRenderer {...props} status="pending" onRespond={onRespond} onCancel={vi.fn()} />);
+    return onRespond;
+  };
+  const checkbox = (name: string) => screen.getByRole("checkbox", { name }) as HTMLInputElement;
+  const other = () => checkbox("Other");
+  const field = () => screen.getByRole("textbox", { name: "Other answer" });
+  const submit = () => screen.getByRole("button", { name: /^Submit/ }) as HTMLButtonElement;
+
+  it("(i) option + custom text → both, with count 2", () => {
+    const onRespond = mount();
+    fireEvent.click(checkbox("A"));
+    fireEvent.click(other());
+    fireEvent.change(field(), { target: { value: "D" } });
+    expect(submit().textContent).toBe("Submit (2)");
+    fireEvent.click(submit());
+    expect(onRespond).toHaveBeenCalledWith({ values: ["A", "D"] });
+  });
+
+  it("(ii) only the custom text", () => {
+    const onRespond = mount();
+    fireEvent.click(other());
+    fireEvent.change(field(), { target: { value: "Z" } });
+    fireEvent.click(submit());
+    expect(onRespond).toHaveBeenCalledWith({ values: ["Z"] });
+  });
+
+  it("(iii) custom text equal to a checked option de-duplicates", () => {
+    const onRespond = mount();
+    fireEvent.click(checkbox("A"));
+    fireEvent.click(other());
+    fireEvent.change(field(), { target: { value: "A" } });
+    fireEvent.click(submit());
+    expect(onRespond).toHaveBeenCalledWith({ values: ["A"] });
+  });
+
+  it("(iv) Other checked with empty text disables Submit", () => {
+    mount();
+    fireEvent.click(other());
+    expect(submit().disabled).toBe(true);
+  });
+
+  it("(v) Select all leaves Other and its text untouched", () => {
+    const onRespond = mount();
+    fireEvent.click(other());
+    fireEvent.change(field(), { target: { value: "D" } });
+    fireEvent.click(screen.getByText("Select all"));
+    expect(checkbox("A").checked && checkbox("B").checked && checkbox("C").checked).toBe(true);
+    expect(other().checked).toBe(true);
+    expect((field() as HTMLInputElement).value).toBe("D");
+    fireEvent.click(submit());
+    expect(onRespond).toHaveBeenCalledWith({ values: expect.arrayContaining(["A", "B", "C", "D"]) });
+  });
+
+  it("F7: resolved shows picked options, a picked Other row and 'N of M'", () => {
+    render(
+      <MultiselectRenderer requestId="r" method="multiselect" params={{ title: "T", options: ["A", "B", "C"] }} status="resolved" result={{ values: ["A", "D"] }} onRespond={vi.fn()} onCancel={vi.fn()} />,
+    );
+    expect(screen.getByTestId("answered-other-text").textContent).toBe("D");
+    expect(screen.getByText(/2 of 3/)).toBeTruthy();
+  });
+
+  it("without the opt-in no Other row is shown", () => {
+    render(
+      <MultiselectRenderer requestId="r" method="multiselect" params={{ title: "T", options: ["A", "B"] }} status="pending" onRespond={vi.fn()} onCancel={vi.fn()} />,
+    );
+    expect(screen.queryByTestId("other-option")).toBeNull();
+  });
+});

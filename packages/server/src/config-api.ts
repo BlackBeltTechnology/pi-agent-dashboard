@@ -14,6 +14,7 @@ import {
   writeConfigFileSecure,
 } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { setWindowsGitSourceSetting } from "@blackbelt-technology/pi-dashboard-shared/platform/git-source.js";
+import { getPiTrustMirror } from "./access/pi-trust-mirror-service.js";
 import { refreshModelRegistry } from "./model-proxy/registry-singleton.js";
 
 const REDACTED = "***";
@@ -207,7 +208,15 @@ export function readRawConfig(): Record<string, any> {
  * Merge partial config into existing, preserving redacted secrets, write to disk.
  * Returns whether a restart is needed.
  */
-export function writeConfigPartial(partial: Record<string, any>): WriteConfigResult {
+export function writeConfigPartial(
+  partial: Record<string, any>,
+  /**
+   * `trustModeOrigin: "upgrade"` is passed ONLY by the one-time boot trust-mode
+   * decision. Every other writer (UI, REST, CLI) gets `"operator"` stamped when
+   * it changes a stored `network.trustMode`. See change: retire-trusted-networks-bypass (D2).
+   */
+  opts?: { trustModeOrigin?: "upgrade" },
+): WriteConfigResult {
   const { dir, file } = getConfigPaths();
   try {
     // Read raw file to preserve unknown fields
@@ -269,6 +278,33 @@ export function writeConfigPartial(partial: Record<string, any>): WriteConfigRes
       }
 
       partial.auth = mergedAuth;
+    }
+
+    // Merge the `network` block FIELD BY FIELD so writing `trustMode` never
+    // drops `trustModeOrigin` (and a partial carrying only `auth` leaves the
+    // block untouched — `{...existing, ...partial}` below only replaces keys the
+    // partial names). The origin is server-owned: a change to the stored mode
+    // stamps `operator` (or `upgrade` for the boot decision); a save that leaves
+    // the mode unchanged keeps the stored origin whatever the caller sent.
+    // See change: retire-trusted-networks-bypass (D2).
+    // A non-object `network` (null, string, array…) would REPLACE the stored block
+    // and silently drop `trustMode`: never let it through.
+    if ("network" in partial && (typeof partial.network !== "object" || partial.network === null || Array.isArray(partial.network))) {
+      delete partial.network;
+    }
+    if (partial.network) {
+      const existingNet: Record<string, any> =
+        existing.network && typeof existing.network === "object" ? existing.network : {};
+      const mergedNet: Record<string, any> = { ...existingNet, ...partial.network };
+      const modeChanged = "trustMode" in partial.network && partial.network.trustMode !== existingNet.trustMode;
+      if (modeChanged) {
+        mergedNet.trustModeOrigin = opts?.trustModeOrigin ?? "operator";
+      } else if (existingNet.trustModeOrigin !== undefined) {
+        mergedNet.trustModeOrigin = existingNet.trustModeOrigin;
+      } else {
+        delete mergedNet.trustModeOrigin;
+      }
+      partial.network = mergedNet;
     }
 
     // Merge tunnel sub-object (deep-merge nested watchdog + per-provider
@@ -341,6 +377,18 @@ export function writeConfigPartial(partial: Record<string, any>): WriteConfigRes
       partial.openspec = { ...existing.openspec, ...partial.openspec };
     }
 
+    // Merge piTrustMirror (and its nested `sources`) so a partial PUT never drops a
+    // sibling switch. Read live by bridges; no restart. See change: mirror-dashboard-trust-to-pi.
+    if (partial.piTrustMirror) {
+      partial.piTrustMirror = {
+        ...existing.piTrustMirror,
+        ...partial.piTrustMirror,
+        ...(partial.piTrustMirror.sources || existing.piTrustMirror?.sources
+          ? { sources: { ...existing.piTrustMirror?.sources, ...partial.piTrustMirror.sources } }
+          : {}),
+      };
+    }
+
     // Merge agentPathGate sub-object (live-read by bridges; no restart required).
     // See change: ask-agent-file-access-in-chat.
     if (partial.agentPathGate) {
@@ -360,6 +408,14 @@ export function writeConfigPartial(partial: Record<string, any>): WriteConfigRes
     // Live-read per request; no restart. See change: add-lan-knock-pairing.
     if (partial.pairing && typeof partial.pairing === "object") {
       partial.pairing = { ...existing.pairing, ...partial.pairing };
+    }
+
+    // Merge the `tls` block key-by-key so `{ tls: { enabled: true } }` never drops a
+    // stored `port` / `host` / `sources` (the array is replaced as a whole). Applied
+    // live by the TLS listener's reconcile; no restart.
+    // See change: add-tailscale-cert-tls (D7).
+    if (partial.tls && typeof partial.tls === "object" && !Array.isArray(partial.tls)) {
+      partial.tls = { ...(existing.tls && typeof existing.tls === "object" ? existing.tls : {}), ...partial.tls };
     }
 
     // Merge kroki sub-object
@@ -383,6 +439,9 @@ export function writeConfigPartial(partial: Record<string, any>): WriteConfigRes
 
     // Eager-refresh model proxy registry (config may affect proxy settings).
     refreshModelRegistry().catch(() => {});
+
+    // `piTrustMirror.sources` decides which entries the snapshot lists.
+    if (partial.piTrustMirror) getPiTrustMirror()?.refresh();
 
     // windowsGitSource change takes effect for newly spawned children
     // (existing children keep their PATH). Update the cached setting +

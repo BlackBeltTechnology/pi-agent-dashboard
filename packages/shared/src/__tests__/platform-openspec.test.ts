@@ -83,9 +83,29 @@ describe("OPENSPEC_RECIPES registry", () => {
       "OPENSPEC_INIT",
       "OPENSPEC_INIT_HELP",
       "OPENSPEC_LIST",
+      "OPENSPEC_SCHEMA_FORK",
+      "OPENSPEC_SCHEMA_VALIDATE",
+      "OPENSPEC_SCHEMA_WHICH",
       "OPENSPEC_STATUS",
+      "OPENSPEC_STATUS_ALL",
       "OPENSPEC_UPDATE",
+      "OPENSPEC_VERSION",
     ]);
+  });
+
+  it("workflow-schema recipes build argv arrays (no shell strings). See change: add-pi-spec-driven-schema", () => {
+    const base = { cwd: "/x" };
+    expect(OPENSPEC_RECIPES.OPENSPEC_VERSION.argv(base)).toEqual(["openspec", "--version"]);
+    expect(OPENSPEC_RECIPES.OPENSPEC_SCHEMA_WHICH.argv({ ...base, name: "spec-driven" })).toEqual([
+      "openspec", "schema", "which", "spec-driven", "--json",
+    ]);
+    expect(OPENSPEC_RECIPES.OPENSPEC_SCHEMA_FORK.argv({ ...base, source: "spec-driven", name: "pi-spec-driven" })).toEqual([
+      "openspec", "schema", "fork", "spec-driven", "pi-spec-driven", "--force",
+    ]);
+    expect(OPENSPEC_RECIPES.OPENSPEC_SCHEMA_VALIDATE.argv({ ...base, name: "pi-spec-driven" })).toEqual([
+      "openspec", "schema", "validate", "pi-spec-driven", "--json",
+    ]);
+    expect(OPENSPEC_RECIPES.OPENSPEC_VERSION.parse("1.11.0\n", base)).toBe("1.11.0");
   });
 
   it("every recipe has argv and parse functions", () => {

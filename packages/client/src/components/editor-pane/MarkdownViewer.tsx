@@ -18,6 +18,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react
 import { eligibleFetch, usePreviewFetch } from "../../lib/access-grants/preview-provenance.js";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
+import { useMermaidSource } from "../../lib/preview/use-mermaid-source.js";
 import { DenialNotice } from "../preview/DenialNotice.js";
 import { type DenialFailure, denialFetch } from "../preview/denial-fetch.js";
 import { MarkdownContent } from "../preview/MarkdownContent.js";
@@ -115,6 +116,11 @@ export default function MarkdownViewer({ cwd, path }: ViewerProps) {
 
   // Hook order: declared before any early return. Stable identity keeps MarkdownContent's React.memo guard effective. See change: fix-markdown-remount-storm (D3).
   const imageBase = useMemo(() => ({ cwd, dir: absOf(cwd, dirname(path)) }), [cwd, path]);
+  // "Apply fix to file": reload re-fetches; unsaved edits disable it (design D6).
+  const reloadFile = useCallback(() => {
+    load();
+  }, [load]);
+  const mermaidSource = useMermaidSource({ cwd, path, kind: "md", reload: reloadFile, isDirty: dirty });
 
   if (loadFailure) {
     return <DenialNotice result={loadFailure} url={url} path={path} onAsk={() => setAskedUrl(url)} asked={asked} />;
@@ -190,6 +196,8 @@ export default function MarkdownViewer({ cwd, path }: ViewerProps) {
               content={content}
               frontmatter="properties"
               imageBase={imageBase}
+              mermaidSource={mermaidSource}
+              staticSource
             />
           </div>
         )}

@@ -27,21 +27,30 @@ import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSyn
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import type { CwdHoldOrigin, ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import {
+  beginForcedSource,
   classifyRef,
+  indexOptionsFromConfig,
   indexSource,
+  isFirstIndexLive,
   type KbConfig,
   KbUntrustedSourceError,
   listTrustedSources,
   loadConfig,
+  type ResolvedSource,
   readStaleness,
   recordTrust,
   resolverFor,
   revokeTrustByHash,
+  runIndexAtomic,
   type SourceConfig,
   SqliteFtsStore,
   searchOptsFromConfig,
+  seedOptionsFromConfig,
+  sourceGateIsStale,
   sourceHash,
   sourceSubject,
+  stampPass,
+  stampSource,
   validateConfig,
 } from "@blackbelt-technology/pi-dashboard-kb";
 import {
@@ -205,57 +214,103 @@ function kindOf(spec: SourceConfig): SourceKind {
 
 const errMsg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
+type ResolvedSpec = { spec: SourceConfig; src: ResolvedSource & { revision?: string }; started: number };
+type JobLog = { info(m: string): void; warn(m: string): void };
+
+/** Resolve every saved spec on its own (one failure/untrusted never aborts the others); failures
+ *  become outcomes, the rest are returned for indexing. */
+async function resolveSpecs(cwd: string, cfg: ReturnType<typeof loadConfig>, outcomes: KbSourceOutcome[], log?: JobLog): Promise<ResolvedSpec[]> {
+  const resolved: ResolvedSpec[] = [];
+  for (const spec of cfg.allSourceSpecs) {
+    const started = Date.now();
+    try {
+      const src = await resolverFor(kindOf(spec)).resolve(spec, { cwd, cacheDir: cfg.cacheDirAbs, promptTrust: async () => false });
+      resolved.push({ spec, src: src as ResolvedSpec["src"], started });
+    } catch (e) {
+      const untrusted = e instanceof KbUntrustedSourceError;
+      outcomes.push({ ref: spec.ref, status: untrusted ? "untrusted" : "error", error: errMsg(e), at: Date.now() });
+      if (untrusted) log?.info(`[kb-plugin] source skipped (not trusted) ref=${spec.ref} ms=${Date.now() - started}`);
+      else log?.warn(`[kb-plugin] source failed ref=${spec.ref} ms=${Date.now() - started}: ${errMsg(e)}`);
+    }
+  }
+  return resolved;
+}
+
+const okOutcome = (r: ResolvedSpec): KbSourceOutcome => ({ ref: r.spec.ref, status: "ok", ...(r.src.revision ? { revision: r.src.revision } : {}), at: Date.now() });
+
+/** First index: all-or-nothing through the atomic path. Nothing on disk → nothing to build, no file. */
+async function firstIndex(cfg: ReturnType<typeof loadConfig>, resolved: ResolvedSpec[], outcomes: KbSourceOutcome[], log?: JobLog): Promise<KbReindexResult> {
+  if (!resolved.some((r) => existsSync(r.src.dir))) return { changed: 0, chunks: 0, outcomes };
+  let r: Awaited<ReturnType<typeof runIndexAtomic>>;
+  try {
+    r = await runIndexAtomic({ dbPath: cfg.dbAbsPath, sources: resolved.map((x) => ({ id: x.src.id, dir: x.src.dir })), indexOpts: indexOptionsFromConfig(cfg), gate: cfg, seed: seedOptionsFromConfig(cfg) });
+  } catch (e) {
+    // All-or-nothing: record every resolved source as failed so the per-source outcomes (and the
+    // job's error summary) reflect THIS run rather than a stale earlier one.
+    for (const x of resolved) {
+      outcomes.push({ ref: x.spec.ref, status: "error", error: errMsg(e), at: Date.now() });
+      log?.warn(`[kb-plugin] source failed ref=${x.spec.ref} ms=${Date.now() - x.started}: ${errMsg(e)}`);
+    }
+    return { changed: 0, chunks: 0, outcomes };
+  }
+  for (const x of resolved) {
+    outcomes.push(okOutcome(x));
+    log?.info(`[kb-plugin] source ok ref=${x.spec.ref} kind=${kindOf(x.spec)} ms=${Date.now() - x.started}`);
+  }
+  return { changed: r.changed, chunks: r.counts.chunks, outcomes };
+}
+
+/** Existing database: per-source gate (force exactly the stale sources), stamp only ok non-missing ones. */
+async function indexInPlace(cwd: string, resolved: ResolvedSpec[], outcomes: KbSourceOutcome[], log?: JobLog): Promise<KbReindexResult> {
+  const { store, cfg } = openStore(cwd);
+  try {
+    let changed = 0;
+    for (const x of resolved) {
+      try {
+        const force = sourceGateIsStale(store, cfg, x.src.id);
+        const stats = await indexSource(store, { root: x.src.id, dir: x.src.dir }, indexOptionsFromConfig(cfg, { force, onFirstBatch: force ? beginForcedSource(store, x.src.id) : undefined }));
+        if (!stats.missing) stampSource(store, cfg, x.src.id);
+        changed += stats.changed;
+        outcomes.push(okOutcome(x));
+        log?.info(`[kb-plugin] source ok ref=${x.spec.ref} kind=${kindOf(x.spec)} ms=${Date.now() - x.started}`);
+      } catch (e) {
+        outcomes.push({ ref: x.spec.ref, status: "error", error: errMsg(e), at: Date.now() });
+        log?.warn(`[kb-plugin] source failed ref=${x.spec.ref} ms=${Date.now() - x.started}: ${errMsg(e)}`);
+      }
+    }
+    stampPass(store, cfg);
+    return { changed, chunks: store.counts().chunks, outcomes };
+  } finally {
+    store.close();
+  }
+}
+
 /**
  * Index every saved source spec (`cfg.allSourceSpecs`), each resolved on its own
  * so one failing source never aborts the others (`resolveAll` aborts on the
  * first throw). Untrusted remote sources are skipped, not fatal; a failed or
  * skipped source keeps its previously indexed chunks (`indexSource` only sweeps
- * a root it actually walked). `promptTrust` is trust-store only: the server can
- * never grant trust during a walk.
+ * a root it actually walked) and its schema/options gate record, so it stays due.
+ * `promptTrust` is trust-store only: the server can never grant trust during a walk.
+ *
+ * Creation discipline (change: fix-kb-index-integrity, D2): this job never opens an absent
+ * database in place. While another process builds the first index it waits (the job stays
+ * `running`); otherwise it builds through the atomic first-index path (temp file → no-clobber
+ * install). An existing database is indexed in place, force-reindexing exactly the sources
+ * whose gate record is absent or stale.
  */
-export async function reindexAll(cwd: string, log?: { info(m: string): void; warn(m: string): void }): Promise<KbReindexResult> {
+export async function reindexAll(cwd: string, log?: JobLog, opts: { pollMs?: number } = {}): Promise<KbReindexResult> {
   // TOCTOU re-check: the folder may vanish between preflight and the walk; the
   // creating open below would resurrect it (design D9).
   if (!folderExists(cwd)) throw new Error("folder missing");
-  const { store, cfg } = openStore(cwd);
-  try {
-    let changed = 0;
-    const outcomes: KbSourceOutcome[] = [];
-    for (const spec of cfg.allSourceSpecs) {
-      const started = Date.now();
-      try {
-        const src = await resolverFor(kindOf(spec)).resolve(spec, {
-          cwd,
-          cacheDir: cfg.cacheDirAbs,
-          promptTrust: async () => false,
-        });
-        const stats = await indexSource(
-          store,
-          { root: src.id, dir: src.dir },
-          {
-            include: cfg.include,
-            exclude: cfg.exclude,
-            extensions: cfg.extensions,
-            indexAgentsFiles: cfg.indexAgentsFiles,
-            includeSourceMarkdown: cfg.includeSourceMarkdown,
-            respectGitignore: cfg.respectGitignore,
-            cwd,
-          },
-        );
-        changed += stats.changed;
-        outcomes.push({ ref: spec.ref, status: "ok", ...(src.revision ? { revision: src.revision } : {}), at: Date.now() });
-        log?.info(`[kb-plugin] source ok ref=${spec.ref} kind=${kindOf(spec)} ms=${Date.now() - started}`);
-      } catch (e) {
-        const untrusted = e instanceof KbUntrustedSourceError;
-        outcomes.push({ ref: spec.ref, status: untrusted ? "untrusted" : "error", error: errMsg(e), at: Date.now() });
-        if (untrusted) log?.info(`[kb-plugin] source skipped (not trusted) ref=${spec.ref} ms=${Date.now() - started}`);
-        else log?.warn(`[kb-plugin] source failed ref=${spec.ref} ms=${Date.now() - started}: ${errMsg(e)}`);
-      }
-    }
-    return { changed, chunks: store.counts().chunks, outcomes };
-  } finally {
-    store.close();
-  }
+  const cfg = loadConfig(cwd);
+  const outcomes: KbSourceOutcome[] = [];
+  const resolved = await resolveSpecs(cwd, cfg, outcomes, log);
+  // Another process is building the first index: wait for it rather than create the database.
+  while (!existsSync(cfg.dbAbsPath) && isFirstIndexLive(cfg.dbAbsPath)) await new Promise<void>((r) => setTimeout(r, opts.pollMs ?? 1000));
+  // The wait can be long: re-check so a folder removed meanwhile is not resurrected by the build (design D9).
+  if (!folderExists(cwd)) throw new Error("folder missing");
+  return existsSync(cfg.dbAbsPath) ? indexInPlace(cwd, resolved, outcomes, log) : firstIndex(cfg, resolved, outcomes, log);
 }
 
 /** Atomic project-config write (tmp + rename), creating parent dirs. */

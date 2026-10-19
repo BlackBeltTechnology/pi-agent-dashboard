@@ -1,7 +1,8 @@
 /**
  * Session-card section visibility gating (desktop + mobile), the PROCESS
- * safety chip, and the legend options menu.
- * See change: configurable-session-card-sections.
+ * safety chip, and the session actions menu's VIEW group (which replaced the
+ * per-subcard legend options menu).
+ * See changes: configurable-session-card-sections, add-session-actions-flyout.
  */
 import { createSlotRegistry, PluginContextProvider } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { CardSectionPrefs } from "@blackbelt-technology/pi-dashboard-shared/card-sections.js";
@@ -39,6 +40,9 @@ function makeSession(overrides: Partial<DashboardSession> = {}): DashboardSessio
     cost: 0,
     gitBranch: "main",
     tags: ["ui"],
+    // An UNATTACHED READY session renders no OPENSPEC subcard any more, so the
+    // default fixture is attached to keep that section under test.
+    attachedProposal: "feat-a",
     ...overrides,
   };
 }
@@ -90,6 +94,9 @@ function renderCard(
 }
 
 const hasTitle = (t: string) => screen.queryAllByText(t, { selector: "span" }).length > 0;
+// The GIT subcard is gone: the `git` section now governs the header git row.
+// See change: compact-session-card-header.
+const hasGitRow = () => screen.queryByTestId("session-card-git-row") !== null;
 
 describe("useCardSectionVisible", () => {
   it("resolves from the provider snapshot and updates when the snapshot changes", () => {
@@ -127,20 +134,26 @@ describe("SessionCard desktop gating", () => {
 
   it("renders every section with no prefs", () => {
     renderCard({}, { session: { gitWorktree: { mainPath: CWD, name: "wt" } as never, cwd: `${CWD}/.worktrees/wt` }, processes: [PROC] });
-    for (const t of ["OPENSPEC", "GIT", "STATUS", "PROCESS", "FLOWS", "MEMORY"]) expect(hasTitle(t)).toBe(true);
+    for (const t of ["OPENSPEC", "STATUS", "PROCESS", "FLOWS", "MEMORY"]) expect(hasTitle(t)).toBe(true);
+    expect(hasTitle("GIT")).toBe(false);
     expect(screen.queryByTestId("kb-claim")).not.toBeNull();
     expect(screen.queryByText("#ui")).not.toBeNull();
+    // The spawn actions are session-menu items.
+    fireEvent.click(screen.getByTestId("session-actions-trigger-s1"));
     expect(screen.queryByTestId("session-card-spawn-sibling")).not.toBeNull();
   });
 
   it.each([
     ["openspec", () => hasTitle("OPENSPEC")],
-    ["git", () => hasTitle("GIT")],
+    ["git", () => hasGitRow()],
     ["status", () => hasTitle("STATUS")],
     ["flows", () => hasTitle("FLOWS")],
     ["memory", () => hasTitle("MEMORY")],
     ["tags", () => screen.queryByText("#ui") !== null],
-    ["spawn", () => screen.queryByTestId("session-card-spawn-sibling") !== null || screen.queryByTestId("session-card-spawn-worktree") !== null],
+    ["spawn", () => {
+      fireEvent.click(screen.getByTestId("session-actions-trigger-s1"));
+      return screen.queryByTestId("session-card-spawn-sibling") !== null || screen.queryByTestId("session-card-spawn-worktree") !== null;
+    }],
   ])("folder hide of %s removes it", (id, present) => {
     renderCard({ folders: { [CWD]: { [id]: false } } });
     expect(present()).toBe(false);
@@ -170,12 +183,12 @@ describe("SessionCard desktop gating", () => {
   it("global hide applies; folder override beats global", () => {
     renderCard({ global: { flows: false, git: false }, folders: { [CWD]: { git: true } } });
     expect(hasTitle("FLOWS")).toBe(false);
-    expect(hasTitle("GIT")).toBe(true);
+    expect(hasGitRow()).toBe(true);
   });
 
   it("does not affect another folder", () => {
     renderCard({ folders: { "/other": { git: false } } });
-    expect(hasTitle("GIT")).toBe(true);
+    expect(hasGitRow()).toBe(true);
   });
 });
 
@@ -318,88 +331,46 @@ describe("SessionCard mobile gating", () => {
   });
 });
 
-describe("legend options menu", () => {
-  function setup(prefs: CardSectionPrefs = {}) {
-    const send = vi.fn();
-    const showToast = vi.fn();
-    const utils = renderCard(prefs, { ctx: { send, showToast } });
-    return { send, showToast, ...utils };
+describe("session actions menu VIEW group (replaces the legend options menu)", () => {
+  function setup(session: Partial<DashboardSession> = {}) {
+    const utils = renderCard({}, { session });
+    fireEvent.click(screen.getByTestId("session-actions-trigger-s1"));
+    return utils;
   }
 
-  it("capsule text stays exactly the title when the menu renders", () => {
-    setup();
-    const btn = screen.getByTestId("subcard-menu-git");
-    expect(btn.parentElement?.textContent).toBe("GIT");
-  });
-
-  it("no menu while the socket is down", () => {
-    renderCard({}, { ctx: { send: vi.fn(), connected: false } });
+  it("no subcard legend carries an options button any more", () => {
+    renderCard({}, { processes: [PROC] });
     expect(screen.queryByTestId("subcard-menu-git")).toBeNull();
+    // capsule text stays exactly the title
+    const title = screen.getAllByText("PROCESS", { selector: "span" })[0];
+    expect(title.textContent).toBe("PROCESS");
   });
 
-  it("no menu without a transport", () => {
-    renderCard({});
-    expect(screen.queryByTestId("subcard-menu-git")).toBeNull();
-  });
-
-  it("menu button is a focusable, labelled button that opens by keyboard without selecting the card", () => {
+  it("Card sections… opens the folder's Session cards page without selecting the card", () => {
     const { onSelect } = setup();
-    const btn = screen.getByTestId("subcard-menu-git");
-    expect(btn.tagName).toBe("BUTTON");
-    expect(btn.getAttribute("aria-label")).toMatch(/GIT/);
-    expect(btn.getAttribute("aria-haspopup")).toBe("menu");
-    btn.focus();
-    expect(document.activeElement).toBe(btn);
-    // Native <button> activates on Enter/Space via click.
-    fireEvent.click(btn);
-    expect(screen.getByTestId("subcard-menu-panel-git")).toBeTruthy();
-    expect(btn.getAttribute("aria-expanded")).toBe("true");
-    fireEvent.click(screen.getByTestId("subcard-menu-item-settings"));
+    fireEvent.click(screen.getByTestId("session-menu-item-card-sections"));
+    expect(window.location.pathname).toMatch(/^\/folder\/[^/]+\/settings\/cards$/);
     expect(onSelect).not.toHaveBeenCalled();
   });
 
-  it("hide in folder sends the write + Undo restores the previous value", () => {
-    const { send, showToast } = setup({ folders: { [CWD]: { git: true } } });
-    fireEvent.click(screen.getByTestId("subcard-menu-git"));
-    fireEvent.click(screen.getByTestId("subcard-menu-item-hide-folder"));
-    expect(send).toHaveBeenCalledWith({ type: "set_card_section_visibility", path: CWD, section: "git", visible: false });
-    expect(showToast).toHaveBeenCalledTimes(1);
-    const [, variant, opts] = showToast.mock.calls[0];
-    expect(variant).toBe("info");
-    act(() => opts.action.onClick());
-    expect(send).toHaveBeenLastCalledWith({ type: "set_card_section_visibility", path: CWD, section: "git", visible: true });
+  it("Card sections… for a worktree session targets the main folder", () => {
+    setup({ cwd: `${CWD}/.worktrees/x`, gitWorktree: { mainPath: CWD, name: "x" } as never });
+    fireEvent.click(screen.getByTestId("session-menu-item-card-sections"));
+    // the folder segment is the base64url-encoded main path, not the worktree cwd
+    const folder = window.location.pathname.split("/")[2];
+    expect(atob(folder.replace(/-/g, "+").replace(/_/g, "/"))).toBe(CWD);
   });
 
-  it("hide everywhere writes global; Undo restores inherit (null)", () => {
-    const { send, showToast } = setup();
-    fireEvent.click(screen.getByTestId("subcard-menu-flows"));
-    fireEvent.click(screen.getByTestId("subcard-menu-item-hide-everywhere"));
-    expect(send).toHaveBeenCalledWith({ type: "set_card_section_visibility", section: "flows", visible: false });
-    act(() => showToast.mock.calls[0][2].action.onClick());
-    expect(send).toHaveBeenLastCalledWith({ type: "set_card_section_visibility", section: "flows", visible: null });
-  });
-
-  it("menu for a worktree session targets the main folder", () => {
-    const send = vi.fn();
-    renderCard({}, { ctx: { send, showToast: vi.fn() }, session: { cwd: `${CWD}/.worktrees/x`, gitWorktree: { mainPath: CWD, name: "x" } as never } });
-    fireEvent.click(screen.getByTestId("subcard-menu-git"));
-    fireEvent.click(screen.getByTestId("subcard-menu-item-hide-folder"));
-    expect(send).toHaveBeenCalledWith(expect.objectContaining({ path: CWD }));
-  });
-
-  it("section settings navigates to the folder's cards page", () => {
+  it("Card section defaults… opens the global Session cards defaults in Settings", () => {
     setup();
-    fireEvent.click(screen.getByTestId("subcard-menu-openspec"));
-    fireEvent.click(screen.getByTestId("subcard-menu-item-settings"));
-    expect(window.location.pathname).toMatch(/^\/folder\/[^/]+\/settings\/cards$/);
+    fireEvent.click(screen.getByTestId("session-menu-item-card-defaults"));
+    expect(window.location.pathname).toBe("/settings/general");
   });
 
-  it("Escape closes the menu and returns focus to the trigger", () => {
-    setup();
-    const btn = screen.getByTestId("subcard-menu-git");
-    fireEvent.click(btn);
-    fireEvent.keyDown(screen.getByTestId("subcard-menu-panel-git"), { key: "Escape" });
-    expect(screen.queryByTestId("subcard-menu-panel-git")).toBeNull();
-    expect(document.activeElement).toBe(btn);
+  it("hiding `openspec` / `git` card sections keeps their menu groups", () => {
+    renderCard({ folders: { [CWD]: { openspec: false, git: false } } });
+    fireEvent.click(screen.getByTestId("session-actions-trigger-s1"));
+    expect(screen.getByTestId("session-menu-group-openspec")).toBeTruthy();
+    expect(screen.getByTestId("session-menu-group-git")).toBeTruthy();
   });
 });

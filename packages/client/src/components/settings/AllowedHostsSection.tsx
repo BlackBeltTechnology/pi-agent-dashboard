@@ -49,6 +49,7 @@ const SOURCE_ORDER: HostGateAdmittedSource[] = [
   "public-base-url",
   "cors-origin",
   "live-tunnel",
+  "tls-listener",
   "allowed-host",
 ];
 
@@ -62,6 +63,7 @@ const SOURCE_GROUP: Record<HostGateAdmittedSource, SourceGroup> = {
   "public-base-url": "gateway",
   "cors-origin": "gateway",
   "live-tunnel": "gateway",
+  "tls-listener": "gateway",
   "allowed-host": "additional",
 };
 
@@ -86,6 +88,7 @@ const SOURCE_PAGE: Partial<Record<HostGateAdmittedSource, string>> = {
   "bind-address": "/settings/server",
   "public-base-url": "/settings/gateway",
   "cors-origin": "/settings/gateway",
+  "tls-listener": "/settings/gateway",
 };
 
 /** The pill copy per source (spec wording; the wire token is the key). */
@@ -97,6 +100,7 @@ const SOURCE_LABEL: Record<HostGateAdmittedSource, string> = {
   "public-base-url": "public base URL",
   "cors-origin": "CORS origin",
   "live-tunnel": "live tunnel",
+  "tls-listener": "TLS certificate",
   "allowed-host": "allowed host",
 };
 

@@ -4,6 +4,7 @@
  * See change: surface-operate-required-remedy (test-plan E14).
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { setGlobalApiBase } from "../../api/api-context.js";
 import { fetchVault, fetchVaultProjects } from "../vault-api.js";
 
 const JSON_HEADERS = new Headers({ "content-type": "application/json" });
@@ -117,5 +118,28 @@ describe("fetchVaultProjects", () => {
     expect(res.ok).toBe(true);
     expect(res.data?.open).toHaveLength(1);
     expect((fetch as ReturnType<typeof vi.fn>).mock.calls[0][0]).toBe("/api/vault/projects");
+  });
+});
+
+// ── add-request-access-remedy (test-plan E19) ─────────────────────────────
+describe("E19 VaultResult.base is the request-start base", () => {
+  afterEach(() => setGlobalApiBase(""));
+
+  it("keeps the base the request was sent to, even if the active server changes before the reply", async () => {
+    setGlobalApiBase("http://192.168.16.204:8000");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => {
+        setGlobalApiBase("http://192.168.16.31:8000"); // the user switches server mid-flight
+        return Promise.resolve({ ok: false, status: 403, headers: JSON_HEADERS, json: () => Promise.resolve({ success: false, error: "operate_required", remedies: ["use-host"] }) });
+      }),
+    );
+    const res = await fetchVault();
+    expect(res.base).toBe("http://192.168.16.204:8000");
+  });
+
+  it("is the empty string for the page's own server", async () => {
+    stubFetch(403, { success: false, error: "operate_required", remedies: [] });
+    expect((await fetchVault()).base).toBe("");
   });
 });

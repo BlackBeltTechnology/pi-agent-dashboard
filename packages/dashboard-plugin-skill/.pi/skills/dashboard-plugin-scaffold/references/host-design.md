@@ -77,6 +77,80 @@ unassigned, keeps its last model" (warning pills; `ok` shows nothing). A non-mod
 popover (the model selector) is `role="dialog"` with `aria-modal="false"`, no focus
 trap, Escape closes — the documented exception to the modal-dialog rule.
 
+## Settings sections
+
+Build a `settings-section` body from the runtime field kit
+(`import { … } from "@blackbelt-technology/dashboard-plugin-runtime"`), never
+from native `<input type="checkbox">` / `<select>` or your own label/hint markup:
+
+- Fields: `ToggleField`, `SelectField`, `NumberField`, `TextField`,
+  `TextAreaField`; `FieldShell` wraps a custom control. `hint` is required
+  (`null` = none).
+- Grouping and messages: `SettingsGroup` (collapsible; its summary meta is
+  12 px — the documented exception to the 11 px meta step, because it sits in an
+  interactive summary), `SettingsNotice` (info / warning / error / success; see
+  "Status, notice and action errors" below).
+- Read-only and repeated content:
+  - `SettingsStatusPill` — tone (success / info / warning / error / neutral) +
+    a human word, never a raw enum; icon is decoration (contract row: *status
+    pill*).
+  - `SettingsItem` — one card per profile / instance / server / binding;
+    `collapsible` keeps title and status visible while collapsed.
+  - `SettingsFacts` — read-only term/value `<dl>`.
+  - `SettingsTable` — read-only table that scrolls horizontally.
+- The host chrome already shows the plugin title, id, status and an "Enabled"
+  switch: never repeat them in the body, and never label an in-body switch
+  "Enabled" — name what it controls.
+- Configuration goes through the host Save bar (`useSettingsDraftSource`);
+  only side-effect actions (tokens, Connect, Start/Stop) save immediately, with
+  an error notice scoped to the item that failed.
+
+## Status, notice and action errors
+
+One implementation each, the same for core and plugins — import from
+`@blackbelt-technology/dashboard-plugin-runtime`, never rebuild them:
+
+- **Status pill** — `SettingsStatusPill`. Tone + a human word; the raw state goes
+  in `status` (`data-status`), never in the visible text. Pass `spinning` with
+  `mdiLoading` for an in-progress state (it stops under `prefers-reduced-motion`).
+  The `ui:status-pill` intent primitive renders this same pill. Contract row:
+  *status pill*.
+- **Notice** — `SettingsNotice`. A short title saying what happened, an optional
+  one-sentence why, then `remedies` (icon + sentence rows, links allowed; filter
+  out remedy kinds you do not recognise), then `onRetry` (set `retrying` while it
+  runs: the button disables and the notice reports `aria-busy`) and `details`
+  ("Copy details": codes, HTTP status, bodies and stacks are copied, never
+  rendered). Error tone announces as an alert, the others as a status. Contract
+  row: *notice*.
+- **Inline action error** — `SettingsActionError`. When an action the user can
+  retry in place fails, show one plain sentence directly under the control that
+  failed, point that control's `aria-describedby` at the error's `id` (unique per
+  page), and put server codes in `details`. Do not report it only as a toast.
+  Contract row: *inline action error*.
+
+## Dialogs
+
+Open a dialog with the `ui:dialog` primitive, never a hand-built overlay: it
+supplies the scrim (`--bg-overlay`), the card-recipe panel, the title, the 44 px
+close button, the focus trap and Escape handling. Footer: Cancel, then one action —
+primary (`--accent-solid`) or danger (the `--tint-red-*` triple, never a raw red
+fill). A destructive confirm names every item it affects and starts any risky
+option unchecked. Contract row: *dialog*.
+
+## Overlay pages and slot widgets
+
+- **Overlay page** (`shell-overlay-route`, a full-screen route): receives `onBack`,
+  so always offer a back control; paint on the page surface (`--bg-primary`) and
+  build forms from the settings kit. A failed load is an error notice, not an
+  empty state; show a skeleton while loading. Contract rows: *section heading*,
+  *notice*, *loading / empty / first-run*.
+- **Slot widget** (badges, action-bar buttons, folder and card sections): keep to
+  the slot's compact footprint. A row of one primary text plus trailing chips
+  wraps and truncates the text first (never clips a chip); chips are pills in a
+  severity or tint triple; touch targets are 44 px below `sm`. Pick the slot from
+  `slot-taxonomy.md` before designing. Contract rows: *chip / pill*, *action chip*,
+  *row overflow*.
+
 ## Both modes
 
 Every plugin surface works in dark and light. Check both, plus one non-`base`

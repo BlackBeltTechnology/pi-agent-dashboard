@@ -6,10 +6,12 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { registerBearerAuth } from "../auth/bearer-auth.js";
 import { createNetworkGuard } from "../auth/localhost-guard.js";
+import { liveAcceptLanRequests, liveTrustedNetworks } from "../config-snapshot.js";
 import { PairedDeviceRegistry } from "../pairing/paired-devices.js";
 import { PAIRING_PROTOCOL_VERSION, PairingManager } from "../pairing/pairing.js";
 import { MAX_DEVICE_LABEL_BYTES, registerPairingRoutes } from "../routes/pairing-routes.js";
 import { stampLegacyHook } from "../test-support/local-credential-stamp.js";
+import { type TrustModeHome, useTrustModeHome } from "../test-support/trust-mode-home.js";
 
 let tmpDir: string;
 let clock: number;
@@ -980,5 +982,191 @@ describe("liveKnocks() and onKnockResolved (#E11 #E18)", () => {
     expect(mgr.liveKnocks()).toEqual([]);
     mgr.deny(mgr.listPending()[0].pendingId);
     expect(seen).toEqual([]);
+  });
+});
+
+// ── test-plan #E43: one INVISIBLE_OR_SEPARATOR, shared by the server and the CLI ──
+// See change: fix-pairing-approval-credential (D8, task 3.4).
+/**
+ * @structural-pin single-definition invariant: the shared char class must be defined once and imported by pairing.ts and the CLI; a second regex copy is the failure, and only a source scan can see that
+ */
+describe("INVISIBLE_OR_SEPARATOR single definition (#E43)", () => {
+  const serverSrc = path.resolve(__dirname, "..");
+  const sharedModule = path.resolve(serverSrc, "../../shared/src/terminal-safe.ts");
+  const importsShared = /from\s+"@blackbelt-technology\/pi-dashboard-shared\/terminal-safe\.js"/;
+
+  function productionSources(dir: string, acc: string[] = []): string[] {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) {
+        if (e.name !== "__tests__" && e.name !== "node_modules") productionSources(p, acc);
+      } else if (e.name.endsWith(".ts") && !e.name.endsWith(".test.ts")) acc.push(p);
+    }
+    return acc;
+  }
+
+  it("is defined exactly once, in shared/src/terminal-safe.ts", () => {
+    const defining = [...productionSources(serverSrc), ...productionSources(path.dirname(sharedModule))].filter((f) =>
+      /(?:const|let|var)\s+INVISIBLE_OR_SEPARATOR\b/.test(fs.readFileSync(f, "utf-8")),
+    );
+    expect(defining).toEqual([sharedModule]);
+  });
+
+  it("pairing.ts and cli.ts import it from the shared module instead of redefining it", () => {
+    for (const f of ["pairing/pairing.ts", "cli.ts"]) {
+      const src = fs.readFileSync(path.join(serverSrc, f), "utf-8");
+      expect(src, f).toMatch(importsShared);
+      expect(src, f).not.toMatch(/(?:const|let|var)\s+INVISIBLE_OR_SEPARATOR\b/);
+    }
+  });
+});
+
+// ── Configured networks extend knock eligibility (test-plan #E19) ────────────
+// The REAL `POST /api/pair/request` route, wired like `server.ts`: the knock
+// list branch reads the RAW configured list (`liveTrustedNetworks`) and the
+// setting reads `liveAcceptLanRequests`, both through a temp-HOME config.json.
+// Eligibility is independent of the trust mode (both are exercised) and
+// authenticates nothing. See change: retire-trusted-networks-bypass (D7).
+describe("E19 — configured networks extend knock eligibility", () => {
+  const LAN_IFACES = [{ address: "192.168.16.204", netmask: "255.255.255.0" }];
+  let th: TrustModeHome;
+  beforeEach(() => {
+    th = useTrustModeHome();
+  });
+  afterEach(() => {
+    th.restore();
+  });
+
+  async function knockApp() {
+    const { mgr, reg } = mkManager();
+    const app = Fastify();
+    openApps.push(app);
+    registerPairingRoutes(app, {
+      networkGuard: createNetworkGuard([]),
+      identity: { fingerprint: "sha256:test-fp" } as never,
+      pairing: mgr,
+      registry: reg,
+      hostAdmission: () => ({
+        allowedHosts: [],
+        publicBaseUrls: [],
+        configuredOrigins: [],
+        getLiveTunnelOrigins: () => [],
+        bindHost: "localhost",
+      }),
+      getAcceptLanRequests: liveAcceptLanRequests,
+      getLanInterfaces: () => LAN_IFACES,
+      getKnockEligibleNetworks: () => liveTrustedNetworks([]),
+    });
+    await app.ready();
+    return { app, mgr, reg };
+  }
+
+  const knock = (app: FastifyInstance, ip: string, headers: Record<string, string> = {}) =>
+    app.inject({
+      method: "POST",
+      url: "/api/pair/request",
+      remoteAddress: ip,
+      headers: { "content-type": "application/json", ...headers },
+      payload: { name: "phone" },
+    });
+
+  const cfg = (mode: string, trustedNetworks: string[], acceptLanRequests = true) =>
+    th.setTrustConfig({ trustMode: mode, trustedNetworks, extra: { pairing: { acceptLanRequests } } });
+
+  describe.each(["pair", "legacy"] as const)("trust mode %s", (mode) => {
+    it("listed public peer 198.51.100.7 → pending device, no bearer until the operator approves", async () => {
+      cfg(mode, ["198.51.100.0/24"]);
+      const { app, mgr, reg } = await knockApp();
+      const res = await knock(app, "198.51.100.7");
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.success).toBe(true);
+      expect(typeof body.data.pendingId).toBe("string");
+      expect(JSON.stringify(body)).not.toMatch(/token|bearer/i);
+      // Pending, not paired: no device exists and polling yields no token.
+      expect(reg.list()).toHaveLength(0);
+      expect(mgr.listPending().map((p) => p.provenance)).toEqual(["knock"]);
+      expect(mgr.poll(body.data.pendingId).status).not.toBe("approved");
+      // The typed-confirm approval is still the only way to a bearer.
+      const [pending] = mgr.listPending();
+      expect(pending.remoteAddress).toBe("198.51.100.7");
+    });
+
+    it("unlisted public peer 203.0.113.9 → knock_not_lan", async () => {
+      cfg(mode, ["198.51.100.0/24"]);
+      const { app, mgr } = await knockApp();
+      const res = await knock(app, "203.0.113.9");
+      expect(res.statusCode).toBe(403);
+      expect(res.json()).toMatchObject({ success: false, error: "knock_not_lan" });
+      expect(mgr.listPending()).toHaveLength(0);
+    });
+
+    it("listed peer carrying X-Forwarded-For → knock_not_lan", async () => {
+      cfg(mode, ["198.51.100.0/24"]);
+      const { app } = await knockApp();
+      const res = await knock(app, "198.51.100.7", { "x-forwarded-for": "198.51.100.7" });
+      expect(res.statusCode).toBe(403);
+      expect(res.json().error).toBe("knock_not_lan");
+    });
+
+    it.each([
+      ["0.0.0.0/0"],
+      ["::/0"],
+      ["*.*.*.*"],
+    ])("match-all entry %s + public peer 203.0.113.9 → knock_not_lan", async (entry) => {
+      cfg(mode, [entry]);
+      const { app } = await knockApp();
+      const res = await knock(app, "203.0.113.9");
+      expect(res.statusCode).toBe(403);
+      expect(res.json().error).toBe("knock_not_lan");
+    });
+
+    it("127.0.0.0/8 listed, peer 127.0.0.1 + X-Forwarded-For (relayed loopback) → refused", async () => {
+      cfg(mode, ["127.0.0.0/8"]);
+      const { app, mgr } = await knockApp();
+      const res = await knock(app, "127.0.0.1", { "x-forwarded-for": "192.168.16.31" });
+      expect(res.statusCode).toBe(403);
+      expect(res.json().error).toBe("knock_not_lan");
+      expect(mgr.listPending()).toHaveLength(0);
+    });
+
+    it("setting off + listed peer → knock_disabled (the list never bypasses the switch)", async () => {
+      cfg(mode, ["198.51.100.0/24"], false);
+      const { app, mgr } = await knockApp();
+      const res = await knock(app, "198.51.100.7");
+      expect(res.statusCode).toBe(403);
+      expect(res.json().error).toBe("knock_disabled");
+      expect(mgr.listPending()).toHaveLength(0);
+    });
+
+    it("setting off + UNlisted public peer → knock_not_lan, never knock_disabled (off-link learns nothing)", async () => {
+      cfg(mode, ["198.51.100.0/24"], false);
+      const { app } = await knockApp();
+      const res = await knock(app, "203.0.113.9");
+      expect(res.json().error).toBe("knock_not_lan");
+    });
+  });
+
+  it("a second knock from the same listed peer is still one-live-per-source (other gates unchanged)", async () => {
+    cfg("pair", ["198.51.100.0/24"]);
+    const { app } = await knockApp();
+    expect((await knock(app, "198.51.100.7")).statusCode).toBe(200);
+    const again = await knock(app, "198.51.100.7");
+    expect(again.statusCode).toBe(409);
+    expect(again.json().error).toBe("knock_pending");
+  });
+
+  it("the list is read live: an entry added after boot applies to the next knock", async () => {
+    cfg("pair", []);
+    const { app } = await knockApp();
+    expect((await knock(app, "198.51.100.7")).json().error).toBe("knock_not_lan");
+    cfg("pair", ["198.51.100.0/24"]);
+    expect((await knock(app, "198.51.100.7")).statusCode).toBe(200);
+  });
+
+  it("a default private on-link peer keeps knocking with an empty list (private-range branch unchanged)", async () => {
+    cfg("pair", []);
+    const { app } = await knockApp();
+    expect((await knock(app, "192.168.16.31")).statusCode).toBe(200);
   });
 });

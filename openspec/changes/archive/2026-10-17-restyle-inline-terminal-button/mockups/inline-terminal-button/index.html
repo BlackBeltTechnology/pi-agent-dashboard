@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="hu" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mockup — Open inline terminal gomb</title>
+<!-- ponytail: tokens copied from packages/client/src/index.css (base dark/light) + themes.ts (dracula dark). Mockup only, not shipped. -->
+<style>
+  :root,[data-theme="dark"]{--bg-primary:#0a0a0a;--bg-secondary:#141414;--bg-tertiary:#1e1e1e;--bg-hover:rgba(255,255,255,.06);--text-primary:#e5e5e5;--text-secondary:#b0b0b0;--text-tertiary:#919191;--text-muted:#585858;--border-primary:#252525;--border-secondary:#333;--border-subtle:rgba(255,255,255,.06);--accent:#3b82f6;--accent-primary:#3b82f6;--accent-solid:#2563eb;--accent-green:#22c55e;--accent-green-text:#22c55e}
+  [data-theme="light"]{--bg-primary:#fff;--bg-secondary:#fafafa;--bg-tertiary:#f0f0f0;--bg-hover:rgba(0,0,0,.04);--text-primary:#1a1a1a;--text-secondary:#444;--text-tertiary:#636363;--text-muted:#aaa;--border-primary:#e0e0e0;--border-secondary:#ccc;--border-subtle:rgba(0,0,0,.06);--accent:#2563eb;--accent-primary:#2563eb;--accent-solid:#2563eb;--accent-green:#22c55e;--accent-green-text:#147237}
+  [data-theme="dracula"]{--bg-primary:#282a36;--bg-secondary:#21222c;--bg-tertiary:#343746;--bg-hover:rgba(255,255,255,.08);--text-primary:#f8f8f2;--text-secondary:#ccc9e7;--text-tertiary:#aeb6d0;--text-muted:#4d5681;--border-primary:#343746;--border-secondary:#44475a;--border-subtle:rgba(255,255,255,.08);--accent:#bd93f9;--accent-primary:#bd93f9;--accent-solid:#6d4fc2;--accent-green:#50fa7b;--accent-green-text:#50fa7b}
+
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg-primary);color:var(--text-primary);font:14px/1.45 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+  header{position:sticky;top:0;z-index:5;display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;padding:12px 20px;background:var(--bg-secondary);border-bottom:1px solid var(--border-primary)}
+  header h1{font-size:15px;margin:0}
+  .seg{display:inline-flex;border:1px solid var(--border-secondary);border-radius:8px;overflow:hidden}
+  .seg button{background:none;border:0;color:var(--text-tertiary);padding:6px 10px;font:inherit;font-size:12px;cursor:pointer}
+  .seg button[aria-pressed="true"]{background:color-mix(in srgb,var(--accent-primary) 18%,transparent);color:var(--text-primary)}
+  main{max-width:1100px;margin:0 auto;padding:20px;display:grid;gap:20px}
+  section{background:var(--bg-secondary);border:1px solid var(--border-primary);border-radius:12px;padding:16px}
+  section h2{margin:0 0 4px;font-size:14px}
+  section p{margin:0 0 12px;color:var(--text-tertiary);font-size:12.5px}
+  .tag{display:inline-block;font-size:10px;text-transform:uppercase;letter-spacing:.06em;padding:1px 6px;border-radius:4px;border:1px solid var(--accent);color:var(--text-primary);margin-left:6px;vertical-align:2px}
+  .widths{display:grid;grid-template-columns:1fr;gap:12px}
+
+  .lbl{font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px}
+
+  /* composer replica (CommandInput.tsx composer-card) */
+  .card{container-type:inline-size;background:var(--bg-tertiary);border:1px solid var(--border-secondary);border-radius:12px;padding:8px 10px 6px}
+  .card:focus-within{border-color:var(--accent)}
+  .row{display:flex;align-items:flex-end;gap:6px}
+  .row.settings{align-items:center}
+  textarea{flex:1;min-width:0;min-height:38px;max-height:120px;resize:none;border:0;outline:0;background:transparent;color:var(--text-primary);font:inherit;padding:4px 6px}
+  textarea::placeholder{color:var(--text-muted)}
+  .hr{height:1px;background:var(--border-subtle);margin:4px 0}
+  .spacer{flex:1}
+  svg{width:var(--s,17px);height:var(--s,17px);fill:currentColor;flex:none}
+  button{font:inherit}
+  :focus-visible{outline:2px solid var(--accent-primary);outline-offset:2px}
+  .ghost{display:inline-flex;align-items:center;justify-content:center;width:34px;height:30px;border:0;border-radius:8px;background:none;color:var(--text-secondary);cursor:pointer}
+  .ghost:hover{background:var(--bg-hover)}
+  .send{display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;border:0;border-radius:8px;background:var(--accent-solid);color:#fff;cursor:pointer}
+  .chip{display:inline-flex;align-items:center;gap:5px;height:30px;padding:0 8px;border:1px solid var(--border-secondary);border-radius:8px;background:none;color:var(--text-tertiary);font-size:11px;cursor:pointer;white-space:nowrap}
+  .chip:hover{background:var(--bg-hover);color:var(--text-primary)}
+  .model{color:var(--text-secondary)}
+  .delivery{display:inline-flex;height:30px;border:1px solid var(--border-secondary);border-radius:8px;overflow:hidden}
+  .delivery span{display:inline-flex;align-items:center;gap:4px;padding:0 8px;font-size:11px;color:var(--text-tertiary)}
+  .delivery span.on{background:color-mix(in srgb,var(--accent-primary) 18%,transparent);color:var(--text-primary)}
+
+  @container (min-width:44rem){.wide-only{display:inline-flex}.narrow-only{display:none}}
+
+  kbd{font:10px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--text-tertiary);border:1px solid var(--border-secondary);border-bottom-width:2px;border-radius:4px;padding:0 4px;line-height:14px}
+  /* C — outlined 44px square, same height as send */
+  .sq{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border:1px solid var(--border-secondary);border-radius:8px;background:var(--bg-secondary);color:var(--text-secondary);cursor:pointer}
+  .sq:hover{border-color:var(--text-tertiary);color:var(--text-primary)}
+  /* D — mono prompt chip */
+  .term{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--text-secondary);background:color-mix(in srgb,var(--accent-green) 6%,transparent);border-color:color-mix(in srgb,var(--accent-green) 28%,var(--border-secondary))}
+  .term b{color:var(--accent-green-text);font-weight:600}
+  .term:hover{background:color-mix(in srgb,var(--accent-green) 12%,transparent);color:var(--text-primary)}
+  .wide-only{display:none!important}
+  @container (min-width:44rem){.wide-only{display:inline-flex!important}}
+  .states{display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start;margin-top:12px;font-size:11px;color:var(--text-tertiary)}
+  .states > div{display:flex;flex-direction:column;gap:4px;align-items:flex-start}
+  .is-hover{background:var(--bg-hover)!important;color:var(--text-primary)!important}
+  .is-focus{outline:2px solid var(--accent-primary);outline-offset:2px}
+  [disabled]{opacity:.5;cursor:not-allowed}
+</style>
+</head>
+<body>
+<svg style="display:none">
+  <symbol id="i-console" viewBox="0 0 24 24"><path d="M20,19V7H4V19H20M20,3A2,2 0 0,1 22,5V19A2,2 0 0,1 20,21H4A2,2 0 0,1 2,19V5A2,2 0 0,1 4,3H20M13,17V15H18V17H13M9.58,13L5.57,9H8.4L11.7,12.3C12.09,12.69 12.09,13.33 11.7,13.72L8.42,17H5.59L9.58,13Z"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M3 20V4L22 12M5 17L16.85 12L5 7V10.5L11 12L5 13.5M5 17V7 10.5 13.5Z"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z"/></symbol>
+  <symbol id="i-flag" viewBox="0 0 24 24"><path d="M14.4,6L14,4H5V21H7V14H12.6L13,16H20V6H14.4Z"/></symbol>
+  <symbol id="i-queue" viewBox="0 0 24 24"><path d="M3 16H10V14H3M18 14V10H16V14H12V16H16V20H18V16H22V14M14 6H3V8H14M14 10H3V12H14V10Z"/></symbol>
+  <symbol id="i-dots" viewBox="0 0 24 24"><path d="M16,12A2,2 0 0,1 18,10A2,2 0 0,1 20,12A2,2 0 0,1 18,14A2,2 0 0,1 16,12M10,12A2,2 0 0,1 12,10A2,2 0 0,1 14,12A2,2 0 0,1 12,14A2,2 0 0,1 10,12M4,12A2,2 0 0,1 6,10A2,2 0 0,1 8,12A2,2 0 0,1 6,14A2,2 0 0,1 4,12Z"/></symbol>
+</svg>
+
+<header>
+  <h1>Open inline terminal — gomb redesign (mockup)</h1>
+  <div class="seg" role="group" aria-label="Téma">
+    <button aria-pressed="true" data-t="dark">Base dark</button>
+    <button aria-pressed="false" data-t="light">Base light</button>
+    <button aria-pressed="false" data-t="dracula">Dracula</button>
+  </div>
+</header>
+<main></main>
+
+<template id="settings">
+  <div class="hr"></div>
+  <div class="row settings">
+    <button class="ghost" aria-label="Attach"><svg style="--s:20px"><use href="#i-plus"/></svg></button>
+    <button class="chip model">claude-opus-4 ▾</button>
+    <button class="chip wide-only">high ▾</button>
+    <div class="delivery wide-only"><span class="on"><svg style="--s:12px"><use href="#i-flag"/></svg>Steer</span><span><svg style="--s:12px"><use href="#i-queue"/></svg>Queue</span></div>
+    <!--SETTINGS_TERM-->
+    <span class="spacer"></span>
+    <button class="ghost narrow-only" aria-label="More"><svg><use href="#i-dots"/></svg></button>
+  </div>
+</template>
+
+<script>
+const V = [
+  { id:"A", title:"A — Jelenlegi (baseline)", note:"34×30 ikon-gomb keret nélkül, a 44px-es Send mellett lebeg: eltérő magasság és súly, nem látszik, hogy kattintható.",
+    input:`<button class="ghost wide-only" aria-label="Open inline terminal" title="Open inline terminal"><svg><use href="#i-console"/></svg></button>`, settings:"" },
+  { id:"B", title:"B — Címkés chip a settings sorban", rec:true, note:"Átkerül a beállítás-sorba a Steer|Queue után, ugyanazzal a 30px-es keretes chip-nyelvvel. Ikon + szöveg → felfedezhető. Az input sorban csak a Send marad. Keskeny nézetben a ⋯ menübe kerül (mint most).",
+    input:"", settings:`<button class="chip wide-only" aria-label="Open inline terminal" title="Open inline terminal"><svg style="--s:14px"><use href="#i-console"/></svg>Terminal</button>` },
+  { id:"C", title:"C — Keretes 44px négyzet a Send mellett", note:"Helyben marad, de Send-del azonos 44×44 méret + keret → a két gomb egy vizuális csoport: másodlagos (outline) vs elsődleges (solid).",
+    input:`<button class="sq wide-only" aria-label="Open inline terminal" title="Open inline terminal"><svg style="--s:18px"><use href="#i-console"/></svg></button>`, settings:"" },
+  { id:"D", title:"D — Monospace prompt chip", note:"Settings sorban, terminál-karakterű chip: zöld ›_ prompt, enyhe zöld tint (color-mix tokenekből). Erősebb identitás, de egy újabb szín a sorban.",
+    input:"", settings:`<button class="chip term wide-only" aria-label="Open inline terminal" title="Open inline terminal"><b>›_</b>terminal</button>` },
+];
+const tpl = document.getElementById("settings").innerHTML;
+const composer = (v, w) => `
+  <div><div class="lbl">${w}px konténer</div>
+  <div class="card" style="width:${w}px;max-width:100%">
+    <div class="row">
+      <textarea rows="1" placeholder="Message, /command, !shell, or @file..."></textarea>
+      ${v.input}
+      <button class="send" aria-label="Send"><svg style="--s:19px"><use href="#i-send"/></svg></button>
+    </div>
+    ${tpl.replace("<!--SETTINGS_TERM-->", v.settings)}
+  </div></div>`;
+const states = v => {
+  const src = (v.input || v.settings).replace(" wide-only", "");
+  const mk = cls => src.replace('class="', `class="${cls} `);
+  return `<div class="states"><div>default${src}</div><div>hover${mk("is-hover")}</div><div>focus${mk("is-focus")}</div><div>disabled${src.replace("<button", "<button disabled")}</div></div>`;
+};
+document.querySelector("main").innerHTML = V.map(v => `
+  <section aria-labelledby="h${v.id}">
+    <h2 id="h${v.id}">${v.title}${v.rec ? '<span class="tag">javasolt</span>' : ""}</h2>
+    <p>${v.note}</p>
+    <div class="widths">${composer(v, 760)}${composer(v, 380)}</div>
+    ${states(v)}
+  </section>`).join("");
+const setT = t => { document.documentElement.dataset.theme = t; document.querySelectorAll("header .seg button").forEach(x => x.setAttribute("aria-pressed", x.dataset.t === t)); };
+document.querySelectorAll("header .seg button").forEach(b => b.onclick = () => setT(b.dataset.t));
+setT(new URLSearchParams(location.search).get("t") || "dark");
+</script>
+</body>
+</html>

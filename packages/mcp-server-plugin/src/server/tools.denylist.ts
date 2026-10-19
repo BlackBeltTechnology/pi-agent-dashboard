@@ -30,6 +30,7 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "/api/live-server/", reason: "live-server preview UI" },
   { pattern: "/api/node/", reason: "node runtime UI" },
   { pattern: "/api/preferences/", reason: "UI preferences" },
+  { pattern: "/api/addons/", reason: "Add-ons hub catalog + combined feature toggle (rewrites ~/.pi/agent/settings.json packages[]); Settings UI-only. See change: addons-hub-feature-catalog" },
   { pattern: "/api/packages/health", reason: "packages[] rot diagnostics; Settings UI-only. See change: add-package-health-cleanup" },
   { pattern: "/api/packages/cleanup", reason: "rewrites ~/.pi/agent/settings.json packages[]; user-mediated Settings UI-only. See change: add-package-health-cleanup" },
   { pattern: "/api/grammar/", reason: "UI-only" },
@@ -42,6 +43,8 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "/api/acp/", reason: "ACP new-session picker agent list; UI-only" },
   // add-server-push-notifications (Decision 12).
   { pattern: "/api/push/", reason: "push management is UI/REST-only in v1" },
+  // add-tailscale-cert-tls: operator "issue now" for the built-in HTTPS listener; Gateway UI-only.
+  { pattern: "/api/tls/", reason: "TLS certificate issue trigger; Gateway UI-only (operator action on a network-facing listener)" },
   // Access-grant review + creation (change: add-access-grants-and-review). The
   // tab is a local operator surface, and `POST /api/access/grants` is a
   // TRUST-WIDENING action bound to a denial the operator saw (design D12/D15).
@@ -61,6 +64,8 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "/api/plugins/skill-atlas/", reason: "derived UI view over getpi_resources (skill relation graph); agents read skills directly" },
   { pattern: "/api/plugins/team/", reason: "per-user team app API (personas, projects, conversations); owner-gated, UI-only" },
   { pattern: "/api/plugins/gmail/", reason: "Google account sign-in, levels and revoke; credential-bearing, UI-only" },
+  // add-obs-studio-plugin: mirrors /api/services.
+  { pattern: "/api/plugins/obs-studio/", reason: "desktop/webcam pixels and live-production toggles; UI and CLI only" },
   { pattern: "/api/system-one/", reason: "decision-model config, key entry and managed-process control; UI-only" },
   { pattern: "/api/plugins/hermes-memory/", reason: "plugin-internal config" },
   { pattern: "/api/plugins/context-mode-settings/", reason: "plugin-internal config; writes a file under ~/.pi and alters session env" },
@@ -102,6 +107,7 @@ export const DENYLIST: readonly DenylistEntry[] = [
   // add-project-scoped-apps: backs the client folder-project cache (claim predicates); not an LLM action.
   { pattern: "/api/folder/project", reason: "UI-only: folder project identity for claim predicates" },
   { pattern: "/api/diagram/render", reason: "UI-only" },
+  { pattern: "/api/mermaid/repair", reason: "UI-only; one-click AI repair of a rendered diagram. See change: add-mermaid-ai-repair" },
   { pattern: "/api/host-gate", reason: "host admission internals" },
   { pattern: "/api/network-interfaces", reason: "fleet enumeration UI" },
   { pattern: "/api/auto-name-outcomes", reason: "UI diagnostics" },
@@ -120,6 +126,12 @@ export const DENYLIST: readonly DenylistEntry[] = [
   // add-pending-question-stack: answers stay human-in-the-loop.
   { pattern: "/api/questions", reason: "agent prompt answers stay human-in-the-loop; follow-up" },
   { pattern: "/api/questions/", reason: "agent prompt answers stay human-in-the-loop; follow-up" },
+  { pattern: "browser_host_connect_result", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
+  { pattern: "browser_host_ext_close", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
+  { pattern: "browser_host_ext_data", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
+  { pattern: "browser_host_ext_open", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
+  { pattern: "browser_host_hello", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
+  { pattern: "browser_host_register", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "browser_relay_input", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "browser_relay_subscribe", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "browser_relay_unsubscribe", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },

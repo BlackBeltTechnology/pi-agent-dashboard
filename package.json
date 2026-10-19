@@ -75,6 +75,7 @@
     "clean:memory:write": "node scripts/prune-memory-backups.mjs --write",
     "i18n:parity": "node scripts/i18n-parity.mjs",
     "i18n:lint": "node scripts/i18n-lint.mjs",
+    "settings-kit:guard": "node scripts/settings-kit-guard.mjs",
     "lint": "node scripts/tsc7.mjs --noEmit",
     "lint:e2e": "node scripts/tsc7.mjs -p tests/tsconfig.json --noEmit && node scripts/check-e2e-fixture-import.mjs",
     "lint:biome": "biome lint .",
@@ -132,7 +133,7 @@
     "@biomejs/biome": "2.5.11",
     "@blackbelt-technology/pi-dashboard-bus-client": "^0.9.0",
     "@blackbelt-technology/pi-dashboard-shared": "^0.9.0",
-    "@earendil-works/pi-ai": "^1.1.0",
+    "@earendil-works/pi-ai": "^1.3.0",
     "@playwright/test": "1.62.1",
     "@types/node": "^26.4.0",
     "@vitest/coverage-v8": "4.1.11",
@@ -150,9 +151,9 @@
     "yaml": "^2.9.0"
   },
   "peerDependencies": {
-    "@earendil-works/pi-ai": ">=1.1.0",
-    "@earendil-works/pi-coding-agent": ">=1.1.0",
-    "@earendil-works/pi-tui": ">=1.1.0",
+    "@earendil-works/pi-ai": ">=1.3.0",
+    "@earendil-works/pi-coding-agent": ">=1.3.0",
+    "@earendil-works/pi-tui": ">=1.3.0",
     "typebox": ">=1.3.6"
   },
   "peerDependenciesMeta": {

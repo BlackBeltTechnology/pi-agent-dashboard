@@ -1,5 +1,7 @@
 # faq.md — index
 
+Gains "How do I enable the pi-spec-driven workflow schema?": Settings → OpenSpec → OpenSpec Workflow Schema; written paths (schema dir, change pins, config `schema:`); refusal conditions; Disable/Update/Remove; `openspec.workflowSchema.defaultForNewProjects`. See change: add-pi-spec-driven-schema.
+
 Recurring how-to + troubleshooting questions. Caveman style. Cross-refs README.md + docs/. Topics: media preview (PDF/video/AsciiDoc/YouTube); install paths (Electron/pi package/source, Windows Setup.exe/.zip/tarball/air-gapped); server start/daemon/status/auto-start; config; LAN exposure + pairing; OAuth; zrok tunnel + watchdog; headless-vs-tmux + session-type spawn; release/build/auto-update; npm Trusted Publishers; plugin architecture/slots; Electron native surfaces (tray, Doctor, white-screen VM, bundled native modules, `__dirname`, Vite main+preload); session-resume + spawn troubleshooting (Windows ENOENT, long paths, Gemini subagents, Node version updates); global-skill project disable persistence (file re-declare + anchored glob, session-start resolve, trust prompt, unparseable settings 409). trusted-network-vs-bind reachability (bind host voids trust; Tailscale `100.64.0.0/10` offer instead of `<self>/32`). Apple tools via iMCP + pi built-in MCP (Calendar/Contacts/Reminders, no Mail service). Connecting Claude Code / Cursor to dashboard MCP (Settings → Security → Paired Devices token mint, snippet, tunnel reachability, shell history hazard, legacy vs modern streaming capability, shutdown DELETE 405). See change: mcp-legacy-clients-and-token-issuance.
 
 Gains "Why does /ctx-stats work in some sessions but not others?" gate removed: dispatch ungated (pi 1.0.0 lockstep floor); below-floor pi → generic `piBelowFloor` warning on session card + chat header, not a per-feature error. Terminal `/reload` self-dispatch also ungated. See change: update-pi-core-1-0-adopt-apis.
@@ -26,6 +28,14 @@ See change: streamline-first-run. Claude tool-call fallback / peer auto-install 
 
 Gains "How do I pair a LAN device without TLS?" → opt-in knock: Gateway switch, `/pair?request`, code typed on dashboard machine, unencrypted-bearer caveat, refusal codes, bridge-container pointer. See change: add-lan-knock-pairing.
 
+Gains "Why is my project `mcp.json` server ignored (inactive) in a folder?" → project layer trusted-folders only (`project-not-trusted`). Two stores: pi `trust.json` vs dashboard mirror. Decision order (`decidePiTrust`), who-trusts views, reason codes, identity-mismatch fail-closed, `piTrustMirror` config, rollback. See change: mirror-dashboard-trust-to-pi.
+
+Gains browser-E2E baseline section: #683 quarantine re-derive commands, cluster → owner change map, unquarantine rule (CANDIDATE clusters only), trust isolation (`narrowTrust`, scopes, refusal latch, fault specs), `OffBoxError` message. See change: triage-browser-e2e-offbox-poison.
+
 ## Change history (moved from docs/AGENTS.md row)
 
 See change: add-acp-session-driver, electron-runtime-overlay-updates, update-pi-core-1-0-adopt-apis, migrate-mcp-to-pi-builtin. host-gate default enforce; pairing revoke/approve operator-only. See change: harden-server-request-surfaces. `local_proof_required` FAQ. See change: harden-trust-and-credential-boundaries. Plugin-config partial write keeps omitted keys. See change: fix-plugin-config-partial-write. Gains TS-loader FAQ: PI_DASHBOARD_TS_LOADER no-longer-supported + booted-under-jiti warns → pi-dashboard stop && pi-dashboard start. See change: strip-only-native-ts-loader.
+
+Gains LAN trust-mode FAQ: `network.trustMode` `pair`/`legacy` decision at first boot, `pair` knock eligibility, `legacy` network-only banner, rollback. Gains "Why does a live preview URL carry `/~c/<token>/`?" → per-preview capability, lifetimes, credential stripping. Pair-mode notes on tunnel/tailnet, plugin 403, CORS-blocked, knock refusals. See change: retire-trusted-networks-bypass.
+
+Gains "HTTPS on the tailnet (built-in TLS listener)": enable steps (Tailscale HTTPS Certificates, Gateway → Built-in HTTPS, Listen on Tailscale IPv4, connect by MagicDNS name), CT-log disclosure, pair-not-sign-in, `pi_dash_device` Secure cookie → TLS origin, rollback = switch off. See change: add-tailscale-cert-tls.

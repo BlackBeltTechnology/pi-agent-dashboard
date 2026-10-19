@@ -11,6 +11,10 @@ Plugin loader, slot registry, slot consumers, plugin context API, and Vite plugi
 | `@blackbelt-technology/dashboard-plugin-runtime/server` | Loader, `ServerPluginContext`, config validator |
 | `@blackbelt-technology/dashboard-plugin-runtime/vite-plugin` | `viteDashboardPluginsPlugin` |
 
+### Secure-context helpers
+
+`randomUuid()` and `copyText(text)` (barrel export) work on plain-http LAN origins, where `crypto.randomUUID` and `navigator.clipboard` are undefined. Plugins MUST use them instead of the bare APIs (enforced by a scan test). First carried by runtime version 0.9.1 (the release after 0.9.0); a plugin adopting them must raise its runtime floor to that release. See change: audit-plugin-bundles-non-secure-context.
+
 **Plugins MUST only import from these public paths.** Importing from `packages/client/`, `packages/server/`, or any other internal package is banned and will fail the lint suite.
 
 ## Minimum manifest

@@ -10,20 +10,33 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuditRing } from "../audit.js";
+import type { OperatorHostInfo } from "../operator-hosts.js";
 import type { ProfileListResult } from "../profiles.js";
-import type { BrowserProfileConfig, ConnectResult, RelayConfig, RelayLike } from "../relay/relay-manager.js";
+import type {
+  BrowserProfileConfig,
+  ConnectResult,
+  DedicatedConnectResult,
+  DedicatedOpenResult,
+  DedicatedResetResult,
+  DedicatedStatusBody,
+  RelayConfig,
+  RelayLike,
+} from "../relay/relay-manager.js";
 import { type BrowserRoutesManager, registerBrowserRoutes } from "../routes.js";
 
 class StubInstance implements RelayLike {
   readonly instanceId: string;
   readonly profileDirectory: string;
+  readonly host: string;
 
   constructor(
     instanceId: string,
     profileDirectory: string,
+    host = "dashboard",
   ) {
     this.instanceId = instanceId;
     this.profileDirectory = profileDirectory;
+    this.host = host;
   }
   tabList() {
     return [{ tabId: 5, title: "A", url: "https://a.test", state: "live" as const }];
@@ -46,6 +59,7 @@ class StubManager implements BrowserRoutesManager {
   enabled = true;
   connectResult: ConnectResult = { ok: true, cdpUrl: "ws://127.0.0.1:8000/ws/browser-cdp/x", instanceId: "inst-1" };
   connectCalls: string[] = [];
+  connectHosts: Array<string | undefined> = [];
   disconnectResult = true;
   disconnectCalls: string[] = [];
   setEnabledCalls: boolean[] = [];
@@ -53,8 +67,19 @@ class StubManager implements BrowserRoutesManager {
   /** The token lives here; it must never surface in a response. */
   readonly tokens: Record<string, string | undefined> = { Default: "super-secret-token" };
 
-  async connect(profileDirectory: string): Promise<ConnectResult> {
+  readonly hostRows: OperatorHostInfo[] = [];
+  readonly deletedPins: string[] = [];
+  readonly hosts = {
+    list: (): OperatorHostInfo[] => this.hostRows,
+    deletePin: (hostId: string): boolean => {
+      this.deletedPins.push(hostId);
+      return true;
+    },
+  };
+
+  async connect(profileDirectory: string, host?: string): Promise<ConnectResult> {
     this.connectCalls.push(profileDirectory);
+    this.connectHosts.push(host);
     return this.connectResult;
   }
   disconnect(instanceId: string): boolean {
@@ -69,8 +94,25 @@ class StubManager implements BrowserRoutesManager {
       ? this.instancesList
       : this.instancesList.filter((i) => i.profileDirectory === profileDirectory);
   }
+  instancesOn(host: string, profileDirectory?: string): RelayLike[] {
+    return this.instances(profileDirectory).filter((i) => (i.host ?? "dashboard") === host);
+  }
   profileConfig(profileDirectory: string): BrowserProfileConfig {
     return { token: this.tokens[profileDirectory] };
+  }
+  // Dedicated agent browser: exercised against the real manager in routes-dedicated.test.ts.
+  async connectDedicated(): Promise<DedicatedConnectResult> {
+    return { ok: false, status: 503, reason: "no-chrome" };
+  }
+  async openDedicated(): Promise<DedicatedOpenResult> {
+    return { ok: false, status: 503, reason: "no-chrome" };
+  }
+  async stopDedicated(): Promise<void> {}
+  async resetDedicated(): Promise<DedicatedResetResult> {
+    return { ok: true };
+  }
+  async dedicatedStatus(): Promise<DedicatedStatusBody | undefined> {
+    return undefined;
   }
 }
 
@@ -83,7 +125,7 @@ interface Harness {
   setProfiles(result: ProfileListResult): void;
 }
 
-async function harness(): Promise<Harness> {
+async function harness(fastifyOpts: { connectionTimeout?: number } = {}): Promise<Harness> {
   const manager = new StubManager();
   const audit = new AuditRing();
   const config: RelayConfig = {
@@ -97,7 +139,7 @@ async function harness(): Promise<Harness> {
       { profileDirectory: "Profile 1", label: "Work", installed: false },
     ],
   };
-  const app = Fastify();
+  const app = Fastify(fastifyOpts);
   registerBrowserRoutes(app, {
     manager,
     audit,
@@ -125,7 +167,21 @@ describe("GET /api/browser/status", () => {
   it("reports enabled + canOpenChrome", async () => {
     const res = await h.app.inject({ method: "GET", url: "/api/browser/status" });
     expect(res.statusCode).toBe(200);
-    expect(json(res)).toEqual({ enabled: true, canOpenChrome: true });
+    // Spec delta add-dedicated-agent-browser: `status` also carries the effective Agent browsing `settings`
+    // (and `dedicated` when wired — the stub manager has none).
+    expect(json(res)).toEqual({
+      enabled: true,
+      canOpenChrome: true,
+      operatorHosts: true,
+      settings: {
+        defaultBrowser: "@dedicated",
+        onUnavailable: "ask",
+        idleDisconnectMinutes: 30,
+        allowMultipleInstancesPerProfile: false,
+        openLiveViewOnConnect: true,
+        allowedDomains: [],
+      },
+    });
   });
 });
 
@@ -167,6 +223,119 @@ describe("GET /api/browser/profiles", () => {
     h.setProfiles({ profiles: [{ profileDirectory: "Default", label: "Default", installed: true }], warning: "/x/Local State" });
     const res = await h.app.inject({ method: "GET", url: "/api/browser/profiles" });
     expect(json<{ warning?: string }>(res).warning).toBe("/x/Local State");
+  });
+});
+
+/** Operator hosts on the REST surface (change: add-operator-browser-relay, tasks 7.5 / 2.28 / #E28 #E30). */
+describe("operator hosts over REST", () => {
+  const HOST = `host-${"a".repeat(32)}`;
+  const hostRow = (): OperatorHostInfo => ({
+    hostId: HOST,
+    label: "mac-home",
+    platform: "darwin",
+    online: true,
+    canOpenChrome: true,
+    profiles: [
+      { profileDirectory: "Default", label: "Me", email: "me@x.test", installed: true },
+      { profileDirectory: "Profile 9", label: "Other", installed: false },
+    ],
+  });
+
+  it("no hosts: profiles.operatorHosts is [] and status says operatorHosts:true", async () => {
+    const body = json<{ operatorHosts: unknown[] }>(await h.app.inject({ method: "GET", url: "/api/browser/profiles" }));
+    expect(body.operatorHosts).toEqual([]);
+  });
+
+  it("one host: listed with per-profile instances and NO hasToken/zeroDialog keys", async () => {
+    h.manager.hostRows.push(hostRow());
+    h.manager.instancesList.push(new StubInstance("inst-op", "Default", HOST));
+    const res = await h.app.inject({ method: "GET", url: "/api/browser/profiles" });
+    const body = json<{
+      profiles: Record<string, { instances: Array<{ instanceId: string }> }>;
+      operatorHosts: Array<{ hostId: string; online: boolean; profiles: Array<Record<string, unknown>> }>;
+    }>(res);
+    expect(body.operatorHosts).toHaveLength(1);
+    const host = body.operatorHosts[0];
+    expect(host).toMatchObject({ hostId: HOST, label: "mac-home", platform: "darwin", online: true, canOpenChrome: true });
+    expect(host.profiles[0]).toMatchObject({ profileDirectory: "Default", email: "me@x.test", installed: true });
+    expect((host.profiles[0].instances as Array<{ instanceId: string }>).map((i) => i.instanceId)).toEqual(["inst-op"]);
+    expect(host.profiles[1].instances).toEqual([]);
+    for (const row of host.profiles) {
+      expect(row).not.toHaveProperty("hasToken");
+      expect(row).not.toHaveProperty("zeroDialog");
+    }
+    // The operator's instance is NOT a dashboard-host instance.
+    expect(body.profiles.Default.instances).toEqual([]);
+    expect(res.body).not.toContain("super-secret-token");
+  });
+
+  it("an operator-only profile never becomes a synthetic dashboard row", async () => {
+    h.manager.hostRows.push(hostRow());
+    h.manager.instancesList.push(new StubInstance("inst-op", "OperatorOnly", HOST));
+    const body = json<{ profiles: Record<string, unknown> }>(await h.app.inject({ method: "GET", url: "/api/browser/profiles" }));
+    expect(Object.keys(body.profiles)).toEqual(["Default", "Profile 1"]);
+  });
+
+  it("?profileDirectory narrows the operator rows too", async () => {
+    h.manager.hostRows.push(hostRow());
+    const body = json<{ operatorHosts: Array<{ profiles: unknown[] }> }>(
+      await h.app.inject({ method: "GET", url: "/api/browser/profiles?profileDirectory=Default" }),
+    );
+    expect(body.operatorHosts[0].profiles).toHaveLength(1);
+  });
+
+  it("connect forwards `host` to the manager; omitted stays undefined", async () => {
+    await h.app.inject({ method: "POST", url: "/api/browser/connect", payload: { profileDirectory: "Default", host: HOST } });
+    await h.app.inject({ method: "POST", url: "/api/browser/connect", payload: { profileDirectory: "Default" } });
+    expect(h.manager.connectHosts).toEqual([HOST, undefined]);
+  });
+
+  it("connect outlives the server's idle connectionTimeout (operator consent can take up to 60 s)", async () => {
+    await h.app.close();
+    h = await harness({ connectionTimeout: 150 });
+    const connect = h.manager.connect.bind(h.manager);
+    h.manager.connect = async (p: string, host?: string) => {
+      await new Promise((r) => setTimeout(r, 600));
+      return connect(p, host);
+    };
+    await h.app.listen({ port: 0, host: "127.0.0.1" });
+    const { port } = h.app.server.address() as { port: number };
+    const res = await fetch(`http://127.0.0.1:${port}/api/browser/connect`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ profileDirectory: "Default", host: HOST }),
+    });
+    expect(res.status).toBe(200);
+  });
+
+  it("connect rejects a non-string / empty / oversized host with 400", async () => {
+    for (const host of [5, "", "h".repeat(129), {}]) {
+      const res = await h.app.inject({ method: "POST", url: "/api/browser/connect", payload: { profileDirectory: "Default", host } });
+      expect(res.statusCode).toBe(400);
+    }
+    expect(h.manager.connectCalls).toEqual([]);
+  });
+
+  it("an operator connect failure keeps its reason and status in the body", async () => {
+    h.manager.connectResult = { ok: false, status: 404, reason: "unknown-host" };
+    const res = await h.app.inject({ method: "POST", url: "/api/browser/connect", payload: { profileDirectory: "Default", host: HOST } });
+    expect(res.statusCode).toBe(404);
+    expect(json<{ reason: string }>(res).reason).toBe("unknown-host");
+  });
+
+  it("DELETE /operator-hosts/:hostId resets the pin (200) and rejects a malformed id (400)", async () => {
+    const ok = await h.app.inject({ method: "DELETE", url: `/api/browser/operator-hosts/${HOST}` });
+    expect(ok.statusCode).toBe(200);
+    expect(h.manager.deletedPins).toEqual([HOST]);
+    const bad = await h.app.inject({ method: "DELETE", url: "/api/browser/operator-hosts/not-a-host" });
+    expect(bad.statusCode).toBe(400);
+    expect(h.manager.deletedPins).toEqual([HOST]);
+  });
+
+  it("DELETE still works while the relay is disabled (it only forgets a public key)", async () => {
+    h.manager.enabled = false;
+    const res = await h.app.inject({ method: "DELETE", url: `/api/browser/operator-hosts/${HOST}` });
+    expect(res.statusCode).toBe(200);
   });
 });
 
@@ -310,5 +479,102 @@ describe("PUT /api/browser/profile", () => {
     const res = await h.app.inject({ method: "PUT", url: "/api/browser/profile", payload });
     expect(res.statusCode).toBe(400);
     expect(h.updateConfig).not.toHaveBeenCalled();
+  });
+});
+
+// Real-socket connect timeout behaviour (change: fix-browser-relay-pane-input, test-plan #X1–#X5).
+// 150 ms stands in for the production 10 s `connectionTimeout`.
+describe("POST /api/browser/connect over a real socket (#X1–#X5)", () => {
+  const SLOW_MS = 450;
+  let port = 0;
+  let socket: { timeout?: number } | undefined;
+  let setTimeoutCalls: number[] = [];
+  let timeoutDuring: number | undefined;
+
+  async function start(): Promise<void> {
+    await h.app.close();
+    h = await harness({ connectionTimeout: 150 });
+    socket = undefined;
+    timeoutDuring = undefined;
+    setTimeoutCalls = [];
+    h.app.server.on("request", (req) => {
+      socket = req.socket;
+      const orig = req.socket.setTimeout.bind(req.socket);
+      req.socket.setTimeout = ((ms: number, ...rest: unknown[]) => {
+        setTimeoutCalls.push(ms);
+        return (orig as (...a: unknown[]) => unknown)(ms, ...rest);
+      }) as typeof req.socket.setTimeout;
+    });
+    await h.app.listen({ port: 0, host: "127.0.0.1" });
+    port = (h.app.server.address() as { port: number }).port;
+  }
+  /** Stub `connect`: records the socket timeout while pending, resolves after SLOW_MS. */
+  function slow(result: ConnectResult): void {
+    h.manager.connect = async (p: string) => {
+      h.manager.connectCalls.push(p);
+      timeoutDuring = socket?.timeout;
+      await new Promise((r) => setTimeout(r, SLOW_MS));
+      return result;
+    };
+  }
+  const post = (body: unknown, signal?: AbortSignal) =>
+    fetch(`http://127.0.0.1:${port}/api/browser/connect`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+      signal,
+    });
+
+  it("#X1 a handshake slower than the idle timeout still delivers cdpUrl + instanceId", async () => {
+    await start();
+    slow({ ok: true, cdpUrl: "ws://127.0.0.1:1/ws/browser-cdp/late", instanceId: "inst-late" });
+    const res = await post({ profileDirectory: "Default" });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ cdpUrl: "ws://127.0.0.1:1/ws/browser-cdp/late", instanceId: "inst-late" });
+  });
+
+  it("#X2 a slow 504 is still delivered", async () => {
+    await start();
+    slow({ ok: false, status: 504 } as ConnectResult);
+    const res = await post({ profileDirectory: "Default" });
+    expect(res.status).toBe(504);
+  });
+
+  it("#X3 the socket timeout is 0 during the await and restored after the response", async () => {
+    await start();
+    slow({ ok: true, cdpUrl: "ws://127.0.0.1:1/x", instanceId: "i" });
+    const res = await post({ profileDirectory: "Default" });
+    await res.arrayBuffer();
+    expect(timeoutDuring).toBe(0);
+    await vi.waitFor(() => expect(socket?.timeout).toBe(150));
+  });
+
+  it("#X4 validation failures leave the socket timeout untouched", async () => {
+    await start();
+    h.manager.enabled = false;
+    expect((await post({ profileDirectory: "Default" })).status).toBe(403);
+    h.manager.enabled = true;
+    expect((await post({})).status).toBe(400);
+    expect(setTimeoutCalls).not.toContain(0);
+  });
+
+  it("#X5 a client abort mid-handshake neither re-runs connect nor wedges the server", async () => {
+    await start();
+    slow({ ok: true, cdpUrl: "ws://127.0.0.1:1/x", instanceId: "i" });
+    const unhandled = vi.fn();
+    process.on("unhandledRejection", unhandled);
+    try {
+      const ac = new AbortController();
+      const pending = post({ profileDirectory: "Default" }, ac.signal).catch((e: unknown) => e);
+      setTimeout(() => ac.abort(), 200);
+      expect(await pending).toBeInstanceOf(Error);
+      await new Promise((r) => setTimeout(r, SLOW_MS + 100)); // let the stub settle
+      expect(h.manager.connectCalls).toEqual(["Default"]);
+      const status = await fetch(`http://127.0.0.1:${port}/api/browser/status`);
+      expect(status.status).toBe(200);
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      process.off("unhandledRejection", unhandled);
+    }
   });
 });

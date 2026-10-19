@@ -1,7 +1,9 @@
+import fs from "node:fs";
 import net from "node:net";
+import path from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import {
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { 
   createLanInterfaceProvider,
   createNetworkGuard,
   createNetworkGuardHook,
@@ -11,7 +13,7 @@ import {
   guardPathname,
   ipToNum,
   isBypassedHost,
-  isGuardJurisdiction,
+  isGuardJurisdiction,isKnockListedPeer, 
   isOnLinkPrivate,
   isTrustedSource,
   knockSourceKey,
@@ -20,12 +22,13 @@ import {
   matchCidr,
   netmaskToCidrBits,
   networkAddress,
-  parseIpAddress,
-} from "../auth/localhost-guard.js";
+  parseIpAddress,} from "../auth/localhost-guard.js";
 import { isLoopback } from "../auth/loopback.js";
+import { admissionTrustedNetworks } from "../auth/trust-mode.js";
 import { buildNetworkInterfaceList } from "../routes/network-interfaces.js";
 import { PUBLIC_PAIRING_PREFIXES } from "../routes/pairing-routes.js";
 import { createTestServer, type TestServerHandle } from "../test-support/test-server.js";
+import { type TrustModeHome, useTrustModeHome } from "../test-support/trust-mode-home.js";
 import { blockEvents } from "../tunnel/tunnel-block-events.js";
 
 describe("isLoopback", () => {
@@ -204,9 +207,11 @@ describe("createNetworkGuard", () => {
     expect(typeof reply.body.reason).toBe("string");
     expect(reply.body.reason.length).toBeGreaterThan(0);
     expect(typeof reply.body.hint).toBe("string");
-    // hint must name the remedy: trustedNetworks and/or sign in
-    expect(reply.body.hint).toMatch(/trustedNetworks/i);
+    // hint names the remedy (pair this device / sign in) and never points at a
+    // trusted list. See change: retire-trusted-networks-bypass.
+    expect(reply.body.hint).toMatch(/pair this device/i);
     expect(reply.body.hint).toMatch(/sign in/i);
+    expect(reply.body.hint).not.toMatch(/trustedNetworks/i);
   });
 
   it("does not emit the network_not_allowed body when authenticated", async () => {
@@ -1339,5 +1344,178 @@ describe("createLanInterfaceProvider (bind coverage + 30 s cache)", () => {
     t = 31_000;
     get();
     expect(read).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ── Network match does not authenticate in pair mode (E9, E10, E12, E14) ──
+// The mode is driven through a REAL temp-HOME config.json and every guard site
+// reads `admissionTrustedNetworks()` per request, exactly like `server.ts`.
+// See change: retire-trusted-networks-bypass (design D1, D3).
+describe("trust mode — admission list at the guard sites", () => {
+  const LISTED = "192.168.16.20";
+  const LIST = ["192.168.16.0/24"];
+  let th: TrustModeHome;
+
+  beforeEach(() => {
+    th = useTrustModeHome();
+  });
+  afterEach(() => {
+    th.restore();
+  });
+
+  const liveList = (): string[] => admissionTrustedNetworks();
+
+  async function universalApp(): Promise<FastifyInstance> {
+    return buildGuardApp({ trusted: liveList });
+  }
+
+  /** App whose only protection is the PER-ROUTE `createNetworkGuard` preHandler. */
+  async function perRouteApp(): Promise<FastifyInstance> {
+    const app = Fastify();
+    app.decorateRequest("isAuthenticated", false);
+    app.get("/api/sessions", { preHandler: createNetworkGuard(liveList) }, async () => ({ ok: true }));
+    return app;
+  }
+
+  // test-plan #E9 — per-route guard + universal hook
+  it.each([
+    ["pair", 403],
+    ["legacy", 200],
+  ] as const)("E9: listed peer, no credential, %s → per-route guard %i", async (mode, status) => {
+    th.setTrustConfig({ trustMode: mode, trustedNetworks: LIST });
+    const app = await perRouteApp();
+    const res = await app.inject({ method: "GET", url: "/api/sessions", remoteAddress: LISTED });
+    await app.close();
+    expect(res.statusCode).toBe(status);
+    if (status === 403) expect(res.json().error).toBe("network_not_allowed");
+  });
+
+  it.each([
+    ["pair", 403],
+    ["legacy", 200],
+  ] as const)("E9: listed peer, no credential, %s → universal hook %i", async (mode, status) => {
+    th.setTrustConfig({ trustMode: mode, trustedNetworks: LIST });
+    const app = await universalApp();
+    const res = await app.inject({ method: "GET", url: "/api/sessions", remoteAddress: LISTED });
+    await app.close();
+    expect(res.statusCode).toBe(status);
+    if (status === 403) expect(res.json().error).toBe("network_not_allowed");
+  });
+
+  it("E9: a credentialed listed peer is admitted in pair mode (credentials never need the list)", async () => {
+    th.setTrustConfig({ trustMode: "pair", trustedNetworks: LIST });
+    const app = await buildGuardApp({ trusted: liveList, priorAuthHook: true });
+    const res = await app.inject({ method: "GET", url: "/api/sessions", remoteAddress: LISTED });
+    await app.close();
+    expect(res.statusCode).toBe(200);
+  });
+
+  // test-plan #E10 — live change, same guard instance, no restart
+  it("E10: pair → legacy → pair applies on the NEXT request (same guard instance)", async () => {
+    th.setTrustConfig({ trustMode: "legacy", trustedNetworks: LIST });
+    const app = await universalApp();
+    const perRoute = await perRouteApp();
+    const get = async (a: FastifyInstance) =>
+      (await a.inject({ method: "GET", url: "/api/sessions", remoteAddress: LISTED })).statusCode;
+
+    expect(await get(app)).toBe(200);
+    expect(await get(perRoute)).toBe(200);
+
+    th.setTrustConfig({ trustMode: "pair", trustedNetworks: LIST });
+    expect(await get(app), "universal hook after switch to pair").toBe(403);
+    expect(await get(perRoute), "per-route guard after switch to pair").toBe(403);
+
+    th.setTrustConfig({ trustMode: "legacy", trustedNetworks: LIST });
+    expect(await get(app), "universal hook after switch back").toBe(200);
+    expect(await get(perRoute), "per-route guard after switch back").toBe(200);
+
+    th.setTrustConfig({ trustMode: "pair", trustedNetworks: LIST });
+    expect(await get(app)).toBe(403);
+    await app.close();
+    await perRoute.close();
+  });
+
+  it("E10: a hand-edit applies without going through the config writer (mtime+size reparse)", async () => {
+    th.setTrustConfig({ trustMode: "legacy", trustedNetworks: LIST });
+    const app = await universalApp();
+    const get = async () =>
+      (await app.inject({ method: "GET", url: "/api/sessions", remoteAddress: LISTED })).statusCode;
+    expect(await get()).toBe(200);
+    // Size changes (list grows) so the gate reparses even with a coarse mtime;
+    // no resetConfigSnapshot() here — this is the real stat gate.
+    const file = path.join(th.home, ".pi", "dashboard", "config.json");
+    fs.writeFileSync(
+      file,
+      JSON.stringify({ trustedNetworks: [...LIST, "10.99.0.0/16"], network: { trustMode: "pair", trustModeOrigin: "operator" } }),
+    );
+    expect(await get()).toBe(403);
+    await app.close();
+  });
+
+  // test-plan #E12 — relayed loopback never admitted, in either mode
+  it.each(["pair", "legacy"] as const)("E12: 127.0.0.0/8 listed, loopback peer + X-Forwarded-For → 403 in %s", async (mode) => {
+    th.setTrustConfig({ trustMode: mode, trustedNetworks: ["127.0.0.0/8"] });
+    const app = await universalApp();
+    const perRoute = await perRouteApp();
+    const relayed = { "x-forwarded-for": "203.0.113.9" };
+    const a = await app.inject({ method: "GET", url: "/api/sessions", remoteAddress: "127.0.0.1", headers: relayed });
+    const b = await perRoute.inject({ method: "GET", url: "/api/sessions", remoteAddress: "127.0.0.1", headers: relayed });
+    // Control: the genuine local request (no forwarding header) is admitted.
+    const local = await app.inject({ method: "GET", url: "/api/sessions", remoteAddress: "127.0.0.1" });
+    await app.close();
+    await perRoute.close();
+    expect(a.statusCode).toBe(403);
+    expect(b.statusCode).toBe(403);
+    expect(local.statusCode).toBe(200);
+  });
+
+  // test-plan #E14 — mode-neutral, byte-identical denial body
+  it("E14: the same denied request in pair and legacy yields byte-identical bodies", async () => {
+    const bodies: string[] = [];
+    for (const mode of ["pair", "legacy"] as const) {
+      // Unlisted peer: denied by BOTH modes (a listed peer is admitted in legacy).
+      th.setTrustConfig({ trustMode: mode, trustedNetworks: LIST });
+      const app = await universalApp();
+      const perRoute = await perRouteApp();
+      const u = await app.inject({ method: "GET", url: "/api/sessions", remoteAddress: UNTRUSTED });
+      const p = await perRoute.inject({ method: "GET", url: "/api/sessions", remoteAddress: UNTRUSTED });
+      await app.close();
+      await perRoute.close();
+      expect(u.statusCode).toBe(403);
+      expect(p.statusCode).toBe(403);
+      bodies.push(u.body, p.body);
+    }
+    // And the listed peer denied in pair carries that same body.
+    th.setTrustConfig({ trustMode: "pair", trustedNetworks: LIST });
+    const app = await universalApp();
+    const listedPair = await app.inject({ method: "GET", url: "/api/sessions", remoteAddress: LISTED });
+    await app.close();
+    bodies.push(listedPair.body);
+
+    expect(new Set(bodies).size, "every denial body is byte-identical").toBe(1);
+    const body = JSON.parse(bodies[0]);
+    expect(body.error).toBe("network_not_allowed");
+    expect(body.reason).toBe("Source IP is not loopback and the request is not authenticated.");
+    expect(body.hint).toBe("Pair this device (Request access) or sign in.");
+    expect(body.hint).not.toMatch(/trustedNetworks|trusted network|legacy|trust mode|\bmode\b/i);
+    expect(body.reason).not.toMatch(/trustedNetworks|trusted network|legacy|trust mode|\bmode\b/i);
+  });
+});
+
+describe("isKnockListedPeer (knock eligibility from the raw list)", () => {
+  it("trims entries: a whitespace-padded hand edit still covers its peer", () => {
+    expect(isKnockListedPeer("198.51.100.7", {}, [" 198.51.100.0/24 "])).toBe(true);
+  });
+
+  it("ignores match-all entries (also when padded) and blank entries", () => {
+    expect(isKnockListedPeer("203.0.113.9", {}, [" 0.0.0.0/0", "::/0 ", "*.*.*.*", "  "])).toBe(false);
+  });
+
+  it.each(["1.2.3.4/0", "0.0.0.0/00", "::0/0", "*.*.*.*", "***"])("match-all spelling %s never makes a public peer eligible", (entry) => {
+    expect(isKnockListedPeer("203.0.113.9", {}, [entry])).toBe(false);
+  });
+
+  it("refuses any forwarding header, even from a listed peer", () => {
+    expect(isKnockListedPeer("198.51.100.7", { "x-forwarded-for": "203.0.113.9" }, ["198.51.100.0/24"])).toBe(false);
   });
 });

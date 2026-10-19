@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Session card — identity row + compact meta</title>
+<style>
+/* Tokens copied from packages/client/src/index.css (base dark + [data-theme="light"]). */
+:root {
+  --accent-blue:#3b82f6; --accent-green:#22c55e; --accent-yellow:#eab308; --accent-red:#ef4444; --accent-orange:#f97316; --accent-purple:#a855f7;
+  --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e; --bg-hover:rgba(255,255,255,.06);
+  --border-primary:#252525; --border-secondary:#333333; --border-subtle:rgba(255,255,255,.06);
+  --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#919191; --text-muted:#585858;
+  --link:#60a5fa; --accent-soft:#1d3a63;
+  --rail-directory:rgba(255,255,255,.22); --shadow-card:rgba(0,0,0,.4); --elevation-rim:rgba(255,255,255,.10);
+  --status-working:var(--accent-yellow); --status-idle:var(--accent-green); --status-needs-you:var(--accent-purple); --status-error:var(--accent-red);
+  --status-warning:#d97706;
+  --tint-orange-border:color-mix(in srgb,var(--accent-orange) 40%,transparent);
+  --tint-orange-fg:color-mix(in srgb,var(--accent-orange) 46%,var(--text-primary));
+  --tint-orange-bg:color-mix(in srgb,var(--accent-orange) 10%,var(--bg-tertiary));
+  --tint-green-border:color-mix(in srgb,var(--accent-green) 40%,transparent);
+  --tint-green-fg:color-mix(in srgb,var(--accent-green) 46%,var(--text-primary));
+  --tint-green-bg:color-mix(in srgb,var(--accent-green) 10%,var(--bg-tertiary));
+  --tint-blue-border:color-mix(in srgb,var(--accent-blue) 40%,transparent);
+  --tint-blue-fg:color-mix(in srgb,var(--accent-blue) 46%,var(--text-primary));
+  --tint-blue-bg:color-mix(in srgb,var(--accent-blue) 10%,var(--bg-tertiary));
+  --tint-red-border:color-mix(in srgb,var(--accent-red) 40%,transparent);
+  --tint-red-fg:color-mix(in srgb,var(--accent-red) 46%,var(--text-primary));
+  --tint-red-bg:color-mix(in srgb,var(--accent-red) 10%,var(--bg-tertiary));
+  --card-w: 360px;
+}
+[data-theme="light"] {
+  --bg-primary:#ffffff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0; --bg-hover:rgba(0,0,0,.04);
+  --border-primary:#e0e0e0; --border-secondary:#cccccc; --border-subtle:rgba(0,0,0,.06);
+  --text-primary:#1a1a1a; --text-secondary:#444444; --text-tertiary:#636363; --text-muted:#aaaaaa;
+  --link:#2563eb; --accent-soft:#dbeafe;
+  --rail-directory:rgba(0,0,0,.18); --shadow-card:rgba(0,0,0,.08); --elevation-rim:rgba(255,255,255,.9);
+  /* --tint-* recompute from --text-primary / --bg-tertiary (index.css defines them once).
+     --status-warning is undefined in index.css; GitDirtyPill falls back to #d97706 in both themes. */
+}
+* { box-sizing:border-box; }
+body { margin:0; font:14px/1.4 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; background:var(--bg-secondary); color:var(--text-primary); }
+header.top { position:sticky; top:0; z-index:10; display:flex; flex-wrap:wrap; gap:12px 20px; align-items:center; padding:10px 20px; background:var(--bg-primary); border-bottom:1px solid var(--border-primary); }
+header.top h1 { font-size:15px; margin:0; font-weight:650; }
+.ctl { display:inline-flex; gap:6px; align-items:center; font-size:12px; color:var(--text-secondary); }
+.seg { display:inline-flex; border:1px solid var(--border-secondary); border-radius:8px; overflow:hidden; }
+.seg button { font:inherit; font-size:12px; padding:5px 10px; min-height:28px; background:transparent; color:var(--text-secondary); border:0; border-left:1px solid var(--border-secondary); cursor:pointer; }
+.seg button:first-child { border-left:0; }
+.seg button[aria-pressed="true"] { background:var(--accent-soft); color:var(--text-primary); font-weight:600; }
+button:focus-visible, a:focus-visible, input:focus-visible { outline:2px solid var(--link); outline-offset:2px; }
+main { padding:20px; max-width:1320px; margin:0 auto; }
+section { margin:0 0 28px; }
+h2 { font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--text-secondary); margin:0 0 4px; }
+p.note { margin:0 0 12px; color:var(--text-secondary); font-size:13px; max-width:90ch; }
+.grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(calc(var(--card-w) + 24px),1fr)); gap:16px; align-items:start; }
+.col h3 { font-size:12px; font-weight:600; margin:0 0 8px; color:var(--text-secondary); display:flex; gap:6px; align-items:center; }
+.tag { font-size:10px; padding:1px 6px; border-radius:999px; border:1px solid var(--border-secondary); color:var(--text-secondary); }
+.tag.new { border-color:var(--tint-blue-border); color:var(--tint-blue-fg); background:var(--tint-blue-bg); }
+.rail { position:relative; padding-left:14px; width:calc(var(--card-w) + 14px); }
+.rail::before { content:""; position:absolute; left:2px; top:0; bottom:0; width:2px; border-radius:2px; background:var(--rail-directory); }
+.folder { font-size:11px; color:var(--text-tertiary); margin:0 0 6px 14px; display:flex; gap:6px; align-items:center; }
+.folder b { color:var(--text-secondary); font-weight:600; }
+
+/* ── Card (desktop SessionCard ~ pl-1.5 pr-2 py-2 rounded-xl border bg-primary) ── */
+.card { position:relative; width:var(--card-w); background:var(--bg-primary); border:1px solid var(--border-subtle); border-radius:12px; padding:8px 8px 8px 6px; box-shadow:inset 0 1px 0 var(--elevation-rim),0 4px 8px var(--shadow-card); }
+.card::before { content:""; position:absolute; left:-11px; top:19px; width:9px; height:2px; border-radius:2px; background:var(--rail-directory); }
+.card.sel { border-color:var(--tint-blue-border); }
+.row { display:flex; align-items:center; gap:8px; min-width:0; }
+.chip { flex-shrink:0; width:22px; height:22px; border-radius:6px; display:inline-flex; align-items:center; justify-content:center; background:var(--bg-tertiary); color:var(--status-idle); position:relative; }
+.chip.working { color:var(--status-working); } .chip.ended { color:var(--text-muted); }
+.title { font-size:14px; font-weight:600; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.age { font-size:11px; color:var(--text-secondary); flex-shrink:0; }
+.ib { flex-shrink:0; width:32px; height:32px; display:inline-flex; align-items:center; justify-content:center; border-radius:6px; color:var(--text-secondary); background:transparent; border:0; cursor:pointer; }
+.ib:hover { background:var(--bg-hover); color:var(--text-primary); }
+svg.i { width:var(--s,12px); height:var(--s,12px); fill:currentColor; flex-shrink:0; }
+.l2 { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-top:2px; }
+.model { font-size:12px; color:var(--text-tertiary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+.spacer { flex:1; }
+.act { display:inline-flex; align-items:center; gap:2px; font:inherit; font-size:12px; font-weight:600; min-height:32px; padding:0 10px; border-radius:6px; border:1px solid; cursor:pointer; background:transparent; }
+.act:disabled { opacity:.5; cursor:not-allowed; }
+.act.blue { color:var(--tint-blue-fg); border-color:var(--tint-blue-border); background:var(--tint-blue-bg); }
+.act.green { color:var(--tint-green-fg); border-color:var(--tint-green-border); background:var(--tint-green-bg); }
+.act.orange { color:var(--tint-orange-fg); border-color:var(--tint-orange-border); background:var(--tint-orange-bg); }
+.l3 { display:flex; align-items:center; gap:8px; margin-top:2px; font-size:11px; color:var(--text-secondary); }
+.card.indent .l2, .card.indent .l3 { margin-left:30px; }   /* proposed: model + status share the title-text column */
+.l3 .meta { flex:1; min-width:0; display:flex; align-items:center; gap:4px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.dot { width:6px; height:6px; border-radius:50%; background:var(--status-working); flex-shrink:0; }
+.ctx { width:56px; height:4px; border-radius:2px; background:var(--bg-tertiary); overflow:hidden; flex-shrink:0; }
+.ctx i { display:block; height:100%; background:var(--status-idle); }
+.cost { color:var(--text-tertiary); flex-shrink:0; }
+
+/* Subcard (SessionSubcard: mt-2.5 rounded-lg border-subtle px-2 pt-2.5 pb-1.5, centred capsule legend) */
+.sub { position:relative; margin-top:10px; border:1px solid var(--border-subtle); border-radius:8px; padding:10px 8px 6px; }
+.legend { position:absolute; top:-8px; left:50%; transform:translateX(-50%); padding:1px 6px; border-radius:999px; background:var(--bg-primary); border:1px solid var(--border-subtle); font-size:11px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; color:var(--text-secondary); line-height:1; white-space:nowrap; }
+.sub .body { font-size:12px; color:var(--text-secondary); }
+.steps { display:flex; gap:2px; } .steps span { flex:1; height:6px; border-radius:3px; background:var(--bg-tertiary); } .steps span.on { background:var(--tint-green-fg); opacity:.7; }
+
+/* ── Git identity line (GitInfo) ── */
+.git { display:flex; align-items:center; gap:6px; font-size:11px; color:var(--text-tertiary); min-width:0; }
+.git.in-sub { margin:2px 0 0 16px; }                    /* today: ml-4 inside GIT subcard */
+.git.in-head { margin:2px 0 0 30px; min-height:18px; }  /* proposed: aligned to the title text (chip 22 + gap 8) */
+.git .br { display:inline-flex; align-items:center; gap:4px; min-width:0; }
+.git a { color:var(--link); text-decoration:none; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+.git a:hover { text-decoration:underline; }
+.git .plain { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+.git .sep { color:var(--text-muted); flex-shrink:0; }
+.git .pr { flex-shrink:0; display:inline-flex; align-items:center; gap:3px; }
+.pill-wt { flex-shrink:0; display:inline-flex; align-items:center; padding:1px 6px; border-radius:999px; font-size:11px; font-weight:600; line-height:1.25; border:1px solid var(--tint-orange-border); color:var(--tint-orange-fg); background:var(--tint-orange-bg); }
+.pill-gone { flex-shrink:0; display:inline-flex; align-items:center; padding:1px 6px; border-radius:999px; font-size:9px; text-transform:uppercase; letter-spacing:.08em; border:1px solid var(--tint-red-border); color:var(--tint-red-fg); background:var(--tint-red-bg); }
+.pill-gone.head { font-size:11px; text-transform:none; letter-spacing:0; padding:0 6px; gap:2px; line-height:1.45; }
+.pill-dirty { flex-shrink:0; display:inline-flex; align-items:center; gap:4px; padding:1px 6px; border-radius:999px; font-size:10px; line-height:1; border:1px solid var(--status-warning); color:var(--status-warning); background:transparent; cursor:pointer; font-family:inherit; min-height:16px; }
+.pill-dirty .ab { color:var(--text-secondary); }
+.chk { font-size:10px; } .chk.ok { color:var(--tint-green-fg); } .chk.run { color:var(--tint-orange-fg); }
+.prw { color:var(--text-secondary); }
+
+/* Worktree actions row (WorktreeActionsMenu) */
+.wta { display:flex; flex-wrap:wrap; align-items:center; gap:4px; font-size:10px; margin-top:6px; }
+.wta .b { display:inline-flex; align-items:center; gap:2px; padding:1px 6px; border-radius:4px; border:1px solid; background:transparent; font:inherit; font-size:10px; cursor:pointer; min-height:22px; }
+.wta .warn { color:var(--tint-orange-fg); border-color:var(--tint-orange-border); }
+.wta .ok { color:var(--tint-green-fg); border-color:var(--tint-green-border); }
+.wta .bad { color:var(--tint-red-fg); border-color:var(--tint-red-border); }
+.wta .vsep { width:1px; height:12px; background:var(--border-secondary); margin:0 2px; }
+.wta .prseg { color:var(--link); padding:0 4px; display:inline-flex; gap:3px; align-items:center; }
+.wta .prseg.dup { outline:1px dashed var(--tint-red-border); outline-offset:1px; border-radius:3px; }
+
+.ghost { margin-top:6px; font-size:11px; color:var(--text-muted); font-style:italic; }
+.measure { font-size:11px; color:var(--text-tertiary); margin-top:6px; }
+.measure b { color:var(--text-secondary); font-variant-numeric:tabular-nums; }
+
+/* Rationale */
+.panel { background:var(--bg-primary); border:1px solid var(--border-primary); border-radius:12px; padding:14px 18px; }
+.panel h3 { margin:0 0 6px; font-size:14px; }
+.panel ul, .panel ol { margin:6px 0 0; padding-left:18px; color:var(--text-secondary); font-size:13px; }
+.panel li { margin:3px 0; }
+.panel code { font-size:12px; background:var(--bg-tertiary); padding:0 4px; border-radius:4px; color:var(--text-primary); }
+.two { display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:16px; }
+.anat { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:10px 0 4px; font-size:12px; color:var(--text-secondary); }
+.anat span.k { border:1px dashed var(--border-secondary); border-radius:6px; padding:2px 6px; }
+@media (max-width:640px){ main{ padding:12px; } :root{ --card-w: calc(100vw - 52px); } }
+
+/* ── Meta / status layouts (proposed card) ── */
+.st { display:inline-flex; align-items:center; gap:4px; min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; color:var(--text-secondary); font-size:11px; }
+.st .txt { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+.st.needs .g { color:var(--status-needs-you); display:inline-flex; } .st.retry { color:var(--tint-orange-fg); }
+.st code { font:inherit; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; color:var(--text-tertiary); }
+.endp { flex-shrink:0; justify-self:start; display:inline-flex; align-items:center; gap:2px; padding:0 6px; font-size:11px; line-height:1.45; border-radius:999px; border:1px solid var(--border-secondary); color:var(--text-secondary); white-space:nowrap; }
+.endp.bad { border-color:var(--tint-red-border); color:var(--tint-red-fg); background:var(--tint-red-bg); }
+.press { flex-shrink:0; font-size:11px; padding:0 6px; line-height:1.45; border-radius:999px; border:1px solid var(--tint-orange-border); color:var(--tint-orange-fg); background:var(--tint-orange-bg); white-space:nowrap; }
+.mline { display:flex; align-items:center; gap:8px; margin:2px 0 0 30px; font-size:11px; min-height:18px; }
+.mline .model { font-size:12px; flex:1 1 0; }
+/* B: fixed column split so the model never jitters as the tool text changes; models align across cards */
+.mline.grid { display:grid; grid-template-columns:minmax(0,1.15fr) minmax(0,1fr) auto auto auto; gap:8px; }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>Session card · identity row + compact meta</h1>
+  <span class="ctl">Theme
+    <span class="seg" id="theme"><button aria-pressed="true" data-v="dark">Dark</button><button aria-pressed="false" data-v="light">Light</button></span></span>
+  <span class="ctl">Meta layout
+    <span class="seg" id="layout"><button aria-pressed="true" data-v="C">C · status first ✓</button><button aria-pressed="false" data-v="A">A · model+cost / status</button><button aria-pressed="false" data-v="B">B · one line</button><button aria-pressed="false" data-v="auto">Auto (B ≥ 400px, else A)</button></span></span>
+  <span class="ctl">Missing-folder label
+    <span class="seg" id="gonelabel"><button aria-pressed="false" data-v="cwd">cwd gone</button><button aria-pressed="true" data-v="folder">folder missing</button><button aria-pressed="false" data-v="icon">icon + missing</button></span></span>
+  <span class="ctl">Model label
+    <span class="seg" id="modellabel"><button aria-pressed="false" data-v="full">provider/id</button><button aria-pressed="true" data-v="id">id only</button></span></span>
+  <span class="ctl">PR in row
+    <span class="seg" id="prmode"><button aria-pressed="false" data-v="plain">#812</button><button aria-pressed="true" data-v="rich">✓ #812 open</button></span></span>
+  <span class="ctl"><label for="w">Width</label> <input id="w" type="range" min="260" max="460" value="340" /> <b id="wv">340px</b></span>
+</header>
+
+<main>
+  <section>
+    <h2>What changed in this round</h2>
+    <p class="note">The <b>Proposed</b> card assumes <code>add-session-actions-flyout</code> has landed (no Fork / +Session / Worktree buttons on line 2, and no Push / Merge / Close row; everything is in the <code>⋮</code> menu). With line 2 empty apart from the model, the model can share a line with context + cost, and the status (activity) line gets a better place. Three layouts:</p>
+    <div class="two">
+      <div class="panel"><h3>A · model + cost line, status below</h3><p class="note" style="margin:0">Row 3: <code>model ········ ▬ $1.84</code>. Row 4: <code>● bash  npm test</code> (full width) + load pill. 4 text rows. Long tool text and the retry/needs-you/ended pills have the most room; the model line never changes while the session works.</p></div>
+      <div class="panel"><h3>B · one meta line</h3><p class="note" style="margin:0">Row 3: <code>● bash … │ model … │ ▬ │ $1.84</code>. 3 text rows. Fixed column split (status&nbsp;≈&nbsp;53%, model&nbsp;≈&nbsp;47%), so the model does not shift every time the tool name changes, and models line up across cards in the list. Status leads: it is the field that changes and the one you scan for. <b>Limit:</b> at ≤&nbsp;340&nbsp;px both the tool text and the model get cut short (124&nbsp;px card vs 144&nbsp;px for A).</p></div>
+      <div class="panel"><h3>C · status first <span class="tag new">chosen</span></h3><p class="note" style="margin:0">Row 2: status directly under the title, then git, then <code>model ···· ▬ $</code>. 4 text rows. Puts “what is it doing now” before “where”, at the cost of moving the git row down from directly under the title.</p></div>
+      <div class="panel"><h3>Auto · B when wide, A when narrow <span class="tag">not chosen</span></h3><p class="note" style="margin:0">One container query on the card (<code>container-type: inline-size</code>, the same technique <code>index.css</code> already uses at <code>@container (width &lt; 250px)</code>): ≥&nbsp;400&nbsp;px card → B (3 rows), narrower → A (4 rows, nothing important cut off). Drag the width slider across 400&nbsp;px to see it switch.</p></div>
+    </div>
+  </section>
+
+  <section id="compare"></section>
+  <section id="matrix"></section>
+
+  <section>
+    <h2>UX rationale</h2>
+    <div class="two">
+      <div class="panel">
+        <h3>Why it is better</h3>
+        <ul>
+          <li><b>One text column.</b> Title, git row and meta all start at 30&nbsp;px; the status chip owns the left column. One alignment edge instead of two.</li>
+          <li><b>Identity next to identity.</b> Worktree + branch sit directly under the title; the worktree pill leads, so worktree cards share a left edge (Law of Similarity).</li>
+          <li><b>Live state is easy to find.</b> Status keeps its colour carrier (dot / glyph on the shape, word in <code>--text-secondary</code>, per <code>align-ui-with-theme-tokens</code> D2b) and in B leads the meta line, so scanning down the sidebar reads “working / needs you / idle” at a fixed x-position.</li>
+          <li><b>No layout jitter (B).</b> A plain flex row would re-ellipsize the model on every tool call (motion in peripheral vision). The grid split keeps the model column still.</li>
+          <li><b>Missing folder moves to the title row</b>, gated on <code>cwdMissing</code> alone, so non-git sessions and non-worktree group members finally show it.</li>
+          <li><b>Shorter cards.</b> See the measured heights; B removes one text row on every card, and the GIT subcard disappears.</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h3>Rules the proposal keeps</h3>
+        <ul>
+          <li>Git row renders only when <code>GitInfo</code> renders today (<code>showGitInfo || gitWorktree</code>, <code>gitBranch</code> present).</li>
+          <li>Status content unchanged: <code>ActivityIndicator</code> (Resuming, ended reason, Needs you, Retry N, current tool, Thinking…, Idle) and <code>HostPressureIndicator</code>; context bar honours <code>prefs.contextUsageBar</code>; cost hidden when 0.</li>
+          <li><code>data-testid</code>s kept: <code>worktree-pill</code>, <code>git-dirty-pill</code>, <code>cwd-gone-pill</code>, <code>session-card-meta</code>, <code>session-ended-reason-*</code>.</li>
+          <li><code>MovedBadge</code> / <code>OriginDeviceChip</code> / <code>DriverChip</code> (today on line 2) move to the title row next to the missing-folder pill. They're rare and describe the session, not the model.</li>
+          <li>Mobile card unchanged.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Open questions</h2>
+    <div class="panel">
+      <ol>
+        <li><b>Decided:</b> layout C (status → git → model+cost). Separate change that <b>depends on</b> <code>add-session-actions-flyout</code> (under implementation, left untouched).</li>
+        <li><b>Section toggle:</b> does hiding the GIT section also hide the git row?</li>
+        <li><b>Model label:</b> show only the model id on the card (<code>parseModelId</code>, provider in the tooltip)? Needed for B at sidebar widths; harmless for A and C.</li>
+        <li><b>Long branch / long tool text</b> lose their tails (end-ellipsis). Middle-ellipsis for branches? Full text stays in <code>title</code>.</li>
+        <li><b>Already in production:</b> the dirty pill's <code>#d97706</code> fallback is 3.19:1 in light theme, below the AA minimum; fix with <code>--tint-orange-fg</code> while touching it?</li>
+      </ol>
+    </div>
+  </section>
+</main>
+
+<script>
+const P = {
+  branch:"M13,14C9.64,14 8.54,15.35 8.18,16.24C9.25,16.7 10,17.76 10,19A3,3 0 0,1 7,22A3,3 0 0,1 4,19C4,17.69 4.83,16.58 6,16.17V7.83C4.83,7.42 4,6.31 4,5A3,3 0 0,1 7,2A3,3 0 0,1 10,5C10,6.31 9.17,7.42 8,7.83V13.12C8.88,12.47 10.16,12 12,12C14.67,12 15.56,10.66 15.85,9.77C14.77,9.32 14,8.25 14,7A3,3 0 0,1 17,4A3,3 0 0,1 20,7C20,8.34 19.12,9.5 17.91,9.86C17.65,11.29 16.68,14 13,14M7,18A1,1 0 0,0 6,19A1,1 0 0,0 7,20A1,1 0 0,0 8,19A1,1 0 0,0 7,18M7,4A1,1 0 0,0 6,5A1,1 0 0,0 7,6A1,1 0 0,0 8,5A1,1 0 0,0 7,4M17,6A1,1 0 0,0 16,7A1,1 0 0,0 17,8A1,1 0 0,0 18,7A1,1 0 0,0 17,6Z",
+  console:"M13,19V16H21V19H13M8.5,13L2.47,7H6.71L11.67,11.95C12.25,12.54 12.25,13.5 11.67,14.07L6.74,19H2.5L8.5,13Z",
+  archive:"M20 21H4V10H6V19H18V10H20V21M3 3H21V9H3V3M9.5 11H14.5C14.78 11 15 11.22 15 11.5V13H9V11.5C9 11.22 9.22 11 9.5 11M5 5V7H19V5H5Z",
+  close:"M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z",
+  fork:"M6,2A3,3 0 0,1 9,5C9,6.28 8.19,7.38 7.06,7.81C7.15,8.27 7.39,8.83 8,9.63C9,10.92 11,12.83 12,14.17C13,12.83 15,10.92 16,9.63C16.61,8.83 16.85,8.27 16.94,7.81C15.81,7.38 15,6.28 15,5A3,3 0 0,1 18,2A3,3 0 0,1 21,5C21,6.32 20.14,7.45 18.950,7.85C18.87,8.37 18.64,9 18,9.83C17,11.17 15,13.08 14,14.38C13.39,15.17 13.15,15.73 13.06,16.19C14.19,16.62 15,17.72 15,19A3,3 0 0,1 12,22A3,3 0 0,1 9,19C9,17.72 9.81,16.62 10.94,16.19C10.85,15.73 10.61,15.17 10,14.38C9,13.08 7,11.17 6,9.83C5.36,9 5.13,8.37 5.05,7.85C3.86,7.45 3,6.32 3,5A3,3 0 0,1 6,2Z",
+  plus:"M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z",
+  dots:"M12,16A2,2 0 0,1 14,18A2,2 0 0,1 12,20A2,2 0 0,1 10,18A2,2 0 0,1 12,16M12,10A2,2 0 0,1 14,12A2,2 0 0,1 12,14A2,2 0 0,1 10,12A2,2 0 0,1 12,10M12,4A2,2 0 0,1 14,6A2,2 0 0,1 12,8A2,2 0 0,1 10,6A2,2 0 0,1 12,4Z",
+  push:"M16,13V21H8V13H2L12,3L22,13H16M7,11H10V19H14V11H17L12,6L7,11Z",
+  pull:"M6,3A3,3 0 0,1 9,6C9,7.31 8.17,8.42 7,8.83V15.17C8.17,15.58 9,16.69 9,18A3,3 0 0,1 6,21A3,3 0 0,1 3,18C3,16.69 3.83,15.58 5,15.17V8.83C3.83,8.42 3,7.31 3,6A3,3 0 0,1 6,3M21,18A3,3 0 0,1 18,21A3,3 0 0,1 15,18C15,16.690 15.83,15.58 17,15.17V7H15V10.25L10.75,6L15,1.75V5H17A2,2 0 0,1 19,7V15.17C20.17,15.58 21,16.69 21,18Z",
+  merge:"M7,3A3,3 0 0,1 10,6C10,7.29 9.19,8.39 8.04,8.81C8.58,13.81 13.08,14.77 15.19,14.96C15.61,13.81 16.71,13 18,13A3,3 0 0,1 21,16A3,3 0 0,1 18,19C16.69,19 15.57,18.16 15.16,17C10.91,16.8 9.44,15.19 8,13.39V15.17C9.17,15.58 10,16.69 10,18A3,3 0 0,1 7,21A3,3 0 0,1 4,18C4,16.69 4.83,15.58 6,15.17V8.83C4.83,8.42 4,7.31 4,6A3,3 0 0,1 7,3Z",
+  closebox:"M19,3H5A2,2 0 0,0 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5A2,2 0 0,0 19,3M19,19H5V5H19V19M17,8.4L13.4,12L17,15.6L15.6,17L12,13.4L8.4,17L7,15.6L10.6,12L7,8.4L8.4,7L12,10.6L15.6,7L17,8.4Z",
+  folderx:"M13 19C13 19.34 13.04 19.67 13.09 20H4C2.9 20 2 19.11 2 18V6C2 4.89 2.89 4 4 4H10L12 6H20C21.1 6 22 6.89 22 8V13.81C21.39 13.46 20.72 13.22 20 13.09V8H4V18H13.09C13.04 18.33 13 18.66 13 19M22.54 16.88L21.12 15.47L19 17.59L16.88 15.47L15.47 16.88L17.59 19L15.47 21.12L16.88 22.54L19 20.41L21.12 22.54L22.54 21.12L20.41 19L22.54 16.88Z",
+  question:"M10,19H13V22H10V19M12,2C17.35,2.22 19.68,7.62 16.5,11.67C15.67,12.67 14.33,13.33 13.67,14.17C13,15 13,16 13,17H10C10,15.33 10,13.92 10.67,12.92C11.33,11.92 12.67,11.33 13.5,10.67C15.92,8.43 15.32,5.26 12,5A3,3 0 0,0 9,8H6A6,6 0 0,1 12,2Z",
+  refresh:"M17.65,6.35C16.2,4.9 14.21,4 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20C15.73,20 18.84,17.45 19.73,14H17.65C16.83,16.33 14.61,18 12,18A6,6 0 0,1 6,12A6,6 0 0,1 12,6C13.66,6 15.14,6.69 16.22,7.78L13,11H20V4L17.65,6.35Z",
+};
+const ic = (k, s=12) => `<svg class="i" style="--s:${s}px" viewBox="0 0 24 24" aria-hidden="true"><path d="${P[k]}"/></svg>`;
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
+
+// act: tool | thinking | needs | retry | idle | ended ; ended reason: process_gone | manual | unknown
+const STATES = [
+  { id:"wt-pr", label:"Worktree · open PR · dirty · running a long tool", folder:"pi-agent-dashboard", multi:true,
+    s:{ name:"fix session reclaim on tmux", act:"tool", tool:"bash", arg:"npm test -- settings --run", model:"anthropic/claude-opus-4-1 (high)", age:"2m", ctx:62, cost:"1.84", openspec:true,
+        git:{ branch:"os/fix-session-reclaim-tmux", worktree:{ base:"develop" }, pr:{ n:812, state:"open", checks:"ok" }, dirty:3, ahead:2, behind:0 } } },
+  { id:"needs", label:"Multi-session member · needs you", folder:"pi-agent-dashboard", multi:true, groupMember:true,
+    s:{ name:"triage CI failures", act:"needs", model:"claude-sonnet-4-5", age:"3h", ctx:19, cost:"0.21", git:{ branch:"develop", dirty:5, ahead:0, behind:0 } } },
+  { id:"solo", label:"Solo folder · thinking", folder:"compsychletter", multi:false,
+    s:{ name:"template publish flow", act:"thinking", model:"openai/gpt-5 (medium)", age:"1h", ctx:41, cost:"0.77", git:{ branch:"develop", dirty:1, ahead:0, behind:0 } } },
+  { id:"long", label:"Long branch · draft PR · retry 2 · host under load", folder:"pi-agent-dashboard", multi:true,
+    s:{ name:"addons hub feature catalog and folder view", act:"retry", retry:2, pressure:true, model:"anthropic/claude-opus-4-1 (high)", age:"6m", ctx:83, cost:"4.10",
+        git:{ branch:"os/feature/addons-hub-feature-catalog-and-folder-view-rework", worktree:{ base:"develop" }, pr:{ n:1203, state:"draft", checks:"run" }, dirty:12, ahead:4, behind:1 } } },
+  { id:"wt-clean", label:"Worktree · clean · idle", folder:"pi-agent-dashboard", multi:true,
+    s:{ name:"edit pi agent settings", act:"idle", model:"gpt-5 (medium)", age:"14m", ctx:28, cost:"0.42", git:{ branch:"os/edit-pi-agent-settings", worktree:{ base:"develop" }, dirty:0, ahead:0, behind:0 } } },
+  { id:"gone", label:"Ended (process gone) · worktree removed", folder:"pi-agent-dashboard", multi:true,
+    s:{ name:"spike browser relay", act:"ended", reason:"process_gone", gone:true, model:"claude-opus-4-1", age:"2d", ctx:0, cost:"2.95", git:{ branch:"os/spike-browser-relay", worktree:{ base:"develop" }, dirty:0, ahead:0, behind:0 } } },
+  { id:"gone-nogit", label:"Ended (closed) · folder missing · no git", folder:"tmp-scratch", multi:false,
+    s:{ name:"one-off data cleanup", act:"ended", reason:"manual", gone:true, model:"claude-haiku-4-5", age:"5d", ctx:0, cost:"0.12", git:null } },
+  { id:"nogit", label:"No git · idle · cost 0", folder:"Downloads", multi:false,
+    s:{ name:"summarize invoices", act:"idle", model:"claude-haiku-4-5", age:"5m", ctx:9, cost:"0", git:null } },
+];
+const COMPARE_IDS = ["wt-pr", "needs", "long", "gone"];
+
+let prMode = "rich", goneLabel = "folder", layout = "C", modelLabel = "id";
+const cardW = () => parseInt(getComputedStyle(document.documentElement).getPropertyValue("--card-w")) || 340;
+const resolveLayout = (L) => L === "auto" ? (cardW() >= 400 ? "B" : "A") : L;
+// parseModelId (packages/shared/src/model-id.ts): provider = before first slash. Proposed card shows the id; full label in title.
+const modelText = (m) => modelLabel === "id" && m.includes("/") ? m.slice(m.indexOf("/") + 1) : m;
+const GONE = { cwd:"cwd gone", folder:"folder missing", icon:"missing" };
+const REASON = { process_gone:["✕","process gone","bad"], manual:["","closed",""], unknown:["?","ended — reason unknown",""] };
+
+function prHtml(pr) {
+  if (!pr) return "";
+  if (prMode === "rich") {
+    const ch = pr.checks === "ok" ? `<span class="chk ok" title="checks passing">✓</span>` : pr.checks === "run" ? `<span class="chk run" title="checks running">◷</span>` : "";
+    return `<span class="sep" aria-hidden="true">·</span><span class="pr">${ch}<a href="#" title="PR #${pr.n} — ${pr.state}">#${pr.n}</a><span class="prw">${pr.state}</span></span>`;
+  }
+  return `<span class="sep" aria-hidden="true">·</span><span class="pr"><a href="#">#${pr.n}</a></span>`;
+}
+const gonePill = (where) => where === "sub"
+  ? `<span class="pill-gone" data-testid="cwd-gone-pill" title="session's directory no longer exists">cwd gone</span>`
+  : `<span class="pill-gone head" data-testid="cwd-gone-pill" title="This session's folder no longer exists — Resume and Fork are unavailable">${goneLabel === "icon" ? ic("folderx",12) : ""}${GONE[goneLabel]}</span>`;
+function dirtyPill(g) {
+  if (!(g.dirty || g.ahead || g.behind)) return "";
+  return `<button class="pill-dirty" data-testid="git-dirty-pill" title="${g.dirty} uncommitted${g.ahead ? " · ↑" + g.ahead : ""}${g.behind ? " · ↓" + g.behind : ""} — open commit dialog">${g.dirty ? `<span aria-hidden="true">●</span><span>${g.dirty}</span>` : ""}${g.ahead ? `<span class="ab">↑${g.ahead}</span>` : ""}${g.behind ? `<span class="ab">↓${g.behind}</span>` : ""}</button>`;
+}
+function gitLine(g, where, sessGone) {
+  const wt = g.worktree ? `<span class="pill-wt" data-testid="worktree-pill" title="created from ${esc(g.worktree.base)}">worktree</span>` : "";
+  const br = `<span class="br">${ic("branch",12)}<a href="#" title="${esc(g.branch)}">${esc(g.branch)}</a></span>`;
+  if (where === "head") return `<div class="git in-head">${wt}${br}${prHtml(g.pr)}${dirtyPill(g)}</div>`;
+  const pr = g.pr ? `<span class="sep" aria-hidden="true">·</span><span class="pr"><a href="#">#${g.pr.n}</a></span>` : "";
+  return `<div class="git in-sub">${br}${pr}${wt}${sessGone ? gonePill("sub") : ""}${dirtyPill(g)}</div>`;
+}
+function wtActions(g) {
+  if (!g || !g.worktree) return "";
+  const prs = g.pr ? `<a href="#" class="prseg">${g.pr.checks === "ok" ? "✓ " : ""}#${g.pr.n} ${g.pr.state}</a>` : "";
+  const pr = g.pr ? "" : `<button class="b warn">${ic("pull",10)}Open PR</button>`;
+  return `<div class="wta">${prs}<button class="b warn">${ic("push",10)}Push</button>${pr}<button class="b ok">${ic("merge",10)}Merge</button><span class="vsep"></span><button class="b bad">${ic("closebox",10)}Close</button></div>`;
+}
+// ActivityIndicator equivalent. `before` = today's plain rendering.
+function status(s) {
+  switch (s.act) {
+    case "tool": return `<span class="st" data-testid="session-card-meta" title="${esc(s.tool + " " + (s.arg || ""))}"><span class="dot"></span><span class="txt">${esc(s.tool)}${s.arg ? ` <code>${esc(s.arg)}</code>` : ""}</span></span>`;
+    case "thinking": return `<span class="st"><span class="dot"></span><span class="txt">Thinking…</span></span>`;
+    case "needs": return `<span class="st needs"><span class="g">${ic("question",12)}</span><span class="txt">Needs you</span></span>`;
+    case "retry": return `<span class="st retry">${ic("refresh",12)}<span class="txt">Retry ${s.retry}</span></span>`;
+    case "idle": return `<span class="st"><span class="txt">Idle</span></span>`;
+    case "ended": { const [g, l, k] = REASON[s.reason || "manual"]; return `<span class="endp ${k}" title="ended">${g ? `<span aria-hidden="true">${g}</span>` : ""}${l}</span>`; }
+  }
+  return "";
+}
+const ctxBar = (s) => s.act === "ended" ? `<span class="ctx" title="context"><i style="width:0"></i></span>` : `<span class="ctx" title="context ${s.ctx}%"><i style="width:${s.ctx}%"></i></span>`;
+const cost = (s) => Number(s.cost) > 0 ? `<span class="cost">$${s.cost}</span>` : "";
+const press = (s) => s.pressure ? `<span class="press" title="host under memory pressure">load high</span>` : "";
+
+function titleRow(s, mode) {
+  const chipCls = s.act === "ended" ? "ended" : (s.act === "idle" ? "" : "working");
+  let h = `<div class="row"><span class="chip ${chipCls}">${ic("console",12)}</span><span class="title" title="${esc(s.name)}">${esc(s.name)}</span>`;
+  if (mode !== "before" && s.gone) h += gonePill("head");
+  h += `<span class="age">${s.age}</span>`;
+  if (mode !== "before") h += `<button class="ib" title="Session actions">${ic("dots",14)}</button>`;
+  h += s.act === "ended" ? `<button class="ib" title="Archive session">${ic("archive",13)}</button>` : `<button class="ib" title="Exit pi session">${ic("close",14)}</button>`;
+  return h + `</div>`;
+}
+
+function card(st, mode, lay) {
+  lay = resolveLayout(lay);
+  const s = st.s, g = s.git;
+  const renderGit = !!g && (!st.groupMember || !!g.worktree);
+  let h = `<div class="card${st.id === "wt-pr" ? " sel" : ""}">` + titleRow(s, mode);
+  if (mode === "before") {
+    const dis = s.gone ? " disabled" : "";
+    h += `<div class="l2"><span class="model">${esc(s.model)}</span><span class="spacer"></span><button class="act blue"${dis}>${ic("fork",11)}Fork</button><button class="act green"${dis}>${ic("plus",11)}Session</button>${g && !g.worktree ? `<button class="act orange"${dis}>${ic("branch",11)}Worktree</button>` : ""}</div>`;
+    h += `<div class="l3"><span class="meta">${status(s)}</span>${press(s)}${ctxBar(s)}${cost(s)}</div>`;
+  } else {
+    const gitRow = renderGit ? gitLine(g, "head") : "";
+    const modelCost = `<div class="mline"><span class="model" title="${esc(s.model)}">${esc(modelText(s.model))}</span>${ctxBar(s)}${cost(s)}</div>`;
+    const statusRow = `<div class="mline">${status(s)}<span class="spacer"></span>${press(s)}</div>`;
+    if (lay === "A") h += gitRow + modelCost + statusRow;
+    if (lay === "C") h += statusRow + gitRow + modelCost;
+    if (lay === "B") h += gitRow + `<div class="mline grid">${status(s)}<span class="model" title="${esc(s.model)}">${esc(modelText(s.model))}</span>${press(s) || "<span></span>"}${ctxBar(s)}${cost(s) || "<span></span>"}</div>`;
+  }
+  if (s.openspec) h += `<div class="sub"><span class="legend">OpenSpec</span><div class="body"><div class="steps"><span class="on"></span><span class="on"></span><span class="on"></span><span class="on"></span><span></span></div></div></div>`;
+  if (mode === "before" && (renderGit || (g && g.worktree))) {
+    h += `<div class="sub"><span class="legend">Git</span><div class="body">${renderGit ? gitLine(g, "sub", s.gone) : ""}${wtActions(g)}</div></div>`;
+  }
+  return h + `</div>`;
+}
+
+function col(title, tag, st, mode, lay) {
+  return `<div class="col"><h3>${title} ${tag}</h3><div class="folder">${ic("branch",10)}<b>${esc(st.folder)}</b>${st.multi ? " · 3 sessions" : " · 1 session"}${st.groupMember ? " · ⎇ develop ●5" : ""}</div><div class="rail">${card(st, mode, lay)}</div><div class="measure" data-measure></div></div>`;
+}
+
+function render() {
+  let c = `<h2>Layouts side by side</h2><p class="note">Same four sessions in A / B / C. Today's card is shown for reference. Heights measured live.</p>`;
+  for (const id of COMPARE_IDS) {
+    const st = STATES.find((x) => x.id === id);
+    c += `<h3 style="font-size:13px;margin:16px 0 8px">${esc(st.label)}</h3><div class="grid">`;
+    c += col("Today", "", st, "before");
+    for (const L of ["A","B","C"]) c += col(`Layout ${L}`, L === "C" ? `<span class="tag new">chosen</span>` : "", st, "proposed", L);
+    c += `</div>`;
+  }
+  document.getElementById("compare").innerHTML = c;
+  const shown = layout === "auto" ? `Auto → ${resolveLayout("auto")} at ${cardW()}px` : layout;
+  let h = `<h2>All states · Today vs Proposed (layout ${shown})</h2><p class="note">Switch layouts in the header.</p>`;
+  for (const st of STATES) {
+    h += `<h3 style="font-size:13px;margin:16px 0 8px">${esc(st.label)}</h3><div class="grid">${col("Today", "", st, "before")}${col(`Proposed · ${shown}`, `<span class="tag new">proposed</span>`, st, "proposed", layout)}</div>`;
+  }
+  document.getElementById("matrix").innerHTML = h;
+  requestAnimationFrame(() => document.querySelectorAll(".col").forEach((el) => {
+    const cd = el.querySelector(".card"), m = el.querySelector("[data-measure]");
+    if (cd && m) m.innerHTML = `card height <b>${Math.round(cd.getBoundingClientRect().height)} px</b>`;
+  }));
+}
+function seg(id, cb) {
+  const el = document.getElementById(id);
+  el.addEventListener("click", (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    el.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    cb(b.dataset.v);
+  });
+}
+seg("theme", (v) => { document.documentElement.dataset.theme = v; render(); });
+seg("layout", (v) => { layout = v; render(); });
+seg("gonelabel", (v) => { goneLabel = v; render(); });
+seg("prmode", (v) => { prMode = v; render(); });
+seg("modellabel", (v) => { modelLabel = v; render(); });
+const w = document.getElementById("w");
+w.addEventListener("input", () => { document.documentElement.style.setProperty("--card-w", w.value + "px"); document.getElementById("wv").textContent = w.value + "px"; render(); });
+document.addEventListener("click", (e) => { if (e.target.closest('a[href="#"]')) e.preventDefault(); });
+document.documentElement.style.setProperty("--card-w", "340px");
+render();
+</script>
+</body>
+</html>

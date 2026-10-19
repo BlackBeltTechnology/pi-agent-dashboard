@@ -12,6 +12,31 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Added
 
+- **Type your own answer on `ask_user` choices.** `select`, `multiselect` and batch select/multiselect
+  steps now show an inline "Other" row in the dashboard (chat card and the pending-question dialog).
+  Choosing it reveals a text field; the answer reaches the agent as a plain string, and the tool
+  result tells the model when an answer is custom. It is opt-in per prompt (`allowOther: true` on
+  `ctx.ui.select` / `ctx.ui.multiselect`); the dashboard `ask_user` tool enables it by default, so the
+  model may now receive text it did not list. Pass `allowOther: false` when the answer must be exactly
+  one of the options. Other callers (path-gate approval, ACP permission, pi-flows) are unchanged. The
+  REST answer route accepts one custom value on opted-in prompts only (blank, padded and duplicate
+  values are rejected).
+- **OpenSpec status in one spawn.** The server now reads every change's status with a single
+  `openspec status --all --json` per project (was `1 + N` spawns on refresh, ~25 s on macOS for 100
+  changes; now ~1.3 s). Custom workflow schemas are reported correctly, and one broken change
+  (invalid `.openspec.yaml`, unknown schema) shows an error badge on its card and blocks Continue /
+  Fast-forward instead of blanking the whole project. Edits to `openspec/config.yaml`, `schemas/**`
+  and schema-declared outputs now refresh the board. Older OpenSpec CLIs without `--all` keep
+  working through the previous `list` + local-derivation path.
+- **A new git worktree's kb index starts from the main checkout's index.** The first docs
+  index in a linked worktree copies a consistent snapshot of the main checkout's index and
+  re-chunks only the files that differ (4 s instead of ~100 s on this repository), then
+  produces the same result as a cold first index. A source is reused only when the main
+  checkout recorded the same schema version, index options and kb engine for it. Each first
+  index prints `[kb] seed=<main> sources=<n>/<m>` or `[kb] seed-skipped=<reason>` on stderr.
+  Opt out with `seedFromMainWorktree: false` in `knowledge_base.json` or `kb index --no-seed`.
+  Every source now records the kb engine that produced its rows, so the first pass after
+  upgrading re-chunks each source once.
 - **`shell-headless` plugin slot.** A react-only slot mounted once at shell level, independent of
   layout, selection and session count, for zero-UI plugin-wide hooks such as message
   subscriptions. Claims take no props and must not declare `predicate`/`shouldRender` (the
@@ -80,6 +105,48 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Changed
 
+- **BREAKING (macOS 12): the minimum macOS is now 13 (Ventura).** Electron 44 dropped macOS 12, so
+  the app declares `LSMinimumSystemVersion 13.0`, and the update gate moves to Darwin 22. Macs on
+  macOS 12 (Monterey) stay on their installed 0.9.x build and are not offered the update; every
+  other platform is unaffected.
+- **Bundled components refreshed.** Electron 43.4.1 → 44.9.0, Electron Forge 7 → 8.0.1, bundled
+  Node v24.15.0 → v24.22.0, the Windows git bundle (dugite-native) v2.53.0-3 → v2.53.0-4, the
+  openspec CLI 1.11.0 → 1.14.3, node-pty 1.2.0-beta.13 → 1.2.0-beta.15 and koffi 3.1 → 3.3.3.
+  The unused `@pengx17/electron-forge-maker-appimage` dependency and its patch are removed
+  (AppImage has been built by electron-builder).
+- **Task counts follow OpenSpec 1.14.3.** `status --all` now counts a task the way the CLI does:
+  `+` and ordered-list markers, and non-`x` checkbox markers such as `[~]`, count as unfinished
+  tasks; link bullets still do not.
+- **BREAKING (security, opt-in): a network match can stop authenticating requests.** A new
+  `network.trustMode` (`"pair"` | `"legacy"`) decides what a `trustedNetworks` /
+  `auth.bypassHosts` match means. In `pair` the match no longer admits anyone: a LAN device
+  must be paired (Request access on its denied screen, approved on the dashboard) and the list
+  only says which networks *may request* access. This applies to every admission site at once
+  (HTTP guard, OAuth bypass, WebSocket upgrades, device-tier exemption) and changes live,
+  without a restart. **Existing installs keep working:** on first boot the server decides the
+  mode once — `legacy` when the list holds anything but loopback entries (so a LAN phone keeps
+  working), `pair` otherwise — and writes it to `config.json` with `trustModeOrigin: "upgrade"`.
+  It is never re-derived from the list, so adding a range cannot widen access. **Rollback:**
+  Settings → Security → Network access → "Trust whole networks" (or
+  `network.trustMode: "legacy"` in `config.json`); no downgrade needed. In `legacy`, Settings →
+  Access counts devices that reach the dashboard by network trust only, so you can pair them
+  before switching. A later release moves upgrade-origin `legacy` installs to `pair` once the
+  consumer audit has no blockers. Also in `pair`: the network-denial prompt and
+  accept-to-trust are off (the denied device pairs instead), and the denial body's hint now says
+  "pair this device or sign in" in both modes.
+- **Live previews authenticate through a per-preview capability path.** The preview frame is
+  sandboxed (opaque origin), so its images, fetches and HMR socket carried no cookie and worked
+  remotely only through network trust. The viewer now mints `/live/<id>/~c/<token>/` (needs
+  `control` tier; 30 min idle / 12 h, revoked with the device, session or target) and frames it.
+  The live proxy also stops forwarding dashboard cookies (`pi_dash_*`) and device bearers to the
+  previewed app, and drops upstream `Set-Cookie` for those names.
+- **Document converter: mermaid diagrams now render on arm64 hosts (breaking).** The
+  `pi-doc-engine` image (now `0.2.0`, also tagged `:latest`) provisions its headless browser per
+  architecture instead of an amd64-only binary. `DocConverterErrorCode` gains `MMDC_UNAVAILABLE`
+  (exhaustive switches must add a case), raised when a diagram render was attempted and the browser
+  cannot launch. Styled (nano-banana) rendering no longer guarantees "never hard-fails": it falls
+  back to mmdc and fails the call with `MMDC_UNAVAILABLE` when mmdc itself cannot run. Rebuild the
+  image (`npm run build:image -w @blackbelt-technology/pi-dashboard-document-converter`) to upgrade.
 - **Settings ▸ Packages is now Add-ons.** The page lives at `/settings/add-ons` (old
   `/settings/packages` and `?tab=packages` links redirect); the rail group is `ADD-ONS`.
   The page explains extensions, skills and dashboard plugins (dismissible card, part
@@ -119,6 +186,21 @@ see [`docs/release-process.md`](docs/release-process.md).
   image all move to pi 1.1.0. A session on pi below 1.1.0 (including 1.0.x) shows the
   below-floor warning, and `/api/health` reports an error naming both versions.
   **Rollback:** revert the pin commit and run `pnpm install`; no data migrates.
+- **BREAKING (pi peers): the supported pi floor is now 1.3.0.** `piCompatibility`
+  `minimum`/`recommended`, the server dependency, every `@earendil-works` pi peer
+  (`>=1.3.0`) and devDependency (`^1.3.0`), the three workspace overrides and the Docker
+  image all move to pi 1.3.0. A session on pi below 1.3.0 (including 1.1.x and 1.2.x) shows the
+  below-floor warning, and `/api/health` reports an error naming both versions.
+  **Rollback:** revert the pin commit and run `pnpm install`; no data migrates.
+- **Queued follow-ups are delivered once the run has settled.** The bridge's follow-up buffer
+  now drains on pi's `agent_settled` event instead of `agent_end` plus a 100 ms x 20 idle-poll
+  loop, so a follow-up queued during an auto-retry chain or after an abort ships after the final
+  attempt, once.
+- **A dashboard Retry turn carries the session context.** On pi 1.3.0 the Retry turn goes through
+  the same prompt prelude as any other turn, so it now gets the session-context fragment, the kb
+  doctrine, role guidelines and the untrusted-content rule, and a team session's skill filter.
+- **New pi setting.** `sessionShareDestination` (`auto` / `gist` / `radius`, default `auto`) is
+  editable under Settings → pi → Sessions and context.
 - **Tool durations come from pi.** A tool row shows pi's recorded execution time
   (`durationMs`, pi 1.1.0) instead of the timestamp difference, live and after a reload;
   older events keep the timestamp fallback.
@@ -150,6 +232,33 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Fixed
 
+- **The desktop app's server and the `pi-dashboard` CLI cooperate (#924).**
+  - Quitting the app stops the server it started again. `/api/health` stopped publishing `starter` on 2026-05-26, so the app never saw its own server as owned on quit; it now reads `launchSource` (legacy `starter` as a fallback) and waits up to 5 s for the server to exit. Behaviour change: since 2026-05-26 quit left the server and its sessions running.
+  - `pi-dashboard stop` of a server this HOME provably owns goes through the announced `/api/shutdown`, with the SIGTERM fallback kept. Bridges suppress auto-start, so a terminal pi session no longer races a replacement server in. The exit intent is `shutdown` instead of `signal` (no recovery offer on the next boot). For a server the open desktop app started it prints a note: the app stays open and shows its reconnect page.
+  - `pi-dashboard status` says when the desktop app started the running server; bare `pi-dashboard` on a served port prints "already running (pid N)" and exits 1 instead of a bind-failure stack.
+  - The Electron update checker and Doctor see the real starter: Bridge servers skip the managed check, Standalone servers get the npm recommendation.
+
+- **Packaged apps no longer carry build-host symlinks.** Electron Forge 8 (packager 20) copies
+  bundled resources without preserving relative symlinks, which left 53 absolute, dangling
+  `server/node_modules/.bin/*` links and failed `codesign --verify --strict`. A packaging hook now
+  rewrites them to relative links, and every electron CI leg scans the result.
+- **`!cmd` no longer loses its output on a busy session.** A single-bang command sent while the agent was starting or streaming made pi reject the follow-up, so the output never reached the model; it is now queued with `deliverAs: followUp` and delivered before the run settles.
+- **Discord invite points at the community server.** The invite link (README, site, sidebar
+  button, release docs) pointed at a personal server with an expiring invite; it now uses the
+  permanent Pi Dashboard invite `discord.gg/DrNebZ3pF5`.
+- **Same-named automations in different workspaces are now scheduled independently.** Two repos that each defined an automation with the same name (for example `deploy`) shared one scheduler and concurrency slot: one could leak a timer that could never be disposed, and one could be silently dropped while the other was running. Each automation is now identified by its scope and its own directory. An automation that was previously suppressed by an unrelated same-named one may now start running on its schedule — that is the fix taking effect, not a new automation appearing.
+- **Global automations no longer run twice per occurrence.** While a session (including the automation's own run) is open in the home directory, `~/.pi/automation` was also armed as a folder scope. It is now scanned, armed and listed once, under `global`.
+- **kb index no longer silently empties, erodes or conflates.** The docs index is installed with a
+  no-clobber hard link, or copied into an existing file through SQLite's online backup, instead of a
+  rename that replayed another process's WAL onto the finished build (an index that reported thousands
+  of files could read 0). Every writer builds an absent database through that atomic first-index path and
+  backs off while another process builds one ("index is still being built"). Re-chunking a file now
+  replaces only its own graph rows (inbound `references` survive) and heading nodes are qualified
+  `<file>#<heading>`, so the graph equals a first index after any sequence of edits. The schema /
+  options gate is per source and shared by the CLI, session extension and dashboard reindex job (custom
+  frontmatter facets are no longer dropped by the latter two); per-file deletes are rowid-addressed, so a
+  forced pass costs about a first index. **BREAKING (standalone `pi-dashboard-kb` consumers):**
+  `engines.node` is now `>=22.19.0` (SQLite `backup()`).
 - **Empty `STATUS` panel on session cards.** The STATUS subcard no longer renders as an empty,
   titled frame when the browser relay has no tabs. The browser badge is now gated, and the relay
   status feed moved to an always-mounted `shell-headless` claim that re-seeds on reconnect. The
@@ -404,7 +513,7 @@ see [`docs/release-process.md`](docs/release-process.md).
   `DISCORD_RELEASE_WEBHOOK` repo secret. Prereleases are skipped, an unset
   secret skips cleanly, mentions are suppressed, and a webhook failure never
   fails the release. The community invite link moves to
-  `discord.gg/uQsJgsejb` (README, site, sidebar button).
+  `discord.gg/DrNebZ3pF5` (README, site, sidebar button).
 
 - **Radius sign-in.** Radius (Earendil's AI gateway) is now listed on the
   providers page (Account badge) and signs in through the usual

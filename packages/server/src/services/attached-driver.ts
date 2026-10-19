@@ -16,7 +16,8 @@ import { spawn } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.j
 import { findProcessesByExecutable } from "@blackbelt-technology/pi-dashboard-shared/platform/process-scan.js";
 import type { ServiceDefinition } from "@blackbelt-technology/pi-dashboard-shared/services/schema.js";
 import type { CommandRunner } from "./command-runner.js";
-import type { AdoptResult, DriverInstance, PresenceResult, ServiceDriver, StartContext, StopOutcome } from "./driver.js";
+import type { AdoptResult, DriverInstance, DriverLogs, LogsRequest, PresenceResult, ServiceDriver, StartContext, StopOutcome } from "./driver.js";
+import { fileLogs, type OutputCapture } from "./output-capture.js";
 import { startCommandSecretEnv } from "./secret-delivery.js";
 
 type Platform = "darwin" | "linux" | "win32";
@@ -30,6 +31,8 @@ export interface AttachedDriverDeps {
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
   pollMs?: number;
+  /** stdout/stderr → `services-run/<id>/output.log`; absent ⇒ `stdio: "ignore"`. */
+  output?: OutputCapture;
 }
 
 export class AttachedDriver implements ServiceDriver {
@@ -91,13 +94,21 @@ export class AttachedDriver implements ServiceDriver {
     if (def.process && (await this.matches(def)).length > 0) return this.instance(def, "external");
     const argv = this.startArgv(def);
     if (!argv) throw new Error(`no start command for ${this.platform}`);
-    const child = (this.deps.spawn ?? spawn)(argv[0], argv.slice(1), {
-      shell: false,
-      detached: true,
-      stdio: "ignore",
-      windowsHide: true,
-      env: { ...process.env, ...startCommandSecretEnv(def, ctx.secrets) },
-    });
+    // Only a process the dashboard starts gets an output file.
+    const fd = this.deps.output?.open(def.id);
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = (this.deps.spawn ?? spawn)(argv[0], argv.slice(1), {
+        shell: false,
+        detached: true,
+        stdio: fd === undefined ? "ignore" : ["ignore", fd, fd],
+        windowsHide: true,
+        env: { ...process.env, ...startCommandSecretEnv(def, ctx.secrets) },
+      });
+    } catch (err) {
+      this.deps.output?.close(def.id);
+      throw err;
+    }
     child.on("error", () => {});
     child.unref();
     return this.instance(def, "dashboard", child.pid);
@@ -120,6 +131,10 @@ export class AttachedDriver implements ServiceDriver {
       if (this.now() >= deadline) return "stop-failed";
       await this.sleep(this.deps.pollMs ?? 500);
     }
+  }
+
+  async logs(def: ServiceDefinition, _inst: DriverInstance | undefined, req: LogsRequest): Promise<DriverLogs> {
+    return fileLogs(this.deps.output, def.id, req.lines);
   }
 
   async remove(): Promise<void> {}

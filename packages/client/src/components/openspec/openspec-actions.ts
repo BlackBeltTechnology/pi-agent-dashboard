@@ -48,6 +48,12 @@ export interface ActionSpec {
   /** Inert while the session is working; keep focusable, expose the reason. */
   blocked: boolean;
   blockedReasonKey?: string;
+  /**
+   * Literal (non-i18n) blocked reason — the server-supplied CLI error message
+   * of a broken change. Wins over `blockedReasonKey`. See change:
+   * use-openspec-status-all.
+   */
+  blockedReason?: string;
   /** Render a divider above this overflow item. */
   dividerBefore?: boolean;
 }
@@ -65,6 +71,13 @@ export interface OpenSpecActionsCtx {
   working: boolean;
   /** IMPLEMENTING + all tasks checked + every artifact done. */
   showArchiveAnyway: boolean;
+  /**
+   * The attached change's CLI `error.message` (change carries `error`). Blocks
+   * every rendered `PLANNING` candidate (Continue / Fast-forward) with the
+   * message as the literal reason; Explore/Detach are unaffected by this rule.
+   * See change: use-openspec-status-all.
+   */
+  error?: string;
   /** Card: true (Detach lives in ⋯). Composer: false (Detach lives on the chip). */
   includeDetach: boolean;
   /** Test-id prefix: "" on the card, "composer-" in the composer. */
@@ -79,6 +92,15 @@ export interface OpenSpecActions {
 }
 
 const WORKING_REASON_KEY = "session.sessionIsStreaming";
+
+/** The `PLANNING` candidates a CLI error blocks. */
+const ERROR_BLOCKED_KEYS: OpenSpecActionKey[] = ["continue", "ff"];
+
+/** Reason text for a blocked action: the literal CLI message, else the i18n key's text. */
+export function blockedReasonText(a: ActionSpec, t: (key: string, params: undefined, fallback: string) => string): string | undefined {
+  if (a.blockedReason) return a.blockedReason;
+  return a.blockedReasonKey ? t(a.blockedReasonKey, undefined, "Session is streaming") : undefined;
+}
 
 type Base = Omit<ActionSpec, "testId" | "blocked" | "blockedReasonKey" | "dividerBefore"> & { id: string; wf?: string };
 
@@ -109,12 +131,15 @@ const CANDIDATES: Record<ChangeState, OpenSpecActionKey[]> = {
 export function deriveOpenSpecActions(ctx: OpenSpecActionsCtx): OpenSpecActions {
   const spec = (key: OpenSpecActionKey, extra: Partial<ActionSpec> = {}, id?: string): ActionSpec => {
     const { id: baseId, wf: _wf, ...rest } = A[key];
-    const blocked = key !== "detach" && ctx.working;
+    // A broken change blocks its PLANNING candidates; the message is the
+    // reason even while streaming (the more actionable of the two).
+    const brokenBlock = ctx.error !== undefined && ERROR_BLOCKED_KEYS.includes(key);
+    const blocked = key !== "detach" && (ctx.working || brokenBlock);
     return {
       ...rest,
       testId: `${ctx.idPrefix}${id ?? baseId}`,
       blocked,
-      ...(blocked ? { blockedReasonKey: WORKING_REASON_KEY } : {}),
+      ...(blocked ? (brokenBlock ? { blockedReason: ctx.error } : { blockedReasonKey: WORKING_REASON_KEY }) : {}),
       ...extra,
     };
   };

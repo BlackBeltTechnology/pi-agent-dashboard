@@ -3,9 +3,9 @@
  * E8, E9, F3, F4, F14, X9, X13). Exemplar: access-grant/__tests__/GrantPromptDialog.test.tsx.
  */
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Tier } from "../../../lib/pairing/paired-devices-api.js";
-import type { ApprovePendingOutcome, PendingPairing } from "../../../lib/pairing/pairing-approval-api.js";
+import type { ApprovePendingOutcome, PendingPairing, RefusalRemedies } from "../../../lib/pairing/pairing-approval-api.js";
 import { PairingApprovalDialog } from "../PairingApprovalDialog.js";
 
 const NOW = 1_000_000;
@@ -26,11 +26,12 @@ function renderDialog(
     entry?: PendingPairing;
     approve?: (code: string, label: string | undefined, tier?: Tier) => Promise<ApprovePendingOutcome>;
     queued?: number;
+    deny?: () => Promise<RefusalRemedies | undefined>;
   } = {},
 ) {
   const onApprove = vi.fn(opts.approve ?? (async () => ({ ok: false as const, error: "mismatch" as const, attemptsLeft: 4 })));
   const cbs = {
-    onDeny: vi.fn(async () => {}),
+    onDeny: vi.fn(opts.deny ?? (async () => undefined)),
     onDismiss: vi.fn(),
     onDone: vi.fn(),
     onHandledElsewhere: vi.fn(),
@@ -325,5 +326,222 @@ describe("PairingApprovalDialog", () => {
         cleanup();
       }
     });
+  });
+});
+
+/**
+ * Credential refusal → remedy rows, retry in place (change:
+ * fix-pairing-approval-credential, test-plan E48–E53, E56, F1–F3).
+ * `import.meta.env.DEV` is true under vitest, so production behaviour stubs it off.
+ */
+describe("credential refusal remedies", () => {
+  const CODE = "24681357";
+  const REFUSED = {
+    ok: false as const,
+    error: "operator credential required",
+    reason: "no-credential",
+    remedies: ["authorize-browser", "approve-on-host"],
+  };
+  const clipboard = { writeText: vi.fn(async (_t: string) => {}) };
+
+  function atOrigin(origin: string) {
+    const u = new URL(origin);
+    vi.stubGlobal("location", {
+      origin,
+      protocol: u.protocol,
+      host: u.host,
+      hostname: u.hostname,
+      port: u.port,
+      pathname: "/",
+      search: "",
+      hash: "",
+      href: `${origin}/`,
+    });
+  }
+
+  beforeEach(() => {
+    vi.stubEnv("DEV", false);
+    atOrigin("http://localhost:8000");
+    clipboard.writeText.mockClear();
+    Object.defineProperty(navigator, "clipboard", { value: clipboard, configurable: true });
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  async function refuse(outcome: ApprovePendingOutcome | (() => Promise<ApprovePendingOutcome>) = REFUSED) {
+    const r = renderDialog({ approve: typeof outcome === "function" ? outcome : async () => outcome });
+    type(r.input, CODE);
+    fireEvent.click(screen.getByTestId("pairing-approve"));
+    const alert = await screen.findByTestId("pairing-dialog-remedies");
+    return { ...r, alert };
+  }
+  const rows = () => screen.queryAllByTestId("pairing-remedy-row").map((r) => r.getAttribute("data-remedy"));
+  const commandOf = (remedy: string) =>
+    document.querySelector(`[data-testid="pairing-remedy-row"][data-remedy="${remedy}"] code`)?.textContent;
+
+  it("E48: authorize-browser command carries a non-default origin; the flag is omitted for the launcher default", async () => {
+    atOrigin("http://127.0.0.1:8000");
+    await refuse();
+    expect(commandOf("authorize-browser")).toBe("pi-dashboard open --url http://127.0.0.1:8000");
+    cleanup();
+    atOrigin("http://localhost:8000");
+    await refuse();
+    expect(commandOf("authorize-browser")).toBe("pi-dashboard open");
+  });
+
+  it("E49: a development build renders only the approve-on-host row", async () => {
+    vi.stubEnv("DEV", true);
+    await refuse();
+    expect(rows()).toEqual(["approve-on-host"]);
+    expect(screen.getByTestId("pairing-dialog").textContent).not.toContain("pi-dashboard open");
+  });
+
+  it("E50: approve-on-host names the request; no copyable string or clipboard write contains the typed code", async () => {
+    const { alert } = await refuse();
+    expect(commandOf("approve-on-host")).toBe(`pi-dashboard pair approve ${ENTRY.pendingId}`);
+    for (const btn of within(alert).getAllByRole("button")) fireEvent.click(btn);
+    await waitFor(() => expect(clipboard.writeText).toHaveBeenCalledTimes(2));
+    expect(clipboard.writeText.mock.calls.map((c) => c[0])).toEqual([
+      "pi-dashboard open",
+      `pi-dashboard pair approve ${ENTRY.pendingId}`,
+    ]);
+    for (const [text] of clipboard.writeText.mock.calls) expect(text).not.toContain(CODE);
+    expect(alert.textContent).not.toContain(CODE);
+    expect(screen.getByTestId("pairing-dialog").textContent).not.toContain(CODE);
+  });
+
+  it("E51: unknown remedy values are ignored; order received is kept", async () => {
+    await refuse({ ...REFUSED, remedies: ["future-thing", "approve-on-host"] });
+    expect(rows()).toEqual(["approve-on-host"]);
+    cleanup();
+    await refuse({ ...REFUSED, remedies: ["sign-in", "future-thing", "authorize-browser", "sign-in"] });
+    expect(rows()).toEqual(["sign-in", "authorize-browser"]);
+  });
+
+  it("sign-in row links to the login page", async () => {
+    await refuse({ ...REFUSED, remedies: ["approve-on-host", "sign-in"] });
+    const link = screen.getByTestId("pairing-remedy-signin") as HTMLAnchorElement;
+    expect(link.tagName).toBe("A");
+    expect(link.getAttribute("href")).toBe("/login");
+  });
+
+  it("E52: a legacy body (no reason/remedies) keeps the sentence and renders no rows", async () => {
+    const { input } = renderDialog({ approve: async () => ({ ok: false as const, error: "operator credential required" }) });
+    type(input, CODE);
+    fireEvent.click(screen.getByTestId("pairing-approve"));
+    const err = await screen.findByTestId("pairing-dialog-error");
+    expect(err.textContent).toContain("Approval needs an operator credential");
+    expect(screen.queryByTestId("pairing-dialog-remedies")).toBeNull();
+    expect(rows()).toEqual([]);
+  });
+
+  it("E53: device-credential with no remedies renders no rows and no pi-dashboard command text", async () => {
+    await refuse({ ...REFUSED, reason: "device-credential", remedies: [] });
+    expect(rows()).toEqual([]);
+    expect(screen.queryByTestId("pairing-dialog-error")).toBeNull();
+    expect(screen.getByTestId("pairing-dialog").textContent).not.toContain("pi-dashboard");
+    expect(screen.getByTestId("pairing-dialog-remedies").textContent?.length).toBeGreaterThan(0);
+  });
+
+  it("with remedies the single 'needs an operator credential' sentence is not shown", async () => {
+    await refuse();
+    expect(screen.getByTestId("pairing-dialog").textContent).not.toContain("needs an operator credential");
+    expect(screen.queryByTestId("pairing-dialog-error")).toBeNull();
+  });
+
+  it("E56: container is role=alert, commands are selectable text, every copy button has an accessible name", async () => {
+    const { alert } = await refuse({ ...REFUSED, remedies: ["authorize-browser", "approve-on-host", "sign-in"] });
+    expect(alert.getAttribute("role")).toBe("alert");
+    const codes = alert.querySelectorAll("code");
+    expect(codes).toHaveLength(2);
+    for (const c of codes) {
+      expect(c.firstChild?.nodeType).toBe(Node.TEXT_NODE);
+      expect(c.querySelector("button, input")).toBeNull();
+    }
+    const buttons = within(alert).getAllByRole("button");
+    expect(buttons).toHaveLength(2);
+    const names = buttons.map((b) => b.getAttribute("aria-label") ?? "");
+    for (const n of names) expect(n.length).toBeGreaterThan(0);
+    expect(new Set(names).size).toBe(2);
+  });
+
+  it("F1+F2: after a refusal the typed code, name and tier stay, the countdown keeps ticking, Approve stays enabled and nothing retries on focus/visibilitychange", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const onApprove = vi.fn(async () => REFUSED as ApprovePendingOutcome);
+    let now = NOW;
+    const props = { entry: KNOCK, queued: 0, onApprove, onDeny: vi.fn(async () => undefined), onDismiss: vi.fn(), onDone: vi.fn(), onHandledElsewhere: vi.fn() };
+    const view = render(<PairingApprovalDialog {...props} now={now} />);
+    expect(screen.getByTestId("pairing-dialog-expires").textContent).toContain("0:55");
+    type(screen.getByTestId("pairing-code-input") as HTMLInputElement, CODE);
+    fireEvent.change(screen.getByTestId("pairing-name-input"), { target: { value: "Phone" } });
+    fireEvent.click(within(screen.getByTestId("pairing-dialog-tier")).getByLabelText(/Control/));
+    fireEvent.click(screen.getByTestId("pairing-approve"));
+    await screen.findByTestId("pairing-dialog-remedies");
+    expect(onApprove).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      document.dispatchEvent(new Event("visibilitychange"));
+      vi.advanceTimersByTime(60_000);
+    });
+    now += 30_000;
+    view.rerender(<PairingApprovalDialog {...props} now={now} />);
+    expect(onApprove).toHaveBeenCalledTimes(1);
+    expect((screen.getByTestId("pairing-code-input") as HTMLInputElement).value).toBe("2468 1357");
+    expect((screen.getByTestId("pairing-name-input") as HTMLInputElement).value).toBe("Phone");
+    expect((within(screen.getByTestId("pairing-dialog-tier")).getByLabelText(/Control/) as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByTestId("pairing-dialog-expires").textContent).toContain("0:25");
+    expect((screen.getByTestId("pairing-approve") as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("F3: Approve again after the credential is obtained submits the same code/name/tier and shows the paired state", async () => {
+    const outcomes: ApprovePendingOutcome[] = [
+      REFUSED,
+      { ok: true, device: { id: "d", label: "Phone", createdAt: "", lastSeen: null, source: "pairing" } as never },
+    ];
+    const onApprove = vi.fn(async () => outcomes.shift() as ApprovePendingOutcome);
+    render(
+      <PairingApprovalDialog
+        entry={KNOCK}
+        now={NOW}
+        queued={0}
+        onApprove={onApprove}
+        onDeny={async () => undefined}
+        onDismiss={vi.fn()}
+        onDone={vi.fn()}
+        onHandledElsewhere={vi.fn()}
+      />,
+    );
+    type(screen.getByTestId("pairing-code-input") as HTMLInputElement, CODE);
+    fireEvent.change(screen.getByTestId("pairing-name-input"), { target: { value: "Phone" } });
+    fireEvent.click(within(screen.getByTestId("pairing-dialog-tier")).getByLabelText(/Control/));
+    fireEvent.click(screen.getByTestId("pairing-approve"));
+    await screen.findByTestId("pairing-dialog-remedies");
+    fireEvent.click(screen.getByTestId("pairing-approve"));
+    await screen.findByTestId("pairing-dialog-success");
+    expect(onApprove).toHaveBeenCalledTimes(2);
+    expect(onApprove.mock.calls[1]).toEqual([CODE, "Phone", "control"]);
+    expect(screen.queryByTestId("pairing-dialog-remedies")).toBeNull();
+  });
+
+  it("a refused Deny renders the same rows, keeps the dialog open and Deny enabled", async () => {
+    const { onDeny } = renderDialog({ deny: async () => ({ reason: "no-credential", remedies: ["authorize-browser", "approve-on-host"] }) });
+    fireEvent.click(screen.getByTestId("pairing-deny"));
+    await screen.findByTestId("pairing-dialog-remedies");
+    expect(onDeny).toHaveBeenCalledTimes(1);
+    expect(rows()).toEqual(["authorize-browser", "approve-on-host"]);
+    expect((screen.getByTestId("pairing-deny") as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.getByTestId("pairing-dialog")).toBeTruthy();
+  });
+
+  it("a refused Deny from an older server (no remedies) keeps the legacy sentence", async () => {
+    renderDialog({ deny: async () => ({}) });
+    fireEvent.click(screen.getByTestId("pairing-deny"));
+    const err = await screen.findByTestId("pairing-dialog-error");
+    expect(err.textContent).toContain("Approval needs an operator credential");
+    expect(screen.queryByTestId("pairing-dialog-remedies")).toBeNull();
   });
 });

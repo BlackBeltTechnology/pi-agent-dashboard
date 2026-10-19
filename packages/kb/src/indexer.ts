@@ -6,7 +6,7 @@ import { join, relative } from "node:path";
 import { chunkAsciiDoc } from "./adoc-chunker.js";
 import { chunkMarkdown } from "./chunker.js";
 import { buildMeta, buildProperties, DEFAULT_FACET_KEYS, DEFAULT_SEARCHABLE_KEYS, type FacetKeyConfig } from "./frontmatter.js";
-import { type GitignoreMatcher, loadGitignoreMatcher } from "./gitignore.js";
+import { type GitignoreMatcher, loadGitignoreMatcherYielding } from "./gitignore.js";
 import type { DocType, KbStore } from "./types.js";
 
 export interface IndexSource {
@@ -29,6 +29,14 @@ export interface IndexOptions {
   /** Project boundary for the gitignore up-walk (usually the resolved cwd).
    *  Omit to seed the pattern stack from the `.git` root discovered upward. */
   cwd?: string;
+  /** Called once per walked file (before its work). The atomic first-index builder
+   *  uses it to refresh its live-build marker on a clock (a timer cannot fire inside
+   *  a synchronous batch). See change: fix-kb-index-integrity (D2). */
+  heartbeat?: () => void;
+  /** Called once inside the FIRST batch's transaction (after `begin`, before any file work).
+   *  `beginForcedSource` uses it to clear the source's engine record atomically with the first
+   *  rewritten rows. See change: add-kb-worktree-seed (D6). */
+  onFirstBatch?: () => void;
 }
 export interface IndexStats {
   scanned: number;
@@ -40,7 +48,7 @@ export interface IndexStats {
 }
 
 const sha = (s: string | Buffer) => createHash("sha256").update(s).digest("hex");
-const DEFAULT_EXCLUDE = /(^|\/)(node_modules|\.git|dist|build|\.next|coverage|\.kb)(\/|$)/;
+const DEFAULT_EXCLUDE = /(^|\/)(node_modules|\.git|\.worktrees|dist|build|\.next|coverage|\.kb)(\/|$)/;
 /** Selectable source extensions. Widened together with `config.ts` defaults and
  *  the per-extension chunker dispatch (design D4) — widening one gate alone
  *  indexes zero extra files. */
@@ -59,6 +67,15 @@ const TITLE_EXT_RE = /\.(md|mdx|markdown|adoc|asciidoc)$/i;
  *  write lock so the reader is served. See change: fix-kb-index-feedback. */
 const YIELD_EVERY = 100;
 const yieldToEventLoop = (): Promise<void> => new Promise<void>((r) => setImmediate(r));
+/** Directory entries (walk) / directories (gitignore pre-scan) processed between
+ *  event-loop yields. One constant for both traversals. Bounds deep and broad
+ *  trees, not a single huge directory (one `readdirSync` call).
+ *  See change: bound-kb-search-freshness. */
+export const WALK_YIELD_EVERY = 500;
+/** Supplementary time bound: also yield once this many ms passed since the last
+ *  yield, so a slow filesystem (few entries per directory, high per-call latency)
+ *  cannot starve the loop between entry-count yields. */
+const WALK_YIELD_MAX_MS = 50;
 
 /** Escape every RegExp metacharacter in a literal. */
 function escapeRegExp(s: string): string {
@@ -81,18 +98,36 @@ function matchAny(pats: RegExp[], rel: string): boolean {
   return pats.some((re) => re.test(rel));
 }
 
-function walk(dir: string, base: string, out: string[] = [], ignore?: GitignoreMatcher): string[] {
+/** @internal exported for tests. Async + cooperative: yields every
+ *  `WALK_YIELD_EVERY` directory entries processed (counter spans the recursion). */
+export async function walk(
+  dir: string,
+  base: string,
+  out: string[] = [],
+  ignore?: GitignoreMatcher,
+  yieldFn: () => Promise<void> = yieldToEventLoop,
+  counter: { n: number; last: number } = { n: 0, last: performance.now() },
+): Promise<string[]> {
   for (const e of readdirSync(dir, { withFileTypes: true })) {
+    if (++counter.n % WALK_YIELD_EVERY === 0 || performance.now() - counter.last >= WALK_YIELD_MAX_MS) {
+      await yieldFn();
+      counter.last = performance.now();
+    }
     const abs = join(dir, e.name);
     const rel = relative(base, abs);
     if (DEFAULT_EXCLUDE.test(rel)) continue;
     if (e.isDirectory()) {
       // Excluded-parent rule: an ignored dir is never descended (git semantics).
       if (ignore?.isIgnoredDir(rel)) continue;
-      walk(abs, base, out, ignore);
+      await walk(abs, base, out, ignore, yieldFn, counter);
     } else if (SELECTABLE_RE.test(e.name) && !ignore?.isIgnored(rel)) out.push(abs);
   }
   return out;
+}
+
+/** Heading node identity: `<file path>#<heading path>`. */
+export function headingNodeName(rel: string, headingPath: string): string {
+  return `${rel}#${headingPath}`;
 }
 
 export function docTypeOf(rel: string, includeSourceMarkdown: boolean): DocType {
@@ -122,8 +157,11 @@ export async function indexSource(store: KbStore, src: IndexSource, opts: IndexO
   const inc = opts.include?.map(globToRe);
   const exc = opts.exclude?.map(globToRe);
   const includeSourceMd = opts.includeSourceMarkdown !== false;
-  const gi = opts.respectGitignore === false ? undefined : loadGitignoreMatcher(src.dir, { cwd: opts.cwd, prune: (rel) => DEFAULT_EXCLUDE.test(rel) });
-  const files = walk(src.dir, src.dir, [], gi).filter((abs) => {
+  const gi =
+    opts.respectGitignore === false
+      ? undefined
+      : await loadGitignoreMatcherYielding(src.dir, { cwd: opts.cwd, prune: (rel) => DEFAULT_EXCLUDE.test(rel), yieldEvery: WALK_YIELD_EVERY, yieldMaxMs: WALK_YIELD_MAX_MS, yieldFn: yieldToEventLoop });
+  const files = (await walk(src.dir, src.dir, [], gi)).filter((abs) => {
     const rel = relative(src.dir, abs);
     if (src.include && !src.include(rel)) return false;
     if (inc && !matchAny(inc, rel)) return false;
@@ -141,8 +179,15 @@ export async function indexSource(store: KbStore, src: IndexSource, opts: IndexO
   // leaves earlier batches committed; a reindex is idempotent so a re-run
   // completes it. See change: fix-kb-index-feedback.
   let sinceYield = 0;
+  // Rebuild the per-file chunk-rowid record when it may be stale (first pass of a
+  // connection, or another connection committed since); throws BEFORE any per-file
+  // delete. See change: fix-kb-index-integrity (D5).
+  store.reconcileChunkMap?.();
   store.begin();
   try {
+    // Runs inside the first batch's transaction: a kill before that batch commits leaves the
+    // prior (consistent) state, a kill after leaves the hook's effect. See change: add-kb-worktree-seed (D6).
+    opts.onFirstBatch?.();
     for (const abs of files) {
       if (sinceYield >= YIELD_EVERY) {
         store.commit();
@@ -151,12 +196,31 @@ export async function indexSource(store: KbStore, src: IndexSource, opts: IndexO
         sinceYield = 0;
       }
       sinceYield++;
+      opts.heartbeat?.();
       const rel = relative(src.dir, abs);
+      // A file that vanishes between the walk and its read is a deleted file, not a
+      // pass-aborting error: it stays out of the live set so the deletion sweep below
+      // removes its rows. Other errors still throw.
+      let st: ReturnType<typeof statSync>;
+      try {
+        st = statSync(abs);
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException)?.code === "ENOENT") continue;
+        throw e;
+      }
       live.add(rel);
-      const st = statSync(abs);
       const prev = store.getFileState(src.root, rel);
       if (!opts.force && prev && prev.mtimeMs === st.mtimeMs) continue; // mtime cheap-check
-      const buf = readFileSync(abs);
+      let buf: Buffer;
+      try {
+        buf = readFileSync(abs);
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException)?.code === "ENOENT") {
+          live.delete(rel);
+          continue;
+        }
+        throw e;
+      }
       const hash = sha(buf);
       if (!opts.force && prev && prev.sha256 === hash) {
         store.setFileState(src.root, rel, { mtimeMs: st.mtimeMs, sha256: hash });
@@ -173,9 +237,13 @@ export async function indexSource(store: KbStore, src: IndexSource, opts: IndexO
       for (const c of chunks) {
         store.insertChunk(c);
         if (c.level > 0) {
-          store.addNode({ type: "heading", name: c.headingPath, path: rel });
-          const parentName = c.parentChunkId ? chunks.find((x) => x.chunkId === c.parentChunkId)?.headingPath : rel;
-          store.addEdge({ src: c.headingPath, dst: parentName ?? rel, rel: "child_of" });
+          // File-qualified identity: `nodes` is UNIQUE(type,name), so a bare heading
+          // path would merge every file's `Purpose`/`Why` into one node.
+          // See change: fix-kb-index-integrity (D4).
+          const hName = headingNodeName(rel, c.headingPath);
+          store.addNode({ type: "heading", name: hName, path: rel });
+          const parentHeading = c.parentChunkId ? chunks.find((x) => x.chunkId === c.parentChunkId)?.headingPath : undefined;
+          store.addEdge({ src: hName, dst: parentHeading ? headingNodeName(rel, parentHeading) : rel, rel: "child_of" });
         }
       }
       // tier-1 graph: wikilinks + md links + frontmatter tags
@@ -219,9 +287,12 @@ export async function indexSource(store: KbStore, src: IndexSource, opts: IndexO
     for (const p of store.listPaths(src.root)) {
       if (!live.has(p)) {
         store.deleteByPath(src.root, p);
+        store.demoteNode?.(p); // inbound links keep their target as a placeholder
         stats.deleted++;
       }
     }
+    // Path-less nodes (placeholders, tags) that no edge references any more.
+    store.sweepPlaceholders?.();
     store.commit();
   } catch (err) {
     store.rollback();

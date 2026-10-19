@@ -214,6 +214,19 @@ describe("Session Control REST API", () => {
     expect(res.status).toBe(409);
   });
 
+  it("POST /api/session/:id/archive — fileless ended session is evicted (E14, fix-orphaned-ended-session-archive)", async () => {
+    registerSession("archive-fileless");
+    server.sessionManager.update("archive-fileless", { status: "ended", endedAt: Date.now() } as never);
+    expect(server.sessionManager.get("archive-fileless")?.sessionFile).toBeUndefined();
+
+    const res = await postJson("/api/session/archive-fileless/archive");
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ success: true });
+    const list = (await (await fetch(url("/api/sessions"))).json()) as { data: Array<{ id: string }> };
+    expect(list.data.map((s) => s.id)).not.toContain("archive-fileless");
+  });
+
   it("GET /api/sessions excludes archived (E35)", async () => {
     seedArchivableEnded("list-resident");
     seedArchivableEnded("list-archived");

@@ -142,8 +142,8 @@ export function VaultSection() {
   const [loadError, setLoadError] = useState<string | null>(null);
   /** The server answered an /api route with HTML: it predates the vault. */
   const [stale, setStale] = useState(false);
-  /** Remedies of an `operate_required` refusal; null when the load did not fail that way. */
-  const [operateRemedies, setOperateRemedies] = useState<unknown[] | null>(null);
+  /** Remedies of an `operate_required` refusal, with the server that refused; null when the load did not fail that way. */
+  const [operateRefusal, setOperateRefusal] = useState<{ remedies: unknown[]; base: string } | null>(null);
   const [retrying, setRetrying] = useState(false);
   const { restart, restartServer } = useServerRestart();
   const [tab, setTab] = useState<TabId>("variables");
@@ -154,10 +154,10 @@ export function VaultSection() {
   const reload = useCallback(async () => {
     const res = await fetchVault();
     if (res.ok && res.data) setOverview(res.data);
-    const operate = res.code === "operate_required" && res.remedies ? res.remedies : null;
+    const operate = res.code === "operate_required" && res.remedies ? { remedies: res.remedies, base: res.base ?? "" } : null;
     const failed = !(res.ok && res.data);
     // An older server sends no `remedies` on operate_required: it falls through to the plain line.
-    setOperateRemedies(failed ? operate : null);
+    setOperateRefusal(failed ? operate : null);
     setStale(failed && res.code === "server_outdated");
     setLoadError(failed && !operate && res.code !== "server_outdated" ? (res.error ?? `HTTP ${res.status}`) : null);
   }, []);
@@ -195,7 +195,7 @@ export function VaultSection() {
   };
 
   const ready = overview !== null && candidates !== null;
-  const loading = !ready && !loadError && !stale && !operateRemedies;
+  const loading = !ready && !loadError && !stale && !operateRefusal;
   const corrupt = overview?.status.state === "corrupt";
   const firstRun = ready && !corrupt && overview.accounts.length === 0 && overview.bindings.length === 0;
   const keyFiles = (candidates ?? []).filter((c) => c.exists).length;
@@ -244,7 +244,7 @@ export function VaultSection() {
         </p>
       </div>
 
-      {operateRemedies && <OperateRequiredCallout remedies={operateRemedies} busy={retrying} onRetry={retry} />}
+      {operateRefusal && <OperateRequiredCallout remedies={operateRefusal.remedies} apiBase={operateRefusal.base} busy={retrying} onRetry={retry} />}
 
       {stale && <StaleServerCallout restart={restart} retrying={retrying} onRestart={() => void restartServer()} onRetry={() => void retry()} />}
 

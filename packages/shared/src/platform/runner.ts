@@ -256,7 +256,7 @@ function resolveBinary(name: string): string | null {
  * path, no executor wrapping). Path-like names (absolute/relative
  * paths) are trusted as-is.
  */
-function resolveExecutorArgv(name: string, recipeArgs: readonly string[]): string[] | null {
+export function resolveExecutorArgv(name: string, recipeArgs: readonly string[]): string[] | null {
   if (isPathLike(name)) {
     if (existsSync(name)) return [name, ...recipeArgs];
     return null;

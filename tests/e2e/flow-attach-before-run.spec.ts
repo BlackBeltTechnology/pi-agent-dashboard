@@ -1,12 +1,13 @@
 import { expect, test } from "./fixtures.js";
 import { byTestId, spawnFreshGitSession } from "./helpers/index.js";
+import { closeSessionMenu, flowMenuItem, openSessionMenu } from "./helpers/session-actions-menu.js";
 
 // Change: attach-flow-before-run — L3 against the REAL pi-flows engine + faux
 // agents (exemplar: flow-roundtrip.spec.ts). The harness bakes the synthetic
 // 2-agent flow (`e2e:synthetic`, steps alpha → beta) under
 // /fixtures/sample-git/.pi/flows/flows/e2e/synthetic/flow.yaml.
 //
-// F15: subcard Open flow… → pick → the flow slot shows the NOT-STARTED panel
+// F15: session menu Open flow… → pick → the flow slot shows the NOT-STARTED panel
 //      (graph + pending cards) → idle Run → the same single panel goes live,
 //      completes, then shows the summary.
 // F16: Open flow… is disabled while a flow runs and re-enabled after it ends.
@@ -23,9 +24,12 @@ test.describe("attach flow before run (L3: real pi-flows engine + faux agents)",
     const card = await spawnFreshGitSession(page);
     await card.click();
 
-    const open = card.getByTestId("flows-open-button");
+    // Open flow… is a menu item (flows plugin → PLUGINS group). Wait for flows to be
+    // available (the item appears once pi-flows has published), then activate it.
+    await openSessionMenu(page, card);
+    const open = flowMenuItem(page, /open flow/i);
     await expect(open).toBeVisible({ timeout: 60_000 });
-    await expect(open).toBeEnabled();
+    await expect(open).not.toHaveAttribute("aria-disabled", "true");
     await open.click();
     await pickSynthetic(page);
 
@@ -77,29 +81,48 @@ test.describe("attach flow before run (L3: real pi-flows engine + faux agents)",
     const card = await spawnFreshGitSession(page);
     await card.click();
 
-    const runFlow = card.getByRole("button", { name: /run flow/i });
+    await openSessionMenu(page, card);
+    const runFlow = flowMenuItem(page, /run flow/i);
     await expect(runFlow).toBeVisible({ timeout: 60_000 });
-    const open = card.getByTestId("flows-open-button");
-    await expect(open).toBeEnabled();
+    await expect(flowMenuItem(page, /open flow/i)).not.toHaveAttribute("aria-disabled", "true");
+    await closeSessionMenu(page);
 
-    // The faux flow can finish in well under a second: record in-page whether
-    // the Open button was ever disabled after the run was submitted.
-    await open.evaluate((btn) => {
+    // The faux flow can finish in well under a second, and the menu item exists
+    // only while the menu is open: probe IN-PAGE the moment the live panel
+    // appears — open THIS card's menu and record the Open flow… state the first
+    // time the item is in the DOM.
+    const sessionId = (await card.getAttribute("data-session-id")) as string;
+    await page.evaluate((id) => {
       const w = window as unknown as Record<string, unknown>;
       w.__openWasDisabled = false;
+      w.__probed = false;
+      const trigger = () => document.querySelector(`[data-session-id="${id}"] [data-testid^="session-actions-trigger-"]`) as HTMLElement | null;
+      const openItem = () => Array.from(document.querySelectorAll('[role="menuitem"]')).find((e) => /open flow/i.test(e.textContent ?? ""));
       new MutationObserver(() => {
-        const el = document.querySelector('[data-testid="flows-open-button"]') as HTMLButtonElement | null;
-        if (el?.disabled) w.__openWasDisabled = true;
-      }).observe(btn.ownerDocument.body, { subtree: true, childList: true, attributes: true });
-    });
+        if (w.__probed) return;
+        if (!document.querySelector('[data-testid="flow-dashboard"][data-flow-mode="live"]')) return;
+        w.__probed = true;
+        const watcher = new MutationObserver(() => {
+          const item = openItem();
+          if (!item) return;
+          w.__openWasDisabled = item.getAttribute("aria-disabled") === "true";
+          watcher.disconnect();
+          trigger()?.click();
+        });
+        watcher.observe(document.body, { subtree: true, childList: true, attributes: true });
+        trigger()?.click();
+      }).observe(document.body, { subtree: true, childList: true, attributes: true });
+    }, sessionId);
 
-    await runFlow.click();
+    await openSessionMenu(page, card);
+    await flowMenuItem(page, /run flow/i).click();
     await pickSynthetic(page);
     await byTestId(page, "flowLaunchRun").click();
 
-    // Completion → summary; the button re-enables.
+    // Completion → summary; the action re-enables.
     await expect(page.getByTestId("flow-summary-scrollbox")).toBeVisible({ timeout: 120_000 });
-    await expect(open).toBeEnabled({ timeout: 30_000 });
+    await openSessionMenu(page, card);
+    await expect(flowMenuItem(page, /open flow/i)).not.toHaveAttribute("aria-disabled", "true", { timeout: 30_000 });
     const wasDisabled = await page.evaluate(() => (window as unknown as { __openWasDisabled: boolean }).__openWasDisabled);
     expect(wasDisabled).toBe(true);
   });

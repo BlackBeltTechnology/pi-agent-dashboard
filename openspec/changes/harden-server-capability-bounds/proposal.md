@@ -34,8 +34,8 @@ capability itself has no bound.
   (loopback by default) and gate the `reinstall`/`retry` POST actions on a
   loopback / local-token check.
 
-Out of scope: the terminal `cwd` validation defense-in-depth (audit B10-adjacent
-low), which the universal-guard + containment work covers.
+Out of scope: the terminal `cwd` validation defense-in-depth (audit R1,
+low), owned by `close-residual-audit-findings`.
 
 ## Impact
 

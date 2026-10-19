@@ -1,7 +1,7 @@
 /**
  * The bridge-owned follow-up buffer: the authoritative store for
  * dashboard-originated follow-up prompts while the agent streams. Pi never sees
- * an entry until `drainFollowupQueue()` ships it on `agent_end`.
+ * an entry until `drainFollowupQueue()` ships it on `agent_settled`.
  *
  * Extracted from `bridge.ts` so the admission arithmetic is reachable by tests
  * without instantiating the whole extension, and so the byte ceiling can be

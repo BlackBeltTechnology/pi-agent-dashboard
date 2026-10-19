@@ -30,7 +30,9 @@ import {
   sameReachability,
 } from "../auth/bind-reachability-service.js";
 import { canDiscloseAccessPosture, localhostGuard, loopbackCoveringEntries } from "../auth/localhost-guard.js";
+import { networkOnlySnapshot } from "../auth/network-trust-telemetry.js";
 import { getRegistryError } from "../auth/provider-auth-registry.js";
+import { effectiveTrustMode } from "../auth/trust-mode.js";
 import { deleteAuthProvider, readConfigRedacted, writeConfigPartial } from "../config-api.js";
 import type { DirectoryService } from "../directory-service.js";
 import {
@@ -64,6 +66,8 @@ import { mirrorDefaultsToPi } from "../pi-agent-settings.js";
 import { EMPTY_KEEPER_LOG_STATS, type KeeperLogStats } from "../rpc-keeper/keeper-manager.js";
 import type { ServerConfig } from "../server.js";
 import { serverHeapTelemetry } from "../server-heap-telemetry.js";
+import { touchesTlsOrPorts, validateTlsConfigWrite } from "../tls/tls-config-validation.js";
+import type { TlsListener } from "../tls/tls-listener.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
 import { heapFallbackStatus } from "../spawn-process/heap-args.js";
 import { spawnRestart } from "../spawn-process/restart-helper.js";
@@ -201,6 +205,8 @@ export function registerSystemRoutes(
     directoryService?: DirectoryService;
     /** Called after a `PUT /api/config` that touched `vault`, so delivery switches apply live. See change: add-credential-vault. */
     onVaultConfigChanged?: () => void;
+    /** Optional TLS listener: status in `/api/health.tls`, endpoints, reconcile after a `tls` config write. See change: add-tailscale-cert-tls. */
+    tls?: Pick<TlsListener, "status" | "tlsListenerUrls" | "reconcile">;
     piGateway?: PiGateway;
     browserGateway?: {
       broadcastToAll: (msg: ServerToBrowserMessage) => void;
@@ -452,6 +458,7 @@ export function registerSystemRoutes(
         providerEndpoints,
         publicBaseUrls: configModule.resolvePublicBaseUrls(cfg),
         port: config.port,
+        tlsEndpoints: deps.tls?.tlsListenerUrls() ?? [],
       });
       return { success: true, data: { endpoints } } satisfies ApiResponse;
     },
@@ -518,6 +525,16 @@ export function registerSystemRoutes(
     "/api/tunnel/block-events",
     { preHandler: networkGuard },
     async (request, reply) => {
+      // Accept-to-trust exists only in `legacy`: in `pair` a network match grants
+      // nothing, so there is nothing to accept (the denied device pairs instead).
+      // See change: retire-trusted-networks-bypass (D6).
+      if (effectiveTrustMode().mode === "pair") {
+        return reply.code(403).send({
+          success: false,
+          error: "not_acceptable",
+          reason: "Network trust is off (pair mode) — the denied device must request access instead.",
+        });
+      }
       const ip = request.body?.ip;
       if (typeof ip !== "string" || ip.length === 0) {
         return reply.code(400).send({ success: false, error: "ip required" });
@@ -569,6 +586,20 @@ export function registerSystemRoutes(
           return reply.code(400).send({ success: false, error: check.errors.join("; ") });
         }
       }
+      // `network.trustMode` is a security switch: only the two known values may
+      // be WRITTEN (a hand-edited unknown value is judged fail-closed at read).
+      // See change: retire-trusted-networks-bypass.
+      if ("network" in partial && (partial.network === null || typeof partial.network !== "object" || Array.isArray(partial.network))) {
+        return reply.code(400).send({ success: false, error: "network must be an object" });
+      }
+      if (
+        partial.network !== undefined &&
+        "trustMode" in partial.network &&
+        partial.network.trustMode !== "pair" &&
+        partial.network.trustMode !== "legacy"
+      ) {
+        return reply.code(400).send({ success: false, error: 'network.trustMode must be "pair" or "legacy"' });
+      }
       // `pairing.acceptLanRequests` is a security switch: boolean only, never
       // coerced. See change: add-lan-knock-pairing.
       if (
@@ -579,11 +610,28 @@ export function registerSystemRoutes(
       ) {
         return reply.code(400).send({ success: false, error: "pairing.acceptLanRequests must be a boolean" });
       }
+      // `tls` block / listener-port validation against the MERGED config (design D7).
+      // See change: add-tailscale-cert-tls.
+      if (touchesTlsOrPorts(partial)) {
+        const { readRawConfig } = await import("../config-api.js");
+        const tlsError = validateTlsConfigWrite(partial, readRawConfig());
+        if (tlsError) return reply.code(400).send({ success: false, error: tlsError });
+      }
       const saved = await saveConfigAndMirror(partial);
       if (!saved.ok) {
         return reply.code(500).send({ success: false, error: saved.error });
       }
       const { result, reloaded, piMirror } = saved;
+      // The `tls` block is applied live: await only the listener (re)bind. Certificate
+      // work is scheduled, never awaited here. A reconcile failure is reported in TLS
+      // status; the config stays as written. See change: add-tailscale-cert-tls (D7).
+      if (partial.tls !== undefined) {
+        try {
+          await deps.tls?.reconcile();
+        } catch (err) {
+          console.warn(`[tls] reconcile after config write failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
 
       // Push the recomputed reachability when ANY part of the published fact
       // moved — not just `pendingBindHost`. A write that edits `trustedNetworks`
@@ -1075,11 +1123,26 @@ export function registerSystemRoutes(
     // Inert-entry flag: a loopback entry in trustedNetworks/bypassHosts never
     // admits tunnel traffic. Same disclosure gate as `accessGrants`.
     // See change: fix-trusted-network-tunnel-bypass (D3).
-    let trustPosture: { trustedHasLoopback: boolean } | null = null;
+    // Also carries the effective trust mode and the in-memory network-only
+    // admission counters (counts only — never a peer address). Zeroed in `pair`,
+    // where no network-only admission can occur.
+    // See change: retire-trusted-networks-bypass (D4).
+    let trustPosture: {
+      trustedHasLoopback: boolean;
+      trustMode: "pair" | "legacy";
+      trustModeOrigin: "upgrade" | "operator" | null;
+      networkOnly: { admissions: number; distinctPeers: number; lastAt: number | null };
+    } | null = null;
     if (canDiscloseAccessPosture(request)) {
       try {
         const trusted = readTrustedNetworks?.() ?? config.resolvedTrustedNetworks ?? [];
-        trustPosture = { trustedHasLoopback: loopbackCoveringEntries(trusted).length > 0 };
+        const { mode, origin } = effectiveTrustMode();
+        trustPosture = {
+          trustedHasLoopback: loopbackCoveringEntries(trusted).length > 0,
+          trustMode: mode,
+          trustModeOrigin: origin,
+          networkOnly: mode === "pair" ? { admissions: 0, distinctPeers: 0, lastAt: null } : networkOnlySnapshot(),
+        };
       } catch { /* keep null */ }
     }
     // Push errors name local config (file paths, missing keys): same
@@ -1091,6 +1154,11 @@ export function registerSystemRoutes(
     }
     let providerAuthError: string | null = null;
     try { providerAuthError = getRegistryError(); } catch { /* keep null */ }
+    // TLS listener status: `{ enabled, bound }` for every caller; the detail
+    // (port, gates, certificate names/errors) only where access posture may be
+    // disclosed. Reads cached state only — never calls out. See change: add-tailscale-cert-tls (D8).
+    let tlsStatus: ReturnType<NonNullable<typeof deps.tls>["status"]> | null = null;
+    try { tlsStatus = deps.tls?.status(canDiscloseAccessPosture(request)) ?? null; } catch { /* omit */ }
     const activeSessions = sessionManager.listActive();
     const agentMetrics = activeSessions
       .filter(s => s.processMetrics)
@@ -1105,6 +1173,7 @@ export function registerSystemRoutes(
       // Access-grant prompting counters (additive; null when unwired or on a
       // throwing read). See change: add-access-grant-dialog (task 9.3).
       accessGrants,
+      ...(tlsStatus ? { tls: tlsStatus } : {}),
       // Loopback-trusted-entry posture (additive; null unless disclosable).
       // See change: fix-trusted-network-tunnel-bypass (D3).
       trustPosture,

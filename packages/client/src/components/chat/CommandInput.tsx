@@ -932,16 +932,22 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
     </div>
   );
 
-  const terminalButton = onOpenInlineTerminal ? (
+  // Terminal chip — same chip language as the delivery control. "wide": label
+  // collapses to icon-only below @[52rem] (settings row); "always": ⋯ menu.
+  const terminalButton = (showLabel: "always" | "wide") => onOpenInlineTerminal ? (
     <button
+      type="button"
       onClick={() => onOpenInlineTerminal()}
       disabled={disabled}
-      className="focus-ring inline-flex items-center justify-center w-[34px] h-[30px] rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] disabled:opacity-50 disabled:cursor-not-allowed"
+      className="focus-ring inline-flex items-center justify-center gap-1 px-2 h-[30px] rounded-lg border border-[var(--border-secondary)] text-[11px] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] disabled:opacity-50 disabled:cursor-not-allowed"
       title={t("command.inlineTerminal", undefined, "Open inline terminal")}
       aria-label={t("command.inlineTerminal", undefined, "Open inline terminal")}
       data-testid="open-inline-terminal-button"
     >
-      <Icon path={mdiConsole} size={0.7} />
+      <Icon path={mdiConsole} size={0.5} />
+      <span className={showLabel === "wide" ? "hidden @[52rem]:inline" : undefined}>
+        {t("command.terminal", undefined, "Terminal")}
+      </span>
     </button>
   ) : null;
 
@@ -1112,8 +1118,8 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
         {/* Pasted-image error banner + thumbnail strip (attachments row). */}
         <ImagePreviewStrip images={pendingImages} error={imageError} onRemove={removeImage} />
 
-        {/* Input row: the text field with the controls that act on it
-            (terminal · send/stop), bottom-aligned so they follow the draft. */}
+        {/* Input row: the text field with send/stop, bottom-aligned so it
+            follows the draft. */}
         <div data-testid="composer-input-row" className="flex items-end gap-1.5">
         <textarea
           ref={inputRef}
@@ -1143,14 +1149,12 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
             target.style.height = Math.min(target.scrollHeight, 120) + "px";
           }}
         />
-          {/* Terminal — desktop only (folded into ⋯ below @[44rem]). */}
-          <span className="hidden @[44rem]:inline-flex self-end">{terminalButton}</span>
           {actionCluster}
         </div>
 
         <div aria-hidden="true" className="h-px bg-[var(--border-subtle)] my-1" />
 
-        {/* Settings row: message settings only (＋ · model · thinking · Steer|Queue). */}
+        {/* Settings row: ＋ · model · thinking · Steer|Queue · Terminal. */}
         <div data-testid="composer-settings-row" className="flex items-center gap-1.5">
           {/* ＋ attach menu. */}
           <div className="relative" ref={attachRef}>
@@ -1236,6 +1240,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
           <span className="hidden @[44rem]:inline-flex">{thinkingChip}</span>
           {toolbarExtra}
           <span className="hidden @[44rem]:inline-flex">{deliveryControl}</span>
+          <span className="hidden @[44rem]:inline-flex">{terminalButton("wide")}</span>
 
           <span className="flex-1" />
 
@@ -1278,7 +1283,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
               >
                 {thinkingChip}
                 {deliveryControl}
-                {terminalButton}
+                {terminalButton("always")}
               </div>
               </LayerPortal>
             )}

@@ -56,6 +56,8 @@ const FAMILY_BY_SEGMENT: Readonly<Record<string, Family>> = {
   file: "files",
   grep: "files",
   diagram: "files",
+  // on-demand AI mermaid repair (change: add-mermaid-ai-repair)
+  mermaid: "files",
   "reveal-in-file-manager": "files",
   "open-in-system": "files",
   "pi-resource-file": "files",
@@ -75,6 +77,8 @@ const FAMILY_BY_SEGMENT: Readonly<Record<string, Family>> = {
   "model-proxy": "providers",
   // packages / runtimes / tools
   packages: "packages",
+  // Add-ons hub catalog + feature toggle. See change: addons-hub-feature-catalog.
+  addons: "packages",
   resources: "packages",
   "pi-resources": "packages",
   "pi-core": "packages",
@@ -106,6 +110,8 @@ const FAMILY_BY_SEGMENT: Readonly<Record<string, Family>> = {
   "tunnel-status-detail": "gateway",
   "tunnel-readiness": "gateway",
   "tunnel-reserved-name": "gateway",
+  // built-in HTTPS listener: operator "issue now" (change: add-tailscale-cert-tls)
+  tls: "gateway",
   pair: "gateway",
   "known-servers": "gateway",
   "discover-servers": "gateway",

@@ -27,6 +27,9 @@ vi.mock("@blackbelt-technology/pi-dashboard-shared/openspec-poller.js", async (i
   return {
     ...actual,
     pollOpenSpecAsync: vi.fn(async () => ({ initialized: false, changes: [] })),
+    // This suite exercises the fallback path (`list` + local derivation): the CLI
+    // "rejects" `--all` so the poll continues on it. See change: use-openspec-status-all.
+    runOpenSpecStatusAll: vi.fn(async () => ({ stdout: "", stderr: "error: unknown option '--all'", exitCode: 1 })),
     runOpenSpecList: (...args: any[]) => runOpenSpecListMock(...args),
     runOpenSpecStatus: (...args: any[]) => runOpenSpecStatusMock(...args),
   };
@@ -226,33 +229,34 @@ describe("DirectoryService — poll-path pending emit", () => {
   });
 
   it("3.4 repeated empty/failed tick still delivers the terminal clear (diff-guard not suppressed)", async () => {
-    vi.useFakeTimers();
-    try {
-      mkChangesDir(tmpCwd);
-      runOpenSpecListMock.mockResolvedValue(null); // persistent CLI failure → { initialized:false }
-      service = createDirectoryService(
-        createMockPrefs([tmpCwd]),
-        createMockSessions(),
-        { pollIntervalSeconds: 0.05, jitterSeconds: 0 },
-        { changeWatcher: createStubWatcher() as any },
-      );
-      service.startPolling((cwd, data) => emits.push({ cwd, data }));
+    // Real timers: the first poll of a cwd probes `openspec status --all`
+    // (worker + real async fs I/O), which fake timers cannot drive.
+    mkChangesDir(tmpCwd);
+    runOpenSpecListMock.mockResolvedValue(null); // persistent CLI failure → { initialized:false }
+    service = createDirectoryService(
+      createMockPrefs([tmpCwd]),
+      createMockSessions(),
+      { pollIntervalSeconds: 0.05, jitterSeconds: 0 },
+      { changeWatcher: createStubWatcher() as any, openspecVersionResolver: async () => "1.0.0" },
+    );
+    service.startPolling((cwd, data) => emits.push({ cwd, data }));
 
-      // Two periodic ticks. Each one emits a transitional pending:true; the
-      // second tick's final payload equals the first's ({ initialized:false }),
-      // so the JSON-diff guard would suppress the clear without the
-      // pending-emitted flag — leaving the spinner stuck.
-      await vi.advanceTimersByTimeAsync(60);
-      await vi.advanceTimersByTimeAsync(60);
-
-      const pendingCount = emits.filter((e) => e.data.pending === true).length;
-      const clearCount = emits.filter((e) => e.data.initialized === false && e.data.pending !== true).length;
-      expect(pendingCount).toBeGreaterThanOrEqual(2);
-      // Every spinner shown is matched by a terminal clear.
-      expect(clearCount).toBe(pendingCount);
-    } finally {
-      vi.useRealTimers();
+    // Two periodic ticks. Each one emits a transitional pending:true; the
+    // second tick's final payload equals the first's ({ initialized:false }),
+    // so the JSON-diff guard would suppress the clear without the
+    // pending-emitted flag — leaving the spinner stuck.
+    const counts = () => ({
+      pending: emits.filter((e) => e.data.pending === true).length,
+      clear: emits.filter((e) => e.data.initialized === false && e.data.pending !== true).length,
+    });
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline && !(counts().pending >= 2 && counts().clear === counts().pending)) {
+      await new Promise((r) => setTimeout(r, 20));
     }
+
+    expect(counts().pending).toBeGreaterThanOrEqual(2);
+    // Every spinner shown is matched by a terminal clear.
+    expect(counts().clear).toBe(counts().pending);
   });
 });
 

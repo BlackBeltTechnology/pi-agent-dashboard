@@ -23,7 +23,13 @@
  *
  * See change: migrate-mcp-to-pi-builtin; mcp-client-project-overrides (D9).
  */
-import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  SettingsItem,
+  SettingsNotice,
+  SettingsStatusPill,
+  type SettingsStatusTone,
+  useT,
+} from "@blackbelt-technology/dashboard-plugin-runtime";
 import type React from "react";
 import { useEffect, useState } from "react";
 import { authModeOf, isProjectOverride } from "../core/pi-rules.js";
@@ -31,6 +37,7 @@ import type { EffectiveServerView, LayerStatus, LiveState, Scope } from "../core
 import { ApiError, convertServer, scopeToWire, setEnabled } from "./api.js";
 import { overrideBadges, provenanceLabel } from "./folder-view.js";
 import { invalidateEffective } from "./hooks.js";
+import { BTN, BTN_PRIMARY, LINK } from "./settings-ui.js";
 
 const GLOBAL_SCOPE: Scope = { kind: "global" };
 
@@ -58,6 +65,74 @@ function inactiveText(reason: string | undefined): string | null {
     default:
       return null;
   }
+}
+
+/** Human word + tone for pi's reported connection state; the raw enum is kept only as `data-status`. */
+function livePill(
+  liveRow: { state: string; tools: number } | undefined,
+): { tone: SettingsStatusTone; text: string; status?: string } {
+  if (!liveRow) return { tone: "neutral", text: "State unknown" };
+  const tools = `${liveRow.tools} ${liveRow.tools === 1 ? "tool" : "tools"}`;
+  switch (liveRow.state) {
+    case "not-checked-by-pi":
+      return { tone: "neutral", text: "Not checked by pi", status: liveRow.state };
+    case "connected":
+      return { tone: "success", text: `Connected · ${tools}`, status: liveRow.state };
+    case "needs-auth":
+      return { tone: "warning", text: "Sign-in needed", status: liveRow.state };
+    case "failed":
+    case "error":
+      return { tone: "error", text: "Connection failed", status: liveRow.state };
+    default: {
+      const word = liveRow.state.replace(/[-_]+/g, " ");
+      const human = word.charAt(0).toUpperCase() + word.slice(1);
+      return { tone: "neutral", text: liveRow.tools > 0 ? `${human} · ${tools}` : human, status: liveRow.state };
+    }
+  }
+}
+
+/** Kit-styled enable switch (no label row): immediate write, `aria-checked` carries the state. */
+function RowSwitch({
+  name,
+  testId,
+  checked,
+  pending,
+  disabled,
+  title,
+  onToggle,
+}: {
+  name: string;
+  testId: string;
+  checked: boolean;
+  pending: boolean;
+  disabled: boolean;
+  title?: string;
+  onToggle: (next: boolean) => void;
+}): React.ReactElement {
+  return (
+    <span className="inline-flex min-h-11 min-w-11 flex-none items-center justify-center sm:min-h-0 sm:min-w-0">
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={`Enable ${name}`}
+        aria-busy={pending}
+        disabled={pending || disabled}
+        title={title}
+        data-testid={testId}
+        onClick={() => onToggle(!checked)}
+        className={`focus-ring relative h-[22px] w-10 shrink-0 rounded-full border transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+          checked ? "border-[var(--accent-solid)] bg-[var(--accent-solid)]" : "border-[var(--border-strong)] bg-[var(--bg-tertiary)]"
+        }`}
+      >
+        <span
+          className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full transition-transform ${
+            checked ? "translate-x-[18px] bg-white" : "translate-x-0 bg-[var(--text-secondary)]"
+          }`}
+        />
+      </button>
+    </span>
+  );
 }
 
 interface ServerRowProps {
@@ -194,292 +269,268 @@ function ServerRow({
   const description = typeof entry.description === "string" ? entry.description : null;
   const inactiveReason = inactiveText(server.inactiveReason);
 
-  return (
-    <li
-      data-testid={folder ? `mcp-folder-row-${key}` : `mcp-server-row-${name}`}
-      className="flex flex-col gap-1 py-1.5 border-b border-[var(--border-secondary)] last:border-b-0"
-    >
-      <div className="flex items-center gap-2 min-h-11 sm:min-h-0 flex-wrap">
-        <label className="inline-flex items-center justify-center min-h-11 min-w-11 sm:min-h-0 sm:min-w-0 flex-none">
-          <input
-            type="checkbox"
-            role="switch"
-            aria-label={`Enable ${name}`}
-            aria-busy={pending}
-            checked={enabled}
-            disabled={pending || writeShadowed || overrideRow}
-            title={
-              overrideRow
-                ? `No Pi global server named ${name} to override`
-                : writeShadowed
-                  ? "The folder entry of the same name is the folder-scope write target"
-                  : undefined
-            }
-            onChange={(e) => void toggle(e.target.checked)}
-            data-testid={`mcp-server-toggle-${key}`}
-            className="w-4 h-4"
-          />
-        </label>
-        <span className="text-xs font-medium text-[var(--text-primary)] truncate">{name}</span>
-        {description && (
-          <span data-testid={`mcp-server-description-${key}`} className="text-[11px] text-[var(--text-secondary)] truncate">
-            {description}
-          </span>
-        )}
-        <code data-testid={`mcp-transport-${key}`} className="text-[10px] text-[var(--text-tertiary)] flex-none">
-          {typeof entry.command === "string" ? "command" : "url"}
-        </code>
-        <span data-testid={`mcp-exposure-${key}`} className="text-[10px] text-[var(--text-tertiary)] flex-none">
-          {server.exposure}
-        </span>
-        {authMode && (
-          <span data-testid={`mcp-authmode-${key}`} className="text-[10px] text-[var(--text-tertiary)] flex-none">
-            {authMode.kind === "provider"
-              ? `auth: ${authMode.provider}`
-              : authMode.kind === "header"
-                ? "header"
-                : "OAuth"}
-          </span>
-        )}
-        <span className="flex items-center gap-1 flex-wrap">
-          <span
-            data-testid={`mcp-badge-${key}-${provenanceLabel(server.provenance)}`}
-            className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full border border-[var(--border-secondary)] text-[var(--text-secondary)]"
-          >
-            {provenanceLabel(server.provenance)}
-          </span>
-          {server.overridesGlobal && (
-            <span
-              data-testid={`mcp-badge-${key}-overrides Pi global`}
-              className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-full border border-[var(--accent-primary,#60a5fa)] text-[var(--accent-primary,#60a5fa)]"
+  const menuItemCls = "focus-ring px-2 py-1 min-h-11 sm:min-h-8 text-left text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)]";
+  const livePillInfo = live !== undefined && !(liveLoading && live === null) ? livePill(liveRow) : null;
+
+  const pills = (
+    <>
+      <SettingsStatusPill tone="neutral" icon={null} testId={`mcp-transport-${key}`}>
+        {typeof entry.command === "string" ? "command" : "url"}
+      </SettingsStatusPill>
+      <SettingsStatusPill tone="neutral" icon={null} testId={`mcp-exposure-${key}`}>
+        {server.exposure}
+      </SettingsStatusPill>
+      {authMode && (
+        <SettingsStatusPill tone="neutral" icon={null} testId={`mcp-authmode-${key}`}>
+          {authMode.kind === "provider" ? `auth: ${authMode.provider}` : authMode.kind === "header" ? "header" : "OAuth"}
+        </SettingsStatusPill>
+      )}
+      <SettingsStatusPill
+        tone="neutral"
+        icon={null}
+        testId={`mcp-badge-${key}-${provenanceLabel(server.provenance)}`}
+      >
+        {provenanceLabel(server.provenance)}
+      </SettingsStatusPill>
+      {server.overridesGlobal && (
+        <SettingsStatusPill tone="info" icon={null} testId={`mcp-badge-${key}-overrides Pi global`}>
+          overrides Pi global
+        </SettingsStatusPill>
+      )}
+      {folder && server.provenance === "pi-folder" && !overrideRow && (
+        <SettingsStatusPill tone="info" icon={null} testId={`mcp-folder-override-chip-${key}`}>
+          folder entry
+          {chipsRemovable && onRemoveOverride && (
+            <button
+              type="button"
+              aria-label={`Remove folder override for ${name}`}
+              data-testid={`mcp-folder-chip-remove-${key}`}
+              onClick={() => onRemoveOverride(name)}
+              className="focus-ring px-1 min-h-11 min-w-11 sm:min-h-0 sm:min-w-0"
             >
-              overrides Pi global
-            </span>
+              ✕
+            </button>
           )}
-          {folder && server.provenance === "pi-folder" && !overrideRow && (
+        </SettingsStatusPill>
+      )}
+      {badges.map((b) => (
+        <SettingsStatusPill key={b.key} tone="info" icon={null} testId={`mcp-override-badge-${key}-${b.key}`}>
+          {b.text}
+        </SettingsStatusPill>
+      ))}
+      {hasOverride && !narrow && onReset && (
+        <button
+          type="button"
+          data-testid={`mcp-folder-reset-${key}`}
+          disabled={pending || writeShadowed}
+          onClick={() => onReset(name)}
+          className={LINK}
+        >
+          Reset to global
+        </button>
+      )}
+      {livePillInfo && (
+        <SettingsStatusPill tone={livePillInfo.tone} testId={`mcp-live-${key}`} status={livePillInfo.status}>
+          {livePillInfo.text}
+        </SettingsStatusPill>
+      )}
+      {needsAuth && (
+        <span data-testid={`mcp-signin-hint-${key}`} className="text-xs text-[var(--text-secondary)]">
+          Sign in with <code>/mcp login {name}</code>
+        </span>
+      )}
+      {server.adapterLeftovers.length > 0 && (!folder || server.provenance === "pi-folder") && (
+        <span title={`pi ignores: ${server.adapterLeftovers.join(", ")}`}>
+          <SettingsStatusPill tone="warning" testId={`mcp-leftovers-${key}`}>
+            ignored by pi: {server.adapterLeftovers.join(", ")}
+          </SettingsStatusPill>
+        </span>
+      )}
+    </>
+  );
+
+  const actions = (
+    <>
+      {server.adapterLeftovers.length > 0 && (!folder || server.provenance === "pi-folder") && (
+        <button
+          type="button"
+          aria-label={`Convert ${name} to pi's entry shape`}
+          data-testid={`mcp-convert-${key}`}
+          disabled={pending}
+          onClick={() => void convert()}
+          className={BTN}
+        >
+          Convert
+        </button>
+      )}
+      {overrideRow ? (
+        <button type="button" onClick={() => onRemoveOverride?.(name)} data-testid={actionTestId} className={BTN}>
+          Remove
+        </button>
+      ) : globalRow || (legacyCopy && narrow) ? (
+        <span className="relative">
+          <button
+            type="button"
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            disabled={writeShadowed}
+            title={writeShadowed ? "The folder entry of the same name is the folder-scope write target — edit that row" : undefined}
+            onClick={() => setMenuOpen((o) => !o)}
+            data-testid={`mcp-folder-menu-${key}`}
+            className={BTN}
+          >
+            ⋯ <span className="hidden sm:inline">{t("mcpFolderActions", undefined, "Actions")}</span>
+          </button>
+          {menuOpen && (
             <span
-              data-testid={`mcp-folder-override-chip-${key}`}
-              className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full border border-[var(--accent-primary,#60a5fa)] text-[var(--accent-primary,#60a5fa)]"
+              role="menu"
+              data-testid={`mcp-folder-menu-pop-${key}`}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") setMenuOpen(false);
+              }}
+              className="absolute right-0 top-full z-10 mt-1 flex min-w-56 flex-col rounded border border-[var(--border-secondary)] bg-[var(--bg-secondary)] p-1 text-left"
             >
-              folder entry
-              {chipsRemovable && onRemoveOverride && (
+              {globalRow && (
                 <button
                   type="button"
-                  aria-label={`Remove folder override for ${name}`}
-                  data-testid={`mcp-folder-chip-remove-${key}`}
-                  onClick={() => onRemoveOverride(name)}
-                  className="px-1 min-h-11 min-w-11 sm:min-h-0 sm:min-w-0"
+                  role="menuitem"
+                  data-testid={`mcp-folder-project-settings-${key}`}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onProjectSettings?.(name);
+                  }}
+                  className={menuItemCls}
                 >
-                  ✕
+                  Project settings…
+                </button>
+              )}
+              {globalRow && hasOverride && narrow && onReset && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  data-testid={`mcp-folder-reset-${key}`}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onReset(name);
+                  }}
+                  className={menuItemCls}
+                >
+                  Reset to global
+                </button>
+              )}
+              <button
+                type="button"
+                role="menuitem"
+                data-testid={actionTestId}
+                onClick={() => {
+                  setMenuOpen(false);
+                  onOpen(name, server.provenance);
+                }}
+                className={menuItemCls}
+              >
+                {actionLabel}
+              </button>
+              {legacyCopy && narrow && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  data-testid={`mcp-folder-convert-${key}`}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onConvertLegacy?.(name);
+                  }}
+                  className={menuItemCls}
+                >
+                  Convert to project override
                 </button>
               )}
             </span>
           )}
-          {badges.map((b) => (
-            <span
-              key={b.key}
-              data-testid={`mcp-override-badge-${key}-${b.key}`}
-              className="inline-flex items-center text-[11px] px-1.5 py-0.5 rounded-full border border-[var(--accent-primary,#60a5fa)] text-[var(--accent-primary,#60a5fa)]"
-            >
-              {b.text}
-            </span>
-          ))}
-          {hasOverride && !narrow && onReset && (
-            <button
-              type="button"
-              data-testid={`mcp-folder-reset-${key}`}
-              disabled={pending || writeShadowed}
-              onClick={() => onReset(name)}
-              className="text-[11px] px-1 min-h-11 sm:min-h-0 underline text-[var(--accent-text,#60a5fa)] disabled:opacity-50"
-            >
-              Reset to global
-            </button>
-          )}
         </span>
-        {live !== undefined && !(liveLoading && live === null) && (
-          <span data-testid={`mcp-live-${key}`} className="text-[10px] text-[var(--text-tertiary)] flex-none">
-            {liveRow ? `${liveRow.state} · ${liveRow.tools} tools` : "state unknown"}
+      ) : (
+        <button type="button" onClick={() => onOpen(name, server.provenance)} data-testid={actionTestId} className={BTN}>
+          {actionLabel}
+        </button>
+      )}
+    </>
+  );
+
+  const hasNotes = Boolean(server.piError || pendingNote || legacyCopy || inactiveReason || error);
+
+  return (
+    <li data-testid={folder ? `mcp-folder-row-${key}` : `mcp-server-row-${name}`} className="mb-2">
+      <SettingsItem
+        title={
+          <span className="inline-flex items-center gap-2">
+            <RowSwitch
+              name={name}
+              testId={`mcp-server-toggle-${key}`}
+              checked={enabled}
+              pending={pending}
+              disabled={writeShadowed || overrideRow}
+              title={
+                overrideRow
+                  ? `No Pi global server named ${name} to override`
+                  : writeShadowed
+                    ? "The folder entry of the same name is the folder-scope write target"
+                    : undefined
+              }
+              onToggle={(next) => void toggle(next)}
+            />
+            {name}
           </span>
-        )}
-        {needsAuth && (
-          <span
-            data-testid={`mcp-signin-hint-${key}`}
-            className="text-[10px] text-[var(--text-secondary)] flex-none"
-          >
-            sign in: /mcp login {name}
-          </span>
-        )}
-        {server.adapterLeftovers.length > 0 && (!folder || server.provenance === "pi-folder") && (
-          <span className="inline-flex items-center gap-1 flex-none">
-            <span
-              data-testid={`mcp-leftovers-${key}`}
-              className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-full border border-amber-500 text-amber-500"
-              title={`pi ignores: ${server.adapterLeftovers.join(", ")}`}
-            >
-              ignored by pi: {server.adapterLeftovers.join(", ")}
-            </span>
-            <button
-              type="button"
-              aria-label={`Convert ${name} to pi's entry shape`}
-              data-testid={`mcp-convert-${key}`}
-              disabled={pending}
-              onClick={() => void convert()}
-              className="text-[10px] px-1.5 py-0.5 min-h-11 min-w-11 sm:min-h-0 sm:min-w-0 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-50"
-            >
-              Convert
-            </button>
-          </span>
-        )}
-        {overrideRow ? (
-          <button
-            type="button"
-            onClick={() => onRemoveOverride?.(name)}
-            data-testid={actionTestId}
-            className="ml-auto text-[11px] px-2 py-1 min-h-11 min-w-11 sm:min-h-0 sm:min-w-0 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-          >
-            Remove
-          </button>
-        ) : globalRow || (legacyCopy && narrow) ? (
-          <span className="ml-auto relative">
-            <button
-              type="button"
-              aria-haspopup="menu"
-              aria-expanded={menuOpen}
-              disabled={writeShadowed}
-              title={writeShadowed ? "The folder entry of the same name is the folder-scope write target — edit that row" : undefined}
-              onClick={() => setMenuOpen((o) => !o)}
-              data-testid={`mcp-folder-menu-${key}`}
-              className="text-[11px] px-2 py-1 min-h-11 min-w-11 sm:min-h-0 sm:min-w-0 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-50"
-            >
-              ⋯ <span className="hidden sm:inline">{t("mcpFolderActions", undefined, "Actions")}</span>
-            </button>
-            {menuOpen && (
-              <span
-                role="menu"
-                data-testid={`mcp-folder-menu-pop-${key}`}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") setMenuOpen(false);
-                }}
-                className="absolute right-0 top-full z-10 mt-1 flex min-w-56 flex-col rounded border border-[var(--border-secondary)] bg-[var(--bg-secondary)] p-1 text-left"
-              >
-                {globalRow && (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    data-testid={`mcp-folder-project-settings-${key}`}
-                    onClick={() => {
-                      setMenuOpen(false);
-                      onProjectSettings?.(name);
-                    }}
-                    className="px-2 py-1 min-h-11 sm:min-h-0 text-left text-[11px] text-[var(--text-primary)]"
-                  >
-                    Project settings…
-                  </button>
-                )}
-                {globalRow && hasOverride && narrow && onReset && (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    data-testid={`mcp-folder-reset-${key}`}
-                    onClick={() => {
-                      setMenuOpen(false);
-                      onReset(name);
-                    }}
-                    className="px-2 py-1 min-h-11 sm:min-h-0 text-left text-[11px] text-[var(--text-primary)]"
-                  >
-                    Reset to global
-                  </button>
-                )}
-                <button
-                  type="button"
-                  role="menuitem"
-                  data-testid={actionTestId}
-                  onClick={() => {
-                    setMenuOpen(false);
-                    onOpen(name, server.provenance);
-                  }}
-                  className="px-2 py-1 min-h-11 sm:min-h-0 text-left text-[11px] text-[var(--text-primary)]"
-                >
-                  {actionLabel}
-                </button>
-                {legacyCopy && narrow && (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    data-testid={`mcp-folder-convert-${key}`}
-                    onClick={() => {
-                      setMenuOpen(false);
-                      onConvertLegacy?.(name);
-                    }}
-                    className="px-2 py-1 min-h-11 sm:min-h-0 text-left text-[11px] text-[var(--text-primary)]"
-                  >
-                    Convert to project override
-                  </button>
-                )}
-              </span>
+        }
+        subtitle={description ? <span data-testid={`mcp-server-description-${key}`}>{description}</span> : undefined}
+        status={pills}
+        actions={actions}
+      >
+        {hasNotes ? (
+          <div className="space-y-2">
+            {server.piError && (
+              <SettingsNotice tone="error" testId={`mcp-pi-error-${key}`}>
+                {server.piError}
+              </SettingsNotice>
             )}
-          </span>
-        ) : (
-          <button
-            type="button"
-            onClick={() => onOpen(name, server.provenance)}
-            data-testid={actionTestId}
-            className="ml-auto text-[11px] px-2 py-1 min-h-11 min-w-11 sm:min-h-0 sm:min-w-0 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-          >
-            {actionLabel}
-          </button>
-        )}
-      </div>
-      {server.piError && (
-        <p
-          data-testid={`mcp-pi-error-${key}`}
-          role="alert"
-          className="text-[11px] text-[var(--status-error,#f87171)] m-0"
-        >
-          {server.piError}
-        </p>
-      )}
-      {pendingNote && (
-        <p data-testid={`mcp-folder-pending-${key}`} role="status" className="text-[11px] text-[var(--text-secondary)] m-0">
-          Saved — applies once the project is trusted. pi still runs <code>{name}</code> from Pi global here.
-        </p>
-      )}
-      {legacyCopy && (
-        <p
-          data-testid={`mcp-legacy-strip-${key}`}
-          className="text-[11px] text-[var(--text-secondary)] m-0 flex items-center gap-2 flex-wrap"
-        >
-          <span>
-            <b>{t("mcpLegacyTitle", undefined, "Copied from Pi global by an older dashboard, without credentials.")}</b>{" "}
-            {t("mcpLegacyBody", undefined, "A project override keeps the global credentials and only changes on/off here.")}
-          </span>
-          {!narrow && (
-            <button
-              type="button"
-              data-testid={`mcp-folder-convert-${key}`}
-              disabled={pending}
-              onClick={() => onConvertLegacy?.(name)}
-              className="px-2 py-1 min-h-11 sm:min-h-0 rounded border border-[var(--border-secondary)] text-[var(--text-primary)]"
-            >
-              Convert to project override
-            </button>
-          )}
-        </p>
-      )}
-      {inactiveReason && (
-        <p data-testid={`mcp-inactive-${key}`} className="text-[11px] text-[var(--text-secondary)] m-0">
-          {inactiveReason}
-        </p>
-      )}
-      {error && (
-        <p
-          role="alert"
-          data-testid={`mcp-server-error-${key}`}
-          className="text-[11px] text-[var(--status-error,#f87171)]"
-        >
-          {error}
-        </p>
-      )}
+            {pendingNote && (
+              <SettingsNotice tone="info" role="status" testId={`mcp-folder-pending-${key}`}>
+                Saved — applies once the project is trusted. pi still runs <code>{name}</code> from Pi global here.
+              </SettingsNotice>
+            )}
+            {legacyCopy && (
+              <SettingsNotice
+                tone="info"
+                testId={`mcp-legacy-strip-${key}`}
+                actions={
+                  !narrow ? (
+                    <button
+                      type="button"
+                      data-testid={`mcp-folder-convert-${key}`}
+                      disabled={pending}
+                      onClick={() => onConvertLegacy?.(name)}
+                      className={BTN}
+                    >
+                      Convert to project override
+                    </button>
+                  ) : undefined
+                }
+              >
+                <b>{t("mcpLegacyTitle", undefined, "Copied from Pi global by an older dashboard, without credentials.")}</b>{" "}
+                {t("mcpLegacyBody", undefined, "A project override keeps the global credentials and only changes on/off here.")}
+              </SettingsNotice>
+            )}
+            {inactiveReason && (
+              <p data-testid={`mcp-inactive-${key}`} className="m-0 text-xs text-[var(--text-secondary)]">
+                {inactiveReason}
+              </p>
+            )}
+            {error && (
+              <SettingsNotice tone="error" testId={`mcp-server-error-${key}`}>
+                {error}
+              </SettingsNotice>
+            )}
+          </div>
+        ) : null}
+      </SettingsItem>
     </li>
   );
 }
@@ -490,7 +541,7 @@ function SkeletonRows(): React.ReactElement {
       {[0, 1, 2].map((i) => (
         <div
           key={i}
-          className="h-5 rounded bg-[var(--bg-tertiary,#27272a)] animate-pulse"
+          className="h-5 rounded bg-[var(--bg-tertiary)] animate-pulse"
           style={{ width: `${100 - i * 15}%` }}
         />
       ))}
@@ -570,13 +621,10 @@ export function ServerList({
   return (
     <ul data-testid="mcp-server-list" className="list-none m-0 p-0">
       {brokenLayers.map((l) => (
-        <li
-          key={l.path}
-          data-testid="mcp-layer-error"
-          role="alert"
-          className="text-[11px] py-1.5 border-b border-[var(--border-secondary)] text-[var(--status-error,#f87171)]"
-        >
-          <code>{l.path}</code>: {l.message} — pi skips this file.
+        <li key={l.path} className="mb-2">
+          <SettingsNotice tone="warning" role="alert" testId="mcp-layer-error">
+            <code>{l.path}</code>: {l.message} — pi skips this file.
+          </SettingsNotice>
         </li>
       ))}
       {visible.map((s) => (
@@ -603,27 +651,34 @@ export function ServerList({
         />
       ))}
       {empty && (
-        <li data-testid="mcp-empty" className="py-3 text-center">
-          <p className="text-xs text-[var(--text-secondary)] m-0 mb-1.5">
-            {t("mcpEmptyState", undefined, "No MCP servers configured.")}
+        <li
+          data-testid="mcp-empty"
+          className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-[var(--border-secondary)] px-4 py-6 text-center"
+        >
+          <p className="m-0 text-sm font-semibold text-[var(--text-primary)]">
+            {t("mcpEmptyState", undefined, "No MCP servers yet")}
           </p>
-          <div className="flex items-center justify-center gap-3 text-[11px]">
-            <button
-              type="button"
-              onClick={onAdd}
-              data-testid="mcp-empty-add"
-              className="px-2 py-1 min-h-11 min-w-11 sm:min-h-0 sm:min-w-0 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-            >
-              Add server
+          {scope?.kind !== "project" && (
+            <p className="m-0 text-xs text-[var(--text-secondary)]">
+              {t(
+                "mcpEmptyHelp",
+                undefined,
+                "Add a server to give sessions its tools. Servers are shared by every pi session on this computer.",
+              )}
+            </p>
+          )}
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <button type="button" onClick={onAdd} data-testid="mcp-empty-add" className={BTN_PRIMARY}>
+              {t("mcpAddServer", undefined, "Add server")}
             </button>
             <a
               href="https://github.com/earendil-works/pi/blob/main/docs/mcp.md"
               target="_blank"
               rel="noreferrer"
               data-testid="mcp-docs-link"
-              className="text-[var(--accent-primary,#60a5fa)]"
+              className={LINK}
             >
-              MCP configuration docs
+              {t("mcpDocsLink", undefined, "How MCP configuration works")}
             </a>
           </div>
         </li>

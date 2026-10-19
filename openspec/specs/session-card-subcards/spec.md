@@ -35,84 +35,6 @@ The legend title SHALL be an absolutely-positioned `<span>` with class tokens: `
 - **WHEN** `<SessionSubcard title="FLOWS">{[]}</SessionSubcard>` is rendered
 - **THEN** the wrapper SHALL render nothing
 
-### Requirement: Desktop session card body groups sections into six subcards in order
-The desktop branch of `SessionCard.tsx` SHALL render its grouped sections as `SessionSubcard` instances in the following top-to-bottom order: `OPENSPEC`, `GIT`, `STATUS`, `PROCESS`, `FLOWS`, `MEMORY`. The header zone (status dot, name + rename, time, hide/close icons, model + thinking-level + Fork button, activity row with context bar + cost) SHALL remain outside any subcard, above the first subcard. The footer plugin slot `SessionCardActionBarSlot` SHALL remain outside any subcard, below the last subcard.
-
-The previous `WORKSPACE` subcard SHALL be removed and replaced by two sibling subcards `GIT` and `STATUS` rendered in that order. The `GIT` subcard hosts git branch / PR / worktree information and the new `WorktreeActionsMenu` row when applicable. The `STATUS` subcard hosts the `session-card-badge` slot (goal / automation badge contributions).
-
-#### Scenario: All six subcard titles appear in order when populated
-- **WHEN** a desktop session card is rendered with content for every subcard
-- **THEN** the rendered DOM SHALL contain centered title elements `OPENSPEC`, `GIT`, `STATUS`, `PROCESS`, `FLOWS`, `MEMORY` in that document order
-
-#### Scenario: Header zone stays outside subcards
-- **WHEN** a desktop session card is rendered
-- **THEN** the session name, model line, and activity/cost row SHALL render before the first `SessionSubcard` element
-- **AND** none of those elements SHALL be descendants of a `SessionSubcard`
-
-#### Scenario: WORKSPACE subcard no longer rendered
-- **WHEN** a desktop session card is rendered
-- **THEN** no element with title text `WORKSPACE` SHALL appear in the rendered DOM
-
-### Requirement: Subcards hide when their content is empty
-
-Each subcard's content SHALL be wrapped in the existing prop guards. When a guard yields no
-element, the corresponding `SessionSubcard` SHALL render nothing (no panel, no title).
-
-For MEMORY, WORKSPACE, and FLOWS, the wrapper's visibility is governed by the `shouldRender`
-claim field (see `dashboard-plugin-loader` capability). The wrapper SHALL hide when EITHER no
-plugin claims the slot OR every claim has `shouldRender(session) === false`. A plugin that
-registers a claim whose component conditionally returns `null` SHALL declare a `shouldRender`
-**whose boolean condition matches the claim component's own render/skip condition**, so the
-wrapper never renders an empty panel.
-
-For the FLOWS subcard specifically, the `session-card-flows` claim (`SessionFlowActionsClaim`)
-returns `null` when the session has zero flows AND edit mode is off AND no flow is running or
-has run. Its `shouldRender` predicate (`shouldRenderFlowsSubcard`) SHALL therefore return
-`true` **iff at least one of**: the session's `flowsList` is non-empty, the flows plugin's edit
-mode (`editFlow`) is on, or the session has at least one flow event. The predicate SHALL NOT
-open on mere pi-flows extension presence (existence of a `flows` / `flows:*` command) when none
-of those conditions hold.
-
-**The OPENSPEC subcard is exempt from the empty-content rule.** Its visibility is governed by
-readiness, and in the `BROKEN` and `STALE` states it renders deliberately with no action
-controls. An OPENSPEC panel containing only a reason line and a single remediation control
-SHALL NOT be treated as empty.
-
-#### Scenario: Empty PROCESS subcard is hidden
-
-- **WHEN** a desktop session card is rendered with `processes={[]}`
-- **THEN** no element with title text `PROCESS` SHALL appear
-
-#### Scenario: Control-less OPENSPEC subcard is not treated as empty
-
-- **WHEN** the OPENSPEC subcard renders disabled, containing only a reason line and a single
-  remediation control
-- **THEN** the panel and its `OPENSPEC` title SHALL still render
-
-#### Scenario: FLOWS subcard hidden when extension loaded but nothing actionable
-
-- **WHEN** a desktop session card is rendered for a session whose cwd has the pi-flows
-  extension loaded (a `flows` command is present)
-- **AND** the session's `flowsList` is empty
-- **AND** the flows plugin edit mode (`editFlow`) is off
-- **AND** the session has no flow event (no flow running or previously run)
-- **THEN** no element with title text `FLOWS` SHALL appear
-- **AND** no empty flows panel SHALL be rendered
-
-#### Scenario: FLOWS subcard appears in edit mode with zero flows
-
-- **WHEN** a desktop session card is rendered for a session with an empty `flowsList`
-- **AND** the flows plugin edit mode (`editFlow`) is on
-- **THEN** an element with title text `FLOWS` SHALL appear (the author-first / New-Edit entry
-  point)
-
-#### Scenario: FLOWS subcard appears when a flow has run with zero listed flows
-
-- **WHEN** a desktop session card is rendered for a session with an empty `flowsList` and edit
-  mode off
-- **AND** the session has at least one flow event (a flow ran or is running)
-- **THEN** an element with title text `FLOWS` SHALL appear
-
 ### Requirement: New plugin slot `session-card-flows` is reserved and consumed by FLOWS subcard
 A new dashboard plugin slot identifier `session-card-flows` SHALL be added to `SLOT_DEFINITIONS` in `packages/shared/src/dashboard-plugin/slot-types.ts`. Multiplicity SHALL be `many`. Payload tier SHALL be `react-only` (matching `session-card-action-bar` and `session-card-memory`). The slot SHALL render its claims inside the FLOWS subcard. When no plugin claims the slot, the subcard renders nothing.
 
@@ -230,63 +152,29 @@ The desktop branch of `SessionCard.tsx` SHALL consume the context and spread the
 - **WHEN** a SortableSessionCard is rendered
 - **THEN** the rendered DOM SHALL NOT contain an absolute-positioned span with the `mdiDragHorizontalVariant` icon path
 
-### Requirement: GIT subcard renders worktree pill when session is in a git worktree
-When `session.gitWorktree` is set, the `GIT` subcard SHALL render an inline `worktree` pill immediately after the existing `⎇ <branch>` GitInfo line. The branch line itself SHALL be unchanged.
-
-The pill SHALL carry class tokens consistent with other small badges: `inline-flex`, `items-center`, `px-1.5 py-px`, `rounded-full`, `text-[9px]`, `uppercase`, `tracking-wider`, `border border-[var(--border-subtle)]`, `text-[var(--text-muted)]`, `bg-[var(--bg-tertiary)]`. The pill SHALL carry `data-testid="worktree-pill"`.
-
-The pill SHALL render text `worktree`. When `session.gitWorktree.base` is also set, the pill's `title` attribute SHALL be `created from <base>`; when absent, `git worktree`. The pill SHALL NOT appear in the `STATUS` subcard.
-
-#### Scenario: Session in worktree shows pill inside GIT subcard
-- **WHEN** a session card is rendered for a session with `gitWorktree: { mainPath: "/repo", name: "feat-x" }` and `gitBranch: "feat/dark"`
-- **THEN** the rendered DOM SHALL contain a `GIT` titled subcard
-- **AND** the subcard SHALL contain the existing GitInfo line showing `⎇ feat/dark`
-- **AND** the subcard SHALL contain an inline element with `data-testid="worktree-pill"` and text `worktree`
-- **AND** the pill SHALL appear after the branch element in document order
-
-#### Scenario: Worktree pill does NOT appear in STATUS subcard
-- **WHEN** a session card is rendered for a session with `gitWorktree` set AND a plugin claims `session-card-badge`
-- **THEN** the `STATUS` titled subcard SHALL NOT contain any element with `data-testid="worktree-pill"`
-
-#### Scenario: Pill tooltip with known base
-- **WHEN** a session has `gitWorktree.base: "develop"`
-- **THEN** the pill's `title` attribute SHALL be `created from develop`
-
-#### Scenario: Pill tooltip without known base
-- **WHEN** a session has `gitWorktree` set but `gitWorktree.base` is absent
-- **THEN** the pill's `title` attribute SHALL be `git worktree`
-
-#### Scenario: Session in main checkout has no pill
-- **WHEN** a session card is rendered for a session with `gitWorktree` absent or `undefined`
-- **THEN** the rendered DOM SHALL NOT contain any element with `data-testid="worktree-pill"`
-
-#### Scenario: Branch text unchanged for worktree sessions
-- **WHEN** a session card is rendered for a worktree session
-- **THEN** the GitInfo line SHALL display `⎇ <branch>` exactly as it would for a non-worktree session (no replacement, no folder-name substitution)
-
-#### Scenario: Mobile session card omits worktree pill
-- **WHEN** the session card is rendered in mobile layout (no `SessionSubcard` wrappers)
-- **THEN** the worktree pill SHALL NOT be rendered
-- **AND** the mobile flat layout SHALL remain unchanged
-
-### Requirement: cwd-gone pill on session card
-The WORKSPACE subcard SHALL render a small red `cwd gone` pill (analogous to the existing `worktree` pill) when `session.cwdMissing === true`. The pill SHALL carry tooltip text "session's directory no longer exists".
+### Requirement: Missing-folder pill on session card
+The desktop session card's title row SHALL render a small red pill when `session.cwdMissing === true`, independent of git state. The pill reads `folder missing` (i18n key `common.cwdGone`) and carries `data-testid="cwd-gone-pill"`. Its tooltip states that the session's folder no longer exists. Placement and styling are defined by the `session-card-header` capability.
 
 #### Scenario: Pill renders for cwd-missing session
 - **WHEN** the card renders a session with `cwdMissing: true`
-- **THEN** the WORKSPACE subcard SHALL contain `[data-testid="cwd-gone-pill"]`
+- **THEN** the title row SHALL contain `[data-testid="cwd-gone-pill"]` with text `folder missing`
+- **AND** no `[data-testid="cwd-gone-pill"]` SHALL render inside the git row
+
+#### Scenario: Pill renders without git
+- **WHEN** the card renders a session with `cwdMissing: true` and no `gitBranch`
+- **THEN** the title row SHALL contain `[data-testid="cwd-gone-pill"]`
 
 #### Scenario: Pill absent for healthy session
 - **WHEN** `cwdMissing` is `undefined` or `false`
 - **THEN** the pill SHALL NOT render
 
 ### Requirement: Resume button disabled when cwd missing
-The session card SHALL disable its resume button and show tooltip "session's directory no longer exists" when `session.cwdMissing === true`.
+When `session.cwdMissing === true`, the desktop session card's Resume action, an item of the session actions menu, SHALL be disabled with the reason "session's directory no longer exists".
 
 #### Scenario: Resume disabled
-- **WHEN** the user hovers the resume button on a cwd-missing session
-- **THEN** the button SHALL be disabled
-- **AND** the tooltip SHALL read "session's directory no longer exists"
+- **WHEN** the user opens the session actions menu of a cwd-missing ended session
+- **THEN** the Resume item SHALL be `aria-disabled="true"`
+- **AND** its reason SHALL read "session's directory no longer exists"
 
 ### Requirement: PROCESS subcard composition
 The PROCESS subcard SHALL present its in-flight bash activity and background-process inventory through a single collapsible summary line of fixed height, so that starting or finishing a tool does not change the subcard's collapsed height. The subcard SHALL NOT render a variable stack of always-open rows whose count changes the card height.
@@ -330,72 +218,81 @@ The session card SHALL own per-session client state for the drawer's user-overri
 - **THEN** session B's drawer SHALL use the contextual default (no inherited state from session A)
 
 ### Requirement: +Session sibling-spawn button on session card
-The session card SHALL render an always-visible `+Session` button alongside the existing `Fork` and `Resume` controls. Unlike Fork/Resume, this button SHALL NOT be gated on `session.status === "ended"` or on the presence of `session.sessionFile` — it renders for live and ended sessions alike.
+The desktop session card SHALL offer an always-available New session action (formerly the inline `+Session` button) as an item of the session actions menu's SESSION group, with test id `session-card-spawn-sibling`. Unlike Fork/Resume, this action SHALL NOT be gated on `session.status === "ended"` or on the presence of `session.sessionFile` — it is offered for live and ended sessions alike.
 
-Click SHALL emit a `spawn_session` ws message with:
+Activation SHALL emit a `spawn_session` ws message with:
 - `cwd` set to the parent session's `cwd`,
 - `attachProposal` set to the parent session's `attachedProposal` when that field is a non-empty string (omitted otherwise),
 - a fresh `requestId` (UUIDv4).
 
-The button SHALL be `disabled` when `session.cwdMissing === true`, with tooltip text matching the existing Fork-disabled tooltip (`session's directory no longer exists`).
+The action SHALL be disabled when `session.cwdMissing === true`, with the reason `session's directory no longer exists`.
 
-The button SHALL NOT carry `gitWorktreeBase` or any worktree-related metadata. Worktree-sibling spawning is covered by separate surfaces (folder `+Worktree`, per-change `⑂+`).
+The action SHALL NOT carry `gitWorktreeBase` or any worktree-related metadata. Worktree-sibling spawning is covered by separate surfaces (New worktree session, folder `+Worktree`, per-change `⑂+`).
 
-The `+Session` button SHALL use the green session-spawn palette (`border-green-500/30 text-green-400 hover:bg-green-500/10`), consistent with every other session-spawn control (`FolderSpawnButtons` `+ New Session`, folder-section `spawn-attached`). Session-spawn actions SHALL NOT use the purple `accent` palette, which is reserved for OpenSpec actions (Attach / Archive).
+The action SHALL use the green session-spawn palette, consistent with every other session-spawn control (`FolderSpawnButtons` `+ New Session`, folder-section `spawn-attached`). Session-spawn actions SHALL NOT use the purple `accent` palette, which is reserved for OpenSpec actions (Attach / Archive).
 
 #### Scenario: Visible on live session
-- **WHEN** a session card is rendered for a session with `status === "running"` (or any non-ended status)
-- **THEN** the `+Session` button SHALL render
-- **THEN** Fork and Resume controls SHALL be absent (existing behavior — they only show on ended sessions)
+- **WHEN** the session actions menu opens for a session with any non-ended status
+- **THEN** the New session item SHALL render
+- **AND** Fork SHALL render only when the session has a `sessionFile`, and Resume SHALL NOT render
 
 #### Scenario: Visible on ended session alongside Fork
-- **WHEN** a session card is rendered for a session with `status === "ended"` and a valid `sessionFile`
-- **THEN** `+Session`, `Resume`, and `Fork` SHALL all render in the same control row
+- **WHEN** the session actions menu opens for a session with `status === "ended"` and a valid `sessionFile`
+- **THEN** New session, Resume and Fork SHALL all render in the SESSION group
 
 #### Scenario: Click inherits cwd and proposal
-- **WHEN** the user clicks `+Session` on a session with `cwd = "/project/foo"` and `attachedProposal = "add-dark-mode"`
+- **WHEN** the user activates New session on a session with `cwd = "/project/foo"` and `attachedProposal = "add-dark-mode"`
 - **THEN** a `spawn_session` ws message SHALL be sent with `cwd: "/project/foo"`, `attachProposal: "add-dark-mode"`, and a UUIDv4 `requestId`
 
 #### Scenario: Click omits proposal when parent has none
-- **WHEN** the user clicks `+Session` on a session whose `attachedProposal` is `null`, `undefined`, or empty string
+- **WHEN** the user activates New session on a session whose `attachedProposal` is `null`, `undefined`, or empty string
 - **THEN** the emitted `spawn_session` payload SHALL omit the `attachProposal` key entirely (not send empty string)
 
 #### Scenario: Disabled on missing cwd
 - **WHEN** the parent session has `cwdMissing === true`
-- **THEN** the `+Session` button SHALL render with the `disabled` attribute set
-- **THEN** the tooltip SHALL read `session's directory no longer exists`
-- **THEN** clicks SHALL NOT emit a `spawn_session` message
+- **THEN** the New session item SHALL be `aria-disabled="true"` with reason `session's directory no longer exists`
+- **AND** activating it SHALL NOT emit a `spawn_session` message
 
 ### Requirement: +Worktree button on session card
-The session card SHALL render a `+Worktree` button next to `+Session`, gated by the `gitWorktreeEnabled` config flag (default true) — mirroring the folder-header `+Worktree` gate. It SHALL NOT be gated on `session.status` or `session.sessionFile`. It SHALL be hidden when the session is already a worktree session (`session.gitWorktree` set), since spawning a worktree from inside a worktree is redundant. It SHALL ALSO be hidden when the session's cwd is a **confirmed non-git** directory — `session.isGitRepo === false`. It SHALL remain visible when `session.isGitRepo` is `true` OR `undefined` (unknown / not-yet-probed / legacy), so a git repo whose probe timed out or a session predating the signal never loses the button. The gate SHALL NOT use `session.gitBranch` for this purpose — `gitBranch` is a data-arrival signal (absent during the register race, on probe failure, and after a server restart for cold sessions) and would wrongly hide the button for real git repos.
+The desktop session card SHALL offer a New worktree session action (formerly the inline `+Worktree` button) as an item of the session actions menu's SESSION group, with test id `session-card-spawn-worktree`.
 
-Click SHALL open the existing `WorktreeSpawnDialog` scoped to the parent session's `cwd`. When `session.attachedProposal` is a non-empty string, the dialog SHALL open via the proposal-aware path (pre-filled branch `os/<change>` + `attachProposal` carry-through); otherwise via the plain path (no proposal).
+It SHALL be gated by the `gitWorktreeEnabled` config flag (default true), mirroring the folder-header `+Worktree` gate. It SHALL NOT be gated on `session.status` or `session.sessionFile`.
 
-The button SHALL be `disabled` when `session.cwdMissing === true`, tooltip `session's directory no longer exists`. The card SHALL NOT implement its own worktree-creation, bootstrap, or `spawn_session` logic — it reuses the dialog's existing machinery.
+It SHALL be hidden in either of these cases:
+- the session is already a worktree session (`session.gitWorktree` set), since spawning a worktree from inside a worktree is redundant;
+- the session's cwd is a **confirmed non-git** directory, `session.isGitRepo === false`.
+
+It SHALL remain offered when `session.isGitRepo` is `true` OR `undefined` (unknown / not-yet-probed / legacy). A git repo whose probe timed out, or a session predating the signal, must never lose the action. The gate SHALL NOT use `session.gitBranch`: that is a data-arrival signal, absent during the register race, on probe failure and after a server restart for cold sessions, so it would wrongly hide the action for real git repos.
+
+Activation SHALL open the existing `WorktreeSpawnDialog` scoped to the parent session's `cwd`.
+- When `session.attachedProposal` is a non-empty string, the dialog SHALL open via the proposal-aware path (pre-filled branch `os/<change>`, with `attachProposal` carried through).
+- Otherwise it SHALL open via the plain path (no proposal).
+
+The action SHALL be disabled when `session.cwdMissing === true`, with reason `session's directory no longer exists`. The card SHALL NOT implement its own worktree-creation, bootstrap or `spawn_session` logic; it reuses the dialog's existing machinery.
 
 #### Scenario: Visible next to +Session in a git repo
-- **WHEN** a session card renders with `gitWorktreeEnabled !== false`, a worktree handler supplied, AND `session.isGitRepo === true`
-- **THEN** the `+Worktree` button SHALL render alongside `+Session`
+- **WHEN** the session actions menu opens with `gitWorktreeEnabled !== false`, a worktree handler supplied, AND `session.isGitRepo === true`
+- **THEN** the New worktree session item SHALL render after New session
 
 #### Scenario: Hidden when worktrees disabled
 - **WHEN** the dashboard config has `gitWorktreeEnabled === false`
-- **THEN** the `+Worktree` button SHALL NOT render (the `+Session` button is unaffected)
+- **THEN** the New worktree session item SHALL NOT render (the New session item is unaffected)
 
 #### Scenario: Hidden in a confirmed non-git folder
-- **WHEN** a session card renders with `gitWorktreeEnabled !== false` and a worktree handler supplied, but `session.isGitRepo === false`
-- **THEN** the `+Worktree` button SHALL NOT render
-- **AND** the `+Session` button SHALL be unaffected
+- **WHEN** the session actions menu opens with `gitWorktreeEnabled !== false` and a worktree handler supplied, but `session.isGitRepo === false`
+- **THEN** the New worktree session item SHALL NOT render
+- **AND** the New session item SHALL be unaffected
 
 #### Scenario: Visible when git status is unknown (no regression)
-- **WHEN** a session card renders with `gitWorktreeEnabled !== false` and a worktree handler supplied, and `session.isGitRepo` is `undefined` (probe inconclusive, register race, or legacy session)
-- **THEN** the `+Worktree` button SHALL render (unknown is not treated as non-git)
+- **WHEN** the session actions menu opens with `gitWorktreeEnabled !== false` and a worktree handler supplied, and `session.isGitRepo` is `undefined` (probe inconclusive, register race, or legacy session)
+- **THEN** the New worktree session item SHALL render (unknown is not treated as non-git)
 
 #### Scenario: Click with proposal opens proposal-aware dialog
-- **WHEN** the user clicks `+Worktree` on a session with `attachedProposal = "add-dark-mode"`
+- **WHEN** the user activates New worktree session on a session with `attachedProposal = "add-dark-mode"`
 - **THEN** the `WorktreeSpawnDialog` SHALL open scoped to the session's `cwd` with branch pre-filled `os/add-dark-mode` and `attachProposal` carried through
 
 #### Scenario: Click without proposal opens plain dialog
-- **WHEN** the user clicks `+Worktree` on a session with no `attachedProposal`
+- **WHEN** the user activates New worktree session on a session with no `attachedProposal`
 - **THEN** the `WorktreeSpawnDialog` SHALL open scoped to the session's `cwd` with no pre-filled proposal
 
 ### Requirement: OPENSPEC subcard visibility is governed by broadcast readiness
@@ -412,7 +309,7 @@ evaluated in `SessionCard.tsx` and the equivalent condition in `ComposerSessionA
 | `PENDING` | existing placeholder |
 | `BROKEN` | rendered **disabled** |
 | `STALE` | rendered **disabled** |
-| `READY` | rendered live |
+| `READY` | rendered live when the session has an attachment to show; not rendered on the desktop card for an unattached session (its actions are in the session actions menu) |
 
 `ABSENT` hides rather than disabling: initialization is offered once on the folder card, not
 repeated on every session card in that directory.
@@ -440,8 +337,10 @@ previous `hasOpenspecDir || pending` behaviour and SHALL NOT render a disabled s
 
 #### Scenario: Ready project renders live controls
 
-- **WHEN** a desktop session card is rendered for a session whose cwd readiness is `READY`
-- **THEN** the OPENSPEC subcard SHALL render its full control set
+- **WHEN** a desktop session card is rendered for a session attached to a change, whose cwd readiness is `READY`
+- **THEN** the OPENSPEC subcard SHALL render live: the attached change link and the lifecycle bar
+- **AND WHEN** the session has no attachment
+- **THEN** no OPENSPEC subcard SHALL render, and the session actions menu SHALL offer the unattached OpenSpec actions
 
 #### Scenario: Legacy server degrades to previous behaviour
 
@@ -591,3 +490,170 @@ gate.
 - **WHEN** the generated plugin registry is loaded
 - **THEN** every registry claim on slot `session-card-badge` SHALL declare a `predicate` or
   `shouldRender`
+
+### Requirement: Desktop session card keeps only state and its inline controls
+
+The desktop session card SHALL render no action chips, no action rows, and no per-subcard option menus.
+
+**Kept on the card:**
+- **Header controls:** the Archive button (when archiving is offered), the session actions trigger `⋯`, and the Exit ✕ button (for alive sessions).
+- **Controls that act on one running thing**, unchanged:
+  - the PROCESS subcard's row controls (stop an individual in-flight tool, kill a background process, expand or collapse the drawer);
+  - the `ProcessSafetyChip` that replaces a hidden PROCESS subcard;
+  - the abort control on a running flow's status in the FLOWS subcard.
+- **The disabled-OPENSPEC remediation control.**
+- **Clickable status:** the OpenSpec lifecycle bar, the attached change link, the archived / missing / main-checkout letters and badges, the git branch control, the dirty-files pill, the PR link, and plugin status pills (for example, KB / MCP worktree pills).
+
+Every other action SHALL be reached through the session actions menu (`session-actions-menu`).
+
+The `session-card-action-bar` slot's output SHALL NOT render on the desktop card, although its claims stay mounted (see `session-actions-menu`). The Rename button SHALL NOT render in the header; double-clicking the name SHALL still start an inline rename, and Rename… is offered in the menu.
+
+#### Scenario: No action chips on an ended session card
+- **WHEN** a desktop card renders for an ended session with a `sessionFile` in a git repo
+- **THEN** no Resume, Fork, +Session or +Worktree button SHALL render on the card
+- **AND** the header SHALL render the Archive button and `session-actions-trigger-<id>`
+
+#### Scenario: PROCESS row controls stay on the card
+- **WHEN** a desktop card renders for a session with an in-flight bash tool and a background process
+- **THEN** the tool row's stop control and the process row's kill control SHALL render inside the PROCESS subcard as before
+- **AND** no Archive button SHALL render (unchanged rule: never archive while running)
+
+#### Scenario: Disabled OPENSPEC keeps its remediation control
+- **WHEN** a desktop card renders an OPENSPEC subcard in a BROKEN readiness state
+- **THEN** its single remediation control SHALL render and route as before
+
+#### Scenario: Double-click rename still works
+- **WHEN** the user double-clicks the session name on a non-ended desktop card
+- **THEN** the inline rename input SHALL appear
+
+### Requirement: Subcards render nothing when their content is empty
+
+Each subcard's content SHALL be wrapped in the existing prop guards. When a guard yields no
+element, the corresponding `SessionSubcard` SHALL render nothing (no panel, no title).
+
+For MEMORY, WORKSPACE, and FLOWS, the wrapper's visibility is governed by the `shouldRender`
+claim field (see `dashboard-plugin-loader` capability). The wrapper SHALL hide when EITHER no
+plugin claims the slot OR every claim has `shouldRender(session) === false`. A plugin that
+registers a claim whose component conditionally returns `null` SHALL declare a `shouldRender`
+**whose boolean condition matches the claim component's own render/skip condition**, so the
+wrapper never renders an empty panel.
+
+For the FLOWS subcard specifically, the `session-card-flows` claim (`SessionFlowActionsClaim`)
+now renders only flow status; the flow actions moved to the session actions menu (see
+`flows-plugin`). The claim returns `null` when the session has no flow event. Its `shouldRender`
+predicate SHALL therefore return `true` **iff** the session has at least one flow event (a flow
+is running or has run). The predicate SHALL NOT open on `flowsList` contents, on edit mode, or
+on mere pi-flows extension presence.
+
+**The OPENSPEC subcard is exempt from the empty-content rule.** Its visibility is governed by
+readiness, and in the `BROKEN` and `STALE` states it renders deliberately with no action
+controls. An OPENSPEC panel containing only a reason line and a single remediation control
+SHALL NOT be treated as empty.
+
+#### Scenario: Empty PROCESS subcard is hidden
+
+- **WHEN** a desktop session card is rendered with `processes={[]}`
+- **THEN** no element with title text `PROCESS` SHALL appear
+
+#### Scenario: Control-less OPENSPEC subcard is not treated as empty
+
+- **WHEN** the OPENSPEC subcard renders disabled, containing only a reason line and a single
+  remediation control
+- **THEN** the panel and its `OPENSPEC` title SHALL still render
+
+#### Scenario: FLOWS subcard hidden without flow activity
+
+- **WHEN** a desktop session card is rendered for a session whose cwd has the pi-flows
+  extension loaded (a `flows` command is present)
+- **AND** the session's `flowsList` is empty
+- **AND** the flows plugin edit mode (`editFlow`) is off
+- **AND** the session has no flow event (no flow running or previously run)
+- **THEN** no element with title text `FLOWS` SHALL appear
+- **AND** no empty flows panel SHALL be rendered
+
+#### Scenario: Edit mode alone does not show the FLOWS subcard
+
+- **WHEN** a desktop session card is rendered for a session with an empty `flowsList`
+- **AND** the flows plugin edit mode (`editFlow`) is on
+- **AND** the session has no flow event
+- **THEN** no element with title text `FLOWS` SHALL appear
+- **AND** the author-first **New / Edit…** entry point SHALL be offered in the session actions menu instead
+
+#### Scenario: FLOWS subcard appears once a flow has run
+
+- **WHEN** a desktop session card is rendered for a session with an empty `flowsList` and edit
+  mode off
+- **AND** the session has at least one flow event (a flow ran or is running)
+- **THEN** an element with title text `FLOWS` SHALL appear
+
+### Requirement: Desktop session card body groups sections into five subcards in order
+The desktop branch of `SessionCard.tsx` SHALL render its grouped sections as `SessionSubcard` instances in the following top-to-bottom order: `OPENSPEC`, `STATUS`, `PROCESS`, `FLOWS`, `MEMORY`.
+
+The header zone SHALL remain outside any subcard, above the first subcard. Its rows are defined by the `session-card-header` capability:
+- the title row: status chip, name (double-click to rename), missing-folder pill, time, then the Archive / `⋯` / Exit controls;
+- the status row;
+- the git row;
+- the meta row: model, session chips, context bar, cost.
+
+The header zone SHALL NOT contain action chips (Resume, Fork, +Session, +Worktree); those actions live in the session actions menu. No footer action row SHALL render below the last subcard. The `session-card-action-bar` slot's output renders in the session actions menu.
+
+The worktree card-slot wrapper (`data-testid="worktree-card-section-gap"`) keeps its position directly after the OPENSPEC subcard, so it now precedes `STATUS`, and keeps its stacking tokens.
+
+There SHALL be no `GIT` subcard and no `WORKSPACE` subcard. Git branch / PR / worktree / dirty information is clickable status in the header git row. Worktree actions live in the session actions menu's GIT group. The `STATUS` subcard hosts the `session-card-badge` slot (goal / automation badge contributions).
+
+#### Scenario: All five subcard titles appear in order when populated
+- **WHEN** a desktop session card is rendered with content for every subcard
+- **THEN** the rendered DOM SHALL contain centered title elements `OPENSPEC`, `STATUS`, `PROCESS`, `FLOWS`, `MEMORY` in that document order
+
+#### Scenario: Header zone stays outside subcards
+- **WHEN** a desktop session card is rendered
+- **THEN** the session name, status row, git row and meta row SHALL render before the first `SessionSubcard` element
+- **AND** none of those elements SHALL be descendants of a `SessionSubcard`
+
+#### Scenario: GIT and WORKSPACE subcards no longer rendered
+- **WHEN** a desktop session card is rendered for a worktree session with `gitBranch` set
+- **THEN** no element with title text `GIT` or `WORKSPACE` SHALL appear in the rendered DOM
+
+#### Scenario: No footer action row and no worktree actions row
+- **WHEN** a desktop session card is rendered for a worktree session with an action-bar plugin claim
+- **THEN** no element SHALL render below the last subcard
+- **AND** the card SHALL NOT contain the Push, Open PR, Merge or Close worktree action buttons
+- **AND** the git row's PR status link (`data-testid="worktree-pr-segment"`) is clickable status, not one of these action buttons
+
+### Requirement: Header git row renders worktree pill when session is in a git worktree
+When the header git row renders (see `session-card-header`) and `session.gitWorktree` is set, the git row SHALL render an inline `worktree` pill as its **first** element, before the `⎇ <branch>` text. The branch text itself SHALL be unchanged.
+
+The pill SHALL carry class tokens `inline-flex`, `items-center`, `px-1.5 py-px`, `rounded-full`, `text-[11px]`, `font-semibold`, `flex-shrink-0`, `border border-[var(--tint-orange-border)]`, `text-[var(--tint-orange-fg)]`, `bg-[var(--tint-orange-bg)]`. It SHALL carry `data-testid="worktree-pill"`.
+
+The pill SHALL render the bare text `worktree`, never the worktree name. When `session.gitWorktree.base` is also set, the pill's `title` attribute SHALL be `created from <base>`; when absent, `git worktree`. The pill SHALL NOT appear in the `STATUS` subcard.
+
+#### Scenario: Session in worktree shows pill first in the git row
+- **WHEN** a session card is rendered for a session with `gitWorktree: { mainPath: "/repo", name: "feat-x" }` and `gitBranch: "feat/dark"`
+- **THEN** the rendered DOM SHALL NOT contain a `GIT` titled subcard
+- **AND** the header git row SHALL contain an element with `data-testid="worktree-pill"` and text `worktree`
+- **AND** the pill SHALL appear before the `feat/dark` branch element in document order
+
+#### Scenario: Worktree pill does NOT appear in STATUS subcard
+- **WHEN** a session card is rendered for a session with `gitWorktree` set AND a plugin claims `session-card-badge`
+- **THEN** the `STATUS` titled subcard SHALL NOT contain any element with `data-testid="worktree-pill"`
+
+#### Scenario: Pill tooltip with known base
+- **WHEN** a session has `gitWorktree.base: "develop"`
+- **THEN** the pill's `title` attribute SHALL be `created from develop`
+
+#### Scenario: Pill tooltip without known base
+- **WHEN** a session has `gitWorktree` set but `gitWorktree.base` is absent
+- **THEN** the pill's `title` attribute SHALL be `git worktree`
+
+#### Scenario: Session in main checkout has no pill
+- **WHEN** a session card is rendered for a session with `gitWorktree` absent or `undefined`
+- **THEN** the rendered DOM SHALL NOT contain any element with `data-testid="worktree-pill"`
+
+#### Scenario: Branch text unchanged for worktree sessions
+- **WHEN** a session card is rendered for a worktree session
+- **THEN** the git row SHALL display `⎇ <branch>` exactly as it would for a non-worktree session (no replacement, no folder-name substitution)
+
+#### Scenario: Mobile session card omits worktree pill
+- **WHEN** the session card is rendered in mobile layout (no `SessionSubcard` wrappers)
+- **THEN** the worktree pill SHALL NOT be rendered
+- **AND** the mobile flat layout SHALL remain unchanged

@@ -2,8 +2,10 @@
  * On-disk layout of the service layer, all under `~/.pi/dashboard/`:
  *   services.json            user-owned definitions (0600)
  *   services-secrets.json    secret store (0600)
+ *   services-digest.key      random per-installation HMAC key (0600)
  *   services-run/<id>/       per-service run dir (0700): instance.json,
  *                            prefetched.json, pinned, tunnel.json, lifecycle.lock,
+ *                            start.json (0600), output.log (0600, native/attached),
  *                            secrets/<name> (0600 mounted files)
  *   services-run/.docker-config/  empty DOCKER_CONFIG for every runtime call
  * The run dir lives under `~/`, never `/tmp`: a podman machine does not mount
@@ -24,6 +26,12 @@ export interface ServicesPaths {
   prefetchMarker(id: string): string;
   pinMarker(id: string): string;
   tunnelFile(id: string): string;
+  /** Start record: `startedAt`, keyed secrets digest, output identity. */
+  startRecord(id: string): string;
+  /** stdout+stderr of a dashboard-started native/attached child. */
+  outputLog(id: string): string;
+  /** Random per-installation key for the secrets digest (0600). */
+  digestKey: string;
   lockTarget(id: string): string;
   emptyDockerConfig: string;
 }
@@ -42,6 +50,9 @@ export function servicesPaths(root = getDashboardConfigDir()): ServicesPaths {
     prefetchMarker: (id) => path.join(runDir(id), "prefetched.json"),
     pinMarker: (id) => path.join(runDir(id), "pinned"),
     tunnelFile: (id) => path.join(runDir(id), "tunnel.json"),
+    startRecord: (id) => path.join(runDir(id), "start.json"),
+    outputLog: (id) => path.join(runDir(id), "output.log"),
+    digestKey: path.join(root, "services-digest.key"),
     lockTarget: (id) => path.join(runDir(id), "lifecycle"),
     emptyDockerConfig: path.join(runRoot, ".docker-config"),
   };

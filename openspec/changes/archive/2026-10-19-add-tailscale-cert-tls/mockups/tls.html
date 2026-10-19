@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>add-tailscale-cert-tls — Built-in HTTPS (Gateway page) UX board</title>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="mockup.css" />
+<link rel="stylesheet" href="asbuilt.css" />
+<script src="icons.js"></script>
+<style>
+  /* Change-local recipes — tokens only (ui-contract.md). */
+  .page { max-width: 768px; }
+  .sec-title { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 4px; }
+  .sec-title h3 { margin: 0; font-size: 12px; font-weight: 600; color: var(--text-secondary); } /* contract: section heading */
+  .sec-lead { margin: 0 0 12px; font-size: 12px; color: var(--text-secondary); }
+  .tls > * + * { margin-top: 12px; }
+  .addr { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .addr code { flex: 1 1 220px; min-width: 0; font-size: 12px; color: var(--text-primary); word-break: break-all; }
+  .cert .ic { width: 28px; height: 28px; border-radius: 6px; display: grid; place-items: center; background: var(--bg-secondary); color: var(--text-secondary); flex: none; }
+  .cert .ic svg.i { width: 18px; height: 18px; }
+  .src { border: 1px solid var(--border-subtle); border-radius: 8px; padding: 8px; }
+  .src-h { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 0 0 8px; font-size: 12px; }
+  .src-ic { display: inline-flex; color: var(--text-secondary); font-size: 16px; }
+  .future { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; padding: 8px 12px; border: 1px dashed var(--border-strong); border-radius: 8px; font-size: 12px; color: var(--text-secondary); }
+  .future > span:first-child { display: inline-flex; gap: 4px; align-items: center; font-weight: 600; }
+  .cert .main { flex: 1 1 200px; } /* else the busy pill + button crush the name at 375 */
+  .cert .name { font-size: 12px; font-family: "SF Mono", Menlo, Monaco, Consolas, monospace; font-weight: 600; word-break: break-all; }
+  .cert .facts { margin: 2px 0 0; font-size: 11px; color: var(--text-secondary); }
+  .err-text { display: block; margin-top: 4px; font-family: "SF Mono", Menlo, Monaco, Consolas, monospace; font-size: 11px; word-break: break-word; }
+  .fields-tls { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 12px; align-items: start; }
+  @container frame (max-width: 480px) { .fields-tls { grid-template-columns: 1fr; } }
+  .field-err { grid-column: 1 / -1; margin: -4px 0 0; font-size: 12px; color: var(--severity-error-fg); } /* contract settings-field error row; spans both columns */
+  a.p-btn { text-decoration: none; }
+  .callout a.p-link { color: inherit; text-decoration: underline; } /* contract a11y #7: --accent-text is not text-safe on a severity bg */
+  .field-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+  .callout .acts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; }
+  .callout ol { margin: 4px 0 0; padding-left: 18px; }
+  .callout code { font-size: 11px; }
+  .frame { container-type: inline-size; container-name: frame; }
+  /* proposed Accessible-at row */
+  .ep { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border-subtle); background: var(--bg-tertiary); }
+  .ep code { flex: 1 1 200px; min-width: 0; font-size: 12px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* kind = contract chip (neutral); identity tints are reserved (ui-contract § Colour roles), the word carries the kind */
+  .pill.kind { background: var(--bg-tertiary); color: var(--text-primary); border-color: var(--border-secondary); }
+  .col.proposed .outline li { padding: 6px 10px; border-radius: 6px; border: 1px dashed var(--border-secondary); font-size: 12px; color: var(--text-secondary); }
+  .col.proposed .outline li.new { border-style: solid; border-color: var(--tint-blue-border); background: var(--tint-blue-bg); color: var(--tint-blue-fg); font-weight: 600; }
+  .pair.single { grid-template-columns: 1fr; }
+  .col.only > .tag { color: var(--text-secondary); }
+  body[data-view="asbuilt"] .pair.single .col.proposed { display: block; }
+  .state > .note { margin: 0; padding: 6px 12px; font-size: 12px; color: var(--text-secondary); border-top: 1px solid var(--border-secondary); background: var(--bg-secondary); }
+  .state > .note code { color: var(--text-primary); }
+  .dec { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .dec th, .dec td { text-align: left; vertical-align: top; padding: 6px 8px; border-bottom: 1px solid var(--border-secondary); }
+  .dec th { color: var(--text-secondary); font-weight: 600; }
+  .dec td.q { color: var(--text-primary); font-weight: 600; }
+</style>
+</head>
+<body data-view="both">
+<div class="toolbar" role="toolbar" aria-label="Board controls">
+  <h1>Built-in HTTPS (tailnet certificate): Gateway page</h1>
+  <span class="seg-label" id="lbl-theme">Theme</span>
+  <div class="seg" aria-labelledby="lbl-theme" data-group="theme">
+    <button aria-pressed="true" data-v="base-dark">Base dark</button>
+    <button aria-pressed="false" data-v="base-light">Base light</button>
+    <button aria-pressed="false" data-v="nord-dark">Nord dark</button>
+  </div>
+  <span class="seg-label" id="lbl-w">Frame</span>
+  <div class="seg" aria-labelledby="lbl-w" data-group="width">
+    <button aria-pressed="false" data-v="375">375</button>
+    <button aria-pressed="false" data-v="768">768</button>
+    <button aria-pressed="true" data-v="1440">1440</button>
+  </div>
+  <span class="seg-label" id="lbl-v">View</span>
+  <div class="seg" aria-labelledby="lbl-v" data-group="view">
+    <button aria-pressed="true" data-v="both">Both</button>
+    <button aria-pressed="false" data-v="asbuilt">As-built</button>
+    <button aria-pressed="false" data-v="proposed">Proposed</button>
+  </div>
+</div>
+<main id="board"></main>
+
+<script>
+/* ── helpers ─────────────────────────────────────────────── */
+const ic = (n, cls = "") => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true"><path d="${ICON[n]}"/></svg>`;
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+let uid = 0; const nid = (p) => `${p}-${++uid}`;
+const NAME = "studio.tail4e2a.ts.net", IPV4 = "100.83.0.1";
+const NOW = Date.parse("2026-10-19T09:00:00Z");
+const days = (iso) => Math.round((Date.parse(iso) - NOW) / 864e5);
+const fmtDate = (iso) => new Date(iso).toISOString().slice(0, 10);
+
+/* ── fixture: `/api/health.tls` detail shape (design D8) + one UI-only field.
+   `ipv4` = tailscale source detail (see ui-plan Q2). ── */
+const base = { enabled: true, bound: true, port: 8443, host: IPV4, gates: [], certs: [], ipv4: IPV4 };
+const cert = (o = {}) => ({ name: NAME, source: "tailscale", sourceType: "tailscale", notAfter: "2027-01-16T08:12:00Z", advertise: true, stage: "idle", lastError: null, details: {}, ...o });
+const S = {
+  off:      { ...base, enabled: false, bound: false, host: "127.0.0.1" },
+  checking: { loading: true },
+  daemon:   { ...base, bound: true, host: "127.0.0.1", ipv4: null, gates: [{ id: "tailscale-running", ok: false }] },
+  gates:    { ...base, host: "127.0.0.1", gates: [{ id: "https-certs", ok: false }, { id: "bind-reachable", ok: false }] },
+  issuing:  { ...base, certs: [cert({ notAfter: null, stage: "requesting" })] },
+  ready:    { ...base, certs: [cert()], showAcmeSlot: true },
+  renewing: { ...base, certs: [cert({ notAfter: "2026-11-16T08:12:00Z", stage: "requesting" })] },
+  failedHeld: { ...base, certs: [cert({ notAfter: "2026-11-02T08:12:00Z", lastError: "tailscale cert: Get \"https://acme-v02.api.letsencrypt.org/directory\": dial tcp: lookup acme-v02.api.letsencrypt.org: no such host", nextRetryMin: 20 })] },
+  failedNone: { ...base, certs: [cert({ notAfter: null, lastError: "tailscale cert: 500 Internal Server Error: acme: error code 429 \"urn:ietf:params:acme:error:rateLimited\": too many certificates already issued", nextRetryMin: 160 })] },
+  portBusy: { ...base, bound: false, bindError: "EADDRINUSE", certs: [cert()] },
+  portInvalid: { ...base, certs: [cert()], draftPort: "8000", portError: "Port 8000 is the dashboard's own port. Pick a free port, for example 8443." },
+};
+
+/* ── proposed panel: one render function, every state reads the fixture ── */
+function statusPill(s) {
+  if (s.loading) return `<span class="pill neutral">${ic("ClockOutline")} Checking…</span>`;
+  if (!s.enabled) return `<span class="pill neutral">${ic("MinusCircleOutline")} Off</span>`;
+  if (s.bindError) return `<span class="pill error">${ic("CloseCircleOutline")} Stopped</span>`;
+  const c = s.certs[0];
+  if (s.gates.some((g) => !g.ok)) return `<span class="pill warning">${ic("Alert")} Setup needed</span>`;
+  if (c && c.notAfter && days(c.notAfter) > 0) return c.lastError ? `<span class="pill warning">${ic("Alert")} On, renewal failing</span>` : `<span class="pill success">${ic("CheckCircleOutline")} On</span>`;
+  if (c && c.lastError) return `<span class="pill error">${ic("CloseCircleOutline")} Failed</span>`;
+  return `<span class="pill info">${ic("Loading", "spin")} Getting certificate…</span>`;
+}
+
+function toggle(s) {
+  const id = nid("tls-switch"), h = nid("tls-hint");
+  return `<div class="tf"><div class="tf-row">
+    <label class="tf-label" for="${id}">Serve HTTPS on its own port</label>
+    <button type="button" id="${id}" role="switch" class="tf-switch" aria-checked="${!!s.enabled}" aria-describedby="${h}" data-testid="gateway-tls-enabled"></button></div>
+    <p class="tf-hint" id="${h}">Applies right away, no restart. Off by default.</p></div>`;
+}
+
+function gateCallout(g, s) {
+  if (g.id === "tailscale-running") return `<div class="callout warning" role="note" data-testid="gateway-tls-gate-tailscale-running">${ic("Alert")}<div class="body">
+    <b>Tailscale isn't running on this computer.</b> Start Tailscale and sign in, then this check runs again.
+    <div class="acts"><button class="p-btn sm secondary">Set up Tailscale above</button><button class="p-btn sm ghost">${ic("Refresh")} Check now</button></div></div></div>`;
+  if (g.id === "https-certs") return `<div class="callout warning" role="note" data-testid="gateway-tls-gate-https-certs">${ic("Alert")}<div class="body">
+    <b>HTTPS certificates are off for your tailnet.</b> Turn them on once, in the Tailscale admin console:
+    <ol><li>Open <b>DNS</b>.</li><li>Turn on <b>MagicDNS</b> if it is off.</li><li>Under <b>HTTPS Certificates</b>, select <b>Enable HTTPS</b>.</li></ol>
+    <div class="acts"><a class="p-link" href="https://login.tailscale.com/admin/dns" target="_blank" rel="noopener noreferrer">Open Tailscale DNS settings ${ic("OpenInNew")}<span class="sr-only"> (opens in a new tab)</span></a>
+    <button class="p-btn sm ghost">${ic("Refresh")} Check now</button></div>
+    <p class="p-meta" style="color:inherit;margin:4px 0 0">Checked automatically every 15 minutes. Your device name is published in public certificate logs.</p></div></div>`;
+  if (g.id === "bind-reachable") return `<div class="callout warning" role="note" data-testid="gateway-tls-gate-bind-reachable">${ic("Alert")}<div class="body">
+    <b>Only this computer can open it.</b> HTTPS listens on <code>${esc(s.host)}</code>. Listen on the Tailscale address so your other devices can reach it.
+    <div class="acts">${s.ipv4 ? `<button class="p-btn primary" data-testid="gateway-tls-use-ipv4">Use ${s.ipv4}</button>` : ""}</div></div></div>`;
+  return "";
+}
+
+function addressBlock(s) {
+  const c = s.certs[0];
+  if (!c || !c.notAfter || days(c.notAfter) <= 0 || s.bindError || s.gates.some((g) => !g.ok)) return "";
+  const url = `https://${c.name}${s.port === 443 ? "" : ":" + s.port}`;
+  return `<div class="inset"><p class="p-label">Address</p>
+    <div class="addr"><code class="mono" data-testid="gateway-tls-url">${url}</code>
+    <button class="p-btn sm secondary">${ic("ContentCopy")} Copy</button>
+    <a class="p-btn sm secondary" href="#" onclick="return false">${ic("OpenInNew")} Open</a></div>
+    <p class="p-help" style="margin:6px 0 0" data-testid="gateway-tls-name-note">Connect using this name. An IP address such as <code>${esc(s.host)}</code> won't work: the certificate is issued for the name.</p>
+    <p class="p-help" style="margin:4px 0 0">Shown in <b>Accessible at</b> and offered by <b>Connect a device</b>.</p></div>`;
+}
+
+function certRow(s) {
+  const c = s.certs[0]; if (!c) return "";
+  const held = c.notAfter && days(c.notAfter) > 0;
+  let pill, facts;
+  if (c.stage === "requesting" && !held) { pill = `<span class="pill info">${ic("Loading", "spin")} Requesting…</span>`; facts = "Asking Tailscale for a certificate. This can take up to 2 minutes."; }
+  else if (c.stage === "requesting") { pill = `<span class="pill info">${ic("Loading", "spin")} Renewing…</span>`; facts = `Current certificate valid until ${fmtDate(c.notAfter)} (${days(c.notAfter)} days). Keeps serving while it renews.`; }
+  else if (held) {
+    const d = days(c.notAfter);
+    pill = c.lastError ? `<span class="pill warning">${ic("Alert")} ${d} days left</span>` : `<span class="pill success">${ic("CheckCircleOutline")} Valid · ${d} days left</span>`;
+    facts = `Valid until ${fmtDate(c.notAfter)}. Renews automatically when 30 days are left.`;
+  } else { pill = `<span class="pill error">${ic("CloseCircleOutline")} No certificate</span>`; facts = "Nothing to serve yet."; }
+  const busy = c.stage === "requesting";
+  const err = c.lastError ? `<div class="callout ${held ? "warning" : "error"} sub" role="${held ? "note" : "alert"}" style="flex-basis:100%">${ic(held ? "Alert" : "AlertCircleOutline")}<div class="body">
+      <b>${held ? "Renewal failed. The current certificate is still served." : "Couldn't get a certificate."}</b> Next try in ${c.nextRetryMin} minutes.
+      <span class="err-text" data-testid="gateway-tls-last-error">${esc(c.lastError)}</span></div></div>` : "";
+  return `<div class="p-row cert" data-testid="gateway-tls-cert" data-stage="${c.stage}">
+    <span class="ic">${ic("CertificateOutline")}</span>
+    <div class="main"><div class="name">${esc(c.name)}</div><p class="facts">${facts}</p></div>
+    <div class="acts">${pill}<button class="p-btn sm secondary" data-testid="gateway-tls-issue-now" ${busy ? 'disabled aria-disabled="true"' : ""}>${ic("Refresh")} ${busy ? "Working…" : held ? "Renew now" : "Try again now"}</button></div>
+    ${err}</div>`;
+}
+
+function settingsFields(s) {
+  const pid = nid("tls-port"), hid = nid("tls-host"), ph = nid("tls-port-h"), hh = nid("tls-host-h"), pe = nid("tls-port-e");
+  const port = s.draftPort ?? s.port;
+  const portErr = s.portError || (s.bindError === "EADDRINUSE" ? `Port ${s.port} is already used by another program. Pick another port.` : null);
+  return `<div class="inset"><div class="fields-tls">
+      <div><label class="p-label" for="${pid}">Port</label>
+        <input class="p-input mono" id="${pid}" inputmode="numeric" value="${esc(port)}" aria-describedby="${portErr ? pe : ph}" ${portErr ? 'aria-invalid="true"' : ""} data-testid="gateway-tls-port" />
+        ${portErr ? "" : `<p class="p-meta" id="${ph}" style="margin:4px 0 0">Default 8443.</p>`}</div>
+      <div><label class="p-label" for="${hid}">Listen on</label>
+        <input class="p-input mono" id="${hid}" value="${esc(s.host)}" aria-describedby="${hh}" data-testid="gateway-tls-host" />
+        <p class="p-meta" id="${hh}" style="margin:4px 0 0">${s.ipv4 && s.host !== s.ipv4 && !s.gates.some((g) => g.id === "bind-reachable" && !g.ok) ? `<button class="p-link" style="min-height:24px">Use Tailscale address ${s.ipv4}</button> · ` : ""}The Tailscale address limits HTTPS to your tailnet.</p></div>
+      ${portErr ? `<p class="field-err" id="${pe}" role="alert">${esc(portErr)}</p>` : ""}
+    </div>
+    <div class="field-actions"><button class="p-btn secondary" ${s.draftPort ? "" : 'disabled aria-disabled="true"'}>Apply</button><span class="p-meta">Restarts only the HTTPS listener.</span></div></div>`;
+}
+
+function trustNote() {
+  return `<div class="callout info" role="note">${ic("InformationOutline")}<div class="body">Tailnet devices still have to pair before they get in. To skip that for your whole tailnet, add <code>100.64.0.0/10</code> as a trusted network on the <b>Security</b> page.</div></div>`;
+}
+
+/* Listener-scoped gates sit with the listener fields; source-scoped gates sit with their source group. */
+const LISTENER_GATES = ["bind-reachable"];
+const unmet = (s, scope) => s.gates.filter((g) => !g.ok && (scope === "listener") === LISTENER_GATES.includes(g.id));
+
+function sourceGroup(s) {
+  const gates = unmet(s, "source").map((g) => gateCallout(g, s)).join("");
+  const pending = !s.certs.length ? `<p class="p-help" style="margin:0">No certificate yet${gates ? ": fix the step above first" : ""}.</p>` : "";
+  return `<div class="src" data-testid="gateway-tls-source-tailscale">
+    <div class="src-h"><span class="src-ic">${ic("ShieldLockOutline")}</span><b>Tailscale</b><span class="p-meta">automatic · this machine's tailnet name</span></div>
+    <div class="stack">${gates}${certRow(s)}${pending}</div></div>`;
+}
+
+const acmeSlot = () => `<div class="future" aria-hidden="true"><span>${ic("Plus")} Add domain certificate</span><span class="p-meta">slot owned by <code>add-acme-dns01-certs</code> (its board B); not rendered by this change</span></div>`;
+
+function panel(s) {
+  const head = `<div class="sec-title"><span style="color:var(--text-secondary);display:inline-flex">${ic("LockOutline")}</span><h3 id="tls-h">Built-in HTTPS</h3>${statusPill(s)}</div>
+    <p class="sec-lead">Serve this dashboard over HTTPS on a second port with trusted certificates, so phones and browsers connect without warnings. Phones need HTTPS to pair and to get notifications. The main port keeps working.</p>`;
+  if (s.loading) return `<section class="tls page" aria-labelledby="tls-h" data-testid="gateway-tls">${head}<span class="p-help">Checking…</span></section>`;
+  const body = !s.enabled ? "" : [
+    addressBlock(s),
+    ...unmet(s, "listener").map((g) => gateCallout(g, s)),
+    settingsFields(s),
+    `<div><p class="p-label" id="tls-certs-h">Certificates</p><div class="stack" role="group" aria-labelledby="tls-certs-h">${sourceGroup(s)}${s.showAcmeSlot ? acmeSlot() : ""}</div></div>`,
+    s.certs.length && !s.gates.some((g) => !g.ok) ? trustNote() : "",
+  ].join("");
+  return `<section class="tls page" aria-labelledby="tls-h" data-testid="gateway-tls">${head}${toggle(s)}${body}</section>`;
+}
+
+/* ── Accessible at ── */
+const EPS = [
+  { kind: "local", url: "http://localhost:8000", tls: false },
+  { kind: "lan", url: "http://192.168.1.24:8000", tls: false },
+  { kind: "magicdns", url: `https://${NAME}:8443`, tls: true, isNew: true },
+  { kind: "domain", url: "https://dash.example.com:8443", tls: true, isNew: true },
+];
+const KIND_LABEL = { local: "Local", lan: "LAN", mesh: "Mesh", magicdns: "MagicDNS", public: "Public", domain: "Domain" };
+const asEndpoints = () => `<p class="ab-legend">Accessible at</p><div class="ab-list">${EPS.map((e) => `<div class="ab-ep"><span class="ab-kind ${e.kind}">${e.kind}</span><code class="ab-url">${e.url}</code>
+  ${e.kind === "local" ? "" : e.tls ? `<span class="ab-tls">TLS</span>` : `<span class="ab-notls">no TLS</span>`}<span class="ab-copy">${ic("ContentCopy")}</span></div>`).join("")}</div>`;
+const propEndpoints = () => `<div class="sec-title"><h3>Accessible at</h3></div><div class="stack">${EPS.map((e) => `<div class="ep" data-testid="gateway-endpoint"><span class="pill kind">${KIND_LABEL[e.kind]}</span><code class="mono" title="${e.url}">${e.url}</code>
+  ${e.kind === "local" ? "" : e.tls ? `<span class="pill success">${ic("LockOutline")} HTTPS</span>` : `<span class="pill warning">${ic("Alert")} No TLS</span>`}
+  <button class="p-btn sm icon ghost" aria-label="Copy ${e.url}">${ic("ContentCopy")}</button></div>`).join("")}</div>`;
+
+/* ── page outline ── */
+const AS_OUTLINE = ["Readiness board · provider · Connect", "Connect a device (QR)", "Gateway URLs", "Accessible at", "Setup guide", "Trusted networks → Security"];
+const PROP_OUTLINE = ["Readiness board · provider · Connect", "Connect a device (QR)", "Gateway URLs", "Built-in HTTPS (new)", "Accessible at", "Setup guide", "Trusted networks → Security"];
+const asOutline = () => `<ol class="ab-outline">${AS_OUTLINE.map((x) => `<li>${x}</li>`).join("")}</ol>`;
+const propOutline = () => `<ol class="outline">${PROP_OUTLINE.map((x) => `<li class="${x.includes("(new)") ? "new" : ""}">${x}</li>`).join("")}</ol>`;
+const NONE = null;
+
+/* ── board ── */
+const BOARD = [
+  { title: "A · Placement on the Gateway page", verdict: "The section sits between Gateway URLs and Accessible at: it produces an address that Accessible at then lists (Gestalt proximity: cause next to effect).", states: [
+    ["page-outline", "D1", "Section order of <code>GatewayPage.tsx</code>. Nothing else moves. Remote access dialog: unchanged; the pairing QR gets the new address from the server through <code>getReachableUrls</code>.", asOutline(), propOutline()],
+  ]},
+  { title: "B · Built-in HTTPS (new section)", verdict: "New surface, so there is no as-built column. Source-neutral listener (switch, address, port, listen-on), then a Certificates list grouped by source. This change ships one source (Tailscale); add-acme-dns01-certs adds Domain certificates into the same list. Gates sit with what they block: listener gates by the fields, source gates inside the source group.", states: [
+    ["tls-off", "D2 · E1", "Default. Switch off, one sentence of purpose. Turning it on writes <code>tls.enabled:true</code>, plus <code>sources:[{type:\"tailscale\"}]</code> when there are no sources (no <code>no-sources</code> dead end).", NONE, panel(S.off)],
+    ["tls-checking", "D9", "<code>/api/health</code> not read yet: “Checking…”, never a default rendered as fact (Remote access convention).", NONE, panel(S.checking)],
+    ["tls-gate-daemon", "D3 · Q1", "Tailscale missing or signed out. “Set up Tailscale above” focuses the readiness board (same handler as the QR's <code>onSetupRequested</code>). No Use-IPv4 button: the address is unknown.", NONE, panel(S.daemon)],
+    ["tls-gates", "D3 · E29", "<code>https-certs</code> + <code>bind-reachable</code> unmet: one callout each, with numbered admin-console steps, an external link and the one-click <b>Use 100.83.0.1</b>. The certificate-transparency note sits with the step that triggers it.", NONE, panel(S.gates)],
+    ["tls-issuing", "D4", "First issuance (<code>stage:\"requesting\"</code>): the 120 s expectation is stated, and the button is busy so it can't double-trigger (single-flight anyway).", NONE, panel(S.issuing)],
+    ["tls-ready", "D5 · D6 · D7", "Working state. The address is the main result, with a <b>connect using the name</b> note (E29). Certificate row: expiry in days, the renewal rule, <b>Renew now</b>. Trusted-network hint is info only, not a gate. The dashed slot marks where <code>add-acme-dns01-certs</code> plugs its Domain certificate editor in (not rendered here).", NONE, panel(S.ready)],
+    ["tls-renewing", "D4", "Background renewal: still <b>On</b>; the row says it keeps serving.", NONE, panel(S.renewing)],
+    ["tls-renew-failed", "D8", "Renewal failed while a valid certificate is held: warning, not error (still serving). <code>lastError</code> verbatim in mono (≤ 500 chars) + backoff ETA.", NONE, panel(S.failedHeld)],
+    ["tls-failed", "D8", "No certificate and the last attempt failed (rate limit): error with ETA (backoff 160 min) + <b>Try again now</b>, which bypasses backoff (<code>trigger()</code>).", NONE, panel(S.failedNone)],
+    ["tls-port-busy", "D10", "Listener couldn't bind (<code>EADDRINUSE</code>): pill <b>Stopped</b>, the Port field is invalid and says why. Config stays as written (design D7).", NONE, panel(S.portBusy)],
+    ["tls-port-invalid", "D10 · E4", "<code>PUT /api/config</code> 400 on Apply: field-level error in plain words, not the raw server text.", NONE, panel(S.portInvalid)],
+  ]},
+  { title: "C · Accessible at (GatewayEndpoints)", verdict: "The new address shows up here as MagicDNS + HTTPS; a later ACME source adds Domain (E31). The file is touched anyway, so its raw hex and undefined-variable classes go too (D11).", states: [
+    ["endpoints", "A1–A3 → D11", "As-built: raw hex kind pills (<code>#152a3a</code>…), 9.5 px uppercase enum labels, <code>var(--border)</code> / <code>var(--green,#hex)</code> not defined in any theme (border falls back to currentColor). Unknown <code>domain</code> would fall back to the Local look. Proposed: neutral contract chip with the kind as a word (identity tints are reserved), human labels, 11 px pills, lock icon + “HTTPS”, 32 px copy target.", asEndpoints(), propEndpoints()],
+  ]},
+];
+
+const pairHtml = (ab, pr) => ab === NONE
+  ? `<div class="pair single"><div class="col proposed only"><p class="tag">Proposed (new surface)</p><div class="frame">${pr}</div></div></div>`
+  : `<div class="pair"><div class="col asbuilt"><p class="tag">As-built</p><div class="frame">${ab}</div></div>
+     <div class="col proposed"><p class="tag">Proposed</p><div class="frame">${pr}</div></div></div>`;
+
+document.getElementById("board").innerHTML = BOARD.map((g) => `<section class="surface"><h2>${g.title}</h2><p class="verdict">${g.verdict}</p>
+  ${g.states.map(([id, finds, note, ab, pr]) => `<article class="state" id="${id}"><header><code>${id}</code><span class="finds">${finds}</span></header>
+    ${pairHtml(ab, pr)}<p class="note">${note}</p></article>`).join("")}</section>`).join("");
+
+/* toolbar: theme / frame / view, URL params, no fetch */
+const html = document.documentElement;
+function apply(group, v) {
+  if (group === "theme") {
+    const [pal, mode] = v.split("-");
+    mode === "light" ? html.setAttribute("data-theme", "light") : html.removeAttribute("data-theme");
+    pal === "nord" ? html.setAttribute("data-palette", "nord") : html.removeAttribute("data-palette");
+  }
+  if (group === "width") document.body.style.setProperty("--frame-w", v === "1440" ? "100%" : `${v}px`);
+  if (group === "view") document.body.dataset.view = v;
+}
+document.querySelectorAll(".seg").forEach((seg) => seg.addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  seg.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+  apply(seg.dataset.group, b.dataset.v);
+}));
+/* demo: switches toggle in place */
+document.addEventListener("click", (e) => { const sw = e.target.closest(".tf-switch"); if (sw) sw.setAttribute("aria-checked", String(sw.getAttribute("aria-checked") !== "true")); });
+const params = new URLSearchParams(location.search);
+for (const g of ["theme", "width", "view"]) if (params.get(g)) document.querySelector(`.seg[data-group="${g}"] button[data-v="${params.get(g)}"]`)?.click();
+</script>
+</body>
+</html>

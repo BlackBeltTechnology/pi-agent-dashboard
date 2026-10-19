@@ -16,7 +16,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerBearerAuth } from "../auth/bearer-auth.js";
 import { createNetworkGuard } from "../auth/localhost-guard.js";
 import { createRouteTierGate, type TierRefusal } from "../auth/route-tier-gate.js";
+import { admissionTrustedNetworks } from "../auth/trust-mode.js";
 import { PairedDeviceRegistry } from "../pairing/paired-devices.js";
+import { useTrustModeHome } from "../test-support/trust-mode-home.js";
 
 let tmpDir: string;
 const openApps: FastifyInstance[] = [];
@@ -38,7 +40,10 @@ interface App {
   refusals: TierRefusal[];
 }
 
-async function mkApp(opts: { trusted?: string[] } = {}): Promise<App> {
+async function mkApp(opts: { trusted?: string[] | (() => string[]) } = {}): Promise<App> {
+  // A fixed list, or a live thunk (the server passes `admissionTrustedNetworks`).
+  const fixed = opts.trusted;
+  const readTrusted: () => string[] = typeof fixed === "function" ? fixed : () => fixed ?? [];
   const reg = new PairedDeviceRegistry(path.join(tmpDir, "paired.json"));
   const tokens = {
     observe: reg.add("o", "manual", "observe").token,
@@ -69,11 +74,11 @@ async function mkApp(opts: { trusted?: string[] } = {}): Promise<App> {
   app.addHook(
     "onRequest",
     createRouteTierGate({
-      getTrustedNetworks: () => opts.trusted ?? [],
+      getTrustedNetworks: readTrusted,
       logRefusal: (d) => refusals.push(d),
     }),
   );
-  const networkGuard = createNetworkGuard(opts.trusted ?? []);
+  const networkGuard = createNetworkGuard(readTrusted);
   app.addHook("preHandler", networkGuard);
 
   app.get("/api/sessions", async () => ({ success: true }));
@@ -344,5 +349,60 @@ describe("E10 — device-tier exemption refused for relayed loopback", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(restartCalls()).toBe(1);
+  });
+});
+
+// test-plan #E9 (tier leg) / #E10 — the tier gate's trusted-network exemption
+// reads the LIVE admission list: empty under `pair`, so a listed LAN peer's
+// observe bearer is tier-refused; under `legacy` it stays exempt.
+// See change: retire-trusted-networks-bypass (D1).
+describe("E9/E10 — tier exemption follows the trust mode", () => {
+  const LIST = ["192.168.16.0/24"];
+  const LISTED = "192.168.16.20";
+  let th: ReturnType<typeof useTrustModeHome>;
+  beforeEach(() => {
+    th = useTrustModeHome();
+  });
+  afterEach(() => {
+    th.restore();
+  });
+
+  const restart = (app: FastifyInstance, token: string) =>
+    app.inject({ method: "POST", url: "/api/restart", remoteAddress: LISTED, headers: bearer(token) });
+
+  it("E9: pair — listed peer's observe bearer on POST /api/restart → 403 insufficient_scope", async () => {
+    th.setTrustConfig({ trustMode: "pair", trustedNetworks: LIST });
+    const { app, tokens, restartCalls, refusals } = await mkApp({ trusted: () => admissionTrustedNetworks() });
+    const res = await restart(app, tokens.observe);
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toMatchObject({ success: false, error: "insufficient_scope", scope: "operate" });
+    expect(res.headers["www-authenticate"]).toContain("insufficient_scope");
+    expect(restartCalls()).toBe(0);
+    expect(refusals).toHaveLength(1);
+  });
+
+  it("E9: legacy — listed peer's observe bearer is NOT tier-refused (exempt)", async () => {
+    th.setTrustConfig({ trustMode: "legacy", trustedNetworks: LIST });
+    const { app, tokens, restartCalls, refusals } = await mkApp({ trusted: () => admissionTrustedNetworks() });
+    const res = await restart(app, tokens.observe);
+    expect(res.statusCode).toBe(200);
+    expect(restartCalls()).toBe(1);
+    expect(refusals).toHaveLength(0);
+  });
+
+  it("E9: pair — an operate bearer from the listed peer is still admitted (tier suffices)", async () => {
+    th.setTrustConfig({ trustMode: "pair", trustedNetworks: LIST });
+    const { app, tokens } = await mkApp({ trusted: () => admissionTrustedNetworks() });
+    expect((await restart(app, tokens.operate)).statusCode).toBe(200);
+  });
+
+  it("E10: a mode change applies to the next request on the same app (no restart)", async () => {
+    th.setTrustConfig({ trustMode: "legacy", trustedNetworks: LIST });
+    const { app, tokens } = await mkApp({ trusted: () => admissionTrustedNetworks() });
+    expect((await restart(app, tokens.observe)).statusCode).toBe(200);
+    th.setTrustConfig({ trustMode: "pair", trustedNetworks: LIST });
+    expect((await restart(app, tokens.observe)).statusCode).toBe(403);
+    th.setTrustConfig({ trustMode: "legacy", trustedNetworks: LIST });
+    expect((await restart(app, tokens.observe)).statusCode).toBe(200);
   });
 });

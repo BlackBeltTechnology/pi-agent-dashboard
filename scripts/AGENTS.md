@@ -11,21 +11,25 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/check-pi-settings-paths.test.mjs` | Drives `absoluteSourceViolations` directly (12 cases) so detection is pinned independently of what… → see `__tests__/check-pi-settings-paths.test.mjs.AGENTS.md` |
 | `__tests__/biome-undeclared-dependencies.test.mjs` | Guardrails for the `noUndeclaredDependencies` config in `biome.json`. → see `__tests__/biome-undeclared-dependencies.test.mjs.AGENTS.md` |
 | `__tests__/claude-plugin-ensure-dashboard.test.mjs` | Behaviour tests for `ensure-dashboard.sh` (test-plan E3–E34, P1, X1–X10): real script vs temp HOME records, stub PATH, Node fixture servers. Timing via `PIDB_TEST_*`. |
-| `__tests__/claude-plugin-publish-contract.test.mjs` | Static contract over `publish.yml`. `publish` preflight reads tagged `plugin.json` (`git show "$RELEASE_TAG:..."`) before `sync-versions.js` + publish (E43). `github-release` builds the plugin zip before `Create GitHub Release`, attaches `claude-plugin-dist/*.zip` (E46). |
+| `__tests__/claude-plugin-publish-contract.test.mjs` | Static contract over `publish.yml`. `publish` preflight reads tagged `plugin.json` (`git show… → see `__tests__/claude-plugin-publish-contract.test.mjs.AGENTS.md` |
 | `__tests__/claude-plugin-parity.test.mjs` | Derived `api-reference.md` byte parity (E35), missing-heading failure (E36), skill routes registered by the server (E38). |
 | `__tests__/claude-plugin-structure.test.mjs` | Plugin layout + marketplace manifest (E1, E2), forbidden references (E37), skill content contract (E39). |
 | `__tests__/claude-plugin-version.test.mjs` | `plugin.json` = root version (E40), `sync-versions.js` stamping idempotent (E41), `release-cut` stages + verifies it (E42). |
 | `__tests__/claude-plugin-zip.test.mjs` | Release zip layout (E44) and version gate (E45) for `build-claude-plugin-zip.mjs`. |
-| `__tests__/codeql-local-cli.test.mjs` | `codeql-local.mjs` end to end against a fake `CODEQL_BIN` + temp git repos (test-plan #E2-#E13, #E16, #E23, #E25-#E29, #P1, #X1-#X5). See change: add-local-codeql-ratchet. |
-| `__tests__/codeql-local-real.test.mjs` | `codeql-local.mjs` against the REAL CodeQL CLI on tiny repos (#E4, #E18, #X6). `describe.skipIf` no `codeql` / uncached packs; uses the real HOME for the pack cache. See change: add-local-codeql-ratchet. |
+| `__tests__/codeql-local-cli.test.mjs` | `codeql-local.mjs` end to end against a fake `CODEQL_BIN` + temp git repos (test-plan #E2-#E13, #E16, #E23,… → see `__tests__/codeql-local-cli.test.mjs.AGENTS.md` |
+| `__tests__/codeql-local-real.test.mjs` | `codeql-local.mjs` against the REAL CodeQL CLI on tiny repos (#E4, #E18, #X6). → see `__tests__/codeql-local-real.test.mjs.AGENTS.md` |
 | `__tests__/codeql-local.test.mjs` | Pure decision logic of `codeql-local.mjs` (#E14, #E15, #E17, #E19-#E22, #E24, #E29 writer, #P1). See change: add-local-codeql-ratchet. |
-| `__tests__/coverage-config.test.mjs` | Coverage config shape. |
-| `__tests__/coverage-report.test.mjs` | Live coverage runs. |
+| `__tests__/coverage-config.test.mjs` | Coverage config shape; `coverage-unloaded` fixture stays unloaded (E29-E31). See change: triage-browser-e2e-offbox-poison. |
+| `__tests__/coverage-report.test.mjs` | Live coverage runs; E2 scoped to `fixtures/coverage-unloaded`. See change: triage-browser-e2e-offbox-poison. |
 | `__tests__/client-isolate-gate.test.mjs` | Client isolate gate. |
+| `__tests__/e2e-fixture-import.test.mjs` | Guard tests for `check-e2e-fixture-import.mjs` (E6/E7, trust-write lint E21/E22). See change: triage-browser-e2e-offbox-poison. |
+| `__tests__/e2e-reap-core.test.mjs` | L1 for `tests/e2e/reap-core.ts` (reap, refusal verdict, trust isolation E8-E18, X5-X16). See change: triage-browser-e2e-offbox-poison. |
+| `__tests__/e2e-trust-seed.test.mjs` | Runs the `test-entrypoint.sh` config-seed program verbatim (E23-E25). See change: triage-browser-e2e-offbox-poison. |
+| `__tests__/fixtures/coverage-unloaded/` | Fixture: one source file no test imports + no-op test + pinned config (scoped E2). See change: triage-browser-e2e-offbox-poison. |
 | `__tests__/dependency-declarations.test.mjs` | Set-based manifest guarantees over ALL 32 non-private workspaces (not a sample). → see `__tests__/dependency-declarations.test.mjs.AGENTS.md` |
 | `__tests__/fixtures/codeql-harness.mjs` | Test harness for `codeql-local.mjs`: temp git repos, per-call fake-binary plan, SARIF + baseline builders. See change: add-local-codeql-ratchet. |
 | `__tests__/fixtures/coverage-failing/` | Red coverage fixture. |
-| `__tests__/fixtures/fake-codeql.mjs` | Fake `codeql` (`CODEQL_BIN` seam). Plan from `$FAKE_CODEQL_PLAN`; logs argv, `LGTM_INDEX_FILTERS`, source-root listing; writes fixture SARIF. See change: add-local-codeql-ratchet. |
+| `__tests__/fixtures/fake-codeql.mjs` | Fake `codeql` (`CODEQL_BIN` seam). Plan from `$FAKE_CODEQL_PLAN`; logs argv, `LGTM_INDEX_FILTERS`,… → see `__tests__/fixtures/fake-codeql.mjs.AGENTS.md` |
 | `__tests__/fixtures/mutation-journal-child.mjs` | Child-process fixture for the mutation-journal crash-safety tests. → see `__tests__/fixtures/mutation-journal-child.mjs.AGENTS.md` |
 | `__tests__/fixtures/npm-view-stub.mjs` | Gate CLI npm-view stub. → see `__tests__/fixtures/npm-view-stub.mjs.AGENTS.md` |
 | `__tests__/helpers/ensure-dashboard-harness.mjs` | `makeCtx()` sandbox for the bootstrap tests: temp HOME, logging stub executables, fixture/pid helpers, async `run()`. |
@@ -52,10 +56,11 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/mutation-journal.test.mjs` | Vitest crash-safety tests for the mutation-harness journal (test-plan #E1-#E8, #X1-#X13). → see `__tests__/mutation-journal.test.mjs.AGENTS.md` |
 | `__tests__/nightly-verdaccio-publish.test.mjs` | Vitest unit tests for scripts/nightly-verdaccio-publish.mjs pure helpers: nextPatch (0.6.1→0.6.2, ignores… → see `__tests__/nightly-verdaccio-publish.test.mjs.AGENTS.md` |
 | `__tests__/qa-smoke-guards.test.mjs` | Fault-injects the clean-prefix QA smoke (`qa/tests/35-plugin-install-load.sh`) by stubbing… → see `__tests__/qa-smoke-guards.test.mjs.AGENTS.md` |
-| `__tests__/prune-memory-backups.test.mjs` | Pins `planPrune` selection + `prune` IO for the hermes store trim. Weight is on the negative cases: live `sessions.db`/`-wal`/`-shm` and hand-made `.bak.cleanup-*`/`.bak.trim-*` are never candidates even at `keep: 0`. Also asserts dry-run deletes nothing, `--write` removes corrupt + surplus only, and a second run is a no-op. |
+| `__tests__/prune-memory-backups.test.mjs` | Pins `planPrune` selection + `prune` IO for the hermes store trim. → see `__tests__/prune-memory-backups.test.mjs.AGENTS.md` |
 | `__tests__/rebuild-scripts-gate.test.mjs` | X5 fault injection: both `rebuild-restart.sh` and `rebuild-and-restart.sh` run the served-client gate between… → see `__tests__/rebuild-scripts-gate.test.mjs.AGENTS.md` |
 | `__tests__/repair-meta-source.test.mjs` | Vitest unit tests for repair-meta-source.mjs. Asserts source:"dashboard" → cleaned (other fields preserved),… → see `__tests__/repair-meta-source.test.mjs.AGENTS.md` |
 | `__tests__/review-changes-parser.test.mjs` | Vitest unit tests for parseFindings + splitFindings (.pi/skills/implement/scripts/parse-findings.ts). → see `__tests__/review-changes-parser.test.mjs.AGENTS.md` |
+| `__tests__/settings-kit-guard.test.mjs` | Settings-kit ratchet tests: per-kind counts + negatives (#E33), exempt `ServerEditor.tsx`, closure, `main`… → see `__tests__/settings-kit-guard.test.mjs.AGENTS.md` |
 | `__tests__/severity-literal-guard.test.mjs` | Static guard: no raw `red-<NN(N)>` Tailwind literal (2- or 3-digit shade, so `red-50` is caught too) in the… → see `__tests__/severity-literal-guard.test.mjs.AGENTS.md` |
 | `__tests__/ship-it-manifest.test.mjs` | Vitest unit tests for ship-it `manifest.ts` (`.pi/skills/ship-it/scripts/`). → see `__tests__/ship-it-manifest.test.mjs.AGENTS.md` |
 | `__tests__/ship-it-no-weakening.test.mjs` | Vitest unit tests for ship-it `no-weakening.ts` assertNoWeakening. → see `__tests__/ship-it-no-weakening.test.mjs.AGENTS.md` |
@@ -64,12 +69,17 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/sync-served-client.test.mjs` | E15/E16/X3/X4: the `sync-served-client.mjs` outcome table over temp dirs — no-op (dest == source, source must… → see `__tests__/sync-served-client.test.mjs.AGENTS.md` |
 | `__tests__/verify-release-deps-client-build-deps.test.mjs` | Vitest tests for the E7 client build-dep rules in verify-release-deps.mjs. → see `__tests__/verify-release-deps-client-build-deps.test.mjs.AGENTS.md` |
 | `__tests__/theme-token-guard.test.mjs` | Scan/ratchet/bootstrap tests for all three guard arms. → see `__tests__/theme-token-guard.test.mjs.AGENTS.md` |
+| `__tests__/harness-audit-armed.test.mjs` | Armed rule + max lifetime + unscoped mode of project-scoped `docker/harness-audit.sh` (stub docker, injected poll/max). See change: add-missing-ci-legs. |
+| `__tests__/harness-recorder-helpers.mjs` | Shared docker stub + sandbox for the harness recorder tests (not a test file). See change: add-missing-ci-legs. |
+| `__tests__/site-drift-decision.test.mjs` | E21–E23/X7–X9: drift decision table, marker boundaries, LAST path set, fetch/`gh` faults (git fixture repos + stub `curl`/`gh`). See change: add-missing-ci-legs. |
+| `__tests__/test-down-recorder.test.mjs` | `test-down.sh` teardown marker, ≤10 s destroy wait, dead/absent recorder (stub docker). See change: add-missing-ci-legs. |
+| `__tests__/test-up-recorder.test.mjs` | `test-up.sh` lifecycle recorder: state fields, events path, ordering, re-up idempotence, best-effort faults. See change: add-missing-ci-legs. |
 | `__tests__/test-up-oversubscribe-guard.test.mjs` | Vitest tests for the co-resident harness oversubscription guard (change: stabilize-browser-e2e, #451 part 2)… → see `__tests__/test-up-oversubscribe-guard.test.mjs.AGENTS.md` |
 | `__tests__/test-up-port-derivation.test.mjs` | Vitest tests for parallel-worktree test-harness port/project derivation. → see `__tests__/test-up-port-derivation.test.mjs.AGENTS.md` |
 | `_windows-introspection-probe.ts` | Probe child for Windows introspection smoke. Imports real `isVirtualMachine` + `defaultGetCmdline` (relative… → see `_windows-introspection-probe.ts.AGENTS.md` |
 | `assert-bundled-plugins-published.mjs` | Gate #X17. → see `assert-bundled-plugins-published.mjs.AGENTS.md` |
 | `assert-runtime-release.mjs` | Release shape check #X16. → see `assert-runtime-release.mjs.AGENTS.md` |
-| `build-claude-plugin-zip.mjs` | Zips `packages/claude-plugin/` (manifest at zip root) to `pi-dashboard-claude-plugin-<v>.zip`; fails when `plugin.json` version ≠ `--version`. Called by `publish.yml` `github-release`. See change: add-claude-code-plugin. |
+| `build-claude-plugin-zip.mjs` | Zips `packages/claude-plugin/` (manifest at zip root) to `pi-dashboard-claude-plugin-<v>.zip`; fails when… → see `build-claude-plugin-zip.mjs.AGENTS.md` |
 | `build.sh` | Type-check + build dashboard. Flags: --check-only (tsc --noEmit only), --client-only (Vite build only). Auto-runs npm install if node_modules absent. |
 | `build-runtime-asset.mjs` | Per-platform runtime asset. → see `build-runtime-asset.mjs.AGENTS.md` |
 | `__tests__/verify-published-imports.test.mjs` | Tests for `verify-published-imports.mjs`. Fixtures built in `mkdtemp` OUTSIDE the repo and the checker driven… → see `__tests__/verify-published-imports.test.mjs.AGENTS.md` |
@@ -96,11 +106,12 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `generate-plugin-registry.mjs` | Standalone generator for packages/client/src/generated/plugin-registry.tsx (gitignored). → see `generate-plugin-registry.mjs.AGENTS.md` |
 | `generate-runtime-lock.mjs` | Server lock gen. → see `generate-runtime-lock.mjs.AGENTS.md` |
 | `i18n-lint.mjs` | Hardcoded-UI-string lint. → see `i18n-lint.mjs.AGENTS.md` |
-| `i18n-parity.mjs` | Catalog parity gate: every key in the union of zh-CN (`i18n-zh-CN.ts`) + hu + plugin catalogs exists in each. Also verifies the static `RESERVED_LABEL_TRANSLATIONS` table in `i18n.tsx` against the catalogs (`--fix` regenerates; drift fails). See change: shrink-client-entry-lazy-islands. |
+| `i18n-parity.mjs` | Catalog parity gate: every key in the union of zh-CN (`i18n-zh-CN.ts`) + hu + plugin catalogs exists in each. → see `i18n-parity.mjs.AGENTS.md` |
 | `rebuild-and-restart.sh` | Build → verify served client → `pi-dashboard restart` → `npm run reload`. → see `rebuild-and-restart.sh.AGENTS.md` |
 | `rebuild-restart.sh` | Build (+ optional `--check` tsc) → verify served client (`node scripts/sync-served-client.mjs`) →… → see `rebuild-restart.sh.AGENTS.md` |
 | `refresh-vendor.mjs` | Owns the vendored-relay refresh: copy → verify upstream (in memory, before any write) → patch → rehash. → see `refresh-vendor.mjs.AGENTS.md` |
-| `sync-claude-plugin.mjs` | Derives the control skill's `references/api-reference.md` from the extension skill's (drops the bus-verbs section; fails when the heading is absent). `transformApiReference`, `SECTION_HEADING`. See change: add-claude-code-plugin. |
+| `site-drift-decision.mjs` | Decision script of `.github/workflows/site-drift-check.yml`: live `deploy-sha.txt` vs last site-relevant… → see `site-drift-decision.mjs.AGENTS.md` |
+| `sync-claude-plugin.mjs` | Derives the control skill's `references/api-reference.md` from the extension skill's (drops the bus-verbs… → see `sync-claude-plugin.mjs.AGENTS.md` |
 | `sync-served-client.mjs` | Resolves the served destination via the SERVER's `resolveStaticClientDir` (jiti) and mirrors the fresh… → see `sync-served-client.mjs.AGENTS.md` |
 | `heap-probe.mjs` | CDP heap probe for a RUNNING dashboard: `SIGUSR1`s the pid (from `--pid` or `/api/health`), attaches to… → see `heap-probe.mjs.AGENTS.md` |
 | `lib-jiti-scope.mjs` | Discovery rule + AST detector behind the `jiti-cjs-transpile-safety` gate. Scope is a DERIVED RULE… → see `lib-jiti-scope.mjs.AGENTS.md` |
@@ -122,7 +133,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `nightly-verdaccio-publish.mjs` | Nightly Verdaccio publish: bump every non-private workspace + root to `<base>-nightly.<YYYYMMDD>.<sha7>` (or… → see `nightly-verdaccio-publish.mjs.AGENTS.md` |
 | `nightly-verdaccio-serve.mjs` | Start an ephemeral Verdaccio as a detached background service (spawn detached+unref+stdio:ignore — cross-OS,… → see `nightly-verdaccio-serve.mjs.AGENTS.md` |
 | `probe-harness-memory.mjs` | Out-of-band harness memory probe (host side): `docker exec` reads cgroup v2 `memory.*` + `pids.current` and… → see `probe-harness-memory.mjs.AGENTS.md` |
-| `prune-memory-backups.mjs` | Recurring maintenance: trims `~/.pi/agent/pi-hermes-memory/`. Deletes all `sessions.db.corrupt-*` (incl. `-shm`/`-wal` sidecars) and all but the `--keep N` newest `sessions.db.bak.auto-<YYYYMMDD>-<HHMMSS>` (default 2). Dry-run unless `--write`; `--dir` overrides the store. Idempotent. Exports `planPrune(names, keep)` (pure), `prune({dir,keep,write})`, `DEFAULT_KEEP`, `DEFAULT_DIR`. npm: `clean:memory` / `clean:memory:write`. Store grows ~700MB/backup and self-prunes nothing — reached 5.7GB/78 corrupt files and filled a disk. |
+| `prune-memory-backups.mjs` | Recurring maintenance: trims `~/.pi/agent/pi-hermes-memory/`. Deletes all `sessions.db.corrupt-*` (incl. → see `prune-memory-backups.mjs.AGENTS.md` |
 | `prune-orphan-worktrees.ts` | One-shot: `rm -rf` orphan `.worktrees/*` husk dirs (on disk, absent from `git worktree list`) left by kb DB… → see `prune-orphan-worktrees.ts.AGENTS.md` |
 | `patch-vendor-specifiers.mjs` | Rewrites the vendored relay's playwright-internal specifiers to package-relative `shims/*.js` paths + §4(b) notice; idempotent, fail-closed. → see `patch-vendor-specifiers.mjs.AGENTS.md` |
 | `reload-all.sh` | Build bridge + reload all pi sessions Inline per-request proof mint (byte-identical to shared `mintProof`,… → see `reload-all.sh.AGENTS.md` |
@@ -134,6 +145,8 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `seed-settings-default-model.mjs` | Seeds pi `settings.json` with SPLIT `defaultProvider`+`defaultModel` so faux is the startup default (pi 0.84… → see `seed-settings-default-model.mjs.AGENTS.md` |
 | `select-affected-tests.mjs` | Affected-test selector CLI. → see `select-affected-tests.mjs.AGENTS.md` |
 | `test-selection/` | Selector modules + data. → see `test-selection/AGENTS.md` |
+| `settings-kit-baseline.json` | Shrink-only baseline for `settings-kit-guard.mjs`: `{counts}` map `<file>::<kind>` → count. → see `settings-kit-baseline.json.AGENTS.md` |
+| `settings-kit-guard.mjs` | Settings-kit ratchet (design D7): scans every `.tsx` under each `settings-section` claim dir… → see `settings-kit-guard.mjs.AGENTS.md` |
 | `spec-collateral.mjs` | Advisory OpenSpec post-archive contradiction scan; exit 0/2, never 1. → see `spec-collateral.mjs.AGENTS.md` |
 | `split-large-agents.mjs` | One-off Node script. Splits over-large directory `AGENTS.md` file-based. → see `split-large-agents.mjs.AGENTS.md` |
 | `stop-dashboard.sh` | Stops pi-dashboard server. Reads port from ~/.pi/dashboard/config.json (default 8000); lsof -ti :PORT; SIGTERM, SIGKILL fallback after 5s. |

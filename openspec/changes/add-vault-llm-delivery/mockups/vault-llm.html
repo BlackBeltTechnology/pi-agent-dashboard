@@ -1,0 +1,453 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Vault LLM delivery — UX board (add-vault-llm-delivery 7.0)</title>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="mockup.css" />
+<link rel="stylesheet" href="vault.css" />
+<link rel="stylesheet" href="llm.css" />
+<script src="icons.js"></script>
+</head>
+<body data-view="both">
+<div class="toolbar" role="toolbar" aria-label="Board controls">
+  <h1>Vault: sign-in accounts and model providers (proposed)</h1>
+  <span class="seg-label" id="lbl-theme">Theme</span>
+  <div class="seg" aria-labelledby="lbl-theme" data-group="theme">
+    <button aria-pressed="true" data-v="base-dark">Base dark</button>
+    <button aria-pressed="false" data-v="base-light">Base light</button>
+    <button aria-pressed="false" data-v="nord-dark">Nord dark</button>
+  </div>
+  <span class="seg-label" id="lbl-w">Frame</span>
+  <div class="seg" aria-labelledby="lbl-w" data-group="width">
+    <button aria-pressed="false" data-v="375">375</button>
+    <button aria-pressed="false" data-v="768">768</button>
+    <button aria-pressed="true" data-v="1440">1440</button>
+  </div>
+  <span class="seg-label" id="lbl-v">Show</span>
+  <div class="seg" aria-labelledby="lbl-v" data-group="view">
+    <button aria-pressed="true" data-v="both">Mockup + UX notes</button>
+    <button aria-pressed="false" data-v="proposed">Mockup only</button>
+  </div>
+  <a class="p-link" href="providers.html" style="margin-left:auto">Providers board →</a>
+  <a class="p-link" href="../../add-vault-reach-all-projects/mockups/reach.html">Reach board →</a>
+</div>
+<main id="board"></main>
+
+<script>
+/* ── helpers (same recipes as retro-ux-credential-vault/vault.html, which shipped as VaultSection) ── */
+const ic = (n, cls = "") => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true"><path d="${ICON[n]}"/></svg>`;
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+let uid = 0; const nid = (p) => `${p}-${++uid}`;
+const pill = (tone, icon, text, attrs = "") => `<span class="pill ${tone}" ${attrs}>${icon ? ic(icon) : ""}${text}</span>`;
+
+/* ── data: real provider ids; account labels follow the vault docs (personal / work) ── */
+const KEY_ACCOUNTS = [
+  { id: "acc_g1", provider: "gemini", label: "personal", usage: "Default for <code>GEMINI_API_KEY</code>, <code>google</code>" },
+  { id: "acc_o1", provider: "openai", label: "work", usage: "Default for <code>OPENAI_API_KEY</code>" },
+];
+const OAUTH = {
+  oa_p: { id: "oa_p", provider: "anthropic", label: "personal", backend: "link", ident: "ro•••@gmail.com", exp: "token valid 47 min", refresh: "refreshed by pi on this dashboard" },
+  oa_w: { id: "oa_w", provider: "anthropic", label: "work", backend: "vault", ident: "ro•••@blackbelt.hu", exp: "token valid 38 min", refresh: "last refresh 08:52 OK" },
+  oa_c: { id: "oa_c", provider: "openai-codex", label: "team", backend: "vault", ident: null, reauth: true },
+};
+const oName = (id) => `${OAUTH[id].provider} / ${OAUTH[id].label}`;
+const REPO_DASH = "github.com/blackbelt-technology/pi-agent-dashboard";
+const REPO_DECK = "github.com/robson/deck3d";
+const DIR_VIDEO = "/Users/robson/Movies/video-feliratozas";
+
+const DELIVERY = {
+  lease: { label: "Short-lived token", icon: "TimerSand", tech: "lease",
+    s: "The session gets a token that lasts up to 1 hour. The dashboard renews it. The sign-in itself never leaves this dashboard.",
+    caveat: "After you revoke access, a token already handed out keeps working until it expires (at most 1 hour). For your own devices." },
+  proxy: { label: "Through this dashboard", icon: "LanConnect", tech: "proxy",
+    s: "Requests go through this dashboard. No token or key reaches the session, and revoking takes effect immediately.",
+    caveat: "Every request takes an extra hop through this dashboard." },
+  key: { label: "API key", icon: "KeyVariant", tech: "key",
+    s: "The session gets the key itself, in memory only. It is never written to pi's files on that machine.",
+    caveat: "" },
+};
+const modePill = (d) => pill("neutral", DELIVERY[d].icon, DELIVERY[d].label, `title="delivery: ${DELIVERY[d].tech}"`);
+
+/* ── page chrome (shipped VaultSection) ── */
+function header() {
+  return `<div><h2 class="v-title">Credential vault</h2>
+    <p class="v-lead">Keys and sign-ins live on this dashboard and are never shown again after you save them. A session gets one only when its project is granted it.</p></div>`;
+}
+function tabs(active, counts) {
+  const t = (id, label, icon, count) => `<button role="tab" class="tab" id="tab-${id}-${uid}" aria-selected="${active === id}" tabindex="${active === id ? 0 : -1}" data-testid="vault-tab-${id}">${ic(icon)}${label}${count !== undefined ? `<span class="count">${count}</span>` : ""}</button>`;
+  return `<div class="tabs" role="tablist" aria-label="Vault">${t("accounts", "Accounts", "KeyVariant", counts?.a ?? 5)}${t("variables", "Variables", "CogOutline", counts?.v ?? 5)}${t("import", "Import", "FileImportOutline")}</div>`;
+}
+const page = (tab, body, o = {}) => `<div class="v-page">${header()}${tabs(tab, o.counts)}<div role="tabpanel" class="stack-3">${body}</div></div>`;
+
+/* ════════════ ACCOUNTS TAB ════════════ */
+function keySection() {
+  return `<div class="grp"><div class="toolbar-row"><h4 class="sec-title">${ic("KeyVariant")}Keys</h4><button class="p-btn sm secondary">${ic("Plus")}Add key</button></div>
+    <ul class="glist" style="margin-top:6px">${KEY_ACCOUNTS.map((a) => `<li class="grow-row" data-testid="vault-account-${a.id}">${ic("KeyVariant")}<div class="main">
+      <div class="t">${a.label} ${pill("neutral", "", a.provider)}</div><div class="p-meta">${a.usage}</div></div>
+      <div class="acts"><button class="p-btn sm secondary" aria-label="Rotate ${a.provider} / ${a.label}">${ic("Autorenew")}Rotate</button><button class="p-btn sm ghost" aria-label="Revoke ${a.provider} / ${a.label}">${ic("TrashCanOutline")}Revoke</button></div></li>`).join("")}</ul></div>`;
+}
+function oauthRow(a, o = {}) {
+  const linked = a.backend === "link";
+  const backend = linked ? pill("info", "LinkVariant", "Linked pi login") : pill("neutral", "ShieldKeyOutline", "Stored in vault");
+  let status = "";
+  if (a.reauth) status = pill("error", "AlertCircleOutline", "Needs sign-in", 'data-testid="vault-oauth-status" data-status="needs-reauth"');
+  else if (o.identityChanged && a.id === "oa_p") status = pill("warning", "AccountSwitchOutline", "Different account signed in", 'data-testid="vault-oauth-status" data-status="identity-changed"');
+  else status = pill("success", "CheckCircleOutline", "Signed in", 'data-testid="vault-oauth-status" data-status="ok"');
+  const usage = { oa_p: "Default for <code>anthropic</code> · in pool <code>anthropic-pool</code>", oa_w: "Default for <code>anthropic-work</code> · chosen by 1 project · primary of <code>anthropic-pool</code>", oa_c: "Default for <code>openai-codex</code> · delivers nothing until you sign in again" }[a.id];
+  const meta = a.reauth ? "The dashboard couldn't save a renewed sign-in. Sign in again to resume." : `${a.exp} · ${a.refresh}`;
+  const acts = a.reauth ? `<button class="p-btn sm primary" aria-label="Sign in again to ${oName(a.id)}">${ic("Login")}Sign in again</button>`
+    : linked ? `<button class="p-btn sm ghost" aria-label="Unlink ${oName(a.id)}">${ic("LinkVariantOff")}Unlink</button>`
+    : `<button class="p-btn sm secondary" aria-label="Sign in again to ${oName(a.id)}">${ic("Login")}Sign in again</button><button class="p-btn sm ghost" aria-label="Revoke ${oName(a.id)}">${ic("TrashCanOutline")}Revoke</button>`;
+  let extra = "";
+  if (o.identityChanged && a.id === "oa_p") extra = `<div class="callout warning" role="alert" style="margin-top:6px" data-testid="vault-identity-changed">${ic("AccountSwitchOutline")}<div class="body"><strong>pi on this dashboard is now signed in as a different Anthropic account.</strong>
+      This link was made for <code>ro•••@gmail.com</code>; the login is now <code>an•••@gmail.com</code>. <code>anthropic</code> delivers nothing to sessions until you decide.
+      <div class="btn-row"><button class="p-btn sm primary">${ic("Check")}Use the new account for "personal"</button><button class="p-btn sm secondary">${ic("LinkVariantOff")}Unlink</button></div></div></div>`;
+  if (o.unlinking && a.id === "oa_p") extra = `<div class="callout warning" role="alertdialog" aria-labelledby="ul-h" style="margin-top:6px" data-testid="vault-confirm-impact">${ic("AlertOutline")}<div class="body"><strong id="ul-h">Unlink anthropic / personal?</strong>
+      <ul class="impact"><li><code>anthropic</code> loses its default. Its 1 project delivers nothing until you pick another account.</li>
+      <li><code>anthropic-pool</code> drops this member and keeps <strong>work</strong>.</li>
+      <li>Sessions stop renewing within seconds. A token already handed out keeps working until it expires, at most 47 min from now.</li>
+      <li>Your pi login itself is not touched: <code>~/.pi/agent/auth.json</code> stays as it is, and pi on this dashboard keeps using it.</li></ul>
+      <div class="btn-row"><button class="p-btn sm secondary" data-initial-focus>Cancel</button><button class="p-btn sm danger">${ic("LinkVariantOff")}Unlink</button></div></div></div>`;
+  return `<li class="grow-row" data-testid="vault-account-${a.id}" data-backend="${a.backend}">${ic(linked ? "LinkVariant" : "AccountKeyOutline")}<div class="main">
+    <div class="t">${a.label} ${pill("neutral", "", a.provider)} ${backend} ${status}</div>
+    <div class="p-meta">${usage}</div><div class="p-meta">${meta}${a.ident ? ` · ${a.ident}` : ""}</div>${extra}</div>
+    ${o.unlinking && a.id === "oa_p" ? "" : `<div class="acts">${acts}</div>`}</li>`;
+}
+function signinSection(o = {}) {
+  return `<div class="grp" data-testid="vault-accounts-signin"><div class="toolbar-row"><h4 class="sec-title">${ic("AccountKeyOutline")}Sign-in accounts</h4>
+      <button class="p-btn sm secondary" aria-expanded="${!!o.add}" data-testid="vault-signin-new">${ic("Plus")}Add sign-in account</button></div>
+    <p class="p-help" style="margin:4px 0 0">Subscription logins such as Claude Pro or ChatGPT. You can keep several per provider. Tokens are never shown.</p>
+    ${o.add ?? ""}
+    <ul class="glist" style="margin-top:6px">${Object.values(o.accounts ?? OAUTH).map((a) => oauthRow(a, o)).join("")}</ul></div>`;
+}
+const accountsTab = (o = {}) => page("accounts", `${o.first ?? ""}${keySection()}${signinSection(o)}`);
+
+/* add sign-in account: choose link vs sign in */
+function addChoice(sel = "link") {
+  const r1 = nid("ch"), r2 = nid("ch");
+  return `<form class="inset stack-3" onsubmit="return false" style="margin-top:8px" data-testid="vault-signin-form">
+    <fieldset style="border:0;padding:0;margin:0"><legend class="p-label">What do you want to add?</legend>
+    <label class="opt" for="${r1}"><input type="radio" name="${r1}g" id="${r1}" ${sel === "link" ? "checked" : ""}><div class="main">
+      <div class="t">${ic("LinkVariant")}Link this dashboard's pi login</div>
+      <div class="why">Uses the login pi already has here. Nothing is copied, and pi keeps refreshing it as it does today.</div>
+      <div class="why">Available: <strong>openai-codex</strong> (signed in as ro•••@blackbelt.hu). Already linked: anthropic.</div></div></label>
+    <label class="opt" for="${r2}"><input type="radio" name="${r1}g" id="${r2}" ${sel === "enrol" ? "checked" : ""}><div class="main">
+      <div class="t">${ic("Login")}Sign in to another account</div>
+      <div class="why">For a second account of a provider, for example a work Claude subscription next to your personal one. The dashboard keeps and renews it; pi's own login is not changed.</div></div></label></fieldset>
+    ${sel === "link" ? linkFields() : enrolFields()}
+    </form>`;
+}
+function linkFields() {
+  const p = nid("lp"), l = nid("ll");
+  return `<div class="form-grid">
+      <div><label class="p-label" for="${p}">pi login</label><select id="${p}" class="p-input"><option>openai-codex</option><option disabled>anthropic (already linked as personal)</option></select></div>
+      <div><label class="p-label" for="${l}">Label</label><input id="${l}" class="p-input" value="personal"></div>
+      <p class="p-meta full">${ic("InformationOutline")} openai-codex doesn't tell the dashboard which account is signed in. If someone later signs pi in with a different account, this link follows it without warning.</p>
+      <div class="btn-row full"><button class="p-btn primary">${ic("LinkVariant")}Link login</button><button class="p-btn secondary">Cancel</button></div></div>`;
+}
+function enrolFields(o = {}) {
+  const p = nid("ep"), l = nid("el");
+  return `<div class="form-grid">
+      <div><label class="p-label" for="${p}">Provider</label><select id="${p}" class="p-input"><option>anthropic</option><option>openai-codex</option><option>github-copilot</option></select></div>
+      <div><label class="p-label" for="${l}">Label</label><input id="${l}" class="p-input" value="${o.label ?? "client-x"}" aria-describedby="${l}-h"><p id="${l}-h" class="p-meta" style="margin-top:4px">How you tell this account apart, for example work.</p></div>
+      <div class="btn-row full"><button class="p-btn primary">${ic("OpenInNew")}Continue to sign-in</button><button class="p-btn secondary">Cancel</button></div></div>`;
+}
+function enrolWaiting() {
+  return `<div class="inset stack-3" style="margin-top:8px" role="status" aria-live="polite" data-testid="vault-enrol-pending">
+    <div class="signin-wait"><span class="spin" aria-hidden="true">${ic("Refresh")}</span><div><strong style="font-size:14px">Waiting for you to sign in to Anthropic…</strong>
+      <div class="p-meta">Account "client-x". A sign-in page opened in a new tab. Finish there; this updates on its own.</div></div></div>
+    <div class="btn-row"><button class="p-btn sm secondary">${ic("OpenInNew")}Open the sign-in page again</button><button class="p-btn sm secondary">${ic("ContentCopy")}Copy link</button><button class="p-btn sm ghost">Cancel</button></div>
+    <p class="p-meta">Use the account you want stored as "client-x". To keep using your current login, cancel and link it instead.</p></div>`;
+}
+function enrolNoIdentity() {
+  const n = nid("ni"), r = nid("ni"), c = nid("ack");
+  return `<div class="callout warning" role="alertdialog" aria-labelledby="${n}-h" aria-describedby="${n}-d" style="margin-top:8px" data-testid="vault-enrol-warning">${ic("ShieldAlertOutline")}<div class="body">
+    <strong id="${n}-h">Is this a new account?</strong>
+    <p id="${n}-d" style="margin:4px 0">openai-codex doesn't tell the dashboard which account you signed in with, so it can't check for duplicates.</p>
+    <fieldset style="border:0;padding:0;margin:0"><legend class="sr-only">This sign-in is</legend>
+      <label class="chk" for="${n}"><input type="radio" name="${n}g" id="${n}" checked><span>A new account, labelled <strong>client-x</strong></span></label>
+      <label class="chk" for="${r}"><input type="radio" name="${n}g" id="${r}"><span>It replaces <strong>openai-codex / team</strong></span></label></fieldset>
+    <p style="margin:8px 0 4px"><strong>If this is the account pi is already signed in with here</strong> (linked as "personal"), two parties would renew the same login. OpenAI can then revoke it, and both pi and the vault get signed out.</p>
+    <label class="chk" for="${c}"><input type="checkbox" id="${c}" data-testid="vault-enrol-ack"><span>It's not the account pi uses here. I understand the risk.</span></label>
+    <div class="btn-row"><button class="p-btn sm secondary" data-initial-focus>Cancel</button><button class="p-btn sm primary" disabled aria-disabled="true">Save account</button></div>
+    <p class="p-meta">Your confirmation is recorded in the vault log.</p></div></div>`;
+}
+function enrolRefused() {
+  return `<div class="callout error" role="alert" style="margin-top:8px" data-testid="vault-enrol-refused">${ic("AlertCircleOutline")}<div class="body">
+    <strong>That's the account already linked as anthropic / personal.</strong> The sign-in was not saved: storing it twice would mean two renewals of one login, and Anthropic can revoke both.
+    <div class="btn-row"><button class="p-btn sm secondary">${ic("Login")}Sign in with a different account</button><button class="p-btn sm ghost">Close</button></div>
+    <p class="p-meta">To use "personal" in a project, grant <code>anthropic</code>. It already uses that account.</p></div></div>`;
+}
+function enrolReplaced() {
+  return `<div class="callout info" role="status" style="margin-top:8px">${ic("CheckCircleOutline")}<div class="body"><strong>Signed in again as anthropic / work.</strong> It's the same account, so its grants are unchanged. Sessions get a fresh token within seconds.</div></div>`;
+}
+
+/* ════════════ VARIABLES TAB ════════════ */
+const ENV = [{ name: "GEMINI_API_KEY", def: "gemini / personal", n: 2 }, { name: "OPENAI_API_KEY", def: "openai / work", n: 1 }];
+function envCollapsed() {
+  return `<div class="grp"><h4 class="sec-title">${ic("CogOutline")}Environment variables (${ENV.length})</h4>
+    <ul class="glist" style="margin-top:6px">${ENV.map((e) => `<li class="grow-row">${ic("CogOutline")}<div class="main"><div class="t"><code>${e.name}</code></div><div class="p-meta">Default ${e.def} · ${e.n} project${e.n === 1 ? "" : "s"}</div></div></li>`).join("")}</ul>
+    <p class="board-note" style="margin-top:6px"><strong>Board note:</strong> env cards are unchanged from the shipped page and are collapsed here so the board focuses on the new cards.</p></div>`;
+}
+function grantRow(g) {
+  const isRepo = g.kind === "repo";
+  return `<li class="grow-row" data-testid="vault-grant-row" data-status="${g.status ?? "delivering"}">${ic(isRepo ? "SourceRepository" : "FolderOutline")}
+    <div class="main"><div class="t">${esc(g.name)} ${g.pill ?? pill("success", "CheckCircleOutline", "Delivering")}</div>
+      <div class="s">${isRepo ? `Repository · ${esc(g.key)}` : `Folder on this dashboard (hub) · ${esc(g.key)}`}</div>
+      <div class="p-meta">${g.uses}</div>${g.extra ?? ""}</div>
+    ${g.noRemove ? "" : `<div class="acts"><button class="p-btn sm ghost" aria-label="Remove from ${esc(g.name)}">${ic("Close")}Remove</button></div>`}</li>`;
+}
+function llmCard(b, o = {}) {
+  const sel = nid("def");
+  const kindPill = pill("neutral", "Brain", "Model provider");
+  const clone = b.base ? `<span class="ident">second name for <code>${b.base}</code></span>` : "";
+  return `<article class="vcard" data-testid="vault-binding-${b.name}" data-target="llm" aria-label="${b.name} model provider">
+    <header><span class="vname">${b.name}</span>${kindPill}${clone}${b.headPill ?? ""}
+      <div class="acts"><button class="p-btn sm ghost" aria-label="Delete ${b.name}">${ic("TrashCanOutline")}Delete</button></div></header>
+    <div class="vbody">
+      ${b.banner ?? ""}
+      <div class="vfield"><span class="p-label">Delivery</span><div class="modeline">${modePill(b.delivery)}${b.mode === "pool" ? pill("neutral", "SwapHorizontal", "Pool of " + b.members.length) : ""}<button class="p-btn sm ghost">${ic("CogOutline")}Change</button></div>
+        <p class="p-meta">${DELIVERY[b.delivery].s}${DELIVERY[b.delivery].caveat ? ` ${DELIVERY[b.delivery].caveat}` : ""}</p></div>
+      ${b.mode === "pool" ? poolBlock(b, o) : `<div class="vfield"><label class="p-label" for="${sel}">Default account</label>
+        <select id="${sel}" class="p-input">${b.accOpts.map((x) => `<option ${x === b.def ? "selected" : ""}>${x}</option>`).join("")}</select>
+        <p class="p-meta">${b.defHelp ?? "Used by every project below that doesn't pick its own account."}</p></div>`}
+      <div><h4 class="sec-title">${ic("FolderOutline")}Projects (${b.grants.length})</h4>
+        ${b.grants.length ? `<ul class="glist" style="margin-top:6px">${b.grants.map(grantRow).join("")}</ul>` : `<p class="p-help" style="margin:6px 0 0">No project gets this provider yet.</p>`}
+        ${o.removeConfirm ?? `<button class="p-btn sm secondary" style="margin-top:8px">${ic("Plus")}Grant to a project</button>`}</div>
+    </div></article>`;
+}
+function poolBlock(b, o = {}) {
+  const sw = nid("fo");
+  const on = o.failover === "on";
+  return `<div class="vfield"><span class="p-label" id="${sw}-l">Accounts, in order</span>
+    <ol class="pool" aria-labelledby="${sw}-l">${b.members.map((m, i) => `<li><span class="n" aria-hidden="true">${i + 1}</span><span class="t">${m.label}</span>${i === 0 ? pill("info", "", "Primary") : ""}${m.state ?? ""}
+      <span class="acts"><button class="p-btn sm ghost icon" aria-label="Move ${m.label} up" ${i === 0 ? "disabled" : ""}>${ic("ArrowUp")}</button><button class="p-btn sm ghost icon" aria-label="Move ${m.label} down" ${i === b.members.length - 1 ? "disabled" : ""}>${ic("ArrowDown")}</button></span></li>`).join("")}</ol>
+    <p class="p-meta">Projects can't pick their own account in a pool; they all use this order.</p></div>
+    <div class="vfield"><span class="p-label">Failover</span>
+      <div><label class="switch" for="${sw}"><input type="checkbox" role="switch" class="sw-input" id="${sw}" ${on ? "checked" : ""} data-testid="vault-pool-failover"><span class="track" aria-hidden="true"></span>${on ? "On" : "Off"}</label>
+      <p class="p-meta">${on ? "When the account in use is rate-limited before it answers, the request moves to the next account. Turned on 09:02 by robson; the provider-terms notice was accepted."
+        : "Off: only <strong>work</strong> (the primary) is used. Turn on to move a rate-limited request to the next account."}</p>
+      ${o.ack ?? ""}${o.lastFailover ?? ""}</div></div>`;
+}
+const ANTHROPIC = { name: "anthropic", delivery: "lease", mode: "single", def: "anthropic / personal (linked)", accOpts: ["anthropic / personal (linked)", "anthropic / work"],
+  grants: [{ kind: "repo", name: "pi-agent-dashboard", key: REPO_DASH, uses: "Uses variable default (anthropic / personal)" },
+    { kind: "repo", name: "deck3d", key: REPO_DECK, uses: "Uses anthropic / work (chosen for this project)" }] };
+const ANTHROPIC_WORK = { name: "anthropic-work", base: "anthropic", delivery: "proxy", mode: "single", def: "anthropic / work", accOpts: ["anthropic / personal (linked)", "anthropic / work"],
+  grants: [{ kind: "dir", name: "video-feliratozas", key: DIR_VIDEO, uses: "Uses variable default (anthropic / work)" }] };
+const GOOGLE = { name: "google", delivery: "key", mode: "single", def: "gemini / personal", accOpts: ["gemini / personal"], defHelp: "Same key as <code>GEMINI_API_KEY</code>. Rotating it updates both.",
+  grants: [{ kind: "repo", name: "pi-agent-dashboard", key: REPO_DASH, uses: "Uses variable default (gemini / personal)" }] };
+const POOL = { name: "anthropic-pool", base: "anthropic", delivery: "proxy", mode: "pool", members: [{ label: "work" }, { label: "personal" }],
+  grants: [{ kind: "repo", name: "deck3d", key: REPO_DECK, uses: "Uses the pool: work first" }] };
+
+function llmGroup(cards, o = {}) {
+  return `<div class="grp"><div class="toolbar-row"><h4 class="sec-title">${ic("Brain")}Model providers (${cards.length})</h4>
+      <button class="p-btn sm secondary" aria-expanded="${!!o.form}">${ic("Plus")}New model provider</button></div>
+    <p class="p-help" style="margin:4px 0 0">Which account pi uses for a provider in a project. A session that has its own login for a provider keeps it.</p>
+    ${o.form ?? ""}<div class="stack-3" style="margin-top:8px" data-testid="vault-grants-list">${cards.join("")}</div></div>`;
+}
+const varsTab = (llm, o = {}) => page("variables", `${o.top ?? ""}${o.hideEnv ? "" : envCollapsed()}${llm}`);
+
+/* new model provider form */
+function deliveryOpts(o) {
+  const g = nid("dl");
+  const opt = (d, extra = {}) => {
+    const id = nid("do"); const off = !!extra.off;
+    return `<label class="opt" for="${id}" ${off ? 'aria-disabled="true"' : ""}><input type="radio" name="${g}" id="${id}" ${extra.checked ? "checked" : ""} ${off ? "disabled" : ""} ${off ? `aria-describedby="${id}-w"` : ""}>
+      <div class="main"><div class="t">${ic(DELIVERY[d].icon)}${DELIVERY[d].label}${extra.badge ?? ""}</div><div class="why">${DELIVERY[d].s}</div>
+      ${DELIVERY[d].caveat && !off ? `<div class="why">${DELIVERY[d].caveat}</div>` : ""}${off ? `<div class="why" id="${id}-w">${ic("LockOutline")} ${extra.off}</div>` : ""}</div></label>`;
+  };
+  return `<fieldset style="border:0;padding:0;margin:0" class="full"><legend class="p-label">How sessions use it</legend>${o.opts.map(([d, e]) => opt(d, e)).join("")}${o.after ?? ""}</fieldset>`;
+}
+function newLlmForm(o = {}) {
+  const p = nid("np"), n = nid("nn"), a = nid("na"), m = nid("nm"), cl = nid("cl");
+  return `<form class="inset stack-3" onsubmit="return false" style="margin-top:8px" data-testid="vault-llm-form"><div class="form-grid">
+    <div><label class="p-label" for="${p}">Provider</label><select id="${p}" class="p-input"><option ${o.provider === "anthropic" ? "selected" : ""}>anthropic</option><option ${o.provider === "openai-codex" ? "selected" : ""}>openai-codex</option><option>google</option><option>openai</option></select></div>
+    <div><label class="p-label" for="${a}">Account</label><select id="${a}" class="p-input">${(o.accounts ?? ["anthropic / work"]).map((x) => `<option>${x}</option>`).join("")}</select></div>
+    <label class="chk full" for="${cl}"><input type="checkbox" id="${cl}" ${o.clone ? "checked" : ""}><span>Give it a second name, so this account works next to another <code>${o.provider ?? "anthropic"}</code> account</span></label>
+    ${o.clone ? `<div class="full"><label class="p-label" for="${n}">Name sessions see</label><input id="${n}" class="p-input mono" value="${o.cloneName ?? "anthropic-work"}" ${o.cloneErr ? `aria-invalid="true" aria-describedby="${n}-e"` : `aria-describedby="${n}-h"`}>
+      ${o.cloneErr ? `<p id="${n}-e" class="p-meta sev-fg-error" role="alert" style="margin-top:4px">${ic("AlertCircleOutline")} <code>${o.cloneName}</code> is an existing provider, so the name would hide it. Use something like <code>anthropic-work</code>.</p>`
+        : `<p id="${n}-h" class="p-meta" style="margin-top:4px">Lowercase letters, digits and dashes. Models appear in pi as <code>anthropic-work/claude-sonnet-4-5</code>.</p>`}</div>` : ""}
+    ${deliveryOpts(o)}
+    ${o.pool ? `<label class="chk full" for="${m}"><input type="checkbox" id="${m}" checked><span>Use several accounts in order (a pool). Only available through this dashboard.</span></label>` : ""}
+    <div class="btn-row full"><button class="p-btn primary" ${o.cloneErr ? "disabled" : ""}>${ic("Plus")}Create</button><button class="p-btn secondary">Cancel</button></div></div></form>`;
+}
+
+/* ════════════ SESSION CHIP DIALOG ════════════ */
+const ST = {
+  delivered: ["success", "CheckCircleOutline", "Delivered"],
+  "local-override": ["neutral", "InformationOutline", "Local login kept"],
+  expired: ["warning", "TimerSand", "Token expired"],
+  "no-account": ["error", "AlertCircleOutline", "No account"],
+  "name-conflict": ["error", "AlertCircleOutline", "Name taken"],
+};
+function chip(env, llm, o = {}) {
+  const row = ([n, s, mode, d]) => `<div class="srow" data-testid="vault-binding-row" data-state="${s}" ${mode ? `data-delivery="${mode}"` : ""}><code>${n}</code>${pill(ST[s][0], ST[s][1], ST[s][2], 'data-testid="vault-binding-state"')}${mode ? `<span class="mode">${ic(DELIVERY[mode].icon)} ${DELIVERY[mode].label}</span>` : ""}<span class="d">${d}</span></div>`;
+  return `<div class="stack-3"><div class="s-hdr"><span>pi-agent-dashboard</span><span aria-hidden="true">·</span>
+    <button class="vchip ${o.warn ? "pending" : ""}" aria-haspopup="dialog" data-testid="vault-chip">${ic(o.warn ? "CloudOffOutline" : "ShieldKeyOutline")}${o.warn ? "Vault: offline" : `Vault · ${env.length + llm.length}`}</button></div>
+    <div class="dlg-wrap"><div class="dlg" role="dialog" aria-labelledby="dlg-${o.k}" data-testid="vault-bindings-dialog"><header><h3 id="dlg-${o.k}">Vault for this session</h3><button class="p-btn sm ghost icon" aria-label="Close">${ic("Close")}</button></header>
+    <div class="bd"><p class="proj">Project <code>${REPO_DASH}</code><br>Checkout <code>/Users/robson/Project/pi-agent-dashboard</code> on this dashboard (hub)</p>
+      ${o.banner ?? ""}
+      <div><h4 class="sec-title">${ic("CogOutline")}Environment variables</h4>${env.map(row).join("")}</div>
+      <div><h4 class="sec-title">${ic("Brain")}Model providers</h4>${llm.map(row).join("")}</div>
+    </div><footer><span class="p-meta">${o.contact ?? "Last vault contact 09:14:02"}</span><a class="p-linkc" href="#">Manage in Settings → Vault ${ic("ArrowRight")}</a></footer></div></div></div>`;
+}
+
+/* ════════════ board model: [id, title, mockup, notes[], spec] ════════════ */
+const N = (rule, cite) => `<li>${rule} <cite>${cite}</cite></li>`;
+const BOARD = [
+  { title: "Accounts tab: Sign-in accounts", verdict: "new section in the shipped Accounts tab (retro-ux D10 slot) · F1, F5", states: [
+    ["signin-list", "One row per sign-in, same recipe as key rows", accountsTab(), [
+      N("Accounts is the first and default tab: users start from \"which logins and keys do I have\", then decide who gets them (U10, user decision 2026-10-18).", "Serial position effect, lawsofux.com/serial-position-effect"),
+      N("Reuses the key-row recipe (label, provider pill, usage line, row actions), so nothing new to learn.", "Jakob's Law, lawsofux.com/jakobs-law; retro-ux D10"),
+      N("Backend shown as text pill (Linked pi login vs Stored in vault) plus icon, not colour alone.", "WCAG 1.4.1 Use of Color"),
+      N("Status names expiry and last refresh outcome only; no token, no fingerprint.", "spec: Token material never leaves the hub"),
+      N("needs-reauth puts the fix on the row (Sign in again) rather than in a log.", "Nielsen #9 Help users recover from errors"),
+      N("Identity is masked (ro•••@…) to tell accounts apart without exposing the address on a shared screen.", "Nielsen #2 Match the real world"),
+    ], "vault-llm-credentials: OAuth accounts; Single refresher (needs-reauth)"],
+    ["signin-add", "Add: one choice between link and sign in", accountsTab({ add: addChoice("link") }), [
+      N("Two choices, each with the consequence in one sentence; link is pre-selected because it adds no refresher.", "Hick's Law, lawsofux.com/hicks-law; Nielsen #5 Error prevention"),
+      N("Already-linked logins are listed as such so they can't be picked twice.", "Nielsen #5 Error prevention"),
+      N("No-identity providers get the risk stated at link time.", "design D2 'the UI states the risk'"),
+      N("Wording: 'Link this dashboard's pi login', not 'backend: link'.", "Nielsen #2 Match the real world; GOV.UK content design, plain English"),
+    ], "F1 (Link existing login → backend link, no sk-ant in responses)"],
+    ["enrol-form", "Sign in to another account: provider + label, then the provider's page", accountsTab({ add: addChoice("enrol") }), [
+      N("Label is asked before the sign-in so the result is named on return.", "Nielsen #6 Recognition rather than recall"),
+      N("'Continue to sign-in' with the external-link icon says that a new page opens.", "WCAG 3.2.5 Change on Request (AAA, advisory); GOV.UK links guidance"),
+    ], "vault-llm-credentials: Additional OAuth account enrolment"],
+    ["enrol-waiting", "Waiting for the external sign-in", accountsTab({ add: enrolWaiting() }), [
+      N("A live status region and a spinner with text; it keeps working without a click.", "Nielsen #1 Visibility of system status; WCAG 4.1.3 Status Messages"),
+      N("Reopen / copy link / cancel cover a blocked pop-up or a different browser.", "Nielsen #3 User control and freedom"),
+      N("Spinner honours prefers-reduced-motion (shipped .spin rule).", "WCAG 2.3.3 Animation from Interactions"),
+    ], "design D7 Flow"],
+    ["enrol-no-identity", "F5: no identity, so the user has to decide and confirm", accountsTab({ add: enrolNoIdentity() }), [
+      N("alertdialog with Cancel focused; Save stays disabled until the risk box is ticked. Cancel leaves the list unchanged.", "WAI-ARIA APG Alert Dialog; Nielsen #5 Error prevention"),
+      N("Asks the real question (new vs replaces) as radios, then the warning in outcome language ('both get signed out').", "GOV.UK Warning text pattern"),
+      N("States that the confirmation is logged.", "spec: confirmation recorded in the vault event log"),
+    ], "F5; spec: No identity requires a confirmed warning"],
+    ["enrol-refused", "Identity equals the linked login: refused", accountsTab({ add: enrolRefused() }), [
+      N("Error says what happened, why, and gives the next step (another account, or grant anthropic).", "Nielsen #9; WCAG 3.3.3 Error Suggestion"),
+    ], "spec: Enrolling the linked account is refused"],
+    ["enrol-replaced", "Same identity as an existing vault account: tokens replaced", accountsTab({ add: enrolReplaced() }), [
+      N("Confirms the outcome and that grants are unchanged, so the user needn't recheck projects.", "Nielsen #1 Visibility of system status"),
+    ], "spec: Re-enrolling the same identity"],
+    ["identity-changed", "Link now points at a different upstream account", accountsTab({ identityChanged: true }), [
+      N("Inline on the affected row, warning pill + callout; delivery is paused until the user decides.", "Nielsen #1; spec 'delivers nothing until the user confirms'"),
+      N("Both outcomes offered as buttons with verbs; no ambiguous OK.", "GOV.UK button guidance (verb-led labels)"),
+    ], "design D2 Re-login behind a link (identity-changed)"],
+    ["unlink-confirm", "Unlink: impact list, lease caveat, auth.json untouched", accountsTab({ unlinking: true }), [
+      N("Two-step destructive action with the impact listed before commit; Cancel first and focused.", "shipped ConfirmImpact; Nielsen #5"),
+      N("States that a token already handed out works until expiry (with the real number).", "spec: OAuth lease delivery, the Settings UI SHALL state this"),
+      N("Reassures that the pi login is not touched, which is the most likely fear.", "Nielsen #2; spec Unlinking leaves auth.json untouched"),
+    ], "spec: Unlinking leaves auth.json untouched"],
+  ]},
+  { title: "Variables tab: Model provider cards", verdict: "new group under the shipped env cards · F2, F3", states: [
+    ["llm-populated", "Single cards: lease, proxy via a second name, key shared with an env variable", varsTab(llmGroup([llmCard(ANTHROPIC), llmCard(ANTHROPIC_WORK), llmCard(GOOGLE)])), [
+      N("Same card as env variables (default account, project rows, grant). Only the delivery line is new.", "Jakob's Law; Gestalt similarity (lawsofux.com/law-of-similarity)"),
+      N("Separate 'Model providers' group with its own heading, so <code>anthropic</code> isn't mistaken for an env variable.", "Gestalt common region, lawsofux.com/law-of-common-region"),
+      N("Delivery uses plain labels (Short-lived token / Through this dashboard / API key); the spec term is in the tooltip and data-delivery.", "Nielsen #2 Match the real world"),
+      N("Lease caveat is visible on the card, not hidden in help.", "spec: Settings UI SHALL state this for lease bindings"),
+      N("Clone shown as 'second name for anthropic'.", "Nielsen #2"),
+    ], "spec: LLM bindings; Clone provider bound to a second account; One account backs an env and an LLM binding"],
+    ["llm-new", "New model provider: anthropic, second name, delivery choice", varsTab(llmGroup([llmCard(ANTHROPIC)], { form: newLlmForm({ provider: "anthropic", clone: true, opts: [["lease", { checked: true, badge: pill("info", "", "Recommended") }], ["proxy", {}]], pool: true }) }), { hideEnv: true }), [
+      N("Only valid deliveries for the chosen account are offered; the rule is applied in the form, not after submit.", "Nielsen #5 Error prevention"),
+      N("Each option states its trade-off (revocation delay vs extra hop), so the choice is informed.", "NN/g 'Progressive disclosure'; Nielsen #10 Help"),
+      N("Pool is an opt-in checkbox that only appears when proxy is allowed.", "spec: Pools are proxy-only and opt-in"),
+    ], "spec: LLM bindings (Delivery)"],
+    ["llm-new-codex", "F3: openai-codex OAuth, lease unavailable with reason, proxy not offered", varsTab(llmGroup([llmCard(ANTHROPIC)], { form: newLlmForm({ provider: "openai-codex", accounts: ["openai-codex / team"], opts: [["lease", { off: "Not available for openai-codex yet: its sign-in token hasn't been verified to work outside this dashboard." }]], after: `<p class="p-meta" style="margin-top:6px">${ic("InformationOutline")} "Through this dashboard" isn't offered: openai-codex uses an API the dashboard can't forward. Sessions can still use openai-codex with a login of their own.</p>` }) }), { hideEnv: true }), [
+      N("The unavailable option is shown disabled with its reason instead of silently missing, so the user knows the limit is real.", "Nielsen #1, #9; WCAG 3.3.1 Error Identification"),
+      N("The reason for the absent option is one note, so the proxy control itself is not offered (F3).", "test-plan F3"),
+      N("Create is disabled while no delivery is valid.", "Nielsen #5"),
+    ], "F3; spec: Lease limited to supported providers"],
+    ["llm-clone-error", "Second name that hides a real provider", varsTab(llmGroup([], { form: newLlmForm({ provider: "anthropic", clone: true, cloneName: "openai", cloneErr: true, opts: [["lease", { checked: true }], ["proxy", {}]] }) }), { hideEnv: true, counts: { v: 2, a: 5 } }), [
+      N("Inline error next to the field with a corrected example; aria-invalid + aria-describedby.", "WCAG 3.3.1, 3.3.3; GOV.UK error message pattern"),
+    ], "spec: Clone name may not shadow a real provider"],
+    ["pool-off", "Pool, failover off (default)", varsTab(llmGroup([llmCard(POOL)]), { hideEnv: true }), [
+      N("Order changes with up/down buttons, not drag only.", "WCAG 2.5.7 Dragging Movements; 2.1.1 Keyboard"),
+      N("Off state says what happens now: only the primary is used.", "Nielsen #1; spec: New pool defaults to failover disabled"),
+      N("Switch is a checkbox role=switch with a visible On/Off label (shipped ApprovalSwitch recipe).", "WAI-ARIA APG Switch; WCAG 1.4.1"),
+      N("No per-project account override in a pool; the reason is stated in place of the select.", "spec: Pool bindings take no override"),
+    ], "spec: Pools are proxy-only and opt-in"],
+    ["pool-failover-ack", "F2: turning failover on asks for the provider-terms acknowledgement", varsTab(llmGroup([llmCard(POOL, { ack: failoverAck() })]), { hideEnv: true }), [
+      N("Switch stays off until 'Turn on failover' is pressed; Cancel (focused) leaves it off.", "WAI-ARIA APG Alert Dialog; test-plan F2"),
+      N("Notice says the real risk (account suspension under provider terms) and that the user decides.", "GOV.UK Warning text; Nielsen #5"),
+      N("States the 'before first byte' limit in user terms: no retry once an answer has started.", "spec: No retry after streaming started"),
+    ], "F2; design D5 Default"],
+    ["pool-failover-on", "Failover on: cooling account and last failover visible", varsTab(llmGroup([llmCard({ ...POOL, members: [{ label: "work", state: pill("warning", "TimerSand", "Rate-limited · back in 42 s") }, { label: "personal", state: pill("success", "CheckCircleOutline", "In use") }] }, { failover: "on", lastFailover: `<p class="p-meta" role="status">${ic("SwapHorizontal")} Last failover 09:13: work → personal (rate-limited).</p>` })]), { hideEnv: true }), [
+      N("Cooling time and the last failover event are visible, so a sudden account switch is explained.", "Nielsen #1; spec: LLM binding state is observable"),
+      N("Who turned it on and when is recorded next to the control.", "spec: explicit user action that acknowledges the notice"),
+    ], "spec: Pool failover in proxy mode"],
+    ["llm-problems", "States that deliver nothing: name taken after a pi update, account needs sign-in", varsTab(llmGroup([
+      llmCard({ ...ANTHROPIC_WORK, name: "anthropic-eu", headPill: pill("error", "AlertCircleOutline", "Name taken"), banner: `<div class="callout error" role="alert">${ic("AlertCircleOutline")}<div class="body"><strong>pi now has a provider called <code>anthropic-eu</code>.</strong> This second name delivers nothing so the two don't clash. Rename it to keep using it.<div class="btn-row"><button class="p-btn sm secondary">${ic("CogOutline")}Rename</button></div></div></div>`, grants: [{ kind: "dir", name: "video-feliratozas", key: DIR_VIDEO, uses: "Uses variable default (anthropic / work)", status: "name-conflict", pill: pill("error", "AlertCircleOutline", "Delivers nothing: name taken") }] }),
+      llmCard({ name: "openai-codex", delivery: "key", mode: "single", def: "openai-codex / team", accOpts: ["openai-codex / team"], defHelp: "", headPill: pill("error", "AlertCircleOutline", "Account needs sign-in"),
+        banner: `<div class="callout error" role="alert">${ic("AlertCircleOutline")}<div class="body"><strong>openai-codex / team needs a new sign-in.</strong> Its projects get nothing until then.<div class="btn-row"><button class="p-btn sm primary">${ic("Login")}Sign in again</button></div></div></div>`,
+        grants: [{ kind: "repo", name: "compsychletter", key: "github.com/robson/compsychletter", uses: "Uses variable default (openai-codex / team)", status: "no-account", pill: pill("error", "AlertCircleOutline", "Delivers nothing: account needs sign-in") }] }),
+    ]), { hideEnv: true }), [
+      N("The problem and its fix sit on the card that's affected, and each project row says it delivers nothing.", "Nielsen #9; shipped GrantStatusPill"),
+      N("Error tone + icon + text, never colour alone.", "WCAG 1.4.1"),
+    ], "spec: name-conflict; needs-reauth"],
+    ["remove-lease-grant", "Removing a lease project states the leftover token", varsTab(llmGroup([llmCard(ANTHROPIC, { removeConfirm: `<div class="callout warning" role="alertdialog" aria-labelledby="rl-h" style="margin-top:8px" data-testid="vault-confirm-impact">${ic("AlertOutline")}<div class="body"><strong id="rl-h">Remove anthropic from deck3d?</strong>
+      <ul class="impact"><li>Its 2 sessions stop renewing within seconds.</li><li>The token they already have keeps working until it expires, at most 41 min from now. Use "Through this dashboard" when access must end at once.</li></ul>
+      <div class="btn-row"><button class="p-btn sm secondary" data-initial-focus>Cancel</button><button class="p-btn sm danger">${ic("Close")}Remove</button></div></div></div>` })]), { hideEnv: true }), [
+      N("Honest about the revocation delay at the moment it matters, with the remedy (proxy).", "Nielsen #10; spec 'the Settings UI SHALL state this'"),
+    ], "spec: OAuth lease delivery (withdrawal)"],
+  ]},
+  { title: "Session view: Vault chip dialog (task 7.7)", verdict: "extends the shipped chip dialog · F4", states: [
+    ["session-llm", "Delivery mode, lease expiry, proxy last use, local login kept", chip(
+      [["GEMINI_API_KEY", "delivered", null, "Set in this session's environment."]],
+      [["anthropic", "local-override", null, "This machine has its own anthropic login, so the vault left it alone."],
+       ["anthropic-work", "delivered", "lease", "Token renews on its own · expires in 41 min."],
+       ["anthropic-pool", "delivered", "proxy", "Last request 2 min ago."],
+       ["google", "delivered", "key", "Same key as GEMINI_API_KEY."]], { k: "a" }), [
+      N("Rows grouped Environment / Model providers, matching the Settings page.", "Gestalt common region; Jakob's Law"),
+      N("Mode shown as icon + label; time values are relative ('expires in 41 min').", "Nielsen #1; spec: per-session binding view"),
+      N("Local login kept is neutral, not an error: it's the intended precedence.", "spec: Local LLM credentials take precedence"),
+    ], "F4 (7.7); spec: LLM binding state is observable"],
+    ["session-offline", "Hub unreachable: lease expired, notice shown", chip(
+      [["GEMINI_API_KEY", "delivered", null, "Kept while the vault is offline, for up to 24 hours."]],
+      [["anthropic-work", "expired", "lease", "Expired 09:14. pi falls back to its own sources for anthropic-work, which has none here."],
+       ["anthropic-pool", "delivered", "proxy", "Requests fail until this dashboard is reachable again."]],
+      { k: "b", warn: true, contact: "Last vault contact 08:58:40", banner: `<div class="callout warning" role="status">${ic("CloudOffOutline")}<div class="body"><strong>The vault is unreachable.</strong> anthropic-work stopped at 09:14 when its token expired. It resumes on its own when the connection is back.</div></div>` }), [
+      N("The chip itself changes (icon + 'Vault: offline'), so the problem shows without opening the dialog.", "Nielsen #1; WCAG 4.1.3"),
+      N("Each row says what the session does now, not just the state.", "Nielsen #9"),
+      N("No token material in any message.", "spec: Errors SHALL contain no token material"),
+    ], "spec: Outage, reload and disable"],
+  ]},
+];
+function failoverAck() {
+  const c = nid("fa");
+  return `<div class="callout warning" role="alertdialog" aria-labelledby="${c}-h" aria-describedby="${c}-d" style="margin-top:6px" data-testid="vault-failover-notice">${ic("ShieldAlertOutline")}<div class="body">
+    <strong id="${c}-h">Turn on failover for anthropic-pool?</strong>
+    <p id="${c}-d" style="margin:4px 0">Switching between subscription accounts when one hits its limit may break the provider's terms, and the provider may suspend those accounts. Check Anthropic's terms for your plans. You decide whether this is allowed for you.</p>
+    <ul class="impact"><li>A request moves to the next account only if the limit is hit before any answer arrives. Once an answer has started, an error is passed on and nothing is retried.</li><li>A rate-limited account is skipped for the time the provider asks (60 s if it doesn't say).</li></ul>
+    <div class="btn-row"><button class="p-btn sm secondary" data-initial-focus>Cancel</button><button class="p-btn sm primary">${ic("Check")}I accept, turn on failover</button></div></div></div>`;
+}
+
+document.getElementById("board").innerHTML = BOARD.map((s) => `<section class="surface"><h2>${s.title}</h2><p class="verdict">${s.verdict}</p>
+  ${s.states.map(([id, finds, mock, notes, spec]) => `<article class="state" id="${id}"><header><code>${id}</code><span class="finds">${finds}</span></header>
+    <div class="pair notes-pair"><div class="col proposed"><p class="tag">Proposed</p><div class="frame">${mock}</div></div>
+    <div class="col asbuilt notes"><h4>Why (cited rule)</h4><ul>${notes.join("")}</ul><p class="spec"><strong>Covers:</strong> ${spec}</p></div></div></article>`).join("")}
+</section>`).join("");
+
+/* ── toolbar ─────────────────────────────────────────────── */
+const html = document.documentElement;
+function apply(group, v) {
+  if (group === "theme") {
+    const [pal, mode] = v.split("-");
+    mode === "light" ? html.setAttribute("data-theme", "light") : html.removeAttribute("data-theme");
+    pal === "nord" ? html.setAttribute("data-palette", "nord") : html.removeAttribute("data-palette");
+  }
+  if (group === "width") document.body.style.setProperty("--frame-w", v === "1440" ? "100%" : `${v}px`);
+  if (group === "view") document.body.dataset.view = v;
+}
+document.querySelectorAll(".seg").forEach((seg) => seg.addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  seg.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+  apply(seg.dataset.group, b.dataset.v);
+}));
+const params = new URLSearchParams(location.search);
+for (const g of ["theme", "width", "view"]) if (params.get(g)) document.querySelector(`.seg[data-group="${g}"] button[data-v="${params.get(g)}"]`)?.click();
+</script>
+</body>
+</html>

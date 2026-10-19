@@ -4,9 +4,10 @@
  * The companion of `DialogPortal` for non-modal floating UI. Plugins render
  * `<Popover anchorEl={btnRef.current} onDismiss={...}>...</Popover>` inline
  * from their own component; the popover positions itself relative to
- * `anchorEl`'s viewport rect, lives in a body-mounted portal so it
- * escapes parent overflow/transform contexts, and dismisses on outside
- * click or Esc.
+ * `anchorEl`'s viewport rect, lives in a `LayerPortal` (body, or the
+ * enclosing dialog's layer host) so it escapes parent overflow/transform
+ * contexts, paints at `var(--z-popover)`, and dismisses on outside click or
+ * Esc.
  *
  * NOT a modal. NOT a scroll-lock. NOT a tooltip. Strictly a click-anchored
  * floating panel.
@@ -26,7 +27,7 @@
  * See change: add-ui-popover-primitive.
  */
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { createPortal } from "react-dom";
+import { LayerPortal } from "./LayerPortal.js";
 
 export interface PopoverProps {
   /** DOM element the popover is anchored to. Required. */
@@ -130,24 +131,25 @@ export function Popover({ anchorEl, onDismiss, children, offset = 6 }: PopoverPr
     };
   }, [anchorEl, onDismiss]);
 
-  return createPortal(
-    <div
-      ref={popoverRef}
-      role="dialog"
-      data-testid="ui-popover"
-      data-placement={position?.placement ?? "below"}
-      style={{
-        position: "fixed",
-        top: position?.top ?? -9999,
-        left: position?.left ?? -9999,
-        zIndex: 1000,
-        // Until the first layout effect runs we render off-screen so the
-        // measurement happens without flicker.
-        visibility: position ? "visible" : "hidden",
-      }}
-    >
-      {children}
-    </div>,
-    document.body,
+  return (
+    <LayerPortal>
+      <div
+        ref={popoverRef}
+        role="dialog"
+        data-testid="ui-popover"
+        data-placement={position?.placement ?? "below"}
+        style={{
+          position: "fixed",
+          top: position?.top ?? -9999,
+          left: position?.left ?? -9999,
+          zIndex: "var(--z-popover)",
+          // Until the first layout effect runs we render off-screen so the
+          // measurement happens without flicker.
+          visibility: position ? "visible" : "hidden",
+        }}
+      >
+        {children}
+      </div>
+    </LayerPortal>
   );
 }

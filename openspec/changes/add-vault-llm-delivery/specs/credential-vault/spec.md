@@ -56,3 +56,41 @@ Grants SHALL be documented as least-privilege scoping, not as an authentication 
 #### Scenario: OAuth account delivered through an LLM binding only
 - **WHEN** a project's grants include env binding `ANTHROPIC_OAUTH_TOKEN` whose default is an `oauth` account, and LLM binding `anthropic-work` with delivery `lease` whose default is the same account
 - **THEN** `ANTHROPIC_OAUTH_TOKEN` delivers nothing, and `anthropic-work` is delivered as a lease
+
+### Requirement: Vault page is organised by variable
+The Settings vault page SHALL offer three tabs in this order: Accounts, Variables and Import. Accounts SHALL be the tab selected when the page opens. The Variables tab SHALL show one card per env binding containing:
+- its default account, editable;
+- every project granted that binding, each with its subject (repository key, or folder and device, or the subject text for another subject kind), the account it uses, and a status shown as text with an icon, never by colour alone;
+- for a repository grant, the confirmed checkouts it unlocks, each with a revoke action;
+- an action to grant the binding to another project;
+- the plugin declarations of that binding name, each with an approval switch.
+
+`llm` bindings SHALL be shown as cards of the same form in a separate "Model providers" group of the Variables tab. Each such card SHALL also show the binding's delivery mode as text, the base provider of a clone, and, for a pool, its ordered accounts and failover state instead of a default account.
+
+A grant whose account is missing SHALL show "No account: delivers nothing" with an action to choose an account. A binding with no default SHALL be marked as needing an account. A plugin declaration naming a binding that does not exist SHALL be shown with an action to create that binding. Confirmed checkouts that match no grant SHALL still be listed with a revoke action. The Accounts tab SHALL show, for each account, what uses it (bindings it is the default of, and the number of projects that chose it).
+
+#### Scenario: Accounts tab opens first
+- **WHEN** the user opens Settings → Vault and the vault holds accounts and bindings
+- **THEN** the tabs are listed as Accounts, Variables, Import, and the Accounts tab is selected
+
+#### Scenario: One card answers who gets a key
+- **WHEN** `GEMINI_API_KEY` is granted to repository `github.com/acme/app` (one confirmed checkout) and to folder `/work/scratch` on the hub with account "work"
+- **THEN** the `GEMINI_API_KEY` card lists both projects with their subject kind and the account each uses
+- **AND** the repository row lists its confirmed checkout with a revoke action
+
+#### Scenario: Model provider card shows its delivery
+- **WHEN** LLM binding `anthropic-work` is a clone of `anthropic` with delivery `lease`
+- **THEN** its card is in the "Model providers" group, names its base `anthropic`, and states its delivery mode in text, with the note that an issued token stays valid until it expires
+
+#### Scenario: Status is not carried by colour alone
+- **WHEN** a grant's override account was revoked
+- **THEN** its row shows the text "No account: delivers nothing" with an icon
+- **AND** it offers an action to choose an account
+
+#### Scenario: Unconfirmed repository grant is visible
+- **WHEN** a repository grant has no confirmed checkout
+- **THEN** its row shows that it is waiting for a checkout confirmation and says the confirmation is made from a session's Vault chip
+
+#### Scenario: Plugin asks for a missing variable
+- **WHEN** an installed plugin declares `POLY_PIZZA_KEY` and no such binding exists
+- **THEN** the Variables tab shows the plugin's request with an action that creates the binding

@@ -25,7 +25,11 @@ anchor-file sha256 + copy date establish traceability.
 - `markdown_table_profiler/profile.py` (PEP 723 inline): none
 - Ingest engine: `docling` (+ OCR engines), installed via pip in the Dockerfile
 - System tooling: `pandoc`, Gotenberg, `@mermaid-js/mermaid-cli` (mmdc),
-  chrome-headless-shell, `@the-focus-ai/nano-banana`
+  `@the-focus-ai/nano-banana`
+- Headless browser, arch-selected in the Dockerfile (verified 2026-10-17; 12.x dropped `-w`/`-s` that the vendored renderer passes, so stay on 11.x; base
+  `python:3.12-slim-trixie`, `@mermaid-js/mermaid-cli@11.17.0`):
+  - amd64: `chrome-headless-shell@155.0.8059.84` (Chrome for Testing, pinned build id)
+  - arm64: Debian trixie `chromium` 155.0.8059.79 (Chrome major 155 on both arches)
 
 ## Excluded from vendoring
 
@@ -38,3 +42,11 @@ anchor-file sha256 + copy date establish traceability.
 reads one JSON request on stdin, dispatches to the vendored modules + docling,
 writes one JSON response on stdout, and maps failures to non-zero exit codes.
 See `engine/engine_cli.py` for the contract.
+
+## Verification record (fix-doc-engine-arm64-chromium, 2026-10-17)
+
+- `python:3.12-slim` resolves to Debian trixie on amd64 and arm64 → base pinned `-trixie`.
+- arm64: `apt-cache policy chromium` candidate `155.0.8059.79-1~deb13u1` (main).
+- amd64 pin: `chrome-headless-shell@155.0.8059.84` (CfT Stable at verification time).
+- `@mermaid-js/mermaid-cli` 12.0.0 rejects `-w`/`-s` (vendored renderer passes them) → pinned 11.17.0.
+- arm64 image built natively, smoke render green; `renderDocx` of a mermaid doc yields `word/media/*.png`.

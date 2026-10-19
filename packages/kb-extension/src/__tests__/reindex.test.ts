@@ -2,10 +2,10 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { indexSource } from "@blackbelt-technology/pi-dashboard-kb";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import {acknowledgeRows, closeKb,
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import {acknowledgeRows, awaitFreshness, closeKb,
   closeKbForCwd, 
-  createReindexState, decideNudge, ensurePopulated,getKb, nudgeText, reindexNow, scheduleReindex,
+  createReindexState, decideNudge, ensurePopulated,getKb, nudgeText, reindexNow, resolveFreshnessBudgetMs, scheduleReindex,
 } from "../reindex.js";
 
 // Passthrough mock so X4 can make `indexSource` throw SQLITE_BUSY exactly once
@@ -36,7 +36,7 @@ describe("reindex Job 1: edit .md → index reflects change", () => {
   it("reindexNow picks up an edited file without manual kb index", async () => {
     const state = createReindexState();
     await reindexNow(state, dir); // cold index
-    const { store } = getKb(state, dir);
+    const { store } = getKb(state, dir)!;
     expect(store.search("initial content padded", { limit: 3 }).length).toBeGreaterThan(0);
 
     // edit the file
@@ -123,6 +123,8 @@ describe("cwd removal: kb store does not resurrect the directory (husk regressio
     const state = createReindexState();
     await reindexNow(state, a);
     await reindexNow(state, b);
+    getKb(state, a); // the cold pass builds through the first-index path; opening is lazy
+    getKb(state, b);
     expect(state.kb.has(a)).toBe(true);
     expect(state.kb.has(b)).toBe(true);
 
@@ -145,7 +147,7 @@ describe("cold-start populate: ensurePopulated (kb_neighbors / kb_get)", () => {
     const dir = setupProject();
     const state = createReindexState();
     await ensurePopulated(state, dir); // cold KB — never indexed before
-    const { store } = getKb(state, dir);
+    const { store } = getKb(state, dir)!;
     expect(store.counts().chunks).toBeGreaterThan(0);
     // proves neighbors/get would now see real data instead of empty
     expect(store.search("initial content padded", { limit: 3 }).length).toBeGreaterThan(0);
@@ -160,7 +162,7 @@ describe("cold-start populate: ensurePopulated (kb_neighbors / kb_get)", () => {
     // Edit the source WITHOUT triggering a reindex.
     writeFileSync(join(dir, "docs", "guide.md"), "# Guide\nwarmskip token quokkas roam distant islands quietly here.\n");
     await ensurePopulated(state, dir); // chunks>0 → must skip the walk
-    const { store } = getKb(state, dir);
+    const { store } = getKb(state, dir)!;
     // The new content is NOT searchable — proves no walk ran on the warm path.
     expect(store.search("warmskip token quokkas", { limit: 3 }).length).toBe(0);
     expect(store.search("initial content padded", { limit: 3 }).length).toBeGreaterThan(0);
@@ -270,7 +272,7 @@ describe("Job 1 debounce for AsciiDoc edits (test-plan #E18, #X2)", () => {
       expect(state.timers.size).toBe(1); // pending, not yet run
       await new Promise((r) => setTimeout(r, 200));
       expect(state.timers.size).toBe(0);
-      const { store } = getKb(state, dir);
+      const { store } = getKb(state, dir)!;
       expect(store.search("asciidoc body padded", { limit: 3 })[0]?.path).toMatch(/spec\.adoc$/);
       closeKb(state);
     } finally { rmSync(dir, { recursive: true, force: true }); }
@@ -314,9 +316,10 @@ describe("X4: SQLITE_BUSY on the debounced reindex", () => {
     const dir = setupProject();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
+      const state = createReindexState();
+      await reindexNow(state, dir); // warm the index (the cold pass builds through the first-index path)
       const mocked = vi.mocked(indexSource);
       mocked.mockRejectedValueOnce(new Error("SQLITE_BUSY: database is locked"));
-      const state = createReindexState();
       scheduleReindex(state, dir, join(dir, "docs", "guide.md"), 10);
       await new Promise((r) => setTimeout(r, 250));
       expect(
@@ -326,7 +329,7 @@ describe("X4: SQLITE_BUSY on the debounced reindex", () => {
       // Not rethrown + state not poisoned: the next scheduled reindex indexes.
       scheduleReindex(state, dir, join(dir, "docs", "guide.md"), 10);
       await new Promise((r) => setTimeout(r, 400));
-      const { store } = getKb(state, dir);
+      const { store } = getKb(state, dir)!;
       expect(store.search("initial content padded", { limit: 3 }).length).toBeGreaterThan(0);
       closeKb(state);
     } finally {
@@ -393,5 +396,284 @@ describe("E44: git-scope hint matcher (tool_result, before the bash early return
     expect(isForgeCommand("echo gh pr create")).toBe(false);
     expect(isForgeCommand("gh pr view 3")).toBe(false);
     expect(isForgeCommand("git fetch && git pull")).toBe(false);
+  });
+});
+
+// --- change: bound-kb-search-freshness -------------------------------------
+type IndexResult = Awaited<ReturnType<typeof indexSource>>;
+const OK: IndexResult = { scanned: 0, changed: 0, deleted: 0, chunks: 0 };
+function deferred<T>() {
+  let resolve!: (v: T) => void;
+  let reject!: (e: unknown) => void;
+  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
+  return { promise, resolve, reject };
+}
+
+describe("freshness budget parse (E1–E8)", () => {
+  it.each([
+    [undefined, 1500], ["", 1500], ["   ", 1500], ["0", 0], ["1", 1],
+    [" 2000 ", 2000], ["59999", 59999], ["60000", 60000], ["60001", 60000],
+    ["99999999999999999999", 60000],
+    ["-1", 1500], ["1500.5", 1500], ["1e3", 1500], ["1500ms", 1500], ["abc", 1500], ["+5", 1500], ["0x10", 1500],
+  ])("%j → %i", (raw, expected) => {
+    expect(resolveFreshnessBudgetMs(raw as string | undefined)).toBe(expected);
+  });
+  it("-1 is not 'never wait' (0 is)", () => {
+    expect(resolveFreshnessBudgetMs("-1")).not.toBe(0);
+  });
+});
+
+describe("awaitFreshness + completed set", () => {
+  const dirs: string[] = [];
+  // Warm index (built through the real first-index path) so the controlled passes below go
+  // through `indexSource`, which these tests mock; the cold path is covered in
+  // index-integrity-reindex.test.ts. See change: fix-kb-index-integrity.
+  const proj = () => {
+    const d = setupProject();
+    dirs.push(d);
+    return d;
+  };
+  const warmUp = async (d: string) => {
+    const s = createReindexState();
+    await reindexNow(s, d);
+    closeKb(s);
+  };
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.mocked(indexSource).mockReset();
+    vi.mocked(indexSource).mockImplementation(async (...a) => (await vi.importActual<typeof import("@blackbelt-technology/pi-dashboard-kb")>("@blackbelt-technology/pi-dashboard-kb")).indexSource(...a));
+    for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  });
+
+  it("E16: removed cwd → reindexNow no-op; completed lacks cwd", async () => {
+    const dir = proj();
+    const state = createReindexState();
+    rmSync(dir, { recursive: true, force: true });
+    await expect(reindexNow(state, dir)).resolves.toEqual({ changed: 0, chunks: 0 });
+    expect(state.completed.has(dir)).toBe(false);
+  });
+
+  it("E17: warm index, nothing in flight, budget 0, if-empty → done, no walk, completed unchanged", async () => {
+    const dir = proj();
+    const state = createReindexState();
+    await reindexNow(state, dir);
+    state.completed.delete(dir);
+    vi.mocked(indexSource).mockClear();
+    await expect(awaitFreshness(state, dir, { start: "if-empty", budgetMs: 0 })).resolves.toBe("done");
+    expect(indexSource).not.toHaveBeenCalled();
+    expect(state.completed.has(dir)).toBe(false);
+    closeKb(state);
+  });
+
+  it("E18/X4: a rejected pass → failed; completed lacks cwd; no unhandled rejection", async () => {
+    const dir = proj();
+    await warmUp(dir);
+    const state = createReindexState();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const unhandled = vi.fn();
+    process.on("unhandledRejection", unhandled);
+    try {
+      vi.mocked(indexSource).mockRejectedValueOnce(new Error("walk exploded"));
+      await expect(awaitFreshness(state, dir, { start: "always", budgetMs: 1000 })).resolves.toBe("failed");
+      expect(state.completed.has(dir)).toBe(false);
+      await new Promise((r) => setTimeout(r, 20));
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      process.off("unhandledRejection", unhandled);
+      warn.mockRestore();
+      closeKb(state);
+    }
+  });
+
+  it("X3: a pass rejecting AFTER every waiter timed out is handled and warned exactly once", async () => {
+    const dir = proj();
+    await warmUp(dir);
+    const state = createReindexState();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const unhandled = vi.fn();
+    process.on("unhandledRejection", unhandled);
+    const d = deferred<IndexResult>();
+    try {
+      vi.mocked(indexSource).mockImplementationOnce(() => d.promise);
+      await expect(awaitFreshness(state, dir, { start: "always", budgetMs: 10 })).resolves.toBe("timeout");
+      d.reject(new Error("late failure"));
+      await new Promise((r) => setTimeout(r, 30));
+      expect(unhandled).not.toHaveBeenCalled();
+      expect(warn.mock.calls.filter((c) => String(c[0]).includes("late failure"))).toHaveLength(1);
+    } finally {
+      process.off("unhandledRejection", unhandled);
+      warn.mockRestore();
+      closeKb(state);
+    }
+  });
+
+  it("F1/F2/F4: timeout abandons the wait not the work; later callers join; completion is recorded", async () => {
+    const dir = proj();
+    await warmUp(dir);
+    const state = createReindexState();
+    const d = deferred<IndexResult>();
+    vi.mocked(indexSource).mockImplementationOnce(() => d.promise);
+    expect(await awaitFreshness(state, dir, { start: "always", budgetMs: 10 })).toBe("timeout");
+    const joined = state.inflight.get(dir);
+    expect(joined).toBeDefined();
+    expect(await awaitFreshness(state, dir, { start: "always", budgetMs: 10 })).toBe("timeout"); // call #2 joins D
+    expect(indexSource).toHaveBeenCalledTimes(1);
+    // debounce path coalesces onto the same promise
+    expect(reindexNow(state, dir)).toBe(joined);
+    d.resolve(OK);
+    await joined;
+    expect(state.completed.has(dir)).toBe(true);
+    expect(await awaitFreshness(state, dir, { start: "always", budgetMs: 1000 })).toBe("done"); // call #3, fresh pass
+    closeKb(state);
+  });
+
+  it("F3: mid-walk (chunks > 0, inflight set) kb_get-style call joins instead of skipping", async () => {
+    const dir = proj();
+    const state = createReindexState();
+    await reindexNow(state, dir); // chunks > 0 now
+    const d = deferred<IndexResult>();
+    vi.mocked(indexSource).mockClear();
+    vi.mocked(indexSource).mockImplementationOnce(() => d.promise);
+    const second = reindexNow(state, dir); // a pass is in flight
+    expect(await awaitFreshness(state, dir, { start: "if-empty", budgetMs: 10 })).toBe("timeout");
+    expect(indexSource).toHaveBeenCalledTimes(1); // no 2nd walk
+    d.resolve(OK);
+    await second;
+    closeKb(state);
+  });
+
+  it("F6: budget 0, warm, nothing in flight, if-empty → no walk", async () => {
+    const dir = proj();
+    const state = createReindexState();
+    await reindexNow(state, dir);
+    vi.mocked(indexSource).mockClear();
+    expect(await awaitFreshness(state, dir, { start: "if-empty", budgetMs: 0 })).toBe("done");
+    expect(indexSource).not.toHaveBeenCalled();
+    closeKb(state);
+  });
+
+  it("P6/P7: fake clock — never-resolving pass resolves at the budget; 1499 → done, 1501 → timeout", async () => {
+    const dir = proj();
+    await warmUp(dir);
+    const state = createReindexState();
+    vi.useFakeTimers();
+    const never = deferred<IndexResult>();
+    vi.mocked(indexSource).mockImplementationOnce(() => never.promise);
+    let out: string | undefined;
+    const p = awaitFreshness(state, dir, { start: "always", budgetMs: 1500 }).then((o) => (out = o));
+    await vi.advanceTimersByTimeAsync(1499);
+    expect(out).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(2);
+    await p;
+    expect(out).toBe("timeout");
+    never.resolve(OK);
+    await vi.advanceTimersByTimeAsync(0);
+    closeKb(state);
+
+    const dir2 = proj();
+    vi.useRealTimers();
+    await warmUp(dir2);
+    vi.useFakeTimers();
+    const state2 = createReindexState();
+    const fast = deferred<IndexResult>();
+    vi.mocked(indexSource).mockImplementationOnce(() => fast.promise);
+    let out2: string | undefined;
+    const p2 = awaitFreshness(state2, dir2, { start: "always", budgetMs: 1500 }).then((o) => (out2 = o));
+    await vi.advanceTimersByTimeAsync(1499);
+    fast.resolve(OK);
+    await p2;
+    expect(out2).toBe("done");
+
+    const dir3 = proj();
+    vi.useRealTimers();
+    await warmUp(dir3);
+    vi.useFakeTimers();
+    const state3 = createReindexState();
+    const slow = deferred<IndexResult>();
+    vi.mocked(indexSource).mockImplementationOnce(() => slow.promise);
+    let out3: string | undefined;
+    const p3 = awaitFreshness(state3, dir3, { start: "always", budgetMs: 1500 }).then((o) => (out3 = o));
+    await vi.advanceTimersByTimeAsync(1501);
+    await p3;
+    expect(out3).toBe("timeout");
+    slow.resolve(OK);
+    await vi.advanceTimersByTimeAsync(0);
+    closeKb(state2);
+    closeKb(state3);
+  });
+
+  it("F8: fast path leaves no timer behind", async () => {
+    const dir = proj();
+    const state = createReindexState();
+    vi.useFakeTimers();
+    vi.mocked(indexSource).mockImplementationOnce(async () => OK);
+    const before = vi.getTimerCount();
+    expect(await awaitFreshness(state, dir, { start: "always", budgetMs: 1500 })).toBe("done");
+    expect(vi.getTimerCount()).toBe(before);
+    closeKb(state);
+  });
+
+  it("F9/F10: an aborted caller ends promptly; the shared pass and other waiters are unaffected", async () => {
+    const dir = proj();
+    const state = createReindexState();
+    const d = deferred<IndexResult>();
+    vi.mocked(indexSource).mockImplementationOnce(() => d.promise);
+    const a = new AbortController();
+    const pa = awaitFreshness(state, dir, { start: "always", budgetMs: 5000, signal: a.signal });
+    const pb = awaitFreshness(state, dir, { start: "always", budgetMs: 5000 });
+    a.abort();
+    expect(await pa).toBe("aborted");
+    d.resolve(OK);
+    expect(await pb).toBe("done");
+    expect(state.completed.has(dir)).toBe(true);
+    closeKb(state);
+  });
+
+  it("aborted before start → aborted, no pass", async () => {
+    const dir = proj();
+    const state = createReindexState();
+    vi.mocked(indexSource).mockClear();
+    expect(await awaitFreshness(state, dir, { start: "always", budgetMs: 1000, signal: AbortSignal.abort() })).toBe("aborted");
+    expect(indexSource).not.toHaveBeenCalled();
+  });
+
+  it("X11: cwd removed mid-pass + closeKbForCwd → pass settles; completed lacks cwd", async () => {
+    const dir = proj();
+    const state = createReindexState();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const d = deferred<IndexResult>();
+    vi.mocked(indexSource).mockImplementationOnce(() => d.promise);
+    const p = reindexNow(state, dir);
+    rmSync(dir, { recursive: true, force: true });
+    closeKbForCwd(state, dir);
+    d.resolve(OK);
+    await p.then(() => undefined, () => undefined);
+    expect(state.completed.has(dir)).toBe(false);
+    warn.mockRestore();
+  });
+
+  it("E31: completed is forgotten on closeKbForCwd and closeKb", async () => {
+    const a = proj();
+    const b = proj();
+    const state = createReindexState();
+    await reindexNow(state, a);
+    await reindexNow(state, b);
+    expect(state.completed.has(a)).toBe(true);
+    closeKbForCwd(state, a);
+    expect(state.completed.has(a)).toBe(false);
+    expect(state.completed.has(b)).toBe(true);
+    closeKb(state);
+    expect(state.completed.size).toBe(0);
+  });
+
+  it("E19: a source dir that is missing completes the pass normally (completed set)", async () => {
+    const dir = proj();
+    rmSync(join(dir, "docs"), { recursive: true, force: true });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const state = createReindexState();
+    await reindexNow(state, dir);
+    expect(state.completed.has(dir)).toBe(true);
+    warn.mockRestore();
+    closeKb(state);
   });
 });

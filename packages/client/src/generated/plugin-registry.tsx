@@ -2,7 +2,7 @@
 
 import { FolderAutomationSection, AutomationBadge, isAutomationRun, catalog as automation_catalog } from "@blackbelt-technology/pi-dashboard-automation-plugin";
 import { catalog as context_mode_settings_catalog } from "@blackbelt-technology/pi-dashboard-context-mode-settings-plugin";
-import { SessionFlowActionsClaim, shouldRenderFlowsSubcard, isFlowYamlPreviewActive, FlowAgentsToolRenderer, catalog as flows_catalog } from "@blackbelt-technology/pi-dashboard-flows-plugin";
+import { SessionFlowActionsClaim, shouldRenderFlowsSubcard, SessionFlowMenuClaim, isFlowYamlPreviewActive, FlowAgentsToolRenderer, catalog as flows_catalog } from "@blackbelt-technology/pi-dashboard-flows-plugin";
 import { GoalChip, hasGoal, GoalControl, FolderGoalsSection, catalog as goal_catalog } from "@blackbelt-technology/pi-dashboard-goal-plugin";
 import { GrammarComposerPanel, catalog as grammar_catalog } from "@blackbelt-technology/pi-dashboard-grammar-plugin";
 import { HermesMemorySettings, catalog as hermes_memory_catalog } from "@blackbelt-technology/pi-dashboard-hermes-memory-plugin";
@@ -15,6 +15,7 @@ import { FolderTeamSection, catalog as team_catalog } from "@blackbelt-technolog
 import { MemorySubcard, shouldRenderMemorySubcard, isPipelineDetailActive, OmEntryCard, catalog as blackhole_catalog } from "@blackbelt-technology/pi-dashboard-blackhole-plugin";
 import { catalog as system_one_catalog } from "@blackbelt-technology/pi-dashboard-system-one-plugin";
 import { GmailSettings, catalog as gmail_catalog } from "@blackbelt-technology/pi-dashboard-gmail-plugin";
+import { ObsSettings, ObsAppClaim, catalog as obs_studio_catalog } from "@blackbelt-technology/pi-dashboard-obs-studio-plugin";
 import { BrowserRelayBadge, hasRelayTabsForBadge, BrowserRelayFeed, BrowserTabLabel, catalog as browser_catalog } from "@blackbelt-technology/pi-dashboard-browser-plugin";
 import { catalog as flows_anthropic_bridge_catalog } from "@blackbelt-technology/pi-dashboard-flows-anthropic-bridge-plugin";
 import { QuotaWidget, catalog as quota_catalog } from "@blackbelt-technology/pi-dashboard-quota-plugin";
@@ -208,6 +209,10 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
                 "shouldRender": "shouldRenderFlowsSubcard"
             },
             {
+                "slot": "session-card-action-bar",
+                "component": "SessionFlowMenuClaim"
+            },
+            {
                 "slot": "content-header-sticky",
                 "component": "FlowDashboardClaim",
                 "module": "./src/client/FlowDashboard.tsx"
@@ -252,6 +257,7 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
     },
     claims: [
       { pluginId: "flows", priority: 100, slot: "session-card-flows", Component: SessionFlowActionsClaim, shouldRender: shouldRenderFlowsSubcard },
+      { pluginId: "flows", priority: 100, slot: "session-card-action-bar", Component: SessionFlowMenuClaim },
       { pluginId: "flows", priority: 100, slot: "content-header-sticky", Component: lazyClaim(() => import("../../../flows-plugin/src/client/FlowDashboard"), "FlowDashboardClaim") },
       { pluginId: "flows", priority: 100, slot: "content-view", Component: lazyClaim(() => import("../../../flows-plugin/src/client/FlowYamlPreview"), "FlowYamlPreviewClaim"), predicate: isFlowYamlPreviewActive },
       { pluginId: "flows", priority: 100, slot: "tool-renderer", toolName: "flow_write", Component: lazyClaim(() => import("../../../flows-plugin/src/client/FlowWriteToolRenderer"), "FlowWriteToolRenderer") },
@@ -700,6 +706,36 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
   {
     manifest: {
+        "id": "obs-studio",
+        "displayName": "OBS Studio",
+        "priority": 215,
+        "claims": [
+            {
+                "slot": "settings-section",
+                "component": "ObsSettings",
+                "tab": "general"
+            },
+            {
+                "slot": "shell-overlay-route",
+                "component": "ObsAppClaim",
+                "path": "/obs/*?",
+                "depth": 2,
+                "parentPath": "/settings/plugins/obs-studio",
+                "presentation": "content"
+            }
+        ],
+        "client": "./src/client/index.tsx",
+        "server": "./src/server/index.ts",
+        "i18nCatalog": "catalog"
+    },
+    claims: [
+      { pluginId: "obs-studio", priority: 215, slot: "settings-section", tab: "general", Component: ObsSettings },
+      { pluginId: "obs-studio", priority: 215, slot: "shell-overlay-route", path: "/obs/*?", depth: 2, parentPath: "/settings/plugins/obs-studio", presentation: "content", Component: ObsAppClaim },
+    ],
+    catalog: obs_studio_catalog,
+  },
+  {
+    manifest: {
         "id": "browser",
         "displayName": "Browser Relay",
         "priority": 500,
@@ -820,4 +856,4 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "e4dd926759a84366a62cfda14cb810598d00d25f3c540620ddcd94e0d26ec786";
+export const PLUGIN_REGISTRY_HASH = "f5b094eeee15fc7c2d53e42cfdc13cddf00197ccfb6d1ec95ee43c005f5abbee";

@@ -179,7 +179,15 @@ export interface KbStore {
   getFileState(root: string, path: string): FileState | null;
   setFileState(root: string, path: string, state: FileState): void;
   listPaths(root: string): string[];
-  deleteByPath(root: string, path: string): void; // chunks + outbound edges + file row
+  /** Delete exactly the rows owned by `path` (chunks, heading nodes, outbound edges, properties,
+   *  file state); the FILE node is kept so inbound edges survive a re-chunk. */
+  deleteByPath(root: string, path: string): void;
+  /** A deleted file's node becomes a placeholder (path NULL). */
+  demoteNode?(path: string): void;
+  /** Remove path-less nodes (placeholders, tags) that no edge references. */
+  sweepPlaceholders?(): number;
+  /** Rebuild the per-file chunk-rowid record when stale (start of a pass). */
+  reconcileChunkMap?(): void;
 
   // indexing
   insertChunk(c: Chunk): void;
@@ -193,6 +201,7 @@ export interface KbStore {
   setUserVersion?(v: number): void;
   getMeta?(k: string): string | null;
   setMeta?(k: string, v: string): void;
+  deleteMeta?(k: string): void;
 
   // git-scope capabilities (optional — additive backend capabilities; the git
   // scope reports `unavailable: store backend lacks git support` without them).

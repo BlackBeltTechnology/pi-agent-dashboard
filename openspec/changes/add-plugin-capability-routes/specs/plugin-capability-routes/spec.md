@@ -94,13 +94,15 @@ It SHALL NOT treat the auth plugin's session cookie as a principal.
 - **THEN** `requestPrincipal` returns `{ kind: "local-operator" }`
 
 ### Requirement: Plugins mount static apps under /apps/<appId>/
-`ServerPluginContext` SHALL offer `serveApp({ dir, csp, appId? })`, effective only for trusted plugins (an untrusted call mounts nothing and logs once). `appId` defaults to the plugin id, SHALL match `^[a-z0-9-]+$`, and SHALL be unique: a second mount of the same `appId` SHALL throw. `dir` SHALL realpath inside the plugin's package root, else throw. `csp` SHALL be required. The mount:
+`ServerPluginContext` SHALL offer `dataDir`, a per-plugin directory `~/.pi/dashboard/plugin-data/<pluginId>/` created with mode `0700` on first access, and `serveApp({ dir, csp, appId?, crossOriginFrame? })`, effective only for trusted plugins (an untrusted call mounts nothing and logs once). `appId` defaults to the plugin id, SHALL match `^[a-z0-9-]+$`, and SHALL be unique: a second mount of the same `appId` SHALL throw. `dir` SHALL realpath inside the plugin's package root or inside its `dataDir`, else throw. `dir` MAY be absent at registration. `csp` SHALL be required. The mount:
 - SHALL redirect `/apps/<appId>` with 308 to `/apps/<appId>/`, and SHALL answer GET and HEAD;
-- SHALL serve only realpath-confined files under `dir` with an extension in `.html .js .mjs .css .svg .png .jpg .jpeg .gif .webp .ico .woff .woff2`, and never `.json`, `.map`, dotfiles or directories;
+- SHALL serve only realpath-confined files under `dir` with an extension in `.html .js .mjs .css .svg .png .jpg .jpeg .gif .webp .ico .woff .woff2 .wasm` (`.wasm` as `application/wasm`), and never `.json`, `.map`, dotfiles or directories;
+- SHALL, when a `.gz` sibling of a served file exists and the request accepts gzip, serve the sibling with `Content-Encoding: gzip` and `Vary: Accept-Encoding`;
+- SHALL, when `crossOriginFrame` is set, add `Access-Control-Allow-Origin: *` and `Cross-Origin-Resource-Policy: cross-origin` to every file response of that mount and SHALL NOT send `Access-Control-Allow-Credentials`; CORS of every other route SHALL be unchanged;
 - SHALL fall back to `index.html` for unmatched paths;
 - SHALL mark content-hashed files immutable and `index.html` `no-store`;
-- SHALL return a 503 text page for a missing build, logged once;
-- SHALL send `csp` as an enforced `Content-Security-Policy` on every file response;
+- SHALL return a 503 text page for a missing build (including a `dir` that does not exist yet), logged once, and SHALL serve the build once it appears without re-registration;
+- SHALL send `csp` as an enforced `Content-Security-Policy` on every file response; `csp` MAY be a function of the request, evaluated per response (for policies that name the request's public origin);
 - SHALL be skipped by the auth plugin, so it loads without sign-in when OAuth is configured;
 - SHALL be recorded in a mount registry that the namespace-coverage test consults.
 
@@ -127,3 +129,20 @@ It SHALL NOT treat the auth plugin's session cookie as a principal.
 #### Scenario: Directory outside the package refused
 - **WHEN** a plugin calls `serveApp({ dir: "/" , csp })`
 - **THEN** the call throws and nothing is mounted
+
+#### Scenario: Data-directory mount appears after provisioning
+- **WHEN** a trusted plugin mounts `appId: "craft-wordcraft"` with a `dir` under its `dataDir` that does not exist yet, and the directory is later populated
+- **THEN** requests return 503 before, and the build after, with no re-registration
+
+#### Scenario: Directory outside package and data directory refused
+- **WHEN** a plugin calls `serveApp({ dir: "~/.ssh", csp })`
+- **THEN** the call throws and nothing is mounted
+
+#### Scenario: Wasm and precompressed variants
+- **WHEN** a mount's `dir` holds `app_bg.wasm` and `app_bg.wasm.gz` and a client accepting gzip requests `app_bg.wasm`
+- **THEN** the response carries `Content-Type: application/wasm`, `Content-Encoding: gzip` and `Vary: Accept-Encoding`
+
+#### Scenario: Cross-origin frame mount
+- **WHEN** a mount sets `crossOriginFrame` and a request with `Origin: null` fetches one of its files
+- **THEN** the response carries `Access-Control-Allow-Origin: *` and `Cross-Origin-Resource-Policy: cross-origin` and no `Access-Control-Allow-Credentials`, while `/api/*` responses still grant no cross-origin access to `null`
+

@@ -31,13 +31,16 @@ vi.mock("@monaco-editor/react", () => ({
 }));
 // Keep MarkdownContent light.
 const imageBases: unknown[] = [];
+const mermaidSources: unknown[] = [];
 vi.mock("../../preview/MarkdownContent.js", () => ({
-  MarkdownContent: ({ content, imageBase }: { content: string; imageBase?: unknown }) => {
+  MarkdownContent: ({ content, imageBase, mermaidSource }: { content: string; imageBase?: unknown; mermaidSource?: unknown }) => {
     imageBases.push(imageBase);
+    mermaidSources.push(mermaidSource);
     return <div data-testid="md-preview">{content}</div>;
   },
 }));
 
+import { LiveSessionCwdsProvider } from "../../../lib/preview/use-mermaid-source.js";
 import { ThemeProvider } from "../../settings/ThemeProvider.js";
 import MarkdownViewer from "../MarkdownViewer.js";
 
@@ -178,5 +181,43 @@ describe("MarkdownViewer hook order across a refused load", () => {
     window.removeEventListener("error", onErr);
     expect(hookErrors).toEqual([]);
     expect(winErrors.filter((m) => /hooks/i.test(m))).toEqual([]);
+  });
+});
+
+// See change: add-preview-apply-fix-to-file (design D6; test-plan F8, F9)
+describe("MarkdownViewer mermaidSource", () => {
+  const el = (cwd: string, live: string) => (
+    <ThemeProvider>
+      <LiveSessionCwdsProvider cwdKey={live}>
+        <MarkdownViewer cwd={cwd} path="docs/a.md" kind="markdown" mimeType="text/markdown" size={0} />
+      </LiveSessionCwdsProvider>
+    </ThemeProvider>
+  );
+  const lastSource = () => mermaidSources[mermaidSources.length - 1] as Record<string, unknown> | null;
+
+  it("is stable across re-renders and is null for a non-live cwd", async () => {
+    mermaidSources.length = 0;
+    const { rerender } = render(el("/proj", "/proj"));
+    await screen.findByTestId("md-preview");
+    const first = lastSource();
+    expect(first).toMatchObject({ cwd: "/proj", path: "docs/a.md", kind: "md", isDirty: false });
+    rerender(el("/proj", "/proj"));
+    expect(Object.is(lastSource(), first)).toBe(true);
+    cleanup();
+    mermaidSources.length = 0;
+    render(el("/proj", "/other"));
+    await screen.findByTestId("md-preview");
+    expect(lastSource()).toBeNull();
+  });
+
+  it("flags unsaved edits as isDirty", async () => {
+    mermaidSources.length = 0;
+    render(el("/proj", "/proj"));
+    await screen.findByTestId("md-preview");
+    fireEvent.click(screen.getByTestId("md-edit-toggle"));
+    fireEvent.change(await screen.findByTestId("monaco-textarea"), { target: { value: "# edited" } });
+    fireEvent.click(screen.getByTestId("md-preview-toggle"));
+    await screen.findByTestId("md-preview");
+    expect(lastSource()).toMatchObject({ isDirty: true });
   });
 });

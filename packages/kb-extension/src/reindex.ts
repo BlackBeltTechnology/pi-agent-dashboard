@@ -9,7 +9,26 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { type AckRecord, agentsChain, indexSource, loadConfig, parseRowPaths, type ResolvedConfig, readStaleness, SqliteFtsStore, STALENESS_VERSION, stalenessVersionOnDisk } from "@blackbelt-technology/pi-dashboard-kb";
+import {
+  type AckRecord,
+  agentsChain,
+  beginForcedSource,
+  indexOptionsFromConfig,
+  indexSource,
+  isFirstIndexLive,
+  loadConfig,
+  parseRowPaths,
+  type ResolvedConfig,
+  readStaleness,
+  runIndexAtomic,
+  SqliteFtsStore,
+  STALENESS_VERSION,
+  seedOptionsFromConfig,
+  sourceGateIsStale,
+  stalenessVersionOnDisk,
+  stampPass,
+  stampSource,
+} from "@blackbelt-technology/pi-dashboard-kb";
 
 /** Resolve a DOX row path relative to its AGENTS.md dir, with a project-root
  *  fallback (a nested AGENTS.md may document a file living at the root).
@@ -36,10 +55,51 @@ export interface ReindexState {
   // freshness) would interleave BEGIN/COMMIT and corrupt the transaction.
   // Coalesce them onto one walk. See change: fix-kb-index-feedback.
   inflight: Map<string, Promise<{ changed: number; chunks: number }>>;
+  // cwds for which a REAL pass (every source's `indexSource` resolved) has finished
+  // successfully in this process. Distinguishes "index still being built" from
+  // "legitimately empty". Not set by the removed-cwd no-op, the warm `if-empty`
+  // skip or a rejected pass; forgotten on close. See change: bound-kb-search-freshness.
+  completed: Set<string>;
 }
 
 export function createReindexState(): ReindexState {
-  return { timers: new Map(), nudged: new Set(), kb: new Map(), inflight: new Map() };
+  return { timers: new Map(), nudged: new Set(), kb: new Map(), inflight: new Map(), completed: new Set() };
+}
+
+// --- freshness budget (change: bound-kb-search-freshness) ---
+
+export const DEFAULT_FRESHNESS_BUDGET_MS = 1500;
+export const MAX_FRESHNESS_BUDGET_MS = 60000;
+
+/** Resolve `KB_FRESHNESS_BUDGET_MS`. Trimmed; absent/empty → default; strict
+ *  non-negative decimal integer → itself (`0` = never wait), clamped to the
+ *  ceiling; anything else (`-1`, `1.5`, `1e3`, `10ms`) → default. */
+export function resolveFreshnessBudgetMs(raw: string | undefined): number {
+  const v = (raw ?? "").trim();
+  if (!/^\d+$/.test(v)) return DEFAULT_FRESHNESS_BUDGET_MS;
+  const n = Number(v);
+  return Math.min(n, MAX_FRESHNESS_BUDGET_MS);
+}
+
+/** Model-facing status lines (text channel; `details` is rendering-only). */
+export const STALE_LINE = "(index refresh still running — results may be stale)";
+export const BUILDING_LINE = "(index is still being built — no results available yet; retry shortly)";
+export const CANCELLED_LINE = "(cancelled — no results retrieved)";
+
+export type FreshnessOutcome = "done" | "timeout" | "failed" | "aborted" | "building";
+export type FreshnessStatus = "none" | "stale" | "building" | "cancelled";
+
+/** Outcome → which status line applies (one rule for all three tools). */
+export function freshnessStatus(state: ReindexState, cwd: string, outcome: FreshnessOutcome): FreshnessStatus {
+  if (outcome === "done") return "none";
+  if (outcome === "aborted") return "cancelled";
+  if (outcome === "building") return "building"; // another process is building the first index
+  if (outcome === "failed") return "stale"; // never "building": a deterministic failure would say "retry shortly" forever
+  let chunks = 1;
+  try {
+    chunks = getKb(state, cwd)?.store.counts().chunks ?? 0; // no index file yet = no chunks
+  } catch { /* can't tell → treat as populated (stale label, never a false "building") */ }
+  return chunks === 0 && !state.completed.has(cwd) ? "building" : "stale";
 }
 
 function stalenessPath(cwd: string): string {
@@ -120,7 +180,11 @@ export function nudgeText(decision: NudgeDecision, editedPath: string): string |
   return `[kb] Edited \`${editedPath}\`. Update its row in \`${decision.agentsFile}\` (it is ${decision.kind === "missing" ? "missing a row" : "stale"}).`;
 }
 
-/** Lazily open (and cache) the KB store + config for a cwd.
+/** Lazily open (and cache) the KB store + config for a cwd. NEVER creates the docs
+ *  database: an absent `dbPath` yields `null` — only the atomic first-index path
+ *  (`reindexNow`) creates it, so a file at `dbPath` always means a first index
+ *  completed and this process can never plant a WAL pair under a finished build's
+ *  install. See change: fix-kb-index-integrity (D2).
  *
  *  Refuses to construct a fresh store when `cwd` no longer exists on disk: a
  *  `new SqliteFtsStore` runs `mkdirSync(dirname(dbPath), {recursive:true})`,
@@ -128,13 +192,14 @@ export function nudgeText(decision: NudgeDecision, editedPath: string): string |
  *  was removed — resurrecting an orphan husk. A cache HIT still returns the
  *  live handle (the caller opened it while the cwd existed). See change:
  *  sweep-worktree-residual-on-remove. */
-export function getKb(state: ReindexState, cwd: string): { store: SqliteFtsStore; cfg: ResolvedConfig } {
+export function getKb(state: ReindexState, cwd: string): { store: SqliteFtsStore; cfg: ResolvedConfig } | null {
   let entry = state.kb.get(cwd);
   if (!entry) {
     if (!existsSync(cwd)) {
       throw new Error(`kb: cwd removed, refusing to recreate store: ${cwd}`);
     }
     const cfg = loadConfig(cwd);
+    if (!existsSync(cfg.dbAbsPath)) return null;
     const store = new SqliteFtsStore(cfg.dbAbsPath);
     store.init();
     entry = { store, cfg };
@@ -142,6 +207,80 @@ export function getKb(state: ReindexState, cwd: string): { store: SqliteFtsStore
   }
   return entry;
 }
+
+/** Shared empty in-memory store: what a pull tool queries when no docs database exists
+ *  yet and nothing is building one (e.g. no indexable source directory). Read-only use. */
+let emptyStore: SqliteFtsStore | null = null;
+/** `getKb`, or an empty store + the cwd's config when the database does not exist. */
+export function getKbOrEmpty(state: ReindexState, cwd: string): { store: SqliteFtsStore; cfg: ResolvedConfig } {
+  const kb = getKb(state, cwd);
+  if (kb) return kb;
+  if (!emptyStore) {
+    emptyStore = new SqliteFtsStore(":memory:");
+    emptyStore.init();
+  }
+  return { store: emptyStore, cfg: loadConfig(cwd) };
+}
+
+/** Another process is building the cwd's first index: the docs database is absent and a
+ *  live foreign `<dbPath>.tmp-<pid>` marker exists. Consulted only while `dbPath` is
+ *  absent (a cached store means it exists). */
+export function foreignFirstIndexLive(state: ReindexState, cwd: string): boolean {
+  if (state.kb.has(cwd) || !existsSync(cwd)) return false;
+  try {
+    const { dbAbsPath } = loadConfig(cwd);
+    return !existsSync(dbAbsPath) && isFirstIndexLive(dbAbsPath);
+  } catch {
+    return false;
+  }
+}
+
+type ReindexResult = { changed: number; chunks: number };
+
+/** No docs database yet. Another process building it → skip silently (the debounced path logs
+ *  nothing); otherwise build THROUGH the atomic first-index path (temp file → no-clobber
+ *  install) — never an in-place open of `dbPath`. */
+async function buildFirstIndex(state: ReindexState, cwd: string): Promise<ReindexResult> {
+  const cfg = loadConfig(cwd);
+  if (isFirstIndexLive(cfg.dbAbsPath)) return { changed: 0, chunks: 0 };
+  const sources = cfg.resolvedSources.map((s) => ({ id: s.id, dir: s.dir }));
+  // Nothing indexable on disk: a completed (empty) pass; no file is created.
+  const r = sources.some((s) => existsSync(s.dir))
+    ? await runIndexAtomic({ dbPath: cfg.dbAbsPath, sources, indexOpts: indexOptionsFromConfig(cfg), gate: cfg, log: warnInstallFailure, seed: seedOptionsFromConfig(cfg) })
+    : { changed: 0, chunks: 0 };
+  if (existsSync(cwd)) state.completed.add(cwd);
+  return { changed: r.changed, chunks: r.chunks };
+}
+
+/** Incremental pass over an existing database. One source throwing must not stop the others; its
+ *  gate record stays unwritten so the next pass forces it again. The first failure is rethrown
+ *  after the loop so the pass still counts as failed (never as completed). */
+async function reindexExisting(state: ReindexState, cwd: string, kb: { store: SqliteFtsStore; cfg: ResolvedConfig }): Promise<ReindexResult> {
+  const { store, cfg } = kb;
+  let changed = 0, chunks = 0;
+  let failure: unknown;
+  for (const s of cfg.resolvedSources) {
+    try {
+      const force = sourceGateIsStale(store, cfg, s.id);
+      const st = await indexSource(store, { root: s.id, dir: s.dir }, indexOptionsFromConfig(cfg, { force, onFirstBatch: force ? beginForcedSource(store, s.id) : undefined }));
+      if (!st.missing) stampSource(store, cfg, s.id);
+      changed += st.changed; chunks += st.chunks;
+    } catch (e) {
+      failure ??= e;
+    }
+  }
+  stampPass(store, cfg);
+  if (failure !== undefined) throw failure;
+  // Only after every source resolved, and only if the cwd was not closed
+  // mid-pass (closeKbForCwd evicts the handle).
+  if (state.kb.has(cwd)) state.completed.add(cwd);
+  return { changed, chunks };
+}
+
+/** Install failures are the one first-index line worth a session warning. */
+const warnInstallFailure = (line: string): void => {
+  if (line.includes("install-failed")) console.warn(line);
+};
 
 /** Reindex filesystem sources now (called after debounce). Hash-gated via the
  *  indexer's mtime→sha256 incremental pass. */
@@ -160,18 +299,78 @@ export function reindexNow(state: ReindexState, cwd: string): Promise<{ changed:
   const existing = state.inflight.get(cwd);
   if (existing) return existing;
   const p = (async () => {
-    const { store, cfg } = getKb(state, cwd);
-    let changed = 0, chunks = 0;
-    for (const s of cfg.resolvedSources) {
-      const st = await indexSource(store, { root: s.id, dir: s.dir }, { indexAgentsFiles: cfg.indexAgentsFiles, includeSourceMarkdown: cfg.includeSourceMarkdown, include: cfg.include, exclude: cfg.exclude, extensions: cfg.extensions, respectGitignore: cfg.respectGitignore, cwd });
-      changed += st.changed; chunks += st.chunks;
-    }
-    return { changed, chunks };
+    const kb = getKb(state, cwd);
+    return kb ? reindexExisting(state, cwd, kb) : buildFirstIndex(state, cwd);
   })().finally(() => {
     if (state.inflight.get(cwd) === p) state.inflight.delete(cwd);
   });
+  // Attached at CREATION (not at abandon time): a pass whose every waiter gave
+  // up would otherwise reject with no handler → unhandledRejection. This is the
+  // single place a failed pass is logged. Waiters still observe the rejection
+  // through their own await. See change: bound-kb-search-freshness.
+  p.catch((e) => {
+    const msg = (e as Error)?.message ?? String(e);
+    // A concurrent writer (another dox-describe subagent) can hold the write
+    // lock. Tolerate it: log + drop — a later scheduled reindex or the
+    // parent's final reindex is authoritative (design D8).
+    if (/SQLITE_BUSY|database is locked/i.test(msg)) console.warn(`[kb] reindex deferred (index busy): ${msg}`);
+    else console.warn(`[kb] reindex failed: ${msg}`);
+  });
   state.inflight.set(cwd, p);
   return p;
+}
+
+/** Bounded wait for index freshness. Races the SHARED in-flight pass against an
+ *  unref'd timer and the caller's signal. Expiry / abort abandons the WAIT, never
+ *  the work: the pass keeps running for the debounce path and later callers.
+ *  - `start: "always"` (kb_search): join the in-flight pass, else start one.
+ *  - `start: "if-empty"` (kb_get / kb_neighbors): join an in-flight pass (any chunk
+ *    count — a mid-walk index is partial); else start one only when the index is
+ *    empty; else `"done"` with no walk.
+ *  Never throws. See change: bound-kb-search-freshness. */
+export async function awaitFreshness(
+  state: ReindexState,
+  cwd: string,
+  opts: { start: "always" | "if-empty"; budgetMs: number; signal?: AbortSignal },
+): Promise<FreshnessOutcome> {
+  const { start, budgetMs, signal } = opts;
+  if (signal?.aborted) return "aborted";
+  if (!existsSync(cwd)) {
+    if (start === "always") await reindexNow(state, cwd).catch(() => undefined); // evicts the handle (removed-cwd no-op)
+    return "done";
+  }
+  let pass: Promise<unknown> | undefined = state.inflight.get(cwd);
+  if (!pass) {
+    // Back off BEFORE any store work while another process builds the first index.
+    if (foreignFirstIndexLive(state, cwd)) return "building";
+    try {
+      const kb = getKb(state, cwd);
+      if (start === "always" || !kb || kb.store.counts().chunks === 0) pass = reindexNow(state, cwd);
+    } catch (e) {
+      console.warn(`[kb] freshness check failed, using existing index: ${(e as Error).message}`);
+      return "failed";
+    }
+  }
+  if (!pass) return "done";
+  if (budgetMs <= 0) {
+    pass.catch(() => undefined);
+    return "timeout"; // never wait; the pass continues in the background
+  }
+  return new Promise<FreshnessOutcome>((resolve) => {
+    let settled = false;
+    const finish = (o: FreshnessOutcome) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer); // every settle path, including the fast one: no leaked wakeup
+      signal?.removeEventListener("abort", onAbort);
+      resolve(o);
+    };
+    const timer = setTimeout(() => finish("timeout"), budgetMs);
+    timer.unref?.();
+    const onAbort = () => finish("aborted");
+    signal?.addEventListener("abort", onAbort, { once: true });
+    pass.then(() => finish("done"), () => finish("failed"));
+  });
 }
 
 /** Cold-start guard for the pull tools. Builds the index once when it is empty
@@ -184,8 +383,19 @@ export function reindexNow(state: ReindexState, cwd: string): Promise<{ changed:
  *  fix-kb-neighbors-get-cold-start. */
 export async function ensurePopulated(state: ReindexState, cwd: string): Promise<void> {
   if (!existsSync(cwd)) return;
-  const { store } = getKb(state, cwd);
-  if (store.counts().chunks === 0) {
+  // A pass in flight means the index may be partial whatever its chunk count
+  // (batched commits): join it before the empty-index test.
+  const running = state.inflight.get(cwd);
+  if (running) {
+    await running;
+    return;
+  }
+  const kb = getKb(state, cwd);
+  if (!kb) {
+    if (!foreignFirstIndexLive(state, cwd)) await reindexNow(state, cwd);
+    return;
+  }
+  if (kb.store.counts().chunks === 0) {
     await reindexNow(state, cwd);
   }
 }
@@ -197,14 +407,8 @@ export function scheduleReindex(state: ReindexState, cwd: string, _path: string,
   if (existing) clearTimeout(existing);
   state.timers.set(key, setTimeout(() => {
     state.timers.delete(key);
-    reindexNow(state, cwd).catch((e) => {
-      const msg = (e as Error)?.message ?? String(e);
-      // A concurrent writer (another dox-describe subagent) can hold the write
-      // lock. Tolerate it: log + drop — a later scheduled reindex or the
-      // parent's final reindex is authoritative (design D8).
-      if (/SQLITE_BUSY|database is locked/i.test(msg)) console.warn(`[kb] reindex deferred (index busy): ${msg}`);
-      else console.warn(`[kb] reindex failed: ${msg}`);
-    });
+    // Failure is logged once at pass creation (reindexNow); nothing to add here.
+    reindexNow(state, cwd).catch(() => undefined);
   }, debounceMs));
 }
 
@@ -216,6 +420,7 @@ export function closeKbForCwd(state: ReindexState, cwd: string): void {
   const entry = state.kb.get(cwd);
   if (entry) { try { entry.store.close(); } catch { /* */ } }
   state.kb.delete(cwd);
+  state.completed.delete(cwd);
   const t = state.timers.get(cwd);
   if (t) { clearTimeout(t); state.timers.delete(cwd); }
 }
@@ -224,6 +429,7 @@ export function closeKbForCwd(state: ReindexState, cwd: string): void {
 export function closeKb(state: ReindexState): void {
   for (const { store } of state.kb.values()) { try { store.close(); } catch { /* */ } }
   state.kb.clear();
+  state.completed.clear();
   for (const t of state.timers.values()) clearTimeout(t);
   state.timers.clear();
 }

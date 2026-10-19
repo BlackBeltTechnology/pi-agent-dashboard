@@ -42,7 +42,7 @@ The user SHALL be able to reorder columns by dragging a column header. The new o
 - **AND** the column position the drag would drop into SHALL be visually highlighted
 
 ### Requirement: Proposal cards
-Each change SHALL render as a card showing its name, the compact lifecycle bar, its session list, and card actions. The card SHALL NOT render a separate state pill or a separate task-progress bar; the lifecycle bar carries both.
+Each change SHALL render as a card showing its name, the compact lifecycle bar, its session list, card actions, and — only when the change carries a CLI `error` — an error badge (see "Card shows a per-change CLI error"). The card SHALL NOT render a separate state pill or a separate task-progress bar; the lifecycle bar carries both.
 
 #### Scenario: Card content
 - **WHEN** a change `add-auth` is `IMPLEMENTING` with `3/8` tasks
@@ -354,3 +354,21 @@ Every session spawn initiated from the OpenSpec board — the card `+ Session` a
 - **WHEN** the board is open and a spawn is initiated from a non-board surface (e.g. the sidebar `+`)
 - **AND** that session registers
 - **THEN** the app SHALL navigate to the new session as before
+
+### Requirement: Card shows a per-change CLI error
+
+When an `OpenSpecChange` carries `error: { code, message }`, its proposal card SHALL render an error badge in the card header using the severity-error token. The badge SHALL expose the message on hover and keyboard focus (`title` plus an accessible label). Because the change has `artifacts: []`, its lifecycle bar SHALL render every segment as `todo` and the change SHALL derive to `PLANNING` (so it matches the `planning` state filter). The card's `New session` / `New worktree` actions SHALL stay enabled. Other cards in the same directory SHALL render normally.
+
+#### Scenario: Broken metadata shows an error badge
+
+- **GIVEN** change `add-auth` arrives with `error: { code: "change_error", message: "Invalid YAML in metadata file" }`
+- **WHEN** the board renders
+- **THEN** the `add-auth` card SHALL show an error badge whose accessible label contains the message
+- **AND** its lifecycle bar SHALL show all segments `todo`
+- **AND** every other card SHALL render unchanged
+
+#### Scenario: Missing schema names the schema
+
+- **GIVEN** a change arrives with `error.message` "Unknown schema 'pi-spec-driven'. Available: spec-driven"
+- **WHEN** the user hovers or focuses the badge
+- **THEN** the full message SHALL be shown

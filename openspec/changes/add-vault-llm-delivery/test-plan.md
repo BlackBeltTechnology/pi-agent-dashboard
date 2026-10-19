@@ -94,6 +94,11 @@ Exemplars (harness glue to copy):
 | F3 | vault-llm-credentials: LLM bindings | state-transition | L3 | automated | an `openai-codex` OAuth account | create a binding: choose lease | lease rejected with the reason; proxy not offered (the API has no proxy route) |
 | F4 | vault-llm-delivery: Observability | state-convergence | L3 | automated | session with lease `anthropic-work`, proxy `anthropic`, and `local-override` `google` | open session details | three rows show the delivery mode; the lease shows `expires in`; no token or key in the DOM |
 | F5 | vault-llm-credentials: Enrolment | state-transition | L3 | automated | linked anthropic present; enrolment stub returns no identity | "Add account" for anthropic | the warning dialog requires a confirm; cancel leaves the account list unchanged |
+| F6 | provider-auth-ui: Vault accounts are listed with their provider | state-convergence | L3 | automated | harness: `auth.json` anthropic subscription + vault `anthropic` account "work" used by `anthropic-work` | open Settings → Providers | a `data-row-source="vault"` row "work" sits directly after the anthropic Subscription row, badge "Vault · Subscription", usage names `anthropic-work`; no `sk-ant` in DOM or network; with `/api/vault` stubbed 403 the auth rows render and no vault row or error appears |
+| F7 | provider-auth-ui: A pi login can be linked to the vault from its row | state-transition | L3 | automated | harness with an unlinked anthropic subscription | "Link to vault" → label "personal" → confirm | row shows "Linked to vault as personal"; Vault → Accounts lists "personal" with backend `link`; `auth.json` hash unchanged |
+| F8 | provider-add-flow: Picker lists only providers that can be added | state-transition | L3 | automated | harness with an anthropic subscription; enrolment stub returns identity B | Add provider → "Another account" Anthropic → label "client-x" → sign in | count on the Add control unchanged before/after; vault row "client-x" appears; "Make it available to a project" opens the Vault model-provider form prefilled with the account; `auth.json` hash unchanged |
+| F9 | credential-vault: Vault page is organised by variable | state-convergence | L2 | automated | overview with 2 accounts, 1 env and 1 `llm` binding | render `VaultSection` | tablist order Accounts, Variables, Import; Accounts `aria-selected`; Variables tab shows a "Model providers" group with the `llm` card stating its delivery mode in text |
+| F10 | provider-auth-ui: Provider row text meets the size floor | state-convergence | L3 | automated | Subscription, API key, Environment, Custom endpoint and vault rows | `captureStates` probes in base dark, base light, nord dark at 375/1440 | contrast, size and focus lists empty |
 
 ### Error-handling
 
@@ -115,15 +120,17 @@ Exemplars (harness glue to copy):
 
 ## Coverage summary
 
-- Requirements covered: 22 of 22:
+- Requirements covered: 27 of 27:
   - `vault-llm-credentials`: 9;
   - `vault-llm-delivery`: 9;
   - `model-proxy` (MODIFIED): 2, with "Model ID resolution" covered by E29;
   - `model-proxy-credential-routing` (MODIFIED): 2;
-  - `credential-vault` (MODIFIED): 1.
-- Scenarios by class: edge 45 · perf 1 · frontend 5 · error 11
-- Scenarios by level: L1 53 · L2 0 · L3 8 · manual 1
-- Scenarios by disposition: automated 61 · manual-only 1
+  - `credential-vault` (MODIFIED): 2;
+  - `provider-auth-ui` (ADDED): 4 (F6, F7, F10 incl. the vault-only state);
+  - `provider-add-flow` (MODIFIED): 1.
+- Scenarios by class: edge 45 · perf 1 · frontend 10 · error 11
+- Scenarios by level: L1 53 · L2 1 · L3 12 · manual 1
+- Scenarios by disposition: automated 66 · manual-only 1
 
 ## New infra needed
 

@@ -8,11 +8,19 @@
  * `usePluginConfig` / `usePluginMessage` / `usePluginSend` require.
  */
 
+import type { InteractiveUiRequestSnapshot } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import {
 	CurrentPluginLayer,
 	PluginContextProvider,
 } from "@blackbelt-technology/dashboard-plugin-runtime/context";
-import type { InteractiveUiRequestSnapshot } from "@blackbelt-technology/dashboard-plugin-runtime/context";
+import type {
+	BrowserHostBridge,
+	BrowserHostConnectAnswer,
+	BrowserHostConsentRow,
+	BrowserHostExtEvent,
+	BrowserHostFrame,
+	BrowserHostIdentity,
+} from "@blackbelt-technology/pi-dashboard-shared/browser-host-ipc.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { type RenderResult, render } from "@testing-library/react";
 import type React from "react";
@@ -21,8 +29,15 @@ import { BrowserRelayFeed } from "../BrowserRelayFeed.js";
 
 type MessageListener = (evt: MessageEvent) => void;
 
-class FakeWs {
+export class FakeWs {
 	private listeners = new Set<MessageListener>();
+
+	/** The shell socket's target — the operator carrier derives its server origin from it. */
+	url: string;
+
+	constructor(url = "ws://dash.test:8000/ws") {
+		this.url = url;
+	}
 
 	addEventListener(type: string, cb: EventListenerOrEventListenerObject): void {
 		if (type === "message") this.listeners.add(cb as MessageListener);
@@ -57,6 +72,8 @@ interface RenderOptions {
 	 * `browser_relay_status` subscriber. See change: fix-empty-status-subcard.
 	 */
 	feed?: boolean;
+	/** Sessions exposed to `useSessionState` (holder display-name resolution). */
+	sessions?: DashboardSession[];
 }
 
 type ShellConnectionStatus = "connecting" | "connected" | "disconnected" | "offline" | "auth_required";
@@ -80,6 +97,7 @@ export function renderWithPlugin(
 			send={send as unknown as (message: unknown) => void}
 			useSessionInteractiveRequests={options.interactiveRequests}
 			connectionStatus={connectionStatus}
+			sessions={options.sessions}
 		>
 			<CurrentPluginLayer pluginId={options.pluginId ?? "browser"}>
 				{options.feed === false ? null : <BrowserRelayFeed />}
@@ -93,3 +111,84 @@ export function renderWithPlugin(
 
 /** A minimal session — the tile/badge ignore its fields (the relay is global). */
 export const SESSION = { id: "s1", cwd: "/tmp" } as unknown as DashboardSession;
+
+/**
+ * A fake `window.piDashboard.browserHost` (Electron main's operator host bridge).
+ * Every method is a `vi.fn`; `emit*` push main → renderer events to the callbacks
+ * the component registered. `signed` records `(nonce, serverId)` pairs.
+ */
+export interface FakeBrowserHost extends BrowserHostBridge {
+	emitConnectAnswer(answer: BrowserHostConnectAnswer): void;
+	emitExt(ev: BrowserHostExtEvent): void;
+	emitFrame(frame: BrowserHostFrame): void;
+	/** Live listener counts (leak checks). */
+	listeners: { connect: number; ext: number; frame: number };
+	setConsents(rows: BrowserHostConsentRow[]): void;
+}
+
+export const FAKE_HOST_ID = "host-0123456789abcdef0123456789abcdef";
+
+export function makeFakeBrowserHost(over: Partial<BrowserHostIdentity> = {}): FakeBrowserHost {
+	const connectCbs = new Set<(a: BrowserHostConnectAnswer) => void>();
+	const extCbs = new Set<(e: BrowserHostExtEvent) => void>();
+	const frameCbs = new Set<(f: BrowserHostFrame) => void>();
+	let consents: BrowserHostConsentRow[] = [];
+	const identity: BrowserHostIdentity = {
+		hostId: FAKE_HOST_ID,
+		publicKey: "PUBKEY",
+		label: "My Mac",
+		platform: "darwin",
+		canOpenChrome: true,
+		profiles: [{ profileDirectory: "Default", label: "Person 1", installed: true }],
+		...over,
+	};
+	return {
+		identity: vi.fn(async () => identity),
+		sign: vi.fn(async (nonce: string, serverId: string) => `sig(${nonce}|${serverId})`),
+		setTarget: vi.fn(async () => {}),
+		connect: vi.fn(async () => {}),
+		onConnect: vi.fn((cb) => {
+			connectCbs.add(cb);
+			return () => connectCbs.delete(cb);
+		}),
+		cancelConnect: vi.fn(async () => {}),
+		extSend: vi.fn(async () => {}),
+		extClose: vi.fn(async () => {}),
+		onExt: vi.fn((cb) => {
+			extCbs.add(cb);
+			return () => extCbs.delete(cb);
+		}),
+		tee: vi.fn(async () => {}),
+		onFrame: vi.fn((cb) => {
+			frameCbs.add(cb);
+			return () => frameCbs.delete(cb);
+		}),
+		setToken: vi.fn(async () => {}),
+		listConsents: vi.fn(async () => consents),
+		revokeConsent: vi.fn(async (key: string) => {
+			consents = consents.filter((c) => c.key !== key);
+		}),
+		emitConnectAnswer: (a) => {
+			for (const cb of [...connectCbs]) cb(a);
+		},
+		emitExt: (e) => {
+			for (const cb of [...extCbs]) cb(e);
+		},
+		emitFrame: (f) => {
+			for (const cb of [...frameCbs]) cb(f);
+		},
+		get listeners() {
+			return { connect: connectCbs.size, ext: extCbs.size, frame: frameCbs.size };
+		},
+		setConsents: (rows) => {
+			consents = rows;
+		},
+	};
+}
+
+/** Install (or remove, with `null`) `window.piDashboard.browserHost`. */
+export function installBrowserHost(host: BrowserHostBridge | null): void {
+	const w = window as unknown as { piDashboard?: { browserHost?: BrowserHostBridge } };
+	if (host) w.piDashboard = { browserHost: host };
+	else delete w.piDashboard;
+}

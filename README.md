@@ -9,12 +9,12 @@
 [![CI](https://github.com/BlackBeltTechnology/pi-agent-dashboard/actions/workflows/ci.yml/badge.svg)](https://github.com/BlackBeltTechnology/pi-agent-dashboard/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/@blackbelt-technology/pi-agent-dashboard)](https://www.npmjs.com/package/@blackbelt-technology/pi-agent-dashboard)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Discord](https://img.shields.io/badge/Discord-join%20chat-5865F2?logo=discord&logoColor=white)](https://discord.gg/uQsJgsejb)
+[![Discord](https://img.shields.io/badge/Discord-join%20chat-5865F2?logo=discord&logoColor=white)](https://discord.gg/DrNebZ3pF5)
 
 **One browser tab to command an army of [pi](https://github.com/badlogic/pi-mono) agents.** Spawn parallel sessions, watch reasoning live, attach OpenSpec changes, ship work — from your laptop or phone.
 
 🌐 **Website & demo:** [blackbelttechnology.github.io/pi-agent-dashboard](https://blackbelttechnology.github.io/pi-agent-dashboard) — animated tour, screenshots, and install guide.
-💬 **Community:** [Join our Discord](https://discord.gg/uQsJgsejb) — questions, help, and release news.
+💬 **Community:** [Join our Discord](https://discord.gg/DrNebZ3pF5) — questions, help, and release news.
 📝 **Changelog:** [`CHANGELOG.md`](CHANGELOG.md)
 
 > **Note:** This dashboard only works with [pi](https://github.com/badlogic/pi-mono). Oh My Pi is **not** supported.
@@ -67,7 +67,7 @@ Download a pre-built installer from [GitHub Releases](https://github.com/BlackBe
 | **Linux** (x64 / ARM64) | `.deb` or `.AppImage` |
 | **Windows** (x64 / ARM64) | `.zip` |
 
-> **macOS requirement:** macOS 12 (Monterey) or newer — Intel and Apple Silicon both supported. macOS 10.15 (Catalina) and 11 (Big Sur) are not supported; users on those versions keep their currently installed version (Electron 32) and are not offered the newer update.
+> **macOS requirement:** macOS 13 (Ventura) or newer — Intel and Apple Silicon both supported. macOS 12 (Monterey) and older are not supported (Electron 44 dropped macOS 12); users on those versions keep their currently installed version and are not offered the newer update.
 
 On first launch a setup wizard walks you through mode selection (standalone vs. power-user), API key / OAuth sign-in, and [recommended extensions](#recommended-extensions). The standalone mode bundles Node.js and auto-installs pi + dashboard + openspec into `~/.pi-dashboard/` — **no terminal, npm, or Node.js required**.
 
@@ -282,6 +282,7 @@ CLI flags → environment variables → config file → built-in defaults.
 | `--pi-port` | `PI_DASHBOARD_PI_PORT` | `piPort` | `9999` | Pi extension WebSocket port |
 | `--dev` | — | — | `false` | Development mode (proxy to Vite) |
 | `--no-tunnel` | — | `tunnel.enabled` | `true` | Disable zrok tunnel |
+| — | — | `network.trustMode` | decided at first boot | LAN admission. `"pair"`: network match authenticates nothing, devices pair. `"legacy"`: listed networks admitted without sign-in. See [LAN access](#lan-access) |
 | — | — | `autoStart` | `true` | Bridge auto-starts server if not running |
 | — | — | `autoShutdown` | `false` | Server shuts down when idle |
 | — | — | `shutdownIdleSeconds` | `300` | Seconds idle before auto-shutdown |
@@ -361,6 +362,34 @@ OAuth2 authentication guards external (tunnel) access. Localhost is always ungua
 **Callback URL:** register `https://<tunnel-url>/auth/callback/<provider>` in your OAuth provider settings. The tunnel URL is stable across restarts (reserved shares are auto-created).
 
 > **Security note:** `/api/spawn-failures` is reachable to any caller on deployments without auth; entries contain `cwd` paths. Enable auth before exposing via tunnel.
+
+### Approving a device pairing
+
+A new device asks to pair; the dashboard shows a "A device wants to connect" dialog. Approving needs a host credential, so a plain `localhost` tab can be refused. The dialog lists what to do; the universal path is a terminal on the machine that runs the server:
+
+```bash
+pi-dashboard pair list                      # pending requests (never shows the code)
+pi-dashboard pair approve [<pendingId>]     # prompts for the 8-digit code shown on the device
+pi-dashboard pair deny <pendingId>
+pi-dashboard open [--url <origin>]          # or authorize this browser tab, then press Approve again
+```
+
+Docker: `docker exec <container> pi-dashboard pair approve`. The CLI must run as the same OS user as the server. Per-setup table: "How do I approve a pending device pairing request?" in [docs/faq.md](docs/faq.md).
+
+### LAN access
+
+Bind wide first: `bindHost` or `PI_DASHBOARD_HOST=0.0.0.0` (restart required). Then `network.trustMode` decides who admits LAN peers:
+
+- `pair` — network match authenticates nothing. Device requests access (`http://<lan-ip>:<port>/pair?request`); operator approves with typed code. Needs `pairing.acceptLanRequests: true` (Settings → Security → Network access). Listed networks = knock eligibility only (default private on-link ranges ∪ list; `0.0.0.0/0`, `::/0`, `*.*.*.*` ignored).
+- `legacy` — `trustedNetworks` / `auth.bypassHosts` entries admitted without sign-in, full access.
+
+First boot writes the mode once (`network.trustModeOrigin: "upgrade"`): `pair` iff every entry loopback-only (`127.0.0.0/8`, `::1`), else `legacy` (hostnames and match-all → `legacy`). Never re-derived from the list.
+
+Switch: Settings → Security → Network access (live, no restart). Rollback: "Trust whole networks" or `network.trustMode: "legacy"`.
+
+In `legacy`, Settings → Access shows the count of devices reaching the dashboard by network trust only (`/api/health` `trustPosture.networkOnly`; counts, no IPs).
+
+Details: [How do I expose the dashboard on my LAN?](docs/faq.md#how-do-i-expose-the-dashboard-on-my-lan).
 
 ### Tunnel (zrok)
 
@@ -446,11 +475,11 @@ In the Electron app, if the initial launch attempts fail (or the server is stopp
 ```bash
 pi-dashboard start           # background daemon (production)
 pi-dashboard start --dev     # dev mode (proxy to Vite, fallback to production build)
-pi-dashboard stop            # stop daemon; also kills port holders THIS HOME owns (lock sidecar / health identity)
+pi-dashboard stop            # stop daemon (announced shutdown first, so terminal pi sessions do not auto-start a replacement; SIGTERM fallback); also kills port holders THIS HOME owns (lock sidecar / health identity). For a server the open desktop app started, prints a note: the app shows its reconnect page
 pi-dashboard stop --force    # DANGEROUS: kills EVERY listener on the ports - another HOME's/user's dashboard, the Electron server, or an unrelated service. Only to recover an orphaned listener nothing else can attribute; `restart` ignores it
 pi-dashboard restart         # restart (production)
 pi-dashboard restart --dev   # restart in dev mode
-pi-dashboard status          # daemon status
+pi-dashboard status          # daemon status for the resolved port; says when the desktop app started it
 ```
 
 Daemon stdout/stderr is logged to `~/.pi/dashboard/server.log` (append mode with timestamped headers per start).

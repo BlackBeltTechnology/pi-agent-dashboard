@@ -22,13 +22,14 @@ interface Harness {
 }
 
 /** Boot an instance with a connected extension (handshake done) + CDP client. */
-async function boot(opts: { allowedDomains?: string[]; tabs?: Array<{ id: number; title: string; url: string }>; cdpTimeoutMs?: number; autoAttach?: boolean; onStatusChange?: () => void } = {}): Promise<Harness> {
+async function boot(opts: { allowedDomains?: string[]; globalAllowedDomains?: string[]; tabs?: Array<{ id: number; title: string; url: string }>; cdpTimeoutMs?: number; autoAttach?: boolean; onStatusChange?: () => void } = {}): Promise<Harness> {
   const audit = new AuditRing();
   const closed: string[] = [];
   const instance = new RelayInstance({
     instanceId: "inst-1",
     profileDirectory: "Default",
     allowedDomains: opts.allowedDomains ?? [],
+    ...(opts.globalAllowedDomains ? { globalAllowedDomains: () => opts.globalAllowedDomains as string[] } : {}),
     audit,
     logger: silentLogger,
     onClosed: (r) => closed.push(r),
@@ -518,7 +519,9 @@ describe("audit hooks", () => {
     expect(kinds).toContain("attach");
     expect(kinds).toContain("navigate");
     const nav = harness.audit.list().find((e) => e.kind === "navigate");
-    expect(nav?.detail).toBe("https://a.test/p?q=1");
+    // Audit URLs lose query + fragment (change: add-dedicated-agent-browser D9;
+    // this assertion was `https://a.test/p?q=1` before).
+    expect(nav?.detail).toBe("https://a.test/p");
     expect(JSON.stringify(harness.audit.list())).not.toContain("set-auto-attach-guid");
     void audit;
   });
@@ -557,5 +560,140 @@ describe("logging (task 2.11)", () => {
     cdpSide.send(JSON.stringify({ id: 1, method: "Storage.getCookies", params: {} }));
     await flush();
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("[browser-relay] denied Storage.getCookies"));
+  });
+});
+
+/**
+ * change: add-dedicated-agent-browser — #E12 (relay half: effective allowed
+ * domains), #E13 (relay half: audit query stripping), #E14 (detach causes),
+ * #E15 (instance close).
+ */
+describe("effective allowed domains on a relay instance (E12)", () => {
+  async function navigateAllowed(opts: { allowedDomains: string[]; globalAllowedDomains: string[] }): Promise<boolean> {
+    const { cdpSide, ext, audit } = await boot(opts);
+    cdpSide.send(JSON.stringify({ id: 50, method: "Page.navigate", params: { url: "https://example.com/" } }));
+    await flush();
+    const forwarded = ext.cdpCommands.some((c) => c.method === "Page.navigate");
+    expect(audit.list().some((e) => e.kind === "denied")).toBe(!forwarded);
+    return forwarded;
+  }
+
+  it("([], []) → allowed", async () => {
+    expect(await navigateAllowed({ allowedDomains: [], globalAllowedDomains: [] })).toBe(true);
+  });
+
+  it("(global [github.com], profile []) → denied", async () => {
+    expect(await navigateAllowed({ allowedDomains: [], globalAllowedDomains: ["github.com"] })).toBe(false);
+  });
+
+  it("(global [github.com], profile [example.com]) → allowed (profile list overrides)", async () => {
+    expect(await navigateAllowed({ allowedDomains: ["example.com"], globalAllowedDomains: ["github.com"] })).toBe(true);
+  });
+
+  it("the global list is read live per command (a settings change needs no reconnect)", async () => {
+    let global: string[] = [];
+    const audit = new AuditRing();
+    const instance = new RelayInstance({
+      instanceId: "i",
+      profileDirectory: "Default",
+      allowedDomains: [],
+      globalAllowedDomains: () => global,
+      audit,
+      logger: silentLogger,
+      onClosed: () => {},
+      onStatusChange: () => {},
+    });
+    const [relayExt, extSide] = socketPair();
+    instance.attachExtension(relayExt);
+    new FakeExtension(extSide).initialize();
+    await flush();
+    await instance.waitForHandshake();
+    const [relayCdp, cdpSide] = socketPair();
+    instance.attachCdp(relayCdp);
+    global = ["github.com"];
+    cdpSide.send(JSON.stringify({ id: 1, method: "Page.navigate", params: { url: "https://example.com/" } }));
+    await flush();
+    expect(audit.list().filter((e) => e.kind === "denied")).toHaveLength(1);
+  });
+});
+
+describe("audit URL query stripping on a relay instance (E13)", () => {
+  it("navigate detail drops query string and fragment", async () => {
+    const { cdpSide, audit } = await boot();
+    cdpSide.send(
+      JSON.stringify({ id: 1, method: "Page.navigate", params: { url: "https://example.com/cb?code=abc#state=x" } }),
+    );
+    await flush();
+    expect(audit.list().find((e) => e.kind === "navigate")?.detail).toBe("https://example.com/cb");
+    expect(JSON.stringify(audit.list())).not.toContain("code=abc");
+  });
+});
+
+describe("detach causes in the audit (E14)", () => {
+  const detaches = (audit: AuditRing) => audit.list().filter((e) => e.kind === "detach").map((e) => e.detail);
+
+  it("canceled_by_user → detach `devtools` (viewer state unchanged)", async () => {
+    const { ext, audit, instance } = await boot();
+    ext.detach(7, "canceled_by_user");
+    await flush();
+    expect(detaches(audit)).toEqual(["devtools"]);
+    expect(instance.tabList().find((t) => t.tabId === 7)).toMatchObject({ state: "detached", reason: "devtools" });
+  });
+
+  it("another reason → detach `extension:<reason>`, no DevTools take-over overlay", async () => {
+    const { ext, audit, instance } = await boot();
+    ext.detach(7, "some_reason");
+    await flush();
+    expect(detaches(audit)).toEqual(["extension:some_reason"]);
+    // The relay's own DevTools state is untouched (the vendored model alone drops the session).
+    expect(instance.tabList().find((t) => t.tabId === 7)).not.toMatchObject({ reason: "devtools" });
+  });
+
+  it("target_closed → no detach row", async () => {
+    const { ext, audit } = await boot();
+    ext.detach(7, "target_closed");
+    await flush();
+    expect(detaches(audit)).toEqual([]);
+  });
+});
+
+describe("instance close in the audit (E15)", () => {
+  it("last controlled tab removed → detach `closed:All controlled tabs detached` before onClosed", async () => {
+    const audit = new AuditRing();
+    const order: string[] = [];
+    const instance = new RelayInstance({
+      instanceId: "inst-1",
+      profileDirectory: "Default",
+      allowedDomains: [],
+      audit,
+      logger: silentLogger,
+      onClosed: () => {
+        // The manager drops the instance here; the row must already exist.
+        order.push(audit.list().some((e) => e.kind === "detach" && e.detail === "closed:All controlled tabs detached") ? "audited-first" : "audit-missing");
+      },
+      onStatusChange: () => {},
+    });
+    const [relayExt, extSide] = socketPair();
+    instance.attachExtension(relayExt);
+    const ext = new FakeExtension(extSide, [{ id: 7, title: "A", url: "https://a.test/" }]);
+    const [relayCdp] = socketPair();
+    instance.attachCdp(relayCdp);
+    ext.initialize();
+    await flush();
+    await instance.waitForHandshake();
+
+    ext.tabRemoved(7);
+    await flush();
+
+    expect(order).toEqual(["audited-first"]);
+    expect(audit.list().filter((e) => e.kind === "detach").map((e) => e.detail)).toEqual([
+      "closed:All controlled tabs detached",
+    ]);
+  });
+
+  it("a non-extension close (cdp-closed) adds no `closed:` row", async () => {
+    const { instance, audit } = await boot();
+    instance.close("cdp-closed");
+    expect(audit.list().some((e) => e.kind === "detach")).toBe(false);
   });
 });

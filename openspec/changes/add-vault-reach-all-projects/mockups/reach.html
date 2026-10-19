@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Vault reach: "All my projects" + missing-credential prompt — UX board</title>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="mockup.css" />
+<link rel="stylesheet" href="vault.css" />
+<link rel="stylesheet" href="llm.css" />
+<script src="icons.js"></script>
+</head>
+<body data-view="both">
+<div class="toolbar" role="toolbar" aria-label="Board controls">
+  <h1>Vault reach: All my projects + ask when missing (proposed)</h1>
+  <span class="seg-label" id="lbl-theme">Theme</span>
+  <div class="seg" aria-labelledby="lbl-theme" data-group="theme">
+    <button aria-pressed="true" data-v="base-dark">Base dark</button>
+    <button aria-pressed="false" data-v="base-light">Base light</button>
+    <button aria-pressed="false" data-v="nord-dark">Nord dark</button>
+  </div>
+  <span class="seg-label" id="lbl-w">Frame</span>
+  <div class="seg" aria-labelledby="lbl-w" data-group="width">
+    <button aria-pressed="false" data-v="375">375</button>
+    <button aria-pressed="false" data-v="768">768</button>
+    <button aria-pressed="true" data-v="1440">1440</button>
+  </div>
+  <span class="seg-label" id="lbl-v">Show</span>
+  <div class="seg" aria-labelledby="lbl-v" data-group="view">
+    <button aria-pressed="true" data-v="both">Mockup + UX notes</button>
+    <button aria-pressed="false" data-v="proposed">Mockup only</button>
+  </div>
+  <a class="p-link" href="../../add-vault-llm-delivery/mockups/vault-llm.html" style="margin-left:auto">Vault board</a>
+  <a class="p-link" href="../../add-vault-llm-delivery/mockups/providers.html">Providers board</a>
+</div>
+<main id="board"></main>
+
+<script>
+const ic = (n, cls = "") => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true"><path d="${ICON[n]}"/></svg>`;
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+let uid = 0; const nid = (p) => `${p}-${++uid}`;
+const pill = (tone, icon, text, attrs = "") => `<span class="pill ${tone}" ${attrs}>${icon ? ic(icon) : ""}${text}</span>`;
+const btn = (icon, text, cls = "secondary", attrs = "") => `<button class="p-btn sm ${cls}" ${attrs}>${icon ? ic(icon) : ""}${text}</button>`;
+const DEVICES = "this dashboard (hub), plus paired devices, including ones you pair later, once remote delivery is on";
+
+/* ── reach choice: one radio group, reused in every "add" surface ── */
+function reachChoice(o = {}) {
+  const g = nid("rc"), a = nid("ra"), b = nid("rb");
+  return `<fieldset style="border:0;padding:0;margin:0" class="full" data-testid="vault-reach"><legend class="p-label">Who can use it</legend>
+    <label class="opt" for="${a}"><input type="radio" name="${g}" id="${a}" ${o.only ? "" : "checked"}><div class="main">
+      <div class="t">${ic("ShieldCheckOutline")}All my projects ${pill("info", "", "Recommended")}</div>
+      <div class="why">Every project on ${DEVICES}, including folders you open later. You can turn it off for a single project.</div>
+      <div class="why">${ic("InformationOutline")} A repository you clone from someone else is a project too, and gets it as well.</div></div></label>
+    <label class="opt" for="${b}"><input type="radio" name="${g}" id="${b}" ${o.only ? "checked" : ""}><div class="main">
+      <div class="t">${ic("FolderOutline")}Only projects I choose</div>
+      <div class="why">Nothing gets it until you grant a project. Sessions that need it will ask.</div></div></label></fieldset>`;
+}
+
+/* ════════ Surface 1: setting the reach when an account is added ════════ */
+function providersAnotherPane() {
+  const l = nid("al");
+  return `<div class="pdlg" role="dialog" aria-labelledby="ap-h" data-testid="provider-add-dialog"><header><button class="p-btn sm ghost">Back</button><h3 id="ap-h">Add another Anthropic account</h3><button class="p-btn sm ghost icon" aria-label="Close">${ic("Close")}</button></header>
+    <div class="bd"><div class="form-grid">
+      <div class="full"><label class="p-label" for="${l}">Label</label><input id="${l}" class="p-input" value="work"></div>
+      ${reachChoice()}
+      <p class="p-meta full">Sessions see it as <code>anthropic-work</code>, next to your own Anthropic login. Models appear as <code>anthropic-work/claude-sonnet-4-5</code>.</p></div></div>
+    <footer><button class="p-btn sm primary" data-testid="dialog-sign-in">${ic("OpenInNew")}Sign in</button></footer></div>`;
+}
+function providersFirstOnDevice() {
+  return `<div class="pdlg" role="dialog" aria-labelledby="fd-h"><header><h3 id="fd-h">Link your Anthropic login to the vault</h3><button class="p-btn sm ghost icon" aria-label="Close">${ic("Close")}</button></header>
+    <div class="bd"><div class="form-grid">
+      <p class="p-help full" style="margin:0">pi on this dashboard already uses this login. Linking lets your other devices use it too, without copying it.</p>
+      ${reachChoice()}
+      <p class="p-meta full">Sessions see it as <code>anthropic</code>. On a device with its own Anthropic login, that login is kept.</p></div></div>
+    <footer><button class="p-btn sm secondary">Cancel</button><button class="p-btn sm primary">${ic("LinkVariant")}Link</button></footer></div>`;
+}
+function vaultAddKey() {
+  const p = nid("kp"), l = nid("kl"), k = nid("kk");
+  return `<form class="inset" onsubmit="return false"><div class="form-grid">
+    <div><label class="p-label" for="${p}">Provider</label><input id="${p}" class="p-input" value="gemini"></div>
+    <div><label class="p-label" for="${l}">Label</label><input id="${l}" class="p-input" value="personal"></div>
+    <div class="full"><label class="p-label" for="${k}">Key</label><input id="${k}" type="password" class="p-input mono" value="aai-example-value-0000"><p class="p-meta" style="margin-top:4px">Saved once. The dashboard never shows it again.</p></div>
+    <p class="p-meta full">Sessions get it as <code>GEMINI_API_KEY</code>.</p>
+    ${reachChoice()}
+    <div class="btn-row full"><button class="p-btn primary">${ic("Plus")}Add key</button><button class="p-btn secondary">Cancel</button></div></div></form>`;
+}
+
+/* ════════ Surface 2: the variable / model card shows the reach ════════ */
+function card(o = {}) {
+  const all = !o.only;
+  return `<article class="vcard" data-testid="vault-binding-anthropic-work" data-reach="${all ? "all" : "chosen"}"><header><span class="vname">anthropic-work</span>${pill("neutral", "Brain", "Model provider")}<span class="ident">second name for <code>anthropic</code></span>
+      <div class="acts"><button class="p-btn sm ghost">${ic("TrashCanOutline")}Delete</button></div></header>
+    <div class="vbody">
+      <div class="vfield"><span class="p-label">Delivery</span><div class="modeline">${pill("neutral", "TimerSand", "Short-lived token")}<button class="p-btn sm ghost">${ic("CogOutline")}Change</button></div></div>
+      <div class="vfield"><span class="p-label">Default account</span><div class="readonly">anthropic / work</div></div>
+      <div><h4 class="sec-title">${ic("FolderOutline")}Who can use it</h4>
+        ${all ? `<div class="reach-all" style="margin-top:6px" data-testid="vault-reach-all">
+            <div class="t" style="font-size:14px;font-weight:600;display:flex;gap:6px;align-items:center">${ic("ShieldCheckOutline")}All my projects ${pill("success", "CheckCircleOutline", "Delivering")}</div>
+            <div class="p-meta">On ${DEVICES}. Used right now by 4 projects.</div>
+            ${o.confirm ? "" : `<div class="btn-row" style="margin-top:6px">${btn("FolderOutline", "Change to only projects I choose")}</div>`}
+            ${o.confirm ?? ""}</div>
+          <h4 class="sec-title" style="margin-top:10px">Exceptions (2)</h4>
+          <ul class="glist" style="margin-top:6px">
+            <li class="grow-row">${ic("SourceRepository")}<div class="main"><div class="t">deck3d ${pill("neutral", "AccountSwitchOutline", "Uses anthropic / personal")}</div><div class="s">Repository · github.com/robson/deck3d</div></div><div class="acts">${btn("Close", "Remove exception", "ghost")}</div></li>
+            <li class="grow-row">${ic("FolderOutline")}<div class="main"><div class="t">scratch ${pill("neutral", "Close", "Turned off")}</div><div class="s">Folder on this dashboard (hub) · /Users/robson/scratch</div></div><div class="acts">${btn("Close", "Remove exception", "ghost")}</div></li></ul>
+          <button class="p-btn sm secondary" style="margin-top:8px">${ic("Plus")}Add an exception</button>`
+        : `<p class="p-help" style="margin:6px 0 0">Only projects you grant. 1 project so far.</p>
+          <ul class="glist" style="margin-top:6px"><li class="grow-row">${ic("FolderOutline")}<div class="main"><div class="t">video-feliratozas ${pill("success", "CheckCircleOutline", "Delivering")}</div><div class="s">Folder on this dashboard (hub) · /Users/robson/Movies/video-feliratozas</div></div></li></ul>
+          <div class="btn-row" style="margin-top:8px">${btn("Plus", "Grant to a project")}${btn("ShieldCheckOutline", "Make it available to all my projects")}</div>${o.confirmAll ?? ""}`}
+      </div></div></article>`;
+}
+const confirmAll = `<div class="callout warning" role="alertdialog" aria-labelledby="ca-h" style="margin-top:8px">${ic("AlertOutline")}<div class="body"><strong id="ca-h">Make anthropic-work available to all your projects?</strong>
+  <ul class="impact"><li>Every project on ${DEVICES} gets it now, plus every folder you open later.</li><li>That includes repositories cloned from other people. Their code could use your account.</li><li>video-feliratozas keeps its settings. You can turn it off per project.</li></ul>
+  <div class="btn-row"><button class="p-btn sm secondary">Cancel</button><button class="p-btn sm primary">${ic("ShieldCheckOutline")}Make available to all</button></div></div></div>`;
+
+/* ════════ Surface 3: session view ════════ */
+function session(o = {}) {
+  return `<div class="sess"><div class="s-hdr"><span>${o.project ?? "new-landing"}</span><span aria-hidden="true">·</span><span class="p-meta">${o.where ?? "this dashboard (hub)"}</span>
+      <button class="vchip ${o.chipWarn ? "pending" : ""}" aria-haspopup="dialog" data-testid="vault-chip">${ic(o.chipWarn ? "AlertOutline" : "ShieldKeyOutline")}${o.chip ?? "Vault"}</button></div>
+    ${o.banner ?? ""}
+    <div class="chat">${o.chat ?? ""}</div>
+    <div class="composer"><span>${ic("Brain")} ${o.model ?? "anthropic / claude-sonnet-4-5"}</span><div class="box">Ask pi…</div></div></div>`;
+}
+const offerBanner = (o = {}) => `<div class="callout ${o.tone ?? "warning"}" role="${o.tone === "error" ? "alert" : "status"}" style="margin:8px" data-testid="vault-missing-offer">${ic(o.icon ?? "AlertOutline")}<div class="body">
+  ${o.body}</div></div>`;
+const OFFER = offerBanner({ body: `<strong>No Anthropic login for this session.</strong> Your vault has <strong>anthropic / work</strong>. Use it here?
+  <div class="btn-row"><button class="p-btn sm primary" data-testid="vault-offer-all">${ic("ShieldCheckOutline")}Use in all my projects</button><button class="p-btn sm secondary" data-testid="vault-offer-project">${ic("FolderOutline")}Only in new-landing</button><button class="p-btn sm ghost">Not now</button></div>
+  <p class="p-meta">"All my projects" means every project on ${DEVICES}, including repositories you clone from other people; code in any of them can use this account. It arrives as a short-lived token; the sign-in stays on the dashboard. Change it later in Settings → Vault.</p>` });
+const OFFER_PICK = offerBanner({ body: `<strong>No Anthropic login for this session.</strong> Your vault has 2 Anthropic accounts and no <code>anthropic</code> provider yet. Which one should it use?
+  <fieldset style="border:0;padding:0;margin:6px 0 0"><legend class="sr-only">Account</legend>
+    <label class="chk" for="op1"><input type="radio" name="op" id="op1" checked><span><strong>personal</strong> <span class="p-meta">ro•••@gmail.com</span></span></label>
+    <label class="chk" for="op2"><input type="radio" name="op" id="op2"><span><strong>work</strong> <span class="p-meta">ro•••@blackbelt.hu</span></span></label></fieldset>
+  <div class="btn-row"><button class="p-btn sm primary">${ic("ShieldCheckOutline")}Use in all my projects</button><button class="p-btn sm secondary">${ic("FolderOutline")}Only in new-landing</button><button class="p-btn sm ghost">Not now</button></div>
+  <p class="p-meta">"All my projects" includes repositories you clone from other people.</p>` });
+const OFFER_NONE = offerBanner({ tone: "error", icon: "AlertCircleOutline", body: `<strong>No Anthropic login for this session, and none in your vault.</strong> Sign in once on the dashboard; your projects can then use it.
+  <div class="btn-row"><button class="p-btn sm primary">${ic("Login")}Add an Anthropic login</button><button class="p-btn sm secondary">${ic("Brain")}Pick another model</button></div>` });
+const OFFER_OPERATE = offerBanner({ tone: "info", icon: "LockOutline", body: `<strong>No Anthropic login for this session.</strong> An operator can share one from the dashboard's vault, or you can sign in to Anthropic on this machine.
+  <div class="btn-row"><button class="p-btn sm secondary">${ic("Login")}Sign in as operator</button></div>` });
+const DONE = offerBanner({ tone: "info", icon: "CheckCircleOutline", body: `<strong>anthropic / work is now available in all your projects.</strong> This session is using it. <button class="p-btn sm ghost">Undo</button>` });
+const DONE_REPO = offerBanner({ tone: "info", icon: "ProgressClock", body: `<strong>anthropic is granted to github.com/robson/new-landing.</strong> Confirm this checkout in the Vault chip to start using it. <button class="p-btn sm ghost">Undo</button>` });
+const REMOTE_OFF = offerBanner({ tone: "info", icon: "LockOutline", body: `<strong>Vault keys don't reach other devices yet.</strong> This session runs on mac-mini-iroda; the dashboard can't yet prove the connection is encrypted end to end, so it sends nothing here. Sign in to Anthropic on this device, or work on the dashboard machine.` });
+function pairingDialog(o = {}) {
+  return `<div class="pdlg" role="dialog" aria-labelledby="pa-h"><header><h3 id="pa-h">Approve device "mac-mini-iroda"?</h3><button class="p-btn sm ghost icon" aria-label="Close">${ic("Close")}</button></header>
+    <div class="bd"><p class="p-help" style="margin:0">Type the code shown on the device to approve it.</p>
+      <div><label class="p-label" for="pc">Code</label><input id="pc" class="p-input mono" value="4F7-K2Q"></div>
+      ${o.unavailable ? `<div class="callout warning" data-testid="pairing-vault-reach">${ic("AlertOutline")}<div class="body"><strong>Vault unavailable:</strong> can't list what this device will get from your vault. You can still approve it; check Settings → Vault afterwards.</div></div></div>` : `<div class="callout info" data-testid="pairing-vault-reach">${ic("ShieldKeyOutline")}<div class="body"><strong>This device will get</strong> <code>anthropic</code> and <code>GEMINI_API_KEY</code> from your vault (All my projects), once remote delivery is on.
+        <div class="btn-row"><button class="p-btn sm secondary">${ic("ShieldKeyOutline")}Change in Settings → Vault</button></div></div></div>`}</div>
+    <footer><button class="p-btn sm secondary">Deny</button><button class="p-btn sm primary">${ic("Check")}Approve</button></footer></div>`;
+}
+const CLAIMED = offerBanner({ tone: "warning", icon: "AlertOutline", body: `<strong>No Anthropic login for this session: <code>anthropic</code> is turned off for this project.</strong> It was turned off for new-landing (all its checkouts).
+  <div class="btn-row"><button class="p-btn sm primary">${ic("Check")}Turn it back on here</button><button class="p-btn sm ghost">Not now</button></div>` });
+const OFFER_POOL = offerBanner({ body: `<strong>No Anthropic login for this session.</strong> Your vault has the pool <strong>anthropic</strong> (2 accounts: work, then personal). Use it here?
+  <div class="btn-row"><button class="p-btn sm primary">${ic("ShieldCheckOutline")}Use in all my projects</button><button class="p-btn sm secondary">${ic("FolderOutline")}Only in new-landing</button><button class="p-btn sm ghost">Not now</button></div>
+  <p class="p-meta">"All my projects" means every project on ${DEVICES}, including repositories you clone from other people; code in any of them can use these accounts. The pool keeps its order and failover setting.</p>` });
+function importDone() {
+  return `<div class="callout info" role="status">${ic("CheckCircleOutline")}<div class="body"><strong>Imported 2 keys</strong> as accounts and variables: <code>GEMINI_API_KEY</code>, <code>SONIOX_API_KEY</code>. They are available only to projects you choose. Remember to delete the original files.
+    <div class="btn-row">${btn("ShieldCheckOutline", "Make them available to all my projects")}${btn("ArrowRight", "Go to variables", "ghost")}</div></div></div>`;
+}
+const ERR_MSG = `<div class="msg user">Set up a landing page with Astro</div><div class="msg err" role="alert">${ic("AlertCircleOutline")} No API key found for anthropic.</div>`;
+function chipDialog(rows, o = {}) {
+  return `<div class="dlg-wrap"><div class="dlg" role="dialog" aria-labelledby="cd-${o.k}" data-testid="vault-bindings-dialog"><header><h3 id="cd-${o.k}">Vault for this session</h3><button class="p-btn sm ghost icon" aria-label="Close">${ic("Close")}</button></header>
+    <div class="bd"><p class="proj">Project <code>/Users/robson/Project/new-landing</code> on this dashboard (hub)</p>
+    <div><h4 class="sec-title">${ic("Brain")}Model providers</h4>${rows.map(([n, p, d, act]) => `<div class="srow" data-testid="vault-binding-row"><code>${n}</code>${p}<span class="acts">${act ?? ""}</span><span class="d">${d}</span></div>`).join("")}</div></div>
+    <footer><span class="p-meta">Last vault contact 09:14:02</span><a class="p-linkc" href="#">Manage in Settings → Vault ${ic("ArrowRight")}</a></footer></div></div>`;
+}
+
+const N = (rule, cite) => `<li>${rule} <cite>${cite}</cite></li>`;
+const BOARD = [
+  { title: "1 · Reach is chosen once, when an account is added", verdict: "new: grant subject 'all my projects' (reach) · default for new accounts", states: [
+    ["add-another-reach", "Providers → Add another account: 'Who can use it' preset to All my projects", providersAnotherPane(), [
+      N("The decision is made once, while the user is already thinking about the account, instead of again for every folder.", "Tesler's Law, lawsofux.com/teslers-law (the system absorbs the complexity)"),
+      N("A safe, useful default is preselected and labelled Recommended; the alternative stays one click away.", "Nielsen #7 Flexibility and efficiency; NN/g 'The power of defaults'"),
+      N("The clone-repo risk is said in plain words next to the choice, not hidden in docs.", "Nielsen #5 Error prevention; GOV.UK warning text"),
+      N("The name sessions see is derived from the label (anthropic-work), so the user doesn't have to invent a provider id.", "Nielsen #6 Recognition rather than recall"),
+    ], "new requirement: reach 'all my projects' (credential-vault)"],
+    ["link-reach", "Linking the hub's pi login: the reason to link is other devices", providersFirstOnDevice(), [
+      N("Explains why to link (other devices) in one line, then the same reach control.", "Nielsen #10 Help and documentation"),
+      N("States that local logins on a device still win.", "spec: Local LLM credentials take precedence"),
+    ], "provider-auth-ui: Link to vault; vault-llm-delivery precedence"],
+    ["vault-add-key-reach", "Vault → Add key: the same control for env keys", page("accounts", vaultAddKey()), [
+      N("One reach control everywhere (Providers, Vault, env keys, model providers).", "Jakob's Law; Gestalt similarity"),
+    ], "credential-vault: env bindings get the same reach"],
+    ["import-done", "Import: new variables stay narrow, widening is one step away", page("import", importDone()), [
+      N("Bulk import never widens silently: imported keys start as 'only projects I choose'.", "Nielsen #5 Error prevention"),
+      N("The widen action leads to the same impact confirmation as on a card.", "Jakob's Law; Gestalt similarity"),
+    ], "vault-reach: Imported variables stay narrow"],
+  ]},
+  { title: "2 · The card shows the reach, with per-project exceptions", verdict: "Variables tab · replaces the project list when the reach is 'all'", states: [
+    ["card-all", "All my projects + exceptions (another account, turned off)", page("variables", card()), [
+      N("Answers 'who gets this' in one line: All my projects, on these devices, 4 in use now.", "Nielsen #1 Visibility of system status"),
+      N("Exceptions are the only per-project rows; nothing else has to be listed or maintained.", "Nielsen #8 Minimalist design"),
+      N("An exception can switch the account or turn the binding off; removing it returns the project to the default.", "Nielsen #3 User control and freedom"),
+    ], "new: reach + exceptions (override account, opt-out)"],
+    ["card-chosen", "Only projects I choose: grants as today, plus a one-click widen", page("variables", card({ only: true })), [
+      N("Today's per-project model is kept unchanged for users who want it.", "Jakob's Law"),
+    ], "credential-vault: Per-project grants (unchanged path)"],
+    ["card-widen-confirm", "Widening to all projects states what that includes", page("variables", card({ only: true, confirmAll })), [
+      N("Widening access is the risky direction, so it gets a confirmation that lists the impact, cloned repos included. Narrowing needs none.", "Nielsen #5; GOV.UK 'confirm before'"),
+    ], "new: reach change"],
+  ]},
+  { title: "3 · Pairing discloses the reach", verdict: "device approval dialog", states: [
+    ["pairing-disclosure", "Approving a device lists what it will get", pairingDialog(), [
+      N("Pairing becomes vault access once remote delivery is on, so the decision point names it.", "Nielsen #1; doubt-review finding (pairing widens reach)"),
+      N("Names only, never values; a link to change the reach.", "spec: Values never leave the hub"),
+    ], "vault-reach: Pairing discloses the reach"],
+    ["pairing-vault-unavailable", "Vault can't be read: say so, don't block approval", pairingDialog({ unavailable: true }), [
+      N("States what it can't tell you instead of showing an empty list that reads as 'nothing'.", "Nielsen #1; spec clarification C2"),
+      N("Approval stays enabled: pairing doesn't depend on the vault.", "Nielsen #3"),
+    ], "vault-reach: Pairing discloses the reach (vault unavailable)"],
+  ]},
+  { title: "4 · A session asks only when a model credential is missing", verdict: "session view · first new folder on this dashboard (hub)", states: [
+    ["session-offer", "New folder on this dashboard (hub); no local Anthropic login; the vault has one", session({ chip: "Vault: action", chipWarn: true, banner: OFFER }), [
+      N("Shown at session start, where the user is working, before a prompt fails. No visit to Settings is needed.", "Nielsen #1; Nielsen #9 (prevent the failure, not just explain it)"),
+      N("The primary action matches the chosen default (all my projects); 'only this project' and 'not now' are next to it.", "Hick's Law: 3 options, 1 primary"),
+      N("Its own session-detail notice above the chat (not the MissingRequiredBanner slot, which serves extension requirements); same callout recipe, so it reads as a session-level notice.", "Jakob's Law; design D5"),
+      N("'Not now' hides it for this session until the session reports a different provider; switching model within Anthropic does not bring it back.", "Nielsen #3; spec clarification C1"),
+      N("Never shown on a device that has its own login for that provider; local wins.", "spec: Local LLM credentials take precedence"),
+    ], "new: missing-credential offer (session view)"],
+    ["session-offer-after-error", "Same, if the first prompt already failed", session({ chip: "Vault: action", chipWarn: true, chat: ERR_MSG + `<div>${OFFER.replace('style="margin:8px"', 'style="margin:0"')}</div>` }), [
+      N("The offer is placed right under pi's raw error, turning a dead end into a fix. The prompt can be resent after choosing.", "Nielsen #9 Help users recover from errors"),
+    ], "new: missing-credential offer"],
+    ["session-offer-pick", "More than one account for that provider: pick one", session({ chip: "Vault: action", chipWarn: true, banner: OFFER_PICK }), [
+      N("Accounts are told apart by label and masked identity; the first is preselected.", "Nielsen #6; Hick's Law"),
+    ], "new: missing-credential offer"],
+    ["session-offer-pool", "The provider is a pool: offered as it is", session({ chip: "Vault: action", chipWarn: true, banner: OFFER_POOL }), [
+      N("The banner names the pool and its order; choosing widens the pool's reach without changing order or failover.", "Nielsen #1; spec clarification C3"),
+    ], "vault-reach: Missing-credential offer (pool)"],
+    ["session-offer-done", "Chosen: confirmation + Undo, no restart", session({ chip: "Vault · 1", banner: DONE, chat: `<div class="msg user">Set up a landing page with Astro</div>` }), [
+      N("Immediate feedback that it worked, with Undo instead of a confirm dialog.", "Nielsen #1, #3; NN/g 'Undo over confirmation'"),
+      N("It takes effect within the delivery propagation bound (5 s); the model list refreshes.", "spec: LLM credential changes notify sessions"),
+    ], "vault-llm-credentials: credentials-updated broadcast"],
+    ["session-offer-project-repo", "'Only in this project' on a repository: honest pending state", session({ chip: "Vault: confirm", chipWarn: true, banner: DONE_REPO }), [
+      N("A repository grant still needs its checkout confirmed, so the result says that instead of 'done'.", "Nielsen #1; credential-vault: Checkout confirmation"),
+    ], "vault-reach: Missing-credential offer (repository key)"],
+    ["session-remote-off", "Paired device while remote delivery is off: explain, no offer", session({ where: "mac-mini-iroda", chip: "Vault", banner: REMOTE_OFF }), [
+      N("No action is offered that can't work; the reason and the two real ways out are stated.", "Nielsen #9; design D2 (hub-first)"),
+    ], "vault-reach: Paired device while remote delivery is off"],
+    ["session-claimed", "The project already has an exception: repair it, don't widen", session({ chip: "Vault: action", chipWarn: true, banner: CLAIMED }), [
+      N("When the project's own exception is the cause, the fix is that exception; widening the reach would change nothing here.", "Nielsen #9; spec: Existing exception is shown instead of the offer"),
+    ], "vault-reach: Missing-credential offer (claimed)"],
+    ["session-none", "No login anywhere: point to adding one", session({ chip: "Vault", banner: OFFER_NONE }), [
+      N("Error states what's missing and the single fix; offers a different model as an alternative.", "Nielsen #9; WCAG 3.3.3 Error Suggestion"),
+    ], "new: missing-credential offer (empty vault)"],
+    ["session-observe", "Browser without operator rights: explains instead of offering", session({ chip: "Vault", banner: OFFER_OPERATE }), [
+      N("Sharing a credential needs operator authority (as grant-from-session already does), so a viewer gets an explanation rather than a button that fails.", "Nielsen #5; vault-routes canManageVault"),
+      N("The text does not reveal whether the vault holds an account, so a viewer learns nothing about vault contents.", "spec: viewer receives nothing derived from the vault"),
+    ], "credential-vault: grant authority (operate)"],
+    ["session-chip-reach", "Chip dialog: where it comes from, and turn off for this project", session({ chip: "Vault · 2", chat: chipDialog([
+      ["anthropic", pill("success", "CheckCircleOutline", "Delivered"), "From <strong>All my projects</strong> · short-lived token, expires in 41 min.", btn("Close", "Turn off here", "ghost", 'aria-label="Turn off anthropic for new-landing"')],
+      ["anthropic-work", pill("success", "CheckCircleOutline", "Delivered"), "Granted to this project · through this dashboard."],
+    ], { k: "r" }) }), [
+      N("Each row says why it is here (All my projects vs granted), so inherited access isn't a surprise.", "Nielsen #1; WCAG 1.4.1 text, not colour"),
+      N("'Turn off here' creates the opt-out exception from the place where it is noticed.", "Nielsen #3"),
+    ], "new: reach exceptions; session view (F4)"],
+  ]},
+];
+
+function page(tab, body) {
+  const t = (id, label, icon) => `<button role="tab" class="tab" aria-selected="${tab === id}" tabindex="${tab === id ? 0 : -1}">${ic(icon)}${label}</button>`;
+  return `<div class="v-page"><div><h2 class="v-title">Credential vault</h2></div><div class="tabs" role="tablist" aria-label="Vault">${t("accounts", "Accounts", "KeyVariant")}${t("variables", "Variables", "CogOutline")}${t("import", "Import", "FileImportOutline")}</div><div role="tabpanel" class="stack-3">${body}</div></div>`;
+}
+
+document.getElementById("board").innerHTML = BOARD.map((s) => `<section class="surface"><h2>${s.title}</h2><p class="verdict">${s.verdict}</p>
+  ${s.states.map(([id, finds, mock, notes, spec]) => `<article class="state" id="${id}"><header><code>${id}</code><span class="finds">${finds}</span></header>
+    <div class="pair notes-pair"><div class="col proposed"><p class="tag">Proposed</p><div class="frame">${mock}</div></div>
+    <div class="col asbuilt notes"><h4>Why (cited rule)</h4><ul>${notes.join("")}</ul><p class="spec"><strong>Covers:</strong> ${spec}</p></div></div></article>`).join("")}
+</section>`).join("");
+
+const html = document.documentElement;
+function apply(group, v) {
+  if (group === "theme") {
+    const [pal, mode] = v.split("-");
+    mode === "light" ? html.setAttribute("data-theme", "light") : html.removeAttribute("data-theme");
+    pal === "nord" ? html.setAttribute("data-palette", "nord") : html.removeAttribute("data-palette");
+  }
+  if (group === "width") document.body.style.setProperty("--frame-w", v === "1440" ? "100%" : `${v}px`);
+  if (group === "view") document.body.dataset.view = v;
+}
+document.querySelectorAll(".seg").forEach((seg) => seg.addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  seg.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+  apply(seg.dataset.group, b.dataset.v);
+}));
+const params = new URLSearchParams(location.search);
+for (const g of ["theme", "width", "view"]) if (params.get(g)) document.querySelector(`.seg[data-group="${g}"] button[data-v="${params.get(g)}"]`)?.click();
+</script>
+</body>
+</html>

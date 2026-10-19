@@ -26,7 +26,7 @@
  */
 import { execSync } from "node:child_process";
 import type { Browser, Page, WebSocketRoute } from "@playwright/test";
-import { expect, test } from "./fixtures.js";
+import { expect, narrowTrust, test } from "./fixtures.js";
 import { ensureGitSession, FIXTURE_GIT } from "./helpers/index.js";
 import { DASHBOARD_PORT } from "./lifecycle.js";
 
@@ -147,7 +147,7 @@ test.describe.serial("access-grant prompt dialog (add-access-grant-dialog 10g)",
   // Under the kill switch (task 9.2's whole-suite run) no dialog can exist by design.
   test.skip(process.env.PI_DASHBOARD_DISABLE_GRANT_PROMPT === "1", "prompting force-disabled by the kill switch");
 
-  test.beforeAll(() => {
+  test.beforeAll(async ({ request }) => {
     saved = JSON.parse(
       inContainer(`
         const fs = require("node:fs");
@@ -159,7 +159,10 @@ test.describe.serial("access-grant prompt dialog (add-access-grant-dialog 10g)",
     execSync(
       `docker exec ${containerName()} sh -c 'rm -rf ${ROOT} && mkdir -p ${REPO}/x/y ${ROOT}/unknown-cwd && git -C ${REPO} init -q'`,
     );
-    patchConfig({ hostGate: { mode: "enforce" }, accessGrants: { promptEnabled: true } });
+    // Trust-bearing keys go through narrowTrust (describe scope: restored when the
+    // next spec starts); only the non-trust `accessGrants` key is a raw write.
+    await narrowTrust(request, { hostGate: { mode: "enforce" } });
+    patchConfig({ accessGrants: { promptEnabled: true } });
   });
 
   test.afterAll(() => {
@@ -247,6 +250,7 @@ test.describe.serial("access-grant prompt dialog (add-access-grant-dialog 10g)",
 
   test("10.62 / 10.70 / #E43 #F4: network prompt is deferred, allow-once absent, no countdown", async ({
     page,
+    request,
   }) => {
     await openDashboard(page);
     const ip = inContainer(`
@@ -254,23 +258,20 @@ test.describe.serial("access-grant prompt dialog (add-access-grant-dialog 10g)",
       const a = Object.values(nets).flat().find((n) => n && n.family === "IPv4" && !n.internal);
       process.stdout.write(a.address);
     `).trim();
-    patchConfig({ trustedNetworks: complementOf(ip) });
-    try {
-      const code = inContainer(`
-        fetch("http://${ip}:${DASHBOARD_PORT}/api/sessions").then((r) => process.stdout.write(String(r.status)));
-      `);
-      expect(code, "the container's own eth0 address must be untrusted").toBe("403");
+    // Test scope: restored by the reap fixture after the test, whatever happens.
+    await narrowTrust(request, { trustedNetworks: complementOf(ip) });
+    const code = inContainer(`
+      fetch("http://${ip}:${DASHBOARD_PORT}/api/sessions").then((r) => process.stdout.write(String(r.status)));
+    `);
+    expect(code, "the container's own eth0 address must be untrusted").toBe("403");
 
-      await expect(dialog(page)).toBeVisible({ timeout: 15_000 });
-      await expect(dialog(page).getByTestId("grant-dialog-subject")).toHaveText(ip);
-      await expect(dialog(page).getByTestId("grant-dialog-deferred")).toBeVisible();
-      await expect(dialog(page).getByTestId("grant-allow-once")).toHaveCount(0);
-      await expect(dialog(page).getByTestId("grant-dialog-waiting")).toHaveCount(0);
-      await dialog(page).getByTestId("grant-deny").click();
-      await expect(dialog(page)).toHaveCount(0);
-    } finally {
-      patchConfig({ trustedNetworks: ["0.0.0.0/0"] });
-    }
+    await expect(dialog(page)).toBeVisible({ timeout: 15_000 });
+    await expect(dialog(page).getByTestId("grant-dialog-subject")).toHaveText(ip);
+    await expect(dialog(page).getByTestId("grant-dialog-deferred")).toBeVisible();
+    await expect(dialog(page).getByTestId("grant-allow-once")).toHaveCount(0);
+    await expect(dialog(page).getByTestId("grant-dialog-waiting")).toHaveCount(0);
+    await dialog(page).getByTestId("grant-deny").click();
+    await expect(dialog(page)).toHaveCount(0);
   });
 
   test("10.65 / #E46: a markup-bearing origin never reaches a dialog; a real origin renders as text", async ({
@@ -374,10 +375,16 @@ test.describe.serial("access-grant prompt dialog (add-access-grant-dialog 10g)",
     }
   });
 
-  test("10.66 / #E50: no YOLO session, row 1 holds today's controls and no pill", async ({ page }) => {
+  test("10.66 / #E50 / #E15: no YOLO session, row 1 holds today's controls, untinted, no YOLO link", async ({ page }) => {
+    inContainer(`fetch("http://127.0.0.1:${DASHBOARD_PORT}/api/access/yolo", { method: "DELETE" })`);
     await openDashboard(page);
     await expect(page.getByTestId("tunnel-btn").first()).toBeVisible();
+    const row = page.getByTestId("header-app-bar");
+    await expect(row).not.toHaveAttribute("data-yolo", /.*/);
+    expect(await row.getAttribute("title")).toBeNull();
+    await expect(page.getByTestId("yolo-bar-link")).toHaveCount(0);
     await expect(page.getByTestId("yolo-pill")).toHaveCount(0);
+    await expect(page.getByTestId("yolo-composer-strip")).toHaveCount(0);
   });
 
   test("10.74 / #F8: YOLO from inside the dialog is not a verdict", async ({ page }) => {
@@ -415,19 +422,21 @@ test.describe.serial("access-grant prompt dialog (add-access-grant-dialog 10g)",
     await expect(page.getByTestId("yolo-access-root")).toContainText(FIXTURE_GIT);
     expect(promptsView().yolo.session?.roots).toHaveLength(1);
 
-    // #F6: the pill has no dismiss affordance and survives Escape.
+    // #F6: the tinted bar has no dismiss affordance and survives Escape; it adds no visible control.
     await page.goto("/");
-    const pill = page.getByTestId("yolo-pill");
-    await expect(pill).toBeVisible({ timeout: 15_000 });
-    await expect(pill.locator("button")).toHaveCount(0);
+    const row = page.getByTestId("header-app-bar");
+    await expect(row).toHaveAttribute("data-yolo", "scoped", { timeout: 15_000 });
+    await expect(row.locator("button", { hasText: /dismiss|close|hide/i })).toHaveCount(0);
     await page.keyboard.press("Escape");
-    await expect(pill).toBeVisible();
+    await expect(row).toHaveAttribute("data-yolo", "scoped");
+    await expect(page.getByTestId("yolo-pill")).toHaveCount(0);
 
-    // #F5: sidebar not rendered (mobile session view), the in-scope session surface still says so.
+    // #F5: sidebar not rendered (mobile session view), the composer strip still says so.
     await page.getByTestId("session-card-desktop").first().click();
     await page.setViewportSize({ width: 390, height: 844 });
-    await expect(page.getByTestId("yolo-session-indicator").first()).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByTestId("yolo-session-indicator").first()).toContainText(/\d+:\d\d/);
+    await expect(page.getByTestId("yolo-composer-strip").first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("yolo-composer-strip").first()).toContainText(/\d+:\d\d/);
+    await expect(page.getByTestId("yolo-session-indicator")).toHaveCount(0);
 
     // End it from the Access page.
     await page.setViewportSize({ width: 1280, height: 800 });
@@ -436,25 +445,24 @@ test.describe.serial("access-grant prompt dialog (add-access-grant-dialog 10g)",
     await expect(page.getByTestId("yolo-access-active")).toHaveCount(0, { timeout: 15_000 });
   });
 
-  test("10.62b / #E54: report mode states why, lists the denial, answerable, toggle inert", async ({ page }) => {
-    patchConfig({ hostGate: { mode: "report" } });
-    try {
-      await openDashboard(page);
-      const { file, subject } = probe("report-mode");
-      const denied = await page.request.get(existsUrl(FIXTURE_GIT, file));
-      expect(denied.status()).toBe(403);
-      await page.goto("/settings/access");
-      await expect(page.getByTestId("access-prompts-banner-report-mode")).toBeVisible({ timeout: 15_000 });
-      await expect(page.getByTestId("access-prompts-toggle")).toBeVisible();
-      await expect(page.getByTestId("access-prompts-toggle")).toBeDisabled();
-      const row = page.getByTestId("access-pending-row").filter({ hasText: subject });
-      await expect(row).toBeVisible({ timeout: 15_000 });
-      await row.getByTestId("access-pending-deny").click();
-      await expect(row).toHaveCount(0, { timeout: 15_000 });
-      expect(promptsView().verdicts.find((v) => v.subject === subject)?.outcome).toBe("deny");
-    } finally {
-      patchConfig({ hostGate: { mode: "enforce" } });
-    }
+  test("10.62b / #E54: report mode states why, lists the denial, answerable, toggle inert", async ({
+    page,
+    request,
+  }) => {
+    await narrowTrust(request, { hostGate: { mode: "report" } });
+    await openDashboard(page);
+    const { file, subject } = probe("report-mode");
+    const denied = await page.request.get(existsUrl(FIXTURE_GIT, file));
+    expect(denied.status()).toBe(403);
+    await page.goto("/settings/access");
+    await expect(page.getByTestId("access-prompts-banner-report-mode")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("access-prompts-toggle")).toBeVisible();
+    await expect(page.getByTestId("access-prompts-toggle")).toBeDisabled();
+    const row = page.getByTestId("access-pending-row").filter({ hasText: subject });
+    await expect(row).toBeVisible({ timeout: 15_000 });
+    await row.getByTestId("access-pending-deny").click();
+    await expect(row).toHaveCount(0, { timeout: 15_000 });
+    expect(promptsView().verdicts.find((v) => v.subject === subject)?.outcome).toBe("deny");
   });
 
   // harden-plugin-cwd-admission, test-plan #F11: a user-initiated plugin write for an

@@ -5,13 +5,15 @@
  * See change: fix-openspec-taskcheck-delay.
  */
 import { describe, it, expect } from "vitest";
-import { matchesOpenSpecArtifact } from "../openspec/openspec-change-watcher.js";
+import { matchesOpenSpecArtifact, matchesOpenSpecRootEvent } from "../openspec/openspec-change-watcher.js";
 
 describe("matchesOpenSpecArtifact", () => {
   const positives = [
     "my-change/tasks.md",
     "my-change/proposal.md",
     "my-change/design.md",
+    "my-change/.openspec.yaml",        // change metadata (schema / error state)
+    "my-change",                       // change dir created / renamed
     "my-change/specs/cap/spec.md",
     "my-change/specs/deep/nested/cap/spec.md",
     "fix-openspec-taskcheck-delay/specs/server-openspec-polling/spec.md",
@@ -26,7 +28,8 @@ describe("matchesOpenSpecArtifact", () => {
     "",
     "README.md",                       // top-level — not under a change dir
     "my-change/README.md",             // wrong file at change root
-    "my-change/.openspec.yaml",        // config file
+    "archive",                         // the archive container is not a change
+    "archive/2026-01-01-old/tasks.md", // archived changes are not polled
     "my-change/notes.txt",             // non-markdown
     "my-change/specs/cap/notes.txt",   // wrong extension under specs
     "my-change/specs/cap/spec.txt",    // wrong extension
@@ -41,5 +44,33 @@ describe("matchesOpenSpecArtifact", () => {
 
   it.each(negatives)("rejects: %s", (input) => {
     expect(matchesOpenSpecArtifact(input as any)).toBe(false);
+  });
+});
+
+describe("matchesOpenSpecArtifact — schema-declared outputs and root events (#E13)", () => {
+  const outputs = { known: ["dependencies.yaml", "specs/**/*.md", "plan.md"] };
+
+  it("matches a not-yet-created schema output of a known change", () => {
+    expect(matchesOpenSpecArtifact("known/dependencies.yaml", outputs)).toBe(true);
+    expect(matchesOpenSpecArtifact("known/plan.md", outputs)).toBe(true);
+  });
+  it("does not match the same name for an unknown change or without patterns", () => {
+    expect(matchesOpenSpecArtifact("other/dependencies.yaml", outputs)).toBe(false);
+    expect(matchesOpenSpecArtifact("known/dependencies.yaml")).toBe(false);
+  });
+  it("README.md under a known change is not an output", () => {
+    expect(matchesOpenSpecArtifact("known/README.md", outputs)).toBe(false);
+  });
+  it("a new change directory (rename event) and an unknown-change proposal.md match", () => {
+    expect(matchesOpenSpecArtifact("new-x", outputs, "rename")).toBe(true);
+    expect(matchesOpenSpecArtifact("new-x", outputs, "change")).toBe(false); // only its mtime moved
+    expect(matchesOpenSpecArtifact("new-x/proposal.md", outputs)).toBe(true);
+  });
+  it("root events: config.yaml and schemas match; specs/ and others do not", () => {
+    expect(matchesOpenSpecRootEvent("config.yaml")).toBe(true);
+    expect(matchesOpenSpecRootEvent("schemas")).toBe(true);
+    expect(matchesOpenSpecRootEvent("specs")).toBe(false);
+    expect(matchesOpenSpecRootEvent("changes")).toBe(false);
+    expect(matchesOpenSpecRootEvent(null)).toBe(false);
   });
 });

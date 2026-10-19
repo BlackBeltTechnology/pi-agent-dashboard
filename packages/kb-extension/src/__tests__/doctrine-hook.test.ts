@@ -198,3 +198,24 @@ describe("structured section contract", () => {
     expect(Object.values(opts.sections).join("\n").split(DOX_DELIMITER)).toHaveLength(2);
   });
 });
+
+// test-plan #E21 (kb arm): pi >= 1.2.0 fires before_agent_start for a custom-message
+// run (the dashboard Retry turn) with `messageType: "custom"` and NO `prompt`.
+// The hook composes on systemPromptOptions only.
+// See change: update-pi-core-1-3-adopt-apis (design D2).
+describe("E21: a custom-message (Retry) start is tolerated and still gets the doctrine", () => {
+  it("does not throw and writes the DOX doctrine section without a prompt", () => {
+    const [hook] = loadHooks();
+    const opts = { cwd, contextFiles: undefined, sections: {} as Record<string, string> };
+    const customEvent = {
+      messageType: "custom",
+      message: { role: "custom", customType: "pi-dashboard:retry", content: "", display: false },
+      systemPrompt: "A",
+      systemPromptOptions: opts,
+    };
+    let out: unknown = "unset";
+    expect(() => { out = hook(customEvent); }).not.toThrow();
+    expect(out).toBeUndefined();
+    expect(opts.sections.dox_doctrine).toContain(DOX_DELIMITER);
+  });
+});

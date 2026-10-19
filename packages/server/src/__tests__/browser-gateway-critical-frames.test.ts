@@ -691,6 +691,17 @@ describe("collapsed-folder frames (X7)", () => {
     expect(frameClassOf({ type: "pair_pending_changed" })).toEqual({ cls: "state", key: "pair_pending" });
   });
 
+  it("X5: archive_session_error is state-class, keyed per session — never shed (fix-orphaned-ended-session-archive)", () => {
+    expect(frameClassOf({ type: "archive_session_error", sessionId: "S", error: "x" })).toEqual({
+      cls: "state",
+      key: "archive_session_error:S",
+    });
+  });
+
+  it("F4: services_changed is state-class, key services_changed — coalesced, never shed (add-services-settings-ui)", () => {
+    expect(frameClassOf({ type: "services_changed" })).toEqual({ cls: "state", key: "services_changed" });
+  });
+
   it("group_by_prefs_updated is state-class (session-list-group-by)", () => {
     const m = {
       type: "group_by_prefs_updated",

@@ -9,6 +9,7 @@ import path from "node:path";
 import { getRuntimeOverlayDir } from "@blackbelt-technology/pi-dashboard-shared/runtime-overlay/state.js";
 import { app, BrowserWindow, dialog, Menu, type MenuItemConstructorOptions, shell } from "electron";
 import { checkForUpdatesNow, getUpdateLogPath } from "./app-updater.js";
+import { buildBrowserRelayMenuItem } from "./browser-host/consent.js";
 import { openDoctorWindow } from "./doctor-window.js";
 import { openRemoteConnectWindow, useLocalDashboard } from "./remote-connect-window.js";
 import { activationTarget, pickLocalFolder, stopUsingLocalFolder } from "./runtime-overlay.js";
@@ -184,6 +185,7 @@ export function setupAppMenu(): void {
           { label: "Connect to Remote Dashboard…", click: () => openRemoteConnectWindow() },
           { label: "Use Local Dashboard", click: () => useLocalDashboard() },
           runtimeSubmenu(),
+          buildBrowserRelayMenuItem(),
           { type: "separator" },
           { role: "hide" },
           { role: "hideOthers" },
@@ -272,6 +274,7 @@ export function setupAppMenu(): void {
       click: () => useLocalDashboard(),
     },
     runtimeSubmenu(),
+    buildBrowserRelayMenuItem(),
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }

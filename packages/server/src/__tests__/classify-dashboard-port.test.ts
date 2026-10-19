@@ -41,6 +41,22 @@ function deps(over: Partial<ClassifyDeps> & { byHost?: Record<string, DashboardS
 afterEach(() => vi.restoreAllMocks());
 
 describe("classifyDashboardPort", () => {
+  // See change: fix-cli-control-electron-server (test-plan #E3, design D3).
+  it("E3: an owned verdict carries the health owner fields", async () => {
+    const verdict = await classifyDashboardPort(cfg, deps({
+      byHost: {
+        "127.0.0.1": {
+          running: true, pid: 55, instanceId: "ID",
+          launchSource: "electron", bootParentAlive: false, bootParentPid: 7,
+        },
+      },
+      peekInstanceId: () => "ID",
+    }));
+    expect(verdict).toEqual({
+      kind: "owned", pid: 55, launchSource: "electron", bootParentAlive: false, bootParentPid: 7,
+    });
+  });
+
   // E7 — start's ownership predicate and stop's are one function.
   it.each([
     [true, true],

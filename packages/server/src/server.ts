@@ -19,6 +19,7 @@ import { findBundledExtension, registerBridgeExtension } from "@blackbelt-techno
 import type { PackageOperationCompleteMessage, ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { AuthConfig, DashboardConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { CONFIG_DIR, CONFIG_FILE, getPluginConfig as getPluginConfigFromFile, loadConfig, resolvePublicBaseUrls, writeConfigFileSecure } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { createSemaphore } from "@blackbelt-technology/pi-dashboard-shared/semaphore.js";
 import { CustomEventGroupsStore } from "@blackbelt-technology/pi-dashboard-shared/custom-event-groups-store.js";
 import { parseLaunchSource } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
 import type { HostAction, HostResource, Principal } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
@@ -52,6 +53,7 @@ import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
+import { listGrants as listAccessGrants, setGrantsChangedListener } from "./access/access-grants.js";
 import { snapshotAccessGrantHealth } from "./access/access-health.js";
 import { AccessPlaneRegistry, isGrantPromptKilled } from "./access/access-plane.js";
 import { shouldIssuePromptCapability } from "./access/capability-issuance.js";
@@ -61,6 +63,7 @@ import { createCwdHold } from "./access/cwd-verdict.js";
 import { installGrantCoordinator } from "./access/denial-hold.js";
 import { GrantCoordinator } from "./access/grant-coordinator.js";
 import { ensureGrantStoreId } from "./access/grant-store-id.js";
+import { createPiTrustMirrorService, setPiTrustMirror } from "./access/pi-trust-mirror-service.js";
 import { createCorsPlane, createCwdPlane, createFilesystemPlane, createNetworkPlane } from "./access/planes.js";
 import { promptChannelCount } from "./access/prompt-channel.js";
 import { clearRefusal, isRefused, listRefusals, recordRefusal } from "./access/refusal-ledger.js";
@@ -99,6 +102,11 @@ import {
   resolveHostGateMode,
 } from "./auth/host-gate.js";
 import { ensureServerIdentity } from "./auth/identity.js";
+import {
+  MAIN_CONNECTION_TIMEOUT_MS,
+  MAIN_KEEP_ALIVE_TIMEOUT_MS,
+  TlsListener,
+} from "./tls/tls-listener.js";
 import { createLocalCredentialVerifier, hasLocalCredential, listenWithProofFloor } from "./auth/local-credential.js";
 import { createLocalTrustContext, LocalProofCodeStore } from "./auth/local-proof.js";
 import { ensureLocalToken } from "./auth/local-token.js";
@@ -122,6 +130,8 @@ import { readAuthJson } from "./auth/provider-auth-storage.js";
 import { countReloads, type RadiusMcpService } from "./auth/radius-mcp.js";
 import { createRouteTierGate } from "./auth/route-tier-gate.js";
 import { mintSpawnToken } from "./auth/spawn-token.js";
+import { admissionTrustedNetworks, effectiveTrustMode } from "./auth/trust-mode.js";
+import { decideBootTrustMode } from "./auth/trust-mode-boot.js";
 import {
   type CoreWsRouteScope,
   extractTicket,
@@ -158,6 +168,7 @@ import { createPluginSessionCloseApi, createSessionCloserRegistry } from "./embe
 import { wireEvents } from "./event-wiring.js";
 import { createFileWatchManager } from "./file-watch-manager.js";
 import { createWorktreeInitRegistry } from "./git-worktree/worktree-init-registry.js";
+import { listPersistedTrust as listPersistedWorktreeTrust, setTrustChangedListener } from "./git-worktree/worktree-init-trust.js";
 import { identityDisarmedWarning, isIdentityEnforced } from "./identity/activation.js";
 import { buildAuthContext } from "./identity/auth-context.js";
 import { type BootstrapGrants, DENY_ALL_GRANTS, decideBootstrapGrants } from "./identity/bootstrap-grants.js";
@@ -189,6 +200,13 @@ import { bootParentPid, isBootParentProvablyDead } from "./lifecycle/boot-parent
 import { runBoundedStartup } from "./lifecycle/bounded-startup.js";
 import { startEphemeralParentWatch } from "./lifecycle/ephemeral-parent-watch.js";
 import { ensureInstanceId } from "./lifecycle/instance-id.js";
+import {
+  createLiveCapabilityHook,
+  LiveCapabilityStore,
+  parseCapabilityPath,
+  redactCapability,
+  sessionKeyOf,
+} from "./live-server/live-capability.js";
 import { createLiveServerManager } from "./live-server/live-server-manager.js";
 import { handleLiveServerUpgrade, registerLiveServerProxy } from "./live-server/live-server-proxy.js";
 import { startEventLoopSampler } from "./metrics/eventloop-sampler.js";
@@ -200,12 +218,11 @@ import { getServerModelRuntime } from "./model-proxy/server-model-runtime.js";
 import { callPiAiStreamSimple } from "./model-proxy/streamer.js";
 import { currentGlobalWorkflowSignature } from "./openspec/global-signature.js";
 import { createOpenSpecGroupStore, joinGroupIdsToOpenSpecData } from "./openspec/openspec-group-store.js";
+import { fetchPackageMeta } from "./package/npm-search-proxy.js";
 import { logPackageHealthAtBoot } from "./package/package-health-scanner.js";
 import { type OperationResult, PackageManagerWrapper } from "./package/package-manager-wrapper.js";
 import { type BrowserGateway, createBrowserGateway } from "./pairing/browser-gateway.js";
-import type { SessionPresence } from "./questions/question-files.js";
-import { registerQuestionRoutes } from "./questions/question-routes.js";
-import { createQuestionStack, persistedPresence } from "./questions/question-stack.js";
+import { createRequestAccessAvailable, type KnockPeerDeps } from "./pairing/knock-admission.js";
 import { PairedDeviceRegistry } from "./pairing/paired-devices.js";
 import { PairingManager, wirePendingHint } from "./pairing/pairing.js";
 import type { TieredSocket } from "./pairing/ws-tier-gate.js";
@@ -226,7 +243,7 @@ import { createMetaPersistence } from "./persistence/meta-persistence.js";
 import { migrateCustomEntryFallbackOverrides } from "./persistence/migrate-custom-entry-fallback.js";
 import { needsMigration, runMigration } from "./persistence/migrate-persistence.js";
 import { createPreferencesStore } from "./persistence/preferences-store.js";
-import { loadHostProjectTrust } from "./pi/host-project-trust.js";
+import { loadHostProjectTrustService } from "./pi/host-project-trust.js";
 import { PiCoreChecker } from "./pi/pi-core-checker.js";
 import { PiCoreUpdater } from "./pi/pi-core-updater.js";
 import { createPiGateway } from "./pi/pi-gateway.js";
@@ -235,9 +252,13 @@ import * as pluginEventSeam from "./plugin-event-seam.js";
 import { pluginIntentCache } from "./plugin-intent-cache.js";
 import { createPluginRequestLane } from "./plugin-request-lane.js";
 import { createPushService, type PushService } from "./push/push-service.js";
+import type { SessionPresence } from "./questions/question-files.js";
+import { registerQuestionRoutes } from "./questions/question-routes.js";
+import { createQuestionStack, persistedPresence } from "./questions/question-stack.js";
 import { registerAccessPromptRoutes } from "./routes/access-prompt-routes.js";
 import { registerAccessRoutes } from "./routes/access-routes.js";
 import { registerAcpRoutes } from "./routes/acp-routes.js";
+import { registerAddonsRoutes } from "./routes/addons-routes.js";
 import { registerAttachmentRoutes } from "./routes/attachment-routes.js";
 import { registerCanvasTypesRoutes } from "./routes/canvas-types-routes.js";
 import { registerCustomEventGroupsRoutes } from "./routes/custom-event-groups-routes.js";
@@ -251,6 +272,7 @@ import { registerKnownServersRoutes } from "./routes/known-servers-routes.js";
 import { registerLiveServerRoutes } from "./routes/live-server-routes.js";
 import { registerLocalProofRoutes } from "./routes/local-proof-routes.js";
 import { registerManifestRoute } from "./routes/manifest-route.js";
+import { registerMermaidRepairRoutes } from "./routes/mermaid-repair-routes.js";
 import { registerModelProxyApiKeyRoutes } from "./routes/model-proxy-api-key-routes.js";
 import { registerModelProxyDiagnosticsRoutes } from "./routes/model-proxy-diagnostics-routes.js";
 import { registerModelProxyRefreshRoutes } from "./routes/model-proxy-refresh-routes.js";
@@ -265,9 +287,9 @@ import { PUBLIC_PAIRING_PREFIXES, registerPairingRoutes } from "./routes/pairing
 import { registerPiChangelogRoutes } from "./routes/pi-changelog-routes.js";
 import { registerPiCoreRoutes } from "./routes/pi-core-routes.js";
 import { registerPiRetryRoutes } from "./routes/pi-retry-routes.js";
-import { registerPiSettingsRoutes } from "./routes/pi-settings-routes.js";
 import { registerPiRuntimeRoutes } from "./routes/pi-runtime-routes.js";
-import { registerPluginActivationRoutes } from "./routes/plugin-activation-routes.js";
+import { registerPiSettingsRoutes } from "./routes/pi-settings-routes.js";
+import { registerPluginActivationRoutes, setPluginsEnabled } from "./routes/plugin-activation-routes.js";
 import { registerPluginConfigRoutes } from "./routes/plugin-config-routes.js";
 import { registerPreferencesAutoNameRoutes } from "./routes/preferences-auto-name-routes.js";
 import { registerPreferencesDisplayRoutes } from "./routes/preferences-display-routes.js";
@@ -280,6 +302,7 @@ import { registerResourceActivationRoutes } from "./routes/resource-activation-r
 import { registerRuntimeRoutes } from "./routes/runtime-routes.js";
 import { registerSessionRoutes, type ToolResultStats } from "./routes/session-routes.js";
 import { registerSystemRoutes } from "./routes/system-routes.js";
+import { registerTlsRoutes } from "./routes/tls-routes.js";
 import { registerToolRoutes } from "./routes/tool-routes.js";
 import { registerUserRoutes } from "./routes/user-routes.js";
 import {
@@ -316,14 +339,14 @@ import { createSessionOrderManager, type SessionOrderManager } from "./session/s
 import { originOf } from "./session/session-origin.js";
 import { bootScanAllSessions } from "./session/session-scanner.js";
 import { sessionToMeta } from "./session/session-to-meta.js";
+import { createAbortSpawnedRun } from "./spawn-process/abort-spawned-run.js";
 import { setLocalAcpHost, spawnAcpSession, validatePluginAcpSpawn } from "./spawn-process/acp-spawn.js";
 import { CwdPolicyRegistry } from "./spawn-process/cwd-policy.js";
 import { keeperOptsFromSpawnResult } from "./spawn-process/headless-pid-registry.js";
 import { createIdleTimer } from "./spawn-process/idle-timer.js";
 import { getKeeperManager, setCwdPolicyRegistry, spawnPiSession } from "./spawn-process/process-manager.js";
-import { createAbortSpawnedRun } from "./spawn-process/abort-spawned-run.js";
-import { createSessionTerminator } from "./spawn-process/session-terminator.js";
 import { removePid, writePid } from "./spawn-process/server-pid.js";
+import { createSessionTerminator } from "./spawn-process/session-terminator.js";
 import { registerSpawnEnvContributorForPlugin, setSpawnEnvPluginEnabledCheck } from "./spawn-process/spawn-env-contributors.js";
 import { armSpawnWatchdog } from "./spawn-process/spawn-register-watchdog.js";
 import { createTerminalGateway } from "./terminal/terminal-gateway.js";
@@ -471,6 +494,8 @@ export interface DashboardServer {
   browserGateway: BrowserGateway;
   /** Resolved HTTP port after start() (useful for port:0 in tests). Returns null if not listening. */
   httpPort(): number | null;
+  /** The optional TLS listener (off by default). See change: add-tailscale-cert-tls. */
+  readonly tls: TlsListener;
   /** Resolved pi gateway port after start(). Returns null if not listening. */
   piPort(): number | null;
   /**
@@ -526,7 +551,31 @@ function resolvedPiVersion(): string | undefined {
 /** Plugin frames that are NOT domain events: replay-cached UI intents and settings echoes. */
 const NON_DOMAIN_PLUGIN_FRAMES: ReadonlySet<string> = new Set(["plugin_intents", "plugin_config_update"]);
 
+/**
+ * "Also trust this folder in pi": stored with the entry an allow-always just wrote
+ * (filesystem → persisted grant; cwd → pin). Best-effort — the grant itself already
+ * stands. See change: mirror-dashboard-trust-to-pi.
+ */
+function storePiTrustChoiceOfVerdict(
+  mirror: ReturnType<typeof createPiTrustMirrorService>,
+  msg: { verdict: string; plane: string; subject: string; piTrust?: boolean },
+): void {
+  if (msg.verdict !== "allow-always" || typeof msg.piTrust !== "boolean") return;
+  const kind = msg.plane === "filesystem" ? "accessGrants" : msg.plane === "cwd" ? "pinned" : null;
+  if (!kind) return;
+  try {
+    mirror.setChoice(kind, msg.subject, msg.piTrust);
+    mirror.refresh();
+  } catch (err) {
+    console.warn(`[pi-trust-mirror] could not store the pi-trust choice: ${(err as Error)?.message}`);
+  }
+}
+
 export async function createServer(config: ServerConfig): Promise<DashboardServer> {
+  // Decide the network trust mode ONCE, before any hook is installed and before
+  // the server listens (so no operator write can race it). Never re-derived
+  // from the list afterwards. See change: retire-trusted-networks-bypass (D2).
+  decideBootTrustMode();
   // Ensure bridge extension is registered in pi's global settings
   // (needed for bundled installs where pi can't discover it from package.json)
   //
@@ -652,6 +701,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Taken immediately BEFORE each successful bind: a proof minted earlier cannot
   // be for this listener (D3). 0 until `fastify.listen` runs (inject() in tests).
   let httpBoundAt = 0;
+  // Same contract for the optional TLS listener (its own bind, its own floor). See change: add-tailscale-cert-tls.
+  let tlsBoundAt = 0;
   // Strict local-proof context (`requireLocalProof`, live config read). Threaded to
   // every genuinely-local admission site. See change: harden-trust-and-credential-boundaries (D2).
   const localTrust = createLocalTrustContext(localToken, liveRequireLocalProof);
@@ -664,6 +715,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       const tunnelUrl = getTunnelUrl();
       if (tunnelUrl) urls.push(tunnelUrl);
       urls.push(...resolvePublicBaseUrls(loadConfig()));
+      // Certificate-backed names of the TLS listener (https only; the https/wss
+      // gate in `reachableUrls()` still applies). See change: add-tailscale-cert-tls (D5).
+      urls.push(...tlsListener.tlsListenerUrls().map((e) => e.url));
       // Test-only (PI_E2E_SEED): expose the loopback http origin so the
       // Playwright/Docker harness can pair over http://localhost (a genuine
       // secure context) without TLS. `reachableUrls()` re-gates it behind the
@@ -695,6 +749,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     sessionManager,
     metaPersistence,
     getPinnedDirs: () => preferencesStore.getPinnedDirectories(),
+    // Fileless eviction (manual archive / supersede) has no file to reload the
+    // events from. `eventStore` is built later; the closure runs after boot.
+    // See change: fix-orphaned-ended-session-archive.
+    deleteEvents: (id) => { eventStore.deleteEventsForSession(id); },
   });
   const pendingArchiveIntents = createPendingArchiveIntentRegistry();
   // Stable per-boot id stamped into the liveness marker so cold start can
@@ -1480,7 +1538,41 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // `defaultProjectTrust`), consumed by mcp-client to decide whether a
   // folder's `.pi/mcp.json` is active. Resolved once; an unresolvable pi reads
   // every project as untrusted. See change: migrate-mcp-to-pi-builtin (D3).
-  pluginServiceRegistry.set("host.isProjectTrusted", await loadHostProjectTrust());
+  // Durable dashboard trust is mirrored into pi's `project_trust` through a
+  // server-written snapshot (rebuilt now from the persisted stores, so a crash
+  // between a revoke's two writes heals at boot). See change: mirror-dashboard-trust-to-pi.
+  const piTrustMirror = createPiTrustMirrorService({
+    getConfig: () => loadConfig().piTrustMirror,
+    listPinned: () => preferencesStore.getPinnedDirectories(),
+    listWorkspaceFolders: () => preferencesStore.getWorkspaces().flatMap((w) => w.folders),
+    listWorktreeTrust: listPersistedWorktreeTrust,
+    listPersistedGrants: () => listAccessGrants().filter((g) => g.scope === "project"),
+  });
+  setPiTrustMirror(piTrustMirror);
+  try {
+    piTrustMirror.rebuildAtBoot();
+  } catch (err) {
+    console.warn(`[pi-trust-mirror] boot snapshot rebuild failed: ${(err as Error)?.message}`);
+  }
+  // Any source change refreshes the snapshot (coalesced); operator revokes additionally
+  // go through the ordered `revoke` path in their handlers.
+  let mirrorRefreshQueued = false;
+  const queueMirrorRefresh = (): void => {
+    if (mirrorRefreshQueued) return;
+    mirrorRefreshQueued = true;
+    setImmediate(() => {
+      mirrorRefreshQueued = false;
+      piTrustMirror.refresh();
+    });
+  };
+  preferencesStore.onPinsChanged?.(queueMirrorRefresh);
+  preferencesStore.onWorkspacesChanged(queueMirrorRefresh);
+  setGrantsChangedListener(queueMirrorRefresh);
+  setTrustChangedListener(queueMirrorRefresh);
+  const hostProjectTrust = await loadHostProjectTrustService();
+  pluginServiceRegistry.set("host.isProjectTrusted", hostProjectTrust.isProjectTrusted);
+  pluginServiceRegistry.set("host.projectTrustSource", hostProjectTrust.projectTrustSource);
+  pluginServiceRegistry.set("host.piTrustCoverInteractive", () => loadConfig().piTrustMirror.coverInteractive);
   // cwd-policy as the spawn funnel composes it, so the team plugin can refuse a
   // start whose skill set the policy would narrow. See change: add-team-skill-access (D7).
   pluginServiceRegistry.set("host.resolveCwdPolicy", (cwd: string) => cwdPolicyRegistry.resolve(cwd));
@@ -1719,8 +1811,36 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
 
   const fastify = Fastify({
     logger: false,
-    keepAliveTimeout: 30_000,
-    connectionTimeout: 10_000,
+    keepAliveTimeout: MAIN_KEEP_ALIVE_TIMEOUT_MS,
+    connectionTimeout: MAIN_CONNECTION_TIMEOUT_MS,
+    // Add-ons feature ids embed a local package's absolute path (`pkg:local:/…`), which exceeds
+    // find-my-way's default 100-char param limit (414). See change: addons-hub-folder-view.
+    maxParamLength: 1024,
+  });
+
+  // Optional native TLS listener (off by default): a second `https.Server` that
+  // dispatches into THIS Fastify instance — one route table, one gate chain, one
+  // upgrade switch, two transports. Reconciled after `listen`; failure-isolated.
+  // See change: add-tailscale-cert-tls (D1).
+  let tlsUpgrade: ((req: import("node:http").IncomingMessage, socket: import("node:stream").Duplex, head: Buffer) => void) | null = null;
+  const tlsListener = new TlsListener({
+    dataRoot: path.join(os.homedir(), ".pi", "dashboard", "tls"),
+    getTlsConfig: () => loadConfig().tls,
+    beforeBind: (at) => {
+      tlsBoundAt = at;
+    },
+    dispatch: {
+      request: (req, res) => {
+        fastify.server.emit("request", req, res);
+      },
+      upgrade: (req, socket, head) => {
+        if (tlsUpgrade) tlsUpgrade(req, socket, head);
+        else socket.destroy();
+      },
+      clientError: (err, socket) => {
+        fastify.server.emit("clientError", err, socket);
+      },
+    },
   });
 
   // Route inventory (test-only): fires as each route registers, before listen,
@@ -1735,7 +1855,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // the rate limiter) so no later hook can read an unverified request.
   // See change: loopback-credential-proof (D4).
   fastify.addHook("onRequest", async (request) => {
-    localCredential.stamp(request.raw, { kind: "http", boundAt: httpBoundAt });
+    localCredential.stamp(request.raw, {
+      kind: "http",
+      boundAt: (request.raw.socket as import("node:tls").TLSSocket).encrypted ? tlsBoundAt : httpBoundAt,
+    });
   });
 
   // Global rate limiter. Two jobs: a real remote-caller ceiling, and making the
@@ -1787,6 +1910,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   //     config-override-oauth-redirect-base (D15).
   const corsAllowedOrigins = () => liveCorsAllowedOrigins(config.corsAllowedOrigins ?? []);
   const corsTrustedNetworks = () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []);
+  // The ONE live, mode-dependent admission list (`[]` under `pair`) every
+  // admission site reads per request — never a boot copy.
+  // See change: retire-trusted-networks-bypass (D1).
+  const admissionList = () => admissionTrustedNetworks(config.resolvedTrustedNetworks ?? []);
   // Host-admission gate (issue #637, design D1/D4/D6) — the DNS-rebinding
   // defence. Under rebinding the attacker page is SAME-ORIGIN with the
   // dashboard, so its GETs carry no Origin and its peer is loopback: every
@@ -1819,6 +1946,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // IP bind is already covered by the IP-literal rule; this matters when
       // the bind is a NAME.
       bindHost: config.host,
+      // Exact certificate names of the TLS listener (empty unless enabled + bound).
+      tlsListenerNames: () => tlsListener.tlsListenerNames(),
     },
     ...resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()),
   });
@@ -1845,6 +1974,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     allowedHosts: liveAllowedHosts(),
     publicBaseUrls: livePublicBaseUrls(),
     bindHost: config.host,
+    tlsListenerNames: () => tlsListener.tlsListenerNames(),
     // Env-over-config, resolved the SAME way as the hook (D4): a mixed state
     // (env=report + config=enforce) must keep the Origin gate's report-only
     // behaviour in step with the hook, else the escape hatch only half-engages.
@@ -1866,7 +1996,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   grantPlanes.register(createFilesystemPlane());
   grantPlanes.register(createCwdPlane({ pinDirectory: (dir) => preferencesStore.pinDirectory(dir) }));
   grantPlanes.register(
-    createNetworkPlane({ readTrustedNetworks: () => loadConfig().trustedNetworks ?? [], writeConfigPartial }),
+    createNetworkPlane({
+      readTrustedNetworks: () => loadConfig().trustedNetworks ?? [],
+      writeConfigPartial,
+      networkTrustActive: () => effectiveTrustMode().mode === "legacy",
+    }),
   );
   grantPlanes.register(
     createCorsPlane({ readRawCors: () => (readRawConfig().cors ?? {}) as Record<string, unknown>, writeConfigPartial }),
@@ -1902,11 +2036,19 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   });
   installGrantCoordinator(grantCoordinator);
   browserGateway.registerHandler("grant_response", (msg) => {
-    grantCoordinator.onResponse(msg).catch((err: unknown) => {
-      console.error(`[access-grant] grant_response failed: ${(err as Error)?.message ?? err}`);
-    });
+    grantCoordinator
+      .onResponse(msg)
+      .then(() => storePiTrustChoiceOfVerdict(piTrustMirror, msg))
+      .catch((err: unknown) => {
+        console.error(`[access-grant] grant_response failed: ${(err as Error)?.message ?? err}`);
+      });
   });
   setNetworkDenialObserver((request) => {
+    // `pair`: a network match grants nothing, so a denial is not a trust request
+    // — the block event is still recorded (by the guard), but no network prompt
+    // is raised; the operator is asked when the device knocks.
+    // See change: retire-trusted-networks-bypass (D6).
+    if (effectiveTrustMode().mode === "pair") return;
     grantCoordinator.onDenial(
       {
         plane: "network",
@@ -1988,6 +2130,24 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Bearer device-auth branch — registered BEFORE the OAuth plugin so its
   // onRequest hook runs first and OAuth can early-return when already
   // authenticated. Additive (D5/D7); independent of whether OAuth is on.
+  // Live-preview capability paths (change: retire-trusted-networks-bypass, D5).
+  // The hook runs BEFORE the bearer / OAuth / identity hooks: a preview request
+  // carries no cookie (opaque-origin frame), so it would otherwise be refused
+  // there. It admits ONLY a valid `/live/<id>/~c/<token>/…` raw path.
+  // Liveness is re-checked at every use, so a revoked device, an ended session
+  // or a removed target is refused on its next request.
+  const liveCapabilities = new LiveCapabilityStore({
+    isTargetLive: (id) => liveServerManager.get(id) !== undefined,
+    isPrincipalLive: (p) => {
+      if (p.identityExpiresAt !== undefined && p.identityExpiresAt <= Date.now()) return false;
+      // Minted on network trust alone: only valid while network trust still authenticates.
+      if (p.kind === "network") return effectiveTrustMode().mode === "legacy";
+      if (p.kind === "device") return pairedDeviceRegistry.list().some((d) => d.id === p.deviceId);
+      if (p.kind === "session" && p.session) return effectiveSessionTier(p.session, passkeyService) !== null;
+      return true;
+    },
+  });
+  fastify.addHook("onRequest", createLiveCapabilityHook(liveCapabilities));
   registerBearerAuth(fastify, { registry: pairedDeviceRegistry });
   registerDeviceSessionRoutes(fastify, {
     registry: pairedDeviceRegistry,
@@ -2081,6 +2241,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       authConfig: config.authConfig,
       port: config.port,
       resolvedTrustedNetworks: config.resolvedTrustedNetworks,
+      readAdmissionTrustedNetworks: admissionList,
+      onSessionEnd: (cookie) => liveCapabilities.revokeBySessionKey(sessionKeyOf(cookie)),
       localToken,
       localTrust,
       passkeys: passkeyService,
@@ -2178,7 +2340,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   fastify.addHook(
     "onRequest",
     createRouteTierGate({
-      getTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []),
+      getTrustedNetworks: admissionList,
       localTrust,
     }),
   );
@@ -2187,7 +2349,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // runtime admits without a restart. Created BEFORE registerSessionApi so the
   // new lifecycle/extension-ui routes can carry it as a preHandler.
   const networkGuard = createNetworkGuard(
-    () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []),
+    admissionList,
     { localToken, localTrust },
   );
 
@@ -2221,7 +2383,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
             metaPersistence,
           }),
       }, extras ?? {}),
-    getTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []),
+    getTrustedNetworks: admissionList,
   });
 
   // Register route modules
@@ -2297,6 +2459,20 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     return ids.length;
   };
   registerPiRetryRoutes(fastify, { networkGuard, reloadConnectedSessions });
+  // On-demand AI mermaid repair (opt-in via `mermaidRepair` config; 404 when off).
+  // See change: add-mermaid-ai-repair.
+  registerMermaidRepairRoutes(fastify, {
+    networkGuard,
+    getConfig: () => loadConfig().mermaidRepair,
+    getRegistry: async () => {
+      try {
+        return await getModelRegistry();
+      } catch {
+        return null;
+      }
+    },
+    getStreamSimple: getStreamSimpleFn,
+  });
   // pi global settings.json editor (typed form + raw JSON) and the
   // default-model mirror/drift repair. See change: edit-pi-agent-settings.
   registerPiSettingsRoutes(fastify, { networkGuard, reloadConnectedSessions, readDashboardConfig: loadConfig });
@@ -2392,6 +2568,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     directoryService,
     networkGuard,
     piGateway,
+    // Live (per-request) config for the workflow-schema gates + new-project default.
+    getOpenSpecConfig: () => loadConfig().openspec,
+    // Own bounded pool for the workflow-schema `newer`/`conflict` validate: the
+    // directory service's semaphore is not exposed. See change: add-pi-spec-driven-schema.
+    spawnSemaphore: createSemaphore(loadConfig().openspec.maxConcurrentSpawns),
     onOpenSpecChanged: (cwd) => {
       const data = directoryService.getOpenSpecData(cwd);
       if (data) browserGateway.broadcastToAll({ type: "openspec_update", cwd, data });
@@ -2499,7 +2680,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   }
 
   registerAcpRoutes(fastify);
-  registerSystemRoutes(fastify, { onVaultConfigChanged: () => void vaultDelivery.pushNow(), sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, toolResultStats, embedLifecycle, clientDir, clientBuild, readTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []), readAccessGrants: () => snapshotAccessGrantHealth({ coordinator: grantCoordinator, yolo, refusalCount: () => listRefusals().length, promptEnabled: () => loadConfig().accessGrants?.promptEnabled === true, killSwitch: () => isGrantPromptKilled(), hostGateMode: () => resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode, operatorChannels: () => promptChannelCount() }), keeperLogStats: { get: () => getKeeperManager().getKeeperLogStats() }, readPushErrors: pushService ? () => pushService?.errors ?? [] : pushInitError ? () => [pushInitError as string] : undefined });
+  registerTlsRoutes(fastify, { networkGuard, listener: tlsListener });
+  registerSystemRoutes(fastify, { onVaultConfigChanged: () => void vaultDelivery.pushNow(), tls: tlsListener, sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, toolResultStats, embedLifecycle, clientDir, clientBuild, readTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []), readAccessGrants: () => snapshotAccessGrantHealth({ coordinator: grantCoordinator, yolo, refusalCount: () => listRefusals().length, promptEnabled: () => loadConfig().accessGrants?.promptEnabled === true, killSwitch: () => isGrantPromptKilled(), hostGateMode: () => resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode, operatorChannels: () => promptChannelCount() }), keeperLogStats: { get: () => getKeeperManager().getKeeperLogStats() }, readPushErrors: pushService ? () => pushService?.errors ?? [] : pushInitError ? () => [pushInitError as string] : undefined });
   registerHostGateRoutes(fastify, { getCtx: getHostGateCtx, state: hostGateState, networkGuard });
   // GET /api/doctor — see change: doctor-rich-output (task 4.2). Auth-gated identically to /api/config.
   // Assigned by the runtime-overlay block below; read lazily per request.
@@ -2535,8 +2717,30 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       }
     },
     discoverOffers: () => discoverServiceOffers(resolveInstallRoot(fileURLToPath(import.meta.url))),
+    // Content-free hint (type only): Settings → Services refetches `GET /api/services`.
+    // The manager coalesces to ≤ 1 per 500 ms. See change: add-services-settings-ui.
+    onChange: () => browserGateway.broadcastToAll({ type: "services_changed" }),
   });
-  registerServiceRoutes(fastify, { manager: serviceManager, networkGuard, localTrust, loginAvailable });
+  // The knock's pre-switch gate state, built ONCE: the pairing routes and the
+  // `request-access` remedy of vault / services refusals read the same Host
+  // admission and the same cached LAN-interface list, so the remedy cannot drift
+  // from the knock. See change: add-request-access-remedy (D1, D2, D4).
+  const knockPeerDeps: KnockPeerDeps = {
+    hostAdmission: () => getHostGateCtx().admission,
+    getLanInterfaces: createLanInterfaceProvider({ bindHost: config.host }),
+    // The RAW configured list (not the admission list): knock eligibility, read
+    // live in both trust modes. See change: retire-trusted-networks-bypass (D7).
+    getKnockEligibleNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []),
+  };
+  const requestAccessAvailable = createRequestAccessAvailable(knockPeerDeps, localTrust);
+  registerServiceRoutes(fastify, {
+    manager: serviceManager,
+    networkGuard,
+    localTrust,
+    loginAvailable,
+    requestAccessAvailable,
+    getTrustedNetworks: admissionList,
+  });
   // Credential vault: hub-owned accounts, bindings and per-project grants.
   // Management routes need operate authority or local trust; values never leave
   // through them. See change: add-credential-vault.
@@ -2546,6 +2750,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     networkGuard,
     localTrust,
     loginAvailable,
+    requestAccessAvailable,
     hostPolicy: policyRegistry,
     listOpenProjects: () => vaultDelivery.listOpenProjects(),
     projects: vaultProjects,
@@ -2778,8 +2983,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   ]);
 
   // Live-server-preview routes + reverse proxy (main-origin /live/:id/*).
-  registerLiveServerRoutes(fastify, liveServerManager, { networkGuard });
-  registerLiveServerProxy(fastify, liveServerManager);
+  registerLiveServerRoutes(fastify, liveServerManager, { networkGuard, capabilities: liveCapabilities });
+  registerLiveServerProxy(fastify, liveServerManager, { isDeviceBearer: (token) => pairedDeviceRegistry.verify(token) !== null });
 
   // ONE model runtime for the provider-auth flow listing AND the model proxy,
   // injected so auth/ never imports model-proxy/.
@@ -2835,7 +3040,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     registry: pairedDeviceRegistry,
     localToken,
     localTrust,
-    hostAdmission: () => getHostGateCtx().admission,
+    hostAdmission: knockPeerDeps.hostAdmission,
+    // Shared "is a login method configured" thunk (same instance as vault/services): drives the `sign-in` remedy.
+    loginAvailable,
     // Public (tunnel + configured public) base URLs, already TLS-gated.
     getReachableUrls: () => pairingManager.reachableUrls(),
     getPort: () => {
@@ -2846,7 +3053,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     // the on-link gate scores the peer against the interfaces the bind covers.
     // See change: add-lan-knock-pairing.
     getAcceptLanRequests: liveAcceptLanRequests,
-    getLanInterfaces: createLanInterfaceProvider({ bindHost: config.host }),
+    getLanInterfaces: knockPeerDeps.getLanInterfaces,
+    getKnockEligibleNetworks: knockPeerDeps.getKnockEligibleNetworks,
   });
   // Operator user directory (passkeys). See change: add-passkey-user-auth.
   registerUserRoutes(fastify, {
@@ -2934,6 +3142,17 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     networkGuard,
     broadcast: (msg) => browserGateway.broadcast(msg),
   });
+  // Add-ons hub: feature catalog + combined feature toggle. See change: addons-hub-feature-catalog.
+  registerAddonsRoutes(fastify, {
+    networkGuard,
+    packageManagerWrapper,
+    broadcast: (msg) => browserGateway.broadcast(msg),
+    knownDirectories: () => directoryService.knownDirectories(),
+    lookupNpm: (name) => fetchPackageMeta(name),
+    setPluginsEnabled,
+    // Fastify here runs with logger:false, so its log would drop every toggle line.
+    log: { info: (m) => console.log(m), warn: (m) => console.warn(m), error: (m) => console.error(m) },
+  });
   registerProviderRoutes(fastify, { networkGuard, piGateway, browserGateway, port: config.port });
 
   // ── Model Proxy ───────────────────────────────────────────────────
@@ -3008,7 +3227,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     createNetworkGuardHook({
       // Live thunk, never a boot snapshot: a CIDR added at runtime admits
       // without a restart (D15). Mirrors the per-route guard at 1499.
-      trustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []),
+      trustedNetworks: admissionList,
       localToken,
       localTrust,
       getBypassUrls: () => config.authConfig?.bypassUrls ?? [],
@@ -3155,6 +3374,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       if (addr && typeof addr === "object") return addr.port;
       return null;
     },
+    tls: tlsListener,
     piPort() {
       // TCP only: a UDS listener has no port, and callers of `piPort()` are
       // building `ws://host:<port>` URLs. Socket-transport callers read
@@ -3187,6 +3407,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
             try { await secondFastify.close(); } catch { /* ignore */ }
             secondFastify = null;
           }
+          try { await tlsListener.stop(); } catch { /* ignore */ }
           try { await fastify.close(); } catch { /* ignore */ }
         },
       });
@@ -3914,6 +4135,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 resolveUpgrade: resolveUpgradePrincipal,
                 policy: policyRegistry,
                 pluginDataRoot: (pid) => path.join(os.homedir(), ".pi", "dashboard", "plugins", pid),
+                localTrust,
               }),
               registerBrowserLoginConfig: (loginConfig) => {
                 const id = plugin.manifest.id;
@@ -3946,11 +4168,19 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         routeOwners.end();
       }
 
+      // Named so the optional TLS listener shares this exact switch (one upgrade
+      // path, two transports). See change: add-tailscale-cert-tls (D1).
       // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: legacy server wiring, grandfathered; decompose in a dedicated refactor, not piecemeal
-      fastify.server.on("upgrade", (request, socket, head) => {
+      const onUpgrade = (request: import("node:http").IncomingMessage, socket: import("node:stream").Duplex, head: Buffer): void => {
         // Stamp the local-credential verdict FIRST (before the Host/Origin gates):
         // everything below reads it via `hasLocalCredential(request.headers)`.
-        localCredential.stamp(request, { kind: "http", boundAt: httpBoundAt });
+        // The proof floor is per transport: a TLS socket is stamped against the
+        // TLS listener's own bind time, so a proof for the main port never
+        // verifies here. See change: add-tailscale-cert-tls (D1).
+        localCredential.stamp(request, {
+          kind: "http",
+          boundAt: (socket as import("node:tls").TLSSocket).encrypted ? tlsBoundAt : httpBoundAt,
+        });
         // Ephemeral single-use ticket (D11) bound to the requested WS route
         // scope. The one cheap read BEFORE the first gate — the host-admission
         // log line names the scope.
@@ -3976,7 +4206,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
 
         // Access check for WebSocket upgrades
         const remoteAddress = request.socket.remoteAddress || "";
-        const trusted = config.resolvedTrustedNetworks ?? [];
+        // Live admission list per upgrade (empty under `pair`) — NOT the boot
+        // value. See change: retire-trusted-networks-bypass (D1).
+        const trusted = admissionList();
         const secWsProtocol = request.headers["sec-websocket-protocol"] as string | undefined;
 
         // ── Plugin-owned WS routes (change: add-browser-relay D1) ──────────
@@ -4085,6 +4317,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         // principal-bearing ticket — they were the legacy loopback / local-token /
         // trusted-network / principal-less-ticket allowances that bypassed it.
         const requireIdentityTicket = (scope === "browser" || scope === "terminal" || scope === "live") && identityEnforced();
+        // A live-scope upgrade may be admitted by a validated capability path
+        // (token read from the path segment only — never query/subprotocol).
+        // Any other scope ignores it entirely. See change: retire-trusted-networks-bypass (D5).
+        const liveCap = scope === "live" ? parseCapabilityPath(request.url) : null;
+        const liveCapPrincipal = liveCap ? liveCapabilities.validate(liveCap.targetId, liveCap.token) : null;
         const upgradeAuth = authorizeWsUpgrade({
           cookieHeader: request.headers.cookie,
           remoteAddress,
@@ -4097,6 +4334,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           localToken,
           localTrust,
           requireIdentityTicket,
+          liveCapability: liveCapPrincipal
+            ? { identity: liveCapPrincipal.identity, identityExpiresAt: liveCapPrincipal.identityExpiresAt }
+            : null,
           // A revoked / disabled passkey user's cookie opens no socket (D4).
           isSessionLive: (p) => effectiveSessionTier(p, passkeyService) !== null,
         });
@@ -4224,18 +4464,23 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           case "live": {
             // Review B2 (policy `live.read` before the upgrade) + B1 (a proxied
             // dev-server socket must not outlive the ticket's principal).
-            gateRoadUpgrade(HostActions.liveRead, { kind: "live", route: (request.url ?? "").split("?")[0] }, () => {
+            gateRoadUpgrade(HostActions.liveRead, { kind: "live", route: redactCapability((request.url ?? "").split("?")[0]) }, () => {
               // Chunked past the 32-bit timer cap (`scheduleAtExpiry`), released on close.
               const cancelExpiry = scheduleAtExpiry(upgradeAuth.principalExpiresAt, () => socket.destroy());
               socket.once("close", cancelExpiry);
-              handleLiveServerUpgrade(liveServerManager, request, socket, head);
+              handleLiveServerUpgrade(liveServerManager, request, socket, head, {
+                isDeviceBearer: (token) => pairedDeviceRegistry.verify(token) !== null,
+                capabilityPrefix: liveCapPrincipal && liveCap ? liveCap.prefix : undefined,
+              });
             });
             break;
           }
           default:
             socket.destroy();
         }
-      });
+      };
+      fastify.server.on("upgrade", onUpgrade);
+      tlsUpgrade = onUpgrade;
 
       // Identity-plane arming (D1/D8/D9/D21). Runs AFTER plugins have loaded
       // (outside the loader try, so a loader throw cannot skip it) and BEFORE
@@ -4266,6 +4511,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       await listenWithProofFloor(fastify, (at) => (httpBoundAt = at), { port: config.port, host: config.host });
       writePid(process.pid);
       console.log(`Dashboard server running at http://${config.host}:${config.port}`);
+      // Optional TLS listener: only after Fastify is ready and the main listen resolved.
+      // Failure-isolated — a TLS problem never affects the main listener.
+      // See change: add-tailscale-cert-tls (D1, D7).
+      void tlsListener.markReady().catch((err: unknown) => {
+        console.warn(`[tls] listener start failed: ${err instanceof Error ? err.message : String(err)}`);
+      });
 
       // Managed services: adoption + scheduler only once the server really
       // started (a created-but-never-started server touches nothing). Boot is
@@ -4746,6 +4997,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         try { await secondFastify.close(); } catch { /* ignore */ }
         secondFastify = null;
       }
+      // The TLS listener (and its open connections) closes with the server.
+      try { await tlsListener.stop(); } catch { /* ignore */ }
       await fastify.close();
     },
   };

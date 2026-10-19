@@ -9,7 +9,13 @@ import { lazy } from "react";
 export const worktreeDialogLoaders = {
   CloseWorktreeDialog: () => import("./CloseWorktreeDialog.js").then((m) => ({ default: m.CloseWorktreeDialog })),
   MergeConfirmDialog: () => import("./MergeConfirmDialog.js").then((m) => ({ default: m.MergeConfirmDialog })),
+  // Click-only (folder `+ Worktree`, per-change `⑂+`, the session menu's New worktree
+  // session): ~14 KB raw off the cold-landing entry. See change: add-session-actions-flyout.
+  WorktreeSpawnDialog: () => import("./WorktreeSpawnDialog.js").then((m) => ({ default: m.WorktreeSpawnDialog })),
+  BranchSwitchDialog: () => import("./BranchSwitchDialog.js").then((m) => ({ default: m.BranchSwitchDialog })),
 };
 
 export const LazyCloseWorktreeDialog = lazy(worktreeDialogLoaders.CloseWorktreeDialog);
 export const LazyMergeConfirmDialog = lazy(worktreeDialogLoaders.MergeConfirmDialog);
+export const LazyWorktreeSpawnDialog = lazy(worktreeDialogLoaders.WorktreeSpawnDialog);
+export const LazyBranchSwitchDialog = lazy(worktreeDialogLoaders.BranchSwitchDialog);

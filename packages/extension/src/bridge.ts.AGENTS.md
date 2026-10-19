@@ -14,3 +14,6 @@ Creates `PluginForwardRegistry` after `registerEventBusForwarding` (`isCoreChann
 - Creates `vaultDelivery` + `createVaultRedaction` + forward filter (`outboundFilter` on both connections); registers `tool_result`/`message_end`/`user_bash` redaction handlers (fail closed). See change: add-credential-vault.
 
 See change: fix-replay-fabricates-orphan-end-for-live-calls — onReconnect replays with `{liveTailOpen: isLive(cachedCtx, isAgentStreaming)}`; synthetic reconnect `agent_start` carries `synthetic:true`. Wrapper `replaySessionEntries(opts?)`. Pinned by `__tests__/bridge-replay-live-tail.test.ts`.
+Activation captures `dashboardSpawned` via `captureSpawnTokenAtActivation()` (scrubs env). See change: mirror-dashboard-trust-to-pi.
+
+Follow-up drain: `drainFollowupQueue()` (no `retryCount`, no idle-retry loop) keeps the `isDraining` lock and wires the pure `drainOneFollowup` (`followup-drain.ts`); a false `isIdle()` returns, the next `agent_settled` drains (trigger in `bridge-handlers/forwarders.ts`). `enqueueSystemFollowup` ships at once when idle, else on the next settle. See change: update-pi-core-1-3-adopt-apis.

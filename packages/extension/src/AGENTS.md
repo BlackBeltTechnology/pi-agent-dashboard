@@ -4,7 +4,9 @@ Files in this directory. One row per source file.
 
 | File | Purpose |
 |------|---------|
-| `__tests__/project-init-openspec-skill-text.test.ts` | Text guards over `.pi/skills/project-init/SKILL.md` Steps 3b/3c/6: config fail-closed + defaults (E9), embedded `node -e` `pathKey` opt-out one-liner executed under faked platform (E10), git-placement + offer switch + repair row (E11), `openspec init --tools pi --force` + legacy lists parsed from `server/src/routes/openspec-routes.ts` + disclosure lines (E12), Step 6 gate/verify/`ls .pi/skills` + rewritten idempotent paragraph (E13). See change: fix-project-setup-completion-state. |
+| `__tests__/project-init-openspec-skill-text.test.ts` | Text guards over `packages/extension/.pi/skills/project-init/SKILL.md` Steps 3b/3c/6: config fail-closed + defaults (E9), embedded `node -e` `pathKey` opt-out one-liner executed under faked platform (E10), git-placement + offer switch + repair row (E11), `openspec init --tools pi --force` + legacy lists parsed from `server/src/routes/openspec-routes.ts` + disclosure lines (E12), Step 6 gate/verify/`ls .pi/skills` + rewritten idempotent paragraph (E13). See change: fix-project-setup-completion-state. |
+| `__tests__/project-trust.test.ts` | #E5 #E10–#E16 #E27 #P1 #X1–#X4 #X11: activation + mirror rules, lockless trust.json, identity, spawn token capture/consume, p95 budget. See change: mirror-dashboard-trust-to-pi. |
+| `__tests__/session-sync.test.ts` | Spawn-token tests capture at activation (`captureSpawnTokenAtActivation`) before register. See change: mirror-dashboard-trust-to-pi. |
 | `abort-latch.ts` | Pure class `AbortLatch`. Keeps user abort latched so provider backoff (5–60s) outliving 2s persistent-abort… → see `abort-latch.ts.AGENTS.md` |
 | `artifact-roots.ts` | Artifact-root allowlist for Fix B bridge image inlining. `resolveArtifactRoots({homedir,env,realpathSync})` →… → see `artifact-roots.ts.AGENTS.md` |
 | `ask-user-attachments.ts` | Persist image attachments for ask_user input responses. Exports `attachmentDirForSession`,… → see `ask-user-attachments.ts.AGENTS.md` |
@@ -38,6 +40,7 @@ Files in this directory. One row per source file.
 | `event-forwarder.ts` | Map pi event objects to `event_forward` protocol messages. Exports `mapEventToProtocol`. → see `event-forwarder.ts.AGENTS.md` |
 | `flow-event-wiring.ts` | Register pi-flows + pi-subagents event listeners on `pi.events`. → see `flow-event-wiring.ts.AGENTS.md` |
 | `followup-buffer.ts` | Bridge-owned follow-up buffer, extracted from `bridge.ts` so admission is testable + the byte ceiling… → see `followup-buffer.ts.AGENTS.md` |
+| `followup-drain.ts` | Pure follow-up drain gate sequence (`drainOneFollowup`): empty → pi-pending → idle → pop → emit → send → catch-and-drop. → see `followup-drain.ts.AGENTS.md` |
 | `git-link-builder.ts` | Parse SSH/HTTPS remote URLs into branch + PR links. Exports `parseRemoteUrl`, `detectPlatform`,… → see `git-link-builder.ts.AGENTS.md` |
 | `commit-draft.ts` | Pure AI-draft fallback ladder (no pi-SDK coupling). Exports `draftCommitMessage(deps)` → `{message, source}`,… → see `commit-draft.ts.AGENTS.md` |
 | `commit-draft-agent.ts` | pi-SDK-coupled half of AI-draft. Exports `buildSessionContextText(ctx, maxChars)` (compacts… → see `commit-draft-agent.ts.AGENTS.md` |
@@ -63,13 +66,14 @@ Files in this directory. One row per source file.
 | `process-metrics.ts` | Lightweight process metrics collector for bridge heartbeats. → see `process-metrics.ts.AGENTS.md` |
 | `process-scan-scheduler.ts` | Pure adaptive (fast/idle) scheduler for the async child-process scan. → see `process-scan-scheduler.ts.AGENTS.md` |
 | `process-scanner.ts` | Detect child processes from ONE `ps -A` / CIM snapshot. Exports `getOwnPgid`, `scanChildProcesses`, `scanChildProcessesAsync`,… → see `process-scanner.ts.AGENTS.md` |
-| `project-trust.ts` | `project_trust` auto-decision (pure gate + defensive cwd read). → see `project-trust.ts.AGENTS.md` |
+| `project-trust.ts` | `project_trust` auto-decision: `decideBridgeProjectTrust` (activation + dashboard-trust mirror rules; deps injected). → see `project-trust.ts.AGENTS.md` |
 | `pending-prompt-emitter.ts` | ONE emitter for re-sending every PromptBus prompt still awaiting an answer — shared by `onReconnect` replay… → see `pending-prompt-emitter.ts.AGENTS.md` |
 | `prompt-bus.ts` | Prompt dispatch bus — first-response-wins adapter routing + cross-adapter dismissal. → see `prompt-bus.ts.AGENTS.md` |
 | `prompt-expander.ts` | Expand prompt templates from disk for dashboard slash commands (`pi.sendUserMessage` skips expansion). `readTemplate` exported — team `/skill:` route reads granted `<root>/SKILL.md` through it. → see `prompt-expander.ts.AGENTS.md` |
 | `prompt-meta.ts` | `buildPromptMeta(opts, explicitMessage?)` — dialog `metadata`: `message`, `toolCallId`, plus validated… → see `prompt-meta.ts.AGENTS.md` |
 | `provider-register.ts` | Register custom LLM providers + auto-discovered models from `~/.pi/agent/providers.json`. → see `provider-register.ts.AGENTS.md` |
 | `session-move.ts` | `createMoveCoordinator()` + `MOVE_TIMEOUT` — two-connection move handover; forwards path-gate frames via `onServerMessage`. → see `session-move.ts.AGENTS.md` |
+| `spawn-token.ts` | Spawn token captured + scrubbed from env at bridge ACTIVATION, kept process-global until first register. `captureSpawnTokenAtActivation()` (idempotent; non-empty only), `consumeSpawnToken()` (once), `__resetSpawnToken`. Nested pi never inherits it. See change: mirror-dashboard-trust-to-pi. |
 | `stream-forward-buffer.ts` | Bounded retention for `latest`/`stream` plugin channels. `StreamForwardBuffer`: one buffer keyed by (pluginId, key value) preserving cross-channel order; 2000 msgs / 2MiB per key; 64-key shared budget, drop-oldest counted; `keyCount` getter. See change: add-plugin-bridge-contributions. |
 | `subagent-fanout-admission.ts` | Pure `decideAdmission` (in-flight count + resolved config + saturated → `admit` / `refuse{cause,reason}`) +… → see `subagent-fanout-admission.ts.AGENTS.md` |
 | `subagent-forward-sites.ts` | The two subagent forward paths that call `sendEventForward` directly, extracted so strip PLACEMENT is… → see `subagent-forward-sites.ts.AGENTS.md` |
@@ -101,5 +105,5 @@ Files in this directory. One row per source file.
 | `vault-forwarder.ts` | `createVaultForwardFilter(masker)`: value-scoped forwarding exception. Masks every `event_forward` on a copy; cumulative snapshots trim a trailing partial value, `assistantMessageEvent.delta` keeps a bounded carry; held tails flush (masked) before any other event; end events supersede. No-op without held values. Installed as `ConnectionManager.outboundFilter`. Tests: `__tests__/vault-forward-exception.test.ts`, `connection-outbound-filter.test.ts` (E28–E30). See change: add-credential-vault. |
 | `vault-masker.ts` | `createMasker(getState)`: exact-occurrence `[REDACTED:<NAME>]` masker. `mask`, `maskAndHold` (splits a trailing proper prefix of a value), `maskDeep` (copy, unchanged subtrees keep identity, `skipKeys`, `hold`). Rebuilds when `version` moves; set only grows. Tests: `__tests__/vault-redaction.test.ts`. See change: add-credential-vault. |
 | `vault-redaction.ts` | `createVaultRedaction`: `tool_result` (deep `content`/`details`/`structuredContent` + chunked latin1 rewrite of `details.fullOutputPath`, only pi-named files in tmpdir), `message_end` (masked copy), `user_bash` (wrapped local ops, UTF-8 `StringDecoder`, tail flush). No-op without held values. Tests: `__tests__/vault-redaction.test.ts` (E23–E27, P1). See change: add-credential-vault. |
-| `vcs-info.ts` | Gathers git branch/remote/PR/worktree info via shared platform git helpers. → see `vcs-info.ts.AGENTS.md` |
+| `vcs-info.ts` | Gathers git branch/remote/worktree info via shared platform git helpers. → see `vcs-info.ts.AGENTS.md` |
 | `visibility-intent.ts` | Resolves `session_register` visibility fields. Exports `resolveVisibilityIntent`,… → see `visibility-intent.ts.AGENTS.md` |

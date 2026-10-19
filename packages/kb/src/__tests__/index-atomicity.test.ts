@@ -118,3 +118,34 @@ describe("missing source semantics (§3)", () => {
     expect(existsSync(dbPath)).toBe(false);
   });
 });
+
+describe("async walk keeps batch atomicity (bound-kb-search-freshness, X9)", () => {
+  it("X9: a throw after the async walk rolls the open batch back; prior batches persist; a rerun is idempotent", async () => {
+    const d = join(root, "docs");
+    mkdirSync(d, { recursive: true });
+    for (let i = 0; i < 130; i++) writeFileSync(join(d, `f${String(i).padStart(3, "0")}.md`), `# T${i}\n\nBody number ${i} long enough to be a real chunk of content for the index to store here now.`);
+    const store = new SqliteFtsStore(dbPath);
+    store.init();
+    try {
+      const { indexSource } = await import("../indexer.js");
+      let inserts = 0;
+      const realInsert = store.insertChunk.bind(store);
+      store.insertChunk = ((c: Parameters<typeof realInsert>[0]) => {
+        if (++inserts === 120) throw new Error("boom mid-batch"); // batch 2 (files 101..130) is open
+        return realInsert(c);
+      }) as typeof store.insertChunk;
+      await expect(indexSource(store, { root: "t", dir: d })).rejects.toThrow("boom mid-batch");
+      const afterThrow = store.listPaths("t").length;
+      expect(afterThrow).toBeGreaterThan(0); // batch 1 committed
+      expect(afterThrow).toBeLessThan(130); // batch 2 rolled back
+      store.insertChunk = realInsert;
+      const rerun = await indexSource(store, { root: "t", dir: d });
+      expect(store.listPaths("t").length).toBe(130);
+      const again = await indexSource(store, { root: "t", dir: d });
+      expect(again.changed).toBe(0);
+      expect(rerun.changed).toBeGreaterThan(0);
+    } finally {
+      store.close();
+    }
+  });
+});

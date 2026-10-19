@@ -15,7 +15,16 @@
  *  - asks the relay to size the remote viewport to the pane (≤ 2 req/s, 16 px
  *    dead-band) unless the agent owns emulation;
  *  - shows Done while a `browser-takeover` prompt for this instance is pending
- *    in the owning session, answering that same prompt.
+ *    in the owning session, answering that same prompt;
+ *  - in the Electron window registered as the instance's operator host (the
+ *    carrier's "registered as H" and `instance.host === H`) every subscribe
+ *    carries `local: true` and frames come from `browserHost.onFrame` (the tee
+ *    in main), never from `browser_relay_frame`. A registration that lands (or
+ *    ends) after the pane subscribed re-subscribes ONCE in the new mode, without
+ *    an unsubscribe (the server keeps one subscription per socket+tab, mode =
+ *    the latest subscribe). The server's `browser_host_tee` to the carrier — not
+ *    this pane — drives `browserHost.tee`.
+ *    See change: add-operator-browser-relay (D10).
  */
 import {
   usePluginMessage,
@@ -27,6 +36,8 @@ import type { BrowserRelayFrameMessage } from "@blackbelt-technology/pi-dashboar
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { getBrowserHost } from "./browser-host.js";
+import { useOperatorHostId } from "./operator-host-store.js";
 import { findRelayTab, useRelayStatus } from "./relay-store.js";
 import { parseBrowserTabPath } from "./tab-path.js";
 
@@ -40,8 +51,10 @@ export interface BrowserPaneTabProps {
 /** Resize requests: at most one per window, only past the dead-band. */
 const RESIZE_THROTTLE_MS = 500;
 const RESIZE_DEAD_BAND_PX = 16;
+/** The idle strip shows only after the tab stayed `no-frames` this long (a static page stops repainting). */
+const IDLE_NOTICE_DELAY_MS = 5000;
 
-/** A position normalized to `[0,1]` of the rendered box; `null` for a degenerate box. */
+/** A position normalized to `[0,1]` of the given rect (the rendered image); `null` for a degenerate box. */
 function normalize(rect: { left: number; top: number; width: number; height: number }, x: number, y: number) {
   if (rect.width <= 0 || rect.height <= 0) return null;
   return { x: (x - rect.left) / rect.width, y: (y - rect.top) / rect.height };
@@ -58,6 +71,11 @@ export function BrowserPaneTab({ path, session, isActive, onClose }: BrowserPane
   const ref = parseBrowserTabPath(path);
   const found = ref ? findRelayTab(status, ref.instanceId, ref.tabId) : undefined;
   const tab = found?.tab;
+  const registeredHostId = useOperatorHostId();
+  const browserHost = registeredHostId !== null ? getBrowserHost() : undefined;
+  const local = !!browserHost && !!found && found.instance.host === registeredHostId;
+  const localRef = useRef(local);
+  localRef.current = local;
   const instanceId = ref?.instanceId ?? "";
   const tabId = ref?.tabId ?? -1;
 
@@ -69,8 +87,28 @@ export function BrowserPaneTab({ path, session, isActive, onClose }: BrowserPane
   const areaRef = useRef<HTMLDivElement | null>(null);
 
   usePluginMessage<BrowserRelayFrameMessage>("browser_relay_frame", (msg) => {
-    if (msg.instanceId === instanceId && msg.tabId === tabId) setJpeg(msg.jpegBase64);
+    if (!localRef.current && msg.instanceId === instanceId && msg.tabId === tabId) setJpeg(msg.jpegBase64);
   });
+
+  // Local mode: frames arrive from main's tee, filtered to this (instance, tab).
+  useEffect(() => {
+    if (!local || !browserHost) return;
+    return browserHost.onFrame((f) => {
+      if (f.instanceId === instanceId && f.tabId === tabId && typeof f.jpegBase64 === "string") setJpeg(f.jpegBase64);
+    });
+  }, [local, browserHost, instanceId, tabId]);
+
+  // Idle strip: shown only once `no-frames` has persisted; hidden at once on any other state.
+  const noFrames = tab?.state === "no-frames";
+  const [idle, setIdle] = useState(false);
+  useEffect(() => {
+    if (!noFrames) {
+      setIdle(false);
+      return;
+    }
+    const id = setTimeout(() => setIdle(true), IDLE_NOTICE_DELAY_MS);
+    return () => clearTimeout(id);
+  }, [noFrames]);
 
   const detached = tab?.state === "detached";
   const viewable = !!tab && !detached;
@@ -79,13 +117,29 @@ export function BrowserPaneTab({ path, session, isActive, onClose }: BrowserPane
 
   // Subscribe while active + viewable; cleanup = unsubscribe (unmount, detach,
   // tab gone). Leaving `detached` flips `viewable` → exactly one new subscribe.
+  // `local` is read at subscribe time (ref) so a mode flip does not unsubscribe;
+  // `subscribedLocal` is the mode of the live subscription (null = none).
+  const subscribedLocal = useRef<boolean | null>(null);
+  const subscribe = useCallback(
+    (asLocal: boolean) => {
+      subscribedLocal.current = asLocal;
+      void send({ type: "browser_relay_subscribe", instanceId, tabId, ...(asLocal ? { local: true } : {}) });
+    },
+    [send, instanceId, tabId],
+  );
   useEffect(() => {
     if (!viewable || !isActive) return;
-    void send({ type: "browser_relay_subscribe", instanceId, tabId });
+    subscribe(localRef.current);
     return () => {
+      subscribedLocal.current = null;
       void send({ type: "browser_relay_unsubscribe", instanceId, tabId });
     };
-  }, [send, instanceId, tabId, viewable, isActive]);
+  }, [send, subscribe, instanceId, tabId, viewable, isActive]);
+  // The carrier's registration ack landed (or ended) after we subscribed: once
+  // more in the new mode, converging; never on mount (the effect above did it).
+  useEffect(() => {
+    if (subscribedLocal.current !== null && subscribedLocal.current !== local) subscribe(local);
+  }, [local, subscribe]);
 
   const sendInput = useCallback(
     (payload: Record<string, unknown>) => {
@@ -133,9 +187,12 @@ export function BrowserPaneTab({ path, session, isActive, onClose }: BrowserPane
   }, [resizeEnabled, sendInput]);
 
   // ── pointer / wheel / key ────────────────────────────────────────────────
+  // Only the rendered image is a valid target: no image, or a position on the
+  // letterbox (outside `[0,1]`), produces no input (the relay would refuse + audit it).
   const point = (clientX: number, clientY: number) => {
-    const el = imgRef.current ?? boxRef.current;
-    return el ? normalize(el.getBoundingClientRect(), clientX, clientY) : null;
+    const el = imgRef.current;
+    const p = el ? normalize(el.getBoundingClientRect(), clientX, clientY) : null;
+    return p && p.x >= 0 && p.x <= 1 && p.y >= 0 && p.y <= 1 ? p : null;
   };
   const onPointerUp = (e: React.PointerEvent) => {
     if (!canInput) return;
@@ -155,7 +212,11 @@ export function BrowserPaneTab({ path, session, isActive, onClose }: BrowserPane
   };
   const onKey = (keyType: "keyDown" | "keyUp") => (e: React.KeyboardEvent) => {
     if (!canInput) return;
-    sendInput({ kind: "key", keyType, key: e.key, code: e.code });
+    // CDP inserts a character only when `text` is set. Ctrl+Alt is AltGr, so it keeps text.
+    const typing = !e.metaKey && !(e.ctrlKey && !e.altKey);
+    const text =
+      keyType === "keyDown" && typing ? (e.key === "Enter" ? "\r" : [...e.key].length === 1 ? e.key : undefined) : undefined;
+    sendInput({ kind: "key", keyType, key: e.key, code: e.code, ...(text !== undefined ? { text } : {}) });
   };
 
   // ── text-entry bridge (soft keyboards) ───────────────────────────────────
@@ -205,7 +266,6 @@ export function BrowserPaneTab({ path, session, isActive, onClose }: BrowserPane
     );
   }
 
-  const idle = tab?.state === "no-frames";
   const bringToFront = () => sendInput({ kind: "bringToFront" });
 
   return (
@@ -240,7 +300,7 @@ export function BrowserPaneTab({ path, session, isActive, onClose }: BrowserPane
         )}
       </div>
 
-      {idle && (
+      {idle && noFrames && (
         <div data-testid="browser-pane-idle" className="flex shrink-0 items-center gap-2 border-b border-[var(--border-primary)] px-2 py-0.5 text-[11px] text-[var(--text-tertiary)]">
           <span>{t("noFramesOverlay", undefined, "No repaints — tab may be idle or in the background")}</span>
           <button type="button" className={BTN} onClick={bringToFront}>

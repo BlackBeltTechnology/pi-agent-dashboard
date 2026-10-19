@@ -1,6 +1,8 @@
 /**
  * `pi-dashboard open` (T-X15, unit level). See change: harden-trust-and-credential-boundaries.
  */
+import fs from "node:fs";
+import nodePath from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { cmdOpen, parseArgs } from "../cli.js";
 
@@ -40,5 +42,67 @@ describe("cmdOpen", () => {
     const down = vi.fn(async () => { throw new Error("ECONNREFUSED"); }) as unknown as typeof fetch;
     expect(await cmdOpen(cfg, { print: true, err: (s) => err.push(s), fetchImpl: down })).toBe(1);
     expect(err.join("\n")).toContain("server not running");
+  });
+});
+
+// ── `--url <origin>` (test-plan #E46 #E47 #X7). See change: fix-pairing-approval-credential (D7, P5). ──
+describe("cmdOpen --url", () => {
+  const cfg8000 = { port: 8000 } as never;
+
+  it.each([
+    ["http://127.0.0.1:8000", cfg8000, "http://127.0.0.1:8000"],
+    ["https://localhost:8000", cfg8000, "https://localhost:8000"],
+    ["http://localhost", { port: 80 } as never, "http://localhost"],
+  ])("E46: %s is accepted — the browser opens on that origin with a code", async (url, config, origin) => {
+    const out: string[] = [];
+    const open = vi.fn();
+    const fetchImpl = ok("C".repeat(43));
+    expect(await cmdOpen(config, { url, out: (s) => out.push(s), fetchImpl, open })).toBe(0);
+    expect(out[0]).toBe(`${origin}/auth/local-proof?code=${"C".repeat(43)}`);
+    expect(open).toHaveBeenCalledWith(out[0]);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["http://localhost:9999", "port 8000"],
+    ["http://evil.example:8000", "loopback"],
+    ["file:///x", "scheme"],
+    ["javascript:alert(1)", "scheme"],
+    ["http://u:p@localhost:8000", "credentials"],
+    ["http://localhost:8000/x", "path"],
+    ["http://localhost:8000/?a", "query"],
+    ["http://localhost:8000/#f", "fragment"],
+    ["", "valid URL"],
+  ])("E46: %j is refused before any request, naming the reason", async (url, reason) => {
+    const err: string[] = [];
+    const open = vi.fn();
+    const fetchImpl = ok("D".repeat(43));
+    expect(await cmdOpen(cfg8000, { url, err: (s) => err.push(s), out: () => {}, fetchImpl, open })).not.toBe(0);
+    expect(err.join("\n")).toContain(reason);
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  it("X7: no --url keeps the default origin byte-identical and still creates the 0700 dir + 0600 token", async () => {
+    // HOME is per-run isolated (vitest setup), so the token dir starts absent.
+    const { defaultLocalTokenDir } = await import("../auth/local-token.js");
+    const dir = defaultLocalTokenDir();
+    fs.rmSync(dir, { recursive: true, force: true });
+    const out: string[] = [];
+    expect(await cmdOpen(cfg, { print: true, out: (s) => out.push(s), fetchImpl: ok("E".repeat(43)) })).toBe(0);
+    expect(out[0]).toBe(`http://localhost:8123/auth/local-proof?code=${"E".repeat(43)}`);
+    expect(fs.existsSync(nodePath.join(dir, "token"))).toBe(true);
+    if (process.platform !== "win32") {
+      expect(fs.statSync(dir).mode & 0o777).toBe(0o700);
+      expect(fs.statSync(nodePath.join(dir, "token")).mode & 0o777).toBe(0o600);
+    }
+  });
+
+  it("a refused --url creates no token dir", async () => {
+    const { defaultLocalTokenDir } = await import("../auth/local-token.js");
+    const dir = defaultLocalTokenDir();
+    fs.rmSync(dir, { recursive: true, force: true });
+    expect(await cmdOpen(cfg8000, { url: "http://evil.example:8000", err: () => {}, fetchImpl: ok("F".repeat(43)) })).not.toBe(0);
+    expect(fs.existsSync(dir)).toBe(false);
   });
 });

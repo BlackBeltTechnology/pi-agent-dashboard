@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>OpenSpec Workflow Schema (pi-spec-driven) — as-built vs proposed UX board</title>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="mockup.css" />
+<link rel="stylesheet" href="asbuilt.css" />
+<link rel="stylesheet" href="schema.css" />
+<script src="icons.js"></script>
+</head>
+<body data-view="both">
+<div class="toolbar" role="toolbar" aria-label="Board controls">
+  <h1>OpenSpec Workflow Schema — as-built vs proposed</h1>
+  <span class="seg-label" id="lbl-theme">Theme</span>
+  <div class="seg" aria-labelledby="lbl-theme" data-group="theme">
+    <button aria-pressed="true" data-v="base-dark">Base dark</button>
+    <button aria-pressed="false" data-v="base-light">Base light</button>
+    <button aria-pressed="false" data-v="nord-dark">Nord dark</button>
+  </div>
+  <span class="seg-label" id="lbl-w">Frame</span>
+  <div class="seg" aria-labelledby="lbl-w" data-group="width">
+    <button aria-pressed="false" data-v="375">375</button>
+    <button aria-pressed="false" data-v="768">768</button>
+    <button aria-pressed="true" data-v="1440">1440</button>
+  </div>
+  <span class="seg-label" id="lbl-v">View</span>
+  <div class="seg" aria-labelledby="lbl-v" data-group="view">
+    <button aria-pressed="true" data-v="both">Both</button>
+    <button aria-pressed="false" data-v="asbuilt">As-built</button>
+    <button aria-pressed="false" data-v="proposed">Proposed</button>
+  </div>
+</div>
+<main id="board"></main>
+
+<script>
+/* ── helpers ─────────────────────────────────────────────── */
+const ic = (n, cls = "") => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true"><path d="${ICON[n]}"/></svg>`;
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+let uid = 0; const nid = (p) => `${p}-${++uid}`;
+const PI = "pi-spec-driven", SD = "spec-driven";
+const SCHEMA_DIR = "openspec/schemas/pi-spec-driven/", CONFIG_PATH = "openspec/config.yaml";
+const ROOT = "/Users/robson/Project/";
+const base = (cwd) => cwd.split("/").pop();
+
+/* ── fixture: one object per project; every state reads from here ── */
+const mk = (cwd, configured, generated, o = {}) => ({ cwd, name: base(cwd), configured, generated, missing: !!o.missing, unpinnedChanges: o.unpinned || [], affectedChanges: o.affected || [], projectSchemas: o.schemas || (configured && configured !== PI && configured !== SD ? [configured] : []), branch: o.branch || null });
+const P = {
+  dash: mk(ROOT + "pi-agent-dashboard", PI, "current", { affected: ["add-pi-spec-driven-schema", "move-workflow-schema-status-to-poll-worker", "add-vault-reach-all-projects", "add-ntfy-push-transport", "add-session-step-table", "add-web-chat-plugin", "harden-server-capability-bounds"] }),
+  deck: mk(ROOT + "deck3d", SD, "none"),
+  wt: mk(ROOT + "pi-agent-dashboard/.worktrees/os-add-vault-reach", PI, "current", { branch: "os/add-vault-reach", unpinned: ["add-vault-reach-all-projects", "add-vault-llm-delivery", "absorb-service-secrets-into-vault"], affected: ["add-vault-reach-all-projects", "add-vault-llm-delivery", "absorb-service-secrets-into-vault", "add-session-step-table"] }),
+  compsy: mk(ROOT + "compsychletter", PI, "outdated", { affected: ["add-session-trajectory-view", "add-project-workflows"] }),
+  kept: mk(ROOT + "judo-ng", "team-flow", "current"),
+  flows: mk(ROOT + "pi-flows", SD, "outdated"),
+  newer: mk(ROOT + "pi-dashboard-subagents", PI, "newer", { affected: ["add-plugin-capability-routes"] }),
+  incompat: mk(ROOT + "invoicebot-ws", SD, "incompatible"),
+  conflict: mk(ROOT + "pi-invoice-bot", PI, "conflict", { affected: ["add-supervised-tool-approval"] }),
+  unmanaged: mk(ROOT + "pi-9router-proxy", SD, "unmanaged"),
+  missing: mk(ROOT + "park-here", PI, "none", { missing: true }),
+  missingDefault: mk(ROOT + "pi-packages-ben-vargas", "team-flow", "none", { missing: true, schemas: [] }),
+  ownsTeamFlow: mk(ROOT + "pi-9router-proxy", SD, "unmanaged", { schemas: ["team-flow"] }),
+  wt2: mk(ROOT + "pi-agent-dashboard/.worktrees/os-add-request-access-remedy", PI, "current", { branch: "os/add-request-access-remedy", affected: ["add-session-step-table", "add-web-chat-plugin"] }),
+  partial: mk(ROOT + "pi-packages-ben-vargas", SD, "current"),
+  noop: mk(ROOT + "Zenit", SD, "none"),
+};
+
+/* ── as-built gating, ported from openspec-workflow-schema-api.ts ── */
+const ENABLE_FROM = ["none", "current", "outdated", "newer", "conflict"];
+const REMOVE_FROM = ["current", "outdated", "newer", "conflict", "incompatible"];
+function allowed(s) {
+  const enabled = s.configured === PI, out = [];
+  if (!enabled && ENABLE_FROM.includes(s.generated)) out.push("enable");
+  if (enabled) out.push("disable");
+  if (s.generated === "outdated" || s.generated === "current" || (s.generated === "none" && enabled)) out.push("update");
+  if (s.generated === "unmanaged") out.push("adopt");
+  if (enabled && s.unpinnedChanges.length > 0) out.push("pin");
+  if (REMOVE_FROM.includes(s.generated)) out.push("remove");
+  return out;
+}
+const AL = { enable: "Enable", disable: "Disable", update: "Update", adopt: "Adopt", pin: "Pin…", remove: "Remove" };
+const isStampless = (s) => s.generated === "none" || s.generated === "unmanaged";
+const needsPrev = (a, s) => a === "adopt" || a === "update" || (a === "disable" && isStampless(s));
+
+/* ── proposed presentation, per ui-plan.md D2 (+ D3 Remove gating) ── */
+const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+function present(s) {
+  const enabled = s.configured === PI, n = s.unpinnedChanges.length, cfg = s.configured ?? SD, g = s.generated;
+  let key;
+  if (s.missing && !enabled) key = "missingDefault";
+  else if (s.missing || (enabled && g === "none")) key = "missing";
+  else if (g === "unmanaged") key = "unmanaged";
+  else if (g === "incompatible") key = "incompatible";
+  else if (g === "conflict") key = "conflict";
+  else if (g === "newer") key = "newer";
+  // Approved: a disabled project with leftover files reads "Disabled, files kept" first, even when outdated.
+  else if (!enabled && (g === "current" || g === "outdated")) key = "kept";
+  else if (g === "outdated") key = "outdated";
+  else if (enabled && n > 0) key = "unpinned";
+  else if (enabled) key = "enabled";
+  else if (g === "current") key = "kept";
+  else key = "none";
+  const T = {
+    none: ["neutral", "MinusCircleOutline", "Not enabled", `New changes use <code>${esc(cfg)}</code>.`, "enable"],
+    kept: ["neutral", "MinusCircleOutline", "Disabled, files kept", `Schema files are still in the repo${g === "outdated" ? " (an update is available)" : ""}; new changes use <code>${esc(cfg)}</code>.`, "enable"],
+    enabled: ["success", "CheckCircleOutline", "Enabled", "New changes use <code>pi-spec-driven</code>.", null],
+    unpinned: ["warning", "Alert", `${plural(n, "change")} not pinned`, "These changes follow the new default because they have no <code>.openspec.yaml</code>:", "pin"],
+    outdated: ["warning", "Alert", "Update available", "Generated by an older dashboard or CLI.", "update"],
+    newer: ["info", "InformationOutline", "Newer version", "Generated by a newer dashboard; left untouched.", null],
+    incompatible: ["error", "AlertCircleOutline", "CLI too old", "This schema needs a newer OpenSpec CLI. Update the CLI.", null],
+    conflict: ["error", "AlertCircleOutline", "Version conflict", "Stamp is newer in one part and older in the other. Align the dashboard and CLI versions.", null],
+    unmanaged: ["warning", "Alert", "Not managed", "<code>pi-spec-driven/</code> has no dashboard stamp. Adopting regenerates it.", "adopt"],
+    missingDefault: ["error", "AlertCircleOutline", "Default schema missing", `The config names <code>${esc(cfg)}</code>, which no schema directory provides.`, null],
+    missing: ["error", "AlertCircleOutline", "Schema files missing", "The config names <code>pi-spec-driven</code> but its files are absent (partial checkout?).", "update"],
+  }[key];
+  const [tone, icon, label, sentence, rec] = T;
+  const actLabel = { enable: "Enable…", disable: "Disable…", update: key === "missing" ? "Regenerate…" : "Update schema…", adopt: "Adopt…", pin: `Pin ${plural(n, "change")}…`, remove: "Remove schema files…" };
+  const actIcon = { enable: "ToggleSwitchOutline", disable: "ToggleSwitchOffOutline", update: "Refresh", adopt: "FileSwapOutline", pin: "PinOutline", remove: "DeleteOutline" };
+  // D3: Remove is hidden while the config still names the schema (server refuses it).
+  const rest = allowed(s).filter((a) => a !== rec && !(a === "remove" && enabled));
+  const ORDER = ["update", "adopt", "pin", "enable", "disable", "remove"];
+  const menu = ORDER.filter((a) => rest.includes(a));
+  return { key, tone, icon, label, sentence, rec, menu, actLabel, actIcon };
+}
+
+/* ── shared: ToggleField (unchanged) ── */
+function toggleField(on = false) {
+  const id = nid("tf"), h = nid("tfh");
+  return `<div class="tf"><div class="tf-row"><span><label class="tf-label" for="${id}">Default for new projects</label></span>
+    <button id="${id}" type="button" role="switch" aria-checked="${on}" aria-describedby="${h}" data-testid="workflow-schema-default-switch" class="tf-switch focus-ring"></button></div>
+    <p class="tf-hint" id="${h}">When on, initializing OpenSpec in a directory that had none also enables pi-spec-driven. Never applies to existing OpenSpec projects.</p></div>`;
+}
+
+/* ══ RESULT fixtures (server shapes) ══ */
+const RES = {
+  success: { ok: true, action: "enable", written: ["openspec/schemas/pi-spec-driven", "openspec/changes/add-session-step-table/.openspec.yaml", "openspec/changes/add-web-chat-plugin/.openspec.yaml", "openspec/config.yaml"], warnings: [], worktree: { isWorktree: true, branch: "os/add-request-access-remedy" } },
+  noop: { ok: true, action: "disable", written: [], warnings: ["the default is spec-driven, not pi-spec-driven"], worktree: { isWorktree: false, branch: null } },
+  partial: { ok: false, partial: true, action: "enable", written: ["openspec/schemas/pi-spec-driven", "openspec/changes/add-ntfy-push-transport/.openspec.yaml"], warnings: [], error: "enable stopped part-way: EACCES: permission denied, open 'openspec/config.yaml.tmp'; re-run enable to complete", worktree: { isWorktree: false, branch: null } },
+  refused: { ok: false, action: "enable", written: [], warnings: [], error: "the schema stamp records previousDefault spec-driven but the config default is team-flow; run Update with previousDefault: team-flow", worktree: { isWorktree: false, branch: null } },
+  pinSkipped: { ok: true, action: "pin", written: ["openspec/changes/add-vault-reach-all-projects/.openspec.yaml", "openspec/changes/add-vault-llm-delivery/.openspec.yaml"], skipped: ["absorb-service-secrets-into-vault"], warnings: [], worktree: { isWorktree: true, branch: "os/add-vault-reach" } },
+  inflight: { ok: false, action: "update", httpStatus: 409, written: [], warnings: [], error: "an OpenSpec init or workflow-schema action is already in flight for this directory", worktree: { isWorktree: false, branch: null } },
+};
+
+/* ══ AS-BUILT renders (1:1 with the shipped JSX) ══ */
+function asResult(cwd, r) {
+  let message, bad = !r.ok;
+  if (r.ok) message = (r.written.length > 0 ? "Done." : "Nothing to change.") + (r.worktree.isWorktree && r.worktree.branch ? ` (${r.worktree.branch})` : "");
+  else message = `${r.error ?? "Action failed"}${r.partial ? " Partially applied — review the written files." : ""}`;
+  return `<div role="${bad ? "alert" : "status"}" data-testid="workflow-schema-result-${esc(cwd)}" class="ab-result ${bad ? "bad" : "ok"}"><span>${esc(message)}</span>
+    ${r.written.length ? `<span class="blk files">${esc(r.written.join(", "))}</span>` : ""}${r.warnings.map((w) => `<span class="blk warn">${esc(w)}</span>`).join("")}</div>`;
+}
+function asRow(s, o = {}) {
+  const status = `schema: ${s.configured ?? "—"} · generated: ${s.generated}${s.missing ? " · missing" : ""}${s.unpinnedChanges.length ? ` · ${s.unpinnedChanges.length} unpinned` : ""}`;
+  return `<div class="ab-row" data-testid="workflow-schema-row-${esc(s.cwd)}" ${o.selected ? "data-selected" : ""}>
+    <div class="ab-line"><span class="ab-cwd mono">${esc(s.cwd)}</span><span class="ab-status" data-testid="workflow-schema-status-${esc(s.cwd)}">${esc(status)}</span>
+    ${allowed(s).map((a) => `<button type="button" class="ab-btn focus-ring" data-action="${a}" data-testid="workflow-schema-${a}-${esc(s.cwd)}" ${o.busy ? "disabled" : ""}>${AL[a]}</button>`).join("")}</div>
+    ${o.result ? asResult(s.cwd, o.result) : ""}</div>`;
+}
+const asList = (rows) => `<div class="ab-list" data-testid="workflow-schema-list" style="margin-top:0">${rows.join("")}</div>`;
+function asSection(rows, empty = false) {
+  return `<div id="workflow-schema" data-testid="openspec-workflow-schema-settings">
+    <h2 class="ab-h2">OpenSpec Workflow Schema</h2>
+    <p class="ab-intro">Manage the dashboard's pi-spec-driven workflow schema per project. Actions below write repository files immediately after you confirm; only the default switch waits for Save.</p>
+    ${toggleField(false)}
+    <div class="ab-list" data-testid="workflow-schema-list">${empty ? `<p class="ab-empty" data-testid="workflow-schema-empty">No project reports a workflow schema status yet.</p>` : rows.join("")}</div></div>`;
+}
+function asChip(s) {
+  const reason = s.missing ? "schema missing" : ["outdated", "newer", "incompatible", "conflict", "unmanaged"].includes(s.generated) ? `schema ${s.generated}` : `${s.unpinnedChanges.length} unpinned change(s)`;
+  return `<div class="fold"><span class="fn">${esc(s.name)}</span><span class="fp mono">${esc(s.cwd)}</span>
+    <div data-folder-openspec-schema-notice="${esc(s.cwd)}"><a href="#chip" data-testid="folder-openspec-schema-chip" title="Open the OpenSpec Workflow Schema settings" class="ab-chip focus-ring"><span aria-hidden="true">⚠</span>${esc(reason)}</a></div></div>`;
+}
+function asDialog(s, action, o = {}) {
+  const tid = nid("adt"), label = AL[action].replace("…", "");
+  const paths = { enable: [SCHEMA_DIR, CONFIG_PATH, "`.openspec.yaml` for each change without one"], disable: [CONFIG_PATH], update: [SCHEMA_DIR], adopt: [SCHEMA_DIR], remove: [SCHEMA_DIR], pin: s.unpinnedChanges.map((n) => `openspec/changes/${n}/.openspec.yaml`) }[action];
+  const stamped = action === "update" && !isStampless(s);
+  const opts = [SD].concat(s.configured && s.configured !== PI && s.configured !== SD ? [s.configured] : []);
+  const prevSel = needsPrev(action, s) ? `<label class="flex"><span>Previous default</span><select data-testid="workflow-schema-previous-default" aria-label="Previous default">${stamped ? "<option selected>keep recorded value</option>" : ""}${opts.map((x, i) => `<option ${!stamped && i === 0 ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label>` : "";
+  const pinSel = action === "pin" ? `<label class="flex"><span>Pin to</span><select data-testid="workflow-schema-pin-target" aria-label="Pin to"><option selected>${PI}</option><option>${SD}</option></select></label>` : "";
+  return `<div class="ab-scrim"><div class="ab-dlg" role="dialog" aria-modal="true" aria-labelledby="${tid}" data-testid="workflow-schema-confirm">
+    <button type="button" class="x" aria-label="Close">${ic("Close")}</button>
+    <div class="hd"><h3 id="${tid}">${label} pi-spec-driven?</h3></div>
+    <div class="bd"><p class="m">${esc(s.cwd)}</p>
+      ${s.branch ? `<p data-testid="workflow-schema-branch">Worktree branch: ${esc(s.branch)}</p>` : ""}
+      <p>These paths will be written:</p>
+      <ul data-testid="workflow-schema-paths">${paths.map((p) => `<li>${esc(p)}</li>`).join("")}</ul>
+      ${action === "update" ? `<p data-testid="workflow-schema-affected">${s.affectedChanges.length} active change(s) resolve to pi-spec-driven and are affected.</p>` : ""}
+      ${action === "adopt" ? `<p class="warn">Adopting regenerates pi-spec-driven from the package base: any hand customizations are discarded.</p>` : ""}
+      ${prevSel}${pinSel}</div>
+    <div class="ft"><button type="button" class="cancel" data-testid="workflow-schema-cancel">Cancel</button><button type="button" class="act ${action === "remove" || action === "adopt" ? "danger" : "primary"}" data-testid="workflow-schema-confirm-action">${label}</button></div></div></div>`;
+}
+
+/* ══ PROPOSED renders ══ */
+const pill = (tone, icon, text, attrs = "") => `<span class="pill ${tone}" ${attrs}>${ic(icon)}${text}</span>`;
+function propResult(s, r) {
+  const act = r.action, PAST = { enable: "Enabled", disable: "Disabled", update: "Updated", adopt: "Adopted", pin: "Pinned", remove: "Removed" }[act];
+  const cap = (x) => x.charAt(0).toUpperCase() + x.slice(1);
+  const files = r.written.length ? `<details class="why"><summary>Show files (${r.written.length})</summary><ul>${r.written.map((f) => `<li>${esc(f)}</li>`).join("")}</ul></details>` : "";
+  const tid = `data-testid="workflow-schema-result-${esc(s.cwd)}"`;
+  const warn = r.warnings.map((w) => `<p>${esc(cap(w))}.</p>`).join("");
+  if (r.httpStatus === 409) return `<div class="callout info" role="status" ${tid}>${ic("InformationOutline")}<div class="body"><p><strong>Another action is running for this project.</strong></p><p>Try again in a moment; the buttons stay available.</p></div></div>`;
+  const skipped = r.skipped?.length ? `<p>${plural(r.skipped.length, "change")} skipped — already ${r.skipped.length === 1 ? "has" : "have"} a <code>.openspec.yaml</code>: <code>${r.skipped.map(esc).join("</code>, <code>")}</code>.</p>` : "";
+  if (r.ok && r.written.length) {
+    const branch = r.worktree.isWorktree ? ` on branch <code>${esc(r.worktree.branch)}</code>` : "";
+    return `<div class="callout success" role="status" ${tid}>${ic("CheckCircleOutline")}<div class="body"><p><strong>${PAST}.</strong> ${plural(r.written.length, "path")} written${branch}.</p><p>The dashboard does not commit: review and commit them to share with your team.</p>${skipped}${warn}${files}</div></div>`;
+  }
+  if (r.ok) return `<div class="callout neutral" role="status" ${tid}>${ic("InformationOutline")}<div class="body"><p><strong>Nothing to change.</strong></p>${warn}</div></div>`;
+  if (r.partial) return `<div class="callout warning" role="alert" ${tid}>${ic("Alert")}<div class="body"><p><strong>Partially applied.</strong> Run ${cap(act)} again to finish.</p><p>${esc(r.error)}</p>${files}</div></div>`;
+  const st = present(s);
+  return `<div class="callout error" role="alert" ${tid}>${ic("AlertCircleOutline")}<div class="body"><p><strong>${cap(act)} was refused.</strong></p><p>${esc(r.error)}</p><p>Current state: ${st.label}. ${st.sentence.replace(/<[^>]+>/g, "")}</p></div></div>`;
+}
+function propCard(s, o = {}) {
+  const st = present(s), hid = nid("wh"), bid = nid("mb"), mid = nid("mn");
+  const VERB = { enable: "Enabling…", disable: "Disabling…", update: "Updating…", adopt: "Adopting…", pin: "Pinning…", remove: "Removing…" };
+  const names = st.key === "unpinned" ? (() => { const l = s.unpinnedChanges, show = l.slice(0, 5); return `<ul class="wsc-names mono">${show.map((n) => `<li>${esc(n)}</li>`).join("")}${l.length > 5 ? `<li>and ${l.length - 5} more</li>` : ""}</ul>`; })() : "";
+  const rec = !st.rec ? "" : o.busy === st.rec
+    ? `<button type="button" class="p-btn sm secondary" aria-disabled="true" data-testid="workflow-schema-${st.rec}-${esc(s.cwd)}">${ic("Sync", "spin")}${VERB[st.rec]}</button>`
+    : `<button type="button" class="p-btn sm secondary" data-action="${st.rec}" data-testid="workflow-schema-${st.rec}-${esc(s.cwd)}">${st.actLabel[st.rec]}</button>`;
+  const items = st.menu.map((a, i) => (a === "remove" && i > 0 ? `<div role="separator" class="sep"></div>` : "") +
+    `<button type="button" role="menuitem" tabindex="-1" class="p-mi${i === 0 ? " active" : ""}" data-action="${a}" data-testid="workflow-schema-${a}-${esc(s.cwd)}">${ic(st.actIcon[a], a === "remove" ? "danger-ico" : "")}${st.actLabel[a]}</button>`).join("");
+  const menu = st.menu.length ? `<div class="menu-wrap"><button type="button" id="${bid}" class="p-btn icon secondary" aria-haspopup="menu" aria-expanded="${!!o.menuOpen}" ${o.menuOpen ? `aria-controls="${mid}"` : ""} aria-label="More actions for ${esc(s.name)}" ${o.busy ? "disabled" : ""}>${ic("DotsVertical")}</button>
+    ${o.menuOpen ? `<div role="menu" id="${mid}" aria-labelledby="${bid}" class="p-menu">${items}</div>` : ""}</div>` : "";
+  return `<li class="wsc${o.menuOpen ? " has-menu" : ""}" data-testid="workflow-schema-row-${esc(s.cwd)}" data-state="${st.key}" ${o.busy ? 'aria-busy="true"' : ""} ${o.selected ? "data-selected" : ""} aria-labelledby="${hid}">
+    ${o.selected ? `<p class="opened">${ic("LinkVariant")}Opened from folder</p>` : ""}
+    <div class="wsc-head"><div class="wsc-id"><div class="wsc-title"><h3 class="wsc-name" id="${hid}" tabindex="-1">${esc(s.name)}</h3>
+      ${pill(st.tone, st.icon, st.label, `data-testid="workflow-schema-status-${esc(s.cwd)}"`)}${s.branch ? pill("worktree", "SourceBranch", `worktree · ${esc(s.branch)}`) : ""}</div>
+      <p class="wsc-path mono">${esc(s.cwd)}</p></div>${menu}</div>
+    <p class="wsc-sentence">${st.sentence}</p>${names}
+    ${rec ? `<div class="wsc-actions">${rec}</div>` : ""}${o.result ? propResult(s, o.result) : ""}</li>`;
+}
+const propList = (cards) => `<ul class="p-list" style="margin-top:0" data-testid="workflow-schema-list">${cards.join("")}</ul>`;
+function propSection(cards, empty = false) {
+  return `<div id="workflow-schema" data-testid="openspec-workflow-schema-settings">
+    <h2 class="p-h2">OpenSpec Workflow Schema</h2>
+    <p class="p-intro">pi-spec-driven is the dashboard's OpenSpec workflow; it adds an explicit “Not needed” design skip. Actions on a project write files immediately after you confirm; the default switch below waits for Save.</p>
+    ${toggleField(false)}
+    ${empty ? `<p class="p-empty" style="margin-top:12px" data-testid="workflow-schema-empty">No OpenSpec projects yet. A project appears here once the dashboard has polled a folder that contains <code>openspec/</code>.</p>` : `<ul class="p-list" data-testid="workflow-schema-list">${cards.join("")}</ul>`}</div>`;
+}
+const CHIP = { missingDefault: "default schema missing", missing: "files missing", unmanaged: "not managed", incompatible: "CLI too old", conflict: "version conflict", newer: "newer version", outdated: "update available" };
+function propChip(s) {
+  const st = present(s), word = st.key === "unpinned" ? `${plural(s.unpinnedChanges.length, "change")} not pinned` : CHIP[st.key];
+  return `<div class="fold"><span class="fn">${esc(s.name)}</span><span class="fp mono">${esc(s.cwd)}</span>
+    <div data-folder-openspec-schema-notice="${esc(s.cwd)}"><a href="#chip" data-testid="folder-openspec-schema-chip" title="Open the OpenSpec Workflow Schema settings" class="p-chip ${st.tone}">${ic(st.tone === "info" ? "InformationOutline" : "Alert")}Workflow schema: ${word}</a></div></div>`;
+}
+function propDialog(s, action, o = {}) {
+  const st = present(s), tid = nid("pdt"), name = s.name, stampless = action === "disable" && isStampless(s), n = s.unpinnedChanges.length;
+  const T = {
+    enable: [`Enable pi-spec-driven in ${name}?`, `New changes in this project will use <code>pi-spec-driven</code>. Active changes that have no <code>.openspec.yaml</code> are pinned to <code>${esc(s.configured)}</code> so they keep their current schema.`, "Enable"],
+    disable: [`Disable pi-spec-driven in ${name}?`, stampless ? "This project has no record of its previous default. Choose the schema new changes should use again." : "New changes go back to the previous default recorded in the schema stamp. The schema files stay in the repository.", "Disable"],
+    update: [`Update pi-spec-driven in ${name}?`, "Regenerates the schema files from this dashboard version.", "Update schema"],
+    adopt: [`Adopt pi-spec-driven in ${name}?`, "<code>pi-spec-driven/</code> has no dashboard stamp. Adopting replaces it with the schema this dashboard generates.", "Adopt and regenerate"],
+    pin: [`Pin ${plural(n, "change")} in ${name}?`, "Writes a <code>.openspec.yaml</code> into each change below, so it keeps the schema you pick whatever the default becomes.", `Pin ${plural(n, "change")}`],
+    remove: [`Remove pi-spec-driven from ${name}?`, `Deletes the schema files from this project. The default stays <code>${esc(s.configured)}</code>.`, "Remove schema files"],
+  }[action];
+  const files = { enable: [SCHEMA_DIR, CONFIG_PATH, "openspec/changes/*/.openspec.yaml"], disable: [CONFIG_PATH], update: [SCHEMA_DIR], adopt: [SCHEMA_DIR], remove: [SCHEMA_DIR], pin: s.unpinnedChanges.map((x) => `openspec/changes/${x}/.openspec.yaml`) }[action];
+  const fileHelp = action === "enable" ? `<p class="p-help">The <code>*</code> stands for each active change that has no <code>.openspec.yaml</code> yet.</p>` : "";
+  const stamped = action === "update" && !isStampless(s);
+  const opts = [SD].concat((s.projectSchemas || []).filter((x) => x !== SD && x !== PI)); // approved: server-provided projectSchemas
+  const pid = nid("pd"), phid = nid("pdh"), qid = nid("pt");
+  const prev = needsPrev(action, s) ? `<div><label class="p-label" for="${pid}">Previous default</label><select id="${pid}" class="p-input" aria-describedby="${phid}" data-testid="workflow-schema-previous-default">${stamped ? "<option selected>Keep recorded value</option>" : ""}${opts.map((x, i) => `<option ${!stamped && i === 0 ? "selected" : ""}>${esc(x)}</option>`).join("")}</select>
+    <p class="p-help" id="${phid}">${stampless ? "New changes use this schema after you disable pi-spec-driven." : "Recorded in the schema stamp. Disable switches new changes back to it."}</p></div>` : "";
+  const pinSel = action === "pin" ? `<div><label class="p-label" for="${qid}">Pin to</label><select id="${qid}" class="p-input" data-testid="workflow-schema-pin-target"><option selected>${PI}</option><option>${SD}</option></select><p class="p-help">Each change keeps this schema whatever the default becomes.</p></div>` : "";
+  const aff = action === "update" ? (() => { const l = s.affectedChanges, show = l.slice(0, 5); return `<div data-testid="workflow-schema-affected"><p class="p-label">Affects ${plural(l.length, "active change")}</p><ul class="files inset">${show.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>${l.length > 5 ? `<p class="more">and ${l.length - 5} more</p>` : ""}</div>`; })() : "";
+  const callouts = (s.branch ? `<div class="callout info">${ic("InformationOutline")}<div class="body"><p>Files land on branch <code>${esc(s.branch)}</code>. The dashboard never commits.</p></div></div>` : "") +
+    (action === "adopt" ? `<div class="callout warning">${ic("Alert")}<div class="body"><p>Adopting regenerates pi-spec-driven from the package base: any hand customizations are discarded.</p></div></div>` : "") +
+    (action === "remove" ? `<div class="callout warning">${ic("Alert")}<div class="body"><p>Unmerged branches may still pin pi-spec-driven; they break once this removal lands.</p></div></div>` : "");
+  return `<div class="p-scrim"><div class="p-dlg" role="dialog" aria-modal="true" aria-labelledby="${tid}" data-testid="workflow-schema-confirm">
+    <button type="button" class="p-btn icon secondary x" aria-label="Close">${ic("Close")}</button>
+    <h3 id="${tid}">${esc(T[0])}</h3><p class="path mono">${esc(s.cwd)}</p><p class="lead">${T[1]}</p>${callouts}${prev}${pinSel}${aff}
+    <div><p class="p-sechead">${action === "remove" ? "Files removed" : "Files written"}</p><ul class="files inset" data-testid="workflow-schema-paths">${files.map((f) => `<li>${esc(f)}</li>`).join("")}</ul>${fileHelp}</div>
+    <div class="ft"><button type="button" class="p-btn secondary" data-testid="workflow-schema-cancel">Cancel</button><button type="button" class="p-btn ${action === "remove" || action === "adopt" ? "danger" : "primary"}" data-testid="workflow-schema-confirm-action">${esc(T[2])}</button></div></div></div>`;
+}
+
+/* ══ BOARD ══ states: [id, finds, note, asBuilt, proposed] ══ */
+const OV = [P.dash, P.deck, P.wt, P.compsy, P.kept, P.unmanaged];
+const BOARD = [
+  { title: "Section", verdict: "Whole Settings ▸ OpenSpec ▸ Workflow Schema section: six projects in six different states, the empty list, and the folder-chip deep link.", states: [
+    ["section-overview", "A1 A2 A3 A4 A5 A10 → D1 D2 D3 D10", "Six projects, six states. As-built: every row is the same raw-enum line plus equal cyan buttons (Remove beside Update). Proposed: status pill + plain sentence + one recommended action; the rest in More actions; Remove never offered while the config names the schema.",
+      asSection(OV.map((s) => asRow(s))), propSection(OV.map((s) => propCard(s)))],
+    ["section-empty", "A12 → D9", "No project has a status yet. As-built: one muted 11 px line with no way forward. Proposed: says when a project appears.",
+      asSection([], true), propSection([], true)],
+    ["section-deep-link", "A11 → D8", "Opened from the folder chip (<code>?cwd=…#workflow-schema</code>) for compsychletter. As-built: only a blue border (scroll, no focus). Proposed: focus-ring outline, “Opened from folder” caption, focus moves to the card heading (tabIndex −1).",
+      asSection([asRow(P.dash), asRow(P.compsy, { selected: true }), asRow(P.kept)]), propSection([propCard(P.dash), propCard(P.compsy, { selected: true }), propCard(P.kept)])],
+  ]},
+  { title: "Project card", verdict: "One state per row of the D2 table. The as-built column shows exactly the buttons allowedWorkflowSchemaActions returns for that fixture.", states: [
+    ["card-not-enabled", "A3 A4 → D1 D2", "spec-driven, no schema files. Only Enable exists, so as-built and proposed both carry one action; the proposed one says what “not enabled” means.", asList([asRow(P.deck)]), propList([propCard(P.deck)])],
+    ["card-disabled-kept", "A3 A4 A5 → D1 D2 D3", "Default is team-flow but the generated files remain. As-built offers Enable, Update, Remove at equal weight. Proposed recommends Enable; Update and Remove sit in the menu (Remove allowed: the config does not name the schema).", asList([asRow(P.kept)]), propList([propCard(P.kept)])],
+    ["card-enabled", "A3 A4 A5 → D1 D2 D3", "pi-spec-driven current, nothing unpinned. As-built still offers Remove (the server answers “disable first”). Proposed: no recommended action, Update and Disable in the menu, no Remove.", asList([asRow(P.dash)]), propList([propCard(P.dash)])],
+    ["card-unpinned", "A3 A4 A5 → D1 D2 D3", "Worktree, 3 changes with no <code>.openspec.yaml</code>. As-built: four equal buttons incl. Remove. Proposed: Pin 3 changes… is the recommended action; names listed; worktree and branch visible.", asList([asRow(P.wt)]), propList([propCard(P.wt)])],
+    ["card-outdated", "A3 A4 A5 → D1 D2 D3", "Two cards. compsychletter: enabled + outdated → Update available, Update schema… recommended. pi-flows: disabled + outdated — approved precedence: “Disabled, files kept” (sentence notes the update), Enable… recommended, Update schema… and Remove in the menu.", asList([asRow(P.compsy), asRow(P.flows)]), propList([propCard(P.compsy), propCard(P.flows)])],
+    ["card-newer", "A3 A5 → D1 D2 D3", "Generated by a newer dashboard. Info severity: nothing to do, left untouched. As-built shows Disable and Remove (refused by the server).", asList([asRow(P.newer)]), propList([propCard(P.newer)])],
+    ["card-incompatible", "A3 → D1 D2", "The schema needs a newer OpenSpec CLI. Error pill + the one remedy; Remove (config does not name the schema) in the menu.", asList([asRow(P.incompat)]), propList([propCard(P.incompat)])],
+    ["card-conflict", "A3 A5 → D1 D2 D3", "Stamp newer in one part, older in the other. Error severity, no recommended action; Disable in the menu, Remove hidden (enabled).", asList([asRow(P.conflict)]), propList([propCard(P.conflict)])],
+    ["card-unmanaged", "A3 A4 → D1 D2", "<code>pi-spec-driven/</code> exists without a dashboard stamp. Adopt is recommended; the sentence says adopting regenerates it.", asList([asRow(P.unmanaged)]), propList([propCard(P.unmanaged)])],
+    ["card-missing", "A3 → D1 D2", "Config names the schema but the files are absent. As-built: “· missing” tacked on the enum line. Proposed: error pill, partial-checkout hint, Regenerate… (= Update) recommended, Disable in the menu.", asList([asRow(P.missing)]), propList([propCard(P.missing)])],
+    ["card-missing-default", "A3 → D2 (gap fill, approved)", "The config names <code>team-flow</code>, which no project, user or package schema directory provides. As-built: “· missing” on the enum line. Proposed (approved after review): error pill “Default schema missing”, no recommended action; allowed actions stay in the menu.", asList([asRow(P.missingDefault)]), propList([propCard(P.missingDefault)])],
+    ["card-busy", "A6 → D4", "Enabling deck3d. As-built: every button on every row is disabled and the busy row shows no progress. Proposed: only deck3d is busy (spinner, “Enabling…”, aria-busy); compsychletter stays interactive.",
+      asList([asRow(P.deck, { busy: true }), asRow(P.compsy, { busy: true })]), propList([propCard(P.deck, { busy: "enable" }), propCard(P.compsy)])],
+    ["card-menu-open", "A4 → D1 D3", "Proposed only: More actions menu open (APG menu button). Update first, Remove last after a separator with a red icon. As-built has no menu: its three buttons are shown instead.", asList([asRow(P.kept)]), propList([propCard(P.kept, { menuOpen: true })])],
+  ]},
+  { title: "Action result", verdict: "What the card says after an action. Server shapes are the real ones (200 / 422 / 500 partial / 409).", states: [
+    ["result-success-worktree", "A7 → D5", "Enable in a worktree. As-built: “Done. (branch)” and a comma-joined path run on one 10 px line. Proposed: success callout with count, branch, the never-commits reminder and a Show files disclosure.", asList([asRow(P.wt2, { result: RES.success })]), propList([propCard(P.wt2, { result: RES.success })])],
+    ["result-noop", "A7 → D5", "Disable from a stale card (another session already disabled it). As-built: green “Nothing to change.” plus a yellow raw server reason. Proposed: neutral callout.", asList([asRow(P.noop, { result: RES.noop })]), propList([propCard(P.noop, { result: RES.noop })])],
+    ["result-partial", "A7 → D5", "Enable stopped part-way (config write failed). As-built: red text, “Partially applied — review the written files.” Proposed: warning callout that names the next step (run Enable again) + files.", asList([asRow(P.partial, { result: RES.partial })]), propList([propCard(P.partial, { result: RES.partial })])],
+    ["result-pin-skipped", "A14 → D5", "Pin of 3 changes where one already got a <code>.openspec.yaml</code> (exclusive create skipped it). As-built ignores the server’s <code>skipped</code> list: “Done.”. Proposed (approved): success callout names the skipped change.", asList([asRow(P.wt, { result: RES.pinSkipped })]), propList([propCard(P.wt, { result: RES.pinSkipped })])],
+    ["result-refused", "A7 → D5", "422: the stamp records a previous default that is not the config default. Proposed adds the card’s current state under the server message.", asList([asRow(P.kept, { result: RES.refused })]), propList([propCard(P.kept, { result: RES.refused })])],
+    ["result-409", "A7 → D5", "Another action holds the per-cwd lock. As-built shows the raw server string as a red error; proposed is info (nothing went wrong).", asList([asRow(P.compsy, { result: RES.inflight })]), propList([propCard(P.compsy, { result: RES.inflight })])],
+  ]},
+  { title: "Confirm dialog", verdict: "Rendered inline in the frame; real dialog semantics (role, aria-modal, labelled title).", states: [
+    ["dialog-enable", "A8 A9 → D6", "Enable in deck3d. As-built mixes a backticked sentence into the mono path list. Proposed: consequence sentence, then paths only (the <code>*</code> is explained).", asDialog(P.deck, "enable"), propDialog(P.deck, "enable")],
+    ["dialog-update", "A9 → D6", "Update in pi-agent-dashboard. As-built: “7 active change(s)… affected” with no names. Proposed: names up to 5 + “and 2 more”; Previous default is a full labelled field with help text.", asDialog(P.dash, "update"), propDialog(P.dash, "update")],
+    ["dialog-adopt", "A8 A9 → D6", "Adopt in pi-9router-proxy. Danger confirm in both; proposed names the verb (“Adopt and regenerate”) and moves the discard warning into a callout.", asDialog(P.unmanaged, "adopt"), propDialog(P.unmanaged, "adopt")],
+    ["dialog-pin", "A8 A9 → D6", "Pin 3 changes in a worktree. Proposed: branch info callout (“never commits”), Pin to as a labelled field, confirm says how many.", asDialog(P.wt, "pin"), propDialog(P.wt, "pin")],
+    ["dialog-adopt-project-schemas", "D6 + projectSchemas (approved)", "Adopt in a repo that owns <code>team-flow</code> while its default is <code>spec-driven</code>. As-built offers only <code>spec-driven</code>. Proposed lists <code>spec-driven</code> + the server-provided <code>workflowSchema.projectSchemas</code>.", asDialog(P.ownsTeamFlow, "adopt"), propDialog(P.ownsTeamFlow, "adopt")],
+    ["dialog-disable-stampless", "A9 → D6", "Disable where the schema has no stamp (park-here): the server needs a previous default. Proposed explains why it asks.", asDialog(P.missing, "disable"), propDialog(P.missing, "disable")],
+    ["dialog-remove", "A9 → D6", "Remove in judo-ng. As-built: a title and one path, nothing about consequences. Proposed: danger confirm “Remove schema files” and the server’s own unmerged-branches warning up front.", asDialog(P.kept, "remove"), propDialog(P.kept, "remove")],
+  ]},
+  { title: "Folder chip", verdict: "WorkflowSchemaChip in the folder section: a navigation link to this settings section.", states: [
+    ["chip-variants", "A10 → D7", "Seven chips: update available, files missing, version conflict, not managed, N not pinned, plus newer and CLI too old (same pill as the card). As-built: ⚠ glyph, raw yellow, 10 px, enum word. Proposed: severity pill, MDI icon, 12 px, tap target from the contract.",
+      `<div class="fold-list">${[P.compsy, P.missing, P.conflict, P.unmanaged, P.wt, P.newer, P.incompat].map(asChip).join("")}</div>`,
+      `<div class="fold-list">${[P.compsy, P.missing, P.conflict, P.unmanaged, P.wt, P.newer, P.incompat].map(propChip).join("")}</div>`],
+  ]},
+];
+
+document.getElementById("board").innerHTML = BOARD.map((g) => `<section class="surface"><h2>${g.title}</h2><p class="verdict">${g.verdict}</p>
+  ${g.states.map(([id, finds, note, ab, pr]) => `<article class="state" id="${id}"><header><code>${id}</code><span class="finds">${finds}</span></header>
+    <div class="pair"><div class="col asbuilt"><p class="tag">As-built</p><div class="frame">${ab}</div></div>
+    <div class="col proposed"><p class="tag">Proposed</p><div class="frame">${pr}</div></div></div>
+    <p class="note">${note}</p></article>`).join("")}</section>`).join("");
+
+/* toolbar: theme / frame / view, URL params, no fetch */
+const html = document.documentElement;
+function apply(group, v) {
+  if (group === "theme") {
+    const [pal, mode] = v.split("-");
+    mode === "light" ? html.setAttribute("data-theme", "light") : html.removeAttribute("data-theme");
+    pal === "nord" ? html.setAttribute("data-palette", "nord") : html.removeAttribute("data-palette");
+  }
+  if (group === "width") document.body.style.setProperty("--frame-w", v === "1440" ? "100%" : `${v}px`);
+  if (group === "view") document.body.dataset.view = v;
+}
+document.querySelectorAll(".seg").forEach((seg) => seg.addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  seg.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+  apply(seg.dataset.group, b.dataset.v);
+}));
+const params = new URLSearchParams(location.search);
+for (const g of ["theme", "width", "view"]) if (params.get(g)) document.querySelector(`.seg[data-group="${g}"] button[data-v="${params.get(g)}"]`)?.click();
+</script>
+</body>
+</html>

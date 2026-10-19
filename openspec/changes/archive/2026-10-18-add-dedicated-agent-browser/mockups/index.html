@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Browser Relay settings: behaviour controls (mockup)</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="tokens.css" />
+<script src="theme-init.js"></script>
+<style>
+  body { background: var(--bg-primary); color: var(--text-primary); font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .group { background: var(--bg-secondary); border: 1px solid var(--border-primary); border-radius: 0.75rem; }
+  .row { background: var(--bg-tertiary); border: 1px solid var(--border-subtle); border-radius: 0.5rem; }
+  .muted { color: var(--text-tertiary); }
+  .sec { color: var(--text-secondary); }
+  .link { color: var(--accent-text); text-decoration: underline; }
+  .hdr { font-size: 0.8125rem; font-weight: 600; color: var(--text-primary); }
+  .lbl { font-size: 0.8125rem; color: var(--text-primary); }
+  .help { font-size: 0.75rem; color: var(--text-tertiary); }
+  .btn { border: 1px solid var(--border-secondary); border-radius: 0.375rem; padding: 0.25rem 0.625rem; font-size: 0.75rem; color: var(--text-secondary); background: transparent; min-height: 44px; }
+  .btn:hover { background: var(--bg-hover); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-primary { background: var(--accent-solid); border-color: var(--accent-solid); color: white; }
+  .btn-primary:hover { filter: brightness(1.1); background: var(--accent-solid); }
+  .btn-danger { background: var(--severity-error-bg); border-color: var(--severity-error-border); color: var(--severity-error-fg); }
+  @media (min-width: 640px) { .btn { min-height: 0; } }
+  .input { width: 100%; border: 1px solid var(--border-secondary); background: var(--bg-primary); color: var(--text-primary); border-radius: 0.375rem; padding: 0.375rem 0.5rem; font-size: 0.75rem; min-height: 44px; }
+  @media (min-width: 640px) { .input { min-height: 0; } }
+  select.input { padding-right: 1.5rem; }
+  .pill { border-radius: 999px; font-size: 0.6875rem; padding: 0.125rem 0.5rem; font-weight: 600; white-space: nowrap; border: 1px solid; }
+  .pill-ok { background: var(--severity-success-bg); color: var(--severity-success-fg); border-color: var(--severity-success-border); }
+  .pill-neutral { background: var(--severity-neutral-bg); color: var(--severity-neutral-fg); border-color: var(--severity-neutral-border); }
+  .pill-warn { background: var(--severity-warning-bg); color: var(--severity-warning-fg); border-color: var(--severity-warning-border); }
+  .pill-info { background: var(--severity-info-bg); color: var(--severity-info-fg); border-color: var(--severity-info-border); }
+  .notice { border: 1px solid; border-radius: 0.5rem; padding: 0.5rem 0.75rem; font-size: 0.75rem; }
+  .notice-warn { background: var(--severity-warning-bg); color: var(--severity-warning-fg); border-color: var(--severity-warning-border); }
+  .notice-info { background: var(--severity-info-bg); color: var(--severity-info-fg); border-color: var(--severity-info-border); }
+  .card { display: block; border: 1px solid var(--border-secondary); border-radius: 0.5rem; padding: 0.625rem 0.75rem; cursor: pointer; background: var(--bg-tertiary); }
+  .card:has(input:checked) { border-color: var(--accent-primary); box-shadow: 0 0 0 1px var(--accent-primary); background: color-mix(in srgb, var(--accent-primary) 8%, var(--bg-tertiary)); }
+  .card:has(input:disabled) { opacity: 0.5; cursor: not-allowed; }
+  .seg { display: inline-flex; border: 1px solid var(--border-secondary); border-radius: 0.375rem; overflow: hidden; }
+  .seg label { padding: 0.375rem 0.75rem; font-size: 0.75rem; color: var(--text-secondary); cursor: pointer; min-height: 44px; display: flex; align-items: center; }
+  @media (min-width: 640px) { .seg label { min-height: 0; } }
+  .seg label + label { border-left: 1px solid var(--border-secondary); }
+  .seg label:has(input:checked) { background: color-mix(in srgb, var(--accent-primary) 14%, var(--bg-tertiary)); color: var(--text-primary); }
+  .seg input, .card input[type=radio] { accent-color: var(--accent-primary); }
+  .seg input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+  :focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+  .seg label:has(input:focus-visible) { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+  .chip { display: inline-flex; align-items: center; gap: 0.375rem; font-size: 0.75rem; border: 1px solid var(--border-secondary); border-radius: 999px; padding: 0.125rem 0.5rem; color: var(--text-secondary); }
+  .dot { width: 0.5rem; height: 0.5rem; border-radius: 999px; display: inline-block; }
+  .grid-set { display: grid; grid-template-columns: 1fr; gap: 0.25rem 1rem; align-items: start; }
+  @media (min-width: 768px) { .grid-set { grid-template-columns: 12rem 1fr; } }
+  details > summary { list-style: none; cursor: pointer; }
+  details > summary::-webkit-details-marker { display: none; }
+  .chev { transition: transform .15s; display: inline-block; }
+  details[open] .chev { transform: rotate(90deg); }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  /* state switcher (mockup only) */
+  [data-show] { display: none; }
+  body[data-state="normal"] [data-show~="normal"],
+  body[data-state="dedicated-missing"] [data-show~="dedicated-missing"],
+  body[data-state="relay-off"] [data-show~="relay-off"],
+  body[data-state="no-chrome"] [data-show~="no-chrome"] { display: revert; }
+  .mock-bar { border: 1px dashed var(--border-secondary); border-radius: 0.5rem; }
+</style>
+</head>
+<body data-state="normal">
+<div class="max-w-3xl mx-auto p-4 sm:p-8 space-y-5">
+
+  <!-- Mockup-only controls -->
+  <div class="mock-bar p-2 flex flex-wrap items-center gap-2 text-xs muted">
+    <span class="font-semibold sec">Mockup state:</span>
+    <label class="flex items-center gap-1"><input type="radio" name="st" value="normal" checked> Normal</label>
+    <label class="flex items-center gap-1"><input type="radio" name="st" value="dedicated-missing"> Dedicated not set up</label>
+    <label class="flex items-center gap-1"><input type="radio" name="st" value="relay-off"> Relay off</label>
+    <label class="flex items-center gap-1"><input type="radio" name="st" value="no-chrome"> No Chrome on host</label>
+    <button class="btn ml-auto" onclick="document.documentElement.dataset.theme = document.documentElement.dataset.theme==='light' ? '' : 'light'">Theme</button>
+  </div>
+
+  <!-- 1. Header -->
+  <header class="flex items-start justify-between gap-3 flex-wrap">
+    <div>
+      <h1 class="text-base font-semibold">Browser Relay</h1>
+      <p class="help mt-0.5">How pi sessions open web pages that need your logins.</p>
+    </div>
+    <label class="flex items-center gap-2 lbl">
+      <input type="checkbox" id="enabled" checked data-testid="browser-enabled"> Enabled
+    </label>
+  </header>
+
+  <div class="notice notice-info" data-show="no-chrome" role="status">
+    This host has no desktop Google Chrome, so the agent can only use the headless browser. Logged-in browsing is unavailable here.
+  </div>
+  <div class="notice notice-info" data-show="relay-off" role="status">
+    Browser Relay is off. Sessions cannot connect to any Chrome profile until you turn it on.
+  </div>
+
+  <!-- 2. Agent browsing -->
+  <section class="group p-4 space-y-4" aria-labelledby="h-agent">
+    <h2 id="h-agent" class="hdr">Agent browsing</h2>
+
+    <div class="grid-set">
+      <div class="lbl pt-1">Default browser</div>
+      <fieldset class="space-y-2">
+        <legend class="sr-only">Default browser</legend>
+        <label class="card">
+          <div class="flex items-start gap-2">
+            <input type="radio" name="default" value="dedicated" id="dedRadio" checked class="mt-0.5">
+            <div class="min-w-0">
+              <div class="lbl font-medium">Dedicated agent profile <span class="pill pill-info ml-1">Recommended</span></div>
+              <div class="help">A separate Chrome window only the agent uses. You sign in once; works on login pages.</div>
+            </div>
+          </div>
+        </label>
+        <label class="card">
+          <div class="flex items-start gap-2">
+            <input type="radio" name="default" value="real" id="realRadio" class="mt-0.5">
+            <div class="min-w-0 flex-1">
+              <div class="lbl font-medium">One of my Chrome profiles</div>
+              <div class="help">Uses your real logins. Pages with a password manager field disconnect the agent.</div>
+              <select class="input mt-2 max-w-xs" aria-label="Chrome profile for the agent">
+                <option>robert.csakany@blackbelt.hu (Profile 21)</option>
+                <option>OSS (Profile 37)</option>
+              </select>
+            </div>
+          </div>
+        </label>
+        <label class="card">
+          <div class="flex items-start gap-2">
+            <input type="radio" name="default" value="headless" class="mt-0.5">
+            <div class="min-w-0">
+              <div class="lbl font-medium">Headless, no logins</div>
+              <div class="help">Fast and isolated. For public pages and tests only.</div>
+            </div>
+          </div>
+        </label>
+      </fieldset>
+    </div>
+
+    <div class="grid-set">
+      <div class="lbl pt-1" id="l-fallback">If it is unavailable</div>
+      <div>
+        <div class="seg" role="radiogroup" aria-labelledby="l-fallback">
+          <label><input type="radio" name="fb" checked>Ask me</label>
+          <label><input type="radio" name="fb">Try the next browser</label>
+          <label><input type="radio" name="fb">Stop the task</label>
+        </div>
+        <div class="help mt-1">Order from your default: dedicated profile, then the chosen Chrome profile, then headless (a headless default stays headless). The session always says which browser it used; a task that needs logins stops instead of going headless.</div>
+      </div>
+    </div>
+
+    <div class="grid-set">
+      <label class="lbl pt-1" for="idle">Disconnect when idle</label>
+      <div>
+        <select id="idle" class="input w-auto"><option>After 5 minutes</option><option selected>After 30 minutes</option><option>After 2 hours</option><option>Never</option></select>
+        <div class="help mt-1">Closes the agent's tabs and frees the browser when no session has used it.</div>
+      </div>
+    </div>
+
+    <div class="grid-set">
+      <div class="lbl pt-1" id="l-multi">Connections per Chrome profile</div>
+      <div>
+        <div class="seg" role="radiogroup" aria-labelledby="l-multi">
+          <label><input type="radio" name="multi" checked>One at a time</label>
+          <label><input type="radio" name="multi">Several sessions</label>
+        </div>
+        <div class="help mt-1">With several, each session gets its own tab group. The dedicated profile always serves one session at a time.</div>
+      </div>
+    </div>
+
+    <div class="grid-set">
+      <div class="lbl pt-1">Live view</div>
+      <label class="flex items-start gap-2 text-xs sec">
+        <input type="checkbox" checked class="mt-0.5">
+        <span>Open the browser tab in the session's pane when the agent connects</span>
+      </label>
+    </div>
+
+    <div class="grid-set">
+      <label class="lbl pt-1" for="domains">Allowed domains</label>
+      <div>
+        <input id="domains" class="input" placeholder="Any domain" value="">
+        <div class="help mt-1">Comma separated, for example <span class="mono">google.com, github.com</span>. Applies to every browser unless a profile sets its own. Guards address-bar navigation and new tabs only; scripts, link clicks and redirects can still leave the list.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3. Dedicated agent profile -->
+  <section class="group p-4 space-y-3" aria-labelledby="h-ded">
+    <div class="flex items-center justify-between gap-2 flex-wrap">
+      <h2 id="h-ded" class="hdr">Dedicated agent profile</h2>
+      <span class="pill pill-ok" data-show="normal"><span class="dot mr-1" style="background:var(--accent-green)"></span>Running · 1 session</span>
+      <span class="pill pill-info" data-show="dedicated-missing">Not set up</span>
+      <span class="pill pill-neutral" data-show="relay-off">Stopped</span>
+      <span class="pill pill-neutral" data-show="no-chrome">Unavailable</span>
+    </div>
+
+    <div data-show="normal relay-off" class="space-y-3">
+      <p class="help" data-show="relay-off">Browser Relay is off. The dedicated profile is stopped.</p>
+      <dl class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+        <div class="row p-2"><dt class="help">Status</dt><dd class="sec"><span data-show="normal">Running, used by session &ldquo;fix login flow&rdquo;</span><span data-show="relay-off">Stopped</span></dd></div>
+        <div class="row p-2"><dt class="help">Last used</dt><dd class="sec">3 min ago</dd></div>
+        <div class="row p-2"><dt class="help">Size on disk</dt><dd class="sec">412 MB</dd></div>
+        <div class="row p-2"><dt class="help">Serves</dt><dd class="sec">one session at a time</dd></div>
+      </dl>
+      <div class="help">Data: <span class="mono">~/.pi/dashboard/agent-chrome</span> · Sign in once in its window; logins stay here. Open tabs close when the dashboard restarts. Tabs you open by hand in this window are visible to the agent. Other programs running as you can read this folder.</div>
+      <div class="flex flex-wrap gap-2">
+        <button class="btn btn-primary" data-show="normal">Open to sign in</button>
+        <button class="btn" data-show="relay-off" disabled title="Browser Relay is off">Open to sign in</button>
+        <button class="btn" data-show="normal">Stop</button>
+        <button class="btn btn-danger ml-auto" data-show="relay-off" onclick="document.getElementById('resetDlg').showModal()">Reset profile…</button>
+        <button class="btn btn-danger ml-auto" data-show="normal" disabled title="Stop the profile first">Reset profile…</button>
+      </div>
+    </div>
+
+    <div data-show="dedicated-missing" class="space-y-2">
+      <p class="text-xs sec">Create a Chrome profile only the agent uses. It opens in its own window so you can sign in to the accounts the agent should reach.</p>
+      <button class="btn btn-primary">Create and open to sign in</button>
+    </div>
+    <p data-show="no-chrome" class="text-xs muted">Needs desktop Google Chrome on this host.</p>
+  </section>
+
+  <!-- 4. My Chrome profiles -->
+  <section class="group p-4 space-y-2" aria-labelledby="h-prof">
+    <div class="flex items-baseline justify-between gap-2 flex-wrap">
+      <h2 id="h-prof" class="hdr">My Chrome profiles</h2>
+      <span class="help">Needs the Playwright extension in each profile.</span>
+    </div>
+
+    <div class="row p-0" data-testid="browser-profile-Profile 21">
+      <div class="p-2.5 flex items-start gap-2">
+                <div class="min-w-0 flex-1">
+          <div class="lbl font-medium truncate">robert.csakany@blackbelt.hu</div>
+          <div class="help">Profile 21 · Token set · Not connected</div>
+        </div>
+        <span class="pill pill-warn">Password manager</span>
+      </div>
+      <div class="px-3 pb-3 space-y-2.5">
+        <div class="notice notice-warn">
+          LastPass and iCloud Passwords run in this profile. The agent disconnects on pages with a password field. Use the dedicated profile for sign-ins.
+        </div>
+        <div class="flex items-center gap-1.5">
+          <input type="password" class="input flex-1" placeholder="Paste pairing token" aria-label="Pairing token" data-testid="browser-token-input-Profile 21">
+          <button class="btn" disabled>Save token</button>
+        </div>
+        <label class="flex items-start gap-2 text-xs sec">
+          <input type="checkbox" checked class="mt-0.5" data-testid="browser-zero-dialog-Profile 21">
+          <span>Skip Chrome's Allow prompt<span class="help block">Needs a valid token. A wrong token, Reject or no answer all show as a 60 s timeout.</span></span>
+        </label>
+        <label class="block text-xs sec">Allowed domains for this profile
+          <input class="input mt-1" placeholder="Empty: global list applies" data-testid="browser-allowed-domains-Profile 21">
+          <span class="help block mt-1">Guards address-bar navigation and new tabs only; scripts, link clicks and redirects can still leave the list.</span>
+        </label>
+        <div class="flex flex-wrap gap-2 items-center">
+          <button class="btn" data-show="normal dedicated-missing" data-testid="browser-connect-Profile 21">Connect</button>
+          <button class="btn" data-show="relay-off" disabled>Connect</button>
+          <span class="help" data-show="relay-off">Browser Relay disabled</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="row p-0" data-testid="browser-profile-Profile 37">
+      <div class="p-2.5 flex items-start gap-2">
+                <div class="min-w-0 flex-1">
+          <div class="lbl font-medium truncate">OSS</div>
+          <div class="help">Profile 37 · No token · Not connected</div>
+        </div>
+      </div>
+      <div class="px-3 pb-3 text-xs muted">Token, Allow prompt, domains and Connect, as above.</div>
+    </div>
+
+    <details class="row p-0">
+      <summary class="p-2.5 flex items-center gap-2 text-xs sec">
+        <span class="chev muted" aria-hidden="true">›</span>
+        15 more profiles without the extension
+      </summary>
+      <ul class="px-3 pb-3 space-y-1 text-xs">
+        <li class="flex items-center justify-between gap-2"><span class="sec truncate">csakany.robert@gmail.com <span class="muted">(Profile 22)</span></span><a class="link" href="#" data-testid="browser-store-link-Profile 22">Install extension</a></li>
+        <li class="flex items-center justify-between gap-2"><span class="sec truncate">robson@semmi.se <span class="muted">(Profile 23)</span></span><a class="link" href="#">Install extension</a></li>
+        <li class="muted">… 13 more</li>
+      </ul>
+    </details>
+  </section>
+
+  <!-- 5. Activity -->
+  <section class="group p-4 space-y-2" aria-labelledby="h-act">
+    <h2 id="h-act" class="hdr">Activity</h2>
+    <ul class="text-xs space-y-1 mono">
+      <li class="flex gap-3"><span class="muted">10:51:17</span><span class="pill pill-warn">detach</span><span class="sec truncate">Profile 21 · closed:All controlled tabs detached</span></li>
+      <li class="flex gap-3"><span class="muted">10:51:14</span><span class="pill pill-neutral">navigate</span><span class="sec truncate">the-internet.herokuapp.com/login</span></li>
+      <li class="flex gap-3"><span class="muted">10:50:08</span><span class="pill pill-neutral">navigate</span><span class="sec truncate">myaccount.google.com</span></li>
+      <li class="flex gap-3"><span class="muted">10:50:01</span><span class="pill pill-ok">attach</span><span class="sec truncate">Profile 21 · extension</span></li>
+    </ul>
+  </section>
+
+</div>
+
+<dialog id="resetDlg" class="group p-4 max-w-sm" style="color:var(--text-primary)">
+  <h3 class="hdr">Reset the dedicated profile?</h3>
+  <p class="text-xs sec mt-2">This deletes the profile's cookies, logins and history. Only possible while the profile is stopped.</p>
+  <form method="dialog" class="flex justify-end gap-2 mt-4">
+    <button class="btn">Cancel</button>
+    <button class="btn btn-danger">Reset and sign out</button>
+  </form>
+</dialog>
+
+<script>
+  const apply = (s) => { document.body.dataset.state = s; document.getElementById('enabled').checked = s !== 'relay-off'; const d = document.getElementById('dedRadio'); d.disabled = s === 'no-chrome'; document.getElementById('realRadio').disabled = d.disabled; if (d.disabled) document.querySelector('input[name="default"][value="headless"]').checked = true; else d.checked = true; };
+  for (const r of document.querySelectorAll('input[name="st"]')) r.addEventListener('change', e => apply(e.target.value));
+  const p = new URLSearchParams(location.search).get('state'); if (p) { apply(p); const r = document.querySelector(`input[name="st"][value="${p}"]`); if (r) r.checked = true; }
+</script>
+</body>
+</html>

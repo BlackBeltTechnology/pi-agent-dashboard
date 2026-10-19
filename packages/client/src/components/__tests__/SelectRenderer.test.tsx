@@ -158,3 +158,110 @@ describe("SelectRenderer — resolved shows message body (change: fix-ask-user-c
     expect(screen.queryByText(MSG)).toBeNull();
   });
 });
+
+// ── Inline Other — test-plan #F1..#F5. See change: add-ask-user-inline-other ──
+describe("SelectRenderer inline Other", () => {
+  const optedProps = {
+    requestId: "req-o",
+    method: "select",
+    params: { title: "Pick", options: ["A", "B"], allowOther: true },
+  };
+  const row = () => screen.getByRole("button", { name: "Other" });
+
+  it("F1: click Other focuses the field; Enter responds with the trimmed text once", () => {
+    const onRespond = vi.fn();
+    render(<SelectRenderer {...optedProps} status="pending" onRespond={onRespond} onCancel={vi.fn()} />);
+    fireEvent.click(row());
+    const input = screen.getByRole("textbox", { name: "Other answer" });
+    expect(document.activeElement).toBe(input);
+    fireEvent.change(input, { target: { value: "  something else  " } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onRespond).toHaveBeenCalledTimes(1);
+    expect(onRespond).toHaveBeenCalledWith({ value: "something else" });
+  });
+
+  it("F2: empty / whitespace text keeps Submit disabled and Enter inert", () => {
+    const onRespond = vi.fn();
+    render(<SelectRenderer {...optedProps} status="pending" onRespond={onRespond} onCancel={vi.fn()} />);
+    fireEvent.click(row());
+    const input = screen.getByRole("textbox", { name: "Other answer" });
+    const submit = screen.getByRole("button", { name: "Submit" }) as HTMLButtonElement;
+    expect(submit.disabled).toBe(true);
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.change(input, { target: { value: "   " } });
+    expect(submit.disabled).toBe(true);
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onRespond).not.toHaveBeenCalled();
+  });
+
+  it("F3: keyboard — Space opens, Escape collapses and is consumed", () => {
+    const onRespond = vi.fn();
+    render(<SelectRenderer {...optedProps} status="pending" onRespond={onRespond} onCancel={vi.fn()} />);
+    const r = row();
+    r.focus();
+    fireEvent.click(r); // keyboard activation of a button dispatches click
+    const input = screen.getByRole("textbox", { name: "Other answer" });
+    expect(document.activeElement).toBe(input);
+    fireEvent.change(input, { target: { value: "typed" } });
+    const notPrevented = fireEvent.keyDown(input, { key: "Escape" });
+    expect(notPrevented).toBe(false); // preventDefault() was called
+    expect(screen.queryByRole("textbox", { name: "Other answer" })).toBeNull();
+    expect(onRespond).not.toHaveBeenCalled();
+  });
+
+  it("F4: Other row appears only for an opted-in prompt without its own Other option", () => {
+    const mount = (params: Record<string, unknown>) => {
+      const onRespond = vi.fn();
+      const { unmount } = render(
+        <SelectRenderer requestId="r" method="select" params={params} status="pending" onRespond={onRespond} onCancel={vi.fn()} />,
+      );
+      const has = !!screen.queryByTestId("other-option");
+      return { has, onRespond, unmount };
+    };
+    let m = mount({ title: "T", options: ["A", "B"] });
+    expect(m.has).toBe(false);
+    m.unmount();
+    m = mount({ title: "T", options: ["A", "B"], allowOther: false });
+    expect(m.has).toBe(false);
+    m.unmount();
+    m = mount({ title: "T", options: ["Approve", "Other (describe)"], allowOther: true });
+    expect(m.has).toBe(false);
+    fireEvent.click(screen.getByText("Other (describe)"));
+    expect(m.onRespond).toHaveBeenCalledWith({ value: "Other (describe)" });
+    m.unmount();
+    m = mount({ title: "T", options: ["A", "B"], allowOther: true });
+    expect(m.has).toBe(true);
+    fireEvent.click(screen.getByText("A"));
+    expect(m.onRespond).toHaveBeenCalledWith({ value: "A" });
+  });
+
+  it("F5: resolved custom answer shows a picked Other row as plain text", () => {
+    const { unmount } = render(
+      <SelectRenderer requestId="r" method="select" params={{ title: "T", options: ["A", "B"] }} status="resolved" result={{ value: "C" }} onRespond={vi.fn()} onCancel={vi.fn()} />,
+    );
+    expect(screen.getByTestId("answered-other-text").textContent).toBe("C");
+    expect(screen.getByText("Other")).toBeTruthy();
+    unmount();
+    render(
+      <SelectRenderer requestId="r" method="select" params={{ title: "T", options: ["A", "B"] }} status="resolved" result={{ value: "<b>x</b> **y**" }} onRespond={vi.fn()} onCancel={vi.fn()} />,
+    );
+    const cell = screen.getByTestId("answered-other-text");
+    expect(cell.textContent).toBe("<b>x</b> **y**");
+    expect(cell.querySelector("b, strong")).toBeNull();
+  });
+
+  it("F5b: a resolved option answer shows no Other row", () => {
+    render(
+      <SelectRenderer requestId="r" method="select" params={{ title: "T", options: ["A", "B"] }} status="resolved" result={{ value: "A" }} onRespond={vi.fn()} onCancel={vi.fn()} />,
+    );
+    expect(screen.queryByTestId("answered-other-text")).toBeNull();
+  });
+
+  it("X2: non-string options do not throw", () => {
+    expect(() =>
+      render(
+        <SelectRenderer requestId="r" method="select" params={{ title: "T", options: [1, "A"] as unknown as string[], allowOther: true }} status="pending" onRespond={vi.fn()} onCancel={vi.fn()} />,
+      ),
+    ).not.toThrow();
+  });
+});

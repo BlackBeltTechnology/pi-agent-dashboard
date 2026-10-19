@@ -239,7 +239,7 @@ A client that knocks a server on a different origin than its own (for example a 
 - **THEN** the client SHALL NOT knock and SHALL report an identity mismatch
 
 ### Requirement: Dashboard works from a non-secure LAN origin
-After a knock pairs a browser on a plain-http LAN origin, the dashboard client SHALL work in that non-secure browser context: no code in the dashboard client (`packages/client`) or its shared client utilities (`packages/client-utils`) SHALL call a secure-context-only API (`crypto.randomUUID`, `crypto.subtle`, `navigator.clipboard`) without a capability check and a fallback (a UUIDv4 built from `crypto.getRandomValues`, which works in non-secure contexts, so request ids stay UUIDv4 as `spawn-correlation` requires; a manual-copy fallback for clipboard that still uses `navigator.clipboard.writeText` when it exists). Features that inherently require a secure context (DPoP proof keys on the identity plane) SHALL check for `crypto.subtle` and report themselves unavailable instead of throwing. Plugin client bundles are out of scope for this requirement.
+After a knock pairs a browser on a plain-http LAN origin, the dashboard client SHALL work in that non-secure browser context: no code in the dashboard client (`packages/client`), its shared client utilities (`packages/client-utils`), the plugin runtime's browser surface (`packages/dashboard-plugin-runtime`, excluding its Node-only `server`, `bridge` and `vite-plugin` entries and its `test-support` helpers), or any plugin client bundle loaded into the dashboard SPA (the directory of every plugin manifest's client entry, excluding that plugin's server and bridge entries, and every `packages/*/src/client` tree) SHALL call a secure-context-only API (`crypto.randomUUID`, `crypto.subtle`, `navigator.clipboard`, `navigator.mediaDevices`) without a capability check, plus a fallback where one exists (a UUIDv4 built from `crypto.getRandomValues`, which works in non-secure contexts, so request ids stay UUIDv4 as `spawn-correlation` requires; a manual-copy fallback for clipboard that still uses `navigator.clipboard.writeText` when it exists). A plugin Copy action SHALL report the real outcome: it SHALL NOT show a "Copied" confirmation when neither copy path succeeded. Features that inherently require a secure context (DPoP proof keys on the identity plane; camera, microphone, or screen capture via `navigator.mediaDevices`) SHALL check for the API and report themselves unavailable instead of throwing. Bundles that never load into the dashboard SPA (the standalone pairing shell, headless bus clients, standalone deck runtimes) are out of scope for this requirement.
 
 #### Scenario: Resume from Settings on an http LAN origin
 - **GIVEN** a browser paired by knock on `http://192.168.16.204:8000`, where `crypto.randomUUID` is undefined
@@ -250,3 +250,67 @@ After a knock pairs a browser on a plain-http LAN origin, the dashboard client S
 - **GIVEN** `navigator.clipboard` is undefined
 - **WHEN** the user activates a Copy action
 - **THEN** the client SHALL fall back without throwing and SHALL tell the user the text could not be copied automatically
+
+#### Scenario: Plugin Copy action without the clipboard API
+- **GIVEN** `navigator.clipboard` is undefined and the manual-copy fallback fails
+- **WHEN** the user activates a Copy action inside a plugin client surface (for example the kb test-search result list or the Gmail settings setup steps)
+- **THEN** the plugin SHALL NOT throw and SHALL NOT show a "Copied" confirmation
+
+#### Scenario: Plugin Copy action falls back in a non-secure context
+- **GIVEN** `navigator.clipboard` is undefined and the manual-copy fallback succeeds
+- **WHEN** the user activates a Copy action inside a plugin client surface
+- **THEN** the text SHALL be copied via the fallback and the plugin SHALL report success
+
+#### Scenario: Rapid plugin copies resolve out of order
+- **GIVEN** the user activates Copy on item A and then on item B, and A's copy settles after B's
+- **WHEN** both copies settle
+- **THEN** the plugin's copy indicator SHALL reflect only B's outcome, and A's late result SHALL NOT change it
+
+#### Scenario: Media capture on an http LAN origin
+- **GIVEN** a browser on a plain-http LAN origin where `navigator.mediaDevices` is undefined
+- **WHEN** the user activates a feature in the dashboard or a plugin client that needs camera, microphone, or screen capture
+- **THEN** the feature SHALL report itself unavailable in this context and SHALL NOT throw
+
+#### Scenario: New plugin code calls a secure-context API bare
+- **WHEN** a source file in any client root named above (test files excluded) calls `crypto.randomUUID`, `crypto.subtle`, `navigator.clipboard`, or `navigator.mediaDevices` outside the allowlisted guarded helpers, whether by member access, optional chaining, or quoted bracket access on `navigator` / `crypto` (also when reached through `window`, `globalThis` or `self`), or by destructuring from them
+- **THEN** the repository's secure-context source-scan test SHALL fail naming that file
+
+### Requirement: Configured networks extend knock eligibility
+The knock admission gate's address rule SHALL admit a peer when it lies in a default private range (as defined by this capability) **or** matches an entry of the resolved trusted list (`trustedNetworks` merged with `auth.bypassHosts`). The list branch SHALL apply only to a request that carries no proxy-forwarding header at all (as strict as the private-range branch), and SHALL ignore the match-all entries `0.0.0.0/0`, `::/0` and `*.*.*.*`. (An operator who lists ranges that together span the internet still opens knocking to them; the Security page shows every listed range as "may request access".) The list branch does not require the peer to be on-link. This extension SHALL apply in both trust modes and SHALL be read live, so an entry added or revoked takes effect on the next knock without a restart.
+
+A list match SHALL widen only **where a knock may come from**. It SHALL NOT bypass any other knock gate (`pairing.acceptLanRequests`, one live knock per address, the pending cap, the per-address rate limit), SHALL NOT pre-approve, shorten or skip the operator's typed confirm-code approval, and SHALL NOT change the tier a knock is issued with. A relayed-loopback peer (loopback-range socket peer carrying a proxy-forwarding header) SHALL be refused even when the list covers loopback.
+
+#### Scenario: Public-range peer listed by the operator may knock
+- **GIVEN** `pairing.acceptLanRequests` is enabled and `trustedNetworks` contains `198.51.100.0/24`
+- **WHEN** a knock arrives from `198.51.100.7`
+- **THEN** the address gate SHALL pass and a pending device SHALL be created awaiting operator approval
+
+#### Scenario: Unlisted public-range peer is refused
+- **GIVEN** `pairing.acceptLanRequests` is enabled and no list entry covers `198.51.100.7`
+- **WHEN** a knock arrives from `198.51.100.7`
+- **THEN** it SHALL be refused with the address-gate error code
+
+#### Scenario: Listed peer still needs the setting
+- **GIVEN** `pairing.acceptLanRequests` is disabled and `trustedNetworks` contains `192.168.16.0/24`
+- **WHEN** a knock arrives from `192.168.16.20`
+- **THEN** it SHALL be refused with the setting-disabled error code
+
+#### Scenario: Listed peer still needs operator approval
+- **GIVEN** `pairing.acceptLanRequests` is enabled and `trustedNetworks` contains `192.168.16.0/24`
+- **WHEN** a knock from `192.168.16.20` is admitted
+- **THEN** no bearer SHALL be issued until the operator approves with the typed confirm code
+
+#### Scenario: Loopback entry does not admit a relayed knock
+- **GIVEN** `pairing.acceptLanRequests` is enabled and `trustedNetworks` contains `127.0.0.0/8`
+- **WHEN** a knock arrives from `127.0.0.1` carrying `X-Forwarded-For`
+- **THEN** it SHALL be refused
+
+#### Scenario: Forwarded knock from a listed peer is refused
+- **GIVEN** `pairing.acceptLanRequests` is enabled and `trustedNetworks` contains `198.51.100.0/24`
+- **WHEN** a knock arrives from `198.51.100.7` carrying `X-Forwarded-For`
+- **THEN** it SHALL be refused with the address-gate error code
+
+#### Scenario: Match-all entry does not open knocking
+- **GIVEN** `pairing.acceptLanRequests` is enabled and `trustedNetworks` contains `0.0.0.0/0`
+- **WHEN** a knock arrives from public address `203.0.113.9`
+- **THEN** it SHALL be refused with the address-gate error code

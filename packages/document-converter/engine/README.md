@@ -22,13 +22,24 @@ signals success.
 docker run --rm -i \
   -v "$WORKDIR:$WORKDIR" -w "$WORKDIR" \
   -e GEMINI_API_KEY \
-  pi-doc-engine:0.1.0 < request.json > response.json
+  pi-doc-engine:0.2.0 < request.json > response.json
 ```
 
 - All paths in the request/response are **container paths**. The facade bind-mounts
   a work dir and rewrites host→container paths before calling.
 - `GEMINI_API_KEY` is injected at `docker run` time only (never baked). Absent →
-  styled diagrams fall back to mmdc.
+  styled diagrams fall back to mmdc; if the browser cannot launch, produce fails with `MMDC_UNAVAILABLE`.
+
+### Browser (mermaid)
+
+The headless browser is selected per build architecture: pinned
+`chrome-headless-shell` on amd64, distro `chromium` on arm64 (symlinked to
+`/opt/chrome-headless-shell/chrome-headless-shell`). Any other architecture
+fails the build. Diagram raster output may differ slightly between arches. A
+build-time smoke render fails the build if the browser cannot launch.
+
+Upgrading from 0.1.0: rebuild (`build-image.sh` also tags `pi-doc-engine:latest`,
+the server's default image name) or set `PI_DOC_ENGINE_IMAGE=pi-doc-engine:0.2.0`.
 
 ### Request
 

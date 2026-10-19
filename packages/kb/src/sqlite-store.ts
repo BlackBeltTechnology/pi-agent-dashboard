@@ -2,7 +2,7 @@
 // Zero runtime deps. Requires --experimental-sqlite on current Node.
 // better-sqlite3 is a drop-in fallback behind the same KbStore interface.
 
-import { mkdirSync, renameSync, statSync, unlinkSync } from "node:fs";
+import { mkdirSync, statSync, unlinkSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { Chunk, FileState, Filter, GraphEdge, GraphNode, KbHit, KbStore, RawDb, SearchOpts, StorePropertyRow } from "./types.js";
@@ -36,6 +36,8 @@ CREATE TABLE IF NOT EXISTS edges (
 );
 CREATE INDEX IF NOT EXISTS idx_edges_src ON edges(src);
 CREATE INDEX IF NOT EXISTS idx_edges_dst ON edges(dst);
+-- owned-row lookups (heading nodes by file path) must not scan the nodes table per file.
+CREATE INDEX IF NOT EXISTS idx_nodes_path ON nodes(path);
 CREATE TABLE IF NOT EXISTS properties (
   root TEXT, path TEXT, key TEXT,
   value TEXT, value_num REAL, value_date TEXT, value_raw TEXT
@@ -46,9 +48,10 @@ CREATE TABLE IF NOT EXISTS properties (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_props_uniq ON properties(root, path, key, value);
 CREATE INDEX IF NOT EXISTS idx_props_kv ON properties(key, value);
 CREATE TABLE IF NOT EXISTS kb_meta (k TEXT PRIMARY KEY, v TEXT);
--- chunk rowids of items written by replaceItem (git scope). \`chunks\` is FTS5 with
--- UNINDEXED root/path, so \`DELETE … WHERE path=?\` scans the whole table (O(N) per
--- item, quadratic over a 72k-commit ingest); a rowid delete is O(log N).
+-- chunk rowids per (root,path): written by replaceItem (git scope) AND by every docs
+-- insertChunk. \`chunks\` is FTS5 with UNINDEXED root/path, so \`DELETE … WHERE path=?\`
+-- scans the whole table (O(N) per item, quadratic over a bulk ingest); a rowid delete
+-- is O(log N). See change: fix-kb-index-integrity (D5).
 CREATE TABLE IF NOT EXISTS item_rows (root TEXT, path TEXT, rid INTEGER, PRIMARY KEY (root, path, rid));
 `;
 
@@ -178,7 +181,7 @@ export class SqliteFtsStore implements KbStore {
     // Everything below is derived from the same walk; clearing it keeps the
     // rebuilt index free of rows the deletion sweep can no longer reach (that
     // sweep reads `listPaths`, which now returns nothing).
-    for (const t of ["files", "nodes", "edges", "properties"]) {
+    for (const t of ["files", "nodes", "edges", "properties", "item_rows"]) {
       try {
         this.db.exec(`DELETE FROM ${t}`);
       } catch { /* table absent in a pre-DDL store — nothing to clear */ }
@@ -259,21 +262,16 @@ export class SqliteFtsStore implements KbStore {
   close() {
     this.db.close();
   }
-  /** Finalize a temp-path build onto `dest`. WAL ordering is load-bearing:
-   *  TRUNCATE-checkpoint + close BEFORE the rename so the single main file holds
-   *  every committed page; then rename atomically and drop stale sidecars.
-   *  See change: harden-kb-index-failure-atomicity. */
-  finalizeRename(dest: string) {
+  /** Fold the WAL into the main file and close, so a temp-path build is one
+   *  self-contained file ready to install onto `dbPath` (hard link or online
+   *  backup — see `installIndex` in index-run.ts). TRUNCATE-checkpoint + close
+   *  BEFORE the install so the single main file holds every committed page.
+   *  See changes: harden-kb-index-failure-atomicity, fix-kb-index-integrity (D1). */
+  checkpointAndClose() {
     try {
       this.db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
     } catch {}
     this.db.close();
-    renameSync(this.dbPath, dest);
-    for (const ext of ["-wal", "-shm"]) {
-      try {
-        unlinkSync(this.dbPath + ext);
-      } catch {}
-    }
   }
   /** Close and remove this DB file + WAL sidecars — cleanup for a failed run
    *  that itself created the file (never touches a pre-existing valid DB). */
@@ -298,16 +296,66 @@ export class SqliteFtsStore implements KbStore {
   listPaths(root: string): string[] {
     return (this.db.prepare("SELECT path FROM files WHERE root=?").all(root) as any[]).map((r) => r.path);
   }
+  /** Delete exactly the rows owned by file `path`: its chunks (rowid-addressed via
+   *  `item_rows`, incl. the `:meta` chunk), its heading nodes, edges sourced at its
+   *  file/heading nodes, properties and file state. Its FILE node is kept (so edges
+   *  from OTHER files that point at it survive a re-chunk); see `demoteNode` for a
+   *  deleted file. See change: fix-kb-index-integrity (D4, D5). */
   deleteByPath(root: string, path: string) {
     this.dfCache.clear();
-    // chunks includes the file's synthetic `:meta` chunk (same path) — removed here.
-    this.db.prepare("DELETE FROM chunks WHERE root=? AND path=?").run(root, path);
-    // outbound edges originate from this file's nodes; prune nodes owned by path then dangling edges
-    const owned = this.db.prepare("SELECT id FROM nodes WHERE path=?").all(path) as any[];
-    for (const n of owned) this.db.prepare("DELETE FROM edges WHERE src=? OR dst=?").run(n.id, n.id);
-    this.db.prepare("DELETE FROM nodes WHERE path=?").run(path);
-    this.db.prepare("DELETE FROM properties WHERE root=? AND path=?").run(root, path);
-    this.db.prepare("DELETE FROM files WHERE root=? AND path=?").run(root, path);
+    // verify-before-delete: a reused rowid now holding another file's chunk is never deleted.
+    for (const r of this.prep("SELECT rid FROM item_rows WHERE root=? AND path=?").all(root, path) as Array<{ rid: number }>) {
+      this.prep("DELETE FROM chunks WHERE rowid=? AND root=? AND path=?").run(r.rid, root, path);
+    }
+    this.prep("DELETE FROM item_rows WHERE root=? AND path=?").run(root, path);
+    this.prep(
+      `DELETE FROM edges WHERE src IN (SELECT id FROM nodes WHERE (type='file' AND name=?1) OR (type='heading' AND path=?1))
+         OR dst IN (SELECT id FROM nodes WHERE type='heading' AND path=?1)`,
+    ).run(path);
+    this.prep("DELETE FROM nodes WHERE type='heading' AND path=?").run(path);
+    this.prep("DELETE FROM properties WHERE root=? AND path=?").run(root, path);
+    this.prep("DELETE FROM files WHERE root=? AND path=?").run(root, path);
+  }
+  /** A deleted file's node becomes a placeholder (path NULL) so inbound links keep their target. */
+  demoteNode(path: string): void {
+    this.prep("UPDATE nodes SET path=NULL WHERE type='file' AND name=?").run(path);
+  }
+  /** Remove path-less nodes (placeholders, tags) no edge references. */
+  sweepPlaceholders(): number {
+    const r = this.prep("DELETE FROM nodes WHERE path IS NULL AND id NOT IN (SELECT src FROM edges) AND id NOT IN (SELECT dst FROM edges)").run();
+    return Number(r.changes);
+  }
+  /** `PRAGMA data_version` changes when ANOTHER connection commits to the file. */
+  private dataVersion(): number {
+    return Number((this.db.prepare("PRAGMA data_version").get() as { data_version: number }).data_version);
+  }
+  private mapVersion: number | null = null;
+  /** Rebuild the `item_rows` record from `chunks` (25 ms on 3000 files / 40k chunks)
+   *  and drop file state of files owning non-qualified (pre-fix) heading nodes so the
+   *  walk re-chunks them. Runs at the start of this connection's first pass and of
+   *  every pass after another connection committed (`data_version`), inside one
+   *  BEGIN IMMEDIATE; a failure throws BEFORE any per-file delete. Cheap no-op
+   *  otherwise. See change: fix-kb-index-integrity (D5). */
+  reconcileChunkMap(): void {
+    if (this.existingOnly) return;
+    if (this.mapVersion !== null && this.dataVersion() === this.mapVersion) return;
+    // The version is read INSIDE the write transaction: no other connection can commit between the
+    // rebuild and the read, so `mapVersion` never claims a newer state than the rebuilt map.
+    this.mapVersion = this.immediate((db) => {
+      db.exec("DELETE FROM item_rows");
+      db.exec("INSERT OR IGNORE INTO item_rows(root,path,rid) SELECT root, path, rowid FROM chunks");
+      const LEGACY = "type='heading' AND path IS NOT NULL AND substr(name, 1, length(path) + 1) <> path || '#'";
+      // Pre-fix (bare) heading nodes exist only after a rollback or a stale writer; skip the walk otherwise.
+      if (db.prepare(`SELECT 1 FROM nodes WHERE ${LEGACY} LIMIT 1`).get()) {
+        db.exec(`DELETE FROM files WHERE path IN (SELECT path FROM nodes WHERE ${LEGACY})`);
+        // A bare node is shared by every file with that heading path and only its last writer owns
+        // it: also re-chunk every file that has a chunk under such a bare node name.
+        db.exec(`DELETE FROM files WHERE path IN (
+          SELECT c.path FROM chunks c JOIN nodes n ON n.type='heading' AND n.name = c.heading_path
+          WHERE n.path IS NOT NULL AND substr(n.name, 1, length(n.path) + 1) <> n.path || '#')`);
+      }
+      return Number((db.prepare("PRAGMA data_version").get() as { data_version: number }).data_version);
+    });
   }
 
   deletePropertiesByPath(root: string, path: string) {
@@ -349,22 +397,67 @@ export class SqliteFtsStore implements KbStore {
   setMeta(k: string, v: string) {
     this.db.prepare("INSERT INTO kb_meta(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v").run(k, v);
   }
+  deleteMeta(k: string) {
+    this.db.prepare("DELETE FROM kb_meta WHERE k=?").run(k);
+  }
+
+  /** Every source root that owns rows (files, chunk map, properties) or a gate/engine record.
+   *  Run `reconcileChunkMap` first so `item_rows` covers every chunk. Seeding reads it to find
+   *  the roots of a snapshot. See change: add-kb-worktree-seed (D3). */
+  rootsPresent(): string[] {
+    const out = new Set<string>();
+    for (const sql of ["SELECT DISTINCT root AS r FROM files", "SELECT DISTINCT root AS r FROM item_rows", "SELECT DISTINCT root AS r FROM properties"]) {
+      for (const row of this.db.prepare(sql).all() as Array<{ r: string | null }>) if (row.r != null) out.add(row.r);
+    }
+    for (const row of this.db.prepare("SELECT k FROM kb_meta WHERE k LIKE 'gate:%' OR k LIKE 'engine:%'").all() as Array<{ k: string }>) {
+      out.add(row.k.slice(row.k.indexOf(":") + 1));
+    }
+    return [...out];
+  }
+
+  /** Remove every row a source `root` owns, in one transaction: per-path rows via `deleteByPath`
+   *  (chunks, heading nodes, owned edges, properties, file state), the file node demoted to a
+   *  placeholder (inbound links keep their target), its `gate:`/`engine:` records, then the
+   *  unreferenced path-less nodes. Needs a complete `item_rows` (`reconcileChunkMap`). A path
+   *  shared with another root loses that root's graph rows too (known limitation).
+   *  See change: add-kb-worktree-seed (D3). */
+  dropRoot(root: string): void {
+    this.immediate(() => {
+      const paths = new Set<string>();
+      for (const sql of ["SELECT path FROM files WHERE root=?", "SELECT DISTINCT path FROM item_rows WHERE root=?", "SELECT DISTINCT path FROM properties WHERE root=?"]) {
+        for (const r of this.prep(sql).all(root) as Array<{ path: string }>) paths.add(r.path);
+      }
+      for (const p of paths) {
+        this.deleteByPath(root, p);
+        this.demoteNode(p);
+      }
+      this.prep("DELETE FROM kb_meta WHERE k=? OR k=?").run(`gate:${root}`, `engine:${root}`);
+      this.sweepPlaceholders();
+    });
+  }
+
+  /** Set every file's stored mtime of `roots` to -1 so the next walk re-hashes each file
+   *  (content compare) instead of trusting an mtime recorded by another checkout. */
+  invalidateMtimes(roots: string[]): void {
+    for (const r of roots) this.prep("UPDATE files SET mtime_ms=-1 WHERE root=?").run(r);
+  }
 
   insertChunk(c: Chunk) {
-    this.insertChunkRow(c);
+    const r = this.insertChunkRow(c);
+    this.prep("INSERT OR IGNORE INTO item_rows(root,path,rid) VALUES(?,?,?)").run(c.root, c.path, Number(r.lastInsertRowid));
   }
   private insertChunkRow(c: Chunk) {
     return this.prep("INSERT INTO chunks(root,path,chunk_id,doc_type,parent_chunk_id,level,body_hash,heading_path,heading,body,start_line,end_line) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)")
       .run(c.root, c.path, c.chunkId, c.docType, c.parentChunkId, c.level, c.bodyHash, c.headingPath, c.heading, c.body, c.startLine ?? null, c.endLine ?? null);
   }
   addNode(n: GraphNode) {
-    this.db.prepare("INSERT INTO nodes(type,name,path) VALUES(?,?,?) ON CONFLICT(type,name) DO UPDATE SET path=COALESCE(excluded.path, nodes.path)").run(n.type, n.name, n.path);
+    this.prep("INSERT INTO nodes(type,name,path) VALUES(?,?,?) ON CONFLICT(type,name) DO UPDATE SET path=COALESCE(excluded.path, nodes.path)").run(n.type, n.name, n.path);
   }
   addEdge(e: GraphEdge) {
-    const src = this.db.prepare("SELECT id FROM nodes WHERE name=? LIMIT 1").get(e.src) as any;
-    const dst = this.db.prepare("SELECT id FROM nodes WHERE name=? LIMIT 1").get(e.dst) as any;
+    const src = this.prep("SELECT id FROM nodes WHERE name=? LIMIT 1").get(e.src) as any;
+    const dst = this.prep("SELECT id FROM nodes WHERE name=? LIMIT 1").get(e.dst) as any;
     if (!src || !dst) return;
-    this.db.prepare("INSERT OR IGNORE INTO edges(src,dst,rel,weight) VALUES(?,?,?,?)").run(src.id, dst.id, e.rel, e.weight ?? 1);
+    this.prep("INSERT OR IGNORE INTO edges(src,dst,rel,weight) VALUES(?,?,?,?)").run(src.id, dst.id, e.rel, e.weight ?? 1);
   }
 
   /** Porter stems for raw tokens, computed by SQLite's OWN tokenizer so they
@@ -409,9 +502,17 @@ export class SqliteFtsStore implements KbStore {
    *  which an index batch can have moved the counts. Falls back to df=0 when the
    *  vocab table cannot be created (e.g. a read-only DB). */
   private dfCache = new Map<string, number>();
+  private dfVersion: number | null = null;
   private vocabReady: boolean | null = null;
   private documentFrequencies(tokens: string[]): Map<string, number> {
     const out = new Map<string, number>();
+    // Another connection's commit moves the counts without touching this handle's
+    // own invalidation points: `data_version` is the cross-connection signal.
+    const dv = this.dataVersion();
+    if (this.dfVersion !== dv) {
+      this.dfCache.clear();
+      this.dfVersion = dv;
+    }
     const stem = this.stems(tokens);
     const keys = [...new Set(tokens.map((t) => stem.get(t) as string))];
     const missing = keys.filter((k) => !this.dfCache.has(k));
@@ -654,24 +755,43 @@ export class SqliteFtsStore implements KbStore {
     return hits.map(({ ...h }) => { delete (h as any).parentChunkId; return h; });
   }
 
+  /** Resolve a node argument to ids: exact name first (file path, qualified
+   *  `<file>#<heading path>`, tag); else, when it carries no `#`, every heading node
+   *  whose heading-path part equals it (union over files). Exact comparison via the
+   *  node's own `path`, never LIKE. See change: fix-kb-index-integrity (D4). */
+  private resolveNodeIds(name: string): number[] {
+    const exact = this.prep("SELECT id FROM nodes WHERE name = ?").all(name) as Array<{ id: number }>;
+    if (exact.length || name.includes("#")) return exact.map((r) => r.id);
+    return (
+      this.prep(
+        "SELECT id FROM nodes WHERE type='heading' AND path IS NOT NULL AND substr(name, 1, length(path) + 1) = path || '#' AND substr(name, length(path) + 2) = ?",
+      ).all(name) as Array<{ id: number }>
+    ).map((r) => r.id);
+  }
   neighbors(node: string, depth: number, rel?: GraphEdge["rel"]): GraphNode[] {
-    const relClause = rel ? "AND e.rel = :rel" : "";
+    const seeds = this.resolveNodeIds(node);
+    if (!seeds.length) return [];
+    const ph = seeds.map(() => "?").join(",");
+    const relClause = rel ? "AND e.rel = ?" : "";
     const sql = `
       WITH RECURSIVE reach(id, d) AS (
-        SELECT id, 0 FROM nodes WHERE name = :name
+        SELECT id, 0 FROM nodes WHERE id IN (${ph})
         UNION
         SELECT e.dst, r.d+1 FROM edges e JOIN reach r ON e.src = r.id
-        WHERE r.d < :depth ${relClause}
+        WHERE r.d < ? ${relClause}
       )
-      SELECT DISTINCT n.type, n.name, n.path FROM reach JOIN nodes n USING(id) WHERE n.name != :name`;
-    const params: any = { name: node, depth };
-    if (rel) params.rel = rel;
-    return (this.db.prepare(sql).all(params) as any[]).map((r) => ({ type: r.type, name: r.name, path: r.path }));
+      SELECT DISTINCT n.type, n.name, n.path FROM reach JOIN nodes n USING(id) WHERE n.id NOT IN (${ph})`;
+    const params: unknown[] = [...seeds, depth];
+    if (rel) params.push(rel);
+    params.push(...seeds);
+    return (this.db.prepare(sql).all(...(params as any[])) as any[]).map((r) => ({ type: r.type, name: r.name, path: r.path }));
   }
   backlinks(node: string): GraphNode[] {
+    const targets = this.resolveNodeIds(node);
+    if (!targets.length) return [];
     const sql = `SELECT DISTINCT n.type, n.name, n.path FROM edges e
-      JOIN nodes t ON e.dst = t.id JOIN nodes n ON e.src = n.id WHERE t.name = ?`;
-    return (this.db.prepare(sql).all(node) as any[]).map((r) => ({ type: r.type, name: r.name, path: r.path }));
+      JOIN nodes n ON e.src = n.id WHERE e.dst IN (${targets.map(() => "?").join(",")})`;
+    return (this.db.prepare(sql).all(...(targets as any[])) as any[]).map((r) => ({ type: r.type, name: r.name, path: r.path }));
   }
   /** Fetch a chunk by path (+ optional section). A path-only fetch of a
    *  multi-chunk file returns the FIRST chunk plus a `suppressedSections` count

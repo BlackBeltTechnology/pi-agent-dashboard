@@ -9,7 +9,7 @@
  *  1. a dedicated `monitorEventLoopDelay` sampler (`eventloop-sampler.ts`),
  *     which records `{ turn: null }` for stalls no instrumented turn owns, and
  *  2. per-turn self-records from the OpenSpec poll path (`directory-service.ts`),
- *     which record `{ turn: "tickOpen" | "dirPollPre" | "dirPollPost" }`.
+ *     which record `{ turn: "tickOpen" | "dirPollPre" | "dirPollGate" | "dirPollCli" | "dirPollPost" }`.
  *
  * `/api/health` reads `snapshot()`. A failure in the measurement path must never
  * propagate to request handling — callers wrap `record` in try/catch.
@@ -18,7 +18,7 @@
  */
 
 /** Named event-loop turn a spike is attributed to; `null` when unattributed. */
-export type EventLoopTurn = "tickOpen" | "dirPollPre" | "dirPollPost" | null;
+export type EventLoopTurn = "tickOpen" | "dirPollPre" | "dirPollGate" | "dirPollCli" | "dirPollPost" | null;
 
 export interface EventLoopSpike {
   /** Epoch ms when the spike was recorded. */

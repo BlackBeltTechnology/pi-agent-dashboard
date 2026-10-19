@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Browser relay — as-built vs proposed</title>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="mockup.css" />
+<link rel="stylesheet" href="asbuilt.css" />
+<link rel="stylesheet" href="relay.css" />
+<script src="icons.js"></script>
+</head>
+<body data-view="both">
+<div class="toolbar" role="toolbar" aria-label="Board controls">
+  <h1>Browser relay — as-built vs proposed</h1>
+  <span class="seg-label" id="lbl-theme">Theme</span>
+  <div class="seg" aria-labelledby="lbl-theme" data-group="theme">
+    <button aria-pressed="true" data-v="base-dark">Base dark</button>
+    <button aria-pressed="false" data-v="base-light">Base light</button>
+    <button aria-pressed="false" data-v="nord-dark">Nord dark</button>
+  </div>
+  <span class="seg-label" id="lbl-w">Frame</span>
+  <div class="seg" aria-labelledby="lbl-w" data-group="width">
+    <button aria-pressed="false" data-v="375">375</button>
+    <button aria-pressed="false" data-v="768">768</button>
+    <button aria-pressed="true" data-v="1440">1440</button>
+  </div>
+  <span class="seg-label" id="lbl-v">Show</span>
+  <div class="seg" aria-labelledby="lbl-v" data-group="view">
+    <button aria-pressed="true" data-v="both">Side by side</button>
+    <button aria-pressed="false" data-v="asbuilt">As-built</button>
+    <button aria-pressed="false" data-v="proposed">Proposed</button>
+  </div>
+</div>
+
+<main id="board">
+  <section class="surface" aria-labelledby="how-h">
+    <h2 id="how-h">How it works (one screen)</h2>
+    <p class="verdict">The agent drives your real, logged-in Chrome through the Playwright extension; the dashboard relays CDP on loopback and screencasts each tab into the editor pane.</p>
+    <ol class="how">
+      <li><b>Connect</b> — Settings, or the agent: <code>POST /api/browser/connect {profileDirectory}</code>. Server mints a 128-bit guid, opens Chrome on <code>connect.html?mcpRelayUrl=ws://127.0.0.1:&lt;port&gt;/ws/browser-ext/&lt;guid&gt;</code>.</li>
+      <li><b>Extension attaches</b> — WS <code>/ws/browser-ext/&lt;guid&gt;</code>, origin pinned to the Playwright extension id, loopback only. Returns <code>{cdpUrl, instanceId}</code>.</li>
+      <li><b>Agent attaches</b> — <code>agent-browser connect ws://127.0.0.1:&lt;port&gt;/ws/browser-cdp/&lt;guid&gt;</code> (any <code>Origin</code> header refused). Deny-listed verbs answered <code>-32000</code>; <code>allowedDomains</code> guards navigate/createTarget.</li>
+      <li><b>You watch</b> — <code>browser_show_in_pane</code> or the session-card badge opens <code>browser:&lt;instanceId&gt;:&lt;tabId&gt;</code> as a pane tab; it sends <code>browser_relay_subscribe</code>, gets JPEG <code>browser_relay_frame</code>s, and forwards allowlisted input.</li>
+      <li><b>Your turn</b> — <code>browser_await_human</code> opens the tab and blocks on a confirm; the pane's <b>Done ✓</b> (or the chat card) answers it.</li>
+      <li><b>Teardown</b> — CDP or extension socket closes, 30 s with no agent, 60 s unclaimed guid, or the kill switch.</li>
+    </ol>
+  </section>
+</main>
+
+<script>
+/* ── helpers ─────────────────────────────────────────────── */
+const ic = (n, cls = "") => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true"><path d="${ICON[n]}"/></svg>`;
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+let uid = 0; const nid = (p) => `${p}-${++uid}`;
+const pill = (tone, icon, text) => `<span class="pill ${tone}">${icon ? ic(icon) : ""}${text}</span>`;
+
+/* ── fixture (shapes from browser-api.ts / browser-protocol.ts) ── */
+const INST = "inst-7f3a";
+const TABS = [
+  { tabId: 101, title: "Sign in to GitHub · GitHub", url: "https://github.com/login", state: "live" },
+  { tabId: 102, title: "Pull requests · blackbelt-technology/pi-agent-dashboard", url: "https://github.com/blackbelt-technology/pi-agent-dashboard/pulls", state: "no-frames" },
+  { tabId: 103, title: "", url: "https://console.cloud.google.com/run?project=judo-ng", state: "detached", reason: "devtools" },
+];
+const STATE_WORD = { live: "live", "no-frames": "idle", detached: "detached", "client-screencast-active": "agent is capturing" };
+const host = (u) => { try { return new URL(u).host; } catch { return ""; } };
+const AUDIT = [
+  ["14:07:52", "denied", "Page.navigate https://pastebin.com/raw/x9"],
+  ["14:07:40", "viewer-input", "mouse"],
+  ["14:07:12", "viewer-subscribe", "tab 101"],
+  ["14:07:03", "navigate", "https://github.com/login"],
+  ["14:06:58", "createTarget", "https://github.com/blackbelt-technology/pi-agent-dashboard/pulls"],
+  ["14:06:41", "attach", INST],
+];
+const AUDIT_TONE = { denied: "error", "viewer-subscribe-refused": "error", attach: "success", detach: "neutral", navigate: "info", createTarget: "info", "viewer-subscribe": "neutral", "viewer-input": "neutral" };
+const AUDIT_WORD = { denied: "Blocked", "viewer-subscribe-refused": "View refused", attach: "Attached", detach: "Detached", navigate: "Navigate", createTarget: "New tab", "viewer-subscribe": "Viewing", "viewer-input": "Your input" };
+const PROFILES = {
+  ready: { profileDirectory: "Default", label: "Work", email: "robson@blackbelt.hu", installed: true, hasToken: false, instances: [] },
+  missing: { profileDirectory: "Profile 2", label: "Personal", email: "", installed: false, hasToken: false, instances: [] },
+  connected: { profileDirectory: "Default", label: "Work", email: "robson@blackbelt.hu", installed: true, hasToken: true, instances: [{ instanceId: INST, tabs: TABS }], domains: "github.com, console.cloud.google.com" },
+};
+
+/* ═════════ 1. SETTINGS ═════════ */
+function abProfile(p, st) {
+  const dir = p.profileDirectory, n = p.instances.reduce((a, i) => a + i.tabs.length, 0);
+  return `<div class="prof space-15">
+    <div class="between"><div class="min0"><h4>${esc(p.label)}</h4>${p.email ? `<span class="blk x11 tert">${esc(p.email)}</span>` : ""}</div>
+      <div class="stat"><span>${p.installed ? "Extension installed" : "Extension not installed"}</span><span>${p.hasToken ? "Token set" : "No token"}</span><span>${p.instances.length ? `Connected · ${n} tabs` : "Not connected"}</span></div></div>
+    <div class="tokrow"><input class="in" type="password" placeholder="Paste pairing token" autocomplete="off"><button class="btn" disabled>Save token</button></div>
+    <label class="chk top"><input type="checkbox" ${p.hasToken ? "checked" : ""} ${p.hasToken ? "" : "disabled"}><span>Zero-dialog (skip Chrome's Allow prompt)<span class="blk x11 tert">Requires a valid token. A mismatched token, Reject, or no answer all appear as a 60 s timeout.</span></span></label>
+    <label class="blk xs sec"><span class="blk">Allowed domains</span><input class="in full" value="${esc(p.domains ?? "")}"><span class="blk x11 tert">Guards Page.navigate and Target.createTarget only — not other network traffic.</span></label>
+    <div class="acts">${p.installed ? "" : `<a class="store" href="#">Install the Playwright extension</a>`}${st.canOpenChrome ? `<button class="btn" ${!p.installed || !st.enabled ? "disabled" : ""}>Connect</button>` : ""}${st.enabled ? "" : `<span class="tert">Browser relay disabled</span>`}</div>
+    ${p.instances.map((i) => `<div class="between xs"><span class="sec">${i.tabs.length} tabs</span><button class="btn" ${st.enabled ? "" : "disabled"}>Disconnect</button></div>`).join("")}
+    <div><div class="audit-h">Audit</div>${p.instances.length ? `<ul class="space-05">${AUDIT.map(([t, k, d]) => `<li class="x11 sec"><span class="tert">${t}</span> <span class="fw5">${k}</span> <span>${esc(d)}</span></li>`).join("")}</ul>` : `<p class="x11 tert">No audit entries.</p>`}</div>
+  </div>`;
+}
+function abSettings(st, profiles) {
+  return `<div class="ab"><h3 class="sec-h">Browser Relay</h3><div class="space-3">
+    <p class="xs sec">Relay your logged-in Chrome to a pi session through the Playwright extension.</p>
+    <label class="chk"><input type="checkbox" ${st.enabled ? "checked" : ""}>Enabled</label>
+    ${st.canOpenChrome ? "" : `<p class="xs sec">This host cannot open Chrome automatically. Start Chrome with the relay extension yourself, then connect.</p>`}
+    ${profiles.map((p) => abProfile(p, st)).join("")}</div></div>`;
+}
+
+function prSwitch(on, label, help, opts = {}) {
+  const id = nid("sw");
+  return `<div class="${opts.row ? "sw-row" : "sw-inline"}"><div class="main"><div class="${opts.row ? "t" : "p-label"}" id="${id}">${label}</div><div class="p-help">${help}</div></div>
+    <button class="switch" role="switch" aria-checked="${on}" aria-labelledby="${id}" ${opts.disabled ? 'aria-disabled="true"' : ""}></button></div>`;
+}
+function prStatusPills(p) {
+  const n = p.instances.reduce((a, i) => a + i.tabs.length, 0);
+  return [
+    p.installed ? pill("success", "PuzzleOutline", "Extension installed") : pill("warning", "PuzzleOutline", "Extension missing"),
+    p.hasToken ? pill("success", "KeyVariant", "Token saved") : pill("neutral", "KeyVariant", "No token"),
+    p.instances.length ? pill("info", "PowerPlug", `Connected · ${n} tabs`) : pill("neutral", "PowerPlugOff", "Not connected"),
+  ].join("");
+}
+function prProfile(p, st) {
+  const tokId = nid("tok"), domId = nid("dom");
+  const blocked = !st.enabled ? "Turn the relay on above to connect." : !p.installed ? "Install the extension in this Chrome profile first." : !st.canOpenChrome ? "" : "";
+  const setup = !p.instances.length ? `<ol class="steps">
+      <li><span class="n ${p.installed ? "ok" : ""}">${p.installed ? ic("Check") : "1"}</span><div class="main"><div class="t">Install the Playwright extension in “${esc(p.label)}”</div>
+        ${p.installed ? `<div>Detected in this profile.</div>` : `<a class="p-link" href="#">Open the Chrome Web Store ${ic("OpenInNew")}</a>`}</div></li>
+      <li><span class="n">2</span><div class="main"><div class="t">Connect</div><div>Chrome opens and asks you to <b>Allow</b> the relay (skip with a pairing token below).</div>
+        <div style="margin-top:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        ${st.canOpenChrome ? `<button class="p-btn primary" ${blocked ? "disabled" : ""}>${ic("PowerPlug")}Connect</button>` : ""}${blocked ? `<span class="p-help">${blocked}</span>` : ""}</div></div></li></ol>`
+    : p.instances.map((i) => `<div class="inst"><header>${ic("GoogleChrome")}<span class="grow"><b>${i.instanceId}</b> · agent attached · ${i.tabs.length} tabs</span><button class="p-btn sm danger">${ic("PowerPlugOff")}Disconnect</button></header>
+        <ul>${i.tabs.map((t) => `<li><span class="sd ${t.state}">${STATE_WORD[t.state]}</span><span class="ttl">${esc(t.title || host(t.url))}</span><span class="host">${host(t.url)}</span></li>`).join("")}</ul></div>`).join("");
+  return `<article class="pcard"><header><div class="who"><div class="nm">${ic("AccountOutline")}${esc(p.label)} <span class="p-meta">(${esc(p.profileDirectory)})</span></div>${p.email ? `<div class="p-meta">${esc(p.email)}</div>` : ""}</div><div class="pills">${prStatusPills(p)}</div></header>
+    <div class="bd">${setup}
+      <div><label class="p-label" for="${tokId}">Pairing token <span class="p-meta">(optional)</span></label>
+        <div class="field-row"><input class="p-input" id="${tokId}" type="password" placeholder="${p.hasToken ? "•••••••• saved — paste to replace" : "Paste from the extension's connect page"}" autocomplete="off" aria-describedby="${tokId}-h"><button class="p-btn secondary" disabled>Save</button></div>
+        <div class="p-help" id="${tokId}-h">Write-only: stored on the server, never shown again.</div></div>
+      ${prSwitch(p.hasToken, "Skip Chrome’s Allow prompt", p.hasToken ? "Connect without the Allow dialog. A wrong token looks like a 60 s timeout." : "Save a pairing token first.", { disabled: !p.hasToken })}
+      <div><label class="p-label" for="${domId}">Allowed domains</label>
+        <div class="field-row"><input class="p-input" id="${domId}" value="${esc(p.domains ?? "")}" placeholder="Any domain" aria-describedby="${domId}-h"><button class="p-btn secondary" disabled>Save</button>${p.domains ? `<span class="saved">${ic("CheckCircleOutline")}Saved</span>` : ""}</div>
+        <div class="p-help" id="${domId}-h">Comma-separated. Empty = any domain. Only blocks the agent opening or navigating tabs — not page requests.</div></div>
+      ${p.instances.length ? `<details class="audit" open><summary>${ic("ChevronRight", "chev")}Activity · ${AUDIT.length} events ${pill("error", "", "1 blocked")}</summary>
+        <table class="atable"><tbody>${AUDIT.map(([t, k, d]) => `<tr><td class="tm">${t}</td><td class="k">${pill(AUDIT_TONE[k], "", AUDIT_WORD[k])}</td><td class="dt">${esc(d)}</td></tr>`).join("")}</tbody></table></details>`
+        : `<details class="audit"><summary>${ic("ChevronRight", "chev")}Activity · none yet</summary></details>`}
+    </div></article>`;
+}
+function prSettings(st, profiles) {
+  return `<div><h3 class="sec-h">Browser Relay</h3><div class="p-stack">
+    <p class="p-help">Let a pi session drive your logged-in Chrome (SSO, cookies) through the Playwright extension. You watch and take over in the editor pane.</p>
+    ${prSwitch(st.enabled, "Browser relay", st.enabled ? "On. Turning it off disconnects every Chrome and refuses new connections." : "Off — no agent can reach Chrome.", { row: true })}
+    ${st.canOpenChrome ? "" : `<div class="callout warning" role="status">${ic("AlertOutline")}<div class="body"><b>This host can’t open Chrome.</b> Start Chrome with the extension yourself, then connect from the agent.</div></div>`}
+    ${profiles.map((p) => prProfile(p, st)).join("")}</div></div>`;
+}
+
+/* ═════════ 2. BADGE ═════════ */
+const CARDS = [["Fix CI flake in ship-it", "pi-agent-dashboard · working", true], ["Draft Q4 offer", "deck3d · idle", false], ["Transcribe meetings", "video-feliratozas · idle", false]];
+function abBadge(o = {}) {
+  const tabs = o.tabs ?? TABS;
+  return `<div class="ab cards">${CARDS.map(([t, s, sel], i) => `<div class="card-chrome ${sel ? "sel" : ""}"><div class="t">${t}</div><div class="s">${s}</div>
+    <div style="margin-top:4px"><button class="badge" aria-haspopup="menu" aria-expanded="${!!o.open && i === 0}">${tabs.length} browser tabs</button></div>
+    ${o.open && i === 0 ? `<div class="menu" role="menu">${tabs.map((tb, j) => `<button class="mi ${j === 0 ? "focus" : ""}" role="menuitem"><span class="d ${tb.state}" aria-hidden="true"></span><span class="ttl">${esc(tb.title || tb.url)}</span><span class="act">Open in pane</span></button>`).join("")}<button class="mi sep" role="menuitem">Open all in pane</button></div>` : ""}
+  </div>`).join("")}</div>`;
+}
+function worst(tabs) { return ["detached", "no-frames", "client-screencast-active", "live"].find((s) => tabs.some((t) => t.state === s)); }
+function prBadge(o = {}) {
+  const tabs = o.tabs ?? TABS;
+  return `<div class="cards">
+    <div class="global-ind">${ic("GoogleChrome")}<span>Work Chrome · ${tabs.length} tabs</span><span class="p-meta">(sidebar header — once)</span></div>
+    ${CARDS.map(([t, s, sel], i) => `<div class="card-chrome ${sel ? "sel" : ""}"><div class="t">${t}</div><div class="s">${s}</div>
+    ${i === 0 ? `<button class="rbadge" aria-haspopup="menu" aria-expanded="${!!o.open}" aria-label="${tabs.length} browser tabs, 1 detached — open in pane">${ic("GoogleChrome")}${tabs.length}<span class="sd ${worst(tabs)} dot-only"><span class="sr-only">${STATE_WORD[worst(tabs)]}</span></span></button>` : ""}
+    ${o.open && i === 0 ? `<div class="rmenu" role="menu" aria-label="Open browser tabs in this session's pane">
+      <div class="grp" role="presentation">${ic("GoogleChrome")}Work · ${INST}</div>
+      ${tabs.map((tb, j) => `<button class="mi ${j === 0 ? "active" : ""}" role="menuitem"><span class="main"><span class="ttl">${esc(tb.title || host(tb.url))}</span><span class="sub"><span class="sd ${tb.state}">${STATE_WORD[tb.state]}</span>${host(tb.url)}</span></span><span class="open">${ic("DockWindow")}</span></button>`).join("")}
+      <div class="sep" role="separator"></div><button class="mi all" role="menuitem">${ic("DockWindow")}Open all ${tabs.length} in pane</button></div>` : ""}
+  </div>`).join("")}</div>`;
+}
+
+/* ═════════ 3. PANE ═════════ */
+const CHAT = (extra = "") => `<div class="chat"><div class="m"><b>You:</b> Check the failing CI run on my open PRs.</div><div class="tool">agent-browser connect ws://127.0.0.1:8000/ws/browser-cdp/…</div><div class="tool">browser_show_in_pane {instanceId:"${INST}", tabId:101}</div>${extra}</div>`;
+const SHOT = (o = {}) => `<div class="shot ${o.oneone ? "oneone" : ""} ${o.faded ? "faded" : ""}" role="img" aria-label="Live browser frame"><div class="lg">Sign in to GitHub</div><div class="f ${o.focus ? "focus" : ""}"></div><div class="f"></div><div class="go"></div><div class="mut">Sign in with a passkey</div></div>`;
+function strip(asbuilt, activeId = 101, tabs = TABS) {
+  return `<div class="etabs" role="tablist"><span class="etab">${ic("FormatListBulleted")}<span class="lbl">ui-plan.md</span></span>${tabs.map((t) => `<span class="etab ${t.tabId === activeId ? "on" : ""}">${ic("PuzzleOutline")}
+    ${asbuilt ? `<span class="d ${t.state}" role="img" aria-label="${STATE_WORD[t.state]}"></span>` : ""}
+    <span class="lbl">${esc(t.title || host(t.url) || "Browser tab")}</span>${asbuilt ? "" : (t.state === "live" ? `<span class="sd live dot-only"><span class="sr-only">live</span></span>` : `<span class="sd ${t.state}">${STATE_WORD[t.state]}</span>`)}<span class="x">${ic("Close")}</span></span>`).join("")}</div>`;
+}
+/* o: { tab, frame:"img"|"wait"|"agent"|"none", inputOn, fit, takeover, doneSent, gone, oneone } */
+function abPane(o) {
+  const t = o.tab;
+  if (o.gone) return `<div class="ab pane"><div class="gone"><span>This browser tab is no longer available</span><button class="btn">Close</button></div></div>`;
+  const det = t.state === "detached", viewable = !det, canInput = o.inputOn !== false && viewable;
+  return `<div class="ab pane">
+    <div class="tb"><input class="url" readonly aria-label="Page address" value="${esc(t.url)}">
+      <button class="btn" aria-pressed="${o.inputOn !== false}">${o.inputOn === false ? "Input: off" : "Input: on"}</button>
+      <button class="btn" aria-pressed="${o.fit !== false}">${o.fit === false ? "1:1" : "Fit"}</button>
+      <button class="btn" ${det ? "disabled" : ""}>Bring to front</button>
+      ${o.takeover ? `<button class="done" ${o.doneSent ? "disabled" : ""}>Done ✓</button>` : ""}</div>
+    ${t.state === "no-frames" ? `<div class="idle"><span>No repaints — tab may be idle or in the background</span><button class="btn">Bring to front</button></div>` : ""}
+    <div class="area ${o.fit === false ? "top" : ""}">
+      ${viewable && o.frame === "img" ? SHOT({ oneone: o.fit === false, focus: true }) : ""}
+      ${viewable && o.frame === "wait" ? `<div class="wait">Waiting for frames…</div>` : ""}
+      ${viewable && o.frame === "agent" ? `<div class="wait">The agent is capturing this tab — no live view</div>` : ""}
+      ${det && t.reason === "no-session" ? `<div class="ovl">Tab not viewable yet — the agent has not attached to it (extension pages cannot be viewed)</div>` : ""}
+      ${det && t.reason !== "no-session" ? `<div class="ovl">DevTools open on this tab — close it to resume</div>` : ""}
+    </div>
+    <div class="bridge"><input placeholder="Type into the page" aria-label="Type into the page" ${canInput ? "" : "disabled"}></div></div>`;
+}
+function prPane(o) {
+  const t = o.tab;
+  if (o.gone) return `<div class="pane"><div class="empty"><span class="ico">${ic("TabUnselected")}</span><span class="t">This browser tab closed</span><span>The agent closed it, or Chrome disconnected. Other relay tabs are in the session badge.</span><button class="p-btn secondary">${ic("Close")}Close tab</button></div></div>`;
+  const det = t.state === "detached", viewable = !det, control = o.inputOn !== false && viewable;
+  const ovl = (icon, title, body, btn) => `<div class="ovl" role="status"><div class="card"><div class="t">${ic(icon)}${title}</div><p>${body}</p>${btn ?? ""}</div></div>`;
+  return `<div class="pane">
+    ${o.takeover ? `<div class="takeover" role="alert">${ic("HandBackRightOutline")}<div class="grow"><b>${o.doneSent ? "Sent — the agent continues" : "Your turn"}</b><span class="why">${o.doneSent ? "Handing control back…" : "Sign in to GitHub (2FA). The agent waits until you press Done."}</span></div>
+      <div class="tk-acts">${o.doneSent ? `<span class="state-word">${ic("ProgressClock", "spin")}Waiting</span>` : `<button class="p-btn secondary">Cancel</button><button class="p-btn primary">${ic("Check")}Done — hand back</button>`}</div></div>` : ""}
+    <div class="ptb">
+      <div class="addr" title="${esc(t.url)}">${ic(t.url.startsWith("https") ? "LockOutline" : "Web")}<span class="u"><b>${host(t.url)}</b>${esc(t.url.replace(/^https?:\/\/[^/]+/, ""))}</span><span class="sd ${t.state}">${STATE_WORD[t.state]}</span></div>
+      <button class="p-btn sm tog" aria-label="Control the page" aria-pressed="${control}" ${viewable ? "" : "disabled"} title="When on, your clicks and keys go to the page">${ic("CursorDefaultClickOutline")}<span class="lbl-wide">${control ? "Control: on" : "Control: off"}</span></button>
+      <div class="segc" role="group" aria-label="Zoom"><button aria-pressed="${o.fit !== false}">${ic("FitToPageOutline")}<span class="lbl-wide">Fit</span></button><button aria-pressed="${o.fit === false}">1:1</button></div>
+      <button class="p-btn sm icon secondary" aria-label="Bring tab to front in Chrome" title="Bring tab to front in Chrome" ${det ? "disabled" : ""}>${ic("ApplicationOutline")}</button>
+    </div>
+    ${t.state === "no-frames" ? `<div class="notice" role="status">${ic("ClockOutline")}<span class="grow">Paused — Chrome stops painting background tabs. Showing the last frame.</span><button class="p-btn sm secondary">Bring to front</button></div>` : ""}
+    <div class="area ${o.fit === false ? "scroll" : ""} ${control && o.frame === "img" ? "control" : ""}">
+      ${o.frame === "img" || t.state === "no-frames" || det ? SHOT({ oneone: o.fit === false, focus: true, faded: t.state === "no-frames" }) : ""}
+      ${viewable && o.frame === "wait" ? `<div class="empty" role="status"><span class="ico">${ic("ProgressClock", "spin")}</span><span class="t">Connecting to the tab…</span><span>First frame usually arrives within a second.</span></div>` : ""}
+      ${viewable && o.frame === "agent" ? `<div class="empty" role="status"><span class="ico">${ic("RobotOutline")}</span><span class="t">The agent is recording this tab</span><span>Chrome allows one screencast at a time. The live view returns when the agent stops.</span></div>` : ""}
+      ${det && t.reason === "no-session" ? ovl("ProgressClock", "Waiting for the agent to attach", "This tab is open in Chrome but the agent has not attached to it yet. Extension pages can never be viewed.") : ""}
+      ${det && t.reason !== "no-session" ? ovl("ApplicationBracesOutline", "DevTools is open on this tab", "Chrome allows one debugger per tab. Close DevTools in Chrome and the live view resumes by itself.", `<button class="p-btn sm secondary">${ic("ApplicationOutline")}Show tab in Chrome</button>`) : ""}
+    </div>
+    <div class="kb">${ic("Keyboard")}<input class="p-input" aria-label="Type into the page" placeholder="${control ? "Type into the page (phone keyboard)" : "Turn Control on to type"}" ${control ? "" : "disabled"}><span class="hint">Enter ↵ · Tab ⇥ · ⌫ sent as keys</span></div>
+  </div>`;
+}
+const app = (asbuilt, body, o = {}) => `<div class="app ${o.tall ? "tall" : ""}">${CHAT(o.chat ? o.chat(asbuilt) : "")}<div class="pw">${o.noStrip ? "" : `<div class="${asbuilt ? "ab" : ""}">${strip(asbuilt, o.active ?? 101, o.tabs)}</div>`}<div class="pbody">${body}</div></div></div>`;
+
+/* ═════════ 4. TAKEOVER (chat card) ═════════ */
+const abConfirm = () => `<div class="ab"><div class="cf"><div class="hd">${ic("ShieldAlert")}Browser: your turn</div><div class="msg">Sign in to GitHub (2FA).</div><div class="row"><button class="b yes">Yes</button><button class="b no">No</button><button class="b cancel">Cancel</button></div></div></div>`;
+const prConfirm = (sent) => `<div style="margin:0 12px" class="callout warning" role="status">${ic("HandBackRightOutline")}<div class="body"><b>Your turn in the browser</b><div>Sign in to GitHub (2FA).</div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap">${sent ? `<span class="state-word">${ic("Check")}Done — agent continues</span>` : `<button class="p-btn sm secondary">${ic("DockWindow")}Show tab</button><button class="p-btn sm secondary">Done</button><button class="p-btn sm ghost">Cancel</button>`}</div></div></div>`;
+
+/* ═════════ BOARD ═════════ */
+const ST = { on: { enabled: true, canOpenChrome: true }, off: { enabled: false, canOpenChrome: true }, nohost: { enabled: true, canOpenChrome: false } };
+const BOARD = [
+  { title: "Settings → Browser Relay", verdict: "redesign · S1–S7", states: [
+    ["first-run", "S1 status = three 10 px grey lines, no colour/icon · S2 Connect has no reason when disabled · S3 token field unlabeled (placeholder only)", abSettings(ST.on, [PROFILES.ready, PROFILES.missing]), prSettings(ST.on, [PROFILES.ready, PROFILES.missing])],
+    ["connected", "S4 instance row says only “3 tabs” · S5 audit always expanded, raw kinds, 10–11 px, `denied` not highlighted · S6 domains save silently on blur, empty = ? ", abSettings(ST.on, [PROFILES.connected]), prSettings(ST.on, [PROFILES.connected])],
+    ["kill-switch-off", "S7 global kill switch is a bare “Enabled” checkbox, same weight as per-profile options", abSettings(ST.off, [PROFILES.ready]), prSettings(ST.off, [PROFILES.ready])],
+    ["cannot-open-chrome", "notice is plain text, Connect silently missing", abSettings(ST.nohost, [PROFILES.ready]), prSettings(ST.nohost, [PROFILES.ready])],
+  ]},
+  { title: "Session card badge + menu", verdict: "redesign · B1–B4 (B1 needs server data)", states: [
+    ["closed", "B1 status is global → the SAME badge shows on every session card · B2 10 px text, no icon", abBadge(), prBadge()],
+    ["menu-open", "B3 state = colour-only 6 px dot (WCAG 1.4.1) · B4 “Open in pane” repeated per row, URL used as title", abBadge({ open: true }), prBadge({ open: true })],
+  ]},
+  { title: "Editor-pane browser tab", verdict: "polish · P1–P7", states: [
+    ["live", "P1 Input/Fit labels show state not action, no visual cue that clicks reach the page · P2 tab-strip state = colour-only dot", app(true, abPane({ tab: TABS[0], frame: "img" })), app(false, prPane({ tab: TABS[0], frame: "img" }))],
+    ["one-to-one", "Fit ↔ 1:1 is one toggle whose label flips", app(true, abPane({ tab: TABS[0], frame: "img", fit: false })), app(false, prPane({ tab: TABS[0], frame: "img", fit: false }))],
+    ["idle", "P3 11 px tertiary strip, last frame shown un-dimmed", app(true, abPane({ tab: TABS[1], frame: "img" }), { active: 102 }), app(false, prPane({ tab: TABS[1], frame: "img" }), { active: 102 })],
+    ["devtools", "P4 overlay is one 11 px sentence, no next step", app(true, abPane({ tab: TABS[2], frame: "none" }), { active: 103 }), app(false, prPane({ tab: TABS[2], frame: "none" }), { active: 103 })],
+    ["no-session", "P4 same overlay recipe", app(true, abPane({ tab: { ...TABS[2], reason: "no-session" }, frame: "none" }), { active: 103 }), app(false, prPane({ tab: { ...TABS[2], reason: "no-session" }, frame: "none" }), { active: 103 })],
+    ["waiting", "P5 11 px top-left text", app(true, abPane({ tab: TABS[0], frame: "wait" })), app(false, prPane({ tab: TABS[0], frame: "wait" }))],
+    ["agent-capturing", "P5", app(true, abPane({ tab: { ...TABS[0], state: "client-screencast-active" }, frame: "agent" })), app(false, prPane({ tab: { ...TABS[0], state: "client-screencast-active" }, frame: "agent" }))],
+    ["input-off", "P6 text bridge disabled with no reason", app(true, abPane({ tab: TABS[0], frame: "img", inputOn: false })), app(false, prPane({ tab: TABS[0], frame: "img", inputOn: false }))],
+    ["gone", "P7 bare sentence + Close", app(true, abPane({ gone: true }), { tabs: [TABS[0]], active: 0 }), app(false, prPane({ gone: true }), { tabs: [TABS[0]], active: 0 })],
+  ]},
+  { title: "Login takeover (browser_await_human)", verdict: "redesign · T1–T3", states: [
+    ["pending", "T1 Done ✓ is the 4th 12 px button in the toolbar · T2 chat card is a generic Yes/No/Cancel — “No” has no meaning here", app(true, abPane({ tab: TABS[0], frame: "img", takeover: true }), { tall: true, chat: (a) => a ? abConfirm() : "" }), app(false, prPane({ tab: TABS[0], frame: "img", takeover: true }), { tall: true, chat: () => prConfirm(false) })],
+    ["done-sent", "T3 only feedback is the button at 50 % opacity", app(true, abPane({ tab: TABS[0], frame: "img", takeover: true, doneSent: true }), { tall: true, chat: (a) => a ? abConfirm() : "" }), app(false, prPane({ tab: TABS[0], frame: "img", takeover: true, doneSent: true }), { tall: true, chat: () => prConfirm(true) })],
+  ]},
+];
+
+document.getElementById("board").insertAdjacentHTML("beforeend", BOARD.map((s) => `<section class="surface"><h2>${s.title}</h2><p class="verdict">Verdict: ${s.verdict}</p>
+  ${s.states.map(([id, finds, ab, pr]) => `<article class="state" id="${s.title.split(/[ -]/)[0].toLowerCase()}-${id}"><header><code>${id}</code><span class="finds">${finds}</span></header>
+    <div class="pair"><div class="col asbuilt"><p class="tag">As-built</p><div class="frame">${ab}</div></div>
+    <div class="col proposed"><p class="tag">Proposed</p><div class="frame">${pr}</div></div></div></article>`).join("")}
+</section>`).join(""));
+
+/* ── toolbar ─────────────────────────────────────────────── */
+const html = document.documentElement;
+function apply(group, v) {
+  if (group === "theme") {
+    const [pal, mode] = v.split("-");
+    mode === "light" ? html.setAttribute("data-theme", "light") : html.removeAttribute("data-theme");
+    pal === "nord" ? html.setAttribute("data-palette", "nord") : html.removeAttribute("data-palette");
+  }
+  if (group === "width") document.body.style.setProperty("--frame-w", v === "1440" ? "100%" : `${v}px`);
+  if (group === "view") document.body.dataset.view = v;
+}
+document.querySelectorAll(".seg").forEach((seg) => seg.addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  seg.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+  apply(seg.dataset.group, b.dataset.v);
+}));
+const params = new URLSearchParams(location.search);
+for (const g of ["theme", "width", "view"]) if (params.get(g)) document.querySelector(`.seg[data-group="${g}"] button[data-v="${params.get(g)}"]`)?.click();
+</script>
+</body>
+</html>

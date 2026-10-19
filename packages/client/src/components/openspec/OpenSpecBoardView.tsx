@@ -11,10 +11,8 @@
 
 import { EmptyState } from "@blackbelt-technology/pi-dashboard-client-utils/EmptyState";
 import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
-import {
-  type StatusKind,
-  statusPresentation,
-} from "@blackbelt-technology/pi-dashboard-client-utils/statusPresentation";
+import type { StatusKind } from "@blackbelt-technology/pi-dashboard-client-utils/statusPresentation";
+import { SettingsStatusPill, type SettingsStatusTone } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type {
   DashboardSession,
   OpenSpecChange,
@@ -89,6 +87,7 @@ import { DialogPortal } from "../primitives/DialogPortal.js";
 import { LazyTasksPopover } from "./lazy-openspec-dialogs.js";
 import { OpenSpecActivityBadge } from "./OpenSpecActivityBadge.js";
 import { OpenSpecGroupManager } from "./OpenSpecGroupManager.js";
+import { OpenSpecErrorBadge } from "./OpenSpecErrorBadge.js";
 import { OpenSpecStepper } from "./OpenSpecStepper.js";
 import { SessionOpenSpecActions } from "./SessionOpenSpecActions.js";
 
@@ -164,10 +163,11 @@ function sessStatus(s: DashboardSession): SessStatus {
   return "live";
 }
 
-// Board change states -> shared status vocabulary. Color flows through the
-// semantic --status-* token; the glyph is the mandatory non-hue channel so
-// COMPLETE (done) stays distinguishable from PLANNING/READY (todo) in
-// grayscale. See change: extend-client-utils-state-feedback-primitives.
+// Board change states -> shared status vocabulary (`openspec-board-status-visuals`).
+// The kind is the stable mapping; the pill is the shared status pill, whose tone
+// and icon carry the state in grayscale too (COMPLETE has an icon, PLANNING/READY
+// are word-only). See change: extend-client-utils-state-feedback-primitives,
+// align-ui-contract-recipes.
 const CHANGE_STATE_KIND: Record<ChangeState, StatusKind> = {
   [ChangeState.PLANNING]: "todo",
   [ChangeState.READY]: "todo",
@@ -175,20 +175,25 @@ const CHANGE_STATE_KIND: Record<ChangeState, StatusKind> = {
   [ChangeState.COMPLETE]: "done",
 };
 
-function BoardStatePill({ state, testId }: { state: ChangeState; testId?: string }) {
-  const pres = statusPresentation(CHANGE_STATE_KIND[state]);
+const KIND_TONE: Record<StatusKind, SettingsStatusTone> = {
+  todo: "neutral",
+  current: "info",
+  done: "success",
+  error: "error",
+};
+
+const stateWord = (state: ChangeState): string =>
+  ({
+    [ChangeState.PLANNING]: i18nT("openspec.state.planning", undefined, "Planning"),
+    [ChangeState.READY]: i18nT("openspec.state.ready", undefined, "Ready"),
+    [ChangeState.IMPLEMENTING]: i18nT("openspec.state.implementing", undefined, "Implementing"),
+    [ChangeState.COMPLETE]: i18nT("openspec.state.complete", undefined, "Complete"),
+  })[state];
+
+export function BoardStatePill({ state, testId }: { state: ChangeState; testId?: string }) {
   return (
-    <span
-      data-testid={testId}
-      data-state={state}
-      className="inline-flex items-center gap-0.5 text-[9px] font-bold uppercase tracking-wide px-1.5 py-px rounded-full"
-      style={{
-        color: pres.tokenVar,
-        backgroundColor: `color-mix(in srgb, ${pres.tokenVar} 14%, transparent)`,
-      }}
-    >
-      <span aria-hidden="true">{pres.glyph}</span>
-      <span>{state.toLowerCase()}</span>
+    <span data-testid={testId} data-state={state} className="inline-flex">
+      <SettingsStatusPill tone={KIND_TONE[CHANGE_STATE_KIND[state]]}>{stateWord(state)}</SettingsStatusPill>
     </span>
   );
 }
@@ -1083,6 +1088,7 @@ function ProposalCard(props: {
       {cardStripeFx ? <div className={`card-stripes-fx ${cardStripeFx}`} aria-hidden="true" /> : null}
       <div className="flex items-center gap-1.5">
         <span className="text-[var(--text-primary)] font-semibold text-[12px] flex-1 min-w-0 truncate" data-testid="board-card-name">{c.name}</span>
+        {c.error && <OpenSpecErrorBadge error={c.error} />}
       </div>
 
       {/* Lifecycle bar — its current segment + Tasks count replace the state

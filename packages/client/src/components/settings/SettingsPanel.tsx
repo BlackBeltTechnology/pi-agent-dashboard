@@ -1,6 +1,7 @@
 import { FieldShell, NumberField, type RegisteredSource, SelectField, SettingsDraftProvider, type SettingsDraftRegistry, SettingsNotice, TextField, ToggleField, useSettingsDraftSource, useSlotIntents } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import type { TrustMode } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { VALID_SETTINGS_TABS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-types.js";
 import {
   DISPLAY_PRESETS,
@@ -23,24 +24,23 @@ import {
 import type { HostGateMode } from "@blackbelt-technology/pi-dashboard-shared/host-admission.js";
 import { DEFAULT_MEMORY_LIMITS } from "@blackbelt-technology/pi-dashboard-shared/memory-limits.js";
 import { mergeModelOptions } from "@blackbelt-technology/pi-dashboard-shared/model-catalogue.js";
-import type { NpmPackageResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { GroupByMode, GroupByPrefs } from "@blackbelt-technology/pi-dashboard-shared/session-group-by.js";
 import type { ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { mdiAlert, mdiArrowLeft, mdiBookOpenPageVariant, mdiCheckCircle, mdiChevronDown, mdiChevronRight, mdiClipboardText, mdiCloseCircle, mdiCog, mdiContentSave, mdiDelete, mdiFileDocumentEditOutline, mdiKey, mdiLoading, mdiLock, mdiPackageVariant, mdiPackageVariantClosed, mdiPalette, mdiPlay, mdiPlus, mdiPuzzle, mdiPuzzleOutline, mdiRestart, mdiRobotOutline, mdiServer, mdiShieldCheck, mdiShieldKey, mdiTextBoxOutline, mdiTunnel, mdiUpdate, mdiViewDashboard, mdiWeb, mdiWrench } from "@mdi/js";
+import { mdiAlert, mdiAlertCircleOutline, mdiAlertOutline, mdiArrowLeft, mdiBookOpenPageVariant, mdiCheckCircle, mdiChevronDown, mdiChevronRight, mdiChip, mdiClipboardText, mdiCloseCircle, mdiCog, mdiContentSave, mdiCubeOutline, mdiDelete, mdiFileDocumentEditOutline, mdiKey, mdiLoading, mdiLock, mdiPackageVariant, mdiPackageVariantClosed, mdiPalette, mdiPlay, mdiPlus, mdiPuzzle, mdiPuzzleOutline, mdiRestart, mdiRobotOutline, mdiServer, mdiShieldCheck, mdiShieldKey, mdiTextBoxOutline, mdiTune, mdiTunnel, mdiUpdate, mdiViewDashboard, mdiWeb, mdiWrench } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useRoute } from "wouter";
 import { useAsyncAction } from "../../hooks/useAsyncAction.js";
-import { useInstalledPackages } from "../../hooks/useInstalledPackages.js";
 import { useLaunchSource } from "../../hooks/useLaunchSource.js";
 import { useModelCatalogue } from "../../hooks/useModelCatalogue.js";
-import { usePackageOperations } from "../../hooks/usePackageOperations.js";
 import { usePersistedBoolean } from "../../hooks/usePersistedBoolean.js";
 import { usePiCompatibility } from "../../hooks/usePiCompatibility.js";
 import { usePiResources } from "../../hooks/usePiResources.js";
+import { useAddonIssues } from "../../hooks/useAddonIssues.js";
 import { usePluginList, usePluginToggle } from "../../hooks/usePluginToggle.js";
 import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
 import { useResourceActivation } from "../../hooks/useResourceActivation.js";
+import { useServices } from "../../hooks/useServices.js";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { listKnownServers } from "../../lib/api/known-servers-api.js";
 import { type BlockEvent, getBlockEvents } from "../../lib/gateway/gateway-api.js";
@@ -56,12 +56,16 @@ import {
 import { fetchAutoInitWorktreePref, fetchAutoNameSessionsPref, setAutoInitWorktreePref, setAutoNameSessionsPref } from "../../lib/git/git-api.js";
 import { t as i18nT, LANGUAGE_OPTIONS, type Language, useI18n } from "../../lib/i18n/i18n.js";
 import { buildPiResourceFileUrl } from "../../lib/nav/route-builders.js";
+import { displayTrustMode, parseTrustPosture, resolveClientTrustMode, type TrustPosture } from "../../lib/network-trust/trust-posture.js";
 import { logRejection } from "../../lib/report-error.js";
+import { needsAttention } from "../../lib/services/services-model.js";
 import { RESERVED_SETTINGS_LABELS, resolveSettingsPromotions } from "../../lib/settings-promotions.js";
 import { useCustomEventGroups } from "../../lib/state/custom-event-groups.js";
 import { useDisplayPrefsContext } from "../../lib/state/DisplayPrefsContext.js";
 import { PopoverBoundaryProvider } from "../../lib/state/PopoverBoundaryContext.js";
+import { useShowPluginInternals } from "../../lib/state/plugin-internals-pref.js";
 import { randomUuid } from "../../lib/util/random-uuid.js";
+import { callout } from "../connectivity/connectivity-ui.js";
 import { KnownServersSection } from "../connectivity/KnownServersSection.js";
 import { NetworkDiscoverySection } from "../connectivity/NetworkDiscoverySection.js";
 import { PairedDevicesSection } from "../connectivity/PairedDevicesSection.js";
@@ -70,10 +74,8 @@ import { UsersSection } from "../connectivity/UsersSection.js";
 import { InstructionsPage } from "../DirectorySettings/InstructionsPage.js";
 import { GatewayPage } from "../Gateway/GatewayPage.js";
 import { OpenSpecProfileSection } from "../openspec/OpenSpecProfileSection.js";
+import { OpenSpecWorkflowSchemaSection } from "../openspec/OpenSpecWorkflowSchemaSection.js";
 import { useOverlayDismissGuard } from "../overlay/overlay-dismiss-guard.js";
-import { PackageBrowser } from "../packages/PackageBrowser.js";
-import { PackageInstallConfirmDialog } from "../packages/PackageInstallConfirmDialog.js";
-import { PackageReadmeDialog } from "../packages/PackageReadmeDialog.js";
 import { PiVersionAdvisory } from "../packages/PiVersionAdvisory.js";
 import { PluginsSection } from "../packages/PluginsSection.js";
 import { UnifiedPackagesSection } from "../packages/UnifiedPackagesSection.js";
@@ -91,15 +93,17 @@ import { DiagnosticsSection } from "./DiagnosticsSection.js";
 import { FocusSettingsSection } from "./FocusSettingsSection.js";
 import { ModelProxySection } from "./ModelProxySection.js";
 import { ModelSelector } from "./ModelSelector.js";
+import { canRequestAccess, type NetworkTrustControls, NetworkTrustModeRadio, NetworkTrustNotices, PairRefusedPeer } from "./NetworkTrustParts.js";
 import { NodeRuntimeSection } from "./NodeRuntimeSection.js";
 // Curated pi-install picker; sits directly above the raw Tools escape hatch.
 // See change: select-pi-runtime-install (design D12).
 import { PiRuntimeSection } from "./PiRuntimeSection.js";
 import { PiRuntimeStatusRow } from "./PiRuntimeStatusRow.js";
+import { PiSettingsPage } from "./PiSettingsPage.js";
+import { PiTrustMirrorSection } from "./PiTrustMirrorSection.js";
 import { PluginNotFoundNotice, PluginSettingsPage } from "./PluginSettingsPage.js";
 import { ProviderAuthSection } from "./ProviderAuthSection.js";
 import { PushNotificationsSection } from "./PushNotificationsSection.js";
-import { PiSettingsSection } from "./PiSettingsSection.js";
 import { RetrySettingsSection } from "./RetrySettingsSection.js";
 import { ThinkingLevelSelector } from "./ThinkingLevelSelector.js";
 import { SpawnFailuresSection, ToolsSection } from "./ToolsSection.js";
@@ -246,6 +250,13 @@ interface Config {
   maxConcurrentSubagents?: number;
   trustedNetworks?: string[];
   /**
+   * How a network match is treated (`pair` | `legacy`). An unrecognised stored
+   * string is carried through untouched. See change: retire-trusted-networks-bypass.
+   */
+  network?: { trustMode?: string; trustModeOrigin?: string };
+  /** Only `acceptLanRequests` is edited here (Security ▸ Network access). */
+  pairing?: { acceptLanRequests?: boolean };
+  /**
    * Bare hostnames the Host gate additionally admits (`allowedHosts`). Bound
    * to the Security ▸ Allowed hostnames editor; written whole by Save.
    * See change: add-host-allowlist-admission.
@@ -263,6 +274,8 @@ interface Config {
     maxConcurrentSpawns?: number;
     changeDetection?: "mtime" | "always";
     jitterSeconds?: number;
+    /** See change: add-pi-spec-driven-schema. */
+    workflowSchema?: { defaultForNewProjects?: boolean };
   };
   /** Dashboard model proxy config. See change: add-dashboard-model-proxy. */
   modelProxy?: Record<string, any>;
@@ -317,7 +330,7 @@ export const CONFIG_FIELD_PAGE: Record<string, string> = {
   questionFirst: "sessions", askUserPromptTimeoutSeconds: "sessions", spawnRegisterTimeoutMs: "sessions", sessionList: "sessions",
   gitWorktreeEnabled: "sessions", dashboardName: "general", defaultModel: "sessions", defaultThinkingLevel: "sessions",
   windowsGitSource: "sessions", autoStart: "sessions",
-  trustedNetworks: "security", auth: "security", allowedHosts: "security", hostGate: "security", agentPathGate: "security",
+  trustedNetworks: "security", network: "security", pairing: "security", auth: "security", allowedHosts: "security", hostGate: "security", agentPathGate: "security",
   modelProxy: "providers",
   openspec: "openspec",
   devBuildOnReload: "developer", keeperLog: "developer",
@@ -401,6 +414,16 @@ export function computeConfigPartial(config: Config, original: Config): Record<s
   }
   if (JSON.stringify(config.trustedNetworks) !== JSON.stringify(original.trustedNetworks)) {
     partial.trustedNetworks = config.trustedNetworks ?? [];
+  }
+  // Trust mode: written as `trustMode` only — the server stamps the origin.
+  // `pairing` is FIELD-level (`acceptLanRequests` only): the draft also carries the
+  // server-owned `publicBaseUrls`, which this page must not write back.
+  // See change: retire-trusted-networks-bypass.
+  if (config.network?.trustMode !== original.network?.trustMode && config.network?.trustMode !== undefined) {
+    partial.network = { trustMode: config.network.trustMode };
+  }
+  if ((config.pairing?.acceptLanRequests === true) !== (original.pairing?.acceptLanRequests === true)) {
+    partial.pairing = { acceptLanRequests: config.pairing?.acceptLanRequests === true };
   }
   // Host-gate fields: each written WHOLE (design D1) — `allowedHosts` is a
   // replace-list server-side, so a partial list write would merge wrong.
@@ -498,7 +521,9 @@ const SETTINGS_PAGE_ALIASES: Record<string, string> = {
 // `gateway` above. See change: add-access-grants-and-review.
 // `vault` is a built-in Network-group page (the credential vault), client route
 // whitelist only. See change: add-credential-vault.
-const VALID_PAGES = new Set<string>([...VALID_SETTINGS_TABS, "instructions", "gateway", "access", "vault"]);
+// `pi-settings` is the built-in pi group's page (pi's global settings.json editor),
+// client route whitelist only. See change: pi-settings-full-coverage.
+const VALID_PAGES = new Set<string>([...VALID_SETTINGS_TABS, "instructions", "gateway", "access", "vault", "pi-settings"]);
 
 // Global-scope resource card pages. Page id → the singular `PiResource.type` its
 // grid renders. See change: resources-card-tabs.
@@ -512,13 +537,27 @@ const RESOURCE_TAB_TYPE = RESOURCE_PAGE_TYPE;
  * Health dot for a plugin nav entry (Plugins child or promoted entry) — one
  * mapping so both render identically. See change: promote-model-roles-settings.
  */
+/**
+ * Settings rail recipe (`settings-panel` "Settings rail meets contrast and marks state
+ * without colour alone"): 36 px items (44 px below `sm`), secondary text when idle, and
+ * for the current item a tertiary fill, semibold primary text and an accent bar — on the
+ * bottom edge in the strip below `md`, on the leading edge from `md`.
+ * See change: align-ui-contract-recipes (design D7).
+ */
+const RAIL_ITEM = "relative min-h-[36px] max-sm:min-h-[44px] whitespace-nowrap transition-colors cursor-pointer";
+const RAIL_BAR =
+  "before:absolute before:content-[''] before:rounded-full before:bg-[var(--accent-primary)] before:inset-x-2 before:bottom-0 before:h-[3px] md:before:inset-x-auto md:before:left-0 md:before:top-1.5 md:before:bottom-1.5 md:before:h-auto md:before:w-[3px]";
+const RAIL_ACTIVE = `bg-[var(--bg-tertiary)] text-[var(--text-primary)] font-semibold ${RAIL_BAR}`;
+const RAIL_IDLE = "text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]";
+const RAIL_DIRTY_DOT = "ml-auto w-1.5 h-1.5 rounded-full bg-[var(--severity-warning-fg)] shrink-0";
+
 function pluginNavHealth(st: { error?: string; loaded?: boolean } | null | undefined): {
   cls: string;
   label: string;
 } {
-  if (st?.error) return { cls: "bg-[var(--accent-red)]", label: "error" };
-  if (st?.loaded === false) return { cls: "bg-[var(--accent-yellow)]", label: "not loaded" };
-  return { cls: "bg-[var(--accent-green)]", label: "loaded" };
+  if (st?.error) return { cls: "bg-[var(--severity-error-fg)]", label: "error" };
+  if (st?.loaded === false) return { cls: "bg-[var(--severity-warning-fg)]", label: "not loaded" };
+  return { cls: "bg-[var(--severity-success-fg)]", label: "loaded" };
 }
 
 function resolveSettingsPage(raw: string | undefined | null): string | null {
@@ -534,7 +573,7 @@ function resolveSettingsPage(raw: string | undefined | null): string | null {
  */
 const BACK_SENTINEL = "@@back";
 
-export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd, groupByPrefs, onSetDefaultGroupBy }: {
+export function SettingsPanel({ availableModels, onMessage, ws, onBack, selectedCwd, groupByPrefs, onSetDefaultGroupBy }: {
   /**
    * Per-session `models_list` union pushed by live bridges. Merged with the
    * session-independent `GET /api/models` catalogue this panel fetches itself;
@@ -546,6 +585,8 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
   selectedCwd?: string;
   /** WS bus subscribe (from App) used to correlate the confirm:"ws" restart. */
   onMessage?: (handler: (msg: ServerToBrowserMessage) => void) => () => void;
+  /** The live socket (`null` while disconnected): a reconnect refetches the Services list. */
+  ws?: WebSocket | null;
   /**
    * Depth-aware back action (App's `goBack`) — returns to the launching route
    * instead of the card list. Falls back to `navigate("/")` when omitted.
@@ -570,6 +611,8 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
    */
   const [reachability, setReachability] = useState<BindReachability | null>(null);
   const [loading, setLoading] = useState(true);
+  // Per-browser view aid (localStorage, instant, never a config write). See change: retro-ux-plugin-settings-wave-2.
+  const [showPluginInternals, setShowPluginInternals] = useShowPluginInternals();
   const [saving, setSaving] = useState(false);
   // Result of mirroring the Default model into pi's settings.json on the last
   // config save, and a counter that makes the pi settings section re-read its
@@ -646,6 +689,17 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
   const resolvedRoutePage = resolveSettingsPage(routePage);
   const activeTab = resolvedRoutePage ?? "general";
   const activePluginId = resolvedRoutePage === "plugins" ? (routeParams?.sub ?? null) : null;
+  // `:sub` is also interpreted for `services` (a service id); every other page, `runtimes`
+  // included, ignores it. See change: add-services-settings-ui (D1).
+  const activeServiceId = resolvedRoutePage === "services" ? (routeParams?.sub ?? null) : null;
+  // The preserved `:sub` of a redirect (plugin id or service id), as a path suffix.
+  const activeSubSegment = activePluginId ?? activeServiceId ? `/${activePluginId ?? activeServiceId}` : "";
+  // Live list for the nav attention indicator and the Services pages (list refetch on
+  // `services_changed` / reconnect only — never the probing detail GET).
+  const services = useServices({ onMessage, ws });
+  const servicesNeedingAttention = (services.list?.services ?? []).filter(needsAttention).length;
+  // Add-ons rail badge: the same count the Issues tab shows. See change: addons-hub-folder-view.
+  const addonIssueCount = useAddonIssues().count;
 
   // Plugin rows back the nav children, the plugin page, and the Save Bar's
   // `Plugins › <name>` labels. See change: plugin-settings-pages (task 4.2).
@@ -731,8 +785,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
     //    `/settings/plugins/<id>` never bounces to General.
     if (resolvedRoutePage) {
       if (resolvedRoutePage !== routePage) {
-        const sub = activePluginId ? `/${activePluginId}` : "";
-        navigate(`/settings/${resolvedRoutePage}${sub}`, { replace: true });
+        navigate(`/settings/${resolvedRoutePage}${activeSubSegment}`, { replace: true });
       }
       return;
     }
@@ -745,7 +798,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
     const legacy = new URLSearchParams(window.location.search).get("tab");
     const resolvedLegacy = resolveSettingsPage(legacy);
     navigate(`/settings/${resolvedLegacy ?? "general"}`, { replace: true });
-  }, [routePage, resolvedRoutePage, activePluginId, navigate]);
+  }, [routePage, resolvedRoutePage, activeSubSegment, navigate]);
 
   // Windows-only live git/sh source readout from /api/health. null on
   // macOS/Linux (section hidden). See change: embed-git-bash-on-windows.
@@ -783,10 +836,15 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
   // See change: bound-session-heap-and-gc-telemetry (D13, task 13.6).
   const [effectiveServerHeapMb, setEffectiveServerHeapMb] = useState<number | null | undefined>(undefined);
 
+  // Network-trust posture from the same health read (null when undisclosed to this caller).
+  // See change: retire-trusted-networks-bypass.
+  const [trustPosture, setTrustPosture] = useState<TrustPosture | null>(null);
+
   const refreshGitSourceReadout = useCallback(() => {
     return fetch(`${getApiBase()}/api/health`)
       .then((res) => (res.ok ? res.json() : null))
       .then((h) => {
+        setTrustPosture(parseTrustPosture(h));
         setGitSourceReadout(h?.gitSource ?? null);
         setGatewayEndpoint(h ? (h.piGatewayPort ?? null) : null);
         setEffectiveServerHeapMb(h ? (h.server?.effectiveMaxOldSpaceMb ?? null) : undefined);
@@ -901,6 +959,21 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
   const restartPendingForBindHost =
     !!reachability && reachability.resolvedBindHost !== reachability.pendingBindHost;
 
+  // Security ▸ Network access: the radio edits the DRAFT; the saved mode and the
+  // saved LAN-requests switch are read from the loaded baseline, never the draft.
+  const networkTrust = useMemo(() => {
+    if (!config) return null;
+    const draft = resolveClientTrustMode(config);
+    return {
+      draftMode: displayTrustMode(config, trustPosture),
+      savedMode: displayTrustMode(original, trustPosture),
+      unrecognised: draft.unrecognised,
+      posture: trustPosture,
+      lanSaved: original?.pairing?.acceptLanRequests === true,
+      lanDraft: config.pairing?.acceptLanRequests === true,
+    };
+  }, [config, original, trustPosture]);
+
   // Plugin draft state lives in the plugin component and dies on unmount, so
   // leaving a dirty plugin page must guard. Scoped to THIS page's sources —
   // keying off the panel-level `isDirty` would block a user with unsaved Server
@@ -945,7 +1018,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
           const data = await res.json();
           if (!data.success) throw new Error(data.error || "config");
           setOriginal(JSON.parse(JSON.stringify(config)));
-          if (configPartial.windowsGitSource !== undefined) void refreshGitSourceReadout();
+          if (configPartial.windowsGitSource !== undefined || configPartial.network !== undefined) void refreshGitSourceReadout();
           setPiMirror(data.piMirror ?? null);
           return { restartRequired: !!data.restartRequired };
         },
@@ -1165,6 +1238,13 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
       ],
     },
     {
+      id: "pi",
+      label: t("settings.groupPi", undefined, "pi"),
+      items: [
+        { id: "pi-settings", label: t("settings.piSettingsPage", undefined, "pi settings"), icon: mdiTune },
+      ],
+    },
+    {
       id: "dashboard",
       label: t("settings.groupDashboard", undefined, "Dashboard"),
       items: [
@@ -1182,6 +1262,14 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
         { id: "security", label: t("settings.security", undefined, "Security"), icon: mdiLock },
         { id: "access", label: t("settings.access", undefined, "Access"), icon: mdiShieldCheck },
         { id: "vault", label: t("settings.vault", undefined, "Vault"), icon: mdiShieldKey },
+      ],
+    },
+    {
+      id: "services",
+      label: t("settings.groupServices", undefined, "Services"),
+      items: [
+        { id: "services", label: t("settings.services", undefined, "All services"), icon: mdiCubeOutline },
+        { id: "runtimes", label: t("settings.runtimes", undefined, "Runtimes"), icon: mdiChip },
       ],
     },
     {
@@ -1313,7 +1401,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
           {navGroups.map((group) => (
             <div key={group.id} className="contents md:block" data-testid={`settings-nav-group-${group.id}`}>
               <div
-                className="hidden md:block px-3 pt-3 pb-1 text-[11px] font-bold uppercase tracking-wide text-[var(--text-tertiary)]"
+                className="hidden md:block px-3 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--text-secondary)]"
                 data-testid={`settings-nav-group-label-${group.id}`}
               >
                 {group.label}
@@ -1332,19 +1420,41 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                   <button
                     onClick={() => requestRailNavigate("/settings/" + item.id)}
                     aria-current={active ? "page" : undefined}
-                    className={`${item.id === "plugins" ? "flex-1 min-w-0" : "w-full"} flex items-center gap-2.5 px-3 py-2 rounded-md text-sm whitespace-nowrap transition-colors cursor-pointer ${
-                      active
-                        ? "bg-blue-600/15 text-[var(--text-primary)] font-semibold"
-                        : "text-[var(--text-muted)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-secondary)]"
+                    aria-describedby={item.id === "add-ons" && addonIssueCount > 0 ? "nav-addons-issues-desc" : undefined}
+                    className={`${item.id === "plugins" ? "flex-1 min-w-0" : "w-full"} flex items-center gap-2.5 px-3 py-2 rounded-md text-sm ${RAIL_ITEM} ${
+                      active ? RAIL_ACTIVE : RAIL_IDLE
                     }`}
                   >
                     <Icon path={item.icon} size={0.65} />
                     {item.label}
+                    {item.id === "services" && servicesNeedingAttention > 0 && (
+                      <span data-testid="nav-services-attention" className="ml-auto flex items-center">
+                        <Icon path={mdiAlertCircleOutline} size={0.7} className="shrink-0 text-[var(--severity-error-fg)]" aria-hidden="true" />
+                        <span className="sr-only">
+                          {t("settings.servicesAttention", { count: servicesNeedingAttention }, `${servicesNeedingAttention} services need attention`)}
+                        </span>
+                      </span>
+                    )}
+                    {item.id === "add-ons" && addonIssueCount > 0 && (
+                      <>
+                        {/* Excluded from the button's accessible name (it stays "Add-ons"); announced as its description. */}
+                        <span
+                          data-testid="nav-addons-issues"
+                          aria-hidden="true"
+                          className="ml-auto text-[11px] leading-none px-1.5 py-0.5 rounded-full bg-[var(--severity-warning-bg)] text-[var(--severity-warning-fg)] border border-[var(--severity-warning-border)]"
+                        >
+                          {addonIssueCount}
+                        </span>
+                        <span id="nav-addons-issues-desc" aria-hidden="true" className="sr-only">
+                          {t("settings.addonsIssues", { count: addonIssueCount }, `${addonIssueCount} add-on issues`)}
+                        </span>
+                      </>
+                    )}
                     {dirtyPages.has(item.id) && (
                       <span
                         data-testid={`nav-dirty-${item.id}`}
                         title={t("settings.unsavedOnPage", undefined, "Unsaved changes on this page")}
-                        className="ml-auto w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0"
+                        className={RAIL_DIRTY_DOT}
                       />
                     )}
                   </button>
@@ -1361,7 +1471,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                           : t("settings.pluginsShow", { count: pluginNavChildren.length }, `Show plugin pages (${pluginNavChildren.length})`)
                       }
                       onClick={() => setPluginsExpandedPref(!pluginsExpanded)}
-                      className="shrink-0 flex items-center gap-0.5 px-1.5 py-1 rounded-md text-[11px] text-[var(--text-muted)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-secondary)] disabled:opacity-60 disabled:cursor-default cursor-pointer"
+                      className={`shrink-0 flex items-center gap-0.5 px-1.5 py-1 rounded-md text-xs ${RAIL_ITEM} ${RAIL_IDLE} disabled:cursor-default`}
                     >
                       {!pluginsExpanded && <span>{pluginNavChildren.length}</span>}
                       <Icon path={pluginsExpanded ? mdiChevronDown : mdiChevronRight} size={0.6} />
@@ -1372,7 +1482,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                   {item.id === "plugins" && pluginsExpanded &&
                     pluginNavChildren.map(({ row: p, pointer }) => {
                       if (pointer) {
-                        // Promoted plugin: a dimmed pointer to the same URL. A
+                        // Promoted plugin: a pointer to the same URL. A
                         // separate branch that NEVER sets `aria-current`, so the
                         // promoted entry stays the single active one (D4).
                         const promo = promotions.get(p.id);
@@ -1384,10 +1494,10 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                             onClick={() => requestRailNavigate(`/settings/plugins/${p.id}`)}
                             type="button"
                             data-testid={`nav-plugin-pointer-${p.id}`}
-                            className="w-full flex items-center gap-2 pl-9 pr-3 py-1.5 rounded-md text-[13px] whitespace-nowrap transition-colors cursor-pointer opacity-60 text-[var(--text-muted)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-secondary)]"
+                            className={`w-full flex items-center gap-2 pl-9 pr-3 py-1.5 rounded-md text-[13px] ${RAIL_ITEM} ${RAIL_IDLE}`}
                           >
                             <span className="truncate">{p.displayName}</span>
-                            <span className="ml-auto text-[11px] text-[var(--text-tertiary)]">↗ {groupLabel}</span>
+                            <span className="ml-auto text-xs text-[var(--text-secondary)]">↗ {groupLabel}</span>
                           </button>
                         );
                       }
@@ -1399,10 +1509,8 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                           onClick={() => requestRailNavigate(`/settings/plugins/${p.id}`)}
                           aria-current={childActive ? "page" : undefined}
                           data-testid={`nav-plugin-${p.id}`}
-                          className={`w-full flex items-center gap-2 pl-9 pr-3 py-1.5 rounded-md text-[13px] whitespace-nowrap transition-colors cursor-pointer ${
-                            childActive
-                              ? "bg-blue-600/15 text-[var(--text-primary)] font-semibold"
-                              : "text-[var(--text-muted)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-secondary)]"
+                          className={`w-full flex items-center gap-2 pl-9 pr-3 py-1.5 rounded-md text-[13px] ${RAIL_ITEM} ${
+                            childActive ? RAIL_ACTIVE : RAIL_IDLE
                           }`}
                         >
                           <span
@@ -1417,7 +1525,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                             <span
                               data-testid={`nav-dirty-plugins/${p.id}`}
                               title={t("settings.unsavedOnPage", undefined, "Unsaved changes on this page")}
-                              className="ml-auto w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0"
+                              className={RAIL_DIRTY_DOT}
                             />
                           )}
                         </button>
@@ -1445,11 +1553,9 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                       aria-current={promoActive ? "page" : undefined}
                       type="button"
                       data-testid={`nav-promoted-${promo.pluginId}`}
-                      className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm whitespace-nowrap transition-colors cursor-pointer ${
-                        promoActive
-                          ? "bg-blue-600/15 text-[var(--text-primary)] font-semibold"
-                          : "text-[var(--text-muted)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-secondary)]"
-                      } ${enabled ? "" : "opacity-60"}`}
+                      className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm ${RAIL_ITEM} ${
+                        promoActive ? RAIL_ACTIVE : RAIL_IDLE
+                      }`}
                     >
                       <Icon path={mdiPackageVariantClosed} size={0.65} />
                       <span className="truncate">{promo.label}</span>
@@ -1463,7 +1569,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                         />
                       ) : (
                         <span
-                          className="text-[10px] text-[var(--text-tertiary)]"
+                          className="text-xs text-[var(--text-secondary)]"
                           data-testid={`nav-promoted-off-${promo.pluginId}`}
                         >
                           {t("settings.promotedOff", undefined, "off")}
@@ -1473,7 +1579,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                         <span
                           data-testid={`nav-dirty-plugins/${promo.pluginId}`}
                           title={t("settings.unsavedOnPage", undefined, "Unsaved changes on this page")}
-                          className="ml-auto w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0"
+                          className={RAIL_DIRTY_DOT}
                         />
                       )}
                     </button>
@@ -1907,7 +2013,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                     )}
                     {piMirror && !piMirror.ok && (
                       <p className="mt-1 text-xs text-[var(--severity-warning-fg)]" data-testid="default-model-pi-mirror-warning">
-                        {i18nT("settings.piMirrorFailed", { error: piMirror.error ?? "error" }, `Saved, but pi's own default model could not be updated (${piMirror.error ?? "error"}). Use "Apply dashboard default to pi" in pi settings below.`)}
+                        {i18nT("settings.piMirrorFailed", { error: piMirror.error ?? "error" }, `Saved, but pi's own default model could not be updated (${piMirror.error ?? "error"}). Use "Apply dashboard default to pi" on Settings → pi → pi settings.`)}
                       </p>
                     )}
                     {piMirror?.ok && piMirror.skipped && (
@@ -2256,21 +2362,23 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                 <Section title={t("settings.retry", undefined, "Retry")}>
                   <RetrySettingsSection />
                 </Section>
-                {/* pi's own global settings.json (typed form + raw JSON). The
-                    three default-model keys are mirrored from the Default model
-                    control above; `original` is the SAVED dashboard default, the
-                    drift baseline. See change: edit-pi-agent-settings. */}
-                <Section title={t("settings.piSettings", undefined, "pi settings (global)")}>
-                  <PiSettingsSection
-                    dashboardDefaults={original ?? undefined}
-                    refreshKey={piSettingsRefreshKey}
-                  />
-                </Section>
                 <Section title={t("settings.push.title", undefined, "Push notifications")}>
                   <PushNotificationsSection />
                 </Section>
                 <FocusSettingsSection />
               </>
+            )}
+
+            {/* pi's own global settings.json (typed form + scope editor + raw JSON). The
+                three default-model keys are mirrored from the Default model control on the
+                Sessions page; `original` is the SAVED dashboard default, the drift baseline.
+                See change: pi-settings-full-coverage (design D8). */}
+            {activeTab === "pi-settings" && (
+              <PiSettingsPage
+                dashboardDefaults={original ?? undefined}
+                refreshKey={piSettingsRefreshKey}
+                onNavigate={(page) => requestRailNavigate(`/settings/${page}`)}
+              />
             )}
 
             {activeTab === "gateway" && <GatewayPage />}
@@ -2279,6 +2387,12 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
               <>
                 <ServersTab />
               </>
+            )}
+
+            {(activeTab === "services" || activeTab === "runtimes") && (
+              <React.Suspense fallback={null}>
+                <ServicesPages page={activeTab} serviceId={activeServiceId} services={services} navigate={navigate} />
+              </React.Suspense>
             )}
 
             {activeTab === "vault" && (
@@ -2290,7 +2404,8 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
             {activeTab === "access" && (
               <>
                 <AccessPromptsSection selectedCwd={selectedCwd} />
-                <AccessSection />
+                <AccessSection configTrustMode={resolveClientTrustMode(original).mode} />
+                <PiTrustMirrorSection />
               </>
             )}
 
@@ -2394,7 +2509,17 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                     />
                   </div>
                 </Section>
+                {networkTrust && (
                 <TrustedNetworksSection
+                  trust={{
+                    ...networkTrust,
+                    onModeChange: (mode) => update((c) => {
+                      c.network = { ...c.network, trustMode: mode };
+                      // Leaving Pair drops a drafted LAN-requests switch: that checkbox lives in the Pair callouts.
+                      if (mode !== "pair") c.pairing = { ...c.pairing, acceptLanRequests: original?.pairing?.acceptLanRequests === true };
+                    }),
+                    onLanChange: (on) => update((c) => { c.pairing = { ...c.pairing, acceptLanRequests: on }; }),
+                  }}
                   bypassHosts={config.auth?.bypassHosts ?? []}
                   legacyTrustedNetworks={config.trustedNetworks ?? []}
                   pendingBindHost={pendingBindHost}
@@ -2407,6 +2532,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                     c.auth.bypassHosts = nets;
                   })}
                 />
+                )}
                 {/* Allowed hostnames — the Host gate's operator surface, between
                     the two network-trust neighbours. Mode + hostnames edit the
                     panel draft; the section itself never writes.
@@ -2481,7 +2607,6 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
               <>
                 <ElectronRuntimeUpdates />
                 <UnifiedPackagesSection />
-                <GlobalPackagesBrowseAndDialogs />
               </>
             )}
 
@@ -2582,6 +2707,16 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                 </Section>
                 {/* See change: add-openspec-profile-settings. */}
                 <OpenSpecProfileSection />
+                {/* Default switch = config draft (Save Bar); the per-cwd actions
+                    write immediately and are NOT a Save Bar source.
+                    See change: add-pi-spec-driven-schema. */}
+                <OpenSpecWorkflowSchemaSection
+                  defaultForNewProjects={config.openspec?.workflowSchema?.defaultForNewProjects ?? false}
+                  onDefaultChange={(v) => update((c) => {
+                    if (!c.openspec) c.openspec = { ...DEFAULT_OPENSPEC_UI };
+                    c.openspec.workflowSchema = { defaultForNewProjects: v };
+                  })}
+                />
               </>
             )}
 
@@ -2601,6 +2736,12 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                     value={config.keeperLog?.capturePiOutput ?? false}
                     onChange={(v) => update((c) => { c.keeperLog = { ...c.keeperLog, capturePiOutput: v }; })}
                     hint={t("settings.capturePiOutputHint", undefined, "Archives each session's full pi stdout/stderr into keeper-<id>.log for debugging. Consumes significant disk on long sessions — leave off unless diagnosing a session. Applies to new sessions.")}
+                  />
+                  <ToggleField
+                    label={t("settings.showPluginInternals", undefined, "Show plugin internals")}
+                    value={showPluginInternals}
+                    onChange={setShowPluginInternals}
+                    hint={t("settings.showPluginInternalsHint", undefined, "Show which UI slots each plugin contributes to, on its settings page. Applies instantly, only in this browser.")}
                   />
                 </Section>
                 <DiagnosticsSection />
@@ -3024,9 +3165,12 @@ export function removeTrustedEntry(current: string[], entry: string): string[] {
 function BlockEventTrustBanner({
   trusted,
   onTrust,
+  mode = "legacy",
 }: {
   trusted: string[];
   onTrust: (entry: string) => void;
+  /** In `pair` mode a refusal is information only: no Trust action, just the way to request access. */
+  mode?: TrustMode;
 }) {
   const [events, setEvents] = useState<BlockEvent[]>([]);
   // IPs the operator has acted on this session. A wide-subnet trust (e.g.
@@ -3045,6 +3189,26 @@ function BlockEventTrustBanner({
     setDismissed((prev) => new Set(prev).add(ip));
     onTrust(entry);
   };
+
+  if (mode === "pair") {
+    // Refused peers stay listed (the operator's cue) — once an address is allowed the row
+    // flips from the allow action to the "have the device request access" note.
+    const refused = events.filter((e) => e.trustable);
+    if (refused.length === 0) return null;
+    return (
+      <div className="space-y-1.5 mb-2" data-testid="block-event-banner">
+        {refused.map((ev) => (
+          <PairRefusedPeer
+            key={ev.ip}
+            ip={ev.ip}
+            count={ev.count}
+            eligible={canRequestAccess(ev.ip, trusted)}
+            onAllow={() => onTrust(ev.ip)}
+          />
+        ))}
+      </div>
+    );
+  }
 
   const pending = events.filter((e) => e.trustable && !trusted.includes(e.ip) && !dismissed.has(e.ip));
   if (pending.length === 0) return null;
@@ -3190,6 +3354,7 @@ function UnreachableTrustedNetworksAdvisory({
 }
 
 function TrustedNetworksSection({
+  trust,
   bypassHosts,
   legacyTrustedNetworks,
   pendingBindHost,
@@ -3199,6 +3364,8 @@ function TrustedNetworksSection({
   onGoToServerPage,
   onChange,
 }: {
+  /** Mode radio + callout inputs, derived by the panel from its draft. See change: retire-trusted-networks-bypass. */
+  trust: NetworkTrustControls;
   bypassHosts: string[];
   legacyTrustedNetworks: string[];
   /** Effective bind host of the NEXT start, draft included. */
@@ -3280,11 +3447,31 @@ function TrustedNetworksSection({
     setManualEntry("");
   };
 
+  const pair = trust.draftMode === "pair";
+  // Migration callout stands in for the legacy full-access warning (the count already says it).
+  const migrationShown = trust.draftMode === "legacy" && trust.savedMode === "legacy" && (trust.posture?.networkOnly.distinctPeers ?? 0) > 0;
+
   return (
-    <Section title={t("settings.trustedNetworks", undefined, "Trusted Networks")}>
-      <p className="text-xs text-[var(--text-tertiary)] mb-2">
-        {t("settings.trustedNetworksDescription", undefined, "Devices matching these networks or hosts can access the dashboard without authentication. Accepts exact IP, wildcard, or CIDR.")}
-      </p>
+    <Section id="network-access" title={t("settings.networkAccess.title", undefined, "Network access")}>
+      <NetworkTrustModeRadio draftMode={trust.draftMode} onModeChange={trust.onModeChange} />
+      <NetworkTrustNotices {...trust} />
+
+      <div>
+        <p data-testid="trusted-networks-heading" className="mb-1 text-xs font-semibold text-[var(--text-secondary)]">
+          {pair
+            ? t("settings.networkAccess.pairListTitle", undefined, "Networks that may request access")
+            : t("settings.networkAccess.legacyListTitle", undefined, "Trusted networks — admitted without sign-in")}
+        </p>
+        <p data-testid="trusted-networks-description" className="text-xs text-[var(--text-tertiary)] mb-2">
+          {pair
+            ? t(
+                "settings.networkAccess.pairListHint",
+                undefined,
+                "Devices on private networks (192.168.x.x, 10.x.x.x, 172.16–31.x.x, Tailscale 100.64.0.0/10) can always request access. Add other ranges here; every device in an added range may request access. Listing a network never grants access by itself.",
+              )
+            : t("settings.trustedNetworksDescription", undefined, "Devices matching these networks or hosts can access the dashboard without authentication. Accepts exact IP, wildcard, or CIDR.")}
+        </p>
+      </div>
 
       {/* Reachability advisory FIRST — it explains why block events may be
           missing for the unreachable range. The two are independent and may
@@ -3297,8 +3484,8 @@ function TrustedNetworksSection({
         onGoToServerPage={onGoToServerPage}
       />
 
-      {/* Block-event "Trust this network?" banner (task 7.2). */}
-      <BlockEventTrustBanner trusted={bypassHosts} onTrust={addNetwork} />
+      {/* Block-event "Trust this network?" banner (task 7.2); information-only in pair mode. */}
+      <BlockEventTrustBanner trusted={bypassHosts} onTrust={addNetwork} mode={trust.draftMode} />
 
       {bypassHosts.length > 0 && (
         <div className="space-y-1 mb-2" data-testid="trusted-networks-list">
@@ -3360,7 +3547,9 @@ function TrustedNetworksSection({
                   data-wide={row.wide ? "true" : "false"}
                   title={
                     row.wide
-                      ? i18nT("settings.trustWholeRangeTitle", { range: row.value }, "Grants unauthenticated access to the whole {range} range")
+                      ? pair
+                        ? i18nT("settings.networkAccess.wideRangePair", { range: row.value }, "Every device in the {range} range may request access")
+                        : i18nT("settings.trustWholeRangeTitle", { range: row.value }, "Grants unauthenticated access to the whole {range} range")
                       : undefined
                   }
                   className={`w-full flex items-center justify-between px-3 py-1.5 text-xs text-left hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer ${
@@ -3430,9 +3619,14 @@ function TrustedNetworksSection({
         </p>
       )}
 
-      <p className="text-xs text-amber-400/80 mt-2">
-        {t("settings.trustedNetworksWarning", undefined, "Anyone on a trusted network has full access to the dashboard without authentication. Only use on private networks you control.")}
-      </p>
+      {!pair && !migrationShown && (
+        <div role="status" data-testid="trusted-networks-warning" className={callout("warning")}>
+          <Icon path={mdiAlertOutline} size={0.7} className="mt-0.5 shrink-0" aria-hidden="true" />
+          <p>
+            {t("settings.trustedNetworksWarning", undefined, "Anyone on a trusted network has full access to the dashboard without authentication. Only use on private networks you control.")}
+          </p>
+        </div>
+      )}
     </Section>
   );
 }
@@ -3567,6 +3761,7 @@ function ListenInterfaceField({
 }
 
 // Vault page: its own chunk, off the entry gzip cap. See change: retro-ux-credential-vault.
+const ServicesPages = React.lazy(() => import("./services/ServicesPages.js").then((m) => ({ default: m.ServicesPages })));
 const VaultSection = React.lazy(() => import("./vault/VaultSection.js").then((m) => ({ default: m.VaultSection })));
 
 // Electron-only: its own chunk, off the entry gzip cap (Settings is eager).
@@ -3583,9 +3778,9 @@ function ElectronRuntimeUpdates() {
   ) : null;
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, id, children }: { title: string; id?: string; children: React.ReactNode }) {
   return (
-    <div>
+    <div id={id}>
       <h2 className="text-sm font-semibold text-[var(--text-primary)] mb-3 pb-1 border-b border-[var(--border-secondary)]">
         {title}
       </h2>
@@ -3792,69 +3987,6 @@ function ProviderSection({ providerKey, provider, onChange }: {
         </div>
       )}
     </div>
-  );
-}
-
-// ─── Global Packages Browse + Confirm-install Dialog ──────────────────────────
-//
-// The unified packages section above handles the installed-rows view
-// and the README dialog. This section keeps only the Browse Packages
-// search UI and its install-confirm dialog. See change:
-// consolidate-packages-settings-ui.
-
-function GlobalPackagesBrowseAndDialogs() {
-  const { t } = useI18n();
-  const installed = useInstalledPackages("global");
-  const operations = usePackageOperations("global", undefined, installed.refresh);
-  const [confirmInstall, setConfirmInstall] = useState<{ source: string; pkg?: NpmPackageResult } | null>(null);
-  const [readmePkg, setReadmePkg] = useState<NpmPackageResult | null>(null);
-
-  const handleConfirmInstall = (source: string, pkg?: NpmPackageResult) => {
-    setConfirmInstall({ source, pkg });
-  };
-
-  const doInstall = () => {
-    if (!confirmInstall) return;
-    operations.install(confirmInstall.source);
-    setConfirmInstall(null);
-  };
-
-  return (
-    <>
-      <Section title={t("common.browsePackages", undefined, "Browse Packages")}>
-        <PackageBrowser
-          scope="global"
-          onViewReadme={setReadmePkg}
-          onConfirmInstall={handleConfirmInstall}
-          // UnifiedPackagesSection above already shows global installed packages.
-          // See change: unify-workspace-package-management.
-          showInstalledSection={false}
-          // A recommended entry shown as an installed row is not repeated as a card.
-          // See change: addons-hub-declutter.
-          hideGlobalInstalledRecommended
-        />
-      </Section>
-
-      {confirmInstall && (
-        <PackageInstallConfirmDialog
-          source={confirmInstall.source}
-          packageName={confirmInstall.pkg?.name}
-          scope="global"
-          lockScope="global"
-          onConfirm={doInstall}
-          onCancel={() => setConfirmInstall(null)}
-        />
-      )}
-      {readmePkg && (
-        <PackageReadmeDialog
-          pkg={readmePkg}
-          installed={installed.packages.some((p) => p.source === `npm:${readmePkg.name}`)}
-          onInstall={() => { handleConfirmInstall(`npm:${readmePkg.name}`, readmePkg); setReadmePkg(null); }}
-          onUninstall={() => { operations.remove(`npm:${readmePkg.name}`); setReadmePkg(null); }}
-          onClose={() => setReadmePkg(null)}
-        />
-      )}
-    </>
   );
 }
 

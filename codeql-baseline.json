@@ -316,13 +316,6 @@
       "reason": "untriaged"
     },
     {
-      "ruleId": "js/client-side-unvalidated-url-redirection",
-      "file": "packages/client/src/components/worktree/WorktreeActionsMenu.tsx",
-      "lineHash": "bba3c76f3faa9aea:1",
-      "count": 1,
-      "reason": "untriaged"
-    },
-    {
       "ruleId": "js/request-forgery",
       "file": "packages/client/src/lib/api/model-proxy-api.ts",
       "lineHash": "1188a1fad939a53b:1",
@@ -347,27 +340,6 @@
       "ruleId": "js/xss",
       "file": "packages/client/src/lib/preview/adoc-math.ts",
       "lineHash": "72017053c49a39a1:1",
-      "count": 1,
-      "reason": "untriaged"
-    },
-    {
-      "ruleId": "js/client-side-unvalidated-url-redirection",
-      "file": "packages/electron/resources/loading.html",
-      "lineHash": "6ca20d39776a630d:1",
-      "count": 1,
-      "reason": "untriaged"
-    },
-    {
-      "ruleId": "js/client-side-unvalidated-url-redirection",
-      "file": "packages/electron/resources/loading.html",
-      "lineHash": "75cba8fcb8d0cf1e:1",
-      "count": 1,
-      "reason": "untriaged"
-    },
-    {
-      "ruleId": "js/xss",
-      "file": "packages/electron/resources/loading.html",
-      "lineHash": "75cba8fcb8d0cf1e:1",
       "count": 1,
       "reason": "untriaged"
     },
@@ -423,9 +395,9 @@
     {
       "ruleId": "js/server-side-unvalidated-url-redirection",
       "file": "packages/server/src/auth/auth-plugin.ts",
-      "lineHash": "687edf4ce2b7d094:1",
+      "lineHash": "687f1ae7376b109b:1",
       "count": 1,
-      "reason": "untriaged"
+      "reason": "false-positive: returnUrl is sanitised by sanitizeReturnUrl (same-origin path only); CodeQL does not model the custom sanitiser; line-hash drift from develop #964, untouched by this change"
     },
     {
       "ruleId": "js/path-injection",
@@ -878,6 +850,13 @@
     {
       "ruleId": "js/path-injection",
       "file": "packages/server/src/routes/file-routes.ts",
+      "lineHash": "1e0e73a03196a493:1",
+      "count": 1,
+      "reason": "operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
+    },
+    {
+      "ruleId": "js/path-injection",
+      "file": "packages/server/src/routes/file-routes.ts",
       "lineHash": "3cc9700d6f2a8f0c:1",
       "count": 1,
       "reason": "github-dismissed (#336, false positive): False positive for a path-containment feature: the flagged expression IS the containment/verification guard, not a gap in one. Reviewed in bulk (same class) during ship of add-access-grants-and-review."
@@ -1021,6 +1000,13 @@
       "lineHash": "d1196e2cf3c3f6f8:1",
       "count": 1,
       "reason": "operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
+    },
+    {
+      "ruleId": "js/server-side-unvalidated-url-redirection",
+      "file": "packages/server/src/routes/local-proof-routes.ts",
+      "lineHash": "eebfa8d11b146b09:1",
+      "count": 1,
+      "reason": "false-positive: redirect target is constrained by sanitizeReturnUrl (same-origin path only; rejects //, /\\, control chars, origin re-parse; tests E20-E28); CodeQL cannot model the sanitizer"
     },
     {
       "ruleId": "js/path-injection",

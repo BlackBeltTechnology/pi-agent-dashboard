@@ -29,7 +29,7 @@ import { pollCost } from "../poll-cost.js";
 import { collectMetrics, startMetricsMonitor, stopMetricsMonitor } from "../process-metrics.js";
 import { createProcessScanScheduler } from "../process-scan-scheduler.js";
 import { scanChildProcessesAsync } from "../process-scanner.js";
-import { decideProjectTrust, readEventCwd } from "../project-trust.js";
+import { decideBridgeProjectTrust, readEventCwd } from "../project-trust.js";
 import { PromptBus } from "../prompt-bus.js";
 import { buildProviderCatalogue, toModelInfo } from "../provider-register.js";
 import { gateRemoteRegistration, isRemoteEndpoint } from "../remote-registration-gate.js";
@@ -190,13 +190,13 @@ export function registerProjectTrust(inst: BridgeInstance): void {
       // Return the pi trust decision. A newer bridge taking over, or any
       // non-match, defers. `remember:false` = trust for THIS run only.
       if (!inst.isActive()) return { trusted: "undecided" };
-      const decision = decideProjectTrust({
+      const decision = decideBridgeProjectTrust({
         dashboardSpawned: inst.dashboardSpawned,
         isHeadless: isHeadlessRpcSession(),
         eventCwd: readEventCwd(event, ctx),
         activationCwd: inst.activationCwd,
       });
-      return decision === "trust"
+      return decision.trusted === "yes"
         ? { trusted: "yes", remember: false }
         : { trusted: "undecided" };
     }));

@@ -1,6 +1,11 @@
-import { describe, expect, it } from "vitest";
-import { authorizeWsUpgrade } from "../auth/auth-plugin.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { COOKIE_NAME, signToken } from "../auth/auth.js";
+import { authorizeWsUpgrade, validateWsUpgrade } from "../auth/auth-plugin.js";
+import { networkOnlySnapshot } from "../auth/network-trust-telemetry.js";
+import { admissionTrustedNetworks } from "../auth/trust-mode.js";
 import type { CoreWsRouteScope, TicketConsumption } from "../auth/ws-ticket.js";
+import { WsTicketStore } from "../auth/ws-ticket.js";
+import { type TrustModeHome, useTrustModeHome } from "../test-support/trust-mode-home.js";
 
 const SECRET = "s".repeat(32);
 const principal = { iss: "https://kc/realms/app", sub: "user-1" };
@@ -148,5 +153,123 @@ describe("authorizeWsUpgrade — trusted-network tunnel bypass (fix-trusted-netw
       requireIdentityTicket: true, consumeTicket: consumer("x", { ok: false, reason: "missing" }),
     });
     expect(res.ok).toBe(false);
+  });
+});
+
+// ── retire-trusted-networks-bypass: WS admission reads the live list ─────────
+// The server passes `admissionTrustedNetworks()` PER UPGRADE (server.ts); these
+// tests do the same against a real temp-HOME config.json. A network match
+// authenticates only in `legacy`, and only AFTER ticket / cookie.
+describe("WS upgrade — live mode-dependent admission list (E9, E10, E11, E12)", () => {
+  const LISTED = "192.168.16.20";
+  const LIST = ["192.168.16.0/24"];
+  let th: TrustModeHome;
+  beforeEach(() => {
+    th = useTrustModeHome();
+  });
+  afterEach(() => {
+    th.restore();
+  });
+
+  /** Mirrors the server's per-upgrade call: the list is read at the call site. */
+  const authorize = (over: Partial<Parameters<typeof authorizeWsUpgrade>[0]> = {}) =>
+    authorizeWsUpgrade({
+      remoteAddress: LISTED,
+      secret: null,
+      trustedNetworks: admissionTrustedNetworks(),
+      headers: {},
+      scope: "browser",
+      ...over,
+    });
+
+  // test-plan #E9 — WS (auth on → 401 at the caller) and WS (auth off → 403)
+  describe.each([
+    ["auth on (cookie realm)", SECRET],
+    ["auth off", null],
+  ] as const)("E9: %s", (_label, secret) => {
+    it("pair: ticketless listed peer is rejected", () => {
+      th.setTrustConfig({ trustMode: "pair", trustedNetworks: LIST });
+      expect(authorize({ secret }).ok).toBe(false);
+    });
+    it("legacy: ticketless listed peer is admitted and counted as network-only", () => {
+      th.setTrustConfig({ trustMode: "legacy", trustedNetworks: LIST });
+      expect(authorize({ secret }).ok).toBe(true);
+      expect(networkOnlySnapshot().admissions).toBe(1);
+    });
+  });
+
+  it("E9: validateWsUpgrade (auth on) — pair rejects, legacy admits the listed peer", () => {
+    th.setTrustConfig({ trustMode: "pair", trustedNetworks: LIST });
+    expect(validateWsUpgrade(undefined, LISTED, SECRET, admissionTrustedNetworks(), { headers: {} })).toBe(false);
+    th.setTrustConfig({ trustMode: "legacy", trustedNetworks: LIST });
+    expect(validateWsUpgrade(undefined, LISTED, SECRET, admissionTrustedNetworks(), { headers: {} })).toBe(true);
+  });
+
+  // test-plan #E10 — live change, no restart
+  it("E10: legacy → pair → legacy → pair is applied to the NEXT ticketless upgrade", () => {
+    th.setTrustConfig({ trustMode: "legacy", trustedNetworks: LIST });
+    expect(authorize().ok).toBe(true);
+    th.setTrustConfig({ trustMode: "pair", trustedNetworks: LIST });
+    expect(authorize().ok).toBe(false);
+    th.setTrustConfig({ trustMode: "legacy", trustedNetworks: LIST });
+    expect(authorize().ok).toBe(true);
+    th.setTrustConfig({ trustMode: "pair", trustedNetworks: LIST });
+    expect(authorize().ok).toBe(false);
+  });
+
+  // test-plan #E11 — ticket / cookie first, so credentialed upgrades are never network-only
+  it("E11: legacy + listed peer with a ticket → admitted, ticket CONSUMED, not counted network-only", () => {
+    th.setTrustConfig({ trustMode: "legacy", trustedNetworks: LIST });
+    const store = new WsTicketStore();
+    const ticket = store.mint("browser");
+    const consume = (t: string, sc: CoreWsRouteScope) => store.consumeDetailed(t, sc);
+
+    expect(authorize({ ticket, consumeTicket: consume }).ok).toBe(true);
+    expect(networkOnlySnapshot().admissions, "ticket first → not network-only").toBe(0);
+    // Single-use: the ticket is gone, so a replay falls through to the network match.
+    expect(store.consumeDetailed(ticket, "browser").ok).toBe(false);
+  });
+
+  it("E11: a ticketed upgrade from a listed peer is admitted in pair mode too (ticket is the credential)", () => {
+    th.setTrustConfig({ trustMode: "pair", trustedNetworks: LIST });
+    const store = new WsTicketStore();
+    const ticket = store.mint("browser");
+    expect(authorize({ ticket, consumeTicket: (t, sc) => store.consumeDetailed(t, sc) }).ok).toBe(true);
+    expect(store.consumeDetailed(ticket, "browser").ok).toBe(false);
+  });
+
+  it("E11: valid session cookie from a listed peer → session surfaced, not network-only", () => {
+    th.setTrustConfig({ trustMode: "legacy", trustedNetworks: LIST });
+    const token = signToken({ sub: "u@example.com", name: "U", username: "u", provider: "github" }, SECRET);
+    const res = authorize({ secret: SECRET, cookieHeader: `${COOKIE_NAME}=${token}` });
+    expect(res.ok).toBe(true);
+    expect(res.ok && res.session?.sub).toBe("u@example.com");
+    expect(networkOnlySnapshot().admissions).toBe(0);
+    // validateWsUpgrade orders the same way.
+    expect(validateWsUpgrade(`${COOKIE_NAME}=${token}`, LISTED, SECRET, admissionTrustedNetworks(), { headers: {} })).toBe(true);
+    expect(networkOnlySnapshot().admissions).toBe(0);
+  });
+
+  it("E11: an invalid cookie from a listed peer falls through to the network match in legacy, rejected in pair", () => {
+    th.setTrustConfig({ trustMode: "legacy", trustedNetworks: LIST });
+    expect(authorize({ secret: SECRET, cookieHeader: `${COOKIE_NAME}=nope` }).ok).toBe(true);
+    th.setTrustConfig({ trustMode: "pair", trustedNetworks: LIST });
+    expect(authorize({ secret: SECRET, cookieHeader: `${COOKIE_NAME}=nope` }).ok).toBe(false);
+  });
+
+  // test-plan #E12 — relayed loopback never admitted by a loopback range, either mode
+  describe.each(["pair", "legacy"] as const)("E12 (%s): relayed loopback", (mode) => {
+    const relayed = { "x-forwarded-for": "203.0.113.9" };
+    it("127.0.0.0/8 listed, peer 127.0.0.1 + X-Forwarded-For → rejected (auth on and off)", () => {
+      th.setTrustConfig({ trustMode: mode, trustedNetworks: ["127.0.0.0/8"] });
+      for (const secret of [SECRET, null]) {
+        expect(authorize({ remoteAddress: "127.0.0.1", headers: relayed, secret }).ok).toBe(false);
+        expect(validateWsUpgrade(undefined, "127.0.0.1", secret ?? SECRET, admissionTrustedNetworks(), { headers: relayed })).toBe(false);
+      }
+    });
+    it("control: the same list admits a header-less genuine local upgrade", () => {
+      th.setTrustConfig({ trustMode: mode, trustedNetworks: ["127.0.0.0/8"] });
+      expect(authorize({ remoteAddress: "127.0.0.1", headers: {} }).ok).toBe(true);
+    });
   });
 });

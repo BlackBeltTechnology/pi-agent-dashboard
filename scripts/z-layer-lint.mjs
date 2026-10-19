@@ -11,17 +11,26 @@
  * SHRINK — it doubles as the inline-popover / FilePreviewOverlay migration
  * backlog. Modelled on `scripts/knip-ratchet.mjs`.
  *
+ * It also flags INLINE numeric `zIndex` in style objects (`zIndex: 1000`,
+ * `zIndex: "1000"`, `style={{ zIndex: 10 }}`) across `packages/client/src` AND
+ * `packages/client-utils/src`, keyed `<file>|zIndex:<n>` and ratcheted against the
+ * same baseline. A token value (`zIndex: "var(--z-popover)"`) is never flagged.
+ * The Tailwind utility-class scan keeps its `client/src`-only scope.
+ *
  * Test files are excluded: a spec that asserts `not.toContain("z-50")` legitimately
  * contains the literal.
  *
- * See openspec spec overlay-layering. See change: add-overlay-layering-system.
+ * See openspec spec overlay-layering. See change: add-overlay-layering-system,
+add-session-actions-flyout.
  */
 import { execSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join, relative, resolve } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 
 export const SCAN_DIR = "packages/client/src";
+// Inline `zIndex` is scanned in these roots (a superset of SCAN_DIR).
+export const INLINE_SCAN_DIRS = [SCAN_DIR, "packages/client-utils/src"];
 export const BASELINE_PATH = "scripts/z-layer-baseline.json";
 
 // Raw numeric z: `z-50`, `z-[60]`, `z-[9999]`, optionally negative. NOT the
@@ -33,6 +42,16 @@ export function extractRawZ(source) {
   return source.match(RAW_Z) ?? [];
 }
 
+// Inline numeric zIndex: `zIndex: 1000`, `zIndex: "1000"`, `zIndex: '10'`. The
+// lookahead rejects expressions/units (`10 + n`, `10px`, `1.5`) and the
+// backreference requires matching quotes, so `"var(--z-popover)"` never matches.
+const INLINE_Z = /\bzIndex\s*:\s*(["'`]?)(-?[0-9]+)\1(?![\w.%+*/-])/g;
+
+/** All inline numeric `zIndex` tokens (`zIndex:<n>`) in a source string. Pure. */
+export function extractInlineZ(source) {
+  return Array.from(source.matchAll(INLINE_Z), (m) => `zIndex:${m[2]}`);
+}
+
 /**
  * Build a multiset `{"<relpath>|<token>": count}` from files. Pure w.r.t. the
  * injected `read`/`rel` so tests need no filesystem.
@@ -42,6 +61,25 @@ export function scanRawZ(files, read, rel = (f) => f) {
   for (const f of files) {
     for (const tok of extractRawZ(read(f))) {
       const key = `${rel(f)}|${tok}`;
+      counts[key] = (counts[key] ?? 0) + 1;
+    }
+  }
+  return counts;
+}
+
+/**
+ * Multiset over BOTH extractors: the utility-class scan applies only to files
+ * under SCAN_DIR (`rel(f)` path prefix), the inline-`zIndex` scan to every file.
+ * Pure w.r.t. the injected `read`/`rel`.
+ */
+export function scanAllZ(files, read, rel = (f) => f) {
+  const counts = {};
+  for (const f of files) {
+    const path = rel(f);
+    const src = read(f);
+    const toks = [...(path.startsWith(`${SCAN_DIR}/`) ? extractRawZ(src) : []), ...extractInlineZ(src)];
+    for (const tok of toks) {
+      const key = `${path}|${tok}`;
       counts[key] = (counts[key] ?? 0) + 1;
     }
   }
@@ -62,9 +100,10 @@ export function ratchetDecision(current, baseline) {
   return { ok: additions.length === 0, additions };
 }
 
-/** List scanned source files (git-tracked .ts/.tsx under SCAN_DIR, no tests). */
+/** List scanned source files (git-tracked .ts/.tsx under INLINE_SCAN_DIRS, no tests). */
 function listFiles(repoRoot) {
-  const out = execSync(`git ls-files "${SCAN_DIR}/*.ts" "${SCAN_DIR}/*.tsx"`, {
+  const globs = INLINE_SCAN_DIRS.flatMap((d) => [`"${d}/*.ts"`, `"${d}/*.tsx"`]).join(" ");
+  const out = execSync(`git ls-files ${globs}`, {
     cwd: repoRoot,
     encoding: "utf8",
   });
@@ -78,7 +117,7 @@ function listFiles(repoRoot) {
 function main() {
   const repoRoot = resolve(import.meta.dirname, "..");
   const files = listFiles(repoRoot);
-  const current = scanRawZ(files, (f) => readFileSync(f, "utf8"), (f) => relative(repoRoot, f));
+  const current = scanAllZ(files, (f) => readFileSync(f, "utf8"), (f) => relative(repoRoot, f).split(sep).join("/"));
 
   if (process.argv.includes("--write-baseline")) {
     const sorted = Object.fromEntries(Object.entries(current).sort(([a], [b]) => a.localeCompare(b)));

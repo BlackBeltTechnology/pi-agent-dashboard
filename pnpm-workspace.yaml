@@ -32,6 +32,14 @@ confirmModulesPurge: false
 # packages/shared/src/mdns-discovery.ts. See change: adopt-pnpm-for-dev-ci.
 overrides:
   bonjour-service: 1.4.2
+  # ONE `which` (2.x). phantomjs-prebuilt (optional, via electron-icon-builder)
+  # pins which@1.3.1; once the Forge 8 tree is installed the hoister puts 1.3.1 at
+  # the ROOT, and its `bin/which` lands in node_modules/.bin -- which shadows the
+  # system `which` that `whichSync` (shared/platform/binary-lookup.ts) spawns under
+  # any vitest / `pnpm run` PATH. A Node-script `which` costs ~100 ms per call, so
+  # the real-git admission burst test (25 probes) went red on 503s. 2.x ships
+  # `bin/node-which`, not `bin/which`. See change: refresh-electron-bundled-components.
+  "which@<2": 2.0.2
   # ONE asn1-schema copy: its schema registry is a module singleton, and
   # @simplewebauthn/server resolved a nested 2.9.4 while @peculiar/asn1-ecc
   # registered ECDSASigValue in the hoisted 2.10.0 — every ES256 passkey
@@ -52,9 +60,9 @@ overrides:
   # @earendil-works pi peer lower bound / devDependency, and the checker's own
   # minVersion. Caught by the docker harness, not by any unit test.
   # See change: update-pi-core-0-85-adopt-apis, update-pi-core-1-0-adopt-apis.
-  "@earendil-works/pi-coding-agent": 1.1.0
-  "@earendil-works/pi-ai": 1.1.0
-  "@earendil-works/pi-tui": 1.1.0
+  "@earendil-works/pi-coding-agent": 1.3.0
+  "@earendil-works/pi-ai": 1.3.0
+  "@earendil-works/pi-tui": 1.3.0
 
 # pnpm 11 treats un-approved dependency build scripts as a FATAL error
 # (ERR_PNPM_IGNORED_BUILDS, non-zero exit) — which would red every CI
@@ -101,6 +109,7 @@ allowBuilds:
   '@fission-ai/openspec': true
   '@google/genai': true
   electron: true
+  electron-winstaller: false
   esbuild: true
   fs-xattr: true
   koffi: true
@@ -111,12 +120,11 @@ allowBuilds:
   sharp: true
 
 minimumReleaseAgeExclude:
-  - '@earendil-works/pi-agent-core@1.1.0'
-  - '@earendil-works/pi-ai@1.1.0'
-  - '@earendil-works/pi-coding-agent@1.1.0'
-  - '@earendil-works/pi-tui@1.1.0'
-  - '@earendil-works/pi-codemode@1.1.0'
-  - '@earendil-works/pi-mcp@1.1.0'
-  - '@earendil-works/chord@1.1.0'
+  - '@earendil-works/pi-agent-core@1.3.0'
+  - '@earendil-works/pi-ai@1.3.0'
+  - '@earendil-works/pi-coding-agent@1.3.0'
+  - '@earendil-works/pi-tui@1.3.0'
+  - '@earendil-works/pi-codemode@1.3.0'
+  - '@earendil-works/pi-mcp@1.3.0'
   - pi-mcp-adapter@2.19.0 || 5.0.0
-  - '@earendil-works/pi-telemetry@1.1.0'
+  - '@earendil-works/pi-telemetry@1.3.0'

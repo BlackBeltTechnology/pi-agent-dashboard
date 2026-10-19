@@ -251,7 +251,18 @@ Residuals (stated):
   - login session: `principalTier === "operate"`. Observe-tier session on a trusted network refused.
   - identity principal: operator or local operator, or `HostPolicy.authorize` with `HostActions.vaultManage` (`vault.manage`) on `hostResource.vault()`.
   - no credential: local trust (`hasOperateAuthority`, strict-mode aware).
-- Refusal: 403 `operate_required`. `reason` = `tier-too-low` | `no-credential`. `remedies` ⊆ `use-host`, `re-pair`, `sign-in`. Source: `packages/server/src/auth/operate-required.ts`.
+- Refusal: 403 `operate_required`. `reason` = `tier-too-low` | `no-credential`. `remedies` ⊆ `use-host`, `re-pair`, `request-access`, `sign-in`. Order fixed: `use-host, re-pair, request-access, sign-in` (`OPERATE_REMEDY_ORDER`, `packages/shared/src/operate-required.ts`). Source: `packages/server/src/auth/operate-required.ts`.
+- `request-access` present iff all:
+  - no verified credential: `authVia` unset. Revoked bearer = none.
+  - no verified local credential: token or `pi_dash_local` proof cookie.
+  - knock pre-switch gates pass (`knockPeerGate`, `packages/server/src/pairing/knock-admission.ts`): Host admitted (enforce semantics), private on-link raw socket peer, no proxy-forwarding header.
+- Thunk `createRequestAccessAvailable(knockPeerDeps, localTrust)` wired in `packages/server/src/server.ts`. Passed to vault + services routes as `requestAccessAvailable`.
+- Never reads `pairing.acceptLanRequests` or live-knock state. Discloses only verdict `POST /api/pair/request` already returns to same caller: `host_not_admitted` | `knock_not_lan`. Sole exception to `canDiscloseAccessPosture`. `/api/health` posture stays withheld.
+- Body: exactly 5 keys `success,error,message,reason,remedies`. No address, subnet, host, device or vault names.
+- Reachable: credential-less callers a trusted-network entry admits. Untrusted LAN browsers get `network_not_allowed` + banner Request access instead.
+- Client: Settings → Vault callout row links to refusing server `/pair?request`. Same origin → same tab. Other server → new tab, `noopener`. Target rule `requestAccessTarget` (`packages/client/src/lib/pairing/request-access-target.ts`), shared with `ConnectionStatusBanner`.
+- Switch off → landing explains `knock_disabled`.
+- Follow-up `retire-trusted-networks-bypass`: extends knock eligibility inside `knockPeerGate` / `knockPeerState`. Remedy follows. See change: add-request-access-remedy.
 - `ungranted` follows the same predicate.
 - `GET /api/session/:id/vault-bindings`: names and states only. Session-read authority.
 - No response carries a stored value.

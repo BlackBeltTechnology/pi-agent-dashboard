@@ -26,7 +26,7 @@ When the panel holds unsaved edits, a dismissal gesture SHALL prompt before disc
 
 The navigation + content layout SHALL be responsive. The wrapper element containing the nav and the content area SHALL stack vertically on narrow (mobile) viewports and arrange side-by-side on wide (desktop, `md` breakpoint and up) viewports. On mobile the navigation SHALL render as a full-width horizontal, horizontally-scrollable tab strip positioned above the content, and the content area SHALL fill the remaining space below it with a non-zero width. On desktop the navigation SHALL render as a fixed-width vertical rail to the left of the content. At no viewport width SHALL the content area collapse to zero width or be positioned outside the visible viewport.
 
-The nav groups SHALL render in this order: Models, Dashboard, Network, Add-ons, Resources, Advanced. The Models group SHALL render FIRST because it holds the settings that decide which model every session, agent and flow runs on (see "Models nav group"). The default page when no `:page` is given SHALL remain General.
+The nav groups SHALL render in this order: Models, Dashboard, Network, Services, Add-ons, Resources, Advanced. The Models group SHALL render FIRST because it holds the settings that decide which model every session, agent and flow runs on (see "Models nav group"). The default page when no `:page` is given SHALL remain General.
 
 The panel SHALL provide these pages (nav groups in brackets):
 - **Promoted plugin pages** [Models]: plugin settings pages promoted per "Models nav group", each addressed at `/settings/plugins/<pluginId>`
@@ -38,6 +38,8 @@ The panel SHALL provide these pages (nav groups in brackets):
 - **Security** [Network]: `auth.providers`, `auth.allowedUsers`, `auth.bypassUrls`, `auth.bypassHosts` (Trusted Networks)
 - **Providers** [Models]: Providers (one list of everything credentialed, plus an Add-provider dialog), API Proxy
 - **Add-ons** [Add-ons]: installed add-ons — extensions, skills and the packages that hold them (page id `add-ons`, formerly `Packages`)
+- **All services** [Services]: managed-service list, per-service detail at `/settings/services/<id>`, add-service flow, prune (instant-apply, not a Save Bar source)
+- **Runtimes** [Services]: container runtime and hypervisor report with capability matrix (read-only)
 - **Plugins** [Add-ons]: plugin activation index and per-plugin settings pages that are not promoted
 - **OpenSpec** [Add-ons]: background polling tuning
 - **Developer** [Advanced]: `devBuildOnReload`, `keeperLog.capturePiOutput`, diagnostics, tools, spawn failures, canvas types
@@ -51,7 +53,7 @@ A config key's Save Bar page attribution is resolved from `CONFIG_FIELD_PAGE` by
 #### Scenario: Page layout with nav rail
 - **WHEN** the user navigates to `/settings/general`
 - **THEN** the panel SHALL display a fixed header (back, "Settings" title, Restart)
-- **AND** a left nav rail listing the pages grouped under Models / Dashboard / Network / Add-ons / Resources / Advanced, with Models first
+- **AND** a left nav rail listing the pages grouped under Models / Dashboard / Network / Services / Add-ons / Resources / Advanced, with Models first
 - **AND** the active page's content beside the rail
 - **AND** the General page SHALL be selected when no `:page` is given
 
@@ -146,6 +148,12 @@ A config key's Save Bar page attribution is resolved from `CONFIG_FIELD_PAGE` by
 - **THEN** the URL SHALL return to `/session/abc`
 - **AND** SHALL NOT navigate to `/`
 
+#### Scenario: Services group sits between Network and Add-ons
+- **WHEN** the settings panel renders its nav rail
+- **THEN** the Services group SHALL appear after Network and before Add-ons
+- **AND** it SHALL contain the "All services" and "Runtimes" pages in that order
+- **AND** the "All services" page SHALL keep the page id and URL segment `services`
+
 ### Requirement: Canonical and legacy settings URLs
 The settings panel SHALL be addressable at the canonical path `/settings/:page?` and SHALL continue to honor the legacy query form `/settings?tab=<id>` indefinitely. Resolution SHALL run inside the single mounted panel in this order: (1) a valid route `:page`; (2) a valid legacy `?tab=<id>`, which SHALL trigger a history-`replace` navigation to `/settings/<id>`; (3) otherwise default to `/settings/general` via history-`replace`. The alias map `advanced → developer`, `servers → remote` and `packages → add-ons` SHALL be applied before validation so old links resolve to the new page homes; an aliased route `:page` SHALL be replace-navigated to its canonical id.
 
@@ -178,7 +186,7 @@ The settings panel SHALL be addressable at the canonical path `/settings/:page?`
 
 `VALID_SETTINGS_TABS` (and the `SettingsTab` type) SHALL enumerate the full set
 of page ids: `general, server, sessions, remote, security, providers, add-ons,
-plugins, openspec, skills, agents, extensions, prompts, themes, developer`. The
+plugins, openspec, services, runtimes, skills, agents, extensions, prompts, themes, developer`. The
 five resource page ids (`skills, agents, extensions, prompts, themes`) render
 the global-scope per-type resource card grids. `packages` SHALL NOT be a page id or a
 `SettingsTab` member; it survives only as a legacy URL alias of `add-ons`.
@@ -193,10 +201,12 @@ longer targets a page.
 The canonical settings route pattern `/settings/:page?` SHALL accept a second
 optional segment, so a three-segment plugin URL matches instead of falling
 through to the invalid-page redirect. The second segment SHALL be interpreted
-only when the first resolves to `plugins`, and SHALL be ignored for every other
-page id. The folder-scoped settings route SHALL NOT host plugin pages: plugin
-configuration is global, `plugins` is not a valid folder-settings page id, and
-that route renders a different component.
+only when the first resolves to `plugins` (a plugin id) or `services` (a
+service id, parsed into `activeServiceId`), and SHALL be ignored for every other
+page id. The folder-scoped settings route SHALL NOT host plugin or service pages: plugin
+configuration and managed services are global, `plugins`, `services` and
+`runtimes` are not valid folder-settings page ids, and that route renders a
+different component.
 
 #### Scenario: Plugin sub-route resolves to a plugin page
 - **WHEN** the user navigates to `/settings/plugins/roles` and plugin `roles` is installed
@@ -239,12 +249,32 @@ that route renders a different component.
 - **WHEN** the user navigates to `/settings/add-ons`
 - **THEN** the panel SHALL render the Add-ons page
 
+#### Scenario: Service sub-route resolves to a service detail
+- **WHEN** the user navigates to `/settings/services/docling` and service `docling` is defined
+- **THEN** the panel SHALL render the `docling` service detail
+- **AND** `activeTab` SHALL be `services` with `activeServiceId` set to `docling`
+
+#### Scenario: Unknown service id falls back to the list
+- **WHEN** the user navigates to `/settings/services/not-defined`
+- **THEN** the panel SHALL render the service list with a notice that the requested service was not found
+- **AND** SHALL NOT render a blank page
+
 ### Requirement: Trusted Networks section on Security tab
-The Security tab SHALL include a "Trusted Networks" section that edits `config.auth.bypassHosts`. The section SHALL display existing entries as individual rows with per-entry remove (✕) buttons. The section SHALL provide a "+ Add Local Network" button that opens a dropdown listing the current host's non-loopback IPv4 network interfaces (fetched from `GET /api/network-interfaces`). The dropdown SHALL render each interface's `label` rather than its raw device name, and SHALL offer that interface's `suggestions` rather than its raw `cidr`. A suggestion marked `wide` SHALL be visually distinguished from a narrow one and SHALL carry the same "grants unauthenticated access to the whole range" explanation used by the block-event trust banner.
+The Security tab SHALL include a "Network access" section (the Trusted Networks section) that edits `network.trustMode` and `config.auth.bypassHosts`.
+
+**Trust mode control.** The section SHALL open with a two-option radio group (`role="radiogroup"`, arrow-key navigation) bound to `network.trustMode`: "Pair each device" (marked Recommended; value `"pair"`) and "Trust whole networks" (marked Legacy; value `"legacy"`). Each option SHALL state its consequence in one line. The selection SHALL reflect the **saved** mode (never re-derived from the draft list) and SHALL be written through the panel Save like every other Security field, never on click; a saved change SHALL write `network.trustMode` with `network.trustModeOrigin: "operator"`, and `network` SHALL map to the Security page in the panel's field-to-page map. When the draft selects `"pair"` while the saved mode is `"legacy"`, the section SHALL show, before Save, a warning callout that states the number of device addresses (`/api/health` `trustPosture.networkOnly.distinctPeers`, when greater than zero and disclosed to the viewer; otherwise generic copy without a number) that will be refused until each pairs, and that a paired browser opens its live UI only with the `operate` tier. The callout SHALL also state that another dashboard switching to this server in-page loses images and previews until this dashboard is opened directly. When `pairing.acceptLanRequests` is off, the same callout SHALL state that devices cannot request access until it is on and SHALL offer a checkbox, unchecked by default, that turns it on in the same Save. When the saved mode is `"legacy"` and that number is greater than zero, the section SHALL show a migration warning callout stating the count and recommending pairing.
+
+In `"pair"` mode with `pairing.acceptLanRequests` off, the section SHALL show an information callout stating that devices cannot request access until LAN requests are accepted, with a control that turns it on through the panel Save. A stored unrecognised `network.trustMode` SHALL render with "Pair each device" checked and a warning callout naming the unrecognised value and offering to save an explicit choice.
+
+**Mode-dependent copy.** The list SHALL be headed "Trusted networks — admitted without sign-in" in `"legacy"` mode and "Networks that may request access" in `"pair"` mode. In `"pair"` mode the description SHALL state that private ranges may always request access, that added ranges extend who may request access, and that listing a network never grants access. Wide-range explanations (here and on the block-event rows) SHALL say "grants unauthenticated access to the whole range" only in `"legacy"` mode; in `"pair"` mode they SHALL say every device in the range may request access.
+
+**Refused peers (block events).** In `"legacy"` mode the block-event rows SHALL keep their Trust actions. In `"pair"` mode a refused peer SHALL be shown as an information callout with no Trust action: for a peer that is already eligible to request access (private range or listed) it SHALL tell the operator to have the device choose Request access and approve it with a code; for a peer that is not eligible it SHALL offer one action that adds that exact address to the list, labelled as allowing requests from it (not access).
+
+**Order.** Within the section: mode radio group → consequence or migration callout → list heading and description → bind reachability advisory → refused-peer rows → entry list → add controls → legacy-only full-access warning. The section SHALL display existing entries as individual rows with per-entry remove (✕) buttons. The section SHALL provide a "+ Add Local Network" button that opens a dropdown listing the current host's non-loopback IPv4 network interfaces (fetched from `GET /api/network-interfaces`). The dropdown SHALL render each interface's `label` rather than its raw device name, and SHALL offer that interface's `suggestions` rather than its raw `cidr`. A suggestion marked `wide` SHALL be visually distinguished from a narrow one and SHALL carry the mode-appropriate wide-range explanation defined below.
 
 `wide` means **broader than the reference network of the path that produced it**, not an absolute property of the range. The block-event path's reference is the exact peer address, so any derived range is wide. The interface path's reference is the interface's own netmask-derived network, so that network is narrow while any range broader than it — including the containing range offered for a `/32` point-to-point device — is wide. The same `192.168.10.0/24` is therefore narrow from an interface and wide from a block event, and neither is wrong. Because the tier alone is ambiguous across contexts, every offer SHALL state the range it grants in its label, so the user is never relying on colour to judge breadth.
 
-When two interfaces collapse to one row, the surviving row SHALL use the `label` of the first interface in the endpoint's response order, so the collapse is deterministic. An interface with `pointToPoint: true` and no suggestion SHALL be shown as unofferable with an explanation, not as a selectable entry. The dropdown SHALL deduplicate on the suggestion **`value`**, so that two interfaces resolving to the same offer — whether two NICs on one subnet or two point-to-point devices sharing a containing range — produce a single row. Deduplication is performed by this dropdown, never by the endpoint, whose entries the listen-interface picker also consumes. The section SHALL provide a manual entry input that accepts exact IP, wildcard (e.g. `10.0.0.*`), or CIDR (e.g. `192.168.1.0/24`) formats. The section SHALL display an explicit security warning ("⚠ Anyone on a trusted network has full access to the dashboard without authentication. Only use on private networks you control."). Adding an entry SHALL write to `config.auth.bypassHosts` — never to top-level `config.trustedNetworks`. Removing an entry SHALL remove from `config.auth.bypassHosts` only.
+When two interfaces collapse to one row, the surviving row SHALL use the `label` of the first interface in the endpoint's response order, so the collapse is deterministic. An interface with `pointToPoint: true` and no suggestion SHALL be shown as unofferable with an explanation, not as a selectable entry. The dropdown SHALL deduplicate on the suggestion **`value`**, so that two interfaces resolving to the same offer — whether two NICs on one subnet or two point-to-point devices sharing a containing range — produce a single row. Deduplication is performed by this dropdown, never by the endpoint, whose entries the listen-interface picker also consumes. The section SHALL provide a manual entry input that accepts exact IP, wildcard (e.g. `10.0.0.*`), or CIDR (e.g. `192.168.1.0/24`) formats. In `"legacy"` trust mode the section SHALL display an explicit security warning ("Anyone on a trusted network has full access to the dashboard without authentication. Only use on private networks you control.") as a warning callout, omitted while the network-trust migration callout is shown; in `"pair"` mode the warning SHALL NOT be shown, because a list entry grants no access. Adding an entry SHALL write to `config.auth.bypassHosts` — never to top-level `config.trustedNetworks`. Removing an entry SHALL remove from `config.auth.bypassHosts` only.
 
 #### Scenario: Section writes to auth.bypassHosts, not trustedNetworks
 - **WHEN** the user adds `192.168.1.0/24` via the Trusted Networks section and clicks Save
@@ -307,6 +337,49 @@ When two interfaces collapse to one row, the surviving row SHALL use the `label`
 #### Scenario: No hint when top-level trustedNetworks is empty
 - **WHEN** the loaded config has empty or missing top-level `trustedNetworks`
 - **THEN** the informational hint SHALL NOT be displayed
+
+#### Scenario: Mode radio reflects the saved mode
+- **GIVEN** config holds `network.trustMode: "legacy"`
+- **WHEN** the Security tab opens and the user adds or removes a list entry
+- **THEN** "Trust whole networks" SHALL stay checked
+
+#### Scenario: Selecting Pair is a draft until Save
+- **WHEN** the user selects "Pair each device"
+- **THEN** no config write SHALL occur until Save
+- **AND** on Save the written config SHALL contain `network.trustMode: "pair"` and `network.trustModeOrigin: "operator"`
+
+#### Scenario: Consequence shown before switching to Pair
+- **GIVEN** the saved mode is `"legacy"` and `trustPosture.networkOnly.distinctPeers` is `3`
+- **WHEN** the user selects "Pair each device" without saving
+- **THEN** a warning callout SHALL state that 3 devices will be refused until each pairs
+
+#### Scenario: Pair-mode copy
+- **WHEN** the effective mode is `"pair"`
+- **THEN** the list SHALL be headed "Networks that may request access"
+- **AND** the full-access warning SHALL NOT be shown
+
+#### Scenario: Refused LAN peer in pair mode offers no Trust action
+- **GIVEN** the effective mode is `"pair"` and a block event exists for `192.168.16.31`
+- **WHEN** the Security tab opens
+- **THEN** the row SHALL tell the operator to have the device choose Request access
+- **AND** no "+ Trust" action SHALL be rendered for it
+
+#### Scenario: Refused ineligible peer in pair mode can be allowed to request
+- **GIVEN** the effective mode is `"pair"` and a trustable block event exists for `198.51.100.23`, which no private range or list entry covers
+- **WHEN** the operator activates the row's action
+- **THEN** `198.51.100.23` (the exact address, not a range) SHALL be added to the draft `auth.bypassHosts`
+- **AND** the action label SHALL describe allowing requests, not granting access
+
+#### Scenario: Switching to Pair while LAN requests are off
+- **GIVEN** the saved mode is `"legacy"` and `pairing.acceptLanRequests` is off
+- **WHEN** the user selects "Pair each device"
+- **THEN** the consequence callout SHALL state that devices cannot request access until LAN requests are accepted
+- **AND** an unchecked checkbox SHALL offer to turn `pairing.acceptLanRequests` on in the same Save
+
+#### Scenario: Pair mode with LAN requests off
+- **GIVEN** the saved mode is `"pair"` and `pairing.acceptLanRequests` is off
+- **WHEN** the Security tab opens
+- **THEN** an information callout SHALL state that devices cannot request access, with a control that turns LAN requests on via Save
 
 ### Requirement: Trusted Networks section removed from General tab
 The General tab SHALL NOT render any Trusted Networks, Trusted Hosts, or auth-bypass control. The top-level `config.trustedNetworks` field SHALL NOT be editable via the General tab UI.
@@ -618,7 +691,7 @@ The panel SHALL persist changes via a single Save action that fans out to every 
 
 ### Requirement: Settings Save Bar
 
-Provider credentials and custom provider endpoints are NOT a Save Bar source: they commit on their own action at the point of edit and SHALL NOT contribute a draft, a baseline, or an unsaved-changes count.
+Provider credentials, custom provider endpoints, every action on the Services and Runtimes pages, and the per-cwd OpenSpec Workflow Schema actions are NOT a Save Bar source: they commit on their own action at the point of edit and SHALL NOT contribute a draft, a baseline, or an unsaved-changes count.
 
 The panel SHALL render a Save Bar that is present only when the draft is dirty (any source's draft differs from its baseline) and absent when the draft is clean. The Save Bar SHALL display the count of unsaved changes, a **Discard** action, and a **Save** action. The Save action SHALL always be interactive while the bar is visible (the bar's presence is the dirty signal; the Save control is never shown disabled-because-clean). The Save Bar SHALL reflect four states: **dirty** (idle, awaiting save), **saving** (in flight), **saved** (success — the bar dismisses as the draft re-baselines clean), and **error** (one or more sources failed — Retry offered).
 
@@ -667,6 +740,10 @@ The Save Bar SHALL additionally name every page that holds unsaved edits. Each n
 - **WHEN** the Save Bar names two pages and the user clicks Save
 - **THEN** a single fan-out SHALL commit the dirty sources of both pages
 - **AND** both pages' dirty indicators SHALL clear
+
+#### Scenario: Service actions do not dirty the draft
+- **WHEN** the user stops a service and saves a secret value on the Services pages
+- **THEN** the Save Bar SHALL stay absent and the unsaved-changes count SHALL be unchanged
 
 ### Requirement: Per-page dirty indicators
 
@@ -1532,7 +1609,7 @@ The View settings page SHALL provide a toggle for the `customEntryFallback` pref
 - **AND** custom-entry rows in the open session SHALL appear or disappear accordingly
 
 ### Requirement: Allowed hostnames section on Security tab
-The Security tab SHALL render an **Allowed hostnames** section between *Trusted networks* and *Pair a device* with four parts, in this order: (1) a mode control offering exactly `Report only` and `Enforce`, bound to `hostGate.mode`, with a one-sentence consequence beside it that changes with the selection; when the server reports the mode is set by `PI_DASHBOARD_HOST_GATE` the control SHALL be disabled and state that reason; (2) a read-only **Currently admitted** list rendered from `GET /api/host-gate` `admitted` (never re-derived on the client), one row per entry, grouped by source, each row carrying a text source pill from the set `loopback`, `IP address`, `bind address`, `.local`, `public base URL`, `CORS origin`, `live tunnel`, `allowed host`, and — for sources edited elsewhere — a link to that settings page instead of a remove control; (3) an **Additional hostnames** editor (one hostname per line) bound to the panel draft's `allowedHosts` that, on blur, marks any entry containing a scheme, port, or path, or failing the gate's own hostname regex (shared from `packages/shared`), as invalid and states the bare hostname to enter instead (or that the name cannot be admitted); (4) a **Recent refusals** list from `GET /api/host-gate` `recent` showing hostname, count, last-seen, an outcome pill reading the entry's own `outcome` (`would-refuse` or `refused`), and an **Allow** button that appends the hostname to the draft `allowedHosts`; rows whose hostname is in the editor's current value SHALL be hidden (applied at render on every fetch); an empty list SHALL render "No refusals since start." Both `hostGate.mode` and `allowedHosts` SHALL persist through the panel's Save exactly like every other Settings field (`computeConfigPartial` diffs them; `CONFIG_FIELD_PAGE` maps them to `security`); the section SHALL issue no write of its own. All four parts SHALL be operable by keyboard, every control SHALL have an accessible name, and state SHALL never be conveyed by colour alone.
+The Security tab SHALL render an **Allowed hostnames** section between *Trusted networks* and *Pair a device* with four parts, in this order: (1) a mode control offering exactly `Report only` and `Enforce`, bound to `hostGate.mode`, with a one-sentence consequence beside it that changes with the selection; when the server reports the mode is set by `PI_DASHBOARD_HOST_GATE` the control SHALL be disabled and state that reason; (2) a read-only **Currently admitted** list rendered from `GET /api/host-gate` `admitted` (never re-derived on the client), one row per entry, grouped by source, each row carrying a text source pill from the set `loopback`, `IP address`, `bind address`, `.local`, `public base URL`, `CORS origin`, `live tunnel`, `TLS certificate`, `allowed host`, and — for sources edited elsewhere — a link to that settings page instead of a remove control; (3) an **Additional hostnames** editor (one hostname per line) bound to the panel draft's `allowedHosts` that, on blur, marks any entry containing a scheme, port, or path, or failing the gate's own hostname regex (shared from `packages/shared`), as invalid and states the bare hostname to enter instead (or that the name cannot be admitted); (4) a **Recent refusals** list from `GET /api/host-gate` `recent` showing hostname, count, last-seen, an outcome pill reading the entry's own `outcome` (`would-refuse` or `refused`), and an **Allow** button that appends the hostname to the draft `allowedHosts`; rows whose hostname is in the editor's current value SHALL be hidden (applied at render on every fetch); an empty list SHALL render "No refusals since start." Both `hostGate.mode` and `allowedHosts` SHALL persist through the panel's Save exactly like every other Settings field (`computeConfigPartial` diffs them; `CONFIG_FIELD_PAGE` maps them to `security`); the section SHALL issue no write of its own. All four parts SHALL be operable by keyboard, every control SHALL have an accessible name, and state SHALL never be conveyed by colour alone.
 
 #### Scenario: Mode switch states its consequence inline
 - **WHEN** the operator selects `Enforce`
@@ -1563,6 +1640,10 @@ The Security tab SHALL render an **Allowed hostnames** section between *Trusted 
 #### Scenario: Outcome pill is per entry
 - **WHEN** `recent` holds `{ host: "a.example", outcome: "would-refuse" }` and `{ host: "b.example", outcome: "refused" }`
 - **THEN** the rows SHALL read `would-refuse` and `refused` respectively, regardless of the current mode control value
+
+#### Scenario: TLS-listener row links to the Gateway page
+- **WHEN** `admitted` contains `{ host: "host.example.ts.net", source: "tls-listener" }`
+- **THEN** the list SHALL show a row `host.example.ts.net` with pill `TLS certificate` and a link to the Gateway page, and no remove control
 
 ### Requirement: Gateway URL row shows host admission
 Each gateway URL row on the Gateway page and in the setup guide SHALL show an informational **Host admitted** pill after its status text when the row URL's hostname is present in the live `publicBaseUrls` (via `resolvePublicBaseUrls`) or `cors.allowedOrigins` hosts of the current config, with a `title` explaining that the hostname is an allowed Host because it is a gateway URL. The pill SHALL NOT be a control, SHALL be absent when the hostname is in neither list, and SHALL NOT depend on the row's `data-status`.
@@ -1844,11 +1925,15 @@ SHALL surface that the running value differs.
 - **THEN** the panel SHALL surface that the running value differs
 
 ### Requirement: Shared settings group and notice components
-`@blackbelt-technology/dashboard-plugin-runtime` SHALL export `SettingsGroup` and `SettingsNotice`. `SettingsGroup` SHALL render a `<details>` whose summary is 14 px semibold in `--text-primary`, at least 44 px tall, with a visible `--focus-ring` outline on keyboard focus, and an optional meta text in `--text-secondary`. `SettingsNotice` SHALL render the `ui-contract.md` severity callout recipe for tones `info`, `warning`, `error` and `success`. Neither SHALL contain a Tailwind palette class, hex or `rgba(` literal.
+`@blackbelt-technology/dashboard-plugin-runtime` SHALL export `SettingsGroup` and `SettingsNotice`. `SettingsGroup` SHALL render a `<details>` whose summary is 14 px semibold in `--text-primary`, at least 44 px tall, with a visible `--focus-ring` outline on keyboard focus, and an optional meta text at 12 px in `--text-secondary` (the summary is interactive, so its text meets the 12 px interactive floor). `SettingsNotice` SHALL render the `ui-contract.md` severity callout recipe for tones `info`, `warning`, `error` and `success`. Neither SHALL contain a Tailwind palette class, hex or `rgba(` literal.
 
 #### Scenario: Notice tone maps to the severity family
 - **WHEN** `SettingsNotice` is rendered with `tone="warning"`
 - **THEN** its computed background, border and text colours equal the active theme's `--severity-warning-bg`, `--severity-warning-border` and `--severity-warning-fg`
+
+#### Scenario: Group meta meets the interactive text floor
+- **WHEN** `SettingsGroup` is rendered with `meta="3 fields"`
+- **THEN** the meta text's computed font size SHALL be 12 px and its colour SHALL equal `--text-secondary`
 
 ### Requirement: Settings panel loads on demand
 The Settings panel module SHALL be loaded the first time a settings view is opened (sidebar button, canonical or legacy settings URL, or deep link), not during the cold landing. While it loads, the settings view SHALL show a loading state inside the panel area; the rest of the shell SHALL stay interactive. Opening settings again in the same page SHALL NOT refetch the module. Values the shell needs outside the panel (e.g. the settings page-id registry and URL mapping) SHALL remain available without loading the panel.
@@ -1923,3 +2008,178 @@ matching the final dashboard value.
 #### Scenario: Unrelated config save does not touch pi's file
 - **WHEN** the user saves a change to an unrelated setting only
 - **THEN** `~/.pi/agent/settings.json` SHALL be byte-identical to before
+
+### Requirement: OpenSpec Workflow Schema section
+
+The OpenSpec settings page (`/settings/openspec`, the page `CONFIG_FIELD_PAGE` maps the `openspec` key to) SHALL include an "OpenSpec Workflow Schema" section, separate from the "OpenSpec Workflow Profile" section. The folder-section notice chip deep-links to `/settings/openspec?cwd=<cwd>#workflow-schema`. Its visual design follows the approved mockup `openspec/changes/add-pi-spec-driven-schema/mockups/` (`ui-plan.md` D1–D10, `audit.md` approval) and the tokens and recipes of `ui-contract.md`; it uses no raw palette colour classes. It SHALL contain:
+- an intro stating that pi-spec-driven is the dashboard's OpenSpec workflow with an explicit "Not needed" design skip, and that per-project actions write files immediately after confirmation while the default switch waits for Save;
+- a **Default for new projects** switch bound to `openspec.workflowSchema.defaultForNewProjects`. It buffers into the Settings draft and is persisted only through the unified Save (`PUT /api/config`);
+- one **project card** per known cwd with a `workflowSchema` status, carrying: the folder name and full path; a **status pill** (severity family, icon plus text, never colour alone); a one-sentence plain-language explanation; at most one **recommended action** as a button; and every other allowed action in a **More actions** menu button (APG menu-button pattern; Remove last, after a separator). An empty list SHALL say that a project appears once the dashboard has polled a folder containing `openspec/`.
+
+Card presentation per state (the allowed actions themselves are those of `openspec-workflow-schema` "Actions are allowed only in defined states"). Rows are evaluated in order and the first matching row wins:
+
+| # | configured / generated | Pill (severity) | Recommended action |
+|---|---|---|---|
+| 1 | other / any, `missing` | Default schema missing (error); sentence names the configured schema that no schema directory provides | none |
+| 2 | `pi-spec-driven` / `none` or `missing` | Schema files missing (error) | Regenerate… (the Update action) |
+| 3 | any / `unmanaged` | Not managed (warning) | Adopt… |
+| 4 | any / `incompatible` | CLI too old (error) | none |
+| 5 | any / `conflict` | Version conflict (error) | none |
+| 6 | any / `newer` | Newer version (info) | none |
+| 7 | other / `current` or `outdated` | Disabled, files kept (neutral); `outdated` adds "an update is available" to the sentence | Enable… |
+| 8 | `pi-spec-driven` / `outdated` | Update available (warning) | Update schema… |
+| 9 | `pi-spec-driven` / `current`, N > 0 unpinned changes | N changes not pinned (warning), names listed (up to 5, then "and K more") | Pin N changes… |
+| 10 | `pi-spec-driven` / `current` | Enabled (success) | none |
+| 11 | other / `none` | Not enabled (neutral) | Enable… |
+
+Every other allowed action of that card is an item of its More actions menu.
+
+**Remove** SHALL NOT be offered while the configured schema is `pi-spec-driven` (the server refuses it in that state). Update, Adopt and a stamp-less Disable show a previous-default field (labelled, with help text; preselected `spec-driven`, or "Keep recorded value" for Update with a stamp; listing `spec-driven` plus `workflowSchema.projectSchemas`, so never a user-level-only schema).
+
+The per-cwd actions write repository files immediately via `POST /api/openspec/workflow-schema`. They are NOT Save Bar sources. Each opens a confirmation dialog whose title names the action and the project (e.g. "Enable pi-spec-driven in deck3d?"), followed by the path, a one-sentence consequence, and a **Files written** list (Remove: **Files removed**) that holds only paths or path patterns, no prose (Enable lists the pattern `openspec/changes/*/.openspec.yaml` and explains the `*` in help text). For a worktree cwd an info callout names the branch and states that the dashboard never commits. Update additionally lists the active changes that resolve to `pi-spec-driven` (`workflowSchema.affectedChanges`, up to 5 names, then "and K more"). Adopt and Remove carry a warning callout (Adopt: hand customizations are discarded; Remove: unmerged branches may still pin the schema). Pin lets the user choose between `pi-spec-driven` and the stamp's `previousDefault` only. The confirm button names the outcome: Enable, Disable, Update schema, Adopt and regenerate (danger), Pin N changes, Remove schema files (danger).
+
+While an action runs, only that card is busy (its recommended button shows a progress indicator and an "-ing" label, the card carries `aria-busy`); other cards stay interactive. The result is a severity callout under the card:
+- success: the past-tense action, the number of paths written and, for a worktree, the branch; the reminder that the dashboard does not commit; a **Show files** disclosure listing the written paths; and, for Pin, the changes the server skipped (`data.skipped`) by name;
+- no-op: a neutral "Nothing to change." with the server's reason;
+- partial (`data.partial`): a warning that names the next step ("Run Enable again to finish"), plus the written paths;
+- refusal: an error with the server message and the card's current state;
+- `409`: an info callout "Another action is running for this project."
+
+A deep link (`?cwd=<cwd>#workflow-schema`) SHALL outline the target card with the focus-ring token, caption it "Opened from folder", scroll it into view and move focus to its heading.
+
+#### Scenario: Default switch defers to Save
+
+- **WHEN** the user toggles "Default for new projects"
+- **THEN** the change SHALL be held in the draft and persisted only on Save
+
+#### Scenario: Enable confirms before writing
+
+- **WHEN** the user clicks Enable for `/repo/a`
+- **THEN** a dialog SHALL list `openspec/schemas/pi-spec-driven/`, `openspec/config.yaml` and the `.openspec.yaml` files to be created
+- **AND** nothing SHALL be written until the user confirms
+- **AND** the Save Bar SHALL NOT appear because of this action
+
+#### Scenario: One recommended action per card
+
+- **GIVEN** a project whose configured schema is `team-flow` and whose generated status is `outdated`
+- **WHEN** the section renders
+- **THEN** the card SHALL show the pill "Disabled, files kept" and exactly one action button, "Enable…"
+- **AND** Update and Remove SHALL be items of the card's More actions menu
+
+#### Scenario: Remove is hidden while enabled
+
+- **GIVEN** a project whose configured schema is `pi-spec-driven` and whose generated status is `current`
+- **WHEN** the More actions menu is opened
+- **THEN** it SHALL offer Update and Disable and SHALL NOT offer Remove
+
+#### Scenario: Only the acting card is busy
+
+- **WHEN** Enable runs for one project
+- **THEN** that card SHALL carry `aria-busy="true"` and show "Enabling…"
+- **AND** the action buttons of every other card SHALL stay enabled
+
+#### Scenario: Pin result names skipped changes
+
+- **WHEN** a Pin of three changes returns two written paths and `skipped: ["absorb-service-secrets-into-vault"]`
+- **THEN** the success callout SHALL name `absorb-service-secrets-into-vault` as skipped
+
+#### Scenario: Deep link focuses the card
+
+- **WHEN** the page opens at `/settings/openspec?cwd=/repo/a#workflow-schema`
+- **THEN** focus SHALL be on the heading of the `/repo/a` card and the card SHALL show the "Opened from folder" caption
+
+### Requirement: Shared settings status, item, facts and table components
+`@blackbelt-technology/dashboard-plugin-runtime` SHALL export four presentation-only components for read-only and repeated content on settings pages:
+
+- `SettingsStatusPill` — a pill with a tone (`success`, `info`, `warning`, `error`, `neutral`) painted from the matching `--severity-*` tokens, an optional decorative icon (`aria-hidden`), and a REQUIRED text label, at 11 px semibold (12 px when rendered inside an interactive element).
+- `SettingsItem` — a card for one repeated entity (a profile, instance, server, binding): title, optional subtitle, a status area, an actions area and an optional body. When `collapsible`, it SHALL render as `<details>` whose `<summary>` contains the title AND the status area, so a collapsed card still shows its state; the summary SHALL be at least 44 px tall with a visible focus ring.
+- `SettingsFacts` — a read-only term/value list rendered as `<dl>` with terms in `--text-secondary` and values in `--text-primary`, at 12 px.
+- `SettingsTable` — a read-only table with header cells `scope="col"`, 12 px text, that scrolls horizontally inside its container instead of widening the page.
+
+All four SHALL accept caller `data-testid`s, SHALL paint only through theme tokens (no Tailwind palette class, hex or `rgba(` literal) and SHALL use only the 11, 12 and 14 px type steps. None SHALL carry a save model.
+
+#### Scenario: Status pill never relies on colour alone
+- **WHEN** `SettingsStatusPill` is rendered with `tone="error"` and label `Password rejected`
+- **THEN** the text `Password rejected` SHALL be visible and part of the pill's accessible text
+- **AND** its computed colours SHALL equal `--severity-error-bg`, `--severity-error-border` and `--severity-error-fg`
+
+#### Scenario: Collapsed item still shows status
+- **WHEN** a collapsible `SettingsItem` with status pill `Not paired` is collapsed
+- **THEN** the `Not paired` pill SHALL remain visible in the summary
+
+#### Scenario: Wide table scrolls inside its container
+- **WHEN** a `SettingsTable` wider than its container renders at a 375 px viewport
+- **THEN** the page SHALL NOT scroll horizontally and the table container SHALL scroll instead
+
+### Requirement: Developer page offers a "Show plugin internals" preference
+The Developer settings page SHALL offer a toggle "Show plugin internals", stored in this browser's local storage (per-browser, like other view-only developer aids; no dashboard config key or file format is added), default off. When off, plugin settings pages SHALL NOT show a plugin's slot claims. When on, the full host chrome SHALL show a collapsed "Plugin internals" disclosure listing the plugin id and its contributed slots, and the compact chrome of a promoted page SHALL add the slot list to its existing "Plugin details" disclosure.
+
+#### Scenario: Off by default
+- **WHEN** a user who never changed the preference opens `/settings/plugins/quota`
+- **THEN** no slot claim names (such as `settings-section`) SHALL be visible on the page
+
+#### Scenario: Turning it on reveals internals
+- **WHEN** the user turns on "Show plugin internals" on the Developer page and opens `/settings/plugins/quota`
+- **THEN** the host chrome SHALL show a collapsed "Plugin internals" disclosure
+- **AND** expanding it SHALL list `composer-context-group` and `settings-section`
+
+### Requirement: Settings rail meets contrast and marks state without colour alone
+
+In the settings navigation rail:
+
+- inactive items, group labels, sub-item controls and plugin child rows SHALL use the secondary or primary text colour, never the muted text colour, and SHALL NOT be dimmed with opacity;
+- the current item (`aria-current="page"`) SHALL be marked by a tertiary background, semibold primary text, and an accent-coloured inset bar at its leading edge;
+- the Services attention marker SHALL be a severity icon (a shape, not a dot) with its existing accessible label;
+- the existing dirty indicators and plugin health dots keep their shape and labels, as their own requirements specify, but SHALL take their colour from severity tokens;
+- rail items SHALL be at least 44 px tall below the `sm` breakpoint and at least 36 px tall from `sm`;
+- in the horizontal strip shown below `md`, the current item SHALL keep the tertiary fill and semibold text, with the accent bar on its bottom edge.
+
+The rail SHALL use no raw palette classes or hex/rgba literals. All rail text SHALL meet 4.5:1 contrast against the rail background in base dark, base light and nord dark.
+
+#### Scenario: Inactive items readable
+- **WHEN** the rail renders in base light
+- **THEN** every inactive item label SHALL measure at least 4.5:1 against the rail background
+
+#### Scenario: Current item marked by more than colour
+- **WHEN** the user is on `/settings/services`
+- **THEN** the Services item SHALL carry `aria-current="page"`
+- **AND** it SHALL show the tertiary background, semibold text and the leading accent bar
+
+#### Scenario: Attention marker is a labelled icon
+- **WHEN** a service needs attention
+- **THEN** the Services rail item SHALL show an error severity icon
+- **AND** its accessible text SHALL still announce how many services need attention
+
+#### Scenario: Dirty indicator uses a token
+- **WHEN** a page has unsaved changes
+- **THEN** its `nav-dirty-<id>` indicator SHALL render with a severity token colour and no raw palette class
+
+#### Scenario: Mobile strip marks the current item
+- **WHEN** the settings page renders at 375 px wide on `/settings/services`
+- **THEN** the Services item in the horizontal strip SHALL be at least 44 px tall
+- **AND** it SHALL show the tertiary fill, semibold text and an accent bar on its bottom edge
+
+#### Scenario: Desktop rail item height
+- **WHEN** the rail renders at 1280 px wide
+- **THEN** every rail item SHALL be at least 36 px tall
+
+#### Scenario: Rail contains no raw colour
+- **WHEN** the rendered rail element is scanned for raw palette classes and hex/rgba literals in class names and inline styles
+- **THEN** no match SHALL be found
+
+#### Scenario: Promoted plugin row keeps its hint without dimming
+- **WHEN** a plugin row links to a page promoted into another rail group
+- **THEN** the row SHALL render without reduced opacity, in the secondary text colour
+- **AND** it SHALL show the "↗ <group>" hint at least 12 px
+
+### Requirement: Settings kit provides the shared notice extensions and inline action error
+
+`@blackbelt-technology/dashboard-plugin-runtime` SHALL export, next to `SettingsNotice` and `SettingsStatusPill`, an inline action error component. The component takes a sentence, an optional raw detail, and an id that the failed control references through `aria-describedby`. `SettingsNotice` SHALL accept remedy rows (icon plus sentence, links allowed), rendered in the order given, and SHALL expose `aria-busy="true"` while its retry is in flight. `SettingsStatusPill` SHALL accept a spinning option that animates its icon, except under `prefers-reduced-motion`. Existing `SettingsNotice` and `SettingsStatusPill` props SHALL keep working unchanged.
+
+#### Scenario: Existing notice call sites unaffected
+- **WHEN** a plugin renders `SettingsNotice` with only `tone`, `children` and `onRetry`
+- **THEN** it SHALL render as before this change
+
+#### Scenario: Action error is exported and linked
+- **WHEN** a plugin renders the inline action error with id `stop-err` under a button that has `aria-describedby="stop-err"`
+- **THEN** the error SHALL have id `stop-err` and the alert role

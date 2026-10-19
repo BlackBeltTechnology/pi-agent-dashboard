@@ -16,9 +16,6 @@ test.describe("unknown /api paths", () => {
   test.beforeEach(async ({ request, context }) => {
     await op.arm(request, context);
   });
-  test.afterEach(async ({ request }) => {
-    await op.restore(request);
-  });
 
   test("X11 — an unknown /api path is a JSON 404; a registered plugin route still answers", async ({ request }) => {
     const miss = await request.get("/api/does-not-exist", { headers: op.headers() });

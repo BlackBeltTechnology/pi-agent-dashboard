@@ -26,6 +26,7 @@ import { Icon } from "@mdi/react";
 import { useEffect, useMemo, useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { inferPlatform, pathKey } from "../../lib/session/session-grouping.js";
+import { PiTrustCheckbox, usePiTrustChoice } from "../access-grant/PiTrustCheckbox.js";
 import { PathPicker } from "../primitives/PathPicker.js";
 import { NewWorkspaceDialog } from "./NewWorkspaceDialog.js";
 
@@ -39,9 +40,10 @@ interface Props {
   /** Every live session's cwd — joined by `pathKey` for the row badges. */
   sessionCwds?: string[];
   /** Pin one path. Called for EVERY selected path, before any workspace add. */
-  onPin: (path: string) => void;
+  /** `piTrust`: the "Also trust this folder in pi" choice, stored with the pin. */
+  onPin: (path: string, piTrust: boolean) => void;
   /** Add one path to a workspace. Called per path when a destination is set. */
-  onAddFolderToWorkspace?: (workspaceId: string, path: string) => void;
+  onAddFolderToWorkspace?: (workspaceId: string, path: string, piTrust: boolean) => void;
   /**
    * Create a workspace by name. Creation is EAGER: the workspace is created on
    * name submit and, once the server echo lands in `workspaces`, it becomes the
@@ -79,6 +81,9 @@ export function AddFoldersDialog({
   onCancel,
   onOpenServers,
 }: Props) {
+  // "Also trust this folder in pi": one choice for the whole batch, seeded from the
+  // pinned-folder source default (the workspace source defaults identically).
+  const [piTrust, setPiTrust] = usePiTrustChoice("pinned");
   // Insertion-ordered basket of normalized absolute paths.
   const [selected, setSelected] = useState<string[]>([]);
   const [destination, setDestination] = useState<string | null>(initialWorkspaceId);
@@ -118,9 +123,9 @@ export function AddFoldersDialog({
   const handleCommit = () => {
     if (selected.length === 0) return;
     // Pins first — a folder is never momentarily invisible.
-    for (const p of selected) onPin(p);
+    for (const p of selected) onPin(p, piTrust);
     if (destination) {
-      for (const p of selected) onAddFolderToWorkspace?.(destination, p);
+      for (const p of selected) onAddFolderToWorkspace?.(destination, p, piTrust);
     }
     onCancel();
   };
@@ -241,6 +246,10 @@ export function AddFoldersDialog({
               {i18nT("folders.newWorkspace", undefined, "+ New workspace…")}
             </button>
           )}
+        </div>
+
+        <div className="pb-1">
+          <PiTrustCheckbox checked={piTrust} onChange={setPiTrust} testId="add-folders-pi-trust" />
         </div>
 
         <div className="flex justify-end gap-2 border-t border-[var(--border-subtle)] pt-3">

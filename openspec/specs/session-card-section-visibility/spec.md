@@ -10,9 +10,9 @@ Lets users hide session-card sections globally and per folder, with the preferen
 The system SHALL expose visibility control for these sections.
 
 Session card:
-- built-in subcards and lines: `openspec` (OPENSPEC subcard), `openspec-badge` (OpenSpec phase / change / task-progress line, and the mobile attached-proposal chip), `git`, `process`, `tags` (tags strip), `spawn` (`+Session` / `+Worktree` buttons);
+- built-in subcards and lines: `openspec` (OPENSPEC subcard), `openspec-badge` (OpenSpec phase / change / task-progress line, and the mobile attached-proposal chip), `git` (the header git row: worktree pill, branch, PR status, dirty / drift pill; there is no GIT subcard), `process`, `tags` (tags strip), `spawn` (the New session / New worktree session items of the desktop session actions menu, formerly the `+Session` / `+Worktree` buttons);
 - plugin subcards: `kb`, `flows`, `memory`, and `status` (the STATUS subcard as a whole);
-- per-plugin entries: `badge-<pluginId>` for each plugin contributing to the session-card badge area, and `actionbar-<pluginId>` for each plugin contributing to the session-card footer.
+- per-plugin entries: `badge-<pluginId>` for each plugin contributing to the session-card badge area, and `actionbar-<pluginId>` for each plugin contributing to the `session-card-action-bar` slot (rendered in the session actions menu's PLUGINS group).
 
 Directory (folder) card: `folder-git`, `folder-banner`, `folder-openspec`, `folder-create`, `folder-ended`, and `pill-<pluginId>` for each plugin contributing a folder pill.
 
@@ -37,6 +37,19 @@ The context usage bar SHALL NOT be part of this set; it remains governed by the 
 - **THEN** the Automations pill SHALL NOT render on `/a`'s directory card
 - **AND** the other folder pills on `/a` SHALL still render
 
+#### Scenario: Hiding spawn removes the spawn menu items
+- **GIVEN** `spawn` is hidden for folder `/a`
+- **WHEN** the session actions menu opens for a session in `/a`
+- **THEN** neither New session nor New worktree session SHALL render
+- **AND** Fork and Resume SHALL be unaffected
+
+#### Scenario: Hiding git removes the header git row
+- **GIVEN** `git` is hidden for folder `/a`
+- **AND** a worktree session in `/a` has `gitBranch` set and `cwdMissing: true`
+- **WHEN** a desktop card renders that session
+- **THEN** no `[data-testid="worktree-pill"]`, branch text, `[data-testid="worktree-pr-segment"]` or `[data-testid="git-dirty-pill"]` SHALL render on the card
+- **AND** `[data-testid="cwd-gone-pill"]` SHALL still render in the title row
+
 ### Requirement: Visibility resolution order
 
 The effective visibility of a section SHALL resolve as: focus profile value (only while Focus mode is on, and only if the profile sets it) → folder override (if set) → global default (if set) → legacy parent value (if the id has a parent and the parent resolves through folder override or global default) → visible.
@@ -58,7 +71,7 @@ A section resolved as visible SHALL still auto-hide when it has no content, as i
 #### Scenario: Folder override beats global
 - **GIVEN** global default `git = hidden` and folder `/a` override `git = visible`
 - **WHEN** a session in `/a` renders
-- **THEN** the GIT subcard SHALL render (subject to its own empty rule)
+- **THEN** the header git row SHALL render (subject to its own render gate)
 
 #### Scenario: Visible but empty still hides
 - **GIVEN** `memory` resolves visible and no plugin claims the memory slot
@@ -79,7 +92,7 @@ A section resolved as visible SHALL still auto-hide when it has no content, as i
 #### Scenario: Focus profile beats folder override
 - **GIVEN** Focus mode on with profile `git = hidden` and folder `/a` override `git = visible`
 - **WHEN** a session in `/a` renders
-- **THEN** the GIT subcard SHALL NOT render
+- **THEN** the header git row SHALL NOT render
 
 ### Requirement: Worktree sessions resolve against their group folder
 
@@ -98,7 +111,7 @@ Global defaults and folder overrides SHALL persist in the dashboard preferences 
 #### Scenario: Change syncs to another browser
 - **GIVEN** two browsers connected
 - **WHEN** browser A hides `git` for folder `/a`
-- **THEN** browser B's cards in `/a` SHALL stop rendering GIT without reload
+- **THEN** browser B's cards in `/a` SHALL stop rendering the header git row without reload
 
 #### Scenario: Survives restart
 - **GIVEN** folder `/a` override `process = hidden`
@@ -153,17 +166,36 @@ Global settings SHALL include a `Session card sections` block with one on/off sw
 
 ### Requirement: Inline legend menu
 
-Each rendered subcard with a legend title SHALL offer a keyboard-accessible options menu on its legend with actions `Hide in this folder`, `Hide everywhere`, and `Section settings…`. Hide actions SHALL apply immediately and show a toast with an Undo action that restores the previous values. `Section settings…` SHALL navigate to the folder's Session cards page. The menu control SHALL NOT trigger card selection.
+Subcard legend titles on the desktop session card SHALL NOT carry an options control. Section visibility SHALL instead be reachable from the session actions menu's VIEW group:
+- **Card sections…** navigates to the Session cards page of the session's group folder (`gitWorktree.mainPath` for worktree sessions, per "Worktree sessions resolve against their group folder"). The per-folder Default/Show/Hide controls live there.
+- **Card section defaults…** navigates to the global Session cards defaults in Settings. This replaces the former legend action "Hide everywhere".
+
+Neither item SHALL trigger card selection. The controls and semantics on those pages are unchanged. The former legend menu's immediate hide with an Undo toast is retired; changes are made, and reverted, on those pages.
 
 #### Scenario: Hide in folder with undo
-- **GIVEN** a session card in `/a` showing GIT
-- **WHEN** the user chooses `Hide in this folder` from the GIT legend menu
-- **THEN** GIT SHALL disappear from every card in `/a`
-- **AND** choosing Undo in the toast SHALL restore `/a`'s previous `git` value
+- **GIVEN** a session card in `/a` showing the header git row
+- **WHEN** the user activates **Card sections…** in that session's actions menu and sets GIT to Hide for `/a`
+- **THEN** the git row SHALL disappear from every card in `/a`
+- **AND** setting GIT back to Default on that page SHALL restore `/a`'s previous `git` value
 
 #### Scenario: Menu reachable by keyboard
-- **WHEN** focus moves into a subcard
-- **THEN** the legend options control SHALL be focusable and openable with Enter or Space
+- **WHEN** a desktop session card has keyboard focus and the user presses Shift+F10
+- **THEN** the session actions menu SHALL open
+- **AND** **Card sections…** SHALL be reachable with the arrow keys and activatable with Enter
+
+#### Scenario: Legend titles have no options control
+- **WHEN** a desktop session card renders its OPENSPEC subcard
+- **THEN** neither legend SHALL render an options button
+
+#### Scenario: Hide everywhere is reachable through defaults
+- **WHEN** the user activates **Card section defaults…** in a session's actions menu and hides GIT globally
+- **THEN** the git row SHALL disappear from every session card that has no folder override showing it
+
+#### Scenario: Card sections reachable from the menu
+- **GIVEN** a session card in `/a`
+- **WHEN** the user activates **Card sections…** in that session's actions menu
+- **THEN** the app SHALL navigate to `/a`'s Session cards page
+- **AND** the session SHALL NOT become selected as a side effect
 
 ### Requirement: PROCESS safety chip
 

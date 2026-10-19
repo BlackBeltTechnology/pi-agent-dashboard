@@ -27,6 +27,13 @@ describe("PartChip", () => {
 		}
 		expect(describedBy(screen.getByTestId("part-chip-extension"))).toMatch(/runs inside pi in every session/i);
 		expect(describedBy(screen.getByTestId("part-chip-dashboard-ui"))).toMatch(/no effect in terminal pi/i);
+		expect(describedBy(screen.getByTestId("part-chip-bridge"))).toMatch(/dashboard plugin can talk to the AI agent/i);
+	});
+
+	// See change: addons-hub-feature-catalog (test-plan #E28)
+	it("E28: legend lists the six labels and no tools", () => {
+		expect(PART_KINDS.map((k) => partLabel(k))).toEqual(["dashboard UI", "extension", "bridge", "skills", "prompts", "themes"]);
+		expect(PART_KINDS as readonly string[]).not.toContain("tools");
 	});
 
 	it("custom text keeps the part's definition", () => {

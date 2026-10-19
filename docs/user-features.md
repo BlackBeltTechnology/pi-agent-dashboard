@@ -80,6 +80,8 @@ Curated subset of [`features.md`](features.md) that can be communicated to end u
 
 - Discover dashboards on your network automatically (mDNS), switch servers from the header
 - Share securely over the internet with a zrok tunnel + QR code
+- Remote access dialog (toolbar): status landing for This computer, Devices on my network, Internet; four task wizards (Share over the internet, Let a phone or laptop in, Allow devices on my network, Connect to another machine) skip already-set steps
+- Connect to another machine from the Remote access dialog
 - Pair a phone by scanning a QR; OAuth login (GitHub, Google, Keycloak, OIDC) with an allowlist
 
 ## Desktop app

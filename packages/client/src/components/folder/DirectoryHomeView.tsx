@@ -25,18 +25,19 @@
 import type { CommandInfo, ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { mdiCog, mdiFolderOpen } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FolderCommandOrigin } from "../../lib/api/folder-commands-api.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
 import { isFolderPaneId } from "../../lib/layout/folder-pane-id.js";
 import { PopoverBoundaryProvider } from "../../lib/state/PopoverBoundaryContext.js";
 import { AgentSelect } from "../AgentSelect.js";
+import { YoloComposerStrip } from "../access-grant/YoloIndicators.js";
 import { CommandInput } from "../chat/CommandInput.js";
 import { EditorPane } from "../editor-pane/EditorPane.js";
 import { LayoutModeSwitch } from "../split/LayoutModeSwitch.js";
 import { SplitWorkspace } from "../split/SplitWorkspace.js";
 import { useOptionalSplitWorkspace } from "../split/SplitWorkspaceContext.js";
-import { WorktreeSpawnDialog } from "../worktree/WorktreeSpawnDialog.js";
+import { LazyWorktreeSpawnDialog } from "../worktree/lazy-worktree-dialogs.js";
 import { buildStarters, type Starter, withStarterInserted } from "./starter-cards.js";
 
 export interface SpawnFromHomeOpts {
@@ -274,6 +275,8 @@ export function DirectoryHomeView({
         </div>
 
         <AgentSelect cwd={cwd} onChange={setAgent} className="mx-3 mb-1 flex items-center gap-2 text-xs" />
+        {/* Active-YOLO strip directly above the composer. See change: fix-yolo-indicator-overflow. */}
+        <YoloComposerStrip cwd={cwd} />
         <CommandInput
           commands={commands}
           commandsOrigin={commandsOrigin}
@@ -341,7 +344,8 @@ export function DirectoryHomeView({
       )}
 
       {worktreeOpen && (
-        <WorktreeSpawnDialog
+        <Suspense fallback={null}>
+        <LazyWorktreeSpawnDialog
           cwd={cwd}
           onCancel={() => {
             setWorktreeOpen(false);
@@ -367,6 +371,7 @@ export function DirectoryHomeView({
             onWorktreeSpawned?.(path);
           }}
         />
+        </Suspense>
       )}
     </div>
   );

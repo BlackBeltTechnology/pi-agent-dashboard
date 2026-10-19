@@ -155,7 +155,7 @@ export function EmbeddedAppReturnPill({ store: storeProp }: { store?: ReturnTarg
         store.clear();
         navigate(target.href);
       }}
-      className="fixed bottom-4 left-1/2 -translate-x-1/2 z-popover min-h-[44px] px-4 rounded-full border border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] text-[13px] shadow-lg hover:border-[var(--accent-primary,#3b82f6)]"
+      className="fixed bottom-4 left-1/2 -translate-x-1/2 z-popover min-h-[44px] px-4 rounded-full border border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] text-[13px] shadow-lg hover:border-[var(--accent-primary)]"
     >
       {returnPillLabel(target)}
     </button>

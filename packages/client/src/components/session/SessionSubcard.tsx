@@ -1,5 +1,4 @@
 import React, { type ReactNode } from "react";
-import { SubcardLegendMenu, type SubcardMenuTarget } from "./SubcardLegendMenu.js";
 
 /**
  * Inset titled panel used to group related session-card sections
@@ -16,18 +15,16 @@ import { SubcardLegendMenu, type SubcardMenuTarget } from "./SubcardLegendMenu.j
  *     background (--bg-primary) so it masks the border line, fieldset-legend style
  *     (absolute -top-2, centered, uppercase, muted, 11px, semibold, tracking-wide;
  *     same tokens as `SLOT_PILL_LEGEND`, pinned by a parity test)
- *   - Optional `menu`: a `⋯` options button inside the capsule, revealed on
- *     hover / focus-within (see `SubcardLegendMenu`).
- *     See change: configurable-session-card-sections (D8).
+ *   - No per-subcard options menu: the legend `⋯` is gone; section options
+ *     live in the session actions menu's VIEW group.
+ *     See change: add-session-actions-flyout (D8).
  * See change: fix-slot-pill-legend-and-stale-overflow.
  */
 export function SessionSubcard({
   title,
-  menu,
   children,
 }: {
   title: string;
-  menu?: SubcardMenuTarget;
   children: ReactNode;
 }) {
   if (!hasMeaningfulChildren(children)) return null;
@@ -35,7 +32,6 @@ export function SessionSubcard({
     <div className="group/sub relative mt-2.5 rounded-lg border border-[var(--border-subtle)] px-2 pt-2.5 pb-1.5">
       <span className="absolute -top-2 left-1/2 -translate-x-1/2 inline-flex items-center px-1.5 py-px rounded-full bg-[var(--bg-primary)] border border-[var(--border-subtle)] text-[11px] font-semibold uppercase tracking-wide text-[var(--text-secondary)] leading-none">
         {title}
-        {menu ? <SubcardLegendMenu target={menu} label={title} /> : null}
       </span>
       {children}
     </div>

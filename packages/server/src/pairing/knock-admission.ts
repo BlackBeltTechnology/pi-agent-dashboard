@@ -14,9 +14,12 @@
  * See change: add-lan-knock-pairing.
  */
 import type { KnockRefusal } from "@blackbelt-technology/pi-dashboard-shared/pairing-knock.js";
+import type { FastifyRequest } from "fastify";
 import { type HostAdmissionOptions, isHostAdmitted } from "../auth/host-admission.js";
+import { hasLocalProof, type LocalTrustContext } from "../auth/local-proof.js";
 import {
   hasProxyForwardingHeaders,
+  isKnockListedPeer,
   isOnLinkPrivate,
   knockSourceKey,
   type LanInterface,
@@ -134,15 +137,91 @@ export type KnockAdmission =
   | { ok: true; sourceKey: string }
   | { ok: false; error: KnockRefusal; status: 403 | 409 | 429 | 503; retryAfter?: number };
 
+/** First string of a header value (a string, or the first element of a repeated header). */
+export function headerString(v: unknown): string | undefined {
+  return typeof v === "string" ? v : Array.isArray(v) && typeof v[0] === "string" ? v[0] : undefined;
+}
+
+/**
+ * The one builder of a knock's admission input: the raw socket peer (never
+ * `request.ip`), the raw headers and the normalised `Host`. Shared by the knock
+ * route and the `request-access` remedy so the two cannot read a request
+ * differently. See change: add-request-access-remedy (design D1).
+ */
+export function knockPeerInput(request: FastifyRequest): KnockAdmissionInput {
+  return {
+    peer: request.socket.remoteAddress,
+    headers: request.headers as Record<string, unknown>,
+    host: headerString(request.headers.host),
+  };
+}
+
+/** What the knock's pre-switch gates read, as live thunks. */
+export interface KnockPeerDeps {
+  hostAdmission: () => HostAdmissionOptions;
+  getLanInterfaces: () => LanInterface[];
+  /**
+   * The RAW configured list (`trustedNetworks` ∪ `auth.bypassHosts`) — knock
+   * eligibility, not admission: it is read in BOTH trust modes and never
+   * authenticates anything. Absent ⇒ no list branch.
+   * See change: retire-trusted-networks-bypass (D7).
+   */
+  getKnockEligibleNetworks?: () => string[];
+}
+
+/** The slice of {@link KnockAdmissionState} the pre-switch gates need. */
+type KnockPeerState = Pick<KnockAdmissionState, "hostAdmission" | "interfaces"> & {
+  /** Raw configured list for the knock address rule's list branch. */
+  eligibleNetworks?: readonly string[];
+};
+
+/** The one gate-state builder: every dep is read per call (never captured). */
+export function knockPeerState(deps: KnockPeerDeps): KnockPeerState {
+  return {
+    hostAdmission: deps.hostAdmission(),
+    interfaces: deps.getLanInterfaces(),
+    eligibleNetworks: deps.getKnockEligibleNetworks?.() ?? [],
+  };
+}
+
+/**
+ * The knock's gates that run before the operator switch: Host admission (enforce
+ * semantics, DNS rebinding), then a private, on-link, non-loopback peer with no
+ * forwarding header. `null` = both pass. A later change to knock eligibility
+ * extends this function and `knockPeerState` only.
+ */
+export function knockPeerGate(
+  input: KnockAdmissionInput,
+  state: KnockPeerState,
+): "host_not_admitted" | "knock_not_lan" | null {
+  if (!isHostAdmitted(input.host, state.hostAdmission)) return "host_not_admitted";
+  if (hasProxyForwardingHeaders(input.headers)) return "knock_not_lan";
+  // Address rule: a default private on-link range OR the operator's configured
+  // list (no forwarding header, match-all entries ignored, not necessarily on-link).
+  if (isOnLinkPrivate(input.peer, state.interfaces)) return null;
+  if (isKnockListedPeer(input.peer, input.headers, state.eligibleNetworks ?? [])) return null;
+  return "knock_not_lan";
+}
+
+/**
+ * Would the knock's pre-switch gates pass for this request, from a caller with no
+ * verified local credential? The `request-access` remedy predicate. It reads
+ * neither the operator switch nor any knock state, so it tells a caller only what
+ * the public knock route already tells it. See change: add-request-access-remedy (D2).
+ */
+export function createRequestAccessAvailable(
+  deps: KnockPeerDeps,
+  localTrust: LocalTrustContext,
+): (request: FastifyRequest) => boolean {
+  return (request) =>
+    !hasLocalProof(request.headers as Record<string, unknown>, localTrust) &&
+    knockPeerGate(knockPeerInput(request), knockPeerState(deps)) === null;
+}
+
 export function admitKnock(input: KnockAdmissionInput, state: KnockAdmissionState): KnockAdmission {
-  // 1. Host admission, enforce semantics (DNS rebinding).
-  if (!isHostAdmitted(input.host, state.hostAdmission)) {
-    return { ok: false, error: "host_not_admitted", status: 403 };
-  }
-  // 2. Private, on-link, non-loopback peer and no forwarding header at all.
-  if (hasProxyForwardingHeaders(input.headers) || !isOnLinkPrivate(input.peer, state.interfaces)) {
-    return { ok: false, error: "knock_not_lan", status: 403 };
-  }
+  // 1–2. Host admission, then the private on-link peer gate.
+  const refused = knockPeerGate(input, state);
+  if (refused) return { ok: false, error: refused, status: 403 };
   // 3. Operator switch — after the LAN gate so an off-link caller learns nothing.
   if (!state.acceptLanRequests) return { ok: false, error: "knock_disabled", status: 403 };
 

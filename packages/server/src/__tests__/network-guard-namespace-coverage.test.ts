@@ -89,6 +89,13 @@ const STATIC_PUBLIC: ReadonlySet<string> = new Set([
   // See change: add-team-plugin.
   "/apps/team",
   "/apps/team/*",
+  // obs-studio-plugin's standalone panel shell (design D6): one static HTML page + one same-origin script
+  // served from memory, no data of its own. Every data call is under the guarded /api/plugins/obs-studio/*
+  // (tier gate + operate authority), and the routes also carry the plugin `networkGuard` preHandler.
+  // See change: add-obs-studio-plugin.
+  "/apps/obs",
+  "/apps/obs/",
+  "/apps/obs/app.js",
 ]);
 
 /** `url` is under `prefix` as a path segment (exact, or `/`-continuation). */

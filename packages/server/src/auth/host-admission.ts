@@ -27,6 +27,14 @@ export interface HostAdmissionOptions {
   getLiveTunnelOrigins?: () => string[];
   /** The address the listener was bound to (boot-time `ServerConfig.host`). */
   bindHost?: string;
+  /**
+   * Exact (non-wildcard) names the optional TLS listener holds a certificate
+   * for — empty unless the listener is enabled AND bound. Read live; a throwing
+   * accessor yields `[]` (fail-empty). Admits the NAME only; wildcard
+   * certificates are deliberately never admitted (DNS-rebinding).
+   * See change: add-tailscale-cert-tls (D6).
+   */
+  tlsListenerNames?: () => string[];
 }
 
 /** The source labels the operator UI renders, in first-match order (D1). */
@@ -68,6 +76,23 @@ export function safeLiveTunnelOrigins(opts: HostAdmissionOptions): string[] {
 }
 
 /**
+ * TLS-listener certificate names, fail-empty: a cert-store fault must never 500
+ * the main listener's request path (mirrors `safeLiveTunnelOrigins`). Warns once.
+ */
+let tlsNamesWarned = false;
+export function safeTlsListenerNames(opts: HostAdmissionOptions): string[] {
+  try {
+    return opts.tlsListenerNames?.() ?? [];
+  } catch (err) {
+    if (!tlsNamesWarned) {
+      tlsNamesWarned = true;
+      console.warn(`[tls] certificate-name lookup failed; no TLS names admitted: ${(err as Error).message}`);
+    }
+    return [];
+  }
+}
+
+/**
  * First matching admissible source for an already-normalized hostname, or
  * `null` when the hostname is not admissible. Order is D1's: IP literals before
  * the bind name, derived URL lists before the explicit `allowedHosts`.
@@ -86,6 +111,7 @@ export function classifyAdmittedHostname(
   if (hostnameInUrlList(opts.publicBaseUrls, hostname)) return "public-base-url";
   if (hostnameInUrlList(opts.configuredOrigins, hostname)) return "cors-origin";
   if (hostnameInUrlList(safeLiveTunnelOrigins(opts), hostname)) return "live-tunnel";
+  if (safeTlsListenerNames(opts).some((n) => normalizeName(n) === hostname)) return "tls-listener";
   if ((opts.allowedHosts ?? []).some((entry) => normalizeName(entry) === hostname)) {
     return "allowed-host";
   }

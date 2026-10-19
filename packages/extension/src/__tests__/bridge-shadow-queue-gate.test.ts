@@ -18,7 +18,9 @@
  *    caller that forgets to capture pre-send still doesn't corrupt
  *    the shadow queue.
  *
- * See change: add-followup-edit-and-steer-cancel.
+ * The follow-up boundary is `agent_settled` (the drain moved off `agent_end`).
+ *
+ * See changes: add-followup-edit-and-steer-cancel, update-pi-core-1-3-adopt-apis.
  */
 import { describe, it, expect, vi } from "vitest";
 
@@ -51,8 +53,8 @@ function makeShadowRecorder(opts: {
   function clearSteer() { queue.steering = []; emit(); }
   function clearFollowup() { queue.followUp = []; emit(); }
   function drainSteerOnTurnEnd() { if (queue.steering.length > 0) { queue.steering = []; emit(); } }
-  function drainFollowupOnAgentEnd() { if (queue.followUp.length > 0) { queue.followUp = []; emit(); } }
-  return { recordSteer, recordFollowup, clearSteer, clearFollowup, drainSteerOnTurnEnd, drainFollowupOnAgentEnd, snapshot: () => ({ ...queue, steering: [...queue.steering], followUp: [...queue.followUp] }) };
+  function drainFollowupOnAgentSettled() { if (queue.followUp.length > 0) { queue.followUp = []; emit(); } }
+  return { recordSteer, recordFollowup, clearSteer, clearFollowup, drainSteerOnTurnEnd, drainFollowupOnAgentSettled, snapshot: () => ({ ...queue, steering: [...queue.steering], followUp: [...queue.followUp] }) };
 }
 
 describe("bridge shadow queue: streaming gate", () => {
@@ -119,7 +121,7 @@ describe("bridge shadow queue: drain boundaries", () => {
     expect(onEmit).toHaveBeenCalledTimes(1);
   });
 
-  it("agent_end drains followUp only (steering untouched)", () => {
+  it("agent_settled drains followUp only (steering untouched)", () => {
     let streaming = true;
     const onEmit = vi.fn();
     const r = makeShadowRecorder({ isStreaming: () => streaming, onEmit });
@@ -127,7 +129,7 @@ describe("bridge shadow queue: drain boundaries", () => {
     r.recordFollowup("f1");
     onEmit.mockClear();
 
-    r.drainFollowupOnAgentEnd();
+    r.drainFollowupOnAgentSettled();
 
     expect(r.snapshot()).toEqual({ steering: ["s1"], followUp: [] });
     expect(onEmit).toHaveBeenCalledTimes(1);
@@ -142,11 +144,11 @@ describe("bridge shadow queue: drain boundaries", () => {
     expect(onEmit).not.toHaveBeenCalled();
   });
 
-  it("agent_end on empty followUp does NOT emit", () => {
+  it("agent_settled on empty followUp does NOT emit", () => {
     const onEmit = vi.fn();
     const r = makeShadowRecorder({ isStreaming: () => true, onEmit });
 
-    r.drainFollowupOnAgentEnd();
+    r.drainFollowupOnAgentSettled();
 
     expect(onEmit).not.toHaveBeenCalled();
   });
@@ -281,7 +283,7 @@ describe("bridge shadow queue: realistic follow-up scenario", () => {
     expect(onEmit).toHaveBeenCalledTimes(1);
 
     // Agent finishes → followUp drains.
-    r.drainFollowupOnAgentEnd();
+    r.drainFollowupOnAgentSettled();
     expect(r.snapshot().followUp).toEqual([]);
   });
 

@@ -22,7 +22,8 @@ Do NOT read the vendored Python under `engine/document_converter/`.
   reports image presence and the first-party build hint (confirm-gated) via
   the registry's Settings → Tools row.
 - Styled diagrams (nano-banana) need `GEMINI_API_KEY` at run time; absent or on
-  failure, rendering falls back to mmdc (never hard-fails).
+  failure, rendering falls back to mmdc; if the headless browser cannot launch
+  (e.g. wrong architecture) the call fails with `MMDC_UNAVAILABLE`.
 
 ## Two directions
 
@@ -31,7 +32,7 @@ Do NOT read the vendored Python under `engine/document_converter/`.
 ```ts
 import { createDocumentConverter } from "@blackbelt-technology/pi-dashboard-document-converter";
 const dc = createDocumentConverter({
-  image: "pi-doc-engine:0.1.0",
+  image: "pi-doc-engine:0.2.0",
   stagingDir: "/abs/kb-staging",
   mounts: ["/docs"],   // files outside cwd need a root (mounts or workspaceRoot), else PATH_NOT_ALLOWED
 });
@@ -84,4 +85,4 @@ All stages read/write one unified schema (`./schema`): template vars ·
 
 Every method rejects with `DocConverterError` (`.code`, `.stderr`, `.exitCode`):
 `UNSUPPORTED_FORMAT`, `PATH_NOT_ALLOWED`, `OCR_LANG_UNSUPPORTED`, `INGEST_FAILED`, `PRODUCE_FAILED`,
-`DOCKER_UNAVAILABLE`, … Surface `.code` + `.stderr`; do not retry blindly.
+`MMDC_UNAVAILABLE` (mermaid browser cannot launch — rebuild the image on this architecture), `DOCKER_UNAVAILABLE`, … Surface `.code` + `.stderr`; do not retry blindly.

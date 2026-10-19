@@ -180,6 +180,44 @@ describe("add-mermaid-auto-repair — i18n sweep (X4)", () => {
       expect(hu, `hu: ${key}`).toContain(`"${key}":`);
     }
   });
+
+  // See change: add-preview-apply-fix-to-file (test-plan F10)
+  it("apply-fix-to-file action, dialog, status and error keys are in both catalogues", () => {
+    for (const key of [
+      "applyToFile",
+      "applyReading",
+      "applyDirtyHint",
+      "applyDialogTitle",
+      "applyDialogBody",
+      "applyConfirm",
+      "applyWriting",
+      "applyChanged",
+      "applyReload",
+      "applyNotApplicable",
+      "applyError",
+      "applyDiffAdded",
+      "applyDiffRemoved",
+    ].map((k) => `preview.mermaid.${k}`)) {
+      expect(zh, `zh-CN: ${key}`).toContain(`"${key}":`);
+      expect(hu, `hu: ${key}`).toContain(`"${key}":`);
+    }
+  });
+
+  // See change: add-mermaid-ai-repair (test-plan X10)
+  it("AI repair action, pending, retry, badge, failure and disclosure keys are in both catalogues", () => {
+    for (const key of [
+      "preview.mermaid.aiFix",
+      "preview.mermaid.aiPending",
+      "preview.mermaid.aiRetry",
+      "preview.mermaid.aiFixed",
+      "preview.mermaid.aiFailed",
+      "preview.mermaid.aiNotRenderable",
+      "preview.mermaid.aiDisclosure",
+    ]) {
+      expect(zh, `zh-CN: ${key}`).toContain(`"${key}":`);
+      expect(hu, `hu: ${key}`).toContain(`"${key}":`);
+    }
+  });
 });
 
 describe("retro-ux-model-selector — i18n sweep (E21)", () => {
@@ -280,7 +318,7 @@ describe("retro-ux-credential-vault — vault.* catalogue coverage (E27)", () =>
   }
   const STATES = ["delivered", "local-override", "inherited", "pending-confirmation", "no-account", "blocked-name", "revoked", "hub-unreachable", "vault-unavailable"];
   const dynamic = [
-    ...["use-host", "re-pair", "sign-in"].map((r) => `vault.operateRequired.${r}`),
+    ...["use-host", "re-pair", "request-access", "sign-in"].map((r) => `vault.operateRequired.${r}`),
     ...STATES.flatMap((s) => [`vault.state.${s}`, `vault.stateHelp.${s}`]),
   ];
 
@@ -297,5 +335,55 @@ describe("retro-ux-credential-vault — vault.* catalogue coverage (E27)", () =>
       if (!hu.includes(`"${key}":`)) missing.hu.push(key);
     }
     expect(missing).toEqual({ en: [], zh: [], hu: [] });
+  });
+});
+
+// See change: add-md-adoc-markup-repair (test-plan F11)
+describe("add-md-adoc-markup-repair — i18n sweep (F11)", () => {
+  const root = (() => {
+    const marker = join("src", "lib", "i18n", "i18n.tsx");
+    let dir = process.cwd();
+    for (let i = 0; i < 8; i++) {
+      if (existsSync(join(dir, marker))) return dir;
+      if (existsSync(join(dir, "packages", "client", marker))) return join(dir, "packages", "client");
+      const up = dirname(dir);
+      if (up === dir) break;
+      dir = up;
+    }
+    return process.cwd();
+  })();
+  const zh = readFileSync(join(root, "src/lib/i18n/i18n-zh-CN.ts"), "utf8");
+  const hu = readFileSync(join(root, "src/lib/i18n/i18n-hu.ts"), "utf8");
+  const component = readFileSync(join(root, "src/components/preview/MarkupRepairBanner.tsx"), "utf8");
+
+  const KEYS = [
+    "title",
+    "repair.A1",
+    "repair.A2",
+    "repair.M2",
+    "repair.M3",
+    "viewOriginal",
+    "apply",
+    "applyReading",
+    "applyDirtyHint",
+    "changed",
+    "reload",
+    "applyError",
+    "dialogTitle",
+    "dialogBody",
+    "diagramBlocked",
+  ].map((k) => `markupRepair.${k}`);
+
+  it("every markupRepair.* key is in both catalogues", () => {
+    for (const key of KEYS) {
+      expect(zh, `zh-CN: ${key}`).toContain(`"${key}":`);
+      expect(hu, `hu: ${key}`).toContain(`"${key}":`);
+    }
+  });
+
+  it("every markupRepair.* key the banner uses is covered by the list above", () => {
+    const used = [...component.matchAll(/"(markupRepair\.[\w.]+)"/g)].map((m) => m[1]);
+    expect(used.length).toBeGreaterThan(0);
+    for (const key of used) expect(KEYS, key).toContain(key);
   });
 });

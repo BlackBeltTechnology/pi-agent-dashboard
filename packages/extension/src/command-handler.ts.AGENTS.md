@@ -13,3 +13,5 @@ Team-confined `/skill:` route (design D12, add-team-skill-access). In `send_prom
 `request_models` awaits optional `options.reloadProviders()` (providers.json re-sync; failure warned, not fatal) before `refresh({allowNetwork:false})` -- selector open heals missed `credentials_updated`, never hits remote catalogues. See change: refresh-models-on-provider-change.
 
 - `rename_session`: `origin:"system"` → `options.onSystemRename(name)` BEFORE `pi.setSessionName` (rollback fn on throw); no origin → `options.onUserRename()`. See change: investigate-auto-name-provenance-relabel.
+
+- Single-bang `!cmd` (`handleBashCommand`): `pi.sendUserMessage(message, { deliverAs: "followUp" })` — idle starts a turn, busy queues (pi-owned, no dashboard chip); a refused send (compaction) is warned, never fails the handler. `!!` and `excludeFromContext` paths unchanged. See change: update-pi-core-1-3-adopt-apis.
