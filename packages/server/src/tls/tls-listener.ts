@@ -266,7 +266,9 @@ export class TlsListener {
     this.bindRetryMs = Math.min(this.bindRetryMs * 2, BIND_RETRY_CAP_MS);
     this.bindTimer = setTimeout(() => {
       this.bindTimer = undefined;
-      void this.reconcile();
+      void this.reconcile().catch((err: unknown) =>
+        this.log.warn(`bind retry failed: ${err instanceof Error ? err.message : String(err)}`),
+      );
     }, delay);
     this.bindTimer.unref?.();
   }

@@ -241,6 +241,16 @@ describe("#E49 switch write failure reverts", () => {
     expect(putConfig).toHaveBeenCalledWith({ tls: { enabled: true, sources: [{ type: "tailscale" }] } });
   });
 
+  it("never seeds (and never writes) when the config read fails", async () => {
+    status = S.off;
+    getConfig.mockRejectedValue(new Error("HTTP 500"));
+    mount();
+    fireEvent.click(await screen.findByTestId("gateway-tls-enabled"));
+    expect((await screen.findByTestId("gateway-tls-switch-error")).textContent).toContain("HTTP 500");
+    expect(putConfig).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.getByTestId("gateway-tls-enabled").getAttribute("aria-checked")).toBe("false"));
+  });
+
   it("does not re-seed when sources already exist", async () => {
     status = S.off;
     mount();

@@ -315,10 +315,9 @@ describe("attempt deadline (#E47)", () => {
   it("abandons a hung attempt, starts a new one on trigger and discards the late result", async () => {
     const src = new FakeSource({ names: ["a.test"], attemptTimeoutMs: 1000 });
     const lateResolvers: Array<() => void> = [];
-    src.obtainImpl = (name) =>
+    src.obtainImpl = () =>
       new Promise((resolve) => {
         lateResolvers.push(() => resolve({ ...fixture("a.test"), advertise: true, kind: "magicdns" }));
-        void name;
       });
     await mgr.reconcile([src]);
     await flush();
@@ -327,7 +326,7 @@ describe("attempt deadline (#E47)", () => {
     await flush();
     expect(mgr.status().certs[0]?.lastError).toBe("timed out");
 
-    void mgr.trigger("fake", "a.test");
+    void mgr.trigger("fake", "a.test").catch(() => undefined);
     await flush(20);
     expect(src.obtainCalls).toHaveLength(2); // a new attempt, not a join
 

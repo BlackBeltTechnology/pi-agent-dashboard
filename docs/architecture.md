@@ -3967,7 +3967,7 @@ flowchart LR
 
 - `TlsCertStore`: exact name → single-label wildcard → fail. No default cert.
 - No SNI or no match → handshake error.
-- Resumption off: `SSL_OP_NO_TICKET`, `resumeSession` → no-op. Every handshake runs `SNICallback`, so pruned or replaced names stop at next connect.
+- Resumption off: `SSL_OP_NO_TICKET`, `resumeSession` → no-op. Every full handshake with SNI runs `SNICallback`, so pruned or replaced names stop at next connect.
 
 #### CertManager
 

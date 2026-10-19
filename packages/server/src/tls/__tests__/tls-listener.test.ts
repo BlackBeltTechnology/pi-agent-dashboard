@@ -1,6 +1,5 @@
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
-import http from "node:http";
 import https from "node:https";
 import net from "node:net";
 import os from "node:os";
@@ -351,4 +350,3 @@ describe("status disclosure", () => {
   });
 });
 
-void http;

@@ -77,9 +77,11 @@ export function GatewayTlsSection({ onSetupRequested, now = Date.now }: Props) {
     setPendingEnabled(next);
     setSwitchError(null);
     try {
+      // Seed the tailscale source only when a SUCCESSFUL read confirms there are none: a failed
+      // read must never overwrite sources the operator already configured (the write is aborted).
       let seed = false;
       if (next) {
-        const cfg = await getConfig().catch(() => ({}) as Record<string, unknown>);
+        const cfg = await getConfig();
         const stored = (cfg.tls as { sources?: unknown[] } | undefined)?.sources;
         seed = !Array.isArray(stored) || stored.length === 0;
       }

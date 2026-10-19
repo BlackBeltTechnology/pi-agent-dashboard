@@ -454,7 +454,12 @@ export class CertManager {
       return { done };
     }
 
-    void this.runAttempt(ns, ss, slot);
+    void this.runAttempt(ns, ss, slot).catch((err: unknown) => {
+      // runAttempt reports every failure through recordFailure; this is the last-resort net.
+      this.log.warn(`attempt crashed source=${ns.sourceId} name=${ns.name}: ${errMessage(err)}`);
+      if (ns.inflight === slot) ns.inflight = undefined;
+      slot.resolve({ ok: false, error: errMessage(err) });
+    });
     return { done };
   }
 
@@ -483,7 +488,9 @@ export class CertManager {
     if (ns.timer) clearTimeout(ns.timer);
     const fire = (): void => {
       ns.timer = undefined;
-      void this.beginAttempt(ns, "scheduled");
+      void this.beginAttempt(ns, "scheduled").catch((err: unknown) =>
+        this.log.warn(`scheduled attempt failed source=${ns.sourceId} name=${ns.name}: ${errMessage(err)}`),
+      );
     };
     if (delayMs >= 0 && delayMs <= MAX_ARM_MS) {
       ns.timer = setTimeout(fire, delayMs);
@@ -588,7 +595,7 @@ export class CertManager {
   private persist(ns: NameState): Promise<void> {
     const p = this.files.writeMeta(ns.sourceId, ns.name, ns.meta).catch(() => undefined);
     this.pendingWrites.add(p);
-    void p.finally(() => this.pendingWrites.delete(p));
+    void p.finally(() => this.pendingWrites.delete(p)).catch((err: unknown) => this.log.warn(`persist bookkeeping failed: ${errMessage(err)}`));
     return p;
   }
 

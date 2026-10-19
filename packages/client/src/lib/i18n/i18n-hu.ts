@@ -466,7 +466,7 @@ export const huCatalog: Record<string, string> = {
   "gateway.tls.open": "Megnyitás",
   "gateway.tls.newTab": "(új lapon nyílik meg)",
   "gateway.tls.nameNote": "Ezzel a névvel csatlakozz. Az IP-cím, például {ip}, nem működik: a tanúsítvány a névre szól.",
-  "gateway.tls.addressNote": "Megjelenik az Elérhető itt listában, és a Eszköz csatlakoztatása is ezt kínálja.",
+  "gateway.tls.addressNote": "Megjelenik az Elérhető itt listában, és az Eszköz csatlakoztatása is ezt kínálja.",
   "gateway.tls.port": "Port",
   "gateway.tls.portHint": "Alapértelmezett: 8443.",
   "gateway.tls.host": "Figyelés ezen",
