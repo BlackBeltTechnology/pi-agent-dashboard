@@ -177,10 +177,11 @@ export function EditorPane() {
   // provenance/line changes all change it); `null` for pseudo/plugin tabs, which
   // are never watched or baselined. `autoOpened` is in the key: a provenance
   // change remounts the tab so its next request uses the new eligibility
-  // (surface-denial-remedy-in-previews, D4).
+  // (surface-denial-remedy-in-previews, D4). Scoped to (session, cwd): a switch drops the
+  // per-scope baseline store, so an identical path:nonce key must still recapture one.
   const fileViewerKey =
     activeTab && !isPseudoTabViewer(activeTab.viewer)
-      ? `${activeTab.path}:${refreshNonce}:${lineForTab ?? ""}:${activeTab.autoOpened === true}`
+      ? `${sessionId}\u0000${cwd}\u0000${activeTab.path}:${refreshNonce}:${lineForTab ?? ""}:${activeTab.autoOpened === true}`
       : null;
   useEffect(() => {
     if (!changeDetection || !fileViewerKey || !activePath) return;

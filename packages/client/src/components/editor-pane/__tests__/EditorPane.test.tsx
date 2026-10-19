@@ -309,12 +309,15 @@ describe("EditorPane — changed-on-disk verification wiring", () => {
   let digestCalls: Array<{ path: string; purpose: string }>;
   let digestDelayMs: number;
   let setCand!: React.Dispatch<React.SetStateAction<Map<string, number>>>;
+  let setSession!: React.Dispatch<React.SetStateAction<string>>;
   let gen = 0;
   const onWatchFiles = vi.fn();
 
   function Host() {
     const [cand, setC] = useState<Map<string, number>>(new Map());
+    const [session, setS] = useState("sV");
     setCand = setC;
+    setSession = setS;
     const onClear = useCallback((p: string, g?: number) => {
       setC((prev) => {
         if (!prev.has(p) || (g !== undefined && prev.get(p) !== g)) return prev;
@@ -325,7 +328,7 @@ describe("EditorPane — changed-on-disk verification wiring", () => {
     }, []);
     return (
       <SplitWorkspaceProvider
-        sessionId="sV"
+        sessionId={session}
         cwd="/proj"
         orientation="h"
         changeDetection
@@ -407,6 +410,26 @@ describe("EditorPane — changed-on-disk verification wiring", () => {
     await waitFor(() => expect(screen.getByTestId("candidate-count").textContent).toBe("0"), { timeout: 3000 });
     expect(screen.queryByTestId("changed-on-disk-banner")).toBeNull();
   });
+
+  it("F20: switching to a session whose active tab has the SAME path/key still captures a baseline before the viewer mounts (review B1)", async () => {
+    render(<Host />);
+    // sV: open foo.ts, mount (so its split state persists with foo.ts active).
+    fireEvent.click(screen.getByTestId("open-foo"));
+    await waitFor(() => expect(screen.getByTestId("monaco-viewer")).toBeTruthy(), { timeout: 3000 });
+    // sW: open the same file, so BOTH sessions persist foo.ts as the active tab.
+    act(() => setSession("sW"));
+    fireEvent.click(screen.getByTestId("open-foo"));
+    await waitFor(() => expect(screen.getByTestId("monaco-viewer")).toBeTruthy(), { timeout: 3000 });
+    // Switch back: sV's persisted tab is active at once, so the viewer key is unchanged.
+    const baselinesBefore = digestCalls.filter((c) => c.purpose === "baseline").length;
+    act(() => setSession("sV"));
+    await waitFor(() => expect(digestCalls.filter((c) => c.purpose === "baseline").length).toBe(baselinesBefore + 1), { timeout: 3000 });
+    await waitFor(() => expect(screen.getByTestId("monaco-viewer")).toBeTruthy(), { timeout: 3000 });
+    // An identical-bytes candidate must now be quiet (it banners when no baseline was captured).
+    act(() => setCand((prev) => new Map(prev).set("foo.ts", ++gen)));
+    await waitFor(() => expect(screen.getByTestId("candidate-count").textContent).toBe("0"), { timeout: 3000 });
+    expect(screen.queryByTestId("changed-on-disk-banner")).toBeNull();
+  }, 20_000);
 
   it("F10: activating a background tab re-captures its baseline and clears its candidate and banner", async () => {
     render(<Host />);
