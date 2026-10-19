@@ -1,5 +1,7 @@
+import { execFileSync } from "node:child_process";
 import { expect, test } from "./fixtures.js";
-import { byTestId, gotoDashboard } from "./helpers/index.js";
+import { resolveContainer } from "./helpers/container-proc.js";
+import { byTestId, ensureFixtureGitGroup, FIXTURE_GIT, gotoDashboard } from "./helpers/index.js";
 
 /**
  * Add-ons hub (change: addons-hub-declutter).
@@ -15,6 +17,14 @@ import { byTestId, gotoDashboard } from "./helpers/index.js";
  * The dashboard port comes from the Playwright baseURL (docker/test-up.sh →
  * .pi-test-harness.json); nothing is hardcoded here.
  */
+/** `<FIXTURE_GIT>/.pi/settings.json` read inside the harness container (`null` when absent). */
+function folderSettingsFile(): string | null {
+  const out = execFileSync("docker", ["exec", resolveContainer(), "sh", "-c", `[ -f ${FIXTURE_GIT}/.pi/settings.json ] && cat ${FIXTURE_GIT}/.pi/settings.json || echo __ABSENT__`], {
+    encoding: "utf8",
+  });
+  return out === "__ABSENT__\n" ? null : out;
+}
+
 test.describe("Add-ons hub", () => {
   test("F5: /settings/packages lands on the Add-ons page without bridge rows", async ({ page }) => {
     await gotoDashboard(page);
@@ -118,5 +128,75 @@ test.describe("Add-ons hub", () => {
     await page.reload();
     await expect(page.getByTestId("addons-tab-discover")).toHaveAttribute("aria-selected", "true", { timeout: 30_000 });
     await expect(page.getByTestId("package-browser")).toBeVisible({ timeout: 30_000 });
+  });
+
+  // See change: addons-hub-folder-view (test-plan #F16): the rail badge and the Issues tab
+  // share one count, and the health panel lives inside the tab at both widths.
+  for (const width of [1440, 375]) {
+    test(`F16: Issues tab at ${width}px — rail badge equals the tab count, panel inside the tab`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await gotoDashboard(page);
+      // One stale entry guarantees a non-zero count whatever plugins the harness has.
+      await page.route("**/api/packages/health", (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            success: true,
+            data: {
+              entries: [{ source: "npm:gone", status: "stale-npm", reason: "not installed" }],
+              summary: { ok: 0, staleNpm: 1, missingPath: 0, duplicateGroups: [] },
+            },
+          }),
+        }),
+      );
+      await page.goto("/settings/add-ons?tab=issues");
+      const tab = page.getByTestId("addons-tab-issues");
+      await expect(tab).toHaveAttribute("aria-selected", "true", { timeout: 30_000 });
+      const count = Number(/\((\d+)\)/.exec((await tab.textContent()) ?? "")?.[1]);
+      expect(count).toBeGreaterThanOrEqual(1);
+      await expect(page.getByTestId("nav-addons-issues")).toContainText(String(count));
+      await expect(page.getByTestId("addons-issues-tab").getByTestId("package-health-panel")).toBeVisible();
+    });
+  }
+
+  // See change: addons-hub-folder-view (test-plan #F11): off, reload, on at a trusted folder.
+  test("F11: a From Global add-on turned off here persists across reload and restores the file on re-enable", async ({ page }) => {
+    await gotoDashboard(page);
+    await ensureFixtureGitGroup(page);
+    const original = folderSettingsFile();
+    // Trust the folder up front so no dialog interrupts the round trip.
+    const url = `/folder/${Buffer.from(FIXTURE_GIT).toString("base64url")}/settings/add-ons`;
+    await page.goto(url);
+    await expect(page.getByTestId("folder-addons-strip")).toBeVisible({ timeout: 30_000 });
+    const row = page.locator('[data-testid^="folder-addon-row-"]').first();
+    await row.waitFor({ state: "visible", timeout: 30_000 }); // the harness ships global packages (docker/test-entrypoint.sh)
+    const sw = row.locator('[data-testid^="folder-addon-switch-"]');
+    const turnedOff = page.getByTestId("folder-strip-off");
+    await expect(turnedOff).toContainText("0");
+
+    await sw.click();
+    // An untrusted folder asks first; approve it so the toggle is retried.
+    const dialog = page.getByTestId("resource-trust-dialog");
+    const offBadge = row.locator('[data-testid^="folder-addon-state-"]');
+    // Wait for whichever comes first: the trust prompt or the completed off state (isVisible() does not wait).
+    await expect(dialog.or(offBadge)).toBeVisible({ timeout: 15_000 });
+    if (await dialog.isVisible()) await dialog.getByTestId("resource-trust-option-trust").click();
+    await expect(offBadge).toHaveText("off in this folder", { timeout: 15_000 });
+    await expect(turnedOff).toContainText("1");
+
+    await page.reload();
+    await expect(page.locator('[data-testid^="folder-addon-state-"]').first()).toHaveText("off in this folder", { timeout: 30_000 });
+    await expect(page.getByTestId("folder-strip-off")).toContainText("1");
+
+    await page.locator('[data-testid^="folder-addon-switch-"]').first().click();
+    await expect(page.getByTestId("folder-strip-off")).toContainText("0", { timeout: 15_000 });
+    // The delta is gone again: the catalog reports the feature as inherited.
+    const cat = (await (await page.request.get(`/api/addons/catalog?scope=local&cwd=${encodeURIComponent(FIXTURE_GIT)}`)).json()) as {
+      features: Array<{ folderState?: string }>;
+    };
+    expect(cat.features.filter((f) => f.folderState === "off-here")).toHaveLength(0);
+    // ...and the folder's settings file is byte-for-byte what it was before the round trip.
+    expect(folderSettingsFile()).toBe(original);
   });
 });
