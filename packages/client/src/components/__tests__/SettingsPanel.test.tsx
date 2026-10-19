@@ -1,10 +1,10 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { __resetAddonIssuesStore } from "../../lib/addons/addon-issues-store.js";
 import {
   ModelConfigProvider,
   type ModelConfigValue,
 } from "../../lib/state/ModelConfigContext.js";
-import { __resetAddonIssuesStore } from "../../lib/addons/addon-issues-store.js";
 import { SettingsPanel } from "../settings/SettingsPanel.js";
 
 // Worktree auto-init preference is fetched/persisted through git-api, not

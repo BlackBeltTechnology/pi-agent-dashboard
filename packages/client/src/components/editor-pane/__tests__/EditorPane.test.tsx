@@ -411,7 +411,7 @@ describe("EditorPane — changed-on-disk verification wiring", () => {
     expect(screen.queryByTestId("changed-on-disk-banner")).toBeNull();
   });
 
-  it("F20: switching to a session whose active tab has the SAME path/key still captures a baseline before the viewer mounts (review B1)", async () => {
+  it("review-B1: switching to a session whose active tab has the SAME path/key still captures a baseline before the viewer mounts (review B1)", async () => {
     render(<Host />);
     // sV: open foo.ts, mount (so its split state persists with foo.ts active).
     fireEvent.click(screen.getByTestId("open-foo"));

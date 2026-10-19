@@ -744,7 +744,7 @@ describe("SplitWorkspaceProvider — changed-on-disk verification", () => {
     expect(f.state.writeCalls).toBe(1);
   });
 
-  it("F19: while the session cwd is unhydrated ('') no digest is requested and detection reads off; once cwd arrives a baseline is captured", async () => {
+  it("cwd-hydration: while the session cwd is unhydrated ('') no digest is requested and detection reads off; once cwd arrives a baseline is captured", async () => {
     const h = mountDetect({ cwd: "" });
     expect(h.result.current.changeDetection).toBe(false);
     act(() => h.result.current.openInSplit("foo.ts"));

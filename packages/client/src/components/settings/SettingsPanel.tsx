@@ -30,13 +30,13 @@ import { mdiAlert, mdiAlertOutline, mdiArrowLeft, mdiBookOpenPageVariant, mdiChe
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useRoute } from "wouter";
+import { useAddonIssues } from "../../hooks/useAddonIssues.js";
 import { useAsyncAction } from "../../hooks/useAsyncAction.js";
 import { useLaunchSource } from "../../hooks/useLaunchSource.js";
 import { useModelCatalogue } from "../../hooks/useModelCatalogue.js";
 import { usePersistedBoolean } from "../../hooks/usePersistedBoolean.js";
 import { usePiCompatibility } from "../../hooks/usePiCompatibility.js";
 import { usePiResources } from "../../hooks/usePiResources.js";
-import { useAddonIssues } from "../../hooks/useAddonIssues.js";
 import { usePluginList, usePluginToggle } from "../../hooks/usePluginToggle.js";
 import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
 import { useResourceActivation } from "../../hooks/useResourceActivation.js";
