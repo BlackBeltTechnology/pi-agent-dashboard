@@ -94,3 +94,80 @@ describe("forge.config.ts Windows VERSIONINFO override", () => {
     );
   });
 });
+
+/**
+ * test-plan E11 (refresh-electron-bundled-components): every macOS floor literal
+ * encoded in `forge.config.ts` and `_electron-build.yml` equals
+ * `MACOS_FLOOR_MARKETING`. The floor lives in five source sites; moving one
+ * without the others lets CI verify a different floor than the plist declares.
+ *
+ * @structural-pin text of forge.config.ts + _electron-build.yml: the floor literals are source constants
+ */
+describe("macOS floor literals agree across forge.config.ts and _electron-build.yml (E11)", () => {
+  const WORKFLOW_PATH = path.resolve(__dirname, "..", "..", "..", "..", ".github", "workflows", "_electron-build.yml");
+
+  /** Every floor literal, tagged by the site that encodes it. */
+  function floorSites(forgeSource: string, workflowText: string): { site: string; value: string }[] {
+    const sites: { site: string; value: string }[] = [];
+    const add = (site: string, text: string, re: RegExp) => {
+      for (const m of text.matchAll(re)) sites.push({ site, value: m[1] });
+    };
+    add("forge.config.ts LSMinimumSystemVersion", forgeSource, /LSMinimumSystemVersion\s*:\s*["']([\d.]+)["']/g);
+    add("workflow MACOSX_DEPLOYMENT_TARGET (GITHUB_ENV)", workflowText, /MACOSX_DEPLOYMENT_TARGET=([\d.]+)/g);
+    add("workflow MACOSX_DEPLOYMENT_TARGET (env)", workflowText, /MACOSX_DEPLOYMENT_TARGET:\s*["']([\d.]+)["']/g);
+    add("workflow plist equality check", workflowText, /"\$MIN_OS"\s*!=\s*"([\d.]+)"/g);
+    add("workflow floor step name", workflowText, /Verify macOS deployment target floor \(([\d.]+)\)/g);
+    return sites;
+  }
+
+  it("finds all five site kinds in the real sources", async () => {
+    const forge = fs.readFileSync(FORGE_CONFIG_PATH, "utf8");
+    const wf = fs.readFileSync(WORKFLOW_PATH, "utf8");
+    const kinds = new Set(floorSites(forge, wf).map((s) => s.site));
+    expect(kinds.size).toBe(5);
+  });
+
+  it("every site equals MACOS_FLOOR_MARKETING (13.0)", async () => {
+    // @ts-expect-error — plain .mjs module, no type declarations by design.
+    const { MACOS_FLOOR_MARKETING } = await import("../../scripts/macos-floor.mjs");
+    expect(MACOS_FLOOR_MARKETING).toBe("13.0");
+    const forge = fs.readFileSync(FORGE_CONFIG_PATH, "utf8");
+    const wf = fs.readFileSync(WORKFLOW_PATH, "utf8");
+    const wrong = floorSites(forge, wf).filter((s) => s.value !== MACOS_FLOOR_MARKETING);
+    expect(wrong, `sites not at ${MACOS_FLOOR_MARKETING}: ${wrong.map((w) => w.site).join(", ")}`).toEqual([]);
+  });
+
+  it("a fixture with one site left at 12.0 fails, naming that site", () => {
+    const forge = fs.readFileSync(FORGE_CONFIG_PATH, "utf8");
+    const wf = fs.readFileSync(WORKFLOW_PATH, "utf8").replace('MACOSX_DEPLOYMENT_TARGET: "13.0"', 'MACOSX_DEPLOYMENT_TARGET: "12.0"');
+    const wrong = floorSites(forge, wf).filter((s) => s.value !== "13.0");
+    expect(wrong.map((w) => w.site)).toEqual(["workflow MACOSX_DEPLOYMENT_TARGET (env)"]);
+  });
+});
+
+/**
+ * test-plan E1 (refresh-electron-bundled-components, design D2): both preload Vite
+ * configs pin `rollupOptions.output.entryFileNames: "[name].js"`.
+ *
+ * Forge 8's Vite plugin emits preloads as `[name].cjs`; `main.ts` and
+ * `remote-connect-window.ts` load `preload-main.js` / `preload.js` and silently run
+ * WITHOUT a preload when the file is missing. The Forge plugin merges the user
+ * config last, so the pin wins.
+ *
+ * @structural-pin preload Vite config text: the emitted filename is a loader contract with main.ts
+ */
+describe("preload Vite configs pin the .js output filename (E1)", () => {
+  const PIN = /rollupOptions\s*:\s*\{[\s\S]*?output\s*:\s*\{[\s\S]*?entryFileNames\s*:\s*["']\[name\]\.js["']/;
+  const electronRoot = path.resolve(__dirname, "..", "..");
+
+  it.each(["vite.preload.config.ts", "vite.preload-main.config.ts"])("%s pins entryFileNames", (file) => {
+    expect(fs.readFileSync(path.join(electronRoot, file), "utf8")).toMatch(PIN);
+  });
+
+  it("a config without the pin fails the assertion (non-vacuous)", () => {
+    const unpinned = `export default { build: { rollupOptions: { external: [] } } };`;
+    expect(unpinned).not.toMatch(PIN);
+    const cjsPinned = `export default { build: { rollupOptions: { output: { entryFileNames: "[name].cjs" } } } };`;
+    expect(cjsPinned).not.toMatch(PIN);
+  });
+});

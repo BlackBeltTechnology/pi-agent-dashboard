@@ -16,22 +16,25 @@ import { isDeepStrictEqual } from "node:util";
 
 import type { ProviderAuthStatus } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { ProviderInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { getLatestCatalogue } from "../package/provider-catalogue-cache.js";
+import { getLatestCatalogue, isCatalogueReady } from "../package/provider-catalogue-cache.js";
+import { readProvidersFromDisk } from "../package/provider-probe.js";
 import {
-  getOAuthRegistry,
-  type OAuthRegistryEntry,
-} from "./provider-auth-handlers.js";
-import {
+  _resetQuarantineDedupForTests as _resetLockedJsonQuarantineDedup,
   type CheckedJsonRead,
   corruptUnbackedRefusal as corruptUnbackedRefusal_,
   LOCK_OPTIONS,
   type NotPromise,
-  _resetQuarantineDedupForTests as _resetLockedJsonQuarantineDedup,
   readJsonChecked,
   tryReadJson,
   withLockedJsonFile,
   writeJsonAtomic,
 } from "./locked-json-file.js";
+import {
+  getOAuthRegistry,
+  type OAuthRegistryEntry,
+} from "./provider-auth-handlers.js";
+import { getRegistryRuntime } from "./provider-auth-registry.js";
+import { buildRuntimeCatalogue } from "./runtime-provider-catalogue.js";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -530,8 +533,22 @@ export function _buildAuthStatus(
 
 // ── Public API: status / OAuth meta / id resolution ─────────────────────────
 
-export function getAuthStatus(): ProviderAuthStatus[] {
-  return _buildAuthStatus(getLatestCatalogue(), readAuthJson(), getOAuthRegistry());
+/**
+ * The catalogue the api-key rows derive from: the bridge's push when held,
+ * else a fallback built from the server's own runtime (never stored), else
+ * `[]`. See change: fix-provider-catalogue-first-run (D2).
+ */
+export async function resolveCatalogue(): Promise<ProviderInfo[]> {
+  if (isCatalogueReady()) return getLatestCatalogue();
+  return buildRuntimeCatalogue(getRegistryRuntime(), {
+    customIds: Object.keys(readProvidersFromDisk()),
+    authData: tryReadAuthJson(),
+    env: process.env,
+  });
+}
+
+export async function getAuthStatus(): Promise<ProviderAuthStatus[]> {
+  return _buildAuthStatus(await resolveCatalogue(), readAuthJson(), getOAuthRegistry());
 }
 
 export function getOAuthProvidersMeta(

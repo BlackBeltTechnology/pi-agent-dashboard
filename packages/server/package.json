@@ -84,7 +84,7 @@
     "@fastify/reply-from": "^12.6.1",
     "@fastify/static": "^10.1.3",
     "@fastify/websocket": "^11.0.0",
-    "@fission-ai/openspec": "1.11.0",
+    "@fission-ai/openspec": "1.14.3",
     "@simplewebauthn/browser": "^14.0.0",
     "@simplewebauthn/server": "^14.0.3",
     "asciidoctor": "^3.0.4",
@@ -100,7 +100,7 @@
     "jsonwebtoken": "^9.0.3",
     "mailparser": "3.9.14",
     "mammoth": "^1.12.0",
-    "node-pty": "1.2.0-beta.13",
+    "node-pty": "1.2.0-beta.15",
     "proper-lockfile": "^4.1.2",
     "qrcode": "^1.5.4",
     "semver": "^7.7.1",
@@ -112,7 +112,7 @@
     "yaml": "^2.9.0"
   },
   "optionalDependencies": {
-    "koffi": "^3.1.0"
+    "koffi": "^3.3.3"
   },
   "devDependencies": {
     "@blackbelt-technology/pi-dashboard-mcp-server-plugin": "^0.9.0",

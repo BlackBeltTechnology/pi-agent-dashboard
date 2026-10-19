@@ -30,6 +30,9 @@ export default defineConfig({
 			"src/__tests__/shared-mjs-exports.test.ts",
 			"src/__tests__/tray-icon-asset.test.ts",
 			"src/__tests__/forge-config-windows-version.test.ts",
+			"src/__tests__/assert-packaged-preloads.test.ts",
+			"src/__tests__/relativize-extra-resource-links.test.ts",
+			"src/__tests__/scan-packaged-symlinks.test.ts",
 			// Launch-source precedence is shipped contract too, and the resolver
 			// takes every probe by injection (pure). See change:
 			// electron-runtime-overlay-updates (test-plan E4, E23).

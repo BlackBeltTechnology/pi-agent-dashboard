@@ -16,7 +16,7 @@
 
 import { mdiArrowLeft, mdiBookOpenPageVariant, mdiCardsOutline, mdiFileDocumentOutline, mdiPackageVariant, mdiPalette, mdiPuzzleOutline, mdiRobotOutline, mdiTextBoxOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { useMemo } from "react";
+import { lazy, Suspense, useMemo } from "react";
 import { useLocation } from "wouter";
 import { usePiResources } from "../../hooks/usePiResources.js";
 import { useResourceActivation } from "../../hooks/useResourceActivation.js";
@@ -27,7 +27,10 @@ import { countResources } from "../resource/ResourceCardGrid.js";
 import { RESOURCE_PAGE_TYPE, ScopedResourceGrid } from "../resource/ScopedResourceGrid.js";
 import { CardSectionsPage } from "./CardSectionsPage.js";
 import { InstructionsPage } from "./InstructionsPage.js";
-import { PackagesPage } from "./PackagesPage.js";
+
+// The folder Add-ons page (+ its hook/parts) is its own chunk: DirectorySettings rides the cold-landing
+// entry chunk, which has a size budget. See change: addons-hub-folder-view.
+const PackagesPage = lazy(() => import("./PackagesPage.js").then((m) => ({ default: m.PackagesPage })));
 
 export type DirectorySettingsResourcePage = "skills" | "agents" | "extensions" | "prompts" | "themes";
 export type DirectorySettingsPage = "instructions" | "add-ons" | "cards" | DirectorySettingsResourcePage;
@@ -159,7 +162,11 @@ export function DirectorySettings({ cwd, page, onBack }: Props) {
           className="flex-1 flex flex-col min-h-0 overflow-y-auto min-w-0"
         >
           {page === "instructions" && <InstructionsPage cwd={cwd} />}
-          {page === "add-ons" && <PackagesPage cwd={cwd} />}
+          {page === "add-ons" && (
+            <Suspense fallback={<div className="p-3 text-xs text-[var(--text-muted)]">{i18nT("common.loading", undefined, "Loading…")}</div>}>
+              <PackagesPage cwd={cwd} />
+            </Suspense>
+          )}
           {page === "cards" && <CardSectionsPage cwd={cwd} />}
           {page in RESOURCE_PAGE_TYPE && (
             <ScopedResourceGrid
