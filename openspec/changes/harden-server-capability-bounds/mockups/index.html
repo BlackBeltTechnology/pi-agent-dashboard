@@ -15,7 +15,7 @@
     <button type="button" aria-pressed="false" data-theme-btn="light">Light</button>
   </div>
   <a href="#A" style="font-size:12px;color:var(--link)">A Terminal cap</a>
-  <a href="#B" style="font-size:12px;color:var(--link)">B Folder picker</a>
+  <a href="#B" style="font-size:12px;color:var(--link)">B Remote folder picker</a>
   <a href="#C" style="font-size:12px;color:var(--link)">C Recovery</a>
 </div>
 <main>
@@ -23,7 +23,7 @@
 <!-- ========================= A ========================= -->
 <section class="surface" id="A">
   <h2>A. Terminal limit reached</h2>
-  <p class="verdict">Today a rejected <code>create_terminal</code> is a server log line only: the user clicks "+" and nothing happens (Nielsen #1 visibility of status, #9 help users recover). Proposal: a dismissible inline notice directly under the tab bar, naming the scope, the limit and what to do. Needs one new server-to-browser message, <code>terminal_limit_reached {scope, limit}</code>. Idle-reaped terminals reuse the existing <code>terminal_removed</code> path: the tab simply disappears, no new UI.</p>
+  <p class="verdict">Today a rejected <code>create_terminal</code> is invisible: the user clicks "+" and nothing happens (Nielsen #1 visibility of status, #9 help users recover). Proposal: a dismissible inline notice directly under the tab bar, naming the scope, the limit and what to do. Needs one new server-to-browser message, <code>terminal_limit_reached {scope, limit, cwd, inline}</code>, sent to the requesting socket only. <b>Tab terminals are never reaped</b>: detached shells (dev servers, watchers) live until the user closes them, so the notice asks the user to close one. Only orphaned inline cards (no viewer for 10 min) are reaped, through the normal exit path (card freezes with its transcript).</p>
   <div class="grid">
     <div class="state">
       <header><b>A1</b> <code>normal</code> under the cap</header>
@@ -36,7 +36,7 @@
     </div>
 
     <div class="state">
-      <header><b>A2</b> <code>per-folder cap</code> rejected</header>
+      <header><b>A2</b> <code>per-owner cap</code> rejected (multi-user only)</header>
       <div class="tabs" role="tablist">
         <span class="tab" role="tab" aria-selected="true">zsh 16</span>
         <span class="tab" role="tab" aria-selected="false">zsh 15</span>
@@ -45,7 +45,7 @@
       <div class="toast-slot">
         <div class="notice warning" role="status">
           <span class="glyph" aria-hidden="true">!</span>
-          <div class="body"><strong>Terminal limit reached for this folder</strong>This folder already has 16 terminals (the maximum). Close one you no longer need, then try again.</div>
+          <div class="body"><strong>You have reached your terminal limit</strong>You already have 16 terminals open (the maximum per user), across all folders. Close one you no longer need, then try again.</div>
           <button class="dismiss" type="button" aria-label="Dismiss">x</button>
         </div>
       </div>
@@ -53,7 +53,7 @@
     </div>
 
     <div class="state">
-      <header><b>A3</b> <code>global cap</code> rejected (other folder)</header>
+      <header><b>A3</b> <code>global cap</code> rejected</header>
       <div class="tabs" role="tablist">
         <span class="tab" role="tab" aria-selected="true">zsh - api</span>
         <button class="tab-add" type="button" aria-label="New terminal">+</button>
@@ -61,23 +61,23 @@
       <div class="toast-slot">
         <div class="notice warning" role="status">
           <span class="glyph" aria-hidden="true">!</span>
-          <div class="body"><strong>Terminal limit reached</strong>32 terminals are open across all folders (the maximum). Close one in any folder, then try again. Terminals nobody is attached to are closed automatically after 6 hours of silence.</div>
+          <div class="body"><strong>Terminal limit reached</strong>32 terminals are open on this dashboard (the maximum), including inline terminal cards. Close one in any folder, then try again.</div>
           <button class="dismiss" type="button" aria-label="Dismiss">x</button>
         </div>
       </div>
       <div class="term mono"><span class="dim">~/Project/api</span> $</div>
     </div>
   </div>
-  <p class="note"><b>Rules:</b> notice is <code>role="status"</code> (polite, not an alert), uses <code>--severity-warning-*</code> plus a "!" glyph (never colour alone), stays until dismissed or the next successful spawn, and is not stacked: a second rejection replaces it. The "+" is never disabled, because the client does not know the server cap in advance.</p>
+  <p class="note"><b>Rules:</b> notice is <code>role="status"</code> (polite, not an alert), uses <code>--severity-warning-*</code> plus a "!" glyph (never colour alone), stays until dismissed or the next successful spawn, and is not stacked: a second rejection replaces it. The "+" is never disabled, because the client does not know the server cap in advance. While the identity plane is inert (single user) only the global cap applies, so A2 never appears. An inline-terminal card refused at the cap shows the same notice text in the chat card slot.</p>
 </section>
 
 <!-- ========================= B ========================= -->
 <section class="surface" id="B">
-  <h2>B. Folder picker at the allowed-root boundary</h2>
-  <p class="verdict">Browse is now limited to <code>$HOME</code> and pinned folders. Three things change for users: (B1) at a root there is no <code>..</code> row, so the picker must say why; (B2) a typed path outside the roots needs a plain-language refusal instead of a raw red <code>path outside allowed roots</code>; (B3) you chose a "Request access" affordance, mocked here by reusing the existing <b>cwd-plane</b> grant dialog (its copy already reads "This directory is not pinned..."; Allow always = pin). That needs a server change not in the current spec: a refused browse must raise a grant request instead of only a 403.</p>
+  <h2>B. Folder picker over a tunnel / paired device</h2>
+  <p class="verdict">Confinement applies only to requests that are <b>not genuinely local</b> (tunnel, LAN, relayed loopback). On the machine itself the picker is unchanged: no hint, no refusal, <code>..</code> up to <code>/</code>. Remotely, browsing is limited to the shared folders: <code>$HOME</code>, pinned folders, folders with sessions, folder-workspace and worktree-init roots, and access grants. Two remote-only states: (B1) at the top of a shared folder there is no <code>..</code> row, so the picker says why; (B2) a typed path outside the shared folders gets a plain-language refusal instead of a raw <code>path outside allowed roots</code>. No "Request access": a remote device must not grant itself access.</p>
   <div class="grid">
     <div class="state">
-      <header><b>B1</b> <code>at $HOME</code> (top of the allowed area)</header>
+      <header><b>B1</b> <code>remote, at $HOME</code> top of a shared folder</header>
       <div class="stage">
         <div class="picker" role="group" aria-label="Folder picker">
           <div class="input"><input value="/Users/robson" aria-label="Path"><button class="btn primary" type="button">Select</button></div>
@@ -86,55 +86,23 @@
           <div class="row"><span aria-hidden="true">&#128193;</span> Project <span class="chev" aria-hidden="true">&rsaquo;</span></div>
           <div class="row"><span aria-hidden="true">&#128193;</span> Documents <span class="chev" aria-hidden="true">&rsaquo;</span></div>
           <div class="row"><span aria-hidden="true">&#128193;</span> Downloads <span class="chev" aria-hidden="true">&rsaquo;</span></div>
-          <div class="foot"><span aria-hidden="true">i</span><span>Browsing is limited to your home folder and pinned folders. To use another folder, type its path.</span></div>
+          <div class="foot"><span aria-hidden="true">i</span><span>From this device you can browse the folders this dashboard shares. To use another folder, pin it on the host.</span></div>
         </div>
       </div>
     </div>
 
     <div class="state">
-      <header><b>B2</b> <code>refused</code> typed path outside the roots</header>
+      <header><b>B2</b> <code>remote, refused</code> typed path outside the shared folders</header>
       <div class="stage">
         <div class="picker" role="group" aria-label="Folder picker">
-          <div class="input"><input value="/opt/data/projects" aria-invalid="true" aria-describedby="b2err" aria-label="Path"><button class="btn primary" type="button" disabled>Select</button></div>
-          <div class="field-error" id="b2err" role="alert"><span aria-hidden="true">(!)</span><span><b>/opt/data/projects</b> is outside your home folder and pinned folders, so it can't be browsed.</span></div>
-          <div class="field-actions">
-            <button class="btn" type="button">Request access...</button>
-            <button class="btn" type="button">Back to /Users/robson</button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="state">
-      <header><b>B3</b> <code>Request access</code> existing GrantPromptDialog, cwd plane</header>
-      <div class="scrim">
-        <div class="dialog" role="dialog" aria-label="Allow this working directory?">
-          <h3>Allow this working directory?</h3>
-          <span class="pill">working directory</span>
-          <div class="subject">/opt/data/projects</div>
-          <p>This directory is not pinned, so the dashboard refused to browse it. Allowing it adds it to your pinned folders.</p>
-          <div class="actions">
-            <button class="btn" type="button">Deny</button>
-            <button class="btn" type="button">Allow once</button>
-            <button class="btn" type="button">Allow always (pin)</button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="state">
-      <header><b>B4</b> <code>tunnel / paired device</code> same refusal, no "Request access"</header>
-      <div class="stage">
-        <div class="picker" role="group" aria-label="Folder picker">
-          <div class="input"><input value="/" aria-invalid="true" aria-describedby="b4err" aria-label="Path"><button class="btn primary" type="button" disabled>Select</button></div>
-          <div class="field-error" id="b4err" role="alert"><span aria-hidden="true">(!)</span><span><b>/</b> is outside the folders this dashboard shares. Ask the host to pin it.</span></div>
+          <div class="input"><input value="/" aria-invalid="true" aria-describedby="b2err" aria-label="Path"><button class="btn primary" type="button" disabled>Select</button></div>
+          <div class="field-error" id="b2err" role="alert"><span aria-hidden="true">(!)</span><span><b>/</b> is outside the folders this dashboard shares. Ask the host to pin it.</span></div>
           <div class="field-actions"><button class="btn" type="button">Back to home</button></div>
         </div>
       </div>
-      <p class="note" style="padding:0 12px 12px">A remote device must not be able to grant itself access. Only a host-local caller sees "Request access...".</p>
     </div>
   </div>
-  <p class="note"><b>Open question for the spec:</b> "host-local caller" is decided by the existing local-token / loopback proof, as the grant prompt already does. Raw error string stays in the API body; the picker maps <code>403 path outside allowed roots</code> to B2/B4.</p>
+  <p class="note"><b>Contract:</b> the browse response carries <code>confined: true</code> when the request was confined, and <code>parent: null</code> at a shared-folder top; the picker shows the B1 hint only when <code>confined</code> and <code>parent === null</code>. A <code>403 path outside allowed roots</code> maps to B2. A refused <code>mkdir</code> ("New folder") shows the same B2 text inline.</p>
 </section>
 
 <!-- ========================= C ========================= -->
