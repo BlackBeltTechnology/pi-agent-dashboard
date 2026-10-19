@@ -1,9 +1,10 @@
-import { mdiAlert, mdiCheck, mdiFolderOutline, mdiLock } from "@mdi/js";
+import { mdiAlert, mdiCheck, mdiFolderOutline, mdiLock, mdiSkipNext } from "@mdi/js";
 import Icon from "@mdi/react";
 import type React from "react";
 import { useEffect, useRef, useState } from "react";
 import { useAcpAgents } from "../../hooks/useAcpAgents.js";
 import { useAnthropicPeerProbe } from "../../hooks/useAnthropicPeerProbe.js";
+import { usePersistedBoolean } from "../../hooks/usePersistedBoolean.js";
 import { useRecommendedExtensions } from "../../hooks/useRecommendedExtensions.js";
 import { getRememberedAgent } from "../../lib/acp/agent-memory.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
@@ -41,7 +42,10 @@ export interface LandingPageProps {
   navigate?: (to: string) => void;
 }
 
-type StepState = "pending" | "done" | "locked";
+type StepState = "pending" | "done" | "locked" | "skipped";
+
+/** Persisted "Skip for now" choice for Step ①. See change: fix-provider-catalogue-first-run (D6). */
+const PROVIDERS_SKIPPED_KEY = "pi-dashboard.onboarding.providersSkipped";
 
 const DEFAULT_PROJECT_NAME = "my-first-project";
 
@@ -72,6 +76,14 @@ function Marker({ state, number }: { state: StepState; number: number }) {
       >
         <Icon path={mdiCheck} size={0.6} aria-hidden="true" />
         <span className="sr-only">{t("landing.stateDone", undefined, "Done")}</span>
+      </span>
+    );
+  }
+  if (state === "skipped") {
+    return (
+      <span className={`${base} bg-[var(--bg-tertiary)] text-[var(--text-secondary)]`}>
+        <Icon path={mdiSkipNext} size={0.6} aria-hidden="true" />
+        <span className="sr-only">{t("landing.stateSkipped", undefined, "Skipped")}</span>
       </span>
     );
   }
@@ -353,6 +365,9 @@ export function LandingPage({
   const acpAgents = useAcpAgents();
   // Page-instance state: gone once Landing unmounts (opening a session).
   const [existed, setExisted] = useState(false);
+  // Hook order: before the early return below. Storage failures degrade to an
+  // in-memory value for the lifetime of the mount.
+  const [providersSkipped, setProvidersSkipped] = usePersistedBoolean(PROVIDERS_SKIPPED_KEY);
   // Legacy behaviour: if no onboarding props are supplied at all, fall back to the
   // original minimal placeholder (keeps existing tests and stories intact).
   const hasOnboardingContext =
@@ -372,8 +387,10 @@ export function LandingPage({
   }
 
   // Derive states per design.md D1
-  const step1: StepState = providersReady ? "done" : "pending";
-  const step2: StepState = !providersReady
+  // Done wins over a previous skip; a skip satisfies the gate without counting as done.
+  const step1: StepState = providersReady ? "done" : providersSkipped === true ? "skipped" : "pending";
+  const step1Satisfied = step1 !== "pending";
+  const step2: StepState = !step1Satisfied
     ? "locked"
     : pinnedCount > 0
       ? "done"
@@ -397,7 +414,7 @@ export function LandingPage({
   /** A collapsed, non-done row's reason text. */
   const lockText = (n: number): string => {
     if (n === 2) return t("landing.needsProvider", undefined, "Needs a model provider");
-    if (!providersReady && pinnedCount > 0) {
+    if (!step1Satisfied && pinnedCount > 0) {
       return t("landing.waitsOnStep", { step: 1, title: titles[0] }, `Waits for step 1: ${titles[0]}`);
     }
     return t("landing.needsFolder", undefined, "Needs a project folder");
@@ -440,11 +457,38 @@ export function LandingPage({
               state={step1}
               title={titles[0]}
               expanded={firstPending === 0}
-              testId={step1 === "done" ? "onboarding-step-1-done" : "onboarding-step-1-locked"}
+              testId={
+                step1 === "done"
+                  ? "onboarding-step-1-done"
+                  : step1 === "skipped"
+                    ? "onboarding-step-1-skipped"
+                    : "onboarding-step-1-locked"
+              }
               below={step1 === "done" && anthropicAuthenticated === true ? <Step1PeerStatus /> : undefined}
             >
               {step1 === "done" ? (
                 t("landing.credentialsConfigured", undefined, "Credentials configured")
+              ) : step1 === "skipped" ? (
+                <div className="flex flex-col gap-1">
+                  <span>{t("landing.step1Skipped", undefined, "Provider setup skipped")}</span>
+                  <span className="text-[12px] text-[var(--text-secondary)]">
+                    {t(
+                      "landing.step1SkippedHint",
+                      undefined,
+                      "Sessions need a provider to run prompts. A session lists every provider it knows, so you can connect one there too.",
+                    )}
+                  </span>
+                  <div>
+                    <button
+                      type="button"
+                      data-testid="onboarding-step-1-resume"
+                      onClick={() => navigate?.("/settings/providers")}
+                      className={SECONDARY_BUTTON_CLASS}
+                    >
+                      {t("landing.resumeProviders", undefined, "Set up now")}
+                    </button>
+                  </div>
+                </div>
               ) : (
                 <>
                   <p className="text-[12px] text-[var(--text-secondary)]">
@@ -458,6 +502,16 @@ export function LandingPage({
                       className={PRIMARY_BUTTON}
                     >
                       {t("landing.connectProvider", undefined, "Connect a provider")}
+                    </button>
+                  </div>
+                  <div>
+                    <button
+                      type="button"
+                      data-testid="onboarding-step-1-skip"
+                      onClick={() => setProvidersSkipped(true)}
+                      className={SECONDARY_BUTTON_CLASS}
+                    >
+                      {t("landing.skipProviders", undefined, "Skip for now")}
                     </button>
                   </div>
                 </>

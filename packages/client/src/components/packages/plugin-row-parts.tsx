@@ -9,6 +9,7 @@
  * See change: plugin-settings-pages.
  */
 
+import { SettingsNotice, SettingsStatusPill } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { RECOMMENDED_EXTENSIONS } from "@blackbelt-technology/pi-dashboard-shared/recommended-extensions.js";
 import { mdiAlert, mdiCheck, mdiContentCopy } from "@mdi/js";
 import Icon from "@mdi/react";
@@ -21,7 +22,7 @@ import { copyText } from "../../lib/util/clipboard.js";
 
 // Severity-token fragments (`ui-contract.md`: `--severity-*` is text-safe on its
 // own `-bg`; a raw `--accent-<hue>` FILL is not a text colour). `WARN_*`/`LINK_*`
-// stay exported for existing consumers; `ERR_*`/`OK_*`/`NEUTRAL_*` are private.
+// stay exported for existing consumers; `ERR_*` is private.
 // See change: retro-ux-plugin-settings-wave-2 (design D5).
 export const WARN_FG = "text-[var(--severity-warning-fg)]";
 export const WARN_BG = "bg-[var(--severity-warning-bg)]";
@@ -29,54 +30,59 @@ export const WARN_BORDER = "border-[var(--severity-warning-border)]";
 const ERR_FG = "text-[var(--severity-error-fg)]";
 const ERR_BG = "bg-[var(--severity-error-bg)]";
 const ERR_BORDER = "border-[var(--severity-error-border)]";
-const OK_FG = "text-[var(--severity-success-fg)]";
-const OK_BG = "bg-[var(--severity-success-bg)]";
-const OK_BORDER = "border-[var(--severity-success-border)]";
-const NEUTRAL_FG = "text-[var(--severity-neutral-fg)]";
-const NEUTRAL_BG = "bg-[var(--severity-neutral-bg)]";
-const NEUTRAL_BORDER = "border-[var(--severity-neutral-border)]";
 export const LINK_FG = "text-[var(--severity-info-fg)]";
 export const LINK_BG = "bg-[var(--severity-info-bg)]";
 export const LINK_BG_HOVER = "hover:opacity-80";
 export const LINK_BORDER = "border-[var(--severity-info-border)]";
 
+/** The activation list's pill: the shared status pill with a human word; the raw state stays in `data-status`. */
 export function StatusPill({ row }: { row: PluginRow }) {
   const status = row.status;
   if (!status) {
     return (
-      <span className={`px-1.5 py-0.5 text-[11px] rounded ${NEUTRAL_BG} ${NEUTRAL_FG} border ${NEUTRAL_BORDER}`}>
-        unknown
-      </span>
+      <SettingsStatusPill tone="neutral" status="unknown">
+        {i18nT("packages.pillStatusUnknown", undefined, "Status unknown")}
+      </SettingsStatusPill>
     );
   }
   if (status.error) {
     return (
-      <span
-        className={`px-1.5 py-0.5 text-[11px] rounded ${ERR_BG} ${ERR_FG} border ${ERR_BORDER}`}
-        title={status.error}
-      >
-        error
-      </span>
+      <SettingsStatusPill tone="error" status="error">
+        {i18nT("packages.pillFailedToLoad", undefined, "Failed to load")}
+      </SettingsStatusPill>
     );
   }
   if (!status.enabled) {
     return (
-      <span className={`px-1.5 py-0.5 text-[11px] rounded ${NEUTRAL_BG} ${NEUTRAL_FG} border ${NEUTRAL_BORDER}`}>
-        disabled
-      </span>
+      <SettingsStatusPill tone="neutral" status="disabled">
+        {i18nT("packages.pillOff", undefined, "Off")}
+      </SettingsStatusPill>
     );
   }
   if (!status.loaded) {
     return (
-      <span className={`px-1.5 py-0.5 text-[11px] rounded ${WARN_BG} ${WARN_FG} border ${WARN_BORDER}`}>
-        {i18nT("common.notLoaded", undefined, "not loaded")}
-      </span>
+      <SettingsStatusPill tone="warning" status="not-loaded">
+        {i18nT("packages.pillNotLoaded", undefined, "Not loaded")}
+      </SettingsStatusPill>
     );
   }
   return (
-    <span className={`px-1.5 py-0.5 text-[11px] rounded ${OK_BG} ${OK_FG} border ${OK_BORDER}`}>
-      enabled
-    </span>
+    <SettingsStatusPill tone="success" status="enabled">
+      {i18nT("packages.pillOn", undefined, "On")}
+    </SettingsStatusPill>
+  );
+}
+
+/**
+ * An error in the plugin LIST: one sentence, the raw text (a stack, an HTTP
+ * message) only behind "Copy details". The plugin settings page keeps
+ * `CopyableErrorBlock`, whose full visible text is that page's load-error exception.
+ */
+export function PluginErrorNotice({ text, sentence, testId }: { text: string; sentence?: string; testId: string }) {
+  return (
+    <SettingsNotice tone="error" testId={testId} details={text}>
+      {sentence ?? i18nT("packages.pluginFailedToLoad", undefined, "This plugin failed to load.")}
+    </SettingsNotice>
   );
 }
 

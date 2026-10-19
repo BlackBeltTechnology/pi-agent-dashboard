@@ -30,6 +30,8 @@ interface FetchScript {
   providers?: Record<string, any>;
   health?: Record<string, any>;
   catalogueReady?: boolean;
+  /** `fallback` field of the catalogue-ready body; undefined = field omitted (older server). */
+  catalogueFallback?: boolean;
   /** GET /api/provider-auth/legacy-provider-ids payload; undefined = older server (404). */
   legacyProviderIds?: any[];
   statusMode?: "ok" | "500" | "nonarray" | "reject";
@@ -68,7 +70,7 @@ function stubFetch(script: FetchScript) {
       return { ok: true, status: 200, json: async () => ({ legacyProviderIds: script.legacyProviderIds }) } as any;
     }
     if (url.includes("/api/provider-auth/catalogue-ready")) {
-      return { ok: true, status: 200, json: async () => ({ ready: script.catalogueReady ?? true }) } as any;
+      return { ok: true, status: 200, json: async () => ({ ready: script.catalogueReady ?? true, ...(script.catalogueFallback === undefined ? {} : { fallback: script.catalogueFallback }) }) } as any;
     }
     if (url.includes("/api/provider-auth/api-key")) return script.apiKeyPut ? await script.apiKeyPut() : { ok: true, json: async () => ({ ok: true }) } as any;
     if (/\/api\/provider-auth\/[^/]+$/.test(url) && init?.method === "DELETE") return script.providerDelete ? await script.providerDelete() : { ok: true, json: async () => ({ ok: true }) } as any;
@@ -383,6 +385,56 @@ describe("catalogue unavailable (F7, D5)", () => {
   });
 });
 
+// ── fix-provider-catalogue-first-run (test-plan #F1–#F3) ───────────────────
+
+describe("catalogue fallback (first run)", () => {
+  it("F1: fallback → info notice + normal empty state; picker lists the fallback providers", async () => {
+    const script: FetchScript = {
+      statusGets: 0,
+      providersGets: 0,
+      statuses: [
+        { id: "anthropic", name: "Anthropic", flowType: "auth_code", authenticated: false, configured: false },
+        { id: "deepseek", name: "DeepSeek", flowType: "api_key", authenticated: false, configured: false },
+      ],
+      catalogueReady: false,
+      catalogueFallback: true,
+    };
+    const { c } = await renderSection(script);
+
+    await waitFor(() => expect(c.getByTestId("catalogue-fallback-notice")).toBeTruthy());
+    expect(c.getByTestId("providers-empty")).toBeTruthy();
+    expect(c.queryByTestId("catalogue-unavailable-notice")).toBeNull();
+
+    fireEvent.click(c.getByTestId("add-provider-button"));
+    expect(await c.findByText(/deepseek/i)).toBeTruthy();
+    expect(c.getByText(/custom endpoint/i)).toBeTruthy();
+  });
+
+  it("F2: unavailable (no fallback) keeps the warning, suppresses the empty state, keeps Add", async () => {
+    const script: FetchScript = {
+      statusGets: 0,
+      providersGets: 0,
+      statuses: [],
+      catalogueReady: false,
+      catalogueFallback: false,
+    };
+    const { c } = await renderSection(script);
+
+    await waitFor(() => expect(c.getByTestId("catalogue-unavailable-notice")).toBeTruthy());
+    expect(c.queryByTestId("providers-empty")).toBeNull();
+    expect(c.queryByTestId("catalogue-fallback-notice")).toBeNull();
+    expect(c.getByTestId("add-provider-button")).toBeTruthy();
+  });
+
+  it("F3: an older server without the fallback field is treated as unavailable", async () => {
+    const script: FetchScript = { statusGets: 0, providersGets: 0, statuses: [], catalogueReady: false };
+    const { c } = await renderSection(script);
+
+    await waitFor(() => expect(c.getByTestId("catalogue-unavailable-notice")).toBeTruthy());
+    expect(c.queryByTestId("catalogue-fallback-notice")).toBeNull();
+  });
+});
+
 // ── E17/F10 — health pills scoped to custom endpoints; pending reconcile ──
 
 describe("health pill scope and pending reconcile (E17, F10)", () => {
@@ -530,7 +582,14 @@ describe("custom-endpoint row Test action (moved from LlmProviderCard)", () => {
     const pill = await waitFor(() => c.container.querySelector('[data-testid="health-pill"]')!);
     await waitFor(() => expect(pill.getAttribute("data-state")).toBe("error"));
     expect(pill.textContent).toMatch(/403/);
-    expect(c.container.querySelector('[data-testid="provider-error-line"]')!.textContent).toBe("forbidden now");
+    // align-ui-contract-recipes: the raw error is behind "Copy details", not in the visible line.
+    const line = c.container.querySelector('[data-testid="provider-error-line"]') as HTMLElement;
+    expect(line.getAttribute("role")).toBe("alert");
+    expect(line.textContent).not.toContain("forbidden now");
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    fireEvent.click(line.querySelector('[data-testid="provider-error-line-copy-details"]')!);
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("forbidden now"));
   });
 
   it("discarding the edit clears the stale failed-Test result — the pill falls back to cached health", async () => {

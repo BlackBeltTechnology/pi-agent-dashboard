@@ -35,7 +35,7 @@ import { coveringDashboardEntry } from "./host-project-trust.js";
 import { getPiCore, type PiSettingsManager } from "./pi-resource-activation.js";
 
 /** pi records trust under the canonicalized folder path; match that spelling. */
-function canonical(p: string): string {
+export function canonical(p: string): string {
   try {
     return fs.realpathSync(path.resolve(p));
   } catch {

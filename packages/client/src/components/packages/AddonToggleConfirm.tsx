@@ -239,7 +239,8 @@ export function AddonToggleConfirm({ pending, byId, onConfirm, onCancel }: Addon
 }
 
 /** One-click "Reload sessions" offer shown after a toggle that needs it. */
-export function AddonReloadBanner({ onDismiss }: { onDismiss: () => void }) {
+/** `cwd` set → reload only the sessions governing that folder (folder Add-ons page). */
+export function AddonReloadBanner({ onDismiss, cwd }: { onDismiss: () => void; cwd?: string }) {
 	const [state, setState] = useState<"idle" | "busy" | "done">("idle");
 	return (
 		<div
@@ -251,7 +252,7 @@ export function AddonReloadBanner({ onDismiss }: { onDismiss: () => void }) {
 				disabled={state === "busy"}
 				onClick={() => {
 					setState("busy");
-					void reloadResourceSessions("global")
+					void (cwd ? reloadResourceSessions("local", cwd) : reloadResourceSessions("global"))
 						.then((r) => setState(r.ok ? "done" : "idle"))
 						.catch(() => setState("idle"));
 				}}

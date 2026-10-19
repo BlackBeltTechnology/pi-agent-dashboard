@@ -4,6 +4,7 @@ import {
   ModelConfigProvider,
   type ModelConfigValue,
 } from "../../lib/state/ModelConfigContext.js";
+import { __resetAddonIssuesStore } from "../../lib/addons/addon-issues-store.js";
 import { SettingsPanel } from "../settings/SettingsPanel.js";
 
 // Worktree auto-init preference is fetched/persisted through git-api, not
@@ -1611,7 +1612,7 @@ describe("SettingsPanel Models nav group", () => {
     render(<SettingsPanel />);
     const rail = await screen.findByTestId("settings-nav-rail");
     const dot = await within(rail).findByTestId("nav-plugin-status-roles");
-    expect(dot.className).toContain("--accent-red");
+    expect(dot.className).toContain("--severity-error-fg"); // severity token (align-ui-contract-recipes), no raw accent fill
     expect(dot.getAttribute("aria-label")).toBe("error");
     expect(within(rail).getByTestId("nav-promoted-roles").contains(dot)).toBe(true);
   });
@@ -2220,5 +2221,70 @@ describe("SettingsPanel Security ▸ Network access", () => {
     const base = { ...mockConfig, network: { trustMode: "legacy" } } as any;
     expect(computeConfigPartial({ ...base, network: { trustMode: "pair" } }, base)).toEqual({ network: { trustMode: "pair" } });
     expect(computeConfigPartial(base, base)).toEqual({});
+  });
+});
+
+// Add-ons rail badge: the same count the Issues tab shows.
+// See change: addons-hub-folder-view (test-plan #F12 rail half, #F13).
+describe("SettingsPanel — Add-ons issue badge", () => {
+  const pluginRow = (over: Record<string, unknown> = {}) => ({
+    id: "apple-tools",
+    displayName: "Apple Tools",
+    claims: [],
+    status: {
+      id: "apple-tools",
+      displayName: "Apple Tools",
+      enabled: true,
+      loaded: true,
+      claims: 0,
+      missingRequirements: ["${imcpServerPath}"],
+      ...over,
+    },
+  });
+
+  function fetchWith(plugins: unknown[], health: unknown) {
+    const base = mockFetchConfig();
+    return vi.fn().mockImplementation((url: string, options?: any) => {
+      if (url === "/api/plugins") {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, plugins }) });
+      }
+      if (url === "/api/packages/health") {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, data: health }) });
+      }
+      return base(url, options);
+    });
+  }
+
+  const healthy = { entries: [{ source: "npm:fine", status: "ok" }], summary: { ok: 1, staleNpm: 0, missingPath: 0, duplicateGroups: [] } };
+  const stale = { entries: [{ source: "npm:gone", status: "stale-npm", reason: "x" }], summary: { ok: 0, staleNpm: 1, missingPath: 0, duplicateGroups: [] } };
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    fetchAutoInitWorktreePref.mockResolvedValue(false);
+    setAutoInitWorktreePref.mockResolvedValue(true);
+    __resetAddonIssuesStore();
+    setPath("/settings/general");
+  });
+  afterEach(() => cleanup());
+
+  it("shows plugin issues + health entries as one count on the Add-ons item", async () => {
+    global.fetch = fetchWith([pluginRow()], stale);
+    render(<SettingsPanel />);
+    const badge = await screen.findByTestId("nav-addons-issues");
+    expect(badge.textContent).toContain("2");
+    // The count must not leak into the button's accessible name; it is its description.
+    const rail = screen.getByTestId("settings-nav-rail");
+    const button = within(rail).getByRole("button", { name: "Add-ons" });
+    expect(document.getElementById(button.getAttribute("aria-describedby") ?? "")?.textContent).toBe("2 add-on issues");
+  });
+
+  it("shows no badge when there are no issues", async () => {
+    global.fetch = fetchWith([pluginRow({ missingRequirements: [] })], healthy);
+    render(<SettingsPanel />);
+    await waitFor(() => expect(screen.getByTestId("settings-nav-rail")).toBeTruthy());
+    await waitFor(() =>
+      expect((global.fetch as any).mock.calls.some(([u]: [string]) => u === "/api/packages/health")).toBe(true),
+    );
+    expect(screen.queryByTestId("nav-addons-issues")).toBeNull();
   });
 });

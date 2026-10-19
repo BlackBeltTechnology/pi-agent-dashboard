@@ -18,6 +18,7 @@ import { Icon } from "@mdi/react";
 import { useEffect, useMemo, useState } from "react";
 import { t } from "../../lib/i18n/i18n.js";
 import { classifySource } from "../../lib/package/package-classifier.js";
+import { countHealthIssues } from "../../lib/package/package-health-api.js";
 import { logRejection } from "../../lib/report-error.js";
 
 const PACKAGE_HEALTH_COLLAPSED_KEY = "pi.packageHealth.collapsed";
@@ -29,10 +30,8 @@ export interface PackageHealthPanelProps {
 	onRefresh: () => void;
 }
 
-/** Entries that need attention (everything but ok). Shared with the badge. */
-export function countHealthIssues(report: PackageHealthListResponseData): number {
-	return report.entries.filter((e) => e.status !== "ok").length;
-}
+// The count lives in the api module so `lib/addons/addon-issues-store.ts` can use it without importing a component.
+export { countHealthIssues };
 
 function initialDrops(entries: PackageHealthReport[]): Set<string> {
 	return new Set(entries.filter((e) => e.duplicateGroupId && e.status === "missing-path").map((e) => e.source));
@@ -127,7 +126,7 @@ export function PackageHealthPanel({ report, onApply, onRefresh }: PackageHealth
 			<span className="min-w-0 flex-1">
 				<span className="block font-mono break-all text-[var(--text-primary)]">{e.source}</span>
 				{showMeta ? (
-					<span className="block text-[var(--text-muted)]">
+					<span className="block text-[var(--text-secondary)]">
 						{[
 							e.version && `v${e.version}`,
 							classifySource(e.source),
@@ -138,7 +137,7 @@ export function PackageHealthPanel({ report, onApply, onRefresh }: PackageHealth
 							.join(" · ")}
 					</span>
 				) : (
-					e.reason && <span className="block text-[var(--text-muted)]">{e.reason}</span>
+					e.reason && <span className="block text-[var(--text-secondary)]">{e.reason}</span>
 				)}
 			</span>
 		</label>
@@ -151,7 +150,7 @@ export function PackageHealthPanel({ report, onApply, onRefresh }: PackageHealth
 					<h4 className="text-xs font-semibold text-[var(--text-secondary)]">
 						{title} ({rows.length})
 					</h4>
-					<label className="text-[10px] text-[var(--text-muted)] flex items-center gap-1 cursor-pointer">
+					<label className="text-xs text-[var(--text-secondary)] flex items-center gap-1 cursor-pointer">
 						<input
 							type="checkbox"
 							checked={rows.every((r) => drops.has(r.source))}
@@ -167,7 +166,7 @@ export function PackageHealthPanel({ report, onApply, onRefresh }: PackageHealth
 
 	return (
 		<div
-			className="mb-3 p-2 rounded border border-amber-500/30 bg-amber-500/10"
+			className="mb-3 p-2 rounded border border-[var(--severity-warning-border)] bg-[var(--severity-warning-bg)]"
 			data-testid="package-health-panel"
 		>
 			<div className="flex items-center justify-between">
@@ -199,7 +198,7 @@ export function PackageHealthPanel({ report, onApply, onRefresh }: PackageHealth
 							<h4 className="text-xs font-semibold text-[var(--text-secondary)]">
 								{t("packages.health.duplicates", undefined, "Duplicates")}
 							</h4>
-							<p className="text-[10px] text-[var(--text-muted)] mb-1">
+							<p className="text-[11px] text-[var(--text-secondary)] mb-1">
 								{t(
 									"packages.health.duplicateHint",
 									undefined,
@@ -219,7 +218,7 @@ export function PackageHealthPanel({ report, onApply, onRefresh }: PackageHealth
 						</section>
 					)}
 					{error && (
-						<div role="alert" className="text-xs text-red-400 mb-2" data-testid="pkg-health-error">
+						<div role="alert" className="text-xs text-[var(--severity-error-fg)] mb-2" data-testid="pkg-health-error">
 							{error}
 						</div>
 					)}
@@ -227,7 +226,7 @@ export function PackageHealthPanel({ report, onApply, onRefresh }: PackageHealth
 						type="button"
 						onClick={() => apply().catch(logRejection("PackageHealthPanel.apply"))}
 						disabled={drops.size === 0 || pending}
-						className="text-xs px-3 py-1 rounded bg-[var(--accent-primary)]/20 text-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/30 disabled:opacity-50 flex items-center gap-1"
+						className="text-xs px-3 py-1 rounded border border-[var(--severity-info-border)] bg-[var(--severity-info-bg)] text-[var(--severity-info-fg)] hover:opacity-90 disabled:opacity-50 flex items-center gap-1"
 						data-testid="pkg-health-apply"
 					>
 						{pending && <Icon path={mdiLoading} size={0.55} spin />}

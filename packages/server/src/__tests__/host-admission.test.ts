@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { isSameOriginByHost } from "../auth/cors-origin.js";
 import {
   classifyAdmittedHostname,
@@ -133,5 +133,43 @@ describe("#E8 same-origin-by-Host tightened only in enforce", () => {
         hostGateMode: "report",
       }),
     ).toBe(true);
+  });
+});
+
+/**
+ * TLS-listener certificate names (add-tailscale-cert-tls D6): admitted by exact name,
+ * classified `tls-listener` between live-tunnel and allowed-host, fail-empty, never wildcards.
+ */
+describe("tls-listener source", () => {
+  const withTls = (names: () => string[], over: Partial<HostAdmissionOptions> = {}): HostAdmissionOptions =>
+    ({ tlsListenerNames: names, ...over }) as HostAdmissionOptions;
+
+  it("admits a held exact name (hostname only: port ignored) and classifies it tls-listener", () => {
+    const opts = withTls(() => ["host.example.ts.net"]);
+    expect(isHostAdmitted("host.example.ts.net:8443", opts)).toBe(true);
+    expect(classifyAdmittedHostname("host.example.ts.net", opts)).toBe("tls-listener");
+  });
+
+  it("does not admit a wildcard certificate's other names; empty list admits nothing", () => {
+    expect(isHostAdmitted("dash.example.com", withTls(() => ["*.example.com"]))).toBe(false);
+    expect(isHostAdmitted("host.example.ts.net", withTls(() => []))).toBe(false);
+  });
+
+  it("first-match order: live-tunnel before tls-listener before allowed-host", () => {
+    const names = () => ["both.example"];
+    expect(classifyAdmittedHostname("both.example", withTls(names, { allowedHosts: ["both.example"] }))).toBe("tls-listener");
+    expect(
+      classifyAdmittedHostname("both.example", withTls(names, { getLiveTunnelOrigins: () => ["https://both.example"] })),
+    ).toBe("live-tunnel");
+  });
+
+  it("a throwing accessor fails empty (never 5xx's a request)", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const opts = withTls(() => {
+      throw new Error("store fault");
+    });
+    expect(isHostAdmitted("host.example.ts.net", opts)).toBe(false);
+    expect(classifyAdmittedHostname("localhost", opts)).toBe("loopback");
+    warn.mockRestore();
   });
 });
