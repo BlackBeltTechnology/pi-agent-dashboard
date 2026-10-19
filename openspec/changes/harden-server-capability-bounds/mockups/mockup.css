@@ -1,0 +1,88 @@
+/* Board chrome + PROPOSED recipes for harden-server-capability-bounds.
+   Tokens only (tokens.css) - no hex / rgba / palette literal. Recipes mirror
+   ui-contract.md "Component invariants". */
+* { box-sizing: border-box; }
+html { background: var(--bg-primary); color: var(--text-primary); }
+body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 14px; line-height: 1.45; }
+code, .mono { font-family: "SF Mono", Menlo, Monaco, Consolas, monospace; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+button:disabled, [aria-disabled="true"] { cursor: not-allowed; }
+:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+.toolbar { position: sticky; top: 0; z-index: 40; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 8px 16px; background: var(--bg-secondary); border-bottom: 1px solid var(--border-secondary); }
+.toolbar h1 { font-size: 14px; margin: 0 12px 0 0; }
+.seg { display: inline-flex; border: 1px solid var(--border-secondary); border-radius: 6px; overflow: hidden; }
+.seg button { padding: 4px 10px; font-size: 12px; color: var(--text-secondary); min-height: 28px; }
+.seg button[aria-pressed="true"] { background: var(--severity-info-bg); color: var(--severity-info-fg); }
+.seg button + button { border-left: 1px solid var(--border-secondary); }
+main { padding: 16px; max-width: 1180px; margin: 0 auto; }
+.surface { margin: 0 0 40px; }
+.surface > h2 { font-size: 16px; margin: 0 0 4px; }
+.surface > p.verdict { margin: 0 0 12px; font-size: 12px; color: var(--text-secondary); max-width: 80ch; }
+.grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); }
+.state { border: 1px solid var(--border-secondary); border-radius: 12px; overflow: hidden; background: var(--bg-primary); }
+.state > header { display: flex; gap: 8px; align-items: baseline; padding: 6px 12px; background: var(--bg-secondary); border-bottom: 1px solid var(--border-secondary); font-size: 12px; color: var(--text-secondary); }
+.state > header b { color: var(--text-primary); }
+.stage { padding: 12px; }
+
+/* tab bar (terminals view) */
+.tabs { display: flex; align-items: center; gap: 4px; border-bottom: 1px solid var(--border-secondary); padding: 0 8px; background: var(--bg-secondary); }
+.tab { display: inline-flex; align-items: center; gap: 6px; padding: 8px 10px; font-size: 12px; color: var(--text-secondary); border-bottom: 2px solid transparent; min-height: 36px; }
+.tab[aria-selected="true"] { color: var(--text-primary); border-bottom-color: var(--accent-primary); }
+.tab-add { margin-left: auto; min-width: 32px; min-height: 32px; border-radius: 6px; color: var(--text-primary); }
+.tab-add:hover { background: var(--bg-hover); }
+.tab-add[aria-disabled="true"] { color: var(--text-secondary); opacity: .7; }
+.term { background: var(--bg-code); padding: 10px 12px; font-size: 12px; min-height: 96px; color: var(--text-primary); }
+.term .dim { color: var(--text-secondary); }
+
+/* notice: SettingsNotice recipe */
+.notice { display: flex; align-items: flex-start; gap: 8px; border-radius: 6px; border: 1px solid; padding: 8px 10px; font-size: 12px; }
+.notice.warning { background: var(--severity-warning-bg); border-color: var(--severity-warning-border); color: var(--severity-warning-fg); }
+.notice.info { background: var(--severity-info-bg); border-color: var(--severity-info-border); color: var(--severity-info-fg); }
+.notice.error { background: var(--severity-error-bg); border-color: var(--severity-error-border); color: var(--severity-error-fg); }
+.notice .glyph { font-weight: 700; flex: none; width: 16px; text-align: center; }
+.notice .body { flex: 1; min-width: 0; }
+.notice .body strong { display: block; font-weight: 600; }
+.notice .dismiss { flex: none; min-width: 28px; min-height: 28px; border-radius: 4px; color: inherit; }
+.notice .dismiss:hover { background: var(--bg-hover); }
+.toast-slot { padding: 8px; }
+
+/* picker */
+.picker { border: 1px solid var(--border-secondary); border-radius: 8px; background: var(--bg-secondary); overflow: hidden; }
+.picker .input { display: flex; gap: 8px; padding: 8px; border-bottom: 1px solid var(--border-secondary); }
+.picker input { flex: 1; min-width: 0; min-height: 36px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--border-secondary); background: var(--bg-tertiary); color: var(--text-primary); font-family: "SF Mono", Menlo, Monaco, Consolas, monospace; font-size: 13px; }
+.picker input[aria-invalid="true"] { border-color: var(--severity-error-border); }
+.picker .row { display: flex; align-items: center; gap: 8px; padding: 6px 12px; font-size: 13px; color: var(--text-primary); min-height: 32px; }
+.picker .row.self { background: var(--bg-tertiary); }
+.picker .row .chev { margin-left: auto; color: var(--text-secondary); }
+.picker .row:hover { background: var(--bg-hover); }
+.picker .eyebrow { padding: 4px 12px; font-size: 11px; color: var(--text-secondary); border-top: 1px solid var(--border-subtle); }
+.picker .foot { padding: 8px 12px; border-top: 1px solid var(--border-secondary); font-size: 12px; color: var(--text-secondary); display: flex; gap: 6px; align-items: flex-start; }
+.field-error { display: flex; align-items: flex-start; gap: 4px; padding: 6px 12px 0; font-size: 12px; color: var(--severity-error-fg); }
+.field-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 12px 12px; }
+
+/* buttons */
+.btn { min-height: 36px; padding: 0 12px; border-radius: 6px; font-weight: 600; font-size: 13px; border: 1px solid var(--border-secondary); background: var(--bg-tertiary); color: var(--text-primary); }
+.btn:hover { background: var(--bg-hover); }
+.btn.primary { background: var(--accent-solid); border-color: var(--accent-solid); color: white; /* contract recipe: text-white on --accent-solid */ }
+.btn.primary:disabled { background: var(--bg-tertiary); color: var(--text-secondary); border-color: var(--border-secondary); }
+@media (max-width: 640px) { .btn, .seg button, .tab, .tab-add, .picker .row, .notice .dismiss { min-height: 44px; } .notice .dismiss { min-width: 44px; } }
+
+/* grant dialog (existing GrantPromptDialog recipe) */
+.scrim { background: var(--bg-overlay); padding: 24px 12px; }
+.dialog { max-width: 440px; margin: 0 auto; border-radius: 12px; border: 1px solid var(--border-secondary); background: var(--bg-secondary); padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.dialog h3 { margin: 0; font-size: 16px; }
+.dialog .subject { font-family: "SF Mono", Menlo, Monaco, Consolas, monospace; font-size: 13px; padding: 8px 10px; border-radius: 6px; background: var(--bg-tertiary); border: 1px solid var(--border-subtle); word-break: break-all; }
+.dialog p { margin: 0; font-size: 13px; color: var(--text-secondary); }
+.dialog .pill { align-self: flex-start; border: 1px solid var(--border-secondary); border-radius: 999px; padding: 1px 8px; font-size: 11px; color: var(--text-secondary); background: var(--bg-tertiary); }
+.dialog .actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+
+/* recovery page (standalone, server-rendered: uses its own light card today) */
+.recov { background: var(--bg-secondary); border-radius: 12px; border: 1px solid var(--border-secondary); padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+.recov .badge { align-self: flex-start; font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; padding: 2px 8px; border-radius: 4px; background: var(--severity-error-bg); color: var(--severity-error-fg); border: 1px solid var(--severity-error-border); }
+.recov h4 { margin: 0; font-size: 18px; }
+.recov .btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.recov code { background: var(--bg-tertiary); padding: 1px 5px; border-radius: 3px; font-size: 12px; }
+
+.note { font-size: 12px; color: var(--text-secondary); margin: 8px 0 0; }
+.note b { color: var(--text-primary); }

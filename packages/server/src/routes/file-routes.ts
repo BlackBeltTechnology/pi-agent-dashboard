@@ -34,6 +34,7 @@ import {
   listDirectories,
   parseFlagsQuery,
 } from "../browse.js";
+import { BROWSE_OUTSIDE_ROOTS_ERROR, isWithinBrowseRoots, resolveBrowseRoots } from "../lib/browse-roots.js";
 import { isImageUnderArtifactRoot } from "../lib/artifact-roots.js";
 import { decodeFileUri } from "../lib/decode-file-uri.js";
 import { renderDiagram } from "../lib/diagram-render.js";
@@ -492,6 +493,10 @@ export function registerFileRoutes(
     return { resolved, ext, stat, viaGrant: decision.viaGrant };
   }
 
+  // Allowed browse roots: `$HOME` + current pinned dirs, recomputed per request
+  // so a pin/unpin takes effect immediately. See change: harden-server-capability-bounds.
+  const browseRoots = () => resolveBrowseRoots(preferencesStore.getPinnedDirectories());
+
   // Directory browse endpoint.
   // `detect=1` opts into eager `.git` / `.pi` classification on every entry
   // (anything other than the literal string `"1"` is treated as falsy).
@@ -501,13 +506,25 @@ export function registerFileRoutes(
   fastify.get<{ Querystring: { path?: string; q?: string; detect?: string } }>(
     "/api/browse",
     { preHandler: networkGuard },
-    async (request) => {
+    async (request, reply) => {
+      // Confined to `$HOME` + pinned dirs (B8). No path → home, always allowed.
+      // See change: harden-server-capability-bounds.
+      const roots = await browseRoots();
+      const requested = request.query.path || undefined;
+      if (requested && !(await isWithinBrowseRoots(requested, roots))) {
+        reply.code(403);
+        return { success: false, error: BROWSE_OUTSIDE_ROOTS_ERROR } satisfies ApiResponse;
+      }
       try {
         const result = await listDirectories(
-          request.query.path || undefined,
+          requested,
           request.query.q || undefined,
           { detect: request.query.detect === "1" },
         );
+        // Never offer a `..` row that leads to a refused directory.
+        if (result.parent && !(await isWithinBrowseRoots(result.parent, roots))) {
+          result.parent = null;
+        }
         return { success: true, data: result } satisfies ApiResponse;
       } catch {
         return { success: false, error: "directory not found" } satisfies ApiResponse;
@@ -530,6 +547,13 @@ export function registerFileRoutes(
         reply.code(400);
         return { success: false, error: parsed.error } satisfies ApiResponse;
       }
+      const roots = await browseRoots();
+      for (const p of parsed.paths) {
+        if (!(await isWithinBrowseRoots(p, roots))) {
+          reply.code(403);
+          return { success: false, error: BROWSE_OUTSIDE_ROOTS_ERROR } satisfies ApiResponse;
+        }
+      }
       const flags = await classifyPaths(parsed.paths);
       return { success: true, data: { flags } } satisfies ApiResponse;
     },
@@ -543,6 +567,11 @@ export function registerFileRoutes(
       const body = request.body ?? {};
       const parent = typeof body.parent === "string" ? body.parent : "";
       const name = typeof body.name === "string" ? body.name : "";
+      // mkdir only inside `$HOME` + pinned dirs (B8). Checked before any fs write.
+      if (parent && !(await isWithinBrowseRoots(parent, await browseRoots()))) {
+        reply.code(403);
+        return { success: false, error: BROWSE_OUTSIDE_ROOTS_ERROR } satisfies ApiResponse;
+      }
       try {
         const newPath = await createDirectory(parent, name);
         return { success: true, data: { path: newPath } } satisfies ApiResponse;

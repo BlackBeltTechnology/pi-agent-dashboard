@@ -22,7 +22,16 @@ interface Rig {
   setShim: (v: number) => void;
 }
 
-function rig(o: { config?: CraftWebConfig; mounted?: boolean; provision?: ProvisionWebFn; env?: NodeJS.ProcessEnv; fetch?: typeof fetch } = {}): Rig {
+function rig(
+  o: {
+    config?: CraftWebConfig;
+    mounted?: boolean;
+    provision?: ProvisionWebFn;
+    env?: NodeJS.ProcessEnv;
+    fetch?: typeof fetch;
+    latestWebVersion?: (app: string, opts: { root?: string }) => Promise<string | undefined>;
+  } = {},
+): Rig {
   const dataDir = tmp("craft-web-data-");
   const shimDir = tmp("craft-web-shim-");
   const shimFile = writeShim(shimDir, 1);
@@ -38,6 +47,7 @@ function rig(o: { config?: CraftWebConfig; mounted?: boolean; provision?: Provis
     provisionDeps: { env: o.env ?? { CRAFT_HOME: dataDir }, ...(o.fetch ? { fetch: o.fetch } : {}) },
     postInstall: createPostInstall(shimFile),
     shimVersion: () => shim,
+    ...(o.latestWebVersion ? { latestWebVersion: o.latestWebVersion } : {}),
   });
   return { service, dataDir, config, logger, setShim: (v) => void (shim = v) };
 }
@@ -165,6 +175,83 @@ describe("prepare failures (X1, X2) and single-flight", () => {
     await r.service.prepare("wordcraft");
     const line = r.logger.info.mock.calls.map((c) => String(c[0])).find((m) => m.startsWith("prepare wordcraft ok"));
     expect(line).toMatch(/version=dir-[0-9a-f]{12} source=env-dir cacheHit=false bytes=\d+ durationMs=\d+/);
+  });
+});
+
+// See change: track-latest-craft-web-version (D3).
+describe("version channel", () => {
+  /** A prepared `<version>-s1` tree with `current` pointing at it. */
+  function prepared(dataDir: string, version: string): void {
+    const root = path.join(dataDir, "wordcraft-web");
+    fs.mkdirSync(path.join(root, `${version}-s1`), { recursive: true });
+    fs.writeFileSync(path.join(root, `${version}-s1`, "craft-build.json"), JSON.stringify({ app: "wordcraft", version, shimVersion: 1, sizeGzip: 5 }));
+    fs.rmSync(path.join(root, "current"), { force: true });
+    fs.symlinkSync(`${version}-s1`, path.join(root, "current"));
+  }
+  const knownLatest = (dataDir: string, tag: string) =>
+    fs.writeFileSync(path.join(dataDir, "wordcraft-web", "latest.json"), JSON.stringify({ tag, checkedAt: Date.now() }));
+  const latestCfg: CraftWebConfig = { apps: { wordcraft: { version: "latest" } } };
+
+  it("pinned (default): no latest lookup, channel reported, prepare passes channel pinned", async () => {
+    const latest = vi.fn(async () => "0.9.0");
+    const provision = vi.fn().mockRejectedValue(new Error("stop"));
+    const r = rig({ latestWebVersion: latest, provision: provision as never });
+    expect(r.service.status().apps.wordcraft).toMatchObject({ channel: "pinned", version: "0.8.0" });
+    await r.service.prepare("wordcraft");
+    expect(latest).not.toHaveBeenCalled();
+    expect(provision.mock.calls[0][1]).toMatchObject({ channel: "pinned" });
+  });
+
+  it("latest: status refreshes the metadata in the background and prepare passes channel latest", async () => {
+    const latest = vi.fn(async (_app: string, _opts: { root?: string }) => "0.9.0");
+    const provision = vi.fn().mockRejectedValue(new Error("stop"));
+    const r = rig({ config: latestCfg, latestWebVersion: latest, provision: provision as never });
+    expect(r.service.status().apps.wordcraft).toMatchObject({ channel: "latest", status: "not-prepared" });
+    r.service.status();
+    expect(latest).toHaveBeenCalledTimes(1);
+    expect(latest.mock.calls[0][1]).toMatchObject({ root: r.dataDir });
+    await r.service.prepare("wordcraft");
+    expect(provision.mock.calls[0][1]).toMatchObject({ channel: "latest" });
+  });
+
+  it("WORDCRAFT_WEB_VERSION=latest selects the latest channel", () => {
+    const r = rig({ env: { CRAFT_HOME: "x", WORDCRAFT_WEB_VERSION: "latest" }, latestWebVersion: async () => undefined });
+    expect(r.service.status().apps.wordcraft.channel).toBe("latest");
+  });
+
+  it("latest: a known newer version makes the prepared build not-prepared with that version", () => {
+    const r = rig({ config: latestCfg, latestWebVersion: async () => "0.9.0" });
+    prepared(r.dataDir, "0.8.0");
+    expect(r.service.status().apps.wordcraft).toMatchObject({ status: "ok", version: "0.8.0" });
+    knownLatest(r.dataDir, "v0.9.0");
+    expect(r.service.status().apps.wordcraft).toMatchObject({ status: "not-prepared", version: "0.9.0" });
+  });
+
+  it("latest: a failed update keeps the prepared build available", async () => {
+    const provision = vi.fn().mockRejectedValue(new ProvisionWebError("extract-failed", "bad bootstrap"));
+    const r = rig({ config: latestCfg, latestWebVersion: async () => "0.9.0", provision: provision as never });
+    prepared(r.dataDir, "0.8.0");
+    knownLatest(r.dataDir, "v0.9.0");
+    expect((await r.service.prepare("wordcraft")).ok).toBe(false);
+    expect(r.service.status().apps.wordcraft).toMatchObject({ status: "ok", version: "0.8.0" });
+  });
+
+  it("status carries installedVersion (prepared build) and latestVersion (latest channel only)", () => {
+    const r = rig({ config: latestCfg, latestWebVersion: async () => "0.9.0" });
+    prepared(r.dataDir, "0.8.0");
+    knownLatest(r.dataDir, "v0.9.0");
+    expect(r.service.status().apps.wordcraft).toMatchObject({ version: "0.9.0", installedVersion: "0.8.0", latestVersion: "0.9.0" });
+    r.config.apps = {};
+    const pinned = r.service.status().apps.wordcraft;
+    expect(pinned).toMatchObject({ installedVersion: "0.8.0" });
+    expect(pinned.latestVersion).toBeUndefined();
+  });
+
+  it("pinned ignores a cached latest version", () => {
+    const r = rig({ latestWebVersion: async () => "0.9.0" });
+    prepared(r.dataDir, "0.8.0");
+    knownLatest(r.dataDir, "v0.9.0");
+    expect(r.service.status().apps.wordcraft).toMatchObject({ status: "ok", version: "0.8.0", channel: "pinned" });
   });
 });
 

@@ -751,7 +751,10 @@ export class ProvisionWebError extends ProvisionError {
   }
 }
 
-export type WebSource = "registry" | "env-version" | "env-dir";
+export type WebSource = "registry" | "env-version" | "env-dir" | "latest" | "latest-cached" | "fallback-installed";
+
+/** `pinned` = registry `webVersion` (default); `latest` = newest release publishing `<app>-web-<ver>.zip`. */
+export type WebChannel = "pinned" | "latest";
 
 export interface WebReport {
   app: CraftAppId;
@@ -782,6 +785,8 @@ export interface ProvisionWebOptions extends Partial<ProvisionDeps> {
   root?: string;
   /** Version of the plugin's shim; part of the target key so a new shim always gets a new tree. */
   shimVersion: number;
+  /** Version channel; `<APP>_WEB_VERSION=latest` also selects `latest`. Default `pinned`. */
+  channel?: WebChannel;
   /** Plugin-supplied shim injection, run on the validated staging tree. Keeps this package dashboard-agnostic. */
   postInstall?: (ctx: WebPostInstallContext) => void | Promise<void>;
   /** Test seam: called inside the win32 `current` swap window (pointer absent). */
@@ -899,23 +904,105 @@ interface WebSourceResolution {
   version: string;
   /** `env-dir` only: the scanned override files to copy. */
   overrideFiles?: TreeFile[];
+  /** `latest` only: the release already fetched by the lookup. */
+  release?: Release;
 }
 
-/** `<APP>_WEB_DIR` → `<APP>_WEB_VERSION` → registry `webVersion`; no network, never "latest". */
-function resolveWebSource(app: CraftApp, deps: ProvisionDeps): WebSourceResolution {
+const webAsset = (app: CraftApp, version: string): string => `${app.id}-web-${version}.zip`;
+
+/** Is `<APP>_WEB_VERSION` the `latest` keyword? */
+function envSelectsLatest(app: CraftApp, env: NodeJS.ProcessEnv): boolean {
+  return env[`${envPrefix(app)}_WEB_VERSION`]?.trim().toLowerCase() === "latest";
+}
+
+/**
+ * Latest web version: 24 h `<appRoot>/latest.json` cache, else GitHub `releases/latest` — accepted (and cached)
+ * only when that release publishes `<app>-web-<ver>.zip`. Throws on a failed lookup; `undefined` = no web asset.
+ */
+async function lookupLatestWeb(app: CraftApp, deps: ProvisionDeps, appRoot: string): Promise<{ version: string; cached: boolean; release?: Release } | undefined> {
+  const cached = readLatestCache(appRoot, deps.now());
+  if (cached) return { version: normaliseVersion(cached, `${app.name} web`), cached: true };
+  const release = await apiJson(deps, `${deps.apiBase}/repos/${app.repo}/releases/latest`);
+  const version = normaliseVersion(release.tag_name, `${app.name} web`);
+  if (!release.assets?.some((a) => a.name === webAsset(app, version))) return undefined;
+  try {
+    fs.mkdirSync(appRoot, { recursive: true });
+    fs.writeFileSync(path.join(appRoot, "latest.json"), JSON.stringify({ tag: release.tag_name, checkedAt: deps.now() }));
+  } catch {
+    /* cache is best-effort */
+  }
+  return { version, cached: false, release };
+}
+
+/** Newest installed `<ver>-s<shimVersion>` tree under `appRoot` (semver order, valid `index.html`). */
+function newestInstalledWeb(appRoot: string, shimVersion: number): string | undefined {
+  const suffix = `-s${shimVersion}`;
+  return subdirs(appRoot)
+    .filter((d) => d.endsWith(suffix))
+    .map((d) => d.slice(0, -suffix.length))
+    .filter((v) => /^\d+\.\d+\.\d+[0-9A-Za-z._+-]*$/.test(v) && !v.includes(".."))
+    .filter((v) => webTreeValid(path.join(appRoot, `${v}${suffix}`)))
+    .sort((a, b) => compareSemver(b, a))[0];
+}
+
+/**
+ * Metadata-only latest web version of `app` (cache or network); `undefined` when the lookup fails or the latest
+ * release has no web build. Never downloads a build. See change: track-latest-craft-web-version (D2).
+ */
+export async function latestWebVersion(appOrId: CraftApp | string, opts: Partial<ProvisionDeps> & { root?: string } = {}): Promise<string | undefined> {
+  const app = typeof appOrId === "string" ? getApp(appOrId) : appOrId;
+  const { root, ...partial } = opts;
+  const deps: ProvisionDeps = { ...defaultDeps(), ...partial };
+  try {
+    return (await lookupLatestWeb(app, deps, webAppRoot(app, root ?? craftRoot(deps))))?.version;
+  } catch {
+    return undefined;
+  }
+}
+
+/** `<APP>_WEB_DIR` override: scanned (regular files only, needs `index.html`); key = digest of the whole tree. */
+function resolveWebDir(prefix: string, dirEnv: string): WebSourceResolution {
+  const dir = path.resolve(dirEnv);
+  if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
+    throw new ProvisionWebError("invalid-dir", `${prefix}_WEB_DIR=${dirEnv}: ${fs.existsSync(dir) ? "not a directory" : "not found"}`);
+  }
+  const files = scanTree(dir);
+  if (!files.some((f) => f.rel === "index.html")) throw new ProvisionWebError("invalid-dir", `${prefix}_WEB_DIR=${dirEnv}: no index.html`);
+  const digest = createHash("sha256");
+  for (const f of files) digest.update(`${f.rel}\0${f.hash}\n`);
+  return { source: "env-dir", version: `dir-${digest.digest("hex").slice(0, 12)}`, overrideFiles: files };
+}
+
+/** Latest channel: the latest web release, else the newest installed tree for this shim, else the registry pin. */
+async function resolveLatestWebSource(app: CraftApp, deps: ProvisionDeps, appRoot: string, shimVersion: number): Promise<WebSourceResolution> {
+  let reason: string;
+  let lookupError: unknown;
+  try {
+    const latest = await lookupLatestWeb(app, deps, appRoot);
+    if (latest) return { source: latest.cached ? "latest-cached" : "latest", version: latest.version, release: latest.release };
+    reason = `latest release has no ${app.id}-web-*.zip`;
+  } catch (e) {
+    lookupError = e;
+    reason = `latest-release lookup failed (${(e as Error).message})`;
+  }
+  const installed = newestInstalledWeb(appRoot, shimVersion);
+  const fallback = installed ?? (app.webVersion ? normaliseVersion(app.webVersion, `${app.name} web`) : undefined);
+  if (!fallback) {
+    if (lookupError) throw lookupError;
+    throw new ProvisionWebError("not-verified", `${app.name}: ${reason} and no web build is installed or verified`);
+  }
+  deps.log(`[pi-craft] warning: ${app.id} web: ${reason}; using ${installed ? "installed" : "verified"} ${fallback}`);
+  return { source: installed ? "fallback-installed" : "registry", version: fallback };
+}
+
+/**
+ * `<APP>_WEB_DIR` → explicit `<APP>_WEB_VERSION` → latest (channel / `WEB_VERSION=latest`) → registry `webVersion`.
+ * Latest falls back to the newest installed tree for this shim, then the registry pin.
+ */
+async function resolveWebSource(app: CraftApp, deps: ProvisionDeps, appRoot: string, channel: WebChannel, shimVersion: number): Promise<WebSourceResolution> {
   const prefix = envPrefix(app);
   const dirEnv = deps.env[`${prefix}_WEB_DIR`]?.trim();
-  if (dirEnv) {
-    const dir = path.resolve(dirEnv);
-    if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
-      throw new ProvisionWebError("invalid-dir", `${prefix}_WEB_DIR=${dirEnv}: ${fs.existsSync(dir) ? "not a directory" : "not found"}`);
-    }
-    const files = scanTree(dir);
-    if (!files.some((f) => f.rel === "index.html")) throw new ProvisionWebError("invalid-dir", `${prefix}_WEB_DIR=${dirEnv}: no index.html`);
-    const digest = createHash("sha256");
-    for (const f of files) digest.update(`${f.rel}\0${f.hash}\n`);
-    return { source: "env-dir", version: `dir-${digest.digest("hex").slice(0, 12)}`, overrideFiles: files };
-  }
+  if (dirEnv) return resolveWebDir(prefix, dirEnv);
   if (craftSource(deps.env) === "launcher") {
     throw new ProvisionWebError(
       "launcher-source",
@@ -923,7 +1010,9 @@ function resolveWebSource(app: CraftApp, deps: ProvisionDeps): WebSourceResoluti
     );
   }
   const pin = deps.env[`${prefix}_WEB_VERSION`]?.trim();
-  if (pin) return { source: "env-version", version: normaliseVersion(pin, `${app.name} web`) };
+  const wantLatest = envSelectsLatest(app, deps.env) || (!pin && channel === "latest");
+  if (pin && !wantLatest) return { source: "env-version", version: normaliseVersion(pin, `${app.name} web`) };
+  if (wantLatest) return resolveLatestWebSource(app, deps, appRoot, shimVersion);
   if (app.webVersion) return { source: "registry", version: normaliseVersion(app.webVersion, `${app.name} web`) };
   throw new ProvisionWebError("not-verified", `${app.name} has no verified web build (no registry webVersion); set ${prefix}_WEB_VERSION or ${prefix}_WEB_DIR`);
 }
@@ -956,22 +1045,28 @@ function hoistSingleTopLevelDir(tree: string): void {
 /**
  * Provision the browser build of `app` into `<root>/<app>-web/<key>/` and point `current` at it.
  *
- * Resolution: `<APP>_WEB_DIR` (copied; key `dir-<digest>`) → `<APP>_WEB_VERSION` → registry `webVersion`;
- * never "latest"; `<APP>_BIN`/`<APP>_VERSION` are ignored. `CRAFT_SOURCE=launcher` without `WEB_DIR`
+ * Resolution: `<APP>_WEB_DIR` (copied; key `dir-<digest>`) → explicit `<APP>_WEB_VERSION` → latest (only when
+ * `channel: "latest"` or `<APP>_WEB_VERSION=latest`) → registry `webVersion`; `<APP>_BIN`/`<APP>_VERSION` are ignored. `CRAFT_SOURCE=launcher` without `WEB_DIR`
  * fails closed before any network. Key = `<version>-s<shimVersion>` so a new shim never rewrites a tree.
  */
 export async function provisionWeb(appOrId: CraftApp | string, opts: ProvisionWebOptions): Promise<WebReport> {
   const app = typeof appOrId === "string" ? getApp(appOrId) : appOrId;
-  const { root, shimVersion, postInstall, onSwapWindow, ...partial } = opts;
+  const { root, shimVersion, postInstall, onSwapWindow, channel = "pinned", ...partial } = opts;
   const deps: ProvisionDeps = { ...defaultDeps(), ...partial };
   const started = deps.now();
   if (!Number.isInteger(shimVersion) || shimVersion < 1) throw new ProvisionError(`invalid shimVersion ${String(shimVersion)}`);
 
   const appRoot = webAppRoot(app, root ?? craftRoot(deps));
-  const { source, version, overrideFiles } = resolveWebSource(app, deps);
+  let resolved: WebSourceResolution;
+  try {
+    resolved = await resolveWebSource(app, deps, appRoot, channel, shimVersion);
+  } catch (e) {
+    throw toWebError(e);
+  }
+  const { source, version, overrideFiles } = resolved;
   const key = `${version}-s${shimVersion}`;
   const finalDir = path.join(appRoot, key);
-  const asset = source === "env-dir" ? null : `${app.id}-web-${version}.zip`;
+  const asset = source === "env-dir" ? null : webAsset(app, version);
   const ctx = (dir: string): WebPostInstallContext => ({ dir, app: app.id, version, shimVersion });
   // Validate the tree, then let the plugin finalize it; both before the atomic rename.
   const finalize = async (tree: string): Promise<void> => {
@@ -1008,8 +1103,7 @@ export async function provisionWeb(appOrId: CraftApp | string, opts: ProvisionWe
           fs.rmSync(staging, { recursive: true, force: true });
         }
       } else if (!cacheHit) {
-        const tag = `v${version}`;
-        const release = await apiJson(deps, `${deps.apiBase}/repos/${app.repo}/releases/tags/${tag}`);
+        const release = resolved.release ?? (await apiJson(deps, `${deps.apiBase}/repos/${app.repo}/releases/tags/v${version}`));
         await installVerified<void>({
           deps,
           repo: app.repo,

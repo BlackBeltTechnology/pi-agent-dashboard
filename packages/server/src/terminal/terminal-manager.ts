@@ -76,6 +76,32 @@ const TOMBSTONE_CAP = 64;
 const RELEASED_TTL_MS = 60_000;
 
 /**
+ * PTY bounds (B7). Each live terminal costs a ring buffer plus a real OS shell
+ * process, so an authenticated client looping `create_terminal` could exhaust
+ * memory/PIDs. Defaults are well above normal multi-terminal use.
+ * See change: harden-server-capability-bounds.
+ */
+export const DEFAULT_MAX_TERMINALS = 32;
+export const DEFAULT_MAX_TERMINALS_PER_CWD = 16;
+/** A terminal with no client attached and no PTY output for this long is reaped. */
+export const DEFAULT_IDLE_REAP_MS = 6 * 60 * 60 * 1000;
+const DEFAULT_REAP_INTERVAL_MS = 60_000;
+
+/** Thrown by `spawn` when a concurrent-terminal cap would be exceeded. */
+export class TerminalLimitError extends Error {
+  readonly scope: "global" | "cwd";
+  constructor(scope: "global" | "cwd", limit: number) {
+    super(
+      scope === "global"
+        ? `terminal limit reached (${limit} concurrent terminals)`
+        : `terminal limit reached for this directory (${limit} concurrent terminals)`,
+    );
+    this.name = "TerminalLimitError";
+    this.scope = scope;
+  }
+}
+
+/**
  * Cap a transcript to `capBytes` measured in serialized JSON bytes (the SAME
  * unit the event store enforces), keeping the tail. A code-unit cap would
  * diverge badly on CJK/emoji/ANSI content and still trip the store's byte
@@ -170,6 +196,10 @@ interface TerminalEntry {
   clients: Set<WebSocket>;
   /** True once the user has sent any input keystroke to this PTY. */
   sawInput: boolean;
+  /** ms epoch of the last output / attach / detach; drives the idle reaper. */
+  lastActivity: number;
+  /** Set once the reaper has issued a kill, so a slow exit is not re-killed every sweep. */
+  reaping?: boolean;
 }
 
 /** Retained transcript of a dead ephemeral terminal. */
@@ -183,6 +213,14 @@ export interface TerminalManagerOptions {
   bufferSize?: number;
   /** Byte budget for captured transcripts. See change: preserve-inline-terminal-transcript. */
   transcriptCapBytes?: number;
+  /** Global concurrent-terminal cap. See change: harden-server-capability-bounds. */
+  maxTerminals?: number;
+  /** Per-cwd concurrent-terminal cap. */
+  maxTerminalsPerCwd?: number;
+  /** Idle (no client, no output) reap threshold in ms; `0` disables the reaper. */
+  idleReapMs?: number;
+  /** Reaper sweep period in ms. */
+  reapIntervalMs?: number;
 }
 
 export interface TerminalManager {
@@ -226,6 +264,9 @@ export function createTerminalManager(options?: TerminalManagerOptions): Termina
   const entries = new Map<string, TerminalEntry>();
   const bufferSize = options?.bufferSize ?? DEFAULT_BUFFER_SIZE;
   const transcriptCapBytes = options?.transcriptCapBytes ?? DEFAULT_TRANSCRIPT_CAP_BYTES;
+  const maxTerminals = options?.maxTerminals ?? DEFAULT_MAX_TERMINALS;
+  const maxTerminalsPerCwd = options?.maxTerminalsPerCwd ?? DEFAULT_MAX_TERMINALS_PER_CWD;
+  const idleReapMs = options?.idleReapMs ?? DEFAULT_IDLE_REAP_MS;
   // Retained transcripts of dead ephemeral terminals (insertion-ordered).
   const transcripts = new Map<string, TranscriptTombstone>();
   // Sticky close-release suppression flags: id -> timestamp (ms). Bounded by
@@ -257,6 +298,12 @@ export function createTerminalManager(options?: TerminalManagerOptions): Termina
   }
 
   function spawn(cwd: string, opts?: { ephemeral?: boolean; owner?: { iss: string; sub: string } }): TerminalSession {
+    // Bound BEFORE any shell is spawned (B7).
+    if (entries.size >= maxTerminals) throw new TerminalLimitError("global", maxTerminals);
+    let sameCwd = 0;
+    for (const e of entries.values()) if (e.session.cwd === cwd) sameCwd++;
+    if (sameCwd >= maxTerminalsPerCwd) throw new TerminalLimitError("cwd", maxTerminalsPerCwd);
+
     const shell = detectShell();
     const id = generateId();
 
@@ -299,11 +346,12 @@ export function createTerminalManager(options?: TerminalManagerOptions): Termina
     const buffer = new RingBuffer(bufferSize);
     const clients = new Set<WebSocket>();
 
-    const entry: TerminalEntry = { session, pty: p, buffer, clients, sawInput: false };
+    const entry: TerminalEntry = { session, pty: p, buffer, clients, sawInput: false, lastActivity: Date.now() };
     entries.set(id, entry);
 
     p.onData((data: string) => {
       const buf = Buffer.from(data);
+      entry.lastActivity = Date.now();
       buffer.write(buf);
       for (const ws of clients) {
         if (ws.readyState === ws.OPEN) {
@@ -338,6 +386,7 @@ export function createTerminalManager(options?: TerminalManagerOptions): Termina
     }
 
     entry.clients.add(ws);
+    entry.lastActivity = Date.now();
 
     ws.on("message", (data: Buffer, isBinary: boolean) => {
       if (isBinary) {
@@ -379,6 +428,7 @@ export function createTerminalManager(options?: TerminalManagerOptions): Termina
 
     ws.on("close", () => {
       entry.clients.delete(ws);
+      entry.lastActivity = Date.now(); // idle clock starts at detach
     });
   }
 
@@ -386,6 +436,7 @@ export function createTerminalManager(options?: TerminalManagerOptions): Termina
     const entry = entries.get(id);
     if (entry) {
       entry.clients.delete(ws);
+      entry.lastActivity = Date.now();
     }
   }
 
@@ -487,6 +538,21 @@ export function createTerminalManager(options?: TerminalManagerOptions): Termina
     if (entry) {
       entry.session = { ...entry.session, title };
     }
+  }
+
+  // Idle reaper (B7): release terminals nobody is attached to and that have
+  // produced no output for `idleReapMs`, so orphaned shells do not accumulate.
+  if (idleReapMs > 0) {
+    const timer = setInterval(() => {
+      const cutoff = Date.now() - idleReapMs;
+      for (const [id, entry] of [...entries]) {
+        if (!entry.reaping && entry.clients.size === 0 && entry.lastActivity <= cutoff) {
+          entry.reaping = true;
+          try { kill(id); } catch { /* already gone */ }
+        }
+      }
+    }, options?.reapIntervalMs ?? DEFAULT_REAP_INTERVAL_MS);
+    timer.unref?.();
   }
 
   return { spawn, attach, detach, kill, get, list, updateTitle, getTranscript, getTerminalRecord, releaseTranscript, isReleased };

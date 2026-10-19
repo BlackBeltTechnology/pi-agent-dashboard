@@ -26,6 +26,12 @@
           "type": "boolean",
           "description": "When false the app's mode shows as disabled, prepare is refused (403) and saves through its claim are refused (403).",
           "default": true
+        },
+        "version": {
+          "type": "string",
+          "enum": ["pinned", "latest"],
+          "description": "Version channel. 'pinned' uses the verified web build. 'latest' tracks the newest release that publishes a web build (checked at most once a day); a newer one shows as a Download (update) action, and a failed update keeps the prepared build. Latest builds are not verified against the host shim. Env <APP>_WEB_VERSION overrides this.",
+          "default": "pinned"
         }
       },
       "additionalProperties": false

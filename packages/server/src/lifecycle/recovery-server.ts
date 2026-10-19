@@ -18,16 +18,83 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import os from "node:os";
 import fs from "node:fs";
+import crypto from "node:crypto";
 
 export interface RecoveryInfo {
   /** Port to bind. */
   port: number;
+  /**
+   * Address to bind. Defaults to loopback (`127.0.0.1`): the recovery server is
+   * unauthenticated and runs `npm install`, so it must never listen on all
+   * interfaces unless the operator explicitly configured the host.
+   * See change: harden-server-capability-bounds (B9).
+   */
+  host?: string;
+  /**
+   * The local IPC token (`~/.pi/dashboard/local/token`), when one exists. A caller
+   * presenting it in `X-Pi-Local-Token` may run the mutating actions from a
+   * non-loopback address. Passed in (not read here) to keep this module
+   * node-built-in only.
+   */
+  localToken?: string | null;
   /** The original error that prevented startup. */
   error: Error;
   /** Optional: extracted missing module identifier. */
   missingModule?: string | null;
   /** Optional: suggested reinstall command. */
   suggestedFix?: string;
+}
+
+/** Header carrying the local IPC token (mirrors `LOCAL_TOKEN_HEADER` in `auth/local-token.ts`). */
+const LOCAL_TOKEN_HEADER = "x-pi-local-token";
+
+const isLoopbackAddress = (addr: string | undefined): boolean =>
+  !!addr && (addr === "::1" || addr === "127.0.0.1" || addr.startsWith("127.") || addr.startsWith("::ffff:127."));
+
+/** Hostname part of a `Host` header / Origin URL (no port, no IPv6 brackets). */
+const hostnameOf = (hostPort: string): string => {
+  const h = hostPort.trim().toLowerCase();
+  if (h.startsWith("[")) return h.slice(1, h.indexOf("]"));
+  return h.split(":")[0] ?? "";
+};
+const isLoopbackName = (name: string): boolean => name === "localhost" || name === "::1" || name.startsWith("127.");
+
+/**
+ * Gate for the mutating recovery actions (`retry`, `reinstall`). The recovery
+ * server has no auth of its own, so a mutating request is accepted only when it
+ * (a) presents the local IPC token, or (b) comes from a loopback peer WITH a
+ * loopback `Host` and no cross-site `Origin`. The Host/Origin checks stop a
+ * browser page (CSRF), DNS rebinding, and a tunnel forwarding from loopback —
+ * all of which reach the socket from 127.0.0.1.
+ * See change: harden-server-capability-bounds (B9).
+ */
+export function isRecoveryActionAllowed(
+  req: { remoteAddress: string | undefined; headers: Record<string, string | string[] | undefined> },
+  expectedToken: string | null | undefined,
+): boolean {
+  const first = (v: string | string[] | undefined): string | undefined => (Array.isArray(v) ? v[0] : v);
+
+  const presented = first(req.headers[LOCAL_TOKEN_HEADER]);
+  if (expectedToken && presented) {
+    const a = Buffer.from(presented);
+    const b = Buffer.from(expectedToken);
+    if (a.length === b.length && crypto.timingSafeEqual(a, b)) return true;
+  }
+
+  if (!isLoopbackAddress(req.remoteAddress)) return false;
+  const host = first(req.headers.host);
+  if (!host || !isLoopbackName(hostnameOf(host))) return false;
+  const origin = first(req.headers.origin);
+  if (origin !== undefined) {
+    let originHost: string;
+    try {
+      originHost = new URL(origin).hostname.replace(/^\[|\]$/g, "").toLowerCase();
+    } catch {
+      return false; // includes the opaque `Origin: null`
+    }
+    if (!isLoopbackName(originHost)) return false;
+  }
+  return true;
 }
 
 /**
@@ -343,6 +410,15 @@ export async function startRecoveryServer(info: RecoveryInfo): Promise<number> {
       );
       return;
     }
+    if (
+      req.method === "POST" &&
+      (url === "/api/recovery/retry" || url === "/api/recovery/reinstall") &&
+      !isRecoveryActionAllowed({ remoteAddress: req.socket.remoteAddress, headers: req.headers }, info.localToken)
+    ) {
+      res.writeHead(403, { "content-type": "text/plain" });
+      res.end("Recovery actions are only accepted from this machine (loopback) or with the local token.");
+      return;
+    }
     if (req.method === "POST" && url === "/api/recovery/retry") {
       // Respawn ourselves detached, then exit.
       try {
@@ -412,7 +488,7 @@ export async function startRecoveryServer(info: RecoveryInfo): Promise<number> {
       }
       reject(err);
     });
-    server.listen(info.port, () => {
+    server.listen(info.port, info.host ?? "127.0.0.1", () => {
       const addr = server.address();
       const bound = typeof addr === "object" && addr ? addr.port : info.port;
       console.error(`[recovery] listening on http://localhost:${bound}`);
