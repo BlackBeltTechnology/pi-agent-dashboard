@@ -56,6 +56,8 @@ function piDirEscapes(cwd: string): boolean {
   return real !== root && !real.startsWith(root + path.sep);
 }
 
+const PI_DIR_ESCAPES_ERROR = "<cwd>/.pi resolves outside the folder; refusing to write through it";
+
 function themeCount(cwd: string): number {
   try {
     return fs.readdirSync(path.join(cwd, ".pi", "themes")).filter((f) => f.endsWith(".json")).length;
@@ -238,6 +240,8 @@ function commitPlan(
   store: RestoreStore,
   plan: FolderPlanOk,
 ): Reply | null {
+  // Re-check just before the first write: `.pi` can be replaced during the awaited trust gate.
+  if (piDirEscapes(args.cwd)) return { status: 400, body: { success: false, error: PI_DIR_ESCAPES_ERROR } };
   const write = deps.writeSettingsText ?? writeSettingsText;
   const nextStore = structuredClone(store);
   for (const r of plan.recordsToSet) setRestore(nextStore, r);
@@ -278,9 +282,7 @@ export async function folderToggle(deps: AddonsDeps, args: FolderToggleArgs): Pr
   const feature = g.features.find((f) => f.id === featureId);
   const rejected = rejectFeature(feature, featureId);
   if (rejected || !feature) return rejected as Reply;
-  if (piDirEscapes(cwd)) {
-    return { status: 400, body: { success: false, error: "<cwd>/.pi resolves outside the folder; refusing to write through it" } };
-  }
+  if (piDirEscapes(cwd)) return { status: 400, body: { success: false, error: PI_DIR_ESCAPES_ERROR } };
 
   const piDir = path.join(cwd, ".pi");
   const projectFile = path.join(piDir, "settings.json");

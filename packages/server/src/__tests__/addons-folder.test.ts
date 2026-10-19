@@ -412,6 +412,22 @@ describe("folder toggle: record and restore", () => {
     expect(fs.existsSync(path.join(outside, "settings.json"))).toBe(false);
   });
 
+  it("refuses when .pi is swapped for an escaping symlink during the trust gate", async () => {
+    let cwd = "";
+    const outside = () => path.join(env.home, "outside");
+    cwd = await webEnv("pi-symlink-race", {
+      resolveTrust: async () => {
+        fs.mkdirSync(outside(), { recursive: true });
+        fs.symlinkSync(outside(), path.join(cwd, ".pi"));
+        return { outcome: "proceed" as const };
+      },
+    });
+    const res = await env.folderToggle(WEB_ID, cwd, false);
+    expect(res.status).toBe(400);
+    expect(fs.existsSync(path.join(outside(), "settings.json"))).toBe(false);
+    expect(env.readRestore()).toBeUndefined();
+  });
+
   // test-plan #E15
   it("a symlinked folder reads the record it wrote (canonical key)", async () => {
     const cwd = await webEnv("e15");
