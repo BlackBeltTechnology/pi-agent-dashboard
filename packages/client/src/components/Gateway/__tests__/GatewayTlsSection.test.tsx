@@ -70,8 +70,11 @@ const mount = (props: Partial<React.ComponentProps<typeof GatewayTlsSection>> = 
 beforeEach(() => {
   status = S.ready;
   getStatus = vi.spyOn(tlsApi, "getTlsStatus").mockImplementation(async () => status);
-  getConfig = vi.spyOn(gatewayApi, "getConfig").mockResolvedValue({
-    tls: { enabled: true, port: 9443, host: "127.0.0.1", sources: [{ type: "tailscale" }] },
+  getConfig = vi.spyOn(tlsApi, "getStoredTlsConfig").mockResolvedValue({
+    enabled: true,
+    port: 9443,
+    host: "127.0.0.1",
+    sources: [{ type: "tailscale" }],
   });
   putConfig = vi.spyOn(gatewayApi, "putConfig").mockResolvedValue(undefined);
   issue = vi.spyOn(tlsApi, "issueTlsNow").mockResolvedValue(undefined);
@@ -234,7 +237,7 @@ describe("#E49 switch write failure reverts", () => {
 
   it("turning it on seeds the tailscale source when none is configured", async () => {
     status = S.off;
-    getConfig.mockResolvedValue({ tls: { enabled: false, port: 8443, host: "127.0.0.1", sources: [] } });
+    getConfig.mockResolvedValue({ enabled: false, port: 8443, host: "127.0.0.1", sources: [] });
     mount();
     fireEvent.click(await screen.findByTestId("gateway-tls-enabled"));
     await waitFor(() => expect(putConfig).toHaveBeenCalledTimes(1));

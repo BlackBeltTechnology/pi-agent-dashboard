@@ -477,6 +477,7 @@ export const huCatalog: Record<string, string> = {
   "gateway.tls.certificates": "Tanúsítványok",
   "gateway.tls.trustHint": "A tailnet eszközeinek is párosítaniuk kell, mielőtt bejutnak. Hogy ezt az egész tailneten átugord, vedd fel a 100.64.0.0/10 tartományt megbízható hálózatnak a Biztonság oldalon.",
   "gateway.tls.err.saveFailed": "Nem sikerült menteni a beállítást",
+  "gateway.tls.err.configRead": "Nem sikerült beolvasni a jelenlegi beállításokat",
   "gateway.tls.err.issueFailed": "Nem sikerült elindítani a tanúsítványkérést",
   "gateway.tls.err.readFailed": "Nem sikerült beolvasni a HTTPS állapotát. Újrapróbálás…",
   "gateway.tls.err.portRange": "Adj meg egy portot 1 és 65535 között.",

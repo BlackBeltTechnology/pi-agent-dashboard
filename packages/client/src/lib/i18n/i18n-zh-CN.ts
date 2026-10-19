@@ -148,6 +148,7 @@ export const zhCNCatalog: Record<string, string> = {
   "gateway.tls.certificates": "证书",
   "gateway.tls.trustHint": "tailnet 设备仍需先配对才能进入。若要对整个 tailnet 跳过配对，请在「安全」页面将 100.64.0.0/10 添加为受信任网络。",
   "gateway.tls.err.saveFailed": "无法保存此设置",
+  "gateway.tls.err.configRead": "无法读取当前设置",
   "gateway.tls.err.issueFailed": "无法开始证书请求",
   "gateway.tls.err.readFailed": "无法读取 HTTPS 状态。正在重试…",
   "gateway.tls.err.portRange": "请输入 1 到 65535 之间的端口。",

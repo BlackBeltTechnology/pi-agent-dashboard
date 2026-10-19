@@ -21,8 +21,8 @@ import { hasTlsDetail, type TlsGate, type TlsStatusDetail } from "@blackbelt-tec
 import { mdiAlert, mdiCheck, mdiContentCopy, mdiInformationOutline, mdiLockOutline, mdiOpenInNew, mdiRefresh } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { type ReactNode, useId, useState } from "react";
-import { getConfig, putConfig } from "../../lib/gateway/gateway-api.js";
-import { issueTlsNow } from "../../lib/gateway/tls-api.js";
+import { putConfig } from "../../lib/gateway/gateway-api.js";
+import { getStoredTlsConfig, issueTlsNow } from "../../lib/gateway/tls-api.js";
 import { deriveTlsPill, describeApplyError, isHeld, planApply } from "../../lib/gateway/tls-view.js";
 import { useTlsStatus } from "../../lib/gateway/use-tls-status.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
@@ -81,8 +81,7 @@ export function GatewayTlsSection({ onSetupRequested, now = Date.now }: Props) {
       // read must never overwrite sources the operator already configured (the write is aborted).
       let seed = false;
       if (next) {
-        const cfg = await getConfig();
-        const stored = (cfg.tls as { sources?: unknown[] } | undefined)?.sources;
+        const stored = (await getStoredTlsConfig()).sources;
         seed = !Array.isArray(stored) || stored.length === 0;
       }
       await putConfig({ tls: { enabled: next, ...(seed ? { sources: [{ type: "tailscale" }] } : {}) } });
@@ -108,8 +107,7 @@ export function GatewayTlsSection({ onSetupRequested, now = Date.now }: Props) {
   const useIpv4 = async (ipv4: string) => {
     setActionError(null);
     try {
-      const cfg = await getConfig();
-      const stored = (cfg.tls as Record<string, unknown> | undefined) ?? {};
+      const stored = await getStoredTlsConfig();
       await putConfig({ tls: { ...stored, host: ipv4 } });
     } catch (e) {
       setActionError(errorMessage(e, t("gateway.tls.err.saveFailed", undefined, "Could not save this setting")));

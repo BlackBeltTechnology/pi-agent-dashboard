@@ -20,6 +20,22 @@ export async function getTlsStatus(): Promise<TlsStatus | null> {
 }
 
 /**
+ * The stored `tls` config block, read STRICTLY: any non-success read (HTTP error, `success:false`,
+ * no `data`) throws, so a failed read can never be mistaken for "no sources configured" (the shared
+ * `getConfig()` answers `{}` on those). `{}` only when the read succeeded and there is no block.
+ */
+export async function getStoredTlsConfig(): Promise<Record<string, unknown>> {
+  const { res, json } = await fetchJsonResponse<{ success?: boolean; data?: Record<string, unknown> }>(
+    `${getApiBase()}/api/config`,
+  );
+  if (!res.ok || json?.success !== true || !json.data || typeof json.data !== "object") {
+    throw new Error(t("gateway.tls.err.configRead", undefined, "Could not read the current settings"));
+  }
+  const tls = json.data.tls;
+  return tls && typeof tls === "object" && !Array.isArray(tls) ? (tls as Record<string, unknown>) : {};
+}
+
+/**
  * Ask the server to (re)issue now. `name` absent = every name of the source that needs it.
  * Throws with the server's reason on a refusal (409 listener disabled, 404 unknown source/name, 401/403).
  */
