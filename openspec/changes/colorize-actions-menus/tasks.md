@@ -116,11 +116,11 @@ Folded from `test-plan.md` (automated, L3). Extend `tests/e2e/session-actions-me
 
 ## 7. Manual
 
-- [ ] 7.1 F12 Visual balance (colour overload): both menus, dark and light, two palettes · a human compares against the mockup mockups/actions-menus-tones/ · [judgment: about 4 toned items per menu read as guidance, not noise; NEXT is still the clear primary] (test-plan #F12, manual-only).
+- [x] 7.1 F12 Visual balance (colour overload): both menus, dark and light, two palettes · a human compares against the mockup mockups/actions-menus-tones/ · [judgment: about 4 toned items per menu read as guidance, not noise; NEXT is still the clear primary] (test-plan #F12, manual-only).
 
 ## 8. Docs and closeout
 
 - [x] 8.1 Root CHANGELOG `## [Unreleased]` "Added" entry: optional `tone` on `FolderMenuContribution` and `UiActionListItem`; coloured action menus. Verify: `node scripts/check-conventions.mjs` passes.
 - [x] 8.2 Delegate the plugin-author docs (the folder menu contribution doc and the `ui:action-list` primitive doc) to DocScribe in caveman style. They state the `UiTone` values, their meaning, the neutral fallback and `data-action-tone`. Verify: the docs name all four tones.
 - [x] 8.3 Update the `AGENTS.md` rows for `tone.ts` (new), `ActionList.tsx`, `SessionActionsPanel.tsx`, `session-menu-items.ts`, `FolderActionsMenu.tsx`, `folder-menu-contributions.tsx` and `ui-primitives.ts` (`See change: colorize-actions-menus`). Verify: `kb dox lint` is clean for these paths.
-- [ ] 8.4 Full test run: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`, then grep for the summary. Verify: no new failures.
+- [x] 8.4 Full test run: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`, then grep for the summary. Verify: no new failures.
