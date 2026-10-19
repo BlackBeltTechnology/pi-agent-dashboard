@@ -21,7 +21,7 @@ Folded from `test-plan.md` (automated, L1). Write each test, see it fail for the
 
 - [x] 2.1 `packages/client/src/index.css`: add `.card-edge-trigger { position:absolute; z-index:20; }` next to `.card-drag-bead`, after `.card-selected-ring > *` (design D2). Verify: 1.5 passes.
 - [x] 2.2 `packages/client/src/components/session/SessionActionsMenu.tsx`: restyle the trigger. Keep the testid, ARIA, `onKeyDown`, and the `onPointerEnter`/`onFocus` prefetch.
-  - Wrapper `<span>`: drop `relative inline-flex`; use `absolute card-edge-trigger right-[-7px] top-1/2 -translate-y-1/2`.
+  - Wrapper `<span>`: drop `relative inline-flex`; use `absolute card-edge-trigger right-[-6px] top-1/2 -translate-y-1/2`.
   - Button: drop the `min-h`/`min-w` classes; keep `focus-ring inline-flex items-center justify-center flex-shrink-0`. Make it a `relative` 13×26 rounded pill with `--bg-primary` background and `--border-subtle` border, holding an inline 3×13 three-dot SVG (`fill="currentColor"`, `aria-hidden="true"`, `focusable="false"`).
   - Hit box: `before:content-[''] before:absolute before:top-0 before:bottom-0 before:right-0 before:w-[24px]`.
   - At rest: `text-[var(--text-tertiary)]`, no opacity.

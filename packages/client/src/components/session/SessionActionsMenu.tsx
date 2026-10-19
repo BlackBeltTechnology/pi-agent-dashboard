@@ -87,7 +87,7 @@ export function SessionActionsMenu({ session, groups, ctx, open, source, point, 
   );
 
   return (
-    <span className="card-edge-trigger absolute right-[-7px] top-1/2 -translate-y-1/2">
+    <span className="card-edge-trigger absolute right-[-6px] top-1/2 -translate-y-1/2">
       <button
         ref={triggerRef}
         type="button"

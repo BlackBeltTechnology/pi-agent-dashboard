@@ -533,9 +533,21 @@ test.describe("session actions menu (L3)", () => {
     test("F2/F5: a click pins a hover-opened menu across a pointer leave; a dwell in the strip off the pill still opens", async ({ page }) => {
       const [card] = await shapes(page);
       const g = await edgeGeometry(card);
-      // F5: rest off the pill, inside the 32 px strip.
-      await page.mouse.move(g.R - 20, g.card.y + 12);
-      await page.mouse.move(g.R - 20, g.card.y + 12.4);
+      // F5: rest off the pill, inside the 32 px strip, on a point that is not over a control
+      // (the strip never arms over a button or link).
+      const restY = await page.evaluate(
+        ([x, top, h]) => {
+          for (let y = top + 4; y < top + h - 4; y += 2) {
+            const el = document.elementFromPoint(x, y);
+            if (el && !el.closest("button, a, [role='button']") && el.closest("[data-session-card]")) return y;
+          }
+          return null;
+        },
+        [g.R - 20, g.card.y, g.card.h],
+      );
+      expect(restY, "a control-free point inside the strip").not.toBeNull();
+      await page.mouse.move(g.R - 20, restY!);
+      await page.mouse.move(g.R - 20, restY! + 0.4);
       await expect(sessionMenuPanel(page)).toBeVisible({ timeout: 3_000 });
       // F2: click the pill (pins), leave for 600 ms, the menu is still open.
       await sessionMenuTrigger(card).click();

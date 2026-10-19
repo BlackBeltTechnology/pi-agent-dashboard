@@ -8,7 +8,7 @@ Change: add-session-actions-flyout. Decisions cited as D1–D13 in `openspec/cha
 - Desktop card right edge: 13×26 pill trigger, centred (`top-1/2`), mirrors left drag bead. `data-testid=session-actions-trigger-<id>`.
 - Trigger always visible. Faint at rest (`--text-tertiary` dots, `--border-subtle`). Full emphasis (`--text-secondary`, `--border-primary`) on card hover, focus-visible, `aria-expanded`.
 - Inline 3-dot SVG (`fill=currentColor`), not `mdiDotsVertical`.
-- 24 px hit box via `::before` spanning [R−18, R+6]. Lives in reserved right gutter: desktop card `pr-[18px]` (was `pr-2`).
+- 24 px hit box via `::before` spanning [R−19, R+5]. Lives in reserved right gutter: desktop card `pr-[18px]` (was `pr-2`).
 - Wrapper class `card-edge-trigger` (`position:absolute; z-index:20` in `index.css`). Mounted last direct child of card `<li>` → last in Tab order.
 - Mobile card: unchanged. No menu. `pluginContainer` = `null` when `isMobile`.
 - Menu root: `SessionActionsMenu.tsx`, rendered via `LayerPortal` at `z-popover`.
