@@ -44,9 +44,11 @@ function reasonOf(code: GuardCode, tool: string, canonical: string | undefined, 
 
 export function createGuardExtension(deps: GuardExtensionDeps = {}): (pi: ExtensionAPI) => void {
   return function pathContainmentGuard(pi: ExtensionAPI): void {
-    const resolveEnv = deps.resolveEnv ?? defaultResolveEnv();
+    let resolveEnv: ResolveEnv | undefined;
     let config: GuardConfig;
     try {
+      // inside the try: anything that goes wrong at load (even `os.homedir()`) must still register the block-all handler
+      resolveEnv = deps.resolveEnv ?? defaultResolveEnv();
       config = (deps.parseConfig ?? parseGuardConfig)(deps.env ?? process.env, { resolveEnv });
     } catch {
       config = { ok: false, scope: "all" };
