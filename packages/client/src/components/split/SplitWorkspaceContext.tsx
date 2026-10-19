@@ -31,6 +31,9 @@ import { type SplitMode, type SplitOrientation, type SplitState, useSplitState }
 import { type TerminalPaneTabs, useTerminalPaneTabs } from "../../lib/layout/use-terminal-pane-tabs.js";
 import { saveTreeVisible } from "../../lib/util/tree-visible.js";
 import { isPseudoTabViewer } from "../editor-pane/viewer-kinds.js";
+import { type TrackedWrite, type TrackedWriteResult, useChangedOnDisk } from "./use-changed-on-disk.js";
+
+export type { TrackedWrite, TrackedWriteResult } from "./use-changed-on-disk.js";
 
 export interface PendingScroll {
   path: string;
@@ -90,10 +93,38 @@ export interface SplitWorkspaceContextValue {
   fileResults: { query: string; files: FileEntry[] } | null;
   /** Fire a bridge filename walk for the editor search panel (Filenames mode). */
   onFilenameSearch: (query: string, regex: boolean) => void;
-  /** Rel-paths that changed on disk for this session's open tabs. */
-  changedFiles: Set<string> | null;
-  /** Clear a path's changed-on-disk flag (Refresh or Dismiss). */
-  clearChanged: (path: string) => void;
+  /** Raw `file_changed` candidates for this session's open tabs (path → generation). */
+  changedFiles: ReadonlyMap<string, number> | null;
+  /** Clear a path's candidate (only while still at `generation`, when given). */
+  clearChanged: (path: string, generation?: number) => void;
+  /**
+   * Content-gated change detection (session pane only; the folder pane leaves
+   * it off → everything below is inert). See change: gate-changed-on-disk-by-content.
+   */
+  changeDetection: boolean;
+  /** Paths whose changed-on-disk banner shows. Detection on: verified by digest; off: raw candidates. */
+  verifiedChanged: ReadonlySet<string>;
+  /**
+   * Digest `path` and store it as the tab's baseline (clears its candidate +
+   * banner). Resolves the sha1, or `null` on any failure (a `null` baseline
+   * skips the mount catch-up; candidates then always banner). Resolves `null`
+   * without a request when detection is off.
+   */
+  captureBaseline: (path: string) => Promise<string | null>;
+  /** Replace the baseline from a known sha1 (or `null` = unknown); re-runs a pending candidate. No-op when detection is off. */
+  setBaseline: (path: string, sha1: string | null) => void;
+  /**
+   * Wrap an in-pane save. Candidates for `path` wait while it is in flight
+   * (bounded 60 s); on success the baseline becomes the result's `sha1` (none →
+   * `null`), `ok:false` / a rejection with a numeric `status` keeps the
+   * baseline, any other rejection nulls it. Pass a runner to get a signal
+   * aborted at 60 s. Passthrough when detection is off.
+   */
+  trackedFileWrite: <T extends TrackedWriteResult>(path: string, write: TrackedWrite<T>) => Promise<T>;
+  /** Banner Dismiss: clear banner + candidate, keep the baseline. */
+  dismissChanged: (path: string) => void;
+  /** Banner Refresh: as Dismiss + re-send `watch_files`. The pane re-mounts the viewer (which recaptures the baseline). */
+  refreshChanged: (path: string) => void;
   /**
    * Terminal-tab slice for the pane cwd (`term:<id>` tabs). Inert when the
    * shell wires no terminal handlers (tests, standalone surfaces).
@@ -127,14 +158,18 @@ interface ProviderProps {
   fileResults?: { query: string; files: FileEntry[] } | null;
   /** Fire a bridge filename walk (from `App`'s `handleListFiles`). */
   onFilenameSearch?: (query: string, regex: boolean) => void;
-  /** Changed-on-disk rel-paths for this session (from `App`). */
-  changedFiles?: Set<string> | null;
+  /** Changed-on-disk candidates for this session, path → generation (from `App`). */
+  changedFiles?: ReadonlyMap<string, number> | null;
+  /** Content-gate `file_changed` by digest (session provider true; folder provider false). Default `false`. */
+  changeDetection?: boolean;
+  /** WS connection generation (App `snapshotGeneration`); a bump re-declares the watch set + catch-up. */
+  connectionGeneration?: number;
   /** Declare open files to the server watch (from `App`'s `send`). Signature
    *  takes explicit sessionId+cwd so the effect cleanup clears the OUTGOING
    *  session on a switch. */
   onWatchFiles?: (sessionId: string, cwd: string, paths: string[]) => void;
-  /** Clear a path's changed flag (from `App`). */
-  onClearChanged?: (path: string) => void;
+  /** Clear a path's candidate, only if still at `generation` when given (from `App`). */
+  onClearChanged?: (path: string, generation?: number) => void;
   /** cwd-scoped terminals from `App` (ephemeral filtered inside the pane). */
   terminals?: TerminalSession[];
   /** Folder pane auto-surfaces every cwd terminal; session split is opt-in. */
@@ -162,6 +197,8 @@ export function SplitWorkspaceProvider({
   fileResults = null,
   onFilenameSearch,
   changedFiles = null,
+  changeDetection = false,
+  connectionGeneration,
   onWatchFiles,
   onClearChanged,
   terminals: cwdTerminals,
@@ -313,7 +350,7 @@ export function SplitWorkspaceProvider({
 
   const noopFilenameSearch = useCallback((_q: string, _r: boolean) => {}, []);
   const filenameSearch = onFilenameSearch ?? noopFilenameSearch;
-  const noopClear = useCallback((_path: string) => {}, []);
+  const noopClear = useCallback((_path: string, _generation?: number) => {}, []);
   const clearChanged = onClearChanged ?? noopClear;
 
   // Server open-files watch. Held in a ref so identity churn of the inline
@@ -330,12 +367,27 @@ export function SplitWorkspaceProvider({
     .filter((f) => !isPseudoTabViewer(f.viewer))
     .map((f) => f.path)
     .join("\u0000");
+  const openPaths = useMemo(() => openPathsKey.split("\u0000").filter(Boolean), [openPathsKey]);
+  const detection = useChangedOnDisk({
+    enabled: changeDetection,
+    sessionId,
+    cwd,
+    candidates: changedFiles,
+    clearCandidate: clearChanged,
+    openPaths,
+    connectionGeneration,
+  });
+  const { watchNonce, verified, captureBaseline, setBaseline, trackedFileWrite, dismiss, refresh } = detection;
   // (a) Declare the current open set (server reconciles idempotently).
+  // `watchNonce` (Refresh / WS reconnect) re-declares it: the server drops every
+  // watcher on disconnect and a key dropped after a long delete is restored by
+  // Refresh. See change: gate-changed-on-disk-by-content (D5).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: watchNonce is a re-run trigger
   useEffect(() => {
     if (!sessionId || !cwd) return;
     const paths = split.mode !== "closed" ? openPathsKey.split("\u0000").filter(Boolean) : [];
     watchRef.current?.(sessionId, cwd, paths);
-  }, [sessionId, cwd, openPathsKey, split.mode]);
+  }, [sessionId, cwd, openPathsKey, split.mode, watchNonce]);
   // (b) Clear this session's watchers on session switch / unmount only.
   useEffect(() => {
     if (!sessionId || !cwd) return;
@@ -365,10 +417,17 @@ export function SplitWorkspaceProvider({
       onFilenameSearch: filenameSearch,
       changedFiles,
       clearChanged,
+      changeDetection,
+      verifiedChanged: verified,
+      captureBaseline,
+      setBaseline,
+      trackedFileWrite,
+      dismissChanged: dismiss,
+      refreshChanged: refresh,
       terminal,
       terminalActivated,
     }),
-    [sessionId, cwd, split, updateSplit, setMode, paneState, dispatch, ensureRevealed, openInSplit, openLiveTarget, openUrlTarget, openPluginTab, openDiffTab, openChanges, changesRevealSignal, pendingScroll, consumePendingScroll, fileResults, filenameSearch, changedFiles, clearChanged, terminal, terminalActivated],
+    [sessionId, cwd, split, updateSplit, setMode, paneState, dispatch, ensureRevealed, openInSplit, openLiveTarget, openUrlTarget, openPluginTab, openDiffTab, openChanges, changesRevealSignal, pendingScroll, consumePendingScroll, fileResults, filenameSearch, changedFiles, clearChanged, changeDetection, verified, captureBaseline, setBaseline, trackedFileWrite, dismiss, refresh, terminal, terminalActivated],
   );
 
   return <SplitWorkspaceContext.Provider value={value}>{children}</SplitWorkspaceContext.Provider>;

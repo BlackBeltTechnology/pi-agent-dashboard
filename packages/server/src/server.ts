@@ -8,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
-import { createGatedProviderAuth, createIsPiExtensionInstalled, createServerPluginContext, discoverPlugins, fixtureEntryAllowed, getPluginStatusStore, getWsRouteRegistry, loadServerEntries, pluginSpawnToSessionOptions, redactPluginConfigForClient, refreshRequirementProbesFor, resolvePluginEnabled } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import { createGatedProviderAuth, createIsPiExtensionInstalled, createServerPluginContext, discoverPlugins, fixtureEntryAllowed, getFileValidatorRegistry, getPluginStatusStore, getWsRouteRegistry, loadServerEntries, pluginSpawnToSessionOptions, redactPluginConfigForClient, refreshRequirementProbesFor, resolvePluginEnabled } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import {
   createMcpClientConfigService,
   createRealConfigIO,
@@ -258,7 +258,10 @@ import { registerAttachmentRoutes } from "./routes/attachment-routes.js";
 import { registerCanvasTypesRoutes } from "./routes/canvas-types-routes.js";
 import { registerCustomEventGroupsRoutes } from "./routes/custom-event-groups-routes.js";
 import { registerDoctorRoutes } from "./routes/doctor-routes.js";
+import { HANDLER_MAX_BYTES } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js";
 import { registerFileRoutes } from "./routes/file-routes.js";
+import { registerFileWriteBinaryRoutes } from "./routes/file-write-binary-routes.js";
+import { createFileValidatorPool } from "./lib/file-validator-pool.js";
 import { registerFolderProjectRoutes } from "./routes/folder-project-routes.js";
 import { registerGitRoutes } from "./routes/git-routes.js";
 import { registerGrepRoutes } from "./routes/grep-routes.js";
@@ -2459,6 +2462,33 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     if (cwd) worktreeInitRegistry.unsubscribeCwd(cwd, ws);
   });
   registerFileRoutes(fastify, { sessionManager, preferencesStore, networkGuard });
+  // Handler-plugin saves: encapsulated octet-stream route; claim + enabled state
+  // are read per request from the discovered manifests / config, the validator
+  // from the registry `ctx.registerFileValidator` fills. See change: add-editor-pane-file-handlers.
+  const fileValidatorPool = createFileValidatorPool();
+  fastify.addHook("onClose", async () => fileValidatorPool.dispose());
+  registerFileWriteBinaryRoutes(fastify, {
+    sessionManager,
+    networkGuard,
+    pool: fileValidatorPool,
+    getValidator: (pluginId, claimId) => getFileValidatorRegistry().get(pluginId, claimId),
+    isPluginServerLoaded: (pluginId) => getPluginStatusStore().getStatus(pluginId)?.loaded === true,
+    resolveClaim: (pluginId, claimId) => {
+      const manifest = discoverPlugins().find((p) => p.manifest.id === pluginId)?.manifest;
+      const claim = manifest?.claims.find((c) => c.slot === "editor-pane-file-handler" && c.id === claimId);
+      if (!manifest || !claim?.extensions || (claim.mode !== "edit" && claim.mode !== "preview")) return null;
+      return {
+        pluginId,
+        claimId,
+        mode: claim.mode,
+        extensions: claim.extensions,
+        maxBytes: claim.maxBytes ?? HANDLER_MAX_BYTES,
+        copySuffix: claim.copySuffix,
+        validator: claim.validator === true,
+        pluginEnabled: resolvePluginEnabled(getPluginConfigFromFile(loadConfig(), pluginId), manifest.defaultEnabled),
+      };
+    },
+  });
   registerGrepRoutes(fastify, { sessionManager, networkGuard });
   // Folder project identity (declared file + plugin marker rules). Rules come
   // only from plugins that are loaded + enabled + fixture-allowed, read per
@@ -4109,6 +4139,13 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
             plugin.manifest.id,
             // Own editor-pane-tab prefixes gate `ctx.openEditorTab`. See change: add-browser-editor-pane-tab (D5).
             plugin.manifest.claims.flatMap((c) => (c.slot === "editor-pane-tab" && c.pathPrefix ? [c.pathPrefix] : [])),
+            // Own file-handler edit claims + package dir gate `ctx.registerFileValidator`. See change: add-editor-pane-file-handlers (D4).
+            {
+              packageDir: plugin.packageDir,
+              ownedEditClaimIds: plugin.manifest.claims.flatMap((c) =>
+                c.slot === "editor-pane-file-handler" && c.mode === "edit" && c.id ? [c.id] : [],
+              ),
+            },
           )),
         });
       } catch (err) {

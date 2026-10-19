@@ -5,11 +5,12 @@
  */
 
 import { __resetEscapeStack } from "@blackbelt-technology/pi-dashboard-client-utils/escape-stack";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type React from "react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { MermaidSourceContext, type MermaidSourceInfo } from "../../lib/preview/mermaid-source-context.js";
 import { ThemeProvider } from "../settings/ThemeProvider.js";
+import { digestResponse, probe, TrackedProvider } from "../preview/__tests__/tracked-write-harness.js";
 
 const mockRender = vi.fn();
 vi.mock("mermaid", () => ({ default: { initialize: vi.fn(), render: mockRender } }));
@@ -33,6 +34,7 @@ let fetchMock: ReturnType<typeof vi.fn>;
 let reload: ReturnType<typeof vi.fn>;
 let readHandler: () => Promise<FakeRes>;
 let writeHandler: () => Promise<FakeRes>;
+let digestSha = "S";
 
 const posts = () => fetchMock.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === "POST");
 const reads = () => fetchMock.mock.calls.filter(([url]) => String(url).includes("/api/file/md-read"));
@@ -92,8 +94,16 @@ beforeEach(() => {
   reload = vi.fn();
   readHandler = async () => res(200, { success: true, data: { content: FILE, mtime: MTIME } });
   writeHandler = async () => res(200, { success: true, data: { mtime: MTIME + 1 } });
+  digestSha = "S";
+  probe.cleared = [];
   fetchMock = vi.fn(async (url: string, init?: RequestInit) =>
-    init?.method === "POST" ? writeHandler() : String(url).includes("/api/file/md-read") ? readHandler() : res(404, {}),
+    init?.method === "POST"
+      ? writeHandler()
+      : String(url).includes("/api/file/md-read")
+        ? readHandler()
+        : String(url).includes("/api/file/digest")
+          ? digestResponse(digestSha)
+          : res(404, {}),
   );
   vi.stubGlobal("fetch", fetchMock);
 });
@@ -247,5 +257,34 @@ describe("conflict-safe write", () => {
     fireEvent.click(applyBtn());
     await screen.findByText(/cannot be applied to this block/i, undefined, SLOW);
     expect(posts()).toHaveLength(0);
+  });
+});
+
+describe("tracked save (gate-changed-on-disk-by-content F7)", () => {
+  it("F7: the AI-fix write goes through trackedFileWrite — its own file_changed raises no banner", async () => {
+    mockRender.mockRejectedValueOnce(new Error("E1")).mockResolvedValueOnce({ svg: SVG });
+    const ui = (candidate?: number) => (
+      <TrackedProvider path="docs/flow.md" candidate={candidate}>
+        <ThemeProvider>
+          <MermaidSourceContext.Provider value={source()}>
+            <MermaidBlock code={REPAIRABLE} ordinal={0} />
+          </MermaidSourceContext.Provider>
+        </ThemeProvider>
+      </TrackedProvider>
+    );
+    const utils = render(ui());
+    await waitFor(() => expect(screen.getByTestId("mermaid-repair-badge")).toBeTruthy(), SLOW);
+    await act(async () => {
+      await probe.ctx?.captureBaseline("docs/flow.md"); // baseline S
+    });
+    writeHandler = async () => res(200, { success: true, data: { mtime: MTIME + 1, size: 9, sha1: "T" } });
+    fireEvent.click(applyBtn());
+    await screen.findByRole("dialog", {}, SLOW);
+    fireEvent.click(screen.getByTestId("mermaid-apply-confirm"));
+    await waitFor(() => expect(reload).toHaveBeenCalledTimes(1), SLOW);
+    digestSha = "T";
+    utils.rerender(ui(1));
+    await waitFor(() => expect(probe.cleared).toContainEqual(["docs/flow.md", 1]), SLOW);
+    expect(probe.ctx?.verifiedChanged.has("docs/flow.md")).toBe(false);
   });
 });

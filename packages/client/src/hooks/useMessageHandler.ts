@@ -110,7 +110,8 @@ export interface MessageHandlerSetters {
   // pluginize-flows-via-registry.
   setFileResults: React.Dispatch<React.SetStateAction<{ query: string; files: FileEntry[] } | null>>;
   /** Per-session set of rel-paths that changed on disk (editor-pane banner). See change: split-editor-workspace. */
-  setChangedOnDisk: React.Dispatch<React.SetStateAction<Map<string, Set<string>>>>;
+  /** sessionId → (relPath → generation); the generation bumps on every `file_changed`. */
+  setChangedOnDisk: React.Dispatch<React.SetStateAction<Map<string, Map<string, number>>>>;
   setOpenspecMap: React.Dispatch<React.SetStateAction<Map<string, OpenSpecData>>>;
   /**
    * Folder-HEAD branch map (`cwd → branch | null`), fed by `git_head_update`.
@@ -316,6 +317,9 @@ export interface MessageHandlerDeps {
    */
   openspecGetInflightRef?: React.MutableRefObject<Map<string, OpenSpecGetInflight>>;
 }
+
+/** Monotonic `file_changed` generation (see the `file_changed` case). */
+let fileChangedGeneration = 0;
 
 export function useMessageHandler(
   setters: MessageHandlerSetters,
@@ -961,13 +965,20 @@ export function useMessageHandler(
         // pane surfaces a per-tab banner (no auto-reload).
         // See change: split-editor-workspace.
         if (typeof msg.path !== "string" || typeof msg.sessionId !== "string") break;
-        setChangedOnDisk((prev) => {
-          const next = new Map(prev);
-          const set = new Set(next.get(msg.sessionId) ?? []);
-          set.add(msg.path);
-          next.set(msg.sessionId, set);
-          return next;
-        });
+        // Every event is a fresh verification candidate: a module-wide counter
+        // (taken OUTSIDE the updater so a StrictMode double-invoke cannot skip
+        // numbers) keeps generations monotonic even after an entry is cleared.
+        // See change: gate-changed-on-disk-by-content (D1).
+        {
+          const generation = ++fileChangedGeneration;
+          setChangedOnDisk((prev) => {
+            const next = new Map(prev);
+            const paths = new Map(next.get(msg.sessionId) ?? []);
+            paths.set(msg.path, generation);
+            next.set(msg.sessionId, paths);
+            return next;
+          });
+        }
         break;
 
       case "canvas_intent": {

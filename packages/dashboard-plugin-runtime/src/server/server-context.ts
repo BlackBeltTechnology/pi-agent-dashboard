@@ -5,7 +5,8 @@
  * with a namespaced logger and typed config accessors.
  */
 
-import { isAbsolute } from "node:path";
+import { realpathSync } from "node:fs";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import type { SpawnStrategy } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { paneTabPrefixOf } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/editor-pane-tab.js";
 import type { BrowserLoginConfig, HostAccessPolicyFn, HostResource, Principal, PrincipalResolverFn } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
@@ -14,6 +15,7 @@ import type { PiResourcesResult } from "@blackbelt-technology/pi-dashboard-share
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { PluginLogger } from "../plugin-context.js";
 import type { WsRouteRegistration } from "./ws-route-registry.js";
+import { getFileValidatorRegistry } from "./file-validator-registry.js";
 import { getWsRouteRegistry } from "./ws-route-registry.js";
 
 // ── Logger ───────────────────────────────────────────────────────────────────
@@ -1021,6 +1023,29 @@ export type OnWorkspacesChangedFn = (handler: () => void) => () => void;
  */
 export type OpenEditorTabFn = (sessionId: string, path: string) => void;
 
+/**
+ * Register a content validator for one of THIS plugin's `editor-pane-file-handler`
+ * edit claims. `module` is a package-relative `./…` path (no `..`, realpath-confined
+ * to the plugin package) exporting `validate(bytes, ext) → {ok:true} | {ok:false, reason}`;
+ * core runs it in a bounded worker pool before every `POST /api/file/write-binary`
+ * through that claim. It can only reject. `enabled` is an optional main-thread
+ * predicate; `false` refuses the save (403). THROWS when `claimId` is not an own
+ * edit claim or `module` escapes the package. See change: add-editor-pane-file-handlers (D4).
+ */
+export type RegisterFileValidatorFn = (opts: {
+  claimId: string;
+  module: string;
+  enabled?: () => boolean;
+}) => void;
+
+/** What `createServerPluginContext` needs to vet `registerFileValidator` calls. */
+export interface FileHandlerContextInfo {
+  /** Absolute plugin package directory (module-path confinement root). */
+  packageDir: string;
+  /** Ids of this plugin's own `editor-pane-file-handler` claims with `mode: "edit"`. */
+  ownedEditClaimIds: readonly string[];
+}
+
 /** Full ServerPluginContext API exposed to plugin server entries. */
 export interface ServerPluginContext {
   fastify: FastifyInstance;
@@ -1212,6 +1237,11 @@ export interface ServerPluginContext {
    */
   registerWsRoute(scope: string, opts: WsRouteRegistration): void;
   /**
+   * Register a content validator for one of this plugin's own file-handler edit
+   * claims. See {@link RegisterFileValidatorFn}. change: add-editor-pane-file-handlers.
+   */
+  registerFileValidator: RegisterFileValidatorFn;
+  /**
    * Register a principal resolver for the identity plane. Host-trust-gated
    * (bundled `keycloak-resolver` or a plugin named in
    * `identity.trustedResolverPlugins`); an untrusted plugin receives a no-op
@@ -1393,6 +1423,8 @@ export function createServerPluginContext(
   pluginId: string,
   /** Prefixes of this plugin's own `editor-pane-tab` claims (from its manifest). */
   ownedPaneTabPrefixes: readonly string[] = [],
+  /** Own file-handler edit claims + package dir (gates `ctx.registerFileValidator`). */
+  fileHandler?: FileHandlerContextInfo,
 ): ServerPluginContext {
   const logger = createServerLogger(pluginId);
   const ownedPrefixes = new Set(ownedPaneTabPrefixes);
@@ -1402,6 +1434,42 @@ export function createServerPluginContext(
       throw new Error(`[plugin:${pluginId}] openEditorTab refused: "${String(path)}" is not under an own editor-pane-tab prefix`);
     }
     deps.broadcastToSubscribers({ type: "editor_tab_open", sessionId, path });
+  };
+
+  const registerFileValidator: RegisterFileValidatorFn = (opts) => {
+    const fail = (why: string): never => {
+      throw new Error(`[plugin:${pluginId}] registerFileValidator refused: ${why}`);
+    };
+    if (typeof opts?.claimId !== "string" || !fileHandler?.ownedEditClaimIds.includes(opts.claimId)) {
+      fail(`"${String(opts?.claimId)}" is not one of this plugin's own editor-pane-file-handler edit claims`);
+    }
+    if (
+      typeof opts.module !== "string" ||
+      !opts.module.startsWith("./") ||
+      opts.module.split(/[\\/]/).includes("..") ||
+      isAbsolute(opts.module)
+    ) {
+      fail(`module "${String(opts.module)}" must be a package-relative path starting with "./" and containing no ".." segment`);
+    }
+    if (opts.enabled !== undefined && typeof opts.enabled !== "function") fail("enabled must be a function");
+    let root: string;
+    let real: string;
+    try {
+      root = realpathSync(fileHandler!.packageDir);
+      real = realpathSync(resolve(root, opts.module));
+    } catch {
+      return fail(`module "${opts.module}" does not exist in the plugin package`);
+    }
+    const rel = relative(root, real);
+    if (rel === "" || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+      fail(`module "${opts.module}" resolves outside the plugin package`);
+    }
+    getFileValidatorRegistry().register({
+      pluginId,
+      claimId: opts.claimId,
+      modulePath: real,
+      ...(opts.enabled ? { enabled: opts.enabled } : {}),
+    });
   };
 
   return {
@@ -1470,6 +1538,7 @@ export function createServerPluginContext(
     listWorkspaces: deps.listWorkspaces ?? (() => []),
     onWorkspacesChanged: deps.onWorkspacesChanged ?? (() => () => {}),
     registerWsRoute: (scope, opts) => getWsRouteRegistry().register(pluginId, scope, opts),
+    registerFileValidator,
     ...(deps.registerPrincipalResolver
       ? { registerPrincipalResolver: deps.registerPrincipalResolver }
       : {}),

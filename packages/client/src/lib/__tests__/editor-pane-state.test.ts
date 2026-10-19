@@ -448,3 +448,36 @@ describe("tab provenance: autoOpened follows the action that activated the tab (
     localStorage.removeItem(key);
   });
 });
+
+describe("handlerMode (add-editor-pane-file-handlers, E11)", () => {
+  const key = `${EDITOR_PANE_KEY_PREFIX}hm`;
+  const store = (openFiles: unknown[], activeIndex = 0) =>
+    localStorage.setItem(key, JSON.stringify({ openFiles, activeIndex, treeOpenRoots: [] }));
+  const docx = (path: string, extra: Record<string, unknown> = {}) => ({ path, viewer: "docx", addedAt: 1, ...extra });
+
+  it("setHandlerMode sets and clears the mode of the addressed tab only", () => {
+    let s: EditorPaneState = { openFiles: [docx("a.docx"), docx("b.docx")] as OpenFile[], activeIndex: 0, treeOpenRoots: [] };
+    s = editorPaneReducer(s, { type: "setHandlerMode", path: "a.docx", handlerMode: "wc/word" });
+    expect(s.openFiles.map((f) => f.handlerMode)).toEqual(["wc/word", undefined]);
+    s = editorPaneReducer(s, { type: "setHandlerMode", path: "a.docx", handlerMode: undefined });
+    expect(s.openFiles[0].handlerMode).toBeUndefined();
+    expect("handlerMode" in s.openFiles[0]).toBe(false);
+    const same = editorPaneReducer(s, { type: "setHandlerMode", path: "missing.docx", handlerMode: "x/y" });
+    expect(same).toBe(s);
+  });
+
+  it("persists and restores a string handlerMode", () => {
+    saveEditorPaneState("hm", { openFiles: [docx("a.docx", { handlerMode: "wc/word" }) as OpenFile], activeIndex: 0, treeOpenRoots: [] });
+    expect(loadEditorPaneState("hm").openFiles[0].handlerMode).toBe("wc/word");
+    localStorage.removeItem(key);
+  });
+
+  it("drops only a malformed handlerMode (A), keeps the tab, restores B and an unknown-claim string C verbatim", () => {
+    store([docx("a.docx", { handlerMode: 42 }), docx("b.docx", { handlerMode: "wc/word" }), docx("c.docx", { handlerMode: "gone/claim" }), docx("d.docx")]);
+    const loaded = loadEditorPaneState("hm");
+    expect(loaded.openFiles.map((f) => f.path)).toEqual(["a.docx", "b.docx", "c.docx", "d.docx"]);
+    expect(loaded.openFiles.map((f) => f.handlerMode)).toEqual([undefined, "wc/word", "gone/claim", undefined]);
+    expect("handlerMode" in loaded.openFiles[0]).toBe(false);
+    localStorage.removeItem(key);
+  });
+});

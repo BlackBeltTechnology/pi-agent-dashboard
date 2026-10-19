@@ -98,6 +98,9 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "/api/tools", reason: "tool-registry UI" },
   { pattern: "/api/open-in-system", reason: "UI-only" },
   { pattern: "/api/reveal-in-file-manager", reason: "UI-only" },
+  // See change: add-editor-pane-file-handlers.
+  { pattern: "/api/file/digest", reason: "internal editor-pane content-hash verification; no agent use" },
+  { pattern: "/api/file/write-binary", reason: "editor-pane file-handler plugin save (binary body, per-claim authz); UI-only" },
   { pattern: "/api/pinned-dirs", reason: "UI-only" },
   { pattern: "/api/favorite-models", reason: "UI-only" },
   { pattern: "/api/custom-event-groups", reason: "UI-only" },

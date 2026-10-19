@@ -236,7 +236,7 @@ function isAbsolutePath(p: string): boolean {
 }
 
 /** Lowercased extension including the leading dot, or `""` when none. */
-function extOf(absPath: string): string {
+export function extOf(absPath: string): string {
   const lastSlash = Math.max(absPath.lastIndexOf("/"), absPath.lastIndexOf("\\"));
   const base = lastSlash >= 0 ? absPath.slice(lastSlash + 1) : absPath;
   const dot = base.lastIndexOf(".");
@@ -355,4 +355,29 @@ export function fileKind(absPath: string, sniff?: Buffer | string): FileKindResu
     return { kind: "binary", mimeType: "application/octet-stream", viewer: "binary-warn", editable: false };
   }
   return { kind: "unknown", mimeType: mimeOf("text/plain"), viewer: "monaco", editable: false };
+}
+
+/** Viewers whose content is text-backed (served and written as text). */
+const TEXT_BACKED_VIEWERS: ReadonlySet<ViewerKind> = new Set<ViewerKind>([
+  "monaco",
+  "markdown",
+  "mermaid",
+  "asciidoc",
+  "html",
+  "diagram",
+]);
+
+/**
+ * True when `ext` (lower-case, leading dot, e.g. `".md"`) is text-backed: the
+ * classifier reports it `editable`, or a *recognised* kind (`kind !== "unknown"`)
+ * rendered by a text viewer. Unrecognised extensions (`.drawio`, `.psd`) are
+ * not text-backed. Used by the plugin manifest validator to keep
+ * `editor-pane-file-handler` claims off text files. Probes with an absolute
+ * path because `fileKind` throws on relative ones.
+ * See change: add-editor-pane-file-handlers.
+ */
+export function isTextBackedExt(ext: string): boolean {
+  const r = fileKind(`/x${ext}`);
+  if (r.editable) return true;
+  return r.kind !== "unknown" && TEXT_BACKED_VIEWERS.has(r.viewer);
 }

@@ -61,6 +61,19 @@ export interface ClaimEntry<S extends SlotId = SlotId> {
    *  or full-viewport page on desktop AND mobile. See change: add-route-backed-overlay-dialogs. */
   presentation?: "page" | "dialog" | "content";
   tab?: string;
+  /**
+   * `editor-pane-file-handler` claim fields (copied verbatim from the manifest claim).
+   * See change: add-editor-pane-file-handlers.
+   */
+  id?: string;
+  extensions?: string[];
+  mode?: "preview" | "edit";
+  label?: string;
+  keepAlive?: { max: number };
+  maxBytes?: number;
+  firstOverwriteNotice?: string;
+  copySuffix?: string;
+  validator?: boolean;
   /** Slot-specific extra config (escape hatch — prefer first-class fields). */
   config?: Record<string, unknown>;
   /**

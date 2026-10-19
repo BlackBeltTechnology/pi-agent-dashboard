@@ -15,6 +15,9 @@ import type React from "react";
 import { lazy, useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 
+/** `editor-pane-file-handler` edit claim `demo-docx`. See change: add-editor-pane-file-handlers. */
+export { DemoFileHandler } from "./file-handler/DemoFileHandler.js";
+
 export interface DemoConfig {
   greeting: string;
   count: number;

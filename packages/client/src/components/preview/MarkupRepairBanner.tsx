@@ -18,6 +18,7 @@ import { usePreviewFetch } from "../../lib/access-grants/preview-provenance.js";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { type MermaidSourceInfo, useMermaidSourceContext } from "../../lib/preview/mermaid-source-context.js";
+import { useFileWrite } from "../split/use-file-write.js";
 import { ConfirmDialog } from "./MermaidApplyFix.js";
 
 export interface MarkupRepairApply {
@@ -122,31 +123,27 @@ export function MarkupRepairBanner({ repairs, viewOriginal, onToggleOriginal, ap
     queueMicrotask(() => buttonRef.current?.focus());
   }, []);
 
+  const writeFile = useFileWrite();
   const confirm = useCallback(async () => {
     if (!source || phase.kind !== "confirm" || inFlight.current) return;
     inFlight.current = true;
     const held = phase;
     setPhase({ ...held, kind: "writing" });
     try {
-      const res = await fetch(`${getApiBase()}/api/file/write`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cwd: source.cwd, path: source.path, content: held.after, mtime: held.mtime }),
-      });
-      if (res.status === 409) return setPhase({ kind: "changed" });
-      const body = await res.json().catch(() => null);
-      if (res.status === 200 && body?.success) {
+      const r = await writeFile({ cwd: source.cwd, path: source.path, content: held.after, mtime: held.mtime });
+      if (r.status === 409) return setPhase({ kind: "changed" });
+      if (r.ok) {
         setPhase({ kind: "idle" });
         source.reload();
         return;
       }
-      fail(body?.error ?? `HTTP ${res.status}`);
+      fail(r.body?.error ?? `HTTP ${r.status}`);
     } catch (e) {
       fail(e);
     } finally {
       inFlight.current = false;
     }
-  }, [phase, source, fail]);
+  }, [phase, source, fail, writeFile]);
 
   const canApply = source !== null && apply !== undefined;
   const showDialog = phase.kind === "confirm" || phase.kind === "writing";

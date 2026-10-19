@@ -5,3 +5,5 @@ Pure browser-safe viewer classifier. `fileKind(absPath, sniff?)` → `{ kind, mi
 - Exports `OFFICE_SIZE_CAPS` = `{ docx: 40 MB, pptx: 100 MB, sheet: 50 MB }` — single source of truth: server `OFFICE_CAPS` size defaults read it; client office previews pass it to `TooLargePreview` on HTTP 413. See change: harden-untrusted-content-ingestion.
 
 See change: add-browser-editor-pane-tab — `ViewerKind` gains `plugin` (explicit-open pseudo-tab kind, never returned by `fileKind()`).
+
+See change: add-editor-pane-file-handlers — exports `extOf(absPath)` (lower-cased last-dot extension) and `isTextBackedExt(ext)` (probe `"/x"+ext`; true when `editable`, or recognised kind with viewer in monaco/markdown/mermaid/asciidoc/html/diagram). Used by the manifest validator to reject text-backed `editor-pane-file-handler` claims.

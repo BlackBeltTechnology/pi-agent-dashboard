@@ -2,8 +2,8 @@
  * File and directory browse REST API routes (localhost-only).
  */
 
-import { randomBytes } from "node:crypto";
-import { createReadStream } from "node:fs";
+import { createHash, randomBytes } from "node:crypto";
+import { createReadStream, constants as fsConstants } from "node:fs";
 import fs from "node:fs/promises";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -36,9 +36,11 @@ import {
 } from "../browse.js";
 import { isImageUnderArtifactRoot } from "../lib/artifact-roots.js";
 import { decodeFileUri } from "../lib/decode-file-uri.js";
+import { createHashLimiter, DIGEST_CEILING_BYTES, sha1OfHandle } from "../lib/file-digest.js";
 import { renderDiagram } from "../lib/diagram-render.js";
 import { EML_SIZE_CAP, loadParsedEml, toParseResult } from "../lib/eml.js";
 import { enumerateMdCandidates } from "../lib/md-candidates.js";
+import { lockKeyFor, serializeWrite } from "../lib/file-write-lock.js";
 import { extToContentType } from "../lib/mime-types.js";
 import {
   createDefaultDocxPdfEngine,
@@ -93,12 +95,10 @@ import {
 } from "../system-open-capability.js";
 import type { NetworkGuard } from "./route-deps.js";
 
-// Per-target write serialization. The optimistic mtime check + atomic rename
-// must run as one critical section per file, else two concurrent writes can
-// both read the same mtime, both pass, and the later rename clobbers the earlier
-// write instead of returning 409. Keyed by resolved path; the chain swallows
-// errors so one failed write does not poison the next. See change:
-// directory-settings-page-and-scoped-md-editing.
+// Per-target write serialization lives in `lib/file-write-lock.ts` (shared with
+// `POST /api/file/write-binary`; keyed by realpath). See change:
+// directory-settings-page-and-scoped-md-editing, add-editor-pane-file-handlers.
+
 // Fixed, server-derived `~/.pi` containment anchor shared by the resolve
 // endpoint and the open/preview routes, so a resolved `~/.pi/…` path the
 // resolve endpoint accepts also opens/previews without a 403 (design D7).
@@ -106,20 +106,6 @@ import type { NetworkGuard } from "./route-deps.js";
 // never derived from request input. See change: server-side-file-mention-resolution.
 function homePiAnchor(): string {
   return path.join(os.homedir(), ".pi");
-}
-
-const fileWriteLocks = new Map<string, Promise<unknown>>();
-function serializeWrite<T>(key: string, task: () => Promise<T>): Promise<T> {
-  const run = (fileWriteLocks.get(key) ?? Promise.resolve()).then(task, task);
-  const tail = run.then(
-    () => {},
-    () => {},
-  );
-  fileWriteLocks.set(key, tail);
-  void tail.then(() => {
-    if (fileWriteLocks.get(key) === tail) fileWriteLocks.delete(key);
-  });
-  return run;
 }
 
 // Resolve + scope-validate a markdown target shared by the write + md-read
@@ -143,7 +129,7 @@ function resolveScopedMdPath(
 }
 
 /** Discriminated outcome of an atomic markdown write. */
-type MdWriteOutcome = { code: 200; mtime: number } | { code: 404 | 409 | 500; error: string };
+type MdWriteOutcome = { code: 200; mtime: number; size: number; sha1: string } | { code: 404 | 409 | 500; error: string };
 
 /** Parsed + authorized write request, or a {code,error} reply mapping. */
 type MdWritePrep = { resolved: string; content: string; mtime: number } | { code: number; error: string };
@@ -201,8 +187,10 @@ async function performAtomicMdWrite(
     path.dirname(real),
     `.${path.basename(real)}.${randomBytes(8).toString("hex")}.tmp`,
   );
+  // Encode once: the written bytes and the returned `size`/`sha1` are the same buffer.
+  const bytes = Buffer.from(content, "utf-8");
   try {
-    await fs.writeFile(tmpPath, content, { encoding: "utf-8", flag: "wx" });
+    await fs.writeFile(tmpPath, bytes, { flag: "wx" });
     // Preserve the original file mode so a private (e.g. 0600) instruction file
     // is not widened to the umask default on replace.
     await fs.chmod(tmpPath, current.mode & 0o777);
@@ -212,7 +200,7 @@ async function performAtomicMdWrite(
     return { code: 500, error: err instanceof Error ? err.message : "write failed" };
   }
   const after = await fs.stat(real);
-  return { code: 200, mtime: after.mtimeMs };
+  return { code: 200, mtime: after.mtimeMs, size: bytes.length, sha1: createHash("sha1").update(bytes).digest("hex") };
 }
 
 // Lazy asciidoctor singleton. First call cost ~Opal init; the server is
@@ -322,6 +310,50 @@ async function gateFilePath(
   // `lstat` and therefore refuse an in-scope final-component SYMLINK that
   // layers ①/② admit. Dropping it turned "apply only on a grant" into
   // "apply always".
+  return { resolved, viaGrant: decision.viaGrant };
+}
+
+/**
+ * The `/api/file` READ gate, shared with `GET /api/file/digest` so the two admit
+ * and refuse identically (same status, `error` and remedy): `cwd`/`path` present
+ * → known session → `evaluateContainment` over `[cwd, ~/.pi]` with the access-grant
+ * hold, disclosure and `subjectKind: "auto"`. `path` may be a `file://` URI.
+ * On failure `body` is the exact wire body; `code` the HTTP status.
+ * See change: add-editor-pane-file-handlers.
+ */
+async function gateReadPath(
+  request: import("fastify").FastifyRequest,
+  reply: import("fastify").FastifyReply,
+  cwd: string | undefined,
+  rawPath: string | undefined,
+  sessionManager: SessionManager,
+  site: string,
+): Promise<{ resolved: string; viaGrant: boolean } | { code: number; body: ApiResponse }> {
+  const relPath = rawPath ? decodeFileUri(rawPath) : rawPath;
+  if (!cwd || !relPath) {
+    return { code: 400, body: { success: false, error: "cwd and path parameters required" } satisfies ApiResponse };
+  }
+  if (!sessionManager.listAll().some((s) => s.cwd === cwd)) {
+    return { code: 403, body: { success: false, error: "unknown session path" } satisfies ApiResponse };
+  }
+  const resolved = path.resolve(cwd, relPath);
+  // Anchors include the fixed `~/.pi` allowlist so a resolved `~/.pi/…`
+  // mention (from `/api/file/resolve-mention`) previews without a 403 (D7).
+  const decision = await evaluateContainment(resolved, [cwd, homePiAnchor()], {
+    site,
+    hold: { request, reply },
+    disclosure: canDiscloseAccessPosture(request),
+    session: cwd,
+    // Polymorphic: the read route serves files AND directories, so the remedy
+    // must name whichever the target is (task 4.5 round 2, B1).
+    subjectKind: "auto",
+  });
+  if (!decision.allowed) {
+    return {
+      code: 403,
+      body: { success: false, error: "path outside working directory", ...decision.remedy } as unknown as ApiResponse,
+    };
+  }
   return { resolved, viaGrant: decision.viaGrant };
 }
 
@@ -514,35 +546,12 @@ export function registerFileRoutes(
     "/api/file",
     { preHandler: networkGuard },
     async (request, reply) => {
-      const cwd = request.query.cwd;
-      const relPath = request.query.path ? decodeFileUri(request.query.path) : request.query.path;
-      if (!cwd || !relPath) {
-        reply.code(400);
-        return { success: false, error: "cwd and path parameters required" } satisfies ApiResponse;
+      const gate = await gateReadPath(request, reply, request.query.cwd, request.query.path, sessionManager, "file-routes:read");
+      if ("code" in gate) {
+        reply.code(gate.code);
+        return gate.body;
       }
-
-      const allSessions = sessionManager.listAll();
-      if (!allSessions.some((s) => s.cwd === cwd)) {
-        reply.code(403);
-        return { success: false, error: "unknown session path" } satisfies ApiResponse;
-      }
-
-      const resolved = path.resolve(cwd, relPath);
-      // Anchors include the fixed `~/.pi` allowlist so a resolved `~/.pi/…`
-      // mention (from `/api/file/resolve-mention`) previews without a 403 (D7).
-      const readDecision = await evaluateContainment(resolved, [cwd, homePiAnchor()], {
-        site: "file-routes:read",
-        hold: { request, reply },
-        disclosure: canDiscloseAccessPosture(request),
-        session: cwd,
-        // Polymorphic: this route serves files AND directories, so the remedy
-        // must name whichever the target is (task 4.5 round 2, B1).
-        subjectKind: "auto",
-      });
-      if (!readDecision.allowed) {
-        reply.code(403);
-        return { success: false, error: "path outside working directory", ...readDecision.remedy } as unknown as ApiResponse;
-      }
+      const { resolved, viaGrant } = gate;
 
       try {
         const stat = await fs.stat(resolved);
@@ -564,7 +573,7 @@ export function registerFileRoutes(
         // re-resolved path (design D14, task 2.8): containment and this open are
         // two syscalls, so without it the path could be swapped for a symlink or
         // a FIFO in the gap. Layer ①/② reads keep the pre-existing open.
-        const fh = readDecision.viaGrant
+        const fh = viaGrant
           ? await openVerifiedRegularFile(resolved)
           : await fs.open(resolved, "r");
         let kindResult;
@@ -610,6 +619,61 @@ export function registerFileRoutes(
         }
         reply.code(404);
         return { success: false, error: "not found" } satisfies ApiResponse;
+      }
+    },
+  );
+
+  // Content digest — the conflict token for handler saves and the changed-on-disk
+  // verification. `{ size, mtime, sha1 }`, never content. Same READ gate as
+  // `GET /api/file` (`gateReadPath`), so admit/refuse is identical; regular files
+  // only (a directory or FIFO is 404, and the open never blocks on a FIFO).
+  // `sha1` is omitted above the 256 MiB ceiling. Hashing runs behind a 2-wide
+  // limiter that frees its slot when the client aborts.
+  // See change: add-editor-pane-file-handlers (minimal slice of
+  // gate-changed-on-disk-by-content D4).
+  const hashLimiter = createHashLimiter();
+  fastify.get<{ Querystring: { cwd?: string; path?: string } }>(
+    "/api/file/digest",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const gate = await gateReadPath(request, reply, request.query.cwd, request.query.path, sessionManager, "file-routes:digest");
+      if ("code" in gate) {
+        reply.code(gate.code);
+        return gate.body;
+      }
+      reply.header("Cache-Control", "no-store");
+      const abort = new AbortController();
+      reply.raw.once("close", () => {
+        if (!reply.raw.writableFinished) abort.abort();
+      });
+      let fh: import("node:fs/promises").FileHandle | undefined;
+      try {
+        // Grant-admitted: verified open (refuses symlink/FIFO/swap). Otherwise a
+        // non-blocking open so a FIFO cannot hang the request, then fstat.
+        fh = gate.viaGrant
+          ? await openVerifiedRegularFile(gate.resolved)
+          : await fs.open(gate.resolved, fsConstants.O_RDONLY | (fsConstants.O_NONBLOCK ?? 0));
+        const stat = await fh.stat();
+        if (!stat.isFile()) {
+          reply.code(404);
+          return { success: false, error: "not found" } satisfies ApiResponse;
+        }
+        const data: { size: number; mtime: number; sha1?: string } = { size: stat.size, mtime: stat.mtimeMs };
+        if (stat.size <= DIGEST_CEILING_BYTES) {
+          const handle = fh;
+          data.sha1 = await hashLimiter.run(abort.signal, () => sha1OfHandle(handle, abort.signal));
+        }
+        return { success: true, data } satisfies ApiResponse;
+      } catch (err) {
+        if (abort.signal.aborted) return reply; // client gone; nothing to send
+        if (err instanceof VerifiedReadRefused) {
+          reply.code(403);
+          return { success: false, error: "path outside working directory" } satisfies ApiResponse;
+        }
+        reply.code(404);
+        return { success: false, error: "not found" } satisfies ApiResponse;
+      } finally {
+        await fh?.close().catch(() => {});
       }
     },
   );
@@ -770,14 +834,14 @@ export function registerFileRoutes(
       }
       // Critical section: stat → mtime check → write → rename runs serialized per
       // target so the optimistic check is atomic w.r.t. a concurrent write.
-      const outcome = await serializeWrite(prep.resolved, () =>
+      const outcome = await serializeWrite(await lockKeyFor(prep.resolved), () =>
         performAtomicMdWrite(prep.resolved, prep.content, prep.mtime),
       );
       if (outcome.code !== 200) {
         reply.code(outcome.code);
         return { success: false, error: outcome.error } satisfies ApiResponse;
       }
-      return { success: true, data: { mtime: outcome.mtime } } satisfies ApiResponse;
+      return { success: true, data: { mtime: outcome.mtime, size: outcome.size, sha1: outcome.sha1 } } satisfies ApiResponse;
     },
   );
 

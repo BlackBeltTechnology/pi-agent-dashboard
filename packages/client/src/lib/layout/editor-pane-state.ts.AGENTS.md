@@ -5,3 +5,5 @@ Per-session pane state + localStorage persistence under `pi-dashboard:editor-pan
 See change: surface-denial-remedy-in-previews — `OpenFile.autoOpened` persisted; `isValidState` boolean-only; `loadEditorPaneState` seeds from `restrictCsp`. D4 rules: new tab = opener; auto-open of inactive tab → `true`, of active → unchanged; operator open/`setActive`/operator `closeTab` re-point → `false`; background + `closeByPath` unchanged (`activateAt`).
 
 See change: add-browser-editor-pane-tab — `VALID_VIEWERS` derived from `OPEN_PATH_VIEWERS ∪ PSEUDO_TAB_VIEWERS` (`viewer-kinds.ts`); `dropUnknownViewers` drops only unknown-viewer entries before `isValidState` (structure stays all-or-nothing); `activeIndex` keeps surviving active tab, else clamps (D2).
+
+See change: add-editor-pane-file-handlers — optional `OpenFile.handlerMode` (`"<pluginId>/<claimId>"`, persisted); action `setHandlerMode{path,handlerMode}` (undefined removes the key). `dropMalformedHandlerModes` drops ONLY a non-string field before `isValidState`; unknown claim kept, resolved at render (built-in view).

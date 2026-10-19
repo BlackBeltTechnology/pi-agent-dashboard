@@ -788,6 +788,9 @@ importers:
       '@blackbelt-technology/pi-dashboard-app-kit':
         specifier: ^0.9.0
         version: link:../app-kit
+      '@blackbelt-technology/pi-dashboard-shared':
+        specifier: ^0.9.0
+        version: link:../shared
       wouter:
         specifier: ^3.9.0
         version: 3.10.0(react@19.2.8)

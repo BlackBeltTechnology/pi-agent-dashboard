@@ -109,6 +109,35 @@ export interface EditorPaneTabLabelProps {
   pluginContext: AnyPluginContext;
 }
 
+/**
+ * Props passed to an `editor-pane-file-handler` body component. Core owns the
+ * save policy (first-overwrite notice, conflict dialog, own-save suppression);
+ * the handler only sees the outcome. Contract notes:
+ * - call `setDirty` as soon as the document is loaded; until then the state is
+ *   `"unknown"`, which every guard treats as dirty and which is never evictable;
+ * - core trusts `setDirty(false)`: a handler that reports clean while holding
+ *   edits loses them on eviction.
+ *
+ * `context` is the plugin's `PluginContext` (opaque here, like `pluginContext`
+ * on other slots). See change: add-editor-pane-file-handlers (D3).
+ */
+export interface FileHandlerProps {
+  cwd: string;
+  path: string;
+  session: DashboardSession | null;
+  isActive: boolean;
+  snapshot(): Promise<{ bytes: ArrayBuffer; size: number; mtime: number; sha1: string }>;
+  save(
+    bytes: ArrayBuffer,
+    opts: { target: "overwrite" | "copy" },
+  ): Promise<
+    | { ok: true; path: string; mtime: number; sha1: string }
+    | { ok: false; reason: "cancelled" | "conflict-unresolved" | "rejected" | "too-large" | "busy"; message: string }
+  >;
+  setDirty(state: boolean | "unknown"): void;
+  context: AnyPluginContext;
+}
+
 /** Resource page types a `resource-page-section` claim can target. */
 export type ResourcePageType = "skill" | "agent" | "extension" | "prompt" | "theme";
 
@@ -247,6 +276,7 @@ export interface SlotPropsMap {
     pluginContext: AnyPluginContext;
   };
   "editor-pane-tab": EditorPaneTabProps;
+  "editor-pane-file-handler": FileHandlerProps;
   "resource-page-section": ResourcePageSectionProps;
   /** Headless claims take no props. See change: fix-empty-status-subcard. */
   "shell-headless": Record<string, never>;

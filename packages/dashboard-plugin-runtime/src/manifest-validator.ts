@@ -7,12 +7,13 @@ import {
   PANE_TAB_PREFIX_RE,
   RESERVED_PANE_TAB_PREFIXES,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/editor-pane-tab.js";
-import type {
-  PluginClaim,
-  PluginManifest,
-  PluginRequirements,
-  ProjectTypeRule,
-  SettingsNavHint,
+import {
+  HANDLER_MAX_BYTES,
+  type PluginClaim,
+  type PluginManifest,
+  type PluginRequirements,
+  type ProjectTypeRule,
+  type SettingsNavHint,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js";
 import {
   MAX_MARKERS_PER_TYPE,
@@ -25,9 +26,103 @@ import {
   SLOT_DEFINITIONS,
   type SlotId,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-types.js";
+import { isTextBackedExt } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
 
 /** Valid `resource-page-section` `resourceType` values. See change: add-skill-atlas-screen. */
 const RESOURCE_PAGE_TYPES: ReadonlySet<string> = new Set(["skill", "agent", "extension", "prompt", "theme"]);
+
+const FILE_HANDLER_ID_RE = /^[a-z][a-z0-9-]{0,31}$/;
+const FILE_HANDLER_EXT_RE = /^\.[a-z0-9][a-z0-9+-]{0,15}$/;
+const FILE_HANDLER_COPY_SUFFIX_RE = /^[a-z][a-z0-9-]{1,31}$/;
+const FILE_HANDLER_MAX_LABEL = 40;
+const FILE_HANDLER_MAX_NOTICE = 300;
+
+/** Normalised `editor-pane-file-handler` claim fields (see {@link validateFileHandlerClaim}). */
+type FileHandlerFields = Pick<
+  PluginClaim,
+  "id" | "extensions" | "mode" | "label" | "keepAlive" | "maxBytes" | "firstOverwriteNotice" | "copySuffix" | "validator"
+>;
+
+type FileHandlerFail = (msg: string) => never;
+
+function fileHandlerExtensions(raw: unknown, fail: FileHandlerFail): string[] {
+  if (!Array.isArray(raw) || raw.length === 0) return fail('"extensions" must be a non-empty array');
+  return raw.map((ext: unknown) => {
+    if (typeof ext !== "string" || !FILE_HANDLER_EXT_RE.test(ext)) {
+      return fail(`extension ${JSON.stringify(ext)} must match ${FILE_HANDLER_EXT_RE}`);
+    }
+    if (isTextBackedExt(ext)) {
+      return fail(`extension "${ext}" is text-backed and cannot be claimed (text files use /api/file/write)`);
+    }
+    return ext;
+  });
+}
+
+/** Optional numeric/size-ish fields: keepAlive, maxBytes, firstOverwriteNotice. */
+function fileHandlerLimits(c: Record<string, unknown>, fail: FileHandlerFail): Partial<FileHandlerFields> {
+  const out: Partial<FileHandlerFields> = {};
+  if (c.keepAlive !== undefined) {
+    const max = (c.keepAlive as { max?: unknown } | null)?.max;
+    if (typeof max !== "number" || !Number.isInteger(max) || max < 1 || max > 3) {
+      fail('"keepAlive.max" must be an integer from 1 to 3');
+    }
+    out.keepAlive = { max: max as number };
+  }
+  if (c.maxBytes !== undefined) {
+    const n = c.maxBytes;
+    if (typeof n !== "number" || !Number.isInteger(n) || n < 1 || n > HANDLER_MAX_BYTES) {
+      fail(`"maxBytes" must be an integer from 1 to ${HANDLER_MAX_BYTES}`);
+    }
+    out.maxBytes = n as number;
+  }
+  if (c.firstOverwriteNotice !== undefined) {
+    const n = c.firstOverwriteNotice;
+    if (typeof n !== "string" || n.length > FILE_HANDLER_MAX_NOTICE) {
+      fail(`"firstOverwriteNotice" must be a string of at most ${FILE_HANDLER_MAX_NOTICE} characters`);
+    }
+    out.firstOverwriteNotice = n as string;
+  }
+  return out;
+}
+
+function checkFileHandlerLabelAndSuffix(c: Record<string, unknown>, fail: FileHandlerFail): void {
+  if (c.mode !== "preview" && c.mode !== "edit") fail('"mode" must be "preview" or "edit"');
+  if (typeof c.label !== "string" || !c.label.trim() || c.label.length > FILE_HANDLER_MAX_LABEL) {
+    fail(`"label" must be a non-empty string of at most ${FILE_HANDLER_MAX_LABEL} characters`);
+  }
+  if (c.copySuffix === undefined) {
+    if (c.mode === "edit") fail('mode "edit" requires "copySuffix"');
+  } else if (typeof c.copySuffix !== "string" || !FILE_HANDLER_COPY_SUFFIX_RE.test(c.copySuffix)) {
+    fail(`"copySuffix" must match ${FILE_HANDLER_COPY_SUFFIX_RE}`);
+  }
+}
+
+/**
+ * Validate + normalise the `editor-pane-file-handler` claim fields (design D1).
+ * Every error names the plugin (via {@link ManifestValidationError}), the slot
+ * and the offending field. See change: add-editor-pane-file-handlers.
+ */
+function validateFileHandlerClaim(c: Record<string, unknown>, pluginId: string, index: number): FileHandlerFields {
+  const fail: FileHandlerFail = (msg) => {
+    throw new ManifestValidationError(pluginId, `claims[${index}] slot "editor-pane-file-handler" ${msg}`);
+  };
+  if (typeof c.component !== "string" || !c.component.trim()) fail('requires a non-empty "component"');
+  if (typeof c.id !== "string" || !FILE_HANDLER_ID_RE.test(c.id)) {
+    fail(`id ${JSON.stringify(c.id)} must match ${FILE_HANDLER_ID_RE}`);
+  }
+  const extensions = fileHandlerExtensions(c.extensions, fail);
+  checkFileHandlerLabelAndSuffix(c, fail);
+  if (c.validator !== undefined && typeof c.validator !== "boolean") fail('"validator" must be a boolean');
+  return {
+    id: c.id as string,
+    extensions,
+    mode: c.mode as "preview" | "edit",
+    label: c.label as string,
+    ...fileHandlerLimits(c, fail),
+    ...(c.copySuffix !== undefined ? { copySuffix: c.copySuffix as string } : {}),
+    ...(c.validator !== undefined ? { validator: c.validator as boolean } : {}),
+  };
+}
 
 /**
  * Validate the optional `projectTypes` marker rules (fatal on any violation).
@@ -336,6 +431,11 @@ function validateClaim(claim: unknown, pluginId: string, index: number): PluginC
     }
   }
 
+  // editor-pane-file-handler: file-type-addressed handler; fields validated +
+  // normalised by validateFileHandlerClaim (D1). Duplicate ids within a plugin
+  // are checked in validateManifest. See change: add-editor-pane-file-handlers.
+  const fileHandler = slotId === "editor-pane-file-handler" ? validateFileHandlerClaim(c, pluginId, index) : undefined;
+
   // resource-page-section: optional `resourceType` must name a resource page.
   // See change: add-skill-atlas-screen.
   if (slotId === "resource-page-section" && c.resourceType !== undefined && !RESOURCE_PAGE_TYPES.has(c.resourceType as string)) {
@@ -436,6 +536,7 @@ function validateClaim(claim: unknown, pluginId: string, index: number): PluginC
     ...(slotId === "editor-pane-tab" && typeof c.labelComponent === "string"
       ? { labelComponent: c.labelComponent }
       : {}),
+    ...(fileHandler ?? {}),
     ...(typeof c.path === "string" ? { path: c.path } : {}),
     ...(typeof c.sessionParam === "string" ? { sessionParam: c.sessionParam } : {}),
     ...(c.depth === 1 || c.depth === 2 ? { depth: c.depth } : {}),
@@ -586,7 +687,17 @@ export function validateManifest(raw: unknown, fallbackId = "unknown"): PluginMa
   const commandRoutes = new Set<string>();
   const customEntryTypes = new Set<string>();
   const paneTabPrefixes = new Set<string>();
+  const fileHandlerIds = new Set<string>();
   for (const claim of claims) {
+    if (claim.slot === "editor-pane-file-handler" && claim.id) {
+      if (fileHandlerIds.has(claim.id)) {
+        throw new ManifestValidationError(
+          pluginId,
+          `duplicate editor-pane-file-handler claim id "${claim.id}"`,
+        );
+      }
+      fileHandlerIds.add(claim.id);
+    }
     if (claim.slot === "editor-pane-tab" && claim.pathPrefix) {
       if (paneTabPrefixes.has(claim.pathPrefix)) {
         throw new ManifestValidationError(

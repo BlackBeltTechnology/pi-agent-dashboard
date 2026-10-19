@@ -7,3 +7,5 @@ See change: add-lazy-terminal-diff-bootstrap — lazy boundary (D2: `React.lazy`
 See change: surface-denial-remedy-in-previews — `openInSplit` opts gain `autoOpened` (provenance; independent of `background`/`restrictCsp`) → `openFile` action.
 
 See change: add-browser-editor-pane-tab — `openPluginTab(path): boolean` (claimed-prefix check via `findEditorPaneTabClaim`, then idempotent `openFile{viewer:"plugin"}` + `ensureRevealed`); file-watch set (`openPathsKey`) excludes every pseudo-tab/plugin path.
+
+See change: gate-changed-on-disk-by-content — `changedFiles` is `ReadonlyMap<path,generation>`; `clearChanged(path,gen?)`. New props `changeDetection` (default false; App session provider true, folder provider off), `connectionGeneration` (App `snapshotGeneration`). Delegates to `useChangedOnDisk`; context adds `changeDetection`, `verifiedChanged`, `captureBaseline(path):Promise<string|null>`, `setBaseline(path,sha1|null)`, `trackedFileWrite(path, Promise<T>|((signal)=>Promise<T>)):Promise<T>` (T has optional `ok`,`sha1`), `dismissChanged`, `refreshChanged`. `watchNonce` (Refresh + WS reconnect) in the `watch_files` effect deps.

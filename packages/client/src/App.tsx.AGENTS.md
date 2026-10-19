@@ -67,3 +67,7 @@ Mounts `<ShellHeadlessSlot />` once in the `apiProvider` body (inside `PluginCon
 `LiveSessionCwdsProvider cwdKey={liveCwdKey(session cwds)}` wraps the shell inside `ShellSessionsProvider`: file previews offer "Apply fix to file" only for live session cwds. See change: add-preview-apply-fix-to-file.
 
 Add-folders dialog forwards `piTrust` on pin / workspace add. See change: mirror-dashboard-trust-to-pi.
+
+See change: gate-changed-on-disk-by-content — `changedOnDisk` is `Map<sessionId, Map<path, generation>>`; session `SplitWorkspaceProvider` gets `changeDetection`, `connectionGeneration={snapshotGeneration}`, `onClearChanged(path, gen?)` (generation-scoped clear).
+
+See change: add-editor-pane-file-handlers — `<FileHandlerLayer />` mounted once inside `SplitWorkspaceProvider` beside `FileAccessToastHost` (page-level plugin file-handler instances; outlives `SplitWorkspace`/`EditorPane`).

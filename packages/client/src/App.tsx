@@ -15,6 +15,7 @@ import { ConnectionStatusBanner } from "./components/connectivity/ConnectionStat
 import { ServerSelector } from "./components/connectivity/ServerSelector.js";
 import { DirectorySettings, type DirectorySettingsPage } from "./components/DirectorySettings/DirectorySettings.js";
 import { SessionDiffProvider } from "./components/diff/SessionDiffContext.js";
+import { FileHandlerLayer } from "./components/editor-pane/file-handlers/FileHandlerLayer.js";
 import { FolderEditorView } from "./components/folder/FolderEditorView.js";
 import { FolderSplitProvider } from "./components/folder/FolderSplitProvider.js";
 import { ArchiveBrowserView } from "./components/openspec/ArchiveBrowserView.js";
@@ -720,7 +721,7 @@ export default function App() {
   const [fileResults, setFileResults] = useState<{ query: string; files: FileEntry[] } | null>(null);
   // Per-session rel-paths that changed on disk while open in the editor pane
   // (drives the changed-on-disk banner). See change: split-editor-workspace.
-  const [changedOnDisk, setChangedOnDisk] = useState<Map<string, Set<string>>>(() => new Map());
+  const [changedOnDisk, setChangedOnDisk] = useState<Map<string, Map<string, number>>>(() => new Map());
   // Per-session auto-canvas state (coexists with the URL-driven preview routes).
   // Folded from `canvas_intent` / `canvas_server_chip`. See change: auto-canvas.
   const [canvasMap, setCanvasMap] = useState<Map<string, import("./lib/canvas/canvas-gate.js").CanvasState>>(() => new Map());
@@ -3111,13 +3112,17 @@ export default function App() {
             onKillTerminal={handleKillTerminal}
             onRenameTerminal={handleRenameTerminal}
             onTerminalTitle={handleTerminalTitle}
-            onClearChanged={(path) => {
+            changeDetection
+            connectionGeneration={snapshotGeneration}
+            onClearChanged={(path, generation) => {
               if (!selectedId) return;
               setChangedOnDisk((prev) => {
-                const set = prev.get(selectedId);
-                if (!set || !set.has(path)) return prev;
+                const paths = prev.get(selectedId);
+                if (!paths?.has(path)) return prev;
+                // A generation-scoped clear is a no-op once a newer event arrived.
+                if (generation !== undefined && paths.get(path) !== generation) return prev;
                 const next = new Map(prev);
-                const copy = new Set(set);
+                const copy = new Map(paths);
                 copy.delete(path);
                 next.set(selectedId, copy);
                 return next;
@@ -3134,6 +3139,10 @@ export default function App() {
               {/* Non-modal "waiting for file access" toast (own tray, both layouts).
                   See change: ask-agent-file-access-in-chat. */}
               <FileAccessToastHost sessions={sessions} selectedId={selectedId} onOpen={handleSelect} />
+              {/* Page-level plugin file-handler instances (kept alive across tab / pane /
+                  session switches; positioned over the session pane body).
+                  See change: add-editor-pane-file-handlers. */}
+              <FileHandlerLayer />
               {/* Return pill for embedded plugin apps (both layouts). See change: add-plugin-app-host. */}
               <EmbeddedAppReturnPill />
               {/* Always-mounted zero-UI plugin hosts (e.g. the browser relay feed),

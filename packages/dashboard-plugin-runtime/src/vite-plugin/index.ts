@@ -526,10 +526,17 @@ function generateRegistryContent(entries: PluginEntry[], repoRoot: string): stri
       // Presentation for shell-overlay-route claims. See change:
       // add-route-backed-overlay-dialogs.
       const presentationStr = claim.presentation ? `, presentation: ${JSON.stringify(claim.presentation)}` : "";
+      // `editor-pane-file-handler` claim fields. See change: add-editor-pane-file-handlers.
+      const fileHandlerStr = (
+        ["id", "extensions", "mode", "label", "keepAlive", "maxBytes", "firstOverwriteNotice", "copySuffix", "validator"] as const
+      )
+        .filter((k) => claim[k] !== undefined)
+        .map((k) => `, ${k}: ${JSON.stringify(claim[k])}`)
+        .join("");
       // Generic config escape hatch (rare — prefer first-class fields).
       const configStr = claim.config ? `, config: ${JSON.stringify(claim.config)}` : "";
       lines.push(
-        `      { pluginId: ${JSON.stringify(manifest.id)}, priority: ${manifest.priority ?? 1000}, slot: ${JSON.stringify(claim.slot)}${tabStr}${toolNameStr}${customTypeStr}${pathPrefixStr}${resourceTypeStr}${commandStr}${pathStr}${sessionParamStr}${depthStr}${parentPathStr}${presentationStr}${configStr}${componentRef}${predicateRef}${shouldRenderRef}${labelRef} },`,
+        `      { pluginId: ${JSON.stringify(manifest.id)}, priority: ${manifest.priority ?? 1000}, slot: ${JSON.stringify(claim.slot)}${tabStr}${toolNameStr}${customTypeStr}${pathPrefixStr}${resourceTypeStr}${commandStr}${pathStr}${sessionParamStr}${depthStr}${parentPathStr}${presentationStr}${fileHandlerStr}${configStr}${componentRef}${predicateRef}${shouldRenderRef}${labelRef} },`,
       );
     }
     lines.push("    ],");
