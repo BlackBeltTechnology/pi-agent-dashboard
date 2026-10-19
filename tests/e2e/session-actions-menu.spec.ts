@@ -409,9 +409,14 @@ test.describe("session actions menu (L3)", () => {
 // 36 px floor is pinned at L1 (`SessionCard.actions-menu.test.tsx`) and measured at desktop width.
 test.describe("touch targets at 375×800 (align-ui-contract-recipes)", () => {
   test("F3: the Services strip item is ≥ 44 px tall with a bottom-edge bar, and the page does not scroll sideways", async ({ page }) => {
-    await page.setViewportSize({ width: 375, height: 800 });
+    // Load at desktop width (`gotoDashboard` waits for the desktop header, and only `/` is on the
+    // harness's auth bypass list), then resize and enter Settings by in-app navigation.
     await gotoDashboard(page);
-    await page.goto("/settings/services");
+    await page.setViewportSize({ width: 375, height: 800 });
+    await page.evaluate(() => {
+      window.history.pushState({}, "", "/settings/services");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
     const rail = page.getByTestId("settings-nav-rail");
     await expect(rail).toBeVisible({ timeout: 20_000 });
 
@@ -421,7 +426,7 @@ test.describe("touch targets at 375×800 (align-ui-contract-recipes)", () => {
 
     const current = rail.locator("[aria-current='page']");
     await expect(current).toHaveCount(1);
-    await expect(current).toContainText("Services");
+    await expect(current).toContainText("All services"); // the rail label of /settings/services
     const bar = await current.evaluate((el) => {
       const st = getComputedStyle(el, "::before");
       const own = el.getBoundingClientRect();

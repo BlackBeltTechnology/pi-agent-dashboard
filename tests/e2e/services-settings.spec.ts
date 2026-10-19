@@ -371,8 +371,10 @@ test.describe("Settings → Services", () => {
     await expect(page.getByTestId("toast-action")).toHaveCount(0);
   });
 
-  // test-plan #F1 (align-ui-contract-recipes): a palette switch recolours the pills in place.
-  // The picker is the sidebar's ThemePicker, so the pills stay on screen while it is used.
+  // test-plan #F1 (align-ui-contract-recipes): a palette switch recolours the pills, no reload.
+  // Settings opens as a dialog whose scrim covers the sidebar (where the ThemePicker lives), so the
+  // palette is changed from the dashboard and the Services page is re-entered by in-app navigation:
+  // `__noReload` proves the document was never reloaded in between.
   // Tones covered: success (a running service) and neutral (a stopped one); the warning tone has no
   // deterministic state on this harness (`blocked` needs a service that is healthy, then stops answering).
   test("F1 (align) — switching base dark → nord dark recolours the state pills without a reload", async ({ page, request }) => {
@@ -387,9 +389,18 @@ test.describe("Settings → Services", () => {
       (window as unknown as { __noReload: boolean }).__noReload = true;
     });
     const before = (await resolveColor(page, "var(--severity-success-bg)")).join(",");
-
+    // In-app navigation (wouter listens to popstate): leave Settings, change the palette, come back.
+    const navigate = (path: string) =>
+      page.evaluate((to) => {
+        window.history.pushState({}, "", to);
+        window.dispatchEvent(new PopStateEvent("popstate"));
+      }, path);
+    await navigate("/");
+    await expect(page.getByTestId("settings-nav-rail")).toHaveCount(0);
     await page.getByTestId("theme-picker-trigger").click();
     await page.getByTestId("theme-option-nord").click();
+    await navigate("/settings/services");
+    await expect(page.getByTestId("services-list-page")).toBeVisible({ timeout: 20_000 });
     await expect.poll(async () => (await resolveColor(page, "var(--severity-success-bg)")).join(",")).not.toBe(before);
 
     const ownColor = (el: Locator) =>
@@ -453,8 +464,20 @@ test.describe("Settings → Services", () => {
       const banner = page.getByTestId("services-definitions-corrupt");
       await expect(banner).toBeVisible();
       await expect(banner).toContainText("services.json");
+      // The refusal's code is behind "Copy details", not in the visible sentence (align-ui-contract-recipes).
+      await page.evaluate(() => {
+        (window as unknown as { __copied: string[] }).__copied = [];
+        Object.defineProperty(navigator, "clipboard", {
+          configurable: true,
+          value: { writeText: (t: string) => ((window as unknown as { __copied: string[] }).__copied.push(t), Promise.resolve()) },
+        });
+      });
       await page.getByTestId("services-prune-open").click();
-      await expect(page.getByTestId("service-action-error")).toContainText("definitions-corrupt");
+      const err = page.getByTestId("service-action-error");
+      await expect(err).toBeVisible();
+      await expect(err).not.toContainText("definitions-corrupt");
+      await err.getByRole("button", { name: /copy details/i }).click();
+      expect(await page.evaluate(() => (window as unknown as { __copied: string[] }).__copied.join("\n"))).toContain("definitions-corrupt");
     } finally {
       exec('rm -f "$HOME/.pi/dashboard/services.json"');
     }
