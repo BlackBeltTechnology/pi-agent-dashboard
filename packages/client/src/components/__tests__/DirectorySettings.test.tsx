@@ -101,9 +101,10 @@ describe("DirectorySettings", () => {
     expect(screen.getByRole("button", { name: /Session cards/ }).getAttribute("aria-current")).toBe("page");
   });
 
-  it("renders the Add-ons surface on the add-ons page", () => {
+  it("renders the Add-ons surface on the add-ons page", async () => {
     renderAt("add-ons");
-    expect(screen.getByTestId("directory-settings-packages")).toBeTruthy();
+    // The folder Add-ons page is a lazy chunk.
+    expect(await screen.findByTestId("directory-settings-packages")).toBeTruthy();
   });
 
   it("renders only skill cards on the Skills page", async () => {

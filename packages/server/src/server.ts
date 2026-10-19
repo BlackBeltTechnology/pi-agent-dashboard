@@ -1813,6 +1813,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     logger: false,
     keepAliveTimeout: MAIN_KEEP_ALIVE_TIMEOUT_MS,
     connectionTimeout: MAIN_CONNECTION_TIMEOUT_MS,
+    // Add-ons feature ids embed a local package's absolute path (`pkg:local:/…`), which exceeds
+    // find-my-way's default 100-char param limit (414). See change: addons-hub-folder-view.
+    maxParamLength: 1024,
   });
 
   // Optional native TLS listener (off by default): a second `https.Server` that

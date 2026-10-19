@@ -108,7 +108,7 @@ The source SHALL create one ACME account per (normalized directory, contact emai
 - **THEN** that account key file SHALL no longer exist after reconcile
 
 ### Requirement: Solver credential storage
-Solver secrets — the Cloudflare API token, and the acme-dns username and password — SHALL be stored in the dashboard's credential vault as accounts of kind `tls-solver` in the namespace `tls:<sourceId>`, never in `config.json` and never in a separate file. Non-secret solver settings (acme-dns `server`, `subdomain`, `fulldomain`) SHALL live in config. No API response and no log line SHALL contain a secret value; APIs SHALL expose only whether secrets are configured. Secret writes SHALL go through `PUT /api/tls/acme/:sourceId/credentials`, authorized as a credential-vault management route; a `sourceId` that does not name a configured `acme` source SHALL be answered 404 without touching the vault. Saving secrets SHALL trigger an issuance attempt for that source's due names. The `configured` flag SHALL be read-only (ignored on config writes). When no configured `acme` source has a given id any more (removal or rename), its `tls:<id>` accounts SHALL be deleted on a reconcile, a source removal or a server start that read a parseable config and a healthy vault. When the vault cannot be read, the source SHALL report its `credentials` gate unmet and SHALL make no CA or DNS-provider call.
+Solver secrets — the Cloudflare API token, and the acme-dns username and password — SHALL be stored in the dashboard's credential vault as accounts of kind `tls-solver` in the namespace `tls:<sourceId>`, never in `config.json` and never in a separate file. Non-secret solver settings (acme-dns `server`, `subdomain`, `fulldomain`) SHALL live in config. No API response and no log line SHALL contain a secret value; APIs SHALL expose only whether secrets are configured. Secret writes SHALL go through `PUT /api/tls/acme/:sourceId/credentials`, authorized as a credential-vault management route; a `sourceId` that does not name a configured `acme` source SHALL be answered 404 without touching the vault. Saving secrets SHALL trigger an issuance attempt for that source's due names when the source's credentials were missing or rejected before the save; replacing working credentials SHALL NOT bypass a pending retry wait. Secrets that belong together (the acme-dns username and password) SHALL be written together or not at all, and the solver SHALL report `configured: true` only when every secret its type needs is present. The `configured` flag SHALL be read-only (ignored on config writes). When no configured `acme` source has a given id any more (removal or rename), its `tls:<id>` accounts SHALL be deleted on a reconcile, a source removal or a server start that read a parseable config and a healthy vault. When the vault cannot be read, the source SHALL report its `credentials` gate unmet and SHALL make no CA or DNS-provider call.
 
 #### Scenario: Secrets redacted
 - **WHEN** `GET /api/config` is called by the operator, or `GET /api/health` by a caller permitted to see TLS detail, with an acme source configured
@@ -139,8 +139,16 @@ Solver secrets — the Cloudflare API token, and the acme-dns username and passw
 - **THEN** the logged or surfaced text SHALL NOT include the secret value
 
 #### Scenario: Saving secrets starts issuance
-- **WHEN** secrets are saved for a source whose domains hold no certificate
+- **WHEN** secrets are saved for a source whose domains hold no certificate and whose credentials gate was unmet
 - **THEN** an issuance attempt SHALL start without waiting for the periodic tick
+
+#### Scenario: Replacing working credentials keeps the retry wait
+- **WHEN** the CA marked a challenge `invalid` 10 minutes ago and the operator saves a new token for the same source while its credentials gate is met
+- **THEN** no attempt SHALL start before the 1-hour floor
+
+#### Scenario: Rejected token during an attempt
+- **WHEN** the DNS provider answers 401 or 403 while publishing a challenge
+- **THEN** that attempt SHALL count as one failure, the source SHALL report its credentials gate unmet, and no further attempt SHALL start or count as a failure until credentials are saved or a forced refresh finds them valid
 
 ### Requirement: Solver readiness
 Solver readiness checks (credential validity, zone lookup, CNAME delegation) SHALL run on config or secret change, before an issuance attempt, when the TLS listener re-checks a name waiting on a gate, or on explicit operator refresh, and SHALL be cached for at least 5 minutes; reading status SHALL NOT trigger external calls. Explicit refresh is the prerequisite's `POST /api/tls/issue` with `{ sourceId, name? }`, which forces a readiness refresh before triggering. Missing credentials, an unreadable vault and a missing delegation SHALL be reported as unmet gates, so that the prerequisite's gate-before-obtain rule skips the name without counting a failure, and no CA order is created and no DNS record is written for it. The acme-dns credential check SHALL write to the acme-dns server only while no order of that source is running. Status SHALL report, as source-level status fields, the time each domain's readiness was last checked. For the `acme-dns` solver the source SHALL, per domain, check on public DNS that `_acme-challenge.<d>` — where `<d>` is the domain with any leading `*.` removed — is a CNAME to the configured acme-dns `fulldomain`, asking that zone's authoritative nameservers rather than a recursive resolver, and when it is not, SHALL report an unmet gate showing the exact CNAME record to create.
@@ -171,11 +179,15 @@ Solver readiness checks (credential validity, zone lookup, CNAME delegation) SHA
 - **THEN** no CA order SHALL be created and no DNS record SHALL be written, and the gate SHALL stay unmet with a new check time
 
 ### Requirement: ACME status reporting
-For callers permitted to see TLS detail, status SHALL report per ACME domain: source id, solver type, directory (`staging`/`production`/custom), `staging` flag, `advertise` flag, expiry, current stage (`idle`, `order`, `dns-publish`, `propagation`, `validation`, `finalize`), the last redacted error, and — after a failed attempt — the time of the next automatic attempt (the prerequisite's per-certificate `nextAttemptAt`). Domains that do not yet hold a certificate SHALL be reported too.
+For callers permitted to see TLS detail, status SHALL report per ACME domain: source id, solver type, directory (`staging`/`production`/custom), `staging` flag, `advertise` flag, expiry, current stage (`idle`, `order`, `dns-publish`, `propagation`, `validation`, `finalize`), the last redacted error, and — after a failed attempt — the time of the next automatic attempt (the prerequisite's per-certificate `nextAttemptAt`). Domains that do not yet hold a certificate SHALL be reported too, with the source id, solver type, directory and `staging` flag taken from config. A held certificate that is due for renewal while a gate for its name is unmet SHALL be reported with that gate and its expiry, so the UI can warn that renewal is blocked.
 
 #### Scenario: Stage visible during issuance
 - **WHEN** an issuance is waiting for DNS propagation
 - **THEN** status SHALL report stage `propagation` for that domain
+
+#### Scenario: Renewal blocked by a gate
+- **WHEN** `dash.example.com` holds a certificate inside its renewal window and its CNAME delegation has been removed
+- **THEN** status SHALL report the unmet CNAME gate for that name together with the certificate's expiry, no renewal attempt SHALL be counted as failed, and the Gateway row SHALL show "Renewal blocked"
 
 #### Scenario: Next attempt visible after a CA failure
 - **WHEN** the CA marks the challenge for `dash.example.com` `invalid` at time T and the domain holds no certificate

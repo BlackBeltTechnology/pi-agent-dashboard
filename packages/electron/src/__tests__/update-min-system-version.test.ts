@@ -13,7 +13,7 @@
  *   return true
  *
  * so a malformed value THROWS, is caught, and falls through to "update
- * supported". A string-equality test would pass on `"12.0"` / `"21"` while the
+ * supported". A string-equality test would pass on `"13.0"` / `"22"` while the
  * gate is completely dead. These tests run the same comparator against the
  * same value.
  *
@@ -50,6 +50,8 @@ describe("U2: clients below the floor are blocked", () => {
   it.each([
     { darwin: "19.6.0", macos: "10.15 Catalina" },
     { darwin: "20.6.0", macos: "11 Big Sur" },
+    { darwin: "21.0.0", macos: "12.0 Monterey — the boundary below the floor" },
+    { darwin: "21.6.0", macos: "12.7 Monterey" },
   ])("Darwin $darwin ($macos) is not offered the update", ({ darwin }) => {
     expect(semver.lt(darwin, UPDATE_MINIMUM_SYSTEM_VERSION)).toBe(true);
     expect(updateIsSupported(darwin, UPDATE_MINIMUM_SYSTEM_VERSION)).toBe(false);
@@ -58,18 +60,18 @@ describe("U2: clients below the floor are blocked", () => {
 
 describe("U3: clients at or above the floor are admitted", () => {
   it.each([
-    { darwin: "21.0.0", macos: "12.0 Monterey — the boundary" },
-    { darwin: "21.6.0", macos: "12.7 Monterey" },
+    { darwin: "22.0.0", macos: "13.0 Ventura — the boundary" },
+    { darwin: "22.6.0", macos: "13.7 Ventura" },
     { darwin: "25.0.0", macos: "26" },
   ])("Darwin $darwin ($macos) is still offered the update", ({ darwin }) => {
-    // The 21.0.0 case is what a naive `<=` gets wrong.
+    // The 22.0.0 case is what a naive `<=` gets wrong.
     expect(semver.lt(darwin, UPDATE_MINIMUM_SYSTEM_VERSION)).toBe(false);
     expect(updateIsSupported(darwin, UPDATE_MINIMUM_SYSTEM_VERSION)).toBe(true);
   });
 });
 
 describe("U4: both inert spellings are rejected", () => {
-  it.each(["12.0", "21"])(
+  it.each(["13.0", "22"])(
     "the value %s makes semver.lt throw (gate silently dead)",
     (inert) => {
       expect(() => semver.lt("19.6.0", inert)).toThrow();
@@ -80,15 +82,15 @@ describe("U4: both inert spellings are rejected", () => {
   );
 
   it("the shipped value is a full three-component semver that does NOT throw", () => {
-    expect(UPDATE_MINIMUM_SYSTEM_VERSION).toBe("21.0.0");
-    expect(semver.valid(UPDATE_MINIMUM_SYSTEM_VERSION)).toBe("21.0.0");
+    expect(UPDATE_MINIMUM_SYSTEM_VERSION).toBe("22.0.0");
+    expect(semver.valid(UPDATE_MINIMUM_SYSTEM_VERSION)).toBe("22.0.0");
     expect(() => semver.lt("19.6.0", UPDATE_MINIMUM_SYSTEM_VERSION)).not.toThrow();
   });
 
   it("is a Darwin kernel version, not the marketing version", () => {
     // os.release() returns the Darwin version on macOS, so the marketing
     // scale would be wrong even if it parsed.
-    expect(Number(UPDATE_MINIMUM_SYSTEM_VERSION.split(".")[0])).toBe(21);
+    expect(Number(UPDATE_MINIMUM_SYSTEM_VERSION.split(".")[0])).toBe(22);
   });
 });
 

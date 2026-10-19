@@ -213,6 +213,12 @@ export function resolvePackagedBinary(): string {
 export async function launchElectron(opts: {
   home: string;
   zombiePrompt?: boolean;
+  /**
+   * Isolated Chromium user-data dir (`--user-data-dir`). The single-instance lock lives
+   * there, so a spec that must run beside an already-running installed app (which holds
+   * the default lock and makes a second launch quit at once) passes its own.
+   */
+  userDataDir?: string;
 }): Promise<ElectronApplication> {
   // --no-sandbox is required for Electron to launch on CI Linux (no SUID
   // chrome-sandbox helper under xvfb); harmless on macOS/Windows. Mirrors the
@@ -222,6 +228,7 @@ export async function launchElectron(opts: {
   // authorisation prompt in an unsigned build. The mock keychain keeps the app unattended-runnable.
   if (process.platform === "darwin") args.push("--use-mock-keychain");
   if (opts.zombiePrompt === false) args.push("--no-zombie-prompt");
+  if (opts.userDataDir) args.push(`--user-data-dir=${opts.userDataDir}`);
   const env: Record<string, string> = {
     ...process.env,
     HOME: opts.home,

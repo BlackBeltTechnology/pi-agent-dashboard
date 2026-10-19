@@ -85,6 +85,11 @@ export function deleteRestore(store: RestoreStore, settingsPath: string, identit
   delete store[restoreKey(settingsPath, identity)];
 }
 
+/** Would `gcRestore` drop anything? Read-only, so a catalog read can skip the locks when it would not. */
+export function hasStaleRestore(settingsPath: string, liveIdentities: ReadonlySet<string>, log?: RestoreLog): boolean {
+  return Object.values(readRestoreStore(log)).some((rec) => rec.settingsPath === settingsPath && !liveIdentities.has(rec.identity));
+}
+
 /**
  * Drop every record of `settingsPath` whose identity is no longer a global
  * `packages[]` entry (uninstalled, reset to its published variant, moved

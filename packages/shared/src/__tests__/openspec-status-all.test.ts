@@ -135,6 +135,20 @@ describe("countTasksFromContent (#E7)", () => {
     ].join("\n");
     expect(countTasksFromContent(content)).toEqual({ total: 7, completed: 4 });
   });
+  it("counts the list markers and checkbox forms the 1.14.3 CLI counts (refresh-electron-bundled-components)", () => {
+    const content = [
+      "+ [ ] plus",
+      "1. [ ] ordered dot",
+      "2) [x] ordered paren",
+      "- [~] tilde is open work",
+      "- []  empty box is open work",
+      "- [ x] padded done",
+      "- [Doc](./doc.md)", // link bullet, not a task
+      "- [A](https://example.com)", // one-char label link, not a task
+      "- [A][ref]", // reference link, not a task
+    ].join("\n");
+    expect(countTasksFromContent(content)).toEqual({ total: 6, completed: 2 });
+  });
   it("matches the base fixture of 34 top-level + 3 indented (16 done)", () => {
     const lines = [
       ...Array.from({ length: 34 }, (_, i) => `- [${i < 13 ? "x" : " "}] t${i}`),

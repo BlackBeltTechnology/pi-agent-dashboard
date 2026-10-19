@@ -19,7 +19,7 @@
  * `Info.plist > LSMinimumSystemVersion` (forge.config.ts) and into
  * `MACOSX_DEPLOYMENT_TARGET` on the darwin make step.
  */
-export const MACOS_FLOOR_MARKETING = "12.0";
+export const MACOS_FLOOR_MARKETING = "13.0";
 
 /**
  * Expected `LC_BUILD_VERSION.minos` MAJOR of the packaged main Mach-O.
@@ -29,11 +29,11 @@ export const MACOS_FLOOR_MARKETING = "12.0";
  * and copied verbatim by @electron/packager. It is NOT produced by our
  * MACOSX_DEPLOYMENT_TARGET. The check is therefore an UPSTREAM-FLOOR TRIPWIRE:
  * it fires when a future Electron raises its own macOS floor without us
- * noticing. Observed empirically against the electron@43.4.1 prebuilt.
+ * noticing. Observed empirically against the electron@44.9.0 prebuilt.
  *
  * See design.md Decision 2.
  */
-export const MACOS_FLOOR_MINOS_MAJOR = 12;
+export const MACOS_FLOOR_MINOS_MAJOR = 13;
 
 /**
  * `minimumSystemVersion` injected into the emitted `latest-mac.yml`.
@@ -44,13 +44,15 @@ export const MACOS_FLOOR_MINOS_MAJOR = 12;
  * catches any throw, and falls through to "update supported". So both
  * intuitive spellings are silently inert:
  *
- *   "12.0" — marketing version   → semver.lt throws → gate disabled
- *   "21"   — bare Darwin major   → semver.lt throws → gate disabled
- *   "21.0.0" — Darwin triple     → correct
+ *   "13.0" — marketing version   → semver.lt throws → gate disabled
+ *   "22"   — bare Darwin major   → semver.lt throws → gate disabled
+ *   "22.0.0" — Darwin triple     → correct
  *
- * macOS 12 Monterey === Darwin 21. See design.md Decision 5, Trap 1.
+ * macOS 13 Ventura === Darwin 22 (macOS 12 Monterey === Darwin 21, now below the
+ * floor). See design.md Decision 5, Trap 1; floor raised 12 → 13 by
+ * refresh-electron-bundled-components (Electron 44 dropped macOS 12).
  */
-export const UPDATE_MINIMUM_SYSTEM_VERSION = "21.0.0";
+export const UPDATE_MINIMUM_SYSTEM_VERSION = "22.0.0";
 
 /**
  * Extract EVERY `minos` value from `otool -l` output.
@@ -103,7 +105,7 @@ export function extractMinosValues(otoolOutput) {
  *
  * The comparison is EQUALITY, not the historical upward-only `-gt`. Under the
  * old 10.15 target a below-floor value was unreachable (10 was the minimum
- * expressible on x64); at a 12.0 floor it is reachable and must not pass.
+ * expressible on x64); at a 13.0 floor it is reachable and must not pass.
  *
  * @param {{ otoolOutput: string, expectedMajor?: number }} args
  * @returns {{ status: "ok"|"mismatch"|"non-numeric"|"not-extractable",

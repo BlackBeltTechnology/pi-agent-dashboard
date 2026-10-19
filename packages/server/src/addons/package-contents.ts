@@ -68,3 +68,32 @@ export function readPackageInfo(installedPath: string | undefined): PackageInfo 
   }
   return { name, contents };
 }
+
+/**
+ * Agents a package contributes: markdown files under its `pi.agents` paths, else
+ * `agents/`. pi has no filter type for agents, so these keep loading when a
+ * feature is turned off in one folder. Never throws.
+ * See change: addons-hub-folder-view.
+ */
+export function countPackageAgents(installedPath: string | undefined): number {
+  if (!installedPath) return 0;
+  let declared: unknown;
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(installedPath, "package.json"), "utf-8"));
+    declared = pkg?.pi?.agents;
+  } catch {
+    /* no manifest → convention dir */
+  }
+  const paths = Array.isArray(declared) ? declared.filter((p): p is string => typeof p === "string") : ["agents"];
+  let n = 0;
+  for (const p of paths) {
+    try {
+      const target = path.resolve(installedPath, p);
+      if (fs.statSync(target).isFile()) n += target.endsWith(".md") ? 1 : 0;
+      else n += fs.readdirSync(target, { withFileTypes: true }).filter((e) => e.isFile() && e.name.endsWith(".md")).length;
+    } catch {
+      /* missing path → none */
+    }
+  }
+  return n;
+}

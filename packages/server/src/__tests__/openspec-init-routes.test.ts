@@ -285,6 +285,24 @@ describe("POST /api/openspec/init (add-openspec-init-affordances)", () => {
     expect(initAsyncMock).not.toHaveBeenCalled();
   });
 
+  it("refresh-electron-bundled-components: a CURRENT CoStrict opsx- command is not legacy, an openspec- file is", async () => {
+    // 1.14.3 scopes CoStrict cleanup to `.cospec/openspec/commands/openspec-*.md`; the
+    // adapter writes live `opsx-*.md` into the same folder, so it must not force a confirm.
+    await fs.mkdir(path.join(tmpDir, ".cospec", "openspec", "commands"), { recursive: true });
+    await fs.writeFile(path.join(tmpDir, ".cospec", "openspec", "commands", "opsx-propose.md"), "x");
+    await setup({ sessionCwds: [tmpDir] });
+    const current = await post({ cwd: tmpDir });
+    expect(current.statusCode).toBe(200);
+    expect(initAsyncMock).toHaveBeenCalledTimes(1);
+
+    await fs.writeFile(path.join(tmpDir, ".cospec", "openspec", "commands", "openspec-proposal.md"), "x");
+    initAsyncMock.mockClear();
+    const legacy = await post({ cwd: tmpDir });
+    expect(legacy.statusCode).toBe(400);
+    expect(JSON.parse(legacy.payload).code).toBe("confirm_required");
+    expect(initAsyncMock).not.toHaveBeenCalled();
+  });
+
   it("review round 1: CLI-read failure at init time records NO fabricated signature", async () => {
     // currentGlobalWorkflowSignature resolves undefined when the CLI read
     // fails — the route must skip recording instead of fabricating the
