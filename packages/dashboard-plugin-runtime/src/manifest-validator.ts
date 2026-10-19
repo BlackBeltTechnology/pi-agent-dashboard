@@ -34,7 +34,7 @@ import {
   SLOT_DEFINITIONS,
   type SlotId,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-types.js";
-import { isTextBackedExt } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
+import { isUnclaimableHandlerExt } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
 
 /** Valid `resource-page-section` `resourceType` values. See change: add-skill-atlas-screen. */
 const RESOURCE_PAGE_TYPES: ReadonlySet<string> = new Set(["skill", "agent", "extension", "prompt", "theme"]);
@@ -190,8 +190,8 @@ function validateFileHandlerClaim(c: Record<string, unknown>, pluginId: string, 
     if (typeof ext !== "string" || !FILE_HANDLER_EXT_RE.test(ext)) {
       fail(`extension ${JSON.stringify(ext)} must match ${FILE_HANDLER_EXT_RE} (lower-case, single segment, leading dot)`);
     }
-    if (isTextBackedExt(ext as string)) {
-      fail(`extension "${ext}" is a text-backed file kind (edited through /api/file/write) and cannot be claimed`);
+    if (isUnclaimableHandlerExt(ext as string)) {
+      fail(`extension "${ext}" is a text-backed file kind (edited through /api/file/write) or reserved (secrets, scripts, plain text) and cannot be claimed`);
     }
   }
   if (c.mode !== "preview" && c.mode !== "edit") fail('"mode" must be "preview" or "edit"');

@@ -339,7 +339,10 @@ Claim fields (`PluginClaim`, validated by `manifest-validator.ts`):
 | `validator` | no | `true` = saves need registered validator (fail closed) |
 | `copySuffix` | edit: yes | `^[a-z][a-z0-9-]{1,31}$` |
 
-- Text-backed extensions rejected (`isTextBackedExt`, from `fileKind`). Text saves stay on `/api/file/write`.
+- Rejected: text-backed (`isUnclaimableHandlerExt` → `isTextBackedExt`, from `fileKind`) or frozen deny list `HANDLER_DENIED_EXTS` (`packages/shared/src/file-kind.ts`).
+- Deny groups: secrets (`.env` `.npmrc` `.pem` `.key` `.pfx` …), scripts (`.ps1` `.bat` `.cmd` `.vbs` …), plain text (`.patch` `.diff` `.jsonl` `.ipynb` `.lock` `.srt` …).
+- Deny list fixed. Claimable set does not shift when `fileKind` learns a kind.
+- Text saves stay on `/api/file/write`.
 - Unknown extensions claimable (`.drawio`, `.psd`).
 - Two plugins may claim same extension; switcher lists both.
 - Ordering: plugin `priority` → plugin id → claim id.
@@ -362,7 +365,8 @@ interface FileHandlerProps {
 
 - `snapshot()`: `GET /api/file/digest` → `GET /api/file/raw` (`no-store`) → digest again. Accept when digests match and `sha1(bytes)` matches. Retry 3×, then reject. Size > `maxBytes` → `too-large` before content fetch. Mtime-only change tolerated.
 - `save()` → `POST /api/file/write-binary` (below). First overwrite per instance shows `firstOverwriteNotice` dialog.
-- `setDirty("unknown")` = dirty for every guard. Call `setDirty(false|true)` once document loaded.
+- `setDirty("unknown")` = dirty for every guard. Initial state. Never evictable.
+- Call `setDirty(false|true)` as soon as document loads. Unset `"unknown"` pins instance (never evicted).
 - Keep-alive: `MAX_LIVE_HANDLERS = 3` per page. LRU eviction of instances with state `false` only. Dirty/unknown never evicted; no evictable → save-or-discard dialog.
 - **Caveat:** eviction trusts `setDirty(false)`. Handler reporting clean while holding edits loses them. Plugin is trusted code.
 - Guards on every core discard when state `true`/`"unknown"`: mode switch, last-tab close, refresh, conflict Reload, plugin disable overlay, `beforeunload`.
@@ -374,6 +378,7 @@ interface FileHandlerProps {
 - Tier `control`; `networkGuard`.
 - Order: query → claim (enabled edit claim, validator `enabled()`) → known cwd → target authz (`isWritableHandlerTarget`) → fail-closed validator check → size cap → validator (before lock) → realpath lock: hash check → tmp+rename | copy.
 - `200 {success:true, data:{path, mtime, sha1}}`.
+- `500 {success:false, error:"write failed"}` on I/O failure. Generic. No paths in body.
 - `409 {success:false, error, sha1?, mtime?}` content conflict; no `sha1`/`mtime` when file gone.
 - `400` bad query / missing `expectSha1`. `403` unknown cwd, escape, ext mismatch, claim disabled, mode not edit. `413` size. `422` validator rejected. `503` validator pool overflow or validator not loaded (restart pending).
 - Overwrite: requested AND realpath ext must be in `claim.extensions`.
@@ -387,7 +392,8 @@ interface FileHandlerProps {
 - Pool: `worker_threads`, 2 workers, FIFO queue 8, overflow → 503. Hard `terminate()` at 5 s → 422. Bytes transferred.
 - Validator can only reject. Throw / timeout / `ok:false` → 422.
 - `enabled()` false → 403 (main thread, live, no restart).
-- Claim with `validator: true` and no loaded validator → 503 (fail closed). Restart-effective.
+- Claim with `validator: true` and no loaded validator → 503 (fail closed). Validator missing = registration absent or plugin server entry not loaded (`getPluginStatusStore().getStatus(id)?.loaded` false). Restart-effective.
+- Worker `resourceLimits`: old gen 256 MiB, young gen 64 MiB.
 - Lock key = realpath for both `/api/file/write` and `write-binary`.
 
 See change: add-editor-pane-file-handlers.

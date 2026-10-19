@@ -84,6 +84,23 @@ describe("cap + eviction (F4, F5)", () => {
     expect(store.getState().instances.map((i) => i.path).sort()).toEqual(["a.docx", "c.docx", "d.docx"]);
   });
 
+  it("two simultaneously cap-blocked mounts each settle against their own dialog", async () => {
+    await open("a.docx", "b.docx", "c.docx");
+    for (const p of ["a.docx", "b.docx", "c.docx"]) store.setDirty(keyOf(p), true);
+    const pd = store.activate(spec("d.docx"));
+    const pe = store.activate(spec("e.docx"));
+    await vi.waitFor(() => expect(store.getState().dialogs.length).toBeGreaterThan(0));
+    // First dialog: discard a.docx → d.docx mounts.
+    store.resolveDialog(store.getState().dialogs[0].id, keyOf("a.docx"));
+    expect(await pd).toBe(true);
+    // Second dialog (e.docx): Cancel → e.docx is NOT mounted and nothing else is disturbed.
+    await vi.waitFor(() => expect(store.getState().dialogs.length).toBeGreaterThan(0));
+    store.resolveDialog(store.getState().dialogs[0].id, null);
+    expect(await pe).toBe(false);
+    expect(store.getState().instances.map((i) => i.path).sort()).toEqual(["b.docx", "c.docx", "d.docx"]);
+    expect(store.getInstance(keyOf("e.docx"))).toBeUndefined();
+  });
+
   it("a claim's keepAlive.max lowers its own share", async () => {
     const c = claim("a", { keepAlive: { max: 1 } });
     expect(await store.activate(spec("a.docx", c))).toBe(true);

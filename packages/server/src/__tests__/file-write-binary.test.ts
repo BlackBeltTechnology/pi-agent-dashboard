@@ -251,6 +251,19 @@ describe("overwrite conflict semantics", () => {
 });
 
 describe("#E18 file mode", () => {
+  it.skipIf(process.getuid?.() === 0)("a failed write is a 500 with a generic message (no absolute path leaks)", async () => {
+    app = makeApp({ cwds: [cwd] });
+    await fsp.chmod(cwd, 0o555); // tmp file cannot be created next to the target
+    try {
+      const res = await post(app, { cwd, path: "report.docx", expectSha1: sha1(SEED) });
+      expect(res.statusCode).toBe(500);
+      expect(res.json().error).toBe("write failed");
+      expect(res.body).not.toContain(cwd);
+    } finally {
+      await fsp.chmod(cwd, 0o755);
+    }
+  });
+
   it("overwrite preserves a 0600 mode", async () => {
     app = makeApp({ cwds: [cwd] });
     await fsp.chmod(path.join(cwd, "report.docx"), 0o600);

@@ -9,3 +9,4 @@ See change: add-browser-editor-pane-tab — `ViewerKind` gains `plugin` (explici
 `DIGEST_CEILING_BYTES` (256 MiB); `MAX_PREVIEW_BYTES` is only the default of `editor.largeFileLimitMb`. See change: gate-changed-on-disk-by-content.
 
 `extOf(absPath)` exported (lower-cased last-dot extension; shared by file-handler switcher + `write-binary`). `isTextBackedExt(ext)` — true when `fileKind('/x'+ext)` is editable or a recognised kind with viewer in monaco/markdown/mermaid/asciidoc/html/diagram; manifest validator rejects such claims. See change: add-editor-pane-file-handlers.
+- Exports `isUnclaimableHandlerExt(ext)`: `isTextBackedExt` OR frozen `HANDLER_DENIED_EXTS` (secrets, scripts, plain text). Manifest validator rejects such ext in file-handler claims. See change: add-editor-pane-file-handlers.

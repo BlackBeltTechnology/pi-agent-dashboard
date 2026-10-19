@@ -91,7 +91,7 @@ export function createFileValidatorPool(opts: FileValidatorPoolOptions = {}): Fi
   }
 
   function spawn(slot: Slot): Worker {
-    const w = new Worker(new URL(workerUrl));
+    const w = new Worker(new URL(workerUrl), { resourceLimits: { maxOldGenerationSizeMb: 256, maxYoungGenerationSizeMb: 64 } });
     w.unref();
     w.on("message", (msg: { id: number; kind: "ok" | "rejected" | "error"; reason?: string; bytes: ArrayBuffer; before?: string; after?: string }) => {
       const j = slot.current;

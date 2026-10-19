@@ -386,3 +386,21 @@ export function isTextBackedExt(ext: string): boolean {
   if (r.editable) return true;
   return r.kind !== "unknown" && TEXT_BACKED_VIEWERS.has(r.viewer);
 }
+
+/**
+ * Frozen extensions `fileKind` does not classify as text but a file-handler claim must
+ * never own: secrets, executable scripts and plain-text formats. A fixed list, so the
+ * claimable set does not shift when the classifier learns a new kind.
+ * See change: add-editor-pane-file-handlers.
+ */
+const HANDLER_DENIED_EXTS: ReadonlySet<string> = new Set([
+  ".env", ".npmrc", ".pem", ".key", ".crt", ".cer", ".pfx", ".p12", ".asc", ".gpg",
+  ".ps1", ".bat", ".cmd", ".command", ".fish", ".vbs", ".applescript", ".desktop", ".reg",
+  ".patch", ".diff", ".jsonl", ".ndjson", ".ipynb", ".tex", ".srt", ".vtt", ".lock",
+  ".properties", ".tf", ".swift", ".kt", ".pl", ".r", ".dart",
+]);
+
+/** True when a file-handler claim may not own `ext`: text-backed, or on the frozen deny list. */
+export function isUnclaimableHandlerExt(ext: string): boolean {
+  return HANDLER_DENIED_EXTS.has(ext) || isTextBackedExt(ext);
+}

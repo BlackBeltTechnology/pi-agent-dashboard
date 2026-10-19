@@ -165,9 +165,9 @@ async function overwrite(
     await fs.writeFile(tmp, ctx.bytes, { flag: "wx" });
     await fs.chmod(tmp, current.mode & 0o777);
     await fs.rename(tmp, real);
-  } catch (err) {
+  } catch {
     await fs.rm(tmp, { force: true }).catch(() => {});
-    return fail(500, err instanceof Error ? err.message : "write failed");
+    return fail(500, "write failed");
   }
   const after = await fs.stat(real);
   return {
@@ -215,16 +215,16 @@ async function copy(ctx: WriteCtx, suffix: string): Promise<Outcome> {
       fh = await fs.open(dest, "wx", mode);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === "EEXIST") continue;
-      return fail(500, err instanceof Error ? err.message : "write failed");
+      return fail(500, "write failed");
     }
     try {
       await fh.writeFile(bytes);
       if (explicitMode) await fh.chmod(mode);
       await fh.close();
-    } catch (err) {
+    } catch {
       await fh.close().catch(() => {});
       await fs.rm(dest, { force: true }).catch(() => {});
-      return fail(500, err instanceof Error ? err.message : "write failed");
+      return fail(500, "write failed");
     }
     const st = await fs.stat(dest);
     return {
