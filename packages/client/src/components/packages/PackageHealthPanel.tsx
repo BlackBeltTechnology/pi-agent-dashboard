@@ -150,7 +150,7 @@ export function PackageHealthPanel({ report, onApply, onRefresh }: PackageHealth
 					<h4 className="text-xs font-semibold text-[var(--text-secondary)]">
 						{title} ({rows.length})
 					</h4>
-					<label className="text-[11px] text-[var(--text-secondary)] flex items-center gap-1 cursor-pointer">
+					<label className="text-xs text-[var(--text-secondary)] flex items-center gap-1 cursor-pointer">
 						<input
 							type="checkbox"
 							checked={rows.every((r) => drops.has(r.source))}
@@ -226,7 +226,7 @@ export function PackageHealthPanel({ report, onApply, onRefresh }: PackageHealth
 						type="button"
 						onClick={() => apply().catch(logRejection("PackageHealthPanel.apply"))}
 						disabled={drops.size === 0 || pending}
-						className="text-xs px-3 py-1 rounded bg-[var(--accent-primary)] text-white hover:opacity-90 disabled:opacity-50 flex items-center gap-1"
+						className="text-xs px-3 py-1 rounded border border-[var(--severity-info-border)] bg-[var(--severity-info-bg)] text-[var(--severity-info-fg)] hover:opacity-90 disabled:opacity-50 flex items-center gap-1"
 						data-testid="pkg-health-apply"
 					>
 						{pending && <Icon path={mdiLoading} size={0.55} spin />}
