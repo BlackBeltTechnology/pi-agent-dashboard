@@ -24,6 +24,8 @@
  *
  * See change: add-session-actions-flyout (D1, D2, D8, D13).
  */
+
+import type { UiTone } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import {
   ChangeState,
   type DashboardSession,
@@ -101,6 +103,8 @@ export interface SessionMenuItem {
   /** `aria-disabled` + focusable; `onSelect` is never invoked. */
   disabled?: boolean;
   reason?: string;
+  /** Semantic tone: icon colour (danger also tints hover/focus). Stripped on the NEXT copy. */
+  tone?: UiTone;
   /** Primary emphasis — only ever set on the NEXT item. */
   emphasis?: boolean;
   /** Folds behind the group's `More…` expander when ≥ 2 rare items. */
@@ -189,6 +193,13 @@ const OPENSPEC_LABEL: Record<OpenSpecActionKey, () => string> = {
   propose: () => tr("sessionMenu.propose", "Propose…"),
 };
 
+const OPENSPEC_TONE: Partial<Record<OpenSpecActionKey, UiTone>> = {
+  verify: "go",
+  new: "create",
+  propose: "create",
+  archiveAnyway: "caution",
+};
+
 const OPENSPEC_ICON: Partial<Record<OpenSpecActionKey, string>> = {
   continue: mdiChevronRight,
   ff: mdiFastForward,
@@ -247,6 +258,7 @@ function spec2item(a: ActionSpec, onSelect: () => void): SessionMenuItem {
     id: `openspec-${a.key}`,
     label: OPENSPEC_LABEL[a.key](),
     icon: OPENSPEC_ICON[a.key],
+    tone: OPENSPEC_TONE[a.key],
     onSelect,
     disabled: a.blocked,
     reason: a.blocked ? STREAMING() : undefined,
@@ -427,6 +439,7 @@ function buildGit(session: DashboardSession, ctx: SessionMenuCtx): GitBuild {
       id: "commit",
       label: tr("sessionMenu.commit", "Commit {count} changes…", { count: ctx.dirtyCount }),
       icon: mdiSourceCommit,
+      tone: "caution",
       onSelect: () => actions.openDialog("commit"),
     });
   }
@@ -436,7 +449,7 @@ function buildGit(session: DashboardSession, ctx: SessionMenuCtx): GitBuild {
   if (!wt) return { items };
   const blocked = (b: boolean) => (b ? { disabled: true, reason: STREAMING() } : {});
   if (wt.push) items.push({ id: "push", label: tr("worktree.push", "Push"), icon: mdiArrowUpBoldOutline, onSelect: actions.push, ...blocked(wt.push.blocked) });
-  if (wt.openPr) items.push({ id: "open-pr", label: tr("worktree.openPr", "Open PR"), icon: mdiSourcePull, onSelect: actions.openPr, ...blocked(wt.openPr.blocked) });
+  if (wt.openPr) items.push({ id: "open-pr", label: tr("worktree.openPr", "Open PR"), icon: mdiSourcePull, tone: "create", onSelect: actions.openPr, ...blocked(wt.openPr.blocked) });
   // A PR with no known URL has nothing to open (the card shows plain `#N` text), so no dead item.
   const prUrl = wt.hasPr ? (session.gitPrUrl ?? undefined) : undefined;
   if (prUrl) {
@@ -448,9 +461,9 @@ function buildGit(session: DashboardSession, ctx: SessionMenuCtx): GitBuild {
     });
   }
   if (wt.merge) {
-    mergeItem = { id: "merge", label: tr("worktree.merge", "Merge"), icon: mdiSourceMerge, onSelect: () => actions.openDialog("merge"), ...blocked(wt.merge.blocked) };
+    mergeItem = { id: "merge", label: tr("worktree.merge", "Merge"), icon: mdiSourceMerge, tone: "go", onSelect: () => actions.openDialog("merge"), ...blocked(wt.merge.blocked) };
   }
-  items.push({ id: "close-worktree", label: tr("sessionMenu.closeWorktree", "Close worktree…"), icon: mdiCloseBoxOutline, onSelect: () => actions.openDialog("close-worktree"), rare: true });
+  items.push({ id: "close-worktree", label: tr("sessionMenu.closeWorktree", "Close worktree…"), icon: mdiCloseBoxOutline, tone: "danger", onSelect: () => actions.openDialog("close-worktree"), rare: true });
   return { items, mergeItem };
 }
 
@@ -465,9 +478,9 @@ function resumeItems(session: DashboardSession, ctx: SessionMenuCtx, isEnded: bo
   const blocked = { ...goneProps(gone), disabled: session.resuming === true || gone };
   const items: SessionMenuItem[] = [];
   if (isEnded || ctx.isHidden) {
-    items.push({ id: "resume", label: tr("session.resume", "Resume"), icon: mdiPlayCircleOutline, onSelect: () => actions.resume?.("continue"), ...blocked });
+    items.push({ id: "resume", label: tr("session.resume", "Resume"), icon: mdiPlayCircleOutline, tone: "go", onSelect: () => actions.resume?.("continue"), ...blocked });
   }
-  items.push({ id: "fork", label: tr("session.fork", "Fork"), icon: mdiSourceFork, onSelect: () => actions.resume?.("fork"), ...blocked });
+  items.push({ id: "fork", label: tr("session.fork", "Fork"), icon: mdiSourceFork, tone: "create", onSelect: () => actions.resume?.("fork"), ...blocked });
   return items;
 }
 
@@ -478,7 +491,7 @@ function spawnItems(session: DashboardSession, ctx: SessionMenuCtx): SessionMenu
   const gone = goneProps(session.cwdMissing === true);
   const items: SessionMenuItem[] = [];
   if (actions.spawnSibling) {
-    items.push({ id: "spawn-sibling", testId: "session-card-spawn-sibling", label: tr("sessionMenu.newSession", "New session"), icon: mdiPlus, onSelect: actions.spawnSibling, ...gone });
+    items.push({ id: "spawn-sibling", testId: "session-card-spawn-sibling", label: tr("sessionMenu.newSession", "New session"), icon: mdiPlus, tone: "go", onSelect: actions.spawnSibling, ...gone });
   }
   if (actions.spawnWorktree && !session.gitWorktree && session.isGitRepo !== false) {
     items.push({
@@ -486,6 +499,7 @@ function spawnItems(session: DashboardSession, ctx: SessionMenuCtx): SessionMenu
       testId: "session-card-spawn-worktree",
       label: tr("sessionMenu.newWorktreeSession", "New worktree session"),
       icon: mdiSourceBranchPlus,
+      tone: "caution",
       onSelect: actions.spawnWorktree,
       ...gone,
     });
@@ -507,6 +521,7 @@ function buildSession(session: DashboardSession, ctx: SessionMenuCtx, isEnded: b
       id: "exit",
       label: tr("session.exitPiSession", "Exit pi session"),
       icon: mdiCloseCircleOutline,
+      tone: "danger",
       onSelect: actions.exit,
       disabled: session.closing === true,
       reason: session.closing ? tr("session.closing", "Closing…") : undefined,
@@ -526,10 +541,10 @@ export function deriveSessionMenu(session: DashboardSession, ctx: SessionMenuCtx
   let next: SessionMenuItem | undefined;
   let mergeItem = git.mergeItem;
   if (ctx.mergeIsPrimary && mergeItem) {
-    next = { ...mergeItem, emphasis: !mergeItem.disabled };
+    next = { ...mergeItem, tone: undefined, emphasis: !mergeItem.disabled };
     mergeItem = undefined;
   } else if (openspec.primary) {
-    next = { ...openspec.primary, emphasis: !openspec.primary.disabled };
+    next = { ...openspec.primary, tone: undefined, emphasis: !openspec.primary.disabled };
     openspec.items.splice(openspec.items.indexOf(openspec.primary), 1);
   }
   if (mergeItem) {

@@ -7,6 +7,7 @@ import { ActionList } from "../ActionList.js";
 type Actions = React.ComponentProps<typeof ActionList>["actions"];
 /** Plugin-emitted items carry `dataAction`, which the declared item type omits. */
 const asActions = (items: unknown[]) => items as Actions;
+
 import { ActionListMenuContext } from "../ActionListMenuContext.js";
 import { __resetMdiIconSetForTests, loadMdiIconSet } from "../mdi-by-key.js";
 
@@ -148,5 +149,54 @@ describe("ActionList in menu context", () => {
     );
     fireEvent.click(getByRole("menuitem"));
     expect(onClick).toHaveBeenCalledTimes(1);
+  });
+});
+
+// Tone (change: colorize-actions-menus, test-plan #E4-#E7, #X1).
+describe("ActionList tone", () => {
+  const menuRender = (actions: unknown[]) =>
+    render(
+      <ActionListMenuContext.Provider value={{ onActivate: () => {} }}>
+        <ActionList actions={asActions(actions)} />
+      </ActionListMenuContext.Provider>,
+    );
+
+  it("menu mode honours tone (#E4)", async () => {
+    const { getByRole, container } = menuRender([{ label: "Delete", icon: "mdiDelete", tone: "danger" }]);
+    const item = getByRole("menuitem");
+    expect(item.getAttribute("data-action-tone")).toBe("danger");
+    expect(item.className).toContain("hover:bg-[var(--tint-red-bg)]");
+    expect(item.className).not.toContain("hover:bg-[var(--bg-tertiary)]");
+    await waitFor(() => expect(container.querySelector("svg")?.getAttribute("class")).toContain("text-[var(--accent-red-text)]"));
+  });
+
+  it("inline mode honours tone on icon only (#E5)", async () => {
+    const { getByRole, container } = render(<ActionList actions={asActions([{ label: "Run", icon: "mdiPlay", tone: "go" }])} />);
+    expect(getByRole("button").getAttribute("data-action-tone")).toBe("go");
+    await waitFor(() => expect(container.querySelector("svg")?.getAttribute("class")).toContain("text-[var(--accent-green-text)]"));
+    expect(container.querySelector("span")?.className ?? "").not.toContain("accent-green");
+  });
+
+  it("invalid tone renders neutral and stays activatable (#E6, #X1)", () => {
+    for (const tone of ["purple", "__proto__", 42, 'danger" onmouseover="x', "go text-[red]"]) {
+      const onClick = vi.fn();
+      const { getByRole, unmount } = render(<ActionList actions={asActions([{ label: "X", icon: "mdiPlay", tone, onClick }])} />);
+      const btn = getByRole("button");
+      expect(btn.hasAttribute("data-action-tone")).toBe(false);
+      expect(btn.outerHTML).not.toContain("onmouseover");
+      expect(btn.className).not.toContain("text-[red]");
+      fireEvent.click(btn);
+      expect(onClick).toHaveBeenCalledTimes(1);
+      unmount();
+    }
+  });
+
+  it("untoned output is unchanged (#E7)", async () => {
+    const { getByRole, container } = menuRender([{ label: "Open", icon: "mdiOpenInNew" }]);
+    expect(getByRole("menuitem").hasAttribute("data-action-tone")).toBe(false);
+    expect(getByRole("menuitem").className).toContain("hover:bg-[var(--bg-tertiary)]");
+    await waitFor(() => expect(container.querySelector("svg")).toBeTruthy());
+    expect(container.querySelector("[class='']")).toBeNull();
+    expect(container.querySelector("svg")?.hasAttribute("class") ? container.querySelector("svg")?.getAttribute("class") : "").not.toContain("accent-");
   });
 });

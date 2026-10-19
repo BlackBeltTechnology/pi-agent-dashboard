@@ -289,6 +289,8 @@ export function FolderKbSection({ folder, placement = "sidebar" }: { folder: Fol
   // The worktree-card placement is scoped to the worktree cwd, which has no
   // folder actions menu — registering there would strand items in a scope with
   // nothing to render them.
+  // Caution only for the actions that (re)build or retry the index.
+  const actionTone = kind === "index" || kind === "reindex" || kind === "retry" ? ("caution" as const) : undefined;
   const menuScope = placement === "card" ? null : cwd;
   useFolderMenuItem(
     menuScope,
@@ -300,9 +302,10 @@ export function FolderKbSection({ folder, placement = "sidebar" }: { folder: Fol
         icon: actionIcon,
         badge: actionBadge,
         disabled: actionDisabled,
+        tone: actionTone,
         onSelect: runAction,
       }),
-      [actionLabel, actionIcon, actionBadge, actionDisabled, runAction],
+      [actionLabel, actionIcon, actionBadge, actionDisabled, actionTone, runAction],
     ),
   );
 

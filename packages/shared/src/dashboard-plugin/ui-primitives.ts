@@ -230,6 +230,15 @@ export interface UiZoomControlsProps {
   initialScale?: number;
 }
 
+/** Semantic action tone. Host owns the palette. See change: colorize-actions-menus. */
+export const UI_TONES = ["go", "create", "caution", "danger"] as const;
+export type UiTone = (typeof UI_TONES)[number];
+
+/** Strict membership guard; non-strings and prototype keys are false. */
+export function isUiTone(v: unknown): v is UiTone {
+  return typeof v === "string" && (UI_TONES as readonly string[]).includes(v);
+}
+
 /** A single entry in an action-list primitive. */
 export interface UiActionListItem {
   /** Display label for the action button. */
@@ -242,6 +251,8 @@ export interface UiActionListItem {
   onClick?: () => void;
   /** Optional disabled flag. */
   disabled?: boolean;
+  /** Optional semantic tone (go | create | caution | danger); invalid values render neutral. */
+  tone?: UiTone;
 }
 
 /** Public prop signature for the action-list primitive. */

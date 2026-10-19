@@ -70,6 +70,7 @@ export function FolderAutomationSection({
         group: "create" as const,
         label: newAutomationLabel,
         icon: mdiPlus,
+        tone: "create" as const,
         onSelect: () => setCreating(true),
       }),
       [newAutomationLabel],

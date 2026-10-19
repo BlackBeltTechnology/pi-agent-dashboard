@@ -183,7 +183,7 @@ describe("store registration (test-plan #E15, #E16, #F1)", () => {
     expect(entry.node).toBeUndefined();
     expect(entry.pressed).toBeUndefined();
     expect(Object.keys(entry).sort()).toEqual(
-      ["badge", "disabled", "group", "icon", "id", "label", "onSelect", "pluginId"],
+      ["badge", "disabled", "group", "icon", "id", "label", "onSelect", "pluginId", "tone"],
     );
   });
 
@@ -416,5 +416,54 @@ describe("useFolderMenuRefresher bridge", () => {
     store.runRefreshers(SCOPE);
     expect(first).not.toHaveBeenCalled();
     expect(second).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ── Tone forwarding (change: colorize-actions-menus, test-plan #E18–#E21) ───
+
+describe("tone forwarding", () => {
+  it("E18: forwards a valid tone", () => {
+    const store = createFolderMenuStore();
+    store.registerItem(SCOPE, "p", contribution({ tone: "danger" }));
+    expect(store.getItems(SCOPE)[0]!.tone).toBe("danger");
+  });
+
+  it("E19: neutralises an invalid tone but keeps the item and its siblings", () => {
+    const store = createFolderMenuStore();
+    store.registerItem(SCOPE, "p", contribution({ id: "ok" }));
+    for (const [i, tone] of (["purple", "__proto__", {}] as unknown[]).entries()) {
+      store.registerItem(SCOPE, "p", contribution({ id: `bad${i}`, tone: tone as never }));
+    }
+    const items = store.getItems(SCOPE);
+    expect(items).toHaveLength(4);
+    for (const it of items) expect(it.tone).toBeUndefined();
+  });
+
+  it("E20: the whitelist still blocks markup", () => {
+    const store = createFolderMenuStore();
+    store.registerItem(SCOPE, "p", contribution({ tone: "go", node: "x", className: "x" } as never));
+    const entry = store.getItems(SCOPE)[0]! as unknown as Record<string, unknown>;
+    expect(entry.tone).toBe("go");
+    expect("node" in entry).toBe(false);
+    expect("className" in entry).toBe(false);
+  });
+
+  it("E21: the hook forwards a live tone change without unmounting", () => {
+    const store = createFolderMenuStore();
+    const Reg = ({ tone }: { tone?: FolderMenuContribution["tone"] }) => {
+      useFolderMenuItem(SCOPE, contribution({ tone }));
+      return null;
+    };
+    const wrap = (tone?: FolderMenuContribution["tone"]) => (
+      <FolderMenuProvider store={store}>
+        <CurrentPluginLayer pluginId="p">
+          <Reg tone={tone} />
+        </CurrentPluginLayer>
+      </FolderMenuProvider>
+    );
+    const { rerender } = render(wrap("caution"));
+    expect(store.getItems(SCOPE)[0]!.tone).toBe("caution");
+    rerender(wrap(undefined));
+    expect(store.getItems(SCOPE)[0]!.tone).toBeUndefined();
   });
 });
