@@ -186,6 +186,14 @@ Found while migrating; none changes behaviour beyond what D4 lists.
 - **Vault pills stay 12 px** (`interactive`), because `retro-ux-credential-vault` requires text in controls at 12 px and `VaultBindingsChip.test` guards it. Services list-row pills (inside a `<button>`) are 12 px too; the detail header pill is 11 px.
 - **`stateMeta` lost its `glyph`** field (orphaned by the pill migration).
 
+### Found while writing the L3 specs (tasks 12.15–12.18)
+
+- **The session actions menu does not exist below 768 px.** `SessionCard` switches to its mobile layout when width < 768 or height < 600 (`useMobile`), and only the desktop layout renders `SessionActionsMenu`. So the `max-sm:min-h-[44px]` item class is unreachable on this build, and the `session-actions-menu` scenario "Touch viewport targets" (menu at 375 px) cannot be observed. The 36 px floor is pinned at L1 and measured at desktop width; the rail half of test #F3 runs at 375×800. **Reword that scenario** (or make the menu available on touch) when the spec is next touched.
+- **There is no "Settings → Appearance" theme control.** The theme picker lives in the sidebar, which the Settings dialog's scrim covers. Test #F1 changes the palette from the dashboard and re-enters Services by in-app navigation; `__noReload` proves no reload happened.
+- **No deterministic warning pill on the harness** (`blocked` needs a service that is healthy, then stops answering). #F1 covers the success and neutral tones.
+- **The settings rail strip does not scroll the current item into view** at 375 px (pre-existing; the item is in the DOM with its bar, off-screen to the right). Candidate follow-up.
+- **`SettingsCopyButton` merged with #969's `copyText()`**: the copy goes through `copyText()` (clipboard API, textarea fallback for plain-http origins); a refused or impossible copy now sets the "Copy failed" state and live region.
+
 ## Kit props doubt review (task 2.5, 2026-10-18)
 
 Fresh-context, cross-model: `@propose-review-1` then `@propose-review-2` (both non-Claude, probed clean), artifact = the `settings-fields.tsx` diff, no author reasoning. 2 cycles, stop condition met (cycle 2: no blocking findings).
