@@ -62,10 +62,12 @@ Trust-gated (D2): it exposes principal claims, so an untrusted plugin always get
 
 **D5. `ctx.serveApp({ dir, csp, appId? })`.**
 - Trust-gated (D2); an untrusted plugin's call mounts nothing and logs once. `appId` defaults to the plugin id and must match `^[a-z0-9-]+$`. It is unique: a second mount of an id throws. Because only trusted plugins can mount, an untrusted plugin cannot squat a trusted app's id.
-- `dir` must realpath inside the plugin's own package root.
-- `csp` is required.
+- `dir` must realpath inside the plugin's own package root **or inside its data directory** `ctx.dataDir` (`~/.pi/dashboard/plugin-data/<pluginId>/`, created `0700` on first access; new on `ServerPluginContext`). `dir` may be absent at registration; requests then get the 503 missing-build page until it exists, with no re-registration. (Amendment for `edit-office-in-pane-with-craft-web`, whose web builds are provisioned at runtime.)
+- `csp` is required: a string, or a function `(request) => string` evaluated per response (amendment for `edit-office-in-pane-with-craft-web`, whose policy names the request's public origin).
 - Mounts `GET`/`HEAD /apps/<appId>` (308 redirect to the trailing slash) and `/apps/<appId>/*`.
-- Serves realpath-confined files under `dir` with an extension allowlist: `.html .js .mjs .css .svg .png .jpg .jpeg .gif .webp .ico .woff .woff2`. `.json`, `.map`, dotfiles and directories are refused, so a stray `config.json` or source map is never served.
+- Serves realpath-confined files under `dir` with an extension allowlist: `.html .js .mjs .css .svg .png .jpg .jpeg .gif .webp .ico .woff .woff2 .wasm` (`.wasm` as `application/wasm`).
+- When `<file>.gz` exists beside an allowlisted file and the request accepts gzip, the mount serves it with `Content-Encoding: gzip` and `Vary: Accept-Encoding`. The global on-the-fly compressor is bypassed for mount responses. There are no `.br` variants (zrok truncates brotli, `packages/server/src/server.ts:1830-1845`).
+- Option `crossOriginFrame: true` adds `Access-Control-Allow-Origin: *` (never `Access-Control-Allow-Credentials`) and `Cross-Origin-Resource-Policy: cross-origin` to that mount's file responses. This is for apps loaded by a sandboxed opaque-origin iframe, whose module, preload and wasm loads are CORS-mode. CORS for every other route is unchanged. `.json`, `.map`, dotfiles and directories are refused, so a stray `config.json` or source map is never served.
 - Unmatched paths fall back to `index.html`. Files with a content-hash name get `immutable`; `index.html` gets `no-store`. A missing build returns 503, logged once.
 - Every file response (assets and `index.html`) carries `csp` as an enforced `Content-Security-Policy`.
 - Once per process: plugin activation is restart-effective (`packages/server/src/routes/plugin-activation-routes.ts:275-281`).

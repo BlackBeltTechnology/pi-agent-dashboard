@@ -4,9 +4,12 @@
  *
  * See change: add-lan-knock-pairing (test-plan #E29).
  */
+
+import * as runtime from "@blackbelt-technology/dashboard-plugin-runtime";
 import { renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type PendingSpawnEntry, useSessionActions } from "../../../hooks/useSessionActions.js";
+import { copyText } from "../clipboard.js";
 import { randomUuid } from "../random-uuid.js";
 
 const V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -72,5 +75,12 @@ describe("randomUuid with crypto.randomUUID", () => {
     vi.stubGlobal("crypto", { randomUUID: native, getRandomValues: vi.fn() });
     expect(randomUuid()).toBe("11111111-1111-4111-8111-111111111111");
     expect(native).toHaveBeenCalledOnce();
+  });
+});
+
+describe("client util re-exports (E8)", () => {
+  it("are the plugin-runtime implementations", () => {
+    expect(randomUuid).toBe(runtime.randomUuid);
+    expect(copyText).toBe(runtime.copyText);
   });
 });

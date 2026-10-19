@@ -1,72 +1,86 @@
 /**
  * Small presentational primitives shared by the browser settings groups
- * (change: add-dedicated-agent-browser, design D12 / `mockups/index.html`).
+ * (change: add-dedicated-agent-browser, design D12; retro-ux-plugin-settings-wave-2).
  *
- * Token-only styling: every colour is a theme CSS variable (no raw hex), the
- * same `--severity-*` / `--accent-*` family the mockup and sibling plugins use.
- * Buttons keep a 44px target below 640px (`min-h-[44px] sm:min-h-0`).
+ * Token-only styling: every colour is a theme CSS variable (no raw hex). Status
+ * pills, notices, switches and selects come from the runtime settings kit
+ * (`SettingsStatusPill`, `SettingsNotice`, `ToggleField`, `SelectField`); this
+ * file keeps only the button/link class recipes, `HELP`, the segmented `Seg`
+ * and `BlurTextField` (the kit's `TextField` has no blur hook or trailing action).
+ * Buttons keep a 44px target below 640px (`min-h-[44px] sm:min-h-[36px]`).
  */
+import { type FieldContract, FieldShell } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type React from "react";
 import { useId } from "react";
 
-export const BTN =
-  "px-2.5 py-1 min-h-[44px] sm:min-h-0 text-xs rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] disabled:opacity-50 disabled:cursor-not-allowed";
-export const BTN_PRIMARY =
-  "px-2.5 py-1 min-h-[44px] sm:min-h-0 text-xs rounded border border-[var(--accent-solid)] bg-[var(--accent-solid)] text-white hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed";
-export const BTN_DANGER =
-  "px-2.5 py-1 min-h-[44px] sm:min-h-0 text-xs rounded border border-[var(--severity-error-border)] bg-[var(--severity-error-bg)] text-[var(--severity-error-fg)] hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed";
-export const INPUT =
-  "w-full min-h-[44px] sm:min-h-0 px-2 py-1.5 text-xs rounded border border-[var(--border-secondary)] bg-[var(--bg-primary)] text-[var(--text-primary)] disabled:opacity-60";
+const BTN_BASE =
+  "focus-ring inline-flex items-center justify-center gap-1 rounded-md px-3 min-h-[44px] sm:min-h-[36px] text-xs font-semibold disabled:cursor-not-allowed";
+/** Secondary button (contract recipe). */
+export const BTN = `${BTN_BASE} border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-60`;
+export const BTN_PRIMARY = `${BTN_BASE} bg-[var(--accent-solid)] text-white hover:brightness-110 disabled:bg-[var(--bg-tertiary)] disabled:text-[var(--text-secondary)]`;
+/** Danger button: `--severity-error-*` tokens. */
+export const BTN_DANGER = `${BTN_BASE} border border-[var(--severity-error-border)] bg-[var(--severity-error-bg)] text-[var(--severity-error-fg)] hover:brightness-110 disabled:opacity-60`;
+/** Link recipe (`--link`). */
+export const LINK =
+  "focus-ring inline-flex min-h-[32px] items-center gap-1 rounded text-xs font-semibold text-[var(--link)] hover:text-[var(--link-hover)] hover:underline";
+/** Section card used by the Agent browsing group and the dedicated-profile panel. */
 export const GROUP = "rounded-xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4 space-y-4";
-export const HELP = "text-xs text-[var(--text-tertiary)]";
+export const HELP = "text-xs text-[var(--text-secondary)]";
 
-type Tone = "ok" | "neutral" | "warn" | "info";
+const CONTROL =
+  "focus-ring min-w-0 flex-1 rounded border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] px-2 py-1 text-sm text-[var(--text-primary)] " +
+  "disabled:cursor-not-allowed aria-[invalid=true]:border-[var(--severity-error-border)]";
 
-const TONE_CLASS: Record<Tone, string> = {
-  ok: "bg-[var(--severity-success-bg)] text-[var(--severity-success-fg)] border-[var(--severity-success-border)]",
-  neutral: "bg-[var(--severity-neutral-bg)] text-[var(--severity-neutral-fg)] border-[var(--severity-neutral-border)]",
-  warn: "bg-[var(--severity-warning-bg)] text-[var(--severity-warning-fg)] border-[var(--severity-warning-border)]",
-  info: "bg-[var(--severity-info-bg)] text-[var(--severity-info-fg)] border-[var(--severity-info-border)]",
-};
-
-export function Pill({
-  tone,
-  children,
+/**
+ * Stacked text field on the kit's `FieldShell` with what `TextField` lacks:
+ * `onBlur` (write-on-blur editors) and a trailing `action` (the token "Save"
+ * button). Optional `testId` lands on the `<input>`.
+ */
+export function BlurTextField({
+  label,
+  value,
+  onChange,
+  onBlur,
+  type = "text",
+  placeholder,
   testId,
-}: {
-  tone: Tone;
-  children: React.ReactNode;
+  action,
+  ...contract
+}: FieldContract & {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  onBlur?: () => void;
+  type?: "text" | "password";
+  placeholder?: string;
   testId?: string;
+  action?: React.ReactNode;
 }): React.ReactElement {
   return (
-    <span
-      data-testid={testId}
-      className={`inline-block rounded-full border px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap ${TONE_CLASS[tone]}`}
-    >
-      {children}
-    </span>
-  );
-}
-
-export function Notice({
-  tone,
-  children,
-  testId,
-  role = "status",
-}: {
-  tone: "warn" | "info";
-  children: React.ReactNode;
-  testId?: string;
-  role?: "status" | "alert";
-}): React.ReactElement {
-  return (
-    <div
-      data-testid={testId}
-      role={role}
-      className={`rounded-lg border px-3 py-2 text-xs ${TONE_CLASS[tone]}`}
-    >
-      {children}
-    </div>
+    <FieldShell
+      label={label}
+      stacked
+      {...contract}
+      control={({ id, describedBy, invalid }) => (
+        <span className="flex items-center gap-2">
+          <input
+            id={id}
+            data-testid={testId}
+            type={type}
+            autoComplete={type === "password" ? "off" : undefined}
+            aria-describedby={describedBy}
+            aria-invalid={invalid || undefined}
+            disabled={contract.disabled}
+            className={CONTROL}
+            value={value}
+            placeholder={placeholder}
+            onChange={(e) => onChange(e.target.value)}
+            onBlur={onBlur}
+          />
+          {action}
+        </span>
+      )}
+    />
   );
 }
 

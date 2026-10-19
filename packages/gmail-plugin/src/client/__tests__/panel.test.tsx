@@ -462,3 +462,71 @@ describe("retro-ux — account status, names and the primary action", () => {
     expect(input.getAttribute("aria-describedby")?.split(" ")).toContain(err.id);
   });
 });
+
+// See change: audit-plugin-bundles-non-secure-context (test-plan #F5–#F7).
+describe("gcloud Copyable", () => {
+  const UNCONFIGURED = { client: { configured: false }, accounts: [] };
+  const stubExec = (ok: boolean) => {
+    (document as unknown as { execCommand: unknown }).execCommand = vi.fn(() => ok);
+  };
+  const open = async () => {
+    mockFetch({ "GET /api/plugins/gmail/state": () => UNCONFIGURED });
+    renderPanel();
+    const step = await screen.findByTestId("gmail-step-1");
+    return within(step).getAllByRole("button", { name: /^Copy$/ })[0] as HTMLElement;
+  };
+  const status = (b: HTMLElement) => b.querySelector('[role="status"]')?.textContent;
+
+  it("F5 failure shows 'Copy failed' (never 'Copied') and reverts after 1500 ms", async () => {
+    vi.stubGlobal("navigator", { clipboard: undefined });
+    stubExec(false);
+    const b = await open();
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    try {
+      fireEvent.click(b);
+      await vi.waitFor(() => expect(status(b)).toBe("Copy failed"));
+      expect(b.textContent).not.toMatch(/Copied/);
+      await act(async () => {
+        vi.advanceTimersByTime(1500);
+      });
+      expect(status(b)).toBe("Copy");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("F6 execCommand fallback shows 'Copied' and reverts", async () => {
+    vi.stubGlobal("navigator", { clipboard: undefined });
+    stubExec(true);
+    const b = await open();
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    try {
+      fireEvent.click(b);
+      await vi.waitFor(() => expect(status(b)).toBe("Copied"));
+      await act(async () => {
+        vi.advanceTimersByTime(1500);
+      });
+      expect(status(b)).toBe("Copy");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("F7 latest click wins over a late earlier failure", async () => {
+    stubExec(false);
+    let rejectA!: (e: unknown) => void;
+    let resolveB!: () => void;
+    const writeText = vi
+      .fn()
+      .mockImplementationOnce(() => new Promise<void>((_, rej) => (rejectA = rej)))
+      .mockImplementationOnce(() => new Promise<void>((res) => (resolveB = res)));
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    const b = await open();
+    fireEvent.click(b);
+    fireEvent.click(b);
+    await act(async () => resolveB());
+    await waitFor(() => expect(status(b)).toBe("Copied"));
+    await act(async () => rejectA(new Error("late")));
+    expect(status(b)).toBe("Copied");
+  });
+});

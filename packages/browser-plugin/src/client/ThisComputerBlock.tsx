@@ -12,8 +12,19 @@
  * Distinct from the dashboard-host rows: those are server state
  * (`GET /api/browser/profiles` `profiles`); this block is local state and never
  * lists operator profiles in the dashboard rows or vice versa.
+ *
+ * Wave-2 (change: retro-ux-plugin-settings-wave-2): a `SettingsGroup` with one
+ * `SettingsItem` per local profile (status pill word, labelled write-only token
+ * field, a failed save = error sentence + "Try again" on that row) and a danger
+ * "Revoke" per consent.
  */
-import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  SettingsGroup,
+  SettingsItem,
+  SettingsNotice,
+  SettingsStatusPill,
+  useT,
+} from "@blackbelt-technology/dashboard-plugin-runtime";
 import type {
   BrowserHostBridge,
   BrowserHostConsentRow,
@@ -21,9 +32,7 @@ import type {
 } from "@blackbelt-technology/pi-dashboard-shared/browser-host-ipc.js";
 import type React from "react";
 import { useCallback, useEffect, useState } from "react";
-
-const BTN =
-  "flex-none px-2 py-1 rounded border border-[var(--border-secondary)] hover:bg-[var(--bg-secondary)] disabled:opacity-50";
+import { BlurTextField, BTN, BTN_DANGER, HELP } from "./settings-ui.js";
 
 export function ThisComputerBlock({ bridge }: { bridge: BrowserHostBridge }): React.ReactElement | null {
   const t = useT();
@@ -64,15 +73,8 @@ export function ThisComputerBlock({ bridge }: { bridge: BrowserHostBridge }): Re
   };
 
   return (
-    <section
-      data-testid="browser-this-computer"
-      aria-labelledby="browser-this-computer-title"
-      className="rounded border border-[var(--border-secondary)] p-2 space-y-1.5"
-    >
-      <h4 id="browser-this-computer-title" className="text-[13px] font-medium">
-        {t("thisComputerTitle", undefined, "This computer")}
-      </h4>
-      <p className="text-[11px] text-[var(--text-tertiary)]">
+    <SettingsGroup testId="browser-this-computer" title={t("thisComputerTitle", undefined, "This computer")}>
+      <p className={HELP}>
         {t(
           "thisComputerHelp",
           undefined,
@@ -81,31 +83,36 @@ export function ThisComputerBlock({ bridge }: { bridge: BrowserHostBridge }): Re
       </p>
 
       {identity.profiles.length === 0 ? (
-        <p data-testid="browser-host-profiles-empty" className="text-xs text-[var(--text-tertiary)]">
+        <p data-testid="browser-host-profiles-empty" className={HELP}>
           {t("thisComputerNoProfiles", undefined, "No Chrome profiles found on this computer.")}
         </p>
       ) : (
         identity.profiles.map((p) => <HostProfileRow key={p.profileDirectory} bridge={bridge} profile={p} />)
       )}
 
-      <div className="space-y-1">
-        <h5 className="text-xs font-medium text-[var(--text-secondary)]">{t("consentsTitle", undefined, "Allowed connections")}</h5>
+      <div className="space-y-2">
+        <h4 className="text-sm font-semibold text-[var(--text-primary)]">{t("consentsTitle", undefined, "Allowed connections")}</h4>
         {consents.length === 0 ? (
-          <p data-testid="browser-host-consents-empty" className="text-xs text-[var(--text-tertiary)]">
+          <p data-testid="browser-host-consents-empty" className={HELP}>
             {t("consentsEmpty", undefined, "No stored “Always allow”.")}
           </p>
         ) : (
-          <ul className="space-y-1">
+          <ul className="space-y-2">
             {consents.map((c) => (
               <li
                 key={c.key}
                 data-testid={`browser-host-consent-${c.key}`}
-                className="flex items-center justify-between gap-2 text-xs text-[var(--text-secondary)]"
+                className="flex items-center justify-between gap-2 text-xs text-[var(--text-primary)]"
               >
                 <span className="min-w-0 truncate">
                   {c.serverOrigin} · {c.profileDirectory}
                 </span>
-                <button type="button" data-testid={`browser-host-consent-revoke-${c.key}`} className={BTN} onClick={() => void revoke(c.key)}>
+                <button
+                  type="button"
+                  data-testid={`browser-host-consent-revoke-${c.key}`}
+                  className={`${BTN_DANGER} flex-none`}
+                  onClick={() => void revoke(c.key)}
+                >
                   {t("revoke", undefined, "Revoke")}
                 </button>
               </li>
@@ -113,7 +120,7 @@ export function ThisComputerBlock({ bridge }: { bridge: BrowserHostBridge }): Re
           </ul>
         )}
       </div>
-    </section>
+    </SettingsGroup>
   );
 }
 
@@ -145,36 +152,45 @@ function HostProfileRow({
   };
 
   return (
-    <div data-testid={`browser-host-profile-${dir}`} className="space-y-1">
-      <div className="flex items-center justify-between gap-2">
-        <span className="min-w-0 truncate text-[13px]">
-          {profile.label}
-          {profile.email && <span className="ml-1 text-[11px] text-[var(--text-tertiary)]">{profile.email}</span>}
-        </span>
-        <span data-testid={`browser-host-installed-${dir}`} className="flex-none text-[10px] text-[var(--text-tertiary)]">
+    <SettingsItem
+      testId={`browser-host-profile-${dir}`}
+      title={profile.label}
+      subtitle={profile.email}
+      status={
+        <SettingsStatusPill
+          tone={profile.installed ? "success" : "neutral"}
+          testId={`browser-host-installed-${dir}`}
+        >
           {profile.installed ? t("installed", undefined, "Extension installed") : t("notInstalled", undefined, "Extension not installed")}
-        </span>
-      </div>
-      <div className="flex items-center gap-1.5 text-xs">
-        <input
-          type="password"
-          autoComplete="off"
-          aria-label={t("tokenPlaceholder", undefined, "Paste pairing token")}
-          data-testid={`browser-host-token-input-${dir}`}
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder={t("tokenPlaceholder", undefined, "Paste pairing token")}
-          className="flex-1 min-w-0 px-2 py-1 rounded border border-[var(--border-secondary)] bg-[var(--bg-primary)]"
-        />
-        <button type="button" data-testid={`browser-host-token-save-${dir}`} disabled={draft.length === 0 || busy} className={BTN} onClick={() => void save()}>
-          {t("saveToken", undefined, "Save token")}
-        </button>
-      </div>
+        </SettingsStatusPill>
+      }
+    >
+      <BlurTextField
+        label={t("tokenLabel", undefined, "Pairing token")}
+        hint={null}
+        type="password"
+        testId={`browser-host-token-input-${dir}`}
+        value={draft}
+        onChange={setDraft}
+        placeholder={t("tokenPlaceholder", undefined, "Paste pairing token")}
+        disabled={busy}
+        action={
+          <button
+            type="button"
+            data-testid={`browser-host-token-save-${dir}`}
+            disabled={draft.length === 0 || busy}
+            className={`${BTN} flex-none`}
+            onClick={() => void save()}
+          >
+            {t("saveToken", undefined, "Save token")}
+          </button>
+        }
+      />
       {failed && (
-        <p role="alert" data-testid={`browser-host-token-error-${dir}`} className="text-[11px] text-[var(--text-secondary)]">
+        <SettingsNotice tone="error" testId={`browser-host-token-error-${dir}`} onRetry={() => void save()} retrying={busy}>
           {t("hostTokenError", undefined, "Could not save the token.")}
-        </p>
+        </SettingsNotice>
       )}
-    </div>
+    </SettingsItem>
   );
 }

@@ -12,6 +12,10 @@ export interface ObsModel {
   filters: Map<string, string[]>;
   filterKinds: string[];
   outputs: { stream: boolean; record: boolean; vcam: boolean };
+  /** Base (canvas) resolution reported by `GetVideoSettings`. */
+  canvas: { width: number; height: number };
+  /** Outputs whose `Stop*` request is accepted but leaves them active. */
+  stuckOutputs: Array<"stream" | "record" | "vcam">;
   cameraItems: Array<{ itemName: string; itemValue: string }>;
   /** Make `GetInputPropertiesListPropertyItems` throw. */
   listingThrows?: boolean;
@@ -25,6 +29,8 @@ export function obsModel(init: Partial<Pick<ObsModel, "filterKinds" | "cameraIte
     filters: new Map(),
     filterKinds: init.filterKinds ?? ["chroma_key_filter_v2", "background_removal"],
     outputs: { stream: false, record: false, vcam: false },
+    canvas: { width: 1920, height: 1080 },
+    stuckOutputs: [],
     cameraItems: init.cameraItems ?? [
       { itemName: "MacBook Pro Camera", itemValue: "cam-1" },
       { itemName: "OBS Virtual Camera", itemValue: "obs-vcam" },
@@ -93,6 +99,10 @@ export function obsModel(init: Partial<Pick<ObsModel, "filterKinds" | "cameraIte
     GetStreamStatus: () => ({ outputActive: m.outputs.stream }),
     GetRecordStatus: () => ({ outputActive: m.outputs.record }),
     GetVirtualCamStatus: () => ({ outputActive: m.outputs.vcam }),
+    GetVideoSettings: () => ({ baseWidth: m.canvas.width, baseHeight: m.canvas.height, outputWidth: m.canvas.width, outputHeight: m.canvas.height }),
+    StopStream: () => ((m.outputs.stream = m.stuckOutputs.includes("stream")), {}),
+    StopRecord: () => ((m.outputs.record = m.stuckOutputs.includes("record")), {}),
+    StopVirtualCam: () => ((m.outputs.vcam = m.stuckOutputs.includes("vcam")), {}),
   };
   return m;
 }
