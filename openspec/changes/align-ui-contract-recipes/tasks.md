@@ -122,14 +122,14 @@
 
 ## 11. Verification and closeout
 
-- [ ] 11.1 Run the full suite: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`, then `grep -nE 'FAIL|Error|✗|Tests +[0-9]+ (failed|passed)' /tmp/pi-test.log`. Verify: no failures compared with the 1.1 baseline.
+- [x] 11.1 Run the full suite: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`, then `grep -nE 'FAIL|Error|✗|Tests +[0-9]+ (failed|passed)' /tmp/pi-test.log`. Verify: no failures compared with the 1.1 baseline.
 - [x] 11.2 Client build plus an isolated instance on non-8000 ports (isolated-ui-verification skill). Open the Services page (rail, pills, notice), the vault page, a session actions menu, and a dialog of each intent, at 375 and 1440 px. Run the computed-contrast probe:
   - 4.5:1 in base dark, base light and nord dark;
   - 3:1 in the other named themes;
   - no horizontal overflow.
 
   Verify: screenshots are attached to the PR, and the live :8000 PID is unchanged.
-- [ ] 11.3 Run `review-code` on the full diff. Verify: findings resolved or recorded.
+- [x] 11.3 Run `review-code` on the full diff. Verify: findings resolved or recorded.
 - [x] 11.4 Delegate any `docs/` prose that describes these components to DocScribe (caveman style). Verify: the DocScribe-returned rows are applied.
 
 ## 12. Tests (folded from test-plan.md)
@@ -152,7 +152,7 @@
 - [x] 12.16 L3 test in `tests/e2e/severity-contrast.spec.ts`: contrast sweep. Input: Services page (rail, pills, notice), vault page, session actions menu, one dialog per intent. Trigger: run the computed-contrast probe in base dark, base light and nord dark, then the 6 other named themes. Expected: 0 text < 4.5:1 in the three gated themes; 0 text < 3:1 in the others; 0 text < 11 px (12 px interactive). Harness exemplar: see tests/e2e/severity-contrast.spec.ts with tests/e2e/helpers/computed-contrast.ts (test-plan #F2)
 - [x] 12.17 L3 test in `tests/e2e/session-actions-menu.spec.ts`: touch targets at 375×800. Input: 375×800 viewport. Trigger: open `/settings/services`, then a session actions menu. Expected: the Services strip item ≥ 44 px with a bottom-edge bar; every menu item ≥ 44 px; `scrollWidth === clientWidth`. Harness exemplar: see tests/e2e/session-actions-menu.spec.ts (test-plan #F3)
 - [x] 12.18 L3 test in `tests/e2e/services-settings.spec.ts`: desktop rail height at 1280×800. Input: 1280×800 viewport. Trigger: open `/settings/general`. Expected: every `settings-nav-rail` button ≥ 36 px tall. Harness exemplar: see tests/e2e/services-settings.spec.ts (test-plan #F4)
-- [ ] 12.19 Manual check after merge: compare the dialog, menu and rail in base dark, base light and nord dark with `mockups/index.html` S1–S3 (test-plan: manual-only, #F5)
+- [x] 12.19 Manual check after merge: compare the dialog, menu and rail in base dark, base light and nord dark with `mockups/index.html` S1–S3 (test-plan: manual-only, #F5)
 - [x] 12.20 L1 test in `packages/dashboard-plugin-runtime/src/__tests__/settings-fields.test.tsx`: clipboard failure. Input: `navigator.clipboard` undefined; second case `writeText` rejects. Trigger: click Copy details on a `SettingsActionError`. Expected: the failure label shows, never "Copied". Harness exemplar: see packages/dashboard-plugin-runtime/src/__tests__/settings-fields.test.tsx (test-plan #X1)
 - [x] 12.21 L1 test in `packages/dashboard-plugin-runtime/src/__tests__/settings-fields.test.tsx`: busy retry. Input: `SettingsNotice` whose onRetry returns a pending promise, with `retrying` driven by it. Trigger: click Try again twice. Expected: `aria-busy="true"` while pending; retry disabled; onRetry called once. Harness exemplar: see packages/dashboard-plugin-runtime/src/__tests__/settings-fields.test.tsx (test-plan #X2)
 - [x] 12.22 L1 test in `packages/client/src/components/settings/vault/__tests__/VaultSection.test.tsx`: generic load failure stays a line. Input: `GET /api/vault` 500, and a second case 403 operate_required without remedies. Trigger: load the vault page. Expected: the "Couldn't load the vault: …" line shows and no notice element renders in either case. Harness exemplar: see packages/client/src/components/settings/vault/__tests__/VaultSection.test.tsx (test-plan #X3)
