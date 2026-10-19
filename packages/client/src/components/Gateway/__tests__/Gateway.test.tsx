@@ -63,6 +63,7 @@ describe("GatewayEndpoints (task 6.4 Add HTTPS round-trip)", () => {
   });
 
   // test-plan #E38: words on the neutral chip, 11 px, no raw colour, accessible copy buttons.
+  // @structural-pin #E38: "no raw hex / rgba / undefined theme variable in GatewayEndpoints.tsx" is a property of the source text itself — no rendered observable distinguishes a raw literal from a token (the rendered half is asserted above via the chip classes).
   it("labels all six kinds in words on the neutral chip at >= 11px with no raw colour (#E38)", async () => {
     const kinds: Array<[TunnelEndpoint["kind"], string]> = [
       ["local", "Local"],

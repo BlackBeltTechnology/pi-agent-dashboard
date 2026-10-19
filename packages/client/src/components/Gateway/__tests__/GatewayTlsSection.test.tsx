@@ -136,11 +136,6 @@ describe("#E29 gates with their fixes", () => {
     const link = screen.getByTestId("gateway-tls-admin-link") as HTMLAnchorElement;
     expect(link.getAttribute("rel")).toBe("noopener noreferrer");
     expect(link.target).toBe("_blank");
-    // The name-note lives with the address, which appears once a certificate is held and no gate is unmet.
-    status = S.ready;
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 0));
-    });
   });
 
   it("the connect-by-name note names the certificate and warns about IP addresses", async () => {
