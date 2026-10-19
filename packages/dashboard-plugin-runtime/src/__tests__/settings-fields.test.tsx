@@ -633,3 +633,34 @@ describe("SettingsCopyButton failure (align #X1)", () => {
     expect(screen.getByTestId("c").textContent).toContain("Copy failed");
   });
 });
+
+describe("doubt-review findings on the kit props (align 2.5)", () => {
+  it("non-error notices default to role=status, error to alert, an explicit role wins", () => {
+    for (const tone of ["info", "warning", "success"] as const) {
+      const { container } = render(<SettingsNotice tone={tone}>m</SettingsNotice>);
+      expect((container.firstElementChild as HTMLElement).getAttribute("role")).toBe("status");
+      cleanup();
+    }
+    const { container } = render(<SettingsNotice tone="error">m</SettingsNotice>);
+    expect((container.firstElementChild as HTMLElement).getAttribute("role")).toBe("alert");
+    cleanup();
+    const explicit = render(
+      <SettingsNotice tone="info" role="alert">
+        m
+      </SettingsNotice>,
+    );
+    expect((explicit.container.firstElementChild as HTMLElement).getAttribute("role")).toBe("alert");
+  });
+
+  it("copy result is announced through a live region, not only a label swap", async () => {
+    Object.defineProperty(navigator, "clipboard", { value: undefined, configurable: true });
+    render(<SettingsCopyButton text="x" label="Copy details" testId="c" />);
+    const region = screen.getByRole("status");
+    expect(region.textContent).toBe("");
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("c"));
+    });
+    expect(screen.getByRole("status").textContent).toBe("Copy failed");
+    Reflect.deleteProperty(navigator, "clipboard");
+  });
+});

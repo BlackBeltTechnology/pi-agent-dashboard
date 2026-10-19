@@ -470,20 +470,89 @@ export function SettingsCopyButton({
       settle("failed");
     }
   };
+  const resultLabel =
+    result === "copied"
+      ? (copiedLabel ?? t("settingsField.copied", undefined, "Copied"))
+      : result === "failed"
+        ? t("settingsField.copyFailed", undefined, "Copy failed")
+        : null;
   return (
-    <button type="button" data-testid={testId} className={SMALL_BTN} onClick={copy}>
-      <Icon path={result === "copied" ? mdiCheck : mdiContentCopy} size={0.55} aria-hidden="true" />
-      {result === "copied"
-        ? (copiedLabel ?? t("settingsField.copied", undefined, "Copied"))
-        : result === "failed"
-          ? t("settingsField.copyFailed", undefined, "Copy failed")
-          : label}
-    </button>
+    <>
+      <button type="button" data-testid={testId} className={SMALL_BTN} onClick={copy}>
+        <Icon path={result === "copied" ? mdiCheck : mdiContentCopy} size={0.55} aria-hidden="true" />
+        {resultLabel ?? label}
+      </button>
+      {/* A label swap on a focused button is not announced; a standing live region is. */}
+      <span role="status" className="sr-only">
+        {resultLabel}
+      </span>
+    </>
+  );
+}
+
+/** Action row of a notice: "Try again", caller actions, "Copy details". Empty → nothing. */
+function NoticeActions({
+  testId,
+  onRetry,
+  retryLabel,
+  retrying,
+  details,
+  actions,
+}: {
+  testId?: string;
+  onRetry?: () => void;
+  retryLabel?: string;
+  retrying?: boolean;
+  details?: string | null;
+  actions?: ReactNode;
+}) {
+  const t = useRuntimeT();
+  if (!onRetry && !details && !actions) return null;
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2">
+      {onRetry ? (
+        <button
+          type="button"
+          className={SMALL_BTN}
+          disabled={retrying}
+          data-testid={testId ? `${testId}-retry` : undefined}
+          onClick={onRetry}
+        >
+          <Icon path={mdiRefresh} size={0.55} aria-hidden="true" />
+          {retryLabel ?? t("settingsField.tryAgain", undefined, "Try again")}
+        </button>
+      ) : null}
+      {actions}
+      {details ? (
+        <SettingsCopyButton
+          text={details}
+          label={t("settingsField.copyDetails", undefined, "Copy details")}
+          testId={testId ? `${testId}-copy-details` : undefined}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+/** "What to do" rows of a notice: icon + content, in the caller's order. */
+function RemedyList({ remedies }: { remedies?: { icon: string; content: ReactNode }[] }) {
+  if (!remedies || remedies.length === 0) return null;
+  return (
+    <ul className="mt-1.5 space-y-1">
+      {remedies.map((r, i) => (
+        // Positional key: the caller's order is the identity.
+        <li key={i} data-remedy="" className="flex items-start gap-1.5">
+          <Icon path={r.icon} size={0.55} className="mt-0.5 shrink-0" aria-hidden="true" />
+          <span className="min-w-0 flex-1">{r.content}</span>
+        </li>
+      ))}
+    </ul>
   );
 }
 
 /**
- * Severity callout (`ui-contract.md` recipe). `error` announces itself (`role="alert"`).
+ * Severity callout (`ui-contract.md` recipe). `error` announces itself (`role="alert"`),
+ * the other tones as `role="status"`; `role` overrides.
  * Optional action row: `onRetry` → "Try again", `details` → "Copy details"
  * (the raw text is only copied, never shown), `actions` → caller buttons.
  */
@@ -517,55 +586,27 @@ export function SettingsNotice({
    */
   remedies?: { icon: string; content: ReactNode }[];
 }) {
-  const t = useRuntimeT();
   const { cls, icon } = NOTICE_TONE[tone];
-  const hasActions = Boolean(onRetry || details || actions);
   return (
     <div
       data-testid={testId}
       data-tone={tone}
-      role={role ?? (tone === "error" ? "alert" : undefined)}
+      role={role ?? (tone === "error" ? "alert" : "status")}
       aria-busy={retrying ? true : undefined}
       className={`flex items-start gap-2 rounded-md border px-2.5 py-2 text-xs ${cls} ${className ?? ""}`}
     >
       <Icon path={icon} size={0.65} className="mt-0.5 shrink-0" aria-hidden="true" />
       <div className="min-w-0 flex-1">
         {children}
-        {remedies && remedies.length > 0 ? (
-          <ul className="mt-1.5 space-y-1">
-            {remedies.map((r, i) => (
-              // Positional key: the caller's order is the identity and never reorders.
-              <li key={i} data-remedy="" className="flex items-start gap-1.5">
-                <Icon path={r.icon} size={0.55} className="mt-0.5 shrink-0" aria-hidden="true" />
-                <span className="min-w-0 flex-1">{r.content}</span>
-              </li>
-            ))}
-          </ul>
-        ) : null}
-        {hasActions ? (
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            {onRetry ? (
-              <button
-                type="button"
-                className={SMALL_BTN}
-                disabled={retrying}
-                data-testid={testId ? `${testId}-retry` : undefined}
-                onClick={onRetry}
-              >
-                <Icon path={mdiRefresh} size={0.55} aria-hidden="true" />
-                {retryLabel ?? t("settingsField.tryAgain", undefined, "Try again")}
-              </button>
-            ) : null}
-            {actions}
-            {details ? (
-              <SettingsCopyButton
-                text={details}
-                label={t("settingsField.copyDetails", undefined, "Copy details")}
-                testId={testId ? `${testId}-copy-details` : undefined}
-              />
-            ) : null}
-          </div>
-        ) : null}
+        <RemedyList remedies={remedies} />
+        <NoticeActions
+          testId={testId}
+          onRetry={onRetry}
+          retryLabel={retryLabel}
+          retrying={retrying}
+          details={details}
+          actions={actions}
+        />
       </div>
     </div>
   );
@@ -574,7 +615,8 @@ export function SettingsNotice({
 /**
  * Inline error shown AT the control that failed (`ui-contract.md` "inline action
  * error"): one human sentence, optional "Copy details" for the raw code. Point the
- * control's `aria-describedby` at `id`. The raw `details` are copied, never rendered.
+ * control's `aria-describedby` at `id` — unique per page, so derive it from the row id.
+ * The raw `details` are copied, never rendered.
  */
 export function SettingsActionError({
   id,
@@ -692,7 +734,10 @@ export function SettingsStatusPill({
   children: ReactNode;
   icon?: string | null;
   interactive?: boolean;
-  /** Rotate the icon (progress states); static under `prefers-reduced-motion`. */
+  /**
+   * Rotate the icon (progress states); static under `prefers-reduced-motion`. No effect
+   * without an icon, so pair it with a progress glyph (`mdiLoading`), not a meaning glyph.
+   */
   spinning?: boolean;
   testId?: string;
   /** Raw machine status kept for tests/diagnostics as `data-status` (never shown). */
