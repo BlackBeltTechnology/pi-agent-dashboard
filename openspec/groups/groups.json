@@ -484,7 +484,9 @@
     "add-path-containment-guard-extension": "github-bug-fixes",
     "align-ui-contract-recipes": "ui",
     "gate-changed-on-disk-by-content": "ui",
-    "refresh-electron-bundled-components": "ui"
+    "refresh-electron-bundled-components": "ui",
+    "move-session-actions-trigger-to-card-edge": "retro-ui",
+    "colorize-actions-menus": "retro-ui"
   },
   "changeOrder": {
     "__ungrouped__": [
@@ -659,6 +661,10 @@
     "gmail": [
       "improve-gmail-plugin-setup-ux",
       "add-gmail-auto-setup"
+    ],
+    "retro-ui": [
+      "move-session-actions-trigger-to-card-edge",
+      "colorize-actions-menus"
     ]
   }
 }
