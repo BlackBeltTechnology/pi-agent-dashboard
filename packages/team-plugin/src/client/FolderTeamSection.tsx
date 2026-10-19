@@ -51,14 +51,14 @@ export function FolderTeamSection({ folder, placement = "sidebar" }: { folder: F
   useFolderMenuItem(
     scope,
     useMemo(
-      () => (manageable ? { id: "team-disable", group: "workspace" as const, label: t("disableTeam", undefined, "Disable team"), icon: mdiLinkOff, onSelect: () => setDialog("disable") } : null),
+      () => (manageable ? { id: "team-disable", group: "workspace" as const, label: t("disableTeam", undefined, "Disable team"), icon: mdiLinkOff, tone: "danger" as const, onSelect: () => setDialog("disable") } : null),
       [manageable, t],
     ),
   );
   useFolderMenuItem(
     scope,
     useMemo(
-      () => (enableable ? { id: "team-enable", group: "workspace" as const, label: t("enableTeam", undefined, "Enable team for this folder"), icon: mdiPlusCircleOutline, onSelect: () => setDialog("enable") } : null),
+      () => (enableable ? { id: "team-enable", group: "workspace" as const, label: t("enableTeam", undefined, "Enable team for this folder"), icon: mdiPlusCircleOutline, tone: "create" as const, onSelect: () => setDialog("enable") } : null),
       [enableable, t],
     ),
   );

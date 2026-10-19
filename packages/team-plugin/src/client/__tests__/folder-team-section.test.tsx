@@ -75,6 +75,12 @@ describe("F27: row + menu contributions", () => {
     expect(ids(store, "/repo/crm")).toEqual(["team-open"]); // config project: read-only
     expect(ids(store, "/repo/new")).toEqual(["team-enable"]); // unmatched + enableable
     expect(ids(store, "/repo/other")).toEqual([]); // unmatched, member: nothing
+    // tones (change: colorize-actions-menus, test-plan #E23)
+    const tone = (cwd: string, id: string) => store.getItems(cwd).find((i) => i.id === id)?.tone;
+    expect(tone("/repo/billing", "team-disable")).toBe("danger");
+    expect(tone("/repo/billing", "team-open")).toBeUndefined();
+    expect(tone("/repo/billing", "team-settings")).toBeUndefined();
+    expect(tone("/repo/new", "team-enable")).toBe("create");
   });
 
   it("enable dialog: name required (no POST); success posts the folder path and refreshes matches", async () => {

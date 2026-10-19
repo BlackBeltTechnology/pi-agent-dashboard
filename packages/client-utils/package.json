@@ -29,6 +29,10 @@
       "types": "./src/LayerPortal.tsx",
       "default": "./src/LayerPortal.tsx"
     },
+    "./tone": {
+      "types": "./src/tone.ts",
+      "default": "./src/tone.ts"
+    },
     "./escape-stack": {
       "types": "./src/escape-stack.ts",
       "default": "./src/escape-stack.ts"

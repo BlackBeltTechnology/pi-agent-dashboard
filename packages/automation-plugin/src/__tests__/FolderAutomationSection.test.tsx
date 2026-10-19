@@ -75,6 +75,7 @@ describe("FolderAutomationSection", () => {
     const items = store.getItems("/r");
     expect(items.map((i) => [i.id, i.group])).toEqual([["new-automation", "create"]]);
     expect(items[0]!.pluginId).toBe("automation-plugin");
+    expect(items[0]!.tone).toBe("create"); // test-plan #E23
   });
 
   it("E20/E21: registers a refresher that renders no item and refetches on fan-out", async () => {

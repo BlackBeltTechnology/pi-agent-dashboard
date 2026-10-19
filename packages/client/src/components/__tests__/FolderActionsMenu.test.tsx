@@ -179,3 +179,16 @@ describe("FolderActionsMenu overlay-layering (desktop portal)", () => {
     }
   });
 });
+
+// change: colorize-actions-menus, test-plan #E14
+describe("isProjectSetupOutdated", () => {
+  it("drives both the predicate and the label badge", async () => {
+    const { isProjectSetupOutdated, projectSetupLabel } = await import("../folder/folder-menu-labels.js");
+    const st = (setupOutdated?: boolean) => ({ setupOutdated }) as never;
+    expect(isProjectSetupOutdated(st(true))).toBe(true);
+    expect(isProjectSetupOutdated(st(false))).toBe(false);
+    expect(isProjectSetupOutdated(undefined)).toBe(false);
+    expect(projectSetupLabel(st(true))).toContain("● update");
+    expect(projectSetupLabel(st(false))).not.toContain("● update");
+  });
+});

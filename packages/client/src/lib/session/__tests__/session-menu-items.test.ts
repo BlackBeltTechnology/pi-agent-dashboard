@@ -2,7 +2,7 @@
  * `deriveSessionMenu` — the pure derivation behind the session actions menu.
  * See change: add-session-actions-flyout (test-plan E1–E12, E14).
  */
-import { ChangeState, deriveChangeState as deriveChangeStateForTest, type DashboardSession, type OpenSpecChange, type OpenSpecReadiness } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { ChangeState, type DashboardSession, deriveChangeState as deriveChangeStateForTest, type OpenSpecChange, type OpenSpecReadiness } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { describe, expect, it, vi } from "vitest";
 import { deriveOpenSpecActions } from "../../../components/openspec/openspec-actions.js";
 import { buildArchiveArtifactUrl } from "../../nav/route-builders.js";
@@ -568,3 +568,71 @@ describe("composer ↔ card menu parity (E23)", () => {
 });
 
 void noop;
+
+// Tone (change: colorize-actions-menus, test-plan #E8, #E9).
+describe("deriveSessionMenu — tones (E8, E9)", () => {
+  const toneOf = (groups: SessionMenuGroup[], id: string) => allItems(groups).find((i) => i.id === id)?.tone;
+
+  it("session host tones", () => {
+    const ended = makeSession({ status: "ended", sessionFile: "/x/s.jsonl", gitWorktree: undefined });
+    const g1 = deriveSessionMenu(ended, makeCtx(ended));
+    expect(toneOf(g1, "resume")).toBe("go");
+    expect(toneOf(g1, "fork")).toBe("create");
+    expect(toneOf(g1, "rename")).toBeUndefined();
+    expect(toneOf(g1, "archive-session")).toBeUndefined();
+
+    const alive = makeSession({ gitPrNumber: 12, gitPrUrl: "https://gh/pr/12", gitPrState: "open" });
+    const g2 = deriveSessionMenu(alive, makeCtx(alive, { dirtyCount: 2 }));
+    expect(toneOf(g2, "spawn-sibling")).toBe("go");
+    expect(toneOf(g2, "exit")).toBe("danger");
+    expect(toneOf(g2, "close-worktree")).toBe("danger");
+    expect(toneOf(g2, "commit")).toBe("caution");
+    expect(toneOf(g2, "view-pr")).toBeUndefined();
+    expect(toneOf(g2, "push")).toBeUndefined();
+    expect(toneOf(g2, "switch-branch")).toBeUndefined();
+
+    const plain = makeSession({ gitWorktree: undefined, gitBranch: "main", isGitRepo: true });
+    const g3 = deriveSessionMenu(plain, makeCtx(plain));
+    expect(toneOf(g3, "spawn-worktree")).toBe("caution");
+
+    const wt = makeSession();
+    const g4 = deriveSessionMenu(wt, makeCtx(wt));
+    expect(toneOf(g4, "open-pr")).toBe("create");
+  });
+
+  it("openspec tones: Verify go, New/Propose create, Archive anyway caution; others neutral", () => {
+    const s = makeSession({ attachedProposal: undefined });
+    const unattached = deriveSessionMenu(s, makeCtx(s, { resolution: null }));
+    expect(toneOf(unattached, "openspec-new")).toBe("create");
+    expect(toneOf(unattached, "openspec-propose")).toBe("create");
+    expect(toneOf(unattached, "openspec-explore")).toBeUndefined();
+
+    const ch = change();
+    const attached = makeSession();
+    const g = deriveSessionMenu(attached, makeCtx(attached, { changes: [ch], resolution: { kind: "active", change: ch, cwd: attached.cwd } }));
+    expect(toneOf(g, "openspec-archiveAnyway")).toBe("caution");
+    const done = change({ status: "complete", completedTasks: 3 });
+    const gc = deriveSessionMenu(attached, makeCtx(attached, { changes: [done], resolution: { kind: "active", change: done, cwd: attached.cwd } }));
+    expect(toneOf(gc, "openspec-verify")).toBe("go");
+    expect(toneOf(g, "openspec-detach")).toBeUndefined();
+  });
+
+  it("NEXT strips tone; the Merge-emphasis case keeps the OpenSpec home copy's tone (E9)", () => {
+    const s = makeSession({ gitPrNumber: 4, gitPrState: "open", gitPrDraft: false, gitPrChecks: "passing", gitPrCheckedAt: Date.now() });
+    const ch = change({ status: "complete", completedTasks: 3 });
+    const g = deriveSessionMenu(s, makeCtx(s, { mergeIsPrimary: true, changes: [ch], resolution: { kind: "active", change: ch, cwd: s.cwd } }));
+    const next = find(g, "next")?.items[0];
+    expect(next?.id).toBe("merge");
+    expect(next?.tone).toBeUndefined();
+    expect(next?.emphasis).toBe(true);
+
+    // streaming session whose NEXT is Verify: disabled, not emphasised, no tone
+    const ch2 = change({ status: "complete", completedTasks: 3 });
+    const w = makeSession({ status: "streaming" });
+    const g2 = deriveSessionMenu(w, makeCtx(w, { working: true, changes: [ch2], resolution: { kind: "active", change: ch2, cwd: w.cwd }, wf: (x) => ALL.filter((a) => a !== "archive").includes(x) }));
+    const n2 = find(g2, "next")?.items[0];
+    expect(n2?.id).toBe("openspec-verify");
+    expect(n2?.disabled).toBe(true);
+    expect(n2?.tone).toBeUndefined();
+  });
+});

@@ -134,6 +134,7 @@ describe("FolderKbSection render", () => {
     expect(item.group).toBe("maintenance");
     expect(item.disabled).toBe(false);
     expect(item.badge).toBeUndefined();
+    expect(item.tone).toBe("caution"); // reindex (test-plan #E22)
   });
 
   it("the pill ROOT exposes no action control of its own (test-plan #E1, #E2)", async () => {
@@ -166,6 +167,7 @@ describe("FolderKbSection render", () => {
     const { getByTestId, store } = renderSlot();
     await waitFor(() => expect(getByTestId("folder-kb-section").getAttribute("data-state")).toBe("not-indexed"));
     await waitFor(() => expect(kbItem(store)?.label).toContain("Index now"));
+    expect(kbItem(store)?.tone).toBe("caution"); // index (test-plan #E22)
     // Settings MUST be reachable so a fresh worktree can define sources.
     expect(getByTestId("folder-kb-open-settings")).toBeTruthy();
   });
@@ -178,6 +180,7 @@ describe("FolderKbSection render", () => {
     // the DOM assertion above observes.
     await waitFor(() => expect(kbItem(store)?.label).toContain("Retry"));
     expect(store.getItems(cwd)).toHaveLength(1);
+    expect(kbItem(store)?.tone).toBe("caution"); // retry (test-plan #E22)
     expect(getByTestId("folder-kb-open-settings")).toBeTruthy();
   });
 
