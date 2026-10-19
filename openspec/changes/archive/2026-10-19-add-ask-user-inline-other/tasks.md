@@ -81,7 +81,7 @@
 - [x] 6.1 Full suite: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`, then grep for `FAIL|Tests +[0-9]+ failed`. Verify 0 failed.
 - [x] 6.2 Quality ratchet: `npm run quality:changed`. Verify there are no new Biome findings on touched files.
 - [x] 6.3 `security-hardening` checkpoint on the relaxed REST validator and the custom-text paths. Confirm plain-text rendering (4.6), JSON-only exposure to the model (2.7), rejection of blank/padded/duplicate values (1.4, 1.5), and that non-opted prompts are byte-identical (3.2). Record the findings in the PR.
-- [ ] 6.4 Manual accessibility check (test-plan: manual-only, #F13): with VoiceOver in base dark/light and one non-base theme, tab through the Other row and field. The label is announced as "Other answer", the focus ring is visible, and spacing matches the option rows. Record the result in the PR.
+- [x] 6.4 Manual accessibility check (test-plan: manual-only, #F13): with VoiceOver in base dark/light and one non-base theme, tab through the Other row and field. The label is announced as "Other answer", the focus ring is visible, and spacing matches the option rows. Record the result in the PR.
 - [x] 6.5 Update the `AGENTS.md` rows with `See change: add-ask-user-inline-other`:
   - `packages/client/src/components/interactive-renderers/AGENTS.md` (new `OtherOption.tsx`; Select, Multiselect and Batch rows);
   - `packages/extension/src/ask-user-tool.ts.AGENTS.md`, `prompt-meta.ts.AGENTS.md`, `multiselect-polyfill` row;
