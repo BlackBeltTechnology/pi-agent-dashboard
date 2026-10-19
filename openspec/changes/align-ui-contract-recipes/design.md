@@ -199,7 +199,7 @@ Found while migrating; none changes behaviour beyond what D4 lists.
 Fresh-context, cross-model: `@propose-review-1` then `@propose-review-2` (both non-Claude, probed clean), artifact = the `settings-fields.tsx` diff, no author reasoning. 2 cycles, stop condition met (cycle 2: no blocking findings).
 
 **Fixed**
-- Non-error notices had no role, against the spec ("other tones as status") and leaving `aria-busy` inert. `SettingsNotice` now defaults to `role="status"` (error stays `alert`; explicit `role` wins). The one intended default change in the kit; the 18 `ByRole("status")` consumers still pass.
+- Non-error notices had no role, against the spec ("other tones as status") and leaving `aria-busy` inert. `SettingsNotice` now defaults to `role="status"` (error stays `alert`; explicit `role` wins). The one intended default change in the kit. The full suite (run with the worktree's own package links) found one test that assumed a single `status` region on the page (`ContextModeSettings` E11); it now picks the region that announces the unsaved count. An earlier per-package run of the 18 `ByRole("status")` consumers had imported the main checkout's kit through the parent `node_modules`, so it proved nothing; `pnpm install` in the worktree fixed that.
 - "Copy failed" was a silent label swap. `SettingsCopyButton` now has a standing `sr-only` `role="status"` live region. It renders a fragment (button + span); no caller targets the root.
 - `SettingsNotice` cognitive complexity went 16 → 17. Extracted `RemedyList` and `NoticeActions`; it is now under the cap.
 - D3 said the copy failure label "exists"; it did not. Added `settingsField.copyFailed` (en fallback, hu, zh-CN).
