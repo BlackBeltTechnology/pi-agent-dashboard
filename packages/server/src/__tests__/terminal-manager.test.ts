@@ -5,6 +5,7 @@ import {
   createTerminalManager,
   deriveTranscriptCapBytes,
   detectShell,
+  TerminalLimitError,
   type TerminalManager,
 } from "../terminal/terminal-manager.js";
 
@@ -738,5 +739,93 @@ describe("terminal owner stamp (identity plane, 18.13)", () => {
     expect("principalOwner" in plain).toBe(false);
     mgr.kill(owned.id);
     mgr.kill(plain.id);
+  });
+});
+
+// ─── PTY bounds (change: harden-server-capability-bounds, B7) ────────────────
+describe("terminal bounds (global + per-cwd cap, idle reaper)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    ptyInstances = [];
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("rejects spawn over the global cap without spawning a shell", async () => {
+    const pty = await import("node-pty");
+    const mgr = createTerminalManager({ maxTerminals: 2, maxTerminalsPerCwd: 10 });
+    mgr.spawn("/a");
+    mgr.spawn("/b");
+    const spawnsBefore = (pty.spawn as unknown as ReturnType<typeof vi.fn>).mock.calls.length;
+    expect(() => mgr.spawn("/c")).toThrow(TerminalLimitError);
+    expect((pty.spawn as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBe(spawnsBefore);
+    expect(mgr.list()).toHaveLength(2);
+  });
+
+  it("rejects spawn over the per-cwd cap but still allows another cwd", () => {
+    const mgr = createTerminalManager({ maxTerminals: 10, maxTerminalsPerCwd: 2 });
+    mgr.spawn("/a");
+    mgr.spawn("/a");
+    let err: unknown;
+    try { mgr.spawn("/a"); } catch (e) { err = e; }
+    expect(err).toBeInstanceOf(TerminalLimitError);
+    expect((err as TerminalLimitError).scope).toBe("cwd");
+    expect(() => mgr.spawn("/b")).not.toThrow();
+  });
+
+  it("frees a slot when a terminal exits", () => {
+    const mgr = createTerminalManager({ maxTerminals: 1 });
+    mgr.spawn("/a");
+    expect(() => mgr.spawn("/a")).toThrow(TerminalLimitError);
+    ptyInstances[0].fireExit();
+    expect(() => mgr.spawn("/a")).not.toThrow();
+  });
+
+  it("spawns normally below the default caps (a handful of terminals)", () => {
+    const mgr = createTerminalManager();
+    for (let i = 0; i < 8; i++) expect(() => mgr.spawn("/work")).not.toThrow();
+    expect(mgr.list()).toHaveLength(8);
+  });
+
+  it("reaps a detached terminal idle beyond the threshold; spares an attached one", () => {
+    vi.useFakeTimers();
+    const removed: string[] = [];
+    const mgr = createTerminalManager({
+      idleReapMs: 1000,
+      reapIntervalMs: 100,
+      onExit: (id) => removed.push(id),
+    });
+    const idle = mgr.spawn("/a");
+    const attached = mgr.spawn("/b");
+    const ws = { send: vi.fn(), on: vi.fn(), readyState: 1, OPEN: 1 } as any;
+    mgr.attach(attached.id, ws);
+
+    vi.advanceTimersByTime(1500);
+    // reaper called pty.kill on the idle one only (SIGHUP), never the attached one
+    expect(mockPtyKill).toHaveBeenCalledTimes(1);
+    ptyInstances[0].fireExit();
+    expect(removed).toEqual([idle.id]);
+    expect(mgr.get(attached.id)).toBeDefined();
+  });
+
+  it("output activity resets the idle clock", () => {
+    vi.useFakeTimers();
+    const mgr = createTerminalManager({ idleReapMs: 1000, reapIntervalMs: 100 });
+    mgr.spawn("/a");
+    vi.advanceTimersByTime(800);
+    ptyInstances[0].fireData("still working");
+    vi.advanceTimersByTime(800);
+    expect(mockPtyKill).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(400);
+    expect(mockPtyKill).toHaveBeenCalledTimes(1);
+  });
+
+  it("idleReapMs: 0 disables the reaper", () => {
+    vi.useFakeTimers();
+    const mgr = createTerminalManager({ idleReapMs: 0, reapIntervalMs: 100 });
+    mgr.spawn("/a");
+    vi.advanceTimersByTime(10 * 60 * 60 * 1000);
+    expect(mockPtyKill).not.toHaveBeenCalled();
   });
 });

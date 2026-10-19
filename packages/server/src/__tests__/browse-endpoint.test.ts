@@ -496,7 +496,9 @@ describe("GET /api/browse/flags route", () => {
     app = Fastify({ logger: false });
     registerFileRoutes(app, {
       sessionManager: { listAll: () => [] } as any,
-      preferencesStore: { getPinnedDirectories: () => [] } as any,
+      // The tmp dir sits outside $HOME, so pin it: browse routes are confined
+      // to $HOME + pinned dirs (change: harden-server-capability-bounds).
+      preferencesStore: { getPinnedDirectories: () => [tmp] } as any,
       // Permit-all guard so we exercise the route logic, not the auth gate.
       networkGuard: async () => undefined,
     });
@@ -561,7 +563,9 @@ describe("GET /api/browse with detect param", () => {
     app = Fastify({ logger: false });
     registerFileRoutes(app, {
       sessionManager: { listAll: () => [] } as any,
-      preferencesStore: { getPinnedDirectories: () => [] } as any,
+      // Pin the tmp dir: browse is confined to $HOME + pinned dirs
+      // (change: harden-server-capability-bounds).
+      preferencesStore: { getPinnedDirectories: () => [tmp] } as any,
       networkGuard: async () => undefined,
     });
     await app.ready();
