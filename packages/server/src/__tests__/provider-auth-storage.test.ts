@@ -3,14 +3,18 @@ import os from "node:os";
 import path from "node:path";
 import type { ProviderInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { oauthRegistryReady, setOAuthRegistryRuntimeSource } from "../auth/provider-auth-registry.js";
 import { DashboardCredentialStore } from "../auth/dashboard-credential-store.js";
+import {
+  _setRegistryRuntimeForTests,
+  oauthRegistryReady,
+  setOAuthRegistryRuntimeSource,
+} from "../auth/provider-auth-registry.js";
 import { getServerModelRuntime } from "../model-proxy/server-model-runtime.js";
-import { createRealRuntime, registerCapturingProvider } from "./helpers/pi-models-fixture.js";
 import {
   _resetForTests as resetCatalogueCache,
   setCatalogueForSession,
 } from "../package/provider-catalogue-cache.js";
+import { createRealRuntime, registerCapturingProvider } from "./helpers/pi-models-fixture.js";
 
 /**
  * The OAuth rows now come from the pi runtime's provider registry, so the
@@ -97,7 +101,7 @@ describe("provider-auth-storage", () => {
   // resolved pi runtime bundles (change: delegate-provider-oauth-to-pi-ai).
   it("getAuthStatus includes every OAuth provider the runtime bundles", async () => {
     const { getAuthStatus } = await import("../auth/provider-auth-storage.js");
-    const statuses = getAuthStatus();
+    const statuses = await getAuthStatus();
     const oauthIds = statuses.filter((s) => s.flowType !== "api_key").map((s) => s.id);
     expect([...oauthIds].sort()).toEqual([...REGISTRY_OAUTH_IDS]);
     expect(oauthIds).toContain("radius");
@@ -107,7 +111,7 @@ describe("provider-auth-storage", () => {
 
   it("getAuthStatus includes zai from the bridge-pushed catalogue with flowType api_key", async () => {
     const { getAuthStatus } = await import("../auth/provider-auth-storage.js");
-    const statuses = getAuthStatus();
+    const statuses = await getAuthStatus();
     const zai = statuses.find((s) => s.id === "zai");
     expect(zai).toBeDefined();
     expect(zai!.name).toBe("Z.ai");
@@ -116,7 +120,7 @@ describe("provider-auth-storage", () => {
 
   it("OAuth/api-key collision uses '<id>-api' suffix for API-key row", async () => {
     const { getAuthStatus } = await import("../auth/provider-auth-storage.js");
-    const statuses = getAuthStatus();
+    const statuses = await getAuthStatus();
     expect(statuses.find((s) => s.id === "anthropic" && s.flowType === "auth_code")).toBeDefined();
     expect(statuses.find((s) => s.id === "anthropic-api" && s.flowType === "api_key")).toBeDefined();
   });
@@ -125,7 +129,7 @@ describe("provider-auth-storage", () => {
     const { writeCredential, getAuthStatus, removeCredential } = await import("../auth/provider-auth-storage.js");
     await writeCredential("openai", { type: "api_key", key: "sk-abc123xyz789" });
     try {
-      const statuses = getAuthStatus();
+      const statuses = await getAuthStatus();
       const openai = statuses.find((s) => s.id === "openai-api");
       expect(openai!.maskedKey).toBe("sk-ab...789");
     } finally {
@@ -137,7 +141,7 @@ describe("provider-auth-storage", () => {
     const { writeCredential, getAuthStatus, removeCredential } = await import("../auth/provider-auth-storage.js");
     await writeCredential("openai", { type: "api_key", key: "shortkey" });
     try {
-      const statuses = getAuthStatus();
+      const statuses = await getAuthStatus();
       const openai = statuses.find((s) => s.id === "openai-api");
       expect(openai!.maskedKey).toBe("****");
     } finally {
@@ -149,7 +153,7 @@ describe("provider-auth-storage", () => {
     const { writeCredential, getAuthStatus, removeCredential } = await import("../auth/provider-auth-storage.js");
     await writeCredential("openai", { type: "api_key", key: "" });
     try {
-      const statuses = getAuthStatus();
+      const statuses = await getAuthStatus();
       const openai = statuses.find((s) => s.id === "openai-api");
       expect(openai!.authenticated).toBe(false);
       expect(openai!.maskedKey).toBeUndefined();
@@ -158,10 +162,14 @@ describe("provider-auth-storage", () => {
     }
   });
 
-  it("empty catalogue + no OAuth credentials → only OAuth handler rows present", async () => {
+  it("empty catalogue + no runtime fallback + no OAuth credentials → only OAuth handler rows present", async () => {
     resetCatalogueCache();
+    // No bridge catalogue AND no retained runtime: nothing derives api-key rows.
+    // (With the runtime retained, the fallback supplies them — see
+    // provider-auth-first-run.test.ts.) See change: fix-provider-catalogue-first-run.
+    _setRegistryRuntimeForTests(null);
     const { getAuthStatus } = await import("../auth/provider-auth-storage.js");
-    const statuses = getAuthStatus();
+    const statuses = await getAuthStatus();
     expect(statuses.filter((s) => s.flowType === "api_key")).toHaveLength(0);
     expect(statuses.filter((s) => s.flowType !== "api_key")).toHaveLength(
       REGISTRY_OAUTH_IDS.length,

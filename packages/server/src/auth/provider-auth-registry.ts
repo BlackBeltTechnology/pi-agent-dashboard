@@ -30,6 +30,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { OAuthLoginFlow, OAuthRegistryEntry } from "./pi-oauth-types.js";
 import { applyRadiusOverride, setAgentDirSource } from "./radius-override.js";
+import type { RuntimeCatalogueSource } from "./runtime-provider-catalogue.js";
 
 /** Package the runtime comes from (version diagnostics only). */
 const PI_PACKAGE = "@earendil-works/pi-coding-agent";
@@ -65,7 +66,7 @@ interface PiProviderLike {
  */
 interface RuntimeHandleLike {
   /** Provider shapes are checked at runtime by {@link mapProviders}'s filter. */
-  runtime: { getProviders(): readonly unknown[] };
+  runtime: { getProviders(): readonly unknown[] } & Partial<Pick<RuntimeCatalogueSource, "checkAuth">>;
   version?: string;
   /** pi's `getAgentDir` (honours `PI_CODING_AGENT_DIR`); locates `models.json`. */
   getAgentDir?: () => string;
@@ -82,6 +83,28 @@ let runtimeSource: RuntimeSource | undefined;
 export function setOAuthRegistryRuntimeSource(source: RuntimeSource | undefined): void {
   runtimeSource = source;
   readyPromise = undefined;
+  // A stale in-flight init must not write after a reset; the retained runtime
+  // belongs to the old source. See change: fix-provider-catalogue-first-run (D3).
+  initGeneration += 1;
+  registryRuntime = undefined;
+}
+
+let initGeneration = 0;
+/** The runtime the registry resolved, retained even when its OAuth list is empty. */
+let registryRuntime: RuntimeCatalogueSource | undefined;
+
+/**
+ * The runtime the registry resolved, for the api-key fallback catalogue.
+ * `undefined` until a handle resolved, or after the source rejected / lacked
+ * `getProviders`. See change: fix-provider-catalogue-first-run (D3).
+ */
+export function getRegistryRuntime(): RuntimeCatalogueSource | undefined {
+  return registryRuntime;
+}
+
+/** Test seam: set (or clear with `null`) the retained runtime. */
+export function _setRegistryRuntimeForTests(rt: RuntimeCatalogueSource | null): void {
+  registryRuntime = rt ?? undefined;
 }
 
 type OAuthProvider = PiProviderLike & { auth: { oauth: OAuthLoginFlow } };
@@ -187,6 +210,8 @@ export async function initOAuthRegistry(deps: OAuthRegistryInitDeps = {}): Promi
   const log = deps.log ?? ((message: string) => console.error(message));
 
   let version = readVersion();
+  const generation = initGeneration;
+  let retained = false;
   try {
     if (!getRuntime) throw new Error("the server model runtime is not wired (setOAuthRegistryRuntimeSource)");
     let handle: RuntimeHandleLike;
@@ -198,21 +223,30 @@ export async function initOAuthRegistry(deps: OAuthRegistryInitDeps = {}): Promi
       throw err;
     }
     if (typeof handle?.version === "string" && handle.version) version = handle.version;
+    if (generation !== initGeneration) return;
     setAgentDirSource(typeof handle?.getAgentDir === "function" ? handle.getAgentDir : undefined);
     const runtime = handle?.runtime;
     if (typeof runtime?.getProviders !== "function") {
       throw new Error("ModelRuntime.getProviders is not a function");
     }
+    // Retain BEFORE the OAuth check: a runtime with no OAuth provider still
+    // serves the api-key fallback. See change: fix-provider-catalogue-first-run (D3).
+    registryRuntime = runtime as RuntimeCatalogueSource;
+    retained = true;
     const entries = mapProviders(runtime.getProviders() as readonly PiProviderLike[]);
     if (entries.length === 0) {
       throw new Error("the runtime exposes no provider with an OAuth login");
     }
     setRegistry(entries, null);
   } catch (err) {
+    if (generation !== initGeneration) return;
     const message = err instanceof Error ? err.message : String(err);
     const detail = `${message} (pi-coding-agent ${version})`;
     setAgentDirSource(undefined);
     setRegistry([], detail);
+    // Only a runtime that never resolved loses the fallback; an empty OAuth
+    // list keeps it.
+    if (!retained) registryRuntime = undefined;
     log(`[provider-auth] OAuth registry unavailable: ${detail}`);
   }
 }

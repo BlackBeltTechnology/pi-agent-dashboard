@@ -19,6 +19,7 @@ vi.mock("../auth/provider-auth-registry.js", () => ({
   oauthRegistryReady: async () => {},
   getOAuthRegistry: () => [],
   getRegistryError: () => registryState.error,
+  getRegistryRuntime: () => undefined,
   initOAuthRegistry: async () => {},
   setOAuthRegistryRuntimeSource: () => {},
 }));
