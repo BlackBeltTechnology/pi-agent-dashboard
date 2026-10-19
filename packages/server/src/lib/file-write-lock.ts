@@ -16,8 +16,9 @@ export function serializeWrite<T>(key: string, task: () => Promise<T>): Promise<
     () => {},
   );
   fileWriteLocks.set(key, tail);
-  void tail.then(() => {
+  const release = (): void => {
     if (fileWriteLocks.get(key) === tail) fileWriteLocks.delete(key);
-  });
+  };
+  void tail.then(release).catch((err: unknown) => console.warn("[file-write-lock] release failed", err));
   return run;
 }

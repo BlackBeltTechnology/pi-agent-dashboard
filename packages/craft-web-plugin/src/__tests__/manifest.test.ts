@@ -9,7 +9,7 @@ import { getApp } from "@blackbelt-technology/pi-dashboard-craft-apps/registry.j
 import { OFFICE_SIZE_CAPS } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
 import { describe, expect, it } from "vitest";
 import { validateManifest } from "../../../dashboard-plugin-runtime/src/manifest-validator.js";
-import * as clientBarrel from "../client/index.js";
+import * as clientBarrel from "../client/handlers.js";
 import { CLAIMED_APPS, CRAFT_WEB_APPS } from "../server/apps.js";
 
 const root = path.resolve(__dirname, "..", "..");
@@ -34,8 +34,9 @@ describe("craft-web manifest (E1)", () => {
     expect(validated.configSchema).toBe("./configSchema.json");
   });
 
-  it("every claim's component is a function export of the client barrel (the registry imports by name)", () => {
+  it("every claim's component is a function export of the claim's lazy `module` (the registry imports by name)", () => {
     for (const c of claims) {
+      expect(c.module, "claims load lazily, off the cold landing chunk").toBe("./src/client/handlers.tsx");
       const name = String(c.component);
       expect(typeof (clientBarrel as Record<string, unknown>)[name], `export ${name}`).toBe("function");
     }

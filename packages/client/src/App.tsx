@@ -15,7 +15,6 @@ import { ConnectionStatusBanner } from "./components/connectivity/ConnectionStat
 import { ServerSelector } from "./components/connectivity/ServerSelector.js";
 import { DirectorySettings, type DirectorySettingsPage } from "./components/DirectorySettings/DirectorySettings.js";
 import { SessionDiffProvider } from "./components/diff/SessionDiffContext.js";
-import { FileHandlerLayer } from "./components/editor-pane/file-handler/FileHandlerLayer.js";
 import { FolderEditorView } from "./components/folder/FolderEditorView.js";
 import { FolderSplitProvider } from "./components/folder/FolderSplitProvider.js";
 import { ArchiveBrowserView } from "./components/openspec/ArchiveBrowserView.js";
@@ -175,6 +174,11 @@ const ChatViewMenu = lazy(() =>
 );
 const PairingApprovalHost = lazy(() =>
   import("./components/pairing-approval/PairingApprovalHost.js").then((m) => ({ default: m.PairingApprovalHost })),
+);
+// Page-level file-handler instance layer: its own chunk, off the entry gzip cap (mdi-chunk-size).
+// See change: add-editor-pane-file-handlers.
+const FileHandlerLayer = lazy(() =>
+  import("./components/editor-pane/file-handler/FileHandlerLayer.js").then((m) => ({ default: m.FileHandlerLayer })),
 );
 const FileDiffView = lazy(() =>
   import("./components/diff/FileDiffView.js").then((m) => ({ default: m.FileDiffView })),
@@ -3165,7 +3169,9 @@ export default function App() {
                   EditorPane/SplitWorkspace so closing the pane or switching
                   tabs/sessions never unmounts an instance. See change:
                   add-editor-pane-file-handlers (D5). */}
-              <FileHandlerLayer />
+              <Suspense fallback={null}>
+                <FileHandlerLayer />
+              </Suspense>
               {/* D22 sign-in dialog: ONE instance for every layout branch (it is
                   `fixed inset-0`, so it need not sit inside the banner slots,
                   which a session route renders twice). */}

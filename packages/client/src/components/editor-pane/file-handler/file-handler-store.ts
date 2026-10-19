@@ -16,7 +16,7 @@ import type { FileDigest } from "../../../lib/file-digest.js";
 import { t } from "../../../lib/i18n/i18n.js";
 import { type FileHandlerClaim, fileHandlerInstanceKey } from "./file-handler-claims.js";
 import type { AskHandlerDialog, HandlerDialogRequest } from "./file-handler-dialogs.js";
-import { createFileHandlerHost, type FileHandlerHostApi, FileHandlerSnapshotError } from "./file-handler-host.js";
+import type { FileHandlerHostApi } from "./file-handler-host.js";
 
 /** Live handler instances per browser page, across plugins and sessions. */
 export const MAX_LIVE_HANDLERS = 3;
@@ -199,34 +199,51 @@ export function createFileHandlerStore(): FileHandlerStore {
       firstOverwriteDone: false,
       host: undefined as unknown as FileHandlerHostApi,
     };
-    const inner = createFileHandlerHost({
-      cwd: spec.cwd,
-      path: spec.path,
-      claimKey: claim.key,
-      meta: claim.meta,
-      getToken: () => rec.token,
-      setToken: (s) => {
-        rec.token = s;
-      },
-      firstOverwriteDone: () => rec.firstOverwriteDone,
-      markFirstOverwriteDone: () => {
-        rec.firstOverwriteDone = true;
-      },
-      getDirty: () => rec.dirty,
-      setDirty: (s) => setDirty(key, s),
-      ask,
-      guardReload: () => guardDiscard(key, "reload"),
-      remount: () => remount(key),
-      setBaseline: (d) => bridgeFor(rec)?.setBaseline(rec.path, d),
-      trackedWrite: (send) => {
-        const b = bridgeFor(rec);
-        return b ? b.trackedFileWrite(rec.path, { cwd: rec.cwd }, send) : send(new AbortController().signal);
-      },
-      notifyCopy: (p) => notifier?.(rec.sessionId, rec.cwd, p),
-    });
+    // The host (snapshot/save/conflict flow, ~12 KB) loads on the first call, off the entry chunk
+    // (mdi-chunk-size cap). See change: add-editor-pane-file-handlers.
+    let loaded: Promise<typeof import("./file-handler-host.js")> | null = null;
+    const hostModule = () => {
+      loaded ??= import("./file-handler-host.js");
+      return loaded;
+    };
+    let innerP: Promise<FileHandlerHostApi> | null = null;
+    const innerHost = (): Promise<FileHandlerHostApi> => {
+      innerP ??= hostModule().then((m) =>
+        m.createFileHandlerHost({
+          cwd: spec.cwd,
+          path: spec.path,
+          claimKey: claim.key,
+          meta: claim.meta,
+          getToken: () => rec.token,
+          setToken: (s) => {
+            rec.token = s;
+          },
+          firstOverwriteDone: () => rec.firstOverwriteDone,
+          markFirstOverwriteDone: () => {
+            rec.firstOverwriteDone = true;
+          },
+          getDirty: () => rec.dirty,
+          setDirty: (s) => setDirty(key, s),
+          ask,
+          guardReload: () => guardDiscard(key, "reload"),
+          remount: () => remount(key),
+          setBaseline: (d) => bridgeFor(rec)?.setBaseline(rec.path, d),
+          trackedWrite: (send) => {
+            const b = bridgeFor(rec);
+            return b ? b.trackedFileWrite(rec.path, { cwd: rec.cwd }, send) : send(new AbortController().signal);
+          },
+          notifyCopy: (p) => notifier?.(rec.sessionId, rec.cwd, p),
+        }),
+      );
+      return innerP;
+    };
     rec.host = {
-      save: inner.save,
+      async save(bytes, opts) {
+        return (await innerHost()).save(bytes, opts);
+      },
       async snapshot() {
+        const inner = await innerHost();
+        const { FileHandlerSnapshotError } = await hostModule();
         try {
           const s = await inner.snapshot();
           if (rec.error) {

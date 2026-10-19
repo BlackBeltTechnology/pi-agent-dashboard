@@ -250,7 +250,7 @@ export function registerFileWriteBinaryRoute(
   const handlers = deps.fileHandlers ?? NO_HANDLERS;
   const log = handlers.log ?? ((line: string) => console.info(line));
 
-  void fastify.register(async (scope) => {
+  fastify.register(async (scope) => {
     // Octet-stream only: the default JSON/text parsers are removed in THIS scope, so any
     // other content type is a 415 (and the 128 MiB limit applies to nothing else).
     scope.removeAllContentTypeParsers();

@@ -38,6 +38,7 @@
   "pi-dashboard-plugin": {
     "id": "craft-web",
     "displayName": "Craft Web Editors",
+    "i18nCatalog": "catalog",
     "priority": 400,
     "client": "./src/client/index.tsx",
     "server": "./src/server/index.ts",
@@ -47,6 +48,7 @@
       {
         "slot": "editor-pane-file-handler",
         "component": "WordCraftHandler",
+        "module": "./src/client/handlers.tsx",
         "id": "wordcraft",
         "extensions": [
           ".docx"

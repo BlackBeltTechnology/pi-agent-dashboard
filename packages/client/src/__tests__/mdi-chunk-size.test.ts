@@ -43,7 +43,12 @@ const MDI_MARKER = "mdiZodiacAquarius";
 // is unavoidably in the entry is +483 B gz (plugin hu/zh-CN catalog keys, the REST seed
 // stamping `host`, `usePluginSocket`, the Feed's lazy mount) → 594,114 B before trimming
 // the strings to 594,020 B. Smallest step that clears it; not a general raise.
-const INDEX_GZ_CAP_BYTES = 581 * 1024;
+// edit-office-in-pane-with-craft-web (2026-10-19): 581 → 582 KiB. The file-handler layer, the host
+// (snapshot/save/conflict flow), the craft-web claim module (CraftFrameHost + frame protocol) and
+// the new dialogs are lazy chunks (−~13 KB gz vs. eager). Unavoidably in the entry: the file-handler
+// store + claim lookup + mode switcher (EditorPane's seam), the `fileHandler.*` hu/zh-CN keys and
+// the craft-web plugin catalog → 595,550 B. Smallest step that clears it; not a general raise.
+const INDEX_GZ_CAP_BYTES = 582 * 1024;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.resolve(here, "../../dist");
