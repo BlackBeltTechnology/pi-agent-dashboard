@@ -2846,7 +2846,7 @@ One server-derived per-cwd readiness state gates every OpenSpec affordance — f
 - `init --help` support probe cached per process; unsupported CLI refused with diagnostic naming the resolved binary, before any spawn.
 - Per-cwd lock: second request while an invocation is in flight → `409 Conflict`, no second spawn.
 - 60 s timeout — runner kills the process, partial stderr returned, lock released.
-- argv exactly `<resolved-cli> init <cwd> --tools pi --force`, passed as an array, never a shell string. No `--profile` (CLI accepts only `core|custom`; dashboard profile may be alias `expanded`); no `--no-animation`/`--no-copilot-cloud` (pinned CLI 1.6.0 registers only `--tools`/`--force`/`--profile`; commander strict). `--tools pi` writes `.pi/skills/openspec-*` + `.pi/prompts/opsx-*.md` — omitting it reproduces the dead-buttons defect.
+- argv exactly `<resolved-cli> init <cwd> --tools pi --force`, passed as an array, never a shell string. No `--profile` (CLI accepts only `core|custom`; dashboard profile may be alias `expanded`). Pinned CLI 1.14.3 registers `--tools`/`--force`/`--profile`/`--language`/`--no-animation`/`--copilot-cloud`/`--no-copilot-cloud` (older CLIs: first three only; commander strict). Argv passes none of the extras. `--tools pi` writes `.pi/skills/openspec-*` + `.pi/prompts/opsx-*.md` — omitting it reproduces the dead-buttons defect.
 - `healExpandedProfileConfig` before the spawn (mirrors the update route).
 - Success: records the cwd's update signature, invalidates the signature cache, forces `refreshOpenSpec` so the new readiness broadcasts without waiting for the poll interval. Failure: `{ success: false, error, stderr? }`.
 

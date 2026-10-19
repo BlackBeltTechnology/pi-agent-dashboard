@@ -34,10 +34,10 @@ These are not user-facing gains; dropping Node 22/24/25 for npm installs is the 
   - the **bridge auto-start**, instead of always using pi's `process.execPath`; when nothing
     qualifies it refuses, logs via `appendAutoStartLog`, and shows one TUI notice per session;
   - the **Electron app when no bundled Node exists** (dev / localLink / overlay sources), before
-    the `ELECTRON_RUN_AS_NODE` fallback. Electron 43 embeds Node 24.18.1, so that fallback is used
+    the `ELECTRON_RUN_AS_NODE` fallback. Electron 44 embeds Node 24.22.0, so that fallback is used
     only if it qualifies; otherwise the app shows an error.
   No login shell is probed.
-- Electron bundled Node (`_node-version.sh` `BUNDLED_NODE_VERSION`) v24.15.0 → v26.x; Docker base
+- Electron bundled Node (`_node-version.sh` `BUNDLED_NODE_VERSION`) v24.22.0 → v26.x; Docker base
   `node:24-bookworm-slim` → `node:26-bookworm-slim`; every workflow `node-version` → 26;
   `_smoke.yml` drops the 22/24/25 legs and the EOL-23 server-boot job (the loader's old tiers move
   to unit-level coverage); the Claude-plugin bootstrap script's range constants follow.

@@ -65,14 +65,14 @@ RUN apt-get update && \
 ENV APP_RESOURCES=/opt/pi-dashboard/resources
 RUN mkdir -p $APP_RESOURCES
 
-# Bundled Node v24.15.0 (matches BUNDLED_NODE_VERSION in scripts/_node-version.sh).
+# Bundled Node v24.22.0 (matches BUNDLED_NODE_VERSION in scripts/_node-version.sh).
 RUN mkdir -p /tmp/node-dl && \
-    curl -fsSL https://nodejs.org/dist/v24.15.0/node-v24.15.0-linux-x64.tar.xz \
+    curl -fsSL https://nodejs.org/dist/v24.22.0/node-v24.22.0-linux-x64.tar.xz \
       -o /tmp/node-dl/node.tar.xz && \
     tar -xf /tmp/node-dl/node.tar.xz -C /tmp/node-dl && \
     mkdir -p $APP_RESOURCES/node/bin $APP_RESOURCES/node/lib && \
-    cp /tmp/node-dl/node-v24.15.0-linux-x64/bin/node $APP_RESOURCES/node/bin/ && \
-    cp -r /tmp/node-dl/node-v24.15.0-linux-x64/lib/node_modules $APP_RESOURCES/node/lib/ && \
+    cp /tmp/node-dl/node-v24.22.0-linux-x64/bin/node $APP_RESOURCES/node/bin/ && \
+    cp -r /tmp/node-dl/node-v24.22.0-linux-x64/lib/node_modules $APP_RESOURCES/node/lib/ && \
     ln -sf ../lib/node_modules/npm/bin/npm-cli.js $APP_RESOURCES/node/bin/npm && \
     rm -rf /tmp/node-dl
 

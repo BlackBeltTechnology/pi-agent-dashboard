@@ -29,6 +29,7 @@ Record of full implementation session: what built, what tried, what failed, less
 **What worked**:
 - `@felixrieseberg/electron-forge-maker-nsis` — proper MakerBase implementation
 - `@pengx17/electron-forge-maker-appimage` — proper MakerBase implementation
+- Removed by `refresh-electron-bundled-components` (with `patches/`). AppImage now electron-builder `--prepackaged` (x64 + arm64).
 
 **Other issues hit during `npm run make`**:
 1. Vite plugin expected `main` in package.json to be `.vite/*` → fixed by setting `"main": ".vite/build/main.js"` + adding `fileName: () => "main.js"` to vite.main.config.ts
@@ -63,7 +64,7 @@ Record of full implementation session: what built, what tried, what failed, less
 
 **What worked**: Downgraded Electron 33 → Electron 32 (`"electron": "^32.0.0"`). Electron 32 = last version supporting macOS 10.15.
 
-> **Superseded by change `upgrade-electron-runtime`.** 10.15 floor retired. Floor now macOS 12.0 (Monterey). Electron pinned `43.4.1`. 10.15 + 11 past Apple security window (EOL 2022-09 / 2023-09). Below-floor macOS users remain on currently-installed Electron-32 build; update-stream gate refuses newer artifact. Gate blocks newer metadata — does NOT move older installs forward. History above preserved as record.
+> **Superseded by change `upgrade-electron-runtime`; floor raised by `refresh-electron-bundled-components`.** 10.15 floor retired. Floor now macOS 13.0 (Ventura). Electron pinned `44.9.0`; Electron 44 drops macOS 12. macOS 12 clients stay on 0.9.x, not offered update. Below-floor macOS users remain on currently-installed build; update-stream gate `UPDATE_MINIMUM_SYSTEM_VERSION` = `22.0.0` (Darwin 22 = macOS 13) refuses newer artifact. 10.15 + 11 past Apple security window (EOL 2022-09 / 2023-09). Gate blocks newer metadata — does NOT move older installs forward. History above preserved as record.
 
 ### Phase 5: VM White Screen Fix
 **Goal**: Fix blank white screen on VMware macOS.
@@ -349,7 +350,7 @@ docker rmi pi-dashboard-electron-builder                 # Docker build image
 
 Each runner builds natively. No cross-compilation in CI. Release job creates draft GitHub Release with all artifacts.
 
-**macOS launch smoke (in-CI).** `_electron-build.yml` macOS legs run `qa/tests/09-electron-mac-launch.sh` after deployment-target floor check. Direct-execs built `.app` (`--disable-gpu`; seeds `first-run-done` to skip wizard); asserts `/api/health` 200 + `launchSource==electron` + server.log non-empty + no `FATAL` within 120s. Each leg execs own arch (`macos-14`→arm64, `macos-15-intel`→x64). Only dynamic launch proof on macOS; exercises `selectLaunchSource`+`spawnFromSource`+`spawnDetached` end-to-end. Boot-proof only: runner OS above advertised floor (12.0). Floor-proof on oldest allowed macOS (12.0) remains QA gap (needs macOS-12 VM). Static `otool minos` floor check stays label-only complement.
+**macOS launch smoke (in-CI).** `_electron-build.yml` macOS legs run `qa/tests/09-electron-mac-launch.sh` after deployment-target floor check. Direct-execs built `.app` (`--disable-gpu`; seeds `first-run-done` to skip wizard); asserts `/api/health` 200 + `launchSource==electron` + server.log non-empty + no `FATAL` within 120s. Each leg execs own arch (`macos-14`→arm64, `macos-15-intel`→x64). Only dynamic launch proof on macOS; exercises `selectLaunchSource`+`spawnFromSource`+`spawnDetached` end-to-end. Boot-proof only: runner OS above advertised floor (13.0). Floor-proof on oldest allowed macOS (13.0) remains QA gap (needs macOS-13 VM). Static `otool minos` floor check stays label-only complement.
 
 **Local testing with `act`**: Only Linux jobs work (Docker-based). macOS/Windows need real runners.
 
