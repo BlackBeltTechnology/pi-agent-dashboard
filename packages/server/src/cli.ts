@@ -270,6 +270,11 @@ async function runForeground(config: ServerConfig): Promise<void> {
     if (isModuleNotFoundError(err)) {
       await startRecoveryServer({
         port: config.port,
+        // Bind the configured host (loopback by default), never all interfaces;
+        // mutating actions are gated on loopback or the local token.
+        // See change: harden-server-capability-bounds (B9).
+        host: config.host,
+        localToken: readLocalTokenIfPresent(),
         error: err as Error,
         missingModule: parseModuleNotFoundError(err),
       });
