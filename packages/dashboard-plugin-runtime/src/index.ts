@@ -125,6 +125,7 @@ export {
   FieldShell,
   NumberField,
   SelectField,
+  SettingsActionError,
   SettingsCopyButton,
   SettingsFacts,
   SettingsGroup,

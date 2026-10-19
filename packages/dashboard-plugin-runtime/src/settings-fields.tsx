@@ -446,29 +446,38 @@ export function SettingsCopyButton({
   testId?: string;
 }) {
   const t = useRuntimeT();
-  const [copied, setCopied] = useState(false);
+  const [result, setResult] = useState<"idle" | "copied" | "failed">("idle");
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => {
     if (timer.current) clearTimeout(timer.current);
   }, []);
+  const settle = (next: "copied" | "failed") => {
+    setResult(next);
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => setResult("idle"), 1500);
+  };
+  const copy = () => {
+    // A missing clipboard (insecure context) and a rejected or throwing write are
+    // the same outcome: say so, never "Copied".
+    try {
+      const write = navigator.clipboard?.writeText(text);
+      if (!write) return settle("failed");
+      write.then(
+        () => settle("copied"),
+        () => settle("failed"),
+      );
+    } catch {
+      settle("failed");
+    }
+  };
   return (
-    <button
-      type="button"
-      data-testid={testId}
-      className={SMALL_BTN}
-      onClick={() => {
-        void navigator.clipboard?.writeText(text).then(
-          () => {
-            setCopied(true);
-            if (timer.current) clearTimeout(timer.current);
-            timer.current = setTimeout(() => setCopied(false), 1500);
-          },
-          () => {},
-        );
-      }}
-    >
-      <Icon path={copied ? mdiCheck : mdiContentCopy} size={0.55} aria-hidden="true" />
-      {copied ? (copiedLabel ?? t("settingsField.copied", undefined, "Copied")) : label}
+    <button type="button" data-testid={testId} className={SMALL_BTN} onClick={copy}>
+      <Icon path={result === "copied" ? mdiCheck : mdiContentCopy} size={0.55} aria-hidden="true" />
+      {result === "copied"
+        ? (copiedLabel ?? t("settingsField.copied", undefined, "Copied"))
+        : result === "failed"
+          ? t("settingsField.copyFailed", undefined, "Copy failed")
+          : label}
     </button>
   );
 }
@@ -489,6 +498,7 @@ export function SettingsNotice({
   retrying,
   details,
   actions,
+  remedies,
 }: {
   tone: SettingsNoticeTone;
   children: ReactNode;
@@ -501,6 +511,11 @@ export function SettingsNotice({
   /** Raw detail (codes, HTTP status, body) copied by "Copy details"; never rendered. */
   details?: string | null;
   actions?: ReactNode;
+  /**
+   * "What to do" rows under `children`, in the order given (icon + content; `content`
+   * may hold links). Callers filter out remedies they do not recognise.
+   */
+  remedies?: { icon: string; content: ReactNode }[];
 }) {
   const t = useRuntimeT();
   const { cls, icon } = NOTICE_TONE[tone];
@@ -510,11 +525,23 @@ export function SettingsNotice({
       data-testid={testId}
       data-tone={tone}
       role={role ?? (tone === "error" ? "alert" : undefined)}
+      aria-busy={retrying ? true : undefined}
       className={`flex items-start gap-2 rounded-md border px-2.5 py-2 text-xs ${cls} ${className ?? ""}`}
     >
       <Icon path={icon} size={0.65} className="mt-0.5 shrink-0" aria-hidden="true" />
       <div className="min-w-0 flex-1">
         {children}
+        {remedies && remedies.length > 0 ? (
+          <ul className="mt-1.5 space-y-1">
+            {remedies.map((r, i) => (
+              // Positional key: the caller's order is the identity and never reorders.
+              <li key={i} data-remedy="" className="flex items-start gap-1.5">
+                <Icon path={r.icon} size={0.55} className="mt-0.5 shrink-0" aria-hidden="true" />
+                <span className="min-w-0 flex-1">{r.content}</span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
         {hasActions ? (
           <div className="mt-2 flex flex-wrap items-center gap-2">
             {onRetry ? (
@@ -540,6 +567,43 @@ export function SettingsNotice({
           </div>
         ) : null}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Inline error shown AT the control that failed (`ui-contract.md` "inline action
+ * error"): one human sentence, optional "Copy details" for the raw code. Point the
+ * control's `aria-describedby` at `id`. The raw `details` are copied, never rendered.
+ */
+export function SettingsActionError({
+  id,
+  children,
+  details,
+  testId,
+}: {
+  id: string;
+  children: ReactNode;
+  details?: string | null;
+  testId?: string;
+}) {
+  const t = useRuntimeT();
+  return (
+    <div
+      id={id}
+      data-testid={testId}
+      role="alert"
+      className="mt-1 flex items-start gap-1 text-xs text-[var(--severity-error-fg)]"
+    >
+      <Icon path={mdiAlertCircleOutline} size={0.55} className="mt-0.5 shrink-0" aria-hidden="true" />
+      <span className="min-w-0 flex-1 break-words">{children}</span>
+      {details ? (
+        <SettingsCopyButton
+          text={details}
+          label={t("settingsField.copyDetails", undefined, "Copy details")}
+          testId={testId ? `${testId}-copy-details` : undefined}
+        />
+      ) : null}
     </div>
   );
 }
@@ -622,11 +686,14 @@ export function SettingsStatusPill({
   interactive,
   testId,
   status,
+  spinning,
 }: {
   tone: SettingsStatusTone;
   children: ReactNode;
   icon?: string | null;
   interactive?: boolean;
+  /** Rotate the icon (progress states); static under `prefers-reduced-motion`. */
+  spinning?: boolean;
   testId?: string;
   /** Raw machine status kept for tests/diagnostics as `data-status` (never shown). */
   status?: string;
@@ -644,7 +711,12 @@ export function SettingsStatusPill({
         big ? "text-[12px]" : "text-[11px]"
       } ${cls}`}
     >
-      {path ? <Icon path={path} size={0.5} className="shrink-0" aria-hidden="true" /> : null}
+      {path ? <Icon
+          path={path}
+          size={0.5}
+          className={spinning ? "shrink-0 animate-spin motion-reduce:animate-none" : "shrink-0"}
+          aria-hidden="true"
+        /> : null}
       {children}
     </span>
   );

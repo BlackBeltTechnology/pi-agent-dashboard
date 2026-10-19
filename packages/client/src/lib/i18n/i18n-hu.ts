@@ -1895,6 +1895,7 @@ export const huCatalog: Record<string, string> = {
   "settingsField.copyDetails": "Részletek másolása",
   "settingsField.copied": "Másolva",
   "settingsField.tryAgain": "Próbáld újra",
+  "settingsField.copyFailed": "A másolás nem sikerült",
   "settings.heap.aboveGuidance": "A {max} MB feletti érték szokatlanul nagy. Az érték ettől még mentésre kerül.",
   "settings.heap.subagentCoupling": "Ennél a párosításnál minden egyidejű alügynöknek kb. {mb} MB marad. Az alügynökök osztoznak a munkamenet heapjén; fontold meg a plafon emelését vagy kevesebb egyidejű gyermeket.",
   "settings.heap.serverDivergence": "A futó szerver {mb} MB-tal indult. A beállított érték a következő újraindításkor lép életbe.",
