@@ -67,7 +67,7 @@ import { FolderActionBanner } from "../folder/FolderActionBanner.js";
 import { FolderActionsMenu, type FolderMenuItem, type FolderMenuRadioGroup } from "../folder/FolderActionsMenu.js";
 import { FolderSpawnButtons } from "../folder/FolderSpawnButtons.js";
 import { FolderStatusCapsule, WidgetBarProbe } from "../folder/FolderStatusCapsule.js";
-import { projectSetupLabel } from "../folder/folder-menu-labels.js";
+import { isProjectSetupOutdated, projectSetupLabel } from "../folder/folder-menu-labels.js";
 import { SignedInUserBar } from "../identity/UserBar.js";
 import { FolderOpenSpecSection } from "../openspec/FolderOpenSpecSection.js";
 import { InstallButton } from "../packages/InstallButton.js";
@@ -1864,6 +1864,7 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
         group: "directory",
         label: t("openspec.folderMenuReenable", undefined, "Enable OpenSpec for this folder"),
         icon: mdiClipboardCheckOutline,
+        tone: "create",
         onSelect: () => {
           removeOpenSpecOptOut(group.cwd).catch((err) => {
             showToast(String(err?.message ?? err), "error");
@@ -1892,6 +1893,7 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
       group: "directory",
       label: projectSetupLabel(initStatus, t("folders.projectSetup", undefined, "Project setup…"), `● ${t("common.update", undefined, "update")}`),
       icon: mdiTextBoxCheckOutline,
+      tone: isProjectSetupOutdated(initStatus) ? "caution" : undefined,
       onSelect: () => onSpawnSession?.(group.cwd, undefined, { initialPrompt: PROJECT_INIT_PROMPT }),
     });
     // Broken-session cleanup — housekeeping, NOT a tier-0 banner. Hidden at zero.
@@ -1903,6 +1905,7 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
         group: "directory",
         label: `${t("common.cleanUpBroken", undefined, "Clean up broken (")}${brokenCount})`,
         icon: mdiBroom,
+        tone: "caution",
         onSelect: () => setCleanupCwd(group.cwd),
       });
     }

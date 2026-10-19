@@ -148,6 +148,23 @@ Server-side cache: `pluginIntentCache.set(...)` stores the latest intent
 per key so a reconnecting client gets the current state via the existing
 `subscribe` replay (see `subscription-handler.ts:replayUiState`).
 
+## `ui:action-list` item tone (optional)
+
+`UiActionListItem.tone?: UiTone`. `UiTone = "go" | "create" | "caution" | "danger"`.
+Exported from shared `dashboard-plugin/ui-primitives`. Guard: `isUiTone`.
+
+- `go` = start/resume/run. Green icon.
+- `create` = make new thing. Blue icon.
+- `caution` = affects state/maintenance. Orange icon.
+- `danger` = ends process or discards work. Red icon; hover/focus row tint `--tint-red-bg`, red label.
+
+Host owns palette. Colour is icon-only.
+Invalid/unknown value → neutral render. Item never rejected.
+Disabled item: no colour; still `data-action-tone="<tone>"`.
+Rendered attr: `data-action-tone`.
+Radio items and `node` items never toned.
+Old host ignores field → neutral.
+
 ## Limitations (current as of v1)
 
 - **Server-side event-stream subscription is not yet exposed to plugins.**

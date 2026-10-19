@@ -8,6 +8,7 @@
  *
  * See change: add-session-actions-flyout.
  */
+import { toneAttr, toneIconClass, toneRowClass } from "@blackbelt-technology/pi-dashboard-client-utils/tone";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { Icon } from "@mdi/react";
 import React from "react";
@@ -25,7 +26,9 @@ import type { SessionMenuSource } from "../../lib/state/SessionMenuScopeContext.
 import { attrEscape } from "../../lib/util/attr-escape.js";
 
 const ITEM_BASE =
-  "flex w-full min-h-[36px] max-sm:min-h-[44px] items-center gap-2 px-3 py-1.5 text-left text-sm focus-ring focus:bg-[var(--bg-hover)]";
+  "flex w-full min-h-[36px] max-sm:min-h-[44px] items-center gap-2 px-3 py-1.5 text-left text-sm focus-ring";
+const FOCUS_BG = "focus:bg-[var(--bg-hover)]";
+const NEUTRAL_INTERACTION = `hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] ${FOCUS_BG}`;
 
 /** Interactive nodes in DOM order: host menu items plus focusable plugin output. */
 function focusables(panel: HTMLElement): HTMLElement[] {
@@ -297,7 +300,7 @@ function MenuGroup({
             if (expanded) return;
             onExpand(hidden[0].id);
           }}
-          className={`${ITEM_BASE} text-[var(--text-primary)] hover:bg-[var(--bg-hover)]`}
+          className={`${ITEM_BASE} text-[var(--text-primary)] hover:bg-[var(--bg-hover)] ${FOCUS_BG}`}
         >
           <span>{i18nT("sessionMenu.more", undefined, "More…")}</span>
           <span className="ml-auto text-xs font-semibold text-[var(--text-secondary)]">{hidden.length}</span>
@@ -313,6 +316,13 @@ function MenuEntry({ item, onActivate }: { item: SessionMenuItem; onActivate: (i
   if (item.kind === "segments") return <LifecycleRow item={item} onActivate={onActivate} />;
   const inert = item.disabled || !item.onSelect;
   const showReason = Boolean(item.reason && item.disabled);
+  const tone = item.emphasis ? undefined : item.tone;
+  const dangerRow = inert ? "" : toneRowClass(tone, { disabled: false });
+  const iconTone = item.emphasis
+    ? inert
+      ? ""
+      : "text-[var(--accent-blue-text)]"
+    : toneIconClass(tone, { disabled: Boolean(inert) });
   return (
     <button
       type="button"
@@ -321,6 +331,7 @@ function MenuEntry({ item, onActivate }: { item: SessionMenuItem; onActivate: (i
       data-item-id={item.id}
       data-testid={item.testId ?? `session-menu-item-${item.id}`}
       data-emphasis={item.emphasis ? "primary" : undefined}
+      data-action-tone={toneAttr(tone)}
       // `aria-disabled`, not `disabled`: a disabled menuitem stays focusable (APG).
       aria-disabled={inert || undefined}
       aria-describedby={showReason ? reasonId : undefined}
@@ -332,13 +343,13 @@ function MenuEntry({ item, onActivate }: { item: SessionMenuItem; onActivate: (i
       }}
       className={`${ITEM_BASE} ${
         item.emphasis
-          ? "font-semibold text-[var(--text-primary)] bg-[var(--accent-soft)] hover:bg-[var(--bg-hover)]"
+          ? `font-semibold text-[var(--text-primary)] border border-[var(--tint-blue-border)] ${NEUTRAL_INTERACTION}`
           : inert
-            ? "text-[var(--text-secondary)] cursor-not-allowed"
-            : "text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+            ? `text-[var(--text-secondary)] cursor-not-allowed ${FOCUS_BG}`
+            : dangerRow || `text-[var(--text-primary)] ${NEUTRAL_INTERACTION}`
       }`}
     >
-      {item.icon ? <Icon path={item.icon} size={0.55} className="shrink-0" /> : null}
+      {item.icon ? <Icon path={item.icon} size={0.55} className={`shrink-0 ${iconTone}`.trim()} /> : null}
       <span className="min-w-0 flex-1">
         <span className="block truncate">{item.label}</span>
         {showReason ? (
@@ -351,27 +362,31 @@ function MenuEntry({ item, onActivate }: { item: SessionMenuItem; onActivate: (i
   );
 }
 
+/** Lifecycle segment glyph + text-role colour per state (distinct glyph, never colour alone). */
+const SEGMENT_LOOK: Record<string, { glyph: string; cls: string }> = {
+  done: { glyph: "✓", cls: "border-[var(--accent-green-text)] text-[var(--accent-green-text)]" },
+  skipped: { glyph: "–", cls: "border-[var(--accent-green-text)] text-[var(--accent-green-text)]" },
+  current: { glyph: "▸", cls: "border-[var(--accent-yellow-text)] text-[var(--accent-yellow-text)]" },
+  todo: { glyph: "○", cls: "border-[var(--text-tertiary)] text-[var(--text-tertiary)]" },
+};
+
 /** The five lifecycle segments, mirroring the card's lifecycle bar. Inert ones are plain status. */
 function LifecycleRow({ item, onActivate }: { item: SessionMenuItem; onActivate: (item: SessionMenuItem) => void }) {
   return (
     <div role="group" aria-label={item.label} data-testid="session-menu-lifecycle" className="flex items-center gap-1 px-3 py-1.5">
       {(item.segments ?? []).map((seg) => {
         const text = `${seg.letter}`;
+        const look = SEGMENT_LOOK[seg.state];
         const common = {
           "data-testid": `session-menu-segment-${seg.id}`,
           "data-state": seg.state,
           title: `${seg.label} — ${seg.state}`,
-          className: `inline-flex min-w-[28px] items-center justify-center rounded border px-1.5 py-0.5 text-[11px] font-semibold ${
-            seg.state === "done"
-              ? "border-[var(--border-secondary)] text-[var(--tint-green-fg)]"
-              : seg.state === "current"
-                ? "border-[var(--accent-blue)] text-[var(--text-primary)]"
-                : "border-[var(--border-subtle)] text-[var(--text-secondary)]"
-          }`,
+          className: `inline-flex min-w-[28px] items-center justify-center gap-0.5 rounded border px-1.5 py-0.5 text-[11px] font-semibold ${look.cls}`,
         };
         if (!seg.onSelect) {
           return (
             <span key={seg.id} {...common} data-inert="true" aria-label={`${seg.label}, ${seg.state}`}>
+              <span aria-hidden="true">{look.glyph}</span>
               {text}
             </span>
           );
@@ -392,6 +407,7 @@ function LifecycleRow({ item, onActivate }: { item: SessionMenuItem; onActivate:
             }}
             className={`${common.className} min-h-[36px] max-sm:min-h-[44px] focus-ring hover:bg-[var(--bg-hover)]`}
           >
+            <span aria-hidden="true">{look.glyph}</span>
             {text}
           </button>
         );

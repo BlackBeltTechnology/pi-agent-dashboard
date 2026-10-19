@@ -278,3 +278,55 @@ describe("late registration (test-plan #F3, L1 mirror)", () => {
     expect(screen.getByTestId(`folder-actions-menu-panel-${CWD}`)).toBeTruthy();
   });
 });
+
+// ── Tone rendering (change: colorize-actions-menus, test-plan #E15–#E17) ────
+
+describe("tone rendering", () => {
+  const panelItem = (id: string) => screen.getByTestId(`folder-menu-item-${id}`);
+
+  it("host + plugin items carry data-action-tone and an icon colour; neutral/invalid do not", () => {
+    const store = createFolderMenuStore();
+    render(
+      <Harness
+        store={store}
+        items={[
+          { id: "caut", group: "directory", label: "Caut", icon: mdiPin, tone: "caution", onSelect: () => {} },
+          { id: "plain", group: "directory", label: "Plain", icon: mdiPin, onSelect: () => {} },
+          { id: "bad", group: "directory", label: "Bad", icon: mdiPin, tone: "purple" as never, onSelect: () => {} },
+        ]}
+      >
+        <Section pluginId="team" item={contribution({ id: "dis", tone: "danger" })} />
+      </Harness>,
+    );
+    expect(panelItem("caut").getAttribute("data-action-tone")).toBe("caution");
+    expect(panelItem("caut").querySelector("svg")?.getAttribute("class")).toContain("text-[var(--accent-orange-text)]");
+    expect(panelItem("plain").hasAttribute("data-action-tone")).toBe(false);
+    expect(panelItem("bad").hasAttribute("data-action-tone")).toBe(false);
+    expect(panelItem("dis").getAttribute("data-action-tone")).toBe("danger");
+    expect(panelItem("dis").className).toContain("hover:bg-[var(--tint-red-bg)]");
+  });
+
+  it("E16: a disabled toned item keeps the attribute but looks inert", () => {
+    render(
+      <Harness
+        store={createFolderMenuStore()}
+        items={[{ id: "x", group: "directory", label: "X", icon: mdiPin, tone: "caution", disabled: true, onSelect: () => {} }]}
+      />,
+    );
+    expect(panelItem("x").getAttribute("data-action-tone")).toBe("caution");
+    expect(panelItem("x").querySelector("svg")?.getAttribute("class")).not.toContain("accent-orange");
+    expect(panelItem("x").className).not.toContain("hover:");
+  });
+
+  it("E17: the badge uses the text-role token", () => {
+    render(
+      <Harness
+        store={createFolderMenuStore()}
+        items={[{ id: "b", group: "directory", label: "B", icon: mdiPin, badge: "!", onSelect: () => {} }]}
+      />,
+    );
+    const badge = screen.getByTestId("folder-menu-badge-b");
+    expect(badge.className).toContain("text-[var(--accent-orange-text)]");
+    expect(screen.getByTestId(`folder-actions-menu-panel-${CWD}`).innerHTML).not.toContain("text-amber-");
+  });
+});
