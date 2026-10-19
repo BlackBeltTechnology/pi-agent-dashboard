@@ -65,12 +65,14 @@ async function edgeRects(card: Locator) {
       return { left: b.left, right: b.right, top: b.top, bottom: b.bottom };
     };
     const trigger = li.querySelector("[data-testid^='session-actions-trigger-']") as HTMLElement;
+    // CSS `zoom` scales rects but not computed lengths.
+    const zoom = Number.parseFloat(document.documentElement.style.zoom) || 1;
     // Nearest ancestor drawing a right border = the folder enclosure.
     let border: { left: number } | null = null;
     for (let el = li.parentElement; el && !border; el = el.parentElement) {
       const cs = getComputedStyle(el);
       if (Number.parseFloat(cs.borderRightWidth) > 0 && cs.borderRightStyle !== "none") {
-        border = { left: el.getBoundingClientRect().right - Number.parseFloat(cs.borderRightWidth) };
+        border = { left: el.getBoundingClientRect().right - Number.parseFloat(cs.borderRightWidth) * zoom };
       }
     }
     // Nearest clipping ancestor on the x axis.
@@ -420,7 +422,7 @@ test.describe("session actions menu (L3)", () => {
         await card.scrollIntoViewIfNeeded();
         await sessionMenuTrigger(card).focus();
         const m = await edgeRects(card);
-        if (m.folderBorder) expect(m.pill.right, `zoom ${zoom}: pill right vs folder border`).toBeLessThanOrEqual(m.folderBorder.left - 1 + 0.01);
+        if (m.folderBorder) expect(m.pill.right, `zoom ${zoom}: pill right vs folder border`).toBeLessThanOrEqual(m.folderBorder.left - Math.min(1, zoom) + 0.01);
         // outline = 2 px width + 2 px offset around the 13 px pill
         const ringRight = m.pill.right + 4 * zoom;
         expect(ringRight, `zoom ${zoom}: focus ring right vs clip edge`).toBeLessThan(m.clipRight);
