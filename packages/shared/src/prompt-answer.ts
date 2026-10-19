@@ -54,7 +54,29 @@ export type AnswerValidation = { ok: true } | { ok: false; reason: string };
 export interface ValidatablePrompt {
   type: string;
   options?: string[];
+  /** Inline "Other" opt-in. See change: add-ask-user-inline-other. */
+  allowOther?: boolean;
   metadata?: Record<string, unknown>;
+}
+
+// ── Inline "Other" (custom answer) enablement ───────────────────────
+// See change: add-ask-user-inline-other. ONE predicate shared by the client
+// renderers and the REST validator so the UI shows Other exactly when the
+// server accepts a custom answer.
+
+/** True when the caller already offers its own "Other…" option (English-only heuristic). */
+export function hasOwnOtherOption(options: readonly unknown[]): boolean {
+  return options.some((o) => typeof o === "string" && /^other(?![\p{L}\p{N}])/iu.test(o.trim()));
+}
+
+/** Inline Other is shown/accepted only for opted-in prompts with options and no own "Other". */
+export function isOtherAllowed(p: { allowOther?: boolean; options?: readonly unknown[] }): boolean {
+  return p.allowOther === true && Array.isArray(p.options) && p.options.length > 0 && !hasOwnOtherOption(p.options);
+}
+
+/** A custom answer is the shape the UI produces: non-empty and already trimmed. */
+function isCustomText(v: string): boolean {
+  return v.length > 0 && v === v.trim();
 }
 
 const OK: AnswerValidation = { ok: true };
@@ -68,11 +90,19 @@ function parseJson(text: string): { ok: true; value: unknown } | { ok: false } {
   }
 }
 
-function validateMultiselectValues(values: unknown, options: readonly string[]): AnswerValidation {
+function validateMultiselectValues(
+  values: unknown,
+  options: readonly string[],
+  allowCustom = false,
+): AnswerValidation {
   if (!Array.isArray(values)) return fail("multiselect answer must be a JSON array");
   const seen = new Set<string>();
+  let customs = 0;
   for (const v of values) {
-    if (typeof v !== "string" || !options.includes(v)) return fail(`not an option: ${String(v)}`);
+    if (typeof v !== "string") return fail(`not an option: ${String(v)}`);
+    if (!options.includes(v)) {
+      if (!allowCustom || !isCustomText(v) || ++customs > 1) return fail(`not an option: ${String(v)}`);
+    }
     if (seen.has(v)) return fail(`duplicate option: ${v}`);
     seen.add(v);
   }
@@ -81,7 +111,7 @@ function validateMultiselectValues(values: unknown, options: readonly string[]):
 
 function validateBatchEntry(
   entry: unknown,
-  sub: { method?: string; options?: string[] },
+  sub: { method?: string; options?: string[]; allowOther?: boolean },
   index: number,
 ): AnswerValidation {
   const at = `batch[${index}]`;
@@ -90,15 +120,16 @@ function validateBatchEntry(
   }
   const e = entry as Record<string, unknown>;
   const options: readonly string[] = Array.isArray(sub.options) ? sub.options : [];
+  const other = isOtherAllowed({ allowOther: sub.allowOther, options });
   switch (sub.method) {
     case "confirm":
       return typeof e.confirmed === "boolean" ? OK : fail(`${at}: confirm needs {confirmed:boolean}`);
     case "select":
-      return typeof e.value === "string" && options.includes(e.value)
+      return typeof e.value === "string" && (options.includes(e.value) || (other && isCustomText(e.value)))
         ? OK
         : fail(`${at}: select value must be one of the options`);
     case "multiselect": {
-      const r = validateMultiselectValues(e.values, options);
+      const r = validateMultiselectValues(e.values, options, other);
       return r.ok ? r : fail(`${at}: ${r.reason}`);
     }
     case "input":
@@ -116,15 +147,18 @@ function validateBatchEntry(
  */
 export function validateQuestionAnswer(prompt: ValidatablePrompt, answer: string): AnswerValidation {
   const options = prompt.options ?? [];
+  const other = isOtherAllowed({ allowOther: prompt.allowOther, options });
   switch (prompt.type) {
     case "confirm":
       return answer === "true" || answer === "false" ? OK : fail('confirm answer must be "true" or "false"');
     case "select":
-      return options.includes(answer) ? OK : fail("answer is not one of the options");
+      return options.includes(answer) || (other && isCustomText(answer))
+        ? OK
+        : fail("answer is not one of the options");
     case "multiselect": {
       const parsed = parseJson(answer);
       if (!parsed.ok) return fail("multiselect answer must be a JSON array");
-      return validateMultiselectValues(parsed.value, options);
+      return validateMultiselectValues(parsed.value, options, other);
     }
     case "input":
     case "editor":
@@ -138,7 +172,7 @@ export function validateQuestionAnswer(prompt: ValidatablePrompt, answer: string
         return fail(`batch answer needs ${subs.length} entries, got ${parsed.value.length}`);
       }
       for (let i = 0; i < subs.length; i++) {
-        const r = validateBatchEntry(parsed.value[i], (subs[i] ?? {}) as { method?: string; options?: string[] }, i);
+        const r = validateBatchEntry(parsed.value[i], (subs[i] ?? {}) as { method?: string; options?: string[]; allowOther?: boolean }, i);
         if (!r.ok) return r;
       }
       return OK;

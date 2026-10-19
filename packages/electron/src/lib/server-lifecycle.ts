@@ -12,6 +12,7 @@ import { existsSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { getDashboardServerLogPath } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
+import { starterFromHealth } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
 import { ELECTRON_RESTART_EXIT_CODE } from "@blackbelt-technology/pi-dashboard-shared/electron-restart.js";
 import type { spawnDetached } from "@blackbelt-technology/pi-dashboard-shared/platform/detached-spawn.js";
 import { isDashboardRunning } from "./health-check.js";
@@ -563,6 +564,29 @@ const userQuitShutdownInit = (url: string): RequestInit => ({
   body: JSON.stringify({ userQuit: true }),
 });
 
+/** Poll interval / cap for the quit-time wait on the server's exit (design D7). */
+const QUIT_EXIT_POLL_MS = 200;
+const QUIT_EXIT_WAIT_MS = 5000;
+
+/**
+ * Wait until `/api/health` stops answering (the server exited), polling every
+ * 200 ms for at most 5 s. `dashboard-starter-identity` requires quit to await
+ * the server's exit. Never throws; a cap expiry just returns.
+ * See change: fix-cli-control-electron-server (design D7).
+ */
+async function waitForServerExit(base: string): Promise<void> {
+  const deadline = Date.now() + QUIT_EXIT_WAIT_MS;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, QUIT_EXIT_POLL_MS));
+    try {
+      const res = await fetch(`${base}/api/health`, { signal: AbortSignal.timeout(1000) });
+      if (!res.ok) return;
+    } catch {
+      return;
+    }
+  }
+}
+
 /** Stop the server if we started it and own it. */
 export async function stopServerIfNeeded(): Promise<void> {
   const config = loadMinimalConfig();
@@ -577,7 +601,7 @@ export async function stopServerIfNeeded(): Promise<void> {
       if (res.ok) {
         const data = await res.json() as Record<string, unknown>;
         const shouldStop = decideShutdownOnQuit({
-          starter: typeof data.starter === "string" ? data.starter : undefined,
+          starter: starterFromHealth(data),
           healthPid: typeof data.pid === "number" ? data.pid : undefined,
           storedPid: storedSpawnedPid,
         });
@@ -585,6 +609,7 @@ export async function stopServerIfNeeded(): Promise<void> {
           try {
             const shutdownUrl = `${localApiBase(config)}/api/shutdown`;
             await fetch(shutdownUrl, userQuitShutdownInit(shutdownUrl));
+            await waitForServerExit(localApiBase(config));
           } catch { /* already stopped */ }
         }
       }

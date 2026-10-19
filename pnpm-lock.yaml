@@ -1359,6 +1359,16 @@ importers:
 
   packages/openspec-workflow: {}
 
+  packages/path-containment-guard:
+    dependencies:
+      '@blackbelt-technology/pi-dashboard-shared':
+        specifier: ^0.9.0
+        version: link:../shared
+    devDependencies:
+      '@earendil-works/pi-coding-agent':
+        specifier: 1.3.0
+        version: 1.3.0(@aws-sdk/credential-provider-node@3.972.83)(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.6.5))(@smithy/signature-v4@5.7.3)(supports-color@8.1.1)(ws@8.21.3)(zod@4.6.5)
+
   packages/photocraft:
     dependencies:
       '@blackbelt-technology/pi-dashboard-craft-apps':
@@ -1553,6 +1563,9 @@ importers:
       '@blackbelt-technology/pi-dashboard-mcp-server-plugin':
         specifier: ^0.9.0
         version: link:../mcp-server-plugin
+      '@blackbelt-technology/pi-path-containment-guard':
+        specifier: ^0.9.0
+        version: link:../path-containment-guard
       '@types/diff':
         specifier: ^7.0.0
         version: 7.0.2

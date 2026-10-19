@@ -12,6 +12,15 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Added
 
+- **Type your own answer on `ask_user` choices.** `select`, `multiselect` and batch select/multiselect
+  steps now show an inline "Other" row in the dashboard (chat card and the pending-question dialog).
+  Choosing it reveals a text field; the answer reaches the agent as a plain string, and the tool
+  result tells the model when an answer is custom. It is opt-in per prompt (`allowOther: true` on
+  `ctx.ui.select` / `ctx.ui.multiselect`); the dashboard `ask_user` tool enables it by default, so the
+  model may now receive text it did not list. Pass `allowOther: false` when the answer must be exactly
+  one of the options. Other callers (path-gate approval, ACP permission, pi-flows) are unchanged. The
+  REST answer route accepts one custom value on opted-in prompts only (blank, padded and duplicate
+  values are rejected).
 - **OpenSpec status in one spawn.** The server now reads every change's status with a single
   `openspec status --all --json` per project (was `1 + N` spawns on refresh, ~25 s on macOS for 100
   changes; now ~1.3 s). Custom workflow schemas are reported correctly, and one broken change
@@ -222,6 +231,12 @@ see [`docs/release-process.md`](docs/release-process.md).
   (TypeScript `^5.8.0`) and Biome `useImportType` is an error. No behaviour change.
 
 ### Fixed
+
+- **The desktop app's server and the `pi-dashboard` CLI cooperate (#924).**
+  - Quitting the app stops the server it started again. `/api/health` stopped publishing `starter` on 2026-05-26, so the app never saw its own server as owned on quit; it now reads `launchSource` (legacy `starter` as a fallback) and waits up to 5 s for the server to exit. Behaviour change: since 2026-05-26 quit left the server and its sessions running.
+  - `pi-dashboard stop` of a server this HOME provably owns goes through the announced `/api/shutdown`, with the SIGTERM fallback kept. Bridges suppress auto-start, so a terminal pi session no longer races a replacement server in. The exit intent is `shutdown` instead of `signal` (no recovery offer on the next boot). For a server the open desktop app started it prints a note: the app stays open and shows its reconnect page.
+  - `pi-dashboard status` says when the desktop app started the running server; bare `pi-dashboard` on a served port prints "already running (pid N)" and exits 1 instead of a bind-failure stack.
+  - The Electron update checker and Doctor see the real starter: Bridge servers skip the managed check, Standalone servers get the npm recommendation.
 
 - **Packaged apps no longer carry build-host symlinks.** Electron Forge 8 (packager 20) copies
   bundled resources without preserving relative symlinks, which left 53 absolute, dangling

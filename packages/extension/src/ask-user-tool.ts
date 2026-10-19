@@ -67,6 +67,14 @@ const MethodEnum = Type.Union(
 // runtime in `execute`.
 //
 // See change: fix-multiselect-auto-cancel-on-dashboard.
+// `allowOther` description is dashboard-only (the terminal UI never shows it).
+// See change: add-ask-user-inline-other.
+const ALLOW_OTHER_FIELD = () =>
+  Type.Boolean({
+    description:
+      "select/multiselect only. In the dashboard the user may type a custom answer beside the options (default true). Set false only when the answer must be exactly one of the options. The terminal UI shows the options only.",
+  });
+
 const SubQuestionSchema = Type.Object(
   {
     method: Type.Union(
@@ -91,6 +99,7 @@ const SubQuestionSchema = Type.Object(
     message: Type.Optional(
       Type.String({ description: "Additional context for this sub-question" }),
     ),
+    allowOther: Type.Optional(ALLOW_OTHER_FIELD()),
   },
   {
     description:
@@ -103,6 +112,30 @@ const SubQuestionSchema = Type.Object(
 // ──────────────────────────────────────────────────────────────────────────
 
 type NormalizationWarning = string;
+
+/**
+ * Rescue `allowOther` / its pi-flows alias `allowCustom` in place: coerce the
+ * strings "true"/"false" to booleans, drop any other non-boolean (counts as
+ * absent), map `allowCustom` → `allowOther` when the latter is absent, then
+ * delete `allowCustom`. See change: add-ask-user-inline-other.
+ */
+function rescueAllowOther(obj: Record<string, unknown>): void {
+  const coerce = (v: unknown): boolean | undefined =>
+    typeof v === "boolean" ? v : v === "true" ? true : v === "false" ? false : undefined;
+  const other = coerce(obj.allowOther);
+  const custom = coerce(obj.allowCustom);
+  delete obj.allowCustom;
+  delete obj.allowOther;
+  const effective = other ?? custom;
+  if (effective !== undefined) obj.allowOther = effective;
+}
+
+/** Custom (non-option) values in a select string / multiselect array answer. */
+function customValues(answer: unknown, options: readonly string[]): string[] {
+  if (typeof answer === "string") return options.includes(answer) ? [] : [answer];
+  if (Array.isArray(answer)) return answer.filter((v): v is string => typeof v === "string" && !options.includes(v));
+  return [];
+}
 
 function normalizeSubQuestion(
   sq: unknown,
@@ -144,6 +177,8 @@ function normalizeSubQuestion(
       "ask_user: options with {label, value} pairs are not supported — only labels were used. Send options as string[].",
     );
   }
+
+  rescueAllowOther(obj);
 
   return obj;
 }
@@ -217,6 +252,7 @@ export function registerAskUserTool(pi: ExtensionAPI): void {
             description: "Placeholder for method 'input'. Ignored for other methods.",
           }),
         ),
+        allowOther: Type.Optional(ALLOW_OTHER_FIELD()),
         questions: Type.Optional(
           Type.Array(SubQuestionSchema, {
             description:
@@ -297,6 +333,9 @@ export function registerAskUserTool(pi: ExtensionAPI): void {
         obj.title = typeof candidate === "string" ? candidate : "Questions";
       }
 
+      // 6b. Rescue `allowOther` / `allowCustom` at the top level.
+      rescueAllowOther(obj);
+
       // 7. For batch calls, normalize each sub-question (input_type, question/header, {label,value}).
       const warnings: NormalizationWarning[] = [];
       if (obj.method === "batch" && Array.isArray(obj.questions)) {
@@ -356,6 +395,11 @@ export function registerAskUserTool(pi: ExtensionAPI): void {
           message: sq.message,
           options: Array.isArray(sq.options) ? sq.options : undefined,
           placeholder: sq.placeholder,
+          // Inline Other opt-in: select/multiselect only; sub-question wins over top-level.
+          ...((sq.method === "select" || sq.method === "multiselect") &&
+          (sq.allowOther ?? params.allowOther) !== false
+            ? { allowOther: true }
+            : {}),
         }));
 
         // ONE request. ctx.ui.batch resolves to BatchAnswer[] on submit or
@@ -396,7 +440,10 @@ export function registerAskUserTool(pi: ExtensionAPI): void {
         }
         params.questions.forEach((sq: any, i: number) => {
           const ans = i < results.length ? results[i] : "(not asked)";
-          lines.push(`  ${i + 1}. ${sq.title ?? sq.method}: ${JSON.stringify(ans)}`);
+          const isChoice = sq.method === "select" || sq.method === "multiselect";
+          const custom =
+            isChoice && i < results.length && customValues(ans, Array.isArray(sq.options) ? sq.options : []).length > 0;
+          lines.push(`  ${i + 1}. ${sq.title ?? sq.method}: ${JSON.stringify(ans)}${custom ? " (custom)" : ""}`);
         });
         if (warnings.length > 0) {
           lines.push("", "Warnings:");
@@ -416,7 +463,12 @@ export function registerAskUserTool(pi: ExtensionAPI): void {
 
       // ── Single-question branches (unchanged behavior) ────────────────
       let result: unknown;
-      const msgOpts = withTcid(params.message ? { message: params.message } : undefined);
+      const choiceOptIn = (params.method === "select" || params.method === "multiselect") && params.allowOther !== false;
+      const baseOpts = {
+        ...(params.message ? { message: params.message } : {}),
+        ...(choiceOptIn ? { allowOther: true } : {}),
+      };
+      const msgOpts = withTcid(Object.keys(baseOpts).length > 0 ? baseOpts : undefined);
       const title = params.title || params.message || "Question";
 
       const options: string[] = Array.isArray(params.options)
@@ -454,8 +506,18 @@ export function registerAskUserTool(pi: ExtensionAPI): void {
           break;
       }
 
+      // Note line (before the unchanged final `User responded:` line) when the
+      // answer is custom. See change: add-ask-user-inline-other.
+      let note = "";
+      if (params.method === "select" && typeof result === "string" && customValues(result, options).length > 0) {
+        note = "Custom answer (not one of the options).\n";
+      } else if (params.method === "multiselect") {
+        const custom = customValues(result, options);
+        if (custom.length > 0) note = `Custom values (not among the options): ${JSON.stringify(custom)}.\n`;
+      }
+
       return {
-        content: [{ type: "text", text: `User responded: ${JSON.stringify(result)}` }],
+        content: [{ type: "text", text: `${note}User responded: ${JSON.stringify(result)}` }],
         details: { method: params.method, result },
       };
     },

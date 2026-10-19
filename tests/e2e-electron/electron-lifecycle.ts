@@ -61,7 +61,7 @@ export interface FakeHealth {
 export interface FakeHealthServer {
   port: number;
   /** Requests received, for assertions (e.g. POST /api/shutdown). */
-  readonly requests: Array<{ method: string; url: string }>;
+  readonly requests: Array<{ method: string; url: string; body?: string }>;
   setHealth(next: FakeHealth): void;
   close(): Promise<void>;
 }
@@ -78,10 +78,17 @@ export async function startFakeHealthServer(
   const port = opts.port ?? FAKE_PORT;
   const healthDelayMs = opts.healthDelayMs ?? 400;
   let health: FakeHealth = { ok: true, ...initial };
-  const requests: Array<{ method: string; url: string }> = [];
+  const requests: Array<{ method: string; url: string; body?: string }> = [];
 
   const server: Server = createServer((req, res) => {
-    requests.push({ method: req.method ?? "", url: req.url ?? "" });
+    const entry: { method: string; url: string; body?: string } = { method: req.method ?? "", url: req.url ?? "" };
+    requests.push(entry);
+    if (req.method === "POST") {
+      // Record the body (e.g. `{userQuit:true}` on the quit-time shutdown).
+      let body = "";
+      req.on("data", (chunk) => { body += chunk; });
+      req.on("end", () => { entry.body = body; });
+    }
     const url = req.url ?? "";
     if (url.startsWith("/api/health")) {
       setTimeout(() => {
@@ -303,8 +310,11 @@ export async function captureMenuTemplates(app: ElectronApplication): Promise<vo
     const g = globalThis as any;
     g.__menuTemplates = [];
     const orig = Menu.buildFromTemplate.bind(Menu);
+    g.__menuClicks = {};
     Menu.buildFromTemplate = ((template: any[]) => {
       try {
+        // Keep the live click handlers in the main process (not serialisable).
+        for (const i of template ?? []) if (i?.label && typeof i.click === "function") g.__menuClicks[i.label] = i.click;
         g.__menuTemplates.push(
           (template ?? []).map((i) => ({ label: i?.label, enabled: i?.enabled, type: i?.type })),
         );
@@ -312,6 +322,21 @@ export async function captureMenuTemplates(app: ElectronApplication): Promise<vo
       return orig(template);
     }) as any;
   });
+}
+
+/**
+ * Invoke the click handler of the most recent captured menu item with `label`
+ * (e.g. the tray's "Quit", which runs the graceful `quit()` path that
+ * `app.close()` skips). Requires `captureMenuTemplates` first.
+ */
+export async function clickCapturedMenuItem(app: ElectronApplication, label: string): Promise<void> {
+  const found = await app.evaluate((_electron, wanted) => {
+    const click = (globalThis as any).__menuClicks?.[wanted];
+    if (typeof click !== "function") return false;
+    click();
+    return true;
+  }, label);
+  if (!found) throw new Error(`[electron-e2e] captured menu item not found: ${label}`);
 }
 
 /** Read the recorded menu templates (array of item arrays) from the main process. */

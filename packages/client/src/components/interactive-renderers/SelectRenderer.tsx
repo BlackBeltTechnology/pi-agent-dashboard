@@ -1,18 +1,25 @@
+import { isOtherAllowed } from "@blackbelt-technology/pi-dashboard-shared/prompt-answer.js";
 import { mdiFormatListBulleted } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import React from "react";
+import React, { useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { MarkdownContent } from "../preview/MarkdownContent.js";
 import { AnsweredOption } from "./AnsweredOption.js";
 import { InlineMarkdown } from "./InlineMarkdown.js";
+import { OtherOption } from "./OtherOption.js";
 import { isCancelOption, parseOption } from "./parseOption.js";
 import type { InteractiveRendererProps } from "./types.js";
 
 export function SelectRenderer({ params, status, result, onRespond, onCancel }: InteractiveRendererProps) {
   const title = params.title as string;
   const message = params.message as string | undefined;
-  const options = (params.options as string[]) ?? [];
+  // Non-string options are dropped (parseOption would throw on them). See change: add-ask-user-inline-other (X2).
+  const options = Array.isArray(params.options) ? params.options.filter((o): o is string => typeof o === "string") : [];
   const selectedValue = (result as any)?.value as string | undefined;
+  const otherAllowed = isOtherAllowed({ allowOther: params.allowOther as boolean | undefined, options });
+  const [otherActive, setOtherActive] = useState(false);
+  const [otherText, setOtherText] = useState("");
+  const otherTrimmed = otherText.trim();
 
   if (status === "cancelled" || status === "dismissed") {
     return (
@@ -48,6 +55,13 @@ export function SelectRenderer({ params, status, result, onRespond, onCancel }: 
               />
             );
           })}
+          {typeof selectedValue === "string" && selectedValue !== "" && !options.includes(selectedValue) && (
+            <AnsweredOption
+              title={selectedValue}
+              label={i18nT("common.other", undefined, "Other")}
+              picked
+            />
+          )}
         </div>
       </div>
     );
@@ -78,6 +92,28 @@ export function SelectRenderer({ params, status, result, onRespond, onCancel }: 
             />
           );
         })}
+        {otherAllowed && (
+          <>
+            <OtherOption
+              variant="radio"
+              active={otherActive}
+              text={otherText}
+              onActiveChange={setOtherActive}
+              onTextChange={setOtherText}
+              onSubmit={() => onRespond({ value: otherTrimmed })}
+            />
+            {otherActive && (
+              <button
+                type="button"
+                disabled={!otherTrimmed}
+                onClick={() => onRespond({ value: otherTrimmed })}
+                className="focus-ring self-start px-3 min-h-[44px] sm:min-h-[32px] text-xs font-semibold rounded-md transition-colors bg-[var(--accent-solid)] text-white hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {i18nT("common.submit", undefined, "Submit")}
+              </button>
+            )}
+          </>
+        )}
         {!hasCancelOption && (
           <OptionRow title={i18nT("common.cancel", undefined, "Cancel")} cancel onClick={onCancel} />
         )}

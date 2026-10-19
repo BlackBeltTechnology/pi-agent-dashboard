@@ -40,6 +40,16 @@ export interface DashboardStatus {
    * See change: harden-dashboard-start-detection (D1).
    */
   timedOut?: boolean;
+  /**
+   * `launchSource` from `/api/health` (`electron|standalone|bridge`), copied
+   * verbatim when well-typed. Owner facts for CLI messages; wording only, never a
+   * kill decision. See change: fix-cli-control-electron-server (D2/D3).
+   */
+  launchSource?: string;
+  /** `bootParentAlive` from `/api/health` (the starter process is still alive). */
+  bootParentAlive?: boolean;
+  /** `bootParentPid` from `/api/health` (the starter's pid). */
+  bootParentPid?: number;
 }
 
 export interface DashboardCheckOpts {
@@ -131,6 +141,9 @@ async function probeOnce(
       const version = typeof data.version === "string" ? data.version : undefined;
       const result: ProbeResult = { running: true, pid: data.pid, version };
       if (typeof data.instanceId === "string") result.instanceId = data.instanceId;
+      if (typeof data.launchSource === "string") result.launchSource = data.launchSource;
+      if (typeof data.bootParentAlive === "boolean") result.bootParentAlive = data.bootParentAlive;
+      if (typeof data.bootParentPid === "number") result.bootParentPid = data.bootParentPid;
       return result;
     }
 

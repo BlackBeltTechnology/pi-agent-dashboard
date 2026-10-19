@@ -478,6 +478,8 @@
   "packages.orViaScoop": "Or via Scoop:",
   "common.orderedFallbackFirstAvailable": "(ordered fallback — first available entry; supersedes Default Model)",
   "common.other": "Other",
+  "common.otherAnswer": "Other answer",
+  "common.otherPlaceholder": "Type your answer",
   "common.output": "Output:",
   "common.overrideInvalidUsingFallback": "Override invalid; using fallback",
   "common.overridePathDidnTValidateFell": "Override path didn't validate — fell through to the next strategy.",
