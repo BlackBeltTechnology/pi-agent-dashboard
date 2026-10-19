@@ -30,9 +30,9 @@ let snapshot: AddonIssuesSnapshot = EMPTY;
 let inFlight: Promise<void> | null = null;
 const listeners = new Set<() => void>();
 
-export function isPluginIssue(row: PluginRow): boolean {
+function isPluginIssue(row: PluginRow): boolean {
 	const s = row.status;
-	if (!s || !s.enabled) return false;
+	if (!s?.enabled) return false;
 	return !!s.error || (s.missingRequirements?.length ?? 0) > 0;
 }
 
@@ -52,7 +52,7 @@ export function getAddonIssues(): AddonIssuesSnapshot {
 
 /** Re-fetch plugins + health. Concurrent calls share one request pair. */
 export function refreshAddonIssues(): Promise<void> {
-	if (inFlight) return inFlight;
+	if (inFlight !== null) return inFlight;
 	inFlight = (async () => {
 		const [plugins, health] = await Promise.all([
 			listPlugins().catch(() => null),

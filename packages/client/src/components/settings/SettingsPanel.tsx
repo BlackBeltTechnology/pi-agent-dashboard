@@ -1406,6 +1406,7 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
                   <button
                     onClick={() => requestRailNavigate("/settings/" + item.id)}
                     aria-current={active ? "page" : undefined}
+                    aria-describedby={item.id === "add-ons" && addonIssueCount > 0 ? "nav-addons-issues-desc" : undefined}
                     className={`${item.id === "plugins" ? "flex-1 min-w-0" : "w-full"} flex items-center gap-2.5 px-3 py-2 rounded-md text-sm whitespace-nowrap transition-colors cursor-pointer ${
                       active
                         ? "bg-blue-600/15 text-[var(--text-primary)] font-semibold"
@@ -1423,15 +1424,19 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
                       </span>
                     )}
                     {item.id === "add-ons" && addonIssueCount > 0 && (
-                      <span
-                        data-testid="nav-addons-issues"
-                        className="ml-auto text-[10px] leading-none px-1.5 py-0.5 rounded-full bg-[var(--severity-warning-bg)] text-[var(--severity-warning-fg)] border border-[var(--severity-warning-border)]"
-                      >
-                        <span aria-hidden="true">{addonIssueCount}</span>
-                        <span className="sr-only">
+                      <>
+                        {/* Excluded from the button's accessible name (it stays "Add-ons"); announced as its description. */}
+                        <span
+                          data-testid="nav-addons-issues"
+                          aria-hidden="true"
+                          className="ml-auto text-[10px] leading-none px-1.5 py-0.5 rounded-full bg-[var(--severity-warning-bg)] text-[var(--severity-warning-fg)] border border-[var(--severity-warning-border)]"
+                        >
+                          {addonIssueCount}
+                        </span>
+                        <span id="nav-addons-issues-desc" aria-hidden="true" className="sr-only">
                           {t("settings.addonsIssues", { count: addonIssueCount }, `${addonIssueCount} add-on issues`)}
                         </span>
-                      </span>
+                      </>
                     )}
                     {dirtyPages.has(item.id) && (
                       <span

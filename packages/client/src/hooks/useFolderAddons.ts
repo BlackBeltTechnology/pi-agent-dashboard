@@ -12,10 +12,15 @@
  *
  * See change: addons-hub-folder-view (design D1, D3, D4; spec: addons-folder-view).
  */
-import type { AddonFeature, AddonFolderInfo, AddonFolderNotOwned } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import type {
+	AddonFeature,
+	AddonFolderInfo,
+	AddonFolderNotOwned,
+	AddonFolderToggleResponse,
+} from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { type ResourceTrustOption, submitResourceTrust } from "../lib/api/resources-api.js";
 import { fetchFolderAddonCatalog, postFolderToggle } from "../lib/addons/addons-api.js";
+import { type ResourceTrustOption, submitResourceTrust } from "../lib/api/resources-api.js";
 import { logRejection } from "../lib/report-error.js";
 
 export interface FolderTrustPrompt {
@@ -90,23 +95,34 @@ export function useFolderAddons(cwd: string) {
 		};
 	}, [refresh]);
 
-	const setRowError = (id: string, message: string | null) =>
-		setRowErrors((m) => {
-			const next = { ...m };
-			if (message === null) delete next[id];
-			else next[id] = message;
-			return next;
-		});
+	const setRowError = useCallback(
+		(id: string, message: string | null) =>
+			setRowErrors((m) => {
+				const next = { ...m };
+				if (message === null) delete next[id];
+				else next[id] = message;
+				return next;
+			}),
+		[],
+	);
+
+	/** A 2xx reply: remember `keptOn` / `notOwned`, offer a reload when something was written, re-read the catalog. */
+	const applyReport = useCallback(
+		async (featureId: string, r: AddonFolderToggleResponse): Promise<void> => {
+			if (r.keptOn.length > 0) setKeptOn((m) => ({ ...m, [featureId]: { by: [...new Set(r.keptOn.flatMap((k) => k.by))] } }));
+			if (r.notOwned.length > 0) setNotOwned({ featureId, items: r.notOwned });
+			else setNotOwned((cur) => (cur?.featureId === featureId ? null : cur));
+			if (r.changed) setReloadOffered(true);
+			await refresh();
+		},
+		[refresh],
+	);
 
 	const run = useCallback(
 		async (featureId: string, enabled: boolean, opts: { removeUnowned?: boolean } = {}): Promise<void> => {
 			setBusyId(featureId);
 			setRowError(featureId, null);
-			setKeptOn((m) => {
-				const next = { ...m };
-				delete next[featureId];
-				return next;
-			});
+			setKeptOn(({ [featureId]: _dropped, ...rest }) => rest);
 			try {
 				const out = await postFolderToggle(featureId, cwd, enabled, opts);
 				if (out.kind === "trust") {
@@ -118,18 +134,11 @@ export function useFolderAddons(cwd: string) {
 						...(out.preselected ? { preselected: out.preselected } : {}),
 						...(out.dashboardSource ? { dashboardSource: out.dashboardSource } : {}),
 					});
-					return;
-				}
-				if (out.kind === "error") {
+				} else if (out.kind === "error") {
 					setRowError(featureId, out.error);
-					return;
+				} else {
+					await applyReport(featureId, out.report);
 				}
-				const r = out.report;
-				if (r.keptOn.length > 0) setKeptOn((m) => ({ ...m, [featureId]: { by: [...new Set(r.keptOn.flatMap((k) => k.by))] } }));
-				if (r.notOwned.length > 0) setNotOwned({ featureId, items: r.notOwned });
-				else setNotOwned((cur) => (cur?.featureId === featureId ? null : cur));
-				if (r.changed) setReloadOffered(true);
-				await refresh();
 			} catch (err) {
 				// The request never reached the server: the row keeps its prior state.
 				setRowError(featureId, (err as Error)?.message ?? "The request did not reach the server.");
@@ -137,7 +146,7 @@ export function useFolderAddons(cwd: string) {
 				if (mounted.current) setBusyId((cur) => (cur === featureId ? null : cur));
 			}
 		},
-		[cwd, refresh],
+		[cwd, applyReport, setRowError],
 	);
 
 	/**
@@ -179,7 +188,7 @@ export function useFolderAddons(cwd: string) {
 				}
 			})();
 		},
-		[cwd, run],
+		[cwd, run, setRowError],
 	);
 
 	const dismissTrust = useCallback(() => {

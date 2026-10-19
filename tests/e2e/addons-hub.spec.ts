@@ -1,4 +1,6 @@
+import { execFileSync } from "node:child_process";
 import { expect, test } from "./fixtures.js";
+import { resolveContainer } from "./helpers/container-proc.js";
 import { byTestId, ensureFixtureGitGroup, FIXTURE_GIT, gotoDashboard } from "./helpers/index.js";
 
 /**
@@ -15,6 +17,14 @@ import { byTestId, ensureFixtureGitGroup, FIXTURE_GIT, gotoDashboard } from "./h
  * The dashboard port comes from the Playwright baseURL (docker/test-up.sh →
  * .pi-test-harness.json); nothing is hardcoded here.
  */
+/** `<FIXTURE_GIT>/.pi/settings.json` read inside the harness container (`null` when absent). */
+function folderSettingsFile(): string | null {
+  const out = execFileSync("docker", ["exec", resolveContainer(), "sh", "-c", `[ -f ${FIXTURE_GIT}/.pi/settings.json ] && cat ${FIXTURE_GIT}/.pi/settings.json || echo __ABSENT__`], {
+    encoding: "utf8",
+  });
+  return out === "__ABSENT__\n" ? null : out;
+}
+
 test.describe("Add-ons hub", () => {
   test("F5: /settings/packages lands on the Add-ons page without bridge rows", async ({ page }) => {
     await gotoDashboard(page);
@@ -154,12 +164,13 @@ test.describe("Add-ons hub", () => {
   test("F11: a From Global add-on turned off here persists across reload and restores the file on re-enable", async ({ page }) => {
     await gotoDashboard(page);
     await ensureFixtureGitGroup(page);
+    const original = folderSettingsFile();
     // Trust the folder up front so no dialog interrupts the round trip.
     const url = `/folder/${Buffer.from(FIXTURE_GIT).toString("base64url")}/settings/add-ons`;
     await page.goto(url);
     await expect(page.getByTestId("folder-addons-strip")).toBeVisible({ timeout: 30_000 });
     const row = page.locator('[data-testid^="folder-addon-row-"]').first();
-    test.skip((await row.count()) === 0, "no global add-on with a pi part in this harness");
+    await row.waitFor({ state: "visible", timeout: 30_000 }); // the harness ships global packages (docker/test-entrypoint.sh)
     const sw = row.locator('[data-testid^="folder-addon-switch-"]');
     const turnedOff = page.getByTestId("folder-strip-off");
     await expect(turnedOff).toContainText("0");
@@ -182,5 +193,7 @@ test.describe("Add-ons hub", () => {
       features: Array<{ folderState?: string }>;
     };
     expect(cat.features.filter((f) => f.folderState === "off-here")).toHaveLength(0);
+    // ...and the folder's settings file is byte-for-byte what it was before the round trip.
+    expect(folderSettingsFile()).toBe(original);
   });
 });

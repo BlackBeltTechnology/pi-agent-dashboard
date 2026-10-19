@@ -2272,6 +2272,10 @@ describe("SettingsPanel — Add-ons issue badge", () => {
     render(<SettingsPanel />);
     const badge = await screen.findByTestId("nav-addons-issues");
     expect(badge.textContent).toContain("2");
+    // The count must not leak into the button's accessible name; it is its description.
+    const rail = screen.getByTestId("settings-nav-rail");
+    const button = within(rail).getByRole("button", { name: "Add-ons" });
+    expect(document.getElementById(button.getAttribute("aria-describedby") ?? "")?.textContent).toBe("2 add-on issues");
   });
 
   it("shows no badge when there are no issues", async () => {

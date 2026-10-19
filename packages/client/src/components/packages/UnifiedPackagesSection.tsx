@@ -55,9 +55,9 @@ import { piCoreSource } from "../../lib/package/package-queue.js";
 import { logRejection } from "../../lib/report-error.js";
 import { PinDirectoryDialog } from "../workspace/PinDirectoryDialog.js";
 import { AddonFeatureRow } from "./AddonFeatureRow.js";
-import { AddonsIssuesTab } from "./AddonsIssuesTab.js";
 import { AddonsDiscoverTab } from "./AddonsDiscoverTab.js";
 import { AddonsExplainer } from "./AddonsExplainer.js";
+import { AddonsIssuesTab } from "./AddonsIssuesTab.js";
 import { AddonsUpdatesTab, type UpdatablePart, updatableParts } from "./AddonsUpdatesTab.js";
 import { AddonReloadBanner, AddonToggleConfirm, useAddonToggle } from "./AddonToggleConfirm.js";
 import { PackagePartialSuccessBanner } from "./PackagePartialSuccessBanner.js";
@@ -472,7 +472,7 @@ export function UnifiedPackagesSection() {
 			/>
 
 			{(error || catalog.error) && (
-				<div className="mb-2 p-2 rounded bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-start gap-2">
+				<div className="mb-2 p-2 rounded border border-[var(--severity-error-border)] bg-[var(--severity-error-bg)] text-[var(--severity-error-fg)] text-xs flex items-start gap-2">
 					<Icon path={mdiAlertCircle} size={0.6} className="flex-shrink-0 mt-0.5" />
 					<span>{error ?? catalog.error}</span>
 				</div>

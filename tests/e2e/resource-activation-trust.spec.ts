@@ -174,40 +174,28 @@ test.describe("folder Resources activation — trust, failures and presentation"
 test.describe("folder Add-ons switch — trust flow", () => {
   const ADDONS_URL = `/folder/${Buffer.from(FIXTURE_GIT).toString("base64url")}/settings/add-ons`;
 
-  test("F10: turning a From Global row off in an untrusted folder asks, records the decision, then writes", async ({ page }) => {
+  test("F10: turning a From Global row off asks for trust when the folder needs a decision, records it via the shared endpoint, then writes", async ({ page }) => {
     await gotoDashboard(page);
     await page.goto(ADDONS_URL);
     await expect(page.getByTestId("folder-addons-strip")).toBeVisible({ timeout: 30_000 });
     const sw = page.locator('[data-testid^="folder-addon-switch-"]').first();
-    test.skip((await sw.count()) === 0, "no global add-on with a pi part in this harness");
+    await sw.waitFor({ state: "visible", timeout: 30_000 }); // the harness ships global packages (docker/test-entrypoint.sh)
+    const row = page.locator('[data-testid^="folder-addon-row-"]').first();
 
-    // Force the trust gate: the real challenge is registered server-side by the first (403) toggle.
-    let toggles = 0;
-    await page.route("**/api/addons/*/toggle", async (route) => {
-      toggles++;
-      if (toggles === 1 && route.request().method() === "POST") {
-        await route.fulfill({
-          status: 403,
-          contentType: "application/json",
-          body: JSON.stringify({
-            success: false,
-            error: IMPLICIT_MESSAGE,
-            data: { trustRequired: true, trustOptions: TRUST_OPTIONS, implicitlyTrusted: true },
-          }),
-        });
-        return;
-      }
-      await route.continue();
-    });
-    const trust = page.waitForResponse((r) => r.url().includes("/api/resources/trust") && r.request().method() === "POST");
     await sw.click();
-    await expect(page.getByTestId("resource-trust-dialog")).toBeVisible();
-    await page.getByTestId("resource-trust-option-trust").click();
-    // The stubbed first answer registered no server-side challenge, so the endpoint may answer 409:
-    // either way the dialog is resolved and the retried toggle reaches the real server.
-    const res = await trust;
-    expect([200, 409]).toContain(res.status());
-    await expect(page.getByTestId("resource-trust-dialog")).toHaveCount(0);
-    expect(toggles).toBeGreaterThanOrEqual(1);
+    // Real server, real trust state: a folder that needs a decision asks (403 trustRequired → dialog);
+    // an already-trusted one writes straight away. Either way the row ends up off.
+    const dialog = page.getByTestId("resource-trust-dialog");
+    if (await dialog.isVisible({ timeout: 5_000 }).catch(() => false)) {
+      const trust = page.waitForResponse((r) => r.url().includes("/api/resources/trust") && r.request().method() === "POST");
+      await dialog.getByTestId("resource-trust-option-trust").click();
+      // The add-ons toggle registered the challenge, so the shared endpoint accepts the decision (not 409).
+      expect((await trust).status()).toBe(200);
+    }
+    await expect(row.locator('[data-testid^="folder-addon-state-"]')).toHaveText("off in this folder", { timeout: 15_000 });
+
+    // Leave the shared fixture as found: turn it back on.
+    await sw.click();
+    await expect(row.locator('[data-testid^="folder-addon-state-"]')).toHaveCount(0, { timeout: 15_000 });
   });
 });

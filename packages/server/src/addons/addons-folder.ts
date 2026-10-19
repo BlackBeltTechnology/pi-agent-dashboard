@@ -14,7 +14,6 @@
  *
  * See change: addons-hub-folder-view (design D1–D3, D8).
  */
-import path from "node:path";
 import type {
   AddonFeature,
   AddonFolderNotOwned,
@@ -25,20 +24,20 @@ import type {
 } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { sourcesMatch } from "@blackbelt-technology/pi-dashboard-shared/source-matching.js";
 import { packageIdentity } from "../pi/resource-origin.js";
-import { type RestoreRecord, type RestoreStore, getRestore } from "./addon-toggle-restore.js";
+import { getRestore, type RestoreRecord, type RestoreStore } from "./addon-toggle-restore.js";
 import { type CatalogPluginInput, pluginsRequiringPart } from "./addons-catalog.js";
 import { entriesEqual, entrySource, isAllEmptyFilter } from "./settings-entries.js";
 
 const RESOURCE_KEYS = ["extensions", "skills", "prompts", "themes"] as const;
 
 /** A relative local source resolved from `baseDir`; npm/git sources unchanged. */
-export function rebaseSource(source: string, baseDir: string): string {
+function rebaseSource(source: string, baseDir: string): string {
   const id = packageIdentity(source, baseDir);
   return id.startsWith("local:") ? id.slice("local:".length) : source;
 }
 
 /** Project entry that loads nothing: `autoload: false` + the four resource arrays all `[]`. */
-export function isFolderOff(entry: unknown): boolean {
+function isFolderOff(entry: unknown): boolean {
   return (
     !!entry && typeof entry === "object" && (entry as { autoload?: unknown }).autoload === false && isAllEmptyFilter(entry)
   );
@@ -49,7 +48,7 @@ function isAutoloadFalse(entry: unknown): boolean {
 }
 
 /** The delta the folder toggle writes: pi documents `[]` as "load none of that type". */
-export function folderOffEntry(source: string): Record<string, unknown> {
+function folderOffEntry(source: string): Record<string, unknown> {
   return { source, autoload: false, extensions: [], skills: [], prompts: [], themes: [] };
 }
 
@@ -115,7 +114,7 @@ interface PartState {
   indices: number[];
 }
 
-export function partStates(feature: AddonFeature, ctx: FolderCtx): PartState[] {
+function partStates(feature: AddonFeature, ctx: FolderCtx): PartState[] {
   return feature.packages.map((part) => {
     const indices = projectEntryIndices(ctx, part.source);
     return { part, indices, state: packageStateOf(indices.length > 0 ? ctx.projectEntries[indices[0]] : undefined) };
@@ -123,7 +122,7 @@ export function partStates(feature: AddonFeature, ctx: FolderCtx): PartState[] {
 }
 
 /** Roll-up, first match wins: folder-local facts before the global switch (spec: folder catalog). */
-export function rollUp(feature: AddonFeature, states: readonly PartState[]): AddonFolderState {
+function rollUp(feature: AddonFeature, states: readonly PartState[]): AddonFolderState {
   if (feature.packages.length === 0) return "dashboard-only";
   if (states.some((s) => s.state === "added")) return "added-here";
   if (states.every((s) => s.state === "off")) return "off-here";
@@ -193,90 +192,119 @@ export interface FolderPlanInput {
   otherEnabledPlugins: readonly CatalogPluginInput[];
 }
 
-export function planFolderToggle(input: FolderPlanInput): FolderPlanOk | FolderPlanErr {
-  const { feature, enabled, removeUnowned, ctx, projectSettingsPath, store } = input;
-  const states = partStates(feature, ctx);
-  const dup = states.find((s) => s.indices.length > 1);
-  if (dup) {
-    return {
-      ok: false,
-      status: 409,
-      body: { success: false, reason: "duplicate-entries", error: `more than one packages[] entry for ${dup.part.source}` },
-    };
-  }
-
-  const next: unknown[] = [...ctx.projectEntries];
-  const drop = new Set<number>();
-  const recordsToSet: RestoreRecord[] = [];
-  const recordsToDelete: FolderPlanOk["recordsToDelete"] = [];
-  const filtered: string[] = [];
-  const restored: string[] = [];
-  const removed: string[] = [];
-  const keptOn: AddonKeptOn[] = [];
-  const notOwned: AddonFolderNotOwned[] = [];
-
-  for (const s of states) {
-    const { part } = s;
-    const index = s.indices[0];
-    const cur = index === undefined ? undefined : ctx.projectEntries[index];
-    const rec = getRestore(store, projectSettingsPath, part.identity);
-
-    if (!enabled) {
-      const by = pluginsRequiringPart(input.otherEnabledPlugins, part).map((p) => `plugin:${p.id}`);
-      if (by.length > 0) {
-        keptOn.push({ source: part.source, by });
-        continue;
-      }
-      if (isFolderOff(cur)) continue; // already off — never overwrite a record
-      if (s.state === "added") continue; // a normal entry is removed by uninstalling, not here
-      const delta = folderOffEntry(rebaseSource(part.source, ctx.agentDir));
-      // A record whose `filtered` no longer matches was made stale by a hand edit: replace it so the
-      // newer entry is never lost. An up-to-date record is kept (off stays idempotent).
-      if (!rec || !entriesEqual(cur, rec.filtered)) {
-        recordsToSet.push({
-          settingsPath: projectSettingsPath,
-          identity: part.identity,
-          original: cur === undefined ? null : cur,
-          filtered: delta,
-        });
-      }
-      if (index === undefined) next.push(delta);
-      else next[index] = delta;
-      filtered.push(part.source);
-      continue;
-    }
-
-    // enabled
-    if (cur === undefined) {
-      if (rec) recordsToDelete.push({ settingsPath: projectSettingsPath, identity: part.identity });
-      continue;
-    }
-    if (s.state === "added") continue; // normal entry: never touched here
-    if (isFolderOff(cur) && rec) {
-      if (rec.original === null) drop.add(index);
-      else next[index] = rec.original;
-      recordsToDelete.push({ settingsPath: projectSettingsPath, identity: part.identity });
-      restored.push(part.source);
-      continue;
-    }
-    // An `autoload:false` entry we cannot prove we wrote: edited since, hand-written, or a user's narrowing.
-    const reason: AddonFolderNotOwned["reason"] = rec ? "edited" : isFolderOff(cur) ? "no-record" : "narrowed";
-    if (rec) recordsToDelete.push({ settingsPath: projectSettingsPath, identity: part.identity });
-    if (removeUnowned) {
-      drop.add(index);
-      removed.push(part.source);
-    } else {
-      notOwned.push({ source: part.source, reason, entry: cur });
-    }
-  }
-
-  const nextPackages = next.filter((_, i) => !drop.has(i));
-  const changed =
-    filtered.length > 0 || restored.length > 0 || removed.length > 0 || recordsToSet.length > 0 || recordsToDelete.length > 0;
-  return { ok: true, nextPackages, recordsToSet, recordsToDelete, filtered, restored, removed, keptOn, notOwned, changed };
+interface PlanAcc {
+  next: unknown[];
+  drop: Set<number>;
+  recordsToSet: RestoreRecord[];
+  recordsToDelete: FolderPlanOk["recordsToDelete"];
+  filtered: string[];
+  restored: string[];
+  removed: string[];
+  keptOn: AddonKeptOn[];
+  notOwned: AddonFolderNotOwned[];
 }
 
-/** `<cwd>/.pi/settings.json` (the file the folder toggle writes). */
-export function folderSettingsPath(cwd: string): string {
-  return path.join(cwd, ".pi", "settings.json");
+/** Turn one package off here: keep it on when another enabled plugin needs it, else write the all-empty delta. */
+function planOffPart(s: PartState, input: FolderPlanInput, acc: PlanAcc): void {
+  const { part } = s;
+  const index = s.indices[0];
+  const cur = index === undefined ? undefined : input.ctx.projectEntries[index];
+  const by = pluginsRequiringPart(input.otherEnabledPlugins, part).map((p) => `plugin:${p.id}`);
+  if (by.length > 0) {
+    acc.keptOn.push({ source: part.source, by });
+    return;
+  }
+  if (isFolderOff(cur)) return; // already off — never overwrite a record
+  if (s.state === "added") return; // a normal entry is removed by uninstalling, not here
+  const delta = folderOffEntry(rebaseSource(part.source, input.ctx.agentDir));
+  // A record whose `filtered` no longer matches was made stale by a hand edit: replace it so the
+  // newer entry is never lost. An up-to-date record is kept (off stays idempotent).
+  const rec = getRestore(input.store, input.projectSettingsPath, part.identity);
+  if (!rec || !entriesEqual(cur, rec.filtered)) {
+    acc.recordsToSet.push({
+      settingsPath: input.projectSettingsPath,
+      identity: part.identity,
+      original: cur === undefined ? null : cur,
+      filtered: delta,
+    });
+  }
+  if (index === undefined) acc.next.push(delta);
+  else acc.next[index] = delta;
+  acc.filtered.push(part.source);
+}
+
+/** Turn one package back on: restore the recorded entry, or leave an `autoload:false` entry we cannot prove we wrote. */
+function planOnPart(s: PartState, input: FolderPlanInput, acc: PlanAcc): void {
+  const { part } = s;
+  const index = s.indices[0];
+  const cur = index === undefined ? undefined : input.ctx.projectEntries[index];
+  const rec = getRestore(input.store, input.projectSettingsPath, part.identity);
+  const forget = () => acc.recordsToDelete.push({ settingsPath: input.projectSettingsPath, identity: part.identity });
+  if (cur === undefined) {
+    if (rec) forget();
+    return;
+  }
+  if (s.state === "added") return; // normal entry: never touched here
+  if (isFolderOff(cur) && rec) {
+    if (rec.original === null) acc.drop.add(index);
+    else acc.next[index] = rec.original;
+    forget();
+    acc.restored.push(part.source);
+    return;
+  }
+  if (rec) forget();
+  if (input.removeUnowned) {
+    acc.drop.add(index);
+    acc.removed.push(part.source);
+  } else {
+    acc.notOwned.push({ source: part.source, reason: notOwnedReason(cur, !!rec), entry: cur });
+  }
+}
+
+function notOwnedReason(entry: unknown, hadRecord: boolean): AddonFolderNotOwned["reason"] {
+  if (hadRecord) return "edited";
+  return isFolderOff(entry) ? "no-record" : "narrowed";
+}
+
+function duplicateError(states: readonly PartState[]): FolderPlanErr | null {
+  const dup = states.find((s) => s.indices.length > 1);
+  if (!dup) return null;
+  return {
+    ok: false,
+    status: 409,
+    body: { success: false, reason: "duplicate-entries", error: `more than one packages[] entry for ${dup.part.source}` },
+  };
+}
+
+export function planFolderToggle(input: FolderPlanInput): FolderPlanOk | FolderPlanErr {
+  const states = partStates(input.feature, input.ctx);
+  const refused = duplicateError(states);
+  if (refused) return refused;
+  const acc: PlanAcc = {
+    next: [...input.ctx.projectEntries],
+    drop: new Set(),
+    recordsToSet: [],
+    recordsToDelete: [],
+    filtered: [],
+    restored: [],
+    removed: [],
+    keptOn: [],
+    notOwned: [],
+  };
+  const planPart = input.enabled ? planOnPart : planOffPart;
+  for (const s of states) planPart(s, input, acc);
+
+  const { recordsToSet, recordsToDelete, filtered, restored, removed, keptOn, notOwned } = acc;
+  return {
+    ok: true,
+    nextPackages: acc.next.filter((_, i) => !acc.drop.has(i)),
+    recordsToSet,
+    recordsToDelete,
+    filtered,
+    restored,
+    removed,
+    keptOn,
+    notOwned,
+    changed: [filtered, restored, removed, recordsToSet, recordsToDelete].some((a) => a.length > 0),
+  };
 }

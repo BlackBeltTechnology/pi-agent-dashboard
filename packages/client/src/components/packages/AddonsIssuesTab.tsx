@@ -51,7 +51,7 @@ export function AddonsIssuesTab({ issues, onCleaned }: Props) {
 		<div data-testid="addons-issues-tab">
 			{restartRequired && (
 				<div
-					className="mb-2 p-2 rounded bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs"
+					className="mb-2 p-2 rounded border border-[var(--severity-warning-border)] bg-[var(--severity-warning-bg)] text-[var(--severity-warning-fg)] text-xs"
 					role="status"
 					data-testid="pkg-health-restart-banner"
 				>
@@ -75,7 +75,7 @@ export function AddonsIssuesTab({ issues, onCleaned }: Props) {
 							<button
 								type="button"
 								onClick={() => navigate(`/settings/plugins/${row.id}`)}
-								className="text-[var(--accent-primary)] hover:underline cursor-pointer"
+								className="text-[var(--text-primary)] underline underline-offset-2 hover:no-underline cursor-pointer"
 								data-testid={`addons-issue-settings-${row.id}`}
 							>
 								{i18nT("addons.issues.openSettings", undefined, "Open settings")}

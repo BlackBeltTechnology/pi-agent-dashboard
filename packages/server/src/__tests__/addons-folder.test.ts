@@ -316,6 +316,15 @@ describe("folder toggle: record and restore", () => {
     expect(await state(cwd)).toBe("inherited");
   });
 
+  it("off then on in a folder with no settings file leaves no file behind", async () => {
+    const cwd = await webEnv("e10c");
+    expect(env.folderSettingsRaw(cwd)).toBeUndefined();
+    await env.folderToggle(WEB_ID, cwd, false);
+    expect(env.folderSettingsRaw(cwd)).toContain(WEB);
+    await env.folderToggle(WEB_ID, cwd, true);
+    expect(env.folderSettingsRaw(cwd)).toBeUndefined();
+  });
+
   // test-plan #E11
   it("a hand-written all-empty delta is notOwned; removeUnowned removes it; a normal entry never", async () => {
     const cwd = await webEnv("e11");
@@ -326,7 +335,7 @@ describe("folder toggle: record and restore", () => {
     expect(env.readFolderSettings(cwd).packages).toEqual([delta(WEB)]);
     const b = await env.folderToggle(WEB_ID, cwd, true, { removeUnowned: true });
     expect(b.body.removed).toEqual([WEB]);
-    expect(env.folderSettingsRaw(cwd)).not.toContain(WEB);
+    expect(env.folderSettingsRaw(cwd)).toBeUndefined(); // the file held only that entry
 
     env.writeFolderSettings(cwd, { packages: [WEB] });
     const c = await env.folderToggle(WEB_ID, cwd, true, { removeUnowned: true });
@@ -346,7 +355,7 @@ describe("folder toggle: record and restore", () => {
     expect(Object.keys(env.readRestore()?.records ?? {})).toHaveLength(0);
     const b = await env.folderToggle(WEB_ID, cwd, true, { removeUnowned: true });
     expect(b.body.removed).toEqual([WEB]);
-    expect(env.folderSettingsRaw(cwd)).not.toContain(WEB);
+    expect(env.folderSettingsRaw(cwd)).toBeUndefined(); // the file held only that entry
   });
 
   // test-plan #E13
@@ -501,7 +510,9 @@ describe("folder toggle: trust and faults", () => {
       env.folderToggle("pkg:npm:b", cwd, false),
     ]);
     expect([ra.status, rb.status]).toEqual([200, 200]);
-    expect(env.readFolderSettings(cwd).packages).toEqual([delta("npm:a"), delta("npm:b")]);
+    // which request wins the lock is not deterministic; both deltas must be in the final file
+    expect(env.readFolderSettings(cwd).packages).toHaveLength(2);
+    expect(env.readFolderSettings(cwd).packages).toEqual(expect.arrayContaining([delta("npm:a"), delta("npm:b")]));
     expect(Object.keys(env.readRestore()?.records ?? {})).toHaveLength(2);
   });
 

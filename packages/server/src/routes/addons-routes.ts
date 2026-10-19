@@ -72,6 +72,62 @@ async function admitFolderCwd(
   return { cwd, token: admission.token };
 }
 
+/** First problem with a toggle body, or null. */
+function invalidToggleBody(body: Partial<AddonToggleRequest>): string | null {
+  if (body.scope !== undefined && body.scope !== "global" && body.scope !== "local") return "body.scope must be 'local' or 'global'";
+  if (typeof body.enabled !== "boolean") return "body.enabled must be boolean";
+  if (body.dryRun !== undefined && typeof body.dryRun !== "boolean") return "body.dryRun must be boolean";
+  if (body.confirmToken !== undefined && typeof body.confirmToken !== "string") return "body.confirmToken must be string";
+  return null;
+}
+
+/** `GET /api/addons/catalog?scope=local&cwd=` — a read: auth-gated, never trust-gated. */
+async function folderCatalogReply(deps: AddonsDeps, cwd: unknown, reply: FastifyReply) {
+  const admitted = await admitFolderCwd(deps, cwd, reply);
+  if (!admitted) return reply;
+  try {
+    const { features, folder } = await gatherFolderCatalog(deps, admitted.cwd);
+    return reply.status(200).send({ success: true, features, folder });
+  } catch (err) {
+    deps.log.error(`[addons] folder catalog failed: ${(err as Error)?.message ?? err}`);
+    return reply.status(500).send({ success: false, error: (err as Error)?.message ?? String(err) });
+  } finally {
+    releaseAdmission(admitted.token);
+  }
+}
+
+/** `POST /api/addons/:id/toggle` with `scope: "local"`: lock keys = hub queue, then the project settings file. */
+async function folderToggleReply(
+  deps: AddonsDeps,
+  featureId: string,
+  enabled: boolean,
+  body: Partial<AddonToggleRequest>,
+  reply: FastifyReply,
+) {
+  if (body.dryRun) return reply.status(400).send({ success: false, error: "dryRun is not supported for scope local" });
+  if (body.removeUnowned !== undefined && typeof body.removeUnowned !== "boolean") {
+    return reply.status(400).send({ success: false, error: "body.removeUnowned must be boolean" });
+  }
+  const admitted = await admitFolderCwd(deps, body.cwd, reply);
+  if (!admitted) return reply;
+  try {
+    // Same lock key as the folder-scope resource toggle; the hub queue also keeps the
+    // restore store's read-modify-write away from the global toggle.
+    const projectFile = path.join(admitted.cwd, ".pi", "settings.json");
+    const result = await withSettingsWriteLock(ADDONS_HUB_LOCK_KEY, () =>
+      withSettingsWriteLock(projectFile, () =>
+        folderToggle(deps, { cwd: admitted.cwd, featureId, enabled, removeUnowned: body.removeUnowned === true }),
+      ),
+    );
+    return reply.status(result.status).send(result.body);
+  } catch (err) {
+    deps.log.error(`[addons] folder toggle ${featureId} failed: ${(err as Error)?.message ?? err}`);
+    return reply.status(500).send({ success: false, error: (err as Error)?.message ?? String(err) });
+  } finally {
+    releaseAdmission(admitted.token);
+  }
+}
+
 export function registerAddonsRoutes(fastify: FastifyInstance, routeDeps: AddonsRouteDeps) {
   const { networkGuard, ...rest } = routeDeps;
   const deps: AddonsDeps = { ...rest, log: rest.log ?? fastify.log };
@@ -86,20 +142,7 @@ export function registerAddonsRoutes(fastify: FastifyInstance, routeDeps: Addons
     if (scope !== undefined && scope !== "global" && scope !== "local") {
       return reply.status(400).send({ success: false, error: "scope must be 'local' or 'global'" });
     }
-    if (scope === "local") {
-      // Folder mode: a read — auth-gated, never trust-gated. See change: addons-hub-folder-view.
-      const admitted = await admitFolderCwd(deps, cwd, reply);
-      if (!admitted) return reply;
-      try {
-        const { features, folder } = await gatherFolderCatalog(deps, admitted.cwd);
-        return reply.status(200).send({ success: true, features, folder });
-      } catch (err) {
-        log.error(`[addons] folder catalog failed: ${(err as Error)?.message ?? err}`);
-        return reply.status(500).send({ success: false, error: (err as Error)?.message ?? String(err) });
-      } finally {
-        releaseAdmission(admitted.token);
-      }
-    }
+    if (scope === "local") return folderCatalogReply(deps, cwd, reply);
     try {
       const gathered = await gatherCatalog(deps);
       // Stale restore records (uninstall / reset / scope move) are dropped here.
@@ -118,51 +161,11 @@ export function registerAddonsRoutes(fastify: FastifyInstance, routeDeps: Addons
     async (request, reply) => {
       const { featureId } = request.params;
       const body = request.body ?? {};
-      if (body.scope !== undefined && body.scope !== "global" && body.scope !== "local") {
-        return reply.status(400).send({ success: false, error: "body.scope must be 'local' or 'global'" });
-      }
-      if (typeof body.enabled !== "boolean") {
-        return reply.status(400).send({ success: false, error: "body.enabled must be boolean" });
-      }
-      if (body.dryRun !== undefined && typeof body.dryRun !== "boolean") {
-        return reply.status(400).send({ success: false, error: "body.dryRun must be boolean" });
-      }
-      if (body.confirmToken !== undefined && typeof body.confirmToken !== "string") {
-        return reply.status(400).send({ success: false, error: "body.confirmToken must be string" });
-      }
-      const enabled = body.enabled;
+      const invalid = invalidToggleBody(body);
+      if (invalid) return reply.status(400).send({ success: false, error: invalid });
+      const enabled = body.enabled === true;
 
-      if (body.scope === "local") {
-        if (body.dryRun) {
-          return reply.status(400).send({ success: false, error: "dryRun is not supported for scope local" });
-        }
-        if (body.removeUnowned !== undefined && typeof body.removeUnowned !== "boolean") {
-          return reply.status(400).send({ success: false, error: "body.removeUnowned must be boolean" });
-        }
-        const admitted = await admitFolderCwd(deps, body.cwd, reply);
-        if (!admitted) return reply;
-        try {
-          // Same lock key as the folder-scope resource toggle; the hub queue also keeps the
-          // restore store's read-modify-write away from the global toggle.
-          const projectFile = path.join(admitted.cwd, ".pi", "settings.json");
-          const result = await withSettingsWriteLock(ADDONS_HUB_LOCK_KEY, () =>
-            withSettingsWriteLock(projectFile, () =>
-              folderToggle(deps, {
-                cwd: admitted.cwd,
-                featureId,
-                enabled,
-                removeUnowned: body.removeUnowned === true,
-              }),
-            ),
-          );
-          return reply.status(result.status).send(result.body);
-        } catch (err) {
-          log.error(`[addons] folder toggle ${featureId} failed: ${(err as Error)?.message ?? err}`);
-          return reply.status(500).send({ success: false, error: (err as Error)?.message ?? String(err) });
-        } finally {
-          releaseAdmission(admitted.token);
-        }
-      }
+      if (body.scope === "local") return folderToggleReply(deps, featureId, enabled, body, reply);
 
       try {
         // Dry run: same computation, no locks, no writes.

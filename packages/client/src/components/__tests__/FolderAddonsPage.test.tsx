@@ -74,29 +74,31 @@ let fetchMock: ReturnType<typeof vi.fn>;
 const res = (status: number, body: unknown) =>
 	new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
+async function answer(input: RequestInfo, init?: RequestInit): Promise<Response> {
+	const url = typeof input === "string" ? input : input.url;
+	if (url.includes("/api/addons/catalog")) {
+		return res(200, {
+			success: true,
+			features: state.features,
+			folder: { cwd: CWD, looseCounts: state.loose ?? loose0, ...(state.settingsError ? { settingsError: state.settingsError } : {}) },
+		});
+	}
+	if (url.includes("/toggle") && init?.method === "POST") {
+		const r = (state.toggle ?? (() => ({ status: 200, body: { success: true, changed: true, keptOn: [], notOwned: [] } })))(JSON.parse(String(init.body)));
+		return res(r.status, r.body);
+	}
+	if (url.includes("/api/resources/trust")) {
+		const r = (state.trust ?? (() => ({ status: 200, body: { success: true, data: { trusted: true } } })))();
+		return res(r.status, r.body);
+	}
+	if (url.includes("/api/resources/reload")) return res(200, { success: true, data: { reloaded: 1 } });
+	return res(200, { success: true, data: [] });
+}
+
 beforeEach(() => {
 	Object.values(ops).forEach((v) => typeof v === "function" && (v as ReturnType<typeof vi.fn>).mockClear?.());
 	state = { features: [] };
-	fetchMock = vi.fn(async (input: RequestInfo, init?: RequestInit) => {
-		const url = typeof input === "string" ? input : input.url;
-		if (url.includes("/api/addons/catalog")) {
-			return res(200, {
-				success: true,
-				features: state.features,
-				folder: { cwd: CWD, looseCounts: state.loose ?? loose0, ...(state.settingsError ? { settingsError: state.settingsError } : {}) },
-			});
-		}
-		if (url.includes("/toggle") && init?.method === "POST") {
-			const r = (state.toggle ?? (() => ({ status: 200, body: { success: true, changed: true, keptOn: [], notOwned: [] } })))(JSON.parse(String(init.body)));
-			return res(r.status, r.body);
-		}
-		if (url.includes("/api/resources/trust")) {
-			const r = (state.trust ?? (() => ({ status: 200, body: { success: true, data: { trusted: true } } })))();
-			return res(r.status, r.body);
-		}
-		if (url.includes("/api/resources/reload")) return res(200, { success: true, data: { reloaded: 1 } });
-		return res(200, { success: true, data: [] });
-	});
+	fetchMock = vi.fn(answer);
 	vi.stubGlobal("fetch", fetchMock);
 });
 afterEach(() => {
