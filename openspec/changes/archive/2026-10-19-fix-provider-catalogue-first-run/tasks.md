@@ -1,11 +1,11 @@
 ## 1. Reproduce (systematic-debugging, red first)
 
-- [ ] 1.1 Author the failing server test `packages/server/src/__tests__/provider-auth-first-run.test.ts` (test-plan #E1). Copy the harness from `packages/server/src/__tests__/provider-auth-storage.test.ts`.
+- [x] 1.1 Author the failing server test `packages/server/src/__tests__/provider-auth-first-run.test.ts` (test-plan #E1). Copy the harness from `packages/server/src/__tests__/provider-auth-storage.test.ts`.
   - Input: no bridge catalogue, absent `auth.json` in a temp `HOME`, and a fake runtime loaded via `initOAuthRegistry({ getRuntime, readVersion, log })` exposing `deepseek` (apiKey) and `anthropic` (oauth+apiKey), with `checkAuth`→`undefined`; one connected bridge.
   - Trigger: `GET /api/provider-auth/status`.
   - Observable: api-key rows `deepseek` and `anthropic-api` plus OAuth row `anthropic`; `request_providers` sent.
   - Verify: the test fails on current code.
-- [ ] 1.2 Author the failing client test in `packages/client/src/components/__tests__/LandingPage.test.tsx` (test-plan #F4). Copy that file's existing render helpers.
+- [x] 1.2 Author the failing client test in `packages/client/src/components/__tests__/LandingPage.test.tsx` (test-plan #F4). Copy that file's existing render helpers.
   - Input: `providersReady=false`, no pins, no sessions, clean localStorage.
   - Trigger: click `onboarding-step-1-skip`.
   - Observable: `onboarding-step-1-skipped` with `onboarding-step-1-resume`; `onboarding-step-2-create` primary; progress "0 of 3 done"; localStorage `pi-dashboard.onboarding.providersSkipped`=`"true"`.
@@ -13,47 +13,47 @@
 
 ## 2. Server: runtime fallback catalogue
 
-- [ ] 2.1 Add the pure module `packages/server/src/auth/runtime-provider-catalogue.ts`: `buildRuntimeCatalogue(source, { customIds, authData, env })` plus the structural `RuntimeCatalogueSource` / `AuthCheckLike` types, per design D1. Verify: test-plan #E3 #E4 #X2 #E13 green.
+- [x] 2.1 Add the pure module `packages/server/src/auth/runtime-provider-catalogue.ts`: `buildRuntimeCatalogue(source, { customIds, authData, env })` plus the structural `RuntimeCatalogueSource` / `AuthCheckLike` types, per design D1. Verify: test-plan #E3 #E4 #X2 #E13 green.
   - `checkAuth` is required.
   - `authData === null` → `[]` without calling `checkAuth`.
   - A whole-build try/catch → `[]`.
-- [ ] 2.2 Registry changes in `provider-auth-registry.ts`, per design D3. Verify: test-plan #E12 green; the existing `provider-auth-registry.test.ts` suite green.
+- [x] 2.2 Registry changes in `provider-auth-registry.ts`, per design D3. Verify: test-plan #E12 green; the existing `provider-auth-registry.test.ts` suite green.
   - Retain the runtime: kept on empty OAuth; cleared on reject, on a handle without `getProviders`, and on `setOAuthRegistryRuntimeSource`.
   - Add a generation guard.
   - Add `getRegistryRuntime()` and `_setRegistryRuntimeForTests()`.
   - Widen `RuntimeHandleLike.runtime`.
   - In `server-model-runtime.ts`, add the required `checkAuth` to `ServerModelRuntime` and `name?: string` to `RuntimeProvider`.
-- [ ] 2.3 Make `getAuthStatus()` async, per design D2. Verify: test-plan #E1 #E2 #E5 #E6 #E10 #X3 green; `provider-auth-storage`, `event-wiring-providers-list`, `provider-auth-routes-corrupt` and `radius-provider-login` suites green.
+- [x] 2.3 Make `getAuthStatus()` async, per design D2. Verify: test-plan #E1 #E2 #E5 #E6 #E10 #X3 green; `provider-auth-storage`, `event-wiring-providers-list`, `provider-auth-routes-corrupt` and `radius-provider-login` suites green.
   - Source order: bridge catalogue when `isCatalogueReady()`, else `buildRuntimeCatalogue(getRegistryRuntime(), { customIds: Object.keys(readProvidersFromDisk()), authData: tryReadAuthJson(), env: process.env })`, else `[]`.
   - `provider-probe.ts`: resolve the `providers.json` path per call.
   - Update the callers and tests:
     - `provider-auth-routes.ts:176`;
     - `provider-auth-storage.test.ts`: await the calls; rework `:161` to set no runtime;
     - `event-wiring-providers-list.test.ts:82`.
-- [ ] 2.4 In `provider-catalogue-cache.ts`, `setCatalogueForSession` ignores an empty `providers` array: it keeps the previous snapshot, does not mark the catalogue ready, and logs at debug level once per session. Verify: test-plan #E8 #E9 green; the existing `provider-catalogue-cache.test.ts` green.
-- [ ] 2.5 Routes, in `provider-auth-routes.ts`. Verify: test-plan #E11 #X1 #X5 #X6 #X7 green; `provider-auth-catalogue-ready` and `catalogue-invalidation` suites green.
+- [x] 2.4 In `provider-catalogue-cache.ts`, `setCatalogueForSession` ignores an empty `providers` array: it keeps the previous snapshot, does not mark the catalogue ready, and logs at debug level once per session. Verify: test-plan #E8 #E9 green; the existing `provider-catalogue-cache.test.ts` green.
+- [x] 2.5 Routes, in `provider-auth-routes.ts`. Verify: test-plan #E11 #X1 #X5 #X6 #X7 green; `provider-auth-catalogue-ready` and `catalogue-invalidation` suites green.
   - The nudge keys on `!isCatalogueReady()`.
   - `GET /api/provider-auth/catalogue-ready` awaits `registryReady` and returns `{ ready, fallback }`, with `fallback` computed after the custom filter.
   - Add `CatalogueReadyResponse` to `packages/shared/src/rest-api.ts`.
   - Update the tests:
     - `provider-auth-catalogue-ready.test.ts:39` and `catalogue-invalidation.test.ts:115,131`: include `fallback`;
     - X14 at `catalogue-invalidation.test.ts:172` is rewritten per #X7.
-- [ ] 2.6 performance-optimization: run the bench from task 5.13 locally (`PI_BENCH=1`) and record p50/p95 for both endpoints in the PR. If either p95 > 50 ms, add the shared single-flight plus the `auth.json` mtime/size memo (5 s TTL) from design Risks, then re-run. Verify: the numbers are recorded and the budget is met.
-- [ ] 2.7 security-hardening review of the fallback path. Verify: test-plan #X3 #X4 green, and PR notes confirm:
+- [x] 2.6 performance-optimization: run the bench from task 5.13 locally (`PI_BENCH=1`) and record p50/p95 for both endpoints in the PR. If either p95 > 50 ms, add the shared single-flight plus the `auth.json` mtime/size memo (5 s TTL) from design Risks, then re-run. Verify: the numbers are recorded and the budget is met.
+- [x] 2.7 security-hardening review of the fallback path. Verify: test-plan #X3 #X4 green, and PR notes confirm:
   - no key material in `ProviderInfo`;
   - no OAuth refresh;
   - no file write apart from the pre-existing `auth.json.corrupt-*` quarantine.
 
 ## 3. Client: providers notice
 
-- [ ] 3.1 In `ProviderAuthSection.tsx`, implement design D5. Verify: test-plan #F1 #F2 #F3 green; the existing `ProviderAuthSection*.test.tsx` suites green.
+- [x] 3.1 In `ProviderAuthSection.tsx`, implement design D5. Verify: test-plan #F1 #F2 #F3 green; the existing `ProviderAuthSection*.test.tsx` suites green.
   - Parse `{ ready, fallback }`, with `catalogueUnavailable = ready === false && fallback !== true`.
   - The fallback state renders the info `InlineMessage` (`catalogue-fallback-notice`) and the normal empty state.
   - Add the i18n keys `providers.catalogueFallbackTitle/Body` to every locale. The body names both the extension providers and the environment-variable hints.
 
 ## 4. Client: Landing skip
 
-- [ ] 4.1 In `LandingPage.tsx`, implement design D6. Verify: test-plan #F4–#F12 green; the existing `LandingPage.test.tsx` green.
+- [x] 4.1 In `LandingPage.tsx`, implement design D6. Verify: test-plan #F4–#F12 green; the existing `LandingPage.test.tsx` green.
   - Call `usePersistedBoolean("pi-dashboard.onboarding.providersSkipped")` before the `hasOnboardingContext` early return.
   - `StepState`/`Marker` get `"skipped"`. Step ① uses the testId `onboarding-step-1-skipped`.
   - Pending Step ① gets a secondary `onboarding-step-1-skip`. The skipped row gets a secondary `onboarding-step-1-resume`.
@@ -62,140 +62,140 @@
 
 ## 5. Tests (folded from test-plan.md)
 
-- [ ] 5.1 L1 real-runtime integration (test-plan #E2) in `provider-auth-first-run.test.ts`. Exemplar: the real-runtime wiring in `packages/server/src/__tests__/provider-auth-storage.test.ts:54`.
+- [x] 5.1 L1 real-runtime integration (test-plan #E2) in `provider-auth-first-run.test.ts`. Exemplar: the real-runtime wiring in `packages/server/src/__tests__/provider-auth-storage.test.ts:54`.
   - Input: real runtime, temp `HOME`, no `auth.json`, no bridge.
   - Trigger: `await getAuthStatus()`.
   - Observable: api-key rows `deepseek` and `openrouter-api` present.
-- [ ] 5.2 L1 `checkAuth` mapping decision table (test-plan #E3) in `packages/server/src/__tests__/runtime-provider-catalogue.test.ts`. Exemplar: `packages/server/src/__tests__/provider-catalogue-cache.test.ts`.
+- [x] 5.2 L1 `checkAuth` mapping decision table (test-plan #E3) in `packages/server/src/__tests__/runtime-provider-catalogue.test.ts`. Exemplar: `packages/server/src/__tests__/provider-catalogue-cache.test.ts`.
   - Input: `checkAuth` results undefined / oauth / api_key with `authData` / api_key without.
   - Trigger: `buildRuntimeCatalogue`.
   - Observable: `configured:false`; `configured:false`; `stored`; `environment` + `authLabel`.
-- [ ] 5.3 L1 `envVar` derivation BVA (test-plan #E4) in `runtime-provider-catalogue.test.ts`. Exemplar: same.
+- [x] 5.3 L1 `envVar` derivation BVA (test-plan #E4) in `runtime-provider-catalogue.test.ts`. Exemplar: same.
   - Input: labels `OPENAI_API_KEY` set / unset; `A_KEY, B_KEY` with only B set; `AWS access keys`; `9KEY`; `""`.
   - Trigger: build with an injected `env`.
   - Observable: `envVar` = `OPENAI_API_KEY`, none, `B_KEY`, none, none, none.
-- [ ] 5.4 L1 D7 interplay (test-plan #E5) in `provider-auth-first-run.test.ts`. Exemplar: `provider-auth-storage.test.ts`.
+- [x] 5.4 L1 D7 interplay (test-plan #E5) in `provider-auth-first-run.test.ts`. Exemplar: `provider-auth-storage.test.ts`.
   - Input: an env-var fallback row and an ambient-label fallback row.
   - Trigger: `await getAuthStatus()`.
   - Observable: env row `configured:true, authenticated:false`; ambient-label row `authenticated:true`.
-- [ ] 5.5 L1 custom exclusion (test-plan #E6) in `provider-auth-first-run.test.ts`. Exemplar: the temp-`HOME` setup in `provider-auth-storage.test.ts`.
+- [x] 5.5 L1 custom exclusion (test-plan #E6) in `provider-auth-first-run.test.ts`. Exemplar: the temp-`HOME` setup in `provider-auth-storage.test.ts`.
   - Input: `providers.json` defines `my-llm` and `deepseek`; the runtime exposes both.
   - Trigger: `await getAuthStatus()`.
   - Observable: no api-key row for either.
-- [ ] 5.6 L1 corrupt `providers.json` fail-open (test-plan #E7) in `provider-auth-first-run.test.ts`. Exemplar: same.
+- [x] 5.6 L1 corrupt `providers.json` fail-open (test-plan #E7) in `provider-auth-first-run.test.ts`. Exemplar: same.
   - Input: `providers.json`=`{`; the runtime exposes `my-llm`.
   - Trigger: `await getAuthStatus()`.
   - Observable: 200; api-key row `my-llm` present.
-- [ ] 5.7 L1 precedence state machine (test-plan #E8) in `provider-auth-first-run.test.ts`. Exemplar: `packages/server/src/__tests__/catalogue-invalidation.test.ts`.
+- [x] 5.7 L1 precedence state machine (test-plan #E8) in `provider-auth-first-run.test.ts`. Exemplar: `packages/server/src/__tests__/catalogue-invalidation.test.ts`.
   - Input: fallback serving.
   - Trigger: non-empty push `[custom-llm]`, then `invalidateCatalogue()`.
   - Observable: bridge-only rows (`custom-llm` present, `deepseek` absent), then fallback rows again.
-- [ ] 5.8 L1 empty push (test-plan #E9) in `provider-catalogue-cache.test.ts`. Exemplar: that file.
+- [x] 5.8 L1 empty push (test-plan #E9) in `provider-catalogue-cache.test.ts`. Exemplar: that file.
   - Input: (a) nothing held; (b) `[deepseek]` held.
   - Trigger: two `[]` pushes from the same session.
   - Observable: (a) not ready, fallback serves, nudge re-sent; (b) snapshot kept, ready; debug log exactly once.
-- [ ] 5.9 L1 key saved against a fallback row (test-plan #E10) in `provider-auth-first-run.test.ts`. Exemplar: the route harness in `packages/server/src/__tests__/provider-auth-routes-corrupt.test.ts`.
+- [x] 5.9 L1 key saved against a fallback row (test-plan #E10) in `provider-auth-first-run.test.ts`. Exemplar: the route harness in `packages/server/src/__tests__/provider-auth-routes-corrupt.test.ts`.
   - Input: fallback serving, no `auth.json`.
   - Trigger: `PUT /api/provider-auth/api-key` for `deepseek` = `sk-test-1234567890`, then `GET /status`.
   - Observable: `authenticated:true, source:"stored", maskedKey:"sk-te...890"`.
-- [ ] 5.10 L1 `catalogue-ready` decision table (test-plan #E11) in `provider-auth-catalogue-ready.test.ts`. Exemplar: that file.
+- [x] 5.10 L1 `catalogue-ready` decision table (test-plan #E11) in `provider-auth-catalogue-ready.test.ts`. Exemplar: that file.
   - Input: bridge held / runtime non-custom / runtime custom-only / runtime failed.
   - Trigger: `GET catalogue-ready`.
   - Observable: `{true,false}` / `{false,true}` / `{false,false}` / `{false,false}`.
-- [ ] 5.11 L1 retention + generation guard (test-plan #E12) in `provider-auth-registry.test.ts`. Exemplar: that file's `initOAuthRegistry` injected-deps cases.
+- [x] 5.11 L1 retention + generation guard (test-plan #E12) in `provider-auth-registry.test.ts`. Exemplar: that file's `initOAuthRegistry` injected-deps cases.
   - Input: zero-OAuth runtime / rejecting source / in-flight init plus a source swap.
   - Trigger: `initOAuthRegistry`, then `getRegistryRuntime()`.
   - Observable: retained with error set / `undefined` / stale init writes nothing.
-- [ ] 5.12 L1 missing `checkAuth` (test-plan #E13) in `provider-auth-first-run.test.ts`. Exemplar: `provider-auth-catalogue-ready.test.ts`.
+- [x] 5.12 L1 missing `checkAuth` (test-plan #E13) in `provider-auth-first-run.test.ts`. Exemplar: `provider-auth-catalogue-ready.test.ts`.
   - Input: a retained runtime without `checkAuth`.
   - Trigger: `getAuthStatus()` and `GET catalogue-ready`.
   - Observable: api-key portion `[]`; `fallback:false`.
-- [ ] 5.13 L1 timed bench (test-plan #P1) in `packages/server/src/__tests__/provider-auth-fallback.bench.test.ts`, skipped unless `PI_BENCH=1`. Exemplar: the real-runtime setup in `provider-auth-storage.test.ts`.
+- [x] 5.13 L1 timed bench (test-plan #P1) in `packages/server/src/__tests__/provider-auth-fallback.bench.test.ts`, skipped unless `PI_BENCH=1`. Exemplar: the real-runtime setup in `provider-auth-storage.test.ts`.
   - Input: real runtime, cold temp `HOME`.
   - Trigger: `/status` and `/catalogue-ready` concurrently, 50 iterations after 1 warm request.
   - Observable: p95 < 50 ms per endpoint; p50/p95 printed.
-- [ ] 5.14 L1 fallback notice (test-plan #F1) in `packages/client/src/__tests__/ProviderAuthSection.test.tsx`. Exemplar: that file's fetch mocks.
+- [x] 5.14 L1 fallback notice (test-plan #F1) in `packages/client/src/__tests__/ProviderAuthSection.test.tsx`. Exemplar: that file's fetch mocks.
   - Input: `{ready:false,fallback:true}`; `/status` with OAuth rows + unconfigured `deepseek`.
   - Trigger: render, open the Add picker.
   - Observable: `providers-empty` + `catalogue-fallback-notice`; no `catalogue-unavailable-notice`; the picker lists `deepseek` and Custom endpoint.
-- [ ] 5.15 L1 unavailable with stored keys (test-plan #F2) in `ProviderAuthSection.test.tsx`. Exemplar: same.
+- [x] 5.15 L1 unavailable with stored keys (test-plan #F2) in `ProviderAuthSection.test.tsx`. Exemplar: same.
   - Input: `{ready:false,fallback:false}`.
   - Trigger: render.
   - Observable: `catalogue-unavailable-notice`; no `providers-empty`; the Add control is present.
-- [ ] 5.16 L1 older server (test-plan #F3) in `ProviderAuthSection.test.tsx`. Exemplar: same.
+- [x] 5.16 L1 older server (test-plan #F3) in `ProviderAuthSection.test.tsx`. Exemplar: same.
   - Input: `{ready:false}` with no `fallback` field.
   - Trigger: render.
   - Observable: `catalogue-unavailable-notice`; no `catalogue-fallback-notice`.
-- [ ] 5.17 L1 skip → session (test-plan #F5) in `LandingPage.test.tsx`. Exemplar: that file.
+- [x] 5.17 L1 skip → session (test-plan #F5) in `LandingPage.test.tsx`. Exemplar: that file.
   - Input: skipped, `pinnedCount=1`, `firstPinnedCwd="/p"`, no sessions.
   - Trigger: click the Step ③ CTA.
   - Observable: `onSpawnSession("/p")` called once.
-- [ ] 5.18 L1 skip persisted (test-plan #F6) in `LandingPage.test.tsx`. Exemplar: same.
+- [x] 5.18 L1 skip persisted (test-plan #F6) in `LandingPage.test.tsx`. Exemplar: same.
   - Input: localStorage key `"true"` before mount, no credentials.
   - Trigger: mount.
   - Observable: `onboarding-step-1-skipped`; no `onboarding-step-1-skip`.
-- [ ] 5.19 L1 done wins (test-plan #F7) in `LandingPage.test.tsx`. Exemplar: same.
+- [x] 5.19 L1 done wins (test-plan #F7) in `LandingPage.test.tsx`. Exemplar: same.
   - Input: localStorage `"true"`, `providersReady=true`.
   - Trigger: mount.
   - Observable: `onboarding-step-1-done`; no skip or resume control.
-- [ ] 5.20 L1 resume (test-plan #F8) in `LandingPage.test.tsx`. Exemplar: same.
+- [x] 5.20 L1 resume (test-plan #F8) in `LandingPage.test.tsx`. Exemplar: same.
   - Input: skipped.
   - Trigger: click `onboarding-step-1-resume`.
   - Observable: `navigate("/settings/providers")` called once.
-- [ ] 5.21 L1 single primary (test-plan #F9) in `LandingPage.test.tsx`. Exemplar: same.
+- [x] 5.21 L1 single primary (test-plan #F9) in `LandingPage.test.tsx`. Exemplar: same.
   - Input: every combination of {pending, skipped, done} × pins {0,1} × sessions {0,1}.
   - Trigger: render each.
   - Observable: primary buttons ≤ 1, and = 1 iff a pending step exists.
-- [ ] 5.22 L1 storage unavailable (test-plan #F10) in `LandingPage.test.tsx`. Exemplar: same.
+- [x] 5.22 L1 storage unavailable (test-plan #F10) in `LandingPage.test.tsx`. Exemplar: same.
   - Input: `localStorage` get/set throw.
   - Trigger: click skip, rerender.
   - Observable: the skipped row stays; no uncaught error.
-- [ ] 5.23 L1 a11y (test-plan #F11) in `LandingPage.test.tsx`. Exemplar: same.
+- [x] 5.23 L1 a11y (test-plan #F11) in `LandingPage.test.tsx`. Exemplar: same.
   - Input: pending, then skipped.
   - Trigger: query by role.
   - Observable: buttons named "Skip for now" and "Set up now" exist; the skipped row has a marker plus visible text.
-- [ ] 5.24 L1 skipped copy (test-plan #F12) in `LandingPage.test.tsx`. Exemplar: same.
+- [x] 5.24 L1 skipped copy (test-plan #F12) in `LandingPage.test.tsx`. Exemplar: same.
   - Input: skipped.
   - Trigger: render.
   - Observable: text states setup skipped, sessions need a provider to run prompts, and a session lists every provider it knows.
-- [ ] 5.25 L3 rendered skip (test-plan #F13) in `tests/e2e/first-run-skip-providers.spec.ts`. Exemplars: `tests/e2e/first-run-create-project.spec.ts` for the unpin/restore of pins, and `tests/e2e/redesign-providers-list.spec.ts` for the `page.route` mocks.
+- [x] 5.25 L3 rendered skip (test-plan #F13) in `tests/e2e/first-run-skip-providers.spec.ts`. Exemplars: `tests/e2e/first-run-create-project.spec.ts` for the unpin/restore of pins, and `tests/e2e/redesign-providers-list.spec.ts` for the `page.route` mocks.
   - Input: docker harness with `/api/provider-auth/status` (all unauthenticated) and `/api/providers` (empty) mocked; no pins.
   - Trigger: click `onboarding-step-1-skip`, then reload.
   - Observable: `onboarding-step-2-create` visible after the click and after the reload.
-- [ ] 5.26 L1 `getProviders` throws (test-plan #X1) in `provider-auth-first-run.test.ts`. Exemplar: the route harness in `provider-auth-routes-corrupt.test.ts`.
+- [x] 5.26 L1 `getProviders` throws (test-plan #X1) in `provider-auth-first-run.test.ts`. Exemplar: the route harness in `provider-auth-routes-corrupt.test.ts`.
   - Input: the runtime's `getProviders` throws.
   - Trigger: `GET /status`.
   - Observable: 200, OAuth rows, zero api-key rows.
-- [ ] 5.27 L1 per-row `checkAuth` reject (test-plan #X2) in `runtime-provider-catalogue.test.ts`. Exemplar: `provider-catalogue-cache.test.ts`.
+- [x] 5.27 L1 per-row `checkAuth` reject (test-plan #X2) in `runtime-provider-catalogue.test.ts`. Exemplar: `provider-catalogue-cache.test.ts`.
   - Input: `checkAuth("deepseek")` rejects.
   - Trigger: `buildRuntimeCatalogue`.
   - Observable: `deepseek` is `configured:false`; others mapped.
-- [ ] 5.28 L1 corrupt `auth.json` (test-plan #X3) in `provider-auth-first-run.test.ts`. Exemplar: `packages/server/src/__tests__/provider-auth-routes-corrupt.test.ts`.
+- [x] 5.28 L1 corrupt `auth.json` (test-plan #X3) in `provider-auth-first-run.test.ts`. Exemplar: `packages/server/src/__tests__/provider-auth-routes-corrupt.test.ts`.
   - Input: `auth.json` = `{`.
   - Trigger: `await getAuthStatus()`.
   - Observable: api-key portion `[]`; `checkAuth` spy count 0; lock spy count 0 from the fallback.
-- [ ] 5.29 L1 no OAuth refresh (test-plan #X4) in `provider-auth-first-run.test.ts`. Exemplar: the real-runtime setup in `provider-auth-storage.test.ts`.
+- [x] 5.29 L1 no OAuth refresh (test-plan #X4) in `provider-auth-first-run.test.ts`. Exemplar: the real-runtime setup in `provider-auth-storage.test.ts`.
   - Input: expired `anthropic` OAuth in `auth.json`.
   - Trigger: `await getAuthStatus()`.
   - Observable: `auth.json` bytes identical; fetch spy count 0.
-- [ ] 5.30 L1 start-up wait (test-plan #X5) in `provider-auth-catalogue-ready.test.ts`. Exemplar: that file.
+- [x] 5.30 L1 start-up wait (test-plan #X5) in `provider-auth-catalogue-ready.test.ts`. Exemplar: that file.
   - Input: `getRuntime` returns a deferred promise.
   - Trigger: `GET catalogue-ready`, then resolve.
   - Observable: no response before resolution; then `{ready:false,fallback:true}`.
-- [ ] 5.31 L1 runtime create rejects (test-plan #X6) in `provider-auth-catalogue-ready.test.ts`. Exemplar: same.
+- [x] 5.31 L1 runtime create rejects (test-plan #X6) in `provider-auth-catalogue-ready.test.ts`. Exemplar: same.
   - Input: `ModelRuntimeUnavailableError`.
   - Trigger: `GET /status` and `GET catalogue-ready`.
   - Observable: `/status` 200 with no api-key rows; `{ready:false,fallback:false}`.
-- [ ] 5.32 L1 X14 rewrite (test-plan #X7) in `packages/server/src/__tests__/catalogue-invalidation.test.ts:172`. Exemplar: that test.
+- [x] 5.32 L1 X14 rewrite (test-plan #X7) in `packages/server/src/__tests__/catalogue-invalidation.test.ts:172`. Exemplar: that test.
   - Input: `createServer` with the real runtime, a stored `openrouter` key, no bridge.
   - Trigger: `GET /status`.
   - Observable: `openrouter-api` row present with `source:"stored"`.
-- [ ] 5.33 Manual visual check on a clean profile (temp `HOME`, no `auth.json`, no session) (test-plan: manual-only, #F14). Look at Settings → Providers and Landing. Check that the info notice and the skip glyph read as non-alarming and match `ui-contract.md`. Attach screenshots to the PR.
+- [x] 5.33 Manual visual check on a clean profile (temp `HOME`, no `auth.json`, no session) (test-plan: manual-only, #F14). Look at Settings → Providers and Landing. Check that the info notice and the skip glyph read as non-alarming and match `ui-contract.md`. Attach screenshots to the PR.
 
 ## 6. Integration & docs
 
-- [ ] 6.1 Full suite: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`, then `npm run quality:changed`. Verify: no failures; the quality ratchet is green.
-- [ ] 6.2 Update the DOX rows, each with `See change: fix-provider-catalogue-first-run`. Verify: `grep -rl fix-provider-catalogue-first-run packages tests --include='AGENTS.md' --include='*.AGENTS.md'` lists each.
+- [x] 6.1 Full suite: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`, then `npm run quality:changed`. Verify: no failures; the quality ratchet is green.
+- [x] 6.2 Update the DOX rows, each with `See change: fix-provider-catalogue-first-run`. Verify: `grep -rl fix-provider-catalogue-first-run packages tests --include='AGENTS.md' --include='*.AGENTS.md'` lists each.
   - `packages/server/src/auth/AGENTS.md`: the new `runtime-provider-catalogue.ts` and the `provider-auth-registry.ts` row.
   - `provider-auth-storage.ts.AGENTS.md`.
   - `packages/server/src/package/provider-catalogue-cache.ts.AGENTS.md`.
@@ -206,4 +206,4 @@
   - `ProviderAuthSection.tsx.AGENTS.md`.
   - `LandingPage.tsx.AGENTS.md`.
   - `tests/e2e/AGENTS.md` (new spec).
-- [ ] 6.3 `review-code` pass on the diff before commit. Verify: no blocking findings left open.
+- [x] 6.3 `review-code` pass on the diff before commit. Verify: no blocking findings left open.

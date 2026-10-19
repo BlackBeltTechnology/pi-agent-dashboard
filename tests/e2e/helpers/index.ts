@@ -15,6 +15,9 @@ export const TESTIDS = {
   // Empty-state path: the LandingPage onboarding CTAs drive the same actions
   // (open pin dialog / spawn) and are the deterministic affordances on a
   // fresh container. Step CTAs are gated on `providersReady` (seeded key).
+  // Step ① "Skip for now" (change: fix-provider-catalogue-first-run).
+  onboardingStep1Skip: "onboarding-step-1-skip",
+  onboardingStep1Skipped: "onboarding-step-1-skipped",
   onboardingStep2Cta: "onboarding-step-2-cta", // "Use an existing folder…" → opens AddFoldersDialog
   // Step ② inline create form. See change: streamline-first-run.
   onboardingStep2Create: "onboarding-step-2-create", // primary "Create project"

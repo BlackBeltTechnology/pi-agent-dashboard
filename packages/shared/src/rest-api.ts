@@ -819,6 +819,17 @@ export interface LegacyProviderIdsResponse {
   legacyProviderIds: LegacyProviderIdEntry[];
 }
 
+/**
+ * `GET /api/provider-auth/catalogue-ready`. `ready`: a bridge catalogue is held.
+ * `fallback`: not ready, but the server's runtime supplies api-key rows.
+ * Optional so a client tolerates an older server.
+ * See change: fix-provider-catalogue-first-run (D4).
+ */
+export interface CatalogueReadyResponse {
+  ready: boolean;
+  fallback?: boolean;
+}
+
 export interface ProviderAuthStatus {
   id: string;
   name: string;

@@ -3,3 +3,5 @@
 In-memory cache of most-recently-pushed provider catalogue (`providers_list` over WS). Last push wins — catalogue is machine-scoped, not per-session. Exports `setCatalogueForSession`, `getLatestCatalogue` (returns `[]` until first push), `_resetForTests`. Read by `GET /api/provider-auth/status`. See changes: replace-hardcoded-provider-lists, simplify-model-selection-channels.
 
 Adds `isCatalogueReady()` + `invalidateCatalogue()`. The cache is explicitly invalidated when the LAST bridge disconnects — previously `latest` was only ever assigned, so a ready signal built on it lied after the first disconnect. See change: redesign-providers-settings-page (D5).
+
+`setCatalogueForSession` IGNORES an empty `providers` array: keeps the previous snapshot, does not mark ready, logs `console.debug` once per session. The bridge pushes `[]` before it has a ModelRegistry; storing it would mask the runtime fallback. See change: fix-provider-catalogue-first-run (D2).

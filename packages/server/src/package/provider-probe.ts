@@ -17,7 +17,8 @@ import {
   mapAdvertisedModels,
 } from "@blackbelt-technology/pi-dashboard-shared/provider-model-metadata.js";
 
-const CONFIG_PATH = join(homedir(), ".pi", "agent", "providers.json");
+// Resolved per call (not at module load) so a changed HOME is honoured.
+const configPath = (): string => join(homedir(), ".pi", "agent", "providers.json");
 const REDACTED = "***";
 const DEFAULT_TIMEOUT_MS = 8000;
 const MAX_ERROR_BODY_CHARS = 500;
@@ -101,9 +102,10 @@ export function buildProbeRequest(input: {
 export type ProvidersReader = () => Record<string, StoredProviderEntry>;
 
 export function readProvidersFromDisk(): Record<string, StoredProviderEntry> {
-  if (!existsSync(CONFIG_PATH)) return {};
+  const path = configPath();
+  if (!existsSync(path)) return {};
   try {
-    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    const raw = JSON.parse(readFileSync(path, "utf-8"));
     return raw.providers ?? {};
   } catch {
     return {};
