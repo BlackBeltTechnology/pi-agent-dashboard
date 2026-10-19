@@ -1279,6 +1279,7 @@ export const zhCNCatalog: Record<string, string> = {
   "settingsField.copied": "已复制",
   "settingsField.tryAgain": "重试",
   "settingsField.copyFailed": "复制失败",
+  "settingsField.remediesLabel": "你可以这样做",
   "settings.heap.aboveGuidance": "超过 {max} MB 属于异常大的值。该值仍会被保存。",
   "settings.heap.subagentCoupling": "按此组合，每个并发子代理约只剩 {mb} MB。子代理共享会话的堆；请考虑提高上限或减少并发子代理数。",
   "settings.heap.serverDivergence": "正在运行的服务器以 {mb} MB 启动。配置的值将在下次重启时生效。",

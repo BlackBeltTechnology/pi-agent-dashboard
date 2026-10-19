@@ -493,6 +493,7 @@ export function SettingsCopyButton({
 /** Action row of a notice: "Try again", caller actions, "Copy details". Empty → nothing. */
 function NoticeActions({
   testId,
+  retryTestId,
   onRetry,
   retryLabel,
   retrying,
@@ -500,6 +501,7 @@ function NoticeActions({
   actions,
 }: {
   testId?: string;
+  retryTestId?: string;
   onRetry?: () => void;
   retryLabel?: string;
   retrying?: boolean;
@@ -515,7 +517,7 @@ function NoticeActions({
           type="button"
           className={SMALL_BTN}
           disabled={retrying}
-          data-testid={testId ? `${testId}-retry` : undefined}
+          data-testid={retryTestId ?? (testId ? `${testId}-retry` : undefined)}
           onClick={onRetry}
         >
           <Icon path={mdiRefresh} size={0.55} aria-hidden="true" />
@@ -534,14 +536,29 @@ function NoticeActions({
   );
 }
 
+/** One "what to do" row: `id` becomes `data-remedy` so tests and e2e can tell rows apart. */
+export interface SettingsRemedy {
+  icon: string;
+  content: ReactNode;
+  id?: string;
+}
+
 /** "What to do" rows of a notice: icon + content, in the caller's order. */
-function RemedyList({ remedies }: { remedies?: { icon: string; content: ReactNode }[] }) {
+function RemedyList({
+  remedies,
+  label,
+  rowTestId,
+}: {
+  remedies?: SettingsRemedy[];
+  label?: string;
+  rowTestId?: string;
+}) {
+  const t = useRuntimeT();
   if (!remedies || remedies.length === 0) return null;
   return (
-    <ul className="mt-1.5 space-y-1">
+    <ul aria-label={label ?? t("settingsField.remediesLabel", undefined, "What you can do")} className="mt-1.5 space-y-1">
       {remedies.map((r, i) => (
-        // Positional key: the caller's order is the identity.
-        <li key={i} data-remedy="" className="flex items-start gap-1.5">
+        <li key={r.id ?? i} data-testid={rowTestId} data-remedy={r.id} className="flex items-start gap-1.5">
           <Icon path={r.icon} size={0.55} className="mt-0.5 shrink-0" aria-hidden="true" />
           <span className="min-w-0 flex-1">{r.content}</span>
         </li>
@@ -568,6 +585,9 @@ export function SettingsNotice({
   details,
   actions,
   remedies,
+  remediesLabel,
+  remedyTestId,
+  retryTestId,
 }: {
   tone: SettingsNoticeTone;
   children: ReactNode;
@@ -584,7 +604,13 @@ export function SettingsNotice({
    * "What to do" rows under `children`, in the order given (icon + content; `content`
    * may hold links). Callers filter out remedies they do not recognise.
    */
-  remedies?: { icon: string; content: ReactNode }[];
+  remedies?: SettingsRemedy[];
+  /** Accessible name of the remedy list (default "What you can do"). */
+  remediesLabel?: string;
+  /** `data-testid` placed on every remedy row. */
+  remedyTestId?: string;
+  /** Overrides the derived `<testId>-retry` test id of the retry button. */
+  retryTestId?: string;
 }) {
   const { cls, icon } = NOTICE_TONE[tone];
   return (
@@ -592,15 +618,16 @@ export function SettingsNotice({
       data-testid={testId}
       data-tone={tone}
       role={role ?? (tone === "error" ? "alert" : "status")}
-      aria-busy={retrying ? true : undefined}
+      aria-busy={retrying}
       className={`flex items-start gap-2 rounded-md border px-2.5 py-2 text-xs ${cls} ${className ?? ""}`}
     >
       <Icon path={icon} size={0.65} className="mt-0.5 shrink-0" aria-hidden="true" />
       <div className="min-w-0 flex-1">
         {children}
-        <RemedyList remedies={remedies} />
+        <RemedyList remedies={remedies} label={remediesLabel} rowTestId={remedyTestId} />
         <NoticeActions
           testId={testId}
+          retryTestId={retryTestId}
           onRetry={onRetry}
           retryLabel={retryLabel}
           retrying={retrying}

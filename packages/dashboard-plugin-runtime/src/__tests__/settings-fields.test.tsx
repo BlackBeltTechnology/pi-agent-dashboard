@@ -501,7 +501,7 @@ describe("SettingsNotice remedies (align #E5)", () => {
         Needs access.
       </SettingsNotice>,
     );
-    const rows = screen.getByTestId("n").querySelectorAll("[data-remedy]");
+    const rows = screen.getByTestId("n").querySelectorAll("ul > li");
     expect([...rows].map((r) => r.textContent)).toEqual(["First", "Sign in", "Third"]);
     const link = screen.getByRole("link", { name: "Sign in" });
     link.focus();
@@ -515,7 +515,6 @@ describe("SettingsNotice remedies (align #E5)", () => {
         msg
       </SettingsNotice>,
     );
-    expect(screen.getByTestId("n").querySelector("[data-remedy]")).toBeNull();
     expect(screen.getByTestId("n").querySelector("ul")).toBeNull();
     expect(screen.getByTestId("n").getAttribute("aria-busy")).toBeNull();
   });
@@ -542,7 +541,7 @@ describe("SettingsNotice busy retry (align #X2)", () => {
       );
     }
     render(<Harness />);
-    expect(screen.getByTestId("n").getAttribute("aria-busy")).toBeNull();
+    expect(screen.getByTestId("n").getAttribute("aria-busy")).toBe("false");
     const retry = screen.getByTestId("n-retry") as HTMLButtonElement;
     fireEvent.click(retry);
     fireEvent.click(retry);
@@ -552,7 +551,7 @@ describe("SettingsNotice busy retry (align #X2)", () => {
     await act(async () => {
       release();
     });
-    expect(screen.getByTestId("n").getAttribute("aria-busy")).toBeNull();
+    expect(screen.getByTestId("n").getAttribute("aria-busy")).toBe("false");
     expect(retry.disabled).toBe(false);
   });
 });
@@ -667,5 +666,70 @@ describe("doubt-review findings on the kit props (align 2.5)", () => {
       fireEvent.click(screen.getByTestId("c"));
     });
     expect(screen.getByRole("status").textContent).toBe("Copy failed");
+  });
+});
+
+describe("notice hooks needed to migrate core callouts (align 4)", () => {
+  it("retrying={false} reports aria-busy=false; no retrying prop leaves it off", () => {
+    const { container, rerender } = render(
+      <SettingsNotice tone="info" retrying={false}>
+        m
+      </SettingsNotice>,
+    );
+    expect((container.firstElementChild as HTMLElement).getAttribute("aria-busy")).toBe("false");
+    rerender(<SettingsNotice tone="info">m</SettingsNotice>);
+    expect((container.firstElementChild as HTMLElement).hasAttribute("aria-busy")).toBe(false);
+  });
+
+  it("remedy rows carry their id as data-remedy and the shared remedyTestId", () => {
+    render(
+      <SettingsNotice
+        tone="info"
+        remedyTestId="row"
+        remedies={[
+          { icon: "M0 0h1v1z", id: "use-host", content: "A" },
+          { icon: "M0 0h1v1z", id: "sign-in", content: "B" },
+        ]}
+      >
+        m
+      </SettingsNotice>,
+    );
+    const rows = screen.getAllByTestId("row");
+    expect(rows.map((r) => r.getAttribute("data-remedy"))).toEqual(["use-host", "sign-in"]);
+  });
+
+  it("a row without an id has no data-remedy attribute", () => {
+    render(
+      <SettingsNotice tone="info" remedies={[{ icon: "M0 0h1v1z", content: "A" }]}>
+        m
+      </SettingsNotice>,
+    );
+    expect(document.querySelector("[data-remedy]")).toBeNull();
+  });
+
+  it("the remedy list is named: default 'What you can do', overridable", () => {
+    const { unmount } = render(
+      <SettingsNotice tone="info" remedies={[{ icon: "M0 0h1v1z", content: "A" }]}>
+        m
+      </SettingsNotice>,
+    );
+    expect(screen.getByRole("list", { name: "What you can do" })).toBeTruthy();
+    unmount();
+    render(
+      <SettingsNotice tone="info" remediesLabel="Mit tehetsz" remedies={[{ icon: "M0 0h1v1z", content: "A" }]}>
+        m
+      </SettingsNotice>,
+    );
+    expect(screen.getByRole("list", { name: "Mit tehetsz" })).toBeTruthy();
+  });
+
+  it("retryTestId overrides the derived retry test id", () => {
+    render(
+      <SettingsNotice tone="error" testId="n" onRetry={() => {}} retryTestId="custom-retry">
+        m
+      </SettingsNotice>,
+    );
+    expect(screen.getByTestId("custom-retry")).toBeTruthy();
+    expect(screen.queryByTestId("n-retry")).toBeNull();
   });
 });
