@@ -19,6 +19,7 @@ import { usePreviewFetch } from "../../lib/access-grants/preview-provenance.js";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import type { MermaidSourceInfo } from "../../lib/preview/mermaid-source-context.js";
+import { useTrackedFileWrite } from "../split/tracked-file-write.js";
 
 interface Props {
   source: MermaidSourceInfo;
@@ -241,6 +242,7 @@ export function ConfirmDialog({
 }
 
 export function MermaidApplyFix({ source, ordinal, originalCode, fixedSource }: Props) {
+  const trackedWrite = useTrackedFileWrite();
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
   const buttonRef = useRef<HTMLButtonElement>(null);
   const hintId = useId();
@@ -283,10 +285,11 @@ export function MermaidApplyFix({ source, ordinal, originalCode, fixedSource }: 
     const held = phase;
     setPhase({ ...held, kind: "writing" });
     try {
-      const res = await fetch(`${getApiBase()}/api/file/write`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cwd: source.cwd, path: source.path, content: held.content, mtime: held.mtime }),
+      const res = await trackedWrite(source.path, {
+        cwd: source.cwd,
+        path: source.path,
+        content: held.content,
+        mtime: held.mtime,
       });
       if (res.status === 409) {
         setPhase({ kind: "changed" });
@@ -304,7 +307,7 @@ export function MermaidApplyFix({ source, ordinal, originalCode, fixedSource }: 
     } finally {
       inFlight.current = false;
     }
-  }, [phase, source, fail]);
+  }, [phase, source, fail, trackedWrite]);
 
   const showDialog = phase.kind === "confirm" || phase.kind === "writing";
 

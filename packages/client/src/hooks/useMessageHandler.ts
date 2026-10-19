@@ -28,10 +28,10 @@ import {
 } from "../lib/chat/history-gap.js";
 import { dispatchInitEvent } from "../lib/git/worktree-init-bus.js";
 import { t } from "../lib/i18n/i18n.js";
+import { setQuestions } from "../lib/questions/question-store.js";
 import { clearLoadingHistory, HYDRATE_CEILING_MS, rearmLoadingHistory } from "../lib/replay/loading-history.js";
 import type { ReplayPersister } from "../lib/replay/replay-persist.js";
 import { inferPlatform, pathKey, resolveSessionGroupPath } from "../lib/session/session-grouping.js";
-import { setQuestions } from "../lib/questions/question-store.js";
 import { clearRecoveryOffer, setRecoveryOffer } from "../lib/state/recovery-offer-bus.js";
 import { pushSpawnErrorToast } from "../lib/state/spawn-error-toast-bus.js";
 import { isVisibleCwd } from "../lib/util/cwd-visibility.js";
@@ -110,7 +110,7 @@ export interface MessageHandlerSetters {
   // pluginize-flows-via-registry.
   setFileResults: React.Dispatch<React.SetStateAction<{ query: string; files: FileEntry[] } | null>>;
   /** Per-session set of rel-paths that changed on disk (editor-pane banner). See change: split-editor-workspace. */
-  setChangedOnDisk: React.Dispatch<React.SetStateAction<Map<string, Set<string>>>>;
+  setChangedOnDisk: React.Dispatch<React.SetStateAction<Map<string, Map<string, number>>>>;
   setOpenspecMap: React.Dispatch<React.SetStateAction<Map<string, OpenSpecData>>>;
   /**
    * Folder-HEAD branch map (`cwd → branch | null`), fed by `git_head_update`.
@@ -316,6 +316,9 @@ export interface MessageHandlerDeps {
    */
   openspecGetInflightRef?: React.MutableRefObject<Map<string, OpenSpecGetInflight>>;
 }
+
+/** Monotonic generation stamped on every `file_changed` candidate. Module-level: never restarts. */
+let fileChangedGeneration = 0;
 
 export function useMessageHandler(
   setters: MessageHandlerSetters,
@@ -961,13 +964,20 @@ export function useMessageHandler(
         // pane surfaces a per-tab banner (no auto-reload).
         // See change: split-editor-workspace.
         if (typeof msg.path !== "string" || typeof msg.sessionId !== "string") break;
-        setChangedOnDisk((prev) => {
-          const next = new Map(prev);
-          const set = new Set(next.get(msg.sessionId) ?? []);
-          set.add(msg.path);
-          next.set(msg.sessionId, set);
-          return next;
-        });
+        // Every event is a NEW candidate: the generation is unique and monotonic
+        // (module-level, never restarts after a clear), so a later event for a
+        // path whose earlier candidate was verified+cleared is never mistaken for
+        // an already-handled one. See change: gate-changed-on-disk-by-content (D1).
+        {
+          const generation = ++fileChangedGeneration;
+          setChangedOnDisk((prev) => {
+            const next = new Map(prev);
+            const paths = new Map(next.get(msg.sessionId) ?? []);
+            paths.set(msg.path, generation);
+            next.set(msg.sessionId, paths);
+            return next;
+          });
+        }
         break;
 
       case "canvas_intent": {

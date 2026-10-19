@@ -137,6 +137,7 @@ import { usePeerAutoInstallReset } from "./lib/package/peer-auto-install-store.j
 import { dispatchPluginMessage } from "./lib/package/plugins-api.js";
 import { appendWsTicket, getApiBearer, isDevicePaired, mintWsTicket } from "./lib/pairing/device-auth.js";
 import { createEmbeddedAppShell } from "./lib/plugins/embedded-app-shell.js";
+import { hydrateEditorLimitsConfig } from "./lib/preview/editor-limits-config.js";
 import { hydrateMermaidRepairConfig } from "./lib/preview/mermaid-repair-config.js";
 import { reachabilityStore } from "./lib/remote-access/reachability-store.js";
 import { buildHistoryPhaseMap, hasChatContent } from "./lib/replay/history-load-phase.js";
@@ -720,7 +721,7 @@ export default function App() {
   const [fileResults, setFileResults] = useState<{ query: string; files: FileEntry[] } | null>(null);
   // Per-session rel-paths that changed on disk while open in the editor pane
   // (drives the changed-on-disk banner). See change: split-editor-workspace.
-  const [changedOnDisk, setChangedOnDisk] = useState<Map<string, Set<string>>>(() => new Map());
+  const [changedOnDisk, setChangedOnDisk] = useState<Map<string, Map<string, number>>>(() => new Map());
   // Per-session auto-canvas state (coexists with the URL-driven preview routes).
   // Folded from `canvas_intent` / `canvas_server_chip`. See change: auto-canvas.
   const [canvasMap, setCanvasMap] = useState<Map<string, import("./lib/canvas/canvas-gate.js").CanvasState>>(() => new Map());
@@ -1235,6 +1236,9 @@ export default function App() {
         // On-demand AI mermaid repair gate (opt-in; server resolves enabled/model).
         // See change: add-mermaid-ai-repair.
         hydrateMermaidRepairConfig(d);
+        // Editor large-file limit mirror (the CappedViewer gate waits on it).
+        // See change: gate-changed-on-disk-by-content.
+        hydrateEditorLimitsConfig(d);
         if (d.success) {
           setConfigFolderListMode(d.data?.folderListMode === "accordion" ? "accordion" : "classic");
           if (typeof d.data?.folderAttentionPeek === "boolean") setFolderAttentionPeek(d.data.folderAttentionPeek);
@@ -1272,10 +1276,18 @@ export default function App() {
   useEffect(() => {
     if (!onMessage) return;
     return onMessage((msg: any) => {
-      if (msg?.type !== "config_updated" || (msg.section !== "openspec" && msg.section !== "sessions")) return;
+      if (
+        msg?.type !== "config_updated" ||
+        (msg.section !== "openspec" && msg.section !== "sessions" && msg.section !== "editor")
+      ) {
+        return;
+      }
       fetch(`${apiBase}/api/config`)
         .then((r) => r.json())
         .then((d) => {
+          // A raised/lowered editor large-file limit re-gates open tabs live.
+          // See change: gate-changed-on-disk-by-content.
+          if (msg.section === "editor") hydrateEditorLimitsConfig(d);
           if (d?.success && msg.section === "sessions") {
             setConfigFolderListMode(d.data?.folderListMode === "accordion" ? "accordion" : "classic");
             if (typeof d.data?.folderAttentionPeek === "boolean") setFolderAttentionPeek(d.data.folderAttentionPeek);
@@ -1389,8 +1401,13 @@ export default function App() {
 
   // Clear subscriptions on reconnect so sessions get re-subscribed
   const prevStatusRef = useRef(status);
+  // Bumped on every (re)connect: the server dropped this browser's file watchers,
+  // so the editor pane re-declares its open files and re-verifies their
+  // baselines. See change: gate-changed-on-disk-by-content (D1).
+  const [connectionGeneration, setConnectionGeneration] = useState(0);
   useEffect(() => {
     if (status === "connected" && prevStatusRef.current !== "connected") {
+      setConnectionGeneration((g) => g + 1);
       subscribedRef.current.clear();
       // sessionOrderMap is replaced atomically by the on-connect
       // `sessions_snapshot` message — no pre-reset needed.
@@ -3111,13 +3128,17 @@ export default function App() {
             onKillTerminal={handleKillTerminal}
             onRenameTerminal={handleRenameTerminal}
             onTerminalTitle={handleTerminalTitle}
-            onClearChanged={(path) => {
+            changeDetection
+            connectionGeneration={connectionGeneration}
+            onClearChanged={(path, gen) => {
               if (!selectedId) return;
               setChangedOnDisk((prev) => {
-                const set = prev.get(selectedId);
-                if (!set || !set.has(path)) return prev;
+                const paths = prev.get(selectedId);
+                // With `gen`, clear only if the candidate is still that
+                // generation (a newer event must survive). No `gen` = unconditional.
+                if (!paths || !paths.has(path) || (gen !== undefined && paths.get(path) !== gen)) return prev;
                 const next = new Map(prev);
-                const copy = new Set(set);
+                const copy = new Map(paths);
                 copy.delete(path);
                 next.set(selectedId, copy);
                 return next;

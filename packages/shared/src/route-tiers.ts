@@ -108,6 +108,7 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "GET", path: "/api/events/:sessionId/:seq", tier: "observe" },
   { method: "GET", path: "/api/favorite-models", tier: "observe" },
   { method: "GET", path: "/api/file", tier: "observe" },
+  { method: "GET", path: "/api/file/digest", tier: "observe" },
   { method: "GET", path: "/api/file/eml", tier: "observe" },
   { method: "GET", path: "/api/file/eml-attachment", tier: "observe" },
   { method: "GET", path: "/api/file/exists", tier: "observe" },

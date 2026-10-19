@@ -18,12 +18,12 @@ import { fileKind } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js
 import { mdiClose, mdiConsoleLine, mdiFileTreeOutline, mdiMagnify, mdiRefresh, mdiWeb } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { ErrorBoundary } from "../primitives/ErrorBoundary.js";
 import { grepContents } from "../../lib/api/grep-api.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
 import { useRailWidth } from "../../lib/layout/rail-width.js";
-import { useTreeVisible } from "../../lib/util/tree-visible.js";
 import { stripTermId } from "../../lib/layout/use-terminal-pane-tabs.js";
+import { useTreeVisible } from "../../lib/util/tree-visible.js";
+import { ErrorBoundary } from "../primitives/ErrorBoundary.js";
 import { SplitDivider } from "../split/SplitDivider.js";
 import { useSplitWorkspace } from "../split/SplitWorkspaceContext.js";
 import { ChangedOnDiskBanner } from "./ChangedOnDiskBanner.js";
@@ -31,20 +31,22 @@ import { ChangesRailSection } from "./ChangesRailSection.js";
 import { EditorFileTree } from "./EditorFileTree.js";
 import { EditorSearchPanel } from "./EditorSearchPanel.js";
 import { EditorTabs } from "./EditorTabs.js";
+
 // D3 (change: add-lazy-terminal-diff-bootstrap): the keep-alive terminal layer
 // is a lazy boundary. `React.lazy` fires its import as soon as it is rendered,
 // so the mount is gated on the sticky `terminalActivated` latch — NOT on "a
 // terminal tab exists" (already true on a reload with persisted term tabs and
 // on every folder pane).
 const TerminalPaneLayer = lazy(() => import("./TerminalPaneLayer.js").then((m) => ({ default: m.TerminalPaneLayer })));
+
+import { EditorPaneTabLabelSlot, useShellSessionOrNull } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { useServerCapabilities } from "../../hooks/useServerCapabilities.js";
 import { PreviewProvenance } from "../../lib/access-grants/preview-provenance.js";
 import { CappedViewer } from "./CappedViewer.js";
-import { EditorPaneTabLabelSlot, useShellSessionOrNull } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { PluginTabHost, pluginTabPrefix } from "./PluginTabHost.js";
 import { pseudoTabRegistry } from "./pseudo-tab-registry.js";
-import { isPseudoTabViewer, type OpenPathViewer } from "./viewer-kinds.js";
 import { TabActions, type TabActionTarget } from "./TabActions.js";
+import { isPseudoTabViewer, type OpenPathViewer } from "./viewer-kinds.js";
 
 const absOf = (cwd: string, rel: string): string => (rel ? `${cwd}/${rel}` : cwd);
 
@@ -63,6 +65,9 @@ export function EditorPane() {
     onFilenameSearch,
     changedFiles,
     clearChanged,
+    changeDetection,
+    captureBaseline,
+    resyncWatch,
     changesRevealSignal,
     openDiffTab,
     terminal,
@@ -105,6 +110,14 @@ export function EditorPane() {
     }
   }, [changesRevealSignal, setTreeVisible]);
   const [refreshNonce, setRefreshNonce] = useState(0);
+  // Fail-safe ordering (changed-on-disk verification): a file tab's content
+  // baseline is read BEFORE its viewer mounts, so a change landing in between
+  // can only produce a false-positive banner, never a silently stale view.
+  // `baselineReadyKey` is the `viewerKey` whose baseline has been stored.
+  // See change: gate-changed-on-disk-by-content (D2).
+  const [baselineReadyKey, setBaselineReadyKey] = useState<string | null>(null);
+  const captureBaselineRef = useRef(captureBaseline);
+  captureBaselineRef.current = captureBaseline;
   const [searchOpen, setSearchOpen] = useState(false);
   const [railWidth, setRailWidth] = useRailWidth(sessionId);
 
@@ -160,6 +173,27 @@ export function EditorPane() {
 
   const lineForTab = scrollTo && scrollTo.path === activePath ? scrollTo.line : undefined;
 
+  // The mount key of the active FILE tab's viewer (open, activation, Refresh and
+  // provenance/line changes all change it); `null` for pseudo/plugin tabs, which
+  // are never watched or baselined. `autoOpened` is in the key: a provenance
+  // change remounts the tab so its next request uses the new eligibility
+  // (surface-denial-remedy-in-previews, D4). Scoped to (session, cwd): a switch drops the
+  // per-scope baseline store, so an identical path:nonce key must still recapture one.
+  const fileViewerKey =
+    activeTab && !isPseudoTabViewer(activeTab.viewer)
+      ? `${sessionId}\u0000${cwd}\u0000${activeTab.path}:${refreshNonce}:${lineForTab ?? ""}:${activeTab.autoOpened === true}`
+      : null;
+  useEffect(() => {
+    if (!changeDetection || !fileViewerKey || !activePath) return;
+    let active = true;
+    void captureBaselineRef.current(activePath).then(() => {
+      if (active) setBaselineReadyKey(fileViewerKey);
+    });
+    return () => {
+      active = false;
+    };
+  }, [changeDetection, fileViewerKey, activePath]);
+
   let body: React.ReactNode;
   if (!activeTab) {
     body = (
@@ -178,10 +212,8 @@ export function EditorPane() {
     // mis-routed kind instead of deferring it to a runtime `<undefined/>`.
     // Never replace this with a cast.
     const viewer = activeTab.viewer;
-    // `autoOpened` is in the key: a provenance change on the active tab remounts
-    // it, so its next request uses the new eligibility (surface-denial-remedy-in-previews, D4).
     const autoOpened = activeTab.autoOpened === true;
-    const viewerKey = `${activeTab.path}:${refreshNonce}:${lineForTab ?? ""}:${autoOpened}`;
+    const viewerKey = fileViewerKey ?? "";
     const viewerProps = {
       cwd,
       path: activeTab.path,
@@ -210,7 +242,11 @@ export function EditorPane() {
             />
           ) : PseudoTabViewerComponent ? (
             <PseudoTabViewerComponent key={viewerKey} {...viewerProps} />
-          ) : isPseudoTabViewer(viewer) ? null : (
+          ) : isPseudoTabViewer(viewer) ? null : changeDetection && baselineReadyKey !== viewerKey ? (
+            // Baseline first (D2): the digest round-trip is the price of the
+            // fail-safe ordering; a failed digest still resolves (null baseline).
+            <div className="p-4 text-sm text-[var(--text-tertiary)]">{t("editor.loadingViewer", undefined, "Loading viewer…")}</div>
+          ) : (
             <CappedViewer key={viewerKey} viewer={viewer} {...viewerProps} />
           )}
         </Suspense>
@@ -359,6 +395,9 @@ export function EditorPane() {
               onRefresh={() => {
                 setRefreshNonce((n) => n + 1);
                 clearChanged(activePath);
+                // Re-declare the open set so a key the server dropped (a long
+                // delete) is restored. See change: gate-changed-on-disk-by-content (D5).
+                resyncWatch();
               }}
               onDismiss={() => clearChanged(activePath)}
             />

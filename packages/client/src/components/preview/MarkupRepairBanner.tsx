@@ -18,6 +18,7 @@ import { usePreviewFetch } from "../../lib/access-grants/preview-provenance.js";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { type MermaidSourceInfo, useMermaidSourceContext } from "../../lib/preview/mermaid-source-context.js";
+import { useTrackedFileWrite } from "../split/tracked-file-write.js";
 import { ConfirmDialog } from "./MermaidApplyFix.js";
 
 export interface MarkupRepairApply {
@@ -90,6 +91,7 @@ function repairText(r: MarkupRepair): string {
 export function MarkupRepairBanner({ repairs, viewOriginal, onToggleOriginal, apply }: Props) {
   const source: MermaidSourceInfo | null = useMermaidSourceContext();
   const { fetch: previewFetch } = usePreviewFetch();
+  const trackedWrite = useTrackedFileWrite();
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
   const inFlight = useRef(false);
   const hintId = useId();
@@ -128,10 +130,11 @@ export function MarkupRepairBanner({ repairs, viewOriginal, onToggleOriginal, ap
     const held = phase;
     setPhase({ ...held, kind: "writing" });
     try {
-      const res = await fetch(`${getApiBase()}/api/file/write`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cwd: source.cwd, path: source.path, content: held.after, mtime: held.mtime }),
+      const res = await trackedWrite(source.path, {
+        cwd: source.cwd,
+        path: source.path,
+        content: held.after,
+        mtime: held.mtime,
       });
       if (res.status === 409) return setPhase({ kind: "changed" });
       const body = await res.json().catch(() => null);
@@ -146,7 +149,7 @@ export function MarkupRepairBanner({ repairs, viewOriginal, onToggleOriginal, ap
     } finally {
       inFlight.current = false;
     }
-  }, [phase, source, fail]);
+  }, [phase, source, fail, trackedWrite]);
 
   const canApply = source !== null && apply !== undefined;
   const showDialog = phase.kind === "confirm" || phase.kind === "writing";

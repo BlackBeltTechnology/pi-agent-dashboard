@@ -193,6 +193,17 @@ describe("E16 — create-project is control-tier, denylisted and never a generat
   });
 });
 
+// See change: gate-changed-on-disk-by-content (test-plan #E20).
+describe("E20 — /api/file/digest is registered, observe-tier and denylisted", () => {
+  it("is registered, has an observe ROUTE_TIERS row, is on the denylist, and is not a generated tool", () => {
+    expect(apiRoutes().some((r) => r.method === "GET" && r.path === "/api/file/digest")).toBe(true);
+    const row = ROUTE_TIERS.find((e) => e.method === "GET" && e.path === "/api/file/digest");
+    expect(row?.tier).toBe("observe");
+    expect(isDenylisted("/api/file/digest")).toBe(true);
+    expect(GENERATED_TOOLS.some((t) => t.name.includes("file_digest"))).toBe(false);
+  });
+});
+
 describe("generated rows resolve to a manifest row", () => {
   it("counts and names line up", () => {
     expect(GENERATED_TOOLS.map((t) => t.name).sort()).toEqual(MANIFEST.map((r) => r.name).sort());

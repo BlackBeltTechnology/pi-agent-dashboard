@@ -91,6 +91,15 @@ export interface FileKindResult {
 export const MAX_PREVIEW_BYTES = 10 * 1024 * 1024;
 
 /**
+ * Fixed ceiling (256 MiB) for the content digest + the markdown write body.
+ * Equals the `editor.largeFileLimitMb` max, so the changed-on-disk banner stays
+ * exact for every file a rich viewer can open; deliberately NOT configurable.
+ * `MAX_PREVIEW_BYTES` is only the DEFAULT of that setting now — the enforced
+ * value is `editor.largeFileLimitMb`. See change: gate-changed-on-disk-by-content (D4, D6).
+ */
+export const DIGEST_CEILING_BYTES = 256 * 1024 * 1024;
+
+/**
  * Per-kind office preview size caps (bytes). Single source of truth: the server
  * gates (413) read these defaults and the client names the real limit in the
  * too-large notice. Decks run large (corpus median 4.2 MB, tail 258 MB); the

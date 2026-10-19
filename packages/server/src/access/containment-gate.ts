@@ -93,6 +93,12 @@ export interface DenialRemedy {
 }
 
 /**
+ * What `evaluateContainment` returns on a miss. `denialId` is absent only for a
+ * `quiet` evaluation, which records nothing and so has nothing to bind a grant to.
+ */
+export type ContainmentRemedy = Omit<DenialRemedy, "denialId"> & Partial<Pick<DenialRemedy, "denialId">>;
+
+/**
  * The closed set a denial body names (see change: surface-denial-remedy-in-previews,
  * design D5). The client mirrors it; `unavailable` is the catch-all.
  */
@@ -214,8 +220,17 @@ export async function evaluateContainment(
      * surface-denial-remedy-in-previews.
      */
     disclosure?: boolean;
+    /**
+     * Background / non-user-facing probe (the editor pane's digest). A miss
+     * names its remedy fields but records NO denial and never suspends: a
+     * background verification must not surface as a pending grant request or
+     * a denial-ledger row on the Access surface. The body carries no `denialId`
+     * and no `promptOutcome` (nothing was asked, so there is no posture to name).
+     * See change: gate-changed-on-disk-by-content (D4).
+     */
+    quiet?: boolean;
   },
-): Promise<ContainmentDecision & { remedy?: DenialRemedy }> {
+): Promise<ContainmentDecision & { remedy?: ContainmentRemedy }> {
   // Layers ①/② first — untouched and still authoritative (design D1) — then the
   // grant layer, and only on a miss does the denial get recorded.
   let decision: ContainmentDecision;
@@ -256,6 +271,18 @@ export async function evaluateContainment(
     // A ladder failure must never turn a denial into a 500 — the read still
     // refuses, just without an offer to widen.
     ancestors = [];
+  }
+
+  if (opts.quiet) {
+    return {
+      ...decision,
+      remedy: {
+        reason: "Path is outside every containment anchor for this session.",
+        hint: "Grant access to this directory from the denial's remedy, or open the file from a session rooted in it.",
+        subject,
+        ancestors,
+      },
+    };
   }
 
   const entry = recordPathDenial({
