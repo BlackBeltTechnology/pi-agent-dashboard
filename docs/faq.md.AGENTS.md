@@ -39,3 +39,5 @@ See change: add-acp-session-driver, electron-runtime-overlay-updates, update-pi-
 Gains LAN trust-mode FAQ: `network.trustMode` `pair`/`legacy` decision at first boot, `pair` knock eligibility, `legacy` network-only banner, rollback. Gains "Why does a live preview URL carry `/~c/<token>/`?" → per-preview capability, lifetimes, credential stripping. Pair-mode notes on tunnel/tailnet, plugin 403, CORS-blocked, knock refusals. See change: retire-trusted-networks-bypass.
 
 Gains "HTTPS on the tailnet (built-in TLS listener)": enable steps (Tailscale HTTPS Certificates, Gateway → Built-in HTTPS, Listen on Tailscale IPv4, connect by MagicDNS name), CT-log disclosure, pair-not-sign-in, `pi_dash_device` Secure cookie → TLS origin, rollback = switch off. See change: add-tailscale-cert-tls.
+
+Gains domain-certificate FAQs: "HTTPS on a private IP without Tailscale", ACME credentials gate, staging/not-trusted cert, `_acme-challenge` CNAME check, renewal blocked, acme-dns registration busy. Guide: `acme-dns01-certs.md`. See change: add-acme-dns01-certs.

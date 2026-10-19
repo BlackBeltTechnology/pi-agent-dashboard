@@ -116,3 +116,122 @@ describe("vault store — owner-only check (task 2.7)", () => {
     expect(checkOwnerOnly(file, { platform: "win32", home: path.join(dir, "other") })).toEqual({ ok: false, basis: "outside-profile" });
   });
 });
+
+describe("vault store — tls-solver accounts (add-acme-dns01-certs E12, E31, E15 vault part)", () => {
+  const CF = "cf-secret-1234567890";
+  const CF2 = "cf-secret-0987654321";
+  const tlsAccounts = (f: string) =>
+    (JSON.parse(fs.readFileSync(f, "utf8")).accounts as Array<Record<string, unknown>>).filter((a) => a.kind === "tls-solver");
+
+  it.skipIf(process.platform === "win32")("E12: two upserts leave ONE account holding the second value, mode 0600", async () => {
+    const store = createVaultStore(file);
+    const entry = (value: string) => ({ sourceId: "home", provider: "cloudflare", entries: [{ label: "cloudflareToken", value }] });
+    await store.upsertTlsSecrets(entry(CF));
+    const first = (await store.listAccounts())[0];
+    await store.upsertTlsSecrets(entry(CF2));
+    const accounts = await store.listAccounts();
+    expect(accounts).toEqual([{ id: first.id, provider: "cloudflare", kind: "tls-solver", namespace: "tls:home", label: "cloudflareToken" }]);
+    expect(await store.readTlsSecret("home", "cloudflareToken")).toBe(CF2);
+    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+    expect(tlsAccounts(file)).toHaveLength(1);
+  });
+
+  it("listings never carry the value; generic getKeyValue / rotateAccount refuse the account", async () => {
+    const store = createVaultStore(file);
+    await store.upsertTlsSecrets({ sourceId: "home", provider: "cloudflare", entries: [{ label: "cloudflareToken", value: CF }] });
+    const [acc] = await store.listAccounts();
+    expect(JSON.stringify(acc)).not.toContain(CF);
+    expect(store.getKeyValue(acc.id)).toBeUndefined();
+    await expect(store.rotateAccount(acc.id, "another-value-123")).rejects.toMatchObject({ code: "not_found" });
+    expect(await store.readTlsSecret("home", "cloudflareToken")).toBe(CF);
+  });
+
+  it("keeps the 8-character minimum", async () => {
+    const store = createVaultStore(file);
+    await expect(
+      store.upsertTlsSecrets({ sourceId: "home", provider: "cloudflare", entries: [{ label: "cloudflareToken", value: "1234567" }] }),
+    ).rejects.toMatchObject({ code: "value_too_short" });
+    expect(fs.existsSync(file)).toBe(false);
+  });
+
+  it("E31: acme-dns pair is atomic — a failing 2nd label leaves the 1st unchanged", async () => {
+    const store = createVaultStore(file);
+    const pair = (user: string, key: string) => ({
+      sourceId: "home",
+      provider: "acme-dns",
+      entries: [{ label: "acmeDnsUser", value: user }, { label: "acmeDnsKey", value: key }],
+    });
+    // fresh vault: nothing written
+    await expect(store.upsertTlsSecrets(pair("user-aaaaaaaa", "short"))).rejects.toMatchObject({ code: "value_too_short" });
+    expect(fs.existsSync(file)).toBe(false);
+    // existing pair: nothing changed
+    await store.upsertTlsSecrets(pair("user-aaaaaaaa", "key-aaaaaaaaaa"));
+    const before = fs.readFileSync(file, "utf8");
+    await expect(store.upsertTlsSecrets(pair("user-bbbbbbbb", "short"))).rejects.toMatchObject({ code: "value_too_short" });
+    expect(fs.readFileSync(file, "utf8")).toBe(before);
+    expect(await store.readTlsSecret("home", "acmeDnsUser")).toBe("user-aaaaaaaa");
+  });
+
+  it("E31: an I/O failure while persisting the pair leaves both labels unchanged", async () => {
+    const store = createVaultStore(file);
+    const pair = (user: string, key: string) => ({
+      sourceId: "home",
+      provider: "acme-dns",
+      entries: [{ label: "acmeDnsUser", value: user }, { label: "acmeDnsKey", value: key }],
+    });
+    await store.upsertTlsSecrets(pair("user-aaaaaaaa", "key-aaaaaaaaaa"));
+    const before = fs.readFileSync(file, "utf8");
+    const rename = vi.spyOn(fs, "renameSync").mockImplementation(() => { throw new Error("disk full"); });
+    await expect(store.upsertTlsSecrets(pair("user-bbbbbbbb", "key-bbbbbbbbbb"))).rejects.toThrow("disk full");
+    rename.mockRestore();
+    expect(fs.readFileSync(file, "utf8")).toBe(before);
+    expect(await store.readTlsSecret("home", "acmeDnsUser")).toBe("user-aaaaaaaa");
+    expect(await store.readTlsSecret("home", "acmeDnsKey")).toBe("key-aaaaaaaaaa");
+  });
+
+  it("deleteTlsNamespace / listTlsNamespaces: only that namespace, other accounts and unknown kinds untouched", async () => {
+    const store = createVaultStore(file);
+    await add(store, "user-key-0001", "mine");
+    await store.upsertTlsSecrets({ sourceId: "home", provider: "cloudflare", entries: [{ label: "cloudflareToken", value: CF }] });
+    await store.upsertTlsSecrets({ sourceId: "lab", provider: "cloudflare", entries: [{ label: "cloudflareToken", value: CF2 }] });
+    expect((await store.listTlsNamespaces()).sort()).toEqual(["home", "lab"]);
+    await store.deleteTlsNamespace("home");
+    expect(await store.listTlsNamespaces()).toEqual(["lab"]);
+    expect(await store.readTlsSecret("home", "cloudflareToken")).toBeNull();
+    expect((await store.listAccounts()).map((a) => a.label).sort()).toEqual(["cloudflareToken", "mine"]);
+  });
+
+  it("deleteTlsNamespace writes nothing when there is nothing to delete (no vault file created)", async () => {
+    const store = createVaultStore(file);
+    await store.deleteTlsNamespace("home");
+    expect(fs.existsSync(file)).toBe(false);
+    await add(store, "user-key-0001");
+    const before = fs.statSync(file).mtimeMs;
+    const onChange = vi.fn();
+    store.onChange(onChange);
+    await store.deleteTlsNamespace("home");
+    expect(onChange).not.toHaveBeenCalled();
+    expect(fs.statSync(file).mtimeMs).toBe(before);
+  });
+
+  it("unknown kinds still round-trip through a tls upsert", async () => {
+    const unknown = { id: "x1", provider: "p", kind: "future-kind", namespace: "future:z", label: "l", value: "future-secret" };
+    fs.writeFileSync(file, JSON.stringify({ futureField: { a: 1 }, accounts: [unknown] }), { mode: 0o600 });
+    const store = createVaultStore(file);
+    await store.upsertTlsSecrets({ sourceId: "home", provider: "cloudflare", entries: [{ label: "cloudflareToken", value: CF }] });
+    const doc = JSON.parse(fs.readFileSync(file, "utf8"));
+    expect(doc.futureField).toEqual({ a: 1 });
+    expect(doc.accounts[0]).toEqual(unknown);
+  });
+
+  it("a corrupt vault refuses writes and secret reads; listTlsNamespaces is empty", async () => {
+    fs.writeFileSync(file, "{ not json", { mode: 0o600 });
+    const store = createVaultStore(file);
+    await expect(
+      store.upsertTlsSecrets({ sourceId: "home", provider: "cloudflare", entries: [{ label: "cloudflareToken", value: CF }] }),
+    ).rejects.toMatchObject({ code: "vault_corrupt" });
+    await expect(store.readTlsSecret("home", "cloudflareToken")).rejects.toMatchObject({ code: "vault_corrupt" });
+    await expect(store.deleteTlsNamespace("home")).rejects.toMatchObject({ code: "vault_corrupt" });
+    expect(await store.listTlsNamespaces()).toEqual([]);
+  });
+});

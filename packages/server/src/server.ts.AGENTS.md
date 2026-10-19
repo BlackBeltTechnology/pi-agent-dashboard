@@ -93,3 +93,5 @@ Optional TLS listener: `const tlsListener = new TlsListener({dataRoot ~/.pi/dash
 Plugin context deps gain `serveApp: createHostServeApp({fastify, plugin:{packageDir,manifestId}, readConfiguredIds: ()=>loadConfig().auth?.capabilityRoutePlugins ?? []})` (trust-gated `/apps/<appId>/` mounts; auth plugin skips them via the mount registry). See change: add-plugin-capability-routes.
 
 Wires `fileHandlers` (live `resolveClaim` from `discoverPlugins` + `resolvePluginEnabled` + status store `loaded`, validator registry, shared pool) into `registerFileRoutes`; passes `{packageDir, editClaimIds}` as 4th arg of `createServerPluginContext`. See change: add-editor-pane-file-handlers.
+
+ACME source (add-acme-dns01-certs): `configureAcmeRuntime({credentials: createAcmeCredentials(vaultStore)})` right after `createVaultStore()`, `void acmeGc()` once at start; `registerAcmeRoutes(fastify,{networkGuard, manageGuard: createVaultManageGuard(vaultRoutesDeps), listener: tlsListener})` after `registerVaultRoutes`.

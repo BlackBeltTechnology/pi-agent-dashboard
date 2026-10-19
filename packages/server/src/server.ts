@@ -300,6 +300,10 @@ import { registerRuntimeRoutes } from "./routes/runtime-routes.js";
 import { registerSessionRoutes, type ToolResultStats } from "./routes/session-routes.js";
 import { registerSystemRoutes } from "./routes/system-routes.js";
 import { registerTlsRoutes } from "./routes/tls-routes.js";
+import { registerAcmeRoutes } from "./routes/acme-routes.js";
+import { createAcmeCredentials } from "./tls/sources/acme/credentials.js";
+import { configureAcmeRuntime } from "./tls/sources/acme/runtime.js";
+import { acmeGc } from "./tls/sources/acme/gc.js";
 import { registerToolRoutes } from "./routes/tool-routes.js";
 import { registerUserRoutes } from "./routes/user-routes.js";
 import {
@@ -359,7 +363,7 @@ import { createVaultDeliveryHub } from "./vault/vault-delivery-hub.js";
 import { createVaultImport, defaultKnownLocations } from "./vault/vault-import.js";
 import { createPluginVaultReader } from "./vault/vault-plugin-read.js";
 import { createVaultProjects } from "./vault/vault-projects.js";
-import { registerVaultRoutes } from "./vault/vault-routes.js";
+import { createVaultManageGuard, registerVaultRoutes } from "./vault/vault-routes.js";
 import { createVaultStore } from "./vault/vault-store.js";
 
 export interface ServerConfig {
@@ -1724,6 +1728,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // requests and pushes on every vault write / config change; values travel only
   // on the session-private bridge lane. See change: add-credential-vault.
   const vaultStore = createVaultStore();
+  // ACME DNS-01 certificate source: solver secrets live in this vault (kind `tls-solver`).
+  // GC of orphaned namespaces/account keys runs once at start. See change: add-acme-dns01-certs.
+  configureAcmeRuntime({ credentials: createAcmeCredentials(vaultStore) });
+  acmeGc().catch(() => undefined);
   // Remembered projects for the vault project picker; a sibling of vault.json, created on the first recorded project.
   const vaultProjects = createVaultProjects({ file: path.join(path.dirname(vaultStore.filePath), "vault-projects.json") });
   const vaultDelivery = createVaultDeliveryHub({
@@ -2789,6 +2797,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       discoverPlugins()
         .filter((p) => (p.manifest.vaultBindings?.length ?? 0) > 0)
         .map((p) => ({ pluginId: p.manifest.id, displayName: p.manifest.displayName, declared: p.manifest.vaultBindings ?? [] })),
+  });
+  // ACME certificate sources: per-entry config routes + vault-backed solver credentials
+  // (the credentials route answers exactly like a vault management route).
+  // See change: add-acme-dns01-certs.
+  registerAcmeRoutes(fastify, {
+    networkGuard,
+    manageGuard: createVaultManageGuard({ localTrust, loginAvailable, requestAccessAvailable, hostPolicy: policyRegistry }),
+    listener: tlsListener,
   });
   // Pi runtime discovery + atomic dual selection. See change: select-pi-runtime-install.
   registerPiRuntimeRoutes(fastify, { registry: getDefaultRegistry(), networkGuard });

@@ -224,12 +224,24 @@ export PI_CHAT_GATEWAY_FAKE_DIR="${PI_CHAT_GATEWAY_FAKE_DIR:-}"
 # that in-container port. Defaulted so the spec needs no extra flag.
 export PI_E2E_GOOGLE_BASE_URL="${PI_E2E_GOOGLE_BASE_URL:-http://127.0.0.1:18090}"
 
+# Extra overlays (TEST_EXTRA_COMPOSE, whitespace-separated basenames under
+# docker/). Recorded in the state file as `extraCompose` so test-down.sh tears
+# the same stack down WITHOUT the env var (e.g. ship-it's trap). Always written,
+# `[]` when none. See change: add-acme-dns01-certs (design D10).
+read -r -a EXTRA_COMPOSE <<< "${TEST_EXTRA_COMPOSE:-}"
+EXTRA_COMPOSE_JSON="["
+for f in ${EXTRA_COMPOSE[@]+"${EXTRA_COMPOSE[@]}"}; do
+  [ "$EXTRA_COMPOSE_JSON" = "[" ] || EXTRA_COMPOSE_JSON="${EXTRA_COMPOSE_JSON}, "
+  EXTRA_COMPOSE_JSON="${EXTRA_COMPOSE_JSON}\"${f}\""
+done
+EXTRA_COMPOSE_JSON="${EXTRA_COMPOSE_JSON}]"
+
 # Record the resolved ports + project for teardown + the Playwright lifecycle.
 # Gitignored; harmless inside the container (read-only overlay lower).
 write_state_file() {
-  local extra=""
+  local extra=", \"extraCompose\": ${EXTRA_COMPOSE_JSON}"
   if [ -n "$RECORDER_PID" ]; then
-    extra=", \"recorderPid\": ${RECORDER_PID}, \"eventsFile\": \"${EVENTS_FILE}\""
+    extra="${extra}, \"recorderPid\": ${RECORDER_PID}, \"eventsFile\": \"${EVENTS_FILE}\""
   fi
   [ -n "$CONTAINER_ID" ] && extra="${extra}, \"containerId\": \"${CONTAINER_ID}\""
   cat > "$STATE_FILE" <<EOF
@@ -251,10 +263,10 @@ fi
 # identity-plane E2E to boot an identity-ACTIVE harness
 # (TEST_EXTRA_COMPOSE=compose.test.identity.yml). Off by default ⇒ the shared
 # harness is byte-for-byte unchanged. See openspec: add-multi-user-identity-plane.
-if [ -n "${TEST_EXTRA_COMPOSE:-}" ]; then
-  COMPOSE_FILES+=(-f "${SCRIPT_DIR}/${TEST_EXTRA_COMPOSE}")
-  MODE_NOTE="${MODE_NOTE} + ${TEST_EXTRA_COMPOSE}"
-fi
+for f in ${EXTRA_COMPOSE[@]+"${EXTRA_COMPOSE[@]}"}; do
+  COMPOSE_FILES+=(-f "${SCRIPT_DIR}/${f}")
+  MODE_NOTE="${MODE_NOTE} + ${f}"
+done
 
 echo "──────────────────────────────────────────────────────────────"
 echo " pi-dashboard test harness"
@@ -310,7 +322,8 @@ done
 # recorder writes the boot line itself when it sees the create event.
 UP_OK=1
 if [ -n "$RECORDER_PID" ]; then
-  CONTAINER_ID="$(docker compose -p "$COMPOSE_PROJECT_NAME" ps -q 2>/dev/null | head -1 || true)"
+  # Name the service: an overlay (TEST_EXTRA_COMPOSE) adds sibling containers.
+  CONTAINER_ID="$(docker compose -p "$COMPOSE_PROJECT_NAME" ps -q pi-dashboard 2>/dev/null | head -1 || true)"
   if [ -n "$CONTAINER_ID" ]; then
     if [ "$CONTAINER_ID" != "$PRIOR_CONTAINER_ID" ] && ! grep -q "^boot .* ${CONTAINER_ID}\$" "$EVENTS_FILE" 2>/dev/null; then
       printf 'boot %s %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$COMPOSE_PROJECT_NAME" "$CONTAINER_ID" >> "$EVENTS_FILE" 2>/dev/null || true

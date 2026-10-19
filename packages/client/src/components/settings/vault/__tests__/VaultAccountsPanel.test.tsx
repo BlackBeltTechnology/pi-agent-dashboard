@@ -354,3 +354,48 @@ describe("revoke — two steps with a fresh impact read", () => {
     expect(calls.filter((c) => c.method === "DELETE")).toHaveLength(0);
   });
 });
+
+describe("E28 — TLS solver accounts on the Accounts tab (add-acme-dns01-certs)", () => {
+  const SOLVER_VALUE = "cf-token-must-never-render-0001";
+  beforeEach(() => {
+    current = makeOverview({
+      accounts: [
+        acct("u1", "gemini", "personal"),
+        { id: "t1", provider: "cloudflare", kind: "tls-solver", namespace: "tls:home", label: "cloudflareToken" },
+      ],
+    });
+    calls = stubVaultFetch({ overview: () => current });
+  });
+
+  it("lists them under TLS certificates by name only, with the Gateway source and a Gateway link", () => {
+    render(<Host />);
+    const group = screen.getByTestId("vault-accounts-tls");
+    expect(within(group).getByRole("heading", { name: "TLS certificates" })).toBeTruthy();
+    const row = within(group).getByTestId("vault-account-t1");
+    expect(within(row).getByTestId("vault-account-label").textContent).toBe("cloudflareToken");
+    expect(row.textContent).toContain("cloudflare");
+    expect(within(row).getByTestId("vault-account-tls-usage").textContent).toBe("Gateway source home");
+    expect(within(row).getByTestId("vault-account-tls-link").getAttribute("href")).toBe("/settings/gateway");
+  });
+
+  it("offers no rotate or revoke control and shows no value", () => {
+    render(<Host />);
+    const row = screen.getByTestId("vault-account-t1");
+    expect(within(row).queryByTestId("vault-account-rotate")).toBeNull();
+    expect(within(row).queryByTestId("vault-account-revoke")).toBeNull();
+    expect(within(row).queryByRole("button")).toBeNull();
+    expect(row.querySelector("input")).toBeNull();
+    expect(document.body.textContent).not.toContain(SOLVER_VALUE);
+  });
+
+  it("keeps the key group to key accounts and omits the group when there are no solver accounts", () => {
+    render(<Host />);
+    expect(within(screen.getByTestId("vault-accounts-list")).queryByTestId("vault-account-t1")).toBeNull();
+    expect(within(screen.getByTestId("vault-accounts-list")).getByTestId("vault-account-u1")).toBeTruthy();
+    expect(screen.queryByTestId("vault-accounts-other")).toBeNull();
+    cleanup();
+    current = makeOverview({ accounts: [acct("u1", "gemini", "personal")] });
+    render(<Host />);
+    expect(screen.queryByTestId("vault-accounts-tls")).toBeNull();
+  });
+});

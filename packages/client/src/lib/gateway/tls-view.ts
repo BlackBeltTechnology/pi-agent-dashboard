@@ -66,10 +66,10 @@ export interface TlsRowView {
 }
 
 /** One certificate row: state pill, facts line and action label. */
-export function deriveCertRow(cert: TlsCertStatus, now: number, t: Translate): TlsRowView {
+export function deriveCertRow(cert: TlsCertStatus, now: number, t: Translate, isRequestingStage: (stage: string) => boolean = (s) => s === "requesting"): TlsRowView {
   const held = isHeld(cert, now);
   const running = cert.stage !== "idle";
-  const requesting = cert.stage === "requesting";
+  const requesting = isRequestingStage(cert.stage);
   const date = fmtDate(cert.notAfter ?? now);
   const days = daysLeft(cert, now);
   const spin = (label: string): TlsPill => ({ severity: "info", label, icon: mdiLoading, spin: true });
