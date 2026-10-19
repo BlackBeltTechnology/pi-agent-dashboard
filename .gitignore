@@ -22,6 +22,8 @@ packages/*/src/**/*.d.ts
 !packages/client/src/vite-env.d.ts
 # Hand-authored ambient module decl for the deep raw-TS import of @latentminds/pi-quotas — not a build artifact.
 !packages/quota-plugin/src/pi-quotas.d.ts
+# Hand-authored browser shim injected verbatim into the WordCraft web build — source, not a build artifact.
+!packages/craft-web-plugin/src/shim/craft-shim.js
 packages/electron/resources/server
 packages/electron/resources/node
 packages/electron/resources/git

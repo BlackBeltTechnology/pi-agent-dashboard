@@ -339,6 +339,20 @@ describe("loadConfig", () => {
     expect(config.auth!.bypassUrls).toEqual(["/webhooks/", "/metrics"]);
   });
 
+  // add-plugin-capability-routes #E6: the trust list alone counts as auth content.
+  it("keeps auth.capabilityRoutePlugins when it is the only auth content", () => {
+    fs.writeFileSync(configFile, JSON.stringify({ auth: { capabilityRoutePlugins: ["x", 7, "y"] } }));
+    const config = loadConfig();
+    expect(config.auth?.capabilityRoutePlugins).toEqual(["x", "y"]);
+  });
+
+  it("defaults auth.capabilityRoutePlugins to [] when absent", () => {
+    fs.writeFileSync(configFile, JSON.stringify({
+      auth: { providers: { github: { clientId: "id1", clientSecret: "s1" } } },
+    }));
+    expect(loadConfig().auth!.capabilityRoutePlugins).toEqual([]);
+  });
+
   it("should default auth.bypassUrls to empty array when absent", () => {
     fs.writeFileSync(configFile, JSON.stringify({
       auth: {

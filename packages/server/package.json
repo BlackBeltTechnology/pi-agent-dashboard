@@ -43,6 +43,7 @@
       "cost-estimator",
       "quota-plugin",
       "browser-plugin",
+      "craft-web-plugin",
       "keycloak-resolver-plugin",
       "chat-gateway",
       "system-one-plugin",

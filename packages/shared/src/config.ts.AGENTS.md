@@ -48,3 +48,4 @@ Dashboard config loader. `loadConfig()` reads `~/.pi/dashboard/config.json` via 
 `AcmeSourceEntry`/`AcmeSolverConfig`: shape of an `acme` entry in `tls.sources[]` (secrets never stored in config; `solver.configured` is a read-only projection). See change: add-acme-dns01-certs.
 
 `editor: { largeFileLimitMb }` block: `DEFAULT_EDITOR_CONFIG` (10), `parseEditorConfig` (round + clamp 1–256, non-number → 10). See change: gate-changed-on-disk-by-content.
+`AuthConfig.capabilityRoutePlugins?: string[]` (manifest ids of non-bundled plugins trusted to `serveApp`; default `[]`, string-filtered). It alone counts as auth content for `parseAuthConfig`, so it is not dropped. See change: add-plugin-capability-routes.

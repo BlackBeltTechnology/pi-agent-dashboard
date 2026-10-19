@@ -200,6 +200,12 @@ export interface AuthConfig {
   allowedUsers?: string[];
   bypassUrls?: string[];
   bypassHosts?: string[];
+  /**
+   * Manifest ids of NON-bundled plugins trusted to mount `serveApp` apps (bundled
+   * plugins are trusted by package-directory membership). Read at activation
+   * (restart-effective). Default `[]`. See change: add-plugin-capability-routes (D2).
+   */
+  capabilityRoutePlugins?: string[];
   /** Base URL for OAuth redirect URIs — overrides the tunnel URL when set. */
   redirectBaseUrl?: string;
   /** Admin email override — can list/revoke every user's proxy API keys. */
@@ -1722,7 +1728,8 @@ function parseAuthConfig(raw: any): AuthConfig | undefined {
   const hasHosts = Array.isArray(raw.bypassHosts) && raw.bypassHosts.length > 0;
   const hasUrls = Array.isArray(raw.bypassUrls) && raw.bypassUrls.length > 0;
   const hasPasskeys = raw.passkeys?.enabled === true;
-  if (!hasProviders && !hasHosts && !hasUrls && !hasPasskeys) return undefined;
+  const hasCapabilityPlugins = Array.isArray(raw.capabilityRoutePlugins) && raw.capabilityRoutePlugins.length > 0;
+  if (!hasProviders && !hasHosts && !hasUrls && !hasPasskeys && !hasCapabilityPlugins) return undefined;
 
   // Validate each provider has at least clientId and clientSecret.
   // validProviders may end up empty when providers is {} or all entries
@@ -1746,7 +1753,7 @@ function parseAuthConfig(raw: any): AuthConfig | undefined {
   // If providers was declared but all entries are malformed AND there is no
   // bypass content, fall back to undefined — same "nothing auth-relevant"
   // rule as the top-level gate.
-  if (Object.keys(validProviders).length === 0 && !hasHosts && !hasUrls && !hasPasskeys) {
+  if (Object.keys(validProviders).length === 0 && !hasHosts && !hasUrls && !hasPasskeys && !hasCapabilityPlugins) {
     return undefined;
   }
 
@@ -1758,6 +1765,9 @@ function parseAuthConfig(raw: any): AuthConfig | undefined {
     ...(Array.isArray(raw.allowedUsers) ? { allowedUsers: raw.allowedUsers } : Array.isArray(raw.allowedEmails) ? { allowedUsers: raw.allowedEmails } : {}),
     bypassUrls: Array.isArray(raw.bypassUrls) ? raw.bypassUrls.filter((u: unknown) => typeof u === "string") : [],
     bypassHosts: Array.isArray(raw.bypassHosts) ? raw.bypassHosts.filter((u: unknown) => typeof u === "string") : [],
+    capabilityRoutePlugins: Array.isArray(raw.capabilityRoutePlugins)
+      ? raw.capabilityRoutePlugins.filter((u: unknown) => typeof u === "string")
+      : [],
     ...(typeof raw.redirectBaseUrl === "string" && raw.redirectBaseUrl.trim()
       ? { redirectBaseUrl: raw.redirectBaseUrl.trim() }
       : {}),

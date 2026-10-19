@@ -157,7 +157,7 @@ Paste uses native `paste` events, so no clipboard-read permission is needed.
 | `dirty{nonce, value}` | From the title `•` signal parsed out of `console.warn`, combined with input tracking: any trusted `keydown`/`paste`/`cut`/`drop`, or `pointerdown` followed by a title change, captured on the *frame's own* `window` — the shim runs inside the iframe, so dashboard typing never reaches it (eframe may route keys to a hidden text input, not the canvas) after the last clean signal forces `true`. "Clean" is reported only when the latest title signal is clean **and** no input followed it. After a **copy** save the host keeps reporting `true` to core: the tab's own file still lacks the edits. |
 | `blocked{nonce, what}` | The shim refused an open: `type=file` input `click`/`showPicker`, `showOpenFilePicker` (`AbortError`), a trusted `drop` carrying files, or a `paste` whose `clipboardData` carries file items (capture on `window`; text and image *content* paste stays allowed). The host shows a toast "Open other files from the dashboard". |
 | `csp{nonce, directive}` | From `securitypolicyviolation`. The host logs it to the server (plugin log route, rate-limited) and shows nothing to the user. |
-| `navigate-blocked{nonce, url}` | From the Navigation API `navigate` listener, which calls `preventDefault()` on every cancelable cross-document navigation. The host offers to open `url` in a new browser tab after confirmation. |
+| `navigate-blocked{nonce, url}` | The shim cancels a link that would replace the frame's document: a capture-phase `click` on a navigating `<a href>` (and `HTMLAnchorElement.prototype.click`), and `window.open(url)` (eframe opens hyperlinks with it). The Navigation API `navigate` listener stays as defence in depth, but the spike measured that an opaque-origin sandboxed frame never receives `navigate` (Chromium), so it cannot be the mechanism. `location.href = …` cannot be intercepted (Risks). The host offers to open `url` in a new browser tab after confirmation. |
 
 **Host → shim messages** (posted with `targetOrigin "*"`, the only value that reaches an opaque origin; the nonce and the `event.source` check are the real gate).
 - `open{nonce, name, bytes}` — once per mount, in reply to the first `ready`.
@@ -165,7 +165,7 @@ Paste uses native `paste` events, so no clipboard-read permission is needed.
 
 **Host acceptance.** `event.source === iframe.contentWindow`, nonce match, known `type`, `bytes` ≤ claim `maxBytes`. The nonce binds messages to the mount; it does not authenticate the framed app (which can read it). Write safety rests on core + validator.
 
-**Navigation.** A second `ready` or a second frame `load` means navigation or reload: the host drops that frame. Its edits are already gone (the browser replaced the document), so no confirmation can precede it. The host then shows, in place: "The editor reloaded. Unsaved edits were lost." when the last state was `true`/`"unknown"` (else "Editor reloaded"), with Resume. Cancelling navigations via the Navigation API prevents the common cause (in-document hyperlinks).
+**Navigation.** A second `ready` or a second frame `load` means navigation or reload: the host drops that frame. Its edits are already gone (the browser replaced the document), so no confirmation can precede it. The host then shows, in place: "The editor reloaded. Unsaved edits were lost." when the last state was `true`/`"unknown"` (else "Editor reloaded"), with Resume. Cancelling link clicks and `window.open` in the shim prevents the common cause (in-document hyperlinks).
 
 **WebRTC.** CSP `connect-src` does not govern `RTCPeerConnection` traffic. The shim deletes `RTCPeerConnection`, `webkitRTCPeerConnection`, `RTCDataChannel` and `RTCRtpSender` from `window` before the app loads, which stops non-malicious use. A malicious bundle could recover them (e.g. from a nested same-opaque-origin frame); that is the same residual class as self-navigation (Risks).
 
@@ -204,7 +204,7 @@ Paste uses native `paste` events, so no clipboard-read permission is needed.
   - loads through the zrok tunnel URL.
 
   A failure → no `webVersion`, no claim.
-- **[Self-navigation and WebRTC exfiltration]** → Navigation cancelled via the Navigation API where supported (Chromium; others `unverified`); WebRTC constructors removed by the shim. A deliberately malicious bundle could still leak the loaded document once via a URL, or recover WebRTC. Accepted: pinned, checksum-verified open-source bundles. The spec claims only that fetch, XHR, WebSocket and EventSource are blocked by policy.
+- **[Self-navigation and WebRTC exfiltration]** → Link clicks and `window.open` cancelled by the shim (measured: the Navigation API is not delivered to an opaque-origin frame, so it is not relied on); `location.href = …` is not interceptable; WebRTC constructors removed by the shim. A deliberately malicious bundle could still leak the loaded document once via a URL, or recover WebRTC. Accepted: pinned, checksum-verified open-source bundles. The spec claims only that fetch, XHR, WebSocket and EventSource are blocked by policy.
 - **[Dirty signal missed]** → Input tracking forces dirty; no signal → `"unknown"` = never evicted, always confirms.
 - **[Fidelity loss]** → Core first-overwrite notice (per-app text), host Save-target toggle, OOXML validator.
 - **[Payload / phone clients]** → Opt-in mode, gzip, immutable caching, size shown in the disabled/not-prepared state.
@@ -217,3 +217,31 @@ Paste uses native `paste` events, so no clipboard-read permission is needed.
 - `craft-apps` refactor keeps CLI behaviour (existing tests stay green).
 - **Rollout:** WordCraft claim first; GridCraft/DeckCraft claims added as their spikes pass.
 - **Rollback:** disable the plugin. Builds under `~/.pi/dashboard/plugin-data/craft-web/` are inert and deletable.
+
+## Spike note — WordCraft 0.8.0 (task 1.1)
+
+Run on the docker harness (headless Chromium, `sandbox="allow-scripts"`, production CSP, `http://localhost`), `wordcraft-web-0.8.0.zip` from the GitHub release, checksum-verified. Result: **pass on Chromium; `webVersion = "0.8.0"` set.** Evidence: `tests/e2e/craft-web-editor.spec.ts` F1–F9, X7 green.
+
+| Item | Result |
+|---|---|
+| `ready` after init, drop-open, `opened` title | pass. `Title("report - WordCraft")` follows the drop. |
+| `showSaveFilePicker` save, Cmd/Ctrl+S, dirty round trip, copy save, device-download export (PDF), foreign-open refusal | pass (F2, F3, F4, F8) |
+| CSP token set; fetch/XHR to example.com and `/api/*` rejected, violation reported | pass (F5). The `<link rel=icon>` is refused by `img-src blob: data:` (harmless; reported once). |
+| WebGPU in the sandbox (`BrowserWebGpu`) and `?webgl` leg; IndexedDB refused (font store warns "no stored fonts") | pass (F9 both legs) |
+| Cross-origin loads (CORS-mode module/preload/wasm) | pass with `crossOriginFrame` |
+| Chrome-only evidence | Firefox and Safari synthetic `DataTransfer` drop, and the zrok tunnel URL, were **not run** here: recorded `unverified`. |
+| P1 first Edit → `opened` (cached build) | 1.9–3.0 s (5 runs, p95 ≈ 3.0 s). P2 cold prepare: ≈ 3 s, 16.0 MB gzip. |
+
+Findings that changed the design:
+1. **Release zip wraps the site in `wordcraft-web-<ver>/`.** `provisionWeb` hoists a single top-level directory that holds `index.html` to the install root before post-install (test E14b).
+2. **A drop delivered right after `ready` is ignored.** WordCraft drops files that arrive before its first update tick. The shim delivers the synthetic drop after the app's first viewport-title signal (+2 frames +250 ms), or after 3 s without one.
+3. **The Navigation API is not delivered to the opaque-origin sandboxed frame** (Chromium, `isSecureContext` true, `window.navigation` present, no `navigate` event). Link-click and `window.open` interception replace it (D4).
+4. **Plugin activation is restart-effective for the client too.** `/api/health.plugins[]` reports a plugin disabled only after a restart, and an open page refreshes on `plugin-config-update`. The live-disable overlay (X7) is exercised by serving that health response; a real run needs restart + that event.
+5. Pasting an image copied in the browser is refused with other file items (the shim cannot tell content from file); text paste is untouched.
+
+## Upstream contracts implemented in this change's branch
+
+`add-editor-pane-file-handlers`, `add-plugin-capability-routes` and `gate-changed-on-disk-by-content` were unimplemented when this change shipped, so the subset this plugin needs landed here (the digest baseline came from the `gate-changed-on-disk-by-content` branch):
+- file handlers: the whole slot, `POST /api/file/write-binary`, validators, switcher, host, keep-alive layer, demo fixture (tasks 1–6 of that change; its L3 spec `tests/e2e/editor-pane-file-handler.spec.ts`);
+- capability routes: only `ctx.serveApp` + `ctx.dataDir` + the trust gate and `auth.capabilityRoutePlugins`. `registerCapabilityRoute`, the stamping hook and `requestPrincipal` are NOT implemented and remain that change's work.
+Those changes' remaining tasks and their archive are theirs; expect overlap in `server-context.ts`, `server.ts` and the editor-pane client when they merge.

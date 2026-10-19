@@ -69,6 +69,10 @@ export default async function registerPlugin(ctx: ServerPluginContext): Promise<
     return { binding: DEMO_VAULT_BINDING, present: typeof value === "string", length: typeof value === "string" ? value.length : null };
   });
 
+  // Validator for the `.docx` file-handler claim (`validator: true`): without this the
+  // claim is NOT writable (503, fail closed). `?.`: tolerate a host older than the seam. See change: add-editor-pane-file-handlers (6.1).
+  ctx.registerFileValidator?.({ claimId: "docx", module: "./src/server/docx-validator.mjs" });
+
   ctx.fastify.delete("/api/plugins/demo/account", async () => {
     await ctx.credentials?.remove(DEMO_ACCOUNT_KEY);
     return { ok: true };

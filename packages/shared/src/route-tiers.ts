@@ -208,6 +208,8 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "GET", path: "/api/plugins/blackhole/config", tier: "operate" },
   { method: "GET", path: "/api/plugins/blackhole/session/:id", tier: "observe" },
   { method: "GET", path: "/api/plugins/blackhole/status", tier: "observe" },
+  // edit-office-in-pane-with-craft-web: per-app availability of the embedded Office editors (read-only).
+  { method: "GET", path: "/api/plugins/craft-web/status", tier: "observe" },
   // attach-flow-before-run: read-only flow file access (exact reported files).
   { method: "GET", path: "/api/plugins/flows/file", tier: "observe" },
   { method: "GET", path: "/api/plugins/flows/files", tier: "observe" },
@@ -300,6 +302,8 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "POST", path: "/api/electron/reextract", tier: "operate" },
   { method: "POST", path: "/api/file/resolve-mention", tier: "observe" },
   { method: "POST", path: "/api/file/write", tier: "control" },
+  // add-editor-pane-file-handlers: plugin file-handler binary save; same tier as the text write.
+  { method: "POST", path: "/api/file/write-binary", tier: "control" },
   { method: "POST", path: "/api/folders/goals", tier: "control" },
   { method: "POST", path: "/api/folders/goals/:id/sessions", tier: "control" },
   { method: "POST", path: "/api/git/checkout", tier: "control" },
@@ -361,6 +365,9 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   // Runtime overlay mutations: stage / activate / roll back the dashboard
   // runtime (Electron-only). See change: electron-runtime-overlay-updates.
   { method: "POST", path: "/api/plugins/blackhole/bindings/reattach", tier: "operate" },
+  // edit-office-in-pane-with-craft-web: prepare downloads a build (control, like spawning); csp-report only bumps a counter.
+  { method: "POST", path: "/api/plugins/craft-web/csp-report", tier: "control" },
+  { method: "POST", path: "/api/plugins/craft-web/prepare/:app", tier: "control" },
   { method: "POST", path: "/api/plugins/team/agents/:key/conversations", tier: "operate" },
   { method: "POST", path: "/api/plugins/team/agents/:key/conversations/:c/restart", tier: "operate" },
   { method: "POST", path: "/api/plugins/team/agents/:key/conversations/:c/session", tier: "operate" },

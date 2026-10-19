@@ -24,7 +24,7 @@ This change packages that as a **dashboard plugin** on top of the core file-hand
   - refuses in-app opening of other files (file chooser, open picker, desktop drop, pasted files);
   - asks before honouring an in-app "Save As" to a different name;
   - routes exports of another type (e.g. PDF) to a device download, never to the workspace.
-- **Host shim** (`craft-shim.js`), injected into the build at provision time (versioned; an outdated shim triggers re-preparation). It stubs `showSaveFilePicker`, intercepts anchor downloads, signals readiness after app init, derives dirty state, refuses foreign opens, removes WebRTC constructors, and cancels self-navigation where the Navigation API exists.
+- **Host shim** (`craft-shim.js`), injected into the build at provision time (versioned; an outdated shim triggers re-preparation). It stubs `showSaveFilePicker`, intercepts anchor downloads, signals readiness after app init, derives dirty state, refuses foreign opens, removes WebRTC constructors, and cancels link clicks and `window.open` that would navigate the frame.
 - **Plugin server:**
   - provisions web builds through `craft-apps` `provisionWeb`: pinned version, checksum fail-closed, JS zip extraction, disjoint cache;
   - serves the prepared build (stable `current` pointer) without auth, with an enforced CSP that confines fetch/XHR/WebSocket to the build's own path and `ACAO:*` for the opaque frame;

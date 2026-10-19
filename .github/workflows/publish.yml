@@ -374,6 +374,7 @@ jobs:
             "@blackbelt-technology/pi-dashboard-obs-studio-plugin"
             "@blackbelt-technology/pi-dashboard-system-one-plugin"
             "@blackbelt-technology/pi-dashboard-browser-plugin"
+            "@blackbelt-technology/pi-dashboard-craft-web-plugin"
             "@blackbelt-technology/pi-dashboard-chat-gateway-plugin"
             "@blackbelt-technology/pi-dashboard-mcp-server-plugin"
             "@blackbelt-technology/pi-dashboard-mcp-client-plugin"

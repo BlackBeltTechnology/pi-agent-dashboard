@@ -4,6 +4,7 @@
  * The registry holds a Map<SlotId, ClaimEntry[]> pre-sorted by
  * (priority asc, pluginId asc) for deterministic render order.
  */
+import type { FileHandlerClaimMeta } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/file-handler.js";
 import type { SlotId, SlotPredicateInput } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-types.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
@@ -42,6 +43,12 @@ export interface ClaimEntry<S extends SlotId = SlotId> {
    * See change: add-browser-editor-pane-tab.
    */
   pathPrefix?: string;
+  /**
+   * Validated claim metadata of an `editor-pane-file-handler` claim (id,
+   * extensions, mode, label, keepAlive, maxBytes, …). Claim key =
+   * `<pluginId>/<fileHandler.id>`. See change: add-editor-pane-file-handlers.
+   */
+  fileHandler?: FileHandlerClaimMeta;
   /** Resource page a `resource-page-section` claim is restricted to. See change: add-skill-atlas-screen. */
   resourceType?: "skill" | "agent" | "extension" | "prompt" | "theme";
   /** Exported label component name for an `editor-pane-tab` claim. */

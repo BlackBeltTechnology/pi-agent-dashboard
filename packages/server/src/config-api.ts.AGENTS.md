@@ -22,3 +22,4 @@ Merges nested `piTrustMirror.sources` on PUT and refreshes the snapshot. See cha
 `readConfigState(): {state:"absent"|"ok"|"corrupt", raw}` — three-way read of `config.json` (no change to `writeConfigPartial`); used by the acme per-entry routes (409 on corrupt) and `acmeGc()`. See change: add-acme-dns01-certs.
 
 `writeConfigPartial` merges the `editor` sub-object (no restart). See change: gate-changed-on-disk-by-content.
+`writeConfigPartial` merges `auth.capabilityRoutePlugins` (`!== undefined`, so `[]` clears the trust list). See change: add-plugin-capability-routes.

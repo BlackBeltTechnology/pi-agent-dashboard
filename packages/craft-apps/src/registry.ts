@@ -88,6 +88,19 @@ export interface CraftApp {
   mcp: McpPolicy;
   /** Minimum glibc on Linux, `[major, minor]`. */
   glibcMin: readonly [number, number];
+  /**
+   * Pinned release of the browser (Trunk/eframe) build, `<id>-web-<ver>.zip`. Present only for apps whose
+   * web build passed its spike (the claim ship gate); never "latest". See change: edit-office-in-pane-with-craft-web.
+   */
+  webVersion?: string;
+  /** First-overwrite notice shown by the editor pane for this app's web build (≤ 300 chars). */
+  webFidelityNote?: string;
+}
+
+/** Optional browser-build facts of an app (`CraftApp.webVersion` / `webFidelityNote`). */
+export interface WebBuildInfo {
+  webVersion: string;
+  webFidelityNote: string;
 }
 
 const HOSTS_MACOS: HostKey[] = ["darwin/x64", "darwin/arm64"];
@@ -111,8 +124,9 @@ function app(
   dialect: CliDialect,
   mcp: McpPolicy,
   glibcMin: readonly [number, number] = [2, 35],
+  web?: WebBuildInfo,
 ): CraftApp {
-  return { id, name, purpose, repo: `storytold/${id}`, cli: `${id}-cli`, assets: standardAssets(id), dialect, mcp, glibcMin };
+  return { id, name, purpose, repo: `storytold/${id}`, cli: `${id}-cli`, assets: standardAssets(id), dialect, mcp, glibcMin, ...web };
 }
 
 const COMMANDS_JSON: CliDialect["list"] = ["commands", "--json"];
@@ -180,6 +194,12 @@ export const CRAFT_APPS: readonly CraftApp[] = [
     "word processing: DOCX/ODT/RTF documents, conversion, PDF export",
     { list: COMMANDS_JSON, run: "run [--file F] --cmd 'id={json}'… [--save OUT] | convert | render | text" },
     { confinement: "automation-roots", toolClass: "small", tools: 16, bridgeFlag: "--connect" },
+    undefined,
+    {
+      webVersion: "0.8.0",
+      webFidelityNote:
+        "Saves are re-rendered by WordCraft's own writer; formatting of unsupported features may change. A copy is the safe way to compare.",
+    },
   ),
   app(
     "soundcraft",

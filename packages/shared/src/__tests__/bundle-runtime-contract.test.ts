@@ -7,10 +7,11 @@
  *
  * See change: cleanup-stale-fork-specs.
  */
-import { describe, it, expect } from "vitest";
+
 import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
+import { describe, expect, it } from "vitest";
 
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..");
@@ -77,6 +78,10 @@ describe("bundled server ships the pi runtime (E10)", () => {
       "mcp-server-plugin",
       "session-distiller",
       "system-one",
+      // craft-web-plugin depends on craft-apps (provisionWeb), which depends on nano-banana.
+      // See change: edit-office-in-pane-with-craft-web.
+      "craft-apps",
+      "nano-banana",
     ]);
   });
 

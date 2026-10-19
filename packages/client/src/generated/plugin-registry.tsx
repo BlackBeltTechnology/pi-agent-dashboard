@@ -16,6 +16,7 @@ import { MemorySubcard, shouldRenderMemorySubcard, isPipelineDetailActive, OmEnt
 import { catalog as system_one_catalog } from "@blackbelt-technology/pi-dashboard-system-one-plugin";
 import { GmailSettings, catalog as gmail_catalog } from "@blackbelt-technology/pi-dashboard-gmail-plugin";
 import { ObsSettings, ObsAppClaim, catalog as obs_studio_catalog } from "@blackbelt-technology/pi-dashboard-obs-studio-plugin";
+import { catalog as craft_web_catalog } from "@blackbelt-technology/pi-dashboard-craft-web-plugin";
 import { BrowserRelayBadge, hasRelayTabsForBadge, BrowserRelayFeed, BrowserTabLabel, catalog as browser_catalog } from "@blackbelt-technology/pi-dashboard-browser-plugin";
 import { catalog as flows_anthropic_bridge_catalog } from "@blackbelt-technology/pi-dashboard-flows-anthropic-bridge-plugin";
 import { QuotaWidget, catalog as quota_catalog } from "@blackbelt-technology/pi-dashboard-quota-plugin";
@@ -736,6 +737,42 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
   {
     manifest: {
+        "id": "craft-web",
+        "displayName": "Craft Web Editors",
+        "priority": 400,
+        "claims": [
+            {
+                "slot": "editor-pane-file-handler",
+                "component": "WordCraftHandler",
+                "module": "./src/client/handlers.tsx",
+                "id": "wordcraft",
+                "extensions": [
+                    ".docx"
+                ],
+                "mode": "edit",
+                "label": "Edit in WordCraft",
+                "keepAlive": {
+                    "max": 3
+                },
+                "maxBytes": 41943040,
+                "firstOverwriteNotice": "Saves are re-rendered by WordCraft's own writer; formatting of unsupported features may change. A copy is the safe way to compare.",
+                "copySuffix": "wordcraft",
+                "validator": true
+            }
+        ],
+        "client": "./src/client/index.tsx",
+        "server": "./src/server/index.ts",
+        "configSchema": "./configSchema.json",
+        "defaultEnabled": false,
+        "i18nCatalog": "catalog"
+    },
+    claims: [
+      { pluginId: "craft-web", priority: 400, slot: "editor-pane-file-handler", fileHandler: {"id":"wordcraft","extensions":[".docx"],"mode":"edit","label":"Edit in WordCraft","keepAlive":{"max":3},"maxBytes":41943040,"firstOverwriteNotice":"Saves are re-rendered by WordCraft's own writer; formatting of unsupported features may change. A copy is the safe way to compare.","copySuffix":"wordcraft","validator":true}, Component: lazyClaim(() => import("../../../craft-web-plugin/src/client/handlers"), "WordCraftHandler") },
+    ],
+    catalog: craft_web_catalog,
+  },
+  {
+    manifest: {
         "id": "browser",
         "displayName": "Browser Relay",
         "priority": 500,
@@ -856,4 +893,4 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "f5b094eeee15fc7c2d53e42cfdc13cddf00197ccfb6d1ec95ee43c005f5abbee";
+export const PLUGIN_REGISTRY_HASH = "56eb3a2a185b9bc74522602a535e83823f608dd8638f432ec00acf2658349dbe";

@@ -4,6 +4,7 @@
  */
 
 import crypto from "node:crypto";
+import { getAppMountRegistry } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import type { AuthConfig, DashboardConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import type { Principal } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
 import type { Tier } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
@@ -542,6 +543,12 @@ export async function registerAuthPlugin(
 
     // Skip /v1/* — proxy auth gate handles those
     if (request.url.startsWith("/v1/")) return;
+
+    // Skip `ctx.serveApp` mounts (`/apps/<appId>/…`): a trusted plugin's static, extension-
+    // allowlisted app shell carrying no data, so a phone loads it without signing in. Matched
+    // against the mount registry (exact ids), never a loose `/apps/` prefix.
+    // See change: add-plugin-capability-routes (D5).
+    if (getAppMountRegistry().isMountPath(request.url)) return;
 
     // Skip configured bypass URL prefixes
     if (isBypassed(request.url, authState.bypassUrls)) return;

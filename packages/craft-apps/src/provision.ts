@@ -9,7 +9,11 @@
  * (`auto`). Every external effect (fetch, clock, env, platform, exec, C-library
  * probe) is an injectable seam.
  *
- * See change: add-photocraft-plugin (design D1–D4), add-craft-apps-core (D2, D3).
+ * `provisionWeb` installs the browser build `<app>-web-<ver>.zip` of an app through the same install core
+ * into `<root>/<app>-web/<key>/` and points `current` at it (never touches the CLI cache).
+ *
+ * See change: add-photocraft-plugin (design D1–D4), add-craft-apps-core (D2, D3),
+ * edit-office-in-pane-with-craft-web (D2).
  */
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
@@ -20,6 +24,7 @@ import { pipeline } from "node:stream/promises";
 import { execFileAsync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { launcherBinary } from "./launcher.js";
 import { binName, type CraftApp, type CraftAppId, desktopName, envPrefix, getApp, hostKey } from "./registry.js";
+import { extractZip, listZip } from "./zip-guard.js";
 
 export const API_BASE = "https://api.github.com";
 const LATEST_TTL_MS = 24 * 60 * 60 * 1000;
@@ -296,14 +301,17 @@ export function assertTreeSafe(tree: string): void {
   walk(tree);
 }
 
-async function extractArchive(deps: ProvisionDeps, archive: string, dest: string): Promise<void> {
+/** CLI list guard: `tar -tf` + `tar -tvf` must agree and show only regular files/directories under the install dir. */
+async function listArchive(deps: ProvisionDeps, archive: string): Promise<void> {
   const tar = exe("tar", deps.platform);
   const names = lines((await deps.exec(tar, ["-tf", archive])).stdout);
   const verbose = lines((await deps.exec(tar, ["-tvf", archive])).stdout);
   assertSafeListing(names, verbose);
+}
+
+async function extractArchive(deps: ProvisionDeps, archive: string, dest: string): Promise<void> {
   if (deps.platform === "darwin") await deps.exec("ditto", ["-x", "-k", archive, dest]);
-  else await deps.exec(tar, ["-xf", archive, "-C", dest]);
-  assertTreeSafe(dest);
+  else await deps.exec(exe("tar", deps.platform), ["-xf", archive, "-C", dest]);
 }
 
 // ── GitHub ──────────────────────────────────────────────────────────────────
@@ -482,9 +490,89 @@ async function overrideReport(app: CraftApp, deps: ProvisionDeps, started: numbe
   return { app: app.id, version, source: "override", asset: null, cacheHit: false, binary: path.resolve(bin), durationMs: deps.now() - started };
 }
 
+// ── Shared install core ─────────────────────────────────────────────────────
+
+const inflight = new Map<string, Promise<unknown>>();
+
+/** In-process single-flight: concurrent callers with the same `key` share one run (and its result). */
+export function singleFlight<T>(key: string, run: () => Promise<T>): Promise<T> {
+  if (inflight.has(key)) return inflight.get(key) as Promise<T>;
+  const p = run().finally(() => inflight.delete(key));
+  inflight.set(key, p);
+  return p;
+}
+
+/**
+ * Atomically move a finished staging `tree` to `finalDir`. `EEXIST`/`ENOTEMPTY`/`EPERM` means another
+ * process won the race: when `verifyExisting` accepts the winner's tree, reuse it (`true`), else rethrow.
+ */
+export function commitTree(tree: string, finalDir: string, verifyExisting: (dir: string) => boolean): boolean {
+  try {
+    fs.renameSync(tree, finalDir);
+    return false;
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code === "EEXIST" || code === "ENOTEMPTY" || code === "EPERM") {
+      if (!verifyExisting(finalDir)) throw e;
+      return true;
+    }
+    throw e;
+  }
+}
+
+export interface InstallVerifiedOptions<T> {
+  deps: ProvisionDeps;
+  /** `storytold/<id>`; pins the download URLs to the repo's release path. */
+  repo: string;
+  asset: string;
+  release: Release;
+  /** Directory that holds the staging dirs (the target's parent). */
+  cacheDir: string;
+  /** Final target; created by an atomic rename of the validated staging tree. */
+  finalDir: string;
+  /** List guard: inspect the archive and throw before anything is extracted. */
+  list: (archive: string) => void | Promise<void>;
+  extract: (archive: string, dest: string) => void | Promise<void>;
+  /** Runs on the extracted, `assertTreeSafe`-checked tree; may finalize it in place. Its result is returned as `value`. */
+  validate: (tree: string) => T | Promise<T>;
+  /** Race branch: is the tree another process put at `finalDir` usable? */
+  verifyExisting: (dir: string) => boolean;
+}
+
+export interface InstallResult<T> {
+  /** `true`: another process installed `finalDir` first and `verifyExisting` accepted it; `value` is then undefined. */
+  raced: boolean;
+  value: T | undefined;
+}
+
+/**
+ * Download-verified → list guard → extract into staging → `assertTreeSafe` → validate → atomic rename.
+ * Staging is always removed. Single-flight per `finalDir` within the process. Shared by the CLI install
+ * (tar listing, `locateBinary` validation) and the web-build install (zip-native list guard).
+ */
+export function installVerified<T>(o: InstallVerifiedOptions<T>): Promise<InstallResult<T>> {
+  return singleFlight(`install:${o.finalDir}`, async () => {
+    const staging = path.join(o.cacheDir, `.staging-${process.pid}-${o.deps.randomId()}`);
+    try {
+      const tree = path.join(staging, "tree");
+      fs.mkdirSync(tree, { recursive: true });
+      const archive = path.join(staging, o.asset);
+      await downloadVerified(o.deps, o.release, o.asset, archive, o.repo);
+      await o.list(archive);
+      await o.extract(archive, tree);
+      assertTreeSafe(tree);
+      const value = await o.validate(tree);
+      const raced = commitTree(tree, o.finalDir, o.verifyExisting);
+      return { raced, value: raced ? undefined : value };
+    } finally {
+      fs.rmSync(staging, { recursive: true, force: true });
+    }
+  });
+}
+
 // ── Provision ───────────────────────────────────────────────────────────────
 
-function sweepStaleStaging(root: string, now: number): void {
+export function sweepStaleStaging(root: string, now: number): void {
   let entries: string[];
   try {
     entries = fs.readdirSync(root);
@@ -601,51 +689,354 @@ async function provisionManaged(app: CraftApp, deps: ProvisionDeps, started: num
     fs.rmSync(versionDir, { recursive: true, force: true });
   }
 
-  const staging = path.join(root, `.staging-${process.pid}-${deps.randomId()}`);
-  try {
-    fs.mkdirSync(path.join(staging, "tree"), { recursive: true });
-    const tag = `v${version}`;
-    const release = resolved.release ?? (await apiJson(deps, `${deps.apiBase}/repos/${app.repo}/releases/tags/${tag}`));
-    const asset = candidates.find((c) => release.assets.some((a) => a.name === c));
-    if (!asset) throw new ProvisionError(`release ${tag} has no asset named ${candidates.join(" or ")}`);
+  const tag = `v${version}`;
+  const release = resolved.release ?? (await apiJson(deps, `${deps.apiBase}/repos/${app.repo}/releases/tags/${tag}`));
+  const asset = candidates.find((c) => release.assets.some((a) => a.name === c));
+  if (!asset) throw new ProvisionError(`release ${tag} has no asset named ${candidates.join(" or ")}`);
 
-    const archive = path.join(staging, asset);
-    await downloadVerified(deps, release, asset, archive, app.repo);
-
-    const tree = path.join(staging, "tree");
-    await extractArchive(deps, archive, tree);
-    const located = locateBinary(app, tree, deps.platform, asset);
-    if (!located) throw new ProvisionError(`no ${binName(app, deps.platform)} found in ${asset}`);
-    const rel = path.relative(tree, located);
-    fs.chmodSync(located, 0o755);
-    fs.rmSync(path.join(path.dirname(located), desktopName(app, deps.platform)), { force: true });
-    fs.writeFileSync(path.join(tree, ASSET_MARKER), `${asset}\n`);
-
-    let raced = false;
+  const installed = await installVerified<string>({
+    deps,
+    repo: app.repo,
+    asset,
+    release,
+    cacheDir: root,
+    finalDir: versionDir,
+    list: (archive) => listArchive(deps, archive),
+    extract: (archive, dest) => extractArchive(deps, archive, dest),
+    validate: (tree) => {
+      const located = locateBinary(app, tree, deps.platform, asset);
+      if (!located) throw new ProvisionError(`no ${binName(app, deps.platform)} found in ${asset}`);
+      const rel = path.relative(tree, located);
+      fs.chmodSync(located, 0o755);
+      fs.rmSync(path.join(path.dirname(located), desktopName(app, deps.platform)), { force: true });
+      fs.writeFileSync(path.join(tree, ASSET_MARKER), `${asset}\n`);
+      return rel;
+    },
+    verifyExisting: (dir) => cachedBinary(app, dir, deps.platform) !== undefined,
+  });
+  const binary = installed.raced ? (cachedBinary(app, versionDir, deps.platform) as string) : path.join(versionDir, installed.value as string);
+  const out = report(binary, false, asset);
+  if (deps.platform === "darwin") {
     try {
-      fs.renameSync(tree, versionDir);
+      await deps.exec("spctl", ["--assess", "--type", "install", binary]);
+      out.gatekeeper = "accepted";
     } catch (e) {
-      const code = (e as NodeJS.ErrnoException).code;
-      if (code === "EEXIST" || code === "ENOTEMPTY" || code === "EPERM") {
-        if (!cachedBinary(app, versionDir, deps.platform)) throw e;
-        raced = true;
-      } else throw e;
-    }
-    const binary = raced ? (cachedBinary(app, versionDir, deps.platform) as string) : path.join(versionDir, rel);
-    const out = report(binary, false, asset);
-    if (deps.platform === "darwin") {
-      try {
-        await deps.exec("spctl", ["--assess", "--type", "install", binary]);
-        out.gatekeeper = "accepted";
-      } catch (e) {
-        if ((e as NodeJS.ErrnoException).code !== "ENOENT") {
-          out.gatekeeper = "rejected";
-          deps.log(`[pi-craft] warning: Gatekeeper rejected ${binary} (checksum verified; authenticity not claimed)`);
-        }
+      if ((e as NodeJS.ErrnoException).code !== "ENOENT") {
+        out.gatekeeper = "rejected";
+        deps.log(`[pi-craft] warning: Gatekeeper rejected ${binary} (checksum verified; authenticity not claimed)`);
       }
     }
-    return out;
-  } finally {
-    fs.rmSync(staging, { recursive: true, force: true });
   }
+  return out;
+}
+
+// ── Web build (browser) ─────────────────────────────────────────────────────
+
+/** Typed failure reasons the plugin maps to status reasons. */
+export type WebErrorCode =
+  | "checksum-mismatch"
+  | "offline"
+  | "launcher-source"
+  | "extract-failed"
+  | "not-verified"
+  | "release-unavailable"
+  | "invalid-dir";
+
+export class ProvisionWebError extends ProvisionError {
+  override name = "ProvisionWebError";
+  readonly code: WebErrorCode;
+  constructor(code: WebErrorCode, message: string) {
+    super(message);
+    this.code = code;
+  }
+}
+
+export type WebSource = "registry" | "env-version" | "env-dir";
+
+export interface WebReport {
+  app: CraftAppId;
+  /** Release version, or `dir-<digest12>` for a `<APP>_WEB_DIR` override. */
+  version: string;
+  source: WebSource;
+  /** `<app>-web-<version>.zip`; null for a `<APP>_WEB_DIR` override. */
+  asset: string | null;
+  cacheHit: boolean;
+  /** Absolute path of the installed tree `<root>/<app>-web/<key>/`. */
+  dir: string;
+  /** Absolute path of the `current` pointer (what the plugin serves). */
+  current: string;
+  shimVersion: number;
+  durationMs: number;
+}
+
+export interface WebPostInstallContext {
+  /** The staging tree (moved into place atomically after the hook returns). */
+  dir: string;
+  app: CraftAppId;
+  version: string;
+  shimVersion: number;
+}
+
+export interface ProvisionWebOptions extends Partial<ProvisionDeps> {
+  /** Parent of `<app>-web/`; default `craftRoot(deps)` (`CRAFT_HOME`). The plugin passes its data dir. */
+  root?: string;
+  /** Version of the plugin's shim; part of the target key so a new shim always gets a new tree. */
+  shimVersion: number;
+  /** Plugin-supplied shim injection, run on the validated staging tree. Keeps this package dashboard-agnostic. */
+  postInstall?: (ctx: WebPostInstallContext) => void | Promise<void>;
+  /** Test seam: called inside the win32 `current` swap window (pointer absent). */
+  onSwapWindow?: () => void;
+}
+
+export type ProvisionWebFn = typeof provisionWeb;
+
+/** `<root>/<app>-web` (the plugin reads `<this>/current`). */
+export function webAppRoot(app: CraftApp | string, root: string): string {
+  const id = typeof app === "string" ? app : app.id;
+  return path.resolve(root, `${id}-web`);
+}
+
+interface TreeFile {
+  rel: string;
+  abs: string;
+  hash: string;
+}
+
+/** Sorted regular files of a directory tree; anything else (symlink, device…) is rejected. */
+function scanTree(dir: string): TreeFile[] {
+  const out: TreeFile[] = [];
+  const walk = (d: string, prefix: string): void => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const abs = path.join(d, e.name);
+      const rel = prefix ? `${prefix}/${e.name}` : e.name;
+      const st = fs.lstatSync(abs);
+      if (st.isDirectory()) walk(abs, rel);
+      else if (st.isFile()) out.push({ rel, abs, hash: createHash("sha256").update(fs.readFileSync(abs)).digest("hex") });
+      else throw new ProvisionWebError("invalid-dir", `override entry "${rel}" is not a regular file or directory; refusing`);
+    }
+  };
+  walk(dir, "");
+  return out.sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0));
+}
+
+function webTreeValid(dir: string): boolean {
+  try {
+    return fs.statSync(path.join(dir, "index.html")).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/** Point `<appRoot>/current` at `<appRoot>/<key>`: symlink + rename (atomic) on POSIX; junction + rename-then-remove on win32. */
+export function swapCurrent(appRoot: string, key: string, platform: NodeJS.Platform, randomId: () => string, onSwapWindow?: () => void): void {
+  const target = path.join(appRoot, key);
+  const link = path.join(appRoot, "current");
+  try {
+    if (fs.realpathSync(link) === fs.realpathSync(target)) return;
+  } catch {
+    /* absent or dangling: swap */
+  }
+  const tmp = path.join(appRoot, `.staging-current-${process.pid}-${randomId()}`);
+  if (platform !== "win32") {
+    fs.symlinkSync(key, tmp);
+    try {
+      fs.renameSync(tmp, link);
+    } catch (e) {
+      fs.rmSync(tmp, { force: true });
+      throw e;
+    }
+    return;
+  }
+  // win32: a junction needs no privilege but cannot be renamed over; remove-then-rename leaves a short window
+  // in which `current` is absent (requests get 503, never a partial tree).
+  fs.symlinkSync(target, tmp, "junction");
+  const old = path.join(appRoot, `.staging-old-${process.pid}-${randomId()}`);
+  let hadOld = false;
+  try {
+    fs.renameSync(link, old);
+    hadOld = true;
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== "ENOENT") {
+      fs.rmSync(tmp, { recursive: true, force: true });
+      throw e;
+    }
+  }
+  try {
+    onSwapWindow?.();
+    fs.renameSync(tmp, link);
+  } catch (e) {
+    if (hadOld) fs.renameSync(old, link);
+    fs.rmSync(tmp, { recursive: true, force: true });
+    throw e;
+  }
+  if (hadOld) fs.rmSync(old, { recursive: true, force: true });
+}
+
+/** Map a raw install failure to a typed web error (unknown errors, e.g. disk full, pass through). */
+function toWebError(e: unknown): unknown {
+  if (e instanceof ProvisionWebError) return e;
+  const msg = e instanceof Error ? e.message : String(e);
+  if (/^checksum mismatch/.test(msg)) return new ProvisionWebError("checksum-mismatch", msg);
+  if (e instanceof TypeError || (e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError")) || /^GitHub API request failed/.test(msg)) {
+    return new ProvisionWebError("offline", `cannot reach GitHub: ${msg}`);
+  }
+  if (e instanceof ProvisionError) return new ProvisionWebError("release-unavailable", msg);
+  return e;
+}
+
+/** Wrap a guard/extract step so any failure is `extract-failed`. */
+async function asExtractFailed<T>(step: () => T | Promise<T>): Promise<T> {
+  try {
+    return await step();
+  } catch (e) {
+    if (e instanceof ProvisionWebError) throw e;
+    throw new ProvisionWebError("extract-failed", e instanceof Error ? e.message : String(e));
+  }
+}
+
+interface WebSourceResolution {
+  source: WebSource;
+  version: string;
+  /** `env-dir` only: the scanned override files to copy. */
+  overrideFiles?: TreeFile[];
+}
+
+/** `<APP>_WEB_DIR` → `<APP>_WEB_VERSION` → registry `webVersion`; no network, never "latest". */
+function resolveWebSource(app: CraftApp, deps: ProvisionDeps): WebSourceResolution {
+  const prefix = envPrefix(app);
+  const dirEnv = deps.env[`${prefix}_WEB_DIR`]?.trim();
+  if (dirEnv) {
+    const dir = path.resolve(dirEnv);
+    if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
+      throw new ProvisionWebError("invalid-dir", `${prefix}_WEB_DIR=${dirEnv}: ${fs.existsSync(dir) ? "not a directory" : "not found"}`);
+    }
+    const files = scanTree(dir);
+    if (!files.some((f) => f.rel === "index.html")) throw new ProvisionWebError("invalid-dir", `${prefix}_WEB_DIR=${dirEnv}: no index.html`);
+    const digest = createHash("sha256");
+    for (const f of files) digest.update(`${f.rel}\0${f.hash}\n`);
+    return { source: "env-dir", version: `dir-${digest.digest("hex").slice(0, 12)}`, overrideFiles: files };
+  }
+  if (craftSource(deps.env) === "launcher") {
+    throw new ProvisionWebError(
+      "launcher-source",
+      `CRAFT_SOURCE=launcher never downloads the ${app.name} web build; set ${prefix}_WEB_DIR to a build directory or CRAFT_SOURCE=managed`,
+    );
+  }
+  const pin = deps.env[`${prefix}_WEB_VERSION`]?.trim();
+  if (pin) return { source: "env-version", version: normaliseVersion(pin, `${app.name} web`) };
+  if (app.webVersion) return { source: "registry", version: normaliseVersion(app.webVersion, `${app.name} web`) };
+  throw new ProvisionWebError("not-verified", `${app.name} has no verified web build (no registry webVersion); set ${prefix}_WEB_VERSION or ${prefix}_WEB_DIR`);
+}
+
+/** Copy scanned files into `tree`, normalising modes so a read-only override does not make the copy read-only. */
+function copyFiles(files: TreeFile[], tree: string): void {
+  for (const f of files) {
+    const dest = path.join(tree, ...f.rel.split("/"));
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.copyFileSync(f.abs, dest);
+    fs.chmodSync(dest, 0o644);
+  }
+}
+
+/**
+ * Release zips of browser builds usually wrap the site in one top-level directory
+ * (`<app>-web-<ver>/index.html`). When the root has no `index.html` but its only entry is a
+ * directory that has one, hoist that directory's contents to the root.
+ */
+function hoistSingleTopLevelDir(tree: string): void {
+  if (fs.existsSync(path.join(tree, "index.html"))) return;
+  const entries = fs.readdirSync(tree, { withFileTypes: true });
+  const only = entries.length === 1 && entries[0].isDirectory() ? entries[0].name : undefined;
+  if (!only || !fs.existsSync(path.join(tree, only, "index.html"))) return;
+  const inner = path.join(tree, only);
+  for (const name of fs.readdirSync(inner)) fs.renameSync(path.join(inner, name), path.join(tree, name));
+  fs.rmdirSync(inner);
+}
+
+/**
+ * Provision the browser build of `app` into `<root>/<app>-web/<key>/` and point `current` at it.
+ *
+ * Resolution: `<APP>_WEB_DIR` (copied; key `dir-<digest>`) → `<APP>_WEB_VERSION` → registry `webVersion`;
+ * never "latest"; `<APP>_BIN`/`<APP>_VERSION` are ignored. `CRAFT_SOURCE=launcher` without `WEB_DIR`
+ * fails closed before any network. Key = `<version>-s<shimVersion>` so a new shim never rewrites a tree.
+ */
+export async function provisionWeb(appOrId: CraftApp | string, opts: ProvisionWebOptions): Promise<WebReport> {
+  const app = typeof appOrId === "string" ? getApp(appOrId) : appOrId;
+  const { root, shimVersion, postInstall, onSwapWindow, ...partial } = opts;
+  const deps: ProvisionDeps = { ...defaultDeps(), ...partial };
+  const started = deps.now();
+  if (!Number.isInteger(shimVersion) || shimVersion < 1) throw new ProvisionError(`invalid shimVersion ${String(shimVersion)}`);
+
+  const appRoot = webAppRoot(app, root ?? craftRoot(deps));
+  const { source, version, overrideFiles } = resolveWebSource(app, deps);
+  const key = `${version}-s${shimVersion}`;
+  const finalDir = path.join(appRoot, key);
+  const asset = source === "env-dir" ? null : `${app.id}-web-${version}.zip`;
+  const ctx = (dir: string): WebPostInstallContext => ({ dir, app: app.id, version, shimVersion });
+  // Validate the tree, then let the plugin finalize it; both before the atomic rename.
+  const finalize = async (tree: string): Promise<void> => {
+    const indexOk = () => fs.existsSync(path.join(tree, "index.html"));
+    hoistSingleTopLevelDir(tree);
+    if (!indexOk()) throw new ProvisionWebError("extract-failed", `${asset ?? "web build"} has no index.html`);
+    await asExtractFailed(async () => {
+      await postInstall?.(ctx(tree));
+      if (!indexOk()) throw new Error("post-install removed index.html");
+    });
+  };
+
+  return singleFlight(`web:${finalDir}`, async () => {
+    try {
+      fs.mkdirSync(appRoot, { recursive: true });
+      sweepStaleStaging(appRoot, deps.now());
+      let cacheHit = false;
+      if (fs.existsSync(finalDir)) {
+        if (webTreeValid(finalDir)) cacheHit = true;
+        else {
+          deps.log(`[pi-craft] web cache entry ${finalDir} is damaged; re-provisioning`);
+          fs.rmSync(finalDir, { recursive: true, force: true });
+        }
+      }
+      if (!cacheHit && overrideFiles) {
+        const staging = path.join(appRoot, `.staging-${process.pid}-${deps.randomId()}`);
+        try {
+          const tree = path.join(staging, "tree");
+          fs.mkdirSync(tree, { recursive: true });
+          copyFiles(overrideFiles, tree);
+          await finalize(tree);
+          commitTree(tree, finalDir, webTreeValid);
+        } finally {
+          fs.rmSync(staging, { recursive: true, force: true });
+        }
+      } else if (!cacheHit) {
+        const tag = `v${version}`;
+        const release = await apiJson(deps, `${deps.apiBase}/repos/${app.repo}/releases/tags/${tag}`);
+        await installVerified<void>({
+          deps,
+          repo: app.repo,
+          asset: asset as string,
+          release,
+          cacheDir: appRoot,
+          finalDir,
+          list: (archive) => asExtractFailed(() => listZip(archive).then(() => undefined)),
+          extract: (archive, dest) => asExtractFailed(() => extractZip(archive, dest)),
+          validate: finalize,
+          verifyExisting: webTreeValid,
+        });
+      }
+      swapCurrent(appRoot, key, deps.platform, deps.randomId, onSwapWindow);
+      return {
+        app: app.id,
+        version,
+        source,
+        asset,
+        cacheHit,
+        dir: finalDir,
+        current: path.join(appRoot, "current"),
+        shimVersion,
+        durationMs: deps.now() - started,
+      };
+    } catch (e) {
+      throw toWebError(e);
+    }
+  });
 }
