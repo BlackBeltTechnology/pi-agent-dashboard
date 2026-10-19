@@ -416,9 +416,7 @@ test.describe("session actions menu (L3)", () => {
     test("E8/E10: at 90/100/125% zoom the pill clears the folder border by ≥1 px and its focus ring is not clipped", async ({ page }) => {
       const [card] = await shapes(page);
       for (const zoom of [0.9, 1, 1.25]) {
-        await page.evaluate((z) => {
-          (document.documentElement.style as CSSStyleDeclaration & { zoom: string }).zoom = String(z);
-        }, zoom);
+        await setZoom(page, String(zoom));
         await card.scrollIntoViewIfNeeded();
         await sessionMenuTrigger(card).focus();
         const m = await edgeRects(card);
@@ -427,9 +425,7 @@ test.describe("session actions menu (L3)", () => {
         const ringRight = m.pill.right + 4 * zoom;
         expect(ringRight, `zoom ${zoom}: focus ring right vs clip edge`).toBeLessThan(m.clipRight);
       }
-      await page.evaluate(() => {
-        (document.documentElement.style as CSSStyleDeclaration & { zoom: string }).zoom = "";
-      });
+      await setZoom(page, "");
     });
 
     test("E9: the list scroller never scrolls sideways with the trigger focused, and keeps the pill inside its right clearance", async ({ page }) => {

@@ -4,7 +4,7 @@ Stage: design   Generated: 2026-10-18
 
 The HARD gate is resolved. There was one clarification: what a trigger click does on a hover-opened menu. The user chose **pin** (convert the menu to click-opened; a second click closes it). That is now spec scenario "Clicking the trigger pins a hover-opened menu" and design D4b.
 
-Notation: R = the card's border-box right edge. Hit box = [R−18, R+6] × 26 px.
+Notation: R = the card's border-box right edge. Hit box = [R−19, R+5] × 26 px.
 
 ---
 
