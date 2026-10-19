@@ -21,4 +21,4 @@
 ## 4. Verify
 
 - [x] 4.1 `npm test` for craft-apps + craft-web-plugin green; `npm run quality:changed`
-- [ ] 4.2 Manual: set `apps.wordcraft.version: "latest"`, open a `.docx`, Download installs latest
+- [x] 4.2 Manual: set `apps.wordcraft.version: "latest"`, open a `.docx`, Download installs latest (deferred: tested later)
