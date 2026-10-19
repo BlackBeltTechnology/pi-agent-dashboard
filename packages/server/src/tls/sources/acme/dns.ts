@@ -1,5 +1,5 @@
-import { isIP } from "node:net";
 import { promises as dnsPromises } from "node:dns";
+import { isIP } from "node:net";
 import type { DnsApi } from "./types.js";
 
 /**

@@ -78,7 +78,7 @@ describe("zone lookup (E8)", () => {
     const { deps, calls } = setup(handler);
     await createCloudflareSolver({}, deps).publish("*.sub.example.com", "v");
     expect(calls[0].path).toBe("/zones?name=sub.example.com");
-    expect((calls.at(-1)?.body as { name: string }).name).toBe("_acme-challenge.sub.example.com");
+    expect((calls[calls.length - 1].body as { name: string }).name).toBe("_acme-challenge.sub.example.com");
   });
 
   it("with zoneId set makes no /zones request at all", async () => {

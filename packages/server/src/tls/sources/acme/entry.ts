@@ -93,7 +93,8 @@ export const accountKeyFileName = (hash: string): string => `acme-account-${hash
 /**
  * Normalized copy of an acme entry: lowercase/dot-stripped/deduped domains,
  * trimmed lowercase email, canonical directory, `configured` removed from the
- * solver. Unknown keys are KEPT so `validateAcmeEntry` can reject them.
+ * solver. Unknown solver keys are KEPT so `validateAcmeEntry` can reject them
+ * (unknown top-level keys are stored and ignored).
  */
 export function normalizeAcmeEntry(entry: Json): Json {
   const out: Json = { ...entry };
@@ -116,6 +117,8 @@ export function normalizeAcmeEntry(entry: Json): Json {
       solver.server = canonicalDirectoryUrl(solver.server) ?? solver.server;
     }
     if (typeof solver.fulldomain === "string") solver.fulldomain = normalizeName(solver.fulldomain);
+    // DNS labels are case-insensitive: one key for the same-registration guard and the order lock.
+    if (typeof solver.subdomain === "string") solver.subdomain = solver.subdomain.trim().toLowerCase();
     out.solver = solver;
   }
   return out;

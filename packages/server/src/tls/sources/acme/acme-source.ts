@@ -15,8 +15,8 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
 import * as acme from "acme-client";
 import { type CertSource, type CertSourceType, type Gate, type ObtainedCert, RetryAfterError, type SourceDetails, type SourceReadiness } from "../../types.js";
-import { loadOrCreateAccountKey, getCachedAccountUrl, setCachedAccountUrl } from "./accounts.js";
-import { type AcmeCredentials, redactSecrets } from "./credentials.js";
+import { getCachedAccountUrl, loadOrCreateAccountKey, setCachedAccountUrl } from "./accounts.js";
+import { redactSecrets } from "./credentials.js";
 import { createDnsApi } from "./dns.js";
 import { resolveAcmeE2eOverrides } from "./e2e-overrides.js";
 import {
@@ -31,7 +31,7 @@ import { acmeGc } from "./gc.js";
 import { type AcmeRuntime, getAcmeRuntime } from "./runtime.js";
 import { createAcmeDnsSolver } from "./solvers/acme-dns.js";
 import { createCloudflareSolver } from "./solvers/cloudflare.js";
-import { type DnsApi, type Dns01Solver, type SolverCheck, challengeOwner } from "./types.js";
+import { challengeOwner, type Dns01Solver, type DnsApi, type SolverCheck } from "./types.js";
 
 type Json = Record<string, unknown>;
 
@@ -377,7 +377,7 @@ export class AcmeCertSource implements CertSource {
     } finally {
       if (timer) clearTimeout(timer);
       if (!ctx.aborted) await this.cleanupRefs(ctx);
-      else void this.cleanupRefs(ctx);
+      else this.cleanupRefs(ctx).catch(() => undefined);
       this.inflight.delete(ctx);
       release();
     }
@@ -389,7 +389,7 @@ export class AcmeCertSource implements CertSource {
     ctx.aborted = true;
     ctx.controller.abort();
     ctx.release();
-    void this.cleanupRefs(ctx);
+    this.cleanupRefs(ctx).catch(() => undefined);
   }
 
   private async cleanupRefs(ctx: AttemptCtx): Promise<void> {

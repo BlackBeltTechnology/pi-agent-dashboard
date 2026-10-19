@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createDnsApi, type AuthoritativeResolver } from "../dns.js";
+import { type AuthoritativeResolver, createDnsApi } from "../dns.js";
 
 /**
  * DNS discovery (SOA walk / NS / NS addresses over DoH) and authoritative propagation waits.
@@ -180,9 +180,9 @@ describe("waitForTxt — authoritative propagation (X1)", () => {
     });
     const p = api.waitForTxt(OWNER, "tok", {});
     let done = false;
-    void p.then(() => {
+    p.then(() => {
       done = true;
-    });
+    }).catch(() => undefined);
     await vi.advanceTimersByTimeAsync(174_000);
     expect(done).toBe(false);
     await vi.advanceTimersByTimeAsync(2_000);
@@ -296,9 +296,9 @@ describe("waitForTxt — DoH fallback (X2)", () => {
     const api = createDnsApi({ fetchImpl: f.impl, resolverFactory: () => refused });
     const p = api.waitForTxt(OWNER, "tok", {});
     let done = false;
-    void p.then(() => {
+    p.then(() => {
       done = true;
-    });
+    }).catch(() => undefined);
     await vi.advanceTimersByTimeAsync(30_000);
     expect(done).toBe(false);
     txt["dns.google"][OWNER] = ["tok"];

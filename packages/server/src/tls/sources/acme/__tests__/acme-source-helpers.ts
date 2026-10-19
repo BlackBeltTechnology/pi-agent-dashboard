@@ -195,10 +195,9 @@ export class FakeClient implements AcmeClientLike {
     this.orders.push(name);
     return this.hooks.createOrder ? this.hooks.createOrder(name) : { name, status: "pending" };
   }
-  async getAuthorizations(order: unknown): Promise<Array<{ status?: string; challenges: unknown[] }>> {
+  async getAuthorizations(_order: unknown): Promise<Array<{ status?: string; challenges: unknown[] }>> {
     this.calls.push("getAuthorizations");
     const i = this.authCalls++;
-    void order;
     return this.hooks.getAuthorizations ? this.hooks.getAuthorizations(i) : [{ status: "pending", challenges: [HTTP01, DNS01] }];
   }
   async getChallengeKeyAuthorization(): Promise<string> {
@@ -331,8 +330,7 @@ export function build(opts: { entry?: Json; client?: FakeClient; solver?: Dns01S
 
 let fixtureName: FixtureName = "dash.example.com";
 
-function fixtureCertFor(name: string): string {
-  void name;
+function fixtureCertFor(_name: string): string {
   return fixture(fixtureName).certPem;
 }
 

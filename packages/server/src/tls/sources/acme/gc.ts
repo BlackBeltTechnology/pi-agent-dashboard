@@ -7,8 +7,9 @@
  *
  * See change: add-acme-dns01-certs (design D5, D8).
  */
-import { accountHash, canonicalDirectory, normalizeAcmeEntry } from "./entry.js";
+
 import { listAccountKeyHashes, removeAccountKey } from "./accounts.js";
+import { accountHash, canonicalDirectory, normalizeAcmeEntry } from "./entry.js";
 import { getAcmeRuntime } from "./runtime.js";
 
 type Json = Record<string, unknown>;
@@ -59,7 +60,7 @@ async function runOnce(): Promise<void> {
 
 /** Coalescing: a call during a run schedules exactly one more pass after it. */
 export function acmeGc(): Promise<void> {
-  if (running) {
+  if (running !== null) {
     rerun = true;
     return running;
   }

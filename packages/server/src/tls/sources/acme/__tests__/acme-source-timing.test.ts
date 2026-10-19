@@ -247,10 +247,9 @@ describe("X3 hung CA abandoned (6.33)", () => {
     const lock = await acmeDnsSolver(f.impl).acquireOrderLock({ maxWaitMs: 0 });
     lock.release();
     // issue now → a new order starts immediately
-    const again = b.source.obtain("dash.example.com", noop).catch(() => undefined);
+    b.source.obtain("dash.example.com", noop).catch(() => undefined);
     await advance(1000);
     expect(client.orders).toHaveLength(2);
-    void again;
   });
 });
 
@@ -305,7 +304,7 @@ describe("E33 removal during an attempt (6.47, source part)", () => {
     const client = new FakeClient({ createOrder: () => paused.promise });
     const f = okFetch();
     const b = build({ client, solver: acmeDnsSolver(f.impl) as never, entry: { solver: ACME_DNS } });
-    const p = b.source.obtain("dash.example.com", noop).then(
+    b.source.obtain("dash.example.com", noop).then(
       () => "ok",
       (e: Error) => `fail: ${e.message}`,
     );
@@ -318,7 +317,6 @@ describe("E33 removal during an attempt (6.47, source part)", () => {
     await advance(MIN);
     expect(client.calls).not.toContain("getAuthorizations");
     expect(f.calls).toEqual([]);
-    void p;
   });
 
   it("E33: a queued obtain that acquires the lock after removal returns without any call", async () => {
