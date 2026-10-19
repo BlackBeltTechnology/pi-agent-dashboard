@@ -110,6 +110,8 @@ const FAMILY_BY_SEGMENT: Readonly<Record<string, Family>> = {
   "tunnel-status-detail": "gateway",
   "tunnel-readiness": "gateway",
   "tunnel-reserved-name": "gateway",
+  // built-in HTTPS listener: operator "issue now" (change: add-tailscale-cert-tls)
+  tls: "gateway",
   pair: "gateway",
   "known-servers": "gateway",
   "discover-servers": "gateway",

@@ -66,6 +66,8 @@ import { mirrorDefaultsToPi } from "../pi-agent-settings.js";
 import { EMPTY_KEEPER_LOG_STATS, type KeeperLogStats } from "../rpc-keeper/keeper-manager.js";
 import type { ServerConfig } from "../server.js";
 import { serverHeapTelemetry } from "../server-heap-telemetry.js";
+import { touchesTlsOrPorts, validateTlsConfigWrite } from "../tls/tls-config-validation.js";
+import type { TlsListener } from "../tls/tls-listener.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
 import { heapFallbackStatus } from "../spawn-process/heap-args.js";
 import { spawnRestart } from "../spawn-process/restart-helper.js";
@@ -203,6 +205,8 @@ export function registerSystemRoutes(
     directoryService?: DirectoryService;
     /** Called after a `PUT /api/config` that touched `vault`, so delivery switches apply live. See change: add-credential-vault. */
     onVaultConfigChanged?: () => void;
+    /** Optional TLS listener: status in `/api/health.tls`, endpoints, reconcile after a `tls` config write. See change: add-tailscale-cert-tls. */
+    tls?: Pick<TlsListener, "status" | "tlsListenerUrls" | "reconcile">;
     piGateway?: PiGateway;
     browserGateway?: {
       broadcastToAll: (msg: ServerToBrowserMessage) => void;
@@ -454,6 +458,7 @@ export function registerSystemRoutes(
         providerEndpoints,
         publicBaseUrls: configModule.resolvePublicBaseUrls(cfg),
         port: config.port,
+        tlsEndpoints: deps.tls?.tlsListenerUrls() ?? [],
       });
       return { success: true, data: { endpoints } } satisfies ApiResponse;
     },
@@ -605,11 +610,28 @@ export function registerSystemRoutes(
       ) {
         return reply.code(400).send({ success: false, error: "pairing.acceptLanRequests must be a boolean" });
       }
+      // `tls` block / listener-port validation against the MERGED config (design D7).
+      // See change: add-tailscale-cert-tls.
+      if (touchesTlsOrPorts(partial)) {
+        const { readRawConfig } = await import("../config-api.js");
+        const tlsError = validateTlsConfigWrite(partial, readRawConfig());
+        if (tlsError) return reply.code(400).send({ success: false, error: tlsError });
+      }
       const saved = await saveConfigAndMirror(partial);
       if (!saved.ok) {
         return reply.code(500).send({ success: false, error: saved.error });
       }
       const { result, reloaded, piMirror } = saved;
+      // The `tls` block is applied live: await only the listener (re)bind. Certificate
+      // work is scheduled, never awaited here. A reconcile failure is reported in TLS
+      // status; the config stays as written. See change: add-tailscale-cert-tls (D7).
+      if (partial.tls !== undefined) {
+        try {
+          await deps.tls?.reconcile();
+        } catch (err) {
+          console.warn(`[tls] reconcile after config write failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
 
       // Push the recomputed reachability when ANY part of the published fact
       // moved — not just `pendingBindHost`. A write that edits `trustedNetworks`
@@ -1132,6 +1154,11 @@ export function registerSystemRoutes(
     }
     let providerAuthError: string | null = null;
     try { providerAuthError = getRegistryError(); } catch { /* keep null */ }
+    // TLS listener status: `{ enabled, bound }` for every caller; the detail
+    // (port, gates, certificate names/errors) only where access posture may be
+    // disclosed. Reads cached state only — never calls out. See change: add-tailscale-cert-tls (D8).
+    let tlsStatus: ReturnType<NonNullable<typeof deps.tls>["status"]> | null = null;
+    try { tlsStatus = deps.tls?.status(canDiscloseAccessPosture(request)) ?? null; } catch { /* omit */ }
     const activeSessions = sessionManager.listActive();
     const agentMetrics = activeSessions
       .filter(s => s.processMetrics)
@@ -1146,6 +1173,7 @@ export function registerSystemRoutes(
       // Access-grant prompting counters (additive; null when unwired or on a
       // throwing read). See change: add-access-grant-dialog (task 9.3).
       accessGrants,
+      ...(tlsStatus ? { tls: tlsStatus } : {}),
       // Loopback-trusted-entry posture (additive; null unless disclosable).
       // See change: fix-trusted-network-tunnel-bypass (D3).
       trustPosture,

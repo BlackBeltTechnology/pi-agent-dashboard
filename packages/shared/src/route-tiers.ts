@@ -428,6 +428,9 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "POST", path: "/api/system-one/eval", tier: "operate" },
   { method: "POST", path: "/api/system-one/keys/:keyRef", tier: "operate" },
   { method: "POST", path: "/api/system-one/managed/:id/:action", tier: "operate" },
+  // add-tailscale-cert-tls: operator "issue now" for the TLS certificate manager;
+  // authorized exactly like `PUT /api/config`.
+  { method: "POST", path: "/api/tls/issue", tier: "operate" },
   { method: "POST", path: "/api/tools/diagnostics", tier: "operate" },
   { method: "POST", path: "/api/tools/rescan", tier: "operate" },
   { method: "POST", path: "/api/tunnel-connect", tier: "operate" },

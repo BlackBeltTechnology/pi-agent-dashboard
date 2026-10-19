@@ -122,6 +122,7 @@ Files in this directory. One row per source file.
 | `state-replay.ts` | Synthesizes dashboard `event_forward` messages from persisted pi session entries for post-reconnect chat… → see `state-replay.ts.AGENTS.md` |
 | `stats-extractor.ts` | Extracts `StatsData` (tokensIn/out, cost, turnUsage, optional contextUsage) from a `turn_end` event's… → see `stats-extractor.ts.AGENTS.md` |
 | `terminal-safe.ts` | `INVISIBLE_OR_SEPARATOR` + `terminalSafe`. → see `terminal-safe.ts.AGENTS.md` |
+| `tls-status.ts` | Browser-safe wire types of `/api/health.tls`: `TlsGate`, `TlsSourceStatus`, `TlsCertStatus` (held, notAfter ms, stage, lastError ≤500, nextAttemptAt), `TlsStatusBasic` (`enabled`,`bound` — everyone) / `TlsStatusDetail` (port, host, bindError, gates, sources, certs — authed or genuinely-local), `hasTlsDetail()`. Server builds them, Gateway "Built-in HTTPS" reads them. See change: add-tailscale-cert-tls. |
 | `tunnel-concurrency.ts` | Resolves WHICH providers run and in which mode.… → see `tunnel-concurrency.ts.AGENTS.md` |
 | `tunnel-provider.ts` | Tunnel ("Gateway") provider abstraction types. Exports `TunnelProvider` interface (`id`, `kind`… → see `tunnel-provider.ts.AGENTS.md` |
 | `transcript-request-guard.ts` | Pure `decideTranscriptRequest()` — session id only, path-bearing field refused. → see `transcript-request-guard.ts.AGENTS.md` |

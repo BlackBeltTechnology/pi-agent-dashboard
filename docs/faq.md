@@ -953,6 +953,26 @@ Gateway UI → "Add HTTPS URL". Appends to `pairing.publicBaseUrls` via auth-gat
 
 https/wss only. Gate authoritative server-side at read time in `reachableUrls()`; plain-http dropped before advertisement. Endpoint surfaces in `GET /api/tunnel/endpoints` as tagged `{kind, url, tls}`.
 
+## HTTPS on the tailnet (built-in TLS listener)
+
+No reverse proxy. Dashboard serves HTTPS itself with a Tailscale cert. Off by default.
+
+Steps:
+1. Tailscale admin console → DNS → enable HTTPS Certificates.
+2. Gateway page → Built-in HTTPS → switch on.
+3. Listen on → "Use <ip>" (Tailscale IPv4). Needed so other devices reach it. Default `127.0.0.1` = this machine only.
+4. Connect by MagicDNS name (`https://<name>.<tailnet>.ts.net:8443`), not IP. No SNI on IP URL → handshake fails.
+
+Notes:
+- Device name appears in public CT logs (certificate transparency). Opt-in only.
+- Phones need HTTPS to pair and receive notifications.
+- Devices still pair. Or add `100.64.0.0/10` as trusted network (Security page). See [My Tailscale device is not trusted after Add Local Network?](#my-tailscale-device-is-not-trusted-after-add-local-network).
+- OAuth sign-in not supported from TLS origin. Login returns to resolved redirect base. Pair instead.
+- Device paired over TLS → cookie `pi_dash_device` is `Secure`. Use the TLS origin. `http://<name>:8000` will not send it.
+- Rollback: switch off. Listener closes. Certs stay on disk, inert.
+
+See change: add-tailscale-cert-tls. Architecture: [Built-in TLS listener](architecture.md).
+
 ## Why do some endpoints get a link QR instead of the pairing QR?
 
 Two QR kinds. **Pairing QR** = secure payload `{v,id,code,urls[]}`, `urls[]` TLS-only (https/wss, incl. MagicDNS). **Link QR** = per no-TLS http mesh/LAN endpoint; encodes bare URL string only — no pairing payload, no crypto.subtle, no bearer.
