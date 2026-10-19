@@ -11,7 +11,8 @@ describe("ACP permission prompt (X3)", () => {
   it("never carries allowOther and rejects a custom REST answer", () => {
     const send = vi.fn();
     const bridge = createPermissionBridge("s1", send);
-    void bridge.request({ options: [{ optionId: "a", name: "Allow" }, { optionId: "r", name: "Reject" }] });
+    const pending = bridge.request({ options: [{ optionId: "a", name: "Allow" }, { optionId: "r", name: "Reject" }] });
+    expect(pending).toBeInstanceOf(Promise);
     const frame = send.mock.calls[0][0] as { prompt: { metadata?: Record<string, unknown>; options: string[]; type: string } };
     expect(frame.prompt.metadata).not.toHaveProperty("allowOther");
     const verdict = validateQuestionAnswer(
