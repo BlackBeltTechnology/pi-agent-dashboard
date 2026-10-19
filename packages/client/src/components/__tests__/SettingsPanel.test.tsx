@@ -1586,6 +1586,37 @@ describe("SettingsPanel — editor large-file limit (gate-changed-on-disk-by-con
     expect(putBody).toEqual({ editor: { largeFileLimitMb: 64 } });
   });
 
+  it("review: the unsaved-changes dialog Save path never persists while the limit field is invalid", async () => {
+    let putBody: any;
+    global.fetch = vi.fn().mockImplementation((url: string, options?: any) => {
+      if (url === "/api/config" && !options?.method) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, data: mockConfig }) });
+      }
+      if (url === "/api/config" && options?.method === "PUT") {
+        putBody = JSON.parse(options.body);
+        return Promise.resolve({ json: () => Promise.resolve({ success: true }) });
+      }
+      return Promise.resolve({ ok: false, json: () => Promise.resolve(null) });
+    });
+    setPath("/settings/general");
+    render(<SettingsPanel />);
+    await waitFor(() => screen.getByText(LABEL));
+
+    // 64 reaches the draft; the invalid "abc" is refused but stays displayed with an error.
+    fireEvent.change(field(), { target: { value: "64" } });
+    fireEvent.change(field(), { target: { value: "abc" } });
+    expect(screen.getByTestId("editor-large-file-limit-error")).toBeTruthy();
+
+    const back = within(screen.getByTestId("settings-header")).getAllByRole("button")[0];
+    fireEvent.click(back);
+    await waitFor(() => screen.getByTestId("unsaved-changes-dialog"));
+    fireEvent.click(screen.getByTestId("unsaved-save"));
+
+    // Give a (wrongly) persisting save the chance to fire before asserting it did not.
+    await waitFor(() => expect(screen.queryByTestId("unsaved-changes-dialog")).toBeNull());
+    expect(putBody).toBeUndefined();
+  });
+
   it("computeConfigPartial: unchanged limit emits no editor key; CONFIG_FIELD_PAGE maps editor to general", async () => {
     const { computeConfigPartial, CONFIG_FIELD_PAGE } = await import("../settings/SettingsPanel.js");
     const base = { ...mockConfig } as any;

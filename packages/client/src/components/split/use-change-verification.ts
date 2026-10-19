@@ -320,8 +320,9 @@ export function useChangeVerification(o: ChangeVerificationOptions): ChangeVerif
         done = res;
       });
       st.saving.set(path, settled);
-      const ac = new AbortController();
-      const timer = setTimeout(() => ac.abort(), SAVE_WAIT_MS);
+      // The write itself is NOT aborted on a timer: a slow-but-successful save (large file, tunnel) would be
+      // reported as failed and leave a stale mtime (next Save -> 409). Only a candidate's WAIT is bounded
+      // (`awaitSave`, SAVE_WAIT_MS); a late response still rebaselines and clears any banner it caused.
       const rebaseline = (next: FileDigest | null): void => {
         if (st.disposed) return;
         st.baseline.set(path, next);
@@ -332,7 +333,6 @@ export function useChangeVerification(o: ChangeVerificationOptions): ChangeVerif
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
-          signal: ac.signal,
         });
         const outcome = await writeOutcome(res);
         if (outcome !== "unchanged") {
@@ -341,10 +341,9 @@ export function useChangeVerification(o: ChangeVerificationOptions): ChangeVerif
         }
         return res;
       } catch (err) {
-        rebaseline(null); // outcome unknown (network error / 60 s abort): safe direction
+        rebaseline(null); // outcome unknown (network error): safe direction
         throw err;
       } finally {
-        clearTimeout(timer);
         if (st.saving.get(path) === settled) st.saving.delete(path);
         done();
       }

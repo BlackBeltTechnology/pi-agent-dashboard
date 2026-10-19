@@ -629,26 +629,34 @@ describe("SplitWorkspaceProvider — changed-on-disk verification", () => {
     expect(b.banner()).toEqual(["foo.ts"]);
   });
 
-  it("F6: a save that never responds is aborted after 60 s and verification then runs", async () => {
+  it("F6: a save that never responds is NOT aborted; the candidate's wait is bounded at 60 s and verification then runs", async () => {
     const h = mountDetect();
     await openWithBaseline(h);
     f.state.write = { status: 200, sha1: undefined, reject: false, hang: true };
     let writePromise!: Promise<Response>;
-    let writeError: unknown;
+    let writeSettled = false;
     act(() => {
       writePromise = h.result.current.trackedFileWrite("foo.ts", { cwd: "/proj", path: "foo.ts", content: "x", mtime: 1 });
-      writePromise.catch((e) => {
-        writeError = e;
-      });
+      writePromise.then(
+        () => {
+          writeSettled = true;
+        },
+        () => {
+          writeSettled = true;
+        },
+      );
     });
     h.fire("foo.ts");
     await advance(30_000);
     expect(f.digestCalls.filter((c) => c.purpose === "verify")).toHaveLength(0);
     await advance(31_000);
-    expect(writeError).toBeTruthy(); // the request was aborted
     await advance(300);
+    // The wait is bounded: verification ran against the current baseline ...
     expect(f.digestCalls.filter((c) => c.purpose === "verify").length).toBeGreaterThanOrEqual(1);
-    expect(h.banner()).toEqual(["foo.ts"]); // unknown outcome → safe direction
+    // ... but the request itself is still in flight (never aborted, so a slow success is not shown as a failure).
+    expect(writeSettled).toBe(false);
+    expect(f.state.writeCalls).toBe(1);
+    expect(h.banner()).toEqual([]); // disk still equals the (unchanged) baseline
   });
 
   it("F8: Dismiss during an in-flight verification keeps the banner dismissed; the next change banners again", async () => {
