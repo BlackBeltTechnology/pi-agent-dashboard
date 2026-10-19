@@ -520,6 +520,7 @@ describe("folder toggle: trust and faults", () => {
     const cwd = await webEnv("scope");
     expect((await env.toggle(WEB_ID, { scope: "local", enabled: false })).status).toBe(400);
     expect((await env.folderToggle(WEB_ID, cwd, false, { dryRun: true })).status).toBe(400);
+    expect((await env.folderToggle(WEB_ID, cwd, false, { confirmToken: "x" })).status).toBe(400);
     expect((await env.toggle(WEB_ID, { scope: "bogus", enabled: false })).status).toBe(400);
   });
 });

@@ -58,7 +58,7 @@ export function filterFolderFeatures(features: readonly AddonFeature[], f: Folde
 	});
 }
 
-/** Rows the page renders: core features and `dashboardManaged` plumbing never appear as rows. */
+/** Rows the page renders: core features never do. A managed bridge is already folded into its feature's chips (the catalog emits no standalone `dashboardManaged` feature). */
 export function splitFolderGroups(features: readonly AddonFeature[]): FolderGroups {
 	const rows = features.filter((f) => f.kind !== "core");
 	return {

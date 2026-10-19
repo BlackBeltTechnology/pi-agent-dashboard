@@ -19,7 +19,7 @@ import type {
 	AddonFolderToggleResponse,
 } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { fetchFolderAddonCatalog, postFolderToggle } from "../lib/addons/addons-api.js";
+import { type FolderToggleOutcome, fetchFolderAddonCatalog, postFolderToggle } from "../lib/addons/addons-api.js";
 import { type ResourceTrustOption, submitResourceTrust } from "../lib/api/resources-api.js";
 import { logRejection } from "../lib/report-error.js";
 
@@ -39,11 +39,23 @@ export interface FolderNotOwnedPrompt {
 interface PendingToggle {
 	featureId: string;
 	enabled: boolean;
+	/** A confirmed "Remove this folder entry" must survive the trust detour. */
+	removeUnowned: boolean;
 }
 
 export interface KeptOnNote {
 	/** Feature ids of the features whose requirement keeps the package on. */
 	by: string[];
+}
+
+function toTrustPrompt(out: Extract<FolderToggleOutcome, { kind: "trust" }>): FolderTrustPrompt {
+	return {
+		message: out.message,
+		options: out.options,
+		implicitlyTrusted: out.implicitlyTrusted,
+		...(out.preselected ? { preselected: out.preselected } : {}),
+		...(out.dashboardSource ? { dashboardSource: out.dashboardSource } : {}),
+	};
 }
 
 const EMPTY_FOLDER = (cwd: string): AddonFolderInfo => ({
@@ -126,14 +138,8 @@ export function useFolderAddons(cwd: string) {
 			try {
 				const out = await postFolderToggle(featureId, cwd, enabled, opts);
 				if (out.kind === "trust") {
-					deferred.current = { featureId, enabled };
-					setTrustPrompt({
-						message: out.message,
-						options: out.options,
-						implicitlyTrusted: out.implicitlyTrusted,
-						...(out.preselected ? { preselected: out.preselected } : {}),
-						...(out.dashboardSource ? { dashboardSource: out.dashboardSource } : {}),
-					});
+					deferred.current = { featureId, enabled, removeUnowned: opts.removeUnowned === true };
+					setTrustPrompt(toTrustPrompt(out));
 				} else if (out.kind === "error") {
 					setRowError(featureId, out.error);
 				} else {
@@ -182,7 +188,7 @@ export function useFolderAddons(cwd: string) {
 						setRowError(pending.featureId, res.error ?? `Could not record the trust decision (${res.status})`);
 						return;
 					}
-					await run(pending.featureId, pending.enabled);
+					await run(pending.featureId, pending.enabled, { removeUnowned: pending.removeUnowned });
 				} catch (err) {
 					setRowError(pending.featureId, (err as Error)?.message ?? "The request did not reach the server.");
 				}

@@ -105,6 +105,9 @@ async function folderToggleReply(
   reply: FastifyReply,
 ) {
   if (body.dryRun) return reply.status(400).send({ success: false, error: "dryRun is not supported for scope local" });
+  if (body.confirmToken !== undefined) {
+    return reply.status(400).send({ success: false, error: "confirmToken is not supported for scope local" });
+  }
   if (body.removeUnowned !== undefined && typeof body.removeUnowned !== "boolean") {
     return reply.status(400).send({ success: false, error: "body.removeUnowned must be boolean" });
   }

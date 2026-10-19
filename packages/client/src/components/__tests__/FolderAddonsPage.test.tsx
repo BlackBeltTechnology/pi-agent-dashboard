@@ -274,6 +274,45 @@ describe("folder Add-ons page — switch flow", () => {
 		expect(togglePosts()).toHaveLength(2);
 	});
 
+	// review B1: a confirmed removal must survive the trust detour
+	it("a confirmed removeUnowned retry keeps its flag through the trust dialog", async () => {
+		const entry = { source: "npm:x", autoload: false, extensions: [], skills: [], prompts: [], themes: [] };
+		const trustPrompt = {
+			status: 403,
+			body: {
+				success: false,
+				error: "trust?",
+				data: { trustRequired: true, trustOptions: [{ id: "trust", label: "Trust", trusted: true }], implicitlyTrusted: false },
+			},
+		};
+		let trusted = false;
+		state = {
+			features: [mk("x", "Pkg X", "off-here")],
+			toggle: (body) => {
+				if (body.removeUnowned) {
+					return trusted ? { status: 200, body: { success: true, changed: true, keptOn: [], notOwned: [], removed: ["npm:x"] } } : trustPrompt;
+				}
+				return { status: 200, body: { success: true, changed: false, keptOn: [], notOwned: [{ source: "npm:x", reason: "no-record", entry }] } };
+			},
+			trust: () => {
+				trusted = true;
+				return { status: 200, body: { success: true, data: { trusted: true } } };
+			},
+		};
+		render(<PackagesPage cwd={CWD} />);
+		fireEvent.click(await screen.findByTestId("folder-addon-switch-x"));
+		fireEvent.click(await screen.findByTestId("folder-addon-remove-unowned-x"));
+		await screen.findByTestId("resource-trust-backdrop");
+		fireEvent.click(screen.getByRole("button", { name: /^Trust$/ }));
+		await waitFor(() => expect(screen.queryByTestId("folder-addon-notowned-x")).toBeNull());
+		const bodies = togglePosts().map(([, i]) => JSON.parse(String(i.body)));
+		expect(bodies).toEqual([
+			{ scope: "local", cwd: CWD, enabled: true },
+			{ scope: "local", cwd: CWD, enabled: true, removeUnowned: true },
+			{ scope: "local", cwd: CWD, enabled: true, removeUnowned: true },
+		]);
+	});
+
 	it("declining the trust dialog writes nothing and leaves the switch alone", async () => {
 		state = {
 			features: [mk("a", "A", "inherited")],

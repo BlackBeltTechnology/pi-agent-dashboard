@@ -138,6 +138,8 @@ export async function gatherFolderCatalog(deps: AddonsDeps, cwd: string): Promis
 
   const matched = new Set<number>();
   for (const f of g.features) for (const part of f.packages) for (const i of projectEntryIndices(ctx, part.source)) matched.add(i);
+  // Only normal (`added`) entries become folder-only features; an `autoload:false` project entry that matches no
+  // global package is a delta over nothing, so it has no row (the Resources pages own per-file state).
   const orphans = ctx.projectEntries
     .map((entry, i) => ({ entry, i }))
     .filter(({ entry, i }) => !matched.has(i) && packageStateOf(entry) === "added" && entrySource(entry));
