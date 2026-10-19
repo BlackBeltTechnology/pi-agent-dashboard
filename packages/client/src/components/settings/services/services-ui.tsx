@@ -105,17 +105,20 @@ export function ActionFailure({ failure, testId = "service-action-error", id }: 
   const autoId = useId();
   if (!failure || failure.ok) return null;
   if (failure.code === "operate_required") {
+    // The refused button points `aria-describedby` at `id`, so the notice needs that element too.
     return (
-      <ServicesOperateCallout
-        testId={`${testId}-operate`}
-        remedies={failure.remedies ?? []}
-        title={i18nT("services.operateRequired.title", undefined, "This needs operate access")}
-        why={
-          failure.reason === "tier-too-low"
-            ? i18nT("services.operateRequired.tierTooLow", undefined, "This device's credential is below operate access, so it cannot change services.")
-            : i18nT("services.operateRequired.noCredential", undefined, "Changing services needs an operator credential or a trusted local caller.")
-        }
-      />
+      <div id={id ?? autoId}>
+        <ServicesOperateCallout
+          testId={`${testId}-operate`}
+          remedies={failure.remedies ?? []}
+          title={i18nT("services.operateRequired.title", undefined, "This needs operate access")}
+          why={
+            failure.reason === "tier-too-low"
+              ? i18nT("services.operateRequired.tierTooLow", undefined, "This device's credential is below operate access, so it cannot change services.")
+              : i18nT("services.operateRequired.noCredential", undefined, "Changing services needs an operator credential or a trusted local caller.")
+          }
+        />
+      </div>
     );
   }
   const details = [failure.code, failure.error].filter(Boolean).join(": ");

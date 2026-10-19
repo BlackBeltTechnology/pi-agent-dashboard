@@ -214,6 +214,24 @@ describe("service detail — gating and actions", () => {
     expect(remedies).toEqual(["use-host", "sign-in"]); // unknown dropped, server order kept
   });
 
+  it("X11b operate_required: the refused button's aria-describedby points at an element that exists", async () => {
+    stubServicesFetch({
+      handler: (c) =>
+        c.url.endsWith("/stop")
+          ? fail(403, "operate_required", "service mutations need an operate-tier credential or a locally trusted caller", { reason: "no-credential", remedies: ["use-host", "sign-in"] })
+          : undefined,
+    });
+    mountDetail(makeService({ state: "healthy" }));
+    const stop = screen.getByTestId("service-action-stop");
+    fireEvent.click(stop);
+    const callout = await screen.findByTestId("service-action-error-operate");
+    const ref = screen.getByTestId("service-action-stop").getAttribute("aria-describedby");
+    expect(ref).toBeTruthy();
+    const target = document.getElementById(ref as string);
+    expect(target, "aria-describedby must resolve to an element").toBeTruthy();
+    expect(target?.contains(callout)).toBe(true);
+  });
+
   it("F12 canOperate:false disables every action, shows one banner, and sends no logs request", () => {
     const calls = stubServicesFetch();
     mountDetail(makeService({ state: "stopped", volumes: ["v"] }), { canOperate: false });
