@@ -23,6 +23,7 @@ import { DenialNotice } from "../preview/DenialNotice.js";
 import { type DenialFailure, denialFetch } from "../preview/denial-fetch.js";
 import { MarkdownContent } from "../preview/MarkdownContent.js";
 import { dirname } from "../preview/resolve-local-image-src.js";
+import { useTrackedFileWrite } from "../split/tracked-file-write.js";
 import { ChangedOnDiskBanner } from "./ChangedOnDiskBanner.js";
 import type { ViewerProps } from "./types.js";
 
@@ -35,6 +36,7 @@ const basename = (p: string): string => p.slice(Math.max(p.lastIndexOf("/"), p.l
 
 export default function MarkdownViewer({ cwd, path }: ViewerProps) {
   const { t } = useI18n();
+  const trackedWrite = useTrackedFileWrite();
   const editable = fileKind(absOf(cwd, path)).editable;
   const [content, setContent] = useState<string | null>(null);
   const [buffer, setBuffer] = useState("");
@@ -92,11 +94,7 @@ export default function MarkdownViewer({ cwd, path }: ViewerProps) {
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch(`${getApiBase()}/api/file/write`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cwd, path, content: buffer, mtime }),
-      });
+      const res = await trackedWrite(path, { cwd, path, content: buffer, mtime });
       const body = await res.json();
       if (res.status === 200 && body.success) {
         setContent(buffer);
@@ -112,7 +110,7 @@ export default function MarkdownViewer({ cwd, path }: ViewerProps) {
     } finally {
       setSaving(false);
     }
-  }, [cwd, path, buffer, mtime, saving]);
+  }, [cwd, path, buffer, mtime, saving, trackedWrite]);
 
   // Hook order: declared before any early return. Stable identity keeps MarkdownContent's React.memo guard effective. See change: fix-markdown-remount-storm (D3).
   const imageBase = useMemo(() => ({ cwd, dir: absOf(cwd, dirname(path)) }), [cwd, path]);

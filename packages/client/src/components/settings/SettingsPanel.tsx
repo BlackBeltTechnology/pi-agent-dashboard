@@ -214,6 +214,8 @@ interface Config {
   askUserPromptTimeoutSeconds?: number;
   /** How long (ms) to wait for spawned pi to connect before a warning. Default 30000. See change: spawn-failure-diagnostics. */
   spawnRegisterTimeoutMs?: number;
+  /** Editor pane tuning. See change: gate-changed-on-disk-by-content. */
+  editor?: { largeFileLimitMb?: number };
   tunnel: {
     enabled: boolean;
     reservedToken?: string;
@@ -316,6 +318,14 @@ const PROVIDER_LABELS: Record<string, string> = {
 
 const NEEDS_ISSUER = new Set(["keycloak", "oidc"]);
 
+/** A whole number of MB in 1–256 (the server clamp is only a backstop), else null. */
+function parseEditorLimitMb(raw: string): number | null {
+  const t = raw.trim();
+  if (!/^\d+$/.test(t)) return null;
+  const v = Number(t);
+  return v >= 1 && v <= 256 ? v : null;
+}
+
 // Maps each config-diff key to the settings page it renders on, so the nav
 // rail can show a per-page dirty dot. See change: unify-settings-save-contract.
 export const CONFIG_FIELD_PAGE: Record<string, string> = {
@@ -329,7 +339,7 @@ export const CONFIG_FIELD_PAGE: Record<string, string> = {
   folderListMode: "sessions", folderAttentionPeek: "sessions",
   questionFirst: "sessions", askUserPromptTimeoutSeconds: "sessions", spawnRegisterTimeoutMs: "sessions", sessionList: "sessions",
   gitWorktreeEnabled: "sessions", dashboardName: "general", defaultModel: "sessions", defaultThinkingLevel: "sessions",
-  windowsGitSource: "sessions", autoStart: "sessions",
+  windowsGitSource: "sessions", autoStart: "sessions", editor: "general",
   trustedNetworks: "security", network: "security", pairing: "security", auth: "security", allowedHosts: "security", hostGate: "security", agentPathGate: "security",
   modelProxy: "providers",
   openspec: "openspec",
@@ -376,6 +386,10 @@ export function computeConfigPartial(config: Config, original: Config): Record<s
   }
   if (config.spawnRegisterTimeoutMs !== original.spawnRegisterTimeoutMs) {
     partial.spawnRegisterTimeoutMs = config.spawnRegisterTimeoutMs ?? 30000;
+  }
+  // Field-level diff: only the changed `editor` key is written (an unlisted key is never sent).
+  if ((config.editor?.largeFileLimitMb ?? 10) !== (original.editor?.largeFileLimitMb ?? 10)) {
+    partial.editor = { largeFileLimitMb: config.editor?.largeFileLimitMb ?? 10 };
   }
   if ((config.windowsGitSource ?? "auto") !== (original.windowsGitSource ?? "auto")) {
     partial.windowsGitSource = config.windowsGitSource ?? "auto";
@@ -620,6 +634,10 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
   const [piMirror, setPiMirror] = useState<{ ok: boolean; error?: string; skipped?: string } | null>(null);
   const [piSettingsRefreshKey, setPiSettingsRefreshKey] = useState(0);
   const [spawnTimeoutInvalid, setSpawnTimeoutInvalid] = useState(false);
+  // Typed text of the editor large-file limit, kept so an invalid entry stays
+  // visible (and flagged) instead of snapping back. null = show the config value.
+  const [editorLimitText, setEditorLimitText] = useState<string | null>(null);
+  const editorLimitInvalid = editorLimitText !== null && parseEditorLimitMb(editorLimitText) === null;
   // Heap-field validity, reported up by `HeapMbField`. A refused value never
   // reaches the draft, so without these Save would persist the last VALID value
   // while the field displays an error on a different one.
@@ -986,6 +1004,7 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
   const handleDiscard = useCallback(() => {
     if (original) setConfig(JSON.parse(JSON.stringify(original)));
     for (const s of draftSources.values()) s.reset();
+    setEditorLimitText(null);
     setMessage(null);
   }, [original, draftSources]);
 
@@ -1659,6 +1678,42 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
                     </div>
                     <p className="mt-1 text-xs text-[var(--text-tertiary)]">
                       {i18nT("landing.shownOnTheHomeScreenApp", undefined, "Shown on the home screen / app drawer when the dashboard is installed as a PWA. Leave blank to auto-derive from the request")} <code>{i18nT("common.host", undefined, "Host")}</code> {i18nT("common.headerOrTheServerHostnameDistinguishe", undefined, "header (or the server hostname). Distinguishes installs from multiple machines or tunnels.")}
+                    </p>
+                  </div>
+                  {/* Rich-viewer too-large gate for the editor pane (live, no
+                      restart). Bespoke bounded control — the shared NumberField
+                      has no bounds; follows the spawn-register timeout precedent.
+                      See change: gate-changed-on-disk-by-content. */}
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <label className="text-sm text-[var(--text-secondary)]" htmlFor="editor-large-file-limit">
+                        {i18nT("settings.editorLargeFileLimit", undefined, "Editor large-file limit")}
+                        <span className="ml-1.5 px-1 py-0.5 rounded text-[10px] align-middle bg-[var(--bg-tertiary)] text-[var(--text-tertiary)]">MB</span>
+                      </label>
+                      <input
+                        id="editor-large-file-limit"
+                        data-testid="editor-large-file-limit-input"
+                        type="text"
+                        inputMode="numeric"
+                        className={`w-28 bg-[var(--bg-secondary)] border rounded px-2 py-1 text-sm text-[var(--text-primary)] text-right ${
+                          editorLimitInvalid ? "border-red-500 text-red-400" : "border-[var(--border-secondary)]"
+                        }`}
+                        value={editorLimitText ?? String(config.editor?.largeFileLimitMb ?? 10)}
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          setEditorLimitText(raw);
+                          const v = parseEditorLimitMb(raw);
+                          if (v !== null) update((c) => { c.editor = { ...c.editor, largeFileLimitMb: v }; });
+                        }}
+                      />
+                    </div>
+                    {editorLimitInvalid && (
+                      <p data-testid="editor-large-file-limit-error" className="mt-1 text-xs text-red-400">
+                        {i18nT("settings.editorLargeFileLimitInvalid", undefined, "Must be a whole number between 1 and 256.")}
+                      </p>
+                    )}
+                    <p className="mt-1 text-xs text-[var(--text-tertiary)]">
+                      {i18nT("settings.editorLargeFileLimitHint", undefined, "Files above this size open as a download-only notice instead of a rich preview (Markdown, spreadsheets, PDF, images). Larger values let big files render but can freeze the tab while they do. Text files in the code editor are never limited. Default 10, range 1–256. Applies without a restart.")}
                     </p>
                   </div>
                 </Section>
@@ -2765,7 +2820,7 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
 
       {/* Save Bar — present only while dirty (dirty-gated friction) or a
           numeric field is invalid (so the disabled Save explains why). */}
-      {(isDirty || spawnTimeoutInvalid || archiveDaysInvalid || archiveSweepInvalid || sessionHeapInvalid || serverHeapInvalid || subagentCapInvalid) && (
+      {(isDirty || editorLimitInvalid || spawnTimeoutInvalid || archiveDaysInvalid || archiveSweepInvalid || sessionHeapInvalid || serverHeapInvalid || subagentCapInvalid) && (
         <div
           data-testid="settings-save-bar"
           className="shrink-0 flex items-center gap-3 px-4 py-3 border-t border-[var(--border-primary)] bg-[var(--bg-secondary)]"
@@ -2801,7 +2856,7 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
           </button>
           <button
             onClick={handleSave}
-            disabled={saving || restarting || spawnTimeoutInvalid || archiveDaysInvalid || archiveSweepInvalid || sessionHeapInvalid || serverHeapInvalid || subagentCapInvalid}
+            disabled={saving || restarting || editorLimitInvalid || spawnTimeoutInvalid || archiveDaysInvalid || archiveSweepInvalid || sessionHeapInvalid || serverHeapInvalid || subagentCapInvalid}
             data-testid="save-btn"
             className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium disabled:opacity-50"
           >

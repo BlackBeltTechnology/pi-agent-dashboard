@@ -45,3 +45,4 @@ Services additions: `GET /api/services/:id/logs`, `POST /api/services/:id/reset-
 `POST /api/live-server/:id/capability` → `control` (mints a live-preview capability URL). See change: retire-trusted-networks-bypass.
 
 `POST /api/tls/issue` → `operate` (TLS cert "issue now"; authorized like `PUT /api/config`). See change: add-tailscale-cert-tls.
+Adds `GET /api/file/digest` (observe). See change: gate-changed-on-disk-by-content.
