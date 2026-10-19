@@ -248,7 +248,7 @@ export class PromptBus {
       this.options.onDashboardCancel(id);
     }
 
-    /* mutated: cancel no longer settles */
+    entry.resolve({ id, cancelled: true, source: "__bus__" });
   }
 
   /** Get pending requests with their resolved dashboard components (for reconnect replay). */
