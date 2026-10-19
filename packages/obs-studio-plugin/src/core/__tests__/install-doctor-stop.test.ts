@@ -5,11 +5,13 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { LOG_TAIL_BYTES } from "../doctor.js";
 import { installPortable } from "../install.js";
 import { portableRoot } from "../paths.js";
 import { baseDeps, recordingCli, runCli, tmpHome, writeServices } from "./cli-harness.js";
+import { type FakeObs, startFakeObs } from "./fake-obs.js";
+import { obsModel } from "./obs-model.js";
 
 /** Stored (method 0) zip; `symlink` entries get unix mode 0o120777. */
 function makeZip(entries: Array<{ name: string; data?: string; symlink?: boolean }>): Buffer {
@@ -226,6 +228,65 @@ describe("E14 stop", () => {
     expect(r.code).toBe(1);
     expect(r.json()).toMatchObject({ ok: false, error: { code: "refused" } });
     expect(s.runs).toEqual([]);
+  });
+
+  // OBS shows an exit-confirm modal while an output is active; an outside quit
+  // is then cancelled (osascript -128) and the modal can sit off-screen.
+  describe("stops active outputs before quitting", () => {
+    const fakes: FakeObs[] = [];
+    afterEach(async () => {
+      for (const f of fakes.splice(0)) await f.close();
+    });
+
+    async function liveStop(active: Array<"stream" | "record" | "vcam">, stuck: Array<"stream" | "record" | "vcam"> = []) {
+      const m = obsModel();
+      for (const o of active) m.outputs[o] = true;
+      m.stuckOutputs = stuck;
+      const f = await startFakeObs({ password: "pw", handlers: m.handlers });
+      fakes.push(f);
+      const s = stopSetup(2000);
+      let typesAtQuit: string[] | null = null;
+      const deps = {
+        ...s.deps,
+        host: { ...s.deps.host, env: { OBS_URL: f.url, OBS_PASSWORD: "pw" } },
+        run: async (file: string, a: string[]) => {
+          typesAtQuit = f.types();
+          s.runs.push([file, ...a]);
+          return { code: 1, stdout: "" };
+        },
+      };
+      const r = await runCli(["stop", "--yes", "--json"], deps);
+      return { r, m, f, s, typesAtQuit: () => typesAtQuit };
+    }
+
+    it("vcam + record + stream active → all stopped over websocket before the quit is sent", async () => {
+      const { r, m, typesAtQuit } = await liveStop(["stream", "record", "vcam"]);
+      expect(r.code).toBe(0);
+      expect(r.json()).toMatchObject({ stopped: true, outputsStopped: ["stream", "record", "vcam"] });
+      expect(m.outputs).toEqual({ stream: false, record: false, vcam: false });
+      expect(typesAtQuit()).toEqual(expect.arrayContaining(["StopStream", "StopRecord", "StopVirtualCam"]));
+    });
+
+    it("nothing active → no Stop* request, quit proceeds", async () => {
+      const { r, f } = await liveStop([]);
+      expect(r.json()).toMatchObject({ stopped: true, outputsStopped: [] });
+      expect(f.types().filter((t) => t.startsWith("Stop"))).toEqual([]);
+    });
+
+    it("an output stays active → output-active, quit NOT sent", async () => {
+      const { r, s } = await liveStop(["vcam"], ["vcam"]);
+      expect(r.code).toBe(1);
+      expect(r.json()).toMatchObject({ ok: false, error: { code: "output-active" } });
+      expect(s.runs).toEqual([]);
+    });
+  });
+
+  it("websocket unreachable → warns to stop outputs in OBS, still quits", async () => {
+    const s = stopSetup(1000);
+    const r = await runCli(["stop", "--yes", "--json"], s.deps);
+    expect(r.json()).toMatchObject({ stopped: true });
+    expect(r.err.join("\n")).toMatch(/stop (streaming|outputs).*in OBS/i);
+    expect(s.runs.length).toBe(1);
   });
 
   it("linux targets only the matched pid", async () => {

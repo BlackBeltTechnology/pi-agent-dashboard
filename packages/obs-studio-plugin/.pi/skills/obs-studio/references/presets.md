@@ -1,7 +1,8 @@
 # Presets
 
-Canvas 1920×1080; PIP box 480×270 at bottom-right with a 20 px margin (ported from OBS-Transcribe
-`setup-scenes.ts`). All presets: current scene collection only, idempotent by name, never change an existing
+Designed on 1920×1080; PIP box 480×270 at bottom-right with a 20 px margin (ported from OBS-Transcribe
+`setup-scenes.ts`). Geometry, subtitle font size and width scale to the real base canvas (`GetVideoSettings`,
+k = baseWidth / 1920; e.g. 5120×2880 → 1280×720 box); fallback 1920×1080. All presets: current scene collection only, idempotent by name, never change an existing
 input's settings, never switch collections.
 
 | Preset | Creates |

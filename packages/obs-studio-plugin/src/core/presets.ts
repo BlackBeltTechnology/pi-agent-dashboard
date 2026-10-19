@@ -10,6 +10,8 @@
  * Device binding only for inputs this run created (first non-virtual camera,
  * main display). A filter needing an absent kind reports `plugin-missing`.
  * Never switches the scene collection; never changes an existing input.
+ * Geometry is designed on 1920x1080 and scaled to the real base canvas
+ * (`GetVideoSettings`; fallback 1920x1080) by k = baseWidth / 1920.
  * See change: add-obs-studio-plugin.
  */
 import { DEVICE_KINDS, type Device, type Display, SCREEN_KIND } from "./devices.js";
@@ -26,29 +28,43 @@ export interface ItemReport {
   note?: string;
 }
 
-const CANVAS_W = 1920;
-const CANVAS_H = 1080;
+const DESIGN_W = 1920;
+const DESIGN_H = 1080;
 const BOX_W = 480;
 const BOX_H = 270;
 const MARGIN = 20;
 
-const FULL = { boundsType: "OBS_BOUNDS_SCALE_INNER", boundsWidth: CANVAS_W, boundsHeight: CANVAS_H, positionX: 0, positionY: 0 };
-const BOTTOM_RIGHT = {
-  boundsType: "OBS_BOUNDS_SCALE_INNER",
-  boundsWidth: BOX_W,
-  boundsHeight: BOX_H,
-  positionX: CANVAS_W - BOX_W - MARGIN,
-  positionY: CANVAS_H - BOX_H - MARGIN,
+/** Base canvas in pixels plus the design-to-canvas factor. */
+interface Canvas {
+  w: number;
+  h: number;
+  k: number;
+}
+
+type Transform = (c: Canvas) => Record<string, unknown>;
+
+const FULL: Transform = (c) => ({ boundsType: "OBS_BOUNDS_SCALE_INNER", boundsWidth: c.w, boundsHeight: c.h, positionX: 0, positionY: 0 });
+const BOTTOM_RIGHT: Transform = (c) => {
+  const [w, h, m] = [BOX_W, BOX_H, MARGIN].map((v) => Math.round(v * c.k));
+  return { boundsType: "OBS_BOUNDS_SCALE_INNER", boundsWidth: w, boundsHeight: h, positionX: c.w - w - m, positionY: c.h - h - m };
 };
-const BOTTOM_CENTER = { alignment: 8, positionX: CANVAS_W / 2, positionY: CANVAS_H - 20 };
+const BOTTOM_CENTER: Transform = (c) => ({ alignment: 8, positionX: Math.round(c.w / 2), positionY: c.h - Math.round(MARGIN * c.k) });
+
+async function readCanvas(obs: GuardedObs): Promise<Canvas> {
+  if (!obs.conn.availableRequests.has("GetVideoSettings")) return { w: DESIGN_W, h: DESIGN_H, k: 1 };
+  const r = await obs.request<{ baseWidth?: number; baseHeight?: number }>("GetVideoSettings");
+  const w = r.baseWidth && r.baseWidth > 0 ? r.baseWidth : DESIGN_W;
+  const h = r.baseHeight && r.baseHeight > 0 ? r.baseHeight : DESIGN_H;
+  return { w, h, k: w / DESIGN_W };
+}
 
 type Source = "camera" | "screen" | "text";
 
 interface InputSpec {
   name: string;
   source: Source;
-  transform: Record<string, unknown>;
-  settings?: Record<string, unknown>;
+  transform: Transform;
+  settings?: (c: Canvas) => Record<string, unknown>;
 }
 
 interface FilterSpec {
@@ -73,16 +89,16 @@ interface PresetSpec {
   overlay?: { scenes: string[]; input: InputSpec };
 }
 
-const SUBTITLE_SETTINGS = {
+const SUBTITLE_SETTINGS = (c: Canvas) => ({
   text: "",
-  font: { face: "Helvetica", size: 48, style: "Bold", flags: 0 },
+  font: { face: "Helvetica", size: Math.round(48 * c.k), style: "Bold", flags: 0 },
   color1: 0xffffffff,
   color2: 0xffffffff,
   outline: true,
   drop_shadow: true,
   word_wrap: true,
-  custom_width: 1600,
-};
+  custom_width: Math.round(1600 * c.k),
+});
 
 const PIP: SceneSpec = {
   scene: "Desktop + Webcam",
@@ -141,6 +157,7 @@ export async function applyPreset(obs: GuardedObs, name: string, deps: PresetDep
   const existingScenes = new Set(scenes.map((s) => s.sceneName));
   const createdScenes = new Set<string>();
   const createdInputs = new Map<string, Source>();
+  let canvas: Canvas | undefined;
 
   const sceneItems = async (scene: string): Promise<Set<string>> => {
     const { sceneItems: items = [] } = await obs.request<{ sceneItems?: Array<{ sourceName: string }> }>("GetSceneItemList", { sceneName: scene });
@@ -148,13 +165,14 @@ export async function applyPreset(obs: GuardedObs, name: string, deps: PresetDep
   };
 
   const placeInput = async (scene: string, input: InputSpec): Promise<void> => {
+    canvas ??= await readCanvas(obs);
     let sceneItemId: number;
     try {
       const r = await obs.request<{ sceneItemId: number }>("CreateInput", {
         sceneName: scene,
         inputName: input.name,
         inputKind: inputKind(deps.platform, input.source),
-        inputSettings: input.settings ?? {},
+        inputSettings: input.settings?.(canvas) ?? {},
         sceneItemEnabled: true,
       });
       sceneItemId = r.sceneItemId;
@@ -167,7 +185,7 @@ export async function applyPreset(obs: GuardedObs, name: string, deps: PresetDep
       sceneItemId = r.sceneItemId;
       report.push({ item: `input:${input.name}`, status: "existing", note: `added to ${scene}` });
     }
-    await obs.request("SetSceneItemTransform", { sceneName: scene, sceneItemId, sceneItemTransform: input.transform });
+    await obs.request("SetSceneItemTransform", { sceneName: scene, sceneItemId, sceneItemTransform: input.transform(canvas) });
   };
 
   for (const s of spec.scenes) {
