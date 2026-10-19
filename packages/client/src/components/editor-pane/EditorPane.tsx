@@ -185,12 +185,13 @@ export function EditorPane() {
   // provenance/line changes all change it); `null` for pseudo/plugin tabs, which
   // are never watched or baselined. `autoOpened` is in the key: a provenance
   // change remounts the tab so its next request uses the new eligibility
-  // (surface-denial-remedy-in-previews, D4).
-  // A handler-mode tab has no built-in viewer: no baseline read here (the
-  // handler's `snapshot()` sets the baseline) and `refreshNonce` does not key it.
+  // (surface-denial-remedy-in-previews, D4). Scoped to (session, cwd): a switch drops the
+  // per-scope baseline store, so an identical path:nonce key must still recapture one.
+  // A handler-mode tab has no built-in viewer: no baseline read here (the handler's
+  // `snapshot()` sets the baseline) and `refreshNonce` does not key it.
   const fileViewerKey =
     activeTab && !isPseudoTabViewer(activeTab.viewer) && !fh.handlerView
-      ? `${activeTab.path}:${refreshNonce}:${lineForTab ?? ""}:${activeTab.autoOpened === true}`
+      ? `${sessionId}\u0000${cwd}\u0000${activeTab.path}:${refreshNonce}:${lineForTab ?? ""}:${activeTab.autoOpened === true}`
       : null;
   useEffect(() => {
     if (!changeDetection || !fileViewerKey || !activePath) return;

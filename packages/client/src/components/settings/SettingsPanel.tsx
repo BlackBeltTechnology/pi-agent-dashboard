@@ -30,13 +30,13 @@ import { mdiAlert, mdiAlertCircleOutline, mdiAlertOutline, mdiArrowLeft, mdiBook
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useRoute } from "wouter";
+import { useAddonIssues } from "../../hooks/useAddonIssues.js";
 import { useAsyncAction } from "../../hooks/useAsyncAction.js";
 import { useLaunchSource } from "../../hooks/useLaunchSource.js";
 import { useModelCatalogue } from "../../hooks/useModelCatalogue.js";
 import { usePersistedBoolean } from "../../hooks/usePersistedBoolean.js";
 import { usePiCompatibility } from "../../hooks/usePiCompatibility.js";
 import { usePiResources } from "../../hooks/usePiResources.js";
-import { useAddonIssues } from "../../hooks/useAddonIssues.js";
 import { usePluginList, usePluginToggle } from "../../hooks/usePluginToggle.js";
 import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
 import { useResourceActivation } from "../../hooks/useResourceActivation.js";
@@ -652,6 +652,16 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
   // sweep interval ≥ 1 min. Invalid → field error + Save disabled.
   const [archiveDaysInvalid, setArchiveDaysInvalid] = useState(false);
   const [archiveSweepInvalid, setArchiveSweepInvalid] = useState(false);
+  // Every field-level validation flag. Guards BOTH Save paths (the Save Bar button and the
+  // unsaved-changes dialog's Save), so an invalid typed value never persists the last valid one.
+  const fieldsInvalid =
+    editorLimitInvalid ||
+    spawnTimeoutInvalid ||
+    archiveDaysInvalid ||
+    archiveSweepInvalid ||
+    sessionHeapInvalid ||
+    serverHeapInvalid ||
+    subagentCapInvalid;
   const [message, setMessage] = useState<{ type: "success" | "error" | "warn"; text: string } | null>(null);
   // Restart is a slow op: the HTTP ack returns immediately but the effect lands
   // when the server re-broadcasts `server_restarting` with our requestId. Hold
@@ -1010,6 +1020,7 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
 
   const handleSave = useCallback(async (): Promise<boolean> => {
     if (!config || !original) return false;
+    if (fieldsInvalid) return false;
     if (!isDirty) {
       setMessage({ type: "warn", text: t("settings.noChanges", undefined, "No changes to save") });
       return true;
@@ -1077,7 +1088,7 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
     }
     setSaving(false);
     return failed.length === 0;
-  }, [config, original, isDirty, configDirty, configPartial, draftSources, refreshGitSourceReadout, t]);
+  }, [config, original, isDirty, configDirty, configPartial, draftSources, refreshGitSourceReadout, fieldsInvalid, t]);
 
   // ── Unsaved-changes navigation guards ─────────────────────────────────────
   const [pendingNav, setPendingNav] = useState<string | null>(null);
@@ -2856,7 +2867,7 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
           </button>
           <button
             onClick={handleSave}
-            disabled={saving || restarting || editorLimitInvalid || spawnTimeoutInvalid || archiveDaysInvalid || archiveSweepInvalid || sessionHeapInvalid || serverHeapInvalid || subagentCapInvalid}
+            disabled={saving || restarting || fieldsInvalid}
             data-testid="save-btn"
             className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium disabled:opacity-50"
           >

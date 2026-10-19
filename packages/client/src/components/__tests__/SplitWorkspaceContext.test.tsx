@@ -629,26 +629,34 @@ describe("SplitWorkspaceProvider — changed-on-disk verification", () => {
     expect(b.banner()).toEqual(["foo.ts"]);
   });
 
-  it("F6: a save that never responds is aborted after 60 s and verification then runs", async () => {
+  it("F6: a save that never responds is NOT aborted; the candidate's wait is bounded at 60 s and verification then runs", async () => {
     const h = mountDetect();
     await openWithBaseline(h);
     f.state.write = { status: 200, sha1: undefined, reject: false, hang: true };
     let writePromise!: Promise<Response>;
-    let writeError: unknown;
+    let writeSettled = false;
     act(() => {
       writePromise = h.result.current.trackedFileWrite("foo.ts", { cwd: "/proj", path: "foo.ts", content: "x", mtime: 1 });
-      writePromise.catch((e) => {
-        writeError = e;
-      });
+      writePromise.then(
+        () => {
+          writeSettled = true;
+        },
+        () => {
+          writeSettled = true;
+        },
+      );
     });
     h.fire("foo.ts");
     await advance(30_000);
     expect(f.digestCalls.filter((c) => c.purpose === "verify")).toHaveLength(0);
     await advance(31_000);
-    expect(writeError).toBeTruthy(); // the request was aborted
     await advance(300);
+    // The wait is bounded: verification ran against the current baseline ...
     expect(f.digestCalls.filter((c) => c.purpose === "verify").length).toBeGreaterThanOrEqual(1);
-    expect(h.banner()).toEqual(["foo.ts"]); // unknown outcome → safe direction
+    // ... but the request itself is still in flight (never aborted, so a slow success is not shown as a failure).
+    expect(writeSettled).toBe(false);
+    expect(f.state.writeCalls).toBe(1);
+    expect(h.banner()).toEqual([]); // disk still equals the (unchanged) baseline
   });
 
   it("F8: Dismiss during an in-flight verification keeps the banner dismissed; the next change banners again", async () => {
@@ -742,6 +750,30 @@ describe("SplitWorkspaceProvider — changed-on-disk verification", () => {
     const res = await h.result.current.trackedFileWrite("foo.ts", { cwd: "/proj", path: "foo.ts", content: "x", mtime: 1 });
     expect(res.status).toBe(200);
     expect(f.state.writeCalls).toBe(1);
+  });
+
+  it("cwd-hydration: while the session cwd is unhydrated ('') no digest is requested and detection reads off; once cwd arrives a baseline is captured", async () => {
+    const h = mountDetect({ cwd: "" });
+    expect(h.result.current.changeDetection).toBe(false);
+    act(() => h.result.current.openInSplit("foo.ts"));
+    await act(async () => {
+      await h.result.current.captureBaseline("foo.ts");
+    });
+    await advance(2000);
+    // A digest with an empty cwd is a guaranteed 400 -> null baseline -> a false banner on the next touch.
+    expect(f.digestCalls).toHaveLength(0);
+
+    h.scope.cwd = "/proj";
+    f.disk.set(f.key("/proj", "foo.ts"), "S");
+    h.rerender();
+    expect(h.result.current.changeDetection).toBe(true);
+    await act(async () => {
+      await h.result.current.captureBaseline("foo.ts");
+    });
+    expect(f.digestCalls.at(-1)).toMatchObject({ cwd: "/proj", path: "foo.ts", purpose: "baseline" });
+    h.fire("foo.ts");
+    await advance(200);
+    expect(h.banner()).toEqual([]); // identical content, real baseline -> no banner
   });
 
   it("Refresh re-sends the watch set (resyncWatch)", async () => {

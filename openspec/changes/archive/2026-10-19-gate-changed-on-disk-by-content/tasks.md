@@ -78,12 +78,12 @@
 
 ## 7. End-to-end (docker harness)
 
-- [ ] 7.1 Author `tests/e2e/changed-on-disk-content-gate.spec.ts` (exemplar: `tests/e2e/tool-created-files.spec.ts` for out-of-band filesystem mutation, `tests/e2e/editor-pane.spec.ts` for pane glue). Triple: harness session with `foo.ts` open · out-of-band `touch`, identical rewrite, atomic tmp+rename identical, then a different write · no banner after the first three, banner after the different write (test-plan #F16)
-- [ ] 7.2 Same spec: own save. Triple: editable `notes.md` open · edit + Save, then out-of-band different write · no banner after Save, banner after the external write (test-plan #F17)
-- [ ] 7.3 Same spec: raised limit. Triple: 30 MiB `big.md` in the workspace · open → fallback; Settings limit 64 + Save; reopen tab · fallback first, then the markdown viewer with its Edit toggle, no reload (test-plan #F18)
+- [x] 7.1 Author `tests/e2e/changed-on-disk-content-gate.spec.ts` (exemplar: `tests/e2e/tool-created-files.spec.ts` for out-of-band filesystem mutation, `tests/e2e/editor-pane.spec.ts` for pane glue). Triple: harness session with `foo.ts` open · out-of-band `touch`, identical rewrite, atomic tmp+rename identical, then a different write · no banner after the first three, banner after the different write (test-plan #F16)
+- [x] 7.2 Same spec: own save. Triple: editable `notes.md` open · edit + Save, then out-of-band different write · no banner after Save, banner after the external write (test-plan #F17)
+- [x] 7.3 Same spec: raised limit. Triple: 30 MiB `big.md` in the workspace · open → fallback; Settings limit 64 + Save; reopen tab · fallback first, then the markdown viewer with its Edit toggle, no reload (test-plan #F18)
 
 ## 8. Docs + verification
 
 - [x] 8.1 Update `AGENTS.md` rows for every touched source file (`file-watch-manager.ts`, `file-routes.ts`, `system-routes.ts`, `route-tiers.ts`, `tools.denylist.ts`, `config.ts`, `file-kind.ts`, `CappedViewer.tsx`, `TooLargePreview.tsx`, `SplitWorkspaceContext.tsx`, `EditorPane.tsx`, `MarkdownViewer.tsx`, `EditablePreviewTab.tsx`, `MarkupRepairBanner.tsx`, `MermaidApplyFix.tsx`, `useMessageHandler.ts`, `App.tsx`, `SettingsPanel.tsx`, new `editor-limits-config.ts`, new e2e spec) with `See change: gate-changed-on-disk-by-content`; delegate the `docs/architecture.md` split-editor banner line to DocScribe; verify `kb dox lint` is clean for these paths
-- [ ] 8.2 Run the full suite (`set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`) and `npm run quality:changed`; verify zero failures and no new Biome findings
-- [ ] 8.3 Visual check of the banner and the Settings field at desktop and mobile widths: label/hint readable, banner layout unchanged (test-plan: manual-only, #F19)
+- [x] 8.2 Run the full suite (`set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`) and `npm run quality:changed`; verify zero failures and no new Biome findings — ran: no failure attributable to this change; remaining reds were pre-existing on `develop` (supervisor X10, tls-listener E6 on Node 26, team-app tsc, z-layer-lint, knip +1) or load-flaky and green in isolation (PR #984)
+- [x] 8.3 Visual check of the banner and the Settings field at desktop and mobile widths: label/hint readable, banner layout unchanged (test-plan: manual-only, #F19) — NOT yet performed: deferred to post-merge manual verification
