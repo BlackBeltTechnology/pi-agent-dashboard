@@ -65,7 +65,11 @@ export async function fetchDigest(cwd: string, path: string): Promise<Digest> {
   }
   const body = await res.json();
   const d = body?.data;
-  if (!body?.success || typeof d?.size !== "number" || typeof d?.sha1 !== "string" || !d.sha1) {
+  if (body?.success && typeof d?.size === "number" && !d.sha1) {
+    // The server omits `sha1` only above its digest ceiling, which exceeds every claim `maxBytes`.
+    throw new FileHandlerError("too-large", "File exceeds the size the digest endpoint can hash");
+  }
+  if (!body?.success || typeof d?.size !== "number" || typeof d?.sha1 !== "string") {
     throw new FileHandlerError("rejected", "digest unavailable for this file");
   }
   return { size: d.size, mtime: typeof d.mtime === "number" ? d.mtime : 0, sha1: d.sha1 };

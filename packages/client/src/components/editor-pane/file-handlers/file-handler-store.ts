@@ -83,8 +83,8 @@ export class FileHandlerStore {
   private listeners = new Set<() => void>();
   private clock = 0;
   private seq = 0;
-  /** A mount that was blocked by the cap, waiting on the user's choice. */
-  private pendingMount: { spec: ActivateSpec; fromResume: boolean } | null = null;
+  /** Mounts blocked by the cap, keyed by instance key, each waiting on its own dialog's answer. */
+  private pendingMounts = new Map<string, { spec: ActivateSpec; fromResume: boolean }>();
 
   subscribe = (l: () => void): (() => void) => {
     this.listeners.add(l);
@@ -158,15 +158,16 @@ export class FileHandlerStore {
 
   private mount(spec: ActivateSpec, fromResume: boolean): ActivateResult {
     // One blocked dialog per mount attempt (the pane effect re-runs `activate`).
-    if (this.pendingMount?.spec.key === spec.key) return "blocked";
+    if (this.pendingMounts.has(spec.key)) return "blocked";
     const plan = planMount(this.lites(), { key: spec.key, claimRef: spec.claim.ref, keepAliveMax: spec.claim.keepAliveMax });
     if (plan.kind === "blocked") {
-      this.pendingMount = { spec, fromResume };
+      const pending = { spec, fromResume };
+      this.pendingMounts.set(spec.key, pending);
       const tabs = plan.keys.flatMap((k) => {
         const i = this.get(k);
         return i ? [{ key: k, path: i.path, label: i.claim.label }] : [];
       });
-      void this.ask<"cancel" | { discard: string }>({ kind: "blocked", tabs }, "cancel").then((r) => this.resolveBlocked(r));
+      void this.ask<"cancel" | { discard: string }>({ kind: "blocked", tabs }, "cancel").then((r) => this.resolveBlocked(pending, r));
       return "blocked";
     }
     if (plan.kind === "evict") this.patch(plan.key, { evicted: true, dirty: false });
@@ -187,10 +188,10 @@ export class FileHandlerStore {
     return "live";
   }
 
-  private resolveBlocked(r: "cancel" | { discard: string }): void {
-    const pending = this.pendingMount;
-    this.pendingMount = null;
-    if (!pending) return;
+  /** Settle the blocked mount that opened the answered dialog (never another overlapping one). */
+  private resolveBlocked(pending: { spec: ActivateSpec; fromResume: boolean }, r: "cancel" | { discard: string }): void {
+    if (this.pendingMounts.get(pending.spec.key) !== pending) return;
+    this.pendingMounts.delete(pending.spec.key);
     if (r === "cancel") {
       // An aborted first mount reverts the tab to the built-in view; a cancelled Resume keeps the placeholder.
       if (!pending.fromResume) this.state.pane?.clearMode(pending.spec.path);
@@ -266,7 +267,7 @@ export class FileHandlerStore {
   /** Test helper: drop everything (singleton hygiene). */
   reset(): void {
     this.state = { instances: new Map(), pane: null, dialogs: [], notices: [] };
-    this.pendingMount = null;
+    this.pendingMounts.clear();
     this.clock = 0;
     for (const l of this.listeners) l();
   }

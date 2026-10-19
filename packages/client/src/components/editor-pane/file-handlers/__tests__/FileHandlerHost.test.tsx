@@ -84,6 +84,16 @@ describe("snapshot (digest bracket)", () => {
   });
 });
 
+describe("X3b: a file above the digest ceiling (no sha1)", () => {
+  it("reports too-large (not a generic read error) and marks the mode unavailable", async () => {
+    const log = installFetch({ digest: () => ({ size: 300 * 1024 * 1024 }) });
+    const api = setup({ maxBytes: 128 * 1024 * 1024 });
+    await expect(api.snapshot()).rejects.toMatchObject({ reason: "too-large" });
+    expect(log.count("/api/file/raw")).toBe(0);
+    expect(fileHandlerStore.get(KEY)?.unavailableLimit).toBe(128 * 1024 * 1024);
+  });
+});
+
 describe("setDirty", () => {
   it("starts unknown, accepts true/false/unknown and ignores junk", () => {
     const api = setup();
