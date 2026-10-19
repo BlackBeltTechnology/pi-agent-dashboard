@@ -60,9 +60,10 @@ const RULES = [
     evidence:
       "docs/repro/v0.5.3-clean-node22-linux-x64-2026-05-19.log STEP 1 — " +
       "node-pty 1.1.0 ships no linux-x64 prebuild; install fails on slim " +
-      "Debian. Must remain pinned at 1.2.0-beta.13+ until 1.2.0 stable. " +
+      "Debian. Must remain pinned at 1.2.0-beta.15+ until 1.2.0 stable " +
+      "(beta.13 → beta.15 in refresh-electron-bundled-components). " +
       "See change: enable-standalone-npm-install task 7.1.",
-    minVersion: "1.2.0-beta.13",
+    minVersion: "1.2.0-beta.15",
   },
   {
     pkgPath: "packages/server/package.json",
@@ -100,16 +101,17 @@ const RULES = [
     dep: "@fission-ai/openspec",
     kind: "dependencies",
     evidence:
-      "provision-openspec-cli-in-sessions task 1.4 — floor raised 1.3.0 → 1.6.0 " +
-      "to match the version that generated the openspec-* skills " +
-      "(generatedBy: 1.6.0). npm hoists the server + extension ranges to one " +
-      "installed copy the session shim resolves. Pinned EXACT (not ^1.6.0): the " +
-      "vendored .pi/skills/openspec-* carry `generatedBy: 1.6.0`, so the CLI and " +
+      "provision-openspec-cli-in-sessions task 1.4 — floor tracks the version " +
+      "that generated the openspec-* skills (`generatedBy` stamp). npm hoists " +
+      "the server + extension ranges to one installed copy the session shim " +
+      "resolves. Pinned EXACT (not ^1.14.3): the vendored .pi/skills/openspec-* " +
+      "carry the `generatedBy` of the installed CLI, so the CLI and " +
       "the skills must move together — a caret let a routine install drift the " +
-      "CLI out from under them unreviewed. 1.11.0 itself is CLI-compatible with " +
-      "openspec-poller.ts (`status --change <name> --json` unchanged, artifact " +
-      "shape unchanged + additive isPlanningComplete).",
-    minVersion: "1.11.0",
+      "CLI out from under them unreviewed. Floor raised 1.11.0 → 1.14.3 " +
+      "(refresh-electron-bundled-components): the 1.12–1.14.3 CLI JSON output " +
+      "changed only additively (`requires` edges on `status --json` in 1.12), so " +
+      "openspec-poller.ts (`status --change <name> --json`) stays compatible.",
+    minVersion: "1.14.3",
   },
   {
     pkgPath: "packages/extension/package.json",
@@ -119,8 +121,8 @@ const RULES = [
       "provision-openspec-cli-in-sessions task 1.4 — the bridge shim " +
       "(openspec-cli-shim.ts) require.resolves this dep, so it must travel with " +
       "the published extension into generic projects (no dashboard copy hoisted " +
-      "there). Floor tracks the single-source version 1.11.0.",
-    minVersion: "1.11.0",
+      "there). Floor tracks the single-source version 1.14.3.",
+    minVersion: "1.14.3",
   },
   {
     pkgPath: "packages/server/package.json",
@@ -162,6 +164,26 @@ const RULES = [
  * and any prerelease suffix so `^1.6.0` / `~1.6.0` / `1.6.0` all floor to
  * `1.6.0`. Returns null for a range we cannot parse (e.g. `*`, a git/url dep).
  */
+/**
+ * Loose "declared range covers at least `minVersion`" check (substring-based, no full
+ * semver math — see collectFailures). A plain floor needs its version text in the range;
+ * a PRERELEASE floor (`1.2.0-beta.15`) accepts the same core with a prerelease number
+ * >= the floor's, or the stable release of that core. Previously the prerelease tag was
+ * stripped from the floor, so `1.2.0-beta.13` passed a `1.2.0-beta.15` floor.
+ */
+export function satisfiesMinVersion(declared, minVersion) {
+  const [core, pre] = minVersion.split(/-(.+)/);
+  if (!pre) return declared.includes(core);
+  const preMatch = /^(.*?)(\d+)$/.exec(pre);
+  if (!declared.includes(core)) return false;
+  if (!declared.includes(`${core}-`)) return true; // stable release of the same core
+  if (!preMatch) return declared.includes(minVersion);
+  const [, tag, floorNum] = preMatch;
+  const re = new RegExp(`${core.replaceAll(".", "\\.")}-${tag.replaceAll(".", "\\.")}(\\d+)`);
+  const found = re.exec(declared);
+  return found !== null && Number(found[1]) >= Number(floorNum);
+}
+
 export function floorOf(range) {
   const m = String(range).match(/(\d+\.\d+\.\d+)/);
   return m ? m[1] : null;
@@ -421,7 +443,7 @@ export function collectFailures({ repoRoot = REPO_ROOT } = {}) {
     // We do not do full semver math here — we just want a clear signal that the
     // pin hasn't reverted to an older release. The rule's evidence is the
     // authority on which versions are acceptable.
-    if (!declared.includes(rule.minVersion.split("-")[0])) {
+    if (!satisfiesMinVersion(declared, rule.minVersion)) {
       failures.push(
         `Stale pin: ${rule.pkgPath} → ${rule.kind}.${rule.dep} = "${declared}"\n` +
           `  Expected: range covering at least ${rule.minVersion}\n` +
