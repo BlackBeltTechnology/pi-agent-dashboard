@@ -984,7 +984,7 @@ The slot taxonomy SHALL include the slot id `editor-pane-file-handler`, with mul
 |---|---|---|
 | body component | yes | — |
 | `id` | yes | lower-case slug, unique within the plugin |
-| `extensions` | yes | non-empty; lower-case extensions with a leading dot; no wildcards; no text-backed extension |
+| `extensions` | yes | non-empty; lower-case extensions with a leading dot; no wildcards; no text-backed or frozen-deny-listed extension |
 | `mode` | yes | `preview` or `edit` |
 | `label` | yes | at most 40 characters |
 | keep-alive limit | no | 1 to 3 |
