@@ -26,7 +26,6 @@
  * (mirrors file-routes.ts). See change: folder-resource-activation-toggle.
  */
 
-import * as path from "node:path";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
 import type { PiGateway } from "../pi/pi-gateway.js";
@@ -39,21 +38,18 @@ import {
 } from "../pi/resource-activation-toggle.js";
 import { persistTrustDecision, trustOptionsFor } from "../pi/resource-toggle-trust.js";
 import { withSettingsWriteLock } from "../pi/settings-write-lock.js";
+import {
+  __resetTrustChallenges,
+  clearTrustChallenge,
+  hasTrustChallenge,
+  registerTrustChallenge,
+} from "../pi/trust-challenges.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
 import type { NetworkGuard } from "./route-deps.js";
 
-/**
- * Folders for which a toggle returned `trustRequired` and whose decision is
- * still outstanding. The trust endpoint only acts on a folder in this set, so
- * a caller cannot plant a durable trust record for a path of its choosing.
- * Process-lifetime and in-memory: a restart simply makes the user re-toggle.
- */
-const outstandingTrustChallenges = new Set<string>();
-
-/** Test seam: clear the outstanding challenges (simulates a fresh process). */
-export function __resetTrustChallenges(): void {
-  outstandingTrustChallenges.clear();
-}
+// Outstanding trust challenges live in `pi/trust-challenges.ts`, shared with the
+// Add-ons folder toggle. Re-exported so existing test imports keep working.
+export { __resetTrustChallenges };
 
 /** Session ids governed by a scope: local → folder prefix-match, global → all. */
 /**
@@ -155,7 +151,7 @@ export function registerResourceActivationRoutes(
     if (!result.ok) {
       reply.code(result.status);
       if (result.trustRequired) {
-        if (body.cwd) outstandingTrustChallenges.add(path.resolve(body.cwd));
+        if (body.cwd) registerTrustChallenge(body.cwd);
         return {
           success: false,
           error: result.error,
@@ -191,7 +187,7 @@ export function registerResourceActivationRoutes(
         reply.code(400);
         return { success: false, error: "cwd is required" } satisfies ApiResponse;
       }
-      if (!outstandingTrustChallenges.has(path.resolve(cwd))) {
+      if (!hasTrustChallenge(cwd)) {
         reply.code(409);
         return {
           success: false,
@@ -218,7 +214,7 @@ export function registerResourceActivationRoutes(
           error: `failed to record the project trust decision: ${(err as Error)?.message ?? String(err)}`,
         } satisfies ApiResponse;
       }
-      outstandingTrustChallenges.delete(path.resolve(cwd));
+      clearTrustChallenge(cwd);
       return { success: true, data: { trusted: option.trusted } } satisfies ApiResponse;
     },
   );

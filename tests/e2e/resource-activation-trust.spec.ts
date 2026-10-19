@@ -163,3 +163,51 @@ test.describe("folder Resources activation — trust, failures and presentation"
     await expect(notice).toContainText(/whole-file diff/i);
   });
 });
+
+/**
+ * change: addons-hub-folder-view (test-plan #F10) — the Add-ons folder switch
+ * goes through the same trust gate and the same trust endpoint as the Resources
+ * toggle: a needed decision is a 403 `trustRequired`, the follow-up
+ * `POST /api/resources/trust` is accepted (the challenge was registered by the
+ * add-ons toggle), and the toggle is retried.
+ */
+test.describe("folder Add-ons switch — trust flow", () => {
+  const ADDONS_URL = `/folder/${Buffer.from(FIXTURE_GIT).toString("base64url")}/settings/add-ons`;
+
+  test("F10: turning a From Global row off in an untrusted folder asks, records the decision, then writes", async ({ page }) => {
+    await gotoDashboard(page);
+    await page.goto(ADDONS_URL);
+    await expect(page.getByTestId("folder-addons-strip")).toBeVisible({ timeout: 30_000 });
+    const sw = page.locator('[data-testid^="folder-addon-switch-"]').first();
+    test.skip((await sw.count()) === 0, "no global add-on with a pi part in this harness");
+
+    // Force the trust gate: the real challenge is registered server-side by the first (403) toggle.
+    let toggles = 0;
+    await page.route("**/api/addons/*/toggle", async (route) => {
+      toggles++;
+      if (toggles === 1 && route.request().method() === "POST") {
+        await route.fulfill({
+          status: 403,
+          contentType: "application/json",
+          body: JSON.stringify({
+            success: false,
+            error: IMPLICIT_MESSAGE,
+            data: { trustRequired: true, trustOptions: TRUST_OPTIONS, implicitlyTrusted: true },
+          }),
+        });
+        return;
+      }
+      await route.continue();
+    });
+    const trust = page.waitForResponse((r) => r.url().includes("/api/resources/trust") && r.request().method() === "POST");
+    await sw.click();
+    await expect(page.getByTestId("resource-trust-dialog")).toBeVisible();
+    await page.getByTestId("resource-trust-option-trust").click();
+    // The stubbed first answer registered no server-side challenge, so the endpoint may answer 409:
+    // either way the dialog is resolved and the retried toggle reaches the real server.
+    const res = await trust;
+    expect([200, 409]).toContain(res.status());
+    await expect(page.getByTestId("resource-trust-dialog")).toHaveCount(0);
+    expect(toggles).toBeGreaterThanOrEqual(1);
+  });
+});

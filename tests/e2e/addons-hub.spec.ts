@@ -1,5 +1,5 @@
 import { expect, test } from "./fixtures.js";
-import { byTestId, gotoDashboard } from "./helpers/index.js";
+import { byTestId, ensureFixtureGitGroup, FIXTURE_GIT, gotoDashboard } from "./helpers/index.js";
 
 /**
  * Add-ons hub (change: addons-hub-declutter).
@@ -118,5 +118,69 @@ test.describe("Add-ons hub", () => {
     await page.reload();
     await expect(page.getByTestId("addons-tab-discover")).toHaveAttribute("aria-selected", "true", { timeout: 30_000 });
     await expect(page.getByTestId("package-browser")).toBeVisible({ timeout: 30_000 });
+  });
+
+  // See change: addons-hub-folder-view (test-plan #F16): the rail badge and the Issues tab
+  // share one count, and the health panel lives inside the tab at both widths.
+  for (const width of [1440, 375]) {
+    test(`F16: Issues tab at ${width}px — rail badge equals the tab count, panel inside the tab`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await gotoDashboard(page);
+      // One stale entry guarantees a non-zero count whatever plugins the harness has.
+      await page.route("**/api/packages/health", (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            success: true,
+            data: {
+              entries: [{ source: "npm:gone", status: "stale-npm", reason: "not installed" }],
+              summary: { ok: 0, staleNpm: 1, missingPath: 0, duplicateGroups: [] },
+            },
+          }),
+        }),
+      );
+      await page.goto("/settings/add-ons?tab=issues");
+      const tab = page.getByTestId("addons-tab-issues");
+      await expect(tab).toHaveAttribute("aria-selected", "true", { timeout: 30_000 });
+      const count = Number(/\((\d+)\)/.exec((await tab.textContent()) ?? "")?.[1]);
+      expect(count).toBeGreaterThanOrEqual(1);
+      await expect(page.getByTestId("nav-addons-issues")).toContainText(String(count));
+      await expect(page.getByTestId("addons-issues-tab").getByTestId("package-health-panel")).toBeVisible();
+    });
+  }
+
+  // See change: addons-hub-folder-view (test-plan #F11): off, reload, on at a trusted folder.
+  test("F11: a From Global add-on turned off here persists across reload and restores the file on re-enable", async ({ page }) => {
+    await gotoDashboard(page);
+    await ensureFixtureGitGroup(page);
+    // Trust the folder up front so no dialog interrupts the round trip.
+    const url = `/folder/${Buffer.from(FIXTURE_GIT).toString("base64url")}/settings/add-ons`;
+    await page.goto(url);
+    await expect(page.getByTestId("folder-addons-strip")).toBeVisible({ timeout: 30_000 });
+    const row = page.locator('[data-testid^="folder-addon-row-"]').first();
+    test.skip((await row.count()) === 0, "no global add-on with a pi part in this harness");
+    const sw = row.locator('[data-testid^="folder-addon-switch-"]');
+    const turnedOff = page.getByTestId("folder-strip-off");
+    await expect(turnedOff).toContainText("0");
+
+    await sw.click();
+    // An untrusted folder asks first; approve it so the toggle is retried.
+    const dialog = page.getByTestId("resource-trust-dialog");
+    if (await dialog.isVisible({ timeout: 3_000 }).catch(() => false)) await dialog.getByTestId("resource-trust-option-trust").click();
+    await expect(row.locator('[data-testid^="folder-addon-state-"]')).toHaveText("off in this folder", { timeout: 15_000 });
+    await expect(turnedOff).toContainText("1");
+
+    await page.reload();
+    await expect(page.locator('[data-testid^="folder-addon-state-"]').first()).toHaveText("off in this folder", { timeout: 30_000 });
+    await expect(page.getByTestId("folder-strip-off")).toContainText("1");
+
+    await page.locator('[data-testid^="folder-addon-switch-"]').first().click();
+    await expect(page.getByTestId("folder-strip-off")).toContainText("0", { timeout: 15_000 });
+    // The delta is gone again: the catalog reports the feature as inherited.
+    const cat = (await (await page.request.get(`/api/addons/catalog?scope=local&cwd=${encodeURIComponent(FIXTURE_GIT)}`)).json()) as {
+      features: Array<{ folderState?: string }>;
+    };
+    expect(cat.features.filter((f) => f.folderState === "off-here")).toHaveLength(0);
   });
 });

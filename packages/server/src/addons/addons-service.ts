@@ -18,6 +18,7 @@ import {
   getPluginStatusStore,
   resolvePluginEnabled,
 } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import type { AdmitCwdOptions } from "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import {
   listManagedBridges,
@@ -34,6 +35,7 @@ import type {
 import { attachPublishedVariants, enrichInstalledRows } from "../package/installed-package-enricher.js";
 import type { PackageManagerWrapper } from "../package/package-manager-wrapper.js";
 import { packageIdentity } from "../pi/resource-origin.js";
+import type { TrustGateResult } from "../pi/resource-toggle-trust.js";
 import { readRawConfig, type setPluginsEnabled as SetPluginsEnabledFn } from "../routes/plugin-activation-routes.js";
 import {
   deleteRestore,
@@ -88,6 +90,12 @@ export interface AddonsDeps {
   setPluginsEnabled: typeof SetPluginsEnabledFn;
   /** Test seam for the settings-file writer. */
   writeSettingsText?: (file: string, text: string) => void;
+  /** Folder mode: cwds the shared `admitCwd` guard knows (sessions + pinned); defaults to `knownDirectories`. */
+  knownCwds?: () => string[];
+  /** Folder mode: `admitCwd` options (host `onIndeterminate` logger; test seams). */
+  admitOptions?: AdmitCwdOptions;
+  /** Folder toggle: project-trust gate; defaults to `resolveToggleTrust` against the real agent dir. */
+  resolveTrust?: (cwd: string) => Promise<TrustGateResult>;
 }
 
 function agentDirOf(deps: Pick<AddonsDeps, "agentDir">): string {
@@ -99,7 +107,7 @@ export function settingsPathOf(deps: Pick<AddonsDeps, "agentDir">): string {
 }
 
 /** Paths the dashboard recorded as its own bridges; unreadable registry → none. */
-function readManagedPaths(log: AddonsLogger): string[] {
+export function readManagedPaths(log: AddonsLogger): string[] {
   try {
     return [...new Set([...Object.values(listManagedBridges()), ...Object.keys(listManagedPackageOwnership())])];
   } catch (err) {

@@ -18,6 +18,7 @@ import { Icon } from "@mdi/react";
 import { useEffect, useMemo, useState } from "react";
 import { t } from "../../lib/i18n/i18n.js";
 import { classifySource } from "../../lib/package/package-classifier.js";
+import { countHealthIssues } from "../../lib/package/package-health-api.js";
 import { logRejection } from "../../lib/report-error.js";
 
 const PACKAGE_HEALTH_COLLAPSED_KEY = "pi.packageHealth.collapsed";
@@ -29,10 +30,8 @@ export interface PackageHealthPanelProps {
 	onRefresh: () => void;
 }
 
-/** Entries that need attention (everything but ok). Shared with the badge. */
-export function countHealthIssues(report: PackageHealthListResponseData): number {
-	return report.entries.filter((e) => e.status !== "ok").length;
-}
+// The count lives in the api module so `lib/addons/addon-issues-store.ts` can use it without importing a component.
+export { countHealthIssues };
 
 function initialDrops(entries: PackageHealthReport[]): Set<string> {
 	return new Set(entries.filter((e) => e.duplicateGroupId && e.status === "missing-path").map((e) => e.source));

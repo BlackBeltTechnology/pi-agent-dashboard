@@ -1,7 +1,7 @@
 ## 0. Preconditions
 
-- [ ] 0.1 Confirm `addons-hub-feature-catalog` has landed on develop: `rg -n "api/addons/catalog" packages/server/src` finds the route, the shared per-settings-file write lock export and `recordRestore`/`takeRestore` exist; record the landed restore-store module path in design.md D3 and the Context list.
-- [ ] 0.2 If `addons-hub-feature-catalog` is archived, add a MODIFIED `addons-feature-catalog` delta to this change for the Installed-tab sentence "The package health panel SHALL keep rendering above the feature list" (panel now lives in the Issues tab, D10); verify `openspec validate addons-hub-folder-view --strict` passes.
+- [x] 0.1 Confirm `addons-hub-feature-catalog` has landed on develop: `rg -n "api/addons/catalog" packages/server/src` finds the route, the shared per-settings-file write lock export and `recordRestore`/`takeRestore` exist; record the landed restore-store module path in design.md D3 and the Context list.
+- [x] 0.2 If `addons-hub-feature-catalog` is archived, add a MODIFIED `addons-feature-catalog` delta to this change for the Installed-tab sentence "The package health panel SHALL keep rendering above the feature list" (panel now lives in the Issues tab, D10); verify `openspec validate addons-hub-folder-view --strict` passes.
 
 ## 1. Folder catalog mode (server)
 

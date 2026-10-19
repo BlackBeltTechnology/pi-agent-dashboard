@@ -36,3 +36,7 @@ Heading `Add-ons` (was Pi Ecosystem). Renders `AddonsExplainer` (dismissal key `
 ## add-package-health-cleanup
 
 Fetches `/api/packages/health` on mount; header badge `Issues (N)`; renders `PackageHealthPanel` above sub-groups; Apply → `applyPackageCleanup` → refresh installed + health → "Restart required" banner (`pkg-health-restart-banner`). See change: add-package-health-cleanup.
+
+## addons-hub-folder-view
+
+New fourth tab `issues` (`?tab=issues`): `AddonsIssuesTab` + `useAddonIssues`; label `Issues (N)` (N = plugin issues + non-ok health entries, same as the Settings rail badge). The health panel and restart banner moved from above the tab list into that tab; the `pkg-health-badge` header badge and local health state were removed. See change: addons-hub-folder-view.

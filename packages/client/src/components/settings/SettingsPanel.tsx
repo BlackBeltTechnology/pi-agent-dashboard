@@ -36,6 +36,7 @@ import { useModelCatalogue } from "../../hooks/useModelCatalogue.js";
 import { usePersistedBoolean } from "../../hooks/usePersistedBoolean.js";
 import { usePiCompatibility } from "../../hooks/usePiCompatibility.js";
 import { usePiResources } from "../../hooks/usePiResources.js";
+import { useAddonIssues } from "../../hooks/useAddonIssues.js";
 import { usePluginList, usePluginToggle } from "../../hooks/usePluginToggle.js";
 import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
 import { useResourceActivation } from "../../hooks/useResourceActivation.js";
@@ -680,6 +681,8 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
   // `services_changed` / reconnect only — never the probing detail GET).
   const services = useServices({ onMessage, ws });
   const servicesNeedingAttention = (services.list?.services ?? []).filter(needsAttention).length;
+  // Add-ons rail badge: the same count the Issues tab shows. See change: addons-hub-folder-view.
+  const addonIssueCount = useAddonIssues().count;
 
   // Plugin rows back the nav children, the plugin page, and the Save Bar's
   // `Plugins › <name>` labels. See change: plugin-settings-pages (task 4.2).
@@ -1413,6 +1416,17 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
                         <span aria-hidden="true" className="w-1.5 h-1.5 rounded-full bg-[var(--severity-error-fg)] shrink-0" />
                         <span className="sr-only">
                           {t("settings.servicesAttention", { count: servicesNeedingAttention }, `${servicesNeedingAttention} services need attention`)}
+                        </span>
+                      </span>
+                    )}
+                    {item.id === "add-ons" && addonIssueCount > 0 && (
+                      <span
+                        data-testid="nav-addons-issues"
+                        className="ml-auto text-[10px] leading-none px-1.5 py-0.5 rounded-full bg-[var(--severity-warning-bg)] text-[var(--severity-warning-fg)] border border-[var(--severity-warning-border)]"
+                      >
+                        <span aria-hidden="true">{addonIssueCount}</span>
+                        <span className="sr-only">
+                          {t("settings.addonsIssues", { count: addonIssueCount }, `${addonIssueCount} add-on issues`)}
                         </span>
                       </span>
                     )}
