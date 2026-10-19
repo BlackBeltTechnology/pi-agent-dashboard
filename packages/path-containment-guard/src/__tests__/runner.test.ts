@@ -1,9 +1,25 @@
 import * as fs from "node:fs";
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
-import { discoverAndLoadExtensions, ExtensionRunner, SessionManager } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it } from "vitest";
 import { DENIED_VAR, ROOTS_VAR, type TmpTree, tmpTree } from "./helpers.js";
+
+/**
+ * pi's loader/runner are imported dynamically with a minimal local shape: the repo-wide root
+ * `tsc` (tsconfig `paths` onto the package directory) does not see pi's `.ts`-specifier
+ * re-exports as named exports, while vitest/jiti resolve them fine at runtime.
+ */
+interface LoadedExt {
+  handlers: Map<string, unknown[]>;
+}
+interface PiRuntime {
+  discoverAndLoadExtensions(paths: string[], cwd: string, agentDir?: string): Promise<{ extensions: LoadedExt[]; errors: unknown[]; runtime: unknown }>;
+  ExtensionRunner: new (extensions: LoadedExt[], runtime: unknown, cwd: string, sessions: unknown, models: unknown) => {
+    emitToolCall(event: unknown): Promise<{ block?: boolean; reason?: string } | undefined>;
+  };
+  SessionManager: { inMemory(cwd: string): unknown };
+}
+const loadPi = async (): Promise<PiRuntime> => (await import("@earendil-works/pi-coding-agent")) as unknown as PiRuntime;
 
 const here = nodePath.dirname(fileURLToPath(import.meta.url));
 const ENTRY = nodePath.resolve(here, "../extension.ts");
@@ -12,8 +28,9 @@ const ENTRY = nodePath.resolve(here, "../extension.ts");
 async function realRunner(t: TmpTree, extra: string[] = [], order: "guard-first" | "stub-first" = "guard-first") {
   const agentDir = t.dir("agent");
   const paths = order === "guard-first" ? [ENTRY, ...extra] : [...extra, ENTRY];
+  const { discoverAndLoadExtensions, ExtensionRunner, SessionManager } = await loadPi();
   const result = await discoverAndLoadExtensions(paths, t.p("repo"), agentDir);
-  const runner = new ExtensionRunner(result.extensions, result.runtime, t.p("repo"), SessionManager.inMemory(t.p("repo")), {} as never);
+  const runner = new ExtensionRunner(result.extensions, result.runtime, t.p("repo"), SessionManager.inMemory(t.p("repo")), {});
   return { result, runner };
 }
 
@@ -42,7 +59,7 @@ describe("guard loaded through pi's real loader + ExtensionRunner (X7–X9a)", (
       toolName: "bash",
       input: { command: "ls" },
       parentToolCallId: "p1",
-    } as never);
+    });
     expect(r).toMatchObject({ block: true });
     expect(r?.reason?.startsWith("tool_denied")).toBe(true);
   });
@@ -61,7 +78,7 @@ describe("guard loaded through pi's real loader + ExtensionRunner (X7–X9a)", (
       toolCallId: "t1",
       toolName: "read",
       input: { path: t.p("other", "x.txt") },
-    } as never);
+    });
     expect(r).toMatchObject({ block: true });
     expect(r?.reason?.startsWith("path_outside_roots")).toBe(true);
   });
