@@ -18,6 +18,7 @@ One row per file.
 | `composer-session-strip.spec.ts` | L3 redesign-composer-session-strip (F8–F12). → see `composer-session-strip.spec.ts.AGENTS.md` |
 | `context-mode-settings.spec.ts` | L3 F1/F2 → see `context-mode-settings.spec.ts.AGENTS.md` |
 | `first-run-create-project.spec.ts` | → see `first-run-create-project.spec.ts.AGENTS.md` |
+| `first-run-skip-providers.spec.ts` | → see `first-run-skip-providers.spec.ts.AGENTS.md` |
 | `hermes-model-override.spec.ts` | L3 F3 → see `hermes-model-override.spec.ts.AGENTS.md` |
 | `kb-settings-sources-search.spec.ts` | L3 KB settings sources + search. → see `kb-settings-sources-search.spec.ts.AGENTS.md` |
 | `known-server-stale-name.spec.ts` | L3 stale known-server name. → see `known-server-stale-name.spec.ts.AGENTS.md` |
@@ -166,7 +167,7 @@ One row per file.
 | `pi-runtime.spec.ts` | L3 spec: version-neutral pi runtime verification… → see `pi-runtime.spec.ts.AGENTS.md` |
 | `pi-runtime-picker.spec.ts` | L3 spec for the Settings → Deve… → see `pi-runtime-picker.spec.ts.AGENTS.md` |
 | `plugin-hash-parity.spec.ts` | L3 F3: clientBuild matched; banner hidden. → see `plugin-hash-parity.spec.ts.AGENTS.md` |
-| `plugin-settings-pages.spec.ts` | L3 spec (test-plan rows F1-F14, X1-… → see `plugin-settings-pages.spec.ts.AGENTS.md` |
+| `plugin-settings-pages.spec.ts` | → see `plugin-settings-pages.spec.ts.AGENTS.md` |
 | `popover-container-clip.spec.ts` | Browser E2E gate for `fix-popover-container-… → see `popover-container-clip.spec.ts.AGENTS.md` |
 | `pi-trust-mirror.spec.ts` | L3 pi trust mirror. → see `pi-trust-mirror.spec.ts.AGENTS.md` |
 | `project-trust-headless-spawn.spec.ts` | L3 spec (test-plan #X4… → see `project-trust-headless-spawn.spec.ts.AGENTS.md` |
@@ -192,7 +193,7 @@ One row per file.
 | `replay-in-flight-pill.spec.ts` | Playwright spec. → see `replay-in-flight-pill.spec.ts.AGENTS.md` |
 | `replay-truncate.spec.ts` | → see `replay-truncate.spec.ts.AGENTS.md` |
 | `resource-activation-trust.spec.ts` | L3 spec (change: project-scope-disable… → see `resource-activation-trust.spec.ts.AGENTS.md` |
-| `resource-scope-routes.spec.ts` | S-25 scope × path decision table: t… → see `resource-scope-routes.spec.ts.AGENTS.md` |
+| `resource-scope-routes.spec.ts` | → see `resource-scope-routes.spec.ts.AGENTS.md` |
 | `route-backed-overlay.spec.ts` | Route-backed overlay contract: S-12/S-12… → see `route-backed-overlay.spec.ts.AGENTS.md` |
 | `scroll-to-top.spec.ts` | Browser E2E gate for `fix-chat-scroll-to… → see `scroll-to-top.spec.ts.AGENTS.md` |
 | `services-settings.spec.ts` | → see `services-settings.spec.ts.AGENTS.md` |

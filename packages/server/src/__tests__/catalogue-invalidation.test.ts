@@ -112,7 +112,7 @@ describe("catalogue availability across bridge disconnects", () => {
 
   it("E18: no push → false; push → true; last bridge disconnects → false", async () => {
     const first = await getJson(browserPort, "/api/provider-auth/catalogue-ready");
-    expect(first.body).toEqual({ ready: false });
+    expect(first.body).toMatchObject({ ready: false });
 
     const piWs = await connectSession(piPort, "p1");
     piWs.send(JSON.stringify({
@@ -122,13 +122,13 @@ describe("catalogue availability across bridge disconnects", () => {
     }));
     await waitFor(() => getLatestCatalogue().length > 0);
     const pushed = await getJson(browserPort, "/api/provider-auth/catalogue-ready");
-    expect(pushed.body).toEqual({ ready: true });
+    expect(pushed.body).toEqual({ ready: true, fallback: false });
 
     piWs.close();
     await waitFor(async () =>
       (await getJson(browserPort, "/api/provider-auth/catalogue-ready")).body.ready === false);
     const afterClose = await getJson(browserPort, "/api/provider-auth/catalogue-ready");
-    expect(afterClose.body).toEqual({ ready: false });
+    expect(afterClose.body).toMatchObject({ ready: false });
   });
 
   it("one bridge remaining keeps the catalogue ready; only the LAST disconnect invalidates", async () => {
@@ -140,14 +140,14 @@ describe("catalogue availability across bridge disconnects", () => {
     ws1.close();
     await wait(150);
     const stillOne = await getJson(browserPort, "/api/provider-auth/catalogue-ready");
-    expect(stillOne.body).toEqual({ ready: true });
+    expect(stillOne.body).toEqual({ ready: true, fallback: false });
 
     ws2.close();
     await waitFor(async () =>
       (await getJson(browserPort, "/api/provider-auth/catalogue-ready")).body.ready === false);
   });
 
-  it("X14: the openrouter api-key row disappears while unavailable and returns on the next push", async () => {
+  it("X7 (was X14): the openrouter api-key row is served by the runtime fallback while no bridge is connected, and by the bridge again on the next push", async () => {
     const piWs = await connectSession(piPort, "p1");
     piWs.send(JSON.stringify({ type: "providers_list", sessionId: "p1", providers: OPENROUTER_CATALOGUE }));
     await waitFor(() => getLatestCatalogue().length > 0);
@@ -166,10 +166,13 @@ describe("catalogue availability across bridge disconnects", () => {
     await waitFor(async () =>
       (await getJson(browserPort, "/api/provider-auth/catalogue-ready")).body.ready === false);
 
-    // While unavailable: NO api-key row for openrouter — and the stored
-    // credential is untouched on disk.
+    // While unavailable the runtime fallback emits the row, backed by the
+    // stored credential (it is untouched on disk). See change:
+    // fix-provider-catalogue-first-run (test-plan #X7, rewrite of X14).
     const during = await getJson(browserPort, "/api/provider-auth/status");
-    expect(during.body.find((r: { id: string }) => r.id === "openrouter-api")).toBeUndefined();
+    const duringRow = during.body.find((r: { id: string }) => r.id === "openrouter-api");
+    expect(duringRow).toBeDefined();
+    expect(duringRow.source).toBe("stored");
     expect(readAuthJson().openrouter).toEqual({ type: "api_key", key: "sk-or-123" });
     // The response is still a bare array with no envelope (5.4).
     expect(Array.isArray(during.body)).toBe(true);

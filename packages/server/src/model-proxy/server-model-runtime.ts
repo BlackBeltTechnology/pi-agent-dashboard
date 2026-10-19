@@ -23,6 +23,7 @@ const PI_CODING_AGENT_PACKAGE = "@earendil-works/pi-coding-agent";
 /** The slice of pi-ai's `Provider` the server reads. */
 interface RuntimeProvider {
   id: string;
+  name?: string;
   auth?: { oauth?: unknown; apiKey?: unknown };
 }
 
@@ -52,6 +53,11 @@ export interface ServerModelRuntime {
   streamSimple(model: any, context: any, options?: any): AsyncIterable<any>;
   registerProvider(providerId: string, config: RuntimeProviderConfig): void;
   unregisterProvider(providerId: string): void;
+  /**
+   * pi-ai `Models.checkAuth`: async, refreshes no OAuth token, writes nothing.
+   * Feeds the api-key fallback catalogue. See change: fix-provider-catalogue-first-run.
+   */
+  checkAuth(providerId: string): Promise<{ source?: string; type: "api_key" | "oauth" } | undefined>;
 }
 
 export interface CreateRuntimeOptions {
