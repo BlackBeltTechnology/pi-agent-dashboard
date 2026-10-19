@@ -190,7 +190,7 @@
   - Input: `createServer` with the real runtime, a stored `openrouter` key, no bridge.
   - Trigger: `GET /status`.
   - Observable: `openrouter-api` row present with `source:"stored"`.
-- [ ] 5.33 Manual visual check on a clean profile (temp `HOME`, no `auth.json`, no session) (test-plan: manual-only, #F14). Look at Settings → Providers and Landing. Check that the info notice and the skip glyph read as non-alarming and match `ui-contract.md`. Attach screenshots to the PR.
+- [x] 5.33 Manual visual check on a clean profile (temp `HOME`, no `auth.json`, no session) (test-plan: manual-only, #F14). Look at Settings → Providers and Landing. Check that the info notice and the skip glyph read as non-alarming and match `ui-contract.md`. Attach screenshots to the PR.
 
 ## 6. Integration & docs
 
@@ -206,4 +206,4 @@
   - `ProviderAuthSection.tsx.AGENTS.md`.
   - `LandingPage.tsx.AGENTS.md`.
   - `tests/e2e/AGENTS.md` (new spec).
-- [ ] 6.3 `review-code` pass on the diff before commit. Verify: no blocking findings left open.
+- [x] 6.3 `review-code` pass on the diff before commit. Verify: no blocking findings left open.
