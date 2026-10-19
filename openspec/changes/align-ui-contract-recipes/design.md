@@ -185,6 +185,7 @@ Found while migrating; none changes behaviour beyond what D4 lists.
 - **`ProviderHealthPill` testing/pending** were plain text rows; they are now info pills with a spinning icon.
 - **Vault pills stay 12 px** (`interactive`), because `retro-ux-credential-vault` requires text in controls at 12 px and `VaultBindingsChip.test` guards it. Services list-row pills (inside a `<button>`) are 12 px too; the detail header pill is 11 px.
 - **`stateMeta` lost its `glyph`** field (orphaned by the pill migration).
+- **Vault operate-required retry button: 44 → 32 px below `sm`.** It now uses the kit's `SettingsNotice` retry button (`min-h-[32px]`, the approved contract notice row) instead of its old `max-sm:min-h-[44px]` button. Not a spec violation; a candidate kit follow-up (a touch step-up for the notice buttons).
 
 ### Found while writing the L3 specs (tasks 12.15–12.18)
 
