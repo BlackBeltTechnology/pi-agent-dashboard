@@ -1,0 +1,196 @@
+/**
+ * Status / prepare behaviours (E3, E12 status side, X1, X2, 4.5 log lines) on the service with the REAL
+ * `provisionWeb` over a `WORDCRAFT_WEB_DIR` override (offline) or a faked one for failure/timing cases.
+ * See change: edit-office-in-pane-with-craft-web (tasks 4.3, 4.5).
+ */
+import fs from "node:fs";
+import path from "node:path";
+import { ProvisionWebError, type ProvisionWebFn, provisionWeb } from "@blackbelt-technology/pi-dashboard-craft-apps/provision.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { CraftWebConfig } from "../config.js";
+import { createPostInstall } from "../post-install.js";
+import { type CraftWebService, createCraftWebService } from "../service.js";
+import { cleanupTmp, recordingLogger, tmp, writeShim, writeTrunkBuild } from "./helpers.js";
+
+afterEach(cleanupTmp);
+
+interface Rig {
+  service: CraftWebService;
+  dataDir: string;
+  config: CraftWebConfig;
+  logger: ReturnType<typeof recordingLogger>;
+  setShim: (v: number) => void;
+}
+
+function rig(o: { config?: CraftWebConfig; mounted?: boolean; provision?: ProvisionWebFn; env?: NodeJS.ProcessEnv; fetch?: typeof fetch } = {}): Rig {
+  const dataDir = tmp("craft-web-data-");
+  const shimDir = tmp("craft-web-shim-");
+  const shimFile = writeShim(shimDir, 1);
+  let shim = 1;
+  const config = o.config ?? {};
+  const logger = recordingLogger();
+  const service = createCraftWebService({
+    dataDir,
+    logger,
+    getConfig: () => config,
+    provisionWeb: o.provision ?? provisionWeb,
+    isMounted: () => o.mounted !== false,
+    provisionDeps: { env: o.env ?? { CRAFT_HOME: dataDir }, ...(o.fetch ? { fetch: o.fetch } : {}) },
+    postInstall: createPostInstall(shimFile),
+    shimVersion: () => shim,
+  });
+  return { service, dataDir, config, logger, setShim: (v) => void (shim = v) };
+}
+
+const overrideEnv = (dataDir: string): NodeJS.ProcessEnv => ({ CRAFT_HOME: dataDir, WORDCRAFT_WEB_DIR: writeTrunkBuild(path.join(tmp(), "override")) });
+
+describe("status (E3)", () => {
+  it("restart-pending → restart-required; prepare is refused", async () => {
+    const r = rig({ mounted: false });
+    expect(r.service.status().apps.wordcraft).toMatchObject({ status: "restart-required", reason: "restart-required" });
+    const p = await r.service.prepare("wordcraft");
+    expect(p).toMatchObject({ ok: false, httpStatus: 409, reason: "restart-required" });
+  });
+
+  it("disabled app → disabled; prepare 403; nothing provisioned", async () => {
+    const provision = vi.fn();
+    const r = rig({ config: { apps: { wordcraft: { enabled: false } } }, provision: provision as never });
+    expect(r.service.status().apps.wordcraft).toMatchObject({ status: "disabled", enabled: false });
+    expect(await r.service.prepare("wordcraft")).toMatchObject({ ok: false, httpStatus: 403, reason: "disabled" });
+    expect(provision).not.toHaveBeenCalled();
+  });
+
+  it("enabled and unprepared → not-prepared with the approximate download size and the pinned version", () => {
+    const r = rig();
+    const s = r.service.status();
+    expect(s.shimVersion).toBe(1);
+    expect(s.apps.wordcraft).toMatchObject({ status: "not-prepared", enabled: true, version: "0.8.0", preparing: false, cspViolations: 0 });
+    expect(s.apps.wordcraft.sizeGzip).toBeGreaterThan(1_000_000);
+  });
+
+  it("unknown app → 404", async () => {
+    expect(await rig().service.prepare("nope")).toMatchObject({ ok: false, httpStatus: 404, reason: "unknown-app" });
+  });
+
+  it("enabled live: a prepare after re-enabling is accepted", async () => {
+    const r = rig({ config: { apps: { wordcraft: { enabled: false } } }, env: overrideEnv(tmp()) });
+    expect((await r.service.prepare("wordcraft")).ok).toBe(false);
+    r.config.apps = { wordcraft: { enabled: true } };
+    expect((await r.service.prepare("wordcraft")).ok).toBe(true);
+  });
+});
+
+describe("prepare + shim version (E12 status side)", () => {
+  it("prepares from an override dir, reports ok, then shim-outdated after a shim bump, and re-prepare swaps current leaving the old tree", async () => {
+    const dataDir = tmp("craft-web-data-");
+    const r = rig({ env: overrideEnv(dataDir) });
+    // the rig's own dataDir differs from the env CRAFT_HOME; provisioning root is the service dataDir
+    const first = await r.service.prepare("wordcraft");
+    expect(first).toMatchObject({ ok: true, app: "wordcraft", cacheHit: false, shimVersion: 1 });
+    const st = r.service.status().apps.wordcraft;
+    expect(st).toMatchObject({ status: "ok", shimVersion: 1 });
+    expect(st.version).toMatch(/^dir-[0-9a-f]{12}$/);
+    expect(st.sizeGzip).toBe((first as { sizeGzip: number }).sizeGzip);
+
+    r.setShim(2);
+    expect(r.service.status().apps.wordcraft).toMatchObject({ status: "shim-outdated", reason: "shim-outdated", shimVersion: 1 });
+    // the host loads nothing while outdated; prepare installs the new tree
+    const root = path.join(r.dataDir, "wordcraft-web");
+    const oldTree = fs.readdirSync(root).find((n) => n.endsWith("-s1")) as string;
+    const second = await r.service.prepare("wordcraft");
+    expect(second).toMatchObject({ ok: true, shimVersion: 2 });
+    expect(r.service.status().apps.wordcraft).toMatchObject({ status: "ok", shimVersion: 2 });
+    expect(fs.readdirSync(root).sort()).toEqual([oldTree, oldTree.replace(/-s1$/, "-s2"), "current"].sort());
+    expect(fs.realpathSync(path.join(root, "current"))).toBe(fs.realpathSync(path.join(root, oldTree.replace(/-s1$/, "-s2"))));
+  });
+
+  it("a registry pin bump makes a prepared build not-prepared again", async () => {
+    const r = rig({ env: { CRAFT_HOME: "x" } });
+    const root = path.join(r.dataDir, "wordcraft-web");
+    fs.mkdirSync(path.join(root, "0.7.0-s1"), { recursive: true });
+    fs.writeFileSync(path.join(root, "0.7.0-s1", "craft-build.json"), JSON.stringify({ app: "wordcraft", version: "0.7.0", shimVersion: 1, sizeGzip: 5 }));
+    fs.symlinkSync("0.7.0-s1", path.join(root, "current"));
+    expect(r.service.status().apps.wordcraft).toMatchObject({ status: "not-prepared", version: "0.8.0" });
+  });
+});
+
+describe("prepare failures (X1, X2) and single-flight", () => {
+  it("X2: offline → reason offline, status offline, the failure is logged, a later success clears it", async () => {
+    const rejecting = vi.fn(() => Promise.reject(new TypeError("fetch failed")));
+    const r = rig({ fetch: rejecting as never });
+    const out = await r.service.prepare("wordcraft");
+    expect(out).toMatchObject({ ok: false, httpStatus: 503, reason: "offline" });
+    expect(r.service.status().apps.wordcraft).toMatchObject({ status: "offline", reason: "offline" });
+    expect(r.logger.warn.mock.calls.some((c) => /prepare wordcraft failed reason=offline/.test(String(c[0])))).toBe(true);
+  });
+
+  it.each([
+    ["checksum-mismatch", 502],
+    ["extract-failed", 502],
+    ["launcher-source", 409],
+  ] as const)("X1: %s maps to its reason and HTTP status", async (code, httpStatus) => {
+    const provision = vi.fn().mockRejectedValue(new ProvisionWebError(code, `boom ${code}`));
+    const r = rig({ provision: provision as never });
+    expect(await r.service.prepare("wordcraft")).toMatchObject({ ok: false, httpStatus, reason: code });
+    expect(r.service.status().apps.wordcraft).toMatchObject({ status: code });
+  });
+
+  it("an unexpected error is prepare-failed (502) and the status stays not-prepared", async () => {
+    const r = rig({ provision: vi.fn().mockRejectedValue(new Error("ENOSPC")) as never });
+    expect(await r.service.prepare("wordcraft")).toMatchObject({ ok: false, httpStatus: 502, reason: "prepare-failed" });
+    expect(r.service.status().apps.wordcraft.status).toBe("not-prepared");
+  });
+
+  it("concurrent prepares for one app share a single provisioning run", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((res) => (release = res));
+    const provision = vi.fn(async () => {
+      await gate;
+      return { app: "wordcraft", version: "0.8.0", source: "registry", asset: "x", cacheHit: false, dir: tmp(), current: "c", shimVersion: 1, durationMs: 1 };
+    });
+    const r = rig({ provision: provision as never });
+    const a = r.service.prepare("wordcraft");
+    const b = r.service.prepare("wordcraft");
+    expect(r.service.status().apps.wordcraft.preparing).toBe(true);
+    release();
+    const [ra, rb] = await Promise.all([a, b]);
+    expect(provision).toHaveBeenCalledTimes(1);
+    expect(ra).toBe(rb);
+    expect(r.service.status().apps.wordcraft.preparing).toBe(false);
+  });
+
+  it("logs the prepare outcome with duration and bytes", async () => {
+    const dataDir = tmp();
+    const r = rig({ env: overrideEnv(dataDir) });
+    await r.service.prepare("wordcraft");
+    const line = r.logger.info.mock.calls.map((c) => String(c[0])).find((m) => m.startsWith("prepare wordcraft ok"));
+    expect(line).toMatch(/version=dir-[0-9a-f]{12} source=env-dir cacheHit=false bytes=\d+ durationMs=\d+/);
+  });
+});
+
+describe("csp reports (4.5)", () => {
+  it("counts every accepted report, logs it, and rate-limits at 30 per minute per app", () => {
+    let t = 1_000;
+    const dataDir = tmp();
+    const logger = recordingLogger();
+    const service = createCraftWebService({
+      dataDir,
+      logger,
+      getConfig: () => ({}),
+      provisionWeb,
+      isMounted: () => true,
+      shimVersion: () => 1,
+      postInstall: () => {},
+      now: () => t,
+    });
+    for (let i = 0; i < 30; i++) expect(service.reportCsp("wordcraft", "connect-src")).toBe(true);
+    expect(service.reportCsp("wordcraft", "connect-src")).toBe(false);
+    expect(service.reportCsp("wordcraft", "connect-src")).toBe(false);
+    expect(service.status().apps.wordcraft.cspViolations).toBe(30);
+    expect(logger.warn.mock.calls.filter((c) => /rate limit reached/.test(String(c[0])))).toHaveLength(1);
+    t += 61_000;
+    expect(service.reportCsp("wordcraft", "script-src")).toBe(true);
+    expect(service.status().apps.wordcraft.cspViolations).toBe(31);
+    expect(logger.warn.mock.calls.some((c) => /csp-report wordcraft directive=script-src/.test(String(c[0])))).toBe(true);
+  });
+});

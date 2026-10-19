@@ -36,6 +36,7 @@
     "@blackbelt-technology/pi-dashboard-obs-studio-plugin": "^0.9.0",
     "@blackbelt-technology/pi-dashboard-chat-gateway-plugin": "^0.9.0",
     "@blackbelt-technology/pi-dashboard-browser-plugin": "^0.9.0",
+    "@blackbelt-technology/pi-dashboard-craft-web-plugin": "^0.9.0",
     "@blackbelt-technology/pi-dashboard-client-utils": "^0.9.0",
     "@blackbelt-technology/pi-dashboard-cost-estimator": "^0.9.0",
     "@blackbelt-technology/pi-dashboard-flows-anthropic-bridge-plugin": "^0.9.0",

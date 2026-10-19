@@ -6,6 +6,7 @@
  *   etc.
  */
 
+export * from "./file-handler.js";
 export * from "./intent-types.js";
 export * from "./manifest-types.js";
 export * from "./plugin-status.js";

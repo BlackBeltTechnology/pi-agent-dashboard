@@ -509,6 +509,22 @@ function generateRegistryContent(entries: PluginEntry[], repoRoot: string): stri
         : "";
       // Prefix + label for editor-pane-tab claims. See change: add-browser-editor-pane-tab.
       const pathPrefixStr = claim.pathPrefix ? `, pathPrefix: ${JSON.stringify(claim.pathPrefix)}` : "";
+      // Claim metadata for editor-pane-file-handler claims (read by the switcher/host).
+      // See change: add-editor-pane-file-handlers.
+      const fileHandlerStr =
+        claim.slot === "editor-pane-file-handler" && claim.id
+          ? `, fileHandler: ${JSON.stringify({
+              id: claim.id,
+              extensions: claim.extensions,
+              mode: claim.mode,
+              label: claim.label,
+              ...(claim.keepAlive ? { keepAlive: claim.keepAlive } : {}),
+              ...(claim.maxBytes !== undefined ? { maxBytes: claim.maxBytes } : {}),
+              ...(claim.firstOverwriteNotice ? { firstOverwriteNotice: claim.firstOverwriteNotice } : {}),
+              ...(claim.copySuffix ? { copySuffix: claim.copySuffix } : {}),
+              ...(claim.validator !== undefined ? { validator: claim.validator } : {}),
+            })}`
+          : "";
       // Page filter for resource-page-section claims. See change: add-skill-atlas-screen.
       const resourceTypeStr = claim.resourceType ? `, resourceType: ${JSON.stringify(claim.resourceType)}` : "";
       const labelRef = claim.labelComponent
@@ -529,7 +545,7 @@ function generateRegistryContent(entries: PluginEntry[], repoRoot: string): stri
       // Generic config escape hatch (rare — prefer first-class fields).
       const configStr = claim.config ? `, config: ${JSON.stringify(claim.config)}` : "";
       lines.push(
-        `      { pluginId: ${JSON.stringify(manifest.id)}, priority: ${manifest.priority ?? 1000}, slot: ${JSON.stringify(claim.slot)}${tabStr}${toolNameStr}${customTypeStr}${pathPrefixStr}${resourceTypeStr}${commandStr}${pathStr}${sessionParamStr}${depthStr}${parentPathStr}${presentationStr}${configStr}${componentRef}${predicateRef}${shouldRenderRef}${labelRef} },`,
+        `      { pluginId: ${JSON.stringify(manifest.id)}, priority: ${manifest.priority ?? 1000}, slot: ${JSON.stringify(claim.slot)}${tabStr}${toolNameStr}${customTypeStr}${pathPrefixStr}${fileHandlerStr}${resourceTypeStr}${commandStr}${pathStr}${sessionParamStr}${depthStr}${parentPathStr}${presentationStr}${configStr}${componentRef}${predicateRef}${shouldRenderRef}${labelRef} },`,
       );
     }
     lines.push("    ],");

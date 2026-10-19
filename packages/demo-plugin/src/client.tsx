@@ -259,3 +259,92 @@ export function DemoScopedFolderEntry({ folder }: { folder: { cwd: string } }) {
     </button>
   );
 }
+
+// ── editor-pane-file-handler fixture (`.docx`, edit) ─────────────────────────
+// MINIMAL STUB: the host (FileHandlerHost/Layer) supplies these props; only the
+// subset this fixture uses is declared structurally so the plugin needs no
+// extra package dependency. See change: add-editor-pane-file-handlers (6.1).
+interface DemoFileHandlerProps {
+  isActive: boolean;
+  snapshot(): Promise<{ bytes: ArrayBuffer }>;
+  save(
+    bytes: ArrayBuffer,
+    opts: { target: "overwrite" | "copy" },
+  ): Promise<{ ok: true } | { ok: false; reason: string; message: string }>;
+  setDirty(state: boolean | "unknown"): void;
+}
+
+let demoHandlerSeq = 0;
+
+/**
+ * Textarea "editor" over the file's bytes (decoded as UTF-8). Exposes a stable
+ * per-instance id (`data-instance-id`) and bumps `window.__demoHandlerMounts` on
+ * mount so e2e can prove an instance survived a tab switch / pane close.
+ * Calls `setDirty` as soon as the document is loaded.
+ */
+export function DemoDocxHandler(props: DemoFileHandlerProps) {
+  const [instanceId] = useState(() => ++demoHandlerSeq);
+  const [text, setText] = useState("");
+  const [status, setStatus] = useState("loading");
+  const baseline = useRef("");
+  const { snapshot, setDirty } = props;
+
+  useEffect(() => {
+    const w = window as unknown as { __demoHandlerMounts?: number };
+    w.__demoHandlerMounts = (w.__demoHandlerMounts ?? 0) + 1;
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    snapshot()
+      .then((s) => {
+        if (!alive) return;
+        const decoded = new TextDecoder().decode(s.bytes);
+        baseline.current = decoded;
+        setText(decoded);
+        setStatus("ready");
+        setDirty(false);
+      })
+      .catch((err: unknown) => alive && setStatus(`error: ${err instanceof Error ? err.message : String(err)}`));
+    return () => {
+      alive = false;
+    };
+  }, [snapshot, setDirty]);
+
+  const onChange = (value: string) => {
+    setText(value);
+    setDirty(value !== baseline.current);
+  };
+
+  const doSave = async (target: "overwrite" | "copy") => {
+    const bytes = new TextEncoder().encode(text);
+    const res = await props.save(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer, { target });
+    if (res.ok) {
+      if (target === "overwrite") {
+        baseline.current = text;
+        setDirty(false);
+      }
+      setStatus(`saved (${target})`);
+    } else {
+      setStatus(`not saved: ${res.reason}`);
+    }
+  };
+
+  return (
+    <div data-testid="demo-docx-handler" data-instance-id={instanceId} data-active={props.isActive ? "1" : "0"}>
+      <div data-testid="demo-docx-status">{status}</div>
+      <textarea
+        data-testid="demo-docx-text"
+        value={text}
+        onChange={(e) => onChange(e.target.value)}
+        style={{ width: "100%", minHeight: "8em" }}
+      />
+      <button type="button" data-testid="demo-docx-save" onClick={() => void doSave("overwrite")}>
+        Save
+      </button>
+      <button type="button" data-testid="demo-docx-save-copy" onClick={() => void doSave("copy")}>
+        Save a copy
+      </button>
+    </div>
+  );
+}

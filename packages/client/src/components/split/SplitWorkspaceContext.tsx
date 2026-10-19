@@ -22,6 +22,7 @@ import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/
 import type { FileEntry } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type React from "react";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import type { FileDigest } from "../../lib/file-digest.js";
 import {
   type EditorPaneAction,
   type EditorPaneState,
@@ -31,7 +32,7 @@ import { type SplitMode, type SplitOrientation, type SplitState, useSplitState }
 import { type TerminalPaneTabs, useTerminalPaneTabs } from "../../lib/layout/use-terminal-pane-tabs.js";
 import { saveTreeVisible } from "../../lib/util/tree-visible.js";
 import { isPseudoTabViewer } from "../editor-pane/viewer-kinds.js";
-import { TrackedFileWriteProvider } from "./tracked-file-write.js";
+import { type TrackedFileWrite, TrackedFileWriteProvider } from "./tracked-file-write.js";
 import { useChangeVerification } from "./use-change-verification.js";
 
 export interface PendingScroll {
@@ -113,7 +114,12 @@ export interface SplitWorkspaceContextValue {
    * response `sha1` so the user's own Save never raises the banner. A plain
    * passthrough when change detection is off.
    */
-  trackedFileWrite: (path: string, body: Record<string, unknown>) => Promise<Response>;
+  trackedFileWrite: TrackedFileWrite;
+  /**
+   * Set the tab baseline to a known digest (a file-handler snapshot). No-op
+   * when change detection is off. See change: add-editor-pane-file-handlers (D3).
+   */
+  setBaseline: (path: string, digest: FileDigest) => void;
   /** Re-send `watch_files` for the open set (Refresh; also fired on WS reconnect). */
   resyncWatch: () => void;
   /**
@@ -381,7 +387,7 @@ export function SplitWorkspaceProvider({
     connectionGeneration,
     resyncWatch,
   });
-  const { captureBaseline, trackedFileWrite, dismiss } = verification;
+  const { captureBaseline, trackedFileWrite, setBaseline, dismiss } = verification;
   // Banner source: verified paths (session pane) or, legacy/off, the raw candidates.
   const changedFiles = useMemo<Set<string> | null>(
     () => (changeDetection ? verification.verified : candidates ? new Set(candidates.keys()) : null),
@@ -433,11 +439,12 @@ export function SplitWorkspaceProvider({
       changeDetection,
       captureBaseline,
       trackedFileWrite,
+      setBaseline,
       resyncWatch,
       terminal,
       terminalActivated,
     }),
-    [sessionId, cwd, split, updateSplit, setMode, paneState, dispatch, ensureRevealed, openInSplit, openLiveTarget, openUrlTarget, openPluginTab, openDiffTab, openChanges, changesRevealSignal, pendingScroll, consumePendingScroll, fileResults, filenameSearch, changedFiles, clearChanged, changeDetection, captureBaseline, trackedFileWrite, resyncWatch, terminal, terminalActivated],
+    [sessionId, cwd, split, updateSplit, setMode, paneState, dispatch, ensureRevealed, openInSplit, openLiveTarget, openUrlTarget, openPluginTab, openDiffTab, openChanges, changesRevealSignal, pendingScroll, consumePendingScroll, fileResults, filenameSearch, changedFiles, clearChanged, changeDetection, captureBaseline, trackedFileWrite, setBaseline, resyncWatch, terminal, terminalActivated],
   );
 
   return (

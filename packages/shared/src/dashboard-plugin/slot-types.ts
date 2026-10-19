@@ -28,6 +28,7 @@ export type SlotId =
   | "custom-entry-renderer"
   | "automation-action-editor"
   | "editor-pane-tab"
+  | "editor-pane-file-handler"
   | "resource-page-section"
   | "shell-headless"
   // React-or-descriptor slots
@@ -169,6 +170,12 @@ export const SLOT_DEFINITIONS: Record<SlotId, SlotDefinition> = {
     description:
       "Editor-pane tab owned by a virtual-path prefix (claim.pathPrefix). Tabs at `<pathPrefix>:<rest>` render the claim's component; an optional labelComponent renders in the tab strip and stays mounted for background tabs. See change: add-browser-editor-pane-tab.",
   },
+  "editor-pane-file-handler": {
+    multiplicity: "many",
+    payloadTier: "react-only",
+    description:
+      "File-type-addressed alternative preview/edit mode for workspace files, claimed by extension (claim.extensions, claim.mode). Core owns snapshot/save/conflict/dirty guards; the component receives FileHandlerProps. Saves go through POST /api/file/write-binary. See change: add-editor-pane-file-handlers.",
+  },
   "resource-page-section": {
     multiplicity: "many",
     payloadTier: "react-only",
@@ -306,6 +313,12 @@ export type SlotPredicateInput<S extends SlotId> =
 type _AssertEditorPaneTabNever = [SlotPredicateInput<"editor-pane-tab">] extends [never] ? true : never;
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 const _editorPaneTabNever: _AssertEditorPaneTabNever = true;
+// `editor-pane-file-handler` is addressed by file extension, never filtered by
+// predicate → `never`. See change: add-editor-pane-file-handlers.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+type _AssertEditorPaneFileHandlerNever = [SlotPredicateInput<"editor-pane-file-handler">] extends [never] ? true : never;
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const _editorPaneFileHandlerNever: _AssertEditorPaneFileHandlerNever = true;
 // `resource-page-section` is predicate-irrelevant → `never` (rendered by page
 // resource type, not filtered by predicate). See change: add-skill-atlas-screen.
 // eslint-disable-next-line @typescript-eslint/no-unused-vars

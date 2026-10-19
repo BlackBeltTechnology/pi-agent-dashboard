@@ -53,7 +53,7 @@ import {
   renderPptx,
   resolveRowLimit,
 } from "../lib/office-preview.js";
-import { isAllowed } from "../lib/path-containment.js";
+import { isAllowed, safeRealpath } from "../lib/path-containment.js";
 import { loadPurify } from "../lib/purify.js";
 
 /**
@@ -81,6 +81,7 @@ function denialBody(gate: GateFailure): ApiResponse {
   return body as unknown as ApiResponse;
 }
 
+import { serializeWrite } from "../lib/file-write-lock.js";
 import { resolveFileMention } from "../lib/resolve-file-mention.js";
 import { isWritableMdTarget } from "../lib/writable-md-target.js";
 import type { PreferencesStore } from "../persistence/preferences-store.js";
@@ -92,6 +93,7 @@ import {
   runOpener,
   systemOpenCapability,
 } from "../system-open-capability.js";
+import { type FileHandlerDeps, registerFileWriteBinaryRoute } from "./file-write-binary-routes.js";
 import type { NetworkGuard } from "./route-deps.js";
 
 // Per-target write serialization. The optimistic mtime check + atomic rename
@@ -132,20 +134,6 @@ async function hashHandle(fh: import("node:fs/promises").FileHandle, signal: Abo
     hash.update(buf.subarray(0, bytesRead));
   }
   return hash.digest("hex");
-}
-
-const fileWriteLocks = new Map<string, Promise<unknown>>();
-function serializeWrite<T>(key: string, task: () => Promise<T>): Promise<T> {
-  const run = (fileWriteLocks.get(key) ?? Promise.resolve()).then(task, task);
-  const tail = run.then(
-    () => {},
-    () => {},
-  );
-  fileWriteLocks.set(key, tail);
-  void tail.then(() => {
-    if (fileWriteLocks.get(key) === tail) fileWriteLocks.delete(key);
-  });
-  return run;
 }
 
 // Resolve + scope-validate a markdown target shared by the write + md-read
@@ -438,9 +426,13 @@ export function registerFileRoutes(
     // Hash-concurrency gate for `GET /api/file/digest` (change:
     // gate-changed-on-disk-by-content, D4). Injectable so tests observe slots.
     digestGate?: DigestGate;
+    // Plugin file-handler registry/validator seams for `POST /api/file/write-binary`
+    // (change: add-editor-pane-file-handlers). Absent → every handler save is refused (403).
+    fileHandlers?: FileHandlerDeps;
   },
 ) {
   const { sessionManager, preferencesStore, networkGuard } = deps;
+  registerFileWriteBinaryRoute(fastify, { sessionManager, networkGuard, fileHandlers: deps.fileHandlers });
   const systemOpenCapable = deps.systemOpen?.capable ?? systemOpenCapability;
   const systemOpenRun = deps.systemOpen?.run ?? runOpener;
   const systemOpenPlatform = deps.systemOpen?.platform ?? process.platform;
@@ -904,7 +896,10 @@ export function registerFileRoutes(
       }
       // Critical section: stat → mtime check → write → rename runs serialized per
       // target so the optimistic check is atomic w.r.t. a concurrent write.
-      const outcome = await serializeWrite(prep.resolved, () =>
+      // Keyed by REALPATH (shared with `/api/file/write-binary`) so a symlink alias
+      // cannot run two writes to one file at once. See change: add-editor-pane-file-handlers (D4).
+      const lockKey = await safeRealpath(prep.resolved);
+      const outcome = await serializeWrite(lockKey, () =>
         performAtomicMdWrite(prep.resolved, prep.content, prep.mtime),
       );
       if (outcome.code !== 200) {

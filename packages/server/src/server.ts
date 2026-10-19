@@ -8,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
-import { createGatedProviderAuth, createIsPiExtensionInstalled, createServerPluginContext, discoverPlugins, fixtureEntryAllowed, getPluginStatusStore, getWsRouteRegistry, loadServerEntries, pluginSpawnToSessionOptions, redactPluginConfigForClient, refreshRequirementProbesFor, resolvePluginEnabled } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import { createGatedProviderAuth, createIsPiExtensionInstalled, createServerPluginContext, discoverPlugins, fixtureEntryAllowed, getFileValidatorPool, getFileValidatorRegistry, getPluginStatusStore, getWsRouteRegistry, loadServerEntries, pluginSpawnToSessionOptions, redactPluginConfigForClient, refreshRequirementProbesFor, resolvePluginEnabled } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import {
   createMcpClientConfigService,
   createRealConfigIO,
@@ -19,8 +19,8 @@ import { findBundledExtension, registerBridgeExtension } from "@blackbelt-techno
 import type { PackageOperationCompleteMessage, ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { AuthConfig, DashboardConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { CONFIG_DIR, CONFIG_FILE, getPluginConfig as getPluginConfigFromFile, loadConfig, resolvePublicBaseUrls, writeConfigFileSecure } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import { createSemaphore } from "@blackbelt-technology/pi-dashboard-shared/semaphore.js";
 import { CustomEventGroupsStore } from "@blackbelt-technology/pi-dashboard-shared/custom-event-groups-store.js";
+import { parseFileHandlerClaimKey } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/file-handler.js";
 import { parseLaunchSource } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
 import type { HostAction, HostResource, Principal } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
 import { advertiseDashboard, createBrowser, type DashboardBrowser, type DiscoveredServer, resolveAdvertisedAddresses, stopAdvertising } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
@@ -40,6 +40,7 @@ import {
   readRuntimeRequest,
   readRuntimeState,
 } from "@blackbelt-technology/pi-dashboard-shared/runtime-overlay/state.js";
+import { createSemaphore } from "@blackbelt-technology/pi-dashboard-shared/semaphore.js";
 import { proveServerIdentity } from "@blackbelt-technology/pi-dashboard-shared/server-pinning.js";
 import { discoverServiceOffers } from "@blackbelt-technology/pi-dashboard-shared/services/offers.js";
 import { isRecoveryCandidate, isShutdownWindowCandidate, mergeSessionMeta, type SessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
@@ -102,11 +103,6 @@ import {
   resolveHostGateMode,
 } from "./auth/host-gate.js";
 import { ensureServerIdentity } from "./auth/identity.js";
-import {
-  MAIN_CONNECTION_TIMEOUT_MS,
-  MAIN_KEEP_ALIVE_TIMEOUT_MS,
-  TlsListener,
-} from "./tls/tls-listener.js";
 import { createLocalCredentialVerifier, hasLocalCredential, listenWithProofFloor } from "./auth/local-credential.js";
 import { createLocalTrustContext, LocalProofCodeStore } from "./auth/local-proof.js";
 import { ensureLocalToken } from "./auth/local-token.js";
@@ -129,6 +125,7 @@ import { setOAuthRegistryRuntimeSource } from "./auth/provider-auth-registry.js"
 import { readAuthJson } from "./auth/provider-auth-storage.js";
 import { countReloads, type RadiusMcpService } from "./auth/radius-mcp.js";
 import { createRouteTierGate } from "./auth/route-tier-gate.js";
+import { createHostServeApp } from "./auth/serve-app-host.js";
 import { mintSpawnToken } from "./auth/spawn-token.js";
 import { admissionTrustedNetworks, effectiveTrustMode } from "./auth/trust-mode.js";
 import { decideBootTrustMode } from "./auth/trust-mode-boot.js";
@@ -351,6 +348,11 @@ import { registerSpawnEnvContributorForPlugin, setSpawnEnvPluginEnabledCheck } f
 import { armSpawnWatchdog } from "./spawn-process/spawn-register-watchdog.js";
 import { createTerminalGateway } from "./terminal/terminal-gateway.js";
 import { createTerminalManager, deriveTranscriptCapBytes } from "./terminal/terminal-manager.js";
+import {
+  MAIN_CONNECTION_TIMEOUT_MS,
+  MAIN_KEEP_ALIVE_TIMEOUT_MS,
+  TlsListener,
+} from "./tls/tls-listener.js";
 import { cleanupStaleZrok, createTunnel, deleteTunnel, detectZrokBinary, ensureReservedName, getTunnelUrl, liveTunnelOrigins, scavengeOrphanZrokProcesses } from "./tunnel/tunnel.js";
 import { startTunnelWatchdog, stopTunnelWatchdog } from "./tunnel/tunnel-watchdog.js";
 import { createVaultDeliveryHub } from "./vault/vault-delivery-hub.js";
@@ -2505,7 +2507,35 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     const cwd = typeof msg?.cwd === "string" ? msg.cwd : undefined;
     if (cwd) worktreeInitRegistry.unsubscribeCwd(cwd, ws);
   });
-  registerFileRoutes(fastify, { sessionManager, preferencesStore, networkGuard });
+  registerFileRoutes(fastify, {
+    sessionManager,
+    preferencesStore,
+    networkGuard,
+    // Plugin file-handler seams for POST /api/file/write-binary: live claim registry
+    // (read at request time: enabled + server entry loaded), registered validators,
+    // bounded worker pool. See change: add-editor-pane-file-handlers (D4).
+    fileHandlers: {
+      resolveClaim: (key) => {
+        const ref = parseFileHandlerClaimKey(key);
+        if (!ref) return undefined;
+        const plugin = discoverPlugins().find((p) => p.manifest.id === ref.pluginId);
+        if (!plugin || !fixtureEntryAllowed(plugin.manifest)) return undefined;
+        const claim = plugin.manifest.claims.find((c) => c.slot === "editor-pane-file-handler" && c.id === ref.claimId);
+        if (!claim) return undefined;
+        return {
+          pluginId: ref.pluginId,
+          claim,
+          enabled: resolvePluginEnabled(
+            getPluginConfigFromFile(loadConfig(), ref.pluginId) as Record<string, unknown>,
+            plugin.manifest.defaultEnabled,
+          ),
+          serverLoaded: getPluginStatusStore().getStatus(ref.pluginId)?.loaded === true,
+        };
+      },
+      getValidator: (pluginId, claimId) => getFileValidatorRegistry().get(pluginId, claimId),
+      validatorPool: getFileValidatorPool(),
+    },
+  });
   registerGrepRoutes(fastify, { sessionManager, networkGuard });
   // Folder project identity (declared file + plugin marker rules). Rules come
   // only from plugins that are loaded + enabled + fixture-allowed, read per
@@ -3965,6 +3995,13 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               // this is NOT trust-gated. See change:
               // relocate-goal-product-to-plugin (D1-#7).
               networkGuard,
+              // `ctx.serveApp`: trust-gated (bundled plugin dir OR `auth.capabilityRoutePlugins`),
+              // mounts `/apps/<appId>/`. See change: add-plugin-capability-routes (D2, D5).
+              serveApp: createHostServeApp({
+                fastify,
+                plugin: { packageDir: plugin.packageDir, manifestId: plugin.manifest.id },
+                readConfiguredIds: () => loadConfig().auth?.capabilityRoutePlugins ?? [],
+              }),
               // Emit a configured pi event into a session (relayed as a
               // `plugin_emit_event` control message; the in-session bridge
               // re-emits it on pi.events). Same trust gate as abortSession.
@@ -4159,6 +4196,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
             plugin.manifest.id,
             // Own editor-pane-tab prefixes gate `ctx.openEditorTab`. See change: add-browser-editor-pane-tab (D5).
             plugin.manifest.claims.flatMap((c) => (c.slot === "editor-pane-tab" && c.pathPrefix ? [c.pathPrefix] : [])),
+            // Own file-handler edit claims + package dir gate `ctx.registerFileValidator`. See change: add-editor-pane-file-handlers (D4).
+            {
+              packageDir: plugin.packageDir,
+              editClaimIds: plugin.manifest.claims.flatMap((c) => (c.slot === "editor-pane-file-handler" && c.mode === "edit" && c.id ? [c.id] : [])),
+            },
           )),
         });
       } catch (err) {

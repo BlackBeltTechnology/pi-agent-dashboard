@@ -235,6 +235,11 @@ if [ "${PI_E2E_SEED:-}" = "1" ]; then
           automation: {
             workSources: [{ id: "e2e-inbox", dir: "/fixtures/sample-git/.pi/inbox" }],
           },
+          // Opt-in plugin (defaultEnabled:false) whose `/apps/craft-<app>/` mounts are
+          // restart-effective, so it must be on BEFORE boot for tests/e2e/craft-web-editor.spec.ts
+          // (a restart mid-run would also drop the fixture-plugin gate for later specs).
+          // See change: edit-office-in-pane-with-craft-web.
+          "craft-web": { enabled: true },
         },
       };
       // ACP agents for the ACP-session specs (tests/e2e/acp-*.spec.ts): the

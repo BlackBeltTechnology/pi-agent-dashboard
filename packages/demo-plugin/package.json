@@ -60,6 +60,21 @@
         "slot": "sidebar-folder-section",
         "component": "DemoScopedFolderEntry",
         "predicate": "isDemoScopedFolder"
+      },
+      {
+        "slot": "editor-pane-file-handler",
+        "component": "DemoDocxHandler",
+        "id": "docx",
+        "extensions": [
+          ".docx"
+        ],
+        "mode": "edit",
+        "label": "Edit (demo)",
+        "keepAlive": {
+          "max": 2
+        },
+        "validator": true,
+        "copySuffix": "demo"
       }
     ],
     "projectTypes": [

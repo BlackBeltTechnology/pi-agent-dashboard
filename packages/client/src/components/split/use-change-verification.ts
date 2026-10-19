@@ -195,7 +195,18 @@ export interface ChangeVerification {
   /** Paths whose bytes differ from the tab baseline (drives the banner). */
   verified: Set<string>;
   captureBaseline: (path: string) => Promise<void>;
-  trackedFileWrite: (path: string, body: Record<string, unknown>) => Promise<Response>;
+  /**
+   * `send` replaces the default `POST /api/file/write` (route-agnostic wrapper:
+   * a file-handler `write-binary` save is tracked the same way; its response
+   * carries the same `{success, data:{sha1}}`). See change: add-editor-pane-file-handlers (D3).
+   */
+  trackedFileWrite: (path: string, body: Record<string, unknown>, send?: (signal: AbortSignal) => Promise<Response>) => Promise<Response>;
+  /**
+   * Set the tab's baseline to a known version (a file-handler snapshot's
+   * digest) — never re-reads the file, so a change after the snapshot still
+   * banners. See change: add-editor-pane-file-handlers (D3).
+   */
+  setBaseline: (path: string, digest: FileDigest) => void;
   /** Dismiss/Refresh: drop the banner + candidate and make any in-flight verification moot. */
   dismiss: (path: string) => void;
 }
@@ -310,10 +321,12 @@ export function useChangeVerification(o: ChangeVerificationOptions): ChangeVerif
   );
 
   const trackedFileWrite = useCallback(
-    async (path: string, body: Record<string, unknown>): Promise<Response> => {
+    async (path: string, body: Record<string, unknown>, send?: (signal: AbortSignal) => Promise<Response>): Promise<Response> => {
       // Not tracked: change detection off, or a write for another cwd than this
       // pane's (e.g. a preview overlay of another project).
-      if (!enabled || (typeof body.cwd === "string" && body.cwd !== optsRef.current.cwd)) return plainFileWrite(body);
+      if (!enabled || (typeof body.cwd === "string" && body.cwd !== optsRef.current.cwd)) {
+        return send ? send(new AbortController().signal) : plainFileWrite(body);
+      }
       const st = store;
       let done!: () => void;
       const settled = new Promise<void>((res) => {
@@ -328,12 +341,14 @@ export function useChangeVerification(o: ChangeVerificationOptions): ChangeVerif
         bump(st.versions, path);
       };
       try {
-        const res = await fetch(`${getApiBase()}/api/file/write`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-          signal: ac.signal,
-        });
+        const res = send
+          ? await send(ac.signal)
+          : await fetch(`${getApiBase()}/api/file/write`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(body),
+              signal: ac.signal,
+            });
         const outcome = await writeOutcome(res);
         if (outcome !== "unchanged") {
           rebaseline(outcome);
@@ -348,6 +363,16 @@ export function useChangeVerification(o: ChangeVerificationOptions): ChangeVerif
         if (st.saving.get(path) === settled) st.saving.delete(path);
         done();
       }
+    },
+    [enabled, store, setVerified],
+  );
+
+  const setBaseline = useCallback(
+    (path: string, digest: FileDigest): void => {
+      if (!enabled || store.disposed) return;
+      store.baseline.set(path, digest);
+      bump(store.versions, path);
+      setVerified(path, false);
     },
     [enabled, store, setVerified],
   );
@@ -373,5 +398,5 @@ export function useChangeVerification(o: ChangeVerificationOptions): ChangeVerif
     for (const [p, b] of store.baseline) if (b) schedule(p, 0);
   }, [connectionGeneration, enabled, store, schedule]);
 
-  return { verified, captureBaseline, trackedFileWrite, dismiss };
+  return { verified, captureBaseline, trackedFileWrite, setBaseline, dismiss };
 }

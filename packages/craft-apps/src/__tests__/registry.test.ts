@@ -79,4 +79,20 @@ describe("registry", () => {
     expect(hostKey("linux", "arm64")).toBe("linux/arm64");
     expect(hostKey("sunos", "x64")).toBeUndefined();
   });
+
+  it("E1 web build facts: every webFidelityNote ≤ 300 chars, a note implies a webVersion, WordCraft pinned", () => {
+    for (const a of CRAFT_APPS) {
+      if (a.webFidelityNote !== undefined) {
+        expect(a.webFidelityNote.length, `${a.id} note`).toBeLessThanOrEqual(300);
+        expect(a.webFidelityNote.length).toBeGreaterThan(0);
+        expect(a.webVersion, `${a.id} needs a webVersion`).toBeDefined();
+      }
+      if (a.webVersion !== undefined) {
+        expect(a.webVersion).toMatch(/^\d+\.\d+\.\d+$/); // exact pin, never "latest"
+        expect(a.webFidelityNote, `${a.id} needs a webFidelityNote`).toBeDefined();
+      }
+    }
+    expect(getApp("wordcraft").webVersion).toBe("0.8.0");
+    expect(getApp("deckcraft").webVersion).toBeUndefined(); // unverified apps carry no web build
+  });
 });

@@ -9,3 +9,5 @@ See change: surface-denial-remedy-in-previews — `openInSplit` opts gain `autoO
 See change: add-browser-editor-pane-tab — `openPluginTab(path): boolean` (claimed-prefix check via `findEditorPaneTabClaim`, then idempotent `openFile{viewer:"plugin"}` + `ensureRevealed`); file-watch set (`openPathsKey`) excludes every pseudo-tab/plugin path.
 
 Session scope (`changeDetection`): candidates (`changedFiles` prop is now Map<path,gen>) are verified by `use-change-verification`; context `changedFiles` = verified set; adds `captureBaseline`, `trackedFileWrite`, `resyncWatch`, `changeDetection`; `watchNonce` re-sends `watch_files`; wraps children in `TrackedFileWriteProvider`. See change: gate-changed-on-disk-by-content.
+
+See change: add-editor-pane-file-handlers — context adds `setBaseline(path, digest)`; `trackedFileWrite` type = `TrackedFileWrite` (optional `send`). Consumed by `FileHandlerLayer`'s pane bridge.

@@ -13,6 +13,12 @@
  * prefixes (`/live/*` sandboxed dev servers) are skipped so their own policies
  * are not overwritten.
  *
+ * A `ctx.serveApp` mount response sets its own ENFORCED `Content-Security-Policy`
+ * before `onSend`; the hook only adds a header that is absent, so that policy is
+ * never overwritten in any mode (report mode additionally gets the baseline
+ * `-Report-Only`; off mode registers no hook and the mount sets its own).
+ * See change: add-plugin-capability-routes (D7).
+ *
  * See change: improve-content-editor (baseline CSP §7).
  */
 import type { FastifyInstance } from "fastify";

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fileKind, IMAGE_EXTENSIONS, TEXT_EXTENSIONS } from "../file-kind.js";
+import { extOf, fileKind, IMAGE_EXTENSIONS, isTextBackedExt, TEXT_EXTENSIONS } from "../file-kind.js";
 
 const CWD = "/Users/u/proj";
 const abs = (rel: string) => `${CWD}/${rel}`;
@@ -196,4 +196,21 @@ describe("fileKind", () => {
     expect(TEXT_EXTENSIONS.has(".csv")).toBe(false);
     expect(fileKind(abs("data.csv")).viewer).toBe("spreadsheet");
   });
+});
+
+describe("extOf / isTextBackedExt (add-editor-pane-file-handlers)", () => {
+  it("extOf lower-cases and takes the last dot", () => {
+    expect(extOf("/a/REPORT.DOCX")).toBe(".docx");
+    expect(extOf("/a/x.tar.gz")).toBe(".gz");
+    expect(extOf("/a/.gitignore")).toBe("");
+  });
+
+  it.each([".md", ".markdown", ".csv", ".adoc", ".mmd", ".puml", ".txt", ".json", ".ts", ".html"])(
+    "%s is text-backed",
+    (ext) => expect(isTextBackedExt(ext)).toBe(true),
+  );
+
+  it.each([".docx", ".drawio", ".psd", ".svg", ".odt"])("%s is claimable (not text-backed)", (ext) =>
+    expect(isTextBackedExt(ext)).toBe(false),
+  );
 });

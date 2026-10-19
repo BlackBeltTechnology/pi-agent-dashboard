@@ -16,7 +16,12 @@ import { createContext, useContext } from "react";
 import { getApiBase } from "../../lib/api/api-context.js";
 
 /** `path` is the tab's path key (what the pane baselines); `body` is the write payload. */
-export type TrackedFileWrite = (path: string, body: Record<string, unknown>) => Promise<Response>;
+export type TrackedFileWrite = (
+  path: string,
+  body: Record<string, unknown>,
+  /** Replaces the default `POST /api/file/write` (file-handler `write-binary`). */
+  send?: (signal: AbortSignal) => Promise<Response>,
+) => Promise<Response>;
 
 /** `POST /api/file/write` with no tracking. */
 export function plainFileWrite(body: Record<string, unknown>): Promise<Response> {
@@ -27,7 +32,9 @@ export function plainFileWrite(body: Record<string, unknown>): Promise<Response>
   });
 }
 
-const TrackedFileWriteContext = createContext<TrackedFileWrite>((_path, body) => plainFileWrite(body));
+const TrackedFileWriteContext = createContext<TrackedFileWrite>((_path, body, send) =>
+  send ? send(new AbortController().signal) : plainFileWrite(body),
+);
 
 export const TrackedFileWriteProvider = TrackedFileWriteContext.Provider;
 

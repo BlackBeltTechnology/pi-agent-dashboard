@@ -1,3 +1,7 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { clearAppMountRegistry, mountApp } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import jwt from "jsonwebtoken";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { COOKIE_NAME, signToken } from "../auth/auth.js";
@@ -459,5 +463,66 @@ describe("OAuth hook — bypass hosts are the live, mode-dependent admission lis
     await a.close();
     expect(off.statusCode).toBe(401);
     expect(String(off.headers["set-cookie"])).toContain(`${COOKIE_NAME}=;`);
+  });
+});
+
+// ── add-plugin-capability-routes: the OAuth hook skips `serveApp` mounts (test-plan #E15) ──
+describe("OAuth hook — serveApp mounts load without sign-in", () => {
+  const AUTH_SECRET = "test-secret-32-chars-long-abcdef";
+  let th: TrustModeHome;
+  let tmpRoot: string;
+  beforeEach(() => {
+    th = useTrustModeHome();
+    tmpRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "auth-apps-")));
+    fs.mkdirSync(path.join(tmpRoot, "dist", "assets"), { recursive: true });
+    fs.writeFileSync(path.join(tmpRoot, "dist", "index.html"), "<p>shell</p>");
+    fs.writeFileSync(path.join(tmpRoot, "dist", "assets", "a.js"), "1");
+    clearAppMountRegistry();
+  });
+  afterEach(() => {
+    th.restore();
+    clearAppMountRegistry();
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
+  async function app() {
+    const { default: Fastify } = await import("fastify");
+    const { registerAuthPlugin } = await import("../auth/auth-plugin.js");
+    const a = Fastify();
+    await registerAuthPlugin(a, {
+      authConfig: { secret: AUTH_SECRET, providers: { github: { clientId: "cid", clientSecret: "csecret" } } },
+      port: 8000,
+    });
+    mountApp(
+      { fastify: a, pluginId: "wall", packageRoot: tmpRoot, dataDir: path.join(tmpRoot, "data"), logger: { info() {}, warn() {}, error() {} } },
+      { dir: path.join(tmpRoot, "dist"), csp: "default-src 'none'" },
+    );
+    a.get("/apps/rogue/", async () => "rogue");
+    a.get("/api/sessions", async () => ({ ok: true }));
+    await a.ready();
+    return a;
+  }
+
+  it("E15: unauthenticated remote GET of the mount and its assets → 200, no 302/401", async () => {
+    const a = await app();
+    const shell = await a.inject({ method: "GET", url: "/apps/wall/", remoteAddress: "203.0.113.5", headers: { accept: "text/html" } });
+    const asset = await a.inject({ method: "GET", url: "/apps/wall/assets/a.js", remoteAddress: "203.0.113.5" });
+    const bare = await a.inject({ method: "GET", url: "/apps/wall", remoteAddress: "203.0.113.5", headers: { accept: "text/html" } });
+    await a.close();
+    expect(shell.statusCode).toBe(200);
+    expect(asset.statusCode).toBe(200);
+    expect(bare.statusCode).toBe(308);
+  });
+
+  it("E15 control: an unmounted /apps/* path and /api/* still require sign-in", async () => {
+    const a = await app();
+    const rogue = await a.inject({ method: "GET", url: "/apps/rogue/", remoteAddress: "203.0.113.5", headers: { accept: "text/html" } });
+    const api = await a.inject({ method: "GET", url: "/api/sessions", remoteAddress: "203.0.113.5" });
+    const lookalike = await a.inject({ method: "GET", url: "/apps/wall2/", remoteAddress: "203.0.113.5", headers: { accept: "text/html" } });
+    await a.close();
+    expect(rogue.statusCode).toBe(302);
+    expect(String(rogue.headers.location)).toContain("/auth/login");
+    expect(api.statusCode).toBe(401);
+    expect(lookalike.statusCode).toBe(302);
   });
 });

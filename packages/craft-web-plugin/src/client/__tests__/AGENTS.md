@@ -1,0 +1,11 @@
+# DOX — packages/craft-web-plugin/src/client/__tests__
+
+Files in this directory. One row per source file. See change: edit-office-in-pane-with-craft-web.
+
+| File | Purpose |
+|------|---------|
+| `gate.test.tsx` | Status gate + renderer probe + snapshot preflight: E2 (unverified / absent app → no iframe, no prepare), disabled, 404 → restart-required, not-prepared size + Prepare, shim-outdated, X2 offline prepare, E25 GPU probe (no flag / `?webgl` / none), iframe attributes + per-mount nonce, over-limit snapshot. |
+| `i18n.test.ts` | Catalog key + placeholder parity EN ↔ zh-CN ↔ hu; `formatSize`. |
+| `protocol.test.tsx` | Simulated shim messages: ready→open once (transfer), E21 acceptance, X3 60 s readiness + `?webgl` retry, X4 15 s opened, E20 dirty derivation, frame loss (second `ready`/`load`, Resume), blocked toast, csp rate-limit, navigate-blocked offer (http(s) only). |
+| `save.test.tsx` | E19 save routing (`routeSave` matrix + host behaviour): own/save-as dialog/device download/over-cap offer, failed + rejected + busy saves, Save-target toggle keyed by file. |
+| `test-utils.tsx` | Harness: `makeFh`, `stubFetch`, `stubRenderer`, `mountFrame`, `shimSend`, `openDoc`, `flush`/`advance` (fake timers). |

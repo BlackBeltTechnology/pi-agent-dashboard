@@ -244,8 +244,12 @@ function isAbsolutePath(p: string): boolean {
   return p.startsWith("/") || /^[A-Za-z]:[\\/]/.test(p) || p.startsWith("\\\\");
 }
 
-/** Lowercased extension including the leading dot, or `""` when none. */
-function extOf(absPath: string): string {
+/**
+ * Lowercased extension including the leading dot, or `""` when none. Exported
+ * so file-handler matching (client switcher + server write route) shares one
+ * normalization. See change: add-editor-pane-file-handlers.
+ */
+export function extOf(absPath: string): string {
   const lastSlash = Math.max(absPath.lastIndexOf("/"), absPath.lastIndexOf("\\"));
   const base = lastSlash >= 0 ? absPath.slice(lastSlash + 1) : absPath;
   const dot = base.lastIndexOf(".");
@@ -364,4 +368,21 @@ export function fileKind(absPath: string, sniff?: Buffer | string): FileKindResu
     return { kind: "binary", mimeType: "application/octet-stream", viewer: "binary-warn", editable: false };
   }
   return { kind: "unknown", mimeType: mimeOf("text/plain"), viewer: "monaco", editable: false };
+}
+
+/** Viewers whose files are text-backed (edited through `/api/file/write`, never a file handler). */
+const TEXT_BACKED_VIEWERS: ReadonlySet<string> = new Set(["monaco", "markdown", "mermaid", "asciidoc", "html", "diagram"]);
+
+/**
+ * True when `ext` (leading dot, any case) names a text-backed kind a plugin file
+ * handler must NOT claim: `fileKind` says editable, or a *recognised* kind
+ * (`kind !== "unknown"`) whose viewer is a text viewer. Unrecognised extensions
+ * (`.drawio`, `.psd`) fall through to `{kind:"unknown"}` and stay claimable.
+ * Probes with an absolute path (`fileKind` throws on relative ones).
+ * See change: add-editor-pane-file-handlers (D1).
+ */
+export function isTextBackedExt(ext: string): boolean {
+  const r = fileKind(`/x${ext}`);
+  if (r.editable) return true;
+  return r.kind !== "unknown" && TEXT_BACKED_VIEWERS.has(r.viewer);
 }

@@ -43,6 +43,13 @@ export interface OpenFile {
    * existed. See change: surface-denial-remedy-in-previews.
    */
   autoOpened?: boolean;
+  /**
+   * Selected plugin file-handler mode, `"<pluginId>/<claimId>"`; `undefined` =
+   * the built-in view. Resolved at render (NOT validated at load: the slot
+   * registry may not be ready), so a missing/disabled claim falls back to the
+   * built-in view for this tab only. See change: add-editor-pane-file-handlers (D2).
+   */
+  handlerMode?: string;
 }
 
 export interface EditorPaneState {
@@ -76,6 +83,9 @@ export type EditorPaneAction =
   | { type: "setActive"; index: number }
   | { type: "toggleTreeRoot"; relPath: string }
   | { type: "reorderTabs"; from: number; to: number }
+  // Select (or clear, `mode: undefined`) a plugin file-handler mode on the tab
+  // at `path`. See change: add-editor-pane-file-handlers (D2).
+  | { type: "setHandlerMode"; path: string; mode: string | undefined }
   | { type: "load"; state: EditorPaneState };
 
 export const EMPTY_PANE_STATE: EditorPaneState = {
@@ -260,6 +270,15 @@ export function editorPaneReducer(state: EditorPaneState, action: EditorPaneActi
       return { ...state, openFiles, activeIndex };
     }
 
+    case "setHandlerMode": {
+      const i = state.openFiles.findIndex((f) => f.path === action.path);
+      if (i < 0 || state.openFiles[i].handlerMode === action.mode) return state;
+      const openFiles = [...state.openFiles];
+      const { handlerMode: _drop, ...rest } = openFiles[i];
+      openFiles[i] = action.mode === undefined ? rest : { ...rest, handlerMode: action.mode };
+      return { ...state, openFiles };
+    }
+
     default:
       return state;
   }
@@ -297,6 +316,28 @@ function dropUnknownViewers(v: unknown): unknown {
   return { ...s, openFiles, activeIndex };
 }
 
+/**
+ * Drop a malformed (non-string) `handlerMode` from the tab that carries it, so
+ * one corrupt field never discards the whole blob (`isValidState` is
+ * all-or-nothing). Runs BEFORE `isValidState`. See change: add-editor-pane-file-handlers (D2).
+ */
+function dropInvalidHandlerModes(v: unknown): unknown {
+  if (!v || typeof v !== "object") return v;
+  const s = v as Record<string, unknown>;
+  if (!Array.isArray(s.openFiles)) return v;
+  const bad = (f: unknown) =>
+    !!f && typeof f === "object" && "handlerMode" in f && typeof (f as { handlerMode?: unknown }).handlerMode !== "string";
+  if (!s.openFiles.some(bad)) return v;
+  return {
+    ...s,
+    openFiles: s.openFiles.map((f) => {
+      if (!bad(f)) return f;
+      const { handlerMode: _drop, ...rest } = f as Record<string, unknown>;
+      return rest;
+    }),
+  };
+}
+
 /** True only for well-formed persisted state; rejects corrupt/partial blobs. */
 function isValidState(v: unknown): v is EditorPaneState {
   if (!v || typeof v !== "object") return false;
@@ -318,7 +359,9 @@ function isValidState(v: unknown): v is EditorPaneState {
     const unreadOk = file.unread === undefined || typeof file.unread === "boolean";
     // Same rule for `autoOpened` (surface-denial-remedy-in-previews).
     const autoOk = file.autoOpened === undefined || typeof file.autoOpened === "boolean";
-    return typeof file.path === "string" && VALID_VIEWERS.has(file.viewer) && unreadOk && autoOk;
+    // Explicit `typeof` check (change: add-editor-pane-file-handlers D2).
+    const modeOk = file.handlerMode === undefined || typeof file.handlerMode === "string";
+    return typeof file.path === "string" && VALID_VIEWERS.has(file.viewer) && unreadOk && autoOk && modeOk;
   });
   if (!filesOk) return false;
   // activeIndex must address an open tab, or be -1 only when no tabs are open.
@@ -333,7 +376,7 @@ export function loadEditorPaneState(sessionId: string): EditorPaneState {
   try {
     const raw = globalThis.localStorage?.getItem(keyFor(sessionId));
     if (!raw) return EMPTY_PANE_STATE;
-    const parsed = dropUnknownViewers(JSON.parse(raw));
+    const parsed = dropInvalidHandlerModes(dropUnknownViewers(JSON.parse(raw)));
     if (!isValidState(parsed)) {
       console.error(`[editor-pane] discarding corrupt state for session ${sessionId}`);
       return EMPTY_PANE_STATE;

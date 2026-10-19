@@ -276,6 +276,10 @@ export function writeConfigPartial(
       if (partial.auth.bypassUrls !== undefined) {
         mergedAuth.bypassUrls = partial.auth.bypassUrls;
       }
+      // add-plugin-capability-routes (D2): `!== undefined` so `[]` clears the trust list.
+      if (partial.auth.capabilityRoutePlugins !== undefined) {
+        mergedAuth.capabilityRoutePlugins = partial.auth.capabilityRoutePlugins;
+      }
 
       partial.auth = mergedAuth;
     }

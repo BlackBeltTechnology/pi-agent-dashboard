@@ -19,3 +19,4 @@ Merges nested `piTrustMirror.sources` on PUT and refreshes the snapshot. See cha
 
 `writeConfigPartial` deep-merges the `tls` block key-by-key (`{...existing.tls, ...partial.tls}`; `sources` replaced whole) so `{tls:{enabled:true}}` keeps port/host/sources. Applied live by `TlsListener.reconcile()` after the write (route `PUT /api/config`), no restart. See change: add-tailscale-cert-tls.
 `writeConfigPartial` merges the `editor` sub-object (no restart). See change: gate-changed-on-disk-by-content.
+`writeConfigPartial` merges `auth.capabilityRoutePlugins` (`!== undefined`, so `[]` clears the trust list). See change: add-plugin-capability-routes.

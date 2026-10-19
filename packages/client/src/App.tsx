@@ -15,6 +15,7 @@ import { ConnectionStatusBanner } from "./components/connectivity/ConnectionStat
 import { ServerSelector } from "./components/connectivity/ServerSelector.js";
 import { DirectorySettings, type DirectorySettingsPage } from "./components/DirectorySettings/DirectorySettings.js";
 import { SessionDiffProvider } from "./components/diff/SessionDiffContext.js";
+import { FileHandlerLayer } from "./components/editor-pane/file-handler/FileHandlerLayer.js";
 import { FolderEditorView } from "./components/folder/FolderEditorView.js";
 import { FolderSplitProvider } from "./components/folder/FolderSplitProvider.js";
 import { ArchiveBrowserView } from "./components/openspec/ArchiveBrowserView.js";
@@ -3160,6 +3161,11 @@ export default function App() {
               {/* Always-mounted zero-UI plugin hosts (e.g. the browser relay feed),
                   ONCE for every layout branch. See change: fix-empty-status-subcard. */}
               <ShellHeadlessSlot />
+              {/* Page-level host of every plugin file-handler instance — OUTSIDE
+                  EditorPane/SplitWorkspace so closing the pane or switching
+                  tabs/sessions never unmounts an instance. See change:
+                  add-editor-pane-file-handlers (D5). */}
+              <FileHandlerLayer />
               {/* D22 sign-in dialog: ONE instance for every layout branch (it is
                   `fixed inset-0`, so it need not sit inside the banner slots,
                   which a session route renders twice). */}

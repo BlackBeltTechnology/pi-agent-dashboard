@@ -77,6 +77,10 @@ describe("bundled server ships the pi runtime (E10)", () => {
       "mcp-server-plugin",
       "session-distiller",
       "system-one",
+      // craft-web-plugin depends on craft-apps (provisionWeb), which depends on nano-banana.
+      // See change: edit-office-in-pane-with-craft-web.
+      "craft-apps",
+      "nano-banana",
     ]);
   });
 

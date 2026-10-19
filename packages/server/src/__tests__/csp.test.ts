@@ -1,9 +1,13 @@
 /**
  * Baseline CSP builder + hook. See change: improve-content-editor (§7).
  */
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { AppMountRegistry, mountApp } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import Fastify from "fastify";
-import { describe, it, expect } from "vitest";
-import { buildCsp, resolveCspMode, registerCsp } from "../auth/csp.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { buildCsp, registerCsp, resolveCspMode } from "../auth/csp.js";
 
 describe("buildCsp", () => {
   it("locks down the high-value directives", () => {
@@ -66,6 +70,71 @@ describe("registerCsp hook", () => {
     const res = await app.inject({ method: "GET", url: "/" });
     expect(res.headers["content-security-policy"]).toBeUndefined();
     expect(res.headers["content-security-policy-report-only"]).toBeUndefined();
+    await app.close();
+  });
+});
+
+// ── add-plugin-capability-routes (D7): a `serveApp` response keeps its own enforced policy in EVERY mode ──
+describe("registerCsp + serveApp mounts (test-plan #E14)", () => {
+  const APP_CSP = "default-src 'self'";
+  let tmp: string;
+  beforeEach(() => {
+    tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "csp-apps-")));
+    fs.mkdirSync(path.join(tmp, "dist"), { recursive: true });
+    fs.writeFileSync(path.join(tmp, "dist", "index.html"), "<p>x</p>");
+  });
+  afterEach(() => {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
+  async function mounted(mode: Parameters<typeof registerCsp>[1]) {
+    const app = Fastify({ logger: false });
+    registerCsp(app, mode);
+    app.get("/", async () => "ok");
+    mountApp(
+      {
+        fastify: app,
+        pluginId: "wall",
+        packageRoot: tmp,
+        dataDir: path.join(tmp, "data"),
+        logger: { info() {}, warn() {}, error() {} },
+        registry: new AppMountRegistry(),
+      },
+      { dir: path.join(tmp, "dist"), csp: APP_CSP },
+    );
+    await app.ready();
+    return app;
+  }
+
+  it.each(["report", "enforce", "off"] as const)("%s mode: the app's enforcing header equals its declared value", async (mode) => {
+    const app = await mounted(mode);
+    for (const url of ["/apps/wall/", "/apps/wall/deep/link"]) {
+      const res = await app.inject({ method: "GET", url });
+      expect(res.statusCode, url).toBe(200);
+      expect(res.headers["content-security-policy"], `${mode} ${url}`).toBe(APP_CSP);
+    }
+    await app.close();
+  });
+
+  it("report mode also carries the baseline report-only header on the mount", async () => {
+    const app = await mounted("report");
+    const res = await app.inject({ method: "GET", url: "/apps/wall/" });
+    expect(res.headers["content-security-policy-report-only"]).toContain("object-src 'none'");
+    await app.close();
+  });
+
+  it("enforce mode never overwrites the app's policy with the baseline", async () => {
+    const app = await mounted("enforce");
+    const res = await app.inject({ method: "GET", url: "/apps/wall/" });
+    expect(res.headers["content-security-policy"]).toBe(APP_CSP);
+    expect(res.headers["content-security-policy"]).not.toContain("unsafe-eval");
+    await app.close();
+  });
+
+  it("off mode: the mount still sets its own policy while core pages get none", async () => {
+    const app = await mounted("off");
+    const own = await app.inject({ method: "GET", url: "/" });
+    expect(own.headers["content-security-policy"]).toBeUndefined();
     await app.close();
   });
 });

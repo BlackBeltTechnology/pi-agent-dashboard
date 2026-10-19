@@ -19,3 +19,5 @@ See change: surface-denial-remedy-in-previews — Every denial site passes `disc
 `/api/file/render` (AsciiDoc): `mtime` (`fs.stat` BEFORE the read) → `repairAsciiDoc(source)` unless `?repair=0` → ONE convert via `convertAdocCapturingWarnings` (asciidoctor `MemoryLogger` swapped in `LoggerManager`, restored in `finally`; sync ⇒ no cross-request interleave) → sanitize → `{html, repairs, warnings[{text,line}], mtime}`. Repair is a pure source scan, independent of warnings; `safe:"secure"` unchanged. See change: add-md-adoc-markup-repair.
 
 `gateReadPath` (shared `/api/file` read gate, `quiet` for the digest); `GET /api/file/digest` (sha1 stream, 256 MiB `DIGEST_CEILING_BYTES`, `no-store`, 2-wide two-lane `digest-gate`, abort releases slot); `POST /api/file/write` returns `{ mtime, size, sha1 }`, `bodyLimit` 600 MiB, 413 above the ceiling. See change: gate-changed-on-disk-by-content.
+
+`registerFileRoutes` also registers `POST /api/file/write-binary` (`file-write-binary-routes.ts`, dep `fileHandlers`); `/api/file/write` lock key = realpath via `lib/file-write-lock.ts`. See change: add-editor-pane-file-handlers.
