@@ -110,7 +110,7 @@ export function createTuiPromptAdapter(
         }
       };
 
-      /* mutated: adapter never presents */
+      void present();
       return {};
     },
 
