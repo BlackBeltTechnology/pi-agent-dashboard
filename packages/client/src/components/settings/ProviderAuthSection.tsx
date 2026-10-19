@@ -35,6 +35,7 @@ import {
   mdiClockOutline,
   mdiContentSave,
   mdiDelete,
+  mdiInformationOutline,
   mdiKeyPlus,
   mdiLoading,
   mdiLogout,
@@ -150,12 +151,17 @@ async function fetchProviders(): Promise<ProvidersPayload> {
   };
 }
 
-/** D5 — whether a bridge has pushed a provider catalogue since the last disconnect. */
-async function fetchCatalogueReady(): Promise<boolean> {
+/**
+ * D5 — whether a bridge has pushed a provider catalogue since the last
+ * disconnect (`ready`), and whether the server's own runtime supplies api-key
+ * rows meanwhile (`fallback`; absent on an older server).
+ * See change: fix-provider-catalogue-first-run (D5).
+ */
+async function fetchCatalogueReady(): Promise<{ ready: boolean; fallback: boolean }> {
   const res = await fetch(`${getApiBase()}/api/provider-auth/catalogue-ready`);
   if (!res.ok) throw new Error(`catalogue-ready ${res.status}`);
   const data: any = await res.json();
-  return data?.ready === true;
+  return { ready: data?.ready === true, fallback: data?.fallback === true };
 }
 
 /**
@@ -305,7 +311,7 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
   const [providersError, setProvidersError] = useState<string | null>(null);
   // D5 — null means "unknown" (no response yet, or the read failed): fail open,
   // consistent with the section's posture toward secondary signals.
-  const [catalogueReady, setCatalogueReady] = useState<boolean | null>(null);
+  const [catalogueReady, setCatalogueReady] = useState<{ ready: boolean; fallback: boolean } | null>(null);
   // Renamed-provider-id notice (pi 1.0.3 azure rename); advisory, never blocks rows.
   const [legacyIds, setLegacyIds] = useState<LegacyProviderIdEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -370,7 +376,7 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
       });
     const providersPromise = refetchProviders();
     const readyPromise = fetchCatalogueReady()
-      .then((ready) => setCatalogueReady(ready))
+      .then((availability) => setCatalogueReady(availability))
       .catch(() => setCatalogueReady(null));
     const legacyPromise = fetchLegacyProviderIds()
       .then((list) => setLegacyIds(list))
@@ -701,7 +707,10 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
     .map(([name, entry]) => ({ name, entry }))
     .sort((a, b) => a.name.localeCompare(b.name));
   const hasRows = configuredAuthRows.length > 0 || customRows.length > 0;
-  const catalogueUnavailable = catalogueReady === false;
+  // Unavailable = no bridge catalogue AND no runtime fallback. With the
+  // fallback the normal list/empty state renders plus an info notice.
+  const catalogueUnavailable = catalogueReady?.ready === false && !catalogueReady.fallback;
+  const catalogueFallback = catalogueReady?.ready === false && catalogueReady.fallback;
 
   const selectableCount = countSelectable(statuses);
 
@@ -832,6 +841,23 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
 
       {/* D5/F7 — catalogue unavailable is a per-source notice, never a
           replacement for the list, and the empty state is suppressed. */}
+      {catalogueFallback && (
+        <InlineMessage
+          severity="info"
+          icon={mdiInformationOutline}
+          testId="catalogue-fallback-notice"
+          title={i18nT("providers.catalogueFallbackTitle", undefined, "Showing built-in providers only.")}
+        >
+          <div>
+            {i18nT(
+              "providers.catalogueFallbackBody",
+              undefined,
+              "No pi session is connected yet, so providers added by extensions and environment-variable hints are not listed. They appear once a session starts.",
+            )}
+          </div>
+        </InlineMessage>
+      )}
+
       {catalogueUnavailable && (
         <InlineMessage
           severity="warning"
