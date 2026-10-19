@@ -542,9 +542,14 @@ CI workflow `.github/workflows/ci-e2e-electron.yml`. Matrix ubuntu-latest (xvfb)
 
 Cadence: `workflow_dispatch` + `pull_request` path-filter on `packages/electron/**` + `tests/e2e-electron/**`. ADVISORY — not required check.
 
-`job-object-windows` job (`taskkill /F` Job Object cascade, task 7.4a) `continue-on-error`. Needs app full spawn path. Deep validation lives in qa VM smoke (`qa/tests`).
+- Windows Job Object cascade (`taskkill /F` of Electron kills spawned server via `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`) not asserted by any automated test.
+- CI job `job-object-windows` removed. Every logged run ended `INFRA: app never brought a server up on :8000`, so never reached cascade check.
+- Precondition `detach: false` pinned by `packages/electron/src/__tests__/server-lifecycle-spawn-options.test.ts`.
+- Zombie detection + adoption modal covered by `decideIsZombie` unit tests and `tests/e2e-electron/zombie-adoption.electron.spec.ts` (fake `/api/health`).
+- No qa VM test force-kills parent: `qa/tests/07-electron-bootstrap-v2.ps1` checks starter + health only.
 
 See change: run-electron-e2e-native-surface.
+See change: remove-job-object-windows-smoke.
 
 ## How do I run my checkout inside the Electron app?
 

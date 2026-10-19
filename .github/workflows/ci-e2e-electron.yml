@@ -11,19 +11,23 @@ name: CI Electron E2E
 # `electron-e2e` matrix is keyed on `github.event_name` ONLY (defined on every
 # event), so GitHub-hosted macOS minutes (10x billing) never land on the PR path:
 #
-#   event                      ubuntu  windows  macOS  job-object-windows  runtime-overlay-e2e
-#   pull_request (path filter)   x       x        -           x                    x
-#   workflow_dispatch (any ref)  x       x        x           x                    x
-#   schedule (nightly, default)  -       -        x           -                    -
+#   event                      ubuntu  windows  macOS  runtime-overlay-e2e
+#   pull_request (path filter)   x       x        -            x
+#   workflow_dispatch (any ref)  x       x        x            x
+#   schedule (nightly, default)  -       -        x            -
 #
 # Opt a PR in (any PR, incl. an Electron major bump outside the path filter):
 #   gh workflow run ci-e2e-electron.yml --ref <branch>
 # There is deliberately NO `labeled` trigger: an unrelated label event would
 # join the per-ref concurrency group and cancel the in-flight run.
-# ADVISORY — not a required check (no branch-protection gate); no matrix leg is
-# `continue-on-error` (a darwin regression must turn the run red, not hide);
-# job-object-windows alone is `continue-on-error`. macOS is arm64 only (the app
-# is packaged and run on the same runner, so arch matches by construction).
+# ADVISORY — not a required check (no branch-protection gate); no job is
+# `continue-on-error` (a darwin regression must turn the run red, not hide).
+# macOS is arm64 only (the app is packaged and run on the same runner, so
+# arch matches by construction).
+# COVERAGE GAP (Windows Job Object): no job observes JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+# killing the spawned server after `taskkill /F` of Electron; only the
+# `detach: false` precondition is pinned (server-lifecycle-spawn-options.test.ts).
+# See change: remove-job-object-windows-smoke.
 # COVERAGE GAP (#531): while the `test.fixme(process.platform === "darwin", …/issues/531)`
 # quarantine in tests/e2e-electron/zombie-adoption.electron.spec.ts stands, the
 # macOS leg does NOT cover zombie-adoption (all three of its tests hang on
@@ -131,9 +135,6 @@ jobs:
           path: playwright-report-electron
           retention-days: 14
 
-  # Job Object kill-on-close (task 7.4a) — spawn-mode (NOT the fake-server
-  # attach specs): the app must boot a real server so the taskkill /F cascade
-  # can be observed. Separate job so it never shares :8000 with the E2E specs.
   # ── Runtime overlay update cycle vs a local registry (test-plan X10–X12) ──
   # Loopback Verdaccio serves the runtime closure at base (= app version, so
   # bundle-server installs from it), good (`latest`, with runtime-lock.json)
@@ -217,45 +218,3 @@ jobs:
           name: playwright-report-electron-runtime-overlay
           path: playwright-report-electron
           retention-days: 14
-
-  job-object-windows:
-    if: github.event_name != 'schedule'
-    runs-on: windows-latest
-    # Advisory: exercising the Job Object cascade needs the packaged app's FULL
-    # spawn path to boot a real server, which a lightweight `electron-forge
-    # package` on a GHA runner does not reliably provide (INFRA: never brought a
-    # server up). Deep real-launch validation belongs in the qa VM smoke
-    # (qa/tests, cf. 08-electron-real-launch.sh). Kept here to attempt the
-    # cascade + surface a true FAIL, without blocking the workflow.
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-      - name: Install dependencies
-        shell: pwsh
-        run: pnpm install --frozen-lockfile
-      # Bundle Node so the packaged app can actually SPAWN a server (the attach
-      # E2E jobs don't need this, but the Job Object cascade requires a real
-      # server boot, not the execpath fallback). Mirrors _electron-build.yml.
-      - name: Download Node.js binary (Windows)
-        shell: pwsh
-        run: |
-          $version = (Select-String -Path packages/electron/scripts/_node-version.sh -Pattern 'BUNDLED_NODE_VERSION="([^"]+)"').Matches[0].Groups[1].Value
-          $arch = "x64"
-          $url = "https://nodejs.org/dist/$version/node-$version-win-$arch.zip"
-          $outDir = "packages/electron/resources/node"
-          New-Item -ItemType Directory -Force -Path $outDir
-          Invoke-WebRequest -Uri $url -OutFile node.zip
-          Expand-Archive -Path node.zip -DestinationPath temp-node
-          Copy-Item "temp-node/node-$version-win-$arch/node.exe" "$outDir/"
-          Copy-Item -Recurse "temp-node/node-$version-win-$arch/node_modules" "$outDir/"
-          Remove-Item -Recurse -Force temp-node, node.zip
-      - name: Package Electron app
-        run: pnpm --filter @blackbelt-technology/pi-dashboard-electron run package
-      - name: Job Object kill-on-close smoke (taskkill /F cascade)
-        shell: pwsh
-        run: pnpm exec tsx scripts/windows-job-object-smoke.ts

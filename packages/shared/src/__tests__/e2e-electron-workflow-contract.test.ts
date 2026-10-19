@@ -11,8 +11,9 @@
  *     (a matrix OS with no run step goes green running nothing);
  *   - every job other than `electron-e2e` is skipped on `schedule`, so a job
  *     added later cannot silently join the nightly;
- *   - `electron-e2e` is NOT `continue-on-error` (a darwin regression must turn
- *     the run red) and its report artifact is OS-scoped (legs must not collide).
+ *   - NO job is `continue-on-error` (a darwin regression must turn the run
+ *     red); the key is banned on every job, any value; `electron-e2e`'s report
+ *     artifact is OS-scoped (legs must not collide).
  *
  * No YAML dependency (mirrors e2e-browser-workflow-contract.test.ts); the matrix
  * and `if:` expressions are evaluated by the tiny evaluator below, which
@@ -191,8 +192,10 @@ export function electronWorkflowViolations(workflow: string): string[] {
     if (runsOnSchedule) out.push(`${id}: not skipped on \`schedule\` (add \`if: github.event_name != 'schedule'\`)`);
   }
 
-  const e2e = jobBlock(workflow, "electron-e2e");
-  if (/^ {4}continue-on-error:/m.test(e2e)) out.push("electron-e2e: must not be continue-on-error (a darwin regression would go green)");
+  // No job may carry `continue-on-error` (any value): a darwin regression must turn the run red.
+  for (const id of jobIds(workflow)) {
+    if (/^ {4}continue-on-error:/m.test(jobBlock(workflow, id))) out.push(`${id}: must not be continue-on-error (a darwin regression would go green)`);
+  }
 
   const upload = steps(workflow, "electron-e2e").find((s) => /upload-artifact/.test(s.text));
   const artifactName = upload?.text.match(/^ {10}name:\s*(.+)$/m)?.[1].trim() ?? "";
@@ -243,22 +246,34 @@ describe("ci-e2e-electron.yml — macOS leg contract (#531)", () => {
   });
 
   it("(E13) every job other than electron-e2e is skipped on schedule (enumerated, not hard-coded)", () => {
-    expect(jobIds(yaml)).toEqual(expect.arrayContaining(["electron-e2e", "runtime-overlay-e2e", "job-object-windows"]));
+    expect(jobIds(yaml)).toEqual(expect.arrayContaining(["electron-e2e", "runtime-overlay-e2e"]));
+    expect(jobIds(yaml)).not.toContain("job-object-windows");
     const extra = `${yaml.trimEnd()}\n\n  foo:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n`;
     expect(electronWorkflowViolations(extra).join("\n")).toContain("foo: not skipped on `schedule`");
     const noGate = mutate("  runtime-overlay-e2e:\n    if: github.event_name != 'schedule'\n", "  runtime-overlay-e2e:\n");
     expect(electronWorkflowViolations(noGate).join("\n")).toContain("runtime-overlay-e2e: not skipped on `schedule`");
-    const always = mutate("  job-object-windows:\n    if: github.event_name != 'schedule'\n", "  job-object-windows:\n    if: always()\n");
-    expect(electronWorkflowViolations(always).join("\n")).toContain("job-object-windows: not skipped on `schedule`");
   });
 
-  it("(E14) electron-e2e carries no continue-on-error; job-object-windows keeps its own", () => {
+  it("(E14) electron-e2e carries no continue-on-error", () => {
     for (const value of ["true", "${{ matrix.os == 'macos-latest' }}"]) {
       const bad = mutate("  electron-e2e:\n    strategy:", `  electron-e2e:\n    continue-on-error: ${value}\n    strategy:`);
       expect(electronWorkflowViolations(bad).join("\n")).toContain("electron-e2e: must not be continue-on-error");
     }
     expect(electronWorkflowViolations(yaml)).toEqual([]);
-    expect(jobBlock(yaml, "job-object-windows")).toMatch(/^ {4}continue-on-error: true/m);
+  });
+
+  it("(E16) continue-on-error is banned on every job (enumerated, any value)", () => {
+    for (const value of ["true", "false"]) {
+      const bad = mutate("  runtime-overlay-e2e:\n", `  runtime-overlay-e2e:\n    continue-on-error: ${value}\n`);
+      expect(electronWorkflowViolations(bad).join("\n")).toContain("runtime-overlay-e2e: must not be continue-on-error");
+    }
+    const extra = `${yaml.trimEnd()}\n\n  foo:\n    continue-on-error: true\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n`;
+    expect(electronWorkflowViolations(extra).join("\n")).toContain("foo: must not be continue-on-error");
+  });
+
+  it("(E17) a comment mentioning continue-on-error is not a violation", () => {
+    const ok = mutate("  runtime-overlay-e2e:\n", "  runtime-overlay-e2e:\n    # continue-on-error: true is forbidden here\n");
+    expect(electronWorkflowViolations(ok).join("\n")).not.toContain("must not be continue-on-error");
   });
 
   it("(E15) the report artifact name is OS-scoped", () => {
