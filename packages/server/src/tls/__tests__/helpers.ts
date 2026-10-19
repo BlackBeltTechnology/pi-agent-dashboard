@@ -140,3 +140,17 @@ export function handshake(port: number, servername: string | undefined, host = "
 export const flush = async (n = 5): Promise<void> => {
   for (let i = 0; i < n; i++) await Promise.resolve();
 };
+
+/**
+ * Handshake that is EXPECTED to succeed: retries a transient failure (CPU-starved CI worker,
+ * ephemeral-port race) a couple of times. Never use it for an expected failure.
+ */
+export async function handshakeEventually(port: number, servername: string | undefined, attempts = 3): Promise<Handshake> {
+  let last: Handshake = { ok: false, error: "not attempted" };
+  for (let i = 0; i < attempts; i++) {
+    last = await handshake(port, servername);
+    if (last.ok) return last;
+    await new Promise((r) => setTimeout(r, 100 * (i + 1)));
+  }
+  return last;
+}

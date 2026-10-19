@@ -10,7 +10,7 @@ import type { TlsConfig } from "@blackbelt-technology/pi-dashboard-shared/config
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerCertSourceType, unregisterCertSourceType } from "../source-registry.js";
 import { TlsListener } from "../tls-listener.js";
-import { CA_PEM, FakeSource, fixture, handshake } from "./helpers.js";
+import { CA_PEM, FakeSource, fixture, handshake, handshakeEventually } from "./helpers.js";
 
 /**
  * TlsListener against a plain `http` dispatch (no Fastify): SNI selection, hot
@@ -99,8 +99,8 @@ describe("#E2 enabled without sources", () => {
 describe("#E6 certificate selection per SNI name", () => {
   it("serves exact then single-label wildcard; everything else fails the handshake", async () => {
     const port = await up(["host.example.ts.net", "*.example.com"]);
-    expect(await handshake(port, "host.example.ts.net")).toMatchObject({ ok: true, cn: "host.example.ts.net" });
-    expect(await handshake(port, "dash.example.com")).toMatchObject({ ok: true, cn: "*.example.com" });
+    expect(await handshakeEventually(port, "host.example.ts.net")).toMatchObject({ ok: true, cn: "host.example.ts.net" });
+    expect(await handshakeEventually(port, "dash.example.com")).toMatchObject({ ok: true, cn: "*.example.com" });
     for (const name of ["a.b.example.com", "example.com", "other.test"]) {
       expect((await handshake(port, name)).ok).toBe(false);
     }

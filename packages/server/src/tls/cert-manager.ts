@@ -17,6 +17,8 @@ import { type CertSource, RetryAfterError, type SourceReadiness } from "./types.
 const TICK_INTERVAL_MS = 12 * 60 * 60_000;
 const BACKOFF_BASE_MS = 5 * 60_000;
 const BACKOFF_CAP_MS = 6 * 60 * 60_000;
+/** Longest single timer: the backoff cap. Longer waits re-arm on expiry. */
+const MAX_ARM_MS = BACKOFF_CAP_MS;
 const GATE_RECHECK_MS = 15 * 60_000;
 const DEFAULT_ATTEMPT_TIMEOUT_MS = 10 * 60_000;
 const LAST_ERROR_MAX = 500;
@@ -471,15 +473,21 @@ export class CertManager {
     return this.needsCert(ns, ss) || failed ? "go" : "skip";
   }
 
+  /**
+   * Arm the per-name retry timer. The delay is clamped to [0, MAX_ARM_MS]: it can derive
+   * from persisted state (`meta.json`) or a source-imposed floor, so it is never trusted as
+   * a raw timer duration. A longer wait re-arms itself when the timer fires early
+   * (`decide()` answers the remaining time while `nextAttemptAt` is in the future).
+   */
   private arm(ns: NameState, delayMs: number): void {
     if (ns.timer) clearTimeout(ns.timer);
-    ns.timer = setTimeout(
-      () => {
-        ns.timer = undefined;
-        void this.beginAttempt(ns, "scheduled");
-      },
-      Math.max(0, Math.min(delayMs, 2 ** 31 - 1)),
-    );
+    let delay = delayMs;
+    if (!(delay >= 0)) delay = 0;
+    else if (delay > MAX_ARM_MS) delay = MAX_ARM_MS;
+    ns.timer = setTimeout(() => {
+      ns.timer = undefined;
+      void this.beginAttempt(ns, "scheduled");
+    }, delay);
     ns.timer.unref?.();
   }
 
