@@ -195,7 +195,7 @@ test.describe("editor-pane file handlers (demo .docx handler)", () => {
     // First overwrite of this instance → the claim's notice; proceed.
     await expect(page.getByTestId("file-handler-first-overwrite")).toBeVisible({ timeout: 15_000 });
     await page.getByTestId("file-handler-first-overwrite-overwrite").click();
-    await expect(handler(page, report).getByTestId("demo-file-handler-status")).toHaveText(`saved: ${report}`, { timeout: 30_000 });
+    await expect(handler(page, report).getByTestId("demo-file-handler-status")).toHaveText(`saved: ${FIXTURE_GIT}/${report}`, { timeout: 30_000 });
     expect(touched).toBe(true);
     await page.unroute("**/api/file/write-binary**");
 
@@ -220,7 +220,7 @@ test.describe("editor-pane file handlers (demo .docx handler)", () => {
     await expect(banner(page)).toBeVisible({ timeout: 30_000 });
 
     // Refresh → leave guard → Cancel: banner stays, same instance, edits kept.
-    await dismissToasts(page);
+    // (No dismissToasts here: the banner's own "Dismiss" button matches its name filter.)
     await banner(page).getByTestId("changed-refresh").click();
     await expect(page.getByTestId("file-handler-confirm")).toBeVisible();
     await page.getByTestId("file-handler-confirm-cancel").click();
@@ -230,7 +230,6 @@ test.describe("editor-pane file handlers (demo .docx handler)", () => {
     await expect(textArea(page, report)).toHaveValue(`${ORIGINAL}my edits`);
 
     // Refresh → confirm: remount (new instance id) with the on-disk content; banner clears.
-    await dismissToasts(page);
     await banner(page).getByTestId("changed-refresh").click();
     await page.getByTestId("file-handler-confirm-action").click();
     await expect(textArea(page, report)).toHaveValue(AGENT, { timeout: 30_000 });
@@ -264,7 +263,7 @@ test.describe("editor-pane file handlers (demo .docx handler)", () => {
     await page.getByTestId("file-handler-conflict-copy").click();
     await expect(conflict).toHaveCount(0);
     const copy = `${dir}/report.demo.docx`;
-    await expect(handler(page, report).getByTestId("demo-file-handler-status")).toHaveText(`saved: ${copy}`, { timeout: 30_000 });
+    await expect(handler(page, report).getByTestId("demo-file-handler-status")).toHaveText(`saved: ${FIXTURE_GIT}/${copy}`, { timeout: 30_000 });
     expect(existsOutOfBand(copy)).toBe(true);
     expect(readOutOfBand(copy)).toBe(EDITS.trim());
     // The original keeps the out-of-band content; the edits are still open.
