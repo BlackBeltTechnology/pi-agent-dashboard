@@ -63,6 +63,7 @@ import { RESERVED_SETTINGS_LABELS, resolveSettingsPromotions } from "../../lib/s
 import { useCustomEventGroups } from "../../lib/state/custom-event-groups.js";
 import { useDisplayPrefsContext } from "../../lib/state/DisplayPrefsContext.js";
 import { PopoverBoundaryProvider } from "../../lib/state/PopoverBoundaryContext.js";
+import { useShowPluginInternals } from "../../lib/state/plugin-internals-pref.js";
 import { randomUuid } from "../../lib/util/random-uuid.js";
 import { callout } from "../connectivity/connectivity-ui.js";
 import { KnownServersSection } from "../connectivity/KnownServersSection.js";
@@ -596,6 +597,8 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
    */
   const [reachability, setReachability] = useState<BindReachability | null>(null);
   const [loading, setLoading] = useState(true);
+  // Per-browser view aid (localStorage, instant, never a config write). See change: retro-ux-plugin-settings-wave-2.
+  const [showPluginInternals, setShowPluginInternals] = useShowPluginInternals();
   const [saving, setSaving] = useState(false);
   // Result of mirroring the Default model into pi's settings.json on the last
   // config save, and a counter that makes the pi settings section re-read its
@@ -2720,6 +2723,12 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
                     value={config.keeperLog?.capturePiOutput ?? false}
                     onChange={(v) => update((c) => { c.keeperLog = { ...c.keeperLog, capturePiOutput: v }; })}
                     hint={t("settings.capturePiOutputHint", undefined, "Archives each session's full pi stdout/stderr into keeper-<id>.log for debugging. Consumes significant disk on long sessions — leave off unless diagnosing a session. Applies to new sessions.")}
+                  />
+                  <ToggleField
+                    label={t("settings.showPluginInternals", undefined, "Show plugin internals")}
+                    value={showPluginInternals}
+                    onChange={setShowPluginInternals}
+                    hint={t("settings.showPluginInternalsHint", undefined, "Show which UI slots each plugin contributes to, on its settings page. Applies instantly, only in this browser.")}
                   />
                 </Section>
                 <DiagnosticsSection />

@@ -60,10 +60,8 @@ async function railGotoPlugin(page: Page, id: string) {
  */
 async function dirtyBuiltInPage(page: Page) {
   await gotoSettings(page, "/settings/developer");
-  const toggle = page
-    .getByTestId("settings-content")
-    .getByText("Dev Build on Reload", { exact: true })
-    .locator("xpath=following-sibling::button[1]");
+  // The kit ToggleField: the switch is named by its <label htmlFor>.
+  const toggle = page.getByTestId("settings-content").getByRole("switch", { name: "Dev Build on Reload", exact: true });
   await expect(toggle).toBeVisible({ timeout: 20_000 });
   await toggle.click();
   await expect(page.getByTestId("settings-save-bar")).toBeVisible();
@@ -93,6 +91,10 @@ async function dirtyPluginPage(page: Page, { navigate = true } = {}): Promise<st
 
 test.describe("plugin settings pages (L3)", () => {
   test.beforeEach(async ({ page }) => {
+    // The rail's plugin children are collapsed by default since
+    // addons-hub-declutter; these specs address them directly, so open the
+    // group through its persisted preference.
+    await page.addInitScript(() => localStorage.setItem("dashboard:settings-plugins-expanded", "true"));
     // Mount the shell once so the first-launch preset modal is auto-dismissed
     // by the shared handler before any settings interaction.
     await gotoDashboard(page);
@@ -174,7 +176,8 @@ test.describe("plugin settings pages (L3)", () => {
 
     await expect(page.getByTestId("plugin-page-chrome")).toBeVisible();
     await expect(page.getByTestId("plugin-page-title")).toHaveText("Subagent Inspector");
-    await expect(page.getByTestId("plugin-page-chrome")).toContainText("disabled");
+    // Pill word "Off" (retro-ux-plugin-settings-wave-2 D5/A3, was "disabled").
+    await expect(page.getByTestId("plugin-page-pill")).toHaveText("Off");
     await expect(page.getByTestId("plugin-page-disabled-notice")).toBeVisible();
     await expect(page.getByTestId("plugin-page-reenable-btn")).toBeVisible();
     // Absent from the rail, but the deep link still resolves (design D4).
@@ -202,7 +205,9 @@ test.describe("plugin settings pages (L3)", () => {
   // (test-plan #X1) — full error text, copy-on-click, chrome intact.
   test("a load error renders on the plugin's own page", async ({ page }) => {
     await gotoSettings(page, "/settings/plugins/e2e-broken");
-    await expect(page.getByTestId("plugin-page-chrome")).toContainText("error");
+    // Pill word "Failed to load" (retro-ux-plugin-settings-wave-2 D5/A3, was "error").
+    await expect(page.getByTestId("plugin-page-pill")).toHaveText("Failed to load");
+    await expect(page.getByTestId("plugin-page-chrome")).toContainText("This plugin failed to load.");
     const block = page.getByTestId("plugin-status-error-e2e-broken");
     await expect(block).toBeVisible();
     await expect(block).toContainText("Bridge path conflict");

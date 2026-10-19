@@ -8,13 +8,14 @@
  *
  * See change: migrate-mcp-to-pi-builtin.
  */
-import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { SettingsNotice, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type React from "react";
 import { useState } from "react";
 import { ApiError } from "./api.js";
 import { useEffectiveConfig, useLiveState } from "./hooks.js";
 import { ServerEditor } from "./ServerEditor.js";
 import { ServerList } from "./ServerList.js";
+import { BTN, BTN_PRIMARY } from "./settings-ui.js";
 
 export function McpSettingsClaim(): React.ReactElement {
   return <McpSettings />;
@@ -59,57 +60,73 @@ export function McpSettings(): React.ReactElement {
     refresh();
   };
 
+  const servers = view?.servers ?? [];
+  const layers = view?.layers ?? [];
+  // Empty state = loaded, no servers, no broken file, no error: the empty block owns the one primary Add.
+  const isEmpty = !loading && !error && servers.length === 0 && layers.every((l) => l.ok);
+  const refreshButton = (
+    <button
+      type="button"
+      onClick={refreshAll}
+      data-testid="mcp-refresh"
+      title={t("mcpRefreshTitle", undefined, "Re-read the config files and pi's live state")}
+      className={BTN}
+    >
+      {t("mcpRefresh", undefined, "Refresh")}
+    </button>
+  );
+
   return (
     <section data-testid="mcp-settings" className="space-y-2">
       <div className="flex items-center gap-2 flex-wrap">
-        <h3 className="text-sm font-semibold m-0 text-[var(--text-primary)]">
-          {t("mcpServersHeading", undefined, "MCP servers")}
-        </h3>
-        <button
-          type="button"
-          onClick={refreshAll}
-          data-testid="mcp-refresh"
-          title={t("mcpRefreshTitle", undefined, "Re-read the config files and pi's live state")}
-          className="text-[11px] px-2 py-1 min-h-11 min-w-11 sm:min-h-0 sm:min-w-0 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-        >
-          {t("mcpRefresh", undefined, "Refresh")}
-        </button>
-        <button
-          type="button"
-          onClick={() => setEditing("")}
-          data-testid="mcp-add-server"
-          className="ml-auto text-[11px] px-2 py-1 min-h-11 min-w-11 sm:min-h-0 sm:min-w-0 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-        >
-          {t("mcpAddServer", undefined, "Add server")}
-        </button>
+        {isEmpty ? (
+          <span className="ml-auto">{refreshButton}</span>
+        ) : (
+          <>
+            <h4 className="m-0 text-xs font-semibold text-[var(--text-secondary)]">
+              {loading && !view
+                ? t("mcpServersHeadingBare", undefined, "Servers")
+                : t("mcpServersHeading", { count: servers.length }, `Servers · ${servers.length}`)}
+            </h4>
+            <span className="ml-auto flex items-center gap-2">
+              {refreshButton}
+              <button type="button" onClick={() => setEditing("")} data-testid="mcp-add-server" className={BTN_PRIMARY}>
+                {t("mcpAddServer", undefined, "Add server")}
+              </button>
+            </span>
+          </>
+        )}
       </div>
 
       {notAllowed && (
-        <p data-testid="mcp-not-allowed" role="alert" className="text-[11px] m-0">
+        <SettingsNotice tone="info" role="alert" testId="mcp-not-allowed">
           {t("mcpNotAllowed", undefined, "This folder is not tracked by the dashboard.")}
-        </p>
+        </SettingsNotice>
       )}
 
       {otherError && (
-        <p
-          data-testid="mcp-error"
-          role="alert"
-          className="text-[11px] text-[var(--status-error,#f87171)] m-0"
+        <SettingsNotice
+          tone="error"
+          testId="mcp-error"
+          onRetry={refreshAll}
+          details={(otherError as Error).message}
         >
-          {t("mcpLoadError", { message: (otherError as Error).message }, `Could not load MCP configuration: ${(otherError as Error).message}`)}
-        </p>
+          {t("mcpLoadError", undefined, "Could not load the MCP configuration.")}
+        </SettingsNotice>
       )}
 
-      <ServerList
-        servers={view?.servers ?? []}
-        layers={view?.layers ?? []}
-        loading={loading}
-        live={live}
-        liveLoading={liveLoading}
-        onOpen={setEditing}
-        onAdd={() => setEditing("")}
-        onChanged={refreshAll}
-      />
+      {!error && (
+        <ServerList
+          servers={servers}
+          layers={layers}
+          loading={loading}
+          live={live}
+          liveLoading={liveLoading}
+          onOpen={setEditing}
+          onAdd={() => setEditing("")}
+          onChanged={refreshAll}
+        />
+      )}
 
       <EditorForEditing
         editing={editing}

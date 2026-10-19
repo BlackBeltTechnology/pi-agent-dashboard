@@ -54,7 +54,7 @@ export const FIELD_GROUPS: FieldGroup[] = [
     fields: [
       {
         key: "memory",
-        label: "Enable memory workers",
+        label: "Memory workers",
         help: "Off = no observer/reflector/dropper and no memory injection. Compaction still runs.",
       },
       {
@@ -129,10 +129,9 @@ export const FIELD_GROUPS: FieldGroup[] = [
       {
         key: "dropperPressureThreshold",
         label: "Dropper pressure threshold",
-        help: "Pressure-relief valve — fraction of the reflector input cap at which the dropper fires even with no new data.",
-        // The accepted interval is OPEN at 0 — the validator rejects 0, so a
-        // "0–1" label would invite a request that 400s.
-        unit: "> 0 and ≤ 1",
+        // The accepted interval is OPEN at 0 — the validator rejects 0, so the
+        // hint states "above 0, up to 1" rather than inviting a request that 400s.
+        help: "Pressure-relief valve — fraction of the reflector input cap at which the dropper fires even with no new data. Above 0, up to 1.",
       },
     ],
   },
@@ -149,7 +148,7 @@ export const FIELD_GROUPS: FieldGroup[] = [
         key: "providerIdleTimeoutMs",
         label: "Provider idle timeout",
         help: "Body-idle timeout for background provider streams. 0 disables the wrapper.",
-        unit: "ms · 0 = off",
+        unit: "ms",
       },
       {
         key: "debug",

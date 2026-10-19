@@ -29,25 +29,13 @@ import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/das
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { computePace, formatResetIn, type Pace, type PaceSeverity, paceLabel } from "./pace.js";
+import { providerLabel } from "./quota-status.js";
 import type {
   ApiQuotaResponse,
   ProviderQuota,
-  QuotaUnavailableReason,
 } from "./types.js";
 
 export { catalog } from "./i18n.js";
-
-// Display names only; providers.ts owns WHICH providers exist.
-const PROVIDER_LABELS: Record<string, string> = {
-  anthropic: "Anthropic",
-  "openai-codex": "Codex",
-  "github-copilot": "Copilot",
-  openrouter: "OpenRouter",
-  synthetic: "Synthetic",
-  zai: "Z.ai",
-  "kimi-coding": "Kimi Code",
-  "opencode-go": "OpenCode Go",
-};
 
 const SEVERITY_COLOR: Record<PaceSeverity, string> = {
   green: "#34d399",
@@ -56,9 +44,6 @@ const SEVERITY_COLOR: Record<PaceSeverity, string> = {
   muted: "#71717a",
 };
 
-export function providerLabel(id: string): string {
-  return PROVIDER_LABELS[id] ?? id;
-}
 
 /**
  * Localized pace-state formatter. `paceLabel` (pure, in pace.ts) supplies the
@@ -174,37 +159,6 @@ export function useQuota(pollMs = 60_000): QuotaState {
   return { providers, lastUpdated, refresh, isRefreshing };
 }
 
-/**
- * Reason-per-provider for every ENABLED provider that produced no quota, from
- * the same `/api/quota` payload.
- *
- * Every provider is tickable now that the plugin owns each contract — there is
- * no peer to be missing. But a tick can still yield nothing (not signed in,
- * endpoint throttled), and silence there is indistinguishable from a bug. The
- * server names the cause; the settings row prints it.
- *
- * Fetched once per mount (no poll): the Settings panel is short-lived.
- */
-export function useQuotaUnavailable(): Record<string, QuotaUnavailableReason> {
-  const [reasons, setReasons] = useState<Record<string, QuotaUnavailableReason>>({});
-  useEffect(() => {
-    let alive = true;
-    void (async () => {
-      try {
-        const res = await fetch("/api/quota");
-        const json = (await res.json()) as ApiQuotaResponse;
-        if (!alive) return;
-        setReasons(Object.fromEntries((json.unavailable ?? []).map((u) => [u.provider, u.reason])));
-      } catch {
-        if (alive) setReasons({});
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, []);
-  return reasons;
-}
 
 /**
  * Grey `now` caption sitting directly BENEATH the tick, horizontally centred on
@@ -390,7 +344,7 @@ export function QuotaWidget({ session }: { session?: DashboardSession }) {
                 color: ringed ? "var(--text-primary, #e4e4e7)" : "var(--text-secondary, #a1a1aa)",
                 opacity: dimmed ? 0.5 : 1,
                 boxShadow: ringed
-                  ? "inset 0 0 0 1px color-mix(in srgb, var(--accent, #3b82f6) 35%, var(--border-subtle, rgba(82,82,91,0.6)))"
+                  ? "inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, var(--border-subtle, rgba(82,82,91,0.6)))"
                   : undefined,
               }}
             >
@@ -593,7 +547,7 @@ function SelectorPill({ label, active, onClick }: { label: string; active: boole
         padding: "2px 10px",
         borderRadius: 999,
         border: "1px solid var(--border-subtle, rgba(82,82,91,0.6))",
-        background: active ? "var(--accent, #3b82f6)" : "transparent",
+        background: active ? "var(--accent)" : "transparent",
         color: active ? "#fff" : "var(--text-secondary, #a1a1aa)",
         cursor: "pointer",
       }}

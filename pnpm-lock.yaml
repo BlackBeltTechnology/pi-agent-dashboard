@@ -140,6 +140,12 @@ importers:
       '@blackbelt-technology/pi-dashboard-shared':
         specifier: ^0.9.0
         version: link:../shared
+      '@mdi/js':
+        specifier: ^7.4.47
+        version: 7.4.47
+      '@mdi/react':
+        specifier: ^1.6.1
+        version: 1.6.1
     devDependencies:
       '@types/react':
         specifier: ^19.0.0
@@ -1709,6 +1715,9 @@ importers:
       vitest:
         specifier: ^4.0.0
         version: 4.1.11(@opentelemetry/api@1.9.0)(@types/node@26.4.0)(@vitest/coverage-v8@4.1.11)(jsdom@29.1.1(@noble/hashes@2.4.0))(vite@6.4.3(@types/node@26.4.0)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.0))
+      wouter:
+        specifier: ^3.9.0
+        version: 3.10.0(react@19.2.8)
 
   packages/system-one: {}
 
