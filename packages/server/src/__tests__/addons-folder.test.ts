@@ -531,9 +531,14 @@ describe("folder toggle: trust and faults", () => {
 describe("catalog GC vs the hub lock", () => {
   const settle = (p: Promise<unknown>) => {
     const state = { done: false };
-    void p.then(() => {
-      state.done = true;
-    });
+    p.then(
+      () => {
+        state.done = true;
+      },
+      () => {
+        state.done = true;
+      },
+    ).catch(() => {});
     return state;
   };
   const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
