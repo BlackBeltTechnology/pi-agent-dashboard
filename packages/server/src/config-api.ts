@@ -377,6 +377,12 @@ export function writeConfigPartial(
       partial.openspec = { ...existing.openspec, ...partial.openspec };
     }
 
+    // Merge editor sub-object (live-read by the client mirror; no restart).
+    // See change: gate-changed-on-disk-by-content.
+    if (partial.editor && typeof partial.editor === "object") {
+      partial.editor = { ...existing.editor, ...partial.editor };
+    }
+
     // Merge piTrustMirror (and its nested `sources`) so a partial PUT never drops a
     // sibling switch. Read live by bridges; no restart. See change: mirror-dashboard-trust-to-pi.
     if (partial.piTrustMirror) {

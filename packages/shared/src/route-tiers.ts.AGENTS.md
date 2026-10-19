@@ -43,3 +43,5 @@ Services additions: `GET /api/services/:id/logs`, `POST /api/services/:id/reset-
 
 `POST /api/openspec/workflow-schema` → `control`. See change: add-pi-spec-driven-schema.
 `POST /api/live-server/:id/capability` → `control` (mints a live-preview capability URL). See change: retire-trusted-networks-bypass.
+
+Adds `GET /api/file/digest` (observe). See change: gate-changed-on-disk-by-content.

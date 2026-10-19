@@ -15,10 +15,11 @@
 import { mdiContentSave, mdiEyeOutline, mdiPencilOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { lazy, type ReactNode, Suspense, useCallback, useEffect, useState } from "react";
+import { usePreviewFetch } from "../../lib/access-grants/preview-provenance.js";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
+import { useTrackedFileWrite } from "../split/tracked-file-write.js";
 import { ChangedOnDiskBanner } from "./ChangedOnDiskBanner.js";
-import { usePreviewFetch } from "../../lib/access-grants/preview-provenance.js";
 
 const MarkdownEditor = lazy(() =>
   import("./MarkdownEditor.js").then((m) => ({ default: m.MarkdownEditor })),
@@ -40,6 +41,7 @@ export function EditablePreviewTab({ cwd, path, preview, testIdPrefix }: Props) 
   // provenance (surface-denial-remedy-in-previews, D4).
   const { fetch: previewFetch } = usePreviewFetch();
   const { t } = useI18n();
+  const trackedWrite = useTrackedFileWrite();
   const [content, setContent] = useState<string | null>(null);
   const [buffer, setBuffer] = useState("");
   const [mtime, setMtime] = useState<number | null>(null);
@@ -84,11 +86,7 @@ export function EditablePreviewTab({ cwd, path, preview, testIdPrefix }: Props) 
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch(`${getApiBase()}/api/file/write`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cwd, path, content: buffer, mtime }),
-      });
+      const res = await trackedWrite(path, { cwd, path, content: buffer, mtime });
       const body = await res.json();
       if (res.status === 200 && body.success) {
         setContent(buffer);
@@ -104,7 +102,7 @@ export function EditablePreviewTab({ cwd, path, preview, testIdPrefix }: Props) 
     } finally {
       setSaving(false);
     }
-  }, [cwd, path, buffer, mtime, saving, t]);
+  }, [cwd, path, buffer, mtime, saving, t, trackedWrite]);
 
   return (
     <div className="flex h-full min-h-0 flex-col">

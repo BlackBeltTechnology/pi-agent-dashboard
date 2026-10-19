@@ -22,6 +22,8 @@ export const DENYLIST: readonly DenylistEntry[] = [
   // See change: add-provider-models-refresh.
   { pattern: "/api/providers/:name/refresh", reason: "UI-only Settings → Refresh models trigger" },
   { pattern: "/api/browse/create-project", reason: "UI-only first-run convenience; agents use file_mkdir" },
+  // See change: gate-changed-on-disk-by-content.
+  { pattern: "/api/file/digest", reason: "internal editor-pane changed-on-disk verification; no agent use (agents use file_read)" },
   { pattern: "/api/electron/", reason: "Electron-only" },
   // Stages, activates and rolls back the dashboard runtime (downloads + runs
   // code; Electron-only). Never an LLM action. See change: electron-runtime-overlay-updates.

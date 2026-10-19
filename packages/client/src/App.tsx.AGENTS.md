@@ -67,3 +67,5 @@ Mounts `<ShellHeadlessSlot />` once in the `apiProvider` body (inside `PluginCon
 `LiveSessionCwdsProvider cwdKey={liveCwdKey(session cwds)}` wraps the shell inside `ShellSessionsProvider`: file previews offer "Apply fix to file" only for live session cwds. See change: add-preview-apply-fix-to-file.
 
 Add-folders dialog forwards `piTrust` on pin / workspace add. See change: mirror-dashboard-trust-to-pi.
+
+`changedOnDisk` is `Map<sessionId, Map<path, generation>>`; the session `SplitWorkspaceProvider` gets `changeDetection` + `connectionGeneration` (bumped on every WS (re)connect); `onClearChanged(path, gen?)` clears only a still-current generation; the `config_updated` filter gains `editor` (re-hydrates `editor-limits-config`). See change: gate-changed-on-disk-by-content.

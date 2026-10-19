@@ -1520,6 +1520,82 @@ describe("SettingsPanel — archive fields (archive-sessions-lazy-load)", () => 
   });
 });
 
+// ── gate-changed-on-disk-by-content: Editor large-file limit (General page) ─
+// #E17 BVA/EP field validation; #E18 save path + General page dirty chip.
+// See change: gate-changed-on-disk-by-content.
+describe("SettingsPanel — editor large-file limit (gate-changed-on-disk-by-content)", () => {
+  const LABEL = "Editor large-file limit";
+  const field = () => screen.getByTestId("editor-large-file-limit-input") as HTMLInputElement;
+
+  it("shows 10 when the config omits the editor block", async () => {
+    global.fetch = mockFetchConfig();
+    setPath("/settings/general");
+    render(<SettingsPanel />);
+    await waitFor(() => screen.getByText(LABEL));
+    expect(field().value).toBe("10");
+  });
+
+  it("E17: 1 and 256 are valid; 0, 257, 12.5 and abc are flagged and block Save", async () => {
+    global.fetch = mockFetchConfig();
+    setPath("/settings/general");
+    render(<SettingsPanel />);
+    await waitFor(() => screen.getByText(LABEL));
+
+    for (const [value, valid] of [
+      ["1", true],
+      ["256", true],
+      ["0", false],
+      ["257", false],
+      ["12.5", false],
+      ["abc", false],
+    ] as const) {
+      fireEvent.change(field(), { target: { value } });
+      if (valid) {
+        expect(screen.queryByTestId("editor-large-file-limit-error"), value).toBeNull();
+        expect((screen.getByTestId("save-btn") as HTMLButtonElement).disabled, value).toBe(false);
+      } else {
+        expect(screen.getByTestId("editor-large-file-limit-error"), value).toBeTruthy();
+        expect((screen.getByTestId("save-btn") as HTMLButtonElement).disabled, value).toBe(true);
+      }
+    }
+  });
+
+  it("E18: 10 → 64 marks General dirty before save and PUTs { editor: { largeFileLimitMb: 64 } }", async () => {
+    let putBody: any;
+    global.fetch = vi.fn().mockImplementation((url: string, options?: any) => {
+      if (url === "/api/config" && !options?.method) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, data: mockConfig }) });
+      }
+      if (url === "/api/config" && options?.method === "PUT") {
+        putBody = JSON.parse(options.body);
+        return Promise.resolve({ json: () => Promise.resolve({ success: true }) });
+      }
+      return Promise.resolve({ ok: false, json: () => Promise.resolve(null) });
+    });
+    setPath("/settings/general");
+    render(<SettingsPanel />);
+    await waitFor(() => screen.getByText(LABEL));
+
+    fireEvent.change(field(), { target: { value: "64" } });
+    await waitFor(() => screen.getByTestId("settings-save-bar"));
+    expect(screen.getByTestId("save-bar-page-general")).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId("save-btn"));
+    await waitFor(() => expect(putBody).toBeDefined());
+    expect(putBody).toEqual({ editor: { largeFileLimitMb: 64 } });
+  });
+
+  it("computeConfigPartial: unchanged limit emits no editor key; CONFIG_FIELD_PAGE maps editor to general", async () => {
+    const { computeConfigPartial, CONFIG_FIELD_PAGE } = await import("../settings/SettingsPanel.js");
+    const base = { ...mockConfig } as any;
+    expect(computeConfigPartial(base, base).editor).toBeUndefined();
+    expect(computeConfigPartial({ ...base, editor: { largeFileLimitMb: 64 } }, base)).toEqual({
+      editor: { largeFileLimitMb: 64 },
+    });
+    expect(CONFIG_FIELD_PAGE.editor).toBe("general");
+  });
+});
+
 // Models nav group + promoted plugin entries.
 // See change: promote-model-roles-settings (test-plan #F1, #F4, #X1).
 describe("SettingsPanel Models nav group", () => {

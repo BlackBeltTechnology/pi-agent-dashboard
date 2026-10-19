@@ -8,6 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { type AcpAgentConfig, type AcpSettings, DEFAULT_ACP_SETTINGS, parseAcpAgents, parseAcpSettings } from "./acp/acp-config.js";
+import { MAX_PREVIEW_BYTES } from "./file-kind.js";
 import {
   DEFAULT_SERVER_HEAP,
   DEFAULT_SESSION_HEAP,
@@ -337,6 +338,32 @@ export interface VaultConfig {
 }
 
 export const DEFAULT_VAULT_CONFIG: VaultConfig = { deliveryEnabled: true, offlineGraceHours: VAULT_GRACE_DEFAULT_HOURS };
+
+/**
+ * Editor pane config. `largeFileLimitMb` gates the rich viewers' too-large
+ * fallback only; the digest ceiling (256 MiB) and office conversion caps stay
+ * fixed. See change: gate-changed-on-disk-by-content (D6).
+ */
+export interface EditorConfig {
+  /** Rich-viewer too-large threshold in MiB. Integer, clamped to [1, 256]. Default 10. */
+  largeFileLimitMb: number;
+}
+
+export const EDITOR_LARGE_FILE_LIMIT_MIN_MB = 1;
+export const EDITOR_LARGE_FILE_LIMIT_MAX_MB = 256;
+
+export const DEFAULT_EDITOR_CONFIG: EditorConfig = {
+  largeFileLimitMb: MAX_PREVIEW_BYTES / (1024 * 1024),
+};
+
+export function parseEditorConfig(raw: any): EditorConfig {
+  const fallback = DEFAULT_EDITOR_CONFIG.largeFileLimitMb;
+  const v = raw && typeof raw === "object" ? raw.largeFileLimitMb : undefined;
+  const n = typeof v === "number" && Number.isFinite(v) ? Math.round(v) : fallback;
+  return {
+    largeFileLimitMb: Math.min(EDITOR_LARGE_FILE_LIMIT_MAX_MB, Math.max(EDITOR_LARGE_FILE_LIMIT_MIN_MB, n)),
+  };
+}
 
 export const DEFAULT_OPENSPEC_POLL: OpenSpecPollConfig = {
   enabled: true,
@@ -957,6 +984,8 @@ export interface DashboardConfig {
   serverHeap: ServerHeapConfig;
   /** OpenSpec background polling behavior (interval, concurrency, change detection, jitter) */
   openspec: OpenSpecPollConfig;
+  /** Editor pane tuning (rich-viewer large-file gate). See change: gate-changed-on-disk-by-content. */
+  editor: EditorConfig;
   /** Credential-vault delivery switches. See change: add-credential-vault. */
   vault: VaultConfig;
   /** Session behavior — hydration worker offload toggle. */
@@ -1543,6 +1572,7 @@ const DEFAULTS: DashboardConfig = {
   sessionHeap: { ...DEFAULT_SESSION_HEAP },
   serverHeap: { ...DEFAULT_SERVER_HEAP },
   openspec: { ...DEFAULT_OPENSPEC_POLL },
+  editor: { ...DEFAULT_EDITOR_CONFIG },
   vault: { ...DEFAULT_VAULT_CONFIG },
   sessions: { ...DEFAULT_SESSIONS },
   sessionList: { ...DEFAULT_SESSION_LIST },
@@ -2369,6 +2399,7 @@ export function loadConfig(): DashboardConfig {
       sessionHeap: parseSessionHeap(parsed.sessionHeap),
       serverHeap: parseServerHeap(parsed.serverHeap),
       openspec: parseOpenSpecPollConfig(parsed.openspec),
+      editor: parseEditorConfig(parsed.editor),
       vault: parseVaultConfig(parsed.vault),
       sessions: parseSessionsConfig(parsed.sessions),
       sessionList: parseSessionListConfig(parsed.sessionList),

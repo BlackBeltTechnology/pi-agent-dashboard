@@ -43,3 +43,5 @@ See change: fix-trusted-network-tunnel-bypass — `/api/health` additive `trustP
 `/api/health` adds `questions` (store + brief-generation counters incl. `fallbacks`) when a question store is wired, via `browserGateway.getQuestionStats?.()`. See change: add-pending-question-stack.
 
 `/api/health` adds `trustPosture {trustedHasLoopback, trustMode, trustModeOrigin, networkOnly}` behind `canDiscloseAccessPosture`. `POST /api/tunnel/block-events` → 403 `not_acceptable` in `pair`. `PUT /api/config` → 400 unless `network.trustMode` ∈ `pair`|`legacy`. See change: retire-trusted-networks-bypass.
+
+`PUT /api/config` broadcasts `config_updated {section:"editor"}` (no restart). See change: gate-changed-on-disk-by-content.

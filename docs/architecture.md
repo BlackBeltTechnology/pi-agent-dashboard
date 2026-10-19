@@ -3150,7 +3150,17 @@ v2–v4 follow-on (pin-to-split, create-file, edit-with-conflicts) deferred to s
 
 Content search: `GET /api/grep` → `rg` preferred, bounded JS fallback. Filename search: bridge `list_files` walk (`.gitignore`-aware, softened budget).
 
-Changed-on-disk: browser `watch_files` (open files only) → `file-watch-manager` `fs.watch` → `file_changed` broadcast → per-tab banner (Refresh, no auto-reload). Torn down on disconnect.
+Changed-on-disk: browser `watch_files` (open files only) → `file-watch-manager` `fs.watch` → `file_changed` broadcast (candidate only).
+- Baseline: `EditorPane` awaits `captureBaseline(path)` → GET `/api/file/digest?cwd&path&purpose=baseline` before mount. Stored in `use-change-verification.ts` (per session+cwd; session pane only, `changeDetection` prop).
+- Candidate: `useMessageHandler` stamps monotonic gen per `file_changed` → `changedOnDisk: Map<sessionId, Map<path, gen>>` → 150 ms settle → GET `/api/file/digest?purpose=verify`.
+- sha1 == baseline → silent clear. Differs / 404 / refused / error / no sha1 → banner (Refresh, no auto-reload). Failure never silent.
+- `GET /api/file/digest` → `{ size, mtime, sha1 }`, no content. Same read gate as `GET /api/file` (`gateReadPath`, `routes/file-routes.ts`; containment `[cwd, ~/.pi]`; grant-only verified open). `quiet` containment (no denial record, never held). `Cache-Control: no-store`. Route tier `observe`, MCP denylisted.
+- `DIGEST_CEILING_BYTES` = 256 MiB fixed; above → no `sha1` → banner. Hashing behind 2-wide two-lane gate (`lib/digest-gate.ts`; baseline lane before verify; client abort releases slot).
+- Own Save: `POST /api/file/write` → `{ mtime, size, sha1 }`. In-pane writers use `useTrackedFileWrite` (`split/tracked-file-write.ts`) → tab rebaselined, own Save never banners. `bodyLimit` 600 MiB; 413 above 256 MiB.
+- Watch survives atomic replace: `file-watch-manager.ts` re-attaches sync on `rename` (regular files only); retries 100/300/600/1000 ms for delete+re-create, then drops key.
+- Refresh + WS reconnect re-send `watch_files` (`watchNonce`, `connectionGeneration`) + 1 s mount catch-up verification.
+- `editor.largeFileLimitMb` (default 10, clamp 1–256; Settings ▸ General; live via `config_updated {section:"editor"}`) gates rich viewers (`CappedViewer`). Office caps and digest ceiling fixed.
+- Torn down on disconnect.
 
 Rail = vertical stack: `ChangesRailSection` (Changes) above the project tree. `openChanges()` reveals it (`changesRevealSignal`); `openDiffTab()` opens a `diff:` viewer tab. See change: add-change-summary-table.
 
