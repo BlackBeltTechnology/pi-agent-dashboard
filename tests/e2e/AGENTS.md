@@ -71,9 +71,10 @@ One row per file.
 | `custom-entry-om-renderer.spec.ts` | L3 (change: add-custom-entry-renderer-… → see `custom-entry-om-renderer.spec.ts.AGENTS.md` |
 | `custom-entry-replay-parity.spec.ts` | L3 custom-entry replay parity → see `custom-entry-replay-parity.spec.ts.AGENTS.md` |
 | `custom-entry-web-search.spec.ts` | L3 F17/F18. → see `custom-entry-web-search.spec.ts.AGENTS.md` |
-| `dashboard-slash.spec.ts` | Browser E2E: spawn session → `/dashboard:server-… → see `dashboard-slash.spec.ts.AGENTS.md` |
+| `dashboard-slash.spec.ts` | → see `dashboard-slash.spec.ts.AGENTS.md` |
 | `directory-home.spec.ts` | L3 for the `/folder/:encodedCwd` directory home… → see `directory-home.spec.ts.AGENTS.md` |
-| `editor-pane.spec.ts` | Playwright E2E for internal Monaco editor pane… → see `editor-pane.spec.ts.AGENTS.md` |
+| `editor-pane.spec.ts` | → see `editor-pane.spec.ts.AGENTS.md` |
+| `editor-pane-file-handlers.spec.ts` | → see `editor-pane-file-handlers.spec.ts.AGENTS.md` |
 | `durable-session-diff.spec.ts` | L3 (change… → see `durable-session-diff.spec.ts.AGENTS.md` |
 | `empty-model-selector.spec.ts` | L3 for `open-empty-model-selector`. Proves the… → see `empty-model-selector.spec.ts.AGENTS.md` |
 | `model-favorites-cross-surface.spec.ts` | L3 F3 of… → see `model-favorites-cross-surface.spec.ts.AGENTS.md` |

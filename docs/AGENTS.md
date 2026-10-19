@@ -55,7 +55,7 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 | `plugin-apps.md` | Plugin React apps embedded + standalone. `<EmbeddedApp>` (`./embedded-app`), `EmbeddedAppShellProvider`,… → see `plugin-apps.md.AGENTS.md` |
 | `plugin-claim-gates.md` | `predicate` vs `shouldRender` contract for plugin claims; slot-claims invalidation store; badge-gate rule; `shell-headless` slot. See change: auto-hide-empty-session-subcards, add-blackhole-session-pipeline, fix-empty-status-subcard. |
 | `plugin-intent-protocol.md` | Server-driven plugin UI. Plugins emit JSON intent trees; clients render via local primitive registry. → see `plugin-intent-protocol.md.AGENTS.md` |
-| `plugin-seams.md` | Plugin authoring guide. 3 seams (credentials store, ctx.oauth flow, bridge→server request lane), editor-pane-tab slot, pluginMeta, lazy claim `module`. → see `plugin-seams.md.AGENTS.md` |
+| `plugin-seams.md` | Plugin authoring guide. 3 seams (credentials store, ctx.oauth flow, bridge→server request lane), editor-pane-tab slot, editor-pane-file-handler slot + `write-binary` + `registerFileValidator`, pluginMeta, lazy claim `module`. → see `plugin-seams.md.AGENTS.md` |
 | `plugin-ui-primitives.md` | Plugins access dashboard React primitives via runtime registry. `useUiPrimitive(key)` lookup. → see `plugin-ui-primitives.md.AGENTS.md` |
 | `pnpm-workspace.yaml` | (repo root) pnpm workspace + config source of truth (package.json `pnpm.*` ignored when this exists). → see `pnpm-workspace.yaml.AGENTS.md` |
 | `team-plugin.md` | Phase 1 AI Team. `packages/team-plugin` + `packages/team-app`. → see `team-plugin.md.AGENTS.md` |
