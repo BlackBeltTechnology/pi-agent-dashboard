@@ -635,6 +635,12 @@ describe("SettingsCopyButton failure (align #X1)", () => {
 });
 
 describe("doubt-review findings on the kit props (align 2.5)", () => {
+  const originalClipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+  afterEach(() => {
+    if (originalClipboard) Object.defineProperty(navigator, "clipboard", originalClipboard);
+    else Reflect.deleteProperty(navigator, "clipboard");
+  });
+
   it("non-error notices default to role=status, error to alert, an explicit role wins", () => {
     for (const tone of ["info", "warning", "success"] as const) {
       const { container } = render(<SettingsNotice tone={tone}>m</SettingsNotice>);
@@ -661,6 +667,5 @@ describe("doubt-review findings on the kit props (align 2.5)", () => {
       fireEvent.click(screen.getByTestId("c"));
     });
     expect(screen.getByRole("status").textContent).toBe("Copy failed");
-    Reflect.deleteProperty(navigator, "clipboard");
   });
 });

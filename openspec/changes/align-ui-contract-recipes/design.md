@@ -174,6 +174,30 @@ Rows for patterns with no reference implementation in this change (tabs, filter 
 - **[Plugin-set colours inside the menu]** → The host only sets the inherited colour. A plugin that paints `--text-tertiary` itself still fails contrast; the plugin wave owns that.
 - **[ArtifactChip / `statusPresentation`]** → The helper keeps `--status-*` (`client-utils-status-presentation` MODIFIED). The pill change does not touch it.
 
+## Kit props doubt review (task 2.5, 2026-10-18)
+
+Fresh-context, cross-model: `@propose-review-1` then `@propose-review-2` (both non-Claude, probed clean), artifact = the `settings-fields.tsx` diff, no author reasoning. 2 cycles, stop condition met (cycle 2: no blocking findings).
+
+**Fixed**
+- Non-error notices had no role, against the spec ("other tones as status") and leaving `aria-busy` inert. `SettingsNotice` now defaults to `role="status"` (error stays `alert`; explicit `role` wins). The one intended default change in the kit; the 18 `ByRole("status")` consumers still pass.
+- "Copy failed" was a silent label swap. `SettingsCopyButton` now has a standing `sr-only` `role="status"` live region. It renders a fragment (button + span); no caller targets the root.
+- `SettingsNotice` cognitive complexity went 16 → 17. Extracted `RemedyList` and `NoticeActions`; it is now under the cap.
+- D3 said the copy failure label "exists"; it did not. Added `settingsField.copyFailed` (en fallback, hu, zh-CN).
+- Test hygiene: the clipboard stub is restored in `afterEach`.
+
+**Accepted trade-offs**
+- `spinning` is a no-op without an icon, and rotates whatever glyph is shown. Documented on the prop: pair it with `mdiLoading`. `ui:status-pill` does this for `running`.
+- `SettingsActionError` does not enforce one sentence or id uniqueness. The caller owns both; documented (derive the id from the row id).
+- `remedies` filtering stays with callers (D3). Positional keys: a remedy list is static per failure.
+- The kit holds no pending state: `retrying` is caller-driven. **Task 4.2 carries the check** that the vault retry sets `retrying` synchronously, so two fast clicks send one request (test #X4).
+- Each `SettingsCopyButton` adds an unnamed `role="status"` region. A "Copy failed" announcement follows the user's own click on a focused button, so the focus supplies the context. A plugin test that asks for a single `status` role on a page with several copy buttons would need `within()`.
+- No `failedLabel` prop, no accessible name on the remedy list, no size cap on `details`, and the width jump on copy: nits.
+
+**Noise**
+- "`ui:status-pill` has no `spinning`": the public props are frozen and `running` passes `spinning` internally (task 3).
+- "`motion-reduce:` may be missing from plugin builds": the host compiles one stylesheet with `@source "../../dashboard-plugin-runtime/src"` (`packages/client/src/index.css:17`).
+- "plugin-row load error needs a unique `SettingsActionError` id": that consumer is a `SettingsNotice`.
+
 ## Migration Plan
 
 Client-only, with no protocol, settings or persisted-state change. Order:
