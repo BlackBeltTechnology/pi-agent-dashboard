@@ -1,124 +1,105 @@
 ## Context
 
-The bridge wraps `pi.events.emit` to forward every EventBus emission to the dashboard server. This was deliberate — see `openspec/specs/catch-all-event-forwarding/spec.md` — and supports third-party extensions emitting custom events without a bridge update.
+The bridge's EventBus forwarding is subscription-based:
+- `registerEventBusForwarding` (`packages/extension/src/flow-event-wiring.ts:139`) subscribes once per channel returned by `forwardedBusChannels(extraMaps)` (`:120`). That set is the keys of `FLOW_EVENT_MAP` + `SUBAGENT_EVENT_MAP` + `extraMaps`.
+- `bridge.ts` calls it with two arguments, so no `extraMaps` (`packages/extension/src/bridge.ts:2058`).
+- No `pi.events.emit =` assignment exists anywhere in `packages/extension/src`.
+- Plugin channels go through `PluginForwardRegistry` (`packages/extension/src/bridge.ts:2079`). Its channel-ownership check is `isCoreChannel` (`:2089`). Declarations are also shape-validated (`packages/shared/src/event-forward-declaration.ts`), but nothing rejects a probe channel name.
+- Today the only declarer is `packages/subagents-plugin/src/bridge/index.ts:26-27` (`subagents:entry`, `subagents:delta`, `delivery: "stream"`).
 
-The wrap was added before pi-flows started using `pi.events.emit(channel, probe)` as a synchronous RPC mechanism. Today both shapes share the API:
+RPC probes in the current tree each emit a mutable object and read back what handlers wrote:
 
-```ts
-// Broadcast — semantically an event
-pi.events.emit("flow:agent-started", { agent, model, turnId });
+| Channel | In-repo emit site | Handler site | Fill |
+|---|---|---|---|
+| `flow:list-flows` | `packages/extension/src/bridge.ts:228`, `packages/extension/src/command-handler.ts:1018`, `:1196`, `packages/flows-plugin/src/bridge/flow-files-reporter.ts:47` | pi-flows (external, unverified) | sync |
+| `flow:get-agents` | `packages/flows-plugin/src/bridge/flow-files-reporter.ts:59` | pi-flows (external, unverified) | sync |
+| `flow:get-available-models` | `packages/extension/src/provider-register.ts:774` | `packages/extension/src/provider-register.ts:1156` | sync |
+| `model:resolve` | none in repo (pi-flows, external) | `packages/extension/src/provider-register.ts:1149` | async: `probe.model` / `probe.resolved` sync, `probe.auth` after `await` (`:1097-1102`) |
+| `role:resolve-model` | none in repo (pi-dashboard-subagents, external) | `packages/extension/src/role-manager.ts:254` | sync |
+| `roles:get-all` | `packages/roles-plugin/src/bridge/index.ts:63`, `packages/extension/src/bridge-handlers/dispatch.ts:208`, `:225`, `:242`, `:259`, `:279`, `:293`, `packages/extension/src/bridge-handlers/lifecycle.ts:695` | `packages/extension/src/role-manager.ts:274` | sync |
+| `roles:set`, `roles:preset-load`, `roles:preset-save`, `roles:preset-delete`, `roles:remove` | `packages/extension/src/bridge-handlers/dispatch.ts:205`, `:222`, `:239`, `:256`, `:276` | `packages/extension/src/role-manager.ts:288`–`:367` (write `data.success`) | sync |
+| `ui:list-modules` | `packages/extension/src/ui-modules.ts:95` | UI-module extensions | sync |
 
-// RPC probe — semantically a function call
-const probe: any = {};
-pi.events.emit("flow:list-flows", probe);
-return probe.flows ?? [];
-```
+None of these is a core map key, so none is forwarded today. The live requirement "EventBus forwarding via per-channel subscription" already says so as a consequence, and already forbids wrapping emit. This change adds the prohibition on mapping a probe channel, and tests that fail on the two realistic regressions.
 
-The wrapper can't tell them apart, so it forwards both. A single session leaks ~125 RPC events into the dashboard's event store, replay pipeline, and chat-row renderer.
+Stale emit-intercept wording remains after `fix-automation-run-lifecycle`:
+- Code comments: `packages/extension/src/bridge.ts:1907`, `packages/extension/src/flow-event-wiring.ts:28-29`, `packages/extension/src/subagent-frame-buffer.ts:5`.
+- AGENTS rows: `packages/extension/src/bridge-handlers/AGENTS.md` (`forwarders.ts` row) and `packages/extension/src/bridge.ts.AGENTS.md`.
+- Requirements:
+  - `flow-event-bridge`: "Event rename maps exported for intercept" and "Remove forwarding loops from flow-event-wiring".
+  - `flow-event-bridge`: "Bridge captures flow lifecycle events from pi.events", which says "listen to all `flow:*` events … and forward them". That covers the `flow:list-flows` probe, so it contradicts both the live declared-set rule and this change.
+  - `bridge-decomposition`: "Lifecycle handlers, event forwarders and inbound dispatch are importable".
+  - `bridge-extension`: "Bridge listens to flow events on pi.events", whose text says "all `flow:*` event names" (same contradiction).
+- Docs: `docs/architecture.md` "Relationship to existing capabilities" (`extension-ui-forwarding (catch-all pi.events.emit forwarding)`).
+  - `subagent-live-detail-reliability`: "Subagent live frames buffered across a connection gap".
+- `## Purpose` blocks (e.g. `catch-all-event-forwarding`, `flow-event-bridge`) cannot be edited by a delta, so they are out of scope.
 
-## Goals
+## Goals / Non-Goals
 
-- Stop forwarding RPC-shape emissions without enumerating channel names in the bridge.
-- Preserve the catch-all guarantee for broadcast events from unknown extensions.
-- Keep the wrapper cheap (every `pi.events.emit` call goes through it).
-- Fail loud, not silent, if pi-core ever changes the synchronous-handler contract.
+**Goals**
+- A test fails when a known probe channel becomes a key of the core maps.
+- A test fails when bridge-side code assigns `events.emit`, which is the historical wrapper form, or passes `extraMaps` to `registerEventBusForwarding`.
+- A spec requirement that keeps probe channels out of the core map.
+- Remove the emit-intercept wording, and the "all `flow:*`" over-claims, from the requirements, comments, AGENTS rows and docs listed above.
 
-## Non-Goals
-
-- Modifying pi-core to add a separate RPC API (right long-term answer; tracked as follow-up).
-- Migrating existing RPC callsites in pi-flows / provider-register to a new API.
-- Cleaning up historical `rawEvent` rows already persisted by older bridges.
+**Non-goals**
+- Any runtime change to forwarding.
+- Refusing plugin declarations that name probe channels. That would need probe-name knowledge in the bridge, the denylist the original draft rejected, for a caller that does not exist.
+- Detecting probe channels that are not yet known.
+- Cleaning old `rawEvent` rows, or a pi-core `events.request` API.
 
 ## Decisions
 
-### D1: Use mutation-shape heuristic, not channel allowlist or marker convention
+### D1: Three L1 cases, one new test file
+File: `packages/extension/src/__tests__/eventbus-rpc-probe-not-forwarded.test.ts`.
 
-Four candidates were considered:
+1. **Static set.** `forwardedBusChannels()` contains no entry of a test-owned `RPC_PROBE_CHANNELS` literal (the table above, 12 channels), and does contain `flow:complete` (positive control against an emptied set).
+   - Fails when a probe is added to `FLOW_EVENT_MAP` / `SUBAGENT_EVENT_MAP`.
+2. **Round trip with positive control.** Use the two-facade host of `eventbus-foreign-emit-forwarding.test.ts`, extracting `makeHost` / `makeDeps` into `__tests__/helpers/` because they are file-local today. On one wiring with synchronous filling handlers:
+   - emit `flow:list-flows` through the bridge facade;
+   - emit `roles:get-all` through a foreign facade;
+   - emit `flow:complete` through a foreign facade.
+   Assert three things, which together keep the negative assertion from passing vacuously:
+   - both probes were filled by their handlers (the emits reached the bus);
+   - `sent` contains exactly the `flow:complete` frame (forwarding works);
+   - `makeDeps` defaults stay ready + active + connected.
+3. **Source guard.** Follow `bridge-name-provenance.test.ts` / `helpers/bridge-source.ts` (`readBridgeSource`). Over `bridge.ts` and every `bridge-handlers/*.ts`, assert:
+   - **No emit rebinding.** On text with `//` and `/* */` comments stripped, nothing assigns `emit` on an events object. Forms covered: `events.emit =` / `events!.emit =` (not `==`/`===`), `events["emit"] =`, `defineProperty(<…events…>, "emit"`, `Object.assign(<…events…>, {…emit`.
+   - **No `extraMaps`.** On comment-stripped `bridge.ts`, there is exactly one `registerEventBusForwarding(` call. Its argument list, extracted with a balanced-paren scan (the call body contains nested `(…)`), has exactly two top-level arguments.
+   - **Merged map pinned.** `bridge.ts` defines `EVENT_BUS_MAP` as exactly `{ ...FLOW_EVENT_MAP, ...SUBAGENT_EVENT_MAP }`. This map drives the rename and `isCoreChannel`, and is invisible to case 1.
+   - Register needles `registerEventBusForwarding(` and `const EVENT_BUS_MAP` (target `bridge.ts`) in `source-guards-not-vacuous.test.ts` `GUARDS`.
+   - Fails on the historical wrapper form (`pi.events.emit = (channel, data) => …`, which forwarded the bridge's own probe emits), on an `extraMaps` addition, and on a probe merged into the local map.
 
-| Option | Hardcodes channels? | Needs upstream cooperation? | Deterministic? |
-|---|---|---|---|
-| A. Mutation heuristic | no | no | heuristic |
-| B. Marker on data (`__rpc: true`) | no | yes (every probe site opts in) | deterministic |
-| C. Separate `pi.events.request` API | no | yes (pi-core change) | deterministic |
-| D. Allowlist of broadcast names | inverted | no | deterministic |
+No bridge-entry init test. The default export wraps `initBridge` in a try/catch that only logs (`bridge.ts:117-141`), so a failed init passes silently, and init has filesystem/env/process side effects. The source guard covers the same regressions deterministically, following the repo's established pattern (`helpers/bridge-source.ts`, `source-guards-not-vacuous.test.ts`).
 
-A wins for the short term: zero coordination, no channel coupling, catches today's leak and any future RPC-shape probe automatically. C is the long-term right answer but out of scope.
+### D2: The probe list lives in the test
+`RPC_PROBE_CHANNELS` is test-owned. Production code gains no channel knowledge.
 
-### D2: Detect mutation by snapshotting before/after `origEventsEmit`
+### D3: Async `model:resolve` is covered by the static set only
+`model:resolve` fills `probe.auth` after an `await`. The round-trip case uses synchronous channels only.
 
-pi-core's EventBus dispatches handlers synchronously. After `origEventsEmit` returns, any RPC handler has already written to the probe.
+### D4: Spec shape
+- `catch-all-event-forwarding`: ADDED "RPC probe channels are kept out of the core forwarding map". It is a prohibition on map input and states its relation to "A channel added to the mapping is forwarded without further wiring" (that scenario describes what a map entry does; this one forbids probe entries). It does not restate the existing no-wrap or not-forwarded consequences of "EventBus forwarding via per-channel subscription". Plugin declarations are scoped out.
+- Wording-only MODIFIED (no new obligation):
+  - `flow-event-bridge` "Remove forwarding loops from flow-event-wiring".
+  - `bridge-decomposition` "Lifecycle handlers, event forwarders and inbound dispatch are importable".
+  - `subagent-live-detail-reliability` "Subagent live frames buffered across a connection gap".
+  - These name no new function and say "per-channel EventBus subscription" rather than pinning implementation names.
+- `flow-event-bridge`: RENAMED "Event rename maps exported for intercept" to "… exported for forwarding" (RENAMED is supported; see the archived `card-gradient-state-animation` delta), plus a MODIFIED body.
+- Correction MODIFIED, narrowing an over-claim to the live contract (not wording-only):
+  - `flow-event-bridge` "Bridge captures flow lifecycle events from pi.events"
+  - `bridge-extension` "Bridge listens to flow events on pi.events"
+  - Both change "all `flow:*`" to "every `flow:*` channel in `FLOW_EVENT_MAP`". `catch-all-event-forwarding` already forwards only declared channels, so no behaviour changes. The `bridge-extension` scenario still lists 10 of `FLOW_EVENT_MAP`'s 15 channels; it is illustrative and left unchanged.
 
-```ts
-pi.events.emit = (channel, data) => {
-  const before = snapshotForRpcDetection(data);
-  origEventsEmit(channel, data);
-  const after  = snapshotForRpcDetection(data);
-  const mutated = !equalSnapshot(before, after);
-  if (sessionReady && isActive() && !mutated && shouldForward(channel, data)) {
-    forward(channel, data);
-  }
-};
-```
+## Risks / Trade-offs
 
-Snapshot strategy:
-- `null` / `undefined` / non-object → snapshot is the value itself; never "mutated".
-- Object → `{ keys: Object.keys(data).sort().join("|"), valuesHash: shallowValueHash(data) }`. Detects added/removed keys and changed scalar values. Does NOT detect deep mutation of nested objects, which is acceptable: RPC probes mutate top-level fields by convention (`probe.flows = [...]`, `probe.success = true`, `probe.roles = {...}`).
-- `shallowValueHash` is `JSON.stringify` of own enumerable properties, capped at 4 KB. For the four known probe shapes, payloads are < 200 bytes; cost is negligible.
+| Risk | Disposition |
+|---|---|
+| A new probe channel is not added to `RPC_PROBE_CHANNELS` | Accepted trade-off. Runtime still forwards only declared channels. The list documents known probes and does not gate new ones. |
+| A plugin declares a probe channel | Accepted residual risk. Nothing rejects it automatically; it requires a plugin author to name the channel deliberately in `dashboard:register-event-forward`. No in-repo declarer does. |
+| A wrapper written in a form the regex misses (Proxy over `pi.events`, rebinding through an alias) | Accepted. The guard pins the historical form and the common rebinding forms. Exotic forms are a review concern. |
+| The 12-channel list exists in both the ADDED scenario and `RPC_PROBE_CHANNELS` | Accepted. The test literal carries a comment pointing at the requirement. |
 
-### D3: Listener-count guard prevents false-skip on broadcast `{}` payloads
+## Migration / Rollback
 
-If a broadcast emits `emit("custom:ping", {})` and no handler mutates it, snapshot is unchanged → forward (correct). If no handler is registered at all, the emission cannot be RPC by definition; force-forward without snapshotting:
-
-```ts
-if (typeof pi.events.listenerCount === "function" && pi.events.listenerCount(channel) === 0) {
-  origEventsEmit(channel, data);
-  forward(channel, data);
-  return;
-}
-```
-
-This protects custom-extension events whose listener registration is dashboard-side only (e.g. ext-ui channels handled by the bridge itself). The `typeof` guard exists because `listenerCount` is not part of the formal pi.events API contract; if absent, fall through to the snapshot path (slightly more conservative).
-
-### D4: Anti-pattern lint, not runtime check
-
-The heuristic has one false-skip mode: a broadcast handler that mutates its payload. That's an anti-pattern (event payloads should be immutable), and we lint for it rather than try to detect it at runtime.
-
-`packages/extension/src/__tests__/no-broadcast-payload-mutation.test.ts` scans bridge-side `pi.events.on(...)` handler bodies for assignments to the handler's first-argument identifier. RPC channels are documented in a constant (`KNOWN_RPC_CHANNELS = ["flow:list-flows", "flow:role-get-all", "flow:resolve-model", "flow:get-available-models"]`) and whitelisted; new entries require an explicit doc-comment.
-
-This puts the burden on whoever writes a new RPC-shape handler to either (a) follow the convention and let the heuristic catch them, or (b) update the lint whitelist consciously.
-
-### D5: Synchronous-emit assumption + warn-once safeguard
-
-If pi-core ever switches to async dispatch, the heuristic silently degrades — RPC probes leak again. We protect with:
-
-1. A doc-block in `bridge.ts` near the wrapper citing the pi-core invariant.
-2. A `warn-once` triggered when `origEventsEmit` returns a Promise (which it shouldn't):
-   ```ts
-   const result = origEventsEmit(channel, data);
-   if (result && typeof (result as any).then === "function") {
-     warnOnce("pi.events.emit returned a Promise — RPC-shape detection assumes sync dispatch");
-   }
-   ```
-3. A pi-core version pin documented in the wrapper comment so future bumps trigger a review.
-
-## Risks
-
-| Risk | Severity | Mitigation |
-|---|---|---|
-| Broadcast handler mutates payload (anti-pattern) | medium | D4 lint test |
-| pi-core switches to async dispatch | low (no signal) | D5 warn-once + version pin |
-| RPC probe with no listener leaks | low | acceptable — event has no semantic content; visible as a single `rawEvent` row, not 98× |
-| Snapshot cost on hot path | low | shallow JSON.stringify, < 4 KB cap, ~µs per emission |
-| `listenerCount` not implemented | low | `typeof` guard falls through to snapshot path |
-| Deep-mutation RPC (handler mutates `data.nested.field`) | low | none in current callsites; documented as forbidden convention |
-
-## Alternatives Considered
-
-- **B. `__rpc: true` marker**: rejected because it requires every probe site (pi-flows, provider-register, third-party) to opt in. Bridge cannot enforce. Future drift inevitable.
-- **C. `pi.events.request` API**: right long-term answer, but cross-package coordination + migration of every callsite. Filed as follow-up after this change lands.
-- **D. Hardcoded allowlist of broadcast names**: violates the original "support unknown extensions" goal of the catch-all forwarder.
-- **Skip channels matching a regex (`/^flow:.*-(flows|roles|models)$/`)**: brittle. Regex maintenance is the same problem as a denylist with extra steps.
-
-## Open Questions
-
-- None blocking. Long-term migration to `pi.events.request` is a separate proposal once this change has shipped and proven the heuristic stable in production.
+No migration. Rolling back means reverting the commit. Only tests, comments, AGENTS rows and spec text change.

@@ -1,53 +1,31 @@
-## 1. Snapshot helpers (pure functions)
+## 1. Stale wording (comment / doc only)
 
-- [ ] 1.1 Add `snapshotForRpcDetection(data: unknown): RpcSnapshot` to `packages/extension/src/bridge.ts` (or a new `packages/extension/src/rpc-shape.ts` if it grows past ~30 lines). For `null`/`undefined`/non-object → `{ kind: "scalar", value }`. For object → `{ kind: "object", keys: Object.keys(data).sort().join("|"), hash: shallowJsonHash(data) }`.
-- [ ] 1.2 Add `shallowJsonHash(data: object): string` — `JSON.stringify` over own enumerable properties, capped at 4096 chars (truncate suffix `"…<TRUNC>"`); circular-safe via `try/catch` falling back to key-set hash.
-- [ ] 1.3 Add `equalSnapshot(a: RpcSnapshot, b: RpcSnapshot): boolean` — strict equality on `kind`, `value`/`keys`/`hash`.
-- [ ] 1.4 Add `KNOWN_RPC_CHANNELS` constant array `["flow:list-flows", "flow:role-get-all", "flow:resolve-model", "flow:get-available-models"]` with doc-comment explaining: this is documentation, NOT a runtime denylist. Used only by the lint test in §4.
-- [ ] 1.5 Unit-test `snapshotForRpcDetection` + `equalSnapshot` in `packages/extension/src/__tests__/rpc-shape.test.ts`: scalar identity, object key-add, object value-change, nested-object identity (same reference → equal even if deep-mutated, documented limitation), 4 KB cap behavior, circular reference fallback.
+- [ ] 1.1 In `packages/extension/src/bridge.ts` (the line above `const EVENT_BUS_MAP`), change "Unified EventBus rename map for the emit intercept" to describe the rename map used by `sendEventForward` and the per-channel subscription. No code change.
+- [ ] 1.2 In `packages/extension/src/flow-event-wiring.ts`, reword the `FLOW_EVENT_MAP` trailing NOTE ("forwarded verbatim by the bridge.ts EventBus catch-all") to say that `data` rides verbatim through the per-channel subscription (`registerEventBusForwarding`). No code change.
+- [ ] 1.3 In the header "Background" of `packages/extension/src/subagent-frame-buffer.ts`, replace "the bridge's `pi.events.emit` intercept forwards" with the per-channel subscription wording (`registerEventBusForwarding` → `forwardBusEvent`). No code change.
+- [ ] 1.4 In `packages/extension/src/bridge-handlers/AGENTS.md` (`forwarders.ts` row) and `packages/extension/src/bridge.ts.AGENTS.md`, replace "`EVENT_BUS_MAP` + emit intercept" with "`EVENT_BUS_MAP` + `registerEventBusForwarding` call", caveman style.
 
-## 2. Wrap-point integration in `bridge.ts`
+- [ ] 1.5 Delegate to DocScribe (caveman style): in `docs/architecture.md` "Relationship to existing capabilities", replace "`extension-ui-forwarding` (catch-all `pi.events.emit` forwarding) — kept for arbitrary extension events" with the per-channel declared-set wording (core `FLOW_EVENT_MAP`/`SUBAGENT_EVENT_MAP` + plugin `dashboard:register-event-forward`; RPC probes not forwarded).
 
-- [ ] 2.1 Locate the wrapper at `packages/extension/src/bridge.ts:907–920`. Add a `// see change: skip-rpc-probes-in-event-forwarder` header comment + doc-block citing the pi-core synchronous-dispatch invariant.
-- [ ] 2.2 Replace the body with: listener-count fast-path → snapshot before → call `origEventsEmit` → snapshot after → forward only if `!mutated`. Original `emit` SHALL always be called regardless of forwarding decision (preserve existing invariant).
-- [ ] 2.3 Add `warn-once` (module-scoped `let warnedAsync = false`) when `origEventsEmit` returns a thenable. Message: `"[dashboard] pi.events.emit returned a Promise — RPC-shape detection assumes sync dispatch; emissions may leak"`. Use `console.warn`.
-- [ ] 2.4 Wrap snapshot calls in `try/catch`; on throw, fall back to "forward conservatively" (no skip). Failure to detect RPC must never break legitimate event delivery.
-- [ ] 2.5 Verify `listenerCount` typeof-guard: if `typeof pi.events.listenerCount !== "function"`, skip the fast-path and use the snapshot path unconditionally.
+## 2. Regression tests
 
-## 3. Heuristic correctness tests
+- [ ] 2.1 Extract `makeHost` and `makeDeps` from `packages/extension/src/__tests__/eventbus-foreign-emit-forwarding.test.ts` into a new `packages/extension/src/__tests__/helpers/event-bus-host.ts`, and switch the existing suite to import it. Triple: existing suite with the helper import · run the file · all 7 existing cases pass with an unchanged count (test-plan #X2). Harness exemplar: see `packages/extension/src/__tests__/helpers/bridge-instance-stub.ts`.
+- [ ] 2.2 In new `packages/extension/src/__tests__/eventbus-rpc-probe-not-forwarded.test.ts`, add a static-set case. Triple: `forwardedBusChannels()` with default args · compute the set · contains none of the 12 `RPC_PROBE_CHANNELS` and does contain `flow:complete` + `subagents:completed` (test-plan #E1). Harness exemplar: see `packages/extension/src/__tests__/eventbus-foreign-emit-forwarding.test.ts` ("subscribes every channel in the rename mapping").
+- [ ] 2.3 Same file, bridge-facade probe case. Triple: wiring on the bridge facade + a foreign handler setting `probe.flows = [{name:"x"}]` · bridge facade emits `flow:list-flows` with `{}`, then foreign emits `flow:complete` · `probe.flows` is filled and `sent` channels equal exactly `["flow:complete"]` (test-plan #E2). Harness exemplar: see `packages/extension/src/__tests__/eventbus-foreign-emit-forwarding.test.ts`.
+- [ ] 2.4 Same file, foreign-facade probe case. Triple: a bridge-facade handler setting `data.roles = {fast:"a/b"}` · foreign facade emits `roles:get-all` with `{}` · `probe.roles` is filled and `sent` is empty (test-plan #E3). Harness exemplar: see `packages/extension/src/__tests__/eventbus-foreign-emit-forwarding.test.ts`.
+- [ ] 2.5 Same file, whole-class case. Triple: one filling handler per `RPC_PROBE_CHANNELS` entry · emit each through the foreign facade, then through the bridge facade · every probe has `filled === channel` and `sent` is empty (test-plan #E4). Harness exemplar: see `packages/extension/src/__tests__/eventbus-foreign-emit-forwarding.test.ts`.
+- [ ] 2.6 Same file, unmapped `flow:*` case. Triple: same wiring · foreign facade emits `flow:run` `{flowName:"f"}` and `flow:agent-error` `{agentName:"a"}` · `sent` channels equal exactly `["flow:agent-error"]` (test-plan #E5). Harness exemplar: see `packages/extension/src/__tests__/eventbus-foreign-emit-forwarding.test.ts`.
+- [ ] 2.7 Same file, async-probe case. Triple: a foreign `async` `model:resolve` handler that sets `p.auth = {ok:true}` after `await` · emit `model:resolve`, then flush with `setTimeout(0)` · `probe.auth` is filled after the flush and `sent` is empty both immediately and after the flush (test-plan #X1). Harness exemplar: see `packages/extension/src/__tests__/eventbus-foreign-emit-forwarding.test.ts`.
+- [ ] 2.8 Same file, source guard `assertEventBusMapPinned(src)`. Triple: `readBridgeSource("bridge.ts")` and a mutant with `"roles:get-all": "x",` inserted into the `EVENT_BUS_MAP` literal · run the guard on both · real source passes (map is exactly `{ ...FLOW_EVENT_MAP, ...SUBAGENT_EVENT_MAP }`), mutant fails naming `EVENT_BUS_MAP` (test-plan #E6). Harness exemplar: see `packages/extension/src/__tests__/bridge-name-provenance.test.ts` + `packages/extension/src/__tests__/helpers/bridge-source.ts`.
+- [ ] 2.9 Same file, source guard `countForwardingCallArgs(src)` with comment stripping and a balanced-paren scan. Triple: comment-stripped `bridge.ts` and a mutant with a third argument `, [{ "flow:list-flows": "x" }]` · run the guard · real source has 1 call with 2 top-level args (nested `(channel) =>` parens not miscounted); mutant has 3 args and fails (test-plan #E7). Harness exemplar: see `packages/extension/src/__tests__/bridge-name-provenance.test.ts` + `packages/extension/src/__tests__/helpers/bridge-source.ts`.
+- [ ] 2.10 Same file, source guard `findEmitRebinding(src)` over comment-stripped `bridge.ts` + every `bridge-handlers/*.ts`. Triple: real sources and 5 mutants (`pi.events.emit = (c, d) => {}`, `pi.events!.emit = f`, `pi.events["emit"] = f`, `Object.defineProperty(pi.events, "emit", {})`, `Object.assign(pi.events, { emit: f })`) · run the guard · real sources give no hit; each mutant gives ≥1 hit; `pi.events.emit("x", y)`, `a.emit === b` and a `// pi.events.emit = old` comment give no hit (test-plan #E8). Harness exemplar: see `packages/extension/src/__tests__/bridge-name-provenance.test.ts` + `packages/extension/src/__tests__/helpers/bridge-source.ts`.
+- [ ] 2.11 Register two rows in `GUARDS` of `packages/extension/src/__tests__/source-guards-not-vacuous.test.ts`: `["eventbus-rpc-probe-not-forwarded.test.ts", "bridge.ts", "registerEventBusForwarding("]` and `["eventbus-rpc-probe-not-forwarded.test.ts", "bridge.ts", "const EVENT_BUS_MAP"]`. Triple: the two new rows · run the suite · both rows pass (test-plan #E9). Harness exemplar: see existing `GUARDS` rows in that file.
 
-- [ ] 3.1 Create `packages/extension/src/__tests__/event-forwarder-rpc-skip.test.ts`. Build a fake `pi.events` with `on`/`emit`/`listenerCount` and a fake `connection` capturing `event_forward` sends.
-- [ ] 3.2 Test: empty probe + handler that writes `data.flows = [...]` → handler runs, NO `event_forward` sent, original behavior preserved (probe.flows populated).
-- [ ] 3.3 Test: pre-populated probe `{ role, modelId }` + handler that adds `data.success = true` → NO `event_forward` sent.
-- [ ] 3.4 Test: broadcast `emit("flow:agent-started", { agent: "x" })` + read-only listener → `event_forward` sent with mapped name.
-- [ ] 3.5 Test: broadcast `emit("custom:ping", {})` with NO listeners → `event_forward` sent (listener-count zero fast-path).
-- [ ] 3.6 Test: broadcast `emit("custom:ping", {})` with a listener that does NOT mutate → `event_forward` sent.
-- [ ] 3.7 Test: non-object data `emit("legacy:string", "hello")` → `event_forward` sent.
-- [ ] 3.8 Test: `null` data → `event_forward` sent.
-- [ ] 3.9 Test: `sessionReady === false` → no `event_forward` regardless of mutation (existing invariant).
-- [ ] 3.10 Test: handler throws → `origEventsEmit` re-throws (preserved); no `event_forward` sent.
-- [ ] 3.11 Test: handler returns Promise (simulated async dispatch) → `warn-once` fires; emission forwarded conservatively (no skip). Subsequent async emission does NOT re-warn.
-- [ ] 3.12 Test: `listenerCount` absent on `pi.events` → falls back to snapshot path; behavior identical to §3.2–3.6.
-- [ ] 3.13 Test: snapshot helper throws (via JSON.stringify on a value with a throwing getter) → forwarded conservatively (no skip).
+## 3. Docs
 
-## 4. Anti-pattern lint test
+- [ ] 3.1 Add a `__tests__/eventbus-rpc-probe-not-forwarded.test.ts` row to `packages/extension/src/AGENTS.md` and an `event-bus-host.ts` row to `packages/extension/src/__tests__/helpers/AGENTS.md`. Both path-alphabetical, caveman style, `See change: skip-rpc-probes-in-event-forwarder`.
 
-- [ ] 4.1 Create `packages/extension/src/__tests__/no-broadcast-payload-mutation.test.ts`. Use `fs.readFileSync` over `packages/extension/src/*.ts` (excluding `__tests__` + `rpc-shape.ts`), parse `pi.events.on("<channel>", (<param>) => { … })` callsites with a small regex / TS AST walker (prefer `typescript` package's `forEachChild`).
-- [ ] 4.2 For each handler, scan body for assignments to the first parameter's identifier (`<param>.something = …`, `<param>["key"] = …`, `Object.assign(<param>, …)`).
-- [ ] 4.3 Allowlist: handlers whose channel literal is in `KNOWN_RPC_CHANNELS` (RPC handlers are EXPECTED to mutate). All other handlers SHALL NOT mutate.
-- [ ] 4.4 Failing test message: `"<file>:<line>: handler for '<channel>' mutates its payload — broadcast handlers must be read-only. If this is an RPC handler, add the channel to KNOWN_RPC_CHANNELS in bridge.ts."`
-- [ ] 4.5 Run the test against the current codebase and confirm it passes (RPC handlers are already in the allowlist; no broadcast handlers should mutate).
+## 4. Verification
 
-## 5. Documentation
-
-- [ ] 5.1 Update `openspec/specs/catch-all-event-forwarding/spec.md` per the deltas in `specs/catch-all-event-forwarding/spec.md`.
-- [ ] 5.2 Add a one-line row to `docs/file-index-extension.md` for `bridge.ts` change-history (append): `bridge.ts — see change: skip-rpc-probes-in-event-forwarder (RPC-shape filter on emit wrapper)`. Delegate the docs/ edit to a general-purpose subagent per AGENTS.md "Documentation Update Protocol", caveman style.
-- [ ] 5.3 If `rpc-shape.ts` is added as a separate file, add a row to `docs/file-index-extension.md` describing its purpose (caveman style, ≤ 200 chars). Same delegation rule.
-
-## 6. Verification
-
-- [ ] 6.1 Run `npm test -- packages/extension 2>&1 | tee /tmp/rpc-skip-test.log` and confirm all new tests pass + no existing extension tests regress.
-- [ ] 6.2 Run `npm run reload:check` (typecheck + reload) and confirm no TypeScript errors.
-- [ ] 6.3 Manual smoke: open dashboard, run a session, check `MemoryEventStore` (via `/api/sessions/:id/events`) for `flow:list-flows` / `flow:role-get-all` event types — should be absent for new sessions started after reload. Existing sessions retain their pre-reload backlog (acceptable per migration story).
-- [ ] 6.4 Manual smoke: trigger a flow run + a role change + a model resolve from the dashboard — confirm UI behavior is unchanged (flows list populates, roles save, model picker shows available models).
-- [ ] 6.5 Run `openspec validate skip-rpc-probes-in-event-forwarder --strict` and resolve any spec-format complaints.
+- [ ] 4.1 `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`, then `grep -nE 'FAIL|Error|✗|✘|Tests +[0-9]+ (failed|passed)' /tmp/pi-test.log`: new tests pass and nothing regresses.
+- [ ] 4.2 `openspec validate skip-rpc-probes-in-event-forwarder --strict` passes.
