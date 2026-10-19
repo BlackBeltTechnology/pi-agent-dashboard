@@ -2727,6 +2727,7 @@ export const zhCNCatalog: Record<string, string> = {
   "services.danger.title": "危险操作区",
   "services.action.resetData": "重置数据…",
   "services.action.remove": "删除服务…",
+  "services.actionFailed": "操作未成功。请重试；如果仍然失败，请复制详情。",
   "services.runtimes.lead": "在此计算机上检测到。仪表板会报告虚拟机，但从不启动或停止它们。",
   "services.runtimes.loading": "正在检测运行时…",
   "services.runtimes.runtime": "运行时",

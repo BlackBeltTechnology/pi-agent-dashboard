@@ -723,6 +723,15 @@ describe("notice hooks needed to migrate core callouts (align 4)", () => {
     expect(screen.getByRole("list", { name: "Mit tehetsz" })).toBeTruthy();
   });
 
+  it("icon overrides the tone icon", () => {
+    const { container } = render(
+      <SettingsNotice tone="warning" icon="M0 0h9v9z">
+        m
+      </SettingsNotice>,
+    );
+    expect(container.querySelector("svg path")?.getAttribute("d")).toBe("M0 0h9v9z");
+  });
+
   it("retryTestId overrides the derived retry test id", () => {
     render(
       <SettingsNotice tone="error" testId="n" onRetry={() => {}} retryTestId="custom-retry">

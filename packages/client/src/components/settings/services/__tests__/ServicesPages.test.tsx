@@ -5,7 +5,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ServicesPages } from "../ServicesPages.js";
 import { callsTo, fail, fakeServices, makeList, makeService, ok, stubServicesFetch } from "./services-fixtures.js";
@@ -64,11 +64,47 @@ describe("service list", () => {
     expect(screen.getByTestId("services-list-page")).toBeTruthy();
   });
 
-  it("state pills carry a text label and a shape, not colour alone", () => {
+  // align-ui-contract-recipes: the pill is the shared SettingsStatusPill; the text glyph became an MDI icon.
+  it("state pills carry a text label and an icon, not colour alone", () => {
     mountList([makeService({ state: "blocked" })]);
     const pill = screen.getByTestId("service-state-pill");
     expect(pill.textContent).toContain("Not responding");
-    expect(pill.querySelector("[aria-hidden='true']")?.textContent).toBe("◆");
+    expect(pill.getAttribute("data-state")).toBe("blocked");
+    const svg = pill.querySelector("svg");
+    expect(svg?.getAttribute("aria-hidden")).toBe("true");
+    expect(svg?.querySelector("path")?.getAttribute("d")).toBeTruthy();
+    expect(pill.textContent).not.toMatch(/[◆●○◐□▲]/);
+    expect(pill.querySelector("[data-tone]")?.getAttribute("data-tone")).toBe("warning");
+  });
+
+  it.each([
+    ["healthy", "success"],
+    ["idle", "neutral"],
+    ["failed", "error"],
+    ["unavailable", "error"],
+  ])("a %s service shows the %s tone and keeps its state attribute", (state, tone) => {
+    mountList([makeService({ state })]);
+    const pill = screen.getByTestId("service-state-pill");
+    expect(pill.getAttribute("data-state")).toBe(state);
+    expect(pill.querySelector("[data-tone]")?.getAttribute("data-tone")).toBe(tone);
+  });
+
+  it("a pill in a list row (inside a button) is 12 px; the detail header pill is 11 px", () => {
+    mountList([makeService({ state: "healthy" })]);
+    expect(screen.getByTestId("service-state-pill").querySelector("[data-tone]")?.className).toContain("text-[12px]");
+    cleanup();
+    mountDetail(makeService({ state: "healthy" }));
+    expect(screen.getByTestId("service-state-pill").querySelector("[data-tone]")?.className).toContain("text-[11px]");
+  });
+
+  it("an in-progress state spins its icon (reduced motion stops it)", () => {
+    mountList([makeService({ state: "starting" })]);
+    const cls = screen.getByTestId("service-state-pill").querySelector("svg")?.getAttribute("class") ?? "";
+    expect(cls).toContain("animate-spin");
+    expect(cls).toContain("motion-reduce:animate-none");
+    cleanup();
+    mountList([makeService({ state: "healthy" })]);
+    expect(screen.getByTestId("service-state-pill").querySelector("svg")?.getAttribute("class")).not.toContain("animate-spin");
   });
 });
 
@@ -121,14 +157,47 @@ describe("service detail — gating and actions", () => {
     await waitFor(() => expect(callsTo(calls, "POST", "/api/services/docling/start")).toHaveLength(1));
   });
 
-  it("X10 a refused action shows the server's code and hint at the action, no toast", async () => {
+  // The server's code and message moved from the visible text into "Copy details"
+  // (change: align-ui-contract-recipes, services-settings-ui "Service detail page").
+  it("X10 a refused action shows one sentence at the action; code and message are only copied, no toast", async () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
     stubServicesFetch({ handler: (c) => (c.url.endsWith("/start") ? fail(409, "lifecycle-lock-timeout", "another start is in progress") : undefined) });
     mountDetail(makeService({ state: "stopped" }));
     fireEvent.click(screen.getByTestId("service-action-start"));
     const err = await screen.findByTestId("service-action-error");
-    expect(err.textContent).toContain("lifecycle-lock-timeout");
-    expect(err.textContent).toContain("another start is in progress");
+    expect(err.getAttribute("role")).toBe("alert");
+    expect(err.textContent).not.toContain("lifecycle-lock-timeout");
+    expect(err.textContent).not.toContain("another start is in progress");
     expect(screen.queryByRole("status", { name: /toast/i })).toBeNull();
+    await act(async () => {
+      fireEvent.click(within(err).getByRole("button", { name: /copy details/i }));
+    });
+    const payload = String((writeText.mock.calls[0] as unknown[])[0]);
+    expect(payload).toContain("lifecycle-lock-timeout");
+    expect(payload).toContain("another start is in progress");
+  });
+
+  it("E7 a refused Stop: the alert is Stop's description, without the code; Copy details holds code and message", async () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    stubServicesFetch({ handler: (c) => (c.url.endsWith("/stop") ? fail(409, "stop_failed", "permission denied") : undefined) });
+    mountDetail(makeService({ state: "healthy" }));
+    const stop = screen.getByTestId("service-action-stop");
+    expect(stop.getAttribute("aria-describedby")).toBeNull();
+    fireEvent.click(stop);
+    const err = await screen.findByTestId("service-action-error");
+    expect(screen.getByTestId("service-action-stop").getAttribute("aria-describedby")).toBe(err.id);
+    expect(err.id).toBeTruthy();
+    expect(err.textContent).not.toContain("stop_failed");
+    // other actions are not described by an error that is not theirs
+    expect(screen.getByTestId("service-refresh").getAttribute("aria-describedby")).toBeNull();
+    await act(async () => {
+      fireEvent.click(within(err).getByRole("button", { name: /copy details/i }));
+    });
+    const payload = String((writeText.mock.calls[0] as unknown[])[0]);
+    expect(payload).toContain("stop_failed");
+    expect(payload).toContain("permission denied");
   });
 
   it("X11 operate_required renders its reason and remedies at the action", async () => {

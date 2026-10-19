@@ -588,6 +588,7 @@ export function SettingsNotice({
   remediesLabel,
   remedyTestId,
   retryTestId,
+  icon: iconOverride,
 }: {
   tone: SettingsNoticeTone;
   children: ReactNode;
@@ -611,8 +612,11 @@ export function SettingsNotice({
   remedyTestId?: string;
   /** Overrides the derived `<testId>-retry` test id of the retry button. */
   retryTestId?: string;
+  /** Replaces the tone's default icon (an MDI path) when the icon carries meaning, e.g. a lock. */
+  icon?: string;
 }) {
-  const { cls, icon } = NOTICE_TONE[tone];
+  const { cls, icon: toneIcon } = NOTICE_TONE[tone];
+  const icon = iconOverride ?? toneIcon;
   return (
     <div
       data-testid={testId}

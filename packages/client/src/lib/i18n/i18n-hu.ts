@@ -2725,6 +2725,7 @@ export const huCatalog: Record<string, string> = {
   "services.danger.title": "Veszélyzóna",
   "services.action.resetData": "Adatok visszaállítása…",
   "services.action.remove": "Szolgáltatás eltávolítása…",
+  "services.actionFailed": "Ez nem sikerült. Próbáld újra; ha továbbra sem megy, másold ki a részleteket.",
   "services.runtimes.lead": "Ezen a gépen észlelve. A műszerfal a virtuális gépeket csak jelzi, soha nem indítja vagy állítja le őket.",
   "services.runtimes.loading": "Futtatókörnyezetek észlelése…",
   "services.runtimes.runtime": "Futtatókörnyezet",
