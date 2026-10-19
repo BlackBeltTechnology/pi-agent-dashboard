@@ -25,7 +25,7 @@ import type { SessionMenuSource } from "../../lib/state/SessionMenuScopeContext.
 import { attrEscape } from "../../lib/util/attr-escape.js";
 
 const ITEM_BASE =
-  "flex w-full min-h-[30px] items-center gap-2 px-3 py-1.5 text-left text-sm focus-ring focus:bg-[var(--bg-hover)]";
+  "flex w-full min-h-[36px] max-sm:min-h-[44px] items-center gap-2 px-3 py-1.5 text-left text-sm focus-ring focus:bg-[var(--bg-hover)]";
 
 /** Interactive nodes in DOM order: host menu items plus focusable plugin output. */
 function focusables(panel: HTMLElement): HTMLElement[] {
@@ -242,7 +242,7 @@ export function SessionActionsPanel({
         aria-label={i18nT("sessionMenu.groupPlugins", undefined, "Plugins")}
       >
         {hasPlugins && <GroupHeading title={i18nT("sessionMenu.groupPlugins", undefined, "Plugins")} />}
-        <div ref={pluginHostRef} data-session-menu-plugins="" className="px-2 py-1 text-sm" />
+        <div ref={pluginHostRef} data-session-menu-plugins="" className="px-2 py-1 text-sm text-[var(--text-primary)]" />
       </div>
       {view && renderGroup(view)}
     </div>
@@ -260,9 +260,9 @@ function hasRenderedContent(container: HTMLElement): boolean {
 
 function GroupHeading({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
-    <div className="sticky top-0 z-10 flex items-baseline gap-2 bg-[var(--bg-secondary)] px-3 py-1 text-[10px] uppercase tracking-wider text-[var(--text-secondary)]">
+    <div className="sticky top-0 z-10 flex items-baseline gap-2 bg-[var(--bg-secondary)] px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
       <span>{title}</span>
-      {subtitle ? <span className="min-w-0 truncate normal-case tracking-normal text-[var(--text-tertiary)]">{subtitle}</span> : null}
+      {subtitle ? <span className="min-w-0 truncate normal-case tracking-normal text-[var(--text-secondary)]">{subtitle}</span> : null}
     </div>
   );
 }
@@ -297,10 +297,10 @@ function MenuGroup({
             if (expanded) return;
             onExpand(hidden[0].id);
           }}
-          className={`${ITEM_BASE} text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]`}
+          className={`${ITEM_BASE} text-[var(--text-primary)] hover:bg-[var(--bg-hover)]`}
         >
           <span>{i18nT("sessionMenu.more", undefined, "More…")}</span>
-          <span className="ml-auto text-[10px] font-semibold text-[var(--text-tertiary)]">{hidden.length}</span>
+          <span className="ml-auto text-xs font-semibold text-[var(--text-secondary)]">{hidden.length}</span>
         </button>
       )}
       {expanded && hidden.map((item) => <MenuEntry key={item.id} item={item} onActivate={onActivate} />)}
@@ -309,8 +309,10 @@ function MenuGroup({
 }
 
 function MenuEntry({ item, onActivate }: { item: SessionMenuItem; onActivate: (item: SessionMenuItem) => void }) {
+  const reasonId = React.useId();
   if (item.kind === "segments") return <LifecycleRow item={item} onActivate={onActivate} />;
   const inert = item.disabled || !item.onSelect;
+  const showReason = Boolean(item.reason && item.disabled);
   return (
     <button
       type="button"
@@ -321,6 +323,7 @@ function MenuEntry({ item, onActivate }: { item: SessionMenuItem; onActivate: (i
       data-emphasis={item.emphasis ? "primary" : undefined}
       // `aria-disabled`, not `disabled`: a disabled menuitem stays focusable (APG).
       aria-disabled={inert || undefined}
+      aria-describedby={showReason ? reasonId : undefined}
       title={item.reason}
       onClick={(e) => {
         e.stopPropagation();
@@ -331,17 +334,19 @@ function MenuEntry({ item, onActivate }: { item: SessionMenuItem; onActivate: (i
         item.emphasis
           ? "font-semibold text-[var(--text-primary)] bg-[var(--accent-soft)] hover:bg-[var(--bg-hover)]"
           : inert
-            ? "text-[var(--text-muted)] cursor-not-allowed"
-            : "text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+            ? "text-[var(--text-secondary)] cursor-not-allowed"
+            : "text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
       }`}
     >
       {item.icon ? <Icon path={item.icon} size={0.55} className="shrink-0" /> : null}
-      <span className="truncate">{item.label}</span>
-      {item.reason && item.disabled ? (
-        <span data-testid={`session-menu-reason-${item.id}`} className="ml-auto shrink-0 pl-2 text-[10px] text-[var(--text-tertiary)]">
-          {item.reason}
-        </span>
-      ) : null}
+      <span className="min-w-0 flex-1">
+        <span className="block truncate">{item.label}</span>
+        {showReason ? (
+          <span id={reasonId} data-testid={`session-menu-reason-${item.id}`} className="block whitespace-normal text-xs text-[var(--text-secondary)]">
+            {item.reason}
+          </span>
+        ) : null}
+      </span>
     </button>
   );
 }
@@ -361,7 +366,7 @@ function LifecycleRow({ item, onActivate }: { item: SessionMenuItem; onActivate:
               ? "border-[var(--border-secondary)] text-[var(--tint-green-fg)]"
               : seg.state === "current"
                 ? "border-[var(--accent-blue)] text-[var(--text-primary)]"
-                : "border-[var(--border-subtle)] text-[var(--text-tertiary)]"
+                : "border-[var(--border-subtle)] text-[var(--text-secondary)]"
           }`,
         };
         if (!seg.onSelect) {
@@ -385,7 +390,7 @@ function LifecycleRow({ item, onActivate }: { item: SessionMenuItem; onActivate:
               e.stopPropagation();
               onActivate({ id: `segment-${seg.id}`, label: seg.label, onSelect: run });
             }}
-            className={`${common.className} focus-ring hover:bg-[var(--bg-hover)]`}
+            className={`${common.className} min-h-[36px] max-sm:min-h-[44px] focus-ring hover:bg-[var(--bg-hover)]`}
           >
             {text}
           </button>

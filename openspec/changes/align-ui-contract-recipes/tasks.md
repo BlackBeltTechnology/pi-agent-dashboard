@@ -75,7 +75,7 @@
 
 ## 7. Session actions menu (`SessionActionsPanel.tsx`)
 
-- [ ] 7.1 Write failing tests for the `session-actions-menu` ADDED requirement and design D6:
+- [x] 7.1 Write failing tests for the `session-actions-menu` ADDED requirement and design D6:
   - heading at 11 px semibold `--text-secondary`;
   - items at `min-h-[36px] max-sm:min-h-[44px]`;
   - the `More…` button and count in primary / secondary text;
@@ -84,7 +84,7 @@
   - the PLUGINS container sets `--text-primary`.
 
   Then implement. Verify: menu and deriver tests pass, and the hooks are unchanged.
-- [ ] 7.2 Update the AGENTS.md row for `SessionActionsPanel.tsx`. Verify: the row is present.
+- [x] 7.2 Update the AGENTS.md row for `SessionActionsPanel.tsx`. Verify: the row is present.
 
 ## 8. Settings rail (`SettingsPanel.tsx`, rail block only)
 
@@ -144,7 +144,7 @@
 - [x] 12.8 L1 test beside `components/packages/plugin-row-parts.tsx` under `packages/client/src/components/packages/__tests__/`: raw state and load error. Input: plugin row with status waiting_peers and a loadError stack. Trigger: render the plugin list. Expected: visible "Waiting for peers", `data-status="waiting_peers"`, the stack only in the Copy-details payload, no `text-[10px]`. Harness exemplar: see packages/client/src/components/settings/__tests__/ProviderHealthPill.test.tsx (test-plan #E8)
 - [x] 12.9 L1 test in `packages/client/src/components/settings/__tests__/ProviderHealthPill.test.tsx`: provider pill migration. Input: states ok, not-tested and error with an error line. Trigger: render. Expected: `data-tone` set by the kit pill; `data-testid="health-pill"` and `data-state` unchanged; raw error only in the copy payload; no `text-(green|yellow|red)-400`. Harness exemplar: see packages/client/src/components/settings/__tests__/ProviderHealthPill.test.tsx (test-plan #E9)
 - [x] 12.10 L1 test in `packages/client-utils/src/__tests__/Dialog.test.tsx`: dialog decision table. Input: Dialog with title and icon, actions with intent primary, danger and neutral, plus Cancel. Trigger: open. Expected: overlay `bg-[var(--bg-overlay)]`; panel `bg-[var(--bg-secondary)] border-[var(--border-secondary)] rounded-xl`; title `text-lg font-semibold`; tile `--severity-info-*`; primary `--accent-solid`; danger `--tint-red-*` and not `bg-red-600`; actions, Cancel and close `min-h-[44px] sm:min-h-[36px]`; root on `z-dialog`. Harness exemplar: see packages/client-utils/src/__tests__/Dialog.test.tsx (test-plan #E10)
-- [ ] 12.11 L1 test in `packages/client/src/components/__tests__/SessionCard.actions-menu.test.tsx`: menu floors. Input: session with cwdMissing, a group with 2 rare items, a plugin claim rendering a plain button. Trigger: open the menu. Expected: headings `text-[11px] font-semibold` in `--text-secondary`; items `min-h-[36px] max-sm:min-h-[44px]`; the disabled reason as a block `text-xs` element referenced by `aria-describedby`; More… and count not `--text-tertiary`; the plugin container sets `text-[var(--text-primary)]`. Harness exemplar: see packages/client/src/components/__tests__/SessionCard.actions-menu.test.tsx (test-plan #E11)
+- [x] 12.11 L1 test in `packages/client/src/components/__tests__/SessionCard.actions-menu.test.tsx`: menu floors. Input: session with cwdMissing, a group with 2 rare items, a plugin claim rendering a plain button. Trigger: open the menu. Expected: headings `text-[11px] font-semibold` in `--text-secondary`; items `min-h-[36px] max-sm:min-h-[44px]`; the disabled reason as a block `text-xs` element referenced by `aria-describedby`; More… and count not `--text-tertiary`; the plugin container sets `text-[var(--text-primary)]`. Harness exemplar: see packages/client/src/components/__tests__/SessionCard.actions-menu.test.tsx (test-plan #E11)
 - [ ] 12.12 L1 test beside `SettingsPanel.tsx` under `packages/client/src/components/settings/__tests__/`: rail. Input: `/settings/services` active, 1 service needing attention, a dirty vault page, a promoted plugin row. Trigger: render the panel. Expected: Services has `aria-current="page"` with tertiary fill and bar; the attention marker is an svg with the `sr-only` count; `nav-dirty-vault` has no `bg-amber-400`; the promoted row has no `opacity-60`; the rendered `settings-nav-rail` HTML has no palette class or hex/rgba. Harness exemplar: see packages/client/src/components/settings/__tests__/settings-heap-fields.test.tsx (test-plan #E12)
 - [ ] 12.13 L1 test in `packages/client/src/lib/__tests__/aligned-surfaces-no-literals.test.ts`: surface list. Input: the 9 design-D8 files plus the existing list. Trigger: run the scan. Expected: passes, and a fixture copy of `Dialog.tsx` with `bg-red-600` fails, naming the file. Harness exemplar: see packages/client/src/lib/__tests__/aligned-surfaces-no-literals.test.ts (test-plan #E13)
 - [x] 12.14 L1 test in `scripts/__tests__/theme-token-guard.test.mjs`: new roots. Input: a fixture file under `client-utils/src` and under `dashboard-plugin-runtime/src`, each with `var(--accent-primary, #60a5fa)`. Trigger: `scan()` with the new `SCAN_ROOTS`. Expected: both reported as new violations. Harness exemplar: see scripts/__tests__/theme-token-guard.test.mjs (test-plan #E14)
