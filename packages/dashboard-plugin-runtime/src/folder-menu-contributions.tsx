@@ -26,6 +26,7 @@
  * See change: move-slot-actions-to-menu (folder-actions-menu spec).
  */
 
+import { isUiTone, type UiTone } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import type React from "react";
 import { createContext, useContext, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { useCurrentPluginId } from "./plugin-context.js";
@@ -51,6 +52,8 @@ export interface FolderMenuContribution {
   badge?: string;
   /** Renders as a disabled control; its callback is never invoked. */
   disabled?: boolean;
+  /** Semantic tone. Optional + presentational: an invalid value is neutralised, the item is never rejected. */
+  tone?: UiTone;
 }
 
 /** A contribution plus the identity the registry stamped on it. */
@@ -67,6 +70,10 @@ export interface RegisteredFolderMenuItem extends FolderMenuContribution {
  * non-string `badge` reaches React as a child and throws while the menu is
  * opening (one plugin taking the whole menu down), and a truthy non-boolean
  * `disabled` silently swallows every activation of that item.
+ *
+ * `tone` is deliberately NOT checked here: it is optional and presentational,
+ * so an invalid value is neutralised at registration and the item is never
+ * rejected.
  */
 export function isValidFolderMenuContribution(value: unknown): value is FolderMenuContribution {
   if (!value || typeof value !== "object") return false;
@@ -157,8 +164,8 @@ export function createFolderMenuStore(): FolderMenuStore {
       // plain-JS one) could smuggle back the arbitrary markup this change
       // exists to remove. "No ReactNode" has to hold at RUNTIME, not only in
       // the type system, exactly as `SlotPill.actions`'s removal does.
-      const { id, group, label, icon, onSelect, badge, disabled } = contribution;
-      const entry: RegisteredFolderMenuItem = { id, group, label, icon, onSelect, badge, disabled, pluginId };
+      const { id, group, label, icon, onSelect, badge, disabled, tone } = contribution;
+      const entry: RegisteredFolderMenuItem = { id, group, label, icon, onSelect, badge, disabled, tone: isUiTone(tone) ? tone : undefined, pluginId };
       s.items.set(key, entry);
       invalidate(s);
       return () => {
@@ -264,6 +271,7 @@ export function useFolderMenuItem(
   const icon = contribution?.icon;
   const badge = contribution?.badge;
   const disabled = contribution?.disabled;
+  const tone = contribution?.tone;
 
   useEffect(() => {
     if (!scope || !pluginId || id === undefined) return;
@@ -274,9 +282,10 @@ export function useFolderMenuItem(
       icon: icon as string,
       badge,
       disabled,
+      tone,
       onSelect: () => latest.current?.onSelect(),
     });
-  }, [store, scope, pluginId, id, group, label, icon, badge, disabled]);
+  }, [store, scope, pluginId, id, group, label, icon, badge, disabled, tone]);
 }
 
 /**

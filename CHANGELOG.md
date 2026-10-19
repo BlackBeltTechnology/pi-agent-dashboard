@@ -12,6 +12,10 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Added
 
+- **Coloured action menus.** Session and folder action menus now tint each action icon by intent
+  (go, create, caution, danger); danger rows also tint on hover/focus. Plugins opt in with the new
+  optional `tone` field on `FolderMenuContribution` and `UiActionListItem` (`"go" | "create" |
+  "caution" | "danger"`; invalid values render neutral). The lifecycle row shows a glyph per state.
 - **Type your own answer on `ask_user` choices.** `select`, `multiselect` and batch select/multiselect
   steps now show an inline "Other" row in the dashboard (chat card and the pending-question dialog).
   Choosing it reveals a text field; the answer reaches the agent as a plain string, and the tool

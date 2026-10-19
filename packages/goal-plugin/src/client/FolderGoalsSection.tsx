@@ -41,6 +41,7 @@ export function FolderGoalsSection({ folder }: { folder: FolderDescriptor }): Re
         group: "create" as const,
         label: newGoalLabel,
         icon: mdiPlus,
+        tone: "create" as const,
         onSelect: () => setCreating(true),
       }),
       [newGoalLabel],

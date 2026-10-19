@@ -35,10 +35,28 @@ interface FolderMenuContribution {
   onSelect: () => void;    // required
   badge?: string;          // state marker, folded into accessible name
   disabled?: boolean;      // renders disabled; callback never invoked
+  tone?: UiTone;           // optional colour intent; see Tone below
 }
 ```
 
 No `node`. No `pressed` — host-only (`FolderMenuItem` keeps `pressed` for `aria-pressed`, e.g. urgency sort).
+
+## Tone (optional)
+
+`tone?: UiTone`. `UiTone = "go" | "create" | "caution" | "danger"`.
+Exported from shared `dashboard-plugin/ui-primitives`. Guard: `isUiTone`.
+
+- `go` = start/resume/run. Green icon.
+- `create` = make new thing. Blue icon.
+- `caution` = affects state/maintenance. Orange icon.
+- `danger` = ends process or discards work. Red icon; hover/focus row tint `--tint-red-bg`, red label.
+
+Host owns palette. Colour is icon-only.
+Invalid/unknown value → neutral render. Item never rejected.
+Disabled item: no colour; still `data-action-tone="<tone>"`.
+Rendered attr: `data-action-tone`.
+Radio items and `node` items never toned.
+Old host ignores field → neutral.
 
 ## Group taxonomy
 

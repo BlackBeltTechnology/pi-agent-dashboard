@@ -42,6 +42,8 @@ import {
   LayerHostProvider,
   LayerPortal,
 } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
+import { toneAttr, toneIconClass, toneRowClass } from "@blackbelt-technology/pi-dashboard-client-utils/tone";
+import type { UiTone } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import { mdiFolderCogOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React from "react";
@@ -82,6 +84,8 @@ export interface FolderMenuItem {
   badge?: string;
   /** Renders as a disabled control; its callback is never invoked. */
   disabled?: boolean;
+  /** Semantic tone (icon colour; danger also tints hover/focus). Ignored for `node` items. */
+  tone?: UiTone;
   /** Toggle state, surfaced as `aria-pressed` (urgency sort). */
   pressed?: boolean;
   /**
@@ -306,6 +310,7 @@ export function FolderActionsMenu({ cwd, items, open, onOpenChange, radioGroup }
                   // menuitem stays focusable so roving focus does not skip it
                   // (ARIA APG), while still being exposed as a disabled control.
                   aria-disabled={item.disabled || undefined}
+                  data-action-tone={toneAttr(item.tone)}
                   onClick={(e) => {
                     e.stopPropagation();
                     if (item.disabled) return;
@@ -321,15 +326,22 @@ export function FolderActionsMenu({ cwd, items, open, onOpenChange, radioGroup }
                   className={`flex w-full min-h-[44px] items-center gap-3 px-3 py-2 text-left text-sm ${
                     item.disabled
                       ? "text-[var(--text-muted)] cursor-not-allowed"
-                      : "text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                      : `text-[var(--text-secondary)] ${
+                          toneRowClass(item.tone, { disabled: false }) ||
+                          "hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                        }`
                   }`}
                 >
-                  <Icon path={item.icon} size={0.6} className="shrink-0" />
+                  <Icon
+                    path={item.icon}
+                    size={0.6}
+                    className={`shrink-0 ${toneIconClass(item.tone, { disabled: !!item.disabled })}`.trim()}
+                  />
                   <span className="truncate">{item.label}</span>
                   {item.badge && (
                     <span
                       data-testid={`folder-menu-badge-${item.id}`}
-                      className="ml-auto shrink-0 text-[10px] font-extrabold text-amber-400"
+                      className="ml-auto shrink-0 text-[10px] font-extrabold text-[var(--accent-orange-text)]"
                     >
                       {item.badge}
                     </span>
