@@ -31,9 +31,10 @@ export type TunnelMode = "public" | "private";
  * Classification of a single reachable address, driving where it may be
  * advertised. `public` — TLS reverse-proxy URL. `magicdns` — a mesh name
  * (TLS only when a cert is provisioned). `mesh` — a raw mesh IP (no TLS).
- * `lan` — a same-network IP. `local` — loopback.
+ * `lan` — a same-network IP. `local` — loopback. `domain` — an operator-owned
+ * DNS name served by the TLS listener (non-tailscale certificate source).
  */
-export type EndpointKind = "public" | "mesh" | "magicdns" | "lan" | "local";
+export type EndpointKind = "public" | "mesh" | "magicdns" | "lan" | "local" | "domain";
 
 /**
  * A reachable endpoint. `tls` is the load-bearing flag: only `tls: true`

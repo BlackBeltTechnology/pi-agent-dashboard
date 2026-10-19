@@ -3938,6 +3938,89 @@ Approval: operator types numeric confirm code shown on device → `POST /api/pai
 
 Gate: `reachableUrls()` (`packages/server/src/pairing.ts`) read-time filter (D4/D14) advertises only secure `wss`/`https` endpoints. Keeps `urls[]` secure. `createPayload()` returns null when no reachable url → route returns `{success:false,error:"no_reachable_endpoint"}` (HTTP 200).
 
+### Built-in TLS listener (change: add-tailscale-cert-tls)
+
+Optional second `https.Server`. Off by default (`tls.enabled: false`). Serves the SAME Fastify app as the main listener.
+Config: `tls: { enabled, port: 8443, host: "127.0.0.1", sources: [] }`. Defaults: `DEFAULT_TLS`, `DEFAULT_TLS_PORT`, `DEFAULT_TLS_HOST` in `packages/shared/src/config.ts`.
+Code: `packages/server/src/tls/`. Wiring: `packages/server/src/server.ts` (`tlsListener`). Routes: `packages/server/src/routes/tls-routes.ts`. Status type: `packages/shared/src/tls-status.ts`.
+
+```mermaid
+flowchart LR
+    Client["Client (SNI = cert name)"] -->|"https :8443"| TLS["TlsListener https.Server"]
+    Plain["Client (http)"] -->|"http :8000"| Main["Main listener"]
+    TLS -->|"request / upgrade / clientError"| F["Fastify (one route table)"]
+    Main --> F
+    F --> G["host admission → network guard → auth"]
+    Store["TlsCertStore (SNI map)"] -.->|"SNICallback"| TLS
+    Mgr["CertManager"] -->|"hot swap"| Store
+    Src["sources: tailscale"] --> Mgr
+```
+
+#### Dispatch
+
+- `request` → `fastify.server.emit("request")`. `upgrade` → shared `onUpgrade` switch. `clientError` → forwarded.
+- One route table, one gate chain, two transports.
+- Timeouts match main: `keepAliveTimeout`, `setTimeout(connectionTimeout)`, `requestTimeout = 0`.
+- Plaintext on TLS port → `tlsClientError` swallowed.
+
+#### SNI map and session resumption
+
+- `TlsCertStore`: exact name → single-label wildcard → fail. No default cert.
+- No SNI or no match → handshake error.
+- Resumption off: `SSL_OP_NO_TICKET`, `resumeSession` → no-op. Every handshake runs `SNICallback`, so pruned or replaced names stop at next connect.
+
+#### CertManager
+
+- Key: `(sourceId, name)`. Single-flight. `trigger()` joins running attempt.
+- Gate-before-obtain: unmet source or name gate → no `obtain()`, no failure. Re-check every 15 min.
+- Attempt deadline: `attemptTimeoutMs` (default 10 min). Tailscale: 180 s (CLI bound 120 s + margin). Late result discarded.
+- Backoff: 5 min doubling, cap 6 h. Floor = `RetryAfterError`. `failures`, `nextAttemptAt` persisted in `meta.json`.
+- Renew when remaining validity < 1/3. Evaluated by `tick()` every 12 h.
+- Prune only when source `names()` returns a list. `null` keeps held certs.
+- Hot swap into `TlsCertStore`. Entry swap atomic; open connections keep old context.
+
+#### Certificate sources
+
+- Pluggable: `registerCertSourceType`. Id `^[a-z0-9][a-z0-9-]{0,31}$`, unique. `tailscale` reserved as default id.
+- `tailscale` source: runs `tailscale cert` into private `0700` temp dir. Own 120 s runner.
+- Gates: `tailscale-running`, `https-certs`. Name = MagicDNS name from `tailscale status --json`.
+- `details.ipv4` → UI one-click `tls.host`.
+- Disk: `~/.pi/dashboard/tls/<sourceId>/<name>/{cert.pem,key.pem,meta.json}`.
+- Key `0600`. Write order: tmp → chmod key → rename key → rename cert → `meta.json` last.
+- Keys never in any API response.
+
+#### Bind and failure isolation
+
+- Binds `tls.host:tls.port`. Loopback host: binds, advertises nothing.
+- Bind error `EADDRNOTAVAIL` / `EADDRINUSE` → retry 1 min doubling, cap 15 min. Immediate retry on reconcile / trigger.
+- Failure never touches main listener. Reported as `bindError`.
+- `stop()` closes all connections. Certs stay on disk.
+
+#### Local-credential proof floor
+
+- `beforeBind` records `tlsBoundAt` / `httpBoundAt`.
+- Per request: `socket.encrypted` → `tlsBoundAt`, else `httpBoundAt` (`server.ts`).
+
+#### Host admission and advertising
+
+- Cert names admitted by host admission: exact only, source `tls-listener` (`packages/server/src/auth/host-admission.ts`).
+- Advertisable names (bound + non-loopback) → `tlsListenerUrls()` → `https://<name>[:<port>]`, `tls: true`.
+- Feeds `GET /api/tunnel/endpoints` (`tlsEndpoints`) and pairing reachable URLs.
+
+#### Status and issue API
+
+- `GET /api/health.tls`: all callers get `{enabled, bound}`. Detail (`port`, `host`, `bindError`, `gates`, `sources`, `certs`) only for authed or genuinely-local callers.
+- `POST /api/tls/issue { sourceId, name? }` → `202`. Tier `operate` (`packages/shared/src/route-tiers.ts`), same auth as `PUT /api/config`.
+- `409` listener disabled. `404` unknown source, or name absent from source list.
+- `PUT /api/config` `tls` block → `validateTlsConfigWrite` (port unique vs `port`, `piPort`, `modelProxy.secondPort`) → `reconcile`.
+
+#### UI
+
+- Gateway page → "Built-in HTTPS" section (`packages/client/src/components/Gateway/GatewayTlsSection.tsx`).
+- Enable switch writes `tls.enabled`. Live reconcile, no restart.
+- Polls `/api/health.tls` every 5 s.
+- "Use <ip>" sets `tls.host` to Tailscale IPv4. Clients still connect by cert name (IP URL = no SNI = fail).
+
 ### Gateway URL Management
 
 Change: `config-override-oauth-redirect-base`.

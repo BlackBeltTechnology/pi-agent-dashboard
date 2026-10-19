@@ -28,6 +28,7 @@ import {
   type HostAdmissionOptions,
   isHostAdmitted,
   safeLiveTunnelOrigins,
+  safeTlsListenerNames,
 } from "./host-admission.js";
 
 export type { HostGateMode };
@@ -349,6 +350,7 @@ export function admittedHostRows(
   for (const raw of opts.configuredOrigins ?? []) add(hostnameFromUrl(raw), "cors-origin");
   for (const raw of safeLiveTunnelOrigins(opts)) add(hostnameFromUrl(raw), "live-tunnel");
   for (const raw of opts.allowedHosts ?? []) add(normalizeName(raw), "allowed-host");
+  for (const name of safeTlsListenerNames(opts)) add(normalizeName(name), "tls-listener");
   return rows;
 }
 

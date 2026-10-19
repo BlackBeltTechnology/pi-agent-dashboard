@@ -81,6 +81,20 @@ export function isBackendRunning(statusJson: any): boolean {
   return statusJson?.BackendState === "Running";
 }
 
+/**
+ * Are HTTPS certificates enabled for the tailnet? Top-level `CertDomains` is a
+ * non-empty array when they are; `null` / `[]` mean disabled. `undefined` =
+ * the daemon did not report the key (older CLI) — callers keep their old
+ * heuristic. One helper shared by the funnel gate and the TLS certificate
+ * source so the two surfaces cannot disagree.
+ * See change: add-tailscale-cert-tls (D4).
+ */
+export function tailnetHttpsEnabled(statusJson: any): boolean | undefined {
+  if (!statusJson || typeof statusJson !== "object" || !("CertDomains" in statusJson)) return undefined;
+  const domains = statusJson.CertDomains;
+  return Array.isArray(domains) && domains.length > 0;
+}
+
 /** Funnel gates that must all pass before public mode can start. */
 export interface FunnelGate {
   name: string;
@@ -94,16 +108,23 @@ export interface FunnelGate {
  * admin-console gates we can detect but not automate.
  */
 export function checkFunnelGates(statusJson: any, funnelStatusResult: CmdResult): FunnelGate[] {
-  const httpsEnabled = statusJson?.Self?.CapMap
-    ? true
-    : /HTTPS|https/.test(funnelStatusResult.stdout);
+  // `CertDomains` is the authoritative signal when the daemon reports it; only
+  // an older CLI that omits the key falls back to the old heuristic.
+  // See change: add-tailscale-cert-tls (D4).
+  const certDomains = tailnetHttpsEnabled(statusJson);
+  const httpsEnabled =
+    certDomains !== undefined
+      ? certDomains
+      : statusJson?.Self?.CapMap
+        ? true
+        : /HTTPS|https/.test(funnelStatusResult.stdout);
   const funnelBlocked = /not allowed|Funnel is not enabled|node attribute|denied/i.test(
     funnelStatusResult.stderr + funnelStatusResult.stdout,
   );
   return [
     {
       name: "https-certs",
-      ok: funnelStatusResult.code === 0 || httpsEnabled,
+      ok: certDomains !== undefined ? certDomains : funnelStatusResult.code === 0 || httpsEnabled,
       hint: "Enable HTTPS certificates for your tailnet (admin console → DNS → HTTPS Certificates).",
     },
     {
@@ -115,13 +136,13 @@ export function checkFunnelGates(statusJson: any, funnelStatusResult: CmdResult)
 }
 
 /** First IPv4 (100.x mesh) address from a status JSON's Self.TailscaleIPs. */
-function selfMeshIpv4(statusJson: any): string | null {
+export function selfMeshIpv4(statusJson: any): string | null {
   const ips: string[] = statusJson?.Self?.TailscaleIPs ?? [];
   return ips.find((ip) => /^\d+\.\d+\.\d+\.\d+$/.test(ip)) ?? null;
 }
 
 /** MagicDNS name (trailing dot stripped) from a status JSON's Self.DNSName. */
-function selfDnsName(statusJson: any): string | null {
+export function selfDnsName(statusJson: any): string | null {
   const dns: string | undefined = statusJson?.Self?.DNSName;
   return dns ? dns.replace(/\.$/, "") : null;
 }

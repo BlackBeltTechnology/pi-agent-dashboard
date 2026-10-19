@@ -50,8 +50,48 @@ describe("GatewayEndpoints (task 6.4 Add HTTPS round-trip)", () => {
     render(<GatewayEndpoints endpoints={eps} />);
     const rows = screen.getAllByTestId("gateway-endpoint");
     expect(rows.length).toBe(2);
-    expect(screen.getByText("TLS")).toBeDefined();
-    expect(screen.getByText("no TLS")).toBeDefined();
+    expect(screen.getByText("HTTPS")).toBeDefined();
+    expect(screen.getByText("No TLS")).toBeDefined();
+  });
+
+  // test-plan #E31: the `domain` kind has its own word, not the Local look.
+  it("labels a domain endpoint 'Domain' (#E31)", () => {
+    render(<GatewayEndpoints endpoints={[{ kind: "domain", url: "https://dash.example.com:8443", tls: true }]} />);
+    const row = screen.getByTestId("gateway-endpoint");
+    expect(row.textContent).toContain("Domain");
+    expect(row.querySelector("[data-kind]")?.getAttribute("data-kind")).toBe("domain");
+  });
+
+  // test-plan #E38: words on the neutral chip, 11 px, no raw colour, accessible copy buttons.
+  it("labels all six kinds in words on the neutral chip at >= 11px with no raw colour (#E38)", async () => {
+    const kinds: Array<[TunnelEndpoint["kind"], string]> = [
+      ["local", "Local"],
+      ["lan", "LAN"],
+      ["mesh", "Mesh"],
+      ["magicdns", "MagicDNS"],
+      ["public", "Public"],
+      ["domain", "Domain"],
+    ];
+    render(
+      <GatewayEndpoints
+        endpoints={kinds.map(([kind], i) => ({ kind, url: `https://e${i}.example:8443`, tls: i % 2 === 0 }))}
+      />,
+    );
+    const chips = Array.from(document.querySelectorAll("[data-kind]"));
+    expect(chips.map((c) => c.textContent)).toEqual(kinds.map(([, label]) => label));
+    for (const chip of chips) {
+      expect(chip.className).toContain("text-[11px]");
+      expect(chip.className).not.toMatch(/uppercase|#[0-9a-f]{3,8}|rgba\(/i);
+      expect(chip.className).toContain("var(--bg-tertiary)");
+    }
+    for (const btn of screen.getAllByTestId("gateway-endpoint-copy")) {
+      expect(btn.getAttribute("aria-label")).toMatch(/^Copy https:\/\//);
+    }
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const src = readFileSync(join(import.meta.dirname, "..", "GatewayEndpoints.tsx"), "utf8");
+    expect(src).not.toMatch(/#[0-9a-fA-F]{3,8}\b|rgba\(/);
+    expect(src).not.toMatch(/var\(--(border|green|amber|danger)[,)]/);
   });
 
   it("rejects a plain-http entry client-side (task 6.5 UX gate)", async () => {
