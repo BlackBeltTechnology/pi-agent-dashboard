@@ -111,3 +111,15 @@ describe("selected card FX CSS (fix-selected-card-light-wash)", () => {
     expect(block).toMatch(/\.card-glow-mask\s*\{\s*display:\s*none/);
   });
 });
+
+describe("card edge trigger escapes the selected-ring child rule (move-session-actions-trigger-to-card-edge E5)", () => {
+  it(".card-edge-trigger declares position:absolute + z-index:20 after `.card-selected-ring > *`", () => {
+    const body = bodyOf(".card-edge-trigger");
+    expect(body).toMatch(/position:\s*absolute/);
+    expect(body).toMatch(/z-index:\s*20/);
+    const ring = rulesFor(".card-selected-ring > *")[0];
+    const edge = rulesFor(".card-edge-trigger")[0];
+    expect(ring).toBeDefined();
+    expect(edge.index).toBeGreaterThan(ring.index);
+  });
+});
