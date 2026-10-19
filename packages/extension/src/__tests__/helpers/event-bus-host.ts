@@ -34,7 +34,7 @@ export function makeHost() {
   return { emitter, bridgeEvents: facade(), foreignEvents: facade() };
 }
 
-export interface Sent {
+interface Sent {
   channel: string;
   data: Record<string, unknown>;
 }
