@@ -14,12 +14,12 @@ import { type CertFiles, type CertMeta, certValidity, isSafeCertName, pairMatche
 import { type StoreEntry, TlsCertStore } from "./cert-store.js";
 import { type CertSource, RetryAfterError, type SourceReadiness } from "./types.js";
 
-export const TICK_INTERVAL_MS = 12 * 60 * 60_000;
-export const BACKOFF_BASE_MS = 5 * 60_000;
-export const BACKOFF_CAP_MS = 6 * 60 * 60_000;
-export const GATE_RECHECK_MS = 15 * 60_000;
-export const DEFAULT_ATTEMPT_TIMEOUT_MS = 10 * 60_000;
-export const LAST_ERROR_MAX = 500;
+const TICK_INTERVAL_MS = 12 * 60 * 60_000;
+const BACKOFF_BASE_MS = 5 * 60_000;
+const BACKOFF_CAP_MS = 6 * 60 * 60_000;
+const GATE_RECHECK_MS = 15 * 60_000;
+const DEFAULT_ATTEMPT_TIMEOUT_MS = 10 * 60_000;
+const LAST_ERROR_MAX = 500;
 
 export interface ManagerLogger {
   info(msg: string): void;
@@ -93,7 +93,7 @@ const key = (sourceId: string, name: string): string => `${sourceId}\u0000${name
 const trunc = (s: string): string => (s.length > LAST_ERROR_MAX ? s.slice(0, LAST_ERROR_MAX) : s);
 const errMessage = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
-export function backoffDelayMs(failures: number): number {
+function backoffDelayMs(failures: number): number {
   return Math.min(BACKOFF_BASE_MS * 2 ** Math.max(0, failures - 1), BACKOFF_CAP_MS);
 }
 

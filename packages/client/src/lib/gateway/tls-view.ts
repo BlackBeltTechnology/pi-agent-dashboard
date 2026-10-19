@@ -28,8 +28,8 @@ export interface TlsPill {
 }
 
 export const isHeld = (c: TlsCertStatus, now: number): boolean => c.held && typeof c.notAfter === "number" && c.notAfter > now;
-export const daysLeft = (c: TlsCertStatus, now: number): number => Math.max(0, Math.ceil(((c.notAfter ?? now) - now) / DAY_MS));
-export const fmtDate = (ms: number): string => new Date(ms).toISOString().slice(0, 10);
+const daysLeft = (c: TlsCertStatus, now: number): number => Math.max(0, Math.ceil(((c.notAfter ?? now) - now) / DAY_MS));
+const fmtDate = (ms: number): string => new Date(ms).toISOString().slice(0, 10);
 
 /** Minutes until a scheduled retry, for "Next try in N minutes". */
 export function retryMinutes(c: TlsCertStatus, now: number): number | null {

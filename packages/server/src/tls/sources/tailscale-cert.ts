@@ -29,7 +29,7 @@ import {
 } from "../../tunnel-providers/tailscale.js";
 import type { CertSource, CertSourceDeps, CertSourceType, Gate, ObtainedCert, SourceReadiness } from "../types.js";
 
-export const TAILSCALE_CERT_TIMEOUT_MS = 120_000;
+const TAILSCALE_CERT_TIMEOUT_MS = 120_000;
 const STATUS_TTL_MS = 30_000;
 const ERROR_MAX = 500;
 

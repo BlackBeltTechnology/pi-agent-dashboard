@@ -23,7 +23,7 @@ import {
   type TlsConfig,
   type TlsSourceEntry,
 } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import type { TlsStatus, TlsStatusBasic, TlsStatusDetail } from "@blackbelt-technology/pi-dashboard-shared/tls-status.js";
+import type { TlsStatus, TlsStatusBasic } from "@blackbelt-technology/pi-dashboard-shared/tls-status.js";
 import type { TunnelEndpoint } from "@blackbelt-technology/pi-dashboard-shared/tunnel-provider.js";
 import { CertFiles } from "./cert-files.js";
 import { CertManager, type InvalidSourceEntry, type ManagerLogger, type StatusGate } from "./cert-manager.js";
@@ -41,10 +41,10 @@ import type { CertSource } from "./types.js";
 export const MAIN_KEEP_ALIVE_TIMEOUT_MS = 30_000;
 export const MAIN_CONNECTION_TIMEOUT_MS = 10_000;
 
-export const BIND_RETRY_BASE_MS = 60_000;
-export const BIND_RETRY_CAP_MS = 15 * 60_000;
+const BIND_RETRY_BASE_MS = 60_000;
+const BIND_RETRY_CAP_MS = 15 * 60_000;
 
-export interface TlsDispatch {
+interface TlsDispatch {
   request(req: IncomingMessage, res: ServerResponse): void;
   upgrade(req: IncomingMessage, socket: Duplex, head: Buffer): void;
   clientError(err: Error, socket: Duplex): void;
@@ -64,14 +64,12 @@ export interface TlsListenerDeps {
   manager?: CertManager;
 }
 
-export type { TlsStatus, TlsStatusBasic, TlsStatusDetail };
-
 /** Register the built-in source types (tests may pre-register a stub under the same type). */
-export function ensureBuiltinCertSourceTypes(): void {
+function ensureBuiltinCertSourceTypes(): void {
   if (!getCertSourceType(tailscaleSourceType.type)) registerCertSourceType(tailscaleSourceType);
 }
 
-export function isLoopbackHost(host: string): boolean {
+function isLoopbackHost(host: string): boolean {
   const h = host.trim().toLowerCase().replace(/^\[|\]$/g, "");
   return h === "localhost" || h === "::1" || /^127\./.test(h);
 }

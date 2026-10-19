@@ -15,7 +15,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { getTlsStatus } from "./tls-api.js";
 
 /** Same cadence as `GatewayConnectToggle`'s status-detail poll. */
-export const TLS_STATUS_POLL_MS = 5_000;
+const TLS_STATUS_POLL_MS = 5_000;
 
 export function useTlsStatus(): {
   status: TlsStatus | null;

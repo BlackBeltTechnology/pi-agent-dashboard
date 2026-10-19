@@ -17,7 +17,7 @@ import { deriveCertRow, retryMinutes } from "../../lib/gateway/tls-view.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
 import { BTN_SMALL, callout, META, ROW, severityPill } from "../connectivity/connectivity-ui.js";
 
-export interface TlsGroupContext {
+interface TlsGroupContext {
   /** Fixed clock for a render (days-left maths). */
   now: number;
   /** Operator "issue now" for `(sourceId, name?)`; resolves when the request was accepted. */
@@ -46,7 +46,7 @@ export function tlsSourceGroupFor(type: string): ComponentType<TlsSourceGroupPro
   return registry.get(type) ?? GenericSourceGroup;
 }
 
-export function TlsCertRow({ cert, sourceId, ctx }: { cert: TlsCertStatus; sourceId: string; ctx: TlsGroupContext }) {
+function TlsCertRow({ cert, sourceId, ctx }: { cert: TlsCertStatus; sourceId: string; ctx: TlsGroupContext }) {
   const { t } = useI18n();
   const view = deriveCertRow(cert, ctx.now, t);
   const eta = retryMinutes(cert, ctx.now);
@@ -153,7 +153,7 @@ function GroupBody({ certs, gates, source, ctx }: TlsSourceGroupProps) {
 }
 
 /** Fallback for a source type without a registered group. */
-export function GenericSourceGroup(props: TlsSourceGroupProps) {
+function GenericSourceGroup(props: TlsSourceGroupProps) {
   const { t } = useI18n();
   return (
     <GroupFrame
@@ -168,7 +168,7 @@ export function GenericSourceGroup(props: TlsSourceGroupProps) {
 }
 
 /** The tailscale source's group (registered below). */
-export function TailscaleSourceGroup(props: TlsSourceGroupProps) {
+function TailscaleSourceGroup(props: TlsSourceGroupProps) {
   const { t } = useI18n();
   return (
     <GroupFrame

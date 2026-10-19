@@ -9,8 +9,8 @@
 import type { TlsSourceEntry } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import type { CertSourceType } from "./types.js";
 
-export const TAILSCALE_SOURCE_ID = "tailscale";
-export const SOURCE_ID_RE = /^[a-z0-9][a-z0-9-]{0,31}$/;
+const TAILSCALE_SOURCE_ID = "tailscale";
+const SOURCE_ID_RE = /^[a-z0-9][a-z0-9-]{0,31}$/;
 
 const types = new Map<string, CertSourceType>();
 
