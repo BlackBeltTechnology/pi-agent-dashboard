@@ -82,7 +82,7 @@ describe("service list", () => {
     ["idle", "neutral"],
     ["failed", "error"],
     ["unavailable", "error"],
-  ])("a %s service shows the %s tone and keeps its state attribute", (state, tone) => {
+  ] as const)("a %s service shows the %s tone and keeps its state attribute", (state, tone) => {
     mountList([makeService({ state })]);
     const pill = screen.getByTestId("service-state-pill");
     expect(pill.getAttribute("data-state")).toBe(state);
