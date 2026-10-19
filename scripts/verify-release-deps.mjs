@@ -164,6 +164,26 @@ const RULES = [
  * and any prerelease suffix so `^1.6.0` / `~1.6.0` / `1.6.0` all floor to
  * `1.6.0`. Returns null for a range we cannot parse (e.g. `*`, a git/url dep).
  */
+/**
+ * Loose "declared range covers at least `minVersion`" check (substring-based, no full
+ * semver math — see collectFailures). A plain floor needs its version text in the range;
+ * a PRERELEASE floor (`1.2.0-beta.15`) accepts the same core with a prerelease number
+ * >= the floor's, or the stable release of that core. Previously the prerelease tag was
+ * stripped from the floor, so `1.2.0-beta.13` passed a `1.2.0-beta.15` floor.
+ */
+export function satisfiesMinVersion(declared, minVersion) {
+  const [core, pre] = minVersion.split(/-(.+)/);
+  if (!pre) return declared.includes(core);
+  const preMatch = /^(.*?)(\d+)$/.exec(pre);
+  if (!declared.includes(core)) return false;
+  if (!declared.includes(`${core}-`)) return true; // stable release of the same core
+  if (!preMatch) return declared.includes(minVersion);
+  const [, tag, floorNum] = preMatch;
+  const re = new RegExp(`${core.replaceAll(".", "\\.")}-${tag.replaceAll(".", "\\.")}(\\d+)`);
+  const found = re.exec(declared);
+  return found !== null && Number(found[1]) >= Number(floorNum);
+}
+
 export function floorOf(range) {
   const m = String(range).match(/(\d+\.\d+\.\d+)/);
   return m ? m[1] : null;
@@ -423,7 +443,7 @@ export function collectFailures({ repoRoot = REPO_ROOT } = {}) {
     // We do not do full semver math here — we just want a clear signal that the
     // pin hasn't reverted to an older release. The rule's evidence is the
     // authority on which versions are acceptable.
-    if (!declared.includes(rule.minVersion.split("-")[0])) {
+    if (!satisfiesMinVersion(declared, rule.minVersion)) {
       failures.push(
         `Stale pin: ${rule.pkgPath} → ${rule.kind}.${rule.dep} = "${declared}"\n` +
           `  Expected: range covering at least ${rule.minVersion}\n` +

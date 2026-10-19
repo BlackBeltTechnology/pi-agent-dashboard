@@ -18,6 +18,7 @@ import {
   checkOpenspecFloorConsistency,
   collectFailures,
   floorOf,
+  satisfiesMinVersion,
 } from "../verify-release-deps.mjs";
 
 const serverPkg = (range) => ({ dependencies: { "@fission-ai/openspec": range } });
@@ -106,5 +107,37 @@ describe("openspec exact pin is 1.14.3 (E16)", () => {
       (f) => f.includes("Stale pin") && f.includes("@fission-ai/openspec"),
     );
     expect(stale.length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+/**
+ * Prerelease floors (CodeRabbit review on refresh-electron-bundled-components): the
+ * node-pty floor is `1.2.0-beta.15`; the old check stripped the prerelease tag from the
+ * floor and only looked for `1.2.0`, so the former `beta.13` pin passed.
+ */
+describe("satisfiesMinVersion — prerelease floors", () => {
+  it("rejects an older prerelease of the same core", () => {
+    expect(satisfiesMinVersion("1.2.0-beta.13", "1.2.0-beta.15")).toBe(false);
+    expect(satisfiesMinVersion("^1.2.0-beta.14", "1.2.0-beta.15")).toBe(false);
+  });
+  it("accepts the floor, a newer prerelease and the stable release", () => {
+    expect(satisfiesMinVersion("1.2.0-beta.15", "1.2.0-beta.15")).toBe(true);
+    expect(satisfiesMinVersion("1.2.0-beta.16", "1.2.0-beta.15")).toBe(true);
+    expect(satisfiesMinVersion("1.2.0-beta.100", "1.2.0-beta.15")).toBe(true);
+    expect(satisfiesMinVersion("^1.2.0", "1.2.0-beta.15")).toBe(true);
+  });
+  it("keeps the loose substring semantics for a plain floor", () => {
+    expect(satisfiesMinVersion("1.14.3", "1.14.3")).toBe(true);
+    expect(satisfiesMinVersion("^1.14.3", "1.14.3")).toBe(true);
+    expect(satisfiesMinVersion("1.11.0", "1.14.3")).toBe(false);
+  });
+  it("collectFailures reports the former node-pty beta.13 as a Stale pin", () => {
+    const root = fixtureWithOpenspec("1.14.3");
+    const serverPath = path.join(root, "packages/server/package.json");
+    const pkg = JSON.parse(fs.readFileSync(serverPath, "utf-8"));
+    pkg.dependencies["node-pty"] = "1.2.0-beta.13";
+    fs.writeFileSync(serverPath, JSON.stringify(pkg, null, 2));
+    const stale = collectFailures({ repoRoot: root }).filter((f) => f.includes("Stale pin") && f.includes("node-pty"));
+    expect(stale).toHaveLength(1);
   });
 });
