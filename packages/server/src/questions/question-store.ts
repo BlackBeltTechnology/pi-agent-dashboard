@@ -76,6 +76,8 @@ interface QuestionRecord {
   type: string;
   question: string;
   options?: string[];
+  /** Inline "Other" opt-in from the live prompt metadata; never persisted. See change: add-ask-user-inline-other. */
+  allowOther?: true;
   questions?: BatchQuestion[];
   origin?: QuestionOrigin;
   /** Context message (`metadata.message`); in memory only, never persisted. */
@@ -270,6 +272,7 @@ export function createQuestionStore(deps: QuestionStoreDeps): QuestionStore {
       ...rowOf(rec),
       question: rec.question,
       ...(rec.options ? { options: rec.options } : {}),
+      ...(rec.allowOther ? { allowOther: true as const } : {}),
       ...(rec.brief !== undefined ? { brief: rec.brief } : {}),
       ...(rec.briefLabel ? { briefLabel: rec.briefLabel } : {}),
       snapshot: rec.snapshot,
@@ -320,6 +323,7 @@ export function createQuestionStore(deps: QuestionStoreDeps): QuestionStore {
         type: typeof prompt.type === "string" ? prompt.type : "unknown",
         question: typeof prompt.question === "string" ? prompt.question : "",
         ...(Array.isArray(prompt.options) ? { options: prompt.options.filter((o): o is string => typeof o === "string") } : {}),
+        ...(metadata?.allowOther === true ? { allowOther: true as const } : {}),
         ...(Array.isArray(metadata?.questions) ? { questions: batchQuestionsOf(metadata!.questions as unknown[]) } : {}),
         ...(originOf(msg, session) ? { origin: originOf(msg, session) } : {}),
         ...(message !== undefined ? { message } : {}),

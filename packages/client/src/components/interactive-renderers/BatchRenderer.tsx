@@ -1,3 +1,4 @@
+import { isOtherAllowed } from "@blackbelt-technology/pi-dashboard-shared/prompt-answer.js";
 import type { ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { mdiCheck, mdiCheckCircle, mdiImageMultiple, mdiViewListOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
@@ -6,6 +7,7 @@ import { useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { InlineMarkdown } from "./InlineMarkdown.js";
 import { InputComposer } from "./InputComposer.js";
+import { OtherOption } from "./OtherOption.js";
 import { isCancelOption, parseOption } from "./parseOption.js";
 import type { InteractiveRendererProps } from "./types.js";
 
@@ -25,6 +27,14 @@ interface SubQuestion {
   message?: string;
   options?: string[];
   placeholder?: string;
+  /** Inline "Other" opt-in. See change: add-ask-user-inline-other. */
+  allowOther?: boolean;
+}
+
+/** Per-step inline-Other draft; lives next to `answers` so it survives step changes. */
+interface OtherDraft {
+  active: boolean;
+  text: string;
 }
 
 type Answer =
@@ -76,6 +86,7 @@ export function BatchRenderer({ params, status, result, onRespond, onCancel }: I
   );
   // step in 0..questions.length-1 are questions; questions.length is Review.
   const [step, setStep] = useState(0);
+  const [otherDraft, setOtherDraft] = useState<Array<OtherDraft | undefined>>([]);
 
   // ── Resolved / cancelled / dismissed: read-only summary ──────────
   if (status !== "pending") {
@@ -109,7 +120,7 @@ export function BatchRenderer({ params, status, result, onRespond, onCancel }: I
   const onReview = step >= questions.length;
   const current = questions[step];
 
-  function setAnswer(a: Answer) {
+  function setAnswer(a: Answer | undefined) {
     setAnswers((prev) => {
       const next = prev.slice();
       next[step] = a;
@@ -117,7 +128,18 @@ export function BatchRenderer({ params, status, result, onRespond, onCancel }: I
     });
   }
 
-  const canAdvance = onReview || answers[step] !== undefined;
+  const draft = otherDraft[step];
+  const otherBlocked =
+    !onReview && current?.method === "multiselect" && isOtherAllowed({ allowOther: current.allowOther, options: current.options }) && !!draft?.active && !draft.text.trim();
+  const canAdvance = onReview || (answers[step] !== undefined && !otherBlocked);
+
+  function setDraft(d: OtherDraft | undefined) {
+    setOtherDraft((prev) => {
+      const next = prev.slice();
+      next[step] = d;
+      return next;
+    });
+  }
 
   return (
     <div className="mx-4 my-2 bg-[var(--bg-hover)] border border-[var(--border-secondary)] rounded-xl overflow-hidden">
@@ -187,6 +209,8 @@ export function BatchRenderer({ params, status, result, onRespond, onCancel }: I
             question={current}
             answer={answers[step]}
             onChange={setAnswer}
+            other={draft}
+            onOtherChange={setDraft}
           />
         )}
       </div>
@@ -259,15 +283,28 @@ function ReviewRow({
   );
 }
 
+/** Options checked + the trimmed custom text (when Other is active and non-empty), de-duplicated. */
+function composeValues(checked: string[], other: OtherDraft | undefined): string[] {
+  const t = other?.active ? other.text.trim() : "";
+  return Array.from(new Set(t ? [...checked, t] : checked));
+}
+
 function StepBody({
   question,
   answer,
   onChange,
+  other,
+  onOtherChange,
 }: {
   question: SubQuestion;
   answer: Answer | undefined;
-  onChange: (a: Answer) => void;
+  onChange: (a: Answer | undefined) => void;
+  other: OtherDraft | undefined;
+  onOtherChange: (d: OtherDraft | undefined) => void;
 }) {
+  const options = question.options ?? [];
+  const otherAllowed = isOtherAllowed({ allowOther: question.allowOther, options });
+  const draft: OtherDraft = other ?? { active: false, text: "" };
   return (
     <div>
       <div className="text-sm font-medium text-[var(--text-primary)] mb-1">{question.title}</div>
@@ -315,7 +352,10 @@ function StepBody({
             return (
               <button
                 key={option}
-                onClick={() => onChange({ value: option })}
+                onClick={() => {
+                  if (draft.active) onOtherChange({ ...draft, active: false });
+                  onChange({ value: option });
+                }}
                 className={
                   picked
                     ? "w-full text-left flex items-start gap-2 px-3 py-2 rounded-lg border border-blue-500 bg-blue-500/10 text-[var(--text-primary)]"
@@ -329,13 +369,47 @@ function StepBody({
               </button>
             );
           })}
+          {otherAllowed && (
+            <OtherOption
+              variant="radio"
+              active={draft.active}
+              text={draft.text}
+              onActiveChange={(active) => {
+                onOtherChange({ ...draft, active });
+                const t = draft.text.trim();
+                onChange(active && t ? { value: t } : undefined);
+              }}
+              onTextChange={(text) => {
+                onOtherChange({ ...draft, text });
+                const t = text.trim();
+                onChange(t ? { value: t } : undefined);
+              }}
+            />
+          )}
         </div>
       )}
       {question.method === "multiselect" && (
         <MultiselectStep
-          options={question.options ?? []}
-          values={(answer as { values: string[] } | undefined)?.values ?? []}
-          onChange={(values) => onChange({ values })}
+          options={options}
+          values={((answer as { values: string[] } | undefined)?.values ?? []).filter((v) => options.includes(v))}
+          onChange={(values) => onChange({ values: composeValues(values, draft) })}
+          other={
+            otherAllowed
+              ? {
+                  draft,
+                  onActiveChange: (active) => {
+                    const next = { ...draft, active };
+                    onOtherChange(next);
+                    onChange({ values: composeValues(((answer as { values: string[] } | undefined)?.values ?? []).filter((v) => options.includes(v)), next) });
+                  },
+                  onTextChange: (text) => {
+                    const next = { ...draft, text };
+                    onOtherChange(next);
+                    onChange({ values: composeValues(((answer as { values: string[] } | undefined)?.values ?? []).filter((v) => options.includes(v)), next) });
+                  },
+                }
+              : undefined
+          }
         />
       )}
     </div>
@@ -346,10 +420,12 @@ function MultiselectStep({
   options,
   values,
   onChange,
+  other,
 }: {
   options: string[];
   values: string[];
   onChange: (values: string[]) => void;
+  other?: { draft: OtherDraft; onActiveChange: (a: boolean) => void; onTextChange: (t: string) => void };
 }) {
   function toggle(option: string) {
     onChange(values.includes(option) ? values.filter((v) => v !== option) : [...values, option]);
@@ -372,6 +448,15 @@ function MultiselectStep({
           </label>
         );
       })}
+      {other && (
+        <OtherOption
+          variant="checkbox"
+          active={other.draft.active}
+          text={other.draft.text}
+          onActiveChange={other.onActiveChange}
+          onTextChange={other.onTextChange}
+        />
+      )}
     </div>
   );
 }

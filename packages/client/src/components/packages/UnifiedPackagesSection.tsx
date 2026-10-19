@@ -22,7 +22,6 @@ import type {
 	AddonFeature,
 	AddonPackagePart,
 	NpmPackageResult,
-	PackageHealthListResponseData,
 	PiCorePackage,
 } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { mdiAlertCircle, mdiArrowUpBold, mdiLoading, mdiRefresh } from "@mdi/js";
@@ -31,6 +30,7 @@ import type React from "react";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useAddonCatalog } from "../../hooks/useAddonCatalog.js";
+import { useAddonIssues } from "../../hooks/useAddonIssues.js";
 import { useLaunchSource } from "../../hooks/useLaunchSource.js";
 import { usePackageOperations } from "../../hooks/usePackageOperations.js";
 import { usePersistedBoolean } from "../../hooks/usePersistedBoolean.js";
@@ -51,16 +51,15 @@ import { getApiBase } from "../../lib/api/api-context.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
 import { ADDONS_NPM_SEARCH_EVENT } from "../../lib/package/installed-list-helpers.js";
 import { classifySource } from "../../lib/package/package-classifier.js";
-import { applyPackageCleanup, fetchPackageHealth } from "../../lib/package/package-health-api.js";
 import { piCoreSource } from "../../lib/package/package-queue.js";
 import { logRejection } from "../../lib/report-error.js";
 import { PinDirectoryDialog } from "../workspace/PinDirectoryDialog.js";
 import { AddonFeatureRow } from "./AddonFeatureRow.js";
 import { AddonsDiscoverTab } from "./AddonsDiscoverTab.js";
 import { AddonsExplainer } from "./AddonsExplainer.js";
+import { AddonsIssuesTab } from "./AddonsIssuesTab.js";
 import { AddonsUpdatesTab, type UpdatablePart, updatableParts } from "./AddonsUpdatesTab.js";
 import { AddonReloadBanner, AddonToggleConfirm, useAddonToggle } from "./AddonToggleConfirm.js";
-import { countHealthIssues, PackageHealthPanel } from "./PackageHealthPanel.js";
 import { PackagePartialSuccessBanner } from "./PackagePartialSuccessBanner.js";
 import { PackageReadmeDialog } from "./PackageReadmeDialog.js";
 import { PackageRow, type PackageRowProps } from "./PackageRow.js";
@@ -70,8 +69,8 @@ import { WhatsNewPackageRow } from "./WhatsNewPackageRow.js";
 /** Single core package the breaking-change icon is wired for. v1 scope. */
 const PI_CORE_PKG = "@earendil-works/pi-coding-agent";
 
-export type AddonsTab = "installed" | "updates" | "discover";
-const TABS: readonly AddonsTab[] = ["installed", "updates", "discover"];
+export type AddonsTab = "installed" | "updates" | "discover" | "issues";
+const TABS: readonly AddonsTab[] = ["installed", "updates", "discover", "issues"];
 
 /** `?tab=` → tab; an unknown value selects Installed. */
 function parseAddonsTab(search: string): AddonsTab {
@@ -186,28 +185,11 @@ export function UnifiedPackagesSection() {
 		if (focusExplainer > 0) explainerToggleRef.current?.focus();
 	}, [focusExplainer]);
 
-	// ── Package health (stale / missing / duplicate packages[] entries). See change: add-package-health-cleanup.
-	const [health, setHealth] = useState<PackageHealthListResponseData | null>(null);
+	// ── Issues: plugin problems + packages[] health, one shared snapshot (also feeds the Settings rail badge).
+	// See change: add-package-health-cleanup, addons-hub-folder-view.
+	const issues = useAddonIssues();
+	// Owned here (not by the tab) so the restart notice survives switching tabs.
 	const [restartRequired, setRestartRequired] = useState(false);
-	const loadHealth = useCallback(async () => {
-		try {
-			setHealth(await fetchPackageHealth());
-		} catch (err) {
-			logRejection("UnifiedPackagesSection.health")(err);
-		}
-	}, []);
-	useEffect(() => {
-		loadHealth().catch(logRejection("UnifiedPackagesSection.health"));
-	}, [loadHealth]);
-	const applyHealthCleanup = useCallback(
-		async (drop: string[]) => {
-			await applyPackageCleanup(drop);
-			setRestartRequired(true);
-			await Promise.all([catalog.refresh(), loadHealth()]);
-		},
-		[catalog.refresh, loadHealth],
-	);
-	const healthIssueCount = health ? countHealthIssues(health) : 0;
 
 	// Core "Update All" stays clickable while operations run: the queue's
 	// (source, action) dedupe makes a repeat click idempotent.
@@ -436,6 +418,10 @@ export function UnifiedPackagesSection() {
 				return t("addons.tab.updates", { count: updateCount }, `Updates (${updateCount})`);
 			case "discover":
 				return t("addons.tab.discover", undefined, "Discover");
+			case "issues":
+				return issues.count > 0
+					? t("addons.tab.issues", { count: issues.count }, `Issues (${issues.count})`)
+					: t("addons.tab.issuesNone", undefined, "Issues");
 		}
 	};
 
@@ -444,14 +430,6 @@ export function UnifiedPackagesSection() {
 			<h2 className="text-sm font-semibold text-[var(--text-primary)] mb-3 pb-1 border-b border-[var(--border-secondary)] flex items-center justify-between">
 				<span>{t("addons.heading", undefined, "Add-ons")}</span>
 				<div className="flex items-center gap-2">
-					{healthIssueCount > 0 && (
-						<span
-							className="text-[10px] font-normal px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400"
-							data-testid="pkg-health-badge"
-						>
-							{t("packages.health.issuesBadge", { count: healthIssueCount }, `Issues (${healthIssueCount})`)}
-						</span>
-					)}
 					{status?.lastChecked && (
 						<span className="text-[10px] font-normal text-[var(--text-muted)]">
 							{t("settings.lastChecked", { time: relativeTime(status.lastChecked, t) }, `Last checked: ${relativeTime(status.lastChecked, t)}`)}
@@ -496,27 +474,10 @@ export function UnifiedPackagesSection() {
 			/>
 
 			{(error || catalog.error) && (
-				<div className="mb-2 p-2 rounded bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-start gap-2">
+				<div className="mb-2 p-2 rounded border border-[var(--severity-error-border)] bg-[var(--severity-error-bg)] text-[var(--severity-error-fg)] text-xs flex items-start gap-2">
 					<Icon path={mdiAlertCircle} size={0.6} className="flex-shrink-0 mt-0.5" />
 					<span>{error ?? catalog.error}</span>
 				</div>
-			)}
-
-			{restartRequired && (
-				<div
-					className="mb-2 p-2 rounded bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs"
-					role="status"
-					data-testid="pkg-health-restart-banner"
-				>
-					{t("packages.health.restartRequired", undefined, "Restart required for package changes to take effect.")}
-				</div>
-			)}
-			{health && (
-				<PackageHealthPanel
-					report={health}
-					onApply={applyHealthCleanup}
-					onRefresh={() => loadHealth().catch(logRejection("UnifiedPackagesSection.healthRefresh"))}
-				/>
 			)}
 
 			<div role="tablist" aria-label={t("addons.heading", undefined, "Add-ons")} className="flex gap-1 mb-3 border-b border-[var(--border-secondary)]" data-testid="addons-tabs">
@@ -709,6 +670,18 @@ export function UnifiedPackagesSection() {
 			{tab === "discover" && (
 				<div role="tabpanel" id="addons-panel-discover" aria-labelledby="addons-tab-discover">
 					<AddonsDiscoverTab hubOffSources={hubOffSources} />
+				</div>
+			)}
+
+			{/* ── Issues ──────────────────────────────────────────────── */}
+			{tab === "issues" && (
+				<div role="tabpanel" id="addons-panel-issues" aria-labelledby="addons-tab-issues">
+					<AddonsIssuesTab
+						issues={issues}
+						onCleaned={catalog.refresh}
+						restartRequired={restartRequired}
+						onRestartRequired={() => setRestartRequired(true)}
+					/>
 				</div>
 			)}
 

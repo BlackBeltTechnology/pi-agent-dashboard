@@ -459,3 +459,127 @@ describe("plugin hosting in the PLUGINS group (F19, X1, F22, X3)", () => {
     expect(screen.queryByTestId("session-actions-menu-s1")).toBeNull();
   });
 });
+
+// align-ui-contract-recipes (test-plan #E11): text and target floors of the menu.
+describe("menu text and target floors (#E11)", () => {
+  const openMenu = (session: DashboardSession, props: Partial<React.ComponentProps<typeof SessionCard>> = {}, wrap?: (n: React.ReactNode) => React.ReactNode) => {
+    card(session, props, wrap);
+    fireEvent.click(trigger());
+    return screen.getByTestId("session-actions-menu-s1");
+  };
+  const gone = () => makeSession({ cwdMissing: true, gitBranch: "feat", isGitRepo: true });
+
+  it("group headings are 11 px semibold in the secondary text colour", () => {
+    const menu = openMenu(makeSession({ attachedProposal: "add-auth" }), { openspecChanges: [IMPLEMENTING], openspecReadiness: { state: "READY" } });
+    const headings = Array.from(menu.querySelectorAll("[role='group'] > div.sticky"));
+    expect(headings.length).toBeGreaterThan(0);
+    for (const h of headings) {
+      expect(h.className).toContain("text-[11px]");
+      expect(h.className).toContain("font-semibold");
+      expect(h.className).toContain("text-[var(--text-secondary)]");
+      expect(h.className).not.toContain("text-[10px]");
+    }
+  });
+
+  it("every host item is at least 36 px (44 px below sm)", () => {
+    const menu = openMenu(makeSession({ attachedProposal: "add-auth" }), { openspecChanges: [IMPLEMENTING], openspecReadiness: { state: "READY" } });
+    const items = Array.from(menu.querySelectorAll("button[role='menuitem']"));
+    expect(items.length).toBeGreaterThan(2);
+    for (const i of items) {
+      expect(i.className).toContain("min-h-[36px]");
+      expect(i.className).toContain("max-sm:min-h-[44px]");
+      expect(i.className).not.toContain("min-h-[30px]");
+    }
+  });
+
+  it("an enabled item label is the primary text colour", () => {
+    const menu = openMenu(makeSession(), { onSpawnSibling: () => {} });
+    const item = menu.querySelector("button[role='menuitem']:not([aria-disabled]):not([data-emphasis])") as HTMLElement;
+    expect(item).toBeTruthy();
+    expect(item.className).toContain("text-[var(--text-primary)]");
+    expect(item.className).not.toContain("text-[var(--text-secondary)]");
+    expect(item.className).not.toContain("text-[var(--text-tertiary)]");
+  });
+
+  it("More… and its count are not tertiary", () => {
+    const menu = openMenu(makeSession({ attachedProposal: "add-auth" }), { openspecChanges: [IMPLEMENTING], openspecReadiness: { state: "READY" } });
+    const more = menu.querySelector("[data-testid='session-menu-more-openspec']") as HTMLElement;
+    expect(more).toBeTruthy();
+    expect(more.className).toContain("text-[var(--text-primary)]");
+    expect(more.className).not.toContain("text-[var(--text-tertiary)]");
+    const count = more.querySelector("span.ml-auto") as HTMLElement;
+    expect(count.className).toContain("text-xs");
+    expect(count.className).toContain("text-[var(--text-secondary)]");
+    expect(count.className).not.toContain("text-[10px]");
+    expect(count.className).not.toContain("text-[var(--text-tertiary)]");
+  });
+
+  it("a disabled item keeps secondary text, aria-disabled and no muted colour", () => {
+    openMenu(gone(), { onSpawnWorktree: () => {} });
+    const item = screen.getByTestId("session-card-spawn-worktree");
+    expect(item.getAttribute("aria-disabled")).toBe("true");
+    expect(item.className).toContain("text-[var(--text-secondary)]");
+    expect(item.className).not.toContain("text-[var(--text-muted)]");
+  });
+
+  it("the disabled reason is its own wrapping line, 12 px, and the item references it", () => {
+    openMenu(gone(), { onSpawnWorktree: () => {} });
+    const item = screen.getByTestId("session-card-spawn-worktree");
+    const reason = screen.getByTestId("session-menu-reason-spawn-worktree");
+    expect(reason.textContent).toBe("session's directory no longer exists");
+    expect(reason.className).toContain("block");
+    expect(reason.className).toContain("text-xs");
+    expect(reason.className).toContain("text-[var(--text-secondary)]");
+    expect(reason.className).not.toContain("truncate");
+    expect(reason.className).not.toContain("shrink-0");
+    expect(reason.className).not.toContain("text-[10px]");
+    expect(reason.id).toBeTruthy();
+    expect(item.getAttribute("aria-describedby")).toBe(reason.id);
+  });
+
+  it("an item without a reason has no aria-describedby", () => {
+    openMenu(makeSession(), { onSpawnSibling: () => {} });
+    const item = screen.getByTestId("session-card-spawn-sibling");
+    expect(item.hasAttribute("aria-describedby")).toBe(false);
+  });
+
+  it("two disabled items get distinct reason ids", () => {
+    openMenu(gone(), { onSpawnWorktree: () => {}, onSpawnSibling: () => {} });
+    const ids = Array.from(screen.getByTestId("session-actions-menu-s1").querySelectorAll("[data-testid^='session-menu-reason-']")).map((e) => e.id);
+    expect(ids.length).toBeGreaterThanOrEqual(2);
+    expect(ids.every(Boolean)).toBe(true);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("the PLUGINS container sets the primary text colour so plugin output inherits it", () => {
+    const registry = createSlotRegistry();
+    const Plain = () => <button type="button" data-testid="plain-btn">Plain</button>;
+    registry.addClaim({ pluginId: "alpha", priority: 100, slot: "session-card-action-bar", Component: Plain as never });
+    const wrap = (n: React.ReactNode) => {
+      const prim = createUiPrimitiveRegistry();
+      registerUiPrimitive(prim, "ui:action-list" as never, ActionList as never);
+      return (
+        <UiPrimitiveProvider value={prim}>
+          <Router hook={memoryLocation({ path: "/", record: true }).hook}>
+            <PluginContextProvider registry={registry}>
+              <CardSectionsProvider value={{ prefs: {}, pluginNames: { alpha: "Alpha plugin" } }}>{n}</CardSectionsProvider>
+            </PluginContextProvider>
+          </Router>
+        </UiPrimitiveProvider>
+      );
+    };
+    openMenu(makeSession(), {}, wrap);
+    const host = screen.getByTestId("plain-btn").closest("[data-session-menu-plugins]") as HTMLElement;
+    expect(host.className).toContain("text-[var(--text-primary)]");
+    // The host does not restyle the plugin's own button.
+    expect(screen.getByTestId("plain-btn").className).toBe("");
+  });
+
+  it("the menu contains no muted token and no 10 px text", () => {
+    const menu = openMenu(gone(), { onSpawnWorktree: () => {}, onSpawnSibling: () => {} });
+    expect(menu.outerHTML).not.toContain("text-muted");
+    expect(menu.outerHTML).not.toContain("--text-muted");
+    expect(menu.outerHTML).not.toContain("text-[10px]");
+    expect(menu.outerHTML).not.toContain("text-[var(--text-tertiary)]");
+  });
+});

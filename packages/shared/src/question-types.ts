@@ -52,6 +52,8 @@ export interface QuestionSnapshot {
 export interface QuestionDetail extends QuestionRow {
   question: string;
   options?: string[];
+  /** Inline "Other" opt-in from the live prompt (never persisted). See change: add-ask-user-inline-other. */
+  allowOther?: true;
   brief?: string;
   briefLabel?: BriefLabel;
   snapshot: QuestionSnapshot;

@@ -416,3 +416,117 @@ describe("Step ① peer status (F13, F14, X8, P1)", () => {
     }
   });
 });
+
+// Skip-for-now (test-plan #F4–#F12). See change: fix-provider-catalogue-first-run (D6).
+describe("LandingPage: Step 1 can be skipped", () => {
+  const KEY = "pi-dashboard.onboarding.providersSkipped";
+  beforeEach(() => localStorage.clear());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    localStorage.clear();
+  });
+
+  it("F4: skipping unlocks Step 2 as the primary action", () => {
+    renderPage({ providersReady: false });
+    fireEvent.click(screen.getByTestId("onboarding-step-1-skip"));
+    expect(screen.getByTestId("onboarding-step-1-skipped")).toBeTruthy();
+    expect(screen.getByTestId("onboarding-step-1-resume")).toBeTruthy();
+    expect(screen.getByTestId("onboarding-step-2-create")).toBeTruthy();
+    expect(screen.getByTestId("onboarding-progress").textContent).toMatch(/0 of 3 done/);
+    expect(localStorage.getItem(KEY)).toBe("true");
+  });
+
+  it("F5: a skipped step still lets a session be started", () => {
+    const { onSpawnSession } = renderPage({ providersReady: false, pinnedCount: 1, firstPinnedCwd: "/p" });
+    fireEvent.click(screen.getByTestId("onboarding-step-1-skip"));
+    fireEvent.click(screen.getByTestId("onboarding-step-3-cta"));
+    expect(onSpawnSession).toHaveBeenCalledTimes(1);
+    expect((onSpawnSession as ReturnType<typeof vi.fn>).mock.calls[0][0]).toBe("/p");
+  });
+
+  it("F6: the skip survives a reload", () => {
+    localStorage.setItem(KEY, "true");
+    renderPage({ providersReady: false });
+    expect(screen.getByTestId("onboarding-step-1-skipped")).toBeTruthy();
+    expect(screen.queryByTestId("onboarding-step-1-skip")).toBeNull();
+  });
+
+  it("F7: done wins over a previous skip; no skip/resume control once done", () => {
+    localStorage.setItem(KEY, "true");
+    renderPage({ providersReady: true });
+    expect(screen.getByTestId("onboarding-step-1-done")).toBeTruthy();
+    expect(screen.queryByTestId("onboarding-step-1-skip")).toBeNull();
+    expect(screen.queryByTestId("onboarding-step-1-resume")).toBeNull();
+  });
+
+  it("F8: Set up now navigates to the providers settings", () => {
+    localStorage.setItem(KEY, "true");
+    const { navigate } = renderPage({ providersReady: false });
+    fireEvent.click(screen.getByTestId("onboarding-step-1-resume"));
+    expect(navigate).toHaveBeenCalledTimes(1);
+    expect(navigate).toHaveBeenCalledWith("/settings/providers");
+  });
+
+  it("F9: at most one primary control; exactly one iff a step is pending", () => {
+    const providers = [false, true] as const;
+    for (const skipped of [false, true]) {
+      for (const providersReady of providers) {
+        for (const pinnedCount of [0, 1]) {
+          for (const sessionsCount of [0, 1]) {
+            cleanup();
+            localStorage.clear();
+            if (skipped) localStorage.setItem(KEY, "true");
+            renderPage({
+              providersReady,
+              pinnedCount,
+              sessionsCount,
+              firstPinnedCwd: pinnedCount ? "/p" : null,
+            });
+            const primaries = Array.from(document.querySelectorAll("button")).filter((b) =>
+              b.className.includes("bg-[var(--accent-solid)]"),
+            );
+            const step1Satisfied = providersReady || skipped;
+            const step2Done = pinnedCount > 0;
+            const step3Done = sessionsCount > 0;
+            const pending =
+              !step1Satisfied || (step1Satisfied && !step2Done) || (step2Done && !step3Done);
+            const label = JSON.stringify({ skipped, providersReady, pinnedCount, sessionsCount });
+            expect(primaries.length, label).toBeLessThanOrEqual(1);
+            expect(primaries.length === 1, label).toBe(pending);
+          }
+        }
+      }
+    }
+  });
+
+  it("F10: storage unavailable keeps the skip while mounted", () => {
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("denied");
+    });
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("denied");
+    });
+    renderPage({ providersReady: false });
+    fireEvent.click(screen.getByTestId("onboarding-step-1-skip"));
+    expect(screen.getByTestId("onboarding-step-1-skipped")).toBeTruthy();
+  });
+
+  it("F11: the new controls and state are accessible", () => {
+    renderPage({ providersReady: false });
+    fireEvent.click(screen.getByRole("button", { name: /skip for now/i }));
+    expect(screen.getByRole("button", { name: /set up now/i })).toBeTruthy();
+    const row = screen.getByTestId("onboarding-step-1");
+    expect(row.querySelector("span")).toBeTruthy();
+    expect(within(screen.getByTestId("onboarding-step-1-skipped")).getByText(/skipped/i)).toBeTruthy();
+  });
+
+  it("F12: the skipped row explains the consequence", () => {
+    localStorage.setItem(KEY, "true");
+    renderPage({ providersReady: false });
+    const text = screen.getByTestId("onboarding-step-1-skipped").textContent ?? "";
+    expect(text).toMatch(/skipped/i);
+    expect(text).toMatch(/need a provider to run prompts/i);
+    expect(text).toMatch(/lists every provider it knows/i);
+  });
+});
+

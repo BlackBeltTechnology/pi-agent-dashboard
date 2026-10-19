@@ -3,6 +3,7 @@
  * on, tagged `{ kind, url, tls }`, multi-sourced from:
  *   - active provider endpoints (public / mesh / magicdns),
  *   - a manual operator `https`/`wss` endpoint (`pairing.publicBaseUrls`),
+ *   - the optional TLS listener's certificate-backed names (`https://<name>[:port]`),
  *   - this host's LAN + loopback addresses.
  *
  * The `tls` tag is ADVISORY. The authoritative "never advertise plain http in
@@ -58,12 +59,15 @@ export interface CollectArgs {
   port: number;
   /** Include LAN/local addresses (default true). */
   includeLocal?: boolean;
+  /** Certificate-backed names of the TLS listener (`tlsListenerUrls()`), already `tls: true`. */
+  tlsEndpoints?: TunnelEndpoint[];
 }
 
 /** Merge every source into one deduped tagged list. */
 export function collectEndpoints(args: CollectArgs): TunnelEndpoint[] {
   const all: TunnelEndpoint[] = [
     ...(args.providerEndpoints ?? []),
+    ...(args.tlsEndpoints ?? []),
     ...manualEndpoints(args.publicBaseUrls),
     ...(args.includeLocal === false ? [] : localEndpoints(args.port)),
   ];

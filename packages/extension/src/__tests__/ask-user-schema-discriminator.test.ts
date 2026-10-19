@@ -139,3 +139,23 @@ describe("ask_user SubQuestionSchema — OpenAI strict-mode shape", () => {
     expect(methods).not.toContain("batch");
   });
 });
+
+// #E13 — See change: add-ask-user-inline-other
+describe("ask_user allowOther schema field", () => {
+  it("is an optional boolean at the root and on sub-questions", () => {
+    const tool = captureRegisteredTool();
+    const params = tool.parameters as PiSchema;
+    expect(params.properties?.allowOther?.type).toBe("boolean");
+    expect(params.required ?? []).not.toContain("allowOther");
+    const sq = getSubQuestionSchema(params);
+    expect(sq.properties?.allowOther?.type).toBe("boolean");
+    expect(sq.required ?? []).not.toContain("allowOther");
+  });
+  it("description is dashboard-only and states the default", () => {
+    const tool = captureRegisteredTool();
+    const d = String((tool.parameters as PiSchema).properties?.allowOther?.description);
+    expect(d).toMatch(/dashboard/i);
+    expect(d).toMatch(/default.*true/i);
+    expect(d).toMatch(/terminal/i);
+  });
+});

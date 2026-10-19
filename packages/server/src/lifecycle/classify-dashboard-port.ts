@@ -33,7 +33,15 @@ export interface ClassifyConfig {
 }
 
 export type PortClassification =
-  | { kind: "owned"; pid: number; version?: string }
+  | {
+      kind: "owned";
+      pid: number;
+      version?: string;
+      /** Owner facts from the same health reply (wording only). See change: fix-cli-control-electron-server. */
+      launchSource?: string;
+      bootParentAlive?: boolean;
+      bootParentPid?: number;
+    }
   | { kind: "unowned-dashboard"; pid: number | undefined }
   | { kind: "conflict" }
   | { kind: "unresponsive"; pid: number | undefined }
@@ -87,7 +95,16 @@ export async function classifyDashboardPort(
   if (answers.length > 0) {
     const localInstanceId = safe(() => d.peekInstanceId(config.piPort));
     const owned = answers.find((r) => isOwnedHealth(r, { meta, localInstanceId, port: config.port }));
-    if (owned && typeof owned.pid === "number") return { kind: "owned", pid: owned.pid, version: owned.version };
+    if (owned && typeof owned.pid === "number") {
+      return {
+        kind: "owned",
+        pid: owned.pid,
+        version: owned.version,
+        ...(owned.launchSource !== undefined ? { launchSource: owned.launchSource } : {}),
+        ...(owned.bootParentAlive !== undefined ? { bootParentAlive: owned.bootParentAlive } : {}),
+        ...(owned.bootParentPid !== undefined ? { bootParentPid: owned.bootParentPid } : {}),
+      };
+    }
     return { kind: "unowned-dashboard", pid: answers[0].pid };
   }
 

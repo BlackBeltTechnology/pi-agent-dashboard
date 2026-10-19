@@ -11,8 +11,8 @@
  */
 
 
+import type { CatalogueReadyResponse, LegacyProviderIdsResponse } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { FastifyInstance } from "fastify";
-import type { LegacyProviderIdsResponse } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { beginFlow, isPluginFlow } from "../auth/begin-flow.js";
 import {
   abortAllFlows,
@@ -28,7 +28,6 @@ import {
   type OAuthRegistryEntry,
 } from "../auth/provider-auth-handlers.js";
 import { oauthRegistryReady } from "../auth/provider-auth-registry.js";
-import { scanLegacyProviderIds } from "../auth/scan-legacy-provider-ids.js";
 import {
   type ApiKeyCredential,
   CredentialTypeConflictError,
@@ -38,6 +37,7 @@ import {
   readAuthJson,
   removeCredential,
   resolveAuthJsonKey,
+  resolveCatalogue,
   writeCredential,
 } from "../auth/provider-auth-storage.js";
 import {
@@ -50,8 +50,9 @@ import {
   isRadiusOverridden,
   isRadiusRuntimeAvailable,
 } from "../auth/radius-override.js";
+import { scanLegacyProviderIds } from "../auth/scan-legacy-provider-ids.js";
 import { refreshModelRegistry } from "../model-proxy/registry-singleton.js";
-import { getLatestCatalogue, isCatalogueReady } from "../package/provider-catalogue-cache.js";
+import { isCatalogueReady } from "../package/provider-catalogue-cache.js";
 import type { BrowserGateway } from "../pairing/browser-gateway.js";
 import type { PiGateway } from "../pi/pi-gateway.js";
 
@@ -168,12 +169,12 @@ export function registerProviderAuthRoutes(
     // Cold-cache nudge: if no bridge has pushed a catalogue yet, ask
     // every connected pi to send one. Best-effort, doesn't block this
     // response. See change: replace-hardcoded-provider-lists.
-    if (getLatestCatalogue().length === 0) {
+    if (!isCatalogueReady()) {
       for (const sid of piGateway.getConnectedSessionIds()) {
         piGateway.sendToSession(sid, { type: "request_providers", sessionId: sid });
       }
     }
-    return getAuthStatus();
+    return await getAuthStatus();
   });
 
   // Catalogue availability (D5): lets the client distinguish "no api-key
@@ -181,8 +182,14 @@ export function registerProviderAuthRoutes(
   // route on purpose — the /status body is a bare array clients pin, and a
   // header is invisible to non-browser consumers. See change:
   // redesign-providers-settings-page.
-  fastify.get("/api/provider-auth/catalogue-ready", async () => {
-    return { ready: isCatalogueReady() };
+  fastify.get("/api/provider-auth/catalogue-ready", async (): Promise<CatalogueReadyResponse> => {
+    await registryReady;
+    const ready = isCatalogueReady();
+    if (ready) return { ready, fallback: false };
+    // `fallback`: an api-key row can actually be shown (computed after the
+    // custom filter). See change: fix-provider-catalogue-first-run (D4).
+    const fallbackRows = await resolveCatalogue();
+    return { ready, fallback: fallbackRows.some((e) => !e.custom) };
   });
 
   // Provider ids pi renamed that still appear in pi's agent-dir files. A

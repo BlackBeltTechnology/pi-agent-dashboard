@@ -258,6 +258,17 @@ describe("VaultSection — request-access remedy row", () => {
     expect(link().textContent).toBe("Request access");
   });
 
+  it("align #E6 an unknown remedy between two known ones is dropped; order and both links survive the shared notice", async () => {
+    setGlobalApiBase(window.location.origin);
+    stubVault([() => refusal(["request-access", "unknown-value", "sign-in"])]);
+    render(<VaultSection />);
+    const notice = await screen.findByTestId("vault-operate-required");
+    expect(notice.getAttribute("data-tone")).toBe("info");
+    expect(screen.getAllByTestId("vault-operate-remedy").map((r) => r.getAttribute("data-remedy"))).toEqual(["request-access", "sign-in"]);
+    expect(link().textContent).toBe("Request access");
+    expect(screen.getByTestId("vault-operate-signin").getAttribute("href")).toBe("/auth/login");
+  });
+
   it("E21 another server: absolute link in a new context without an opener", async () => {
     setGlobalApiBase("http://192.168.16.204:8000");
     stubVault([() => refusal(["use-host", "request-access"])]);

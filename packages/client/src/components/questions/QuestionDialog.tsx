@@ -199,7 +199,12 @@ function QuestionSection({
           <Renderer
             requestId={detail.id}
             method={detail.type}
-            params={{ title: detail.question, options: detail.options, questions: detail.questions }}
+            params={{
+              title: detail.question,
+              options: detail.options,
+              questions: detail.questions,
+              ...(detail.allowOther ? { allowOther: true } : {}),
+            }}
             status="pending"
             onRespond={(result) => onAnswer({ answer: encodeDialogAnswer(result) })}
             onCancel={() => onAnswer({ cancelled: true })}
@@ -371,6 +376,9 @@ export function QuestionDialog({ row, gone, onClose, onOpenSession }: QuestionDi
           data-testid="question-dialog"
           onKeyDownCapture={(e) => {
             if (e.key !== "Escape") return;
+            // Escape inside the inline "Other" field only collapses it (the field consumes the key).
+            // See change: add-ask-user-inline-other.
+            if ((e.target as HTMLElement | null)?.closest?.("[data-other-input]")) return;
             // Never let an answer box's Esc-cancels shortcut answer the agent's question.
             e.preventDefault();
             e.stopPropagation();

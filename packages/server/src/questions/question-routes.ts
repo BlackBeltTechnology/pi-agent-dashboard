@@ -95,7 +95,7 @@ export function registerQuestionRoutes(fastify: FastifyInstance, deps: QuestionR
 
     if (body.answer !== undefined) {
       const valid = validateQuestionAnswer(
-        { type: rec.type, ...(rec.options ? { options: rec.options } : {}), ...(rec.questions ? { metadata: { questions: rec.questions } } : {}) },
+        { type: rec.type, ...(rec.options ? { options: rec.options } : {}), ...(rec.allowOther ? { allowOther: true } : {}), ...(rec.questions ? { metadata: { questions: rec.questions } } : {}) },
         body.answer,
       );
       if (!valid.ok) return fail(reply, 400, valid.reason);

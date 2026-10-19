@@ -26,6 +26,7 @@ function detectOnUserPath(name: string): { found: boolean; path?: string } {
 }
 
 import { inspectedCredentialFiles } from "@blackbelt-technology/pi-dashboard-shared/credential-detect.js";
+import { starterFromHealth } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
 import {
   assumedMandatory,
   checkAttachedServerVersion,
@@ -112,7 +113,7 @@ export async function checkManagedNodeRuntime(opts?: {
  *
  * See change: harvest-bootstrap-survivor-fixes (cherry-pick 4).
  */
-async function probeServer(): Promise<{
+export async function probeServer(): Promise<{
   running: boolean;
   version?: string;
   mode?: string;
@@ -136,11 +137,25 @@ async function probeServer(): Promise<{
     running: true,
     version: typeof health.version === "string" ? health.version : undefined,
     mode: typeof health.mode === "string" ? health.mode : undefined,
-    starter: typeof health.starter === "string" ? health.starter : null,
+    starter: starterFromHealth(health) ?? null,
   };
   // `installable` field intentionally dropped under change:
   // eliminate-electron-runtime-install — the runtime install-list flow
   // is gone, so /api/health no longer exposes the field.
+}
+
+/**
+ * Doctor "Server starter" row. The starter comes from the published
+ * `launchSource` (legacy `starter` as a fallback).
+ * See change: fix-cli-control-electron-server (design D6).
+ */
+export function serverStarterCheck(probe: { starter?: string | null }): DoctorCheck {
+  return {
+    name: "Server starter",
+    section: "server",
+    status: probe.starter ? "ok" : "warning",
+    message: probe.starter ?? "Unknown (old server?)",
+  };
 }
 
 /** Run all doctor checks. Wraps the body in try/catch so the renderer
@@ -356,14 +371,7 @@ async function runDoctorInner(): Promise<DoctorReport> {
   // Installable-list row removed under change:
   // eliminate-electron-runtime-install (Phase 6.3).
   const probe = await probeServer();
-  if (probe.running) {
-    checks.push({
-      name: "Server starter",
-      section: "server",
-      status: probe.starter ? "ok" : "warning",
-      message: probe.starter ?? "Unknown (old server?)",
-    });
-  }
+  if (probe.running) checks.push(serverStarterCheck(probe));
 
   // ── Server launch sanity test (only when server is not running) ──
   if (!probe.running) {

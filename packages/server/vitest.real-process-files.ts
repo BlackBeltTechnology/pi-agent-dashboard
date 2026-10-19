@@ -25,6 +25,9 @@ export const REAL_PROCESS_TESTS: readonly string[] = [
   // signal — SIGTERMs a real wrapper → jiti-loaded server, reads boot-state.
   "src/__tests__/cli-signal-forwarding.test.ts",
   "src/__tests__/cli-stop-real.test.ts",
+  // wrapper — second bare `pi-dashboard` against a real Electron-started foreground server.
+  // See change: fix-cli-control-electron-server.
+  "src/__tests__/cli-foreground-real.test.ts",
   // signal — freezes (SIGSTOP) a real dashboard and runs `start` / `status` / a second server against it.
   // See change: harden-dashboard-start-detection.
   "src/__tests__/cli-start-real.test.ts",

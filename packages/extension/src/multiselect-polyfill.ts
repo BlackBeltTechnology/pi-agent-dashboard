@@ -34,7 +34,7 @@ export interface PolyfillCtx {
     multiselect?: (
       title: string,
       options: string[],
-      opts?: { message?: string },
+      opts?: { message?: string; allowOther?: boolean },
     ) => Promise<string[] | undefined>;
     custom<T>(
       factory: (tui: unknown, theme: unknown, keybindings: unknown, done: (result: T) => void) => unknown,
@@ -47,7 +47,7 @@ export function polyfillMultiselect(
   ctx: PolyfillCtx,
   title: string,
   options: string[],
-  opts?: { message?: string },
+  opts?: { message?: string; allowOther?: boolean },
 ): Promise<string[] | undefined> {
   // Primary path: delegate to the bridge-patched ctx.ui.multiselect (which
   // routes through PromptBus → DashboardDefaultAdapter → client

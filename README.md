@@ -67,7 +67,7 @@ Download a pre-built installer from [GitHub Releases](https://github.com/BlackBe
 | **Linux** (x64 / ARM64) | `.deb` or `.AppImage` |
 | **Windows** (x64 / ARM64) | `.zip` |
 
-> **macOS requirement:** macOS 12 (Monterey) or newer — Intel and Apple Silicon both supported. macOS 10.15 (Catalina) and 11 (Big Sur) are not supported; users on those versions keep their currently installed version (Electron 32) and are not offered the newer update.
+> **macOS requirement:** macOS 13 (Ventura) or newer — Intel and Apple Silicon both supported. macOS 12 (Monterey) and older are not supported (Electron 44 dropped macOS 12); users on those versions keep their currently installed version and are not offered the newer update.
 
 On first launch a setup wizard walks you through mode selection (standalone vs. power-user), API key / OAuth sign-in, and [recommended extensions](#recommended-extensions). The standalone mode bundles Node.js and auto-installs pi + dashboard + openspec into `~/.pi-dashboard/` — **no terminal, npm, or Node.js required**.
 
@@ -475,11 +475,11 @@ In the Electron app, if the initial launch attempts fail (or the server is stopp
 ```bash
 pi-dashboard start           # background daemon (production)
 pi-dashboard start --dev     # dev mode (proxy to Vite, fallback to production build)
-pi-dashboard stop            # stop daemon; also kills port holders THIS HOME owns (lock sidecar / health identity)
+pi-dashboard stop            # stop daemon (announced shutdown first, so terminal pi sessions do not auto-start a replacement; SIGTERM fallback); also kills port holders THIS HOME owns (lock sidecar / health identity). For a server the open desktop app started, prints a note: the app shows its reconnect page
 pi-dashboard stop --force    # DANGEROUS: kills EVERY listener on the ports - another HOME's/user's dashboard, the Electron server, or an unrelated service. Only to recover an orphaned listener nothing else can attribute; `restart` ignores it
 pi-dashboard restart         # restart (production)
 pi-dashboard restart --dev   # restart in dev mode
-pi-dashboard status          # daemon status
+pi-dashboard status          # daemon status for the resolved port; says when the desktop app started it
 ```
 
 Daemon stdout/stderr is logged to `~/.pi/dashboard/server.log` (append mode with timestamped headers per start).

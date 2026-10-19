@@ -47,10 +47,26 @@ const defaultDeps: OwnershipDeps = {
   fetchHealth: (url) => fetch(url, { signal: AbortSignal.timeout(HEALTH_PROBE_TIMEOUT_MS) }),
 };
 
+/** Raw `/api/health` fields the stop path reads. */
+type HealthBody = {
+  pid?: unknown;
+  instanceId?: unknown;
+  launchSource?: unknown;
+  bootParentAlive?: unknown;
+  bootParentPid?: unknown;
+};
+
+/** Owner facts copied from a health reply (typed, optional). */
+export interface OwnerFacts {
+  launchSource?: string;
+  bootParentAlive?: boolean;
+  bootParentPid?: number;
+}
+
 async function probeHealth(
   url: string,
   fetchHealth: OwnershipDeps["fetchHealth"],
-): Promise<{ pid?: unknown; instanceId?: unknown } | null> {
+): Promise<HealthBody | null> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const timeout = new Promise<null>((resolve) => {
@@ -60,7 +76,7 @@ async function probeHealth(
       const res = await fetchHealth(url);
       if (!res.ok) return null;
       const body = await res.json();
-      return body && typeof body === "object" ? (body as { pid?: unknown; instanceId?: unknown }) : null;
+      return body && typeof body === "object" ? (body as HealthBody) : null;
     })();
     attempt.catch(() => {}); // a late rejection after the timeout must not be unhandled
     return await Promise.race([attempt, timeout]);
@@ -110,14 +126,36 @@ export function isOwnedHealth(
   return lockPid !== null && health.pid === lockPid;
 }
 
-/** Pids the current HOME can prove it owns. Empty when `config.port <= 0`. */
-export async function collectOwnedPids(
+/**
+ * What the current HOME can prove it owns, plus the one pid whose ownership
+ * rests on a health reply (instance-id match) with that reply's owner facts.
+ * `healthProven` is null whenever no health proof exists (no local instance
+ * id, unreachable, or lock-metadata-only ownership). The probe runs only when a
+ * local instance id exists, so there is no added latency otherwise.
+ * See change: fix-cli-control-electron-server (design D3).
+ */
+export interface Ownership {
+  owned: Set<number>;
+  healthProven: { pid: number; health: OwnerFacts } | null;
+}
+
+function ownerFacts(body: HealthBody): OwnerFacts {
+  return {
+    ...(typeof body.launchSource === "string" ? { launchSource: body.launchSource } : {}),
+    ...(typeof body.bootParentAlive === "boolean" ? { bootParentAlive: body.bootParentAlive } : {}),
+    ...(typeof body.bootParentPid === "number" ? { bootParentPid: body.bootParentPid } : {}),
+  };
+}
+
+/** Owned pids (lock metadata + instance-id match) and the health-proven pid. Empty when `config.port <= 0`. */
+export async function collectOwnership(
   config: OwnershipConfig,
   deps: Partial<OwnershipDeps> = {},
-): Promise<Set<number>> {
+): Promise<Ownership> {
   const d = { ...defaultDeps, ...deps };
   const owned = new Set<number>();
-  if (!(config.port > 0)) return owned;
+  let healthProven: Ownership["healthProven"] = null;
+  if (!(config.port > 0)) return { owned, healthProven };
 
   try {
     const lockPid = lockOwnedPid(d.readLockMeta(), config.port);
@@ -133,12 +171,23 @@ export async function collectOwnedPids(
         `http://${healthHost(config.host)}:${config.port}/api/health`,
         d.fetchHealth,
       );
-      if (healthMatchesInstance(health, localId)) owned.add(health.pid);
+      if (healthMatchesInstance(health, localId)) {
+        owned.add(health.pid);
+        healthProven = { pid: health.pid, health: ownerFacts(health) };
+      }
     }
   } catch {
     /* no proof */
   }
-  return owned;
+  return { owned, healthProven };
+}
+
+/** Pids the current HOME can prove it owns. Empty when `config.port <= 0`. */
+export async function collectOwnedPids(
+  config: OwnershipConfig,
+  deps: Partial<OwnershipDeps> = {},
+): Promise<Set<number>> {
+  return (await collectOwnership(config, deps)).owned;
 }
 
 /** Split holders (pid → ports) into owned vs foreign. Pure. */

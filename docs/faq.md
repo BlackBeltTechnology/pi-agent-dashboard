@@ -302,6 +302,42 @@ pi-dashboard status --port 8000    # port 8000 only
 pi-dashboard start --port 8001     # separate instance
 ```
 
+## How do `pi-dashboard` CLI and the desktop app's server interact?
+
+Desktop app (Electron) starts its own bundled server. CLI sees it as owned when same `HOME`.
+
+- Electron spawns server: `DASHBOARD_STARTER=Electron`, foreground CLI child, same `HOME`.
+- Writes `~/.pi/dashboard/server.pid`, `server.lock.meta.json`, `instances/<piPort>.id`. Same-`HOME` CLI reads them → owned.
+- `/api/health` publishes `launchSource` (`electron` | `standalone` | `bridge`), `bootParentAlive`, `bootParentPid`.
+- No `starter` field since 2026-05-26. Consumers read `launchSource`.
+
+`pi-dashboard status` on owned server:
+- `Dashboard server is running (pid N) on port P (started by the pi-dashboard desktop app)`.
+- Port resolution: `--port` > `PI_DASHBOARD_PORT` > `~/.pi/dashboard/config.json` > default `8000`.
+
+Env/port skew:
+- Shell exports `PI_DASHBOARD_PORT` / `PI_DASHBOARD_PI_PORT`. App reads `config.json` only.
+- CLI inspects other port → `Dashboard server is not running` (exit `1`) or `not owned by this HOME`.
+- Fix: pass `--port <n> --pi-port <n>`, or `unset PI_DASHBOARD_PORT PI_DASHBOARD_PI_PORT`.
+
+`pi-dashboard stop` on health-proven owned server:
+- `POST` loopback `/api/shutdown` first. Exit intent `shutdown`. Bridges suppress auto-start for 60 s quiesce.
+- `SIGTERM` fallback if `/api/shutdown` fails.
+- Prints note: app stays open, shows reconnect page. Next: `Start server` in app, or quit app.
+- App does not respawn after CLI stop. Watchdog → reconnect page. Only exit `75` respawns.
+
+Bare `pi-dashboard` with served port:
+- Prints `Dashboard server is already running (pid N) (started by the pi-dashboard desktop app)`. Exit `1`, no stack.
+- Use `pi-dashboard status` or `pi-dashboard start` instead.
+
+Quit app:
+- Stops server it started. Reads `launchSource`, waits ≤ 5 s.
+- Server from `pi-dashboard start` is attached. App never stops it.
+
+Different `HOME`:
+- Server → `not owned by this HOME`.
+- `pi-dashboard stop --force` kills it anyway. DANGEROUS: kills another user's/HOME's dashboard.
+
 ## Why does `server.log` show `[home-lock] could not establish the rendezvous ... E_INSTANCE_UNRESPONSIVE`?
 
 File: `~/.pi/dashboard/server.log`.
@@ -952,6 +988,26 @@ Child (zrok/ngrok) = server owns child process, PID + watchdog. Daemon (tailscal
 Gateway UI → "Add HTTPS URL". Appends to `pairing.publicBaseUrls` via auth-gated `PUT /api/config`. No new route.
 
 https/wss only. Gate authoritative server-side at read time in `reachableUrls()`; plain-http dropped before advertisement. Endpoint surfaces in `GET /api/tunnel/endpoints` as tagged `{kind, url, tls}`.
+
+## HTTPS on the tailnet (built-in TLS listener)
+
+No reverse proxy. Dashboard serves HTTPS itself with a Tailscale cert. Off by default.
+
+Steps:
+1. Tailscale admin console → DNS → enable HTTPS Certificates.
+2. Gateway page → Built-in HTTPS → switch on.
+3. Listen on → "Use <ip>" (Tailscale IPv4). Needed so other devices reach it. Default `127.0.0.1` = this machine only.
+4. Connect by MagicDNS name (`https://<name>.<tailnet>.ts.net:8443`), not IP. No SNI on IP URL → handshake fails.
+
+Notes:
+- Device name appears in public CT logs (certificate transparency). Opt-in only.
+- Phones need HTTPS to pair and receive notifications.
+- Devices still pair. Or add `100.64.0.0/10` as trusted network (Security page). See [My Tailscale device is not trusted after Add Local Network?](#my-tailscale-device-is-not-trusted-after-add-local-network).
+- OAuth sign-in not supported from TLS origin. Login returns to resolved redirect base. Pair instead.
+- Device paired over TLS → cookie `pi_dash_device` is `Secure`. Use the TLS origin. `http://<name>:8000` will not send it.
+- Rollback: switch off. Listener closes. Certs stay on disk, inert.
+
+See change: add-tailscale-cert-tls. Architecture: [Built-in TLS listener](architecture.md).
 
 ## Why do some endpoints get a link QR instead of the pairing QR?
 

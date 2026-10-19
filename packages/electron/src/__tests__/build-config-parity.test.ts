@@ -159,3 +159,27 @@ describe("bundled plugin list — single source of truth (E22)", () => {
   });
 });
 
+
+/**
+ * test-plan E15 (refresh-electron-bundled-components): the AppImage maker package is
+ * gone and Forge keeps only the .deb maker. AppImage is built by electron-builder
+ * `--prepackaged`; the unused Forge-7-era maker (and its patch) pinned Forge 7
+ * internals in the tree.
+ */
+describe("Forge makers (E15)", () => {
+  const electronPkg = JSON.parse(readFileSync(path.join(electronRoot, "package.json"), "utf8"));
+  const allDeps = Object.keys({
+    ...electronPkg.dependencies,
+    ...electronPkg.devDependencies,
+    ...electronPkg.optionalDependencies,
+  });
+
+  it("declares no maker-appimage dependency", () => {
+    expect(allDeps.filter((d) => /maker-appimage/.test(d))).toEqual([]);
+  });
+
+  it("forge.config.ts configures only @electron-forge/maker-deb", () => {
+    const makers = (forgeConfig.makers ?? []) as Array<{ name?: string }>;
+    expect(makers.map((m) => m.name)).toEqual(["@electron-forge/maker-deb"]);
+  });
+});

@@ -120,3 +120,69 @@ describe("BatchRenderer", () => {
     expect(screen.queryByText("Edit")).toBeNull();
   });
 });
+
+// ── Inline Other — test-plan #F8. See change: add-ask-user-inline-other ──
+describe("BatchRenderer inline Other", () => {
+  const qs = [
+    { method: "select", title: "S0", options: ["A", "B"], allowOther: true },
+    { method: "multiselect", title: "M1", options: ["A", "B"], allowOther: true },
+    { method: "select", title: "S2", options: ["A", "B"] },
+    { method: "confirm", title: "C3" },
+    { method: "input", title: "I4" },
+  ];
+  const mount = (onRespond = vi.fn()) => {
+    render(<BatchRenderer requestId="r" method="batch" params={{ title: "T", questions: qs }} status="pending" onRespond={onRespond} onCancel={vi.fn()} />);
+    return onRespond;
+  };
+  const next = () => screen.getByText("Next →") as HTMLButtonElement;
+
+  it("keeps the draft across Back/Next, gates Next, skips non-opted steps, submits plain values", () => {
+    const onRespond = mount();
+    // Step 0: Other empty blocks Next.
+    fireEvent.click(screen.getByRole("button", { name: "Other" }));
+    expect(next().disabled).toBe(true);
+    fireEvent.change(screen.getByRole("textbox", { name: "Other answer" }), { target: { value: "C" } });
+    expect(next().disabled).toBe(false);
+    fireEvent.click(next());
+    // Step 1: multiselect A + Other D; Other empty blocks Next.
+    fireEvent.click(screen.getByRole("checkbox", { name: "A" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Other" }));
+    expect(next().disabled).toBe(true);
+    fireEvent.change(screen.getByRole("textbox", { name: "Other answer" }), { target: { value: "D" } });
+    expect(next().disabled).toBe(false);
+    // Back to step 0: draft intact.
+    fireEvent.click(screen.getByText("← Back"));
+    expect((screen.getByRole("textbox", { name: "Other answer" }) as HTMLInputElement).value).toBe("C");
+    fireEvent.click(next());
+    expect((screen.getByRole("textbox", { name: "Other answer" }) as HTMLInputElement).value).toBe("D");
+    fireEvent.click(next());
+    // Step 2 (non-opted select): no Other row.
+    expect(screen.queryByTestId("other-option")).toBeNull();
+    fireEvent.click(screen.getByText("A"));
+    fireEvent.click(next());
+    // Step 3 confirm
+    expect(screen.queryByTestId("other-option")).toBeNull();
+    fireEvent.click(screen.getByText("Yes"));
+    fireEvent.click(next());
+    // Step 4 input
+    expect(screen.queryByTestId("other-option")).toBeNull();
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "free" } });
+    fireEvent.click(next());
+    // Review shows the custom values; submit.
+    expect(screen.getByText("C")).toBeTruthy();
+    expect(screen.getByText("D")).toBeTruthy();
+    fireEvent.click(screen.getByText(/Submit all/));
+    expect(onRespond).toHaveBeenCalledWith({
+      answers: [{ value: "C" }, { values: ["A", "D"] }, { value: "A" }, { confirmed: true }, { value: "free", images: undefined }],
+    });
+  });
+
+  it("picking an option after Other drops the custom text answer", () => {
+    mount();
+    fireEvent.click(screen.getByRole("button", { name: "Other" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Other answer" }), { target: { value: "C" } });
+    fireEvent.click(screen.getByText("B"));
+    expect(screen.queryByRole("textbox", { name: "Other answer" })).toBeNull();
+    expect(next().disabled).toBe(false);
+  });
+});

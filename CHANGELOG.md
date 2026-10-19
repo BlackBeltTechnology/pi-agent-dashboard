@@ -12,6 +12,15 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Added
 
+- **Type your own answer on `ask_user` choices.** `select`, `multiselect` and batch select/multiselect
+  steps now show an inline "Other" row in the dashboard (chat card and the pending-question dialog).
+  Choosing it reveals a text field; the answer reaches the agent as a plain string, and the tool
+  result tells the model when an answer is custom. It is opt-in per prompt (`allowOther: true` on
+  `ctx.ui.select` / `ctx.ui.multiselect`); the dashboard `ask_user` tool enables it by default, so the
+  model may now receive text it did not list. Pass `allowOther: false` when the answer must be exactly
+  one of the options. Other callers (path-gate approval, ACP permission, pi-flows) are unchanged. The
+  REST answer route accepts one custom value on opted-in prompts only (blank, padded and duplicate
+  values are rejected).
 - **OpenSpec status in one spawn.** The server now reads every change's status with a single
   `openspec status --all --json` per project (was `1 + N` spawns on refresh, ~25 s on macOS for 100
   changes; now ~1.3 s). Custom workflow schemas are reported correctly, and one broken change
@@ -96,6 +105,18 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Changed
 
+- **BREAKING (macOS 12): the minimum macOS is now 13 (Ventura).** Electron 44 dropped macOS 12, so
+  the app declares `LSMinimumSystemVersion 13.0`, and the update gate moves to Darwin 22. Macs on
+  macOS 12 (Monterey) stay on their installed 0.9.x build and are not offered the update; every
+  other platform is unaffected.
+- **Bundled components refreshed.** Electron 43.4.1 → 44.9.0, Electron Forge 7 → 8.0.1, bundled
+  Node v24.15.0 → v24.22.0, the Windows git bundle (dugite-native) v2.53.0-3 → v2.53.0-4, the
+  openspec CLI 1.11.0 → 1.14.3, node-pty 1.2.0-beta.13 → 1.2.0-beta.15 and koffi 3.1 → 3.3.3.
+  The unused `@pengx17/electron-forge-maker-appimage` dependency and its patch are removed
+  (AppImage has been built by electron-builder).
+- **Task counts follow OpenSpec 1.14.3.** `status --all` now counts a task the way the CLI does:
+  `+` and ordered-list markers, and non-`x` checkbox markers such as `[~]`, count as unfinished
+  tasks; link bullets still do not.
 - **BREAKING (security, opt-in): a network match can stop authenticating requests.** A new
   `network.trustMode` (`"pair"` | `"legacy"`) decides what a `trustedNetworks` /
   `auth.bypassHosts` match means. In `pair` the match no longer admits anyone: a LAN device
@@ -211,6 +232,16 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Fixed
 
+- **The desktop app's server and the `pi-dashboard` CLI cooperate (#924).**
+  - Quitting the app stops the server it started again. `/api/health` stopped publishing `starter` on 2026-05-26, so the app never saw its own server as owned on quit; it now reads `launchSource` (legacy `starter` as a fallback) and waits up to 5 s for the server to exit. Behaviour change: since 2026-05-26 quit left the server and its sessions running.
+  - `pi-dashboard stop` of a server this HOME provably owns goes through the announced `/api/shutdown`, with the SIGTERM fallback kept. Bridges suppress auto-start, so a terminal pi session no longer races a replacement server in. The exit intent is `shutdown` instead of `signal` (no recovery offer on the next boot). For a server the open desktop app started it prints a note: the app stays open and shows its reconnect page.
+  - `pi-dashboard status` says when the desktop app started the running server; bare `pi-dashboard` on a served port prints "already running (pid N)" and exits 1 instead of a bind-failure stack.
+  - The Electron update checker and Doctor see the real starter: Bridge servers skip the managed check, Standalone servers get the npm recommendation.
+
+- **Packaged apps no longer carry build-host symlinks.** Electron Forge 8 (packager 20) copies
+  bundled resources without preserving relative symlinks, which left 53 absolute, dangling
+  `server/node_modules/.bin/*` links and failed `codesign --verify --strict`. A packaging hook now
+  rewrites them to relative links, and every electron CI leg scans the result.
 - **`!cmd` no longer loses its output on a busy session.** A single-bang command sent while the agent was starting or streaming made pi reject the follow-up, so the output never reached the model; it is now queued with `deliverAs: followUp` and delivered before the run settles.
 - **Discord invite points at the community server.** The invite link (README, site, sidebar
   button, release docs) pointed at a personal server with an expiring invite; it now uses the

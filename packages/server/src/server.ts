@@ -102,6 +102,11 @@ import {
   resolveHostGateMode,
 } from "./auth/host-gate.js";
 import { ensureServerIdentity } from "./auth/identity.js";
+import {
+  MAIN_CONNECTION_TIMEOUT_MS,
+  MAIN_KEEP_ALIVE_TIMEOUT_MS,
+  TlsListener,
+} from "./tls/tls-listener.js";
 import { createLocalCredentialVerifier, hasLocalCredential, listenWithProofFloor } from "./auth/local-credential.js";
 import { createLocalTrustContext, LocalProofCodeStore } from "./auth/local-proof.js";
 import { ensureLocalToken } from "./auth/local-token.js";
@@ -297,6 +302,7 @@ import { registerResourceActivationRoutes } from "./routes/resource-activation-r
 import { registerRuntimeRoutes } from "./routes/runtime-routes.js";
 import { registerSessionRoutes, type ToolResultStats } from "./routes/session-routes.js";
 import { registerSystemRoutes } from "./routes/system-routes.js";
+import { registerTlsRoutes } from "./routes/tls-routes.js";
 import { registerToolRoutes } from "./routes/tool-routes.js";
 import { registerUserRoutes } from "./routes/user-routes.js";
 import {
@@ -488,6 +494,8 @@ export interface DashboardServer {
   browserGateway: BrowserGateway;
   /** Resolved HTTP port after start() (useful for port:0 in tests). Returns null if not listening. */
   httpPort(): number | null;
+  /** The optional TLS listener (off by default). See change: add-tailscale-cert-tls. */
+  readonly tls: TlsListener;
   /** Resolved pi gateway port after start(). Returns null if not listening. */
   piPort(): number | null;
   /**
@@ -693,6 +701,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Taken immediately BEFORE each successful bind: a proof minted earlier cannot
   // be for this listener (D3). 0 until `fastify.listen` runs (inject() in tests).
   let httpBoundAt = 0;
+  // Same contract for the optional TLS listener (its own bind, its own floor). See change: add-tailscale-cert-tls.
+  let tlsBoundAt = 0;
   // Strict local-proof context (`requireLocalProof`, live config read). Threaded to
   // every genuinely-local admission site. See change: harden-trust-and-credential-boundaries (D2).
   const localTrust = createLocalTrustContext(localToken, liveRequireLocalProof);
@@ -705,6 +715,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       const tunnelUrl = getTunnelUrl();
       if (tunnelUrl) urls.push(tunnelUrl);
       urls.push(...resolvePublicBaseUrls(loadConfig()));
+      // Certificate-backed names of the TLS listener (https only; the https/wss
+      // gate in `reachableUrls()` still applies). See change: add-tailscale-cert-tls (D5).
+      urls.push(...tlsListener.tlsListenerUrls().map((e) => e.url));
       // Test-only (PI_E2E_SEED): expose the loopback http origin so the
       // Playwright/Docker harness can pair over http://localhost (a genuine
       // secure context) without TLS. `reachableUrls()` re-gates it behind the
@@ -1798,8 +1811,36 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
 
   const fastify = Fastify({
     logger: false,
-    keepAliveTimeout: 30_000,
-    connectionTimeout: 10_000,
+    keepAliveTimeout: MAIN_KEEP_ALIVE_TIMEOUT_MS,
+    connectionTimeout: MAIN_CONNECTION_TIMEOUT_MS,
+    // Add-ons feature ids embed a local package's absolute path (`pkg:local:/…`), which exceeds
+    // find-my-way's default 100-char param limit (414). See change: addons-hub-folder-view.
+    maxParamLength: 1024,
+  });
+
+  // Optional native TLS listener (off by default): a second `https.Server` that
+  // dispatches into THIS Fastify instance — one route table, one gate chain, one
+  // upgrade switch, two transports. Reconciled after `listen`; failure-isolated.
+  // See change: add-tailscale-cert-tls (D1).
+  let tlsUpgrade: ((req: import("node:http").IncomingMessage, socket: import("node:stream").Duplex, head: Buffer) => void) | null = null;
+  const tlsListener = new TlsListener({
+    dataRoot: path.join(os.homedir(), ".pi", "dashboard", "tls"),
+    getTlsConfig: () => loadConfig().tls,
+    beforeBind: (at) => {
+      tlsBoundAt = at;
+    },
+    dispatch: {
+      request: (req, res) => {
+        fastify.server.emit("request", req, res);
+      },
+      upgrade: (req, socket, head) => {
+        if (tlsUpgrade) tlsUpgrade(req, socket, head);
+        else socket.destroy();
+      },
+      clientError: (err, socket) => {
+        fastify.server.emit("clientError", err, socket);
+      },
+    },
   });
 
   // Route inventory (test-only): fires as each route registers, before listen,
@@ -1814,7 +1855,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // the rate limiter) so no later hook can read an unverified request.
   // See change: loopback-credential-proof (D4).
   fastify.addHook("onRequest", async (request) => {
-    localCredential.stamp(request.raw, { kind: "http", boundAt: httpBoundAt });
+    localCredential.stamp(request.raw, {
+      kind: "http",
+      boundAt: (request.raw.socket as import("node:tls").TLSSocket).encrypted ? tlsBoundAt : httpBoundAt,
+    });
   });
 
   // Global rate limiter. Two jobs: a real remote-caller ceiling, and making the
@@ -1902,6 +1946,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // IP bind is already covered by the IP-literal rule; this matters when
       // the bind is a NAME.
       bindHost: config.host,
+      // Exact certificate names of the TLS listener (empty unless enabled + bound).
+      tlsListenerNames: () => tlsListener.tlsListenerNames(),
     },
     ...resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()),
   });
@@ -1928,6 +1974,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     allowedHosts: liveAllowedHosts(),
     publicBaseUrls: livePublicBaseUrls(),
     bindHost: config.host,
+    tlsListenerNames: () => tlsListener.tlsListenerNames(),
     // Env-over-config, resolved the SAME way as the hook (D4): a mixed state
     // (env=report + config=enforce) must keep the Origin gate's report-only
     // behaviour in step with the hook, else the escape hatch only half-engages.
@@ -2633,7 +2680,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   }
 
   registerAcpRoutes(fastify);
-  registerSystemRoutes(fastify, { onVaultConfigChanged: () => void vaultDelivery.pushNow(), sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, toolResultStats, embedLifecycle, clientDir, clientBuild, readTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []), readAccessGrants: () => snapshotAccessGrantHealth({ coordinator: grantCoordinator, yolo, refusalCount: () => listRefusals().length, promptEnabled: () => loadConfig().accessGrants?.promptEnabled === true, killSwitch: () => isGrantPromptKilled(), hostGateMode: () => resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode, operatorChannels: () => promptChannelCount() }), keeperLogStats: { get: () => getKeeperManager().getKeeperLogStats() }, readPushErrors: pushService ? () => pushService?.errors ?? [] : pushInitError ? () => [pushInitError as string] : undefined });
+  registerTlsRoutes(fastify, { networkGuard, listener: tlsListener });
+  registerSystemRoutes(fastify, { onVaultConfigChanged: () => void vaultDelivery.pushNow(), tls: tlsListener, sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, toolResultStats, embedLifecycle, clientDir, clientBuild, readTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []), readAccessGrants: () => snapshotAccessGrantHealth({ coordinator: grantCoordinator, yolo, refusalCount: () => listRefusals().length, promptEnabled: () => loadConfig().accessGrants?.promptEnabled === true, killSwitch: () => isGrantPromptKilled(), hostGateMode: () => resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode, operatorChannels: () => promptChannelCount() }), keeperLogStats: { get: () => getKeeperManager().getKeeperLogStats() }, readPushErrors: pushService ? () => pushService?.errors ?? [] : pushInitError ? () => [pushInitError as string] : undefined });
   registerHostGateRoutes(fastify, { getCtx: getHostGateCtx, state: hostGateState, networkGuard });
   // GET /api/doctor — see change: doctor-rich-output (task 4.2). Auth-gated identically to /api/config.
   // Assigned by the runtime-overlay block below; read lazily per request.
@@ -3326,6 +3374,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       if (addr && typeof addr === "object") return addr.port;
       return null;
     },
+    tls: tlsListener,
     piPort() {
       // TCP only: a UDS listener has no port, and callers of `piPort()` are
       // building `ws://host:<port>` URLs. Socket-transport callers read
@@ -3358,6 +3407,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
             try { await secondFastify.close(); } catch { /* ignore */ }
             secondFastify = null;
           }
+          try { await tlsListener.stop(); } catch { /* ignore */ }
           try { await fastify.close(); } catch { /* ignore */ }
         },
       });
@@ -4118,11 +4168,19 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         routeOwners.end();
       }
 
+      // Named so the optional TLS listener shares this exact switch (one upgrade
+      // path, two transports). See change: add-tailscale-cert-tls (D1).
       // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: legacy server wiring, grandfathered; decompose in a dedicated refactor, not piecemeal
-      fastify.server.on("upgrade", (request, socket, head) => {
+      const onUpgrade = (request: import("node:http").IncomingMessage, socket: import("node:stream").Duplex, head: Buffer): void => {
         // Stamp the local-credential verdict FIRST (before the Host/Origin gates):
         // everything below reads it via `hasLocalCredential(request.headers)`.
-        localCredential.stamp(request, { kind: "http", boundAt: httpBoundAt });
+        // The proof floor is per transport: a TLS socket is stamped against the
+        // TLS listener's own bind time, so a proof for the main port never
+        // verifies here. See change: add-tailscale-cert-tls (D1).
+        localCredential.stamp(request, {
+          kind: "http",
+          boundAt: (socket as import("node:tls").TLSSocket).encrypted ? tlsBoundAt : httpBoundAt,
+        });
         // Ephemeral single-use ticket (D11) bound to the requested WS route
         // scope. The one cheap read BEFORE the first gate — the host-admission
         // log line names the scope.
@@ -4420,7 +4478,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           default:
             socket.destroy();
         }
-      });
+      };
+      fastify.server.on("upgrade", onUpgrade);
+      tlsUpgrade = onUpgrade;
 
       // Identity-plane arming (D1/D8/D9/D21). Runs AFTER plugins have loaded
       // (outside the loader try, so a loader throw cannot skip it) and BEFORE
@@ -4451,6 +4511,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       await listenWithProofFloor(fastify, (at) => (httpBoundAt = at), { port: config.port, host: config.host });
       writePid(process.pid);
       console.log(`Dashboard server running at http://${config.host}:${config.port}`);
+      // Optional TLS listener: only after Fastify is ready and the main listen resolved.
+      // Failure-isolated — a TLS problem never affects the main listener.
+      // See change: add-tailscale-cert-tls (D1, D7).
+      void tlsListener.markReady().catch((err: unknown) => {
+        console.warn(`[tls] listener start failed: ${err instanceof Error ? err.message : String(err)}`);
+      });
 
       // Managed services: adoption + scheduler only once the server really
       // started (a created-but-never-started server touches nothing). Boot is
@@ -4931,6 +4997,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         try { await secondFastify.close(); } catch { /* ignore */ }
         secondFastify = null;
       }
+      // The TLS listener (and its open connections) closes with the server.
+      try { await tlsListener.stop(); } catch { /* ignore */ }
       await fastify.close();
     },
   };

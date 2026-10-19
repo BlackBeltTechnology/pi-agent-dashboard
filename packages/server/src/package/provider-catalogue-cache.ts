@@ -22,13 +22,26 @@
 import type { ProviderInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 let latest: ProviderInfo[] | null = null;
+/** Sessions whose empty push was already logged (once per session). */
+const loggedEmpty = new Set<string>();
 
 /**
  * Replace the cached catalogue. Called from event-wiring.ts on every
- * `providers_list` arrival. No-op semantically beyond the assignment;
- * no signal to callers because no caller needs one.
+ * `providers_list` arrival. No signal to callers because no caller needs one.
+ *
+ * An EMPTY push is ignored: the bridge sends `[]` while it has not yet captured
+ * a ModelRegistry, and storing it would mark the catalogue ready and mask the
+ * runtime fallback. The previous snapshot (if any) is kept.
+ * See change: fix-provider-catalogue-first-run (D2).
  */
-export function setCatalogueForSession(_sessionId: string, providers: ProviderInfo[]): void {
+export function setCatalogueForSession(sessionId: string, providers: ProviderInfo[]): void {
+  if (providers.length === 0) {
+    if (!loggedEmpty.has(sessionId)) {
+      loggedEmpty.add(sessionId);
+      console.debug(`[provider-catalogue] ignoring empty providers_list from session ${sessionId}`);
+    }
+    return;
+  }
   latest = providers;
 }
 
@@ -65,4 +78,5 @@ export function invalidateCatalogue(): void {
 /** Test-only: reset all cached state. */
 export function _resetForTests(): void {
   latest = null;
+  loggedEmpty.clear();
 }

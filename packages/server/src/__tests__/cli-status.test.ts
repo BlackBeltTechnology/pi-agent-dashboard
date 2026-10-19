@@ -122,4 +122,41 @@ describe("cmdStatus", () => {
     expect(text()).toMatch(/not running/);
     expect(exit).toHaveBeenCalledWith(1);
   });
+
+  // See change: fix-cli-control-electron-server (test-plan #E4, design D8).
+  describe("E4: owner of the running server", () => {
+    const owned = (extra: Partial<DashboardStatus>) =>
+      run({
+        localId: "ID",
+        probe: (h) =>
+          h === "127.0.0.1"
+            ? { running: true, pid: 101, instanceId: "ID", ...extra }
+            : { running: false },
+      });
+    const head = new RegExp(`^Dashboard server is running \\(pid 101\\) on port ${P}`);
+
+    it("(a) electron, app alive → mentions the desktop app only", async () => {
+      const exit = await owned({ launchSource: "electron", bootParentAlive: true });
+      expect(text()).toMatch(head);
+      expect(text()).toMatch(/desktop app/i);
+      expect(text()).not.toMatch(/no longer running/i);
+      expect(exit).not.toHaveBeenCalled();
+    });
+
+    it("(b) electron, app gone → says the app is no longer running", async () => {
+      const exit = await owned({ launchSource: "electron", bootParentAlive: false });
+      expect(text()).toMatch(head);
+      expect(text()).toMatch(/desktop app/i);
+      expect(text()).toMatch(/no longer running/i);
+      expect(exit).not.toHaveBeenCalled();
+    });
+
+    it("(c) standalone → no desktop-app mention", async () => {
+      const exit = await owned({ launchSource: "standalone", bootParentAlive: true });
+      expect(text()).toMatch(head);
+      expect(text()).not.toMatch(/desktop app/i);
+      expect(text()).not.toMatch(/no longer running/i);
+      expect(exit).not.toHaveBeenCalled();
+    });
+  });
 });

@@ -294,7 +294,7 @@ describe("plugin nav-rail membership", () => {
       expect(within(rail).getByTestId("nav-plugin-automation")).toBeTruthy();
     });
     const dot = within(rail).getByTestId("nav-plugin-status-automation");
-    expect(dot.className).toContain("--accent-red");
+    expect(dot.className).toContain("--severity-error-fg"); // severity token (align-ui-contract-recipes), no raw accent fill
   });
 
   // (test-plan #E10)

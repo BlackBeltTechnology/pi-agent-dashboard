@@ -54,55 +54,55 @@ describe("E4: the floor comparison is equality, not upward-only", () => {
   // Under the old `-gt` comparison the `11` case wrongly PASSED: a below-floor
   // slice was unreachable at a 10.15 target, so nothing guarded that direction.
   it.each([
-    { minos: "11.0", expected: "mismatch" },
-    { minos: "12.0", expected: "ok" },
-    { minos: "13.0", expected: "mismatch" },
-  ])("minos $minos against expected 12 → $expected", ({ minos, expected }) => {
+    { minos: "12.0", expected: "mismatch" },
+    { minos: "13.0", expected: "ok" },
+    { minos: "14.0", expected: "mismatch" },
+  ])("minos $minos against expected 13 → $expected", ({ minos, expected }) => {
     const result = checkMinosFloor({
       otoolOutput: otoolFixture(minos),
-      expectedMajor: 12,
+      expectedMajor: 13,
     });
     expect(result.status).toBe(expected);
   });
 
-  it("uses 12 as the shipped expected major", () => {
-    expect(MACOS_FLOOR_MINOS_MAJOR).toBe(12);
+  it("uses 13 as the shipped expected major", () => {
+    expect(MACOS_FLOOR_MINOS_MAJOR).toBe(13);
   });
 
   it("defaults to the shipped expected major when none is passed", () => {
-    expect(checkMinosFloor({ otoolOutput: otoolFixture("12.0") }).status).toBe(
+    expect(checkMinosFloor({ otoolOutput: otoolFixture("13.0") }).status).toBe(
       "ok",
     );
-    expect(checkMinosFloor({ otoolOutput: otoolFixture("11.0") }).status).toBe(
+    expect(checkMinosFloor({ otoolOutput: otoolFixture("12.0") }).status).toBe(
       "mismatch",
     );
   });
 });
 
 describe("E5: the extractor is multi-slice safe", () => {
-  const fatBinary = otoolFixture("12.0", "11.0");
+  const fatBinary = otoolFixture("13.0", "12.0");
 
   it("collects a minos from EVERY slice, not just the first", () => {
-    expect(extractMinosValues(fatBinary)).toEqual(["12.0", "11.0"]);
+    expect(extractMinosValues(fatBinary)).toEqual(["13.0", "12.0"]);
   });
 
   it("fails on the below-floor second slice", () => {
-    // A first-match-and-exit extractor returns 12.0 here and passes. That is
+    // A first-match-and-exit extractor returns 13.0 here and passes. That is
     // the defect this scenario exists to catch.
     const result = checkMinosFloor({
       otoolOutput: fatBinary,
-      expectedMajor: 12,
+      expectedMajor: 13,
     });
     expect(result.status).toBe("mismatch");
-    expect(result.message).toContain("11.0");
+    expect(result.message).toContain("12.0");
     expect(result.message).toContain("slice 2 of 2");
   });
 
   it("passes when every slice is at the floor", () => {
     expect(
       checkMinosFloor({
-        otoolOutput: otoolFixture("12.0", "12.3"),
-        expectedMajor: 12,
+        otoolOutput: otoolFixture("13.0", "13.3"),
+        expectedMajor: 13,
       }).status,
     ).toBe("ok");
   });
@@ -110,8 +110,8 @@ describe("E5: the extractor is multi-slice safe", () => {
 
 describe("X3: the diagnostic names the upstream Electron floor", () => {
   const result = checkMinosFloor({
-    otoolOutput: otoolFixture("13.0"),
-    expectedMajor: 12,
+    otoolOutput: otoolFixture("14.0"),
+    expectedMajor: 13,
   });
 
   it("fails the check", () => {
@@ -135,7 +135,7 @@ describe("the check degrades to a warning, not a failure, when it cannot measure
   it("reports not-extractable on unrecognised load-command output", () => {
     const result = checkMinosFloor({
       otoolOutput: "Load command 0\n      cmd LC_SEGMENT_64\n  cmdsize 72",
-      expectedMajor: 12,
+      expectedMajor: 13,
     });
     expect(result.status).toBe("not-extractable");
   });
@@ -143,7 +143,7 @@ describe("the check degrades to a warning, not a failure, when it cannot measure
   it("reports non-numeric rather than mismatching on a garbage major", () => {
     const result = checkMinosFloor({
       otoolOutput: otoolFixture("n/a"),
-      expectedMajor: 12,
+      expectedMajor: 13,
     });
     expect(result.status).toBe("non-numeric");
   });
@@ -153,10 +153,10 @@ describe("the check degrades to a warning, not a failure, when it cannot measure
       "Load command 8",
       "      cmd LC_VERSION_MIN_MACOSX",
       "  cmdsize 16",
-      "  version 12.0",
+      "  version 13.0",
       "      sdk 14.0",
     ].join("\n");
-    expect(extractMinosValues(legacy)).toEqual(["12.0"]);
+    expect(extractMinosValues(legacy)).toEqual(["13.0"]);
   });
 });
 
@@ -175,7 +175,7 @@ describe("E3: a blind extractor fails the canary", () => {
   const result = checkCanary({
     otoolOutput: "Load command 0\n      cmd LC_SEGMENT_64\n  cmdsize 72",
     samplePath: SAMPLE,
-    expectedMajor: 12,
+    expectedMajor: 13,
   });
 
   it("reports blind-extractor", () => {
@@ -197,7 +197,7 @@ describe("E5: a non-numeric canary result fails the canary", () => {
   const result = checkCanary({
     otoolOutput: otoolFixture("n/a"),
     samplePath: SAMPLE,
-    expectedMajor: 12,
+    expectedMajor: 13,
   });
 
   it("is not ok", () => {
@@ -212,7 +212,7 @@ describe("E5: a non-numeric canary result fails the canary", () => {
     // the asymmetry is the point.
     expect(
       producedBinaryVerdict(
-        checkMinosFloor({ otoolOutput: otoolFixture("n/a"), expectedMajor: 12 }),
+        checkMinosFloor({ otoolOutput: otoolFixture("n/a"), expectedMajor: 13 }),
       ),
     ).toEqual({ level: "warning", exitCode: 0 });
   });
@@ -222,7 +222,7 @@ describe("X1: the canary cannot run its tool", () => {
   const result = checkCanary({
     execFailed: "spawn otool ENOENT",
     samplePath: SAMPLE,
-    expectedMajor: 12,
+    expectedMajor: 13,
   });
 
   it("fails with exec-failed naming the extractor and the sample", () => {
@@ -242,7 +242,7 @@ describe("X2: the canary sample is missing", () => {
   const result = checkCanary({
     sampleMissing: true,
     samplePath: SAMPLE,
-    expectedMajor: 12,
+    expectedMajor: 13,
   });
 
   it("fails with sample-missing naming the sample path", () => {
@@ -260,9 +260,9 @@ describe("X2: the canary sample is missing", () => {
     // Even a perfect otool text cannot rescue a missing sample.
     const r = checkCanary({
       sampleMissing: true,
-      otoolOutput: otoolFixture("12.0"),
+      otoolOutput: otoolFixture("13.0"),
       samplePath: SAMPLE,
-      expectedMajor: 12,
+      expectedMajor: 13,
     });
     expect(r.status).toBe("sample-missing");
   });
@@ -271,9 +271,9 @@ describe("X2: the canary sample is missing", () => {
 describe("canary: a mismatching sample also fails", () => {
   it("maps mismatch to ::error:: + exit 1", () => {
     const r = checkCanary({
-      otoolOutput: otoolFixture("13.0"),
+      otoolOutput: otoolFixture("14.0"),
       samplePath: SAMPLE,
-      expectedMajor: 12,
+      expectedMajor: 13,
     });
     expect(r.status).toBe("mismatch");
     expect(r.level).toBe("error");
@@ -284,9 +284,9 @@ describe("canary: a mismatching sample also fails", () => {
 describe("E4: a passing canary keeps the produced-binary tolerance intact", () => {
   it("canary ok on a single numeric slice", () => {
     const r = checkCanary({
-      otoolOutput: otoolFixture("12.0"),
+      otoolOutput: otoolFixture("13.0"),
       samplePath: SAMPLE,
-      expectedMajor: 12,
+      expectedMajor: 13,
     });
     expect(r.status).toBe("ok");
     expect(r.level).toBe("ok");
@@ -296,7 +296,7 @@ describe("E4: a passing canary keeps the produced-binary tolerance intact", () =
   it("produced binary with no minos still warns and passes", () => {
     const produced = checkMinosFloor({
       otoolOutput: "Load command 0\n      cmd LC_SEGMENT_64\n  cmdsize 72",
-      expectedMajor: 12,
+      expectedMajor: 13,
     });
     expect(produced.status).toBe("not-extractable");
     expect(producedBinaryVerdict(produced)).toEqual({
@@ -308,12 +308,12 @@ describe("E4: a passing canary keeps the produced-binary tolerance intact", () =
   it("produced-binary verdicts for ok / mismatch are unchanged", () => {
     expect(
       producedBinaryVerdict(
-        checkMinosFloor({ otoolOutput: otoolFixture("12.0"), expectedMajor: 12 }),
+        checkMinosFloor({ otoolOutput: otoolFixture("13.0"), expectedMajor: 13 }),
       ),
     ).toEqual({ level: "ok", exitCode: 0 });
     expect(
       producedBinaryVerdict(
-        checkMinosFloor({ otoolOutput: otoolFixture("13.0"), expectedMajor: 12 }),
+        checkMinosFloor({ otoolOutput: otoolFixture("14.0"), expectedMajor: 13 }),
       ),
     ).toEqual({ level: "error", exitCode: 1 });
   });

@@ -1609,7 +1609,7 @@ The View settings page SHALL provide a toggle for the `customEntryFallback` pref
 - **AND** custom-entry rows in the open session SHALL appear or disappear accordingly
 
 ### Requirement: Allowed hostnames section on Security tab
-The Security tab SHALL render an **Allowed hostnames** section between *Trusted networks* and *Pair a device* with four parts, in this order: (1) a mode control offering exactly `Report only` and `Enforce`, bound to `hostGate.mode`, with a one-sentence consequence beside it that changes with the selection; when the server reports the mode is set by `PI_DASHBOARD_HOST_GATE` the control SHALL be disabled and state that reason; (2) a read-only **Currently admitted** list rendered from `GET /api/host-gate` `admitted` (never re-derived on the client), one row per entry, grouped by source, each row carrying a text source pill from the set `loopback`, `IP address`, `bind address`, `.local`, `public base URL`, `CORS origin`, `live tunnel`, `allowed host`, and — for sources edited elsewhere — a link to that settings page instead of a remove control; (3) an **Additional hostnames** editor (one hostname per line) bound to the panel draft's `allowedHosts` that, on blur, marks any entry containing a scheme, port, or path, or failing the gate's own hostname regex (shared from `packages/shared`), as invalid and states the bare hostname to enter instead (or that the name cannot be admitted); (4) a **Recent refusals** list from `GET /api/host-gate` `recent` showing hostname, count, last-seen, an outcome pill reading the entry's own `outcome` (`would-refuse` or `refused`), and an **Allow** button that appends the hostname to the draft `allowedHosts`; rows whose hostname is in the editor's current value SHALL be hidden (applied at render on every fetch); an empty list SHALL render "No refusals since start." Both `hostGate.mode` and `allowedHosts` SHALL persist through the panel's Save exactly like every other Settings field (`computeConfigPartial` diffs them; `CONFIG_FIELD_PAGE` maps them to `security`); the section SHALL issue no write of its own. All four parts SHALL be operable by keyboard, every control SHALL have an accessible name, and state SHALL never be conveyed by colour alone.
+The Security tab SHALL render an **Allowed hostnames** section between *Trusted networks* and *Pair a device* with four parts, in this order: (1) a mode control offering exactly `Report only` and `Enforce`, bound to `hostGate.mode`, with a one-sentence consequence beside it that changes with the selection; when the server reports the mode is set by `PI_DASHBOARD_HOST_GATE` the control SHALL be disabled and state that reason; (2) a read-only **Currently admitted** list rendered from `GET /api/host-gate` `admitted` (never re-derived on the client), one row per entry, grouped by source, each row carrying a text source pill from the set `loopback`, `IP address`, `bind address`, `.local`, `public base URL`, `CORS origin`, `live tunnel`, `TLS certificate`, `allowed host`, and — for sources edited elsewhere — a link to that settings page instead of a remove control; (3) an **Additional hostnames** editor (one hostname per line) bound to the panel draft's `allowedHosts` that, on blur, marks any entry containing a scheme, port, or path, or failing the gate's own hostname regex (shared from `packages/shared`), as invalid and states the bare hostname to enter instead (or that the name cannot be admitted); (4) a **Recent refusals** list from `GET /api/host-gate` `recent` showing hostname, count, last-seen, an outcome pill reading the entry's own `outcome` (`would-refuse` or `refused`), and an **Allow** button that appends the hostname to the draft `allowedHosts`; rows whose hostname is in the editor's current value SHALL be hidden (applied at render on every fetch); an empty list SHALL render "No refusals since start." Both `hostGate.mode` and `allowedHosts` SHALL persist through the panel's Save exactly like every other Settings field (`computeConfigPartial` diffs them; `CONFIG_FIELD_PAGE` maps them to `security`); the section SHALL issue no write of its own. All four parts SHALL be operable by keyboard, every control SHALL have an accessible name, and state SHALL never be conveyed by colour alone.
 
 #### Scenario: Mode switch states its consequence inline
 - **WHEN** the operator selects `Enforce`
@@ -1640,6 +1640,10 @@ The Security tab SHALL render an **Allowed hostnames** section between *Trusted 
 #### Scenario: Outcome pill is per entry
 - **WHEN** `recent` holds `{ host: "a.example", outcome: "would-refuse" }` and `{ host: "b.example", outcome: "refused" }`
 - **THEN** the rows SHALL read `would-refuse` and `refused` respectively, regardless of the current mode control value
+
+#### Scenario: TLS-listener row links to the Gateway page
+- **WHEN** `admitted` contains `{ host: "host.example.ts.net", source: "tls-listener" }`
+- **THEN** the list SHALL show a row `host.example.ts.net` with pill `TLS certificate` and a link to the Gateway page, and no remove control
 
 ### Requirement: Gateway URL row shows host admission
 Each gateway URL row on the Gateway page and in the setup guide SHALL show an informational **Host admitted** pill after its status text when the row URL's hostname is present in the live `publicBaseUrls` (via `resolvePublicBaseUrls`) or `cors.allowedOrigins` hosts of the current config, with a `title` explaining that the hostname is an allowed Host because it is a gateway URL. The pill SHALL NOT be a control, SHALL be absent when the hostname is in neither list, and SHALL NOT depend on the row's `data-status`.
@@ -2118,3 +2122,64 @@ The Developer settings page SHALL offer a toggle "Show plugin internals", stored
 - **WHEN** the user turns on "Show plugin internals" on the Developer page and opens `/settings/plugins/quota`
 - **THEN** the host chrome SHALL show a collapsed "Plugin internals" disclosure
 - **AND** expanding it SHALL list `composer-context-group` and `settings-section`
+
+### Requirement: Settings rail meets contrast and marks state without colour alone
+
+In the settings navigation rail:
+
+- inactive items, group labels, sub-item controls and plugin child rows SHALL use the secondary or primary text colour, never the muted text colour, and SHALL NOT be dimmed with opacity;
+- the current item (`aria-current="page"`) SHALL be marked by a tertiary background, semibold primary text, and an accent-coloured inset bar at its leading edge;
+- the Services attention marker SHALL be a severity icon (a shape, not a dot) with its existing accessible label;
+- the existing dirty indicators and plugin health dots keep their shape and labels, as their own requirements specify, but SHALL take their colour from severity tokens;
+- rail items SHALL be at least 44 px tall below the `sm` breakpoint and at least 36 px tall from `sm`;
+- in the horizontal strip shown below `md`, the current item SHALL keep the tertiary fill and semibold text, with the accent bar on its bottom edge.
+
+The rail SHALL use no raw palette classes or hex/rgba literals. All rail text SHALL meet 4.5:1 contrast against the rail background in base dark, base light and nord dark.
+
+#### Scenario: Inactive items readable
+- **WHEN** the rail renders in base light
+- **THEN** every inactive item label SHALL measure at least 4.5:1 against the rail background
+
+#### Scenario: Current item marked by more than colour
+- **WHEN** the user is on `/settings/services`
+- **THEN** the Services item SHALL carry `aria-current="page"`
+- **AND** it SHALL show the tertiary background, semibold text and the leading accent bar
+
+#### Scenario: Attention marker is a labelled icon
+- **WHEN** a service needs attention
+- **THEN** the Services rail item SHALL show an error severity icon
+- **AND** its accessible text SHALL still announce how many services need attention
+
+#### Scenario: Dirty indicator uses a token
+- **WHEN** a page has unsaved changes
+- **THEN** its `nav-dirty-<id>` indicator SHALL render with a severity token colour and no raw palette class
+
+#### Scenario: Mobile strip marks the current item
+- **WHEN** the settings page renders at 375 px wide on `/settings/services`
+- **THEN** the Services item in the horizontal strip SHALL be at least 44 px tall
+- **AND** it SHALL show the tertiary fill, semibold text and an accent bar on its bottom edge
+
+#### Scenario: Desktop rail item height
+- **WHEN** the rail renders at 1280 px wide
+- **THEN** every rail item SHALL be at least 36 px tall
+
+#### Scenario: Rail contains no raw colour
+- **WHEN** the rendered rail element is scanned for raw palette classes and hex/rgba literals in class names and inline styles
+- **THEN** no match SHALL be found
+
+#### Scenario: Promoted plugin row keeps its hint without dimming
+- **WHEN** a plugin row links to a page promoted into another rail group
+- **THEN** the row SHALL render without reduced opacity, in the secondary text colour
+- **AND** it SHALL show the "↗ <group>" hint at least 12 px
+
+### Requirement: Settings kit provides the shared notice extensions and inline action error
+
+`@blackbelt-technology/dashboard-plugin-runtime` SHALL export, next to `SettingsNotice` and `SettingsStatusPill`, an inline action error component. The component takes a sentence, an optional raw detail, and an id that the failed control references through `aria-describedby`. `SettingsNotice` SHALL accept remedy rows (icon plus sentence, links allowed), rendered in the order given, and SHALL expose `aria-busy="true"` while its retry is in flight. `SettingsStatusPill` SHALL accept a spinning option that animates its icon, except under `prefers-reduced-motion`. Existing `SettingsNotice` and `SettingsStatusPill` props SHALL keep working unchanged.
+
+#### Scenario: Existing notice call sites unaffected
+- **WHEN** a plugin renders `SettingsNotice` with only `tone`, `children` and `onRetry`
+- **THEN** it SHALL render as before this change
+
+#### Scenario: Action error is exported and linked
+- **WHEN** a plugin renders the inline action error with id `stop-err` under a button that has `aria-describedby="stop-err"`
+- **THEN** the error SHALL have id `stop-err` and the alert role

@@ -92,7 +92,7 @@ describe("DirectoryService — openspec status --all path", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    version = "1.11.0";
+    version = "1.14.3";
     cwd = mkTmpCwd("ds-all");
     cleanup.push(cwd);
     cli = createFixtureCli();
