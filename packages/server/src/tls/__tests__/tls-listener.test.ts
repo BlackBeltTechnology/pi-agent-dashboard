@@ -34,7 +34,7 @@ function makeListener(): TlsListener {
     dispatch: {
       request: (req, res) => {
         requests.push(req.url ?? "");
-        res.writeHead(200, { "content-type": "text/plain" });
+        res.writeHead(200, { "content-type": "text/plain", "content-length": "2" });
         res.end("ok");
       },
       upgrade: (_req, socket) => socket.destroy(),
@@ -141,41 +141,56 @@ describe("#E6 certificate selection per SNI name", () => {
 });
 
 describe("#E8 hot swap", () => {
+  /** Read one HTTP/1.1 response (headers + content-length body) from `sock`. */
+  const readResponse = (sock: tls.TLSSocket): Promise<string> =>
+    new Promise((resolve, reject) => {
+      let buf = "";
+      const onData = (c: Buffer): void => {
+        buf += c.toString("latin1");
+        const head = buf.indexOf("\r\n\r\n");
+        const len = /content-length: (\d+)/i.exec(buf)?.[1];
+        if (head >= 0 && len !== undefined && buf.length >= head + 4 + Number(len)) {
+          sock.off("data", onData);
+          resolve(buf);
+        }
+      };
+      sock.on("data", onData);
+      sock.once("error", reject);
+    });
+
   it("new connections see the new certificate; an open socket keeps working; no restart", async () => {
     const port = await up(["host.example.ts.net"]);
-    const agent = new https.Agent({ keepAlive: true, ca: CA_PEM });
-    const get = (): Promise<{ fp: string; body: string }> =>
-      new Promise((resolve, reject) => {
-        const req = https.get({ host: "127.0.0.1", port, path: "/x", servername: "host.example.ts.net", agent, checkServerIdentity: () => undefined }, (res) => {
-          const fp = (res.socket as tls.TLSSocket).getPeerCertificate().fingerprint256;
-          let body = "";
-          res.on("data", (c) => (body += c));
-          res.on("end", () => resolve({ fp, body }));
-        });
-        req.on("error", reject);
-      });
-    const a = await get();
+    // One explicit keep-alive socket, used before and after the swap (deterministic reuse).
+    const sock = tls.connect({ host: "127.0.0.1", port, servername: "host.example.ts.net", ca: CA_PEM, checkServerIdentity: () => undefined });
+    await new Promise<void>((r) => sock.once("secureConnect", () => r()));
+    const before = sock.getPeerCertificate().fingerprint256;
+    const request = "GET /x HTTP/1.1\r\nHost: host.example.ts.net\r\nConnection: keep-alive\r\n\r\n";
+    sock.write(request);
+    expect(await readResponse(sock)).toContain("200 OK");
+
     const pid = process.pid;
     // Swap the stored certificate for the same name (the renewed one).
     const next = fixture("90d-host.example.ts.net");
     const entry = listener.store.get("host.example.ts.net");
     if (!entry) throw new Error("missing entry");
     listener.store.set({ ...entry, ctx: tls.createSecureContext({ cert: next.certPem, key: next.keyPem }) });
-    const reused = await get(); // keep-alive socket still usable
-    expect(reused.fp).toBe(a.fp);
-    expect(reused.body).toBe("ok");
-    const fresh = await handshake(port, "host.example.ts.net");
-    expect(fresh.ok).toBe(true);
-    const fp2 = await new Promise<string>((resolve) => {
+
+    sock.write(request); // the same connection keeps serving across the swap
+    const second = await readResponse(sock);
+    expect(second).toContain("200 OK");
+    expect(second).toContain("ok");
+    expect(sock.getPeerCertificate().fingerprint256).toBe(before);
+    sock.destroy();
+
+    const fresh = await new Promise<string>((resolve) => {
       const s = tls.connect({ host: "127.0.0.1", port, servername: "host.example.ts.net", ca: CA_PEM, checkServerIdentity: () => undefined }, () => {
         const f = s.getPeerCertificate().fingerprint256;
         s.end();
         resolve(f);
       });
     });
-    expect(fp2).not.toBe(a.fp);
+    expect(fresh).not.toBe(before);
     expect(process.pid).toBe(pid);
-    agent.destroy();
   });
 });
 
