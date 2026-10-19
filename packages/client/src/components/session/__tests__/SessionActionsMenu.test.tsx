@@ -506,3 +506,12 @@ describe("unmount under a pinned menu (move-session-actions-trigger-to-card-edge
     expect(document.activeElement).toBe(screen.getByTestId("region"));
   });
 });
+
+describe("pinning a hover-opened menu moves focus into it (CodeRabbit, move-session-actions-trigger-to-card-edge F1)", () => {
+  it("hover open leaves focus alone; the pinning click then focuses the first enabled item", () => {
+    render(<Harness groups={basic()} initialOpen source="hover" />);
+    expect(document.activeElement).not.toBe(itemEl("a"));
+    fireEvent.click(trigger());
+    expect(document.activeElement).toBe(itemEl("a"));
+  });
+});
