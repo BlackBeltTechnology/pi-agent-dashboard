@@ -506,6 +506,8 @@ export const zhCNCatalog: Record<string, string> = {
   "common.orOnDebianUbuntuViaApt": "或在 Debian/Ubuntu 上通过 apt 安装：",
   "common.orTheBundledSet": "，或来自捆绑集合。",
   "common.other": "其他",
+  "common.otherAnswer": "其他答案",
+  "common.otherPlaceholder": "输入你的答案",
   "common.output": "输出：",
   "common.overrideInvalidUsingFallback": "覆盖项无效;使用回退方案",
   "common.overrideRejectedNotFound": "覆盖项被拒绝 — 未使用路径:{path}",

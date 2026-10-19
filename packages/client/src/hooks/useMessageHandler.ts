@@ -1861,6 +1861,8 @@ export function useMessageHandler(
               // For method "batch": sub-questions travel in metadata.questions.
               // See change: redesign-ask-user-question-cards.
               questions: msg.prompt?.metadata?.questions,
+              // Inline "Other" opt-in (core metadata key). See change: add-ask-user-inline-other.
+              ...(msg.prompt?.metadata?.allowOther === true ? { allowOther: true } : {}),
               _promptBusComponent: msg.component,
               _promptBusPlacement: msg.placement,
               // Namespaced plugin data (`ctx.ui.*` `pluginMeta`), exposed to

@@ -12,6 +12,15 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Added
 
+- **Type your own answer on `ask_user` choices.** `select`, `multiselect` and batch select/multiselect
+  steps now show an inline "Other" row in the dashboard (chat card and the pending-question dialog).
+  Choosing it reveals a text field; the answer reaches the agent as a plain string, and the tool
+  result tells the model when an answer is custom. It is opt-in per prompt (`allowOther: true` on
+  `ctx.ui.select` / `ctx.ui.multiselect`); the dashboard `ask_user` tool enables it by default, so the
+  model may now receive text it did not list. Pass `allowOther: false` when the answer must be exactly
+  one of the options. Other callers (path-gate approval, ACP permission, pi-flows) are unchanged. The
+  REST answer route accepts one custom value on opted-in prompts only (blank, padded and duplicate
+  values are rejected).
 - **OpenSpec status in one spawn.** The server now reads every change's status with a single
   `openspec status --all --json` per project (was `1 + N` spawns on refresh, ~25 s on macOS for 100
   changes; now ~1.3 s). Custom workflow schemas are reported correctly, and one broken change

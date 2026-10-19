@@ -1,7 +1,9 @@
 /**
  * `metadata` envelope for PromptBus dialog requests.
  *
- * Core keys (`message`, `toolCallId`) stay core-owned. A plugin may attach its
+ * Core keys (`message`, `toolCallId`, `allowOther`) stay core-owned. `allowOther`
+ * (inline "Other" answer opt-in; see change: add-ask-user-inline-other) is
+ * emitted only when exactly `true`. A plugin may attach its
  * own namespaced data through `opts.pluginMeta`, copied into `metadata.plugin`:
  * a plain object that serializes without throwing, ≤ 2048 UTF-8 bytes. Anything
  * else is dropped with a warning (the prompt itself is still raised). It can
@@ -44,17 +46,19 @@ function sanitizePluginMeta(
 }
 
 export function buildPromptMeta(
-  opts: { message?: unknown; toolCallId?: unknown; pluginMeta?: unknown } | undefined,
+  opts: { message?: unknown; toolCallId?: unknown; pluginMeta?: unknown; allowOther?: unknown } | undefined,
   explicitMessage?: string,
   warn?: (msg: string) => void,
 ): Record<string, unknown> | undefined {
   const message = explicitMessage ?? opts?.message;
   const toolCallId = opts?.toolCallId;
   const plugin = sanitizePluginMeta(opts?.pluginMeta, warn);
-  if (!message && !toolCallId && !plugin) return undefined;
+  const allowOther = opts?.allowOther === true;
+  if (!message && !toolCallId && !plugin && !allowOther) return undefined;
   const meta: Record<string, unknown> = {};
   if (message) meta.message = message;
   if (toolCallId) meta.toolCallId = toolCallId;
+  if (allowOther) meta.allowOther = true;
   if (plugin) meta.plugin = plugin;
   return meta;
 }

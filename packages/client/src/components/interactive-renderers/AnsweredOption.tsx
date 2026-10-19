@@ -16,10 +16,13 @@ export function AnsweredOption({
   title,
   description,
   picked,
+  label,
 }: {
   title: string;
   description?: string;
   picked: boolean;
+  /** Dimmed prefix, used by the custom "Other" row. See change: add-ask-user-inline-other. */
+  label?: string;
 }) {
   return (
     <div
@@ -39,7 +42,8 @@ export function AnsweredOption({
         {picked && <Icon path={mdiCheck} size={0.5} />}
       </span>
       <span className="min-w-0">
-        <span>{title}</span>
+        {label && <span className="mr-1 text-[var(--text-tertiary)]">{label}</span>}
+        <span data-testid={label ? "answered-other-text" : undefined}>{title}</span>
         {description && (
           <span className="block text-[var(--text-tertiary)]">{description}</span>
         )}

@@ -12,7 +12,7 @@
  * See change: fix-multiselect-auto-cancel-on-dashboard.
  */
 import { describe, it, expect } from "vitest";
-import { encodePromptAnswer, validateQuestionAnswer } from "../prompt-answer.js";
+import { encodePromptAnswer, hasOwnOtherOption, isOtherAllowed, validateQuestionAnswer } from "../prompt-answer.js";
 
 describe("encodePromptAnswer", () => {
   // ── multiselect arm ────────────────────────────────────────────────
@@ -190,5 +190,110 @@ describe("encodePromptAnswer → validateQuestionAnswer round trip", () => {
   it("confirm encodes 'true'/'false'", () => {
     expect(encodePromptAnswer({ confirmed: true }, false)).toBe("true");
     expect(encodePromptAnswer({ confirmed: false }, false)).toBe("false");
+  });
+});
+
+// ── Inline "Other" answer — See change: add-ask-user-inline-other ────
+describe("isOtherAllowed (test-plan E1)", () => {
+  const allows = [undefined, true, false, "true"] as const;
+  const optionSets: string[][] = [[], ["A", "B"], ["A", "Other (describe)"]];
+  for (const allowOther of allows) {
+    for (const options of optionSets) {
+      const expected = allowOther === true && options.length === 2 && options[1] === "B";
+      it(`allowOther=${JSON.stringify(allowOther)} options=${JSON.stringify(options)} → ${expected}`, () => {
+        expect(isOtherAllowed({ allowOther: allowOther as boolean | undefined, options })).toBe(expected);
+      });
+    }
+  }
+  it("is false without options", () => {
+    expect(isOtherAllowed({ allowOther: true })).toBe(false);
+  });
+});
+
+describe("hasOwnOtherOption (test-plan E2)", () => {
+  for (const o of ["Other (describe)", "other", " Other: x", "Other — describe", "Other-wise"]) {
+    it(`suppresses for ${JSON.stringify(o)}`, () => expect(hasOwnOtherOption([o])).toBe(true));
+  }
+  for (const o of ["Others", "Otherwise", "Others will decide", "Other1", "Otheré"]) {
+    it(`does not suppress for ${JSON.stringify(o)}`, () => expect(hasOwnOtherOption([o])).toBe(false));
+  }
+  it("never throws on non-strings", () => {
+    expect(hasOwnOtherOption([42 as unknown as string, null as unknown as string])).toBe(false);
+  });
+});
+
+describe("validateQuestionAnswer with allowOther", () => {
+  const sel = { type: "select", options: ["A", "B"], allowOther: true };
+  it("select (E3)", () => {
+    expect(validateQuestionAnswer(sel, "C")).toEqual({ ok: true });
+    expect(validateQuestionAnswer(sel, "A")).toEqual({ ok: true });
+    expect(validateQuestionAnswer(sel, "").ok).toBe(false);
+    expect(validateQuestionAnswer(sel, "   ").ok).toBe(false);
+    expect(validateQuestionAnswer(sel, " A ").ok).toBe(false);
+    expect(validateQuestionAnswer({ type: "select", options: ["A", "B"] }, "C").ok).toBe(false);
+  });
+  const multi = { type: "multiselect", options: ["A", "B"], allowOther: true };
+  it("multiselect (E4)", () => {
+    expect(validateQuestionAnswer(multi, '["A","D"]')).toEqual({ ok: true });
+    expect(validateQuestionAnswer(multi, '["D"]')).toEqual({ ok: true });
+    expect(validateQuestionAnswer(multi, "[]")).toEqual({ ok: true });
+    expect(validateQuestionAnswer(multi, '["D","E"]').ok).toBe(false);
+    expect(validateQuestionAnswer(multi, '["D","D"]').ok).toBe(false);
+    expect(validateQuestionAnswer(multi, '["A","A"]').ok).toBe(false);
+    expect(validateQuestionAnswer(multi, '["A"," D"]').ok).toBe(false);
+    expect(validateQuestionAnswer({ type: "multiselect", options: ["A", "B"] }, '["A","D"]').ok).toBe(false);
+  });
+  it("batch (E5)", () => {
+    const prompt = {
+      type: "batch",
+      metadata: {
+        questions: [
+          { method: "select", title: "s0", options: ["A", "B"], allowOther: true },
+          { method: "select", title: "s1", options: ["A", "B"] },
+          { method: "select", title: "s2", options: ["A", "Other (describe)"], allowOther: true },
+          { method: "confirm", title: "c" },
+          { method: "input", title: "i" },
+        ],
+      },
+    };
+    const base = [{ value: "A" }, { value: "A" }, { value: "A" }, { confirmed: true }, { value: "t" }];
+    const withAt = (i: number, v: unknown) => JSON.stringify(base.map((e, j) => (j === i ? v : e)));
+    expect(validateQuestionAnswer(prompt, withAt(0, { value: "C" }))).toEqual({ ok: true });
+    const r1 = validateQuestionAnswer(prompt, withAt(1, { value: "C" }));
+    expect(r1.ok).toBe(false);
+    expect(!r1.ok && r1.reason).toContain("batch[1]");
+    const r2 = validateQuestionAnswer(prompt, withAt(2, { value: "C" }));
+    expect(r2.ok).toBe(false);
+    expect(!r2.ok && r2.reason).toContain("batch[2]");
+    expect(validateQuestionAnswer(prompt, JSON.stringify(base))).toEqual({ ok: true });
+    expect(validateQuestionAnswer(prompt, withAt(3, { confirmed: "x" })).ok).toBe(false);
+    expect(validateQuestionAnswer(prompt, withAt(4, { value: 1 })).ok).toBe(false);
+  });
+  it("batch multiselect custom value", () => {
+    const prompt = {
+      type: "batch",
+      metadata: { questions: [{ method: "multiselect", title: "m", options: ["A", "B"], allowOther: true }] },
+    };
+    expect(validateQuestionAnswer(prompt, '[{"values":["A","D"]}]')).toEqual({ ok: true });
+    expect(validateQuestionAnswer(prompt, '[{"values":["D","E"]}]').ok).toBe(false);
+  });
+  it("non-string options do not throw (X2)", () => {
+    const prompt = {
+      type: "batch",
+      metadata: { questions: [{ method: "select", title: "s", options: [1, 2], allowOther: true }] },
+    };
+    expect(() => validateQuestionAnswer(prompt, '[{"value":"x"}]')).not.toThrow();
+    expect(() =>
+      validateQuestionAnswer({ type: "select", options: [1, "A"] as unknown as string[], allowOther: true }, "z"),
+    ).not.toThrow();
+  });
+});
+
+describe("custom answers encode like option answers (E6)", () => {
+  it("encodes plain strings / arrays unchanged", () => {
+    expect(encodePromptAnswer({ value: "something else" }, false)).toBe("something else");
+    expect(encodePromptAnswer({ values: ["A", "D"] }, false)).toBe('["A","D"]');
+    const answers = [{ value: "C" }, { values: ["A", "D"] }];
+    expect(encodePromptAnswer({ answers }, false)).toBe(JSON.stringify(answers));
   });
 });
