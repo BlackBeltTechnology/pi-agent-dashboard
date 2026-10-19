@@ -19,7 +19,7 @@
 
 ## 3. `ui:status-pill` renders the kit pill
 
-- [ ] 3.1 Write failing tests for `client-utils/src/StatusPill.tsx`:
+- [x] 3.1 Write failing tests for `client-utils/src/StatusPill.tsx`:
   - the state → tone map from design D2;
   - the default icon per tone;
   - `running` passes `mdiLoading` with `spinning`;
@@ -29,7 +29,7 @@
   - `tooltip` becomes `title`.
 
   Then implement: render `SettingsStatusPill`, and delete `STATE_STYLE_*` and `useIsLightTheme`. Verify: `vitest run packages/client-utils` passes and the props type is unchanged.
-- [ ] 3.2 Update the `packages/client-utils/src/AGENTS.md` row for `StatusPill.tsx`. Verify: the row is present.
+- [x] 3.2 Update the `packages/client-utils/src/AGENTS.md` row for `StatusPill.tsx`. Verify: the row is present.
 
 ## 4. Migrate services and vault
 
@@ -134,8 +134,8 @@
 
 ## 12. Tests (folded from test-plan.md)
 
-- [ ] 12.1 L1 test in `packages/client-utils/src/__tests__/StatusPill.test.tsx`: state → tone decision table. Input: `ui:status-pill` with each state in running, success, info, warn, error, muted and no icon. Trigger: render. Expected: tone classes `--severity-{info,success,info,warning,error,neutral}-*`, an svg icon each, `data-status-pill` = raw state, no colour in `style`. Harness exemplar: see packages/client-utils/src/__tests__/StatusPill.test.tsx (test-plan #E1)
-- [ ] 12.2 L1 test in `packages/client-utils/src/__tests__/StatusPill.test.tsx`: icon key fallback. Input: state warn, icon "mdiFlaskOutline", `useMdiIconByKey` mocked null then resolved; also unknown key "mdiNope". Trigger: render, then resolve. Expected: warning default icon first, then the flask path; the unknown key keeps the default. Harness exemplar: see packages/client-utils/src/__tests__/StatusPill.test.tsx (test-plan #E2)
+- [x] 12.1 L1 test in `packages/client-utils/src/__tests__/StatusPill.test.tsx`: state → tone decision table. Input: `ui:status-pill` with each state in running, success, info, warn, error, muted and no icon. Trigger: render. Expected: tone classes `--severity-{info,success,info,warning,error,neutral}-*`, an svg icon each, `data-status-pill` = raw state, no colour in `style`. Harness exemplar: see packages/client-utils/src/__tests__/StatusPill.test.tsx (test-plan #E1)
+- [x] 12.2 L1 test in `packages/client-utils/src/__tests__/StatusPill.test.tsx`: icon key fallback. Input: state warn, icon "mdiFlaskOutline", `useMdiIconByKey` mocked null then resolved; also unknown key "mdiNope". Trigger: render, then resolve. Expected: warning default icon first, then the flask path; the unknown key keeps the default. Harness exemplar: see packages/client-utils/src/__tests__/StatusPill.test.tsx (test-plan #E2)
 - [x] 12.3 L1 test in `packages/dashboard-plugin-runtime/src/__tests__/settings-fields.test.tsx`: `spinning` prop. Input: `SettingsStatusPill tone="info" spinning`, and the same without `spinning`. Trigger: render. Expected: icon has `animate-spin` and `motion-reduce:animate-none` only with `spinning`. Harness exemplar: see packages/dashboard-plugin-runtime/src/__tests__/settings-fields.test.tsx (test-plan #E3)
 - [x] 12.4 L1 test in `packages/dashboard-plugin-runtime/src/__tests__/settings-fields.test.tsx`: pill size. Input: `SettingsStatusPill` outside and inside a `SettingsItem` summary. Trigger: render. Expected: `text-[11px]` outside, `text-[12px]` inside. Harness exemplar: see packages/dashboard-plugin-runtime/src/__tests__/settings-fields.test.tsx (test-plan #E4)
 - [x] 12.5 L1 test in `packages/dashboard-plugin-runtime/src/__tests__/settings-fields.test.tsx`: notice remedies. Input: `SettingsNotice` with remedies A, B (content holds a login link), C; plus a props-only render. Trigger: render. Expected: rows in order A, B, C; the link is focusable; the props-only render matches its pre-change snapshot. Harness exemplar: see packages/dashboard-plugin-runtime/src/__tests__/settings-fields.test.tsx (test-plan #E5)

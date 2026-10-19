@@ -63,6 +63,7 @@ Current state on `develop` (after #966 `add-pi-spec-driven-schema` and #967 `ret
 
 Then it renders `SettingsStatusPill`. An explicit `icon` key resolves through `useMdiIconByKey` (lazy, as today) and is passed as `icon={resolved ?? undefined}`, so the tone default shows until the key resolves or when it is unknown. `running` passes `icon={mdiLoading}` with the new `spinning` prop (D3). The raw maps and `useIsLightTheme` are deleted. `tooltip` becomes `title` on a wrapper span.
 
+- **Decided in implementation.** `running` always shows the spinning `mdiLoading` and ignores an explicit `icon` key (a progress state needs the progress glyph, and it skips the lazy 2.8 MB set). The kit's neutral tone has no default glyph, so `muted` passes `mdiMinusCircleOutline` itself: test-plan #E1 expects an icon on every state, and changing the kit's neutral default would alter the 31 plugin call sites. `data-status-pill` and `title` sit on a thin wrapper span, because `SettingsStatusPill` only exposes `data-status`.
 - **Visual impact.** Base palettes change too: `running` goes from green to info-blue, and `warn` goes from yellow to the orange-derived warning triple. This is intended; one meaning, one colour.
 
 ### D3. Kit extensions, all additive
