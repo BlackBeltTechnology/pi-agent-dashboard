@@ -257,6 +257,7 @@
         "src/client.tsx",
         "src/server/index.ts",
         "src/bridge/index.ts",
+        "src/file-handler/validator.mjs",
         "**/vitest.config.ts",
         "**/__tests__/**/*.test.{ts,tsx}"
       ],

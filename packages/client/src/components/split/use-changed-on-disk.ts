@@ -30,11 +30,11 @@ import { fetchWithoutGrantPrompt } from "../../lib/access-grants/grant-channel.j
 import { getApiBase } from "../../lib/api/api-context.js";
 
 /** Delay between a candidate and its digest (lets a write burst settle). */
-export const SETTLE_MS = 150;
+const SETTLE_MS = 150;
 /** Mount-time catch-up: one verification this long after a baseline capture. */
-export const CATCHUP_MS = 1000;
+const CATCHUP_MS = 1000;
 /** Upper bound on how long a candidate waits for / a write runs under an own save. */
-export const SAVE_WAIT_MS = 60_000;
+const SAVE_WAIT_MS = 60_000;
 
 /**
  * What a tracked save promise resolves to. `ok === false` = the server refused

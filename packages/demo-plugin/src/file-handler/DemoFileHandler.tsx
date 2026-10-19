@@ -9,11 +9,6 @@ import { useEffect, useRef, useState } from "react";
 
 let mountCount = 0;
 
-/** Test hook: current module-level mount count. */
-export function demoFileHandlerMountCount(): number {
-  return mountCount;
-}
-
 export function DemoFileHandler(props: FileHandlerProps) {
   const { snapshot, save, setDirty, path } = props;
   const instanceId = useRef<string>("");

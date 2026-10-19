@@ -18,11 +18,11 @@
 import { pathToFileURL } from "node:url";
 import { Worker } from "node:worker_threads";
 
-export const VALIDATOR_POOL_SIZE = 2;
-export const VALIDATOR_QUEUE_MAX = 8;
-export const VALIDATOR_TIMEOUT_MS = 5_000;
+const VALIDATOR_POOL_SIZE = 2;
+const VALIDATOR_QUEUE_MAX = 8;
+const VALIDATOR_TIMEOUT_MS = 5_000;
 
-export type ValidatorOutcome =
+type ValidatorOutcome =
   | { ok: true }
   | { ok: false; kind: "reject" | "timeout" | "error"; reason: string };
 

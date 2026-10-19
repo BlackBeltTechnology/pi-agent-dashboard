@@ -18,7 +18,7 @@ import { createSemaphore } from "@blackbelt-technology/pi-dashboard-shared/semap
 /** Above this size the digest reports `size`/`mtime` only (no `sha1`). */
 export const DIGEST_CEILING_BYTES = 256 * 1024 * 1024;
 /** In-flight hashes allowed at once. */
-export const DIGEST_MAX_CONCURRENT = 2;
+const DIGEST_MAX_CONCURRENT = 2;
 
 export interface HashLimiter {
   /** Run `task` once a slot is free; rejects (without starting) when `signal` is already aborted. */

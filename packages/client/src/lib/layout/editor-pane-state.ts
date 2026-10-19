@@ -99,7 +99,7 @@ export const EMPTY_PANE_STATE: EditorPaneState = {
  * Used to auto-expand the tree so an opened/activated file's row is revealed
  * (#5). Handles both `/` and `\` separators.
  */
-export function ancestorDirs(relPath: string): string[] {
+function ancestorDirs(relPath: string): string[] {
   const parts = relPath.split(/[/\\]/).filter(Boolean);
   const dirs: string[] = [];
   for (let i = 1; i < parts.length; i++) dirs.push(parts.slice(0, i).join("/"));
