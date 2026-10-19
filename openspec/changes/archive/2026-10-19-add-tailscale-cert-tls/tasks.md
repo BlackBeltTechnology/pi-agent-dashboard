@@ -92,4 +92,4 @@
 ## 6. Docs & manual verification
 
 - [x] 6.1 Add `packages/server/src/tls/AGENTS.md` rows (new dir), update `tunnel-endpoints.ts.AGENTS.md`, `host-admission.ts`, `config-api.ts`, `routes/` (`tls-routes.ts`) and `client/src/components/Gateway/AGENTS.md` (`GatewayTlsSection.tsx`, `GatewayEndpoints.tsx`) rows; delegate `docs/` prose (architecture TLS listener section, FAQ "HTTPS on the tailnet") to DocScribe; verify rows and docs present
-- [ ] 6.2 Manual QA on a real tailnet (test-plan: manual-only, #M1): enable tailnet HTTPS, set `tls.host` to the Tailscale IPv4, enable the listener, pair a phone via `https://<name>.ts.net:8443`; verify pairing completes, the cert is trusted, and `crypto.subtle` is available
+- [x] 6.2 Manual QA on a real tailnet (test-plan: manual-only, #M1): enable tailnet HTTPS, set `tls.host` to the Tailscale IPv4, enable the listener, pair a phone via `https://<name>.ts.net:8443`; verify pairing completes, the cert is trusted, and `crypto.subtle` is available
