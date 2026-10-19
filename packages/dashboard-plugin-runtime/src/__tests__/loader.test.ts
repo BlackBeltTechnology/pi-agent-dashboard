@@ -34,6 +34,7 @@ function makeFakeContext(): ServerPluginContext {
     abortSpawnedRun: async () => false,
     registerSessionCloser: () => {},
     requestSessionClose: async () => false,
+    registerFileValidator: () => {},
     registerCwdPolicy: () => {},
     unregisterCwdPolicy: () => {},
     provide: () => {},
