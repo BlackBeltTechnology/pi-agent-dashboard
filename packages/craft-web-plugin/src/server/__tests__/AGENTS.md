@@ -9,6 +9,6 @@ Files in this directory. One row per source file. See change: edit-office-in-pan
 | `ooxml-validator.test.ts` | E18: valid per kind (deflated+stored), wrong kind, non-zip, DOCTYPE/ENTITY, missing main part, 10,001 entries, oversized/corrupt content types. |
 | `post-install.test.ts` | E13: no inline script, bootstrap+shim referenced once, shim before bootstrap, idempotent, other-version refusal, `.gz` siblings, `.br` removed, `craft-build.json`. |
 | `routes.test.ts` | Real `registerPlugin` over Fastify: status shape, restart-required, prepare 403/404, csp-report 200/400/413/429. |
-| `service.test.ts` | E3 status decision table, E12 status side (override-dir prepare, shim bump → shim-outdated → re-prepare keeps old tree), X1/X2 failure mapping, single-flight, log lines, csp rate limit. |
+| `service.test.ts` | E3 status decision table, E12 status side (override-dir prepare, shim bump → shim-outdated → re-prepare keeps old tree), X1/X2 failure mapping, single-flight, log lines, csp rate limit. Version channel: pinned no lookup; latest background refresh + `channel` to provisionWeb; env `latest`; newer known → not-prepared; failed update keeps build; `installedVersion`/`latestVersion`. See change: track-latest-craft-web-version. |
 | `shim-version.test.ts` | `parseShimVersion` literal contract; packaged shim declares a version; mtime re-read. |
 | `validator-worker.test.ts` | Validator through the REAL registry + REAL worker pool. |

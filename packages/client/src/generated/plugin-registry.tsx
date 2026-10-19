@@ -758,6 +758,12 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
                 "firstOverwriteNotice": "Saves are re-rendered by WordCraft's own writer; formatting of unsupported features may change. A copy is the safe way to compare.",
                 "copySuffix": "wordcraft",
                 "validator": true
+            },
+            {
+                "slot": "settings-section",
+                "component": "CraftWebSettings",
+                "module": "./src/client/CraftWebSettings.tsx",
+                "tab": "general"
             }
         ],
         "client": "./src/client/index.tsx",
@@ -768,6 +774,7 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
     },
     claims: [
       { pluginId: "craft-web", priority: 400, slot: "editor-pane-file-handler", fileHandler: {"id":"wordcraft","extensions":[".docx"],"mode":"edit","label":"Edit in WordCraft","keepAlive":{"max":3},"maxBytes":41943040,"firstOverwriteNotice":"Saves are re-rendered by WordCraft's own writer; formatting of unsupported features may change. A copy is the safe way to compare.","copySuffix":"wordcraft","validator":true}, Component: lazyClaim(() => import("../../../craft-web-plugin/src/client/handlers"), "WordCraftHandler") },
+      { pluginId: "craft-web", priority: 400, slot: "settings-section", tab: "general", Component: lazyClaim(() => import("../../../craft-web-plugin/src/client/CraftWebSettings"), "CraftWebSettings") },
     ],
     catalog: craft_web_catalog,
   },
@@ -893,4 +900,4 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "56eb3a2a185b9bc74522602a535e83823f608dd8638f432ec00acf2658349dbe";
+export const PLUGIN_REGISTRY_HASH = "ebb273c213db6af0a5e6227b5a1ab5530a6e94df76edcf6deb53dcc3273b4331";
