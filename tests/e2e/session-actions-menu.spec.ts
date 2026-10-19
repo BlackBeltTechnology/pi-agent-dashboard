@@ -30,6 +30,7 @@ import {
   sessionMenuPanel,
   sessionMenuTrigger,
 } from "./helpers/session-actions-menu.js";
+import { buttonBoxes, resolveColor } from "./helpers/computed-contrast.js";
 import { DASHBOARD_PORT, harnessProject } from "./lifecycle.js";
 
 const SEED_PREFIX = "e2e-sam";
@@ -396,5 +397,45 @@ test.describe("session actions menu (L3)", () => {
     await expect(search).toBeVisible({ timeout: 15_000 });
     await page.waitForTimeout(2_000);
     await expect(search).toBeVisible();
+  });
+});
+
+// test-plan #F3 (align-ui-contract-recipes): touch targets at 375×800.
+//
+// Rail half only. The session card switches to its mobile layout below 768 px (`useMobile`:
+// width < 768 OR height < 600) and the actions menu exists only in the desktop layout, so the
+// menu cannot open at 375 px and its `max-sm:min-h-[44px]` item class is unreachable on this
+// build. The spec scenario "Touch viewport targets" is therefore vacuous for the menu; the menu's
+// 36 px floor is pinned at L1 (`SessionCard.actions-menu.test.tsx`) and measured at desktop width.
+test.describe("touch targets at 375×800 (align-ui-contract-recipes)", () => {
+  test("F3: the Services strip item is ≥ 44 px tall with a bottom-edge bar, and the page does not scroll sideways", async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 800 });
+    await gotoDashboard(page);
+    await page.goto("/settings/services");
+    const rail = page.getByTestId("settings-nav-rail");
+    await expect(rail).toBeVisible({ timeout: 20_000 });
+
+    const boxes = await buttonBoxes(rail);
+    expect(boxes.length).toBeGreaterThan(5);
+    expect(boxes.filter((b) => b.h < 44), "strip items under 44 px").toEqual([]);
+
+    const current = rail.locator("[aria-current='page']");
+    await expect(current).toHaveCount(1);
+    await expect(current).toContainText("Services");
+    const bar = await current.evaluate((el) => {
+      const st = getComputedStyle(el, "::before");
+      const own = el.getBoundingClientRect();
+      return { height: st.height, bottom: st.bottom, left: st.left, position: st.position, bg: st.backgroundColor, boxH: Math.round(own.height) };
+    });
+    expect(bar.position).toBe("absolute");
+    expect(bar.height).toBe("3px");
+    expect(bar.bottom).toBe("0px"); // bottom edge, not the leading edge
+    expect(bar.boxH).toBeGreaterThanOrEqual(44);
+    expect(bar.bg).not.toBe("rgba(0, 0, 0, 0)");
+    const accent = await resolveColor(page, "var(--accent-primary)");
+    expect(bar.bg.replace(/\s/g, "")).toContain(`rgb(${accent.join(",")}`);
+
+    const overflow = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth }));
+    expect(overflow.sw).toBe(overflow.cw);
   });
 });
