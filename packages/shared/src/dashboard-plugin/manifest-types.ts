@@ -62,8 +62,8 @@ export interface PluginClaim {
   id?: string;
   /**
    * For `editor-pane-file-handler`: non-empty list of lower-case single-segment
-   * extensions (`^\.[a-z0-9][a-z0-9+-]{0,15}$`). Text-backed extensions
-   * (`isTextBackedExt`) are rejected.
+   * extensions (`^\.[a-z0-9][a-z0-9+-]{0,15}$`). Text-backed or frozen-deny-listed
+   * extensions (`isUnclaimableHandlerExt`) are rejected.
    */
   extensions?: string[];
   /** For `editor-pane-file-handler`: `"preview"` (read-only) or `"edit"` (may save). */

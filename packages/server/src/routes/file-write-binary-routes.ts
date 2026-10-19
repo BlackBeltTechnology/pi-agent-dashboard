@@ -169,7 +169,8 @@ async function overwrite(
     await fs.rm(tmp, { force: true }).catch(() => {});
     return fail(500, "write failed");
   }
-  const after = await fs.stat(real);
+  const after = await fs.stat(real).catch(() => null);
+  if (!after) return fail(500, "write failed");
   return {
     code: 200,
     body: {
@@ -226,7 +227,8 @@ async function copy(ctx: WriteCtx, suffix: string): Promise<Outcome> {
       await fs.rm(dest, { force: true }).catch(() => {});
       return fail(500, "write failed");
     }
-    const st = await fs.stat(dest);
+    const st = await fs.stat(dest).catch(() => null);
+    if (!st) return fail(500, "write failed");
     return {
       code: 200,
       body: {

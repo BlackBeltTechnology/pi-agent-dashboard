@@ -402,5 +402,5 @@ const HANDLER_DENIED_EXTS: ReadonlySet<string> = new Set([
 
 /** True when a file-handler claim may not own `ext`: text-backed, or on the frozen deny list. */
 export function isUnclaimableHandlerExt(ext: string): boolean {
-  return HANDLER_DENIED_EXTS.has(ext) || isTextBackedExt(ext);
+  return HANDLER_DENIED_EXTS.has(ext.toLowerCase()) || isTextBackedExt(ext);
 }

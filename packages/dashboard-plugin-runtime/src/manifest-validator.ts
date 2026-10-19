@@ -172,8 +172,8 @@ type FileHandlerFields = Pick<
 
 /**
  * Validate + normalize the `editor-pane-file-handler` claim fields (fatal on
- * any violation). Text-backed extensions are rejected via `isTextBackedExt`
- * so the set stays derived from `fileKind`. See change: add-editor-pane-file-handlers (D1).
+ * any violation). Text-backed or frozen-deny-listed extensions are rejected via
+ * `isUnclaimableHandlerExt` (the text set stays derived from `fileKind`). See change: add-editor-pane-file-handlers (D1).
  */
 function validateFileHandlerClaim(c: Record<string, unknown>, pluginId: string, index: number): FileHandlerFields {
   const at = `claims[${index}] slot "editor-pane-file-handler"`;
