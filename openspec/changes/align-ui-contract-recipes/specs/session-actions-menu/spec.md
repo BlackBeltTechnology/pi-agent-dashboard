@@ -16,8 +16,8 @@ A disabled item's reason SHALL render as its own line under the label, at least 
 - **AND** every menu item SHALL be at least 36 px tall
 
 #### Scenario: Touch viewport targets
-- **WHEN** the menu opens in a 375 px viewport
-- **THEN** every menu item SHALL be at least 44 px tall
+- **WHEN** a menu item renders below the `sm` breakpoint
+- **THEN** it SHALL be at least 44 px tall (the menu only exists in the desktop layout, which is not shown below 768 px, so this floor is pinned at the class level, not in a narrow browser)
 
 #### Scenario: Disabled reason is readable
 - **WHEN** New worktree session is disabled because the session's directory no longer exists

@@ -32,9 +32,9 @@ When the caller supplies no icon, the pill SHALL show the tone's default icon, p
 - **THEN** its progress icon SHALL NOT animate
 
 #### Scenario: Raw code stays out of the visible text
-- **WHEN** the plugin list shows a plugin in the `waiting_peers` state
-- **THEN** the visible word SHALL be a human phrase such as "Waiting for peers"
-- **AND** `waiting_peers` SHALL be available only as an attribute value
+- **WHEN** the plugin list shows a plugin whose load failed
+- **THEN** the visible word SHALL be a human phrase such as "Failed to load"
+- **AND** the raw state (`error`) SHALL be available only as an attribute value
 
 ### Requirement: One notice anatomy for callouts and banners
 
