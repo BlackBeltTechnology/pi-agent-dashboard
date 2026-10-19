@@ -88,6 +88,8 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   // below-operate callers itself (canMutateServices).
   { method: "DELETE", path: "/api/services/:id", tier: "operate" },
   { method: "DELETE", path: "/api/tools/:name", tier: "control" },
+  // add-acme-dns01-certs: remove one acme certificate source (authorized like `PUT /api/config`).
+  { method: "DELETE", path: "/api/tls/acme/:sourceId", tier: "operate" },
   // add-passkey-user-auth: user-directory management is operator-only.
   { method: "DELETE", path: "/api/users/invites/:inviteId", tier: "operate" },
   { method: "DELETE", path: "/api/vault/accounts/:id", tier: "operate" },
@@ -470,6 +472,9 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "PUT", path: "/api/system-one/config", tier: "operate" },
   { method: "PUT", path: "/api/services/:id/secrets/:name", tier: "operate" },
   { method: "PUT", path: "/api/tools/:name", tier: "operate" },
+  // add-acme-dns01-certs: upsert one acme certificate source; its vault-backed solver credentials.
+  { method: "PUT", path: "/api/tls/acme/:sourceId", tier: "operate" },
+  { method: "PUT", path: "/api/tls/acme/:sourceId/credentials", tier: "operate" },
   { method: "PUT", path: "/api/vault/accounts/:id/value", tier: "operate" },
   { method: "PUT", path: "/api/vault/bindings/:name/default", tier: "operate" },
   { method: "PUT", path: "/api/vault/plugin-approvals/:pluginId/:bindingName", tier: "operate" },

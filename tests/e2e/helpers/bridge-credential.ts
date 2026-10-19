@@ -40,7 +40,8 @@ function operatorToken(): string | undefined {
   try {
     const id = execFileSync(
       "docker",
-      ["ps", "-q", "--filter", `label=com.docker.compose.project=${harnessProject()}`],
+      // Service filter too: a TEST_EXTRA_COMPOSE overlay adds sibling containers to the project.
+      ["ps", "-q", "--filter", `label=com.docker.compose.project=${harnessProject()}`, "--filter", "label=com.docker.compose.service=pi-dashboard"],
       { encoding: "utf8", timeout: 30_000 },
     )
       .trim()

@@ -264,6 +264,16 @@ Requests back to the prerequisite:
 
 Task 1.1 checks these against the merged prerequisite before building.
 
+### Spike results (task 1.3, `acme-client@5.4.0`)
+- **Axios timeout:** `acme.axios` is a separate `axios.create()` instance; `acme.axios.defaults.timeout = 30_000` applies to every library request (set once by `configureAcmeLib`).
+- **Interceptor + abort context:** a request interceptor on `acme.axios` sees every request, including internal polls and the 5xx/429 retries (they go through the same instance). The `AsyncLocalStorage` context set around the attempt body is visible inside it; tests (`acme-source-timing.test.ts` X3) reject a stale poll through it.
+- **Logger:** `setLogger` is an exported setter; `src/logger.js` still calls `debug('acme-client')`, which logs URLs, statuses and nonce notes, never bodies. Accepted (D1).
+- **Challenge choice:** the low-level `Client` methods do not choose a challenge type; the source picks `type === "dns-01"` itself and fails the attempt when none is offered. The key authorization of a `dns-01` challenge is already the TXT digest value.
+- **Invalid authorization:** `waitForValidStatus` rejects with the CA problem detail for `invalid` and with a generic pending error after its polls run out. The source re-reads the authorizations after a failure and treats an `invalid` one as the CA failure (`RetryAfterError` 1 h); anything else stays a plain error.
+- **challtestsrv:** `/clear-txt` clears the whole host (verified in the overlay), so the Cloudflare shim keeps its own per-host record set and re-sets the remainder on `DELETE`. More than about five TXT values on one name break Pebble's lookup, so specs must clean up their records. challtestsrv follows a CNAME when answering TXT queries (`/set-cname`), which the acme-dns double relies on.
+- **Not live-verified (manual QA M1/M2):** the Cloudflare token scope pair (Zone:DNS:Edit + Zone:Zone:Read) and account-owned token verification, and the acme-dns `/register` + `/update` request shape. Both follow the vendors' documentation and the lego/acme-dns READMEs.
+- **Recorded gap:** the merged prerequisite forces readiness on the manager's 15-minute re-check of a gated name (`forceReadiness`), while D9 assumes an unforced re-check. For acme-dns that means one placeholder `/update` roughly every 15 minutes while a name is gated, only when the registration lock is free. Accepted: it occupies one rolling slot and never overlaps a running challenge.
+
 ## Risks / Trade-offs
 
 - [DNS API token = ability to rewrite the zone] → least-privilege guidance (single zone, Zone:Read + DNS:Edit); recommend acme-dns delegation, whose secret can only change one TXT value.

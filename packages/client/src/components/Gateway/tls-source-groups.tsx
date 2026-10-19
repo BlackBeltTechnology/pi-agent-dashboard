@@ -13,11 +13,11 @@ import type { TlsCertStatus, TlsGate, TlsSourceStatus } from "@blackbelt-technol
 import { mdiAlert, mdiAlertCircleOutline, mdiCertificateOutline, mdiRefresh, mdiShieldLockOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type { ComponentType, ReactNode } from "react";
-import { deriveCertRow, retryMinutes } from "../../lib/gateway/tls-view.js";
+import { deriveCertRow, retryMinutes, type TlsPill } from "../../lib/gateway/tls-view.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
 import { BTN_SMALL, callout, META, ROW, severityPill } from "../connectivity/connectivity-ui.js";
 
-interface TlsGroupContext {
+export interface TlsGroupContext {
   /** Fixed clock for a render (days-left maths). */
   now: number;
   /** Operator "issue now" for `(sourceId, name?)`; resolves when the request was accepted. */
@@ -26,6 +26,8 @@ interface TlsGroupContext {
   renderGate: (gate: TlsGate) => ReactNode;
   /** `sourceId`+name that currently has a request being sent. */
   busyKey: string | null;
+  /** Re-read the status now (after a group's own write). */
+  refresh: () => void;
 }
 
 export interface TlsSourceGroupProps {
@@ -46,9 +48,40 @@ export function tlsSourceGroupFor(type: string): ComponentType<TlsSourceGroupPro
   return registry.get(type) ?? GenericSourceGroup;
 }
 
-function TlsCertRow({ cert, sourceId, ctx }: { cert: TlsCertStatus; sourceId: string; ctx: TlsGroupContext }) {
+/** Per-row additions a source type can layer on the shared row anatomy. */
+export interface TlsRowDecor {
+  /** Replaces the derived facts line. */
+  facts?: string;
+  /** Replaces the derived pill; `null` hides it. */
+  pill?: TlsPill | null;
+  /** Hide Renew now / Try again now (the name is blocked by a gate, not by a failed attempt). */
+  hideAction?: boolean;
+  /** Badges under the facts line. */
+  badges?: ReactNode;
+  /** Progress steps under the badges. */
+  steps?: ReactNode;
+  /** Full-width block after the action row (a gate callout). */
+  extra?: ReactNode;
+  /** Appended to the last-error callout, after the next-try time. */
+  errorNote?: ReactNode;
+  /** Stages that count as "Requesting…" (default: `requesting`). */
+  isRequestingStage?: (stage: string) => boolean;
+}
+
+export function TlsCertRow({
+  cert,
+  sourceId,
+  ctx,
+  decor = {},
+}: {
+  cert: TlsCertStatus;
+  sourceId: string;
+  ctx: TlsGroupContext;
+  decor?: TlsRowDecor;
+}) {
   const { t } = useI18n();
-  const view = deriveCertRow(cert, ctx.now, t);
+  const view = deriveCertRow(cert, ctx.now, t, decor.isRequestingStage);
+  const pill = decor.pill === undefined ? view.pill : decor.pill;
   const eta = retryMinutes(cert, ctx.now);
   const busy = view.running || ctx.busyKey === `${sourceId}\u0000${cert.name}`;
 
@@ -59,31 +92,38 @@ function TlsCertRow({ cert, sourceId, ctx }: { cert: TlsCertStatus; sourceId: st
       </span>
       <div className="min-w-0 flex-[1_1_200px]">
         <div className="break-all font-mono text-xs font-semibold text-[var(--text-primary)]">{cert.name}</div>
-        <p className={`mt-0.5 ${META}`}>{view.facts}</p>
+        <p className={`mt-0.5 ${META}`}>{decor.facts ?? view.facts}</p>
+        {decor.badges}
+        {decor.steps}
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <span className={severityPill(view.pill.severity)}>
-          <Icon path={view.pill.icon} size={0.5} spin={view.pill.spin} aria-hidden="true" />
-          {view.pill.label}
-        </span>
-        <button
-          type="button"
-          className={BTN_SMALL}
-          data-testid="gateway-tls-issue-now"
-          disabled={busy}
-          aria-disabled={busy || undefined}
-          onClick={() => ctx.issue(sourceId, cert.name)}
-        >
-          <Icon path={mdiRefresh} size={0.5} aria-hidden="true" />
-          {view.action}
-        </button>
+        {pill && (
+          <span className={severityPill(pill.severity)} data-testid="gateway-tls-cert-pill">
+            <Icon path={pill.icon} size={0.5} spin={pill.spin} aria-hidden="true" />
+            {pill.label}
+          </span>
+        )}
+        {!decor.hideAction && (
+          <button
+            type="button"
+            className={BTN_SMALL}
+            data-testid="gateway-tls-issue-now"
+            disabled={busy}
+            aria-disabled={busy || undefined}
+            onClick={() => ctx.issue(sourceId, cert.name)}
+          >
+            <Icon path={mdiRefresh} size={0.5} aria-hidden="true" />
+            {view.action}
+          </button>
+        )}
       </div>
-      {cert.lastError && <CertErrorCallout held={view.held} eta={eta} error={cert.lastError} />}
+      {decor.extra && <div className="basis-full">{decor.extra}</div>}
+      {cert.lastError && <CertErrorCallout held={view.held} eta={eta} error={cert.lastError} note={decor.errorNote} />}
     </div>
   );
 }
 
-function CertErrorCallout({ held, eta, error }: { held: boolean; eta: number | null; error: string }) {
+function CertErrorCallout({ held, eta, error, note }: { held: boolean; eta: number | null; error: string; note?: ReactNode }) {
   const { t } = useI18n();
   return (
     <div className={`${callout(held ? "warning" : "error")} basis-full`} role={held ? "note" : "alert"}>
@@ -95,6 +135,7 @@ function CertErrorCallout({ held, eta, error }: { held: boolean; eta: number | n
             : t("gateway.tls.row.getFailed", undefined, "Couldn't get a certificate.")}
         </b>
         {eta !== null && <> {t("gateway.tls.row.nextTry", { minutes: eta }, "Next try in {minutes} minutes.")}</>}
+        {note && <> {note}</>}
         <span className="mt-1 block break-words font-mono text-[11px]" data-testid="gateway-tls-last-error">
           {error}
         </span>
@@ -103,17 +144,23 @@ function CertErrorCallout({ held, eta, error }: { held: boolean; eta: number | n
   );
 }
 
-function GroupFrame({
+export function GroupFrame({
   testId,
   icon,
   title,
   meta,
+  pill,
+  actions,
   children,
 }: {
   testId: string;
   icon: string;
   title: string;
   meta?: string;
+  /** Group status pill, after the meta. */
+  pill?: ReactNode;
+  /** Right-aligned header actions (e.g. Edit). */
+  actions?: ReactNode;
   children: ReactNode;
 }) {
   return (
@@ -124,6 +171,8 @@ function GroupFrame({
         </span>
         <b className="text-[var(--text-primary)]">{title}</b>
         {meta && <span className={META}>{meta}</span>}
+        {pill}
+        {actions && <span className="ml-auto inline-flex">{actions}</span>}
       </div>
       <div className="space-y-3">{children}</div>
     </div>

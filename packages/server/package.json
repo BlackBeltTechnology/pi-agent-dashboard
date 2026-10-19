@@ -47,7 +47,7 @@
       "chat-gateway",
       "system-one-plugin",
       "team-plugin",
-    "skill-atlas-plugin"
+      "skill-atlas-plugin"
     ]
   },
   "main": "src/cli.ts",
@@ -87,6 +87,7 @@
     "@fission-ai/openspec": "1.14.3",
     "@simplewebauthn/browser": "^14.0.0",
     "@simplewebauthn/server": "^14.0.3",
+    "acme-client": "^5.4.0",
     "asciidoctor": "^3.0.4",
     "bonjour-service": "^1.3.0",
     "chardet": "^2.1.0",

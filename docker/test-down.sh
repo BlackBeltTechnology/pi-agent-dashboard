@@ -53,7 +53,8 @@ if [ -z "$EVENTS_FILE" ]; then
 fi
 if [ -z "$CONTAINER_ID" ]; then
   # Attached boot (state has no ID): resolve it now, before compose removes it.
-  CONTAINER_ID="$(docker compose -p "$project" ps -aq 2>/dev/null | head -1 || true)" # -a: an attached run stopped by Ctrl-C leaves a stopped container
+  # Name the service: an overlay (TEST_EXTRA_COMPOSE) adds sibling containers.
+  CONTAINER_ID="$(docker compose -p "$project" ps -aq pi-dashboard 2>/dev/null | head -1 || true)" # -a: an attached run stopped by Ctrl-C leaves a stopped container
 fi
 
 # Alive AND still our recorder: a recycled PID (the state file often outlives a
@@ -70,11 +71,30 @@ else
 fi
 printf 'teardown-begin %s %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$project" "$CONTAINER_ID" >> "$EVENTS_FILE" 2>/dev/null || true
 
+# Extra overlays test-up.sh layered (TEST_EXTRA_COMPOSE) — read from the state
+# file's `extraCompose`, so a teardown WITHOUT the env var (ship-it's trap) still
+# names the overlay's services. State absent/unreadable, or written before the
+# key existed → include every compose.test.*.yml and say so. --remove-orphans
+# catches anything the file list still misses. See change: add-acme-dns01-certs.
+COMPOSE_FILES=(-f "${SCRIPT_DIR}/compose.yml" -f "${SCRIPT_DIR}/compose.test.yml")
+extra_list=""
+if [ -f "$STATE_FILE" ] && grep -q '"project"' "$STATE_FILE" 2>/dev/null \
+  && grep -q '"extraCompose"' "$STATE_FILE" 2>/dev/null; then
+  extra_list="$(sed -n 's/.*"extraCompose"[: ]*\[\([^]]*\)\].*/\1/p' "$STATE_FILE" | head -1 | tr -d '",')"
+else
+  for f in "${SCRIPT_DIR}"/compose.test.*.yml; do
+    [ -f "$f" ] && extra_list="${extra_list} $(basename "$f")"
+  done
+  echo "add-acme-dns01-certs: no readable extraCompose in .pi-test-harness.json; falling back to every compose.test.*.yml:${extra_list:- (none)}" >&2
+fi
+for f in $extra_list; do
+  case "$f" in */*|"") continue ;; esac # basenames under docker/ only
+  [ -f "${SCRIPT_DIR}/${f}" ] && COMPOSE_FILES+=(-f "${SCRIPT_DIR}/${f}")
+done
+
 down_status=0
-docker compose -p "$project" \
-  -f "${SCRIPT_DIR}/compose.yml" \
-  -f "${SCRIPT_DIR}/compose.test.yml" \
-  down -v "$@" || down_status=$?
+docker compose -p "$project" "${COMPOSE_FILES[@]}" \
+  down -v --remove-orphans "$@" || down_status=$?
 
 # The event stream is asynchronous: stopping the recorder at once could drop the
 # very `destroy` line that tells own teardown from a foreign destroy. Wait (<=10 s)
