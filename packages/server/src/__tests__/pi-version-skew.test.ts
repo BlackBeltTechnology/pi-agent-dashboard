@@ -288,7 +288,8 @@ describe("pi pin block \u2014 1.3.0", () => {
       if (range) peers.push({ name: dir, range });
     }
     // 10th: packages/untrusted-content-guard (change: add-untrusted-content-guard).
-    expect(peers.length).toBe(10);
+    // 11th: packages/path-containment-guard (change: add-path-containment-guard-extension).
+    expect(peers.length).toBe(11);
     for (const { name, range } of peers) {
       expect(range, `${name} peer range must follow the floor`).toBe(`>=${PINNED_PI}`);
     }

@@ -5,17 +5,17 @@
 // The canonical doctrine ships as `dox-doctrine.md` (package root) with two
 // delimited sections — READ (`dox:read:kb`) and WRITE (`dox:write`). The READ
 // section is injected when `doctrine.inject` is `kb`; WRITE additionally when
-// `doctrine.write` is true. Injection is content-idempotent on the delimiter and
-// must land BEFORE pi's `\nCurrent working directory: ` anchor, because the
-// dashboard bridge splice-replaces everything after that anchor.
+// `doctrine.write` is true. extension.ts writes the fragment into pi's structured
+// custom section `DOX_SECTION` (never a returned `systemPrompt`). See change:
+// fix-forced-system-prompt-drops-tool-guidelines.
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /** Opening marker of the injected doctrine fragment. Presence = already injected. */
 export const DOX_DELIMITER = "\u2500\u2500 dox doctrine \u2500\u2500";
-/** pi's literal system-prompt anchor (mirrors dashboard-context-injector). */
-export const CWD_ANCHOR = "\nCurrent working directory: ";
+/** pi structured system-prompt section the doctrine/nudges are written to. */
+export const DOX_SECTION = "dox_doctrine";
 
 const WRITE_START = "<!-- dox:write:start -->";
 const WRITE_END = "<!-- dox:write:end -->";
@@ -79,18 +79,6 @@ export function buildDoctrineFragment(opts: DoctrineFragmentOpts): string {
   const parts = [DOX_DELIMITER, sec.read];
   if (opts.write) parts.push(sec.write);
   return parts.join("\n\n");
-}
-
-/** Insert a fragment into the system prompt immediately BEFORE the last
- *  `Current working directory: ` anchor (anchor preserved verbatim), or append
- *  when the anchor is absent. Idempotent: a prompt already carrying the
- *  delimiter is returned unchanged. Empty fragment = unchanged. */
-export function insertFragment(systemPrompt: string, fragment: string): string {
-  if (!fragment) return systemPrompt;
-  if (systemPrompt.includes(DOX_DELIMITER)) return systemPrompt;
-  const idx = systemPrompt.lastIndexOf(CWD_ANCHOR);
-  if (idx === -1) return `${systemPrompt}\n\n${fragment}`;
-  return `${systemPrompt.slice(0, idx)}\n${fragment}${systemPrompt.slice(idx)}`;
 }
 
 /** One-time instruction: ask the user which doctrine mode to enable and record

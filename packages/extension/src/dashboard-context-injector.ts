@@ -2,23 +2,28 @@
  * Per-turn system-prompt injector exposing the dashboard session context
  * (sessionId, cwd, attached OpenSpec change) to the pi agent.
  *
- * Registers a `before_agent_start` handler that splice-replaces the trailing
- * `Current working directory: <cwd>` line of `event.systemPrompt` with a
- * marked context fragment. Coexists with the pass-through `before_agent_start`
- * forwarder already registered in `bridge.ts` — pi chains `{ systemPrompt }`
- * results, the forwarder returns nothing.
+ * Registers a `before_agent_start` handler that writes the marked context
+ * fragment into the STRUCTURED prompt options as the custom section
+ * `dashboard_session` (pi renders it as `<dashboard_session>` after `<cwd>`).
+ * It never returns `{ systemPrompt }`: that would set pi's `forceSystemPrompt`
+ * to a mid-chain snapshot and silently drop every later structured
+ * contribution (roles plugin Agent guideline, `mcp_servers`, …).
  *
  * The sessionId comes from the bridge (`bc.sessionId`); pi exposes no
  * `pi.sessionId`. State is read live via a getter so attach/detach and
  * fork/resume sessionId changes are reflected on the very next turn.
  *
- * See change: inject-session-context-into-agent.
+ * See change: inject-session-context-into-agent,
+ * fix-forced-system-prompt-drops-tool-guidelines.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { BridgeContext } from "./bridge-context.js";
 
-/** Literal anchor pi appends to every system prompt (dist/core/system-prompt.js). */
-export const CWD_ANCHOR = "\nCurrent working directory: ";
+/** Structured system-prompt section name (pi custom-section regex `^[a-z][a-z0-9_-]*$`). */
+export const SECTION_NAME = "dashboard_session";
+
+/** The slice of pi's `BuildSystemPromptOptions` this injector reads/writes. */
+type PromptOptionsLike = { cwd?: unknown; sections?: Record<string, string> };
 
 /** Opening delimiter of the injected fragment. */
 export const CONTEXT_DELIMITER = "── pi-dashboard session context ──";
@@ -61,34 +66,14 @@ export function sanitizeChangeName(attachedChange: string | null | undefined): s
 }
 
 /**
- * Splice-replace the LAST `Current working directory: ` line of `sp` with the
- * context fragment (which carries `cwd`, so nothing is lost). Content before
- * the anchor is preserved verbatim. When the anchor is absent, fall back to
- * appending the fragment after a `\n\n` separator. Pure.
- */
-export function spliceContextFragment(
-  sp: string,
-  sessionId: string,
-  cwd: string,
-  attachedChange: string | null | undefined,
-): string {
-  const base = typeof sp === "string" ? sp : "";
-  const fragment = buildContextFragment(sessionId, cwd, attachedChange);
-  const anchorIndex = base.lastIndexOf(CWD_ANCHOR);
-  if (anchorIndex === -1) {
-    return `${base}\n\n${fragment}`;
-  }
-  return `${base.slice(0, anchorIndex)}\n${fragment}`;
-}
-
-/**
  * Register the `before_agent_start` injector. `getBc` returns the live
  * BridgeContext (bridge.ts `syncBc`) so sessionId/attachedChange are read
  * fresh each turn. cwd source: `event.systemPromptOptions?.cwd ?? process.cwd()`.
  *
- * `isActive` guards against `/reload` stacking a second handler on the same
- * `pi` instance — a stale-generation handler returns `undefined` (no SP
- * contribution) so only the current generation splices, mirroring the
+ * Mutates `event.systemPromptOptions.sections[SECTION_NAME]` and returns
+ * `undefined` (pi shares one options object across all handlers). Keyed
+ * assignment is idempotent, so a stacked handler cannot duplicate the fragment;
+ * `isActive` still lets a stale `/reload` generation opt out, mirroring the
  * `isActive()` guard on every other `pi.on(...)` handler in `bridge.ts`.
  *
  * NOTE: signature deviates from the proposal's `(pi, bc)` because `bridge.ts`
@@ -100,25 +85,19 @@ export function registerDashboardContextInjector(
   getBc: () => Pick<BridgeContext, "sessionId" | "attachedChange">,
   isActive: () => boolean,
 ): void {
-  pi.on("before_agent_start", (event: any) => {
+  pi.on("before_agent_start", (event: unknown) => {
     if (!isActive()) return undefined;
     // Guard the hook payload: a malformed/changed shape must not throw and
-    // abort agent startup. Bail cleanly (no SP contribution) when systemPrompt
-    // is not a string.
-    if (typeof event?.systemPrompt !== "string") {
-      console.warn("[dashboard] before_agent_start: systemPrompt missing/non-string; skipping context injection");
+    // abort agent startup.
+    const opts = (event as { systemPromptOptions?: PromptOptionsLike } | undefined)?.systemPromptOptions;
+    if (!opts || typeof opts !== "object") {
+      console.warn("[dashboard] before_agent_start: systemPromptOptions missing; skipping context injection");
       return undefined;
     }
     const bc = getBc();
-    const optsCwd = event?.systemPromptOptions?.cwd;
-    const cwd = typeof optsCwd === "string" ? optsCwd : process.cwd();
-    return {
-      systemPrompt: spliceContextFragment(
-        event.systemPrompt,
-        bc.sessionId,
-        cwd,
-        bc.attachedChange,
-      ),
-    };
+    const cwd = typeof opts.cwd === "string" ? opts.cwd : process.cwd();
+    opts.sections ??= {};
+    opts.sections[SECTION_NAME] = buildContextFragment(bc.sessionId, cwd, bc.attachedChange);
+    return undefined;
   });
 }

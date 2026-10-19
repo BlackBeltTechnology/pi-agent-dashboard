@@ -20,8 +20,9 @@ import { fileURLToPath } from "node:url";
 import { pluginSpawnToSessionOptions } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createServer, type DashboardServer } from "../server.js";
-import { installFakePlugin, pluginCtx } from "./helpers/plugin-host-harness.js";
 import { buildSpawnEnv } from "../spawn-process/process-manager.js";
+import { _resetSpawnEnvContributorsForTests, registerSpawnEnvContributor } from "../spawn-process/spawn-env-contributors.js";
+import { installFakePlugin, pluginCtx } from "./helpers/plugin-host-harness.js";
 
 // ── Host-hook scenarios (relocate-goal-product-to-plugin, D1-#1/#3) ────────
 // The spawnSession hook body lives inside createServer, so these scenarios
@@ -134,6 +135,72 @@ describe("plugin-spawn-scope env projection", () => {
     expect(JSON.parse(env.PI_EXT_GUARD_ALLOWED_ROOTS as string)).toEqual(allowedRoots);
     // Sibling scalar key: still projected verbatim (no JSON quoting).
     expect(env.PI_EXT_GUARD_TOKEN).toBe("abc");
+  });
+});
+
+// A spawn that names an extension owns that extension's whole PI_EXT_<NAME>_* namespace:
+// inherited host vars under it are stripped (after contributors ran), so a stale inherited
+// var can never stand in for dropped/omitted config. The guard's namespace is stripped always.
+// See change: add-path-containment-guard-extension (D7, test-plan #E21).
+describe("extensionConfig owns its PI_EXT namespace (E21)", () => {
+  const spawn = (
+    inherited: Record<string, string>,
+    extensionConfig?: Record<string, Record<string, string | string[]>>,
+    contribute?: Record<string, string>,
+  ) => {
+    _resetSpawnEnvContributorsForTests();
+    if (contribute) registerSpawnEnvContributor("p", () => contribute);
+    const contributedOut: Record<string, string> = {};
+    const env = buildSpawnEnv({ ...cleanBaseEnv(), ...inherited }, { extensionConfig, mechanism: "headless", contributedOut });
+    _resetSpawnEnvContributorsForTests();
+    return { env, contributedOut };
+  };
+
+  it("(a) inherited keys under a configured name are stripped; only the spawn's own survive", () => {
+    const { env } = spawn(
+      { PI_EXT_GUARD_ALLOWED_ROOTS: '["/old"]', PI_EXT_GUARD_TOKEN: "stale" },
+      { guard: { allowedRoots: ["/new"] } },
+    );
+    expect(JSON.parse(env.PI_EXT_GUARD_ALLOWED_ROOTS as string)).toEqual(["/new"]);
+    expect(env.PI_EXT_GUARD_TOKEN).toBeUndefined();
+  });
+
+  it("(b) a configured name with an empty record (dropped keys) still clears inherited vars", () => {
+    const { env } = spawn({ PI_EXT_GUARD_ALLOWED_ROOTS: '["/old"]' }, { guard: {} });
+    expect(env.PI_EXT_GUARD_ALLOWED_ROOTS).toBeUndefined();
+  });
+
+  it("(c) an unconfigured extension's inherited vars are kept", () => {
+    const { env } = spawn({ PI_EXT_OTHER_KEY: "keep", PI_EXT_GUARD_X: "drop" }, { guard: { a: "1" } });
+    expect(env.PI_EXT_OTHER_KEY).toBe("keep");
+    expect(env.PI_EXT_GUARD_X).toBeUndefined();
+  });
+
+  it("(d) nested prefixes: both names are projected (a strip never eats a sibling's projection)", () => {
+    const { env } = spawn(
+      {},
+      { "path-containment": { a: "1" }, "path-containment-guard": { allowedRoots: ["/w"] } },
+    );
+    expect(env.PI_EXT_PATH_CONTAINMENT_A).toBe("1");
+    expect(JSON.parse(env.PI_EXT_PATH_CONTAINMENT_GUARD_ALLOWED_ROOTS as string)).toEqual(["/w"]);
+  });
+
+  it("(e) the guard namespace is never inherited, even with no extensionConfig", () => {
+    const { env } = spawn({ PI_EXT_PATH_CONTAINMENT_GUARD_ALLOWED_ROOTS: '["/"]', PI_EXT_PATH_CONTAINMENT_GUARD_DENIED_TOOLS: "[]" });
+    expect(env.PI_EXT_PATH_CONTAINMENT_GUARD_ALLOWED_ROOTS).toBeUndefined();
+    expect(env.PI_EXT_PATH_CONTAINMENT_GUARD_DENIED_TOOLS).toBeUndefined();
+  });
+
+  it("(f) a contributor cannot re-fill a stripped key, and it is not reported as contributed", () => {
+    const { env, contributedOut } = spawn({}, { guard: { a: "1" } }, { PI_EXT_GUARD_TOKEN: "from-contributor" });
+    expect(env.PI_EXT_GUARD_TOKEN).toBeUndefined();
+    expect(contributedOut).not.toHaveProperty("PI_EXT_GUARD_TOKEN");
+  });
+
+  it("(f2) a contributor cannot supply the guard namespace either", () => {
+    const { env, contributedOut } = spawn({}, undefined, { PI_EXT_PATH_CONTAINMENT_GUARD_ALLOWED_ROOTS: '["/"]' });
+    expect(env.PI_EXT_PATH_CONTAINMENT_GUARD_ALLOWED_ROOTS).toBeUndefined();
+    expect(contributedOut).not.toHaveProperty("PI_EXT_PATH_CONTAINMENT_GUARD_ALLOWED_ROOTS");
   });
 });
 

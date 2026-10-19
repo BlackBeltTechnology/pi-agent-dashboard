@@ -7,7 +7,7 @@ Gates a pi agent's `read`, `write` and `edit` tool calls whose target lies outsi
 
 ### Requirement: Out-of-root path tool calls are gated before execution
 
-When the gate is enabled, the system SHALL evaluate every `read`, `write` and `edit` tool call of a pi session before the tool executes. The target path SHALL be resolved by the same rules the tool itself applies to its path argument (including home-directory expansion, a leading `@` marker, whitespace normalisation, and resolution against the session working directory), and SHALL then be canonicalised through the real path of its nearest existing ancestor before comparison. Containment SHALL be decided component-wise, never by string prefix, with case sensitivity taken from the filesystem. A call whose canonical target lies within the session's roots SHALL proceed without a prompt. A call whose canonical target lies outside them SHALL NOT execute unless the operator allows it, or a live YOLO session the operator activated answers it as defined by the YOLO requirement of this capability. No other tool SHALL be gated by this capability.
+When the gate is enabled, the system SHALL evaluate every `read`, `write` and `edit` tool call of a pi session before the tool executes. The target path SHALL be resolved by the same rules the tool itself applies to its path argument (including home-directory expansion, a leading `@` marker, whitespace normalisation, and resolution against the session working directory), and SHALL then be canonicalised to the location the tool would actually open or create before comparison: existing path components through their real path, and a symlink whose own target does not exist (a dangling symlink) followed to that target. The link text SHALL be resolved component by component from the link's real parent directory, as the operating system resolves it: absolute link text starts from its root, a `..` component takes the parent of the already-resolved prefix, and any existing component SHALL be resolved through its real path before the next component is applied. The hop bound SHALL count every link followed for one call. A chain of symlinks that cannot be resolved within a bounded number of hops SHALL count as the gate erroring. Containment SHALL be decided component-wise, never by string prefix, with case sensitivity taken from the filesystem. A call whose canonical target lies within the session's roots SHALL proceed without a prompt. A call whose canonical target lies outside them SHALL NOT execute unless the operator allows it, or a live YOLO session the operator activated answers it as defined by the YOLO requirement of this capability. No other tool SHALL be gated by this capability.
 
 #### Scenario: In-root read proceeds silently
 
@@ -49,6 +49,18 @@ When the gate is enabled, the system SHALL evaluate every `read`, `write` and `e
 - **GIVEN** `/w/repo/link` is a symlink to `/w/other`
 - **WHEN** the agent writes `/w/repo/link/f.txt`
 - **THEN** the call SHALL be treated as a write of `/w/other/f.txt` and asked about
+
+#### Scenario: A dangling symlink inside the root pointing outside is asked about
+
+- **GIVEN** `/w/repo/link` is a symlink to the not-yet-existing `/w/other/new.txt`
+- **WHEN** the agent writes `/w/repo/link`
+- **THEN** the call SHALL be treated as a write of `/w/other/new.txt` and asked about
+
+#### Scenario: A relative dangling link under a symlinked directory is resolved from its real parent
+
+- **GIVEN** `/w/repo/s` is a symlink to `/w/other/deep`, and `/w/other/deep/link` is a symlink to the not-yet-existing `../new.txt`
+- **WHEN** the agent writes `/w/repo/s/link`
+- **THEN** the call SHALL be treated as a write of `/w/other/new.txt` and asked about
 
 #### Scenario: Other tools are not gated
 

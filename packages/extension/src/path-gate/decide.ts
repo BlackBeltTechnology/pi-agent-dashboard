@@ -4,9 +4,15 @@
  * which options the card may offer. No I/O beyond the injected resolve env.
  * See change: ask-agent-file-access-in-chat.
  */
-import nodePath from "node:path";
-import { volumeCaseInsensitive } from "@blackbelt-technology/pi-dashboard-shared/canonical-subject.js";
-import { canonicalizeTarget, defaultResolveEnv, type ResolveEnv, resolveReadTarget, resolveToolPath } from "./resolve.js";
+import {
+  canonicalizeTarget,
+  defaultResolveEnv,
+  isPathWithinRoots,
+  isWithinRoot,
+  type ResolveEnv,
+  resolveReadTarget,
+  resolveToolPath,
+} from "@blackbelt-technology/pi-dashboard-shared/tool-path-resolve.js";
 
 export type PathAccess = "read" | "write";
 
@@ -51,32 +57,6 @@ export type Decision =
       suppressionKey: string;
     };
 
-function fold(s: string, ci: boolean): string {
-  const nfc = s.normalize("NFC");
-  return ci ? nfc.toLowerCase() : nfc;
-}
-
-/**
- * Whether the volume holding `canonical` compares case-insensitively. PROBED from
- * the volume on a real host (a case-sensitive APFS volume on macOS must not fold);
- * on an injected foreign flavour (tests) the platform default stands.
- */
-function defaultVolumeProbe(canonical: string, env: ResolveEnv): boolean {
-  const realHost = env.path === nodePath && env.platform === process.platform;
-  if (realHost) return volumeCaseInsensitive(canonical);
-  return env.platform === "win32" || env.platform === "darwin";
-}
-
-/** Component-wise containment on already-canonical paths (never a string prefix). */
-function isWithin(candidate: string, root: string, env: ResolveEnv, ci: boolean): boolean {
-  const p = env.path;
-  const c = fold(candidate, ci);
-  const r = fold(root, ci);
-  if (c === r) return true;
-  const rel = p.relative(r, c);
-  return rel !== "" && rel !== ".." && !rel.startsWith(`..${p.sep}`) && !p.isAbsolute(rel);
-}
-
 export function decidePathAccess(input: DecideInput): Decision {
   const env = input.env ?? defaultResolveEnv();
   const lexical = resolveToolPath(input.rawPath, input.cwd, env);
@@ -90,17 +70,11 @@ export function decidePathAccess(input: DecideInput): Decision {
     [...r.grants],
     ...(input.access === "read" ? [[...r.readOnly]] : []),
   ];
-  const containedBy = (ci: boolean): boolean =>
-    rooted.some((set) => set.some((root) => isWithin(canonical, root, env, ci)));
-  // Exact (case-sensitive) match is valid on every volume: the in-root hot path
-  // never probes. Only when it fails is the volume asked whether case folds.
-  let inRoot = containedBy(false);
-  if (!inRoot) {
-    const ci =
-      input.caseInsensitive ??
-      (input.volumeCaseProbe ? input.volumeCaseProbe(canonical) : defaultVolumeProbe(canonical, env));
-    if (ci) inRoot = containedBy(true);
-  }
+  const inRoot = isPathWithinRoots(canonical, rooted.flat(), {
+    env,
+    caseInsensitive: input.caseInsensitive,
+    volumeCaseProbe: input.volumeCaseProbe,
+  });
   if (inRoot) return { verdict: "in-root", canonical };
   const p = env.path;
   const suppressionKey = p.dirname(canonical);
@@ -111,7 +85,7 @@ export function decidePathAccess(input: DecideInput): Decision {
     verdict: "ask",
     canonical,
     // Flagging errs toward flagging (case-folded): a false flag only adds a warning.
-    sensitive: input.sensitiveDirs.some((d) => isWithin(canonical, d, env, true)),
+    sensitive: input.sensitiveDirs.some((d) => isWithinRoot(canonical, d, env, true)),
     subject,
     grantable: !input.isUngrantable(subject),
     suppressionKey,

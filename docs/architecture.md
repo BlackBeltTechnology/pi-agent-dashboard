@@ -1479,6 +1479,16 @@ Automation plugin = `packages/automation-plugin/`. Schedule-triggered background
 - Registration requires CANONICAL containment (no lexical fallback — symlink-escape guard).
 - `resolve()` matches canonical-OR-lexical (fail-toward-applying).
 - See change: add-plugin-spawn-scope.
+- Pkg `packages/path-containment-guard` → `@blackbelt-technology/pi-path-containment-guard`. Opt-in pi extension. Loaded only via `-e` / `scope.extensions`; no `pi.extensions` entry. README: `packages/path-containment-guard/README.md`.
+- Fail-closed, non-interactive. Rejects `read|write|edit|grep|find|ls` outside `allowedRoots` + any `deniedTools`. Codes: `tool_denied`, `path_outside_roots`, `invalid_path`, `config_invalid`, `error`.
+- Config env: `PI_EXT_PATH_CONTAINMENT_GUARD_ALLOWED_ROOTS`, `PI_EXT_PATH_CONTAINMENT_GUARD_DENIED_TOOLS` (JSON arrays), via `extensionConfig["path-containment-guard"]`.
+- Plugin helper `withPathContainmentGuard({allowedRoots, deniedTools?}, baseScope?)` merges `-e` entry + `extensionConfig` into spawn scope.
+- Shared resolver `packages/shared/src/tool-path-resolve.ts` (moved from `packages/extension/src/path-gate/resolve.ts`, which re-exports). Used by path-gate + guard.
+- Security fix: `canonicalizeTarget` follows dangling symlinks. Write through in-root dangling link no longer escapes path-gate unprompted. Loop → hop bound 40 → path-gate blocks `error`.
+- Spawn env ownership: `buildSpawnEnv` strips inherited `PI_EXT_<NAME>_*` for every name in `scope.extensionConfig`, after env contributors, then projects own config. `PI_EXT_PATH_CONTAINMENT_GUARD_*` never inherited by any spawn.
+- Name const `PATH_CONTAINMENT_GUARD_EXT_NAME` in `packages/shared/src/path-containment-guard-name.ts`.
+- Not a sandbox. Shell/MCP tools not path-checked. List them in `deniedTools`.
+- See change: add-path-containment-guard-extension.
 
 ### Plugin Session Lifecycle Declarations (`hide-chat-gateway-sessions`)
 
