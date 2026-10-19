@@ -103,6 +103,28 @@ describe("PluginsSection", () => {
     expect(screen.getByText("Demo Plugin")).toBeTruthy();
   });
 
+  it("align #E8: a failed plugin row shows a word pill and one sentence; the stack is not visible text", async () => {
+    const stack = "Error: Cannot find module 'x'\n    at load (a.js:1:1)";
+    const { fetchImpl } = makeFetchSequence([
+      {
+        url: /\/api\/plugins$/,
+        body: { success: true, plugins: [pluginRow({ status: { id: "demo", displayName: "Demo Plugin", enabled: true, loaded: false, error: stack, claims: 1, missingRequirements: [] } })] },
+      },
+      { url: /\/api\/health/, body: { ok: true, startedAt: "2025-01-01T00:00:00Z", plugins: [] } },
+    ]);
+    vi.stubGlobal("fetch", fetchImpl);
+    render(<MountedPluginsSection />);
+    const row = await screen.findByTestId("plugin-row-demo");
+    expect(row.textContent).toContain("Failed to load");
+    const pill = row.querySelector('[data-status="error"]') as HTMLElement;
+    expect(pill).toBeTruthy();
+    expect(pill.className).not.toContain("text-[10px]");
+    const notice = screen.getByTestId("plugin-status-error-demo");
+    expect(notice.textContent).toContain("This plugin failed to load.");
+    expect(row.textContent).not.toContain("Cannot find module");
+    expect(screen.getByTestId("plugin-status-error-demo-copy-details")).toBeTruthy();
+  });
+
   it("toggle posts to /api/plugins/:id/toggle and shows the restart banner", async () => {
     const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
     const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {

@@ -176,6 +176,16 @@ Rows for patterns with no reference implementation in this change (tabs, filter 
 - **[Plugin-set colours inside the menu]** → The host only sets the inherited colour. A plugin that paints `--text-tertiary` itself still fails contrast; the plugin wave owns that.
 - **[ArtifactChip / `statusPresentation`]** → The helper keeps `--status-*` (`client-utils-status-presentation` MODIFIED). The pill change does not touch it.
 
+## Implementation deviations (task 5)
+
+Found while migrating; none changes behaviour beyond what D4 lists.
+
+- **Plugin list has no `waiting_peers`.** The planned scenario and test #E8 assumed the plugin list shows a `waiting_peers` state. `waiting_peers` is a field of the shared `plugin-status.ts` type that no client component renders. The list's pill shows `unknown / error / disabled / not-loaded / enabled`. It now shows words ("Status unknown", "Failed to load", "Off", "Not loaded", "On", reusing the settings page's `packages.pill*` keys plus one new key `packages.pillOn`), with the raw state in `data-status`. **The `shared-status-recipes` scenario "Raw code stays out of the visible text" still names `waiting_peers`; reword it to a state the list renders** when the change is next touched.
+- **The settings page keeps `CopyableErrorBlock`.** `PluginSettingsPage` has a deliberate load-error exception (#E30: one sentence AND the full copyable error text) and an e2e spec pins its `-copy` test id. Only the plugin LIST's error blocks became `SettingsNotice` + `details` (new `PluginErrorNotice`).
+- **`ProviderHealthPill` testing/pending** were plain text rows; they are now info pills with a spinning icon.
+- **Vault pills stay 12 px** (`interactive`), because `retro-ux-credential-vault` requires text in controls at 12 px and `VaultBindingsChip.test` guards it. Services list-row pills (inside a `<button>`) are 12 px too; the detail header pill is 11 px.
+- **`stateMeta` lost its `glyph`** field (orphaned by the pill migration).
+
 ## Kit props doubt review (task 2.5, 2026-10-18)
 
 Fresh-context, cross-model: `@propose-review-1` then `@propose-review-2` (both non-Claude, probed clean), artifact = the `settings-fields.tsx` diff, no author reasoning. 2 cycles, stop condition met (cycle 2: no blocking findings).

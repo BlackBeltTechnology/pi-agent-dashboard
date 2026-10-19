@@ -6,12 +6,22 @@
  * cached health) is asserted on the same derivation the connected row and the
  * Add-dialog pane both feed.
  */
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ProviderHealth } from "../../../lib/api/providers-api.js";
 import { derivePillView, ProviderHealthPill } from "../ProviderHealthPill.js";
 
 afterEach(cleanup);
+
+/** Click "Copy details" on the rendered error line and return what reached the clipboard. */
+async function copiedPayload(): Promise<string> {
+  const writeText = vi.fn(() => Promise.resolve());
+  Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+  await act(async () => {
+    fireEvent.click(screen.getByTestId("provider-error-line-copy-details"));
+  });
+  return String((writeText.mock.calls[0] as unknown[])[0]);
+}
 
 /** Render the pill through the cached-health derivation, as both surfaces do. */
 function renderPillFromHealth(health?: ProviderHealth) {
@@ -37,18 +47,25 @@ describe("ProviderHealthPill register matrix (moved from LlmProviderCard.health)
     expect(pill.textContent).not.toMatch(/models/);
   });
 
-  it("error register: yellow pill with the HTTP status code + verbatim error line", () => {
+  // align-ui-contract-recipes: the raw error text moved from a visible line into
+  // "Copy details" (the provider-error-line is now one sentence).
+  it("error register: warning pill with the HTTP status code; the raw error is only copied", async () => {
     const { pill, errorLine } = renderPillFromHealth({ ok: false, status: 401, error: "invalid x-api-key", testedAt: 1 });
     expect(pill.getAttribute("data-state")).toBe("error");
     expect(pill.textContent).toMatch(/401/);
-    expect(errorLine()!.textContent).toBe("invalid x-api-key");
+    expect(pill.querySelector("[data-tone]")?.getAttribute("data-tone")).toBe("warning");
+    expect(errorLine()!.getAttribute("role")).toBe("alert");
+    expect(errorLine()!.textContent).not.toContain("invalid x-api-key");
+    expect(await copiedPayload()).toBe("invalid x-api-key");
   });
 
-  it("unreachable register: red pill + verbatim error line when there is no status", () => {
+  it("unreachable register: error pill; the raw error is only copied", async () => {
     const { pill, errorLine } = renderPillFromHealth({ ok: false, error: "getaddrinfo ENOTFOUND api.example.com", testedAt: 1 });
     expect(pill.getAttribute("data-state")).toBe("unreachable");
     expect(pill.textContent).toMatch(/Unreachable/i);
-    expect(errorLine()!.textContent).toBe("getaddrinfo ENOTFOUND api.example.com");
+    expect(pill.querySelector("[data-tone]")?.getAttribute("data-tone")).toBe("error");
+    expect(errorLine()!.textContent).not.toContain("ENOTFOUND");
+    expect(await copiedPayload()).toBe("getaddrinfo ENOTFOUND api.example.com");
   });
 
   it("not-tested register: neutral pill, no error line, when no cached health", () => {
@@ -57,9 +74,54 @@ describe("ProviderHealthPill register matrix (moved from LlmProviderCard.health)
     expect(errorLine()).toBeNull();
   });
 
-  it("the verbatim error line preserves the FULL multi-line error string", () => {
+  it("the copied payload preserves the FULL multi-line error string", async () => {
     render(<ProviderHealthPill view={{ kind: "error", status: 500, error: "line one\nline two" }} />);
-    expect(screen.getByTestId("provider-error-line").textContent).toBe("line one\nline two");
+    expect(await copiedPayload()).toBe("line one\nline two");
+  });
+
+  it("no raw palette colour class remains on any register", () => {
+    const views = [
+      { kind: "testing" },
+      { kind: "pending" },
+      { kind: "ok", modelCount: 3 },
+      { kind: "not-tested" },
+      { kind: "error", status: 500, error: "x" },
+      { kind: "unreachable", error: "y" },
+    ] as const;
+    for (const view of views) {
+      const { container, unmount } = render(<ProviderHealthPill view={view} />);
+      expect(container.innerHTML).not.toMatch(/\b(text|bg|border)-(green|yellow|red|amber|blue)-\d/);
+      unmount();
+    }
+  });
+
+  it("every register keeps data-testid=health-pill and its data-state", () => {
+    const expected: Array<[Parameters<typeof ProviderHealthPill>[0]["view"], string]> = [
+      [{ kind: "testing" }, "testing"],
+      [{ kind: "pending" }, "pending"],
+      [{ kind: "ok", modelCount: 3 }, "ok"],
+      [{ kind: "not-tested" }, "not-tested"],
+      [{ kind: "error", status: 500, error: "" }, "error"],
+      [{ kind: "unreachable", error: "" }, "unreachable"],
+    ];
+    for (const [view, state] of expected) {
+      const { unmount } = render(<ProviderHealthPill view={view} />);
+      expect(screen.getByTestId("health-pill").getAttribute("data-state")).toBe(state);
+      unmount();
+    }
+  });
+
+  it("an in-flight probe (testing / pending) shows a spinning progress icon", () => {
+    for (const kind of ["testing", "pending"] as const) {
+      const { unmount } = render(<ProviderHealthPill view={{ kind }} />);
+      expect(screen.getByTestId("health-pill").querySelector("svg")?.getAttribute("class")).toContain("animate-spin");
+      unmount();
+    }
+  });
+
+  it("an empty error string renders no error line", () => {
+    render(<ProviderHealthPill view={{ kind: "unreachable", error: "" }} />);
+    expect(screen.queryByTestId("provider-error-line")).toBeNull();
   });
 });
 
