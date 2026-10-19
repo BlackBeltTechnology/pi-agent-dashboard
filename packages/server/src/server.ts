@@ -1800,6 +1800,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     logger: false,
     keepAliveTimeout: 30_000,
     connectionTimeout: 10_000,
+    // Add-ons feature ids embed a local package's absolute path (`pkg:local:/…`), which exceeds
+    // find-my-way's default 100-char param limit (414). See change: addons-hub-folder-view.
+    maxParamLength: 1024,
   });
 
   // Route inventory (test-only): fires as each route registers, before listen,

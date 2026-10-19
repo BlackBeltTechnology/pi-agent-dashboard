@@ -34,6 +34,11 @@ async function parse<T>(res: Response): Promise<T> {
 	throw new PackageHealthApiError(body.error ?? `Request failed (${res.status})`, res.status, body);
 }
 
+/** Entries that need attention (everything but ok). Shared by the panel, the Issues tab and the rail badge. */
+export function countHealthIssues(report: PackageHealthListResponseData): number {
+	return report.entries.filter((e) => e.status !== "ok").length;
+}
+
 export async function fetchPackageHealth(): Promise<PackageHealthListResponseData> {
 	const res = await fetch(`${getApiBase()}/api/packages/health`);
 	const data = await parse<PackageHealthListResponseData>(res);

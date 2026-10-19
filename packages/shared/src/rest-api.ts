@@ -1647,15 +1647,55 @@ export interface AddonFeature {
   requires: AddonRequirementRef[];
   /** Feature ids of the plugins requiring this `pkg:` feature's package. */
   requiredBy: string[];
+  /** Folder mode only (`?scope=local&cwd=`); absent on `core:*` features. See change: addons-hub-folder-view. */
+  folderState?: AddonFolderState;
+  /** Folder mode: a restore record exists on this machine for every package turned off here. */
+  restoreRecorded?: boolean;
+  /** Folder mode: agents the feature's packages contribute (pi deltas cannot filter them). */
+  packageAgents?: number;
+  /** Folder mode, `added-here` only: resources that load here vs the packages' total. */
+  loading?: { loaded: number; total: number };
+}
+
+/** Per-feature state in one folder (design D1/D2 of addons-hub-folder-view). */
+export type AddonFolderState =
+  | "inherited"
+  | "added-here"
+  | "off-here"
+  | "partly-off-here"
+  | "off-globally"
+  | "dashboard-only";
+
+/** Loose resources under `<cwd>/.pi` (not delivered by a package). */
+export interface AddonLooseCounts {
+  skills: number;
+  agents: number;
+  prompts: number;
+  extensions: number;
+  themes: number;
+}
+
+export interface AddonFolderInfo {
+  cwd: string;
+  looseCounts: AddonLooseCounts;
+  /** Set when `<cwd>/.pi/settings.json` could not be parsed; no folder state beyond inherited/dashboard-only/off-globally. */
+  settingsError?: string;
 }
 
 export interface AddonCatalogResponse {
   success: true;
   features: AddonFeature[];
+  /** Present in folder mode. */
+  folder?: AddonFolderInfo;
 }
 
 export interface AddonToggleRequest {
   enabled: boolean;
+  /** `local` = this folder only (needs `cwd`); omitted/`global` = the global toggle. */
+  scope?: "local" | "global";
+  cwd?: string;
+  /** Local enable: also remove an `autoload:false` entry the dashboard does not own (user-confirmed). */
+  removeUnowned?: boolean;
   dryRun?: boolean;
   /** Digest of a previous dry-run report; the server rejects the toggle when it no longer matches. */
   confirmToken?: string;
@@ -1695,4 +1735,29 @@ export interface AddonToggleResponse {
   confirmToken?: string;
   /** False only when a compensating write failed. */
   consistent?: boolean;
+}
+
+/** A project entry a folder re-enable left in place (`notOwned`) and why. */
+export interface AddonFolderNotOwned {
+  source: string;
+  reason: "no-record" | "edited" | "narrowed";
+  /** The entry as found, for the confirmation dialog. */
+  entry: unknown;
+}
+
+/** `POST /api/addons/:id/toggle` with `scope: "local"` success body. */
+export interface AddonFolderToggleResponse {
+  success: true;
+  scope: "local";
+  cwd: string;
+  /** False when nothing was written (everything kept on, already off, nothing to restore). */
+  changed: boolean;
+  /** Sources written as the all-empty delta. */
+  filtered: string[];
+  /** Sources whose recorded entry was put back (or removed because none existed). */
+  restored: string[];
+  /** Sources removed by a confirmed `removeUnowned`. */
+  removed: string[];
+  keptOn: AddonKeptOn[];
+  notOwned: AddonFolderNotOwned[];
 }
