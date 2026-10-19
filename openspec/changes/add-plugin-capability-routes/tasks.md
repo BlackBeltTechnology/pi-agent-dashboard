@@ -20,6 +20,10 @@
 - [ ] 3.1 `ServerPluginContext.registerCapabilityRoute` with the trust gate, inert handle and sweep on disable, teardown or failed activation (D2).
 - [ ] 3.2 `ServerPluginContext.requestPrincipal(request)`, trust-gated (D4).
 - [ ] 3.3 `ServerPluginContext.serveApp({ dir, csp, appId? })`: trust gate, mount registry, `appId` uniqueness, `dir` confined to the package root, extension allowlist, 308, GET+HEAD, `index.html` fallback, cache headers, 503 for a missing build, enforced CSP (D5).
+- [ ] 3.3a `ServerPluginContext.dataDir` (`~/.pi/dashboard/plugin-data/<pluginId>/`, `0700`, created on first access) and `serveApp` `dir` confined to package root OR `dataDir`; absent `dir` → 503 until it exists, no re-registration. Verify with server-context vitest: `~/.ssh` dir throws, data-dir mount 503 → 200 after populate (spec scenarios "Data-directory mount appears after provisioning", "Directory outside package and data directory refused").
+- [ ] 3.3b `serveApp`: `.wasm` in the allowlist as `application/wasm`; precompressed `.gz` sibling negotiation (`Content-Encoding: gzip`, `Vary: Accept-Encoding`, global compressor bypassed). Verify with `fastify.inject` (spec scenario "Wasm and precompressed variants").
+- [ ] 3.3d `serveApp` `csp` may be a function `(request) => string`, evaluated per response; a throw → 500 for that response, logged once. Verify with `fastify.inject` that two requests with different forwarded hosts get different policies.
+- [ ] 3.3c `serveApp({ crossOriginFrame: true })`: `ACAO: *` + `CORP: cross-origin` on that mount only, never `Access-Control-Allow-Credentials`; `/api/*` with `Origin: null` still gets no ACAO. Verify with `fastify.inject` (spec scenario "Cross-origin frame mount").
 - [ ] 3.4 `csp.ts`: leave a `serveApp` response's enforcing header intact in every mode (D7).
 - [ ] 3.5 `packages/server/src/__tests__/network-guard-namespace-coverage.test.ts`: consult the `serveApp` mount registry with prefix matching, so only those `/apps/*` routes pass (`trusted-networks` delta).
 
