@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>add-acme-dns01-certs — Domain certificates inside Built-in HTTPS</title>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="mockup.css" />
+<script src="icons.js"></script>
+<style>
+  /* Change-local recipes — tokens only (ui-contract.md).
+     Shell recipes (.sec-title, .src, .src-h, .cert, .addr, .fields-tls, .ep, .pill.k-*) copied verbatim
+     from add-tailscale-cert-tls/mockups/tls.html — that board owns them. */
+  .page { max-width: 768px; }
+  .sec-title { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 4px; }
+  .sec-title h3 { margin: 0; font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+  .sec-lead { margin: 0 0 12px; font-size: 12px; color: var(--text-secondary); }
+  .tls > * + * { margin-top: 12px; }
+  .addr { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .addr code { flex: 1 1 220px; min-width: 0; font-size: 12px; color: var(--text-primary); word-break: break-all; }
+  .cert .ic { width: 28px; height: 28px; border-radius: 6px; display: grid; place-items: center; background: var(--bg-secondary); color: var(--text-secondary); flex: none; }
+  .cert .ic svg.i { width: 18px; height: 18px; }
+  .src { border: 1px solid var(--border-subtle); border-radius: 8px; padding: 8px; }
+  .src-h { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 0 0 8px; font-size: 12px; }
+  .src-ic { display: inline-flex; color: var(--text-secondary); font-size: 16px; }
+  .cert .main { flex: 1 1 200px; }
+  .cert .name { font-size: 12px; font-family: "SF Mono", Menlo, Monaco, Consolas, monospace; font-weight: 600; word-break: break-all; }
+  .cert .facts { margin: 2px 0 0; font-size: 11px; color: var(--text-secondary); }
+  .err-text { display: block; margin-top: 4px; font-family: "SF Mono", Menlo, Monaco, Consolas, monospace; font-size: 11px; word-break: break-word; }
+  .callout a.p-link { color: inherit; text-decoration: underline; }
+  .callout .acts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; }
+  .callout code { font-size: 11px; }
+  .frame { container-type: inline-size; container-name: frame; }
+  .ep { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border-subtle); background: var(--bg-tertiary); }
+  .ep code { flex: 1 1 200px; min-width: 0; font-size: 12px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pill.k-lan { background: var(--tint-purple-bg); color: var(--tint-purple-fg); border-color: var(--tint-purple-border); }
+  .pill.k-magicdns { background: var(--tint-blue-bg); color: var(--tint-blue-fg); border-color: var(--tint-blue-border); }
+  .pill.k-domain { background: var(--tint-orange-bg); color: var(--tint-orange-fg); border-color: var(--tint-orange-border); }
+  .pill.k-local { background: var(--severity-neutral-bg); color: var(--severity-neutral-fg); border-color: var(--severity-neutral-border); }
+  .state > .note { margin: 0; padding: 6px 12px; font-size: 12px; color: var(--text-secondary); border-top: 1px solid var(--border-secondary); background: var(--bg-secondary); }
+  .state > .note code { color: var(--text-primary); }
+  .pair.single { grid-template-columns: 1fr; }
+  .ref { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; padding: 8px 12px; border: 1px dashed var(--border-strong); border-radius: 8px; font-size: 12px; color: var(--text-secondary); }
+
+  /* ── this change: Domain certificates group + editor ── */
+  .src-h .grow { flex: 1; }
+  .badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+  ol.steps { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 11px; }
+  ol.steps li { display: inline-flex; align-items: center; gap: 4px; color: var(--text-secondary); }
+  ol.steps li.done { color: var(--severity-success-fg); }
+  ol.steps li[aria-current="step"] { color: var(--severity-info-fg); font-weight: 600; }
+  .record { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; padding: 6px 8px; border-radius: 6px; background: var(--bg-code); border: 1px solid var(--border-subtle); margin-top: 6px; }
+  .record code { flex: 1 1 260px; min-width: 0; font-size: 11px; color: var(--text-primary); word-break: break-all; }
+  .radio-cards { display: grid; grid-template-columns: repeat(var(--n, 2), minmax(0, 1fr)); gap: 8px; }
+  .rc { display: flex; gap: 8px; align-items: flex-start; text-align: left; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border-secondary); background: var(--bg-tertiary); min-height: 44px; }
+  .rc:hover { background: var(--bg-hover); }
+  .rc[aria-checked="true"] { border-color: var(--tint-blue-border); box-shadow: inset 0 0 0 1px var(--tint-blue-border); }
+  .rc .knob { width: 16px; height: 16px; border-radius: 999px; border: 2px solid var(--border-strong); margin-top: 2px; flex: none; display: grid; place-items: center; }
+  .rc[aria-checked="true"] .knob { border-color: var(--accent-primary); }
+  .rc[aria-checked="true"] .knob::after { content: ""; width: 8px; height: 8px; border-radius: 999px; background: var(--accent-primary); }
+  .rc .t { font-size: 12px; font-weight: 600; color: var(--text-primary); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .rc .d { font-size: 12px; color: var(--text-secondary); margin-top: 2px; display: block; }
+  .rc:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+  .netrow { display: flex; align-items: center; gap: 8px; padding: 2px 4px 2px 12px; border-radius: 6px; background: var(--bg-secondary); border: 1px solid var(--border-subtle); }
+  .netrow .v { font-family: "SF Mono", Menlo, monospace; font-size: 12px; flex: 1; min-width: 0; word-break: break-all; }
+  .add-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .add-row .p-input { flex: 1 1 180px; min-width: 0; width: auto; }
+  .chk { display: flex; gap: 8px; align-items: flex-start; min-height: 32px; font-size: 12px; color: var(--text-primary); }
+  .chk input { margin-top: 1px; width: 16px; height: 16px; accent-color: var(--accent-primary); flex: none; }
+  .chk .d { display: block; color: var(--text-secondary); }
+  .two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .f-err { font-size: 12px; color: var(--severity-error-fg); margin: 4px 0 0; display: flex; gap: 4px; align-items: center; }
+  .secret-st { display: inline-flex; gap: 4px; align-items: center; font-size: 11px; font-weight: 600; }
+  .lbl-row { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; justify-content: space-between; }
+  .lbl-row .p-label { margin: 0; }
+  .ed-foot { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end; border-top: 1px solid var(--border-secondary); padding-top: 12px; }
+  .ed-foot .why { margin-right: auto; font-size: 12px; color: var(--text-secondary); }
+  .p-btn.primary:disabled { border: 1px solid var(--border-secondary); background: var(--bg-surface); }
+  @container frame (max-width: 560px) {
+    .two, .radio-cards { grid-template-columns: 1fr; }
+    ol.steps { flex-direction: column; }
+  }
+</style>
+</head>
+<body>
+<div class="toolbar" role="toolbar" aria-label="Board controls">
+  <h1>Domain certificates (ACME DNS-01) inside Built-in HTTPS</h1>
+  <span class="seg-label" id="lbl-theme">Theme</span>
+  <div class="seg" aria-labelledby="lbl-theme" data-group="theme">
+    <button aria-pressed="true" data-v="base-dark">Base dark</button>
+    <button aria-pressed="false" data-v="base-light">Base light</button>
+    <button aria-pressed="false" data-v="nord-dark">Nord dark</button>
+  </div>
+  <span class="seg-label" id="lbl-w">Frame</span>
+  <div class="seg" aria-labelledby="lbl-w" data-group="width">
+    <button aria-pressed="false" data-v="375">375</button>
+    <button aria-pressed="false" data-v="768">768</button>
+    <button aria-pressed="true" data-v="1440">1440</button>
+  </div>
+</div>
+<main id="board"></main>
+
+<script>
+const ic = (n, cls = "") => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true"><path d="${ICON[n]}"/></svg>`;
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+let uid = 0; const nid = (p) => `${p}-${++uid}`;
+
+/* ── fixture (same host as the prereq board) ── */
+const TS_NAME = "studio.tail4e2a.ts.net", IPV4 = "100.83.0.1";
+const D1 = "dash.example.com", D2 = "*.lab.example.com";
+const FULL = "8e5700ea-a4bf-41c7-8a77-e990661dcc6a.auth.acme-dns.io";
+
+/* ═════ shell context — REPLICA of add-tailscale-cert-tls tls.html#tls-ready (owned there) ═════ */
+function tsGroup() {
+  return `<div class="src" data-testid="gateway-tls-source-tailscale">
+    <div class="src-h"><span class="src-ic">${ic("ShieldLockOutline")}</span><b>Tailscale</b><span class="p-meta">automatic · this machine's tailnet name</span></div>
+    ${certRow({ name: TS_NAME, pill: P("success", "CheckCircleOutline", "Valid · 89 days left"), facts: "Valid until 2027-01-16. Renews automatically when 30 days are left.", btn: "Renew now" })}</div>`;
+}
+function shell(certsHtml) {
+  return `<section class="tls page" aria-labelledby="tls-h" data-testid="gateway-tls">
+    <div class="sec-title"><span style="color:var(--text-secondary);display:inline-flex">${ic("LockOutline")}</span><h3 id="tls-h">Built-in HTTPS</h3>${P("success", "CheckCircleOutline", "On")}</div>
+    <p class="sec-lead">Serve this dashboard over HTTPS on a second port with trusted certificates, so phones and browsers connect without warnings. Phones need HTTPS to pair and to get notifications. The main port keeps working.</p>
+    <div class="tf"><div class="tf-row"><label class="tf-label" for="sw">Serve HTTPS on its own port</label><button type="button" id="sw" role="switch" class="tf-switch" aria-checked="true"></button></div><p class="tf-hint">Applies right away, no restart. Off by default.</p></div>
+    <div class="inset"><p class="p-label">Address</p><div class="addr"><code class="mono">https://${TS_NAME}:8443</code><button class="p-btn sm secondary">${ic("ContentCopy")} Copy</button></div></div>
+    <div class="ref">${ic("ArrowRight")} Port · Listen on · Apply — unchanged, see <code>add-tailscale-cert-tls/mockups/tls.html</code></div>
+    ${certsHtml}
+  </section>`;
+}
+/* Certificates list: prereq owns the list + Tailscale group; this change adds groups + the add button. */
+function certificates(groups, add = true) {
+  return `<div><p class="p-label" id="${nid("certs")}">Certificates</p><div class="stack" role="group">
+    ${tsGroup()}${groups}
+    ${add ? `<div><button class="p-btn sm secondary" data-testid="gateway-acme-add">${ic("Plus")} Add domain certificate</button>
+      <p class="p-meta" style="margin:4px 0 0">For a domain you own that points at this computer's private address. Uses Let's Encrypt; this computer doesn't need to be reachable from the internet.</p></div>` : ""}
+  </div></div>`;
+}
+
+/* ═════ shared row anatomy (prereq) — name · facts · pill · action; this change adds badges + steps ═════ */
+const P = (sev, icon, word, cls = "") => `<span class="pill ${sev}">${icon ? ic(icon, cls) : ""} ${word}</span>`;
+function certRow(o) {
+  const err = o.err ? `<div class="callout ${o.held ? "warning" : "error"}" role="${o.held ? "note" : "alert"}" style="flex-basis:100%">${ic(o.held ? "Alert" : "AlertCircleOutline")}<div class="body">
+      <b>${o.held ? "Renewal failed. The current certificate is still served." : "Couldn't get a certificate."}</b> ${o.eta}
+      <span class="err-text" data-testid="gateway-tls-last-error">${esc(o.err)}</span></div></div>` : "";
+  return `<div class="p-row cert" data-testid="gateway-tls-cert" data-stage="${o.stage || "idle"}">
+    <span class="ic">${ic("CertificateOutline")}</span>
+    <div class="main"><div class="name">${esc(o.name)}</div><p class="facts">${o.facts}</p>
+      ${o.badges ? `<div class="badges">${o.badges}</div>` : ""}${o.steps || ""}</div>
+    <div class="acts">${o.pill || ""}${o.btn ? `<button class="p-btn sm secondary" data-testid="gateway-tls-issue-now" ${o.busy ? 'disabled aria-disabled="true"' : ""}>${ic("Refresh")} ${o.busy ? "Working…" : o.btn}</button>` : ""}</div>
+    ${o.extra ? `<div style="flex-basis:100%">${o.extra}</div>` : ""}${err}</div>`;
+}
+const B_STAGING = P("warning", "", "Staging · browsers warn");
+const B_NOADV = P("neutral", "", "Not advertised");
+const B_WILD = P("neutral", "", "Wildcard · served, not listed");
+const steps = (cur) => {
+  const S = [["order", "Create order"], ["dns-publish", "Publish TXT record"], ["propagation", "Wait for DNS (≤ 3 min)"], ["validation", "CA checks the record"], ["finalize", "Download certificate"]];
+  const ci = S.findIndex(([k]) => k === cur);
+  return `<ol class="steps" aria-label="Issuance progress">${S.map(([k, l], i) => `<li class="${i < ci ? "done" : ""}" ${i === ci ? 'aria-current="step"' : ""}>${i < ci ? ic("Check") : i === ci ? ic("Loading", "spin") : ic("CircleOutline")} ${l}</li>`).join("")}</ol>`;
+};
+const gate = (sev, lead, body, acts = "") => `<div class="callout ${sev}" role="note">${ic(sev === "error" ? "AlertCircleOutline" : sev === "info" ? "InformationOutline" : "Alert")}<div class="body"><b>${lead}</b> ${body}${acts ? `<div class="acts">${acts}</div>` : ""}</div></div>`;
+
+/* ═════ B. Domain certificates group (this change) ═════ */
+function acmeGroup(o) {
+  return `<div class="src" data-testid="gateway-tls-source-${o.id || "home"}">
+    <div class="src-h"><span class="src-ic">${ic("Web")}</span><b>Domain certificates</b><span class="p-meta">${o.id || "home"} · Let's Encrypt <b>${o.dir}</b> · ${o.solver || "Cloudflare"}</span>${o.pill || ""}<span class="grow"></span>
+      <button class="p-btn sm ghost" aria-expanded="false" data-testid="gateway-acme-edit">${ic("Pencil")} Edit</button></div>
+    <div class="stack">${o.gates || ""}${o.rows.join("")}${o.after || ""}</div></div>`;
+}
+function secretField(o) {
+  const st = o.rejected ? `<span class="secret-st sev-fg-error">${ic("CloseCircleOutline")} Rejected by Cloudflare</span>`
+    : o.set ? `<span class="secret-st sev-fg-success">${ic("CheckCircleOutline")} Saved in the credential vault</span>`
+    : `<span class="secret-st" style="color:var(--text-secondary)">${ic("CircleOutline")} Not set</span>`;
+  const id = nid("sec"), h = nid("sec-h");
+  return `<div><div class="lbl-row"><label class="p-label" for="${id}">${o.label}</label>${st}</div>
+    <div class="add-row" style="margin-top:4px"><input id="${id}" type="password" autocomplete="off" class="p-input mono" placeholder="${o.set ? "Enter a new value to replace it" : o.ph}" ${o.help ? `aria-describedby="${h}"` : ""} data-testid="${o.tid}">
+      ${o.btn ? `<button class="p-btn sm secondary" data-testid="${o.tid}-save">${o.btn}</button>` : ""}</div>
+    ${o.help ? `<p class="p-meta" id="${h}" style="margin:4px 0 0">${o.help}</p>` : ""}</div>`;
+}
+const radioCards = (name, sel, cards) => `<div class="radio-cards" style="--n:${cards.length}" role="radiogroup" aria-labelledby="${name}-lbl">
+  ${cards.map(([v, t, pill, d]) => `<button role="radio" aria-checked="${sel === v}" class="rc" data-testid="${name}-${v}"><span class="knob" aria-hidden="true"></span><span><span class="t">${t} ${pill || ""}</span><span class="d">${d}</span></span></button>`).join("")}</div>`;
+const ctNote = gate("info", "Certificate names are public.", `Every certificate is written to public Certificate Transparency logs, so <code>${D1}</code> becomes visible to anyone. The A record pointing it at <code>${IPV4}</code> is public too; only devices on your private network can connect.`);
+
+function editor(o) {
+  const k = nid("ed"), solver = o.solver || "cloudflare", dir = o.dir || "staging";
+  const solverBlock = solver === "cloudflare"
+    ? secretField({ label: "Cloudflare API token", ph: "Paste token", set: o.secretSet, tid: "gateway-acme-cloudflare-token",
+        help: `Create a token with <b>Zone → DNS → Edit</b> for the one zone that holds these names, plus <b>Zone → Zone → Read</b> unless you enter the zone id below. Stored in the dashboard's credential vault and never shown again.` })
+      + `<div><label class="p-label" for="${k}-zone">Zone id <span style="font-weight:400;color:var(--text-secondary)">(optional)</span></label><input id="${k}-zone" class="p-input mono" placeholder="32 hex characters, from the zone's Overview page"></div>`
+    : `<div class="two">
+        <div><label class="p-label" for="${k}-srv">acme-dns server</label><input id="${k}-srv" class="p-input mono" value="https://auth.acme-dns.io"></div>
+        <div><label class="p-label" for="${k}-sub">Subdomain</label><input id="${k}-sub" class="p-input mono" value="8e5700ea-a4bf-41c7-8a77-e990661dcc6a"></div>
+        <div style="grid-column:1/-1"><label class="p-label" for="${k}-full">Full domain</label><input id="${k}-full" class="p-input mono" value="${FULL}"></div>
+        ${secretField({ label: "Username", ph: "From the /register response", set: o.secretSet, tid: "gateway-acme-dns-user" })}
+        ${secretField({ label: "Password", ph: "From the /register response", set: o.secretSet, tid: "gateway-acme-dns-key" })}
+      </div><p class="p-meta" style="margin:0">Register once with <code>curl -X POST https://auth.acme-dns.io/register</code> and paste the four values. Username and password are stored in the dashboard's credential vault.</p>`;
+  return `<div class="src" data-testid="gateway-acme-editor">
+    <div class="src-h"><span class="src-ic">${ic("Web")}</span><b>${o.isNew ? "New domain certificate" : "Domain certificates · edit"}</b></div>
+    <div class="stack-3">
+    <div class="two">
+      <div><label class="p-label" for="${k}-id">Source name</label><input id="${k}-id" class="p-input mono" value="${o.id ?? "home"}" ${o.isNew ? "" : "readonly aria-readonly=\"true\""} ${o.idErr ? `aria-invalid="true" aria-describedby="${k}-ide"` : ""} data-testid="gateway-acme-id">
+        ${o.idErr ? `<p class="f-err" id="${k}-ide" role="alert">${ic("CloseCircleOutline")} ${o.idErr}</p>` : `<p class="p-meta" style="margin:4px 0 0">${o.isNew ? "Tells sources apart. Letters, digits, dashes. Can't be changed later." : "Can't be changed. Remove the source and add a new one to rename it."}</p>`}</div>
+      <div><label class="p-label" for="${k}-em">Contact email</label><input id="${k}-em" class="p-input" type="email" value="ops@example.com" data-testid="gateway-acme-email">
+        <p class="p-meta" style="margin:4px 0 0">The CA may send expiry and policy notices here.</p></div>
+    </div>
+    <div><p class="p-label">Domains</p>
+      <div class="stack">${(o.domains ?? [D1, D2]).map((n) => `<div class="netrow"><span class="v">${n}</span><button class="p-btn sm icon ghost" aria-label="Remove ${n}">${ic("Close")}</button></div>`).join("")}</div>
+      <div class="add-row" style="margin-top:8px"><label class="sr-only" for="${k}-add">Domain to add</label><input id="${k}-add" class="p-input mono" value="${o.badDomain ?? ""}" placeholder="dash.example.com or *.lab.example.com" ${o.badDomain ? `aria-invalid="true" aria-describedby="${k}-de"` : ""}><button class="p-btn sm secondary" ${o.badDomain ? "disabled" : ""}>${ic("Plus")} Add</button></div>
+      ${o.badDomain ? `<p class="f-err" id="${k}-de" role="alert">${ic("CloseCircleOutline")} Not a hostname. A wildcard may only replace the first label, as in <code>*.lab.example.com</code>.</p>`
+        : `<p class="p-meta" style="margin:4px 0 0">Point each name's A record at this computer's private address (<code>${IPV4}</code>). Wildcards are served but never listed as an address.</p>`}</div>
+    <div><p class="p-label" id="acme-solver-${k}-lbl">How to prove you own the domains</p>
+      ${radioCards(`acme-solver-${k}`, solver, [
+        ["cloudflare", "Cloudflare", "", "The dashboard adds and removes the challenge TXT record through the Cloudflare API."],
+        ["acme-dns", "Any DNS host (acme-dns)", "", "One CNAME at your DNS host hands the challenge to an acme-dns server."]])}</div>
+    ${solverBlock}
+    <div><p class="p-label" id="acme-dir-${k}-lbl">Certificate authority</p>
+      ${radioCards(`acme-dir-${k}`, dir, [
+        ["staging", "Staging", P("success", "", "Start here"), "Test certificates browsers don't trust. No rate-limit risk while you set up."],
+        ["production", "Production", "", "Trusted certificates. Let's Encrypt limits repeated issuance for the same names."],
+        ["custom", "Other CA", "", "Any RFC 8555 directory URL, such as a company CA."]])}
+      ${dir === "custom" ? `<div style="margin-top:8px"><label class="p-label" for="${k}-url">Directory URL</label><input id="${k}-url" class="p-input mono" value="${o.dirUrl}" ${o.dirErr ? `aria-invalid="true" aria-describedby="${k}-ue"` : ""}>
+        ${o.dirErr ? `<p class="f-err" id="${k}-ue" role="alert">${ic("CloseCircleOutline")} ${o.dirErr}</p>` : ""}
+        <label class="chk" style="margin-top:6px"><input type="checkbox" data-testid="gateway-acme-advertise"><span>Advertise these names to paired devices<span class="d">Only if every device you pair already trusts this CA. Otherwise the certificate is served but the address isn't handed out.</span></span></label></div>` : ""}
+    </div>
+    ${o.switching ? gate("warning", "Switching to production issues new certificates for both names.", "The staging certificates keep being served until the new ones arrive. Then the names are advertised to paired devices and in the pairing QR.") : ""}
+    <label class="chk"><input type="checkbox" ${o.tos ? "checked" : ""} data-testid="gateway-acme-tos"><span>I accept the ${dir === "custom" ? "CA's terms of service" : `<a class="p-link" style="min-height:0;font-size:12px" href="#">Let's Encrypt Subscriber Agreement</a>`}</span></label>
+    ${o.isNew ? ctNote : ""}
+    <div class="ed-foot">
+      ${o.isNew && !o.tos ? `<span class="why" id="${k}-why">Accept the terms to save.</span>` : `<span class="why">${o.isNew ? "Saving stores the settings, then the credentials, then starts a staging issuance." : ""}</span>`}
+      ${o.isNew ? "" : `<button class="p-btn sm danger" data-testid="gateway-acme-remove">${ic("DeleteOutline")} Remove source</button>`}
+      <button class="p-btn sm ghost">Cancel</button>
+      <button class="p-btn primary" ${o.isNew && !o.tos ? `disabled aria-describedby="${k}-why"` : ""} data-testid="gateway-acme-save">Save</button>
+    </div></div></div>`;
+}
+
+/* ═════ C. Accessible at (prereq restyle; this change adds the staging note) ═════ */
+function endpoints(o) {
+  const row = (kind, label, url, tls) => `<div class="ep"><span class="pill k-${kind}">${label}</span><code class="mono">${url}</code>${tls ? P("success", "LockOutline", "HTTPS") : P("warning", "Alert", "No TLS")}<button class="p-btn sm icon ghost" aria-label="Copy ${url}">${ic("ContentCopy")}</button></div>`;
+  return `<div class="sec-title"><h3>Accessible at</h3></div><div class="stack">
+    ${row("lan", "LAN", "http://192.168.1.24:8000", false)}
+    ${row("magicdns", "MagicDNS", `https://${TS_NAME}:8443`, true)}
+    ${o.prod ? row("domain", "Domain", `https://${D1}:8443`, true) : ""}
+    ${o.staging ? `<p class="p-meta" style="margin:0;display:flex;gap:4px;align-items:center">${ic("InformationOutline")} <span><code>${D1}</code> isn't listed: it has a staging certificate, which devices don't trust.</span></p>` : ""}</div>`;
+}
+
+/* ═════ board ═════ */
+const cf = "Cloudflare", ad = "acme-dns";
+const BOARD = [
+  { title: "A · Built-in HTTPS shell (owned by add-tailscale-cert-tls)", verdict: "Heading, status pill, switch (writes immediately), address, Port/Listen on + Apply, the Certificates list and the Tailscale group all come from the prereq board. This change only adds Domain certificate groups and the Add button inside Certificates.", states: [
+    ["shell-context", "reference", `Replica of <code>add-tailscale-cert-tls/mockups/tls.html#tls-ready</code> with one Domain certificates group (state B8) plugged in. Every listener state (off, gates, port busy, issuing…) lives on that board.`, shell(certificates(acmeGroup({ dir: "production", pill: P("success", "CheckCircleOutline", "On"),
+      rows: [certRow({ name: D1, pill: P("success", "CheckCircleOutline", "Valid · 89 days left"), facts: "Valid until 2027-01-17. Renews automatically when 30 days are left.", btn: "Renew now" })] }))) ],
+  ]},
+  { title: "B · Domain certificates (ACME DNS-01) — inside Certificates", verdict: "New source group. Rows reuse the prereq cert row (name · facts · pill · Renew now / Try again now → POST /api/tls/issue) plus this change's badges and stage steps. The editor is a multi-field form with its own Save.", states: [
+    ["acme-add-cloudflare", "B1 · terms gate", "Add opens the editor in place of the button. Save stays disabled with the reason beside it. The Certificate Transparency disclosure shows before the first save.", certificates(editor({ isNew: true }), false)],
+    ["acme-add-errors", "B2 · field errors", "acme-dns selected. Field-level errors in plain words (<code>tailscale</code> is reserved; bad wildcard).", editor({ isNew: true, solver: "acme-dns", tos: true, id: "tailscale", idErr: "“tailscale” is reserved for the Tailscale source.", badDomain: "dash.*.example.com", domains: [D1] })],
+    ["acme-needs-credentials", "B3 · credentials gate", "Settings saved, credentials missing (or the credentials write failed after the config write: same state, plus the error). Nothing issues until the token is saved.", certificates(acmeGroup({ dir: "staging", pill: P("warning", "Alert", "Setup needed"),
+      gates: gate("warning", "No Cloudflare token yet.", "Add it to start getting certificates.") + secretField({ label: "Cloudflare API token", ph: "Paste token", set: false, tid: "gateway-acme-cloudflare-token", btn: "Save token" }),
+      rows: [certRow({ name: D1, facts: "No certificate yet." }), certRow({ name: D2, facts: "No certificate yet.", badges: B_WILD })] }), false)],
+    ["acme-cname-missing", "B4 · per-name gate", "acme-dns delegation missing for one name: the exact record, Copy, and <b>Check now</b> (same label and same call as the prereq gates: <code>POST /api/tls/issue {sourceId, name}</code>, which re-checks first; a still-missing record creates no CA order). Check time comes from the source's <code>details</code>. The wildcard is checked at its parent.", certificates(acmeGroup({ dir: "staging", solver: ad, pill: P("warning", "Alert", "Setup needed"),
+      rows: [certRow({ name: D1, facts: "No certificate yet.", pill: P("warning", "Alert", "CNAME missing"),
+          extra: `<div class="callout warning" role="note">${ic("Alert")}<div class="body"><b>Create this record at your DNS host.</b>
+            <div class="record"><code>_acme-challenge.dash.example.com  CNAME  ${FULL}</code><button class="p-btn sm secondary">${ic("ContentCopy")} Copy</button></div>
+            <div class="acts"><button class="p-btn sm ghost">${ic("Refresh")} Check now</button><span class="p-meta" style="color:inherit">Checked 2 minutes ago.</span></div></div></div>` }),
+        certRow({ name: D2, facts: "Delegated via <code>_acme-challenge.lab.example.com</code>.", badges: B_WILD, pill: P("info", "Loading", "Requesting…", "spin"), stage: "propagation", busy: true, btn: "Working…" })] }), false)],
+    ["acme-issuing", "B5 · stage", "First issuance: the row's pill says what is happening and the steps show where it is (status <code>stage</code>). The button is busy, so it can't double-trigger.", certificates(acmeGroup({ dir: "staging", pill: P("info", "Loading", "Getting certificates…", "spin"),
+      rows: [certRow({ name: D1, facts: "Waiting until every DNS server for the zone serves the record.", pill: P("info", "Loading", "Requesting…", "spin"), steps: steps("propagation"), stage: "propagation", busy: true, btn: "Working…" }),
+        certRow({ name: D2, facts: "Starts after the first name.", badges: B_WILD, pill: P("neutral", "ClockOutline", "Queued") })] }), false)],
+    ["acme-staging-done", "B6 · staging", "Served, but browsers warn and it is not advertised. The badges say so in words; the next step is a single action.", certificates(acmeGroup({ dir: "staging", pill: P("warning", "Alert", "Staging only"),
+      rows: [certRow({ name: D1, pill: P("success", "CheckCircleOutline", "Valid · 89 days left"), facts: "Valid until 2027-01-17.", badges: B_STAGING + B_NOADV, btn: "Renew now" }),
+        certRow({ name: D2, pill: P("success", "CheckCircleOutline", "Valid · 89 days left"), facts: "Valid until 2027-01-17.", badges: B_STAGING + B_WILD, btn: "Renew now" })],
+      after: gate("info", "Staging works.", "Browsers warn on these test certificates. Switch to production to get trusted ones.", `<button class="p-btn sm secondary">${ic("ArrowRight")} Switch to production</button>`) }), false)],
+    ["acme-switch-production", "B7 · consequence", "Editor with Production selected: the consequence shows before Save, no modal (reversible).", editor({ dir: "production", tos: true, secretSet: true, switching: true })],
+    ["acme-production", "B8 · advertised", "Production: the plain name gets a Domain address in Accessible at; the wildcard says why it isn't listed.", certificates(acmeGroup({ dir: "production", pill: P("success", "CheckCircleOutline", "On"),
+      rows: [certRow({ name: D1, pill: P("success", "CheckCircleOutline", "Valid · 89 days left"), facts: "Valid until 2027-01-17. Renews automatically when 30 days are left.", btn: "Renew now" }),
+        certRow({ name: D2, pill: P("success", "CheckCircleOutline", "Valid · 89 days left"), facts: "Valid until 2027-01-17.", badges: B_WILD, btn: "Renew now" })] }), false)],
+    ["acme-failures", "B9 · errors + ETA", "Token rejected (group gate, the token field says Rejected) and a CA validation failure on a held name (warning: still served). ETAs come from the prereq <code>nextAttemptAt</code>; Try again / Renew now bypass backoff.", certificates(acmeGroup({ dir: "production", pill: P("error", "AlertCircleOutline", "Failing"),
+      gates: gate("error", "Cloudflare rejected the token (403).", "Its permissions may have changed. Paste a new token; issuing resumes right after. Next try in 5 hours 58 minutes.") + secretField({ label: "Cloudflare API token", ph: "", set: true, rejected: true, tid: "gateway-acme-cloudflare-token", btn: "Save token" }),
+      rows: [certRow({ name: D1, held: true, pill: P("warning", "Alert", "15 days left"), facts: "Valid until 2026-11-03. Renews automatically when 30 days are left.", btn: "Renew now",
+          err: "urn:ietf:params:acme:error:unauthorized: incorrect TXT record found at _acme-challenge.dash.example.com", eta: "Next try in 52 minutes. Let's Encrypt allows only a few failed validations per hour, so fix the record before trying again now." }),
+        certRow({ name: D2, badges: B_WILD, pill: P("error", "CloseCircleOutline", "No certificate"), facts: "Nothing to serve yet.", btn: "Try again now",
+          err: "DNS propagation timed out after 180 s (ns1.example-dns.net still answers NXDOMAIN)", eta: "Next try in 9 minutes." })] }), false)],
+    ["acme-other-ca", "B10 · custom directory", "<code>http://</code> rejected at the field. Advertising is an explicit operator assertion, off by default.", editor({ dir: "custom", tos: true, secretSet: true, dirUrl: "http://ca.internal/acme/directory", dirErr: "The directory URL must start with https://.", domains: [D1] })],
+  ]},
+  { title: "C · Accessible at", verdict: "Restyle and Domain pill (tint-orange) are owned by the prereq board. This change adds only the staging note.", states: [
+    ["endpoints-staging", "C1", "Staging names are never listed; the note says why.", endpoints({ staging: true })],
+    ["endpoints-production", "C2", "Production adds a Domain row.", endpoints({ prod: true })],
+  ]},
+];
+
+document.getElementById("board").innerHTML = BOARD.map((g) => `<section class="surface"><h2>${g.title}</h2><p class="verdict">${g.verdict}</p>
+  ${g.states.map(([id, finds, note, pr]) => `<article class="state" id="${id}"><header><code>${id}</code><span class="finds">${finds}</span></header>
+    <div class="pair single"><div class="col proposed"><div class="frame"><div class="page">${pr}</div></div></div></div><p class="note">${note}</p></article>`).join("")}</section>`).join("");
+
+/* radio cards: APG radio group keyboard behaviour */
+document.querySelectorAll('[role="radiogroup"]').forEach((g) => {
+  const rs = [...g.querySelectorAll('[role="radio"]')];
+  const sel = (r) => { rs.forEach((x) => { x.setAttribute("aria-checked", String(x === r)); x.tabIndex = x === r ? 0 : -1; }); r.focus(); };
+  rs.forEach((r) => { r.tabIndex = r.getAttribute("aria-checked") === "true" ? 0 : -1; r.addEventListener("click", () => sel(r)); });
+  g.addEventListener("keydown", (e) => {
+    const i = rs.indexOf(document.activeElement);
+    if (["ArrowDown", "ArrowRight"].includes(e.key)) { e.preventDefault(); sel(rs[(i + 1) % rs.length]); }
+    if (["ArrowUp", "ArrowLeft"].includes(e.key)) { e.preventDefault(); sel(rs[(i - 1 + rs.length) % rs.length]); }
+  });
+});
+
+/* toolbar */
+const html = document.documentElement;
+function apply(group, v) {
+  if (group === "theme") {
+    const [pal, mode] = v.split("-");
+    mode === "light" ? html.setAttribute("data-theme", "light") : html.removeAttribute("data-theme");
+    pal === "nord" ? html.setAttribute("data-palette", "nord") : html.removeAttribute("data-palette");
+  }
+  if (group === "width") document.body.style.setProperty("--frame-w", v === "1440" ? "100%" : `${v}px`);
+}
+document.querySelectorAll(".seg").forEach((seg) => seg.addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  seg.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+  apply(seg.dataset.group, b.dataset.v);
+}));
+document.addEventListener("click", (e) => { const sw = e.target.closest(".tf-switch"); if (sw) sw.setAttribute("aria-checked", String(sw.getAttribute("aria-checked") !== "true")); });
+const params = new URLSearchParams(location.search);
+for (const g of ["theme", "width"]) if (params.get(g)) document.querySelector(`.seg[data-group="${g}"] button[data-v="${params.get(g)}"]`)?.click();
+</script>
+</body>
+</html>

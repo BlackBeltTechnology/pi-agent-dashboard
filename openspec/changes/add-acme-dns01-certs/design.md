@@ -1,6 +1,10 @@
 ## Context
 
-See proposal.md — Why. Builds on `add-tailscale-cert-tls` (must be merged first): its `CertSource` interface (`id`, `obtain(name, onStage)` → `{ certPem, keyPem, advertise, kind }`, `RetryAfterError`), `CertManager` (12 h tick, renew at <1/3 validity, single-flight per name, `trigger(name)`, exponential backoff capped 6 h), `TlsCertStore` (exact → single-label wildcard SNI, fail-closed), `tls` config deep-merge + validation, disclosure-gated `/api/health.tls`, and `tlsListenerUrls()` feeding both enumeration and the pairing reachable-URL closure. This change adds one source and needs **no** modification to those capabilities.
+See proposal.md — Why. Builds on `add-tailscale-cert-tls` (must be merged first): its `CertSource` interface (`id`, `names()`, `configFingerprint(name)`, `obtain(name, onStage)` → `{ certPem, keyPem, advertise, kind, details? }`, `readiness()` → `{ gates, details? }`, `onRemoved?()`, `RetryAfterError`), `CertManager` (12 h tick, renew at <1/3 validity, single-flight per `(sourceId, name)`, `trigger(sourceId, name?)`, exponential backoff capped 6 h, pruning, **gate-before-obtain** — an unmet source-wide or name-scoped gate skips the attempt without calling `obtain()` and without counting a failure — and an **attempt deadline** per source `attemptTimeoutMs`, after which the attempt is counted failed and its late result discarded; prereq design D3 and spec "Certificate lifecycle management"), `TlsCertStore` (exact → single-label wildcard SNI, fail-closed), `tls` config deep-merge + route-level validation (`openspec/changes/add-tailscale-cert-tls/design.md` D7), disclosure-gated `/api/health.tls` listing every name from the source's last `names()` (held, waiting on a gate, or being issued) with `nextAttemptAt`, plus source-level `details` (its D8), `POST /api/tls/issue` (its D10), and `tlsListenerUrls()` feeding enumeration and the pairing reachable-URL closure.
+
+This change adds one source type and uses only behaviour the prerequisite's specs already state. It extends the prerequisite's code seams without changing their behaviour: the `tls` validator gets acme-type rules (D5), and the source registry gets the `acme` type. D12 lists the prerequisite behaviours used.
+
+Credential storage follows `openspec/specs/credential-vault/spec.md` ("one hub-owned store for credentials"): solver secrets are vault accounts (D5), not a separate file. `absorb-service-secrets-into-vault` uses the same pattern for managed-service secrets (namespace `service:<id>`).
 
 ```mermaid
 flowchart LR
@@ -8,71 +12,243 @@ flowchart LR
   CA -- "DNS-01: reads TXT" --> DNS[public authoritative DNS]
   S[acme source] -- "writes _acme-challenge TXT" --> DNS
   S -- "order / finalize" --> CA
+  S -- "solver secrets" --> V[(credential vault<br/>namespace tls:&lt;sourceId&gt;)]
 ```
 
 ## Goals / Non-Goals
 
-**Goals**: DNS-01 only; two solvers that together cover every DNS host (Cloudflare directly, everything else via acme-dns CNAME delegation); staging-first; zero inbound internet exposure; no change to the prerequisite's capabilities.
+**Goals**: DNS-01 only. Two solvers that together cover every DNS host: Cloudflare directly, everything else through acme-dns CNAME delegation. Staging first. No inbound internet exposure. No change to the prerequisite's specified behaviour. Solver secrets live in the credential vault.
 
-**Non-Goals**: HTTP-01/TLS-ALPN-01; IP certificates; per-vendor solvers beyond these two; managing the A/AAAA record that points the domain at the mesh IP (operator's job — readiness shows what public DNS returns); EAB (External Account Binding) flows; advertising wildcard names (served, never enumerated — no concrete URL).
+**Non-Goals**: HTTP-01/TLS-ALPN-01; IP certificates; per-vendor solvers beyond these two; managing the A/AAAA record that points the domain at the mesh IP (operator's job — readiness shows what public DNS returns); EAB (External Account Binding) flows; advertising wildcard names (served, never enumerated — no concrete URL); delivering solver secrets to pi sessions or plugins.
 
 ## Decisions
 
 ### D1 — `acme-client` for the protocol
-RFC 8555 needs JWS signing, nonce handling, order/authorization polling, CSR generation. `acme-client@^5` (MIT, shipped TS types; deps `@peculiar/x509`, `asn1js`, `axios`, `debug`, `node-forge`) implements it. We use its low-level API (`createAccount` with `termsOfServiceAgreed` from `agreeTos` → `createOrder` → `getAuthorizations` → solver → `completeChallenge` → `waitForValidStatus` → `finalizeOrder` → `getCertificate`) instead of `auto()`, so each stage calls `onStage` and cleanup is ours. `acme-client` exposes no abort signal, so hangs are bounded at every layer: (1) per-request timeout 30 s on the library's exported axios instance (`acme.axios.defaults.timeout`) and `AbortSignal.timeout(30_000)` on every solver/DoH `fetch`; (2) bounded polling (`backoffAttempts`/`backoffMax`); (3) an outer `Promise.race(attempt, deadline(10 min))` — on deadline the attempt is marked abandoned, the single-flight slot is released, the late result is discarded, and challenge cleanup is invoked directly (best-effort) rather than waiting on the attempt's `finally`. *Alternatives*: hand-rolled RFC 8555 (~500 lines of crypto-sensitive code) — rejected; shelling out to `lego`/`certbot` (external binary per OS) — rejected for v1.
+RFC 8555 needs JWS signing, nonce handling, order/authorization polling, CSR generation. `acme-client@^5` (MIT, shipped TS types; deps `@peculiar/x509`, `asn1js`, `axios`, `debug`, `node-forge`) implements it. We use its low-level API instead of `auto()`, so each stage calls `onStage` and cleanup is ours:
+
+1. `createAccount` (`termsOfServiceAgreed` from `agreeTos`) → `createOrder` → `getAuthorizations` — stage `order`.
+2. Per authorization, pick the challenge with `type === "dns-01"`; fail the attempt when none is offered. The low-level API does no selection, and `challengePriority` applies to `auto()` only (unverified against the 5.4.0 source until spike 1.3).
+3. Solver publish — stage `dns-publish`; propagation wait (D3) — stage `propagation`; `completeChallenge` + `waitForValidStatus` — stage `validation`; `finalizeOrder` + `getCertificate` — stage `finalize`.
+
+`acme-client` exposes no abort signal, so hangs are bounded in layers:
+
+1. A per-request timeout of 30 s on the library's own axios instance (`acme.axios.defaults.timeout`; that instance is separate from the server's global axios). The library retries 5xx/429 itself, so one API call may exceed 30 s in total. The outer deadline still bounds the whole attempt.
+2. `AbortSignal.timeout(30_000)` on every solver and DoH `fetch`.
+3. Bounded polling (`backoffAttempts`/`backoffMax`).
+4. Deadlines in two layers. The source's own **attempt deadline** is 10 minutes, measured from when the attempt body starts: after any acme-dns mutex wait (D2), not from `obtain()` entry. On expiry, `obtain()` rejects with a timeout error, so the manager records the failure and frees its single-flight slot. The source also declares `attemptTimeoutMs` (prereq D3) as a **backstop** only: `10 min + 30 s` for Cloudflare, and `(10 min + 30 s) × domains.length` for acme-dns, so queue time never trips it. The manager's own race therefore fires only when the source itself hangs.
+
+On the source deadline the attempt is **aborted**. Each attempt carries a generation number, which closes two gaps:
+- Every step checks it before **starting** a CA or solver call.
+- A request interceptor on `acme.axios` rejects any request that carries an aborted generation, including the library's internal polls and its own 5xx/429 retries (whether retries pass through interceptors is unverified; spike 1.3).
+
+As a result an aborted attempt starts no new call except challenge cleanup.
+- A request already on the wire cannot be cancelled; it may finish, and its result is ignored.
+- The acme-dns source mutex (D2) is released at the abort. Any late write by the aborted attempt lands in a two-value acme-dns slot that the next attempt also writes, so validation still sees the new value.
+- Cleanup runs for every `publish` ref known at abort time. A Cloudflare `publish` that resolves after the abort is deleted by its record id as soon as it resolves; its ref is never kept.
+- A late certificate is discarded.
+- Cleanup is idempotent: a Cloudflare 404 on `DELETE` counts as success, so the attempt's own `finally` may run it again harmlessly.
+
+`acme.setLogger(() => {})` (`types/index.d.ts` setter) only redirects the library's log lines; `src/logger.js` still calls `debug()`, so `DEBUG=acme-client` prints them. They hold URLs, statuses and nonce notes, never bodies (checked against `acme-client@5.4.0` `src/*.js`; re-checked in spike 1.3 for the pinned version), so this is accepted. A test asserts that no body text reaches the server log.
+
+*Alternatives*: hand-rolled RFC 8555 (~500 lines of crypto-sensitive code) — rejected; shelling out to `lego`/`certbot` (external binary per OS) — rejected for v1.
 
 ### D2 — Solver interface
 ```ts
 interface Dns01Solver {
   readonly type: "cloudflare" | "acme-dns";
   publish(domain: string, value: string): Promise<{ ref: string }>;   // domain may be "*.x" → owner _acme-challenge.x
-  cleanup(ref: { ref: string }): Promise<void>;
+  cleanup(ref: { ref: string }): Promise<void>;                       // idempotent
   check(domain: string): Promise<{ ok: boolean; hint?: string }>;     // per-domain readiness
 }
 ```
-- **cloudflare**: plain `fetch` to `api.cloudflare.com/client/v4`; strip a leading `*.`; zone by longest-suffix match; `POST dns_records` TXT (TTL 60); `DELETE` on cleanup (always, in `finally`). Token needs `Zone.DNS:Edit` on one zone. `check` = token verify + zone found.
-- **acme-dns**: `POST <server>/update` with `X-Api-User`/`X-Api-Key`, `subdomain`, `txt`; `cleanup` no-op. An acme-dns subdomain holds at most two TXT values, so an acme-dns source runs **one order at a time** (source-level mutex around `obtain()`). `check(domain)` = CNAME at `_acme-challenge.<domain minus a leading "*.">` → the configured full domain; hint shows the exact record.
+- **cloudflare**: plain `fetch` to `api.cloudflare.com/client/v4`.
+  - Strip a leading `*.`.
+  - Find the zone: when the source config carries a non-secret `zoneId`, use it with no lookup. Otherwise query `GET /zones?name=<candidate>` for each suffix of the owner name, longest first, and take the first exact match. Exact-name queries need no pagination.
+  - `POST dns_records` creates the TXT (TTL 60). Cleanup `DELETE`s it in `finally`.
+  - Token scope: **Zone → DNS → Edit**, limited to one zone, plus **Zone → Zone → Read** unless `zoneId` is set (zone lookup needs Read; lego and Traefik document the same pair — unverified, spike 1.3).
+  - `check` = `GET /user/tokens/verify` (account-owned tokens may need `/accounts/<id>/tokens/verify` — spike 1.3) plus the zone lookup.
+- **acme-dns**: `POST <server>/update` with `X-Api-User`/`X-Api-Key`, `subdomain` and `txt` (acme-dns README; unverified until spike). `cleanup` is a no-op.
+  - Config carries the non-secret `server` (must be `https://`), `subdomain` and `fulldomain`. All three come from the operator's one-time `POST <server>/register`. Its response also carries `username` and `password`, which go to the vault (D5).
+  - An acme-dns subdomain holds at most two TXT values, so an acme-dns source runs **one non-aborted order at a time** (source-level mutex around the attempt body, released on abort, D1).
+  - The 10 min source deadline starts when the mutex is acquired, not when the attempt is queued, and the backstop `attemptTimeoutMs` covers the queue (D1), so a third or later name is not abandoned before it runs. N names on one acme-dns source still issue one after another, so first issuance may take N × (up to 4 min). Guidance: a separate acme-dns registration (source) for each few names.
+  - Credential validity: `check()` tries to **acquire** the source mutex without waiting. If it gets it, it sends one `POST <server>/update` with a fixed 43-character placeholder value and releases it; a 401/403 marks the `credentials` gate unmet. If the mutex is busy, an order is running, so it writes nothing and keeps the last result. The placeholder only occupies one of the two rolling slots and never overlaps a running challenge.
+  - `check(domain)` = CNAME at `_acme-challenge.<domain minus a leading "*.">` → the configured `fulldomain`, queried against that zone's **authoritative** servers (D3 discovery), not a recursive resolver, so a negative answer cached before the record existed cannot mask the fix. The hint shows the exact record.
 
 ### D3 — Propagation check against authoritative servers
-Recursive resolvers may cache the pre-publication negative answer for the zone's SOA minimum (often 30 min), so polling them gives false timeouts. Instead: resolve the zone's NS set (via DoH, avoiding split-horizon/MagicDNS), then query **each authoritative server directly** (`dns.Resolver` with `setServers(nsIPs)`, outbound UDP/TCP 53 only) every 5 s until all return the TXT value, up to 180 s. For acme-dns the authoritative set is the acme-dns server's. DoH (`cloudflare-dns.com`, `dns.google`) is the fallback when direct UDP 53 is blocked, with the negative-cache risk noted in status.
+Recursive resolvers may cache the pre-publication negative answer for the zone's SOA minimum (often 30 min), so polling them gives false timeouts. Instead:
 
-### D4 — Advertisement classification
-`production` → `advertise: true`; `staging` → `advertise: false`, `staging: true`; an explicit URL equal to Let's Encrypt's staging or production directory is normalized to that keyword first; any other `https://` directory → `advertise: source.advertise === true` (operator assertion). `configFingerprint(name)` covers directory, advertise, solver type and email — **not** the domain list (added names have no cert → issued; removed names → pruned by the prerequisite), so editing one domain never re-issues the others (Let's Encrypt duplicate-certificate limit). Directory/advertise/solver/email changes re-issue through the prerequisite's reconcile. Status fields `directory`, `staging`, `solverType` are returned via `ObtainedCert.details`; per-domain CNAME/credential gates via name-scoped `Gate`s. Source-level cleanup (secrets entry, orphaned account key) runs in `onRemoved()`. Returned from `obtain()`; the prerequisite's `tlsListenerUrls()` already filters on it. Endpoint `kind: "domain"`.
+1. Resolve the zone's NS set through DoH, which avoids split-horizon DNS and MagicDNS.
+2. Query **each authoritative server directly**: one `dns.Resolver` per server with `{ timeout: 3000, tries: 1 }`, outbound UDP/TCP 53 only. Rounds run every 5 s until all servers return the TXT value, for up to 180 s. A server that does not answer within 3 s counts as lagging for that round, so one hung server cannot stall the round cadence.
 
-### D5 — Credentials file and routes
-`~/.pi/dashboard/tls/acme-credentials.json` (`0600`, atomic write), `{ [sourceId]: { cloudflareToken? , acmeDnsUser?, acmeDnsKey? } }`. Non-secret acme-dns `server` + `subdomain` live in config. Routes (both require `canDiscloseAccessPosture(request)` — authenticated or genuinely local — on top of the normal network guard):
-- `PUT /api/tls/acme/:sourceId/credentials` — write-only; then invalidate the readiness cache and `CertManager.trigger(sourceId)` (all due names).
-- `POST /api/tls/acme/:sourceId/issue` — body `{ domain? }` → `CertManager.trigger(sourceId, domain)` (single-flight per `(sourceId, name)`).
-`GET /api/config` projects `solver.configured: boolean`; `configured` is stripped on write. Source removal (reconcile) deletes the source's secrets entry and any account key no longer referenced (D8).
+Discovery: find the zone of the owner name by walking suffixes for an `SOA` answer over DoH, read its `NS` names, then resolve each NS name to its A/AAAA addresses over DoH. For Cloudflare the owner is `_acme-challenge.<domain>`. For acme-dns the TXT lives at `fulldomain`, so the zone is the one containing `fulldomain`, not the CNAME's zone. A dead nameserver fails the attempt. That is accepted: the CA may query any of them, and the error names the lagging server.
 
-Gateway UI edits send the **full** current `tls.sources` array with only the edited acme entry changed (the prerequisite replaces `sources` wholesale), so other sources round-trip unchanged.
+**Fallback** when direct port 53 is blocked: require **both** DoH resolvers (`cloudflare-dns.com`, `dns.google`) to return the value. This is weaker, because recursive visibility does not prove every authoritative server has the value. The spec allows it explicitly. Status marks it in source `details` (`propagationMode: "doh-fallback"`).
+
+### D4 — Advertisement classification and re-issue scope
+- `production` → `advertise: true`.
+- `staging` → `advertise: false`, `staging: true`.
+- The known set is exactly two URLs: `https://acme-staging-v02.api.letsencrypt.org/directory` (staging) and `https://acme-v02.api.letsencrypt.org/directory` (production). An explicit URL equal to one of them after D5 canonicalization becomes that keyword. Every other URL is custom.
+- Any other `https://` directory → `advertise: source.advertise === true` (an operator assertion).
+- Wildcard names keep their directory's `advertise` value: the flag classifies the issuer. The prerequisite's emission never enumerates wildcard names (its D5), and the UI labels them "served, not listed".
+
+`configFingerprint(name)` covers the **canonical directory and the effective advertise value** (after classification) only. The spec states re-issuance on a change of `directory` or of the effective `advertise` value, so toggling `advertise` on `staging` or `production`, where it has no effect, changes nothing. The prerequisite's design names "directory/advertise/solver" as an example fingerprint for ACME (prereq design D3); leaving the solver out is deliberate.
+- Email, solver type and solver endpoints do not change the certificate. Changing them re-checks readiness (D9) instead of re-issuing, which avoids Let's Encrypt duplicate-certificate pressure.
+- The domain list is not in the fingerprint. Added names have no certificate, so they are issued; removed names are pruned by the prerequisite. Editing one domain therefore never re-issues the others.
+
+Status fields `directory`, `staging` and `solverType` are returned through `ObtainedCert.details`. Per-domain CNAME and credential gates are name-scoped `Gate`s; check times are in source-level `details` (D9). Endpoint `kind: "domain"`.
+
+### D5 — Config, validation, vault-backed credentials, route
+**Config entry** (`tls.sources[]`):
+```jsonc
+{ "type": "acme", "id": "home", "domains": ["dash.example.com", "*.lab.example.com"], "email": "ops@example.com",
+  "agreeTos": true, "directory": "staging", "advertise": false,
+  "solver": { "type": "cloudflare", "zoneId"?: "…" } | { "type": "acme-dns", "server": "https://auth.acme-dns.io", "subdomain": "…", "fulldomain": "….auth.acme-dns.io" } }
+```
+
+**Writes go through per-entry routes, not the whole array.** The prerequisite's `PUT /api/config` replaces `tls.sources` as a whole array (prereq D7), so two tabs can overwrite each other. The Gateway editor therefore uses:
+- `PUT /api/tls/acme/:sourceId` — upsert one acme entry (body = the entry);
+- `DELETE /api/tls/acme/:sourceId` — remove it.
+
+Both read config, replace only the entry with that `id` in `tls.sources`, and write through `writeConfigPartial`. They run on the same serialized chain as `saveConfigAndMirror` (`packages/server/src/routes/system-routes.ts:123-155`, `configSaveTail`), so they cannot interleave with another save. Then they run the prerequisite's reconcile. Every other source is untouched by construction.
+
+Both refuse with 409 when `config.json` exists but does not parse. Today `writeConfigPartial` starts fresh from `{}` in that case (`packages/server/src/config-api.ts:227-228`), which would drop every other key. A new `readConfigState()` returns `absent | ok | corrupt` for this check and for GC.
+
+`PUT /api/config` stays valid for acme entries too: hand edits and the API keep working under the same validator.
+
+**Validation** is one function used by both paths: it extends the prerequisite's `tls` validator (route-level, before `writeConfigPartial`; prereq D7). No other server path writes `tls.sources`: the other `writeConfigPartial` callers (`routes/system-routes.ts`, `access-routes.ts`, `known-servers-routes.ts`, `server.ts`) touch other keys. Each failure answers 400 naming the entry.
+
+- `id` is kebab-case, globally unique, and not `tailscale`. The Gateway editor shows `id` read-only after the first save; a rename through the API is a remove plus an add (secrets are not carried over).
+- `domains` has 1–20 entries after normalization. Each entry is normalized: lowercase, one trailing dot stripped, duplicates removed. Each must then be a hostname of ≤ 253 octets whose every label matches `^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$` (LDH, no leading or trailing hyphen, no `_`), or `*.` followed by one. IP literals (v4, v6 with or without brackets), ports, schemes, empty labels, the root `.`, bare `*` and non-ASCII are rejected; IDNs must be entered as `xn--` (lengths measured on that form).
+- `email` is shaped like an email address; stored trimmed and lowercased.
+- `agreeTos === true`.
+- `directory` is `staging`, `production`, or an `https://` URL without userinfo. A URL is canonicalized: lowercase host, default port dropped, one trailing slash removed; a URL equal to a Let's Encrypt directory becomes its keyword.
+- acme-dns `server` is an `https://` URL without userinfo; `subdomain` is present; `fulldomain` is a hostname under the same rules as `domains` (no wildcard). Cloudflare `zoneId`, when present, is 32 hex characters.
+- `solver.configured` is stripped **first**, so a round-tripped `GET /api/config` projection saves cleanly. The solver object is then allowlisted per type: any other key (for example a hand-written `token`) answers 400, so no secret can be persisted in `config.json`.
+
+**Secrets in the credential vault.** Each source's secrets are vault accounts of kind **`tls-solver`** (not `key`) in namespace `tls:<sourceId>`.
+
+| solver | provider | label |
+|---|---|---|
+| cloudflare | `cloudflare` | `cloudflareToken` |
+| acme-dns | `acme-dns` | `acmeDnsUser`, `acmeDnsKey` |
+
+Using a distinct kind lets the vault's existing `kind === "key"` checks keep these accounts off every delivery path:
+- binding default — `vault-bindings.ts:43-46` `assertKeyAccount`;
+- grant override — `vault-grants.ts:166-182` `assertGrantable`;
+- grant and delivery resolution — `keyAccountById` `vault-grants.ts:129-135`, `getKeyValue` `vault-store.ts:249-253`;
+- plugin reads — `vault-plugin-read.ts:57-59`;
+- generic rotate — `rotateAccount` `vault-store.ts:262-275`.
+
+This also holds on **older builds after a downgrade**, which preserve unknown kinds (credential-vault "Account storage") but use only `key` accounts. One generic path lacks a kind check: revoke (`vault-grants.ts:247-255`, `DELETE /api/vault/accounts/:id`). It gains one: `tls-solver` accounts answer 409.
+
+The vault store gets three **internal** methods, which no HTTP route exposes directly. Today `makeKeyAccount` hard-codes kind `key` and namespace `user` (`vault-store.ts:192-203`) and `addAccount` always appends (`:254-261`).
+- `upsertTlsSecret({ sourceId, provider, label, value })`: under the store lock, find the account by `(namespace, label)`; rotate it if present, else add it.
+- `deleteTlsNamespace(sourceId)`.
+- `readTlsSecret(sourceId, label)`: the only reader of `tls-solver` values, used by the solvers.
+
+The vault's 8-character minimum applies. Cloudflare tokens (40 chars) and acme-dns credentials (UUID user, 40-char key) exceed it; test fixtures use ≥ 16 characters.
+
+The Accounts tab lists `tls-solver` accounts like any account, with "what uses it" = "Gateway source `<id>`", grouped under "TLS certificates". They have no rotate or revoke action and link to the Gateway. The credential-vault delta records this: ADDED "TLS solver accounts", MODIFIED "Account rotation and revocation".
+
+**Unreadable vault.** A corrupt or unreadable vault (`status()` reports it; `listAccounts` returns `[]` then) makes the source's `credentials` gate unmet with the hint "credential vault unavailable". `GET /api/config` then projects `configured: false`, and the gate carries the reason. No CA or DNS call is made.
+
+**GC.** Reconcile deletes every `tls:<id>` namespace whose `id` is no longer a configured acme source. It runs only when `readConfigState()` is `ok`, with or without a `tls` block, and only when the vault `status()` is healthy; otherwise it is left for the next healthy reconcile.
+
+**Credential route**: `PUT /api/tls/acme/:sourceId/credentials`. It writes into the vault, so it is a vault management route.
+- It uses the vault's own guard: `canManageVault` (`packages/server/src/vault/vault-routes.ts:119`), which means `operate` authority, or a locally trusted caller honouring strict local-proof mode, under the identity-principal policy (credential-vault "Values never leave the hub").
+- It is registered `operate` in `packages/shared/src/route-tiers.ts`, together with `PUT` and `DELETE /api/tls/acme/:sourceId`, which use the `PUT /api/config` authorization. The completeness test fails an unlisted `/api/*` route.
+- `:sourceId` must match the id rule and name a configured acme source; otherwise 404 before any vault access.
+- The body carries only the fields of that source's solver type.
+- It writes through `upsertTlsSecret`, invalidates the readiness cache and calls `CertManager.trigger(sourceId)`. Like any operator trigger, this bypasses backoff for the source's due names (prereq D3), which is intended: new credentials should be tried at once.
+
+`GET /api/config` projects `solver.configured: boolean` from the vault listing for `tls:<id>` (no values read).
+
+"Issue now", "Renew now" and the gate's "Check now" are **not** ACME routes. They call the prerequisite's `POST /api/tls/issue { sourceId, name? }`: same authorization, forced `readiness()` refresh, 202, joins a running issuance.
+
+**Concurrent edits.** The per-entry routes write one entry each on the serialized save chain, so a save from another tab can no longer drop a source. The only edits to `tls.sources` that still replace the whole array are hand-written `PUT /api/config` calls, which are outside the Gateway.
 
 ### D6 — Redaction
-Never log raw `axios`/`acme-client` error objects; log `{ sourceId, domain, stage, status, problemType }` plus a message passed through a redactor that replaces the current secret values (raw and URL-encoded). `acme-client`'s `debug` namespace is never enabled by the server.
+- Never log raw `axios`/`acme-client` error objects. Log `{ sourceId, domain, stage, status, problemType }` plus a message passed through a redactor.
+- The redactor replaces the source's current secret values in raw, URL-encoded (percent-escapes matched case-insensitively, single and double encoded), JSON-escaped, base64 and base64url (with and without padding) form, plus any `Authorization`/`X-Api-Key`/`X-Api-User` header value and any `token=` query parameter.
+- `obtain()` only ever throws `Error`s whose message has already been redacted and truncated in that order, so the prerequisite's `lastError` (500 chars) and its persisted metadata never see a raw value.
+- `acme-client`'s logger is a no-op (D1).
 
 ### D7 — Retry policy
-CA-side `invalid` challenge → `RetryAfterError(1h)`. Propagation timeout, DNS API 5xx, network error → plain error (manager's exponential backoff). DNS API 401/403 → `RetryAfterError(6h)` + unmet `credentials` gate. Manual "issue now" is the only bypass and is single-flight, so it cannot stack parallel orders.
+- CA-side `invalid` challenge → `RetryAfterError(1h)`.
+- Propagation timeout, DNS API 5xx, network error → plain error (the manager's exponential backoff).
+- DNS API 401/403 → `RetryAfterError(6h)` plus an unmet `credentials` gate.
+- **Gate-blocked names are not attempts.** Missing credentials, an unreadable vault and a missing CNAME delegation are reported as gates from `readiness()`: `credentials` is source-wide; the CNAME gate is scoped to the name. The prerequisite's gate-before-obtain rule skips such names without calling `obtain()` and without counting a failure. Status lists them with the gate, and no CA order or DNS write happens. "Check now" (`POST /api/tls/issue`) refreshes readiness and proceeds as soon as the gate is met.
+- The operator trigger (`POST /api/tls/issue`) is the only bypass and is single-flight, so it cannot stack parallel orders. It does not respect the 1 h floor after a CA `invalid`. Let's Encrypt limits failed validations per account and hostname per hour, so the editor warns next to "Try again now" after a CA validation failure (trade-off, Risks). Retry times reach status as the prerequisite's per-name `nextAttemptAt`.
 
-### D8 — Key types
-Certificate and account keys: ECDSA P-256. One account per (directory, email) at `~/.pi/dashboard/tls/acme-account-<sha256(dir + email)[:12]>.key`; deleted on reconcile when no configured source references it.
+### D8 — Keys and accounts
+- Certificate and account keys are ECDSA P-256.
+- There is one ACME account per (normalized directory, lowercase email). Its key lives at `~/.pi/dashboard/tls/acme-account-<sha256(canonicalDirectory + "\n" + lowercaseTrimmedEmail) hex[:32]>.key`, mode `0600`, written atomically. Normalizing the directory (D4) means the keyword and the explicit Let's Encrypt URL share one account.
+- Reconcile GC: list every `acme-account-*.key` and delete each whose hash no configured acme source produces. This covers removal, email change and directory change. It runs under the same parsed-config guard as the vault GC (D5). `onRemoved()` does no key work.
 
 ### D9 — Readiness caching
-`check(domain)` results cached 5 min per `(sourceId, domain)`; refreshed on config/secret change, before an issuance attempt, or on explicit UI refresh. Status reads only the cache.
+- `check(domain)` results are cached 5 min per `(sourceId, domain)`.
+- The cache refreshes on config or secret change (including email/solver edits, D4), before an issuance attempt, and through the prerequisite's forced refresh inside `POST /api/tls/issue`.
+- Status reads only the cache. An expired entry keeps reporting its last result and check time until the next refresh; it is never recomputed on read.
+- Each entry keeps the time its check ran. `readiness()` returns it in source-level `details` as `checkedAt:<domain>` → ISO time, because the prerequisite's `Gate` has no time field.
 
 ### D10 — Test seams for the Pebble harness
-The docker test harness gains an overlay compose file `docker/compose.test.acme.yml` (layered by `docker/test-up.sh` when `TEST_ACME=1`, same mechanism as `compose.test.cap.yml`): `letsencrypt/pebble` (ACME CA), `letsencrypt/pebble-challtestsrv` (authoritative DNS for the test zone, `dash.test`), and a ~50-line Cloudflare-API shim that maps `POST/DELETE dns_records` onto challtestsrv's `/set-txt` / `/clear-txt`. Three env overrides, honoured **only when `PI_E2E_SEED=1`** (same gate as the existing e2e seams), point the server at them: `PI_E2E_CLOUDFLARE_API` (shim base URL), `PI_E2E_DNS_AUTHORITATIVE` (`host:port` used instead of NS discovery), and Pebble's root via `NODE_EXTRA_CA_CERTS`. Production code paths are unchanged when the gate is off.
+The docker test harness gains an overlay `docker/compose.test.acme.yml`, layered through the **existing** `TEST_EXTRA_COMPOSE` hook (`docker/test-up.sh:254-256`). There is no new `TEST_ACME` switch. It contains:
+- `letsencrypt/pebble` (ACME CA);
+- `letsencrypt/pebble-challtestsrv` (authoritative DNS for the test zone `dash.test`);
+- a minimal acme-dns double (`register` returns fixed test credentials; `update` writes the value to challtestsrv for `fulldomain`), so the acme-dns solver has an end-to-end path too;
+- a ~50-line Cloudflare-API shim that maps `GET zones` and `POST/DELETE dns_records` onto challtestsrv's `/set-txt` / `/clear-txt`. challtestsrv keeps values per host and `/clear-txt` clears the whole host (unverified, spike 1.3). The shim therefore keeps its own per-host record set and, on `DELETE`, clears the host and re-sets the remaining values, so deleting one record never drops a sibling (apex plus wildcard share `_acme-challenge.<parent>`).
+
+`test-up.sh` records the overlay list it layered in the harness state file. `docker/test-down.sh` (`:74-77` runs `down -v` on `compose.yml` + `compose.test.yml` only) reads that list, so a teardown run without the env var (for example ship-it's trap) still includes the overlay, and adds `--remove-orphans`. Overlay containers never survive teardown.
+
+Two overrides point the server at the overlay, honoured **only when `PI_E2E_SEED=1`** (the same gate as the existing e2e seams, `packages/server/src/server.ts:713`):
+- `PI_E2E_CLOUDFLARE_API` — shim base URL;
+- `PI_E2E_DNS_AUTHORITATIVE` — `host:port` used instead of NS discovery.
+
+Each must name `localhost` or a host under `.test`. The overlay gives its services `.test` network aliases (`cf-shim.test`, `acme-dns.test`, `challtestsrv.test`, `pebble.test`). Otherwise the server logs a refusal and ignores the override, so a stray seed flag cannot send a real token to another host. Plain `http` is accepted only for these hosts.
+
+Pebble's root reaches Node through `NODE_EXTRA_CA_CERTS`, which is set **only in the overlay's container environment**, not by server code. Node reads it at start, and it trusts the root process-wide inside that test container only. With the gate off, production code paths are unchanged.
+
+### D11 — Gateway editor (mockup: `mockups/gateway-tls.html`, `mockups/ui-plan.md`)
+The prerequisite owns the "Built-in HTTPS" section (`add-tailscale-cert-tls/mockups/tls.html`):
+- its Certificates list;
+- the per-certificate row (name · facts · pill · Renew now / Try again now → `POST /api/tls/issue`);
+- the Accessible-at restyle.
+
+This change adds one "Domain certificates" group per acme source inside that list:
+- **Group gates.** `credentials`; per-name CNAME with the record, Copy, **Check now** → `POST /api/tls/issue {sourceId, name}`, and the check time from `details`.
+- **Rows.** Extra badges (staging, not advertised, wildcard served-not-listed) and stage steps (`order` → `dns-publish` → `propagation` → `validation` → `finalize`).
+- An **"Add domain certificate"** button.
+- An **editor** with its own Save/Cancel. For acme-dns it has `server`, `subdomain` and `fulldomain` fields plus the registration hint; for Cloudflare an optional zone id. `id` is read-only once saved.
+
+Save order: `PUT /api/tls/acme/:sourceId` (one entry, D5) → `PUT /api/tls/acme/:sourceId/credentials`, the second only when a secret was entered. "Remove source" calls `DELETE /api/tls/acme/:sourceId`. If the second call fails, the source stays saved and the group shows the credentials gate plus the error. The typed secret lives only in component state. It is cleared on success, on Cancel and on unmount, and is never written to the URL or to browser storage. Retrying sends only the credentials call. Save is disabled until `agreeTos`, with the reason beside it. After a CA validation failure, the row shows a note next to "Try again now" that Let's Encrypt limits failed validations per hour.
+
+### D12 — Prerequisite behaviours used (all specified in `add-tailscale-cert-tls`)
+- Gate-before-obtain without counting a failure (spec "Certificate lifecycle management"; design D3) → D7 gate-blocked names.
+- Per-source `attemptTimeoutMs`, abandonment counted as a failure, late result discarded (same requirement; design D3) → D1 backstop.
+- Status lists every name from `names()`, including names waiting on a gate (design D3 "Status per name"; spec "TLS status reporting") → the ACME status requirement.
+- `POST /api/tls/issue` with forced readiness refresh, including its `route-tiers.ts` row (prereq task 4.8) → Renew now, Try again now, Check now.
+- An `invalid-source` gate for a stored entry that fails validation → hand-edited acme entries.
+
+Task 1.1 checks these against the merged prerequisite before building.
 
 ## Risks / Trade-offs
 
-- [DNS API token = ability to rewrite the zone] → least-privilege guidance (single zone, DNS:Edit); recommend acme-dns delegation whose secret can only change one TXT value.
-- [Let's Encrypt rate limits] → staging default, 1 h floor after CA failure, single-flight manual trigger.
+- [DNS API token = ability to rewrite the zone] → least-privilege guidance (single zone, Zone:Read + DNS:Edit); recommend acme-dns delegation, whose secret can only change one TXT value.
+- [Let's Encrypt rate limits] → staging default, 1 h floor after CA failure, single-flight manual trigger, no re-issue on email/solver/no-op-advertise edits. Manual "Try again now" bypasses the 1 h floor; the editor warns about the failed-validation limit.
 - [Staging certificates are served on the real domain during setup → browser warnings] → intended for pipeline verification; status labels them `staging`; UI prompts the switch to production.
-- [Domain names land in public CT logs; A record exposes a private IP] → stated in setup guidance.
+- [Domain names land in public CT logs; A record exposes a private IP] → stated in setup guidance and in the editor before first save.
 - [Operator lists the ACME domain in `publicBaseUrls` while only a staging cert is held] → that path is operator-asserted and bypasses `advertise`; documented, not enforced.
 - [Wildcard-only source is served but never advertised] → documented; pair via a concrete name.
+- [Corrupt `config.json` is overwritten by any `PUT /api/config` today (`config-api.ts:227-228`, pre-existing)] → the acme per-entry routes refuse instead; fixing `writeConfigPartial` itself is out of scope.
+- [Every authoritative nameserver must serve the TXT] → one dead NS fails the attempt; the error names it.
+- [DoH fallback is weaker than the authoritative check] → only when port 53 is blocked; marked in status.
+- [acme-dns serializes all names of a source] → the deadline starts at mutex acquisition; documented; split names across registrations.
+- [acme-dns credential check writes a placeholder TXT] → only after acquiring the free mutex; it occupies one rolling slot.
+- [`DEBUG=acme-client` prints library log lines] → URLs, statuses and nonces only, no bodies (D1).
+- [Crash between Cloudflare publish and cleanup leaves one TXT record] → harmless to later validations (the CA looks for its own value); documented, no sweep in v1.
 - [Dependency weight] → server package only; pinned major; reviewed under doubt-driven-review.
 - [Shorter CA lifetimes coming] → renewal is lifetime-relative.
 
 ## Migration Plan
 
-Additive; requires `add-tailscale-cert-tls` merged. Rollback: remove the `acme` source → reconcile deletes its certificates/keys, its secrets entry and any orphaned account key; revoke the DNS token at the provider.
+Additive; requires `add-tailscale-cert-tls` merged and the credential vault (archived `add-credential-vault`). No existing data moves. Rollback: remove the `acme` source → reconcile deletes its certificates/keys, its `tls:<id>` vault accounts and any orphaned account key; revoke the DNS token at the provider. Older versions preserve unknown vault namespaces (credential-vault "Account storage").
