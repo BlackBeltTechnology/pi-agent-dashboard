@@ -78,9 +78,9 @@
 
 ## 6. Closeout
 
-- [ ] 6.1 Full suite: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`, then grep for `FAIL|Tests +[0-9]+ failed`. Verify 0 failed.
-- [ ] 6.2 Quality ratchet: `npm run quality:changed`. Verify there are no new Biome findings on touched files.
-- [ ] 6.3 `security-hardening` checkpoint on the relaxed REST validator and the custom-text paths. Confirm plain-text rendering (4.6), JSON-only exposure to the model (2.7), rejection of blank/padded/duplicate values (1.4, 1.5), and that non-opted prompts are byte-identical (3.2). Record the findings in the PR.
+- [x] 6.1 Full suite: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`, then grep for `FAIL|Tests +[0-9]+ failed`. Verify 0 failed.
+- [x] 6.2 Quality ratchet: `npm run quality:changed`. Verify there are no new Biome findings on touched files.
+- [x] 6.3 `security-hardening` checkpoint on the relaxed REST validator and the custom-text paths. Confirm plain-text rendering (4.6), JSON-only exposure to the model (2.7), rejection of blank/padded/duplicate values (1.4, 1.5), and that non-opted prompts are byte-identical (3.2). Record the findings in the PR.
 - [ ] 6.4 Manual accessibility check (test-plan: manual-only, #F13): with VoiceOver in base dark/light and one non-base theme, tab through the Other row and field. The label is announced as "Other answer", the focus ring is visible, and spacing matches the option rows. Record the result in the PR.
 - [x] 6.5 Update the `AGENTS.md` rows with `See change: add-ask-user-inline-other`:
   - `packages/client/src/components/interactive-renderers/AGENTS.md` (new `OtherOption.tsx`; Select, Multiselect and Batch rows);
@@ -89,4 +89,4 @@
   - the server `questions` rows; the `QuestionDialog` and `AskUserToolRenderer` rows.
   Verify `node scripts/check-conventions.mjs` passes.
 - [x] 6.6 Add a CHANGELOG `## [Unreleased]` entry: the inline Other answer on ask_user select/multiselect/batch (opt-in via `allowOther: true`; dashboard ask_user default on, model told via the result text). Behaviour note: the dashboard ask_user may now return a custom answer; use `allowOther: false` to forbid it.
-- [ ] 6.7 Run `review-code` on the diff before commit. Verify there are no unresolved blocker or major findings.
+- [x] 6.7 Run `review-code` on the diff before commit. Verify there are no unresolved blocker or major findings.
