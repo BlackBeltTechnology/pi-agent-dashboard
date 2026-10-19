@@ -52,7 +52,6 @@ test("foreign server → tray builds disabled 'Server managed externally', never
       version: "0.5.4",
       launchSource: "standalone",
       launchSourceEffective: "standalone",
-      starter: "Standalone",
       bootParentPid: process.pid,
       ppid: process.pid,
       bootParentAlive: true,

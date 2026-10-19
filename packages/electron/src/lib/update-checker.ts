@@ -2,7 +2,8 @@
  * Checks for newer versions of pi and openspec.
  * Runs on launch and every 24 hours.
  *
- * Update strategy is derived from health.starter (Phase C):
+ * Update strategy is derived from the server's starter, read from health `launchSource`
+ * (legacy `starter` fallback) via `starterFromHealth`:
  *   - "Electron"   → in-app updater handles version checks
  *   - "Standalone" → notify to run `npm update -g @blackbelt-technology/pi-agent-dashboard`
  *   - "Bridge"     → notify to update pi for a new dashboard version
@@ -14,9 +15,11 @@
  * `npm outdated`) are centralized.
  * See change: platform-command-executor.
  */
-import * as npm from "@blackbelt-technology/pi-dashboard-shared/platform/npm.js";
+
 import os from "node:os";
 import path from "node:path";
+import { starterFromHealth } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
+import * as npm from "@blackbelt-technology/pi-dashboard-shared/platform/npm.js";
 import { loadMinimalConfig } from "./server-lifecycle.js";
 
 export interface OutdatedPackage {
@@ -40,7 +43,7 @@ async function getServerStarter(port: number): Promise<string | null> {
     });
     if (!res.ok) return null;
     const data = await res.json() as Record<string, unknown>;
-    return typeof data.starter === "string" ? data.starter : null;
+    return starterFromHealth(data) ?? null;
   } catch {
     return null;
   }

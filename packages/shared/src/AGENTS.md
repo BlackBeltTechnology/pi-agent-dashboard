@@ -44,7 +44,7 @@ Files in this directory. One row per source file.
 | `credential-detect.ts` | Detects configured LLM-provider credential. `hasAnyProviderCredential(homeDir?)` OR-merges… → see `credential-detect.ts.AGENTS.md` |
 | `cwd-guard.ts` | Plugin cwd guard: `isAllowedCwd`, async `admitCwd`. → see `cwd-guard.ts.AGENTS.md` |
 | `dashboard-paths.ts` | Single-source path helpers for dashboard runtime dirs. `getDashboardConfigDir` → `~/.pi/dashboard/`. → see `dashboard-paths.ts.AGENTS.md` |
-| `dashboard-starter.ts` | Identifies dashboard launcher. `DashboardStarter` = `Bridge` | `Standalone` | `Electron`. → see `dashboard-starter.ts.AGENTS.md` |
+| `dashboard-starter.ts` | Identifies dashboard launcher. `DashboardStarter` = `Bridge` | `Standalone` | `Electron`. → see `dashboard-starter.ts.AGENTS.md` `starterFromHealth(body)` maps a `/api/health` body to `DashboardStarter\|undefined`: static `launchSource` first (never `launchSourceEffective`), legacy `starter` fallback. See change: fix-cli-control-electron-server. |
 | `diff-types.ts` | Session file-diff API types. `EditOperation`, `FileChangeEvent`, `FileDiffEntry`, `SessionDiffResponse`… → see `diff-types.ts.AGENTS.md` |
 | `custom-event-groups.ts` | Browser-safe types + shipped defaults for custom chat row groups. → see `custom-event-groups.ts.AGENTS.md` |
 | `custom-event-groups-store.ts` | Node-side store for `~/.pi/dashboard/custom-event-groups.json`. → see `custom-event-groups-store.ts.AGENTS.md` |
