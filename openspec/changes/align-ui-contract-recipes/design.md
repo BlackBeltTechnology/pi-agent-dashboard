@@ -73,6 +73,7 @@ Then it renders `SettingsStatusPill`. An explicit `icon` key resolves through `u
   - New prop `remedies?: { icon: string; content: ReactNode }[]`, rendered as rows under `children` in the order given. Callers filter unknown remedies first, as vault does today. `content` may hold links, which the vault "Request access" row needs.
   - `aria-busy` is set while `retrying`.
   - Existing props are unchanged. `details` keeps its shipped behaviour: copied by "Copy details", never rendered.
+- **Added during migration** (cycle 3, below): `SettingsNotice` `icon`, `remediesLabel`, `remedyTestId`, `retryTestId`, remedy `id`; explicit `retrying={false}` → `aria-busy="false"`.
 - **`SettingsActionError` (new).** Props `{ id, children, details?, testId? }`. Renders `role="alert"`, `mt-1 flex items-start gap-1 text-xs text-[var(--severity-error-fg)]`, a static `mdiAlertCircleOutline`, the sentence, and a `SettingsCopyButton` when `details` is set. Exported from the runtime barrel.
 - **`SettingsCopyButton`.** When `navigator.clipboard` is missing or rejects, it shows the existing failure label instead of "Copied". Its behaviour is checked and fixed if needed. #969 already made it secure-context-safe.
 
@@ -198,6 +199,14 @@ Fresh-context, cross-model: `@propose-review-1` then `@propose-review-2` (both n
 - "`ui:status-pill` has no `spinning`": the public props are frozen and `running` passes `spinning` internally (task 3).
 - "`motion-reduce:` may be missing from plugin builds": the host compiles one stylesheet with `@source "../../dashboard-plugin-runtime/src"` (`packages/client/src/index.css:17`).
 - "plugin-row load error needs a unique `SettingsActionError` id": that consumer is a `SettingsNotice`.
+
+### Cycle 3: kit props added during the migration (2026-10-18)
+
+Migrating vault and services needed five more additive `SettingsNotice` props, because the existing tests and the vault spec pin test ids, `data-remedy` values and a named list: `icon` (tone-icon override, e.g. the lock), `remediesLabel` (list name, default "What you can do"), `remedyTestId` (every row), `retryTestId`, and remedy `id` (→ `data-remedy`, also the key). `retrying={false}` now reports `aria-busy="false"` (absent when `retrying` is omitted). Exported type `SettingsRemedy`. Reviewed by `@propose-review-2` on the delta, with the real consumers named: no blocking findings.
+
+- **Accepted, second intended default change:** a caller that already passes a boolean `retrying` now gets `aria-busy="false"` instead of no attribute. Identical for assistive tech; the vault spec and its tests require the explicit `"false"`.
+- **Noise:** "id-less rows lost `data-remedy=""`": `remedies` is new in this change, so nothing on develop relied on it. "Label default is English-only in core": core renders inside `PluginContextProvider` (`App.tsx:3059`), so `settingsField.remediesLabel` translates (hu, zh-CN added).
+- **Nits accepted:** duplicate ids fail soft (both callers dedupe); `retryTestId` replaces the derived id by design.
 
 ## Migration Plan
 
