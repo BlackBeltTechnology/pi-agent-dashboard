@@ -4,7 +4,7 @@
  *   GET    /api/vault                                  accounts, bindings, grants (+state), confirmations, approvals, status
  *   POST   /api/vault/accounts                         { provider, label, value } → view (value never echoed)
  *   PUT    /api/vault/accounts/:id/value               { value } rotate
- *   DELETE /api/vault/accounts/:id                     revoke
+ *   DELETE /api/vault/accounts/:id                     revoke (409 for `tls-solver` accounts)
  *   POST   /api/vault/bindings                         { name, defaultAccountId? }
  *   PUT    /api/vault/bindings/:name/default           { accountId | null }
  *   DELETE /api/vault/bindings/:name
@@ -97,6 +97,7 @@ const STATUS_FOR: Record<VaultErrorCode, number> = {
   invalid_request: 400,
   not_found: 404,
   vault_corrupt: 409,
+  managed_account: 409,
 };
 
 function sendError(reply: FastifyReply, err: unknown): FastifyReply {
@@ -134,13 +135,24 @@ async function canManageVault(request: FastifyRequest, deps: VaultRoutesDeps): P
 
 const projectKey = (deviceId: string | undefined, dir: string): string => `${deviceId ?? ""}\u0000${dir}`;
 
-export function registerVaultRoutes(fastify: FastifyInstance, deps: VaultRoutesDeps): void {
-  const { store, importer, networkGuard } = deps;
-  const manageGuard = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
-    if (!(await canManageVault(request, deps))) {
+/**
+ * The vault management `preHandler` (operate authority or a locally trusted caller),
+ * exported so other routes that write into the vault (the ACME credentials route)
+ * answer exactly like a vault management route. See change: add-acme-dns01-certs.
+ */
+export function createVaultManageGuard(
+  deps: Pick<VaultRoutesDeps, "localTrust" | "hostPolicy" | "loginAvailable" | "requestAccessAvailable">,
+): (request: FastifyRequest, reply: FastifyReply) => Promise<void> {
+  return async (request, reply) => {
+    if (!(await canManageVault(request, deps as VaultRoutesDeps))) {
       await sendOperateRequired(request, reply, { route: "vault", loginAvailable: deps.loginAvailable, requestAccessAvailable: deps.requestAccessAvailable });
     }
   };
+}
+
+export function registerVaultRoutes(fastify: FastifyInstance, deps: VaultRoutesDeps): void {
+  const { store, importer, networkGuard } = deps;
+  const manageGuard = createVaultManageGuard(deps);
   const manage = { preHandler: [networkGuard, manageGuard] };
 
   const wrap =

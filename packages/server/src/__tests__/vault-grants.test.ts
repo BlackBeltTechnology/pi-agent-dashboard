@@ -19,6 +19,7 @@ import {
   resolveBindings,
   revokeAccount,
 } from "../vault/vault-grants.js";
+import { approvePluginBinding, createPluginVaultReader } from "../vault/vault-plugin-read.js";
 import { createVaultStore, type VaultStore } from "../vault/vault-store.js";
 
 let dir: string;
@@ -153,5 +154,59 @@ describe("grants — revocation never falls back (E14, E15)", () => {
       grants: [{ subject: dirSubject("hub", "/p"), bindingName: "GEMINI_API_KEY" }],
     }));
     expect(snap({ deviceId: "hub", dir: "/p" }).entries).toEqual([]);
+  });
+});
+
+describe("TLS solver accounts — vault isolation (add-acme-dns01-certs E25)", () => {
+  const TOKEN = "cf-secret-1234567890";
+
+  async function withTls() {
+    const { personal, work } = await twoAccounts();
+    await store.upsertTlsSecrets({ sourceId: "home", provider: "cloudflare", entries: [{ label: "cloudflareToken", value: TOKEN }] });
+    const tls = (await store.listAccounts()).find((a) => a.kind === "tls-solver")!;
+    return { personal, work, tls };
+  }
+
+  it("refuses it as a binding default, creating or changing, and as a grant override; nothing changes", async () => {
+    const { tls } = await withTls();
+    const before = fs.readFileSync(store.filePath, "utf8");
+    await expect(createBinding(store, { name: "CF_TOKEN_KEY", defaultAccountId: tls.id })).rejects.toMatchObject({ code: "invalid_request" });
+    await expect(setBindingDefault(store, "GEMINI_API_KEY", tls.id)).rejects.toMatchObject({ code: "invalid_request" });
+    await expect(
+      createGrant(store, { subject: repoSubject("github.com/acme/a"), bindingName: "GEMINI_API_KEY", accountId: tls.id }),
+    ).rejects.toMatchObject({ code: "invalid_grant" });
+    expect(fs.readFileSync(store.filePath, "utf8")).toBe(before);
+  });
+
+  it("generic rotate is refused and the account is unchanged", async () => {
+    const { tls } = await withTls();
+    await expect(store.rotateAccount(tls.id, "replacement-value-1")).rejects.toMatchObject({ name: "VaultError" });
+    expect(await store.readTlsSecret("home", "cloudflareToken")).toBe(TOKEN);
+  });
+
+  it("generic revoke answers managed_account and the account is unchanged", async () => {
+    const { tls } = await withTls();
+    const before = fs.readFileSync(store.filePath, "utf8");
+    await expect(revokeAccount(store, tls.id)).rejects.toMatchObject({ name: "VaultError", code: "managed_account" });
+    expect(fs.readFileSync(store.filePath, "utf8")).toBe(before);
+    expect(await store.readTlsSecret("home", "cloudflareToken")).toBe(TOKEN);
+  });
+
+  it("a hand-edited binding/grant pointing at it delivers nothing; plugin read and snapshot never contain the value", async () => {
+    const { tls } = await withTls();
+    // Bypass the guards the way a hand edit (or a downgrade) could.
+    await store.update((doc) => {
+      (doc.bindings as Array<Record<string, unknown>>)[0].defaultAccountId = tls.id;
+    });
+    await createGrant(store, { subject: dirSubject("hub", "/p"), bindingName: "GEMINI_API_KEY" });
+    await store.update((doc) => {
+      (doc.grants as Array<Record<string, unknown>>)[0].accountId = tls.id;
+    });
+    const snapshot = snap({ deviceId: "hub", dir: "/p" });
+    expect(JSON.stringify(snapshot)).not.toContain(TOKEN);
+    expect(snapshot.entries).toEqual([]);
+    await approvePluginBinding(store, "deck3d", "GEMINI_API_KEY");
+    expect(await createPluginVaultReader(store, "deck3d", ["GEMINI_API_KEY"]).read("GEMINI_API_KEY")).toBeUndefined();
+    expect(store.getKeyValue(tls.id)).toBeUndefined();
   });
 });

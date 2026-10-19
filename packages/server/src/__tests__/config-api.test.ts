@@ -12,7 +12,7 @@ import {
   safeComputeBindReachability,
   sameReachability,
 } from "../auth/bind-reachability-service.js";
-import { deleteAuthProvider, readConfigRedacted, writeConfigPartial } from "../config-api.js";
+import { deleteAuthProvider, readConfigRedacted, readConfigState, writeConfigPartial } from "../config-api.js";
 import { registerSystemRoutes } from "../routes/system-routes.js";
 
 describe("config-api", () => {
@@ -55,6 +55,22 @@ describe("config-api", () => {
       const config = readConfigRedacted();
       expect(config.auth).toBeUndefined();
       expect(config.port).toBe(3000);
+    });
+  });
+
+  describe("readConfigState (add-acme-dns01-certs)", () => {
+    it("absent: file missing", () => {
+      expect(readConfigState()).toEqual({ state: "absent", raw: null });
+    });
+    it("ok: parses to a JSON object", () => {
+      fs.writeFileSync(configFile, JSON.stringify({ port: 1234, tls: { sources: [] } }));
+      expect(readConfigState()).toEqual({ state: "ok", raw: { port: 1234, tls: { sources: [] } } });
+    });
+    it("corrupt: unparsable or not an object", () => {
+      for (const body of ["{ not json", "null", "[1,2]", "42", '"x"']) {
+        fs.writeFileSync(configFile, body);
+        expect(readConfigState()).toEqual({ state: "corrupt", raw: null });
+      }
     });
   });
 

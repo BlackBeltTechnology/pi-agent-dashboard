@@ -243,10 +243,15 @@ function detachAccount(doc: VaultDocument, accountId: string): string[] {
  * Revoke an account. Bindings using it as default are left with no default;
  * grants naming it as an override are KEPT (they list as `no-account`) so the
  * user can repair them. Returns the binding names whose delivery changed.
+ * `tls-solver` accounts answer `managed_account` (409 on the route) and stay unchanged.
  */
 export async function revokeAccount(store: VaultStore, accountId: string): Promise<{ affectedBindings: string[] }> {
   return store.update((doc) => {
     const accounts = Array.isArray(doc.accounts) ? doc.accounts : [];
+    // TLS solver secrets are deleted only through the ACME source (see change: add-acme-dns01-certs).
+    if (accounts.some((a) => isRecord(a) && a.id === accountId && a.kind === "tls-solver")) {
+      throw new VaultError("managed_account", "This account is managed by a TLS certificate source; remove or edit that source instead");
+    }
     const next = accounts.filter((a) => !(isRecord(a) && a.id === accountId));
     if (next.length === accounts.length) throw new VaultError("not_found", "Account not found");
     doc.accounts = next;

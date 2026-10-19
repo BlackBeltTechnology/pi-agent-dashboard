@@ -4021,6 +4021,18 @@ flowchart LR
 - Polls `/api/health.tls` every 5 s.
 - "Use <ip>" sets `tls.host` to Tailscale IPv4. Clients still connect by cert name (IP URL = no SNI = fail).
 
+#### Domain certificates: `acme` source (change: add-acme-dns01-certs)
+
+Guide: [ACME DNS-01 domain certificates](acme-dns01-certs.md). Setup, limits, troubleshooting.
+
+- Source type `acme` via `registerCertSourceType`. Code: `packages/server/src/tls/sources/acme/`.
+- Solvers: `cloudflare` (`solvers/cloudflare.ts`), `acme-dns` (`solvers/acme-dns.ts`). Authoritative propagation check (`dns.ts`); DoH only as fallback.
+- Protocol: `acme-client` (`acme-source.ts`). Stages: `order` → `dns-publish` → `propagation` → `validation` → `finalize`.
+- Gates: `credentials`, `dns-cname`, `dns-zone`. Gate-blocked names make no CA or DNS call.
+- Secrets: vault namespace `tls:<sourceId>`, kind `tls-solver`. Never in `config.json`. GC: `gc.ts`.
+- Routes: `PUT`/`DELETE /api/tls/acme/:sourceId`, `PUT /api/tls/acme/:sourceId/credentials` (`packages/server/src/routes/acme-routes.ts`). Tier `operate`.
+- Production certs advertised as `domain` endpoint. Staging and wildcard names served, never listed.
+
 ### Gateway URL Management
 
 Change: `config-override-oauth-redirect-base`.

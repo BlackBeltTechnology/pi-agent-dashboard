@@ -196,6 +196,31 @@ describe("vault routes — management surface", () => {
     expect(after.grants[0].state).toBe("no-account");
   });
 
+  it("add-acme-dns01-certs E25: the generic routes refuse a tls-solver account; it is listed by name only", async () => {
+    const { app } = await mkApp(false);
+    const send = (method: "GET" | "POST" | "PUT" | "DELETE", url: string, payload?: unknown) =>
+      app.inject({ method, url, remoteAddress: "127.0.0.1", payload: payload as object | undefined });
+    const TOKEN = "cf-secret-1234567890";
+    await store.upsertTlsSecrets({ sourceId: "home", provider: "cloudflare", entries: [{ label: "cloudflareToken", value: TOKEN }] });
+    const tls = (await store.listAccounts())[0];
+    const key = (await send("POST", "/api/vault/accounts", add)).json().data as { id: string };
+    await send("POST", "/api/vault/bindings", { name: "GEMINI_API_KEY", defaultAccountId: key.id });
+    const before = fs.readFileSync(store.filePath, "utf8");
+
+    expect((await send("PUT", `/api/vault/accounts/${tls.id}/value`, { value: "replacement-value-1" })).statusCode).toBe(404);
+    const del = await send("DELETE", `/api/vault/accounts/${tls.id}`);
+    expect(del.statusCode).toBe(409);
+    expect(del.json().error).toBe("managed_account");
+    expect((await send("POST", "/api/vault/bindings", { name: "CF_KEY", defaultAccountId: tls.id })).statusCode).toBe(400);
+    expect((await send("PUT", "/api/vault/bindings/GEMINI_API_KEY/default", { accountId: tls.id })).statusCode).toBe(400);
+    expect((await send("POST", "/api/vault/grants", { subject: "dir:hub:/p", bindingName: "GEMINI_API_KEY", accountId: tls.id })).statusCode).toBe(400);
+    expect(fs.readFileSync(store.filePath, "utf8")).toBe(before);
+
+    const all = await send("GET", "/api/vault");
+    expect(all.body).not.toContain(TOKEN);
+    expect(all.json().data.accounts).toContainEqual({ id: tls.id, provider: "cloudflare", kind: "tls-solver", namespace: "tls:home", label: "cloudflareToken" });
+  });
+
   it("a corrupt vault answers 503-style status without content", async () => {
     fs.writeFileSync(store.filePath, '{"a":"sk-live-ABCDEFGH');
     const { app } = await mkApp(false);

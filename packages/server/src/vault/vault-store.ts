@@ -1,7 +1,8 @@
 /**
  * Hub-owned credential vault store: `~/.pi/dashboard/vault.json`.
  *
- * Accounts (kind `key`, namespace `user`) plus the records later modules own
+ * Accounts (kind `key`, namespace `user`; kind `tls-solver`, namespace `tls:<sourceId>`,
+ * owned by the ACME certificate source) plus the records later modules own
  * (`bindings`, `grants`, `confirmations`, `pluginApprovals`). Built on the
  * shared locked-json-file primitives with `createIfMissing: false`, so the file
  * does not exist until the first account is added; always 0600 on POSIX.
@@ -17,7 +18,7 @@
  * Values never leave through listings: `AccountView` carries no value. The only
  * value reader is `getKeyValue`, for delivery and plugin reads.
  *
- * See change: add-credential-vault (D1).
+ * See change: add-credential-vault (D1), add-acme-dns01-certs (D5).
  */
 
 import { randomUUID } from "node:crypto";
@@ -45,7 +46,8 @@ export type VaultErrorCode =
   | "not_found"
   | "invalid_binding_name"
   | "invalid_grant"
-  | "invalid_request";
+  | "invalid_request"
+  | "managed_account";
 
 export class VaultError extends Error {
   readonly code: VaultErrorCode;
@@ -97,6 +99,17 @@ export interface AddAccountInput {
   value: string;
 }
 
+/** Kind of the DNS-01 solver secrets of an ACME certificate source. Never delivered, bound or generically rotated/revoked. */
+const TLS_SOLVER_KIND = "tls-solver";
+const TLS_NAMESPACE_PREFIX = "tls:";
+const tlsNamespace = (sourceId: string): string => `${TLS_NAMESPACE_PREFIX}${sourceId}`;
+
+interface UpsertTlsSecretsInput {
+  sourceId: string;
+  provider: string;
+  entries: Array<{ label: string; value: string }>;
+}
+
 export interface VaultStore {
   readonly filePath: string;
   status(): Promise<VaultStatus>;
@@ -113,6 +126,20 @@ export interface VaultStore {
   update<T>(fn: (doc: VaultDocument) => T & NotPromise<T>): Promise<T>;
   /** Replace a `key` account's value in place (same id, so bindings and grants stay valid). */
   rotateAccount(accountId: string, value: string): Promise<void>;
+  /**
+   * INTERNAL (no HTTP route): write `tls-solver` secrets of namespace `tls:<sourceId>` in ONE locked
+   * update. Per label: rotate the account found by `(namespace, label)`, else add it. All labels or none.
+   */
+  upsertTlsSecrets(input: UpsertTlsSecretsInput): Promise<void>;
+  /** INTERNAL: remove every `tls-solver` account of `tls:<sourceId>`. No write when there is none. */
+  deleteTlsNamespace(sourceId: string): Promise<void>;
+  /**
+   * INTERNAL: the only reader of `tls-solver` values. `null` = absent. Throws `vault_corrupt`
+   * when the vault is unreadable (the caller maps that to "credential vault unavailable").
+   */
+  readTlsSecret(sourceId: string, label: string): Promise<string | null>;
+  /** INTERNAL: source ids that hold at least one `tls-solver` account (for GC). `[]` on a corrupt vault. */
+  listTlsNamespaces(): Promise<string[]>;
   /**
    * Subscribe to committed writes. Listeners run after the lock is released and
    * must not throw; a throwing listener is logged and ignored. Returns unsubscribe.
@@ -204,6 +231,13 @@ export function makeKeyAccount({ provider, label, value }: AddAccountInput): Sto
   };
 }
 
+const isTlsAccount = (a: unknown, namespace?: string): a is StoredAccount =>
+  isRecord(a) &&
+  a.kind === TLS_SOLVER_KIND &&
+  typeof a.namespace === "string" &&
+  a.namespace.startsWith(TLS_NAMESPACE_PREFIX) &&
+  (namespace === undefined || a.namespace === namespace);
+
 export function createVaultStore(filePath: string = defaultVaultPath()): VaultStore {
   const listeners = new Set<() => void>();
   const notify = (): void => {
@@ -269,6 +303,65 @@ export function createVaultStore(filePath: string = defaultVaultPath()): VaultSt
         a.value = value;
         a.rotatedAt = new Date().toISOString();
       });
+    },
+    async upsertTlsSecrets({ sourceId, provider, entries }) {
+      validateText(sourceId, "source id");
+      validateText(provider, "provider");
+      if (!Array.isArray(entries) || entries.length === 0) throw new VaultError("invalid_field", "Invalid entries");
+      // Validate every entry before the lock so a bad later label can never leave an earlier one written.
+      for (const e of entries) {
+        validateText(e?.label, "label");
+        validateValue(e.value);
+      }
+      const namespace = tlsNamespace(sourceId);
+      await update((doc) => {
+        if (!Array.isArray(doc.accounts)) doc.accounts = [];
+        const now = new Date().toISOString();
+        for (const { label, value } of entries) {
+          const existing = doc.accounts.find(
+            (x): x is Record<string, unknown> => isTlsAccount(x, namespace) && x.label === label.trim(),
+          );
+          if (existing) {
+            existing.value = value;
+            existing.provider = provider.trim();
+            existing.rotatedAt = now;
+          } else {
+            doc.accounts.push({
+              id: randomUUID(),
+              provider: provider.trim(),
+              kind: TLS_SOLVER_KIND,
+              namespace,
+              label: label.trim(),
+              value,
+              createdAt: now,
+            } satisfies StoredAccount);
+          }
+        }
+      });
+    },
+    async deleteTlsNamespace(sourceId) {
+      const { status, doc } = readDocument();
+      if (status.state === "corrupt") throw corruptError(filePath);
+      const namespace = tlsNamespace(sourceId);
+      if (!(Array.isArray(doc.accounts) ? doc.accounts : []).some((a) => isTlsAccount(a, namespace))) return;
+      await update((d) => {
+        d.accounts = (Array.isArray(d.accounts) ? d.accounts : []).filter((a) => !isTlsAccount(a, namespace));
+      });
+    },
+    async readTlsSecret(sourceId, label) {
+      const { status, doc } = readDocument();
+      if (status.state === "corrupt") throw corruptError(filePath);
+      const namespace = tlsNamespace(sourceId);
+      const a = (Array.isArray(doc.accounts) ? doc.accounts : []).find((x) => isTlsAccount(x, namespace) && x.label === label);
+      return isRecord(a) && typeof a.value === "string" ? a.value : null;
+    },
+    async listTlsNamespaces() {
+      const ids = new Set<string>();
+      const { accounts } = readDocument().doc;
+      for (const a of Array.isArray(accounts) ? accounts : []) {
+        if (isTlsAccount(a)) ids.add(a.namespace.slice(TLS_NAMESPACE_PREFIX.length));
+      }
+      return [...ids];
     },
     onChange(listener) {
       listeners.add(listener);

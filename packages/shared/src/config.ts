@@ -520,6 +520,30 @@ export interface TlsSourceEntry {
 }
 
 /**
+ * ACME (DNS-01) certificate source entry stored in `tls.sources[]` (type "acme").
+ * Solver secrets are NEVER stored here — they live in the credential vault
+ * (namespace `tls:<id>`). `configured` is a read-only projection on
+ * `GET /api/config`, stripped on write.
+ * See change: add-acme-dns01-certs (design D5).
+ */
+export type AcmeSolverConfig =
+  | { type: "cloudflare"; zoneId?: string; configured?: boolean }
+  | { type: "acme-dns"; server: string; subdomain: string; fulldomain: string; configured?: boolean };
+
+export interface AcmeSourceEntry extends TlsSourceEntry {
+  type: "acme";
+  id: string;
+  domains: string[];
+  email: string;
+  agreeTos: boolean;
+  /** `staging` | `production` | canonical `https://` directory URL. */
+  directory: string;
+  /** Operator assertion; only meaningful for a custom directory. */
+  advertise?: boolean;
+  solver: AcmeSolverConfig;
+}
+
+/**
  * Optional native TLS listener (second port serving the same routes).
  * Absent block = off. See change: add-tailscale-cert-tls.
  */

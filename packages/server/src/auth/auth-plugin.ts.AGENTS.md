@@ -17,3 +17,5 @@ Options gain `passkeys?: PasskeyService` (configured at register + `_reloadAuth`
 Local-credential sites (`validateWsUpgrade`, `authorizeWsUpgrade`, request hook) read the stamped verdict via `hasLocalCredential(headers)`, not the raw header. See change: loopback-credential-proof (D4).
 
 Trust-mode: OAuth hook validates session cookie BEFORE bypass-host skip; no cookie clear on a bypass host. Skip list read per request via `readAdmissionTrustedNetworks` (no `authState.bypassHosts` copy). `validateWsUpgrade`/`authorizeWsUpgrade` check ticket + cookie before the trusted match. `authorizeWsUpgrade` takes `liveCapability` (live scope only; identity floor needs identity-minted). Adds `onSessionEnd`, `request.sessionPayload`. See change: retire-trusted-networks-bypass.
+
+`/api/health` stays public but tags a valid session cookie (`tagSessionCookie`, shared with the main cookie branch; never refuses) so `canDiscloseAccessPosture` sees a signed-in off-box browser (`tls` detail, `accessGrants`). Test `__tests__/auth-plugin-health-session.test.ts`. See change: add-acme-dns01-certs.

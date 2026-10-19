@@ -205,6 +205,30 @@ export function readRawConfig(): Record<string, any> {
 }
 
 /**
+ * Three-way read of `config.json` for callers that must not act on a file they
+ * cannot trust: `absent` (missing), `ok` (parses to a JSON object) or `corrupt`
+ * (exists but unparsable or not an object). `writeConfigPartial` starts from `{}`
+ * on corrupt, which would drop every other key; per-entry writers and GC check this first.
+ * See change: add-acme-dns01-certs (D5).
+ */
+export function readConfigState(): { state: "absent" | "ok" | "corrupt"; raw: Record<string, any> | null } {
+  const { file } = getConfigPaths();
+  let text: string;
+  try {
+    text = fs.readFileSync(file, "utf-8");
+  } catch (err) {
+    return { state: (err as NodeJS.ErrnoException)?.code === "ENOENT" ? "absent" : "corrupt", raw: null };
+  }
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return { state: "corrupt", raw: null };
+    return { state: "ok", raw: parsed as Record<string, any> };
+  } catch {
+    return { state: "corrupt", raw: null };
+  }
+}
+
+/**
  * Merge partial config into existing, preserving redacted secrets, write to disk.
  * Returns whether a restart is needed.
  */

@@ -372,6 +372,19 @@ export class CertManager {
     return Promise.all(started.flatMap((s) => (s ? [s.done] : [])));
   }
 
+  /**
+   * Forced readiness re-read for one source, no attempt: status shows the new
+   * gate state. `false` when the id is not configured.
+   * See change: add-acme-dns01-certs (credentials save).
+   */
+  async refreshReadiness(sourceId: string): Promise<boolean> {
+    const ss = this.sources.get(sourceId);
+    if (!ss) return false;
+    ss.readiness = await this.safeReadiness(ss.source, true);
+    this.onChange();
+    return true;
+  }
+
   private nameState(sourceId: string, name: string): NameState {
     const k = key(sourceId, name);
     let ns = this.names.get(k);

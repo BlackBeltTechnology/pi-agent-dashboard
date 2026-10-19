@@ -66,6 +66,7 @@ import { mirrorDefaultsToPi } from "../pi-agent-settings.js";
 import { EMPTY_KEEPER_LOG_STATS, type KeeperLogStats } from "../rpc-keeper/keeper-manager.js";
 import type { ServerConfig } from "../server.js";
 import { serverHeapTelemetry } from "../server-heap-telemetry.js";
+import { projectAcmeConfigured } from "../tls/sources/acme/config-projection.js";
 import { touchesTlsOrPorts, validateTlsConfigWrite } from "../tls/tls-config-validation.js";
 import type { TlsListener } from "../tls/tls-listener.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
@@ -132,6 +133,17 @@ let configSaveTail: Promise<unknown> = Promise.resolve();
  * would otherwise leave pi on the older value). The mirror never fails the
  * save — config.json is already written. See change: edit-pi-agent-settings.
  */
+/**
+ * Run a config read-modify-write on the SAME chain as `PUT /api/config`, so the
+ * per-entry ACME routes can never interleave with another save.
+ * See change: add-acme-dns01-certs (design D5).
+ */
+export function runOnConfigSaveChain<T>(run: () => Promise<T> | T): Promise<T> {
+  const next = configSaveTail.then(run, run);
+  configSaveTail = next.catch(() => {});
+  return next as Promise<T>;
+}
+
 function saveConfigAndMirror(partial: Record<string, any>) {
   const run = async () => {
     const result = writeConfigPartial(partial);
@@ -151,9 +163,7 @@ function saveConfigAndMirror(partial: Record<string, any>) {
     }
     return { ok: true as const, result, reloaded, piMirror };
   };
-  const next = configSaveTail.then(run, run);
-  configSaveTail = next.catch(() => {});
-  return next;
+  return runOnConfigSaveChain(run);
 }
 
 /**
@@ -428,7 +438,10 @@ export function registerSystemRoutes(
       // render the toggle inert with the reason. See change: ask-agent-file-access-in-chat.
       const gateEnv = process.env.PI_DASHBOARD_AGENT_PATH_GATE?.trim().toLowerCase();
       const agentPathGateEnvOverride = gateEnv === "off" || gateEnv === "on" ? gateEnv : null;
-      return { success: true, data: { ...readConfigRedacted(), reachability, agentPathGateEnvOverride } };
+      // `tls.sources[].solver.configured` (ACME): projected from the vault listing, never a secret.
+      // See change: add-acme-dns01-certs.
+      const redacted = await projectAcmeConfigured(readConfigRedacted());
+      return { success: true, data: { ...redacted, reachability, agentPathGateEnvOverride } };
     },
   );
 
