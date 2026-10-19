@@ -36,7 +36,8 @@ describe("craft-web manifest (E1)", () => {
 
   it("every claim's component is a function export of the client barrel (the registry imports by name)", () => {
     for (const c of claims) {
-      expect(typeof (clientBarrel as Record<string, unknown>)[c.component], `export ${c.component}`).toBe("function");
+      const name = String(c.component);
+      expect(typeof (clientBarrel as Record<string, unknown>)[name], `export ${name}`).toBe("function");
     }
   });
 

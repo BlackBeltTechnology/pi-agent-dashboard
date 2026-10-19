@@ -8,6 +8,7 @@
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+// @ts-expect-error jsdom has no bundled types and @types/jsdom is not installed
 import { JSDOM } from "jsdom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

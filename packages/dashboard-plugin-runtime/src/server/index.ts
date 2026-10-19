@@ -7,14 +7,15 @@
 // callers can import it without pulling the React-y main barrel.
 // See change: add-plugin-activation-ui (Layer 2 — dependency graph).
 export * from "../dependency-graph.js";
+export * from "./app-mount.js";
 export * from "./build-declaration-sdk.js";
 export * from "./build-metadata.js";
 export * from "./client-registry-set.js";
 export * from "./config-redact.js";
 export * from "./config-validator.js";
-export * from "./first-party.js";
 export * from "./file-validator-pool.js";
 export * from "./file-validator-registry.js";
+export * from "./first-party.js";
 export * from "./fixture-gate.js";
 export * from "./installed-probe.js";
 export * from "./loader.js";
@@ -25,4 +26,3 @@ export * from "./requirement-probes.js";
 export * from "./server-context.js";
 export * from "./service-probes/model-proxy.js";
 export * from "./ws-route-registry.js";
-export * from "./app-mount.js";
