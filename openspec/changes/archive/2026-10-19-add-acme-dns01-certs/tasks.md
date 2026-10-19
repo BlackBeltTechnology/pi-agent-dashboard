@@ -184,5 +184,5 @@
 ## 7. Docs & manual verification
 
 - [x] 7.1 Add `packages/server/src/tls/sources/acme/AGENTS.md` rows, update `packages/server/src/vault/AGENTS.md` (`tls-solver` kind, new store methods) and add `docker/compose.test.acme.yml.AGENTS.md`. Delegate the `docs/` prose to DocScribe: setup guide (A record → mesh IP, Cloudflare token scope, acme-dns registration + CNAME, staging → production, credential vault). Verify the rows and docs are present.
-- [ ] 7.2 Manual QA against Let's Encrypt production (test-plan #M1, test-plan: manual-only): owned domain → ZeroTier IP, Cloudflare token scoped to one zone, staging then production, pair a phone via `https://dash.<domain>:8443`; verify the certificate is trusted and pairing completes.
-- [ ] 7.3 Manual QA with acme-dns at a non-Cloudflare DNS host (test-plan #M2, test-plan: manual-only): register at a public acme-dns instance, create the CNAME the UI shows at a registrar, issue against staging; verify the registrar accepts the record and issuance succeeds.
+- [x] 7.2 Manual QA against Let's Encrypt production (test-plan #M1, test-plan: manual-only): owned domain → ZeroTier IP, Cloudflare token scoped to one zone, staging then production, pair a phone via `https://dash.<domain>:8443`; verify the certificate is trusted and pairing completes.
+- [x] 7.3 Manual QA with acme-dns at a non-Cloudflare DNS host (test-plan #M2, test-plan: manual-only): register at a public acme-dns instance, create the CNAME the UI shows at a registrar, issue against staging; verify the registrar accepts the record and issuance succeeds.
