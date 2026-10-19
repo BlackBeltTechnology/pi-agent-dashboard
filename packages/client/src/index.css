@@ -29,6 +29,20 @@
 @source "../../team-plugin/src/client";
 @source "../../skill-atlas-plugin/src/client";
 @source "../../web-access-plugin/src/client";
+/* Settings-section plugins missing a line until wave 2; the last five keep
+   their client code directly under src/. A repository test fails when a
+   settings-section plugin has no covering line.
+   See change: retro-ux-plugin-settings-wave-2 (design D6). */
+@source "../../apple-tools/src/client";
+@source "../../blackhole-plugin/src/client";
+@source "../../browser-plugin/src/client";
+@source "../../chat-gateway/src/client";
+@source "../../cost-estimator/src/client";
+@source "../../flows-anthropic-bridge-plugin/src";
+@source "../../grammar-plugin/src";
+@source "../../quota-plugin/src";
+@source "../../roles-plugin/src";
+@source "../../demo-plugin/src";
 
 /* Shared font-size for code/diff payload inside tool-call renderers.
    See change: unify-tool-renderer-code-font-size. Keeps Read/Write/Edit/

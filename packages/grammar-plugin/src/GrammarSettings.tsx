@@ -7,18 +7,34 @@
  * `useSettingsDraftSource` (id `plugin:grammar`) — the section renders NO own
  * Save/Reload buttons and no "unsaved" chip; `commit` POSTs (rejecting on a
  * non-OK response so the host keeps it dirty + retryable) then re-GETs to
- * surface server clamping; `reset` re-GETs. Fields are grouped into `<details>`
- * accordions; presentation is theme-token utility classes only (no inline
- * styles on plugin-owned elements). LLM-only: no backend selector, no
- * LanguageTool URL/health marker.
+ * surface server clamping; `reset` re-GETs. Fields use the shared settings
+ * field kit in three groups (Checking · Model · Advanced); presentation is
+ * theme-token classes only (no inline styles on plugin-owned elements).
+ * LLM-only: no backend selector, no LanguageTool URL/health marker.
+ *
+ * A failed load keeps the section on defaults, disabled, with a notice + Try
+ * again, and `commit` refuses until a load succeeds. A save failure throws a
+ * plain sentence; the raw status only travels in the notice's "Copy details".
  *
  * See changes: add-grammar-settings-plugin, grammar-llm-only-with-explore,
- * align-grammar-settings-design.
+ * align-grammar-settings-design, retro-ux-plugin-settings-wave-2.
  */
-import { useSettingsDraftSource, useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  FieldShell,
+  NumberField,
+  SelectField,
+  SettingsGroup,
+  SettingsNotice,
+  SettingsStatusPill,
+  SettingsTable,
+  TextField,
+  ToggleField,
+  useSettingsDraftSource,
+  useT,
+  useUiPrimitive,
+} from "@blackbelt-technology/dashboard-plugin-runtime";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import type { ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { mdiAlertOutline } from "@mdi/js";
 import type React from "react";
 import { useCallback, useEffect, useState } from "react";
 import type { GrammarConfig } from "./grammar-config.js";
@@ -82,22 +98,16 @@ function normalize(raw: Partial<GrammarConfig> | undefined): GrammarConfig {
   };
 }
 
-// Shared theme-token utility classes (the blackhole/hermes idiom).
-const GROUP = "border border-[var(--border-secondary)] rounded-[10px] overflow-hidden mb-2.5 bg-[var(--bg-secondary)]";
-const SUMMARY =
-  "focus-ring cursor-pointer flex items-center gap-2 px-3.5 py-2.5 text-[13px] font-semibold text-[var(--text-primary)] select-none list-none";
-const CARET = "text-[var(--text-tertiary)] motion-safe:transition-transform";
-const BODY = "px-3.5 pb-3 pt-1 border-t border-[var(--border-subtle)] flex flex-col gap-2.5";
-const FIELD = "flex flex-col gap-1 text-[12px] text-[var(--text-secondary)]";
-const CHECK = "flex gap-1.5 items-center text-[12px] text-[var(--text-secondary)]";
-const CONTROL =
-  "focus-ring bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] rounded px-2 py-1 text-[12px] text-[var(--text-primary)]";
-
 export function GrammarSettings(): React.ReactElement {
   const t = useT();
   const [config, setConfig] = useState<GrammarConfig>(FALLBACK_GRAMMAR);
   const [draft, setDraft] = useState<GrammarConfig>(FALLBACK_GRAMMAR);
   const [models, setModels] = useState<ModelInfo[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [loadFailed, setLoadFailed] = useState<string | null>(null);
+  const [retrying, setRetrying] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const ModelSelector = useUiPrimitive(UI_PRIMITIVE_KEYS.modelSelector);
 
   const loadModels = useCallback(async () => {
@@ -115,280 +125,348 @@ export function GrammarSettings(): React.ReactElement {
   }, []);
 
   const load = useCallback(async () => {
-    const res = await fetch("/api/config");
-    const json = (await res.json()) as {
-      data?: { plugins?: { grammar?: Partial<GrammarConfig> } };
-    };
-    const next = normalize(json.data?.plugins?.grammar);
-    setConfig(next);
-    setDraft(next);
-    void loadModels();
+    try {
+      const res = await fetch("/api/config");
+      if (!res.ok) throw new Error(`grammar config load failed (${res.status})`);
+      const json = (await res.json()) as {
+        data?: { plugins?: { grammar?: Partial<GrammarConfig> } };
+      };
+      const next = normalize(json.data?.plugins?.grammar);
+      setConfig(next);
+      setDraft(next);
+      setLoaded(true);
+      setLoadFailed(null);
+      void loadModels();
+    } catch (err) {
+      setLoadFailed(err instanceof Error ? err.message : String(err));
+    }
   }, [loadModels]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  const isDirty = JSON.stringify(draft) !== JSON.stringify(config);
+  const retryLoad = useCallback(async () => {
+    setRetrying(true);
+    try {
+      await load();
+    } finally {
+      setRetrying(false);
+    }
+  }, [load]);
+
+  // Field validation. Empty number inputs are invalid draft values (NaN), never coerced.
+  const numberError = (v: number): string | null => (Number.isFinite(v) ? null : t("numberRequired", undefined, "Enter a number."));
+  const debounceError = numberError(draft.debounceMs);
+  const maxCharsError = numberError(draft.maxChars);
+  const minCharsError =
+    numberError(draft.minChars) ??
+    (Number.isFinite(draft.maxChars) && draft.minChars >= draft.maxChars
+      ? t("minCharsError", { max: draft.maxChars }, `Must be less than the longest text (${draft.maxChars}).`)
+      : null);
+  const invalid = Boolean(debounceError || minCharsError || maxCharsError);
+
+  // Once an Advanced field is invalid, open the group and keep it open while the user fixes it.
+  useEffect(() => {
+    if (invalid) setAdvancedOpen(true);
+  }, [invalid]);
+
+  const isDirty = loaded && JSON.stringify(draft) !== JSON.stringify(config);
 
   // Persist through the host's unified Save Bar. `commit` MUST reject on a
   // non-OK response so the host keeps the source dirty + retryable.
   const commit = useCallback(async () => {
-    const res = await fetch("/api/config/plugins/grammar", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(draft),
-    });
-    if (!res.ok) {
-      throw new Error(`grammar config save failed (${res.status})`);
+    if (!loaded) {
+      throw new Error(
+        t(
+          "saveBlockedNotLoaded",
+          undefined,
+          "The grammar settings have not loaded yet, so saving is off. Use Try again, then save.",
+        ),
+      );
     }
+    if (invalid) {
+      setAdvancedOpen(true);
+      throw new Error(t("saveBlockedInvalid", undefined, "Fix the invalid fields before saving."));
+    }
+    let res: Response;
+    try {
+      res = await fetch("/api/config/plugins/grammar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(draft),
+      });
+    } catch (err) {
+      const message = t("saveError", undefined, "Could not save the grammar settings. Check that the dashboard is running, then save again.");
+      setSaveError(err instanceof Error ? err.message : String(err));
+      throw new Error(message);
+    }
+    if (!res.ok) {
+      setSaveError(`grammar config save failed (${res.status})`);
+      throw new Error(
+        t("saveError", undefined, "Could not save the grammar settings. Check that the dashboard is running, then save again."),
+      );
+    }
+    setSaveError(null);
     // POST does not echo the reloaded config; re-GET to surface server clamping.
     await load();
-  }, [draft, load]);
+  }, [draft, invalid, load, loaded, t]);
 
   useSettingsDraftSource({
     id: "plugin:grammar",
     isDirty,
     commit,
     reset: () => {
+      setSaveError(null);
       void load();
     },
   });
 
-  const num = (v: string, fallback: number): number => {
-    const n = Number(v);
-    return Number.isFinite(n) ? n : fallback;
+  const edit = (patch: Partial<GrammarConfig>) => {
+    setSaveError(null);
+    setDraft((d) => ({ ...d, ...patch }));
   };
 
+  const modelLabel = t("llmModel", undefined, "Model");
+
   return (
-    <section data-testid="grammar-settings" className="text-[13px] text-[var(--text-secondary)] pb-4">
-      <div className="flex items-baseline justify-between mb-2">
-        <h3 className="text-[15px] font-semibold text-[var(--text-primary)] m-0">
-          {t("heading", undefined, "Grammar & Spelling")}
-        </h3>
-        <span className="text-[10px] text-[var(--text-muted)] font-mono">grammar</span>
-      </div>
+    <section data-testid="grammar-settings" className="space-y-3 pb-4 text-xs text-[var(--text-secondary)]">
+      <p className="m-0">{t("desc", undefined, "Grammar and spelling checks for the message composer.")}</p>
 
-      <p className="text-[11px] text-[var(--text-secondary)] mt-0 mb-3">
-        {t(
-          "desc",
-          undefined,
-          "Composer grammar/spell-check behaviour. The check runs server-side via the configured LLM model.",
-        )}
-      </p>
-
-      {/* General */}
-      <details className={GROUP} open>
-        <summary className={SUMMARY}>
-          <span className={CARET}>▸</span>
-          {t("groupGeneral", undefined, "General")}
-        </summary>
-        <div className={BODY}>
-          <label className={CHECK}>
-            <input
-              type="checkbox"
-              className="focus-ring"
-              data-testid="grammar-enabled"
-              checked={draft.enabled}
-              onChange={(e) => setDraft({ ...draft, enabled: e.target.checked })}
-            />
-            {t("enabled", undefined, "Enabled")}
-          </label>
-
-          <label className={CHECK}>
-            <input
-              type="checkbox"
-              className="focus-ring"
-              data-testid="grammar-autocheck"
-              checked={draft.autoCheck}
-              onChange={(e) => setDraft({ ...draft, autoCheck: e.target.checked })}
-            />
-            {t("autoCheck", undefined, "Auto-check while typing")}
-          </label>
-
-          <label className={FIELD}>
-            {t("correctionView", undefined, "Correction view")}
-            <select
-              className={CONTROL}
-              data-testid="grammar-correction-view"
-              value={draft.correctionView}
-              onChange={(e) =>
-                setDraft({
-                  ...draft,
-                  correctionView: e.target.value as GrammarConfig["correctionView"],
-                })
-              }
-            >
-              <option value="redline">{t("correctionViewRedline", undefined, "Redline (inline)")}</option>
-              <option value="list">{t("correctionViewList", undefined, "List")}</option>
-            </select>
-          </label>
-
-          <label className={CHECK}>
-            <input
-              type="checkbox"
-              className="focus-ring"
-              data-testid="grammar-capitalize"
-              checked={draft.capitalizeFirstWord}
-              onChange={(e) => setDraft({ ...draft, capitalizeFirstWord: e.target.checked })}
-            />
-            {t("capitalizeFirstWord", undefined, "Capitalize sentence starts")}
-          </label>
-        </div>
-      </details>
-
-      {/* Model */}
-      <details className={GROUP} open>
-        <summary className={SUMMARY}>
-          <span className={CARET}>▸</span>
-          {t("groupModel", undefined, "Model")}
-        </summary>
-        <div className={BODY}>
-          <span className="text-[12px] text-[var(--text-secondary)]">{t("llmModel", undefined, "Model")}</span>
-          <span data-testid="grammar-model-hint" className="text-[10px] text-[var(--text-muted)]">
-            {t("modelHint", undefined, "Model choice drives grammar quality, latency, and cost.")}{" "}
-            <a
-              data-testid="grammar-model-guidance-link"
-              href={MODEL_GUIDANCE_DOC}
-              target="_blank"
-              rel="noreferrer"
-              className="text-[var(--text-secondary)] underline"
-            >
-              {t("modelHintLink", undefined, "Which models are good?")}
-            </a>
-          </span>
-
-          {ModelSelector ? (
-            <div data-testid="grammar-llm-model-selector">
-              <ModelSelector
-                current={
-                  draft.llm ? ("role" in draft.llm ? draft.llm.role : `${draft.llm.provider}/${draft.llm.model}`) : undefined
-                }
-                models={models}
-                allowRoles
-                onSelect={(label: string) => {
-                  // Role pick persists as `llm: { role }` (no provider/model) — resolved per check.
-                  if (label.startsWith("@")) {
-                    setDraft({ ...draft, llm: { role: label } });
-                    return;
-                  }
-                  const i = label.indexOf("/");
-                  const provider = i >= 0 ? label.slice(0, i) : label;
-                  const model = i >= 0 ? label.slice(i + 1) : "";
-                  setDraft({ ...draft, llm: { provider, model } });
-                }}
-              />
-            </div>
-          ) : (
-            <span data-testid="grammar-llm-model-selector-unavailable" className="text-[var(--text-secondary)]">
-              {t("modelSelectorUnavailable", undefined, "Model selector unavailable")}
-            </span>
+      {loadFailed !== null && (
+        <SettingsNotice
+          tone="error"
+          testId="grammar-load-error"
+          onRetry={() => void retryLoad()}
+          retrying={retrying}
+          details={loadFailed}
+        >
+          {t(
+            "loadError",
+            undefined,
+            "Could not load the grammar settings. Showing defaults; saving is off until they load.",
           )}
+        </SettingsNotice>
+      )}
+
+      {saveError !== null && (
+        <SettingsNotice tone="error" testId="grammar-save-error" details={saveError}>
+          {t(
+            "saveError",
+            undefined,
+            "Could not save the grammar settings. Check that the dashboard is running, then save again.",
+          )}
+        </SettingsNotice>
+      )}
+
+      {/* A disabled fieldset switches every control off natively while the config has not loaded. */}
+      <fieldset disabled={loadFailed !== null} className="m-0 min-w-0 space-y-3 border-0 p-0">
+        <SettingsGroup title={t("groupGeneral", undefined, "Checking")} testId="grammar-group-checking">
+          <ToggleField
+            label={t("enabled", undefined, "Check grammar in the composer")}
+            hint={t(
+              "enabledHint",
+              undefined,
+              "Underlines mistakes in the message box. The check runs on the server with the model below.",
+            )}
+            value={draft.enabled}
+            onChange={(v) => edit({ enabled: v })}
+            testIds={{ control: "grammar-enabled" }}
+          />
+          <ToggleField
+            label={t("autoCheck", undefined, "Check while typing")}
+            hint={t("autoCheckHint", undefined, "Off = check only when you ask.")}
+            value={draft.autoCheck}
+            onChange={(v) => edit({ autoCheck: v })}
+            testIds={{ control: "grammar-autocheck" }}
+          />
+          <SelectField
+            label={t("correctionView", undefined, "Show corrections as")}
+            hint={t(
+              "correctionViewHint",
+              undefined,
+              "Redline marks changes inline; List shows them under the box.",
+            )}
+            value={draft.correctionView}
+            options={[
+              { value: "redline", label: t("correctionViewRedline", undefined, "Redline (inline)") },
+              { value: "list", label: t("correctionViewList", undefined, "List") },
+            ]}
+            onChange={(v) => edit({ correctionView: v as GrammarConfig["correctionView"] })}
+            testIds={{ control: "grammar-correction-view" }}
+          />
+          <ToggleField
+            label={t("capitalizeFirstWord", undefined, "Capitalise sentence starts")}
+            hint={t("capitalizeFirstWordHint", undefined, "Fixes a lowercase first letter at the start of a sentence.")}
+            value={draft.capitalizeFirstWord}
+            onChange={(v) => edit({ capitalizeFirstWord: v })}
+            testIds={{ control: "grammar-capitalize" }}
+          />
+        </SettingsGroup>
+
+        <SettingsGroup title={t("groupModel", undefined, "Model")} testId="grammar-group-model">
+          <FieldShell
+            label={modelLabel}
+            stacked
+            hint={
+              <span data-testid="grammar-model-hint">
+                {t("modelHint", undefined, "Model choice drives grammar quality, latency, and cost.")}{" "}
+                <a
+                  data-testid="grammar-model-guidance-link"
+                  href={MODEL_GUIDANCE_DOC}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="focus-ring rounded text-[var(--link)] underline"
+                >
+                  {t("modelHintLink", undefined, "Which models are good?")}
+                </a>
+              </span>
+            }
+            control={({ id, describedBy }) =>
+              ModelSelector ? (
+                <div
+                  id={id}
+                  role="group"
+                  aria-label={modelLabel}
+                  aria-describedby={describedBy}
+                  data-testid="grammar-llm-model-selector"
+                >
+                  <ModelSelector
+                    current={
+                      draft.llm
+                        ? "role" in draft.llm
+                          ? draft.llm.role
+                          : `${draft.llm.provider}/${draft.llm.model}`
+                        : undefined
+                    }
+                    models={models}
+                    allowRoles
+                    onSelect={(label: string) => {
+                      // Role pick persists as `llm: { role }` (no provider/model) — resolved per check.
+                      if (label.startsWith("@")) {
+                        edit({ llm: { role: label } });
+                        return;
+                      }
+                      const i = label.indexOf("/");
+                      const provider = i >= 0 ? label.slice(0, i) : label;
+                      const model = i >= 0 ? label.slice(i + 1) : "";
+                      edit({ llm: { provider, model } });
+                    }}
+                  />
+                </div>
+              ) : (
+                <span
+                  id={id}
+                  aria-describedby={describedBy}
+                  data-testid="grammar-llm-model-selector-unavailable"
+                  className="text-[var(--text-secondary)]"
+                >
+                  {t("modelSelectorUnavailable", undefined, "Model selector unavailable")}
+                </span>
+              )
+            }
+          />
 
           {!draft.llm && (
-            <span
-              data-testid="grammar-model-required"
-              role="status"
-              className="flex items-start gap-1.5 rounded-md border px-2 py-1.5 text-xs bg-[var(--severity-warning-bg)] border-[var(--severity-warning-border)] text-[var(--severity-warning-fg)]"
-            >
-              {/* Plain <svg>: this section carries no plugin-owned inline styles (@mdi/react sets one). */}
-              <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 flex-shrink-0 mt-0.5 fill-current" aria-hidden="true">
-                <path d={mdiAlertOutline} />
-              </svg>
-              <span>{t("modelRequired", undefined, "Pick a model — the grammar check cannot run until one is set.")}</span>
-            </span>
+            <SettingsNotice tone="warning" testId="grammar-model-required" role="status">
+              {t("modelRequired", undefined, "Pick a model — the grammar check cannot run until one is set.")}
+            </SettingsNotice>
           )}
 
           {/* Recommended-models disclosure — sibling of the picker (NOT nested in
               a <label>), collapsed by default; a short curated list, full table
               lives in the linked doc. */}
-          <details data-testid="grammar-recommended-models" className="mt-0.5 rounded border border-[var(--border-subtle)]">
-            <summary className={`${SUMMARY} py-1.5 text-[11px] font-medium`}>
-              <span className={CARET}>▸</span>
-              {t("recommendedModels", undefined, "Recommended models")}
-            </summary>
-            <ul className="px-3.5 pb-2 pt-1 m-0 list-none flex flex-col gap-1">
-              {RECOMMENDED_MODELS.map((m) => (
-                <li key={m.id} className="text-[11px] text-[var(--text-secondary)] flex items-baseline gap-1.5">
-                  <code className="font-mono text-[10.5px] text-[var(--text-primary)]">{m.id}</code>
-                  {m.recommended && (
-                    <span className="text-[9.5px] uppercase tracking-wide text-[var(--severity-success-fg)]">
-                      {t("recBadge", undefined, "recommended")}
-                    </span>
-                  )}
-                  <span className="text-[var(--text-tertiary)]">— {t(m.noteKey, undefined, m.note)}</span>
-                </li>
-              ))}
-              <li className="text-[10.5px] text-[var(--text-tertiary)] mt-0.5">
-                {t(
-                  "recAvoid",
-                  undefined,
-                  "Avoid reasoning models (e.g. deepseek-v4-flash, ~11.5s), ministral-8b (78% recall), and the retired gemini-2.0-flash-001/-lite-001 (404).",
-                )}
-              </li>
-            </ul>
-          </details>
-        </div>
-      </details>
-
-      {/* Advanced */}
-      <details className={GROUP}>
-        <summary className={SUMMARY}>
-          <span className={CARET}>▸</span>
-          {t("groupAdvanced", undefined, "Advanced")}
-        </summary>
-        <div className={BODY}>
-          <label className={FIELD}>
-            {t("debounceMs", undefined, "Debounce (ms)")}
-            <input
-              type="number"
-              className={CONTROL}
-              data-testid="grammar-debounce"
-              min={300}
-              max={10000}
-              value={String(draft.debounceMs)}
-              onChange={(e) => setDraft({ ...draft, debounceMs: num(e.target.value, draft.debounceMs) })}
+          <SettingsGroup
+            title={t("recommendedModels", undefined, "Recommended models")}
+            meta={RECOMMENDED_MODELS.length}
+            defaultOpen={false}
+            testId="grammar-recommended-models"
+          >
+            <SettingsTable
+              caption={t("recommendedModels", undefined, "Recommended models")}
+              columns={[
+                t("recColModel", undefined, "Model"),
+                t("recColStatus", undefined, "Status"),
+                t("recColNotes", undefined, "Notes"),
+              ]}
+              rows={RECOMMENDED_MODELS.map((m) => ({
+                key: m.id,
+                cells: [
+                  <code key="id" className="font-mono">
+                    {m.id}
+                  </code>,
+                  m.recommended ? (
+                    <SettingsStatusPill key="s" tone="success">
+                      {t("recBadge", undefined, "Recommended")}
+                    </SettingsStatusPill>
+                  ) : null,
+                  t(m.noteKey, undefined, m.note),
+                ],
+              }))}
             />
-          </label>
+            <p className="m-0 text-xs text-[var(--text-secondary)]">
+              {t(
+                "recAvoid",
+                undefined,
+                "Avoid reasoning models (e.g. deepseek-v4-flash, ~11.5s), ministral-8b (78% recall), and the retired gemini-2.0-flash-001/-lite-001 (404).",
+              )}
+            </p>
+          </SettingsGroup>
+        </SettingsGroup>
 
-          <label className={FIELD}>
-            {t("minChars", undefined, "Minimum characters")}
-            <input
-              type="number"
-              className={CONTROL}
-              data-testid="grammar-minchars"
-              min={1}
-              max={500}
-              value={String(draft.minChars)}
-              onChange={(e) => setDraft({ ...draft, minChars: num(e.target.value, draft.minChars) })}
-            />
-          </label>
-
-          <label className={FIELD}>
-            {t("maxChars", undefined, "Maximum characters")}
-            <input
-              type="number"
-              className={CONTROL}
-              data-testid="grammar-maxchars"
-              min={100}
-              max={20000}
-              value={String(draft.maxChars)}
-              onChange={(e) => setDraft({ ...draft, maxChars: num(e.target.value, draft.maxChars) })}
-            />
-          </label>
-
-          <label className={FIELD}>
-            {t("language", undefined, "Language")}
-            <input
-              type="text"
-              className={CONTROL}
-              data-testid="grammar-language"
-              value={draft.language}
-              onChange={(e) => setDraft({ ...draft, language: e.target.value })}
-            />
-          </label>
-        </div>
-      </details>
+        <SettingsGroup
+          title={t("groupAdvanced", undefined, "Advanced")}
+          defaultOpen={advancedOpen}
+          testId="grammar-group-advanced"
+        >
+          <NumberField
+            label={t("debounceMs", undefined, "Wait after typing")}
+            unit={t("unitMs", undefined, "ms")}
+            hint={t("debounceHint", undefined, "How long to wait after you stop typing before checking. 300–10000.")}
+            error={debounceError}
+            allowEmpty
+            value={draft.debounceMs}
+            onChange={(v) => edit({ debounceMs: v })}
+            testIds={{ control: "grammar-debounce" }}
+          />
+          <NumberField
+            label={t("minChars", undefined, "Shortest text")}
+            unit={t("unitChars", undefined, "chars")}
+            hint={t("minCharsHint", undefined, "Shorter messages are not checked.")}
+            error={minCharsError}
+            allowEmpty
+            value={draft.minChars}
+            onChange={(v) => edit({ minChars: v })}
+            testIds={{ control: "grammar-minchars" }}
+          />
+          <NumberField
+            label={t("maxChars", undefined, "Longest text")}
+            unit={t("unitChars", undefined, "chars")}
+            hint={t("maxCharsHint", undefined, "Longer messages are not checked.")}
+            error={maxCharsError}
+            allowEmpty
+            value={draft.maxChars}
+            onChange={(v) => edit({ maxChars: v })}
+            testIds={{ control: "grammar-maxchars" }}
+          />
+          <TextField
+            label={t("language", undefined, "Language")}
+            hint={
+              <>
+                {t("languageHintBefore", undefined, "BCP-47 tag such as ")}
+                <code>en-GB</code>
+                {t("languageHintMiddle", undefined, ", or ")}
+                <code>auto</code>
+                {t("languageHintAfter", undefined, ".")}
+              </>
+            }
+            mono
+            value={draft.language}
+            onChange={(v) => edit({ language: v })}
+            testIds={{ control: "grammar-language" }}
+          />
+        </SettingsGroup>
+      </fieldset>
     </section>
   );
 }

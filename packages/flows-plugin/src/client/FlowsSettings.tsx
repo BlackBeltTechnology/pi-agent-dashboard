@@ -10,7 +10,7 @@
  * panel's Save). See change: rework-flows-plugin-for-new-pi-flows.
  */
 
-import { useSettingsDraftSource, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { ToggleField, useSettingsDraftSource, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { usePluginConfig, usePluginSend } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import type React from "react";
 import { useCallback, useRef, useState } from "react";
@@ -40,29 +40,26 @@ export function FlowsSettings(): React.ReactElement {
   const reset = useCallback(() => setEditFlow(baseRef.current), []);
   useSettingsDraftSource({ id: "plugin:flows", isDirty, commit, reset });
 
+  const codeCls = "font-mono text-[12px] text-[var(--text-primary)]";
   return (
     // No self-header: the host owns identity + status chrome (design D1).
-    <div>
-      <p className="text-xs text-[var(--text-tertiary)] mb-3">
-        Multi-agent workflow orchestration. Applies globally; sessions inherit this default.
+    <div className="space-y-3">
+      <p className="text-xs text-[var(--text-secondary)]">
+        {t("settingsIntro", undefined, "Multi-agent workflows. This is the default for every session.")}
       </p>
-      <label className="flex gap-2.5 items-start text-[13px] cursor-pointer">
-        <input
-          type="checkbox"
-          checked={editFlow}
-          onChange={(e) => setEditFlow(e.target.checked)}
-          className="mt-0.5"
-          data-testid="flows-edit-mode-toggle"
-        />
-        <span>
-          <span className="font-medium">{t("editModeLabel", undefined, "Edit mode")}</span>
-          {" — allow the main session to author flows & agents"}
-          <span className="block text-[11px] text-[var(--text-muted)] mt-0.5">
-            Activates <code>flow_agents</code> / <code>flow_write</code> and makes the
-            edit-flow skill model-visible. Off by default.
-          </span>
-        </span>
-      </label>
+      <ToggleField
+        label={t("editModeLabel", undefined, "Edit mode")}
+        hint={
+          <>
+            {t("editModeHintPre", undefined, "Lets the main session create and change flows and agents. Turns on")}{" "}
+            <code className={codeCls}>flow_agents</code> / <code className={codeCls}>flow_write</code>{" "}
+            {t("editModeHintPost", undefined, "and the edit-flow skill. Off by default.")}
+          </>
+        }
+        value={editFlow}
+        onChange={setEditFlow}
+        testIds={{ control: "flows-edit-mode-toggle" }}
+      />
     </div>
   );
 }

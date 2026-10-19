@@ -128,7 +128,7 @@ export function ProjectSettingsPanel({ server, scope, narrow, onClose, onSaved }
                 key={c.value}
                 className={`inline-flex items-center gap-1.5 px-2 min-h-11 sm:min-h-0 sm:py-1 rounded border text-[12px] ${
                   enabled === c.value
-                    ? "border-[var(--accent-primary,#60a5fa)] bg-[var(--accent-soft,transparent)] text-[var(--text-primary)]"
+                    ? "border-[var(--accent-primary,#60a5fa)] bg-[var(--accent-soft)] text-[var(--text-primary)]"
                     : "border-[var(--border-secondary)] text-[var(--text-secondary)]"
                 }`}
               >
@@ -206,7 +206,7 @@ export function ProjectSettingsPanel({ server, scope, narrow, onClose, onSaved }
             disabled={saving}
             onClick={() => void save()}
             data-testid="mcp-project-save"
-            className="px-3 py-1 min-h-11 min-w-11 sm:min-h-0 sm:min-w-0 rounded text-[12px] bg-[var(--accent-solid,#2563eb)] text-white disabled:opacity-50"
+            className="px-3 py-1 min-h-11 min-w-11 sm:min-h-0 sm:min-w-0 rounded text-[12px] bg-[var(--accent-solid)] text-white disabled:opacity-50"
           >
             Save
           </button>

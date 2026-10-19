@@ -6,6 +6,7 @@
  */
 import type React from "react";
 import { useEffect, useRef } from "react";
+import { BTN, BTN_PRIMARY } from "./settings-ui.js";
 
 export interface ConfirmDialogProps {
   title: string;
@@ -51,22 +52,22 @@ export function ConfirmDialog({ title, body, confirmLabel, cancelLabel, onConfir
         aria-labelledby="s1-confirm-title"
         className="flex w-full max-w-[30rem] flex-col gap-3 rounded-xl border border-[var(--border-secondary)] bg-[var(--bg-secondary)] p-4 shadow-[inset_0_1px_0_var(--elevation-rim),0_4px_8px_var(--shadow-card)]"
       >
-        <h2 id="s1-confirm-title" className="m-0 text-base font-semibold text-[var(--text-primary)]">
+        <h2 id="s1-confirm-title" className="m-0 text-sm font-semibold text-[var(--text-primary)]">
           {title}
         </h2>
-        <div className="flex flex-col gap-2 text-[13px] text-[var(--text-secondary)]">{body}</div>
+        <div className="flex flex-col gap-2 text-xs text-[var(--text-secondary)]">{body}</div>
         <div className="flex justify-end gap-2">
           <button
             ref={cancel}
             type="button"
-            className="rounded-md border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] px-3 py-1.5 text-sm text-[var(--text-primary)]"
+            className={BTN}
             onClick={onCancel}
           >
             {cancelLabel}
           </button>
           <button
             type="button"
-            className="rounded-md bg-[var(--accent-primary-strong)] px-3 py-1.5 text-sm font-semibold text-white"
+            className={BTN_PRIMARY}
             onClick={onConfirm}
           >
             {confirmLabel}

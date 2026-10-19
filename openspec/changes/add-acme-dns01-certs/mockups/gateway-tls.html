@@ -33,10 +33,7 @@
   .frame { container-type: inline-size; container-name: frame; }
   .ep { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border-subtle); background: var(--bg-tertiary); }
   .ep code { flex: 1 1 200px; min-width: 0; font-size: 12px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .pill.k-lan { background: var(--tint-purple-bg); color: var(--tint-purple-fg); border-color: var(--tint-purple-border); }
-  .pill.k-magicdns { background: var(--tint-blue-bg); color: var(--tint-blue-fg); border-color: var(--tint-blue-border); }
-  .pill.k-domain { background: var(--tint-orange-bg); color: var(--tint-orange-fg); border-color: var(--tint-orange-border); }
-  .pill.k-local { background: var(--severity-neutral-bg); color: var(--severity-neutral-fg); border-color: var(--severity-neutral-border); }
+  .pill.kind { background: var(--bg-tertiary); color: var(--text-primary); border-color: var(--border-secondary); }
   .state > .note { margin: 0; padding: 6px 12px; font-size: 12px; color: var(--text-secondary); border-top: 1px solid var(--border-secondary); background: var(--bg-secondary); }
   .state > .note code { color: var(--text-primary); }
   .pair.single { grid-template-columns: 1fr; }
@@ -205,7 +202,7 @@ function editor(o) {
       <div class="stack">${(o.domains ?? [D1, D2]).map((n) => `<div class="netrow"><span class="v">${n}</span><button class="p-btn sm icon ghost" aria-label="Remove ${n}">${ic("Close")}</button></div>`).join("")}</div>
       <div class="add-row" style="margin-top:8px"><label class="sr-only" for="${k}-add">Domain to add</label><input id="${k}-add" class="p-input mono" value="${o.badDomain ?? ""}" placeholder="dash.example.com or *.lab.example.com" ${o.badDomain ? `aria-invalid="true" aria-describedby="${k}-de"` : ""}><button class="p-btn sm secondary" ${o.badDomain ? "disabled" : ""}>${ic("Plus")} Add</button></div>
       ${o.badDomain ? `<p class="f-err" id="${k}-de" role="alert">${ic("CloseCircleOutline")} Not a hostname. A wildcard may only replace the first label, as in <code>*.lab.example.com</code>.</p>`
-        : `<p class="p-meta" style="margin:4px 0 0">Point each name's A record at this computer's private address (<code>${IPV4}</code>). Wildcards are served but never listed as an address.</p>`}</div>
+        : `<p class="p-meta" style="margin:4px 0 0">Point each name's A record at this computer's private address (<code>${IPV4}</code>). Wildcards are served but never listed as an address, and the main port does not accept them as a host name: add a subdomain to Allowed hosts to open the dashboard on it.</p>`}</div>
     <div><p class="p-label" id="acme-solver-${k}-lbl">How to prove you own the domains</p>
       ${radioCards(`acme-solver-${k}`, solver, [
         ["cloudflare", "Cloudflare", "", "The dashboard adds and removes the challenge TXT record through the Cloudflare API."],
@@ -233,7 +230,7 @@ function editor(o) {
 
 /* ═════ C. Accessible at (prereq restyle; this change adds the staging note) ═════ */
 function endpoints(o) {
-  const row = (kind, label, url, tls) => `<div class="ep"><span class="pill k-${kind}">${label}</span><code class="mono">${url}</code>${tls ? P("success", "LockOutline", "HTTPS") : P("warning", "Alert", "No TLS")}<button class="p-btn sm icon ghost" aria-label="Copy ${url}">${ic("ContentCopy")}</button></div>`;
+  const row = (kind, label, url, tls) => `<div class="ep"><span class="pill kind" data-kind="${kind}">${label}</span><code class="mono">${url}</code>${tls ? P("success", "LockOutline", "HTTPS") : P("warning", "Alert", "No TLS")}<button class="p-btn sm icon ghost" aria-label="Copy ${url}">${ic("ContentCopy")}</button></div>`;
   return `<div class="sec-title"><h3>Accessible at</h3></div><div class="stack">
     ${row("lan", "LAN", "http://192.168.1.24:8000", false)}
     ${row("magicdns", "MagicDNS", `https://${TS_NAME}:8443`, true)}
@@ -271,15 +268,20 @@ const BOARD = [
     ["acme-production", "B8 · advertised", "Production: the plain name gets a Domain address in Accessible at; the wildcard says why it isn't listed.", certificates(acmeGroup({ dir: "production", pill: P("success", "CheckCircleOutline", "On"),
       rows: [certRow({ name: D1, pill: P("success", "CheckCircleOutline", "Valid · 89 days left"), facts: "Valid until 2027-01-17. Renews automatically when 30 days are left.", btn: "Renew now" }),
         certRow({ name: D2, pill: P("success", "CheckCircleOutline", "Valid · 89 days left"), facts: "Valid until 2027-01-17.", badges: B_WILD, btn: "Renew now" })] }), false)],
-    ["acme-failures", "B9 · errors + ETA", "Token rejected (group gate, the token field says Rejected) and a CA validation failure on a held name (warning: still served). ETAs come from the prereq <code>nextAttemptAt</code>; Try again / Renew now bypass backoff.", certificates(acmeGroup({ dir: "production", pill: P("error", "AlertCircleOutline", "Failing"),
-      gates: gate("error", "Cloudflare rejected the token (403).", "Its permissions may have changed. Paste a new token; issuing resumes right after. Next try in 5 hours 58 minutes.") + secretField({ label: "Cloudflare API token", ph: "", set: true, rejected: true, tid: "gateway-acme-cloudflare-token", btn: "Save token" }),
+    ["acme-failures", "B9 · errors + ETA", "Token rejected (group gate, the token field says Rejected; counted once, then the gate pauses issuing without further failures) and a CA validation failure on a held name (warning: still served). ETAs come from the prereq <code>nextAttemptAt</code>; Try again / Renew now bypass backoff.", certificates(acmeGroup({ dir: "production", pill: P("error", "AlertCircleOutline", "Failing"),
+      gates: gate("error", "Cloudflare rejected the token (403).", "Its permissions may have changed. Issuing is paused until you save a new token, then it resumes right away.") + secretField({ label: "Cloudflare API token", ph: "", set: true, rejected: true, tid: "gateway-acme-cloudflare-token", btn: "Save token" }),
       rows: [certRow({ name: D1, held: true, pill: P("warning", "Alert", "15 days left"), facts: "Valid until 2026-11-03. Renews automatically when 30 days are left.", btn: "Renew now",
           err: "urn:ietf:params:acme:error:unauthorized: incorrect TXT record found at _acme-challenge.dash.example.com", eta: "Next try in 52 minutes. Let's Encrypt allows only a few failed validations per hour, so fix the record before trying again now." }),
         certRow({ name: D2, badges: B_WILD, pill: P("error", "CloseCircleOutline", "No certificate"), facts: "Nothing to serve yet.", btn: "Try again now",
           err: "DNS propagation timed out after 180 s (ns1.example-dns.net still answers NXDOMAIN)", eta: "Next try in 9 minutes." })] }), false)],
+    ["acme-renewal-blocked", "B11 · renewal blocked", "A held certificate is due for renewal but a gate for its name is unmet (CNAME removed). The prerequisite counts no failures for gate-skipped names, so this row is the only warning before expiry.", certificates(acmeGroup({ dir: "production", pill: P("warning", "Alert", "Needs attention"),
+      rows: [certRow({ name: D1, pill: P("warning", "Alert", "Renewal blocked"), facts: "Valid until 2026-11-08. Still served until then.",
+          extra: `<div class="callout warning" role="note">${ic("Alert")}<div class="body"><b>Renewal blocked: the CNAME record is missing.</b> The certificate expires on 2026-11-08. Recreate this record at your DNS host:
+            <div class="record"><code>_acme-challenge.dash.example.com  CNAME  ${FULL}</code><button class="p-btn sm secondary">${ic("ContentCopy")} Copy</button></div>
+            <div class="acts"><button class="p-btn sm ghost">${ic("Refresh")} Check now</button><span class="p-meta" style="color:inherit">Checked 4 minutes ago.</span></div></div></div>` })] }), false)],
     ["acme-other-ca", "B10 · custom directory", "<code>http://</code> rejected at the field. Advertising is an explicit operator assertion, off by default.", editor({ dir: "custom", tos: true, secretSet: true, dirUrl: "http://ca.internal/acme/directory", dirErr: "The directory URL must start with https://.", domains: [D1] })],
   ]},
-  { title: "C · Accessible at", verdict: "Restyle and Domain pill (tint-orange) are owned by the prereq board. This change adds only the staging note.", states: [
+  { title: "C · Accessible at", verdict: "Restyle and the neutral kind chip (word label, incl. Domain) are owned by the prereq board. This change adds only the staging note.", states: [
     ["endpoints-staging", "C1", "Staging names are never listed; the note says why.", endpoints({ staging: true })],
     ["endpoints-production", "C2", "Production adds a Domain row.", endpoints({ prod: true })],
   ]},

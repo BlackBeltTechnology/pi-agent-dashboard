@@ -14,7 +14,8 @@ Plugin web apps served by the dashboard (`add-voice-wall-plugin` at `/apps/wall/
   - Every admission check reads that stamp: identity floor, auth plugin, universal guard, per-route `ctx.networkGuard`, identity road gate.
 - **`ctx.requestPrincipal(request)`**: the identity-plane principal, `{ kind: "local-operator" }`, or `null`. Read-only, trusted plugins only.
 - **`ctx.serveApp({ dir, csp, appId? })`** (trusted plugins only): mounts a built SPA at `/apps/<appId>/`, skipped by the auth plugin.
-  - `dir` is confined to the plugin's package, files are served from an extension allowlist, and `appId` must be unique.
+  - `dir` is confined to the plugin's package or its new data directory `ctx.dataDir`, and may not exist yet (503 until it does). Files are served from an extension allowlist (incl. `.wasm`), with precompressed `.gz` variants. `appId` must be unique.
+  - Option `crossOriginFrame` adds `ACAO: *` (no credentials) and `CORP: cross-origin`, for apps framed by a sandboxed opaque-origin iframe (`edit-office-in-pane-with-craft-web`).
   - CSP is required and is sent as an enforced header in every baseline mode.
   - `/apps/*` joins the guard's explicitly enumerated static-allow set.
 

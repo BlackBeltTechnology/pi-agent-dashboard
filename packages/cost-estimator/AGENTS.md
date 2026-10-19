@@ -47,8 +47,8 @@ CLI bins keep the shorter `pi-estimate*` stem by choice — they are typed by ha
 | `.pi/skills/software-cost-estimator/references/sizing-methods.md` | Sizing: UCP primary (MMRE ≈39%). UUCW ≤3→5 / 4–7→10 / >7→15; UAW 1/2/3; TCF 0.6+0.01Σ(T1–T13); ECF 1.4−0.03Σ(E1–E8, E7/E8 negative); UCP = (UUCW+UAW)×TCF×ECF; Effort = UCP × h/UCP (Karner 20). COCOMO II diseconomy `(UCP/ref)^(E−1)`; cross-checks COSMIC, IFPUG + SNAP. |
 | `README.md` | Package overview. Skill + zero-dep engine + dashboard plugin. Documents the four delivery modes, the subscription-vs-metered cost basis, the load-bearing dependency split, plugin slots, and the CLI entry points. |
 | `package.json` | Manifest. `pi.skills` exposes `.pi/skills/software-cost-estimator`; `pi-dashboard-plugin` claims `command-route`/`settings-section` (id `cost-estimator`, server + configSchema). NO `content-view` claim — `forSession()` keeps predicate-less claims, so one would replace `ChatView` for every session with no chrome to dismiss it; guarded by `src/__tests__/manifest-claims.test.ts`. See change: drop-cost-content-view-claim. Bins `pi-estimate`, `pi-estimate-calibrate`, `pi-estimate-calibrate-sessions` → `bin/*.mjs`. Deps: dashboard-plugin-runtime, pi-dashboard-shared, pi-dashboard-session-distiller. NO local vitest — root supplies v4. |
-| `tsconfig.json` | Extends `tsconfig.base.json`; `rootDir` src, `outDir` dist, `jsx` react-jsx. |
-| `vitest.config.ts` | Vitest project config. `include` `src/**/__tests__/**/*.test.ts`, node env, forks pool, `maxWorkers` `PARALLEL_MAX_WORKERS`. Registered in the ROOT `vitest.config.ts` projects list. |
+| `tsconfig.json` | Extends `tsconfig.base.json`; `rootDir` src, `outDir` dist, `jsx` react-jsx, `lib` ES2023 + DOM (client uses the settings kit's DOM types). See change: retro-ux-plugin-settings-wave-2. |
+| `vitest.config.ts` | Vitest project config. `include` `src/**/__tests__/**/*.test.{ts,tsx}`, node env (client `.tsx` tests opt into jsdom via `// @vitest-environment jsdom`), forks pool, `maxWorkers` `PARALLEL_MAX_WORKERS`. Registered in the ROOT `vitest.config.ts` projects list. See change: retro-ux-plugin-settings-wave-2. |
 
 ## Subfolders
 
@@ -56,7 +56,7 @@ CLI bins keep the shorter `pi-estimate*` stem by choice — they are typed by ha
 - `src/engine/` — zero-dependency arithmetic: sizing, effort, roles, modes, simulation, business case, reporting, xlsx
 - `src/telemetry/` — session-store adapter; the only workspace-dependent module
 - `src/bin/` — CLI implementations (estimate, calibrate, calibrate-sessions)
-- `src/client/` — dashboard plugin client (`CostView`, `CostSettings` in `CostEstimator.tsx`, lazy via manifest `module`; `index.tsx` is intentionally empty). See change: lazy-plugin-claim-modules.
+- `src/client/` — dashboard plugin client (`CostView`, `CostSettings` in `CostEstimator.tsx`, lazy via manifest `module`; `index.tsx` is intentionally empty). `CostSettings` = kit fields (`SelectField`/`NumberField`, testids `cost-seat-plan`/`cost-seat-monthly`/`cost-seats`/`cost-gap-cap`) on host Save bar draft `plugin:cost-estimator`: no keystroke write, commit sends only edited keys, empty/out-of-range number (seats ≥ 1, break 1–120, price ≥ 0) blocks commit, unset plan shows Metered + Default. Tests `src/client/__tests__/CostSettings.test.tsx` (E11, F1). See change: lazy-plugin-claim-modules. See change: retro-ux-plugin-settings-wave-2.
 - `src/server/` — dashboard plugin server (`GET /api/cost-estimator/telemetry`, 60s cache)
 - `src/__tests__/` — 68 vitest tests, incl. `manifest-claims.test.ts` (no predicate-less `content-view` claim; `cost` command-route survives)
 - `.pi/skills/software-cost-estimator/` — the skill: SKILL.md, references/, assets/

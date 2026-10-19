@@ -11,9 +11,14 @@
  * indefensible under scrutiny.
  */
 
+import {
+  NumberField,
+  SelectField,
+  useSettingsDraftSource,
+} from "@blackbelt-technology/dashboard-plugin-runtime";
 import { usePluginConfig, usePluginSend } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import type React from "react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 interface Measured {
   sessions: number;
@@ -226,77 +231,166 @@ export function CostView() {
   );
 }
 
-/** CostSettings — seat plan configuration. Claimed on settings-section. */
-export function CostSettings() {
-  const config = usePluginConfig<CostEstimatorConfig>();
-  const send = usePluginSend();
+/** Seat-plan options: stored value → label. Unset plan = "metered". */
+const SEAT_PLANS = [
+  { value: "metered", label: "Metered (pay as you go)" },
+  { value: "anthropic-pro", label: "Claude Pro · $20" },
+  { value: "anthropic-max-5x", label: "Claude Max 5× · $100" },
+  { value: "anthropic-max-20x", label: "Claude Max 20× · $200" },
+  { value: "openai-plus", label: "ChatGPT Plus · $20" },
+  { value: "openai-pro-5x", label: "ChatGPT Pro 5× · $100" },
+  { value: "openai-pro-20x", label: "ChatGPT Pro 20× · $200" },
+  { value: "glm-lite", label: "GLM Coding Lite · $18" },
+  { value: "glm-pro", label: "GLM Coding Pro · $72" },
+  { value: "glm-max", label: "GLM Coding Max · $160" },
+  { value: "custom", label: "Custom…" },
+];
 
-  const write = (partial: Partial<CostEstimatorConfig>) =>
-    send({ type: "plugin_config_write", id: "cost-estimator", config: { ...config, ...partial } });
+type EditableKey = "seatPlan" | "seatMonthlyUsd" | "seats" | "gapCapMinutes";
+type Edits = Partial<Pick<CostEstimatorConfig, EditableKey>>;
+
+/** Defaults the page SHOWS when a key is unset (never written unless edited). */
+const DEFAULTS: Required<Edits> = {
+  gapCapMinutes: 15,
+  seatPlan: "metered",
+  seatMonthlyUsd: 0,
+  seats: 1,
+};
+
+const isWhole = (n: number) => Number.isInteger(n);
+
+/** Range checks; `NaN` (an emptied field) is always invalid, never coerced to 0. */
+function validate(values: Pick<CostEstimatorConfig, EditableKey>): Partial<Record<EditableKey, string>> {
+  const errors: Partial<Record<EditableKey, string>> = {};
+  if (values.seatPlan === "custom" && !(values.seatMonthlyUsd >= 0)) {
+    errors.seatMonthlyUsd = "Enter a price of 0 or more.";
+  }
+  if (!(isWhole(values.seats) && values.seats >= 1)) errors.seats = "Enter a whole number of 1 or more.";
+  if (!(isWhole(values.gapCapMinutes) && values.gapCapMinutes >= 1 && values.gapCapMinutes <= 120)) {
+    errors.gapCapMinutes = "Enter a whole number from 1 to 120.";
+  }
+  return errors;
+}
+
+/**
+ * CostSettings — seat plan configuration. Claimed on settings-section.
+ *
+ * Edits are held as a draft on the host Save bar (`plugin:cost-estimator`): no write per
+ * keystroke, commit sends ONLY the edited keys (the server merges), an emptied or
+ * out-of-range number blocks the commit. Unedited keys follow `plugin_config_update`.
+ * See change: retro-ux-plugin-settings-wave-2.
+ */
+export function CostSettings() {
+  const config = usePluginConfig<Partial<CostEstimatorConfig>>();
+  const send = usePluginSend();
+  const [edits, setEdits] = useState<Edits>({});
+
+  // A broadcast that now equals an edit settles it (saved here or elsewhere), so a
+  // stale edit never shadows a later broadcast.
+  useEffect(() => {
+    setEdits((prev) => {
+      const keys = (Object.keys(prev) as EditableKey[]).filter((k) => prev[k] === config[k]);
+      if (keys.length === 0) return prev;
+      const next = { ...prev };
+      for (const k of keys) delete next[k];
+      return next;
+    });
+  }, [config]);
+
+  const value = <K extends EditableKey>(key: K): CostEstimatorConfig[K] =>
+    (key in edits ? edits[key] : (config[key] ?? DEFAULTS[key])) as CostEstimatorConfig[K];
+  const values = {
+    seatPlan: value("seatPlan"),
+    seatMonthlyUsd: value("seatMonthlyUsd"),
+    seats: value("seats"),
+    gapCapMinutes: value("gapCapMinutes"),
+  };
+  const errors = validate(values);
+
+  // Only keys that differ from what is stored; the custom price is owned only by the custom plan.
+  const changed: Edits = {};
+  for (const k of Object.keys(edits) as EditableKey[]) {
+    if (k === "seatMonthlyUsd" && values.seatPlan !== "custom") continue;
+    if (edits[k] !== config[k]) (changed as Record<string, unknown>)[k] = edits[k];
+  }
+  const isDirty = Object.keys(changed).length > 0;
+
+  const latest = useRef({ changed, errors });
+  latest.current = { changed, errors };
+  const commit = useCallback(async () => {
+    const { changed: payload, errors: errs } = latest.current;
+    if (Object.keys(errs).length > 0) throw new Error("Fix the invalid fields before saving.");
+    if (Object.keys(payload).length === 0) return;
+    await send({ type: "plugin_config_write", id: "cost-estimator", config: payload });
+  }, [send]);
+  const reset = useCallback(() => setEdits({}), []);
+  useSettingsDraftSource({ id: "plugin:cost-estimator", isDirty, commit, reset });
+
+  // Setting a field back to its stored value drops the edit (no ghost draft that a
+  // later broadcast would turn into an edit). doubt-review 4.50 #1.
+  const edit = (patch: Edits) =>
+    setEdits((prev) => {
+      const next: Edits = { ...prev, ...patch };
+      for (const k of Object.keys(patch) as EditableKey[]) if (next[k] === config[k]) delete next[k];
+      return next;
+    });
+  const state = (key: EditableKey) => (values[key] === DEFAULTS[key] ? "default" : "changed");
 
   return (
-    <div data-testid="cost-settings" style={{ fontSize: 12 }}>
-      <div style={{ ...muted, marginBottom: 6 }}>
-        Session cost is recorded as a metered API price. If capacity is bought on a subscription, set the plan here so
-        the dashboard reports real cash rather than a theoretical meter.
-      </div>
+    <div data-testid="cost-settings" className="space-y-3">
+      <p className="text-xs text-[var(--text-secondary)]">
+        Sessions are priced at metered API rates. If you pay for a subscription instead, pick it here so cost reports
+        show what you really pay.
+      </p>
 
-      <label style={{ display: "block", marginBottom: 6 }}>
-        Seat plan{" "}
-        <select
-          data-testid="cost-seat-plan"
-          value={config.seatPlan ?? "anthropic-max-20x"}
-          onChange={(event) => write({ seatPlan: event.target.value })}
-        >
-          <option value="metered">Metered (pay-as-you-go)</option>
-          <option value="anthropic-pro">Claude Pro — $20</option>
-          <option value="anthropic-max-5x">Claude Max 5× — $100</option>
-          <option value="anthropic-max-20x">Claude Max 20× — $200</option>
-          <option value="openai-plus">ChatGPT Plus — $20</option>
-          <option value="openai-pro-5x">ChatGPT Pro 5× — $100</option>
-          <option value="openai-pro-20x">ChatGPT Pro 20× — $200</option>
-          <option value="glm-lite">GLM Coding Lite — $18</option>
-          <option value="glm-pro">GLM Coding Pro — $72</option>
-          <option value="glm-max">GLM Coding Max — $160</option>
-          <option value="custom">Custom…</option>
-        </select>
-      </label>
+      <SelectField
+        label="Subscription"
+        hint="The plan each seat is on. Metered keeps API prices."
+        value={values.seatPlan}
+        options={SEAT_PLANS}
+        onChange={(seatPlan) => edit({ seatPlan })}
+        state={state("seatPlan")}
+        testIds={{ control: "cost-seat-plan" }}
+      />
 
-      {config.seatPlan === "custom" && (
-        <label style={{ display: "block", marginBottom: 6 }}>
-          USD per seat per month{" "}
-          <input
-            data-testid="cost-seat-monthly"
-            type="number"
-            min={0}
-            value={config.seatMonthlyUsd ?? 0}
-            onChange={(event) => write({ seatMonthlyUsd: Number(event.target.value) })}
-          />
-        </label>
+      {values.seatPlan === "custom" && (
+        <NumberField
+          label="Price per seat"
+          unit="USD / month"
+          hint="What one seat costs per month."
+          value={values.seatMonthlyUsd}
+          decimal
+          allowEmpty
+          step="any"
+          onChange={(seatMonthlyUsd) => edit({ seatMonthlyUsd })}
+          error={errors.seatMonthlyUsd}
+          state={state("seatMonthlyUsd")}
+          testIds={{ control: "cost-seat-monthly" }}
+        />
       )}
 
-      <label style={{ display: "block", marginBottom: 6 }}>
-        Seats{" "}
-        <input
-          data-testid="cost-seats"
-          type="number"
-          min={1}
-          value={config.seats ?? 1}
-          onChange={(event) => write({ seats: Number(event.target.value) })}
-        />
-      </label>
+      <NumberField
+        label="Seats"
+        hint="How many people share the plan."
+        value={values.seats}
+        allowEmpty
+        onChange={(seats) => edit({ seats })}
+        error={errors.seats}
+        state={state("seats")}
+        testIds={{ control: "cost-seats" }}
+      />
 
-      <label style={{ display: "block" }}>
-        Break threshold (minutes){" "}
-        <input
-          data-testid="cost-gap-cap"
-          type="number"
-          min={1}
-          max={120}
-          value={config.gapCapMinutes ?? 15}
-          onChange={(event) => write({ gapCapMinutes: Number(event.target.value) })}
-        />
-      </label>
+      <NumberField
+        label="Break after"
+        unit="min"
+        hint="Idle gaps longer than this don't count as active time. 1–120."
+        value={values.gapCapMinutes}
+        allowEmpty
+        onChange={(gapCapMinutes) => edit({ gapCapMinutes })}
+        error={errors.gapCapMinutes}
+        state={state("gapCapMinutes")}
+        testIds={{ control: "cost-gap-cap" }}
+      />
     </div>
   );
 }
