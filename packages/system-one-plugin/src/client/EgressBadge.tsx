@@ -1,32 +1,24 @@
 /**
- * On-/off-machine badge: icon + words, colour only as a second channel
- * (WCAG 1.4.1; ui-contract invariant 4). Text comes from the server's egress
- * label (`hosted`, `loopback (user-declared)`, `cloud model`, …).
- * See change: add-system-one-registry.
+ * On-/off-machine pill: a kit `SettingsStatusPill` (word + decorative icon, so
+ * colour is never the only signal — WCAG 1.4.1). Text comes from the server's
+ * egress label (`hosted`, `loopback (user-declared)`, `cloud model`, …).
+ * See change: add-system-one-registry; retro-ux-plugin-settings-wave-2.
  */
-import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { SettingsStatusPill, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type React from "react";
 import type { BackendView } from "./api.js";
-
-const base = "inline-flex items-center gap-1 rounded-full border px-2 py-px text-[11px] font-semibold whitespace-nowrap";
 
 export function EgressBadge({ view }: { view: BackendView | undefined }): React.ReactElement {
   const t = useT();
   if (!view)
     return (
-      <span className={`${base} border-[var(--border-secondary)] bg-[var(--bg-surface)] text-[var(--text-secondary)]`}>
+      <SettingsStatusPill tone="neutral" icon={null}>
         {t("egressUnsaved", undefined, "not saved yet")}
-      </span>
+      </SettingsStatusPill>
     );
   return view.offMachine ? (
-    <span className={`${base} border-[var(--severity-warning-border)] bg-[var(--severity-warning-bg)] text-[var(--severity-warning-fg)]`}>
-      <span aria-hidden="true">☁</span>
-      {t("offMachineBadge", { label: view.egress }, `Off-machine · ${view.egress}`)}
-    </span>
+    <SettingsStatusPill tone="warning">{t("offMachineBadge", { label: view.egress }, `Off-machine · ${view.egress}`)}</SettingsStatusPill>
   ) : (
-    <span className={`${base} border-[var(--severity-success-border)] bg-[var(--severity-success-bg)] text-[var(--severity-success-fg)]`}>
-      <span aria-hidden="true">⌂</span>
-      {t("onMachineBadge", { label: view.egress }, `On-machine · ${view.egress}`)}
-    </span>
+    <SettingsStatusPill tone="success">{t("onMachineBadge", { label: view.egress }, `On-machine · ${view.egress}`)}</SettingsStatusPill>
   );
 }

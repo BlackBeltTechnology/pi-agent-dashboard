@@ -12,7 +12,7 @@ One row per file.
 | `acp-spawn-picker.spec.ts` | → see `acp-spawn-picker.spec.ts.AGENTS.md` |
 | `agent-path-gate.spec.ts` | → see `agent-path-gate.spec.ts.AGENTS.md` |
 | `apply-fix-to-file.spec.ts` | → see `apply-fix-to-file.spec.ts.AGENTS.md` |
-| `archive-service-sessions-on-end.spec.ts` | L3 #F1/#F5 service-session arc… → see `archive-service-sessions-on-end.spec.ts.AGENTS.md` |
+| `archive-service-sessions-on-end.spec.ts` | L3 #F1/#F5 servi… → see `archive-service-sessions-on-end.spec.ts.AGENTS.md` |
 | `archived-attachment.spec.ts` | → see `archived-attachment.spec.ts.AGENTS.md` |
 | `composer-liveness-reload.spec.ts` | → see `composer-liveness-reload.spec.ts.AGENTS.md` |
 | `composer-session-strip.spec.ts` | L3 redesign-composer-session-strip (F8–F12). → see `composer-session-strip.spec.ts.AGENTS.md` |
@@ -78,7 +78,7 @@ One row per file.
 | `model-favorites-cross-surface.spec.ts` | L3 F3 of… → see `model-favorites-cross-surface.spec.ts.AGENTS.md` |
 | `keeper-log-health.spec.ts` | L3 (test-plan #F1, #F2): `/api/health` carries… → see `keeper-log-health.spec.ts.AGENTS.md` |
 | `ended-session-endedat.spec.ts` | L3 for the evidence-based `endedAt` invarian… → see `ended-session-endedat.spec.ts.AGENTS.md` |
-| `explicit-model-preserved.spec.ts` | L3 for `fix-default-model-clobbers-explicit-… → see `explicit-model-preserved.spec.ts.AGENTS.md` |
+| `explicit-model-preserved.spec.ts` | L3 for `fix-default-model-clob… → see `explicit-model-preserved.spec.ts.AGENTS.md` |
 | `extension-slash-inprocess.spec.ts` | L3 in-process extension slash dispatch… → see `extension-slash-inprocess.spec.ts.AGENTS.md` |
 | `enhance-tool-call-grouping.spec.ts` | L3 tool-call grouping → see `enhance-tool-call-grouping.spec.ts.AGENTS.md` |
 | `error-lifecycle.spec.ts` | Playwright spec. Single-card error-lifecycle sur… → see `error-lifecycle.spec.ts.AGENTS.md` |
@@ -96,7 +96,7 @@ One row per file.
 | `folder-collapse-persistence.spec.ts` | L3 folder collapse persistence. → see `folder-collapse-persistence.spec.ts.AGENTS.md` |
 | `folder-collapse-seek.spec.ts` | L3 `persist-folder-collapse-server-side` #F5… → see `folder-collapse-seek.spec.ts.AGENTS.md` |
 | `folder-collapse-worktree.spec.ts` | L3 persist-folder-collapse-server-side #F4/#F7. → see `folder-collapse-worktree.spec.ts.AGENTS.md` |
-| `folder-membership-drag.spec.ts` | L3 for `drag-folders-across-workspaces` (test-pl… → see `folder-membership-drag.spec.ts.AGENTS.md` |
+| `folder-membership-drag.spec.ts` | L3 for `drag-folders-across-worksp… → see `folder-membership-drag.spec.ts.AGENTS.md` |
 | `followup-image-queue.spec.ts` | L3 for `fix-bridge-followup-image-drop` (test-pl… → see `followup-image-queue.spec.ts.AGENTS.md` |
 | `followup-settle-drain.spec.ts` | L3 follow-up drain on `agent_settled`. → see `followup-settle-drain.spec.ts.AGENTS.md` |
 | `gateway-board-mobile.spec.ts` | 6.8/6.9 board at 375. → see `gateway-board-mobile.spec.ts.AGENTS.md` |
@@ -130,7 +130,7 @@ One row per file.
 | `mcp-token-settings.spec.ts` | L3 MCP-client token flow → see `mcp-token-settings.spec.ts.AGENTS.md` |
 | `mermaid-colorize.spec.ts` | Playwright spec. Mermaid default-node colorizati… → see `mermaid-colorize.spec.ts.AGENTS.md` |
 | `mermaid-repair.spec.ts` | L3 F9 mermaid auto-repair → see `mermaid-repair.spec.ts.AGENTS.md` |
-| `model-proxy-oauth-filter.spec.ts` | Playwright spec (`request` fixture, no page)… → see `model-proxy-oauth-filter.spec.ts.AGENTS.md` |
+| `model-proxy-oauth-filter.spec.ts` | Playwright spec (`request` fix… → see `model-proxy-oauth-filter.spec.ts.AGENTS.md` |
 | `navigation.spec.ts` | Scenario 5.6 spec. Registers `page.on(pageerror)… → see `navigation.spec.ts.AGENTS.md` |
 | `network-guard.spec.ts` | L3 flagship refusal (test-plan #S20, change… → see `network-guard.spec.ts.AGENTS.md` |
 | `notify-channel.spec.ts` | Playwright spec. Drives `[[faux:notify-probe]]`… → see `notify-channel.spec.ts.AGENTS.md` |
@@ -144,11 +144,11 @@ One row per file.
 | `openspec-board-worktree-availability.spec.ts` | → see `openspec-board-worktree-availability.spec.ts.AGENTS.md` |
 | `openspec-connect-coverage.spec.ts` | → see `openspec-connect-coverage.spec.ts.AGENTS.md` |
 | `openspec-init-affordances-folder.spec.ts` | L3 folder-section slice. → see `openspec-init-affordances-folder.spec.ts.AGENTS.md` |
-| `openspec-lifecycle-bar.spec.ts` | L3 compact-openspec-lifecycle-bar: board segment… → see `openspec-lifecycle-bar.spec.ts.AGENTS.md` |
+| `openspec-lifecycle-bar.spec.ts` | L3 compact-openspec-lifecycle-bar:… → see `openspec-lifecycle-bar.spec.ts.AGENTS.md` |
 | `openspec-locality-gate.spec.ts` | L3 spec (change: scope-openspec-auto-att… → see `openspec-locality-gate.spec.ts.AGENTS.md` |
 | `openspec-status-all.spec.ts` | → see `openspec-status-all.spec.ts.AGENTS.md` |
 | `optimistic-prompt.spec.ts` | Playwright E2E for optimistic-prompt-progress. T… → see `optimistic-prompt.spec.ts.AGENTS.md` |
-| `out-of-cwd-session-diffs.spec.ts` | L3 spec (change: opt-in-out-of-cwd-session-d… → see `out-of-cwd-session-diffs.spec.ts.AGENTS.md` |
+| `out-of-cwd-session-diffs.spec.ts` | L3 spec (change: opt-in-out-of… → see `out-of-cwd-session-diffs.spec.ts.AGENTS.md` |
 | `overlay-layering.spec.ts` | Browser E2E gate for `add-overlay-layering-syste… → see `overlay-layering.spec.ts.AGENTS.md` |
 | `overlay-layout.spec.ts` | L3 GENERIC reachability gate for… → see `overlay-layout.spec.ts.AGENTS.md` |
 | `oversized-event-liveness.spec.ts` | L3 per-event size ceiling. → see `oversized-event-liveness.spec.ts.AGENTS.md` |
@@ -156,16 +156,17 @@ One row per file.
 | `pairing-qr.spec.ts` | Browser E2E for the camera-scannable pairing QR… → see `pairing-qr.spec.ts.AGENTS.md` |
 | `remote-access-wizard.spec.ts` | L3 dialog. → see `remote-access-wizard.spec.ts.AGENTS.md` |
 | `replay-live-tool-not-orphaned.spec.ts` | L3 restart mid-call → sidecar |
+| `retro-ux-plugin-settings-wave-2.spec.ts` | L3 E36–E39, F7, F8. → see `retro-ux-plugin-settings-wave-2.spec.ts.AGENTS.md` |
 | `runtime-extension-reload-convergence.spec.ts` | F5 → see `runtime-extension-reload-convergence.spec.ts.AGENTS.md` |
 | `runtime-updates-remote-local.spec.ts` | X14 → see `runtime-updates-remote-local.spec.ts.AGENTS.md` |
 | `security-pair-link.spec.ts` | Browser E2E for the Security→Gateway pairing link… → see `security-pair-link.spec.ts.AGENTS.md` |
 | `paging-empty-reply-exhausted.spec.ts` | L3 #F8: empty page reply hides… → see `paging-empty-reply-exhausted.spec.ts.AGENTS.md` |
-| `paging-exhausted-reconnect-rearm.spec.ts` | L3 #X4: reconnect re-arms exha… → see `paging-exhausted-reconnect-rearm.spec.ts.AGENTS.md` |
+| `paging-exhausted-reconnect-rearm.spec.ts` | L3 #X4: reconnec… → see `paging-exhausted-reconnect-rearm.spec.ts.AGENTS.md` |
 | `pi-1-3-floor-smoke.spec.ts` | L3 pi 1.3.0 floor smoke. → see `pi-1-3-floor-smoke.spec.ts.AGENTS.md` |
 | `pi-runtime.spec.ts` | L3 spec: version-neutral pi runtime verification… → see `pi-runtime.spec.ts.AGENTS.md` |
 | `pi-runtime-picker.spec.ts` | L3 spec for the Settings → Deve… → see `pi-runtime-picker.spec.ts.AGENTS.md` |
 | `plugin-hash-parity.spec.ts` | L3 F3: clientBuild matched; banner hidden. → see `plugin-hash-parity.spec.ts.AGENTS.md` |
-| `plugin-settings-pages.spec.ts` | L3 spec (test-plan rows F1-F14, X1-X5, X7; change… → see `plugin-settings-pages.spec.ts.AGENTS.md` |
+| `plugin-settings-pages.spec.ts` | L3 spec (test-plan rows F1-F14, X1-… → see `plugin-settings-pages.spec.ts.AGENTS.md` |
 | `popover-container-clip.spec.ts` | Browser E2E gate for `fix-popover-container-… → see `popover-container-clip.spec.ts.AGENTS.md` |
 | `pi-trust-mirror.spec.ts` | L3 pi trust mirror. → see `pi-trust-mirror.spec.ts.AGENTS.md` |
 | `project-trust-headless-spawn.spec.ts` | L3 spec (test-plan #X4… → see `project-trust-headless-spawn.spec.ts.AGENTS.md` |
@@ -191,7 +192,7 @@ One row per file.
 | `replay-in-flight-pill.spec.ts` | Playwright spec. → see `replay-in-flight-pill.spec.ts.AGENTS.md` |
 | `replay-truncate.spec.ts` | → see `replay-truncate.spec.ts.AGENTS.md` |
 | `resource-activation-trust.spec.ts` | L3 spec (change: project-scope-disable… → see `resource-activation-trust.spec.ts.AGENTS.md` |
-| `resource-scope-routes.spec.ts` | S-25 scope × path decision table: the 10 resource… → see `resource-scope-routes.spec.ts.AGENTS.md` |
+| `resource-scope-routes.spec.ts` | S-25 scope × path decision table: t… → see `resource-scope-routes.spec.ts.AGENTS.md` |
 | `route-backed-overlay.spec.ts` | Route-backed overlay contract: S-12/S-12… → see `route-backed-overlay.spec.ts.AGENTS.md` |
 | `scroll-to-top.spec.ts` | Browser E2E gate for `fix-chat-scroll-to… → see `scroll-to-top.spec.ts.AGENTS.md` |
 | `services-settings.spec.ts` | → see `services-settings.spec.ts.AGENTS.md` |
@@ -219,7 +220,7 @@ One row per file.
 | `subagent-live-timeline.spec.ts` | L3 live subagent timeline. → see `subagent-live-timeline.spec.ts.AGENTS.md` |
 | `subagent-pull-measurements.spec.ts` | Subagent pull measurement evidence. → see `subagent-pull-measurements.spec.ts.AGENTS.md` |
 | `subagent-pull-under-load.spec.ts` | L3 open-inspector pull under load. → see `subagent-pull-under-load.spec.ts.AGENTS.md` |
-| `subagent-stop-finalize.spec.ts` | L3 dropped Agent end → card finalizes on sub… → see `subagent-stop-finalize.spec.ts.AGENTS.md` |
+| `subagent-stop-finalize.spec.ts` | L3 dropped Agent end → card fi… → see `subagent-stop-finalize.spec.ts.AGENTS.md` |
 | `subagent-thin-tick-liveness.spec.ts` | L3 subagent push/pull split. → see `subagent-thin-tick-liveness.spec.ts.AGENTS.md` |
 | `subagent-tick-throttle.spec.ts` | L3 cadence rows for the subagent-tick… → see `subagent-tick-throttle.spec.ts.AGENTS.md` |
 | `submodule-folder-grouping.spec.ts` | L3 checkout-root resolver (change… → see `submodule-folder-grouping.spec.ts.AGENTS.md` |
@@ -237,7 +238,7 @@ One row per file.
 | `terminal.spec.ts` | Scenario 5.4 spec. `ensureGitSession`, c… → see `terminal.spec.ts.AGENTS.md` |
 | `tmux-session-shutdown.spec.ts` | → see `tmux-session-shutdown.spec.ts.AGENTS.md` |
 | `tool-burst.spec.ts` | Playwright spec for temporal burst grouping. Sen… → see `tool-burst.spec.ts.AGENTS.md` |
-| `tool-collapse-narration.spec.ts` | Playwright spec for the semantic-first compo… → see `tool-collapse-narration.spec.ts.AGENTS.md` |
+| `tool-collapse-narration.spec.ts` | Playwright spec for the semant… → see `tool-collapse-narration.spec.ts.AGENTS.md` |
 | `tool-created-files.spec.ts` | L3 spec (change: detect-tool-created-files, U1+U… → see `tool-created-files.spec.ts.AGENTS.md` |
 | `tool-output-links.spec.ts` | Playwright E2E for tool-output file-link behavio… → see `tool-output-links.spec.ts.AGENTS.md` |
 | `tool-output-selection.spec.ts` | L3 selectable-tool-output-links (task 3.2). → see `tool-output-selection.spec.ts.AGENTS.md` |
@@ -248,7 +249,7 @@ One row per file.
 | `vault-request-access.spec.ts` | L3 Vault callout Request access link (F3). → see `vault-request-access.spec.ts.AGENTS.md` |
 | `worktree-grouping-survives-remove.spec.ts` | L3 fix-worktree-grouping-l… → see `worktree-grouping-survives-remove.spec.ts.AGENTS.md` |
 | `worktree-init-feedback.spec.ts` | Playwright E2E for friendly worktree-init fe… → see `worktree-init-feedback.spec.ts.AGENTS.md` |
-| `yolo-indicator-layout.spec.ts` | L3 YOLO bar tint + composer strip layout (single… → see `yolo-indicator-layout.spec.ts.AGENTS.md` |
+| `yolo-indicator-layout.spec.ts` | L3 YOLO bar tint + composer strip… → see `yolo-indicator-layout.spec.ts.AGENTS.md` |
 | `zrok-v2-tunnel.spec.ts` | L3 zrok v2 F1–F3. → see `zrok-v2-tunnel.spec.ts.AGENTS.md` |
 | `mcp-session-token.spec.ts` | L3 MCP session token (wire-mcp-session-token). → see `mcp-session-token.spec.ts.AGENTS.md` |
 | `mcp-builtin-registration.spec.ts` | L3 built-in MCP registration. → see `mcp-builtin-registration.spec.ts.AGENTS.md` |

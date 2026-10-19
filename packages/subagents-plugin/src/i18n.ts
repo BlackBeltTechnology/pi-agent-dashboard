@@ -34,10 +34,14 @@ export const catalog = {
     rolesDepAgentsUsing: " 分配模型，使用 ",
     rolesDepAliasesReport:
       " 别名的代理在生成时会报告“尚未配置” — 子代理仍会加载。",
-    forkContextLabel: "将父上下文分叉到每个子代理",
+    forkContextLabel: "共享父级对话",
     forkContextDescription:
-      "开启时，子代理会继承父级最近轮次的压缩副本。关闭时，每个子代理都以空对话开始（隔离）。",
-    saveError: "HTTP {status}：{detail}",
+      "开启：每个子代理获得父级最近轮次的压缩副本。关闭：每个子代理从空对话开始。",
+    saveError: "无法保存子代理设置。请确认仪表板正在运行，然后重新保存。",
+    settingsLead: "会话如何启动子代理。",
+    rolesNotice:
+      "内置的 Explore 代理使用 {role}。请在“模型角色”中为 {role} 指定模型，否则使用角色的代理会报告“尚未配置”。",
+    openModelRoles: "打开模型角色",
   },
   hu: {
     subagentNotFound: "Nem található alügynök ebben a munkamenetben.",
@@ -62,9 +66,13 @@ export const catalog = {
     rolesDepAgentsUsing: " aliashoz, a(z) ",
     rolesDepAliasesReport:
       " aliast használó ügynökök „még nincs beállítva” hibát jelentenek indításkor — az Alügynökök továbbra is betöltődik.",
-    forkContextLabel: "A szülő kontextusának elágaztatása minden alügynökbe",
+    forkContextLabel: "A szülő beszélgetésének megosztása",
     forkContextDescription:
-      "Bekapcsolva az alügynök a szülő legutóbbi köreinek tömörített másolatát örökli. Kikapcsolva minden alügynök üres beszélgetéssel indul (izolált).",
-    saveError: "HTTP {status}: {detail}",
+      "Be: minden alügynök megkapja a szülő legutóbbi köreinek tömörített másolatát. Ki: mindegyik üres beszélgetéssel indul.",
+    saveError: "Nem sikerült menteni az alügynök-beállításokat. Ellenőrizd, hogy a dashboard fut-e, majd mentsd újra.",
+    settingsLead: "Hogyan indítanak a munkamenetek alügynököket.",
+    rolesNotice:
+      "A beépített Explore ügynök a(z) {role} szerepet használja. Adj a(z) {role} szerepnek modellt a Modellszerepek oldalon, különben a szerepeket használó ügynökök „még nincs beállítva” hibát jelentenek.",
+    openModelRoles: "Modellszerepek megnyitása",
   },
 };

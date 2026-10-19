@@ -14,12 +14,25 @@
  * The resolution tail (`base model → session model`) is displayed but is NOT an
  * entry of the chain: it is shared by every worker and edited elsewhere.
  *
- * See change: add-blackhole-plugin.
+ * Presentation: kit `NumberField`/`ToggleField`/`SettingsStatusPill`/`SettingsNotice`;
+ * reorder/remove are 32 px icon buttons (remove = danger ghost) that sit BESIDE the
+ * entry's `<details>` rather than inside its `<summary>` (no nested interactive).
+ *
+ * See changes: add-blackhole-plugin, retro-ux-plugin-settings-wave-2.
  */
-import { RoleRef, type RoleRefLabels, useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  NumberField,
+  RoleRef,
+  type RoleRefLabels,
+  SettingsNotice,
+  SettingsStatusPill,
+  ToggleField,
+  useT,
+  useUiPrimitive,
+} from "@blackbelt-technology/dashboard-plugin-runtime";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import type { ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { mdiAlertOutline } from "@mdi/js";
+import { mdiAlertOutline, mdiArrowDown, mdiArrowUp, mdiClose, mdiDeleteOutline, mdiPlus } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type React from "react";
 import { useState } from "react";
@@ -31,9 +44,7 @@ import {
   normalizeModel,
   removeEntry,
 } from "../shared/chain-model.js";
-
-const inputCls =
-  "font-mono text-[12px] text-[var(--text-primary)] bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] rounded px-2 py-1 outline-none focus:border-[var(--accent-primary)]";
+import { BTN_ICON, BTN_ICON_DANGER, BTN_SECONDARY } from "./settings-buttons.js";
 
 /** Stable label for a model entry — the model id is what the user recognises. */
 function modelLabel(model: ModelRef): string {
@@ -57,8 +68,6 @@ const ROLE_STATUS_TEXT: Record<string, string> = {
   dangling: "Role unassigned, keeps its last model",
 };
 
-const WARNING_PILL =
-  "inline-flex items-center flex-none rounded-full border px-1.5 py-0.5 text-xs bg-[var(--severity-warning-bg)] border-[var(--severity-warning-border)] text-[var(--severity-warning-fg)]";
 const WARNING_CALLOUT =
   "flex items-start gap-1.5 rounded-md border px-2 py-1.5 text-xs bg-[var(--severity-warning-bg)] border-[var(--severity-warning-border)] text-[var(--severity-warning-fg)]";
 
@@ -112,9 +121,9 @@ function ThinkingControl({
   const ThinkingLevelPrimitive = useUiPrimitive(UI_PRIMITIVE_KEYS.thinkingLevelSelector);
   if (entry.role) {
     return (
-      <div className="flex items-center gap-2 text-[11.5px] text-[var(--text-secondary)]">
-        <span className="w-28">{t("mThinking", undefined, "Thinking")}</span>
-        <span data-testid={`blackhole-entry-${index}-thinking-from-role`} className="text-[var(--text-tertiary)]">
+      <div className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
+        <span className="w-28 font-semibold text-[var(--text-primary)]">{t("mThinking", undefined, "Thinking")}</span>
+        <span data-testid={`blackhole-entry-${index}-thinking-from-role`}>
           {t("thinkingFromRole", { role: entry.role }, `from ${entry.role}`)}
         </span>
       </div>
@@ -128,38 +137,22 @@ function ThinkingControl({
       : ["off", "minimal", "low", "medium", "high", "xhigh"];
 
   return (
-    <div className="flex items-center gap-2 text-[11.5px] text-[var(--text-secondary)]">
-      <span className="w-28">{t("mThinking", undefined, "Thinking")}</span>
-      <label className="flex items-center gap-1.5 cursor-pointer">
-        <input
-          type="checkbox"
-          aria-label={`Override thinking level for ${modelLabel(entry)}`}
-          checked={isOverrideEnabled}
-          onChange={(e) => {
-            if (e.target.checked) {
-              onPatch(index, "thinking", "off");
-            } else {
-              onPatch(index, "thinking", undefined);
-            }
-          }}
-        />
-        <span className="text-[11.5px]">
-          {t("overrideThinking", undefined, "Override thinking level")}
-        </span>
-      </label>
+    <div className="space-y-2">
+      <ToggleField
+        label={t("overrideThinkingFor", { model: modelLabel(entry) }, `Override thinking level for ${modelLabel(entry)}`)}
+        hint={
+          isOverrideEnabled ? null : t("inherit", undefined, "(inherit)")
+        }
+        value={isOverrideEnabled}
+        onChange={(on) => onPatch(index, "thinking", on ? "off" : undefined)}
+      />
       {isOverrideEnabled ? (
-        <div className="ml-2">
-          <ThinkingLevelPrimitive
-            current={entry.thinking}
-            supportedLevels={supportedLevels}
-            onSelect={(lvl: string) => onPatch(index, "thinking", lvl)}
-          />
-        </div>
-      ) : (
-        <span className="text-[11.5px] text-[var(--text-tertiary)] ml-1">
-          {t("inherit", undefined, "(inherit)")}
-        </span>
-      )}
+        <ThinkingLevelPrimitive
+          current={entry.thinking}
+          supportedLevels={supportedLevels}
+          onSelect={(lvl: string) => onPatch(index, "thinking", lvl)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -186,81 +179,48 @@ function EntryRow({
     thinking: t("roleRefThinking", undefined, "thinking"),
   };
 
+  const label = modelLabel(entry);
   return (
     <li
-      className="border border-[var(--border-secondary)] rounded-lg mb-1.5 bg-[var(--bg-secondary)]"
+      className="mb-1.5 flex items-start rounded-lg border border-[var(--border-secondary)] bg-[var(--bg-secondary)]"
       data-testid={`blackhole-chain-${worker}-entry-${index}`}
     >
-      <details>
-        <summary className="cursor-pointer flex items-center gap-2 px-3 py-2 list-none select-none">
-          <span className="text-[11px] text-[var(--text-tertiary)] w-4" aria-hidden="true">
+      <details className="group min-w-0 flex-1">
+        <summary className="focus-ring flex min-h-[44px] cursor-pointer select-none list-none flex-wrap items-center gap-2 rounded-lg px-3 py-1.5 [&::-webkit-details-marker]:hidden">
+          <span className="w-4 text-[12px] text-[var(--text-secondary)]" aria-hidden="true">
             {index + 1}
           </span>
           {index === 0 && (
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-tertiary)] border border-[var(--border-secondary)] rounded px-1.5">
+            <SettingsStatusPill tone="neutral" icon={null} interactive>
               {t("primary", undefined, "Primary")}
-            </span>
+            </SettingsStatusPill>
           )}
           {entry.role ? (
-            <>
-              <RoleRef
-                role={entry.role}
-                model={concreteLabel(entry) || undefined}
-                level={entry.thinking}
-                labels={roleRefLabels}
-                testIds={{ token: `blackhole-chain-${worker}-entry-${index}-role` }}
-              />
-            </>
+            <RoleRef
+              role={entry.role}
+              model={concreteLabel(entry) || undefined}
+              level={entry.thinking}
+              labels={roleRefLabels}
+              testIds={{ token: `blackhole-chain-${worker}-entry-${index}-role` }}
+            />
           ) : (
             <>
               <span className="font-mono text-[12px] text-[var(--text-primary)]">{entry.id}</span>
-              <span className="text-[11px] text-[var(--text-tertiary)]">{entry.provider}</span>
+              <span className="text-[12px] text-[var(--text-secondary)]">{entry.provider}</span>
             </>
           )}
           {entry.role && entry.roleStatus && entry.roleStatus !== "ok" && (
-            <span
-              data-testid={`blackhole-chain-${worker}-entry-${index}-role-status`}
-              data-status={entry.roleStatus}
-              className={WARNING_PILL}
+            <SettingsStatusPill
+              tone="warning"
+              interactive
+              testId={`blackhole-chain-${worker}-entry-${index}-role-status`}
+              status={entry.roleStatus}
             >
               {t(`roleStatus_${entry.roleStatus}`, undefined, ROLE_STATUS_TEXT[entry.roleStatus] ?? entry.roleStatus)}
-            </span>
+            </SettingsStatusPill>
           )}
-          <span className="ml-auto flex items-center gap-1">
-            <button
-              type="button"
-              disabled={index === 0}
-              aria-label={`Move ${modelLabel(entry)} up in the ${worker} chain`}
-              data-testid={`blackhole-chain-${worker}-up-${index}`}
-              className="px-1.5 py-0.5 text-[11px] rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] disabled:opacity-40"
-              onClick={() => onMove(index, -1)}
-            >
-              ↑
-            </button>
-            <button
-              type="button"
-              disabled={index === total - 1}
-              aria-label={`Move ${modelLabel(entry)} down in the ${worker} chain`}
-              data-testid={`blackhole-chain-${worker}-down-${index}`}
-              className="px-1.5 py-0.5 text-[11px] rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] disabled:opacity-40"
-              onClick={() => onMove(index, 1)}
-            >
-              ↓
-            </button>
-            {removable && (
-              <button
-                type="button"
-                aria-label={`Remove ${modelLabel(entry)} from the ${worker} chain`}
-                data-testid={`blackhole-chain-${worker}-remove-${index}`}
-                className="px-1.5 py-0.5 text-[11px] rounded border border-[var(--border-secondary)] text-[var(--accent-red)]"
-                onClick={() => onRemove(index)}
-              >
-                ✕
-              </button>
-            )}
-          </span>
         </summary>
-        <div className="px-3 pb-3 pt-1 grid gap-2 border-t border-[var(--border-subtle)]">
+        <div className="grid gap-3 border-t border-[var(--border-subtle)] px-3 pb-3 pt-2">
           <div
             role="group"
             aria-label={t(
@@ -268,16 +228,16 @@ function EntryRow({
               { worker, index: index + 1 },
               `Model for ${worker} entry ${index + 1}`,
             )}
-            className="flex items-center gap-2 text-[11.5px] text-[var(--text-secondary)]"
+            className="flex items-center gap-2 text-xs text-[var(--text-secondary)]"
           >
-            <span className="w-28">{t("modelLabel", undefined, "Model")}</span>
-            <div className="flex-1 min-w-0">
+            <span className="w-28 font-semibold text-[var(--text-primary)]">{t("modelLabel", undefined, "Model")}</span>
+            <div className="min-w-0 flex-1">
               {registry === "ok" ? (
                 <ModelSelectorPrimitive
                   current={entryCurrent(entry)}
                   models={models}
                   allowRoles
-                  onSelect={(label: string) => onSelectModel(index, label)}
+                  onSelect={(sel: string) => onSelectModel(index, sel)}
                 />
               ) : (
                 <span
@@ -312,47 +272,64 @@ function EntryRow({
           )}
 
           {levelDropNotice && (
-            <div
-              data-testid={`blackhole-chain-${worker}-${index}-level-drop`}
-              role="status"
-              className={WARNING_CALLOUT}
-            >
-              <Icon path={mdiAlertOutline} size={0.55} className="flex-shrink-0 mt-0.5" aria-hidden />
-              <span>{levelDropNotice}</span>
-            </div>
+            <SettingsNotice tone="warning" role="status" testId={`blackhole-chain-${worker}-${index}-level-drop`}>
+              {levelDropNotice}
+            </SettingsNotice>
           )}
 
-          <ThinkingControl
-            entry={entry}
-            index={index}
-            models={models}
-            onPatch={onPatch}
+          <ThinkingControl entry={entry} index={index} models={models} onPatch={onPatch} />
+
+          <NumberField
+            label={t("cooldownHoursFor", { model: label }, `Cooldown hours for ${label}`)}
+            hint={t("cooldownHint", undefined, "How long this model is skipped after a retryable error.")}
+            decimal
+            allowEmpty
+            value={entry.cooldownHours ?? Number.NaN}
+            onChange={(v) => onPatch(index, "cooldownHours", v)}
           />
 
-          <label className="flex items-center gap-2 text-[11.5px] text-[var(--text-secondary)]">
-            <span className="w-28">{t("mCooldown", undefined, "Cooldown (hours)")}</span>
-            <input
-              type="number"
-              className={inputCls}
-              value={entry.cooldownHours ?? ""}
-              aria-label={`Cooldown hours for ${modelLabel(entry)}`}
-              onChange={(e) => onPatch(index, "cooldownHours", e.target.value)}
-            />
-          </label>
-
-          <label className="flex items-center gap-2 text-[11.5px] text-[var(--text-secondary)]">
-            <span className="w-28">{t("mContextWindow", undefined, "Context window")}</span>
-            <input
-              type="number"
-              className={inputCls}
-              placeholder="inherit from pi"
-              value={entry.contextWindow ?? ""}
-              aria-label={`Context window for ${modelLabel(entry)}`}
-              onChange={(e) => onPatch(index, "contextWindow", e.target.value)}
-            />
-          </label>
+          <NumberField
+            label={t("contextWindowFor", { model: label }, `Context window for ${label}`)}
+            hint={t("contextWindowHint", undefined, "Leave empty to use pi's own value.")}
+            allowEmpty
+            value={entry.contextWindow ?? Number.NaN}
+            onChange={(v) => onPatch(index, "contextWindow", v)}
+          />
         </div>
       </details>
+      <span className="flex flex-none items-center gap-0.5 p-1.5">
+        <button
+          type="button"
+          disabled={index === 0}
+          aria-label={`Move ${label} up in the ${worker} chain`}
+          data-testid={`blackhole-chain-${worker}-up-${index}`}
+          className={BTN_ICON}
+          onClick={() => onMove(index, -1)}
+        >
+          <Icon path={mdiArrowUp} size={0.65} aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          disabled={index === total - 1}
+          aria-label={`Move ${label} down in the ${worker} chain`}
+          data-testid={`blackhole-chain-${worker}-down-${index}`}
+          className={BTN_ICON}
+          onClick={() => onMove(index, 1)}
+        >
+          <Icon path={mdiArrowDown} size={0.65} aria-hidden="true" />
+        </button>
+        {removable && (
+          <button
+            type="button"
+            aria-label={`Remove ${label} from the ${worker} chain`}
+            data-testid={`blackhole-chain-${worker}-remove-${index}`}
+            className={BTN_ICON_DANGER}
+            onClick={() => onRemove(index)}
+          >
+            <Icon path={mdiDeleteOutline} size={0.65} aria-hidden="true" />
+          </button>
+        )}
+      </span>
     </li>
   );
 }
@@ -448,12 +425,12 @@ export function ChainEditor({
       aria-labelledby={`blackhole-worker-${worker}`}
       data-testid={`blackhole-chain-${worker}`}
     >
-      <div className="flex items-baseline gap-2 mb-2">
-        <span id={`blackhole-worker-${worker}`} className="text-[13px] font-semibold text-[var(--text-primary)]">
+      <div className="mb-2 flex flex-wrap items-baseline gap-x-2">
+        <span id={`blackhole-worker-${worker}`} className="text-sm font-semibold text-[var(--text-primary)]">
           {name}
         </span>
-        <span className="text-[11.5px] text-[var(--text-tertiary)]">{role}</span>
-        <span className="ml-auto text-[11px] text-[var(--text-tertiary)]">
+        <span className="text-xs text-[var(--text-secondary)]">{role}</span>
+        <span className="ml-auto text-xs text-[var(--text-secondary)]">
           {entries.length} {entries.length === 1 ? "model" : "models"}
         </span>
       </div>
@@ -461,7 +438,7 @@ export function ChainEditor({
       {entries.length === 0 ? (
         <div
           data-testid={`blackhole-chain-${worker}-empty`}
-          className="border border-dashed border-[var(--border-secondary)] rounded-lg p-3 mb-2 text-[12px] text-[var(--text-tertiary)] bg-[var(--bg-secondary)]"
+          className="mb-2 rounded-lg border border-dashed border-[var(--border-secondary)] bg-[var(--bg-secondary)] p-3 text-xs text-[var(--text-secondary)]"
         >
           {t("chainEmpty", undefined, "Worker currently resolves to base / session tail only.")}
         </div>
@@ -498,17 +475,17 @@ export function ChainEditor({
             }
           }}
         >
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-medium text-[var(--text-secondary)]">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-xs font-semibold text-[var(--text-primary)]">
               {t("addModelToChain", { worker }, `Add model to ${worker} chain`)}
             </span>
             <button
               type="button"
               aria-label={t("cancelAddingModel", undefined, "Cancel adding model")}
               onClick={() => setAdding(false)}
-              className="text-[11px] text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
+              className={BTN_ICON}
             >
-              ✕
+              <Icon path={mdiClose} size={0.65} aria-hidden="true" />
             </button>
           </div>
           <ModelSelectorPrimitive
@@ -549,15 +526,16 @@ export function ChainEditor({
         aria-label={`Add model to ${worker} chain`}
         data-testid={`blackhole-chain-${worker}-add`}
         onClick={() => setAdding(true)}
-        className="mb-3 px-2 py-1 text-[11px] rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] disabled:opacity-40 disabled:cursor-not-allowed"
+        className={`${BTN_SECONDARY} mb-2`}
       >
-        + {t("addModelToChain", { worker }, `Add model to ${worker} chain`)}
+        <Icon path={mdiPlus} size={0.55} aria-hidden="true" />
+        {t("addModelToChain", { worker }, `Add model to ${worker} chain`)}
       </button>
 
       {/* The shared resolution tail. Shown so the chain reads completely, but
           NOT an entry of this chain — it belongs to every worker. */}
       <p
-        className="text-[11px] text-[var(--text-tertiary)] m-0 pl-1"
+        className="m-0 pl-1 text-xs text-[var(--text-secondary)]"
         data-testid={`blackhole-chain-${worker}-tail`}
       >
         <span>then </span>

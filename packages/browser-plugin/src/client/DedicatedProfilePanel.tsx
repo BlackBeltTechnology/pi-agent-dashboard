@@ -8,7 +8,13 @@
  * confirmation, stopped only). Unavailable host → reason, no actions. Relay
  * disabled → shown as stopped with every action disabled.
  */
-import { useLanguage, useSessionState, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  SettingsNotice,
+  SettingsStatusPill,
+  useLanguage,
+  useSessionState,
+  useT,
+} from "@blackbelt-technology/dashboard-plugin-runtime";
 import type React from "react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { AuditList } from "./AuditList.js";
@@ -20,7 +26,7 @@ import {
   resetDedicated,
   stopDedicated,
 } from "./browser-api.js";
-import { BTN, BTN_DANGER, BTN_PRIMARY, GROUP, HELP, Notice, Pill } from "./settings-ui.js";
+import { BTN, BTN_DANGER, BTN_PRIMARY, GROUP, HELP } from "./settings-ui.js";
 
 /** `1536` → `"1.5 KB"`, `412 MiB` → `"412 MB"`. */
 function formatBytes(bytes: number): string {
@@ -100,7 +106,7 @@ export function DedicatedProfilePanel({ dedicated, enabled, onRefetch }: Dedicat
   return (
     <section data-testid="browser-dedicated-panel" aria-labelledby={`${ids}-h`} className={GROUP}>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 id={`${ids}-h`} className="text-[13px] font-semibold text-[var(--text-primary)]">
+        <h3 id={`${ids}-h`} className="text-sm font-semibold text-[var(--text-primary)]">
           {t("dedicatedTitle", undefined, "Dedicated agent profile")}
         </h3>
         <StatePill dedicated={dedicated} state={state} />
@@ -124,9 +130,9 @@ export function DedicatedProfilePanel({ dedicated, enabled, onRefetch }: Dedicat
           />
 
           {failed && (
-            <Notice tone="warn" role="alert" testId="browser-dedicated-error">
+            <SettingsNotice tone="warning" role="alert" testId="browser-dedicated-error">
               {t("dedicatedActionFailed", undefined, "The action failed. Check the dashboard log and try again.")}
-            </Notice>
+            </SettingsNotice>
           )}
 
           {confirming && (
@@ -169,24 +175,24 @@ function Fact({
 function StatePill({ dedicated, state }: { dedicated: DedicatedStatus; state: DedicatedState }): React.ReactElement {
   const t = useT();
   if (!dedicated.available) {
-    return <Pill tone="neutral" testId="browser-dedicated-state">{t("dedicatedPillUnavailable", undefined, "Unavailable")}</Pill>;
+    return <SettingsStatusPill tone="neutral" testId="browser-dedicated-state">{t("dedicatedPillUnavailable", undefined, "Unavailable")}</SettingsStatusPill>;
   }
   if (state === "running") {
     return (
-      <Pill tone="ok" testId="browser-dedicated-state">
+      <SettingsStatusPill tone="success" testId="browser-dedicated-state">
         {dedicated.holder
           ? t("dedicatedPillRunningOne", undefined, "Running · 1 session")
           : t("dedicatedPillRunning", undefined, "Running")}
-      </Pill>
+      </SettingsStatusPill>
     );
   }
   if (state === "starting") {
-    return <Pill tone="info" testId="browser-dedicated-state">{t("dedicatedPillStarting", undefined, "Starting")}</Pill>;
+    return <SettingsStatusPill tone="info" testId="browser-dedicated-state">{t("dedicatedPillStarting", undefined, "Starting")}</SettingsStatusPill>;
   }
   if (state === "not-created") {
-    return <Pill tone="info" testId="browser-dedicated-state">{t("dedicatedPillNotSetUp", undefined, "Not set up")}</Pill>;
+    return <SettingsStatusPill tone="info" testId="browser-dedicated-state">{t("dedicatedPillNotSetUp", undefined, "Not set up")}</SettingsStatusPill>;
   }
-  return <Pill tone="neutral" testId="browser-dedicated-state">{t("dedicatedPillStopped", undefined, "Stopped")}</Pill>;
+  return <SettingsStatusPill tone="neutral" testId="browser-dedicated-state">{t("dedicatedPillStopped", undefined, "Stopped")}</SettingsStatusPill>;
 }
 
 function StatusText({ state, holder }: { state: DedicatedState; holder?: DedicatedHolder }): React.ReactElement {
@@ -228,7 +234,7 @@ function ResetConfirm({
       }}
       className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-tertiary)] p-3"
     >
-      <h4 id={`${ids}-ct`} className="text-[13px] font-semibold text-[var(--text-primary)]">
+      <h4 id={`${ids}-ct`} className="text-sm font-semibold text-[var(--text-primary)]">
         {t("resetConfirmTitle", undefined, "Reset the dedicated profile?")}
       </h4>
       <p id={`${ids}-cb`} className="mt-1 text-xs text-[var(--text-secondary)]">
@@ -259,7 +265,7 @@ function ResetConfirm({
 function UnavailableReason({ reason }: { reason: DedicatedStatus["reason"] }): React.ReactElement {
   const t = useT();
   return (
-    <p data-testid="browser-dedicated-reason" data-reason={reason} className="text-xs text-[var(--text-tertiary)]">
+    <p data-testid="browser-dedicated-reason" data-reason={reason} className="text-xs text-[var(--text-secondary)]">
       {reason === "no-display"
         ? t("dedicatedNoDisplay", undefined, "This host has no display, so a Chrome window cannot open here.")
         : t("dedicatedNoChrome", undefined, "Needs desktop Google Chrome on this host.")}
