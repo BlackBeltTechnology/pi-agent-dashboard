@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>add-supervised-tool-approval: mode control, approval card, settings (UX board)</title>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="mockup.css" />
+<script src="icons.js"></script>
+<style>
+  /* ── board-local layout ── */
+  .pair.single { grid-template-columns: 1fr; }
+  .col.only > .tag { color: var(--text-secondary); }
+  body[data-view="asbuilt"] .pair.single .col.proposed { display: block; }
+  .state > .note { margin: 0; padding: 6px 12px; font-size: 12px; color: var(--text-secondary); border-top: 1px solid var(--border-secondary); background: var(--bg-secondary); }
+  .state > .note code { color: var(--text-primary); }
+  .frame { container-type: inline-size; container-name: frame; }
+  #a-mobile .frame { width: min(375px, 100%); } /* this state is the narrow fold by definition */
+  .chat { display: flex; flex-direction: column; gap: 8px; }
+  .msg { font-size: 13px; color: var(--text-primary); padding: 0 16px; }
+  .msg .who { font-size: 11px; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 2px; }
+
+  /* ── AS-BUILT replicas (shipped Tailwind classes, 1:1). Scope: .col.asbuilt ──
+     ConfirmRenderer.tsx (pending): mx-4 my-2 p-3 bg-hover border border-secondary rounded-lg;
+     title text-sm font-medium; message text-xs text-secondary mb-3 ml-6;
+     buttons min-h-[36px] px-3 text-[13px] font-semibold rounded-md (Yes accent-solid · No tint-action-red · Cancel bg-tertiary). */
+  .col.asbuilt .ab-confirm { margin: 8px 16px; padding: 12px; background: var(--bg-hover); border: 1px solid var(--border-secondary); border-radius: 8px; }
+  .col.asbuilt .ab-confirm .h { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; font-size: 14px; font-weight: 500; }
+  .col.asbuilt .ab-confirm .h svg { color: var(--severity-warning-fg); width: 18px; height: 18px; }
+  .col.asbuilt .ab-confirm .m { margin: 0 0 12px 24px; font-size: 12px; color: var(--text-secondary); }
+  .col.asbuilt .ab-confirm .acts { display: flex; flex-wrap: wrap; gap: 8px; margin-left: 24px; }
+  .col.asbuilt .ab-btn { min-width: 44px; min-height: 36px; padding: 0 12px; font-size: 13px; font-weight: 600; border-radius: 6px; border: 1px solid transparent; }
+  .col.asbuilt .ab-btn.yes { background: var(--accent-solid); color: #fff; }
+  .col.asbuilt .ab-btn.no { color: var(--tint-red-fg); border-color: var(--tint-red-border); background: var(--tint-red-bg); }
+  .col.asbuilt .ab-btn.cancel { border-color: var(--border-secondary); background: var(--bg-tertiary); color: var(--text-primary); }
+  /* CommandInput.tsx composer-card + composer-settings-row; ThinkingLevelSelector trigger
+     = text-xs px-2 py-0.5 rounded text-secondary font-mono. */
+  .composer { background: var(--bg-tertiary); border: 1px solid var(--border-secondary); border-radius: 12px; padding: 8px 10px 6px; }
+  .composer .ta { min-height: 38px; padding: 4px 6px; font-size: 14px; color: var(--text-secondary); display: flex; align-items: flex-start; justify-content: space-between; gap: 6px; }
+  .composer .send { width: 34px; height: 34px; border-radius: 8px; display: grid; place-items: center; background: var(--accent-solid); color: #fff; flex: none; }
+  .composer .rule { height: 1px; background: var(--border-subtle); margin: 4px 0; }
+  .composer .row { display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; min-width: 0; }
+  .composer .sq { width: 34px; height: 30px; border-radius: 8px; display: grid; place-items: center; color: var(--text-secondary); flex: none; }
+  .composer .sq svg.i { width: 20px; height: 20px; }
+  .chipx { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; min-height: 30px; border-radius: 4px; font-size: 12px; color: var(--text-secondary); white-space: nowrap; }
+  .chipx.mono { font-family: "SF Mono", Menlo, Monaco, Consolas, monospace; }
+  .composer .grow { flex: 1; }
+  .wide-only { display: inline-flex; }
+  .narrow-only { display: none; }
+  @container frame (max-width: 520px) { .wide-only { display: none; } .narrow-only { display: inline-flex; } }
+
+  /* ── PROPOSED: mode chip (composer settings row). Same footprint as the thinking chip. ── */
+  .mode-chip { display: inline-flex; align-items: center; gap: 5px; min-height: 30px; padding: 0 8px; border-radius: 6px; font-size: 12px; font-weight: 600; border: 1px solid transparent; color: var(--text-secondary); white-space: nowrap; }
+  .mode-chip:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .mode-chip[data-mode="supervised"] { background: var(--accent-soft); color: var(--text-primary); border-color: var(--accent); }
+  .mode-chip .cv { width: 14px; height: 14px; opacity: .8; }
+  .mode-static { display: inline-flex; align-items: center; gap: 5px; min-height: 30px; padding: 0 8px; border-radius: 6px; font-size: 12px; color: var(--text-secondary); border: 1px dashed var(--border-secondary); white-space: nowrap; }
+  .popwrap { display: flex; justify-content: flex-start; padding-left: 80px; }
+  @container frame (max-width: 520px) { .popwrap { padding-left: 0; justify-content: flex-end; } }
+  .p-panel.mode { width: 340px; }
+  .p-panel .ph { padding: 6px 12px 2px; font-size: 11px; font-weight: 600; color: var(--text-secondary); }
+  .p-opt .t svg.i { width: 16px; height: 16px; }
+  .p-opt .tick { margin-left: auto; color: var(--accent-text); }
+  .p-panel.mode .p-opt .s { font-size: 12px; }
+  .p-panel .fine { padding: 4px 12px 6px; font-size: 12px; color: var(--text-secondary); }
+  .p-panel .fine p { margin: 0 0 4px; }
+  .p-panel .fine a { color: var(--text-primary); text-decoration: underline; } /* contract a11y #7: --accent-text fails on --bg-surface in nord */
+
+  /* ── PROPOSED: ToolApprovalRenderer. Same shell as ConfirmRenderer (bg-hover card, mx-4). ── */
+  .ap { margin: 8px 16px; padding: 12px; background: var(--bg-hover); border: 1px solid var(--border-secondary); border-radius: 8px; }
+  @container frame (max-width: 520px) { .ap { margin: 8px 0; } }
+  .ap .hd { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .ap .badge { width: 24px; height: 24px; border-radius: 6px; display: grid; place-items: center; background: var(--severity-warning-bg); color: var(--severity-warning-fg); border: 1px solid var(--severity-warning-border); flex: none; }
+  .ap .badge svg.i { width: 16px; height: 16px; }
+  .ap .ttl { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+  .tool { font-family: "SF Mono", Menlo, Monaco, Consolas, monospace; font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 4px; background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-secondary); }
+  .ap .clock { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+  .ap .clock.low { color: var(--severity-warning-fg); font-weight: 600; }
+  .ap .bd { margin: 8px 0 0 32px; }
+  @container frame (max-width: 520px) { .ap .bd { margin-left: 0; } }
+  .ap pre { margin: 0; padding: 8px 10px; background: var(--bg-code); border: 1px solid var(--border-subtle); border-radius: 6px; font-family: "SF Mono", Menlo, Monaco, Consolas, monospace; font-size: 12px; line-height: 1.5; color: var(--text-primary); white-space: pre-wrap; word-break: break-word; max-height: 160px; overflow: auto; }
+  .ap .ctx { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 6px; font-size: 11px; color: var(--text-secondary); }
+  .ap .ctx span { display: inline-flex; align-items: center; gap: 4px; }
+  .ap .ctx code { color: var(--text-primary); font-size: 11px; }
+  .ap .path { font-family: "SF Mono", Menlo, Monaco, Consolas, monospace; font-size: 12px; color: var(--text-primary); word-break: break-all; }
+  .ap .delta { font-family: "SF Mono", Menlo, Monaco, Consolas, monospace; font-size: 11px; font-weight: 600; margin-left: 6px; }
+  .ap .delta .a { color: var(--severity-success-fg); } .ap .delta .d { color: var(--severity-error-fg); }
+  .ap details { margin-top: 6px; }
+  .ap details > summary { cursor: pointer; font-size: 12px; color: var(--text-secondary); min-height: 32px; display: inline-flex; align-items: center; gap: 4px; list-style: none; }
+  .ap details > summary::-webkit-details-marker { display: none; }
+  .ap details > summary:hover { color: var(--text-primary); }
+  .ap details[open] > summary .chev { transform: rotate(90deg); }
+  .diff { border: 1px solid var(--border-subtle); border-radius: 6px; overflow: hidden; font-family: "SF Mono", Menlo, Monaco, Consolas, monospace; font-size: 12px; line-height: 1.5; background: var(--bg-code); }
+  .diff .hunk { padding: 2px 10px; color: var(--text-secondary); background: var(--bg-tertiary); }
+  .diff .l { padding: 0 10px; white-space: pre-wrap; word-break: break-word; color: var(--text-primary); }
+  .diff .l.add { background: var(--tint-green-bg); color: var(--tint-green-fg); }
+  .diff .l.del { background: var(--tint-red-bg); color: var(--tint-red-fg); }
+  .ap .acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .ap .acts .p-btn { min-height: 36px; font-size: 13px; }
+  .ap .acts .p-btn.primary { min-height: 36px; }
+  @container frame (max-width: 520px) { .ap .acts .p-btn { min-height: 44px; flex: 1 1 120px; } .ap .acts .p-btn.ghost { flex-basis: 100%; } }
+  .ap .warnline { margin-top: 8px; font-size: 11px; color: var(--text-secondary); display: flex; gap: 6px; align-items: flex-start; }
+  .ap .warnline svg.i { margin-top: 2px; }
+  .ap textarea.p-input { width: 100%; min-height: 64px; resize: vertical; font: inherit; font-size: 13px; padding: 6px 8px; }
+  /* resolved rows — ConfirmRenderer's collapsed recipe (my-1 p-2 bg-hover rounded text-xs) */
+  .done { margin: 4px 16px; padding: 8px; background: var(--bg-hover); border-radius: 6px; font-size: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; color: var(--text-secondary); }
+  @container frame (max-width: 520px) { .done { margin: 4px 0; } }
+  .done .o { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; }
+  .done .o.ok { color: var(--severity-success-fg); }
+  .done .o.no { color: var(--severity-error-fg); }
+  .done .o.to { color: var(--severity-warning-fg); }
+  .done code.cmd { color: var(--text-primary); font-size: 12px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1 1 140px; }
+  .done .by { margin-left: auto; font-size: 11px; }
+  .done .why { flex-basis: 100%; padding-left: 20px; color: var(--text-primary); font-size: 12px; }
+  .done .why q { quotes: "“" "”"; }
+
+  /* ── PROPOSED: Settings → Sessions section ── */
+  .set h3 { margin: 0 0 8px; font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+  .set .fld { padding: 8px 0; border-top: 1px solid var(--border-secondary); }
+  .set .fld:first-of-type { border-top: 0; }
+  .set .r { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .set label { font-size: 14px; color: var(--text-secondary); }
+  .set select.p-input { width: auto; max-width: 100%; min-height: 32px; padding: 0 8px; font: inherit; font-size: 13px; }
+  .set .unit { margin-left: 6px; padding: 1px 4px; border-radius: 4px; font-size: 12px; background: var(--bg-tertiary); color: var(--text-secondary); }
+  .set input.p-input.num { width: 96px; text-align: right; min-height: 32px; }
+  .set .hint { margin: 4px 0 0; font-size: 12px; color: var(--text-secondary); }
+  .set .err { margin: 4px 0 0; font-size: 12px; color: var(--severity-error-fg); }
+  .tokens { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .tok { display: inline-flex; align-items: center; gap: 2px; padding: 0 2px 0 8px; min-height: 28px; border-radius: 999px; font-family: "SF Mono", Menlo, Monaco, Consolas, monospace; font-size: 12px; background: var(--bg-tertiary); border: 1px solid var(--border-secondary); color: var(--text-primary); }
+  .tok button { width: 24px; height: 24px; border-radius: 999px; display: grid; place-items: center; color: var(--text-secondary); }
+  .tok button:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .tok-add { display: inline-flex; gap: 6px; align-items: center; }
+  .tok-add .p-input { width: 140px; min-height: 28px; font-size: 12px; }
+</style>
+</head>
+<body data-view="both">
+<div class="toolbar" role="toolbar" aria-label="Board controls">
+  <h1>Supervised mode: tool approval</h1>
+  <span class="seg-label" id="lbl-theme">Theme</span>
+  <div class="seg" aria-labelledby="lbl-theme" data-group="theme">
+    <button aria-pressed="true" data-v="base-dark">Base dark</button>
+    <button aria-pressed="false" data-v="base-light">Base light</button>
+    <button aria-pressed="false" data-v="nord-dark">Nord dark</button>
+  </div>
+  <span class="seg-label" id="lbl-w">Frame</span>
+  <div class="seg" aria-labelledby="lbl-w" data-group="width">
+    <button aria-pressed="false" data-v="375">375</button>
+    <button aria-pressed="false" data-v="768">768</button>
+    <button aria-pressed="true" data-v="1440">1440</button>
+  </div>
+  <span class="seg-label" id="lbl-v">View</span>
+  <div class="seg" aria-labelledby="lbl-v" data-group="view">
+    <button aria-pressed="true" data-v="both">Both</button>
+    <button aria-pressed="false" data-v="asbuilt">As-built</button>
+    <button aria-pressed="false" data-v="proposed">Proposed</button>
+  </div>
+</div>
+<main id="board"></main>
+
+<script>
+/* ── helpers ── */
+const ic = (n, cls = "") => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true"><path d="${ICON[n]}"/></svg>`;
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+let uid = 0; const nid = (p) => `${p}-${++uid}`;
+const CWD = "~/Project/pi-agent-dashboard";
+
+/* ── composer (A) ── */
+const asComposer = () => `<div class="composer">
+  <div class="ta"><span>Message, /command, !shell, or @file...</span><span class="send">${ic("ArrowUp")}</span></div>
+  <div class="rule"></div>
+  <div class="row"><span class="sq">${ic("Plus")}</span>
+    <span class="chipx mono">anthropic/claude-sonnet-5-5</span>
+    <span class="chipx mono wide-only">${ic("HeadLightbulb")} high</span>
+    <span class="grow"></span><span class="sq narrow-only">${ic("DotsHorizontal")}</span></div></div>`;
+
+function modeChip(mode, open = false) {
+  const sup = mode === "supervised";
+  return `<button type="button" class="mode-chip focus-ring" data-mode="${mode}" aria-haspopup="menu" aria-expanded="${open}"
+    data-testid="session-mode-chip" title="Tool approval: ${sup ? "Supervised" : "Full access"}">
+    ${ic(sup ? "AccountEyeOutline" : "LockOpenVariantOutline")}<span>${sup ? "Supervised" : "Full access"}</span>${ic("ChevronDown", "cv")}</button>`;
+}
+const gatewayStatic = () => `<span class="mode-static" data-testid="session-mode-gateway" role="note"
+    title="Tool approval for this session is set by the chat gateway's tool policy.">${ic("MessageTextOutline")} Gateway policy</span>`;
+
+const proComposer = (slot) => `<div class="composer">
+  <div class="ta"><span>Message, /command, !shell, or @file...</span><span class="send">${ic("ArrowUp")}</span></div>
+  <div class="rule"></div>
+  <div class="row"><span class="sq">${ic("Plus")}</span>
+    <span class="chipx mono">anthropic/claude-sonnet-5-5</span>
+    <span class="chipx mono wide-only">${ic("HeadLightbulb")} high</span>
+    <span class="wide-only">${slot}</span>
+    <span class="grow"></span><span class="sq narrow-only">${ic("DotsHorizontal")}</span></div></div>`;
+
+function modeMenu(mode) {
+  const opt = (m, icon, t, s) => `<button type="button" role="menuitemradio" class="p-opt" aria-checked="${mode === m}">
+    <span class="main"><span class="t">${ic(icon)} ${t}${mode === m ? `<span class="tick">${ic("Check")}</span>` : ""}</span><span class="s">${s}</span></span></button>`;
+  return `<div class="popwrap"><div class="p-panel mode" role="menu" aria-label="Tool approval" data-testid="session-mode-menu">
+    <div class="ph">Tool approval for this session</div>
+    ${opt("full", "LockOpenVariantOutline", "Full access", "The agent runs every tool without asking.")}
+    ${opt("supervised", "AccountEyeOutline", "Supervised", "You approve each shell command, file edit or write, and subagent the agent starts.")}
+    <div class="sep"></div>
+    <div class="fine"><p>Applies from the agent's next tool call. Approvals are answered here or in the terminal, never in chat.</p>
+      <p>Supervised is not a sandbox: an approved command can do anything your user account can. For isolation, run the session in a container.</p>
+      <p>Your own <code>!</code> commands never ask, and YOLO never answers these. Default for new sessions: <b>Full access</b> · <a href="#settings">Settings</a></p></div>
+  </div></div>`;
+}
+
+function overflowMenu(mode) {
+  const opt = (m, icon, t) => `<button type="button" role="menuitemradio" class="p-opt" aria-checked="${mode === m}"><span class="main"><span class="t">${ic(icon)} ${t}${mode === m ? `<span class="tick">${ic("Check")}</span>` : ""}</span></span></button>`;
+  return `<div class="popwrap"><div class="p-panel mode" role="menu" aria-label="More" style="width:260px">
+    <button type="button" role="menuitem" class="p-opt"><span class="main"><span class="t">${ic("HeadLightbulb")} Thinking: high</span></span></button>
+    <div class="sep"></div><div class="ph">Tool approval</div>
+    ${opt("full", "LockOpenVariantOutline", "Full access")}${opt("supervised", "AccountEyeOutline", "Supervised")}
+    <div class="fine"><p>Not a sandbox. <a href="#a-menu">What this covers</a></p></div>
+  </div></div>`;
+}
+
+/* ── approval card (B) ── */
+function clock(sec) {
+  const m = Math.floor(sec / 60), s = String(sec % 60).padStart(2, "0");
+  return `<span class="clock ${sec <= 30 ? "low" : ""}" title="Denied automatically if nobody answers">${ic("ClockOutline")} Denies in ${m}:${s}</span>`;
+}
+function head(icon, title, tool, sec) {
+  return `<div class="hd"><span class="badge">${ic(icon)}</span><span class="ttl">${title}</span><span class="tool">${tool}</span>${clock(sec)}</div>`;
+}
+function actions(reasonOpen = false) {
+  if (reasonOpen) return "";
+  return `<div class="acts"><button class="p-btn primary focus-ring" data-testid="tool-approval-approve">${ic("Check")} Allow once</button>
+    <button class="p-btn danger focus-ring" data-testid="tool-approval-deny">${ic("Close")} Deny</button>
+    <button class="p-btn ghost focus-ring" data-testid="tool-approval-deny-reason">Deny with a reason…</button></div>`;
+}
+const cardBash = (o = {}) => `<div class="ap" role="group" aria-label="Approval needed: run a shell command" data-testid="tool-approval-card">
+  ${head("Console", "Run this command?", "bash", o.sec ?? 114)}
+  <div class="bd"><pre>${esc(o.cmd ?? "rm -rf build && npm run build")}</pre>
+  <div class="ctx"><span>${ic("Folder")} in <code>${CWD}</code></span></div>
+  ${o.reason ? reasonBox() : ""}
+  ${actions(o.reason)}</div></div>`;
+const reasonBox = () => {
+  const id = nid("reason");
+  return `<div style="margin-top:10px"><label class="p-label" for="${id}">Why? The agent gets this as the reason.</label>
+  <textarea id="${id}" class="p-input focus-ring" data-testid="tool-approval-reason">Don't delete build/. Run npm run build on its own.</textarea>
+  <div class="acts"><button class="p-btn danger focus-ring">${ic("Close")} Deny and send</button><button class="p-btn ghost focus-ring">Back</button></div></div>`;
+};
+const cardEdit = (open) => `<div class="ap" role="group" aria-label="Approval needed: edit a file" data-testid="tool-approval-card">
+  ${head("FileEditOutline", "Edit this file?", "edit", 97)}
+  <div class="bd"><div><span class="path">packages/server/src/config.ts</span><span class="delta"><span class="a">+3</span> <span class="d">−1</span></span></div>
+  <details ${open ? "open" : ""}><summary>${ic("ChevronRight", "chev")} ${open ? "Hide changes" : "Show changes"}</summary>
+    <div class="diff" role="region" aria-label="Proposed change"><div class="hunk">@@ line 96 @@</div>
+      <div class="l">  const timeout = raw.askUserPromptTimeoutSeconds;</div>
+      <div class="l del">- return { timeout };</div>
+      <div class="l add">+ const approval = raw.supervised?.approvalTimeoutSeconds ?? 120;</div>
+      <div class="l add">+ // read per session start</div>
+      <div class="l add">+ return { timeout, approval };</div></div></details>
+  ${actions()}</div></div>`;
+const cardWrite = () => `<div class="ap" role="group" aria-label="Approval needed: write a file" data-testid="tool-approval-card">
+  ${head("FilePlusOutline", "Replace this file?", "write", 102)}
+  <div class="bd"><div><span class="path">docs/supervised-mode.md</span><span class="p-meta" style="margin-left:6px">42 lines, replaces 18 lines</span></div>
+  <details><summary>${ic("ChevronRight", "chev")} Show new content</summary>
+    <pre># Supervised mode
+...</pre></details>
+  ${actions()}</div></div>`;
+const cardAgent = () => `<div class="ap" role="group" aria-label="Approval needed: start a subagent" data-testid="tool-approval-card">
+  ${head("RobotOutline", "Start a subagent?", "Agent", 88)}
+  <div class="bd"><div class="ctx" style="margin-top:0"><span>Type <code>nodejs-expert</code></span><span>Model <code>@coding</code></span></div>
+  <pre style="margin-top:6px">Refactor packages/server/src/session/ to stream events through the new gate; update tests.</pre>
+  <p class="warnline">${ic("InformationOutline")}<span>The subagent's own commands and edits won't ask for approval one by one. Approve only if you're fine with it acting on its own.</span></p>
+  ${actions()}</div></div>`;
+
+/* path-gate prompt (stock SelectRenderer: bg-hover card, markdown message, option rows) enriched with the supervised diff — design D14 */
+const pathGateEnriched = () => `<div class="ap" role="group" aria-label="Agent wants to edit outside its workspace">
+  <div class="hd"><span class="badge">${ic("ShieldAlert")}</span><span class="ttl">Agent wants to edit outside its workspace: ~/.config/app/settings.json</span></div>
+  <div class="bd"><div class="ctx" style="margin-top:0"><span>Tool <code>edit</code></span><span>Session cwd <code>${CWD}</code></span></div>
+  <div style="margin-top:8px"><span class="path">~/.config/app/settings.json</span><span class="delta"><span class="a">+1</span> <span class="d">−1</span></span>
+    <span class="pill neutral" style="margin-left:6px">Supervised: content shown</span></div>
+  <div class="diff" style="margin-top:6px" role="region" aria-label="Proposed change"><div class="hunk">@@ line 4 @@</div>
+    <div class="l del">-  "telemetry": true,</div><div class="l add">+  "telemetry": false,</div></div>
+  <div class="acts"><button class="p-btn primary focus-ring">${ic("Check")} Allow once</button>
+    <button class="p-btn danger focus-ring">${ic("Close")} Deny</button>
+    <button class="p-btn secondary focus-ring">Always allow ~/.config/app…</button></div></div></div>`;
+
+const done = {
+  approved: `<div class="done" data-testid="tool-approval-resolved">${ic("ShieldAlert")}<span class="o ok">${ic("Check")} Allowed once</span><span class="tool mono">bash</span><code class="cmd">rm -rf build &amp;&amp; npm run build</code><span class="by">Dashboard</span></div>`,
+  denied: `<div class="done">${ic("ShieldAlert")}<span class="o no">${ic("Close")} Denied</span><span class="tool mono">bash</span><code class="cmd">rm -rf build &amp;&amp; npm run build</code><span class="by">Dashboard</span>
+    <span class="why">Reason sent: <q>Don't delete build/. Run npm run build on its own.</q></span></div>`,
+  timeout: `<div class="done">${ic("ShieldAlert")}<span class="o to">${ic("TimerSandComplete")} No answer in 2:00, denied</span><span class="tool mono">edit</span><code class="cmd">packages/server/src/config.ts</code></div>`,
+  error: `<div class="done">${ic("ShieldAlert")}<span class="o no">${ic("Alert")} Blocked: approval check failed</span><span class="tool mono">write</span><code class="cmd">docs/supervised-mode.md</code></div>`,
+  elsewhere: `<div class="done">${ic("ShieldAlert")}<span class="o ok">${ic("Check")} Allowed in terminal</span><span class="tool mono">bash</span><code class="cmd">npm test</code></div>`,
+};
+
+const asConfirm = (title, msg) => `<div class="ab-confirm"><div class="h">${ic("ShieldAlert")}<span>${title}</span></div><p class="m">${msg}</p>
+  <div class="acts"><button class="ab-btn yes">Yes</button><button class="ab-btn no">No</button><button class="ab-btn cancel">Cancel</button></div></div>`;
+const chat = (inner) => `<div class="chat"><div class="msg"><span class="who">Assistant</span>I'll clear the old build output and rebuild.</div>${inner}</div>`;
+
+/* ── settings (C) ── */
+function settings(o = {}) {
+  const a = nid("def"), b = nid("tmo"), c = nid("tok");
+  return `<div class="set" data-testid="settings-supervised"><h3>Tool approval (Supervised mode)</h3>
+  <div class="fld"><div class="r"><label for="${a}">New sessions start in</label>
+    <select id="${a}" class="p-input focus-ring"><option>Full access (default)</option><option>Supervised</option></select></div>
+    <p class="hint">Each session can switch on its own from the composer. Sessions started by the chat gateway follow its tool policy instead.</p></div>
+  <div class="fld"><div class="r"><label for="${b}">Approval timeout<span class="unit">s</span></label>
+    <input id="${b}" class="p-input num focus-ring" type="number" value="${o.badTimeout ? "0" : "120"}" ${o.badTimeout ? 'aria-invalid="true" aria-describedby="' + b + '-e"' : ""}></div>
+    ${o.badTimeout ? `<p class="err" id="${b}-e">Must be 10 or more. An unanswered approval is always denied, so there is no "wait forever".</p>` : ""}
+    <p class="hint">How long an approval waits before the tool call is denied. Default: 120 (2 min).</p></div>
+  <div class="fld"><label id="${c}">Tools that need approval</label>
+    <div class="tokens" role="list" aria-labelledby="${c}">
+      ${["bash", "powershell", "write", "edit", "Agent"].map((t) => `<span class="tok" role="listitem">${t}<button aria-label="Stop asking for ${t}">${ic("Close")}</button></span>`).join("")}
+      <span class="tok-add"><input class="p-input focus-ring" placeholder="Add tool name" aria-label="Add tool name"><button class="p-btn sm secondary">Add</button></span></div>
+    <p class="hint">Only these tools ask. Any other tool, including MCP and plugin tools, runs without asking until you add it here. Matching ignores case.</p></div>
+  </div>`;
+}
+
+const NONE = null;
+const BOARD = [
+  { title: "A · Mode control in the composer", verdict: "Lives in the composer settings row next to the model and thinking chips, so the mode is visible where you type and needs no new header. Full access looks like any other chip; Supervised is filled so it can't be missed. The menu carries the scope caveat (D1): not a sandbox, your own ! commands don't ask.", states: [
+    ["a-full", "5.1 · D4", "Default. Chip reads <b>Full access</b>, same weight as the thinking chip. As-built: no mode control exists.", asComposer(), proComposer(modeChip("full"))],
+    ["a-menu", "5.1 · D1 · 8.38", "Menu: two radio items + the caveat. “Applies from the agent's next tool call” states the per-call semantics (D4). No “safe”, “sandboxed” or “isolated” anywhere.", NONE, proComposer(modeChip("full", true)) + modeMenu("full")],
+    ["a-supervised", "5.1", "Supervised: filled chip (<code>--accent-soft</code> + <code>--accent</code> border). It stays visible at every width ≥ 520 px; below that it moves into ⋯ (state a-mobile).", NONE, proComposer(modeChip("supervised"))],
+    ["a-mobile", "5.1 · 375", "Narrow composer (container &lt; 44rem): thinking already folds into ⋯; the mode joins it as a radio group with 44 px rows. Shown at 375 regardless of the Frame control.", NONE, proComposer(modeChip("supervised")) + overflowMenu("supervised")],
+    ["a-gateway", "D12 · 8.36 (F11)", "Session spawned by the chat gateway: no toggle. A static, non-interactive note names the policy that applies (tooltip has the full sentence).", NONE, proComposer(gatewayStatic())],
+  ]},
+  { title: "B · Tool approval card (ToolApprovalRenderer)", verdict: "A variant beside ConfirmRenderer, with the same shell (bg-hover card, mx-4, 36 px buttons). It shows what will run, where, and how long it waits. Labels match the agent path gate (Allow once / Deny). Allow once is the only filled button, but nothing is preselected or focused, so a stray Enter can't allow (agent-path-confinement precedent). Cancel is dropped: on an approval it would mean the same as Deny. Terminal and chat surfaces get the same prompt as a plain two-option select (design D3).", states: [
+    ["b-bash", "5.2 · 3.4", "As-built: what a plain <code>ctx.ui.confirm</code> renders today. The command is buried in prose and Yes/No/Cancel is ambiguous. Proposed: verb title, tool chip, the exact command in a code block, cwd, countdown. While it waits, the session card shows “Needs you” and a toast fires (design D16).", chat(asConfirm("Approve tool call?", "The agent wants to run `bash`: rm -rf build && npm run build")), chat(cardBash())],
+    ["b-edit", "5.2 · Q2", "<code>edit</code>: path + <b>+3 −1</b> summary; the diff is collapsed by default (design open question 2: compact + expand).", NONE, cardEdit(false)],
+    ["b-edit-open", "5.2 · Q2", "Diff expanded. Add/delete lines use the <code>--tint-green-*</code> / <code>--tint-red-*</code> tokens, not palette classes.", NONE, cardEdit(true)],
+    ["b-write", "5.2", "<code>write</code> over an existing file says <b>Replace</b> and gives both sizes. A new file reads “Create this file?”.", NONE, cardWrite()],
+    ["b-agent", "D2 · Q5", "<code>Agent</code> is gated because the subagent's own tool calls are not seen by the gate. The card says this plainly.", NONE, cardAgent()],
+    ["b-reason", "5.2", "Deny with a reason: an inline textarea, prefilled here as an example. The agent receives the text as the block reason and can replan.", NONE, chat(cardBash({ reason: true }))],
+    ["b-expiring", "D10", "Last 30 s: the countdown turns warning-coloured, and a screen reader announces it once at 30 s (not every tick). When the time runs out the card is cancelled everywhere (F10).", NONE, cardBash({ sec: 23, cmd: "git push --force origin develop" })],
+    ["b-pathgate", "D14", "Out-of-workspace edit in a Supervised session: ONE prompt. The shipped path-gate card (labels unchanged) also carries the diff the supervised card would show, so allowing it approves nothing unseen. No second supervised prompt follows; the decision is logged with <code>via: path-gate</code>.", NONE, pathGateEnriched()],
+    ["b-resolved", "D11 · 8.21", "Collapsed history rows. Each outcome looks different: allowed once, denied with the reason, timed out, gate error, answered on another surface (<code>answeredSurface</code>, never a person).", NONE, Object.values(done).join("")],
+  ]},
+  { title: "C · Settings → Security → Tool approval", verdict: "New section next to “Agent file access” (AgentPathGateSection), the shipped approval gate it mirrors; config key <code>supervisedMode</code> is shaped like <code>agentPathGate</code> (design D10). It holds the machine default (D4b), the approval timeout (D10, default 120 s) and the risky-tool set (D2). There is no allow-list field on purpose (D2 footgun).", states: [
+    ["c-section", "D2 · D4 · D10", "Default state.", NONE, settings()],
+    ["c-invalid", "D5 · D10", "Timeout 0 rejected: an approval that waits forever contradicts fail-closed (proposed minimum 10 s; see ui-plan Q3).", NONE, settings({ badTimeout: true })],
+  ]},
+];
+
+const pairHtml = (ab, pr) => ab === NONE
+  ? `<div class="pair single"><div class="col proposed only"><p class="tag">Proposed (new surface)</p><div class="frame">${pr}</div></div></div>`
+  : `<div class="pair"><div class="col asbuilt"><p class="tag">As-built</p><div class="frame">${ab}</div></div>
+     <div class="col proposed"><p class="tag">Proposed</p><div class="frame">${pr}</div></div></div>`;
+
+document.getElementById("board").innerHTML = BOARD.map((g) => `<section class="surface"><h2>${g.title}</h2><p class="verdict">${g.verdict}</p>
+  ${g.states.map(([id, finds, note, ab, pr]) => `<article class="state" id="${id}"><header><code>${id}</code><span class="finds">${finds}</span></header>
+    ${pairHtml(ab, pr)}<p class="note">${note}</p></article>`).join("")}</section>`).join("");
+
+/* toolbar: theme / frame / view, URL params */
+const html = document.documentElement;
+function apply(group, v) {
+  if (group === "theme") {
+    const [pal, mode] = v.split("-");
+    mode === "light" ? html.setAttribute("data-theme", "light") : html.removeAttribute("data-theme");
+    pal === "nord" ? html.setAttribute("data-palette", "nord") : html.removeAttribute("data-palette");
+  }
+  if (group === "width") document.body.style.setProperty("--frame-w", v === "1440" ? "100%" : `${v}px`);
+  if (group === "view") document.body.dataset.view = v;
+}
+document.querySelectorAll(".seg").forEach((seg) => seg.addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  seg.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+  apply(seg.dataset.group, b.dataset.v);
+}));
+/* demo: radio items + mode chip flip in place */
+document.addEventListener("click", (e) => {
+  const r = e.target.closest('[role="menuitemradio"]');
+  if (r) r.parentElement.querySelectorAll('[role="menuitemradio"]').forEach((x) => x.setAttribute("aria-checked", String(x === r)));
+});
+const params = new URLSearchParams(location.search);
+for (const g of ["theme", "width", "view"]) if (params.get(g)) document.querySelector(`.seg[data-group="${g}"] button[data-v="${params.get(g)}"]`)?.click();
+</script>
+<script src="probe.js"></script>
+</body>
+</html>
