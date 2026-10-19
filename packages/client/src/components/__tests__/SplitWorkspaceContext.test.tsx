@@ -744,6 +744,30 @@ describe("SplitWorkspaceProvider — changed-on-disk verification", () => {
     expect(f.state.writeCalls).toBe(1);
   });
 
+  it("F19: while the session cwd is unhydrated ('') no digest is requested and detection reads off; once cwd arrives a baseline is captured", async () => {
+    const h = mountDetect({ cwd: "" });
+    expect(h.result.current.changeDetection).toBe(false);
+    act(() => h.result.current.openInSplit("foo.ts"));
+    await act(async () => {
+      await h.result.current.captureBaseline("foo.ts");
+    });
+    await advance(2000);
+    // A digest with an empty cwd is a guaranteed 400 -> null baseline -> a false banner on the next touch.
+    expect(f.digestCalls).toHaveLength(0);
+
+    h.scope.cwd = "/proj";
+    f.disk.set(f.key("/proj", "foo.ts"), "S");
+    h.rerender();
+    expect(h.result.current.changeDetection).toBe(true);
+    await act(async () => {
+      await h.result.current.captureBaseline("foo.ts");
+    });
+    expect(f.digestCalls.at(-1)).toMatchObject({ cwd: "/proj", path: "foo.ts", purpose: "baseline" });
+    h.fire("foo.ts");
+    await advance(200);
+    expect(h.banner()).toEqual([]); // identical content, real baseline -> no banner
+  });
+
   it("Refresh re-sends the watch set (resyncWatch)", async () => {
     const h = mountDetect();
     await openWithBaseline(h);

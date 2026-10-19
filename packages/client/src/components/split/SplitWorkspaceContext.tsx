@@ -194,7 +194,7 @@ export function SplitWorkspaceProvider({
   fileResults = null,
   onFilenameSearch,
   changedFiles: candidates = null,
-  changeDetection = false,
+  changeDetection: changeDetectionRequested = false,
   connectionGeneration = 0,
   onWatchFiles,
   onClearChanged,
@@ -210,6 +210,10 @@ export function SplitWorkspaceProvider({
   onFocusConsumed,
   children,
 }: ProviderProps) {
+  // A session pane opened by direct URL renders before the session list hydrates,
+  // so `cwd` is "" for a moment. A digest with no cwd is a guaranteed 400 -> null
+  // baseline -> a false banner on the next touch; hold detection off until it lands.
+  const changeDetection = changeDetectionRequested && cwd !== "";
   const [split, updateSplit] = useSplitState(sessionId, defaultMode);
   const [paneState, dispatch] = useEditorPaneState(sessionId);
   const ensurePaneOpen = useCallback(() => updateSplit({ mode: "split" }), [updateSplit]);
