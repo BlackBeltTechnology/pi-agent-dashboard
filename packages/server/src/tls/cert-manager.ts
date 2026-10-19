@@ -481,13 +481,16 @@ export class CertManager {
    */
   private arm(ns: NameState, delayMs: number): void {
     if (ns.timer) clearTimeout(ns.timer);
-    let delay = delayMs;
-    if (!(delay >= 0)) delay = 0;
-    else if (delay > MAX_ARM_MS) delay = MAX_ARM_MS;
-    ns.timer = setTimeout(() => {
+    const fire = (): void => {
       ns.timer = undefined;
       void this.beginAttempt(ns, "scheduled");
-    }, delay);
+    };
+    if (delayMs >= 0 && delayMs <= MAX_ARM_MS) {
+      ns.timer = setTimeout(fire, delayMs);
+    } else {
+      // Out of range (negative, NaN, or longer than the cap): only constants reach the timer.
+      ns.timer = setTimeout(fire, delayMs > MAX_ARM_MS ? MAX_ARM_MS : 0);
+    }
     ns.timer.unref?.();
   }
 
