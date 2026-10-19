@@ -1076,9 +1076,9 @@ The `claim.tab` field SHALL remain accepted by the manifest validator (preservin
 
 `SettingsSectionByPluginSlot` SHALL render BOTH refs-registry claims AND intent broadcasts for `settings-section`, filtered to the owning plugin id, so intent-driven and JSON-Schema-descriptor contributions continue to render after `SettingsSectionSlot` stops consuming the slot.
 
-The plugin's settings page SHALL render host-owned chrome above the plugin's own contribution: display name, plugin id, status pill, enable toggle, declared dependencies (`dependsOn`, `dependents`), claimed slot ids, plus any load error and unsatisfied requirements. Chrome SHALL be limited to fields `GET /api/plugins` returns; it SHALL NOT require `version`, `description`, `source`, or `icon`, which the plugin row does not carry. The plugin's `settings-section` contributions SHALL be rendered beneath that chrome, ordered by the slot registry's existing comparator (ascending `priority`, default 1000, tie-broken by `pluginId` lexicographic order). A plugin SHALL NOT be able to suppress, replace, or opt out of the host chrome.
+The plugin's settings page SHALL render host-owned chrome above the plugin's own contribution: display name, plugin id, a status pill only when the plugin is not healthy, an enable switch labelled "Enabled", declared dependencies (`dependsOn`, `dependents`), plus any load error and unsatisfied requirements. Claimed slot ids SHALL render only when the Developer "Show plugin internals" preference is on, inside a collapsed "Plugin internals" disclosure. Status pill words SHALL be human: "Off" (disabled), "Not loaded", "Needs setup" (unsatisfied requirements), "Failed to load" (error), "Status unknown" (none reported). Chrome SHALL be limited to fields `GET /api/plugins` returns; it SHALL NOT require `version`, `description`, `source`, or `icon`, which the plugin row does not carry. The plugin's `settings-section` contributions SHALL be rendered beneath that chrome, ordered by the slot registry's existing comparator (ascending `priority`, default 1000, tie-broken by `pluginId` lexicographic order). A plugin SHALL NOT be able to suppress, replace, or opt out of the host chrome.
 
-For a PROMOTED plugin page the host SHALL render a COMPACT chrome variant instead: `nav.label` as the page title, `nav.description` (when present) as a lede, and a provenance line "Provided by the <displayName> plugin" (with Unicode Cc/Cf characters removed from `displayName` at render) carrying the enable toggle and a disclosure that reveals the plugin id, declared dependencies (`dependsOn`), dependents, and claimed slot ids. The status pill SHALL render in the header (never inside the disclosure) only when the plugin is not healthy — `disabled`, `error`, `not loaded`, unknown status (none reported), or unsatisfied requirements — and SHALL be absent when the plugin is enabled, loaded and has every requirement met; load errors and missing-requirement banners SHALL render exactly as in the full chrome. The compact variant is selected by the host from the honoured promotion; the plugin still cannot suppress or replace it.
+For a PROMOTED plugin page the host SHALL render a COMPACT chrome variant instead: `nav.label` as the page title, `nav.description` (when present) as a lede, and a provenance line "Provided by the <displayName> plugin" (with Unicode Cc/Cf characters removed from `displayName` at render) carrying the "Enabled" switch and a disclosure that reveals the plugin id, declared dependencies (`dependsOn`) and dependents; the disclosure SHALL list claimed slot ids only when the Developer "Show plugin internals" preference is on. The status pill SHALL render in the header (never inside the disclosure) only when the plugin is not healthy — `disabled`, `error`, `not loaded`, unknown status (none reported), or unsatisfied requirements — and SHALL be absent when the plugin is enabled, loaded and has every requirement met; load errors and missing-requirement banners SHALL render exactly as in the full chrome. The compact variant is selected by the host from the honoured promotion; the plugin still cannot suppress or replace it.
 
 A plugin's row in the Plugins activation index SHALL display a settings affordance for every plugin. The affordance SHALL be clickable only when that plugin CONTRIBUTES SETTINGS — i.e. at least one `settings-section` refs claim is registered for its id OR a `settings-section` intent is present for it — and SHALL navigate to `/settings/plugins/<pluginId>`; otherwise the affordance SHALL be rendered disabled (reduced opacity, `cursor-not-allowed`, tooltip indicating no settings are available). The activation index SHALL NOT render plugin settings inline.
 
@@ -1102,7 +1102,7 @@ The settings page of a plugin that is installed but disabled SHALL still resolve
 #### Scenario: Disabled plugin page renders chrome without a body
 
 - **WHEN** plugin `demo` declares `{ slot: "settings-section" }` but is disabled in config
-- **THEN** `/settings/plugins/demo` SHALL render the host chrome with a `disabled` status pill, a notice that the plugin is disabled, and a re-enable affordance
+- **THEN** `/settings/plugins/demo` SHALL render the host chrome with an "Off" status pill, a notice that the plugin is disabled, and a re-enable affordance
 - **AND** the plugin's settings component SHALL NOT be mounted
 
 #### Scenario: Disabling a plugin while its page is open collapses the body
@@ -1120,7 +1120,7 @@ The settings page of a plugin that is installed but disabled SHALL still resolve
 #### Scenario: Enabled-but-failed plugin page is reachable
 
 - **WHEN** plugin `automation` is enabled and its status is `{ loaded: false, error: "Bridge path conflict: ..." }`
-- **THEN** `/settings/plugins/automation` SHALL render the host chrome with an `error` status pill and the full error text in a copy-on-click block
+- **THEN** `/settings/plugins/automation` SHALL render the host chrome with a "Failed to load" status pill and the full error text in a copy-on-click block
 
 #### Scenario: SettingsPanel does not import SettingsSectionSlot
 
@@ -1158,21 +1158,27 @@ The settings page of a plugin that is installed but disabled SHALL still resolve
 #### Scenario: Promoted page renders compact chrome
 - **WHEN** `roles` is promoted and healthy and the user opens `/settings/plugins/roles`
 - **THEN** the page title SHALL be `Model roles` with the `nav.description` lede
-- **AND** a "Provided by the Roles plugin" line SHALL carry the enable toggle
-- **AND** no status pill SHALL render, and the plugin id, dependencies, dependents and claimed-slot list SHALL be visible only after the details disclosure is opened
+- **AND** a "Provided by the Roles plugin" line SHALL carry the "Enabled" switch
+- **AND** no status pill SHALL render, and the plugin id, dependencies and dependents SHALL be visible only after the details disclosure is opened
+- **AND** the claimed-slot list SHALL appear in that disclosure only when the Developer "Show plugin internals" preference is on
 
 #### Scenario: Disabled promoted page shows the disabled pill
 - **WHEN** `roles` is promoted and disabled and the user opens `/settings/plugins/roles`
-- **THEN** the compact chrome SHALL show a `disabled` status pill, the disabled notice and a re-enable affordance
+- **THEN** the compact chrome SHALL show an "Off" status pill, the disabled notice and a re-enable affordance
 - **AND** the plugin's settings component SHALL NOT be mounted
 
 #### Scenario: Promoted page surfaces a load error
 - **WHEN** `roles` is promoted, enabled, and its status is `{ loaded: false, error: "..." }`
-- **THEN** the compact chrome SHALL show an `error` status pill and the full error text in a copy-on-click block
+- **THEN** the compact chrome SHALL show a "Failed to load" status pill and the full error text in a copy-on-click block
 
 #### Scenario: Nav label is rendered as text
 - **WHEN** a first-party plugin declares `nav.label` containing `<b>x</b>`
 - **THEN** the rail and page title SHALL display the literal characters, not bold markup
+
+#### Scenario: Full chrome hides slot ids by default
+- **WHEN** the Developer "Show plugin internals" preference is off and the user opens `/settings/plugins/quota`
+- **THEN** the full chrome SHALL show the plugin id and dependencies
+- **AND** no claimed slot id SHALL be visible
 
 ### Requirement: Plugin manifests SHALL support an optional `requires` field for declarative requirements
 

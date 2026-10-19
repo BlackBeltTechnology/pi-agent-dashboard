@@ -77,6 +77,32 @@ unassigned, keeps its last model" (warning pills; `ok` shows nothing). A non-mod
 popover (the model selector) is `role="dialog"` with `aria-modal="false"`, no focus
 trap, Escape closes — the documented exception to the modal-dialog rule.
 
+## Settings sections
+
+Build a `settings-section` body from the runtime field kit
+(`import { … } from "@blackbelt-technology/dashboard-plugin-runtime"`), never
+from native `<input type="checkbox">` / `<select>` or your own label/hint markup:
+
+- Fields: `ToggleField`, `SelectField`, `NumberField`, `TextField`,
+  `TextAreaField`; `FieldShell` wraps a custom control. `hint` is required
+  (`null` = none).
+- Grouping and messages: `SettingsGroup` (collapsible; its summary meta is
+  12 px — the documented exception to the 11 px meta step, because it sits in an
+  interactive summary), `SettingsNotice` (info / warning / error / success).
+- Read-only and repeated content:
+  - `SettingsStatusPill` — tone (success / info / warning / error / neutral) +
+    a human word, never a raw enum; icon is decoration.
+  - `SettingsItem` — one card per profile / instance / server / binding;
+    `collapsible` keeps title and status visible while collapsed.
+  - `SettingsFacts` — read-only term/value `<dl>`.
+  - `SettingsTable` — read-only table that scrolls horizontally.
+- The host chrome already shows the plugin title, id, status and an "Enabled"
+  switch: never repeat them in the body, and never label an in-body switch
+  "Enabled" — name what it controls.
+- Configuration goes through the host Save bar (`useSettingsDraftSource`);
+  only side-effect actions (tokens, Connect, Start/Stop) save immediately, with
+  an error notice scoped to the item that failed.
+
 ## Both modes
 
 Every plugin surface works in dark and light. Check both, plus one non-`base`

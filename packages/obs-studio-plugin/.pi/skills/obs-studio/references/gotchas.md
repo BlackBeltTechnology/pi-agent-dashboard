@@ -4,6 +4,22 @@ Measured on OBS 32.2.2 / obs-websocket 5.7.4 unless marked *documented*.
 
 - **No managed stop.** Quitting OBS from outside crashed it during teardown 3/3 (CoreAudio / freetype
   races). The service declares no stop and never idle-stops. `pi-obs stop` warns and asks (F2).
+- **Active output blocks quit** (observed OBS 31.1.2, macOS). With streaming, recording or the virtual
+  camera on, OBS shows an exit-confirm modal; `osascript quit app "OBS"` returns `User cancelled (-128)`
+  and OBS keeps running. The modal attaches to the main window, possibly on another display
+  or Space where nobody sees it — after that, tray-menu clicks are ignored. `pi-obs stop` stops outputs over
+  obs-websocket first (`output-active` if one stays on); without websocket, stop them in OBS by hand.
+- **`--startvirtualcam` is not proof** (observed OBS 31.1.2, macOS). The log said `Starting Virtual Camera
+  output to Program` while the tray still offered `Start Virtual Camera`. Check `pi-obs status`.
+- **Full-canvas `screenshot` may crash OBS** (observed once, OBS 31.1.2 macOS, 5120×2880 canvas): SIGSEGV in
+  `vHorizontal_Shear_ARGB_8888` (vImage) 2 s after a full-resolution scene screenshot; the service relaunched
+  OBS with the virtual camera OFF and the default scene. Prefer a small `--width`; re-check `status` after.
+- **A crash loses unsaved websocket edits** (observed OBS 31.1.2): after the relaunch the preset's scene and
+  inputs existed, but `Webcam Box` had empty settings ("No device selected") and a default transform (top-left,
+  native size). After any crash, re-check bindings and transforms (`call GetInputSettings`, a small screenshot);
+  re-run `input bind` and restore the transform.
+- **`devices list --kind display` can repeat one UUID** (observed with two monitors) — a second display is
+  then not bindable by id; verify before `input bind --display`.
 - **Sentinel / safe-mode prompt.** A crash leaves `.sentinel/run_*`; the next launch blocks on a safe-mode
   dialog (service `blocked`). `--disable-shutdown-check` was removed in OBS 32. `pi-obs launch` moves stale
   sentinels aside only when no OBS process exists; crashes while quitting never count, two early mid-run

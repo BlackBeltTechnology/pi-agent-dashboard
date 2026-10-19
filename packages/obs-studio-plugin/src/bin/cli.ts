@@ -360,6 +360,7 @@ async function dispatch(verb: string, rest: string[], f: Flags, d: CliDeps): Pro
         sleep: d.sleep,
         warn,
         force: f.force,
+        stopOutputs: () => live((obs) => verbs.stopOutputs(obs, { sleep: d.sleep })),
       });
 
     case "install": {

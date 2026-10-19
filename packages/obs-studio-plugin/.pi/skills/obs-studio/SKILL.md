@@ -32,6 +32,14 @@ secret store — you never see, print or pass it.
    A black frame alone is not a permission problem (a stale display id looks identical).
 6. **After the virtual camera is first activated**, tell the user to fully quit and reopen apps
    that list cameras (Meet, Zoom, Teams) — they cache the camera list at launch.
+7. **Stop stream / record / virtual camera before OBS exits.** With any output active OBS opens an
+   exit-confirm modal; an outside quit is cancelled (`osascript` → `User cancelled (-128)`) and the
+   modal can sit on an off-screen window, wedging OBS. Run stop as a live verb so it can stop them:
+   `pi-dashboard service exec obs -- pi-obs stop --service obs` (it stops active outputs first and
+   refuses with `output-active` if one will not stop). Same before any quit/relaunch, e.g. a
+   `provision` that needs OBS closed. Websocket not provisioned yet → `ask_user` to stop them in OBS.
+8. **Verify output state live, never from the log.** `pi-obs status` (or the OBS tray label) is the
+   truth; a `Starting Virtual Camera output` log line does not mean the camera is on.
 
 ## Flows
 
@@ -63,7 +71,7 @@ The OBS Virtual Camera is excluded and refused (feedback loop). Displays are mac
 | blank screen capture | `doctor` → `stale-display-binding` → `devices list --kind display` → `input bind <input> --display <uuid>`. |
 | `unsupported-request` | The connected OBS lacks that request; do not retry with `call`. |
 
-`pi-obs stop` crashes OBS 32 during teardown (measured 3/3). It warns and asks; the next
+`pi-obs stop` stops active outputs, then quits. It crashes OBS 32 during teardown (measured 3/3). It warns and asks; the next
 `service start` recovers automatically. Never offer it as routine.
 
 References: `references/install.md`, `references/gotchas.md`, `references/presets.md`,

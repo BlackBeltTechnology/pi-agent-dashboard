@@ -263,3 +263,4 @@ Superseded by `add-plugin-app-host` (D19). No tasks.
 - [ ] 12.1 `npm test`; `npm run quality:changed`.
 - [ ] 12.2 `npm run build && curl -X POST http://localhost:8000/api/restart`.
 - [ ] 12.3 Manual: dictation (server + browser), including start latency; a dry run with the leak check; a real meeting through archive with named speakers and notes; the next meeting's priming lists it.
+- [ ] Any change adding a `navigator.mediaDevices` caller (e.g. voice assistant) MUST add a capability check, an allowlist entry in `secure-context-scan.test.ts`, and a "reports unavailable, no throw" test. See change: audit-plugin-bundles-non-secure-context (test-plan #X2).

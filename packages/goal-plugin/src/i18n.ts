@@ -96,7 +96,9 @@ export const catalog = {
     settingsInstall: "将扩展安装到 pi 以激活。在会话中使用以下命令设置或控制目标：",
     autoRespawnDefaultLabel: "默认自动重启新目标",
     autoRespawnHelp:
-      "当目标的驱动会话死亡时，仪表板会重启它以继续追求 — 受轮次预算和崩溃循环断路器约束。默认关闭；每个目标可以覆盖。",
+      "目标的会话终止时，仪表板会重启一个新会话继续追求 — 受轮次预算和崩溃循环断路器限制。每个目标可以覆盖此设置。",
+    autoRespawnBrowserNote: "仅保存在此浏览器中。",
+    thisBrowser: "此浏览器",
   },
   hu: {
     close: "Bezárás",
@@ -182,6 +184,8 @@ export const catalog = {
     settingsInstall: "Telepítsd a bővítményt a pi-be az aktiváláshoz. Állíts be vagy vezérelj egy célt egy munkamenetből a következővel:",
     autoRespawnDefaultLabel: "Új célok automatikus újraindítása alapértelmezetten",
     autoRespawnHelp:
-      "Amikor egy cél vezérlő munkamenete meghal, a irányítópult újraindítja, hogy folytassa a célt — a körköltségvetés és egy összeomlás-ciklus megszakító korlátozza. Alapértelmezetten kikapcsolva; minden cél felülírhatja.",
+      "Amikor egy cél munkamenete megszűnik, a dashboard újat indít, hogy folytassa a célt — a körköltségvetés és egy összeomlás-ciklus megszakító korlátozza. Minden cél felülírhatja.",
+    autoRespawnBrowserNote: "Csak ebben a böngészőben van mentve.",
+    thisBrowser: "Ez a böngésző",
   },
 };

@@ -20,6 +20,7 @@
  * notice. Immediate-save model unchanged.
  */
 import {
+  copyText,
   FieldShell,
   oauthFlowClient,
   SelectField,
@@ -101,11 +102,24 @@ function useFlowPoll(flowId: string | undefined, onPending: (s: FlowStatus) => v
 
 function Copyable({ value }: { value: string }) {
   const t = useT();
+  const [result, setResult] = useState<"copied" | "failed" | null>(null);
+  const seq = useRef(0);
+  const copy = async (): Promise<void> => {
+    const n = ++seq.current;
+    const ok = await copyText(value);
+    if (n !== seq.current) return; // a later click superseded this one
+    setResult(ok ? "copied" : "failed");
+    setTimeout(() => {
+      if (n === seq.current) setResult(null);
+    }, 1500);
+  };
+  const label =
+    result === "copied" ? t("copied", undefined, "Copied") : result === "failed" ? t("copyFailed", undefined, "Copy failed") : t("copy", undefined, "Copy");
   return (
     <div className="flex items-center gap-2">
       <code className="flex-1 overflow-x-auto rounded bg-[var(--bg-tertiary)] px-2 py-1 font-mono text-[12px] text-[var(--text-primary)]">{value}</code>
-      <button type="button" className={btn} onClick={() => void navigator.clipboard?.writeText(value)}>
-        {t("copy", undefined, "Copy")}
+      <button type="button" className={btn} onClick={() => void copy()}>
+        <span role="status">{label}</span>
       </button>
     </div>
   );
