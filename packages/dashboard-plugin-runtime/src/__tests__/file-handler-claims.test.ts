@@ -41,6 +41,15 @@ describe("validateManifest — file-handler text-backed rejection (#E1)", () => 
   );
 });
 
+describe("validateManifest — file-handler frozen deny list (secrets, scripts, plain text)", () => {
+  it.each([".env", ".pem", ".key", ".ps1", ".bat", ".patch", ".jsonl", ".ipynb", ".lock", ".kt"])(
+    "rejects %s even though fileKind does not classify it as text",
+    (ext) => {
+      expect(() => validateManifest(manifest(claim({ extensions: [ext] })))).toThrow(/editor-pane-file-handler/);
+    },
+  );
+});
+
 describe("validateManifest — file-handler claimable extensions (#E2)", () => {
   it.each([".docx", ".drawio", ".psd", ".svg"])("accepts %s (isTextBackedExt false)", (ext) => {
     expect(isTextBackedExt(ext)).toBe(false);
