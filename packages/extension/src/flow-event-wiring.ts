@@ -26,7 +26,7 @@ export const FLOW_EVENT_MAP: Record<string, string> = {
   // Autonomous mode feedback
   "flow:autonomous-mode-changed": "flow_autonomous_changed",
   // NOTE: nodeKind / outcome / typed outputs ride INSIDE the event `data` and are
-  // forwarded verbatim by the bridge.ts EventBus catch-all — no per-field map entry.
+  // forwarded verbatim through the per-channel subscription (`registerEventBusForwarding`) — no per-field map entry.
   // See change: rework-flows-plugin-for-new-pi-flows (consumes pi-flows surface-node-kind).
 };
 
