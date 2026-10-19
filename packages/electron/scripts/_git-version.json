@@ -1,10 +1,10 @@
 {
   "_comment": "Pinned dugite-native (desktop/dugite-native) Windows git+sh bundle. dugiteNativeTag = release tag (URL path); assetInfix = filename infix (a git short-SHA, differs from the tag). Bump all three fields together on update. See change: embed-git-bash-on-windows.",
-  "dugiteNativeTag": "v2.53.0-3",
-  "assetInfix": "v2.53.0-f49d009",
-  "gitVersion": "2.53.0.windows.3",
+  "dugiteNativeTag": "v2.53.0-4",
+  "assetInfix": "v2.53.0-4098283",
+  "gitVersion": "2.53.0.windows.4",
   "sha256": {
-    "windows-x64": "f843a87a693bfdabed83b8492bca59db6f64d1168c74d23e2c8dfb7388a97142",
-    "windows-arm64": "e16e7023942499c093c8520a145bf20287a08d38d8d69197355df154a8598b06"
+    "windows-x64": "7b76bc5c32c0d7c5984efdc2a8a32697cf1e8a43bc55176fbf9869c0ee995130",
+    "windows-arm64": "1abbeb3a2ce06e9b80e75bb888dce959b6c73bdb11ccc670a01a71d64f4422a5"
   }
 }

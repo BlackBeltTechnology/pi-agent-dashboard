@@ -111,9 +111,10 @@ export const OPENSPEC_UPDATE: Recipe<WithCwd, string> = {
 
 /**
  * `openspec init <cwd> --tools pi --force` — the exact argv the init endpoint
- * runs. Pinned against `@fission-ai/openspec@1.6.0`, which registers ONLY
- * `--tools`, `--force`, `--profile` on `init`: `--no-animation` /
- * `--no-copilot-cloud` do not exist and commander is strict. `--profile` is
+ * runs. Pinned against `@fission-ai/openspec@1.14.3`, whose `init` registers
+ * `--tools`, `--force`, `--profile`, `--language`, `--no-animation`,
+ * `--copilot-cloud` and `--no-copilot-cloud` (1.6.0 had only the first three;
+ * commander is strict, so an unregistered flag is an error). `--profile` is
  * deliberately absent — the CLI validates it to `core|custom` only, while the
  * dashboard's profile may be the alias `expanded`; the endpoint heals the
  * global config instead and lets init read it. `--tools pi` is what writes

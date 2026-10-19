@@ -37,6 +37,7 @@ import {
 import { Icon } from "@mdi/react";
 import { createContext, type ReactNode, useContext, useEffect, useId, useRef, useState } from "react";
 import { useRuntimeT } from "./plugin-context.js";
+import { copyText } from "./secure-context.js";
 
 /** `default` = value comes from the built-in default; `changed` = overridden. */
 export type SettingsFieldState = "default" | "changed";
@@ -457,14 +458,14 @@ export function SettingsCopyButton({
       data-testid={testId}
       className={SMALL_BTN}
       onClick={() => {
-        void navigator.clipboard?.writeText(text).then(
-          () => {
-            setCopied(true);
-            if (timer.current) clearTimeout(timer.current);
-            timer.current = setTimeout(() => setCopied(false), 1500);
-          },
-          () => {},
-        );
+        // copyText() = clipboard API with the textarea fallback; a bare navigator.clipboard
+        // is undefined on non-secure (plain-http LAN) origins.
+        void copyText(text).then((ok) => {
+          if (!ok) return;
+          setCopied(true);
+          if (timer.current) clearTimeout(timer.current);
+          timer.current = setTimeout(() => setCopied(false), 1500);
+        });
       }}
     >
       <Icon path={copied ? mdiCheck : mdiContentCopy} size={0.55} aria-hidden="true" />
