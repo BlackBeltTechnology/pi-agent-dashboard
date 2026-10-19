@@ -42,7 +42,8 @@ to planning; `design.md` records decisions that rework parts of it.
   `path outside allowed roots`; `parent` is `null` at a root top; response carries
   `confined: true`. Forbidden subjects (`/`, system roots, `~/.ssh`, `~/.pi`)
   never count as roots. Remote sockets cannot widen the set: a remote
-  `pin_directory` / workspace-folder add outside it is refused. Local callers
+  `pin_directory`, `add_folder_to_workspace` or `move_folder_to_workspace`
+  outside it is refused. Local callers
   are unchanged.
 - **Lock down recovery (D4).** Bind the configured host (loopback default). Gate
   `retry`/`reinstall` on the local token, or on loopback peer + no proxy-forwarding
@@ -73,11 +74,14 @@ Out of scope: terminal `cwd` validation (audit R1, owned by
   ADDED `shared-protocol` (`terminal_limit_reached`, `folder_refused`).
 - **Affected code:** `packages/server/src/terminal/terminal-manager.ts`,
   `browser-handlers/terminal-handler.ts`, `routes/file-routes.ts`,
-  `lib/browse-roots.ts`, `browser-handlers/directory-handler.ts` + workspace
-  handlers, `pairing/browser-gateway.ts` (per-socket locality bit),
+  `lib/browse-roots.ts`, `browser-handlers/directory-handler.ts`
+  (`handlePinDirectory`, `handleAddFolderToWorkspace`,
+  `handleMoveFolderToWorkspace`), `pairing/browser-gateway.ts` (per-socket locality bit),
   `lifecycle/recovery-server.ts`, `auth/localhost-guard.ts`
   (export header list), `cli.ts`, `server.ts` (deps wiring);
-  `packages/shared/src/browser-protocol.ts`, `config.ts`;
+  `packages/shared/src/browser-protocol.ts`, `config.ts`, `rest-api.ts`
+  (`BrowseResult.confined`);
+  `packages/client/src/lib/api/browse-api.ts` (typed 403 mapping),
   `packages/client/src/components/primitives/PathPicker.tsx`, terminals view +
   inline terminal card, message handler.
 

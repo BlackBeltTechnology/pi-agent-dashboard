@@ -57,6 +57,10 @@ When `q` is provided, entries SHALL be filtered case-insensitively by substring 
 - **WHEN** a non-local GET request is made to `/api/browse?path=/`
 - **THEN** the server SHALL return HTTP 403 `{ success: false, error: "path outside allowed roots" }`
 
+#### Scenario: Browse response type carries the confined flag
+- **WHEN** client code reads `BrowseResult.confined`
+- **THEN** it SHALL type-check as `boolean | undefined` without casts
+
 #### Scenario: Remote listing at a shared-root top has no parent
 - **WHEN** a non-local GET request lists `$HOME` and the parent of `$HOME` is outside every shared root
 - **THEN** the `parent` field SHALL be `null` and `confined` SHALL be `true`
@@ -228,7 +232,8 @@ than icons.
 
 #### Scenario: Path outside shared roots shows a plain-language refusal
 - **WHEN** `/api/browse` or `/api/browse/mkdir` answers HTTP 403 with error `path outside allowed roots`
-- **THEN** the picker SHALL show, in its inline error slot, that the path is outside the folders this dashboard shares and to ask the host to pin it
+- **THEN** the browse API helper SHALL throw a typed error with `code: "path_outside_allowed_roots"` (distinct from `network_not_allowed`)
+- **AND** the picker SHALL show, in its inline error slot, that the path is outside the folders this dashboard shares and to ask the host to pin it
 - **AND** SHALL offer a "Back to home" action and SHALL NOT show the raw error string
 
 #### Scenario: Local picker shows no confinement hint

@@ -18,8 +18,10 @@ WIP commit `1d546c995` on `develop` already holds a first pass (global + per-cwd
 - [ ] 2.2 `packages/server/src/lib/browse-roots.ts`: `resolveBrowseRoots(sources)` over home + pinned + session cwds + workspace folders + worktree-init roots + project-scope grant subjects; drop `isUngrantableSubject` candidates (home added explicitly); a throwing source contributes nothing (one warn); unreadable roots dropped; `isWithinBrowseRoots` uses `safeRealpath` on the request side and refuses `~/.ssh` / `~/.pi` subtrees.
 - [ ] 2.3 `packages/server/src/routes/file-routes.ts` + `server.ts` wiring: thread `localTrust` and the root-source readers into `registerFileRoutes`; confine only when `!isLocallyTrusted`; add `confined: true`; `parent: null` at a root top; omit escaping entries from confined listings; flags/mkdir 403 before any probe/write; one log line per refusal.
 - [ ] 2.4 `packages/server/src/pairing/browser-gateway.ts`: stamp a per-socket `locallyTrusted` bit at `/ws` upgrade (`isLocallyTrusted` over the upgrade request) and expose it on `BrowserHandlerContext` (`browser-handlers/handler-context.ts`).
-- [ ] 2.5 `browser-handlers/directory-handler.ts` (`pin_directory`) and the workspace handlers (`create_workspace` and any folder-add path): for a non-local socket, refuse a path outside the shared roots and send `folder_refused`.
-- [ ] 2.6 Client: `PathPicker.tsx` B1 hint (when `confined` and `parent === null`, no `..` row) and B2 refusal (403 `path outside allowed roots` from browse or mkdir → plain-language text + "Back to home"); `folder_refused` → error toast with the B2 copy.
+- [ ] 2.5 `browser-handlers/directory-handler.ts`: in `handlePinDirectory`, `handleAddFolderToWorkspace` and `handleMoveFolderToWorkspace`, for a non-local socket refuse a canonical path outside the shared roots (before any store write) and send `folder_refused`. `create_workspace` takes only `{name}` and is not gated.
+- [ ] 2.6 `packages/shared/src/rest-api.ts`: add optional `confined?: boolean` to `BrowseResult`.
+- [ ] 2.7 `packages/client/src/lib/api/browse-api.ts`: add `PathOutsideRootsError` (`code = "path_outside_allowed_roots"`), thrown by `browseDirectory` and `createDirectory` on 403 `path outside allowed roots`; leave the `network_not_allowed` mapping unchanged.
+- [ ] 2.8 Client: `PathPicker.tsx` B1 hint (when `confined` and `parent === null`, no `..` row) and B2 refusal (branch on `PathOutsideRootsError.code` from browse or mkdir → plain-language text + "Back to home"); `folder_refused` → error toast with the B2 copy.
 
 ## 3. Recovery lockdown (B9, D4)
 
@@ -55,7 +57,9 @@ WIP commit `1d546c995` on `develop` already holds a first pass (global + per-cwd
 - [ ] T-E24 L1 extend `browse-confinement-route.test.ts`: mkdir parents `/tmp`, `$HOME/x` · remote and local POST · remote `/tmp` 403 and nothing on disk; remote home 200 created; local `/tmp` 200 created (test-plan #E24)
 - [ ] T-E25 L1 extend `browse-confinement-route.test.ts`: `/srv/work` unpinned · remote browse, pin, remote browse · 403 then 200 (test-plan #E25)
 - [ ] T-E26 L1 extend `packages/server/src/browser-handlers/__tests__/directory-handler.test.ts`: remote/local sockets · `pin_directory` `/`, `$HOME/Project/app`, `/srv/work` · remote `/` refused + `folder_refused`; remote home pinned; local `/srv/work` pinned (test-plan #E26)
-- [ ] T-E27 L1 workspace handler test modeled on `directory-handler.test.ts`: remote socket · `create_workspace` with `/opt/x` and `$HOME/p` · outside refused + `folder_refused`; inside created (test-plan #E27)
+- [ ] T-E27 L1 extend `packages/server/src/browser-handlers/__tests__/directory-handler.test.ts`: remote socket, workspace W · `add_folder_to_workspace` `/opt/x`, `$HOME/p`; local `/opt/x` · remote outside → W unchanged + `folder_refused`, then remote browse `/opt/x` 403; remote inside added; local added (test-plan #E27)
+- [ ] T-E37 L1 extend `directory-handler.test.ts`: remote socket · `move_folder_to_workspace` `/opt/x` with `toWorkspaceId:null`, pinned `$HOME/Project/app` into W · outside → nothing pinned/moved + `folder_refused`; pinned root → moved (test-plan #E37)
+- [ ] T-E38 L1 extend `packages/shared/src/__tests__/browser-protocol-types.test.ts`: `BrowseResult` with/without `confined` · read `.confined` · `boolean | undefined`; `confined:"yes"` is `@ts-expect-error` (test-plan #E38)
 - [ ] T-E28 L1 extend `packages/server/src/__tests__/authorize-ws-upgrade.test.ts`: upgrades from 127.0.0.1 clean, 127.0.0.1 + `x-forwarded-for`, 192.168.1.5 authenticated · upgrade · `locallyTrusted` true/false/false and visible on handler ctx (test-plan #E28)
 - [ ] T-E29 L1 extend `packages/server/src/__tests__/recovery-lockdown.test.ts`: the 10-row Host/Origin/token/peer table · `isRecoveryActionAllowed` · allow, deny, allow, allow, deny, deny, allow, allow, deny, deny (test-plan #E29)
 - [ ] T-E30 L1 extend `recovery-lockdown.test.ts`: each of the 8 forwarding headers alone on a loopback request · gate · deny for each (test-plan #E30)
@@ -71,6 +75,7 @@ WIP commit `1d546c995` on `develop` already holds a first pass (global + per-cwd
 - [ ] T-F3 L1 same file as T-F1: chat view, `inline:true` refusal · dispatch · notice in chat slot, no inline card (test-plan #F3)
 - [ ] T-F4 L1 extend `packages/client/src/components/__tests__/PathPicker.test.tsx`: responses `{confined:true,parent:null}`, `{parent:null}`, `{confined:true,parent:"/Users/r"}` · render · hint + no `..` / no hint / `..` without hint (test-plan #F4)
 - [ ] T-F5 L1 extend `PathPicker.test.tsx`: browse 403 and mkdir 403 `path outside allowed roots` · type `/`, click New folder · plain-language B2 text + "Back to home", raw string absent (test-plan #F5)
+- [ ] T-F11 L1 new `packages/client/src/lib/api/__tests__/browse-api.test.ts` (fetch mock pattern from `PathPicker.test.tsx`): 403 `path outside allowed roots`, 403 `network_not_allowed`, 500 · `browseDirectory("/")`, `createDirectory("/tmp","n")` · `code:"path_outside_allowed_roots"` from both; `NetworkNotAllowedError` unchanged; plain `Error("x")` (test-plan #F11)
 - [ ] T-F6 L1 client test modeled on `packages/client/src/components/__tests__/Toast.test.tsx` + `useMessageHandler.retry-session-error.test.tsx`: `folder_refused{path:"/"}` · dispatch · one error toast containing `/` and "Ask the host to pin it" (test-plan #F6)
 - [ ] T-F7 L1 extend `recovery-server.test.ts` (jsdom): `buildRecoveryHtml` page, `fetch` mocked 403 · click Retry start · `role="alert"` remedy shown, buttons enabled (test-plan #F7)
 - [ ] T-F8 L3 e2e modeled on `tests/e2e/terminal-tab.spec.ts`: harness config `terminals.maxConcurrent: 2` · open 2 tabs, click "+", close one, click "+" · notice + 2 tabs, then 2 tabs and notice gone (test-plan #F8)
@@ -84,7 +89,7 @@ WIP commit `1d546c995` on `develop` already holds a first pass (global + per-cwd
 
 ## Docs
 
-- [ ] DOC1 Update per-file rows in the nearest `AGENTS.md` / `<File>.AGENTS.md` sidecars for every touched source file (`terminal-manager.ts`, `terminal-handler.ts`, `browse-roots.ts`, `file-routes.ts`, `directory-handler.ts`, `browser-gateway.ts`, `localhost-guard.ts`, `recovery-server.ts`, `config.ts`, `browser-protocol.ts`, `PathPicker.tsx`, client notice files).
+- [ ] DOC1 Update per-file rows in the nearest `AGENTS.md` / `<File>.AGENTS.md` sidecars for every touched source file (`terminal-manager.ts`, `terminal-handler.ts`, `browse-roots.ts`, `file-routes.ts`, `directory-handler.ts`, `browser-gateway.ts`, `localhost-guard.ts`, `recovery-server.ts`, `config.ts`, `browser-protocol.ts`, `rest-api.ts`, `browse-api.ts`, `PathPicker.tsx`, client notice files).
 - [ ] DOC2 Via DocScribe: `docs/` note on terminal caps + config keys, remote browse confinement (shared roots, local exemption, Docker note, marker-less relay residual), recovery lockdown posture.
 
 ## Discipline checkpoints

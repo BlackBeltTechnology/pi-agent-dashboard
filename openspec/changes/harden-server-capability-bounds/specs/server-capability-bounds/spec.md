@@ -134,9 +134,10 @@ the set. A root source that fails to read SHALL contribute no roots.
 - **THEN** the listing SHALL succeed
 
 ### Requirement: Remote callers cannot widen the shared-root set
-A `pin_directory` or workspace-folder add from a browser socket that was not
-locally trusted at upgrade SHALL be dropped, and the socket SHALL receive a
-refusal, when the path lies outside the shared-root set. Locally trusted sockets
+A `pin_directory`, `add_folder_to_workspace`, or `move_folder_to_workspace` from
+a browser socket that was not locally trusted at upgrade SHALL be dropped, and
+the socket SHALL receive a refusal, when the canonical path lies outside the
+shared-root set. Locally trusted sockets
 SHALL be unaffected.
 
 #### Scenario: remote pin of filesystem root refused
@@ -147,6 +148,20 @@ SHALL be unaffected.
 #### Scenario: remote pin inside $HOME accepted
 - **WHEN** a non-local socket sends `pin_directory` with path `$HOME/Project/app`
 - **THEN** the directory SHALL be pinned
+
+#### Scenario: remote add_folder_to_workspace outside roots refused
+- **WHEN** a non-local socket sends `add_folder_to_workspace` with path `/opt/x`
+- **THEN** the workspace SHALL be unchanged and the socket SHALL receive a refusal
+- **AND** a following non-local `/api/browse?path=/opt/x` SHALL be 403
+
+#### Scenario: remote move_folder_to_workspace outside roots refused
+- **WHEN** a non-local socket sends `move_folder_to_workspace` with path `/opt/x` and `toWorkspaceId: null`
+- **THEN** nothing SHALL be pinned or moved and the socket SHALL receive a refusal
+
+#### Scenario: remote move of an existing root accepted
+- **GIVEN** `$HOME/Project/app` is pinned
+- **WHEN** a non-local socket moves it into a workspace
+- **THEN** the move SHALL succeed
 
 #### Scenario: local pin outside $HOME accepted
 - **WHEN** a locally trusted socket sends `pin_directory` with path `/srv/work`

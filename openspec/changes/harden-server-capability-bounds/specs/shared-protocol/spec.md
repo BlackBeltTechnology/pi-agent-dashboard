@@ -13,7 +13,7 @@ The `ServerToBrowserMessage` union SHALL include `terminal_limit_reached` with f
 - **THEN** only socket 1 SHALL receive `terminal_limit_reached`
 
 ### Requirement: Folder refusal server message
-The `ServerToBrowserMessage` union SHALL include `folder_refused` with fields `path: string` and `reason: "outside_allowed_roots"`. The server SHALL send it only to the socket whose `pin_directory` or workspace-folder add was refused.
+The `ServerToBrowserMessage` union SHALL include `folder_refused` with fields `path: string` and `reason: "outside_allowed_roots"`. The server SHALL send it only to the socket whose `pin_directory`, `add_folder_to_workspace`, or `move_folder_to_workspace` was refused.
 
 #### Scenario: Folder refusal message type-checks
 - **WHEN** client code handles `{ type: "folder_refused", path: "/", reason: "outside_allowed_roots" }`

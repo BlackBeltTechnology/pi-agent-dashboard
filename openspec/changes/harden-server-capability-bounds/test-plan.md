@@ -7,7 +7,7 @@ Hard gate answered (planning session): orphan clock = starts at spawn, restarts 
 Exemplars (harness glue to copy):
 - server unit: `packages/server/src/__tests__/terminal-manager.test.ts`, `inline-terminal-handler.test.ts`, `browse-confinement-route.test.ts`, `browse-roots.test.ts`, `recovery-server.test.ts`, `recovery-lockdown.test.ts`, `recovery-reinstall-reject.test.ts`, `authorize-ws-upgrade.test.ts`, `localhost-guard.test.ts`; `packages/server/src/browser-handlers/__tests__/directory-handler.test.ts`
 - shared unit: `packages/shared/src/__tests__/config-editor.test.ts`, `browser-protocol-types.test.ts`
-- client unit: `packages/client/src/components/__tests__/PathPicker.test.tsx`, `packages/client/src/hooks/__tests__/useMessageHandler.retry-session-error.test.tsx`, `packages/client/src/components/__tests__/Toast.test.tsx`
+- client unit: `packages/client/src/components/__tests__/PathPicker.test.tsx`, `packages/client/src/hooks/__tests__/useMessageHandler.retry-session-error.test.tsx`, `packages/client/src/components/__tests__/Toast.test.tsx`, `packages/client/src/components/__tests__/PathPicker.test.tsx` (mocks `browse-api`)
 - e2e: `tests/e2e/terminal-tab.spec.ts`, `tests/e2e/agent-path-gate.spec.ts`
 
 ---
@@ -44,7 +44,9 @@ Exemplars (harness glue to copy):
 | E24 | mkdir confinement | decision-table | L1 | automated | parents `/tmp` (outside), `$HOME/x` (inside) | remote and local `POST /api/browse/mkdir {name:"n"}` | remote `/tmp` → 403 and `/tmp/n` absent on disk; remote `$HOME/x` → 200 created; local `/tmp` → 200 created |
 | E25 | roots recomputed per request | state-transition | L1 | automated | `/srv/work` not pinned | remote browse (403) → pin `/srv/work` → remote browse | second request 200 without restart |
 | E26 | remote pin gate | decision-table | L1 | automated | sockets stamped remote / local | `pin_directory` `/`, `$HOME/Project/app`, `/srv/work` | remote `/` → not pinned + ws gets `folder_refused{path:"/",reason:"outside_allowed_roots"}`; remote home path → pinned; local `/srv/work` → pinned |
-| E27 | remote workspace-folder gate | decision-table | L1 | automated | remote socket; folder `/opt/x` (outside) and `$HOME/p` | `create_workspace` with each folder | outside → workspace not created/folder not added + `folder_refused`; inside → created |
+| E27 | remote add-folder gate | decision-table | L1 | automated | remote socket, existing workspace W; paths `/opt/x` (outside), `$HOME/p` (inside); local socket with `/opt/x` | `add_folder_to_workspace {id:W,path}` | remote `/opt/x` → W unchanged + `folder_refused{path:"/opt/x"}`, then remote browse `/opt/x` → 403; remote `$HOME/p` → added; local `/opt/x` → added |
+| E37 | remote move-folder gate | decision-table | L1 | automated | remote socket; `/opt/x` (not a root), `$HOME/Project/app` (pinned) | `move_folder_to_workspace {path, toWorkspaceId:null}` and `{path, toWorkspaceId:W}` | `/opt/x` → nothing pinned/moved + `folder_refused`; pinned `$HOME/Project/app` → moved into W |
+| E38 | BrowseResult.confined type | type-level | L1 | automated | `BrowseResult` value with and without `confined` | assign / read `.confined` | compiles as `boolean \| undefined`; `confined: "yes"` is a `@ts-expect-error` |
 | E28 | locality bit stamped at upgrade | EP | L1 | automated | `/ws` upgrades from 127.0.0.1 no fwd hdr; 127.0.0.1 + `x-forwarded-for`; 192.168.1.5 (authenticated) | upgrade | socket `locallyTrusted` = true / false / false; handler ctx exposes it |
 | E29 | recovery gate decision table | decision-table | L1 | automated | rows: token match from 192.168.1.5; token mismatch; loopback `Host: localhost:8000` no Origin; + `Origin: http://localhost:8000`; `Origin: http://localhost:3000`; `Origin: null`; `Host: localhost` + `Origin: http://localhost:80`; `Host: [::1]:8000` + `Origin: http://[::1]:8000`; `Host: abc.share.zrok.io` + matching https Origin; peer 192.168.1.5 no token | `isRecoveryActionAllowed` | allow, deny, allow, allow, deny, deny, allow, allow, deny, deny |
 | E30 | recovery forwarding headers | EP | L1 | automated | loopback, loopback Host, each of the 8 headers alone (`x-forwarded-for`, `x-forwarded-host`, `x-forwarded-proto`, `x-real-ip`, `forwarded`, `via`, `x-forwarded-server`, `x-forwarded-port`) | `isRecoveryActionAllowed` | deny for each of the 8 |
@@ -74,6 +76,7 @@ Exemplars (harness glue to copy):
 | F7 | recovery page refusal rendering | state-transition | L1 | automated | `buildRecoveryHtml(...)` loaded in jsdom; `fetch` mocked to 403 with remedy body | click Retry start | element with `role="alert"` shows remedy text; both buttons remain enabled |
 | F8 | terminal cap end-to-end | state-transition | L3 | automated | docker harness with `terminals.maxConcurrent: 2` in config | open 2 terminal tabs, click "+", close one tab, click "+" | after 3rd click: notice visible, still 2 tabs; after close + click: 2 tabs again and notice gone |
 | F9 | remote picker end-to-end | state-transition | L3 | automated | harness browser context sending `x-forwarded-for: 203.0.113.9` (authenticated), path picker open | type `/`; navigate to home | `/` → B2 refusal text; at home → hint shown, no `..` row |
+| F11 | browse API typed refusal | EP | L1 | automated | `fetch` mocked: 403 `{error:"path outside allowed roots"}`, 403 `{error:"network_not_allowed",hint}`, 500 `{error:"x"}` | `browseDirectory("/")`, `createDirectory("/tmp","n")` | first → throws error with `code:"path_outside_allowed_roots"` (both helpers); second → `NetworkNotAllowedError` (browse, unchanged); third → plain `Error("x")` |
 | F10 | visual fidelity vs mockup | visual/subjective | — | manual-only | notices A2/A3, picker B1/B2, recovery C2, dark + light | human compares to `mockups/index.html` | [judgment: matches mockup, no layout break at 375 px] |
 
 ### Error-handling
@@ -91,9 +94,9 @@ Exemplars (harness glue to copy):
 ## Coverage summary
 
 - Requirements covered: server-capability-bounds 11/11, filesystem-browser 4/4 (browse, flags, mkdir, PathPicker), server-startup-recovery 3/3, terminal-emulator 1/1, inline-terminal 2/2, shared-protocol 2/2
-- Scenarios by class: edge 36 · perf 1 · frontend 10 · error 5
-- Scenarios by level: L1 48 · L2 0 · L3 2 · manual 2
-- Scenarios by disposition: automated 50 · manual-only 2
+- Scenarios by class: edge 38 · perf 1 · frontend 11 · error 5
+- Scenarios by level: L1 51 · L2 0 · L3 2 · manual 2
+- Scenarios by disposition: automated 53 · manual-only 2
 
 ## New infra needed
 
