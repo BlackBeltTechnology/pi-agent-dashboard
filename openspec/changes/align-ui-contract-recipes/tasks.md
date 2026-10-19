@@ -106,15 +106,15 @@
 
 ## 10. Contract and skills (after the code)
 
-- [ ] 10.1 Update the `ui-contract.md` "Component invariants" table:
+- [x] 10.1 Update the `ui-contract.md` "Component invariants" table:
   - add or replace the rows for status pill, notice, inline action error, tabs, filter chip, menu / flyout, dialog, loading / empty / first-run, row overflow and settings rail;
   - start from the board's rows page, amended to the shipped code;
   - mark rows with no reference implementation "Adoption: pending (plugin wave)" (design D9).
 
   Verify: each row cites a change and references tokens only, and `ui-contract.md.AGENTS.md` is updated.
-- [ ] 10.2 Sync `packages/dashboard-plugin-skill/.pi/skills/dashboard-plugin-scaffold/references/slot-taxonomy.md` with the frozen `SlotId` list. This is docs only, with no taxonomy change: add the 13 ids that are in `packages/shared/src/dashboard-plugin/slot-types.ts` but missing from the table. Verify: every `SlotId` appears in the table.
-- [ ] 10.3 `references/host-design.md`: add sections on the settings kit (`SettingsStatusPill`, `SettingsNotice`, `SettingsActionError`), dialogs (`ui:dialog`, never a hand-built overlay), overlay pages and slot widgets, each pointing to its contract row. Verify: no raw colour in the file, and every section links a contract row.
-- [ ] 10.4 `.pi/skills/frontend-mockup-loop-dashboard/SKILL.md`:
+- [x] 10.2 Sync `packages/dashboard-plugin-skill/.pi/skills/dashboard-plugin-scaffold/references/slot-taxonomy.md` with the frozen `SlotId` list. This is docs only, with no taxonomy change: add the 13 ids that are in `packages/shared/src/dashboard-plugin/slot-types.ts` but missing from the table. Verify: every `SlotId` appears in the table.
+- [x] 10.3 `references/host-design.md`: add sections on the settings kit (`SettingsStatusPill`, `SettingsNotice`, `SettingsActionError`), dialogs (`ui:dialog`, never a hand-built overlay), overlay pages and slot widgets, each pointing to its contract row. Verify: no raw colour in the file, and every section links a contract row.
+- [x] 10.4 `.pi/skills/frontend-mockup-loop-dashboard/SKILL.md`:
   - add a "plugin surface" binding: compose from the runtime kit and `ui:*` primitives, check the slot taxonomy, and reuse the board kit (`tokens.css`, `mockup.css`, `board.css`, `probe.js`) from the latest change;
   - refresh the GROUND example so it uses token names.
 
@@ -130,7 +130,7 @@
 
   Verify: screenshots are attached to the PR, and the live :8000 PID is unchanged.
 - [ ] 11.3 Run `review-code` on the full diff. Verify: findings resolved or recorded.
-- [ ] 11.4 Delegate any `docs/` prose that describes these components to DocScribe (caveman style). Verify: the DocScribe-returned rows are applied.
+- [x] 11.4 Delegate any `docs/` prose that describes these components to DocScribe (caveman style). Verify: the DocScribe-returned rows are applied.
 
 ## 12. Tests (folded from test-plan.md)
 
