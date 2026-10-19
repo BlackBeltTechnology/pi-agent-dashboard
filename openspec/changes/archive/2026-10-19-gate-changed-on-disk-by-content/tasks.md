@@ -86,4 +86,4 @@
 
 - [x] 8.1 Update `AGENTS.md` rows for every touched source file (`file-watch-manager.ts`, `file-routes.ts`, `system-routes.ts`, `route-tiers.ts`, `tools.denylist.ts`, `config.ts`, `file-kind.ts`, `CappedViewer.tsx`, `TooLargePreview.tsx`, `SplitWorkspaceContext.tsx`, `EditorPane.tsx`, `MarkdownViewer.tsx`, `EditablePreviewTab.tsx`, `MarkupRepairBanner.tsx`, `MermaidApplyFix.tsx`, `useMessageHandler.ts`, `App.tsx`, `SettingsPanel.tsx`, new `editor-limits-config.ts`, new e2e spec) with `See change: gate-changed-on-disk-by-content`; delegate the `docs/architecture.md` split-editor banner line to DocScribe; verify `kb dox lint` is clean for these paths
 - [x] 8.2 Run the full suite (`set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`) and `npm run quality:changed`; verify zero failures and no new Biome findings
-- [ ] 8.3 Visual check of the banner and the Settings field at desktop and mobile widths: label/hint readable, banner layout unchanged (test-plan: manual-only, #F19)
+- [x] 8.3 Visual check of the banner and the Settings field at desktop and mobile widths: label/hint readable, banner layout unchanged (test-plan: manual-only, #F19)
