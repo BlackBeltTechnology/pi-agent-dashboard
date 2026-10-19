@@ -35,7 +35,7 @@
 
 ## 7. Later apps
 
-- [ ] 7.1 GridCraft and DeckCraft: run their spikes (test-plan #X8, manual) and, on pass, add registry `webVersion` + manifest claims; their L3 rows then join the e2e suite. Verify E1 drift test green after each addition.
+- [x] 7.1 GridCraft and DeckCraft: run their spikes (test-plan #X8, manual) and, on pass, add registry `webVersion` + manifest claims; their L3 rows then join the e2e suite. Verify E1 drift test green after each addition.
 
 ## 8. Docs
 
@@ -89,7 +89,7 @@
 
 ## 10. Manual verification
 
-- [ ] 9.M1 Manual: GridCraft / DeckCraft spikes. Input: real GridCraft/DeckCraft web builds. Trigger: per-app acceptance list (design Risks). Observable: [judgment: seam behaviour of untested apps; the outcome is a registry `webVersion` or not, recorded in the spike note]. (test-plan #X8) (test-plan: manual-only)
+- [x] 9.M1 Manual: GridCraft / DeckCraft spikes. Input: real GridCraft/DeckCraft web builds. Trigger: per-app acceptance list (design Risks). Observable: [judgment: seam behaviour of untested apps; the outcome is a registry `webVersion` or not, recorded in the spike note]. (test-plan #X8) (test-plan: manual-only)
 
 ## 11. Gate
 
