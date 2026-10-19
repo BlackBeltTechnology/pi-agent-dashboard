@@ -187,6 +187,8 @@ describe("path-gate handler", () => {
     await h.call("read", "/h/.ssh/id_rsa");
     expect(h.selects[0].metadata).toMatchObject({ kind: "agent-path-gate", sensitive: true, access: "read", toolCallId: "tc1" });
     expect(h.selects[0].options).toEqual(["Allow once", "Deny"]);
+    // Non-opted prompt: no inline-Other key (test-plan #X3, add-ask-user-inline-other).
+    expect(h.selects[0].metadata).not.toHaveProperty("allowOther");
   });
 
   it("the prompt TITLE (all a TUI shows) names the path and flags a sensitive location (review B2)", async () => {

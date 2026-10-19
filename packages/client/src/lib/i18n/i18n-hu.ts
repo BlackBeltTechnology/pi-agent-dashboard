@@ -892,6 +892,8 @@ export const huCatalog: Record<string, string> = {
   "common.orTheBundledSet": ", vagy a beépített készlet.",
   "common.orderedFallbackFirstAvailable": "(rendezett tartalék — az első elérhető bejegyzés; felülírja az alapértelmezett modellt)",
   "common.other": "Egyéb",
+  "common.otherAnswer": "Egyéb válasz",
+  "common.otherPlaceholder": "Írd be a válaszod",
   "common.output": "Kimenet:",
   "common.overrideInvalidUsingFallback": "Felülbírálás érvénytelen; tartalék használata",
   "common.overrideRejectedNotFound": "Felülbírálás elutasítva — nem használt elérési út: {path}",

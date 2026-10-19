@@ -39,6 +39,37 @@ test.describe("faux round-trip — interactive ask_user", () => {
   });
 });
 
+// Inline "Other" answer — chat-card road (test-plan #F11, change: add-ask-user-inline-other).
+//
+// The dashboard `ask_user` opts select/multiselect into the inline Other answer
+// by default, so the faux select card shows an "Other" row. Typing a custom
+// answer must reach the run unchanged: the terminal faux scenario replies
+// "you picked <tool text>", and the tool text carries `User responded: "zeta"`.
+test.describe("faux round-trip — inline Other (chat card)", () => {
+  test("#F11 a custom answer typed into the inline card reaches the run and resolves the card", async ({
+    page,
+  }) => {
+    test.setTimeout(240_000);
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+    await sendPrompt(page, "[[faux:ask-select-roundtrip]] go");
+
+    const ask = page.locator("[data-pending-ask]").first();
+    await expect(ask).toBeVisible({ timeout: 30_000 });
+    await ask.getByRole("button", { name: "Other", exact: true }).click();
+    const field = ask.getByRole("textbox", { name: "Other answer" });
+    await expect(field).toBeFocused();
+    await field.fill("zeta");
+    await field.press("Enter");
+
+    await expect(page.getByText(/you picked[\s\S]*"zeta"/).first()).toBeVisible({ timeout: 60_000 });
+    // The card resolved: a picked "Other" row carrying the custom text.
+    await expect(page.getByTestId("answered-other-text").filter({ hasText: "zeta" }).first()).toBeVisible({
+      timeout: 30_000,
+    });
+  });
+});
+
 // Rendered-UI behaviour for prompt-derived `currentTool`.
 //
 // `currentTool` is derived from live pi events, and the original
@@ -271,6 +302,42 @@ test.describe("pending-question stack (add-pending-question-stack)", () => {
       // transcript (opened by id — it has no board card) carries the reply.
       await page.goto(`/session/${hidden.id}`);
       await expect(page.getByText(/you picked.*\bb\b/).first()).toBeVisible({ timeout: 60_000 });
+    } finally {
+      await stopHiddenPiSession(page.request, hidden.id);
+    }
+  });
+
+  test("#F12 (add-ask-user-inline-other) a custom Other answer typed in the dialog reaches the hidden run", async ({
+    page,
+  }) => {
+    test.setTimeout(240_000);
+    await gotoDashboard(page);
+    const hidden = await startHiddenPiSession(page.request);
+    try {
+      const sent = await page.request.post(`/api/session/${hidden.id}/prompt`, {
+        data: { text: "[[faux:ask-select-roundtrip]] go" },
+      });
+      expect(sent.ok(), `prompt → ${sent.status()}`).toBe(true);
+      const questionId = await waitForQuestionId(page.request, hidden.id);
+
+      const pill = page.getByTestId("question-pill");
+      await expect(pill).toBeVisible({ timeout: 30_000 });
+      const before = await pillCount(page);
+      await pill.click();
+      await page.getByTestId(`question-row-${questionId}`).click();
+
+      const dialog = page.getByTestId("question-dialog");
+      await expect(dialog).toBeVisible();
+      await dialog.getByRole("button", { name: "Other", exact: true }).click();
+      const field = dialog.getByRole("textbox", { name: "Other answer" });
+      await field.fill("zeta");
+      await dialog.getByRole("button", { name: /^Submit$/ }).click();
+      await expect(dialog).toBeHidden({ timeout: 15_000 });
+
+      await expect.poll(() => pillCount(page), { timeout: 15_000 }).toBe(before - 1);
+
+      await page.goto(`/session/${hidden.id}`);
+      await expect(page.getByText(/you picked[\s\S]*"zeta"/).first()).toBeVisible({ timeout: 60_000 });
     } finally {
       await stopHiddenPiSession(page.request, hidden.id);
     }

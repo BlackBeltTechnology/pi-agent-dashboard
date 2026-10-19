@@ -66,3 +66,21 @@ describe("buildPromptMeta", () => {
     expect(out?.kind).toBeUndefined();
   });
 });
+
+// #E7 — See change: add-ask-user-inline-other
+describe("buildPromptMeta allowOther core key", () => {
+  it("emits allowOther:true even when it is the only key", () => {
+    expect(buildPromptMeta({ allowOther: true })).toEqual({ allowOther: true });
+  });
+  it("omits it unless exactly true", () => {
+    expect(buildPromptMeta({ allowOther: false })).toBeUndefined();
+    expect(buildPromptMeta({ allowOther: "true" })).toBeUndefined();
+    expect(buildPromptMeta({})).toBeUndefined();
+  });
+  it("pluginMeta cannot spoof the core key", () => {
+    expect(buildPromptMeta({ pluginMeta: { allowOther: true } })).toEqual({ plugin: { allowOther: true } });
+  });
+  it("combines with message", () => {
+    expect(buildPromptMeta({ message: "m", allowOther: true })).toEqual({ message: "m", allowOther: true });
+  });
+});

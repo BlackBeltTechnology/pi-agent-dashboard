@@ -110,3 +110,42 @@ describe("AskUserToolRenderer — error line severity tokens", () => {
     expect(row.innerHTML).not.toMatch(/\bred-\d{2,3}\b/);
   });
 });
+
+// ── test-plan #E15 — See change: add-ask-user-inline-other ──
+describe("AskUserToolRenderer — custom answers", () => {
+  const draw = (method: string, text: string) =>
+    renderWithTheme(
+      <AskUserToolRenderer
+        toolName="ask_user"
+        args={{ method, title: "Pick", options: ["A", "B"] }}
+        status="complete"
+        result={text}
+        context={ctx}
+      />,
+    );
+
+  it("select custom: chips unhighlighted, Response row shows the text", () => {
+    draw("select", 'Custom answer (not one of the options).\nUser responded: "C"');
+    expect(screen.getByTestId("ask-user-custom-response").textContent).toBe("C");
+    expect(screen.queryByText("Response:")).not.toBeNull();
+  });
+
+  it("multiselect: Response row lists only the custom value", () => {
+    draw("multiselect", 'Custom values (not among the options): ["D"].\nUser responded: ["A","D"]');
+    expect(screen.getByTestId("ask-user-custom-response").textContent).toBe("D");
+  });
+
+  it("marker text inside the custom value parses the final line", () => {
+    draw(
+      "multiselect",
+      'Custom values (not among the options): ["x User responded: y"].\nUser responded: ["A","x User responded: y"]',
+    );
+    expect(screen.getByTestId("ask-user-custom-response").textContent).toBe("x User responded: y");
+  });
+
+  it("option answer: no Response row", () => {
+    draw("select", 'User responded: "A"');
+    expect(screen.queryByTestId("ask-user-custom-response")).toBeNull();
+    expect(screen.queryByText("Response:")).toBeNull();
+  });
+});

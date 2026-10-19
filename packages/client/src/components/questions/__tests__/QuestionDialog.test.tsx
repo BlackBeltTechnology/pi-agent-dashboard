@@ -328,3 +328,57 @@ describe("answering", () => {
     expect((screen.getByRole("button", { name: /Hand back/ }) as HTMLButtonElement).disabled).toBe(false);
   });
 });
+
+// test-plan #F9 #X1 — See change: add-ask-user-inline-other
+describe("inline Other in the dialog", () => {
+  const opted = () => detail({ id: "q1", allowOther: true });
+  const serveOk = () => serve((url, init) => (init?.method === "POST" ? ok({ transmitted: true }) : ok(opted())));
+
+  it("F9: Escape inside the Other field collapses it only; the next Escape closes; Enter posts the text", async () => {
+    serveOk();
+    const { onClose } = open(opted());
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: "Other" }));
+    const field = screen.getByRole("textbox", { name: "Other answer" });
+    fireEvent.change(field, { target: { value: "C" } });
+    fireEvent.keyDown(field, { key: "Escape" });
+    expect(screen.queryByRole("textbox", { name: "Other answer" })).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByTestId("question-dialog")).toBeTruthy();
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("F9: Enter in the Other field posts {answer}", async () => {
+    serveOk();
+    const { onClose } = open(opted());
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: "Other" }));
+    const field = screen.getByRole("textbox", { name: "Other answer" });
+    fireEvent.change(field, { target: { value: "C" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(calls.find((c) => c.method === "POST")?.body).toEqual({ answer: "C" });
+  });
+
+  it("a prompt without the opt-in shows no Other row", async () => {
+    serve(() => ok(detail({ id: "q1" })));
+    open(detail({ id: "q1" }));
+    await settle();
+    expect(screen.queryByTestId("other-option")).toBeNull();
+  });
+
+  it("X1: a 400 from a stale server keeps the dialog open and shows the error", async () => {
+    serve((url, init) => (init?.method === "POST" ? err(400, "answer is not one of the options") : ok(opted())));
+    const { onClose } = open(opted());
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: "Other" }));
+    const field = screen.getByRole("textbox", { name: "Other answer" });
+    fireEvent.change(field, { target: { value: "C" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    await waitFor(() => expect(screen.getByTestId("question-answer-error")).toBeTruthy());
+    expect(screen.getByTestId("question-answer-error").textContent).toContain("answer is not one of the options");
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByTestId("question-dialog")).toBeTruthy();
+  });
+});
