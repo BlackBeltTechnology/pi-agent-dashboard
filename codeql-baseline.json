@@ -395,9 +395,9 @@
     {
       "ruleId": "js/server-side-unvalidated-url-redirection",
       "file": "packages/server/src/auth/auth-plugin.ts",
-      "lineHash": "687edf4ce2b7d094:1",
+      "lineHash": "687f1ae7376b109b:1",
       "count": 1,
-      "reason": "untriaged"
+      "reason": "false-positive: returnUrl is sanitised by sanitizeReturnUrl (same-origin path only); CodeQL does not model the custom sanitiser; line-hash drift from develop #964, untouched by this change"
     },
     {
       "ruleId": "js/path-injection",

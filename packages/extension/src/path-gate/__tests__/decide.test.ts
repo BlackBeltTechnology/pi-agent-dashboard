@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import os from "node:os";
 import nodePath from "node:path";
 import { pathToFileURL } from "node:url";
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import { buildOptions, decidePathAccess, type GateRoots } from "../decide.js";
 import { canonicalizeTarget, defaultResolveEnv, type ResolveEnv, resolveReadTarget, resolveToolPath } from "../resolve.js";
 
@@ -293,5 +293,36 @@ describe("buildOptions (E18, E19)", () => {
     const o = buildOptions(input);
     expect(o.options).toEqual(["Allow once", "Deny"]);
     expect(o.note).toContain(note);
+  });
+});
+
+describe("decidePathAccess — dangling symlinks escape the root (E23, change: add-path-containment-guard-extension)", () => {
+  const tmp = fs.mkdtempSync(nodePath.join(os.tmpdir(), "pg-dangling-"));
+  const real = fs.realpathSync(tmp);
+  afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
+  fs.mkdirSync(nodePath.join(real, "repo"));
+  fs.mkdirSync(nodePath.join(real, "other", "deep"), { recursive: true });
+  fs.symlinkSync("../other/new.txt", nodePath.join(real, "repo", "link"));
+  fs.symlinkSync(nodePath.join(real, "other", "deep"), nodePath.join(real, "repo", "s"));
+  fs.symlinkSync("../new.txt", nodePath.join(real, "other", "deep", "link"));
+  const realBase = (rawPath: string) => ({
+    ...base(defaultResolveEnv()),
+    access: "write" as const,
+    cwd: real,
+    roots: roots({ workspace: [nodePath.join(real, "repo")] }),
+    rawPath,
+    caseInsensitive: false,
+  });
+  it("(a) a dangling in-root link to an outside new file asks with the outside canonical path", () => {
+    expect(decidePathAccess(realBase(nodePath.join(real, "repo", "link")))).toMatchObject({
+      verdict: "ask",
+      canonical: nodePath.join(real, "other", "new.txt"),
+    });
+  });
+  it("(b) a relative dangling link under a symlinked directory resolves from the real parent", () => {
+    expect(decidePathAccess(realBase(nodePath.join(real, "repo", "s", "link")))).toMatchObject({
+      verdict: "ask",
+      canonical: nodePath.join(real, "other", "new.txt"),
+    });
   });
 });
