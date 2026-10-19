@@ -2301,7 +2301,7 @@ export const huCatalog: Record<string, string> = {
   "providers.catalogueUnavailableBody": "Nincs csatlakoztatott pi-munkamenet, ezért az API-kulccsal vagy környezeti változóval konfigurált szolgáltatók hiányozhatnak a listából — a lista elavult lehet. Az előfizetések nem érintettek.",
   "providers.catalogueUnavailableTitle": "Az API-kulcsos szolgáltatók listája nem érhető el.",
   "providers.catalogueFallbackTitle": "Csak a beépített szolgáltatók láthatók.",
-  "providers.catalogueFallbackBody": "Még nincs csatlakoztatott pi-munkamenet, ezért a bővítmények által hozzáadott szolgáltatók és a környezeti változók tippjei nem szerepelnek a listában. A munkamenet indulása után megjelennek.",
+  "providers.catalogueFallbackBody": "Még nem érkezett szolgáltatókatalógus pi-munkamenetből, ezért a bővítmények által hozzáadott szolgáltatók és a környezeti változók tippjei nem szerepelnek a listában. Akkor jelennek meg, amikor egy munkamenet jelenti a katalógusát.",
   "providers.customBaseUrl": "Base URL",
   "providers.customEndpointEntry": "Egyéni végpont…",
   "providers.customEndpointSubtitle": "Bármilyen OpenAI- vagy Anthropic-kompatibilis alap URL",

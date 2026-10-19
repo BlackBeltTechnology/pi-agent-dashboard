@@ -924,7 +924,7 @@
   "providers.catalogueUnavailableBody": "No pi session is connected, so providers configured by API key or environment may be missing from this list — it may be out of date. Subscriptions are unaffected.",
   "providers.catalogueUnavailableTitle": "API-key provider list unavailable.",
   "providers.catalogueFallbackTitle": "Showing built-in providers only.",
-  "providers.catalogueFallbackBody": "No pi session is connected yet, so providers added by extensions and environment-variable hints are not listed. They appear once a session starts.",
+  "providers.catalogueFallbackBody": "No provider catalogue has arrived from a pi session yet, so providers added by extensions and environment-variable hints are not listed. They appear once a session reports its catalogue.",
   "providers.customBaseUrl": "Base URL",
   "providers.customEndpointEntry": "Custom endpoint…",
   "providers.customEndpointSubtitle": "Any OpenAI- or Anthropic-compatible base URL",

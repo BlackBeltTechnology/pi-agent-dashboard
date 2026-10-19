@@ -852,7 +852,7 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
             {i18nT(
               "providers.catalogueFallbackBody",
               undefined,
-              "No pi session is connected yet, so providers added by extensions and environment-variable hints are not listed. They appear once a session starts.",
+              "No provider catalogue has arrived from a pi session yet, so providers added by extensions and environment-variable hints are not listed. They appear once a session reports its catalogue.",
             )}
           </div>
         </InlineMessage>

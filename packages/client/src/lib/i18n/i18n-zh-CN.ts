@@ -2303,7 +2303,7 @@ export const zhCNCatalog: Record<string, string> = {
   "providers.catalogueUnavailableBody": "没有已连接的 pi 会话，因此通过 API 密钥或环境变量配置的提供者可能不在此列表中——列表可能已过期。订阅不受影响。",
   "providers.catalogueUnavailableTitle": "API 密钥提供者列表不可用。",
   "providers.catalogueFallbackTitle": "仅显示内置提供商。",
-  "providers.catalogueFallbackBody": "尚无已连接的 pi 会话，因此扩展添加的提供商和环境变量提示未列出。会话启动后它们会出现。",
+  "providers.catalogueFallbackBody": "尚未收到来自 pi 会话的提供商目录，因此扩展添加的提供商和环境变量提示未列出。会话上报其目录后它们会出现。",
   "providers.customBaseUrl": "Base URL",
   "providers.customEndpointEntry": "自定义端点…",
   "providers.customEndpointSubtitle": "任何兼容 OpenAI 或 Anthropic 的基础 URL",

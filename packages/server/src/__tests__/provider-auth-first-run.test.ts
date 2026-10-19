@@ -110,7 +110,10 @@ describe("first-run provider catalogue (runtime fallback)", () => {
     const rows = apiKeyRows(await getAuthStatus());
     expect(rows.find((r) => r.id === "deepseek")).toBeDefined();
     expect(rows.find((r) => r.id === "openrouter-api")).toBeDefined();
-    expect(rows.every((r) => r.authenticated === false)).toBe(true);
+    // Ambient providers (AWS keys, gcloud ADC) may legitimately authenticate on the host.
+    expect(
+      rows.filter((r) => r.id === "deepseek" || r.id === "openrouter-api").every((r) => r.authenticated === false),
+    ).toBe(true);
   });
 
   it("E5: env-var row is configured-not-authenticated; ambient-label row is authenticated", async () => {
