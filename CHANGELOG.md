@@ -211,6 +211,12 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Fixed
 
+- **The desktop app's server and the `pi-dashboard` CLI cooperate (#924).**
+  - Quitting the app stops the server it started again. `/api/health` stopped publishing `starter` on 2026-05-26, so the app never saw its own server as owned on quit; it now reads `launchSource` (legacy `starter` as a fallback) and waits up to 5 s for the server to exit. Behaviour change: since 2026-05-26 quit left the server and its sessions running.
+  - `pi-dashboard stop` of a server this HOME provably owns goes through the announced `/api/shutdown`, with the SIGTERM fallback kept. Bridges suppress auto-start, so a terminal pi session no longer races a replacement server in. The exit intent is `shutdown` instead of `signal` (no recovery offer on the next boot). For a server the open desktop app started it prints a note: the app stays open and shows its reconnect page.
+  - `pi-dashboard status` says when the desktop app started the running server; bare `pi-dashboard` on a served port prints "already running (pid N)" and exits 1 instead of a bind-failure stack.
+  - The Electron update checker and Doctor see the real starter: Bridge servers skip the managed check, Standalone servers get the npm recommendation.
+
 - **`!cmd` no longer loses its output on a busy session.** A single-bang command sent while the agent was starting or streaming made pi reject the follow-up, so the output never reached the model; it is now queued with `deliverAs: followUp` and delivered before the run settles.
 - **Discord invite points at the community server.** The invite link (README, site, sidebar
   button, release docs) pointed at a personal server with an expiring invite; it now uses the

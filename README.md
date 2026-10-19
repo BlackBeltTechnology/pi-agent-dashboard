@@ -475,11 +475,11 @@ In the Electron app, if the initial launch attempts fail (or the server is stopp
 ```bash
 pi-dashboard start           # background daemon (production)
 pi-dashboard start --dev     # dev mode (proxy to Vite, fallback to production build)
-pi-dashboard stop            # stop daemon; also kills port holders THIS HOME owns (lock sidecar / health identity)
+pi-dashboard stop            # stop daemon (announced shutdown first, so terminal pi sessions do not auto-start a replacement; SIGTERM fallback); also kills port holders THIS HOME owns (lock sidecar / health identity). For a server the open desktop app started, prints a note: the app shows its reconnect page
 pi-dashboard stop --force    # DANGEROUS: kills EVERY listener on the ports - another HOME's/user's dashboard, the Electron server, or an unrelated service. Only to recover an orphaned listener nothing else can attribute; `restart` ignores it
 pi-dashboard restart         # restart (production)
 pi-dashboard restart --dev   # restart in dev mode
-pi-dashboard status          # daemon status
+pi-dashboard status          # daemon status for the resolved port; says when the desktop app started it
 ```
 
 Daemon stdout/stderr is logged to `~/.pi/dashboard/server.log` (append mode with timestamped headers per start).

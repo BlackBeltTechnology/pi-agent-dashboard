@@ -63,7 +63,7 @@ import {
   parseModuleNotFoundError,
   startRecoveryServer,
 } from "./lifecycle/recovery-server.js";
-import { collectOwnedPids, partitionHolders } from "./lifecycle/stop-ownership.js";
+import { collectOwnedPids, collectOwnership, type OwnerFacts, type Ownership, partitionHolders } from "./lifecycle/stop-ownership.js";
 import type { createServer as _CreateServerType, ServerConfig } from "./server.js";
 import { readPid, removePid } from "./spawn-process/server-pid.js";
 
@@ -407,6 +407,18 @@ export interface StartDeps {
   exit: (code: number) => void;
 }
 
+/**
+ * Running-line suffix naming the desktop app as the server's starter, from the
+ * owner facts of one `/api/health` reply. Wording only, never a kill decision.
+ * See change: fix-cli-control-electron-server (design D8).
+ */
+function ownerSuffix(facts: Pick<OwnerFacts, "launchSource" | "bootParentAlive">): string {
+  if (facts.launchSource !== "electron") return "";
+  return facts.bootParentAlive === false
+    ? " (started by the pi-dashboard desktop app, which is no longer running)"
+    : " (started by the pi-dashboard desktop app)";
+}
+
 /** One printed verdict + exit code for a classified port; shared by `start` and `status`. */
 function portVerdict(
   v: PortClassification,
@@ -415,7 +427,7 @@ function portVerdict(
   const at = (pid: number | undefined) => (pid === undefined ? "" : ` (pid ${pid})`);
   switch (v.kind) {
     case "owned":
-      return { lines: [`Dashboard server is already running (pid ${v.pid})`], stream: "log", code: 0 };
+      return { lines: [`Dashboard server is already running (pid ${v.pid})${ownerSuffix(v)}`], stream: "log", code: 0 };
     case "starting":
       return { lines: [`Dashboard server is starting (pid ${v.pid})`], stream: "log", code: 0 };
     case "unowned-dashboard":
@@ -447,6 +459,49 @@ function portVerdict(
       };
     case "free":
       return null;
+  }
+}
+
+/** Injectable seams of `cmdForeground` (tests); production passes none. */
+export interface ForegroundDeps {
+  runForeground: (config: ServerConfig) => Promise<void>;
+  classify: (config: ServerConfig) => Promise<PortClassification>;
+  exit: (code: number) => void;
+}
+
+/**
+ * Bare `pi-dashboard`: run in the foreground. No classification runs before or
+ * during a successful start. When startup fails for ANY reason the resolved port
+ * is classified once (a failed start binds nothing, so the verdict is
+ * trustworthy whichever listener failed first). A dashboard answering, or a
+ * non-dashboard service, prints `start`'s verdict (with the desktop-app mention)
+ * instead of a stack trace; otherwise today's generic message. Always exits 1:
+ * `portVerdict` returns 0 for `owned`, which would turn a failed start into
+ * success, and an explicit exit also stops the attach-mode promotion timer.
+ * See change: fix-cli-control-electron-server (design D5).
+ */
+export async function cmdForeground(config: ServerConfig, injected?: Partial<ForegroundDeps>): Promise<void> {
+  const d: ForegroundDeps = {
+    runForeground,
+    classify: (c) => classifyDashboardPort(c),
+    exit: (code) => process.exit(code),
+    ...injected,
+  };
+  try {
+    await d.runForeground(config);
+  } catch (startErr) {
+    let verdict: ReturnType<typeof portVerdict> = null;
+    try {
+      verdict = portVerdict(await d.classify(config), config);
+    } catch {
+      // classification is best-effort: fall back to the generic message
+    }
+    if (verdict) {
+      for (const line of verdict.lines) (verdict.stream === "log" ? console.log : console.error)(line);
+    } else {
+      console.error("Failed to start dashboard:", startErr);
+    }
+    d.exit(1);
   }
 }
 
@@ -582,6 +637,59 @@ export interface StopDeps {
   removePid: () => void;
   isProcessAlive: (pid: number) => boolean;
   collectOwnedPids: (config: ServerConfig) => Promise<Set<number>>;
+  /** Owned pids plus the health-proven pid (with its owner facts). Defaults to wrapping `collectOwnedPids`. */
+  collectOwnership: (config: ServerConfig) => Promise<Ownership>;
+  /** `POST /api/shutdown` on the resolved dashboard. Rejects on a transport error. */
+  shutdownRequest: (config: ServerConfig) => Promise<ShutdownReply>;
+  /** Resolves true once `pid` is no longer alive, false after `timeoutMs`. */
+  waitForExit: (pid: number, timeoutMs: number) => Promise<boolean>;
+}
+
+/** Outcome of the announced-shutdown request. */
+export interface ShutdownReply {
+  ok: boolean;
+  status: number;
+  detail?: string;
+}
+
+/** Bound of the wait for the process to exit after an accepted shutdown request (matches `killProcess`). */
+const SHUTDOWN_WAIT_MS = 5000;
+
+/**
+ * Announced shutdown: loopback `POST /api/shutdown` with a per-request local
+ * credential (accepted under `requireLocalProof`) and NO body, so the server
+ * records exit intent `"shutdown"` (never `"user-quit"`) and tells connected
+ * bridges to suppress auto-start. See change: fix-cli-control-electron-server (D4).
+ */
+async function postShutdown(config: ServerConfig): Promise<ShutdownReply> {
+  const url = `${localBase(config)}/api/shutdown`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: localCredentialHeaders("POST", url),
+    signal: AbortSignal.timeout(5000),
+  });
+  if (res.ok) return { ok: true, status: res.status };
+  const detail = await res.text().catch(() => "");
+  return { ok: false, status: res.status, detail: detail.slice(0, 120) };
+}
+
+async function waitForPidExit(pid: number, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!isProcessAlive(pid)) return true;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  return !isProcessAlive(pid);
+}
+
+/** Note printed after stopping a server the open desktop app started (D4/D8). */
+function desktopAppNote(facts: OwnerFacts): string | null {
+  if (facts.launchSource !== "electron" || facts.bootParentAlive !== true) return null;
+  const app = typeof facts.bootParentPid === "number" ? `desktop app (pid ${facts.bootParentPid})` : "desktop app";
+  return (
+    `Note: this server was started by the pi-dashboard ${app}. The app stays open and shows its reconnect page: ` +
+    "use Start server there to bring the server back, or quit the app."
+  );
 }
 
 /**
@@ -601,17 +709,60 @@ export async function cmdStop(
     removePid,
     isProcessAlive,
     collectOwnedPids,
+    collectOwnership,
+    shutdownRequest: postShutdown,
+    waitForExit: waitForPidExit,
     ...injected,
   };
+  // An injected `collectOwnedPids` alone (older seams) means "no health proof".
+  if (injected?.collectOwnedPids && !injected.collectOwnership) {
+    const owned = injected.collectOwnedPids;
+    d.collectOwnership = async (c) => ({ owned: await owned(c), healthProven: null });
+  }
   // Evidence first: after the PID-file kill the health probe can no longer answer.
-  const owned = await d.collectOwnedPids(config);
+  const { owned, healthProven } = await d.collectOwnership(config);
   const pid = d.readPid();
   let stopped = false;
+  let provenStopped = false;
+
+  // Terminate `target`. The health-proven pid goes through the announced
+  // `POST /api/shutdown` first (bridges suppress auto-start; exit intent
+  // `"shutdown"`); error, refusal or survival falls back to SIGTERM→SIGKILL.
+  const terminate = async (target: number, label: string): Promise<boolean> => {
+    const proven = healthProven !== null && healthProven.pid === target;
+    let ok = false;
+    if (proven) {
+      ok = await announcedStop(target, label);
+    }
+    if (!ok) ok = await d.killProcess(target, label);
+    if (proven && ok) provenStopped = true;
+    return ok;
+  };
+  const announcedStop = async (target: number, label: string): Promise<boolean> => {
+    try {
+      const reply = await d.shutdownRequest(config);
+      if (!reply.ok) {
+        console.log(
+          `Shutdown request refused (HTTP ${reply.status}${reply.detail ? ` ${reply.detail}` : ""}); falling back to SIGTERM`,
+        );
+        return false;
+      }
+    } catch (err) {
+      console.log(`Shutdown request failed (${(err as Error).message ?? err}); falling back to SIGTERM`);
+      return false;
+    }
+    if (await d.waitForExit(target, SHUTDOWN_WAIT_MS)) {
+      console.log(`${label} stopped (pid ${target})`);
+      return true;
+    }
+    console.log(`Server still running after the shutdown request (pid ${target}); falling back to SIGTERM`);
+    return false;
+  };
 
   // Try PID file first
   if (pid !== null) {
     if (d.isProcessAlive(pid)) {
-      stopped = await d.killProcess(pid, "Dashboard server");
+      stopped = await terminate(pid, "Dashboard server");
     } else {
       console.log("Dashboard server is not running (cleaned up stale PID file)");
     }
@@ -635,7 +786,7 @@ export async function cmdStop(
   const { owned: mine, foreign } = partitionHolders(holders, owned);
   for (const h of mine) {
     console.log(`Killing stale process ${h.pid} on port(s) ${h.ports.join(",")}`);
-    await d.killProcess(h.pid, `Stale process on port ${h.ports.join(",")}`);
+    await terminate(h.pid, `Stale process on port ${h.ports.join(",")}`);
   }
   const dir = getDashboardConfigDir();
   for (const h of foreign) {
@@ -652,6 +803,10 @@ export async function cmdStop(
 
   if (!stopped && pid === null) {
     console.log("Dashboard server is not running");
+  }
+  if (provenStopped && healthProven) {
+    const note = desktopAppNote(healthProven.health);
+    if (note) console.log(note);
   }
 }
 
@@ -1472,7 +1627,7 @@ export async function cmdStatus(
   switch (v.kind) {
     case "owned":
       console.log(
-        `Dashboard server is running (pid ${v.pid}) on port ${config.port}` +
+        `Dashboard server is running (pid ${v.pid}) on port ${config.port}${ownerSuffix(v)}` +
           (hostHint ? ` at ${hostHint}:${config.port} (discovered via mDNS)` : ""),
       );
       return;
@@ -1650,7 +1805,7 @@ async function main() {
       break;
     default:
       // No subcommand — run in foreground (backward compatible)
-      await runForeground(config);
+      await cmdForeground(config);
       break;
   }
 }

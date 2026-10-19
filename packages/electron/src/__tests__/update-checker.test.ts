@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // Mock the shared npm module (update-checker now delegates all npm work to it).
 const { outdatedOr, outdatedGlobalOr } = vi.hoisted(() => ({
@@ -17,7 +17,7 @@ vi.mock("../lib/wizard-state.js", () => ({
   readModeFile: () => ({ mode: "standalone" }),
 }));
 
-import { checkOutdated } from "../lib/update-checker.js";
+import { checkOutdated, startUpdateChecker } from "../lib/update-checker.js";
 
 describe("update-checker", () => {
   beforeEach(() => {
@@ -88,4 +88,58 @@ describe("update-checker", () => {
       expect(pkgs).toEqual(["@earendil-works/pi-coding-agent", "@fission-ai/openspec"]);
     });
   }
+});
+
+// See change: fix-cli-control-electron-server (test-plan #E10, design D6): the
+// strategy is derived from the published `launchSource`, not the removed `starter`.
+describe("update-checker strategy from /api/health", () => {
+  beforeEach(() => {
+    outdatedOr.mockReset().mockReturnValue(null);
+    outdatedGlobalOr.mockReset().mockReturnValue(null);
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  async function runWith(health: Record<string, unknown>) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ ok: true, pid: 1, ...health }), { status: 200 })),
+    );
+    const stop = startUpdateChecker(() => {});
+    await vi.advanceTimersByTimeAsync(31_000);
+    stop();
+  }
+
+  it("(a) launchSource electron → managed check", async () => {
+    await runWith({ launchSource: "electron" });
+    expect(outdatedOr).toHaveBeenCalled();
+    expect(outdatedGlobalOr).not.toHaveBeenCalled();
+  });
+
+  it("(b) launchSource standalone → global npm check", async () => {
+    await runWith({ launchSource: "standalone" });
+    expect(outdatedGlobalOr).toHaveBeenCalled();
+    expect(outdatedOr).not.toHaveBeenCalled();
+  });
+
+  it("(c) launchSource bridge → no update mechanism", async () => {
+    await runWith({ launchSource: "bridge" });
+    expect(outdatedGlobalOr).not.toHaveBeenCalled();
+    expect(outdatedOr).not.toHaveBeenCalled();
+  });
+
+  it("(d) legacy starter Standalone only → global npm check", async () => {
+    await runWith({ starter: "Standalone" });
+    expect(outdatedGlobalOr).toHaveBeenCalled();
+    expect(outdatedOr).not.toHaveBeenCalled();
+  });
+
+  it("(e) neither field → today's unknown path (managed check)", async () => {
+    await runWith({});
+    expect(outdatedOr).toHaveBeenCalled();
+    expect(outdatedGlobalOr).not.toHaveBeenCalled();
+  });
 });

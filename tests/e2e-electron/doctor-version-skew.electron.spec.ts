@@ -42,7 +42,6 @@ test("Doctor shows a WARN version-skew row for a standalone mismatch", async () 
     version: "0.0.1-stale",
     launchSource: "standalone",
     launchSourceEffective: "standalone",
-    starter: "Standalone",
     bootParentPid: process.pid,
     ppid: process.pid,
     bootParentAlive: true,
@@ -68,4 +67,11 @@ test("Doctor shows a WARN version-skew row for a standalone mismatch", async () 
   // WARN pill + launch-source-appropriate (standalone → npm) suggestion.
   await expect(row.locator(".pill")).toHaveText("WARN");
   await expect(row.locator(".suggestion")).toContainText("npm i -g @blackbelt-technology/pi-dashboard@");
+
+  // Server starter row reads the published `launchSource` (the fake publishes no
+  // legacy `starter`). See change: fix-cli-control-electron-server (test-plan #F2).
+  const starterRow = doctorWin.locator("tr", { has: doctorWin.locator(".check-name", { hasText: "Server starter" }) });
+  await expect(starterRow).toBeVisible({ timeout: 30_000 });
+  await expect(starterRow).toContainText("Standalone");
+  await expect(starterRow.locator(".pill")).toHaveText("OK");
 });

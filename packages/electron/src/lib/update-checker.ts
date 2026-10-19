@@ -14,6 +14,7 @@
  * `npm outdated`) are centralized.
  * See change: platform-command-executor.
  */
+import { starterFromHealth } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
 import * as npm from "@blackbelt-technology/pi-dashboard-shared/platform/npm.js";
 import os from "node:os";
 import path from "node:path";
@@ -40,7 +41,7 @@ async function getServerStarter(port: number): Promise<string | null> {
     });
     if (!res.ok) return null;
     const data = await res.json() as Record<string, unknown>;
-    return typeof data.starter === "string" ? data.starter : null;
+    return starterFromHealth(data) ?? null;
   } catch {
     return null;
   }

@@ -8,7 +8,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getLockPath, getMetaPath, type LockMetadata } from "../lifecycle/home-lock.js";
 import { __resetInstanceIdCache, ensureInstanceId, peekInstanceId } from "../lifecycle/instance-id.js";
-import { collectOwnedPids, healthHost, partitionHolders } from "../lifecycle/stop-ownership.js";
+import { collectOwnedPids, collectOwnership, healthHost, partitionHolders } from "../lifecycle/stop-ownership.js";
 
 const cfg = { port: 18555, piPort: 18556, host: "" };
 
@@ -162,5 +162,45 @@ describe("temp HOME on disk", () => {
   // E16
   it("lock sidecar is read under the $HOME-honouring dashboard dir", () => {
     expect(getMetaPath(getLockPath()).startsWith(path.join(home, ".pi", "dashboard") + path.sep)).toBe(true);
+  });
+});
+
+// See change: fix-cli-control-electron-server (test-plan #P2, design D3).
+describe("collectOwnership", () => {
+  it("P2: no local instance id, no PID file, no holders → zero health probes, no proof", async () => {
+    const fetchHealth = vi.fn(async () => ({ ok: true, json: async () => ({}) }));
+    const r = await collectOwnership(cfg, {
+      readLockMeta: () => null,
+      peekInstanceId: () => null,
+      fetchHealth,
+    });
+    expect(fetchHealth).not.toHaveBeenCalled();
+    expect(r.owned.size).toBe(0);
+    expect(r.healthProven).toBeNull();
+  });
+
+  it("an instance-id match yields healthProven with the owner fields", async () => {
+    const r = await collectOwnership(cfg, {
+      readLockMeta: () => null,
+      peekInstanceId: () => "ID",
+      fetchHealth: health({
+        pid: 300, instanceId: "ID", launchSource: "electron", bootParentAlive: true, bootParentPid: 4242,
+      }),
+    });
+    expect([...r.owned]).toEqual([300]);
+    expect(r.healthProven).toEqual({
+      pid: 300,
+      health: { launchSource: "electron", bootParentAlive: true, bootParentPid: 4242 },
+    });
+  });
+
+  it("lock-metadata-only ownership has no health proof", async () => {
+    const r = await collectOwnership(cfg, {
+      readLockMeta: () => meta(301, cfg.port),
+      peekInstanceId: () => null,
+      fetchHealth: health({}),
+    });
+    expect([...r.owned]).toEqual([301]);
+    expect(r.healthProven).toBeNull();
   });
 });

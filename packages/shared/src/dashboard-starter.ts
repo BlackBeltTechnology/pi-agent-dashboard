@@ -53,3 +53,33 @@ export function parseLaunchSource(
   const s = parseDashboardStarter(env);
   return s === "Electron" ? "electron" : s === "Bridge" ? "bridge" : "standalone";
 }
+
+const FROM_LAUNCH_SOURCE: Readonly<Record<string, DashboardStarter>> = {
+  electron: "Electron",
+  bridge: "Bridge",
+  standalone: "Standalone",
+};
+
+/**
+ * Map a `/api/health` body to the starter that launched that server.
+ *
+ * `/api/health` publishes `launchSource` (static, lowercase) and no longer
+ * publishes `starter`. Reads only the STATIC `launchSource`, never
+ * `launchSourceEffective` (an orphaned bridge server reports
+ * `launchSource:"bridge"` + `launchSourceEffective:"bridge-orphaned"`).
+ * Falls back to a legacy `starter` string for servers that predate the
+ * removal; anything else → `undefined`.
+ *
+ * See change: fix-cli-control-electron-server (design D6).
+ */
+export function starterFromHealth(body: unknown): DashboardStarter | undefined {
+  if (!body || typeof body !== "object") return undefined;
+  const { launchSource, starter } = body as { launchSource?: unknown; starter?: unknown };
+  if (typeof launchSource === "string" && Object.hasOwn(FROM_LAUNCH_SOURCE, launchSource)) {
+    return FROM_LAUNCH_SOURCE[launchSource];
+  }
+  if (launchSource === undefined && typeof starter === "string" && VALID.has(starter)) {
+    return starter as DashboardStarter;
+  }
+  return undefined;
+}
