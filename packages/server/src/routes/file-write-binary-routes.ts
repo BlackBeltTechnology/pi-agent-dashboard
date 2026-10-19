@@ -122,7 +122,7 @@ function outcomeLine(q: Query, bytes: number, outcome: string, relPath: string):
 
 const forbidden = (error: string): Fail => ({ code: 403, error, outcome: "forbidden" });
 
-export function registerFileWriteBinaryRoutes(fastify: FastifyInstance, deps: FileWriteBinaryDeps): void {
+export async function registerFileWriteBinaryRoutes(fastify: FastifyInstance, deps: FileWriteBinaryDeps): Promise<void> {
   const log = deps.log ?? ((line: string) => console.info(line));
 
   /** 403 authorization: claim, plugin switch, known cwd, target. Nothing is read or written. */
@@ -172,7 +172,7 @@ export function registerFileWriteBinaryRoutes(fastify: FastifyInstance, deps: Fi
     };
   }
 
-  void fastify.register(async (scope) => {
+  await fastify.register(async (scope) => {
     scope.addContentTypeParser(
       "application/octet-stream",
       { parseAs: "buffer", bodyLimit: HANDLER_MAX_BYTES },

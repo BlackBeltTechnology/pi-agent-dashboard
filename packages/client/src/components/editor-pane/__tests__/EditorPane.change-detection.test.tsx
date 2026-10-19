@@ -146,11 +146,11 @@ describe("EditorPane — baseline before viewer mount", () => {
     fireEvent.click(screen.getByTestId("open-bar"));
     await waitFor(() => expect(monacoMounts.n).toBe(2));
     digest = async () => ok("S2");
+    const fooDigests = () => digestPaths.filter((p) => p === "foo.ts").length;
+    const pre = fooDigests();
     api.fire("foo.ts"); // background tab: candidate verified, banner not shown (not active)
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 300));
-    });
-    const before = digestPaths.filter((p) => p === "foo.ts").length;
+    await waitFor(() => expect(fooDigests()).toBeGreaterThan(pre)); // the verify digest ran
+    const before = fooDigests();
     digest = async () => ok("S2");
     fireEvent.click(screen.getByTitle("foo.ts"));
     await waitFor(() => expect(digestPaths.filter((p) => p === "foo.ts").length).toBeGreaterThan(before));

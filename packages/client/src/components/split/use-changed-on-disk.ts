@@ -191,9 +191,9 @@ export function useChangedOnDisk(opts: ChangedOnDiskOptions): ChangedOnDisk {
       if (gen !== null) st.pendingGen = gen;
       const run = async () => {
         st.timer = undefined;
-        if (st.capture) await st.capture;
+        if (st.capture !== undefined) await st.capture;
         if (!live(scope, st, seq)) return;
-        if (st.saving) await st.saving;
+        if (st.saving !== undefined) await st.saving;
         if (!live(scope, st, seq)) return;
         const version = st.version;
         const ctrl = new AbortController();

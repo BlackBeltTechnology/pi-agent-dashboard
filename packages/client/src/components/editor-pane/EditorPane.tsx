@@ -201,7 +201,7 @@ export function EditorPane() {
   const { refreshHandler } = fh;
   const refreshActive = useCallback(() => {
     const handled = refreshHandler();
-    if (handled) {
+    if (handled !== null) {
       void handled.then((ok) => {
         if (ok && activePath) refreshChanged(activePath);
       });

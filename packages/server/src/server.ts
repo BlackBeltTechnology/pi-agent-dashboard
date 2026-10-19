@@ -2514,7 +2514,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // from the registry `ctx.registerFileValidator` fills. See change: add-editor-pane-file-handlers.
   const fileValidatorPool = createFileValidatorPool();
   fastify.addHook("onClose", async () => fileValidatorPool.dispose());
-  registerFileWriteBinaryRoutes(fastify, {
+  await registerFileWriteBinaryRoutes(fastify, {
     sessionManager,
     networkGuard,
     pool: fileValidatorPool,

@@ -70,7 +70,7 @@ async function mkHarness(opts: { poolTimeoutMs?: number; cwds?: (cwd: string) =>
     preferencesStore: { getPinnedDirectories: () => [] } as any,
     networkGuard: async () => undefined,
   });
-  registerFileWriteBinaryRoutes(app, {
+  await registerFileWriteBinaryRoutes(app, {
     sessionManager: { listAll: () => cwds.map((c) => ({ cwd: c })) } as any,
     networkGuard: async () => undefined,
     pool,
@@ -413,7 +413,7 @@ describe("E22 route tier", () => {
       (req as any).principalTier = "observe";
     });
     app.addHook("onRequest", createRouteTierGate({ getTrustedNetworks: () => [], logRefusal: () => {} }));
-    registerFileWriteBinaryRoutes(app, {
+    await registerFileWriteBinaryRoutes(app, {
       sessionManager: { listAll: () => [{ cwd: h.cwd }] } as any,
       networkGuard: async () => undefined,
       pool: h.pool,

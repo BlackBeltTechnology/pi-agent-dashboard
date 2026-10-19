@@ -57,7 +57,7 @@ export function DemoFileHandler(props: FileHandlerProps) {
       data-path={path}
       style={{ display: "flex", flexDirection: "column", gap: "6px", padding: "8px", height: "100%" }}
     >
-      <div style={{ fontSize: "11px", color: "#999" }}>Demo editor (fixture — dev/test only)</div>
+      <div style={{ fontSize: "11px", color: "var(--text-secondary)" }}>Demo editor (fixture — dev/test only)</div>
       {text === null ? (
         <div data-testid="demo-file-handler-loading">loading…</div>
       ) : (

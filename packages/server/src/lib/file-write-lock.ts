@@ -22,9 +22,11 @@ export function serializeWrite<T>(key: string, task: () => Promise<T>): Promise<
     () => {},
   );
   fileWriteLocks.set(key, tail);
-  void tail.then(() => {
-    if (fileWriteLocks.get(key) === tail) fileWriteLocks.delete(key);
-  });
+  tail
+    .then(() => {
+      if (fileWriteLocks.get(key) === tail) fileWriteLocks.delete(key);
+    })
+    .catch(() => {});
   return run;
 }
 
