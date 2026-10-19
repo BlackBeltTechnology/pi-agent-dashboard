@@ -281,8 +281,8 @@ describe("Model selector and thinking level integrations (3.1-3.10)", () => {
   it("3.2 level clamp: reasoning model passes blackhole's 6 levels, never max (E11)", () => {
     const models: ModelInfo[] = [{ provider: "openrouter", id: "model-a", reasoning: true }];
     const { getByLabelText } = renderChain([{ ...A, thinking: "low" }], true, { models });
-    const checkbox = getByLabelText(`Override thinking level for ${A.id}`) as HTMLInputElement;
-    expect(checkbox.checked).toBe(true);
+    const checkbox = getByLabelText(`Override thinking level for ${A.id}`) as HTMLElement;
+    expect(checkbox.getAttribute("aria-checked")).toBe("true");
     expect(lastThinkingProps?.supportedLevels).toEqual([
       "off",
       "minimal",
@@ -301,8 +301,8 @@ describe("Model selector and thinking level integrations (3.1-3.10)", () => {
 
   it("3.4 inherit vs off: unchecked has no primitive and inherit text; checked has thinking:'off' (E13)", () => {
     const { getByLabelText, getByText, queryByTestId, onChange } = renderChain([A]);
-    const checkbox = getByLabelText(`Override thinking level for ${A.id}`) as HTMLInputElement;
-    expect(checkbox.checked).toBe(false);
+    const checkbox = getByLabelText(`Override thinking level for ${A.id}`) as HTMLElement;
+    expect(checkbox.getAttribute("aria-checked")).toBe("false");
     expect(queryByTestId("mock-thinking-level-selector")).toBeNull();
     expect(getByText(/inherit/i)).toBeTruthy();
 
@@ -485,5 +485,34 @@ describe("chain slot role refs + notices (retro-ux-model-selector)", () => {
     expect(notice.className).toContain("--severity-warning-bg");
     expect(notice.querySelector("svg")).toBeTruthy();
     expect(notice.textContent).not.toMatch(/[\u2600-\u27BF\u{1F300}-\u{1FAFF}]/u);
+  });
+});
+
+
+describe("chain rows use kit status + danger-ghost controls (retro-ux-plugin-settings-wave-2, X11/BH7)", () => {
+  it("the remove control is a named danger-ghost icon button, no accent-red, 11px+ text, no glyph", () => {
+    const { getByTestId, container } = renderChain([A, B]);
+    const remove = getByTestId("blackhole-chain-observer-remove-1");
+    expect(remove.getAttribute("aria-label")).toBe("Remove model-b from the observer chain");
+    expect(remove.className).toContain("--severity-error");
+    expect(remove.textContent).toBe("");
+    expect(remove.querySelector("svg")).toBeTruthy();
+    expect(container.innerHTML).not.toContain("accent-red");
+    expect(container.innerHTML).not.toMatch(/text-\[(9|10)px\]/);
+  });
+
+  it("the Primary marker is a neutral pill and the move buttons carry icons, not arrow glyphs", () => {
+    const { getByTestId, container } = renderChain([A, B]);
+    const first = getByTestId("blackhole-chain-observer-entry-0");
+    expect(within(first).getByText("Primary").getAttribute("data-tone")).toBe("neutral");
+    expect(getByTestId("blackhole-chain-observer-up-1").querySelector("svg")).toBeTruthy();
+    expect(container.textContent).not.toMatch(/[↑↓✕]/);
+  });
+
+  it("no interactive control lives inside a <summary>", () => {
+    const { container } = renderChain([A, B]);
+    for (const summary of Array.from(container.querySelectorAll("summary"))) {
+      expect(summary.querySelector("button, input, select, a")).toBeNull();
+    }
   });
 });

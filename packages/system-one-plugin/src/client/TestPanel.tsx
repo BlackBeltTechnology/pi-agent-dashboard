@@ -7,14 +7,13 @@
  * act immediately (not a Save Bar source).
  * See change: add-system-one-registry.
  */
-import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { SelectField, SettingsCopyButton, SettingsNotice, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type React from "react";
 import { useRef, useState } from "react";
 import { ApiError, api, type BackendView, type ConsumerRow, type Draft, type EvalReport } from "./api.js";
 import { ConfirmDialog } from "./ConfirmDialog.js";
 
-const btn =
-  "rounded-md border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] px-3 py-1.5 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-surface)] disabled:opacity-50 disabled:cursor-not-allowed";
+import { BTN } from "./settings-ui.js";
 
 export interface TestPanelProps {
   consumer: ConsumerRow;
@@ -31,15 +30,16 @@ export function TestPanel({ consumer, draft, views, revision, onSaved }: TestPan
   const [report, setReport] = useState<EvalReport | null>(null);
   const [mode, setMode] = useState<"shadow" | "enforce">("shadow");
   const [confirming, setConfirming] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
+  /** Live status line; `details` (raw code) is only reachable through "Copy details". */
+  const [msg, setMsg] = useState<{ text: string; details?: string } | null>(null);
   const abort = useRef<AbortController | null>(null);
 
   if (!consumer.test.enabled)
     return (
-      <div role="status" className="rounded-md border border-[var(--severity-warning-border)] bg-[var(--severity-warning-bg)] px-3 py-2 text-[13px] text-[var(--severity-warning-fg)]">
+      <SettingsNotice tone="warning" role="status">
         {t("testUnavailable", { reason: consumer.test.reason ?? "" }, `Test unavailable: ${consumer.test.reason ?? ""}`)}
         {consumer.fixtures ? ` (${consumer.fixtures})` : ""}
-      </div>
+      </SettingsNotice>
     );
 
   const disabledReason = (id: string): string | null => {
@@ -62,8 +62,12 @@ export function TestPanel({ consumer, draft, views, revision, onSaved }: TestPan
     try {
       setReport(await api.runEval(consumer.id, current, ac.signal));
     } catch (e) {
-      if (!ac.signal.aborted) setMsg(e instanceof ApiError ? e.code : "error");
-      else setMsg(t("testCancelled", undefined, "Test cancelled"));
+      if (!ac.signal.aborted)
+        setMsg({
+          text: t("testFailed", undefined, "The Test run failed. Check that the backend is running, then try again."),
+          details: e instanceof ApiError ? e.code : String(e),
+        });
+      else setMsg({ text: t("testCancelled", undefined, "Test cancelled") });
     } finally {
       setRunning(false);
     }
@@ -80,56 +84,57 @@ export function TestPanel({ consumer, draft, views, revision, onSaved }: TestPan
         baseRevision: revision,
         ...(confirm ? { confirm: true } : {}),
       });
-      setMsg(t("calibrationSaved", { mode }, `Calibration saved as ${mode}`));
+      setMsg({ text: t("calibrationSaved", { mode }, `Calibration saved as ${mode}`) });
       onSaved();
     } catch (e) {
-      setMsg(e instanceof ApiError && e.code === "stale-revision" ? t("staleCalibration", undefined, "The config changed on disk. Reload the page, then save again.") : "error");
+      setMsg(
+        e instanceof ApiError && e.code === "stale-revision"
+          ? { text: t("staleCalibration", undefined, "The config changed on disk. Reload the page, then save again.") }
+          : {
+              text: t("calibrationFailed", undefined, "The calibration could not be saved. Try again."),
+              details: e instanceof ApiError ? e.code : String(e),
+            },
+      );
     }
   };
 
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-end gap-2">
-        <label className="flex min-w-[14rem] flex-col gap-1 text-[12px] font-semibold text-[var(--text-secondary)]">
-          {t("backendToTest", undefined, "Backend to test")}
-          <select
-            className="rounded border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] px-3 py-1.5 text-sm text-[var(--text-primary)]"
-            value={current}
-            disabled={running}
-            onChange={(e) => setBackend(e.target.value)}
-            data-testid={`test-backend-${consumer.id}`}
-          >
-            {ids.map((id) => {
-              const why = disabledReason(id);
-              return (
-                <option key={id} value={id} disabled={!!why}>
-                  {why ? `${id} (${why})` : id}
-                </option>
-              );
-            })}
-          </select>
-        </label>
+        <SelectField
+          label={t("backendToTest", undefined, "Backend to test")}
+          hint={null}
+          testIds={{ control: `test-backend-${consumer.id}` }}
+          value={current}
+          disabled={running}
+          onChange={setBackend}
+          options={ids.map((id) => {
+            const why = disabledReason(id);
+            return { value: id, label: why ? `${id} (${why})` : id, disabled: !!why };
+          })}
+        />
         {running ? (
-          <button type="button" className={btn} onClick={() => abort.current?.abort()}>
+          <button type="button" className={BTN} onClick={() => abort.current?.abort()}>
             {t("cancel", undefined, "Cancel")}
           </button>
         ) : (
-          <button type="button" className={btn} disabled={!current} onClick={run} data-testid={`run-test-${consumer.id}`}>
+          <button type="button" className={BTN} disabled={!current} onClick={run} data-testid={`run-test-${consumer.id}`}>
             {t("runTest", { n: cases }, `Run Test (${cases} cases)`)}
           </button>
         )}
       </div>
-      <p className="m-0 min-h-5 text-[12px] text-[var(--text-secondary)]" aria-live="polite">
-        {running ? t("testRunning", { n: cases, id: current }, `Running ${cases} cases on ${current}…`) : msg}
+      <p className="m-0 flex min-h-5 flex-wrap items-center gap-2 text-xs text-[var(--text-secondary)]" aria-live="polite">
+        {running ? t("testRunning", { n: cases, id: current }, `Running ${cases} cases on ${current}…`) : msg?.text}
+        {!running && msg?.details ? <SettingsCopyButton text={msg.details} label={t("copyDetails", undefined, "Copy details")} /> : null}
       </p>
       {report && (
         <>
           <ResultsTable report={report} consumerId={consumer.id} />
           <fieldset className="m-0 flex flex-col gap-1.5 border-0 p-0">
-            <legend className="text-[12px] font-semibold text-[var(--text-secondary)]">
+            <legend className="text-xs font-semibold text-[var(--text-primary)]">
               {t("saveCalibrationFor", { key: `${report.backendId}::${consumer.id}` }, `Save calibration for ${report.backendId}::${consumer.id}`)}
             </legend>
-            <div className="flex flex-wrap items-center gap-3 text-sm">
+            <div className="flex flex-wrap items-center gap-3 text-xs text-[var(--text-primary)]">
               <label className="flex items-center gap-1.5 cursor-pointer">
                 <input type="radio" name={`mode-${consumer.id}`} checked={mode === "shadow"} onChange={() => setMode("shadow")} />
                 {t("modeShadow", undefined, "Shadow: log answers, act on none")}
@@ -140,7 +145,7 @@ export function TestPanel({ consumer, draft, views, revision, onSaved }: TestPan
               </label>
               <button
                 type="button"
-                className={btn}
+                className={BTN}
                 disabled={!report.model}
                 data-testid={`save-calibration-${consumer.id}`}
                 onClick={() => (mode === "enforce" ? setConfirming(true) : save(false))}
@@ -148,7 +153,7 @@ export function TestPanel({ consumer, draft, views, revision, onSaved }: TestPan
                 {t("saveCalibration", undefined, "Save calibration")}
               </button>
             </div>
-            <p className="m-0 text-[12px] text-[var(--text-secondary)]">
+            <p className="m-0 text-xs text-[var(--text-secondary)]">
               {Object.keys(report.thresholds).length
                 ? t(
                     "thresholdsFromRun",
@@ -182,7 +187,7 @@ export function TestPanel({ consumer, draft, views, revision, onSaved }: TestPan
           onCancel={() => setConfirming(false)}
           onConfirm={() => {
             setConfirming(false);
-            save(true).catch(() => setMsg("error"));
+            save(true).catch(() => setMsg({ text: t("calibrationFailed", undefined, "The calibration could not be saved. Try again.") }));
           }}
         />
       )}

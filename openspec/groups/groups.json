@@ -481,7 +481,12 @@
     "fix-provider-catalogue-first-run": "github-bug-fixes",
     "add-ask-user-inline-other": "github-bug-fixes",
     "restore-burst-tool-stop-control": "github-bug-fixes",
-    "add-path-containment-guard-extension": "github-bug-fixes"
+    "add-path-containment-guard-extension": "github-bug-fixes",
+    "align-ui-contract-recipes": "ui",
+    "gate-changed-on-disk-by-content": "ui",
+    "refresh-electron-bundled-components": "ui",
+    "move-session-actions-trigger-to-card-edge": "retro-ui",
+    "colorize-actions-menus": "retro-ui"
   },
   "changeOrder": {
     "__ungrouped__": [
@@ -496,12 +501,14 @@
       "ab-test-rlm-delegation-claim",
       "fix-npm12-remote-tarball-install",
       "close-residual-audit-findings",
+      "retro-ux-plugin-settings-wave-2",
       "prove-vault-bridge-tls"
     ],
     "ui": [
-      "update-pi-core-1-3-adopt-apis",
-      "audit-plugin-bundles-non-secure-context",
-      "fix-orphaned-ended-session-archive"
+      "refresh-electron-bundled-components",
+      "gate-changed-on-disk-by-content",
+      "align-ui-contract-recipes",
+      "audit-plugin-bundles-non-secure-context"
     ],
     "addons-hub": [
       "addons-hub-feature-catalog",
@@ -654,6 +661,10 @@
     "gmail": [
       "improve-gmail-plugin-setup-ux",
       "add-gmail-auto-setup"
+    ],
+    "retro-ui": [
+      "move-session-actions-trigger-to-card-edge",
+      "colorize-actions-menus"
     ]
   }
 }

@@ -48,6 +48,28 @@ describe("E5 presets: repeat + preserve", () => {
     expect(f.types().filter((t) => MUTATING.test(t))).toEqual([]);
   });
 
+  // Transforms are canvas pixels: a 1920-based layout on a 5120x2880 canvas lands mid-left.
+  const transforms = (f: FakeObs) => f.frames.filter((x) => x.type === "SetSceneItemTransform").map((x) => x.data.sceneItemTransform);
+
+  it("PIP box scales to the base canvas (5120\u00d72880 \u2192 bottom-right, k = 8/3)", async () => {
+    const m = obsModel();
+    m.canvas = { width: 5120, height: 2880 };
+    const { f, run } = await setup(m);
+    expect((await run(["preset", "apply", "desktop-webcam-pip"])).code).toBe(0);
+    expect(transforms(f)).toEqual([
+      { boundsType: "OBS_BOUNDS_SCALE_INNER", boundsWidth: 5120, boundsHeight: 2880, positionX: 0, positionY: 0 },
+      { boundsType: "OBS_BOUNDS_SCALE_INNER", boundsWidth: 1280, boundsHeight: 720, positionX: 3787, positionY: 2107 },
+    ]);
+  });
+
+  it("no GetVideoSettings \u2192 1920\u00d71080 layout", async () => {
+    const m = obsModel();
+    delete m.handlers.GetVideoSettings;
+    const { f, run } = await setup(m);
+    expect((await run(["preset", "apply", "desktop-webcam-pip"])).code).toBe(0);
+    expect(transforms(f)[1]).toMatchObject({ boundsWidth: 480, boundsHeight: 270, positionX: 1420, positionY: 790 });
+  });
+
   it("a user-tuned Webcam Box is never touched", async () => {
     const m = obsModel();
     m.scenes.set("Desktop + Webcam", ["Desktop Combined", "Webcam Box"]);

@@ -139,7 +139,7 @@ test.describe("browser relay — settings surface (F1-F4)", () => {
     await page.getByTestId("browser-token-save-Fake").click();
 
     await expect(input).toHaveValue("");
-    await expect(page.getByTestId("browser-has-token-Fake")).toContainText("Token set", {
+    await expect(page.getByTestId("browser-has-token-Fake")).toContainText("Paired", {
       timeout: 10_000,
     });
     await expect(page.getByTestId("browser-zero-dialog-Fake")).toBeEnabled();

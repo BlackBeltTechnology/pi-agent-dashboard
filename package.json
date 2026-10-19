@@ -75,6 +75,7 @@
     "clean:memory:write": "node scripts/prune-memory-backups.mjs --write",
     "i18n:parity": "node scripts/i18n-parity.mjs",
     "i18n:lint": "node scripts/i18n-lint.mjs",
+    "settings-kit:guard": "node scripts/settings-kit-guard.mjs",
     "lint": "node scripts/tsc7.mjs --noEmit",
     "lint:e2e": "node scripts/tsc7.mjs -p tests/tsconfig.json --noEmit && node scripts/check-e2e-fixture-import.mjs",
     "lint:biome": "biome lint .",

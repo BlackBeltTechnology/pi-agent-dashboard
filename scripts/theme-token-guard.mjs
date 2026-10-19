@@ -40,19 +40,33 @@
  * See change: add-zrok-custom-reserved-name.
  */
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, join, posix, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const BASELINE_PATH = join(ROOT, "scripts", "theme-token-baseline.json");
 
-/** Source roots scanned for color custom-property references. */
-export const SCAN_ROOTS = [
-  "packages/client/src",
-  "packages/automation-plugin/src/client",
-  "packages/flows-plugin/src/client",
-  "packages/gmail-plugin/src/client",
-];
+/**
+ * Every plugin client tree: the directory of each package manifest's
+ * `pi-dashboard-plugin.client` entry (`src/client` or, for plugins without one,
+ * `src`). See change: retro-ux-plugin-settings-wave-2 (design D7).
+ */
+export function pluginClientRoots(root = ROOT) {
+  const out = [];
+  const pkgs = join(root, "packages");
+  if (!existsSync(pkgs)) return out;
+  for (const pkg of readdirSync(pkgs).sort()) {
+    const manifest = join(pkgs, pkg, "package.json");
+    if (!existsSync(manifest)) continue;
+    const client = JSON.parse(readFileSync(manifest, "utf8"))["pi-dashboard-plugin"]?.client;
+    if (typeof client !== "string") continue;
+    out.push(posix.join("packages", pkg, posix.dirname(client.replace(/^\.\//, ""))));
+  }
+  return out;
+}
+
+/** Source roots scanned for color custom-property references: the client + every plugin client tree. */
+export const SCAN_ROOTS = [...new Set(["packages/client/src", ...pluginClientRoots()])];
 
 /** index.css is the theme layer — the single place a token may be declared. */
 const THEME_CSS = "packages/client/src/index.css";

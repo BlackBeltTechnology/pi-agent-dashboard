@@ -15,7 +15,7 @@ const RouteImpl = lazy(() => import("./ObsAppRoute.js"));
 /** `settings-section` claim. */
 export function ObsSettings() {
   return (
-    <Suspense fallback={null}>
+    <Suspense fallback={<p aria-busy="true" className="text-xs text-[var(--text-secondary)]">Loading…</p>}>
       <CardImpl />
     </Suspense>
   );

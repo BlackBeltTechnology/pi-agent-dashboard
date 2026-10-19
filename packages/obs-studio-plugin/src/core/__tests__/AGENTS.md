@@ -8,10 +8,10 @@ Never talk to real OBS: `fake-obs.ts` (obs-websocket v5 over `ws`) + `obs-model.
 | `connection.test.ts` | E1 resolution decision table, X1 closed port / auth-failed / Hello withheld / unanswered request. |
 | `fake-obs.ts` | Fake server: Hello/Identify with real auth challenge, scripted handlers, frame log, `withholdHello`. |
 | `instances.test.ts` | Registry prune is best-effort (read-only state dir does not fail the read). |
-| `install-doctor-stop.test.ts` | E12 install (plan, no brew, no digest, zip-slip/symlink), E13 doctor log fixtures, E14 stop. |
+| `install-doctor-stop.test.ts` | E12 install (plan, no brew, no digest, zip-slip/symlink), E13 doctor log fixtures, E14 stop (incl. outputs stopped over fake ws before quit, stuck output refuses quit, unreachable ws warns). |
 | `launch.test.ts` | E8 strike table, E9 races + retention + darwin argv. |
-| `obs-model.ts` | Scenes/inputs/filters/outputs model; 601 on taken names. |
+| `obs-model.ts` | Scenes/inputs/filters/outputs model; `Stop*` handlers, `stuckOutputs` keeps an output active, `canvas` → `GetVideoSettings`; 601 on taken names. |
 | `policy.test.ts` | E1 via `status`, E2 `call` denials, E3 crash deny (call + serve), E4 gating + stream key. |
-| `presets-devices.test.ts` | E5 repeat/preserve, E6 partial/plugin-missing, E7 devices. |
+| `presets-devices.test.ts` | E5 repeat/preserve + canvas scaling (5120x2880, no-GetVideoSettings fallback), E6 partial/plugin-missing, E7 devices. |
 | `provision.test.ts` | E10 registration, E11 ws-enablement table. |
 | `serve.test.ts` | idle/EOF exit, out-of-order answers, probe sweep. |

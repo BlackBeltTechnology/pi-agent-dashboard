@@ -11,9 +11,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { invalidateEffective } from "../hooks.js";
 import { McpSettings } from "../McpSettings.js";
 
-vi.mock("@blackbelt-technology/dashboard-plugin-runtime", () => ({
-  useT: () => (_key: string, _params?: unknown, fallback?: string) => fallback ?? _key,
-}));
+vi.mock("@blackbelt-technology/dashboard-plugin-runtime", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@blackbelt-technology/dashboard-plugin-runtime")>();
+  return {
+    ...actual,
+    useT: () => (_key: string, _params?: unknown, fallback?: string) => fallback ?? _key,
+  };
+});
 
 function jsonOk(body: unknown): Response {
   return { ok: true, status: 200, json: async () => body } as unknown as Response;
@@ -27,8 +31,9 @@ function jsonErr(status: number, body: unknown): Response {
 function isDisabled(testid: string): boolean {
   return (screen.getByTestId(testid) as HTMLInputElement).disabled;
 }
+/** The row switch is a kit-styled `role="switch"` button: state lives in `aria-checked`. */
 function isChecked(testid: string): boolean {
-  return (screen.getByTestId(testid) as HTMLInputElement).checked;
+  return screen.getByTestId(testid).getAttribute("aria-checked") === "true";
 }
 
 function server(
@@ -177,10 +182,10 @@ describe("rows: live state (from /live)", () => {
     render(<McpSettings />);
     await screen.findByTestId("mcp-server-row-conn");
 
-    expect(screen.getByTestId("mcp-live-conn").textContent).toContain("connected");
+    expect(screen.getByTestId("mcp-live-conn").textContent).toContain("Connected");
     expect(screen.getByTestId("mcp-live-conn").textContent).toContain("3");
     // absent from /live → state unknown
-    expect(screen.getByTestId("mcp-live-ghost").textContent).toContain("state unknown");
+    expect(screen.getByTestId("mcp-live-ghost").textContent).toContain("State unknown");
 
     // needs-auth on an OAuth (no header/auth) row → sign-in hint naming /mcp login
     expect(screen.getByTestId("mcp-signin-hint-oauth").textContent).toContain("/mcp login oauth");
@@ -195,7 +200,7 @@ describe("rows: live state (from /live)", () => {
       message: "timed out",
     });
     render(<McpSettings />);
-    expect((await screen.findByTestId("mcp-live-srv")).textContent).toContain("state unknown");
+    expect((await screen.findByTestId("mcp-live-srv")).textContent).toContain("State unknown");
   });
 });
 
@@ -332,5 +337,98 @@ describe("section chrome", () => {
     render(<McpSettings />);
     expect(await screen.findByTestId("mcp-error")).toBeTruthy();
     expect(isDisabled("mcp-add-server")).toBe(false);
+  });
+});
+
+/** Primary-styled action buttons (the `--accent-solid` recipe; the ON-state switches are not actions) outside the editor modal. */
+function primaryButtons(container: HTMLElement): HTMLElement[] {
+  return Array.from(container.querySelectorAll<HTMLElement>('button[class*="accent-solid"]:not([role="switch"])')).filter(
+    (b) => !b.closest('[role="dialog"]'),
+  );
+}
+
+describe("one primary Add server per state (test-plan #E20)", () => {
+  it("empty: one primary mcp-empty-add with the docs link, no toolbar Add", async () => {
+    makeFetch(view());
+    const { container } = render(<McpSettings />);
+    const add = await screen.findByTestId("mcp-empty-add");
+    expect(screen.queryByTestId("mcp-add-server")).toBeNull();
+    expect(screen.getByTestId("mcp-docs-link")).toBeTruthy();
+    expect(primaryButtons(container)).toEqual([add]);
+  });
+
+  it("populated: heading 'Servers · 3', secondary Refresh, one primary mcp-add-server", async () => {
+    makeFetch(
+      view({
+        servers: [
+          server("a", { command: "/bin/a" }),
+          server("b", { command: "/bin/b" }),
+          server("c", { url: "https://c/mcp" }),
+        ],
+      }),
+    );
+    const { container } = render(<McpSettings />);
+    await screen.findByTestId("mcp-server-row-a");
+    const add = screen.getByTestId("mcp-add-server");
+    expect(primaryButtons(container)).toEqual([add]);
+    expect(screen.queryByTestId("mcp-empty-add")).toBeNull();
+    expect(screen.getByTestId("mcp-refresh").className).not.toContain("accent-solid");
+    expect(screen.getByTestId("mcp-settings").textContent).toContain("Servers · 3");
+    // #E7: no near-duplicate of the plugin name as a heading
+    expect(container.querySelector("h3")).toBeNull();
+  });
+
+  it("Add server opens the editor for a new entry in either state", async () => {
+    makeFetch(view());
+    render(<McpSettings />);
+    fireEvent.click(await screen.findByTestId("mcp-empty-add"));
+    expect(await screen.findByTestId("mcp-editor-dialog")).toBeTruthy();
+    cleanup();
+    invalidateEffective();
+    makeFetch(view({ servers: [server("a", { command: "/bin/a" })] }));
+    render(<McpSettings />);
+    await screen.findByTestId("mcp-server-row-a");
+    fireEvent.click(screen.getByTestId("mcp-add-server"));
+    expect(await screen.findByTestId("mcp-editor-dialog")).toBeTruthy();
+  });
+});
+
+describe("live status pills (test-plan #E21)", () => {
+  it("shows human words + tones, a /mcp login hint in <code>, and never the raw enum", async () => {
+    makeFetch(
+      view({
+        servers: [
+          server("conn", { command: "/bin/c" }),
+          server("oauth", { url: "https://o/mcp" }),
+          server("ghost", { command: "/bin/g" }),
+          server("folderish", { command: "/bin/f" }),
+        ],
+      }),
+      {
+        ok: true,
+        servers: {
+          conn: { state: "connected", tools: 14 },
+          oauth: { state: "needs-auth", tools: 0 },
+          folderish: { state: "not-checked-by-pi", tools: 0 },
+        },
+        errors: [],
+      },
+    );
+    render(<McpSettings />);
+    await screen.findByTestId("mcp-server-row-conn");
+
+    const conn = screen.getByTestId("mcp-live-conn");
+    expect(conn.textContent).toBe("Connected · 14 tools");
+    expect(conn.getAttribute("data-tone")).toBe("success");
+
+    const oauth = screen.getByTestId("mcp-live-oauth");
+    expect(oauth.textContent).toBe("Sign-in needed");
+    expect(oauth.getAttribute("data-tone")).toBe("warning");
+    const hint = screen.getByTestId("mcp-signin-hint-oauth");
+    expect(hint.querySelector("code")?.textContent).toBe("/mcp login oauth");
+
+    expect(screen.getByTestId("mcp-live-folderish").textContent).toBe("Not checked by pi");
+    expect(screen.getByTestId("mcp-live-ghost").textContent).toBe("State unknown");
+    expect(screen.getByTestId("mcp-server-list").textContent).not.toContain("needs-auth");
   });
 });

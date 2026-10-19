@@ -16,16 +16,37 @@
  * state, where an explicitly DISABLED save control states that editing is
  * blocked rather than leaving the absence to be inferred.
  *
- * See change: add-blackhole-plugin.
+ * Presentation is the shared settings field kit (`SettingsGroup`, `NumberField`,
+ * `SelectField`, `ToggleField`, `SettingsNotice`): errors are one human sentence
+ * with the raw text (parser message, HTTP status, server body) behind "Copy
+ * details", never rendered. Retry/recheck/copy controls sit inside the notice,
+ * never inside a `<summary>`.
+ *
+ * See changes: add-blackhole-plugin, retro-ux-plugin-settings-wave-2.
  */
-import { useSettingsDraftSource, useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  FieldShell,
+  NumberField,
+  SelectField,
+  SettingsCopyButton,
+  SettingsGroup,
+  SettingsNotice,
+  SettingsStatusPill,
+  ToggleField,
+  useSettingsDraftSource,
+  useT,
+  useUiPrimitive,
+} from "@blackbelt-technology/dashboard-plugin-runtime";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import type { ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { mdiRefresh } from "@mdi/js";
+import { Icon } from "@mdi/react";
 import type React from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import {
   type BlackholeConfig,
   DEFAULTS,
+  type FieldDescriptor,
   FIELD_DESCRIPTORS,
   KNOWN_KEYS,
   type ModelRef,
@@ -42,6 +63,7 @@ import {
 } from "./blackhole-api.js";
 import { ChainEditor, type RegistryState } from "./ChainEditor.js";
 import { FIELD_GROUPS, type FieldMeta, WORKER_META } from "./field-groups.js";
+import { BTN_GHOST, BTN_SECONDARY } from "./settings-buttons.js";
 
 const INSTALL_COMMAND = "pi install npm:pi-blackhole";
 
@@ -65,6 +87,42 @@ export interface Draft {
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
+}
+
+/**
+ * Human sentence for an invalid scalar, or `null`. `undefined` means the key has no
+ * default and was never set (inherit), which is valid; `NaN` is a cleared input.
+ */
+function fieldError(
+  desc: FieldDescriptor,
+  value: unknown,
+  t: (key: string, vars?: Record<string, string | number>, fallback?: string) => string,
+): string | null {
+  if (value === undefined) return null;
+  if (desc.kind === "integer") {
+    if (typeof value === "number" && Number.isInteger(value) && value >= desc.min) return null;
+    return t("intError", { min: desc.min }, `Enter a whole number of ${desc.min} or more.`);
+  }
+  if (desc.kind === "fraction") {
+    if (typeof value === "number" && Number.isFinite(value) && value > 0 && value <= 1) return null;
+    return t("fractionError", undefined, "Enter a number above 0, up to 1.");
+  }
+  return null;
+}
+
+/** Wrap slash commands and `_comment` in `<code>`; the catalogue stays plain text. */
+function renderHelp(text: string): ReactNode {
+  const parts = text.split(/((?<![A-Za-z])\/[a-z]+|_comment)/);
+  return parts.map((part, i) =>
+    i % 2 === 1 ? (
+      // biome-ignore lint/suspicious/noArrayIndexKey: static split of a constant string
+      <code key={i} className="font-mono text-[12px]">
+        {part}
+      </code>
+    ) : (
+      part
+    ),
+  );
 }
 
 /** Build the editable draft from a GET result. */
@@ -294,12 +352,25 @@ export function BlackholeSettings(): React.ReactElement {
 
   const payload = useMemo(() => (draft ? buildPayload(draft) : null), [draft]);
   const isDirty = payload !== null && JSON.stringify(payload) !== baseline;
+  const fieldErrors = useMemo(() => {
+    const out: Record<string, string> = {};
+    if (!draft) return out;
+    for (const group of FIELD_GROUPS) {
+      for (const meta of group.fields) {
+        const e = fieldError(FIELD_DESCRIPTORS[meta.key], draft.values[meta.key], t);
+        if (e) out[meta.key] = e;
+      }
+    }
+    return out;
+  }, [draft, t]);
+  const hasFieldErrors = Object.keys(fieldErrors).length > 0;
 
   useSettingsDraftSource({
     id: "plugin:blackhole",
     isDirty,
     commit: async () => {
       if (!payload) return;
+      if (hasFieldErrors) throw new Error(t("fixInvalid", undefined, "Fix the invalid fields before saving."));
       try {
         setSaveError(null);
         await putConfig(payload);
@@ -358,184 +429,179 @@ export function BlackholeSettings(): React.ReactElement {
 
   if (loadError) {
     return (
-      <div className="text-[13px] text-[var(--accent-red)]" data-testid="blackhole-load-error">
-        {t("loadError", { error: loadError }, `Failed to load config: ${loadError}`)}
-      </div>
+      <SettingsNotice
+        tone="error"
+        testId="blackhole-load-error"
+        onRetry={() => void load()}
+        details={loadError}
+      >
+        {t("loadError", undefined, "Could not load the blackhole settings. The dashboard server did not answer.")}
+      </SettingsNotice>
     );
   }
 
   if (installed === false) {
     return (
-      <div className="text-[13px] text-[var(--text-secondary)]" data-testid="blackhole-not-installed">
-        <h3 className="text-[15px] font-semibold text-[var(--text-primary)] mt-0 mb-2">
-          {t("notInstalledTitle", undefined, "pi-blackhole isn't installed")}
-        </h3>
-        <p className="text-[12.5px] mt-0 mb-3">
+      <SettingsNotice
+        tone="info"
+        testId="blackhole-not-installed"
+        actions={<SettingsCopyButton text={INSTALL_COMMAND} label={t("copyCommand", undefined, "Copy command")} />}
+      >
+        <strong className="block">{t("notInstalledTitle", undefined, "pi-blackhole isn't installed")}</strong>
+        <span className="block">
           {t(
             "notInstalledBody",
             undefined,
             "This page configures the pi-blackhole extension — unified algorithmic compaction plus observational memory. Install it in any pi session, then reload.",
           )}
-        </p>
-        <code
-          className="inline-block font-mono text-[12px] px-2.5 py-1.5 rounded bg-[var(--bg-code)] border border-[var(--border-secondary)] text-[var(--text-primary)]"
-          data-testid="blackhole-install-command"
-        >
+        </span>
+        <code className="mt-1 inline-block font-mono text-[12px]" data-testid="blackhole-install-command">
           {INSTALL_COMMAND}
         </code>
-      </div>
+      </SettingsNotice>
     );
   }
 
   if (installed === null || (result === null && !loadError)) {
-    return <div className="text-[13px] text-[var(--text-muted)]">{t("loading", undefined, "Loading…")}</div>;
+    return <div className="text-xs text-[var(--text-secondary)]">{t("loading", undefined, "Loading…")}</div>;
   }
 
   if (result?.status === "parse-error") {
     return (
-      <div className="text-[13px] text-[var(--text-secondary)]" data-testid="blackhole-parse-error">
-        <h3 className="text-[15px] font-semibold text-[var(--accent-red)] mt-0 mb-2">
-          {t("parseErrorTitle", undefined, "Config file can't be parsed — editing is disabled")}
-        </h3>
-        <p className="text-[12.5px] mt-0 mb-2">
-          {t(
-            "parseErrorBody",
-            undefined,
-            "Blackhole's settings all live in this one file. Because it can't be read, this page has no values to display — showing defaults here would misrepresent what your sessions are actually running.",
-          )}
-        </p>
-        <div className="font-mono text-[11px] text-[var(--text-tertiary)] mb-2" data-testid="blackhole-file-path">
-          {result.filePath}
-        </div>
-        <pre
-          className="m-0 font-mono text-[11.5px] text-[var(--accent-red)] bg-[var(--bg-code)] border border-[var(--border-subtle)] rounded-lg p-3 overflow-auto whitespace-pre-wrap"
-          data-testid="blackhole-parse-message"
+      <div className="space-y-3" data-testid="blackhole-parse-root">
+        <FilePath path={result.filePath} />
+        <SettingsNotice
+          tone="error"
+          testId="blackhole-parse-error"
+          details={result.message}
+          actions={
+            <>
+              <button type="button" className={BTN_SECONDARY} data-testid="blackhole-recheck" onClick={() => void load()}>
+                <Icon path={mdiRefresh} size={0.55} aria-hidden="true" />
+                {t("recheck", undefined, "Check again")}
+              </button>
+              <button type="button" disabled className={BTN_GHOST} data-testid="blackhole-save-blocked">
+                {t("saveBlocked", undefined, "Save")}
+              </button>
+            </>
+          }
         >
-          {result.message}
-        </pre>
-        <div className="flex items-center gap-2 mt-3">
-          <button
-            type="button"
-            className="text-[12px] px-3 py-1.5 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)]"
-            data-testid="blackhole-recheck"
-            onClick={() => void load()}
-          >
-            {t("recheck", undefined, "Re-check file")}
-          </button>
-          <button
-            type="button"
-            disabled
-            className="text-[12px] px-3 py-1.5 rounded border border-[var(--border-secondary)] text-[var(--text-tertiary)] opacity-50"
-            data-testid="blackhole-save-blocked"
-          >
-            {t("saveBlocked", undefined, "Save")}
-          </button>
-        </div>
+          <strong className="block" data-testid="blackhole-parse-message">
+            {t("parseErrorTitle", undefined, "The config file can't be read, so editing is off.")}
+          </strong>
+          <span className="block">
+            {t(
+              "parseErrorBody",
+              undefined,
+              "Fix the file by hand, then check again. Blackhole keeps all its settings in this one file, so there are no values to show.",
+            )}
+          </span>
+        </SettingsNotice>
       </div>
     );
   }
 
   if (!draft || result?.status !== "ok") {
-    return <div className="text-[13px] text-[var(--text-muted)]">{t("loading", undefined, "Loading…")}</div>;
+    return <div className="text-xs text-[var(--text-secondary)]">{t("loading", undefined, "Loading…")}</div>;
   }
 
   const sessionFallback = draft.values.sessionFallback !== false;
 
   return (
-    <div className="text-[13px] text-[var(--text-secondary)] pb-8" data-testid="blackhole-settings">
-      <p className="text-[12px] mb-2">
+    <div className="space-y-3" data-testid="blackhole-settings">
+      <p className="text-xs text-[var(--text-secondary)]">
         {t("intro", undefined, "Compaction and observational memory for the")}{" "}
-        <code className="font-mono text-[11px]">pi-blackhole</code>{" "}
-        {t("introTail", undefined, "extension.")}
+        <code className="font-mono text-[12px]">pi-blackhole</code> {t("introTail", undefined, "extension.")}
       </p>
 
-      <div className="font-mono text-[11px] text-[var(--text-tertiary)] flex items-center gap-1.5 mb-3">
-        <span>{t("file", undefined, "File:")}</span>
-        <span
-          className="border border-[var(--border-secondary)] rounded px-1.5 text-[var(--accent-green)]"
-          data-testid="blackhole-file-path"
-        >
-          {result.filePath}
-        </span>
-        <span>
-          ·{" "}
+      <div className="flex flex-wrap items-center gap-2">
+        <FilePath path={result.filePath} />
+        <SettingsStatusPill tone="neutral" icon={null}>
           {result.exists
             ? t("nUnmanaged", { count: result.unmanagedKeys.length }, `${result.unmanagedKeys.length} unmanaged keys preserved`)
             : t("notCreated", undefined, "not yet created")}
-        </span>
+        </SettingsStatusPill>
       </div>
 
       {/* Apply semantics: attributed to the extension, never phrased as a
           dashboard guarantee, and never demanding a restart. */}
-      <p
-        className="text-[12px] rounded-lg px-2.5 py-2 mb-4 border border-[var(--border-secondary)] bg-[var(--bg-secondary)]"
-        data-testid="blackhole-apply-note"
-      >
+      <SettingsNotice tone="info" testId="blackhole-apply-note">
         {t(
           "applyNote",
           undefined,
           "pi-blackhole re-reads this file after every write, so saved changes reach running sessions on its own. Keys this page doesn't manage (including _comment notes) are preserved untouched.",
         )}
-      </p>
+      </SettingsNotice>
 
-      {FIELD_GROUPS.map((group) => (
-        <details
-          key={group.title}
-          className="border border-[var(--border-secondary)] rounded-[10px] overflow-hidden mb-2.5 bg-[var(--bg-secondary)]"
-          data-testid={`blackhole-group-${group.title}`}
-        >
-          <summary className="cursor-pointer flex items-center gap-2.5 px-3.5 py-2.5 text-[13px] font-semibold text-[var(--text-primary)] select-none list-none">
-            {group.title}
-            <span className="ml-auto text-[11px] text-[var(--text-tertiary)] font-medium">
-              {group.fields.length} {t("fields", undefined, "fields")}
-            </span>
-          </summary>
-          <div className="px-3.5 pb-3 pt-1 border-t border-[var(--border-subtle)]">
+      <div>
+        {FIELD_GROUPS.map((group) => (
+          <SettingsGroup
+            key={group.title}
+            title={group.title}
+            meta={`${group.fields.length} ${t("fields", undefined, "fields")}`}
+            defaultOpen={false}
+            testId={`blackhole-group-${group.title}`}
+          >
             {group.fields.map((meta) => (
               <FieldRow
                 key={meta.key}
                 meta={meta}
                 value={draft.values[meta.key]}
+                error={fieldErrors[meta.key] ?? null}
                 onChange={(v) => setField(meta.key, v)}
               />
             ))}
-          </div>
-        </details>
-      ))}
+          </SettingsGroup>
+        ))}
 
-      {showConfirmDefaults && (
-        <ConfirmDialogPrimitive
-          message={t(
-            "confirmReplaceChainsBody",
-            undefined,
-            "Applying recommended defaults will overwrite the current fallback chains for observer, reflector, and dropper with up to 3 flash/haiku/mini models from your credentialed registry.",
-          )}
-          confirmLabel={t("confirmReplaceApply", undefined, "Apply Defaults")}
-          onConfirm={() => {
-            applyDefaults();
-            setShowConfirmDefaults(false);
-          }}
-          onCancel={() => setShowConfirmDefaults(false)}
+        {showConfirmDefaults && (
+          <ConfirmDialogPrimitive
+            message={t(
+              "confirmReplaceChainsBody",
+              undefined,
+              "Applying recommended defaults will overwrite the current fallback chains for observer, reflector, and dropper with up to 3 flash/haiku/mini models from your credentialed registry.",
+            )}
+            confirmLabel={t("confirmReplaceApply", undefined, "Apply Defaults")}
+            onConfirm={() => {
+              applyDefaults();
+              setShowConfirmDefaults(false);
+            }}
+            onCancel={() => setShowConfirmDefaults(false)}
+          />
+        )}
+
+        <ChainsSection
+          draft={draft}
+          models={models}
+          registryState={registryState}
+          registryReason={registryReason}
+          saveError={saveError}
+          hasCandidate={hasCandidate}
+          stagedDefaultsCount={stagedDefaultsCount}
+          sessionFallback={sessionFallback}
+          onRetryRegistry={retryRegistry}
+          onSetBaseModel={(base) => setDraft((prev) => (prev ? { ...prev, baseModel: base } : prev))}
+          onDefaultsClick={handleDefaultsClick}
+          onSetChain={setChain}
+          onReattach={reattach}
         />
-      )}
+      </div>
+    </div>
+  );
+}
 
-      <ChainsSection
-        draft={draft}
-        models={models}
-        registryState={registryState}
-        registryReason={registryReason}
-        saveError={saveError}
-        hasCandidate={hasCandidate}
-        stagedDefaultsCount={stagedDefaultsCount}
-        sessionFallback={sessionFallback}
-        onRetryRegistry={retryRegistry}
-        onSetBaseModel={(base) =>
-          setDraft((prev) => (prev ? { ...prev, baseModel: base } : prev))
-        }
-        onDefaultsClick={handleDefaultsClick}
-        onSetChain={setChain}
-        onReattach={reattach}
-      />
+/** The config file path as a neutral mono chip (no accent colour). */
+function FilePath({ path }: { path: string }): React.ReactElement {
+  const t = useT();
+  return (
+    <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-[12px] text-[var(--text-secondary)]">
+      <span>{t("file", undefined, "File:")}</span>
+      <code
+        className="break-all rounded border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] px-1.5 font-mono text-[12px] text-[var(--text-primary)]"
+        data-testid="blackhole-file-path"
+      >
+        {path}
+      </code>
     </div>
   );
 }
@@ -576,232 +642,191 @@ function ChainsSection({
   const ModelSelectorPrimitive = useUiPrimitive(UI_PRIMITIVE_KEYS.modelSelector);
 
   return (
-    <details
-      open
-      className="border border-[var(--border-secondary)] rounded-[10px] overflow-hidden mb-2.5 bg-[var(--bg-secondary)]"
-      data-testid="blackhole-group-chains"
+    <SettingsGroup
+      title={t("workerModels", undefined, "Worker models")}
+      meta={`${WORKER_META.length} ${t("chains", undefined, "chains")}`}
+      testId="blackhole-group-chains"
     >
-      <summary className="cursor-pointer flex items-center gap-2.5 px-3.5 py-2.5 text-[13px] font-semibold text-[var(--text-primary)] select-none list-none">
-        {t("workerModels", undefined, "Worker models")}
-        <button
-          type="button"
-          data-testid="blackhole-registry-retry"
-          aria-label={t("retryRegistry", undefined, "Retry")}
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            void onRetryRegistry();
-          }}
-          className="ml-2 px-1.5 py-0.5 text-[11px] font-normal rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
-        >
-          {t("retryRegistry", undefined, "Retry")}
-        </button>
-        <span className="ml-auto text-[11px] text-[var(--text-tertiary)] font-medium">
-          {WORKER_META.length} {t("chains", undefined, "chains")}
-        </span>
-      </summary>
-      <div className="px-3.5 pb-3 pt-2 border-t border-[var(--border-subtle)]">
-        <p className="text-[11.5px] text-[var(--text-tertiary)] mt-0 mb-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <p className="m-0 min-w-0 flex-1 text-xs text-[var(--text-secondary)]">
           {t(
             "chainsHelp",
             undefined,
             "Each worker tries its models top to bottom. A model that returns a retryable error is skipped for its cooldown window, and the next one runs.",
           )}
         </p>
+        <button
+          type="button"
+          data-testid="blackhole-registry-retry"
+          className={BTN_SECONDARY}
+          onClick={() => void onRetryRegistry()}
+        >
+          <Icon path={mdiRefresh} size={0.55} aria-hidden="true" />
+          {t("refreshModels", undefined, "Refresh models")}
+        </button>
+      </div>
 
-        {saveError && (
-          <div
-            data-testid="blackhole-save-error"
-            className="border border-[var(--severity-error-border)] rounded-lg p-3 mb-3 bg-[var(--severity-error-bg)] text-[var(--severity-error-fg)] text-[12px]"
-          >
-            {saveError}
-          </div>
-        )}
+      {saveError && (
+        <SettingsNotice tone="error" testId="blackhole-save-error" details={saveError}>
+          {t("saveFailed", undefined, "Could not save the blackhole settings. Check the values, then try again.")}
+        </SettingsNotice>
+      )}
 
-        {registryState === "unavailable" && (
-          <div
-            data-testid="blackhole-registry-unavailable"
-            className="border border-[var(--severity-error-border)] rounded-lg p-3 mb-3 bg-[var(--severity-error-bg)] text-[var(--severity-error-fg)] flex items-center justify-between gap-2 text-[12px]"
-          >
-            <span>
-              ✕{" "}
-              {t(
-                "registryUnavailable",
-                { reason: registryReason || "503" },
-                `Model registry unavailable (${registryReason || "503"}).`,
-              )}
-            </span>
+      {registryState === "unavailable" && (
+        <SettingsNotice
+          tone="error"
+          testId="blackhole-registry-unavailable"
+          details={registryReason}
+          actions={
             <button
               type="button"
               data-testid="blackhole-registry-retry-banner"
+              className={BTN_SECONDARY}
               onClick={() => void onRetryRegistry()}
-              className="px-2 py-0.5 text-[11px] rounded border border-[var(--border-secondary)] bg-[var(--bg-primary)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
             >
+              <Icon path={mdiRefresh} size={0.55} aria-hidden="true" />
               {t("retryRegistry", undefined, "Retry")}
             </button>
-          </div>
-        )}
-
-        {registryState === "empty" && (
-          <div
-            data-testid="blackhole-registry-empty"
-            className="border border-[var(--severity-warning-border)] rounded-lg p-3 mb-3 bg-[var(--severity-warning-bg)] text-[var(--severity-warning-fg)] text-[12px]"
-          >
-            ⚠️{" "}
-            {t(
-              "registryEmpty",
-              undefined,
-              "No credentialed models in registry. Configure provider API keys in Settings > Providers to enable model selection.",
-            )}
-          </div>
-        )}
-
-        {/* Base Model picker row (design D7) */}
-        <div
-          className="border border-[var(--border-secondary)] rounded-lg p-3 mb-3 bg-[var(--bg-tertiary)] flex items-center justify-between gap-3 flex-wrap"
-          data-testid="blackhole-base-model-card"
+          }
         >
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-[12px] font-semibold text-[var(--text-primary)]">
-                {t("baseModelLabel", undefined, "Base Model")}
-              </span>
-              <span className="font-mono text-[10px] text-[var(--text-tertiary)]">model</span>
-            </div>
-            <div className="text-[11px] text-[var(--text-tertiary)]">
-              {t(
-                "baseModelHelp",
-                undefined,
-                "Shared fallback for all workers before the session model.",
-              )}
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {registryState === "ok" ? (
-              <ModelSelectorPrimitive
-                current={
-                  draft.baseModel?.role ??
-                  (draft.baseModel ? `${draft.baseModel.provider}/${draft.baseModel.id}` : undefined)
-                }
-                models={models}
-                allowRoles
-                placeholder={t("selectBaseModelPlaceholder", undefined, "Select base model…")}
-                onSelect={(label: string) => {
-                  if (label.startsWith("@")) {
-                    onSetBaseModel({ provider: draft.baseModel?.provider ?? "", id: draft.baseModel?.id ?? "", role: label });
-                    return;
-                  }
-                  const picked = models.find((m) => `${m.provider}/${m.id}` === label);
-                  let provider = "";
-                  let id = "";
-                  if (picked) {
-                    provider = picked.provider;
-                    id = picked.id;
-                  } else {
-                    const slashIdx = label.indexOf("/");
-                    provider = slashIdx >= 0 ? label.slice(0, slashIdx) : "";
-                    id = slashIdx >= 0 ? label.slice(slashIdx + 1) : label;
-                  }
-                  onSetBaseModel({ provider, id });
-                }}
-              />
-            ) : (
-              <span
-                data-testid="blackhole-base-model-value"
-                className="font-mono text-[12px] text-[var(--text-primary)]"
-              >
-                {draft.baseModel ? `${draft.baseModel.provider}/${draft.baseModel.id}` : "—"}
-              </span>
-            )}
-            <button
-              type="button"
-              data-testid="blackhole-base-model-clear"
-              disabled={draft.baseModel === null}
-              onClick={() => onSetBaseModel(null)}
-              className="px-2 py-1 text-[11px] rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] disabled:opacity-40"
+          {t("registryUnavailable", undefined, "Could not load the model list. Model pickers are read-only until it loads.")}
+        </SettingsNotice>
+      )}
+
+      {registryState === "empty" && (
+        <SettingsNotice tone="warning" testId="blackhole-registry-empty">
+          {t(
+            "registryEmpty",
+            undefined,
+            "No credentialed models in registry. Configure provider API keys in Settings > Providers to enable model selection.",
+          )}
+        </SettingsNotice>
+      )}
+
+      {/* Base Model picker row (design D7) */}
+      <div data-testid="blackhole-base-model-card">
+        <FieldShell
+          label={t("baseModelLabel", undefined, "Base model")}
+          stacked
+          keyLabel="model"
+          hint={t("baseModelHelp", undefined, "Shared fallback for all workers before the session model.")}
+          state={draft.baseModel === null ? "default" : "changed"}
+          control={({ id, describedBy }) => (
+            <div
+              id={id}
+              role="group"
+              aria-label={t("baseModelLabel", undefined, "Base model")}
+              aria-describedby={describedBy}
+              className="flex flex-wrap items-center gap-2"
             >
-              {t("clearBaseModel", undefined, "Clear")}
-            </button>
-          </div>
-        </div>
-
-        {/* Recommended Defaults Action (design D6) */}
-        <div
-          className="border border-dashed border-[var(--border-secondary)] rounded-lg p-3 mb-3 bg-[var(--bg-tertiary)]"
-          data-testid="blackhole-recommended-defaults-card"
-        >
-          <div className="text-[12px] font-semibold text-[var(--text-primary)] mb-1">
-            {t("recommendedDefaultsLabel", undefined, "Use recommended defaults")}
-          </div>
-          <p className="text-[11.5px] text-[var(--text-tertiary)] m-0 mb-2">
-            {t(
-              "recommendedDefaultsHelp",
-              undefined,
-              "Recommended defaults stages resilient flash-class chains (up to 3 models across distinct providers) for observer, reflector, and dropper, plus debug logging.",
-            )}
-          </p>
-
-          {registryState !== "ok" && (
-            <div className="text-[11px] text-[var(--text-tertiary)] mb-2">
-              {t(
-                "recommendedDefaultsDisabledUnavailable",
-                undefined,
-                "Registry unavailable. Staging defaults is disabled.",
+              {registryState === "ok" ? (
+                <ModelSelectorPrimitive
+                  current={
+                    draft.baseModel?.role ??
+                    (draft.baseModel ? `${draft.baseModel.provider}/${draft.baseModel.id}` : undefined)
+                  }
+                  models={models}
+                  allowRoles
+                  placeholder={t("selectBaseModelPlaceholder", undefined, "Select base model…")}
+                  onSelect={(label: string) => {
+                    if (label.startsWith("@")) {
+                      onSetBaseModel({ provider: draft.baseModel?.provider ?? "", id: draft.baseModel?.id ?? "", role: label });
+                      return;
+                    }
+                    const picked = models.find((m) => `${m.provider}/${m.id}` === label);
+                    let provider = "";
+                    let id = "";
+                    if (picked) {
+                      provider = picked.provider;
+                      id = picked.id;
+                    } else {
+                      const slashIdx = label.indexOf("/");
+                      provider = slashIdx >= 0 ? label.slice(0, slashIdx) : "";
+                      id = slashIdx >= 0 ? label.slice(slashIdx + 1) : label;
+                    }
+                    onSetBaseModel({ provider, id });
+                  }}
+                />
+              ) : (
+                <code data-testid="blackhole-base-model-value" className="font-mono text-[12px] text-[var(--text-primary)]">
+                  {draft.baseModel ? `${draft.baseModel.provider}/${draft.baseModel.id}` : "—"}
+                </code>
               )}
+              <button
+                type="button"
+                data-testid="blackhole-base-model-clear"
+                disabled={draft.baseModel === null}
+                onClick={() => onSetBaseModel(null)}
+                className={BTN_SECONDARY}
+              >
+                {t("clearBaseModel", undefined, "Clear")}
+              </button>
             </div>
           )}
+        />
+      </div>
 
-          {registryState === "ok" && !hasCandidate && (
-            <div className="text-[11px] text-[var(--text-tertiary)] mb-2">
-              {t(
-                "recommendedDefaultsNoCandidate",
-                undefined,
-                "No flash, haiku, or mini models found in registry.",
-              )}
-            </div>
-          )}
-
-          {stagedDefaultsCount !== null && (
-            <div className="text-[11px] text-[var(--accent-blue)] mb-2">
-              {t(
-                "recommendedDefaultsFewerThan3",
-                { count: stagedDefaultsCount },
-                `Staged ${stagedDefaultsCount} of 3 recommended models from available candidates.`,
-              )}
-            </div>
-          )}
-
+      {/* Recommended Defaults Action (design D6) */}
+      <SettingsNotice
+        tone="info"
+        testId="blackhole-recommended-defaults-card"
+        actions={
           <button
             type="button"
             disabled={!hasCandidate}
             data-testid="blackhole-recommended-defaults-btn"
             onClick={onDefaultsClick}
-            className="px-2.5 py-1 text-[11.5px] rounded border border-[var(--border-secondary)] bg-[var(--bg-primary)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-40 disabled:cursor-not-allowed"
+            className={BTN_SECONDARY}
           >
             {t("recommendedDefaultsLabel", undefined, "Use recommended defaults")}
           </button>
-        </div>
+        }
+      >
+        <p className="m-0">
+          {t(
+            "recommendedDefaultsHelp",
+            undefined,
+            "Recommended defaults stages resilient flash-class chains (up to 3 models across distinct providers) for observer, reflector, and dropper, plus debug logging.",
+          )}
+        </p>
+        {registryState !== "ok" && (
+          <p className="m-0 mt-1">
+            {t("recommendedDefaultsDisabledUnavailable", undefined, "Registry unavailable. Staging defaults is disabled.")}
+          </p>
+        )}
+        {registryState === "ok" && !hasCandidate && (
+          <p className="m-0 mt-1">
+            {t("recommendedDefaultsNoCandidate", undefined, "No flash, haiku, or mini models found in registry.")}
+          </p>
+        )}
+        {stagedDefaultsCount !== null && (
+          <p className="m-0 mt-1 font-semibold">
+            {t(
+              "recommendedDefaultsFewerThan3",
+              { count: stagedDefaultsCount },
+              `Staged ${stagedDefaultsCount} of 3 recommended models from available candidates.`,
+            )}
+          </p>
+        )}
+      </SettingsNotice>
 
-        {WORKER_META.map((w) => (
-          <ChainEditor
-            key={w.worker}
-            worker={w.worker}
-            name={w.name}
-            role={w.role}
-            entries={draft.chains[w.worker] ?? []}
-            onChange={(next) => onSetChain(w.worker, next)}
-            baseModel={draft.baseModel}
-            sessionFallback={sessionFallback}
-            models={models}
-            registry={registryState}
-            onRetryRegistry={onRetryRegistry}
-            onReattach={(index) =>
-              onReattach(index === 0 ? w.primaryKey : `${w.fallbackKey}[${index - 1}]`)
-            }
-          />
-        ))}
-      </div>
-    </details>
+      {WORKER_META.map((w) => (
+        <ChainEditor
+          key={w.worker}
+          worker={w.worker}
+          name={w.name}
+          role={w.role}
+          entries={draft.chains[w.worker] ?? []}
+          onChange={(next) => onSetChain(w.worker, next)}
+          baseModel={draft.baseModel}
+          sessionFallback={sessionFallback}
+          models={models}
+          registry={registryState}
+          onRetryRegistry={onRetryRegistry}
+          onReattach={(index) => onReattach(index === 0 ? w.primaryKey : `${w.fallbackKey}[${index - 1}]`)}
+        />
+      ))}
+    </SettingsGroup>
   );
 }
 
@@ -809,103 +834,63 @@ function ChainsSection({
 function FieldRow({
   meta,
   value,
+  error,
   onChange,
 }: {
   meta: FieldMeta;
   value: unknown;
+  error: string | null;
   onChange: (v: unknown) => void;
 }): React.ReactElement {
   const desc = FIELD_DESCRIPTORS[meta.key];
-  const isDefault = JSON.stringify(value) === JSON.stringify((DEFAULTS as Record<string, unknown>)[meta.key]);
-  return (
-    <div className="py-3 border-b border-[var(--border-subtle)] last:border-b-0">
-      <div className="flex items-baseline gap-2">
-        <span className="text-[13px] text-[var(--text-primary)] font-medium">{meta.label}</span>
-        <span className="font-mono text-[11px] text-[var(--text-tertiary)]">{meta.key}</span>
-        {isDefault && (
-          <span
-            className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-tertiary)] border border-[var(--border-secondary)] rounded px-1.5"
-            data-testid={`blackhole-default-badge-${meta.key}`}
-          >
-            default
-          </span>
-        )}
-      </div>
-      <p className="text-[11.5px] text-[var(--text-tertiary)] mt-1.5 mb-0">{meta.help}</p>
-      <div className="mt-2 flex items-center gap-2 flex-wrap">
-        <FieldControl desc={desc} meta={meta} value={value} onChange={onChange} />
-        {meta.unit && <span className="text-[11px] text-[var(--text-tertiary)]">{meta.unit}</span>}
-      </div>
-    </div>
-  );
-}
-
-const controlCls =
-  "font-mono text-[12.5px] text-[var(--text-primary)] bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] rounded-md px-2.5 py-1.5 outline-none focus:border-[var(--accent-primary)]";
-
-function FieldControl({
-  desc,
-  meta,
-  value,
-  onChange,
-}: {
-  desc: (typeof FIELD_DESCRIPTORS)[keyof BlackholeConfig];
-  meta: FieldMeta;
-  value: unknown;
-  onChange: (v: unknown) => void;
-}): React.ReactElement {
-  const testId = `blackhole-input-${meta.key}`;
+  const def = (DEFAULTS as Record<string, unknown>)[meta.key];
+  const isDefault = JSON.stringify(value) === JSON.stringify(def);
+  const common = {
+    label: meta.label,
+    hint: renderHelp(meta.help),
+    keyLabel: meta.key as string,
+    unit: meta.unit,
+    error,
+    state: isDefault ? ("default" as const) : ("changed" as const),
+    // Keys with no built-in default (inherit) have nothing to reset to.
+    onReset: !isDefault && def !== undefined ? () => onChange(def) : undefined,
+    testIds: {
+      control: `blackhole-input-${meta.key}`,
+      state: `blackhole-default-badge-${meta.key}`,
+      reset: `blackhole-reset-${meta.key}`,
+      error: `blackhole-error-${meta.key}`,
+    },
+  };
   switch (desc.kind) {
     case "boolean":
-      return (
-        <label className="inline-flex items-center gap-2 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={value === true}
-            aria-label={meta.label}
-            onChange={(e) => onChange(e.target.checked)}
-            data-testid={testId}
-          />
-          <span className="text-[12px] text-[var(--text-secondary)]">{value ? "On" : "Off"}</span>
-        </label>
-      );
+      return <ToggleField {...common} value={value === true} onChange={onChange} />;
     case "enum":
       return (
-        <select
-          className={`${controlCls} max-w-[340px]`}
+        <SelectField
+          {...common}
           value={typeof value === "string" ? value : ""}
-          aria-label={meta.label}
-          onChange={(e) => onChange(e.target.value)}
-          data-testid={testId}
-        >
-          {desc.values.map((v) => (
-            <option key={v} value={v}>
-              {v}
-            </option>
-          ))}
-        </select>
+          options={desc.values.map((v) => ({ value: v, label: v }))}
+          onChange={onChange}
+        />
       );
     case "fraction":
       return (
-        <input
-          type="number"
-          step="0.05"
-          className={`${controlCls} w-[150px]`}
-          value={typeof value === "number" && Number.isFinite(value) ? String(value) : ""}
-          aria-label={meta.label}
-          onChange={(e) => onChange(e.target.value === "" ? Number.NaN : Number(e.target.value))}
-          data-testid={testId}
+        <NumberField
+          {...common}
+          decimal
+          allowEmpty
+          step={0.05}
+          value={typeof value === "number" ? value : Number.NaN}
+          onChange={onChange}
         />
       );
     default:
       return (
-        <input
-          type="number"
-          className={`${controlCls} w-[150px]`}
-          value={typeof value === "number" && Number.isFinite(value) ? String(value) : ""}
-          aria-label={meta.label}
-          onChange={(e) => onChange(e.target.value === "" ? Number.NaN : Number(e.target.value))}
-          data-testid={testId}
+        <NumberField
+          {...common}
+          allowEmpty
+          value={typeof value === "number" ? value : Number.NaN}
+          onChange={onChange}
         />
       );
   }

@@ -7,6 +7,11 @@
  * <pid>`), and judges success ONLY by that pid exiting within 15 s — never by
  * the quit command's rc (osascript returned 1 on a real quit). No force-kill
  * without `--force`. Afterwards `pi-dashboard service status <id>` re-probes.
+ * Before quitting it stops active stream/record/virtual-camera outputs over
+ * obs-websocket (`stopOutputs`): with one running, OBS opens an exit-confirm
+ * modal, the outside quit is cancelled (osascript -128) and the modal may sit
+ * on an off-screen window. An output that stays active refuses the quit
+ * (`output-active`); an unreachable websocket only warns.
  * See change: add-obs-studio-plugin.
  */
 import type { ServiceDefinition } from "@blackbelt-technology/pi-dashboard-shared/services/schema.js";
@@ -33,6 +38,8 @@ export interface StopDeps {
   warn: (line: string) => void;
   force?: boolean;
   timeoutMs?: number;
+  /** Stop active outputs over obs-websocket; throws when OBS is unreachable. */
+  stopOutputs?: () => Promise<{ stopped: string[]; stillActive: string[] }>;
 }
 
 export interface StopResult {
@@ -40,12 +47,32 @@ export interface StopResult {
   pid?: number;
   forced?: boolean;
   notRunning?: boolean;
+  /** Outputs stopped before the quit; absent when the websocket was unreachable. */
+  outputsStopped?: string[];
 }
 
 function quitArgv(platform: Platform, pid: number): string[] {
   if (platform === "darwin") return ["osascript", "-e", 'quit app "OBS"'];
   if (platform === "win32") return ["taskkill", "/PID", String(pid)];
   return ["kill", "-TERM", String(pid)];
+}
+
+/** Stopped output names; `undefined` when unreachable (warned) or not wired. */
+async function stopOutputsBeforeQuit(d: StopDeps): Promise<string[] | undefined> {
+  if (!d.stopOutputs) return undefined;
+  let r: { stopped: string[]; stillActive: string[] };
+  try {
+    r = await d.stopOutputs();
+  } catch (e) {
+    d.warn(
+      `could not reach obs-websocket (${(e as Error).message}); stop streaming, recording and the virtual camera in OBS first, otherwise OBS asks to confirm and the quit times out. Run as \`pi-dashboard service exec ${d.serviceId} -- pi-obs stop --service ${d.serviceId}\` to stop them automatically.`,
+    );
+    return undefined;
+  }
+  if (r.stillActive.length > 0) {
+    throw new ObsError("output-active", `outputs still active after stop: ${r.stillActive.join(", ")}; OBS would block the quit`, { stillActive: r.stillActive });
+  }
+  return r.stopped;
 }
 
 export async function stopObs(d: StopDeps): Promise<StopResult> {
@@ -57,6 +84,8 @@ export async function stopObs(d: StopDeps): Promise<StopResult> {
   if (!(await d.confirm("Quit the local OBS now?"))) throw new ObsError("refused", "stop not confirmed");
   const pid = (await d.findObs())[0];
   if (pid === undefined) return { stopped: true, notRunning: true };
+
+  const outputsStopped = await stopOutputsBeforeQuit(d);
 
   const argv = quitArgv(d.platform, pid);
   await d.run(argv[0], argv.slice(1)).catch(() => ({ code: 1 }));
@@ -77,5 +106,5 @@ export async function stopObs(d: StopDeps): Promise<StopResult> {
     stopped = !d.isAlive(pid);
   }
   await d.cli.run(["service", "status", d.serviceId]).catch(() => undefined);
-  return { stopped, pid, ...(forced ? { forced } : {}) };
+  return { stopped, pid, ...(forced ? { forced } : {}), ...(outputsStopped ? { outputsStopped } : {}) };
 }
