@@ -683,6 +683,11 @@ export function registerSystemRoutes(
         // See change: add-openspec-init-affordances.
         browserGateway?.broadcastToAll({ type: "config_updated", section: "openspec" });
       }
+      // The editor large-file limit is read per render by every open browser
+      // (CappedViewer gate); it needs no restart. See change: gate-changed-on-disk-by-content.
+      if (partial.editor !== undefined) {
+        browserGateway?.broadcastToAll({ type: "config_updated", section: "editor" });
+      }
       // Session-ordering gates take effect immediately (no restart) so the
       // Settings toggles apply to the next status transition.
       // See change: simplify-session-card-ordering.

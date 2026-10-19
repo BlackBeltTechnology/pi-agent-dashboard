@@ -16,10 +16,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("../../../lib/api/api-context.js", () => ({ getApiBase: () => "" }));
 
 import { MAX_PREVIEW_BYTES } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
+import { __resetEditorLimitsConfig, hydrateEditorLimitsConfig } from "../../../lib/preview/editor-limits-config.js";
 import { ThemeProvider } from "../../settings/ThemeProvider.js";
 import { CappedViewer } from "../CappedViewer.js";
 import { pseudoTabRegistry } from "../pseudo-tab-registry.js";
-import { OPEN_PATH_VIEWERS, PSEUDO_TAB_VIEWERS, isPseudoTabViewer } from "../viewer-kinds.js";
+import { isPseudoTabViewer, OPEN_PATH_VIEWERS, PSEUDO_TAB_VIEWERS } from "../viewer-kinds.js";
 import { viewerRegistry } from "../viewer-registry.js";
 
 const originalFetch = globalThis.fetch;
@@ -172,6 +173,11 @@ describe("viewerRegistry — preview/* delegation", () => {
 // file `size` from `/api/file` metadata and mounts `TooLargePreview` above the
 // cap, the rich viewer at/below it. Boundary: 10MB−1 / 10MB / 10MB+1.
 describe("CappedViewer — large-file byte cap (D7 / P1)", () => {
+  // The gate waits for the config mirror (gate-changed-on-disk-by-content):
+  // hydrate the default 10 MiB so the boundary assertions are immediate.
+  beforeEach(() => hydrateEditorLimitsConfig({ success: true, data: { editor: { largeFileLimitMb: 10 } } }));
+  afterEach(() => __resetEditorLimitsConfig());
+
   function mockSize(size: number) {
     globalThis.fetch = vi.fn(() =>
       Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ success: true, data: { type: "file", size } }) }),

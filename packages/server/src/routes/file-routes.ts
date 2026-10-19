@@ -2,14 +2,14 @@
  * File and directory browse REST API routes (localhost-only).
  */
 
-import { randomBytes } from "node:crypto";
-import { createReadStream } from "node:fs";
+import { createHash, randomBytes } from "node:crypto";
+import { createReadStream, constants as fsConstants } from "node:fs";
 import fs from "node:fs/promises";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import { fileKind } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
+import { DIGEST_CEILING_BYTES, fileKind } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
 import { repairAsciiDoc } from "@blackbelt-technology/pi-dashboard-shared/markup-repair/asciidoc.js";
 import { realpathAsync } from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
@@ -37,6 +37,7 @@ import {
 import { isImageUnderArtifactRoot } from "../lib/artifact-roots.js";
 import { decodeFileUri } from "../lib/decode-file-uri.js";
 import { renderDiagram } from "../lib/diagram-render.js";
+import { createDigestGate, type DigestGate, type DigestLane } from "../lib/digest-gate.js";
 import { EML_SIZE_CAP, loadParsedEml, toParseResult } from "../lib/eml.js";
 import { enumerateMdCandidates } from "../lib/md-candidates.js";
 import { extToContentType } from "../lib/mime-types.js";
@@ -108,6 +109,31 @@ function homePiAnchor(): string {
   return path.join(os.homedir(), ".pi");
 }
 
+/**
+ * SHA-1 of an open handle, streamed in 1 MiB chunks (abortable between chunks).
+ * Returns `null` when the file grew past the digest ceiling while being read, so
+ * a hash of an unbounded stream is never reported. SHA-1 is a change detector
+ * here, not a security primitive. See change: gate-changed-on-disk-by-content.
+ */
+async function hashHandle(fh: import("node:fs/promises").FileHandle, signal: AbortSignal): Promise<string | null> {
+  const hash = createHash("sha1");
+  const buf = Buffer.allocUnsafe(1024 * 1024);
+  let total = 0;
+  for (;;) {
+    if (signal.aborted) {
+      const e = new Error("aborted");
+      e.name = "AbortError";
+      throw e;
+    }
+    const { bytesRead } = await fh.read(buf, 0, buf.length, total);
+    if (bytesRead === 0) break;
+    total += bytesRead;
+    if (total > DIGEST_CEILING_BYTES) return null;
+    hash.update(buf.subarray(0, bytesRead));
+  }
+  return hash.digest("hex");
+}
+
 const fileWriteLocks = new Map<string, Promise<unknown>>();
 function serializeWrite<T>(key: string, task: () => Promise<T>): Promise<T> {
   const run = (fileWriteLocks.get(key) ?? Promise.resolve()).then(task, task);
@@ -143,7 +169,9 @@ function resolveScopedMdPath(
 }
 
 /** Discriminated outcome of an atomic markdown write. */
-type MdWriteOutcome = { code: 200; mtime: number } | { code: 404 | 409 | 500; error: string };
+type MdWriteOutcome =
+  | { code: 200; mtime: number; size: number; sha1?: string }
+  | { code: 404 | 409 | 413 | 500; error: string };
 
 /** Parsed + authorized write request, or a {code,error} reply mapping. */
 type MdWritePrep = { resolved: string; content: string; mtime: number } | { code: number; error: string };
@@ -201,8 +229,14 @@ async function performAtomicMdWrite(
     path.dirname(real),
     `.${path.basename(real)}.${randomBytes(8).toString("hex")}.tmp`,
   );
+  // Encode ONCE: the bytes written and the bytes hashed are the same buffer, so
+  // the returned `sha1` is exactly what a later `/api/file/digest` reports (the
+  // editor pane rebaselines from it so its own Save never raises the
+  // changed-on-disk banner). See change: gate-changed-on-disk-by-content (D3).
+  const bytes = Buffer.from(content, "utf8");
+  if (bytes.length > DIGEST_CEILING_BYTES) return { code: 413, error: "content too large" };
   try {
-    await fs.writeFile(tmpPath, content, { encoding: "utf-8", flag: "wx" });
+    await fs.writeFile(tmpPath, bytes, { flag: "wx" });
     // Preserve the original file mode so a private (e.g. 0600) instruction file
     // is not widened to the umask default on replace.
     await fs.chmod(tmpPath, current.mode & 0o777);
@@ -212,7 +246,12 @@ async function performAtomicMdWrite(
     return { code: 500, error: err instanceof Error ? err.message : "write failed" };
   }
   const after = await fs.stat(real);
-  return { code: 200, mtime: after.mtimeMs };
+  return {
+    code: 200,
+    mtime: after.mtimeMs,
+    size: bytes.length,
+    sha1: createHash("sha1").update(bytes).digest("hex"),
+  };
 }
 
 // Lazy asciidoctor singleton. First call cost ~Opal init; the server is
@@ -325,6 +364,48 @@ async function gateFilePath(
   return { resolved, viaGrant: decision.viaGrant };
 }
 
+/**
+ * The `GET /api/file` read gate, factored so `GET /api/file/digest` calls the
+ * SAME code rather than a copy (spec: file-read-containment). decode → known
+ * session → containment against `[cwd, ~/.pi]` (with the live request so an
+ * eligible miss may be held for the operator) → `{ resolved, viaGrant }` or a
+ * `GateFailure` whose `code`/`error`/remedy are exactly what `/api/file` has
+ * always answered. `quiet` is the digest's background mode (no denial recorded,
+ * never held). See change: gate-changed-on-disk-by-content (D4).
+ */
+async function gateReadPath(
+  cwd: string | undefined,
+  rawPath: string | undefined,
+  req: {
+    sessionManager: SessionManager;
+    request: import("fastify").FastifyRequest;
+    reply: import("fastify").FastifyReply;
+    quiet?: boolean;
+  },
+): Promise<{ resolved: string; viaGrant: boolean; relPath: string } | GateFailure> {
+  const relPath = rawPath ? decodeFileUri(rawPath) : rawPath;
+  if (!cwd || !relPath) return { code: 400, error: "cwd and path parameters required" };
+  if (!req.sessionManager.listAll().some((s) => s.cwd === cwd)) {
+    return { code: 403, error: "unknown session path" };
+  }
+  const resolved = path.resolve(cwd, relPath);
+  // Anchors include the fixed `~/.pi` allowlist so a resolved `~/.pi/…`
+  // mention (from `/api/file/resolve-mention`) previews without a 403 (D7).
+  const readDecision = await evaluateContainment(resolved, [cwd, homePiAnchor()], {
+    site: "file-routes:read",
+    ...(req.quiet ? { quiet: true } : { hold: { request: req.request, reply: req.reply } }),
+    disclosure: canDiscloseAccessPosture(req.request),
+    session: cwd,
+    // Polymorphic: this route serves files AND directories, so the remedy
+    // must name whichever the target is (task 4.5 round 2, B1).
+    subjectKind: "auto",
+  });
+  if (!readDecision.allowed) {
+    return { code: 403, error: "path outside working directory", ...readDecision.remedy };
+  }
+  return { resolved, viaGrant: readDecision.viaGrant, relPath };
+}
+
 const CREATE_PROJECT_STATUS: Record<CreateProjectReason, number> = {
   invalid_name: 400,
   reserved_name: 400,
@@ -354,6 +435,9 @@ export function registerFileRoutes(
       run?: (cmd: string, args: string[]) => void;
       platform?: NodeJS.Platform;
     };
+    // Hash-concurrency gate for `GET /api/file/digest` (change:
+    // gate-changed-on-disk-by-content, D4). Injectable so tests observe slots.
+    digestGate?: DigestGate;
   },
 ) {
   const { sessionManager, preferencesStore, networkGuard } = deps;
@@ -363,6 +447,7 @@ export function registerFileRoutes(
   const officeCaps = deps.officeCaps ?? OFFICE_CAPS;
   const docxRenderMode = deps.docxRenderMode ?? "auto";
   const docxPdfEngine = deps.docxPdfEngine ?? createDefaultDocxPdfEngine();
+  const digestGate = deps.digestGate ?? createDigestGate(2);
 
   // Shared office-file gate (change: render-office-previews). Reuses the
   // `/api/file/raw` anti-traversal posture (known cwd + containment) and adds
@@ -514,35 +599,12 @@ export function registerFileRoutes(
     "/api/file",
     { preHandler: networkGuard },
     async (request, reply) => {
-      const cwd = request.query.cwd;
-      const relPath = request.query.path ? decodeFileUri(request.query.path) : request.query.path;
-      if (!cwd || !relPath) {
-        reply.code(400);
-        return { success: false, error: "cwd and path parameters required" } satisfies ApiResponse;
+      const gate = await gateReadPath(request.query.cwd, request.query.path, { sessionManager, request, reply });
+      if ("code" in gate) {
+        reply.code(gate.code);
+        return denialBody(gate);
       }
-
-      const allSessions = sessionManager.listAll();
-      if (!allSessions.some((s) => s.cwd === cwd)) {
-        reply.code(403);
-        return { success: false, error: "unknown session path" } satisfies ApiResponse;
-      }
-
-      const resolved = path.resolve(cwd, relPath);
-      // Anchors include the fixed `~/.pi` allowlist so a resolved `~/.pi/…`
-      // mention (from `/api/file/resolve-mention`) previews without a 403 (D7).
-      const readDecision = await evaluateContainment(resolved, [cwd, homePiAnchor()], {
-        site: "file-routes:read",
-        hold: { request, reply },
-        disclosure: canDiscloseAccessPosture(request),
-        session: cwd,
-        // Polymorphic: this route serves files AND directories, so the remedy
-        // must name whichever the target is (task 4.5 round 2, B1).
-        subjectKind: "auto",
-      });
-      if (!readDecision.allowed) {
-        reply.code(403);
-        return { success: false, error: "path outside working directory", ...readDecision.remedy } as unknown as ApiResponse;
-      }
+      const { resolved } = gate;
 
       try {
         const stat = await fs.stat(resolved);
@@ -564,7 +626,7 @@ export function registerFileRoutes(
         // re-resolved path (design D14, task 2.8): containment and this open are
         // two syscalls, so without it the path could be swapped for a symlink or
         // a FIFO in the gap. Layer ①/② reads keep the pre-existing open.
-        const fh = readDecision.viaGrant
+        const fh = gate.viaGrant
           ? await openVerifiedRegularFile(resolved)
           : await fs.open(resolved, "r");
         let kindResult;
@@ -610,6 +672,75 @@ export function registerFileRoutes(
         }
         reply.code(404);
         return { success: false, error: "not found" } satisfies ApiResponse;
+      }
+    },
+  );
+
+  // Content digest for the editor pane's changed-on-disk verification. Same
+  // read gate as `/api/file` (`gateReadPath`) and the same open rule (verified
+  // open only when grant-admitted, else a non-blocking open + `fstat`), but it
+  // never returns content: `{ size, mtime, sha1 }`. Above the fixed 256 MiB
+  // ceiling it returns `{ size, mtime }` without a hash. Hashing is bounded by
+  // a 2-wide two-lane gate (baseline before verify) whose slot is released on
+  // client abort. No cache (equal size+mtime across two writes would hide a
+  // real change). See change: gate-changed-on-disk-by-content (D4).
+  fastify.get<{ Querystring: { cwd?: string; path?: string; purpose?: string } }>(
+    "/api/file/digest",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const gate = await gateReadPath(request.query.cwd, request.query.path, {
+        sessionManager,
+        request,
+        reply,
+        quiet: true,
+      });
+      reply.header("Cache-Control", "no-store");
+      if ("code" in gate) {
+        reply.code(gate.code);
+        return denialBody(gate);
+      }
+      const lane: DigestLane = request.query.purpose === "baseline" ? "baseline" : "verify";
+      const ac = new AbortController();
+      const onClose = (): void => {
+        if (!reply.raw.writableFinished) ac.abort();
+      };
+      reply.raw.once("close", onClose);
+      let release: (() => void) | undefined;
+      try {
+        release = await digestGate.acquire(lane, ac.signal);
+        const fh = gate.viaGrant
+          ? await openVerifiedRegularFile(gate.resolved)
+          : await fs.open(gate.resolved, fsConstants.O_RDONLY | (fsConstants.O_NONBLOCK ?? 0));
+        try {
+          const stat = await fh.stat();
+          if (!stat.isFile()) {
+            reply.code(404);
+            return { success: false, error: "not found" } satisfies ApiResponse;
+          }
+          const data: { size: number; mtime: number; sha1?: string } = { size: stat.size, mtime: stat.mtimeMs };
+          if (stat.size <= DIGEST_CEILING_BYTES) {
+            const sha1 = await hashHandle(fh, ac.signal);
+            if (sha1 !== null) data.sha1 = sha1;
+          }
+          return { success: true, data } satisfies ApiResponse;
+        } finally {
+          await fh.close();
+        }
+      } catch (err) {
+        if (err instanceof VerifiedReadRefused) {
+          reply.code(403);
+          return { success: false, error: "path outside working directory" } satisfies ApiResponse;
+        }
+        if ((err as Error)?.name === "AbortError") {
+          // Client went away — nobody is reading the reply.
+          reply.code(499);
+          return { success: false, error: "aborted" } satisfies ApiResponse;
+        }
+        reply.code(404);
+        return { success: false, error: "not found" } satisfies ApiResponse;
+      } finally {
+        release?.();
+        reply.raw.off("close", onClose);
       }
     },
   );
@@ -761,7 +892,10 @@ export function registerFileRoutes(
   // See change: directory-settings-page-and-scoped-md-editing.
   fastify.post<{ Body: { cwd?: unknown; path?: unknown; content?: unknown; mtime?: unknown } }>(
     "/api/file/write",
-    { preHandler: networkGuard },
+    // 256 MiB of content plus JSON escaping headroom. Fastify's default 1 MiB
+    // limit made any markdown save over ~1 MiB fail with 413 (pre-existing bug);
+    // the handler still refuses content above the 256 MiB ceiling.
+    { preHandler: networkGuard, bodyLimit: 600 * 1024 * 1024 },
     async (request, reply) => {
       const prep = await prepareMdWrite(request.body ?? {}, sessionManager);
       if ("code" in prep) {
@@ -777,7 +911,10 @@ export function registerFileRoutes(
         reply.code(outcome.code);
         return { success: false, error: outcome.error } satisfies ApiResponse;
       }
-      return { success: true, data: { mtime: outcome.mtime } } satisfies ApiResponse;
+      return {
+        success: true,
+        data: { mtime: outcome.mtime, size: outcome.size, sha1: outcome.sha1 },
+      } satisfies ApiResponse;
     },
   );
 

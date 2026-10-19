@@ -34,7 +34,9 @@ export function serve(port, name, handler, tls) {
       const body = raw ? JSON.parse(raw) : {};
       [status, json] = await handler(req, new URL(req.url, "http://x"), body);
     } catch (err) {
-      json = { error: String(err?.message ?? err) };
+      // Log the cause; never echo error text to the client (CodeQL js/stack-trace-exposure).
+      console.error(`[${name}] handler error: ${String(err?.message ?? err)}`);
+      json = { error: "bad request" };
     }
     res.writeHead(status, { "content-type": "application/json" });
     res.end(JSON.stringify(json));

@@ -7,6 +7,7 @@
  * See change: directory-settings-page-and-scoped-md-editing.
  */
 
+import { createHash } from "node:crypto";
 import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -297,4 +298,58 @@ describe("GET /api/file/md-read", () => {
     });
     expect(res.statusCode).toBe(403);
   });
+});
+
+// See change: gate-changed-on-disk-by-content (test-plan #E9, #E10).
+describe("POST /api/file/write — sha1 round-trip + body limit", () => {
+  let app: FastifyInstance;
+  let cwd: string;
+
+  beforeEach(async () => {
+    cwd = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), "fw-sha-")));
+    await fsp.writeFile(path.join(cwd, "doc.md"), "# original\n", "utf-8");
+    app = makeApp([cwd]);
+    await app.ready();
+  });
+
+  afterEach(async () => {
+    await app.close();
+    await fsp.rm(cwd, { recursive: true, force: true });
+  });
+
+  it("E9: returns mtime, UTF-8 byte size and a sha1 equal to the digest endpoint's", async () => {
+    const target = path.join(cwd, "doc.md");
+    const content = "\uFEFF# Héllo wörld — ✓\r\nline two\r\n";
+    const res = await write(app, { cwd, path: target, content, mtime: await readMtime(target) });
+    expect(res.statusCode).toBe(200);
+    const data = res.json().data;
+    const bytes = Buffer.from(content, "utf8");
+    expect(data.size).toBe(bytes.length);
+    expect(data.mtime).toBe(await readMtime(target));
+    expect(data.sha1).toBe(createHash("sha1").update(bytes).digest("hex"));
+    expect(await fsp.readFile(target)).toEqual(bytes);
+
+    const dig = await app.inject({
+      method: "GET",
+      url: `/api/file/digest?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(target)}`,
+    });
+    expect(dig.statusCode).toBe(200);
+    expect(dig.json().data.sha1).toBe(data.sha1);
+  });
+
+  it("E10: accepts a 20 MiB .md (above Fastify's 1 MiB default) and refuses content over the 256 MiB ceiling with 413", async () => {
+    const target = path.join(cwd, "doc.md");
+    const twenty = "a".repeat(20 * 1024 * 1024);
+    const ok = await write(app, { cwd, path: target, content: twenty, mtime: await readMtime(target) });
+    expect(ok.statusCode).toBe(200);
+    expect(typeof ok.json().data.sha1).toBe("string");
+    expect((await fsp.stat(target)).size).toBe(20 * 1024 * 1024);
+
+    const over = "a".repeat(256 * 1024 * 1024 + 1);
+    const before = await readMtime(target);
+    const res = await write(app, { cwd, path: target, content: over, mtime: before });
+    expect(res.statusCode).toBe(413);
+    expect((await fsp.stat(target)).size).toBe(20 * 1024 * 1024);
+    expect(await readMtime(target)).toBe(before);
+  }, 120_000);
 });

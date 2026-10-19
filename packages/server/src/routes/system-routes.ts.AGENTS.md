@@ -47,3 +47,5 @@ See change: fix-trusted-network-tunnel-bypass — `/api/health` additive `trustP
 `deps.tls` (`Pick<TlsListener,"status"|"tlsListenerUrls"|"reconcile">`): `/api/health.tls` = `status(canDiscloseAccessPosture(request))` (cached state only, no call-outs; `{enabled,bound}` for everyone, detail for authed/genuinely-local); `GET /api/tunnel/endpoints` passes `tlsEndpoints: tlsListenerUrls()` into `collectEndpoints`; `PUT /api/config` validates a write touching `tls`/`port`/`piPort`/`modelProxy.secondPort` via `validateTlsConfigWrite(partial, readRawConfig())` (400) BEFORE the save and awaits `tls.reconcile()` after it when `partial.tls` is present (reconcile failure logged, PUT still 200). See change: add-tailscale-cert-tls.
 
 `runOnConfigSaveChain(run)` exported: read-modify-write on the same serialised chain as `PUT /api/config` (used by `acme-routes.ts`). `GET /api/config` runs `projectAcmeConfigured` (`solver.configured` from the vault listing). See change: add-acme-dns01-certs.
+
+`PUT /api/config` broadcasts `config_updated {section:"editor"}` (no restart). See change: gate-changed-on-disk-by-content.
