@@ -93,4 +93,6 @@
 
 ## 11. Gate
 
-- [ ] 11.1 `review-code`, then `security-hardening` (sandbox, CSP, shim, validator, unauthenticated mount) and `performance-optimization` review of P1/P2 numbers before merge. Verify findings resolved or recorded.
+- [x] 11.1 `review-code`, then `security-hardening` (sandbox, CSP, shim, validator, unauthenticated mount) and `performance-optimization` review of P1/P2 numbers before merge. Verify findings resolved or recorded.
+
+Gate record: ship-it step 4.5 round 1 (`@review`) — 0 blocking, verdict pass; security surfaces (write-binary, serveApp, sandbox/CSP/shim, zip guard, OOXML validator) traced fail-closed. Perf (P1/P2, measure-only, headless Chromium on the docker harness): first Edit → `opened` 1.9–3.0 s (cached build, p95 ≈ 3.0 s); cold prepare ≈ 3 s, 16.0 MB gzip served. Non-blocking follow-ups left to the author: shim data-URL decode try/catch, exact-case `[Content_Types].xml` preference, status `ok` with a stale registry tree while a `WEB_DIR` override is set.
