@@ -1,6 +1,6 @@
 # Slot Taxonomy
 
-The 10 React-accepting slots a dashboard plugin can claim. Frozen for v0.x.
+The 23 React-accepting slots a dashboard plugin can claim. Frozen for v0.x. The source of truth is `SLOT_DEFINITIONS` in `packages/shared/src/dashboard-plugin/slot-types.ts`; this table mirrors its ids (docs only, no taxonomy change).
 
 For the full slot table including descriptor-only slots (`management-modal`, `footer-segment`, `agent-metric`, `breadcrumb`, `gate`, `toast`, `rjsf-form`), see the archived design at `openspec/changes/archive/2026-04-26-dashboard-plugin-architecture/design.md` § "Slot taxonomy".
 
@@ -16,6 +16,19 @@ For the full slot table including descriptor-only slots (`management-modal`, `fo
 | `command-route` | many globally | persistent | Maps a slash command (`/specs`) or URL route to a `content-view` claim. The `command` field names the slash command; the `component` field names the content-view component. |
 | `settings-section` | many globally | persistent | A section in the dashboard's Settings page. Use for plugin config UI. Use `usePluginConfig<T>()` to read; `pluginRouter.send({ type: "plugin_config_write", id, config })` to write. |
 | `tool-renderer` | many globally | persistent | A custom React component rendering `tool_call` events with a specific `toolName`. Use to give a tool richer rendering than the default tool card. The `toolName` field selects which tool. |
+| `session-card-memory` | many per session | persistent | Contributions inside the MEMORY subcard of a session card. |
+| `session-card-flows` | many per session | persistent | Contributions inside the FLOWS subcard of a session card. |
+| `workspace-action-bar` | many per session | persistent | Action buttons inside the WORKSPACE subcard of a session card (git workspace tooling). |
+| `worktree-card-section` | many per worktree card | persistent | Folder-scoped block inside a worktree session card, scoped to the worktree's own cwd (e.g. the KB row). |
+| `composer-context-group` | many | persistent | Labelled context group in the chat composer's session-action strip, after the Git group and before the Status group. Read-only; not disabled while streaming. Pair with the runtime's `ComposerContextGroup` primitive. |
+| `composer-panel` | many | persistent | Panel rendered below the chat composer input; receives a read-only draft (and language). |
+| `shell-overlay-route` | many globally | persistent | Plugin-owned full-screen route mounted at the top of the shell (desktop and mobile). Each claim ships a wouter path pattern in `config.path` and a component receiving `{ params, onBack, session? }`. |
+| `login-provider` | one active | persistent | Identity plane: a trusted resolver plugin supplies the browser login mechanics (OIDC discovery, PKCE, callback exchange). Component-only; core renders it before the shell. |
+| `custom-entry-renderer` | many globally | persistent | Custom renderer for a chat custom entry, keyed by the entry's `customType`. |
+| `automation-action-editor` | many globally | persistent | Custom payload editor for one automation action id (`config.actionId`), rendered by the create-automation dialog below the generic payload form. |
+| `editor-pane-tab` | many globally | persistent | Editor-pane tab owned by a virtual-path prefix (`claim.pathPrefix`); an optional `labelComponent` renders in the tab strip and stays mounted for background tabs. |
+| `resource-page-section` | many per resource page | persistent | Section above the resource grid on the folder and global resource pages (Skills, Agents, Extensions, Prompts, Themes); `claim.resourceType` restricts it to one page. |
+| `shell-headless` | many globally | persistent | Always-mounted, zero-UI host for plugin-wide hooks (e.g. message subscriptions). Takes empty props, renders null, and must not declare a predicate. |
 
 ## Prop contracts
 

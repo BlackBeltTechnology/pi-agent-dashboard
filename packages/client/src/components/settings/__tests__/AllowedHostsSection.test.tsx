@@ -381,6 +381,22 @@ describe("AllowedHostsSection — Security page integration", () => {
     expect(src).not.toMatch(/isHostAdmitted/);
   });
 
+  // test-plan #E45 (add-tailscale-cert-tls) — a TLS-listener certificate name is
+  // listed with the `TLS certificate` pill, links to Gateway and offers no remove.
+  it("lists a TLS-listener certificate name with its pill and a Gateway link, no remove", async () => {
+    gateFixture = {
+      ...GATE_DEFAULT,
+      admitted: [{ host: "host.example.ts.net", source: "tls-listener" }],
+    };
+    await renderSecurityPanel();
+    await waitFor(() => expect(screen.getByText("host.example.ts.net")).toBeTruthy());
+    const row = screen.getByText("host.example.ts.net").closest("li");
+    expect(within(row!).getByText("TLS certificate")).toBeTruthy();
+    expect(within(row!).queryByRole("button", { name: /remove/i })).toBeNull();
+    fireEvent.click(within(row!).getByRole("button", { name: /Gateway/ }));
+    expect(window.location.pathname).toBe("/settings/gateway");
+  });
+
   // test-plan #F5 (Save half) — the panel Save persists the appended host.
   it("persists an Allowed refusal through the panel Save", async () => {
     gateFixture = {

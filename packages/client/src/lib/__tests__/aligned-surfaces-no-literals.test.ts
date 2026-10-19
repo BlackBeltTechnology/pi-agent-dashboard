@@ -27,6 +27,9 @@ import { describe, expect, it } from "vitest";
 
 const PACKAGES = join(import.meta.dirname, "..", "..", "..", "..");
 const CLIENT = join(PACKAGES, "client", "src", "components");
+// The shared UI kits, now scanned too (change: align-ui-contract-recipes, design D8).
+const CLIENT_UTILS = join(PACKAGES, "client-utils", "src");
+const RUNTIME = join(PACKAGES, "dashboard-plugin-runtime", "src");
 
 /** The spec's surface list (message-severity-tokens "No raw colour literals …"). */
 const SURFACES: readonly string[] = [
@@ -39,7 +42,19 @@ const SURFACES: readonly string[] = [
   join(CLIENT, "interactive-renderers", "SelectRenderer.tsx"),
   join(PACKAGES, "goal-plugin", "src", "client", "GoalDetailClaim.tsx"),
   join(PACKAGES, "automation-plugin", "src", "client", "CreateAutomationDialog.tsx"),
+  // The shared recipes and the surfaces migrated onto them (align-ui-contract-recipes D8).
+  join(CLIENT_UTILS, "StatusPill.tsx"),
+  join(CLIENT_UTILS, "Dialog.tsx"),
+  join(RUNTIME, "settings-fields.tsx"),
+  join(CLIENT, "session", "SessionActionsPanel.tsx"),
+  join(CLIENT, "settings", "ProviderHealthPill.tsx"),
+  join(CLIENT, "packages", "plugin-row-parts.tsx"),
+  join(CLIENT, "settings", "services", "services-ui.tsx"),
+  join(CLIENT, "settings", "vault", "vault-ui.tsx"),
+  join(CLIENT, "settings", "vault", "OperateRequiredCallout.tsx"),
 ];
+/** `SettingsPanel.tsx` is in scope for its rail block only (the rest holds pre-existing literals). */
+const SETTINGS_PANEL = join(CLIENT, "settings", "SettingsPanel.tsx");
 const BOARD = join(CLIENT, "openspec", "OpenSpecBoardView.tsx");
 
 /** One regex shared by spec, design D7 and this test. */
@@ -109,13 +124,29 @@ function boardRegions(src: string): Array<[number, number]> {
   ];
 }
 
+/** The `<nav data-testid="settings-nav-rail">` block of SettingsPanel.tsx, up to the page content. */
+function railRegion(src: string): [number, number] {
+  const start = src.indexOf('data-testid="settings-nav-rail"');
+  const end = src.indexOf("{/* Page content.", start);
+  expect(start, "SettingsPanel settings-nav-rail marker").toBeGreaterThan(0);
+  expect(end, "SettingsPanel page-content marker").toBeGreaterThan(start);
+  return [start, end];
+}
+
 function allLiterals(): Lit[] {
   const out: Lit[] = [];
   for (const f of SURFACES) out.push(...literals(f, readFileSync(f, "utf8")));
   const board = readFileSync(BOARD, "utf8");
   for (const [s, e] of boardRegions(board)) out.push(...literals(BOARD, board, s, e));
+  const panel = readFileSync(SETTINGS_PANEL, "utf8");
+  const [rs, re] = railRegion(panel);
+  out.push(...literals(SETTINGS_PANEL, panel, rs, re));
   return out;
 }
+
+/** The E3 rule, shared by the scan and its self-test. */
+const colourHits = (lits: Lit[]): string[] =>
+  lits.filter((l) => PALETTE.test(l.text) || HEX.test(l.text) || RGBA.test(l.text)).map((l) => `${rel(l.file)}:${l.line} ${JSON.stringify(l.text.slice(0, 120))}`);
 
 const rel = (f: string) => f.slice(PACKAGES.length + 1);
 
@@ -128,17 +159,40 @@ describe("aligned action surfaces — source gates", () => {
   it("scans a non-trivial number of literals (anti-vacuity)", () => {
     // Every surface file contributes; a broken path or empty region would
     // silently shrink this to ~0 and pass the gates below vacuously.
-    for (const f of [...SURFACES, BOARD]) {
+    for (const f of [...SURFACES, BOARD, SETTINGS_PANEL]) {
       expect(lits.some((l) => l.file === f), `no literals read from ${rel(f)}`).toBe(true);
     }
     expect(lits.length).toBeGreaterThan(300);
   });
 
   it("E3: no palette class, hex or rgba( colour literal", () => {
-    const hits = lits
-      .filter((l) => PALETTE.test(l.text) || HEX.test(l.text) || RGBA.test(l.text))
-      .map((l) => `${rel(l.file)}:${l.line} ${JSON.stringify(l.text.slice(0, 120))}`);
-    expect(hits).toEqual([]);
+    expect(colourHits(lits)).toEqual([]);
+  });
+
+  // test-plan #E13 (align-ui-contract-recipes): the scan really bites on the shared files.
+  it("E13: the shared dialog and the kit are on the list", () => {
+    const scanned = new Set(lits.map((l) => rel(l.file)));
+    for (const f of ["client-utils/src/Dialog.tsx", "client-utils/src/StatusPill.tsx", "dashboard-plugin-runtime/src/settings-fields.tsx"]) {
+      expect(scanned.has(f), `${f} is not scanned`).toBe(true);
+    }
+  });
+
+  it("E13: a copy of Dialog.tsx with bg-red-600 reintroduced fails, naming the file", () => {
+    const file = join(CLIENT_UTILS, "Dialog.tsx");
+    const mutated = readFileSync(file, "utf8").replace("bg-[var(--tint-red-bg)]", "bg-red-600");
+    expect(mutated).toContain("bg-red-600");
+    const hits = colourHits(literals(file, mutated));
+    expect(hits.length).toBeGreaterThan(0);
+    expect(hits.join("\n")).toContain("client-utils/src/Dialog.tsx");
+  });
+
+  it("E13: the settings rail block is scanned (a raw palette class there is caught)", () => {
+    const panel = readFileSync(SETTINGS_PANEL, "utf8");
+    const mutated = panel.replace('data-testid="settings-nav-rail"', 'data-testid="settings-nav-rail" data-x="bg-amber-400"');
+    const [rs, re] = railRegion(mutated);
+    const hits = colourHits(literals(SETTINGS_PANEL, mutated, rs, re));
+    expect(hits.join("\n")).toContain("SettingsPanel.tsx");
+    expect(hits.join("\n")).toContain("bg-amber-400");
   });
 
   it("E5: --text-muted appears only as a disabled: variant or on an aria-hidden element", () => {

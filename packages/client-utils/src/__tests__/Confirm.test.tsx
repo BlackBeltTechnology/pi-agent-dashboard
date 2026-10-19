@@ -82,9 +82,11 @@ describe("Confirm", () => {
         testId="c"
       />,
     );
-    expect(
-      baseElement.querySelector("[data-testid='c-action']")!.className,
-    ).toContain("bg-red-600");
+    // Danger is the red tint triple (align-ui-contract-recipes), no raw red fill.
+    const cls = baseElement.querySelector("[data-testid='c-action']")!.className;
+    expect(cls).toContain("bg-[var(--tint-red-bg)]");
+    expect(cls).toContain("text-[var(--tint-red-fg)]");
+    expect(cls).not.toContain("bg-red-600");
   });
 
   it("action calls onConfirm only; cancel/Esc call onClose only", () => {

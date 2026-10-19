@@ -24,6 +24,7 @@ import { GatewayProviderSection } from "./GatewayProviderSection.js";
 import { GatewayReadinessBoard } from "./GatewayReadinessBoard.js";
 import { GatewayDegradedBanner, GatewayReservedName } from "./GatewayReservedName.js";
 import { GatewaySetupGuide } from "./GatewaySetupGuide.js";
+import { GatewayTlsSection } from "./GatewayTlsSection.js";
 import { GatewayUrlManager } from "./GatewayUrlManager.js";
 
 export function GatewayPage() {
@@ -140,6 +141,11 @@ export function GatewayPage() {
 
       <Divider />
       <GatewayUrlManager />
+
+      <Divider />
+      {/* Built-in HTTPS: produces an address that "Accessible at" then lists, so it sits right before it.
+          See change: add-tailscale-cert-tls. */}
+      <GatewayTlsSection onSetupRequested={focusProviderSetup} />
 
       <Divider />
       <GatewayEndpoints />

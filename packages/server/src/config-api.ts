@@ -416,6 +416,14 @@ export function writeConfigPartial(
       partial.pairing = { ...existing.pairing, ...partial.pairing };
     }
 
+    // Merge the `tls` block key-by-key so `{ tls: { enabled: true } }` never drops a
+    // stored `port` / `host` / `sources` (the array is replaced as a whole). Applied
+    // live by the TLS listener's reconcile; no restart.
+    // See change: add-tailscale-cert-tls (D7).
+    if (partial.tls && typeof partial.tls === "object" && !Array.isArray(partial.tls)) {
+      partial.tls = { ...(existing.tls && typeof existing.tls === "object" ? existing.tls : {}), ...partial.tls };
+    }
+
     // Merge kroki sub-object
     if (partial.kroki) {
       partial.kroki = { ...existing.kroki, ...partial.kroki };

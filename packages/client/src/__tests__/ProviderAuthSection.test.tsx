@@ -582,7 +582,14 @@ describe("custom-endpoint row Test action (moved from LlmProviderCard)", () => {
     const pill = await waitFor(() => c.container.querySelector('[data-testid="health-pill"]')!);
     await waitFor(() => expect(pill.getAttribute("data-state")).toBe("error"));
     expect(pill.textContent).toMatch(/403/);
-    expect(c.container.querySelector('[data-testid="provider-error-line"]')!.textContent).toBe("forbidden now");
+    // align-ui-contract-recipes: the raw error is behind "Copy details", not in the visible line.
+    const line = c.container.querySelector('[data-testid="provider-error-line"]') as HTMLElement;
+    expect(line.getAttribute("role")).toBe("alert");
+    expect(line.textContent).not.toContain("forbidden now");
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    fireEvent.click(line.querySelector('[data-testid="provider-error-line-copy-details"]')!);
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("forbidden now"));
   });
 
   it("discarding the edit clears the stale failed-Test result — the pill falls back to cached health", async () => {

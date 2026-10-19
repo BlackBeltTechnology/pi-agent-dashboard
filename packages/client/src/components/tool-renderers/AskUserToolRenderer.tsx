@@ -139,8 +139,13 @@ export function AskUserToolRenderer(props: ToolRendererProps) {
 
   // Parse the result to extract the user's response
   let userResponse: string | undefined;
+  let customResponses: string[] = [];
   if (result) {
-    const match = result.match(/User responded:\s*(.*)/s);
+    // The response is the LAST line that begins with `User responded:`. JSON.stringify never
+    // emits a raw newline, so marker text inside a note line or the payload cannot shift the
+    // parse. See change: add-ask-user-inline-other.
+    const all = [...result.matchAll(/^User responded:\s*(.*)$/gm)];
+    const match = all.length > 0 ? all[all.length - 1] : null;
     if (match) {
       try {
         const parsed = JSON.parse(match[1]);
@@ -148,6 +153,14 @@ export function AskUserToolRenderer(props: ToolRendererProps) {
           userResponse = parsed ? "Yes" : "No";
         } else if (typeof parsed === "string") {
           userResponse = parsed;
+          if (method === "select" && options && options.length > 0 && !options.includes(parsed)) {
+            customResponses = [parsed];
+          }
+        } else if (Array.isArray(parsed)) {
+          userResponse = match[1];
+          if (method === "multiselect" && options && options.length > 0) {
+            customResponses = parsed.filter((v): v is string => typeof v === "string" && !options.includes(v));
+          }
         } else if (parsed && typeof parsed === "object" && "value" in parsed) {
           userResponse = String(parsed.value);
         } else {
@@ -211,6 +224,17 @@ export function AskUserToolRenderer(props: ToolRendererProps) {
           <Icon path={mdiCheckCircle} size={0.45} className="text-green-400 shrink-0" />
           <span className="text-green-400 font-medium">{i18nT("common.response", undefined, "Response:")}</span>
           <span className="text-[var(--text-primary)]">{userResponse}</span>
+        </div>
+      )}
+
+      {/* Custom (non-option) answer from the inline "Other" field, rendered as plain text. */}
+      {isComplete && customResponses.length > 0 && (
+        <div className="flex items-center gap-1.5 text-xs">
+          <Icon path={mdiCheckCircle} size={0.45} className="text-green-400 shrink-0" />
+          <span className="text-green-400 font-medium">{i18nT("common.response", undefined, "Response:")}</span>
+          <span className="text-[var(--text-primary)]" data-testid="ask-user-custom-response">
+            {customResponses.join(", ")}
+          </span>
         </div>
       )}
 

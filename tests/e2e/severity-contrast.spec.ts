@@ -1,7 +1,10 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, type Page, test } from "./fixtures.js";
-import { byTestId, gotoDashboard } from "./helpers/index.js";
+import { contrastFailures, measureText, sizeFailures } from "./helpers/computed-contrast.js";
+import { byTestId, ensureGitSession, gotoDashboard } from "./helpers/index.js";
+import { OperatorSession } from "./helpers/operator-session.js";
+import { openSessionMenu, sessionMenuPanel } from "./helpers/session-actions-menu.js";
 
 /**
  * Browser-layer gate for change `unify-message-severity-colors`.
@@ -634,5 +637,110 @@ test.describe("tool-result error surfaces — token contrast (repair-tool-error-
     }
 
     expect(unresolved, `tokens that did not resolve: ${unresolved.join(", ")}`).toEqual([]);
+  });
+});
+
+// ── align-ui-contract-recipes (test-plan #F2): the recipe surfaces measured in the browser ──
+//
+// Services (rail, pills, an inline action error), the vault page, one dialog per intent
+// (primary: Add a service; danger: Remove) and the session actions menu, in every
+// theme × mode. Gate: 4.5:1 in base dark, base light and nord dark; 3:1 in every other
+// combination (the relative gate above: several palettes ship sub-AA body text);
+// no text under 11 px (12 px on interactive text).
+test.describe("recipe surfaces — contrast and size sweep (align-ui-contract-recipes)", () => {
+  test.setTimeout(900_000);
+  const op = new OperatorSession();
+  const GATED = new Set(["base/dark", "base/light", "nord/dark"]);
+  const ids = ["e2e-sweep-run", "e2e-sweep-off"];
+  let port = 48_000 + Math.floor(Math.random() * 900);
+
+  test.beforeEach(async ({ request, context }) => {
+    await op.arm(request, context);
+    for (const id of ids) {
+      const p = port++;
+      const def = {
+        id,
+        mode: "attached",
+        endpoints: { http: `http://127.0.0.1:${p}` },
+        lifecycle: { start: { linux: ["node", "-e", `require("net").createServer((s)=>s.end()).listen(${p},"127.0.0.1");setInterval(()=>{},1e6);`] } },
+        health: { kind: "tcp", endpoint: "http" },
+      };
+      const res = await request.post("/api/services", { headers: op.headers(), data: { definition: def, dryRun: false } });
+      expect(res.status(), await res.text()).toBe(200);
+    }
+    expect((await request.post(`/api/services/${ids[0]}/start`, { headers: op.headers() })).ok()).toBe(true);
+  });
+  test.afterEach(async ({ request }) => {
+    for (const id of ids) await request.delete(`/api/services/${id}`, { headers: op.headers() }).catch(() => undefined);
+  });
+
+  async function sweep(page: Page, floor: number): Promise<string[]> {
+    const out: string[] = [];
+    const check = async (name: string, scope: import("@playwright/test").Locator) => {
+      const ms = await measureText(scope);
+      if (ms.length === 0) out.push(`${name}: measured no text`);
+      for (const f of contrastFailures(ms, floor)) out.push(`${name}: ${f}`);
+      for (const f of sizeFailures(ms)) out.push(`${name} (size): ${f}`);
+    };
+
+    // Services page: rail, pills, content.
+    await page.goto("/settings/services");
+    await expect(page.getByTestId("services-list-page")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId("service-state-pill").first()).toBeVisible();
+    await check("rail", page.getByTestId("settings-nav-rail"));
+    await check("services", page.getByTestId("settings-content"));
+
+    // An inline action error on the detail page (a refused Stop, stubbed).
+    await page.route(`**/api/services/${ids[1]}/start`, (route) =>
+      route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ success: false, error: "lifecycle-lock-timeout", message: "another start is in progress" }) }),
+    );
+    await page.goto(`/settings/services/${ids[1]}`);
+    await expect(page.getByTestId("service-detail")).toBeVisible({ timeout: 20_000 });
+    await page.getByTestId("service-action-start").click();
+    await expect(page.getByTestId("service-action-error")).toBeVisible();
+    await check("action-error", page.getByTestId("service-detail"));
+
+    // Dialogs: primary intent (Add a service) and danger intent (Remove).
+    await page.goto("/settings/services");
+    await expect(page.getByTestId("services-add-open")).toBeVisible({ timeout: 20_000 });
+    await page.getByTestId("services-add-open").click();
+    await check("dialog-primary", page.getByTestId("service-add-dialog"));
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("service-add-dialog")).toHaveCount(0);
+    await page.goto(`/settings/services/${ids[1]}`);
+    await expect(page.getByTestId("service-detail")).toBeVisible({ timeout: 20_000 });
+    await page.getByTestId("service-action-remove").click();
+    await check("dialog-danger", page.getByTestId("service-remove-dialog"));
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("service-remove-dialog")).toHaveCount(0);
+
+    // Vault page.
+    await page.goto("/settings/vault");
+    await expect(page.getByTestId("settings-content")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId("settings-content").locator("[data-testid]").first()).toBeVisible();
+    await check("vault", page.getByTestId("settings-content"));
+
+    // Session actions menu.
+    await gotoDashboard(page);
+    const card = byTestId(page, "sessionCardDesktop").first();
+    await expect(card).toBeVisible({ timeout: 30_000 });
+    await openSessionMenu(page, card);
+    await check("session-menu", sessionMenuPanel(page));
+    await page.keyboard.press("Escape");
+    return out;
+  }
+
+  test("0 failures in base dark, base light and nord dark (4.5:1) and every other theme (3:1)", async ({ page }) => {
+    await ensureGitSession(page);
+    const report: string[] = [];
+    for (const theme of THEMES) {
+      for (const mode of MODES) {
+        const key = `${theme}/${mode}`;
+        await applyTheme(page, theme, mode);
+        const failures = await sweep(page, GATED.has(key) ? AA : FLOOR);
+        for (const f of failures) report.push(`${key} ${f}`);
+      }
+    }
+    expect(report, report.join("\n")).toEqual([]);
   });
 });

@@ -35,6 +35,7 @@ import {
 } from "@blackbelt-technology/pi-dashboard-shared/local-credential-proof.js";
 import { MANAGED_BIN } from "@blackbelt-technology/pi-dashboard-shared/managed-paths.js";
 import { prependSelectedNodeToPath } from "@blackbelt-technology/pi-dashboard-shared/node-installs/index.js";
+import { PATH_CONTAINMENT_GUARD_EXT_NAME } from "@blackbelt-technology/pi-dashboard-shared/path-containment-guard-name.js";
 import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
 import {
   spawnDetached,
@@ -430,29 +431,47 @@ export function buildSpawnEnv(
     // See change: spawn-correlation-token.
     env.PI_DASHBOARD_SPAWN_TOKEN = opts.spawnToken;
   }
-  if (opts?.extensionConfig) {
-    // Project per-extension config into namespaced env. Name+key are
-    // normalized to a valid env identifier: a camelCase boundary
-    // (`allowedRoots`) gets an underscore inserted, then the token is
-    // uppercased and every non-`[A-Z0-9_]` char replaced by `_` (so
-    // `allowedRoots`→`ALLOWED_ROOTS`, `api.key`→`API_KEY`, design D4).
-    // See change: add-plugin-spawn-scope.
-    for (const [name, config] of Object.entries(opts.extensionConfig)) {
-      const normName = normalizeEnvSegment(name);
-      for (const [key, value] of Object.entries(config)) {
-        const normKey = normalizeEnvSegment(key);
-        // Scalar string projects verbatim; array projects as JSON so the
-        // value is lossless for filesystem paths (design D8).
-        env[`PI_EXT_${normName}_${normKey}`] =
-          typeof value === "string" ? value : JSON.stringify(value);
-      }
-    }
-  }
   if (opts?.mechanism) {
     const applied = applySpawnEnvContributors(env, opts.mechanism);
     if (opts.contributedOut) Object.assign(opts.contributedOut, applied);
   }
+  // AFTER the contributors: they fill only absent names, so projecting/stripping any
+  // earlier would let one re-fill a stripped key. See change: add-path-containment-guard-extension (D7).
+  applyExtensionConfigNamespaces(env, opts?.extensionConfig, opts?.contributedOut);
   return env;
+}
+
+/**
+ * A spawn owns the env namespace of every extension it configures: strip each inherited
+ * `PI_EXT_<NAME>_*` (also whatever a contributor added) for those names, plus the
+ * path-containment guard's namespace unconditionally, and only THEN project the spawn's
+ * own `extensionConfig`. Stripping before any projection keeps nested prefixes
+ * (`path-containment` vs `path-containment-guard`) from eating each other's output.
+ * Without it a stale inherited var would silently stand in for dropped/omitted config.
+ * Removed names are also pruned from `contributedOut` so the tmux `-e` emission never re-adds them.
+ *
+ * Projection: name+key are normalized to a valid env identifier (camelCase boundary gets an
+ * underscore, uppercased, non-`[A-Z0-9_]` → `_`: `allowedRoots`→`ALLOWED_ROOTS`). A scalar string
+ * projects verbatim; an array projects as JSON (lossless for filesystem paths, design D8).
+ * See change: add-plugin-spawn-scope; add-path-containment-guard-extension (D7).
+ */
+function applyExtensionConfigNamespaces(
+  env: NodeJS.ProcessEnv,
+  extensionConfig: Record<string, Record<string, string | string[]>> | undefined,
+  contributedOut: Record<string, string> | undefined,
+): void {
+  const namespace = (name: string): string => `PI_EXT_${normalizeEnvSegment(name)}_`;
+  const owned = [namespace(PATH_CONTAINMENT_GUARD_EXT_NAME), ...Object.keys(extensionConfig ?? {}).map(namespace)];
+  for (const key of Object.keys(env)) {
+    if (!owned.some((prefix) => key.startsWith(prefix))) continue;
+    delete env[key];
+    if (contributedOut) delete contributedOut[key];
+  }
+  for (const [name, config] of Object.entries(extensionConfig ?? {})) {
+    for (const [key, value] of Object.entries(config)) {
+      env[`${namespace(name)}${normalizeEnvSegment(key)}`] = typeof value === "string" ? value : JSON.stringify(value);
+    }
+  }
 }
 
 /**

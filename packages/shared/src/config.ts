@@ -535,6 +535,62 @@ export interface ProxyApiKey {
   hash: string;
 }
 
+/**
+ * One configured TLS certificate source. `type` is a registered source type
+ * (server-side registry); the rest is type-specific and validated by that type.
+ * `id` is optional on disk — the tailscale type defaults to `"tailscale"`.
+ */
+export interface TlsSourceEntry {
+  type: string;
+  id?: string;
+  [key: string]: unknown;
+}
+
+/**
+ * Optional native TLS listener (second port serving the same routes).
+ * Absent block = off. See change: add-tailscale-cert-tls.
+ */
+export interface TlsConfig {
+  enabled: boolean;
+  /** Listen port. Default 8443. */
+  port: number;
+  /** Bind address (IP literal or `localhost`). Default `127.0.0.1`, independent of `bindHost`. */
+  host: string;
+  /** Certificate sources, in ownership-priority order. */
+  sources: TlsSourceEntry[];
+}
+
+export const DEFAULT_TLS_PORT = 8443;
+export const DEFAULT_TLS_HOST = "127.0.0.1";
+
+export const DEFAULT_TLS: TlsConfig = {
+  enabled: false,
+  port: DEFAULT_TLS_PORT,
+  host: DEFAULT_TLS_HOST,
+  sources: [],
+};
+
+/** Tolerant loader for the `tls` block: bad fields fall back to their defaults. */
+export function parseTlsConfig(raw: unknown): TlsConfig {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { ...DEFAULT_TLS, sources: [] };
+  const r = raw as Record<string, unknown>;
+  const port =
+    typeof r.port === "number" && Number.isInteger(r.port) && r.port >= 1 && r.port <= 65535
+      ? r.port
+      : DEFAULT_TLS_PORT;
+  const sources = Array.isArray(r.sources)
+    ? r.sources.filter(
+        (e): e is TlsSourceEntry => !!e && typeof e === "object" && !Array.isArray(e),
+      )
+    : [];
+  return {
+    enabled: r.enabled === true,
+    port,
+    host: typeof r.host === "string" && r.host.trim() ? r.host.trim() : DEFAULT_TLS_HOST,
+    sources,
+  };
+}
+
 export interface ModelProxyConfig {
   /** Master toggle. Default true. */
   enabled: boolean;
@@ -1171,6 +1227,8 @@ export interface DashboardConfig {
   mermaidRepair: MermaidRepairConfig;
   /** Model proxy configuration (OpenAI/Anthropic-compatible /v1/* endpoints). */
   modelProxy: ModelProxyConfig;
+  /** Optional native TLS listener. See change: add-tailscale-cert-tls. */
+  tls: TlsConfig;
   /**
    * Operator override for the pi sessions root the dashboard scans. When set
    * (non-blank), it is the highest-precedence input to
@@ -1537,6 +1595,7 @@ const DEFAULTS: DashboardConfig = {
   kroki: { ...DEFAULT_KROKI_CONFIG },
   mermaidRepair: { ...DEFAULT_MERMAID_REPAIR },
   modelProxy: { ...DEFAULT_MODEL_PROXY },
+  tls: { ...DEFAULT_TLS, sources: [] },
   port: DEFAULT_DASHBOARD_PORT,
   piPort: DEFAULT_GATEWAY_PORT,
   bindHost: "127.0.0.1",
@@ -2472,6 +2531,7 @@ export function loadConfig(): DashboardConfig {
           ? parsed.windowsGitSource
           : defaults.windowsGitSource,
       modelProxy: parseModelProxyConfig(parsed.modelProxy),
+      tls: parseTlsConfig(parsed.tls),
       kroki: parseKrokiConfig(parsed.kroki),
       mermaidRepair: parseMermaidRepairConfig(parsed.mermaidRepair),
       ...(typeof parsed.piSessionsDir === "string" && parsed.piSessionsDir.trim()

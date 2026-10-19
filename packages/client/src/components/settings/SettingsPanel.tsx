@@ -26,7 +26,7 @@ import { DEFAULT_MEMORY_LIMITS } from "@blackbelt-technology/pi-dashboard-shared
 import { mergeModelOptions } from "@blackbelt-technology/pi-dashboard-shared/model-catalogue.js";
 import type { GroupByMode, GroupByPrefs } from "@blackbelt-technology/pi-dashboard-shared/session-group-by.js";
 import type { ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { mdiAlert, mdiAlertOutline, mdiArrowLeft, mdiBookOpenPageVariant, mdiCheckCircle, mdiChevronDown, mdiChevronRight, mdiChip, mdiClipboardText, mdiCloseCircle, mdiCog, mdiContentSave, mdiCubeOutline, mdiDelete, mdiFileDocumentEditOutline, mdiKey, mdiLoading, mdiLock, mdiPackageVariant, mdiPackageVariantClosed, mdiPalette, mdiPlay, mdiPlus, mdiPuzzle, mdiPuzzleOutline, mdiRestart, mdiRobotOutline, mdiServer, mdiShieldCheck, mdiShieldKey, mdiTextBoxOutline, mdiTune, mdiTunnel, mdiUpdate, mdiViewDashboard, mdiWeb, mdiWrench } from "@mdi/js";
+import { mdiAlert, mdiAlertCircleOutline, mdiAlertOutline, mdiArrowLeft, mdiBookOpenPageVariant, mdiCheckCircle, mdiChevronDown, mdiChevronRight, mdiChip, mdiClipboardText, mdiCloseCircle, mdiCog, mdiContentSave, mdiCubeOutline, mdiDelete, mdiFileDocumentEditOutline, mdiKey, mdiLoading, mdiLock, mdiPackageVariant, mdiPackageVariantClosed, mdiPalette, mdiPlay, mdiPlus, mdiPuzzle, mdiPuzzleOutline, mdiRestart, mdiRobotOutline, mdiServer, mdiShieldCheck, mdiShieldKey, mdiTextBoxOutline, mdiTune, mdiTunnel, mdiUpdate, mdiViewDashboard, mdiWeb, mdiWrench } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useRoute } from "wouter";
@@ -551,13 +551,27 @@ const RESOURCE_TAB_TYPE = RESOURCE_PAGE_TYPE;
  * Health dot for a plugin nav entry (Plugins child or promoted entry) — one
  * mapping so both render identically. See change: promote-model-roles-settings.
  */
+/**
+ * Settings rail recipe (`settings-panel` "Settings rail meets contrast and marks state
+ * without colour alone"): 36 px items (44 px below `sm`), secondary text when idle, and
+ * for the current item a tertiary fill, semibold primary text and an accent bar — on the
+ * bottom edge in the strip below `md`, on the leading edge from `md`.
+ * See change: align-ui-contract-recipes (design D7).
+ */
+const RAIL_ITEM = "relative min-h-[36px] max-sm:min-h-[44px] whitespace-nowrap transition-colors cursor-pointer";
+const RAIL_BAR =
+  "before:absolute before:content-[''] before:rounded-full before:bg-[var(--accent-primary)] before:inset-x-2 before:bottom-0 before:h-[3px] md:before:inset-x-auto md:before:left-0 md:before:top-1.5 md:before:bottom-1.5 md:before:h-auto md:before:w-[3px]";
+const RAIL_ACTIVE = `bg-[var(--bg-tertiary)] text-[var(--text-primary)] font-semibold ${RAIL_BAR}`;
+const RAIL_IDLE = "text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]";
+const RAIL_DIRTY_DOT = "ml-auto w-1.5 h-1.5 rounded-full bg-[var(--severity-warning-fg)] shrink-0";
+
 function pluginNavHealth(st: { error?: string; loaded?: boolean } | null | undefined): {
   cls: string;
   label: string;
 } {
-  if (st?.error) return { cls: "bg-[var(--accent-red)]", label: "error" };
-  if (st?.loaded === false) return { cls: "bg-[var(--accent-yellow)]", label: "not loaded" };
-  return { cls: "bg-[var(--accent-green)]", label: "loaded" };
+  if (st?.error) return { cls: "bg-[var(--severity-error-fg)]", label: "error" };
+  if (st?.loaded === false) return { cls: "bg-[var(--severity-warning-fg)]", label: "not loaded" };
+  return { cls: "bg-[var(--severity-success-fg)]", label: "loaded" };
 }
 
 function resolveSettingsPage(raw: string | undefined | null): string | null {
@@ -1406,7 +1420,7 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
           {navGroups.map((group) => (
             <div key={group.id} className="contents md:block" data-testid={`settings-nav-group-${group.id}`}>
               <div
-                className="hidden md:block px-3 pt-3 pb-1 text-[11px] font-bold uppercase tracking-wide text-[var(--text-tertiary)]"
+                className="hidden md:block px-3 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--text-secondary)]"
                 data-testid={`settings-nav-group-label-${group.id}`}
               >
                 {group.label}
@@ -1426,17 +1440,15 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
                     onClick={() => requestRailNavigate("/settings/" + item.id)}
                     aria-current={active ? "page" : undefined}
                     aria-describedby={item.id === "add-ons" && addonIssueCount > 0 ? "nav-addons-issues-desc" : undefined}
-                    className={`${item.id === "plugins" ? "flex-1 min-w-0" : "w-full"} flex items-center gap-2.5 px-3 py-2 rounded-md text-sm whitespace-nowrap transition-colors cursor-pointer ${
-                      active
-                        ? "bg-blue-600/15 text-[var(--text-primary)] font-semibold"
-                        : "text-[var(--text-muted)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-secondary)]"
+                    className={`${item.id === "plugins" ? "flex-1 min-w-0" : "w-full"} flex items-center gap-2.5 px-3 py-2 rounded-md text-sm ${RAIL_ITEM} ${
+                      active ? RAIL_ACTIVE : RAIL_IDLE
                     }`}
                   >
                     <Icon path={item.icon} size={0.65} />
                     {item.label}
                     {item.id === "services" && servicesNeedingAttention > 0 && (
                       <span data-testid="nav-services-attention" className="ml-auto flex items-center">
-                        <span aria-hidden="true" className="w-1.5 h-1.5 rounded-full bg-[var(--severity-error-fg)] shrink-0" />
+                        <Icon path={mdiAlertCircleOutline} size={0.7} className="shrink-0 text-[var(--severity-error-fg)]" aria-hidden="true" />
                         <span className="sr-only">
                           {t("settings.servicesAttention", { count: servicesNeedingAttention }, `${servicesNeedingAttention} services need attention`)}
                         </span>
@@ -1448,7 +1460,7 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
                         <span
                           data-testid="nav-addons-issues"
                           aria-hidden="true"
-                          className="ml-auto text-[10px] leading-none px-1.5 py-0.5 rounded-full bg-[var(--severity-warning-bg)] text-[var(--severity-warning-fg)] border border-[var(--severity-warning-border)]"
+                          className="ml-auto text-[11px] leading-none px-1.5 py-0.5 rounded-full bg-[var(--severity-warning-bg)] text-[var(--severity-warning-fg)] border border-[var(--severity-warning-border)]"
                         >
                           {addonIssueCount}
                         </span>
@@ -1461,7 +1473,7 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
                       <span
                         data-testid={`nav-dirty-${item.id}`}
                         title={t("settings.unsavedOnPage", undefined, "Unsaved changes on this page")}
-                        className="ml-auto w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0"
+                        className={RAIL_DIRTY_DOT}
                       />
                     )}
                   </button>
@@ -1478,7 +1490,7 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
                           : t("settings.pluginsShow", { count: pluginNavChildren.length }, `Show plugin pages (${pluginNavChildren.length})`)
                       }
                       onClick={() => setPluginsExpandedPref(!pluginsExpanded)}
-                      className="shrink-0 flex items-center gap-0.5 px-1.5 py-1 rounded-md text-[11px] text-[var(--text-muted)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-secondary)] disabled:opacity-60 disabled:cursor-default cursor-pointer"
+                      className={`shrink-0 flex items-center gap-0.5 px-1.5 py-1 rounded-md text-xs ${RAIL_ITEM} ${RAIL_IDLE} disabled:cursor-default`}
                     >
                       {!pluginsExpanded && <span>{pluginNavChildren.length}</span>}
                       <Icon path={pluginsExpanded ? mdiChevronDown : mdiChevronRight} size={0.6} />
@@ -1489,7 +1501,7 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
                   {item.id === "plugins" && pluginsExpanded &&
                     pluginNavChildren.map(({ row: p, pointer }) => {
                       if (pointer) {
-                        // Promoted plugin: a dimmed pointer to the same URL. A
+                        // Promoted plugin: a pointer to the same URL. A
                         // separate branch that NEVER sets `aria-current`, so the
                         // promoted entry stays the single active one (D4).
                         const promo = promotions.get(p.id);
@@ -1501,10 +1513,10 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
                             onClick={() => requestRailNavigate(`/settings/plugins/${p.id}`)}
                             type="button"
                             data-testid={`nav-plugin-pointer-${p.id}`}
-                            className="w-full flex items-center gap-2 pl-9 pr-3 py-1.5 rounded-md text-[13px] whitespace-nowrap transition-colors cursor-pointer opacity-60 text-[var(--text-muted)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-secondary)]"
+                            className={`w-full flex items-center gap-2 pl-9 pr-3 py-1.5 rounded-md text-[13px] ${RAIL_ITEM} ${RAIL_IDLE}`}
                           >
                             <span className="truncate">{p.displayName}</span>
-                            <span className="ml-auto text-[11px] text-[var(--text-tertiary)]">↗ {groupLabel}</span>
+                            <span className="ml-auto text-xs text-[var(--text-secondary)]">↗ {groupLabel}</span>
                           </button>
                         );
                       }
@@ -1516,10 +1528,8 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
                           onClick={() => requestRailNavigate(`/settings/plugins/${p.id}`)}
                           aria-current={childActive ? "page" : undefined}
                           data-testid={`nav-plugin-${p.id}`}
-                          className={`w-full flex items-center gap-2 pl-9 pr-3 py-1.5 rounded-md text-[13px] whitespace-nowrap transition-colors cursor-pointer ${
-                            childActive
-                              ? "bg-blue-600/15 text-[var(--text-primary)] font-semibold"
-                              : "text-[var(--text-muted)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-secondary)]"
+                          className={`w-full flex items-center gap-2 pl-9 pr-3 py-1.5 rounded-md text-[13px] ${RAIL_ITEM} ${
+                            childActive ? RAIL_ACTIVE : RAIL_IDLE
                           }`}
                         >
                           <span
@@ -1534,7 +1544,7 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
                             <span
                               data-testid={`nav-dirty-plugins/${p.id}`}
                               title={t("settings.unsavedOnPage", undefined, "Unsaved changes on this page")}
-                              className="ml-auto w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0"
+                              className={RAIL_DIRTY_DOT}
                             />
                           )}
                         </button>
@@ -1562,11 +1572,9 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
                       aria-current={promoActive ? "page" : undefined}
                       type="button"
                       data-testid={`nav-promoted-${promo.pluginId}`}
-                      className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm whitespace-nowrap transition-colors cursor-pointer ${
-                        promoActive
-                          ? "bg-blue-600/15 text-[var(--text-primary)] font-semibold"
-                          : "text-[var(--text-muted)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-secondary)]"
-                      } ${enabled ? "" : "opacity-60"}`}
+                      className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm ${RAIL_ITEM} ${
+                        promoActive ? RAIL_ACTIVE : RAIL_IDLE
+                      }`}
                     >
                       <Icon path={mdiPackageVariantClosed} size={0.65} />
                       <span className="truncate">{promo.label}</span>
@@ -1580,7 +1588,7 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
                         />
                       ) : (
                         <span
-                          className="text-[10px] text-[var(--text-tertiary)]"
+                          className="text-xs text-[var(--text-secondary)]"
                           data-testid={`nav-promoted-off-${promo.pluginId}`}
                         >
                           {t("settings.promotedOff", undefined, "off")}
@@ -1590,7 +1598,7 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
                         <span
                           data-testid={`nav-dirty-plugins/${promo.pluginId}`}
                           title={t("settings.unsavedOnPage", undefined, "Unsaved changes on this page")}
-                          className="ml-auto w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0"
+                          className={RAIL_DIRTY_DOT}
                         />
                       )}
                     </button>

@@ -45,6 +45,8 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "/api/acp/", reason: "ACP new-session picker agent list; UI-only" },
   // add-server-push-notifications (Decision 12).
   { pattern: "/api/push/", reason: "push management is UI/REST-only in v1" },
+  // add-tailscale-cert-tls: operator "issue now" for the built-in HTTPS listener; Gateway UI-only.
+  { pattern: "/api/tls/", reason: "TLS certificate issue trigger; Gateway UI-only (operator action on a network-facing listener)" },
   // Access-grant review + creation (change: add-access-grants-and-review). The
   // tab is a local operator surface, and `POST /api/access/grants` is a
   // TRUST-WIDENING action bound to a denial the operator saw (design D12/D15).

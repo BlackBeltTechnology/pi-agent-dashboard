@@ -29,8 +29,8 @@ import { t as i18nT } from "../../lib/i18n/i18n.js";
 import type { PluginRow } from "../../lib/package/plugins-api.js";
 import type { SettingsPromotion } from "../../lib/settings-promotions.js";
 import {
-  CopyableErrorBlock,
   MissingRequirementsBlock,
+  PluginErrorNotice,
   StatusPill,
   WARN_BG,
   WARN_BORDER,
@@ -75,7 +75,11 @@ export function PluginsSection({
   if (error) {
     return (
       <div className="space-y-2" data-testid="plugins-section-error">
-        <CopyableErrorBlock text={`Failed to load plugins: ${error}`} testId="plugins-load-error" />
+        <PluginErrorNotice
+          text={`Failed to load plugins: ${error}`}
+          sentence={i18nT("packages.loadPluginsFailed", undefined, "Couldn't load the plugin list.")}
+          testId="plugins-load-error"
+        />
       </div>
     );
   }
@@ -213,18 +217,16 @@ export function PluginsSection({
               ) : null}
               {toggleError && (
                 <div className="px-3 pb-2">
-                  <CopyableErrorBlock
+                  <PluginErrorNotice
                     text={toggleError}
+                    sentence={i18nT("packages.toggleFailed", undefined, "Couldn't change this plugin. Try again.")}
                     testId={`plugin-toggle-error-${row.id}`}
                   />
                 </div>
               )}
               {statusError && (
                 <div className="px-3 pb-2">
-                  <CopyableErrorBlock
-                    text={statusError}
-                    testId={`plugin-status-error-${row.id}`}
-                  />
+                  <PluginErrorNotice text={statusError} testId={`plugin-status-error-${row.id}`} />
                 </div>
               )}
               <div className="px-3 pb-2">

@@ -118,6 +118,7 @@ export type {
   SettingsFieldState,
   SettingsFieldTestIds,
   SettingsNoticeTone,
+  SettingsRemedy,
   SettingsStatusTone,
   SettingsTableRow,
 } from "./settings-fields.js";
@@ -125,6 +126,7 @@ export {
   FieldShell,
   NumberField,
   SelectField,
+  SettingsActionError,
   SettingsCopyButton,
   SettingsFacts,
   SettingsGroup,

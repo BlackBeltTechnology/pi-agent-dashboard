@@ -22,4 +22,11 @@ describe("encodeDialogAnswer", () => {
     const out = encodeDialogAnswer({ answers: [{ confirmed: true }, { value: "t", images: [img] }, { values: ["a"] }] });
     expect(JSON.parse(out)).toEqual([{ confirmed: true }, { value: "t" }, { values: ["a"] }]);
   });
+
+  it("encodes custom Other answers unchanged (test-plan E6)", () => {
+    expect(encodeDialogAnswer({ value: "something else" })).toBe("something else");
+    expect(encodeDialogAnswer({ values: ["A", "D"] })).toBe('["A","D"]');
+    const answers = [{ value: "C" }, { values: ["A", "D"] }];
+    expect(encodeDialogAnswer({ answers })).toBe(JSON.stringify(answers));
+  });
 });

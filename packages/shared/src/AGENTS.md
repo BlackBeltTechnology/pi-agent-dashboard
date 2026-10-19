@@ -13,6 +13,7 @@ Files in this directory. One row per source file.
 | `__tests__/config-pi-trust-mirror.test.ts` | #E21: `piTrustMirror` loader defaults + partial merge. See change: mirror-dashboard-trust-to-pi. |
 | `__tests__/nightly-tests-workflow-contract.test.ts` | Repo-lint for `nightly-tests.yml` (E31). → see `__tests__/nightly-tests-workflow-contract.test.ts.AGENTS.md` |
 | `__tests__/pi-trust-mirror.test.ts` | #E1 #E2 #E6 #E7 #E8 #E9: piTrustKey golden vs installed pi store, deny rules, source/choice filter, decidePiTrust table. See change: mirror-dashboard-trust-to-pi. |
+| `__tests__/tool-path-resolve.test.ts` | #E24: containment (sibling prefix, equality, probe-free exact hit, fold only when probe says, win32), D6 dangling-link following on a real temp tree (`sub/../x` from real target), loop throws, legacy env literal unchanged. See change: add-path-containment-guard-extension. |
 | `__tests__/ship-it-codeql-wiring.test.ts` | Static wiring guard (#E30): `ship-it` step 4.4 lists the CodeQL baseline-diff check; step 4.4b sits between… → see `__tests__/ship-it-codeql-wiring.test.ts.AGENTS.md` |
 | `__tests__/test-collection-completeness.test.ts` | Every test-bearing `packages/*` collected by root projects or excluded with a reason (E28). → see `__tests__/test-collection-completeness.test.ts.AGENTS.md` |
 | `__tests__/e2e-browser-workflow-contract.test.ts` | Repo-lint contract for `.github/workflows/ci-e2e-browser.yml` (change: stabilize-browser-e2e, #433 part 2). → see `__tests__/e2e-browser-workflow-contract.test.ts.AGENTS.md` |
@@ -44,7 +45,7 @@ Files in this directory. One row per source file.
 | `credential-detect.ts` | Detects configured LLM-provider credential. `hasAnyProviderCredential(homeDir?)` OR-merges… → see `credential-detect.ts.AGENTS.md` |
 | `cwd-guard.ts` | Plugin cwd guard: `isAllowedCwd`, async `admitCwd`. → see `cwd-guard.ts.AGENTS.md` |
 | `dashboard-paths.ts` | Single-source path helpers for dashboard runtime dirs. `getDashboardConfigDir` → `~/.pi/dashboard/`. → see `dashboard-paths.ts.AGENTS.md` |
-| `dashboard-starter.ts` | Identifies dashboard launcher. `DashboardStarter` = `Bridge` | `Standalone` | `Electron`. → see `dashboard-starter.ts.AGENTS.md` |
+| `dashboard-starter.ts` | Identifies dashboard launcher. `DashboardStarter` = `Bridge` | `Standalone` | `Electron`. → see `dashboard-starter.ts.AGENTS.md` `starterFromHealth(body)` maps a `/api/health` body to `DashboardStarter\|undefined`: static `launchSource` first (never `launchSourceEffective`), legacy `starter` fallback. See change: fix-cli-control-electron-server. |
 | `diff-types.ts` | Session file-diff API types. `EditOperation`, `FileChangeEvent`, `FileDiffEntry`, `SessionDiffResponse`… → see `diff-types.ts.AGENTS.md` |
 | `custom-event-groups.ts` | Browser-safe types + shipped defaults for custom chat row groups. → see `custom-event-groups.ts.AGENTS.md` |
 | `custom-event-groups-store.ts` | Node-side store for `~/.pi/dashboard/custom-event-groups.json`. → see `custom-event-groups-store.ts.AGENTS.md` |
@@ -88,6 +89,7 @@ Files in this directory. One row per source file.
 | `pairing-knock-client.ts` | Native LAN-knock client: `ProveFn`, `proveExpected`, `sendKnock`, `knockServerWith`, `knockRequestBody`. See change: add-electron-server-windows (D2). |
 | `pairing-knock.ts` | Knock vocabulary shared by server + client: `KNOCK_REFUSALS`, `KnockRefusal`, `PairingProvenance`,… → see `pairing-knock.ts.AGENTS.md` |
 | `pairing-refusal.ts` | Pairing-approval 401 wire types (`PairingRefusalBody`, `PAIRING_REMEDY_ORDER`). → see `pairing-refusal.ts.AGENTS.md` |
+| `path-containment-guard-name.ts` | `PATH_CONTAINMENT_GUARD_EXT_NAME = "path-containment-guard"`: single spelling for the guard's `extensionConfig` name / env namespace, shared by the guard package and server `buildSpawnEnv` (server never imports the guard). See change: add-path-containment-guard-extension. |
 | `path-containment.ts` | Boundary-correct `isPathInside(parent, child, platform?)` (sibling prefix `/repo-other` is NOT inside… → see `path-containment.ts.AGENTS.md` |
 | `pi-package-resolver.ts` | Walks `~/.pi/agent/settings.json#packages[]` + per-workspace `<cwd>/.pi/settings.json`. → see `pi-package-resolver.ts.AGENTS.md` |
 | `pi-settings-keys.ts` | `PI_MANAGED_SETTINGS_KEYS` (`defaultProvider`,`defaultModel`,`defaultThinkingLevel`) — pi `settings.json`… → see `pi-settings-keys.ts.AGENTS.md` |
@@ -122,6 +124,8 @@ Files in this directory. One row per source file.
 | `state-replay.ts` | Synthesizes dashboard `event_forward` messages from persisted pi session entries for post-reconnect chat… → see `state-replay.ts.AGENTS.md` |
 | `stats-extractor.ts` | Extracts `StatsData` (tokensIn/out, cost, turnUsage, optional contextUsage) from a `turn_end` event's… → see `stats-extractor.ts.AGENTS.md` |
 | `terminal-safe.ts` | `INVISIBLE_OR_SEPARATOR` + `terminalSafe`. → see `terminal-safe.ts.AGENTS.md` |
+| `tls-status.ts` | Browser-safe wire types of `/api/health.tls`: `TlsGate`, `TlsSourceStatus`, `TlsCertStatus` (held, notAfter ms, stage, lastError ≤500, nextAttemptAt), `TlsStatusBasic` (`enabled`,`bound` — everyone) / `TlsStatusDetail` (port, host, bindError, gates, sources, certs — authed or genuinely-local), `hasTlsDetail()`. Server builds them, Gateway "Built-in HTTPS" reads them. See change: add-tailscale-cert-tls. |
+| `tool-path-resolve.ts` | Shared pi-parity path resolver: `resolveToolPath`, `resolveReadTarget`, `canonicalizeTarget` (realpath nearest ancestor; follows DANGLING symlinks component-wise from the link's real parent, 40-hop bound, throws on loop), `isWithinRoot`/`isPathWithinRoots` (component-wise, exact-first, volume-probe fold). Injectable `ResolveEnv` (`isSymlink?`/`readlink?` optional → legacy literals unchanged). Used by extension path-gate + `path-containment-guard`. See change: add-path-containment-guard-extension. |
 | `tunnel-concurrency.ts` | Resolves WHICH providers run and in which mode.… → see `tunnel-concurrency.ts.AGENTS.md` |
 | `tunnel-provider.ts` | Tunnel ("Gateway") provider abstraction types. Exports `TunnelProvider` interface (`id`, `kind`… → see `tunnel-provider.ts.AGENTS.md` |
 | `transcript-request-guard.ts` | Pure `decideTranscriptRequest()` — session id only, path-bearing field refused. → see `transcript-request-guard.ts.AGENTS.md` |

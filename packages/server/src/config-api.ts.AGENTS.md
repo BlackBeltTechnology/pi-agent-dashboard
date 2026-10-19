@@ -17,4 +17,6 @@ Merges nested `piTrustMirror.sources` on PUT and refreshes the snapshot. See cha
 
 `writeConfigPartial(partial, opts?)` merges `network` field-level. Origin server-owned: change of stored `trustMode` → origin `operator`; boot passes `trustModeOrigin:"upgrade"`; unchanged mode keeps stored origin. See change: retire-trusted-networks-bypass.
 
+`writeConfigPartial` deep-merges the `tls` block key-by-key (`{...existing.tls, ...partial.tls}`; `sources` replaced whole) so `{tls:{enabled:true}}` keeps port/host/sources. Applied live by `TlsListener.reconcile()` after the write (route `PUT /api/config`), no restart. See change: add-tailscale-cert-tls.
+
 `writeConfigPartial` merges the `editor` sub-object (no restart). See change: gate-changed-on-disk-by-content.
