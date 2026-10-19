@@ -344,6 +344,13 @@
       "reason": "untriaged"
     },
     {
+      "ruleId": "js/missing-rate-limiting",
+      "file": "packages/dashboard-plugin-runtime/src/server/app-mount.ts",
+      "lineHash": "cedd8cfebeaf61a7:1",
+      "count": 1,
+      "reason": "accepted-risk: ctx.serveApp static handler for a trusted plugin's public build (extension allowlist, realpath confinement, no data); a per-request limit would break the legitimate 40 MB wasm + asset fan-out of an app load; hash taken from the PR-985 CodeQL analysis (codeql CLI unavailable locally)"
+    },
+    {
       "ruleId": "js/resource-exhaustion",
       "file": "packages/grammar-plugin/src/useGrammarCheck.ts",
       "lineHash": "27a85c1ebb434f56:1",
