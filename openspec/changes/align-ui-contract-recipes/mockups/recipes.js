@@ -13,8 +13,8 @@ function note(tone, { title, why, remedies = [], acts = "", detail = "" }) {
   const role = tone === "error" ? 'role="alert"' : 'role="status"';
   return `<div class="r-note ${tone}" ${role}>${ic(PILL_IC[tone])}<div class="b"><strong class="t">${title}</strong>${why ? `<p>${why}</p>` : ""}${
     remedies.length ? `<ul>${remedies.map(([i, t]) => `<li>${ic(i)}<span>${t}</span></li>`).join("")}</ul>` : ""}${
-    acts ? `<div class="acts">${acts}</div>` : ""}${
-    detail ? `<details class="r-details"><summary>${ic("ChevronRight")}Technical details</summary><pre>${esc(detail)}</pre><button class="p-btn ghost r-btn-sm">${ic("ContentCopy")}Copy details</button></details>` : ""}</div></div>`;
+    (acts || detail) ? `<div class="acts">${acts}${detail ? `<button class="p-btn ghost r-btn-sm">${ic("ContentCopy")}Copy details</button>` : ""}</div>` : ""}${
+    detail ? `<span class="r-copy" data-detail="${esc(detail)}"></span>` : ""}</div></div>`;
 }
 const errLine = (id, msg) => `<p class="r-err" id="${id}" role="alert">${ic("AlertCircleOutline")}<span>${msg}</span></p>`;
 
@@ -64,7 +64,7 @@ const RECIPES = [
       <p class="p-help" style="margin-top:8px">running→info + spinning <code>Loading</code> · warn→warning · muted→neutral. Raw code stays in <code>data-state</code>, never as the visible word.</p>`],
     ["Healthy is silent where a list is mostly healthy", `<div class="r-card"><div class="flex-wrap"><span class="name">Anthropic</span></div><div class="flex-wrap"><span class="name">OpenAI</span>${pill("warning", "Rate limited")}</div><div class="flex-wrap"><span class="name">Gemini</span>${pill("error", "Auth failed")}</div></div>`, true],
   ],
-  row: `| status pill | \`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-xs font-semibold whitespace-nowrap\` + \`--severity-X-{bg,fg,border}\` (X = success · info · warning · error · neutral); 14 px icon \`aria-hidden\` + a human word (never a raw enum — the code goes in \`data-state\`); \`info\` + spinning \`Loading\` for in-progress; in a mostly-healthy list, healthy renders nothing. One implementation: \`ui:status-pill\` (\`client-utils\`) — services \`StatePill\`, vault \`StatusPill\`, \`ProviderHealthPill\`, \`plugin-row-parts\`, \`BoardStatePill\` and the plugin kit \`SettingsStatusPill\` render through it. See change: align-ui-contract-recipes |` },
+  row: `| status pill | \`SettingsStatusPill\` (\`dashboard-plugin-runtime\`) — the one implementation; \`ui:status-pill\` renders it. \`inline-flex items-center gap-1 rounded-full border px-1.5 py-px font-semibold whitespace-nowrap\` at \`text-[11px]\` (\`text-[12px]\` inside an interactive element) + \`--severity-X-{bg,fg,border}\` (X = success · info · warning · error · neutral); default icon per tone (static MDI import, \`aria-hidden\`) + a human word, never a raw enum (the code goes in \`data-status\`); in-progress = info + spinning \`Loading\` (\`motion-reduce:animate-none\`); in a mostly-healthy list, healthy renders nothing. See change: align-ui-contract-recipes |` },
 
 /* ───────────────────────────── R2 ───────────────────────────── */
 { id: "notice", title: "Notice / callout", icon: "InformationOutline", verdict: "consolidate",
@@ -85,12 +85,12 @@ const RECIPES = [
     at resolve (node:internal/modules/esm/resolve:264)</pre><span style="display:inline-flex;gap:4px;padding:2px 6px;border-radius:4px;font-size:10px;border:1px solid var(--severity-error-border)">${svgS("ContentCopy", 10)}Copy</span></div>`),
   ],
   proposed: () => [
-    ["error · sentence + retry + raw detail", note("error", { title: "The Gmail plugin didn't load", why: "Its client bundle is missing. Reinstalling the plugin usually fixes this.", acts: btn("secondary", "Try again", "Refresh") + btn("ghost", "Reinstall", "Download"), detail: "Error: Cannot find module '@x/plugin/dist/client.js'\n    at resolve (node:internal/modules/esm/resolve:264)" })],
+    ["error · sentence + retry + Copy details", note("error", { title: "The Gmail plugin didn't load", why: "Its client bundle is missing. Reinstalling the plugin usually fixes this.", acts: btn("secondary", "Try again", "Refresh") + btn("ghost", "Reinstall", "Download"), detail: "Error: Cannot find module '@x/plugin/dist/client.js'\n    at resolve (node:internal/modules/esm/resolve:264)" })],
     ["info · remedies list (operate-required)", note("info", { title: "This device can't change services", why: "It is paired with less than Operate access.", remedies: [["Monitor", "Open the dashboard on the computer that runs it."], ["CellphoneKey", "On the host, revoke this device in Paired devices, then pair it again with Operate access."], ["Login", "<a class=\"p-link\" href=\"#\">Sign in with an operator account</a>"]] })],
     ["warning · one action", note("warning", { title: "Restart needed", why: "The vault server is older than this page. Some actions stay unavailable until it restarts.", acts: btn("secondary", "Restart server", "Restart") })],
     ["success · transient confirmation", note("success", { title: "Imported 4 keys", why: "They are available to every project you grant." })],
   ],
-  row: `| notice | \`flex items-start gap-2 rounded-md border p-3 text-sm max-w-[72ch]\` + \`--severity-X-{bg,fg,border}\`; 16 px icon → body: title (\`font-semibold\`, one line, says what happened) → why (one sentence, plain words) → optional remedy rows (icon + sentence) → optional actions (secondary "Try again" first, never a second primary) → optional \`<details>\` "Technical details" holding the raw error in \`--bg-code\` mono 12 px + ghost "Copy details". \`role="alert"\` for error, \`role="status"\` otherwise. Raw error text never renders outside the disclosure. See change: align-ui-contract-recipes |` },
+  row: `| notice | \`SettingsNotice\` (\`dashboard-plugin-runtime\`) — the one implementation. \`flex items-start gap-2 rounded-md border px-2.5 py-2 text-xs\` + \`--severity-X-{bg,fg,border}\`; tone icon → message (short title saying what happened + optional one-sentence why) → optional remedy rows (icon + sentence, links allowed) → action row: at most one primary, optional \"Try again\" (\`aria-busy\` while retrying), optional ghost \"Copy details\". Raw error text (codes, HTTP status, bodies, stacks) is copied, never rendered. \`role=\"alert\"\` for error, \`role=\"status\"\` otherwise. See change: align-ui-contract-recipes |` },
 
 /* ───────────────────────────── R3 ───────────────────────────── */
 { id: "inlineerr", title: "Inline action error", icon: "AlertCircleOutline", verdict: "consolidate",
@@ -114,7 +114,7 @@ const RECIPES = [
       ["Item-scoped (one of many rows fails)", `<div class="r-card"><div class="flex-wrap"><span class="name" style="flex:1">work-profile</span>${pill("error", "Connect failed")}<button class="p-btn secondary r-btn-sm">${ic("Refresh")}Try again</button></div>${errLine(nid("e"), "Chrome closed the debugging pipe. <button class=\"p-btn ghost r-btn-sm copy\">" + ic("ContentCopy") + "Copy details</button>")}</div>`, true],
     ];
   },
-  row: `| inline action error | \`<p role="alert">\` \`mt-1 flex items-start gap-1 text-xs text-[var(--severity-error-fg)]\` + 14 px \`AlertCircleOutline\`, directly under the control or row that failed, linked by \`aria-describedby\`; one plain sentence (what failed + what to try) — server codes and raw text only via a ghost "Copy details"; never a toast for a failure the user can act on in place. Same anatomy as the settings-field error line. See change: align-ui-contract-recipes |` },
+  row: `| inline action error | \`<p role="alert">\` \`mt-1 flex items-start gap-1 text-xs text-[var(--severity-error-fg)]\` + 14 px \`AlertCircleOutline\`, directly under the control or row that failed, linked by \`aria-describedby\`; one plain sentence (what failed + what to try) — server codes and raw text only via a ghost "Copy details"; never a toast for a failure the user can act on in place. Implemented once as \`SettingsActionError\` (\`dashboard-plugin-runtime\`), same anatomy as the settings-field error line. See change: align-ui-contract-recipes |` },
 
 /* ───────────────────────────── R4 ───────────────────────────── */
 { id: "tabs", title: "Tabs & filter chips", icon: "TabUnselected", verdict: "new row",

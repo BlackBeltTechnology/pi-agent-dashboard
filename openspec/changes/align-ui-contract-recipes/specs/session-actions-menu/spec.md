@@ -6,9 +6,9 @@ In the session actions menu:
 
 - group headings SHALL be at least 11 px, semibold, in the secondary text colour;
 - each menu item SHALL be at least 44 px tall below the `sm` breakpoint and at least 36 px tall from `sm`;
-- item labels, including items contributed by plugins, SHALL use the primary text colour.
+- host-rendered item labels, the `More…` expander and its count SHALL use the primary text colour, and the PLUGINS group container SHALL set the primary text colour so that plugin output which does not set its own colour inherits it.
 
-A disabled item's reason SHALL render as its own line under the label, at least 12 px in the secondary text colour, linked to the item for assistive technology. The reason SHALL NOT be truncated into a trailing span. All menu text SHALL meet 4.5:1 contrast against the menu background in base dark, base light and nord dark.
+A disabled item's reason SHALL render as its own line under the label, at least 12 px in the secondary text colour, linked to the item for assistive technology. The reason SHALL wrap rather than be truncated into a trailing span. All enabled menu text and every disabled reason SHALL meet 4.5:1 contrast against the menu background in base dark, base light and nord dark.
 
 #### Scenario: Heading and item sizes
 - **WHEN** the session actions menu opens on a desktop viewport
@@ -26,6 +26,6 @@ A disabled item's reason SHALL render as its own line under the label, at least 
 - **AND** the item SHALL reference the reason through `aria-describedby`
 
 #### Scenario: Plugin items at full contrast
-- **WHEN** a plugin contributes an item to the PLUGINS group
-- **THEN** its label SHALL use the primary text colour
+- **WHEN** a plugin contributes an item to the PLUGINS group without setting its own text colour
+- **THEN** its label SHALL inherit the primary text colour
 - **AND** it SHALL measure at least 4.5:1 against the menu background in base light

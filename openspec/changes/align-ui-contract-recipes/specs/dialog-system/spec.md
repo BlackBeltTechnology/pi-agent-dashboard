@@ -7,8 +7,7 @@ tint from the theme's `--bg-overlay` token, a container drawn with the card
 recipe (`--bg-secondary` background, `--border-secondary` border, extra-large
 rounded corners, raised elevation), a title at the contract's title step
 (`text-lg`, semibold), and a single fixed layer on the `z-dialog` step of the
-overlay scale. A header icon SHALL sit in a tile coloured with a severity
-triple: error when the dialog's action is destructive, info otherwise.
+overlay scale.
 
 #### Scenario: Overlay tint
 
@@ -75,6 +74,31 @@ from `sm`, with semibold text.
 - **WHEN** a dialog's actions render in a 375 px viewport
 - **THEN** each action and the Cancel button SHALL be at least 44 px tall
 - **AND** from the `sm` breakpoint each SHALL be at least 36 px tall
+
+### Requirement: Dialog header slot
+
+The `Dialog` SHALL render an optional header containing a title and an
+optional leading icon (mdi path). The header is omitted entirely if
+neither `title` nor `icon` is provided. The icon tile SHALL use the info
+severity triple (`--severity-info-bg`, `--severity-info-fg`,
+`--severity-info-border`), not an alpha of `--accent-primary`.
+
+#### Scenario: Title only
+
+- **WHEN** a `Dialog` is rendered with `title="Switch branch"` and no
+  `icon`
+- **THEN** the header SHALL render the title text without an icon slot
+
+#### Scenario: Title and icon
+
+- **WHEN** a `Dialog` is rendered with both `title` and an `icon` mdi path
+- **THEN** the header SHALL render the icon in a tile painted with the
+  info severity triple, to the left of the title
+
+#### Scenario: Neither title nor icon
+
+- **WHEN** a `Dialog` is rendered without `title` and without `icon`
+- **THEN** no header element SHALL be rendered
 
 ## ADDED Requirements
 

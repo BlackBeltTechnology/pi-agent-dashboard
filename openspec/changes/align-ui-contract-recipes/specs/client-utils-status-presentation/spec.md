@@ -1,5 +1,26 @@
 ## MODIFIED Requirements
 
+### Requirement: Status presentation uses a non-hue channel
+
+The shared status presentation primitive (`StatusPill` or a `statusPresentation` helper in `client-utils`) SHALL express each status via a semantic token AND a mandatory non-hue channel (icon, shape, or glyph), so status is never conveyed by color alone. The status pill SHALL use the `--severity-*` triples. The `statusPresentation` helper SHALL keep its `--status-*` tokens for workflow progress (done / current / todo / error).
+
+#### Scenario: Each status carries a non-color indicator
+
+- **WHEN** the status primitive renders any state (done / current / todo / error)
+- **THEN** the rendered output SHALL include an icon, shape, or glyph distinguishing that state
+- **AND** the distinction SHALL NOT depend on color alone
+
+#### Scenario: Done is distinguishable from todo without color
+
+- **WHEN** a "done" and a "todo" item render in grayscale
+- **THEN** they SHALL remain visually distinguishable (e.g. check glyph vs none)
+
+#### Scenario: Pill and helper token families
+
+- **WHEN** the status pill renders the `warn` state and the `statusPresentation` helper renders `current`
+- **THEN** the pill SHALL use `--severity-warning-*` tokens
+- **AND** the helper SHALL use `--status-working`
+
 ### Requirement: Covered surfaces consume the shared status primitive
 
 The following surfaces SHALL render state through the shared status primitive and SHALL NOT re-roll their own colour map:
@@ -11,7 +32,7 @@ The following surfaces SHALL render state through the shared status primitive an
 - the provider health pill;
 - the plugin list status pill.
 
-Icon-only status controls SHALL carry an `aria-label` naming the item and its state. The shared status primitive SHALL take its colours from the severity tokens of the active theme palette, not from fixed colour values chosen by a dark/light switch.
+Icon-only status controls SHALL carry an `aria-label` naming the item and its state. The status pill SHALL take its colours from the severity tokens of the active theme palette, not from fixed colour values chosen by a dark/light switch.
 
 #### Scenario: Board uses the shared primitive
 
@@ -34,4 +55,4 @@ Icon-only status controls SHALL carry an `aria-label` naming the item and its st
 #### Scenario: Primitive follows the active palette
 
 - **WHEN** the active palette is a non-base palette such as nord dark
-- **THEN** the status primitive's colours SHALL be that palette's severity token values
+- **THEN** the status pill's colours SHALL be that palette's severity token values

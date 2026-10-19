@@ -9,8 +9,9 @@ body[data-w="375"] .frame { --tap: 44px; }
 
 /* ── R1 status pill ───────────────────────────────────────────────── */
 .r-pill { display: inline-flex; align-items: center; gap: 4px; border: 1px solid; border-radius: 999px;
-  padding: 2px 6px; font-size: 12px; line-height: 16px; font-weight: 600; white-space: nowrap; }
-.r-pill svg.i { width: 14px; height: 14px; }
+  padding: 1px 6px; font-size: 11px; line-height: 16px; font-weight: 600; white-space: nowrap; }
+.r-pill svg.i { width: 12px; height: 12px; }
+button .r-pill, summary .r-pill, a .r-pill { font-size: 12px; }
 .r-pill.success { background: var(--severity-success-bg); color: var(--severity-success-fg); border-color: var(--severity-success-border); }
 .r-pill.info    { background: var(--severity-info-bg);    color: var(--severity-info-fg);    border-color: var(--severity-info-border); }
 .r-pill.warning { background: var(--severity-warning-bg); color: var(--severity-warning-fg); border-color: var(--severity-warning-border); }
@@ -22,7 +23,7 @@ body[data-w="375"] .frame { --tap: 44px; }
 
 /* ── R2 notice ────────────────────────────────────────────────────── */
 .r-note { display: flex; align-items: flex-start; gap: 8px; border: 1px solid; border-radius: 6px; padding: 12px;
-  font-size: 14px; line-height: 20px; max-width: 72ch; }
+  font-size: 12px; line-height: 18px; max-width: 72ch; }
 .r-note > svg.i { width: 16px; height: 16px; margin-top: 2px; }
 .r-note .b { min-width: 0; flex: 1; }
 .r-note .t { display: block; font-weight: 600; }

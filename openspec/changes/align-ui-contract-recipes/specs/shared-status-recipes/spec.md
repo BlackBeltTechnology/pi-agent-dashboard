@@ -6,13 +6,13 @@ One status pill, one notice and one inline action error for every dashboard surf
 
 ### Requirement: One status pill shows tone, icon and a human word
 
-The dashboard SHALL render every status pill through one shared implementation, the `ui:status-pill` primitive. A pill SHALL:
+The dashboard SHALL render every status pill through one shared implementation. That implementation is the plugin settings kit's status pill. The `ui:status-pill` primitive SHALL render the same pill. A pill SHALL:
 
 - show one of five tones: success, info, warning, error or neutral;
 - take its background, text and border colours from the matching severity tokens;
-- show an icon and a human-readable word. A raw state code SHALL NOT be the visible word.
+- show an icon and a human-readable word. A raw state code SHALL NOT be the visible word; it MAY stay available as a data attribute.
 
-When the caller supplies no icon, the pill SHALL show the tone's default icon. An in-progress state SHALL show a spinning progress icon that stops under `prefers-reduced-motion`. The raw state SHALL stay available as a data attribute. Pill text SHALL be at least 12 px and SHALL meet 4.5:1 contrast against the pill's own fill in base dark, base light and every other built-in palette.
+When the caller supplies no icon, the pill SHALL show the tone's default icon, present on first paint without waiting for the lazily loaded icon set. When the caller supplies an icon by key and the key has not resolved yet, or is unknown, the pill SHALL show the tone's default icon. An in-progress state SHALL show a spinning progress icon that does not animate under `prefers-reduced-motion`. Pill text SHALL be 11 px, or 12 px inside an interactive element. It SHALL meet 4.5:1 contrast against the pill's own fill in base dark, base light and nord dark, and at least 3:1 in every other named theme.
 
 #### Scenario: State readable without colour
 - **WHEN** pills in each of the five tones render and are viewed in greyscale
@@ -23,34 +23,41 @@ When the caller supplies no icon, the pill SHALL show the tone's default icon. A
 - **THEN** the pill SHALL take nord's warning colours without a re-render triggered by script
 - **AND** its text SHALL measure at least 4.5:1 against its fill
 
-#### Scenario: Existing state names map to tones
-- **WHEN** a plugin renders `ui:status-pill` with state `running`, `success`, `info`, `warn`, `error` or `muted`
-- **THEN** the pill SHALL use the info, success, info, warning, error or neutral tone respectively
-- **AND** `running` SHALL show the spinning progress icon
+#### Scenario: Default icon on a cold load
+- **WHEN** the dashboard loads cold and a pill renders before the full icon set has loaded
+- **THEN** the pill SHALL already show its tone's default icon
+
+#### Scenario: Progress icon respects reduced motion
+- **WHEN** an in-progress pill renders with `prefers-reduced-motion: reduce`
+- **THEN** its progress icon SHALL NOT animate
 
 #### Scenario: Raw code stays out of the visible text
-- **WHEN** a surface shows the state `waiting_peers`
+- **WHEN** the plugin list shows a plugin in the `waiting_peers` state
 - **THEN** the visible word SHALL be a human phrase such as "Waiting for peers"
 - **AND** `waiting_peers` SHALL be available only as an attribute value
 
 ### Requirement: One notice anatomy for callouts and banners
 
-The dashboard SHALL render notices, callouts and banners through one shared implementation, provided to plugins as the `ui:notice` primitive. A notice SHALL contain, in order:
+The dashboard SHALL render notices, callouts and banners through one shared implementation: the plugin settings kit's notice. A notice SHALL show a tone icon, then its message (a short title saying what happened, and an optional one-sentence explanation), then optional remedy rows, then an optional action row:
 
-- a tone icon;
-- a one-line title saying what happened;
-- an optional one-sentence explanation;
-- optional remedy rows, each an icon plus a sentence;
-- optional actions, of which at most one is a primary action;
-- optional raw technical detail.
+- each remedy row is an icon plus a sentence that may contain a link;
+- the action row holds at most one primary action, an optional "Try again", and an optional "Copy details".
 
-The raw detail SHALL render only inside a disclosure that starts closed, with a "Copy details" control. Error notices SHALL announce as alerts, and other tones as status. Body text SHALL be at least 14 px, line length SHALL be capped at about 72 characters, and colours SHALL come from the severity tokens.
+Raw technical detail (codes, HTTP status, response bodies, stack traces) SHALL NOT render as visible text; "Copy details" SHALL copy it. A notice that is retrying SHALL expose a busy state (`aria-busy`). Error notices SHALL announce as alerts, and other tones as status. Text SHALL be at least 12 px and colours SHALL come from the severity tokens.
 
-#### Scenario: Raw error hidden behind a disclosure
+#### Scenario: Raw error kept out of the visible text
 - **WHEN** a plugin fails to load and its error notice renders with a stack trace as detail
-- **THEN** the notice SHALL show a sentence title and a "Try again" action
-- **AND** the stack trace SHALL be visible only after opening "Technical details"
+- **THEN** the notice SHALL show a sentence and a "Try again" action
+- **AND** the stack trace SHALL NOT be visible
 - **AND** "Copy details" SHALL copy the stack trace
+
+#### Scenario: Retrying notice is busy
+- **WHEN** the user chooses "Try again" and the retry is in flight
+- **THEN** the notice SHALL expose `aria-busy="true"` and the retry control SHALL be disabled
+
+#### Scenario: Copying fails
+- **WHEN** the user chooses "Copy details" and the clipboard is unavailable or rejects
+- **THEN** the control SHALL report that copying failed instead of claiming success
 
 #### Scenario: Error notice is announced
 - **WHEN** an error notice appears
@@ -59,7 +66,7 @@ The raw detail SHALL render only inside a disclosure that starts closed, with a 
 
 ### Requirement: Inline action errors appear at the control that failed
 
-When an action the user can retry in place fails, the dashboard SHALL report it directly under the control or row that triggered it, through one shared implementation provided to plugins as the `ui:action-error` primitive. It SHALL NOT report the failure only as a toast. The message SHALL be one plain sentence. Server codes and raw error text SHALL be reachable only through a "Copy details" control. The message SHALL be linked to the control for assistive technology and SHALL announce as an alert.
+When an action the user can retry in place fails, the dashboard SHALL report it directly under the control or row that triggered it, through one shared implementation in the plugin settings kit. It SHALL NOT report the failure only as a toast. The message SHALL be one plain sentence. Server codes and raw error text SHALL be reachable only through "Copy details". The message SHALL be linked to the control for assistive technology and SHALL announce as an alert.
 
 #### Scenario: Failed stop reported beside its button
 - **WHEN** the user clicks Stop on a service and the server refuses
@@ -71,11 +78,10 @@ When an action the user can retry in place fails, the dashboard SHALL report it 
 - **WHEN** one of several browser profiles fails to connect
 - **THEN** the error SHALL appear inside that profile's row only
 
-### Requirement: Shared status parts are available to plugins
+### Requirement: Plugins and core share the same parts
 
-The primitive registry SHALL provide the status pill, the notice and the inline action error to plugins. A plugin SHALL be able to render all three without importing host packages directly. The plugin settings field kit SHALL render its status pill and notice through these primitives and SHALL NOT keep a colour map of its own.
+Plugins SHALL get the status pill, notice and inline action error by importing them from the plugin settings kit package, as they already do for settings fields. Core surfaces SHALL import the same components. No surface in the listed migration set SHALL keep a private pill, notice or inline-error colour map.
 
-#### Scenario: Plugin renders a notice through the registry
-- **WHEN** a plugin requests the notice primitive from the registry
-- **THEN** it SHALL receive the host's notice component
-- **AND** the rendered notice SHALL match a core notice of the same tone
+#### Scenario: Core and plugin pills are identical
+- **WHEN** the Services page and a plugin settings page each render an error-tone pill with the word "Failed"
+- **THEN** both pills SHALL render the same element structure, classes and icon
