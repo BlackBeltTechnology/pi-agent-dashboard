@@ -68,4 +68,4 @@ Folded from `test-plan.md` (automated, L3). Extend `tests/e2e/session-actions-me
 
 - [x] 5.1 Update the `SessionActionsMenu.tsx` and `SessionCard.tsx` rows in `packages/client/src/components/session/AGENTS.md` and `SessionCard.tsx.AGENTS.md`: edge trigger, `card-edge-trigger`, reserved `pr-[18px]` gutter, click-pins-hover-open, header no longer hosts the trigger, `See change: move-session-actions-trigger-to-card-edge`. Verify: `kb dox lint` is clean for these paths.
 - [x] 5.2 Delegate the "entry points" section of `docs/session-actions-menu.md` to DocScribe in caveman style: header trigger → centred edge pill, always visible, 24 px hit box in the reserved gutter, click pins a hover-opened menu. Verify: the doc no longer says the trigger is in the header.
-- [ ] 5.3 Full client test run: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`, then grep for the summary line. Verify: no new failures.
+- [x] 5.3 Full client test run: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`, then grep for the summary line. Verify: no new failures.
