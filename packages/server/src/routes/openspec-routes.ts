@@ -84,6 +84,14 @@ export const LEGACY_COMMAND_DIRS = [
   ".qoder/commands/openspec", ".lingma/commands/openspec",
   ".crush/commands/openspec", ".gemini/commands/openspec",
 ];
+/**
+ * Filename prefixes that mark a file in a file-dir as legacy. Default is both; CoStrict's
+ * adapter writes LIVE `opsx-*.md` into its directory, and 1.14.3 only cleans `openspec-*.md`
+ * there, so an `opsx-` file alone must not force an overwrite confirmation.
+ */
+const LEGACY_FILE_PREFIXES: Record<string, string[]> = {
+  ".cospec/openspec/commands": ["openspec-"],
+};
 export const LEGACY_COMMAND_FILE_DIRS = [
   ".cursor/commands", ".windsurf/workflows", ".kilocode/workflows",
   ".kiro/prompts", ".github/prompts", ".amazonq/prompts",
@@ -367,7 +375,8 @@ export function registerOpenSpecRoutes(
     for (const dir of LEGACY_COMMAND_FILE_DIRS) {
       try {
         const entries = await fs.readdir(path.join(cwd, dir));
-        if (entries.some((e) => e.startsWith("openspec-") || e.startsWith("opsx-"))) return true;
+        const prefixes = LEGACY_FILE_PREFIXES[dir] ?? ["openspec-", "opsx-"];
+        if (entries.some((e) => prefixes.some((p) => e.startsWith(p)))) return true;
       } catch { /* absent */ }
     }
     return false;
