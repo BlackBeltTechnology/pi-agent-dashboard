@@ -186,13 +186,16 @@ test.describe("folder Add-ons switch — trust flow", () => {
     // Real server, real trust state: a folder that needs a decision asks (403 trustRequired → dialog);
     // an already-trusted one writes straight away. Either way the row ends up off.
     const dialog = page.getByTestId("resource-trust-dialog");
-    if (await dialog.isVisible({ timeout: 5_000 }).catch(() => false)) {
+    const offBadge = row.locator('[data-testid^="folder-addon-state-"]');
+    // Wait for whichever comes first (isVisible() does not wait): the prompt, or the completed off state.
+    await expect(dialog.or(offBadge)).toBeVisible({ timeout: 15_000 });
+    if (await dialog.isVisible()) {
       const trust = page.waitForResponse((r) => r.url().includes("/api/resources/trust") && r.request().method() === "POST");
       await dialog.getByTestId("resource-trust-option-trust").click();
       // The add-ons toggle registered the challenge, so the shared endpoint accepts the decision (not 409).
       expect((await trust).status()).toBe(200);
     }
-    await expect(row.locator('[data-testid^="folder-addon-state-"]')).toHaveText("off in this folder", { timeout: 15_000 });
+    await expect(offBadge).toHaveText("off in this folder", { timeout: 15_000 });
 
     // Leave the shared fixture as found: turn it back on.
     await sw.click();

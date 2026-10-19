@@ -26,6 +26,7 @@ import {
   applyToggle,
   gatherCatalog,
   gcRestoreRecords,
+  hasStaleRestoreRecords,
   planToggle,
   settingsPathOf,
 } from "../addons/addons-service.js";
@@ -148,8 +149,14 @@ export function registerAddonsRoutes(fastify: FastifyInstance, routeDeps: Addons
     if (scope === "local") return folderCatalogReply(deps, cwd, reply);
     try {
       const gathered = await gatherCatalog(deps);
-      // Stale restore records (uninstall / reset / scope move) are dropped here.
-      await withSettingsWriteLock(settingsPathOf(deps), async () => gcRestoreRecords(gathered, log));
+      // Stale restore records (uninstall / reset / scope move) are dropped here. GC rewrites the whole
+      // restore store, so it takes the hub lock too (a folder toggle holds it while adding a record);
+      // a read with nothing to drop stays lock-free.
+      if (hasStaleRestoreRecords(gathered, log)) {
+        await withSettingsWriteLock(ADDONS_HUB_LOCK_KEY, () =>
+          withSettingsWriteLock(settingsPathOf(deps), async () => gcRestoreRecords(gathered, log)),
+        );
+      }
       return reply.status(200).send({ success: true, features: gathered.features });
     } catch (err) {
       log.error(`[addons] catalog failed: ${(err as Error)?.message ?? err}`);

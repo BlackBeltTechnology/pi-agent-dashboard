@@ -13,7 +13,7 @@
  *
  * See change: addons-hub-folder-view (spec: addons-issues).
  */
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 import { useLocation } from "wouter";
 import type { useAddonIssues } from "../../hooks/useAddonIssues.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
@@ -29,22 +29,24 @@ interface Props {
 	issues: Issues;
 	/** After a cleanup Apply: refresh the Installed catalog. */
 	onCleaned?: () => Promise<void> | void;
+	/** A cleanup was applied and pi must restart. Owned by the parent so the notice survives a tab switch. */
+	restartRequired: boolean;
+	onRestartRequired: () => void;
 }
 
 const hasSettingsPage = (row: PluginRow) => row.claims.some((c) => c.slot === "settings-section");
 
-export function AddonsIssuesTab({ issues, onCleaned }: Props) {
+export function AddonsIssuesTab({ issues, onCleaned, restartRequired, onRestartRequired }: Props) {
 	const [, navigate] = useLocation();
-	const [restartRequired, setRestartRequired] = useState(false);
 	const { health, pluginIssues, count, refresh } = issues;
 
 	const apply = useCallback(
 		async (drop: string[]) => {
 			await applyPackageCleanup(drop);
-			setRestartRequired(true);
+			onRestartRequired();
 			await Promise.all([onCleaned?.(), refresh()]);
 		},
-		[onCleaned, refresh],
+		[onCleaned, onRestartRequired, refresh],
 	);
 
 	return (

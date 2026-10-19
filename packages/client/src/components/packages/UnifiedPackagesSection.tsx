@@ -188,6 +188,8 @@ export function UnifiedPackagesSection() {
 	// ── Issues: plugin problems + packages[] health, one shared snapshot (also feeds the Settings rail badge).
 	// See change: add-package-health-cleanup, addons-hub-folder-view.
 	const issues = useAddonIssues();
+	// Owned here (not by the tab) so the restart notice survives switching tabs.
+	const [restartRequired, setRestartRequired] = useState(false);
 
 	// Core "Update All" stays clickable while operations run: the queue's
 	// (source, action) dedupe makes a repeat click idempotent.
@@ -674,7 +676,12 @@ export function UnifiedPackagesSection() {
 			{/* ── Issues ──────────────────────────────────────────────── */}
 			{tab === "issues" && (
 				<div role="tabpanel" id="addons-panel-issues" aria-labelledby="addons-tab-issues">
-					<AddonsIssuesTab issues={issues} onCleaned={catalog.refresh} />
+					<AddonsIssuesTab
+						issues={issues}
+						onCleaned={catalog.refresh}
+						restartRequired={restartRequired}
+						onRestartRequired={() => setRestartRequired(true)}
+					/>
 				</div>
 			)}
 

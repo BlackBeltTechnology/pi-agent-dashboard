@@ -1,7 +1,7 @@
 /**
  * Subscribes to the shared Add-ons issue snapshot and keeps it fresh: refresh on
- * mount of the first consumer and on every `plugin-config-update` (plugin
- * toggle). A cleanup Apply calls `refresh` explicitly.
+ * mount of the first consumer, on every `plugin-config-update` (plugin toggle)
+ * and on every successful `pi-package-event` (package operation). A cleanup Apply calls `refresh` explicitly.
  *
  * See change: addons-hub-folder-view (design D9).
  */
@@ -20,8 +20,17 @@ export function useAddonIssues() {
 		const onPluginToggle = () => {
 			void refreshAddonIssues().catch(logRejection("useAddonIssues.plugin"));
 		};
+		// A finished package operation can fix or cause `packages[]` health problems.
+		const onPackage = (e: Event) => {
+			const msg = (e as CustomEvent).detail;
+			if (msg?.type === "package_operation_complete" && msg.success) onPluginToggle();
+		};
 		window.addEventListener("plugin-config-update", onPluginToggle);
-		return () => window.removeEventListener("plugin-config-update", onPluginToggle);
+		window.addEventListener("pi-package-event", onPackage);
+		return () => {
+			window.removeEventListener("plugin-config-update", onPluginToggle);
+			window.removeEventListener("pi-package-event", onPackage);
+		};
 	}, []);
 	return { ...snap, refresh: refreshAddonIssues };
 }

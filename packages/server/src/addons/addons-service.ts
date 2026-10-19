@@ -18,8 +18,8 @@ import {
   getPluginStatusStore,
   resolvePluginEnabled,
 } from "@blackbelt-technology/dashboard-plugin-runtime/server";
-import type { AdmitCwdOptions } from "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import type { AdmitCwdOptions } from "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js";
 import {
   listManagedBridges,
   listManagedPackageOwnership,
@@ -41,6 +41,7 @@ import {
   deleteRestore,
   gcRestore,
   getRestore,
+  hasStaleRestore,
   type RestoreRecord,
   type RestoreStore,
   setRestore,
@@ -191,15 +192,25 @@ export async function gatherCatalog(deps: AddonsDeps, opts: { skipRegistry?: boo
   return { settingsPath, agentDir, settings, inputs, features: buildAddonCatalog(inputs) };
 }
 
-/** Drop restore records whose package is no longer a global entry. Caller holds the settings lock. */
-export function gcRestoreRecords(g: Gathered, log: AddonsLogger): void {
-  if (!g.settings.ok) return;
+function liveIdentities(g: Gathered): Set<string> {
   const live = new Set<string>();
+  if (!g.settings.ok) return live;
   for (const e of g.settings.packages) {
     const src = entrySource(e);
     if (src) live.add(packageIdentity(src, g.agentDir));
   }
-  gcRestore(g.settingsPath, live, log);
+  return live;
+}
+
+/** Drop restore records whose package is no longer a global entry. Caller holds the hub lock and the settings lock. */
+export function gcRestoreRecords(g: Gathered, log: AddonsLogger): void {
+  if (!g.settings.ok) return;
+  gcRestore(g.settingsPath, liveIdentities(g), log);
+}
+
+/** Would `gcRestoreRecords` drop a record? Read-only. */
+export function hasStaleRestoreRecords(g: Gathered, log: AddonsLogger): boolean {
+  return g.settings.ok && hasStaleRestore(g.settingsPath, liveIdentities(g), log);
 }
 
 // ── Toggle planning ────────────────────────────────────────────────────────

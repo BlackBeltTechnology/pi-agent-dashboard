@@ -178,8 +178,11 @@ test.describe("Add-ons hub", () => {
     await sw.click();
     // An untrusted folder asks first; approve it so the toggle is retried.
     const dialog = page.getByTestId("resource-trust-dialog");
-    if (await dialog.isVisible({ timeout: 3_000 }).catch(() => false)) await dialog.getByTestId("resource-trust-option-trust").click();
-    await expect(row.locator('[data-testid^="folder-addon-state-"]')).toHaveText("off in this folder", { timeout: 15_000 });
+    const offBadge = row.locator('[data-testid^="folder-addon-state-"]');
+    // Wait for whichever comes first: the trust prompt or the completed off state (isVisible() does not wait).
+    await expect(dialog.or(offBadge)).toBeVisible({ timeout: 15_000 });
+    if (await dialog.isVisible()) await dialog.getByTestId("resource-trust-option-trust").click();
+    await expect(offBadge).toHaveText("off in this folder", { timeout: 15_000 });
     await expect(turnedOff).toContainText("1");
 
     await page.reload();

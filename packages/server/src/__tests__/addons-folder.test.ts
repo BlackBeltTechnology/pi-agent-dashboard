@@ -16,6 +16,7 @@ vi.mock("../pi/resource-toggle-trust.js", async (importOriginal) => {
   return { ...actual, persistTrustDecision: (...a: unknown[]) => (persistTrustDecision as (...x: unknown[]) => unknown)(...a) };
 });
 
+import { ADDONS_HUB_LOCK_KEY, withSettingsWriteLock } from "../pi/settings-write-lock.js";
 import { __resetTrustChallenges, registerResourceActivationRoutes } from "../routes/resource-activation-routes.js";
 import { AddonsEnv } from "./addons-fixture.js";
 
@@ -522,5 +523,46 @@ describe("folder toggle: trust and faults", () => {
     expect((await env.folderToggle(WEB_ID, cwd, false, { dryRun: true })).status).toBe(400);
     expect((await env.folderToggle(WEB_ID, cwd, false, { confirmToken: "x" })).status).toBe(400);
     expect((await env.toggle(WEB_ID, { scope: "bogus", enabled: false })).status).toBe(400);
+  });
+});
+
+// CodeRabbit (#970): the catalog's stale-record GC rewrites the whole restore store, so it must not
+// interleave with a folder toggle that holds the hub lock and is about to add a record.
+describe("catalog GC vs the hub lock", () => {
+  const settle = (p: Promise<unknown>) => {
+    const state = { done: false };
+    void p.then(() => {
+      state.done = true;
+    });
+    return state;
+  };
+  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  it("waits for a running hub toggle only when it has stale records to drop", async () => {
+    await webEnv("gc-lock");
+    let release!: () => void;
+    const held = withSettingsWriteLock(ADDONS_HUB_LOCK_KEY, () => new Promise<void>((r) => (release = r)));
+
+    // nothing stale: the read is not queued behind the toggle
+    const clean = settle(env.catalog());
+    await wait(150);
+    expect(clean.done).toBe(true);
+
+    // a record for a package that is no longer a global entry is stale: dropping it needs the hub lock
+    fs.mkdirSync(path.dirname(env.restoreFile), { recursive: true });
+    fs.writeFileSync(
+      env.restoreFile,
+      JSON.stringify({ version: 1, records: { stale: { settingsPath: env.settingsFile, identity: "npm:gone", original: "npm:gone", filtered: {} } } }),
+    );
+    const gc = settle(env.catalog());
+    await wait(150);
+    expect(gc.done).toBe(false);
+    expect(env.readRestore()?.records.stale).toBeTruthy();
+
+    release();
+    await held;
+    await wait(150);
+    expect(gc.done).toBe(true);
+    expect(env.readRestore()?.records.stale).toBeUndefined();
   });
 });

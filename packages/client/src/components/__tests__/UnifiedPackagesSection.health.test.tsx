@@ -170,6 +170,31 @@ describe("UnifiedPackagesSection — Issues tab", () => {
 		expect(screen.getByTestId("addons-issues-tab").textContent).not.toMatch(/failed|error/i);
 	});
 
+	// CodeRabbit (#970): the restart notice must not vanish when the user switches tabs.
+	it("keeps the restart notice after switching away from the Issues tab and back", async () => {
+		render(<UnifiedPackagesSection />);
+		await waitFor(() => expect(screen.getByTestId("addons-tab-issues").textContent).toBe("Issues (2)"));
+		openIssues();
+		await screen.findByTestId("package-health-panel");
+		fireEvent.click(screen.getByRole("checkbox", { name: /Remove npm:gone/ }));
+		fireEvent.click(screen.getByTestId("pkg-health-apply"));
+		await screen.findByTestId("pkg-health-restart-banner");
+		fireEvent.click(screen.getByTestId("addons-tab-installed"));
+		expect(screen.queryByTestId("pkg-health-restart-banner")).toBeNull();
+		openIssues();
+		expect(await screen.findByTestId("pkg-health-restart-banner")).toBeTruthy();
+	});
+
+	// CodeRabbit (#970): a finished package operation re-reads the issue count.
+	it("re-fetches health after a successful package operation", async () => {
+		render(<UnifiedPackagesSection />);
+		await waitFor(() => expect(screen.getByTestId("addons-tab-issues").textContent).toBe("Issues (2)"));
+		const before = fetchMock.mock.calls.filter(([u]) => String(u).includes("/api/packages/health")).length;
+		window.dispatchEvent(new CustomEvent("pi-package-event", { detail: { type: "package_operation_complete", success: true } }));
+		await waitFor(() => expect(screen.getByTestId("addons-tab-issues").textContent).toBe("Issues"));
+		expect(fetchMock.mock.calls.filter(([u]) => String(u).includes("/api/packages/health")).length).toBeGreaterThan(before);
+	});
+
 	it("?tab=issues opens the Issues tab", async () => {
 		window.history.replaceState(null, "", "/settings/add-ons?tab=issues");
 		healthResponses = [healthy];
