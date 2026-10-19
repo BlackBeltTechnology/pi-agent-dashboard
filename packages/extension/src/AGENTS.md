@@ -24,7 +24,7 @@ Files in this directory. One row per source file.
 | `connect-target.ts` | `parseConnectTarget()` / `describeConnectTarget()` — parses the overloaded `/dashboard connect <target>`… → see `connect-target.ts.AGENTS.md` |
 | `connection.ts` | WebSocket connection manager with exponential backoff reconnect, message buffering while disconnected,… → see… → see `connection.ts.AGENTS.md` |
 | `custom-entry-forward.ts` | Pure mappers for the bridge's custom-content forwarding: `toCustomEntryForward(entry)` (null for… → see `custom-entry-forward.ts.AGENTS.md` |
-| `dashboard-context-injector.ts` | Registers `before_agent_start` handler. Splice-replaces trailing `Current working directory:` line of system… → see `dashboard-context-injector.ts.AGENTS.md` |
+| `dashboard-context-injector.ts` | Registers `before_agent_start` handler. Writes session-context fragment into structured section `dashboard_session`; never forces the prompt… → see `dashboard-context-injector.ts.AGENTS.md` |
 | `dashboard-default-adapter.ts` | Built-in last-resort `PromptAdapter` (priority `9999`). Exports `DashboardDefaultAdapter`. → see `dashboard-default-adapter.ts.AGENTS.md` |
 | `dev-build.ts` | Dev build-on-reload helper. Exports `runDevBuild`, `DevBuildOptions`. → see `dev-build.ts.AGENTS.md` |
 | `empty-actionable-guard-config.ts` | Resolve empty-actionable guard config from env. Exports `resolveGuardConfig(env)` → `{mode,retryCap}`. → see `empty-actionable-guard-config.ts.AGENTS.md` |

@@ -1,17 +1,14 @@
 /**
  * Tests for the dashboard per-turn system-prompt injector.
- * See change: inject-session-context-into-agent.
+ * See change: inject-session-context-into-agent, fix-forced-system-prompt-drops-tool-guidelines.
  */
 
-import { createRequire } from "node:module";
 import { describe, expect, it, vi } from "vitest";
 import {
   buildContextFragment,
   CONTEXT_DELIMITER,
-  CWD_ANCHOR,
   registerDashboardContextInjector,
   sanitizeChangeName,
-  spliceContextFragment,
 } from "../dashboard-context-injector.js";
 
 describe("buildContextFragment", () => {
@@ -70,121 +67,77 @@ describe("sanitizeChangeName", () => {
   });
 });
 
-describe("spliceContextFragment", () => {
-  const SP_WITH_ANCHOR =
-    "You are an expert.\n\nCurrent date: 2026-06-27\nCurrent working directory: /Users/robson/Project/pi-agent-dashboard";
-
-  it("anchor present → retains everything before the cwd line, drops the cwd line", () => {
-    const out = spliceContextFragment(SP_WITH_ANCHOR, "abc-123", "/Users/robson/Project/pi-agent-dashboard", null);
-    expect(out.startsWith("You are an expert.\n\nCurrent date: 2026-06-27\n")).toBe(true);
-    // Original cwd line replaced (only the fragment's cwd remains).
-    expect(out).not.toContain("Current working directory: /Users/robson/Project/pi-agent-dashboard");
-    expect(out.endsWith(
-      `${CONTEXT_DELIMITER}\nYou are pi session \`abc-123\` running in \`/Users/robson/Project/pi-agent-dashboard\`.`,
-    )).toBe(true);
-  });
-
-  it("anchor absent → appends after a blank-line separator", () => {
-    const sp = "no anchor here";
-    const out = spliceContextFragment(sp, "s", "/c", null);
-    expect(out).toBe(`${sp}\n\n${buildContextFragment("s", "/c", null)}`);
-  });
-
-  it("multiple anchors → only the last is replaced", () => {
-    const sp =
-      `a${CWD_ANCHOR}/old1\nmiddle${CWD_ANCHOR}/old2`;
-    const out = spliceContextFragment(sp, "s", "/c", null);
-    // First anchor's content preserved, last anchor replaced.
-    expect(out).toContain(`a${CWD_ANCHOR}/old1\nmiddle`);
-    expect(out).not.toContain("/old2");
-    expect(out.endsWith(buildContextFragment("s", "/c", null))).toBe(true);
-  });
-});
-
 describe("registerDashboardContextInjector", () => {
   function fakePi() {
-    const handlers: Record<string, (e: any) => any> = {};
+    const handlers: Array<(e: any) => any> = [];
     return {
-      on: vi.fn((evt: string, h: (e: any) => any) => { handlers[evt] = h; }),
-      fire: (e: any) => handlers.before_agent_start?.(e),
+      on: vi.fn((evt: string, h: (e: any) => any) => {
+        if (evt === "before_agent_start") handlers.push(h);
+      }),
+      fire: (e: any) => handlers.map((h) => h(e)),
     };
   }
+  const opts = (cwd?: string): Record<string, any> => ({ cwd, sections: {} });
 
-  it("8.1 splices live sessionId/attachedChange and cwd from systemPromptOptions", () => {
+  it("writes live sessionId/attachedChange into sections.dashboard_session and returns nothing", () => {
     const pi = fakePi();
     let state = { sessionId: "S1", attachedChange: "X" as string | null };
     registerDashboardContextInjector(pi as any, () => state, () => true);
 
-    const r1 = pi.fire({
-      systemPrompt: "body\nCurrent date: 2026-06-27\nCurrent working directory: /tmp/x",
-      systemPromptOptions: { cwd: "/tmp/x" },
-    });
-    expect(r1.systemPrompt).toContain("Current date: 2026-06-27");
-    expect(r1.systemPrompt).not.toContain("Current working directory: /tmp/x");
-    expect(r1.systemPrompt).toContain("You are pi session `S1` running in `/tmp/x`.");
-    expect(r1.systemPrompt).toContain("Attached OpenSpec change: `X`");
+    const o1 = opts("/tmp/x");
+    const [r1] = pi.fire({ systemPrompt: "body", systemPromptOptions: o1 });
+    expect(r1).toBeUndefined();
+    expect(o1.sections.dashboard_session).toBe(buildContextFragment("S1", "/tmp/x", "X"));
+    expect(o1.forceSystemPrompt).toBeUndefined();
 
-    // 8.2: post-detach → attached line gone on the next turn, state read live.
+    // Post-detach → attached line gone on the next turn, state read live.
     state = { sessionId: "S1", attachedChange: null };
-    const r2 = pi.fire({
-      systemPrompt: "body\nCurrent working directory: /tmp/x",
-      systemPromptOptions: { cwd: "/tmp/x" },
-    });
-    expect(r2.systemPrompt).not.toContain("Attached OpenSpec change:");
-    expect(r2.systemPrompt).toContain("You are pi session `S1`");
+    const o2 = opts("/tmp/x");
+    pi.fire({ systemPromptOptions: o2 });
+    expect(o2.sections.dashboard_session).not.toContain("Attached OpenSpec change:");
+    expect(o2.sections.dashboard_session).toContain("You are pi session `S1`");
+  });
+
+  it("creates the sections map when absent", () => {
+    const pi = fakePi();
+    registerDashboardContextInjector(pi as any, () => ({ sessionId: "S1", attachedChange: null }), () => true);
+    const o: Record<string, any> = { cwd: "/c" };
+    pi.fire({ systemPromptOptions: o });
+    expect(o.sections.dashboard_session).toContain(CONTEXT_DELIMITER);
   });
 
   it("falls back to process.cwd() when systemPromptOptions.cwd absent", () => {
     const pi = fakePi();
-    registerDashboardContextInjector(
-      pi as any,
-      () => ({ sessionId: "S1", attachedChange: null }),
-      () => true,
-    );
-    const r = pi.fire({ systemPrompt: "body", systemPromptOptions: undefined });
-    expect(r.systemPrompt).toContain(`running in \`${process.cwd()}\``);
+    registerDashboardContextInjector(pi as any, () => ({ sessionId: "S1", attachedChange: null }), () => true);
+    const o = opts(undefined);
+    pi.fire({ systemPromptOptions: o });
+    expect(o.sections.dashboard_session).toContain(`running in \`${process.cwd()}\``);
   });
 
-  it("5.2 isActive=false (stale generation) → returns undefined, no SP contribution", () => {
+  it("isActive=false (stale generation) → no contribution", () => {
     const pi = fakePi();
-    registerDashboardContextInjector(
-      pi as any,
-      () => ({ sessionId: "S1", attachedChange: "X" }),
-      () => false,
-    );
-    const r = pi.fire({ systemPrompt: "body", systemPromptOptions: { cwd: "/c" } });
+    registerDashboardContextInjector(pi as any, () => ({ sessionId: "S1", attachedChange: "X" }), () => false);
+    const o = opts("/c");
+    const [r] = pi.fire({ systemPromptOptions: o });
     expect(r).toBeUndefined();
+    expect(o.sections.dashboard_session).toBeUndefined();
   });
 
-  it("bails cleanly (undefined) when event.systemPrompt is not a string", () => {
+  it("reload (two generations firing) yields exactly one fragment", () => {
     const pi = fakePi();
-    registerDashboardContextInjector(
-      pi as any,
-      () => ({ sessionId: "S1", attachedChange: null }),
-      () => true,
-    );
-    expect(pi.fire({ systemPrompt: undefined, systemPromptOptions: { cwd: "/c" } })).toBeUndefined();
-    expect(pi.fire({ systemPromptOptions: { cwd: "/c" } })).toBeUndefined();
+    const bc = () => ({ sessionId: "S1", attachedChange: null });
+    registerDashboardContextInjector(pi as any, bc, () => true);
+    registerDashboardContextInjector(pi as any, bc, () => true);
+    const o = opts("/c");
+    pi.fire({ systemPromptOptions: o });
+    expect(Object.values(o.sections).join("\n").split(CONTEXT_DELIMITER)).toHaveLength(2);
   });
-});
 
-describe("4.6 pi system-prompt anchor still exists", () => {
-  it("installed pi dist/core/system-prompt.js contains the cwd anchor", () => {
-    let spSource: string | undefined;
-    try {
-      const require = createRequire(import.meta.url);
-      const path = require.resolve(
-        "@earendil-works/pi-coding-agent/dist/core/system-prompt.js",
-      );
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      spSource = require("node:fs").readFileSync(path, "utf8");
-    } catch {
-      // pi not resolvable in this environment — skip cleanly.
-    }
-    if (spSource === undefined) return;
-    // Assert the EXACT anchor spliceContextFragment searches for (newline-
-    // prefixed), so a pi change that keeps the phrase but drops the leading
-    // newline fails here instead of silently degrading to append-fallback.
-    expect(spSource).toContain(CWD_ANCHOR);
+  it("missing / non-object systemPromptOptions → no-op, no throw", () => {
+    const pi = fakePi();
+    registerDashboardContextInjector(pi as any, () => ({ sessionId: "S1", attachedChange: null }), () => true);
+    expect(pi.fire({ systemPrompt: "body" })).toEqual([undefined]);
+    expect(pi.fire({ systemPromptOptions: "nope" })).toEqual([undefined]);
+    expect(pi.fire(undefined)).toEqual([undefined]);
   });
 });

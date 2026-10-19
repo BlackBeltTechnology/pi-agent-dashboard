@@ -8,10 +8,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DOX_DELIMITER } from "../doctrine.js";
 import kbExtension from "../extension.js";
 
-type Hook = (event: unknown) => { systemPrompt?: string } | undefined;
+type Hook = (event: unknown) => unknown;
 
 /** Load the extension against a fake pi and return its before_agent_start hook. */
-function loadHook(): Hook {
+function loadHooks(): Hook[] {
   const hooks: Hook[] = [];
   const pi = {
     registerTool: () => {},
@@ -21,15 +21,26 @@ function loadHook(): Hook {
     sendMessage: () => {},
   } as unknown as Parameters<typeof kbExtension>[0];
   kbExtension(pi);
-  return hooks[0];
+  return hooks;
 }
 
-const BASE = "A\nCurrent working directory: /x\n";
-const event = (cwd: string, contextFiles?: unknown) => ({
-  systemPrompt: BASE,
-  systemPromptOptions: { cwd, contextFiles },
-});
-const promptOf = (out: { systemPrompt?: string } | undefined) => out?.systemPrompt ?? BASE;
+/** One turn: fire the hook on fresh structured options; return what it wrote.
+ *  The hook must never return a value (a returned `systemPrompt` would force
+ *  pi's prompt and drop later structured contributions). See change:
+ *  fix-forced-system-prompt-drops-tool-guidelines. */
+function loadHook(): (cwd: string, contextFiles?: unknown) => string | undefined {
+  const [hook] = loadHooks();
+  return (cwd, contextFiles) => {
+    const opts: { cwd: string; contextFiles?: unknown; sections: Record<string, string> } = {
+      cwd,
+      contextFiles,
+      sections: {},
+    };
+    expect(hook({ systemPrompt: "A", systemPromptOptions: opts })).toBeUndefined();
+    return opts.sections.dox_doctrine;
+  };
+}
+const promptOf = (section: string | undefined) => section ?? "";
 
 let home: string;
 let cwd: string;
@@ -62,7 +73,7 @@ function writeGlobal(cfg: unknown): void {
 describe("E18: first-contact nudge fires once per session", () => {
   it("turn 1 has the nudge, turn 2 does not", () => {
     const hook = loadHook();
-    const t1 = promptOf(hook(event(cwd)));
+    const t1 = promptOf(hook(cwd));
     expect(t1).toContain("kb read");
     expect(t1).toContain("kb read + write");
     expect(t1).toContain("off");
@@ -71,7 +82,7 @@ describe("E18: first-contact nudge fires once per session", () => {
     expect(t1.toLowerCase()).toContain("non-interactive");
     expect(t1).toContain(DOX_DELIMITER); // defaults inject READ
 
-    const t2 = promptOf(hook(event(cwd)));
+    const t2 = promptOf(hook(cwd));
     expect(t2).not.toContain("which mode to enable");
   });
 });
@@ -80,7 +91,7 @@ describe("E19: legacy seed → migration nudge, no doctrine fragment", () => {
   it("skips injection and offers migration", () => {
     const hook = loadHook();
     const legacy = [{ path: "AGENTS.md", content: "<!-- dox:write:start -->\nX\n<!-- dox:write:end -->" }];
-    const out = promptOf(hook(event(cwd, legacy)));
+    const out = promptOf(hook(cwd, legacy));
     expect(out).not.toContain(DOX_DELIMITER);
     expect(out).toContain("legacy copy");
     expect(out).not.toContain("which mode to enable"); // first-contact absent
@@ -92,19 +103,18 @@ describe("E20: legacy seed + inject off → nothing", () => {
     writeProject({ doctrine: { inject: "off" } });
     const hook = loadHook();
     const legacy = [{ content: "<!-- dox:read:manual:start -->\nX" }];
-    const out = hook(event(cwd, legacy));
-    expect(out).toBeUndefined();
+    expect(hook(cwd, legacy)).toBeUndefined();
   });
 });
 
 describe("E21: config resolved per turn", () => {
   it("writing doctrine between turns changes the next turn's fragment", () => {
     const hook = loadHook();
-    const t1 = promptOf(hook(event(cwd)));
+    const t1 = promptOf(hook(cwd));
     expect(t1).not.toContain("Documentation Update Protocol (WRITE discipline)");
 
     writeProject({ doctrine: { inject: "kb", write: true } });
-    const t2 = promptOf(hook(event(cwd)));
+    const t2 = promptOf(hook(cwd));
     expect(t2).toContain("Documentation Update Protocol (WRITE discipline)");
   });
 });
@@ -117,7 +127,7 @@ describe("X1: malformed project config", () => {
     try {
       const hook = loadHook();
       for (let i = 0; i < 3; i++) {
-        const out = promptOf(hook(event(cwd)));
+        const out = promptOf(hook(cwd));
         expect(out).toContain(DOX_DELIMITER); // READ present
         expect(out).not.toContain("Documentation Update Protocol (WRITE discipline)");
         expect(out).not.toContain("which mode to enable"); // no nudge
@@ -136,8 +146,8 @@ describe("X2: unreadable doctrine file", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
       const hook = loadHook();
-      expect(hook(event(cwd))).toBeUndefined(); // prompt unchanged
-      expect(hook(event(cwd))).toBeUndefined();
+      expect(hook(cwd)).toBeUndefined(); // no dox_doctrine section
+      expect(hook(cwd)).toBeUndefined();
       const kbWarns = warn.mock.calls.filter((c) => String(c[0]).startsWith("[kb]"));
       expect(kbWarns).toHaveLength(1);
     } finally {
@@ -152,15 +162,39 @@ describe("P1: handler latency", () => {
     writeProject({ doctrine: { inject: "kb", write: true } });
     const hook = loadHook();
     // warm up
-    for (let i = 0; i < 5; i++) hook(event(cwd));
+    for (let i = 0; i < 5; i++) hook(cwd);
     const times: number[] = [];
     for (let i = 0; i < 100; i++) {
       const t0 = performance.now();
-      hook(event(cwd));
+      hook(cwd);
       times.push(performance.now() - t0);
     }
     times.sort((a, b) => a - b);
     const p95 = times[Math.ceil(times.length * 0.95) - 1]; // 95th of 100 (index 94)
     expect(p95).toBeLessThan(20);
+  });
+});
+
+describe("structured section contract", () => {
+  it("inject off removes a stale dox_doctrine section and never forces the prompt", () => {
+    writeProject({ doctrine: { inject: "off" } });
+    const [hook] = loadHooks();
+    const opts = { cwd, sections: { dox_doctrine: "stale" } as Record<string, string> };
+    expect(hook({ systemPrompt: "A", systemPromptOptions: opts })).toBeUndefined();
+    expect(opts.sections.dox_doctrine).toBeUndefined();
+  });
+
+  it("missing systemPromptOptions → no-op, no throw", () => {
+    const [hook] = loadHooks();
+    expect(hook({ systemPrompt: "A" })).toBeUndefined();
+    expect(hook(undefined)).toBeUndefined();
+  });
+
+  it("reload (two loaded generations firing) yields exactly one doctrine fragment", () => {
+    writeProject({ doctrine: { inject: "kb" } });
+    const hooks = [...loadHooks(), ...loadHooks()];
+    const opts = { cwd, sections: {} as Record<string, string> };
+    for (const h of hooks) h({ systemPrompt: "A", systemPromptOptions: opts });
+    expect(Object.values(opts.sections).join("\n").split(DOX_DELIMITER)).toHaveLength(2);
   });
 });
