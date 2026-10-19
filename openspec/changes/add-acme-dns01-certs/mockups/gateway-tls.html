@@ -33,10 +33,7 @@
   .frame { container-type: inline-size; container-name: frame; }
   .ep { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border-subtle); background: var(--bg-tertiary); }
   .ep code { flex: 1 1 200px; min-width: 0; font-size: 12px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .pill.k-lan { background: var(--tint-purple-bg); color: var(--tint-purple-fg); border-color: var(--tint-purple-border); }
-  .pill.k-magicdns { background: var(--tint-blue-bg); color: var(--tint-blue-fg); border-color: var(--tint-blue-border); }
-  .pill.k-domain { background: var(--tint-orange-bg); color: var(--tint-orange-fg); border-color: var(--tint-orange-border); }
-  .pill.k-local { background: var(--severity-neutral-bg); color: var(--severity-neutral-fg); border-color: var(--severity-neutral-border); }
+  .pill.kind { background: var(--bg-tertiary); color: var(--text-primary); border-color: var(--border-secondary); }
   .state > .note { margin: 0; padding: 6px 12px; font-size: 12px; color: var(--text-secondary); border-top: 1px solid var(--border-secondary); background: var(--bg-secondary); }
   .state > .note code { color: var(--text-primary); }
   .pair.single { grid-template-columns: 1fr; }
@@ -233,7 +230,7 @@ function editor(o) {
 
 /* ═════ C. Accessible at (prereq restyle; this change adds the staging note) ═════ */
 function endpoints(o) {
-  const row = (kind, label, url, tls) => `<div class="ep"><span class="pill k-${kind}">${label}</span><code class="mono">${url}</code>${tls ? P("success", "LockOutline", "HTTPS") : P("warning", "Alert", "No TLS")}<button class="p-btn sm icon ghost" aria-label="Copy ${url}">${ic("ContentCopy")}</button></div>`;
+  const row = (kind, label, url, tls) => `<div class="ep"><span class="pill kind" data-kind="${kind}">${label}</span><code class="mono">${url}</code>${tls ? P("success", "LockOutline", "HTTPS") : P("warning", "Alert", "No TLS")}<button class="p-btn sm icon ghost" aria-label="Copy ${url}">${ic("ContentCopy")}</button></div>`;
   return `<div class="sec-title"><h3>Accessible at</h3></div><div class="stack">
     ${row("lan", "LAN", "http://192.168.1.24:8000", false)}
     ${row("magicdns", "MagicDNS", `https://${TS_NAME}:8443`, true)}
@@ -279,7 +276,7 @@ const BOARD = [
           err: "DNS propagation timed out after 180 s (ns1.example-dns.net still answers NXDOMAIN)", eta: "Next try in 9 minutes." })] }), false)],
     ["acme-other-ca", "B10 · custom directory", "<code>http://</code> rejected at the field. Advertising is an explicit operator assertion, off by default.", editor({ dir: "custom", tos: true, secretSet: true, dirUrl: "http://ca.internal/acme/directory", dirErr: "The directory URL must start with https://.", domains: [D1] })],
   ]},
-  { title: "C · Accessible at", verdict: "Restyle and Domain pill (tint-orange) are owned by the prereq board. This change adds only the staging note.", states: [
+  { title: "C · Accessible at", verdict: "Restyle and the neutral kind chip (word label, incl. Domain) are owned by the prereq board. This change adds only the staging note.", states: [
     ["endpoints-staging", "C1", "Staging names are never listed; the note says why.", endpoints({ staging: true })],
     ["endpoints-production", "C2", "Production adds a Domain row.", endpoints({ prod: true })],
   ]},

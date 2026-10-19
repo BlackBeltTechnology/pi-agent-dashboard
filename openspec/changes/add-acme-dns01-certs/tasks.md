@@ -1,6 +1,16 @@
 ## 1. Groundwork
 
-- [ ] 1.1 Confirm `add-tailscale-cert-tls` is merged with the behaviours listed in design D12. Check for: `CertSource` with `names()`/`configFingerprint`/`readiness()` + source `details`/`attemptTimeoutMs`/`onRemoved`, `Gate.name`, gate-before-obtain without counting a failure, abandonment on `attemptTimeoutMs`, status listing every name from `names()`, `CertManager.trigger(sourceId, name?)`, `POST /api/tls/issue` with its `route-tiers.ts` row, the `invalid-source` gate, the `domain` endpoint kind, and the Gateway Certificates list + cert row component. Verify by importing them in a scratch test that type-checks.
+- [ ] 1.1 Confirm `add-tailscale-cert-tls` is merged with the behaviours listed in design D12. Check for:
+  - `registerCertSourceType({ type, defaultId?, validate, create })` and the common id rule;
+  - `CertSource` with `names()` (`string[] | null`), `configFingerprint(name)`, `readiness({ force })` + source `details`, `attemptTimeoutMs`, `onReconciled`, `onRemoved`;
+  - `Gate.name`; gate-before-obtain without counting a failure and its 15-min re-check;
+  - abandonment on `attemptTimeoutMs`; reconcile rebuilding instances;
+  - status listing every produced name with `nextAttemptAt` and `stage`;
+  - status reading the manager's last readiness result, never calling `readiness()` (request R1 — if absent, raise it before 3.3);
+  - `CertManager.trigger(sourceId, name?)`; `POST /api/tls/issue` with its `route-tiers.ts` row;
+  - the `invalid-source` gate, the `domain` endpoint kind, `registerTlsSourceGroup` and the shared cert row component.
+
+  Verify by importing them in a scratch test that type-checks.
 - [ ] 1.2 Add `acme-client@^5` to `packages/server/package.json` via `pnpm add` (pinned minor); verify `pnpm install` is clean and `import * as acme from "acme-client"` type-checks.
 - [ ] 1.3 Spike and record the results in design.md D1/D2/D10. Items to check:
   - `acme.axios.defaults.timeout` is honoured;
@@ -12,13 +22,12 @@
   - challtestsrv `/set-txt` / `/clear-txt` per-host semantics.
 
   Verify by the recorded outcomes.
-- [ ] 1.4 Add the `acme` entry to `tls.sources[]` in `packages/shared/src/config.ts` with this shape: `id`, `domains`, `email`, `agreeTos`, `directory`, `advertise?`, and `solver` as either cloudflare + optional `zoneId`, or acme-dns `server`/`subdomain`/`fulldomain`. Add one shared validator, run by `PUT /api/config` and by the per-entry routes. It enforces:
+- [ ] 1.4 Add the `acme` entry type to `packages/shared/src/config.ts` with this shape: `id`, `domains`, `email`, `agreeTos`, `directory`, `advertise?`, and `solver` as either cloudflare + optional `zoneId`, or acme-dns `server`/`subdomain`/`fulldomain`. Add a pure `normalizeAcmeEntry(entry)` and register the type with `registerCertSourceType({ type: "acme", validate, create })` (no `defaultId`). `validate()` checks the normalized copy; `create()` builds from it. The id rule, uniqueness and `tailscale` reservation stay with the prerequisite. Rules:
   - normalization: lowercase, trailing dot stripped, dedupe;
   - 1–20 LDH/`xn--` names, single-label wildcard;
   - canonical `https://` directory with no userinfo, Let's Encrypt URLs mapped to keywords;
   - acme-dns `https` server;
-  - `configured` stripped before the per-type solver field allowlist;
-  - global id uniqueness, `tailscale` reserved.
+  - `configured` stripped before the per-type solver field allowlist.
 
   Verify by tests 6.1–6.4.
 - [ ] 1.5 Add `readConfigState(): { state: "absent" | "ok" | "corrupt", raw }` to `packages/server/src/config-api.ts` (no change to `writeConfigPartial`); verify by tests 6.15 and 6.24.
@@ -36,7 +45,7 @@
   - writes via `upsertTlsSecret`, then invalidates readiness and calls `CertManager.trigger(sourceId)`.
 
   Verify by test 6.14.
-- [ ] 2.5 Add vault GC on reconcile: delete `tls:<id>` namespaces with no configured acme source, only when `readConfigState()` is `ok` and the vault status is healthy. Verify by test 6.15.
+- [ ] 2.5 Add `acmeGc()`: delete `tls:<id>` namespaces and `acme-account-*.key` files with no configured acme source, only when `readConfigState()` is `ok` and the vault status is healthy; coalesce concurrent runs. Call it from `onReconciled()`, from `onRemoved()` and once at acme type registration (server start). Verify by tests 6.11 and 6.15.
 
 ## 3. Solvers & DNS
 
@@ -52,7 +61,7 @@
   - `/update` with `X-Api-User`/`X-Api-Key`, no-op cleanup;
   - per-domain CNAME `check` at the `*.`-stripped owner against the zone's authoritative servers;
   - credential check with the placeholder `/update`, only after acquiring the free source mutex;
-  - one-non-aborted-order mutex released on abort.
+  - one-non-aborted-order mutex released on abort, held in a module-level map keyed by `(server, subdomain)` so it survives instance rebuilds and is shared by sources using one registration.
 
   Verify by tests 6.10, 6.17 and 6.19.
 - [ ] 3.3 Implement DNS discovery and propagation:
@@ -60,16 +69,17 @@
   - for acme-dns, use the zone of `fulldomain`;
   - per-server `dns.Resolver` with `{timeout:3000, tries:1}`, 5 s rounds, 180 s bound, lagging server named in the error;
   - fallback to both DoH resolvers, marked `details.propagationMode`;
-  - 5 min readiness cache that keeps the last result after expiry, with `details["checkedAt:<domain>"]`.
+  - 5 min readiness cache per `(sourceId, domain)` with `details["checkedAt:<domain>"]`: `readiness({force:true})` re-runs all, unforced re-runs only entries older than 5 min, nothing on the status path.
 
-  Verify by tests 6.16, 6.17, 6.31 and 6.32.
+  Verify by tests 6.16, 6.17, 6.31, 6.32 and 6.43.
 
 ## 4. ACME source
 
-- [ ] 4.1 Implement account management per (canonical directory, lowercase trimmed email): ECDSA P-256 key at `acme-account-<sha256[:32]>.key`, `0600`, atomic write; reconcile GC over all `acme-account-*.key` under the parsed-config guard. Verify by test 6.11.
+- [ ] 4.1 Implement account management per (canonical directory, lowercase trimmed email): ECDSA P-256 key at `acme-account-<sha256[:32]>.key`, `0600`, atomic write; orphaned keys removed by `acmeGc()` (2.5). Verify by test 6.11.
 - [ ] 4.2 Implement `AcmeCertSource`:
-  - `names`;
-  - `configFingerprint(name)` = canonical directory + effective advertise;
+  - `names()` = normalized domains, never `null`;
+  - `configFingerprint(name)` = canonical directory + effective advertise + name;
+  - `onReconciled()` / `onRemoved()` → `acmeGc()`;
   - `readiness()` returning `credentials` / CNAME gates + `details`;
   - staged `obtain` with `onStage` (`order` → `dns-publish` → `propagation` → `validation` → `finalize`) and dns-01 challenge selection;
   - classification against the two Let's Encrypt URLs;
@@ -82,7 +92,7 @@
 
   Verify by tests 6.5–6.7, 6.10, 6.18, 6.20, 6.21, 6.33–6.37 and 6.39–6.41.
 - [ ] 4.3 Add `PUT /api/tls/acme/:sourceId` (upsert one acme entry) and `DELETE /api/tls/acme/:sourceId`:
-  - shared validator;
+  - store `normalizeAcmeEntry(body)` and run the prerequisite's `tls` validator over the merged `tls.sources`;
   - 409 when `readConfigState()` is `corrupt`;
   - replace only that entry in `tls.sources`, write via `writeConfigPartial` on the `configSaveTail` chain (`packages/server/src/routes/system-routes.ts:123-155`), then the prerequisite's reconcile;
   - `ROUTE_TIERS` `operate` rows for both.
@@ -100,13 +110,14 @@
   - `docker/test-down.sh` reads it and adds `--remove-orphans`.
 
   Verify by test 6.42 and `TEST_EXTRA_COMPOSE=compose.test.acme.yml docker/test-up.sh` bringing up all containers.
-- [ ] 5.2 Add the Gateway "Domain certificates" group in `packages/client/src/components/Gateway/` (new `GatewayAcmeSource.tsx`, rendered inside the prerequisite's Certificates list and reusing its cert row and `POST /api/tls/issue` action), per `mockups/gateway-tls.html` states B1–B10 and C1–C2 (design D11). It includes:
+- [ ] 5.2 Add the Gateway "Domain certificates" group in `packages/client/src/components/Gateway/` (new `GatewayAcmeSource.tsx`, registered with `registerTlsSourceGroup("acme", GatewayAcmeSource)`, reusing the prerequisite's cert row and `POST /api/tls/issue` action), per `mockups/gateway-tls.html` states B1–B10 and C1–C2 (design D11). It includes:
   - group gates: credentials; per-name CNAME record + Copy + Check now + check time;
   - row badges, stage steps and the retry ETA;
   - the Let's Encrypt failed-validation note after a CA `invalid`;
   - the editor: domain list, solver cards, Cloudflare optional zone id, acme-dns server/subdomain/fulldomain, write-only secret fields cleared on success/cancel/unmount, directory cards, staging→production consequence, CT-log/private-IP disclosure, terms-gated Save, `id` read-only after the first save;
   - save order `PUT /api/tls/acme/:id` → credentials; Remove = `DELETE`;
-  - the Accessible-at staging note.
+  - stage values mapped to step labels (unknown → the prerequisite's "Working…");
+  - the Accessible-at staging note (Domain pill = the prerequisite's neutral chip); copy says pairing, never sign in.
 
   Verify by tests 6.26, 6.27, 6.29 and 6.30.
 - [ ] 5.3 Add the vault Accounts tab "TLS certificates" group in `packages/client/src/components/settings/vault/`: names only, "Gateway source `<id>`", a Gateway link, no rotate/revoke controls. Verify by test 6.28.
@@ -122,13 +133,13 @@
 - [ ] 6.7 L1 test, challenge owner + type (test-plan #E7): input `dash.example.com`, `*.example.com`; authorizations `[http-01, dns-01]` and `[http-01]` · trigger publish / `obtain()` · observable owners `_acme-challenge.dash.example.com` / `_acme-challenge.example.com`; dns-01 completed; http-01-only fails with no `completeChallenge`; harness exemplar `packages/server/src/__tests__/tunnel-tailscale.test.ts`
 - [ ] 6.8 L1 test, Cloudflare zone lookup (test-plan #E8): input zones `example.com`, `sub.example.com`; source with `zoneId` · trigger publish for `a.sub.example.com` · observable exact-name queries longest-first stopping on match, POST to the `sub.example.com` zone; with `zoneId` no `/zones` request; harness exemplar `packages/server/src/__tests__/tunnel-tailscale.test.ts`
 - [ ] 6.9 L1 test, Cloudflare cleanup always (test-plan #E9): input attempt succeeding; failing at validation; repeated `DELETE` → 404 · trigger issuance · observable one `DELETE dns_records/<id>` per record in both cases; 404 treated as success; harness exemplar `packages/server/src/__tests__/tunnel-tailscale.test.ts`
-- [ ] 6.10 L1 test, acme-dns serialization + deadline start (test-plan #E10): input acme-dns source `a.test`, `b.test`, `c.test`, 4 min per order (fake timers) · trigger all at t=0 · observable `createOrder` at 0, 4, 8 min, none abandoned, `attemptTimeoutMs` ≥ 3 × 10.5 min; harness exemplar `packages/server/src/__tests__/tunnel-tailscale.test.ts`
+- [ ] 6.10 L1 test, acme-dns serialization + deadline start (test-plan #E10): input acme-dns source `a.test`, `b.test`, `c.test`, 4 min per order (fake timers); a second source on the same `(server, subdomain)` · trigger all at t=0, rebuild via `create()` at t=1 min, trigger the second source · observable `createOrder` at 0, 4, 8, 12 min, none abandoned, `attemptTimeoutMs` ≥ 3 × 10.5 min; harness exemplar `packages/server/src/__tests__/tunnel-tailscale.test.ts`
 - [ ] 6.11 L1 test, account persistence (test-plan #E11): input same dir+email twice; `staging` vs its Let's Encrypt URL; email case/whitespace variants; last source changes email; last source removed · trigger issue / reconcile · observable one `createAccount` per equivalent pair, old key deleted after email change and removal, key mode `0o600`; harness exemplar `packages/server/src/__tests__/tunnel-tailscale.test.ts`
 - [ ] 6.12 L1 test, vault account storage (test-plan #E12): input temp-dir vault, token `cf-secret-1234567890` then a second token for `home` · trigger credentials PUT twice · observable one `{kind:"tls-solver", namespace:"tls:home", provider:"cloudflare", label:"cloudflareToken"}` account holding the second value, no token in `config.json`, `vault.json` mode `0o600`; harness exemplar `packages/server/src/__tests__/vault-bindings.test.ts`
 - [ ] 6.13 L1 test, API redaction (test-plan #E13): input `home` with saved token · trigger local `GET /api/config`, `/api/health` local and non-local · observable `solver.configured:true`, token in no body, non-local health carries no ACME data; harness exemplar `packages/server/src/__tests__/health-access-grants.test.ts`
 - [ ] 6.14 L1 test, credential route authority + id (test-plan #E14): input vault-manage-refused caller vs genuinely local strict-proof caller; ids `home`, `nope`, `..`, `%2e%2e`, `a/b` · trigger `PUT /api/tls/acme/<id>/credentials` · observable refused like a vault management route with vault unchanged; `home` → 200 + one `CertManager.trigger("home")`; others → 404 with no vault access; harness exemplar `packages/server/src/__tests__/vault-routes.test.ts`
-- [ ] 6.15 L1 test, GC on remove/rename (test-plan #E15): input namespaces `tls:home`, `tls:lab`, `user`; then config without `home`; then corrupt `config.json`; then corrupt `vault.json` · trigger reconcile after each · observable `tls:home` deleted with others untouched; no vault write with a corrupt config or vault; harness exemplar `packages/server/src/__tests__/config-api.test.ts`
-- [ ] 6.16 L1 test, readiness cache (test-plan #E16): input cached `check()` result · trigger 20 reads in 60 s, a secret save, reads at +4:59 and +5:01 · observable 0 external calls during reads, 1 after the save, expired entry still reported with its `checkedAt` and no call; harness exemplar `packages/server/src/__tests__/provider-health-cache-route.test.ts`
+- [ ] 6.15 L1 test, GC on remove/rename (test-plan #E15): input namespaces `tls:home`, `tls:lab`, `user`; then config without `home`; then without any acme source; then corrupt `config.json`; then corrupt `vault.json` · trigger `onReconciled()`, `onRemoved()` of the last source, type registration at start · observable `tls:home` then `tls:lab` deleted, `user` untouched; no vault write with a corrupt config or vault; harness exemplar `packages/server/src/__tests__/config-api.test.ts`
+- [ ] 6.16 L1 test, readiness cache (test-plan #E16): input cached `check()` result · trigger 20 status reads in 60 s, a secret save, status reads and unforced `readiness()` at +4:59 and +5:01, forced at +1 min · observable 0 calls from status reads (expired entry still reported with its `checkedAt`), 1 after the save, unforced calls out at +5:01 only, forced at once; harness exemplar `packages/server/src/__tests__/provider-health-cache-route.test.ts`
 - [ ] 6.17 L1 test, CNAME at authoritative servers (test-plan #E17): input CNAME missing at the zone's NS but cached-positive at a recursive resolver; wildcard `*.example.com` · trigger `check()` · observable queries only to the discovered NS addresses; name-scoped gate with the exact CNAME hint; wildcard owner `_acme-challenge.example.com`; `checkedAt` detail set; harness exemplar `packages/server/src/__tests__/tunnel-tailscale.test.ts`
 - [ ] 6.18 L1 test, gate-blocked names (test-plan #E18): input `home` without credentials; with corrupt vault; with CNAME missing for one name · trigger `readiness()` · observable `credentials` gate unmet, with the vault hint in the corrupt case; one name-scoped gate unmet; no CA request or DNS-provider write; harness exemplar `packages/server/src/__tests__/tunnel-tailscale.test.ts`
 - [ ] 6.19 L1 test, acme-dns credential check (test-plan #E19): input mutex free, then held by a running order; `/update` → 200, then 401 · trigger `check()` · observable free → one placeholder `/update`, 401 → `credentials` gate unmet; held → no request, last result kept; harness exemplar `packages/server/src/__tests__/tunnel-tailscale.test.ts`
@@ -151,10 +162,11 @@
 - [ ] 6.36 L1 test, DNS credential failure (test-plan #X6): input Cloudflare API 403 on publish · trigger issuance · observable `credentials` gate unmet and `RetryAfterError` ≥ 6 h; harness exemplar `packages/server/src/__tests__/tunnel-tailscale.test.ts`
 - [ ] 6.37 L1 test, redaction (test-plan #X7): input DNS API error body echoing the token raw, `%2D`/`%2d`, double-encoded, JSON-escaped, base64, base64url; `DEBUG=acme-client` · trigger issuance, capture logger + status · observable no form in logs or `lastError`; no request body in the log; harness exemplar `packages/server/src/__tests__/ws-upgrade-reject-log.test.ts`
 - [ ] 6.38 L1 test, E2E override host guard (test-plan #X8): input `PI_E2E_SEED=1` with `PI_E2E_CLOUDFLARE_API` = `http://evil.example`, `http://nas`, `http://cf-shim.test`; then the seed unset · trigger publish · observable first two refused with a log line and the request goes to `api.cloudflare.com`; `.test` host used; without the seed the override is ignored; harness exemplar `packages/server/src/__tests__/tunnel-tailscale.test.ts`
-- [ ] 6.39 L3 test, end-to-end DNS-01 advertised (test-plan #X9): input overlay, `advertise:true`, `dash.test`, non-loopback bind · trigger issue now, wait for `idle` · observable handshake to `dash.test:8443` chains to the Pebble root; `/api/tunnel/endpoints` has `{kind:"domain",url:"https://dash.test:8443",tls:true}`; challtestsrv TXT cleared; harness exemplar `tests/e2e/gateway-readiness-board.spec.ts`
+- [ ] 6.39 L3 test, end-to-end DNS-01 advertised (test-plan #X9): input overlay, `advertise:true`, `dash.test`, `tls.host` = container address · trigger issue now, wait for `idle` · observable handshake to `dash.test:8443` chains to the Pebble root; `/api/tunnel/endpoints` has `{kind:"domain",url:"https://dash.test:8443",tls:true}`; challtestsrv TXT cleared; harness exemplar `tests/e2e/gateway-readiness-board.spec.ts`
 - [ ] 6.40 L3 test, custom directory not advertised (test-plan #X10): input same overlay, `advertise` unset · trigger issue now · observable handshake succeeds; URL absent from endpoints and from a minted pairing payload; harness exemplar `tests/e2e/pairing-qr.spec.ts`
 - [ ] 6.41 L3 test, switch re-issues (test-plan #X11): input X10 state held · trigger set `advertise:true` via the Gateway editor Save · observable a new serial is served and the URL appears in endpoints; harness exemplar `tests/e2e/gateway-readiness-board.spec.ts`
 - [ ] 6.42 L2 test, harness teardown removes the overlay (test-plan #X12): input harness up with `TEST_EXTRA_COMPOSE=compose.test.acme.yml` · trigger `docker/test-down.sh` with `TEST_EXTRA_COMPOSE` unset · observable `docker ps -a` for the project lists no pebble, challtestsrv, cf-shim or acme-dns container; harness exemplar `qa/tests/18-harness-orphan-recorder.sh`
+- [ ] 6.43 L1 test, gated name recovers (test-plan #E29): input acme-dns source, CNAME for `dash.example.com` missing at t=0, fake timers, manager re-check every 15 min · trigger create the CNAME at t=1 min, no operator call · observable unforced `readiness()` at the 15-min re-check re-runs the expired check, gate met, `obtain("dash.example.com")` before t=20 min, `failures` unchanged; harness exemplar `packages/server/src/__tests__/tunnel-tailscale.test.ts`
 
 ## 7. Docs & manual verification
 

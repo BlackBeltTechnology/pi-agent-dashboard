@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: ACME certificate source configuration
-The TLS listener SHALL accept certificate sources of type `acme`, each with: a unique `id` (lowercase kebab-case), a list of 1 to 20 domain names, a contact email, an explicit acceptance of the CA's terms of service (`agreeTos: true`), a `directory` of `staging` (default), `production`, or an `https://` RFC 8555 directory URL, and a DNS-01 `solver` of type `cloudflare` or `acme-dns`. An `acme-dns` solver SHALL carry a `server` URL using `https://`, a `subdomain` and a `fulldomain`; a `cloudflare` solver MAY carry a non-secret `zoneId`. A solver object SHALL be rejected when it carries any other field, so that no secret can be stored in config. Domain names SHALL be normalized (lowercased, one trailing dot removed, duplicates within the source removed) and then validated as ASCII hostnames of at most 253 octets whose labels are letters, digits and inner hyphens of at most 63 characters (no scheme, port, path, IP literal, underscore or bare `*`; internationalized names only in `xn--` form); a wildcard SHALL be accepted only as a single left-most `*.` label. These rules SHALL be enforced by the server on every write of an `acme` entry, not only by the UI. A `configured` flag in a submitted solver SHALL be ignored, not rejected.
+The TLS listener SHALL accept certificate sources of type `acme`, each with: an `id` following the TLS listener's source id rule (unique across all sources, `tailscale` reserved), a list of 1 to 20 domain names, a contact email, an explicit acceptance of the CA's terms of service (`agreeTos: true`), a `directory` of `staging` (default), `production`, or an `https://` RFC 8555 directory URL, and a DNS-01 `solver` of type `cloudflare` or `acme-dns`. An `acme-dns` solver SHALL carry a `server` URL using `https://`, a `subdomain` and a `fulldomain`; a `cloudflare` solver MAY carry a non-secret `zoneId`. A solver object SHALL be rejected when it carries any other field, so that no secret can be stored in config. Domain names SHALL be normalized before validation and before use (lowercased, one trailing dot removed, duplicates within the source removed); an entry saved through the Gateway editor SHALL be stored in normalized form. Normalized names SHALL be validated as ASCII hostnames of at most 253 octets whose labels are letters, digits and inner hyphens of at most 63 characters (no scheme, port, path, IP literal, underscore or bare `*`; internationalized names only in `xn--` form); a wildcard SHALL be accepted only as a single left-most `*.` label. These rules SHALL be enforced by the server on every write of an `acme` entry, not only by the UI. A `configured` flag in a submitted solver SHALL be ignored, not rejected.
 
 #### Scenario: Valid source accepted
 - **WHEN** the operator saves an `acme` source `{ id: "home", domains: ["dash.example.com"], email, agreeTos: true, solver: { type: "cloudflare" } }`
@@ -12,8 +12,9 @@ The TLS listener SHALL accept certificate sources of type `acme`, each with: a u
 - **THEN** the save SHALL be rejected with a validation error naming the offending entry
 
 #### Scenario: Domains normalized
-- **WHEN** the operator saves domains `Dash.Example.COM.` and `dash.example.com`
+- **WHEN** the operator saves domains `Dash.Example.COM.` and `dash.example.com` through the Gateway editor
 - **THEN** the stored source SHALL contain the single domain `dash.example.com`
+- **AND** when the same entry is written through `PUT /api/config` instead, the source SHALL issue and report only `dash.example.com`
 
 #### Scenario: Empty domain list rejected
 - **WHEN** an `acme` source is saved with `domains: []`
@@ -96,7 +97,7 @@ The `acme` source SHALL obtain certificates using only the DNS-01 challenge, fai
 - **THEN** issuance SHALL start immediately regardless of backoff, and its outcome SHALL appear in status
 
 ### Requirement: ACME account persistence
-The source SHALL create one ACME account per (normalized directory, contact email) on first use — a Let's Encrypt directory given as its keyword or as its explicit URL is the same directory — persist its private key under `~/.pi/dashboard/tls/` with mode `0600`, and reuse it for later issuances. An account key no longer used by any configured source SHALL be deleted on reconcile, whether the source was removed or its email or directory changed.
+The source SHALL create one ACME account per (normalized directory, contact email) on first use — a Let's Encrypt directory given as its keyword or as its explicit URL is the same directory — persist its private key under `~/.pi/dashboard/tls/` with mode `0600`, and reuse it for later issuances. An account key no longer used by any configured source SHALL be deleted on reconcile or at server start, whether the source was removed or its email or directory changed.
 
 #### Scenario: Account reused
 - **WHEN** a second certificate is issued against the same directory with the same email
@@ -107,7 +108,7 @@ The source SHALL create one ACME account per (normalized directory, contact emai
 - **THEN** that account key file SHALL no longer exist after reconcile
 
 ### Requirement: Solver credential storage
-Solver secrets — the Cloudflare API token, and the acme-dns username and password — SHALL be stored in the dashboard's credential vault as accounts of kind `tls-solver` in the namespace `tls:<sourceId>`, never in `config.json` and never in a separate file. Non-secret solver settings (acme-dns `server`, `subdomain`, `fulldomain`) SHALL live in config. No API response and no log line SHALL contain a secret value; APIs SHALL expose only whether secrets are configured. Secret writes SHALL go through `PUT /api/tls/acme/:sourceId/credentials`, authorized as a credential-vault management route; a `sourceId` that does not name a configured `acme` source SHALL be answered 404 without touching the vault. Saving secrets SHALL trigger an issuance attempt for that source's due names. The `configured` flag SHALL be read-only (ignored on config writes). When no configured `acme` source has a given id any more (removal or rename), its `tls:<id>` accounts SHALL be deleted on a reconcile that read a parseable config and a healthy vault. When the vault cannot be read, the source SHALL report its `credentials` gate unmet and SHALL make no CA or DNS-provider call.
+Solver secrets — the Cloudflare API token, and the acme-dns username and password — SHALL be stored in the dashboard's credential vault as accounts of kind `tls-solver` in the namespace `tls:<sourceId>`, never in `config.json` and never in a separate file. Non-secret solver settings (acme-dns `server`, `subdomain`, `fulldomain`) SHALL live in config. No API response and no log line SHALL contain a secret value; APIs SHALL expose only whether secrets are configured. Secret writes SHALL go through `PUT /api/tls/acme/:sourceId/credentials`, authorized as a credential-vault management route; a `sourceId` that does not name a configured `acme` source SHALL be answered 404 without touching the vault. Saving secrets SHALL trigger an issuance attempt for that source's due names. The `configured` flag SHALL be read-only (ignored on config writes). When no configured `acme` source has a given id any more (removal or rename), its `tls:<id>` accounts SHALL be deleted on a reconcile, a source removal or a server start that read a parseable config and a healthy vault. When the vault cannot be read, the source SHALL report its `credentials` gate unmet and SHALL make no CA or DNS-provider call.
 
 #### Scenario: Secrets redacted
 - **WHEN** `GET /api/config` is called by the operator, or `GET /api/health` by a caller permitted to see TLS detail, with an acme source configured
@@ -142,7 +143,7 @@ Solver secrets — the Cloudflare API token, and the acme-dns username and passw
 - **THEN** an issuance attempt SHALL start without waiting for the periodic tick
 
 ### Requirement: Solver readiness
-Solver readiness checks (credential validity, zone lookup, CNAME delegation) SHALL run on config or secret change, before an issuance attempt, or on explicit operator refresh, and SHALL be cached for at least 5 minutes; reading status SHALL NOT trigger external calls. Explicit refresh is the prerequisite's `POST /api/tls/issue` with `{ sourceId, name? }`, which forces a readiness refresh before triggering. Missing credentials, an unreadable vault and a missing delegation SHALL be reported as unmet gates, so that the prerequisite's gate-before-obtain rule skips the name without counting a failure, and no CA order is created and no DNS record is written for it. The acme-dns credential check SHALL write to the acme-dns server only while no order of that source is running. Status SHALL report, as source-level status fields, the time each domain's readiness was last checked. For the `acme-dns` solver the source SHALL, per domain, check on public DNS that `_acme-challenge.<d>` — where `<d>` is the domain with any leading `*.` removed — is a CNAME to the configured acme-dns `fulldomain`, asking that zone's authoritative nameservers rather than a recursive resolver, and when it is not, SHALL report an unmet gate showing the exact CNAME record to create.
+Solver readiness checks (credential validity, zone lookup, CNAME delegation) SHALL run on config or secret change, before an issuance attempt, when the TLS listener re-checks a name waiting on a gate, or on explicit operator refresh, and SHALL be cached for at least 5 minutes; reading status SHALL NOT trigger external calls. Explicit refresh is the prerequisite's `POST /api/tls/issue` with `{ sourceId, name? }`, which forces a readiness refresh before triggering. Missing credentials, an unreadable vault and a missing delegation SHALL be reported as unmet gates, so that the prerequisite's gate-before-obtain rule skips the name without counting a failure, and no CA order is created and no DNS record is written for it. The acme-dns credential check SHALL write to the acme-dns server only while no order of that source is running. Status SHALL report, as source-level status fields, the time each domain's readiness was last checked. For the `acme-dns` solver the source SHALL, per domain, check on public DNS that `_acme-challenge.<d>` — where `<d>` is the domain with any leading `*.` removed — is a CNAME to the configured acme-dns `fulldomain`, asking that zone's authoritative nameservers rather than a recursive resolver, and when it is not, SHALL report an unmet gate showing the exact CNAME record to create.
 
 #### Scenario: Wildcard delegation checked at the parent
 - **WHEN** the source lists `*.example.com` with the acme-dns solver
@@ -160,6 +161,10 @@ Solver readiness checks (credential validity, zone lookup, CNAME delegation) SHA
 #### Scenario: Check now after fixing the CNAME
 - **WHEN** the operator calls `POST /api/tls/issue` with `{ "sourceId": "home", "name": "dash.example.com" }` after creating the missing CNAME, within the 5-minute cache window
 - **THEN** the checks SHALL run again, status SHALL report the gate met with a new check time, and issuance for that name SHALL start
+
+#### Scenario: Gated name recovers without operator action
+- **WHEN** the operator creates the missing CNAME for `dash.example.com` and takes no further action
+- **THEN** within 20 minutes the gate SHALL be reported met and issuance for that name SHALL start
 
 #### Scenario: Check now with the CNAME still missing
 - **WHEN** the same call is made while the CNAME is still absent
