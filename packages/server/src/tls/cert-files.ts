@@ -70,6 +70,20 @@ export function pairMatches(certPem: string, keyPem: string): boolean {
   }
 }
 
+const SOURCE_DIR_RE = /^[a-z0-9][a-z0-9-]{0,31}$/;
+
+/**
+ * `base` joined with `parts`, proven to stay inside `base`: resolved, then checked
+ * by prefix (a `..`, an absolute segment or a separator in an id/name can never
+ * escape the TLS data dir). Every path this module hands to `fs` comes from here.
+ */
+function within(base: string, ...parts: string[]): string {
+  const root = path.resolve(base);
+  const target = path.resolve(root, ...parts);
+  if (target !== root && !target.startsWith(root + path.sep)) throw new Error("path escapes the TLS data directory");
+  return target;
+}
+
 let tmpSeq = 0;
 
 async function atomicWrite(file: string, data: string, mode: number): Promise<void> {
@@ -88,11 +102,13 @@ export class CertFiles {
   }
 
   sourceDir(sourceId: string): string {
-    return path.join(this.root, sourceId);
+    if (!SOURCE_DIR_RE.test(sourceId)) throw new Error(`invalid source id ${JSON.stringify(sourceId)}`);
+    return within(this.root, sourceId);
   }
 
   nameDir(sourceId: string, name: string): string {
-    return path.join(this.root, sourceId, encodeName(name));
+    if (!isSafeCertName(name)) throw new Error(`invalid certificate name ${JSON.stringify(name)}`);
+    return within(this.sourceDir(sourceId), encodeName(name));
   }
 
   /** Source ids that have a directory under the TLS root. */
@@ -120,7 +136,7 @@ export class CertFiles {
 
   async readMeta(sourceId: string, name: string): Promise<CertMeta | null> {
     try {
-      const raw = JSON.parse(await fs.readFile(path.join(this.nameDir(sourceId, name), "meta.json"), "utf8"));
+      const raw = JSON.parse(await fs.readFile(within(this.nameDir(sourceId, name), "meta.json"), "utf8"));
       if (!raw || typeof raw !== "object") return null;
       return { stage: "idle", failures: 0, advertise: false, kind: "magicdns", fingerprint: "", source: sourceId, ...raw };
     } catch {
@@ -131,7 +147,7 @@ export class CertFiles {
   async writeMeta(sourceId: string, name: string, meta: CertMeta): Promise<void> {
     const dir = this.nameDir(sourceId, name);
     await fs.mkdir(dir, { recursive: true, mode: 0o700 });
-    await atomicWrite(path.join(dir, "meta.json"), JSON.stringify(meta, null, 2), 0o600);
+    await atomicWrite(within(dir, "meta.json"), JSON.stringify(meta, null, 2), 0o600);
   }
 
   /**
@@ -149,21 +165,21 @@ export class CertFiles {
   ): Promise<void> {
     const dir = this.nameDir(sourceId, name);
     await fs.mkdir(dir, { recursive: true, mode: 0o700 });
-    const certTmp = path.join(dir, `cert.pem.a${attemptId}.tmp`);
-    const keyTmp = path.join(dir, `key.pem.a${attemptId}.tmp`);
+    const certTmp = within(dir, `cert.pem.a${Math.trunc(attemptId)}.tmp`);
+    const keyTmp = within(dir, `key.pem.a${Math.trunc(attemptId)}.tmp`);
     try {
       await fs.writeFile(certTmp, certPem, { mode: 0o644 });
       await fs.writeFile(keyTmp, keyPem, { mode: 0o600 });
       // The creation mode is masked by umask and some CLIs set none: be explicit.
       await fs.chmod(keyTmp, 0o600);
-      await fs.rename(keyTmp, path.join(dir, "key.pem"));
-      await fs.rename(certTmp, path.join(dir, "cert.pem"));
+      await fs.rename(keyTmp, within(dir, "key.pem"));
+      await fs.rename(certTmp, within(dir, "cert.pem"));
     } catch (err) {
       await fs.rm(certTmp, { force: true }).catch(() => undefined);
       await fs.rm(keyTmp, { force: true }).catch(() => undefined);
       throw err;
     }
-    await atomicWrite(path.join(dir, "meta.json"), JSON.stringify(meta, null, 2), 0o600);
+    await atomicWrite(within(dir, "meta.json"), JSON.stringify(meta, null, 2), 0o600);
   }
 
   /** Load a stored pair. `null` = missing, unparseable or mismatched (logged by the caller). */
@@ -172,8 +188,8 @@ export class CertFiles {
     let certPem: string;
     let keyPem: string;
     try {
-      certPem = await fs.readFile(path.join(dir, "cert.pem"), "utf8");
-      keyPem = await fs.readFile(path.join(dir, "key.pem"), "utf8");
+      certPem = await fs.readFile(within(dir, "cert.pem"), "utf8");
+      keyPem = await fs.readFile(within(dir, "key.pem"), "utf8");
     } catch {
       return { loaded: null };
     }
@@ -206,7 +222,7 @@ export class CertFiles {
   /** Drop the PEM pair but keep `meta.json` (a mismatched pair must be re-obtained). */
   async removePair(sourceId: string, name: string): Promise<void> {
     const dir = this.nameDir(sourceId, name);
-    await fs.rm(path.join(dir, "cert.pem"), { force: true });
-    await fs.rm(path.join(dir, "key.pem"), { force: true });
+    await fs.rm(within(dir, "cert.pem"), { force: true });
+    await fs.rm(within(dir, "key.pem"), { force: true });
   }
 }
