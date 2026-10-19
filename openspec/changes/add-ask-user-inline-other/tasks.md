@@ -1,0 +1,92 @@
+## 1. Shared contract (predicate, validator, types)
+
+- [ ] 1.1 Add `allowOther?: boolean` to `BatchQuestion` (`packages/shared/src/protocol.ts`), `ValidatablePrompt` (`packages/shared/src/prompt-answer.ts`) and `QuestionDetail` (`packages/shared/src/question-types.ts`). Verify shared `tsc --noEmit` passes.
+- [ ] 1.2 Test (test-plan #E1), exemplar `packages/shared/src/__tests__/prompt-answer.test.ts`. Input: `allowOther` ∈ {true, false, absent, "true"} × options ∈ {[], ["A","B"], ["A","Other (describe)"]}. Trigger: `isOtherAllowed({allowOther, options})`. Observable: true only for (true, ["A","B"]). Verify it fails before 1.9.
+- [ ] 1.3 Test (test-plan #E2), exemplar `packages/shared/src/__tests__/prompt-answer.test.ts`. Input: options "Other (describe)", "other", " Other: x", "Other — describe", "Other-wise" vs "Others", "Otherwise", "Other1", "Otheré", 42, null. Trigger: `hasOwnOtherOption([opt])`. Observable: the first five are true, the rest false, and non-strings never throw.
+- [ ] 1.4 Test (test-plan #E3), exemplar `packages/shared/src/__tests__/prompt-answer.test.ts`. Input: select ["A","B"] with allowOther:true. Trigger: `validateQuestionAnswer` with "C", "A", "", "   ", " A ", and "C" without the opt-in. Observable: "C" and "A" are ok; "", "   " and " A " are rejected; "C" without the opt-in is rejected.
+- [ ] 1.5 Test (test-plan #E4), exemplar `packages/shared/src/__tests__/prompt-answer.test.ts`. Input: multiselect ["A","B"] with allowOther:true. Trigger: validate ["A","D"], ["D"], [], ["D","E"], ["D","D"], ["A","A"], ["A"," D"], and ["A","D"] without the opt-in. Observable: the first three are ok, all others are rejected.
+- [ ] 1.6 Test (test-plan #E5), exemplar `packages/shared/src/__tests__/prompt-answer.test.ts`. Input: a batch with a select sub (allowOther:true), a select sub (no opt-in), a select sub (allowOther:true, options incl. "Other (describe)"), a confirm sub and an input sub. Trigger: custom "C" given to each select sub in turn. Observable: only the first sub accepts it; the others are rejected naming `batch[i]`; confirm and input validation are unchanged.
+- [ ] 1.7 Test (test-plan #E6), exemplar `packages/shared/src/__tests__/prompt-answer.test.ts` + `packages/client/src/lib/questions/__tests__/`. Input: {value:"something else"}, {values:["A","D"]}, {answers:[{value:"C"},{values:["A","D"]}]}. Trigger: `encodePromptAnswer(result,false)` and `encodeDialogAnswer(result)`. Observable: "something else", '["A","D"]', and `JSON.stringify(answers)` unchanged.
+- [ ] 1.8 Test (test-plan #X2), exemplars `packages/shared/src/__tests__/prompt-answer.test.ts` + `packages/client/src/components/__tests__/SelectRenderer.test.tsx`. Input: batch sub options [1,2] and select options [1,"A"] with allowOther:true. Trigger: `validateQuestionAnswer` and a SelectRenderer render. Observable: no throw; the validator returns a deterministic ok/fail; the renderer mounts.
+- [ ] 1.9 Implement `hasOwnOtherOption` (string-guarded, `/^other(?![\p{L}\p{N}])/iu` on the trimmed text) and `isOtherAllowed` (`allowOther === true`, non-empty options, no own Other) in `packages/shared/src/prompt-answer.ts`. Relax `validateQuestionAnswer` per design D6: custom must be non-empty, equal to its own trim and not an option; at most one custom value in a multiselect; duplicates rejected; per-sub `isOtherAllowed`. There must be no client-local copy. Verify 1.2–1.7 and the validator half of 1.8 pass, and that the existing prompt-answer tests stay green.
+
+## 2. Extension (bridge metadata + ask_user tool)
+
+- [ ] 2.1 Test (test-plan #E7), exemplar `packages/extension/src/__tests__/prompt-meta.test.ts`. Input: opts {allowOther:true} alone, {allowOther:false}, {}, {pluginMeta:{allowOther:true}}, {message:"m",allowOther:true}. Trigger: `buildPromptMeta(opts)`. Observable: {allowOther:true}; undefined; undefined; {plugin:{allowOther:true}} with no top-level key; {message:"m",allowOther:true}.
+- [ ] 2.2 Test (test-plan #E8), exemplar `packages/extension/src/__tests__/multiselect-dashboard-routing.test.ts`. Input: patched `ctx.ui.select("Pick",["A","B"],{allowOther:true})` and `ctx.ui.multiselect(…,{allowOther:true})` on a fake bus. Trigger: the test responds with answer "x" / '["A","x"]'. Observable: request `metadata.allowOther === true`; select resolves "x"; multiselect resolves ["A","x"].
+- [ ] 2.3 Implement the `allowOther` core key in `buildPromptMeta`: emit it only when it is `=== true`, and include it in the early-return guard at `prompt-meta.ts:54`. Update the file header's core-key list. Widen `polyfillMultiselect`'s opts type in `multiselect-polyfill.ts`. Verify 2.1 and 2.2 pass.
+- [ ] 2.4 Test (test-plan #E9), exemplar `packages/extension/src/__tests__/ask-user-tool.test.ts`. Input: ask_user select / multiselect / confirm / input, each with allowOther ∈ {absent, true, false}. Trigger: `execute` with a stub `ctx.ui`. Observable: select/multiselect with absent or true get opts `allowOther:true`; false gets none; confirm/input never get it.
+- [ ] 2.5 Test (test-plan #E10), exemplar `packages/extension/src/__tests__/ask-user-tool.test.ts`. Input: a batch with top-level allowOther:false; subs = select (absent), multiselect (true), select (false), confirm, input. Trigger: `execute` → a `ctx.ui.batch` stub captures the questions. Observable: sub0 none, sub1 `allowOther:true`, sub2 none, confirm/input none. With top-level absent, sub0 gets `allowOther:true`.
+- [ ] 2.6 Test (test-plan #E11), exemplar `packages/extension/src/__tests__/ask-user-tool.test.ts`. Input: {allowCustom:false}; {allowOther:"false"}; {allowOther:"yes"}; batch sub {allowCustom:false}; {allowCustom:true, options:["A","B"]}. Trigger: `prepareArguments` then `execute`. Observable: effective false; false; dropped → true; sub false. `allowCustom` is absent from the normalized args, and options stay ["A","B"].
+- [ ] 2.7 Test (test-plan #E12), exemplar `packages/extension/src/__tests__/ask-user-tool.test.ts`. Input: select ["A","B"] answered "C" / "A"; multiselect ["A","D"]; batch with select "C", input "free text", confirm true. Trigger: `execute` returns. Observable:
+  - text is exactly `Custom answer (not one of the options).\nUser responded: "C"` and `details.result === "C"`;
+  - exactly `User responded: "A"`;
+  - `Custom values (not among the options): ["D"].\nUser responded: ["A","D"]`;
+  - only the batch select line ends ` (custom)`.
+- [ ] 2.8 Test (test-plan #E13), exemplar `packages/extension/src/__tests__/ask-user-schema-discriminator.test.ts`. Input: the serialized `ask_user` parameters schema. Trigger: inspect the root and `questions.items`. Observable: both are `type:"object"` with no oneOf/anyOf/allOf/enum/not; `properties.allowOther.type === "boolean"` and it is not in `required`.
+- [ ] 2.9 Test (test-plan #E17), exemplar `packages/extension/src/__tests__/ask-user-tool.test.ts`. Input: LLM ask_user {method:"select", title:"Pick one", options:["A","B"]}. Trigger: `execute`. Observable: `ctx.ui.select` is called with ("Pick one", ["A","B"], opts) where `opts.allowOther === true`.
+- [ ] 2.10 Test (test-plan #E18), exemplar `packages/extension/src/__tests__/ask-user-tool.test.ts`. Input: stringified questions; a wrapped single question; an `input_type` wrapper; an explicit batch missing its title; empty `{}`. Trigger: `prepareArguments` then `execute`. Observable: `method:"batch"` and the title are synthesized; dispatch does not throw; `{}` stays empty (no method/title/questions/allowOther); the existing rescue tests stay green.
+- [ ] 2.11 Implement in `packages/extension/src/ask-user-tool.ts` (design D7):
+  - schema `allowOther` (top-level + `SubQuestionSchema`) with the dashboard-only description;
+  - `prepareArguments`/`normalizeSubQuestion` coercion of "true"/"false", dropping other non-booleans, and the `allowCustom` alias, deleted after mapping;
+  - single-branch `allowOther:true` in `msgOpts`;
+  - batch map (`:353-359`) `allowOther:true` when `(sq.allowOther ?? params.allowOther) !== false` for select/multiselect;
+  - a `customValues` helper and the result-text note line plus the batch ` (custom)` suffix.
+  Verify 2.4–2.10 pass.
+
+## 3. Server (question record + REST road)
+
+- [ ] 3.1 Test (test-plan #E14), exemplars `packages/server/src/questions/__tests__/question-routes.test.ts` + `question-store.test.ts` + `question-files.test.ts`. Input: a tracked select `prompt_request` with `metadata.allowOther:true`, and one without. Trigger: `onTracked`; `GET /api/questions/:id`; `POST …/answer {answer:"C"}`; persist round trip. Observable: detail `allowOther:true` (absent for the other); the opted-in answer "C" is transmitted unchanged; the other gets `400` and stays open; the persisted `QuestionFile` has no `allowOther` key.
+- [ ] 3.2 Test (test-plan #X3), exemplars `packages/extension/src/path-gate/__tests__/handler.test.ts` + `packages/server/src/acp-bridge/__tests__/acp-connection.test.ts`. Input: a path-gate approval select and an ACP permission frame (no `allowOther`). Trigger: build the request metadata / frame, then POST a custom answer through the REST road. Observable: neither has an `allowOther` key; the REST custom answer returns `400`.
+- [ ] 3.3 Implement: `QuestionRecord`/`QuestionDetail` get `allowOther?: true`, set in `onTracked` from live metadata. Do NOT add it to `QuestionFile` (recomputed on rebind). `question-routes.ts:97-101` passes `allowOther` to `validateQuestionAnswer`. Verify 3.1 and 3.2 pass.
+
+## 4. Client (renderers, wiring, history card, i18n)
+
+- [ ] 4.1 Test (test-plan #E16), exemplars `packages/client/src/hooks/__tests__/useMessageHandler.interactive-carry.test.tsx` + `useSessionState.test.ts`. Input: `prompt_request` with `metadata.allowOther:true`, and one without. Trigger: fold through `useMessageHandler` and `useSessionState`. Observable: `interactiveUi` params `allowOther === true`, or no `allowOther` key.
+- [ ] 4.2 Test (test-plan #F1), exemplar `packages/client/src/components/__tests__/SelectRenderer.test.tsx`. Input: pending select ["A","B"] with allowOther:true. Trigger: click "Other", type "  something else  ", press Enter. Observable: the input has focus after the click; `onRespond` is called once with {value:"something else"}.
+- [ ] 4.3 Test (test-plan #F2), exemplar `packages/client/src/components/__tests__/SelectRenderer.test.tsx`. Input: Other active with text "" then "   ". Trigger: press Enter and inspect Submit. Observable: Submit is disabled and `onRespond` is not called.
+- [ ] 4.4 Test (test-plan #F3), exemplar `packages/client/src/components/__tests__/SelectRenderer.test.tsx`. Input: the Other row focused via Tab. Trigger: Space → type → Escape. Observable: the field appears focused; after Escape the field is gone, `onRespond` is not called, and the keydown is `defaultPrevented`.
+- [ ] 4.5 Test (test-plan #F4), exemplar `packages/client/src/components/__tests__/SelectRenderer.test.tsx`. Input: select with (a) no allowOther, (b) allowOther:false, (c) allowOther:true + ["Approve","Other (describe)"], (d) allowOther:true + ["A","B"]. Trigger: render, then click "A" in (d). Observable: the Other row is absent in a/b/c and present in d; in (c) "Other (describe)" responds as an option; in (d) "A" responds {value:"A"} immediately.
+- [ ] 4.6 Test (test-plan #F5), exemplar `packages/client/src/components/__tests__/SelectRenderer.test.tsx`. Input: resolved select ["A","B"] with value "C"; a second case with value "<b>x</b> **y**". Trigger: render. Observable: A and B unpicked plus a picked "Other" row reading C; in the second case the text content equals `<b>x</b> **y**` with no `<b>`/`<strong>` element in the row.
+- [ ] 4.7 Test (test-plan #F6), exemplar `packages/client/src/components/__tests__/MultiselectRenderer.test.tsx`. Input: multiselect ["A","B","C"] with allowOther:true. Trigger: (i) A + Other "D" submit; (ii) only Other "Z"; (iii) A + Other "A"; (iv) Other checked and empty; (v) Other "D" then Select all. Observable: (i) {values:["A","D"]} and Submit label "(2)"; (ii) ["Z"]; (iii) ["A"]; (iv) Submit disabled; (v) A/B/C checked and Other still checked with D.
+- [ ] 4.8 Test (test-plan #F7), exemplar `packages/client/src/components/__tests__/MultiselectRenderer.test.tsx`. Input: resolved multiselect ["A","B","C"] with values ["A","D"]. Trigger: render. Observable: A picked, a picked "Other" row reading D, and the count text "2 of 3".
+- [ ] 4.9 Test (test-plan #F8), exemplar `packages/client/src/components/__tests__/BatchRenderer.test.tsx`. Input: step0 select (allowOther:true), step1 multiselect (allowOther:true), step2 select (no opt-in), step3 confirm, step4 input. Trigger: step0 Other "C" → Next → Back → Next; step1 A + Other "D"; an attempt at step0 with Other empty; Review → Submit all. Observable:
+  - after Back, step0 shows Other with C;
+  - Next is disabled while empty;
+  - steps 2–4 show no Other row;
+  - Review shows C and pills A, D;
+  - `onRespond({answers:[{value:"C"},{values:["A","D"]},…]})`.
+- [ ] 4.10 Test (test-plan #F9), exemplar `packages/client/src/components/questions/__tests__/QuestionDialog.test.tsx`. Input: detail select ["A","B"] with allowOther:true. Trigger: click Other, type C, Escape; Escape again; reopen, type C, Enter. Observable: after the first Escape the field is gone and the dialog is still mounted; the second Escape calls `onClose`; Enter posts {answer:"C"}.
+- [ ] 4.11 Test (test-plan #X1), exemplar `packages/client/src/components/questions/__tests__/QuestionDialog.test.tsx`. Input: answer POST mocked to `400 {error:"answer is not one of the options"}`. Trigger: the dialog submits Other C. Observable: the dialog stays open, the error text is visible, and the question stays in the stack.
+- [ ] 4.12 Test (test-plan #E15), exemplar `packages/client/src/components/tool-renderers/__tests__/AskUserToolRenderer.test.tsx`. Input: complete toolResults over ["A","B"]: select custom "C" (note + line); multiselect ["A","D"]; multiselect custom "x User responded: y"; option "A". Trigger: render. Observable: unhighlighted chips plus a Response row C; a Response row D only; a Response row reading exactly `x User responded: y`; chip A highlighted with no Response row.
+- [ ] 4.13 Test (test-plan #F10), exemplar `packages/client/src/__tests__/i18n-folder-missing.test.ts`. Input: the new keys for "Other", the field label and the resolved "Other" label. Trigger: `node scripts/i18n-parity.mjs` and `node scripts/i18n-lint.mjs`. Observable: both exit 0; the keys are present in `i18n-hu.ts` and `i18n-zh-CN.ts`; there is no hardcoded English in the new component.
+- [ ] 4.14 Implement `interactive-renderers/OtherOption.tsx` (design D4):
+  - controlled, with radio and checkbox variants and an i18n `aria-label`;
+  - focus moves only on activation;
+  - Enter commits non-empty trimmed text;
+  - Escape collapses and calls `preventDefault` + `stopPropagation`;
+  - `data-other-input`, and a plain text node.
+  Add the i18n keys to the hu and zh-CN tables. Verify through 4.2–4.4 and 4.13.
+- [ ] 4.15 Wire `OtherOption` into SelectRenderer (pending + resolved "Other" row), MultiselectRenderer (pending, Select all untouched, resolved row + "N of M"), and BatchRenderer (`otherDraft` state in the parent, per design D5), gated by the shared `isOtherAllowed`. Verify 4.5–4.9 and the renderer half of 1.8 pass.
+- [ ] 4.16 Copy `metadata.allowOther === true` into params in `hooks/useMessageHandler.ts` and `hooks/useSessionState.ts`. In `QuestionDialog.tsx`, pass `detail.allowOther` into params and add the `data-other-input` early return to the Escape capture handler (`:372-378`). Verify 4.1, 4.10 and 4.11 pass.
+- [ ] 4.17 `AskUserToolRenderer.tsx`: parse the LAST line starting with `User responded:`; for select add a Response row when the value is custom; for multiselect, JSON-parse the array and add a Response row with the custom values only (design D8). Verify 4.12 passes.
+
+## 5. End-to-end (Playwright, docker harness)
+
+- [ ] 5.1 Test (test-plan #F11), exemplar `tests/e2e/faux-ask.spec.ts`. Input: faux session `[[faux:ask-select-roundtrip]]` (dashboard ask_user, opted in by default). Trigger: in the inline card click "Other", type `zeta`, press Enter. Observable: the transcript converges to `/you picked[\s\S]*"zeta"/` and the card resolves showing a picked "Other" row `zeta`.
+- [ ] 5.2 Test (test-plan #F12), exemplar `tests/e2e/faux-ask.spec.ts` ("pending-question stack" #F2, `helpers/hidden-session.ts`). Input: hidden faux session `[[faux:ask-select-roundtrip]]`. Trigger: pill → panel → "Answer here" → dialog Other `zeta` → submit. Observable: the pill count drops by 1 and the hidden run's transcript matches `/you picked[\s\S]*"zeta"/`.
+
+## 6. Closeout
+
+- [ ] 6.1 Full suite: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`, then grep for `FAIL|Tests +[0-9]+ failed`. Verify 0 failed.
+- [ ] 6.2 Quality ratchet: `npm run quality:changed`. Verify there are no new Biome findings on touched files.
+- [ ] 6.3 `security-hardening` checkpoint on the relaxed REST validator and the custom-text paths. Confirm plain-text rendering (4.6), JSON-only exposure to the model (2.7), rejection of blank/padded/duplicate values (1.4, 1.5), and that non-opted prompts are byte-identical (3.2). Record the findings in the PR.
+- [ ] 6.4 Manual accessibility check (test-plan: manual-only, #F13): with VoiceOver in base dark/light and one non-base theme, tab through the Other row and field. The label is announced as "Other answer", the focus ring is visible, and spacing matches the option rows. Record the result in the PR.
+- [ ] 6.5 Update the `AGENTS.md` rows with `See change: add-ask-user-inline-other`:
+  - `packages/client/src/components/interactive-renderers/AGENTS.md` (new `OtherOption.tsx`; Select, Multiselect and Batch rows);
+  - `packages/extension/src/ask-user-tool.ts.AGENTS.md`, `prompt-meta.ts.AGENTS.md`, `multiselect-polyfill` row;
+  - `packages/shared/src/prompt-answer.ts.AGENTS.md`;
+  - the server `questions` rows; the `QuestionDialog` and `AskUserToolRenderer` rows.
+  Verify `node scripts/check-conventions.mjs` passes.
+- [ ] 6.6 Add a CHANGELOG `## [Unreleased]` entry: the inline Other answer on ask_user select/multiselect/batch (opt-in via `allowOther: true`; dashboard ask_user default on, model told via the result text). Behaviour note: the dashboard ask_user may now return a custom answer; use `allowOther: false` to forbid it.
+- [ ] 6.7 Run `review-code` on the diff before commit. Verify there are no unresolved blocker or major findings.
