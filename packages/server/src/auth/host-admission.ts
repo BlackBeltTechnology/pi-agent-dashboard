@@ -111,10 +111,10 @@ export function classifyAdmittedHostname(
   if (hostnameInUrlList(opts.publicBaseUrls, hostname)) return "public-base-url";
   if (hostnameInUrlList(opts.configuredOrigins, hostname)) return "cors-origin";
   if (hostnameInUrlList(safeLiveTunnelOrigins(opts), hostname)) return "live-tunnel";
+  if (safeTlsListenerNames(opts).some((n) => normalizeName(n) === hostname)) return "tls-listener";
   if ((opts.allowedHosts ?? []).some((entry) => normalizeName(entry) === hostname)) {
     return "allowed-host";
   }
-  if (safeTlsListenerNames(opts).some((n) => normalizeName(n) === hostname)) return "tls-listener";
   return null;
 }
 

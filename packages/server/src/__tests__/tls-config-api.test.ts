@@ -135,6 +135,7 @@ describe("#E4 port validation", () => {
     expect((await put({ tls: { host: "dash.example.com" } })).status).toBe(400);
     expect((await put({ tls: { host: "100.83.0.1" } })).status).toBe(200);
     expect((await put({ tls: { host: "localhost" } })).status).toBe(200);
+    expect((await put({ tls: { host: "LOCALHOST" } })).status).toBe(200); // case-insensitive, like the loader and isLoopbackHost
   });
 });
 

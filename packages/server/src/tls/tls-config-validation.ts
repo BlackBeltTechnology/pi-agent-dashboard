@@ -34,7 +34,7 @@ export function touchesTlsOrPorts(partial: Json): boolean {
 function validTlsHost(host: unknown): boolean {
   if (typeof host !== "string") return false;
   const h = host.trim();
-  return h === "localhost" || net.isIP(h) !== 0;
+  return h.toLowerCase() === "localhost" || net.isIP(h) !== 0;
 }
 
 /** Field-level checks of a `tls` patch (the keys the caller sent). */

@@ -149,6 +149,7 @@ export class CertManager {
     }
     for (const entry of this.store.all()) this.store.delete(entry.name);
     for (const ns of this.names.values()) ns.held = false;
+    this.invalid = [];
     this.sources.clear();
     this.names.clear();
     this.onChange();

@@ -218,6 +218,9 @@ export class TlsListener {
       SNICallback: this.store.sniCallback,
       secureOptions: cryptoConstants.SSL_OP_NO_TICKET,
     });
+    // Node semantics relied on: `newSession` with a bare `cb()` stores nothing, and
+    // `resumeSession` answering no session forces a full handshake. Re-check on a Node upgrade
+    // (the E6 resumed-session test fails first if the contract changes).
     server.on("newSession", (_id, _data, cb) => cb());
     server.on("resumeSession", (_id, cb) => cb(null, undefined));
     // Parity with the main listener (Fastify applies keepAliveTimeout + setTimeout(connectionTimeout),
