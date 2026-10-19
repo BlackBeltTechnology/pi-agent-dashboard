@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Mock the shared npm module (update-checker now delegates all npm work to it).
 const { outdatedOr, outdatedGlobalOr } = vi.hoisted(() => ({

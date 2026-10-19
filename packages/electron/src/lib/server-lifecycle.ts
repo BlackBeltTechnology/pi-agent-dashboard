@@ -11,8 +11,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { starterFromHealth } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
 import { getDashboardServerLogPath } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
+import { starterFromHealth } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
 import { ELECTRON_RESTART_EXIT_CODE } from "@blackbelt-technology/pi-dashboard-shared/electron-restart.js";
 import type { spawnDetached } from "@blackbelt-technology/pi-dashboard-shared/platform/detached-spawn.js";
 import { isDashboardRunning } from "./health-check.js";

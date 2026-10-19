@@ -98,7 +98,7 @@
 
 ## 5. Integration, manual checks, docs, review
 
-- [ ] 5.1 Full test run: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`, then `grep -nE 'FAIL|Tests +[0-9]+ (failed|passed)' /tmp/pi-test.log`. Verify: no failures.
+- [x] 5.1 Full test run: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`, then `grep -nE 'FAIL|Tests +[0-9]+ (failed|passed)' /tmp/pi-test.log`. Verify: no failures.
 - [ ] 5.2 Manual (test-plan: manual-only, #M1): the real packaged macOS app with a terminal pi session.
   - `pi-dashboard status` shows the desktop-app mention.
   - `stop` → the app shows its reconnect page; no server respawns (none from the terminal session either).
@@ -106,13 +106,13 @@
   - The Doctor starter row shows Electron.
   - Verify: observations recorded in the Root-cause log.
 - [ ] 5.3 Manual (test-plan: manual-only, #M2): Windows. With the packaged app running, `pi-dashboard stop` from PowerShell stops the server through `/api/shutdown` (boot record `shutdown`), and the app shows the reconnect page. Verify: result recorded in the Root-cause log (H5).
-- [ ] 5.4 Docs:
+- [x] 5.4 Docs:
   - README `stop`/`status` command reference (announced shutdown, desktop-app note);
   - a `docs/faq.md` entry "pi-dashboard CLI vs the desktop app's server", via DocScribe (caveman style);
   - CHANGELOG `## [Unreleased]` → `Fixed`: quitting the app stops its own server again (behaviour change since 2026-05-26); `stop` no longer races bridge auto-start (exit intent `shutdown`); the Electron update checker and Doctor see the real starter (Bridge skips the managed check, Standalone gets the npm recommendation).
 
   Then run `npm run quality:changed`. It applies Biome `--write` fixes and runs tests; commit its fixes. Verify: the files are updated and the quality run exits 0.
-- [ ] 5.5 AGENTS.md closeout rows: `packages/shared/src/` (`server-identity.ts`, `dashboard-starter.ts`), `packages/server/src/lifecycle/` (`stop-ownership.ts`, `classify-dashboard-port.ts`), `packages/server/src/` (`cli.ts`), `packages/electron/src/lib/` (`server-lifecycle.ts`, `update-checker.ts`, `doctor.ts`, `launch-source.ts`), `tests/e2e-electron/AGENTS.md`, each with `See change: fix-cli-control-electron-server`. Verify: `grep -rln "fix-cli-control-electron-server" --include=AGENTS.md packages tests` lists every touched directory.
+- [x] 5.5 AGENTS.md closeout rows: `packages/shared/src/` (`server-identity.ts`, `dashboard-starter.ts`), `packages/server/src/lifecycle/` (`stop-ownership.ts`, `classify-dashboard-port.ts`), `packages/server/src/` (`cli.ts`), `packages/electron/src/lib/` (`server-lifecycle.ts`, `update-checker.ts`, `doctor.ts`, `launch-source.ts`), `tests/e2e-electron/AGENTS.md`, each with `See change: fix-cli-control-electron-server`. Verify: `grep -rln "fix-cli-control-electron-server" --include=AGENTS.md packages tests` lists every touched directory.
 - [ ] 5.6 Run `doubt-driven-review` on the stop path (D4: request-then-SIGTERM ordering, the health-proven-pid precondition, the exit-intent change) and on the quit-behaviour change (D6/D7), then `review-code` on the full diff. Verify:
   - findings resolved or recorded;
   - follow-up issues filed for the pre-existing `server-launch` normal-path port-conflict gap (exit 1 → `EarlyExitError`) and for the pure-TCP gateway bind error that `installCrashSafetyNet` swallows (`pi-gateway.ts:~1165`);

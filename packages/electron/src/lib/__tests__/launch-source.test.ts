@@ -10,20 +10,20 @@
  * All I/O probes are injected as mocks — no real filesystem, network, or
  * child processes.
  */
-import { afterEach, describe, it, expect, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  selectLaunchSource,
-  parsePreferOverride,
-  PinnedSourceUnavailableError,
   BundledServerMissingError,
   getBundledCliPath,
-  getOverlayCliPath,
   getLocalCliPath,
+  getOverlayCliPath,
   getServerReadyDeadlineMs,
   type LaunchSourceOpts,
   type LaunchSourceProbes,
+  PinnedSourceUnavailableError,
+  parsePreferOverride,
   type RuntimeLaunchInputs,
   runtimeIdentityEnv,
+  selectLaunchSource,
 } from "../launch-source.js";
 
 function makeProbes(overrides: Partial<LaunchSourceProbes> = {}): Partial<LaunchSourceProbes> {

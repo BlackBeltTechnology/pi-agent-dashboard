@@ -25,8 +25,8 @@ function detectOnUserPath(name: string): { found: boolean; path?: string } {
   return first ? { found: true, path: first } : { found: false };
 }
 
-import { starterFromHealth } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
 import { inspectedCredentialFiles } from "@blackbelt-technology/pi-dashboard-shared/credential-detect.js";
+import { starterFromHealth } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
 import {
   assumedMandatory,
   checkAttachedServerVersion,

@@ -2,7 +2,7 @@
  * Unit tests for the lifecycle ownership rule (decideShutdownOnQuit).
  * See change: simplify-electron-bootstrap-derived-state (task 6.9).
  */
-import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { decideShutdownOnQuit, setSpawnedPid, stopServerIfNeeded } from "../server-lifecycle.js";
 
 describe("decideShutdownOnQuit", () => {

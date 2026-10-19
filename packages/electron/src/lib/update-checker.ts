@@ -14,10 +14,11 @@
  * `npm outdated`) are centralized.
  * See change: platform-command-executor.
  */
-import { starterFromHealth } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
-import * as npm from "@blackbelt-technology/pi-dashboard-shared/platform/npm.js";
+
 import os from "node:os";
 import path from "node:path";
+import { starterFromHealth } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
+import * as npm from "@blackbelt-technology/pi-dashboard-shared/platform/npm.js";
 import { loadMinimalConfig } from "./server-lifecycle.js";
 
 export interface OutdatedPackage {
