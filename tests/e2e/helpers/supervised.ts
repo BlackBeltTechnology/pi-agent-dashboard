@@ -19,7 +19,7 @@ export const decisionRows = (page: Page): Locator => page.getByTestId("supervise
 export const SUPERVISED_BASH_TAIL = "supervised bash done";
 
 /** Close the OpenSpec Propose dialog a card click may leave open (its backdrop eats clicks). */
-export async function dismissProposeDialog(page: Page): Promise<void> {
+async function dismissProposeDialog(page: Page): Promise<void> {
   const overlay = page.getByTestId("propose-dialog-overlay");
   for (let i = 0; i < 3; i++) {
     if (!(await overlay.isVisible().catch(() => false))) return;

@@ -1,10 +1,12 @@
 /**
  * ToolApprovalCard — supervised tool approval (test-plan #E18, #E39, #E42 + card behaviour).
- * Rendered through `SelectRenderer` (the real selection point). See change: add-supervised-tool-approval.
+ * The card renders directly (card behaviour); the `SelectRenderer` branch (lazy, Suspense) has its own test.
+ * See change: add-supervised-tool-approval.
  */
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { SelectRenderer } from "../interactive-renderers/SelectRenderer.js";
+import { ToolApprovalCard } from "../interactive-renderers/ToolApprovalCard.js";
 import type { InteractiveRendererProps } from "../interactive-renderers/types.js";
 import { ThemeProvider } from "../settings/ThemeProvider.js";
 
@@ -50,7 +52,7 @@ function setup(over: Partial<InteractiveRendererProps> & { params?: Record<strin
   const onCancel = vi.fn();
   const { params, ...rest } = over;
   const utils = render(
-    <SelectRenderer
+    <ToolApprovalCard
       requestId="p1"
       method="select"
       status="pending"
@@ -64,13 +66,13 @@ function setup(over: Partial<InteractiveRendererProps> & { params?: Record<strin
 }
 
 describe("SelectRenderer branch", () => {
-  it("renders the card only for kind supervised-tool-approval; a plain select is untouched", () => {
-    const a = setup();
-    expect(screen.getByTestId("tool-approval-card")).toBeTruthy();
+  it("renders the (lazy) card only for kind supervised-tool-approval; a plain select is untouched", async () => {
+    vi.useRealTimers(); // Suspense resolution needs real timers
+    const props = { method: "select" as const, status: "pending" as const, onRespond: vi.fn(), onCancel: vi.fn() };
+    const a = render(<SelectRenderer requestId="p1" {...props} params={{ ...bash, deadline: Date.now() + 120_000 }} />);
+    expect(await screen.findByTestId("tool-approval-card")).toBeTruthy();
     a.unmount();
-    render(
-      <SelectRenderer requestId="p2" method="select" status="pending" onRespond={vi.fn()} onCancel={vi.fn()} params={{ title: "Pick", options: ["a", "b"] }} />,
-    );
+    render(<SelectRenderer requestId="p2" {...props} params={{ title: "Pick", options: ["a", "b"] }} />);
     expect(screen.queryByTestId("tool-approval-card")).toBeNull();
     expect(screen.getByText("Pick")).toBeTruthy();
   });

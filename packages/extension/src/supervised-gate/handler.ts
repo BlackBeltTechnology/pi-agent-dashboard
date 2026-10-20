@@ -43,7 +43,7 @@ import {
 } from "@blackbelt-technology/pi-dashboard-shared/tool-gate/supervised-policy.js";
 import { buildSupervisedSummary, summaryMarkdown, summaryPlain } from "./summary.js";
 
-export const KIND_SUPERVISED = "supervised-tool-approval";
+const KIND_SUPERVISED = "supervised-tool-approval";
 const OPT_DENY = "Deny";
 /** Longest decision-record summary (after redaction). */
 const SUMMARY_CAP = 500;
@@ -136,7 +136,7 @@ export function effectiveDeadlineMs(timeoutSeconds: unknown, busTimeoutMs: numbe
 }
 
 /** Map a PromptBus response `source` to the audit `answeredSurface`. */
-export function surfaceOf(source: string | undefined): string {
+function surfaceOf(source: string | undefined): string {
   if (source === "__bus__") return "bus";
   if (typeof source === "string" && source.startsWith("tui")) return "tui";
   return "dashboard";
@@ -201,18 +201,23 @@ export function createSupervisedGate(deps: SupervisedGateDeps) {
     });
     const tail = prior.then(() => mine);
     chains.set(sid, tail);
-    void tail.then(() => {
-      if (chains.get(sid) === tail) chains.delete(sid);
-    });
+    // The chain only ever resolves (`release()` in `finally`); the catch states that decision.
+    void tail
+      .then(() => {
+        if (chains.get(sid) === tail) chains.delete(sid);
+      })
+      .catch(() => undefined);
     try {
       const turn = await new Promise<"turn" | "aborted">((resolve) => {
         if (signal?.aborted) return resolve("aborted");
         const onAbort = () => resolve("aborted");
         signal?.addEventListener("abort", onAbort, { once: true });
-        void prior.then(() => {
-          signal?.removeEventListener("abort", onAbort);
-          resolve("turn");
-        });
+        void prior
+          .then(() => {
+            signal?.removeEventListener("abort", onAbort);
+            resolve("turn");
+          })
+          .catch(() => undefined);
       });
       if (turn === "aborted") return ABORTED;
       return await fn();

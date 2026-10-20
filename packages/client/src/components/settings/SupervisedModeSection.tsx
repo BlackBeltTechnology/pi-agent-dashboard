@@ -24,7 +24,7 @@ const TIMEOUT_MIN = 10;
 const TIMEOUT_MAX = 3600;
 
 /** A whole number of seconds in [10, 3600], else null. */
-export function parseSupervisedTimeout(raw: string): number | null {
+function parseSupervisedTimeout(raw: string): number | null {
   const s = raw.trim();
   if (!/^\d+$/.test(s)) return null;
   const n = Number(s);
@@ -35,7 +35,7 @@ export function parseSupervisedTimeout(raw: string): number | null {
  * Effective approval deadline in seconds: `max(1, min(supervised, askUser − 1))`. An ask_user
  * timeout ≤ 0 means "wait forever" (no undercut). Returns null when nothing undercuts.
  */
-export function undercutEffectiveSeconds(supervisedSeconds: number, askUserSeconds: number): number | null {
+function undercutEffectiveSeconds(supervisedSeconds: number, askUserSeconds: number): number | null {
   if (!(askUserSeconds > 0)) return null;
   const effective = Math.max(1, Math.min(supervisedSeconds, askUserSeconds - 1));
   return effective < supervisedSeconds ? effective : null;

@@ -20,7 +20,7 @@ export const DEFAULT_SUPERVISED_TOOLS: readonly string[] = ["bash", "powershell"
 export const readFamily: readonly string[] = ["read", "grep", "find", "ls"];
 
 /** Tools the default set gates (the "risky" classification). */
-export const riskySet: readonly string[] = DEFAULT_SUPERVISED_TOOLS;
+export const riskySet: readonly string[] = [...DEFAULT_SUPERVISED_TOOLS];
 
 /** Wrapper tools whose nested calls traverse `tool_call` individually. */
 export const wrapperTools: readonly string[] = ["codemode", "tool_search"];

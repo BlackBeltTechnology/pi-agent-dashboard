@@ -11,7 +11,7 @@
  */
 
 /** Longest per-session id list. */
-export const HANDOFF_CAP = 64;
+const HANDOFF_CAP = 64;
 
 export interface HandoffSet {
   record(sessionId: string, toolCallId: string): void;

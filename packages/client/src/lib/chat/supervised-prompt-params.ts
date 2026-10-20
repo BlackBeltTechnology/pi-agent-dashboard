@@ -8,7 +8,7 @@
  */
 
 /** Metadata keys copied verbatim (when present) into the interactive request's params. */
-export const SUPERVISED_METADATA_KEYS = [
+const SUPERVISED_METADATA_KEYS = [
   "kind",
   "deadline",
   "tool",

@@ -24,7 +24,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import type { InteractiveRendererProps } from "./types.js";
 
-export const SUPERVISED_APPROVAL_KIND = "supervised-tool-approval";
+const SUPERVISED_APPROVAL_KIND = "supervised-tool-approval";
 const ALLOW_ONCE = "Allow once";
 const DENY = "Deny";
 /** Seconds left at which the countdown turns warning-coloured and is announced once. */
@@ -39,7 +39,7 @@ function formatClock(totalSeconds: number): string {
 }
 
 /** True when a reason would be read as an option label (case-insensitive, trimmed). */
-export function reasonCollidesWithOption(reason: string): boolean {
+function reasonCollidesWithOption(reason: string): boolean {
   const r = reason.trim().toLowerCase();
   return r === ALLOW_ONCE.toLowerCase() || r === DENY.toLowerCase();
 }
