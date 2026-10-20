@@ -33,7 +33,7 @@ const GZIP_EXTS = new Set([".wasm", ".js", ".html", ".css"]);
 const MARKER_RE = /<!-- craft-shim:(\d+) -->/;
 const PROFILE_MARKER_RE = /<!-- craft-profile:([0-9a-f]+) -->/;
 /** Any `<script …>…</script>` element (attributes in group 1, body in group 2). */
-const SCRIPT_RE = /<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi;
+const SCRIPT_RE = /<script\b([^>]*)>([\s\S]*?)<\/script\b[^>]*>/gi;
 const TRUNK_EVENT = "TrunkApplicationStarted";
 const DISPATCH = `\n;dispatchEvent(new CustomEvent("${TRUNK_EVENT}"));\n`;
 
