@@ -2,10 +2,12 @@
 
 ## Purpose
 TBD - created by archiving change add-agent-role-model-tools. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: The dashboard SHALL register a `list_models` agent tool decoupled from roles
 
-The dashboard extension SHALL register a `list_models` tool via `pi.registerTool` at activation. The tool is READ-ONLY and returns the assignable model catalogue from the IN-PROCESS session registry via the EXACT SAME source the human Model Selector uses: `cachedModelRegistry.getAvailable().map(toModelInfo)` (the path feeding the `models_list` push and `flow:get-available-models`), NOT the dashboard server's `registry-singleton`. This guarantees the tool lists the same models the picker shows — including custom providers registered via `pi.registerProvider()` (which register into the same registry; `getAvailable()` surfaces pi-ai's catalog PLUS custom models) — and that returned `ref`s match what `update_roles` `set_role` persists and `model:resolve` resolves.
+The dashboard extension SHALL register a `list_models` tool via `pi.registerTool` at activation. The tool SHALL NOT write any config file (it is read-only with respect to `providers.json`, `auth.json`, `models.json`, `settings.json`); it MAY re-sync the in-process session registry before reading (see the resync requirement). It returns the assignable model catalogue from the IN-PROCESS session registry via the EXACT SAME source the human Model Selector uses: `cachedModelRegistry.getAvailable().map(toModelInfo)` (the path feeding the `models_list` push and `flow:get-available-models`), NOT the dashboard server's `registry-singleton`. This guarantees the tool lists the same models the picker shows — including custom providers registered via `pi.registerProvider()` (which register into the same registry; `getAvailable()` surfaces pi-ai's catalog PLUS custom models) — and that returned `ref`s match what `update_roles` `set_role` persists and `model:resolve` resolves.
 
 Each row SHALL carry the `toModelInfo` projection including the `custom?: boolean` flag (true for models from a `pi.registerProvider()` custom provider), so an agent can distinguish custom-provider models. Because `getAvailable()` is reachability-filtered, a custom provider without resolved credentials is excluded from the default result; the tool MAY accept an `annotated` flag surfacing every known model with `excludedReason` (`no-credential` / `oauth-incompatible`), derived in-process from the registry's `getAll()` minus `getAvailable()` (pi's session `ModelRegistry` exposes no `getAllAnnotated()` — that method exists only on the server's `InternalRegistry`).
 
@@ -176,3 +178,104 @@ Because `ctx.scopedModels` is an array that is **empty when no scoping is config
 - **AND** the output SHALL be identical to the pre-adoption behavior
 - **AND** the tool SHALL NOT throw due to the absent surface
 
+### Requirement: list_models SHALL resync the registry from global config before every read
+
+On every invocation with a present registry, `list_models` SHALL, before reading the catalogue, re-sync the session registry from machine-wide config the same way the Model Selector does on open: re-apply `~/.pi/agent/providers.json` custom-provider changes, then run a LOCAL-only registry refresh (no remote catalogue fetch) that re-reads `models.json` and stored credentials. Automatic; no caller parameter.
+
+#### Scenario: Provider added to providers.json after session start appears without a broadcast
+
+- **GIVEN** a session whose registry was hydrated before custom provider `newprov` (reachable, credentialed, model `m1`) was added to `~/.pi/agent/providers.json`
+- **AND** the session never received a `credentials_updated` broadcast
+- **WHEN** an agent invokes `list_models`
+- **THEN** the result SHALL include a row with `ref: "newprov/m1"` and `custom: true`
+
+#### Scenario: Provider removed from providers.json disappears
+
+- **GIVEN** custom provider `oldprov` was registered at session start and has since been removed from a well-formed `~/.pi/agent/providers.json`
+- **WHEN** an agent invokes `list_models`
+- **THEN** no row SHALL have `provider: "oldprov"`
+
+#### Scenario: Credential added after session start makes a model reachable
+
+- **GIVEN** a built-in provider whose credential was written to `auth.json` after the session started (no broadcast received)
+- **WHEN** an agent invokes `list_models` without `annotated`
+- **THEN** that provider's models SHALL be present in `models`
+
+#### Scenario: Resync never fetches remote catalogues
+
+- **WHEN** an agent invokes `list_models`
+- **THEN** the registry refresh SHALL be requested with network access disabled
+- **AND** a remote model-list fetch SHALL occur only for a custom provider whose `providers.json` entry was added or changed since the last sync
+
+#### Scenario: Agent sees every model the Selector shows after an out-of-band config change
+
+- **GIVEN** the global config changed out-of-band
+- **AND** no `enabledModels` filter is configured in `settings.json` and the session model scope is empty
+- **WHEN** the human opens the Model Selector and an agent invokes `list_models` in the same session
+- **THEN** the set of `ref`s the agent receives SHALL equal the set of models the Selector lists
+
+#### Scenario: Absent registry skips the resync
+
+- **GIVEN** the registry accessor is falsy
+- **WHEN** an agent invokes `list_models`
+- **THEN** no resync SHALL be attempted
+- **AND** the result SHALL be `{ models: [], registryReady: false, reason: <non-empty string> }` as before
+
+#### Scenario: Agent abort stops waiting without aborting the shared refresh
+
+- **GIVEN** a `list_models` resync is in flight
+- **WHEN** the tool call's abort signal fires
+- **THEN** the tool SHALL stop waiting and return the last-known catalogue without throwing
+- **AND** SHALL NOT start a registry refresh if one has not started yet
+- **AND** SHALL NOT abort a registry refresh already in progress (another caller may share its availability pass)
+- **AND** custom-provider discovery already in progress MAY continue in the background
+
+### Requirement: list_models resync failure SHALL degrade to the last-known catalogue
+
+If any resync step throws, is aborted, or exceeds its bound, `list_models` SHALL NOT throw; it SHALL log and return the last-known catalogue with `registryReady: true`. The providers re-apply and the local refresh SHALL each have their own bound, and the local refresh SHALL run even when the re-apply fails or times out. Per-provider refresh failures SHALL appear in an additive `refreshErrors: { provider, message }[]`, omitted when none or aborted.
+
+#### Scenario: providers.json re-apply throws
+
+- **GIVEN** re-applying `providers.json` throws
+- **WHEN** an agent invokes `list_models`
+- **THEN** the tool SHALL still run the local refresh and return the catalogue with `registryReady: true`
+- **AND** SHALL NOT throw
+
+#### Scenario: Slow providers re-apply still runs the local refresh
+
+- **GIVEN** the providers re-apply (e.g. a slow custom-provider `/models` discovery) does not settle within its bound
+- **AND** a built-in provider credential was written to `auth.json` after session start
+- **WHEN** an agent invokes `list_models`
+- **THEN** the local registry refresh SHALL still run after the re-apply bound elapses
+- **AND** that built-in provider's models SHALL be present in `models`
+
+#### Scenario: Hung refresh is bounded
+
+- **GIVEN** the local registry refresh does not settle within its bound
+- **WHEN** an agent invokes `list_models`
+- **THEN** the tool SHALL return the last-known catalogue with `registryReady: true` once the bound elapses
+
+#### Scenario: Registry cleared during the resync
+
+- **GIVEN** the registry accessor was present when the call started but returns falsy after the resync
+- **WHEN** the tool builds its result
+- **THEN** it SHALL use the registry instance read at call start and report `registryReady: true`
+
+#### Scenario: Per-provider refresh error is reported
+
+- **GIVEN** the refresh completes with an error for provider `flaky`
+- **WHEN** an agent invokes `list_models`
+- **THEN** the result SHALL include `refreshErrors` containing `{ provider: "flaky", message: <non-empty string> }`
+- **AND** `models` SHALL still contain every other reachable model
+
+#### Scenario: Clean refresh omits refreshErrors
+
+- **GIVEN** the refresh completes with no errors and no abort
+- **WHEN** an agent invokes `list_models`
+- **THEN** the result SHALL NOT carry a `refreshErrors` key
+
+#### Scenario: Aborted refresh omits refreshErrors
+
+- **GIVEN** the refresh resolves with `aborted: true` and a non-empty error map
+- **WHEN** an agent invokes `list_models`
+- **THEN** the result SHALL NOT carry a `refreshErrors` key

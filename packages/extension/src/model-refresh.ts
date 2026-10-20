@@ -112,3 +112,72 @@ export async function refreshAfterCredentialsReload(
     ? reportRefresh(registry?.refresh?.({ providers: touched }), `credentials reload refresh (${touched.join(", ")})`)
     : reportRefresh(registry?.refresh?.({ allowNetwork: false }), "credentials reload refresh (full, local)");
 }
+
+/**
+ * Bound on the providers.json re-apply `list_models` runs before its local
+ * refresh. When hit, discovery continues in the background on `reloadChain`.
+ * See change: list-models-auto-resync (design D1).
+ */
+export const PROVIDERS_RESYNC_TIMEOUT_MS = 5_000;
+
+/**
+ * Resync the in-process registry from global config before `list_models`
+ * reads it: (1) bounded, signal-aware `reloadProviders` re-apply; (2) skip if
+ * aborted; (3) local `refresh({allowNetwork:false})` bounded by
+ * `REFRESH_TIMEOUT_MS`. The signal is never passed into `refresh` — aborting a
+ * shared full refresh would supersede a concurrent `request_models` pass; the
+ * caller stops waiting by racing the signal instead. Never rejects.
+ * See change: list-models-auto-resync (design D1).
+ */
+export async function resyncForListModels(
+  registry: { refresh?: (opts: object) => Promise<ModelsRefreshResultLike | undefined> },
+  opts: { reloadProviders?: () => Promise<unknown>; signal?: AbortSignal } = {},
+): Promise<ModelsRefreshResultLike | undefined> {
+  const { reloadProviders, signal } = opts;
+  if (reloadProviders) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let onAbort: (() => void) | undefined;
+    try {
+      const pending = Promise.resolve().then(reloadProviders);
+      pending.catch(() => {});
+      const TIMED_OUT = Symbol("resync-timeout");
+      const outcome = await Promise.race([
+        pending,
+        new Promise<typeof TIMED_OUT>((resolve) => {
+          timer = setTimeout(() => resolve(TIMED_OUT), PROVIDERS_RESYNC_TIMEOUT_MS);
+        }),
+        new Promise<void>((resolve) => {
+          if (!signal) return;
+          onAbort = () => resolve();
+          if (signal.aborted) resolve();
+          else signal.addEventListener("abort", onAbort, { once: true });
+        }),
+      ]);
+      if (outcome === TIMED_OUT) {
+        console.warn(`[dashboard] list_models providers re-sync timed out after ${PROVIDERS_RESYNC_TIMEOUT_MS}ms — continuing`);
+      }
+    } catch (err) {
+      console.warn("[dashboard] list_models providers re-sync failed:", errText(err));
+    } finally {
+      if (timer) clearTimeout(timer);
+      if (onAbort) signal?.removeEventListener("abort", onAbort);
+    }
+  }
+  if (signal?.aborted) return undefined;
+  let pending: Promise<ModelsRefreshResultLike | undefined> | undefined;
+  try {
+    pending = registry.refresh?.({ allowNetwork: false });
+  } catch (err) {
+    console.warn("[dashboard] list_models refresh threw:", errText(err));
+    return undefined;
+  }
+  return reportRefresh(pending, "list_models refresh");
+}
+
+/** Map a refresh result to `{provider,message}[]`; `[]` when aborted or absent. */
+export function toRefreshErrors(
+  result: ModelsRefreshResultLike | undefined,
+): { provider: string; message: string }[] {
+  if (!result || result.aborted || !result.errors) return [];
+  return [...result.errors].map(([provider, err]) => ({ provider, message: errText(err) }));
+}
