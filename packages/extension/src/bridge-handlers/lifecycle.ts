@@ -31,7 +31,7 @@ import { createProcessScanScheduler } from "../process-scan-scheduler.js";
 import { scanChildProcessesAsync } from "../process-scanner.js";
 import { decideBridgeProjectTrust, readEventCwd } from "../project-trust.js";
 import { PromptBus } from "../prompt-bus.js";
-import { buildProviderCatalogue, toModelInfo } from "../provider-register.js";
+import { buildProviderCatalogue, reloadProviders, toModelInfo } from "../provider-register.js";
 import { gateRemoteRegistration, isRemoteEndpoint } from "../remote-registration-gate.js";
 import { registerRoleModelTools } from "../role-model-tools.js";
 import { autoStartServer } from "../server-auto-start.js";
@@ -320,6 +320,9 @@ export function registerSessionStart(inst: BridgeInstance): void {
       // Ctrl+P cycling). Absent on older pi / empty when unscoped → no filter.
       // See change: update-pi-core-0-83-adopt-apis.
       getScopedModels: () => (inst.cachedCtx as any)?.scopedModels,
+      // Resync from global config before each read.
+      // See change: list-models-auto-resync (design D2).
+      reloadProviders: () => reloadProviders(pi),
     });
 
     // Extract session file/dir early — needed for source detection and UI proxy

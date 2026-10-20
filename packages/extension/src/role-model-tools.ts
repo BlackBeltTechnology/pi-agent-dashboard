@@ -2,9 +2,11 @@
  * Agent-facing role/model tools (capability `agent-role-model-tools`).
  *
  * Three decoupled tools registered via `pi.registerTool` at bridge activation:
- *   - `list_models`  — READ. Assignable model catalogue from the IN-PROCESS
- *                      session registry (the exact ModelSelector source:
- *                      `cachedModelRegistry.getAvailable()`), roles-independent.
+ *   - `list_models`  — Never writes config. Resyncs the IN-PROCESS session
+ *                      registry from global config (providers.json re-apply +
+ *                      local refresh), then reads the ModelSelector source
+ *                      (`cachedModelRegistry.getAvailable()`), roles-independent.
+ *                      See change: list-models-auto-resync.
  *   - `list_roles`   — READ. `{ roles(bound-only), presets, activePreset }`.
  *   - `update_roles` — WRITE, action-dispatched, `ask_user`-confirmed. Mutates
  *                      the global `~/.pi/agent/providers.json` role slice.
@@ -23,6 +25,7 @@
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { resyncForListModels, toRefreshErrors } from "./model-refresh.js";
 import { getCustomProviderNames } from "./provider-register.js";
 import {
   addRoleName,
@@ -42,6 +45,12 @@ export interface RoleModelToolsDeps {
    * See change: update-pi-core-0-83-adopt-apis.
    */
   getScopedModels?: () => unknown;
+  /**
+   * Re-diff `~/.pi/agent/providers.json` into the session (bridge wires
+   * `reloadProviders(pi)`). Absent → `list_models` runs only the local refresh.
+   * See change: list-models-auto-resync (design D2).
+   */
+  reloadProviders?: () => Promise<unknown>;
 }
 
 // ── list_models row shape ───────────────────────────────────────────────────
@@ -125,6 +134,12 @@ export interface ModelsResult {
   registryReady: boolean;
   /** Present only when registryReady === false. */
   reason?: string;
+  /**
+   * Per-provider errors of the pre-read refresh. Omitted (never `[]`) on
+   * success or abort, mirroring `models_list.refreshErrors`.
+   * See change: list-models-auto-resync (design D4).
+   */
+  refreshErrors?: { provider: string; message: string }[];
 }
 
 /**
@@ -159,7 +174,7 @@ export function registerRoleModelTools(pi: ExtensionAPI, deps: RoleModelToolsDep
     name: "list_models",
     label: "List Models",
     description:
-      "List the assignable model catalogue from this session's registry — the exact set the human Model Selector shows (including custom providers). Each row carries a `ref` (\"provider/id\") assignable via update_roles. Pass `annotated: true` to also include models excluded for lack of credentials (each with an `excludedReason`). Independent of roles — works even when no roles are configured. The result also carries `registryReady`: when `false` the in-process registry is not yet hydrated (empty `models` + a `reason`) — retry shortly, do NOT conclude no models exist. When `registryReady` is `true` and `models` is unexpectedly empty, try `annotated: true` to reveal `no-credential`/`oauth-incompatible` exclusions.",
+      "List the assignable model catalogue from this session's registry (including custom providers). Before reading, it automatically resyncs the registry from global config (~/.pi/agent/providers.json, models.json, stored credentials) so out-of-band changes are seen; it never writes config. This matches the human Model Selector except that the Selector also applies settings `enabledModels`. Each row carries a `ref` (\"provider/id\") assignable via update_roles. Pass `annotated: true` to also include models excluded for lack of credentials (each with an `excludedReason`). Independent of roles — works even when no roles are configured. The result also carries `registryReady`: when `false` the in-process registry is not yet hydrated (empty `models` + a `reason`) — retry shortly, do NOT conclude no models exist. When `registryReady` is `true` and `models` is unexpectedly empty, try `annotated: true` to reveal `no-credential`/`oauth-incompatible` exclusions. An optional `refreshErrors` ([{provider, message}]) names providers whose catalogue refresh failed; their models may be stale or missing.",
     parameters: Type.Object({
       annotated: Type.Optional(
         Type.Boolean({
@@ -168,9 +183,35 @@ export function registerRoleModelTools(pi: ExtensionAPI, deps: RoleModelToolsDep
         }),
       ),
     }),
-    async execute(_id: any, params: any, _signal: any, _onUpdate: any, _ctx: any) {
+    async execute(_id: any, params: any, signal: any, _onUpdate: any, _ctx: any) {
       const annotated = params?.annotated === true;
-      const result = buildModelsResult(deps.getRegistry(), annotated, deps.getScopedModels?.());
+      const reg = deps.getRegistry();
+      let result: ModelsResult;
+      if (!reg) {
+        result = buildModelsResult(reg, annotated, deps.getScopedModels?.());
+      } else {
+        // Resync before read (design D3). The resync never passes the agent
+        // signal into refresh, and its internal signal race only covers the
+        // providers re-apply — so race the signal here too, or an abort would
+        // still wait out the refresh bound.
+        const sig: AbortSignal | undefined = signal instanceof AbortSignal ? signal : undefined;
+        let onAbort: (() => void) | undefined;
+        const refreshResult = await Promise.race([
+          resyncForListModels(reg, { reloadProviders: deps.reloadProviders, signal: sig }),
+          new Promise<undefined>((resolve) => {
+            if (!sig) return;
+            onAbort = () => resolve(undefined);
+            if (sig.aborted) resolve(undefined);
+            else sig.addEventListener("abort", onAbort, { once: true });
+          }),
+        ]);
+        if (onAbort) sig?.removeEventListener("abort", onAbort);
+        // Re-read after the await; fall back to the start-of-call instance if
+        // it was cleared so the answer stays registryReady:true.
+        result = buildModelsResult(deps.getRegistry() ?? reg, annotated, deps.getScopedModels?.());
+        const refreshErrors = toRefreshErrors(refreshResult);
+        if (refreshErrors.length > 0) result.refreshErrors = refreshErrors;
+      }
       return {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         details: result,
