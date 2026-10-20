@@ -206,11 +206,13 @@ function paint() {
     r.classList.toggle("sel", on); r.setAttribute("aria-selected", on);
     r.querySelector(".tick").innerHTML = on ? ic(P.check) : "";
   });
-  const targets = sel.length ? sel : [cwd];
+  const HOME = "/Users/ana"; // implicit home is never a fallback target (design D9)
+  const homeBlocked = !sel.length && cwd === HOME;
+  const targets = sel.length ? sel : homeBlocked ? [] : [cwd];
   const fresh = targets.filter((t) => !ADDED.has(t));
   const go = document.getElementById("go");
   go.disabled = !fresh.length;
-  go.textContent = !fresh.length ? "Already added" : fresh.length === 1 ? `Add “${leaf(fresh[0])}”` : `Add ${fresh.length} folders`;
+  go.textContent = homeBlocked ? "Select or open a folder" : !fresh.length ? "Already added" : fresh.length === 1 ? `Add "${leaf(fresh[0])}"` : `Add ${fresh.length} folders`;
   const hint = os === "touch" ? "Tap to open · long-press to select" : `Double-click to open · ${os === "mac" ? "⌘" : "Ctrl"}-click to select more`;
   document.getElementById("status").innerHTML = sel.length
     ? `${sel.length === 1 ? `Selected <code>${tilde(sel[0])}</code>` : `Selected <code>${sel.map(leaf).join(", ")}</code>`} <button class="link" id="clr">Clear</button>`

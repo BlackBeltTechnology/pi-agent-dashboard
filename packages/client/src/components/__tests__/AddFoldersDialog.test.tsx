@@ -1,10 +1,10 @@
 /**
- * Tests for AddFoldersDialog — the multi-select Add Folders flow.
- * Covers the selection basket (persists across navigation, pill removal,
- * empty-disables-commit, count-bearing action), the single-select workspace
- * destination + its empty state, the absence of any pin control (pinning is
- * implicit), pins-before-workspace-adds commit ordering, and session badges.
- * See change: redesign-folder-workspace-add-flow.
+ * Tests for AddFoldersDialog — the file-manager Add Folders flow.
+ * Covers commit targets (selection, else the browsed folder, never implicit
+ * home), already-added skip + labels, the status line, Escape-clears-first,
+ * the single-select workspace destination, the absence of any pin control,
+ * pins-before-workspace-adds ordering, and session badges.
+ * See changes: redesign-folder-workspace-add-flow, simplify-add-folder-picker.
  */
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
@@ -29,6 +29,7 @@ const HOME = {
     { name: "scratch", path: "/home/user/scratch" },
   ],
 };
+const WORK = { current: "/home/user/work", parent: "/home/user", entries: [{ name: "src", path: "/home/user/work/src" }] };
 const PROJECTS = {
   current: "/home/user/projects",
   parent: "/home/user",
@@ -67,47 +68,9 @@ describe("AddFoldersDialog", () => {
     );
   }
 
-  const check = (path: string) => screen.getByTestId(`path-picker-check-${path}`);
+  const row = (path: string) => screen.getByTestId(`path-picker-row-${path}`);
   const commit = () => screen.getByTestId("add-folders-commit") as HTMLButtonElement;
-
-  it("selections persist across navigation and the action reflects the count", async () => {
-    renderDialog();
-    await waitFor(() => expect(screen.getByText("work")).toBeTruthy());
-    fireEvent.click(check("/home/user/work"));
-    expect(commit().textContent).toMatch(/1/);
-
-    mockBrowse.mockResolvedValue(PROJECTS);
-    fireEvent.click(screen.getByTestId("path-picker-open-/home/user/projects"));
-    await waitFor(() => expect(screen.getByText("alpha")).toBeTruthy());
-    fireEvent.click(check("/home/user/projects/alpha"));
-
-    // Both survive the navigation.
-    expect(screen.getByTestId("add-folders-pill-/home/user/work")).toBeTruthy();
-    expect(screen.getByTestId("add-folders-pill-/home/user/projects/alpha")).toBeTruthy();
-    expect(commit().textContent).toMatch(/2/);
-  });
-
-  it("pill removal deselects and unticks the row", async () => {
-    renderDialog();
-    await waitFor(() => expect(screen.getByText("work")).toBeTruthy());
-    fireEvent.click(check("/home/user/work"));
-    expect(check("/home/user/work").getAttribute("aria-checked")).toBe("true");
-
-    fireEvent.click(screen.getByTestId("add-folders-pill-remove-/home/user/work"));
-    expect(screen.queryByTestId("add-folders-pill-/home/user/work")).toBeNull();
-    expect(check("/home/user/work").getAttribute("aria-checked")).toBe("false");
-  });
-
-  it("an empty basket disables commit and shows the empty hint", async () => {
-    renderDialog();
-    await waitFor(() => expect(screen.getByText("work")).toBeTruthy());
-    expect(commit().disabled).toBe(true);
-    expect(screen.getByTestId("add-folders-basket-empty")).toBeTruthy();
-
-    fireEvent.click(check("/home/user/work"));
-    expect(commit().disabled).toBe(false);
-    expect(screen.queryByTestId("add-folders-basket-empty")).toBeNull();
-  });
+  const dest = () => screen.getByTestId("add-folders-dest") as HTMLSelectElement;
 
   it("renders no pin control anywhere — pinning is implicit", async () => {
     const { container } = renderDialog();
@@ -120,8 +83,9 @@ describe("AddFoldersDialog", () => {
   it("commit with None pins every path and adds none to a workspace", async () => {
     renderDialog();
     await waitFor(() => expect(screen.getByText("work")).toBeTruthy());
-    fireEvent.click(check("/home/user/work"));
-    fireEvent.click(check("/home/user/scratch"));
+    fireEvent.click(row("/home/user/work"));
+    fireEvent.click(row("/home/user/scratch"), { ctrlKey: true });
+    expect(commit().textContent).toBe("Add 2 folders");
     fireEvent.click(commit());
 
     expect(onPin.mock.calls.map((c) => c[0]).sort()).toEqual([
@@ -139,39 +103,40 @@ describe("AddFoldersDialog", () => {
       onAddFolderToWorkspace: (ws: string, p: string) => order.push(`ws:${ws}:${p}`),
     });
     await waitFor(() => expect(screen.getByText("work")).toBeTruthy());
-    fireEvent.click(check("/home/user/work"));
-    fireEvent.click(screen.getByTestId("add-folders-dest-fe"));
+    fireEvent.click(row("/home/user/work"));
+    fireEvent.change(dest(), { target: { value: "fe" } });
     fireEvent.click(commit());
 
     expect(order).toEqual(["pin:/home/user/work", "ws:fe:/home/user/work"]);
   });
 
-  it("the destination is single-select and defaults to None", async () => {
+  it("the destination is one dropdown, single-select, default None", async () => {
     renderDialog();
     await waitFor(() => expect(screen.getByText("work")).toBeTruthy());
-    expect(screen.getByTestId("add-folders-dest-none").getAttribute("aria-checked")).toBe("true");
-
-    fireEvent.click(screen.getByTestId("add-folders-dest-fe"));
-    expect(screen.getByTestId("add-folders-dest-fe").getAttribute("aria-checked")).toBe("true");
-    expect(screen.getByTestId("add-folders-dest-none").getAttribute("aria-checked")).toBe("false");
-
-    fireEvent.click(screen.getByTestId("add-folders-dest-be"));
-    expect(screen.getByTestId("add-folders-dest-be").getAttribute("aria-checked")).toBe("true");
-    expect(screen.getByTestId("add-folders-dest-fe").getAttribute("aria-checked")).toBe("false");
+    expect(dest().value).toBe("");
+    expect(dest().selectedOptions[0].textContent).toBe("None (optional)");
+    expect([...dest().options].map((o) => o.textContent)).toEqual(["None (optional)", "Frontend", "Backend"]);
+    fireEvent.change(dest(), { target: { value: "fe" } });
+    expect(dest().value).toBe("fe");
+    fireEvent.change(dest(), { target: { value: "be" } });
+    expect(dest().value).toBe("be");
+    // No pills / radio chips remain.
+    expect(screen.queryAllByRole("radio")).toHaveLength(0);
   });
 
-  it("preselects the workspace it was opened from", async () => {
+  it("preselects the workspace it was opened from and says why", async () => {
     renderDialog({ initialWorkspaceId: "be" });
     await waitFor(() => expect(screen.getByText("work")).toBeTruthy());
-    expect(screen.getByTestId("add-folders-dest-be").getAttribute("aria-checked")).toBe("true");
+    expect(dest().value).toBe("be");
+    expect(screen.getByTestId("add-folders-dest-why").textContent).toContain("Backend");
+    fireEvent.change(dest(), { target: { value: "" } });
+    expect(screen.queryByTestId("add-folders-dest-why")).toBeNull();
   });
 
-  it("with zero workspaces renders the empty statement, no radio options", async () => {
+  it("with zero workspaces the dropdown offers None and + New workspace…", async () => {
     renderDialog({ workspaces: [], onCreateWorkspace: vi.fn() });
     await waitFor(() => expect(screen.getByText("work")).toBeTruthy());
-    expect(screen.getByTestId("add-folders-dest-empty").textContent).toMatch(/no workspaces yet/i);
-    expect(screen.queryByTestId("add-folders-dest-fe")).toBeNull();
-    expect(screen.getByTestId("add-folders-dest-new")).toBeTruthy();
+    expect([...dest().options].map((o) => o.textContent)).toEqual(["None (optional)", "+ New workspace…"]);
   });
 
   it("badges a directory that is a live session cwd, and only that one", async () => {
@@ -180,108 +145,6 @@ describe("AddFoldersDialog", () => {
     // pathKey collapses the trailing-separator drift → one folder, 2 sessions.
     expect(screen.getByTestId("path-picker-sessions-/home/user/work").textContent).toMatch(/2/);
     expect(screen.queryByTestId("path-picker-sessions-/home/user/scratch")).toBeNull();
-  });
-});
-
-// add-current-folder-to-add-flow — the current-directory self-row lets the user
-// add the folder they have navigated INTO. These cover the dialog-level
-// observables (basket label, pill label, commit → onPin); picker-level self-row
-// mechanics live in PathPicker.test.tsx.
-describe("AddFoldersDialog current-directory self-row", () => {
-  const onPin = vi.fn();
-  const onCancel = vi.fn();
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockBrowse.mockResolvedValue(HOME);
-    mockClassify.mockResolvedValue({});
-    mockMkdir.mockResolvedValue({ path: "/home/user/new" });
-  });
-
-  function renderDialog(props: Record<string, unknown> = {}) {
-    return render(
-      <AddFoldersDialog
-        workspaces={WORKSPACES}
-        initialPath="/home/user/"
-        onPin={onPin}
-        onCancel={onCancel}
-        {...props}
-      />,
-    );
-  }
-  const commit = () => screen.getByTestId("add-folders-commit") as HTMLButtonElement;
-
-  it("E1 — self-row activation adds the current directory to the basket", async () => {
-    renderDialog();
-    await screen.findByTestId("path-picker-self");
-    const browseCalls = mockBrowse.mock.calls.length;
-    // Click the self-row body — activation toggles (never browses).
-    fireEvent.click(screen.getByTestId("path-picker-self"));
-    expect(screen.getByTestId("add-folders-pill-/home/user")).toBeTruthy();
-    expect(commit().textContent).toMatch(/1/);
-    expect(mockBrowse.mock.calls.length).toBe(browseCalls); // no navigation
-  });
-
-  it("E4 — committing a sole self-row selection pins the current directory and closes", async () => {
-    renderDialog();
-    await screen.findByTestId("path-picker-self");
-    fireEvent.click(screen.getByTestId("path-picker-check-/home/user"));
-    fireEvent.click(commit());
-    expect(onPin.mock.calls).toEqual([["/home/user", true]]);
-    expect(onCancel).toHaveBeenCalled();
-  });
-
-  it("E5 — self-row selection coexists with a child selection", async () => {
-    renderDialog();
-    await screen.findByTestId("path-picker-self");
-    fireEvent.click(screen.getByTestId("path-picker-check-/home/user"));
-
-    mockBrowse.mockResolvedValue(PROJECTS);
-    fireEvent.click(screen.getByTestId("path-picker-open-/home/user/projects"));
-    await waitFor(() => expect(screen.getByText("alpha")).toBeTruthy());
-    fireEvent.click(screen.getByTestId("path-picker-check-/home/user/projects/alpha"));
-
-    expect(screen.getByTestId("add-folders-pill-/home/user")).toBeTruthy();
-    expect(screen.getByTestId("add-folders-pill-/home/user/projects/alpha")).toBeTruthy();
-    expect(commit().textContent).toMatch(/2/);
-  });
-
-  it("E8 — filesystem-root self-row yields a non-empty pill label and remove aria-label", async () => {
-    mockBrowse.mockResolvedValue({ current: "/", parent: null, entries: [{ name: "home", path: "/home" }] });
-    renderDialog({ initialPath: "/" });
-    await screen.findByTestId("path-picker-self");
-    fireEvent.click(screen.getByTestId("path-picker-check-/"));
-    const pill = screen.getByTestId("add-folders-pill-/");
-    expect(pill.textContent?.trim()).not.toBe("");
-    const remove = screen.getByTestId("add-folders-pill-remove-/");
-    expect(remove.getAttribute("aria-label")?.trim()).toBeTruthy();
-  });
-
-  it("E8b — Windows drive root pill preserves the full root, not the drive-relative `C:`", async () => {
-    // leafName must return `C:\` (the drive ROOT), never `C:` (drive-RELATIVE).
-    mockBrowse.mockResolvedValue({ current: "C:\\", parent: null, entries: [{ name: "Users", path: "C:\\Users" }] });
-    renderDialog({ initialPath: "C:\\" });
-    await screen.findByTestId("path-picker-self");
-    fireEvent.click(screen.getByTestId("path-picker-check-C:\\"));
-    const pill = screen.getByTestId("add-folders-pill-C:\\");
-    expect(pill.textContent).toContain("C:\\"); // full root, with the separator
-    const remove = screen.getByTestId("add-folders-pill-remove-C:\\");
-    expect(remove.getAttribute("aria-label")).toContain("C:\\");
-  });
-
-  it("E8c — UNC share root pill preserves the full share root", async () => {
-    mockBrowse.mockResolvedValue({
-      current: "\\\\server\\share\\",
-      parent: null,
-      entries: [{ name: "pub", path: "\\\\server\\share\\pub" }],
-    });
-    renderDialog({ initialPath: "\\\\server\\share\\" });
-    await screen.findByTestId("path-picker-self");
-    const check = screen.getByTestId("path-picker-self").querySelector("[role='checkbox']")!;
-    fireEvent.click(check);
-    const pill = screen.getByTestId("add-folders-basket").querySelector("[data-testid^='add-folders-pill-\\\\']");
-    expect(pill?.textContent).toContain("server");
-    expect(pill?.textContent).toContain("share");
   });
 });
 
@@ -330,7 +193,7 @@ describe("AddFoldersDialog new-workspace destination", () => {
       />,
     );
     await waitFor(() => expect(screen.getByText("work")).toBeTruthy());
-    fireEvent.click(screen.getByTestId("add-folders-dest-new"));
+    fireEvent.change(screen.getByTestId("add-folders-dest"), { target: { value: "__new__" } });
     const input = screen.getByRole("textbox", { name: /workspace/i }) as HTMLInputElement;
     fireEvent.change(input, { target: { value: "Infra" } });
     fireEvent.submit(input.closest("form") ?? input);
@@ -347,121 +210,202 @@ describe("AddFoldersDialog new-workspace destination", () => {
       />,
     );
     await waitFor(() =>
-      expect(screen.getByTestId("add-folders-dest-infra").getAttribute("aria-checked")).toBe("true"),
+      expect((screen.getByTestId("add-folders-dest") as HTMLSelectElement).value).toBe("infra"),
     );
   });
 });
 
-// redesign-folder-workspace-add-flow — WCAG 2.5.8 (Target Size Minimum, 24×24).
-// Caught by the live harness a11y pass: the compact glyphs rendered 14–16px hit
-// boxes. jsdom has no layout, so assert the padding contract that produces ≥24px.
-describe("AddFoldersDialog target sizes (WCAG 2.5.8)", () => {
+
+// simplify-add-folder-picker — commit targets, labels, status line and keys.
+// Ids map to openspec/changes/simplify-add-folder-picker/test-plan.md.
+describe("AddFoldersDialog file-manager commit", () => {
+  const onPin = vi.fn();
+  const onCancel = vi.fn();
+
   beforeEach(() => {
     vi.clearAllMocks();
-    mockBrowse.mockResolvedValue(HOME);
+    mockBrowse.mockImplementation(async (dir?: string) => (dir === "/home/user/work" ? WORK : HOME));
     mockClassify.mockResolvedValue({});
     mockMkdir.mockResolvedValue({ path: "/home/user/new" });
   });
 
-  it("row checkbox, row chevron, pill remove, destination and new-workspace controls carry a ≥24px hit box", async () => {
-    render(
-      <AddFoldersDialog
-        workspaces={WORKSPACES}
-        initialPath="/home/user/"
-        onPin={vi.fn()}
-        onCreateWorkspace={vi.fn()}
-        onCancel={vi.fn()}
-      />,
+  function renderDialog(props: Record<string, unknown> = {}) {
+    return render(
+      <AddFoldersDialog workspaces={WORKSPACES} initialPath="/home/user/" onPin={onPin} onCancel={onCancel} {...props} />,
     );
-    await waitFor(() => expect(screen.getByText("work")).toBeTruthy());
-
-    // Picker row controls.
-    for (const el of [
-      screen.getByTestId("path-picker-check-/home/user/work"),
-      screen.getByTestId("path-picker-open-/home/user/work"),
-    ]) {
-      expect(el.className).toMatch(/min-w-6/);
-      expect(el.className).toMatch(/min-h-6/);
-    }
-
-    // Destination radio + create affordance.
-    expect(screen.getByTestId("add-folders-dest-none").className).toMatch(/min-h-6/);
-    expect(screen.getByTestId("add-folders-dest-new").className).toMatch(/min-h-6/);
-
-    // Basket pill remove control (needs a selection first).
-    fireEvent.click(screen.getByTestId("path-picker-check-/home/user/work"));
-    const remove = screen.getByTestId("add-folders-pill-remove-/home/user/work");
-    expect(remove.className).toMatch(/min-w-6/);
-    expect(remove.className).toMatch(/min-h-6/);
-
-    // Theme-aware focus ring (project `.focus-ring` utility → 2px var(--focus-ring)),
-    // not the 1px UA default that is near-invisible on dark themes.
-    for (const el of [
-      screen.getByTestId("path-picker-check-/home/user/work"),
-      screen.getByTestId("path-picker-open-/home/user/work"),
-      screen.getByTestId("add-folders-dest-none"),
-      screen.getByTestId("add-folders-dest-new"),
-      screen.getByTestId("add-folders-commit"),
-      remove,
-    ]) {
-      expect(el.className).toMatch(/\bfocus-ring\b/);
-    }
-  });
-});
-
-// redesign-folder-workspace-add-flow — keyboard contract inside the dialog.
-// Space toggles the highlighted row's selection; Enter DESCENDS into it and must
-// never commit/close the dialog (the basket is the answer, not the input).
-describe("AddFoldersDialog keyboard: Space selects, Enter descends (never commits)", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockBrowse.mockResolvedValue(HOME);
-    mockClassify.mockResolvedValue({});
-    mockMkdir.mockResolvedValue({ path: "/home/user/new" });
-  });
-
-  it("Space selects the highlighted row without navigating", async () => {
-    const onPin = vi.fn();
-    render(
-      <AddFoldersDialog workspaces={WORKSPACES} initialPath="/home/user/" onPin={onPin} onCancel={vi.fn()} />,
-    );
-    await waitFor(() => expect(screen.getByText("work")).toBeTruthy());
-    const input = screen.getByRole("textbox");
-    fireEvent.keyDown(input, { key: "ArrowDown" }); // skip the current-dir self-row
-    fireEvent.keyDown(input, { key: "ArrowDown" }); // skip the `..` parent row
-    fireEvent.keyDown(input, { key: "ArrowDown" }); // land on the `work` child row
-    fireEvent.keyDown(input, { key: " " });
-
-    expect(screen.getByTestId("add-folders-pill-/home/user/work")).toBeTruthy();
-    expect(commitBtn().textContent).toMatch(/1/);
-    expect(onPin).not.toHaveBeenCalled(); // selecting is not committing
-  });
-
-  it("Enter descends into the highlighted row and does NOT commit or close", async () => {
-    const onPin = vi.fn();
-    const onCancel = vi.fn();
-    render(
-      <AddFoldersDialog workspaces={WORKSPACES} initialPath="/home/user/" onPin={onPin} onCancel={onCancel} />,
-    );
-    await waitFor(() => expect(screen.getByText("work")).toBeTruthy());
-    const input = screen.getByRole("textbox");
-    fireEvent.keyDown(input, { key: "ArrowDown" }); // skip the current-dir self-row
-    fireEvent.keyDown(input, { key: "ArrowDown" }); // skip the `..` parent row
-    fireEvent.keyDown(input, { key: "ArrowDown" }); // land on the `work` child row
-
-    mockBrowse.mockResolvedValue(PROJECTS);
-    fireEvent.keyDown(input, { key: "Enter" });
-
-    await waitFor(() => {
-      expect(mockBrowse.mock.calls.some((c) => c[0] === "/home/user/work")).toBe(true);
+  }
+  const row = (path: string) => screen.getByTestId(`path-picker-row-${path}`);
+  const commit = () => screen.getByTestId("add-folders-commit") as HTMLButtonElement;
+  const dest = () => screen.getByTestId("add-folders-dest") as HTMLSelectElement;
+  // Rows AND the picker→dialog onChange must have landed (the label depends on it).
+  const ready = () =>
+    waitFor(() => {
+      expect(screen.getByText("work")).toBeTruthy();
+      expect(screen.getByTestId("add-folders-status").textContent).not.toBe("Adds:" + screen.getByTestId("add-folders-hint").textContent);
     });
-    // Enter is navigation only: nothing pinned, dialog still open.
+
+  describe("E8 — commit target decision table", () => {
+    it("nothing selected, not home → Add \"<browsed leaf>\" pins the browsed folder", async () => {
+      renderDialog();
+      await ready();
+      expect(commit().textContent).toBe('Add "user"');
+      fireEvent.click(commit());
+      expect(onPin.mock.calls).toEqual([["/home/user", true]]);
+      expect(onCancel).toHaveBeenCalled();
+    });
+
+    it("one pinned row selected → disabled 'Already added'", async () => {
+      renderDialog({ pinnedPaths: ["/home/user/work"] });
+      await ready();
+      fireEvent.click(row("/home/user/work"));
+      expect(commit().disabled).toBe(true);
+      expect(commit().textContent).toBe("Already added");
+    });
+
+    it("pinned + new selected → Add \"<new leaf>\" pins only the new one", async () => {
+      renderDialog({ pinnedPaths: ["/home/user/work"] });
+      await ready();
+      fireEvent.click(row("/home/user/work"));
+      fireEvent.click(row("/home/user/scratch"), { ctrlKey: true });
+      expect(commit().textContent).toBe('Add "scratch"');
+      fireEvent.click(commit());
+      expect(onPin.mock.calls).toEqual([["/home/user/scratch", true]]);
+    });
+
+    it("two new selected → Add 2 folders pins both, never the browsed parent", async () => {
+      renderDialog();
+      await ready();
+      fireEvent.click(row("/home/user/work"));
+      fireEvent.click(row("/home/user/projects"), { ctrlKey: true });
+      expect(commit().textContent).toBe("Add 2 folders");
+      fireEvent.click(commit());
+      expect(onPin.mock.calls.map((c) => c[0])).toEqual(["/home/user/work", "/home/user/projects"]);
+    });
+
+    it("browsed folder already pinned, nothing selected → disabled 'Already added'", async () => {
+      renderDialog({ pinnedPaths: ["/home/user/"] });
+      await ready();
+      expect(commit().disabled).toBe(true);
+      expect(commit().textContent).toBe("Already added");
+    });
+  });
+
+  it("E9 — a Windows browsed folder commits in native form without the trailing separator", async () => {
+    mockBrowse.mockResolvedValue({ current: "C:\\Users\\me\\", parent: "C:\\Users", entries: [] });
+    renderDialog({ initialPath: "C:\\Users\\me\\" });
+    await waitFor(() => expect(commit().disabled).toBe(false));
+    fireEvent.click(commit());
+    expect(onPin.mock.calls).toEqual([["C:\\Users\\me", true]]);
+  });
+
+  it("E11 — select-all counts and commits only folders not yet added", async () => {
+    renderDialog({ pinnedPaths: ["/home/user/work"] });
+    await ready();
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "a", ctrlKey: true });
+    expect(commit().textContent).toBe("Add 2 folders");
+    fireEvent.click(commit());
+    expect(onPin.mock.calls.map((c) => c[0])).toEqual(["/home/user/projects", "/home/user/scratch"]);
+  });
+
+  it("E13 — opened on home: disabled with a hint, enabled inside a child, disabled again back home", async () => {
+    renderDialog({ initialPath: undefined });
+    await ready();
+    expect(commit().disabled).toBe(true);
+    expect(commit().textContent).toBe("Select or open a folder");
+    expect(screen.getByTestId("add-folders-status-home").textContent).toMatch(/home folder is never added/);
+    fireEvent.click(commit());
     expect(onPin).not.toHaveBeenCalled();
+
+    fireEvent.doubleClick(row("/home/user/work"));
+    await waitFor(() => expect(commit().textContent).toBe('Add "work"'));
+    expect(commit().disabled).toBe(false);
+
+    fireEvent.click(screen.getAllByRole("option").find((o) => o.textContent?.includes(".."))!);
+    await waitFor(() => expect(commit().textContent).toBe("Select or open a folder"));
+  });
+
+  it("E13b — home with a selection is fine (only the implicit fallback is blocked)", async () => {
+    renderDialog({ initialPath: undefined });
+    await ready();
+    fireEvent.click(row("/home/user/work"));
+    expect(commit().textContent).toBe('Add "work"');
+    expect(commit().disabled).toBe(false);
+  });
+
+  it("E14 — with an explicit initialPath the same folder is committable", async () => {
+    renderDialog();
+    await ready();
+    expect(commit().disabled).toBe(false);
+  });
+
+  it("F9 — committing right after opening a folder targets that folder", async () => {
+    renderDialog();
+    await ready();
+    fireEvent.doubleClick(row("/home/user/work"));
+    await waitFor(() => expect(screen.getByText("src")).toBeTruthy());
+    fireEvent.click(commit());
+    expect(onPin.mock.calls).toEqual([["/home/user/work", true]]);
+  });
+
+  it("F19 — Escape clears the selection first, closes on the second press", async () => {
+    renderDialog();
+    await ready();
+    fireEvent.click(row("/home/user/work"));
+    fireEvent.click(row("/home/user/scratch"), { ctrlKey: true });
+    const input = screen.getByRole("textbox");
+    fireEvent.keyDown(input, { key: "Escape" });
     expect(onCancel).not.toHaveBeenCalled();
     expect(screen.getByTestId("add-folders-dialog")).toBeTruthy();
+    expect(commit().textContent).toBe('Add "user"');
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("F25 — status line: browsed path, then selected names with a working Clear", async () => {
+    renderDialog();
+    await ready();
+    expect(screen.getByTestId("add-folders-status").textContent).toContain("Adds:");
+    expect(screen.getByTestId("add-folders-status-path").textContent).toBe("/home/user");
+    fireEvent.click(row("/home/user/work"));
+    fireEvent.click(row("/home/user/scratch"), { ctrlKey: true });
+    expect(screen.getByTestId("add-folders-status-selected").textContent).toBe("work, scratch");
+    fireEvent.click(screen.getByTestId("add-folders-clear"));
+    await waitFor(() => expect(screen.getByTestId("add-folders-status-path")).toBeTruthy());
+    expect(commit().textContent).toBe('Add "user"');
+  });
+
+  it("F26 — no basket, pills or row checkboxes render", async () => {
+    renderDialog();
+    await ready();
+    fireEvent.click(row("/home/user/work"));
+    expect(screen.queryByTestId("add-folders-basket")).toBeNull();
+    expect(screen.queryByTestId("add-folders-pill-/home/user/work")).toBeNull();
+    expect(screen.queryAllByRole("checkbox").filter((c) => c.closest("[role='listbox']"))).toHaveLength(0);
+  });
+
+  it("X3 — nothing to commit while the first browse is pending", async () => {
+    mockBrowse.mockReturnValue(new Promise(() => { /* never resolves */ }));
+    renderDialog();
+    expect(commit().disabled).toBe(true);
+    fireEvent.click(commit());
+    expect(onPin).not.toHaveBeenCalled();
+  });
+
+  it("controls meet the target-size floor, use tokens, and the footer is sticky", async () => {
+    renderDialog({ onCreateWorkspace: vi.fn() });
+    await ready();
+    fireEvent.click(row("/home/user/work"));
+    expect(screen.getByTestId("add-folders-clear").className).toMatch(/min-h-6/);
+    expect(dest().className).toMatch(/min-h-\[44px\]/);
+    expect(commit().className).toMatch(/min-h-\[44px\]/);
+    expect(commit().className).toMatch(/--accent-solid/);
+    expect(commit().className).not.toMatch(/bg-blue-/);
+    expect(commit().className).toMatch(/truncate/);
+    for (const el of [screen.getByTestId("add-folders-clear"), dest(), commit()]) {
+      expect(el.className).toMatch(/\bfocus-ring\b/);
+    }
+    expect(commit().closest(".sticky")).toBeTruthy();
+    // Readable text: no --text-muted anywhere in the dialog body.
+    expect(screen.getByTestId("add-folders-dialog").innerHTML).not.toMatch(/--text-muted/);
   });
 });
-
-function commitBtn(): HTMLButtonElement {
-  return screen.getByTestId("add-folders-commit") as HTMLButtonElement;
-}

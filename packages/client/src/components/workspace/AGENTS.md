@@ -4,7 +4,7 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 
 | File | Purpose |
 |------|---------|
-| `AddFoldersDialog.tsx` | Multi-select "Add folders" dialog: wraps `PathPicker` in multi-select mode + removable-pill basket +… → see `AddFoldersDialog.tsx.AGENTS.md` |
+| `AddFoldersDialog.tsx` | File-manager "Add folders" dialog: `PathPicker` click-selects / dbl-click opens + status line +… → see `AddFoldersDialog.tsx.AGENTS.md` |
 | `AddToWorkspaceMenu.tsx` | Popover menu listing workspaces plus `+ New workspace…` entry + remove-from-workspace (when owned). → see `AddToWorkspaceMenu.tsx.AGENTS.md` |
 | `GroupedAttachDialog.tsx` | Grouped attach dialog with pill filters + collapsible sections for OpenSpec change selection. See change: add-openspec-change-grouping. |
 | `NewWorkspaceDialog.tsx` | Single-input dialog creating a workspace. Exports `NewWorkspaceDialog`. Validates trimmed name 1–80 chars (`NAME_MAX`), calls `onCreate(name)`. Auto-focuses input. See change: `folder-workspaces`. |
