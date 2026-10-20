@@ -662,10 +662,10 @@ UI reference: `mockups/index.html` + `mockups/ui-plan.md` (states a-*, b-*, c-*)
 
 ### Manual (deferred post-merge by `ship-change`)
 
-- [ ] 8.97 Copy makes no isolation claim: toggle menu, card, Settings, docs note; human reads
+- [x] 8.97 Copy makes no isolation claim: toggle menu, card, Settings, docs note; human reads
       shipped strings — judgment: reads as approval, not protection; container path named
       (complements automated E41) (test-plan: manual-only, #F12)
-- [ ] 8.98 Card visual fit: card beside `ConfirmRenderer` in base dark / base light / nord dark at
+- [x] 8.98 Card visual fit: card beside `ConfirmRenderer` in base dark / base light / nord dark at
       375 and 1440; human looks — judgment: consistent with interactive-renderer surface
       (test-plan: manual-only, #F13)
 

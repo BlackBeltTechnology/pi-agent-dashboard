@@ -151,6 +151,11 @@ window by **deferring immediately** (deferred update) and then editing the defer
 when the session responds. On `prompt_dismiss`/`prompt_cancel` for that prompt, the gateway
 SHALL remove or disable the interactive controls.
 
+The gateway SHALL NOT render a supervised tool-approval prompt
+(`metadata.kind === "supervised-tool-approval"`) nor a path-gate prompt enriched with
+supervised content (`metadata.supervised === true`), for spawned and attached sessions
+alike; those prompts are answered on the dashboard or the session's terminal only.
+
 Submitting an answer SHALL require authorization at tier `control` or above. Where the
 question arose from a command a specific principal invoked, only that principal SHALL be
 able to answer it; where no principal invoked it, any principal holding at least `control`
@@ -179,6 +184,11 @@ on that binding SHALL be able to answer.
 #### Scenario: Question from a session no Discord principal invoked
 - **WHEN** a session bound by attaching to an existing dashboard session raises a question
 - **THEN** any principal holding at least `control` on that binding SHALL be able to answer it
+
+#### Scenario: Supervised approval is not posted to the channel
+- **GIVEN** a bound session with supervised mode on
+- **WHEN** it raises a supervised tool-approval prompt or a supervised-enriched path prompt
+- **THEN** the gateway SHALL NOT post interactive controls for it
 
 ### Requirement: Layered authorization
 The gateway SHALL enforce: L1 — only allowlisted platform users (established via a pairing
