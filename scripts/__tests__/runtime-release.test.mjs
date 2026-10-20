@@ -21,7 +21,7 @@ import url from "node:url";
 import { describe, expect, it } from "vitest";
 import { checkPublished } from "../assert-bundled-plugins-published.mjs";
 import { checkRuntimeRelease } from "../assert-runtime-release.mjs";
-import { breakHardLinks, pruneBinLinks, sha512Line } from "../build-runtime-asset.mjs";
+import { breakHardLinks, moveFile, pruneBinLinks, sha512Line } from "../build-runtime-asset.mjs";
 import { buildRuntimeRootManifest, finalizeRuntimeLock, serverTarballUrl } from "../generate-runtime-lock.mjs";
 import {
   bundledPluginPackages,
@@ -313,6 +313,27 @@ describe("build-runtime-asset", () => {
       expect(fs.readFileSync(p, "utf8")).toBe("ELF");
       if (process.platform !== "win32") expect(st.mode & 0o777).toBe(0o755);
     }
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  // Windows runners: os.tmpdir() on C:, the workspace on D: — rename throws EXDEV.
+  it("moveFile falls back to copy + unlink when rename crosses devices (EXDEV)", () => {
+    const root = mk();
+    const src = path.join(root, "a.tgz");
+    const dst = path.join(root, "out", "a.tgz");
+    fs.mkdirSync(path.dirname(dst));
+    fs.writeFileSync(src, "TGZ");
+    const exdev = () => {
+      throw Object.assign(new Error("EXDEV: cross-device link not permitted"), { code: "EXDEV" });
+    };
+    moveFile(src, dst, exdev);
+    expect(fs.readFileSync(dst, "utf8")).toBe("TGZ");
+    expect(fs.existsSync(src)).toBe(false);
+    const eperm = () => {
+      throw Object.assign(new Error("EPERM"), { code: "EPERM" });
+    };
+    fs.writeFileSync(src, "X");
+    expect(() => moveFile(src, dst, eperm)).toThrow(/EPERM/);
     fs.rmSync(root, { recursive: true, force: true });
   });
 

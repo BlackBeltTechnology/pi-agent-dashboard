@@ -99,6 +99,20 @@ function unlinkExtraHardLink(p, seen) {
   return true;
 }
 
+/**
+ * Move `src` to `dst`; on EXDEV (Windows runners: os.tmpdir() on C:, the
+ * workspace on D:) fall back to copy + unlink. Other errors propagate.
+ */
+export function moveFile(src, dst, rename = renameSync) {
+  try {
+    rename(src, dst);
+  } catch (err) {
+    if (err?.code !== "EXDEV") throw err;
+    copyFileSync(src, dst);
+    unlinkSync(src);
+  }
+}
+
 /** `.sha512` file body: hex digest, two spaces, asset name. */
 export function sha512Line(hex, assetName) {
   return `${hex}  ${assetName}\n`;
@@ -167,7 +181,7 @@ export async function buildRuntimeAsset({ version, outDir, deps = stagerDeps(), 
     mkdirSync(outDir, { recursive: true });
     const asset = join(outDir, assetName);
     rmSync(asset, { force: true });
-    renameSync(built, asset);
+    moveFile(built, asset);
     const sha512 = await sha512Of(asset);
     writeFileSync(`${asset}.sha512`, sha512Line(sha512, assetName));
     return { asset, sha512 };
