@@ -3,7 +3,7 @@
  * (state, event) → new state
  */
 
-import { findSessionEventReducer } from "@blackbelt-technology/dashboard-plugin-runtime/host";
+import { findSessionEventReducer, findToolRowFinalizer } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import {
   type EventTypeOwner,
   matchEventTypeOwner,
@@ -430,11 +430,7 @@ export {
   readLiveTail,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/subagent-types.js";
 
-import {
-  readSubagentDetails,
-  type SubagentState,
-  setSubagentState,
-} from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/subagent-types.js";
+import type { SubagentState } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/subagent-types.js";
 
 export interface SessionState {
   messages: ChatMessage[];
@@ -604,10 +600,6 @@ export function synthesizeSupersededEnd(toolCallId: string, now: number): Dashbo
 }
 
 
-/** Result of a subagent-stop heal when the subagent reported no result. */
-export const SUBAGENT_DONE_NO_RESULT = "subagent finished";
-/** Result of a subagent-stop heal when the subagent failed without error text. */
-export const SUBAGENT_FAILED_NO_ERROR = "subagent failed";
 /** Body of the neutral settle heal: the turn ended, the subagent's outcome never arrived. */
 export const SUBAGENT_STOPPED_SENTINEL_BODY = "subagent stopped — result not received";
 
@@ -633,67 +625,27 @@ function findEligibleAgentRows(state: SessionState, agentId?: string): number[] 
 }
 
 /**
- * Finalize one running Agent row from its subagent's terminal state by reducing
- * a synthesized `tool_execution_end` through the real end arm (design D1). The
- * timestamp is the TRIGGER's, so the same stream yields the same `duration`.
- * A later real end overwrites it. See change: finalize-agent-card-on-subagent-stop.
- */
-function finalizeAgentRowFromSubagent(
-  state: SessionState,
-  toolCallId: string,
-  sub: SubagentState,
-  healedBy: string,
-  timestamp: number,
-): SessionState {
-  const failedSub = sub.status === "failed";
-  const result = failedSub
-    ? sub.error || SUBAGENT_FAILED_NO_ERROR
-    : sub.result || SUBAGENT_DONE_NO_RESULT;
-  const details: Record<string, unknown> = {
-    agentId: sub.id,
-    status: failedSub ? "error" : "completed",
-    ...(failedSub ? { error: result } : {}),
-    ...(sub.durationMs !== undefined ? { durationMs: sub.durationMs } : {}),
-    ...(sub.toolUses !== undefined ? { toolUses: sub.toolUses } : {}),
-  };
-  return reduceEvent(state, {
-    eventType: "tool_execution_end",
-    timestamp,
-    data: { toolCallId, toolName: "Agent", result, isError: failedSub, healedBy, details },
-  });
-}
-
-/**
  * A live `tool_execution_update` for a row finalized by a `session_ended` heal
  * proves the producing process is alive (a live bridge replay fabricated that
- * end). Restore the row, its `toolCalls` entry and, for `Agent`, a subagent the
- * same heal failed, to `running`. Real terminals and every other heal are left
- * alone. Mutates `next` (messages array and toolCalls map are already copies).
- * See change: fix-replay-fabricates-orphan-end-for-live-calls (D6).
+ * end). Restore the row and its `toolCalls` entry to `running`. Real terminals
+ * and every other heal are left alone. This is the ROW half: the subagents
+ * plugin's Agent finalizer reopens a subagent the same heal failed (it is asked
+ * right after, with the pre-event state). Mutates `next` (messages array and
+ * toolCalls map are already copies).
+ * See change: fix-replay-fabricates-orphan-end-for-live-calls (D6), decouple-plugins-from-core (4.6).
  */
-function reopenSessionEndedRow(next: SessionState, idx: number, toolCallId: string, partialResult: unknown): void {
+function reopenSessionEndedRow(next: SessionState, idx: number, toolCallId: string): void {
   const row = next.messages[idx];
   if (row.toolStatus === "running" || row.toolDetails?.healedBy !== "session_ended") return;
   const { healedBy: _h, resultMissing: _m, error: _e, ...restDetails } = row.toolDetails;
   next.messages[idx] = { ...row, toolStatus: "running", duration: undefined, toolDetails: { ...restDetails, status: "running" } };
   const tc = next.toolCalls.get(toolCallId);
   if (tc) next.toolCalls.set(toolCallId, { ...tc, status: "running" });
-  if (row.toolName !== "Agent") return;
-  const tickDetails =
-    typeof partialResult === "object" && partialResult !== null
-      ? ((partialResult as Record<string, unknown>).details as Record<string, unknown> | undefined)
-      : undefined;
-  const agentId =
-    typeof tickDetails?.agentId === "string"
-      ? tickDetails.agentId
-      : typeof row.toolDetails.agentId === "string"
-        ? row.toolDetails.agentId
-        : undefined;
-  const sub = agentId ? next.subagents.get(agentId) : undefined;
-  if (!sub || sub.healedBy !== "session_ended") return;
-  const { healedBy: _sh, error: _se, ...restSub } = sub;
-  next.subagents = new Map(next.subagents);
-  setSubagentState(next.subagents, { ...restSub, status: "running" });
+}
+
+/** Options core hands a tool-row finalizer: re-entry into this reducer for synthesized events. */
+function finalizerOpts(isLive: boolean | undefined) {
+  return { isLive, reduce: (s: SessionState, e: DashboardEvent) => reduceEvent(s, e) };
 }
 
 /**
@@ -701,7 +653,9 @@ function reopenSessionEndedRow(next: SessionState, idx: number, toolCallId: stri
  * subagent's outcome reached this client. The row stops spinning with the
  * sentinel body and `resultMissing`; the `toolCalls` entry stays `running` so
  * the stale reconcile can still fetch the authoritative result. No subagent
- * backfill: an unknown subagent is not recorded as completed.
+ * backfill: an unknown subagent is not recorded as completed. Runs when no Agent
+ * finalizer is registered or it declines (the subagents plugin finalizes a row
+ * whose subagent already reported a terminal state).
  */
 function neutralSettleAgentRow(state: SessionState, idx: number, timestamp: number): SessionState {
   const m = state.messages[idx];
@@ -1906,19 +1860,15 @@ export function reduceEvent(
       next.retryState = undefined;
       next.retryCancelled = undefined;
       // A foreground Agent call cannot outlive its parent's settle: finalize any
-      // card still spinning (its end was lost). Known terminal subagent → its
-      // outcome; otherwise a neutral heal. See change:
-      // finalize-agent-card-on-subagent-stop (D4).
+      // card still spinning (its end was lost). The registered Agent finalizer is
+      // asked first (known terminal subagent → its outcome); a missing or declining
+      // finalizer leaves the neutral heal to run. See change:
+      // finalize-agent-card-on-subagent-stop (D4), decouple-plugins-from-core (D5 item 9).
       {
-        let healed: SessionState = next;
-        for (const idx of findEligibleAgentRows(next)) {
-          const m = healed.messages[idx];
-          const agentId = typeof m.toolDetails?.agentId === "string" ? m.toolDetails.agentId : undefined;
-          const sub = agentId ? healed.subagents.get(agentId) : undefined;
-          healed =
-            sub && (sub.status === "completed" || sub.status === "failed")
-              ? finalizeAgentRowFromSubagent(healed, m.toolCallId!, sub, "turn_settled", event.timestamp)
-              : neutralSettleAgentRow(healed, idx, event.timestamp);
+        let healed: SessionState =
+          findToolRowFinalizer<SessionState>("Agent")?.onSessionEvent?.(next, event, finalizerOpts(isLive)) ?? next;
+        for (const idx of findEligibleAgentRows(healed)) {
+          healed = neutralSettleAgentRow(healed, idx, event.timestamp);
         }
         if (healed !== next) return healed;
       }
@@ -2596,8 +2546,13 @@ export function reduceEvent(
       if (partialResult) {
         const idx = next.messages.findLastIndex((m) => m.toolCallId === toolCallId);
         if (idx !== -1) {
+          // Agent rows: the registered finalizer owns the subagent half of this tick. It
+          // gets the pre-event state (`prior`) so it can tell a row the reopen below
+          // restored from one that was already running.
+          const finalizer = next.messages[idx].toolName === "Agent" ? findToolRowFinalizer<SessionState>("Agent") : undefined;
+          const prior: SessionState | undefined = finalizer ? { ...next } : undefined;
           next.messages = [...next.messages];
-          reopenSessionEndedRow(next, idx, toolCallId, partialResult);
+          reopenSessionEndedRow(next, idx, toolCallId);
           // Structured partialResult (e.g. Agent tool sends { content, details })
           if (typeof partialResult === "object" && partialResult !== null) {
             const structured = partialResult as Record<string, unknown>;
@@ -2617,87 +2572,26 @@ export function reduceEvent(
               ...(details ? { toolDetails: details } : {}),
             };
 
-            // Durable live hydration of the subagent inspector map. The Agent
-            // tool's partial `details` carry the full running snapshot
-            // (entries[], status, tokens…) on every ~250ms tick and ride this
-            // DURABLE message channel, which survives the WS back-pressure /
-            // bridge-not-ready loss that silently drops the ephemeral
-            // `subagent_*` event_forward frames. Mirror the tool_execution_end
-            // backfill (below) so the map is fed live from this channel too,
-            // not only at completion — otherwise expand/popout shows "Subagent
-            // not found" for the whole run under load. Self-selecting: only the
-            // Agent tool's details carry `agentId`.
-            // See change: fix-subagent-live-detail-durable-hydration.
-            const liveAgentId =
-              next.messages[idx].toolName === "Agent" && details && typeof details.agentId === "string"
-                ? (details.agentId as string)
-                : undefined;
-            if (liveAgentId) {
-              next.subagents = new Map(next.subagents);
-              const existingSub = next.subagents.get(liveAgentId);
-              const isTerminal = existingSub?.status === "completed" || existingSub?.status === "failed";
-              const tokensUsage = details!.tokensUsage as SubagentState["tokens"] | undefined;
-              const patch: Partial<SubagentState> = {
-                // Never regress a terminal state a late/reordered partial races.
-                ...(isTerminal ? {} : { status: "running" }),
-                ...(tokensUsage !== undefined ? { tokens: tokensUsage } : {}),
-                ...readSubagentDetails(details),
-              };
-              const merged: SubagentState = {
-                id: liveAgentId,
-                type:
-                  existingSub?.type ??
-                  (typeof details!.subagentType === "string" ? (details!.subagentType as string) : "unknown"),
-                description:
-                  existingSub?.description ??
-                  (typeof details!.description === "string" ? (details!.description as string) : ""),
-                ...existingSub,
-                ...Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)),
-              } as SubagentState;
-              // The heal marker records why the CURRENT terminal status exists;
-              // a running write drops it. See change:
-              // fix-replay-fabricates-orphan-end-for-live-calls (D5).
-              if (!isTerminal) delete merged.healedBy;
-              setSubagentState(next.subagents, merged);
+            // A heal-settled card (`turn_settled`) is not reopened by a late tick: keep the
+            // prior terminal fields, let the rest (stats) merge. (Row-only; the subagents
+            // plugin keeps a card of a finished subagent terminal the same way.)
+            // See change: finalize-agent-card-on-subagent-stop (D5).
+            if (priorRow.toolName === "Agent" && priorRow.toolStatus !== "running" && priorRow.toolDetails?.healedBy === "turn_settled") {
+              const kept: Record<string, unknown> = { ...(next.messages[idx].toolDetails ?? {}) };
+              for (const key of ["status", "error", ...HEAL_ONLY_DETAIL_KEYS]) {
+                if (priorRow.toolDetails && key in priorRow.toolDetails) kept[key] = priorRow.toolDetails[key];
+                else delete kept[key];
+              }
+              next.messages[idx] = { ...next.messages[idx], result: priorRow.result, toolDetails: kept };
             }
 
-            // A finished subagent's card is not reopened by a late tick: keep
-            // the prior terminal fields, let the rest (stats) merge.
-            // See change: finalize-agent-card-on-subagent-stop (D5).
-            if (priorRow.toolName === "Agent" && priorRow.toolStatus !== "running") {
-              const priorAgentId =
-                typeof priorRow.toolDetails?.agentId === "string" ? priorRow.toolDetails.agentId : liveAgentId;
-              const priorSub = priorAgentId ? next.subagents.get(priorAgentId) : undefined;
-              // A `session_ended` orphan-close backfills the subagent as failed
-              // itself, so that status is not knowledge. Such a row was already
-              // reopened above by `reopenSessionEndedRow` (D6), so this branch
-              // only sees it when the reopen did not apply.
-              const priorHeal = priorRow.toolDetails?.healedBy;
-              const subFinished =
-                priorHeal !== "session_ended" && (priorSub?.status === "completed" || priorSub?.status === "failed");
-              if (subFinished || priorHeal === "turn_settled") {
-                const kept: Record<string, unknown> = { ...(next.messages[idx].toolDetails ?? {}) };
-                for (const key of ["status", "error", ...HEAL_ONLY_DETAIL_KEYS]) {
-                  if (priorRow.toolDetails && key in priorRow.toolDetails) kept[key] = priorRow.toolDetails[key];
-                  else delete kept[key];
-                }
-                next.messages[idx] = { ...next.messages[idx], result: priorRow.result, toolDetails: kept };
-              }
-            } else if (liveAgentId) {
-              // The row just learned an agent id whose subagent already stopped.
-              // See change: finalize-agent-card-on-subagent-stop (D3b).
-              // Subagent state first: the common running tick does no scan.
-              const sub = next.subagents.get(liveAgentId);
-              if (
-                sub &&
-                (sub.status === "completed" || sub.status === "failed") &&
-                priorRow.toolStatus === "running" &&
-                priorRow.role === "toolResult" &&
-                next.toolCalls.get(toolCallId)?.status === "running"
-              ) {
-                return finalizeAgentRowFromSubagent(next, toolCallId, sub, "subagent_stopped", event.timestamp);
-              }
-            }
+            // Durable live hydration of the subagent inspector map + the late-tick block
+            // (a finished subagent keeps its card terminal; finalize on a newly learned
+            // stopped subagent) are the Agent finalizer's. None registered, or it declines
+            // → `SessionState.subagents` is untouched.
+            // See change: fix-subagent-live-detail-durable-hydration, decouple-plugins-from-core (4.6).
+            const finalized = finalizer?.onToolExecution?.(next, event, { ...finalizerOpts(isLive), prior });
+            if (finalized) return finalized;
           } else {
             // Plain string partialResult (standard tools)
             next.messages[idx] = {
@@ -2829,90 +2723,22 @@ export function reduceEvent(
         if (closed !== nestedList) writeNested(next, toolCallId, closed);
       }
 
-      // Subagent backfill: when this tool_execution_end refers to a completed
-      // Agent run (toolName === "Agent" + details.agentId), also write to
-      // next.subagents so `/resume` and page-refresh re-hydrate the inspector
-      // map. Live `subagent_*` events normally populate this map, but
-      // state-replay.ts does NOT synthesize them — it only re-emits the
-      // tool_execution_end. Without this branch, expand/popout for completed
-      // subagents shows "Subagent not found" after refresh.
-      //
-      // Merge semantics preserve prior non-undefined fields (live
-      // subagent_completed could arrive before or after this backfill),
-      // making the two paths commutative.
-      //
-      // See change: add-subagent-inspector §12 and design.md Decision 7.
+      // Subagent backfill: a `tool_execution_end` of a completed Agent run
+      // (details.agentId) also feeds `SessionState.subagents` so `/resume` and
+      // page-refresh re-hydrate the inspector map (state-replay re-emits only
+      // the end, never `subagent_*`). That write belongs to the subagents
+      // plugin's registered Agent finalizer (merge keeps prior non-undefined
+      // fields so live and replay commute; a `healedBy` end never changes a
+      // terminal subagent; heal provenance recorded/cleared). None registered,
+      // or it declines → the row is finalized above and `subagents` is untouched.
+      // See change: add-subagent-inspector §12 and design.md Decision 7,
+      // decouple-plugins-from-core (4.6).
       {
         const toolName = data.toolName as string | undefined;
-        const endDetails = data.details as Record<string, unknown> | undefined;
-        const agentId =
-          endDetails && typeof endDetails.agentId === "string" ? endDetails.agentId : undefined;
-        const existingBackfillSub = agentId ? next.subagents.get(agentId) : undefined;
-        const subagentIsTerminal =
-          existingBackfillSub?.status === "completed" || existingBackfillSub?.status === "failed";
-        // The patch below sets `status` unconditionally and is spread AFTER
-        // `existingSub`, so a synthesized end would overwrite a REAL
-        // `completed` subagent with `failed` — reachable whenever
-        // `subagent_completed` arrived but the process died before the Agent
-        // tool's own end. A heal only reduces a non-terminal subagent.
-        // See change: heal-orphaned-tool-cards-on-session-end (design D4).
-        if (toolName === "Agent" && agentId && !(healedBy !== undefined && subagentIsTerminal)) {
-          const isError = data.isError as boolean;
-          const resultStr = typeof data.result === "string" ? (data.result as string) : undefined;
-          const detailError =
-            endDetails && typeof endDetails.error === "string"
-              ? (endDetails.error as string)
-              : undefined;
-          const durationMs =
-            endDetails && typeof endDetails.durationMs === "number"
-              ? (endDetails.durationMs as number)
-              : undefined;
-          const tokensUsage = endDetails?.tokensUsage as SubagentState["tokens"] | undefined;
-          const toolUses =
-            endDetails && typeof endDetails.toolUses === "number"
-              ? (endDetails.toolUses as number)
-              : undefined;
-          const detailsPatch = readSubagentDetails(endDetails);
-
-          // Build the patch with the explicit-fields-take-precedence rule.
-          const patch: Partial<SubagentState> = {
-            status: isError ? "failed" : "completed",
-            ...(resultStr && !isError ? { result: resultStr } : {}),
-            ...(isError ? { error: resultStr ?? detailError } : {}),
-            ...(durationMs !== undefined ? { durationMs } : {}),
-            ...(tokensUsage !== undefined ? { tokens: tokensUsage } : {}),
-            ...(toolUses !== undefined ? { toolUses } : {}),
-            ...detailsPatch,
-          };
-
-          next.subagents = new Map(next.subagents);
-          const existingSub = next.subagents.get(agentId);
-          // mergeNonUndefined semantics: preserve prior non-undefined fields
-          // rather than overwrite with undefined. This makes live + replay
-          // paths commutative regardless of arrival order.
-          const merged: SubagentState = {
-            id: agentId,
-            type:
-              existingSub?.type ??
-              (typeof endDetails?.subagentType === "string"
-                ? (endDetails.subagentType as string)
-                : "unknown"),
-            description:
-              existingSub?.description ??
-              (typeof endDetails?.description === "string"
-                ? (endDetails.description as string)
-                : ""),
-            ...existingSub,
-            ...Object.fromEntries(
-              Object.entries(patch).filter(([, v]) => v !== undefined),
-            ),
-          } as SubagentState;
-          // Record which heal produced this terminal; a real end clears it.
-          // See change: fix-replay-fabricates-orphan-end-for-live-calls (D5).
-          if (typeof healedBy === "string" && healedBy) merged.healedBy = healedBy;
-          else delete merged.healedBy;
-          setSubagentState(next.subagents, merged);
-        }
+        const finalized = toolName
+          ? findToolRowFinalizer<SessionState>(toolName)?.onToolExecution?.(next, event, finalizerOpts(isLive))
+          : undefined;
+        if (finalized) return finalized;
       }
       break;
     }
@@ -3164,49 +2990,6 @@ export function reduceEvent(
       break;
     }
 
-    case "subagent_completed":
-    case "subagent_failed": {
-      const id = data.id as string;
-      const details = (data.details as Record<string, unknown> | undefined) ?? undefined;
-      const existingSubagent = next.subagents.get(id);
-      // Same rule as the Agent backfill: a synthesized heal never regresses a
-      // subagent that already reported a real terminal state.
-      // See change: heal-orphaned-tool-cards-on-session-end (design D4).
-      if (
-        data.healedBy !== undefined &&
-        (existingSubagent?.status === "completed" || existingSubagent?.status === "failed")
-      ) {
-        break;
-      }
-      next.subagents = new Map(next.subagents);
-      const existing = existingSubagent;
-      setSubagentState(next.subagents, {
-        ...(existing ?? { id, type: data.type as string ?? "unknown", description: data.description as string ?? "" }),
-        status: event.eventType === "subagent_completed" ? "completed" : "failed",
-        // Heal provenance (D5): set by a synthesized terminal, cleared by a real one.
-        healedBy: typeof data.healedBy === "string" && data.healedBy ? data.healedBy : undefined,
-        result: data.result as string | undefined,
-        error: data.error as string | undefined,
-        durationMs: data.durationMs as number | undefined,
-        tokens: data.tokens as SubagentState["tokens"],
-        toolUses: data.toolUses as number | undefined,
-        ...readSubagentDetails(details),
-        liveBlock: undefined,
-      });
-      // The subagent stopped: finalize its Agent card even if the tool's own end
-      // was lost. Propagates the trigger's heal marker (e.g. `session_ended`).
-      // See change: finalize-agent-card-on-subagent-stop (D3a).
-      if (typeof id === "string") {
-        const [idx] = findEligibleAgentRows(next, id);
-        const sub = next.subagents.get(id);
-        if (idx !== undefined && sub) {
-          const healedBy = typeof data.healedBy === "string" && data.healedBy ? data.healedBy : "subagent_stopped";
-          return finalizeAgentRowFromSubagent(next, next.messages[idx].toolCallId!, sub, healedBy, event.timestamp);
-        }
-      }
-      break;
-    }
-
     case "entry_persisted": {
       // Bridge-emitted back-fill: when pi persists a user/assistant entry
       // and assigns its id, the bridge sends entry_persisted { entryId, nonce }.
@@ -3242,8 +3025,15 @@ export function reduceEvent(
       // subagents plugin owns `subagent_created|started|entry|delta`); its
       // reduce is pure and returns the state it was given when nothing changed.
       // A disabled plugin has no slice, so its events fold into the group row.
+      //
+      // The registered Agent finalizer settles a slice-owned event that stops a
+      // subagent (`subagent_completed|failed`: it writes the terminal state and stops
+      // the Agent row) and declines the rest; a decline leaves the slice to reduce.
       const slice = findSessionEventReducer<SessionState>(event.eventType);
-      if (slice) return slice.reduce(next, event, { isLive });
+      if (slice) {
+        const settled = findToolRowFinalizer<SessionState>("Agent")?.onSessionEvent?.(next, event, finalizerOpts(isLive));
+        return settled ?? slice.reduce(next, event, { isLive });
+      }
       const owner = ownerOfEventType(event.eventType);
       if (owner) {
         next.messages = foldIntoOwnedGroup(next.messages, owner.ownerId, event.eventType, event.timestamp, event.data);

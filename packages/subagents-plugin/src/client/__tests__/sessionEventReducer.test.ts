@@ -15,10 +15,18 @@ const ev = (eventType: string, data: Record<string, unknown>): DashboardEvent =>
 const empty = (): SubagentSessionSlice => ({ subagents: new Map() });
 
 describe("subagents sessionEventReducer", () => {
-  it("claims the four stream events and nothing else (completed/failed stay with the finalizer, 4.6)", () => {
+  it("owns the four stream events plus completed/failed (written by the finalizer, 4.6)", () => {
     const claims = (t: string) => sessionEventReducer.eventTypes.some((p) => matchesEventTypePattern(p, t));
-    for (const t of ["subagent_created", "subagent_started", "subagent_entry", "subagent_delta"]) expect(claims(t)).toBe(true);
-    for (const t of ["subagent_completed", "subagent_failed", "tool_execution_end"]) expect(claims(t)).toBe(false);
+    for (const t of ["subagent_created", "subagent_started", "subagent_entry", "subagent_delta", "subagent_completed", "subagent_failed"]) {
+      expect(claims(t)).toBe(true);
+    }
+    for (const t of ["tool_execution_end", "tool_execution_update", "agent_settled"]) expect(claims(t)).toBe(false);
+  });
+
+  it("subagent_completed|failed are left to the Agent finalizer: the slice returns the same state", () => {
+    const before = empty();
+    expect(sessionEventReducer.reduce(before, ev("subagent_completed", { id: "a", result: "r" }))).toBe(before);
+    expect(sessionEventReducer.reduce(before, ev("subagent_failed", { id: "a", error: "e" }))).toBe(before);
   });
 
   it("subagent_started writes a running state into a NEW map; the input state is never mutated", () => {

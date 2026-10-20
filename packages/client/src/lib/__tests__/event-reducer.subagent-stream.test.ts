@@ -2,6 +2,8 @@
  * Live subagent timeline from the entry/delta streams (L1).
  * Folded from test-plan.md E9–E13, X4. See change: add-plugin-bridge-contributions (D7).
  */
+
+import { readFileSync } from "node:fs";
 import {
   createSlotRegistry,
   registerSessionEventReducer,
@@ -12,7 +14,7 @@ import { __resetSessionReducersForTests } from "@blackbelt-technology/dashboard-
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { afterEach, describe, expect, it } from "vitest";
 import { PLUGIN_REGISTRY } from "../../generated/plugin-registry.js";
-import { registerSubagentsReducerSlice } from "../../test-support/subagents-reducer-slice.js";
+import { disableSubagentsPlugin, registerSubagentsReducerSlice } from "../../test-support/subagents-reducer-slice.js";
 import { createInitialState, reduceEvent, type SessionState } from "../chat/event-reducer.js";
 import { setEventTypeOwners } from "../plugins/event-type-owners.js";
 
@@ -135,7 +137,10 @@ describe("plugin-registered session event reducer slice (E41)", () => {
       "subagent_started",
       "subagent_entry",
       "subagent_delta",
+      "subagent_completed",
+      "subagent_failed",
     ]);
+    expect(entry?.toolRowFinalizers?.map((f) => f.toolName)).toEqual(["Agent"]);
   });
 
   it("subagents enabled: subagent_started updates `subagents`, adds no raw/group row", () => {
@@ -164,5 +169,120 @@ describe("plugin-registered session event reducer slice (E41)", () => {
     setSessionReducerEnabledSet(new Set(["subagents"]));
     s = apply([entry(0)], s);
     expect(s.subagents.get("a")?.entries).toHaveLength(1);
+  });
+});
+
+// ── The Agent finalizer owns every other writer of SessionState.subagents ────
+// Durable partialResult hydration + the /resume backfill are plugin code (D5
+// item 8): the dual index (agentId + agentSessionId) shares ONE object, and the
+// live `subagent_completed` path commutes with the replay `tool_execution_end`.
+// See change: decouple-plugins-from-core (test-plan #E46, #E47).
+describe("subagent status writers are plugin hooks", () => {
+  afterEach(() => {
+    registerSubagentsReducerSlice();
+  });
+
+  const startAgent = (id = "tc") => ev("tool_execution_start", { toolCallId: id, toolName: "Agent", args: {} });
+  const agentTick = (details: Record<string, unknown>, toolCallId = "tc", toolName = "Agent") =>
+    ev("tool_execution_update", {
+      toolCallId,
+      toolName,
+      partialResult: { content: [{ type: "text", text: "working" }], details },
+    });
+  const e1 = step(1);
+  const e2 = step(2);
+
+  it("partialResult hydrates the map live under both index keys, one reference (E46 a)", () => {
+    const s = apply([
+      startAgent(),
+      agentTick({ agentId: "ag-1", agentSessionId: "s-9", status: "running", entries: [e1, e2] }),
+    ]);
+    const sub = s.subagents.get("ag-1");
+    expect(sub?.status).toBe("running");
+    expect(sub?.entries).toHaveLength(2);
+    expect(s.subagents.get("s-9")).toBe(sub);
+  });
+
+  it("a non-Agent update leaves `subagents` untouched (E46 b)", () => {
+    const before = apply([ev("tool_execution_start", { toolCallId: "r", toolName: "read", args: {} })]);
+    const s = reduceEvent(before, agentTick({ agentId: "ag-1", status: "running" }, "r", "read"));
+    expect(s.subagents).toBe(before.subagents);
+  });
+
+  it("plugin off: Agent partialResult does not touch `subagents` (E46 c)", () => {
+    disableSubagentsPlugin();
+    const before = apply([startAgent()]);
+    const s = reduceEvent(before, agentTick({ agentId: "ag-1", agentSessionId: "s-9", status: "running", entries: [e1] }));
+    expect(s.subagents).toBe(before.subagents);
+    expect(s.subagents.size).toBe(0);
+    // The row still renders from the tick's details (collapsed summary + no state).
+    expect(s.messages.find((m) => m.toolCallId === "tc")?.toolDetails?.agentId).toBe("ag-1");
+  });
+
+  it("plugin off: structured Agent end does not backfill `subagents`", () => {
+    disableSubagentsPlugin();
+    const before = apply([startAgent()]);
+    const s = reduceEvent(
+      before,
+      ev("tool_execution_end", { toolCallId: "tc", toolName: "Agent", result: "done", isError: false, details: { agentId: "ag-1" } }),
+    );
+    expect(s.subagents).toBe(before.subagents);
+    expect(s.messages.find((m) => m.toolCallId === "tc")?.toolStatus).toBe("complete");
+  });
+
+  /**
+   * @structural-pin the plugin-core boundary: every subagent-state writer lives in the subagents plugin, so the
+   * core reducer's source must hold no `subagents.set(` / `setSubagentState(` (spec `subagents-plugin-state`).
+   */
+  it("the core reducer source has no `subagents.set(` writer (E46)", () => {
+    const src = readFileSync(new URL("../chat/event-reducer.ts", import.meta.url), "utf8");
+    expect(src).not.toMatch(/subagents\.set\(/);
+    expect(src).not.toMatch(/setSubagentState\(/);
+  });
+
+  it("live subagent_completed and replay end-backfill commute (E47)", () => {
+    const L = ev("subagent_completed", { id: "ag-1", result: "R", durationMs: 90, toolUses: 3, details: { agentId: "ag-1", agentSessionId: "s-9" } });
+    const Rend = ev("tool_execution_end", {
+      toolCallId: "tc",
+      toolName: "Agent",
+      result: "R",
+      isError: false,
+      details: { agentId: "ag-1", agentSessionId: "s-9", toolUses: 3 },
+    });
+    const base = apply([startAgent(), agentTick({ agentId: "ag-1", agentSessionId: "s-9", subagentType: "Explore", description: "d", status: "running" })]);
+    const lr = apply([L, Rend], base);
+    const rl = apply([Rend, L], base);
+    const a = lr.subagents.get("ag-1");
+    const b = rl.subagents.get("ag-1");
+    expect(a?.status).toBe("completed");
+    expect(a).toEqual(b);
+    expect(lr.subagents.get("s-9")).toBe(a);
+    expect(rl.subagents.get("s-9")).toBe(b);
+  });
+
+  it("a replay end-backfill after /resume re-hydrates the map", () => {
+    const s = apply([
+      startAgent(),
+      ev("tool_execution_end", {
+        toolCallId: "tc",
+        toolName: "Agent",
+        result: "done",
+        isError: false,
+        details: { agentId: "ag-1", agentSessionId: "s-9", subagentType: "Explore", description: "probe" },
+      }),
+    ]);
+    const sub = s.subagents.get("ag-1");
+    expect(sub).toMatchObject({ status: "completed", type: "Explore", description: "probe", result: "done" });
+    expect(s.subagents.get("s-9")).toBe(sub);
+  });
+
+  it("a late running tick never regresses a really-terminal subagent", () => {
+    const s = apply([
+      startAgent(),
+      agentTick({ agentId: "ag-1", status: "running" }),
+      ev("subagent_completed", { id: "ag-1", result: "R" }),
+      agentTick({ agentId: "ag-1", status: "running", toolUses: 9 }),
+    ]);
+    expect(s.subagents.get("ag-1")?.status).toBe("completed");
   });
 });

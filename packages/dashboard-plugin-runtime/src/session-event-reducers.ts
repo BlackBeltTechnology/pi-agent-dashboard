@@ -38,18 +38,46 @@ export interface SessionEventReducerSlice<S = unknown> {
   reduce(state: S, event: SessionEventLike, opts?: { isLive?: boolean }): S;
 }
 
+/** Options a finalizer hook receives from the shell's reducer. */
+export interface ToolRowFinalizerOpts<S = unknown> {
+  isLive?: boolean;
+  /**
+   * Re-enter the shell reducer with a synthesized event (e.g. the `tool_execution_end`
+   * a finalizer reduces to stop a row). Always present when the shell calls a hook.
+   */
+  reduce?(state: S, event: SessionEventLike): S;
+  /**
+   * `tool_execution_update` only: the state BEFORE the shell touched the row for
+   * this event (before its row-half reopen of a `session_ended`-healed row).
+   * Lets the finalizer tell a reopened row from a running one and keep a
+   * finished card terminal.
+   */
+  prior?: S;
+}
+
 /**
  * A plugin's finalizer for the chat rows of one tool. The reducer asks the
  * registered finalizer first at its tool-row heal sites; a missing finalizer, or
  * one that returns `undefined` (declines), leaves the neutral core heal to run.
+ *
+ * Contract (from `session-end-orphan-heal`): finalize only `running` rows; never
+ * overwrite a real terminal row; on a synthesized (`healedBy`) event never change
+ * a plugin state already terminal; record heal provenance on the plugin state.
  */
 export interface ToolRowFinalizer<S = unknown> {
   /** Tool whose rows this finalizer owns (e.g. `"Agent"`). */
   toolName: string;
-  /** Called for `tool_execution_*` events of `toolName`. Return the new state, or `undefined` to decline. */
-  onToolExecution?(state: S, event: SessionEventLike, opts?: { isLive?: boolean }): S | undefined;
-  /** Called for session-level events that settle the tool's rows. Return the new state, or `undefined` to decline. */
-  onSessionEvent?(state: S, event: SessionEventLike, opts?: { isLive?: boolean }): S | undefined;
+  /**
+   * Called for `tool_execution_update` / `tool_execution_end` of `toolName`, AFTER the
+   * shell applied its row-level change. Return the new state, or `undefined` to decline.
+   */
+  onToolExecution?(state: S, event: SessionEventLike, opts?: ToolRowFinalizerOpts<S>): S | undefined;
+  /**
+   * Called for session-level events that settle the tool's rows (`agent_settled`) and for
+   * every event an enabled plugin slice owns (the finalizer ignores the types it does not
+   * settle). Return the new state, or `undefined` to decline.
+   */
+  onSessionEvent?(state: S, event: SessionEventLike, opts?: ToolRowFinalizerOpts<S>): S | undefined;
 }
 
 interface SliceEntry {

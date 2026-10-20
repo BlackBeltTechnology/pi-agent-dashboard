@@ -11,10 +11,11 @@
  * Pure: returns the SAME state when a frame changes nothing, otherwise a new
  * state with a fresh `subagents` Map (the previous Map is never mutated).
  *
- * TODO(decouple-plugins-from-core 4.6): `subagent_completed|failed`, the Agent
- * `partialResult` hydration and the `/resume` backfill still write
- * `SessionState.subagents` in the core reducer until the Agent tool-row
- * finalizer takes them over.
+ * `subagent_completed|failed` are OWNED here too (listed in `eventTypes`, so with
+ * the plugin off they fold into the owned group row) but written by the Agent
+ * tool-row finalizer (`./toolRowFinalizer.ts`, `onSessionEvent`), which also owns
+ * the `partialResult` hydration and the `/resume` backfill. This slice leaves
+ * them untouched.
  *
  * See change: decouple-plugins-from-core (D5 item 6); add-plugin-bridge-contributions (D7).
  */
@@ -131,7 +132,8 @@ const ARMS: Record<string, Reduce> = {
 };
 
 export const sessionEventReducer: SessionEventReducerSlice<SubagentSessionSlice> = {
-  eventTypes: Object.keys(ARMS),
+  // `subagent_completed|failed`: owned for the plugin-off group row; the finalizer writes them.
+  eventTypes: [...Object.keys(ARMS), "subagent_completed", "subagent_failed"],
   reduce: (state, event) =>
     Object.hasOwn(ARMS, event.eventType) ? ARMS[event.eventType](state, event.data, event.timestamp) : state,
 };

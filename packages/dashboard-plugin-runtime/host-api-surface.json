@@ -45,6 +45,7 @@
     "TextField",
     "ToggleField",
     "ToolRowFinalizer",
+    "ToolRowFinalizerOpts",
     "UiPrimitiveProvider",
     "UiPrimitiveProviderProps",
     "UiPrimitiveRegistry",

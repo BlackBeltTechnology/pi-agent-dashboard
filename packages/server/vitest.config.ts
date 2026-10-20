@@ -39,7 +39,13 @@ export default defineConfig({
     // Config-relative path (not the package name) so the worktree-local source
     // wins over the hoisted-workspace node_modules symlink, mirroring the
     // client config's resolve.alias rationale. See change: parallelize-test-suite.
-    setupFiles: [path.resolve(__dirname, "../shared/src/test-support/setup-home-perfile.ts")],
+    // `subagents-reducer-slice` registers the subagents plugin's reducer slice + Agent finalizer so the
+    // replay suites that fold events through the client reducer keep asserting `SessionState.subagents`.
+    // See change: decouple-plugins-from-core (design D5 item 11).
+    setupFiles: [
+      path.resolve(__dirname, "../shared/src/test-support/setup-home-perfile.ts"),
+      path.resolve(__dirname, "./src/__tests__/setup/subagents-reducer-slice.ts"),
+    ],
   },
   resolve: {
     // Worktree-local shared source wins over the hoisted-workspace symlink

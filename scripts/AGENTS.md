@@ -23,7 +23,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/codeql-local.test.mjs` | Pure decision logic of `codeql-local.mjs` (#E14, #E15, #E17, #E19-#E22, #E24, #E29 writer, #P1). See change: add-local-codeql-ratchet. |
 | `__tests__/coverage-config.test.mjs` | Coverage config shape; `coverage-unloaded` fixture stays unloaded (E29-E31). See change: triage-browser-e2e-offbox-poison. |
 | `__tests__/coverage-report.test.mjs` | Live coverage runs; E2 scoped to `fixtures/coverage-unloaded`. See change: triage-browser-e2e-offbox-poison. |
-| `__tests__/client-isolate-gate.test.mjs` | Client isolate gate. |
+| `__tests__/client-isolate-gate.test.mjs` | Client isolate gate. Also E22 (keycloak dep dropped) and E51: client + server vitest configs list the subagents slice+finalizer setup file, each carries one `integration-keep` allowlist row naming the replay contract, boundary gate exits 0. See change: decouple-plugins-from-core (task 8.65). |
 | `__tests__/e2e-fixture-import.test.mjs` | Guard tests for `check-e2e-fixture-import.mjs` (E6/E7, trust-write lint E21/E22). See change: triage-browser-e2e-offbox-poison. |
 | `__tests__/e2e-reap-core.test.mjs` | L1 for `tests/e2e/reap-core.ts` (reap, refusal verdict, trust isolation E8-E18, X5-X16). See change: triage-browser-e2e-offbox-poison. |
 | `__tests__/e2e-trust-seed.test.mjs` | Runs the `test-entrypoint.sh` config-seed program verbatim (E23-E25). See change: triage-browser-e2e-offbox-poison. |

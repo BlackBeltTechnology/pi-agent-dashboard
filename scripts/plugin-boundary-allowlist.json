@@ -140,7 +140,15 @@
       "from": "packages/client/src/test-support/subagents-reducer-slice.ts",
       "to": "subagents-plugin",
       "kind": "test",
-      "reason": "Vitest setup file registers the subagents session event reducer slice so core replay suites keep asserting SessionState.subagents (design D5 item 11).",
+      "reason": "Vitest setup file registers the subagents session event reducer slice and Agent tool-row finalizer so core replay suites keep asserting SessionState.subagents (replay contract, design D5 item 11).",
+      "disposition": "integration-keep",
+      "removedBy": "never"
+    },
+    {
+      "from": "packages/server/src/__tests__/setup/subagents-reducer-slice.ts",
+      "to": "subagents-plugin",
+      "kind": "test",
+      "reason": "Server vitest setup file registers the subagents reducer slice and Agent tool-row finalizer so the replay suites folding through the client reducer keep asserting SessionState.subagents (replay contract, design D5 item 11).",
       "disposition": "integration-keep",
       "removedBy": "never"
     },

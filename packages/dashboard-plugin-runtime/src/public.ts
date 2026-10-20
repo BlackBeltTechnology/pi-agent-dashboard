@@ -88,6 +88,7 @@ export {
 export type {
   SessionEventReducerSlice,
   ToolRowFinalizer,
+  ToolRowFinalizerOpts,
 } from "./session-event-reducers.js";
 export {
   getSessionEvents,
