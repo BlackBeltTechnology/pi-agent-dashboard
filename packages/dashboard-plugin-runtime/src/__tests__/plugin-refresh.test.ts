@@ -147,6 +147,51 @@ describe("refreshPluginDiscovery — additive load, restart required (E58)", () 
   });
 });
 
+describe("refreshPluginDiscovery — a pi-package server grant loads the never-loaded entry (E61 c, decouple 6.12)", () => {
+  function piPackage(id: string): { agentDir: string } {
+    const agentDir = path.join(tmp, "node_modules", "agent");
+    const dir = path.join(agentDir, "npm", "node_modules", `pi-${id}`);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "server.mjs"), `export default async () => { (globalThis.__refreshSpy ||= []).push(${JSON.stringify(id)}); };\n`);
+    fs.writeFileSync(
+      path.join(dir, "package.json"),
+      JSON.stringify({ name: `pi-${id}`, version: "1.0.0", "pi-dashboard-plugin": { id, displayName: id, claims: [], server: "./server.mjs", hostApi: "^1.0.0" } }),
+    );
+    fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({ packages: [`npm:pi-${id}`] }));
+    return { agentDir };
+  }
+
+  it("an untrusted pi-package stays refused across refreshes; once trusted the refresh loads it (no restartRequired); a loaded one is never re-run", async () => {
+    const { agentDir } = piPackage("quota");
+    let trusted = false;
+    const broadcasts: PluginStatus[][] = [];
+    const loadDeps = {
+      createContext: ctx,
+      isEnabled: () => true,
+      repoRoot: root,
+      discovery: { piPackages: { agentDir, npmRoot: path.join(tmp, "no-global") } },
+      isServerTrusted: () => trusted,
+    };
+    const refresher = createPluginRefresher({ loadDeps, broadcast: (p) => broadcasts.push(p) });
+    await loadServerEntries(loadDeps);
+    expect(row("quota")).toMatchObject({ loaded: false, error: "server-untrusted" });
+    await refresher.refreshPluginDiscovery();
+    expect(g.__refreshSpy).toEqual([]);
+    expect(row("quota")).toMatchObject({ loaded: false, error: "server-untrusted" });
+
+    trusted = true;
+    await refresher.refreshPluginDiscovery();
+    expect(g.__refreshSpy).toEqual(["quota"]);
+    expect(row("quota")).toMatchObject({ loaded: true });
+    expect(row("quota")?.error).toBeUndefined();
+    expect(row("quota")?.restartRequired).toBeUndefined();
+
+    await refresher.refreshPluginDiscovery();
+    expect(g.__refreshSpy).toEqual(["quota"]);
+    expect(broadcasts).toHaveLength(3);
+  });
+});
+
 describe("refreshPluginDiscovery — failures and coalescing", () => {
   it("X7: a throwing server entry is recorded loaded:false with its error; the other loads; one broadcast", async () => {
     const { loadDeps, refresher, broadcasts } = setup();

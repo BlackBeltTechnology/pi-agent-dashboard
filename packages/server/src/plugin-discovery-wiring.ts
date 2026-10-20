@@ -21,6 +21,8 @@ export interface PluginDiscoveryWiringDeps {
   readDeclaredBundledIds: () => readonly string[] | undefined;
   /** Drops the content-hash stat cache: on every discovery refresh (via the refresher) and package-operation completion (task 6.7). */
   clearContentHashCache?: () => void;
+  /** After every completed discovery refresh: the structured runtime-admission log (task 6.20). */
+  logAdmissions?: () => void;
   /** Cwds of the active (not ended) sessions, live. */
   listActiveCwds: () => readonly string[];
   /** Broadcast one `plugins_changed` to browsers. */
@@ -65,6 +67,11 @@ export function createPluginDiscoveryWiring(deps: PluginDiscoveryWiringDeps): Pl
     broadcast: deps.broadcastPluginsChanged,
   });
 
+  async function refreshPluginDiscovery(): Promise<void> {
+    await refresher.refreshPluginDiscovery();
+    deps.logAdmissions?.();
+  }
+
   function rerunLocalDetection(): boolean {
     const changed = detector.rerun();
     if (changed) deps.broadcastPluginsChanged(getPluginStatusStore().listAll());
@@ -82,14 +89,14 @@ export function createPluginDiscoveryWiring(deps: PluginDiscoveryWiringDeps): Pl
       return;
     }
     try {
-      await refresher.refreshPluginDiscovery();
+      await refreshPluginDiscovery();
     } catch (e) {
       console.error("[plugin-loader] refresh after package operation failed:", e);
     }
   }
 
   return {
-    refreshPluginDiscovery: refresher.refreshPluginDiscovery,
+    refreshPluginDiscovery,
     rerunLocalDetection,
     onPackageOperationComplete,
     onSessionRegistered(cwd) {

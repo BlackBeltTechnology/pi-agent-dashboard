@@ -53,3 +53,4 @@ Adds `GET /api/file/digest` (observe). See change: gate-changed-on-disk-by-conte
 `POST /api/file/write-binary` → `control`. See change: add-editor-pane-file-handlers.
 
 `GET /api/plugins/craft-web/status` → `observe`; `POST /api/plugins/craft-web/prepare/:app` + `POST /api/plugins/craft-web/csp-report` → `control`. See change: edit-office-in-pane-with-craft-web.
+`GET /api/plugins/runtime-clients` → `observe`; `POST|DELETE /api/plugins/:id/trust` → `operate` (POST also needs `isLocallyTrusted` in its handler). See change: decouple-plugins-from-core (6.11, 6.12).

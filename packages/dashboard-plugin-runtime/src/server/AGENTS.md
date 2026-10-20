@@ -25,9 +25,11 @@ Files in this directory. One row per source file.
 | `host-api-gate.ts` | Pure `evaluateHostApi({source, range, hasClientBundle})` → `{status, refuse, warn, reason}`. → see `host-api-gate.ts.AGENTS.md` |
 | `loopback-callback.ts` | `createLoopbackCallback({path='/callback',timeoutMs=300_000,signal,successHtml})` →… → see `loopback-callback.ts.AGENTS.md` |
 | `plugin-enabled.ts` | `resolvePluginEnabled(configValue, defaultEnabled)` — explicit boolean `enabled` in config wins → manifest… → see `plugin-enabled.ts.AGENTS.md` |
+| `plugin-assets-route.ts` | `registerPluginAssetsRoute(fastify,{getRegistry})`: `GET /plugin-assets/:id/:sha/*` — 404 unless `(id,sha)` admitted AND sha is the current content hash; `PLUGIN_ASSET_MIME` allowlist, confined, `.gz` negotiation, `Cache-Control: public, max-age=31536000, immutable`, no per-app CSP, no auth skip. See change: decouple-plugins-from-core (6.10). |
 | `plugin-refresh.ts` | `createPluginRefresher({loadDeps, readDeclaredBundledIds?, clearContentHashCache?, localDetector?,… → see `plugin-refresh.ts.AGENTS.md` |
 | `plugin-status-store.ts` | In-memory `PluginStatusStore` for `/api/health.plugins[]`. `removeStatus(id)` drops a row. → see `plugin-status-store.ts.AGENTS.md` |
 | `requirement-probes.ts` | Declarative requirement probes for `PluginManifest.requires`. → see `requirement-probes.ts.AGENTS.md` |
+| `runtime-client-listing.ts` | `buildRuntimeClientListing(admitted)` / `toListingEntry` / `assetUrl(id,sha,rel)`: payload of `GET /api/plugins/runtime-clients`; claims keep every field, `module` → asset URL; `routes` = serializable `shell-overlay-route` descriptors. See change: decouple-plugins-from-core (6.11). |
 | `runtime-client-registry.ts` | `createRuntimeClientRegistry(deps)` → `{resolveClient(status), getAdmittedRuntimePlugins(),… → see `runtime-client-registry.ts.AGENTS.md` |
 | `server-context.ts` | `createServerPluginContext(deps, pluginId)` factory — creates `ServerPluginContext` scoped to plugin with… → see `server-context.ts.AGENTS.md` |
 | `ws-route-registry.ts` | Plugin-owned WS route scopes (add-browser-relay D1). `WsRouteRegistry` + singleton `getWsRouteRegistry()`… → see `ws-route-registry.ts.AGENTS.md` |

@@ -9,17 +9,22 @@ import os from "node:os";
 import path from "node:path";
 import {
   clearDiscoveryCache,
+  clearLoadedSnapshots,
   clearStatusStore,
   discoverPlugins,
   getPluginStatusStore,
+  loadServerEntries,
+  registerPluginAssetsRoute,
 } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import type { PluginStatus } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/plugin-status.js";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { grantClientTrust, grantServerTrust } from "../auth/plugin-trust-store.js";
+import { isServerTrusted } from "../auth/plugin-server-trust.js";
+import { grantClientTrust, grantServerTrust, readTrustedPlugins } from "../auth/plugin-trust-store.js";
 import { createPluginDiscoveryWiring } from "../plugin-discovery-wiring.js";
-import { getRuntimeClientRegistry, installRuntimeClientRegistry, resetRuntimeClientRegistry } from "../plugin-runtime-clients.js";
+import { getRuntimeClientRegistry, installRuntimeClientRegistry, logRuntimeAdmissions, resetRuntimeClientRegistry } from "../plugin-runtime-clients.js";
 import { registerPluginActivationRoutes, setPluginsEnabled } from "../routes/plugin-activation-routes.js";
+import { registerPluginRuntimeClientRoutes } from "../routes/plugin-runtime-client-routes.js";
 import { toHealthPlugins } from "../routes/system-routes.js";
 
 const HOME_OVERRIDE = path.join(os.tmpdir(), "pi-dashboard-activation-test-" + process.pid);
@@ -726,5 +731,331 @@ describe("runtime client admission through status + listing (E76, E77)", () => {
     expect(client("flows")).toEqual({ delivery: "bundled" });
     expect(listed()).toEqual([]);
     expect(getRuntimeClientRegistry()).toBeDefined();
+  });
+});
+
+// ── decouple-plugins-from-core 6.11 / 6.12 / 6.20 — listing, trust endpoints, admission log ──────────────────
+
+describe("runtime-client routes: listing, trust grant / revoke, admission log (E85, E81, E79, E61, E92)", () => {
+  let app: FastifyInstance;
+  let repoRoot: string;
+  const broadcasts: any[] = [];
+  const lines: string[] = [];
+  const configFile = () => path.join(HOME_OVERRIDE, ".pi", "dashboard", "config.json");
+  const readConfig = () => JSON.parse(fs.readFileSync(configFile(), "utf-8")) as Record<string, any>;
+  const writeConfig = (cfg: Record<string, unknown>) => {
+    fs.mkdirSync(path.dirname(configFile()), { recursive: true });
+    fs.writeFileSync(configFile(), JSON.stringify(cfg, null, 2));
+  };
+
+  beforeEach(() => {
+    clearDiscoveryCache();
+    clearStatusStore();
+    fs.rmSync(HOME_OVERRIDE, { recursive: true, force: true });
+    originalHome = process.env.HOME;
+    process.env.HOME = HOME_OVERRIDE;
+    repoRoot = path.join(os.tmpdir(), `runtime-routes-${process.pid}-${Date.now()}`);
+    broadcasts.length = 0;
+    lines.length = 0;
+    writeConfig({});
+  });
+  afterEach(async () => {
+    await app?.close();
+    resetRuntimeClientRegistry();
+    if (originalHome !== undefined) process.env.HOME = originalHome;
+    else delete process.env.HOME;
+    fs.rmSync(HOME_OVERRIDE, { recursive: true, force: true });
+    fs.rmSync(repoRoot, { recursive: true, force: true });
+  });
+
+  function mk(id: string, extra: Record<string, unknown> = {}) {
+    const dir = path.join(repoRoot, "packages", id);
+    fs.mkdirSync(path.join(dir, "dist", "client"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "dist", "client", "index.js"), `export default "${id}";\n`);
+    fs.writeFileSync(path.join(dir, "dist", "client", "y.js"), "export default 2;\n");
+    fs.writeFileSync(path.join(dir, "dist", "client", "s.css"), "body{}\n");
+    fs.writeFileSync(
+      path.join(dir, "package.json"),
+      JSON.stringify({
+        name: id,
+        version: "1.0.0",
+        "pi-dashboard-plugin": { id, displayName: id, claims: [], client: "./src/c.tsx", clientBundle: "./dist/client/index.js", hostApi: "^1.0.0", ...extra },
+      }),
+    );
+  }
+  const seed = (id: string) => getPluginStatusStore().setStatus({ id, displayName: id, enabled: true, loaded: true, claims: 0 });
+
+  async function boot(opts: { refresh?: () => Promise<void>; declared?: string[] } = {}) {
+    const reg = installRuntimeClientRegistry({ repoRoot, declaredIds: () => opts.declared ?? ["flows"] });
+    app = Fastify({ logger: false });
+    registerPluginRuntimeClientRoutes(app, {
+      networkGuard: async () => undefined,
+      broadcast: (m) => broadcasts.push(m),
+      refreshDiscovery: opts.refresh ?? (async () => {}),
+      log: { info: (m) => lines.push(m) },
+      repoRoot,
+    });
+    registerPluginAssetsRoute(app, { getRegistry: getRuntimeClientRegistry });
+    await app.ready();
+    return reg;
+  }
+  const changed = () => broadcasts.filter((m) => m.type === "plugins_changed");
+
+  it("E85: the listing carries admitted plugins only — five route fields, module / entry / style URLs, event types, no i18n URL", async () => {
+    mk("ext", {
+      claims: [
+        { slot: "shell-overlay-route", component: "Board", path: "/ext/:sid", depth: 2, parentPath: "/session/:sid", presentation: "page", sessionParam: "sid" },
+        { slot: "settings-section", component: "Lazy", module: "./dist/client/y.js" },
+      ],
+      i18nCatalog: "catalog",
+      clientStyles: "./dist/client/s.css",
+      eventTypes: ["ext:ping"],
+    });
+    mk("refused");
+    seed("ext");
+    seed("refused");
+    const reg = await boot();
+    const sha = reg.currentContentHash("ext") as string;
+    grantClientTrust("ext", sha);
+    const res = await app.inject({ method: "GET", url: "/api/plugins/runtime-clients" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { plugins: any[] };
+    expect(body.plugins.map((p) => p.id)).toEqual(["ext"]);
+    const ext = body.plugins[0];
+    const base = `/plugin-assets/ext/${sha}/`;
+    expect(ext.entry).toBe(`${base}index.js`);
+    expect(ext.styles).toBe(`${base}s.css`);
+    expect(ext.sha256).toBe(sha);
+    expect(ext.eventTypes).toEqual(["ext:ping"]);
+    expect(ext.i18nCatalog).toBe("catalog"); // an export NAME of the entry module
+    expect(ext.claims[0]).toMatchObject({ slot: "shell-overlay-route", path: "/ext/:sid", depth: 2, parentPath: "/session/:sid", presentation: "page", sessionParam: "sid" });
+    expect(ext.claims[1].module).toBe(`${base}y.js`);
+    expect(ext.routes).toEqual([{ pattern: "/ext/:sid", depth: 2, parentPath: "/session/:sid" }]);
+    for (const url of [ext.entry, ext.styles, ext.claims[1].module]) {
+      expect(url.startsWith(base)).toBe(true);
+      expect((await app.inject({ method: "GET", url })).statusCode).toBe(200);
+    }
+    expect(JSON.stringify(body)).not.toMatch(/i18n[^"]*\.(json|js)/i);
+    expect(JSON.stringify(body)).not.toContain("refused");
+  });
+
+  it("E81: a local grant with the current sha writes the entry, logs id + action + 12-hex prefix and broadcasts one plugins_changed", async () => {
+    mk("ext");
+    seed("ext");
+    const reg = await boot();
+    const sha = reg.currentContentHash("ext") as string;
+    const res = await app.inject({ method: "POST", url: "/api/plugins/ext/trust", payload: { sha256: sha } });
+    expect(res.statusCode).toBe(200);
+    expect(readConfig().auth.trustedPlugins).toEqual([{ id: "ext", clientSha256: sha }]);
+    expect(changed()).toHaveLength(1);
+    const grant = lines.find((l) => l.includes("[plugin-trust]"));
+    expect(grant).toContain("id=ext");
+    expect(grant).toContain("action=grant-client");
+    expect(grant).toMatch(/sha=[0-9a-f]{12}(\s|$)/);
+    expect(lines.join("\n")).not.toContain(sha);
+    expect(reg.getAdmittedAssetRoot("ext", sha)).toBeTruthy();
+  });
+
+  it("E81: a stale sha is 409 and leaves config + broadcasts untouched", async () => {
+    mk("ext");
+    seed("ext");
+    await boot();
+    const res = await app.inject({ method: "POST", url: "/api/plugins/ext/trust", payload: { sha256: "0".repeat(64) } });
+    expect(res.statusCode).toBe(409);
+    expect(readConfig().auth).toBeUndefined();
+    expect(changed()).toHaveLength(0);
+  });
+
+  it("E81: a remote caller's POST is refused (non-2xx), config unchanged", async () => {
+    mk("ext");
+    seed("ext");
+    const reg = await boot();
+    const sha = reg.currentContentHash("ext") as string;
+    const res = await app.inject({ method: "POST", url: "/api/plugins/ext/trust", remoteAddress: "203.0.113.5", payload: { sha256: sha } });
+    expect(res.statusCode).toBe(403);
+    expect(readConfig().auth).toBeUndefined();
+    expect(changed()).toHaveLength(0);
+  });
+
+  it("E81: malformed bodies are 400; an unknown plugin is 404", async () => {
+    mk("ext");
+    seed("ext");
+    await boot();
+    for (const payload of [{}, { sha256: "nope" }, { server: false }, { server: true, sha256: "a".repeat(64) }]) {
+      expect((await app.inject({ method: "POST", url: "/api/plugins/ext/trust", payload })).statusCode, JSON.stringify(payload)).toBe(400);
+    }
+    expect((await app.inject({ method: "POST", url: "/api/plugins/ghost/trust", payload: { server: true } })).statusCode).toBe(404);
+    // server trust only applies to a pi-package plugin with a server entry
+    expect((await app.inject({ method: "POST", url: "/api/plugins/ext/trust", payload: { server: true } })).statusCode).toBe(400);
+  });
+
+  it("E79: a grant keeps every other auth key byte-equal and the legacy capabilityRoutePlugins list", async () => {
+    mk("ext");
+    seed("ext");
+    const auth = { capabilityRoutePlugins: ["wall"], bypassHosts: ["10.0.0.0/8"], providers: { github: { clientId: "x" } }, futureKey: { nested: [1, 2] } };
+    writeConfig({ theme: "dark", auth });
+    const reg = await boot();
+    const sha = reg.currentContentHash("ext") as string;
+    expect((await app.inject({ method: "POST", url: "/api/plugins/ext/trust", payload: { sha256: sha } })).statusCode).toBe(200);
+    const cfg = readConfig();
+    expect(cfg.theme).toBe("dark");
+    expect(cfg.auth).toEqual({ ...auth, trustedPlugins: [{ id: "ext", clientSha256: sha }] });
+  });
+
+  it("E81: DELETE removes the whole entry; a second DELETE is an idempotent 200", async () => {
+    mk("ext");
+    seed("ext");
+    const reg = await boot();
+    const sha = reg.currentContentHash("ext") as string;
+    grantClientTrust("ext", sha);
+    grantServerTrust("ext");
+    const res = await app.inject({ method: "DELETE", url: "/api/plugins/ext/trust" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ success: true, removed: true });
+    expect(readConfig().auth).toBeUndefined();
+    expect(changed()).toHaveLength(1);
+    expect(lines.find((l) => l.includes("action=revoke"))).toMatch(/id=ext .*sha=[0-9a-f]{12}$/);
+    expect(reg.getAdmittedAssetRoot("ext", sha)).toBeUndefined();
+    expect((await app.inject({ method: "DELETE", url: "/api/plugins/ext/trust" })).json()).toMatchObject({ removed: false });
+  });
+
+  it("E92: a refused plugin logs one structured line per refresh/trust cycle: id, source, delivery, reason, 12-hex prefix only", async () => {
+    mk("ext");
+    seed("ext");
+    const reg = await boot();
+    const sha = reg.currentContentHash("ext") as string;
+    // pin a DIFFERENT hash → pin-mismatch, hash still known to the registry
+    grantClientTrust("ext", "f".repeat(64));
+    getPluginStatusStore().setStatus({ ...(getPluginStatusStore().getStoredStatus("ext") as PluginStatus), source: "workspace" });
+    const marker = "BEARER-SECRET-123";
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/plugins/ext/trust",
+      headers: { authorization: `Bearer ${marker}` },
+      payload: { sha256: "1".repeat(64), note: "BODY-SUBSTRING-XYZ" },
+    });
+    expect(res.statusCode).toBe(409); // stale: no write, no admission line for a rejected request
+    logRuntimeAdmissions({ info: (m) => lines.push(m) }, "refresh");
+    const admission = lines.filter((l) => l.includes("[plugin-runtime] admission"));
+    expect(admission).toHaveLength(1);
+    expect(admission[0]).toContain("trigger=refresh");
+    expect(admission[0]).toContain("id=ext");
+    expect(admission[0]).toContain("source=workspace");
+    expect(admission[0]).toContain("delivery=refused");
+    expect(admission[0]).toContain("reason=pin-mismatch");
+    expect(admission[0]).toMatch(new RegExp(`sha=${sha.slice(0, 12)}$`));
+    const all = lines.join("\n");
+    expect(all).not.toContain(sha);
+    expect(all).not.toMatch(/[0-9a-f]{64}/);
+    expect(all).not.toContain(marker);
+    expect(all).not.toContain("BODY-SUBSTRING-XYZ");
+    // a successful trust change logs the new verdict
+    lines.length = 0;
+    const ok = await app.inject({ method: "POST", url: "/api/plugins/ext/trust", payload: { sha256: sha } });
+    expect(ok.statusCode).toBe(200);
+    const after = lines.filter((l) => l.includes("[plugin-runtime] admission"));
+    expect(after).toHaveLength(1);
+    expect(after[0]).toContain("trigger=trust");
+    expect(after[0]).toContain("delivery=runtime");
+  });
+});
+
+// E61 (c)–(e): the trust endpoint grants pi-package server trust, additively, through the real discovery wiring.
+describe("pi-package server trust through the endpoint (E61 c–e, E81)", () => {
+  let tmpRoot: string;
+  let app: FastifyInstance;
+  let wiring: ReturnType<typeof createPluginDiscoveryWiring>;
+  const broadcasts: any[] = [];
+
+  beforeEach(async () => {
+    clearDiscoveryCache();
+    clearStatusStore();
+    clearLoadedSnapshots();
+    fs.rmSync(HOME_OVERRIDE, { recursive: true, force: true });
+    fs.mkdirSync(path.join(HOME_OVERRIDE, ".pi", "dashboard"), { recursive: true });
+    originalHome = process.env.HOME;
+    process.env.HOME = HOME_OVERRIDE;
+    // Server entries are imported by file URL; vite-node only resolves them under node_modules.
+    tmpRoot = path.join(os.tmpdir(), `pkg-trust-${process.pid}-${Date.now()}`);
+    const agentDir = path.join(tmpRoot, "node_modules", "agent");
+    const dir = path.join(agentDir, "npm", "node_modules", "pi-ok");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "server.mjs"), `export default () => { (globalThis.__trustSpy ||= []).push("ok"); };\n`);
+    fs.writeFileSync(
+      path.join(dir, "package.json"),
+      JSON.stringify({ name: "pi-ok", version: "1.0.0", "pi-dashboard-plugin": { id: "okplug", displayName: "ok", claims: [], server: "./server.mjs", hostApi: "^1.0.0" } }),
+    );
+    fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({ packages: ["npm:pi-ok"] }));
+    (globalThis as { __trustSpy?: string[] }).__trustSpy = [];
+    broadcasts.length = 0;
+    const loadDeps = {
+      createContext: () => ({}) as never,
+      isEnabled: () => true,
+      repoRoot: path.join(tmpRoot, "root"),
+      discovery: { piPackages: { agentDir, npmRoot: path.join(tmpRoot, "no-global") } },
+      isServerTrusted,
+    };
+    wiring = createPluginDiscoveryWiring({
+      loadDeps,
+      readDeclaredBundledIds: () => undefined,
+      listActiveCwds: () => [],
+      broadcastPluginsChanged: (plugins) => broadcasts.push({ type: "plugins_changed", plugins }),
+    });
+    await loadServerEntries(loadDeps);
+    app = Fastify({ logger: false });
+    registerPluginRuntimeClientRoutes(app, {
+      networkGuard: async () => undefined,
+      broadcast: (m) => broadcasts.push(m),
+      refreshDiscovery: () => wiring.refreshPluginDiscovery(),
+      log: { info: () => {} },
+      repoRoot: path.join(tmpRoot, "root"),
+      discovery: loadDeps.discovery,
+    });
+    await app.ready();
+  });
+  afterEach(async () => {
+    await app?.close();
+    delete (globalThis as { __trustSpy?: string[] }).__trustSpy;
+    if (originalHome !== undefined) process.env.HOME = originalHome;
+    else delete process.env.HOME;
+    fs.rmSync(HOME_OVERRIDE, { recursive: true, force: true });
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  });
+  const spy = () => (globalThis as { __trustSpy?: string[] }).__trustSpy ?? [];
+  const row = () => getPluginStatusStore().getStatus("okplug");
+
+  it("(a) before any grant the entry is refused server-untrusted and its sentinel is not written", () => {
+    expect(row()).toMatchObject({ loaded: false, error: "server-untrusted", source: "pi-package" });
+    expect(spy()).toEqual([]);
+  });
+
+  it("(d) a REMOTE operate caller cannot grant: refused, entry still untrusted", async () => {
+    const res = await app.inject({ method: "POST", url: "/api/plugins/okplug/trust", remoteAddress: "203.0.113.5", payload: { server: true } });
+    expect(res.statusCode).toBeGreaterThanOrEqual(400);
+    expect(readTrustedPlugins()).toEqual([]);
+    expect(spy()).toEqual([]);
+    expect(row()?.loaded).toBe(false);
+  });
+
+  it("(c) a local {server:true} grant loads the entry additively — one plugins_changed, entry run exactly once, no restart", async () => {
+    const res = await app.inject({ method: "POST", url: "/api/plugins/okplug/trust", payload: { server: true } });
+    expect(res.statusCode).toBe(200);
+    expect(readTrustedPlugins()).toEqual([{ id: "okplug", server: true }]);
+    expect(spy()).toEqual(["ok"]);
+    expect(row()).toMatchObject({ loaded: true });
+    expect(row()?.restartRequired).toBeUndefined();
+    expect(broadcasts.filter((m) => m.type === "plugins_changed")).toHaveLength(1);
+  });
+
+  it("(e) revoking after the load flags restartRequired and drops the whole entry", async () => {
+    await app.inject({ method: "POST", url: "/api/plugins/okplug/trust", payload: { server: true } });
+    broadcasts.length = 0;
+    const res = await app.inject({ method: "DELETE", url: "/api/plugins/okplug/trust" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ removed: true, restartRequired: true });
+    expect(readTrustedPlugins()).toEqual([]);
+    expect(row()).toMatchObject({ loaded: true, restartRequired: true });
+    const [last] = broadcasts.filter((m) => m.type === "plugins_changed").slice(-1);
+    expect(last.plugins.find((p: PluginStatus) => p.id === "okplug")?.restartRequired).toBe(true);
   });
 });

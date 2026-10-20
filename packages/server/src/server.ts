@@ -8,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
-import { createGatedProviderAuth, createIsPiExtensionInstalled, createServerPluginContext, discoverPlugins, fixtureEntryAllowed, getFileValidatorPool, getFileValidatorRegistry, getPluginStatusStore, getWsRouteRegistry, loadServerEntries, pluginServerAllowed, pluginSpawnToSessionOptions, redactPluginConfigForClient, refreshRequirementProbesFor, resolvePluginEnabled, type ServerLoadDeps, setDeclaredBundledPluginIds } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import { createGatedProviderAuth, createIsPiExtensionInstalled, createServerPluginContext, discoverPlugins, fixtureEntryAllowed, getFileValidatorPool, getFileValidatorRegistry, getPluginStatusStore, getWsRouteRegistry, loadServerEntries, pluginServerAllowed, pluginSpawnToSessionOptions, redactPluginConfigForClient, refreshRequirementProbesFor, registerPluginAssetsRoute, resolvePluginEnabled, type ServerLoadDeps, setDeclaredBundledPluginIds } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import {
   createMcpClientConfigService,
   createRealConfigIO,
@@ -195,6 +195,7 @@ import {
   resolveStaticClientDir,
 } from "./lib/client-dist.js";
 import { collectRuleSources } from "./lib/folder-project.js";
+import { createIndexHtmlSender } from "./lib/index-html.js";
 import { bootParentPid, isBootParentProvablyDead } from "./lifecycle/boot-parent-liveness.js";
 import { runBoundedStartup } from "./lifecycle/bounded-startup.js";
 import { startEphemeralParentWatch } from "./lifecycle/ephemeral-parent-watch.js";
@@ -251,7 +252,7 @@ import { createPackageCompletionHandler, createPluginDiscoveryWiring, type Plugi
 import * as pluginEventSeam from "./plugin-event-seam.js";
 import { pluginIntentCache } from "./plugin-intent-cache.js";
 import { createPluginRequestLane } from "./plugin-request-lane.js";
-import { installRuntimeClientRegistry } from "./plugin-runtime-clients.js";
+import { getRuntimeClientRegistry, installRuntimeClientRegistry, logRuntimeAdmissions } from "./plugin-runtime-clients.js";
 import { createPushService, type PushService } from "./push/push-service.js";
 import type { SessionPresence } from "./questions/question-files.js";
 import { registerQuestionRoutes } from "./questions/question-routes.js";
@@ -293,6 +294,7 @@ import { registerPiRuntimeRoutes } from "./routes/pi-runtime-routes.js";
 import { registerPiSettingsRoutes } from "./routes/pi-settings-routes.js";
 import { registerPluginActivationRoutes, setPluginsEnabled } from "./routes/plugin-activation-routes.js";
 import { registerPluginConfigRoutes } from "./routes/plugin-config-routes.js";
+import { registerPluginRuntimeClientRoutes } from "./routes/plugin-runtime-client-routes.js";
 import { registerPreferencesAutoNameRoutes } from "./routes/preferences-auto-name-routes.js";
 import { registerPreferencesDisplayRoutes } from "./routes/preferences-display-routes.js";
 import { registerPreferencesWorktreeInitRoutes } from "./routes/preferences-worktree-init-routes.js";
@@ -3210,6 +3212,21 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     networkGuard,
     broadcast: (msg) => browserGateway.broadcast(msg),
   });
+  // Runtime plugin clients: admitted listing, trust grant/revoke, and the content-addressed asset prefix
+  // (outside the network guard's jurisdiction, no auth skip: it behaves exactly like `/assets/*`).
+  // See change: decouple-plugins-from-core (6.10–6.12).
+  registerPluginRuntimeClientRoutes(fastify, {
+    networkGuard,
+    broadcast: (msg) => browserGateway.broadcast(msg),
+    localTrust,
+    // `pluginDiscovery` is built after listen; a trust grant before that point just broadcasts.
+    refreshDiscovery: async () => {
+      if (pluginDiscovery) await pluginDiscovery.refreshPluginDiscovery();
+      else browserGateway.broadcast({ type: "plugins_changed", plugins: getPluginStatusStore().listAll() });
+    },
+    log: { info: (m) => console.log(m) },
+  });
+  registerPluginAssetsRoute(fastify, { getRegistry: getRuntimeClientRegistry });
   // Add-ons hub: feature catalog + combined feature toggle. See change: addons-hub-feature-catalog.
   registerAddonsRoutes(fastify, {
     networkGuard,
@@ -3344,6 +3361,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // some HTTP/2 proxy chains (notably zrok free-tier) occasionally
       // stream-reset as ERR_ABORTED 500 in browsers.
       preCompressed: true,
+      // `index.html` (and its `.gz`) is never served by the static handler: every HTML response
+      // passes `sendIndexWithImportMap`, which inserts the host import map. A direct `/index.html.gz`
+      // falls to the not-found handler (the SPA shell, map included). See change: decouple-plugins-from-core (6.4).
+      index: false,
+      allowedPath: (pathName) => pathName !== "/index.html" && pathName !== "/index.html.gz",
       // @fastify/static v10 hands `setHeaders` a FastifyReply (v8 passed the
       // raw ServerResponse), so the header goes through `.header()`.
       setHeaders: (reply, filePath) => {
@@ -3366,6 +3388,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     return reply.code(404).send({ success: false, error: "not_found", message: `No API route for ${request.method} ${rawPath}` });
   };
 
+  const indexHtml = createIndexHtmlSender(clientDir);
+
   if (config.dev) {
     // Dev mode: proxy to Vite dev server, fall back to production build
     const VITE_PORTS = [3000, 5173, 5174];
@@ -3383,38 +3407,50 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
 
     vitePort = await detectVitePort();
 
-    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: legacy server wiring, grandfathered; decompose in a dedicated refactor, not piecemeal
+    /** Proxy `request.url` to Vite; the reply when Vite answered, `undefined` when it is down (re-probed next time). */
+    const proxyToVite = async (request: FastifyRequest, reply: FastifyReply): Promise<FastifyReply | undefined> => {
+      if (!vitePort) vitePort = await detectVitePort();
+      if (!vitePort) return undefined;
+      try {
+        const viteUrl = `http://localhost:${vitePort}${request.url}`;
+        const res = await fetch(viteUrl);
+        const contentType = res.headers.get("content-type");
+        if (contentType) reply.header("Content-Type", contentType);
+        reply.code(res.status);
+        return reply.send(Buffer.from(await res.arrayBuffer()));
+      } catch {
+        vitePort = 0; // Vite stopped — re-probe next time
+        return undefined;
+      }
+    };
+
+    // `/` and `/index.html` keep today's order: Vite first (its HTML carries no injected map), then the
+    // production HTML with the map (D21, R21).
+    if (hasProductionBuild) {
+      const devHtml = async (request: FastifyRequest, reply: FastifyReply) =>
+        (await proxyToVite(request, reply)) ?? indexHtml.sendIndexWithImportMap(reply);
+      fastify.get("/", devHtml);
+      fastify.get("/index.html", devHtml);
+    }
+
     fastify.setNotFoundHandler(async (request, reply) => {
       const apiMiss = replyIfApiNotFound(request, reply);
       if (apiMiss) return apiMiss;
       // Try Vite proxy first
-      if (!vitePort) vitePort = await detectVitePort();
-      if (vitePort) {
-        try {
-          const viteUrl = `http://localhost:${vitePort}${request.url}`;
-          const res = await fetch(viteUrl);
-          const contentType = res.headers.get("content-type");
-          if (contentType) reply.header("Content-Type", contentType);
-          reply.code(res.status);
-          return reply.send(Buffer.from(await res.arrayBuffer()));
-        } catch {
-          vitePort = 0; // Vite stopped — re-probe next time
-        }
-      }
+      const proxied = await proxyToVite(request, reply);
+      if (proxied) return proxied;
       // Fallback: serve production build if available
-      if (hasProductionBuild) {
-        reply.header("Cache-Control", "no-cache, no-store, must-revalidate");
-        return reply.sendFile("index.html");
-      }
+      if (hasProductionBuild) return indexHtml.sendIndexWithImportMap(reply);
       return reply.code(404).send({ error: "API-only mode: no client build available. Install @blackbelt-technology/pi-dashboard-web or run npm run build." });
     });
   } else if (hasProductionBuild) {
-    // Production mode: SPA fallback
+    // Production mode: SPA fallback (and the explicit `/`, `/index.html`) through the import-map sender.
+    fastify.get("/", (_request, reply) => indexHtml.sendIndexWithImportMap(reply));
+    fastify.get("/index.html", (_request, reply) => indexHtml.sendIndexWithImportMap(reply));
     fastify.setNotFoundHandler(async (request, reply) => {
       const apiMiss = replyIfApiNotFound(request, reply);
       if (apiMiss) return apiMiss;
-      reply.header("Cache-Control", "no-cache, no-store, must-revalidate");
-      return reply.sendFile("index.html");
+      return indexHtml.sendIndexWithImportMap(reply);
     });
   } else {
     fastify.setNotFoundHandler(async (request, reply) => {
@@ -4250,6 +4286,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           loadDeps: pluginLoadDeps,
           readDeclaredBundledIds: () => readServedBundledPluginIds(clientDirResolved),
           clearContentHashCache: () => runtimeClients.clearContentHashCache(),
+          logAdmissions: () => logRuntimeAdmissions({ info: (m) => console.log(m) }, "refresh"),
           listActiveCwds: () => sessionManager.listActive().map((s) => s.cwd),
           broadcastPluginsChanged: (plugins) => browserGateway.broadcast({ type: "plugins_changed", plugins }),
         });

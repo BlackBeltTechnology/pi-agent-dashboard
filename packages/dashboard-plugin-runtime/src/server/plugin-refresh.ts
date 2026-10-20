@@ -20,6 +20,7 @@ import {
   getPluginStatusStore,
   loadedPackageChanged,
   loadServerEntries,
+  SERVER_UNTRUSTED_ERROR,
   type ServerLoadDeps,
   setDeclaredBundledPluginIds,
   wasLoadedThisProcess,
@@ -80,32 +81,55 @@ interface ReconcileResult {
   removed: number;
 }
 
-/**
- * Reconcile the status store with a fresh discovery. Vanished: keep a loaded row
- * (`restartRequired`), drop one whose server entry never loaded. Existing: refresh the
- * discovery-derived fields, flag a changed package. Returns the NEW ids (no row yet) plus change counts.
- */
-function reconcileStore(discovered: readonly DiscoveredPlugin[]): ReconcileResult {
+/** Rows whose package vanished: keep a loaded one with `restartRequired`, drop one that never loaded. Returns the count. */
+function reconcileVanished(rows: readonly PluginStatus[], discoveredIds: ReadonlySet<string>): number {
   const store = getPluginStatusStore();
-  const discoveredIds = new Set(discovered.map((p) => p.manifest.id));
-  // Local-detected rows are owned by the detector; it re-applies after the load pass.
-  const rows = store.listStored().filter((r) => r.source !== "local-detected");
-  const rowIds = new Set(rows.map((r) => r.id));
-
   let removed = 0;
-  let changed = 0;
   for (const row of rows) {
     if (discoveredIds.has(row.id)) continue;
     removed++;
     if (wasLoadedThisProcess(row.id)) store.setStatus({ ...row, restartRequired: true });
     else store.removeStatus(row.id);
   }
+  return removed;
+}
+
+/** A never-loaded `server-untrusted` row whose `pi-package` server entry the operator has trusted since. */
+function grantedSinceRefused(
+  row: PluginStatus,
+  plugin: DiscoveredPlugin,
+  isServerTrusted?: (plugin: DiscoveredPlugin) => boolean,
+): boolean {
+  if (row.loaded || row.error !== SERVER_UNTRUSTED_ERROR || wasLoadedThisProcess(plugin.manifest.id)) return false;
+  return isServerTrusted?.(plugin) === true;
+}
+
+/**
+ * Reconcile the status store with a fresh discovery. Vanished: keep a loaded row
+ * (`restartRequired`), drop one whose server entry never loaded. Existing: refresh the
+ * discovery-derived fields, flag a changed package. Returns the NEW ids (no row yet, or a never-loaded
+ * `server-untrusted` pi-package the operator has since trusted) plus change counts.
+ */
+function reconcileStore(
+  discovered: readonly DiscoveredPlugin[],
+  isServerTrusted?: (plugin: DiscoveredPlugin) => boolean,
+): ReconcileResult {
+  const store = getPluginStatusStore();
+  const discoveredIds = new Set(discovered.map((p) => p.manifest.id));
+  // Local-detected rows are owned by the detector; it re-applies after the load pass.
+  const rows = store.listStored().filter((r) => r.source !== "local-detected");
+  const rowIds = new Set(rows.map((r) => r.id));
+
+  const removed = reconcileVanished(rows, discoveredIds);
+  let changed = 0;
 
   const newIds = new Set<string>();
   for (const plugin of discovered) {
     const id = plugin.manifest.id;
     const row = rowIds.has(id) ? store.getStoredStatus(id) : undefined;
-    if (!row) {
+    // No row yet, or a `pi-package` entry refused `server-untrusted` that has never run in this process and is
+    // trusted NOW (the operator granted `server: true`): loaded additively (design D12, R9).
+    if (!row || grantedSinceRefused(row, plugin, isServerTrusted)) {
       newIds.add(id);
       continue;
     }
@@ -132,7 +156,7 @@ export function createPluginRefresher(deps: PluginRefresherDeps): PluginRefreshe
     if (deps.readDeclaredBundledIds) setDeclaredBundledPluginIds(deps.readDeclaredBundledIds());
     clearDiscoveryCache();
     deps.clearContentHashCache?.();
-    const { newIds, changed, removed } = reconcileStore(discoverForDeps(deps.loadDeps));
+    const { newIds, changed, removed } = reconcileStore(discoverForDeps(deps.loadDeps), deps.loadDeps.isServerTrusted);
 
     if (newIds.size > 0) {
       try {

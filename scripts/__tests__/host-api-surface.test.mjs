@@ -11,7 +11,8 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { bumpKind, checkBump, computeSurface, diffSurface, parseHostDesignTokens } from "../host-api-surface.mjs";
+import { HOST_IMPORT_MAP_SPECIFIERS } from "../../packages/shared/src/dashboard-plugin/host-import-map.ts";
+import { bumpKind, checkBump, computeSurface, diffSurface, IMPORT_MAP_SPECIFIERS, parseHostDesignTokens } from "../host-api-surface.mjs";
 
 const REPO_ROOT = path.resolve(import.meta.dirname, "..", "..");
 const SNAPSHOT = path.join(REPO_ROOT, "packages/dashboard-plugin-runtime/host-api-surface.json");
@@ -136,5 +137,11 @@ describe("parseHostDesignTokens", () => {
 
   it("fails on a code span holding an unexpanded pattern it does not know", () => {
     expect(() => parseHostDesignTokens("Use `--tone-<name>-fg` for chips.")).toThrow(/unexpanded pattern/);
+  });
+});
+
+describe("import-map specifiers: one list for the server and the surface snapshot (decouple 6.4)", () => {
+  it("the surface's pinned specifiers equal the server's host import map keys, in order", () => {
+    expect([...IMPORT_MAP_SPECIFIERS]).toEqual([...HOST_IMPORT_MAP_SPECIFIERS]);
   });
 });
