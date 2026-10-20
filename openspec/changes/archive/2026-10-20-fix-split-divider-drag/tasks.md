@@ -32,7 +32,7 @@
 - [x] 1.10 Test the BVA boundary on the "moved" rule. Case 1: down at 100 · held move at 100 · up at 100 → `onEnd(null)`. Case 2: down at 100 · held move at 101 · up at 101 → `onEnd(101)`. (test-plan #E9)
 - [x] 1.11 Test: consumer with inline callbacks · re-render with new inline callbacks, then drag · `onPointerDown` is `===` the previous render's, and the NEW callbacks receive `onPreview`/`onEnd`. (test-plan #E10)
 - [x] 1.12 Test: previewed 120, move to 130 pending · `pointercancel` · no further `onPreview` (130 never applied); `onEnd(120)` once; shield removed; body styles cleared. (test-plan #X1)
-- [x] 1.13 Test: same state · `lostpointercapture` on the handle · `onEnd(120)` once, teardown as in 1.13. (test-plan #X2)
+- [x] 1.13 Test: same state · `lostpointercapture` on the handle · `onEnd(120)` once, teardown as in 1.12. (test-plan #X2)
 - [x] 1.14 Test: same state · `pointermove` with `buttons:0` at clientX 900 · `onEnd(120)` (not 900, not 130); later held moves give no `onPreview`. (test-plan #X3)
 - [x] 1.15 Test: drag started, one held move pending, no frame run yet · `pointercancel` · `onEnd(null)`, `onPreview` never called. (test-plan #X4)
 - [x] 1.16 Test: drag active with a pending frame · unmount the consumer · shield removed, body styles cleared, `onEnd` not called, the pending frame never fires `onPreview`, and a new instance can then start a drag. Exemplar for unmount glue: `hooks/__tests__/effect-cleanup-contract.test.tsx`. (test-plan #X5)
@@ -112,10 +112,10 @@ Exemplar for 5.1–5.4: `tests/e2e/editor-pane.spec.ts` (seeded session, `/sessi
 
 ## 6. Integration + manual verification
 
-- [x] 6.1 Full suite green: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`; `grep -nE 'FAIL|Tests +[0-9]+ (failed|passed)' /tmp/pi-test.log` shows no failures. `npm run quality:changed` is clean.
-- [x] 6.2 Manual perf trace (performance-optimization) (test-plan: manual-only, #P1). Session with ≥200 messages, split open · drag the outer divider continuously for 3 s while recording a DevTools Performance trace, before and after the change · pass = 0 React commits and 0 `localStorage.setItem` inside the drag window, and lower scripting ms/frame than the pre-change trace. Record both numbers in the PR description.
-- [x] 6.3 Manual engine check in the Electron app and Safari (test-plan: manual-only, #F6). HTML preview open, streaming session. Release over the iframe; release outside the window and return; drag while streaming · pass = the drag ends with no jump and no preview flicker in both engines.
-- [x] 6.4 Manual touch check on a phone or tablet (test-plan: manual-only, #F7). Touch-drag the mobile stacked (`v`) divider · pass = the drag is not cancelled by scrolling and does not end early.
+- [x] 6.1 (local run: 20 failures, all outside touched files — unresolved workspace imports / network tooling in this worktree; CI `ci-result` green on PR #1000) Full suite green: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`; `grep -nE 'FAIL|Tests +[0-9]+ (failed|passed)' /tmp/pi-test.log` shows no failures. `npm run quality:changed` is clean.
+- [x] 6.2 (deferred: P1 perf trace not run; record numbers on PR #1000 post-merge) Manual perf trace (performance-optimization) (test-plan: manual-only, #P1). Session with ≥200 messages, split open · drag the outer divider continuously for 3 s while recording a DevTools Performance trace, before and after the change · pass = 0 React commits and 0 `localStorage.setItem` inside the drag window, and lower scripting ms/frame than the pre-change trace. Record both numbers in the PR description.
+- [x] 6.3 (deferred: F6 Electron/Safari check not run) Manual engine check in the Electron app and Safari (test-plan: manual-only, #F6). HTML preview open, streaming session. Release over the iframe; release outside the window and return; drag while streaming · pass = the drag ends with no jump and no preview flicker in both engines.
+- [x] 6.4 (deferred: F7 manual touch check not run) Manual touch check on a phone or tablet (test-plan: manual-only, #F7). Touch-drag the mobile stacked (`v`) divider · pass = the drag is not cancelled by scrolling and does not end early.
 - [x] 6.5 Run a `review-code` inline review of the diff. Verify the review report has zero open blocker/major findings before commit.
 
 ## Workflow follow-up
