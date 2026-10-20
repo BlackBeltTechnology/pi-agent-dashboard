@@ -279,8 +279,10 @@ jobs:
             done
             echo "FAIL: /api/health never answered 200 within 90s"; return 1
           }
-          # First process whose argv names cli.ts (awk, no early-exit pipe: pipefail-safe).
-          server_argv() { ps -eo args= | awk '/cli\.ts/ && !/awk/ && !n++ { print }'; }
+          # argv of the process that answers /api/health (its reported pid). Not
+          # "first cli.ts process": a `cli.ts start` launcher (which may still run
+          # under the inherited jiti --import) can outlive the spawn briefly.
+          server_argv() { local id; id=$(ident); ps -o args= -p "${id%%@*}"; }
           # POST /api/restart, then wait for a NEW process (pid@startedAt changes).
           restart_and_wait() {
             local before; before=$(ident)
