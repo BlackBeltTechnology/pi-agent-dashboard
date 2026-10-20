@@ -12,7 +12,6 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { replayEntriesAsEvents } from "@blackbelt-technology/pi-dashboard-shared/state-replay.js";
-import { SessionManager as PiSessionManager } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDirectoryService, type DirectoryService } from "../directory-service.js";
 import { createMemorySessionManager } from "../session/memory-session-manager.js";
@@ -47,14 +46,20 @@ describe("cold-hydration fingerprint (entryCount + leafEntryId)", () => {
     writeFileSync(file, `${[header(sid, dir), ...lines].map((l) => JSON.stringify(l)).join("\n")}\n`);
     return file;
   }
-  const piBranch = (file: string) => PiSessionManager.open(file).getBranch() as Array<{ id?: string }>;
+  /** pi-core's own branch for a transcript (the bridge's `getBranch()`). */
+  const piBranch = async (file: string): Promise<Array<{ id?: string }>> => {
+    const { SessionManager } = (await import("@earendil-works/pi-coding-agent")) as unknown as {
+      SessionManager: { open(file: string): { getBranch(): Array<{ id?: string }> } };
+    };
+    return SessionManager.open(file).getBranch();
+  };
   const lastId = (b: Array<{ id?: string }>) => b[b.length - 1]?.id;
 
   // test-plan #E13
   it("E13: a linear transcript matches pi-core's branch length and leaf", async () => {
     const file = write("lin", [user("a", null, "q1"), assistant("b", "a", "r1"), user("c", "b", "q2"), assistant("d", "c", "r2")]);
     const out = await service.loadSessionEvents("lin", file);
-    const pi = piBranch(file);
+    const pi = await piBranch(file);
     expect(out.success).toBe(true);
     expect(out.entryCount).toBe(pi.length);
     expect(out.leafEntryId).toBe(lastId(pi));
@@ -71,7 +76,7 @@ describe("cold-hydration fingerprint (entryCount + leafEntryId)", () => {
       user("e", "s", "q3"),
     ]);
     const out = await service.loadSessionEvents("br", file);
-    const pi = piBranch(file);
+    const pi = await piBranch(file);
     expect(pi.map((e) => e.id)).toEqual(["a", "b", "s", "e"]);
     expect(out.entryCount).toBe(pi.length);
     expect(out.leafEntryId).toBe(lastId(pi));
@@ -85,7 +90,7 @@ describe("cold-hydration fingerprint (entryCount + leafEntryId)", () => {
       { type: "leaf", entryId: "b" },
     ]);
     const out = await service.loadSessionEvents("ptr", file);
-    const pi = piBranch(file);
+    const pi = await piBranch(file);
     expect(out.leafEntryId).toBe("b");
     // pi-core ignores the pointer, so the leaf the bridge would report differs.
     expect(out.leafEntryId).not.toBe(lastId(pi));
@@ -130,7 +135,7 @@ describe("cold-hydration fingerprint (entryCount + leafEntryId)", () => {
     const file = write("par", lines);
 
     const hydrated = (await service.loadSessionEvents("par", file)).events;
-    const bridge = replayEntriesAsEvents("par", piBranch(file) as never, undefined, { liveTailOpen: false }).map((m) => m.event);
+    const bridge = replayEntriesAsEvents("par", (await piBranch(file)) as never, undefined, { liveTailOpen: false }).map((m) => m.event);
     expect(hydrated.length).toBeGreaterThan(0);
 
     const CONTEXT_KEYS = new Set(["timestamp", "contextWindow", "contextTokens", "contextUsage", "contextPercent"]);
