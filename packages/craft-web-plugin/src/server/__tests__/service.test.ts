@@ -180,6 +180,38 @@ describe("E6 shim compatibility (D8)", () => {
   });
 });
 
+describe("E6/E23 new apps (minShimVersion 2, fixed channel)", () => {
+  function tree(dataDir: string, app: string, version: string, shim: number, profile?: string): void {
+    const root = path.join(dataDir, `${app}-web`);
+    const key = `${version}-s${shim}`;
+    fs.mkdirSync(path.join(root, key), { recursive: true });
+    const info = { app, version, shimVersion: shim, sizeGzip: 5, ...(profile ? { profileHash: profile } : {}) };
+    fs.writeFileSync(path.join(root, key, "craft-build.json"), JSON.stringify(info));
+    fs.rmSync(path.join(root, "current"), { force: true });
+    fs.symlinkSync(key, path.join(root, "current"));
+  }
+
+  it("E6: a GridCraft v1-shim build → shim-outdated (below its minShimVersion)", () => {
+    const r = rig({ env: { CRAFT_HOME: "x" } });
+    r.setShim(2);
+    tree(r.dataDir, "gridcraft", "0.8.0", 1);
+    expect(r.service.status().apps.gridcraft).toMatchObject({ status: "shim-outdated", shimVersion: 1 });
+  });
+
+  it("E23: a fixed-channel app ignores a stored latest — verified version, zero latest lookups, prepare pinned; WordCraft unchanged", async () => {
+    const latest = vi.fn(async () => "0.99.0");
+    const provision = vi.fn().mockRejectedValue(new Error("stop"));
+    const r = rig({ config: { apps: { gridcraft: { version: "latest" }, wordcraft: { version: "latest" } } }, latestWebVersion: latest, provision: provision as never });
+    const st = r.service.status();
+    expect(st.apps.gridcraft).toMatchObject({ channel: "pinned", version: "0.8.0", status: "not-prepared" });
+    expect(st.apps.gridcraft.latestVersion).toBeUndefined();
+    expect(latest.mock.calls.filter((c) => c[0] === "gridcraft")).toHaveLength(0);
+    await r.service.prepare("gridcraft");
+    expect(provision).toHaveBeenLastCalledWith("gridcraft", expect.objectContaining({ channel: "pinned" }));
+    expect(st.apps.wordcraft.channel).toBe("latest");
+  });
+});
+
 describe("prepare failures (X1, X2) and single-flight", () => {
   it("X2: offline → reason offline, status offline, the failure is logged, a later success clears it", async () => {
     const rejecting = vi.fn(() => Promise.reject(new TypeError("fetch failed")));

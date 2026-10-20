@@ -7,6 +7,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { clearAppMountRegistry } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { CRAFT_APP_PROFILES } from "../../shared/app-profiles.js";
 import registerPlugin from "../index.js";
 import { cleanupTmp, type FakeHost, makeHost, tmp, writeTrunkBuild } from "./helpers.js";
 
@@ -30,7 +31,7 @@ describe("GET /api/plugins/craft-web/status", () => {
     expect(res.statusCode).toBe(200);
     const body = res.json() as { shimVersion: number; apps: Record<string, Record<string, unknown>> };
     expect(body.shimVersion).toBeGreaterThanOrEqual(1);
-    expect(Object.keys(body.apps)).toEqual(["wordcraft"]);
+    expect(Object.keys(body.apps)).toEqual(CRAFT_APP_PROFILES.map((p) => p.appId));
     expect(body.apps.wordcraft).toMatchObject({ status: "not-prepared", reason: "not-prepared", enabled: true, preparing: false, cspViolations: 0, version: "0.8.0" });
     await host.fastify.close();
   });
@@ -49,7 +50,7 @@ describe("POST /api/plugins/craft-web/prepare/:app", () => {
     const disabled = await host.fastify.inject({ method: "POST", url: "/api/plugins/craft-web/prepare/wordcraft" });
     expect(disabled.statusCode).toBe(403);
     expect(disabled.json()).toMatchObject({ ok: false, reason: "disabled" });
-    const unknown = await host.fastify.inject({ method: "POST", url: "/api/plugins/craft-web/prepare/gridcraft" });
+    const unknown = await host.fastify.inject({ method: "POST", url: "/api/plugins/craft-web/prepare/figcraft" });
     expect(unknown.statusCode).toBe(404);
     expect(unknown.json()).toMatchObject({ ok: false, reason: "unknown-app" });
     await host.fastify.close();
@@ -72,7 +73,7 @@ describe("POST /api/plugins/craft-web/csp-report", () => {
 
   it("400 for an unclaimed app, a malformed directive or a non-object body; 413 beyond 2 KiB", async () => {
     const host = await boot();
-    expect((await post(host, { app: "gridcraft", directive: "connect-src" })).statusCode).toBe(400);
+    expect((await post(host, { app: "figcraft", directive: "connect-src" })).statusCode).toBe(400);
     expect((await post(host, { app: "wordcraft", directive: "Connect Src;" })).statusCode).toBe(400);
     expect((await post(host, { app: "wordcraft", directive: 5 })).statusCode).toBe(400);
     expect((await post(host, [1, 2])).statusCode).toBe(400);
@@ -155,5 +156,24 @@ describe("X1 unrecognised start-up (exactly-once hook point)", () => {
     expect(served.statusCode).toBe(200);
     expect(served.body).toContain("craft-shim:");
     await host.fastify.close();
+  });
+});
+
+describe("X2 GitHub unreachable for a new app (GridCraft)", () => {
+  it("status not-prepared; prepare → 503 offline; status then reports offline", async () => {
+    const host = await boot();
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new TypeError("fetch failed");
+    }));
+    try {
+      const before = (await host.fastify.inject({ method: "GET", url: "/api/plugins/craft-web/status" })).json() as { apps: Record<string, { status: string }> };
+      expect(before.apps.gridcraft.status).toBe("not-prepared");
+      const res = await host.fastify.inject({ method: "POST", url: "/api/plugins/craft-web/prepare/gridcraft" });
+      expect(res.statusCode).toBe(503);
+      expect(res.json()).toMatchObject({ ok: false, reason: "offline" });
+    } finally {
+      vi.unstubAllGlobals();
+      await host.fastify.close();
+    }
   });
 });

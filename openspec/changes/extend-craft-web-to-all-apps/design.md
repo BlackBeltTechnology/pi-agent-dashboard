@@ -308,3 +308,14 @@ Rollback: per app/extension, drop the claim and profile entry; core D6 can be re
 - Does PdfCraft's in-place save keep incremental-update structure (signatures)? If not, its fidelity notice must say so (task 2.5).
 - Does LightCraft open a dropped RAW as a library item that can be shown alone, or always inside its demo library? This decides whether Wave 3 is worth shipping (task 4.1).
 - `.dwg`, `.odt`, `.rtf` and each raster extension are in scope (decided 2026-10-20), each gated by its e2e/fixture spike: does the web build open the file on drop and save the same extension in place (or the declared sibling)? A failure drops that extension from its claim, recorded here; it does not block the rest of its wave.
+
+## Implementation findings (ship-it, 2026-10-20)
+
+Fixture spikes (task 2.3, 2.5) ran in `/tmp/craftweb-spike/apps2` with the real post-install v2, shim v2 and the production CSP:
+
+- **`.dwg` (CADCraft 0.8.0): dropped.** The web build refuses DWG ("DWG files can't be opened in the web build yet; save as DXF"). The opened fallback then reported its default `Drawing1`; the save was suggested as `Drawing1.dxf` and routed to device download (other type), so nothing was overwritten. This is the D4 accepted cost; the claim lists `.dxf` only.
+- **`.odt` / `.rtf` (WordCraft 0.8.0): dropped** (decided 2026-10-20). Both open on drop, but Ctrl+S always writes `letter.docx`, so the in-place gate fails. Follow-up candidate: a type B claim (`.odt .rtf` with `.docx` as sibling). Their validators stay in the dispatcher (reject-only, unused).
+- **PdfCraft 0.9.0 saves incrementally:** an added comment was appended as an incremental update; the original bytes stayed a byte-for-byte prefix of the saved file. A save without edits writes the original bytes. The fidelity note says so.
+- **GridCraft 0.8.0:** title `budget.xlsx — Edited` persists after a picker save; the acknowledged own save clears dirty (`cleanOnAckedSave`). A workbook without `xl/styles.xml` shows a blocking "no styles part" dialog, so the committed fixture carries one.
+- **CADCraft `.dxf`, DesignCraft, SoundCraft:** opened via the fallback (`confirmed:false`), dirty after input, clean after the acknowledged own save; DesignCraft keeps `assets/`; CADCraft writes DXF R2000 with the drawn circle.
+- **SoundCraft opened from a file saves under the file's name** (`mix.scraftz`, inner session renamed), not the session name. `saveName: "inner-title"` is kept as specified (decided 2026-10-20): the extra first question stays a safe default for demo-session saves.

@@ -290,6 +290,11 @@ function SaveAsDialog({ t, app, name, file, onPick }: { t: Translate; app: Craft
         className="flex max-w-md flex-col gap-3 rounded-xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4 text-sm text-[var(--text-primary)]"
       >
         <p>{title}</p>
+        {app.profile.saveName === "inner-title" && (
+          <p className="text-xs text-[var(--text-secondary)]" data-testid="craft-save-as-hint">
+            {t("saveAsInnerTitleHint", { app: app.label, file })}
+          </p>
+        )}
         <div className="flex flex-wrap gap-2">
           <ChoiceButton testId="craft-save-as-copy" primary onPick={() => onPick("copy")}>
             {t("saveAsCopy", { file })}

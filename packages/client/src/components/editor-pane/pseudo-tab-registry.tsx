@@ -22,8 +22,8 @@
  */
 
 import { type ComponentType, lazy } from "react";
-import type { ViewerProps } from "./types.js";
 import LiveServerViewer from "./LiveServerViewer.js";
+import type { ViewerProps } from "./types.js";
 import UrlViewer from "./UrlViewer.js";
 import type { RegistryPseudoTabViewer } from "./viewer-kinds.js";
 

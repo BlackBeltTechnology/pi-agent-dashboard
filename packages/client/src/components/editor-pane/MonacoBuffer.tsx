@@ -17,8 +17,8 @@ import { buildMonacoTheme } from "../../lib/theme/monaco-theme.js";
 import { useThemeContext } from "../settings/ThemeProvider.js";
 // Side-effect import: worker wiring + loader.config (shared with MarkdownEditor).
 import "./monaco-setup.js";
-import type { ViewerProps } from "./types.js";
 import { usePreviewFetch } from "../../lib/access-grants/preview-provenance.js";
+import type { ViewerProps } from "./types.js";
 
 /** Map a file extension to a Monaco language id (curated allowlist). */
 const LANGUAGE_BY_EXT: Record<string, string> = {

@@ -71,6 +71,7 @@ function writeBytesOob(rel: string, bytes: Uint8Array): void {
 }
 const readBytesOob = (rel: string): Buffer => Buffer.from(inBox(`base64 < ${JSON.stringify(ABS(rel))} | tr -d '\\n'`), "base64");
 const existsOob = (rel: string): boolean => inBox(`[ -e ${JSON.stringify(ABS(rel))} ] && echo y || echo n`) === "y";
+const mtimeOob = (rel: string): string => inBox(`stat -c %y ${JSON.stringify(ABS(rel))}`);
 const listOob = (): string[] => inBox(`ls -1A ${JSON.stringify(FIXTURE_GIT)}`).split("\n").sort();
 
 // ---------------------------------------------------------------- tiny OOXML zip (no deps)
@@ -209,6 +210,8 @@ interface CraftRow {
   dirtyRoundTrip?: boolean;
   /** F15 toolbar contrast runs for this row (a plain edit claim). */
   contrast?: boolean;
+  /** `inner-title` app: the first save always asks Save As (D10, F8). */
+  saveAsFirst?: boolean;
 }
 
 const ROWS: readonly CraftRow[] = [
@@ -224,9 +227,104 @@ const ROWS: readonly CraftRow[] = [
       expect(saved.subarray(0, 2).toString("latin1")).toBe("PK");
       expect(docxText(saved)).toContain("Edited in pane");
     },
+  },
+  // ---- Wave 1 (extend-craft-web-to-all-apps group 2). Edits drive each app's own UI.
+  {
+    appId: "gridcraft",
+    claimId: "gridcraft",
+    label: "GridCraft",
+    fixture: "budget.xlsx",
+    fixtureSource: "craft/budget.xlsx",
+    titled: true,
+    // Name Box (top-left, fixed offset) → C2, then type: robust to the frame width.
+    edit: async (page, iframe) => {
+      await iframe.click({ position: { x: 66, y: 186 } });
+      await page.keyboard.press("ControlOrMeta+a");
+      await page.keyboard.type("C2", { delay: 30 });
+      await page.keyboard.press("Enter");
+      await page.keyboard.type("999", { delay: 30 });
+      await page.keyboard.press("Enter");
+    },
+    verify: (saved) => expect(unzipEntry(saved, "xl/worksheets/sheet1.xml")?.toString("utf8")).toMatch(/<c r="C2"[^>]*><v>999<\/v>/),
+    dirtyRoundTrip: true,
+  },
+  {
+    appId: "pdfcraft",
+    claimId: "pdfcraft",
+    label: "PdfCraft",
+    fixture: "doc.pdf",
+    fixtureSource: "craft/doc.pdf",
+    titled: false,
+  },
+  {
+    appId: "cadcraft",
+    claimId: "cadcraft",
+    label: "CADCraft",
+    fixture: "plan.dxf",
+    fixtureSource: "craft/plan.dxf",
+    titled: false,
+    // Keystrokes go to CADCraft's command line.
+    edit: async (page, iframe) => {
+      await iframe.click({ position: { x: 300, y: 300 } });
+      for (const step of ["CIRCLE", "10,10", "5"]) {
+        await page.keyboard.type(step, { delay: 30 });
+        await page.keyboard.press("Enter");
+      }
+    },
+    verify: (saved) => expect(dxfCircles(saved)).toContainEqual({ x: 10, y: 10, r: 5 }),
+    dirtyRoundTrip: true,
     contrast: true,
   },
+  {
+    appId: "designcraft",
+    claimId: "designcraft",
+    label: "DesignCraft",
+    fixture: "mag.designcraft",
+    fixtureSource: "craft/mag.designcraft",
+    titled: false,
+    verify: (saved) => expect(zipNames(saved).some((n) => n.startsWith("assets/"))).toBe(true),
+  },
+  {
+    appId: "soundcraft",
+    claimId: "soundcraft",
+    label: "SoundCraft",
+    fixture: "mix.scraftz",
+    fixtureSource: "craft/mix.scraftz",
+    titled: false,
+    saveAsFirst: true,
+  },
 ];
+
+/** CIRCLE entities `{x, y, r}` of an ASCII DXF. */
+function dxfCircles(bytes: Buffer): Array<{ x: number; y: number; r: number }> {
+  const l = bytes.toString("latin1").split(/\r?\n/).map((x) => x.trim());
+  const out: Array<{ x: number; y: number; r: number }> = [];
+  for (let i = 0; i + 1 < l.length; i += 2) {
+    if (l[i] !== "0" || l[i + 1] !== "CIRCLE") continue;
+    const c: Record<string, number> = {};
+    for (let j = i + 2; j + 1 < l.length && l[j] !== "0"; j += 2) c[l[j]] = Number(l[j + 1]);
+    out.push({ x: c["10"], y: c["20"], r: c["40"] });
+  }
+  return out;
+}
+
+/** Member names of a zip (central directory). */
+function zipNames(zip: Buffer): string[] {
+  const names: string[] = [];
+  let eocd = -1;
+  for (let i = zip.length - 22; i >= Math.max(0, zip.length - 65_557); i--) if (zip.readUInt32LE(i) === 0x06054b50) {
+    eocd = i;
+    break;
+  }
+  if (eocd < 0) return names;
+  let p = zip.readUInt32LE(eocd + 16);
+  for (let n = zip.readUInt16LE(eocd + 10); n > 0; n--) {
+    const nameLen = zip.readUInt16LE(p + 28);
+    names.push(zip.toString("utf8", p + 46, p + 46 + nameLen));
+    p += 46 + nameLen + zip.readUInt16LE(p + 30) + zip.readUInt16LE(p + 32);
+  }
+  return names;
+}
 
 const APP_IDS = [...new Set(ROWS.map((r) => r.appId))];
 const rowBytes = (r: CraftRow): Buffer => fs.readFileSync(path.join(FIXTURE_DIR, r.fixtureSource));
@@ -413,12 +511,19 @@ for (const row of ROWS) {
 
     test(`F2: edit + Ctrl/Cmd+S overwrites ${row.fixture} in place with the edit; no banner`, async ({ page }) => {
       const { iframe } = await freshEditor(page, row.fixture, row);
+      const mtime0 = mtimeOob(row.fixture);
       await row.edit?.(page, iframe);
+      if (!row.edit) await iframe.click({ position: { x: 300, y: 300 } }); // focus the app for its Save chord
       await page.keyboard.press("ControlOrMeta+s");
+      if (row.saveAsFirst) {
+        await expect(page.getByTestId("craft-save-as")).toBeVisible({ timeout: 30_000 });
+        await page.getByTestId("craft-save-as-overwrite").click();
+      }
       const notice = await confirmFirstOverwrite(page);
       if (!row.titled) expect(notice).toContain(`${row.label} does not report which file it opened.`);
-      const original = rowBytes(row);
-      await expect.poll(() => !readBytesOob(row.fixture).equals(original), { timeout: 30_000 }).toBe(true);
+      // A no-edit save may write identical bytes: the write itself (mtime) is the observable then.
+      if (row.edit) await expect.poll(() => !readBytesOob(row.fixture).equals(rowBytes(row)), { timeout: 30_000 }).toBe(true);
+      else await expect.poll(() => mtimeOob(row.fixture) !== mtime0, { timeout: 30_000 }).toBe(true);
       row.verify?.(readBytesOob(row.fixture));
       await page.waitForTimeout(2_500); // settle + catch-up windows
       await expect(page.getByTestId("changed-on-disk-banner")).toHaveCount(0);
@@ -531,6 +636,52 @@ for (const row of ROWS) {
     }
   });
 }
+
+// ---------------------------------------------------------------- Wave 1 single-app scenarios
+
+const rowOf = (claimId: string): CraftRow => ROWS.find((r) => r.claimId === claimId) as CraftRow;
+
+test.describe("craft-web Wave 1 scenarios", () => {
+  test.describe.configure({ timeout: 240_000 });
+
+  test("F4: unconfirmed open (CADCraft) asks ONE question; Save as copy creates plan.cadcraft.dxf, plan.dxf unchanged", async ({ page }) => {
+    const row = rowOf("cadcraft");
+    const { iframe } = await freshEditor(page, row.fixture, row);
+    await row.edit?.(page, iframe);
+    await page.keyboard.press("ControlOrMeta+s");
+    const notice = page.getByTestId("file-handler-first-overwrite-dialog");
+    await expect(notice).toBeVisible({ timeout: 30_000 });
+    await expect(notice).toContainText("does not report which file it opened");
+    await page.getByTestId("file-handler-first-overwrite-dialog-copy").click();
+    await expect.poll(() => existsOob("plan.cadcraft.dxf"), { timeout: 30_000 }).toBe(true);
+    expect(readBytesOob(row.fixture).equals(rowBytes(row))).toBe(true);
+    await page.waitForTimeout(1_000);
+    await expect(page.getByTestId("file-handler-first-overwrite-dialog")).toHaveCount(0);
+    await expect(page.getByTestId("craft-save-as")).toHaveCount(0);
+    inBox(`rm -f ${JSON.stringify(ABS("plan.cadcraft.dxf"))}`);
+  });
+
+  test("F8: session-named save (SoundCraft) — first save asks, Overwrite; the second save writes without a question", async ({ page }) => {
+    const row = rowOf("soundcraft");
+    const { iframe } = await freshEditor(page, row.fixture, row);
+    const mtime0 = mtimeOob(row.fixture);
+    await iframe.click({ position: { x: 300, y: 300 } });
+    await page.keyboard.press("ControlOrMeta+s");
+    await expect(page.getByTestId("craft-save-as")).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId("craft-save-as")).toContainText("names saves after the session inside the file");
+    await page.getByTestId("craft-save-as-overwrite").click();
+    await confirmFirstOverwrite(page);
+    await expect.poll(() => mtimeOob(row.fixture) !== mtime0, { timeout: 30_000 }).toBe(true);
+    const first = mtimeOob(row.fixture);
+    await page.waitForTimeout(1_100);
+    await iframe.click({ position: { x: 300, y: 300 } });
+    await page.keyboard.press("ControlOrMeta+s");
+    await expect.poll(() => mtimeOob(row.fixture) !== first, { timeout: 30_000 }).toBe(true);
+    await expect(page.getByTestId("craft-save-as")).toHaveCount(0);
+    await expect(page.getByTestId("file-handler-first-overwrite-dialog")).toHaveCount(0);
+    expect(unzipEntry(readBytesOob(row.fixture), "Audio Files/tone.wav")).not.toBeNull();
+  });
+});
 
 // ---------------------------------------------------------------- shim compatibility (D8)
 

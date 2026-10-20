@@ -16,7 +16,7 @@ import { type OpenOutcome, reportCsp, reportTelemetry } from "./craft-api.js";
 import type { CraftWebApp } from "./craft-apps-table.js";
 import { downloadToDevice } from "./device-download.js";
 import type { Translate } from "./messages.js";
-import { baseName, routeSave, splitName } from "./save-routing.js";
+import { baseName, routeSave, saveNameKey, splitName } from "./save-routing.js";
 import type { SaveTarget } from "./save-target-store.js";
 import { type HostMessage, parseShimMessage, type ShimMessage, safeNavigateUrl } from "./shim-protocol.js";
 
@@ -78,6 +78,8 @@ export class FrameSession {
   private readonly cspLast = new Map<string, number>();
   private cspCount = 0;
   private saveAsResolve: ((c: SaveAsChoice) => void) | null = null;
+  /** `inner-title` apps (D10): the Save As answer per suggested name, for this instance. */
+  private readonly rememberedSaveAs = new Map<string, Exclude<SaveAsChoice, "cancel">>();
   private readyTimer: ReturnType<typeof setTimeout> | undefined;
   private openTimer: ReturnType<typeof setTimeout> | undefined;
   private blockedTimer: ReturnType<typeof setTimeout> | undefined;
@@ -296,14 +298,16 @@ export class FrameSession {
   }
 
   private async routeAndSave(m: SaveMsg): Promise<void> {
-    const route = this.preview
-      ? "download"
-      : routeSave({
-          suggestedName: m.suggestedName,
-          tabPath: this.d.fh().path,
-          byteLength: m.bytes.byteLength,
-          maxBytes: this.d.app.maxBytes,
-        });
+    const route = routeSave({
+      suggestedName: m.suggestedName,
+      tabPath: this.d.fh().path,
+      byteLength: m.bytes.byteLength,
+      maxBytes: this.d.app.maxBytes,
+      saveName: this.d.app.profile.saveName,
+      remembered: new Set(this.rememberedSaveAs.keys()),
+      preview: this.preview,
+    });
+    const remembered = this.rememberedSaveAs.get(saveNameKey(m.suggestedName));
     if (route === "download") {
       downloadToDevice(m.suggestedName, m.bytes, m.mime);
       this.reply(true);
@@ -311,11 +315,13 @@ export class FrameSession {
       this.d.ui.setOffer({ name: m.suggestedName, bytes: m.bytes, mime: m.mime });
       this.reply(false, "too-large");
     } else if (route === "own") {
-      await this.workspaceSave(m.bytes, this.d.saveTarget());
+      await this.workspaceSave(m.bytes, remembered ?? this.d.saveTarget());
     } else {
       const choice = await this.askSaveAs(m.suggestedName);
-      if (choice === "cancel") this.reply(false, "cancelled");
-      else await this.workspaceSave(m.bytes, choice);
+      if (choice === "cancel") return this.reply(false, "cancelled");
+      // D10: an answer is remembered for later saves under the SAME suggested name only.
+      if (this.d.app.profile.saveName === "inner-title") this.rememberedSaveAs.set(saveNameKey(m.suggestedName), choice);
+      await this.workspaceSave(m.bytes, choice);
     }
   }
 

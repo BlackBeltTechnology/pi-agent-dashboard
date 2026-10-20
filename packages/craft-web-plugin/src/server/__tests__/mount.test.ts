@@ -8,6 +8,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { clearAppMountRegistry } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { CRAFT_APP_PROFILES } from "../../shared/app-profiles.js";
 import { buildCsp, publicOrigin } from "../csp.js";
 import registerPlugin, { VALIDATOR_MODULE } from "../index.js";
 import { cleanupTmp, type FakeHost, makeHost, writeTrunkBuild } from "./helpers.js";
@@ -103,9 +104,12 @@ describe("craft-web mount (E16, E17)", () => {
 });
 
 describe("craft-web validator registration (E3)", () => {
-  it("registers one validator per claimed app whose enabled() follows the live config", async () => {
+  it("registers the dispatcher once per EDIT claim (claim id), whose enabled() follows the app's live config", async () => {
     const host = await boot();
-    expect(host.registerFileValidator).toHaveBeenCalledTimes(1);
+    const regs = host.registerFileValidator.mock.calls.map((c) => c[0] as { claimId: string; module: string });
+    const editClaims = CRAFT_APP_PROFILES.flatMap((p) => p.claims.filter((c) => c.mode === "edit").map((c) => c.id));
+    expect(regs.map((r) => r.claimId).sort()).toEqual([...editClaims].sort());
+    for (const r of regs) expect(r.module).toBe(VALIDATOR_MODULE);
     const reg = host.registerFileValidator.mock.calls[0][0] as { claimId: string; module: string; enabled: () => boolean };
     expect(reg.claimId).toBe("wordcraft");
     expect(reg.module).toBe(VALIDATOR_MODULE);

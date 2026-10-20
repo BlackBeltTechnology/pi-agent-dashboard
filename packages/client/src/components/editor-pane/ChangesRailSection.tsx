@@ -8,8 +8,8 @@
  * `EditorFileTree`. Absent when the session has no changes.
  */
 import { t as i18nT } from "../../lib/i18n/i18n.js";
-import { CountBadges } from "../session/CountBadges.js";
 import { useOptionalSessionDiff } from "../diff/SessionDiffContext.js";
+import { CountBadges } from "../session/CountBadges.js";
 
 export function ChangesRailSection({
   sessionOnly,

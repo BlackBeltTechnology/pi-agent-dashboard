@@ -16,6 +16,7 @@ import * as settingsModule from "../client/CraftWebSettings.js";
 import { CLAIMED_WEB_APP_IDS, CRAFT_WEB_APPS as CLIENT_CLAIMS } from "../client/craft-apps-table.js";
 import * as clientBarrel from "../client/handlers.js";
 import { CLAIM_APP, CLAIMED_APPS, CRAFT_WEB_APPS } from "../server/apps.js";
+import { ROUTES } from "../server/validators/index.mjs";
 import {
   CRAFT_APP_PROFILES,
   type CraftAppProfile,
@@ -121,6 +122,12 @@ describe("craft-web manifest (E1)", () => {
         expect(c.label).toBe(`View in ${p.label}`);
       }
     }
+  });
+
+  it("every edit and sibling extension has a validator dispatcher route (D7: a format without a validator gets no edit claim)", () => {
+    for (const p of CRAFT_APP_PROFILES)
+      for (const c of p.claims.filter((x) => x.mode === "edit"))
+        for (const ext of [...c.extensions, ...(c.siblingExtensions ?? [])]) expect(Object.hasOwn(ROUTES, ext), `${c.id} ${ext}`).toBe(true);
   });
 
   it("maps extensions to the spec's caps (docx cap for .docx .odt .rtf, sheet for .xlsx, pptx for .pptx, 16 MiB for .svg, else the handler ceiling)", () => {

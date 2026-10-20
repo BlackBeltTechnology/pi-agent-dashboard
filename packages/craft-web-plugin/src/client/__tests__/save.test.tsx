@@ -7,7 +7,8 @@
  */
 import { cleanup, fireEvent } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { routeSave, splitName } from "../save-routing.js";
+import { CRAFT_WEB_APPS } from "../craft-apps-table.js";
+import { routeSave, saveNameKey, siblingName, splitName } from "../save-routing.js";
 import { __resetSaveTargetsForTests } from "../save-target-store.js";
 import { bytesOf, flush, makeFh, mountFrame, openDoc, saveResults, shimSend, stubFetch } from "./test-utils.js";
 
@@ -213,5 +214,101 @@ describe("Save-target toggle", () => {
     // another file → default
     const c = await mountFrame({ fh: makeFh({ path: "docs/other.docx" }) });
     expect(c.getByTestId("craft-save-target-overwrite").getAttribute("aria-pressed")).toBe("true");
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------
+// extend-craft-web-to-all-apps (D6, D10, D11)
+// ---------------------------------------------------------------------------------------------------
+
+const SOUND = CRAFT_WEB_APPS.soundcraft;
+
+describe("E13 save routing (pure, D6/D10)", () => {
+  const raster = { tabPath: "img/photo.jpg", byteLength: 10, maxBytes: 1000, siblingExtensions: [".psd"] };
+  it.each([
+    ["photo.jpg", "own"],
+    ["draft.jpg", "save-as"],
+    ["photo.psd", "sibling"],
+    ["other.psd", "sibling"],
+    ["photo.pdf", "download"],
+  ])("photocraft-raster on photo.jpg: %s → %s", (name, expected) => {
+    expect(routeSave({ ...raster, suggestedName: name })).toBe(expected);
+  });
+
+  it("sibling over the cap → too-large; without siblingExtensions (older runtime, E19) → download", () => {
+    expect(routeSave({ ...raster, suggestedName: "photo.psd", byteLength: 2000 })).toBe("too-large");
+    expect(routeSave({ ...raster, siblingExtensions: undefined, suggestedName: "photo.psd" })).toBe("download");
+  });
+
+  it("siblingName keeps the tab's stem (original case) with the native extension", () => {
+    expect(siblingName("img/My Photo.JPG", ".psd")).toBe("My Photo.psd");
+  });
+
+  it("inner-title (SoundCraft): first save under a name asks even with a matching stem; remembered → own; other name asks", () => {
+    const base = { tabPath: "mix.scraftz", byteLength: 10, maxBytes: 1000, saveName: "inner-title" as const };
+    expect(routeSave({ ...base, suggestedName: "mix.scraftz" })).toBe("save-as");
+    expect(routeSave({ ...base, suggestedName: "Midnight Groove.scraftz" })).toBe("save-as");
+    const remembered = new Set([saveNameKey("Midnight Groove.scraftz")]);
+    expect(routeSave({ ...base, suggestedName: "midnight groove.SCRAFTZ", remembered })).toBe("own");
+    expect(routeSave({ ...base, suggestedName: "Other.scraftz", remembered })).toBe("save-as");
+    expect(routeSave({ ...base, suggestedName: "x.scraftz", byteLength: 2000 })).toBe("too-large");
+  });
+
+  it("preview claim → download for every name", () => {
+    for (const n of ["sample.dng", "sample.jpg", "x.psd"]) {
+      expect(routeSave({ tabPath: "sample.dng", byteLength: 1, maxBytes: 10, preview: true, suggestedName: n })).toBe("download");
+    }
+  });
+});
+
+describe("D10 session-named saves in the host (SoundCraft)", () => {
+  const sound = () => mountFrame({ app: SOUND, fh: makeFh({ path: "mix.scraftz", save: vi.fn(async () => ({ ok: true as const, path: "mix.scraftz", mtime: 2, sha1: "b" })) as never }) });
+
+  it("first save asks; Overwrite is remembered for the same suggested name; another name asks again", async () => {
+    stubFetch({ status: () => ({ soundcraft: { status: "ok" } }) });
+    const m = await sound();
+    await shimSend(m.iframe, { type: "ready" });
+    await shimSend(m.iframe, { type: "opened", title: "mix.scraftz", confirmed: false });
+    await shimSend(m.iframe, { type: "save", suggestedName: "Midnight Groove.scraftz", bytes: bytesOf(5) });
+    expect(m.getByTestId("craft-save-as")).toBeTruthy();
+    fireEvent.click(m.getByTestId("craft-save-as-overwrite"));
+    await flush();
+    expect(m.fh.save).toHaveBeenLastCalledWith(expect.anything(), { target: "overwrite" });
+    await shimSend(m.iframe, { type: "save", suggestedName: "Midnight Groove.scraftz", bytes: bytesOf(5) });
+    expect(m.queryByTestId("craft-save-as")).toBeNull();
+    expect(m.fh.save).toHaveBeenCalledTimes(2);
+    expect(m.fh.save).toHaveBeenLastCalledWith(expect.anything(), { target: "overwrite" });
+    await shimSend(m.iframe, { type: "save", suggestedName: "Other.scraftz", bytes: bytesOf(5) });
+    expect(m.getByTestId("craft-save-as")).toBeTruthy();
+  });
+
+  it("a remembered copy answer writes a copy on every save", async () => {
+    stubFetch({ status: () => ({ soundcraft: { status: "ok" } }) });
+    const m = await sound();
+    await shimSend(m.iframe, { type: "ready" });
+    await shimSend(m.iframe, { type: "opened", title: "mix.scraftz", confirmed: false });
+    await shimSend(m.iframe, { type: "save", suggestedName: "mix.scraftz", bytes: bytesOf(5) });
+    fireEvent.click(m.getByTestId("craft-save-as-copy"));
+    await flush();
+    await shimSend(m.iframe, { type: "save", suggestedName: "mix.scraftz", bytes: bytesOf(5) });
+    expect(m.fh.save.mock.calls.map((c) => (c[1] as { target: string }).target)).toEqual(["copy", "copy"]);
+  });
+});
+
+describe("E32 session-name hint", () => {
+  it("SoundCraft's Save As question explains the session name; WordCraft's has no such line", async () => {
+    stubFetch({ status: () => ({ soundcraft: { status: "ok" } }) });
+    const s = await mountFrame({ app: SOUND, fh: makeFh({ path: "mix.scraftz" }) });
+    await shimSend(s.iframe, { type: "ready" });
+    await shimSend(s.iframe, { type: "opened", title: "mix.scraftz", confirmed: false });
+    await shimSend(s.iframe, { type: "save", suggestedName: "Midnight Groove.scraftz", bytes: bytesOf(5) });
+    expect(s.getByTestId("craft-save-as").textContent).toContain("SoundCraft names saves after the session inside the file, not after mix.scraftz.");
+    cleanup();
+    stubFetch({});
+    const w = await mountFrame();
+    await openDoc(w);
+    await shimSend(w.iframe, { type: "save", suggestedName: "draft.docx", bytes: bytesOf(5) });
+    expect(w.getByTestId("craft-save-as")).toBeTruthy();
+    expect(w.queryByTestId("craft-save-as-hint")).toBeNull();
   });
 });

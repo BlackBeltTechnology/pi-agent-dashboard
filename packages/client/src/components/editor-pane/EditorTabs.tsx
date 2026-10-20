@@ -10,10 +10,10 @@
 import { mdiClose, mdiConsoleLine, mdiPuzzleOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import type { OpenFile } from "../../lib/layout/editor-pane-state.js";
-import { fileIcon } from "../../lib/preview/file-icon.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
+import type { OpenFile } from "../../lib/layout/editor-pane-state.js";
 import { stripTermId } from "../../lib/layout/use-terminal-pane-tabs.js";
+import { fileIcon } from "../../lib/preview/file-icon.js";
 
 interface EditorTabsProps {
   openFiles: OpenFile[];

@@ -2,8 +2,9 @@
  * DiffViewer virtual-path handling + no-provider fallback
  * (change: add-change-summary-table).
  */
-import { describe, it, expect, afterEach, vi } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 // DiffViewer's job is FILE RESOLUTION from the shared diff context; DiffPanel's
 // rendering is covered by DiffPanelTheme.test. Mock DiffPanel to a probe that
@@ -14,11 +15,11 @@ vi.mock("../../diff/DiffPanel.js", () => ({
   ),
 }));
 
-import DiffViewer, { stripDiffPrefix } from "../DiffViewer.js";
-import { SessionDiffContext } from "../../diff/SessionDiffContext.js";
-import type { SessionDiffContextValue } from "../../diff/SessionDiffContext.js";
-import { fileKind } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
 import type { SessionDiffResponse } from "@blackbelt-technology/pi-dashboard-shared/diff-types.js";
+import { fileKind } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
+import type { SessionDiffContextValue } from "../../diff/SessionDiffContext.js";
+import { SessionDiffContext } from "../../diff/SessionDiffContext.js";
+import DiffViewer, { stripDiffPrefix } from "../DiffViewer.js";
 
 afterEach(cleanup);
 
