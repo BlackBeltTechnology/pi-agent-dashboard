@@ -11,7 +11,7 @@
  * SOURCE-VERSION PIN: mirrored from `pi-hermes-memory@0.9.10`
  * `src/types.ts` (MemoryConfig) + `src/config.ts` (DEFAULT_CONFIG). Re-check
  * this field set + DEFAULTS on every hermes upgrade (risk D-R1); the
- * drift-guard fixture `__tests__/fixtures/hermes-0.9.10-config.json` fails
+ * drift-guard fixture `__tests__/fixtures/hermes-0.9.10-fields.json` fails
  * the shared tests when they diverge.
  *
  * See change: add-hermes-memory-settings-plugin, resync-hermes-memory-config-0-9.

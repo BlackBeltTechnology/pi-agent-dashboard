@@ -7,7 +7,7 @@ import type {
   MkdirResult,
 } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { getApiBase } from "./api-context.js";
-import { fetchJson, fetchJsonResponse } from "./fetch-json.js";
+import { ApiHttpError, fetchJson, fetchJsonResponse } from "./fetch-json.js";
 
 /**
  * Thrown when a browse call is refused by the server's network guard
@@ -26,6 +26,24 @@ export class NetworkNotAllowedError extends Error {
     this.name = "NetworkNotAllowedError";
     this.hint = hint;
     this.reason = reason;
+  }
+}
+
+/** Server wording for a refused path; the picker maps it to plain-language copy. */
+const OUTSIDE_ROOTS_MESSAGE = "path outside allowed roots";
+
+/**
+ * Thrown when a remote caller's browse / mkdir path is outside the shared roots
+ * (HTTP 403 `path outside allowed roots`). Distinct from `NetworkNotAllowedError`:
+ * the network is fine, this path is not shared. `code` lets callers branch
+ * without importing the class.
+ * See change: harden-server-capability-bounds.
+ */
+export class PathOutsideRootsError extends Error {
+  readonly code = "path_outside_allowed_roots" as const;
+  constructor() {
+    super(OUTSIDE_ROOTS_MESSAGE);
+    this.name = "PathOutsideRootsError";
   }
 }
 
@@ -54,6 +72,9 @@ export async function browseDirectory(
   const { res, json } = await fetchJsonResponse(url, { signal: options?.signal });
   if (res.status === 403 && json?.error === "network_not_allowed") {
     throw new NetworkNotAllowedError(json.hint, json.reason);
+  }
+  if (res.status === 403 && json?.error === OUTSIDE_ROOTS_MESSAGE) {
+    throw new PathOutsideRootsError();
   }
   if (!res.ok || !json?.success) {
     throw new Error(json?.error ?? `browse failed (HTTP ${res.status})`);
@@ -95,11 +116,20 @@ export async function createDirectory(
   parent: string,
   name: string,
 ): Promise<MkdirResult> {
-  const json = await fetchJson(`${getApiBase()}/api/browse/mkdir`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ parent, name }),
-  });
+  let json: { success?: boolean; error?: string; data: MkdirResult };
+  try {
+    json = await fetchJson(`${getApiBase()}/api/browse/mkdir`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ parent, name }),
+    });
+  } catch (err) {
+    // `fetchJson` throws on any non-2xx; recognise the refusal body, keep every other failure as-is.
+    if (err instanceof ApiHttpError && err.status === 403 && err.bodySnippet.includes(OUTSIDE_ROOTS_MESSAGE)) {
+      throw new PathOutsideRootsError();
+    }
+    throw err;
+  }
   if (!json.success) {
     throw new Error(json.error ?? "mkdir failed");
   }

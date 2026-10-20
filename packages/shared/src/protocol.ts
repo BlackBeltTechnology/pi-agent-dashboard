@@ -159,6 +159,22 @@ export interface SessionRegisterMessage {
   isNew?: boolean;
   /** Number of conversation entries — used by server to skip event wipe on reconnect */
   eventCount?: number;
+  /**
+   * Id of the last entry of the branch `eventCount` counts. With `eventCount`
+   * it lets the server prove a stored/hydrated transcript is the same branch
+   * and skip the wipe. Sent only by a bridge that also marks replayed events
+   * (`EventForwardMessage.replay`). Absent ⇒ the server always wipes.
+   * See change: fix-large-session-resume-replay (D5, D7).
+   */
+  leafEntryId?: string;
+  /**
+   * True when a turn is in progress (the same value the bridge uses for its
+   * own replay's `liveTailOpen`). A hydration-learned skip requires `false`:
+   * cold hydration closes open tool calls the live replay keeps open.
+   * Absent ⇒ no hydration-learned skip.
+   * See change: fix-large-session-resume-replay (D5, D7).
+   */
+  liveTailOpen?: boolean;
   /** OS process ID of the pi agent — used for force-kill escalation */
   pid?: number;
   /**
@@ -392,6 +408,14 @@ export interface EventForwardMessage {
   type: "event_forward";
   sessionId: string;
   event: DashboardEvent;
+  /**
+   * `true` on every event of a history replay (register / reconnect / session
+   * switch / ACP event-log replay); never set on a live forward. The server
+   * handles a marked event as replayed whatever its replay timers say. Absent
+   * ⇒ the server falls back to its idle/cap replay-mode timers.
+   * See change: fix-large-session-resume-replay (D1).
+   */
+  replay?: true;
 }
 
 /**

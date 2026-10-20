@@ -13,7 +13,7 @@
  * See change: restore-ask-user-tool-state-on-reconnect, test-plan
  * #E9–#E12, #X1–#X5, #F1, #R1–#R7.
  */
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
 import { createServer, type DashboardServer, type ServerConfig } from "../server.js";
 
@@ -968,4 +968,48 @@ describe("prompt-derived currentTool (integration)", () => {
     expect(got(b.messages)).toEqual(["p1"]);
     await expectCurrentTool("s1", "ask_user");
   });
+  // ── Replay exits other than `replay_complete` ──
+  // See change: fix-large-session-resume-replay, test-plan #E18.
+
+  it("#E18 an idle replay exit reconciles: the lost-dismiss prompt is dropped and currentTool re-derived", async () => {
+    await boot({ replayTimings: { idleMs: 150, capMs: 5000 } });
+    const bridge = await openBridge();
+    await registerLive(bridge, "s1");
+    promptRequest(bridge, "s1", "p1");
+    await wait(120);
+    await expectCurrentTool("s1", "ask_user");
+    const reconcile = vi.spyOn(server.browserGateway, "reconcilePromptRequests");
+
+    // Reconnect: the replay re-sends no prompt and never sends replay_complete.
+    register(bridge, "s1");
+    await wait(40);
+    send(bridge, {
+      type: "event_forward",
+      sessionId: "s1",
+      replay: true,
+      event: { eventType: "agent_end", timestamp: Date.now(), data: { type: "agent_end" } },
+    });
+    await waitFor(() => reconcile.mock.calls.length > 0, 2000);
+    await wait(60);
+    expect(reconcile).toHaveBeenCalledWith("s1", []);
+    expect(server.browserGateway.hasPendingPromptRequests("s1")).toBe(false);
+    await expectCurrentTool("s1", null);
+  });
+
+  it("#E18 an unregister mid-replay does not reconcile; the registries are cleared by the unregister itself", async () => {
+    await boot({ replayTimings: { idleMs: 150, capMs: 5000 } });
+    const bridge = await openBridge();
+    await registerLive(bridge, "s1");
+    promptRequest(bridge, "s1", "p1");
+    await wait(120);
+    const reconcile = vi.spyOn(server.browserGateway, "reconcilePromptRequests");
+
+    register(bridge, "s1");
+    await wait(40);
+    send(bridge, { type: "session_unregister", sessionId: "s1" });
+    await wait(400); // well past the idle window
+    expect(reconcile).not.toHaveBeenCalled();
+    expect(server.browserGateway.hasPendingPromptRequests("s1")).toBe(false);
+  });
+
 });

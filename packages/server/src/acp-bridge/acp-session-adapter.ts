@@ -424,8 +424,11 @@ export function createAcpSessionAdapter(opts: AcpSessionAdapterOptions): AcpSess
   async function start(): Promise<void> {
     send(registerMessage("spawn"));
     // A fresh session has nothing to replay. The server holds every event back
-    // (replayingSessions) after a register until `replay_complete`, or for 5 s —
-    // without this the first turn of a new session would stay invisible.
+    // (replay mode) after a register until `replay_complete` (or its idle/cap
+    // fallback exit) — without this the first turn of a new session would stay
+    // invisible. Replayed events carry `replay: true` (see `reconnected`), so
+    // the server never treats them as live whatever its timers say.
+    // See change: fix-large-session-resume-replay.
     send({ type: "replay_complete", sessionId });
     startWatchdogs();
     const timedOut = new Promise<never>((_, reject) => {
@@ -461,7 +464,9 @@ export function createAcpSessionAdapter(opts: AcpSessionAdapterOptions): AcpSess
     publishModelsRaw();
     const snapshot = opts.eventLog ? (await opts.eventLog.flush(), opts.eventLog.size()) : 0;
     if (opts.eventLog) {
-      await opts.eventLog.replay((event) => opts.send({ type: "event_forward", sessionId, event }), snapshot);
+      // `replay: true`: the server handles a marked event as replayed whatever
+      // its replay timers say. See change: fix-large-session-resume-replay (D1).
+      await opts.eventLog.replay((event) => opts.send({ type: "event_forward", sessionId, event, replay: true }), snapshot);
     }
     opts.send({ type: "replay_complete", sessionId });
     replaying = false;

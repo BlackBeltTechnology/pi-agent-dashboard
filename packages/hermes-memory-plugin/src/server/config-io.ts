@@ -207,7 +207,7 @@ function isLegacyWriteAll(disk: Record<string, unknown>): boolean {
  * Known keys come ONLY from the body — a key the body omits is never carried
  * over from disk (keeps clear-to-inherit + per-field reset working).
  */
-export function composeWritten(
+function composeWritten(
   disk: Record<string, unknown>,
   body: Record<string, unknown>,
 ): Record<string, unknown> {

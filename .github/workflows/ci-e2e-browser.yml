@@ -273,6 +273,111 @@ jobs:
           fi
           (cd "$ws" && "$GITHUB_WORKSPACE/docker/test-down.sh")
 
+  # ── e2e-bounds-variants: the capability-bounds VARIANT-harness legs ────────
+  # Two specs from change `harden-server-capability-bounds` need a harness booted
+  # with a non-default faucet, so neither can be a shared-harness default:
+  #   - tests/e2e/terminal-cap.spec.ts needs PI_E2E_TERMINALS_MAX_CONCURRENT=2
+  #     (a global PTY cap of 2 would starve every other terminal spec);
+  #   - tests/e2e/remote-browse-confinement.spec.ts needs PI_E2E_BROWSE_CONFINEMENT=1
+  #     (the harness seeds remote-browse confinement OFF because the browser is a
+  #     remote peer through the Docker port mapping and ~30 specs pin per-test dirs
+  #     via the picker).
+  # One matrix entry per spec, each with its own managed harness; every other
+  # shard skips both files. Without this leg they would never run in CI.
+  e2e-bounds-variants:
+    name: e2e (bounds variant, ${{ matrix.name }})
+    # Same label gate as the shard matrix: dispatch/nightly always, PRs opt-in.
+    if: >-
+      github.event_name != 'pull_request' ||
+      contains(github.event.pull_request.labels.*.name, 'e2e-browser')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    continue-on-error: ${{ github.event_name == 'pull_request' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: terminal-cap
+            spec: tests/e2e/terminal-cap.spec.ts
+            cap: "2"
+            confinement: ""
+          - name: browse-confinement
+            spec: tests/e2e/remote-browse-confinement.spec.ts
+            cap: ""
+            confinement: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      # Same managed-mode contract as the shards (globalSetup boots + tears down,
+      # cold-build timeout, copy mode), plus the bounds faucets. PI_E2E_SEED is
+      # mandatory: without it the onboarding "Add folder" CTA is disabled and
+      # every scenario spec times out.
+      - name: Run ${{ matrix.name }} E2E (variant harness)
+        run: pnpm exec playwright test ${{ matrix.spec }}
+        env:
+          CI: "1"
+          PI_E2E_SEED: "1"
+          PI_E2E_TERMINALS_MAX_CONCURRENT: ${{ matrix.cap }}
+          PI_E2E_BROWSE_CONFINEMENT: ${{ matrix.confinement }}
+          PW_E2E_BOOT_TIMEOUT_MS: "1200000"
+          TEST_COPY_MODE: "1"
+
+      - name: Upload blob report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: blob-report-${{ matrix.name }}
+          path: blob-report
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload harness boot log
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-up-log-${{ matrix.name }}
+          path: test-results/test-up.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload harness failure bundle
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-failure-${{ matrix.name }}
+          path: test-results/harness-failure.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Tear down harness
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          marker="test-results/.e2e-managed"
+          if [ ! -f "$marker" ]; then
+            echo "no managed-run marker — globalTeardown (or attach mode) already handled teardown"
+            exit 0
+          fi
+          ws="$(node -p "JSON.parse(require('node:fs').readFileSync('test-results/.e2e-managed','utf8')).workspace" 2>/dev/null || true)"
+          if [ -z "$ws" ] || [ ! -d "$ws" ]; then
+            echo "marker has no usable workspace — nothing to tear down"
+            exit 0
+          fi
+          (cd "$ws" && "$GITHUB_WORKSPACE/docker/test-down.sh")
+
   # ── e2e-team: the VARIANT-harness leg for tests/e2e/team/ ─────────────────
   # These specs need the real `pi` CLI, a built team app and their own config
   # (playwright.team.config.ts). They are config-owned: the default config's
