@@ -4,3 +4,5 @@ Renders temporal BURST group (data from `lib/group-tool-bursts.ts`). Exports `To
 
 
 Props `onAbort?`/`onForceKill?` (from `ChatView` burst branch). Calls `useToolStopState({active:isRunning})` once, BEFORE the vanish early-return; `GroupFrame` header = flex div: toggle `<button data-testid=tool-burst-header class=flex-1 min-w-0>` + `stopSlot` sibling `<ToolStopControl testIdPrefix="tool-burst" labeled>`. `BurstBodyItem` forwards the same `stopController` to running rows only → header + rows share state; survives body collapse. See change: fix-chat-burst-tool-stop.
+
+chat-motion: `useGroupEntering(memberIds)` — the group enters only when ALL visible members are new; members present at that first commit are passed as `initialMemberIds` so their lines ride the group's entry (`ToolCallStep.enterSuppressed`); a member joining later animates its own line. Existing running→done detection stays; when `useCompletionCue` fires (live-follow non-bulk) the glyph mounts as a keyed `chat-motion-cue` wrapper and REPLACES `tool-group-flash`; otherwise the flash is unchanged. See change: add-fluid-chat-motion.

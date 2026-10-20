@@ -15,6 +15,8 @@ One row per file.
 | `archive-service-sessions-on-end.spec.ts` | → see `archive-service-sessions-on-end.spec.ts.AGENTS.md` |
 | `archived-attachment.spec.ts` | → see `archived-attachment.spec.ts.AGENTS.md` |
 | `changed-on-disk-content-gate.spec.ts` | L3 |
+| `chat-motion-perf.spec.ts` | L3 opt-in (`PW_PERF=1`) render-cost gate for chat motion (D4): tail scripting on/off ratio ≤ 1.5, p95 rAF frame interval < 16.7 ms (+0.3 jitter). Numbers recorded in the change's `perf.md`. See change: add-fluid-chat-motion. |
+| `chat-motion.spec.ts` | L3 chat motion in a real browser: F1 live entry (`@starting-style` first-frame opacity) · F2 paced reveal (length changes per WS update) · F3 glide follow · F4/F5/F6 Page Up / wheel-up / foreign scroll mid-glide · F7 relocation mid-glide · F8 selection freeze · F9 trailing edge · F10 completion cue · F11 idle exemption (`data-chat-motion-busy`) · F12 reduced motion · F13 pref off. Fixtures `chat-motion-stream` / `chat-motion-glide`. See change: add-fluid-chat-motion. |
 | `composer-liveness-reload.spec.ts` | → see `composer-liveness-reload.spec.ts.AGENTS.md` |
 | `composer-session-strip.spec.ts` | L3 redesign-composer-session-strip (F8–F12). → see `composer-session-strip.spec.ts.AGENTS.md` |
 | `context-mode-settings.spec.ts` | L3 F1/F2 → see `context-mode-settings.spec.ts.AGENTS.md` |

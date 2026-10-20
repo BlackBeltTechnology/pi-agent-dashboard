@@ -26,3 +26,5 @@ See change: fix-popover-container-clip — reads `usePopoverBoundary()`, passes 
 - Phone (`max-sm`): fixed bottom sheet (`max-h-[75vh]!`, inline flip bounds overridden) + `chat-view-scrim` (`sm:hidden`, click closes); rows `max-sm:min-h-[44px]`; desktop row rhythm unchanged.
 - Trigger "modified" pill → amber dot (same `chat-view-modified-pill` testid, `aria-label`).
 - i18n: `session.setAsGlobal`, `session.setAsGlobalFailed`, `session.viewChangedCount` (hu, zh-CN).
+
+`common.chatMotion` row ("Fluid chat motion"): instant apply through the shared `patch` path, override marker via `isOverridden("chatMotion")`. See change: add-fluid-chat-motion.

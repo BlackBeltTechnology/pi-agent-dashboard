@@ -210,6 +210,15 @@ export interface DisplayPrefs {
    */
   reasoningInlineFlow: boolean;
   /**
+   * When true (default), the live chat transcript plays arrival-driven motion:
+   * entry transitions, paced streaming reveal, a soft trailing edge, glide
+   * follow-scroll and tool completion cues. When false the transcript behaves
+   * exactly as before. `prefers-reduced-motion: reduce` and a hidden document
+   * disable it regardless of this value.
+   * See change: add-fluid-chat-motion.
+   */
+  chatMotion: boolean;
+  /**
    * Per-group visibility for custom chat rows, keyed by custom event group id
    * (see `custom-event-groups.ts`). Shallow-merged field-by-field exactly like
    * `toolCalls`: a group id present in a per-session override wins for that
@@ -254,6 +263,7 @@ export const DISPLAY_PRESETS: Record<"simple" | "standard" | "everything", Displ
     showOutOfCwdSessionDiffs: false,
     notifyMinLevel: "all",
     reasoningInlineFlow: false,
+    chatMotion: true,
     customEventGroups: defaultCustomEventGroupPrefs(),
   },
   standard: {
@@ -272,6 +282,7 @@ export const DISPLAY_PRESETS: Record<"simple" | "standard" | "everything", Displ
     showOutOfCwdSessionDiffs: false,
     notifyMinLevel: "all",
     reasoningInlineFlow: false,
+    chatMotion: true,
     customEventGroups: defaultCustomEventGroupPrefs(),
   },
   everything: {
@@ -290,6 +301,7 @@ export const DISPLAY_PRESETS: Record<"simple" | "standard" | "everything", Displ
     showOutOfCwdSessionDiffs: false,
     notifyMinLevel: "all",
     reasoningInlineFlow: false,
+    chatMotion: true,
     customEventGroups: defaultCustomEventGroupPrefs(),
   },
 };
@@ -350,6 +362,7 @@ export function mergeDisplayPrefs(
       override.showOutOfCwdSessionDiffs ?? global.showOutOfCwdSessionDiffs,
     notifyMinLevel: override.notifyMinLevel ?? global.notifyMinLevel,
     reasoningInlineFlow: override.reasoningInlineFlow ?? global.reasoningInlineFlow,
+    chatMotion: override.chatMotion ?? global.chatMotion,
     customEventGroups: mergeCustomEventGroupPrefs(global.customEventGroups, override.customEventGroups),
   };
 }
