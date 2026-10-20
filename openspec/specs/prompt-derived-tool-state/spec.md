@@ -184,7 +184,7 @@ On leaving the replaying state, the system SHALL treat the `prompt_request` mess
 
 The re-derivation SHALL be: a non-empty reconciled registry yields `"ask_user"`; an empty one leaves the session's event-derived `currentTool` untouched. It SHALL NOT unconditionally write `null` on an empty registry. This is unambiguous precisely because replayed events are not folded, so the stored value at the replay exit is exactly what the events produced.
 
-Both exits from the replaying state SHALL perform this — the `replay_complete` message and the replay safety timeout — and both SHALL be guarded so that only the first to fire acts. The operations SHALL occur in the order reconcile → recompute → drain, and the drain SHALL apply to the ephemeral collected promptId set only, never to the live pending-prompt registry that browser-refresh replay depends on.
+Every exit from the replaying state SHALL perform this — the `replay_complete` message, the replay idle exit, and the replay cap exit — and all SHALL be guarded so that only the first to fire acts. An unregister during replay is exempt: the session's pending-request registries are cleared on unregister. The operations SHALL occur in the order reconcile → recompute → drain, and the drain SHALL apply to the ephemeral collected promptId set only, never to the live pending-prompt registry that browser-refresh replay depends on.
 
 #### Scenario: Phantom entry dropped on reconnect
 
@@ -208,7 +208,7 @@ Both exits from the replaying state SHALL perform this — the `replay_complete`
 
 #### Scenario: Replay safety timeout also reconciles
 
-- **WHEN** `replay_complete` never arrives and the replay safety timeout clears the replaying state
+- **WHEN** `replay_complete` never arrives and the replay idle exit or cap exit clears the replaying state
 - **THEN** the reconcile and re-derivation SHALL run on that path too
 - **AND** a stale entry SHALL NOT survive to keep the session unreapable
 
@@ -221,7 +221,7 @@ Both exits from the replaying state SHALL perform this — the `replay_complete`
 
 #### Scenario: The two exits cannot race
 
-- **WHEN** the safety timeout fires and a late `replay_complete` arrives afterwards
+- **WHEN** the idle or cap exit fires and a late `replay_complete` arrives afterwards
 - **THEN** the first exit SHALL consume and clear the collected promptId set
 - **AND** the second SHALL be a no-op, emitting no duplicate replay or broadcast
 - **AND** a `prompt_request` that arrived between the two SHALL NOT be dropped
