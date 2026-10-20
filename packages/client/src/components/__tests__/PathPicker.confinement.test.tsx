@@ -70,6 +70,8 @@ describe("PathPicker confinement states", () => {
     fireEvent.click(screen.getByRole("button", { name: /back to home/i }));
     await waitFor(() => expect(screen.getByText("Project")).toBeTruthy());
     expect(mockBrowse).toHaveBeenLastCalledWith(undefined, expect.anything());
+    // CodeRabbit r1: the input must show the browsed home, or Select stays disabled and typing parses against "".
+    await waitFor(() => expect((screen.getByRole("textbox") as HTMLInputElement).value).toBe("/Users/robson/"));
     expect(screen.queryByTestId("path-picker-outside-roots")).toBeNull();
   });
 

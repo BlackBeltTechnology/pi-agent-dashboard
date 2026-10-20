@@ -737,7 +737,13 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
               onClick={() => {
                 userEditedRef.current = false;
                 setInputValue("");
-                void fetchDir(undefined, "", true);
+                // `fetchDir` never writes the input: show the browsed home, or Select stays disabled
+                // and typing parses against an empty parent.
+                void fetchDir(undefined, "", true).then((result) => {
+                  if (result && !userEditedRef.current) {
+                    setInputValue(withTrailingSep(result.current, result.platform ?? inferPlatform([result.current])));
+                  }
+                });
               }}
               className="focus-ring self-start px-2.5 min-h-[44px] sm:min-h-[32px] rounded-md border border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] text-xs font-semibold hover:bg-[var(--bg-hover)] cursor-pointer"
             >

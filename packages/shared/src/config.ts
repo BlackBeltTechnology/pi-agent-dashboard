@@ -699,12 +699,19 @@ export function parseBrowseConfig(raw: unknown): BrowseConfig {
   return { confineRemote: o.confineRemote !== false };
 }
 
+/** Invalid values already warned about: `loadConfig()` re-parses on every call, so warn once per distinct bad value. */
+const warnedTerminals = new Set<string>();
+
 /** A positive integer, else the default with one warn line (fail-safe, never throws). */
 function terminalsInt(raw: unknown, key: keyof TerminalsConfig): number {
   const fallback = DEFAULT_TERMINALS_CONFIG[key];
   if (raw === undefined) return fallback;
   if (typeof raw === "number" && Number.isInteger(raw) && raw >= 1) return raw;
-  console.warn(`[config] terminals.${key} must be an integer >= 1 (got ${JSON.stringify(raw)}); using ${fallback}`);
+  const seen = `${key}=${JSON.stringify(raw)}`;
+  if (!warnedTerminals.has(seen)) {
+    warnedTerminals.add(seen);
+    console.warn(`[config] terminals.${key} must be an integer >= 1 (got ${JSON.stringify(raw)}); using ${fallback}`);
+  }
   return fallback;
 }
 

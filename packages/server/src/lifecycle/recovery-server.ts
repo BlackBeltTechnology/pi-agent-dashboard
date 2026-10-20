@@ -50,7 +50,7 @@ export interface RecoveryInfo {
 const LOCAL_TOKEN_HEADER = "x-pi-local-token";
 
 const isLoopbackAddress = (addr: string | undefined): boolean =>
-  !!addr && (addr === "::1" || addr === "127.0.0.1" || addr.startsWith("127.") || addr.startsWith("::ffff:127."));
+  !!addr && (addr === "::1" || LOOPBACK_IPV4.test(addr) || LOOPBACK_IPV4.test(addr.replace(/^::ffff:/, "")));
 
 /** Hostname part of a `Host` header / Origin URL (no port, no IPv6 brackets). */
 const hostnameOf = (hostPort: string): string => {
@@ -58,7 +58,10 @@ const hostnameOf = (hostPort: string): string => {
   if (h.startsWith("[")) return h.slice(1, h.indexOf("]"));
   return h.split(":")[0] ?? "";
 };
-const isLoopbackName = (name: string): boolean => name === "localhost" || name === "::1" || name.startsWith("127.");
+// A literal IPv4 in 127.0.0.0/8 only: a DNS NAME such as `127.attacker.example` merely STARTS with
+// "127." and is exactly what DNS rebinding presents (CodeRabbit r1).
+const LOOPBACK_IPV4 = /^127(?:\.(?:25[0-5]|2[0-4]\d|1?\d?\d)){3}$/;
+const isLoopbackName = (name: string): boolean => name === "localhost" || name === "::1" || LOOPBACK_IPV4.test(name);
 
 /**
  * Proxy / tunnel forwarding headers. An INLINE copy of the guard's extended

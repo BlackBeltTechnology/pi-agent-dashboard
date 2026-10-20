@@ -62,6 +62,10 @@ describe("isRecoveryActionAllowed (pure gate)", () => {
     ["IPv6 loopback same-origin", "::1", { host: "[::1]:8000", origin: "http://[::1]:8000" }, null, true],
     ["tunnel hostname with a matching Origin", "127.0.0.1", { host: "abc.share.zrok.io", origin: "https://abc.share.zrok.io" }, null, false],
     ["non-loopback peer, no token", "192.168.1.5", { host: "localhost:8000" }, null, false],
+    // CodeRabbit r1: a DNS NAME that merely starts with `127.` is not loopback (DNS rebinding).
+    ["rebinding hostname 127.attacker.example", "127.0.0.1", { host: "127.attacker.example:8000", origin: "http://127.attacker.example:8000" }, null, false],
+    ["literal 127.0.0.2 is loopback", "127.0.0.1", { host: "127.0.0.2:8000", origin: "http://127.0.0.2:8000" }, null, true],
+    ["out-of-range 127.0.0.256 is not an IPv4 literal", "127.0.0.1", { host: "127.0.0.256:8000" }, null, false],
   ] as const)("E29 %s -> %s", (_name, peer, headers, token, want) => {
     expect(gate(peer, headers as Record<string, string>, token)).toBe(want);
   });

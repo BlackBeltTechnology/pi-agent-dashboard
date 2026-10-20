@@ -46,6 +46,13 @@ describe("parseTerminalsConfig", () => {
     });
   });
 
+  it("warns once per distinct invalid value even though loadConfig re-parses on every call", () => {
+    for (let i = 0; i < 5; i++) parseTerminalsConfig({ maxConcurrent: -7 });
+    expect(warn).toHaveBeenCalledTimes(1);
+    parseTerminalsConfig({ maxConcurrent: -8 });
+    expect(warn).toHaveBeenCalledTimes(2);
+  });
+
   it("a non-object block falls back to defaults without throwing", () => {
     expect(parseTerminalsConfig("nope")).toEqual(DEFAULT_TERMINALS_CONFIG);
     expect(parseTerminalsConfig(null)).toEqual(DEFAULT_TERMINALS_CONFIG);
