@@ -27,3 +27,4 @@ export const PhotoCraftRasterHandler = bind("photocraft-raster");
 export const VectorCraftHandler = bind("vectorcraft");
 export const DeckCraftHandler = bind("deckcraft");
 export const DeckCraftNativeHandler = bind("deckcraft-native");
+export const LightCraftHandler = bind("lightcraft");

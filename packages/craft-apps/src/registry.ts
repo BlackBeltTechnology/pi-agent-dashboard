@@ -169,6 +169,11 @@ export const CRAFT_APPS: readonly CraftApp[] = [
     "RAW photo development (exposure, colour, denoise, merge)",
     { list: COMMANDS_JSON, run: "render IN -o OUT [--set CONTROL=VALUE…] | run [--import P | --demo] <cmd> key=value…" },
     { confinement: false, compactFlag: "--compact", toolClass: "large", tools: 330, bridgeFlag: "--connect" },
+    undefined,
+    {
+      webVersion: "0.9.1",
+      webFidelityNote: "LightCraft opens the file for viewing only; the file is never changed, and exports download to this device.",
+    },
   ),
   app(
     "pdfcraft",

@@ -169,3 +169,42 @@ describe("CraftWebSettings", () => {
     expect(m.queryByTestId("craft-web-group-view")).toBeNull();
   });
 });
+
+describe("E24 settings: fixed channel + grouping by app type (D11 G2)", () => {
+  const rows = {
+    wordcraft: { ...okRow },
+    gridcraft: { status: "not-prepared", enabled: true, channel: "pinned", version: "0.8.0", sizeGzip: 7_100_000 },
+    deckcraft: { status: "not-prepared", enabled: true, channel: "pinned", version: "0.7.0", sizeGzip: 9_400_000 },
+    lightcraft: { status: "not-prepared", enabled: true, channel: "pinned", version: "0.9.1", sizeGzip: 22_400_000 },
+  };
+  const status: Reply = { status: 200, body: { shimVersion: 2, apps: rows } };
+
+  it("WordCraft keeps its selector; fixed apps show 'Verified <v>' with their reason and no selector", async () => {
+    const m = await mount({}, [status]);
+    await waitFor(() => expect(m.getByTestId("craft-web-gridcraft-fixed").textContent).toBe("Verified 0.8.0"));
+    expect(m.getByTestId("craft-web-wordcraft-version")).toBeTruthy();
+    expect(m.queryByTestId("craft-web-gridcraft-version")).toBeNull();
+    expect(m.queryByTestId("craft-web-deckcraft-version")).toBeNull();
+    expect(m.getByTestId("craft-web-gridcraft-fixed-reason").textContent).toBe("Newer releases are used once they are verified with this dashboard.");
+    expect(m.getByTestId("craft-web-deckcraft-fixed").textContent).toBe("Verified 0.7.0");
+    expect(m.getByTestId("craft-web-deckcraft-fixed-reason").textContent).toBe("Newer web builds fail to start.");
+  });
+
+  it("headings in order: edit in place (WordCraft, GridCraft), own format (DeckCraft), view only (LightCraft); headers list extensions; Download carries the size", async () => {
+    const m = await mount({}, [status]);
+    await waitFor(() => expect(m.getByTestId("craft-web-group-view")).toBeTruthy());
+    const groups = [...m.container.querySelectorAll('[data-testid^="craft-web-group-"]')];
+    expect(groups.map((g) => g.getAttribute("data-testid"))).toEqual(["craft-web-group-edit", "craft-web-group-sibling", "craft-web-group-view"]);
+    const ids = (g: Element) => [...g.querySelectorAll("details[data-testid]")].map((d) => d.getAttribute("data-testid"));
+    expect(ids(groups[0])).toEqual(["craft-web-wordcraft", "craft-web-gridcraft"]);
+    expect(ids(groups[1])).toEqual(["craft-web-deckcraft"]);
+    expect(ids(groups[2])).toEqual(["craft-web-lightcraft"]);
+    expect(groups[0].textContent).toMatch(/^Edit files in place/);
+    expect(groups[1].textContent).toMatch(/^Save in their own format, next to the file/);
+    expect(groups[2].textContent).toMatch(/^View only/);
+    expect(m.getByTestId("craft-web-gridcraft-extensions").textContent).toBe(".xlsx");
+    expect(m.getByTestId("craft-web-deckcraft-extensions").textContent).toBe(".pptx → .deckcraft");
+    expect(m.getByTestId("craft-web-lightcraft-extensions").textContent).toContain(".dng");
+    expect(m.getByTestId("craft-web-gridcraft-prepare").textContent).toBe("Download GridCraft (about 6.8 MB)");
+  });
+});

@@ -326,3 +326,10 @@ Wave 2 spikes (tasks 3.1, 3.7–3.9):
 - **PhotoCraft 0.10.0** opens `.psd .png .jpg .jpeg .webp .tif .tiff` on drop and always saves `<stem>.psd` (`8BPS` v1); a `.psd` reopens and saves in place. Every raster extension passed its gate.
 - **DeckCraft 0.7.0** opens `.pptx` and `.deckcraft` (fallback, no title) and saves `talk.deckcraft` (`mimetype` + `presentation.json`).
 - **Create and open** needs the host to open a file in a mode: `FileHandlerProps.openFile?(path, claimId?)` (additive, optional; an older runtime simply hides "Create and open").
+
+Wave 3 RAW spike (task 4.1) — **go**:
+
+- LightCraft 0.9.1 with `after-start-call start(font)` + `workerTrampoline` prepares and starts under the production CSP. A dropped CC0 DNG (Sigma fp, `raw.pixls.us`, 2.1 MB) opens selected in the develop view (histogram, EXIF, Light panel); the demo library stays visible in the filmstrip around it.
+- Opened via the fallback (`confirmed:false`) about 10 s after the host's `open` (3 s drop fallback + decode + 5 s `openedFallbackMs`), inside the 15 s open budget but close to it. A Samsung `.dng` from the same site was a JPEG in disguise (`FFD8`); only real TIFF-based DNGs are used.
+- Rendering stays interactive in headless Chromium with SwiftShader; no page-thread stall was measured beyond the decode. The `lightcraft_zh_hans.otf` font is absent from the release, so one `ERR_FAILED` resource error is logged (the app falls back as designed).
+- Every claimed RAW extension passed its open gate with a raw.pixls.us sample (CR2 PowerShot S2 IS, CR3 EOS R6 Mark III, NEF D2H, ARW DSLR-A330, RAF FinePix S5000, ORF C5050Z, RW2 DC-GH5S): each shows the photo in the develop view. For the ARW and RAF samples LightCraft shows its own "Preview only" note (it views the embedded JPEG of an unsupported camera variant); that is still a view, so the extensions stay.

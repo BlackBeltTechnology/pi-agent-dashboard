@@ -17,7 +17,8 @@ see [`docs/release-process.md`](docs/release-process.md).
   (`.designcraft`) and SoundCraft (`.scraftz`) save in place; PhotoCraft (`.psd`, and `.png .jpg .jpeg
   .webp .tif .tiff` saved as a `.psd` next to the file), VectorCraft (`.svg` → `.vectorcraft`) and
   DeckCraft 0.7.0 (`.pptx` → `.deckcraft`, `.deckcraft` in place) save their native format as a new
-  sibling file. Every save passes a per-format validator (SVG saves are filtered for script). New apps
+  sibling file; LightCraft views camera RAW files (`.dng .cr2 .cr3 .nef .arw .raf .orf .rw2`) without
+  ever changing them. Every save passes a per-format validator (SVG saves are filtered for script). New apps
   use their verified web build only; an installed WordCraft build keeps loading and is offered an update.
   The binary-file notice now offers the matching editor. **`pi-dashboard-shared` minor:** additive
   `siblingExtensions` on `editor-pane-file-handler` claims, `FileHandlerProps.save({target:"sibling", ext})`

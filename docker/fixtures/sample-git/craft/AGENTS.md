@@ -11,6 +11,7 @@ craft-web e2e fixtures (tests/e2e/craft-web-editor.spec.ts ROWS). Each is copied
 | `photo.jpg` | 5 KiB. PIL-generated 320×200 JPEG (rect + ellipse). PhotoCraft raster row: Ctrl+S → `photo.psd` sibling (F7). |
 | `photo.psd` | 18 KiB. PhotoCraft 0.10.0 web save of a PNG (`8BPS` v1). PhotoCraft `.psd` in-place row. |
 | `plan.dxf` | 172 B. Minimal ASCII DXF R12: ENTITIES with one LINE and one CIRCLE (r 20). CADCraft row draws CIRCLE 10,10 r 5. |
+| `sample.dng` | 2.1 MiB. Sigma fp 2K 8-bit DNG (TIFF `II*`). Source: https://raw.pixls.us/data/Sigma/fp/A002_653_20240229_000001_2k_8bit.DNG — raw.pixls.us, licence CC0 1.0. LightCraft view-only row (F10). |
 | `shapes.svg` | 274 B. Hand-written SVG (rect, circle, text). VectorCraft row: Save As → `shapes.vectorcraft` sibling. |
 | `talk.deckcraft` | 8 KiB. DeckCraft 0.7.0 web save of `talk.pptx` (`mimetype` + `presentation.json`). |
 | `talk.pptx` | 29 KiB. Small PowerPoint deck. DeckCraft row: Ctrl+S → `talk.deckcraft` sibling (F7). |

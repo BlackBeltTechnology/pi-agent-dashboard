@@ -354,7 +354,10 @@ function zipNames(zip: Buffer): string[] {
   return names;
 }
 
-const APP_IDS = [...new Set([...ROWS, ...SIBLING_ROWS].map((r) => r.appId))];
+/** View-only claim (D1 type C, Wave 3): LightCraft on a CC0 DNG (raw.pixls.us). */
+const VIEW_ROW = { appId: "lightcraft", claimId: "lightcraft", label: "LightCraft", fixture: "sample.dng", fixtureSource: "craft/sample.dng", titled: false } as CraftRow;
+
+const APP_IDS = [...new Set([...ROWS, ...SIBLING_ROWS, VIEW_ROW].map((r) => r.appId))];
 const rowBytes = (r: CraftRow): Buffer => fs.readFileSync(path.join(FIXTURE_DIR, r.fixtureSource));
 const modeOf = (r: CraftRow): string => `file-mode-craft-web/${r.claimId}`;
 
@@ -438,7 +441,7 @@ test.afterAll(async () => {
 
 test.beforeEach(async ({ page }) => {
   await page.setViewportSize(DESKTOP);
-  for (const r of [...ROWS, ...SIBLING_ROWS]) writeBytesOob(r.fixture, rowBytes(r as CraftRow));
+  for (const r of [...ROWS, ...SIBLING_ROWS, VIEW_ROW]) writeBytesOob(r.fixture, rowBytes(r as CraftRow));
 });
 
 test.afterEach(() => {
@@ -792,6 +795,76 @@ test.describe("craft-web DeckCraft broken latest", () => {
       inBox(`ln -sfn ${JSON.stringify(real)} ${JSON.stringify(`${root}/current.tmp`)} && mv -T ${JSON.stringify(`${root}/current.tmp`)} ${JSON.stringify(`${root}/current`)}; rm -rf ${JSON.stringify(broken)}`);
       fs.rmSync(work, { recursive: true, force: true });
     }
+  });
+});
+
+// ---------------------------------------------------------------- Wave 3: view only (LightCraft)
+
+test.describe("craft-web LightCraft (view only) on sample.dng", () => {
+  test.describe.configure({ timeout: 240_000 });
+
+  test("F10: opens; drag + close → no unsaved prompt; DNG unchanged; export → device download, no workspace file", async ({ page }) => {
+    const { iframe } = await freshEditor(page, VIEW_ROW.fixture, VIEW_ROW);
+    await expect(page.getByTestId("craft-preview-chip")).toHaveText("View only. Exports download to this device");
+    await expect(page.getByTestId("craft-save-target")).toHaveCount(0);
+    const before = listOob();
+    const box = await iframe.boundingBox();
+    if (box) {
+      // Drag inside the develop panel (an exposure-like adjustment); the tab must stay clean.
+      await page.mouse.move(box.x + box.width - 140, box.y + 400);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width - 100, box.y + 400, { steps: 5 });
+      await page.mouse.up();
+    }
+    const download = page.waitForEvent("download", { timeout: 30_000 }).catch(() => null);
+    await iframe.click({ position: { x: 200, y: 200 } });
+    await page.keyboard.press("ControlOrMeta+s");
+    await download; // LightCraft's own save/export, when it emits one, is a device download
+    await page.waitForTimeout(1_000);
+    expect(listOob()).toEqual(before);
+    expect(readBytesOob(VIEW_ROW.fixture).equals(rowBytes(VIEW_ROW))).toBe(true);
+    await page.getByTestId("editor-tab").filter({ hasText: VIEW_ROW.fixture }).click({ button: "middle" });
+    await expect(page.getByTestId("file-handler-guard-dialog")).toHaveCount(0);
+  });
+
+  test("F9: worker isolation — new Worker(https://example.com/w.js) is blocked; nothing reaches example.com; LightCraft keeps running", async ({ page }) => {
+    const external: string[] = [];
+    await page.context().route("https://example.com/**", (r) => {
+      external.push(r.request().url());
+      return r.abort();
+    });
+    const { frame, host } = await freshEditor(page, VIEW_ROW.fixture, VIEW_ROW);
+    const outcome = await frame.evaluate(
+      () =>
+        new Promise<string>((resolve) => {
+          try {
+            const w = new Worker("https://example.com/w.js", { type: "module" });
+            w.onerror = () => resolve("error");
+            setTimeout(() => resolve("no-error"), 5_000);
+          } catch {
+            resolve("threw");
+          }
+        }),
+    );
+    expect(outcome).not.toBe("no-error");
+    expect(external).toEqual([]);
+    await expect(host).toHaveAttribute("data-phase", "open");
+  });
+
+  test("F5: CSP — the frame cannot reach the network or the dashboard API", async ({ page }) => {
+    const { frame } = await freshEditor(page, VIEW_ROW.fixture, VIEW_ROW);
+    const results = await frame.evaluate(async () => {
+      const probe = async (u: string) => {
+        try {
+          await fetch(u);
+          return "resolved";
+        } catch {
+          return "rejected";
+        }
+      };
+      return { external: await probe("https://example.com"), api: await probe("/api/health") };
+    });
+    expect(results).toEqual({ external: "rejected", api: "rejected" });
   });
 });
 

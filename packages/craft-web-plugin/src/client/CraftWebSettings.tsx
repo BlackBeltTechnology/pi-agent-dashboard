@@ -114,9 +114,14 @@ function VersionFacts({ id, t, row, fixed }: { id: string; t: Translate; row: Cr
 /** Header extension list: claimed extensions, with native siblings as `.pptx → .deckcraft`. */
 function extensionList(p: CraftAppProfile | undefined): string {
   if (!p) return "";
+  const siblings = new Set(p.claims.flatMap((c) => c.siblingExtensions ?? []));
   return p.claims
-    .map((c) => `${c.extensions.join(" ")}${c.siblingExtensions?.length ? ` → ${c.siblingExtensions.join(" ")}` : ""}`)
-    .filter((x, i, all) => all.indexOf(x) === i)
+    .map((c) => {
+      if (c.siblingExtensions?.length) return `${c.extensions.join(" ")} → ${c.siblingExtensions.join(" ")}`;
+      // A native claim whose extensions are already named as a sibling target adds nothing.
+      return c.extensions.filter((e) => !siblings.has(e)).join(" ");
+    })
+    .filter(Boolean)
     .join(" ");
 }
 

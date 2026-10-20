@@ -230,6 +230,22 @@ export const CRAFT_APP_PROFILES: readonly CraftAppProfile[] = [
     approxDownloadBytes: 9_400_000,
     claims: [claim("deckcraft", [".pptx"], { siblingExtensions: [".deckcraft"] }), claim("deckcraft-native", [".deckcraft"])],
   },
+  // ---- Wave 3: view only (D1 type C). Custom loader: `start(font)` is the ready hook point.
+  {
+    appId: "lightcraft",
+    label: "LightCraft",
+    ready: { kind: "after-start-call", call: "start" },
+    // The static "LightCraft" title is not a document title.
+    openedFallbackMs: 5000,
+    cleanOnAckedSave: false,
+    saveName: "stem",
+    workerTrampoline: true,
+    latestChannel: false,
+    fixedReason: "unverified-latest",
+    minShimVersion: 2,
+    approxDownloadBytes: 22_400_000,
+    claims: [claim("lightcraft", [".dng", ".cr2", ".cr3", ".nef", ".arw", ".raf", ".orf", ".rw2"], { mode: "preview" })],
+  },
 ];
 
 const BY_APP = new Map(CRAFT_APP_PROFILES.map((p) => [p.appId, p]));

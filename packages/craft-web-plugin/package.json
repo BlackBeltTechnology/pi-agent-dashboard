@@ -258,6 +258,28 @@
         "validator": true
       },
       {
+        "slot": "editor-pane-file-handler",
+        "component": "LightCraftHandler",
+        "module": "./src/client/handlers.tsx",
+        "id": "lightcraft",
+        "extensions": [
+          ".dng",
+          ".cr2",
+          ".cr3",
+          ".nef",
+          ".arw",
+          ".raf",
+          ".orf",
+          ".rw2"
+        ],
+        "mode": "preview",
+        "label": "View in LightCraft",
+        "keepAlive": {
+          "max": 3
+        },
+        "maxBytes": 134217728
+      },
+      {
         "slot": "settings-section",
         "component": "CraftWebSettings",
         "module": "./src/client/CraftWebSettings.tsx",

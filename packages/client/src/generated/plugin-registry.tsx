@@ -954,6 +954,28 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
                 "validator": true
             },
             {
+                "slot": "editor-pane-file-handler",
+                "component": "LightCraftHandler",
+                "module": "./src/client/handlers.tsx",
+                "id": "lightcraft",
+                "extensions": [
+                    ".dng",
+                    ".cr2",
+                    ".cr3",
+                    ".nef",
+                    ".arw",
+                    ".raf",
+                    ".orf",
+                    ".rw2"
+                ],
+                "mode": "preview",
+                "label": "View in LightCraft",
+                "keepAlive": {
+                    "max": 3
+                },
+                "maxBytes": 134217728
+            },
+            {
                 "slot": "settings-section",
                 "component": "CraftWebSettings",
                 "module": "./src/client/CraftWebSettings.tsx",
@@ -978,6 +1000,7 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
       { pluginId: "craft-web", priority: 400, slot: "editor-pane-file-handler", fileHandler: {"id":"vectorcraft","extensions":[".svg"],"mode":"edit","label":"Edit in VectorCraft","keepAlive":{"max":3},"maxBytes":16777216,"firstOverwriteNotice":"Saves are rewritten by VectorCraft; SVG features it does not support may change. A copy is the safe way to compare.","copySuffix":"vectorcraft","siblingExtensions":[".vectorcraft"],"validator":true}, Component: lazyClaim(() => import("../../../craft-web-plugin/src/client/handlers"), "VectorCraftHandler") },
       { pluginId: "craft-web", priority: 400, slot: "editor-pane-file-handler", fileHandler: {"id":"deckcraft","extensions":[".pptx"],"mode":"edit","label":"Edit in DeckCraft","keepAlive":{"max":3},"maxBytes":104857600,"firstOverwriteNotice":"DeckCraft does not report which file it opened. Check that it shows this file before overwriting. Saves are rewritten by DeckCraft; slide features it does not support may change. A copy is the safe way to compare.","copySuffix":"deckcraft","siblingExtensions":[".deckcraft"],"validator":true}, Component: lazyClaim(() => import("../../../craft-web-plugin/src/client/handlers"), "DeckCraftHandler") },
       { pluginId: "craft-web", priority: 400, slot: "editor-pane-file-handler", fileHandler: {"id":"deckcraft-native","extensions":[".deckcraft"],"mode":"edit","label":"Edit in DeckCraft","keepAlive":{"max":3},"maxBytes":134217728,"firstOverwriteNotice":"DeckCraft does not report which file it opened. Check that it shows this file before overwriting. Saves are rewritten by DeckCraft; slide features it does not support may change. A copy is the safe way to compare.","copySuffix":"deckcraft","validator":true}, Component: lazyClaim(() => import("../../../craft-web-plugin/src/client/handlers"), "DeckCraftNativeHandler") },
+      { pluginId: "craft-web", priority: 400, slot: "editor-pane-file-handler", fileHandler: {"id":"lightcraft","extensions":[".dng",".cr2",".cr3",".nef",".arw",".raf",".orf",".rw2"],"mode":"preview","label":"View in LightCraft","keepAlive":{"max":3},"maxBytes":134217728}, Component: lazyClaim(() => import("../../../craft-web-plugin/src/client/handlers"), "LightCraftHandler") },
       { pluginId: "craft-web", priority: 400, slot: "settings-section", tab: "general", Component: lazyClaim(() => import("../../../craft-web-plugin/src/client/CraftWebSettings"), "CraftWebSettings") },
     ],
     catalog: craft_web_catalog,
@@ -1104,4 +1127,4 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "993b171c0568d53c31203bb89cbf6ab72305bf18e901178bc3e94055c7599360";
+export const PLUGIN_REGISTRY_HASH = "c6c963c24cc16a95927d9b14646df18d3eaba40e30e42738545d2857b6e00a2e";
