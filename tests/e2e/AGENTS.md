@@ -224,6 +224,7 @@ One row per file.
 | `smoke.spec.ts` | Smoke spec, wiring proof only. Asserts shell ren… → see `smoke.spec.ts.AGENTS.md` |
 | `spawn-correlation-recovery.spec.ts` | → see `spawn-correlation-recovery.spec.ts.AGENTS.md` |
 | `split-composer-overflow.spec.ts` | Browser E2E gate f… → see `split-composer-overflow.spec.ts.AGENTS.md` |
+| `split-divider-drag.spec.ts` | #F1-F4 divider drag |
 | `subagent-detail-dialog.spec.ts` | Playwright spec (change: fix-subagent-li… → see `subagent-detail-dialog.spec.ts.AGENTS.md` |
 | `subagent-inspector.spec.ts` | L3 spec (change: add-flow-plugin-e2e-tests). Dri… → see `subagent-inspector.spec.ts.AGENTS.md` |
 | `subagent-live-timeline.spec.ts` | L3 live subagent timeline. → see `subagent-live-timeline.spec.ts.AGENTS.md` |

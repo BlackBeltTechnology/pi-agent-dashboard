@@ -20,7 +20,7 @@ import { Icon } from "@mdi/react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { grepContents } from "../../lib/api/grep-api.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
-import { useRailWidth } from "../../lib/layout/rail-width.js";
+import { clampRailWidth, useRailWidth } from "../../lib/layout/rail-width.js";
 import { stripTermId } from "../../lib/layout/use-terminal-pane-tabs.js";
 import { useTreeVisible } from "../../lib/util/tree-visible.js";
 import { ErrorBoundary } from "../primitives/ErrorBoundary.js";
@@ -147,6 +147,10 @@ export function EditorPane() {
   // Tree+viewer row — its left edge anchors the rail-width drag math so the
   // width stays correct regardless of the outer split ratio.
   const rowRef = useRef<HTMLDivElement>(null);
+  // Rail wrapper: the drag previews its width straight in the DOM and commits
+  // once on release. See change: fix-split-divider-drag (D5).
+  const railRef = useRef<HTMLDivElement>(null);
+  const railLeft = () => rowRef.current?.getBoundingClientRect().left ?? 0;
   // Scroll target for the active tab, latched from the pending-scroll signal.
   const [scrollTo, setScrollTo] = useState<{ path: string; line: number } | null>(null);
 
@@ -387,7 +391,7 @@ export function EditorPane() {
       <div ref={rowRef} className="flex min-h-0 flex-1">
         {treeVisible && (
           <>
-            <div className="shrink-0 flex min-h-0 flex-col" style={{ width: railWidth }}>
+            <div ref={railRef} className="shrink-0 flex min-h-0 flex-col" style={{ width: railWidth }}>
               {/* Changes section pinned atop the project-tree rail (change:
                   add-change-summary-table). Absent when no changes. */}
               <ChangesRailSection sessionOnly={sessionOnly} onSessionOnlyChange={setSessionOnly} />
@@ -406,8 +410,10 @@ export function EditorPane() {
             <SplitDivider
               orientation="h"
               onResize={(clientX) => {
-                const left = rowRef.current?.getBoundingClientRect().left ?? 0;
-                setRailWidth(clientX - left);
+                if (railRef.current) railRef.current.style.width = `${clampRailWidth(clientX - railLeft())}px`;
+              }}
+              onResizeEnd={(clientX) => {
+                if (clientX !== null) setRailWidth(clientX - railLeft());
               }}
               data-testid="rail-divider"
               title={t("editor.dragResizeRail", undefined, "Drag to resize the browse rail")}
