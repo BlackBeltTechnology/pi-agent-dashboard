@@ -2921,7 +2921,7 @@ See change: widen-containment-to-resolved-checkout (was: git-root-file-containme
 
 ### Filesystem Browser (PathPicker)
 
-The dashboard's reusable directory chooser (`PathPicker`) is backed by three localhost-only endpoints:
+The dashboard's reusable directory chooser (`PathPicker`) is backed by three endpoints (full picker for local callers; remote callers confined, see Remote confinement below):
 
 - `GET /api/browse?path=<dir>&q=<query>&detect=<0|1>` — lists subdirectories of `<dir>` (or `$HOME` when omitted). By default this is a single-`readdir` enumeration with no per-entry filesystem probes; `isGit` / `isPi` are absent from each `BrowseEntry`. Pass `detect=1` (only the literal string `"1"` is truthy) to opt into eager `.git` / `.pi` classification on every entry — useful for skill recipes that consumed the legacy shape. When `q` is non-empty, entries are case-insensitive substring-filtered and ranked:
   - **Tier 0** exact match → **Tier 1** prefix → **Tier 2** word-boundary substring (after `-`, `_`, `.`, space, `/`) → **Tier 3** plain substring.
@@ -2939,6 +2939,38 @@ Client-side, `PathPicker` debounces the `q` request at 150ms and cancels in-flig
 If a debounced query is still pending when Enter fires, the client flushes it synchronously before evaluating the rules so the freshest server result is considered.
 
 New folders can be created from two entry points — a footer **＋ New folder** button (inline name entry), or an inline **＋ Create "<name>" here** row shown when the typed partial has no exact match. The create-here row is suppressed if the parsed parent differs from the last-successfully-fetched directory (prevents creating inside a stale parent after a mid-path typo). On success the picker refetches and descends into the new directory.
+
+#### Remote confinement (change: harden-server-capability-bounds)
+
+`/api/browse`, `/api/browse/flags`, `/api/browse/mkdir` confine non-local callers. Local callers (`isLocallyTrusted` true) unchanged: full picker.
+
+- Not genuinely local = tunnel, LAN, relayed loopback with forwarding header. Confined to shared roots.
+- Shared roots = `$HOME` + pinned dirs + session cwds + workspace folders + worktree-init trust roots + project-scope access-grant subjects.
+- Compare by realpath. Symlink escape refused.
+- Forbidden: `/`, `$HOME` itself as pinned root, system roots, ancestors of those, `~/.ssh`, `~/.pi`. `~/.pi` subtree refused even under `$HOME`.
+- Outside roots → 403 `path outside allowed roots`.
+- Listing: `confined: true`; `parent: null` at root top.
+- Flags: any outside path → 403 whole request.
+- mkdir: parent outside → 403 before any write.
+- Remote sockets cannot widen roots. `pin_directory`, `add_folder_to_workspace`, `move_folder_to_workspace` outside roots dropped. Server sends `folder_refused {path, reason: outside_allowed_roots}`. Client toast: "Ask the host to pin it".
+- Locality bit stamped per socket once at `/ws` upgrade. Unstamped = remote.
+- Docker: host browser hits container via port mapping = non-loopback peer. Confined to container `$HOME` + auto-pinned `PI_WORKSPACES`. Recovery actions refused there; use `docker compose restart` / `docker exec`. Set `browse.confineRemote: false` to lift it.
+- Residual: marker-less relay (`ssh -R`, no forwarding headers) looks loopback = local unless `requireLocalProof` on.
+- Operator opt-out: `config.json` `browse.confineRemote` (default `true`). Only explicit `false` disables. Read at server start (restart to apply). Off → remote callers browse / mkdir / pin like local callers. Used by the Docker e2e harness (browser = remote peer via port mapping; specs pin per-test dirs outside `$HOME`); harness env `PI_E2E_BROWSE_CONFINEMENT=1` keeps it on. Shipping installs stay confined.
+- Threat model: guards observe-tier remote viewer. Caller that may spawn session/terminal already has FS reach.
+
+#### Recovery server lockdown (change: harden-server-capability-bounds)
+
+`recovery-server.ts` serves recovery page when main server fails. Imports node built-ins only.
+
+- Binds `config.host` (default `127.0.0.1`). Never all interfaces unless operator sets `bindHost`.
+- `GET /` and `GET /api/health` stay open.
+- `POST /api/recovery/retry|reinstall` admitted iff either:
+  - local token: `x-pi-local-token`, timing-safe compare; or
+  - loopback peer AND none of 8 forwarding headers (`x-forwarded-for`, `x-forwarded-host`, `x-forwarded-proto`, `x-real-ip`, `forwarded`, `via`, `x-forwarded-server`, `x-forwarded-port`) AND loopback `Host` AND `Origin` absent or same host:port as `Host` (default port stripped; `Origin: null` refused).
+- Else 403 `text/plain` with remedy. Page shows it in `role=alert` callout. Buttons stay enabled.
+- One log line per refusal: route only, no token.
+- Residual: `ssh -R` rewriting `Host` to localhost and sending no `Origin` passes.
 
 ### Pi Resources Browser
 
@@ -5760,6 +5792,22 @@ Sidebar `[Terminals(N)]` retargets to `/folder/:cwd/editor`; badge count unchang
 Inline `!!` ephemeral cards (`InlineTerminalCard`) unchanged, excluded from tabs. Server PTY / WS protocol / `terminal-manager` unchanged.
 
 See change: terminals-in-tabbed-panes.
+
+### Terminal Caps and Orphan Reaping (change: harden-server-capability-bounds)
+
+`TerminalManager` bounds live PTYs. Config block `terminals` in `config.json`:
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `maxConcurrent` | 32 | Global live PTY cap. Tab + inline both count. |
+| `maxPerOwner` | 16 | Per `{iss,sub}` owner. Only while identity plane stamps owners. Ownerless PTYs count global only. |
+| `inlineOrphanTtlMs` | 600000 | Inline PTY TTL with no client attached. |
+
+- Each value integer >= 1, else default + one warn line.
+- Restart server to apply.
+- Refused spawn starts nothing. Requesting socket gets `terminal_limit_reached {scope: global|owner, limit, cwd, inline}`. UI shows dismissible notice.
+- Tab terminals never reaped on idleness.
+- Inline (ephemeral) PTY: clock starts at spawn, restarts at last detach. Expiry kills PTY. Transcript tombstone kept.
 
 ### Known Servers Configuration
 

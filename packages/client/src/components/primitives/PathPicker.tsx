@@ -14,8 +14,8 @@ import type React from "react";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { browseDirectory, classifyPaths, createDirectory } from "../../lib/api/browse-api.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
-import { inferPlatform, pathKey } from "../../lib/session/session-grouping.js";
 import { logRejection } from "../../lib/report-error.js";
+import { inferPlatform, pathKey } from "../../lib/session/session-grouping.js";
 
 interface Props {
   initialPath?: string;
@@ -94,6 +94,12 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
   // distinct from the bare `error` string. See change:
   // distinguish-offline-from-network-denied.
   const [denial, setDenial] = useState<{ hint?: string } | null>(null);
+  // Set when the server refuses a path outside the folders it shares with a remote
+  // caller (403 `path outside allowed roots`). Distinct from `denial` (network) and
+  // `error` (bare string). See change: harden-server-capability-bounds.
+  const [outsideRoots, setOutsideRoots] = useState<{ path: string } | null>(null);
+  // True when the listing came from a confined (remote) request.
+  const [confined, setConfined] = useState(false);
   const [highlightIndex, setHighlightIndex] = useState(-1);
   const [invalidFlash, setInvalidFlash] = useState(false);
   const [newFolderMode, setNewFolderMode] = useState(false);
@@ -155,6 +161,7 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
       setLoading(true);
       setError(null);
       setDenial(null);
+      setOutsideRoots(null);
       try {
         const result = await browseDirectory(dir, { q, signal: ctrl.signal });
         // Ignore stale response if a newer request superseded us
@@ -163,6 +170,7 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
         fetchedQRef.current = q;
         setEntries(result.entries);
         setParentPath(result.parent);
+        setConfined(result.confined === true);
         setHighlightIndex(-1);
 
         // Phase 2: lazily classify the rendered entries via the bulk
@@ -196,6 +204,13 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
         if (e?.code === "network_not_allowed") {
           setDenial({ hint: e.hint });
           setEntries([]);
+          return null;
+        }
+        // A path outside the shared folders: plain-language state with a way back.
+        if (e?.code === "path_outside_allowed_roots") {
+          setOutsideRoots({ path: dir ?? "" });
+          setEntries([]);
+          setParentPath(null);
           return null;
         }
         setError(e?.message ?? "Failed to browse");
@@ -335,7 +350,11 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
         const result = await createDirectory(parent, name);
         descendInto(result.path);
       } catch (err: unknown) {
-        const e = err as { message?: string };
+        const e = err as { message?: string; code?: string };
+        if (e?.code === "path_outside_allowed_roots") {
+          setOutsideRoots({ path: parent });
+          return;
+        }
         setError(e?.message ?? "mkdir failed");
       }
     },
@@ -555,10 +574,37 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
             )}
           </div>
         )}
-        {error && !denial && (
+        {outsideRoots && !denial && (
+          <div
+            role="alert"
+            data-testid="path-picker-outside-roots"
+            className="px-3 py-2 text-sm text-[var(--severity-error-fg)] flex flex-col gap-2"
+          >
+            <span>
+              {outsideRoots.path ? <strong className="font-semibold">{outsideRoots.path}</strong> : null}{" "}
+              {i18nT(
+                "pathPicker.outsideRoots",
+                undefined,
+                "is outside the folders this dashboard shares, so it can't be browsed. Ask the host to pin it.",
+              )}
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                userEditedRef.current = false;
+                setInputValue("");
+                void fetchDir(undefined, "", true);
+              }}
+              className="focus-ring self-start px-2.5 min-h-[44px] sm:min-h-[32px] rounded-md border border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] text-xs font-semibold hover:bg-[var(--bg-hover)] cursor-pointer"
+            >
+              {i18nT("pathPicker.backToHome", undefined, "Back to home")}
+            </button>
+          </div>
+        )}
+        {error && !denial && !outsideRoots && (
           <div className="px-3 py-2 text-sm text-red-400">{error}</div>
         )}
-        {!loading && !error && !denial && (
+        {!loading && !error && !denial && !outsideRoots && (
           <>
             {displayItems.map((item, i) => {
               const isHighlighted = i === highlightIndex;
@@ -731,6 +777,18 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
           </>
         )}
       </div>
+      {confined && parentPath === null && !outsideRoots && !denial && !loading && (
+        <p
+          data-testid="path-picker-confined-hint"
+          className="mt-1 px-1 text-xs text-[var(--text-secondary)]"
+        >
+          {i18nT(
+            "pathPicker.confinedHint",
+            undefined,
+            "You can browse the folders this dashboard shares. To use another folder, ask the host to pin it.",
+          )}
+        </p>
+      )}
       {/* Multi-select owns no answer, so Cancel/Select belong to the hosting
           dialog's footer — only "New folder" stays with the picker.
           See change: redesign-folder-workspace-add-flow. */}

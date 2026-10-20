@@ -661,6 +661,62 @@ export const DEFAULT_MODEL_PROXY: ModelProxyConfig = {
   apiKeys: [],
 };
 
+
+/**
+ * Terminal (PTY) bounds. See change: harden-server-capability-bounds (D3).
+ * Read at `createTerminalManager` time (restart to apply).
+ */
+export interface TerminalsConfig {
+  /** Global cap on live PTYs (tab + inline). */
+  maxConcurrent: number;
+  /** Per-owner cap; applies only while the identity plane stamps owners. */
+  maxPerOwner: number;
+  /** An inline (ephemeral) PTY with no attached client this long is reaped. */
+  inlineOrphanTtlMs: number;
+}
+
+export const DEFAULT_TERMINALS_CONFIG: TerminalsConfig = {
+  maxConcurrent: 32,
+  maxPerOwner: 16,
+  inlineOrphanTtlMs: 600_000,
+};
+
+/**
+ * Remote folder-picker confinement. `confineRemote` (default true): requests that are
+ * not genuinely local are confined to the shared roots. `false` = operator opt-out
+ * (the Docker e2e harness, whose browser is a remote peer but needs the whole tree).
+ * Read at server start (restart to apply). See change: harden-server-capability-bounds.
+ */
+export interface BrowseConfig {
+  confineRemote: boolean;
+}
+
+export const DEFAULT_BROWSE_CONFIG: BrowseConfig = { confineRemote: true };
+
+/** Only an explicit `false` disables confinement; anything else keeps the safe default. */
+export function parseBrowseConfig(raw: unknown): BrowseConfig {
+  const o = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  return { confineRemote: o.confineRemote !== false };
+}
+
+/** A positive integer, else the default with one warn line (fail-safe, never throws). */
+function terminalsInt(raw: unknown, key: keyof TerminalsConfig): number {
+  const fallback = DEFAULT_TERMINALS_CONFIG[key];
+  if (raw === undefined) return fallback;
+  if (typeof raw === "number" && Number.isInteger(raw) && raw >= 1) return raw;
+  console.warn(`[config] terminals.${key} must be an integer >= 1 (got ${JSON.stringify(raw)}); using ${fallback}`);
+  return fallback;
+}
+
+export function parseTerminalsConfig(raw: unknown): TerminalsConfig {
+  const o = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  return {
+    maxConcurrent: terminalsInt(o.maxConcurrent, "maxConcurrent"),
+    maxPerOwner: terminalsInt(o.maxPerOwner, "maxPerOwner"),
+    inlineOrphanTtlMs: terminalsInt(o.inlineOrphanTtlMs, "inlineOrphanTtlMs"),
+  };
+}
+
 /**
  * Plugin-specific config namespace.
  * Lives at ~/.pi/dashboard/config.json#plugins.<id>.*
@@ -1251,6 +1307,10 @@ export interface DashboardConfig {
    * until each extract-*-as-plugin change migrates them.
    */
   plugins: PluginsConfig;
+  /** PTY bounds. See change: harden-server-capability-bounds. */
+  terminals: TerminalsConfig;
+  /** Remote folder-picker confinement. See change: harden-server-capability-bounds. */
+  browse: BrowseConfig;
   /** Kroki diagram render proxy settings. */
   kroki: KrokiConfig;
   /** On-demand AI mermaid repair. See change: add-mermaid-ai-repair. */
@@ -1622,6 +1682,8 @@ export function parseSubagentSaturation(raw: any): SubagentSaturationThresholds 
 
 const DEFAULTS: DashboardConfig = {
   plugins: {},
+  terminals: { ...DEFAULT_TERMINALS_CONFIG },
+  browse: { ...DEFAULT_BROWSE_CONFIG },
   kroki: { ...DEFAULT_KROKI_CONFIG },
   mermaidRepair: { ...DEFAULT_MERMAID_REPAIR },
   modelProxy: { ...DEFAULT_MODEL_PROXY },
@@ -2566,6 +2628,8 @@ export function loadConfig(): DashboardConfig {
           : defaults.windowsGitSource,
       modelProxy: parseModelProxyConfig(parsed.modelProxy),
       tls: parseTlsConfig(parsed.tls),
+      terminals: parseTerminalsConfig(parsed.terminals),
+      browse: parseBrowseConfig(parsed.browse),
       kroki: parseKrokiConfig(parsed.kroki),
       mermaidRepair: parseMermaidRepairConfig(parsed.mermaidRepair),
       ...(typeof parsed.piSessionsDir === "string" && parsed.piSessionsDir.trim()

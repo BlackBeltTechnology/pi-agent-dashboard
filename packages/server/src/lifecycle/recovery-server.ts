@@ -12,13 +12,14 @@
  * missing — and the recovery server itself would fail to load. Keep it
  * dependency-free.
  */
-import http from "node:http";
+
 import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
-import path from "node:path";
-import os from "node:os";
-import fs from "node:fs";
 import crypto from "node:crypto";
+import fs from "node:fs";
+import http from "node:http";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 export interface RecoveryInfo {
   /** Port to bind. */
@@ -60,13 +61,37 @@ const hostnameOf = (hostPort: string): string => {
 const isLoopbackName = (name: string): boolean => name === "localhost" || name === "::1" || name.startsWith("127.");
 
 /**
+ * Proxy / tunnel forwarding headers. An INLINE copy of the guard's extended
+ * list (`PLUGIN_PROXY_FORWARDING_HEADERS` in `auth/localhost-guard.ts`): this
+ * module may import only node built-ins, and a unit test pins the two equal.
+ */
+export const RECOVERY_FORWARDING_HEADERS = [
+  "x-forwarded-for",
+  "x-forwarded-host",
+  "x-forwarded-proto",
+  "x-real-ip",
+  "forwarded",
+  "via",
+  "x-forwarded-server",
+  "x-forwarded-port",
+] as const;
+
+/** `Host` header with the scheme's default port stripped, lower-cased (compare to `URL.host`). */
+function normalisedHost(hostHeader: string, scheme: string): string {
+  const h = hostHeader.trim().toLowerCase();
+  const defaultPort = scheme === "https:" ? ":443" : scheme === "http:" ? ":80" : "";
+  return defaultPort && h.endsWith(defaultPort) ? h.slice(0, -defaultPort.length) : h;
+}
+
+/**
  * Gate for the mutating recovery actions (`retry`, `reinstall`). The recovery
  * server has no auth of its own, so a mutating request is accepted only when it
- * (a) presents the local IPC token, or (b) comes from a loopback peer WITH a
- * loopback `Host` and no cross-site `Origin`. The Host/Origin checks stop a
- * browser page (CSRF), DNS rebinding, and a tunnel forwarding from loopback —
- * all of which reach the socket from 127.0.0.1.
- * See change: harden-server-capability-bounds (B9).
+ * (a) presents the local IPC token, or (b) comes from a loopback peer carrying
+ * NO proxy-forwarding header, a loopback `Host`, and either no `Origin` or an
+ * `Origin` that is the SAME origin as `Host`. Forwarding headers stop a tunnel
+ * relaying from loopback; the loopback `Host` stops DNS rebinding; same-origin
+ * (not "any loopback origin") stops a page served from another local port.
+ * See change: harden-server-capability-bounds (B9, D4).
  */
 export function isRecoveryActionAllowed(
   req: { remoteAddress: string | undefined; headers: Record<string, string | string[] | undefined> },
@@ -82,17 +107,18 @@ export function isRecoveryActionAllowed(
   }
 
   if (!isLoopbackAddress(req.remoteAddress)) return false;
+  if (RECOVERY_FORWARDING_HEADERS.some((h) => req.headers[h] != null)) return false;
   const host = first(req.headers.host);
   if (!host || !isLoopbackName(hostnameOf(host))) return false;
   const origin = first(req.headers.origin);
   if (origin !== undefined) {
-    let originHost: string;
+    let parsed: URL;
     try {
-      originHost = new URL(origin).hostname.replace(/^\[|\]$/g, "").toLowerCase();
+      parsed = new URL(origin);
     } catch {
-      return false; // includes the opaque `Origin: null`
+      return false;
     }
-    if (!isLoopbackName(originHost)) return false;
+    if (parsed.host === "" || parsed.host !== normalisedHost(host, parsed.protocol)) return false; // includes `Origin: null`
   }
   return true;
 }
@@ -251,6 +277,9 @@ export function buildRecoveryHtml(info: RecoveryInfo): string {
     button.secondary:hover { background: #4b5563; }
     button:disabled { background: #9ca3af; cursor: not-allowed; }
     #status { margin-top: 1rem; font-size: .9em; color: #4b5563; }
+    #refusal { margin-top: 1rem; padding: .6rem .75rem; border-radius: 6px; font-size: .9em;
+               background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; }
+    #refusal[hidden] { display: none; }
   </style>
 </head>
 <body>
@@ -265,31 +294,41 @@ export function buildRecoveryHtml(info: RecoveryInfo): string {
     <button id="reinstall" class="secondary">Reinstall dependencies</button>
   </div>
   <div id="status"></div>
+  <div id="refusal" role="alert" hidden></div>
   <h3 style="margin-top: 1.5rem;">Error details</h3>
   <pre>${stack}</pre>
 </main>
 <script>
   const $ = (id) => document.getElementById(id);
   const status = $("status");
+  const refusal = $("refusal");
   function setBusy(b, msg) {
     $("retry").disabled = b; $("reinstall").disabled = b;
     status.textContent = msg;
   }
+  // A 403 means the request was refused (not same-origin loopback): show the
+  // server's remedy as an alert and leave both buttons enabled.
+  function showRefusal(text) { refusal.textContent = text; refusal.hidden = false; }
+  function clearRefusal() { refusal.textContent = ""; refusal.hidden = true; }
   async function post(path) {
     const res = await fetch(path, { method: "POST" });
     const text = await res.text();
-    return { ok: res.ok, text };
+    return { ok: res.ok, status: res.status, text };
   }
   $("retry").addEventListener("click", async () => {
+    clearRefusal();
     setBusy(true, "Retrying…");
     const r = await post("/api/recovery/retry");
+    if (r.status === 403) { setBusy(false, ""); showRefusal(r.text); return; }
     status.textContent = r.text;
     if (r.ok) setTimeout(() => location.reload(), 1500);
     else setBusy(false, "Retry failed: " + r.text);
   });
   $("reinstall").addEventListener("click", async () => {
+    clearRefusal();
     setBusy(true, "Reinstalling… this may take a minute.");
     const r = await post("/api/recovery/reinstall");
+    if (r.status === 403) { setBusy(false, ""); showRefusal(r.text); return; }
     status.textContent = r.text;
     setBusy(false, r.text);
   });
@@ -415,8 +454,13 @@ export async function startRecoveryServer(info: RecoveryInfo): Promise<number> {
       (url === "/api/recovery/retry" || url === "/api/recovery/reinstall") &&
       !isRecoveryActionAllowed({ remoteAddress: req.socket.remoteAddress, headers: req.headers }, info.localToken)
     ) {
+      // Route only: never log a header or token value.
+      console.error(`[recovery] refused ${req.method} ${url}: not a same-origin loopback request`);
       res.writeHead(403, { "content-type": "text/plain" });
-      res.end("Recovery actions are only accepted from this machine (loopback) or with the local token.");
+      res.end(
+        "Recovery actions only work on the machine running the dashboard. Open this page at http://localhost:" +
+          `${info.port || "<port>"} on that machine, or run \`pi-dashboard stop\` then \`pi-dashboard start\` there.`,
+      );
       return;
     }
     if (req.method === "POST" && url === "/api/recovery/retry") {

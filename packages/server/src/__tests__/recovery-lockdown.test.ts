@@ -15,7 +15,8 @@ vi.mock("node:child_process", async (importOriginal) => {
   return { ...actual, spawn: spawnMock };
 });
 
-import { isRecoveryActionAllowed, startRecoveryServer } from "../lifecycle/recovery-server.js";
+import { PLUGIN_PROXY_FORWARDING_HEADERS } from "../auth/localhost-guard.js";
+import { isRecoveryActionAllowed, RECOVERY_FORWARDING_HEADERS, startRecoveryServer } from "../lifecycle/recovery-server.js";
 
 function fakeChild() {
   const child = new EventEmitter() as EventEmitter & { stdout: EventEmitter; stderr: EventEmitter; unref: () => void };
@@ -43,39 +44,58 @@ function post(
 }
 
 describe("isRecoveryActionAllowed (pure gate)", () => {
-  const ok = { remoteAddress: "127.0.0.1", headers: { host: "localhost:8000" } };
+  const gate = (
+    peer: string | undefined,
+    headers: Record<string, string>,
+    token: string | null = null,
+  ) => isRecoveryActionAllowed({ remoteAddress: peer, headers }, token);
 
-  it("allows a loopback caller with a loopback Host and no Origin", () => {
-    expect(isRecoveryActionAllowed(ok, null)).toBe(true);
-    expect(isRecoveryActionAllowed({ ...ok, remoteAddress: "::1" }, null)).toBe(true);
-    expect(isRecoveryActionAllowed({ ...ok, remoteAddress: "::ffff:127.0.0.1" }, null)).toBe(true);
+  // test-plan #E29: the 10-row Host / Origin / token / peer decision table.
+  it.each([
+    ["token match from a LAN peer", "192.168.1.5", { host: "dash.lan:8000", "x-pi-local-token": "s3cret" }, "s3cret", true],
+    ["token mismatch", "192.168.1.5", { host: "dash.lan:8000", "x-pi-local-token": "nope" }, "s3cret", false],
+    ["loopback Host, no Origin", "127.0.0.1", { host: "localhost:8000" }, null, true],
+    ["loopback Host + same-origin Origin", "127.0.0.1", { host: "localhost:8000", origin: "http://localhost:8000" }, null, true],
+    ["Origin on another local port (page served from :3000)", "127.0.0.1", { host: "localhost:8000", origin: "http://localhost:3000" }, null, false],
+    ["opaque Origin: null", "127.0.0.1", { host: "localhost:8000", origin: "null" }, null, false],
+    ["default-port normalisation (Host localhost vs Origin :80)", "127.0.0.1", { host: "localhost", origin: "http://localhost:80" }, null, true],
+    ["IPv6 loopback same-origin", "::1", { host: "[::1]:8000", origin: "http://[::1]:8000" }, null, true],
+    ["tunnel hostname with a matching Origin", "127.0.0.1", { host: "abc.share.zrok.io", origin: "https://abc.share.zrok.io" }, null, false],
+    ["non-loopback peer, no token", "192.168.1.5", { host: "localhost:8000" }, null, false],
+  ] as const)("E29 %s -> %s", (_name, peer, headers, token, want) => {
+    expect(gate(peer, headers as Record<string, string>, token)).toBe(want);
   });
 
-  it("allows a loopback Origin (the recovery page's own fetch)", () => {
-    expect(isRecoveryActionAllowed({ ...ok, headers: { ...ok.headers, origin: "http://localhost:8000" } }, null)).toBe(true);
+  it("accepts an IPv4-mapped loopback peer", () => {
+    expect(gate("::ffff:127.0.0.1", { host: "localhost:8000" })).toBe(true);
   });
 
-  it("rejects a non-loopback remote address", () => {
-    expect(isRecoveryActionAllowed({ ...ok, remoteAddress: "192.168.1.20" }, null)).toBe(false);
-    expect(isRecoveryActionAllowed({ ...ok, remoteAddress: undefined }, null)).toBe(false);
+  it("an absent Host or absent peer is refused", () => {
+    expect(gate("127.0.0.1", {})).toBe(false);
+    expect(gate(undefined, { host: "localhost:8000" })).toBe(false);
   });
 
-  it("rejects a cross-site Origin (browser CSRF against localhost)", () => {
-    expect(isRecoveryActionAllowed({ ...ok, headers: { ...ok.headers, origin: "https://evil.example" } }, null)).toBe(false);
+  // test-plan #E30: every forwarding header alone flips a loopback request to deny.
+  it.each([
+    "x-forwarded-for",
+    "x-forwarded-host",
+    "x-forwarded-proto",
+    "x-real-ip",
+    "forwarded",
+    "via",
+    "x-forwarded-server",
+    "x-forwarded-port",
+  ])("E30 loopback request carrying %s is refused", (header) => {
+    expect(gate("127.0.0.1", { host: "localhost:8000", [header]: "203.0.113.9" })).toBe(false);
   });
 
-  it("rejects a non-loopback Host (DNS rebinding / tunnel forwarding from loopback)", () => {
-    expect(isRecoveryActionAllowed({ remoteAddress: "127.0.0.1", headers: { host: "abc.share.zrok.io" } }, null)).toBe(false);
-    expect(isRecoveryActionAllowed({ remoteAddress: "127.0.0.1", headers: {} }, null)).toBe(false);
+  it("a forwarding header does not defeat the token path", () => {
+    expect(gate("127.0.0.1", { host: "localhost:8000", "x-forwarded-for": "1.2.3.4", "x-pi-local-token": "t" }, "t")).toBe(true);
   });
 
-  it("accepts a remote caller presenting the correct local token, rejects a wrong or absent one", () => {
-    const remote = { remoteAddress: "10.0.0.9", headers: { host: "dash.lan:8000" } };
-    expect(isRecoveryActionAllowed({ ...remote, headers: { ...remote.headers, "x-pi-local-token": "s3cret" } }, "s3cret")).toBe(true);
-    expect(isRecoveryActionAllowed({ ...remote, headers: { ...remote.headers, "x-pi-local-token": "nope" } }, "s3cret")).toBe(false);
-    expect(isRecoveryActionAllowed(remote, "s3cret")).toBe(false);
-    // no server-side token configured → a presented header can never match
-    expect(isRecoveryActionAllowed({ ...remote, headers: { ...remote.headers, "x-pi-local-token": "" } }, null)).toBe(false);
+  // test-plan #E31: the inline copy (node-built-in-only rule) must not drift from the guard's list.
+  it("E31 recovery's inline header list equals PLUGIN_PROXY_FORWARDING_HEADERS", () => {
+    expect([...RECOVERY_FORWARDING_HEADERS].sort()).toEqual([...PLUGIN_PROXY_FORWARDING_HEADERS].sort());
   });
 });
 
@@ -133,6 +153,25 @@ describe("recovery server lockdown (integration)", () => {
     const res = await post(port, "/api/recovery/reinstall", { host: "tunnel.example.com" });
     expect(res.status).toBe(403);
     expect(spawnMock).not.toHaveBeenCalled();
+  });
+
+  it("E33 a forwarded request is refused with remedy text and never spawns npm", async () => {
+    const port = await start();
+    const res = await post(port, "/api/recovery/reinstall", { "x-forwarded-for": "203.0.113.9" });
+    expect(res.status).toBe(403);
+    expect(res.body).toMatch(/localhost/);
+    expect(spawnMock).not.toHaveBeenCalled();
+  });
+
+  it("E36 one refusal logs one line naming the route, never a token value", async () => {
+    const port = await start({ localToken: "TOPSECRET-TOKEN" });
+    errSpy.mockClear();
+    const res = await post(port, "/api/recovery/retry", { origin: "https://evil.example", "x-pi-local-token": "wrong" });
+    expect(res.status).toBe(403);
+    const lines = errSpy.mock.calls.map((c: unknown[]) => String(c[0])).filter((l: string) => l.includes("refused"));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain("/api/recovery/retry");
+    expect(lines.join("\n")).not.toMatch(/TOPSECRET|wrong/);
   });
 
   it("refuses retry from a non-loopback origin and does not respawn or exit", async () => {

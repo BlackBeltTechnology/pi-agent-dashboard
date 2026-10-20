@@ -403,6 +403,11 @@ export interface BrowseResult {
   parent: string | null;
   current: string;
   /**
+   * True when the request was confined to the shared-root set (a non-local
+   * caller); absent for local callers. See change: harden-server-capability-bounds.
+   */
+  confined?: boolean;
+  /**
    * The server's `process.platform` — lets the client use OS-correct path
    * handling (separator, case-sensitivity, drive-letter rules) without
    * having to sniff `navigator.userAgent`. Optional for backward
