@@ -496,7 +496,8 @@ gate.
 The desktop session card SHALL render no action chips, no action rows, and no per-subcard option menus.
 
 **Kept on the card:**
-- **Header controls:** the Archive button (when archiving is offered), the session actions trigger `⋯`, and the Exit ✕ button (for alive sessions).
+- **Header controls:** the Archive button (when archiving is offered) and the Exit ✕ button (for alive sessions). The session actions trigger SHALL NOT render in the header.
+- **Edge control:** the session actions trigger, centred on the card's right edge (see `session-actions-menu`).
 - **Controls that act on one running thing**, unchanged:
   - the PROCESS subcard's row controls (stop an individual in-flight tool, kill a background process, expand or collapse the drawer);
   - the `ProcessSafetyChip` that replaces a hidden PROCESS subcard;
@@ -511,7 +512,8 @@ The `session-card-action-bar` slot's output SHALL NOT render on the desktop card
 #### Scenario: No action chips on an ended session card
 - **WHEN** a desktop card renders for an ended session with a `sessionFile` in a git repo
 - **THEN** no Resume, Fork, +Session or +Worktree button SHALL render on the card
-- **AND** the header SHALL render the Archive button and `session-actions-trigger-<id>`
+- **AND** the header SHALL render the Archive button
+- **AND** the card SHALL render `session-actions-trigger-<id>` on its right edge, outside the header
 
 #### Scenario: PROCESS row controls stay on the card
 - **WHEN** a desktop card renders for a session with an in-flight bash tool and a background process
@@ -590,12 +592,12 @@ SHALL NOT be treated as empty.
 The desktop branch of `SessionCard.tsx` SHALL render its grouped sections as `SessionSubcard` instances in the following top-to-bottom order: `OPENSPEC`, `STATUS`, `PROCESS`, `FLOWS`, `MEMORY`.
 
 The header zone SHALL remain outside any subcard, above the first subcard. Its rows are defined by the `session-card-header` capability:
-- the title row: status chip, name (double-click to rename), missing-folder pill, time, then the Archive / `⋯` / Exit controls;
+- the title row: status chip, name (double-click to rename), missing-folder pill, time, then the Archive / Exit controls (the session actions trigger is not in the header; it sits on the card's right edge, see `session-actions-menu`);
 - the status row;
 - the git row;
 - the meta row: model, session chips, context bar, cost.
 
-The header zone SHALL NOT contain action chips (Resume, Fork, +Session, +Worktree); those actions live in the session actions menu. No footer action row SHALL render below the last subcard. The `session-card-action-bar` slot's output renders in the session actions menu.
+The header zone SHALL NOT contain action chips (Resume, Fork, +Session, +Worktree); those actions live in the session actions menu. No footer action row SHALL render below the last subcard. The session actions edge trigger is absolutely positioned at the card's vertical centre, so it does not count as rendering below the last subcard. The `session-card-action-bar` slot's output renders in the session actions menu.
 
 The worktree card-slot wrapper (`data-testid="worktree-card-section-gap"`) keeps its position directly after the OPENSPEC subcard, so it now precedes `STATUS`, and keeps its stacking tokens.
 
@@ -616,7 +618,7 @@ There SHALL be no `GIT` subcard and no `WORKSPACE` subcard. Git branch / PR / wo
 
 #### Scenario: No footer action row and no worktree actions row
 - **WHEN** a desktop session card is rendered for a worktree session with an action-bar plugin claim
-- **THEN** no element SHALL render below the last subcard
+- **THEN** no element SHALL render below the last subcard (the absolutely positioned session actions edge trigger, vertically centred on the card, is not below it even though it is the card root's last DOM child)
 - **AND** the card SHALL NOT contain the Push, Open PR, Merge or Close worktree action buttons
 - **AND** the git row's PR status link (`data-testid="worktree-pr-segment"`) is clickable status, not one of these action buttons
 

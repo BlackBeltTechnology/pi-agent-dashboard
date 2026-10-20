@@ -32,13 +32,21 @@ const GATE_REASONS = [
 ] as const;
 type GateReason = (typeof GATE_REASONS)[number];
 
-interface CraftWebAppStatus {
+export interface CraftWebAppStatus {
   status: string;
   reason?: string;
   message?: string;
   version?: string;
   /** Approximate gzip download size in bytes (shown before the first load). */
   sizeGzip?: number;
+  /** Version channel (`pinned` | `latest`). See change: track-latest-craft-web-version. */
+  channel?: "pinned" | "latest";
+  /** Version of the prepared build, when one is prepared. */
+  installedVersion?: string;
+  /** Known latest web version (latest channel only). */
+  latestVersion?: string;
+  enabled?: boolean;
+  preparing?: boolean;
 }
 
 export interface CraftWebStatus {
@@ -64,6 +72,20 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
 }
 
+const optStr = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
+const optBool = (v: unknown): boolean | undefined => (typeof v === "boolean" ? v : undefined);
+
+/** Fields added by track-latest-craft-web-version; absent/mistyped values are dropped. */
+function optionalFields(v: Record<string, unknown>): Partial<CraftWebAppStatus> {
+  return {
+    channel: v.channel === "latest" || v.channel === "pinned" ? v.channel : undefined,
+    installedVersion: optStr(v.installedVersion),
+    latestVersion: optStr(v.latestVersion),
+    enabled: optBool(v.enabled),
+    preparing: optBool(v.preparing),
+  };
+}
+
 /** Defensive parse; `null` when the body is not the documented envelope. */
 export function parseStatus(raw: unknown): CraftWebStatus | null {
   if (!isRecord(raw) || !isRecord(raw.apps)) return null;
@@ -76,6 +98,7 @@ export function parseStatus(raw: unknown): CraftWebStatus | null {
       message: typeof v.message === "string" ? v.message : undefined,
       version: typeof v.version === "string" ? v.version : undefined,
       sizeGzip: typeof v.sizeGzip === "number" ? v.sizeGzip : undefined,
+      ...optionalFields(v),
     };
   }
   return { apps };

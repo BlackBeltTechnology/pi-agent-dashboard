@@ -8,7 +8,19 @@ One grouped flyout menu that holds every action available on a desktop session c
 ### Requirement: Desktop session card exposes one session actions menu with four entry points
 
 The desktop session card SHALL expose a single session actions menu. The same menu, with the same items, SHALL open from each of these entry points:
-- **Trigger:** a vertical-ellipsis button (`mdiDotsVertical`) in the card header (`session-actions-trigger-<sessionId>`, `aria-haspopup="menu"`, `aria-expanded` reflecting open state). The glyph SHALL differ from the folder actions menu's trigger and from every other menu trigger rendered on the card.
+- **Trigger:** a button (`session-actions-trigger-<sessionId>`, `aria-haspopup="menu"`, `aria-expanded` reflecting open state) drawn as a small pill of vertical dots. Its placement and behaviour:
+  - **Position:** vertically centred on the whole card, measured from the card's top border to its bottom border, whatever the card's height. It sits on the card's right edge, straddling the right border. It SHALL NOT render in the card header.
+  - **Bounds:** it SHALL stay inside the space between the card and the enclosing folder border, keeping at least 1 px clear of that border, so it neither overlaps the border nor gets clipped. The transient keyboard focus indicator (`:focus-visible` outline) is exempt from the 1 px clearance, but SHALL NOT be clipped.
+  - **Rest state:** always rendered and visible at a reduced emphasis, including on devices without hover. Reduced emphasis SHALL NOT bring the dots below 3:1 contrast against the card surface (WCAG 1.4.11) in the dark and light mode of every built-in palette. This floor applies to cards at full opacity. A card dimmed as a whole (hidden, or closing) dims its trigger together with all its other content.
+  - **Reserved gutter:** the card SHALL reserve a right-hand gutter for the trigger. Every other card control and every subcard SHALL end at or left of the trigger's hit area.
+  - **Full emphasis:** while the pointer is over the card, while the trigger has keyboard focus (`:focus-visible`), and while its menu is open.
+  - **Hit area:** at least 24×24 CSS px. The part beyond the visible pill lies in the reserved gutter and SHALL NOT overlap any other control on the card, whatever the card's height or content.
+  - **Activation:** what a click on the trigger does depends on the menu's state:
+    - closed: it SHALL open the menu as a click-opened menu;
+    - open from the trigger, right-click or keyboard: it SHALL close the menu;
+    - opened by the hover strip: it SHALL NOT close the menu. Instead it SHALL convert it to a click-opened menu, which then stays open when the pointer leaves, with focus handled as for a trigger click-open. A further click closes it.
+  - **Glyph:** SHALL differ from the folder actions menu's trigger and from every other menu trigger rendered on the card.
+  - **Tab order:** the trigger SHALL be reachable with Tab and SHALL come after the card's other focusable controls.
 - **Hover strip:** a hover-intent zone along the card's right edge (see "Hover strip opens the menu only on deliberate dwell").
 - **Right-click:** a `contextmenu` event on the card, which SHALL open the menu at the pointer and suppress the browser context menu. This SHALL NOT happen when:
   - the event target is a link or a text input (including the inline rename input);
@@ -25,6 +37,51 @@ Activating any entry point, and activating any item inside the menu, SHALL NOT s
 - **THEN** the session actions menu for `s1` SHALL open
 - **AND** the trigger SHALL report `aria-expanded="true"`
 - **AND** session `s1` SHALL NOT become selected as a result of the click
+
+#### Scenario: Trigger sits centred on the card's right edge, not in the header
+- **WHEN** desktop session card `s1` renders, as a minimal card and as a tall card with subcards
+- **THEN** `session-actions-trigger-s1` SHALL NOT be a descendant of the card's header row
+- **AND** the trigger's vertical centre SHALL be within 1 px of the card's vertical centre
+- **AND** the trigger's horizontal span SHALL contain the card's right border x-coordinate
+
+#### Scenario: Trigger is visible at rest and emphasised on hover
+- **WHEN** desktop session card `s1` renders and the pointer is not over it
+- **THEN** `session-actions-trigger-s1` SHALL be visible (non-zero opacity and not `visibility: hidden`) at reduced emphasis
+- **WHEN** the pointer moves over card `s1`
+- **THEN** the trigger SHALL render at full emphasis
+
+#### Scenario: Trigger stays emphasised while its menu is open or it has focus
+- **WHEN** the session actions menu of `s1` is open, or `session-actions-trigger-s1` has keyboard focus via Tab
+- **THEN** the trigger SHALL render at full emphasis regardless of pointer position
+
+#### Scenario: Trigger is reachable on touch devices
+- **WHEN** the device does not match `(hover: hover) and (pointer: fine)` and desktop session card `s1` renders
+- **THEN** `session-actions-trigger-s1` SHALL be visible
+- **AND** tapping it SHALL open the session actions menu for `s1`
+
+#### Scenario: Trigger hit area meets the minimum target size
+- **WHEN** desktop session card `s1` renders
+- **THEN** the trigger's clickable area SHALL be at least 24×24 CSS px
+- **AND** it SHALL NOT overlap the Exit ✕ button, the Archive button, or any other control on the card
+- **AND** clicking anywhere inside that 24×24 area, including the part beyond the visible pill, SHALL toggle the menu
+- **AND** this SHALL hold for a minimal card (title, status and model rows only), for a card with an attached change, dirty and PR pills, and for a card with a PROCESS row
+
+#### Scenario: Faint trigger still meets non-text contrast
+- **WHEN** desktop session card `s1` renders at rest and undimmed, in the dark and light mode of each built-in palette
+- **THEN** the contrast ratio between the trigger's dots and the card surface SHALL be at least 3:1
+
+#### Scenario: Clicking the trigger pins a hover-opened menu
+- **WHEN** the session actions menu of `s1` was opened by the hover strip and the user clicks `session-actions-trigger-s1`
+- **THEN** the menu SHALL stay open
+- **AND** `aria-expanded` SHALL remain `"true"`
+- **AND** moving the pointer outside the card, gap and menu for longer than the hover close grace period SHALL NOT close it
+- **WHEN** the user clicks `session-actions-trigger-s1` again
+- **THEN** the menu SHALL close
+
+#### Scenario: Resting on the trigger does not auto-open the menu
+- **WHEN** the pointer rests on `session-actions-trigger-s1`, either on the visible pill or on its invisible hit area, for 500 ms below the hover speed cutoff without clicking
+- **THEN** the hover strip SHALL NOT open the menu
+- **AND** a click on the trigger SHALL then open it
 
 #### Scenario: Right-click opens the same menu at the pointer
 - **WHEN** the user right-clicks a non-link area of session card `s1` at viewport point (150, 440)
@@ -307,12 +364,12 @@ The menu SHALL have `role="menu"`. Every host item SHALL have `role="menuitem"`.
 
 ### Requirement: Plugin contributions render inside the PLUGINS group
 
-The menu SHALL host plugin actions through the existing `session-card-action-bar` slot. No new plugin API is added.
+The menu SHALL host plugin actions through the existing `session-card-action-bar` slot. No new slot or contribution mechanism is added. The only plugin-facing addition is the optional `tone` field on existing `ui:action-list` items (see `plugin-ui-primitive-registry`).
 
 **Lifecycle.** Claims on the slot SHALL stay mounted for the lifetime of the desktop card, so their effects, subscriptions and the dialogs they own survive the menu closing. Their rendered output SHALL appear only inside the menu's `PLUGINS` group, with their existing props, per-claim error isolation, and the per-plugin `actionbar-<pluginId>` visibility filter.
 
 **Rendering:**
-- Intent `action-list` contributions on the slot SHALL render as `menuitem`s.
+- Intent `action-list` contributions on the slot SHALL render as `menuitem`s, honouring each action's optional `tone` (see "Menu items carry an optional semantic tone").
 - React claim output SHALL render inside a labelled group per plugin.
 - Activating an enabled control inside plugin output SHALL close the menu and SHALL NOT select the card. A dialog the claim opened in response SHALL stay open.
 - The `PLUGINS` heading SHALL render only when plugin output has rendered content.
@@ -334,6 +391,10 @@ The menu SHALL host plugin actions through the existing `session-card-action-bar
 #### Scenario: Claim rendering nothing leaves no heading
 - **WHEN** the only action-bar claim renders `null` for session `s1`
 - **THEN** `s1`'s menu SHALL NOT render a `PLUGINS` heading
+
+#### Scenario: Plugin action-list item honours its tone
+- **WHEN** a plugin publishes an `action-list` intent on `session-card-action-bar` for `s1` with one action `{ label: "Stop recording", tone: "danger" }`
+- **THEN** that action's `menuitem` in `s1`'s `PLUGINS` group SHALL carry `data-action-tone="danger"` and an icon coloured `--accent-red-text`
 
 ### Requirement: Menu follows its session's live state
 
@@ -407,3 +468,114 @@ A disabled item's reason SHALL render as its own line under the label, at least 
 - **WHEN** a plugin contributes an item to the PLUGINS group without setting its own text colour
 - **THEN** its label SHALL inherit the primary text colour
 - **AND** it SHALL measure at least 4.5:1 against the menu background in base light
+
+### Requirement: Menu items carry an optional semantic tone
+
+Each session menu item MAY carry one tone from the shared vocabulary `UiTone = go | create | caution | danger`. An item without a tone is neutral.
+
+**Rendering:**
+- An enabled item with a tone SHALL colour its icon with the tone's text-role accent token: go = `--accent-green-text`, create = `--accent-blue-text`, caution = `--accent-orange-text`, danger = `--accent-red-text`.
+- The item's label SHALL keep the same colour as a neutral item's label. Tone SHALL NOT be the only carrier of meaning: the label alone SHALL identify the action (WCAG 1.4.1).
+- An enabled `danger` item, while hovered or keyboard-focused, SHALL render on `--tint-red-bg` with both its icon and its label in `--accent-red-text`, replacing the neutral hover/focus styling. Pinning the label colour keeps the overlay contrast independent of the neutral label colour.
+- A disabled item SHALL render without its tone colour, without the danger background and without any hover highlight, exactly like a neutral disabled item, so it does not look actionable.
+- Every item with a valid tone SHALL expose `data-action-tone="<tone>"`, whether enabled or disabled. Neutral items SHALL carry no `data-action-tone`.
+- **Invalid values:** any `tone` value that is not exactly one of the four tone strings SHALL be treated as neutral: no colour, no danger styling, no `data-action-tone`. This includes inherited object keys such as `constructor`, `toString` and `__proto__`, and non-string values.
+- Neutral items SHALL render exactly as they would without this requirement.
+- **Contrast:** in every built-in palette, in dark and light mode, each tone's icon colour SHALL reach at least 3:1 (WCAG 1.4.11):
+  - against the menu surface;
+  - for `danger`, also against `--tint-red-bg`.
+
+  The danger row's hover/focus label (`--accent-red-text`) SHALL reach at least 4.5:1 against `--tint-red-bg` (WCAG 1.4.3).
+
+**Host item tones:**
+
+| Tone | Items |
+|---|---|
+| go | Resume, New session, Verify, Merge |
+| create | Fork, New change…, Propose…, Open PR (creates a pull request) |
+| caution | New worktree session, Commit N changes…, Archive anyway… |
+| danger | Exit pi session, Close worktree… |
+
+All other host items are neutral, including View PR #N (it only opens an existing pull request) and Archive session and Push, which change state but discard nothing. `danger` is reserved for actions that end a process or discard work.
+
+**NEXT takes precedence over tone:** the item placed in `NEXT`, whether enabled or disabled, carries no tone and no `data-action-tone`. When enabled, it renders with the NEXT emphasis (see "NEXT and the lifecycle row use state colour"). When the same action also appears un-emphasised in its home group, which happens only for the OpenSpec primary when Merge wins NEXT, that copy keeps its tone.
+
+React claim output in the `PLUGINS` group is not toned by the host.
+
+#### Scenario: Destructive item shows a red icon and red hover
+- **WHEN** the menu of alive session `s1` opens and the pointer hovers **Exit pi session**
+- **THEN** that item SHALL carry `data-action-tone="danger"`
+- **AND** its icon's computed colour SHALL equal the resolved `--accent-red-text`
+- **AND** its label's computed colour SHALL equal that of a neutral item's label
+- **AND** while hovered, its background SHALL equal the resolved `--tint-red-bg` and its label colour SHALL equal the resolved `--accent-red-text`
+
+#### Scenario: Keyboard focus on a destructive item uses the red background
+- **WHEN** keyboard focus moves to **Close worktree…** with ArrowDown
+- **THEN** its background SHALL equal the resolved `--tint-red-bg` and its label colour SHALL equal the resolved `--accent-red-text`
+
+#### Scenario: Neutral item is unchanged
+- **WHEN** the menu of session `s1` opens
+- **THEN** **Rename…** SHALL carry no `data-action-tone`
+- **AND** its icon's computed colour SHALL equal its label's computed colour
+
+#### Scenario: Disabled toned item drops its colour but keeps its tone hook
+- **WHEN** session `s1` has `cwdMissing === true` and its menu opens
+- **THEN** **New session** SHALL render `aria-disabled="true"` and carry `data-action-tone="go"`
+- **AND** its icon SHALL NOT be coloured `--accent-green-text`
+
+#### Scenario: Creating a PR is a create action, viewing one is neutral
+- **WHEN** worktree session `s1` has no PR yet and its menu opens
+- **THEN** **Open PR** SHALL carry `data-action-tone="create"`
+- **AND WHEN** `s1` has PR #12 with a known URL
+- **THEN** **View PR #12** SHALL carry no `data-action-tone`
+
+#### Scenario: Merge in NEXT shows NEXT emphasis, not its go tone
+- **WHEN** worktree session `s1` has an open, non-draft PR with passing checks, so that Merge is the NEXT item
+- **THEN** the NEXT item **Merge** SHALL carry `data-emphasis="primary"` and no `data-action-tone`
+- **AND** its icon SHALL be coloured `--accent-blue-text`
+
+#### Scenario: Disabled NEXT carries no tone
+- **WHEN** session `s1` is streaming and its NEXT item is Verify
+- **THEN** the NEXT item SHALL render `aria-disabled="true"` with no `data-action-tone`
+
+#### Scenario: Inherited object keys are not tones
+- **WHEN** an item arrives with `tone: "constructor"`, and separately with `tone: "__proto__"`
+- **THEN** it SHALL render with no `data-action-tone`, a neutral icon and the neutral hover
+
+#### Scenario: Tone colours meet contrast in every palette
+- **WHEN** each built-in palette is applied in dark and light mode
+- **THEN** each of `--accent-green-text`, `--accent-blue-text`, `--accent-orange-text` and `--accent-red-text` SHALL measure at least 3:1 against the menu surface
+- **AND** `--accent-red-text` SHALL measure at least 3:1 against `--tint-red-bg`
+- **AND** `--accent-red-text` SHALL measure at least 4.5:1 against `--tint-red-bg`
+
+### Requirement: NEXT and the lifecycle row use state colour
+
+When enabled, the `NEXT` item SHALL render with:
+- a `--tint-blue-border` border;
+- its icon coloured `--accent-blue-text`;
+- its label in semibold `--text-primary`, on the menu surface.
+
+It SHALL NOT be filled with a tinted background, because text on `--tint-blue-bg` falls below 4.5:1 in some palettes. The border is decorative. NEXT is identified by its own `NEXT` group heading, its semibold label and its blue icon (at least 3:1), so the border needs no contrast floor. When enabled, the NEXT item keeps the neutral hover and keyboard-focus background. When the NEXT item is disabled (session working), it SHALL use the disabled rendering, with no border accent and no icon colour.
+
+Each segment of the `OPENSPEC` lifecycle artifact row SHALL show a state bar above its letter. Bar and letter use the same colour:
+- `done`: `--accent-green-text`, glyph `✓`;
+- `current`: `--accent-yellow-text`, glyph `▸`;
+- `skipped`: `--accent-green-text`, glyph `–`;
+- `todo`: `--text-tertiary`, glyph `○`.
+
+These are the hues of the card lifecycle bar's states, expressed through text-role tokens so that the bar and the letter reach at least 3:1 against the menu surface in every built-in palette and mode. Every state carries a distinct visible glyph beside the letter, so no two states differ by colour alone (WCAG 1.4.1). The accessible name (`<label>, <state>`) also states it in words. The segment SHALL expose its state as `data-state`, one of `done | current | skipped | todo`, where `todo` is the state the lifecycle-mirroring requirement calls pending.
+
+#### Scenario: NEXT is outlined, not filled
+- **WHEN** session `s1` is attached to an `IMPLEMENTING` change and is idle
+- **THEN** the NEXT item **Apply** SHALL render a `--tint-blue-border` border and an `--accent-blue-text` icon
+- **AND** its background SHALL equal the menu surface
+
+#### Scenario: Working session's NEXT is not accented
+- **WHEN** session `s1` is streaming
+- **THEN** the NEXT item SHALL render `aria-disabled="true"` without the `--tint-blue-border` border
+
+#### Scenario: Lifecycle bars reflect state with sufficient contrast
+- **WHEN** the attached change has Proposal and Design done, Specs current, and Tasks and Archive todo
+- **THEN** the P and D bars SHALL be `--accent-green-text` with glyph `✓`, S `--accent-yellow-text` with glyph `▸`, and T and A `--text-tertiary` with glyph `○`
+- **AND** each bar colour SHALL measure at least 3:1 against the menu surface
+- **AND** each segment's accessible name SHALL include its state word

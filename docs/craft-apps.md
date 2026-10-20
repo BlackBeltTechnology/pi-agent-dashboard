@@ -103,14 +103,22 @@ Cache layout: `<CRAFT_HOME>/<app>/<version>/`. Identical to old `tools/photocraf
 
 Browser build of an app, for in-page hosts (`craft-web-plugin`). Separate from the CLI cache. See change: edit-office-in-pane-with-craft-web (D2).
 
-- Entry: `provisionWeb(app, {root, shimVersion, postInstall?, ...deps})` in `src/provision.ts`. Import `@blackbelt-technology/pi-dashboard-craft-apps/provision.js`.
+- Entry: `provisionWeb(app, {root, shimVersion, postInstall?, channel?: "pinned" | "latest", ...deps})` in `src/provision.ts`. Default `channel: "pinned"`. Import `@blackbelt-technology/pi-dashboard-craft-apps/provision.js`.
 - Asset: `<app>-web-<ver>.zip` from GitHub release. `SHA256SUMS.txt` fail-closed (`downloadVerified`).
 - Shared install core: `installVerified({asset, release, cacheDir, list, extract, validate})`. CLI path and web path both use it.
-- Resolution order (never "latest"; `<APP>_BIN`/`<APP>_VERSION` ignored):
+- Resolution order (`<APP>_BIN`/`<APP>_VERSION` ignored):
   1. `<APP>_WEB_DIR` → copied to `dir-<digest12>`, post-processed; operator dir never mutated.
-  2. `<APP>_WEB_VERSION` pin.
-  3. Registry `webVersion`.
-  4. None → `not-verified`.
+  2. `<APP>_WEB_VERSION` explicit pin.
+  3. Latest — only when `channel: "latest"` or `<APP>_WEB_VERSION=latest` (case-insensitive).
+  4. Registry `webVersion`.
+  5. None → `not-verified`.
+- Latest channel:
+  - Lookup: GitHub `releases/latest`. Accepted only if release publishes `<app>-web-<ver>.zip`.
+  - Cache: `<root>/<app>-web/latest.json`, TTL 24 h. Written only when asset present.
+  - Fetched release reused for install (no `releases/tags` call).
+  - Fallback: newest installed `<ver>-s<shimVersion>` tree → `fallback-installed`; else registry pin; warning logged.
+  - None → `offline` (network) / `not-verified`.
+- `latestWebVersion(app, {root, ...deps})`: metadata only, never downloads. Returns `undefined` on failure or no web asset.
 - `CRAFT_SOURCE=launcher` without `<APP>_WEB_DIR` → `launcher-source`, no network.
 - Layout: `<root>/<app>-web/<version>-s<shimVersion>/` (`dir-<digest12>-s<shimVersion>/` for overrides).
 - `<root>/<app>-web/current` → symlink to key dir (POSIX, rename-swap). win32: junction, rename-then-remove, not atomic (503 window).
@@ -135,8 +143,8 @@ Browser build of an app, for in-page hosts (`craft-web-plugin`). Separate from t
   - `release-unavailable`;
   - `invalid-dir`.
 - Plugin HTTP mapping (`craft-web-plugin/src/server/service.ts`): offline 503; checksum-mismatch 502; extract-failed 502; launcher-source 409; not-verified 409.
-- Report `WebReport`: `{app, version, source: registry|env-version|env-dir, asset, cacheHit, dir, current, shimVersion, durationMs}`.
-- Env: `<APP>_WEB_DIR`, `<APP>_WEB_VERSION`, `CRAFT_SOURCE`. Prefix = upper app id (`WORDCRAFT_WEB_DIR`).
+- Report `WebReport`: `{app, version, source: registry|env-version|env-dir|latest|latest-cached|fallback-installed, asset, cacheHit, dir, current, shimVersion, durationMs}`.
+- Env: `<APP>_WEB_DIR`, `<APP>_WEB_VERSION` (pin or `latest`), `CRAFT_SOURCE`. Prefix = upper app id (`WORDCRAFT_WEB_DIR`).
 - Tests: `src/__tests__/provision-web.test.ts` (E14b hoist etc.).
 
 ## 4. Craft Launcher probe (why `managed` is default)

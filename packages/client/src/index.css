@@ -24,6 +24,7 @@
 @source "../../gmail-plugin/src/client";
 @source "../../obs-studio-plugin/src/client";
 @source "../../context-mode-settings-plugin/src/client";
+@source "../../craft-web-plugin/src/client";
 @source "../../hermes-memory-plugin/src/client";
 @source "../../kb-plugin/src/client";
 @source "../../team-plugin/src/client";
@@ -961,6 +962,15 @@ mark.markdown-search-highlight-active {
    Keep it absolutely parked in the directory-rail band, above card content.
    See change: session-card-directory-rail. */
 .card-drag-bead {
+  position: absolute;
+  z-index: 20;
+}
+/* Same trap for the session-actions edge trigger: its wrapper is a DIRECT
+   child of the card root, so `.card-selected-ring > *` would drop the pill into
+   normal flow on a selected card. Park it on the right edge, above content.
+   Declared after that rule so source order wins.
+   See change: move-session-actions-trigger-to-card-edge. */
+.card-edge-trigger {
   position: absolute;
   z-index: 20;
 }

@@ -48,7 +48,10 @@ const MDI_MARKER = "mdiZodiacAquarius";
 // the new dialogs are lazy chunks (−~13 KB gz vs. eager). Unavoidably in the entry: the file-handler
 // store + claim lookup + mode switcher (EditorPane's seam), the `fileHandler.*` hu/zh-CN keys and
 // the craft-web plugin catalog → 595,550 B. Smallest step that clears it; not a general raise.
-const INDEX_GZ_CAP_BYTES = 582 * 1024;
+// colorize-actions-menus (2026-10-19): 582 → 583 KiB. develop sat 417 B under the cap; the change's
+// tone helper (`client-utils/tone`), the host tone assignments and the lifecycle-row glyph map are
+// unavoidably in the entry (+~1.1 KB gz) → 596,669 B. Smallest step that clears it; not a general raise.
+const INDEX_GZ_CAP_BYTES = 583 * 1024;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.resolve(here, "../../dist");

@@ -14,6 +14,7 @@ Source of truth: `packages/craft-web-plugin/README.md`, `packages/craft-web-plug
 
 - `defaultEnabled: false`. Opt-in.
 - Per-app switch: `plugins["craft-web"].apps.<app>.enabled` (default `true`). Schema `configSchema.json`.
+- Per-app channel: `plugins["craft-web"].apps.<app>.version`: `"pinned"` (default) | `"latest"`. Env `<APP>_WEB_VERSION=latest` overrides config.
 - Read live by status, prepare, validator `enabled()`.
 - Plugin enable/disable applies on restart for server entry. Client claims disable live.
 - Harness (`docker/`, `tests/e2e/`) seeds the plugin enabled.
@@ -32,7 +33,7 @@ Source of truth: `packages/craft-web-plugin/README.md`, `packages/craft-web-plug
 - Result: no inline script. CSP needs no hash. Non-`index.html` assets content-hashed (immutable caching).
 - Shim version: `const SHIM_VERSION = <n>;` in `src/shim/craft-shim.js`. Bump on any behaviour change.
 - Shim drift: `current` with other `shimVersion` → status `shim-outdated`. Host loads no frame until prepare.
-- Overrides: `<APP>_WEB_DIR` (copy), `<APP>_WEB_VERSION` (pin). `CRAFT_SOURCE=launcher` never downloads. Details: [`craft-apps.md` §3b](craft-apps.md).
+- Overrides: `<APP>_WEB_DIR` (copy), `<APP>_WEB_VERSION` (pin or `latest`). `CRAFT_SOURCE=launcher` never downloads. Details: [`craft-apps.md` §3b](craft-apps.md).
 
 ### Status reasons
 
@@ -49,6 +50,31 @@ Source of truth: `packages/craft-web-plugin/README.md`, `packages/craft-web-plug
 | `checksum-mismatch` | SHA256 mismatch | 502 |
 | `launcher-source` | `CRAFT_SOURCE=launcher`, no dir | 409 |
 | `extract-failed` | zip guard / no index.html | 502 |
+
+### Latest channel
+
+- Status rows carry `channel`.
+- `latest` channel: `status` fires single-flight background `latestWebVersion` (metadata GET only, 24 h cache). Never downloads. Prepare still only via `POST .../prepare/:app`.
+- Known latest ≠ prepared → `not-prepared` with latest `version`. Download gate = update.
+- Failed update + valid prepared build → `ok` (old build kept).
+- Latest builds not shim-verified. Bad bootstrap → `extract-failed`; `current` unchanged.
+- Rollback: `version: "pinned"`.
+
+### Settings section
+
+- Claim `settings-section` `CraftWebSettings`, lazy `./src/client/CraftWebSettings.tsx`, tab `general`. Route `/settings/plugins/craft-web`.
+- Per app (status apps ∩ `CRAFT_WEB_APPS`; fallback `CLAIMED_WEB_APP_IDS` when status unavailable): `SettingsGroup` + status pill (Installed / Update available / Not downloaded / Disabled / Restart required / Failed: <reason> / Unavailable).
+- `ToggleField` → `apps.<app>.enabled`. `SelectField` → `apps.<app>.version` (`pinned` "Verified (recommended)" / `latest` "Latest release").
+- Edits buffer as draft → host Save Bar (`useSettingsDraftSource({id:"plugin:craft-web"})`).
+- Commit sends full config via `plugin_config_write`. Unknown keys round-trip.
+- Dirty compares effective values. Absent key ≡ default.
+- `SettingsFacts`: Installed version; Latest release (latest channel; "Not checked yet" before first lookup).
+- Download / `Update to <version>` button: shown only when status preparable.
+- Button → immediate `POST /api/plugins/craft-web/prepare/:app`.
+- Button disabled while draft dirty (prepare uses SAVED channel) or running.
+- Status refetched after prepare. Failure → error notice with reason.
+- Status rows feed UI: `channel`, `installedVersion`, `latestVersion` (latest channel, enabled apps).
+- Status 404 → restart notice. Unreachable → error notice. Both offer retry. Form stays editable.
 
 ## 4. Routes
 
@@ -207,7 +233,7 @@ Ship gate for WordCraft also requires per-app Playwright e2e green with producti
 ## 13. Tests
 
 - `packages/craft-web-plugin/src/server/__tests__/`: mount, validator, post-install, routes, service, shim-version.
-- `packages/craft-web-plugin/src/client/__tests__/`: gate, protocol, save.
+- `packages/craft-web-plugin/src/client/__tests__/`: gate, protocol, save, `CraftWebSettings.test.tsx`.
 - `packages/craft-web-plugin/src/shim/__tests__/`: craft-shim.
 - `packages/craft-apps/src/__tests__/provision-web.test.ts`: `provisionWeb` (E14b hoist, guards).
 - `tests/e2e/craft-web-editor.spec.ts`: F1–F9, X7 (docker harness).

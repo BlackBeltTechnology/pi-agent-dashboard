@@ -471,3 +471,29 @@ describe("accent-text ramp — on-surface AA, fidelity, distinction", () => {
     });
   });
 });
+
+/**
+ * Edge-trigger dot contrast (WCAG 1.4.11 non-text 3:1) — the session-card
+ * actions trigger paints its dots with `--text-tertiary` at rest and
+ * `--text-secondary` under emphasis, on the card fill `--bg-primary`.
+ * `--grip-dot` is NOT used: it drops below 3:1 on some palettes.
+ * See change: move-session-actions-trigger-to-card-edge (test-plan E6).
+ */
+describe("session actions edge trigger dots — non-text contrast floor (3:1)", () => {
+  const FLOOR = 3;
+  const dotPairs = (vars: Record<string, unknown>) =>
+    (["--text-tertiary", "--text-secondary"] as const).map((token) => [token, vars[token] as string, vars["--bg-primary"] as string] as const);
+
+  for (const [name, vars] of PALETTES) {
+    for (const [token, fg, bg] of dotPairs(vars)) {
+      it(`${name} ${token} on --bg-primary`, () => {
+        const ratio = contrast(fg, bg);
+        expect(ratio, `${name} ${token} ${fg} on --bg-primary ${bg} = ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(FLOOR);
+      });
+    }
+  }
+
+  it("the assertion bites: a synthetic #8a8a8a-on-#e1e2e7 fixture is below 3:1", () => {
+    expect(contrast("#8a8a8a", "#e1e2e7")).toBeLessThan(FLOOR);
+  });
+});

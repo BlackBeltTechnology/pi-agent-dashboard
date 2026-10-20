@@ -3,7 +3,7 @@
  * extension's `resolveAgentRoot()` (design D2). The filename is FIXED and never
  * taken from request input — eliminating path-traversal surface.
  *
- * SOURCE-VERSION PIN: mirrored from `pi-hermes-memory@0.8.1` src/paths.ts
+ * SOURCE-VERSION PIN: mirrored from `pi-hermes-memory@0.9.10` src/paths.ts (unchanged since 0.8.1)
  * (`resolveAgentRoot`, `expandHome`).
  *
  * See change: add-hermes-memory-settings-plugin.

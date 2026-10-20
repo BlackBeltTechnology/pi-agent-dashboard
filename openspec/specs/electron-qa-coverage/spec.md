@@ -81,11 +81,11 @@ The macOS launch smoke SHALL be documented (proposal + test header comment) as p
 
 ### Requirement: Native-surface Electron flows are covered by a CI Playwright-`_electron` suite
 
-The QA suite SHALL include a Playwright-`_electron` suite (`tests/e2e-electron/`, config `playwright.electron.config.ts`) that launches the **real packaged Electron app** and verifies the native-surface behaviours of attach-mode ownership that unit tests, the web-client Docker E2E, and CDP cannot reach: the zombie-adoption modal, the Doctor version-skew row, the tray "Server managed externally" row, and (Windows) Job Object kill-on-close.
+The QA suite SHALL include a Playwright-`_electron` suite (`tests/e2e-electron/`, config `playwright.electron.config.ts`) that launches the **real packaged Electron app** and verifies the native-surface behaviours of attach-mode ownership that unit tests, the web-client Docker E2E, and CDP cannot reach: the zombie-adoption modal, the Doctor version-skew row, and the tray "Server managed externally" row. Windows Job Object kill-on-close (the spawned server dying with a force-killed Electron parent) is NOT covered by this suite or by any other automated test; only its `detach: false` spawn precondition is pinned by a unit test.
 
 The suite SHALL run in CI via `.github/workflows/ci-e2e-electron.yml` across a matrix of `ubuntu-latest` (under `xvfb`), `windows-latest` (direct) and `macos-latest` (direct), with `fail-fast: false`, so no supported desktop platform's native-surface path is left unexecuted. Native modals and menus cannot be clicked or read back by automation; the suite SHALL instead stub `dialog.showMessageBox` / `Menu.buildFromTemplate` in the main process (via `electronApp.evaluate`) and assert the flow reaches them with the correct arguments and that each returned choice drives the documented outcome.
 
-The macOS leg SHALL NOT run on a `pull_request` run, because GitHub-hosted macOS runner minutes bill at a multiple of Linux minutes and this suite is advisory. The matrix SHALL depend on the triggering event name only (`github.event_name`, defined for every event), never on pull-request payload fields: `workflow_dispatch` runs all three OSes; a nightly `schedule` runs the macOS leg only — every other job in the workflow (today `job-object-windows` and `runtime-overlay-e2e`, and any job added later) SHALL carry a job-level gate that skips it on `schedule`, so no scheduled Linux, Windows, Job Object or runtime-overlay run is added; `pull_request` runs Linux and Windows only. The workflow's `pull_request` activity types SHALL remain the defaults (no `labeled`), so a label change never starts or cancels a run. Any branch — including an Electron major-version bump branch — obtains a macOS run through `workflow_dispatch` against that branch. The Linux and Windows legs SHALL keep their existing cadence.
+The macOS leg SHALL NOT run on a `pull_request` run, because GitHub-hosted macOS runner minutes bill at a multiple of Linux minutes and this suite is advisory. The matrix SHALL depend on the triggering event name only (`github.event_name`, defined for every event), never on pull-request payload fields: `workflow_dispatch` runs all three OSes; a nightly `schedule` runs the macOS leg only — every other job in the workflow (today `runtime-overlay-e2e`, and any job added later) SHALL carry a job-level gate that skips it on `schedule`, so no scheduled Linux, Windows or runtime-overlay run is added; `pull_request` runs Linux and Windows only. The workflow's `pull_request` activity types SHALL remain the defaults (no `labeled`), so a label change never starts or cancels a run. Any branch — including an Electron major-version bump branch — obtains a macOS run through `workflow_dispatch` against that branch. The Linux and Windows legs SHALL keep their existing cadence.
 
 Every OS the matrix admits SHALL have a step that runs the `_electron` suite on that OS; a leg that packages the app but runs no spec is a defect. A repo-lint test SHALL assert, for each OS literal in every branch of the matrix expression, that at least one suite-running step's `if:` admits that OS.
 
@@ -114,13 +114,6 @@ The suite MAY remain `workflow_dispatch`-only OR be promoted to an automatic tri
 - **GIVEN** the packaged app is launched attached to any reachable fake server (attach arm ⇒ `storedSpawnedPid === null` ⇒ ownership `"foreign"`)
 - **WHEN** the tray ownership poll rebuilds the menu
 - **THEN** a built `Menu.buildFromTemplate` template SHALL contain a disabled "Server managed externally" item AND SHALL NOT contain a "Restart server" item
-
-#### Scenario: Windows Job Object cascades a forced parent kill
-
-- **GIVEN** `windows-latest` with `:8000` free, and the packaged app launched in spawn mode so it spawns a real server via `spawnDetached({ detach: false })`
-- **WHEN** the Electron parent is force-killed with `taskkill /F /PID <electron-pid>` (no `/T`)
-- **THEN** the spawned server PID SHALL die AND `:8000` SHALL free within the timeout (`KILL_ON_JOB_CLOSE` fired)
-- **AND** a server-never-booted setup failure SHALL be reported as `INFRA` distinctly from an invariant break reported as `FAIL`
 
 #### Scenario: Suite is dispatchable only once the workflow is on the default branch
 
@@ -158,7 +151,7 @@ The suite MAY remain `workflow_dispatch`-only OR be promoted to an automatic tri
 
 - **WHEN** the nightly schedule fires
 - **THEN** the macOS leg SHALL run
-- **AND** no Linux, Windows, Job Object or runtime-overlay leg — nor any other job of the workflow — SHALL run
+- **AND** no Linux, Windows or runtime-overlay leg — nor any other job of the workflow — SHALL run
 - **AND** the repo-lint test SHALL fail if any job other than the macOS matrix leg lacks a gate that skips it on `schedule`
 
 #### Scenario: A platform-specific product defect is quarantined, not left red

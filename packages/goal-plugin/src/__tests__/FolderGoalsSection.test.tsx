@@ -82,6 +82,7 @@ describe("FolderGoalsSection", () => {
     expect(store.getItems(cwd).map((i) => [i.pluginId, i.id, i.group])).toEqual([
       ["goal-plugin", "new-goal", "create"],
     ]);
+    expect(store.getItems(cwd)[0]!.tone).toBe("create"); // test-plan #E23
   });
 
   it("E20/E21: registers a refresher with no item of its own", async () => {

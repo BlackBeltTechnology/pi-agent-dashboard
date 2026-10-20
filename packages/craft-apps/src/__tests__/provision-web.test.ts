@@ -7,7 +7,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { strToU8, zipSync } from "fflate";
 import { afterEach, describe, expect, it } from "vitest";
-import { type ProvisionWebError, type ProvisionWebOptions, provision, provisionWeb, type WebErrorCode } from "../provision.js";
+import { latestWebVersion, type ProvisionWebError, type ProvisionWebOptions, provision, provisionWeb, type WebErrorCode } from "../provision.js";
 import { getApp } from "../registry.js";
 import { listZip } from "../zip-guard.js";
 import { cleanupTmp, craftArchive, type Fixture, makeTarGz, STUB_BINARY, startFixture, tmpDir } from "./helpers/fixtures.js";
@@ -456,5 +456,75 @@ describe("provisionWeb report and failures", () => {
   it("rejects a non-positive shimVersion", async () => {
     const s = await setup();
     await expect(provisionWeb(APP, s.opts({ shimVersion: 0 }))).rejects.toThrow("shimVersion");
+  });
+});
+
+// See change: track-latest-craft-web-version (D1, D2).
+describe("provisionWeb latest channel", () => {
+  const ZIP9 = "wordcraft-web-0.9.0.zip";
+  const latestCalls = (s: Awaited<ReturnType<typeof setup>>) => s.fx.requests.filter((q) => q.url.endsWith("/releases/latest")).length;
+
+  it("channel latest installs the latest web build, then serves it from the 24 h cache", async () => {
+    const s = await setup({ [ZIP9]: webZip() }, "v0.9.0");
+    const r = await provisionWeb(APP, s.opts({ channel: "latest" }));
+    expect(r).toMatchObject({ version: "0.9.0", source: "latest", asset: ZIP9, cacheHit: false });
+    expect(s.fx.requests.some((q) => q.url.includes("/releases/tags/"))).toBe(false);
+    expect(JSON.parse(fs.readFileSync(path.join(s.appRoot, "latest.json"), "utf8")).tag).toBe("v0.9.0");
+    const r2 = await provisionWeb(APP, s.opts({ channel: "latest" }));
+    expect(r2).toMatchObject({ version: "0.9.0", source: "latest-cached", cacheHit: true });
+    expect(latestCalls(s)).toBe(1);
+  });
+
+  it("WEB_VERSION=latest (any case) selects the latest channel", async () => {
+    const s = await setup({ [ZIP9]: webZip() }, "v0.9.0");
+    const r = await provisionWeb(APP, s.opts({ env: s.envWith({ WORDCRAFT_WEB_VERSION: " Latest " }) }));
+    expect(r).toMatchObject({ version: "0.9.0", source: "latest" });
+  });
+
+  it("an explicit WEB_VERSION pin beats the latest channel", async () => {
+    const s = await setup();
+    const r = await provisionWeb(APP, s.opts({ channel: "latest", env: s.envWith({ WORDCRAFT_WEB_VERSION: "0.8.0" }) }));
+    expect(r).toMatchObject({ version: "0.8.0", source: "env-version" });
+    expect(latestCalls(s)).toBe(0);
+  });
+
+  it("channel pinned (default) never asks for latest", async () => {
+    const s = await setup();
+    const r = await provisionWeb(APP, s.opts({ channel: "pinned" }));
+    expect(r.source).toBe("registry");
+    expect(latestCalls(s)).toBe(0);
+  });
+
+  it("a latest release without a web asset falls back to the registry pin, warns, and is not cached", async () => {
+    const s = await setup({ "wordcraft-cli-0.9.0.tar.gz": Buffer.from("x") }, "v0.9.0");
+    const e = await errOf(provisionWeb(APP, s.opts({ channel: "latest" })));
+    // The fixture only serves tag v0.9.0, so the registry fallback (v0.8.0) is unavailable — proving it was chosen.
+    expect(e.code).toBe<WebErrorCode>("release-unavailable");
+    expect(s.fx.requests.map((q) => q.url)).toContain("/repos/storytold/wordcraft/releases/tags/v0.8.0");
+    expect(s.logs.some((l) => /latest/.test(l) && /0\.8\.0/.test(l))).toBe(true);
+    expect(fs.existsSync(path.join(s.appRoot, "latest.json"))).toBe(false);
+  });
+
+  it("a failed latest lookup uses the newest installed tree for the current shim, with no download", async () => {
+    const s = await setup({ [ZIP9]: webZip() }, "v0.9.0", { latestStatus: 500 });
+    for (const key of ["0.8.5-s1", "0.9.0-s1", "1.0.0-s2"]) {
+      fs.mkdirSync(path.join(s.appRoot, key), { recursive: true });
+      fs.writeFileSync(path.join(s.appRoot, key, "index.html"), INDEX);
+    }
+    const r = await provisionWeb(APP, s.opts({ channel: "latest" }));
+    expect(r).toMatchObject({ version: "0.9.0", source: "fallback-installed", cacheHit: true });
+    expect(s.downloads()).toHaveLength(0);
+  });
+
+  it("latestWebVersion is metadata-only and honours the cache", async () => {
+    const s = await setup({ [ZIP9]: webZip() }, "v0.9.0");
+    expect(await latestWebVersion(APP, s.opts())).toBe("0.9.0");
+    expect(await latestWebVersion(APP, s.opts())).toBe("0.9.0");
+    expect(latestCalls(s)).toBe(1);
+    expect(s.downloads()).toHaveLength(0);
+    const s2 = await setup({ "other.zip": webZip() }, "v0.9.0");
+    expect(await latestWebVersion(APP, s2.opts())).toBeUndefined();
+    const s3 = await setup(undefined, undefined, { latestStatus: 500 });
+    expect(await latestWebVersion(APP, s3.opts())).toBeUndefined();
   });
 });

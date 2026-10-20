@@ -6,6 +6,11 @@
 
 import type { WorktreeInitStatus } from "../../lib/git/git-api.js";
 
+/** True while the project-setup templates have drifted (drives the update badge and caution tone). */
+export function isProjectSetupOutdated(status: WorktreeInitStatus | null | undefined): boolean {
+  return status?.setupOutdated === true;
+}
+
 /**
  * Permanent `Project setup…` item label. Appends the per-artifact tally `n/N`
  * when the checklist is present (e.g. `Project setup… 3/5`), and a `● update`
@@ -21,6 +26,6 @@ export function projectSetupLabel(
   const tally = Array.isArray(checklist)
     ? ` ${checklist.filter((a) => a.present).length}/${checklist.length}`
     : "";
-  const badge = status?.setupOutdated === true ? `  ${updateBadge}` : "";
+  const badge = isProjectSetupOutdated(status) ? `  ${updateBadge}` : "";
   return `${base}${tally}${badge}`;
 }

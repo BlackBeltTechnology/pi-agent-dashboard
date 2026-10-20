@@ -30,7 +30,7 @@ The token values SHALL be:
 
 The blue border + ring SHALL be preserved as a static layer underneath the animated rim. When `prefers-reduced-motion: reduce` is active, the rim and glow SHALL render without animation; both SHALL remain visible. When the `fx-selected-glow` effect resolves off (see `card-visual-effects`), the iridescent rim and glow layers SHALL NOT be displayed or animated and the selected card SHALL show only the static blue border + outer ring. When the browser fails `@supports (background: conic-gradient(from 0deg, red, blue))`, the rim SHALL render as a flat `rgba(96,165,250,.5)` ring and the glow wrappers SHALL be hidden.
 
-The card content SHALL stack above all iridescent layers; the rim, glow wrappers and drag bead SHALL remain `position: absolute` despite the `.card-selected-ring > *` rule. The card root SHALL declare `isolation: isolate`.
+The card content SHALL stack above all iridescent layers; the rim, glow wrappers, drag bead and session actions edge trigger (see `session-actions-menu`) SHALL remain `position: absolute` despite the `.card-selected-ring > *` rule, so none of them falls into normal flow or changes the selected card's height. The card root SHALL declare `isolation: isolate`.
 
 No ancestor of a selected desktop card in the session list SHALL clip the outside glow halo: every clipping ancestor (the folder `.group-collapse > *` collapse wrapper, the `overflow-y-auto` list scroller) SHALL leave at least 14px (the `.card-glow-mask-outer` extent) between the card's right edge and its clip edge, without reducing the card content width set by the collapse wrapper. The folder collapse wrapper SHALL still collapse to 0 height.
 
@@ -44,6 +44,11 @@ No ancestor of a selected desktop card in the session list SHALL clip the outsid
 - **WHEN** a desktop session card is selected in either theme
 - **THEN** no glow layer SHALL paint inside the card's border box
 - **AND** text inside the card SHALL be rendered over `--bg-primary` only (no blue fill)
+
+#### Scenario: Edge trigger stays parked on a selected card
+- **WHEN** a desktop session card is selected
+- **THEN** the card root's direct child that contains `session-actions-trigger-<id>` SHALL compute `position: absolute`
+- **AND** the card's rendered height SHALL equal its height when unselected
 
 #### Scenario: Outside halo is not clipped by the session list
 - **WHEN** a desktop session card inside an expanded folder group is selected

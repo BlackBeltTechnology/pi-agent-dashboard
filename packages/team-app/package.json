@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-team-app",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "private": true,
   "description": "AI Team SPA (Marveen-style Csapat grid, persona editor, conversations). Built to dist/ and copied into team-plugin (served at /apps/team/); also embeddable via the ./app library entry.",
   "type": "module",
@@ -16,11 +16,11 @@
     "typecheck": "node ../../scripts/tsc7.mjs --noEmit"
   },
   "dependencies": {
-    "@blackbelt-technology/dashboard-plugin-runtime": "^0.9.0",
-    "@blackbelt-technology/pi-dashboard-app-kit": "^0.9.0",
-    "@blackbelt-technology/pi-dashboard-client-utils": "^0.9.0",
-    "@blackbelt-technology/pi-dashboard-shared": "^0.9.0",
-    "@blackbelt-technology/pi-dashboard-web": "^0.9.0",
+    "@blackbelt-technology/dashboard-plugin-runtime": "^0.10.0",
+    "@blackbelt-technology/pi-dashboard-app-kit": "^0.10.0",
+    "@blackbelt-technology/pi-dashboard-client-utils": "^0.10.0",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.10.0",
+    "@blackbelt-technology/pi-dashboard-web": "^0.10.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-oidc-context": "^3.3.1",

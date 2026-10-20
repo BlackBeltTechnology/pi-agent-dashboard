@@ -1,417 +1,557 @@
 # Design — supervised mode (dashboard tool-approval gate)
 
+> **Refreshed 2026-10-19 against shipped code.** Citations checked against
+> `@earendil-works/pi-coding-agent@1.3.0` (the pinned floor, `package.json:155`,
+> `packages/extension/package.json:59`) and current `develop`. Since the first draft
+> (2026-09-18) the **agent path gate** shipped (change `ask-agent-file-access-in-chat`,
+> `packages/extension/src/path-gate/`), plus YOLO for the path gate
+> (`openspec/specs/access-grant-yolo/spec.md`) and the opt-in path-containment guard
+> (`packages/path-containment-guard/`). The path gate already implements most of the
+> machinery this design proposed; supervised mode **follows its pattern** (D3, D8, D10,
+> D14–D16) instead of inventing a parallel one.
+
 ## Origin
 
-This change is one of six candidate adaptations mapped from a research pass over
-[`pingdotgg/t3code`](https://github.com/pingdotgg/t3code) (a minimal multi-provider web GUI
-for coding agents). t3code's **Runtime modes** feature (`docs/architecture/runtime-modes.md`)
-offers a global switch:
-
-- **Full access** (their default): `approvalPolicy: never`, `sandboxMode: danger-full-access`.
-- **Supervised**: `approvalPolicy: on-request`, `sandboxMode: workspace-write`, prompting
-  in-app for command/file approvals.
-
-We already run pi sessions full-access. The question was whether "supervised" is buildable
-against pi's runtime. A spike answered it.
+One of six adaptations mapped from a research pass over
+[`pingdotgg/t3code`](https://github.com/pingdotgg/t3code). t3code's runtime modes offer
+**Full access** (`approvalPolicy: never`) and **Supervised** (`approvalPolicy: on-request`
++ `sandboxMode: workspace-write`). We already run pi sessions full-access; the question is
+whether "supervised" is buildable on pi's runtime.
 
 ## Spike — how pi surfaces tool approvals in `--mode rpc`
 
-**Question:** when the dashboard spawns pi `--mode rpc`, do pi's built-in tool actions
-(`bash`/`write`/`edit`) emit an interceptable approval we can render in the browser, or does
-pi self-decide and run them silently?
-
-**Answer: pi has no built-in approval prompt — by design — but exposes a blockable
-`tool_call` hook that lets an extension build one. All rails to surface it in the dashboard
-already exist and are proven in our own code.**
-
-Verified facts (file:line, re-verified against `@earendil-works/pi-coding-agent@0.85.1`):
+**Answer: pi has no built-in approval prompt, but exposes a blockable `tool_call` hook. All
+rails to surface it in the dashboard exist — and one shipped gate (the path gate) already
+uses every one of them.**
 
 | Fact | Source | Consequence |
 |---|---|---|
-| "No permission popups. … build your own confirmation flow with extensions." | `README.md:503` | pi will run bash/edit with **no prompt** unless the host builds one. Nothing to "catch" passively. |
-| "Pi does not include a built-in sandbox." | `docs/security.md:33-35` | We **cannot** replicate t3code's `workspace-write` in-process. OS confinement = container/VM only. |
-| `tool_call` event: "Fired … before the tool executes. **Can block.**" Return `{ block: true, reason?, terminate? }`. | `docs/extensions.md:778-792` | The interception point. An extension can veto a tool before it runs. |
-| Pipeline diagram: `tool_call (can block)` | `docs/extensions.md:304` | Confirms block is a first-class capability, not a side effect. |
-| `isToolCallEventType("bash", event)` / typed inputs | `docs/extensions.md:778-836` | Gate can target specific tools + inspect args (command text, file path). |
-| `ctx.ui.confirm` guarded by `hasUI`, which is **`true` in TUI and RPC modes** | `docs/extensions.md:972`, mode table `:2930-2937` | Confirm dialogs work in the RPC sessions the dashboard spawns. |
-| Our bridge **patches `ctx.ui.confirm` onto PromptBus**, and callers render in the dashboard | `packages/extension/src/bridge.ts:2870`, `packages/extension/src/ask-user-tool.ts:438` | The confirm→PromptBus→web-renderer→response path is live and proven today. |
-| **The whole interceptor is already shipped** — `createToolCallGuard` (confirm + fail-closed timeout + `{block:true,reason}`) and the pure `decideToolCall` policy engine | `packages/chat-gateway/src/guard/index.ts`, `.../policy.ts` (+ `__tests__/`) | The build is an **extraction**, not a green-field hook. |
-| A second `tool_call` handler already exists in the bridge (event forwarding) | `packages/extension/src/bridge.ts:2602`; ordering `docs/extensions.md:790`; "`tool_call` errors block the tool (fail-safe)" `:2925` | The gate coexists with it; ordering + throw-semantics must be decided (D8). |
-| `turn_start`/`turn_end` already first-class client-side | `packages/client/src/lib/event-reducer.ts` | Same interception family is available for the sibling checkpointing feature. |
-| `pi.setActiveTools(["read","bash"])`, `--tools` allowlist | `docs/extensions.md:1677-1693` | A "read-only" preset is essentially free. |
+| pi "does not ask for approval before every tool call"; safety comes from OS/virtualization limits | `node_modules/@earendil-works/pi-coding-agent/docs/security.md:3-7` | Nothing to catch passively; no in-process sandbox to wire. |
+| `tool_call` "can mutate input or block execution"; handlers run in extension-load then registration order | `docs/extensions.md:98,106` | The interception point. Order is behaviourally load-bearing. |
+| First result with `block` set wins; later handlers do not run | `dist/core/extensions/runner.js:957-971` | A gate earlier in the chain can starve a later one. |
+| "A `tool_call` handler failure blocks the tool as a fail-safe" | `docs/extensions.md:263` | True for pi — but see D8: the bridge's `safe()` wrapper defeats it. |
+| `ctx.hasUI` is `true` in RPC mode | `docs/extensions.md:254`, `docs/rpc-extension-ui.md:25` | Dialogs work in dashboard-spawned sessions. |
+| `pi.getAllTools()` reports each tool's `annotations` (`readOnlyHint`, `destructiveHint`, …); doc example gates on them | `docs/extensions.md:165-178` | Hints are unverified by pi; supervised does NOT use them (D2). |
+| Nested `ctx.executeTool` calls go through `tool_call` with `parentToolCallId` | `docs/extensions.md:149` | `codemode` script calls are individually gateable (verify, D2). |
+| Built-ins: `read, bash, powershell, edit, write, grep, find, ls`; built-in extensions add `codemode`, `tool_search` | `docs/cli.md:140-155` | Default risky set + read family (D2). |
+| `user_bash` is a separate event | `docs/extensions.md:128` | Operator `!` commands never traverse `tool_call` (D1 caveat). |
+| **Shipped precedent — agent path gate**: a `tool_call` handler registered WITHOUT `safe()`, own try/catch → block, `PromptBus.requestWithId` + `cancel(id)`, one timeout budget (default 120 s), per-session mutex, fail-closed reasons by cause, attention flag, Security-tab toggle | `bridge.ts:1950-1956`; `path-gate/handler.ts:39-41,119-131,224,293-297,330-346`; `path-gate/index.ts:85-98`; `packages/shared/src/config.ts:840-845`; `SettingsPanel.tsx:343,2613` | Supervised gate copies this shape (D3, D8, D10). |
+| **Shipped precedent — chat-gateway guard**: `createToolCallGuard` + pure `decideToolCall` | `packages/chat-gateway/src/guard/index.ts`, `policy.ts` | Policy engine to extract (D6, D7, D9). |
+| PromptBus `requestWithId(id, opts)` / `cancel(id)` | `packages/extension/src/prompt-bus.ts:139-145,230-252` | A caller owns its prompt id → single clock (D10). |
 
-**Composed mechanism (the whole feature):**
+**Composed mechanism:**
 
 ```mermaid
 flowchart TD
-  A["agent emits a bash tool call<br/>e.g. rm -rf build"] --> B["pi fires tool_call<br/>before execution, blockable"]
-  B --> C["bridge gate handler"]
-  C --> D{"supervised(session)<br/>AND risky(toolName, input)?"}
+  A["agent emits tool call<br/>e.g. bash: rm -rf build"] --> B["pi fires tool_call"]
+  B --> F1["bridge forwarder (safe, never blocks)"]
+  F1 --> F2["fan-out admission (Agent only)"]
+  F2 --> PG["agent path gate (read/write/edit outside roots)"]
+  PG -->|blocked| BLK
+  PG -->|"in-root / allowed"| SG["supervised gate (this change)"]
+  SG --> D{"supervised(session)<br/>AND risky(tool)?<br/>AND not already answered by path gate?"}
   D -->|no| RUN["pi runs the tool"]
-  D -->|yes| E["approval transport:<br/>ctx.ui.confirm → PromptBus → prompt_request<br/>→ web interactive renderer"]
-  E --> F{"decision"}
-  F -->|approve| RUN
-  F -->|deny| BLK["return { block: true, reason }"]
-  F -->|timeout| BLK
-  F -->|gate error| BLK
-  BLK --> G["pi cancels the tool, tells the agent"]
+  D -->|yes| E["PromptBus.requestWithId(select)<br/>kind: supervised-tool-approval"]
+  E --> G{"answer"}
+  G -->|Allow once| RUN
+  G -->|"Deny / reason"| BLK["{ block: true, reason }"]
+  G -->|timeout → cancel(id)| BLK
+  G -->|gate error| BLK
 ```
-
-Every arrow above is either pi-native (`tool_call` block) or already shipping in this repo
-(`ctx.ui.confirm` → PromptBus → renderer). No new session protocol for the approval loop.
-
-**Blocker status: cleared.** Pre-spike this feature was "MEDIUM, gated by unknown"; post-
-spike it is "MEDIUM, unblocked, mostly UI + one bridge hook." **Re-check (this pass):** the
-hook itself now exists in shipped code, so the remaining work is *extraction + policy
-widening + flag wiring + UI*.
 
 ## Design decisions
 
 ### D1 — Approval gating only; sandboxing is out of scope (delegated to containers)
-pi refuses an in-process sandbox on purpose. We honor that: Supervised gates **whether** a
-risky tool runs; it does **not** confine what an approved tool can touch. The UI copy MUST
-avoid words like "sandboxed" / "safe" and instead say "approve each action." Users needing
-real isolation run the session in the Docker path. This is the single most important framing
-decision — it prevents a false security boundary.
+Supervised gates **whether** a risky tool runs; it does not confine what an approved tool
+touches. Copy never says "sandboxed" / "safe" / "isolated"; it says "approve each action
+the agent takes" and "not a sandbox" — the same framing as the shipped path-gate copy
+("This is an approval prompt, not a sandbox", `AgentPathGateSection.tsx:40-44`). Users who
+need isolation run the session in the Docker path.
 
-**Coverage caveat (must be in the copy).** The gate sees **agent-initiated tool calls**
-only. It does NOT cover: `user_bash` (the operator's own `!` prefix — a distinct event,
-`bridge.ts:2104`, that never traverses `tool_call`), extension-initiated `executeBash()`,
-or — pending open question 5 — tools run inside an `Agent` subagent. The copy says
-"approve each action the agent takes", never a bare "approve each action."
+**Coverage caveat (in the copy).** The gate sees **agent-initiated** tool calls only. It
+does NOT cover `user_bash` (the operator's own `!` prefix, `docs/extensions.md:128`;
+bridge handling at `bridge.ts:1166`, pass-through `bridge-handlers/forwarders.ts:44`),
+extension-initiated execution, or — pending open question 5 — tool calls inside an `Agent`
+subagent process.
 
 ### D2 — Risky-tool set is a matcher, default `{bash, powershell, write, edit, Agent}`
-Read-family tools (`read`, `grep`, `find`, `ls`) are not in the default set. The set is
-configurable (shared config) so a team can add custom tools or relax `edit`. Matching uses
-`isToolCallEventType` for typed args so the prompt can show the actual command / path + a
-diff preview, not an opaque tool name.
+Read family (`read`, `grep`, `find`, `ls`) is not in the default set. The set is
+configurable (`supervisedMode.tools`, D10). Matching consumes `event.input` so the prompt
+shows the command / path + change summary, not an opaque name.
 
-**The configured set is authoritative — there is no hardcoded read-family exemption.** The
-spec's "read-family tools never prompt" is a statement about the *default* set, not an
-override: an operator who deliberately adds `read` to the set gets `read` gated. A hidden
-exemption list would be a second, invisible policy.
+**The configured set is authoritative** — no hidden read-family exemption. An operator who
+adds `read` gets `read` gated.
 
-**`allow` beats `approval` in the shipped engine** (`policy.ts` precedence: explicit allow >
-explicit approval > default). Under supervised's allow-first posture that makes an `allow`
-entry a *silent un-gate* of an otherwise-risky tool. Kept (changing precedence would alter
-shipped chat-gateway semantics), but the supervised config UI does not expose an `allow`
-list — under `defaultAction: "allow"` it is redundant and only creates a footgun.
+**`allow` beats `approval` in the shipped engine** (`policy.ts:42-53`). Under supervised's
+allow-first posture an `allow` entry is a silent un-gate, so the supervised config UI
+exposes no allow list.
 
-**Expressed in the shipped policy shape** (`packages/chat-gateway/src/guard/policy.ts`):
-supervised = `{ approval: ["bash","write","edit","powershell"], defaultAction: "allow" }`.
-This requires D7's enum widening — today `ToolDefaultAction` is `"deny" | "approve"` only.
+**Policy shape** (`policy.ts`): supervised =
+`{ approval: <supervisedMode.tools>, defaultAction: "allow" }` (needs D7).
 
-**`powershell` is in the default set.** pi's built-in tools are `read, bash, powershell
-(Windows), edit, write, grep, find, ls` (`README.md:588`). Omitting `powershell` leaves shell
-execution ungated on Windows — a platform this repo actively supports (`qa/`).
+**`powershell` is in the default set** (`docs/cli.md:144`); the repo supports Windows (`qa/`).
 
-**Name-drift is a fail-OPEN hazard under `defaultAction: "allow"`** (it is fail-closed for
-chat-gateway, which is why the shipped code never had to worry). A renamed, aliased, or
-MCP-provided mutating tool silently bypasses the gate. Mitigations, both required:
+**Name drift is fail-OPEN under `defaultAction: "allow"`.** Mitigations, both required:
+- **Allow-first, decided (user, 2026-10-19).** Only the configured set is gated. A tool
+  outside `readFamily ∪ riskySet ∪ wrapperTools` runs, and the gate logs it once per
+  session (`[supervised] unclassified tool <name>`). Tool `annotations` are **not** used:
+  pi says they are unverified hints (`docs/extensions.md:166-178`), and almost no repo tool
+  sets them, so annotation-gating would prompt on `ask_user`/`kb_*` while letting a tool that
+  lies about `readOnlyHint` through. Operators add MCP or plugin tools to
+  `supervisedMode.tools` in Settings. This is an accepted fail-open for tools nobody
+  classified, stated in the Settings hint and the docs note — which name the concrete case
+  of extension tools that run shell commands (e.g. context-mode's `ctx_execute`), which
+  are not asked about until added. `readFamily` and `wrapperTools` are classification
+  inputs for the drift test and the log line only; they never exempt a configured tool.
+- **Drift test pinned to the host's built-ins.** `wrapperTools = {codemode, tool_search}`
+  (their nested calls traverse `tool_call` individually, `docs/extensions.md:149`; verify
+  for `codemode`, spike 0.3). The L1 test checks a fixture of the pinned pi version's
+  built-in tool list (`docs/cli.md:140-155`); a pi bump that adds a built-in outside
+  `readFamily ∪ riskySet ∪ wrapperTools` fails it and forces a classification. The fixture
+  is regenerated by the `bump-pi-version` procedure.
+- Case-insensitive comparison (`"Agent"` is capitalised at `subagent-fanout-admission.ts:176`)
+  happens in the **supervised policy builder** (both sides lower-cased before calling
+  `decideToolCall`). The shared engine stays exact-match (`policy.ts:37-39`), so
+  chat-gateway decisions do not change.
+- **Cost.** The non-supervised path reads an in-memory per-session boolean only.
 
-- **The drift test is an inverse allowlist, not a mutating-tool list.** Asserting "every
-  known-mutating tool is in the risky set" is a tautology — the classification under test is
-  the list itself. Instead the test pins a **read-family allowlist** (`read`, `grep`, `find`,
-  `ls` — the tools it is safe to *not* gate) and fails when the host's tool inventory
-  contains any name outside `readFamily ∪ riskySet`. A new pi tool, a rename, or an MCP
-  addition then trips the test and forces a human classification instead of silently
-  running ungated. The inventory comes from `pi.getAllTools()` at session start, so the
-  assertion is a runtime check with a fixture-backed unit test, not a pure unit test.
-- Tool names are compared case-insensitively. The repo is already inconsistent
-  (`"Agent"` capitalised in `subagent-fanout-admission.ts:176`, lowercase elsewhere).
+**`Agent` is gated** because a subagent can run shell out of the parent's sight (D1, Q5).
 
-**`Agent` is a gate bypass** — a subagent can run shell out of the parent's sight. `Agent` is
-in the default risky set (see the set above) rather than claiming coverage we do not have;
-see the scope caveat in D1 and open question 5.
+### D3 — Transport and renderer: follow the path gate
+Approval is a PromptBus `select` sent with `requestWithId` (the path gate's `GatePrompter`
+shape, `path-gate/index.ts:85-98`, `handler.ts:44-48`), not `ctx.ui.confirm` — the gate
+owns the prompt id it must `cancel()` (D10).
 
-### D3 — Reuse PromptBus; do not invent an approval channel
-Approve/deny is a `ctx.ui.confirm` (or a richer custom interactive payload) over the
-existing PromptBus. This inherits first-response-wins, cross-surface dismissal, reconnect
-replay, and the answered-prompt history card for free — the same guarantees `ask_user` has.
+- Options: **`Allow once`**, **`Deny`** — same labels as the path gate
+  (`path-gate/decide.ts:110-119`). No preselection, no autofocus (matches
+  `agent-path-confinement` "No option SHALL be preselected").
+- `metadata.kind = "supervised-tool-approval"` plus `{ tool, summary, cwd, path?,
+  diffStat?, diff?, command?, deadline, toolCallId }`, and a `plainMessage` twin for the
+  terminal adapter (path-gate precedent, `handler.ts:170-180`).
+- **Metadata reaches the renderer.** The client copies only `message`, `questions`,
+  `allowOther`, `plugin`, `toolCallId` out of `prompt.metadata`, at two sites: live
+  (`client/src/hooks/useMessageHandler.ts:1858-1882`) and replay
+  (`client/src/hooks/useSessionState.ts:161-178`). Both sites pass through the supervised
+  keys (`kind`, `deadline`, `tool`, `summary`, `command`, `path`, `diffStat`, `diff`,
+  `cwd`); a replay test pins it.
+- **Client renders a dedicated card**: `ToolApprovalCard.tsx` in `interactive-renderers/`,
+  selected by a `SelectRenderer` branch on `metadata.kind === "supervised-tool-approval"`
+  (the registry is keyed by method, `registry.ts:11-28`; no new method). It adds the
+  countdown from `deadline`, the collapsed diff, and **Deny with a reason** (mockup b-*).
+  Surfaces that do not know the kind (TUI) render the plain options.
+- **Deny with a reason** uses the inline "Other" free-text answer: the request sets
+  `allowOther: true` (`shared/src/prompt-answer.ts:73-75`, change
+  `add-ask-user-inline-other`). An answer equal to `Allow once` → allow; every other answer
+  → deny; a non-label answer becomes the reason. Only the dashboard card offers a reason
+  field; the TUI adapter has no free-text arm (`tui-prompt-adapter.ts:67-68`) and shows
+  plain Allow once / Deny. (The path gate deliberately leaves `allowOther` off, pinned by
+  `path-gate/__tests__/handler.test.ts:218`; supervised turns it on only for its own kind.) Unknown or empty answers fail closed (path-gate precedent,
+  `handler.ts:224`).
+- **Diff cap.** `metadata.diff` (and the enriched path prompt's diff / new content) is
+  capped at **16 KiB**; a truncated diff ends with `… (truncated)` (decided 2026-10-19).
+- **Reason hygiene.** The reason is operator text entering the agent's context: strip
+  control characters, cap at 500 characters, deliver as
+  `supervised: denied — operator said: "<text>"`.
+- **The chat gateway does not render supervised approvals** (D17).
+- Inherits first-response-wins, cross-surface dismissal, reconnect replay and the
+  answered-prompt history from PromptBus.
 
 ### D4 — Mode flag wiring (SETTLED — both arms ship)
-The bridge hook needs to know a session is supervised. **Decision: ship both.**
-- **(b) Shared-config default** (`~/.pi/dashboard`, alongside `askUserPromptTimeoutSeconds`)
-  read at session start — sets the mode a new session starts in.
-- **(a) Session-scoped control message** dashboard → bridge (`set_supervised {on}`), the
-  live per-session override toggled from the session UI. One small control message; not an
-  event-protocol change, and not part of the approve/deny round-trip.
+- **(b) Shared-config default** `supervisedMode.default: "full" | "supervised"` in
+  `~/.pi/dashboard` (D10), read at session start.
+- **(a) Session-scoped control message** dashboard → bridge (`set_supervised {on}`) for the
+  live toggle. Not an event-protocol change; not part of the approval round-trip.
 
-**Mid-turn semantics (SETTLED):** the flag is read **per tool call**, so flipping Supervised
-ON during a running turn gates the *next* tool call in that same turn. Flipping it OFF is
-symmetric — the next call runs ungated. No turn-boundary deferral. An approval already
-pending when the flag flips OFF is **not** auto-approved; it resolves normally or times out
-(a pending prompt is a decision already in flight, and auto-approving it would be a silent
-un-block).
+**Mode persistence (no silent fail-open).** Two durable copies, keyed by session id:
+- **Session file.** Every flip writes `pi.appendEntry("supervised-mode", { on })` into the
+  session; on `session_start` (new, resumed, forked or switched session,
+  `packages/extension/src/session-sync.ts:226-267`) the bridge restores the last entry for
+  THAT session id before handling any tool call. A session with no entry starts at the
+  config default. This survives `/reload`, a pi restart/resume, and a server that is down.
+- **Server metadata.** The server persists the mode in the session meta written by
+  `packages/server/src/session/session-to-meta.ts` (explicit field list, so the field is
+  added there) and restores it on registration (`server.ts:792-888`,
+  `memory-session-manager.ts:358-371`); it re-sends `set_supervised` after register and
+  reconnect. On disagreement the more restrictive value wins (Supervised), and the bridge
+  reports the reconciled mode back.
+- **Restore failure fails closed.** If reading the `supervised-mode` entry throws, the
+  session is set to Supervised and the error is logged (`[supervised] mode restore failed`).
+- **Race rule — revisioned.** Every flip carries a per-session monotonic `rev`, stored in
+  both the session entry (`{ on, rev }`) and the server meta. Registration carries the
+  bridge's `{ on, rev }`; the higher `rev` wins (so an OFF the server holds but the bridge
+  missed is not reverted). Only when `rev` ties with different values, or either side has
+  no `rev`, does the restrictive value (Supervised) win. The server persists the winner and
+  sends `set_supervised { on, rev }`; the bridge applies it and appends the entry.
+- **Wire data (accepted beyond the single control message).** Bridge → server: `{ on, rev }`
+  and `toolGateOwner` as fields on the existing session registration, plus a
+  `supervised_state { on, rev, toolGateOwner }` report when either changes after
+  registration. Server → bridge: `set_supervised`. None of these is part of the approval
+  round-trip.
+- Bridge state is a `Map<sessionId, boolean>` in process-global `BridgeState`, never one
+  flag, so a session switch never inherits the previous session's mode. The mode map, the
+  mutex chains and the D14 hand-off sets are all cleared for a session id on
+  `session_shutdown` (`docs/extensions.md:263-266`).
 
-**Performance budget (SETTLED):** on a **non-supervised** session the gate is a flag check;
-p95 added latency per `tool_call` must stay **under 1ms**, asserted by a timed L1 unit test.
-This is the honest replacement for the withdrawn "zero overhead" claim.
+**`set_supervised` control message.** Server → bridge over the session's authenticated
+bridge connection (same channel as existing server → extension controls,
+`packages/server/src/server.ts:4031`, `bridge-handlers/dispatch.ts:321`). Payload
+`{ on: boolean }`; a malformed payload is ignored (mode kept). It never resolves a pending
+prompt. The browser → server request is **session-owner only** — the same gate as `send_prompt`
+(`server/src/identity/ws-message-scope.ts:48`); anyone else gets 403 and the mode is kept.
+The server logs each flip as
+`[supervised] mode on|off rev=<n> session=<id> source=<connId>` (only the server knows the
+connection) (decided 2026-10-19).
+
+**Mid-turn semantics:** the flag is read **per tool call**; flips apply to the next call in
+the same turn, both directions. A pending approval is never auto-resolved by a flip.
+
+**Performance budget:** on a non-supervised session the gate is a flag check; **p95 added
+latency per `tool_call` < 1 ms** (L1 timed test). The path gate holds the same budget for
+in-root calls (`agent-path-confinement/spec.md:278`); the two are measured separately.
 
 ### D5 — Deny semantics fail closed
-An unanswered approval (PromptBus timeout) or an explicit deny returns `{ block: true }`.
-The agent receives the `reason` and continues (it may replan). We never silently run a tool
-whose prompt was dismissed. Mirrors `add-chat-gateway`'s "unanswered approval fails closed."
+Timeout, explicit deny, dismissal and gate error all return `{ block: true, reason }`.
+**No UI:** when `!ctx.hasUI` (print/JSON mode, `docs/extensions.md:250-254`) a Supervised
+session blocks a risky call at once with `supervised: no-ui` — no 120 s wait (path-gate
+precedent, `path-gate/handler.ts:293-297`). The
+agent receives the reason and continues. Mirrors the path gate (`handler.ts:293-297,342-346`)
+and chat-gateway.
 
-### D6 — Extract the SHIPPED chat-gateway guard into a shared package (decided)
-**Status corrected:** `add-chat-gateway` is archived (`openspec/changes/archive/
-2026-09-18-add-chat-gateway`) and its L3 guard is **live code**, not a plan. It already
-carries everything this change needs: `ctx.ui.confirm` escalation, a fail-closed approval
-timeout (60s default, injectable `schedule`/`cancel` for tests), `{ block: true, reason }`,
-and a pure, unit-tested decision engine.
+### D6 — Extract the shipped chat-gateway policy engine into a shared module
+`packages/chat-gateway/src/guard/{index,policy}.ts` is live code (archived change
+`2026-09-18-add-chat-gateway`). Lift the **policy engine and guard core** into a
+surface-agnostic module and migrate chat-gateway to consume it.
 
-**Decision:** lift `guard/index.ts` + `guard/policy.ts` into a surface-agnostic shared
-package, and migrate chat-gateway to consume it. One primitive, two surfaces — Discord
-buttons vs the dashboard approve/deny card differ only in how `ctx.ui.confirm` is routed.
+**What is shared, exactly.** The shared module is `decideToolCall` + `parseToolPolicy` +
+the guard's settlement core (decide → request → single timeout → map outcome →
+`{ block, reason }`, fail-closed on throw). Each surface injects its transport:
+chat-gateway keeps `ctx.ui.confirm` and its 60 s timeout (user-visible behaviour
+unchanged); the dashboard surface uses PromptBus `requestWithId` (D3).
 
-Constraints the extraction MUST honor:
-- The shipped spec `openspec/specs/chat-gateway/spec.md` — *"Hard in-session tool policy for
-  spawned sessions"*, incl. *"Unanswered approval fails closed"* and *"Attached session is
-  not gated"* — stays satisfied. Its existing `guard.test.ts` / `policy.test.ts` are the
-  regression harness and must pass unchanged (move, do not rewrite).
-- The published `./guard` export subpath of
-  `@blackbelt-technology/pi-dashboard-chat-gateway-plugin` keeps working (re-export shim),
-  and the `toolPolicy` / `guardExtension` config surface documented in
-  `docs/chat-gateway.md` is unchanged.
-- chat-gateway's `defaultAction` stays `"deny"`. The new `"allow"` arm is opt-in and used
-  only by supervised mode.
-- Rollback = revert the extraction commit. The guard holds no persisted state.
+**Supervised-only layers sit OUTSIDE the shared core**, in the bridge gate, each failing
+closed through the gate's own try/catch (D8): the per-call flag read, case-folding (D2),
+the unclassified-tool logging (D2), the per-session prompt mutex (D8), the
+path-gate hand-off (D14), the gateway self-disable (D12). chat-gateway gains none of them.
+
+Constraints:
+- `openspec/specs/chat-gateway/spec.md` "Hard in-session tool policy for spawned sessions"
+  (`:216`) stays satisfied; `guard.test.ts` / `policy.test.ts` **assertions** pass unchanged.
+- `./guard` export of `@blackbelt-technology/pi-dashboard-chat-gateway-plugin` keeps
+  working (re-export file); `toolPolicy` / `guardExtension` config surface unchanged.
+- chat-gateway `defaultAction` stays `"deny"`; `"allow"` is supervised-only.
 
 ### D7 — Widen `ToolDefaultAction` with `"allow"` — type AND resolution AND validators
-`decideToolCall` is deliberately deny-first: *"There is no 'unknown tool' allow path — an
-unrecognised tool name is denied, which is what makes the default fail closed."* Supervised
-mode is the inverse posture, so the enum grows a third arm:
+Today `type ToolDefaultAction = "deny" | "approve"` (`policy.ts:18`) and resolution is a
+binary ternary (`policy.ts:54-56`). Widening the type alone makes `"allow"` fall into
+`deny`. Four coordinated edits:
+1. `decideToolCall` gains an explicit `"allow"` branch.
+2. Absent `defaultAction` still resolves to `"deny"`.
+3. `normalizeToolPolicy` (`packages/chat-gateway/src/server/config.ts:98-106`) keeps
+   coercing non-`approve|deny` to `deny`; gateway `configSchema.json` enum stays
+   `["deny","approve"]`.
+4. `policyFromEnv` (`guard/index.ts:125-137`) stays in chat-gateway and calls a shared
+   pure `parseToolPolicy(raw, { allowedDefaults: ["deny","approve"] })`.
 
-```ts
-type ToolDefaultAction = "deny" | "approve" | "allow";  // "allow" is new
-```
+### D8 — Handler ordering and error semantics — fail closed ITSELF
+Current bridge `tool_call` handlers, in registration order:
+1. pass-through forwarder — `safe()`-wrapped, never blocks (`bridge.ts:1912,1915`;
+   `bridge-handlers/forwarders.ts:42,602-616`);
+2. subagent fan-out admission — `safe()`-wrapped, `Agent` only (`bridge.ts:1945-1948`;
+   order rationale `:1919-1928`);
+3. agent path gate — NOT `safe()`-wrapped, own try/catch (`bridge.ts:1950-1956`).
 
-**Widening the type alone is a silent bug.** The resolution is currently a binary ternary
-(`policy.ts:60-68`): `(defaultAction ?? "deny") === "approve" ? approve : deny`. With only
-the type widened, `defaultAction: "allow"` falls into the `else` and **denies every
-non-approval tool** — supervised mode would block `read`. Four coordinated edits, all
-required:
+The supervised gate is the **fourth**, registered **after the path gate** (tasks.md
+coordination note from `ask-agent-file-access-in-chat`): an out-of-root call is decided
+by the path gate first, so a denied path never raises an action prompt.
 
-1. `decideToolCall` gains an explicit `"allow"` branch returning `{ action: "allow" }`.
-2. The **absent** `defaultAction` keeps resolving to `"deny"` — no existing caller or
-   persisted policy changes meaning.
-3. `normalizeToolPolicy` (`packages/chat-gateway/src/server/config.ts:97-98`) coerces any
-   non-`approve|deny` value to `deny`. It stays that way — **chat-gateway must NOT be able
-   to configure `"allow"`**, so its `configSchema.json` enum stays `["deny","approve"]`.
-   That is the point: the widened type is shared, the widened *config surface* is not.
-4. `policyFromEnv` performs **no validation** today (`guard/index.ts`), so an env-supplied
-   `defaultAction:"allow"` would be honored in a gateway session. The documented config path
-   already coerces (`normalizeToolPolicy`) and the JSON schema already rejects `"allow"` —
-   so this is defence-in-depth against the *undocumented* env path, not the primary control.
-   **Ownership (resolves the D9 overlap):** `policyFromEnv` itself — the gateway-specific
-   env NAME — stays in the chat-gateway package; the shared package exports a pure
-   `parseToolPolicy(raw, { allowedDefaults })` validator that `policyFromEnv` calls with
-   `["deny","approve"]`. Shared validation, gateway-local plumbing.
-
-### D8 — Handler ordering and error semantics — the gate must fail closed ITSELF
-There are already **two** `tool_call` handlers in the bridge, not one:
-- the pass-through forwarder (`bridge.ts:2563`, `tool_call` is in `passThroughEventTypes`
-  at `:2102`), and
-- the subagent fan-out admission gate (`bridge.ts:2602`), which is itself blocking.
-
-The supervised gate is the **third**. The bridge's own comment (`:2579-2585`) states
-`runner.emitToolCall` **returns on the first handler that answers a blocking result** — so
-handler order is behaviorally load-bearing, not cosmetic. Decisions:
-
-- **Registration order: forwarder → fan-out admission → supervised gate.** The forwarder
-  stays first for the reason already documented at `:2579` (a gate registered earlier
-  starves it, and live UI would disagree with the transcript). The fan-out gate stays ahead
-  of the supervised gate so its permit accounting (`tool_execution_end`, `:2606`) is not
-  perturbed; a host-pressure refusal short-circuits the approval prompt, which is correct
-  — there is nothing to approve if the call is not admitted.
-
-- **Open risk, needs a spike before implementation: the fan-out permit window.** The fan-out
-  gate adds a permit on admission and releases it **only** on `tool_execution_end`
-  (`bridge.ts:2606`, `subagent-fanout-admission.ts`). With fan-out registered *before* the
-  supervised gate, an `Agent` call can be admitted and then denied by the supervised gate —
-  and the permit leaks unless pi still emits `tool_execution_end` for a tool blocked by a
-  *later* handler. The bridge's existing comment asserts `tool_execution_end` fires on the
-  blocked path, but that was written about the fan-out gate's **own** block. **Verify
-  empirically**; if it does not fire, register the supervised gate *before* fan-out (a
-  denied call is then never admitted, and no permit exists to leak).
-
-- **The gate MUST NOT rely on pi's throw-is-fail-safe semantics.** `extensions.md:2925`
-  says a throwing `tool_call` handler blocks the tool — but the bridge wraps **every**
-  handler in `safe()` (`bridge.ts:898-915`), which catches sync throws, `.catch()`es async
-  rejections, and returns `undefined`. `undefined` means **allow**. A supervised gate
-  registered the conventional `safe(...)` way therefore **fails OPEN on internal error** —
-  the exact inverse of D5. Resolution: the gate owns its own `try/catch` and returns
-  `{ block: true, reason: "supervised: gate error" }` on any internal failure. It may still
-  mechanism. **The gate is registered WITHOUT `safe()`** — wrapping it would re-introduce
-  the fail-open path the moment its internal catch ever misses one (e.g. a throw in the
-  wrapper-visible sync prologue). Its own `try/catch` is the total error boundary, and a
-  unit test asserts: gate internals throw ⇒ result is `{ block: true }`.
-
-- The gate awaits `ctx.ui.confirm`, holding the `tool_call` preflight open. Sibling tool
-  calls are preflighted sequentially (`extensions.md:784`) — this is what makes open
-  question 1 (N prompts vs batched) sequential-by-construction.
+- **Registered WITHOUT `safe()`** — `safe()` returns `undefined` (= allow) on any throw
+  (`bridge.ts:956-970`). Own `try/catch` → `{ block: true, reason: "supervised: error" }`;
+  path-gate precedent (`handler.ts:342-346`). L1 test: internals throw ⇒ block.
+- **Per-session mutex** for prompts (path-gate precedent, `handler.ts:330-338`): concurrent
+  tool calls (parallel `codemode` scripts, sibling calls) raise approvals one at a time per
+  session; other sessions never queue.
+- **The mutex is the supervised gate's own** — distinct from the path gate's mutex. The path
+  gate asks its YOLO question before taking its own mutex (`handler.ts:303-329`), so a
+  pending supervised approval never delays a path-gate YOLO answer
+  (`agent-path-confinement/spec.md:331`).
+- **Abort.** The gate listens on `ctx.signal` (`docs/extensions.md:214`); an abort cancels
+  the pending prompt (`PromptBus.cancel(id)`) and blocks with `supervised: aborted`. The
+  signal is checked before AND after acquiring the mutex, so a call queued behind another
+  approval never opens a card after the turn was aborted.
+- **Fan-out permit window (spike 0.2).** Fan-out adds a permit on admission and releases it
+  on `tool_execution_end` (`bridge.ts:1965`); the bridge comment says that event fires on
+  "normal, blocked AND aborted paths" (`bridge.ts:1957-1960`), written for fan-out's own
+  block. Verify for a block by a later handler. If it does not fire, the supervised gate
+  releases the permit itself when it blocks an `Agent` call (a release hook on the fan-out
+  admission object). The order never changes: no pre-check ahead of fan-out (starves the
+  forwarder, `bridge.ts:1919-1928`) and never ahead of the path gate.
+- **Permit held during the wait (accepted trade-off).** Fan-out admits an `Agent` call
+  before the supervised gate runs, so a pending `Agent` approval holds a permit for up to the
+  timeout; sibling `Agent` calls may meet a "not now" refusal meanwhile. Accepted for v1 (an
+  `Agent` approval is rare and short); test 8.10 pins the release, and the spike records
+  occupancy during the wait.
+- **Pending approval and the tool row.** The forwarder runs first, so the transcript shows
+  the call as running while it awaits approval; the card carries `metadata.toolCallId`, so
+  the client can tie the card to the row.
+- **The approval covers the input as the gate saw it — no more.** `tool_call` handlers may
+  mutate `event.input` (`docs/extensions.md:98-106`); a handler in an extension loaded
+  after the bridge could change it after approval. The contract is therefore "approves the
+  shown input snapshot", not "nothing runs unseen"; the spec and the user-facing note say
+  so. Detecting a later mutation is out of scope (unverified whether pi exposes a final
+  pre-execution input).
+- Separately loaded extensions with `tool_call` handlers (path-containment-guard
+  `packages/path-containment-guard/src/extension.ts:71`, untrusted-content-guard
+  `packages/untrusted-content-guard/src/extension.ts:54`, chat-gateway guard
+  `guard/index.ts:142`) compose by first-block-wins; a call runs only if none blocks
+  (`openspec/specs/path-containment-guard/spec.md:287-289`). Order relative to the bridge
+  depends on extension load order — no supervised behaviour depends on it.
 
 ### D9 — The extraction is a parameterisation, not a byte-for-byte lift
-The shipped guard is **not** surface-agnostic today:
-- Its confirm copy is hardcoded chat wording: `"A chat user asked this session to run a
-  tool that needs approval."` (`guard/index.ts:101-104`).
-- Its block reasons are prefixed `chat-gateway:`, and `guard.test.ts` pins that prefix.
-- Its handler signature is `(event: { toolName: string }, ctx)` and it passes only
-  `event?.toolName` to `decideToolCall` — **`event.input` is discarded**. The contract
-  requires the prompt to show the bash command text and the write/edit target path, so
-  consuming `input` is mandatory.
-- `policyFromEnv` reads `PI_EXT_CHAT_GATEWAY_GUARD_POLICY`, a gateway-specific env name
-  that cannot live in a surface-agnostic module.
-
-**Decision — one injected surface, covering presentation AND transport** (this supersedes an
-earlier draft that split them and contradicted D10):
+The shipped guard hardcodes chat copy (`guard/index.ts:102-104`), prefixes reasons
+`chat-gateway:` (`:96,108`), discards `event.input` (`:89-93`), and reads a
+gateway-specific env name (`:125-137`).
 
 ```ts
 interface ApprovalSurface {
-  /** Human-readable card built from the FULL tool_call event, incl. `input`. */
-  buildPrompt(event: ToolCallEvent): { title: string; body: string };
-  /** Block-reason namespace, e.g. "chat-gateway" | "supervised". */
-  reasonPrefix: string;
-  /** Cancellable request — NOT a bare Promise<boolean>. D10 needs `cancel`. */
-  request(prompt: { title: string; body: string }):
-    { decision: Promise<{ approved: boolean; surface: string }>; cancel(): void };
-  /** REQUIRED, not optional — the observability contract is a SHALL. */
-  onDecision(record: DecisionRecord): void;
+  buildPrompt(event: ToolCallEvent): { title: string; body: string; plain: string; metadata: object };
+  reasonPrefix: string;                       // "chat-gateway" | "supervised"
+  request(prompt, ctx: GuardCtx):             // ctx: chat-gateway needs ctx.ui.confirm per call
+    { decision: Promise<{ answer: string | undefined; surface: string }>; cancel(): void };
+  onDecision(record: DecisionRecord): void;   // required
 }
-
-type GateOutcome = "approved" | "denied" | "timeout" | "error";
+type GateOutcome = "approved" | "denied" | "dismissed" | "timeout" | "aborted" | "error";
 ```
 
-**The guard result widens to carry the cause.** Today every negative path — explicit deny,
-timeout, and a throwing confirm — collapses to `false` inside `withTimeout`, so the
-spec's *"blocked outcomes are distinguishable"* requirement is unsatisfiable by the shipped
-shape. The extracted guard returns `GateOutcome` internally and maps it to a block reason
-via `reasonPrefix`. chat-gateway's surface maps **all three negatives to its existing single
-string** `chat-gateway: approval_denied_or_timed_out`, so its shipped agent-visible behavior
-is byte-identical; the supervised surface maps them to distinct reasons and logs the
-distinct `GateOutcome`.
+The dashboard surface implements `request` over `PromptBus.requestWithId` / `cancel`
+(D3). The chat-gateway surface wraps `ctx.ui.confirm` (`guard/index.ts:99-106`): `true` →
+answer `"Allow once"`, `false` → `undefined`; its `cancel()` is a no-op, so its card
+lifetime is unchanged — the "card withdrawn on expiry" invariant is supervised-only. Its
+`onDecision` writes one `[chat-gateway]` console line (no durable entry). chat-gateway's surface maps all three negatives to its existing single reason
+`chat-gateway: approval_denied_or_timed_out`, so its agent-visible behaviour is
+byte-identical; supervised maps them to distinct reasons. `guard.test.ts` keeps its
+assertions; its setup gains a thin adapter. **No default presenter** — a call site that
+forgets to inject fails to compile.
 
-**Honest correction to D6:** `guard.test.ts` does **not** survive on an import-path change
-alone — it constructs `ctxWithConfirm` with a bare function and asserts on the collapsed
-reason string. It needs a thin chat-gateway `ApprovalSurface` adapter in its setup. Its
-*assertions* stay unchanged (that is the regression guarantee that matters); its
-*construction* changes. `policyFromEnv` stays in the chat-gateway package per D7#4. D6's
-"move, do not rewrite" applies to the test **expectations**, not to the test setup and not
-to `index.ts`.
+### D10 — One approval clock; config mirrors `agentPathGate`
+Config key `supervisedMode` in `~/.pi/dashboard`, shaped like the shipped
+`agentPathGate` (`packages/shared/src/config.ts:840-845`):
 
-**No default presenter.** `ApprovalSurface` is a required argument with no chat-flavoured
-fallback — a supervised call site that forgets to inject fails to compile rather than
-rendering "A chat user asked this session…" in the dashboard.
+```ts
+supervisedMode: {
+  default: "full" | "supervised";   // default "full"
+  timeoutSeconds: number;           // default 120, minimum 10
+  tools: string[];                  // default ["bash","powershell","write","edit","Agent"]
+}
+```
 
-### D10 — One approval clock, not two
-The guard runs its own `withTimeout` (60s default, `guard/index.ts:49`); PromptBus has an
-independent default of 5 minutes (`prompt-bus.ts:98`, configurable via
-`askUserPromptTimeoutSeconds`). Left as-is, the guard denies at 60s while the dashboard
-keeps rendering an answerable approval card for ~4 more minutes; a late "Approve" resolves
-a promise nobody awaits, and reconnect replay can resurrect a prompt whose gate already
-blocked. The logged outcome then contradicts what the operator saw.
+- **Timeout default 120 s**, the same as `agentPathGate.timeoutSeconds`; not inherited from
+  `askUserPromptTimeoutSeconds` (300, `config.ts:1381`). **Minimum 10 s**; values below
+  are rejected by the Settings field and coerced to the default by the config parser —
+  there is no "wait forever" (fail-closed).
+- **One effective clock, bus timer kept as backstop.** PromptBus arms its bus-wide timer
+  on every submit from `askUserPromptTimeoutSeconds` (`prompt-bus.ts:147-155`, applied at
+  `bridge-handlers/lifecycle.ts:338`), and the shipped `ask-user-tool` spec says that
+  timeout applies uniformly to every PromptBus prompt (`openspec/specs/ask-user-tool/spec.md:176`).
+  So no per-request override: the gate's deadline is
+  `max(1 s, min(supervisedMode.timeoutSeconds, busTimeout − 1 s))` (bus timeout ≤ 0 =
+  infinite → supervised value). The 10 s floor applies to the **configured** value; an
+  operator who sets the ask_user/bus timeout below 11 s (allowed today,
+  `bridge-handlers/lifecycle.ts:69-81`) gets a shorter effective approval window, and the
+  Settings section warns when that is the case. The gate's timer fires before the bus
+  timer; the bus timer remains only as a backstop. The bridge exposes the session's bus
+  timeout through a read accessor on the PromptBus options.
+- **When the clock starts.** The timer starts when the prompt opens, i.e. after the D8 mutex
+  is acquired; `metadata.deadline` is set then. A call queued behind other approvals waits
+  for them first (bounded by abort, D8); this is accepted.
+- **Outcome attribution — by what the gate did, not by response shape.** Every
+  `PromptBus.cancel` resolves `{ cancelled: true, source: "__bus__" }`
+  (`prompt-bus.ts:230-252`), so the shape cannot tell causes apart. The gate keeps a
+  per-request `selfCancel` reason (`timeout` | `aborted`) set just before it calls
+  `cancel(id)` itself. Outcome: `approved`; `denied` (explicit Deny or a reason);
+  `dismissed` (a cancel the gate did not initiate — a client dismiss, or the backstop);
+  `timeout` / `aborted` (self-cancel); `error` (gate threw). All non-approved outcomes
+  block, each with its own reason. `GateOutcome` (D9) and the spec use this one vocabulary.
+- **Bounds** 10–3600 s; outside, non-numeric, or a config parse error → the default 120 s.
+  The server normalises on write too: `PUT /api/config` with an out-of-range value persists
+  120, so `GET` returns 120 (decided 2026-10-19).
+- The shared core's timeout parameter is strictly positive milliseconds; each surface
+  converts its own convention (the gateway guard's `Math.max(0, …)` and the bus's
+  `≤ 0 = infinite` never meet in the core). The "card withdrawn on expiry" invariant is
+  supervised-only (D9). The card shows a countdown from `metadata.deadline`. An abort (Esc) cancels the
+  pending approval. chat-gateway keeps its own 60 s (`guard/index.ts:49`); the shared guard
+  takes the timeout as a parameter.
+- **Settings**: Security tab, a "Tool approval (Supervised mode)" section next to
+  `AgentPathGateSection` (`SettingsPanel.tsx:2613`) — mockup state c-*.
 
-**Timeout value (SETTLED):** a dedicated config key
-`supervised.approvalTimeoutSeconds` in `~/.pi/dashboard`, **default 120s**. Deliberately not
-inherited from `askUserPromptTimeoutSeconds` (an approval gate and an `ask_user` question
-have different urgency) and not the guard's hardcoded 60s (too tight for a phone-driven
-session, which is a motivating use case). chat-gateway keeps its own 60s default — the
-extracted guard takes the timeout as a parameter, it does not own a constant.
-
-**Decision:** the guard timeout is the single clock, and on expiry the gate calls
-`cancel()` on the `ApprovalSurface.request` handle (D9) so the card disappears on every
-surface. This is precisely why the injected surface returns `{ decision, cancel }` rather
-than a bare `Promise<boolean>`: `PromptBus.cancel(id)` needs the prompt id, which
-`ctx.ui.confirm` never returns to its caller — so the dashboard surface implementation talks
-to PromptBus directly rather than through the patched `ctx.ui.confirm`. An abort (Esc)
-likewise cancels the pending approval rather than leaving the turn awaiting it.
-
-### D11 — `answeredBy` is not obtainable today; v1 logs the surface, not the person
-The observability requirement asks who answered. `PromptResponse.source` is an adapter
-label, not a viewer identity — the web client hardcodes `source: "dashboard-default"`
-(`packages/client/src/hooks/useSessionActions.ts:168`), and `GuardCtx.ui.confirm` returns a
-bare `boolean`, discarding `source` entirely. Two approvals from two devices are
-indistinguishable. Carrying a real identity would require extending `prompt_response` — the
-protocol change this change forbids.
-
-**Decision:** v1 logs `answeredSurface` (`dashboard` | `tui` | `chat-gateway` | `timeout` |
-`error`), not `answeredBy`. Per-viewer attribution is deferred to whichever change
-introduces authenticated viewer identity on `prompt_response`.
-
-**Sink (named, not left vacuous):** `onDecision` writes a `pi.appendEntry(
-"supervised-tool-decision", record)` — the same durable-entry mechanism the fan-out gate
-uses for refusals (`bridge.ts:2596`) — plus a `console` line. A durable entry is required
-because the failure this makes diagnosable ("why did the agent stop") often outlives the
-live frame.
+### D11 — `answeredBy` is not obtainable; v1 logs the surface
+`prompt_response.source` is an adapter label (`useSessionActions.ts:183` hardcodes
+`"dashboard-default"`). v1 logs `answeredSurface` (`dashboard` | `tui` | `chat-gateway` |
+`timeout` | `error`). Each record also carries `via: "supervised" | "path-gate"` (D14).
+**Redaction:** the action summary is capped at 500 characters and passed through the
+bridge's existing secret redaction (vault redaction precedent, `bridge.ts:1166`) before it
+is logged. Sink: `pi.appendEntry("supervised-tool-decision", record)` (the
+fan-out gate's durable-entry precedent, `bridge.ts:1937`) plus a control-character-free
+`[supervised]` console line (path-gate audit-line precedent).
 
 ### D12 — A supervised, gateway-spawned session must not double-gate
-The bridge is in every session; the chat-gateway guard is loaded only on the **spawn** path.
-A gateway-spawned session with supervised mode ON would register both gates — two prompts,
-or one short-circuiting the other by registration order. The shipped chat-gateway spec
-covers "attached sessions are never gated" but says nothing about "spawned **and**
-supervised".
+The chat-gateway guard wins in a spawned session; the supervised gate self-disables there.
+The toggle is replaced by a static "Gateway policy" note (mockup a-gateway).
 
-**Decision:** the chat-gateway guard wins in a spawned session and the supervised gate
-**self-disables** there — the gateway policy is deny-first and strictly stricter, and the
-session's approvals already route to the chat surface. The supervised toggle is hidden (not
-silently ignored) on gateway-spawned sessions, with a note explaining which policy is
-active.
+**Detection.** The shared package exposes `markToolGateOwner(sessionId, "chat-gateway")` /
+`clearToolGateOwner(sessionId)` / `toolGateOwner(sessionId)`, backed by a **process-global** slot
+`globalThis[Symbol.for("pi-dashboard.toolGateOwner")]`, holding a
+`Map<sessionId, owner>` — pi loads every extension through
+jiti with `moduleCache: false` (`node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/loader.js:477-479`),
+so a module-level variable would be a different copy in the guard and in the bridge. An
+L1 test loads two module instances and asserts the flag crosses. **Lifecycle:** the guard
+(which gains `session_start` / `session_shutdown` handlers in the extraction; today its
+`GuardPi` only uses `on("tool_call")`, `guard/index.ts:23-28`) marks its session in its `session_start` handler and clears it in
+`session_shutdown` (pi requires cleanup across reload and session replacement,
+`docs/extensions.md:263-266`), so a removed or reconfigured guard never leaves a stale
+owner. The guard's `GuardPi` / `GuardCtx` widen for this (session hooks + session id) — an
+explicit extraction task. **Version skew:** an older installed guard never marks the slot,
+so a newer bridge's supervised gate also runs there → up to two prompts (fail-safe,
+accepted). The bridge reads the slot per tool call (authoritative) and reports it to the server
+after `session_start` completes, re-reporting if a later read differs, so the UI can lag but
+never decides. **Trust model:** any extension in the pi process could write the slot — but
+any in-process extension can already patch or unregister the bridge's handlers, so the slot
+adds no new trust boundary; supervised mode does not defend against hostile extensions. Sniffing `PI_EXT_CHAT_GATEWAY_GUARD_POLICY` is rejected.
 
-**Detection signal (it needs one — the bridge cannot infer this today).** The gate registers
-unconditionally (the live toggle in D4 requires it) and self-disables, so "does not
-register" would be wrong. The signal: the chat-gateway guard extension announces itself to
-the bridge at load — the cleanest available hook is for the shared package to expose a
-process-level `markToolGateOwner("chat-gateway")` that the guard calls on registration and
-the supervised gate reads. Sniffing `PI_EXT_CHAT_GATEWAY_GUARD_POLICY` from `bridge.ts` is
-rejected: that env var is only set when `toolPolicy` **and** `guardExtension` are both
-configured, so absence does not imply "not gateway-spawned", and it couples the bridge to a
-plugin-private env name.
+**The UI keys off the same fact.** The bridge reports `toolGateOwner` to the server with the
+session (one field on the existing session registration); the client hides the toggle only
+when it is `"chat-gateway"`. A gateway-spawned session without the guard (no `toolPolicy`
++ `guardExtension`, `chat-gateway/src/server/config.ts:88-93`) keeps the toggle and
+supervised works normally there.
 
-### D13 — Packaging: a real workspace package, and an honest rollback
-`packages/extension` cannot depend on the chat-gateway **plugin** package, so the shared
-guard becomes its own workspace package (see open question 4). chat-gateway's published
-`./guard` export subpath stays a real re-export file so downstream consumers do not break.
-**Rollback is not "revert the extraction commit"** — that alone would restore two engines
-while leaving the bridge gate importing a deleted module. Rollback = revert the whole
-change (extraction + gate + wiring) as one unit; the guard holds no persisted state, so
-there is no data migration either way.
+**Attached sessions.** The gateway never gates an attached session (chat-gateway spec). The
+operator may still turn on supervised there; that is the operator's choice, not a gateway
+gate, and the approvals are answered on dashboard/TUI only (D17).
 
-**Release ordering (git revert is not the whole story).** The change publishes a NEW shared
-package and a NEW chat-gateway version whose `./guard` is a re-export. npm publishes are not
-cleanly reversible, so: the shared package must be published **before** the chat-gateway
-version that depends on it, and a post-release rollback is a forward fix (a new patch
-restoring the inlined guard), never an unpublish. See the `release-cut` / `release-revoke`
-skills.
+**At most one supervised/gateway approval** per call in a spawned session, decided by the
+gateway policy alone — zero when the gateway policy allows the tool. The agent path gate is
+independent and still runs there (`bridge.ts:1953-1956`); an out-of-workspace call can
+additionally raise its path prompt.
+
+### D13 — Packaging and an honest rollback
+`packages/extension` cannot depend on the chat-gateway plugin, so the shared policy engine
+becomes its own workspace package (open question 4; the shared-module precedent is
+`packages/shared/src/tool-path-resolve.ts`). chat-gateway's `./guard` stays a real
+re-export. Rollback = revert the whole change as one unit (no persisted state). Release
+order: shared package published before the chat-gateway version that depends on it;
+post-release rollback is a forward fix, never an unpublish.
+
+### D14 — Composition with the agent path gate (one prompt per call)
+The path gate gates `read`/`write`/`edit` outside the session roots
+(`path-gate/handler.ts:39`). For `write`/`edit` both gates can apply. Today the path-gate
+card shows only path, tool and "N edit(s)" / a byte count (`handler.ts:156-170`) — no
+content. Rule (one prompt, nothing approved unseen):
+- Path gate runs first (D8). If it blocks, the supervised gate never runs.
+- **When the session is Supervised and the tool is in the risky set**, the path gate's
+  prompt carries the supervised action content: the same `+N −M` stat and byte-capped diff
+  (or new content for `write`) the supervised card would show, appended to its markdown
+  `message` and `plainMessage`, built by the shared supervised summary builder. The path
+  gate reads **supervised-in-effect** (mode on AND `toolGateOwner(sessionId) !==
+  "chat-gateway"`) + the risky set through a narrow accessor — so in a guard-owned
+  gateway session path prompts are never enriched and stay visible in chat; it does not import
+  the supervised policy.
+- The enriched path prompt carries `metadata.supervised: true`; the chat gateway skips it
+  like a supervised prompt (D17), so a chat channel can never answer it.
+- If the operator answered that enriched path prompt with **Allow once**, the path gate
+  records the `toolCallId` in a per-session hand-off set. **Always allow + confirm** is a
+  durable directory grant, not consent to this content, so it records nothing and the
+  supervised gate asks. The response `source` is NOT used for trust (it is a client-supplied
+  string, `bridge-handlers/dispatch.ts:310`); chat answers are excluded structurally (the
+  gateway skips enriched prompts, D17) and REST answers by the question stack (D17). The
+  `GatePrompter` interface is unchanged; the
+  supervised gate consumes the id (removes it) and allows without asking, logging the
+  decision with `via: "path-gate"` (D11). The set is bounded (64 ids, FIFO eviction; an
+  evicted id simply means the supervised gate asks), keyed by the captured session id, and
+  holds nested ids (`<parent>/<n>`) as plain strings.
+- If the path gate allowed **without asking** (in-root, an existing grant, or YOLO
+  auto-allow), nothing is recorded and the supervised gate asks as usual.
+- **Accepted exceptions (fail safe — a second prompt, never a skipped one):** a call with no
+  `toolCallId` (optional in the event type, `handler.ts:262`); a session switched to
+  Supervised while its path prompt was already open (the prompt was not enriched).
+- `decidePathAccess` stays pure and separate (`path-gate/decide.ts:60`).
+
+### D15 — YOLO does not cover supervised approvals
+YOLO applies to the filesystem plane, the working-directory plane and the agent path gate
+**only** (`openspec/specs/access-grant-yolo/spec.md:12-19`). Supervised mode is an explicit
+per-session opt-in to be asked; YOLO auto-answering it would silently undo the choice. The
+supervised menu copy says so. The YOLO spec is unchanged.
+
+Consequence: an active YOLO session's path-gate auto-allow does not suppress the supervised
+prompt (D14 third bullet). The path gate's "YOLO question SHALL NOT wait behind another
+prompt of the same session" (`agent-path-confinement/spec.md:331`) is unaffected because the
+path gate runs before the supervised gate and the supervised prompt opens only after it.
+
+### D16 — Attention routing: `awaitingToolApproval`
+The server derives `awaitingFileAccess` from pending prompts of the two path-gate kinds
+(`packages/server/src/event-wiring.ts:377-390`). Add a sibling flag
+`awaitingToolApproval` derived from pending `supervised-tool-approval` prompts. Every
+consumer of `awaitingFileAccess` reads a shared predicate
+`awaitingOperatorApproval(session) = awaitingFileAccess || awaitingToolApproval` in
+`packages/shared/src/` instead of the single flag: `SessionCard.tsx:127-131` ("Needs you"),
+`client/src/lib/session/session-lanes.ts` (needs-you lane), `session-status-visuals.ts`
+(urgency), `server/src/pairing/browser-gateway.ts`, and the toast hook
+(`client/src/hooks/useFileAccessToasts.ts:39`, mirrored for the new kind). No modal
+(`session-attention-routing/spec.md:93-99` precedent). No separate "Supervised" badge in the
+session list in v1 (mockup ui-plan Q1).
+
+### D17 — The chat gateway does not render supervised approvals
+The gateway renders every `prompt_request` for a bound channel
+(`packages/chat-gateway/src/server/gateway.ts:1538-1565`), including owner-attached
+sessions. A channel member could then approve a supervised tool call in the owner's
+session — a privilege raise the operator never chose. The gateway skips prompts whose
+`metadata.kind === "supervised-tool-approval"` and enriched path prompts
+(`metadata.supervised === true`, D14); they are answered on the dashboard or the TUI only.
+This narrows the shipped chat-gateway requirement "Interactive prompts rendered natively
+via PromptBus" (`openspec/specs/chat-gateway/spec.md:144-157`), so the change carries a
+MODIFIED delta for it. Consequence: an operator who works only from chat cannot answer
+supervised approvals; with supervised on, such a session's risky calls time out and are
+blocked. The toggle menu says approvals are answered on the dashboard or terminal.
+
+**Question stack.** The server's question stack lists pending prompts and accepts answers
+over REST (`POST /api/questions/:id/answer`, `server/src/questions/question-routes.ts:87-117`)
+and may brief them with an LLM (`brief-policy.ts:34-35`). File-access kinds are excluded as
+read-only, never briefed (`question-store.ts:43-44,190-191`). Supervised prompts (and
+enriched path prompts, which already carry a file-access kind) join that exclusion: listed
+read-only, never answerable over REST, never briefed, and command text is never sent to a
+model. **Limit (stated, same as path-gate prompts today):** the browser WebSocket
+`prompt_response` road is owner-gated like `send_prompt`
+(`server/src/identity/ws-message-scope.ts:48`) and forwards answers without a kind check
+(`server/src/questions/question-answer.ts:41-55`). Any principal with session-owner
+WebSocket access — the dashboard, by definition — can answer. Supervised mode does not add
+a per-principal check there; REST and chat are the roads it closes. `answeredSurface: "chat-gateway"` is therefore never produced by supervised
+mode (it remains a value for the gateway's own guard).
 
 ## Open questions
 
-1. **Parallel tool calls.** pi preflights sibling tool calls sequentially then runs them
-   concurrently (`extensions.md:784`). With several risky calls in one assistant message, do
-   we present N prompts, or one batched approval? v1: N sequential prompts (simplest, and
-   what sequential preflight gives for free — see D8); revisit batching if noisy.
-2. **Diff preview cost.** For `edit`/`write`, computing a diff preview at approval time —
-   render inline in the card, or a compact summary + expand? Lean compact + expand.
-3. ~~**Live toggle mid-turn.**~~ **Answered — see D4:** immediate, per-call, symmetric in
-   both directions; a pending approval is never auto-resolved by a flag flip.
-4. **Where does the shared package live?** The D6 extraction needs a home — a new
-   `packages/tool-gate`, or a subpath of `packages/shared`. Leaning a small dedicated
-   package so the chat-gateway plugin does not pull in dashboard protocol types, and because
-   `packages/extension` must not depend on the plugin (D13).
-5. **Does the supervised gate see subagent tool calls?** Unverified: whether an `Agent`
-   child's tool calls surface on the parent session's `tool_call` stream. If they do not,
-   gating the `Agent` tool itself (D2) is the only coverage — which makes the scope caveat
-   in D1 load-bearing, not cosmetic. **Must be answered by a spike before implementation.**
-6. **Non-`ctx.ui.confirm` richer payload.** A yes/no confirm is enough for v1, but a custom
-   interactive type (Approve / Deny+reason / Always-allow) may want a dedicated renderer.
-   Start with confirm; grow into a custom renderer if D-follow-up (persistent allow-rules)
-   lands.
+1. **Parallel tool calls.** Several risky calls (siblings, or a `codemode` script with
+   `Promise.allSettled`) → N prompts serialized by the per-session mutex (D8). Revisit
+   batching if noisy.
+2. ~~Diff preview cost~~ — **Answered:** compact `+N −M` summary, diff collapsed, expand on
+   demand (mockup b-edit). Large diffs are truncated in `metadata.diff` with a byte cap.
+3. ~~Live toggle mid-turn~~ — **Answered (D4).**
+4. **Shared package home.** New `packages/tool-gate` vs a `packages/shared` subpath.
+   Leaning dedicated package so chat-gateway does not pull dashboard protocol types.
+5. **Do `Agent` subagent tool calls reach the parent's `tool_call`?** pi documents nested
+   `ctx.executeTool` calls traversing `tool_call` (`docs/extensions.md:149`), but an `Agent`
+   subagent is a separate process — unverified. Gating `Agent` itself (D2) is the coverage
+   until answered, and the `Agent` card states (required copy) that the subagent's own
+   commands and edits are not approved one by one. **Spike before implementation.**
+6. ~~Richer payload~~ — **Answered (D3):** stock `select` + kind-branched card; persistent
+   allow-rules remain a follow-up.
 
 ## Alternatives considered
 
-- **Wrap pi in an OS sandbox to mirror `workspace-write`.** Rejected: pi explicitly declines
-  a partial in-process sandbox; the only real confinement is a container, which we already
-  offer. Building a fake one would mislead users (D1).
-- **Replace built-in tools with gated custom tools.** Rejected: heavier, brittle across pi
-  upgrades, and redundant — the `tool_call` block hook is the supported extension point.
-- **Server-side gating instead of in-bridge.** Rejected: the block decision must happen
-  in-process with pi (the hook runs in the extension); the server has no pre-execution veto.
+- **OS sandbox to mirror `workspace-write`.** Rejected — pi declines in-process sandboxing
+  (`docs/security.md:3-7`); containers already exist (D1).
+- **Replace built-in tools with gated custom tools.** Rejected — brittle, redundant with
+  `tool_call` block.
+- **Server-side gating.** Rejected — the veto must run in-process with pi.
+- **Fold supervised into the path gate.** Rejected — different facts (where vs what), and
+  the coordination note keeps `decidePathAccess` pure; composition rule in D14.
+- **Stock `SelectRenderer` with markdown only (no dedicated card).** Rejected for the
+  dashboard — no countdown, no deny reason, uncollapsible diff — but it is exactly the
+  fallback every other surface uses (D3).

@@ -435,3 +435,83 @@ describe("placement writes (P3)", () => {
     spy.mockRestore();
   });
 });
+
+/**
+ * Edge trigger (pill) — markup, click semantics, emphasis variants.
+ * See change: move-session-actions-trigger-to-card-edge (test-plan E4, F1, F3, F7).
+ */
+describe("edge trigger pill", () => {
+  function direct(open: boolean, source: SessionMenuOpenRequest["source"], onOpenChange = vi.fn()) {
+    const cardRef = { current: document.createElement("li") } as React.RefObject<HTMLElement | null>;
+    render(<SessionActionsMenu session={session} groups={basic()} open={open} source={source} cardRef={cardRef} onOpenChange={onOpenChange} />);
+    return onOpenChange;
+  }
+
+  it("E4: renders an inline three-dot SVG pill with a 24px hit box, no mdi path, no 44/32px min sizes", () => {
+    direct(false, "trigger");
+    const btn = trigger();
+    const svg = btn.querySelector("svg");
+    expect(svg).not.toBeNull();
+    expect(svg?.querySelectorAll("circle").length).toBe(3);
+    expect(svg?.getAttribute("fill")).toBe("currentColor");
+    expect(svg?.getAttribute("aria-hidden")).toBe("true");
+    expect(svg?.querySelector("path")).toBeNull();
+    const cls = btn.className;
+    for (const c of ["focus-ring", "inline-flex", "before:content-['']", "before:w-[24px]"]) expect(cls).toContain(c);
+    expect(cls).not.toContain("min-h-[44px]");
+    expect(cls).not.toContain("sm:min-h-[32px]");
+    const wrapperCls = (btn.parentElement as HTMLElement).className.split(/\s+/);
+    expect(wrapperCls).toContain("absolute");
+    expect(wrapperCls).toContain("card-edge-trigger");
+    expect(wrapperCls).not.toContain("relative");
+  });
+
+  it("F1: a click on a hover-opened menu pins it (re-opens as a trigger open), never closes it", () => {
+    const onOpenChange = direct(true, "hover");
+    fireEvent.click(trigger());
+    expect(onOpenChange).toHaveBeenCalledTimes(1);
+    expect(onOpenChange).toHaveBeenCalledWith(true, { source: "trigger", opener: trigger() });
+  });
+
+  it("F3: a click on a click-opened menu still toggles it closed", () => {
+    const onOpenChange = direct(true, "trigger");
+    fireEvent.click(trigger());
+    expect(onOpenChange).toHaveBeenCalledTimes(1);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("F7: carries the aria-expanded emphasis variants", () => {
+    direct(true, "trigger");
+    expect(trigger().getAttribute("aria-expanded")).toBe("true");
+    expect(trigger().className).toMatch(/aria-expanded:text-\[var\(--text-secondary\)\]/);
+    expect(trigger().className).toMatch(/aria-expanded:border-\[var\(--border-primary\)\]/);
+  });
+});
+
+describe("unmount under a pinned menu (move-session-actions-trigger-to-card-edge X2)", () => {
+  it("a card removed while its menu is pinned by a trigger click leaves no menu and focus in the region", () => {
+    function Region({ showCard }: { showCard: boolean }) {
+      return (
+        <div data-session-list-region="" tabIndex={-1} data-testid="region">
+          {showCard && <Harness groups={basic()} initialOpen source="hover" />}
+        </div>
+      );
+    }
+    const { rerender } = render(<Region showCard />);
+    fireEvent.click(trigger()); // F1 path: pins the hover-opened menu
+    expect(trigger().getAttribute("aria-expanded")).toBe("true");
+    itemEl("a").focus();
+    rerender(<Region showCard={false} />);
+    expect(screen.queryByTestId("session-actions-menu-s1")).toBeNull();
+    expect(document.activeElement).toBe(screen.getByTestId("region"));
+  });
+});
+
+describe("pinning a hover-opened menu moves focus into it (CodeRabbit, move-session-actions-trigger-to-card-edge F1)", () => {
+  it("hover open leaves focus alone; the pinning click then focuses the first enabled item", () => {
+    render(<Harness groups={basic()} initialOpen source="hover" />);
+    expect(document.activeElement).not.toBe(itemEl("a"));
+    fireEvent.click(trigger());
+    expect(document.activeElement).toBe(itemEl("a"));
+  });
+});
