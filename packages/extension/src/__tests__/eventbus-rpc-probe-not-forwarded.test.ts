@@ -12,6 +12,8 @@
  *    widens `EVENT_BUS_MAP` in `bridge.ts`. Each guard is a pure function run
  *    against the real source AND an inline mutant, so it cannot pass vacuously.
  *
+ * @structural-pin bridge.ts cannot be instantiated in a test, so the source guards pin its text: EVENT_BUS_MAP shape, the registerEventBusForwarding call arity and the absence of an emit rebinding.
+ *
  * See change: skip-rpc-probes-in-event-forwarder.
  */
 import { describe, expect, it } from "vitest";

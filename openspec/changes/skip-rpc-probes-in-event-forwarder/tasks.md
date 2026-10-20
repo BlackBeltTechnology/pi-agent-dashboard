@@ -27,5 +27,5 @@
 
 ## 4. Verification
 
-- [ ] 4.1 `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`, then `grep -nE 'FAIL|Error|✗|✘|Tests +[0-9]+ (failed|passed)' /tmp/pi-test.log`: new tests pass and nothing regresses.
-- [ ] 4.2 `openspec validate skip-rpc-probes-in-event-forwarder --strict` passes.
+- [x] 4.1 `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`, then `grep -nE 'FAIL|Error|✗|✘|Tests +[0-9]+ (failed|passed)' /tmp/pi-test.log`: new tests pass and nothing regresses.
+- [x] 4.2 `openspec validate skip-rpc-probes-in-event-forwarder --strict` passes.
