@@ -204,6 +204,21 @@ export interface PluginClaim {
    * See change: auto-hide-empty-session-subcards.
    */
   shouldRender?: string;
+  /**
+   * `tool-renderer` claims only: when true the tool row starts EXPANDED while
+   * its status is `running` (the card is the live progress surface). Replaces
+   * the shell's hard-coded per-tool auto-expand. Absent = false.
+   * See change: decouple-plugins-from-core (design D5 item 7).
+   */
+  expandWhileRunning?: boolean;
+  /**
+   * `tool-renderer` claims only: exported sync predicate name
+   * `(toolDetails, session) => boolean` that says the row's result never reached
+   * this browser; the shell then shows its neutral "recovered" badge. `session`
+   * is `ToolContext.session`. MUST be synchronous.
+   * See change: decouple-plugins-from-core (design D5 item 7).
+   */
+  resultPending?: string;
 }
 
 /**

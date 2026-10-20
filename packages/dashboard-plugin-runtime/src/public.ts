@@ -85,6 +85,10 @@ export {
 export {
   getSessionData,
 } from "./session-data-store.js";
+export type {
+  SessionEventReducerSlice,
+  ToolRowFinalizer,
+} from "./session-event-reducers.js";
 export {
   getSessionEvents,
 } from "./session-events-store.js";

@@ -8,6 +8,7 @@
  * shared package doesn't depend on the runtime package. The runtime package
  * will re-export this map with the concrete PluginContext type filled in.
  */
+import type { BrowserToServerMessage } from "../browser-protocol.js";
 import type { DashboardSession } from "../types.js";
 import type { SlotId } from "./slot-types.js";
 
@@ -52,6 +53,12 @@ export interface ToolRendererContext {
   editors?: unknown[];
   sessionId?: string;
   session?: unknown;
+  /**
+   * Send a browser→server message (e.g. a subagent resync request). The SAME
+   * function reference the built-in renderer receives; absent in tests and
+   * embedders without a connection. See change: decouple-plugins-from-core (D5 item 5).
+   */
+  send?: (message: BrowserToServerMessage) => void;
 }
 
 /**

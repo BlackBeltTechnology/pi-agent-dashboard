@@ -376,15 +376,16 @@ describe("check-plugin-boundary", () => {
   describe("real tree", () => {
     // Ratchet: the baseline was 76 rows (prod 11 / test 34 / pkg 6 / css 25); each Phase-1 inversion
     // deletes its rows (decouple-plugins-from-core tasks 2.1-2.7, 2.11, 2.12, 2.15). Update the counts WHEN a task
-    // removes rows, never up.
-    it("is green with 26 rows (prod 1 / test 24 / pkg 1 / css 0)", () => {
+    // removes rows, never up. Phase 3A (tasks 4.3/4.4): the Agent renderer + its test left core (-2 rows),
+    // the vitest setup file registering the subagents reducer slice is one integration-keep row (+1).
+    it("is green with 25 rows (prod 0 / test 24 / pkg 1 / css 0)", () => {
       const r = spawnSync(process.execPath, [SCRIPT], { cwd: REPO_ROOT, encoding: "utf8" });
       expect(r.status, `${r.stdout}${r.stderr}`).toBe(0);
       const rows = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, ALLOWLIST), "utf8")).rows;
       const count = (k) => rows.filter((x) => x.kind === k).length;
       expect({ total: rows.length, prod: count("prod"), test: count("test"), pkg: count("pkg"), css: count("css") }).toEqual({
-        total: 26,
-        prod: 1,
+        total: 25,
+        prod: 0,
         test: 24,
         pkg: 1,
         css: 0,

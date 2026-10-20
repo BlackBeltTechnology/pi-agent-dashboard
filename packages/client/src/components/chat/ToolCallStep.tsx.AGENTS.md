@@ -10,4 +10,6 @@ Props `nested?`, `nestedComplete?` → renders `NestedToolCallList` under the he
 
 `healedBy === "result_evicted"` renders `data-testid="tool-evicted-badge"` (distinct from superseded badge). See change: distinguish-tool-result-pending-vs-gone.
 
-`isAgentResultNotReceived(toolDetails, subagents)` → `data-testid="tool-recovered-badge"` (tooltip `chat.tool.subagentResultNotReceived`) for `resultMissing` without a known subagent result, and for `healedBy:"session_ended"`. `subagent_stopped` / known-result `turn_settled` unbadged. See change: finalize-agent-card-on-subagent-stop.
+The claim's `resultPending(toolDetails, context.session)` predicate (resolved sync; throw → false + warn; no claim → false) → `data-testid="tool-recovered-badge"` (tooltip `chat.tool.subagentResultNotReceived`) for `resultMissing` without a known subagent result, and for `healedBy:"session_ended"`. `subagent_stopped` / known-result `turn_settled` unbadged. See change: finalize-agent-card-on-subagent-stop.
+
+Claim fields (design D5 item 7): the claim is resolved BEFORE the `expanded` state; `expanded` seeds from `claim.expandWhileRunning && status==="running"` (replaces the hard-coded `toolName==="Agent"`; no tool-name literal remains here) and the recovered badge from `claim.resultPending`. `isAgentResultNotReceived` moved to the subagents plugin (`resultPending.ts`). With the plugin absent/disabled an Agent row is collapsed and renders `GenericToolRenderer`. See change: decouple-plugins-from-core (task 4.5).

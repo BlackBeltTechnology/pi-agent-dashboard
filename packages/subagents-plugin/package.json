@@ -59,6 +59,14 @@
         "sessionParam": "sessionId",
         "depth": 2,
         "parentPath": "/session/:sessionId"
+      },
+      {
+        "slot": "tool-renderer",
+        "toolName": "Agent",
+        "component": "AgentToolRenderer",
+        "module": "./src/client/AgentToolRenderer.tsx",
+        "expandWhileRunning": true,
+        "resultPending": "isAgentResultNotReceived"
       }
     ],
     "requires": {

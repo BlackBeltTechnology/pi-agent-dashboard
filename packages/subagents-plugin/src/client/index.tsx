@@ -4,24 +4,24 @@
  * Re-exports the subagent inspector components, types, and timeline-entry
  * helpers so the shell can import them via a single package path.
  *
- * Phase 1 (this change — add-subagent-inspector / WIP):
- *   - Exports SubagentDetailView, SubagentPopoutPage, types.
- *   - Shell continues to register the Agent tool renderer via its own
- *     registry.ts; that renderer imports SubagentDetailView from here.
+ * Declarative contributions the shell registers on the plugin's behalf (no
+ * import side effect — see `dashboard-plugin-runtime` `session-event-reducers`):
+ *   - `sessionEventReducer`: folds `subagent_created|started|entry|delta` into
+ *     `SessionState.subagents`.
+ *   - `isAgentResultNotReceived`: the `Agent` tool-renderer claim's
+ *     `resultPending` predicate (the `AgentToolRenderer` itself is a lazy claim
+ *     `module`, not exported here).
  *
- * Phase 2 (extract-subagents-as-plugin — separate change, future):
- *   - Add slot claims for `tool-renderer` ("Agent", "get_subagent_result",
- *     "steer_subagent") once the slot's prop interface widens.
- *   - Move the subagent_* reducer slice here as plugin-owned.
- *   - Remove the corresponding hardcoded entries from the shell.
+ * See change: decouple-plugins-from-core (Phase 3).
  */
 
 
 export { catalog } from "../i18n.js";
+export { isAgentResultNotReceived } from "./resultPending.js";
 export type { SubagentDetailMode, SubagentDetailViewProps } from "./SubagentDetailView.js";
 export { SubagentDetailView } from "./SubagentDetailView.js";
 export type { SubagentPopoutClaimProps } from "./SubagentPopoutClaim.js";
-
 export type { SubagentPopoutPageProps } from "./SubagentPopoutPage.js";
 export { SubagentPopoutPage } from "./SubagentPopoutPage.js";
+export { sessionEventReducer } from "./sessionEventReducer.js";
 export type { SubagentLiveBlock, SubagentLiveTail, SubagentState, SubagentTimelineEntry } from "./types.js";

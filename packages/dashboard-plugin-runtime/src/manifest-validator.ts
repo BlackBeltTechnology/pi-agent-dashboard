@@ -472,12 +472,29 @@ function validateClaim(claim: unknown, pluginId: string, index: number): PluginC
     "sessionParam",
     "predicate",
     "shouldRender",
+    "resultPending",
   ] as const) {
     if (c[field] !== undefined && typeof c[field] !== "string") {
       throw new ManifestValidationError(
         pluginId,
         `claims[${index}].${field} must be a string if provided`,
       );
+    }
+  }
+
+  // tool-renderer fields: `expandWhileRunning` is a boolean, and both fields are
+  // meaningless on any other slot. See change: decouple-plugins-from-core (D5 item 7).
+  if (c.expandWhileRunning !== undefined && typeof c.expandWhileRunning !== "boolean") {
+    throw new ManifestValidationError(pluginId, `claims[${index}].expandWhileRunning must be a boolean if provided`);
+  }
+  if (slotId !== "tool-renderer") {
+    for (const field of ["expandWhileRunning", "resultPending"] as const) {
+      if (c[field] !== undefined) {
+        throw new ManifestValidationError(
+          pluginId,
+          `claims[${index}] slot "${slotId}" must not declare "${field}" (tool-renderer claims only)`,
+        );
+      }
     }
   }
 
@@ -538,6 +555,8 @@ function validateClaim(claim: unknown, pluginId: string, index: number): PluginC
     ...(navHint ? { nav: navHint } : {}),
     ...(typeof c.predicate === "string" ? { predicate: c.predicate } : {}),
     ...(typeof c.shouldRender === "string" ? { shouldRender: c.shouldRender } : {}),
+    ...(c.expandWhileRunning === true ? { expandWhileRunning: true } : {}),
+    ...(typeof c.resultPending === "string" ? { resultPending: c.resultPending } : {}),
     ...(c.config && typeof c.config === "object" && !Array.isArray(c.config)
       ? { config: c.config as Record<string, unknown> }
       : {}),

@@ -6,7 +6,7 @@
  *
  * See change: reduce-subagent-details-payload.
  */
-import { renderHook } from "@testing-library/react";
+import { cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CADENCE_BASE_MS,
@@ -19,6 +19,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // No vitest `globals` in this package: unmount hooks ourselves so the shared
+  // per-subagent timer of one test never leaks into the next.
+  cleanup();
   vi.useRealTimers();
 });
 

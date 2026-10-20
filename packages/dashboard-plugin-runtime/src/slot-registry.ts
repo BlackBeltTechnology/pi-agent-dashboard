@@ -109,6 +109,18 @@ export interface ClaimEntry<S extends SlotId = SlotId> {
    * slot-generic-claim-entry.
    */
   shouldRender?(input: SlotPredicateInput<S>): boolean;
+  /**
+   * `tool-renderer` claims: the row starts expanded while its status is `running`.
+   * See change: decouple-plugins-from-core (design D5 item 7).
+   */
+  expandWhileRunning?: boolean;
+  /**
+   * `tool-renderer` claims: sync predicate resolved from the manifest's
+   * `resultPending` export. True = the row's result never reached this browser
+   * (the shell shows its "recovered" badge). `session` is `ToolContext.session`.
+   * Method-shorthand for the same bivariance reason as `predicate`.
+   */
+  resultPending?(toolDetails: Record<string, unknown> | undefined, session: unknown): boolean;
   /** The resolved React component (set at registration time). */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   Component?: React.ComponentType<any>;

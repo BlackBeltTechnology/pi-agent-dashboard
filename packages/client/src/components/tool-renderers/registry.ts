@@ -3,7 +3,6 @@ import { ReadToolRenderer } from "./ReadToolRenderer.js";
 import { EditToolRenderer } from "./EditToolRenderer.js";
 import { WriteToolRenderer } from "./WriteToolRenderer.js";
 import { BashToolRenderer } from "./BashToolRenderer.js";
-import { AgentToolRenderer } from "./AgentToolRenderer.js";
 import { GenericToolRenderer } from "./GenericToolRenderer.js";
 import { AskUserToolRenderer } from "./AskUserToolRenderer.js";
 import { CtxToolRenderer } from "./CtxToolRenderer.js";
@@ -13,7 +12,6 @@ const renderers = new Map<string, ToolRenderer>([
   ["edit", EditToolRenderer],
   ["write", WriteToolRenderer],
   ["bash", BashToolRenderer],
-  ["Agent", AgentToolRenderer],
   ["ask_user", AskUserToolRenderer],
   ["ctx_execute", CtxToolRenderer],
   ["ctx_execute_file", CtxToolRenderer],

@@ -8,3 +8,5 @@ Ratcheting baseline for `check-plugin-boundary.mjs`: `{ "rows": [...] }`, one ro
 - Do not list manifest-derived exemptions here (generated registry, bundled client deps, fixture plugins in tests).
 
 See change: decouple-plugins-from-core.
+
+Phase 3A: AgentToolRenderer prod + test rows removed (renderer moved into the plugin); one `integration-keep` test row added for the vitest setup file `packages/client/src/test-support/subagents-reducer-slice.ts` → subagents-plugin. See change: decouple-plugins-from-core (tasks 4.3, 4.4).

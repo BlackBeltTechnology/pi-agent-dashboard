@@ -18,30 +18,28 @@
  * See change: add-subagent-inspector.
  */
 
-import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
+import { useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { currentSentence } from "@blackbelt-technology/pi-dashboard-client-utils/minimal-chat";
+import type { SlotProps } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-props.js";
 import {
-  SubagentDetailView,
+  countSteps,
+  readLiveTail,
   type SubagentLiveTail,
-} from "@blackbelt-technology/pi-dashboard-subagents-plugin/client";
+} from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/subagent-types.js";
+import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import { mdiChevronDown, mdiChevronUp, mdiHeadLightbulb, mdiOpenInNew, mdiPencil } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type React from "react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { useSubagentResyncCadence } from "../../hooks/useSubagentResyncCadence.js";
-import { countSteps, readLiveTail } from "../../lib/chat/event-reducer.js";
-import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { type SessionStateLike, SubagentDetailView } from "./SubagentDetailView.js";
 import {
   noteSubagentRunning,
   noteSubagentTerminal,
   trackInspectorMounted,
-} from "../../lib/state/subagent-inspector-telemetry.js";
-import { randomUuid } from "../../lib/util/random-uuid.js";
-import { MarkdownContent } from "../preview/MarkdownContent.js";
-import { AgentCardShell } from "../session/AgentCardShell.js";
-import { formatDuration } from "../session/agent-card-utils.js";
-import { ElapsedBadge } from "../session/ElapsedBadge.js";
-import type { ToolRendererProps } from "./types.js";
+} from "./subagent-inspector-telemetry.js";
+import { useSubagentResyncCadence } from "./useSubagentResyncCadence.js";
+
+type ToolRendererProps = SlotProps<"tool-renderer">;
 
 /** Shape of AgentDetails sent by pi-dashboard-subagents via partialResult.details */
 interface AgentDetails {
@@ -164,9 +162,10 @@ function LiveTicker({ kind, text }: { kind: "thinking" | "text"; text: string })
 
 /** Prompt display block */
 function PromptBlock({ text }: { text: string }) {
+  const t = useT();
   return (
     <div className="mt-1.5">
-      <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-0.5">{i18nT("session.prompt", undefined, "Prompt")}</div>
+      <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-0.5">{t("agentPrompt", undefined, "Prompt")}</div>
       {/* Renders a 1000-char prefix but exposes the full text to the copy path
           via `data-copy-text` so a selection over this card copies the whole
           prompt, not the DOM-capped prefix. See change:
@@ -180,9 +179,11 @@ function PromptBlock({ text }: { text: string }) {
 
 /** Result display block with markdown rendering */
 function ResultBlock({ text }: { text: string }) {
+  const t = useT();
+  const MarkdownContent = useUiPrimitive(UI_PRIMITIVE_KEYS.markdownContent);
   return (
     <div className="mt-1.5">
-      <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-0.5">{i18nT("common.result", undefined, "Result")}</div>
+      <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-0.5">{t("result", undefined, "Result")}</div>
       <div className="max-h-80 overflow-auto text-[12px]">
         <MarkdownContent content={text} />
       </div>
@@ -213,6 +214,7 @@ function CardControls({
   canPopout: boolean;
   elapsed?: React.ReactNode;
 }) {
+  const t = useT();
   return (
     <div className="flex items-center gap-1.5 flex-shrink-0">
       {elapsed}
@@ -244,18 +246,33 @@ function CardControls({
         title={canPopout ? "Open subagent detail" : "Subagent id not yet available"}
       >
         <Icon path={mdiOpenInNew} size={0.5} />
-        <span>{i18nT("common.popout", undefined, "Popout")}</span>
+        <span>{t("agentPopout", undefined, "Popout")}</span>
       </button>
     </div>
   );
 }
 
-/** Correlation token so a resync reply comes back to THIS browser only (C5). */
+/**
+ * Correlation token so a resync reply comes back to THIS browser only (C5).
+ * A v4 id from `getRandomValues`, which exists on the plain-http LAN origin a
+ * knock pairs onto; the native `randomUUID` does not (the secure-context scan
+ * forbids a bare reference). The shell's `randomUuid()` is host-only, so the
+ * plugin carries this 4-line equivalent. See change: add-lan-knock-pairing.
+ */
 function newResyncRequestId(): string {
-  return randomUuid();
+  const b = crypto.getRandomValues(new Uint8Array(16));
+  b[6] = (b[6] & 0x0f) | 0x40; // version 4
+  b[8] = (b[8] & 0x3f) | 0x80; // variant 10xx
+  const h = Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
 }
 
-export function AgentToolRenderer({ args, status, result, toolDetails, context }: ToolRendererProps) {
+export function AgentToolRenderer({ toolInput: args, status = "running", result, toolDetails, context }: ToolRendererProps) {
+  const t = useT();
+  const AgentCardShell = useUiPrimitive(UI_PRIMITIVE_KEYS.agentCard);
+  const Dialog = useUiPrimitive(UI_PRIMITIVE_KEYS.dialog);
+  const ElapsedBadge = useUiPrimitive(UI_PRIMITIVE_KEYS.elapsedBadge);
+  const formatDuration = useUiPrimitive(UI_PRIMITIVE_KEYS.formatDuration);
   const details = toolDetails as AgentDetails | undefined;
   const [expanded, setExpanded] = useState(false);
   // Detail popout opens in the shell `ui:dialog` primitive (parity with
@@ -271,7 +288,7 @@ export function AgentToolRenderer({ args, status, result, toolDetails, context }
   const promptText = args?.prompt ? String(args.prompt) : undefined;
 
   const sessionId = context?.sessionId;
-  const session = context?.session;
+  const session = context?.session as SessionStateLike | undefined;
   const agentId = details?.agentId;
   // Popout affordance is enabled only when both the agent id and the session
   // state are available (SubagentDetailView needs both). Disabled otherwise
@@ -414,7 +431,7 @@ export function AgentToolRenderer({ args, status, result, toolDetails, context }
   // Inline expanded body — preferred whenever the user has expanded the card,
   // even if details/agentId are partial (SubagentDetailView handles fallbacks).
   const expandedBody = expanded && session && agentId
-    ? <div className="mt-2"><SubagentDetailView session={session} agentId={agentId} mode="inline" sessionId={context.sessionId} /></div>
+    ? <div className="mt-2"><SubagentDetailView session={session} agentId={agentId} mode="inline" sessionId={sessionId} /></div>
     : null;
 
   /**
@@ -443,7 +460,7 @@ export function AgentToolRenderer({ args, status, result, toolDetails, context }
             data-testid="agent-elided-note"
             className="text-[11px] text-[var(--text-muted)] mt-1"
           >
-            {i18nT("chat.tool.elided", undefined, "result not loaded")}
+            {t("agentElided", undefined, "result not loaded")}
           </div>
         )}
         {!expanded && promptText && <PromptBlock text={promptText} />}
@@ -511,7 +528,7 @@ export function AgentToolRenderer({ args, status, result, toolDetails, context }
           <div className="text-[11px] text-[var(--text-secondary)] mt-1 truncate">"{description}"</div>
         )}
         {details.status === "steered" && (
-          <div className="text-[11px] text-orange-400 mt-0.5">{i18nT("session.wrappedUpTurnLimit", undefined, "Wrapped up (turn limit)")}</div>
+          <div className="text-[11px] text-orange-400 mt-0.5">{t("agentWrappedUp", undefined, "Wrapped up (turn limit)")}</div>
         )}
         {!expanded && promptText && <PromptBlock text={promptText} />}
         {!expanded && shownResult && <ResultBlock text={shownResult} />}
@@ -535,15 +552,15 @@ export function AgentToolRenderer({ args, status, result, toolDetails, context }
       )}
       {details.status === "error" && details.error && (
         <div className="text-[11px] text-[var(--text-secondary)] mt-1">
-          <span className="text-[var(--severity-error-fg)]">{i18nT("common.error", undefined, "Error:")}</span>{" "}
+          <span className="text-[var(--severity-error-fg)]">{t("agentError", undefined, "Error:")}</span>{" "}
           {details.error}
         </div>
       )}
       {details.status === "aborted" && (
-        <div className="text-[11px] text-orange-400 mt-1">{i18nT("session.abortedMaxTurnsExceeded", undefined, "Aborted (max turns exceeded)")}</div>
+        <div className="text-[11px] text-orange-400 mt-1">{t("agentAborted", undefined, "Aborted (max turns exceeded)")}</div>
       )}
       {details.status === "stopped" && (
-        <div className="text-[11px] text-[var(--text-muted)] mt-1">{i18nT("status.stopped", undefined, "Stopped")}</div>
+        <div className="text-[11px] text-[var(--text-muted)] mt-1">{t("agentStopped", undefined, "Stopped")}</div>
       )}
       {!expanded && promptText && <PromptBlock text={promptText} />}
       {!expanded && shownResult && <ResultBlock text={shownResult} />}

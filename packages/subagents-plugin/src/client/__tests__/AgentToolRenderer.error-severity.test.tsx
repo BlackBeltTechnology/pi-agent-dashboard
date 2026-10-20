@@ -11,9 +11,7 @@
 import { cleanup, render } from "@testing-library/react";
 import type React from "react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { ThemeProvider } from "../../settings/ThemeProvider.js";
-import { AgentToolRenderer } from "../AgentToolRenderer.js";
-import type { ToolContext } from "../index.js";
+import { AgentToolRenderer, type ToolContext, withHostPrimitives } from "./agent-test-harness.js";
 
 const ctx: ToolContext = { cwd: "/r" };
 
@@ -32,7 +30,7 @@ beforeAll(() => {
 afterEach(cleanup);
 
 function renderAgent(ui: React.ReactElement) {
-  return render(<ThemeProvider>{ui}</ThemeProvider>);
+  return render(withHostPrimitives(ui));
 }
 
 const erroredAgent = (
@@ -209,19 +207,19 @@ describe("AgentToolRenderer — stable running card + live preview", () => {
   });
 
   it("#F3 the session-map tail (resync) wins over toolDetails; a cleared tail holds the last text", async () => {
-    const { createInitialState, reduceEvent } = await import("../../../lib/chat/event-reducer.js");
+    const { sessionEventReducer } = await import("../sessionEventReducer.js");
     const frame = (liveTail: Record<string, unknown>) => ({
       eventType: "subagent_started",
       timestamp: 1,
       data: { id: "ag1", details: { agentId: "ag1", status: "running", liveTail } },
     });
-    const s1 = reduceEvent(createInitialState(), frame({ kind: "thinking", text: "xyz" }) as never);
-    const s2 = reduceEvent(s1, frame({ kind: "none", text: "" }) as never);
+    const s1 = sessionEventReducer.reduce({ subagents: new Map() }, frame({ kind: "thinking", text: "xyz" }));
+    const s2 = sessionEventReducer.reduce(s1, frame({ kind: "none", text: "" }));
     const card = (session: unknown) =>
       running({ liveTail: { kind: "thinking", text: "abc" } }, { ...ctx, session } as ToolContext);
     const { container, rerender } = renderAgent(card(s1));
     expect(rows(container).preview!.textContent).toBe("xyz");
-    rerender(<ThemeProvider>{card(s2)}</ThemeProvider>);
+    rerender(withHostPrimitives(card(s2)));
     expect(rows(container).preview!.textContent).toBe("xyz");
   });
 
@@ -288,7 +286,7 @@ describe("AgentToolRenderer — ticker hold, expanded, no early resync", () => {
 
   it("keeps the last sentence visible after the tail clears", () => {
     const { container, rerender } = renderAgent(card({ kind: "text", text: "abc" }));
-    rerender(<ThemeProvider>{card({ kind: "none", text: "" })}</ThemeProvider>);
+    rerender(withHostPrimitives(card({ kind: "none", text: "" })));
     expect(ticker(container)?.textContent).toBe("abc");
   });
 
@@ -306,8 +304,7 @@ describe("AgentToolRenderer — ticker hold, expanded, no early resync", () => {
     const send = vi.fn();
     const session = { subagents: new Map([["ag1", { id: "ag1", type: "Explore", description: "", status: "running", entries: [{ kind: "text", text: "x", ts: 1 }] }]]) };
     const context = { ...ctx, sessionId: "s1", session, send } as unknown as ToolContext;
-    const { withUiPrimitiveProvider } = await import("@blackbelt-technology/dashboard-plugin-runtime/test-support");
-    const wrap = (ui: React.ReactElement) => <ThemeProvider>{withUiPrimitiveProvider({ "ui:markdown-content": () => null }, ui)}</ThemeProvider>;
+    const wrap = (ui: React.ReactElement) => withHostPrimitives(ui);
     const { getByText, rerender } = render(wrap(card({ kind: "thinking", text: "hmm" }, context)));
     fireEvent.click(getByText("Details"));
     const before = send.mock.calls.length;

@@ -4,26 +4,20 @@
  * See change: add-subagent-inspector.
  */
 
-import { withUiPrimitiveProvider } from "@blackbelt-technology/dashboard-plugin-runtime/test-support";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type React from "react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { createInitialState, type SessionState, type SubagentState } from "../../lib/chat/event-reducer.js";
-import { ThemeProvider } from "../settings/ThemeProvider.js";
-import { AgentToolRenderer } from "../tool-renderers/AgentToolRenderer.js";
-import type { ToolContext } from "../tool-renderers/types.js";
+import type { SubagentState } from "../types.js";
+import { AgentToolRenderer, type ToolContext, withHostPrimitives } from "./agent-test-harness.js";
 
-// SubagentDetailView (in the subagents plugin) uses useUiPrimitive for the
-// markdown renderer; tests rendering its expanded body must wrap in a
-// UiPrimitiveProvider.
-const MockMarkdown: React.FC<{ content: string }> = ({ content }) => <div>{content}</div>;
-
+// The renderer and SubagentDetailView read the host primitives through
+// useUiPrimitive; every render is wrapped in a provider carrying them.
 function wrapInProviders(ui: React.ReactElement) {
-  return withUiPrimitiveProvider(
-    { "ui:markdown-content": MockMarkdown },
-    <ThemeProvider>{ui}</ThemeProvider>,
-  );
+  return withHostPrimitives(ui);
 }
+
+type SessionState = { subagents: Map<string, SubagentState> };
+const createInitialState = (): SessionState => ({ subagents: new Map() });
 
 beforeAll(() => {
   Object.defineProperty(window, "matchMedia", {

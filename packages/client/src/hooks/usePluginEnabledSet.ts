@@ -14,6 +14,7 @@ import { bumpSlotClaimsVersion } from "@blackbelt-technology/dashboard-plugin-ru
 import {
   clearFolderProjects,
   type SlotRegistry,
+  setSessionReducerEnabledSet,
 } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { useEffect, useRef, useState } from "react";
 import { applyPluginStatuses, type PluginStatusLike } from "../lib/plugins/plugin-availability.js";
@@ -66,6 +67,9 @@ export function usePluginEnabledSet(registry: SlotRegistry): PluginEnabledSetSta
           if (p.enabled !== false) enabled.add(p.id);
         }
         registry.setEnabledSet(enabled);
+        // Session reducer slices/finalizers follow the SAME enabled set as claims;
+        // applies to later events only. See change: decouple-plugins-from-core.
+        setSessionReducerEnabledSet(enabled);
         // Owned-event group rows decide at render time from this table
         // (the reducer never reads it). See change: decouple-plugins-from-core.
         applyPluginStatuses(body.plugins ?? []);

@@ -433,6 +433,13 @@ function jsStringLiteral(value: string): string {
   return `"${escaped}"`;
 }
 
+/** Client-entry export names carried into the registry entry (design D5 item 6). */
+const REDUCER_EXPORTS = ["sessionEventReducer", "toolRowFinalizers"] as const;
+
+function reducerAlias(pluginId: string, exportName: string): string {
+  return `${pluginId.replace(/[^a-zA-Z0-9_$]/g, "_")}_${exportName}`;
+}
+
 function generateRegistryContent(entries: PluginEntry[], repoRoot: string): string {
   assertNoCrossPluginCustomTypeCollisions(entries);
   assertNoCrossPluginPaneTabPrefixCollisions(entries);
@@ -445,6 +452,8 @@ function generateRegistryContent(entries: PluginEntry[], repoRoot: string): stri
   // claim → import specifier of its lazy `module` (see resolveLazyModule).
   const lazySpecs = new Map<PluginManifest["claims"][number], string>();
   lazyModuleLabels.clear();
+  // `<pluginId>:<exportName>` → import alias, for entries exporting reducer contributions.
+  const reducerAliases = new Map<string, string>();
 
   // Named imports per claim component / predicate / shouldRender (deduped).
   for (const entry of entries) {
@@ -488,7 +497,7 @@ function generateRegistryContent(entries: PluginEntry[], repoRoot: string): stri
     const namedRefs = [
       ...new Set(
         entry.manifest.claims
-          .flatMap(c => [c.module ? undefined : c.component, c.predicate, c.shouldRender, c.labelComponent])
+          .flatMap(c => [c.module ? undefined : c.component, c.predicate, c.shouldRender, c.resultPending, c.labelComponent])
           .filter((c): c is string => Boolean(c)),
       ),
     ];
@@ -500,15 +509,25 @@ function generateRegistryContent(entries: PluginEntry[], repoRoot: string): stri
       : undefined;
     if (catalogRef && catalogAlias) namedRefs.push(`${catalogRef} as ${catalogAlias}`);
 
+    // Declarative reducer registration (design D5 item 6): a client entry that
+    // exports `sessionEventReducer` / `toolRowFinalizers` has them carried into
+    // the registry entry; the shell registers them through `./host` on its behalf.
+    const exportedNames = readNamedExports(entry.clientEntryPath!);
+    for (const name of REDUCER_EXPORTS) {
+      if (exportedNames.has(name)) {
+        reducerAliases.set(`${entry.manifest.id}:${name}`, reducerAlias(entry.manifest.id, name));
+        namedRefs.push(`${name} as ${reducerAlias(entry.manifest.id, name)}`);
+      }
+    }
+
     if (namedRefs.length === 0) continue;
 
     // Validate every named ref exists as an export in the plugin's client entry.
-    const exportedNames = readNamedExports(entry.clientEntryPath!);
     if (exportedNames.size > 0) {
       // Only validate when we successfully read exports; an unreadable file
       // surfaces through other build errors and we don't want to compound them.
       for (const claim of entry.manifest.claims) {
-        for (const refKind of ["component", "predicate", "shouldRender", "labelComponent"] as const) {
+        for (const refKind of ["component", "predicate", "shouldRender", "resultPending", "labelComponent"] as const) {
           const ref = claim[refKind];
           if (!ref) continue;
           if (refKind === "component" && claim.module) continue; // validated against the module
@@ -535,11 +554,15 @@ function generateRegistryContent(entries: PluginEntry[], repoRoot: string): stri
   }
   lines.push("");
   lines.push("import type { PluginManifest } from \"@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js\";");
-  lines.push("import type { ClaimEntry } from \"@blackbelt-technology/dashboard-plugin-runtime\";");
+  lines.push("import type { ClaimEntry } from \"@blackbelt-technology/dashboard-plugin-runtime/host\";");
   lines.push("");
   lines.push("export interface RegistryEntry {");
   lines.push("  manifest: PluginManifest;");
   lines.push("  claims: ClaimEntry[];");
+  lines.push("  /** Session event reducer slice the client entry exports as `sessionEventReducer`. Registered by the shell via `./host`. */");
+  lines.push("  sessionEventReducer?: import(\"@blackbelt-technology/dashboard-plugin-runtime\").SessionEventReducerSlice<any>;");
+  lines.push("  /** Tool-row finalizers the client entry exports as `toolRowFinalizers`. Registered by the shell via `./host`. */");
+  lines.push("  toolRowFinalizers?: import(\"@blackbelt-technology/dashboard-plugin-runtime\").ToolRowFinalizer<any>[];");
   lines.push("  /** Plugin i18n catalog (unprefixed keys). Merged under plugin.<id>.* by the shell. */");
   lines.push("  catalog?: import(\"@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js\").PluginI18nCatalog;");
   lines.push("}");
@@ -560,6 +583,9 @@ function generateRegistryContent(entries: PluginEntry[], repoRoot: string): stri
           : "";
       const predicateRef = claim.predicate ? `, predicate: ${claim.predicate}` : "";
       const shouldRenderRef = claim.shouldRender ? `, shouldRender: ${claim.shouldRender}` : "";
+      // tool-renderer row behaviour fields (design D5 item 7).
+      const expandWhileRunningStr = claim.expandWhileRunning ? ", expandWhileRunning: true" : "";
+      const resultPendingRef = claim.resultPending ? `, resultPending: ${claim.resultPending}` : "";
       const tabStr = claim.tab ? `, tab: ${JSON.stringify(claim.tab)}` : "";
       const toolNameStr = claim.toolName ? `, toolName: ${JSON.stringify(claim.toolName)}` : "";
       // Keyed `customType` for custom-entry-renderer claims. Required for the
@@ -606,10 +632,14 @@ function generateRegistryContent(entries: PluginEntry[], repoRoot: string): stri
       // Generic config escape hatch (rare — prefer first-class fields).
       const configStr = claim.config ? `, config: ${JSON.stringify(claim.config)}` : "";
       lines.push(
-        `      { pluginId: ${JSON.stringify(manifest.id)}, priority: ${manifest.priority ?? 1000}, slot: ${JSON.stringify(claim.slot)}${tabStr}${toolNameStr}${customTypeStr}${pathPrefixStr}${fileHandlerStr}${resourceTypeStr}${commandStr}${pathStr}${sessionParamStr}${depthStr}${parentPathStr}${presentationStr}${configStr}${componentRef}${predicateRef}${shouldRenderRef}${labelRef} },`,
+        `      { pluginId: ${JSON.stringify(manifest.id)}, priority: ${manifest.priority ?? 1000}, slot: ${JSON.stringify(claim.slot)}${tabStr}${toolNameStr}${customTypeStr}${pathPrefixStr}${fileHandlerStr}${resourceTypeStr}${commandStr}${pathStr}${sessionParamStr}${depthStr}${parentPathStr}${presentationStr}${configStr}${expandWhileRunningStr}${componentRef}${predicateRef}${shouldRenderRef}${resultPendingRef}${labelRef} },`,
       );
     }
     lines.push("    ],");
+    for (const name of REDUCER_EXPORTS) {
+      const alias = reducerAliases.get(`${manifest.id}:${name}`);
+      if (alias) lines.push(`    ${name}: ${alias},`);
+    }
     if (manifest.i18nCatalog) {
       const catalogAlias = `${manifest.id.replace(/[^a-zA-Z0-9_$]/g, "_")}_catalog`;
       lines.push(`    catalog: ${catalogAlias},`);

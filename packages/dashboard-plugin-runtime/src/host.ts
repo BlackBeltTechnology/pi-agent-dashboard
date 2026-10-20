@@ -81,6 +81,7 @@ export {
 export {
   applyPluginConfigUpdate,
   CurrentPluginLayer,
+  EMPTY_SUBAGENTS,
   getPluginConfig,
   initPluginConfigs,
   PluginContextProvider,
@@ -105,6 +106,14 @@ export {
   publishSessionData,
   subscribeSessionDataKey,
 } from "./session-data-store.js";
+export {
+  findSessionEventReducer,
+  findToolRowFinalizer,
+  registerSessionEventReducer,
+  registerToolRowFinalizer,
+  setSessionReducerEnabledSet,
+  unregisterSessionReducers,
+} from "./session-event-reducers.js";
 export {
   clearSessionEvents,
   publishSessionEvent,

@@ -4,7 +4,9 @@ Files in this directory. One row per source file.
 
 | File | Purpose |
 |------|---------|
+| `__tests__/manifest-validator-tool-renderer-fields.test.ts` | `tool-renderer` claim fields `expandWhileRunning` (boolean) / `resultPending` (string): carried through, omitted when absent, wrong type + non-tool-renderer slot rejected. See change: decouple-plugins-from-core (task 4.5). |
 | `__tests__/secure-context.test.ts` | Tests for `secure-context.ts` (E1–E7). See change: audit-plugin-bundles-non-secure-context. |
+| `__tests__/session-event-reducers.test.ts` | Slice/finalizer registry: exact + prefix match, replace-per-plugin, enabled-set filter (inactive until set), unregister. See change: decouple-plugins-from-core (task 4.2). |
 | `lazy-claim.tsx` | `lazyClaim(load, name)` — memoized `React.lazy` (keyed loader+name) bound by the generated registry for… → see `lazy-claim.tsx.AGENTS.md` |
 | `RoleRef.tsx` | Shared `@role[:level]` display. Exports `RoleRef`, `RoleRefProps`, `RoleRefLabels`. → see `RoleRef.tsx.AGENTS.md` |
 | `__tests__/ws-route-registry.test.ts` | Plugin WS route registry decision tables (test-plan #E1-#E3, spec plugin-ws-route): duplicate scope / nested… → see `__tests__/ws-route-registry.test.ts.AGENTS.md` |
@@ -30,6 +32,7 @@ Files in this directory. One row per source file.
 | `prompt-component-registry.ts` | PromptBus component registry. Built-in types `generic-dialog` (inline) + `architect-prompt` (widget-bar). → see `prompt-component-registry.ts.AGENTS.md` |
 | `secure-context.ts` | `randomUuid()` / `copyText()` — non-secure-context safe (v4 from `getRandomValues`; textarea+`execCommand`… → see `secure-context.ts.AGENTS.md` |
 | `session-data-store.ts` | Per-session client-side data store. Exports `subscribeSessionDataKey(key, cb)` — all-sessions-for-a-key subscription. Reset cleanup teardown. See change: add-flows-subcard. |
+| `session-event-reducers.ts` | Plugin contributions to the pure session event reducer: types `SessionEventReducerSlice` (`eventTypes` exact/`prefix_*`, pure `reduce(state,event,opts)`) + `ToolRowFinalizer` (`toolName`, optional `onToolExecution`/`onSessionEvent`, `undefined` = decline) exported from `public.ts`; registration (`registerSessionEventReducer`/`registerToolRowFinalizer`/`unregisterSessionReducers`), lookups (`findSessionEventReducer`/`findToolRowFinalizer`) and `setSessionReducerEnabledSet` exported from `./host`; `__resetSessionReducersForTests` from `./test-support`. Registration is declarative (client entry exports → generated registry → shell). Filtered by the enabled set exactly like claims; one slice per plugin id. See change: decouple-plugins-from-core (task 4.2). |
 | `session-events-store.ts` | Module-level per-session `DashboardEvent` side-channel store for plugins. → see `session-events-store.ts.AGENTS.md` |
 | `settings-fields.tsx` | Shared settings field family for core + plugin settings. Exports `FieldShell`, `NumberField`, `SelectField`,… → see `settings-fields.tsx.AGENTS.md` |
 | `slot-claims-invalidation.ts` | Slot-claims invalidation store (design D3) — the re-render nudge for gates whose signal arrives after first… → see `slot-claims-invalidation.ts.AGENTS.md` |

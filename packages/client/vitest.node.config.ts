@@ -24,6 +24,8 @@ export default defineConfig({
     maxWorkers: PARALLEL_MAX_WORKERS,
     include: [...NODE_ENV_TESTS],
     globalSetup: base.test?.globalSetup,
+    // The core reducer no longer folds `subagent_*` itself; the subagents slice is registered here.
+    setupFiles: ["./src/test-support/subagents-reducer-slice.ts"],
     testTimeout: base.test?.testTimeout,
   },
 });

@@ -74,7 +74,12 @@ export interface InteractiveUiRequestSnapshot {
 export type SubagentStateSnapshot = { id: string };
 
 const EMPTY_INTERACTIVE_REQUESTS: readonly InteractiveUiRequestSnapshot[] = Object.freeze([]);
-const EMPTY_SUBAGENTS: ReadonlyMap<string, SubagentStateSnapshot> = Object.freeze(new Map());
+/**
+ * Shared frozen empty map: what `useSessionSubagents` returns for an unknown
+ * session id (and the shell reuses for a session with no subagents), so
+ * subscribers keep a stable reference. Host-only export.
+ */
+export const EMPTY_SUBAGENTS: ReadonlyMap<string, SubagentStateSnapshot> = Object.freeze(new Map());
 /**
  * Frozen empty config — the STABLE snapshot for a never-set plugin id.
  * `getConfig` returns a fresh `{}` for an unset id, which would make

@@ -8,6 +8,7 @@
  */
 export { __resetFolderProjectsForTests } from "../folder-project.js";
 export { __resetSessionDataStoreForTests } from "../session-data-store.js";
+export { __resetSessionReducersForTests } from "../session-event-reducers.js";
 export { __resetSessionEventsStoreForTests } from "../session-events-store.js";
 export { __resetSlotClaimsVersionForTests } from "../slot-claims-invalidation.js";
 export { withUiPrimitiveProvider } from "./withUiPrimitiveProvider.js";

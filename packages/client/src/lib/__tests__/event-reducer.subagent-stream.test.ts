@@ -2,9 +2,19 @@
  * Live subagent timeline from the entry/delta streams (L1).
  * Folded from test-plan.md E9–E13, X4. See change: add-plugin-bridge-contributions (D7).
  */
+import {
+  createSlotRegistry,
+  registerSessionEventReducer,
+  registerToolRowFinalizer,
+  setSessionReducerEnabledSet,
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
+import { __resetSessionReducersForTests } from "@blackbelt-technology/dashboard-plugin-runtime/test-support";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { PLUGIN_REGISTRY } from "../../generated/plugin-registry.js";
+import { registerSubagentsReducerSlice } from "../../test-support/subagents-reducer-slice.js";
 import { createInitialState, reduceEvent, type SessionState } from "../chat/event-reducer.js";
+import { setEventTypeOwners } from "../plugins/event-type-owners.js";
 
 const ev = (eventType: string, data: Record<string, unknown>): DashboardEvent => ({
   eventType,
@@ -91,5 +101,68 @@ describe("legacy producer without step events (X4)", () => {
     expect(sub.entries).toHaveLength(2);
     expect(sub.liveTail).toEqual({ kind: "thinking", text: "tail" });
     expect(sub.liveBlock).toBeUndefined();
+  });
+});
+
+// Plugins register session event reducer slices (test-plan #E41, D5 item 6): the
+// registry is built from the generated registry's ENTRY EXPORTS only — no plugin
+// code calls a registration function — and filtered by the same enabled set as claims.
+describe("plugin-registered session event reducer slice (E41)", () => {
+  afterEach(() => {
+    __resetSessionReducersForTests();
+    setEventTypeOwners([]);
+    // Restore the vitest-setup registration for later files in this worker.
+    registerSubagentsReducerSlice();
+  });
+
+  /** Mirror of what `App.tsx` does with the generated registry. */
+  function registerFromEntryExports(enabled: ReadonlySet<string> | null) {
+    __resetSessionReducersForTests();
+    const registry = createSlotRegistry();
+    for (const entry of PLUGIN_REGISTRY) {
+      registry.registerPlugin({ id: entry.manifest.id, displayName: entry.manifest.displayName, eventTypes: entry.manifest.eventTypes });
+      if (entry.sessionEventReducer) registerSessionEventReducer(entry.manifest.id, entry.sessionEventReducer);
+      for (const f of entry.toolRowFinalizers ?? []) registerToolRowFinalizer(entry.manifest.id, f);
+    }
+    setEventTypeOwners(registry.getEventTypeOwners());
+    setSessionReducerEnabledSet(enabled);
+  }
+
+  it("the generated registry carries the subagents slice from the client entry's exports", () => {
+    const entry = PLUGIN_REGISTRY.find((e) => e.manifest.id === "subagents");
+    expect(entry?.sessionEventReducer?.eventTypes).toEqual([
+      "subagent_created",
+      "subagent_started",
+      "subagent_entry",
+      "subagent_delta",
+    ]);
+  });
+
+  it("subagents enabled: subagent_started updates `subagents`, adds no raw/group row", () => {
+    registerFromEntryExports(new Set(["subagents"]));
+    const s = apply([started()]);
+    expect(s.subagents.get("a")?.status).toBe("running");
+    expect(s.messages).toHaveLength(0);
+  });
+
+  it("subagents disabled: the map ref is unchanged and the event folds into the owned group row", () => {
+    registerFromEntryExports(new Set());
+    const before = createInitialState();
+    const s = reduceEvent(before, started());
+    expect(s.subagents).toBe(before.subagents);
+    expect(s.messages).toHaveLength(1);
+    expect(s.messages[0]).toMatchObject({ role: "rawEvent", toolName: "subagent_started", ownedGroup: { ownerId: "subagents", count: 1 } });
+  });
+
+  it("an enable-set change applies to LATER events; already-reduced state is not replayed", () => {
+    registerFromEntryExports(new Set(["subagents"]));
+    let s = apply([started()]);
+    setSessionReducerEnabledSet(new Set());
+    s = apply([entry(0)], s);
+    expect(s.subagents.get("a")?.entries).toBeUndefined();
+    expect(s.messages.filter((m) => (m as { ownedGroup?: unknown }).ownedGroup)).toHaveLength(1);
+    setSessionReducerEnabledSet(new Set(["subagents"]));
+    s = apply([entry(0)], s);
+    expect(s.subagents.get("a")?.entries).toHaveLength(1);
   });
 });

@@ -1,14 +1,6 @@
 {
   "rows": [
     {
-      "from": "packages/client/src/components/tool-renderers/AgentToolRenderer.tsx",
-      "to": "subagents-plugin",
-      "kind": "prod",
-      "reason": "Core renders the Agent tool row; the renderer moves into subagents-plugin behind a tool-renderer claim.",
-      "disposition": "move-to-plugin",
-      "removedBy": "4.3"
-    },
-    {
       "from": "packages/automation-plugin/src/__tests__/flows-run-finalizes-on-forwarded-completion.test.ts",
       "to": "flows-plugin",
       "kind": "test",
@@ -145,12 +137,12 @@
       "removedBy": "never"
     },
     {
-      "from": "packages/client/src/components/tool-renderers/__tests__/AgentToolRenderer.test.tsx",
+      "from": "packages/client/src/test-support/subagents-reducer-slice.ts",
       "to": "subagents-plugin",
       "kind": "test",
-      "reason": "Agent renderer test moves with the renderer into subagents-plugin.",
-      "disposition": "move-to-plugin",
-      "removedBy": "4.4"
+      "reason": "Vitest setup file registers the subagents session event reducer slice so core replay suites keep asserting SessionState.subagents (design D5 item 11).",
+      "disposition": "integration-keep",
+      "removedBy": "never"
     },
     {
       "from": "packages/extension/src/__tests__/system-prompt-structured-contributions.test.ts",

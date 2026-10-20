@@ -190,7 +190,7 @@ const FolderHomeContainer = lazy(() =>
 );
 
 import type { SubagentStateSnapshot } from "@blackbelt-technology/dashboard-plugin-runtime";
-import { applyPluginConfigUpdate, ContentHeaderStickySlot, ContentInlineFooterSlot, ContentViewSlot, createSlotRegistry, EmbeddedAppReturnPill, EmbeddedAppShellProvider, FolderMenuProvider, initPluginConfigs, PluginContextProvider, ShellHeadlessSlot, ShellOverlayRouteSlot, ShellSessionsProvider, useShellOverlayRouteDepth, useShellOverlayRouteMatched, useShellOverlayRoutePresentation } from "@blackbelt-technology/dashboard-plugin-runtime/host";
+import { applyPluginConfigUpdate, ContentHeaderStickySlot, ContentInlineFooterSlot, ContentViewSlot, createSlotRegistry, EMPTY_SUBAGENTS, EmbeddedAppReturnPill, EmbeddedAppShellProvider, FolderMenuProvider, initPluginConfigs, PluginContextProvider, registerSessionEventReducer, registerToolRowFinalizer, ShellHeadlessSlot, ShellOverlayRouteSlot, ShellSessionsProvider, useShellOverlayRouteDepth, useShellOverlayRouteMatched, useShellOverlayRoutePresentation } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import type { ArchivedSessionSummary, ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { CardSectionPrefs } from "@blackbelt-technology/pi-dashboard-shared/card-sections.js";
 import type { ProviderRefreshError } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
@@ -231,10 +231,10 @@ import { openArtifactForViewport } from "./lib/util/artifact-view-gate.js";
 // Stable empty references for plugin context's session-state primitives.
 // See change: route-flow-asks-to-upper-slot + add-flow-agent-popout.
 const EMPTY_INTERACTIVE_REQUESTS: readonly never[] = Object.freeze([]);
-// Typed as the runtime's snapshot type so the empty map satisfies the provider's
-// `useSessionSubagents` contract. Shell state holds the stricter `SubagentState`
+
+// `useSessionSubagents` returns the runtime's shared frozen `EMPTY_SUBAGENTS` for a
+// session with no subagents. Shell state holds the stricter `SubagentState`
 // which is upcast at the closure boundary below.
-const EMPTY_SUBAGENTS_MAP: ReadonlyMap<string, SubagentStateSnapshot> = Object.freeze(new Map());
 
 import { claimsToRouteDescriptors } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/route-descriptor.js";
 import { PLUGIN_REGISTRY } from "./generated/plugin-registry.js";
@@ -261,6 +261,11 @@ for (const entry of PLUGIN_REGISTRY) {
   for (const claim of entry.claims) {
     _pluginRegistry.addClaim(claim);
   }
+  // Reducer contributions the plugin's client entry exports: registered on its
+  // behalf (declarative — no import side effect). Filtered by the same enabled
+  // set as claims (`usePluginEnabledSet`). See change: decouple-plugins-from-core.
+  if (entry.sessionEventReducer) registerSessionEventReducer(entry.manifest.id, entry.sessionEventReducer);
+  for (const finalizer of entry.toolRowFinalizers ?? []) registerToolRowFinalizer(entry.manifest.id, finalizer);
   // Merge each plugin's i18n catalog under plugin.<id>.* so plugin surfaces
   // resolve via the plugin-context `t`. Idempotent; language-partitioned.
   // See change: make-all-ui-text-i18n.
@@ -3101,7 +3106,7 @@ export default function App() {
           // `SubagentState` is structurally compatible with `SubagentStateSnapshot` but TS
           // can't bridge the `Record<string, unknown>` index-signature requirement directly,
           // so we route the cast through `unknown`. Plugins downcast at their boundary.
-          ((sessionStates.get(sid)?.subagents ?? EMPTY_SUBAGENTS_MAP) as unknown as ReadonlyMap<string, SubagentStateSnapshot>)
+          ((sessionStates.get(sid)?.subagents ?? EMPTY_SUBAGENTS) as unknown as ReadonlyMap<string, SubagentStateSnapshot>)
         }
         connectionStatus={
           status === "connected" || status === "connecting" ? status : "disconnected"

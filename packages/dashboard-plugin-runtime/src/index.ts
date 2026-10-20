@@ -61,6 +61,8 @@ export {
   EditorPaneTabSlot,
   /** @deprecated Import `EditorPaneTabSlotProps` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
   type EditorPaneTabSlotProps,
+  /** @deprecated Import `EMPTY_SUBAGENTS` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
+  EMPTY_SUBAGENTS,
   /** @deprecated Import `EmbeddedAppReturnPill` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
   EmbeddedAppReturnPill,
   /** @deprecated Import `EmbeddedAppShellProvider` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
@@ -77,6 +79,10 @@ export {
   type FolderMenuStore,
   /** @deprecated Import `findEditorPaneTabClaim` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
   findEditorPaneTabClaim,
+  /** @deprecated Import `findSessionEventReducer` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
+  findSessionEventReducer,
+  /** @deprecated Import `findToolRowFinalizer` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
+  findToolRowFinalizer,
   /** @deprecated Import `forActionId` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
   forActionId,
   /** @deprecated Import `forCommand` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
@@ -159,6 +165,10 @@ export {
   type ReturnTargetStore,
   /** @deprecated Import `randomUuid` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
   randomUuid,
+  /** @deprecated Import `registerSessionEventReducer` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
+  registerSessionEventReducer,
+  /** @deprecated Import `registerToolRowFinalizer` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
+  registerToolRowFinalizer,
   /** @deprecated Import `returnPillLabel` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
   returnPillLabel,
   /** @deprecated Import `SessionCardActionBarSlot` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
@@ -199,6 +209,8 @@ export {
   selectFolderMenuItems,
   /** @deprecated Import `setSender` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
   setSender,
+  /** @deprecated Import `setSessionReducerEnabledSet` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
+  setSessionReducerEnabledSet,
   /** @deprecated Import `subscribeSessionDataKey` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
   subscribeSessionDataKey,
   /** @deprecated Import `subscribeSlotClaimsVersion` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
@@ -217,6 +229,8 @@ export {
   transitiveDependents,
   /** @deprecated Import `UnknownPrimitive` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
   UnknownPrimitive,
+  /** @deprecated Import `unregisterSessionReducers` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
+  unregisterSessionReducers,
   /** @deprecated Import `useEditorPaneTabClaim` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
   useEditorPaneTabClaim,
   /** @deprecated Import `useFolderMenuItems` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */

@@ -3,6 +3,7 @@
  * (state, event) → new state
  */
 
+import { findSessionEventReducer } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import {
   type EventTypeOwner,
   matchEventTypeOwner,
@@ -430,10 +431,8 @@ export {
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/subagent-types.js";
 
 import {
-  applyLiveBlockPiece,
   readSubagentDetails,
   type SubagentState,
-  type SubagentTimelineEntry,
   setSubagentState,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/subagent-types.js";
 
@@ -3165,35 +3164,6 @@ export function reduceEvent(
       break;
     }
 
-    case "subagent_created": {
-      const id = data.id as string;
-      const details = (data.details as Record<string, unknown> | undefined) ?? undefined;
-      next.subagents = new Map(next.subagents);
-      setSubagentState(next.subagents, {
-        id,
-        type: data.type as string ?? "unknown",
-        description: data.description as string ?? "",
-        status: "created",
-        ...readSubagentDetails(details),
-      });
-      break;
-    }
-
-    case "subagent_started": {
-      const id = data.id as string;
-      const details = (data.details as Record<string, unknown> | undefined) ?? undefined;
-      next.subagents = new Map(next.subagents);
-      const existing = next.subagents.get(id);
-      setSubagentState(next.subagents, {
-        ...(existing ?? { id, type: data.type as string ?? "unknown", description: data.description as string ?? "" }),
-        status: "running",
-        healedBy: undefined,
-        startedAt: existing?.startedAt ?? (typeof event.timestamp === "number" ? event.timestamp : Date.now()),
-        ...readSubagentDetails(details),
-      });
-      break;
-    }
-
     case "subagent_completed":
     case "subagent_failed": {
       const id = data.id as string;
@@ -3237,60 +3207,6 @@ export function reduceEvent(
       break;
     }
 
-    // One finished timeline step from the producer's entry stream (≥ 0.3.0),
-    // forwarded by the subagents plugin's bridge declaration. Placed at its
-    // stable `index` (duplicate index ignored); a `blockId` closes that
-    // in-progress block. See change: add-plugin-bridge-contributions (D7).
-    case "subagent_entry": {
-      const agentId = data.agentId;
-      const index = data.index;
-      const entry = data.entry;
-      if (typeof agentId !== "string" || typeof index !== "number" || !Number.isInteger(index) || index < 0) break;
-      if (!entry || typeof entry !== "object") break;
-      const existing = next.subagents.get(agentId);
-      const blockId = typeof data.blockId === "number" ? data.blockId : undefined;
-      if (existing?.entries?.[index] && blockId === undefined) break; // duplicate
-      next.subagents = new Map(next.subagents);
-      const entries = existing?.entries ? [...existing.entries] : [];
-      if (!entries[index]) entries[index] = entry as SubagentTimelineEntry;
-      let liveBlock = existing?.liveBlock;
-      let closedBlockMax = existing?.closedBlockMax;
-      if (blockId !== undefined) {
-        closedBlockMax = Math.max(closedBlockMax ?? -1, blockId);
-        if (liveBlock && liveBlock.blockId <= blockId) liveBlock = undefined;
-      }
-      setSubagentState(next.subagents, {
-        ...(existing ?? { id: agentId, type: "unknown", description: "", status: "running" }),
-        entries,
-        liveBlock,
-        closedBlockMax,
-      });
-      break;
-    }
-
-    // One append-only piece of the subagent's in-progress block (producer
-    // ≥ 0.4.0). See change: add-plugin-bridge-contributions (D7).
-    case "subagent_delta": {
-      const agentId = data.agentId;
-      const blockId = data.blockId;
-      const offset = data.offset;
-      const kind = data.kind;
-      if (typeof agentId !== "string") break;
-      if (typeof blockId !== "number" || !Number.isInteger(blockId) || blockId < 0) break;
-      if (typeof offset !== "number" || !Number.isInteger(offset) || offset < 0) break;
-      if (kind !== "thinking" && kind !== "text") break;
-      const text = typeof data.text === "string" ? data.text : "";
-      const existing = next.subagents.get(agentId);
-      const liveBlock = applyLiveBlockPiece(existing, { blockId, kind, offset, text });
-      if (!liveBlock || liveBlock === existing?.liveBlock) break;
-      next.subagents = new Map(next.subagents);
-      setSubagentState(next.subagents, {
-        ...(existing ?? { id: agentId, type: "unknown", description: "", status: "running" }),
-        liveBlock,
-      });
-      break;
-    }
-
     case "entry_persisted": {
       // Bridge-emitted back-fill: when pi persists a user/assistant entry
       // and assigns its id, the bridge sends entry_persisted { entryId, nonce }.
@@ -3321,6 +3237,13 @@ export function reduceEvent(
       // input; availability is NOT — the chat view decides at render time
       // whether a group row shows (design D5 item 4, R8).
       // See change: decouple-plugins-from-core.
+      //
+      // A slice an ENABLED plugin registered for this type runs first (the
+      // subagents plugin owns `subagent_created|started|entry|delta`); its
+      // reduce is pure and returns the state it was given when nothing changed.
+      // A disabled plugin has no slice, so its events fold into the group row.
+      const slice = findSessionEventReducer<SessionState>(event.eventType);
+      if (slice) return slice.reduce(next, event, { isLive });
       const owner = ownerOfEventType(event.eventType);
       if (owner) {
         next.messages = foldIntoOwnedGroup(next.messages, owner.ownerId, event.eventType, event.timestamp, event.data);
