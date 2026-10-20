@@ -13,10 +13,10 @@ import type {
   FileHandlerSnapshot,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-props.js";
 import { type OpenOutcome, reportCsp, reportTelemetry } from "./craft-api.js";
-import type { CraftWebApp } from "./craft-apps-table.js";
+import { CRAFT_WEB_APPS, type CraftWebApp } from "./craft-apps-table.js";
 import { downloadToDevice } from "./device-download.js";
 import type { Translate } from "./messages.js";
-import { baseName, routeSave, saveNameKey, splitName } from "./save-routing.js";
+import { baseName, routeSave, saveNameKey, siblingName, splitName } from "./save-routing.js";
 import type { SaveTarget } from "./save-target-store.js";
 import { type HostMessage, parseShimMessage, type ShimMessage, safeNavigateUrl } from "./shim-protocol.js";
 
@@ -30,6 +30,28 @@ const CSP_MAX_REPORTS = 20;
 export type Phase = "starting" | "opening" | "open" | "start-failed" | "open-failed" | "reloaded" | "snapshot-error";
 export type DirtyState = boolean | "unknown";
 export type SaveAsChoice = "copy" | "overwrite" | "cancel";
+/** Native-format sibling dialog (D6/D11). */
+export type SiblingChoice = "create-open" | "create" | "download" | "cancel";
+export interface SiblingPrompt {
+  /** Native extension the app saved (`.psd`). */
+  ext: string;
+  /** Target file name next to the tab's file (`photo.psd`). */
+  name: string;
+  /** "Create and open" is offered (native claim available + host can open files). */
+  canOpen: boolean;
+}
+/** Every sibling name was taken (core 409). */
+export interface SiblingExhausted {
+  name: string;
+  first: string;
+  last: string;
+  offer: DownloadOffer;
+}
+
+/** The app's claim that EDITS `ext` in place (the native claim of a sibling extension). */
+export function nativeClaimFor(app: CraftWebApp, ext: string): CraftWebApp | undefined {
+  return Object.values(CRAFT_WEB_APPS).find((c) => c.id === app.id && c.mode === "edit" && c.extensions.includes(ext));
+}
 export interface DownloadOffer {
   name: string;
   bytes: ArrayBuffer;
@@ -44,6 +66,8 @@ interface SessionUi {
   setBlocked(on: boolean): void;
   setNav(nav: { url: string | null } | null): void;
   setSaveAs(prompt: { name: string } | null): void;
+  setSibling(prompt: SiblingPrompt | null): void;
+  setExhausted(info: SiblingExhausted | null): void;
   setOffer(offer: DownloadOffer | null): void;
   setSaveError(message: string | null): void;
 }
@@ -78,6 +102,7 @@ export class FrameSession {
   private readonly cspLast = new Map<string, number>();
   private cspCount = 0;
   private saveAsResolve: ((c: SaveAsChoice) => void) | null = null;
+  private siblingResolve: ((c: SiblingChoice) => void) | null = null;
   /** `inner-title` apps (D10): the Save As answer per suggested name, for this instance. */
   private readonly rememberedSaveAs = new Map<string, Exclude<SaveAsChoice, "cancel">>();
   private readyTimer: ReturnType<typeof setTimeout> | undefined;
@@ -98,6 +123,8 @@ export class FrameSession {
     ui.setBlocked(false);
     ui.setNav(null);
     ui.setSaveAs(null);
+    ui.setSibling(null);
+    ui.setExhausted(null);
     ui.setOffer(null);
     ui.setSaveError(null);
     this.d.fh().setDirty("unknown");
@@ -119,6 +146,7 @@ export class FrameSession {
     clearTimeout(this.openTimer);
     clearTimeout(this.blockedTimer);
     this.saveAsResolve?.("cancel");
+    this.siblingResolve?.("cancel");
     window.removeEventListener("message", this.listener);
     this.d.frame?.removeEventListener("load", this.loadListener);
   }
@@ -126,6 +154,11 @@ export class FrameSession {
   /** Save-as dialog button → resolves the pending prompt. */
   pickSaveAs(choice: SaveAsChoice): void {
     this.saveAsResolve?.(choice);
+  }
+
+  /** Sibling dialog button → resolves the pending prompt. */
+  pickSibling(choice: SiblingChoice): void {
+    this.siblingResolve?.(choice);
   }
 
   // --- plumbing ---------------------------------------------------------------------------
@@ -162,6 +195,7 @@ export class FrameSession {
     clearTimeout(this.readyTimer);
     clearTimeout(this.openTimer);
     this.saveAsResolve?.("cancel");
+    this.siblingResolve?.("cancel");
     if (next === "reloaded") {
       this.d.ui.setLostEdits(this.reported !== false);
       // The document is gone with the frame: nothing unsaved is held any more.
@@ -303,6 +337,7 @@ export class FrameSession {
       tabPath: this.d.fh().path,
       byteLength: m.bytes.byteLength,
       maxBytes: this.d.app.maxBytes,
+      siblingExtensions: this.d.app.siblingExtensions,
       saveName: this.d.app.profile.saveName,
       remembered: new Set(this.rememberedSaveAs.keys()),
       preview: this.preview,
@@ -314,6 +349,8 @@ export class FrameSession {
     } else if (route === "too-large") {
       this.d.ui.setOffer({ name: m.suggestedName, bytes: m.bytes, mime: m.mime });
       this.reply(false, "too-large");
+    } else if (route === "sibling") {
+      await this.siblingSave(m);
     } else if (route === "own") {
       await this.workspaceSave(m.bytes, remembered ?? this.d.saveTarget());
     } else {
@@ -323,6 +360,52 @@ export class FrameSession {
       if (this.d.app.profile.saveName === "inner-title") this.rememberedSaveAs.set(saveNameKey(m.suggestedName), choice);
       await this.workspaceSave(m.bytes, choice);
     }
+  }
+
+  /**
+   * Native-format sibling (D6): the app saved its own format. Create `<stem><ext>` next to the tab's file
+   * (never overwrites), optionally open it in the native claim; or download; or cancel. The tab's own file
+   * still lacks the edits, so the tab stays dirty.
+   */
+  private async siblingSave(m: SaveMsg): Promise<void> {
+    const ext = splitName(m.suggestedName).ext;
+    const tabPath = this.d.fh().path;
+    const name = siblingName(tabPath, ext);
+    const native = nativeClaimFor(this.d.app, ext);
+    const canOpen = !!native && typeof this.d.fh().openFile === "function";
+    const choice = await new Promise<SiblingChoice>((resolve) => {
+      this.siblingResolve = (c) => {
+        this.siblingResolve = null;
+        if (!this.dropped) this.d.ui.setSibling(null);
+        resolve(c);
+      };
+      this.d.ui.setSibling({ ext, name, canOpen });
+    });
+    if (choice === "cancel") return this.reply(false, "cancelled");
+    if (choice === "download") {
+      downloadToDevice(m.suggestedName, m.bytes, m.mime);
+      return this.reply(true);
+    }
+    let res: FileHandlerSaveResult;
+    try {
+      res = await this.d.fh().save(m.bytes, { target: "sibling", ext });
+    } catch (err) {
+      res = { ok: false, reason: "rejected", message: err instanceof Error ? err.message : String(err) };
+    }
+    if (this.dropped) return;
+    if (!res.ok) {
+      if (res.reason === "conflict-unresolved") {
+        const stem = name.slice(0, name.length - ext.length);
+        this.d.ui.setExhausted({ name, first: `${stem}-2${ext}`, last: `${stem}-99${ext}`, offer: { name, bytes: m.bytes, mime: m.mime } });
+        return this.reply(false, "conflict");
+      }
+      return this.onSaveFailed(res.reason, res.message);
+    }
+    this.d.ui.setSaveError(null);
+    this.copyPending = true;
+    this.report(true);
+    this.reply(true);
+    if (choice === "create-open" && native) this.d.fh().openFile?.(res.path, native.claimId);
   }
 
   private askSaveAs(name: string): Promise<SaveAsChoice> {

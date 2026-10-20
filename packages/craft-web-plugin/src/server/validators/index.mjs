@@ -8,7 +8,11 @@ import { validateDxf } from "./dxf.mjs";
 import { validateOdfText } from "./odf-text.mjs";
 import { validate as validateOoxml } from "./ooxml.mjs";
 import { validatePdf } from "./pdf.mjs";
+import { validatePsd } from "./psd.mjs";
+import { RASTER_EXTENSIONS, validateRaster } from "./raster.mjs";
 import { validateRtf } from "./rtf.mjs";
+import { validateSvg } from "./svg.mjs";
+import { validateVectorcraft } from "./vectorcraft.mjs";
 import { validateZipMembers } from "./zip-members.mjs";
 
 /** Extension → check. The drift test pins every claimed edit + sibling extension to a route. */
@@ -23,6 +27,11 @@ export const ROUTES = {
   ".dwg": validateDwg,
   ".designcraft": validateZipMembers,
   ".scraftz": validateZipMembers,
+  ".deckcraft": validateZipMembers,
+  ".psd": validatePsd,
+  ...Object.fromEntries(RASTER_EXTENSIONS.map((e) => [e, validateRaster])),
+  ".svg": validateSvg,
+  ".vectorcraft": validateVectorcraft,
 };
 
 /**

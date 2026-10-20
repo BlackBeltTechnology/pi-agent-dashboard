@@ -78,10 +78,12 @@ interface Req {
   expectSha1?: string | null;
   claim?: string;
   body?: Buffer | string;
+  siblingExt?: string;
 }
 function post(app: FastifyInstance, r: Req) {
   const qs = new URLSearchParams({ cwd: r.cwd, path: r.path, mode: r.mode ?? "overwrite", claim: r.claim ?? "wc/word" });
   if (r.expectSha1) qs.set("expectSha1", r.expectSha1);
+  if (r.siblingExt !== undefined) qs.set("siblingExt", r.siblingExt);
   return app.inject({
     method: "POST",
     url: `/api/file/write-binary?${qs}`,
@@ -324,6 +326,99 @@ describe("#E19 copy naming", () => {
     const res = await post(app, { cwd, path: "linkdir/secret.docx", mode: "copy" });
     expect(res.statusCode).toBe(403);
     expect(await fsp.readdir(outside)).toEqual(["secret.docx"]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------
+// Native-format sibling copies (change: extend-craft-web-to-all-apps D6; test-plan E17, E18, X4, E22)
+// ---------------------------------------------------------------------------------------------------
+
+const RASTER: Partial<PluginClaim> = { id: "word", extensions: [".jpg"], siblingExtensions: [".psd"], copySuffix: "photocraft" };
+const PHOTO = Buffer.from("JPEG-BYTES");
+
+describe("E17 core sibling copy", () => {
+  beforeEach(async () => {
+    await fsp.writeFile(path.join(cwd, "photo.jpg"), PHOTO);
+  });
+
+  it("first free <stem><ext>, then <stem>-2<ext>; photo.jpg untouched; the validator receives the sibling ext", async () => {
+    const seen: string[] = [];
+    const pool = { run: async (j: { ext: string; bytes: Buffer }) => (seen.push(j.ext), { kind: "ok" as const, bytes: j.bytes }) };
+    app = makeApp({ cwds: [cwd], claim: RASTER, validator: { moduleUrl: "x" }, pool: pool as never });
+    const a = await post(app, { cwd, path: "photo.jpg", mode: "copy", siblingExt: ".psd", body: "PSD1" });
+    expect(a.statusCode).toBe(200);
+    expect(a.json().data.path).toBe("photo.psd");
+    const b = await post(app, { cwd, path: "photo.jpg", mode: "copy", siblingExt: ".psd", body: "PSD2" });
+    expect(b.json().data.path).toBe("photo-2.psd");
+    expect(await read("photo.psd")).toBe("PSD1");
+    expect(await fsp.readFile(path.join(cwd, "photo.jpg"))).toEqual(PHOTO);
+    expect(seen).toEqual([".psd", ".psd"]);
+  });
+
+  it("409 when photo.psd … photo-99.psd are all taken", async () => {
+    app = makeApp({ cwds: [cwd], claim: RASTER });
+    await fsp.writeFile(path.join(cwd, "photo.psd"), "E1");
+    for (let n = 2; n <= 99; n++) await fsp.writeFile(path.join(cwd, `photo-${n}.psd`), `E${n}`);
+    const res = await post(app, { cwd, path: "photo.jpg", mode: "copy", siblingExt: ".psd" });
+    expect(res.statusCode).toBe(409);
+    expect(await fsp.readFile(path.join(cwd, "photo.jpg"))).toEqual(PHOTO);
+  });
+
+  it("an extension outside siblingExtensions → 403; overwrite + siblingExt → 400; malformed → 400; nothing written", async () => {
+    app = makeApp({ cwds: [cwd], claim: RASTER });
+    expect((await post(app, { cwd, path: "photo.jpg", mode: "copy", siblingExt: ".exe" })).statusCode).toBe(403);
+    expect((await post(app, { cwd, path: "photo.jpg", mode: "overwrite", expectSha1: sha1(PHOTO), siblingExt: ".psd" })).statusCode).toBe(400);
+    expect((await post(app, { cwd, path: "photo.jpg", mode: "copy", siblingExt: "psd" })).statusCode).toBe(400);
+    expect((await fsp.readdir(cwd)).filter((f) => f.startsWith("photo"))).toEqual(["photo.jpg"]);
+    expect(await fsp.readFile(path.join(cwd, "photo.jpg"))).toEqual(PHOTO);
+  });
+
+  it("a claim without siblingExtensions refuses any siblingExt (403)", async () => {
+    app = makeApp({ cwds: [cwd], claim: { ...RASTER, siblingExtensions: undefined } });
+    expect((await post(app, { cwd, path: "photo.jpg", mode: "copy", siblingExt: ".psd" })).statusCode).toBe(403);
+  });
+
+  it("concurrent sibling copies create distinct files", async () => {
+    app = makeApp({ cwds: [cwd], claim: RASTER });
+    const rs = await Promise.all([1, 2, 3].map((i) => post(app as FastifyInstance, { cwd, path: "photo.jpg", mode: "copy", siblingExt: ".psd", body: `P${i}` })));
+    expect(new Set(rs.map((r) => r.json().data.path)).size).toBe(3);
+  });
+});
+
+describe("E18 sibling containment", () => {
+  it("a tab file that is a symlink to a file outside the cwd → refused; nothing written inside or outside", async () => {
+    await fsp.writeFile(path.join(outside, "secret.jpg"), "OUT");
+    await fsp.symlink(path.join(outside, "secret.jpg"), path.join(cwd, "photo.jpg"));
+    app = makeApp({ cwds: [cwd], claim: RASTER });
+    const res = await post(app, { cwd, path: "photo.jpg", mode: "copy", siblingExt: ".psd" });
+    expect(res.statusCode).toBe(403);
+    expect((await fsp.readdir(cwd)).filter((f) => f.endsWith(".psd"))).toEqual([]);
+    expect((await fsp.readdir(outside)).sort()).toEqual(["secret.docx", "secret.jpg"]);
+  });
+});
+
+describe("X4 validator rejects a sibling", () => {
+  it("422; no photo*.psd created", async () => {
+    await fsp.writeFile(path.join(cwd, "photo.jpg"), PHOTO);
+    const pool = { run: async () => ({ kind: "rejected" as const, reason: "not a PSD" }) };
+    app = makeApp({ cwds: [cwd], claim: RASTER, validator: { moduleUrl: "x" }, pool: pool as never });
+    const res = await post(app, { cwd, path: "photo.jpg", mode: "copy", siblingExt: ".psd" });
+    expect(res.statusCode).toBe(422);
+    expect((await fsp.readdir(cwd)).filter((f) => f.endsWith(".psd"))).toEqual([]);
+  });
+});
+
+describe("E22 size caps (claim maxBytes, BVA)", () => {
+  it.each([
+    [".docx", 40 * MiB],
+    [".svg", 16 * MiB],
+  ])("%s at the cap passes the size check; cap+1 → 413", async (ext, cap) => {
+    await fsp.writeFile(path.join(cwd, `doc${ext}`), "X");
+    app = makeApp({ cwds: [cwd], claim: { extensions: [ext], maxBytes: cap } });
+    const at = await post(app, { cwd, path: `doc${ext}`, mode: "copy", body: Buffer.alloc(cap, 1) });
+    expect(at.statusCode).toBe(200);
+    const over = await post(app, { cwd, path: `doc${ext}`, mode: "copy", body: Buffer.alloc(cap + 1, 1) });
+    expect(over.statusCode).toBe(413);
   });
 });
 

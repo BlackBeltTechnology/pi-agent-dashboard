@@ -231,6 +231,7 @@ The plugin SHALL register a content validator for each of its edit handlers that
 | `.designcraft` `.scraftz` `.deckcraft` | zip package containing the app's required document members |
 | `.psd` | Photoshop document signature and a supported version |
 | `.png` `.jpg` `.jpeg` `.webp` `.tif` `.tiff` | the signature of the image format the extension names |
+| `.vectorcraft` | a VectorCraft JSON document: an object starting with the `"format": "vectorcraft"` member and declaring a version |
 | `.svg` | an XML document without a document type declaration whose first element is `svg`, checked in full, that cannot run script when opened directly in a browser: no script-capable or foreign-content element, no event-handler attribute, no animation that sets an event handler or link, and no script URL, also when written with namespace prefixes or character references |
 
 A save in an extension the handler does not declare as its own or sibling type SHALL be rejected.

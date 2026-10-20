@@ -20,7 +20,7 @@ function registry() {
   const validated = validateManifest(manifest, "craft-web");
   for (const c of validated.claims) {
     if (c.slot !== "editor-pane-file-handler") continue;
-    const { slot, component, module, ...fileHandler } = c as Record<string, unknown>;
+    const { slot, component, module, ...fileHandler } = c as unknown as Record<string, unknown>;
     reg.addClaim({ pluginId: "craft-web", priority: 400, slot, fileHandler, Component: () => null } as never);
   }
   return reg;

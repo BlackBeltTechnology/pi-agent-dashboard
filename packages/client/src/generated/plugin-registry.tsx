@@ -760,6 +760,200 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
                 "validator": true
             },
             {
+                "slot": "editor-pane-file-handler",
+                "component": "GridCraftHandler",
+                "module": "./src/client/handlers.tsx",
+                "id": "gridcraft",
+                "extensions": [
+                    ".xlsx"
+                ],
+                "mode": "edit",
+                "label": "Edit in GridCraft",
+                "keepAlive": {
+                    "max": 3
+                },
+                "maxBytes": 52428800,
+                "firstOverwriteNotice": "Saves are rewritten by GridCraft's own writer; formulas, charts or formatting it does not support may change. A copy is the safe way to compare.",
+                "copySuffix": "gridcraft",
+                "validator": true
+            },
+            {
+                "slot": "editor-pane-file-handler",
+                "component": "PdfCraftHandler",
+                "module": "./src/client/handlers.tsx",
+                "id": "pdfcraft",
+                "extensions": [
+                    ".pdf"
+                ],
+                "mode": "edit",
+                "label": "Edit in PdfCraft",
+                "keepAlive": {
+                    "max": 3
+                },
+                "maxBytes": 134217728,
+                "firstOverwriteNotice": "PdfCraft does not report which file it opened. Check that it shows this file before overwriting. PdfCraft appends your changes as an incremental update and keeps the original bytes. A copy is the safe way to compare.",
+                "copySuffix": "pdfcraft",
+                "validator": true
+            },
+            {
+                "slot": "editor-pane-file-handler",
+                "component": "CADCraftHandler",
+                "module": "./src/client/handlers.tsx",
+                "id": "cadcraft",
+                "extensions": [
+                    ".dxf"
+                ],
+                "mode": "edit",
+                "label": "Edit in CADCraft",
+                "keepAlive": {
+                    "max": 3
+                },
+                "maxBytes": 134217728,
+                "firstOverwriteNotice": "CADCraft does not report which file it opened. Check that it shows this file before overwriting. Saves are rewritten by CADCraft as DXF R2000; entities it does not support may change. A copy is the safe way to compare.",
+                "copySuffix": "cadcraft",
+                "validator": true
+            },
+            {
+                "slot": "editor-pane-file-handler",
+                "component": "DesignCraftHandler",
+                "module": "./src/client/handlers.tsx",
+                "id": "designcraft",
+                "extensions": [
+                    ".designcraft"
+                ],
+                "mode": "edit",
+                "label": "Edit in DesignCraft",
+                "keepAlive": {
+                    "max": 3
+                },
+                "maxBytes": 134217728,
+                "firstOverwriteNotice": "DesignCraft does not report which file it opened. Check that it shows this file before overwriting. Saves are rewritten by DesignCraft with its assets embedded; content it does not support may change. A copy is the safe way to compare.",
+                "copySuffix": "designcraft",
+                "validator": true
+            },
+            {
+                "slot": "editor-pane-file-handler",
+                "component": "SoundCraftHandler",
+                "module": "./src/client/handlers.tsx",
+                "id": "soundcraft",
+                "extensions": [
+                    ".scraftz"
+                ],
+                "mode": "edit",
+                "label": "Edit in SoundCraft",
+                "keepAlive": {
+                    "max": 3
+                },
+                "maxBytes": 134217728,
+                "firstOverwriteNotice": "SoundCraft does not report which file it opened. Check that it shows this file before overwriting. Saves are rewritten by SoundCraft with the session's audio files; content it does not support may change. A copy is the safe way to compare.",
+                "copySuffix": "soundcraft",
+                "validator": true
+            },
+            {
+                "slot": "editor-pane-file-handler",
+                "component": "PhotoCraftHandler",
+                "module": "./src/client/handlers.tsx",
+                "id": "photocraft",
+                "extensions": [
+                    ".psd"
+                ],
+                "mode": "edit",
+                "label": "Edit in PhotoCraft",
+                "keepAlive": {
+                    "max": 3
+                },
+                "maxBytes": 134217728,
+                "firstOverwriteNotice": "PhotoCraft saves layered .psd files; formats it does not support may change. A copy is the safe way to compare.",
+                "copySuffix": "photocraft",
+                "validator": true
+            },
+            {
+                "slot": "editor-pane-file-handler",
+                "component": "PhotoCraftRasterHandler",
+                "module": "./src/client/handlers.tsx",
+                "id": "photocraft-raster",
+                "extensions": [
+                    ".png",
+                    ".jpg",
+                    ".jpeg",
+                    ".webp",
+                    ".tif",
+                    ".tiff"
+                ],
+                "mode": "edit",
+                "label": "Edit in PhotoCraft",
+                "keepAlive": {
+                    "max": 3
+                },
+                "maxBytes": 134217728,
+                "firstOverwriteNotice": "PhotoCraft saves layered .psd files; formats it does not support may change. A copy is the safe way to compare.",
+                "copySuffix": "photocraft",
+                "siblingExtensions": [
+                    ".psd"
+                ],
+                "validator": true
+            },
+            {
+                "slot": "editor-pane-file-handler",
+                "component": "VectorCraftHandler",
+                "module": "./src/client/handlers.tsx",
+                "id": "vectorcraft",
+                "extensions": [
+                    ".svg"
+                ],
+                "mode": "edit",
+                "label": "Edit in VectorCraft",
+                "keepAlive": {
+                    "max": 3
+                },
+                "maxBytes": 16777216,
+                "firstOverwriteNotice": "Saves are rewritten by VectorCraft; SVG features it does not support may change. A copy is the safe way to compare.",
+                "copySuffix": "vectorcraft",
+                "siblingExtensions": [
+                    ".vectorcraft"
+                ],
+                "validator": true
+            },
+            {
+                "slot": "editor-pane-file-handler",
+                "component": "DeckCraftHandler",
+                "module": "./src/client/handlers.tsx",
+                "id": "deckcraft",
+                "extensions": [
+                    ".pptx"
+                ],
+                "mode": "edit",
+                "label": "Edit in DeckCraft",
+                "keepAlive": {
+                    "max": 3
+                },
+                "maxBytes": 104857600,
+                "firstOverwriteNotice": "DeckCraft does not report which file it opened. Check that it shows this file before overwriting. Saves are rewritten by DeckCraft; slide features it does not support may change. A copy is the safe way to compare.",
+                "copySuffix": "deckcraft",
+                "siblingExtensions": [
+                    ".deckcraft"
+                ],
+                "validator": true
+            },
+            {
+                "slot": "editor-pane-file-handler",
+                "component": "DeckCraftNativeHandler",
+                "module": "./src/client/handlers.tsx",
+                "id": "deckcraft-native",
+                "extensions": [
+                    ".deckcraft"
+                ],
+                "mode": "edit",
+                "label": "Edit in DeckCraft",
+                "keepAlive": {
+                    "max": 3
+                },
+                "maxBytes": 134217728,
+                "firstOverwriteNotice": "DeckCraft does not report which file it opened. Check that it shows this file before overwriting. Saves are rewritten by DeckCraft; slide features it does not support may change. A copy is the safe way to compare.",
+                "copySuffix": "deckcraft",
+                "validator": true
+            },
+            {
                 "slot": "settings-section",
                 "component": "CraftWebSettings",
                 "module": "./src/client/CraftWebSettings.tsx",
@@ -774,6 +968,16 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
     },
     claims: [
       { pluginId: "craft-web", priority: 400, slot: "editor-pane-file-handler", fileHandler: {"id":"wordcraft","extensions":[".docx"],"mode":"edit","label":"Edit in WordCraft","keepAlive":{"max":3},"maxBytes":41943040,"firstOverwriteNotice":"Saves are re-rendered by WordCraft's own writer; formatting of unsupported features may change. A copy is the safe way to compare.","copySuffix":"wordcraft","validator":true}, Component: lazyClaim(() => import("../../../craft-web-plugin/src/client/handlers"), "WordCraftHandler") },
+      { pluginId: "craft-web", priority: 400, slot: "editor-pane-file-handler", fileHandler: {"id":"gridcraft","extensions":[".xlsx"],"mode":"edit","label":"Edit in GridCraft","keepAlive":{"max":3},"maxBytes":52428800,"firstOverwriteNotice":"Saves are rewritten by GridCraft's own writer; formulas, charts or formatting it does not support may change. A copy is the safe way to compare.","copySuffix":"gridcraft","validator":true}, Component: lazyClaim(() => import("../../../craft-web-plugin/src/client/handlers"), "GridCraftHandler") },
+      { pluginId: "craft-web", priority: 400, slot: "editor-pane-file-handler", fileHandler: {"id":"pdfcraft","extensions":[".pdf"],"mode":"edit","label":"Edit in PdfCraft","keepAlive":{"max":3},"maxBytes":134217728,"firstOverwriteNotice":"PdfCraft does not report which file it opened. Check that it shows this file before overwriting. PdfCraft appends your changes as an incremental update and keeps the original bytes. A copy is the safe way to compare.","copySuffix":"pdfcraft","validator":true}, Component: lazyClaim(() => import("../../../craft-web-plugin/src/client/handlers"), "PdfCraftHandler") },
+      { pluginId: "craft-web", priority: 400, slot: "editor-pane-file-handler", fileHandler: {"id":"cadcraft","extensions":[".dxf"],"mode":"edit","label":"Edit in CADCraft","keepAlive":{"max":3},"maxBytes":134217728,"firstOverwriteNotice":"CADCraft does not report which file it opened. Check that it shows this file before overwriting. Saves are rewritten by CADCraft as DXF R2000; entities it does not support may change. A copy is the safe way to compare.","copySuffix":"cadcraft","validator":true}, Component: lazyClaim(() => import("../../../craft-web-plugin/src/client/handlers"), "CADCraftHandler") },
+      { pluginId: "craft-web", priority: 400, slot: "editor-pane-file-handler", fileHandler: {"id":"designcraft","extensions":[".designcraft"],"mode":"edit","label":"Edit in DesignCraft","keepAlive":{"max":3},"maxBytes":134217728,"firstOverwriteNotice":"DesignCraft does not report which file it opened. Check that it shows this file before overwriting. Saves are rewritten by DesignCraft with its assets embedded; content it does not support may change. A copy is the safe way to compare.","copySuffix":"designcraft","validator":true}, Component: lazyClaim(() => import("../../../craft-web-plugin/src/client/handlers"), "DesignCraftHandler") },
+      { pluginId: "craft-web", priority: 400, slot: "editor-pane-file-handler", fileHandler: {"id":"soundcraft","extensions":[".scraftz"],"mode":"edit","label":"Edit in SoundCraft","keepAlive":{"max":3},"maxBytes":134217728,"firstOverwriteNotice":"SoundCraft does not report which file it opened. Check that it shows this file before overwriting. Saves are rewritten by SoundCraft with the session's audio files; content it does not support may change. A copy is the safe way to compare.","copySuffix":"soundcraft","validator":true}, Component: lazyClaim(() => import("../../../craft-web-plugin/src/client/handlers"), "SoundCraftHandler") },
+      { pluginId: "craft-web", priority: 400, slot: "editor-pane-file-handler", fileHandler: {"id":"photocraft","extensions":[".psd"],"mode":"edit","label":"Edit in PhotoCraft","keepAlive":{"max":3},"maxBytes":134217728,"firstOverwriteNotice":"PhotoCraft saves layered .psd files; formats it does not support may change. A copy is the safe way to compare.","copySuffix":"photocraft","validator":true}, Component: lazyClaim(() => import("../../../craft-web-plugin/src/client/handlers"), "PhotoCraftHandler") },
+      { pluginId: "craft-web", priority: 400, slot: "editor-pane-file-handler", fileHandler: {"id":"photocraft-raster","extensions":[".png",".jpg",".jpeg",".webp",".tif",".tiff"],"mode":"edit","label":"Edit in PhotoCraft","keepAlive":{"max":3},"maxBytes":134217728,"firstOverwriteNotice":"PhotoCraft saves layered .psd files; formats it does not support may change. A copy is the safe way to compare.","copySuffix":"photocraft","siblingExtensions":[".psd"],"validator":true}, Component: lazyClaim(() => import("../../../craft-web-plugin/src/client/handlers"), "PhotoCraftRasterHandler") },
+      { pluginId: "craft-web", priority: 400, slot: "editor-pane-file-handler", fileHandler: {"id":"vectorcraft","extensions":[".svg"],"mode":"edit","label":"Edit in VectorCraft","keepAlive":{"max":3},"maxBytes":16777216,"firstOverwriteNotice":"Saves are rewritten by VectorCraft; SVG features it does not support may change. A copy is the safe way to compare.","copySuffix":"vectorcraft","siblingExtensions":[".vectorcraft"],"validator":true}, Component: lazyClaim(() => import("../../../craft-web-plugin/src/client/handlers"), "VectorCraftHandler") },
+      { pluginId: "craft-web", priority: 400, slot: "editor-pane-file-handler", fileHandler: {"id":"deckcraft","extensions":[".pptx"],"mode":"edit","label":"Edit in DeckCraft","keepAlive":{"max":3},"maxBytes":104857600,"firstOverwriteNotice":"DeckCraft does not report which file it opened. Check that it shows this file before overwriting. Saves are rewritten by DeckCraft; slide features it does not support may change. A copy is the safe way to compare.","copySuffix":"deckcraft","siblingExtensions":[".deckcraft"],"validator":true}, Component: lazyClaim(() => import("../../../craft-web-plugin/src/client/handlers"), "DeckCraftHandler") },
+      { pluginId: "craft-web", priority: 400, slot: "editor-pane-file-handler", fileHandler: {"id":"deckcraft-native","extensions":[".deckcraft"],"mode":"edit","label":"Edit in DeckCraft","keepAlive":{"max":3},"maxBytes":134217728,"firstOverwriteNotice":"DeckCraft does not report which file it opened. Check that it shows this file before overwriting. Saves are rewritten by DeckCraft; slide features it does not support may change. A copy is the safe way to compare.","copySuffix":"deckcraft","validator":true}, Component: lazyClaim(() => import("../../../craft-web-plugin/src/client/handlers"), "DeckCraftNativeHandler") },
       { pluginId: "craft-web", priority: 400, slot: "settings-section", tab: "general", Component: lazyClaim(() => import("../../../craft-web-plugin/src/client/CraftWebSettings"), "CraftWebSettings") },
     ],
     catalog: craft_web_catalog,
@@ -900,4 +1104,4 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "ebb273c213db6af0a5e6227b5a1ab5530a6e94df76edcf6deb53dcc3273b4331";
+export const PLUGIN_REGISTRY_HASH = "993b171c0568d53c31203bb89cbf6ab72305bf18e901178bc3e94055c7599360";

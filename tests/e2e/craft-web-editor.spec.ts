@@ -35,6 +35,7 @@
  */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import zlib from "node:zlib";
 import type { Frame } from "@playwright/test";
@@ -293,6 +294,33 @@ const ROWS: readonly CraftRow[] = [
     titled: false,
     saveAsFirst: true,
   },
+  // ---- Wave 2 (group 3): native-format apps. Rows here open + save the NATIVE claim in place;
+  // the foreign-format sibling flow is F7 below.
+  {
+    appId: "photocraft",
+    claimId: "photocraft",
+    label: "PhotoCraft",
+    fixture: "photo.psd",
+    fixtureSource: "craft/photo.psd",
+    titled: true,
+    verify: (saved) => expect(saved.subarray(0, 4).toString("latin1")).toBe("8BPS"),
+  },
+  {
+    appId: "deckcraft",
+    claimId: "deckcraft-native",
+    label: "DeckCraft",
+    fixture: "talk.deckcraft",
+    fixtureSource: "craft/talk.deckcraft",
+    titled: false,
+    verify: (saved) => expect(zipNames(saved)).toContain("presentation.json"),
+  },
+];
+
+/** Foreign-format claims (D1 type B): opening only; saves create the native sibling (F7). */
+const SIBLING_ROWS: ReadonlyArray<{ appId: string; claimId: string; label: string; fixture: string; fixtureSource: string; native: string; nativeClaim: string; titled: boolean }> = [
+  { appId: "photocraft", claimId: "photocraft-raster", label: "PhotoCraft", fixture: "photo.jpg", fixtureSource: "craft/photo.jpg", native: ".psd", nativeClaim: "photocraft", titled: true },
+  { appId: "vectorcraft", claimId: "vectorcraft", label: "VectorCraft", fixture: "shapes.svg", fixtureSource: "craft/shapes.svg", native: ".vectorcraft", nativeClaim: "", titled: true },
+  { appId: "deckcraft", claimId: "deckcraft", label: "DeckCraft", fixture: "talk.pptx", fixtureSource: "craft/talk.pptx", native: ".deckcraft", nativeClaim: "deckcraft-native", titled: false },
 ];
 
 /** CIRCLE entities `{x, y, r}` of an ASCII DXF. */
@@ -326,7 +354,7 @@ function zipNames(zip: Buffer): string[] {
   return names;
 }
 
-const APP_IDS = [...new Set(ROWS.map((r) => r.appId))];
+const APP_IDS = [...new Set([...ROWS, ...SIBLING_ROWS].map((r) => r.appId))];
 const rowBytes = (r: CraftRow): Buffer => fs.readFileSync(path.join(FIXTURE_DIR, r.fixtureSource));
 const modeOf = (r: CraftRow): string => `file-mode-craft-web/${r.claimId}`;
 
@@ -410,12 +438,13 @@ test.afterAll(async () => {
 
 test.beforeEach(async ({ page }) => {
   await page.setViewportSize(DESKTOP);
-  for (const r of ROWS) writeBytesOob(r.fixture, rowBytes(r));
+  for (const r of [...ROWS, ...SIBLING_ROWS]) writeBytesOob(r.fixture, rowBytes(r as CraftRow));
 });
 
 test.afterEach(() => {
-  inBox(`rm -f ${[COPY, "draft.docx", "report.pdf", LINK_DOCX].map((f) => JSON.stringify(ABS(f))).join(" ")}`);
-  for (const r of ROWS) writeBytesOob(r.fixture, rowBytes(r));
+  const extra = [COPY, "draft.docx", "report.pdf", LINK_DOCX, ...SIBLING_ROWS.flatMap((r) => [`${path.parse(r.fixture).name}${r.native}`, `${path.parse(r.fixture).name}-2${r.native}`])];
+  inBox(`rm -f ${extra.map((f) => JSON.stringify(ABS(f))).join(" ")}`);
+  for (const r of [...ROWS, ...SIBLING_ROWS]) writeBytesOob(r.fixture, rowBytes(r as CraftRow));
 });
 
 async function sessionIdOf(card: Locator): Promise<string> {
@@ -680,6 +709,89 @@ test.describe("craft-web Wave 1 scenarios", () => {
     await expect(page.getByTestId("craft-save-as")).toHaveCount(0);
     await expect(page.getByTestId("file-handler-first-overwrite-dialog")).toHaveCount(0);
     expect(unzipEntry(readBytesOob(row.fixture), "Audio Files/tone.wav")).not.toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------- Wave 2: native-format siblings (D6)
+
+for (const row of SIBLING_ROWS) {
+  test.describe(`craft-web ${row.label} (${row.claimId}) on ${row.fixture} → ${row.native} sibling`, () => {
+    test.describe.configure({ timeout: 240_000 });
+
+    test("F1: opens (foreign format); toolbar states the sibling Ctrl+S creates", async ({ page }) => {
+      const { iframe } = await freshEditor(page, row.fixture, row as unknown as CraftRow);
+      await expect(iframe).toHaveAttribute("sandbox", "allow-scripts");
+      const stem = path.parse(row.fixture).name;
+      await expect(page.getByTestId("craft-sibling-chip")).toHaveText(`Save (Ctrl+S) creates ${stem}${row.native}`);
+    });
+
+    test(`F7: Ctrl/Cmd+S → sibling dialog → Create${row.nativeClaim ? " and open" : ""}; ${row.fixture} unchanged, tab stays dirty`, async ({ page }) => {
+      const { iframe } = await freshEditor(page, row.fixture, row as unknown as CraftRow);
+      const stem = path.parse(row.fixture).name;
+      const target = `${stem}${row.native}`;
+      await iframe.click({ position: { x: 300, y: 300 } });
+      await page.keyboard.press("ControlOrMeta+s");
+      if (row.appId === "vectorcraft") {
+        // VectorCraft opens its own Save As dialog (OK at the dialog's default position, spike 3.1).
+        await page.waitForTimeout(1_500);
+        await page.keyboard.press("Enter");
+      }
+      const dlg = page.getByTestId("craft-sibling");
+      await expect(dlg).toBeVisible({ timeout: 30_000 });
+      await expect(dlg).toContainText(`${row.label} saves as ${row.native}`);
+      await page.getByTestId(row.nativeClaim ? "craft-sibling-create-open" : "craft-sibling-create").click();
+      await expect.poll(() => existsOob(target), { timeout: 30_000 }).toBe(true);
+      expect(readBytesOob(row.fixture).equals(rowBytes(row as unknown as CraftRow))).toBe(true);
+      expect(await (await fetch(`${API}/api/plugins/craft-web/status`)).ok).toBe(true);
+      if (row.nativeClaim) {
+        await expect(page.getByTestId(`file-mode-craft-web/${row.nativeClaim}`)).toHaveAttribute("aria-pressed", "true", { timeout: 30_000 });
+        await expect(page.getByTestId("editor-tab").filter({ hasText: target })).toHaveCount(1);
+      }
+      const original = page.getByTestId("editor-tab").filter({ hasText: row.fixture });
+      await original.click({ button: "middle" });
+      await expect(page.getByTestId("file-handler-guard-dialog")).toBeVisible({ timeout: 15_000 });
+      await page.getByTestId("file-handler-guard-dialog-cancel").click();
+    });
+  });
+}
+
+test.describe("craft-web DeckCraft broken latest", () => {
+  test.describe.configure({ timeout: 600_000 });
+
+  /**
+   * F12: the 0.8.0 web build panics on start (`std::process::id`). The harness cannot change the server's
+   * env, so the test post-installs the REAL 0.8.0 release with the REAL hook on the host, labels it as the
+   * pinned 0.7.0 tree and points `current` at it — the start-failed detector then meets a real panic.
+   */
+  test("F12: a panicking build → 'could not start' + Retry; never opened", async ({ page }) => {
+    const { createPostInstall } = await import("../../packages/craft-web-plugin/src/server/post-install.js");
+    const shimVersion = ((await (await fetch(`${API}/api/plugins/craft-web/status`)).json()) as { shimVersion: number }).shimVersion;
+    const work = fs.mkdtempSync(path.join(os.tmpdir(), "deck080-"));
+    const zip = path.join(work, "deck.zip");
+    const res = await fetch("https://github.com/storytold/deckcraft/releases/download/v0.8.0/deckcraft-web-0.8.0.zip");
+    expect(res.ok, "download deckcraft-web-0.8.0.zip").toBe(true);
+    fs.writeFileSync(zip, Buffer.from(await res.arrayBuffer()));
+    execFileSync("unzip", ["-q", zip, "-d", path.join(work, "x")]);
+    const inner = fs.readdirSync(path.join(work, "x")).map((d) => path.join(work, "x", d)).find((d) => fs.existsSync(path.join(d, "index.html"))) ?? path.join(work, "x");
+    await createPostInstall()({ dir: inner, app: "deckcraft", version: "0.7.0", shimVersion });
+    const root = `${PLUGIN_DATA}/deckcraft-web`;
+    const real = inBox(`readlink -f ${JSON.stringify(`${root}/current`)}`);
+    const broken = `${root}/0.7.0-s${shimVersion}-broken`;
+    inBox(`rm -rf ${JSON.stringify(broken)}`);
+    execFileSync("docker", ["cp", inner, `${resolveContainer()}:${broken}`]);
+    inBox(`chmod -R a+rX ${JSON.stringify(broken)}; ln -sfn ${JSON.stringify(broken)} ${JSON.stringify(`${root}/current.tmp`)} && mv -T ${JSON.stringify(`${root}/current.tmp`)} ${JSON.stringify(`${root}/current`)}`);
+    try {
+      writeBytesOob("talk.pptx", rowBytes({ fixtureSource: "craft/talk.pptx" } as CraftRow));
+      const card = await spawnFreshGitSession(page);
+      await openInPane(page, await sessionIdOf(card), "talk.pptx");
+      await page.getByTestId("file-mode-craft-web/deckcraft").click();
+      await expect(page.getByTestId("craft-start-failed")).toBeVisible({ timeout: OPEN_TIMEOUT });
+      await expect(page.getByTestId("craft-start-failed-retry")).toBeVisible();
+      await expect(page.getByTestId("craft-frame-host")).toHaveAttribute("data-phase", "start-failed");
+    } finally {
+      inBox(`ln -sfn ${JSON.stringify(real)} ${JSON.stringify(`${root}/current.tmp`)} && mv -T ${JSON.stringify(`${root}/current.tmp`)} ${JSON.stringify(`${root}/current`)}; rm -rf ${JSON.stringify(broken)}`);
+      fs.rmSync(work, { recursive: true, force: true });
+    }
   });
 });
 

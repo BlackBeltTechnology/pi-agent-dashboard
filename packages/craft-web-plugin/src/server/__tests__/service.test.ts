@@ -199,7 +199,7 @@ describe("E6/E23 new apps (minShimVersion 2, fixed channel)", () => {
   });
 
   it("E23: a fixed-channel app ignores a stored latest — verified version, zero latest lookups, prepare pinned; WordCraft unchanged", async () => {
-    const latest = vi.fn(async () => "0.99.0");
+    const latest = vi.fn(async (_app: string) => "0.99.0");
     const provision = vi.fn().mockRejectedValue(new Error("stop"));
     const r = rig({ config: { apps: { gridcraft: { version: "latest" }, wordcraft: { version: "latest" } } }, latestWebVersion: latest, provision: provision as never });
     const st = r.service.status();
@@ -209,6 +209,16 @@ describe("E6/E23 new apps (minShimVersion 2, fixed channel)", () => {
     await r.service.prepare("gridcraft");
     expect(provision).toHaveBeenLastCalledWith("gridcraft", expect.objectContaining({ channel: "pinned" }));
     expect(st.apps.wordcraft.channel).toBe("latest");
+  });
+
+  it("3.9: DeckCraft (latest fails to start) with a stored latest → status and prepare use 0.7.0", async () => {
+    const latest = vi.fn(async (_app: string) => "0.8.0");
+    const provision = vi.fn().mockRejectedValue(new Error("stop"));
+    const r = rig({ config: { apps: { deckcraft: { version: "latest" } } }, latestWebVersion: latest, provision: provision as never });
+    expect(r.service.status().apps.deckcraft).toMatchObject({ channel: "pinned", version: "0.7.0" });
+    expect(latest).not.toHaveBeenCalled();
+    await r.service.prepare("deckcraft");
+    expect(provision).toHaveBeenLastCalledWith("deckcraft", expect.objectContaining({ channel: "pinned" }));
   });
 });
 

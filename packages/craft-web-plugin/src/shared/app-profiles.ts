@@ -189,6 +189,47 @@ export const CRAFT_APP_PROFILES: readonly CraftAppProfile[] = [
     approxDownloadBytes: 5_900_000,
     claims: [claim("soundcraft", [".scraftz"])],
   },
+  // ---- Wave 2: saves its native format (D1 type B) — foreign-format claims declare the native sibling.
+  {
+    appId: "photocraft",
+    label: "PhotoCraft",
+    ready: { kind: "trunk" },
+    title: { pattern: "^(.*) [-–—] PhotoCraft$" },
+    cleanOnAckedSave: true,
+    saveName: "stem",
+    latestChannel: false,
+    fixedReason: "unverified-latest",
+    minShimVersion: 2,
+    approxDownloadBytes: 11_400_000,
+    claims: [claim("photocraft", [".psd"]), claim("photocraft-raster", [".png", ".jpg", ".jpeg", ".webp", ".tif", ".tiff"], { siblingExtensions: [".psd"] })],
+  },
+  {
+    appId: "vectorcraft",
+    label: "VectorCraft",
+    ready: { kind: "trunk" },
+    title: { pattern: "^(.*) [-–—] VectorCraft$" },
+    cleanOnAckedSave: true,
+    saveName: "stem",
+    latestChannel: false,
+    fixedReason: "unverified-latest",
+    minShimVersion: 2,
+    approxDownloadBytes: 23_500_000,
+    claims: [claim("vectorcraft", [".svg"], { siblingExtensions: [".vectorcraft"] })],
+  },
+  {
+    appId: "deckcraft",
+    label: "DeckCraft",
+    ready: { kind: "trunk" },
+    openedFallbackMs: 3000,
+    cleanOnAckedSave: true,
+    saveName: "stem",
+    // Pinned to 0.7.0: the 0.8.0 web build panics on start (`std::process::id`), unsandboxed too.
+    latestChannel: false,
+    fixedReason: "latest-fails-to-start",
+    minShimVersion: 2,
+    approxDownloadBytes: 9_400_000,
+    claims: [claim("deckcraft", [".pptx"], { siblingExtensions: [".deckcraft"] }), claim("deckcraft-native", [".deckcraft"])],
+  },
 ];
 
 const BY_APP = new Map(CRAFT_APP_PROFILES.map((p) => [p.appId, p]));

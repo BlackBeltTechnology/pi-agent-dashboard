@@ -93,3 +93,85 @@ describe("E20 format validators", () => {
     bad(PDF, ".docx");
   });
 });
+
+describe("E20 Wave 2 formats", () => {
+  const psd = (version: number) => pad(new Uint8Array([0x38, 0x42, 0x50, 0x53, 0, version]), 64);
+  it(".psd: v1 and v2 ok; v3 rejected", () => {
+    ok(psd(1), ".psd");
+    ok(psd(2), ".psd");
+    bad(psd(3), ".psd");
+  });
+
+  it("raster: each extension needs its own signature (PNG bytes fail a .jpg write)", () => {
+    const png = pad(PNG, 64);
+    ok(png, ".png");
+    bad(png, ".jpg");
+    ok(pad(new Uint8Array([0xff, 0xd8, 0xff, 0xe0]), 64), ".jpeg");
+    ok(pad(bytes("RIFF\0\0\0\0WEBPVP8 "), 64), ".webp");
+    ok(pad(new Uint8Array([0x49, 0x49, 0x2a, 0]), 64), ".tif");
+    ok(pad(new Uint8Array([0x4d, 0x4d, 0, 0x2a]), 64), ".tiff");
+    bad(pad(bytes("RIFF\0\0\0\0WAVE"), 64), ".webp");
+  });
+
+  it(".deckcraft: mimetype + presentation.json ok; without presentation.json rejected", () => {
+    ok(zip({ mimetype: ["application/vnd.storyteller.deckcraft+zip", 0], "presentation.json": "{}" }), ".deckcraft");
+    bad(zip({ mimetype: ["application/vnd.storyteller.deckcraft+zip", 0] }), ".deckcraft");
+  });
+
+  it(".vectorcraft (VectorCraft 0.13.1 JSON): format + version ok; other JSON / truncated rejected", () => {
+    ok(bytes('{\n  "format": "vectorcraft",\n  "version": 4,\n  "generator": "VectorCraft 0.13.1",\n  "document": {}\n}\n'), ".vectorcraft");
+    bad(bytes('{"format": "other", "version": 1}'), ".vectorcraft");
+    bad(bytes('{"format": "vectorcraft", "version": 4, "document": {'), ".vectorcraft");
+  });
+});
+
+describe("E21 SVG script filter", () => {
+  const svg = (s: string) => bytes(s);
+  it("plain and comment + PI + XML declaration before <svg> → ok", () => {
+    ok(svg('<svg xmlns="http://www.w3.org/2000/svg"><rect width="1" height="1"/><a href="https://example.com/x">x</a></svg>'), ".svg");
+    ok(svg('<?xml version="1.0"?>\n<!-- c --><?pi x?>\n<svg xmlns="http://www.w3.org/2000/svg"><text>a &amp; b</text></svg>'), ".svg");
+  });
+
+  it.each([
+    ['<!DOCTYPE svg [<!ENTITY x "y">]><svg/>', "DOCTYPE"],
+    ['<svg><!ENTITY x "y"></svg>', "ENTITY"],
+    ["<svg><script>alert(1)</script></svg>", "script"],
+    ['<svg xmlns:svg="http://www.w3.org/2000/svg"><svg:script>alert(1)</svg:script></svg>', "svg:script"],
+    ["<svg onload=\"alert(1)\"></svg>", "onload"],
+    ['<svg><rect><set attributeName="onmouseover" to="alert(1)"/></rect></svg>', "set on*"],
+    ['<svg><a><animate attributeName="href" values="javascript:alert(1)"/></a></svg>', "animate href"],
+    ['<svg><a href="&#106;avascript:alert(1)">x</a></svg>', "char-ref javascript"],
+    ['<svg><a href=" java\tscript:alert(1)">x</a></svg>', "whitespace javascript"],
+    ['<svg><image href="data:text/html;base64,PHNjcmlwdD4="/></svg>', "data:text/html"],
+    ["<svg><foreignObject><div/></foreignObject></svg>", "foreignObject"],
+    ["<html><svg/></html>", "root html"],
+  ])("rejects %s (%s)", (doc) => {
+    bad(svg(doc), ".svg");
+  });
+
+  it("a <script> after 1 MiB of padding is still rejected (full-document scan)", () => {
+    bad(svg(`<svg><desc>${"x".repeat(1024 * 1024 + 10)}</desc><script>alert(1)</script></svg>`), ".svg");
+  });
+});
+
+describe("P2 SVG validator cost", () => {
+  it("a 16 MiB worst-case SVG validates in ≤ 2 s (max of 5 runs)", () => {
+    const unit = '<g a="1" b="2" c="&amp;x;" d="3" e="4">';
+    const close = "</g>";
+    let body = "";
+    const depth = 2000;
+    body = unit.repeat(depth) + close.repeat(depth);
+    let doc = '<svg xmlns="http://www.w3.org/2000/svg">';
+    const target = 16 * 1024 * 1024 - 64;
+    while (doc.length + body.length < target) doc += body;
+    doc += "</svg>";
+    const b = bytes(doc);
+    let max = 0;
+    for (let r = 0; r < 5; r++) {
+      const t0 = performance.now();
+      expect(validate(b, ".svg").ok).toBe(true);
+      max = Math.max(max, performance.now() - t0);
+    }
+    expect(max).toBeLessThanOrEqual(2000);
+  });
+});

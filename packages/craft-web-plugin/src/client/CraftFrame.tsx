@@ -16,7 +16,15 @@ import type {
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import type { CraftWebApp } from "./craft-apps-table.js";
 import { downloadToDevice } from "./device-download.js";
-import { type DownloadOffer, FrameSession, type Phase, type SaveAsChoice } from "./frame-session.js";
+import {
+  type DownloadOffer,
+  FrameSession,
+  type Phase,
+  type SaveAsChoice,
+  type SiblingChoice,
+  type SiblingExhausted,
+  type SiblingPrompt,
+} from "./frame-session.js";
 import { formatSize, type Translate, useCraftT } from "./messages.js";
 import { baseName, splitName } from "./save-routing.js";
 import { getSaveTarget, saveTargetKey, setSaveTarget, useSaveTarget } from "./save-target-store.js";
@@ -67,6 +75,8 @@ export function CraftFrame({ app, fh, initialWebgl, webglCapable, takeSnapshot }
   const [blocked, setBlocked] = useState(false);
   const [nav, setNav] = useState<{ url: string | null } | null>(null);
   const [saveAs, setSaveAs] = useState<{ name: string } | null>(null);
+  const [sibling, setSibling] = useState<SiblingPrompt | null>(null);
+  const [exhausted, setExhausted] = useState<SiblingExhausted | null>(null);
   const [offer, setOffer] = useState<DownloadOffer | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -80,7 +90,7 @@ export function CraftFrame({ app, fh, initialWebgl, webglCapable, takeSnapshot }
       takeSnapshot: () => takeRef.current(),
       saveTarget: () => getSaveTarget(saveKeyRef.current),
       t: () => tRef.current,
-      ui: { setPhase, setLostEdits, setSnapMsg, setBlocked, setNav, setSaveAs, setOffer, setSaveError },
+      ui: { setPhase, setLostEdits, setSnapMsg, setBlocked, setNav, setSaveAs, setSibling, setExhausted, setOffer, setSaveError },
     });
     sessionRef.current = session;
     session.start();
@@ -108,6 +118,7 @@ export function CraftFrame({ app, fh, initialWebgl, webglCapable, takeSnapshot }
         onNavClose={() => setNav(null)}
         onOfferClose={() => setOffer(null)}
       />
+      {exhausted && <ExhaustedAlert t={t} app={app} info={exhausted} onClose={() => setExhausted(null)} />}
       <div className="relative min-h-0 flex-1">
         {showFrame && (
           <iframe
@@ -125,6 +136,9 @@ export function CraftFrame({ app, fh, initialWebgl, webglCapable, takeSnapshot }
           <div className={`absolute inset-0 ${PANEL} bg-[var(--bg-primary)]`} data-testid="craft-loading">
             {phase === "starting" ? t("starting", { app: app.label }) : t("opening")}
           </div>
+        )}
+        {sibling && (
+          <SiblingDialog t={t} app={app} prompt={sibling} file={baseName(fh.path)} onPick={(c) => sessionRef.current?.pickSibling(c)} />
         )}
         {saveAs && (
           <SaveAsDialog t={t} app={app} name={saveAs.name} file={baseName(fh.path)} onPick={(c) => sessionRef.current?.pickSaveAs(c)} />
@@ -307,6 +321,64 @@ function SaveAsDialog({ t, app, name, file, onPick }: { t: Translate; app: Craft
           </ChoiceButton>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** D6/D11: the app saves its native format; the edits go into a NEW file next to the tab's file. */
+function SiblingDialog({ t, app, prompt, file, onPick }: { t: Translate; app: CraftWebApp; prompt: SiblingPrompt; file: string; onPick: (c: SiblingChoice) => void }) {
+  const title = t("siblingTitle", { app: app.label, ext: prompt.ext });
+  return (
+    <div className="absolute inset-0 z-raised flex items-center justify-center bg-[var(--bg-primary)]/80 p-4">
+      <div
+        role="alertdialog"
+        aria-modal="true"
+        aria-label={title}
+        data-testid="craft-sibling"
+        className="flex max-w-md flex-col gap-3 rounded-xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4 text-sm text-[var(--text-primary)]"
+      >
+        <p className="font-semibold">{title}</p>
+        <p className="text-xs text-[var(--text-secondary)]">{t("siblingReason", { ext: prompt.ext, file })}</p>
+        <div className="flex flex-wrap gap-2">
+          {prompt.canOpen && (
+            <ChoiceButton testId="craft-sibling-create-open" primary onPick={() => onPick("create-open")}>
+              {t("siblingCreateOpen", { name: prompt.name })}
+            </ChoiceButton>
+          )}
+          <ChoiceButton testId="craft-sibling-create" primary={!prompt.canOpen} onPick={() => onPick("create")}>
+            {t("siblingCreate", { name: prompt.name })}
+          </ChoiceButton>
+          <ChoiceButton testId="craft-sibling-download" onPick={() => onPick("download")}>
+            {t("downloadInstead")}
+          </ChoiceButton>
+          <ChoiceButton testId="craft-sibling-cancel" onPick={() => onPick("cancel")}>
+            {t("cancel")}
+          </ChoiceButton>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Core answered 409: every sibling name is taken. Names the way out and keeps the bytes reachable. */
+function ExhaustedAlert({ t, app, info, onClose }: { t: Translate; app: CraftWebApp; info: SiblingExhausted; onClose: () => void }) {
+  return (
+    <div role="alert" data-testid="craft-sibling-exhausted" className={NOTICE}>
+      <span>{t("siblingExhausted", { name: info.name, first: info.first, last: info.last, app: app.label })}</span>
+      <button
+        type="button"
+        className={BTN_PRIMARY}
+        data-testid="craft-sibling-exhausted-download"
+        onClick={() => {
+          downloadToDevice(info.offer.name, info.offer.bytes, info.offer.mime);
+          onClose();
+        }}
+      >
+        {t("downloadInstead")}
+      </button>
+      <button type="button" className={BTN} onClick={onClose}>
+        {t("dismiss")}
+      </button>
     </div>
   );
 }

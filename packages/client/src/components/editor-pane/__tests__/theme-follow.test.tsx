@@ -9,10 +9,9 @@
  *
  * See change: improve-content-editor (tasks §1).
  */
-
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render, cleanup, screen, act } from "@testing-library/react";
 import React from "react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ThemeProvider, useThemeContext } from "../../settings/ThemeProvider.js";
 
 // Shared fake Monaco captured across a test; reset per test.
@@ -61,8 +60,8 @@ vi.mock("../../../lib/theme/monaco-theme.js", () => ({
 }));
 vi.mock("../../../lib/api/api-context.js", () => ({ getApiBase: () => "" }));
 
-import { MarkdownEditor } from "../MarkdownEditor.js";
 import MonacoBuffer from "../MonacoBuffer.js";
+import { MarkdownEditor } from "../MarkdownEditor.js";
 
 /** Harness exposing the provider's setThemeName to the test. */
 let switchTheme: (name: string) => void;

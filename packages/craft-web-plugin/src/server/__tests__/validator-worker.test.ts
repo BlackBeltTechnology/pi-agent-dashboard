@@ -49,7 +49,7 @@ describe("ooxml validator in the worker pool", () => {
       [".dxf", new Uint8Array(Buffer.from("  0\nSECTION\n  0\nENDSEC\n  0\nEOF\n", "latin1"))],
       [".scraftz", zipSync({ "Mix.scraft": strToU8("{}") })],
     ];
-    for (const [ext, bytes] of samples) expect(await pool.run({ moduleUrl, bytes, ext }), ext).toMatchObject({ kind: "ok" });
+    for (const [ext, bytes] of samples) expect(await pool.run({ moduleUrl, bytes: Buffer.from(bytes), ext }), ext).toMatchObject({ kind: "ok" });
     expect(await pool.run({ moduleUrl, bytes: docx(), ext: ".exe" })).toMatchObject({ kind: "rejected" });
   });
 

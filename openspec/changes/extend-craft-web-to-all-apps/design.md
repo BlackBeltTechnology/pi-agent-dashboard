@@ -235,7 +235,7 @@ One dispatcher module (`src/server/validators/index.mjs`, worker-safe) is regist
   - any `on*` attribute;
   - SMIL `set`/`animate*` whose `attributeName` is `on*`, `href` or `xlink:href`;
   - `javascript:`, `vbscript:` or `data:text/html` (after whitespace/control-char stripping) in any URL-bearing attribute. Reason: `/api/file/raw` serves `.svg` inline (`packages/server/src/routes/file-routes.ts:1196-1201`) under a report-only default dashboard CSP (`packages/server/src/auth/csp.ts:6-10`), so a script-bearing SVG written by a frame must not reach disk. Defence in depth for the pre-existing inline-SVG raw route is a follow-up change (task 6.3). |
-| `.vectorcraft` | added after task 3.1 determines the format. If no bounded check is possible, VectorCraft ships `.svg` without a sibling extension, and `.vectorcraft` saves go to device download. |
+| `.vectorcraft` | (task 3.1) VectorCraft 0.13.1 saves JSON `{"format": "vectorcraft", "version": 4, "generator": …, "document": {…}}`: the leading `format` member and a `version` within the first 4 KiB, text ending in `}`. No JSON is parsed. |
 
 Validators are format sanity checks; only the SVG row also acts as a script filter. Polyglots that pass are accepted (trade-off). Saved files re-enter previews as untrusted, e.g. SVG via `<img>`.
 
@@ -319,3 +319,10 @@ Fixture spikes (task 2.3, 2.5) ran in `/tmp/craftweb-spike/apps2` with the real 
 - **GridCraft 0.8.0:** title `budget.xlsx — Edited` persists after a picker save; the acknowledged own save clears dirty (`cleanOnAckedSave`). A workbook without `xl/styles.xml` shows a blocking "no styles part" dialog, so the committed fixture carries one.
 - **CADCraft `.dxf`, DesignCraft, SoundCraft:** opened via the fallback (`confirmed:false`), dirty after input, clean after the acknowledged own save; DesignCraft keeps `assets/`; CADCraft writes DXF R2000 with the drawn circle.
 - **SoundCraft opened from a file saves under the file's name** (`mix.scraftz`, inner session renamed), not the session name. `saveName: "inner-title"` is kept as specified (decided 2026-10-20): the extra first question stays a safe default for demo-session saves.
+
+Wave 2 spikes (tasks 3.1, 3.7–3.9):
+
+- **`.vectorcraft` is JSON** (`application/json`), bounded check above. Ctrl+S in VectorCraft opens its own Save As dialog (name `shapes.vectorcraft`, format VectorCraft); OK posts the save. Choosing SVG in that dialog's format list was not exercised: a same-extension save would route as an ordinary own save (overwrite path) if VectorCraft offers it.
+- **PhotoCraft 0.10.0** opens `.psd .png .jpg .jpeg .webp .tif .tiff` on drop and always saves `<stem>.psd` (`8BPS` v1); a `.psd` reopens and saves in place. Every raster extension passed its gate.
+- **DeckCraft 0.7.0** opens `.pptx` and `.deckcraft` (fallback, no title) and saves `talk.deckcraft` (`mimetype` + `presentation.json`).
+- **Create and open** needs the host to open a file in a mode: `FileHandlerProps.openFile?(path, claimId?)` (additive, optional; an older runtime simply hides "Create and open").

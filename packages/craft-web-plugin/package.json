@@ -154,6 +154,110 @@
         "validator": true
       },
       {
+        "slot": "editor-pane-file-handler",
+        "component": "PhotoCraftHandler",
+        "module": "./src/client/handlers.tsx",
+        "id": "photocraft",
+        "extensions": [
+          ".psd"
+        ],
+        "mode": "edit",
+        "label": "Edit in PhotoCraft",
+        "keepAlive": {
+          "max": 3
+        },
+        "maxBytes": 134217728,
+        "firstOverwriteNotice": "PhotoCraft saves layered .psd files; formats it does not support may change. A copy is the safe way to compare.",
+        "copySuffix": "photocraft",
+        "validator": true
+      },
+      {
+        "slot": "editor-pane-file-handler",
+        "component": "PhotoCraftRasterHandler",
+        "module": "./src/client/handlers.tsx",
+        "id": "photocraft-raster",
+        "extensions": [
+          ".png",
+          ".jpg",
+          ".jpeg",
+          ".webp",
+          ".tif",
+          ".tiff"
+        ],
+        "mode": "edit",
+        "label": "Edit in PhotoCraft",
+        "keepAlive": {
+          "max": 3
+        },
+        "maxBytes": 134217728,
+        "firstOverwriteNotice": "PhotoCraft saves layered .psd files; formats it does not support may change. A copy is the safe way to compare.",
+        "copySuffix": "photocraft",
+        "validator": true,
+        "siblingExtensions": [
+          ".psd"
+        ]
+      },
+      {
+        "slot": "editor-pane-file-handler",
+        "component": "VectorCraftHandler",
+        "module": "./src/client/handlers.tsx",
+        "id": "vectorcraft",
+        "extensions": [
+          ".svg"
+        ],
+        "mode": "edit",
+        "label": "Edit in VectorCraft",
+        "keepAlive": {
+          "max": 3
+        },
+        "maxBytes": 16777216,
+        "firstOverwriteNotice": "Saves are rewritten by VectorCraft; SVG features it does not support may change. A copy is the safe way to compare.",
+        "copySuffix": "vectorcraft",
+        "validator": true,
+        "siblingExtensions": [
+          ".vectorcraft"
+        ]
+      },
+      {
+        "slot": "editor-pane-file-handler",
+        "component": "DeckCraftHandler",
+        "module": "./src/client/handlers.tsx",
+        "id": "deckcraft",
+        "extensions": [
+          ".pptx"
+        ],
+        "mode": "edit",
+        "label": "Edit in DeckCraft",
+        "keepAlive": {
+          "max": 3
+        },
+        "maxBytes": 104857600,
+        "firstOverwriteNotice": "DeckCraft does not report which file it opened. Check that it shows this file before overwriting. Saves are rewritten by DeckCraft; slide features it does not support may change. A copy is the safe way to compare.",
+        "copySuffix": "deckcraft",
+        "validator": true,
+        "siblingExtensions": [
+          ".deckcraft"
+        ]
+      },
+      {
+        "slot": "editor-pane-file-handler",
+        "component": "DeckCraftNativeHandler",
+        "module": "./src/client/handlers.tsx",
+        "id": "deckcraft-native",
+        "extensions": [
+          ".deckcraft"
+        ],
+        "mode": "edit",
+        "label": "Edit in DeckCraft",
+        "keepAlive": {
+          "max": 3
+        },
+        "maxBytes": 134217728,
+        "firstOverwriteNotice": "DeckCraft does not report which file it opened. Check that it shows this file before overwriting. Saves are rewritten by DeckCraft; slide features it does not support may change. A copy is the safe way to compare.",
+        "copySuffix": "deckcraft",
+        "validator": true
+      },
+      {
         "slot": "settings-section",
         "component": "CraftWebSettings",
         "module": "./src/client/CraftWebSettings.tsx",

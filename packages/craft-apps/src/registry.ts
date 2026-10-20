@@ -138,6 +138,11 @@ export const CRAFT_APPS: readonly CraftApp[] = [
     "raster image editing (layers, adjustments, filters, content-aware fill)",
     { list: COMMANDS_JSON, run: "run (FILE | --new JSON) --cmd ID [--params JSON]… --out OUT | batch" },
     { confinement: "automation-roots", toolClass: "small", tools: 25, bridgeFlag: "--bridge" },
+    undefined,
+    {
+      webVersion: "0.10.0",
+      webFidelityNote: "PhotoCraft saves layered .psd files; formats it does not support may change. A copy is the safe way to compare.",
+    },
   ),
   app(
     "vectorcraft",
@@ -145,6 +150,11 @@ export const CRAFT_APPS: readonly CraftApp[] = [
     "vector illustration and SVG/PDF export",
     { list: COMMANDS_JSON, run: "run [--in FILE] --cmd ID [--params JSON]… [--export OUT]" },
     { confinement: "automation-roots", toolClass: "small", tools: 32, bridgeFlag: "--connect" },
+    undefined,
+    {
+      webVersion: "0.13.1",
+      webFidelityNote: "Saves are rewritten by VectorCraft; SVG features it does not support may change. A copy is the safe way to compare.",
+    },
   ),
   app(
     "filmcraft",
@@ -229,6 +239,12 @@ export const CRAFT_APPS: readonly CraftApp[] = [
     "presentation slides and export",
     { list: ["commands"], describe: ["describe", "<id>"], run: "run [--in FILE] [--cmd ID[=JSON]…] [--save OUT] [--export OUT] | render | convert" },
     { confinement: false, toolClass: "small", tools: 25, bridgeFlag: "--connect" },
+    undefined,
+    // Pinned to 0.7.0: the 0.8.0 web build panics on start (`std::process::id`, "no pids on this platform"), unsandboxed too.
+    {
+      webVersion: "0.7.0",
+      webFidelityNote: "Saves are rewritten by DeckCraft; slide features it does not support may change. A copy is the safe way to compare.",
+    },
   ),
   app(
     "cadcraft",

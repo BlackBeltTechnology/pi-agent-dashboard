@@ -93,6 +93,7 @@ describe("registry", () => {
       }
     }
     expect(getApp("wordcraft").webVersion).toBe("0.8.0");
-    expect(getApp("deckcraft").webVersion).toBeUndefined(); // unverified apps carry no web build
+    expect(getApp("deckcraft").webVersion).toBe("0.7.0"); // pinned below the broken 0.8.0 (extend-craft-web-to-all-apps)
+    expect(getApp("figcraft").webVersion).toBeUndefined(); // unverified apps carry no web build
   });
 });
