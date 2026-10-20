@@ -772,7 +772,7 @@ export function wireEvents(deps: EventWiringDeps): void {
   // browser fan-out; settings are read fresh per detect (no cache).
   const canvasAccumulator = createCanvasAccumulator({
     readCanvasTypes: (cwd) => readEffectiveCanvasTypes(cwd),
-    broadcastIntent: (sessionId, phase, target, mode, title) => {
+    broadcastIntent: (sessionId, phase, target, mode, title, sourceCallId) => {
       browserGateway.broadcastToAll({
         type: "canvas_intent",
         sessionId,
@@ -780,14 +780,17 @@ export function wireEvents(deps: EventWiringDeps): void {
         target,
         ...(mode ? { mode } : {}),
         ...(title ? { title } : {}),
+        ...(sourceCallId ? { sourceCallId } : {}),
       });
     },
-    broadcastServerChip: (sessionId, port, title) => {
+    broadcastServerChip: (sessionId, port, title, extra) => {
       browserGateway.broadcastToAll({
         type: "canvas_server_chip",
         sessionId,
         port,
         ...(title ? { title } : {}),
+        ...(extra?.path ? { path: extra.path } : {}),
+        ...(extra?.declarationId ? { declarationId: extra.declarationId } : {}),
       });
     },
     broadcastServerChipExpire: (sessionId, port) => {

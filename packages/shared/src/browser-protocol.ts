@@ -1273,6 +1273,7 @@ export type ServerToBrowserMessage =
   | PromptReceivedToBrowserMessage
   | CanvasIntentMessage
   | CanvasServerChipMessage
+  | PreviewExposureChangedMessage
   | FileChangedMessage
   | BrowserRelayFrameMessage
   | BrowserRelayStatusMessage
@@ -1310,6 +1311,22 @@ export interface CanvasIntentMessage {
   target: ViewTarget | null;
   mode?: "replace" | "pin";
   title?: string;
+  /**
+   * Tool call id of the `canvas` declare / `write` that produced `target`
+   * (last writer wins). Drives which chat card links to the canvas. Absent on
+   * older servers. See change: improve-canvas-html-and-url-ux (D8).
+   */
+  sourceCallId?: string;
+}
+
+/**
+ * Server push: the dashboard's preview-exposure epoch changed (it became
+ * reachable beyond this machine). Open viewers re-mint without scripts.
+ * See change: improve-canvas-html-and-url-ux (D5).
+ */
+export interface PreviewExposureChangedMessage {
+  type: "preview_exposure_changed";
+  epoch: number;
 }
 
 /**
@@ -1322,6 +1339,10 @@ export interface CanvasServerChipMessage {
   sessionId: string;
   port: number;
   title?: string;
+  /** Path (+query/fragment) of a declared loopback URL, e.g. `/app`. */
+  path?: string;
+  /** Tool call id of the declare that produced this chip. */
+  declarationId?: string;
   /**
    * True = the chip expired at the turn boundary / server-exit and MUST become
    * non-actionable (S32). When set, `port` echoes the expired chip's port; the
