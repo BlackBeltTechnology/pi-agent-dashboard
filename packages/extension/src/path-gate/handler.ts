@@ -11,6 +11,7 @@
  * See change: ask-agent-file-access-in-chat.
  */
 import type { AgentPathGateConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { buildSupervisedSummary } from "../supervised-gate/summary.js";
 import {
   buildOptions,
   type Decision,
@@ -20,6 +21,7 @@ import {
   OPT_DENY,
   type PathAccess,
 } from "./decide.js";
+import { createHandoffSet, type HandoffSet } from "./handoff.js";
 import { defaultResolveEnv, type ResolveEnv } from "./resolve.js";
 import { Suppression } from "./suppression.js";
 
@@ -71,6 +73,17 @@ export interface PathGateDeps {
   yoloDecide?: (req: { path: string; access: "r" | "w"; tool: string }) => Promise<"auto-allow" | "refused" | "decline">;
   reportRefusal?: (req: { promptId: string; path: string; subject: string }) => void;
   sessionId: () => string;
+  /**
+   * Narrow accessor (change: add-supervised-tool-approval, D14): the session is Supervised, its tool
+   * gate is not owned by the chat-gateway guard, and `toolName` is in the supervised risky set. When
+   * true an out-of-root `write`/`edit` prompt carries the supervised action content and is hand-off
+   * eligible. The path gate never sees the supervised policy itself. Absent → never enriches.
+   */
+  supervisedInEffect?: (sessionId: string, toolName: string) => boolean;
+  /** Secret redaction for the appended action content (default: identity). */
+  redact?: (text: string) => string;
+  /** Per-session hand-off set the supervised gate consumes (default: a private one). */
+  handoff?: HandoffSet;
   env?: ResolveEnv;
   now?: () => number;
   setTimer?: (fn: () => void, ms: number) => unknown;
@@ -82,6 +95,20 @@ export interface PathGateDeps {
 export interface GateCtx {
   hasUI: boolean;
   cwd: string;
+}
+
+/**
+ * Supervised action content for an enriched path prompt: the `+N −M` stat and the byte-capped diff
+ * (new content for a create), built by the shared supervised summary builder. Markdown + plain twins.
+ */
+function supervisedAppendix(tool: string, input: Record<string, unknown>, cwd: string, redact: (t: string) => string) {
+  const s = buildSupervisedSummary(tool, input, cwd);
+  const stat = s.diffStat ? `Change: ${s.diffStat}` : "";
+  const diff = s.diff ? redact(s.diff) : "";
+  return {
+    md: [stat, diff ? `\`\`\`diff\n${diff}\n\`\`\`` : ""].filter(Boolean).join("\n\n"),
+    plain: [stat, diff].filter(Boolean).join("\n"),
+  };
 }
 
 function block(code: string, detail?: string): GateResult {
@@ -96,6 +123,7 @@ export function createPathGateHandler(deps: PathGateDeps) {
   const newId = deps.newId ?? (() => crypto.randomUUID());
   const suppression = deps.suppression ?? new Suppression(now);
   const chains = new Map<string, Promise<unknown>>();
+  const handoff = deps.handoff ?? createHandoffSet();
 
   // Every dynamic field of an audit line is agent- or error-controlled: strip control
   // characters from the WHOLE line at the single emission point so no site can forge a record.
@@ -158,12 +186,25 @@ export function createPathGateHandler(deps: PathGateDeps) {
           : access === "write" && typeof input.content === "string"
             ? `${Buffer.byteLength(input.content)} bytes`
             : undefined;
+      // Supervised session + risky write/edit: append the action content (D14). A failing accessor or
+      // builder degrades to the plain prompt — the supervised gate then simply asks as well.
+      let appendix: { md: string; plain: string } | undefined;
+      if (tool === "write" || tool === "edit") {
+        try {
+          if (deps.supervisedInEffect?.(sid, tool)) {
+            appendix = supervisedAppendix(tool, input, cwd, deps.redact ?? ((t) => t));
+          }
+        } catch {
+          appendix = undefined;
+        }
+      }
       const message = [
         `Path: \`${d.canonical}\``,
         `Tool: ${tool}${detail ? ` (${detail})` : ""}`,
         `Session cwd: \`${cwd}\``,
         d.sensitive ? "⚠ **Sensitive location** (credentials or the agent's own control plane)." : "",
         offer.note ?? "",
+        appendix?.md ?? "",
       ]
         .filter(Boolean)
         .join("\n\n");
@@ -174,6 +215,7 @@ export function createPathGateHandler(deps: PathGateDeps) {
         `Session cwd: ${cwd}`,
         d.sensitive ? "⚠ Sensitive location (credentials or the agent's own control plane)." : "",
         offer.note ?? "",
+        appendix?.plain ?? "",
       ]
         .filter(Boolean)
         .join("\n")
@@ -200,6 +242,7 @@ export function createPathGateHandler(deps: PathGateDeps) {
             plainMessage,
             ...(offer.note ? { note: offer.note } : {}),
             ...(toolCallId ? { toolCallId } : {}),
+            ...(appendix ? { supervised: true } : {}),
           },
         }),
         expiry,
@@ -219,6 +262,8 @@ export function createPathGateHandler(deps: PathGateDeps) {
       }
       if (answer === OPT_ALLOW_ONCE) {
         log("allowed-once", tool, access, d.canonical, d.sensitive, sid);
+        // Hand-off (D14): only an Allow once on an ENRICHED prompt counts as consent to the content.
+        if (appendix && toolCallId) handoff.record(sid, toolCallId);
         return undefined;
       }
       if (answer !== offer.alwaysLabel) return settleDeny(); // unknown answer fails closed

@@ -11,7 +11,7 @@ import { PromptBus } from "../../prompt-bus.js";
 import { createPathGate } from "../index.js";
 import { Suppression } from "../suppression.js";
 
-function setup(opts: { configFile?: string; readConfig?: () => { enabled: boolean; timeoutSeconds: number }; ui?: any; sid?: { v: string }; suppression?: Suppression; logs?: string[] } = {}) {
+function setup(opts: { configFile?: string; readConfig?: () => { enabled: boolean; timeoutSeconds: number }; ui?: any; sid?: { v: string }; suppression?: Suppression; logs?: string[]; supervisedInEffect?: (sid: string, tool: string) => boolean } = {}) {
   const sid = opts.sid ?? { v: "S1" };
   const cwd = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), "pg-wire-")));
   const bus = new PromptBus({ timeoutMs: -1 });
@@ -33,6 +33,7 @@ function setup(opts: { configFile?: string; readConfig?: () => { enabled: boolea
     getSessionDir: () => undefined,
     log: (l) => { opts.logs?.push(l); },
     suppression: opts.suppression,
+    supervisedInEffect: opts.supervisedInEffect,
   });
   return { gate, cwd, asked, ctx: { hasUI: true, cwd } };
 }
@@ -55,6 +56,43 @@ describe("TUI visibility (review B2)", () => {
     expect(t.asked[0].question).toContain(`Session cwd: ${t.cwd}`);
     expect(t.asked[0].question).toMatch(/Always allow/);
 
+  });
+});
+
+describe("supervised enrichment through the real bus + TUI adapter (#E21, #E19, change: add-supervised-tool-approval)", () => {
+  const input = { path: "/etc/pg-wire-target.txt", content: "line1\nline2\n" };
+
+  it("the terminal question carries the stat + new content, and an Allow once records the hand-off (once)", async () => {
+    const t = setup({ supervisedInEffect: (_sid, tool) => tool === "write" });
+    const r = await t.gate.handler({ toolName: "write", toolCallId: "tcW", input }, t.ctx);
+    expect(r).toBeUndefined();
+    expect(t.asked[0].question).toMatch(/\+2 −0/);
+    expect(t.asked[0].question).toContain("+line1");
+    expect(t.gate.hasHandoff("S1")).toBe(true);
+    expect(t.gate.consumeHandoff("S2", "tcW")).toBe(false); // keyed by session id
+    expect(t.gate.consumeHandoff("S1", "tcW")).toBe(true);
+    expect(t.gate.consumeHandoff("S1", "tcW")).toBe(false);
+  });
+
+  it("without the accessor (or for a non-risky tool) the terminal question is unchanged and nothing is recorded", async () => {
+    const t = setup();
+    await t.gate.handler({ toolName: "write", toolCallId: "tcN", input }, t.ctx);
+    expect(t.asked[0].question).not.toMatch(/\+2 −0/);
+    expect(t.gate.hasHandoff("S1")).toBe(false);
+    const u = setup({ supervisedInEffect: () => false });
+    await u.gate.handler({ toolName: "write", toolCallId: "tcN", input }, u.ctx);
+    expect(u.gate.hasHandoff("S1")).toBe(false);
+  });
+
+  it("clearSession (session_shutdown) drops only that session's hand-off ids", async () => {
+    const sid = { v: "S1" };
+    const t = setup({ sid, supervisedInEffect: () => true });
+    await t.gate.handler({ toolName: "write", toolCallId: "a", input }, t.ctx);
+    sid.v = "S2";
+    await t.gate.handler({ toolName: "write", toolCallId: "b", input: { ...input, path: "/etc/pg-wire-other.txt" } }, t.ctx);
+    t.gate.clearSession("S1");
+    expect(t.gate.hasHandoff("S1")).toBe(false);
+    expect(t.gate.consumeHandoff("S2", "b")).toBe(true);
   });
 });
 

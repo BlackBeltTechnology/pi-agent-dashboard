@@ -6,6 +6,10 @@ import { createMetaPersistence } from "../persistence/meta-persistence.js";
 import { createMemorySessionManager } from "../session/memory-session-manager.js";
 import { createSessionArchive } from "../session/session-archive.js";
 import { metaPath, readSessionMeta, writeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
+import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { reconcileSupervised } from "../session/supervised-reconcile.js";
+import { sessionFromMeta } from "../session/session-scanner.js";
+import { sessionToMeta } from "../session/session-to-meta.js";
 
 describe("meta-persistence", () => {
   let tmpDir: string;
@@ -312,6 +316,55 @@ describe("meta-persistence", () => {
     // Pending entry consumed: no debounce timer is left for this file, so no
     // later write can resurrect the pre-archive sidecar.
     expect(vi.getTimerCount()).toBe(0);
+    mp.dispose();
+  });
+
+  // ── Supervised mode `{ on, rev }` — see change: add-supervised-tool-approval ──
+  const supervisedSession = (over: Partial<DashboardSession> = {}): DashboardSession =>
+    ({ id: "s1", cwd: "/p", source: "dashboard", status: "active", startedAt: 1, ...over }) as DashboardSession;
+
+  it("#X23 meta persists the mode across a server restart: {on:true,rev:3} write → reload → restored", () => {
+    const mp = createMetaPersistence();
+    const sf = sessionFile("sup");
+    mp.save(sf, sessionToMeta(supervisedSession({ supervised: true, supervisedRev: 3 })));
+    vi.advanceTimersByTime(1000);
+    expect(readSessionMeta(sf)?.supervised).toEqual({ on: true, rev: 3 });
+    // restart: the boot scan rebuilds the session from the sidecar
+    const restored = sessionFromMeta("s1", sf, tmpDir, readSessionMeta(sf)!, 1);
+    expect(restored.supervised).toBe(true);
+    expect(restored.supervisedRev).toBe(3);
+    mp.dispose();
+  });
+
+  it("#X23 a session that never recorded a mode writes no `supervised` key; a later unrelated full-overwrite save keeps one", () => {
+    expect("supervised" in JSON.parse(JSON.stringify(sessionToMeta(supervisedSession())))).toBe(false);
+    const mp = createMetaPersistence();
+    const sf = sessionFile("keep");
+    const s = supervisedSession({ supervised: false, supervisedRev: 5 });
+    mp.save(sf, sessionToMeta(s));
+    mp.save(sf, sessionToMeta({ ...s, name: "renamed" })); // unrelated field, full overwrite
+    vi.advanceTimersByTime(1000);
+    expect(readSessionMeta(sf)?.supervised).toEqual({ on: false, rev: 5 });
+    mp.dispose();
+  });
+
+  it("#E31 the reconciled winner is what meta persists (decision table)", () => {
+    const table: Array<[{ on: boolean; rev?: number }, { on: boolean; rev?: number }, boolean]> = [
+      [{ on: false, rev: 5 }, { on: true, rev: 4 }, false],
+      [{ on: true, rev: 4 }, { on: false, rev: 5 }, false],
+      [{ on: false, rev: 5 }, { on: true, rev: 5 }, true],
+      [{ on: false }, { on: false, rev: 3 }, true],
+      [{ on: true, rev: 2 }, { on: true, rev: 2 }, true],
+    ];
+    const mp = createMetaPersistence();
+    table.forEach(([bridge, server, expectedOn], i) => {
+      const winner = reconcileSupervised(bridge, server);
+      expect(winner.on).toBe(expectedOn);
+      const sf = sessionFile(`e31-${i}`);
+      mp.save(sf, sessionToMeta(supervisedSession({ supervised: winner.on, supervisedRev: winner.rev })));
+      vi.advanceTimersByTime(1000);
+      expect(readSessionMeta(sf)?.supervised).toEqual(winner);
+    });
     mp.dispose();
   });
 

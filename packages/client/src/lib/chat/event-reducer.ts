@@ -2609,7 +2609,7 @@ export function reduceEvent(
       const toolCallId = data.toolCallId as string;
       const partialResult = data.partialResult;
       if (partialResult) {
-        const idx = next.messages.findLastIndex((m) => m.toolCallId === toolCallId);
+        const idx = next.messages.findLastIndex((m) => m.role === "toolResult" && m.toolCallId === toolCallId);
         if (idx !== -1) {
           next.messages = [...next.messages];
           reopenSessionEndedRow(next, idx, toolCallId, partialResult);
@@ -2758,7 +2758,9 @@ export function reduceEvent(
       const images = extractToolResultImages(data);
 
       // Update existing tool message in-place
-      const idx = next.messages.findLastIndex((m) => m.toolCallId === toolCallId);
+      // `toolResult` only: a Supervised approval `interactiveUi` row carries the SAME `toolCallId`
+      // (design D3) and sits after the tool row — matching it would leave the tool row running.
+      const idx = next.messages.findLastIndex((m) => m.role === "toolResult" && m.toolCallId === toolCallId);
       if (idx !== -1) {
         const result = data.result as string | undefined;
         const msgStartedAt = next.messages[idx].startedAt;

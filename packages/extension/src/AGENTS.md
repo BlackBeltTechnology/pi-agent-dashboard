@@ -81,6 +81,7 @@ Files in this directory. One row per source file.
 | `subagent-frame-strip.ts` | Drops `details.entries` from `queued`/`running` subagent frames on the forward path. → see `subagent-frame-strip.ts.AGENTS.md` |
 | `subagent-saturation.ts` | Private pressure sampler for fan-out admission: own `monitorEventLoopDelay` histogram over a fixed 5 s window… → see `subagent-saturation.ts.AGENTS.md` |
 | `subagent-tick-throttle.ts` | Bridge-side rate limiter for subagent `Agent` tool `tool_execution_update` ticks (WIRE cost; the parent… → see `subagent-tick-throttle.ts.AGENTS.md` |
+| `supervised-gate/` | Supervised-mode tool-approval gate (4th `tool_call` handler): mode store, summary builder, handler over shared `createToolCallGuard`. → see `supervised-gate/AGENTS.md` |
 | `retry-tracker.ts` | Pure helper class `RetryTracker` synthesizes `auto_retry_start` / `auto_retry_end` by OBSERVING pi's own… → see `retry-tracker.ts.AGENTS.md` |
 | `role-manager.ts` | Manages session model roles. Registers six `roles:*` handlers… → see `role-manager.ts.AGENTS.md` Sole WRITER… → see `role-manager.ts.AGENTS.md` |
 | `role-model-tools.ts` | Agent-facing tools registered via `pi.registerTool` (capability agent-role-model-tools). → see `role-model-tools.ts.AGENTS.md` |

@@ -213,6 +213,10 @@ export function registerSessionStart(inst: BridgeInstance): void {
     // Bail out if a newer bridge instance has taken over
     if (!inst.isActive()) return;
     const newSessionId = ctx.sessionManager.getSessionId();
+    // Supervised mode: restore THIS session's mode from its own session entries (never the previous
+    // session's) before the register below and before any tool call. Fails closed. See change:
+    // add-supervised-tool-approval (design D4, tasks 4.2a/4.6).
+    inst.supervisedGate.control.restore(newSessionId, () => ctx.sessionManager.getBranch?.() ?? ctx.sessionManager.getEntries?.() ?? []);
     inst.pathGate.onSessionStart();
     // Credential vault: resolve the project from THIS session's own cwd (never the
     // launch directory) on every start reason; an unreadable cwd withdraws all.
@@ -854,6 +858,8 @@ export function registerSessionStart(inst: BridgeInstance): void {
     inst.heartbeatTimer = setInterval(() => {
       if (!inst.isActive()) return;
       inst.vaultDelivery.tick();
+      // The guard may mark the owner slot after the bridge registered: re-report on drift.
+      inst.supervisedGate.control.reportIfChanged();
       inst.connection.send({
         type: "session_heartbeat",
         sessionId: inst.sessionId,
@@ -988,6 +994,10 @@ export function registerSessionShutdown(inst: BridgeInstance): void {
     // Remove this session's pi-dashboard MCP registration (a reloaded
     // instance re-registers on its own mint). See change: migrate-mcp-to-pi-builtin (D1).
     inst.mcpRegistrar.onSessionShutdown();
+    // Drop this session's supervised mode, mutex chain and unclassified-log set (a session
+    // boundary). See change: add-supervised-tool-approval (design D4, task 4.7).
+    inst.supervisedGate.clearSession(inst.sessionId);
+    inst.pathGate.clearSession(inst.sessionId); // hand-off ids (design D14)
     inst.shared.isAgentStreaming = false;
     stopMetricsMonitor();
     if (inst.heartbeatTimer) {

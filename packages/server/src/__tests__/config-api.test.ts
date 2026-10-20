@@ -737,6 +737,39 @@ describe("config-api network trust mode", () => {
       return app;
     };
 
+    // X26 — an out-of-range timeout sent straight to the API (bypassing the Settings
+    // field) is normalised to 120 on write, never rejected. See change: add-supervised-tool-approval.
+    it("#X26 PUT supervisedMode.timeoutSeconds out of range persists 120; GET returns 120; no 400", async () => {
+      fs.writeFileSync(configFile, JSON.stringify({ port: 8000 }));
+      const app = makeApp();
+      for (const bad of [5, 99999, "x", null]) {
+        const put = await app.inject({
+          method: "PUT",
+          url: "/api/config",
+          payload: { supervisedMode: { timeoutSeconds: bad } },
+        });
+        expect(put.statusCode, JSON.stringify(bad)).toBe(200);
+        expect(raw().supervisedMode.timeoutSeconds, JSON.stringify(bad)).toBe(120);
+        const got = await app.inject({ method: "GET", url: "/api/config" });
+        expect(got.json().data.supervisedMode.timeoutSeconds).toBe(120);
+      }
+      await app.close();
+    });
+
+    it("supervisedMode round-trips like agentPathGate: in-range value kept, siblings merged, not clobbered", async () => {
+      fs.writeFileSync(
+        configFile,
+        JSON.stringify({ port: 8000, supervisedMode: { default: "supervised", timeoutSeconds: 60, tools: ["bash"] } }),
+      );
+      const app = makeApp();
+      const put = await app.inject({ method: "PUT", url: "/api/config", payload: { supervisedMode: { timeoutSeconds: 300 } } });
+      expect(put.statusCode).toBe(200);
+      expect(raw().supervisedMode).toEqual({ default: "supervised", timeoutSeconds: 300, tools: ["bash"] });
+      const got = await app.inject({ method: "GET", url: "/api/config" });
+      expect(got.json().data.supervisedMode).toEqual({ default: "supervised", timeoutSeconds: 300, tools: ["bash"] });
+      await app.close();
+    });
+
     it("#E7 GET → PUT round trip keeps `network` and its origin", async () => {
       fs.writeFileSync(configFile, JSON.stringify({ port: 8000, network: { trustMode: "legacy", trustModeOrigin: "upgrade" } }));
       const app = makeApp();

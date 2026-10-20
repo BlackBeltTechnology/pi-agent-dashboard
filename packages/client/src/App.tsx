@@ -2751,6 +2751,13 @@ export default function App() {
             onOpenProviderSettings={openProviderSettings}
             modelRefreshErrors={modelRefreshErrorsMap.get(selectedId)}
             contextUsage={selectedContextUsage}
+            supervised={selectedSession?.supervised === true}
+            toolGateOwner={selectedSession?.toolGateOwner}
+            onSetSupervised={
+              endedView || !selectedSession
+                ? undefined
+                : (on) => send({ type: "set_supervised", sessionId: selectedId, on })
+            }
           />
             </>
           )}

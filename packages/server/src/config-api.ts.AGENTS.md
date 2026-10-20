@@ -23,3 +23,5 @@ Merges nested `piTrustMirror.sources` on PUT and refreshes the snapshot. See cha
 
 `writeConfigPartial` merges the `editor` sub-object (no restart). See change: gate-changed-on-disk-by-content.
 `writeConfigPartial` merges `auth.capabilityRoutePlugins` (`!== undefined`, so `[]` clears the trust list). See change: add-plugin-capability-routes.
+
+`writeConfigPartial` merges `supervisedMode` and normalises `timeoutSeconds` via `normalizeSupervisedTimeoutSeconds` (out of range/non-numeric → 120, never a 400); a non-object value is dropped. See change: add-supervised-tool-approval (D10, X26).

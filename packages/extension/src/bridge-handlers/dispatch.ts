@@ -64,6 +64,13 @@ export async function handleInboundMessage(inst: BridgeInstance, data: unknown):
     });
     return;
   }
+  // Supervised mode: the server sets (or reconciles) this session's mode. The control validates the
+  // payload (malformed → ignored, mode kept), appends the session entry and reports back; it never
+  // touches a pending approval. See change: add-supervised-tool-approval (design D4).
+  if ((msg as any).type === "set_supervised") {
+    inst.supervisedGate.control.onSetSupervised(msg);
+    return;
+  }
   // Extension UI System (Phase 1): browser-originated action / data
   // request. Re-emit on pi.events; the listener either populates
   // data.items synchronously or calls _reply asynchronously.

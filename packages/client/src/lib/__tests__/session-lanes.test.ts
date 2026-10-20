@@ -171,3 +171,23 @@ describe("completeStoredOrder", () => {
     expect(completeStoredOrder(undefined, ["x"])).toEqual(["x"]);
   });
 });
+
+// E36 — supervised tool approval joins the shared attention predicate.
+// See change: add-supervised-tool-approval (D16).
+describe("awaitingOperatorApproval drives the needs-you lane (E36)", () => {
+  it.each([
+    [false, false, "idle"],
+    [true, false, "needs-you"],
+    [false, true, "needs-you"],
+    [true, true, "needs-you"],
+  ])("fileAccess=%s toolApproval=%s → %s", (fileAccess, toolApproval, lane) => {
+    const s = mk("a", { awaitingFileAccess: fileAccess, awaitingToolApproval: toolApproval });
+    expect(classifyStatusLane(s)).toBe(lane);
+  });
+  it("laneFingerprint changes when only awaitingToolApproval flips", () => {
+    const flags = () => ({});
+    const a = laneFingerprint([mk("a")], flags);
+    const b = laneFingerprint([mk("a", { awaitingToolApproval: true })], flags);
+    expect(a).not.toBe(b);
+  });
+});

@@ -1,7 +1,8 @@
 import { FieldShell, NumberField, type RegisteredSource, SelectField, SettingsDraftProvider, type SettingsDraftRegistry, SettingsNotice, TextField, ToggleField, useSettingsDraftSource, useSlotIntents } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
-import type { TrustMode } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import type { SupervisedModeConfig, TrustMode } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { DEFAULT_SUPERVISED_TOOLS } from "@blackbelt-technology/pi-dashboard-shared/tool-gate/supervised-policy.js";
 import { VALID_SETTINGS_TABS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-types.js";
 import {
   DISPLAY_PRESETS,
@@ -85,6 +86,7 @@ import { RESOURCE_PAGE_TYPE, type ResourcePageId, ScopedResourceGrid } from "../
 import { AccessPromptsSection } from "./AccessPromptsSection.js";
 import { AccessSection } from "./AccessSection.js";
 import { AgentPathGateSection } from "./AgentPathGateSection.js";
+import { SupervisedModeSection } from "./SupervisedModeSection.js";
 import { AllowedHostsSection } from "./AllowedHostsSection.js";
 import { CanvasTypesSettingsSection } from "./CanvasTypesSettingsSection.js";
 import { CardSectionsSection } from "./CardSectionsSection.js";
@@ -270,6 +272,8 @@ interface Config {
   agentPathGate?: { enabled: boolean; timeoutSeconds: number };
   /** Computed by GET /api/config (never persisted): `PI_DASHBOARD_AGENT_PATH_GATE` as set on the server. */
   agentPathGateEnvOverride?: "on" | "off" | null;
+  /** Supervised mode (tool approval) defaults. See change: add-supervised-tool-approval. */
+  supervisedMode?: SupervisedModeConfig;
   openspec?: {
     enabled?: boolean;
     pollIntervalSeconds?: number;
@@ -326,6 +330,9 @@ function parseEditorLimitMb(raw: string): number | null {
   return v >= 1 && v <= 256 ? v : null;
 }
 
+/** Client-side mirror of `DEFAULT_SUPERVISED_MODE` (shared config's node-only runtime is not importable here). */
+const defaultSupervisedMode = (): SupervisedModeConfig => ({ default: "full", timeoutSeconds: 120, tools: [...DEFAULT_SUPERVISED_TOOLS] });
+
 // Maps each config-diff key to the settings page it renders on, so the nav
 // rail can show a per-page dirty dot. See change: unify-settings-save-contract.
 export const CONFIG_FIELD_PAGE: Record<string, string> = {
@@ -340,7 +347,7 @@ export const CONFIG_FIELD_PAGE: Record<string, string> = {
   questionFirst: "sessions", askUserPromptTimeoutSeconds: "sessions", spawnRegisterTimeoutMs: "sessions", sessionList: "sessions",
   gitWorktreeEnabled: "sessions", dashboardName: "general", defaultModel: "sessions", defaultThinkingLevel: "sessions",
   windowsGitSource: "sessions", autoStart: "sessions", editor: "general",
-  trustedNetworks: "security", network: "security", pairing: "security", auth: "security", allowedHosts: "security", hostGate: "security", agentPathGate: "security",
+  trustedNetworks: "security", network: "security", pairing: "security", auth: "security", allowedHosts: "security", hostGate: "security", agentPathGate: "security", supervisedMode: "security",
   modelProxy: "providers",
   openspec: "openspec",
   devBuildOnReload: "developer", keeperLog: "developer",
@@ -453,6 +460,13 @@ export function computeConfigPartial(config: Config, original: Config): Record<s
     const a = config.agentPathGate ?? { enabled: true, timeoutSeconds: 120 };
     const b = original.agentPathGate ?? { enabled: true, timeoutSeconds: 120 };
     if (a.enabled !== b.enabled || a.timeoutSeconds !== b.timeoutSeconds) partial.agentPathGate = { enabled: a.enabled, timeoutSeconds: a.timeoutSeconds };
+  }
+  // Supervised mode: written whole (the tool list is a replace-list server-side).
+  // See change: add-supervised-tool-approval.
+  {
+    const a = config.supervisedMode ?? defaultSupervisedMode();
+    const b = original.supervisedMode ?? defaultSupervisedMode();
+    if (JSON.stringify(a) !== JSON.stringify(b)) partial.supervisedMode = { default: a.default, timeoutSeconds: a.timeoutSeconds, tools: a.tools };
   }
   /**
    * FIELD-level, not whole-object. `GET /api/config` returns the PARSED config,
@@ -652,6 +666,8 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
   // sweep interval ≥ 1 min. Invalid → field error + Save disabled.
   const [archiveDaysInvalid, setArchiveDaysInvalid] = useState(false);
   const [archiveSweepInvalid, setArchiveSweepInvalid] = useState(false);
+  // Supervised-mode timeout field refused value (10–3600). See change: add-supervised-tool-approval.
+  const [supervisedInvalid, setSupervisedInvalid] = useState(false);
   // Every field-level validation flag. Guards BOTH Save paths (the Save Bar button and the
   // unsaved-changes dialog's Save), so an invalid typed value never persists the last valid one.
   const fieldsInvalid =
@@ -661,7 +677,8 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
     archiveSweepInvalid ||
     sessionHeapInvalid ||
     serverHeapInvalid ||
-    subagentCapInvalid;
+    subagentCapInvalid ||
+    supervisedInvalid;
   const [message, setMessage] = useState<{ type: "success" | "error" | "warn"; text: string } | null>(null);
   // Restart is a slow op: the HTTP ack returns immediately but the effect lands
   // when the server re-broadcasts `server_restarting` with our requestId. Hold
@@ -2615,6 +2632,12 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
                   envOverride={config.agentPathGateEnvOverride ?? null}
                   onChange={(next) => update((c) => { c.agentPathGate = next; })}
                 />
+                <SupervisedModeSection
+                  value={config.supervisedMode ?? defaultSupervisedMode()}
+                  askUserTimeoutSeconds={config.askUserPromptTimeoutSeconds ?? 300}
+                  onChange={(next) => update((c) => { c.supervisedMode = next; })}
+                  onInvalidChange={setSupervisedInvalid}
+                />
                 <Section title={t("settings.pairDevice", undefined, "Pair a device")}>
                   {/* A route, not a duplicate (D2): Security keeps the words an
                       operator expects and one click to the act, which lives on
@@ -2831,7 +2854,7 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
 
       {/* Save Bar — present only while dirty (dirty-gated friction) or a
           numeric field is invalid (so the disabled Save explains why). */}
-      {(isDirty || editorLimitInvalid || spawnTimeoutInvalid || archiveDaysInvalid || archiveSweepInvalid || sessionHeapInvalid || serverHeapInvalid || subagentCapInvalid) && (
+      {(isDirty || editorLimitInvalid || spawnTimeoutInvalid || archiveDaysInvalid || archiveSweepInvalid || sessionHeapInvalid || serverHeapInvalid || subagentCapInvalid || supervisedInvalid) && (
         <div
           data-testid="settings-save-bar"
           className="shrink-0 flex items-center gap-3 px-4 py-3 border-t border-[var(--border-primary)] bg-[var(--bg-secondary)]"

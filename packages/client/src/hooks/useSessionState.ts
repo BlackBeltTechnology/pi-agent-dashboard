@@ -38,6 +38,7 @@ import {
   retailPendingInteractiveRows,
   type SessionState,
 } from "../lib/chat/event-reducer.js";
+import { supervisedPromptParams } from "../lib/chat/supervised-prompt-params.js";
 
 /**
  * Accumulator threaded through the pure reducer. `maxSeq` is the highest event
@@ -174,6 +175,8 @@ function addPromptBusRequest(
       questions: msg.prompt?.metadata?.questions,
       // Inline "Other" opt-in (core metadata key). See change: add-ask-user-inline-other.
       ...(msg.prompt?.metadata?.allowOther === true ? { allowOther: true } : {}),
+      // Supervised tool-approval keys, verbatim. See change: add-supervised-tool-approval (5.1a).
+      ...supervisedPromptParams(msg.prompt?.metadata),
       _promptBusComponent: msg.component,
       _promptBusPlacement: msg.placement,
     },

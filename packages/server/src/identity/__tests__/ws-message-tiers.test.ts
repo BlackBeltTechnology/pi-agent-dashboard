@@ -22,6 +22,11 @@ describe("WS_MESSAGE_TIERS", () => {
     expect(wsMessageTier("__proto__")).toBe("operate");
   });
 
+  it("set_supervised rides the same tier as the approval answer road (prompt_response) — add-supervised-tool-approval", () => {
+    expect(wsMessageTier("set_supervised")).toBe("control");
+    expect(wsMessageTier("set_supervised")).toBe(wsMessageTier("prompt_response"));
+  });
+
   it("matches the REST tiers of the equivalent routes", () => {
     expect(wsMessageTier("subscribe")).toBe("observe");
     expect(wsMessageTier("send_prompt")).toBe("control"); // POST /api/session/:id/prompt

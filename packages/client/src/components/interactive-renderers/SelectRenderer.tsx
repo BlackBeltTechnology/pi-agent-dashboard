@@ -8,9 +8,20 @@ import { AnsweredOption } from "./AnsweredOption.js";
 import { InlineMarkdown } from "./InlineMarkdown.js";
 import { OtherOption } from "./OtherOption.js";
 import { isCancelOption, parseOption } from "./parseOption.js";
+import { SUPERVISED_APPROVAL_KIND, ToolApprovalCard } from "./ToolApprovalCard.js";
 import type { InteractiveRendererProps } from "./types.js";
 
-export function SelectRenderer({ params, status, result, onRespond, onCancel }: InteractiveRendererProps) {
+/**
+ * `ask_user` select. A supervised tool-approval prompt (`params.kind`) renders as the dedicated
+ * `ToolApprovalCard`; every other select is the plain option list. The registry stays keyed by method.
+ * See change: add-supervised-tool-approval (design D3).
+ */
+export function SelectRenderer(props: InteractiveRendererProps) {
+  if (props.params.kind === SUPERVISED_APPROVAL_KIND) return <ToolApprovalCard {...props} />;
+  return <PlainSelectRenderer {...props} />;
+}
+
+function PlainSelectRenderer({ params, status, result, onRespond, onCancel }: InteractiveRendererProps) {
   const title = params.title as string;
   const message = params.message as string | undefined;
   // Non-string options are dropped (parseOption would throw on them). See change: add-ask-user-inline-other (X2).

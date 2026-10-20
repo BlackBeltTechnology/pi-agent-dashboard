@@ -7,6 +7,7 @@ import { shouldSkipByPrefilter } from "./auto-session-namer.js";
 import type { ConnectionManager } from "./connection.js";
 import type { GitTracker } from "./git-tracker.js";
 import type { PrStatusScheduler } from "./pr-status.js";
+import type { SupervisedRegistrationFields } from "./supervised-gate/mode-control.js";
 
 export interface BridgeContext {
   pi: ExtensionAPI;
@@ -104,6 +105,12 @@ export interface BridgeContext {
    * See change: tighten-process-list-ux.
    */
   selfSpawnedPgids: Set<number>;
+  /**
+   * Supervised-mode `{on, rev}` + `toolGateOwner` for a session's `session_register`
+   * (and records them as reported). Absent in unit-test contexts.
+   * See change: add-supervised-tool-approval (design D4, D12).
+   */
+  supervisedRegistration?: (sessionId: string) => SupervisedRegistrationFields;
 }
 
 // Commands that the dashboard handles natively with superior UX, filtered from

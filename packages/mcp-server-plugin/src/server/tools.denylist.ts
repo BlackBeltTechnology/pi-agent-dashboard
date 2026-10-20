@@ -210,6 +210,8 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "set_lane_collapsed", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "set_model", reason: "duplicate-of:set_model" },
   { pattern: "set_session_process_drawer", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
+  // See change: add-supervised-tool-approval. The agent must never be able to switch off its own approval gate.
+  { pattern: "set_supervised", reason: "operator-only: an MCP client (an agent) must not toggle the supervised tool-approval gate that constrains it" },
   { pattern: "set_thinking_level", reason: "duplicate-of:set_thinking_level" },
   { pattern: "set_workspace_collapsed", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "shutdown", reason: "duplicate-of:shutdown" },

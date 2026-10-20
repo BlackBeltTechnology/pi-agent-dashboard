@@ -12,3 +12,5 @@ Re-mint comment updated: the `mcp_token_minted` reply now re-registers `pi-dashb
 
 See change: fix-replay-fabricates-orphan-end-for-live-calls — exports `isLive(ctx, isAgentStreaming)` = `isAgentStreaming===true || ctx.isIdle()===false` (missing/throwing `isIdle` → idle; never throws). `replaySessionEntries(bc, opts?: {liveTailOpen?})` forwards opts to `replayEntriesAsEvents`. `handleSessionChange` replays with tail CLOSED (bc.cachedCtx = outgoing ctx; new/fork/resume has no turn in flight).
 `consumeSpawnToken` re-exported from `spawn-token.ts` (token scrubbed at activation, consumed once). See change: mirror-dashboard-trust-to-pi.
+
+`sendStateSync` and `handleSessionChange` spread `bc.supervisedRegistration?.(sid)` into `session_register` (`supervised:{on,rev}`, `toolGateOwner?`). See change: add-supervised-tool-approval.

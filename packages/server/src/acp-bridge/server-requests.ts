@@ -124,6 +124,7 @@ export function handleServerMessage(m: ServerToExtensionMessage, ctx: ServerRequ
     case "attach_proposal_changed":
     case "plugin_emit_event":
     case "preferences_update":
+    case "set_supervised": // pi-only: the supervised tool gate is a pi bridge feature
     case "subagent_resync_request":
     case "vault_snapshot":
       return ctx.ignored(m.type);

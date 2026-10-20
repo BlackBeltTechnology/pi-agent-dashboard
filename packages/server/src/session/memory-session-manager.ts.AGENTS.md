@@ -19,3 +19,5 @@ See change: fix-spawn-correlation-ttl-coupling (D3). `RegisterSessionParams.dash
 `onRemoved?(sessionId)` hook fires after `remove()` (archive evict). See change: distinguish-tool-result-pending-vs-gone.
 
 - `register()` stamps server-only in-memory `pidRecordedAt = Date.now()` whenever `params.pid` is set (cleared when a re-register carries no pid); never persisted, no protocol change. The shared terminator's identity guard compares `processStartedAt(pid)` to it. See change: fix-session-reclaim-tmux.
+
+- `register()` carries `supervised` + `supervisedRev` over a same-id re-register (reattach/reconnect); event-wiring reconciles with the bridge's copy. See change: add-supervised-tool-approval (D4).

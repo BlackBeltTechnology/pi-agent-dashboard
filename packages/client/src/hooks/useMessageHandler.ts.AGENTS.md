@@ -21,3 +21,5 @@ See change: add-pending-question-stack — `case "questions_update"` → `setQue
 `case "archive_session_error"` → `showToast(msg.error, "error")`; no state change. `session_archived` from a fileless eviction carries the unchanged folder count and is handled by the existing delete-card path. See change: fix-orphaned-ended-session-archive.
 
 `file_changed` stamps a unique monotonic generation (module-level counter) per candidate. See change: gate-changed-on-disk-by-content.
+
+`prompt_request` spreads `supervisedPromptParams(metadata)` into params. See change: add-supervised-tool-approval.

@@ -75,6 +75,14 @@ describe("ws-message-scope coverage (§7.4 / D10)", () => {
     }
   });
 
+  // X27 (scope half) — the mode flip rides the SAME owner-equality gate as `send_prompt`.
+  // See change: add-supervised-tool-approval.
+  it("#X27 set_supervised is owner-gated exactly like send_prompt", () => {
+    expect(classifyBrowserMessage("set_supervised")).toBe("session");
+    expect(isSessionOwnedMessage("set_supervised")).toBe(true);
+    expect(classifyBrowserMessage("set_supervised")).toBe(classifyBrowserMessage("send_prompt"));
+  });
+
   it("classifies global/workspace context-carrying types as non-session", () => {
     for (const t of ["request_models", "role_set", "list_files", "open_inline_terminal", "ui_management", "spawn_session"]) {
       expect(classifyBrowserMessage(t)).toBe("non-session");

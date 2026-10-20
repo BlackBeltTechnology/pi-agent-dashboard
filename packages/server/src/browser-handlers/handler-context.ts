@@ -26,6 +26,8 @@ import type { TerminalManager } from "../terminal/terminal-manager.js";
 
 export interface BrowserHandlerContext {
   ws: WebSocket;
+  /** Per-socket connection id (audit-log `source=`). Absent in unit contexts. */
+  connectionId?: string;
   sessionManager: SessionManager;
   eventStore: EventStore;
   piGateway: PiGateway;

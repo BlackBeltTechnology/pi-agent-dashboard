@@ -17,3 +17,7 @@ See change: fix-replay-fabricates-orphan-end-for-live-calls — onReconnect repl
 Activation captures `dashboardSpawned` via `captureSpawnTokenAtActivation()` (scrubs env). See change: mirror-dashboard-trust-to-pi.
 
 Follow-up drain: `drainFollowupQueue()` (no `retryCount`, no idle-retry loop) keeps the `isDraining` lock and wires the pure `drainOneFollowup` (`followup-drain.ts`); a false `isIdle()` returns, the next `agent_settled` drains (trigger in `bridge-handlers/forwarders.ts`). `enqueueSystemFollowup` ships at once when idle, else on the next settle. See change: update-pi-core-1-3-adopt-apis.
+
+Supervised gate: `createSupervisedGateForBridge` (after `vaultRedaction`, redacts via `vaultRedaction.masker.mask`, mode maps on `getBridgeState()`) registered as the FOURTH `tool_call` handler right after the path gate, WITHOUT `safe()` (own try/catch ⇒ `supervised: error`). Pinned by `supervised-gate/__tests__/bridge-wiring.test.ts` (#X4). See change: add-supervised-tool-approval.
+
+Supervised B2 wiring: `syncBc().supervisedRegistration` (⇒ `control.registrationFields`), `send` = `connection.send`, `consumeHandoff` = `pathGate.consumeHandoff`, path gate `supervisedInEffect` = `inst.supervisedGate.inEffect`, `redact` = vault mask; `before_agent_start` calls `control.reportIfChanged()`. See change: add-supervised-tool-approval.

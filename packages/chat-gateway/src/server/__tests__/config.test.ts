@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import configSchema from "../../configSchema.json";
 import { CONFIG_DEFAULTS } from "../../shared/types.js";
 import { isConfigured, redactToken, resolveConfig } from "../config.js";
 
@@ -132,5 +133,17 @@ describe("redactToken (E14 config secrecy)", () => {
 
   it("empty input -> empty string", () => {
     expect(redactToken("")).toBe("");
+  });
+});
+
+describe("toolPolicy.defaultAction stays gateway-only (add-supervised-tool-approval)", () => {
+  it('E4: "allow" is coerced to "deny" by the normaliser and rejected by the schema enum', () => {
+    const cfg = resolveConfig({ toolPolicy: { allow: ["read"], defaultAction: "allow" as any } });
+    expect(cfg.toolPolicy?.defaultAction).toBe("deny");
+    expect(cfg.toolPolicy?.allow).toEqual(["read"]);
+
+    const enumValues = configSchema.properties.toolPolicy.properties.defaultAction.enum;
+    expect(enumValues).toEqual(["deny", "approve"]);
+    expect(enumValues).not.toContain("allow");
   });
 });

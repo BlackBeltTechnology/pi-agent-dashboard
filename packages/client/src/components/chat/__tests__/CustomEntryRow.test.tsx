@@ -381,3 +381,47 @@ describe("CustomEntryRow — web-access claim (change: render-unclaimed-custom-e
     expect(screen.queryByTestId("web-search-entry")).toBeNull();
   });
 });
+
+// add-supervised-tool-approval (D11): the flip log is hidden, a decision record is a compact row.
+describe("CustomEntryRow — supervised entries", () => {
+  const decision = (over: Record<string, unknown> = {}) =>
+    customMsg({
+      customType: "supervised-tool-decision",
+      content: JSON.stringify({ sessionId: "s1", tool: "bash", summary: "bash: npm test", outcome: "approved", answeredSurface: "dashboard", via: "supervised", ...over }, null, 2),
+    });
+
+  it("supervised-mode entries render nothing", () => {
+    const { container } = renderRow(customMsg({ customType: "supervised-mode", content: '{"on":true,"rev":2}' }));
+    expect(container.textContent).toBe("");
+    expect(screen.queryByTestId("custom-entry-card")).toBeNull();
+  });
+
+  it("a decision renders a compact 'Approved by <surface>' row, not the raw JSON card", () => {
+    renderRow(decision());
+    const row = screen.getByTestId("supervised-decision-row");
+    expect(row.getAttribute("data-outcome")).toBe("approved");
+    expect(row.textContent).toContain("Approved");
+    expect(row.textContent).toContain("by dashboard");
+    expect(row.textContent).toContain("bash: npm test");
+    expect(screen.queryByTestId("custom-entry-card")).toBeNull();
+  });
+
+  it("denied / timeout / error read distinctly; timeout names no surface", () => {
+    renderRow(decision({ outcome: "denied", answeredSurface: "terminal" }));
+    expect(screen.getByTestId("supervised-decision-row").textContent).toContain("Denied");
+    expect(screen.getByTestId("supervised-decision-row").textContent).toContain("by terminal");
+    cleanup();
+    renderRow(decision({ outcome: "timeout", answeredSurface: "timeout" }));
+    expect(screen.getByTestId("supervised-decision-row").textContent).toContain("no answer in time");
+    expect(screen.getByTestId("supervised-decision-row").textContent).not.toContain("by timeout");
+    cleanup();
+    renderRow(decision({ outcome: "error", answeredSurface: "error" }));
+    expect(screen.getByTestId("supervised-decision-row").textContent).toContain("approval check failed");
+  });
+
+  it("an unparseable decision falls back to the generic card", () => {
+    renderRow(customMsg({ customType: "supervised-tool-decision", content: "not json" }));
+    expect(screen.queryByTestId("supervised-decision-row")).toBeNull();
+    expect(screen.getByTestId("custom-entry-card")).toBeTruthy();
+  });
+});

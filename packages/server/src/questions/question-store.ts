@@ -40,8 +40,12 @@ import { buildQuestionSnapshot } from "./question-snapshot.js";
 /** How long a transmitted answer is remembered for the 409 window. */
 export const TRANSMITTED_WINDOW_MS = 10 * 60_000;
 
-/** File-access prompt kinds (read-only in the stack; own approval road). */
-const FILE_ACCESS_KINDS: readonly string[] = ["agent-path-gate", "agent-path-gate-confirm"];
+/**
+ * File-access prompt kinds plus the supervised tool approval (read-only in the stack;
+ * own approval road, never briefed by a model). Enriched path prompts carry a
+ * file-access kind (and `metadata.supervised`). See change: add-supervised-tool-approval (D17).
+ */
+const FILE_ACCESS_KINDS: readonly string[] = ["agent-path-gate", "agent-path-gate-confirm", "supervised-tool-approval"];
 
 type RemovalReason = "cleared" | "reconciled" | "session-ended" | "dismissed" | "cancelled" | (string & {});
 
@@ -187,8 +191,9 @@ export function createQuestionStore(deps: QuestionStoreDeps): QuestionStore {
   }
 
   function originOf(msg: Record<string, unknown>, session: SessionDescriptor | undefined): QuestionOrigin | undefined {
-    const meta = (msg.prompt as { metadata?: { kind?: unknown } } | undefined)?.metadata;
+    const meta = (msg.prompt as { metadata?: { kind?: unknown; supervised?: unknown } } | undefined)?.metadata;
     if (typeof meta?.kind === "string" && FILE_ACCESS_KINDS.includes(meta.kind)) return "file";
+    if (meta?.supervised === true) return "file"; // supervised-enriched path prompt
     if (session?.chatGateway) return "chat-gateway";
     if (msg.placement === "widget-bar") return "widget-bar";
     return undefined;

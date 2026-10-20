@@ -1447,3 +1447,91 @@ describe("CommandInput — reconciled composer liveness", () => {
     expect(q(container, "stop-button")).not.toBeNull();
   });
 });
+
+// ── add-supervised-tool-approval: mode chip (5.1), gateway note (5.4a, F11) ──
+describe("CommandInput — Supervised mode control", () => {
+  const settingsRow = (c: HTMLElement) => c.querySelector('[data-testid="composer-settings-row"]') as HTMLElement;
+
+  it("shows the chip (Full access by default) in the settings row and flips via the menu", () => {
+    const onSetSupervised = vi.fn();
+    const { getByTestId, container } = renderInput({ onSetSupervised });
+    const chip = getByTestId("session-mode-chip");
+    expect(settingsRow(container).contains(chip)).toBe(true);
+    expect(chip.getAttribute("data-mode")).toBe("full");
+    expect(chip.textContent).toContain("Full access");
+    fireEvent.click(chip);
+    const menu = getByTestId("session-mode-menu");
+    expect(menu.getAttribute("role")).toBe("menu");
+    expect(getByTestId("session-mode-option-full").getAttribute("aria-checked")).toBe("true");
+    expect(getByTestId("session-mode-option-supervised").getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(getByTestId("session-mode-option-supervised"));
+    expect(onSetSupervised).toHaveBeenCalledWith(true);
+    expect(document.querySelector('[data-testid="session-mode-menu"]')).toBeNull();
+  });
+
+  it("reflects session.supervised: filled Supervised chip; picking Full access sends off", () => {
+    const onSetSupervised = vi.fn();
+    const { getByTestId } = renderInput({ onSetSupervised, supervised: true });
+    const chip = getByTestId("session-mode-chip");
+    expect(chip.getAttribute("data-mode")).toBe("supervised");
+    expect(chip.textContent).toContain("Supervised");
+    fireEvent.click(chip);
+    expect(getByTestId("session-mode-option-supervised").getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(getByTestId("session-mode-option-full"));
+    expect(onSetSupervised).toHaveBeenCalledWith(false);
+  });
+
+  it("the menu carries the scope caveats: not a sandbox, ! commands, YOLO, extensions, container", () => {
+    const { getByTestId } = renderInput({ onSetSupervised: vi.fn() });
+    fireEvent.click(getByTestId("session-mode-chip"));
+    const text = getByTestId("session-mode-caveat").textContent ?? "";
+    expect(text).toMatch(/not a sandbox/i);
+    expect(text).toMatch(/! commands never ask/);
+    expect(text).toMatch(/YOLO never answers/);
+    expect(text).toMatch(/extension starts on its own/);
+    expect(text).toMatch(/container \(Docker\)/);
+    expect(text).toMatch(/terminal, never in chat/);
+    expect(text).toMatch(/extension loaded later can still change an approved tool's input/);
+  });
+
+  it("Escape closes the menu", () => {
+    const { getByTestId } = renderInput({ onSetSupervised: vi.fn() });
+    fireEvent.click(getByTestId("session-mode-chip"));
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(document.querySelector('[data-testid="session-mode-menu"]')).toBeNull();
+  });
+
+  it("the chip folds under the same @[44rem] wrapper as thinking, and the ⋯ menu hosts both options (F23 shape)", () => {
+    const onSetSupervised = vi.fn();
+    const { getByTestId } = renderInput({ onSetSupervised, supervised: true });
+    expect(getByTestId("session-mode-chip").closest("span")?.className).toContain("hidden @[44rem]:inline-flex");
+    fireEvent.click(getByTestId("overflow-button"));
+    const menu = getByTestId("overflow-menu");
+    expect(menu.querySelector('[data-testid="session-mode-overflow"]')).not.toBeNull();
+    expect(menu.textContent).toMatch(/Not a sandbox/);
+    const supervisedItem = getByTestId("overflow-mode-supervised");
+    expect(supervisedItem.getAttribute("aria-checked")).toBe("true");
+    expect(supervisedItem.className).toContain("min-h-[44px]");
+    fireEvent.click(getByTestId("overflow-mode-full"));
+    expect(onSetSupervised).toHaveBeenCalledWith(false);
+  });
+
+  it("no chip without a live session (no onSetSupervised) and no gateway note", () => {
+    const { container } = renderInput();
+    expect(container.querySelector('[data-testid="session-mode-chip"]')).toBeNull();
+    expect(container.querySelector('[data-testid="session-mode-gateway"]')).toBeNull();
+  });
+
+  it("F11: toolGateOwner chat-gateway → chip absent, static 'Gateway policy' note present", () => {
+    const { container, getByTestId } = renderInput({ toolGateOwner: "chat-gateway", supervised: true, onSetSupervised: vi.fn() });
+    expect(container.querySelector('[data-testid="session-mode-chip"]')).toBeNull();
+    const note = getByTestId("session-mode-gateway");
+    expect(note.textContent).toContain("Gateway policy");
+    expect(note.getAttribute("role")).toBe("note");
+    expect(note.tagName).not.toBe("BUTTON");
+    expect(note.getAttribute("title")).toMatch(/chat gateway's tool policy/);
+    fireEvent.click(getByTestId("overflow-button"));
+    expect(getByTestId("overflow-menu").querySelector('[data-testid="session-mode-gateway"]')).not.toBeNull();
+    expect(document.querySelector('[data-testid="overflow-mode-supervised"]')).toBeNull();
+  });
+});

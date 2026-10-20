@@ -442,6 +442,36 @@ describe("chat-gateway orchestrator", () => {
     expect(adapter.cleaned).toHaveLength(1);
   });
 
+  // test-plan #E35 — supervised approvals are never rendered in a channel (spawned AND attached).
+  // See change: add-supervised-tool-approval (D17).
+  describe.each([
+    ["attached", "attach"],
+    ["spawned", "spawn"],
+  ] as const)("E35 supervised approvals are not posted (%s session)", (_label, source) => {
+    const frame = (promptId: string, metadata?: Record<string, unknown>) => ({
+      type: "prompt_request",
+      sessionId: "s1",
+      promptId,
+      prompt: { type: "select", title: "Allow bash?", options: ["Allow once", "Deny"], ...(metadata ? { metadata } : {}) },
+    });
+    it("skips kind supervised-tool-approval and the supervised-enriched path prompt; keeps the plain path prompt and ask_user", async () => {
+      const { gateway, seam, adapter } = makeGateway({ store: memoryStore([boundBinding({ source })]) });
+      seam.sessions = [{ id: "s1", cwd: "/repos/proj" }];
+      adapter.reset();
+
+      gateway.handleFrame("s1", frame("p1", { kind: "supervised-tool-approval", tool: "bash" }));
+      gateway.handleFrame("s1", frame("p2", { kind: "agent-path-gate", supervised: true }));
+      await flush();
+      expect(adapter.interactive).toHaveLength(0);
+
+      gateway.handleFrame("s1", frame("p3", { kind: "agent-path-gate" }));
+      gateway.handleFrame("s1", frame("p4"));
+      await flush();
+      expect(adapter.interactive).toHaveLength(2);
+      expect(adapter.interactive.every((i) => i.prompt.method === "select")).toBe(true);
+    });
+  });
+
   it("task 9: the L3 guard is loaded into a SPAWNED session when policy + extension are configured", async () => {
     const seam = createFakeSeam();
     const { gateway } = makeGateway({

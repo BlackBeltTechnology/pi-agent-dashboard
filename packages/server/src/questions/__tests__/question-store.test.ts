@@ -481,6 +481,32 @@ describe("question store", () => {
     });
   });
 
+  // test-plan #E34 — see change: add-supervised-tool-approval (D17).
+  describe("supervised approvals are read-only and never briefed (test-plan #E34)", () => {
+    const kinds: Array<[string, Record<string, unknown>]> = [
+      ["supervised-tool-approval", { kind: "supervised-tool-approval" }],
+      ["enriched agent-path-gate (supervised:true)", { kind: "agent-path-gate", supervised: true }],
+      ["supervised:true alone", { supervised: true }],
+    ];
+    it.each(kinds)("%s → origin file, unavailable, answerable:false, never claimed, no model call (auto or on-demand)", async (_label, metadata) => {
+      const { store, generate } = make();
+      const rec = store.onTracked("s1", promptMsg("s1", "p1", { metadata }))!;
+      await settle();
+      expect(rec.origin).toBe("file");
+      expect(rec.briefStatus).toBe("unavailable");
+      expect(store.getDetail(rec.id)).toMatchObject({ origin: "file", answerable: false, briefStatus: "unavailable" });
+      expect(store.claimPrompt("s1", "p1").status).toBe("unknown");
+      expect(await store.summarize(rec.id)).toMatchObject({ ok: false, reason: "unavailable" });
+      expect(generate).not.toHaveBeenCalled();
+    });
+    it("a plain prompt still gets the model brief (the exclusion is kind-scoped)", async () => {
+      const { store, generate } = make();
+      store.onTracked("s1", promptMsg("s1", "p1", { metadata: { kind: "agent-path-gate-unrelated" } }));
+      await settle();
+      expect(generate).toHaveBeenCalled();
+    });
+  });
+
   describe("auto generation never rejects unhandled", () => {
     it("a generate() that throws synchronously-ish is contained and recorded as failed", async () => {
       const { store } = make({ generate: async () => { throw new Error("boom"); } });

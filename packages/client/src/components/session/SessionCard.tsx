@@ -1,6 +1,7 @@
 import { ActionListMenuContext } from "@blackbelt-technology/pi-dashboard-client-utils/ActionListMenuContext";
 import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm";
 import { DialogPortal } from "@blackbelt-technology/pi-dashboard-client-utils/DialogPortal";
+import { awaitingOperatorApproval } from "@blackbelt-technology/pi-dashboard-shared/awaiting-operator-approval.js";
 import {
   HOST_PRESSURE_DEGRADED_MS,
   HOST_PRESSURE_UNRESPONSIVE_MS,
@@ -124,7 +125,7 @@ export function activityContent(
     return hasMovedAway(session) || !session.closedReason ? null : <EndedReasonPill session={session} />;
   }
 
-  if (session.awaitingFileAccess === true || (session.currentTool === "ask_user" && !hasWidgetBarPrompt)) {
+  if (awaitingOperatorApproval(session) || (session.currentTool === "ask_user" && !hasWidgetBarPrompt)) {
     // Blocked-on-you: distinct "Needs you" label + needs-you color + icon.
     // See change: improve-dashboard-attention-routing.
     return <span className="text-[var(--text-secondary)] truncate inline-flex items-center gap-0.5"><StatusGlyph status="needs-you" path={mdiCommentQuestion} /> {i18nT("common.needsYou", undefined, "Needs you")}</span>;

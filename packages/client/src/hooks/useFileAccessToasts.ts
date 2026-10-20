@@ -1,11 +1,13 @@
 /**
- * Non-modal "waiting for file access" toast (change: ask-agent-file-access-in-chat,
- * session-attention-routing). Fires when a session transitions to
- * `awaitingFileAccess` while the operator is NOT viewing it; withdrawn when the
+ * Non-modal "waiting for operator approval" toast (change: ask-agent-file-access-in-chat,
+ * session-attention-routing; supervised kind added by add-supervised-tool-approval, D16).
+ * Fires when a session transitions to `awaitingOperatorApproval` (file access OR a
+ * supervised tool approval; one toast per session) while the operator is NOT viewing it; withdrawn when the
  * flag clears (answered / cancelled / timed out) or the operator opens it. Never
  * blocks interaction (no modal, no auto-focus).
  */
 
+import { awaitingOperatorApproval } from "@blackbelt-technology/pi-dashboard-shared/awaiting-operator-approval.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { useEffect, useRef } from "react";
 import { t as i18nT } from "../lib/i18n/i18n.js";
@@ -19,6 +21,13 @@ export interface FileAccessToastApi {
     opts?: { action?: { label: string; onClick: () => void }; noAutoDismiss?: boolean; key?: string },
   ) => void;
   dismissToastByKey: (key: string) => void;
+}
+
+/** Tool approval wins the wording only when it is the sole pending kind. */
+function toastText(s: DashboardSession, name: string): string {
+  return s.awaitingToolApproval === true && s.awaitingFileAccess !== true
+    ? i18nT("supervised.waiting", { name }, "Session {name} is waiting for tool approval")
+    : i18nT("agentPathGate.waiting", { name }, "Session {name} is waiting for file access");
 }
 
 export function useFileAccessToasts(
@@ -36,7 +45,7 @@ export function useFileAccessToasts(
   useEffect(() => {
     const live = new Set<string>();
     for (const [id, s] of sessions) {
-      const awaiting = s.awaitingFileAccess === true && s.status !== "ended";
+      const awaiting = awaitingOperatorApproval(s) && s.status !== "ended";
       if (!awaiting) continue;
       live.add(id);
       const viewing = id === selectedId;
@@ -48,7 +57,7 @@ export function useFileAccessToasts(
       shown.current.add(id);
       const name = (s as { name?: string }).name || id.slice(0, 8);
       apiRef.current.showToast(
-        i18nT("agentPathGate.waiting", { name }, "Session {name} is waiting for file access"),
+        toastText(s, name),
         "warning",
         {
           key: fileAccessToastKey(id),

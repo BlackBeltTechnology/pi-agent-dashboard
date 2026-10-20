@@ -1537,3 +1537,71 @@ describe("knownServers fingerprint (#E11 #E12 #X7)", () => {
     expect(out.every((e) => !("fingerprint" in e))).toBe(true);
   });
 });
+
+// add-supervised-tool-approval: supervisedMode config (test-plan #E10 #E12 #E14 #E43).
+describe("supervisedMode config", () => {
+  let testDir: string;
+  let configFile: string;
+  let origHome: string;
+
+  beforeEach(() => {
+    testDir = fs.mkdtempSync(path.join(os.tmpdir(), "test-supervised-config-"));
+    fs.mkdirSync(path.join(testDir, ".pi", "dashboard"), { recursive: true });
+    configFile = path.join(testDir, ".pi", "dashboard", "config.json");
+    origHome = process.env.HOME!;
+    process.env.HOME = testDir;
+  });
+
+  afterEach(() => {
+    process.env.HOME = origHome;
+    fs.rmSync(testDir, { recursive: true, force: true });
+  });
+
+  const DEFAULT_SHAPE = { default: "full", timeoutSeconds: 120, tools: ["bash", "powershell", "write", "edit", "Agent"] };
+
+  it("E43: no supervisedMode key (and no config file) → default shape", () => {
+    expect(loadConfig().supervisedMode).toEqual(DEFAULT_SHAPE);
+    fs.writeFileSync(configFile, JSON.stringify({ port: 8123 }));
+    expect(loadConfig().supervisedMode).toEqual(DEFAULT_SHAPE);
+  });
+
+  it("E10: timeoutSeconds absent → 120; 45 → 45", () => {
+    fs.writeFileSync(configFile, JSON.stringify({ supervisedMode: { default: "full" } }));
+    expect(loadConfig().supervisedMode.timeoutSeconds).toBe(120);
+    fs.writeFileSync(configFile, JSON.stringify({ supervisedMode: { timeoutSeconds: 45 } }));
+    expect(loadConfig().supervisedMode.timeoutSeconds).toBe(45);
+  });
+
+  it("E14: timeout bounds 9/10/11/3599/3600/3601/'abc'/-5/parse error → 120/10/11/3599/3600/120/120/120/120", () => {
+    const cases: Array<[unknown, number]> = [
+      [9, 120],
+      [10, 10],
+      [11, 11],
+      [3599, 3599],
+      [3600, 3600],
+      [3601, 120],
+      ["abc", 120],
+      [-5, 120],
+    ];
+    for (const [input, expected] of cases) {
+      fs.writeFileSync(configFile, JSON.stringify({ supervisedMode: { timeoutSeconds: input } }));
+      expect(loadConfig().supervisedMode.timeoutSeconds, `input ${JSON.stringify(input)}`).toBe(expected);
+    }
+    fs.writeFileSync(configFile, "{ not json");
+    expect(loadConfig().supervisedMode.timeoutSeconds).toBe(120);
+  });
+
+  it("E12 (config half): default 'supervised' round-trips; unknown value → 'full'", () => {
+    fs.writeFileSync(configFile, JSON.stringify({ supervisedMode: { default: "supervised" } }));
+    expect(loadConfig().supervisedMode.default).toBe("supervised");
+    fs.writeFileSync(configFile, JSON.stringify({ supervisedMode: { default: "yolo" } }));
+    expect(loadConfig().supervisedMode.default).toBe("full");
+  });
+
+  it("tools: custom list kept (blank/non-string dropped); non-array → default set", () => {
+    fs.writeFileSync(configFile, JSON.stringify({ supervisedMode: { tools: ["bash", " ctx_execute ", "", 7] } }));
+    expect(loadConfig().supervisedMode.tools).toEqual(["bash", "ctx_execute"]);
+    fs.writeFileSync(configFile, JSON.stringify({ supervisedMode: { tools: "bash" } }));
+    expect(loadConfig().supervisedMode.tools).toEqual(DEFAULT_SHAPE.tools);
+  });
+});

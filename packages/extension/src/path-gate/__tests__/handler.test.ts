@@ -2,8 +2,12 @@ import * as fs from "node:fs";
 import os from "node:os";
 import nodePath from "node:path";
 import { parseAgentPathGate, resolveAgentPathGate } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { clearToolGateOwner, markToolGateOwner } from "@blackbelt-technology/pi-dashboard-shared/tool-gate/owner.js";
 import { describe, expect, it, vi } from "vitest";
+import { makeGate } from "../../supervised-gate/__tests__/harness.js";
+import { createSupervisedGateForBridge } from "../../supervised-gate/index.js";
 import { createPathGateHandler, type GatePrompter, type PathGateDeps } from "../handler.js";
+import { createHandoffSet } from "../handoff.js";
 import { defaultResolveEnv, type ResolveEnv } from "../resolve.js";
 import { Suppression } from "../suppression.js";
 import { createYoloLink } from "../yolo-link.js";
@@ -42,7 +46,7 @@ function harness(opts: {
   const answers = [...(opts.answers ?? [])];
   const confirms = [...(opts.confirms ?? [])];
   const cancelled: string[] = [];
-  const pendingResolvers = new Map<string, (v: undefined | boolean) => void>();
+  const pendingResolvers = new Map<string, (v: unknown) => void>();
   const selects: Array<{ id: string; title?: string; options: string[]; metadata: Record<string, unknown> }> = [];
   const confirmCalls: Array<{ id: string; metadata: Record<string, unknown> }> = [];
   const prompter: GatePrompter = {
@@ -68,7 +72,9 @@ function harness(opts: {
   const grantCalls: unknown[] = [];
   const counters = { inRoot: 0, asked: 0, blocked: 0 };
   let n = 0;
+  const handoff = createHandoffSet();
   const deps: PathGateDeps = {
+    handoff,
     getConfig: () => opts.cfg ?? { enabled: true, timeoutSeconds: 120 },
     getRoots: async (grants) => ({ workspace: opts.roots ?? ["/w/repo"], readOnly: [], readWrite: [], grants }),
     getGrants: () => [],
@@ -95,7 +101,9 @@ function harness(opts: {
   };
   const call = (toolName: string, path: string, extra: Record<string, unknown> = {}) =>
     handler({ toolName, toolCallId: "tc1", input: { path, ...extra } }, ctx as never);
-  return { call, advance, selects, confirmCalls, cancelled, logs, notifications, grantCalls, counters, deps, tick: () => t };
+  const callId = (toolName: string, path: string, toolCallId: string | undefined, extra: Record<string, unknown> = {}) =>
+    handler({ toolName, ...(toolCallId ? { toolCallId } : {}), input: { path, ...extra } }, ctx as never);
+  return { call, callId, handoff, resolve: (id: string, v: unknown) => pendingResolvers.get(id)?.(v), advance, selects, confirmCalls, cancelled, logs, notifications, grantCalls, counters, deps, tick: () => t };
 }
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -538,5 +546,215 @@ describe("path-gate × YOLO (change: yolo-covers-agent-path-gate)", () => {
     times.sort((a, b) => a - b);
     expect(times[Math.floor(times.length * 0.95)]).toBeLessThan(1);
     expect(sent).toHaveLength(0);
+  });
+});
+
+describe("path-gate × supervised composition (change: add-supervised-tool-approval, D14)", () => {
+  const OUT = "/w/other/a.txt";
+  const edit = { edits: [{ oldText: "a", newText: "b" }] };
+  const write = { content: "hello\nworld\n" };
+
+  /** Real accessor from the assembled supervised gate: mode × owner × risky set. */
+  function compose(o: { mode: boolean; owner?: "chat-gateway"; tools?: string[] }) {
+    const gate = createSupervisedGateForBridge({
+      state: {} as never,
+      getSessionId: () => "S1",
+      getPromptBus: () => undefined,
+      readConfig: () => ({ default: "full", timeoutSeconds: 120, tools: o.tools ?? ["bash", "powershell", "write", "edit", "Agent"] }),
+      configFile: "/nonexistent/config.json",
+      redact: (s) => s,
+      appendEntry: () => {},
+      log: () => {},
+    });
+    gate.modes.set("S1", o.mode);
+    if (o.owner) markToolGateOwner("S1", o.owner);
+    return gate;
+  }
+  const withOwnerCleanup = async (fn: () => Promise<void>) => {
+    try {
+      await fn();
+    } finally {
+      clearToolGateOwner("S1");
+    }
+  };
+
+  const expectEnriched = (md: Record<string, unknown>, tool: string) => {
+    expect(md.supervised).toBe(true);
+    for (const field of [md.message, md.plainMessage] as string[]) {
+      expect(field).toMatch(/\+\d+ −\d+/);
+      expect(field).toContain(tool === "write" ? "+hello" : "-a");
+    }
+    expect(md.message).toContain("```diff");
+    expect(md.message).toContain("Path: `/w/other/a.txt`"); // original lines kept
+  };
+  const expectUnchanged = (md: Record<string, unknown>) => {
+    expect(md).not.toHaveProperty("supervised");
+    expect(md.message).not.toMatch(/\+\d+ −\d+/);
+    expect(md.plainMessage).not.toMatch(/\+\d+ −\d+/);
+  };
+
+  it("#E21 enrichment decision table: (mode, tool, owner) → enriched or unchanged", async () => {
+    const rows: Array<{ mode: boolean; tool: string; owner?: "chat-gateway"; enriched: boolean; extra: Record<string, unknown> }> = [
+      { mode: true, tool: "edit", enriched: true, extra: edit },
+      { mode: true, tool: "write", enriched: true, extra: write },
+      { mode: false, tool: "edit", enriched: false, extra: edit },
+      { mode: true, tool: "read", enriched: false, extra: {} },
+      { mode: true, tool: "edit", owner: "chat-gateway", enriched: false, extra: edit },
+    ];
+    for (const r of rows) {
+      await withOwnerCleanup(async () => {
+        const h = harness({ answers: ["Deny"] });
+        h.deps.supervisedInEffect = compose(r).inEffect;
+        await h.call(r.tool, OUT, r.extra);
+        const md = h.selects[0].metadata;
+        expect(h.selects).toHaveLength(1);
+        if (r.enriched) expectEnriched(md, r.tool);
+        else expectUnchanged(md);
+      });
+    }
+  });
+
+  it("#E21 the enrichment diff is capped at 16 KiB with the truncation marker", async () => {
+    const h = harness({ answers: ["Deny"] });
+    h.deps.supervisedInEffect = () => true;
+    await h.call("write", OUT, { content: "x".repeat(40_000).replace(/(.{80})/g, "$1\n") });
+    const msg = h.selects[0].metadata.message as string;
+    expect(msg).toContain("… (truncated)");
+    expect(Buffer.byteLength(msg)).toBeLessThan(18_000);
+  });
+
+  it("enrichment text is secret-redacted and a throwing accessor degrades to an unenriched prompt", async () => {
+    const h = harness({ answers: ["Deny", "Deny"] });
+    h.deps.supervisedInEffect = () => true;
+    h.deps.redact = (t) => t.replace(/hunter2/g, "[REDACTED]");
+    await h.call("write", OUT, { content: "pw=hunter2\n" });
+    expect(h.selects[0].metadata.message).not.toContain("hunter2");
+    expect(h.selects[0].metadata.message).toContain("[REDACTED]");
+    h.deps.supervisedInEffect = () => {
+      throw new Error("boom");
+    };
+    h.advance(121_000); // clear 120 s suppression window
+    await h.call("write", "/w/other/b.txt", write);
+    expect(h.selects[1].metadata).not.toHaveProperty("supervised");
+  });
+
+  it("#E19 hand-off set is bounded to 64 ids per session (FIFO): 63 / 64 keep t1, 65 evicts it", async () => {
+    for (const [n, kept] of [[63, true], [64, true], [65, false]] as const) {
+      const h = harness({ answers: Array(n).fill("Allow once") });
+      h.deps.supervisedInEffect = () => true;
+      for (let i = 1; i <= n; i++) expect(await h.callId("write", OUT, `t${i}`, write)).toBeUndefined();
+      const sup = makeGate({ handoff: (sid, id) => h.handoff.consume(sid, id), sid: "S1" });
+      const p = sup.call("bash", { command: "ls" }, "t1");
+      await Promise.resolve();
+      if (kept) {
+        expect(await p).toBeUndefined();
+        expect(sup.prompter.reqs).toHaveLength(0);
+        expect(sup.records.at(-1)).toMatchObject({ via: "path-gate", outcome: "approved", tool: "bash" });
+      } else {
+        await new Promise((r) => setTimeout(r, 0));
+        expect(sup.prompter.reqs).toHaveLength(1);
+        sup.prompter.answer("Deny");
+        await p;
+      }
+    }
+  });
+
+  it("#E20 hand-off only for Allow once on an ENRICHED prompt; consumed once (the gate never sees a response `source`)", async () => {
+    type Row = { name: string; setup: (h: ReturnType<typeof harness>) => void; answers?: string[]; confirms?: boolean[]; path?: string; expectSkip: boolean };
+    const rows: Row[] = [
+      { name: "allow once (enriched)", setup: () => {}, answers: ["Allow once"], expectSkip: true },
+      { name: "always allow + confirm", setup: () => {}, answers: ["Always allow /w/other…"], confirms: [true], expectSkip: false },
+      { name: "silent in-root allow", setup: () => {}, path: "/w/repo/in.txt", expectSkip: false },
+      {
+        name: "existing grant",
+        setup: (h) => {
+          h.deps.getGrants = () => ["/w/other"];
+          h.deps.getRoots = async (grants) => ({ workspace: ["/w/repo"], readOnly: [], readWrite: [], grants });
+        },
+        expectSkip: false,
+      },
+      {
+        name: "yolo auto-allow",
+        setup: (h) => {
+          h.deps.yoloSupported = () => true;
+          h.deps.yoloDecide = async () => "auto-allow";
+        },
+        expectSkip: false,
+      },
+    ];
+    for (const r of rows) {
+      const h = harness({ answers: r.answers ?? [], confirms: r.confirms });
+      h.deps.supervisedInEffect = () => true;
+      r.setup(h);
+      expect(await h.callId("write", r.path ?? OUT, "tcX", write), r.name).toBeUndefined();
+      const consumed = h.handoff.consume("S1", "tcX");
+      expect(consumed, r.name).toBe(r.expectSkip);
+      if (r.expectSkip) expect(h.handoff.consume("S1", "tcX"), `${r.name} second call`).toBe(false);
+    }
+  });
+
+  it("#E22(a) a call with no toolCallId records nothing → supervised prompt follows", async () => {
+    const h = harness({ answers: ["Allow once"] });
+    h.deps.supervisedInEffect = () => true;
+    expect(await h.callId("edit", OUT, undefined, edit)).toBeUndefined();
+    expect(h.handoff.has("S1")).toBe(false);
+    const sup = makeGate({ handoff: (sid, id) => h.handoff.consume(sid, id) });
+    const p = sup.call("edit", { path: OUT, edits: edit.edits }, "");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(sup.prompter.reqs).toHaveLength(1);
+    sup.prompter.answer("Deny");
+    await p;
+  });
+
+  it("#E22(b) prompt opened while Full, session flipped Supervised, answered Allow once → not recorded, supervised prompt follows", async () => {
+    const h = harness({ answers: ["hang"] });
+    let on = false;
+    h.deps.supervisedInEffect = () => on;
+    const p = h.callId("write", OUT, "tcF", write);
+    await tick();
+    expect(h.selects[0].metadata).not.toHaveProperty("supervised");
+    on = true; // flipped while the (unenriched) path prompt is open
+    h.resolve(h.selects[0].id, "Allow once");
+    expect(await p).toBeUndefined();
+    expect(h.handoff.has("S1")).toBe(false);
+    const sup = makeGate({ handoff: (sid, i) => h.handoff.consume(sid, i) });
+    const q = sup.call("write", { path: OUT, ...write }, "tcF");
+    await tick();
+    expect(sup.prompter.reqs).toHaveLength(1);
+    sup.prompter.answer("Deny");
+    await q;
+  });
+
+  it("#X9 (handler side) owner chat-gateway + mode on: supervised request never called; path prompt unenriched", async () => {
+    await withOwnerCleanup(async () => {
+      const g = compose({ mode: true, owner: "chat-gateway" });
+      const h = harness({ answers: ["Allow once"] });
+      h.deps.supervisedInEffect = g.inEffect;
+      expect(await h.callId("write", OUT, "tcG", write)).toBeUndefined();
+      expect(h.selects[0].metadata).not.toHaveProperty("supervised");
+      expect(h.handoff.has("S1")).toBe(false);
+      const sup = makeGate({ mode: true, owner: (sid) => (sid === "S1" ? "chat-gateway" : undefined), sid: "S1" });
+      expect(await sup.call("bash", { command: "ls" }, "b1")).toBeUndefined();
+      expect(sup.prompter.reqs).toHaveLength(0);
+    });
+  });
+
+  it("#X24 version skew: guard active but owner slot empty → the supervised prompt is still requested (never 0)", async () => {
+    const sup = makeGate({ mode: true, owner: () => undefined });
+    const p = sup.call("bash", { command: "ls" }, "b1");
+    await tick();
+    expect(sup.prompter.reqs).toHaveLength(1);
+    sup.prompter.answer("Allow once");
+    expect(await p).toBeUndefined();
+  });
+
+  it("#X20 clearing a session drops its hand-off ids; another session's stay", () => {
+    const set = createHandoffSet();
+    set.record("s1", "a");
+    set.record("s2", "b");
+    set.clear("s1");
+    expect(set.has("s1")).toBe(false);
+    expect(set.consume("s1", "a")).toBe(false);
+    expect(set.consume("s2", "b")).toBe(true);
   });
 });

@@ -36,3 +36,5 @@ Optional trailing ctor param `questionStore?: QuestionStore` (`questions/`). `tr
 `frameClassOf`: `services_changed` → `{cls:"state", key:"services_changed"}` (coalescing, never shed). See change: add-services-settings-ui.
 
 `frameClassOf`: `archive_session_error` → `{cls:"state", key:"archive_session_error:<sessionId>"}` (never shed; latest per session wins). See change: fix-orphaned-ended-session-archive.
+
+Browser `set_supervised` → `handleSetSupervised` (owner-gated by `SESSION_OWNED_MESSAGES`, silent drop for non-owners). `BrowserHandlerContext.connectionId` = per-socket `grantSocketId` (audit log `source=`). See change: add-supervised-tool-approval (D4, X27/X28).

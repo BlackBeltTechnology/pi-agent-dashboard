@@ -4,6 +4,8 @@
  * unchanged stored session order (design D1).
  * See change: session-list-group-by.
  */
+
+import { awaitingOperatorApproval } from "@blackbelt-technology/pi-dashboard-shared/awaiting-operator-approval.js";
 import {
   type GroupByMode,
   type GroupByPrefs,
@@ -195,7 +197,7 @@ export function laneFingerprint(sessions: DashboardSession[], flagsFor: (id: str
     const f = flagsFor(s.id);
     const bits = [
       s.currentTool === "ask_user",
-      s.awaitingFileAccess,
+      awaitingOperatorApproval(s),
       s.compacting,
       s.resuming,
       s.unread,

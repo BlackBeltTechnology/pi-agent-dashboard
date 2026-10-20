@@ -5,3 +5,5 @@ Shared mutable bridge state + pure predicates. Exports `BridgeContext`, `DASHBOA
 `lastGitPrNumber` → `lastGitPrJson` (serialized PR tuple); `prStatus?: PrStatusScheduler` (stable ref across snapshots). See change: redesign-composer-session-strip.
 
 `BridgeContext.gitTracker?: GitTracker` (stable ref across `syncBc()`). See change: optimize-polling-hot-paths.
+
+`BridgeContext.supervisedRegistration?(sid)` ⇒ `SupervisedRegistrationFields` (optional; absent in unit contexts). See change: add-supervised-tool-approval.

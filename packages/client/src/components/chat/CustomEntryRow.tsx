@@ -26,6 +26,12 @@ import { useDisplayPrefs } from "../../hooks/useDisplayPrefs.js";
 import type { ChatMessage } from "../../lib/chat/event-reducer.js";
 import { ErrorBoundary } from "../primitives/ErrorBoundary.js";
 import { CustomEntryCard } from "./CustomEntryCard.js";
+import {
+  parseSupervisedDecision,
+  SUPERVISED_DECISION_ENTRY,
+  SUPERVISED_MODE_ENTRY,
+  SupervisedDecisionRow,
+} from "./SupervisedDecisionRow.js";
 
 /**
  * Evaluate a `custom-entry-renderer` claim's optional `shouldRender`. Absent or
@@ -91,6 +97,14 @@ export function CustomEntryRow({ msg, sessionId }: Props) {
 
   // Group gate: applied at every site via this single container.
   if (prefs.customEventGroups[msg.groupId ?? "other"] === false) return null;
+
+  // Supervised mode: the flip log is internal (hidden); a decision record is a compact row.
+  // Anything unparseable keeps the generic card. See change: add-supervised-tool-approval.
+  if (customType === SUPERVISED_MODE_ENTRY) return null;
+  if (customType === SUPERVISED_DECISION_ENTRY) {
+    const decision = parseSupervisedDecision(msg.content);
+    if (decision) return <SupervisedDecisionRow decision={decision} />;
+  }
 
   const fallback = (
     <CustomEntryCard customType={customType} body={msg.content} timestamp={msg.timestamp} />

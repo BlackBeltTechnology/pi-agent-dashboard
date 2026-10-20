@@ -51,3 +51,22 @@ describe("decideToolCall (deny-first)", () => {
     expect(decideToolCall(undefined as any, { allow: ["read"] }).action).toBe("deny");
   });
 });
+
+describe('"allow" default via the chat-gateway re-export (add-supervised-tool-approval)', () => {
+  it("E2: defaultAction allow resolves an unlisted tool to allow — not deny", () => {
+    expect(decideToolCall("read", { approval: ["bash"], defaultAction: "allow" })).toEqual({ action: "allow" });
+  });
+
+  it("E3: absent defaultAction still denies (gateway posture unchanged)", () => {
+    expect(decideToolCall("rm_tool", { allow: ["read"] })).toEqual({
+      action: "deny",
+      reason: "denied_by_default",
+    });
+  });
+
+  it("E13: allow beats approval even under defaultAction allow", () => {
+    expect(decideToolCall("bash", { allow: ["bash"], approval: ["bash"], defaultAction: "allow" })).toEqual({
+      action: "allow",
+    });
+  });
+});
