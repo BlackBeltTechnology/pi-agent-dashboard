@@ -1983,6 +1983,15 @@ export function useMessageHandler(
         window.dispatchEvent(new CustomEvent("plugin-config-update", { detail: msg }));
         break;
 
+      case "plugins_changed":
+        // Full plugin status snapshot (discovery refresh, toggle, local detection).
+        // Re-emitted as a DOM event, like `plugin-config-update`, so the Plugins tab and
+        // `usePluginEnabledSet` stay independent of the WS plumbing. An older client
+        // that lacks this case ignores the type via the default branch.
+        // See change: decouple-plugins-from-core (tasks 5.8, 5.11, 5.18).
+        window.dispatchEvent(new CustomEvent("plugins-changed", { detail: msg }));
+        break;
+
       // bootstrap_status_update + bootstrap_ticket_complete WS messages
       // removed under change: eliminate-electron-runtime-install (task 3.1).
       // pi-core update progress still flows via the surviving pi_core_event

@@ -2,7 +2,9 @@
  * Fetch /api/health and call `registry.setEnabledSet(...)` with the set of
  * plugin ids whose `enabled !== false`. Re-fetches on every
  * `plugin_config_update` broadcast (dispatched as a DOM CustomEvent by
- * useMessageHandler).
+ * useMessageHandler). A `plugins_changed` broadcast (also a DOM event) carries
+ * the full status snapshot: the enabled set AND `pluginAvailability` are
+ * recomputed from that same snapshot, with no extra fetch.
  *
  * Also exposes `startedAt` so the Plugins tab can detect a server restart
  * (to clear its Restart-required banner).
@@ -42,6 +44,16 @@ export function usePluginEnabledSet(registry: SlotRegistry): PluginEnabledSetSta
           startedAt?: string;
         };
         if (cancelled) return;
+        applySnapshot(body.plugins ?? []);
+        if (typeof body.startedAt === "string") setStartedAt(body.startedAt);
+      } catch {
+        /* network failure — keep current state */
+      }
+    }
+
+    /** Recompute the enabled set + plugin availability from one status snapshot. */
+    function applySnapshot(plugins: ReadonlyArray<PluginStatusLike>) {
+      try {
         // Default-allow semantics: the enabled set is
         //   (every build-time-known plugin id) MINUS (explicitly disabled ids).
         // This prevents a misconfigured / incomplete server-side discovery
@@ -53,7 +65,7 @@ export function usePluginEnabledSet(registry: SlotRegistry): PluginEnabledSetSta
           registry.getAllPluginsForActivationUi().map((p) => p.id),
         );
         const explicitlyDisabled = new Set(
-          (body.plugins ?? [])
+          plugins
             .filter((p) => p.enabled === false)
             .map((p) => p.id),
         );
@@ -63,7 +75,7 @@ export function usePluginEnabledSet(registry: SlotRegistry): PluginEnabledSetSta
         }
         // Also include server-known plugins not in build-time registry,
         // unless explicitly disabled (handles future external plugins).
-        for (const p of body.plugins ?? []) {
+        for (const p of plugins) {
           if (p.enabled !== false) enabled.add(p.id);
         }
         registry.setEnabledSet(enabled);
@@ -72,7 +84,7 @@ export function usePluginEnabledSet(registry: SlotRegistry): PluginEnabledSetSta
         setSessionReducerEnabledSet(enabled);
         // Owned-event group rows decide at render time from this table
         // (the reducer never reads it). See change: decouple-plugins-from-core.
-        applyPluginStatuses(body.plugins ?? []);
+        applyPluginStatuses(plugins);
         // A changed set means a plugin's `projectTypes` rules joined/left, so every
         // cached folder project is suspect. An unchanged refresh keeps the cache.
         // See change: add-project-scoped-apps.
@@ -85,9 +97,8 @@ export function usePluginEnabledSet(registry: SlotRegistry): PluginEnabledSetSta
         // predicate) would otherwise stay stale, so publish the invalidation
         // signal to force one re-read. See change: add-custom-entry-renderer-slot.
         bumpSlotClaimsVersion();
-        if (typeof body.startedAt === "string") setStartedAt(body.startedAt);
       } catch {
-        /* network failure — keep current state */
+        /* malformed snapshot — keep current state */
       }
     }
 
@@ -100,10 +111,17 @@ export function usePluginEnabledSet(registry: SlotRegistry): PluginEnabledSetSta
     const onPluginConfigUpdate = () => {
       void refresh();
     };
+    // `plugins_changed` carries the status snapshot itself: no refetch.
+    const onPluginsChanged = (e: Event) => {
+      const plugins = (e as CustomEvent<{ plugins?: PluginStatusLike[] }>).detail?.plugins;
+      if (Array.isArray(plugins)) applySnapshot(plugins);
+    };
     window.addEventListener("plugin-config-update", onPluginConfigUpdate);
+    window.addEventListener("plugins-changed", onPluginsChanged);
     return () => {
       cancelled = true;
       window.removeEventListener("plugin-config-update", onPluginConfigUpdate);
+      window.removeEventListener("plugins-changed", onPluginsChanged);
     };
   }, [registry]);
 

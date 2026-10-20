@@ -20,7 +20,7 @@ import {
   setDeclaredBundledPluginIds,
 } from "../server/loader.js";
 import { createLocalScopeDetector, LOCAL_SCOPE_ERROR } from "../server/local-scope-detector.js";
-import { createPluginRefresher } from "../server/plugin-refresh.js";
+import { createPluginRefresher, HOT_ROUTE_RESTART_ERROR } from "../server/plugin-refresh.js";
 import type { ServerPluginContext } from "../server/server-context.js";
 
 type G = { __refreshSpy?: string[]; __refreshGate?: Promise<void> };
@@ -57,11 +57,13 @@ function ctx(): ServerPluginContext {
 }
 
 /** `kind`: ok = records + returns; throw = throws boom; gate = awaits g.__refreshGate. */
-function writePlugin(id: string, opts: { kind?: "ok" | "throw" | "gate"; version?: string } = {}) {
+function writePlugin(id: string, opts: { kind?: "ok" | "throw" | "gate" | "listening"; version?: string } = {}) {
   const dir = path.join(root, "packages", `${id}-plugin`);
   fs.mkdirSync(dir, { recursive: true });
   const body =
-    opts.kind === "throw"
+    opts.kind === "listening"
+      ? `throw Object.assign(new Error('Fastify instance is already listening. Cannot call "get"!'), { code: "FST_ERR_INSTANCE_ALREADY_LISTENING" });`
+      : opts.kind === "throw"
       ? `throw new Error("boom");`
       : opts.kind === "gate"
         ? `(globalThis.__refreshSpy ||= []).push(${JSON.stringify(id)}); await globalThis.__refreshGate;`
@@ -156,6 +158,28 @@ describe("refreshPluginDiscovery — failures and coalescing", () => {
     expect(row("bad")?.error).toContain("boom");
     expect(row("good")).toMatchObject({ loaded: true });
     expect(broadcasts).toHaveLength(1);
+  });
+
+  it("design gap: a hot-added entry that registers Fastify routes after listen is loaded:false + restartRequired with a clear error", async () => {
+    const { loadDeps, refresher, broadcasts } = setup();
+    await loadServerEntries(loadDeps);
+    writePlugin("routes", { kind: "listening" });
+    await refresher.refreshPluginDiscovery();
+    expect(row("routes")).toMatchObject({ loaded: false, restartRequired: true, error: HOT_ROUTE_RESTART_ERROR });
+    expect(broadcasts).toHaveLength(1);
+    // a plain throw is NOT flagged: it is a genuine load failure
+    writePlugin("bad", { kind: "throw" });
+    await refresher.refreshPluginDiscovery();
+    expect(row("bad")?.restartRequired).toBeUndefined();
+  });
+
+  it("5.14: logs one structured line per refresh with added/changed/removed/local-detected counts and duration", async () => {
+    const { loadDeps, refresher } = setup();
+    await loadServerEntries(loadDeps);
+    writePlugin("fresh");
+    await refresher.refreshPluginDiscovery();
+    const lines = (console.info as unknown as ReturnType<typeof vi.fn>).mock.calls.map((c) => String(c[0]));
+    expect(lines.some((l) => /\[plugin-loader\] refresh: added=1 changed=0 removed=0 local-detected=0 duration=\d+ms/.test(l))).toBe(true);
   });
 
   it.each([1, 2, 3])("E57: %i extra request(s) while a run is in flight coalesce into exactly one follow-up", async (extra) => {

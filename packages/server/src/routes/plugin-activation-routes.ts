@@ -134,6 +134,29 @@ function broadcastToggleUpdates(
 }
 
 /**
+ * Re-enabling a discovered plugin whose server entry never loaded needs a restart: a refresh
+ * loads NEW ids only (design D14, R20). Flag a row that was disabled at boot so the Plugins tab shows the hint and the
+ * runtime client stays refused. Returns the ids it flagged (so a rollback can unflag them).
+ */
+function flagNeverLoadedReenables(flips: Array<{ id: string; enabled: boolean }>): string[] {
+  const store = getPluginStatusStore();
+  const flagged: string[] = [];
+  for (const flip of flips) {
+    if (!flip.enabled) continue;
+    const row = store.getStatus(flip.id);
+    if (!row || row.loaded || row.enabled || row.source === "local-detected" || row.restartRequired) continue;
+    store.setStatus({ ...row, restartRequired: true });
+    flagged.push(flip.id);
+  }
+  return flagged;
+}
+
+/** One `plugins_changed` with the current status snapshot (after the per-id config updates). */
+function broadcastPluginsChanged(broadcast: (msg: ServerToBrowserMessage) => void): void {
+  broadcast({ type: "plugins_changed", plugins: getPluginStatusStore().listAll() });
+}
+
+/**
  * Live teardown of WS routes on disable (spec add-browser-relay /
  * plugin-ws-route: sockets close 1001, later upgrades 404) — without a restart.
  * REST routes the plugin mounted stay until restart, which is why
@@ -202,8 +225,10 @@ export function setPluginsEnabled(
 
   const { nextPlugins, mergedPerId } = applyToggleFlips(existingPlugins, flips);
   writeRawConfig({ ...existing, plugins: nextPlugins });
+  const flagged = flagNeverLoadedReenables(flips);
   broadcastToggleUpdates(broadcast, mergedPerId, repoRoot);
   teardownDisabledWsRoutes(enabled, flips);
+  broadcastPluginsChanged(broadcast);
 
   const rollback = () => {
     const current = readRawConfig();
@@ -219,7 +244,16 @@ export function setPluginsEnabled(
       }
     }
     writeRawConfig({ ...current, plugins: restored });
+    const store = getPluginStatusStore();
+    for (const flaggedId of flagged) {
+      const row = store.getStatus(flaggedId);
+      if (row) {
+        const { restartRequired: _drop, ...rest } = row;
+        store.setStatus(rest);
+      }
+    }
     broadcastToggleUpdates(broadcast, restoredBlocks, repoRoot);
+    broadcastPluginsChanged(broadcast);
   };
   return { ok: true, flips, impact, rollback };
 }
@@ -291,6 +325,31 @@ export function registerPluginActivationRoutes(
           status: status ?? null,
         };
       });
+
+      // Rows with no discovered plugin behind them: a plugin whose server entry is still loaded
+      // although its package disappeared (`restartRequired`), and local-detected plugins. One row per
+      // id; any other id absent from discovery is not returned. See change: decouple-plugins-from-core (5.10).
+      const discoveredIds = new Set(plugins.map((p) => p.manifest.id));
+      for (const status of all) {
+        if (discoveredIds.has(status.id)) continue;
+        if (!(status.source === "local-detected" || (status.loaded && status.restartRequired))) continue;
+        rows.push({
+          id: status.id,
+          // No discovered package behind the row: "" = unknown (the client's documented sentinel).
+          packageDir: "",
+          displayName: status.displayName,
+          priority: 1000,
+          firstParty: false,
+          hasServer: status.loaded,
+          hasBridge: false,
+          hasClient: false,
+          claims: [],
+          requires: null,
+          dependsOn: status.dependsOn ?? [],
+          dependents: Array.from(transitiveDependents(graph, status.id)).sort(),
+          status,
+        });
+      }
 
       return reply.status(200).send({ success: true, plugins: rows });
     },

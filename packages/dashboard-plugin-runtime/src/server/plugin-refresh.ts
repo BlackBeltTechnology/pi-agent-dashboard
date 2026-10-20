@@ -47,20 +47,56 @@ export interface PluginRefresher {
   refreshPluginDiscovery(): Promise<void>;
 }
 
+/** Error text recorded when a hot-added plugin's server entry tried to register Fastify routes after listen. */
+export const HOT_ROUTE_RESTART_ERROR =
+  "Server entry registers HTTP routes, which cannot be added while the server is running. Restart the dashboard to load this plugin.";
+
+/** Fastify's refusal to add a route/hook/plugin after `listen()` (`FST_ERR_INSTANCE_ALREADY_LISTENING`). */
+function isAlreadyListeningError(error: string | undefined): boolean {
+  return typeof error === "string" && /already listening|FST_ERR_INSTANCE_ALREADY_LISTENING/i.test(error);
+}
+
+/**
+ * A refresh runs after Fastify is listening, so a hot-added plugin whose server entry calls
+ * `fastify.get(...)` throws. The loader already records that as `loaded:false` + error; make it
+ * explicit (a clear error and `restartRequired`) so the Plugins tab shows the restart hint.
+ * See change: decouple-plugins-from-core (design D14, Open Questions).
+ */
+function flagHotRouteFailures(newIds: ReadonlySet<string>): void {
+  const store = getPluginStatusStore();
+  for (const id of newIds) {
+    const row = store.getStatus(id);
+    if (row && !row.loaded && isAlreadyListeningError(row.error)) {
+      store.setStatus({ ...row, error: HOT_ROUTE_RESTART_ERROR, restartRequired: true });
+    }
+  }
+}
+
+interface ReconcileResult {
+  newIds: Set<string>;
+  /** Existing rows flagged because their package changed. */
+  changed: number;
+  /** Rows whose package vanished (kept with `restartRequired` or dropped). */
+  removed: number;
+}
+
 /**
  * Reconcile the status store with a fresh discovery. Vanished: keep a loaded row
  * (`restartRequired`), drop one whose server entry never loaded. Existing: refresh the
- * discovery-derived fields, flag a changed package. Returns the NEW ids (no row yet).
+ * discovery-derived fields, flag a changed package. Returns the NEW ids (no row yet) plus change counts.
  */
-function reconcileStore(discovered: readonly DiscoveredPlugin[]): Set<string> {
+function reconcileStore(discovered: readonly DiscoveredPlugin[]): ReconcileResult {
   const store = getPluginStatusStore();
   const discoveredIds = new Set(discovered.map((p) => p.manifest.id));
   // Local-detected rows are owned by the detector; it re-applies after the load pass.
   const rows = store.listAll().filter((r) => r.source !== "local-detected");
   const rowIds = new Set(rows.map((r) => r.id));
 
+  let removed = 0;
+  let changed = 0;
   for (const row of rows) {
     if (discoveredIds.has(row.id)) continue;
+    removed++;
     if (wasLoadedThisProcess(row.id)) store.setStatus({ ...row, restartRequired: true });
     else store.removeStatus(row.id);
   }
@@ -75,13 +111,15 @@ function reconcileStore(discovered: readonly DiscoveredPlugin[]): Set<string> {
     }
     // Keep the row, refresh its discovery-derived fields (source, shadowed copies); never reload.
     const { shadowed: _stale, source: _src, ...kept } = row;
+    const packageChanged = loadedPackageChanged(plugin);
+    if (packageChanged) changed++;
     store.setStatus({
       ...kept,
       ...discoveryFields(plugin),
-      ...(loadedPackageChanged(plugin) ? { restartRequired: true } : {}),
+      ...(packageChanged ? { restartRequired: true } : {}),
     });
   }
-  return newIds;
+  return { newIds, changed, removed };
 }
 
 export function createPluginRefresher(deps: PluginRefresherDeps): PluginRefresher {
@@ -89,11 +127,12 @@ export function createPluginRefresher(deps: PluginRefresherDeps): PluginRefreshe
   let followUp: Promise<void> | null = null;
 
   async function run(): Promise<void> {
+    const startedAt = Date.now();
     const store = getPluginStatusStore();
     if (deps.readDeclaredBundledIds) setDeclaredBundledPluginIds(deps.readDeclaredBundledIds());
     clearDiscoveryCache();
     deps.clearContentHashCache?.();
-    const newIds = reconcileStore(discoverForDeps(deps.loadDeps));
+    const { newIds, changed, removed } = reconcileStore(discoverForDeps(deps.loadDeps));
 
     if (newIds.size > 0) {
       try {
@@ -101,10 +140,16 @@ export function createPluginRefresher(deps: PluginRefresherDeps): PluginRefreshe
       } catch (e) {
         console.error("[plugin-loader] refresh: additive load failed:", e);
       }
+      flagHotRouteFailures(newIds);
     }
 
     deps.localDetector?.rerun();
-    deps.broadcast(store.listAll());
+    const all = store.listAll();
+    console.info(
+      `[plugin-loader] refresh: added=${newIds.size} changed=${changed} removed=${removed} ` +
+        `local-detected=${all.filter((r) => r.source === "local-detected").length} duration=${Date.now() - startedAt}ms`,
+    );
+    deps.broadcast(all);
   }
 
   function refreshPluginDiscovery(): Promise<void> {

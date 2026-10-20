@@ -247,7 +247,7 @@ import { PiCoreChecker } from "./pi/pi-core-checker.js";
 import { PiCoreUpdater } from "./pi/pi-core-updater.js";
 import { createPiGateway } from "./pi/pi-gateway.js";
 import { listGlobalSkills } from "./pi/pi-resource-scanner.js";
-import { createPluginDiscoveryWiring, type PluginDiscoveryWiring } from "./plugin-discovery-wiring.js";
+import { createPackageCompletionHandler, createPluginDiscoveryWiring, type PluginDiscoveryWiring } from "./plugin-discovery-wiring.js";
 import * as pluginEventSeam from "./plugin-event-seam.js";
 import { pluginIntentCache } from "./plugin-intent-cache.js";
 import { createPluginRequestLane } from "./plugin-request-lane.js";
@@ -2865,27 +2865,33 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   let modelProxyMounted = false;
 
   // On completion: broadcast to browsers + invalidate the recommended cache
-  packageManagerWrapper.setCompleteListener((result) => {
-    browserGateway.broadcastToAll({
-      type: "package_operation_complete",
-      operationId: result.operationId,
-      action: result.action,
-      source: result.source,
-      scope: result.scope,
-      success: result.success,
-      error: result.error,
-      diagnostics: result.diagnostics,
-      sessionsReloaded: (result as OperationResult & { sessionsReloaded?: number }).sessionsReloaded,
-      ...(result.moveId ? { moveId: result.moveId } : {}),
-      ...(result.partialSuccess ? { partialSuccess: result.partialSuccess } : {}),
-    } as PackageOperationCompleteMessage);
-    if (result.success) invalidateRecommendedCache();
+  packageManagerWrapper.setCompleteListener(createPackageCompletionHandler<OperationResult>({
+    broadcastComplete: (result) => {
+      browserGateway.broadcastToAll({
+        type: "package_operation_complete",
+        operationId: result.operationId,
+        action: result.action,
+        source: result.source,
+        scope: result.scope,
+        success: result.success,
+        error: result.error,
+        diagnostics: result.diagnostics,
+        sessionsReloaded: (result as OperationResult & { sessionsReloaded?: number }).sessionsReloaded,
+        ...(result.moveId ? { moveId: result.moveId } : {}),
+        ...(result.partialSuccess ? { partialSuccess: result.partialSuccess } : {}),
+      } as PackageOperationCompleteMessage);
+    },
+    invalidateRecommendedCache,
+    // Hot-add: a successful op refreshes plugin discovery (global) or local-scope detection
+    // (local); ONE `plugins_changed` follows the completion broadcast. Never from
+    // `package-routes.ts`. See change: decouple-plugins-from-core (task 5.7, D16).
+    discovery: () => pluginDiscovery,
     // A successful package operation may have changed plugin requirement
     // satisfaction. Refresh probes and broadcast plugin_config_update for
     // any plugin whose `missingRequirements` flipped.
     // See change: add-plugin-activation-ui.
-    if (result.success) {
-      void refreshRequirementProbesFor(
+    refreshProbes: () =>
+      refreshRequirementProbesFor(
         null,
         {
           listInstalled: () => packageManagerWrapper.listInstalled("global"),
@@ -2901,9 +2907,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
             config: status ?? {},
           });
         }
-      });
-    }
-  });
+      }),
+  }));
 
   // Reload all active sessions after a successful package operation
   packageManagerWrapper.setReloadSessions(async () => {

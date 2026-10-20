@@ -3,7 +3,7 @@
  * See change: add-plugin-activation-ui.
  */
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { usePluginList, usePluginToggle } from "../../hooks/usePluginToggle.js";
 import { PluginsSection } from "../packages/PluginsSection.js";
@@ -264,5 +264,93 @@ describe("PluginsSection — promoted rows", () => {
     expect(roles.textContent).toContain("Models");
     expect(roles.textContent).not.toContain("not in Settings nav");
     expect(screen.getByTestId("plugin-disabled-note-subagents").textContent).toContain("not in Settings nav");
+  });
+});
+
+// decouple-plugins-from-core test-plan #E65 (task 8.83) + live `plugins_changed` (#F6 mechanism).
+describe("PluginsSection — discovery fields and live updates", () => {
+  const status = (id: string, over: any = {}) => ({ id, displayName: id, enabled: true, loaded: true, claims: 0, ...over });
+  const mount = (plugins: any[]) => {
+    const { fetchImpl, calls } = makeFetchSequence([
+      { url: /\/api\/plugins$/, body: { success: true, plugins } },
+      { url: /\/api\/health/, body: { ok: true, startedAt: "2025-01-01T00:00:00Z", plugins: [] } },
+    ]);
+    vi.stubGlobal("fetch", fetchImpl);
+    render(<MountedPluginsSection />);
+    return calls;
+  };
+
+  it("E65: renders source, the restart hint, a refusal + reason, and one row per id with the shadowed copy as a sub-line", async () => {
+    mount([
+      pluginRow({
+        id: "quota",
+        displayName: "Quota",
+        status: status("quota", {
+          source: "workspace",
+          restartRequired: true,
+          shadowed: [{ source: "pi-package", packageDir: "/home/u/.pi/agent/npm/node_modules/quota" }],
+        }),
+      }),
+      pluginRow({
+        id: "quota-ui",
+        displayName: "Quota UI",
+        status: status("quota-ui", { source: "installed", client: { delivery: "refused", refusedReason: "missing-dep" } }),
+      }),
+    ]);
+    expect(await screen.findByTestId("plugin-row-quota")).toBeTruthy();
+    expect(screen.getAllByTestId("plugin-row-quota")).toHaveLength(1);
+    expect(screen.getByTestId("plugin-source-quota").textContent).toContain("workspace");
+    expect(screen.getByTestId("plugin-restart-hint-quota")).toBeTruthy();
+    const sub = screen.getByTestId("plugin-shadowed-quota");
+    expect(sub.textContent).toContain("pi-package");
+    expect(sub.textContent).toContain("/home/u/.pi/agent/npm/node_modules/quota");
+    expect(screen.queryByTestId("plugin-shadowed-quota-ui")).toBeNull();
+    expect(screen.getByTestId("plugin-source-quota-ui").textContent).toContain("installed");
+    const refused = screen.getByTestId("plugin-client-refused-quota-ui");
+    expect(refused.textContent).toContain("missing-dep");
+    expect(screen.queryByTestId("plugin-restart-hint-quota-ui")).toBeNull();
+  });
+
+  it("a local-detected row shows the amber badge + install-globally copy, no failed-to-load notice, toggle disabled", async () => {
+    mount([
+      pluginRow({
+        id: "loc",
+        displayName: "Loc",
+        status: status("loc", {
+          source: "local-detected",
+          enabled: false,
+          loaded: false,
+          error: "Local-scope plugins are not loaded in this release. Install globally with --scope global to enable.",
+        }),
+      }),
+    ]);
+    expect(await screen.findByTestId("plugin-local-detected-loc")).toBeTruthy();
+    expect(screen.getByTestId("plugin-local-detected-note-loc").textContent).toContain("--scope global");
+    expect(screen.queryByTestId("plugin-status-error-loc")).toBeNull();
+    expect((screen.getByTestId("plugin-toggle-loc") as HTMLInputElement).disabled).toBe(true);
+    expect(screen.getByTestId("plugin-row-loc").textContent).not.toContain("Failed to load");
+  });
+
+  it("F6: a plugins-changed event adds a new row, updates a changed one and drops a vanished one, with NO refetch", async () => {
+    const calls = mount([pluginRow({ id: "a", displayName: "A", status: status("a") }), pluginRow({ id: "gone", displayName: "Gone", status: status("gone", { enabled: false, loaded: false }) })]);
+    await screen.findByTestId("plugin-row-a");
+    const listCalls = () => calls.filter((c) => /\/api\/plugins$/.test(c.url)).length;
+    expect(listCalls()).toBe(1);
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("plugins-changed", {
+          detail: {
+            type: "plugins_changed",
+            plugins: [status("a", { restartRequired: true, source: "workspace" }), status("fresh", { displayName: "Fresh", source: "pi-package" })],
+          },
+        }),
+      );
+    });
+    expect(await screen.findByTestId("plugin-row-fresh")).toBeTruthy();
+    expect(screen.getByTestId("plugin-source-fresh").textContent).toContain("pi-package");
+    expect(screen.getByTestId("plugin-restart-hint-a")).toBeTruthy();
+    expect(screen.queryByTestId("plugin-row-gone")).toBeNull();
+    expect(listCalls()).toBe(1);
   });
 });

@@ -1,0 +1,12 @@
+{
+  "name": "e2e-plugin-live-pkg",
+  "version": "1.0.0",
+  "description": "E2E fixture: a manifest-bearing pi package with no server entry, installed live through POST /api/packages/install.",
+  "keywords": ["pi-package", "pi-dashboard-plugin"],
+  "pi-dashboard-plugin": {
+    "id": "e2e-live-plugin",
+    "displayName": "E2E Live Plugin",
+    "claims": [],
+    "hostApi": "^1.0.0"
+  }
+}

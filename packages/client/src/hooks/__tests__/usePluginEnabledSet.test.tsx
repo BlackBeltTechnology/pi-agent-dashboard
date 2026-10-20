@@ -77,3 +77,34 @@ describe("usePluginEnabledSet → pluginAvailability", () => {
     expect(isPluginUnavailable("b")).toBe(false);
   });
 });
+
+// decouple-plugins-from-core task 5.18: `plugins_changed` recomputes the set AND availability from its own snapshot.
+describe("usePluginEnabledSet → plugins_changed", () => {
+  it("recomputes the enabled set and pluginAvailability from the broadcast snapshot, without a refetch", async () => {
+    plugins = [{ id: "a", enabled: true, loaded: true }];
+    const registry = createSlotRegistry();
+    const setEnabledSet = vi.spyOn(registry, "setEnabledSet");
+    renderHook(() => usePluginEnabledSet(registry));
+    await waitFor(() => expect(fetchMock()).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      await fetchMock().mock.results[0]?.value;
+    });
+    expect(isPluginUnavailable("late")).toBe(false);
+    const callsBefore = setEnabledSet.mock.calls.length;
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("plugins-changed", {
+          detail: { type: "plugins_changed", plugins: [{ id: "a", enabled: true, loaded: true }, { id: "late", enabled: true, loaded: false }, { id: "off", enabled: false, loaded: false }] },
+        }),
+      );
+    });
+    expect(fetchMock()).toHaveBeenCalledTimes(1);
+    expect(setEnabledSet.mock.calls.length).toBe(callsBefore + 1);
+    const set = setEnabledSet.mock.calls.at(-1)?.[0] as Set<string>;
+    expect(set.has("late")).toBe(true);
+    expect(set.has("off")).toBe(false);
+    expect(isPluginUnavailable("late")).toBe(true);
+    expect(isPluginUnavailable("a")).toBe(false);
+  });
+});

@@ -13,8 +13,10 @@ import {
   discoverPlugins,
   getPluginStatusStore,
 } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import type { PluginStatus } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/plugin-status.js";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { createPluginDiscoveryWiring } from "../plugin-discovery-wiring.js";
 import { registerPluginActivationRoutes, setPluginsEnabled } from "../routes/plugin-activation-routes.js";
 
 const HOME_OVERRIDE = path.join(os.tmpdir(), "pi-dashboard-activation-test-" + process.pid);
@@ -205,9 +207,10 @@ describe("POST /api/plugins/:id/toggle", () => {
     const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf-8"));
     expect(cfg.plugins["act-b"].enabled).toBe(false);
 
-    expect(broadcasts).toHaveLength(1);
+    expect(broadcasts).toHaveLength(2);
     expect((broadcasts[0] as any).type).toBe("plugin_config_update");
     expect((broadcasts[0] as any).id).toBe("act-b");
+    expect((broadcasts[1] as any).type).toBe("plugins_changed");
   });
 
   it("returns 404 for unknown plugin id", async () => {
@@ -281,9 +284,11 @@ describe("POST /api/plugins/:id/toggle", () => {
     expect(cfg.plugins["cas-a"].enabled).toBe(true);
     expect(cfg.plugins["cas-b"].enabled).toBe(true);
 
-    // Two broadcasts, one per affected id.
-    const ids = broadcasts.map((m) => (m as { id: string }).id).sort();
-    expect(ids).toEqual(["cas-a", "cas-b"]);
+    // One plugin_config_update per affected id, then one plugins_changed.
+    const updates = broadcasts.filter((m) => (m as { type: string }).type === "plugin_config_update");
+    expect(updates.map((m) => (m as { id: string }).id).sort()).toEqual(["cas-a", "cas-b"]);
+    expect((broadcasts.at(-1) as { type: string }).type).toBe("plugins_changed");
+    expect(broadcasts.filter((m) => (m as { type: string }).type === "plugins_changed")).toHaveLength(1);
   });
 
   it("disabling cascades enabled dependents and writes atomically", async () => {
@@ -358,12 +363,242 @@ describe("setPluginsEnabled (shared by the hub toggle)", () => {
     const cfg = JSON.parse(fs.readFileSync(cfgFile(), "utf-8"));
     expect(cfg.plugins["spe-rb-a"].enabled).toBe(true);
     expect(cfg.plugins["spe-rb-b"].enabled).toBe(true);
-    expect(broadcasts).toHaveLength(4); // 2 on toggle + 2 on rollback
+    expect(broadcasts).toHaveLength(6); // (2 updates + 1 plugins_changed) on toggle, again on rollback
+    expect(broadcasts.filter((m) => (m as { type: string }).type === "plugins_changed")).toHaveLength(2);
   });
 
   it("unknown id → 404 result, blockers → 409 result", () => {
     const repoRoot = pair("spe-err");
     const deps = { broadcast: () => {}, repoRoot };
     expect(setPluginsEnabled("nope", true, deps)).toMatchObject({ ok: false, status: 404 });
+  });
+});
+
+// ── Phase 4B: toggle broadcasts, never-loaded re-enable, GET rows (tests 8.75e, 8.77, 8.78, 8.80, 8.82) ──
+
+const typeOf = (m: unknown) => (m as { type: string }).type;
+
+describe("toggle broadcast order + re-enable restart (E62, E58e)", () => {
+  let app: FastifyInstance;
+  let broadcasts: unknown[];
+  beforeEach(() => {
+    clearDiscoveryCache();
+    clearStatusStore();
+    fs.rmSync(HOME_OVERRIDE, { recursive: true, force: true });
+    originalHome = process.env.HOME;
+    process.env.HOME = HOME_OVERRIDE;
+    broadcasts = [];
+  });
+  afterEach(async () => {
+    await app?.close();
+    if (originalHome !== undefined) process.env.HOME = originalHome;
+    else delete process.env.HOME;
+    fs.rmSync(HOME_OVERRIDE, { recursive: true, force: true });
+  });
+
+  it("E62: toggle demo off → plugin_config_update(demo) then exactly one plugins_changed; 200 restartRequired", async () => {
+    app = await makeApp(makeRepoRootWithPlugin("demo", "Demo"), broadcasts);
+    const res = await app.inject({ method: "POST", url: "/api/plugins/demo/toggle", payload: { enabled: false } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ success: true, restartRequired: true });
+    expect(JSON.parse(fs.readFileSync(path.join(HOME_OVERRIDE, ".pi", "dashboard", "config.json"), "utf-8")).plugins.demo.enabled).toBe(false);
+    expect(broadcasts.map(typeOf)).toEqual(["plugin_config_update", "plugins_changed"]);
+    expect((broadcasts[0] as { id: string }).id).toBe("demo");
+  });
+
+  it("E62: nonexistent → 404, config bytes unchanged, no broadcast", async () => {
+    app = await makeApp(makeRepoRootWithPlugin("demo", "Demo", { enabledInConfig: true }), broadcasts);
+    const cfgPath = path.join(HOME_OVERRIDE, ".pi", "dashboard", "config.json");
+    const before = fs.readFileSync(cfgPath, "utf-8");
+    const res = await app.inject({ method: "POST", url: "/api/plugins/nonexistent/toggle", payload: { enabled: false } });
+    expect(res.statusCode).toBe(404);
+    expect(fs.readFileSync(cfgPath, "utf-8")).toBe(before);
+    expect(broadcasts).toEqual([]);
+  });
+
+  it("E62: toggle quota off with dependent quota-ui → one update per id, one plugins_changed, cascade.disable", async () => {
+    const repoRoot = makeRepoRootWithPluginPair(
+      "e62-cascade",
+      { id: "quota", displayName: "Quota", enabledInConfig: true },
+      { id: "quota-ui", displayName: "Quota UI", dependsOn: ["quota"], enabledInConfig: true },
+    );
+    app = await makeApp(repoRoot, broadcasts);
+    const res = await app.inject({ method: "POST", url: "/api/plugins/quota/toggle", payload: { enabled: false } });
+    expect(res.json()).toMatchObject({ restartRequired: true, cascade: { disable: ["quota-ui"] } });
+    expect(broadcasts.filter((m) => typeOf(m) === "plugin_config_update").map((m) => (m as { id: string }).id).sort()).toEqual(["quota", "quota-ui"]);
+    expect(broadcasts.filter((m) => typeOf(m) === "plugins_changed")).toHaveLength(1);
+    expect(typeOf(broadcasts.at(-1))).toBe("plugins_changed");
+  });
+
+  it("E58(e): a discovered never-loaded plugin toggled on → 200 restartRequired, entry not loaded, row flagged in the broadcast snapshot", async () => {
+    const repoRoot = makeRepoRootWithPlugin("late", "Late", { enabledInConfig: false });
+    // Disabled at boot: the loader recorded it enabled:false / loaded:false and never ran its entry.
+    getPluginStatusStore().setStatus({ id: "late", displayName: "Late", enabled: false, loaded: false, claims: 0, source: "workspace" });
+    app = await makeApp(repoRoot, broadcasts);
+    const res = await app.inject({ method: "POST", url: "/api/plugins/late/toggle", payload: { enabled: true } });
+    expect(res.json()).toMatchObject({ success: true, restartRequired: true });
+    expect(getPluginStatusStore().getStatus("late")).toMatchObject({ loaded: false, restartRequired: true });
+    const snapshot = (broadcasts.find((m) => typeOf(m) === "plugins_changed") as { plugins: PluginStatus[] }).plugins;
+    expect(snapshot.find((p) => p.id === "late")).toMatchObject({ loaded: false, restartRequired: true });
+  });
+
+  it("an already-loaded plugin toggled on/off is not flagged by the re-enable rule", async () => {
+    getPluginStatusStore().setStatus({ id: "live", displayName: "Live", enabled: true, loaded: true, claims: 0 });
+    app = await makeApp(makeRepoRootWithPlugin("live", "Live", { enabledInConfig: true }), broadcasts);
+    await app.inject({ method: "POST", url: "/api/plugins/live/toggle", payload: { enabled: true } });
+    expect(getPluginStatusStore().getStatus("live")?.restartRequired).toBeUndefined();
+  });
+
+  it("restore path (rollback) also broadcasts one plugins_changed and unflags what the toggle flagged", () => {
+    const repoRoot = makeRepoRootWithPlugin("rb", "Rb", { enabledInConfig: false });
+    process.env.HOME = HOME_OVERRIDE;
+    getPluginStatusStore().setStatus({ id: "rb", displayName: "Rb", enabled: false, loaded: false, claims: 0 });
+    const r = setPluginsEnabled("rb", true, { broadcast: (m) => broadcasts.push(m), repoRoot });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(getPluginStatusStore().getStatus("rb")?.restartRequired).toBe(true);
+    r.rollback();
+    expect(getPluginStatusStore().getStatus("rb")?.restartRequired).toBeUndefined();
+    expect(broadcasts.map(typeOf)).toEqual(["plugin_config_update", "plugins_changed", "plugin_config_update", "plugins_changed"]);
+  });
+});
+
+describe("GET /api/plugins rows (E59, E60, E64)", () => {
+  let app: FastifyInstance;
+  let tmpProj: string;
+  beforeEach(() => {
+    clearDiscoveryCache();
+    clearStatusStore();
+    fs.rmSync(HOME_OVERRIDE, { recursive: true, force: true });
+    originalHome = process.env.HOME;
+    process.env.HOME = HOME_OVERRIDE;
+    tmpProj = fs.mkdtempSync(path.join(os.tmpdir(), "act-routes-proj-"));
+  });
+  afterEach(async () => {
+    await app?.close();
+    if (originalHome !== undefined) process.env.HOME = originalHome;
+    else delete process.env.HOME;
+    fs.rmSync(HOME_OVERRIDE, { recursive: true, force: true });
+    fs.rmSync(tmpProj, { recursive: true, force: true });
+  });
+
+  function localPlugin(cwd: string, id: string): void {
+    const dir = path.join(cwd, ".pi", "npm", "node_modules", id);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: id, "pi-dashboard-plugin": { id, displayName: id, claims: [] } }));
+    fs.writeFileSync(path.join(cwd, ".pi", "settings.json"), JSON.stringify({ packages: [`npm:${id}`] }));
+  }
+  function wiringFor(cwds: string[], pc: unknown[]) {
+    return createPluginDiscoveryWiring({
+      loadDeps: { createContext: () => ({}) as never, isEnabled: () => true, repoRoot: path.join(tmpProj, "none"), discovery: { piPackages: false } },
+      readDeclaredBundledIds: () => undefined,
+      listActiveCwds: () => cwds,
+      broadcastPluginsChanged: (p) => pc.push(p),
+    });
+  }
+  const getRows = async () => ((await app.inject({ method: "GET", url: "/api/plugins" })).json() as { plugins: any[] }).plugins;
+
+  it("E59(a): a local-detected plugin shows as one never-loaded row with the install-globally copy", async () => {
+    const cwd = path.join(tmpProj, "A");
+    localPlugin(cwd, "quota");
+    const pc: unknown[] = [];
+    const w = wiringFor([cwd], pc);
+    app = await makeApp(makeRepoRootWithPlugin("other", "Other"));
+    w.onSessionRegistered(cwd);
+    const rows = await getRows();
+    const quota = rows.filter((r) => r.id === "quota");
+    expect(quota).toHaveLength(1);
+    expect(quota[0].status).toMatchObject({
+      id: "quota",
+      source: "local-detected",
+      enabled: false,
+      loaded: false,
+      error: "Local-scope plugins are not loaded in this release. Install globally with --scope global to enable.",
+    });
+    expect(quota[0].hasServer).toBe(false);
+    expect(quota[0].dependents).toEqual([]);
+  });
+
+  it("E59(b): the same id also global and loaded → one row, local copy folded into shadowed", async () => {
+    const cwd = path.join(tmpProj, "A");
+    localPlugin(cwd, "quota");
+    const w = wiringFor([cwd], []);
+    app = await makeApp(makeRepoRootWithPlugin("quota", "Quota"));
+    getPluginStatusStore().setStatus({ id: "quota", displayName: "Quota", enabled: true, loaded: true, claims: 0, source: "workspace" });
+    w.onSessionRegistered(cwd);
+    const rows = (await getRows()).filter((r) => r.id === "quota");
+    expect(rows).toHaveLength(1);
+    expect(rows[0].status.shadowed).toEqual([{ source: "local-detected", packageDir: path.join(cwd, ".pi", "npm", "node_modules", "quota") }]);
+  });
+
+  it("E60(a): session end → no row in GET /api/plugins, exactly one plugins_changed without it", async () => {
+    const cwd = path.join(tmpProj, "A");
+    localPlugin(cwd, "quota");
+    const cwds = [cwd];
+    const pc: PluginStatus[][] = [];
+    const w = wiringFor(cwds, pc);
+    app = await makeApp(makeRepoRootWithPlugin("other", "Other"));
+    w.onSessionRegistered(cwd);
+    expect((await getRows()).some((r) => r.id === "quota")).toBe(true);
+    cwds.length = 0;
+    w.onSessionEnded();
+    expect((await getRows()).some((r) => r.id === "quota")).toBe(false);
+    expect(pc).toHaveLength(2);
+    expect(pc[1].some((p) => p.id === "quota")).toBe(false);
+  });
+
+  it("E60(b): two sessions share the cwd; one ends → row kept, 0 extra plugins_changed", async () => {
+    const cwd = path.join(tmpProj, "A");
+    localPlugin(cwd, "quota");
+    const cwds = [cwd, cwd];
+    const pc: unknown[] = [];
+    const w = wiringFor(cwds, pc);
+    app = await makeApp(makeRepoRootWithPlugin("other", "Other"));
+    w.onSessionRegistered(cwd);
+    cwds.pop();
+    w.onSessionEnded();
+    expect((await getRows()).some((r) => r.id === "quota")).toBe(true);
+    expect(pc).toHaveLength(1);
+  });
+
+  it("E64: a removed-but-loaded plugin keeps a restartRequired row; an unrelated store id without discovery is not listed", async () => {
+    app = await makeApp(makeRepoRootWithPlugin("here", "Here"));
+    const store = getPluginStatusStore();
+    store.setStatus({ id: "gone", displayName: "Gone", enabled: true, loaded: true, claims: 1, restartRequired: true, source: "installed" });
+    store.setStatus({ id: "ghost", displayName: "Ghost", enabled: true, loaded: false, claims: 0 });
+    const rows = await getRows();
+    expect(rows.map((r) => r.id).sort()).toEqual(["gone", "here"]);
+    expect(rows.find((r) => r.id === "gone").status).toMatchObject({ loaded: true, restartRequired: true });
+  });
+
+  it("E64: dependents per row (quota → [quota-ui]), including the removed-but-loaded row", async () => {
+    const repoRoot = makeRepoRootWithPluginPair(
+      "e64",
+      { id: "quota", displayName: "Quota" },
+      { id: "quota-ui", displayName: "Quota UI", dependsOn: ["quota"] },
+    );
+    app = await makeApp(repoRoot);
+    getPluginStatusStore().setStatus({ id: "gone", displayName: "Gone", enabled: true, loaded: true, claims: 0, restartRequired: true });
+    const byId = new Map((await getRows()).map((r) => [r.id, r]));
+    expect(byId.get("quota").dependents).toEqual(["quota-ui"]);
+    expect(byId.get("quota-ui").dependents).toEqual([]);
+    expect(byId.get("gone").dependents).toEqual([]);
+    expect(typeof byId.get("quota").packageDir).toBe("string");
+  });
+
+  it("E64: unauthenticated non-loopback → same refusal as the guarded POST config route", async () => {
+    const refuse = async (_req: unknown, reply: { code: (n: number) => { send: (b: unknown) => unknown } }) => {
+      reply.code(403).send({ error: "forbidden" });
+    };
+    const guarded = Fastify({ logger: false });
+    registerPluginActivationRoutes(guarded, { networkGuard: refuse as never, broadcast: () => {}, repoRoot: makeRepoRootWithPlugin("g", "G") });
+    guarded.post("/api/config/plugins/:id", { preHandler: refuse as never }, async () => ({ ok: true }));
+    await guarded.ready();
+    app = guarded;
+    const a = await guarded.inject({ method: "GET", url: "/api/plugins" });
+    const b = await guarded.inject({ method: "POST", url: "/api/config/plugins/g", payload: {} });
+    expect(a.statusCode).toBe(403);
+    expect(a.statusCode).toBe(b.statusCode);
+    expect(a.body).toBe(b.body);
   });
 });

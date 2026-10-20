@@ -66,10 +66,25 @@ export interface PluginHostApiStatus {
   compatible: boolean;
 }
 
-/** Client delivery state. Minimal placeholder: Phase 5 adds `bundled`/`runtime`/`none` handling. */
+/** Why a plugin's client was refused (design D12 precedence: structural, then config, then consent). */
+export type PluginClientRefusedReason =
+  | "build-undeclared"
+  | "no-bundle"
+  | "host-api"
+  | "disabled"
+  | "missing-dep"
+  | "untrusted"
+  | "pin-mismatch";
+
+/** Client delivery state. Phase 5 adds the `bundled`/`runtime`/`none` handling that fills `sha256`. */
 export interface PluginClientStatus {
   delivery: "bundled" | "runtime" | "refused" | "none";
-  refusedReason?: "host-api" | "disabled";
+  refusedReason?: PluginClientRefusedReason;
+  /**
+   * Content hash of the runtime client bundle. Appears only on the guarded `GET /api/plugins` and
+   * `plugins_changed`; NEVER on the unauthenticated `/api/health.plugins[]`.
+   */
+  sha256?: string;
 }
 
 /** Status of a single discovered plugin, reported by /api/health. */
@@ -97,6 +112,8 @@ export interface PluginStatus {
   hostApi?: PluginHostApiStatus;
   /** Client delivery; `refused` + `host-api` when the host API gate refused the plugin. */
   client?: PluginClientStatus;
+  /** `serveApp` mount outcome; `refused` when the host refused the mount. */
+  serveApp?: "mounted" | "refused";
   /**
    * Where the bridge entry is registered, classified at health-check time.
    * See change: fix-pi-flows-end-to-end Group 2.

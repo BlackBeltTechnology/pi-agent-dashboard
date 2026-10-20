@@ -167,6 +167,23 @@ function saveConfigAndMirror(partial: Record<string, any>) {
 }
 
 /**
+ * `/api/health` is unauthenticated and tunnel-reachable, so its `plugins[]` stays path- and
+ * hash-free: local-detected rows (they name a session cwd's packages), `shadowed` (carries
+ * `packageDir`) and `client.sha256` are dropped; `source`, `restartRequired`, `hostApi`,
+ * `client.delivery` / `client.refusedReason` and `serveApp` pass through. The guarded
+ * `GET /api/plugins` and `plugins_changed` (authenticated WS) carry the full rows.
+ * See change: decouple-plugins-from-core (task 5.10, design D15).
+ */
+export function toHealthPlugins(statuses: readonly PluginStatus[]): PluginStatus[] {
+  return statuses
+    .filter((s) => s.source !== "local-detected")
+    .map((s) => {
+      const { shadowed: _shadowed, client, ...rest } = s;
+      return client ? { ...rest, client: { delivery: client.delivery, ...(client.refusedReason ? { refusedReason: client.refusedReason } : {}) } } : rest;
+    });
+}
+
+/**
  * Enrich each plugin status with `bridgeLoadedFrom` by classifying the
  * plugin's resolved bridge path against the live pi settings.json.
  *
@@ -1299,7 +1316,7 @@ export function registerSystemRoutes(
       // server log so it is discoverable live, not only post-mortem.
       // See change: bound-session-heap-and-gc-telemetry (D3a).
       sessionHeapFallback: heapFallbackStatus(),
-      plugins: enrichWithBridgeSource(getPluginStatusStore().listAll()),
+      plugins: toHealthPlugins(enrichWithBridgeSource(getPluginStatusStore().listAll())),
       bundleHash,
       // Served-artifact coherence (design D4). Additive; `bundleHash` above
       // keeps its shape and meaning. No filesystem path is exposed.

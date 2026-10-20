@@ -2,6 +2,11 @@
  * Client API for /api/plugins activation endpoints.
  * See change: add-plugin-activation-ui.
  */
+import type {
+  PluginClientStatus,
+  PluginDiscoverySource,
+  PluginShadowedCopy,
+} from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/plugin-status.js";
 import { getApiBase } from "../api/api-context.js";
 
 export interface PluginRequirementReport {
@@ -21,6 +26,14 @@ export interface PluginRowStatus {
   claims: number;
   requirements?: PluginRequirementReport;
   missingRequirements?: string[];
+  /** Discovery source (absent on an older server). See change: decouple-plugins-from-core. */
+  source?: PluginDiscoverySource;
+  /** Losing duplicates of this id; rendered as a sub-line of the winning row. */
+  shadowed?: PluginShadowedCopy[];
+  /** The running copy is stale, or a re-enabled plugin's server entry is not loaded: restart to apply. */
+  restartRequired?: boolean;
+  /** Client delivery; `refused` + `refusedReason` explains a refusal. */
+  client?: PluginClientStatus;
 }
 
 export interface PluginRow {
