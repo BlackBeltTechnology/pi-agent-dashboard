@@ -285,6 +285,128 @@ describe("reloadProviders", () => {
     });
   });
 
+  // See change: list-models-auto-resync (design D5).
+  describe("providers.json tri-state (absent / ok / unreadable)", () => {
+    const KEEP = { baseUrl: "https://keep.example.com/v1", apiKey: "k", api: "openai-completions" };
+    const writeRaw = (content: string) => {
+      const dir = join(tmpHome, ".pi", "agent");
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "providers.json"), content, "utf-8");
+    };
+    const EMPTY = { added: [], removed: [], changed: [] };
+
+    it("E11: an explicit empty providers map removes registered providers", async () => {
+      const mod = await importFresh();
+      const { pi, unregisterProvider } = makeMockPi();
+      writeProvidersJson(tmpHome, { gone: KEEP });
+      await mod.reloadProviders(pi);
+
+      writeRaw('{"providers":{}}');
+      const diff = await mod.reloadProviders(pi);
+      expect(diff.removed).toEqual(["gone"]);
+      expect(unregisterProvider).toHaveBeenCalledWith("gone");
+    });
+
+    it("E12: a missing providers.json removes registered providers", async () => {
+      const mod = await importFresh();
+      const { pi, unregisterProvider } = makeMockPi();
+      writeProvidersJson(tmpHome, { gone: KEEP });
+      await mod.reloadProviders(pi);
+
+      rmSync(join(tmpHome, ".pi", "agent", "providers.json"));
+      const diff = await mod.reloadProviders(pi);
+      expect(diff.removed).toEqual(["gone"]);
+      expect(unregisterProvider).toHaveBeenCalledWith("gone");
+    });
+
+    it.each([
+      ['{"roles":{}}'],
+      ['{"providers":null}'],
+      ['{"providers":[]}'],
+      ['{"providers":"x"}'],
+    ])("E13: a file whose providers key is not a plain object (%s) keeps registrations", async (content) => {
+      const mod = await importFresh();
+      const { pi, registerProvider, unregisterProvider } = makeMockPi();
+      writeProvidersJson(tmpHome, { keep: KEEP });
+      await mod.reloadProviders(pi);
+      registerProvider.mockClear();
+      const err = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      writeRaw(content);
+      const diff = await mod.reloadProviders(pi);
+      expect(diff).toEqual(EMPTY);
+      expect(registerProvider).not.toHaveBeenCalled();
+      expect(unregisterProvider).not.toHaveBeenCalled();
+      expect(err.mock.calls.flat().join(" ")).toMatch(/\[dashboard\]/);
+      err.mockRestore();
+    });
+
+    it("E14: a non-object provider entry rejects the whole file", async () => {
+      const mod = await importFresh();
+      const { pi, registerProvider, unregisterProvider } = makeMockPi();
+      writeProvidersJson(tmpHome, { keep: KEEP, a: { ...KEEP, baseUrl: "https://a.example.com/v1" } });
+      await mod.reloadProviders(pi);
+      registerProvider.mockClear();
+      const err = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      writeRaw(JSON.stringify({ providers: { a: null, keep: KEEP } }));
+      const diff = await mod.reloadProviders(pi);
+      expect(diff).toEqual(EMPTY);
+      expect(registerProvider).not.toHaveBeenCalled();
+      expect(unregisterProvider).not.toHaveBeenCalled();
+      expect(err).toHaveBeenCalled();
+      err.mockRestore();
+    });
+
+    it("X7: truncated JSON keeps registrations", async () => {
+      const mod = await importFresh();
+      const { pi, unregisterProvider } = makeMockPi();
+      writeProvidersJson(tmpHome, { keep: KEEP });
+      await mod.reloadProviders(pi);
+      const err = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      writeRaw('{"providers":{');
+      const diff = await mod.reloadProviders(pi);
+      expect(diff).toEqual(EMPTY);
+      expect(unregisterProvider).not.toHaveBeenCalled();
+      expect(err.mock.calls.flat().join(" ")).toMatch(/\[dashboard\]/);
+      err.mockRestore();
+    });
+
+    it("E15: a valid file after an unreadable one still applies removals", async () => {
+      const mod = await importFresh();
+      const { pi, unregisterProvider } = makeMockPi();
+      writeProvidersJson(tmpHome, { keep: KEEP });
+      await mod.reloadProviders(pi);
+      const err = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      writeRaw("not json");
+      expect(await mod.reloadProviders(pi)).toEqual(EMPTY);
+      expect(unregisterProvider).not.toHaveBeenCalled();
+
+      writeProvidersJson(tmpHome, {});
+      const diff = await mod.reloadProviders(pi);
+      expect(diff.removed).toEqual(["keep"]);
+      expect(unregisterProvider).toHaveBeenCalledWith("keep");
+      err.mockRestore();
+    });
+
+    it("X8: an unreadable file still yields a full local refresh on the credentials path", async () => {
+      const mod = await importFresh();
+      const { pi } = makeMockPi();
+      writeProvidersJson(tmpHome, { keep: KEEP });
+      await mod.reloadProviders(pi);
+      const err = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      writeRaw("{oops");
+      const diff = await mod.reloadProviders(pi);
+      const refresh = vi.fn(async (_opts: object) => ({ aborted: false, errors: new Map<string, Error>() }));
+      await refreshAfterCredentialsReload({ refresh }, diff);
+      expect(refresh).toHaveBeenCalledWith({ allowNetwork: false });
+      err.mockRestore();
+    });
+  });
+
   it("treats apiKey change as 'changed'", async () => {
     const mod = await importFresh();
     const { pi, registerProvider, unregisterProvider } = makeMockPi();
