@@ -7,7 +7,7 @@
 import { describe, expect, it } from "vitest";
 import type { DiscoveredPlugin } from "../loader.js";
 import { pluginRegistryHash } from "../loader.js";
-import { selectClientRegistryPlugins } from "../client-registry-set.js";
+import { isBundledPlugin, selectClientRegistryPlugins } from "../client-registry-set.js";
 
 const BUNDLE_ROOT = "/repo/packages";
 const BUNDLE_ROOTS = [BUNDLE_ROOT];
@@ -83,5 +83,21 @@ describe("selectClientRegistryPlugins (E1–E3)", () => {
       });
       expect(selected.map((p) => p.manifest.id)).toEqual(["in-repo"]);
     }
+  });
+});
+
+// task 6.2 / E70: one predicate decides bundled vs runtime.
+describe("isBundledPlugin (E70)", () => {
+  it("is true only for ids in bundledPluginIds, whatever the filesystem", () => {
+    const decl = { bundledPluginIds: ["flows", "goal"] };
+    expect(isBundledPlugin("flows", decl)).toBe(true);
+    expect(isBundledPlugin("goal", decl)).toBe(true);
+    expect(isBundledPlugin("ext", decl)).toBe(false);
+  });
+
+  it("an undeclared build (no declaration / no field) declares nothing bundled", () => {
+    expect(isBundledPlugin("flows", undefined)).toBe(false);
+    expect(isBundledPlugin("flows", null)).toBe(false);
+    expect(isBundledPlugin("flows", {})).toBe(false);
   });
 });

@@ -1,13 +1,12 @@
 /**
  * Operator server-trust for `pi-package` plugins (design D12, R9). A `pi-package` winner's
  * server entry and bridge load only when `auth.trustedPlugins` carries an entry for its id with
- * `server: true`; default-deny. The config field and its grant endpoint land with tasks 6.5 /
- * 6.12, so until then the read below finds nothing and every `pi-package` server entry stays
- * refused (`server-untrusted`).
+ * `server: true`; default-deny. The grant endpoint is `POST /api/plugins/:id/trust {server:true}`
+ * (task 6.12); the list is read live from config and written only by `plugin-trust-store.ts`.
  *
- * See change: decouple-plugins-from-core (task 5.2).
+ * See change: decouple-plugins-from-core (tasks 5.2, 6.5).
  */
-import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { readTrustedPlugins } from "./plugin-trust-store.js";
 
 export interface PluginServerTrustEntry {
   id: string;
@@ -19,14 +18,9 @@ export function isPluginServerTrusted(pluginId: string, entries: readonly Plugin
   return (entries ?? []).some((e) => e.id === pluginId && e.server === true);
 }
 
-/** `auth.trustedPlugins` as the config holds it (loose read: the typed field arrives with task 6.5). */
+/** `auth.trustedPlugins` (typed, normalized) as the config holds it. */
 export function readServerTrustEntries(): readonly PluginServerTrustEntry[] {
-  const auth = loadConfig().auth as { trustedPlugins?: unknown } | undefined;
-  const list = auth?.trustedPlugins;
-  if (!Array.isArray(list)) return [];
-  return list.filter(
-    (e): e is PluginServerTrustEntry => typeof e === "object" && e !== null && typeof (e as { id?: unknown }).id === "string",
-  );
+  return readTrustedPlugins();
 }
 
 /** Live predicate handed to the loader (`ServerLoadDeps.isServerTrusted`). */

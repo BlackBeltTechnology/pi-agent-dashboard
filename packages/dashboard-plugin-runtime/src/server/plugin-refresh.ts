@@ -65,7 +65,7 @@ function isAlreadyListeningError(error: string | undefined): boolean {
 function flagHotRouteFailures(newIds: ReadonlySet<string>): void {
   const store = getPluginStatusStore();
   for (const id of newIds) {
-    const row = store.getStatus(id);
+    const row = store.getStoredStatus(id);
     if (row && !row.loaded && isAlreadyListeningError(row.error)) {
       store.setStatus({ ...row, error: HOT_ROUTE_RESTART_ERROR, restartRequired: true });
     }
@@ -89,7 +89,7 @@ function reconcileStore(discovered: readonly DiscoveredPlugin[]): ReconcileResul
   const store = getPluginStatusStore();
   const discoveredIds = new Set(discovered.map((p) => p.manifest.id));
   // Local-detected rows are owned by the detector; it re-applies after the load pass.
-  const rows = store.listAll().filter((r) => r.source !== "local-detected");
+  const rows = store.listStored().filter((r) => r.source !== "local-detected");
   const rowIds = new Set(rows.map((r) => r.id));
 
   let removed = 0;
@@ -104,7 +104,7 @@ function reconcileStore(discovered: readonly DiscoveredPlugin[]): ReconcileResul
   const newIds = new Set<string>();
   for (const plugin of discovered) {
     const id = plugin.manifest.id;
-    const row = rowIds.has(id) ? store.getStatus(id) : undefined;
+    const row = rowIds.has(id) ? store.getStoredStatus(id) : undefined;
     if (!row) {
       newIds.add(id);
       continue;

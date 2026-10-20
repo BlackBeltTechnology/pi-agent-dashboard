@@ -143,7 +143,7 @@ function flagNeverLoadedReenables(flips: Array<{ id: string; enabled: boolean }>
   const flagged: string[] = [];
   for (const flip of flips) {
     if (!flip.enabled) continue;
-    const row = store.getStatus(flip.id);
+    const row = store.getStoredStatus(flip.id);
     if (!row || row.loaded || row.enabled || row.source === "local-detected" || row.restartRequired) continue;
     store.setStatus({ ...row, restartRequired: true });
     flagged.push(flip.id);
@@ -246,7 +246,7 @@ export function setPluginsEnabled(
     writeRawConfig({ ...current, plugins: restored });
     const store = getPluginStatusStore();
     for (const flaggedId of flagged) {
-      const row = store.getStatus(flaggedId);
+      const row = store.getStoredStatus(flaggedId);
       if (row) {
         const { restartRequired: _drop, ...rest } = row;
         store.setStatus(rest);

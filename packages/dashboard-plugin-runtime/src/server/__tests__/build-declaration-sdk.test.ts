@@ -9,7 +9,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { DiscoveredPlugin } from "../loader.js";
 import { computeBuildDeclaration } from "../build-declaration-sdk.js";
-import { buildDeclarationPath, writeBuildDeclaration } from "../build-metadata.js";
+import { buildDeclarationPath, readBuildDeclaration, validateBuildDeclaration, writeBuildDeclaration } from "../build-metadata.js";
 
 const tmpDirs: string[] = [];
 
@@ -83,5 +83,46 @@ describe("computeBuildDeclaration (E5, E6)", () => {
     expect(
       computeBuildDeclaration(plugins, { isProd: false, bundleRoots: ["/repo/packages"] }).fixturePolicy,
     ).toBe("included");
+  });
+});
+
+// task 6.2 / E71: `bundledPluginIds` in the declaration.
+describe("bundledPluginIds (E71)", () => {
+  it("lists the sorted selected ids, byte-identical across directories", () => {
+    const a = computeBuildDeclaration([plugin("goal"), plugin("flows")], { isProd: true, bundleRoots: ["/repo/packages"] });
+    const b = computeBuildDeclaration([plugin("flows", "/x/packages"), plugin("goal", "/x/packages")], { isProd: true, bundleRoots: ["/x/packages"] });
+    expect(a.bundledPluginIds).toEqual(["flows", "goal"]);
+    const [dirA, dirB] = [tmpDir(), tmpDir()];
+    writeBuildDeclaration(dirA, a);
+    writeBuildDeclaration(dirB, b);
+    expect(fs.readFileSync(buildDeclarationPath(dirA), "utf-8")).toBe(fs.readFileSync(buildDeclarationPath(dirB), "utf-8"));
+  });
+
+  it("excludes plugins the selector drops (client-less, fixtures under prod)", () => {
+    const fixture = plugin("demo");
+    fixture.manifest.fixture = true;
+    const clientless = { ...plugin("mcp-server"), clientEntryPath: undefined };
+    const decl = computeBuildDeclaration([plugin("flows"), fixture, clientless], { isProd: true, bundleRoots: ["/repo/packages"] });
+    expect(decl.bundledPluginIds).toEqual(["flows"]);
+  });
+
+  it("an older declaration (schema 1, no field) stays valid and declares no set", () => {
+    const dir = tmpDir();
+    fs.writeFileSync(
+      buildDeclarationPath(dir),
+      JSON.stringify({ schemaVersion: 1, pluginRegistryHash: "a".repeat(64), fixturePolicy: "excluded" }),
+    );
+    const read = readBuildDeclaration(dir);
+    expect(read.kind).toBe("valid");
+    if (read.kind === "valid") expect(read.declaration.bundledPluginIds).toBeUndefined();
+  });
+
+  it("validates the field under schema 1; a non-string-array reads as absent, not malformed", () => {
+    const base = { schemaVersion: 1, pluginRegistryHash: "b".repeat(64), fixturePolicy: "included" };
+    const ok = validateBuildDeclaration({ ...base, bundledPluginIds: ["goal", "flows", "goal"] });
+    expect(ok.kind === "valid" && ok.declaration.bundledPluginIds).toEqual(["flows", "goal"]);
+    const bad = validateBuildDeclaration({ ...base, bundledPluginIds: [1, "a"] });
+    expect(bad.kind === "valid" && bad.declaration.bundledPluginIds).toBeUndefined();
+    expect(bad.kind).toBe("valid");
   });
 });

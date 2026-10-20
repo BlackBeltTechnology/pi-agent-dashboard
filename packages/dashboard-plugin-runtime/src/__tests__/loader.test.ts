@@ -617,3 +617,50 @@ describe("E55 keyed discovery cache", () => {
     shuffled.mockRestore();
   });
 });
+
+// task 6.1 / E69: manifest `clientBundle` + `clientStyles`, dedicated asset root.
+describe("E69 client bundle manifest fields and asset-root layout", () => {
+  const base = { id: "ext", displayName: "Ext", claims: [], hostApi: "^1.0.0" };
+
+  it("(a) keeps clientBundle + clientStyles; `client` stays the build-time entry", () => {
+    writePlugin("ext", {
+      ...base,
+      client: "./src/client.tsx",
+      clientBundle: "./dist/client/index.js",
+      clientStyles: "./dist/client/client.css",
+    });
+    const [p] = discoverPlugins(tmpDir);
+    expect(p.manifest).toMatchObject({
+      client: "./src/client.tsx",
+      clientBundle: "./dist/client/index.js",
+      clientStyles: "./dist/client/client.css",
+    });
+    expect(p.clientEntryPath).toBe(path.join(tmpDir, "packages", "ext", "src", "client.tsx"));
+    expect(p.clientBundleDir).toBe(path.join(tmpDir, "packages", "ext", "dist", "client"));
+    expect(p.clientBundlePath).toBe(path.join(tmpDir, "packages", "ext", "dist", "client", "index.js"));
+    expect(p.clientStylesPath).toBe(path.join(tmpDir, "packages", "ext", "dist", "client", "client.css"));
+    expect(p.clientLayoutError).toBeUndefined();
+  });
+
+  it("rejects a non-string clientBundle", () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    writePlugin("ext", { ...base, clientBundle: 3 });
+    expect(discoverPlugins(tmpDir)).toEqual([]);
+    err.mockRestore();
+  });
+
+  it.each([
+    ["(c) bundle beside the server entry", { clientBundle: "./dist/client.js", server: "./dist/server.js" }, /server entry/],
+    ["(d) bundle at the package root", { clientBundle: "./client.js" }, /package root/],
+    ["(e) bridge inside the bundle dir", { clientBundle: "./dist/client/index.js", bridge: "./dist/client/bridge.js" }, /bridge entry/],
+    ["bundle escaping the package", { clientBundle: "../other/index.js" }, /outside the package/],
+    ["styles outside the asset root", { clientBundle: "./dist/client/index.js", clientStyles: "./dist/other.css" }, /clientStyles/],
+  ])("%s: layout error logged, naming the violation", (_n, extra, pattern) => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    writePlugin("ext", { ...base, ...extra });
+    const [p] = discoverPlugins(tmpDir);
+    expect(p.clientLayoutError).toMatch(pattern);
+    expect(err.mock.calls.map((c) => String(c[0])).join("\n")).toMatch(/client layout error/);
+    err.mockRestore();
+  });
+});

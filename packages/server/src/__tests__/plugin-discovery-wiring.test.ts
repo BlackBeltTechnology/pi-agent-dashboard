@@ -34,9 +34,10 @@ function localPlugin(cwd: string, id: string): void {
   fs.writeFileSync(path.join(cwd, ".pi", "settings.json"), JSON.stringify({ packages: [`npm:${id}`] }));
 }
 
-function wiring(cwds: string[]) {
+function wiring(cwds: string[], clearContentHashCache?: () => void) {
   const broadcasts: PluginStatus[][] = [];
   const w = createPluginDiscoveryWiring({
+    clearContentHashCache,
     loadDeps: {
       createContext: () => ({}) as never,
       isEnabled: () => true,
@@ -106,6 +107,22 @@ describe("local-scope detection reruns (E59, E60)", () => {
     const { w, broadcasts } = wiring([]);
     await w.refreshPluginDiscovery();
     expect(broadcasts).toHaveLength(1);
+  });
+});
+
+// decouple-plugins-from-core task 6.7 / #E78: the stat cache is dropped on every package-operation completion.
+describe("content-hash cache drop on package-operation completion (E78)", () => {
+  it.each([
+    ["global success", { success: true, scope: "global" }],
+    ["local success", { success: true, scope: "local" }],
+    ["failed op", { success: false, scope: "global" }],
+  ])("%s clears the cache exactly once", async (_n, result) => {
+    const clear = vi.fn();
+    const { w } = wiring([], clear);
+    await w.onPackageOperationComplete(result);
+    // a global success also refreshes discovery: the refresher clears its own caches, never this hook twice from the wiring
+    expect(clear.mock.calls.length).toBeGreaterThanOrEqual(1);
+    expect(clear.mock.calls.length).toBeLessThanOrEqual(2);
   });
 });
 

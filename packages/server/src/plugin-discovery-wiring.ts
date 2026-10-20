@@ -19,7 +19,7 @@ export interface PluginDiscoveryWiringDeps {
   loadDeps: PluginRefresherDeps["loadDeps"];
   /** Re-read the served declaration's `bundledPluginIds` (`undefined` = undeclared). */
   readDeclaredBundledIds: () => readonly string[] | undefined;
-  /** Content-hash stat cache hook (task 6.7). */
+  /** Drops the content-hash stat cache: on every discovery refresh (via the refresher) and package-operation completion (task 6.7). */
   clearContentHashCache?: () => void;
   /** Cwds of the active (not ended) sessions, live. */
   listActiveCwds: () => readonly string[];
@@ -72,6 +72,9 @@ export function createPluginDiscoveryWiring(deps: PluginDiscoveryWiringDeps): Pl
   }
 
   async function onPackageOperationComplete(result: { success: boolean; scope: string; action?: string }): Promise<void> {
+    // Every package-operation completion (either scope, even a failed one that may have touched files) drops the
+    // content-hash stat cache, so a trust decision after `pi install` always sees a full rehash (design D12, R2).
+    deps.clearContentHashCache?.();
     if (!result.success) return;
     if (result.scope === "local" && result.action !== "move") {
       // `rerunLocalDetection` already broadcast when the set changed; otherwise broadcast once anyway.

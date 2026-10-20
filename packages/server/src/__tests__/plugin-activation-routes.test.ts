@@ -16,8 +16,11 @@ import {
 import type { PluginStatus } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/plugin-status.js";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { grantClientTrust, grantServerTrust } from "../auth/plugin-trust-store.js";
 import { createPluginDiscoveryWiring } from "../plugin-discovery-wiring.js";
+import { getRuntimeClientRegistry, installRuntimeClientRegistry, resetRuntimeClientRegistry } from "../plugin-runtime-clients.js";
 import { registerPluginActivationRoutes, setPluginsEnabled } from "../routes/plugin-activation-routes.js";
+import { toHealthPlugins } from "../routes/system-routes.js";
 
 const HOME_OVERRIDE = path.join(os.tmpdir(), "pi-dashboard-activation-test-" + process.pid);
 
@@ -600,5 +603,128 @@ describe("GET /api/plugins rows (E59, E60, E64)", () => {
     expect(a.statusCode).toBe(403);
     expect(a.statusCode).toBe(b.statusCode);
     expect(a.body).toBe(b.body);
+  });
+});
+
+// decouple-plugins-from-core task 6.7 — test-plan #E76 / #E77: admission and one refusal reason.
+describe("runtime client admission through status + listing (E76, E77)", () => {
+  let app: FastifyInstance;
+  let repoRoot: string;
+  const SHA = "d".repeat(64);
+
+  beforeEach(() => {
+    clearDiscoveryCache();
+    clearStatusStore();
+    fs.rmSync(HOME_OVERRIDE, { recursive: true, force: true });
+    fs.mkdirSync(path.join(HOME_OVERRIDE, ".pi", "dashboard"), { recursive: true });
+    originalHome = process.env.HOME;
+    process.env.HOME = HOME_OVERRIDE;
+    repoRoot = path.join(os.tmpdir(), `runtime-admit-${process.pid}-${Date.now()}`);
+  });
+  afterEach(async () => {
+    await app?.close();
+    resetRuntimeClientRegistry();
+    if (originalHome !== undefined) process.env.HOME = originalHome;
+    else delete process.env.HOME;
+    fs.rmSync(HOME_OVERRIDE, { recursive: true, force: true });
+    fs.rmSync(repoRoot, { recursive: true, force: true });
+  });
+
+  function mk(id: string, extra: Record<string, unknown> = {}) {
+    const dir = path.join(repoRoot, "packages", id);
+    fs.mkdirSync(path.join(dir, "dist", "client"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "dist", "client", "index.js"), `export default "${id}";\n`);
+    fs.writeFileSync(
+      path.join(dir, "package.json"),
+      JSON.stringify({
+        name: id,
+        version: "1.0.0",
+        "pi-dashboard-plugin": { id, displayName: id, claims: [], client: "./src/c.tsx", clientBundle: "./dist/client/index.js", hostApi: "^1.0.0", ...extra },
+      }),
+    );
+  }
+  const seed = (id: string, over: Partial<PluginStatus> = {}) =>
+    getPluginStatusStore().setStatus({ id, displayName: id, enabled: true, loaded: true, claims: 0, ...over });
+  const config = (plugins: Record<string, unknown> = {}) =>
+    fs.writeFileSync(path.join(HOME_OVERRIDE, ".pi", "dashboard", "config.json"), JSON.stringify({ plugins }));
+
+  async function boot(declared: string[] | undefined) {
+    const reg = installRuntimeClientRegistry({ repoRoot, declaredIds: () => declared });
+    app = await makeApp(repoRoot);
+    const res = await app.inject({ method: "GET", url: "/api/plugins" });
+    const rows = new Map<string, any>((res.json().plugins as any[]).map((r) => [r.id, r]));
+    return { reg, client: (id: string) => rows.get(id)?.status?.client, listed: () => reg.getAdmittedRuntimePlugins().map((p) => p.id) };
+  }
+
+  it.each([
+    ["untrusted", () => { mk("ext"); config(); }, ["flows"]],
+    ["pin-mismatch", () => { mk("ext"); config(); grantClientTrust("ext", SHA); }, ["flows"]],
+    ["host-api", () => { mk("ext", { hostApi: "^2.0.0" }); config(); }, ["flows"]],
+    ["no-bundle", () => { mk("ext", { clientBundle: undefined }); config(); }, ["flows"]],
+    ["build-undeclared", () => { mk("ext"); config(); }, undefined],
+    ["disabled", () => { mk("ext"); config({ ext: { enabled: false } }); }, ["flows"]],
+    ["missing-dep", () => { mk("quota"); mk("ext", { dependsOn: ["quota"] }); config({ quota: { enabled: false } }); seed("quota", { enabled: false, loaded: false }); }, ["flows"]],
+  ] as const)("E76 %s: that exact reason, absent from the listing", async (reason, setup, declared) => {
+    setup();
+    seed("ext");
+    const { client, listed } = await boot(declared as string[] | undefined);
+    expect(client("ext")).toMatchObject({ delivery: "refused", refusedReason: reason });
+    expect(listed()).not.toContain("ext");
+  });
+
+  it("E76 all-pass: runtime + sha256 in the guarded status, listed; health strips the hash", async () => {
+    mk("ext");
+    config();
+    seed("ext");
+    const probe = installRuntimeClientRegistry({ repoRoot, declaredIds: () => ["flows"] });
+    const sha = probe.currentContentHash("ext") as string;
+    grantClientTrust("ext", sha);
+    const { client, listed, reg } = await boot(["flows"]);
+    expect(client("ext")).toEqual({ delivery: "runtime", sha256: sha });
+    expect(listed()).toEqual(["ext"]);
+    expect(reg.getAdmittedAssetRoot("ext", sha)).toBeTruthy();
+    const health = toHealthPlugins(getPluginStatusStore().listAll()).find((p) => p.id === "ext");
+    expect(health?.client).toEqual({ delivery: "runtime" });
+  });
+
+  it("E77(e) a {id, server:true} entry without clientSha256 reports untrusted and is not listed", async () => {
+    mk("ext");
+    config();
+    seed("ext");
+    grantServerTrust("ext");
+    const { client, listed } = await boot(["flows"]);
+    expect(client("ext")).toMatchObject({ delivery: "refused", refusedReason: "untrusted" });
+    expect(listed()).toEqual([]);
+  });
+
+  it("E77(a) untrusted + disabled + missing-dep → exactly disabled", async () => {
+    mk("quota");
+    mk("ext", { dependsOn: ["quota"] });
+    config({ ext: { enabled: false }, quota: { enabled: false } });
+    seed("ext", { enabled: false, loaded: false });
+    seed("quota", { enabled: false, loaded: false });
+    const { client } = await boot(["flows"]);
+    expect(client("ext")?.refusedReason).toBe("disabled");
+  });
+
+  it("E77(d) missing-dep + pin-mismatch → missing-dep", async () => {
+    mk("quota");
+    mk("ext", { dependsOn: ["quota"] });
+    config({ quota: { enabled: false } });
+    seed("ext");
+    seed("quota", { enabled: false, loaded: false });
+    grantClientTrust("ext", SHA);
+    const { client } = await boot(["flows"]);
+    expect(client("ext")?.refusedReason).toBe("missing-dep");
+  });
+
+  it("a bundled id reports delivery bundled and is never listed; clients need no install", async () => {
+    mk("flows");
+    config();
+    seed("flows");
+    const { client, listed } = await boot(["flows"]);
+    expect(client("flows")).toEqual({ delivery: "bundled" });
+    expect(listed()).toEqual([]);
+    expect(getRuntimeClientRegistry()).toBeDefined();
   });
 });

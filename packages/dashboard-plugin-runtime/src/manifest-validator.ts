@@ -595,7 +595,7 @@ export function validateManifest(raw: unknown, fallbackId = "unknown"): PluginMa
   }
 
   // optional string paths
-  for (const field of ["client", "server", "bridge", "configSchema"] as const) {
+  for (const field of ["client", "clientBundle", "clientStyles", "server", "bridge", "configSchema"] as const) {
     if (m[field] !== undefined && typeof m[field] !== "string") {
       throw new ManifestValidationError(pluginId, `manifest.${field} must be a string if provided`);
     }
@@ -806,6 +806,8 @@ export function validateManifest(raw: unknown, fallbackId = "unknown"): PluginMa
     priority,
     claims,
     ...(typeof m.client === "string" ? { client: m.client } : {}),
+    ...(typeof m.clientBundle === "string" ? { clientBundle: m.clientBundle } : {}),
+    ...(typeof m.clientStyles === "string" ? { clientStyles: m.clientStyles } : {}),
     ...(typeof m.server === "string" ? { server: m.server } : {}),
     ...(typeof m.bridge === "string" ? { bridge: m.bridge } : {}),
     ...(typeof m.configSchema === "string" ? { configSchema: m.configSchema } : {}),

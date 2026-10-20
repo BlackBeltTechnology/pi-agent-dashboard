@@ -18,6 +18,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { PluginLogger } from "../plugin-context.js";
+import { canonicalize, isWithin, parseSegments, pickVariant, realFileWithin, STATIC_MIME } from "./confined-static.js";
 
 /** Policy for a mount's responses: fixed, or computed per request (names the public origin). */
 export type ServeAppCsp = string | ((request: FastifyRequest) => string);
@@ -43,24 +44,6 @@ export interface AppMountRecord {
 
 const APP_ID = /^[a-z0-9-]+$/;
 const MOUNT_BASE = "/apps/";
-
-/** Extension allowlist → content type. Everything else (`.json`, `.map`, `.gz`, …) is refused. */
-const MIME: Readonly<Record<string, string>> = {
-  ".html": "text/html; charset=utf-8",
-  ".js": "text/javascript; charset=utf-8",
-  ".mjs": "text/javascript; charset=utf-8",
-  ".css": "text/css; charset=utf-8",
-  ".svg": "image/svg+xml",
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".gif": "image/gif",
-  ".webp": "image/webp",
-  ".ico": "image/x-icon",
-  ".woff": "font/woff",
-  ".woff2": "font/woff2",
-  ".wasm": "application/wasm",
-};
 
 /** Content-hashed name: `app.3f9a.js`, `index-DQ3x9a1B.js`, `x-1a2b3c4d_bg.wasm` (hash token holds a digit). */
 const HASHED_NAME = /[.-](?=[A-Za-z0-9]*\d)[A-Za-z0-9]{4,}(?:_bg)?\.[a-z0-9]+$/;
@@ -127,49 +110,6 @@ export function clearAppMountRegistry(): void {
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
-function isWithin(child: string, root: string): boolean {
-  return child === root || child.startsWith(root.endsWith(path.sep) ? root : root + path.sep);
-}
-
-/** `realpath` of the deepest existing ancestor + the not-yet-existing tail (a `dir` may be absent). */
-function canonicalize(p: string): string {
-  const abs = path.resolve(p);
-  const tail: string[] = [];
-  let cur = abs;
-  for (;;) {
-    try {
-      return path.join(fs.realpathSync(cur), ...tail.reverse());
-    } catch {
-      const parent = path.dirname(cur);
-      if (parent === cur) return abs;
-      tail.push(path.basename(cur));
-      cur = parent;
-    }
-  }
-}
-
-function acceptsGzip(header: string | string[] | undefined): boolean {
-  const value = Array.isArray(header) ? header.join(",") : header;
-  if (!value) return false;
-  return value.split(",").some((part) => {
-    const [name, ...params] = part.trim().split(";");
-    if (name.trim().toLowerCase() !== "gzip") return false;
-    const q = params.map((s) => s.trim()).find((s) => s.startsWith("q="));
-    return q === undefined || Number.parseFloat(q.slice(2)) > 0;
-  });
-}
-
-function realFileWithin(file: string, root: string): { real: string; size: number } | null {
-  try {
-    const real = fs.realpathSync(file);
-    if (!isWithin(real, root)) return null;
-    const st = fs.statSync(real);
-    return st.isFile() ? { real, size: st.size } : null;
-  } catch {
-    return null;
-  }
-}
-
 /** Everything `mountApp` needs from the host, bound to one plugin. */
 export interface MountAppEnv {
   fastify: FastifyInstance;
@@ -184,24 +124,6 @@ export interface MountAppEnv {
 }
 
 // ── Request pipeline helpers (pure) ─────────────────────────────────────────
-
-/** Decoded path segments under the mount, or null when the request must be refused (NUL, `\\`, bad escape, dotfile / `..`). */
-function parseSegments(rawPath: string, prefix: string): string[] | null {
-  if (!rawPath.startsWith(`${prefix}/`)) return null;
-  let decoded: string;
-  try {
-    decoded = decodeURIComponent(rawPath.slice(prefix.length + 1));
-  } catch {
-    return null;
-  }
-  if (decoded.includes("\0") || decoded.includes("\\")) return null;
-  const segments = decoded.split("/").filter((s) => s !== "");
-  // Dotfiles and any `.`/`..` segment: never served, never resolved.
-  if (segments.some((s) => s.startsWith("."))) return null;
-  const ext = path.extname(segments[segments.length - 1] ?? "").toLowerCase();
-  if (ext && !MIME[ext]) return null;
-  return segments;
-}
 
 type Resolved = { kind: "index" } | { kind: "file"; real: string } | { kind: "notfound" };
 
@@ -218,19 +140,6 @@ function resolveTarget(root: string, segments: string[]): Resolved {
   }
   if (!isWithin(real, root)) return { kind: "notfound" }; // symlink escape
   return realFileWithin(real, root) ? { kind: "file", real } : { kind: "notfound" }; // directories never served
-}
-
-/** The file variant to send: the `.gz` sibling for a gzip client, else the plain file. `null` → not servable. */
-function pickVariant(
-  real: string,
-  root: string,
-  acceptEncoding: string | string[] | undefined,
-): { file: { real: string; size: number }; gzipped: boolean; hasVariant: boolean } | null {
-  const plain = realFileWithin(real, root);
-  if (!plain) return null;
-  const gz = realFileWithin(`${real}.gz`, root);
-  if (gz && acceptsGzip(acceptEncoding)) return { file: gz, gzipped: true, hasVariant: true };
-  return { file: plain, gzipped: false, hasVariant: gz !== null };
 }
 
 function evaluateCsp(csp: ServeAppCsp, request: FastifyRequest): string {
@@ -341,7 +250,7 @@ export function mountApp(env: MountAppEnv, opts: ServeAppOptions): void {
   };
 
   const sendFile = (request: FastifyRequest, reply: FastifyReply, root: string, real: string, isIndex: boolean): void => {
-    const type = MIME[path.extname(real).toLowerCase()];
+    const type = STATIC_MIME[path.extname(real).toLowerCase()];
     const variant = type ? pickVariant(real, root, request.headers["accept-encoding"]) : null;
     if (!type || !variant) return notFound(reply);
     let policy: string;

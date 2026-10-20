@@ -27,6 +27,7 @@ import {
   transitiveDependents,
 } from "../dependency-graph.js";
 import { validateManifest } from "../manifest-validator.js";
+import { type ClientLayout, evaluateClientLayout } from "./client-layout.js";
 import { getFileValidatorRegistry } from "./file-validator-registry.js";
 import { fixtureEntryAllowed } from "./fixture-gate.js";
 import { evaluateHostApi } from "./host-api-gate.js";
@@ -57,6 +58,11 @@ export interface DiscoveredPlugin {
   bridgeEntryPath?: string;
   /** Absolute path to the client entry (if declared and resolved). */
   clientEntryPath?: string;
+  /** Prebuilt client bundle layout (`clientBundle` / `clientStyles`); `clientLayoutError` refuses it `no-bundle`. */
+  clientBundlePath?: string;
+  clientBundleDir?: string;
+  clientStylesPath?: string;
+  clientLayoutError?: string;
   /** Search dir this plugin was discovered in. See change: decouple-plugins-from-core (D7). */
   source: PluginDiscoverySource;
   /** Host API range evaluation (absent when none declared or required). */
@@ -230,21 +236,32 @@ export function readPluginCandidate(pkgDir: string, source: PluginDiscoverySourc
 
   const resolve = (rel: string | undefined) => (rel ? path.resolve(pkgDir, rel) : undefined);
 
-  // One hostApi range gates both halves. `clientBundle` is read raw: the
-  // validator learns the field in Phase 5. See change: decouple-plugins-from-core (D7).
+  // One hostApi range gates both halves. See change: decouple-plugins-from-core (D7).
   const verdict = evaluateHostApi({
     source,
     range: manifest.hostApi,
-    hasClientBundle:
-      typeof manifestRaw === "object" && typeof (manifestRaw as { clientBundle?: unknown }).clientBundle === "string",
+    hasClientBundle: manifest.clientBundle !== undefined,
   });
   if (verdict.warn) {
     console.warn(`[plugin-loader] Plugin "${manifest.id}" (${source}): ${verdict.reason}; loading anyway`);
   }
 
+  // The asset root must be a dedicated client dir; a violation refuses the client `no-bundle` (D10, R25).
+  const layout: ClientLayout = evaluateClientLayout({
+    packageDir: pkgDir,
+    clientBundle: manifest.clientBundle,
+    clientStyles: manifest.clientStyles,
+    server: manifest.server,
+    bridge: manifest.bridge,
+  });
+  if (layout.clientLayoutError) {
+    console.error(`[plugin-loader] Plugin "${manifest.id}" (${source}): client layout error: ${layout.clientLayoutError}`);
+  }
+
   return {
     manifest,
     source,
+    ...layout,
     ...(verdict.status ? { hostApi: verdict.status } : {}),
     ...(verdict.refuse ? { hostApiRefusal: verdict.reason } : {}),
     packageDir: pkgDir,
@@ -937,7 +954,7 @@ export async function refreshRequirementProbesFor(
         const report = await runRequirementProbes(manifest, perPluginDeps);
         const missing = missingFromReport(report);
         setCachedReport(manifest.id, report);
-        const existing = store.getStatus(manifest.id);
+        const existing = store.getStoredStatus(manifest.id);
         const prevMissing = existing?.missingRequirements ?? [];
         const missingChanged =
           prevMissing.length !== missing.length ||

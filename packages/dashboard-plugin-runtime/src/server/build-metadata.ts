@@ -35,6 +35,12 @@ export interface BuildDeclaration {
   schemaVersion: number;
   pluginRegistryHash: string;
   fixturePolicy: FixturePolicy;
+  /**
+   * Sorted ids of the plugins embedded in the bundle's plugin registry. Additive under schema 1:
+   * a declaration without it declares no bundled set (the served build is "undeclared").
+   * See change: decouple-plugins-from-core (task 6.2, design D11).
+   */
+  bundledPluginIds?: string[];
 }
 
 /**
@@ -76,12 +82,19 @@ export function validateBuildDeclaration(value: unknown): BuildDeclarationRead {
   if (policy !== "excluded" && policy !== "included") {
     return { kind: "policy-unknown" };
   }
+  // Additive field: anything but a string array reads as absent (undeclared), never as malformed.
+  const ids = value.bundledPluginIds;
+  const bundledPluginIds =
+    Array.isArray(ids) && ids.every((i) => typeof i === "string")
+      ? [...new Set(ids as string[])].sort()
+      : undefined;
   return {
     kind: "valid",
     declaration: {
       schemaVersion: BUILD_DECLARATION_SCHEMA_VERSION,
       pluginRegistryHash: hash,
       fixturePolicy: policy,
+      ...(bundledPluginIds ? { bundledPluginIds } : {}),
     },
   };
 }

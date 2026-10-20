@@ -69,7 +69,7 @@ function detectInCwd(cwd: string, listDirs: (cwd: string) => readonly string[], 
 /** Remove every earlier local-detected contribution (rows and `shadowed` entries). */
 function stripLocalContributions(): void {
   const store = getPluginStatusStore();
-  for (const row of store.listAll()) {
+  for (const row of store.listStored()) {
     if (row.source === "local-detected") {
       store.removeStatus(row.id);
     } else if (row.shadowed?.some((s) => s.source === "local-detected")) {
@@ -84,7 +84,7 @@ function stripLocalContributions(): void {
 function applyDetected(found: readonly Detected[]): void {
   const store = getPluginStatusStore();
   for (const d of found) {
-    const existing = store.getStatus(d.id);
+    const existing = store.getStoredStatus(d.id);
     if (existing) {
       store.setStatus({
         ...existing,

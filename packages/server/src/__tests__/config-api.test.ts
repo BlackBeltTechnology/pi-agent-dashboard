@@ -214,6 +214,37 @@ describe("config-api", () => {
       expect(JSON.parse(fs.readFileSync(configFile, "utf-8")).auth.capabilityRoutePlugins).toEqual([]);
     });
 
+    // decouple-plugins-from-core #E80 (task 6.5): `PUT /api/config` can never write the trust list.
+    it("PUT /api/config ignores auth.trustedPlugins (any caller) and keeps the stored list", async () => {
+      const SHA = "a".repeat(64);
+      fs.writeFileSync(
+        configFile,
+        JSON.stringify({ auth: { capabilityRoutePlugins: ["wall"], trustedPlugins: [{ id: "kept", clientSha256: SHA }] } }),
+      );
+      const app = Fastify();
+      (app as any)._reloadAuth = async () => {};
+      registerSystemRoutes(app, {
+        sessionManager: {} as never,
+        preferencesStore: { flush: () => {} } as never,
+        metaPersistence: { flushAll: () => {} } as never,
+        config: { port: 8000, piPort: 9999, dev: false } as never,
+        networkGuard: (async () => {}) as never,
+      } as never);
+      // (a) a paired remote `operate` device and (b) the local operator reach the same write path.
+      for (const _caller of ["remote-operate-bearer", "local-operator"]) {
+        const res = await app.inject({
+          method: "PUT",
+          url: "/api/config",
+          payload: { auth: { trustedPlugins: [{ id: "ext", clientSha256: "b".repeat(64) }] } },
+        });
+        expect(res.statusCode).toBe(200);
+        const stored = JSON.parse(fs.readFileSync(configFile, "utf-8"));
+        expect(stored.auth.trustedPlugins).toEqual([{ id: "kept", clientSha256: SHA }]);
+        expect(stored.auth.capabilityRoutePlugins).toEqual(["wall"]);
+      }
+      await app.close();
+    });
+
     it("should persist reattachPlacement (change: reattach-move-to-front)", () => {
       fs.writeFileSync(configFile, JSON.stringify({ port: 8000 }));
       const result = writeConfigPartial({ reattachPlacement: "preserve" });

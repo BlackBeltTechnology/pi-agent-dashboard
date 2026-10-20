@@ -7,10 +7,18 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { clearAppMountRegistry, createServerPluginContext, getAppMountRegistry, type ServerContextDeps } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import { clearAppMountRegistry, clearStatusStore, createServerPluginContext, getAppMountRegistry, getPluginStatusStore, type ServerContextDeps } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createHostServeApp, isServeAppTrusted, readBundledPluginDirs } from "../auth/serve-app-host.js";
+import { grantClientTrust, revokeTrust } from "../auth/plugin-trust-store.js";
+import {
+  createHostServeApp,
+  isServeAppTrusted,
+  noteServeAppTrustChange,
+  readBundledPluginDirs,
+  serveAppRestartNeeded,
+} from "../auth/serve-app-host.js";
 
 let tmp: string;
 let app: FastifyInstance;
@@ -192,5 +200,119 @@ describe("createHostServeApp (E13)", () => {
     ctx.serveApp({ dir: path.join(good.packageDir, "dist"), csp: "x" });
     expect(() => ctx.serveApp({ dir: path.join(good.packageDir, "dist"), csp: "x" })).toThrow(/already mounted/);
     expect(getAppMountRegistry().list()).toHaveLength(1);
+  });
+});
+
+// decouple-plugins-from-core task 6.6 / #E79: one trust list for app mounts, visible refusal, restart-effective.
+describe("serveApp reads the one trust list (E79)", () => {
+  let home: string;
+  let origHome: string | undefined;
+  beforeEach(() => {
+    home = fs.mkdtempSync(path.join(os.tmpdir(), "serve-app-trust-home-"));
+    fs.mkdirSync(path.join(home, ".pi", "dashboard"), { recursive: true });
+    origHome = process.env.HOME;
+    process.env.HOME = home;
+    clearStatusStore();
+  });
+  afterEach(() => {
+    if (origHome !== undefined) process.env.HOME = origHome;
+    else delete process.env.HOME;
+    fs.rmSync(home, { recursive: true, force: true });
+    clearStatusStore();
+  });
+  const cfg = (c: unknown) => fs.writeFileSync(path.join(home, ".pi", "dashboard", "config.json"), JSON.stringify(c));
+  const SHA = "a".repeat(64);
+  const mountOpts = (p: { packageDir: string }) => ({ dir: path.join(p.packageDir, "dist"), csp: "x" });
+
+  it("pure: an id in trustedIds admits a non-bundled plugin; absent → refused", () => {
+    const p = plugin("third-party", "ext");
+    const base = { bundledDirs: new Set<string>(), configuredIds: [] as string[], bundledRoots: roots() };
+    expect(isServeAppTrusted(p, base)).toBe(false);
+    expect(isServeAppTrusted(p, { ...base, trustedIds: ["ext"] })).toBe(true);
+  });
+
+  it("legacy list only (capabilityRoutePlugins:[wall]) still admits the wall mount, recorded mounted", () => {
+    cfg({ auth: { capabilityRoutePlugins: ["wall"] } });
+    const wall = plugin("third-party", "wall");
+    getPluginStatusStore().setStatus({ id: "wall", displayName: "wall", enabled: true, loaded: true, claims: 0 });
+    createHostServeApp({ fastify: app, plugin: wall, readConfiguredIds: () => loadConfig().auth?.capabilityRoutePlugins ?? [], bundledDirs: new Set() })(
+      mountOpts(wall),
+      { dataDir: path.join(tmp, "data", "wall") },
+    );
+    expect(getAppMountRegistry().list().map((m) => m.appId)).toEqual(["wall"]);
+    expect(getPluginStatusStore().getStatus("wall")?.serveApp).toBe("mounted");
+  });
+
+  it("an untrusted ctx.serveApp is recorded as serveApp:refused on the status", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const ext = plugin("third-party", "ext");
+    getPluginStatusStore().setStatus({ id: "ext", displayName: "ext", enabled: true, loaded: true, claims: 0 });
+    createHostServeApp({ fastify: app, plugin: ext, readConfiguredIds: () => [], bundledDirs: new Set() })(mountOpts(ext), { dataDir: path.join(tmp, "data", "ext") });
+    expect(getAppMountRegistry().list()).toEqual([]);
+    expect(getPluginStatusStore().getStatus("ext")?.serveApp).toBe("refused");
+    // survives the loader rewriting the row after activation
+    getPluginStatusStore().setStatus({ id: "ext", displayName: "ext", enabled: true, loaded: true, claims: 0 });
+    expect(getPluginStatusStore().listAll()[0].serveApp).toBe("refused");
+    warn.mockRestore();
+  });
+
+  it("a trustedPlugins entry (read live from config) admits the mount", () => {
+    cfg({ auth: { trustedPlugins: [{ id: "ext", clientSha256: SHA }] } });
+    const ext = plugin("third-party", "ext");
+    createHostServeApp({ fastify: app, plugin: ext, readConfiguredIds: () => [], bundledDirs: new Set() })(mountOpts(ext), { dataDir: path.join(tmp, "data", "ext") });
+    expect(getAppMountRegistry().list().map((m) => m.appId)).toEqual(["ext"]);
+  });
+
+  it("config holding only auth.trustedPlugins survives parsing", () => {
+    cfg({ auth: { trustedPlugins: [{ id: "ext", clientSha256: SHA }] } });
+    expect(loadConfig().auth?.trustedPlugins).toEqual([{ id: "ext", clientSha256: SHA }]);
+  });
+
+  it("trusting ext keeps capabilityRoutePlugins and the other auth keys, adds the entry", () => {
+    cfg({ auth: { capabilityRoutePlugins: ["wall"], bypassHosts: ["10.0.0.0/8"] } });
+    grantClientTrust("ext", SHA);
+    const stored = JSON.parse(fs.readFileSync(path.join(home, ".pi", "dashboard", "config.json"), "utf-8"));
+    expect(stored.auth.capabilityRoutePlugins).toEqual(["wall"]);
+    expect(stored.auth.bypassHosts).toEqual(["10.0.0.0/8"]);
+    expect(stored.auth.trustedPlugins).toEqual([{ id: "ext", clientSha256: SHA }]);
+  });
+
+  it("restart-needed is a pure function of the recorded outcome and the current trust", () => {
+    expect(serveAppRestartNeeded("refused", true)).toBe(true);
+    expect(serveAppRestartNeeded("mounted", false)).toBe(true);
+    expect(serveAppRestartNeeded("refused", false)).toBe(false);
+    expect(serveAppRestartNeeded("mounted", true)).toBe(false);
+    expect(serveAppRestartNeeded(undefined, true)).toBe(false);
+  });
+
+  it("grant after a refused mount flags restartRequired; revoke after a mount flags it; no-op otherwise", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const store = getPluginStatusStore();
+    const ext = plugin("third-party", "ext");
+    store.setStatus({ id: "ext", displayName: "ext", enabled: true, loaded: true, claims: 0 });
+    createHostServeApp({ fastify: app, plugin: ext, readConfiguredIds: () => [], bundledDirs: new Set() })(mountOpts(ext), { dataDir: path.join(tmp, "data", "ext") });
+    expect(noteServeAppTrustChange(ext)).toBe(false); // nothing changed yet
+    grantClientTrust("ext", SHA);
+    expect(noteServeAppTrustChange(ext)).toBe(true);
+    expect(store.getStatus("ext")?.restartRequired).toBe(true);
+
+    // A mounted (trusted) plugin whose trust is revoked also needs a restart.
+    const wall = plugin("wall-third", "wall");
+    store.setStatus({ id: "wall", displayName: "wall", enabled: true, loaded: true, claims: 0 });
+    grantClientTrust("wall", SHA);
+    createHostServeApp({ fastify: app, plugin: wall, readConfiguredIds: () => [], bundledDirs: new Set() })(mountOpts(wall), { dataDir: path.join(tmp, "data", "wall") });
+    expect(store.getStatus("wall")?.serveApp).toBe("mounted");
+    revokeTrust("wall");
+    expect(noteServeAppTrustChange(wall)).toBe(true);
+    expect(store.getStatus("wall")?.restartRequired).toBe(true);
+    warn.mockRestore();
+  });
+
+  it("a plugin that never called serveApp is untouched by a trust change", () => {
+    const store = getPluginStatusStore();
+    store.setStatus({ id: "idle", displayName: "idle", enabled: true, loaded: true, claims: 0 });
+    grantClientTrust("idle", SHA);
+    expect(noteServeAppTrustChange(plugin("idle-plugin", "idle"))).toBe(false);
+    expect(store.getStatus("idle")?.restartRequired).toBeUndefined();
   });
 });

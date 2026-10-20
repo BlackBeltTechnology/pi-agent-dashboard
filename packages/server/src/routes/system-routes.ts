@@ -38,6 +38,7 @@ import type { DirectoryService } from "../directory-service.js";
 import {
   type ClientBuildSnapshot,
   readClientBuildSnapshot,
+  readServedDeclaration,
   runtimePluginRegistryHash,
 } from "../lib/client-dist.js";
 import { bootParentPid, computeBootParentAlive, readLivePpid } from "../lifecycle/boot-parent-liveness.js";
@@ -313,10 +314,12 @@ export function registerSystemRoutes(
 
   // Served-artifact coherence snapshot (design D4): a startup snapshot, never a
   // per-request filesystem read (P1).
+  // The served declaration decides which plugins the server hashes (design D11): read once with the snapshot.
+  const servedDeclaration = readServedDeclaration(clientDir ?? null);
   const clientBuild =
     deps.clientBuild ??
     readClientBuildSnapshot(clientDir ?? null, (policy) =>
-      runtimePluginRegistryHash(policy === "excluded"),
+      runtimePluginRegistryHash(policy === "excluded", servedDeclaration),
     );
 
   // Hoisted for the same reason as `clientBuild`: `runtimePluginRegistryHash`
@@ -329,7 +332,7 @@ export function registerSystemRoutes(
   // Fixture clients are part of a production build only under the opt-in
   // PI_DASHBOARD_FIXTURE_PLUGINS gate (docker test harness) — the same rule
   // the vite plugin applied. See change: expose-plugin-credential-and-oauth-seams (D8).
-  const bundleHash = runtimePluginRegistryHash(!config.dev && !fixturePluginsEnabled());
+  const bundleHash = runtimePluginRegistryHash(!config.dev && !fixturePluginsEnabled(), servedDeclaration);
 
   // Quiesce windows for the bridge `server_restarting` broadcast. See change
   // `fix-restart-bridge-auto-start-race`. Bridges that receive this message

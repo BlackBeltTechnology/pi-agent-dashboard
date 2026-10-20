@@ -298,8 +298,16 @@ export interface PluginManifest {
    * Default 1000. First-party plugins use 100.
    */
   priority?: number;
-  /** Relative path to the bundled client entry (from package root). */
+  /** Relative path to the bundled client entry (from package root). The build-time source entry. */
   client?: string;
+  /**
+   * Package-relative path to a PREBUILT ES entry module for runtime delivery. Its directory is the
+   * served asset root and must be a dedicated client output dir (not the package root, no server/bridge
+   * entry inside). See change: decouple-plugins-from-core (design D10).
+   */
+  clientBundle?: string;
+  /** Package-relative path to a prebuilt CSS file; must lie inside the `clientBundle` directory. */
+  clientStyles?: string;
   /** Optional relative path to the server entry. */
   server?: string;
   /** Optional relative path to a pi-extension/bridge entry. */

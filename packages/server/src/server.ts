@@ -251,6 +251,7 @@ import { createPackageCompletionHandler, createPluginDiscoveryWiring, type Plugi
 import * as pluginEventSeam from "./plugin-event-seam.js";
 import { pluginIntentCache } from "./plugin-intent-cache.js";
 import { createPluginRequestLane } from "./plugin-request-lane.js";
+import { installRuntimeClientRegistry } from "./plugin-runtime-clients.js";
 import { createPushService, type PushService } from "./push/push-service.js";
 import type { SessionPresence } from "./questions/question-files.js";
 import { registerQuestionRoutes } from "./questions/question-routes.js";
@@ -3623,6 +3624,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         return resolvePluginEnabled(pluginCfg, manifest?.defaultEnabled);
       });
       try {
+        // Runtime-client registry: derives `PluginStatus.client` at every status read (live content hash,
+        // trust, config) and serves the admitted-plugin listing. See change: decouple-plugins-from-core (6.7).
+        const runtimeClients = installRuntimeClientRegistry();
         const pluginLoadDeps: ServerLoadDeps = {
           // pi-package server entries stay refused until the operator grants server trust (D12, R9).
           isServerTrusted,
@@ -4034,7 +4038,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               // this is NOT trust-gated. See change:
               // relocate-goal-product-to-plugin (D1-#7).
               networkGuard,
-              // `ctx.serveApp`: trust-gated (bundled plugin dir OR `auth.capabilityRoutePlugins`),
+              // `ctx.serveApp`: trust-gated (bundled plugin dir, `auth.trustedPlugins` OR legacy `auth.capabilityRoutePlugins`),
               // mounts `/apps/<appId>/`. See change: add-plugin-capability-routes (D2, D5).
               serveApp: createHostServeApp({
                 fastify,
@@ -4245,6 +4249,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         pluginDiscovery = createPluginDiscoveryWiring({
           loadDeps: pluginLoadDeps,
           readDeclaredBundledIds: () => readServedBundledPluginIds(clientDirResolved),
+          clearContentHashCache: () => runtimeClients.clearContentHashCache(),
           listActiveCwds: () => sessionManager.listActive().map((s) => s.cwd),
           broadcastPluginsChanged: (plugins) => browserGateway.broadcast({ type: "plugins_changed", plugins }),
         });
