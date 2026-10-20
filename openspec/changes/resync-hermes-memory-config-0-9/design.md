@@ -111,7 +111,9 @@ file has no `memoryOverflowStrategy` but a boolean `autoConsolidate`,
 `{ value: autoConsolidate ? "auto-consolidate" : "reject", isDefault: false }`,
 mirroring upstream `config.ts:236-237`. Conversely, when a **valid**
 `memoryOverflowStrategy` is on disk, `fields.autoConsolidate` reports
-`{ value: strategy === "auto-consolidate", isDefault: false }`, mirroring
+`value: strategy === "auto-consolidate"` (`isDefault` stays `true` only when
+`autoConsolidate` is absent on disk and the derived value equals the default,
+so a no-touch save pins nothing — test-plan E14), mirroring
 `config.ts:234-235`, so the toggle never shows a value upstream overrides. An
 on-disk strategy outside the enum is reported verbatim; no derivation runs,
 and it falls under R4. The client then treats it as

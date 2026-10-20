@@ -17,7 +17,9 @@ mirrored in `fields`:
   `"auto-consolidate"` when it is `true`, else `"reject"`, with
   `isDefault: false`.
 - When a valid `memoryOverflowStrategy` is on disk, `fields.autoConsolidate`
-  SHALL report `strategy === "auto-consolidate"` with `isDefault: false`.
+  SHALL report `strategy === "auto-consolidate"`; its `isDefault` SHALL be
+  `true` only when `autoConsolidate` is absent from the file and the derived
+  value equals its default, otherwise `false`.
 - When `llmModelOverride` is an array of strings, `fields.llmModelOverride`
   SHALL report its first trimmed non-empty entry. The remaining entries,
   together with the legacy alias keys `llmModelFallbacks` and
