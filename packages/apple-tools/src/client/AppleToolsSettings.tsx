@@ -20,16 +20,7 @@
  * See changes: add-apple-tools-imcp-plugin (Decision 5), extract-mcp-client-plugin,
  * retro-ux-plugin-settings-wave-2.
  */
-import {
-  SettingsCopyButton,
-  SettingsItem,
-  SettingsNotice,
-  SettingsStatusPill,
-  type SettingsStatusTone,
-  TextField,
-  useSettingsDraftSource,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
-import { usePluginConfig, usePluginSend } from "@blackbelt-technology/dashboard-plugin-runtime/context";
+import { SettingsCopyButton, SettingsItem, SettingsNotice, SettingsStatusPill, type SettingsStatusTone, TextField, usePluginConfig, usePluginSend, useSettingsDraftSource } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { mdiOpenInNew, mdiRefresh } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";

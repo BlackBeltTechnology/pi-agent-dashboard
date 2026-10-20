@@ -12,14 +12,7 @@
  *
  * See change: add-custom-entry-renderer-slot.
  */
-import {
-  type ClaimEntry,
-  CurrentPluginLayer,
-  forCustomType,
-  type SlotRegistry,
-  useSlotClaimsVersion,
-} from "@blackbelt-technology/dashboard-plugin-runtime/host";
-import { useSlotRegistryOrNull } from "@blackbelt-technology/dashboard-plugin-runtime/context";
+import { type ClaimEntry, CurrentPluginLayer, forCustomType, type SlotRegistry, useSlotClaimsVersion, useSlotRegistryOrNull } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import React, { useCallback, useMemo, useState } from "react";
 import { useCustomEntryPayload } from "../../hooks/useCustomEntryPayload.js";
 import { useDisplayPrefs } from "../../hooks/useDisplayPrefs.js";

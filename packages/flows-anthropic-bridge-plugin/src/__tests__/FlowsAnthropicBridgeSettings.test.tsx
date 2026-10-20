@@ -6,17 +6,7 @@
  * `SettingsDraftProvider` registry whose registered source is driven like the host does.
  * See change: retro-ux-plugin-settings-wave-2 (test-plan E7, E18, E19, F5, X9).
  */
-import {
-  createSlotRegistry,
-  type RegisteredSource,
-  SettingsDraftProvider,
-  type SettingsDraftRegistry,
-} from "@blackbelt-technology/dashboard-plugin-runtime/host";
-import {
-  applyPluginConfigUpdate,
-  CurrentPluginLayer,
-  PluginContextProvider,
-} from "@blackbelt-technology/dashboard-plugin-runtime/context";
+import { applyPluginConfigUpdate, CurrentPluginLayer, createSlotRegistry, PluginContextProvider, type RegisteredSource, SettingsDraftProvider, type SettingsDraftRegistry } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FlowsAnthropicBridgeSettings } from "../FlowsAnthropicBridgeSettings.js";

@@ -17,7 +17,6 @@ import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { GoalsBoardClaim } from "../client/GoalsBoardClaim.js";
-import { encodeFolderPath } from "../client/goals-api.js";
 import { GOAL_STATUS_EVENT_TYPE } from "../shared/goal-types.js";
 
 const cwd = "/repo/alpha";
@@ -53,7 +52,7 @@ function renderBoard(goals: GoalRecord[]) {
   return render(
     <Router>
       <PluginContextProvider>
-        <GoalsBoardClaim params={{ encodedCwd: encodeFolderPath(cwd) }} onBack={() => {}} />
+        <GoalsBoardClaim cwd={cwd} params={{}} onBack={() => {}} />
       </PluginContextProvider>
     </Router>,
   );

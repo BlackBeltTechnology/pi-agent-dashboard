@@ -11,6 +11,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as url from "node:url";
+import { PLUGIN_HOST_API_VERSION } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/host-api.js";
 import {
   MAX_MARKERS_PER_TYPE,
   markerPatternError,
@@ -19,7 +20,20 @@ import {
 import { SLOT_RENDER_ORDER, SLOT_SECTIONS } from "./templates/slot-sections.js";
 
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
+
+/**
+ * Manifest `hostApi` range a scaffolded plugin declares: `^<major>.<minor>.0` of the host API
+ * it was scaffolded against (derived from `PLUGIN_HOST_API_VERSION`, never hand-maintained).
+ * See change: decouple-plugins-from-core (D7).
+ */
+export function scaffoldHostApiRange(version: string = PLUGIN_HOST_API_VERSION): string {
+  const [major, minor] = version.split(".");
+  return `^${major}.${minor}.0`;
+}
 const TEMPLATE_DIR = path.join(__dirname, "templates");
+
+/** Keyword that marks a package as a pi-dashboard plugin for registry search / `pi install`. */
+const PLUGIN_KEYWORD = "pi-dashboard-plugin";
 
 /** Slot ids accepted by the renderer (the 10 React slots). */
 export type SlotId =
@@ -159,6 +173,7 @@ function renderNew(a: NewModeAnswers, sink: WriteSink): void {
     .replace(/\{\{ priority \}\}/g, String(a.priority))
     .replace(/\{\{ id \}\}/g, a.id)
     .replace(/\{\{ requiredApi \}\}/g, requiredApi)
+    .replace(/\{\{ hostApi \}\}/g, scaffoldHostApiRange())
     .replace(/\{\{ runtimeVersionRange \}\}/g, runtimeVersionRange)
     .replace(/\{\{ sharedVersionRange \}\}/g, sharedVersionRange)
     .replace(/\{\{ exportsBlock \}\}/g, exportsBlock)
@@ -505,11 +520,15 @@ function renderAugment(a: AugmentModeAnswers, sink: WriteSink): void {
     displayName,
     priority: 100,
     requiredApi,
+    hostApi: scaffoldHostApiRange(),
     client: "./src/dashboard/client.tsx",
   };
   if (a.addServer) manifest.server = "./src/dashboard/server.ts";
   manifest.claims = claims;
   existing["pi-dashboard-plugin"] = manifest;
+  // Keep the author's keywords; add ours once.
+  const keywords = Array.isArray(existing.keywords) ? (existing.keywords as unknown[]) : [];
+  if (!keywords.includes(PLUGIN_KEYWORD)) existing.keywords = [...keywords, PLUGIN_KEYWORD];
 
   sink.write("package.json", JSON.stringify(existing, null, 2) + "\n");
 

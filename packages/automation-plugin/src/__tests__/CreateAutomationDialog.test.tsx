@@ -6,12 +6,7 @@
  * api + ui-primitive mocked. See change: redesign-automation-editor-and-board.
  */
 
-import { createSlotRegistry } from "@blackbelt-technology/dashboard-plugin-runtime/host";
-import {
-  applyPluginConfigUpdate,
-  CurrentPluginLayer,
-  PluginContextProvider,
-} from "@blackbelt-technology/dashboard-plugin-runtime/context";
+import { applyPluginConfigUpdate, CurrentPluginLayer, createSlotRegistry, PluginContextProvider } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { withUiPrimitiveProvider } from "@blackbelt-technology/dashboard-plugin-runtime/test-support";
 import type {
   UiModelSelectorProps,

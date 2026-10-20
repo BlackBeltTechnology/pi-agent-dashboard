@@ -8,10 +8,11 @@
  *
  * See change: anti-slop-taste-v2 (test-plan E16, E17, E18).
  */
-import { describe, expect, it } from "vitest";
+
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
 
 const PKG = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const REPO = path.resolve(PKG, "../..");
@@ -101,5 +102,13 @@ describe("host API surface snapshot — accent text tokens (E29)", () => {
     const snap = JSON.parse(fs.readFileSync(SNAPSHOT, "utf8")) as { cssCustomProperties: string[] };
     const declared = declaredTokens(fs.readFileSync(INDEX_CSS, "utf8"));
     expect(snap.cssCustomProperties.filter((t) => !declared.has(t))).toEqual([]);
+  });
+});
+
+describe("scaffold build reference — generated @source file (decouple-plugins-from-core 3.16)", () => {
+  it("build-integration.md tells authors the @source file is generated and no @source line is hand-written", () => {
+    const md = fs.readFileSync(path.join(SKILL_DIR, "references/build-integration.md"), "utf8");
+    expect(md).toContain("plugin-sources.css");
+    expect(md).toMatch(/Do not hand-write an `@source` line/);
   });
 });

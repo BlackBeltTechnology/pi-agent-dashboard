@@ -189,7 +189,8 @@ const FolderHomeContainer = lazy(() =>
   import("./components/folder/FolderHomeContainer.js").then((m) => ({ default: m.FolderHomeContainer })),
 );
 
-import { applyPluginConfigUpdate, initPluginConfigs, PluginContextProvider, type SubagentStateSnapshot } from "@blackbelt-technology/dashboard-plugin-runtime/context";
+import type { SubagentStateSnapshot } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { applyPluginConfigUpdate, ContentHeaderStickySlot, ContentInlineFooterSlot, ContentViewSlot, createSlotRegistry, EmbeddedAppReturnPill, EmbeddedAppShellProvider, FolderMenuProvider, initPluginConfigs, PluginContextProvider, ShellHeadlessSlot, ShellOverlayRouteSlot, ShellSessionsProvider, useShellOverlayRouteDepth, useShellOverlayRouteMatched, useShellOverlayRoutePresentation } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import type { ArchivedSessionSummary, ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { CardSectionPrefs } from "@blackbelt-technology/pi-dashboard-shared/card-sections.js";
 import type { ProviderRefreshError } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
@@ -235,21 +236,6 @@ const EMPTY_INTERACTIVE_REQUESTS: readonly never[] = Object.freeze([]);
 // which is upcast at the closure boundary below.
 const EMPTY_SUBAGENTS_MAP: ReadonlyMap<string, SubagentStateSnapshot> = Object.freeze(new Map());
 
-import {
-  ContentHeaderStickySlot,
-  ContentInlineFooterSlot,
-  ContentViewSlot,
-  createSlotRegistry,
-  EmbeddedAppReturnPill,
-  EmbeddedAppShellProvider,
-  FolderMenuProvider,
-  ShellHeadlessSlot,
-  ShellOverlayRouteSlot,
-  ShellSessionsProvider,
-  useShellOverlayRouteDepth,
-  useShellOverlayRouteMatched,
-  useShellOverlayRoutePresentation,
-} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { claimsToRouteDescriptors } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/route-descriptor.js";
 import { PLUGIN_REGISTRY } from "./generated/plugin-registry.js";
 import { usePluginEnabledSet } from "./hooks/usePluginEnabledSet.js";

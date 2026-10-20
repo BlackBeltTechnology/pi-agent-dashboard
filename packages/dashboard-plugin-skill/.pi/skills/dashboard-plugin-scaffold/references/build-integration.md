@@ -18,6 +18,7 @@ The Vite plugin `viteDashboardPluginsPlugin` (in `@blackbelt-technology/dashboar
 2. Generates `packages/client/src/generated/plugin-registry.tsx` containing static imports of each plugin's `client` entry plus a typed `PLUGIN_REGISTRY` export.
 3. Vite tree-shakes any plugin component that no slot consumer references.
 4. Code-splits per plugin: each plugin's chunk loads when its slot is first rendered (e.g. a `content-view` chunk loads on first navigation to its route).
+5. Generates the Tailwind `@source` file (`packages/client/src/generated/plugin-sources.css`) from the same scan, so the host's CSS sees every plugin's class names. **Do not hand-write an `@source` line** for your plugin: no edit to `index.css` or any CSS file is needed, and none should be made.
 
 ## Production filtering
 

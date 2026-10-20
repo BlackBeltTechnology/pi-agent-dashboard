@@ -81,6 +81,7 @@ export {
 export {
   applyPluginConfigUpdate,
   CurrentPluginLayer,
+  getPluginConfig,
   initPluginConfigs,
   PluginContextProvider,
   type PluginContextProviderProps,

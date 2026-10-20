@@ -3,21 +3,13 @@
  * toggle click POSTs to /api/config/plugins/subagents, error path reverts.
  * See change: add-subagent-inspector §16.3.3.
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { render, screen, fireEvent, act, cleanup, waitFor } from "@testing-library/react";
+
+import { applyPluginConfigUpdate, CurrentPluginLayer, createSlotRegistry, PluginContextProvider, type RegisteredSource, SettingsDraftProvider } from "@blackbelt-technology/dashboard-plugin-runtime/host";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
-import {
-  createSlotRegistry,
-  SettingsDraftProvider,
-  type RegisteredSource,
-} from "@blackbelt-technology/dashboard-plugin-runtime/host";
-import {
-	applyPluginConfigUpdate,
-	CurrentPluginLayer,
-	PluginContextProvider,
-} from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import { SubagentsSettings } from "../SubagentsSettings.js";
 
 function renderInPluginContext(sources?: Map<string, RegisteredSource>, location = memoryLocation({ path: "/settings/plugins/subagents", record: true })) {

@@ -1,15 +1,11 @@
-import {
-  type ClaimEntry,
-  createSlotRegistry,
-} from "@blackbelt-technology/dashboard-plugin-runtime/host";
-import { PluginContextProvider } from "@blackbelt-technology/dashboard-plugin-runtime/context";
+import { type ClaimEntry, createSlotRegistry, PluginContextProvider } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { DemoToolRenderer } from "@blackbelt-technology/demo-plugin";
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import type React from "react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { ThemeProvider } from "../settings/ThemeProvider.js";
 import { ToolCallStep } from "../chat/ToolCallStep.js";
 import { FORCE_STOP_ARM_MS, type StopController } from "../chat/ToolStopControl.js";
+import { ThemeProvider } from "../settings/ThemeProvider.js";
 import type { ToolContext } from "../tool-renderers/index.js";
 
 const defaultContext: ToolContext = {};

@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "description": "{{ displayName }} — pi-dashboard plugin",
   "type": "module",
+  "keywords": [
+    "pi-dashboard-plugin"
+  ],
   "private": false,
   "exports": {{ exportsBlock }},
   "files": [
@@ -29,6 +32,7 @@
     "displayName": "{{ displayName }}",
     "priority": {{ priority }},
     "requiredApi": "{{ requiredApi }}",
+    "hostApi": "{{ hostApi }}",
     "client": "./src/client.tsx"{{ serverManifestField }}{{ bridgeManifestField }}{{ configSchemaManifestField }},
     "claims": {{ claimsBlock }}
   }

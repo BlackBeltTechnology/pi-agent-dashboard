@@ -7,12 +7,13 @@
  *
  * See change: add-plugin-ui-primitive-registry.
  */
-import React, { createContext, useContext, type ReactNode } from "react";
+
 import type {
   UiPrimitiveKey,
   UiPrimitiveMap,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
-import { type UiPrimitiveRegistry, getUiPrimitiveImpl } from "./ui-primitive-registry.js";
+import React, { createContext, type ReactNode, useContext } from "react";
+import { getUiPrimitiveImpl, type UiPrimitiveRegistry } from "./ui-primitive-registry.js";
 
 const UiPrimitiveContext = createContext<UiPrimitiveRegistry | null>(null);
 
@@ -57,14 +58,9 @@ function useRegistryFromContext(): UiPrimitiveRegistry {
  * throw and isolate the failing claim. Sibling slot contributions render
  * unaffected.
  *
- * @deprecated Plugin code SHOULD prefer emitting server-side intent broadcasts
- *   (see `adopt-server-driven-intent-rendering`) rather than calling this
- *   hook from inside plugin React components. The hook itself is NOT
- *   deprecated — it remains the canonical way for the SHELL'S
- *   `IntentRenderer` to resolve primitive names from incoming intents.
- *   What's deprecated is the pattern of plugins calling it from their
- *   own client-side React tree (per-client state divergence, no multi-
- *   client coherence).
+ * Public host API (`public.ts`): trusted plugin client code (bundled or
+ * runtime-loaded) may call this directly; intents remain the path for bridge-
+ * or server-originated UI. See change: decouple-plugins-from-core (D8).
  *
  * @example
  *   function FlowAgentDetail({ agent }) {
@@ -95,12 +91,6 @@ export function useUiPrimitive<K extends UiPrimitiveKey>(key: K): UiPrimitiveMap
  * blank UI.
  *
  * Like the strict hook, throws if called outside a `<UiPrimitiveProvider>`.
- *
- * @deprecated Same as `useUiPrimitive`: this hook remains the resolver
- *   used by the shell's IntentRenderer, but plugins SHOULD emit
- *   server-side intent broadcasts rather than render React components
- *   directly that look up primitives. See change
- *   `adopt-server-driven-intent-rendering`.
  */
 export function useUiPrimitiveOrNull<K extends UiPrimitiveKey>(key: K): UiPrimitiveMap[K] | null {
   const reg = useRegistryFromContext();

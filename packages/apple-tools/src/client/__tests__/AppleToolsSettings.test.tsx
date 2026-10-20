@@ -9,17 +9,7 @@
  *
  * Harness mirrors `cost-estimator/src/client/__tests__/CostSettings.test.tsx`.
  */
-import {
-  createSlotRegistry,
-  type RegisteredSource,
-  SettingsDraftProvider,
-  type SettingsDraftRegistry,
-} from "@blackbelt-technology/dashboard-plugin-runtime/host";
-import {
-  applyPluginConfigUpdate,
-  CurrentPluginLayer,
-  PluginContextProvider,
-} from "@blackbelt-technology/dashboard-plugin-runtime/context";
+import { applyPluginConfigUpdate, CurrentPluginLayer, createSlotRegistry, PluginContextProvider, type RegisteredSource, SettingsDraftProvider, type SettingsDraftRegistry } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppleToolsSettings } from "../AppleToolsSettings.js";

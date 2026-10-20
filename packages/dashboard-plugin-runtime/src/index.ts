@@ -10,7 +10,7 @@
  *
  * See change: decouple-plugins-from-core (design D6).
  */
-export * from "./public.js";
+
 
 export {
   /** @deprecated Import `AnchoredPopoverSlot` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
@@ -21,6 +21,20 @@ export {
   buildGraph,
   /** @deprecated Import `ClaimEntry` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
   type ClaimEntry,
+  /** @deprecated Import `CommandRouteSlot` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
+  CommandRouteSlot,
+  /** @deprecated Import `ComposerContextGroupSlot` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
+  ComposerContextGroupSlot,
+  /** @deprecated Import `ComposerPanelSlot` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
+  ComposerPanelSlot,
+  /** @deprecated Import `ContentHeaderStickySlot` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
+  ContentHeaderStickySlot,
+  /** @deprecated Import `ContentInlineFooterSlot` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
+  ContentInlineFooterSlot,
+  /** @deprecated Import `ContentViewSlot` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
+  ContentViewSlot,
+  /** @deprecated Import `CurrentPluginLayer` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
+  CurrentPluginLayer,
   /** @deprecated Import `claimsToRouteDescriptors` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
   claimsToRouteDescriptors,
   /** @deprecated Import `clearFolderProjects` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
@@ -29,20 +43,8 @@ export {
   clearSessionData,
   /** @deprecated Import `clearSessionEvents` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
   clearSessionEvents,
-  /** @deprecated Import `CommandRouteSlot` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
-  CommandRouteSlot,
-  /** @deprecated Import `ComposerContextGroupSlot` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
-  ComposerContextGroupSlot,
-  /** @deprecated Import `ComposerPanelSlot` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
-  ComposerPanelSlot,
   /** @deprecated Import `computeToggleImpact` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
   computeToggleImpact,
-  /** @deprecated Import `ContentHeaderStickySlot` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
-  ContentHeaderStickySlot,
-  /** @deprecated Import `ContentInlineFooterSlot` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
-  ContentInlineFooterSlot,
-  /** @deprecated Import `ContentViewSlot` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
-  ContentViewSlot,
   /** @deprecated Import `createFolderMenuStore` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
   createFolderMenuStore,
   /** @deprecated Import `createOAuthFlowClient` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
@@ -51,8 +53,6 @@ export {
   createReturnTargetStore,
   /** @deprecated Import `createSlotRegistry` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
   createSlotRegistry,
-  /** @deprecated Import `CurrentPluginLayer` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
-  CurrentPluginLayer,
   /** @deprecated Import `detectCycles` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
   detectCycles,
   /** @deprecated Import `EditorPaneTabLabelSlot` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
@@ -65,8 +65,6 @@ export {
   EmbeddedAppReturnPill,
   /** @deprecated Import `EmbeddedAppShellProvider` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
   EmbeddedAppShellProvider,
-  /** @deprecated Import `findEditorPaneTabClaim` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
-  findEditorPaneTabClaim,
   /** @deprecated Import `FOLDER_MENU_GROUPS` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
   FOLDER_MENU_GROUPS,
   /** @deprecated Import `FOLDER_PROJECT_ERROR_TTL_MS` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
@@ -77,6 +75,8 @@ export {
   FolderMenuProvider,
   /** @deprecated Import `FolderMenuStore` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
   type FolderMenuStore,
+  /** @deprecated Import `findEditorPaneTabClaim` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
+  findEditorPaneTabClaim,
   /** @deprecated Import `forActionId` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
   forActionId,
   /** @deprecated Import `forCommand` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
@@ -91,16 +91,16 @@ export {
   forSessionRendered,
   /** @deprecated Import `forToolName` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
   forToolName,
-  /** @deprecated Import `getPromptComponentInfo` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
-  getPromptComponentInfo,
-  /** @deprecated Import `getSlotClaimsVersion` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
-  getSlotClaimsVersion,
   /** @deprecated Import `Graph` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
   type Graph,
   /** @deprecated Import `GraphNode` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
   type GraphNode,
-  /** @deprecated Import `initPluginConfigs` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
-  initPluginConfigs,
+  /** @deprecated Import `getPluginConfig` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
+  getPluginConfig,
+  /** @deprecated Import `getPromptComponentInfo` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
+  getPromptComponentInfo,
+  /** @deprecated Import `getSlotClaimsVersion` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
+  getSlotClaimsVersion,
   /** @deprecated Import `IntentActionSender` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
   type IntentActionSender,
   /** @deprecated Import `IntentKey` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
@@ -109,12 +109,14 @@ export {
   IntentRenderer,
   /** @deprecated Import `IntentRendererProps` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
   type IntentRendererProps,
-  /** @deprecated Import `intentStore` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
-  intentStore,
   /** @deprecated Import `IntentStore` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
   IntentStore,
   /** @deprecated Import `IntentStoreEntry` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
   type IntentStoreEntry,
+  /** @deprecated Import `initPluginConfigs` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
+  initPluginConfigs,
+  /** @deprecated Import `intentStore` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
+  intentStore,
   /** @deprecated Import `isFolderMenuGroup` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
   isFolderMenuGroup,
   /** @deprecated Import `isIntentNode` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
@@ -145,22 +147,20 @@ export {
   publishSessionEvent,
   /** @deprecated Import `publishSessionEvents` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
   publishSessionEvents,
-  /** @deprecated Import `randomUuid` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
-  randomUuid,
   /** @deprecated Import `RegisteredFolderMenuItem` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
   type RegisteredFolderMenuItem,
   /** @deprecated Import `RegisteredSource` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
   type RegisteredSource,
   /** @deprecated Import `ResourcePageSectionSlot` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
   ResourcePageSectionSlot,
-  /** @deprecated Import `returnPillLabel` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
-  returnPillLabel,
   /** @deprecated Import `ReturnTarget` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
   type ReturnTarget,
   /** @deprecated Import `ReturnTargetStore` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
   type ReturnTargetStore,
-  /** @deprecated Import `selectFolderMenuItems` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
-  selectFolderMenuItems,
+  /** @deprecated Import `randomUuid` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
+  randomUuid,
+  /** @deprecated Import `returnPillLabel` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
+  returnPillLabel,
   /** @deprecated Import `SessionCardActionBarSlot` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
   SessionCardActionBarSlot,
   /** @deprecated Import `SessionCardBadgeSlot` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
@@ -169,8 +169,6 @@ export {
   SessionCardFlowsSlot,
   /** @deprecated Import `SessionCardMemorySlot` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
   SessionCardMemorySlot,
-  /** @deprecated Import `setSender` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
-  setSender,
   /** @deprecated Import `SettingsDraftProvider` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
   SettingsDraftProvider,
   /** @deprecated Import `SettingsDraftRegistry` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
@@ -197,6 +195,10 @@ export {
   SlotErrorBoundary,
   /** @deprecated Import `SlotRegistry` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
   type SlotRegistry,
+  /** @deprecated Import `selectFolderMenuItems` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
+  selectFolderMenuItems,
+  /** @deprecated Import `setSender` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
+  setSender,
   /** @deprecated Import `subscribeSessionDataKey` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
   subscribeSessionDataKey,
   /** @deprecated Import `subscribeSlotClaimsVersion` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
@@ -258,3 +260,4 @@ export {
   /** @deprecated Import `WorktreeCardSectionSlot` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
   WorktreeCardSectionSlot,
 } from "./host.js";
+export * from "./public.js";

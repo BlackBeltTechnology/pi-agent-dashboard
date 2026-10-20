@@ -6,15 +6,7 @@
  * api + ui-primitive mocked (mirrors CreateAutomationDialog.test.tsx).
  */
 
-import {
-  createSlotRegistry,
-  type SlotRegistry,
-} from "@blackbelt-technology/dashboard-plugin-runtime/host";
-import {
-  applyPluginConfigUpdate,
-  CurrentPluginLayer,
-  PluginContextProvider,
-} from "@blackbelt-technology/dashboard-plugin-runtime/context";
+import { applyPluginConfigUpdate, CurrentPluginLayer, createSlotRegistry, PluginContextProvider, type SlotRegistry } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { withUiPrimitiveProvider } from "@blackbelt-technology/dashboard-plugin-runtime/test-support";
 import type { UiModelSelectorProps } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";

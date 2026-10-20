@@ -22,6 +22,7 @@ interface PluginManifest {
   displayName: string;
   priority?: number;             // default 1000; first-party uses 100; lower = earlier
   requiredApi: string;           // semver range, e.g. "^0.x"
+  hostApi?: string;              // host API range, e.g. "^1.0.0" (`^MAJOR.MINOR[.PATCH]` or exact); the scaffold writes it
   client?: string;               // path to bundled client entry (package-relative)
   server?: string;               // optional path to server entry (package-relative)
   bridge?: string;               // optional path to pi-extension entry (package-relative)
@@ -126,6 +127,7 @@ The skill enforces these at scaffold time so augmented external extensions Just 
     "displayName": "Acme",
     "priority": 100,
     "requiredApi": "^0.x",
+    "hostApi": "^1.0.0",
     "client": "./src/client.tsx",
     "claims": [
       { "slot": "session-card-badge", "component": "AcmeBadge" }

@@ -13,7 +13,7 @@ import type { SlotId } from "./slot-types.js";
 
 /**
  * Opaque marker type for PluginContext.
- * The concrete type is defined in @blackbelt-technology/dashboard-plugin-runtime/context.
+ * The concrete type is defined in @blackbelt-technology/dashboard-plugin-runtime (plugin-context.tsx).
  * Using `unknown` here keeps this shared types-only package free of runtime deps.
  */
 export type AnyPluginContext = unknown;

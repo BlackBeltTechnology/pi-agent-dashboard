@@ -118,9 +118,11 @@
   "uiPrimitiveKeys": {
     "actionList": "ui:action-list",
     "agentCard": "ui:agent-card",
+    "chatView": "ui:chat-view",
     "confirmDialog": "ui:confirm-dialog",
     "dialog": "ui:dialog",
     "dialogPortal": "ui:dialog-portal",
+    "elapsedBadge": "ui:elapsed-badge",
     "formatDuration": "ui:format-duration",
     "formatTokens": "ui:format-tokens",
     "logBlock": "ui:log-block",
@@ -139,9 +141,11 @@
   "uiPrimitiveProps": {
     "ui:action-list": "component<{ actions: { disabled?: false | true | undefined; icon?: string | undefined; label: string; onClick?: () => void | undefined; tone?: \"caution\" | \"create\" | \"danger\" | \"go\" | undefined; tooltip?: string | undefined }[] }>",
     "ui:agent-card": "component<{ children?: Iterable<ReactNode> | Promise<AwaitedReactNode> | ReactElement<unknown, string | JSXElementConstructor<any>> | ReactPortal | bigint | false | null | number | string | true | undefined; headerRight?: Iterable<ReactNode> | Promise<AwaitedReactNode> | ReactElement<unknown, string | JSXElementConstructor<any>> | ReactPortal | bigint | false | null | number | string | true | undefined; name: string; onClick?: () => void | undefined; selected?: false | true | undefined; stats?: Iterable<ReactNode> | Promise<AwaitedReactNode> | ReactElement<unknown, string | JSXElementConstructor<any>> | ReactPortal | bigint | false | null | number | string | true | undefined; status: string }>",
+    "ui:chat-view": "component<{ compact?: false | true | undefined; readOnly?: false | true | undefined; sessionId: string }>",
     "ui:confirm-dialog": "component<{ confirmLabel?: string | undefined; message: string; onCancel: () => void; onConfirm: () => void }>",
     "ui:dialog": "ComponentClass<UiDialogProps, any> & { Action: component<{ children: ReactNode; disabled?: boolean | undefined; intent?: UiDialogIntent | undefined; onClick: () => void; testId?: string | undefined }>; Cancel: component<{ children?: ReactNode; onClick: () => void; testId?: string | undefined }>; Footer: component<{ children: ReactNode }> } | FunctionComponent<UiDialogProps> & { Action: component<{ children: ReactNode; disabled?: boolean | undefined; intent?: UiDialogIntent | undefined; onClick: () => void; testId?: string | undefined }>; Cancel: component<{ children?: ReactNode; onClick: () => void; testId?: string | undefined }>; Footer: component<{ children: ReactNode }> }",
     "ui:dialog-portal": "component<{ children: Iterable<ReactNode> | Promise<AwaitedReactNode> | ReactElement<unknown, string | JSXElementConstructor<any>> | ReactPortal | bigint | false | null | number | string | true | undefined }>",
+    "ui:elapsed-badge": "component<{ duration?: number | undefined; startedAt?: number | undefined }>",
     "ui:format-duration": "(ms: number) => string",
     "ui:format-tokens": "(n: number) => string",
     "ui:log-block": "component<{ collapsible?: false | true | undefined; copyIcon?: string | undefined; defaultOpen?: false | true | undefined; label: string; maxHeightClass?: string | undefined; preview?: false | true | undefined; previewLines?: number | undefined; text: string }>",

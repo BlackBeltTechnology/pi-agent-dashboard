@@ -1,9 +1,4 @@
-import {
-  type ClaimEntry,
-  CurrentPluginLayer,
-  forToolName,
-} from "@blackbelt-technology/dashboard-plugin-runtime/host";
-import { useSlotRegistryOrNull } from "@blackbelt-technology/dashboard-plugin-runtime/context";
+import { type ClaimEntry, CurrentPluginLayer, forToolName, useSlotRegistryOrNull } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { mdiAlertCircle, mdiCheck, mdiChevronDown, mdiChevronRight, mdiHelpCircleOutline, mdiLoading, mdiMinusCircleOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { type ReactNode, useState } from "react";

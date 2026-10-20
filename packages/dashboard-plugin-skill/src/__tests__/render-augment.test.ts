@@ -8,7 +8,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { AugmentModeAnswers } from "../render.js";
-import { type InMemorySink, render } from "../render.js";
+import { type InMemorySink, render, scaffoldHostApiRange } from "../render.js";
 
 const BASE_PKG = {
   name: "@scope/sample-extension",
@@ -62,6 +62,18 @@ describe("render augment — minimal", () => {
     expect(m.id).toBe("sample-extension");
     expect(m.requiredApi).toBe("^0.x");
     expect(m.client).toBe("./src/dashboard/client.tsx");
+  });
+
+  it("adds the pi-dashboard-plugin keyword (keeping the author's) and a derived hostApi", () => {
+    fs.writeFileSync(path.join(workdir, "package.json"), JSON.stringify({ ...BASE_PKG, keywords: ["pi-package"] }, null, 2));
+    const sink = render(answers()) as InMemorySink;
+    const pkg = JSON.parse(sink.files.get("package.json")!) as { keywords: string[]; "pi-dashboard-plugin": { hostApi: string } };
+    expect(pkg.keywords).toEqual(["pi-package", "pi-dashboard-plugin"]);
+    expect(pkg["pi-dashboard-plugin"].hostApi).toBe(scaffoldHostApiRange());
+    // idempotent: rendering again over the result does not duplicate the keyword
+    fs.writeFileSync(path.join(workdir, "package.json"), JSON.stringify({ ...BASE_PKG, keywords: pkg.keywords }, null, 2));
+    const again = JSON.parse((render(answers()) as InMemorySink).files.get("package.json")!) as { keywords: string[] };
+    expect(again.keywords).toEqual(["pi-package", "pi-dashboard-plugin"]);
   });
 
   it("preserves existing dependencies and adds SDK deps in alpha order", () => {

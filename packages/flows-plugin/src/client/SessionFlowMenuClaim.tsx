@@ -1,11 +1,4 @@
-import {
-  usePluginSend,
-  useSessionData,
-  useSessionEvents,
-  useT,
-  useUiPrimitive,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
-import { usePluginConfig } from "@blackbelt-technology/dashboard-plugin-runtime/context";
+import { usePluginConfig, usePluginSend, useSessionData, useSessionEvents, useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { ActionList } from "@blackbelt-technology/pi-dashboard-client-utils/ActionList";
 import type { UiSelectOption as SelectOption } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";

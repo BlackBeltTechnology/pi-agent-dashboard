@@ -2,24 +2,16 @@
  * kb-api — folder-path codec round-trip + fetch content-type guard (task 2.2).
  * See change: add-kb-folder-slot.
  */
+
+import { encodeFolderPath } from "@blackbelt-technology/dashboard-plugin-runtime/sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { decodeFolderPath, encodeFolderPath, fetchKbStats, kbSettingsUrl, reindexKb } from "../kb-api.js";
+import { fetchKbStats, kbSettingsUrl, reindexKb } from "../kb-api.js";
 
 afterEach(() => vi.restoreAllMocks());
 
-describe("folder-path codec", () => {
-  it("round-trips ascii + unicode cwds", () => {
-    for (const cwd of ["/a/b/c", "/Users/rö/pröj", "/工程/repo"]) {
-      expect(decodeFolderPath(encodeFolderPath(cwd))).toBe(cwd);
-    }
-  });
-  it("builds the settings overlay url", () => {
+describe("kbSettingsUrl", () => {
+  it("builds the settings overlay url from the runtime sdk codec", () => {
     expect(kbSettingsUrl("/x")).toBe(`/folder/${encodeFolderPath("/x")}/kb`);
-  });
-  it("returns null on a malformed encoding", () => {
-    // Non-base64 chars decode to garbage bytes but never throw; a truly broken
-    // input surfaces as null via the try/catch.
-    expect(decodeFolderPath("@@@not base64@@@")).not.toBe(undefined);
   });
 });
 

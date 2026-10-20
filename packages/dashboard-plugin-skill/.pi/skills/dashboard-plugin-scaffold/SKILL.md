@@ -241,7 +241,7 @@ The renderer:
 1. Adds `@blackbelt-technology/dashboard-plugin-runtime` and `@blackbelt-technology/pi-dashboard-shared` as `dependencies` (preserves existing deps; sorted alphabetically).
 2. Injects the `pi-dashboard-plugin` manifest field into `package.json` (top-level, JSON-safe edit via `jq`).
 3. Adds `./client`, `./server` (if applicable), `./bridge` (if applicable) entries to `exports`.
-4. Sets `pi-dashboard-plugin.requiredApi` to `^0.x` (the v0.x lock).
+4. Sets `pi-dashboard-plugin.requiredApi` to `^0.x` (the v0.x lock), `pi-dashboard-plugin.hostApi` to `^<major>.<minor>.0` of the current `PLUGIN_HOST_API_VERSION`, and adds the `pi-dashboard-plugin` keyword (existing keywords kept).
 5. Creates `src/dashboard/client.tsx` with stubs for each confirmed claim.
 6. Creates `src/dashboard/server.ts` only if any proposal needed server hooks.
 
