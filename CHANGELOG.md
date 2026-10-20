@@ -241,6 +241,13 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Fixed
 
+- **Hermes memory settings no longer delete settings they don't know.** Saving from the
+  hermes-memory settings page used to rewrite `~/.pi/agent/hermes-memory-config.json` with only the
+  fields the dashboard knew, silently removing anything newer `pi-hermes-memory` versions added. Saves
+  now keep those keys, store only values that differ from the defaults (so upstream default changes
+  apply), and the page covers all `pi-hermes-memory` 0.9.10 settings — including the `max` thinking
+  level and the new 180 s consolidation timeout default. A malformed config file is backed up to
+  `hermes-memory-config.json.corrupt-<timestamp>` before a save replaces it.
 - **The desktop app's server and the `pi-dashboard` CLI cooperate (#924).**
   - Quitting the app stops the server it started again. `/api/health` stopped publishing `starter` on 2026-05-26, so the app never saw its own server as owned on quit; it now reads `launchSource` (legacy `starter` as a fallback) and waits up to 5 s for the server to exit. Behaviour change: since 2026-05-26 quit left the server and its sessions running.
   - `pi-dashboard stop` of a server this HOME provably owns goes through the announced `/api/shutdown`, with the SIGTERM fallback kept. Bridges suppress auto-start, so a terminal pi session no longer races a replacement server in. The exit intent is `shutdown` instead of `signal` (no recovery offer on the next boot). For a server the open desktop app started it prints a note: the app stays open and shows its reconnect page.
