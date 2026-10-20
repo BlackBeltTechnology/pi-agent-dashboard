@@ -1,24 +1,30 @@
 /**
- * Server-side app table of the craft-web plugin. One row per app that has a manifest
- * claim (the claim id equals the `craft-apps` registry id). `__tests__/manifest.test.ts`
- * (E1) keeps this table, the `package.json` claims and the registry from drifting.
+ * Server-side app table of the craft-web plugin, projected from the adapter profiles
+ * (`../shared/app-profiles.ts`). Claim ids map to an APP id (a claim id is no longer always the app id);
+ * status, prepare, config (`apps.<appId>`), mount (`/apps/craft-<appId>/`) and the file validators stay
+ * keyed by app id. `__tests__/manifest.test.ts` keeps profiles, `package.json` claims and the registry
+ * from drifting.
  *
- * See change: edit-office-in-pane-with-craft-web (D1, D3).
+ * See change: edit-office-in-pane-with-craft-web (D1, D3), extend-craft-web-to-all-apps (D1, D2).
  */
+import { CRAFT_APP_PROFILES } from "../shared/app-profiles.js";
 
 export interface CraftWebServerApp {
-  /** Claim id, `craft-apps` registry id, status/prepare key. */
+  /** `craft-apps` registry id, status/prepare/config/mount key. */
   id: string;
-  /** Edited extension, lower-case with leading dot. */
-  extension: string;
-  /** Approximate gzip download before the first prepare (the spike's WordCraft 0.8.0 build: 15.8 MB wasm + ~165 KB js). */
+  /** Claim ids of this app. */
+  claimIds: readonly string[];
+  /** Approximate gzip download before the first prepare. */
   approxDownloadBytes: number;
 }
 
-/** Apps with a manifest claim today (WordCraft only; GridCraft/DeckCraft join after their spikes). */
-export const CRAFT_WEB_APPS: Readonly<Record<string, CraftWebServerApp>> = {
-  wordcraft: { id: "wordcraft", extension: ".docx", approxDownloadBytes: 16_500_000 },
-};
+/** Apps with a profile (= with manifest claims), keyed by app id. */
+export const CRAFT_WEB_APPS: Readonly<Record<string, CraftWebServerApp>> = Object.fromEntries(
+  CRAFT_APP_PROFILES.map((p) => [p.appId, { id: p.appId, claimIds: p.claims.map((c) => c.id), approxDownloadBytes: p.approxDownloadBytes }]),
+);
+
+/** Claim id → app id. */
+export const CLAIM_APP: Readonly<Record<string, string>> = Object.fromEntries(CRAFT_APP_PROFILES.flatMap((p) => p.claims.map((c) => [c.id, p.appId])));
 
 export const CLAIMED_APPS: readonly string[] = Object.keys(CRAFT_WEB_APPS);
 

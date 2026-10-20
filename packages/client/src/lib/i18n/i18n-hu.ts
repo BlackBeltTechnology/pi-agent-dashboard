@@ -77,6 +77,7 @@ export const huCatalog: Record<string, string> = {
   "diff.changedThisTurn": "Ebben a körben módosult",
   "editor.backToTargets": "← Célok",
   "editor.binaryFileNotice": "Ez a fájl bináris, itt nem jeleníthető meg.",
+  "editor.binaryOpenWith": "Megnyitható egy bővítménnyel:",
   "editor.changedOnDiskStale": "megváltozott a lemezen. A gyorsítótárazott nézet elavult.",
   "editor.close": "bezárás",
   "editor.closeEditor": "Szerkesztő bezárása",

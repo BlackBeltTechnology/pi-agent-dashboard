@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>FilmCraft</title>
+  <link rel="icon" href="favicon.png" type="image/png">
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #1b1c1f; }
+    canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+    #loading {
+      position: absolute; inset: 0; display: flex; flex-direction: column; gap: 14px;
+      align-items: center; justify-content: center; color: #c9c9cc;
+      font: 14px/1.4 system-ui, sans-serif; pointer-events: none;
+    }
+    #loading img { width: 56px; height: 56px; }
+    #loading .err { color: #ff8a7a; white-space: pre-wrap; max-width: 70ch; pointer-events: auto; }
+    #fatal {
+      position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+      background: rgba(20, 20, 22, 0.88); color: #e6e6e8; font: 14px/1.45 system-ui, sans-serif; z-index: 10;
+    }
+    #fatal.on { display: flex; }
+    #fatal .box { max-width: min(78ch, calc(100vw - 32px)); padding: 20px 24px; background: #26272b; border-radius: 8px; }
+    #fatal h1 { margin: 0 0 8px; font-size: 17px; color: #ff8a7a; }
+    #fatal pre { max-height: 40vh; overflow: auto; white-space: pre-wrap; font-size: 12px; color: #c9c9cc; }
+    #fatal button { font: inherit; padding: 6px 14px; border: 0; border-radius: 6px; background: #3b6fe0; color: #fff; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <canvas id="filmcraft_canvas"></canvas>
+  <div id="loading"><img src="favicon.png" alt=""><div id="status">Loading FilmCraft…</div></div>
+  <div id="fatal" role="alertdialog" aria-labelledby="fatal-title">
+    <div class="box">
+      <h1 id="fatal-title">FilmCraft stopped working</h1>
+      <div>Unsaved changes are kept in the browser every few seconds and come back when you reload.</div>
+      <pre id="fatal-msg"></pre>
+      <button id="fatal-reload" type="button">Reload</button>
+    </div>
+  </div>
+  <script>
+    // A Rust panic (or an out-of-memory abort) inside a frame stops the app for good: eframe logs
+    // "panicked at …" with console.error, then the wasm traps ("RuntimeError: unreachable") and
+    // the canvas freezes or goes blank. Show what happened instead of a dead page.
+    window.filmcraftLoad = {};
+    let lastPanic = null;
+    const consoleError = console.error.bind(console);
+    console.error = (...a) => {
+      const m = a.map(String).join(" ");
+      if (/panicked at|memory allocation of/.test(m)) lastPanic = m;
+      consoleError(...a);
+    };
+    window.filmcraftFatal = (what) => {
+      if (window.filmcraftLoad.fatal) return;
+      const msg = lastPanic || String(what && (what.stack || what.message) || what);
+      window.filmcraftLoad.fatal = msg;
+      const el = document.getElementById("fatal");
+      document.getElementById("fatal-msg").textContent = msg.split("\n\nStack:")[0];
+      el.classList.add("on");
+    };
+    document.getElementById("fatal-reload").onclick = () => location.reload();
+    const isFatal = (e) => e instanceof WebAssembly.RuntimeError || /panicked at|unreachable|memory access out of bounds/.test(String(e && e.message || e));
+    // only after start-up: a failed start is shown in #loading below
+    addEventListener("error", (ev) => { if (window.filmcraftLoad.readyMs && isFatal(ev.error || ev.message)) window.filmcraftFatal(ev.error || ev.message); });
+    addEventListener("unhandledrejection", (ev) => { if (window.filmcraftLoad.readyMs && isFatal(ev.reason)) window.filmcraftFatal(ev.reason); });
+  </script>
+  <script type="module">
+    // `ddd8ba140571b2b8` is replaced by `cargo xtask web` with a hash of the build: the glue and the
+    // wasm are cached as immutable, so their URLs must change with every build.
+    const build = "ddd8ba140571b2b8";
+    const v = build.startsWith("__") ? "" : "?v=" + build;
+    const t0 = performance.now();
+    const params = new URLSearchParams(location.search);
+    try {
+      const { default: init, start } = await import("./filmcraft_web.js" + v);
+      await init({ module_or_path: new URL("filmcraft_web_bg.wasm" + v, location.href) });
+      window.filmcraftLoad.wasmMs = performance.now() - t0;
+      await start("filmcraft_canvas");
+      window.filmcraftLoad.readyMs = performance.now() - t0;
+    } catch (e) {
+      const text = String(e && e.stack || e);
+      window.filmcraftLoad.error = String(e);
+      // WebGPU was found but could not be started: try again on WebGL2 (once)
+      if (!params.has("webgl") && !params.has("cpu") && /wgpu|webgpu|requestDevice|requestAdapter|GPUDevice|surface/i.test(text)) {
+        params.set("webgl", "");
+        location.replace(location.pathname + "?" + params.toString().replace(/=(&|$)/g, "$1") + location.hash);
+      } else {
+        const s = document.getElementById("status");
+        if (s) { s.className = "err"; s.textContent = "FilmCraft failed to start:\n" + text; }
+      }
+      throw e;
+    }
+  </script>
+</body>
+</html>

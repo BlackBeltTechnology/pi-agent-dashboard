@@ -9,6 +9,7 @@
  *
  * See change: edit-office-in-pane-with-craft-web (D1, D2, D3; tasks 4.3, 4.5).
  */
+import fs from "node:fs";
 import path from "node:path";
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import {
@@ -22,9 +23,10 @@ import {
   type WebPostInstallContext,
 } from "@blackbelt-technology/pi-dashboard-craft-apps/provision.js";
 import { envPrefix, getApp } from "@blackbelt-technology/pi-dashboard-craft-apps/registry.js";
+import { profileFor } from "../shared/app-profiles.js";
 import { CLAIMED_APPS, CRAFT_WEB_APPS, isClaimedApp } from "./apps.js";
 import { appChannel, appEnabled, type CraftWebConfig } from "./config.js";
-import { createPostInstall, readBuildInfo } from "./post-install.js";
+import { createPostInstall, profileHash, readBuildInfo } from "./post-install.js";
 import { createShimVersionReader } from "./shim.js";
 
 type StatusReason =
@@ -56,6 +58,8 @@ interface AppStatus {
   installedVersion?: string;
   /** Known latest web version (latest channel only). */
   latestVersion?: string;
+  /** `ok` build prepared with an older (still supported) shim: re-preparing is offered as an update (D8). */
+  shimUpdate?: boolean;
   preparing: boolean;
   /** CSP violations the host forwarded since the server started. */
   cspViolations: number;
@@ -100,6 +104,9 @@ const FAILURE_STATUS: Partial<Record<WebErrorCode, { reason: PrepareFailureReaso
   "not-verified": { reason: "not-verified", httpStatus: 409 },
 };
 
+/** First shim version whose trees carry a profile (`craft-build.json` `profileHash`). */
+const PROFILE_SINCE_SHIM = 2;
+
 const CSP_WINDOW_MS = 60_000;
 const CSP_MAX_PER_WINDOW = 30;
 
@@ -108,7 +115,12 @@ export interface CraftWebService {
   prepare(app: string): Promise<PrepareOutcome>;
   /** `false` when rate-limited (nothing counted or logged). */
   reportCsp(app: string, directive: string): boolean;
+  /** Open outcome / validator reject counters (log only, no paths); `false` when rate-limited. */
+  reportTelemetry(app: string, event: TelemetryEvent): boolean;
 }
+
+/** Host-reported events (design D4 observability). */
+export type TelemetryEvent = { kind: "open"; outcome: "title" | "fallback" | "timeout" | "start-failed" } | { kind: "reject"; ext: string };
 
 export function createCraftWebService(deps: CraftWebServiceDeps): CraftWebService {
   const { logger } = deps;
@@ -120,9 +132,14 @@ export function createCraftWebService(deps: CraftWebServiceDeps): CraftWebServic
   const lookupLatest = deps.latestWebVersion ?? latestWebVersion;
   const refreshing = new Set<string>();
 
-  /** Env `<APP>_WEB_VERSION=latest` wins over config; an explicit env pin/dir is handled by `registryPin`. */
-  const channelOf = (app: string): WebChannel =>
-    env()[`${envPrefix(getApp(app))}_WEB_VERSION`]?.trim().toLowerCase() === "latest" ? "latest" : appChannel(deps.getConfig(), app);
+  /**
+   * Env `<APP>_WEB_VERSION=latest` wins over config; an explicit env pin/dir is handled by `registryPin`.
+   * A `latestChannel:false` profile ignores a stored `latest` (fixed to the verified version, D8).
+   */
+  const channelOf = (app: string): WebChannel => {
+    if (env()[`${envPrefix(getApp(app))}_WEB_VERSION`]?.trim().toLowerCase() === "latest") return "latest";
+    return profileFor(app)?.latestChannel === false ? "pinned" : appChannel(deps.getConfig(), app);
+  };
 
   /** Known latest version in the latest channel (a `<APP>_WEB_DIR` override decides alone). */
   const latestFor = (app: string, channel: WebChannel): string | undefined =>
@@ -154,6 +171,25 @@ export function createCraftWebService(deps: CraftWebServiceDeps): CraftWebServic
   const lastFailure = new Map<string, { reason: StatusReason; message: string }>();
   const cspCounts = new Map<string, number>();
   const cspWindow = new Map<string, { start: number; n: number; warned: boolean }>();
+  const telemetryCounts = new Map<string, number>();
+  const telemetryWindow = new Map<string, { start: number; n: number; warned: boolean }>();
+
+  /** Fixed-window limiter: `false` once `CSP_MAX_PER_WINDOW` events of `key` arrived within a minute. */
+  function admit(windows: Map<string, { start: number; n: number; warned: boolean }>, key: string, what: string): boolean {
+    const t = now();
+    const w = windows.get(key);
+    const win = !w || t - w.start >= CSP_WINDOW_MS ? { start: t, n: 0, warned: false } : w;
+    windows.set(key, win);
+    if (win.n >= CSP_MAX_PER_WINDOW) {
+      if (!win.warned) {
+        win.warned = true;
+        logger.warn(`${what} ${key}: rate limit reached (${CSP_MAX_PER_WINDOW}/min); dropping further reports`);
+      }
+      return false;
+    }
+    win.n++;
+    return true;
+  }
 
   /** Pin the registry would resolve to (`undefined` when an env override decides the version). */
   const registryPin = (app: string): string | undefined => {
@@ -200,9 +236,50 @@ export function createCraftWebService(deps: CraftWebServiceDeps): CraftWebServic
       failure ? blocked(failure.reason, extra, failure.message) : blocked(fallback, extra);
     if (!build) return fail("not-prepared", { version: want ?? verified });
     const prepared = { version: build.version, sizeGzip: build.sizeGzip, shimVersion: build.shimVersion };
-    if (build.shimVersion !== shimVersion()) return fail("shim-outdated", prepared);
+    const shim = shimCompat(app, build.shimVersion, build.profileHash);
+    if (shim === "outdated") return fail("shim-outdated", prepared);
     if (want !== undefined && build.version !== want && !keepPrepared) return fail("not-prepared", { ...prepared, version: want, sizeGzip: base.sizeGzip });
-    return { ...base, ...prepared, status: "ok" };
+    return { ...base, ...prepared, ...(shim === "update" ? { shimUpdate: true } : {}), status: "ok" };
+  }
+
+  /**
+   * Shim compatibility of a prepared tree (D8): newer than the plugin's shim, older than the profile's
+   * `minShimVersion`, or the current shim with another profile hash → `outdated`; an older supported shim
+   * → `update` (loads, re-prepare offered); else `current`.
+   */
+  function shimCompat(app: string, buildShim: number, buildProfile: string | undefined): "current" | "update" | "outdated" {
+    const cur = shimVersion();
+    const minShim = profileFor(app)?.minShimVersion ?? cur;
+    if (buildShim > cur || buildShim < minShim) return "outdated";
+    if (buildShim < cur) return "update";
+    const profile = profileFor(app);
+    if (buildShim >= PROFILE_SINCE_SHIM && profile && buildProfile !== profileHash(profile)) return "outdated";
+    return "current";
+  }
+
+  /**
+   * Trees of the current shim prepared with another profile hash can never become `ok`; drop them so the
+   * prepare re-runs post-install instead of reusing the cached `<version>-s<shim>` tree.
+   */
+  function dropStaleProfileTrees(app: string): void {
+    const profile = profileFor(app);
+    const cur = shimVersion();
+    if (!profile || cur < PROFILE_SINCE_SHIM) return;
+    const want = profileHash(profile);
+    const root = path.join(deps.dataDir, `${app}-web`);
+    let names: string[];
+    try {
+      names = fs.readdirSync(root).filter((n) => n.endsWith(`-s${cur}`));
+    } catch {
+      return;
+    }
+    for (const n of names) {
+      const info = readBuildInfo(path.join(root, n));
+      if (info && info.profileHash !== want) {
+        logger.info(`prepare ${app}: dropping ${n} (profile ${info.profileHash ?? "none"} ≠ ${want})`);
+        fs.rmSync(path.join(root, n), { recursive: true, force: true });
+      }
+    }
   }
 
   /** Map a failed provisioning run to the HTTP outcome, remember typed failures for `status`, and log it. */
@@ -220,6 +297,7 @@ export function createCraftWebService(deps: CraftWebServiceDeps): CraftWebServic
   async function runPrepare(app: string): Promise<PrepareOutcome> {
     const started = now();
     try {
+      dropStaleProfileTrees(app);
       const report = await deps.provisionWeb(app, {
         ...deps.provisionDeps,
         root: deps.dataDir,
@@ -273,20 +351,20 @@ export function createCraftWebService(deps: CraftWebServiceDeps): CraftWebServic
     },
 
     reportCsp(app, directive) {
-      const t = now();
-      const w = cspWindow.get(app);
-      const win = !w || t - w.start >= CSP_WINDOW_MS ? { start: t, n: 0, warned: false } : w;
-      cspWindow.set(app, win);
-      if (win.n >= CSP_MAX_PER_WINDOW) {
-        if (!win.warned) {
-          win.warned = true;
-          logger.warn(`csp-report ${app}: rate limit reached (${CSP_MAX_PER_WINDOW}/min); dropping further reports`);
-        }
-        return false;
-      }
-      win.n++;
+      if (!admit(cspWindow, app, "csp-report")) return false;
       cspCounts.set(app, (cspCounts.get(app) ?? 0) + 1);
       logger.warn(`csp-report ${app} directive=${directive} total=${cspCounts.get(app)}`);
+      return true;
+    },
+
+    reportTelemetry(app, event) {
+      if (!admit(telemetryWindow, app, "telemetry")) return false;
+      const label = event.kind === "open" ? `open outcome=${event.outcome}` : `validator-reject ext=${event.ext}`;
+      const key = `${app} ${label}`;
+      telemetryCounts.set(key, (telemetryCounts.get(key) ?? 0) + 1);
+      const line = `telemetry ${key} total=${telemetryCounts.get(key)}`;
+      if (event.kind === "open" && (event.outcome === "title" || event.outcome === "fallback")) logger.info(line);
+      else logger.warn(line);
       return true;
     },
   };

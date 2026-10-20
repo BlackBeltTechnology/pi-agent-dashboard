@@ -7,7 +7,7 @@
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CraftFrameHost } from "../CraftFrameHost.js";
-import { CRAFT_WEB_APPS } from "../craft-apps-table.js";
+import { CRAFT_WEB_APPS, type CraftWebApp } from "../craft-apps-table.js";
 import { advance, flush, makeFh, mountFrame, stubFetch, stubRenderer } from "./test-utils.js";
 
 beforeEach(() => {
@@ -20,8 +20,11 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+/** An app the status table does not verify (stand-in for an unprofiled claim). */
+const DECKCRAFT: CraftWebApp = { ...CRAFT_WEB_APPS.wordcraft, id: "deckcraft", claimId: "deckcraft", label: "DeckCraft", extensions: [".pptx"] };
+
 async function renderApp(appId: "wordcraft" | "deckcraft", path: string, fh = makeFh({ path })) {
-  const r = render(<CraftFrameHost app={CRAFT_WEB_APPS[appId]} {...fh} />);
+  const r = render(<CraftFrameHost app={appId === "deckcraft" ? DECKCRAFT : CRAFT_WEB_APPS.wordcraft} {...fh} />);
   await flush();
   return { ...r, fh };
 }

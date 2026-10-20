@@ -9,21 +9,30 @@
  * bump it on every behavioural change so installed trees report `shim-outdated`.
  *
  * Shim -> host (window.parent.postMessage(msg, "*", transfer)):
- *   ready{nonce} opened{nonce,title} save{nonce,suggestedName,mime,bytes}
+ *   ready{nonce} opened{nonce,title,confirmed} save{nonce,suggestedName,mime,bytes}
  *   dirty{nonce,value} blocked{nonce,what} csp{nonce,directive}
- *   navigate-blocked{nonce,url}
+ *   navigate-blocked{nonce,url} start-failed{nonce,detail}
  * Host -> shim (accepted only from window.parent with the matching nonce):
- *   open{nonce,name,bytes}  save-result{nonce,ok,error?}   (save-result carries no
- *   id, so results settle pending saves in FIFO order.)
+ *   open{nonce,name,bytes}  save-result{nonce,ok,error?,own?}   (save-result carries no
+ *   id, so results settle pending saves in FIFO order; `own` = an acknowledged
+ *   overwrite of the tab's own file.)
+ *
+ * v2 (change extend-craft-web-to-all-apps, D4): reads the app's adapter profile from
+ * `window.__CRAFT_PROFILE__` (post-install loads it first): profile title regex;
+ * an opened fallback for apps without a title signal (`opened{confirmed:false}`);
+ * `start-failed` on a wasm trap / Rust panic before opened; clean after an
+ * acknowledged own save for `cleanOnAckedSave` profiles. Without a profile the
+ * v1 WordCraft-style title rule applies.
  *
  * `blocked.what` values: "file-input" | "showOpenFilePicker" |
  *   "showDirectoryPicker" | "drop-files" | "paste-files".
  *
  * Module use (tests): `module.exports = { SHIM_VERSION, parseTitle, createShim }`.
  * `createShim(win, doc, opts)` returns `{ start(), dispose() }`; `opts.isTrusted`
- * (event -> boolean, default `event.isTrusted === true`) is a test seam only.
+ * (event -> boolean, default `event.isTrusted === true`) and `opts.profile`
+ * (default `win.__CRAFT_PROFILE__`) are test seams only.
  */
-const SHIM_VERSION = 1;
+const SHIM_VERSION = 2;
 
 (function () {
   "use strict";
@@ -41,6 +50,9 @@ const SHIM_VERSION = 1;
     csv: "text/csv",
   };
   var TITLE_RE = /Unhandled egui viewport command: Title\("((?:[^"\\]|\\.)*)"\)/;
+  /** v1 rule (no profile): `<name>[ •] - <App>Craft`, dash, en dash or em dash. */
+  var LEGACY_TITLE = { pattern: "^(.*?)(?: \u2022)? [-\u2013\u2014] [A-Za-z0-9]*Craft$", dirtyMarker: "\u2022" };
+  var PANIC_RE = /panicked at/;
 
   function stripExt(s) {
     return s.replace(/\.[A-Za-z0-9]{1,5}$/, "");
@@ -50,12 +62,8 @@ const SHIM_VERSION = 1;
     return String(s).normalize("NFC").toLowerCase();
   }
 
-  /**
-   * Parse a console.warn payload (string or args array) into
-   * `{ raw, name, clean }`, or null when it is not an egui Title command.
-   * `name` = title without " - <App>Craft" suffix and without the "•" marker.
-   */
-  function parseTitle(input) {
+  /** Raw title of a console.warn payload (string or args array), or null when it is not an egui Title command. */
+  function titleText(input) {
     var text = Array.isArray(input)
       ? input
           .map(function (a) {
@@ -64,12 +72,34 @@ const SHIM_VERSION = 1;
           .join(" ")
       : String(input);
     var m = TITLE_RE.exec(text);
+    return m ? m[1].replace(/\\(["\\])/g, "$1") : null;
+  }
+
+  /**
+   * Parse a raw title with a profile title spec `{pattern, dirtyMarker?}` (default: the v1 rule) into
+   * `{ raw, name, clean }`, or null when the pattern does not match. `name` = capture 1 with the dirty
+   * marker stripped; `clean` = the marker is absent from the whole title.
+   */
+  function parseRawTitle(raw, spec) {
+    spec = spec || LEGACY_TITLE;
+    var m;
+    try {
+      m = new RegExp(spec.pattern).exec(raw);
+    } catch (_e) {
+      return null;
+    }
     if (!m) return null;
-    var raw = m[1].replace(/\\(["\\])/g, "$1");
-    var body = raw.replace(/\s+[-\u2013]\s+[A-Za-z0-9]*Craft\s*$/i, "");
-    var dirty = body.indexOf("\u2022") !== -1;
-    var name = body.replace(/\u2022/g, "").replace(/\s+/g, " ").trim();
-    return { raw: raw, name: name, clean: !dirty };
+    var marker = spec.dirtyMarker || "";
+    var name = String(m[1] === undefined ? raw : m[1]);
+    if (marker) name = name.split(marker).join("");
+    name = name.replace(/\s+/g, " ").trim();
+    return { raw: raw, name: name, clean: !marker || raw.indexOf(marker) === -1 };
+  }
+
+  /** console.warn payload → `{ raw, name, clean }` (see parseRawTitle), or null. */
+  function parseTitle(input, spec) {
+    var raw = titleText(input);
+    return raw === null ? null : parseRawTitle(raw, spec);
   }
 
   function createShim(win, doc, opts) {
@@ -80,6 +110,11 @@ const SHIM_VERSION = 1;
         return e && e.isTrusted === true;
       };
     var cleanups = [];
+    var profile = opts.profile !== undefined ? opts.profile : win.__CRAFT_PROFILE__ || null;
+    /** Title spec: the profile's, none (profile without title), or the v1 rule (no profile). */
+    var titleSpec = profile ? profile.title || null : LEGACY_TITLE;
+    var fallbackMs = profile && !profile.title && typeof profile.openedFallbackMs === "number" ? profile.openedFallbackMs : null;
+    var cleanOnAck = profile?.cleanOnAckedSave === true;
     var nonceMatch = /[#&]n=([^&]*)/.exec((win.location && win.location.hash) || "");
     var nonce = nonceMatch ? decodeURIComponent(nonceMatch[1]) : null;
 
@@ -97,6 +132,9 @@ const SHIM_VERSION = 1;
     var ownDrop = false;
     var pendingSaves = [];
     var readySent = false;
+    var openName = null; // delivered file name
+    var startFailed = false;
+    var leaving = false;
 
     function post(type, fields, transfer) {
       if (nonce === null) return;
@@ -202,6 +240,7 @@ const SHIM_VERSION = 1;
       var name = typeof msg.name === "string" ? msg.name : "";
       if (!name || !msg.bytes) return;
       openHandled = true;
+      openName = name;
       var stem = normStem(stripExt(name));
       awaitingName = { full: normStem(name), stem: stem };
       var file = new win.File([toU8(msg.bytes)], name, {
@@ -243,6 +282,7 @@ const SHIM_VERSION = 1;
         } finally {
           ownDrop = false;
         }
+        if (fallbackMs !== null) win.setTimeout(openedFallback, fallbackMs);
       };
       // The app drops files that arrive before its first update tick (measured with WordCraft 0.8.0:
       // a drop right after `ready` is ignored). Its first viewport-title signal proves the loop runs;
@@ -262,6 +302,77 @@ const SHIM_VERSION = 1;
       });
     }
 
+    // ---- opened fallback (apps without a title signal, D4) --------------------------
+    function openedFallback() {
+      if (opened || startFailed || leaving) return;
+      var canvas = getCanvas();
+      if (!canvas || (typeof doc.documentElement?.contains === "function" && !doc.documentElement.contains(canvas))) return;
+      opened = true;
+      titleClean = true;
+      inputAfterTitle = false;
+      post("opened", { title: openName, confirmed: false });
+      reportDirty(); // an unmodified, just-opened document counts as saved until input
+    }
+
+    // ---- start failure (wasm trap / Rust panic before opened) -------------------------
+    function failStart(detail) {
+      if (opened || startFailed || leaving) return;
+      startFailed = true;
+      post("start-failed", { detail: String(detail || "").slice(0, 200) });
+    }
+
+    /** `WebAssembly.RuntimeError` (any realm, by name) or a message naming a trap / panic. */
+    function isTrap(err) {
+      if (!err) return false;
+      if (err.name === "RuntimeError") return true;
+      var msg = String(err.message || err);
+      return /\bunreachable\b/.test(msg) || PANIC_RE.test(msg);
+    }
+
+    function installStartFailure() {
+      listen(
+        win,
+        "error",
+        function (e) {
+          var err = e && (e.error || e.message);
+          if (isTrap(err)) failStart(err?.message || err);
+        },
+        false,
+      );
+      listen(
+        win,
+        "unhandledrejection",
+        function (e) {
+          if (isTrap(e?.reason)) failStart(e.reason?.message || e.reason);
+        },
+        false,
+      );
+      listen(
+        win,
+        "pagehide",
+        function () {
+          leaving = true;
+        },
+        false,
+      );
+      var c = win.console;
+      if (!c) return;
+      var orig = c.error;
+      patch(c, "error", function () {
+        try {
+          var text = Array.prototype.map
+            .call(arguments, function (a) {
+              return typeof a === "string" ? a : a?.message || "";
+            })
+            .join(" ");
+          if (PANIC_RE.test(text)) failStart(text);
+        } catch (_e) {
+          /* never break the app's logging */
+        }
+        return orig.apply(this, arguments);
+      });
+    }
+
     // ---- title / dirty ------------------------------------------------------------
     function reportDirty() {
       var value = !(titleClean && !inputAfterTitle);
@@ -276,20 +387,30 @@ const SHIM_VERSION = 1;
       return n === awaitingName.stem || n === awaitingName.full || normStem(stripExt(t.name)) === awaitingName.stem;
     }
 
-    function onTitle(t) {
+    function onTitleText(raw) {
       if (!appTicked) {
         appTicked = true;
         scheduleDrop();
       }
+      if (!titleSpec) return; // the app reports no document title (opened via the fallback)
+      var t = parseRawTitle(raw, titleSpec);
+      if (t) onTitle(t);
+    }
+
+    function onTitle(t) {
       if (!opened) {
-        if (!namesDocument(t)) return;
+        if (startFailed || !namesDocument(t)) return;
         opened = true;
         prevTitle = t;
         titleClean = t.clean;
         inputAfterTitle = false;
         pointerPending = false;
-        post("opened", { title: t.name });
+        post("opened", { title: t.name, confirmed: true });
         reportDirty();
+        return;
+      }
+      if (!prevTitle) {
+        prevTitle = t;
         return;
       }
       if (t.raw === prevTitle.raw) return;
@@ -302,8 +423,18 @@ const SHIM_VERSION = 1;
     }
 
     function markInput() {
+      for (var i = 0; i < pendingSaves.length; i++) pendingSaves[i].inputAfter = true;
       if (!opened) return;
       inputAfterTitle = true;
+      reportDirty();
+    }
+
+    /** `cleanOnAckedSave`: an acknowledged own-file save with no input since the request is clean. */
+    function onAckedOwnSave(entry) {
+      if (!cleanOnAck || !opened || entry.inputAfter) return;
+      titleClean = true;
+      inputAfterTitle = false;
+      pointerPending = false;
       reportDirty();
     }
 
@@ -313,8 +444,8 @@ const SHIM_VERSION = 1;
       var orig = c.warn;
       patch(c, "warn", function () {
         try {
-          var t = parseTitle(Array.prototype.slice.call(arguments));
-          if (t) onTitle(t);
+          var raw = titleText(Array.prototype.slice.call(arguments));
+          if (raw !== null) onTitleText(raw);
         } catch (_e) {
           /* never break the app's logging */
         }
@@ -334,7 +465,7 @@ const SHIM_VERSION = 1;
 
     function postSave(name, mime, buffer) {
       return new Promise(function (resolve, reject) {
-        pendingSaves.push({ resolve: resolve, reject: reject });
+        pendingSaves.push({ resolve: resolve, reject: reject, inputAfter: false });
         post("save", { suggestedName: name, mime: mime, bytes: buffer }, [buffer]);
       });
     }
@@ -661,14 +792,17 @@ const SHIM_VERSION = 1;
       else if (d.type === "save-result") {
         var p = pendingSaves.shift();
         if (!p) return;
-        if (d.ok) p.resolve();
-        else p.reject(abortError(d.error));
+        if (d.ok) {
+          if (d.own === true) onAckedOwnSave(p);
+          p.resolve();
+        } else p.reject(abortError(d.error));
       }
     }
 
     function start() {
       win.__CRAFT_SHIM_VERSION__ = SHIM_VERSION;
       removeWebRtc();
+      installStartFailure();
       wrapConsoleWarn();
       installSavePicker();
       installAnchorInterception();

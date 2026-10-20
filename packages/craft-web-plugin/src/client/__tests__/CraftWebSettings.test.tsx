@@ -143,4 +143,29 @@ describe("CraftWebSettings", () => {
     const m2 = await mount({}, ["throw"]);
     await waitFor(() => expect(m2.getByTestId("craft-web-status-notice").textContent).toMatch(/could not/i));
   });
+
+  it("D11: the Download button carries the download size", async () => {
+    const row = { ...okRow, status: "not-prepared", installedVersion: undefined, sizeGzip: 16_580_000 };
+    const m = await mount({}, [statusOf(row)]);
+    const btn = await waitFor(() => m.getByTestId("craft-web-wordcraft-prepare"));
+    expect(btn.textContent).toBe("Download WordCraft (about 15.8 MB)");
+  });
+
+  it("D8: an ok build on an older supported shim offers Update (shimUpdate)", async () => {
+    const row = { ...okRow, status: "ok", shimUpdate: true };
+    const m = await mount({}, [statusOf(row), statusOf(okRow)]);
+    const btn = await waitFor(() => m.getByTestId("craft-web-wordcraft-prepare") as HTMLButtonElement);
+    expect(btn.textContent).toBe("Update WordCraft");
+    expect(m.getByTestId("craft-web-wordcraft-status").textContent).toMatch(/Installed/);
+    fireEvent.click(btn);
+    await waitFor(() => expect(m.calls.some((c) => c.url.endsWith("/prepare/wordcraft") && c.method === "POST")).toBe(true));
+  });
+
+  it("D11 G2: WordCraft sits under 'Edit files in place' with its extensions in the header", async () => {
+    const m = await mount({}, [statusOf(okRow)]);
+    await waitFor(() => expect(m.getByTestId("craft-web-group-edit").textContent).toMatch(/^Edit files in place/));
+    expect(m.getByTestId("craft-web-wordcraft-extensions").textContent).toBe(".docx");
+    expect(m.queryByTestId("craft-web-group-sibling")).toBeNull();
+    expect(m.queryByTestId("craft-web-group-view")).toBeNull();
+  });
 });

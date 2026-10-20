@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LightCraft</title>
+  <link rel="icon" href="data:,">
+  <meta name="description" content="LightCraft: open-source photo library and raw developer, running in your browser (WASM).">
+  <style>
+    :root { color-scheme: dark; }
+    html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #1c1c1c; }
+    canvas#lightcraft_canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+    #lightcraft_loading {
+      position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+      color: #b8b8b8; font: 15px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; pointer-events: none;
+    }
+    #lightcraft_status { position: absolute; left: 0; bottom: 0; width: 1px; height: 1px; overflow: hidden; }
+  </style>
+</head>
+<body>
+  <canvas id="lightcraft_canvas"></canvas>
+  <div id="lightcraft_loading">Loading LightCraft…</div>
+  <div id="lightcraft_status" aria-live="polite"></div>
+  <script type="module">
+    import init, { start, command } from "./lightcraft_web.js";
+    (async () => {
+      // The Chinese font is a separate file: embedding it would exceed the host's WASM size limit.
+      // Font-free development builds can still run, with the same missing-glyph warning as before.
+      const chineseFont = fetch("./lightcraft_zh_hans.otf")
+        .then(async response => response.ok ? new Uint8Array(await response.arrayBuffer()) : new Uint8Array())
+        .catch(() => new Uint8Array());
+      // Compile once; the render workers (worker.js) instantiate the same compiled module.
+      const [module, font] = await Promise.all([
+        WebAssembly.compileStreaming(fetch("./lightcraft_web_bg.wasm")),
+        chineseFont,
+      ]);
+      globalThis.lightcraftModule = module;
+      await init({ module_or_path: module });
+      // automation: `await lightcraft.command("library.info", "{}")` → JSON text
+      globalThis.lightcraft = { command };
+      start(font);
+    })().catch((e) => {
+      console.error(e);
+      const el = document.getElementById("lightcraft_loading");
+      if (el) el.textContent = "LightCraft failed to load: " + e;
+    });
+  </script>
+</body>
+</html>

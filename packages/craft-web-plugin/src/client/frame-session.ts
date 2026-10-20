@@ -12,11 +12,11 @@ import type {
   FileHandlerSaveResult,
   FileHandlerSnapshot,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-props.js";
-import { reportCsp } from "./craft-api.js";
+import { type OpenOutcome, reportCsp, reportTelemetry } from "./craft-api.js";
 import type { CraftWebApp } from "./craft-apps-table.js";
 import { downloadToDevice } from "./device-download.js";
 import type { Translate } from "./messages.js";
-import { baseName, routeSave } from "./save-routing.js";
+import { baseName, routeSave, splitName } from "./save-routing.js";
 import type { SaveTarget } from "./save-target-store.js";
 import { type HostMessage, parseShimMessage, type ShimMessage, safeNavigateUrl } from "./shim-protocol.js";
 
@@ -68,6 +68,8 @@ export class FrameSession {
   private dropped = false;
   private loads = 0;
   private saving = false;
+  /** Open outcome already reported (one per mount). */
+  private outcomeSent = false;
   /** Last dirty value the app reported (`null` = none yet). */
   private appDirty: boolean | null = null;
   /** True after a copy save until the next successful overwrite: the tab's own file still lacks the edits. */
@@ -102,7 +104,10 @@ export class FrameSession {
     window.addEventListener("message", this.listener);
     frame?.addEventListener("load", this.loadListener);
     this.readyTimer = setTimeout(() => {
-      if (!this.readySeen) this.drop("start-failed");
+      if (!this.readySeen) {
+        this.reportOutcome("start-failed");
+        this.drop("start-failed");
+      }
     }, READY_TIMEOUT_MS);
   }
 
@@ -127,8 +132,19 @@ export class FrameSession {
     this.d.frame?.contentWindow?.postMessage(m, "*", transfer);
   }
 
-  private reply(ok: boolean, error?: string): void {
-    this.post({ type: "save-result", nonce: this.d.nonce, ok, error });
+  private reply(ok: boolean, error?: string, own?: boolean): void {
+    this.post({ type: "save-result", nonce: this.d.nonce, ok, error, ...(own ? { own: true } : {}) });
+  }
+
+  /** View-only claim (design D4): dirty never reported, saves never reach the workspace. */
+  private get preview(): boolean {
+    return this.d.app.mode === "preview";
+  }
+
+  private reportOutcome(outcome: OpenOutcome): void {
+    if (this.outcomeSent) return;
+    this.outcomeSent = true;
+    reportTelemetry(this.d.app.id, { kind: "open", outcome });
   }
 
   private report(v: DirtyState): void {
@@ -173,7 +189,9 @@ export class FrameSession {
       case "ready":
         return this.onReady();
       case "opened":
-        return this.onOpened();
+        return this.onOpened(m.confirmed !== false);
+      case "start-failed":
+        return this.onStartFailed();
       case "dirty":
         return this.onDirty(m.value);
       case "save":
@@ -205,7 +223,9 @@ export class FrameSession {
     this.openPosted = true;
     this.post({ type: "open", nonce: this.d.nonce, name: baseName(this.d.fh().path), bytes: snap.bytes }, [snap.bytes]);
     this.openTimer = setTimeout(() => {
-      if (!this.opened) this.drop("open-failed");
+      if (this.opened) return;
+      this.reportOutcome("timeout");
+      this.drop("open-failed");
     }, OPENED_TIMEOUT_MS);
   }
 
@@ -215,16 +235,31 @@ export class FrameSession {
     this.drop("snapshot-error");
   }
 
-  private onOpened(): void {
+  /**
+   * `confirmed:false` (no-title fallback) is telemetry only: the unconfirmed-open check lives in the claim's
+   * first-overwrite notice, so core asks ONE question before the first overwrite (D4). A v1 `opened` without
+   * `confirmed` counts as confirmed.
+   */
+  private onOpened(confirmed: boolean): void {
     if (!this.openPosted || this.opened) return;
     this.opened = true;
     clearTimeout(this.openTimer);
+    this.reportOutcome(confirmed ? "title" : "fallback");
     this.d.ui.setPhase("open");
+    if (this.preview) this.report(false);
+  }
+
+  /** The app trapped / panicked before opening: "could not start" + Retry; the open is never resent. */
+  private onStartFailed(): void {
+    if (this.opened) return;
+    this.reportOutcome("start-failed");
+    this.drop("start-failed");
   }
 
   private onDirty(value: boolean): void {
     // Before the document shows, the title is the bare app name — not a signal about the document.
-    if (!this.opened) return;
+    // A view-only instance holds nothing to save, whatever the app reports.
+    if (!this.opened || this.preview) return;
     this.appDirty = value;
     this.report(value || this.copyPending);
   }
@@ -261,12 +296,14 @@ export class FrameSession {
   }
 
   private async routeAndSave(m: SaveMsg): Promise<void> {
-    const route = routeSave({
-      suggestedName: m.suggestedName,
-      tabPath: this.d.fh().path,
-      byteLength: m.bytes.byteLength,
-      maxBytes: this.d.app.maxBytes,
-    });
+    const route = this.preview
+      ? "download"
+      : routeSave({
+          suggestedName: m.suggestedName,
+          tabPath: this.d.fh().path,
+          byteLength: m.bytes.byteLength,
+          maxBytes: this.d.app.maxBytes,
+        });
     if (route === "download") {
       downloadToDevice(m.suggestedName, m.bytes, m.mime);
       this.reply(true);
@@ -301,24 +338,27 @@ export class FrameSession {
       res = { ok: false, reason: "rejected", message: err instanceof Error ? err.message : String(err) };
     }
     if (this.dropped) return;
-    if (res.ok) this.onSaved(target);
+    // Core may turn an overwrite into a copy (first-overwrite notice, conflict dialog): the written
+    // path decides. A copy is `<stem>.<suffix>.<ext>`, never the tab's own base name.
+    if (res.ok) this.onSaved(target === "overwrite" && baseName(res.path) === baseName(this.d.fh().path));
     else this.onSaveFailed(res.reason, res.message);
   }
 
-  private onSaved(target: SaveTarget): void {
+  private onSaved(own: boolean): void {
     this.d.ui.setSaveError(null);
-    if (target === "copy") {
+    if (!own) {
       this.copyPending = true;
       this.report(true);
     } else {
       this.copyPending = false;
       if (this.appDirty !== null) this.report(this.appDirty);
     }
-    this.reply(true);
+    this.reply(true, undefined, own);
   }
 
   private onSaveFailed(reason: string, message: string): void {
     if (reason !== "cancelled") this.d.ui.setSaveError(this.d.t()("saveFailed", { message }));
+    if (reason === "rejected") reportTelemetry(this.d.app.id, { kind: "reject", ext: splitName(this.d.fh().path).ext });
     this.reply(false, reason);
   }
 }
