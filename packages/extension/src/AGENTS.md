@@ -4,6 +4,7 @@ Files in this directory. One row per source file.
 
 | File | Purpose |
 |------|---------|
+| `__tests__/eventbus-rpc-probe-not-forwarded.test.ts` | Pins that RPC probe channels (`flow:list-flows`, `roles:*`, `model:resolve`, `ui:list-modules`…) never reach `sendEventForward`. Static `forwardedBusChannels()` check + two-facade round trip (sync + async probe) + source guards over `bridge.ts` / `bridge-handlers/*.ts`: `EVENT_BUS_MAP` pinned, `registerEventBusForwarding` 2 args, no `emit` rebinding. Each guard runs on real source + mutant. See change: skip-rpc-probes-in-event-forwarder. |
 | `__tests__/project-init-openspec-skill-text.test.ts` | Text guards over `packages/extension/.pi/skills/project-init/SKILL.md` Steps 3b/3c/6: config fail-closed + defaults (E9), embedded `node -e` `pathKey` opt-out one-liner executed under faked platform (E10), git-placement + offer switch + repair row (E11), `openspec init --tools pi --force` + legacy lists parsed from `server/src/routes/openspec-routes.ts` + disclosure lines (E12), Step 6 gate/verify/`ls .pi/skills` + rewritten idempotent paragraph (E13). See change: fix-project-setup-completion-state. |
 | `__tests__/project-trust.test.ts` | #E5 #E10–#E16 #E27 #P1 #X1–#X4 #X11: activation + mirror rules, lockless trust.json, identity, spawn token capture/consume, p95 budget. See change: mirror-dashboard-trust-to-pi. |
 | `__tests__/session-sync.test.ts` | Spawn-token tests capture at activation (`captureSpawnTokenAtActivation`) before register. See change: mirror-dashboard-trust-to-pi. |
@@ -21,7 +22,7 @@ Files in this directory. One row per source file.
 | `bridge-handlers/` | Handler bodies extracted from `bridge.ts`: lifecycle, inbound dispatch, forwarders, ui-prompt patch, `BridgeInstance`. → see `bridge-handlers/AGENTS.md` |
 | `bridge-polling.ts` | Testable seams from `bridge.ts` to the poll-cost machinery: `createPollingHolder` (scan + tracker, replace… → see `bridge-polling.ts.AGENTS.md` |
 | `bridge-ticket-client.ts` | Mints the credential a REMOTE bridge needs to open a gateway connection (§6 made TCP bridge auth mandatory). → see `bridge-ticket-client.ts.AGENTS.md` |
-| `bridge.ts` | Main bridge extension entry (default export). Connects to dashboard server, forwards pi events via… → see… → see `bridge.ts.AGENTS.md` |
+| `bridge.ts` | Main bridge extension entry (default export). Connects to dashboard server, forwards pi events via… → see… → see `bridge.ts.AGENTS.md` `onReconnect` computes `liveTailOpen` once, passes it to `sendStateSync({liveTailOpen})` and the replay. See change: fix-large-session-resume-replay. |
 | `command-handler.ts` | Command routing: `!`/`!!` bash, `/compact`, slash commands. → see `command-handler.ts.AGENTS.md` Team `/skill:` route → see `command-handler.ts.AGENTS.md`. See change: add-team-skill-access. |
 | `connect-target.ts` | `parseConnectTarget()` / `describeConnectTarget()` — parses the overloaded `/dashboard connect <target>`… → see `connect-target.ts.AGENTS.md` |
 | `connection.ts` | WebSocket connection manager with exponential backoff reconnect, message buffering while disconnected,… → see… → see `connection.ts.AGENTS.md` |

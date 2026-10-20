@@ -8,3 +8,7 @@ Memory admission runs with zero peers (`INSTANCES = PEER_COUNT + 1`, #701.1, D2)
 Lifecycle recorder (#451 part 1): after the oversubscription guard and before `compose up`, starts `harness-audit.sh <events file> <project>` detached (events file `${TMPDIR:-/tmp}/pi-dash-test/<project>.events.log`, outside the worktree). Re-up reuses a live `recorderPid` (kill -0). State file gains `recorderPid`, `eventsFile`, `containerId` (resolved with `compose ps -q` after a detached `compose up`; appends `boot …` when the id is new). Unusable `docker events` / unwritable events dir → one `harness-audit: lifecycle capture unavailable (<reason>); continuing` line, no `recorderPid`. Failed `compose up` kills the recorder it started. Tests: `scripts/__tests__/test-up-recorder.test.mjs`. See change: add-missing-ci-legs.
 
 `TEST_EXTRA_COMPOSE` split on whitespace (basenames under `docker/`), each layered last. State file always carries `extraCompose: [..]` (`[]` when none) so `test-down.sh` tears overlays down without the env var. `containerId` resolved via `compose ps -q pi-dashboard` (overlays add siblings). See change: add-acme-dns01-certs.
+
+- Exports `PI_E2E_TERMINALS_MAX_CONCURRENT` (terminal-cap e2e faucet; needs `PI_E2E_SEED=1`). See change: harden-server-capability-bounds.
+
+- Exports `PI_E2E_BROWSE_CONFINEMENT` (variant boot keeping remote browse confinement on). See change: harden-server-capability-bounds.

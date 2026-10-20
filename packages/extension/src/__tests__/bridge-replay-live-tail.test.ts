@@ -29,12 +29,27 @@ const SESSION_START = (() => {
   return region(src, 'pi.on("session_start"', "// Send initial commands list");
 })();
 
+it("E16: reconnect passes the shared liveTailOpen to sendStateSync", () => {
+  expect(RECONNECT).toMatch(/sendStateSync\(\{\s*liveTailOpen\s*\}\)/);
+});
+
+it("E16: session_start register carries the shared liveTailOpen", () => {
+  const registerMsg = region(SESSION_START, 'type: "session_register"', "usageSeed");
+  expect(registerMsg).toMatch(/\bliveTailOpen,/);
+});
+
 describe.each([
   ["onReconnect (bridge.ts)", RECONNECT],
   ["session_start (lifecycle.ts)", SESSION_START],
 ])("%s", (_name, body) => {
   it("replays with liveTailOpen decided by isLive(...)", () => {
-    expect(body).toMatch(/replaySessionEntries\(\{\s*liveTailOpen:\s*isLive\(/);
+    expect(body).toMatch(/const liveTailOpen\s*=\s*isLive\(/);
+    expect(body).toMatch(/replaySessionEntries\(\{\s*liveTailOpen\s*\}\)/);
+  });
+
+  // test-plan #E16: the register's `liveTailOpen` and the replay's are ONE value.
+  it("E16: decides isLive once and shares it between the register and the replay", () => {
+    expect(body.match(/isLive\(/g)).toHaveLength(1);
   });
 
   it("marks the synthetic reconnect agent_start (test-plan #E10)", () => {

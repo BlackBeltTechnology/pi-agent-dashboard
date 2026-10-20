@@ -1,7 +1,5 @@
-import { normalizePath } from "@blackbelt-technology/pi-dashboard-shared/platform/paths.js";
-import { mdiChevronRight, mdiFolderOpen } from "@mdi/js";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import React from "react";
+import type React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { inferPlatform, pathKey } from "../../lib/session/session-grouping.js";
 import { PathPicker } from "../primitives/PathPicker.js";
@@ -871,272 +869,461 @@ describe("PathPicker", () => {
   });
 });
 
-// redesign-folder-workspace-add-flow — the picker gains an opt-in multi-select
-// mode with explorer semantics (row body = navigate, checkbox = select) and
-// swaps every emoji glyph for an @mdi/js path.
-// Reference: openspec/changes/redesign-folder-workspace-add-flow/mockups/add-flow.html
-describe("PathPicker multi-select mode", () => {
+// simplify-add-folder-picker — the multi-select picker behaves like an OS file
+// manager: click selects, the platform modifier toggles, Shift ranges,
+// double-click (or a touch tap) opens, long-press selects on touch. The picker
+// owns the selection and reports `{ selected, current, isHome }` upward.
+// Ids map to openspec/changes/archive/2026-10-20-simplify-add-folder-picker/test-plan.md.
+describe("PathPicker file-manager multi-select", () => {
   const onSelect = vi.fn();
   const onCancel = vi.fn();
-  const onToggle = vi.fn();
+  const onChange = vi.fn();
+  const USER = makeBrowseResult("/home/user", [
+    { name: "a" }, { name: "b" }, { name: "c" }, { name: "d" },
+    { name: "notes" }, { name: "projects" }, { name: "work" },
+  ], "/home");
+  const WORK = makeBrowseResult("/home/user/work", [{ name: "src" }], "/home/user");
+  const PROJ = makeBrowseResult("/home/user/projects", [{ name: "alpha" }], "/home/user");
 
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockBrowse.mockResolvedValue(homeEntries);
-    mockClassify.mockResolvedValue({});
-    mockMkdir.mockResolvedValue({ path: "/Users/robson/new-thing" });
-  });
-
-  function renderMulti(selected: string[] = [], props: Record<string, unknown> = {}) {
-    return render(
-      <PathPicker
-        initialPath="/Users/robson/"
-        onSelect={onSelect}
-        onCancel={onCancel}
-        selection={{ selected: new Set(selected), onToggle }}
-        {...props}
-      />,
-    );
+  let platformDesc: PropertyDescriptor | undefined;
+  function setPlatform(p: string) {
+    Object.defineProperty(window.navigator, "platform", { value: p, configurable: true });
   }
 
-  it("row activation browses into the directory and never calls onSelect", async () => {
-    renderMulti();
-    await waitFor(() => expect(screen.getByText("Project")).toBeTruthy());
-    mockBrowse.mockResolvedValue(projectEntries);
-    fireEvent.click(screen.getByText("Project"));
-    await waitFor(() => {
-      const call = mockBrowse.mock.calls.find((c) => c[0] === "/Users/robson/Project");
-      expect(call).toBeDefined();
-    });
-    expect(onSelect).not.toHaveBeenCalled();
-    expect(onToggle).not.toHaveBeenCalled();
-  });
-
-  it("the checkbox selects without navigating", async () => {
-    renderMulti();
-    await waitFor(() => expect(screen.getByText("Project")).toBeTruthy());
-    const browseCallsBefore = mockBrowse.mock.calls.length;
-    fireEvent.click(screen.getByTestId("path-picker-check-/Users/robson/Project"));
-    expect(onToggle).toHaveBeenCalledWith("/Users/robson/Project");
-    // stopPropagation kept the row's descend handler from firing.
-    expect(mockBrowse.mock.calls.length).toBe(browseCallsBefore);
-    expect(onSelect).not.toHaveBeenCalled();
-  });
-
-  it("the checkbox carries its own accessible name and checked state", async () => {
-    renderMulti(["/Users/robson/Project"]);
-    await waitFor(() => expect(screen.getByText("Project")).toBeTruthy());
-    const cb = screen.getByTestId("path-picker-check-/Users/robson/Project");
-    expect(cb.getAttribute("aria-label")).toMatch(/project/i);
-    expect(cb.getAttribute("aria-checked")).toBe("true");
-    expect(
-      screen.getByTestId("path-picker-check-/Users/robson/Desktop").getAttribute("aria-checked"),
-    ).toBe("false");
-  });
-
-  it("the trailing chevron descends", async () => {
-    renderMulti();
-    await waitFor(() => expect(screen.getByText("Project")).toBeTruthy());
-    mockBrowse.mockResolvedValue(projectEntries);
-    fireEvent.click(screen.getByTestId("path-picker-open-/Users/robson/Project"));
-    await waitFor(() => {
-      const call = mockBrowse.mock.calls.find((c) => c[0] === "/Users/robson/Project");
-      expect(call).toBeDefined();
-    });
-  });
-
-  it("Space toggles selection on the highlighted row; Enter activates it", async () => {
-    renderMulti();
-    await waitFor(() => expect(screen.getByText("Desktop")).toBeTruthy());
-    const input = screen.getByRole("textbox");
-    // Highlight the first child entry row (index 2 — index 0 is the current-dir
-    // self-row, index 1 is the `..` parent row).
-    fireEvent.keyDown(input, { key: "ArrowDown" });
-    fireEvent.keyDown(input, { key: "ArrowDown" });
-    fireEvent.keyDown(input, { key: "ArrowDown" });
-    fireEvent.keyDown(input, { key: " " });
-    expect(onToggle).toHaveBeenCalledWith("/Users/robson/Desktop");
-
-    mockBrowse.mockResolvedValue(projectEntries);
-    fireEvent.keyDown(input, { key: "Enter" });
-    await waitFor(() => {
-      const call = mockBrowse.mock.calls.find((c) => c[0] === "/Users/robson/Desktop");
-      expect(call).toBeDefined();
-    });
-  });
-
-  it("single-select mode renders no checkboxes", async () => {
-    render(<PathPicker initialPath="/Users/robson/" onSelect={onSelect} onCancel={onCancel} />);
-    await waitFor(() => expect(screen.getByText("Project")).toBeTruthy());
-    expect(screen.queryByTestId("path-picker-check-/Users/robson/Project")).toBeNull();
-  });
-});
-
-// add-current-folder-to-add-flow — the multi-select picker gains a current-dir
-// self-row (open-folder glyph, no chevron, same checkbox/basket grammar) above
-// a presentational CONTENTS eyebrow. These cover the picker-level observables;
-// basket-label / pill / commit-pin observables live in AddFoldersDialog.test.tsx.
-// Reference: openspec/changes/add-current-folder-to-add-flow/mockups/self-row.html
-describe("PathPicker self-row (add current folder)", () => {
-  const onSelect = vi.fn();
-  const onCancel = vi.fn();
-
-  const userHome = makeBrowseResult("/home/user", [{ name: "work" }, { name: "projects" }], "/home");
-
   beforeEach(() => {
     vi.clearAllMocks();
-    mockBrowse.mockResolvedValue(userHome);
+    platformDesc = Object.getOwnPropertyDescriptor(window.navigator, "platform");
+    setPlatform("Win32");
+    mockBrowse.mockImplementation(async (dir?: string) => {
+      if (dir === "/home/user/work" || dir === "/home/user/work/") return WORK;
+      if (dir === "/home/user/projects") return PROJ;
+      return USER;
+    });
     mockClassify.mockResolvedValue({});
     mockMkdir.mockResolvedValue({ path: "/home/user/new" });
   });
+  afterEach(() => {
+    if (platformDesc) Object.defineProperty(window.navigator, "platform", platformDesc);
+    else delete (window.navigator as unknown as Record<string, unknown>).platform;
+    vi.useRealTimers();
+  });
 
-  /** Stateful host mirroring AddFoldersDialog's basket contract (normalizePath
-   * on toggle) so picker-level selection is observable. */
-  function SelfHarness(props: {
-    initialPath?: string;
-    initialSelected?: string[];
-    sessionCounts?: Map<string, number>;
-  }) {
-    const [selected, setSelected] = React.useState<string[]>(props.initialSelected ?? []);
-    const toggle = (raw: string) => {
-      const path = normalizePath(raw.trim(), inferPlatform([raw]));
-      if (!path) return;
-      setSelected((prev) => (prev.includes(path) ? prev.filter((p) => p !== path) : [...prev, path]));
-    };
-    return (
-      <>
-        <PathPicker
-          initialPath={props.initialPath ?? "/home/user/"}
-          onSelect={onSelect}
-          onCancel={onCancel}
-          selection={{ selected: new Set(selected), onToggle: toggle }}
-          sessionCounts={props.sessionCounts}
-        />
-        <div data-testid="harness-basket">{selected.join("|")}</div>
-      </>
+  function renderMulti(props: { initialPath?: string; selection?: { pinnedKeys?: Set<string> }; onOpenServers?: () => void } = {}) {
+    const { selection, ...rest } = props;
+    return render(
+      <PathPicker
+        initialPath="/home/user/"
+        onSelect={onSelect}
+        onCancel={onCancel}
+        {...rest}
+        selection={{ onChange, ...selection }}
+      />,
     );
   }
-  const basket = () => screen.getByTestId("harness-basket").textContent ?? "";
+  const row = (name: string) => screen.getByTestId(`path-picker-row-/home/user/${name}`);
+  const selectedNames = () =>
+    screen.getAllByRole("option")
+      .filter((o) => o.getAttribute("aria-selected") === "true")
+      .map((o) => o.textContent?.trim());
+  const lastChange = () => onChange.mock.calls.at(-1)?.[0];
+  const ready = async () => waitFor(() => expect(screen.getByText("work")).toBeTruthy());
+  const touchDown = (el: HTMLElement, x = 0, y = 0) =>
+    fireEvent.pointerDown(el, { pointerType: "touch", clientX: x, clientY: y });
 
-  it("E2 — activation toggles the self-row OFF", async () => {
-    render(<SelfHarness initialSelected={["/home/user"]} />);
-    await waitFor(() => expect(screen.getByTestId("path-picker-self")).toBeTruthy());
-    expect(basket()).toBe("/home/user");
-    // Enter while the self-row is highlighted (index 0) toggles it off.
+  it("F1 — single click selects one row without navigating or committing", async () => {
+    renderMulti();
+    await ready();
+    const calls = mockBrowse.mock.calls.length;
+    fireEvent.click(row("work"));
+    expect(selectedNames()).toEqual(["work"]);
+    expect(mockBrowse.mock.calls.length).toBe(calls);
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(lastChange()).toMatchObject({ selected: ["/home/user/work"], current: "/home/user" });
+  });
+
+  it("F2 — double click opens the folder; dialog stays mounted", async () => {
+    renderMulti();
+    await ready();
+    fireEvent.click(row("work"));
+    fireEvent.doubleClick(row("work"));
+    await waitFor(() => expect(screen.getByText("src")).toBeTruthy());
+    expect(mockBrowse.mock.calls.some((c) => c[0] === "/home/user/work")).toBe(true);
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("F3 — selecting a row does not remount it (dblclick needs the same node)", async () => {
+    renderMulti();
+    await ready();
+    const before = row("work");
+    fireEvent.click(before);
+    expect(row("work")).toBe(before);
+  });
+
+  it("F5 — clicking empty list space clears the selection", async () => {
+    renderMulti();
+    await ready();
+    fireEvent.click(row("work"));
+    fireEvent.click(screen.getByRole("listbox"));
+    expect(selectedNames()).toEqual([]);
+  });
+
+  it("F6 — `..` navigates up on a single click", async () => {
+    renderMulti();
+    await ready();
+    const dotdot = screen.getAllByRole("option").find((o) => o.textContent?.includes(".."))!;
+    fireEvent.click(dotdot);
+    await waitFor(() => expect(mockBrowse.mock.calls.some((c) => c[0] === "/home")).toBe(true));
+  });
+
+  it("F7 — opening a folder clears the selection and reports the new folder", async () => {
+    renderMulti();
+    await ready();
+    fireEvent.click(row("work"));
+    fireEvent.click(row("notes"), { ctrlKey: true });
+    fireEvent.doubleClick(row("projects"));
+    await waitFor(() => expect(screen.getByText("alpha")).toBeTruthy());
+    expect(selectedNames()).toEqual([]);
+    expect(lastChange()).toMatchObject({ selected: [], current: "/home/user/projects" });
+  });
+
+  it("F8 — typed navigation clears the selection", async () => {
+    renderMulti();
+    await ready();
+    fireEvent.click(row("work"));
+    mockBrowse.mockResolvedValue(makeBrowseResult("/tmp", [{ name: "x" }], "/"));
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "/tmp/" } });
+    await waitFor(() => expect(screen.getByText("x")).toBeTruthy());
+    expect(lastChange()).toMatchObject({ selected: [], current: "/tmp" });
+  });
+
+  it("F10 — a stale fetch never overrides the latest navigation", async () => {
+    renderMulti();
+    await ready();
+    let releaseWork: (v: unknown) => void = () => {};
+    mockBrowse.mockImplementation((dir?: string) => {
+      if (dir === "/home/user/work") return new Promise((r) => { releaseWork = r; });
+      if (dir === "/home") return Promise.resolve(makeBrowseResult("/home", [{ name: "user" }], "/"));
+      return Promise.resolve(USER);
+    });
+    fireEvent.doubleClick(row("work"));
+    // Rows are hidden while `work` loads; go up with the keyboard (Alt↑ on Windows).
+    // `..` targets the last resolved parent (/home) and supersedes the work fetch.
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "ArrowUp", altKey: true });
+    await waitFor(() => expect(lastChange()?.current).toBe("/home"));
+    await act(async () => { releaseWork(WORK); });
+    expect(lastChange()?.current).toBe("/home");
+    expect(screen.queryByText("src")).toBeNull();
+  });
+
+  it("F11 — touch tap opens the folder and selects nothing", async () => {
+    renderMulti();
+    await ready();
+    touchDown(row("work"));
+    fireEvent.pointerUp(row("work"), { pointerType: "touch" });
+    fireEvent.click(row("work"));
+    await waitFor(() => expect(screen.getByText("src")).toBeTruthy());
+    expect(lastChange()?.selected).toEqual([]);
+  });
+
+  it("F12 — long-press boundary: 399 ms is a tap, 400 ms selects and swallows the click", async () => {
+    renderMulti();
+    await ready();
+    vi.useFakeTimers();
+    touchDown(row("notes"));
+    act(() => { vi.advanceTimersByTime(400); });
+    fireEvent.pointerUp(row("notes"), { pointerType: "touch" });
+    fireEvent.click(row("notes")); // swallowed
+    expect(selectedNames()).toEqual(["notes"]);
+    expect(mockBrowse.mock.calls.some((c) => c[0] === "/home/user/notes")).toBe(false);
+
+    // Fresh render for the 399 ms half.
+    cleanup();
+    onChange.mockClear();
+    renderMulti();
+    vi.useRealTimers();
+    await ready();
+    vi.useFakeTimers();
+    touchDown(row("work"));
+    act(() => { vi.advanceTimersByTime(399); });
+    fireEvent.pointerUp(row("work"), { pointerType: "touch" });
+    fireEvent.click(row("work"));
+    vi.useRealTimers();
+    await waitFor(() => expect(mockBrowse.mock.calls.some((c) => c[0] === "/home/user/work")).toBe(true));
+  });
+
+  it("F13 — finger travel beyond 10 px cancels the long-press", async () => {
+    renderMulti();
+    await ready();
+    vi.useFakeTimers();
+    touchDown(row("notes"), 0, 0);
+    fireEvent.pointerMove(row("notes"), { pointerType: "touch", clientX: 0, clientY: 10 });
+    act(() => { vi.advanceTimersByTime(400); });
+    expect(selectedNames()).toEqual(["notes"]);
+    fireEvent.pointerUp(row("notes"), { pointerType: "touch" });
+    fireEvent.click(row("notes")); // swallowed
+    touchDown(row("a"), 0, 0);
+    fireEvent.pointerMove(row("a"), { pointerType: "touch", clientX: 0, clientY: 11 });
+    act(() => { vi.advanceTimersByTime(400); });
+    expect(selectedNames()).toEqual(["notes"]);
+  });
+
+  it("F14 — in select mode taps toggle; deselecting the last row leaves select mode", async () => {
+    renderMulti();
+    await ready();
+    vi.useFakeTimers();
+    touchDown(row("work"));
+    act(() => { vi.advanceTimersByTime(400); });
+    fireEvent.pointerUp(row("work"), { pointerType: "touch" });
+    fireEvent.click(row("work")); // swallowed
+    const tap = (n: string) => {
+      touchDown(row(n));
+      fireEvent.pointerUp(row(n), { pointerType: "touch" });
+      fireEvent.click(row(n));
+    };
+    tap("notes");
+    expect(selectedNames()).toEqual(["notes", "work"]);
+    tap("notes");
+    expect(selectedNames()).toEqual(["work"]);
+    tap("work");
+    expect(selectedNames()).toEqual([]);
+    vi.useRealTimers();
+    tap("notes"); // select mode is off → opens
+    await waitFor(() => expect(mockBrowse.mock.calls.some((c) => c[0] === "/home/user/notes")).toBe(true));
+  });
+
+  it("F15 — grammar follows the latest pointerdown, not a media query", async () => {
+    renderMulti();
+    await ready();
+    fireEvent.pointerDown(row("work"), { pointerType: "mouse" });
+    fireEvent.click(row("work"));
+    expect(selectedNames()).toEqual(["work"]);
+    touchDown(row("notes"));
+    fireEvent.pointerUp(row("notes"), { pointerType: "touch" });
+    fireEvent.click(row("notes"));
+    await waitFor(() => expect(mockBrowse.mock.calls.some((c) => c[0] === "/home/user/notes")).toBe(true));
+  });
+
+  it("F16 — row contextmenu is suppressed for touch only", async () => {
+    renderMulti();
+    await ready();
+    touchDown(row("work"));
+    const touchEvt = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+    row("work").dispatchEvent(touchEvt);
+    expect(touchEvt.defaultPrevented).toBe(true);
+    fireEvent.pointerUp(row("work"), { pointerType: "touch" });
+    fireEvent.pointerDown(row("work"), { pointerType: "mouse" });
+    const mouseEvt = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+    row("work").dispatchEvent(mouseEvt);
+    expect(mouseEvt.defaultPrevented).toBe(false);
+  });
+
+  it("F20 — Tab is not trapped in the path input in multi-select", async () => {
+    renderMulti();
+    await ready();
+    const evt = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+    screen.getByRole("textbox").dispatchEvent(evt);
+    expect(evt.defaultPrevented).toBe(false);
+  });
+
+  it("F21 — arrows move/extend, Enter opens, platform go-up returns (Windows: Alt↑)", async () => {
+    renderMulti();
+    await ready();
+    const input = screen.getByRole("textbox");
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(selectedNames()).toEqual(["a"]);
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(selectedNames()).toEqual(["b"]);
+    fireEvent.keyDown(input, { key: "ArrowDown", shiftKey: true });
+    expect(selectedNames()).toEqual(["b", "c"]);
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    expect(selectedNames()).toEqual(["b"]);
+    fireEvent.keyDown(input, { key: "ArrowUp", metaKey: true }); // mac chord: no-op on Windows
+    expect(mockBrowse.mock.calls.some((c) => c[0] === "/home")).toBe(false);
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(mockBrowse.mock.calls.some((c) => c[0] === "/home/user/b")).toBe(true));
+    fireEvent.keyDown(input, { key: "ArrowUp", altKey: true });
+    await waitFor(() => expect(mockBrowse.mock.calls.some((c) => c[0] === "/home/user")).toBe(true));
+  });
+
+  it("F21b — macOS: ⌘↓ opens, ⌘↑ goes up, Alt↑ does nothing", async () => {
+    setPlatform("MacIntel");
+    renderMulti();
+    await ready();
+    const input = screen.getByRole("textbox");
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    fireEvent.keyDown(input, { key: "ArrowUp", altKey: true });
+    expect(mockBrowse.mock.calls.some((c) => c[0] === "/home")).toBe(false);
+    fireEvent.keyDown(input, { key: "ArrowDown", metaKey: true });
+    await waitFor(() => expect(mockBrowse.mock.calls.some((c) => c[0] === "/home/user/a")).toBe(true));
+    fireEvent.keyDown(input, { key: "ArrowUp", metaKey: true });
+    await waitFor(() => expect(mockBrowse.mock.calls.some((c) => c[0] === "/home/user")).toBe(true));
+  });
+
+  it("E6m — macOS: ⌘-click toggles, Ctrl-click does not add", async () => {
+    setPlatform("MacIntel");
+    renderMulti();
+    await ready();
+    fireEvent.click(row("work"));
+    fireEvent.click(row("notes"), { metaKey: true });
+    expect(selectedNames()).toEqual(["notes", "work"]);
+    fireEvent.click(row("a"), { ctrlKey: true });
+    expect(selectedNames()).toEqual(["a"]);
+  });
+
+  it("F22 — Space does not toggle selection", async () => {
+    renderMulti();
+    await ready();
+    fireEvent.click(row("work"));
+    const evt = new KeyboardEvent("keydown", { key: " ", bubbles: true, cancelable: true });
+    screen.getByRole("textbox").dispatchEvent(evt);
+    expect(evt.defaultPrevented).toBe(false);
+    expect(selectedNames()).toEqual(["work"]);
+  });
+
+  it("F23 — a11y: multiselectable listbox, activedescendant, no checkbox or chevron", async () => {
+    renderMulti();
+    await ready();
+    const listbox = screen.getByRole("listbox");
+    expect(listbox.getAttribute("aria-multiselectable")).toBe("true");
+    const input = screen.getByRole("textbox");
+    expect(input.getAttribute("aria-controls")).toBe(listbox.id);
+    fireEvent.click(row("work"));
+    expect(input.getAttribute("aria-activedescendant")).toBe(row("work").id);
+    expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
+    expect(screen.queryByTestId("path-picker-open-/home/user/work")).toBeNull();
+    expect(screen.queryByTestId("path-picker-self")).toBeNull();
+    expect(screen.queryByTestId("path-picker-contents-label")).toBeNull();
+  });
+
+  it("F23b — selected rows carry a check mark (shape, not colour only)", async () => {
+    renderMulti();
+    await ready();
+    fireEvent.click(row("work"));
+    expect(screen.getByTestId("path-picker-check-mark-/home/user/work")).toBeTruthy();
+    expect(screen.queryByTestId("path-picker-check-mark-/home/user/notes")).toBeNull();
+  });
+
+  it("F23c — an empty folder explains the next step", async () => {
+    mockBrowse.mockResolvedValue(makeBrowseResult("/home/user", [], null));
+    renderMulti();
+    const empty = await screen.findByTestId("path-picker-empty");
+    expect(empty.textContent).toMatch(/No subfolders here/);
+    expect(empty.textContent).toMatch(/New folder/);
+  });
+
+  it("F24 — the live region announces the selected count", async () => {
+    renderMulti();
+    await ready();
+    const live = screen.getByTestId("path-picker-live");
+    expect(live.getAttribute("aria-live")).toBe("polite");
+    fireEvent.click(row("work"), { ctrlKey: true });
+    expect(live.textContent).toMatch(/1/);
+    fireEvent.click(row("notes"), { ctrlKey: true });
+    expect(live.textContent).toMatch(/2/);
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Escape" });
+    expect(live.textContent).toBe("");
+  });
+
+  it("F28 — activation (dblclick, Enter) browses and never calls onSelect", async () => {
+    renderMulti();
+    await ready();
+    fireEvent.doubleClick(row("projects"));
+    await waitFor(() => expect(screen.getByText("alpha")).toBeTruthy());
     const input = screen.getByRole("textbox");
     fireEvent.keyDown(input, { key: "ArrowDown" });
     fireEvent.keyDown(input, { key: "Enter" });
-    expect(basket()).toBe("");
+    await waitFor(() =>
+      expect(mockBrowse.mock.calls.some((c) => c[0] === "/home/user/projects/alpha")).toBe(true),
+    );
+    expect(onSelect).not.toHaveBeenCalled();
   });
 
-  it("E3 — self-row uses the open-folder glyph and renders no chevron", async () => {
-    render(<SelfHarness />);
-    const selfRow = await screen.findByTestId("path-picker-self");
-    const paths = Array.from(selfRow.querySelectorAll("svg path")).map((p) => p.getAttribute("d"));
-    expect(paths).toContain(mdiFolderOpen);
-    expect(paths).not.toContain(mdiChevronRight);
+  it("E10 — `added` marker joins pinned keys by pathKey (trailing separator drift)", async () => {
+    const pinnedKeys = new Set([pathKey("/home/user/work/", inferPlatform(["/home/user/work/"]))]);
+    renderMulti({ selection: { pinnedKeys } });
+    await ready();
+    expect(screen.getByTestId("path-picker-added-/home/user/work")).toBeTruthy();
+    expect(screen.queryByTestId("path-picker-added-/home/user/notes")).toBeNull();
   });
 
-  it("E6 — self-row + equivalent child do not double-count", async () => {
-    // Browse a trailing-separator path, tick the self-row, navigate up: the
-    // equivalent child renders checked and the basket holds it exactly once.
-    mockBrowse.mockResolvedValue(makeBrowseResult("/home/user/work/", [], "/home/user"));
-    render(<SelfHarness initialPath="/home/user/work/" />);
-    await screen.findByTestId("path-picker-self");
-    fireEvent.click(screen.getByTestId("path-picker-check-/home/user/work/"));
-    expect(basket()).toBe("/home/user/work");
-
-    mockBrowse.mockResolvedValue(userHome);
-    const dotdot = screen.getAllByRole("option").find((o) => o.textContent?.includes(".."))!;
-    fireEvent.click(dotdot);
-    await waitFor(() => expect(screen.getByText("work")).toBeTruthy());
-
-    expect(screen.getByTestId("path-picker-check-/home/user/work").getAttribute("aria-checked")).toBe("true");
-    expect(basket()).toBe("/home/user/work");
-  });
-
-  it("E7 — current dir with live sessions is badged on the self-row", async () => {
-    const counts = new Map([[pathKey("/home/user", inferPlatform(["/home/user"])), 2]]);
-    render(<SelfHarness sessionCounts={counts} />);
-    await screen.findByTestId("path-picker-self");
-    expect(screen.getByTestId("path-picker-sessions-/home/user").textContent).toMatch(/2/);
-  });
-
-  it("E9 — self-row is absent while no current directory is resolved", async () => {
-    mockBrowse.mockReturnValue(new Promise(() => { /* never resolves */ }));
-    render(<SelfHarness />);
-    expect(screen.getByText(/loading/i)).toBeTruthy();
-    expect(screen.queryByTestId("path-picker-self")).toBeNull();
-  });
-
-  it("E9b — self-row absent when a resolved current path is empty or relative", async () => {
-    // The render-gate requires an ABSOLUTE path, so a browse that resolves with
-    // an empty or relative `current` must NOT produce a selectable self-row.
-    for (const current of ["", "relative/dir"]) {
-      mockBrowse.mockResolvedValue({ current, parent: null, entries: [{ name: "child", path: `${current}/child` }] });
-      const { unmount } = render(<SelfHarness />);
-      await waitFor(() => expect(screen.getByText("child")).toBeTruthy());
-      expect(screen.queryByTestId("path-picker-self")).toBeNull();
-      unmount();
-    }
-  });
-
-  it("E10 — child-row activation still descends (regression)", async () => {
-    render(<SelfHarness />);
-    await waitFor(() => expect(screen.getByText("work")).toBeTruthy());
-    mockBrowse.mockResolvedValue(makeBrowseResult("/home/user/work", [], "/home/user"));
-    fireEvent.click(screen.getByText("work"));
-    await waitFor(() => {
-      expect(mockBrowse.mock.calls.some((c) => c[0] === "/home/user/work")).toBe(true);
+  it("E10b — `added` marker collapses Windows case drift", async () => {
+    mockBrowse.mockResolvedValue({
+      current: "c:\\users\\me",
+      parent: "c:\\users",
+      entries: [{ name: "Work", path: "c:\\users\\me\\Work" }],
     });
-    expect(basket()).toBe("");
+    const p = "C:\\Users\\ME\\Work";
+    renderMulti({ initialPath: "c:\\users\\me\\", selection: { pinnedKeys: new Set([pathKey(p, inferPlatform([p]))]) } });
+    await waitFor(() => expect(screen.getByText("Work")).toBeTruthy());
+    expect(screen.getByTestId("path-picker-added-c:\\users\\me\\Work")).toBeTruthy();
   });
 
-  it("E11 — single-select mode renders no self-row, CONTENTS label, or checkboxes", async () => {
-    render(<PathPicker initialPath="/home/user/" onSelect={onSelect} onCancel={onCancel} />);
-    await waitFor(() => expect(screen.getByText("work")).toBeTruthy());
-    expect(screen.queryByTestId("path-picker-self")).toBeNull();
-    expect(screen.queryByTestId("path-picker-contents-label")).toBeNull();
-    expect(screen.queryByTestId("path-picker-check-/home/user/work")).toBeNull();
+  it("E11 — modifier+A selects every row, added ones included", async () => {
+    renderMulti();
+    await ready();
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "a", ctrlKey: true });
+    expect(selectedNames()).toHaveLength(7);
   });
 
-  it("F1 — CONTENTS label is skipped by keyboard traversal", async () => {
-    render(<SelfHarness />);
-    await screen.findByTestId("path-picker-self");
-    const label = screen.getByTestId("path-picker-contents-label");
-    expect(label.getAttribute("role")).not.toBe("option");
-    const input = screen.getByRole("textbox");
-    // From the self-row (index 0), the next highlight lands on the `..` row.
-    fireEvent.keyDown(input, { key: "ArrowDown" });
-    fireEvent.keyDown(input, { key: "ArrowDown" });
-    const options = screen.getAllByRole("option");
-    const selected = options.find((o) => o.getAttribute("aria-selected") === "true");
-    expect(selected?.textContent).toContain("..");
-    expect(label.hasAttribute("aria-selected")).toBe(false);
-  });
-
-  it("F2 — CONTENTS label sits below the self-row and above `..`", async () => {
-    render(<SelfHarness />);
-    const selfRow = await screen.findByTestId("path-picker-self");
-    const label = screen.getByTestId("path-picker-contents-label");
-    const listbox = screen.getByRole("listbox");
-    const kids = Array.from(listbox.querySelectorAll("[data-testid='path-picker-self'], [data-testid='path-picker-contents-label'], [role='option']"));
-    const selfIdx = kids.indexOf(selfRow);
-    const labelIdx = kids.indexOf(label);
-    const dotdotIdx = kids.findIndex((k) => k.getAttribute("role") === "option" && k.textContent?.includes(".."));
-    expect(selfIdx).toBeLessThan(labelIdx);
-    expect(labelIdx).toBeLessThan(dotdotIdx);
-  });
-
-  it("F3 — Space toggles the self-row and inserts no literal space", async () => {
-    render(<SelfHarness />);
-    await screen.findByTestId("path-picker-self");
+  it("E12 — Backspace and modifier+A edit text while the input has a pending edit", async () => {
+    renderMulti();
+    await ready();
     const input = screen.getByRole("textbox") as HTMLInputElement;
-    const before = input.value;
-    fireEvent.keyDown(input, { key: "ArrowDown" }); // highlight the self-row
-    fireEvent.keyDown(input, { key: " " });
-    expect(basket()).toBe("/home/user");
-    expect(input.value).toBe(before);
+    const calls = mockBrowse.mock.calls.length;
+    const bs = new KeyboardEvent("keydown", { key: "Backspace", bubbles: true, cancelable: true });
+    input.dispatchEvent(bs);
+    expect(bs.defaultPrevented).toBe(true); // input == browsed dir → acts on the list (go up)
+    await waitFor(() => expect(mockBrowse.mock.calls.length).toBeGreaterThan(calls));
+
+    cleanup();
+    renderMulti();
+    await ready();
+    const input2 = screen.getByRole("textbox") as HTMLInputElement;
+    fireEvent.change(input2, { target: { value: "/home/user/wo" } });
+    const bs2 = new KeyboardEvent("keydown", { key: "Backspace", bubbles: true, cancelable: true });
+    input2.dispatchEvent(bs2);
+    expect(bs2.defaultPrevented).toBe(false);
+    const selAll = new KeyboardEvent("keydown", { key: "a", ctrlKey: true, bubbles: true, cancelable: true });
+    input2.dispatchEvent(selAll);
+    expect(selAll.defaultPrevented).toBe(false);
+    expect(selectedNames()).toEqual([]);
+  });
+
+  it("E13 — isHome is true only for the first no-path browse result", async () => {
+    render(<PathPicker onSelect={onSelect} onCancel={onCancel} selection={{ onChange }} />);
+    await ready();
+    expect(lastChange()).toMatchObject({ current: "/home/user", isHome: true });
+    fireEvent.doubleClick(row("work"));
+    await waitFor(() => expect(lastChange()).toMatchObject({ current: "/home/user/work", isHome: false }));
+    fireEvent.click(screen.getAllByRole("option").find((o) => o.textContent?.includes(".."))!);
+    await waitFor(() => expect(lastChange()).toMatchObject({ current: "/home/user", isHome: true }));
+  });
+
+  it("E14 — with an explicit initialPath no folder is treated as home", async () => {
+    renderMulti();
+    await ready();
+    expect(lastChange()).toMatchObject({ current: "/home/user", isHome: false });
+  });
+
+  it("X1 — a failed open keeps the folder and the selection", async () => {
+    renderMulti();
+    await ready();
+    fireEvent.click(row("work"));
+    fireEvent.click(row("notes"), { ctrlKey: true });
+    mockBrowse.mockRejectedValueOnce(new Error("boom"));
+    fireEvent.doubleClick(row("projects"));
+    await waitFor(() => expect(screen.getByText("boom")).toBeTruthy());
+    expect(lastChange()).toMatchObject({
+      selected: ["/home/user/work", "/home/user/notes"],
+      current: "/home/user",
+    });
+  });
+
+  it("X2 — network-guard denial still renders the remedy in multi-select", async () => {
+    mockBrowse.mockRejectedValue(Object.assign(new Error("denied"), { code: "network_not_allowed", hint: "add it" }));
+    renderMulti({ onOpenServers: vi.fn() });
+    await waitFor(() => expect(screen.getByText("add it")).toBeTruthy());
+    expect(lastChange()?.current ?? null).toBeNull();
   });
 });
 

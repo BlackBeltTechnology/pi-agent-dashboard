@@ -58,7 +58,7 @@ A handler SHALL save only through core, as either an overwrite of the tab's file
 - the working directory is a known session's working directory;
 - the target, after resolving symlinks and `..`, lies under that directory (for a copy: the directory it is created in);
 - the saving claim's plugin is enabled and the claim is an edit mode;
-- the extension of both the requested path and the resolved file is one the claim declares;
+- the extension of both the requested path and the resolved file is one the claim declares (for a sibling copy: the new file's extension is one of the claim's declared sibling extensions);
 - the body does not exceed the claim's size limit;
 - every content validator its plugin registered for that claim accepts the bytes.
 
@@ -76,7 +76,16 @@ A save performed through a handler SHALL count as the pane's own save for the ch
 - It SHALL create `<stem>.<suffix>.<ext>`, using the first free `<stem>.<suffix>-<n>.<ext>` when taken.
 - It SHALL never overwrite an existing file, including under concurrent copies.
 - It SHALL take the source file's permissions, or default permissions when the source no longer exists.
-- The copy's extension SHALL be the tab file's extension, which the claim declares.
+- Except for a sibling copy (below), the copy's extension SHALL be the tab file's extension, which the claim declares.
+
+**Sibling copy.** A claim MAY declare sibling extensions for the app's native file type.
+- A sibling copy SHALL create `<stem>.<ext>` next to the tab's file, where `<stem>` is the tab file's stem and `<ext>` is a declared sibling extension, using the first free `<stem>-<n>.<ext>` when taken.
+- It SHALL never overwrite an existing file, including under concurrent saves, and SHALL take the source file's permissions, or default permissions when the source no longer exists.
+- It SHALL pass the same authority, containment, size and validator checks as a copy, with the validator judging the bytes as the sibling extension.
+- An overwrite SHALL never target a sibling extension.
+- A sibling copy SHALL NOT show the first-overwrite notice; when every sibling name is taken it SHALL be reported to the handler as an unresolved conflict.
+
+After a successful save a handler MAY ask core to open a workspace file in a new tab, optionally in one of its own plugin's modes; a core without that ability leaves the request unavailable rather than failing the save.
 
 #### Scenario: Clean overwrite
 - **WHEN** a handler saves `report.docx` as an overwrite while it is unchanged on disk
@@ -121,6 +130,22 @@ A save performed through a handler SHALL count as the pane's own save for the ch
 #### Scenario: Concurrent copies
 - **WHEN** two copies of `report.docx` with suffix `wordcraft` are saved at the same time
 - **THEN** two distinct files are created and neither overwrites another file
+
+#### Scenario: Sibling copy in a declared extension
+- **WHEN** a handler for `photo.jpg` whose claim declares the sibling extension `.psd` saves a sibling copy with `.psd` bytes
+- **THEN** `photo.psd` is created next to `photo.jpg` and `photo.jpg` is unchanged
+
+#### Scenario: Sibling copy never overwrites
+- **WHEN** `photo.psd` exists and a handler for `photo.jpg` saves a `.psd` sibling copy
+- **THEN** `photo-2.psd` is created and `photo.psd` is unchanged
+
+#### Scenario: Undeclared sibling extension refused
+- **WHEN** a handler for `photo.jpg` whose claim declares only `.psd` as a sibling extension saves a sibling copy as `.exe`
+- **THEN** the save is rejected and nothing is written
+
+#### Scenario: Overwrite cannot change the extension
+- **WHEN** a handler for `photo.jpg` requests an overwrite with the target `photo.psd`
+- **THEN** the save is rejected and nothing is written
 
 ### Requirement: Core resolves conflicts and confirms first overwrites
 When an overwrite conflicts with a change on disk, core SHALL keep the handler mounted with its edits and offer:
@@ -216,3 +241,14 @@ A handler mode is not a rich viewer for the purposes of the editor large-file li
 #### Scenario: Large file, handler available
 - **WHEN** `big.docx` exceeds the editor large-file limit but not the claim's size limit
 - **THEN** the built-in view shows the too-large notice and the handler mode is available
+
+### Requirement: The binary-file notice offers matching handler modes
+When a file tab's built-in view shows the binary-file notice and at least one enabled handler claim matches the file, the notice SHALL offer each matching mode as a button labelled like that mode in the mode switcher, and choosing it SHALL behave exactly like selecting that mode in the switcher. With no matching enabled claim, the notice SHALL be unchanged.
+
+#### Scenario: Binary file with a matching mode
+- **WHEN** the user opens `photo.psd`, PhotoCraft's edit claim is enabled, and the built-in view shows the binary-file notice
+- **THEN** the notice offers "Edit in PhotoCraft", and choosing it switches the tab to that mode
+
+#### Scenario: Binary file without a matching mode
+- **WHEN** the user opens `archive.bin` and no handler claim matches it
+- **THEN** the binary-file notice shows no mode button

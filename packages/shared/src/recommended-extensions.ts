@@ -16,6 +16,7 @@
  * from the npm registry or GitHub (see `/api/packages/recommended`).
  */
 
+import { ANTHROPIC_MESSAGES_SOURCE } from "./anthropic-messages-source.js";
 import type { PluginRequirements } from "./dashboard-plugin/manifest-types.js";
 import type { PluginRequirementReport } from "./dashboard-plugin/plugin-status.js";
 
@@ -143,7 +144,7 @@ export const RECOMMENDED_EXTENSIONS: readonly RecommendedExtension[] = [
 		// Published to the @blackbelt-technology npm scope. Source MUST be the
 		// npm spec so sourcesMatch() recognizes the npm install as satisfying
 		// this required entry (npm↔git cross-kind also added defensively).
-		source: "npm:@blackbelt-technology/pi-anthropic-messages",
+		source: ANTHROPIC_MESSAGES_SOURCE,
 		displayName: "pi-anthropic-messages",
 		fallbackDescription:
 			"Protocol bridge that makes pi's custom tools work with any " +
@@ -633,6 +634,52 @@ export const RECOMMENDED_EXTENSIONS: readonly RecommendedExtension[] = [
 			"craft-studio router skill + 13 per-app skills (headless creative work: image, video, audio, PDF, documents, slides, spreadsheets, CAD)",
 			"pi-craft CLI (apps, install, exec, verify, per-app MCP)",
 			"pi-photocraft CLI (compatibility alias; replace-region)",
+		],
+	},
+	{
+		id: "@blackbelt-technology/pi-untrusted-content-guard",
+		source: "npm:@blackbelt-technology/pi-untrusted-content-guard",
+		displayName: "pi-untrusted-content-guard",
+		fallbackDescription:
+			"Defends against indirect prompt injection: strips hidden payloads " +
+			"from untrusted tool results (web pages, search, email), spotlights " +
+			"them as data, and asks for confirmation before sensitive tools " +
+			"(bash, *_send, *_delete, ...) once untrusted content entered the run. " +
+			"Active on install in strip mode; set mode: \"off\" to disable.",
+		status: "optional",
+		unlocks: [
+			"Hidden prompt-injection payload removal in untrusted tool results",
+			"Confirmation gate on sensitive tools after untrusted content was read",
+		],
+		autowired: true,
+	},
+	{
+		id: "@blackbelt-technology/pi-dashboard-deck3d",
+		source: "npm:@blackbelt-technology/pi-dashboard-deck3d",
+		displayName: "pi-dashboard-deck3d",
+		fallbackDescription:
+			"Deterministic Markdown to self-contained 3D presentation engine " +
+			"(three.js runtime, effects, props, mermaid diagrams). Mermaid " +
+			"harvest needs Playwright chromium (npx playwright install chromium). " +
+			"Exposes the deck3d CLI.",
+		status: "optional",
+		unlocks: [
+			"deck3d + deck3d-from-pptx skills (Markdown or PPTX to 3D HTML deck)",
+			"deck3d CLI",
+		],
+	},
+	{
+		id: "@blackbelt-technology/pi-dashboard-music-production",
+		source: "npm:@blackbelt-technology/pi-dashboard-music-production",
+		displayName: "pi-dashboard-music-production",
+		fallbackDescription:
+			"Music-production skills: analyse an audio file into a music map " +
+			"(tempo, downbeat grid, key, sections, stems), cut it to length on " +
+			"the beat grid with click-free joins, and pick camera-punch hits for " +
+			"beat-synced video edits. Python scripts; uses ffmpeg and uv.",
+		status: "optional",
+		unlocks: [
+			"music-analysis, music-edit-to-length and beat-sync-video skills",
 		],
 	},
 ];

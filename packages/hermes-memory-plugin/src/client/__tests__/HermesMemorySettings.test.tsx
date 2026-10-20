@@ -14,6 +14,7 @@ import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import type React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULTS, KNOWN_KEYS } from "../../shared/hermes-config.js";
+import { FIELD_GROUPS } from "../field-groups.js";
 import { HermesMemorySettings } from "../HermesMemorySettings.js";
 import type { EffectiveConfig } from "../hermes-api.js";
 
@@ -276,3 +277,105 @@ describe("HermesMemorySettings", () => {
     });
   });
 });
+
+// ── resync-hermes-memory-config-0-9 ───────────────────────────────────────────
+describe("HermesMemorySettings — 0.9.10 resync", () => {
+  const NEW_DEFAULTED = [
+    "lazyInitialization",
+    "standingInstructionsEnabled",
+    "flushCompactTimeoutMs",
+    "overflowGraceMs",
+    "consolidationChunking",
+    "consolidationChunkChars",
+    "consolidationUsageSignals",
+    "autoConsolidationWarnOnFailure",
+    "quickCheckOnOpen",
+    "usageHitTrackingEnabled",
+    "sessionRetentionDays",
+  ];
+
+  function mountWithRegistry(effective: EffectiveConfig, put?: (body: unknown) => Response) {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/models") return jsonOk({ data: [] });
+      if (init?.method === "PUT" && put) return put(JSON.parse(init.body as string));
+      return jsonOk(effective);
+    });
+    (globalThis as { fetch?: unknown }).fetch = fetchMock;
+    const sources = new Map<string, RegisteredSource>();
+    const registry: SettingsDraftRegistry = {
+      upsert: (id, src) => sources.set(id, src),
+      remove: (id) => {
+        sources.delete(id);
+      },
+    };
+    const utils = renderH(
+      <SettingsDraftProvider registry={registry}>
+        <HermesMemorySettings />
+      </SettingsDraftProvider>,
+    );
+    return { ...utils, fetchMock, source: () => sources.get("plugin:hermes-memory")! };
+  }
+
+  // test-plan #E20
+  it("E20: the 11 new defaulted fields show their default + DEFAULT badge; fallbacks empty + badge; each control named by its label", async () => {
+    const { findByTestId, getByTestId, container } = mountWithRegistry(allDefaultEffective());
+    await findByTestId("hermes-input-consolidationChunkChars");
+    for (const key of [...NEW_DEFAULTED, "llmFallbackModels"]) {
+      expect(getByTestId(`hermes-default-badge-${key}`), key).toBeTruthy();
+      const control = getByTestId(`hermes-input-${key}`);
+      const meta = FIELD_GROUPS.flatMap((g) => g.fields).find((f) => f.key === key)!;
+      const label = control.id && container.querySelector(`label[for="${control.id}"]`);
+      expect(label, key).toBeTruthy();
+      expect((label as HTMLLabelElement).textContent, key).toContain(meta.label);
+    }
+    expect((getByTestId("hermes-input-consolidationChunkChars") as HTMLInputElement).value).toBe("4000");
+    expect((getByTestId("hermes-input-overflowGraceMs") as HTMLInputElement).value).toBe("180000");
+    expect((getByTestId("hermes-input-sessionRetentionDays") as HTMLInputElement).value).toBe("0");
+    expect((getByTestId("hermes-input-llmFallbackModels") as HTMLTextAreaElement).value).toBe("");
+  });
+
+  // test-plan #E22
+  it("E22: the raw-JSON dialog shows preserved unknown keys (incl. __proto__) plus resolved known fields", async () => {
+    const raw = JSON.parse('{"futureHermesKey":42,"__proto__":{"x":1}}') as Record<string, unknown>;
+    const { findByText, getByRole } = mountWithRegistry({ ...allDefaultEffective(), raw });
+    fireEvent.click(await findByText("View raw JSON"));
+    const text = (await waitFor(() => getByRole("dialog"))).textContent ?? "";
+    expect(text).toContain('"futureHermesKey": 42');
+    expect(text).toContain('"__proto__"');
+    expect(text).toContain('"memoryMode": "policy-only"');
+  });
+
+  // test-plan #E23
+  it("E23: array-form override (normalized by GET) round-trips as string + fallbacks on a no-edit save", async () => {
+    const eff = allDefaultEffective({
+      llmModelOverride: { value: "a/b", default: undefined, isDefault: false },
+      llmFallbackModels: { value: ["c/d"], default: undefined, isDefault: false },
+    });
+    const { findByTestId, fetchMock, source } = mountWithRegistry(eff, () => jsonOk(eff));
+    await findByTestId("hermes-input-nudgeInterval");
+    await source().commit();
+    const putCall = fetchMock.mock.calls.find((c) => (c[1] as RequestInit)?.method === "PUT");
+    const sent = JSON.parse((putCall![1] as RequestInit).body as string);
+    expect(sent.llmModelOverride).toBe("a/b");
+    expect(sent.llmFallbackModels).toEqual(["c/d"]);
+  });
+
+  // test-plan #X6
+  it("X6: an unreadable-file 500 surfaces as a save error naming 'unreadable'; edits are kept", async () => {
+    const failing = () =>
+      ({
+        ok: false,
+        status: 500,
+        headers: new Headers({ "content-type": "application/json" }),
+        json: async () => ({ error: "hermes config file unreadable", code: "EACCES" }),
+      }) as unknown as Response;
+    const { findByTestId, getByTestId, source } = mountWithRegistry(allDefaultEffective(), failing);
+    const input = (await findByTestId("hermes-input-nudgeInterval")) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "20" } });
+    await waitFor(() => expect(source().isDirty).toBe(true));
+    await expect(source().commit()).rejects.toThrow(/unreadable/);
+    expect((getByTestId("hermes-input-nudgeInterval") as HTMLInputElement).value).toBe("20");
+    expect(source().isDirty).toBe(true);
+  });
+});
+

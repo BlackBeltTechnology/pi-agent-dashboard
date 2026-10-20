@@ -213,7 +213,7 @@ if [ "${PI_E2E_SEED:-}" = "1" ]; then
     node -e '
       const crypto = require("node:crypto");
       const fs = require("node:fs");
-      const [key, spawnStrategy, out, trusted, relayFake, chatFake] = process.argv.slice(1);
+      const [key, spawnStrategy, out, trusted, relayFake, chatFake, maxTerminals, confineBrowse] = process.argv.slice(1);
       const hash = crypto.createHash("sha256").update(key).digest("hex");
       const networks = (trusted || "").split(",").map((s) => s.trim()).filter(Boolean);
       const cfg = {
@@ -311,6 +311,14 @@ if [ "${PI_E2E_SEED:-}" = "1" ]; then
           },
         };
       }
+      // Terminal-cap e2e faucet (change: harden-server-capability-bounds): a tiny global
+      // PTY cap so the refusal notice is reachable in two clicks. Empty => the default 32.
+      if (maxTerminals) cfg.terminals = { maxConcurrent: Number(maxTerminals) };
+      // The harness browser reaches the container through the Docker port mapping, so the server
+      // classifies it as a REMOTE caller; ~30 specs pin per-test dirs outside $HOME via the picker.
+      // Default: browse confinement OFF. PI_E2E_BROWSE_CONFINEMENT=1 leaves it on
+      // (tests/e2e/remote-browse-confinement.spec.ts). See change: harden-server-capability-bounds.
+      if (confineBrowse !== "1") cfg.browse = { confineRemote: false };
       fs.writeFileSync(out, JSON.stringify(cfg) + "\n");
       if (chatFake) {
         const dir = out.replace(/\/config\.json$/, "");
@@ -346,7 +354,7 @@ if [ "${PI_E2E_SEED:-}" = "1" ]; then
           { mode: 0o600 },
         );
       }
-    ' "${E2E_PROXY_KEY}" "${PI_SPAWN_STRATEGY:-tmux}" "${PI_DIR}/dashboard/config.json" "${PI_E2E_TRUSTED_NETWORKS:-}" "${PI_BROWSER_RELAY_FAKE:-}" "${PI_CHAT_GATEWAY_FAKE:-}"
+    ' "${E2E_PROXY_KEY}" "${PI_SPAWN_STRATEGY:-tmux}" "${PI_DIR}/dashboard/config.json" "${PI_E2E_TRUSTED_NETWORKS:-}" "${PI_BROWSER_RELAY_FAKE:-}" "${PI_CHAT_GATEWAY_FAKE:-}" "${PI_E2E_TERMINALS_MAX_CONCURRENT:-}" "${PI_E2E_BROWSE_CONFINEMENT:-}"
     echo "[test-entrypoint] PI_E2E_SEED: seeded trustedNetworks (${PI_E2E_TRUSTED_NETWORKS:-0.0.0.0/0}) + defaultModel + modelProxy apiKey → config.json"
   fi
 

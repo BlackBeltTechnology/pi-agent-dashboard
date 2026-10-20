@@ -486,7 +486,14 @@
     "gate-changed-on-disk-by-content": "ui",
     "refresh-electron-bundled-components": "ui",
     "move-session-actions-trigger-to-card-edge": "retro-ui",
-    "colorize-actions-menus": "retro-ui"
+    "colorize-actions-menus": "retro-ui",
+    "extend-craft-web-to-all-apps": "ui",
+    "improve-canvas-html-and-url-ux": "ui",
+    "resync-hermes-memory-config-0-9": "ui",
+    "add-meeting-bot-attendee": "ui",
+    "pin-electron-bundle-dependency-tree": "ui",
+    "fix-split-divider-drag": "ui",
+    "add-access-provisioning": "ui"
   },
   "changeOrder": {
     "__ungrouped__": [
@@ -501,14 +508,16 @@
       "ab-test-rlm-delegation-claim",
       "fix-npm12-remote-tarball-install",
       "close-residual-audit-findings",
-      "retro-ux-plugin-settings-wave-2",
       "prove-vault-bridge-tls"
     ],
     "ui": [
-      "refresh-electron-bundled-components",
-      "gate-changed-on-disk-by-content",
-      "align-ui-contract-recipes",
-      "audit-plugin-bundles-non-secure-context"
+      "pin-electron-bundle-dependency-tree",
+      "add-meeting-bot-attendee",
+      "fix-split-divider-drag",
+      "add-access-provisioning",
+      "resync-hermes-memory-config-0-9",
+      "improve-canvas-html-and-url-ux",
+      "extend-craft-web-to-all-apps"
     ],
     "addons-hub": [
       "addons-hub-feature-catalog",

@@ -11,6 +11,12 @@
  * sha1/mtime when the file is gone) or "no free name"; 400/403/413/422/503
  * per `file-write-binary` order documented in the handler.
  *
+ * Sibling copy (`mode=copy&siblingExt=<.ext>`, no `expectSha1`): `<.ext>` must be one of the claim's
+ * `siblingExtensions` (403 otherwise; `mode=overwrite` with `siblingExt` → 400); the tab file must resolve
+ * inside the cwd under a claimed extension; the target is the first free `<stem><.ext>`, then
+ * `<stem>-<n><.ext>` (n ≤ 99, 409 after) via `wx`; the validator runs with `<.ext>`.
+ * See change: extend-craft-web-to-all-apps (D6).
+ *
  * Order: query → claim (enabled edit claim; validator `enabled()`) → known cwd
  * → target authz (`isWritableHandlerTarget`) → fail-closed validator check →
  * size cap → validator (worker pool, BEFORE the lock) → under the realpath
@@ -24,11 +30,12 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import {
   FILE_HANDLER_COPY_SUFFIX_RE,
+  FILE_HANDLER_EXT_RE,
   HANDLER_MAX_BYTES,
   parseFileHandlerClaimKey,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/file-handler.js";
 import type { PluginClaim } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js";
-import { DIGEST_CEILING_BYTES } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
+import { DIGEST_CEILING_BYTES, extOf } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
 import type { FastifyInstance } from "fastify";
 import { serializeWrite } from "../lib/file-write-lock.js";
 import { within } from "../lib/path-containment.js";
@@ -93,6 +100,7 @@ interface Query {
   mode?: string;
   claim?: string;
   expectSha1?: string;
+  siblingExt?: string;
 }
 
 const SHA1_RE = /^[0-9a-f]{40}$/;
@@ -185,13 +193,20 @@ async function overwrite(
   };
 }
 
-/** Copy: `<stem>.<suffix>.<ext>`, then `-2`…`-99`, via exclusive create (never overwrites). */
-async function copy(ctx: WriteCtx, suffix: string): Promise<Outcome> {
+/**
+ * Copy via exclusive create (never overwrites). Default: `<stem>.<suffix>.<ext>`, then `-2`…`-99`.
+ * Sibling (`siblingExt`): `<stem><siblingExt>`, then `<stem>-2<siblingExt>`…`-99`.
+ */
+async function copy(ctx: WriteCtx, suffix: string, siblingExt?: string): Promise<Outcome> {
   const { target, bytes } = ctx;
   const base = path.basename(target.requested);
   const dot = base.lastIndexOf(".");
   const stem = base.slice(0, dot);
   const extRaw = base.slice(dot);
+  const nameAt = (n: number): string => {
+    if (siblingExt) return n === 1 ? `${stem}${siblingExt}` : `${stem}-${n}${siblingExt}`;
+    return n === 1 ? `${stem}.${suffix}${extRaw}` : `${stem}.${suffix}-${n}${extRaw}`;
+  };
   // Source mode: the source file's (only when it exists inside the cwd), else 0644 (umask applies at create).
   let mode = 0o644;
   let explicitMode = false;
@@ -207,10 +222,7 @@ async function copy(ctx: WriteCtx, suffix: string): Promise<Outcome> {
     /* source gone → default mode */
   }
   for (let n = 1; n <= MAX_COPY_ATTEMPTS; n++) {
-    const name =
-      n === 1
-        ? `${stem}.${suffix}${extRaw}`
-        : `${stem}.${suffix}-${n}${extRaw}`;
+    const name = nameAt(n);
     const dest = path.join(target.dir, name);
     let fh: import("node:fs/promises").FileHandle;
     try {
@@ -301,6 +313,7 @@ export function registerFileWriteBinaryRoute(
     mode: "overwrite" | "copy";
     claimKey: { pluginId: string; claimId: string };
     expectSha1?: string;
+    siblingExt?: string;
   }
 
   /** Phase 1 — query + body shape (400s). */
@@ -319,6 +332,10 @@ export function registerFileWriteBinaryRoute(
         "cwd, path, mode (overwrite|copy) and claim (<plugin>/<claim>) are required",
       );
     }
+    if (q.siblingExt !== undefined) {
+      if (q.mode !== "copy") return fail(400, "siblingExt is only allowed with mode=copy");
+      if (typeof q.siblingExt !== "string" || !FILE_HANDLER_EXT_RE.test(q.siblingExt)) return fail(400, "siblingExt must be a lower-case extension with a leading dot");
+    }
     if (
       q.mode === "overwrite" &&
       !(typeof q.expectSha1 === "string" && SHA1_RE.test(q.expectSha1))
@@ -331,6 +348,7 @@ export function registerFileWriteBinaryRoute(
       mode: q.mode,
       claimKey,
       expectSha1: q.expectSha1,
+      ...(q.siblingExt !== undefined ? { siblingExt: q.siblingExt } : {}),
     };
   }
 
@@ -352,6 +370,9 @@ export function registerFileWriteBinaryRoute(
       claim.mode !== "edit"
     ) {
       return fail(403, "no enabled edit claim for this handler");
+    }
+    if (p.siblingExt !== undefined && !(claim.siblingExtensions ?? []).includes(p.siblingExt)) {
+      return fail(403, "siblingExt is not a sibling extension of this claim");
     }
     const validator = handlers.getValidator(info.pluginId, p.claimKey.claimId);
     if (validator?.enabled && !safeEnabled(validator.enabled))
@@ -416,6 +437,11 @@ export function registerFileWriteBinaryRoute(
     const rel = (p: string): string =>
       path.relative(path.resolve(parsed.cwd), p).split(path.sep).join("/");
     const relPath = rel(target.requested);
+    // A sibling is created next to the tab's OWN file: the source must resolve inside the cwd under a
+    // claimed extension (a symlink escaping the cwd is refused, like an overwrite target).
+    if (parsed.siblingExt !== undefined && (!within(target.real, target.root) || !(claim.extensions ?? []).includes(extOf(target.real)))) {
+      return send(fail(403, "target is not a writable handler file in scope"), { relPath });
+    }
     if (claim.validator === true && (!info.serverLoaded || !validator)) {
       return send(
         fail(
@@ -439,7 +465,7 @@ export function registerFileWriteBinaryRoute(
         relPath,
       });
 
-    const validated = await runValidator(resolved, bytesIn, target.ext);
+    const validated = await runValidator(resolved, bytesIn, parsed.siblingExt ?? target.ext);
     if ("out" in validated)
       return send(validated.out, { relPath, note: validated.note });
     const bytes = validated.bytes;
@@ -451,7 +477,7 @@ export function registerFileWriteBinaryRoute(
     };
     const outcome =
       parsed.mode === "copy"
-        ? await copy(wctx, claim.copySuffix as string)
+        ? await copy(wctx, claim.copySuffix as string, parsed.siblingExt)
         : await serializeWrite(target.real, () =>
             overwrite(wctx, parsed.expectSha1 as string, authz),
           );
@@ -459,7 +485,8 @@ export function registerFileWriteBinaryRoute(
       parsed.mode === "overwrite" && outcome.code === 409
         ? `conflict=${outcome.body.sha1 ? "changed" : "missing"}`
         : undefined;
-    return send(outcome, { relPath, note: conflict });
+    const note = [conflict, parsed.siblingExt ? `sibling=${parsed.siblingExt}` : undefined].filter(Boolean).join(" ") || undefined;
+    return send(outcome, { relPath, note });
   }
 }
 

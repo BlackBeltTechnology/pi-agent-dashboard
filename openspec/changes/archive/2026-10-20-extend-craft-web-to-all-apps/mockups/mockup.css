@@ -1,0 +1,136 @@
+/* Board chrome + recipes for extend-craft-web-to-all-apps.
+   Tokens only (tokens.css, copied from packages/client/src/index.css). No hex/rgba literal.
+   Recipes mirror shipped sources:
+   - .btn / .btn-primary / .notice / .panel  -> packages/craft-web-plugin/src/client/ui.ts
+   - .modes                                   -> client/.../file-handler/FileModeSwitcher.tsx
+   - .frame-dialog                            -> CraftFrame.tsx SaveAsDialog (in-frame alertdialog)
+   - .dlg                                     -> client-utils/src/Dialog.tsx (core handler dialogs)
+   - .sgroup / .pill / .field                 -> dashboard-plugin-runtime settings kit */
+* { box-sizing: border-box; }
+html { background: var(--bg-primary); color: var(--text-primary); }
+body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 14px; line-height: 1.45; }
+code, .mono { font-family: "SF Mono", Menlo, Monaco, Consolas, monospace; font-size: .92em; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+button:disabled, [aria-disabled="true"] { cursor: not-allowed; }
+:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+a { color: var(--link); }
+
+/* ---------- board chrome ---------- */
+.toolbar { position: sticky; top: 0; z-index: 40; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 8px 16px; background: var(--bg-secondary); border-bottom: 1px solid var(--border-secondary); }
+.toolbar h1 { font-size: 14px; margin: 0 12px 0 0; }
+.toolbar nav { display: flex; flex-wrap: wrap; gap: 10px; font-size: 12px; }
+.seg { display: inline-flex; border: 1px solid var(--border-secondary); border-radius: 6px; overflow: hidden; }
+.seg button { padding: 4px 10px; font-size: 12px; color: var(--text-secondary); min-height: 28px; }
+.seg button[aria-pressed="true"] { background: var(--severity-info-bg); color: var(--severity-info-fg); }
+.seg button + button { border-left: 1px solid var(--border-secondary); }
+main { padding: 16px; max-width: 1240px; margin: 0 auto; }
+.intro { font-size: 13px; color: var(--text-secondary); max-width: 90ch; margin: 4px 0 24px; }
+.surface { margin: 0 0 44px; scroll-margin-top: 56px; }
+.surface > h2 { font-size: 16px; margin: 0 0 4px; }
+.surface > p.verdict { margin: 0 0 12px; font-size: 12px; color: var(--text-secondary); max-width: 92ch; }
+.grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); }
+.state { border: 1px solid var(--border-secondary); border-radius: 12px; overflow: hidden; background: var(--bg-primary); display: flex; flex-direction: column; }
+.state > header { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; padding: 6px 12px; background: var(--bg-secondary); border-bottom: 1px solid var(--border-secondary); font-size: 12px; color: var(--text-secondary); }
+.state > header b { color: var(--text-primary); }
+.tag { white-space: nowrap; font-size: 11px; padding: 0 6px; border-radius: 999px; border: 1px solid; }
+.tag.built { border-color: var(--border-secondary); color: var(--text-secondary); }
+.tag.designed { border-color: var(--severity-info-border); color: var(--severity-info-fg); background: var(--severity-info-bg); }
+.tag.proposed { border-color: var(--severity-success-border); color: var(--severity-success-fg); background: var(--severity-success-bg); }
+.state > footer { margin-top: auto; padding: 8px 12px; border-top: 1px solid var(--border-subtle); font-size: 12px; color: var(--text-secondary); }
+.state > footer b { color: var(--text-primary); font-weight: 600; }
+
+/* ---------- editor pane shell (tab strip + mode switcher) ---------- */
+.pane { display: flex; flex-direction: column; min-height: 300px; background: var(--bg-primary); }
+.tabs { display: flex; gap: 2px; padding: 0 6px; background: var(--bg-secondary); border-bottom: 1px solid var(--border-primary); overflow: hidden; }
+.tabs span { padding: 6px 10px; font-size: 12px; color: var(--text-secondary); white-space: nowrap; border-bottom: 2px solid transparent; }
+.tabs span[aria-selected="true"] { color: var(--text-primary); border-bottom-color: var(--accent-primary); }
+.tabs .dirty::after { content: " \25CF"; color: var(--text-secondary); }
+.modes { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 4px 12px; border-bottom: 1px solid var(--border-primary); }
+.modes button { border-radius: 4px; padding: 2px 8px; font-size: 12px; font-weight: 500; color: var(--text-tertiary); min-height: 24px; }
+.modes button:hover { background: var(--bg-hover); color: var(--text-primary); }
+.modes button[aria-pressed="true"] { background: var(--bg-selected); color: var(--text-primary); }
+.body { position: relative; flex: 1; min-height: 200px; }
+
+/* the app's own canvas: a labelled placeholder, never a fake screenshot */
+.appcanvas { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: var(--bg-tertiary); color: var(--text-secondary); font-size: 12px; border: 1px dashed var(--border-secondary); margin: 6px; border-radius: 6px; }
+.binary { padding: 24px; font-size: 13px; color: var(--text-secondary); display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+.binary p { margin: 0; color: var(--text-primary); }
+
+/* ---------- craft frame toolbar (CraftFrame.tsx Toolbar) ---------- */
+.ftool { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 4px 8px; border-bottom: 1px solid var(--border-primary); font-size: 12px; }
+.ftool .app { font-weight: 600; color: var(--text-primary); }
+.ftool .right { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+.ftool .lbl { color: var(--text-secondary); }
+.ftool .tgt { border-radius: 4px; padding: 2px 8px; color: var(--text-secondary); min-height: 24px; }
+.ftool .tgt:hover { background: var(--bg-hover); }
+.ftool .tgt[aria-pressed="true"] { background: var(--accent-soft); color: var(--text-primary); font-weight: 600; } /* shipped uses --accent-text: 4.49:1 in dark + nord (fails AA); --accent-soft is documented as the fill behind --text-primary */
+.chip { display: inline-flex; align-items: center; gap: 4px; border-radius: 999px; padding: 1px 8px; font-size: 11px; border: 1px solid var(--border-secondary); color: var(--text-secondary); background: var(--bg-secondary); }
+.chip.info { border-color: var(--severity-info-border); background: var(--severity-info-bg); color: var(--severity-info-fg); }
+
+/* ---------- plugin recipes (ui.ts) ---------- */
+.btn, .btn-primary { display: inline-flex; align-items: center; justify-content: center; gap: 4px; border-radius: 6px; padding: 0 12px; min-height: 32px; font-size: 12px; font-weight: 600; }
+.btn { border: 1px solid var(--border-secondary); background: var(--bg-tertiary); color: var(--text-primary); }
+.btn:hover { background: var(--bg-hover); }
+.btn-primary { background: var(--accent-solid); color: var(--text-on-accent, white); }
+.btn-primary:hover { filter: brightness(1.1); }
+.notice { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; border-bottom: 1px solid var(--border-primary); background: var(--bg-secondary); padding: 8px 12px; font-size: 12px; color: var(--text-primary); }
+.notice.err { background: var(--severity-error-bg); color: var(--severity-error-fg); border-bottom-color: var(--severity-error-border); }
+.panel { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px; text-align: center; font-size: 13px; color: var(--text-secondary); background: var(--bg-primary); }
+.panel p { margin: 0; max-width: 44ch; }
+.panel p.lead { color: var(--text-primary); }
+
+/* in-frame alertdialog (SaveAsDialog recipe) */
+.scrim { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 16px; background: color-mix(in srgb, var(--bg-primary) 80%, transparent); }
+.frame-dialog { display: flex; flex-direction: column; gap: 12px; max-width: 28rem; border-radius: 12px; border: 1px solid var(--border-primary); background: var(--bg-secondary); padding: 16px; font-size: 13px; color: var(--text-primary); }
+.frame-dialog h3 { margin: 0; font-size: 14px; }
+.frame-dialog p { margin: 0; color: var(--text-secondary); }
+.frame-dialog .acts { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* core Dialog (client-utils/src/Dialog.tsx, size sm) */
+.dlg-scrim { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: var(--bg-overlay); padding: 16px; }
+.dlg { width: 100%; max-width: 26rem; border-radius: 12px; border: 1px solid var(--border-secondary); background: var(--bg-secondary); padding: 20px; display: flex; flex-direction: column; gap: 14px; box-shadow: 0 10px 30px color-mix(in srgb, var(--bg-primary) 60%, transparent); }
+.dlg h3 { margin: 0; font-size: 17px; font-weight: 600; color: var(--text-primary); }
+.dlg p { margin: 0; font-size: 13px; color: var(--text-secondary); }
+.dlg .foot { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.da { display: inline-flex; align-items: center; justify-content: center; min-height: 36px; padding: 0 12px; border-radius: 4px; font-size: 12px; font-weight: 600; border: 1px solid transparent; }
+.da.cancel, .da.neutral { border-color: var(--border-primary); color: var(--text-secondary); }
+.da.primary { background: var(--accent-solid); color: var(--text-on-accent, white); }
+.da.danger { background: var(--tint-red-bg); color: var(--tint-red-fg); border-color: var(--tint-red-border); }
+.step { font-size: 11px; color: var(--text-secondary); padding: 4px 12px; border-bottom: 1px solid var(--border-subtle); background: var(--bg-secondary); }
+
+/* ---------- settings kit ---------- */
+.settings { padding: 12px; display: flex; flex-direction: column; gap: 12px; font-size: 12px; color: var(--text-secondary); }
+.shead { margin: 4px 0 -4px; font-size: 11px; font-weight: 600; letter-spacing: .02em; color: var(--text-secondary); }
+.sgroup { border: 1px solid var(--border-secondary); border-radius: 8px; background: var(--bg-secondary); }
+.sgroup > .h { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border-subtle); }
+.sgroup > .h b { color: var(--text-primary); font-size: 13px; }
+.sgroup > .h .sub { color: var(--text-secondary); }
+.sgroup > .h .pill { margin-left: auto; }
+.sgroup > .b { padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
+.sgroup.compact > .b { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 12px; }
+.pill { font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 1px solid; }
+.pill.ok { background: var(--severity-success-bg); color: var(--severity-success-fg); border-color: var(--severity-success-border); }
+.pill.warn { background: var(--severity-warning-bg); color: var(--severity-warning-fg); border-color: var(--severity-warning-border); }
+.pill.neutral { background: var(--bg-tertiary); color: var(--text-secondary); border-color: var(--border-secondary); }
+.field { display: flex; flex-direction: column; gap: 3px; }
+.field .row { display: flex; align-items: center; gap: 8px; }
+.field label, .field .k { color: var(--text-primary); font-weight: 500; }
+.field .hint { color: var(--text-secondary); }
+.switch { width: 32px; height: 18px; border-radius: 999px; background: var(--accent-solid); position: relative; flex: none; }
+.switch::after { content: ""; position: absolute; top: 2px; right: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--bg-primary); }
+.switch.off { background: var(--bg-tertiary); border: 1px solid var(--border-secondary); }
+.switch.off::after { left: 2px; right: auto; background: var(--text-secondary); }
+select { font: inherit; font-size: 12px; min-height: 32px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--border-secondary); background: var(--bg-tertiary); color: var(--text-primary); }
+select:disabled { opacity: .6; }
+.facts { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; }
+.facts dt { color: var(--text-secondary); }
+.facts dd { margin: 0; color: var(--text-primary); }
+
+@media (max-width: 520px) {
+  .grid { grid-template-columns: 1fr; }
+  /* shipped recipes: 44px targets below sm; actions wrap (no reordering) */
+  .da, .btn, .btn-primary { min-height: 44px; }
+  /* board only: let dialogs flow so the card grows instead of the dialog spilling over the header */
+  .body:has(.scrim), .body:has(.dlg-scrim) { min-height: 0 !important; }
+  .scrim, .dlg-scrim { position: relative; inset: auto; }
+}

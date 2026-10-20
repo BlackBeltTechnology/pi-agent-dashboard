@@ -7,7 +7,7 @@ Bridge extension capture + forwarding of pi-flows events. Listens to `flow:*` on
 ## Requirements
 
 ### Requirement: Bridge captures flow lifecycle events from pi.events
-The bridge extension SHALL listen to all `flow:*` events on `pi.events` and forward them as `event_forward` messages to the dashboard server with flow-specific `eventType` values.
+The bridge extension SHALL listen on `pi.events` to every `flow:*` channel in `FLOW_EVENT_MAP` and forward them as `event_forward` messages to the dashboard server with flow-specific `eventType` values. A `flow:*` channel outside that map (e.g. the `flow:list-flows` probe or `flow:run`) is not forwarded, per `catch-all-event-forwarding`.
 
 The following pi.events → eventType mappings SHALL be used:
 - `flow:flow-started` → `flow_started`
@@ -83,21 +83,21 @@ The bridge's `sessionPrompt` handler SHALL use `flow:list-flows` event to determ
 - **THEN** the bridge SHALL fall through to the existing slash command routing
 
 ### Requirement: Remove forwarding loops from flow-event-wiring
-The `registerFlowEventListeners` function SHALL remove the `event_forward` sending loops for `FLOW_EVENT_MAP` and `SUBAGENT_EVENT_MAP` channels. Event forwarding for these channels is now handled by the EventBus emit intercept in `bridge.ts`.
+The `registerFlowEventListeners` function SHALL remove the `event_forward` sending loops for `FLOW_EVENT_MAP` and `SUBAGENT_EVENT_MAP` channels. Event forwarding for these channels is handled by the bridge's per-channel EventBus subscriptions (see `catch-all-event-forwarding`).
 
 The function SHALL retain its non-forwarding responsibilities:
 - Listening to `flow:rediscover` and `flow:complete` to resend `commands_list` and `flows_list` messages
 
 #### Scenario: No duplicate forwarding
 - **WHEN** a `flow:flow-started` event is emitted on `pi.events`
-- **THEN** only the EventBus intercept SHALL forward it (not the flow-event-wiring listener)
+- **THEN** only the per-channel EventBus subscription SHALL forward it (not the flow-event-wiring listener)
 
 #### Scenario: Commands and flows refresh preserved
 - **WHEN** `flow:rediscover` or `flow:complete` fires
 - **THEN** `registerFlowEventListeners` SHALL still resend `commands_list` and `flows_list`
 
-### Requirement: Event rename maps exported for intercept
-The `FLOW_EVENT_MAP` and `SUBAGENT_EVENT_MAP` constants SHALL be exported from `flow-event-wiring.ts` so that `bridge.ts` can merge them into the unified `EVENT_BUS_MAP` used by the emit intercept.
+### Requirement: Event rename maps exported for forwarding
+The `FLOW_EVENT_MAP` and `SUBAGENT_EVENT_MAP` constants SHALL be exported from `flow-event-wiring.ts` so that `bridge.ts` can merge them into its unified `EVENT_BUS_MAP` and the bridge's per-channel EventBus forwarding can subscribe to their channels.
 
 #### Scenario: Maps importable
 - **WHEN** `bridge.ts` imports from `flow-event-wiring.ts`
@@ -134,4 +134,3 @@ The bridge SHALL accept a dashboard-originated request to set edit-mode and emit
 #### Scenario: Non-boolean enabled ignored
 - **WHEN** a set-edit-mode request arrives without a boolean `enabled`
 - **THEN** the bridge SHALL NOT emit the event
-

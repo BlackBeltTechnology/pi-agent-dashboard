@@ -36,3 +36,5 @@ Optional trailing ctor param `questionStore?: QuestionStore` (`questions/`). `tr
 `frameClassOf`: `services_changed` → `{cls:"state", key:"services_changed"}` (coalescing, never shed). See change: add-services-settings-ui.
 
 `frameClassOf`: `archive_session_error` → `{cls:"state", key:"archive_session_error:<sessionId>"}` (never shed; latest per session wins). See change: fix-orphaned-ended-session-archive.
+
+- Handler ctx carries `locallyTrusted` (`isSocketLocallyTrusted(ws)`, stamped at upgrade) + `browseRoots` (new last positional param `browseRoots`). See change: harden-server-capability-bounds.

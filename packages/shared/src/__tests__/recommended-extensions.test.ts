@@ -43,6 +43,9 @@ describe("RECOMMENDED_EXTENSIONS manifest", () => {
 				"@blackbelt-technology/pi-dashboard-video-production",
 				"@blackbelt-technology/pi-dashboard-nano-banana",
 				"@blackbelt-technology/pi-dashboard-craft-apps",
+				"@blackbelt-technology/pi-untrusted-content-guard",
+				"@blackbelt-technology/pi-dashboard-deck3d",
+				"@blackbelt-technology/pi-dashboard-music-production",
 			].sort(),
 		);
 	});
@@ -213,6 +216,9 @@ describe("getRecommendedByStatus", () => {
 				"@blackbelt-technology/pi-dashboard-video-production",
 				"@blackbelt-technology/pi-dashboard-nano-banana",
 				"@blackbelt-technology/pi-dashboard-craft-apps",
+				"@blackbelt-technology/pi-untrusted-content-guard",
+				"@blackbelt-technology/pi-dashboard-deck3d",
+				"@blackbelt-technology/pi-dashboard-music-production",
 			].sort(),
 		);
 	});
@@ -228,6 +234,25 @@ describe("craft-apps entry", () => {
 		expect(entry?.unlocks.join(" ")).toMatch(/per-app skills/);
 		expect(entry?.unlocks.join(" ")).toMatch(/pi-craft CLI/);
 		expect(RECOMMENDED_EXTENSIONS.some((e) => e.id === "@blackbelt-technology/pi-dashboard-photocraft")).toBe(false);
+	});
+});
+
+describe("first-party additions (guard, deck3d, music-production)", () => {
+	it("are optional, npm-sourced from their own package name, and say what they unlock", () => {
+		for (const id of [
+			"@blackbelt-technology/pi-untrusted-content-guard",
+			"@blackbelt-technology/pi-dashboard-deck3d",
+			"@blackbelt-technology/pi-dashboard-music-production",
+		]) {
+			const entry = getRecommendedExtension(id);
+			expect(entry?.status).toBe("optional");
+			expect(entry?.source).toBe(`npm:${id}`);
+			expect(entry?.unlocks.length).toBeGreaterThan(0);
+		}
+	});
+
+	it("context-budget is NOT recommended (its meter writes ./context-budget.json in every session cwd)", () => {
+		expect(getRecommendedExtension("@blackbelt-technology/pi-dashboard-context-budget")).toBeUndefined();
 	});
 });
 

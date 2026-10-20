@@ -29,6 +29,8 @@ const GUARDS: Array<[string, BridgeSourceFile, string, string?]> = [
   ["bridge-polling.test.ts", "bridge-handlers/lifecycle.ts", "polling.replaceProcessScan(scheduler)"],
   ["command-handler.test.ts", "bridge.ts", "sessionPrompt: async (text, delivery, promptId) => {"],
   ["command-path-mapping.test.ts", "bridge-handlers/lifecycle.ts", "filterHiddenCommands("],
+  ["eventbus-rpc-probe-not-forwarded.test.ts", "bridge.ts", "registerEventBusForwarding("],
+  ["eventbus-rpc-probe-not-forwarded.test.ts", "bridge.ts", "const EVENT_BUS_MAP"],
   ["multiselect-dashboard-routing.test.ts", "bridge-handlers/ui-prompt-patch.ts", "(ctx.ui as any).multiselect ="],
   ["pi-version-tracker.test.ts", "bridge-handlers/forwarders.ts", "const passThroughEventTypes"],
   ["plugin-event-forwarding.test.ts", "bridge.ts", "pluginForwardRegistry.flush()"],

@@ -378,6 +378,13 @@ export function createMemorySessionManager(
           statsExtractorVersion: existing.statsExtractorVersion,
           // Preserve user-set openspec assignment (not polled, set via dashboard UI)
           attachedProposal: existing.attachedProposal,
+          // A live replace-suggestion (and the names the user already dismissed)
+          // must survive a bridge reconnect: they are in-memory only, so
+          // dropping them here would lose the pending dialog on every
+          // reconnect. The replay itself neither raises nor clears them.
+          // See change: fix-large-session-resume-replay (D3).
+          pendingReplaceProposal: existing.pendingReplaceProposal,
+          rejectedReplaceProposals: existing.rejectedReplaceProposals,
           // Preserve user-owned tags across a bridge reattach (not polled, set via
           // dashboard UI). Without this the reattach onChange save wipes them from
           // disk. See change: fix-tags-lost-on-bridge-reattach.

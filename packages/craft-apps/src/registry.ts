@@ -138,6 +138,11 @@ export const CRAFT_APPS: readonly CraftApp[] = [
     "raster image editing (layers, adjustments, filters, content-aware fill)",
     { list: COMMANDS_JSON, run: "run (FILE | --new JSON) --cmd ID [--params JSON]… --out OUT | batch" },
     { confinement: "automation-roots", toolClass: "small", tools: 25, bridgeFlag: "--bridge" },
+    undefined,
+    {
+      webVersion: "0.10.0",
+      webFidelityNote: "PhotoCraft saves layered .psd files; formats it does not support may change. A copy is the safe way to compare.",
+    },
   ),
   app(
     "vectorcraft",
@@ -145,6 +150,11 @@ export const CRAFT_APPS: readonly CraftApp[] = [
     "vector illustration and SVG/PDF export",
     { list: COMMANDS_JSON, run: "run [--in FILE] --cmd ID [--params JSON]… [--export OUT]" },
     { confinement: "automation-roots", toolClass: "small", tools: 32, bridgeFlag: "--connect" },
+    undefined,
+    {
+      webVersion: "0.13.1",
+      webFidelityNote: "Saves are rewritten by VectorCraft; SVG features it does not support may change. A copy is the safe way to compare.",
+    },
   ),
   app(
     "filmcraft",
@@ -159,6 +169,11 @@ export const CRAFT_APPS: readonly CraftApp[] = [
     "RAW photo development (exposure, colour, denoise, merge)",
     { list: COMMANDS_JSON, run: "render IN -o OUT [--set CONTROL=VALUE…] | run [--import P | --demo] <cmd> key=value…" },
     { confinement: false, compactFlag: "--compact", toolClass: "large", tools: 330, bridgeFlag: "--connect" },
+    undefined,
+    {
+      webVersion: "0.9.1",
+      webFidelityNote: "LightCraft opens the file for viewing only; the file is never changed, and exports download to this device.",
+    },
   ),
   app(
     "pdfcraft",
@@ -166,6 +181,11 @@ export const CRAFT_APPS: readonly CraftApp[] = [
     "PDF combine, split, extract, edit, render and audit",
     { list: ["tools"], run: "<combine|split|extract|edit|render|text|audit> … | run" },
     { confinement: "root", compactFlag: "--compact", toolClass: "large", tools: 163 },
+    undefined,
+    {
+      webVersion: "0.9.0",
+      webFidelityNote: "PdfCraft appends your changes as an incremental update and keeps the original bytes. A copy is the safe way to compare.",
+    },
   ),
   app(
     "effectcraft",
@@ -180,6 +200,11 @@ export const CRAFT_APPS: readonly CraftApp[] = [
     "page layout and desktop publishing (stories, styles, PDF export)",
     { list: ["commands"], describe: ["describe", "<id>"], run: "run [--in FILE | --sample] --cmd ID[=JSON]… [--export OUT]" },
     { confinement: false, toolClass: "small", tools: 25, bridgeFlag: "--connect" },
+    undefined,
+    {
+      webVersion: "0.9.0",
+      webFidelityNote: "Saves are rewritten by DesignCraft with its assets embedded; content it does not support may change. A copy is the safe way to compare.",
+    },
   ),
   app(
     "figcraft",
@@ -208,6 +233,10 @@ export const CRAFT_APPS: readonly CraftApp[] = [
     { list: ["commands"], describe: ["describe", "<id>"], run: "run --cmd ID[=JSON]… [--bounce OUT] | script" },
     { confinement: "automation-roots", toolClass: "small", tools: 17, bridgeFlag: "--connect" },
     [2, 34], // probe 0.1: highest glibc symbol 2.34 (all other apps 2.35)
+    {
+      webVersion: "0.8.0",
+      webFidelityNote: "Saves are rewritten by SoundCraft with the session's audio files; content it does not support may change. A copy is the safe way to compare.",
+    },
   ),
   app(
     "deckcraft",
@@ -215,6 +244,12 @@ export const CRAFT_APPS: readonly CraftApp[] = [
     "presentation slides and export",
     { list: ["commands"], describe: ["describe", "<id>"], run: "run [--in FILE] [--cmd ID[=JSON]…] [--save OUT] [--export OUT] | render | convert" },
     { confinement: false, toolClass: "small", tools: 25, bridgeFlag: "--connect" },
+    undefined,
+    // Pinned to 0.7.0: the 0.8.0 web build panics on start (`std::process::id`, "no pids on this platform"), unsandboxed too.
+    {
+      webVersion: "0.7.0",
+      webFidelityNote: "Saves are rewritten by DeckCraft; slide features it does not support may change. A copy is the safe way to compare.",
+    },
   ),
   app(
     "cadcraft",
@@ -222,6 +257,11 @@ export const CRAFT_APPS: readonly CraftApp[] = [
     "2D/3D CAD drawings (DXF/DWG) and conversion",
     { list: ["commands"], run: "run [FILE] --cmd 'id {json}'… [--save OUT.dxf] [--export OUT] | convert | info" },
     { confinement: false, toolClass: "small", tools: 12, bridgeFlag: "--connect" },
+    undefined,
+    {
+      webVersion: "0.8.0",
+      webFidelityNote: "Saves are rewritten by CADCraft as DXF R2000; entities it does not support may change. A copy is the safe way to compare.",
+    },
   ),
   app(
     "gridcraft",
@@ -229,6 +269,11 @@ export const CRAFT_APPS: readonly CraftApp[] = [
     "spreadsheets: formulas, evaluation, conversion",
     { list: COMMANDS_JSON, run: "run [--in FILE] --cmd 'id={json}'… [--out FILE] | eval | check | convert" },
     { confinement: false, toolClass: "small", tools: 21, bridgeFlag: "--connect" },
+    undefined,
+    {
+      webVersion: "0.8.0",
+      webFidelityNote: "Saves are rewritten by GridCraft's own writer; formulas, charts or formatting it does not support may change. A copy is the safe way to compare.",
+    },
   ),
 ];
 

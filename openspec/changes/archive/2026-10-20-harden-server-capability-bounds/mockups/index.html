@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>harden-server-capability-bounds - UX surfaces</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="mockup.css">
+</head>
+<body>
+<div class="toolbar">
+  <h1>harden-server-capability-bounds: UX surfaces</h1>
+  <div class="seg" role="group" aria-label="Theme">
+    <button type="button" aria-pressed="true" data-theme-btn="dark">Dark</button>
+    <button type="button" aria-pressed="false" data-theme-btn="light">Light</button>
+  </div>
+  <a href="#A" style="font-size:12px;color:var(--link)">A Terminal cap</a>
+  <a href="#B" style="font-size:12px;color:var(--link)">B Remote folder picker</a>
+  <a href="#C" style="font-size:12px;color:var(--link)">C Recovery</a>
+</div>
+<main>
+
+<!-- ========================= A ========================= -->
+<section class="surface" id="A">
+  <h2>A. Terminal limit reached</h2>
+  <p class="verdict">Today a rejected <code>create_terminal</code> is invisible: the user clicks "+" and nothing happens (Nielsen #1 visibility of status, #9 help users recover). Proposal: a dismissible inline notice directly under the tab bar, naming the scope, the limit and what to do. Needs one new server-to-browser message, <code>terminal_limit_reached {scope, limit, cwd, inline}</code>, sent to the requesting socket only. <b>Tab terminals are never reaped</b>: detached shells (dev servers, watchers) live until the user closes them, so the notice asks the user to close one. Only orphaned inline cards (no viewer for 10 min) are reaped, through the normal exit path (card freezes with its transcript).</p>
+  <div class="grid">
+    <div class="state">
+      <header><b>A1</b> <code>normal</code> under the cap</header>
+      <div class="tabs" role="tablist">
+        <span class="tab" role="tab" aria-selected="true">zsh - pi-agent-dashboard</span>
+        <span class="tab" role="tab" aria-selected="false">zsh - docs</span>
+        <button class="tab-add" type="button" aria-label="New terminal">+</button>
+      </div>
+      <div class="term mono"><span class="dim">~/Project/pi-agent-dashboard</span> $ npm test</div>
+    </div>
+
+    <div class="state">
+      <header><b>A2</b> <code>per-owner cap</code> rejected (multi-user only)</header>
+      <div class="tabs" role="tablist">
+        <span class="tab" role="tab" aria-selected="true">zsh 16</span>
+        <span class="tab" role="tab" aria-selected="false">zsh 15</span>
+        <button class="tab-add" type="button" aria-label="New terminal">+</button>
+      </div>
+      <div class="toast-slot">
+        <div class="notice warning" role="status">
+          <span class="glyph" aria-hidden="true">!</span>
+          <div class="body"><strong>You have reached your terminal limit</strong>You already have 16 terminals open (the maximum per user), across all folders. Close one you no longer need, then try again.</div>
+          <button class="dismiss" type="button" aria-label="Dismiss">x</button>
+        </div>
+      </div>
+      <div class="term mono"><span class="dim">~/Project/pi-agent-dashboard</span> $ <span class="dim">(no new terminal was started)</span></div>
+    </div>
+
+    <div class="state">
+      <header><b>A3</b> <code>global cap</code> rejected</header>
+      <div class="tabs" role="tablist">
+        <span class="tab" role="tab" aria-selected="true">zsh - api</span>
+        <button class="tab-add" type="button" aria-label="New terminal">+</button>
+      </div>
+      <div class="toast-slot">
+        <div class="notice warning" role="status">
+          <span class="glyph" aria-hidden="true">!</span>
+          <div class="body"><strong>Terminal limit reached</strong>32 terminals are open on this dashboard (the maximum), including inline terminal cards. Close one in any folder, then try again.</div>
+          <button class="dismiss" type="button" aria-label="Dismiss">x</button>
+        </div>
+      </div>
+      <div class="term mono"><span class="dim">~/Project/api</span> $</div>
+    </div>
+  </div>
+  <p class="note"><b>Rules:</b> notice is <code>role="status"</code> (polite, not an alert), uses <code>--severity-warning-*</code> plus a "!" glyph (never colour alone), stays until dismissed or the next successful spawn, and is not stacked: a second rejection replaces it. The "+" is never disabled, because the client does not know the server cap in advance. While the identity plane is inert (single user) only the global cap applies, so A2 never appears. An inline-terminal card refused at the cap shows the same notice text in the chat card slot.</p>
+</section>
+
+<!-- ========================= B ========================= -->
+<section class="surface" id="B">
+  <h2>B. Folder picker over a tunnel / paired device</h2>
+  <p class="verdict">Confinement applies only to requests that are <b>not genuinely local</b> (tunnel, LAN, relayed loopback). On the machine itself the picker is unchanged: no hint, no refusal, <code>..</code> up to <code>/</code>. Remotely, browsing is limited to the shared folders: <code>$HOME</code>, pinned folders, folders with sessions, folder-workspace and worktree-init roots, and access grants. Two remote-only states: (B1) at the top of a shared folder there is no <code>..</code> row, so the picker says why; (B2) a typed path outside the shared folders gets a plain-language refusal instead of a raw <code>path outside allowed roots</code>. No "Request access": a remote device must not grant itself access.</p>
+  <div class="grid">
+    <div class="state">
+      <header><b>B1</b> <code>remote, at $HOME</code> top of a shared folder</header>
+      <div class="stage">
+        <div class="picker" role="group" aria-label="Folder picker">
+          <div class="input"><input value="/Users/robson" aria-label="Path"><button class="btn primary" type="button">Select</button></div>
+          <div class="row self"><span aria-hidden="true">&#128194;</span> /Users/robson</div>
+          <div class="eyebrow">CONTENTS</div>
+          <div class="row"><span aria-hidden="true">&#128193;</span> Project <span class="chev" aria-hidden="true">&rsaquo;</span></div>
+          <div class="row"><span aria-hidden="true">&#128193;</span> Documents <span class="chev" aria-hidden="true">&rsaquo;</span></div>
+          <div class="row"><span aria-hidden="true">&#128193;</span> Downloads <span class="chev" aria-hidden="true">&rsaquo;</span></div>
+          <div class="foot"><span aria-hidden="true">i</span><span>From this device you can browse the folders this dashboard shares. To use another folder, pin it on the host.</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="state">
+      <header><b>B2</b> <code>remote, refused</code> typed path outside the shared folders</header>
+      <div class="stage">
+        <div class="picker" role="group" aria-label="Folder picker">
+          <div class="input"><input value="/" aria-invalid="true" aria-describedby="b2err" aria-label="Path"><button class="btn primary" type="button" disabled>Select</button></div>
+          <div class="field-error" id="b2err" role="alert"><span aria-hidden="true">(!)</span><span><b>/</b> is outside the folders this dashboard shares. Ask the host to pin it.</span></div>
+          <div class="field-actions"><button class="btn" type="button">Back to home</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="note"><b>Contract:</b> the browse response carries <code>confined: true</code> when the request was confined, and <code>parent: null</code> at a shared-folder top; the picker shows the B1 hint only when <code>confined</code> and <code>parent === null</code>. A <code>403 path outside allowed roots</code> maps to B2. A refused <code>mkdir</code> ("New folder") shows the same B2 text inline.</p>
+</section>
+
+<!-- ========================= C ========================= -->
+<section class="surface" id="C">
+  <h2>C. Recovery page refusal</h2>
+  <p class="verdict">The recovery page is server-rendered with its own inline style (no client bundle, no tokens at runtime). Its buttons post to the gated actions. If the page was reached through a tunnel or a rewritten Host, today the user sees the bare 403 text in a grey line. Proposal: keep the same status line, but say what is wrong and the fix, and re-enable the buttons.</p>
+  <div class="grid">
+    <div class="state">
+      <header><b>C1</b> <code>loopback</code> normal</header>
+      <div class="stage"><div class="recov">
+        <span class="badge">Recovery Mode</span><h4>Dashboard failed to start</h4>
+        <p style="margin:0;font-size:13px">The server could not load a required dependency: <code>fastify</code></p>
+        <div class="btns"><button class="btn primary" type="button">Retry start</button><button class="btn" type="button">Reinstall dependencies</button></div>
+        <div style="font-size:12px;color:var(--text-secondary)" role="status">Retrying...</div>
+      </div></div>
+    </div>
+    <div class="state">
+      <header><b>C2</b> <code>refused</code> non-loopback origin</header>
+      <div class="stage"><div class="recov">
+        <span class="badge">Recovery Mode</span><h4>Dashboard failed to start</h4>
+        <p style="margin:0;font-size:13px">The server could not load a required dependency: <code>fastify</code></p>
+        <div class="btns"><button class="btn primary" type="button">Retry start</button><button class="btn" type="button">Reinstall dependencies</button></div>
+        <div class="notice error" role="alert"><span class="glyph" aria-hidden="true">x</span><div class="body"><strong>Recovery actions only work on the machine running the dashboard</strong>Open this page at <code>http://localhost:8000</code> on that machine, or run <code>pi-dashboard stop</code> then <code>pi-dashboard start</code> there.</div></div>
+      </div></div>
+    </div>
+  </div>
+  <p class="note"><b>Rules:</b> the page already ships its own CSS; C2 reuses the same severity colours it has today (red callout), only the copy and the <code>role="alert"</code> are new. The buttons are not disabled after a refusal.</p>
+</section>
+</main>
+<script>
+document.querySelectorAll('[data-theme-btn]').forEach(function (b) {
+  b.addEventListener('click', function () {
+    document.documentElement.setAttribute('data-theme', b.dataset.themeBtn);
+    document.querySelectorAll('[data-theme-btn]').forEach(function (x) { x.setAttribute('aria-pressed', String(x === b)); });
+  });
+});
+</script>
+</body>
+</html>

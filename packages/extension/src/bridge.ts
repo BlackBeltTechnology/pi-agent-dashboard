@@ -1265,7 +1265,10 @@ function initBridge(pi: ExtensionAPI) {
       const _bc = syncBc();
       _resetReconnectCaches(_bc);
       applyBc(_bc);
-      sendStateSync();
+      // Computed ONCE: the register's `liveTailOpen` and the replay's are the
+      // same value. See change: fix-large-session-resume-replay (D7).
+      const liveTailOpen = isLive(inst.cachedCtx, getBridgeState().isAgentStreaming);
+      sendStateSync({ liveTailOpen });
       // The server does not persist `piVersion` / `piBelowFloor`; re-send now
       // rather than on the next poll tick. See change: update-pi-core-1-0-adopt-apis.
       sendPiVersionIfChanged();
@@ -1284,7 +1287,7 @@ function initBridge(pi: ExtensionAPI) {
       } catch { /* probe failure non-fatal */ }
       // A live reconnect keeps in-flight calls open (no fabricated end).
       // See change: fix-replay-fabricates-orphan-end-for-live-calls (D3).
-      replaySessionEntries({ liveTailOpen: isLive(inst.cachedCtx, getBridgeState().isAgentStreaming) });
+      replaySessionEntries({ liveTailOpen });
       // Flush subagent frames buffered while the socket was down (D1). Unlike
       // session_start, a transient WS reconnect keeps `sessionReady` true, so
       // the intercept routes those frames into the per-agent buffer; drain them
@@ -1807,7 +1810,7 @@ function initBridge(pi: ExtensionAPI) {
   inst.applyBc = applyBc;
 
   // Local wrappers that sync bc around extracted module calls
-  function sendStateSync() { const bc = syncBc(); _sendStateSync(bc, getFlowsList); applyBc(bc); inst.connection.noteRegistered(); }
+  function sendStateSync(opts?: { liveTailOpen?: boolean }) { const bc = syncBc(); _sendStateSync(bc, getFlowsList, opts); applyBc(bc); inst.connection.noteRegistered(); }
   function replaySessionEntries(opts?: { liveTailOpen?: boolean }) { _replaySessionEntries(syncBc(), opts); }
   inst.replaySessionEntries = replaySessionEntries;
   function sendModelUpdateIfChanged() { const bc = syncBc(); _sendModelUpdateIfChanged(bc); applyBc(bc); }
@@ -1904,7 +1907,8 @@ function initBridge(pi: ExtensionAPI) {
   inst.sendCwdMissingIfChanged = sendCwdMissingIfChanged;
   function sendPiVersionIfChanged() { _sendPiVersionIfChanged(syncBc()); }
   inst.sendPiVersionIfChanged = sendPiVersionIfChanged;
-  // Unified EventBus rename map for the emit intercept (flow + subagent events)
+  // Unified EventBus rename map (flow + subagent events): used by `sendEventForward` for the
+  // channel→eventType rename and by `registerEventBusForwarding` for the per-channel subscription set.
   const EVENT_BUS_MAP: Record<string, string> = { ...FLOW_EVENT_MAP, ...SUBAGENT_EVENT_MAP };
 
   registerEnrichedForwarders(inst);

@@ -1,0 +1,79 @@
+## MODIFIED Requirements
+
+### Requirement: Client SHALL treat `healedBy:"session_ended"` like a superseded heal
+
+`event-reducer.ts` `tool_execution_end` arm SHALL apply the `running`-only guard to `healedBy:"session_ended"` exactly as it does to `"superseded"`: it SHALL finalize only a `running` tool card, never clobber an existing terminal row, and SHALL be ignored when no `toolCalls` entry exists. For `toolName:"Agent"` with `details.agentId`, the subagent backfill SHALL run and set the subagent `status` to `"failed"` with `error: "parent session ended"` — but ONLY when that subagent is not already terminal. A synthesized end or a synthesized `subagent_failed` SHALL NOT overwrite a subagent whose status is `completed` or `failed`.
+
+The subagent backfill SHALL be performed by the `Agent` tool-row finalizer the subagents plugin registers (`dashboard-plugin-loader` "Plugins finalize their own tool rows; generic heals stay in core"), not by core reducer code. When no finalizer is registered (the plugin is disabled or absent), the core arm SHALL still finalize the tool card under the same guard, and no subagent state SHALL change; the synthesized `subagent_failed` SHALL fold into the absent-owner group row.
+
+#### Scenario: running Agent card and subagent flip to failed
+
+- **GIVEN** reducer state has tool call `A` `running` and subagent `ag-1` `running`, and the subagents plugin is enabled
+- **WHEN** `tool_execution_end{toolCallId:A, toolName:"Agent", isError:true, result:"parent session ended", healedBy:"session_ended", details:{agentId:"ag-1"}}` reduces
+- **THEN** tool call `A` status SHALL be `"error"`
+- **AND** subagent `ag-1` status SHALL be `"failed"` with `error === "parent session ended"`
+
+#### Scenario: session_ended heal never clobbers a real terminal
+
+- **GIVEN** tool call `A` already `complete`
+- **WHEN** a `healedBy:"session_ended"` end for `A` reduces
+- **THEN** state SHALL be unchanged
+
+#### Scenario: a completed subagent is not flipped to failed
+
+- **GIVEN** subagent `ag-1` already `completed` (its `subagent_completed` arrived before the process died)
+- **WHEN** a synthesized `tool_execution_end{healedBy:"session_ended", details:{agentId:"ag-1"}}` reduces
+- **THEN** `ag-1` SHALL remain `completed`
+- **AND** the same SHALL hold for a synthesized `subagent_failed{id:"ag-1", healedBy:"session_ended"}`
+
+#### Scenario: Agent card heals without the subagents plugin
+
+- **GIVEN** tool call `A` (`Agent`) is `running` and the subagents plugin is disabled
+- **WHEN** the synthesized `healedBy:"session_ended"` end for `A` reduces
+- **THEN** tool call `A` status SHALL be `"error"` with the session-ended result
+- **AND** no subagent state SHALL change
+
+### Requirement: A live tick SHALL reopen a `session_ended`-healed tool card
+
+A `session_ended` heal asserts the producing process is dead. A later live `tool_execution_update` for the same `toolCallId` proves it is not. When the client reduces such an update for a top-level row whose `toolDetails.healedBy` is `"session_ended"`, it SHALL restore the call to running: the row's `toolStatus` and its `toolCalls` entry SHALL become `running`, the heal-only markers (`healedBy`, `resultMissing`) and the heal's `error` SHALL be cleared, the heal-derived `duration` SHALL be cleared, and the row SHALL take the update's details and partial result. For `toolName: "Agent"`, a linked subagent whose `failed` status came from a `session_ended` heal SHALL return to `running`; the client SHALL record which heal produced a subagent's terminal state so that a subagent that failed for real is never reopened. Rows healed by any other marker (`superseded`, `turn_settled`, `subagent_stopped`, `result_evicted`) SHALL keep today's behaviour, and a real (non-healed) terminal row SHALL never be reopened.
+
+Core SHALL reopen the row. The subagent reopen SHALL be performed by the subagents plugin's `Agent` finalizer (`onToolExecution`), called after core reopened the row; with no finalizer registered, only the row SHALL reopen.
+
+#### Scenario: fabricated end followed by a live Agent tick
+
+- **GIVEN** tool call `A` (`Agent`, `agentId: "ag-1"`) was finalized by `tool_execution_end{isError:true, result:"parent session ended", healedBy:"session_ended"}`, and the subagents plugin is enabled
+- **WHEN** `tool_execution_update{toolCallId:A, partialResult:{details:{agentId:"ag-1", status:"running"}}}` reduces
+- **THEN** the row `toolStatus` SHALL be `running` and `toolCalls.get(A).status` SHALL be `running`
+- **AND** `toolDetails.healedBy` SHALL be absent and `duration` SHALL be undefined
+- **AND** subagent `ag-1` status SHALL be `running`
+- **AND** the card SHALL NOT be counted as failed nor badged "result not received"
+
+#### Scenario: the real end after a reopen finalizes normally
+
+- **GIVEN** the reopened row from the previous scenario
+- **WHEN** the real `tool_execution_end{toolCallId:A, isError:false, result:"done"}` reduces
+- **THEN** the row SHALL be `complete` with result `"done"` and the subagent SHALL be `completed`
+
+#### Scenario: a real terminal row is not reopened
+
+- **GIVEN** tool call `A` finalized by a real `tool_execution_end` (no `healedBy`)
+- **WHEN** a late `tool_execution_update` for `A` reduces
+- **THEN** `toolStatus` SHALL remain terminal
+
+#### Scenario: a really-failed subagent is not reopened
+
+- **GIVEN** subagent `ag-1` failed via a real `subagent_failed` (no `healedBy`) and its Agent row was healed `session_ended`
+- **WHEN** a live `tool_execution_update` for that row reduces
+- **THEN** `ag-1` SHALL remain `failed`
+
+#### Scenario: other heals keep their behaviour
+
+- **GIVEN** a row healed with `healedBy: "turn_settled"` or a row whose subagent is `completed`
+- **WHEN** a late `tool_execution_update` reduces
+- **THEN** the terminal status, result and heal markers SHALL be preserved as before
+
+#### Scenario: Live tick without the subagents plugin
+
+- **GIVEN** an `Agent` row healed `session_ended` and the subagents plugin disabled
+- **WHEN** a live `tool_execution_update` for that row reduces
+- **THEN** the row SHALL return to `running`, and no subagent state SHALL change
