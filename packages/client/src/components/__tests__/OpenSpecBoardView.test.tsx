@@ -21,6 +21,7 @@ vi.mock("../../lib/openspec/openspec-config-api.js", () => ({
 }));
 
 import type { ChangeDependencies, DashboardSession, OpenSpecChange, OpenSpecData, OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { __resetArchiveCache } from "../../lib/openspec/archive-cache.js";
 import { OpenSpecBoardView } from "../openspec/OpenSpecBoardView.js";
 
 afterEach(() => {
@@ -419,6 +420,7 @@ describe("OpenSpecBoardView — dependencies dialog", () => {
   });
   let getBody: Record<string, unknown>;
   let putStatus: { code: number; body: unknown };
+  let archiveBody: unknown[];
   const calls = () => (fetch as ReturnType<typeof vi.fn>).mock.calls as Array<[string, RequestInit | undefined]>;
   const puts = () => calls().filter(([u, i]) => String(u).includes("/api/openspec/dependencies") && i?.method === "PUT");
   const gets = () => calls().filter(([u, i]) => String(u).includes("/api/openspec/dependencies") && !i?.method);
@@ -426,13 +428,15 @@ describe("OpenSpecBoardView — dependencies dialog", () => {
   beforeEach(() => {
     getBody = base();
     putStatus = { code: 200, body: { success: true, data: { file: { mtimeMs: 1, size: 2 } } } };
+    archiveBody = [];
+    __resetArchiveCache(); // module-level cache: never let an earlier test's listing leak in
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.includes("/api/openspec/dependencies")) {
         if (init?.method === "PUT") return new Response(JSON.stringify(putStatus.body), { status: putStatus.code });
         return new Response(JSON.stringify({ success: true, data: getBody }), { status: 200 });
       }
-      if (url.includes("/api/openspec-archive")) return new Response(JSON.stringify({ success: true, data: [] }), { status: 200 });
+      if (url.includes("/api/openspec-archive")) return new Response(JSON.stringify({ success: true, data: archiveBody }), { status: 200 });
       return new Response(JSON.stringify({ success: true, data: {} }), { status: 200 });
     }));
   });
@@ -487,6 +491,18 @@ describe("OpenSpecBoardView — dependencies dialog", () => {
     fireEvent.click(within(dialog).getByTestId("deps-save"));
     await waitFor(() => expect(puts()).toHaveLength(1));
     expect(JSON.parse(String(puts()[0][1]!.body)).blockedBy).toEqual([{ change: "x", reason: "r" }, { change: "qux", reason: "needs it" }]);
+  });
+
+  it("#F4 (review) the picker offers archived changes but never tagged (SHELVED) entries, whose names cannot validate", async () => {
+    archiveBody = [
+      { name: "2026-10-01-old-one", date: "2026-10-01", artifacts: [] },
+      { name: "2026-05-28-SHELVED-qux", date: "2026-05-28", artifacts: [] },
+    ];
+    const dialog = await openFor();
+    await within(dialog).findByTestId("deps-declared-x");
+    const picker = within(dialog).getByTestId("deps-picker") as HTMLSelectElement;
+    await waitFor(() => expect([...picker.options].map((o) => o.value)).toContain("old-one"));
+    expect([...picker.options].map((o) => o.value)).not.toContain("SHELVED-qux");
   });
 
   it("#F5 an invalid file blocks Save until the replacement is confirmed explicitly", async () => {

@@ -28,6 +28,8 @@ import {
  * See change: add-openspec-change-dependencies.
  */
 
+/** OpenSpec change-id grammar (same rule the server enforces on PUT). */
+const CHANGE_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const EMPTY: DeclaredDependencies = { blockedBy: [], notBlockedBy: [], related: [] };
 const SECTION = "text-[12px] font-semibold text-[var(--text-secondary)]";
 const ROW = "flex items-center gap-2 text-[12px] text-[var(--text-primary)]";
@@ -67,7 +69,10 @@ export function DependenciesDialog({
     requestArchive(cwd, sig);
   }, [cwd, sig]);
   const archiveEntries = getArchiveState(cwd, sig).entries;
-  const archivedNames = Array.isArray(archiveEntries) ? archiveEntries.map((e) => e.name.slice(e.date.length + 1)) : [];
+  // A tagged entry (`<date>-SHELVED-<name>`) never satisfies a blocker and its name is not a valid id: not offered.
+  const archivedNames = Array.isArray(archiveEntries)
+    ? archiveEntries.map((e) => e.name.slice(e.date.length + 1)).filter((n) => CHANGE_ID.test(n))
+    : [];
 
   const load = useCallback(() => {
     setLoaded(null);

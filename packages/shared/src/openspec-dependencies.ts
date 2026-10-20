@@ -475,6 +475,7 @@ function canonicalCycle(members: string[], adj: Adj): string[] {
   const successors = (v: string) => (adj.get(v) ?? []).filter((w) => set.has(w) && dist.has(w));
   // cycle length: shortest way back to `start` through one of its successors
   let remaining = Math.min(...successors(start).map((w) => (dist.get(w) as number) + 1));
+  if (!Number.isFinite(remaining)) return [start]; // not a cycle (callers pass whole SCCs; never loop regardless)
   const path = [start];
   let cur = start;
   while (remaining > 0) {
@@ -641,9 +642,11 @@ function openAdjacency(ctx: GraphCtx, edges: Map<string, Map<string, Candidate>>
 /** Cycles: declared-only SCCs are errors, remaining members of full-graph SCCs are warnings. */
 function reportCycles(ctx: GraphCtx, adj: { open: Adj; declared: Adj }): Set<string> {
   const members = new Set<string>();
-  const report = (comp: string[], graph: Adj, severity: "error" | "warning") => {
+  // The path is always taken over the WHOLE strongly connected `comp`; `targets` are the members that
+  // receive the issue (a subset for warnings, since declared-cycle members already carry an error).
+  const report = (comp: string[], graph: Adj, severity: "error" | "warning", targets: string[] = comp) => {
     const path = canonicalCycle(comp, graph);
-    for (const m of comp) {
+    for (const m of targets) {
       members.add(m);
       addIssue(ctx, m, { severity, code: "cycle", message: `dependency cycle: ${path.join(" → ")}`, path });
     }
@@ -655,7 +658,7 @@ function reportCycles(ctx: GraphCtx, adj: { open: Adj; declared: Adj }): Set<str
   }
   for (const comp of nonTrivialSccs(ctx.names, adj.open)) {
     const rest = comp.filter((m) => !errorMembers.has(m));
-    if (rest.length > 0) report(rest, adj.open, "warning");
+    if (rest.length > 0) report(comp, adj.open, "warning", rest);
   }
   return members;
 }

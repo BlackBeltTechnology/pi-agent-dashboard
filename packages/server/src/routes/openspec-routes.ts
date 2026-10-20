@@ -657,7 +657,7 @@ export function registerOpenSpecRoutes(
       if ("error" in guarded) return depFail(reply, 403, "write-refused", guarded.error);
 
       // Shared per-cwd lock (keyed by the canonical cwd, so symlinked spellings collide).
-      const lockKey = realpathSync.native(cwd);
+      const lockKey = gate.real; // canonical cwd from the gates; never re-resolved after they answered
       if (inFlightInits.has(lockKey)) {
         return depFail(reply, 409, "locked", "an OpenSpec init or workflow-schema action is already in flight for this directory");
       }

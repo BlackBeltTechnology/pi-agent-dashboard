@@ -394,6 +394,21 @@ describe("validation, waves and determinism", () => {
     expect(g.a.issues[0].severity).toBe("error");
   });
 
+  it("E11 (review B2): a full-graph SCC that merely contains a declared-cycle error terminates and reports the full cycle path", () => {
+    // a↔b is a declared-only cycle (error); c joins the FULL graph's SCC through
+    // an inferred edge, so its warning must carry a path over the whole component.
+    const g = graph([
+      withProposal("a", "- Depends on: `c`\n", { declared: declaredYaml("blocked_by: [b]") }),
+      change("b", { declared: declaredYaml("blocked_by: [a]") }),
+      change("c", { declared: declaredYaml("blocked_by: [a]") }),
+    ]);
+    expect(g.a.issues.map((i) => [i.severity, i.code])).toContainEqual(["error", "cycle"]);
+    const warn = g.c.issues.find((i) => i.code === "cycle");
+    expect(warn).toMatchObject({ severity: "warning" });
+    // The path is the component's canonical one (shortest cycle through its smallest member), not one over `c` alone.
+    expect(warn?.path).toEqual(["a", "b", "a"]);
+  });
+
   it("E11: self-reference is an error and the entry is ignored", () => {
     const g = graph([change("a", { declared: declaredYaml("blocked_by: [a]") })]);
     expect(g.a.issues).toMatchObject([{ severity: "error", code: "self-reference" }]);
