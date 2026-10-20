@@ -1,7 +1,11 @@
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { describe, expect, it } from "vitest";
-import { addInteractiveRequest, applyPromptReceived, applyPromptTimeout, type ChatMessage, carryInteractiveRequests, carryPendingPrompt, createInitialState, deriveBannerState, dismissInteractiveRequest, extractAgentEndError, findLastUserPrompt, isCleanAgentEnd, type PendingPrompt, reduceEvent, resolveInteractiveRequest, retailPendingInteractiveRows, type SessionState, toDisplayString } from "../chat/event-reducer.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { addInteractiveRequest, applyPromptReceived, applyPromptTimeout, type ChatMessage, carryInteractiveRequests, carryPendingPrompt, createInitialState, deriveBannerState, dismissInteractiveRequest, extractAgentEndError, findLastUserPrompt, isCleanAgentEnd, type PendingPrompt, reduceEvent, regroupOwnedEvents, resolveInteractiveRequest, retailPendingInteractiveRows, type SessionState, toDisplayString } from "../chat/event-reducer.js";
 import { derivePendingFreeFloating } from "../chat/pending-free-floating.js";
+import { setEventTypeOwners } from "../plugins/event-type-owners.js";
 
 function applyEvents(events: DashboardEvent[]): SessionState {
   return events.reduce((s, e) => reduceEvent(s, e), createInitialState());
@@ -3881,5 +3885,129 @@ describe("carryInteractiveRequests (fix-pending-prompt-lost-on-replay)", () => {
       | undefined;
     expect(rowArgs?.requestId).toBe("p1");
     expect(rowArgs?.status).toBe("resolved");
+  });
+});
+
+// Plugin-owned event groups. See change: decouple-plugins-from-core (test-plan #E17–#E19).
+describe("plugin-owned events in the default branch", () => {
+  const OWNERS = [
+    { ownerId: "flows", displayName: "Flows", eventTypes: ["flow_*"] },
+    { ownerId: "quota", displayName: "Quota", eventTypes: ["quota_tick"] },
+    { ownerId: "subagents", displayName: "Subagents", eventTypes: ["subagent_*"] },
+  ];
+  const ev = (eventType: string, timestamp: number, data: Record<string, unknown> = {}): DashboardEvent => ({
+    eventType,
+    timestamp,
+    data,
+  });
+  const groups = (s: SessionState) => s.messages.filter((m) => m.role === "rawEvent" && m.ownedGroup);
+
+  beforeEach(() => setEventTypeOwners(OWNERS));
+  afterEach(() => setEventTypeOwners([]));
+
+  it("#E17 groups owned types by manifest; unowned and near-miss types keep the raw row", () => {
+    // `subagent_custom` stands in for `subagent_entry`: core still reduces
+    // `subagent_entry` in its own arm until the Phase 3 extraction.
+    const state = applyEvents([
+      ev("flow_step", 1, { i: 1 }),
+      ev("quota_tick", 2),
+      ev("quota_tick2", 3),
+      ev("subagent_custom", 4),
+      ev("subagentx", 5),
+      ev("mystery_evt", 6),
+    ]);
+    const g = groups(state);
+    expect(g.map((m) => [m.toolName, m.ownedGroup?.ownerId])).toEqual([
+      ["flow_step", "flows"],
+      ["quota_tick", "quota"],
+      ["subagent_custom", "subagents"],
+    ]);
+    const plain = state.messages.filter((m) => m.role === "rawEvent" && !m.ownedGroup);
+    expect(plain.map((m) => m.toolName)).toEqual(["quota_tick2", "subagentx", "mystery_evt"]);
+    const src = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), "../chat/event-reducer.ts"), "utf8");
+    expect(src).not.toContain('"flow_');
+  });
+
+  it("#E18 the count updates in place; the row sits at the type's first event", () => {
+    const A = (n: number) => ev("flow_a", n);
+    const B = (n: number) => ev("flow_b", n);
+    const user = { eventType: "message_start", timestamp: 4, data: { message: { role: "user", content: [{ type: "text", text: "hi" }] } } } as DashboardEvent;
+    let state = applyEvents([A(1), B(2), A(3), user, B(5)]);
+    expect(state.messages.map((m) => m.role)).toEqual(["rawEvent", "rawEvent", "user"]);
+    expect(groups(state).map((m) => [m.toolName, m.ownedGroup?.count])).toEqual([
+      ["flow_a", 2],
+      ["flow_b", 2],
+    ]);
+    const len = state.messages.length;
+    state = reduceEvent(state, A(6));
+    expect(state.messages).toHaveLength(len);
+    expect(groups(state)[0].ownedGroup?.count).toBe(3);
+  });
+
+  it("#E19 payloads are bounded to the last 50 while the count keeps growing", () => {
+    for (const n of [49, 50, 51, 60]) {
+      const state = applyEvents(Array.from({ length: n }, (_, i) => ev("flow_step", i + 1, { i: i + 1 })));
+      const g = groups(state);
+      expect(g).toHaveLength(1);
+      expect(g[0].ownedGroup?.count).toBe(n);
+      expect(g[0].ownedGroup?.payloads).toHaveLength(Math.min(n, 50));
+    }
+    const state = applyEvents(Array.from({ length: 60 }, (_, i) => ev("flow_step", i + 1, { i: i + 1 })));
+    const payloads = groups(state)[0].ownedGroup?.payloads as Array<{ i: number }>;
+    expect(payloads[0].i).toBe(11);
+    expect(payloads[payloads.length - 1].i).toBe(60);
+  });
+
+  it("does not mutate the previous state's group row", () => {
+    const s1 = applyEvents([ev("flow_step", 1, { i: 1 })]);
+    const row = groups(s1)[0];
+    reduceEvent(s1, ev("flow_step", 2, { i: 2 }));
+    expect(row.ownedGroup?.count).toBe(1);
+    expect(row.ownedGroup?.payloads).toHaveLength(1);
+  });
+
+  it("with no owners registered every unknown type keeps today's raw row", () => {
+    setEventTypeOwners([]);
+    const state = applyEvents([ev("flow_step", 1, { i: 1 })]);
+    expect(state.messages).toHaveLength(1);
+    expect(state.messages[0].ownedGroup).toBeUndefined();
+    expect(JSON.parse(state.messages[0].content)).toEqual({ i: 1 });
+  });
+});
+
+describe("regroupOwnedEvents", () => {
+  const raw = (type: string, ts: number): ChatMessage => ({
+    id: `raw-${type}-${ts}`,
+    role: "rawEvent",
+    content: JSON.stringify({ ts }),
+    timestamp: ts,
+    toolName: type,
+  });
+
+  it("replaces raw rows of a newly owned type with one group row at the first row's position", () => {
+    const state = createInitialState();
+    state.messages = [
+      { id: "u", role: "user", content: "hi", timestamp: 0 },
+      raw("quota_tick", 1),
+      { id: "a", role: "assistant", content: "x", timestamp: 2 },
+      raw("quota_tick", 3),
+      raw("other_evt", 4),
+    ];
+    const next = regroupOwnedEvents(state, [{ ownerId: "quota-ui", displayName: "Quota", eventTypes: ["quota_*"] }]);
+    expect(next.messages.map((m) => m.id === "u" || m.id === "a" ? m.role : `${m.role}:${m.toolName}`)).toEqual([
+      "user",
+      "rawEvent:quota_tick",
+      "assistant",
+      "rawEvent:other_evt",
+    ]);
+    const g = next.messages[1];
+    expect(g.ownedGroup).toMatchObject({ ownerId: "quota-ui", count: 2 });
+    expect(g.ownedGroup?.payloads).toEqual([{ ts: 1 }, { ts: 3 }]);
+  });
+
+  it("returns the same state when nothing matches", () => {
+    const state = createInitialState();
+    state.messages = [raw("other_evt", 1)];
+    expect(regroupOwnedEvents(state, [{ ownerId: "x", displayName: "X", eventTypes: ["quota_*"] }])).toBe(state);
   });
 });

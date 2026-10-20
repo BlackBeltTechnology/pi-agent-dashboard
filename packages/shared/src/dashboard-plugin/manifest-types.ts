@@ -347,6 +347,14 @@ export interface PluginManifest {
    * while this plugin is loaded and enabled. See change: add-project-scoped-apps.
    */
   projectTypes?: ProjectTypeRule[];
+  /**
+   * Event types this plugin owns: exact names or `prefix_*` (one trailing `*`).
+   * The shell groups an owned event that no reducer slice consumed into one row
+   * per type and names this plugin when it is unavailable. Ownership is known
+   * for every registered plugin, enabled or not.
+   * See change: decouple-plugins-from-core (design D5).
+   */
+  eventTypes?: string[];
 }
 
 /**

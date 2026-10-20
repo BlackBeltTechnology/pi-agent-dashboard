@@ -157,6 +157,7 @@ One row per file.
 | `overlay-layering.spec.ts` | Browser E2E gate for `add-overlay-layering-syste… → see `overlay-layering.spec.ts.AGENTS.md` |
 | `overlay-layout.spec.ts` | L3 GENERIC reachability gate for… → see `overlay-layout.spec.ts.AGENTS.md` |
 | `oversized-event-liveness.spec.ts` | L3 per-event size ceiling. → see `oversized-event-liveness.spec.ts.AGENTS.md` |
+| `owned-event-group-row.spec.ts` | → see `owned-event-group-row.spec.ts.AGENTS.md` |
 | `package-queue-visible.spec.ts` | Browser E2E gate for… → see `package-queue-visible.spec.ts.AGENTS.md` |
 | `pairing-qr.spec.ts` | Browser E2E for the camera-scannable pairing QR… → see `pairing-qr.spec.ts.AGENTS.md` |
 | `remote-access-wizard.spec.ts` | L3 dialog. → see `remote-access-wizard.spec.ts.AGENTS.md` |

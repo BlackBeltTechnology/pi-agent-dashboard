@@ -37,6 +37,7 @@
   "pi-dashboard-plugin": {
     "id": "flows",
     "displayName": "Flows",
+    "eventTypes": ["flow_*"],
     "i18nCatalog": "catalog",
     "priority": 100,
     "configSchema": "./src/configSchema.json",

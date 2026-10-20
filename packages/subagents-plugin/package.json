@@ -37,6 +37,7 @@
   "pi-dashboard-plugin": {
     "id": "subagents",
     "displayName": "Subagent Inspector",
+    "eventTypes": ["subagent_*"],
     "i18nCatalog": "catalog",
     "priority": 100,
     "targetPackage": "@blackbelt-technology/pi-dashboard-subagents",

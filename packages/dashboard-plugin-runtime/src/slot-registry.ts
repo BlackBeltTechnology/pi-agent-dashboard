@@ -4,6 +4,7 @@
  * The registry holds a Map<SlotId, ClaimEntry[]> pre-sorted by
  * (priority asc, pluginId asc) for deterministic render order.
  */
+import type { EventTypeOwner } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/event-type-owners.js";
 import type { FileHandlerClaimMeta } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/file-handler.js";
 import type { SlotId, SlotPredicateInput } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-types.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
@@ -113,6 +114,22 @@ export interface ClaimEntry<S extends SlotId = SlotId> {
   Component?: React.ComponentType<any>;
 }
 
+/** Manifest summary of one registered plugin (see `SlotRegistry.registerPlugin`). */
+export interface PluginSummary {
+  id: string;
+  displayName: string;
+  /** Event types the plugin owns: exact names or `prefix_*`. */
+  eventTypes?: readonly string[];
+}
+
+/** {@link PluginSummary} plus the plugin's claims, for the activation UI. */
+export interface PluginActivationSummary {
+  id: string;
+  displayName: string;
+  eventTypes: string[];
+  claims: ClaimEntry[];
+}
+
 export interface SlotRegistry {
   /**
    * All claims for the given slot, pre-sorted.
@@ -146,13 +163,27 @@ export interface SlotRegistry {
    */
   isPluginEnabled(id: string): boolean;
   /**
-   * Activation-UI escape hatch: returns claims grouped by plugin id,
-   * IGNORING the enabled-set filter. Used by the Plugins tab so disabled
-   * plugins still appear in the activation list. Every other consumer
-   * SHOULD use `getClaims` and get free filtering.
-   * See change: add-plugin-activation-ui.
+   * Record the manifest summary (`{id, displayName, eventTypes}`) of a plugin.
+   * Independent of claims and of the enabled set, so a plugin with no claims
+   * (subagents) or a disabled one keeps its metadata. Re-registering an id
+   * replaces its summary. See change: decouple-plugins-from-core (D5).
    */
-  getAllPluginsForActivationUi(): Map<string, ClaimEntry[]>;
+  registerPlugin(summary: PluginSummary): void;
+  /**
+   * Activation-UI escape hatch: one summary per registered plugin
+   * (`id`, `displayName`, `eventTypes`, claims), sorted by id, IGNORING the
+   * enabled-set filter. Used by the Plugins tab and the event-type owner
+   * lookup so disabled plugins stay visible. Every other consumer SHOULD use
+   * `getClaims` and get free filtering.
+   * See changes: add-plugin-activation-ui, decouple-plugins-from-core.
+   */
+  getAllPluginsForActivationUi(): PluginActivationSummary[];
+  /**
+   * Plugins that declare `eventTypes`, read only from the unfiltered summary
+   * (never from `getClaims`), so a disabled plugin's ownership survives
+   * `setEnabledSet`. Sorted by id.
+   */
+  getEventTypeOwners(): EventTypeOwner[];
 }
 
 function compareClaims(a: ClaimEntry, b: ClaimEntry): number {
@@ -167,6 +198,8 @@ export function createSlotRegistry(): SlotRegistry {
   // `null` = filter inactive (default state, returns all claims).
   // `Set<string>` = filter active, only listed pluginIds are kept.
   let enabledSet: ReadonlySet<string> | null = null;
+  // Manifest summaries — never filtered by `enabledSet`.
+  const summaries = new Map<string, PluginSummary>();
 
   function getBucket(slotId: SlotId): ClaimEntry[] {
     if (!store.has(slotId)) store.set(slotId, []);
@@ -211,19 +244,39 @@ export function createSlotRegistry(): SlotRegistry {
       return enabledSet === null ? true : enabledSet.has(id);
     },
 
-    getAllPluginsForActivationUi(): Map<string, ClaimEntry[]> {
-      const grouped = new Map<string, ClaimEntry[]>();
+    registerPlugin(summary: PluginSummary): void {
+      summaries.set(summary.id, summary);
+    },
+
+    getAllPluginsForActivationUi(): PluginActivationSummary[] {
+      const claimsById = new Map<string, ClaimEntry[]>();
       for (const bucket of store.values()) {
         for (const claim of bucket) {
-          let arr = grouped.get(claim.pluginId);
+          let arr = claimsById.get(claim.pluginId);
           if (!arr) {
             arr = [];
-            grouped.set(claim.pluginId, arr);
+            claimsById.set(claim.pluginId, arr);
           }
           arr.push(claim);
         }
       }
-      return grouped;
+      const ids = new Set<string>([...summaries.keys(), ...claimsById.keys()]);
+      return [...ids].sort().map((id) => {
+        const summary = summaries.get(id);
+        return {
+          id,
+          displayName: summary?.displayName ?? id,
+          eventTypes: [...(summary?.eventTypes ?? [])],
+          claims: claimsById.get(id) ?? [],
+        };
+      });
+    },
+
+    getEventTypeOwners(): EventTypeOwner[] {
+      return [...summaries.values()]
+        .filter((s) => (s.eventTypes?.length ?? 0) > 0)
+        .sort((a, b) => a.id.localeCompare(b.id))
+        .map((s) => ({ ownerId: s.id, displayName: s.displayName, eventTypes: [...(s.eventTypes ?? [])] }));
     },
   };
 }

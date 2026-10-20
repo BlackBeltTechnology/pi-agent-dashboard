@@ -28,6 +28,7 @@ export const huCatalog: Record<string, string> = {
   "chat.historyGap.notRetained": "A korábbi üzenetek már nem őrződnek meg",
   "chat.historyGap.retry": "Újra",
   "chat.historyGap.sessionStart": "A munkamenet eleje",
+  "chat.ownedGroup.unavailable": "{count} {type} esemény — a(z) {plugin} bővítmény nem érhető el",
   "chat.tool.elided": "eredmény nincs betöltve",
   "chat.tool.elidedHint": "Ennek az eszköznek az eredménye a betöltött előzményeken kívül esik, ezért nem tölthető be.",
   "chat.tool.evicted": "eredmény eltávolítva",

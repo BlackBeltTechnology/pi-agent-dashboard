@@ -574,3 +574,29 @@ describe("validateManifest — projectTypes (change: add-project-scoped-apps)", 
     expect(out).toEqual({ ...validManifest, claims: out.claims });
   });
 });
+
+describe("validateManifest — eventTypes (change: decouple-plugins-from-core)", () => {
+  const base = {
+    id: "demo",
+    displayName: "Demo Plugin",
+    claims: [{ slot: "session-card-badge", component: "DemoBadge" }],
+  };
+
+  it("passes eventTypes through", () => {
+    expect(validateManifest({ ...base, eventTypes: ["subagent_*", "quota_tick"] }).eventTypes).toEqual([
+      "subagent_*",
+      "quota_tick",
+    ]);
+  });
+
+  it("omits eventTypes when absent", () => {
+    expect(validateManifest(base).eventTypes).toBeUndefined();
+  });
+
+  it("rejects a non-array or a malformed pattern", () => {
+    expect(() => validateManifest({ ...base, eventTypes: "flow_*" })).toThrow(ManifestValidationError);
+    expect(() => validateManifest({ ...base, eventTypes: ["a*b"] })).toThrow(ManifestValidationError);
+    expect(() => validateManifest({ ...base, eventTypes: [""] })).toThrow(ManifestValidationError);
+    expect(() => validateManifest({ ...base, eventTypes: [1] })).toThrow(ManifestValidationError);
+  });
+});

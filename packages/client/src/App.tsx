@@ -253,6 +253,7 @@ import { claimsToRouteDescriptors } from "@blackbelt-technology/pi-dashboard-sha
 import { PLUGIN_REGISTRY } from "./generated/plugin-registry.js";
 import { usePluginEnabledSet } from "./hooks/usePluginEnabledSet.js";
 import { registerPluginRouteDescriptors } from "./lib/nav/back-target.js";
+import { setEventTypeOwners } from "./lib/plugins/event-type-owners.js";
 import { logRejection } from "./lib/report-error.js";
 import { randomUuid } from "./lib/util/random-uuid.js";
 
@@ -262,6 +263,14 @@ import { randomUuid } from "./lib/util/random-uuid.js";
 // generated file on dev start and on every build.
 const _pluginRegistry = createSlotRegistry();
 for (const entry of PLUGIN_REGISTRY) {
+  // Manifest summary for EVERY bundled plugin (claims or not, enabled or not):
+  // keeps `displayName` + `eventTypes` available to the event-ownership lookup.
+  // See change: decouple-plugins-from-core (design D5 item 3).
+  _pluginRegistry.registerPlugin({
+    id: entry.manifest.id,
+    displayName: entry.manifest.displayName,
+    eventTypes: entry.manifest.eventTypes,
+  });
   for (const claim of entry.claims) {
     _pluginRegistry.addClaim(claim);
   }
@@ -270,6 +279,10 @@ for (const entry of PLUGIN_REGISTRY) {
   // See change: make-all-ui-text-i18n.
   registerPluginCatalog(entry.manifest.id, entry.catalog);
 }
+
+// Ownership is a reducer input (availability is not): seed it before any event
+// reduces. See change: decouple-plugins-from-core.
+setEventTypeOwners(_pluginRegistry.getEventTypeOwners());
 
 // Feed plugin `shell-overlay-route` claims into the back-target classifier so
 // the depth-aware back action resolves plugin routes (declared depth/parent)

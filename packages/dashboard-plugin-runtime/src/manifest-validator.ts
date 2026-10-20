@@ -7,6 +7,7 @@ import {
   PANE_TAB_PREFIX_RE,
   RESERVED_PANE_TAB_PREFIXES,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/editor-pane-tab.js";
+import { isValidEventTypePattern } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/event-type-owners.js";
 import {
   FILE_HANDLER_COPY_SUFFIX_RE,
   FILE_HANDLER_EXT_RE,
@@ -756,6 +757,21 @@ export function validateManifest(raw: unknown, fallbackId = "unknown"): PluginMa
 
   const projectTypes = m.projectTypes !== undefined ? validateProjectTypes(m.projectTypes, pluginId) : undefined;
 
+  // eventTypes: exact names or `prefix_*`. See change: decouple-plugins-from-core (D5).
+  let eventTypes: string[] | undefined;
+  if (m.eventTypes !== undefined) {
+    if (
+      !Array.isArray(m.eventTypes) ||
+      !m.eventTypes.every((t) => typeof t === "string" && isValidEventTypePattern(t))
+    ) {
+      throw new ManifestValidationError(
+        pluginId,
+        'manifest.eventTypes must be an array of exact event names or "prefix_*" patterns',
+      );
+    }
+    eventTypes = [...(m.eventTypes as string[])];
+  }
+
   return {
     id: pluginId,
     displayName: m.displayName,
@@ -773,5 +789,6 @@ export function validateManifest(raw: unknown, fallbackId = "unknown"): PluginMa
     ...(vaultBindings ? { vaultBindings } : {}),
 
     ...(projectTypes ? { projectTypes } : {}),
+    ...(eventTypes ? { eventTypes } : {}),
   };
 }

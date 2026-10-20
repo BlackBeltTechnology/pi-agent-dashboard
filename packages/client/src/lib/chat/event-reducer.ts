@@ -4,6 +4,10 @@
  */
 
 import {
+  type EventTypeOwner,
+  matchEventTypeOwner,
+} from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/event-type-owners.js";
+import {
   imageBlockData,
   imageBlockMime,
   isRenderableImageBlock,
@@ -17,6 +21,7 @@ import {
 // per-session-events store the plugin runtime owns.
 import { parseSkillBlock, type SkillBlock } from "@blackbelt-technology/pi-dashboard-shared/skill-block-parser.js";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { ownerOfEventType } from "../plugins/event-type-owners.js";
 import {
   applyNestedEnd,
   applyNestedStart,
@@ -94,6 +99,15 @@ export interface ChatMessage {
   nested?: NestedCallState[];
   /** `false` when pi's nested-call record says it is incomplete. */
   nestedComplete?: boolean;
+  /**
+   * Present ONLY on the `rawEvent` group row of a plugin-owned event type: one
+   * row per type per session, placed at the type's first event. `count` grows
+   * in place; `payloads` holds the last {@link OWNED_GROUP_PAYLOAD_CAP} event
+   * payloads. The row's `toolName` is the event type. The chat view decides at
+   * render time (from plugin availability) whether it shows.
+   * See change: decouple-plugins-from-core.
+   */
+  ownedGroup?: { ownerId: string; count: number; payloads: unknown[] };
   /** Epoch ms when the block started (for live elapsed counter) */
   startedAt?: number;
   /** Duration in ms (set when complete) */
@@ -1729,6 +1743,89 @@ function reduceNestedToolEvent(next: SessionState, event: DashboardEvent): void 
   }
 }
 
+/** Most recent payloads kept per owned-event group row; the count keeps growing. */
+export const OWNED_GROUP_PAYLOAD_CAP = 50;
+
+function ownedGroupRow(
+  ownerId: string,
+  eventType: string,
+  timestamp: number,
+  count: number,
+  payloads: unknown[],
+): ChatMessage {
+  return {
+    id: `owned-${eventType}`,
+    role: "rawEvent",
+    content: "",
+    timestamp,
+    toolName: eventType,
+    ownedGroup: { ownerId, count, payloads: payloads.slice(-OWNED_GROUP_PAYLOAD_CAP) },
+  };
+}
+
+/**
+ * Add one event to its type's group row (creating it at the tail on the type's
+ * first event). Returns a new array; the previous row object is never mutated.
+ */
+function foldIntoOwnedGroup(
+  messages: ChatMessage[],
+  ownerId: string,
+  eventType: string,
+  timestamp: number,
+  payload: unknown,
+): ChatMessage[] {
+  const idx = messages.findLastIndex((m) => m.role === "rawEvent" && m.ownedGroup && m.toolName === eventType);
+  if (idx < 0) return [...messages, ownedGroupRow(ownerId, eventType, timestamp, 1, [payload])];
+  const prev = messages[idx];
+  const group = prev.ownedGroup as NonNullable<ChatMessage["ownedGroup"]>;
+  const out = messages.slice();
+  out[idx] = {
+    ...ownedGroupRow(ownerId, eventType, prev.timestamp, group.count + 1, [...group.payloads, payload]),
+    id: prev.id,
+  };
+  return out;
+}
+
+/**
+ * Late owner: replace the raw rows of every type `owners` now claim with one
+ * group row per type at the position of the type's first row. Pure; returns
+ * the SAME state when nothing matches. Used when a runtime plugin registers
+ * `eventTypes` after events of those types were reduced as unowned.
+ * See change: decouple-plugins-from-core (design D5 item 4, "Late owner").
+ */
+export function regroupOwnedEvents(state: SessionState, owners: readonly EventTypeOwner[]): SessionState {
+  const groups = new Map<string, { ownerId: string; first: number; count: number; payloads: unknown[] }>();
+  state.messages.forEach((m, i) => {
+    if (m.role !== "rawEvent" || m.ownedGroup || m.toolName === undefined) return;
+    const owner = matchEventTypeOwner(owners, m.toolName);
+    if (!owner) return;
+    let payload: unknown = m.content;
+    try {
+      payload = JSON.parse(m.content);
+    } catch {
+      /* keep the raw text */
+    }
+    const g = groups.get(m.toolName);
+    if (g) {
+      g.count += 1;
+      g.payloads.push(payload);
+    } else {
+      groups.set(m.toolName, { ownerId: owner.ownerId, first: i, count: 1, payloads: [payload] });
+    }
+  });
+  if (groups.size === 0) return state;
+  const messages: ChatMessage[] = [];
+  state.messages.forEach((m, i) => {
+    const g = m.role === "rawEvent" && !m.ownedGroup && m.toolName !== undefined ? groups.get(m.toolName) : undefined;
+    if (!g) {
+      messages.push(m);
+    } else if (g.first === i) {
+      messages.push(ownedGroupRow(g.ownerId, m.toolName as string, m.timestamp, g.count, g.payloads));
+    }
+  });
+  return { ...state, messages };
+}
+
 export function reduceEvent(
   state: SessionState,
   event: DashboardEvent,
@@ -3217,16 +3314,17 @@ export function reduceEvent(
     }
 
     default: {
-      // Flow / architect events flow through the plugin's own reducer
-      // via useSessionEvents in flows-plugin. The shell ignores them
-      // here; the plugin runtime mirrors msg.event into the per-session
-      // events store from useMessageHandler.ts so plugin contributions
-      // re-render in response. Anything not recognised by any plugin's
-      // reducer falls through to the rawEvent message rendering, which
-      // shows up as an expandable JSON block in the chat. See change:
-      // pluginize-flows-via-registry.
-      const isFlow = event.eventType.startsWith("flow_");
-      if (!isFlow) {
+      // Anything no arm and no slice consumed. An event type a plugin manifest
+      // declares in `eventTypes` folds into ONE group row per type (placed at
+      // the type's first event, count updated in place, payloads capped); any
+      // other type keeps the expandable raw-event row. Ownership is a reducer
+      // input; availability is NOT — the chat view decides at render time
+      // whether a group row shows (design D5 item 4, R8).
+      // See change: decouple-plugins-from-core.
+      const owner = ownerOfEventType(event.eventType);
+      if (owner) {
+        next.messages = foldIntoOwnedGroup(next.messages, owner.ownerId, event.eventType, event.timestamp, event.data);
+      } else {
         next.messages = [...next.messages, {
           id: `raw-${event.eventType}-${event.timestamp}-${next.messages.length}`,
           role: "rawEvent" as const,

@@ -12,6 +12,7 @@
 
 import { bumpSlotClaimsVersion, clearFolderProjects, type SlotRegistry } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { useEffect, useRef, useState } from "react";
+import { applyPluginStatuses, type PluginStatusLike } from "../lib/plugins/plugin-availability.js";
 import { logRejection } from "../lib/report-error.js";
 
 export interface PluginEnabledSetState {
@@ -32,7 +33,7 @@ export function usePluginEnabledSet(registry: SlotRegistry): PluginEnabledSetSta
         const res = await fetch("/api/health");
         if (!res.ok) return;
         const body = (await res.json()) as {
-          plugins?: Array<{ id: string; enabled?: boolean }>;
+          plugins?: Array<PluginStatusLike>;
           startedAt?: string;
         };
         if (cancelled) return;
@@ -44,7 +45,7 @@ export function usePluginEnabledSet(registry: SlotRegistry): PluginEnabledSetSta
         // Plugins server explicitly reports as `enabled: false` are still
         // filtered. See change: add-plugin-activation-ui.
         const buildTimeIds = new Set(
-          Array.from(registry.getAllPluginsForActivationUi().keys()),
+          registry.getAllPluginsForActivationUi().map((p) => p.id),
         );
         const explicitlyDisabled = new Set(
           (body.plugins ?? [])
@@ -61,6 +62,9 @@ export function usePluginEnabledSet(registry: SlotRegistry): PluginEnabledSetSta
           if (p.enabled !== false) enabled.add(p.id);
         }
         registry.setEnabledSet(enabled);
+        // Owned-event group rows decide at render time from this table
+        // (the reducer never reads it). See change: decouple-plugins-from-core.
+        applyPluginStatuses(body.plugins ?? []);
         // A changed set means a plugin's `projectTypes` rules joined/left, so every
         // cached folder project is suspect. An unchanged refresh keeps the cache.
         // See change: add-project-scoped-apps.

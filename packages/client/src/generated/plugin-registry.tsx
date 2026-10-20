@@ -254,7 +254,10 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
         "server": "./src/server/index.ts",
         "bridge": "./src/bridge/index.ts",
         "configSchema": "./src/configSchema.json",
-        "i18nCatalog": "catalog"
+        "i18nCatalog": "catalog",
+        "eventTypes": [
+            "flow_*"
+        ]
     },
     claims: [
       { pluginId: "flows", priority: 100, slot: "session-card-flows", Component: SessionFlowActionsClaim, shouldRender: shouldRenderFlowsSubcard },
@@ -572,7 +575,10 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
             "piExtensions": [
                 "@blackbelt-technology/pi-dashboard-subagents"
             ]
-        }
+        },
+        "eventTypes": [
+            "subagent_*"
+        ]
     },
     claims: [
       { pluginId: "subagents", priority: 100, slot: "settings-section", tab: "general", Component: lazyClaim(() => import("../../../subagents-plugin/src/client/SubagentsSettings"), "SubagentsSettings") },
