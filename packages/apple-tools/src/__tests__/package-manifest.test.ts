@@ -23,9 +23,27 @@ describe("package manifest", () => {
     expect(pkg.bin?.["pi-apple-tools-install"]).toBeTruthy();
   });
 
-  it("declares the mcp-client plugin as a dependency but NOT bundledDependencies", () => {
-    expect(pkg.dependencies?.["@blackbelt-technology/pi-dashboard-mcp-client-plugin"]).toBeTruthy();
-    expect(pkg.bundledDependencies ?? []).not.toContain("@blackbelt-technology/pi-dashboard-mcp-client-plugin");
+  it("declares the mcp-core library (NOT the mcp-client plugin) as a dependency, never bundled", () => {
+    expect(pkg.dependencies?.["@blackbelt-technology/pi-dashboard-mcp-core"]).toBeTruthy();
+    expect(pkg.bundledDependencies ?? []).not.toContain("@blackbelt-technology/pi-dashboard-mcp-core");
+    for (const field of ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]) {
+      expect(pkg[field]?.["@blackbelt-technology/pi-dashboard-mcp-client-plugin"], field).toBeUndefined();
+    }
+  });
+
+  // #E12 / test-plan: shared contracts live in non-plugin packages (task 2.5).
+  it("#E12: sources take the service type + key from mcp-core, consume it, and never import mcp-client", () => {
+    const srcDir = join(here, "..");
+    const read = (f: string) => readFileSync(join(srcDir, f), "utf8");
+    for (const f of ["env.ts", "install.ts", "server/index.ts"]) {
+      const src = read(f);
+      expect(src, f).toContain("@blackbelt-technology/pi-dashboard-mcp-core");
+      expect(src, f).not.toMatch(/pi-dashboard-mcp-client-plugin/);
+    }
+    const server = read("server/index.ts");
+    expect(server).toMatch(/McpClientConfigService/);
+    expect(server).toMatch(/ctx\.consume<McpClientConfigService>\(MCP_CLIENT_CONFIG_SERVICE_KEY\)/);
+    expect(server).not.toMatch(/const SERVICE_KEY = "mcp-client\.config"/);
   });
 
   it("server entry satisfies the loader contract (default export function)", async () => {

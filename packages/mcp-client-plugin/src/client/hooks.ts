@@ -11,8 +11,9 @@
  *
  * See change: migrate-mcp-to-pi-builtin.
  */
+
+import type { EffectiveView, LiveState } from "@blackbelt-technology/pi-dashboard-mcp-core/types.js";
 import { useCallback, useEffect, useState } from "react";
-import type { EffectiveView, LiveState } from "../core/types.js";
 import { ApiError, fetchEffective, fetchLive } from "./api.js";
 
 // ─── effective config store ──────────────────────────────────────────────────

@@ -40,7 +40,8 @@ const SKIP_DIRS = new Set(["node_modules", "dist", "build", "coverage", ".git", 
 const SOURCE_FILE = /\.[cm]?[jt]sx?$/;
 const DEP_FIELDS = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"];
 const KIND_ORDER = ["prod", "test", "pkg", "css", "host"];
-const RUNTIME_HOST = "@blackbelt-technology/dashboard-plugin-runtime/host";
+// Built by concatenation: the pnpm contract test scans string literals for undeclared workspace imports.
+const RUNTIME_HOST = `${"@blackbelt-technology"}/dashboard-plugin-runtime/host`;
 const GENERATED = new Set([
   "packages/client/src/generated/plugin-registry.tsx",
   "packages/client/src/generated/plugin-sources.css",

@@ -374,16 +374,19 @@ describe("check-plugin-boundary", () => {
 
   // test-plan #E9
   describe("real tree", () => {
-    it("is green with 76 rows (prod 11 / test 34 / pkg 6 / css 25)", () => {
+    // Ratchet: the baseline was 76 rows (prod 11 / test 34 / pkg 6 / css 25); each Phase-1 inversion
+    // deletes its rows (decouple-plugins-from-core tasks 2.1-2.7, 2.15). Update the counts WHEN a task
+    // removes rows, never up.
+    it("is green with 57 rows (prod 1 / test 30 / pkg 1 / css 25)", () => {
       const r = spawnSync(process.execPath, [SCRIPT], { cwd: REPO_ROOT, encoding: "utf8" });
       expect(r.status, `${r.stdout}${r.stderr}`).toBe(0);
       const rows = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, ALLOWLIST), "utf8")).rows;
       const count = (k) => rows.filter((x) => x.kind === k).length;
       expect({ total: rows.length, prod: count("prod"), test: count("test"), pkg: count("pkg"), css: count("css") }).toEqual({
-        total: 76,
-        prod: 11,
-        test: 34,
-        pkg: 6,
+        total: 57,
+        prod: 1,
+        test: 30,
+        pkg: 1,
         css: 25,
       });
     });
@@ -396,15 +399,18 @@ describe("check-plugin-boundary", () => {
         expect(r.removedBy, `${r.from} → ${r.to}`).toBeTruthy();
       }
       const keep = rows.filter((r) => r.disposition === "integration-keep").map((r) => r.from);
-      expect(keep.sort()).toEqual(
-        [
-          "packages/server/package.json",
-          "packages/server/src/__tests__/host-gate-inject.test.ts",
-          "packages/server/src/__tests__/mcp-manifest-completeness.test.ts",
-        ].sort(),
-      );
-      const keycloak = rows.find((r) => r.to === "keycloak-resolver-plugin");
-      expect(keycloak).toMatchObject({ from: "packages/client/package.json", kind: "pkg", removedBy: "2.15" });
+      for (const f of [
+        "packages/server/package.json",
+        "packages/server/src/__tests__/host-gate-inject.test.ts",
+        "packages/server/src/__tests__/mcp-manifest-completeness.test.ts",
+      ]) {
+        expect(keep).toContain(f);
+      }
+      for (const r of rows.filter((x) => x.disposition === "integration-keep")) {
+        expect(r.reason.length, `${r.from} → ${r.to}`).toBeGreaterThan(20);
+      }
+      // task 2.15 dropped the unused client dependency, so its row is gone.
+      expect(rows.find((r) => r.to === "keycloak-resolver-plugin")).toBeUndefined();
     });
 
     it("a tmp tree with an injected core → plugin import fails with the NEW line", () => {

@@ -22,7 +22,7 @@ import {
   type ConfigIO,
   createMcpClientConfigService,
   type LayerPaths,
-} from "@blackbelt-technology/pi-dashboard-mcp-client-plugin/core";
+} from "@blackbelt-technology/pi-dashboard-mcp-core";
 
 /** The reserved key; also the name the bridge registers with pi. */
 export const DASHBOARD_MCP_KEY = "pi-dashboard";

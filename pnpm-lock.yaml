@@ -135,9 +135,9 @@ importers:
       '@blackbelt-technology/dashboard-plugin-runtime':
         specifier: ^0.10.0
         version: link:../dashboard-plugin-runtime
-      '@blackbelt-technology/pi-dashboard-mcp-client-plugin':
+      '@blackbelt-technology/pi-dashboard-mcp-core':
         specifier: ^0.10.0
-        version: link:../mcp-client-plugin
+        version: link:../mcp-core
       '@blackbelt-technology/pi-dashboard-shared':
         specifier: ^0.10.0
         version: link:../shared
@@ -298,9 +298,6 @@ importers:
       '@blackbelt-technology/dashboard-plugin-runtime':
         specifier: ^0.10.0
         version: link:../dashboard-plugin-runtime
-      '@blackbelt-technology/pi-dashboard-mcp-server-plugin':
-        specifier: ^0.10.0
-        version: link:../mcp-server-plugin
       '@blackbelt-technology/pi-dashboard-shared':
         specifier: ^0.10.0
         version: link:../shared
@@ -380,9 +377,6 @@ importers:
       '@blackbelt-technology/pi-dashboard-kb-plugin':
         specifier: ^0.10.0
         version: link:../kb-plugin
-      '@blackbelt-technology/pi-dashboard-keycloak-resolver-plugin':
-        specifier: ^0.10.0
-        version: link:../keycloak-resolver-plugin
       '@blackbelt-technology/pi-dashboard-mcp-client-plugin':
         specifier: ^0.10.0
         version: link:../mcp-client-plugin
@@ -1235,6 +1229,9 @@ importers:
       '@blackbelt-technology/dashboard-plugin-runtime':
         specifier: ^0.10.0
         version: link:../dashboard-plugin-runtime
+      '@blackbelt-technology/pi-dashboard-mcp-core':
+        specifier: ^0.10.0
+        version: link:../mcp-core
       '@blackbelt-technology/pi-dashboard-shared':
         specifier: ^0.10.0
         version: link:../shared
@@ -1273,14 +1270,27 @@ importers:
         specifier: ^3.9.0
         version: 3.10.0(react@19.2.8)
 
+  packages/mcp-core:
+    dependencies:
+      '@blackbelt-technology/pi-dashboard-shared':
+        specifier: ^0.10.0
+        version: link:../shared
+      ajv:
+        specifier: ^8.17.1
+        version: 8.20.0
+    devDependencies:
+      vitest:
+        specifier: ^4.0.0
+        version: 4.1.11(@opentelemetry/api@1.9.0)(@types/node@26.4.0)(@vitest/coverage-v8@4.1.11)(jsdom@29.1.1(@noble/hashes@2.4.0))(vite@6.4.3(@types/node@26.4.0)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.0))
+
   packages/mcp-server-plugin:
     dependencies:
       '@blackbelt-technology/dashboard-plugin-runtime':
         specifier: ^0.10.0
         version: link:../dashboard-plugin-runtime
-      '@blackbelt-technology/pi-dashboard-mcp-client-plugin':
+      '@blackbelt-technology/pi-dashboard-mcp-core':
         specifier: ^0.10.0
-        version: link:../mcp-client-plugin
+        version: link:../mcp-core
       '@blackbelt-technology/pi-dashboard-shared':
         specifier: ^0.10.0
         version: link:../shared
@@ -1485,9 +1495,9 @@ importers:
       '@blackbelt-technology/pi-dashboard-extension':
         specifier: ^0.10.0
         version: link:../extension
-      '@blackbelt-technology/pi-dashboard-mcp-client-plugin':
+      '@blackbelt-technology/pi-dashboard-mcp-core':
         specifier: ^0.10.0
-        version: link:../mcp-client-plugin
+        version: link:../mcp-core
       '@blackbelt-technology/pi-dashboard-shared':
         specifier: ^0.10.0
         version: link:../shared

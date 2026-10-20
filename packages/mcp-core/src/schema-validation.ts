@@ -11,7 +11,7 @@
  */
 
 import Ajv, { type ErrorObject, type ValidateFunction } from "ajv";
-import schema from "../../schema/mcp-config.schema.json";
+import schema from "../schema/mcp-config.schema.json";
 
 export interface PatchValidation {
   ok: boolean;

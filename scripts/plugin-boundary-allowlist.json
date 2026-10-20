@@ -1,108 +1,12 @@
 {
   "rows": [
     {
-      "from": "packages/apple-tools/src/env.ts",
-      "to": "mcp-client-plugin",
-      "kind": "prod",
-      "reason": "apple-tools imports mcp-client-plugin/core; switches to the non-plugin mcp-core library (consume + dependsOn stays for the running service).",
-      "disposition": "invert",
-      "removedBy": "2.5"
-    },
-    {
-      "from": "packages/apple-tools/src/install.ts",
-      "to": "mcp-client-plugin",
-      "kind": "prod",
-      "reason": "apple-tools imports mcp-client-plugin/core; switches to the non-plugin mcp-core library (consume + dependsOn stays for the running service).",
-      "disposition": "invert",
-      "removedBy": "2.5"
-    },
-    {
-      "from": "packages/apple-tools/src/server/index.ts",
-      "to": "mcp-client-plugin",
-      "kind": "prod",
-      "reason": "apple-tools imports mcp-client-plugin/core; switches to the non-plugin mcp-core library (consume + dependsOn stays for the running service).",
-      "disposition": "invert",
-      "removedBy": "2.5"
-    },
-    {
-      "from": "packages/chat-gateway/src/server/team/tier.ts",
-      "to": "mcp-server-plugin",
-      "kind": "prod",
-      "reason": "chat-gateway reads the mcp-server tool tier table; switches to the generated shared verb-tiers table.",
-      "disposition": "invert",
-      "removedBy": "2.6"
-    },
-    {
       "from": "packages/client/src/components/tool-renderers/AgentToolRenderer.tsx",
       "to": "subagents-plugin",
       "kind": "prod",
       "reason": "Core renders the Agent tool row; the renderer moves into subagents-plugin behind a tool-renderer claim.",
       "disposition": "move-to-plugin",
       "removedBy": "4.3"
-    },
-    {
-      "from": "packages/client/src/lib/chat/event-reducer.ts",
-      "to": "subagents-plugin",
-      "kind": "prod",
-      "reason": "Reducer imports subagent types/helpers from the plugin; switches to packages/shared/src/dashboard-plugin/subagent-types.ts.",
-      "disposition": "invert",
-      "removedBy": "2.7"
-    },
-    {
-      "from": "packages/client/src/lib/package/anthropic-peer.ts",
-      "to": "flows-anthropic-bridge-plugin",
-      "kind": "prod",
-      "reason": "Client imports PEER_AM_LEGACY from the flows-anthropic-bridge plugin; switches to shared anthropic-peer-names.",
-      "disposition": "invert",
-      "removedBy": "2.1"
-    },
-    {
-      "from": "packages/mcp-server-plugin/src/server/index.ts",
-      "to": "mcp-client-plugin",
-      "kind": "prod",
-      "reason": "mcp-server imports createRealConfigIO / createMcpClientConfigService from mcp-client-plugin; switches to mcp-core.",
-      "disposition": "invert",
-      "removedBy": "2.4"
-    },
-    {
-      "from": "packages/mcp-server-plugin/src/server/legacy-entry-migration.ts",
-      "to": "mcp-client-plugin",
-      "kind": "prod",
-      "reason": "mcp-server imports createRealConfigIO / createMcpClientConfigService from mcp-client-plugin; switches to mcp-core.",
-      "disposition": "invert",
-      "removedBy": "2.4"
-    },
-    {
-      "from": "packages/server/src/auth/radius-mcp.ts",
-      "to": "mcp-client-plugin",
-      "kind": "prod",
-      "reason": "Core server imports the mcp-client config service factories; switches to mcp-core so Radius MCP works with mcp-client disabled.",
-      "disposition": "invert",
-      "removedBy": "2.3"
-    },
-    {
-      "from": "packages/server/src/server.ts",
-      "to": "mcp-client-plugin",
-      "kind": "prod",
-      "reason": "Core server imports the mcp-client config service factories; switches to mcp-core so Radius MCP works with mcp-client disabled.",
-      "disposition": "invert",
-      "removedBy": "2.3"
-    },
-    {
-      "from": "packages/apple-tools/src/__tests__/doctor.test.ts",
-      "to": "mcp-client-plugin",
-      "kind": "test",
-      "reason": "apple-tools imports mcp-client-plugin/core; switches to the non-plugin mcp-core library (consume + dependsOn stays for the running service).",
-      "disposition": "invert",
-      "removedBy": "2.5"
-    },
-    {
-      "from": "packages/apple-tools/src/__tests__/install.test.ts",
-      "to": "mcp-client-plugin",
-      "kind": "test",
-      "reason": "apple-tools imports mcp-client-plugin/core; switches to the non-plugin mcp-core library (consume + dependsOn stays for the running service).",
-      "disposition": "invert",
-      "removedBy": "2.5"
     },
     {
       "from": "packages/automation-plugin/src/__tests__/flows-run-finalizes-on-forwarded-completion.test.ts",
@@ -329,14 +233,6 @@
       "removedBy": "never"
     },
     {
-      "from": "packages/mcp-server-plugin/src/server/__tests__/legacy-entry-migration.test.ts",
-      "to": "mcp-client-plugin",
-      "kind": "test",
-      "reason": "Migration test imports mcp-client-plugin; switches to mcp-core.",
-      "disposition": "invert",
-      "removedBy": "2.4"
-    },
-    {
       "from": "packages/server/src/__tests__/host-gate-inject.test.ts",
       "to": "mcp-server-plugin",
       "kind": "test",
@@ -351,54 +247,6 @@
       "reason": "Core integration test: every generated mcp-server tool needs a core ROUTE_TIERS entry (ROUTE_TIERS completeness contract).",
       "disposition": "integration-keep",
       "removedBy": "none"
-    },
-    {
-      "from": "packages/server/src/__tests__/radius-mcp.test.ts",
-      "to": "mcp-client-plugin",
-      "kind": "test",
-      "reason": "Core server imports the mcp-client config service factories; switches to mcp-core so Radius MCP works with mcp-client disabled.",
-      "disposition": "invert",
-      "removedBy": "2.3"
-    },
-    {
-      "from": "packages/apple-tools/package.json",
-      "to": "mcp-client-plugin",
-      "kind": "pkg",
-      "reason": "apple-tools imports mcp-client-plugin/core; switches to the non-plugin mcp-core library (consume + dependsOn stays for the running service).",
-      "disposition": "invert",
-      "removedBy": "2.5"
-    },
-    {
-      "from": "packages/chat-gateway/package.json",
-      "to": "mcp-server-plugin",
-      "kind": "pkg",
-      "reason": "chat-gateway reads the mcp-server tool tier table; switches to the generated shared verb-tiers table.",
-      "disposition": "invert",
-      "removedBy": "2.6"
-    },
-    {
-      "from": "packages/client/package.json",
-      "to": "keycloak-resolver-plugin",
-      "kind": "pkg",
-      "reason": "Client dependency on a plugin that declares no client entry; no client source imports it, so it is not a bundled-plugin exemption.",
-      "disposition": "drop-dep",
-      "removedBy": "2.15"
-    },
-    {
-      "from": "packages/mcp-server-plugin/package.json",
-      "to": "mcp-client-plugin",
-      "kind": "pkg",
-      "reason": "mcp-server imports createRealConfigIO / createMcpClientConfigService from mcp-client-plugin; switches to mcp-core.",
-      "disposition": "invert",
-      "removedBy": "2.4"
-    },
-    {
-      "from": "packages/server/package.json",
-      "to": "mcp-client-plugin",
-      "kind": "pkg",
-      "reason": "Core server imports the mcp-client config service factories; switches to mcp-core so Radius MCP works with mcp-client disabled.",
-      "disposition": "invert",
-      "removedBy": "2.3"
     },
     {
       "from": "packages/server/package.json",

@@ -3,7 +3,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import schema from "../../../schema/mcp-config.schema.json";
+import schema from "../../schema/mcp-config.schema.json";
 import { errorFields, validateServerEntry } from "../schema-validation.js";
 
 const props = schema.$defs.ServerEntry.properties as Record<string, Record<string, unknown>>;

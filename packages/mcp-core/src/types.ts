@@ -245,6 +245,13 @@ export type LiveState =
  */
 export type PiMcpListRunner = (cwd: string, signal: AbortSignal) => Promise<{ stdout: string; code: number | null }>;
 
+/**
+ * Service key under which the mcp-client plugin provides `McpClientConfigService`;
+ * consumers call `ctx.consume(MCP_CLIENT_CONFIG_SERVICE_KEY)` with `dependsOn: ["mcp-client"]`.
+ * See change: decouple-plugins-from-core (task 2.2).
+ */
+export const MCP_CLIENT_CONFIG_SERVICE_KEY = "mcp-client.config";
+
 /** The in-process service provided as `mcp-client.config`. */
 export interface McpClientConfigService {
   /** The file a scope's write lands in. Throws `NotAllowedCwdError` for an unknown cwd. */

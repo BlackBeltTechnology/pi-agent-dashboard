@@ -12,7 +12,7 @@ import { createGatedProviderAuth, createIsPiExtensionInstalled, createServerPlug
 import {
   createMcpClientConfigService,
   createRealConfigIO,
-} from "@blackbelt-technology/pi-dashboard-mcp-client-plugin/core";
+} from "@blackbelt-technology/pi-dashboard-mcp-core";
 import type { ExitIntent } from "@blackbelt-technology/pi-dashboard-shared/boot-state.js";
 import { isRecoveryAllowed } from "@blackbelt-technology/pi-dashboard-shared/boot-state.js";
 import { findBundledExtension, registerBridgeExtension } from "@blackbelt-technology/pi-dashboard-shared/bridge-register.js";
@@ -254,6 +254,7 @@ import { registerQuestionRoutes } from "./questions/question-routes.js";
 import { createQuestionStack, persistedPresence } from "./questions/question-stack.js";
 import { registerAccessPromptRoutes } from "./routes/access-prompt-routes.js";
 import { registerAccessRoutes } from "./routes/access-routes.js";
+import { registerAcmeRoutes } from "./routes/acme-routes.js";
 import { registerAcpRoutes } from "./routes/acp-routes.js";
 import { registerAddonsRoutes } from "./routes/addons-routes.js";
 import { registerAttachmentRoutes } from "./routes/attachment-routes.js";
@@ -300,10 +301,6 @@ import { registerRuntimeRoutes } from "./routes/runtime-routes.js";
 import { registerSessionRoutes, type ToolResultStats } from "./routes/session-routes.js";
 import { registerSystemRoutes } from "./routes/system-routes.js";
 import { registerTlsRoutes } from "./routes/tls-routes.js";
-import { registerAcmeRoutes } from "./routes/acme-routes.js";
-import { createAcmeCredentials } from "./tls/sources/acme/credentials.js";
-import { configureAcmeRuntime } from "./tls/sources/acme/runtime.js";
-import { acmeGc } from "./tls/sources/acme/gc.js";
 import { registerToolRoutes } from "./routes/tool-routes.js";
 import { registerUserRoutes } from "./routes/user-routes.js";
 import {
@@ -352,6 +349,9 @@ import { registerSpawnEnvContributorForPlugin, setSpawnEnvPluginEnabledCheck } f
 import { armSpawnWatchdog } from "./spawn-process/spawn-register-watchdog.js";
 import { createTerminalGateway } from "./terminal/terminal-gateway.js";
 import { createTerminalManager, deriveTranscriptCapBytes } from "./terminal/terminal-manager.js";
+import { createAcmeCredentials } from "./tls/sources/acme/credentials.js";
+import { acmeGc } from "./tls/sources/acme/gc.js";
+import { configureAcmeRuntime } from "./tls/sources/acme/runtime.js";
 import {
   MAIN_CONNECTION_TIMEOUT_MS,
   MAIN_KEEP_ALIVE_TIMEOUT_MS,

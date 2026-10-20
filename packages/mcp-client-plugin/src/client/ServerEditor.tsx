@@ -20,10 +20,10 @@
  * See change: migrate-mcp-to-pi-builtin.
  */
 import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { authModeOf, isValidServerName, transportOf } from "@blackbelt-technology/pi-dashboard-mcp-core/pi-rules.js";
+import type { Scope } from "@blackbelt-technology/pi-dashboard-mcp-core/types.js";
 import type React from "react";
 import { useEffect, useRef, useState } from "react";
-import { authModeOf, isValidServerName, transportOf } from "../core/pi-rules.js";
-import type { Scope } from "../core/types.js";
 import { ApiError, fetchSchema, saveServer, scopeToWire } from "./api.js";
 import { invalidateEffective } from "./hooks.js";
 import {

@@ -543,6 +543,17 @@
         "src/**/*.{ts,tsx,mjs,js}"
       ]
     },
+    "packages/mcp-core": {
+      "entry": [
+        "src/index.ts",
+        "src/*.ts",
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.ts"
+      ],
+      "project": [
+        "src/**/*.ts"
+      ]
+    },
     "packages/mcp-client-plugin": {
       "entry": [
         "src/client/index.tsx",

@@ -32,7 +32,6 @@
   },
   "files": [
     "src/",
-    "schema/",
     "!**/AGENTS.md",
     "!**/*.AGENTS.md",
     "!**/__tests__",
@@ -47,6 +46,7 @@
   },
   "dependencies": {
     "@blackbelt-technology/dashboard-plugin-runtime": "^0.10.0",
+    "@blackbelt-technology/pi-dashboard-mcp-core": "^0.10.0",
     "@blackbelt-technology/pi-dashboard-shared": "^0.10.0",
     "@mdi/js": "^7.4.47",
     "@mdi/react": "^1.6.1",

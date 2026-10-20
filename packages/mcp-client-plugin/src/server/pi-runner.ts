@@ -12,11 +12,11 @@
  * See change: migrate-mcp-to-pi-builtin (D3 "Live state").
  */
 
+import type { PiMcpListRunner } from "@blackbelt-technology/pi-dashboard-mcp-core/types.js";
 import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
 import { spawn } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { killPidWithGroup, killProcess } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
 import { buildSpawnEnvForArgv } from "@blackbelt-technology/pi-dashboard-shared/platform/runner.js";
-import type { PiMcpListRunner } from "../core/types.js";
 
 /** stdout cap — a list of servers is small; anything larger is not pi's JSON. */
 const MAX_STDOUT_BYTES = 4 * 1024 * 1024;

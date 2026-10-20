@@ -68,3 +68,31 @@ describe("client isolate gate", () => {
     }, 3_600_000);
   });
 });
+
+// #E22 (task 2.15): the unused client dependency on keycloak-resolver-plugin is dropped; the plugin is
+// still shipped by `piDashboard.bundledPlugins` (npm-global discovery never reads node_modules).
+describe("client entries bundled — keycloak dep dropped (E22)", () => {
+  const clientPkg = JSON.parse(readFileSync(resolve(REPO_ROOT, "packages/client/package.json"), "utf8"));
+  const serverPkg = JSON.parse(readFileSync(resolve(REPO_ROOT, "packages/server/package.json"), "utf8"));
+  const KEYCLOAK = "@blackbelt-technology/pi-dashboard-keycloak-resolver-plugin";
+
+  it("packages/client declares no keycloak-resolver-plugin dependency in any field", () => {
+    for (const field of ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]) {
+      expect(clientPkg[field]?.[KEYCLOAK], field).toBeUndefined();
+    }
+  });
+
+  it("the plugin is still bundled by the server's piDashboard.bundledPlugins", () => {
+    expect(serverPkg.piDashboard.bundledPlugins).toContain("keycloak-resolver-plugin");
+  });
+
+  it("its allowlist row is deleted and the boundary gate exits 0", () => {
+    const rows = JSON.parse(readFileSync(resolve(REPO_ROOT, "scripts/plugin-boundary-allowlist.json"), "utf8")).rows;
+    expect(rows.find((r) => r.to === "keycloak-resolver-plugin")).toBeUndefined();
+    const res = spawnSync(process.execPath, [resolve(REPO_ROOT, "scripts/check-plugin-boundary.mjs")], {
+      cwd: REPO_ROOT,
+      encoding: "utf8",
+    });
+    expect(res.status, `${res.stdout}${res.stderr}`).toBe(0);
+  });
+});

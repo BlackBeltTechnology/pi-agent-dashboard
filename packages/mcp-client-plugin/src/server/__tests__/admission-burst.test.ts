@@ -16,12 +16,12 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { monitorEventLoopDelay } from "node:perf_hooks";
+import { createMcpClientConfigService } from "@blackbelt-technology/pi-dashboard-mcp-core/service.js";
+import type { ConfigIO } from "@blackbelt-technology/pi-dashboard-mcp-core/types.js";
 import { isAllowedCwd } from "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js";
 import { cleanupGitShims, makeSlowGitShim, resolveRealGit, useGitPath } from "@blackbelt-technology/pi-dashboard-shared/test-support/git-shim.js";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createMcpClientConfigService } from "../../core/service.js";
-import type { ConfigIO } from "../../core/types.js";
 import { mountMcpClientRoutes } from "../routes.js";
 
 const WORKTREES = 25;

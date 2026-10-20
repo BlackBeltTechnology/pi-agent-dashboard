@@ -21,7 +21,7 @@ import {
   createMcpClientConfigService,
   createRealConfigIO,
   type LayerPaths,
-} from "@blackbelt-technology/pi-dashboard-mcp-client-plugin/core";
+} from "@blackbelt-technology/pi-dashboard-mcp-core";
 import { execFileSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { IMCP_BREW_CASK } from "./detect.js";
 import type { BrewResult, InstallerEnv } from "./install.js";
