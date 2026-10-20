@@ -16,7 +16,7 @@
  * The destination is SINGLE-select, honouring the `folder-workspaces`
  * single-membership invariant (a folder belongs to at most one workspace).
  *
- * Reference mockup: openspec/changes/simplify-add-folder-picker/mockups/
+ * Reference mockup: openspec/changes/archive/2026-10-20-simplify-add-folder-picker/mockups/
  * simple-folder-picker/index.html. See changes: redesign-folder-workspace-add-flow,
  * simplify-add-folder-picker.
  */

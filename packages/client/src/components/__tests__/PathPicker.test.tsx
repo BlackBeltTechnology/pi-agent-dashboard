@@ -873,7 +873,7 @@ describe("PathPicker", () => {
 // manager: click selects, the platform modifier toggles, Shift ranges,
 // double-click (or a touch tap) opens, long-press selects on touch. The picker
 // owns the selection and reports `{ selected, current, isHome }` upward.
-// Ids map to openspec/changes/simplify-add-folder-picker/test-plan.md.
+// Ids map to openspec/changes/archive/2026-10-20-simplify-add-folder-picker/test-plan.md.
 describe("PathPicker file-manager multi-select", () => {
   const onSelect = vi.fn();
   const onCancel = vi.fn();

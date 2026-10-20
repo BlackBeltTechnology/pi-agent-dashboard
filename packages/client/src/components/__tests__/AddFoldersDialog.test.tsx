@@ -217,7 +217,7 @@ describe("AddFoldersDialog new-workspace destination", () => {
 
 
 // simplify-add-folder-picker — commit targets, labels, status line and keys.
-// Ids map to openspec/changes/simplify-add-folder-picker/test-plan.md.
+// Ids map to openspec/changes/archive/2026-10-20-simplify-add-folder-picker/test-plan.md.
 describe("AddFoldersDialog file-manager commit", () => {
   const onPin = vi.fn();
   const onCancel = vi.fn();
