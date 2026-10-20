@@ -21,6 +21,7 @@ import {
   NIGHTLY_VERSION_RE,
   nextPatch,
   orderPublishSet,
+  planNightlyPublish,
 } from "../nightly-verdaccio-publish.mjs";
 
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
@@ -121,5 +122,53 @@ describe("discoverWorkspaces / orderPublishSet", () => {
       pos.get(synthetic.name),
     );
     expect(withNew[withNew.length - 1]).toBe(ROOT_META);
+  });
+});
+
+// Release order (design D5). See change: pin-electron-bundle-dependency-tree (test-plan #E17).
+describe("planNightlyPublish (release order)", () => {
+  const SERVER = "@blackbelt-technology/pi-dashboard-server";
+  const plan = planNightlyPublish(order_());
+
+  function order_() {
+    return orderPublishSet(discoverWorkspaces(REPO_ROOT));
+  }
+
+  it("E17: every package except server and root is published before the lock", () => {
+    const all = order_();
+    expect(plan.before.length).toBe(all.length - 2);
+    expect(plan.before).not.toContain(SERVER);
+    expect(plan.before).not.toContain(ROOT_META);
+  });
+
+  it("E17: the server is published after the lock + lint, the root last", () => {
+    expect(plan.server).toBe(SERVER);
+    expect(plan.root).toBe(ROOT_META);
+    const src = fs.readFileSync(path.join(REPO_ROOT, "scripts", "nightly-verdaccio-publish.mjs"), "utf8");
+    const iBefore = src.indexOf("for (const name of plan.before) publishOne(name)");
+    const iLock = src.indexOf('"scripts/generate-runtime-lock.mjs"');
+    const iLint = src.indexOf('"scripts/lint-runtime-lock.mjs"');
+    const iServer = src.indexOf("publishOne(plan.server)");
+    const iRoot = src.indexOf("publishOne(plan.root)");
+    expect(iBefore).toBeGreaterThan(-1);
+    expect(iLock).toBeGreaterThan(iBefore);
+    expect(iLint).toBeGreaterThan(iLock);
+    expect(iServer).toBeGreaterThan(iLint);
+    expect(iRoot).toBeGreaterThan(iServer);
+  });
+
+  it("E17: topological order holds across the phases", () => {
+    const flat = [...plan.before, plan.server, plan.root];
+    const pos = new Map(flat.map((n, i) => [n, i]));
+    for (const w of discoverWorkspaces(REPO_ROOT)) {
+      for (const dep of w.scopedDeps) {
+        if (!pos.has(dep) || dep === w.name) continue;
+        expect(pos.get(dep), `${dep} must publish before ${w.name}`).toBeLessThan(pos.get(w.name));
+      }
+    }
+  });
+
+  it("tolerates a set without a server or root", () => {
+    expect(planNightlyPublish(["a", "b"])).toEqual({ before: ["a", "b"], server: null, root: null });
   });
 });

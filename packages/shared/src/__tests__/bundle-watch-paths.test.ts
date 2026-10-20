@@ -4,10 +4,11 @@
  * built client + bundler) so `build-installer.sh` never re-hardcodes it.
  * See change: bundle-plugin-third-party-deps (design D6; test-plan #E23).
  */
-import { describe, expect, it } from "vitest";
+
 import { spawnSync } from "node:child_process"; // ban:child_process-ok — runs the script under test
 import path from "node:path";
 import url from "node:url";
+import { describe, expect, it } from "vitest";
 
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..");
@@ -26,6 +27,8 @@ describe("bundle-watch-paths.mjs (E23)", () => {
       "packages/server/package.json",
       "packages/dist/index.html",
       "packages/electron/scripts/bundle-server.mjs",
+      // release-lock rebase/audit helpers: an edit must invalidate the bundle stamp.
+      "packages/electron/scripts/lib",
     ]) {
       expect(lines).toContain(expected);
     }

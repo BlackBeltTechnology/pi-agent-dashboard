@@ -180,6 +180,10 @@ jobs:
       legs:                    all
       source_only_bundle:      false
       registry_url:            http://localhost:4873
+      # Exercise the release path (runtime lock generated against the per-leg
+      # Verdaccio → npm ci → audit) on all six legs every night.
+      # See change: pin-electron-bundle-dependency-tree (design D5).
+      release_lock:            true
       artifact_retention_days: 7
       use_dependency_cache:    true  # dev/nightly only; see harden-ci-cache-poisoning
 

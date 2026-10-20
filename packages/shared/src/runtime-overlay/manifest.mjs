@@ -14,6 +14,7 @@ import path from "node:path";
 export const RUNTIME_MANIFEST_FILE = "runtime-manifest.json";
 
 const ORIGINS = new Set(["bundled", "npm", "github"]);
+const INSTALL_MODES = new Set(["release-lock", "floating"]);
 
 /** @param {unknown} raw */
 export function parseRuntimeManifest(raw) {
@@ -26,6 +27,10 @@ export function parseRuntimeManifest(raw) {
   for (const key of ["integrity", "piVersion"]) {
     if (r[key] !== undefined && typeof r[key] !== "string") return null;
   }
+  // Bundle provenance (release-lock vs floating install). Optional; absent on
+  // overlays and source-only bundles. See change: pin-electron-bundle-dependency-tree.
+  if (r.installMode !== undefined && (typeof r.installMode !== "string" || !INSTALL_MODES.has(r.installMode))) return null;
+  if (r.lockVersion !== undefined && typeof r.lockVersion !== "string") return null;
   return /** @type {import("./manifest.d.mts").RuntimeManifest} */ ({
     version: r.version,
     minShellVersion: r.minShellVersion,
@@ -33,6 +38,8 @@ export function parseRuntimeManifest(raw) {
     origin: r.origin,
     ...(r.integrity !== undefined ? { integrity: r.integrity } : {}),
     ...(r.piVersion !== undefined ? { piVersion: r.piVersion } : {}),
+    ...(r.installMode !== undefined ? { installMode: r.installMode } : {}),
+    ...(r.lockVersion !== undefined ? { lockVersion: r.lockVersion } : {}),
   });
 }
 

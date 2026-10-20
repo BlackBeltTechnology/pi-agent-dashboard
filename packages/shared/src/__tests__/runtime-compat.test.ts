@@ -44,6 +44,27 @@ describe("runtime manifest", () => {
     }
   });
 
+  // See change: pin-electron-bundle-dependency-tree (test-plan #E13).
+  it.each([
+    [{ installMode: "release-lock", lockVersion: "0.10.0" }],
+    [{ installMode: "floating" }],
+  ])("round-trips bundle provenance fields %j", (extra) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "runtime-manifest-"));
+    try {
+      const m = manifest({ origin: "bundled", ...extra });
+      writeRuntimeManifest(dir, m);
+      expect(readRuntimeManifest(dir)).toEqual(m);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects an unknown installMode and a non-string lockVersion", () => {
+    expect(parseRuntimeManifest({ ...manifest(), installMode: "other" })).toBeNull();
+    expect(parseRuntimeManifest({ ...manifest(), installMode: "release-lock", lockVersion: 10 })).toBeNull();
+    expect(() => writeRuntimeManifest(os.tmpdir(), { ...manifest(), installMode: "other" } as never)).toThrow(/invalid runtime manifest/);
+  });
+
   it.each([
     [null],
     [[]],

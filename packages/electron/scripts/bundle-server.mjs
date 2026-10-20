@@ -10,6 +10,13 @@
  * Usage:
  *   node packages/electron/scripts/bundle-server.mjs
  *   node packages/electron/scripts/bundle-server.mjs --source-only
+ *   node packages/electron/scripts/bundle-server.mjs --release-lock=<version>
+ *
+ * `--release-lock=<version>` (release / nightly builds): install the third-party
+ * tree from `server@<version>`'s published `runtime-lock.json` with `npm ci`
+ * instead of floating ranges, then audit the installed tree. Fails closed —
+ * never falls back to the floating install. See change:
+ * pin-electron-bundle-dependency-tree.
  *
  * Replaces bundle-server.sh — same operations, no MSYS/bash dependency.
  * `cp -R` → `fs.cpSync`, `find` → recursive `readdir`, `chmod` →
@@ -46,6 +53,13 @@ import {
   materializeBundledPlugins,
   readBundledPluginIds,
 } from "../../shared/src/runtime-overlay/materialize-plugins.mjs";
+import {
+  auditInstalledTree,
+  fetchPublishedLock,
+  parseReleaseLockArgs,
+  readBundledWorkspaces,
+  rebaseRuntimeLock,
+} from "./lib/release-lock.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ELECTRON_DIR = path.resolve(__dirname, "..");
@@ -71,6 +85,20 @@ const excludeNodeModules = (src) => !src.split(/[\\/]/).includes("node_modules")
 
 // ── parse args ────────────────────────────────────────────────────────────
 const SOURCE_ONLY = process.argv.slice(2).includes("--source-only");
+// Release-lock mode (design D1): validated BEFORE any work so a misuse exits
+// non-zero without installing or deleting anything.
+let RELEASE_LOCK;
+try {
+  RELEASE_LOCK = parseReleaseLockArgs(process.argv.slice(2), {
+    serverVersion: JSON.parse(readFileSync(path.join(PROJECT_DIR, "packages", "server", "package.json"), "utf8")).version,
+  });
+} catch (err) {
+  console.error(`\u2717 ${err instanceof Error ? err.message : String(err)}`);
+  process.exit(1);
+}
+// How the third-party tree was installed; recorded in runtime-manifest.json
+// (absent in source-only mode). See change: pin-electron-bundle-dependency-tree.
+let installMode;
 
 console.log("→ Bundling dashboard server...");
 
@@ -345,26 +373,33 @@ const npmEnv = targetArch
 if (targetArch) {
   console.log(`  TARGET_ARCH=${targetArch} — setting npm_config_target_arch`);
 }
-const npmInstall = spawnSync(
-  npmCmd,
-  // --no-package-lock: the repo lockfile is pnpm-lock.yaml; do NOT let this
-  // internal npm install write a stray package-lock.json into resources/server/
-  // (second-lockfile leak). See change: adopt-pnpm-for-dev-ci (§9.3).
-  ["install", "--omit=dev", "--no-audit", "--no-fund", "--no-package-lock"],
-  {
-    cwd: SERVER_BUNDLE,
-    encoding: "utf8",
-    env: npmEnv,
-    // shell:true on Windows so npm.cmd is found via PATHEXT.
-    shell: process.platform === "win32",
-    stdio: ["ignore", "pipe", "pipe"],
-  },
-);
-// Mirror the bash script's `|| true`: print the tail and continue. Real
-// failures are caught by the next-step file-shape checks.
-const npmOut = (npmInstall.stdout || "") + (npmInstall.stderr || "");
-const tail = npmOut.trim().split(/\r?\n/).slice(-5).join("\n");
-if (tail) console.log(tail);
+if (RELEASE_LOCK.mode === "release-lock") {
+  await installFromReleaseLock(RELEASE_LOCK.version);
+  installMode = "release-lock";
+} else {
+  const npmInstall = spawnSync(
+    npmCmd,
+    // --no-package-lock: the repo lockfile is pnpm-lock.yaml; do NOT let this
+    // internal npm install write a stray package-lock.json into resources/server/
+    // (second-lockfile leak). See change: adopt-pnpm-for-dev-ci (§9.3).
+    ["install", "--omit=dev", "--no-audit", "--no-fund", "--no-package-lock"],
+    {
+      cwd: SERVER_BUNDLE,
+      encoding: "utf8",
+      env: npmEnv,
+      // shell:true on Windows so npm.cmd is found via PATHEXT.
+      shell: process.platform === "win32",
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
+  // Mirror the bash script's `|| true`: print the tail and continue. Real
+  // failures are caught by the next-step file-shape checks.
+  const npmOut = (npmInstall.stdout || "") + (npmInstall.stderr || "");
+  const tail = npmOut.trim().split(/\r?\n/).slice(-5).join("\n");
+  if (tail) console.log(tail);
+  installMode = "floating";
+  console.log("  Install mode: floating (npm install against declared ranges)");
+}
 
 // ── GO/NO-GO: assert node-pty prebuilds for all required targets ────────
 // Phase 1.1.k of eliminate-electron-runtime-install. node-pty@1.2.0-beta.13
@@ -672,6 +707,65 @@ console.log(`✓ Server bundled (${finalSize}) at ${SERVER_BUNDLE}`);
 // ────────────────────────────────────────────────────────────────────────
 
 /**
+ * Release-lock install (design D2–D4): fetch `server@X`'s published
+ * `runtime-lock.json`, rebase it onto this bundle's workspace layout, `npm ci`
+ * it, audit the installed tree. Any failure exits non-zero — never a floating
+ * fallback. The temporary `package-lock.json` is always removed (second-lockfile
+ * leak guard, as for the floating path's `--no-package-lock`).
+ */
+async function installFromReleaseLock(version) {
+  const lockFile = path.join(SERVER_BUNDLE, "package-lock.json");
+  const fail = (err) => {
+    console.error(`\u2717 release-lock install failed: ${err instanceof Error ? err.message : String(err)}`);
+    console.error("  Release builds never fall back to the floating install. See change: pin-electron-bundle-dependency-tree.");
+    process.exit(1);
+  };
+  rmSync(lockFile, { force: true });
+  try {
+    const published = await fetchPublishedLock({ version });
+    const workspaces = readBundledWorkspaces(PROJECT_DIR, BUNDLED_WORKSPACE_PKGS);
+    const bundledPlugins = new Set();
+    for (const id of readBundledPluginIds(SERVER_PKG_JSON)) {
+      const pj = path.join(PROJECT_DIR, "packages", id, "package.json");
+      if (existsSync(pj)) bundledPlugins.add(JSON.parse(readFileSync(pj, "utf8")).name);
+    }
+    const { lock, stats } = rebaseRuntimeLock(published, { workspaces, bundledPlugins, pluginUnion: pluginRuntimeDeps, version });
+    writeFileSync(lockFile, `${JSON.stringify(lock, null, 2)}\n`);
+    console.log(
+      `  Release lock: server@${version} (rebased: ${stats.linked} workspaces linked, ${stats.dropped} first-party entries dropped, ${stats.thirdParty} third-party kept)`,
+    );
+
+    const ci = spawnSync(
+      npmCmd,
+      ["ci", "--omit=dev", "--no-audit", "--no-fund", "--allow-remote=all"],
+      {
+        cwd: SERVER_BUNDLE,
+        encoding: "utf8",
+        env: npmEnv,
+        shell: process.platform === "win32",
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    const out = ((ci.stdout || "") + (ci.stderr || "")).trim();
+    if (ci.error || ci.status !== 0) {
+      const tail = out.split(/\r?\n/).slice(-15).join("\n");
+      throw new Error(`npm ci exited ${ci.status ?? ci.error?.message}\n${tail}`);
+    }
+    const tail = out.split(/\r?\n/).slice(-5).join("\n");
+    if (tail) console.log(tail);
+
+    const audited = auditInstalledTree({ bundleDir: SERVER_BUNDLE, lock, workspaces });
+    console.log(
+      `  Install mode: release-lock (server@${version}) — audited ${audited.thirdParty} third-party packages against ${audited.lockEntries} lock entries, ${audited.firstParty} first-party links`,
+    );
+  } catch (err) {
+    fail(err);
+  } finally {
+    rmSync(lockFile, { force: true });
+  }
+}
+
+/**
  * Stamp `resources/server/runtime-manifest.json` (origin `bundled`) so the
  * bundle carries the same identity/compat declaration as a staged overlay.
  * `minShellVersion` = `piDashboard.minShellVersion`, `nodeEngines` = the
@@ -695,6 +789,8 @@ function stampRuntimeManifest() {
     nodeEngines: serverPkg.engines?.node,
     origin: "bundled",
     ...(piVersion ? { piVersion } : {}),
+    ...(installMode ? { installMode } : {}),
+    ...(installMode === "release-lock" && RELEASE_LOCK.mode === "release-lock" ? { lockVersion: RELEASE_LOCK.version } : {}),
   });
   console.log(`  Wrote runtime-manifest.json (version ${serverPkg.version})`);
 }

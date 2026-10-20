@@ -430,6 +430,12 @@ jobs:
             if [ "$pkg" = "@blackbelt-technology/pi-dashboard-server" ]; then
               node scripts/assert-bundled-plugins-published.mjs --version "$VERSION" || { FAIL=1; echo "::error::bundled-plugin registry gate failed — server + meta NOT published"; break; }
               node scripts/generate-runtime-lock.mjs --version "$VERSION" || { FAIL=1; echo "::error::runtime-lock.json generation failed — server + meta NOT published"; break; }
+              # Lock-level defects (unmapped first-party entry, missing integrity,
+              # non-https source, plugin-union mismatch) would otherwise surface in
+              # the electron job AFTER npm already holds X. Same rebase the
+              # release-lock bundle step runs, as a check only. See change:
+              # pin-electron-bundle-dependency-tree (design D6).
+              node scripts/lint-runtime-lock.mjs --version "$VERSION" || { FAIL=1; echo "::error::runtime-lock lint failed — server + meta NOT published"; break; }
             fi
             echo "::group::Publishing $pkg@$VERSION (is_prerelease=$PRERELEASE)"
             if [ "$pkg" = "@blackbelt-technology/pi-agent-dashboard" ]; then
@@ -573,6 +579,10 @@ jobs:
       legs:                    all
       source_only_bundle:      false
       artifact_retention_days: 90
+      # Install the bundled server's third-party tree from X's published
+      # runtime-lock.json (npm ci) instead of floating ranges. Locked by
+      # publish-workflow-contract.test.ts. See change: pin-electron-bundle-dependency-tree.
+      release_lock:            true
       use_dependency_cache:    false  # release-privileged: cold install (harden-ci-cache-poisoning D4)
 
   # ── Runtime overlay assets (per platform, after publish) ──────
