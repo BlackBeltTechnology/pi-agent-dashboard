@@ -2730,9 +2730,11 @@ export const BROWSER_HOST_SERVER_TYPES = [
  * The access planes a denial can originate from. Closed on purpose: the wire
  * carries the plane id, the plane registry (server) keys on it, and a typo'd
  * plane must be a type error rather than a silently-unmatched string.
- * `cwd` is the unknown-working-directory plane.
+ * `cwd` is the unknown-working-directory plane. `preview-egress` is the deferred
+ * plane for an external https origin a restricted preview may load, granted per
+ * project (see change: improve-canvas-html-and-url-ux, design D7).
  */
-export type AccessPlaneId = "filesystem" | "cwd" | "network" | "cors";
+export type AccessPlaneId = "filesystem" | "cwd" | "network" | "cors" | "preview-egress";
 
 /**
  * Surfaces YOLO answers: the closed plane ids plus the agent path gate (which is

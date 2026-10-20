@@ -64,6 +64,7 @@ const PLANE_EN: Record<YoloSurfaceId, string> = {
   cwd: "working directory",
   network: "network",
   cors: "CORS origin",
+  "preview-egress": "preview origin",
   "agent-path": "agent path gate",
 };
 

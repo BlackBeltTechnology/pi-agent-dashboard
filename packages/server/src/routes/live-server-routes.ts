@@ -10,6 +10,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { Principal } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
 import { isStaticWebAsset, resolveStaticRoot } from "@blackbelt-technology/pi-dashboard-shared/live-server.js";
+import { canonicalHttpsOrigin } from "@blackbelt-technology/pi-dashboard-shared/preview-egress.js";
 import type { Tier } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
@@ -26,6 +27,11 @@ import {
   principalKeyOf,
   sessionKeyOf,
 } from "../live-server/live-capability.js";
+import {
+  type EgressGrantRequestOutcome,
+  type PreviewEgress,
+  requestOriginsOf,
+} from "../live-server/live-egress.js";
 import type { PreviewExposure } from "../live-server/live-exposure.js";
 import { type LiveLogSink, liveLog } from "../live-server/live-log.js";
 import type { LiveServerManager } from "../live-server/live-server-manager.js";
@@ -117,6 +123,15 @@ export interface LiveServerRouteDeps {
   localTrust?: LocalTrustContext;
   /** Does `dir` hold a static-root marker (`index.html` / `package.json`)? Default: the filesystem. */
   hasMarker?: (dir: string) => boolean;
+  /** Per-token egress state (origins view, allow-once, reports). Absent ⇒ the egress routes are not registered. */
+  egress?: PreviewEgress;
+  /**
+   * Record the deferred `(preview-egress, origin)` registry entry for the operator's click and raise
+   * the dialog (see `createEgressGrantRequester`). Absent ⇒ project grants are unavailable.
+   */
+  requestEgressGrant?: (input: { origin: string; projectKey: string; channel: string }) => Promise<EgressGrantRequestOutcome>;
+  /** The requester key for the registry's per-channel bounds (default: the request's source address). */
+  channelOf?: (request: FastifyRequest) => string;
   /** Log sink (default `console.log`); lines are redacted. */
   log?: LiveLogSink;
 }
@@ -326,5 +341,138 @@ export function registerLiveServerRoutes(
         return { success: true, ok: true };
       },
     );
+
+    if (deps.egress) registerEgressRoutes(fastify, { ...deps, egress: deps.egress, capabilities });
   }
+}
+
+/** Everything the egress routes read: the route deps with the egress service and capability store present. */
+type EgressRouteCtx = LiveServerRouteDeps & { egress: PreviewEgress; capabilities: LiveCapabilityStore };
+
+/**
+ * Egress (restricted previews). Reading a preview's blocked origins and widening it are control tier AND
+ * only the token's MINTING principal: another device, even one holding control, is refused.
+ */
+function registerEgressRoutes(fastify: FastifyInstance, deps: EgressRouteCtx): void {
+  const { networkGuard, capabilities, egress } = deps;
+  const log = (event: string, fields?: Record<string, unknown>) => liveLog(deps.log, event, fields);
+      /** The caller's own live token for `:id`, or a refusal already sent. */
+      const ownTokenOf = (
+        request: FastifyRequest,
+        reply: FastifyReply,
+        tokenId: unknown,
+      ): ReturnType<LiveCapabilityStore["findByTokenId"]> => {
+        const grant = typeof tokenId === "string" ? capabilities.findByTokenId(tokenId) : null;
+        if (!grant || grant.targetId !== (request.params as { id: string }).id) {
+          reply.code(404).send({ success: false, ok: false, error: "capability not found" });
+          return null;
+        }
+        if (grant.minterKey !== principalKeyOf(capabilityPrincipalOf(request))) {
+          log("egress refused", { reason: "not-minting-principal", tokenId: grant.tokenId });
+          reply.code(403).send({ success: false, ok: false, error: "only the preview's owner may do that" });
+          return null;
+        }
+        return grant;
+      };
+      const promptingOn = (): boolean => {
+        try {
+          return deps.promptingEnabled?.() === true;
+        } catch {
+          return false;
+        }
+      };
+
+      fastify.get<{ Params: { id: string }; Querystring: { token?: unknown } }>(
+        "/api/live-server/:id/egress",
+        { preHandler: networkGuard },
+        async (request, reply) => {
+          const grant = ownTokenOf(request, reply, request.query.token);
+          if (!grant) return reply;
+          const view = await egress.view(grant, { own: requestOriginsOf(request) });
+          return { success: true, ok: true, ...view, promptingEnabled: promptingOn() };
+        },
+      );
+
+      /** A 400 refusal, logged without any capability. */
+      const refuse = (reply: FastifyReply, tokenId: string, kind: "once" | "project", error: string) => {
+        log("allow refused", { kind, reason: error, tokenId });
+        reply.code(400);
+        return { success: false, ok: false, error };
+      };
+      /** The canonical, grantable origin a body names, or the refusal text. */
+      const grantableOrigin = (request: FastifyRequest, raw: unknown): { origin: string } | { error: string } => {
+        const origin = typeof raw === "string" ? canonicalHttpsOrigin(raw) : null;
+        if (!origin) return { error: "invalid origin" };
+        return egress.isGrantable(origin, requestOriginsOf(request)) ? { origin } : { error: "origin cannot be allowed" };
+      };
+
+      // Allow an origin for ONE viewer (its re-mints included), nothing persisted.
+      fastify.post<{ Params: { id: string }; Body: { tokenId?: unknown; viewerId?: unknown; origin?: unknown } }>(
+        "/api/live-server/:id/allow-once",
+        { preHandler: networkGuard },
+        async (request, reply) => {
+          const body = asRecord(request.body);
+          const grant = ownTokenOf(request, reply, body.tokenId);
+          if (!grant) return reply;
+          const viewerId = body.viewerId;
+          if (!isViewerId(viewerId)) return refuse(reply, grant.tokenId, "once", "invalid viewer");
+          if (grant.viewerId !== viewerId) return refuse(reply, grant.tokenId, "once", "viewer does not own this preview");
+          const named = grantableOrigin(request, body.origin);
+          if ("error" in named) return refuse(reply, grant.tokenId, "once", named.error);
+          capabilities.addAllowOnce(viewerId, named.origin);
+          log("allow-once", { tokenId: grant.tokenId, origin: named.origin });
+          return { success: true, ok: true };
+        },
+      );
+
+      /** The route's reply for the registry's decision on a project-grant request. */
+      const grantRequestReply = (reply: FastifyReply, tokenId: string, outcome: EgressGrantRequestOutcome) => {
+        switch (outcome) {
+          case "raised":
+            return { success: true, ok: true };
+          case "prompting-disabled":
+            return { success: false, ok: false, reason: "prompting-disabled" };
+          case "rate-limited":
+            reply.code(429);
+            return { success: false, ok: false, reason: "rate-limited" };
+          case "not-promptable":
+            return refuse(reply, tokenId, "project", "origin cannot be allowed");
+          default:
+            reply.code(503);
+            return { success: false, ok: false, error: "could not ask right now" };
+        }
+      };
+
+      /** A markup-detected, grantable origin of a static target that has a project, or the refusal text. */
+      const projectGrantTarget = async (
+        request: FastifyRequest,
+        grant: NonNullable<ReturnType<LiveCapabilityStore["findByTokenId"]>>,
+        rawOrigin: unknown,
+      ): Promise<{ origin: string; projectKey: string } | { error: string }> => {
+        const named = grantableOrigin(request, rawOrigin);
+        if ("error" in named) return named;
+        const projectKey = egress.projectKeyFor(grant);
+        if (!projectKey) return { error: "this preview has no project" };
+        const inMarkup = (await egress.markupOrigins(grant)).includes(named.origin);
+        return inMarkup ? { origin: named.origin, projectKey } : { error: "origin was not found in the page markup" };
+      };
+
+      // "Allow for this project": on the operator's click, a deferred registry entry + the standard
+      // dialog. Markup-detected origins of a STATIC target only (a page can forge runtime ones).
+      fastify.post<{ Params: { id: string }; Body: { tokenId?: unknown; origin?: unknown } }>(
+        "/api/live-server/:id/egress-grant-request",
+        { preHandler: networkGuard },
+        async (request, reply) => {
+          const body = asRecord(request.body);
+          const grant = ownTokenOf(request, reply, body.tokenId);
+          if (!grant) return reply;
+          const target = await projectGrantTarget(request, grant, body.origin);
+          if ("error" in target) return refuse(reply, grant.tokenId, "project", target.error);
+          if (!deps.requestEgressGrant || !promptingOn()) return { success: false, ok: false, reason: "prompting-disabled" };
+          const channel = deps.channelOf?.(request) ?? request.ip;
+          const outcome = await deps.requestEgressGrant({ ...target, channel });
+          log("egress grant request", { tokenId: grant.tokenId, origin: target.origin, outcome });
+          return grantRequestReply(reply, grant.tokenId, outcome);
+        },
+      );
 }

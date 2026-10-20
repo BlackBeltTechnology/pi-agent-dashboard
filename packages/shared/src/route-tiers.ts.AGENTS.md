@@ -56,5 +56,5 @@ Adds `GET /api/file/digest` (observe). See change: gate-changed-on-disk-by-conte
 
 `POST /api/plugins/craft-web/telemetry` control (open outcome / validator reject counters, log only). See change: extend-craft-web-to-all-apps.
 
-improve-canvas-html-and-url-ux: `/api/live-server/:id/capability` now `observe` (port targets still need `control`, enforced in the handler); added `start-static`, `:id/touch`, `GET policy` as `observe`. Egress/allow-once/egress-grant-request rows land with their routes.
+improve-canvas-html-and-url-ux: `/api/live-server/:id/capability` now `observe` (port targets still need `control`, enforced in the handler); added `start-static`, `:id/touch`, `GET policy` as `observe`. `GET :id/egress`, `POST :id/allow-once`, `POST :id/egress-grant-request` are `control` (handler also requires the token's minting principal); `DELETE /api/access/preview-egress` is `operate`.
 

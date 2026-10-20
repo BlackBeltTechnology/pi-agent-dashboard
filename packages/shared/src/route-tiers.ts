@@ -33,6 +33,7 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "DELETE", path: "/api/access/cors-origin", tier: "operate" },
   { method: "DELETE", path: "/api/access/grants", tier: "operate" },
   { method: "DELETE", path: "/api/access/pinned-directory", tier: "operate" },
+  { method: "DELETE", path: "/api/access/preview-egress", tier: "operate" },
   { method: "DELETE", path: "/api/access/project-trust", tier: "operate" },
   // add-access-grant-dialog: prompt answers, YOLO and refusals widen trust exactly
   // like a grant write, so every mutation is `operate`; reads are `observe`.
@@ -333,6 +334,10 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   // is the exposure posture; `touch` extends only the caller's OWN token (minting principal).
   { method: "POST", path: "/api/live-server/:id/capability", tier: "observe" },
   { method: "POST", path: "/api/live-server/:id/touch", tier: "observe" },
+  // Egress state is private to the preview's owner: control tier AND the minting principal (handler).
+  { method: "GET", path: "/api/live-server/:id/egress", tier: "control" },
+  { method: "POST", path: "/api/live-server/:id/allow-once", tier: "control" },
+  { method: "POST", path: "/api/live-server/:id/egress-grant-request", tier: "control" },
   { method: "GET", path: "/api/live-server/policy", tier: "observe" },
   { method: "POST", path: "/api/live-server/start", tier: "operate" },
   { method: "POST", path: "/api/live-server/start-static", tier: "observe" },

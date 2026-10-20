@@ -2,7 +2,7 @@
  * Dashboard HTTP + WebSocket server.
  */
 
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
@@ -65,7 +65,8 @@ import { installGrantCoordinator } from "./access/denial-hold.js";
 import { GrantCoordinator } from "./access/grant-coordinator.js";
 import { ensureGrantStoreId } from "./access/grant-store-id.js";
 import { createPiTrustMirrorService, setPiTrustMirror } from "./access/pi-trust-mirror-service.js";
-import { createCorsPlane, createCwdPlane, createFilesystemPlane, createNetworkPlane } from "./access/planes.js";
+import { createCorsPlane, createCwdPlane, createFilesystemPlane, createNetworkPlane, createPreviewEgressPlane } from "./access/planes.js";
+import { projectEgressGrants } from "./access/preview-egress-store.js";
 import { promptChannelCount } from "./access/prompt-channel.js";
 import { clearRefusal, isRefused, listRefusals, recordRefusal } from "./access/refusal-ledger.js";
 import { sourceChannel } from "./access/source-channel.js";
@@ -168,6 +169,7 @@ import { createPluginSessionCloseApi, createSessionCloserRegistry } from "./embe
 import { wireEvents } from "./event-wiring.js";
 import { createReplayState } from "./session/hydration-state.js";
 import { createFileWatchManager } from "./file-watch-manager.js";
+import { resolveMainPath } from "./git-worktree/git-operations.js";
 import { createWorktreeInitRegistry } from "./git-worktree/worktree-init-registry.js";
 import { listPersistedTrust as listPersistedWorktreeTrust, setTrustChangedListener } from "./git-worktree/worktree-init-trust.js";
 import { identityDisarmedWarning, isIdentityEnforced } from "./identity/activation.js";
@@ -209,6 +211,8 @@ import {
   redactCapability,
   sessionKeyOf,
 } from "./live-server/live-capability.js";
+import { createReservedHandler } from "./live-server/live-csp-report.js";
+import { createEgressGrantRequester, createPreviewEgress, requestOriginsOf } from "./live-server/live-egress.js";
 import { createPreviewExposure, wirePreviewExposure } from "./live-server/live-exposure.js";
 import { createLiveServerManager } from "./live-server/live-server-manager.js";
 import { handleLiveServerUpgrade, registerLiveServerProxy } from "./live-server/live-server-proxy.js";
@@ -2056,6 +2060,18 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   grantPlanes.register(
     createCorsPlane({ readRawCors: () => (readRawConfig().cors ?? {}) as Record<string, unknown>, writeConfigPartial }),
   );
+  // Preview egress: an external https origin a restricted live preview may load, granted per project.
+  // The dashboard's own origins (tunnels, public base URLs, configured CORS origins) are never grantable.
+  // See change: improve-canvas-html-and-url-ux (D7).
+  const previewEgressOwnOrigins = (): string[] =>
+    [getTunnelUrl(), ...liveTunnelOrigins(), ...livePublicBaseUrls(), ...corsAllowedOrigins()].flatMap((u) => {
+      try {
+        return typeof u === "string" && u ? [new URL(u).origin] : [];
+      } catch {
+        return [];
+      }
+    });
+  grantPlanes.register(createPreviewEgressPlane({ ownOrigins: previewEgressOwnOrigins }));
   // YOLO (design D13): consulted at the prompt point; the refusal ledger stops it
   // reversing an explicit deny. Environment activation is attempted once, at
   // boot, and refused outright in report mode or on any unusable root.
@@ -2200,6 +2216,23 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   });
   // An evicted preset / static target takes its tokens with it.
   liveServerManager.setEvictionListener((id) => liveCapabilities.revokeByTarget(id));
+  // Per-token egress state (markup scan, CSP reports, allow-once, project grants). Project grants are read
+  // from their store on every CSP build, so a grant or revoke applies on the next response with no restart.
+  const previewEgress = createPreviewEgress({
+    getStatic: (id) => liveServerManager.getStatic(id),
+    projectKeyOf: (cwd) => {
+      let real = cwd;
+      try {
+        real = realpathSync(cwd);
+      } catch {
+        /* keep the stated cwd */
+      }
+      return resolveMainPath(real) ?? real;
+    },
+    projectGrants: projectEgressGrants,
+    allowOnce: (viewerId) => liveCapabilities.getAllowOnce(viewerId),
+    ownOrigins: previewEgressOwnOrigins,
+  });
   // Preview exposure (is the dashboard reachable from anywhere but this machine?). Drives the
   // scripts rule on restricted mints; a flip to `exposed` kills restricted scripted local-only
   // tokens and tells open viewers to re-mint. See change: improve-canvas-html-and-url-ux (D5).
@@ -3117,6 +3150,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     promptingEnabled: () => loadConfig().accessGrants?.promptEnabled === true,
     getTrustedNetworks: admissionList,
     localTrust,
+    egress: previewEgress,
+    requestEgressGrant: createEgressGrantRequester(grantCoordinator),
+    channelOf: (request) => sourceChannel(request.ip),
     // `start-static`: the SAME gate as a raw file read; a refusal answers with that route's status and body.
     staticGate: async (cwd, relPath, opts) => {
       const gate = await gateFilePath(cwd, relPath, sessionManager, { allowGrant: true, disclosure: opts.disclosure });
@@ -3126,6 +3162,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   });
   registerLiveServerProxy(fastify, liveServerManager, {
     isDeviceBearer: (token) => pairedDeviceRegistry.verify(token) !== null,
+    grantedOrigins: (grant) => previewEgress.grantedFor(grant),
+    onStaticHtmlServed: (grant, real) => previewEgress.noteServed(grant, real),
+    reservedHandler: createReservedHandler({
+      egress: previewEgress,
+      ownOriginsOf: (request) => requestOriginsOf(request),
+    }),
     // Re-run on EVERY static request, so a revoked grant or pin applies on the next one. Quiet:
     // a refusal here records no denial and raises no prompt.
     staticGate: async (cwd, absPath) =>

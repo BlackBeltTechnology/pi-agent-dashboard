@@ -17,6 +17,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { isBrowserOriginated } from "./live-browser-gate.js";
 import { type LiveCapabilityGrant, stripCapabilitySegment } from "./live-capability.js";
 import { buildLiveCsp, type LiveCspResult } from "./live-csp.js";
+import { registerCspReportParsers } from "./live-csp-report.js";
 import type { LiveServerManager } from "./live-server-manager.js";
 import { serveStatic } from "./live-static.js";
 
@@ -120,6 +121,8 @@ export interface LiveProxyDeps {
    * allow-once set. Absent ⇒ none.
    */
   grantedOrigins?: (grant: LiveCapabilityGrant) => readonly string[];
+  /** An HTML document of a static target was served under this token (feeds the lazy origin scan). */
+  onStaticHtmlServed?: (grant: LiveCapabilityGrant, realPath: string) => void;
   /**
    * Handler for the reserved `/__pi/…` namespace under a valid capability prefix
    * (CSP reports, …). It is never forwarded upstream and never served from disk;
@@ -175,6 +178,8 @@ export function registerLiveServerProxy(
   // `/live/:id/*`. Owning the dependency here keeps the proxy self-contained.
   // See change: improve-content-editor, fix-live-server-proxy-reply-from.
   fastify.register(import("@fastify/reply-from"));
+  // CSP reports arrive as `application/csp-report` / `application/reports+json`.
+  if (deps.reservedHandler) registerCspReportParsers(fastify);
 
   /**
    * `capabilityPrefix` is set (by the capability hook, only after the token
@@ -221,7 +226,10 @@ export function registerLiveServerProxy(
     manager.use(target.id);
     const extra: Record<string, string> = { "content-security-policy": csp.csp };
     if (csp.reportingEndpoints) extra["reporting-endpoints"] = csp.reportingEndpoints;
-    return serveStatic(request, reply, target, subPath, extra, { gate: deps.staticGate ?? (async () => false) });
+    return serveStatic(request, reply, target, subPath, extra, {
+      gate: deps.staticGate ?? (async () => false),
+      onHtmlServed: (real) => deps.onStaticHtmlServed?.(grant, real),
+    });
   };
 
   const forwardPort = (

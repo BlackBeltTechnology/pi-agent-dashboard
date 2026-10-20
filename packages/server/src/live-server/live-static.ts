@@ -32,6 +32,8 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 export interface StaticServeDeps {
   /** The raw file-read gate for an absolute real path under `cwd`. `true` = admitted. */
   gate: (cwd: string, absPath: string) => Promise<boolean>;
+  /** Called with the real path of an HTML document about to be served in full (the origin scan reads it later). */
+  onHtmlServed?: (realPath: string) => void;
 }
 
 const MIME: Readonly<Record<string, string>> = {
@@ -170,6 +172,11 @@ async function openRegular(real: string): Promise<{ fh: fs.promises.FileHandle; 
   return null;
 }
 
+/** Tell the origin scan which HTML document is about to be served in full. */
+function noteHtmlServed(deps: StaticServeDeps, method: string, real: string): void {
+  if (method === "GET" && /\.html?$/i.test(real)) deps.onHtmlServed?.(real);
+}
+
 /**
  * Serve `rest` (the path + query after the capability prefix) from `target`.
  * `extraHeaders` carries the CSP set built from the token's policy.
@@ -192,6 +199,7 @@ export async function serveStatic(
   const opened = real ? await openRegular(real) : null;
   if (!real || !opened) return notFound();
   const { fh, size } = opened;
+  noteHtmlServed(deps, request.method, real);
 
   const headers: Record<string, string> = {
     ...extraHeaders,

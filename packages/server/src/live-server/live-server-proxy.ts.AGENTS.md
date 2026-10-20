@@ -6,3 +6,5 @@ Capability prefix stripped from upstream path + Referer; redirects stay in prefi
 
 Static branch via `serveStatic` (capability required). Browser-originated (`Origin: null`/`Sec-Fetch-*`) without capability → 404 (HTTP + WS). Every capability response gets `buildLiveCsp` (appended to upstream CSP). `X-Forwarded-For` set on every upstream HTTP + WS request. Deps: `staticGate(cwd,abs)` (per-request raw-read gate), `grantedOrigins(grant)` (`<G>`), `reservedHandler` (reserved `/__pi/*` under a capability prefix; hook for csp-report). See change: improve-canvas-html-and-url-ux.
 
+
+New deps wired by the server: `onStaticHtmlServed(grant, realPath)` (HTML served under a token → lazy origin scan), `grantedOrigins` = `previewEgress.grantedFor` (project grants read live per response), `reservedHandler` = `createReservedHandler` (csp-report; the proxy registers the `application/csp-report` + `application/reports+json` parsers when it is set). See change: improve-canvas-html-and-url-ux.
