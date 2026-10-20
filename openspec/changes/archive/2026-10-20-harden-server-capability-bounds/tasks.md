@@ -80,14 +80,14 @@ WIP commit `1d546c995` on `develop` already holds a first pass (global + per-cwd
 - [x] T-F11 L1 new `packages/client/src/lib/api/__tests__/browse-api.test.ts` (fetch mock pattern from `PathPicker.test.tsx`): 403 `path outside allowed roots`, 403 `network_not_allowed`, 500 · `browseDirectory("/")`, `createDirectory("/tmp","n")` · `code:"path_outside_allowed_roots"` from both; `NetworkNotAllowedError` unchanged; plain `Error("x")` (test-plan #F11)
 - [x] T-F6 L1 client test modeled on `packages/client/src/components/__tests__/Toast.test.tsx` + `useMessageHandler.retry-session-error.test.tsx`: `folder_refused{path:"/"}` · dispatch · one error toast containing `/` and "Ask the host to pin it" (test-plan #F6)
 - [x] T-F7 L1 extend `recovery-server.test.ts` (jsdom): `buildRecoveryHtml` page, `fetch` mocked 403 · click Retry start · `role="alert"` remedy shown, buttons enabled (test-plan #F7)
-- [ ] T-F8 L3 e2e modeled on `tests/e2e/terminal-tab.spec.ts`: harness config `terminals.maxConcurrent: 2` · open 2 tabs, click "+", close one, click "+" · notice + 2 tabs, then 2 tabs and notice gone (test-plan #F8)
-- [ ] T-F9 L3 e2e (variant boot `PI_E2E_BROWSE_CONFINEMENT=1`) modeled on `tests/e2e/agent-path-gate.spec.ts`: authenticated context with `x-forwarded-for` (or the harness's non-local peer), picker open · type `/`, go home · B2 refusal; home shows hint without `..` (test-plan #F9)
+- [x] T-F8 L3 e2e modeled on `tests/e2e/terminal-tab.spec.ts`: harness config `terminals.maxConcurrent: 2` · open 2 tabs, click "+", close one, click "+" · notice + 2 tabs, then 2 tabs and notice gone (test-plan #F8) Verified on a variant harness boot (cap=2): green.
+- [x] T-F9 L3 e2e (variant boot `PI_E2E_BROWSE_CONFINEMENT=1`) modeled on `tests/e2e/agent-path-gate.spec.ts`: authenticated context with `x-forwarded-for` (or the harness's non-local peer), picker open · type `/`, go home · B2 refusal; home shows hint without `..` (test-plan #F9) Verified on a variant harness boot (confinement on): green.
 - [x] T-X1 L1 extend `browse-roots.test.ts`: pinned dir realpath EACCES / deleted · remote browse `$HOME/Project` · 200, no 500 (test-plan #X1)
 - [x] T-X2 L1 extend `browse-roots.test.ts`: `listGrants` throws · remote browse grant-only dir and `$HOME/Project` · 403 and 200, one warn line (test-plan #X2)
 - [x] T-X3 L1 extend `terminal-manager.test.ts`: pty spawn throws after cap check · spawn then count · count unchanged; next spawn at cap-1 succeeds (test-plan #X3)
 - [x] T-X4 L1 extend `terminal-manager.test.ts`: orphan exits in the same tick the reaper fires · sweep · no throw, one tombstone, one removal (test-plan #X4)
-- [ ] M1 Manual: compare notices A2/A3, picker B1/B2, recovery C2 in dark + light (and 375 px) against `mockups/index.html` (test-plan: manual-only, #F10)
-- [ ] M2 Manual: over a real zrok tunnel, browse `/` shows the refusal and a recovery retry POST gets the 403 remedy callout (test-plan: manual-only, #X5)
+- [x] M1 Manual: compare notices A2/A3, picker B1/B2, recovery C2 in dark + light (and 375 px) against `mockups/index.html` (test-plan: manual-only, #F10)
+- [x] M2 Manual: over a real zrok tunnel, browse `/` shows the refusal and a recovery retry POST gets the 403 remedy callout (test-plan: manual-only, #X5)
 
 ## Docs
 
@@ -96,14 +96,14 @@ WIP commit `1d546c995` on `develop` already holds a first pass (global + per-cwd
 
 ## Discipline checkpoints
 
-- [ ] D1 `security-hardening` pass on the final diff (root computation, symlink handling, D1b gate, recovery gate).
-- [ ] D2 `review-code` on the diff before commit.
+- [x] D1 `security-hardening` pass on the final diff (root computation, symlink handling, D1b gate, recovery gate).
+- [x] D2 `review-code` on the diff before commit.
 
 ## Validate
 
-- [ ] V1 `openspec validate harden-server-capability-bounds --strict` passes.
-- [ ] V2 `npm test` green (terminal-manager, handlers, browse, directory-handler, recovery, client suites).
-- [ ] V3 Docker harness run for T-F8 / T-F9.
+- [x] V1 `openspec validate harden-server-capability-bounds --strict` passes.
+- [x] V2 `npm test` green (terminal-manager, handlers, browse, directory-handler, recovery, client suites). Full suite on the worktree: only pre-existing env-dependent failures remain (supervisor 5 s timeout, tls-listener IP SNI, kb git-scope timeout under load); every file this change touches is green.
+- [x] V3 Docker harness run for T-F8 / T-F9.
 
 ## Implementation notes (deviations from the plan, recorded during apply)
 

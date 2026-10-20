@@ -245,6 +245,15 @@ export default async function globalSetup(): Promise<void> {
     // browser-relay.spec.ts skips itself otherwise.
     // See change: add-browser-relay (task 7.61), stabilize-browser-e2e (4.2).
     PI_BROWSER_RELAY_FAKE: process.env.PI_BROWSER_RELAY_FAKE ?? "",
+    // Variant-harness faucets for tests/e2e/terminal-cap.spec.ts and
+    // remote-browse-confinement.spec.ts (the `e2e-bounds-variants` CI leg). Both are
+    // NOT defaulted: a global PTY cap of 2 would starve every other terminal spec, and
+    // browse confinement ON blocks the ~30 specs that pin per-test dirs via the picker
+    // (the harness browser is a remote peer through the Docker port mapping), so
+    // test-entrypoint seeds confinement OFF unless PI_E2E_BROWSE_CONFINEMENT=1.
+    // See change: harden-server-capability-bounds.
+    PI_E2E_TERMINALS_MAX_CONCURRENT: process.env.PI_E2E_TERMINALS_MAX_CONCURRENT ?? "",
+    PI_E2E_BROWSE_CONFINEMENT: process.env.PI_E2E_BROWSE_CONFINEMENT ?? "",
     ANTHROPIC_API_KEY: "",
     OPENAI_API_KEY: "",
     GEMINI_API_KEY: "",

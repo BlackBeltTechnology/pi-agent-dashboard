@@ -37,5 +37,3 @@ TS loader §: single native strip-only loader; tiers 1-3 (registerHooks / regist
 `resource-page-section` slot (react-only, many; props `ResourcePageSectionProps`). Optional host seams `getPiResources`/`onPiResourcesInvalidated` (ServerPluginContext). Settings nav `PROMOTION_GROUP_ALLOWLIST` = `models`, `resources`. See change: add-skill-atlas-screen.
 - `### Built-in TLS listener`: 2nd `https.Server` → same Fastify; SNI store, `CertManager`, tailscale source, `/api/health.tls`. See change: add-tailscale-cert-tls.
 - `#### Domain certs: acme`: DNS-01 source; solvers `cloudflare`/`acme-dns`; gates `credentials`/`dns-cname`/`dns-zone`; vault `tls:<id>`; routes `acme-routes.ts`; guide `acme-dns01-certs.md`. See change: add-acme-dns01-certs.
-
-- Sections `Remote confinement`, `Recovery server lockdown` (under the PathPicker / browse docs) and `Terminal Caps and Orphan Reaping`. See change: harden-server-capability-bounds.

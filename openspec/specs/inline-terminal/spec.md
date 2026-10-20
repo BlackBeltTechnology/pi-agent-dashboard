@@ -1,12 +1,14 @@
 ## Purpose
 
 Inline interactive terminal card lifecycle: bare `!!` / composer-button trigger, ephemeral PTY reuse, fixed-height scrollable rendering, LLM independence, and the open/close event contract for replay-safe transcript persistence.
+
 ## Requirements
+
 ### Requirement: Open inline terminal via bare `!!`
-The system SHALL open an inline interactive terminal card in the chat stream when the user submits `!!` with no command. `!! <command>` and `! <command>` (with a command) SHALL retain their existing one-shot `bash_output` behavior unchanged.
+The system SHALL open an inline interactive terminal card in the chat stream when the user submits `!!` with no command, unless a terminal cap defined by the `server-capability-bounds` capability is reached. `!! <command>` and `! <command>` (with a command) SHALL retain their existing one-shot `bash_output` behavior unchanged.
 
 #### Scenario: Bare `!!` opens inline terminal
-- **WHEN** the user submits `!!` with no following command
+- **WHEN** the user submits `!!` with no following command and no terminal cap is reached
 - **THEN** the system SHALL spawn an ephemeral PTY terminal
 - **THEN** an inline interactive terminal card SHALL appear in the chat stream
 - **THEN** no `bash_output` event SHALL be emitted
@@ -20,13 +22,22 @@ The system SHALL open an inline interactive terminal card in the chat stream whe
 - **WHEN** the user submits `!git status`
 - **THEN** the system SHALL execute it as a one-shot command and emit `bash_output` with `excludeFromContext: false`
 
+#### Scenario: Bare `!!` at a terminal cap
+- **WHEN** the user submits `!!` with no following command and a terminal cap is reached
+- **THEN** no PTY SHALL be spawned and no inline terminal card SHALL appear
+- **AND** the chat SHALL show the terminal-limit notice
+
 ### Requirement: Open inline terminal via composer button
 The chat composer SHALL provide a button that opens an inline interactive terminal card, using the same path as bare `!!`.
 
 #### Scenario: Button opens inline terminal
-- **WHEN** the user clicks the composer's open-inline-terminal button
+- **WHEN** the user clicks the composer's open-inline-terminal button and no terminal cap is reached
 - **THEN** an ephemeral PTY terminal SHALL be spawned
 - **THEN** an inline interactive terminal card SHALL appear in the chat stream
+
+#### Scenario: Button at a terminal cap
+- **WHEN** the user clicks the composer's open-inline-terminal button and a terminal cap is reached
+- **THEN** no PTY SHALL be spawned and the chat SHALL show the terminal-limit notice
 
 ### Requirement: Inline terminal card rendering
 A live inline terminal card SHALL render a fully interactive xterm.js terminal at a fixed height, reusing the existing PTY transport (`/ws/terminal/:id`). The card SHALL be scrollable internally via xterm scrollback while the chat page scrolls past it normally.
@@ -275,4 +286,3 @@ The client SHALL remove the card when, and only when, the transcript is the empt
 #### Scenario: Close without a matching open and empty transcript adds nothing
 - **WHEN** an `inline_terminal_close` with an empty transcript is processed with no matching `inline_terminal_open` in the reduced state
 - **THEN** no inline terminal card SHALL be appended
-

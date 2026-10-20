@@ -15,7 +15,7 @@ import { byTestId, gotoDashboard } from "./helpers/index.js";
 //   PI_E2E_SEED=1 PI_E2E_BROWSE_CONFINEMENT=1 docker/test-up.sh -d --build
 test.skip(
   process.env.PI_E2E_BROWSE_CONFINEMENT !== "1",
-  "variant harness: boot with PI_E2E_SEED=1 PI_E2E_BROWSE_CONFINEMENT=1",
+  "variant harness: runs on the `e2e-bounds-variants` CI leg (PI_E2E_BROWSE_CONFINEMENT=1); see .github/workflows/ci-e2e-browser.yml",
 );
 
 test.describe("remote folder picker confinement", () => {

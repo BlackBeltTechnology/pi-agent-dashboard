@@ -21,8 +21,6 @@ import path from "node:path";
 import {
   type ForbiddenSubjectsEnv,
   forbiddenGrantSubjects,
-  isForbiddenGrantSubject,
-  subsumesForbiddenGrantSubject,
 } from "@blackbelt-technology/pi-dashboard-shared/forbidden-subjects.js";
 import { safeRealpath, within } from "./path-containment.js";
 
@@ -80,25 +78,29 @@ export async function resolveBrowseRoots(
     ["worktreeRoots", sources.worktreeRoots],
     ["projectGrants", sources.projectGrants],
   ];
+  // `forbidden` = every subject a root may neither BE nor CONTAIN (`/`, `$HOME`, system roots,
+  // `~/.ssh`, `~/.pi`). Evaluated here on the already-real path against the sets built once above:
+  // `isUngrantableSubject` would re-canonicalise (sync realpath) per candidate, ~2 sync fs calls per
+  // root on every request. Same rule: a root is dropped when it IS a whole-subject, is at/under a
+  // sensitive dir, or is an ancestor of any forbidden subject.
+  const forbidden = [...sets.whole, ...sets.sensitive];
+  const ungrantable = (real: string): boolean =>
+    forbidden.some((f) => within(f, real)) || // real equals or contains a forbidden subject
+    sets.sensitive.some((f) => within(real, f)); // real is at/under a sensitive dir
+
+  const candidates: string[] = [];
   for (const [name, read] of named) {
-    let dirs: readonly string[];
     try {
-      dirs = read();
+      candidates.push(...read());
     } catch (err) {
       warnOnce(name, err);
-      continue;
-    }
-    for (const dir of dirs) {
-      let real: string;
-      try {
-        real = await fs.realpath(path.resolve(dir)); // strict: deleted / EACCES -> dropped
-      } catch {
-        continue;
-      }
-      // Same pair `isUngrantableSubject` applies, with the forbidden sets built once.
-      if (!isForbiddenGrantSubject(real, env, sets) && !subsumesForbiddenGrantSubject(real, env, sets)) roots.add(real);
     }
   }
+  // Strict realpath (deleted / EACCES -> dropped), in parallel: one slow volume must not serialise the rest.
+  const resolved = await Promise.all(
+    candidates.map((dir) => fs.realpath(path.resolve(dir)).catch(() => null)),
+  );
+  for (const real of resolved) if (real !== null && !ungrantable(real)) roots.add(real);
   return { roots: [...roots], sensitive: sets.sensitive };
 }
 

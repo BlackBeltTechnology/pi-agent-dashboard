@@ -16,7 +16,7 @@ import { robustClick, spawnFreshGitSession } from "./helpers/index.js";
 //   PI_E2E_SEED=1 PI_E2E_TERMINALS_MAX_CONCURRENT=2 docker/test-up.sh -d --build
 test.skip(
   process.env.PI_E2E_TERMINALS_MAX_CONCURRENT !== "2",
-  "variant harness: boot with PI_E2E_SEED=1 PI_E2E_TERMINALS_MAX_CONCURRENT=2",
+  "variant harness: runs on the `e2e-bounds-variants` CI leg (PI_E2E_TERMINALS_MAX_CONCURRENT=2); see .github/workflows/ci-e2e-browser.yml",
 );
 
 test.describe("terminal cap", () => {
