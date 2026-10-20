@@ -22,11 +22,11 @@
 
 import { mdiChevronRight, mdiViewSplitVertical } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { useRef } from "react";
+import { useCallback, useRef } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { PopoverBoundaryProvider } from "../../lib/state/PopoverBoundaryContext.js";
 import type { SplitMode, SplitOrientation } from "../../lib/layout/split-state.js";
-import { useSplitRatio } from "../../lib/layout/useSplitRatio.js";
+import { type AxisRect, ratioFromPointer } from "../../lib/layout/useSplitRatio.js";
 import { SplitDivider } from "./SplitDivider.js";
 import { RestoreTab } from "./RestoreTab.js";
 
@@ -64,7 +64,39 @@ export function SplitWorkspace({
   // so those popovers flip/clamp against this offset `overflow-hidden` pane
   // rather than the viewport. See change: fix-popover-container-clip.
   const chatPaneRef = useRef<HTMLDivElement>(null);
-  const applyRatio = useSplitRatio(containerRef, orientation, onRatioChange);
+  const editorPaneRef = useRef<HTMLDivElement>(null);
+
+  const ratioAt = useCallback(
+    (clientPos: number): number | null => {
+      const el = containerRef.current;
+      if (!el) return null;
+      const box = el.getBoundingClientRect();
+      const rect: AxisRect =
+        orientation === "h" ? { start: box.left, size: box.width } : { start: box.top, size: box.height };
+      return ratioFromPointer(orientation, clientPos, rect);
+    },
+    [orientation],
+  );
+  // Drag preview writes flex-grow straight to the DOM (no React render, no
+  // storage write per frame); the single commit happens on release.
+  // See change: fix-split-divider-drag (D5).
+  const previewRatio = useCallback(
+    (clientPos: number) => {
+      const r = ratioAt(clientPos);
+      if (r === null) return;
+      if (chatPaneRef.current) chatPaneRef.current.style.flexGrow = String(r);
+      if (editorPaneRef.current) editorPaneRef.current.style.flexGrow = String(1 - r);
+    },
+    [ratioAt],
+  );
+  const commitRatio = useCallback(
+    (clientPos: number | null) => {
+      if (clientPos === null) return;
+      const r = ratioAt(clientPos);
+      if (r !== null) onRatioChange(r);
+    },
+    [ratioAt, onRatioChange],
+  );
 
   const isClosed = mode === "closed";
   const isSplit = mode === "split";
@@ -117,7 +149,8 @@ export function SplitWorkspace({
         <SplitDivider
           key="divider"
           orientation={orientation}
-          onResize={applyRatio}
+          onResize={previewRatio}
+          onResizeEnd={commitRatio}
           data-testid="split-divider"
           title={i18nT("common.dragToResize", undefined, "Drag to resize")}
         />
@@ -128,6 +161,7 @@ export function SplitWorkspace({
       {!isClosed && (
         <div
           key="editor"
+          ref={editorPaneRef}
           data-testid="split-editor-pane"
           className="flex min-h-0 min-w-0 flex-col overflow-hidden"
           style={isSplit ? { flexGrow: 1 - ratio, flexShrink: 1, flexBasis: 0 } : { flex: "1 1 0" }}
