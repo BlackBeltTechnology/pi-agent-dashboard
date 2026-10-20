@@ -1939,6 +1939,7 @@ export const zhCNCatalog: Record<string, string> = {
   "diff.changedThisTurn": "本轮已更改",
   "editor.backToTargets": "← 目标",
   "editor.binaryFileNotice": "此文件为二进制文件，无法在此显示。",
+  "editor.binaryOpenWith": "可以使用插件打开：",
   "editor.changedOnDiskStale": "已在磁盘上更改。缓存的视图已过时。",
   "editor.close": "关闭",
   "editor.closeEditor": "关闭编辑器",

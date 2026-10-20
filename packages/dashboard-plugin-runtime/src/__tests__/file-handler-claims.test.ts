@@ -165,6 +165,39 @@ describe("registry hash — file-handler (#E5)", () => {
   });
 });
 
+describe("siblingExtensions (extend-craft-web-to-all-apps D6, test-plan #E15 / #E16)", () => {
+  const sib = (over: Record<string, unknown>) => claim({ id: "raster", extensions: [".jpg"], siblingExtensions: [".psd"], ...over });
+  const expectFail = (c: Record<string, unknown>, ...parts: string[]) => {
+    try {
+      validateManifest(manifest(c));
+      expect.fail("should have thrown");
+    } catch (e) {
+      expect(e).toBeInstanceOf(ManifestValidationError);
+      expect((e as ManifestValidationError).pluginId).toBe("demo");
+      for (const p of parts) expect((e as Error).message).toContain(p);
+    }
+  };
+
+  it("E15: an edit claim [.jpg] + sibling [.psd] is accepted and survives validation", () => {
+    const v = validateManifest(manifest(sib({})));
+    expect(v.claims[0]).toMatchObject({ extensions: [".jpg"], siblingExtensions: [".psd"] });
+  });
+
+  it("E15: preview claim with siblings, sibling .md, sibling also in extensions, sibling without a dot → throw naming plugin, claim and extension", () => {
+    expectFail(sib({ mode: "preview", copySuffix: undefined }), "raster", "siblingExtensions", 'mode "edit"');
+    expectFail(sib({ siblingExtensions: [".md"] }), "raster", ".md");
+    expectFail(sib({ extensions: [".jpg", ".psd"] }), "raster", ".psd", "also in");
+    expectFail(sib({ siblingExtensions: ["psd"] }), "raster", "psd");
+    expectFail(sib({ siblingExtensions: [] }), "raster", "non-empty");
+  });
+
+  it("E16: two manifests differing only in siblingExtensions hash differently; absent key keeps the old serialization", () => {
+    const plugin = (over: Record<string, unknown>) => [{ manifest: { id: "p", displayName: "p", claims: [sib(over)] } as unknown as PluginManifest }];
+    expect(pluginRegistryHash(plugin({}))).not.toBe(pluginRegistryHash(plugin({ siblingExtensions: [".psd", ".tif"] })));
+    expect(deterministicSerializePlugins([{ manifest: { id: "p", displayName: "p", claims: [claim()] } as unknown as PluginManifest }])).not.toContain("siblingExtensions");
+  });
+});
+
 describe("registry generation — file-handler claim metadata (#E4)", () => {
   let tmpDir: string;
   beforeEach(() => {
@@ -195,5 +228,27 @@ describe("registry generation — file-handler claim metadata (#E4)", () => {
     expect(out).toContain(
       'fileHandler: {"id":"word","extensions":[".docx"],"mode":"edit","label":"Edit in Word","keepAlive":{"max":2},"maxBytes":1000,"copySuffix":"word"}',
     );
+  });
+
+  it("emits siblingExtensions into the client registry (E15: survives registry generation)", async () => {
+    const pkgDir = path.join(tmpDir, "packages", "photo-plugin");
+    fs.mkdirSync(path.join(pkgDir, "src", "client"), { recursive: true });
+    fs.writeFileSync(
+      path.join(pkgDir, "package.json"),
+      JSON.stringify({
+        name: "photo-plugin",
+        "pi-dashboard-plugin": {
+          id: "pc",
+          displayName: "PC",
+          client: "./src/client/index.tsx",
+          claims: [claim({ id: "raster", extensions: [".jpg"], siblingExtensions: [".psd"] })],
+        },
+      }),
+    );
+    fs.writeFileSync(path.join(pkgDir, "src", "client", "index.tsx"), "export function Handler() { return null; }\n");
+    const { viteDashboardPluginsPlugin } = await import("../vite-plugin/index.js");
+    await (viteDashboardPluginsPlugin(tmpDir) as { buildStart?: () => void }).buildStart?.();
+    const out = fs.readFileSync(path.join(tmpDir, "packages", "client", "src", "generated", "plugin-registry.tsx"), "utf-8");
+    expect(out).toContain('"copySuffix":"word","siblingExtensions":[".psd"]');
   });
 });

@@ -235,7 +235,7 @@ One dispatcher module (`src/server/validators/index.mjs`, worker-safe) is regist
   - any `on*` attribute;
   - SMIL `set`/`animate*` whose `attributeName` is `on*`, `href` or `xlink:href`;
   - `javascript:`, `vbscript:` or `data:text/html` (after whitespace/control-char stripping) in any URL-bearing attribute. Reason: `/api/file/raw` serves `.svg` inline (`packages/server/src/routes/file-routes.ts:1196-1201`) under a report-only default dashboard CSP (`packages/server/src/auth/csp.ts:6-10`), so a script-bearing SVG written by a frame must not reach disk. Defence in depth for the pre-existing inline-SVG raw route is a follow-up change (task 6.3). |
-| `.vectorcraft` | added after task 3.1 determines the format. If no bounded check is possible, VectorCraft ships `.svg` without a sibling extension, and `.vectorcraft` saves go to device download. |
+| `.vectorcraft` | (task 3.1) VectorCraft 0.13.1 saves JSON `{"format": "vectorcraft", "version": 4, "generator": …, "document": {…}}`: the leading `format` member and a `version` within the first 4 KiB, text ending in `}`. No JSON is parsed. |
 
 Validators are format sanity checks; only the SVG row also acts as a script filter. Polyglots that pass are accepted (trade-off). Saved files re-enter previews as untrusted, e.g. SVG via `<img>`.
 
@@ -308,3 +308,42 @@ Rollback: per app/extension, drop the claim and profile entry; core D6 can be re
 - Does PdfCraft's in-place save keep incremental-update structure (signatures)? If not, its fidelity notice must say so (task 2.5).
 - Does LightCraft open a dropped RAW as a library item that can be shown alone, or always inside its demo library? This decides whether Wave 3 is worth shipping (task 4.1).
 - `.dwg`, `.odt`, `.rtf` and each raster extension are in scope (decided 2026-10-20), each gated by its e2e/fixture spike: does the web build open the file on drop and save the same extension in place (or the declared sibling)? A failure drops that extension from its claim, recorded here; it does not block the rest of its wave.
+
+## Implementation findings (ship-it, 2026-10-20)
+
+Fixture spikes (task 2.3, 2.5) ran in `/tmp/craftweb-spike/apps2` with the real post-install v2, shim v2 and the production CSP:
+
+- **`.dwg` (CADCraft 0.8.0): dropped.** The web build refuses DWG ("DWG files can't be opened in the web build yet; save as DXF"). The opened fallback then reported its default `Drawing1`; the save was suggested as `Drawing1.dxf` and routed to device download (other type), so nothing was overwritten. This is the D4 accepted cost; the claim lists `.dxf` only.
+- **`.odt` / `.rtf` (WordCraft 0.8.0): dropped** (decided 2026-10-20). Both open on drop, but Ctrl+S always writes `letter.docx`, so the in-place gate fails. Follow-up candidate: a type B claim (`.odt .rtf` with `.docx` as sibling). Their validators stay in the dispatcher (reject-only, unused).
+- **PdfCraft 0.9.0 saves incrementally:** an added comment was appended as an incremental update; the original bytes stayed a byte-for-byte prefix of the saved file. A save without edits writes the original bytes. The fidelity note says so.
+- **GridCraft 0.8.0:** title `budget.xlsx — Edited` persists after a picker save; the acknowledged own save clears dirty (`cleanOnAckedSave`). A workbook without `xl/styles.xml` shows a blocking "no styles part" dialog, so the committed fixture carries one.
+- **CADCraft `.dxf`, DesignCraft, SoundCraft:** opened via the fallback (`confirmed:false`), dirty after input, clean after the acknowledged own save; DesignCraft keeps `assets/`; CADCraft writes DXF R2000 with the drawn circle.
+- **SoundCraft opened from a file saves under the file's name** (`mix.scraftz`, inner session renamed), not the session name. `saveName: "inner-title"` is kept as specified (decided 2026-10-20): the extra first question stays a safe default for demo-session saves.
+
+Wave 2 spikes (tasks 3.1, 3.7–3.9):
+
+- **`.vectorcraft` is JSON** (`application/json`), bounded check above. Ctrl+S in VectorCraft opens its own Save As dialog (name `shapes.vectorcraft`, format VectorCraft); OK posts the save. Choosing SVG in that dialog's format list was not exercised: a same-extension save would route as an ordinary own save (overwrite path) if VectorCraft offers it.
+- **PhotoCraft 0.10.0** opens `.psd .png .jpg .jpeg .webp .tif .tiff` on drop and always saves `<stem>.psd` (`8BPS` v1); a `.psd` reopens and saves in place. Every raster extension passed its gate.
+- **DeckCraft 0.7.0** opens `.pptx` and `.deckcraft` (fallback, no title) and saves `talk.deckcraft` (`mimetype` + `presentation.json`).
+- **Create and open** needs the host to open a file in a mode: `FileHandlerProps.openFile?(path, claimId?)` (additive, optional; an older runtime simply hides "Create and open").
+
+Wave 3 RAW spike (task 4.1) — **go**:
+
+- LightCraft 0.9.1 with `after-start-call start(font)` + `workerTrampoline` prepares and starts under the production CSP. A dropped CC0 DNG (Sigma fp, `raw.pixls.us`, 2.1 MB) opens selected in the develop view (histogram, EXIF, Light panel); the demo library stays visible in the filmstrip around it.
+- Opened via the fallback (`confirmed:false`) about 10 s after the host's `open` (3 s drop fallback + decode + 5 s `openedFallbackMs`), inside the 15 s open budget but close to it. A Samsung `.dng` from the same site was a JPEG in disguise (`FFD8`); only real TIFF-based DNGs are used.
+- Rendering stays interactive in headless Chromium with SwiftShader; no page-thread stall was measured beyond the decode. The `lightcraft_zh_hans.otf` font is absent from the release, so one `ERR_FAILED` resource error is logged (the app falls back as designed).
+- Every claimed RAW extension passed its open gate with a raw.pixls.us sample (CR2 PowerShot S2 IS, CR3 EOS R6 Mark III, NEF D2H, ARW DSLR-A330, RAF FinePix S5000, ORF C5050Z, RW2 DC-GH5S): each shows the photo in the develop view. For the ARW and RAF samples LightCraft shows its own "Preview only" note (it views the embedded JPEG of an unsupported camera variant); that is still a view, so the extensions stay.
+
+Wave 4 media-project spike (task 5.1) — **deferred to `add-craft-web-media-projects`**: FilmCraft 0.9.0 starts with the `load-ready-ms` hook, accepts several synthetic drops (media land as `/files/<name>`), and saves projects that reference media only by those VFS paths. Whether a project dropped after its media resolves them could not be told apart from the demo project; OPFS recovery writes fail (logged). EffectCraft's `window.effectcraft.addFile` is the more direct route. No FilmCraft/EffectCraft claim ships here; the follow-up change starts with a from-scratch project spike.
+
+Upstream issues (task 6.1, filed 2026-10-20 after approval; drafts in `upstream-issues.md`):
+
+- Viewport `Title` naming the document: pdfcraft#3640, cadcraft#1717, designcraft#1356, soundcraft#809, deckcraft#1058, lightcraft#2397, filmcraft#2579 (`https://github.com/storytold/<app>/issues/<n>`).
+- DeckCraft web 0.8.0 `process::id` panic: https://github.com/storytold/deckcraft/issues/1059
+- FigCraft dropped-file open: https://github.com/storytold/figcraft/issues/916
+- Common `window.<app>.request` API: https://github.com/storytold/craft-libs/issues/193
+- GridCraft `— Edited` kept after save: https://github.com/storytold/gridcraft/issues/2050
+
+Harness finding (ship-it step 3, decided 2026-10-20 — option A): **PhotoCraft 0.10.0 fetches `app/parts.txt` and a split wasm part `app/photocraft-web-<hash>.part-aa`**, which the core `serveApp` extension allowlist refuses (404 → "could not be opened"); the spike server served every file and hid it. Fix: additive `ServeAppOptions.extraTypes` (exact new lower-case extensions → `text/plain; charset=utf-8` or `application/octet-stream` only; same CSP, containment, nosniff, CORS headers; a bad key or any other type throws at mount) fed from the profile field `extraAssetTypes` (PhotoCraft: `.txt`, `.part-aa`). Rollback: drop the profile field; an older runtime ignores the option and PhotoCraft fails to start (status stays `ok`, the frame reports could-not-open).
+
+Integration evidence (task 6.3, final tree 6165f37f5 + merge of origin/develop): full `vitest run` 40 997 passed (one timing flake in `scripts/__tests__/test-down-recorder.test.mjs` passes alone); craft-web e2e table 71/71 passed against a freshly built docker harness (F1/F2/F3/F4/F5/F6/F7/F8/F9/F10/F11/F12/F15, P1 ≤ 10 s per app); related `editor-pane-file-handler`, `csp`, `editor-pane` specs 20 passed. Local harness workaround (not committed): develop's browse-root confinement refuses the e2e helper's add-folder flow for `/fixtures/sample-git`, so the fixture was pre-pinned in `preferences.json`. `quality:changed` pieces: tsc 0, lint:e2e ok; Biome reports only complexity warnings in touched files; `z-layer-lint` and `knip-ratchet` (+4) fail identically on develop.

@@ -10,10 +10,10 @@ When enabled, the plugin SHALL contribute file handlers only for apps that have 
 
 | Extension(s) | App | Mode | Saves in another type become |
 |---|---|---|---|
-| `.docx` `.odt` `.rtf` | WordCraft | edit | device download |
+| `.docx` | WordCraft | edit | device download |
 | `.xlsx` | GridCraft | edit | device download |
 | `.pdf` | PdfCraft | edit | device download |
-| `.dxf` `.dwg` | CADCraft | edit | device download |
+| `.dxf` | CADCraft | edit | device download |
 | `.designcraft` | DesignCraft | edit | device download |
 | `.scraftz` | SoundCraft | edit | device download |
 | `.psd` | PhotoCraft | edit | device download |
@@ -23,7 +23,7 @@ When enabled, the plugin SHALL contribute file handlers only for apps that have 
 | `.pptx` | DeckCraft | edit | `.deckcraft` sibling |
 | `.dng` `.cr2` `.cr3` `.nef` `.arw` `.raf` `.orf` `.rw2` | LightCraft | preview | device download |
 
-Each edit handler SHALL use a size limit: the docx office cap for `.docx`, `.odt` and `.rtf`, the sheet office cap for `.xlsx`, the pptx office cap for `.pptx`, and the core handler ceiling otherwise. It SHALL ask to be kept alive, carry the app's fidelity notice as its first-overwrite notice, and use the app id as its copy suffix. For an app known not to signal which document it opened, that notice SHALL also ask the user to check that the app shows the tab's file. An app without a verified web build version SHALL contribute no handler; if one is nevertheless present, it SHALL show as not verified and load nothing. An app disabled in the plugin settings SHALL show its mode as unavailable with that reason, and the server SHALL refuse to prepare it or save through it. FilmCraft, EffectCraft and FigCraft SHALL contribute no handler.
+Each edit handler SHALL use a size limit: the docx office cap for `.docx`, the sheet office cap for `.xlsx`, the pptx office cap for `.pptx`, and the core handler ceiling otherwise. It SHALL ask to be kept alive, carry the app's fidelity notice as its first-overwrite notice, and use the app id as its copy suffix. For an app known not to signal which document it opened, that notice SHALL also ask the user to check that the app shows the tab's file. An app without a verified web build version SHALL contribute no handler; if one is nevertheless present, it SHALL show as not verified and load nothing. An app disabled in the plugin settings SHALL show its mode as unavailable with that reason, and the server SHALL refuse to prepare it or save through it. FilmCraft, EffectCraft and FigCraft SHALL contribute no handler.
 
 #### Scenario: Verified app
 - **WHEN** the plugin is enabled, WordCraft has a verified web version, and the user opens `report.docx`
@@ -231,6 +231,7 @@ The plugin SHALL register a content validator for each of its edit handlers that
 | `.designcraft` `.scraftz` `.deckcraft` | zip package containing the app's required document members |
 | `.psd` | Photoshop document signature and a supported version |
 | `.png` `.jpg` `.jpeg` `.webp` `.tif` `.tiff` | the signature of the image format the extension names |
+| `.vectorcraft` | a VectorCraft JSON document: an object starting with the `"format": "vectorcraft"` member and declaring a version |
 | `.svg` | an XML document without a document type declaration whose first element is `svg`, checked in full, that cannot run script when opened directly in a browser: no script-capable or foreign-content element, no event-handler attribute, no animation that sets an event handler or link, and no script URL, also when written with namespace prefixes or character references |
 
 A save in an extension the handler does not declare as its own or sibling type SHALL be rejected.

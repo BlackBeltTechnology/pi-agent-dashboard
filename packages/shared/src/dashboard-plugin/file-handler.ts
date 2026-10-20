@@ -49,6 +49,8 @@ export interface FileHandlerClaimMeta {
   maxBytes?: number;
   firstOverwriteNotice?: string;
   copySuffix?: string;
+  /** Edit mode: native sibling extensions (`write-binary?mode=copy&siblingExt=`). See change: extend-craft-web-to-all-apps (D6). */
+  siblingExtensions?: string[];
   validator?: boolean;
 }
 

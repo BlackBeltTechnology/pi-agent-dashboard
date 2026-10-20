@@ -31,6 +31,9 @@ A save performed through a handler SHALL count as the pane's own save for the ch
 - It SHALL never overwrite an existing file, including under concurrent saves, and SHALL take the source file's permissions, or default permissions when the source no longer exists.
 - It SHALL pass the same authority, containment, size and validator checks as a copy, with the validator judging the bytes as the sibling extension.
 - An overwrite SHALL never target a sibling extension.
+- A sibling copy SHALL NOT show the first-overwrite notice; when every sibling name is taken it SHALL be reported to the handler as an unresolved conflict.
+
+After a successful save a handler MAY ask core to open a workspace file in a new tab, optionally in one of its own plugin's modes; a core without that ability leaves the request unavailable rather than failing the save.
 
 #### Scenario: Clean overwrite
 - **WHEN** a handler saves `report.docx` as an overwrite while it is unchanged on disk

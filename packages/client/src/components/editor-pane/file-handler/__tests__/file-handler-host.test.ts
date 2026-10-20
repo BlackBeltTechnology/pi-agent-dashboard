@@ -346,3 +346,34 @@ describe("save() — copy target", () => {
     expect(await m.host.save(ab("x"), { target: "copy" })).toMatchObject({ ok: false, reason: "rejected", message: "no free name" });
   });
 });
+
+describe("save() — sibling target (extend-craft-web-to-all-apps D6)", () => {
+  const SIB = { extensions: [".jpg"], siblingExtensions: [".psd"], firstOverwriteNotice: "Check before overwriting." };
+
+  it("posts mode=copy&siblingExt, no expectSha1, no first-overwrite notice; notifies the new file", async () => {
+    router = (c) => (isWrite(c) ? writeRes(200, { success: true, data: { path: "photo.psd", mtime: 3, sha1: "s" } }) : digestRes("v1"));
+    const m = mk({ path: "photo.jpg" }, SIB as never);
+    const res = await m.host.save(ab("psd"), { target: "sibling", ext: ".psd" });
+    expect(res).toMatchObject({ ok: true, path: "photo.psd" });
+    const w = calls.find(isWrite) as Call;
+    expect(w.url.searchParams.get("mode")).toBe("copy");
+    expect(w.url.searchParams.get("siblingExt")).toBe(".psd");
+    expect(w.url.searchParams.has("expectSha1")).toBe(false);
+    expect(m.asks).toHaveLength(0);
+    expect(m.isFirst()).toBe(false);
+    expect(m.deps.notifyCopy).toHaveBeenCalledWith("photo.psd");
+  });
+
+  it("409 (every sibling name taken) → conflict-unresolved", async () => {
+    router = (c) => (isWrite(c) ? writeRes(409, { success: false, error: "no free name for the copy" }) : digestRes("v1"));
+    const m = mk({ path: "photo.jpg" }, SIB as never);
+    expect(await m.host.save(ab("psd"), { target: "sibling", ext: ".psd" })).toMatchObject({ ok: false, reason: "conflict-unresolved" });
+  });
+
+  it("an undeclared extension is rejected without a request", async () => {
+    router = () => digestRes("v1");
+    const m = mk({ path: "photo.jpg" }, SIB as never);
+    expect(await m.host.save(ab("x"), { target: "sibling", ext: ".exe" })).toMatchObject({ ok: false, reason: "rejected" });
+    expect(calls.some(isWrite)).toBe(false);
+  });
+});
