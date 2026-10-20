@@ -136,7 +136,7 @@ Spike harness + procedure: project skill `spike-craft-web-app-in-sandbox` (`/tmp
 
 - [x] 6.1 Draft upstream issues for `storytold/*` and file them only after the user approves each draft: viewport `Title` signal (per app lacking it), DeckCraft 0.8.0 `process::id` panic on wasm, FigCraft dropped-file open, common `window.<app>.request` control API, GridCraft dirty cleared after a picker save. Verify: issue URLs listed in `design.md` §Context.
 - [x] 6.2 Scaffold a follow-up change (`openspec new change`) for defence in depth on `/api/file/raw` SVG responses (e.g. `Content-Security-Policy: sandbox` for `.svg`), which today are served inline (`packages/server/src/routes/file-routes.ts:1196-1201`). Verify: the change directory exists with a proposal.
-- [ ] 6.3 Integration: full `npm test` and the table-driven e2e over every shipped row; `npm run quality:changed`. Verify: `/tmp/pi-test.log` shows no failures; e2e report green for all shipped rows.
+- [x] 6.3 Integration: full `npm test` and the table-driven e2e over every shipped row; `npm run quality:changed`. Verify: `/tmp/pi-test.log` shows no failures; e2e report green for all shipped rows.
 
 ## Workflow follow-up
 
