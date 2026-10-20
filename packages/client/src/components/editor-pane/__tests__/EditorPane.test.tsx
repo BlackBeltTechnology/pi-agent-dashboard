@@ -54,6 +54,7 @@ vi.mock("../MonacoBuffer.js", async () => {
   };
 });
 
+import { nextFrame, pointerDown, pointerMove, pointerUp } from "../../../test-support/pointer.js";
 import { TREE_VISIBLE_KEY_PREFIX } from "../../../lib/util/tree-visible.js";
 import { SplitWorkspaceProvider, useSplitWorkspace } from "../../split/SplitWorkspaceContext.js";
 import { EditorPane } from "../EditorPane.js";
@@ -186,6 +187,64 @@ describe("EditorPane — rail toggle (#6)", () => {
     expect(toggle.getAttribute("aria-pressed")).toBe("false");
     expect(screen.queryByTestId("rail-divider")).toBeNull();
     expect(localStorage.getItem(`${TREE_VISIBLE_KEY_PREFIX}s1`)).toBe("false");
+  });
+});
+
+// Rail divider drag — DOM preview per frame, one commit on release.
+// See change: fix-split-divider-drag (test-plan E19–E21, E25).
+describe("EditorPane — rail divider drag (fix-split-divider-drag)", () => {
+  function openRail(sessionId = "s1") {
+    renderPane(sessionId);
+    fireEvent.click(screen.getByTestId("tree-toggle"));
+    const divider = screen.getByTestId("rail-divider");
+    const rail = divider.previousElementSibling as HTMLElement;
+    const row = divider.parentElement as HTMLElement;
+    row.getBoundingClientRect = () =>
+      ({ left: 0, width: 1000, top: 0, height: 400, right: 1000, bottom: 400, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+    return { divider, rail };
+  }
+
+  it("E19: held moves preview the rail width in the DOM, clamped 160..480", async () => {
+    const { divider, rail } = openRail();
+    pointerDown(divider, { clientX: 224 });
+    pointerMove(window, { clientX: 100 });
+    await nextFrame();
+    expect(rail.style.width).toBe("160px");
+    pointerMove(window, { clientX: 300 });
+    await nextFrame();
+    expect(rail.style.width).toBe("300px");
+    pointerMove(window, { clientX: 600 });
+    await nextFrame();
+    expect(rail.style.width).toBe("480px");
+  });
+
+  it("E20: a drag persists the rail width exactly once, on release", async () => {
+    const { divider } = openRail();
+    const setItem = vi.spyOn(Storage.prototype, "setItem");
+    pointerDown(divider, { clientX: 224 });
+    for (const x of [240, 260, 280, 300]) {
+      pointerMove(window, { clientX: x });
+      await nextFrame();
+    }
+    expect(setItem.mock.calls.filter(([k]) => k === "pi-dashboard:rail:s1")).toHaveLength(0);
+    pointerUp(window, { clientX: 300 });
+    const writes = setItem.mock.calls.filter(([k]) => k === "pi-dashboard:rail:s1");
+    expect(writes).toHaveLength(1);
+    expect(Number(writes[0][1])).toBe(300);
+  });
+
+  it("E21: press + release without movement keeps the width and writes nothing", () => {
+    const { divider, rail } = openRail();
+    const setItem = vi.spyOn(Storage.prototype, "setItem");
+    pointerDown(divider, { clientX: 224 });
+    pointerUp(window, { clientX: 224 });
+    expect(rail.style.width).toBe("224px");
+    expect(setItem.mock.calls.filter(([k]) => String(k).startsWith("pi-dashboard:rail:"))).toHaveLength(0);
+  });
+
+  it("E25: the rail divider sets touch-action:none", () => {
+    const { divider } = openRail();
+    expect(divider.style.touchAction).toBe("none");
   });
 });
 
