@@ -56,6 +56,9 @@ export function decideSkipWipe(i: SkipWipeInput): { skip: boolean; reason: SkipW
   if (i.eventCount === undefined) return { skip: false, reason: "no-event-count" };
   if (i.leafEntryId === undefined) return { skip: false, reason: "no-leaf" };
   if (!i.hasEvents) return { skip: false, reason: "no-events" };
+  // Bridge-learned: the store was built by that bridge's own replay, so no
+  // `liveTailOpen` / `storeMaxSeq` check applies (unlike the hydration arm below,
+  // whose store holds fabricated closed-tail ends and can be touched afterwards).
   if (i.bridgeLearned.entryCount === i.eventCount && i.bridgeLearned.leafEntryId === i.leafEntryId) {
     return { skip: true, reason: "bridge-learned" };
   }

@@ -25,6 +25,7 @@ One row per file.
 | `hermes-model-override.spec.ts` | L3 F3 → see `hermes-model-override.spec.ts.AGENTS.md` |
 | `kb-settings-sources-search.spec.ts` | L3 KB settings sources + search. → see `kb-settings-sources-search.spec.ts.AGENTS.md` |
 | `known-server-stale-name.spec.ts` | L3 stale known-server name. → see `known-server-stale-name.spec.ts.AGENTS.md` |
+| `large-session-resume-replay.spec.ts` | → see `large-session-resume-replay.spec.ts.AGENTS.md` |
 | `lazy-islands.spec.ts` | → see `lazy-islands.spec.ts.AGENTS.md` |
 | `live-server-downloads.spec.ts` | L3 #F1/#X1 |
 | `local-credential-proof-nat.spec.ts` | L3 #X9: published-port proof. → see `local-credential-proof-nat.spec.ts.AGENTS.md` |

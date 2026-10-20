@@ -1,6 +1,6 @@
 import { connectBus, expect, type Page, test } from "./fixtures.js";
 import { gatewayUrlWithTicket, pairDeviceBearer } from "./helpers/bridge-credential.js";
-import { FIXTURE_GIT, gotoDashboard, pinDirectory } from "./helpers/index.js";
+import { FIXTURE_GIT, gotoDashboard } from "./helpers/index.js";
 import { BASE_URL } from "./lifecycle.js";
 
 /**
@@ -66,9 +66,22 @@ async function openBridgeSocket(page: Page): Promise<FakeBridge> {
   };
 }
 
+/**
+ * Pin the fixture folder over the bus. The Add-folders dialog (`pinDirectory`)
+ * browses through the confined `/api/browse`, which refuses `/fixtures/...`
+ * (outside `$HOME` + pinned dirs); `pin_directory` is not confined.
+ */
 async function ensurePinned(page: Page): Promise<void> {
   const body = (await (await page.request.get("/api/pinned-dirs")).json()) as { data?: string[] };
-  if (!(body.data ?? []).includes(FIXTURE_GIT)) await pinDirectory(page, FIXTURE_GIT);
+  if ((body.data ?? []).includes(FIXTURE_GIT)) return;
+  const bus = await connectBus();
+  try {
+    const ack = bus.waitFor((m) => m.type === "pinned_dirs_updated", { timeout: 20_000, label: `pin(${FIXTURE_GIT})` });
+    bus.send({ type: "pin_directory", path: FIXTURE_GIT });
+    await ack;
+  } finally {
+    bus.close();
+  }
 }
 
 /** `maxReplayEvents` in force (config default 2,000 when never written). */
