@@ -150,13 +150,14 @@ export function SessionActionsPanel({
     };
   }, [pluginContainer, close]);
 
-  // Initial focus (click / keyboard / right-click open; never for hover).
-  // biome-ignore lint/correctness/useExhaustiveDependencies: runs once per open.
+  // Initial focus (click / keyboard / right-click open; never for hover). Re-runs
+  // when a trigger click pins a hover-opened menu (`source` hover → trigger).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `panelRef` is a stable ref.
   React.useEffect(() => {
     if (source === "hover") return;
     const first = focusables(panelRef.current as HTMLElement).find(isEnabled);
     first?.focus();
-  }, []);
+  }, [source]);
 
   // Live re-derive: keep focus on the same item by id; when it vanished, fall
   // to the first enabled item instead of <body>.

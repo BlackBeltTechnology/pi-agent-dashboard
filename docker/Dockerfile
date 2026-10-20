@@ -122,14 +122,14 @@ RUN npm install -g @earendil-works/pi-coding-agent@1.3.0 openspec \
 # selectively wires them per PI_TEST_PEERS (both|no-am|legacy|bad-registration)
 # so the L3 harness can drive real flows + assert the bridge state machine. Kept
 # non-fatal on version probe, fatal on install, same as the pi install above.
-ARG PI_FLOWS_VERSION=0.3.2
+ARG PI_FLOWS_VERSION=0.8.0
 ARG PI_ANTHROPIC_MESSAGES_VERSION=0.3.4
 # pi-dashboard-subagents is the ONLY producer of `tool_execution_update` for a
 # subagent: its `extensions/agent.ts` drives `createProgressEmitter` ->
 # `progress.schedule(details)` into the tool's `onProgress` callback. Without it
 # the collapse scenarios (P2/F4) have no workload and pass vacuously.
 # See change: collapse-superseded-tool-execution-updates.
-ARG PI_DASHBOARD_SUBAGENTS_VERSION=0.4.0
+ARG PI_DASHBOARD_SUBAGENTS_VERSION=0.5.0
 RUN npm install -g \
       "@blackbelt-technology/pi-flows@${PI_FLOWS_VERSION}" \
       "@blackbelt-technology/pi-anthropic-messages@${PI_ANTHROPIC_MESSAGES_VERSION}" \

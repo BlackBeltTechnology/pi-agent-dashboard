@@ -1,6 +1,7 @@
 /**
- * The session actions flyout's always-mounted half: the header trigger
- * (`mdiDotsVertical`, `session-actions-trigger-<id>`) plus the open state wiring.
+ * The session actions flyout's always-mounted half: the card-edge trigger
+ * (a centred three-dot pill on the card's right edge, `session-actions-trigger-<id>`)
+ * plus the open state wiring.
  * The `role="menu"` PANEL — groups, `More…`, roving focus, plugin hosting, and the
  * `deriveSessionMenu` call itself — lives in `SessionActionsPanel` and is
  * code-split (`lazy-session-menu.ts`), so none of it loads on the cold landing; the
@@ -12,12 +13,10 @@
  * `fixed` beside the card (`useSideFlyoutPosition`), portaled with `LayerPortal`
  * at the `z-popover` layer. See `docs/session-actions-menu.md`.
  *
- * See change: add-session-actions-flyout.
+ * See change: add-session-actions-flyout, move-session-actions-trigger-to-card-edge.
  */
 import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { mdiDotsVertical } from "@mdi/js";
-import { Icon } from "@mdi/react";
 import React, { Suspense } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import type { SessionMenuCtx, SessionMenuGroup } from "../../lib/session/session-menu-items.js";
@@ -88,7 +87,7 @@ export function SessionActionsMenu({ session, groups, ctx, open, source, point, 
   );
 
   return (
-    <span className="relative inline-flex">
+    <span className="card-edge-trigger absolute right-[-6px] top-1/2 -translate-y-1/2">
       <button
         ref={triggerRef}
         type="button"
@@ -101,7 +100,9 @@ export function SessionActionsMenu({ session, groups, ctx, open, source, point, 
         onFocus={prefetchSessionActionsPanel}
         onClick={(e) => {
           e.stopPropagation();
-          if (open) onOpenChange(false);
+          // A click on a hover-opened menu pins it (the dwell often fires just
+          // before the click lands); a click-opened menu toggles closed.
+          if (open && source !== "hover") onOpenChange(false);
           else onOpenChange(true, { source: "trigger", opener: triggerRef.current });
         }}
         onKeyDown={(e) => {
@@ -110,9 +111,13 @@ export function SessionActionsMenu({ session, groups, ctx, open, source, point, 
             close(true);
           }
         }}
-        className="focus-ring inline-flex items-center justify-center min-h-[44px] min-w-[44px] sm:min-h-[32px] sm:min-w-[32px] rounded flex-shrink-0 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+        className="focus-ring relative inline-flex items-center justify-center flex-shrink-0 w-[13px] h-[26px] rounded-lg bg-[var(--bg-primary)] border border-[var(--border-subtle)] text-[var(--text-tertiary)] group-hover/card:text-[var(--text-secondary)] group-hover/card:border-[var(--border-primary)] focus-visible:text-[var(--text-secondary)] focus-visible:border-[var(--border-primary)] aria-expanded:text-[var(--text-secondary)] aria-expanded:border-[var(--border-primary)] hover:bg-[var(--bg-hover)] before:content-[''] before:absolute before:top-0 before:bottom-0 before:right-0 before:w-[24px]"
       >
-        <Icon path={mdiDotsVertical} size={0.5} />
+        <svg width="3" height="13" viewBox="0 0 3 13" fill="currentColor" aria-hidden="true" focusable="false">
+          <circle cx="1.5" cy="1.5" r="1.5" />
+          <circle cx="1.5" cy="6.5" r="1.5" />
+          <circle cx="1.5" cy="11.5" r="1.5" />
+        </svg>
       </button>
       {open && (
         <LayerPortal>

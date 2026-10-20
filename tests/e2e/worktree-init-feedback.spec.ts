@@ -34,10 +34,10 @@ function folderGroup(page: Page, basename: string): Locator {
  * the shared helper.
  *
  * This used to hand-roll the flow to dodge the old PathPicker's flaky
- * exact-partial-match Select rule. `AddFoldersDialog` confirms from its basket
- * instead — a per-row checkbox keyed by absolute path — which is deterministic,
- * so the duplication no longer buys anything. See change:
- * project-scope-disable-global-resources.
+ * exact-partial-match Select rule. `AddFoldersDialog` now commits the browsed
+ * folder when nothing is selected, and the helper asserts the status line names
+ * the exact path first — deterministic, so the duplication buys nothing. See
+ * changes: project-scope-disable-global-resources, simplify-add-folder-picker.
  */
 async function pinFixture(page: Page, cwd: string): Promise<void> {
   await ensureGitSession(page);

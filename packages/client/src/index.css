@@ -965,6 +965,15 @@ mark.markdown-search-highlight-active {
   position: absolute;
   z-index: 20;
 }
+/* Same trap for the session-actions edge trigger: its wrapper is a DIRECT
+   child of the card root, so `.card-selected-ring > *` would drop the pill into
+   normal flow on a selected card. Park it on the right edge, above content.
+   Declared after that rule so source order wins.
+   See change: move-session-actions-trigger-to-card-edge. */
+.card-edge-trigger {
+  position: absolute;
+  z-index: 20;
+}
 .card-stripes-fx,
 .card-ring-fx { z-index: -1; }
 .card-glow-mask { z-index: -2; }

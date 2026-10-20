@@ -1126,9 +1126,12 @@ describe("SessionCard directory rail", () => {
     expect(card!.className).toContain("before:-left-[11px]");
     expect(card!.className).toContain("before:w-[9px]");
     expect(card!.className).toContain("before:bg-[var(--rail-directory)]");
-    // Left padding slimmed 8px -> 6px; right padding untouched.
+    // Left padding slimmed 8px -> 6px; right padding widened 8px -> 18px: the
+    // reserved gutter for the edge-mounted actions trigger.
+    // See change: move-session-actions-trigger-to-card-edge (E3).
     expect(card!.className).toMatch(/pl-1\.5/);
-    expect(card!.className).toMatch(/pr-2/);
+    expect(card!.className).toContain("pr-[18px]");
+    expect(card!.className).not.toMatch(/(^|\s)pr-2(\s|$)/);
     // Hover group drives the drag bead reveal.
     expect(card!.className).toContain("group/card");
   });

@@ -57,6 +57,7 @@ import { StatusBar } from "./components/shell/StatusBar.js";
 import { SessionSplitView, SplitRouteSync } from "./components/split/SessionSplitView.js";
 import { SplitWorkspaceProvider } from "./components/split/SplitWorkspaceContext.js";
 import { allTagsInUse } from "./components/tags/all-tags.js";
+import { TerminalLimitNotice } from "./components/terminal/TerminalLimitNotice.js";
 import { CommitDialogProvider } from "./components/worktree/CommitDialog.js";
 import { LazyWorktreeSpawnDialog } from "./components/worktree/lazy-worktree-dialogs.js";
 import { WorktreeInitStack } from "./components/worktree/WorktreeInitStack.js";
@@ -2557,6 +2558,9 @@ export default function App() {
               </div>
             </div>
           }>
+            {/* A refused inline terminal (PTY cap) reports in the chat slot.
+                See change: harden-server-capability-bounds. */}
+            {selectedSession && <TerminalLimitNotice cwd={selectedSession.cwd} inline />}
             <SessionAssetsProvider assets={selectedSession?.assets}>
             <ChatView ref={chatViewRef} sessionId={selectedId} state={selectedState} toolContext={toolContext} onRespondToUi={handleRespondToUi} onPromptResync={requestPromptResync} onAbort={handleAbort} onForceKill={handleForceKill} onForkFromMessage={selectedId ? handleForkFromMessage : undefined} onRetryPendingPrompt={selectedId ? handleRetryPendingPrompt : undefined} onForkPendingPrompt={selectedId ? handleForkPendingPrompt : undefined} onCloseInlineTerminal={selectedId ? handleCloseInlineTerminalForSelected : undefined} pendingSteering={selectedSession?.pendingQueues?.steering ?? EMPTY_STEERING} loadingHistory={selectedId ? loadingHistory.get(selectedId) ?? false : false} retainedTranscript={selectedSession?.retainedTranscript} replayInFlight={selectedId ? replayInFlight.get(selectedId) ?? false : false} historyGap={selectedId ? historyGaps.get(selectedId) : undefined} onLoadEarlier={selectedId ? handleLoadEarlier : undefined} historySpliceRev={historySpliceRev} onCollapseStreamingThinking={selectedId ? handleCollapseStreamingThinking : undefined} historyPhase={selectedHistoryPhase?.phase ?? "idle"} historyStartedAt={selectedHistoryPhase?.startedAt} onRetryHistory={selectedId ? handleRetryHistory : undefined} />
             </SessionAssetsProvider>
@@ -2883,6 +2887,7 @@ export default function App() {
       <AddFoldersDialog
         workspaces={workspaces}
         sessionCwds={allSessionsList.map((s) => s.cwd)}
+        pinnedPaths={pinnedDirectories}
         onPin={(dirPath, piTrust) => {
           setPinnedDirectories((prev) => (prev.includes(dirPath) ? prev : [...prev, dirPath]));
           send({ type: "pin_directory", path: dirPath, piTrust });

@@ -1925,7 +1925,8 @@ function initBridge(pi: ExtensionAPI) {
   inst.sendCwdMissingIfChanged = sendCwdMissingIfChanged;
   function sendPiVersionIfChanged() { _sendPiVersionIfChanged(syncBc()); }
   inst.sendPiVersionIfChanged = sendPiVersionIfChanged;
-  // Unified EventBus rename map for the emit intercept (flow + subagent events)
+  // Unified EventBus rename map (flow + subagent events): used by `sendEventForward` for the
+  // channel→eventType rename and by `registerEventBusForwarding` for the per-channel subscription set.
   const EVENT_BUS_MAP: Record<string, string> = { ...FLOW_EVENT_MAP, ...SUBAGENT_EVENT_MAP };
 
   registerEnrichedForwarders(inst);

@@ -1073,7 +1073,7 @@ sequenceDiagram
 
 **Relationship to existing capabilities:**
 - `interactive-ui-dialogs` / `ui-proxy` / PromptBus — handle one-shot `ctx.ui.*` dialogs (request/response, awaited). The extension-ui-system handles persistent push-based descriptors (no awaiting). Orthogonal mechanisms; both ship.
-- `extension-ui-forwarding` (catch-all `pi.events.emit` forwarding) — kept for arbitrary extension events; the new system is the *declarative* path for UI specifically. Runtime behaviour stands. No authored spec — file removed (0-byte placeholder since initial commit). See change: repair-corrupted-main-specs.
+- `extension-ui-forwarding` (per-channel declared-set forwarding) — bridge forwards via one `pi.events.on` subscription per declared channel (`registerEventBusForwarding`). Channels: core `FLOW_EVENT_MAP` / `SUBAGENT_EVENT_MAP` + plugin-declared via `dashboard:register-event-forward`. RPC probe channels (`flow:list-flows`, `roles:*`, `model:resolve`, `ui:list-modules`…) kept out of core map; plugin declarations naming one not rejected. No `emit` wrapper. The new system is the *declarative* path for UI specifically. No authored spec — file removed (0-byte placeholder since initial commit). See change: repair-corrupted-main-specs. See change: skip-rpc-probes-in-event-forwarder.
 - pi-flows: in Phase 3 pi-flows itself adopts the system to surface registered workflows (breadcrumb), gates, and cards (agent-metric) for any flow-using extension automatically.
 
 **No-dashboard fallback:** When no bridge is connected, `ui:list-modules` is never emitted; extension listeners are dormant; slash commands fall back to existing text-output behavior. Extensions remain pi-runnable in pure-pi mode without code changes.
@@ -1513,16 +1513,35 @@ Automation plugin = `packages/automation-plugin/`. Schedule-triggered background
 - First consumer: chat-gateway spawn/resume (`sessionVisibility: "hidden"` default). See [`chat-gateway.md`](chat-gateway.md).
 - See change: hide-chat-gateway-sessions, fix-plugin-hidden-across-restart, add-session-close-plugin-hook.
 
-### Hermes Memory Settings Plugin (`add-hermes-memory-settings-plugin`)
+### Hermes Memory Settings Plugin (`add-hermes-memory-settings-plugin`, `resync-hermes-memory-config-0-9`)
 
 New package `packages/hermes-memory-plugin` (client + server + shared). Settings-section plugin for the external `pi-hermes-memory` pi extension.
 
 - Two Fastify routes on shared instance (`ctx.fastify`): `GET /api/plugins/hermes-memory/config` + `PUT /api/plugins/hermes-memory/config`.
-- GET returns per `MemoryConfig` field: `{ value (on-disk else default), default, isDefault }` + `filePath` + `exists` + `raw`.
+- GET returns per `MemoryConfig` field `{ value (on-disk else default), default, isDefault }` + `filePath` + `exists` + `raw`.
+- `raw` = preserved unknown keys + resolved known values. Display-only, not a valid PUT body.
+- GET mirrors upstream derivations:
+  - valid strategy → `autoConsolidate`.
+  - strategy absent + boolean `autoConsolidate` → strategy.
+  - array-form `llmModelOverride` → string primary + fallback tail.
+  - `llmModelFallbacks` / `fallbackModels` aliases unioned into `llmFallbackModels`.
 - PUT validates browser body via `validateHermesConfig` (shared) BEFORE any write — unknown-key allowlist, type/enum/numeric-bound, `correction*Patterns` regex-compile. Invalid → 400, no write.
-- Write is atomic: tmp file in same dir + `fs.rename`, pretty 2-space JSON, `mkdir -p` parent. Full resolved config written on save (every field's effective value).
+- Write atomic: tmp file in same dir + `fs.rename`, pretty 2-space JSON, `mkdir -p` parent.
+- Written object = preserved unknown on-disk keys + non-default body fields (`composeWritten` in `src/server/config-io.ts`).
+  - Default-valued fields omitted → upstream default changes flow through.
+  - `memoryOverflowStrategy` always written.
+  - Empty `llmFallbackModels` omitted.
+- Known keys come only from PUT body. Known key body omits → dropped (clear-to-inherit / reset).
+- Unknown keys come only from disk. Body unknown keys → still 400.
+- One-time legacy heal: drop `consolidationTimeoutMs` 60000 iff disk holds all 23 `LEGACY_0_8_1_DEFAULTED_KEYS` and body also 60000.
+- Strict read (`readDisk`):
+  - ENOENT → `{}`.
+  - Other read error → HTTP 500 `{ error: "hermes config file unreadable", code }` on GET + PUT, no write.
+  - Malformed / non-object JSON (BOM not stripped) → GET all defaults. PUT copies bytes to `hermes-memory-config.json.corrupt-<YYYYMMDDTHHMMSSsssZ>[-N]` (flag `wx`, mode 0600) then writes.
+  - Copy failure → 500 `{ error: "hermes config quarantine failed", code }`.
+- `__proto__` on disk kept as data. Objects built via `Object.fromEntries` + spread, never `out[k] = v`.
 - External-file contract: edits the exact file the extension loads — `PI_CODING_AGENT_DIR` (trimmed, `~`-expanded) else `<home>/.pi/agent`, then fixed `hermes-memory-config.json`. Filename never from request input (no path traversal).
-- No hermes API exists; plugin re-declares `MemoryConfig` + defaults in `src/shared/hermes-config.ts` (mirrors goal-plugin vs pi-goal-hermes). Drift risk accepted; source-version pin comment references pi-hermes-memory@0.8.1.
+- No hermes API exists; plugin re-declares `MemoryConfig` + defaults in `src/shared/hermes-config.ts` (mirrors goal-plugin vs pi-goal-hermes). Mirror pinned to pi-hermes-memory@0.9.10 (44 keys; `llmThinkingOverride` adds `max`; `consolidationTimeoutMs` default 180000). Drift guard: fixture `src/shared/__tests__/fixtures/hermes-0.9.10-fields.json` (keys + defaults from upstream `loadConfig()`); local-only check vs installed `~/.pi/agent/npm/node_modules/pi-hermes-memory` (skipped in CI).
 - `requires.piExtensions: ["pi-hermes-memory"]` — section + routes active only when extension installed.
 - Runtime caveat: hermes reads config once at extension load → edits apply to newly started sessions only ("applies to new sessions" notice in the UI), not running ones.
 - Structured logging: path + field count on read/write success, failure reason on error, NEVER field values (config may hold model/provider hints).
@@ -2921,7 +2940,7 @@ See change: widen-containment-to-resolved-checkout (was: git-root-file-containme
 
 ### Filesystem Browser (PathPicker)
 
-The dashboard's reusable directory chooser (`PathPicker`) is backed by three localhost-only endpoints:
+The dashboard's reusable directory chooser (`PathPicker`) is backed by three endpoints (full picker for local callers; remote callers confined, see Remote confinement below):
 
 - `GET /api/browse?path=<dir>&q=<query>&detect=<0|1>` — lists subdirectories of `<dir>` (or `$HOME` when omitted). By default this is a single-`readdir` enumeration with no per-entry filesystem probes; `isGit` / `isPi` are absent from each `BrowseEntry`. Pass `detect=1` (only the literal string `"1"` is truthy) to opt into eager `.git` / `.pi` classification on every entry — useful for skill recipes that consumed the legacy shape. When `q` is non-empty, entries are case-insensitive substring-filtered and ranked:
   - **Tier 0** exact match → **Tier 1** prefix → **Tier 2** word-boundary substring (after `-`, `_`, `.`, space, `/`) → **Tier 3** plain substring.
@@ -2939,6 +2958,38 @@ Client-side, `PathPicker` debounces the `q` request at 150ms and cancels in-flig
 If a debounced query is still pending when Enter fires, the client flushes it synchronously before evaluating the rules so the freshest server result is considered.
 
 New folders can be created from two entry points — a footer **＋ New folder** button (inline name entry), or an inline **＋ Create "<name>" here** row shown when the typed partial has no exact match. The create-here row is suppressed if the parsed parent differs from the last-successfully-fetched directory (prevents creating inside a stale parent after a mid-path typo). On success the picker refetches and descends into the new directory.
+
+#### Remote confinement (change: harden-server-capability-bounds)
+
+`/api/browse`, `/api/browse/flags`, `/api/browse/mkdir` confine non-local callers. Local callers (`isLocallyTrusted` true) unchanged: full picker.
+
+- Not genuinely local = tunnel, LAN, relayed loopback with forwarding header. Confined to shared roots.
+- Shared roots = `$HOME` + pinned dirs + session cwds + workspace folders + worktree-init trust roots + project-scope access-grant subjects.
+- Compare by realpath. Symlink escape refused.
+- Forbidden: `/`, `$HOME` itself as pinned root, system roots, ancestors of those, `~/.ssh`, `~/.pi`. `~/.pi` subtree refused even under `$HOME`.
+- Outside roots → 403 `path outside allowed roots`.
+- Listing: `confined: true`; `parent: null` at root top.
+- Flags: any outside path → 403 whole request.
+- mkdir: parent outside → 403 before any write.
+- Remote sockets cannot widen roots. `pin_directory`, `add_folder_to_workspace`, `move_folder_to_workspace` outside roots dropped. Server sends `folder_refused {path, reason: outside_allowed_roots}`. Client toast: "Ask the host to pin it".
+- Locality bit stamped per socket once at `/ws` upgrade. Unstamped = remote.
+- Docker: host browser hits container via port mapping = non-loopback peer. Confined to container `$HOME` + auto-pinned `PI_WORKSPACES`. Recovery actions refused there; use `docker compose restart` / `docker exec`. Set `browse.confineRemote: false` to lift it.
+- Residual: marker-less relay (`ssh -R`, no forwarding headers) looks loopback = local unless `requireLocalProof` on.
+- Operator opt-out: `config.json` `browse.confineRemote` (default `true`). Only explicit `false` disables. Read at server start (restart to apply). Off → remote callers browse / mkdir / pin like local callers. Used by the Docker e2e harness (browser = remote peer via port mapping; specs pin per-test dirs outside `$HOME`); harness env `PI_E2E_BROWSE_CONFINEMENT=1` keeps it on. Shipping installs stay confined.
+- Threat model: guards observe-tier remote viewer. Caller that may spawn session/terminal already has FS reach.
+
+#### Recovery server lockdown (change: harden-server-capability-bounds)
+
+`recovery-server.ts` serves recovery page when main server fails. Imports node built-ins only.
+
+- Binds `config.host` (default `127.0.0.1`). Never all interfaces unless operator sets `bindHost`.
+- `GET /` and `GET /api/health` stay open.
+- `POST /api/recovery/retry|reinstall` admitted iff either:
+  - local token: `x-pi-local-token`, timing-safe compare; or
+  - loopback peer AND none of 8 forwarding headers (`x-forwarded-for`, `x-forwarded-host`, `x-forwarded-proto`, `x-real-ip`, `forwarded`, `via`, `x-forwarded-server`, `x-forwarded-port`) AND loopback `Host` AND `Origin` absent or same host:port as `Host` (default port stripped; `Origin: null` refused).
+- Else 403 `text/plain` with remedy. Page shows it in `role=alert` callout. Buttons stay enabled.
+- One log line per refusal: route only, no token.
+- Residual: `ssh -R` rewriting `Host` to localhost and sending no `Origin` passes.
 
 ### Pi Resources Browser
 
@@ -5762,6 +5813,22 @@ Sidebar `[Terminals(N)]` retargets to `/folder/:cwd/editor`; badge count unchang
 Inline `!!` ephemeral cards (`InlineTerminalCard`) unchanged, excluded from tabs. Server PTY / WS protocol / `terminal-manager` unchanged.
 
 See change: terminals-in-tabbed-panes.
+
+### Terminal Caps and Orphan Reaping (change: harden-server-capability-bounds)
+
+`TerminalManager` bounds live PTYs. Config block `terminals` in `config.json`:
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `maxConcurrent` | 32 | Global live PTY cap. Tab + inline both count. |
+| `maxPerOwner` | 16 | Per `{iss,sub}` owner. Only while identity plane stamps owners. Ownerless PTYs count global only. |
+| `inlineOrphanTtlMs` | 600000 | Inline PTY TTL with no client attached. |
+
+- Each value integer >= 1, else default + one warn line.
+- Restart server to apply.
+- Refused spawn starts nothing. Requesting socket gets `terminal_limit_reached {scope: global|owner, limit, cwd, inline}`. UI shows dismissible notice.
+- Tab terminals never reaped on idleness.
+- Inline (ephemeral) PTY: clock starts at spawn, restarts at last detach. Expiry kills PTY. Transcript tombstone kept.
 
 ### Known Servers Configuration
 

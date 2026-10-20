@@ -35,6 +35,7 @@ import type { ReplayPersister } from "../lib/replay/replay-persist.js";
 import { inferPlatform, pathKey, resolveSessionGroupPath } from "../lib/session/session-grouping.js";
 import { clearRecoveryOffer, setRecoveryOffer } from "../lib/state/recovery-offer-bus.js";
 import { pushSpawnErrorToast } from "../lib/state/spawn-error-toast-bus.js";
+import { clearTerminalLimitNotices, showTerminalLimitNotice } from "../lib/state/terminal-limit-notice-store.js";
 import { isVisibleCwd } from "../lib/util/cwd-visibility.js";
 import type { OpenSpecGetInflight } from "./useOpenSpecReconcile.js";
 import type { PendingSpawnEntry } from "./useSessionActions.js";
@@ -1921,6 +1922,8 @@ export function useMessageHandler(
           next.set(msg.terminal.id, msg.terminal);
           return next;
         });
+        // A spawn succeeded: any "limit reached" notice for this cwd is stale.
+        clearTerminalLimitNotices(msg.terminal.cwd);
         // A newly-created terminal now surfaces as a `term:<id>` tab inside the
         // pane that requested it (the pane's terminal slice watches the
         // terminal set and opens the tab in-place). The standalone
@@ -1932,6 +1935,24 @@ export function useMessageHandler(
           pendingTerminalCwdRef.current = null;
           lastCreatedTerminalIdRef.current = msg.terminal.id;
         }
+        break;
+
+      // A cap refusal: notice in the slot that asked (tab bar vs chat). Sent only
+      // to the requesting socket. See change: harden-server-capability-bounds.
+      case "terminal_limit_reached":
+        showTerminalLimitNotice({ scope: msg.scope, limit: msg.limit, cwd: msg.cwd, inline: msg.inline });
+        break;
+
+      // A remote pin / add / move-folder outside the shared roots was dropped.
+      case "folder_refused":
+        showToast?.(
+          t(
+            "folderRefused.toast",
+            { path: msg.path },
+            "{path} is outside the folders this dashboard shares. Ask the host to pin it.",
+          ),
+          "error",
+        );
         break;
 
       case "terminal_removed":

@@ -145,6 +145,12 @@ jobs:
       matrix: ${{ fromJSON(needs.resolve.outputs.matrix) }}
 
     runs-on: ${{ matrix.os }}
+    # The client's vite build (run by `packages/client` prepare on install and
+    # by "Build client") outgrew Node 22's default ~2 GB heap: v0.10.0 aborted
+    # with "JavaScript heap out of memory" on macos-15-intel (Release run
+    # 39406936349). Raises the ceiling only; runners have >= 14 GB RAM.
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
 
     steps:
       - uses: actions/checkout@v4

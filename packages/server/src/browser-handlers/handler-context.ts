@@ -6,14 +6,14 @@
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { WebSocket } from "ws";
 import type { DirectoryService } from "../directory-service.js";
-import type { PendingAttachRegistry } from "../pending/pending-attach-registry.js";
 import type { PendingArchiveIntentRegistry } from "../pending/pending-archive-intent-registry.js";
+import type { PendingAttachRegistry } from "../pending/pending-attach-registry.js";
 import type { PendingClientCorrelations } from "../pending/pending-client-correlations.js";
 import type { PendingForkRegistry } from "../pending/pending-fork-registry.js";
 import type { PendingInitialPromptRegistry } from "../pending/pending-initial-prompt-registry.js";
+import type { PendingPrincipalOwnerRegistry } from "../pending/pending-principal-owner-registry.js";
 import type { PendingResumeIntentRegistry } from "../pending/pending-resume-intent-registry.js";
 import type { PendingResumeRegistry } from "../pending/pending-resume-registry.js";
-import type { PendingPrincipalOwnerRegistry } from "../pending/pending-principal-owner-registry.js";
 import type { PendingWorktreeBaseRegistry } from "../pending/pending-worktree-base-registry.js";
 import type { EventStore } from "../persistence/memory-event-store.js";
 import type { MetaPersistence } from "../persistence/meta-persistence.js";
@@ -28,6 +28,16 @@ export interface BrowserHandlerContext {
   ws: WebSocket;
   /** Per-socket connection id (audit-log `source=`). Absent in unit contexts. */
   connectionId?: string;
+  /**
+   * Was this socket genuinely local at the `/ws` upgrade (`isLocallyTrusted`)?
+   * Only `true` is local: `false` OR absent is remote, so `pin_directory` /
+   * `add_folder_to_workspace` / `move_folder_to_workspace` are confined to the shared
+   * roots (default-deny). The gateway always sets it.
+   * See change: harden-server-capability-bounds (D1b).
+   */
+  locallyTrusted?: boolean;
+  /** The shared-root set for the remote folder gate (`null` = confinement off); absent on a remote socket = refuse. */
+  browseRoots?: () => Promise<import("../lib/browse-roots.js").BrowseRoots | null>;
   sessionManager: SessionManager;
   eventStore: EventStore;
   piGateway: PiGateway;

@@ -26,6 +26,7 @@ import { useTreeVisible } from "../../lib/util/tree-visible.js";
 import { ErrorBoundary } from "../primitives/ErrorBoundary.js";
 import { SplitDivider } from "../split/SplitDivider.js";
 import { useSplitWorkspace } from "../split/SplitWorkspaceContext.js";
+import { TerminalLimitNotice } from "../terminal/TerminalLimitNotice.js";
 import { ChangedOnDiskBanner } from "./ChangedOnDiskBanner.js";
 import { ChangesRailSection } from "./ChangesRailSection.js";
 import { EditorFileTree } from "./EditorFileTree.js";
@@ -341,6 +342,10 @@ export function EditorPane() {
           <Icon path={mdiClose} size={0.7} />
         </button>
       </div>
+
+      {/* A refused terminal spawn (PTY cap) reports here, under the header that has the "+".
+          See change: harden-server-capability-bounds. */}
+      <TerminalLimitNotice cwd={cwd} inline={false} />
 
       {/* Tabs */}
       {state.openFiles.length > 0 && (

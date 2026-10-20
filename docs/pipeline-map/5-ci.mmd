@@ -4,7 +4,7 @@ flowchart TD
   subgraph BLOCKING["blocking on every PR → develop"]
     direction TB
     A["<b>ci.yml</b> · job 'ci' · ubuntu-latest<br/>pnpm install --frozen-lockfile<br/>verify-release-deps.mjs — openspec floor drift<br/>npm run spec:validate — main-spec integrity<br/>check-skill-frontmatter.mjs<br/>check-pi-settings-paths.mjs — no machine paths<br/>verify-published-imports.mjs — npm pack derived<br/>check-kb-dist-fresh.mjs — engine fingerprint<br/>test:ci-scenarios — publish dry-run set<br/>pnpm lint · lint:e2e — typecheck tests/e2e<br/>biome lint Tier A gate, B/C annotate<br/>pnpm test<br/>build + fail on regressed warnings"]
-    B["<b>ci-e2e-electron.yml</b><br/>electron-e2e matrix<br/>+ job-object-windows"]
+    B["<b>ci-e2e-electron.yml</b><br/>electron-e2e matrix"]
     C["<b>ci-gateway-platform.yml</b><br/>posix: no bridge TCP port<br/>windows: loopback fallback + credential ACLs"]
   end
 

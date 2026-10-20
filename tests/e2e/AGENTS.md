@@ -12,7 +12,7 @@ One row per file.
 | `acp-spawn-picker.spec.ts` | → see `acp-spawn-picker.spec.ts.AGENTS.md` |
 | `agent-path-gate.spec.ts` | → see `agent-path-gate.spec.ts.AGENTS.md` |
 | `apply-fix-to-file.spec.ts` | → see `apply-fix-to-file.spec.ts.AGENTS.md` |
-| `archive-service-sessions-on-end.spec.ts` | L3 #F1/#F5 servi… → see `archive-service-sessions-on-end.spec.ts.AGENTS.md` |
+| `archive-service-sessions-on-end.spec.ts` | → see `archive-service-sessions-on-end.spec.ts.AGENTS.md` |
 | `archived-attachment.spec.ts` | → see `archived-attachment.spec.ts.AGENTS.md` |
 | `changed-on-disk-content-gate.spec.ts` | L3 |
 | `composer-liveness-reload.spec.ts` | → see `composer-liveness-reload.spec.ts.AGENTS.md` |
@@ -30,7 +30,7 @@ One row per file.
 | `local-credential-proof-nat.spec.ts` | L3 #X9: published-port proof. → see `local-credential-proof-nat.spec.ts.AGENTS.md` |
 | `markup-repair.spec.ts` | → see `markup-repair.spec.ts.AGENTS.md` |
 | `model-roles-promotion.spec.ts` | L3 spec. → see `model-roles-promotion.spec.ts.AGENTS.md` |
-| `gmail-plugin.spec.ts` | L3 gmail-plugin vs in-container fake Google: F1–… → see `gmail-plugin.spec.ts.AGENTS.md` |
+| `gmail-plugin.spec.ts` | → see `gmail-plugin.spec.ts.AGENTS.md` |
 | `notify-collapse.spec.ts` | → see `notify-collapse.spec.ts.AGENTS.md` |
 | `pi-settings-editor.spec.ts` | L3 pi settings #F13/#F14 |
 | `plugin-embedded-app.spec.ts` | L3 demo `"content"` embedded app (F1/F2). → see `plugin-embedded-app.spec.ts.AGENTS.md` |
@@ -38,9 +38,10 @@ One row per file.
 | `preview-denial-remedy.spec.ts` | L3 preview denial remedy (#F1,#F4-#F13,#X1,#X2). → see `preview-denial-remedy.spec.ts.AGENTS.md` |
 | `provider-models-refresh.spec.ts` | L3: Refresh models row. → see `provider-models-refresh.spec.ts.AGENTS.md` |
 | `push-webhook-settings.spec.ts` | L3 #F9 push webhook. → see `push-webhook-settings.spec.ts.AGENTS.md` |
-| `README.md` | Docs for browser E2E. Prerequisites: Docker, `npx… → see `README.md.AGENTS.md` |
+| `README.md` | → see `README.md.AGENTS.md` |
 | `fixtures/severity-baseline.json` | Severity theme-token baseline. → see `fixtures/severity-baseline.json.AGENTS.md` |
-| `access-grants-revoke.spec.ts` | L3 access-grant remedy journey: denial → gra… → see `access-grants-revoke.spec.ts.AGENTS.md` |
+| `access-grants-revoke.spec.ts` | → see `access-grants-revoke.spec.ts.AGENTS.md` |
+| `add-folder-file-manager.spec.ts` | → see `add-folder-file-manager.spec.ts.AGENTS.md` |
 | `access-grant-dialog.spec.ts` | L3 for the access-grant prompt dialog +… → see `access-grant-dialog.spec.ts.AGENTS.md` |
 | `anthropic-bridge-activation.spec.ts` | → see `anthropic-bridge-activation.spec.ts.AGENTS.md` |
 | `archive-fold.spec.ts` | L3 for the per-folder `Archive (N)` fold (test-p… → see `archive-fold.spec.ts.AGENTS.md` |
@@ -74,7 +75,7 @@ One row per file.
 | `custom-entry-om-renderer.spec.ts` | L3 (change: add-custom-entry-renderer-… → see `custom-entry-om-renderer.spec.ts.AGENTS.md` |
 | `custom-entry-replay-parity.spec.ts` | L3 custom-entry replay parity → see `custom-entry-replay-parity.spec.ts.AGENTS.md` |
 | `custom-entry-web-search.spec.ts` | L3 F17/F18. → see `custom-entry-web-search.spec.ts.AGENTS.md` |
-| `dashboard-slash.spec.ts` | Browser E2E: spawn session → `/dashboard:server-… → see `dashboard-slash.spec.ts.AGENTS.md` |
+| `dashboard-slash.spec.ts` | → see `dashboard-slash.spec.ts.AGENTS.md` |
 | `directory-home.spec.ts` | L3 for the `/folder/:encodedCwd` directory home… → see `directory-home.spec.ts.AGENTS.md` |
 | `editor-pane.spec.ts` | Playwright E2E for internal Monaco editor pane… → see `editor-pane.spec.ts.AGENTS.md` |
 | `durable-session-diff.spec.ts` | L3 (change… → see `durable-session-diff.spec.ts.AGENTS.md` |
@@ -111,7 +112,7 @@ One row per file.
 | `gateway-reserved-name.spec.ts` | Setup step 3. → see `gateway-reserved-name.spec.ts.AGENTS.md` |
 | `gateway-url-action.spec.ts` | L3 spec (change: config-override-oauth-redirect-… → see `gateway-url-action.spec.ts.AGENTS.md` |
 | `git-panel.spec.ts` | Scenario 5.2 spec. Calls `ensureGitSession`. Ass… → see `git-panel.spec.ts.AGENTS.md` |
-| `global-setup.ts` | Playwright globalSetup. `PW_E2E_USE_RUNNING=1` →… → see `global-setup.ts.AGENTS.md` |
+| `global-setup.ts` | → see `global-setup.ts.AGENTS.md` |
 | `global-teardown.ts` | Playwright globalTeardown. Managed (marker prese… → see `global-teardown.ts.AGENTS.md` |
 | `headless-reload-dispatch.spec.ts` | L3 fix-out-of-band-reload #F1–#F3. → see `headless-reload-dispatch.spec.ts.AGENTS.md` |
 | `host-gate-allow.spec.ts` | L3 for the Host-gate operator flow (test-plan #F… → see `host-gate-allow.spec.ts.AGENTS.md` |
@@ -159,11 +160,12 @@ One row per file.
 | `package-queue-visible.spec.ts` | Browser E2E gate for… → see `package-queue-visible.spec.ts.AGENTS.md` |
 | `pairing-qr.spec.ts` | Browser E2E for the camera-scannable pairing QR… → see `pairing-qr.spec.ts.AGENTS.md` |
 | `remote-access-wizard.spec.ts` | L3 dialog. → see `remote-access-wizard.spec.ts.AGENTS.md` |
+| `remote-browse-confinement.spec.ts` | → see `remote-browse-confinement.spec.ts.AGENTS.md` |
 | `replay-live-tool-not-orphaned.spec.ts` | L3 restart mid-call |
 | `retro-ux-plugin-settings-wave-2.spec.ts` | L3 E36–E39, F7, F8. → see `retro-ux-plugin-settings-wave-2.spec.ts.AGENTS.md` |
 | `runtime-extension-reload-convergence.spec.ts` | F5 → see `runtime-extension-reload-convergence.spec.ts.AGENTS.md` |
 | `runtime-updates-remote-local.spec.ts` | X14 → see `runtime-updates-remote-local.spec.ts.AGENTS.md` |
-| `security-pair-link.spec.ts` | Browser E2E for the Security→Gateway pairing link… → see `security-pair-link.spec.ts.AGENTS.md` |
+| `security-pair-link.spec.ts` | → see `security-pair-link.spec.ts.AGENTS.md` |
 | `paging-empty-reply-exhausted.spec.ts` | L3 #F8: empty page reply hides… → see `paging-empty-reply-exhausted.spec.ts.AGENTS.md` |
 | `paging-exhausted-reconnect-rearm.spec.ts` | L3 #X4: reconnec… → see `paging-exhausted-reconnect-rearm.spec.ts.AGENTS.md` |
 | `pi-1-3-floor-smoke.spec.ts` | L3 pi 1.3.0 floor smoke. → see `pi-1-3-floor-smoke.spec.ts.AGENTS.md` |
@@ -237,6 +239,7 @@ One row per file.
 | `tail-only-splice-anchor.spec.ts` | L3 gate for D7a (F9, F10, F18). Asserts the… → see `tail-only-splice-anchor.spec.ts.AGENTS.md` |
 | `tail-only-trigger-suppression.spec.ts` | L3 for D7's suppression mo… → see `tail-only-trigger-suppression.spec.ts.AGENTS.md` |
 | `table-copy.spec.ts` | Playwright spec (change: fix-table-copy-empty-cl… → see `table-copy.spec.ts.AGENTS.md` |
+| `terminal-cap.spec.ts` | → see `terminal-cap.spec.ts.AGENTS.md` |
 | `terminal-reload-inprocess.spec.ts` | L3 terminal-hosted (tmux) `/reload`. → see `terminal-reload-inprocess.spec.ts.AGENTS.md` |
 | `terminal-tab.spec.ts` | → see `terminal-tab.spec.ts.AGENTS.md` |
 | `terminal.spec.ts` | Scenario 5.4 spec. `ensureGitSession`, c… → see `terminal.spec.ts.AGENTS.md` |
@@ -247,7 +250,7 @@ One row per file.
 | `tool-output-links.spec.ts` | Playwright E2E for tool-output file-link behavio… → see `tool-output-links.spec.ts.AGENTS.md` |
 | `tool-output-selection.spec.ts` | L3 selectable-tool-output-links (task 3.2). → see `tool-output-selection.spec.ts.AGENTS.md` |
 | `trust-mode-pair.spec.ts` | L3 pair mode. → see `trust-mode-pair.spec.ts.AGENTS.md` |
-| `ui-token-alignment.spec.ts` | L3 token-recipe gate (test-plan F1–F9, F11, E10,… → see `ui-token-alignment.spec.ts.AGENTS.md` |
+| `ui-token-alignment.spec.ts` | → see `ui-token-alignment.spec.ts.AGENTS.md` |
 | `uncommitted-indicator-commit.spec.ts` | E2E uncommitted-indicator +… → see `uncommitted-indicator-commit.spec.ts.AGENTS.md` |
 | `untrusted-content-guard.spec.ts` | L3 spec. → see `untrusted-content-guard.spec.ts.AGENTS.md` |
 | `vault-request-access.spec.ts` | L3 Vault callout Request access link (F3). → see `vault-request-access.spec.ts.AGENTS.md` |

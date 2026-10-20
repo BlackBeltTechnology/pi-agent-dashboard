@@ -5,7 +5,7 @@
  * `FIELD_DESCRIPTORS` (single source of truth for type/enum/bounds) — this
  * module only carries display copy + grouping.
  *
- * See change: add-hermes-memory-settings-plugin.
+ * See change: add-hermes-memory-settings-plugin, resync-hermes-memory-config-0-9.
  */
 import type { MemoryConfig } from "../shared/hermes-config.js";
 
@@ -28,6 +28,8 @@ export const FIELD_GROUPS: FieldGroup[] = [
       { key: "memoryMode", label: "Memory mode", help: "How memory reaches the prompt. policy-only injects a policy prompt; legacy-inject pastes raw memory." },
       { key: "memoryPolicyStyle", label: "Policy style", help: "Verbosity of the policy prompt when mode is policy-only." },
       { key: "memoryPolicyCustomText", label: "Custom policy text", help: "Used only when policy style is custom." },
+      { key: "standingInstructionsEnabled", label: "Standing instructions", help: "Inject STANDING.md (pinned via /memory-pin) into every session, in every memory mode. Off drops the store and the command." },
+      { key: "lazyInitialization", label: "Lazy initialization", help: "Defer policy-only memory initialization until first use." },
     ],
   },
   {
@@ -55,14 +57,20 @@ export const FIELD_GROUPS: FieldGroup[] = [
       { key: "flushOnShutdown", label: "Flush on shutdown", help: "Persist memories when a session ends." },
       { key: "flushMinTurns", label: "Minimum turns before flush", help: "Skip flush for very short sessions.", unit: "turns" },
       { key: "flushRecentMessages", label: "Recent messages in flush", help: "0 = include the whole conversation.", unit: "msgs (0 = all)" },
+      { key: "flushCompactTimeoutMs", label: "Compact flush timeout", help: "Ceiling for the flush before compaction. Local models are often cut off below the default. 0 or less disables the timeout.", unit: "ms" },
     ],
   },
   {
     title: "Overflow & consolidation",
     fields: [
       { key: "memoryOverflowStrategy", label: "Overflow strategy", help: "What happens when a store hits its char limit." },
-      { key: "autoConsolidate", label: "Auto-consolidate", help: "Legacy alias for the overflow strategy." },
-      { key: "consolidationTimeoutMs", label: "Consolidation timeout", help: "Max time for an auto-consolidation to complete.", unit: "ms" },
+      { key: "autoConsolidate", label: "Auto-consolidate", help: "Legacy alias — ignored while Overflow strategy is set." },
+      { key: "overflowGraceMs", label: "Overflow grace period", help: "Wall-clock grace after an overflow before automatic consolidation starts.", unit: "ms" },
+      { key: "consolidationTimeoutMs", label: "Consolidation timeout", help: "Max time for a consolidation run, auto or manual.", unit: "ms" },
+      { key: "consolidationChunking", label: "Chunked consolidation", help: "Split large stores into several child runs sharing one time budget (subprocess transport only)." },
+      { key: "consolidationChunkChars", label: "Chunk size", help: "Store size above which chunked consolidation splits the work. Minimum 500.", unit: "chars" },
+      { key: "consolidationUsageSignals", label: "Use recall signals", help: "Let consolidation treat well-recalled entries as load-bearing. Inert until entries have been recalled." },
+      { key: "autoConsolidationWarnOnFailure", label: "Warn on failed auto-consolidation", help: "Show a warning when an automatic consolidation run fails." },
     ],
   },
   {
@@ -87,6 +95,7 @@ export const FIELD_GROUPS: FieldGroup[] = [
     title: "Child LLM (background subprocess)",
     fields: [
       { key: "llmModelOverride", label: "Model override", help: "Model for background consolidation / review subprocesses. Empty = inherit the session's model." },
+      { key: "llmFallbackModels", label: "Fallback models", help: "One provider/id per line, tried in order when the primary review model fails (rate limit, auth, 5xx)." },
       { key: "llmThinkingOverride", label: "Thinking override", help: "Thinking level for the child subprocess." },
       { key: "childExtensionPaths", label: "Extra extension paths", help: "One path per line — e.g. a provider-auth adapter the child pi must load." },
     ],
@@ -97,6 +106,9 @@ export const FIELD_GROUPS: FieldGroup[] = [
       { key: "memoryDir", label: "Memory directory", help: "Override the extension storage directory." },
       { key: "projectsMemoryDir", label: "Projects memory directory", help: "Relative to ~/.pi/agent." },
       { key: "sessionSearch", label: "Session search variant", help: "Search implementation." },
+      { key: "quickCheckOnOpen", label: "Integrity check on open", help: "Run a full SQLite quick_check asynchronously after opening the store." },
+      { key: "usageHitTrackingEnabled", label: "Track recalls", help: "Record memory_search hits per entry. Changes no prompt or ranking; feeds consolidation and /memory-insights." },
+      { key: "sessionRetentionDays", label: "Session retention", help: "A positive value permanently deletes stored sessions (and their messages) older than this many days at startup. 0 = never prune.", unit: "days (0 = never)" },
     ],
   },
 ];
