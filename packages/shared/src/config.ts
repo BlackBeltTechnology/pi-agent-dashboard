@@ -21,6 +21,7 @@ import { DEFAULT_MEMORY_LIMITS, type MemoryLimitsConfig, MIN_REPLAY_WINDOW, type
 import type { WindowsGitSourceSetting } from "./platform/select-git-source.js";
 import { inferPlatform, pathKey } from "./session-group-path.js";
 import { isTier, type Tier } from "./tiers.js";
+import { DEFAULT_SUPERVISED_TOOLS } from "./tool-gate/supervised-policy.js";
 import {
   providerSupportsMode,
   type TunnelMode,
@@ -930,6 +931,49 @@ export function resolveAgentPathGate(
 }
 
 /**
+ * Supervised mode (dashboard tool-approval gate): per-session opt-in to approve each
+ * risky agent action. `default` is the mode new sessions start in. `timeoutSeconds`
+ * is the single approval clock (10–3600; anything else → 120, no "wait forever").
+ * `tools` is the authoritative risky set (case-insensitive; no hidden read exemption).
+ * See change: add-supervised-tool-approval (design D10).
+ */
+export interface SupervisedModeConfig {
+  default: "full" | "supervised";
+  timeoutSeconds: number;
+  tools: string[];
+}
+
+export const SUPERVISED_TIMEOUT_MIN_SECONDS = 10;
+export const SUPERVISED_TIMEOUT_MAX_SECONDS = 3600;
+export const DEFAULT_SUPERVISED_TIMEOUT_SECONDS = 120;
+export const DEFAULT_SUPERVISED_MODE: SupervisedModeConfig = {
+  default: "full",
+  timeoutSeconds: DEFAULT_SUPERVISED_TIMEOUT_SECONDS,
+  tools: [...DEFAULT_SUPERVISED_TOOLS],
+};
+
+/** Coerce a raw timeout: finite number in [10, 3600] else 120. Shared with the server's PUT normaliser. */
+export function normalizeSupervisedTimeoutSeconds(raw: unknown): number {
+  return typeof raw === "number" &&
+    Number.isFinite(raw) &&
+    raw >= SUPERVISED_TIMEOUT_MIN_SECONDS &&
+    raw <= SUPERVISED_TIMEOUT_MAX_SECONDS
+    ? raw
+    : DEFAULT_SUPERVISED_TIMEOUT_SECONDS;
+}
+
+export function parseSupervisedMode(raw: unknown): SupervisedModeConfig {
+  const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  return {
+    default: r.default === "supervised" ? "supervised" : "full",
+    timeoutSeconds: normalizeSupervisedTimeoutSeconds(r.timeoutSeconds),
+    tools: Array.isArray(r.tools)
+      ? r.tools.filter((t): t is string => typeof t === "string" && t.trim() !== "").map((t) => t.trim())
+      : [...DEFAULT_SUPERVISED_MODE.tools],
+  };
+}
+
+/**
  * Per-process bridge activation. `PI_DASHBOARD_BRIDGE` (off/0/false/no |
  * on/1/true/yes, trimmed, case-insensitive) overrides `bridge.enabled`; any
  * other value defers to config. Default enabled. The server stamps
@@ -1191,6 +1235,8 @@ export interface DashboardConfig {
   /** Dashboard trust → pi project_trust mirror. See change: mirror-dashboard-trust-to-pi. */
   piTrustMirror: PiTrustMirrorConfig;
   agentPathGate: AgentPathGateConfig;
+  /** Supervised mode (tool-approval gate). See change: add-supervised-tool-approval. */
+  supervisedMode: SupervisedModeConfig;
   /** Per-process bridge activation (see `BridgeActivationConfig`). */
   bridge: BridgeActivationConfig;
   /** Networks trusted for full access without authentication (CIDR, wildcard, exact IP) */
@@ -1723,6 +1769,7 @@ const DEFAULTS: DashboardConfig = {
   accessGrants: { promptEnabled: false },
   piTrustMirror: { ...DEFAULT_PI_TRUST_MIRROR, sources: { ...DEFAULT_PI_TRUST_MIRROR.sources } },
   agentPathGate: { ...DEFAULT_AGENT_PATH_GATE },
+  supervisedMode: { ...DEFAULT_SUPERVISED_MODE, tools: [...DEFAULT_SUPERVISED_MODE.tools] },
   bridge: { ...DEFAULT_BRIDGE_ACTIVATION },
   defaultModel: "",
   defaultThinkingLevel: "",
@@ -2610,6 +2657,7 @@ export function loadConfig(): DashboardConfig {
       },
       piTrustMirror: parsePiTrustMirror(parsed.piTrustMirror),
       agentPathGate: parseAgentPathGate(parsed.agentPathGate),
+      supervisedMode: parseSupervisedMode(parsed.supervisedMode),
       bridge: parseBridgeActivation(parsed.bridge),
       knownServers: parseKnownServers(parsed.knownServers),
       reattachPlacement: parseReattachPlacement(parsed.reattachPlacement),

@@ -210,6 +210,13 @@ export interface SessionMeta {
    * also projected onto the session top level. See session/plugin-refs.ts.
    */
   pluginRefs?: Record<string, Record<string, unknown>>;
+  /**
+   * Supervised-mode state `{ on, rev }` (per-session approval gate). `rev` is the
+   * per-session monotonic flip revision; reconciled with the bridge's copy on
+   * register (higher `rev` wins; Supervised on a tie / missing `rev`). Absent =
+   * never recorded. See change: add-supervised-tool-approval (design D4).
+   */
+  supervised?: { on: boolean; rev: number };
 
   /**
    * Liveness marker — stamped eagerly (atomic, NOT debounced) while a

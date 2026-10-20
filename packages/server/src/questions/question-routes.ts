@@ -91,7 +91,7 @@ export function registerQuestionRoutes(fastify: FastifyInstance, deps: QuestionR
     const open = openQuestion(request, reply);
     if (!open.record) return open.reply;
     const rec = open.record;
-    if (rec.origin === "file") return fail(reply, 403, "file-access prompts are answered on the access approval surface");
+    if (rec.origin === "file") return fail(reply, 403, "file-access and tool-approval prompts are answered on the dashboard or the session's terminal");
 
     if (body.answer !== undefined) {
       const valid = validateQuestionAnswer(

@@ -7,8 +7,8 @@ import { Icon } from "@mdi/react";
 import React, { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useImagePaste } from "../../hooks/useImagePaste.js";
 import { LIST_POPOVER_MIN_HEIGHT, usePopoverFlip } from "../../hooks/usePopoverFlip.js";
-import type { ChatMessage, PendingPrompt } from "../../lib/chat/event-reducer.js";
 import { isComposerWorking } from "../../lib/chat/composer-liveness.js";
+import type { ChatMessage, PendingPrompt } from "../../lib/chat/event-reducer.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
 import {
   CHAT_COMPOSER_BOUND,
@@ -20,6 +20,7 @@ import { ImagePreviewStrip } from "../preview/ImagePreviewStrip.js";
 import { ModelSelector } from "../settings/ModelSelector.js";
 import { RolePickNoticeCallout } from "../settings/RolePickNotice.js";
 import { ThinkingLevelSelector } from "../settings/ThinkingLevelSelector.js";
+import { SupervisedGatewayNote, SupervisedModeChip, SupervisedModeOverflow } from "./SupervisedModeControl.js";
 
 /** Built-in pi commands available from the dashboard */
 const BUILTIN_COMMANDS: CommandInfo[] = [
@@ -195,6 +196,14 @@ interface Props {
   unsetLabel?: string;
   /** Extra chips rendered in the settings row after the thinking chip (e.g. run location). */
   toolbarExtra?: ReactNode;
+  /**
+   * Supervised-mode tool approval (change: add-supervised-tool-approval). `supervised` is the session's
+   * current mode; `onSetSupervised` flips it (the chip is hidden when omitted — ended / no live session).
+   * `toolGateOwner:"chat-gateway"` swaps the chip for a static "Gateway policy" note (design D12).
+   */
+  supervised?: boolean;
+  onSetSupervised?: (on: boolean) => void;
+  toolGateOwner?: "chat-gateway";
 }
 
 const sourceIcons: Record<string, ReactNode> = {
@@ -264,7 +273,7 @@ export function shouldWalkFileQuery(query: string): boolean {
 
 type StopState = "idle" | "aborting" | "killing";
 
-export function CommandInput({ commands: externalCommands, onSend, onListFiles, fileResults, disabled, sessionStatus, retrying, onAbort, onForceKill, onStopAfterTurn, pendingPrompt, onCancelPending, sessionId, draft, onDraftChange, invalid, history, images, onImagesChange, currentCwd, onViewLocal, onOpenInlineTerminal, sessionMessages, model, models, favorites, onToggleFavorite, thinkingLevel, onSelectModel, onSelectThinkingLevel, onRefreshModels, onOpenProviderSettings, modelRefreshErrors, contextUsage, commandsOrigin, sendLabel, modelTag, thinkingTag, unsetLabel, toolbarExtra }: Props) {
+export function CommandInput({ commands: externalCommands, onSend, onListFiles, fileResults, disabled, sessionStatus, retrying, onAbort, onForceKill, onStopAfterTurn, pendingPrompt, onCancelPending, sessionId, draft, onDraftChange, invalid, history, images, onImagesChange, currentCwd, onViewLocal, onOpenInlineTerminal, sessionMessages, model, models, favorites, onToggleFavorite, thinkingLevel, onSelectModel, onSelectThinkingLevel, onRefreshModels, onOpenProviderSettings, modelRefreshErrors, contextUsage, commandsOrigin, sendLabel, modelTag, thinkingTag, unsetLabel, toolbarExtra, supervised, onSetSupervised, toolGateOwner }: Props) {
   const { t } = useI18n();
   // One-shot `@role` pick for the model chip (resolves once; never follows later
   // role changes). See change: add-role-aware-model-refs.
@@ -961,6 +970,19 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
     />
   ) : null;
 
+  // Supervised-mode control: chip (wide) / radio group (⋯) / static gateway note. Absent without a live session.
+  const gatewayOwned = toolGateOwner === "chat-gateway";
+  const modeChip = gatewayOwned ? (
+    <SupervisedGatewayNote />
+  ) : onSetSupervised ? (
+    <SupervisedModeChip supervised={supervised === true} onChange={onSetSupervised} />
+  ) : null;
+  const modeOverflow = gatewayOwned ? (
+    <SupervisedGatewayNote />
+  ) : onSetSupervised ? (
+    <SupervisedModeOverflow supervised={supervised === true} onChange={onSetSupervised} />
+  ) : null;
+
   const footerVisible = focused || text.trim().length > 0 || pendingImages.length > 0;
   const ctxWindow = contextUsage?.contextWindow ?? 0;
   const ctxTokens = contextUsage?.tokens ?? null;
@@ -1238,6 +1260,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
 
           {/* Thinking + delivery + terminal — desktop inline; folded into ⋯ on mobile. */}
           <span className="hidden @[44rem]:inline-flex">{thinkingChip}</span>
+          {modeChip && <span className="hidden @[44rem]:inline-flex">{modeChip}</span>}
           {toolbarExtra}
           <span className="hidden @[44rem]:inline-flex">{deliveryControl}</span>
           <span className="hidden @[44rem]:inline-flex">{terminalButton("wide")}</span>
@@ -1282,6 +1305,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
                 data-testid="overflow-menu"
               >
                 {thinkingChip}
+                {modeOverflow}
                 {deliveryControl}
                 {terminalButton("always")}
               </div>

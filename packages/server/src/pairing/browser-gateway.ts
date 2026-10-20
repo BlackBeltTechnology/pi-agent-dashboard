@@ -163,6 +163,7 @@ export function frameClassOf(
 import { randomUUID } from "node:crypto";
 import type { UpgradeHeaders } from "../access/capability-issuance.js";
 import { issuePromptChannel, releasePromptChannel } from "../access/prompt-channel.js";
+import { handleSetSupervised } from "../browser-handlers/supervised-handler.js";
 import { guardAcpBrowserMessage } from "../browser-handlers/acp-guard.js";
 import { handleAddFolderToWorkspace, handleCreateWorkspace, handleDeleteWorkspace, handleExtensionUiResponse, handleFavoriteModel, handleMoveFolderToWorkspace, handleOpenSpecBulkArchive, handleOpenSpecGet, handleOpenSpecRefresh, handlePiGatewayForward, handlePinDirectory, handleRemoveFolderFromWorkspace, handleRenameWorkspace, handleReorderPinnedDirs, handleReorderSessions, handleReorderWorkspaceFolders, handleReorderWorkspaces, handleResetFolderCardSections, handleSetCardSectionVisibility, handleSetDefaultGroupBy, handleSetFocusMode, handleSetFocusProfile, handleSetFolderCollapsed, handleSetFolderExpanded, handleSetFolderGroupBy, handleSetLaneCollapsed, handleSetWorkspaceCollapsed, handleUnfavoriteModel, handleUnpinDirectory } from "../browser-handlers/directory-handler.js";
 import type { BrowserHandlerContext } from "../browser-handlers/handler-context.js";
@@ -456,7 +457,8 @@ export interface BrowserGateway {
   /**
    * True when any tracked pending prompt of the session is NOT of `excludeKinds`.
    * Drives the `currentTool: "ask_user"` fold: a file-access prompt must not be
-   * folded into the tool display (it routes attention via `awaitingFileAccess`).
+   * folded into the tool display (it routes attention via `awaitingFileAccess` /
+   * `awaitingToolApproval`; consumers read `awaitingOperatorApproval(session)`).
    * `hasPendingPromptRequests` stays the raw "any pending ask" signal (reaper).
    * See change: ask-agent-file-access-in-chat (D7).
    */
@@ -1975,7 +1977,7 @@ export function createBrowserGateway(
       }
       try {
         const ctx: BrowserHandlerContext = {
-          ws, sessionManager, eventStore, piGateway,
+          ws, connectionId: grantSocketId, sessionManager, eventStore, piGateway,
           // Stamped at the /ws upgrade; an unstamped socket is NOT local.
           locallyTrusted: isSocketLocallyTrusted(ws),
           browseRoots,
@@ -2357,6 +2359,12 @@ export function createBrowserGateway(
             handleExtensionUiResponse(msg, ctx);
             break;
           }
+
+          // Owner-only (the §8.3 gate above, same as `send_prompt`): flip Supervised mode.
+          // See change: add-supervised-tool-approval (D4).
+          case "set_supervised":
+            handleSetSupervised(msg, ctx);
+            break;
 
           case "prompt_response": {
             // Route PromptBus response from browser to extension. Takes the same

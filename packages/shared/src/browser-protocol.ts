@@ -1351,6 +1351,18 @@ export interface SubscribeMessage {
   lastSeq?: number;
 }
 
+/**
+ * Browser → server: flip a session's Supervised mode. Session-owner only (same
+ * gate as `send_prompt`); the server assigns the next `rev` and forwards
+ * `set_supervised {on, rev}` to the bridge.
+ * See change: add-supervised-tool-approval (D4).
+ */
+export interface SetSupervisedBrowserMessage {
+  type: "set_supervised";
+  sessionId: string;
+  on: boolean;
+}
+
 export interface UnsubscribeMessage {
   type: "unsubscribe";
   sessionId: string;
@@ -2159,6 +2171,7 @@ export interface UiManagementBrowserMessage {
 
 export type BrowserToServerMessage =
   | SubscribeMessage
+  | SetSupervisedBrowserMessage
   | UnsubscribeMessage
   | HistoryBackfillRequestMessage
   | BrowserExtensionUiResponseMessage

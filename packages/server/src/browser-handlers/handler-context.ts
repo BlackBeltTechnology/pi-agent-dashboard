@@ -26,6 +26,8 @@ import type { TerminalManager } from "../terminal/terminal-manager.js";
 
 export interface BrowserHandlerContext {
   ws: WebSocket;
+  /** Per-socket connection id (audit-log `source=`). Absent in unit contexts. */
+  connectionId?: string;
   /**
    * Was this socket genuinely local at the `/ws` upgrade (`isLocallyTrusted`)?
    * Only `true` is local: `false` OR absent is remote, so `pin_directory` /

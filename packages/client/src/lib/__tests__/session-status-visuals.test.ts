@@ -594,3 +594,22 @@ describe("error + retry together: the status channels stay the ERROR variants", 
     expect(counts.working).toBe(0);
   });
 });
+
+// E36 — supervised tool approval is "needs you" exactly like a file-access prompt.
+// See change: add-supervised-tool-approval (D16).
+describe("awaitingToolApproval counts as needs-you (E36)", () => {
+  const mkS = (over: Partial<DashboardSession>) => ({ id: "x", status: "streaming", ...over }) as DashboardSession;
+  it.each([
+    [false, false, false],
+    [true, false, true],
+    [false, true, true],
+    [true, true, true],
+  ])("fileAccess=%s toolApproval=%s → needs-you=%s", (fileAccess, toolApproval, expected) => {
+    const sess = mkS({ currentTool: "bash", awaitingFileAccess: fileAccess, awaitingToolApproval: toolApproval });
+    expect(isChatRoutedAskUser(sess, true)).toBe(expected);
+    expect(deriveStatusShape(sess) === "needs-you").toBe(expected);
+    expect(countNeedsYou([sess])).toBe(expected ? 1 : 0);
+    expect(getCardPulseClass(sess) === "card-input-stripes").toBe(expected);
+    expect(deriveProposalCardState([sess]) === "card-stripes-input").toBe(expected);
+  });
+});

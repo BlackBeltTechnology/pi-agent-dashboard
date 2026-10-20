@@ -24,6 +24,8 @@
 // that reason (cf. `pi-ai-shape.test.ts`, which loads it dynamically). So we
 // import the namespace and read the runtime helpers off an `any` view, and use
 // local minimal types for the shapes we touch. Runtime resolution is unaffected.
+import * as fs from "node:fs";
+import * as path from "node:path";
 import * as piAi from "@earendil-works/pi-ai";
 
 const { fauxAssistantMessage, fauxText, fauxThinking, fauxToolCall } =
@@ -611,6 +613,56 @@ const COALESCE_REASONING =
 export const COALESCE_PRE_TOOL_TEXT = "coalesce pre-tool text";
 export const COALESCE_TOOL_COMMAND = "echo coalesce-tool-ran";
 
+
+// ── Supervised tool approval fixtures (change: add-supervised-tool-approval) ──
+/** Closing text of `tool-bash-echo` (rendered even when the bash call is blocked). */
+export const SUPERVISED_BASH_TAIL = "supervised bash done";
+/** Closing text of `tool-bash-two-calls`. */
+export const SUPERVISED_TWO_CALLS_TAIL = "supervised two calls done";
+/** Out-of-root edit target the `tool-edit-outside*` factories re-seed before every run. */
+export const SUPERVISED_EDIT_TARGET = "/srv/fixtures-outside/edit-target.txt";
+export const SUPERVISED_EDIT_SEED = "SEED-LINE\n";
+export const SUPERVISED_EDIT_NEW = "EDITED-LINE";
+export const SUPERVISED_EDIT_TAIL = "supervised edit done";
+/** In-root write target (relative to the session cwd) of `tool-write-notes`. */
+export const SUPERVISED_WRITE_PATH = "notes/x.txt";
+export const SUPERVISED_WRITE_CONTENT = "line one\nline two\nline three\n";
+export const SUPERVISED_WRITE_TAIL = "supervised write done";
+
+/** Re-seed the out-of-root edit target so the edit always applies (idempotent across runs). */
+function seedEditTarget(): void {
+  try {
+    fs.mkdirSync(path.dirname(SUPERVISED_EDIT_TARGET), { recursive: true });
+    fs.writeFileSync(SUPERVISED_EDIT_TARGET, SUPERVISED_EDIT_SEED);
+  } catch {
+    // the edit then fails visibly in the transcript; the gate prompt is unaffected
+  }
+}
+
+/**
+ * ~16.9 KiB of added lines: the diff just exceeds the 16 KiB cap (test-plan E44/F15). Deliberately NOT
+ * bigger: the faux provider streams tool-call arguments at `FAUX_TPS` (50 tokens/s, ~4 chars/token), so
+ * every extra KiB costs ~5 s before the `edit` call even reaches the gate (this size ≈ 85 s).
+ */
+export const SUPERVISED_EDIT_BIG_LINES = 220;
+const SUPERVISED_EDIT_BIG_NEW = `SEED-LINE-EDITED\n${Array.from({ length: SUPERVISED_EDIT_BIG_LINES }, (_u, i) => `added-line-${String(i).padStart(3, "0")} ${"x".repeat(60)}`).join("\n")}`;
+
+function outsideEditScenario(newText: string): Scenario {
+  return {
+    script: [
+      (() => {
+        seedEditTarget();
+        return fauxAssistantMessage(
+          [fauxToolCall("edit", { path: SUPERVISED_EDIT_TARGET, edits: [{ oldText: "SEED-LINE", newText }] })],
+          { stopReason: "toolUse" },
+        );
+      }) as unknown as FauxResponseStep,
+      fauxAssistantMessage([fauxText(SUPERVISED_EDIT_TAIL)]),
+    ],
+    expect: { toolName: "edit" },
+  };
+}
+
 export const SCENARIOS: Record<string, Scenario> = {
   // ── Server-side round-trip scenarios ────────────────────────────────────
   "plain-text": {
@@ -1023,6 +1075,47 @@ export const SCENARIOS: Record<string, Scenario> = {
     content: `<!doctype html>\n<!-- ${"A".repeat(6000)} -->\n<h1>big out of cwd</h1>\n`,
   }),
   "tool-bash": toolScenario("bash", { command: "ls -la" }),
+  // Supervised mode (change: add-supervised-tool-approval). Each ends with closing text so the
+  // run terminates even when the gated call is blocked (a bare tool scenario would be re-issued).
+  // F1–F5, F8, F10, F14, F19–F21: one risky bash call.
+  "tool-bash-echo": {
+    script: [
+      fauxAssistantMessage([fauxToolCall("bash", { command: "echo hi" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxText(SUPERVISED_BASH_TAIL)]),
+    ],
+    expect: { toolName: "bash" },
+  },
+  // F6/F7: a slow first call (the mode flips during `sleep 5`) then a second risky call.
+  "tool-bash-two-calls": {
+    script: [
+      fauxAssistantMessage([fauxToolCall("bash", { command: "sleep 5" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxToolCall("bash", { command: "echo two" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxText(SUPERVISED_TWO_CALLS_TAIL)]),
+    ],
+    expect: { toolName: "bash" },
+  },
+  // F15–F18: an `edit` OUTSIDE the session workspace (path-gate chain + supervised hand-off).
+  "tool-edit-outside": outsideEditScenario(SUPERVISED_EDIT_NEW),
+  // F15 (20 KiB variant): the rendered diff must be capped at 16384 bytes + `… (truncated)`.
+  "tool-edit-outside-big": outsideEditScenario(SUPERVISED_EDIT_BIG_NEW),
+  // F9: a `write` to a NEW in-root file (inside the session workspace → the path gate stays silent).
+  "tool-write-notes": {
+    script: [
+      (() => {
+        try {
+          fs.rmSync(path.resolve(SUPERVISED_WRITE_PATH), { force: true });
+        } catch {
+          // best effort: a leftover only turns "Create" into "Overwrite"
+        }
+        return fauxAssistantMessage(
+          [fauxToolCall("write", { path: SUPERVISED_WRITE_PATH, content: SUPERVISED_WRITE_CONTENT })],
+          { stopReason: "toolUse" },
+        );
+      }) as unknown as FauxResponseStep,
+      fauxAssistantMessage([fauxText(SUPERVISED_WRITE_TAIL)]),
+    ],
+    expect: { toolName: "write" },
+  },
   // Credential-vault e2e (change: add-credential-vault). Two-step so the agent
   // terminates after the tool result.
   //    (`VAULT_E2E_API_KEY`, not `GEMINI_API_KEY`: the harness image already sets

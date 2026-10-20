@@ -503,6 +503,23 @@ export interface DashboardSession {
    * See change: ask-agent-file-access-in-chat (D7).
    */
   awaitingFileAccess?: boolean;
+  /**
+   * Server-derived: true while any tracked pending prompt of this session has
+   * metadata `kind` `supervised-tool-approval`. Sibling of `awaitingFileAccess`;
+   * consumers read `awaitingOperatorApproval(session)`.
+   * See change: add-supervised-tool-approval (D16).
+   */
+  awaitingToolApproval?: boolean;
+  /**
+   * Supervised-mode flag (per-session approval gate). Server-persisted in the
+   * session meta, mirrored from the bridge's registration / `supervised_state`.
+   * `supervisedRev` is the per-session monotonic flip revision.
+   * See change: add-supervised-tool-approval (D4).
+   */
+  supervised?: boolean;
+  supervisedRev?: number;
+  /** Which guard owns tool gating for this session; `"chat-gateway"` hides the mode chip (D12). */
+  toolGateOwner?: "chat-gateway";
   /** Extension-declared UI modules (Phase 1: management-modal slot). */
   uiModules?: ExtensionUiModule[];
   /** Cached row data per `view.dataEvent` for table/grid views. Per-event item cap is enforced server-side. */

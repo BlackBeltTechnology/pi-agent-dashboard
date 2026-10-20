@@ -399,6 +399,11 @@ export function createMemorySessionManager(
           // it here wipes it from disk and the session turns ownerless.
           // A re-register never CHANGES an owner (only the spawn token does).
           principalOwner: existing.principalOwner,
+          // Supervised-mode state survives a bridge reattach (full-overwrite save
+          // would wipe it); event-wiring reconciles it with the bridge's copy.
+          // See change: add-supervised-tool-approval (design D4).
+          supervised: existing.supervised,
+          supervisedRev: existing.supervisedRev,
           // Plugin-declared hide intent: re-asserted by the `hidden` decision
           // below and kept for the next save. See change: fix-plugin-hidden-across-restart.
           pluginHidden: existing.pluginHidden,

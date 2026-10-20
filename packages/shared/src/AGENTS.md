@@ -141,7 +141,7 @@ Files in this directory. One row per source file.
 | `vault-origin.ts` | Pure `normalizeOrigin(raw)`: SSH / SCP / HTTPS spellings of one repository → `host[:port]/path`; no node… → see `vault-origin.ts.AGENTS.md` |
 | `vault-project-key.ts` | `resolveSessionProject`: the vault project key; re-exports `normalizeOrigin` (moved to `vault-origin.ts`). → see `vault-project-key.ts.AGENTS.md` |
 | `worktree-init-hook.ts` | Pure worktree-init hook shape + hash moved from server: `normalizeHook`, `canonicalize`, `hookDefHash`,… → see `worktree-init-hook.ts.AGENTS.md` |
-| `ws-message-tiers.ts` | `WS_MESSAGE_TIERS`, `wsMessageTier` (unlisted ⇒ operate), `LIVE_PREVIEW_TIER`, `TERMINAL_TIER`. WS half of the tier model. See change: add-passkey-user-auth. |
+| `ws-message-tiers.ts` | `WS_MESSAGE_TIERS`, `wsMessageTier` (unlisted ⇒ operate), `LIVE_PREVIEW_TIER`, `TERMINAL_TIER`. WS half of the tier model. `set_supervised` = control (same as `prompt_response`). See change: add-passkey-user-auth, add-supervised-tool-approval. |
 | `zrok-env.ts` | Pure `readZrokEnvironment({homedir,fs})` returning `{found, kind: v2\|v1\|null, path, env, reason}`. → see `zrok-env.ts.AGENTS.md` |
 | `route-tiers.ts` | `ROUTE_TIERS`, `routeTier(method, pattern)`, `hasRouteTier`… → see `route-tiers.ts.AGENTS.md` |
 | `tiers.ts` | `TIERS`, `Tier`, `isTier`, `rank`, `minTier`, `defaultTierForSource`. → see `tiers.ts.AGENTS.md` |

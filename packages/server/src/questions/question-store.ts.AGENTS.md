@@ -14,3 +14,5 @@ Owns one `QuestionRecord` per pending PromptBus prompt. `createQuestionStore(dep
 Tests: `__tests__/question-store.test.ts`, `question-gateway.test.ts`, `question-wiring.integration.test.ts`. See change: add-pending-question-stack.
 
 Inline Other: `QuestionRecord.allowOther?: true` set in `onTracked` from live `metadata.allowOther === true`; exposed on `QuestionDetail`; NEVER persisted (recomputed on rebind from the re-sent prompt). See change: add-ask-user-inline-other.
+
+`FILE_ACCESS_KINDS` includes `supervised-tool-approval`; `originOf` also returns `"file"` for `metadata.supervised===true` → read-only, never claimed, `briefStatus:"unavailable"` (no model call, auto or on-demand). REST answer 403 (`question-routes.ts`). See change: add-supervised-tool-approval (D17, E34).

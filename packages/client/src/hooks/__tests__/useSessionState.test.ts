@@ -144,6 +144,33 @@ describe("applySessionMessage (pure reducer)", () => {
     expect(reqs.find((r) => r.requestId === "plain")?.params).not.toHaveProperty("allowOther");
   });
 
+  it("prompt_request passes the supervised metadata keys verbatim on replay (test-plan #E33)", () => {
+const SUPERVISED_META = {
+    kind: "supervised-tool-approval",
+    deadline: 1_900_000_000_000,
+    tool: "edit",
+    summary: "edit src/a.ts (+3 −1)",
+    command: "echo hi",
+    path: "src/a.ts",
+    diffStat: "+3 −1",
+    diff: "-old\n+new",
+    cwd: "/repo",
+    toolCallId: "tc-1",
+  } as const;
+
+    const acc = applySessionMessage(createSessionAccumulator(), {
+      type: "prompt_request",
+      sessionId: SID,
+      promptId: "sup",
+      prompt: { question: "Edit this file?", type: "select", options: ["Allow once", "Deny"], metadata: { ...SUPERVISED_META, allowOther: true } },
+      component: { type: "select", props: {} },
+      placement: "inline",
+    } as ServerToBrowserMessage);
+    const params = acc.state.interactiveRequests.find((r) => r.requestId === "sup")!.params;
+    for (const [k, v] of Object.entries(SUPERVISED_META)) expect(params[k]).toEqual(v);
+    expect(params.allowOther).toBe(true);
+  });
+
   it("prompt_received routes to applyPromptReceived (fresh=false drops pendingPrompt)", () => {
     const acc = {
       state: { ...createInitialState(), pendingPrompt: { text: "q", status: "sending" as const } },

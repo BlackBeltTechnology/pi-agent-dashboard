@@ -3579,6 +3579,8 @@ Second prompt (Always-allow only) `ctx.ui.confirm`, metadata `{ kind: "agent-pat
 
 **Residuals / non-goals.** `bash` / `grep` / `find` / `ls` / custom+MCP tools not covered (not a sandbox); TOCTOU symlink swap between gate and open accepted; a same-user process can write `access-grants.json` itself; session-scope grants (server memory) are not shared with the gate (the Access page labels them "dashboard only"); the grant binding proves a **raised** confirm, not operator presence (the server cannot observe answers — browser answers are forwarded unrecorded, TUI answers arrive value-less). Rollback: `agentPathGate.enabled=false` or env `off` — applies from the next tool call; grants already written stay valid for the dashboard's file plane.
 
+Supervised mode (per-session approval of risky agent tool calls; runs after the path gate): see [supervised-mode.md](supervised-mode.md).
+
 ```mermaid
 sequenceDiagram
     participant A as agent tool_call

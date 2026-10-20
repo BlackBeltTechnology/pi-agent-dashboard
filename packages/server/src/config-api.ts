@@ -11,6 +11,7 @@ import {
   DEFAULT_SERVER_HEAP,
   DEFAULT_SUBAGENT_TICK_THROTTLE_MS,
   loadConfig,
+  normalizeSupervisedTimeoutSeconds,
   writeConfigFileSecure,
 } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { setWindowsGitSourceSetting } from "@blackbelt-technology/pi-dashboard-shared/platform/git-source.js";
@@ -427,6 +428,20 @@ export function writeConfigPartial(
     // See change: ask-agent-file-access-in-chat.
     if (partial.agentPathGate) {
       partial.agentPathGate = { ...existing.agentPathGate, ...partial.agentPathGate };
+    }
+
+    // Merge supervisedMode sub-object (live-read by bridges). An out-of-range /
+    // non-numeric `timeoutSeconds` is NORMALISED to 120 on write (never a 400), so
+    // GET returns the value that is actually in force. See change: add-supervised-tool-approval (D10).
+    if ("supervisedMode" in partial && (partial.supervisedMode === null || typeof partial.supervisedMode !== "object" || Array.isArray(partial.supervisedMode))) {
+      delete partial.supervisedMode;
+    }
+    if (partial.supervisedMode) {
+      const mergedSupervised: Record<string, any> = { ...existing.supervisedMode, ...partial.supervisedMode };
+      if ("timeoutSeconds" in partial.supervisedMode) {
+        mergedSupervised.timeoutSeconds = normalizeSupervisedTimeoutSeconds(partial.supervisedMode.timeoutSeconds);
+      }
+      partial.supervisedMode = mergedSupervised;
     }
 
     // Merge sessionList sub-object: the Settings panel sends only the CHANGED

@@ -89,6 +89,7 @@ export const WS_MESSAGE_TIERS: Readonly<Record<string, Tier>> = {
   set_model: "control",
   set_session_process_drawer: "control",
   set_session_tags: "control",
+  set_supervised: "control", // same tier as prompt_response (the approval answer road); see change: add-supervised-tool-approval
   set_thinking_level: "control",
   set_workspace_collapsed: "control",
   shutdown: "control",

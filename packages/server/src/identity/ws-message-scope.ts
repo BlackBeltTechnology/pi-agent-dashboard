@@ -58,6 +58,7 @@ export const SESSION_OWNED_MESSAGES: ReadonlySet<string> = new Set([
   "set_model",
   "set_session_process_drawer",
   "set_session_tags",
+  "set_supervised",
   "set_thinking_level",
   "shutdown",
   "stop_after_turn",

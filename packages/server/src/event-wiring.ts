@@ -61,6 +61,7 @@ import {
 } from "./session/openspec-locality.js";
 import type { RemoteTranscriptStore } from "./session/remote-transcript-store.js";
 import { resolveOrderKey } from "./session/resolve-order-key.js";
+import { applyBridgeSupervised, isSupervisedReport } from "./session/supervised-sync.js";
 import type { SessionOrderManager } from "./session/session-order-manager.js";
 import type { ViewedSessionTracker } from "./session/viewed-session-tracker.js";
 import { keeperOptsFromSpawnResult } from "./spawn-process/headless-pid-registry.js";
@@ -389,6 +390,12 @@ export function wireEvents(deps: EventWiringDeps): void {
       }
     },
   });
+  const supervisedSyncDeps = {
+    sessionManager,
+    piGateway,
+    broadcastSessionUpdated: (id: string, updates: Record<string, unknown>) =>
+      browserGateway.broadcastSessionUpdated(id, updates),
+  };
   const FILE_ACCESS_KINDS = ["agent-path-gate", "agent-path-gate-confirm"] as const;
   /**
    * Re-derive `awaitingFileAccess` from the pending-prompt registry (live,
@@ -402,6 +409,30 @@ export function wireEvents(deps: EventWiringDeps): void {
     if ((session.awaitingFileAccess ?? false) === awaiting) return;
     sessionManager.update(sessionId, { awaitingFileAccess: awaiting });
     browserGateway.broadcastSessionUpdated(sessionId, { awaitingFileAccess: awaiting });
+  }
+
+  /**
+   * Supervised-mode tool approvals (`metadata.kind === "supervised-tool-approval"`).
+   * Sibling of the path-gate kinds: attached to an in-flight tool, so it is likewise
+   * excluded from the `currentTool` "ask_user" fold (`TOOL_ATTACHED_PROMPT_KINDS`).
+   * Enriched path prompts (`metadata.supervised`) keep a file-access kind, hence
+   * `awaitingFileAccess`. See change: add-supervised-tool-approval (D16).
+   */
+  const SUPERVISED_APPROVAL_KINDS = ["supervised-tool-approval"] as const;
+  const TOOL_ATTACHED_PROMPT_KINDS = [...FILE_ACCESS_KINDS, ...SUPERVISED_APPROVAL_KINDS] as const;
+  /** Re-derive `awaitingToolApproval` the same way (live / replayed / resynced prompts). */
+  function syncAwaitingToolApproval(sessionId: string): void {
+    const session = sessionManager.get(sessionId);
+    if (!session) return;
+    const awaiting = browserGateway.hasPendingPromptKind(sessionId, SUPERVISED_APPROVAL_KINDS);
+    if ((session.awaitingToolApproval ?? false) === awaiting) return;
+    sessionManager.update(sessionId, { awaitingToolApproval: awaiting });
+    browserGateway.broadcastSessionUpdated(sessionId, { awaitingToolApproval: awaiting });
+  }
+  /** Re-derive every operator-attention flag (file access + tool approval). */
+  function syncOperatorAttention(sessionId: string): void {
+    syncAwaitingFileAccess(sessionId);
+    syncAwaitingToolApproval(sessionId);
   }
 
   /**
@@ -491,6 +522,11 @@ export function wireEvents(deps: EventWiringDeps): void {
     if (disconnectedSessionId && sessionManager.get(disconnectedSessionId)?.awaitingFileAccess) {
       sessionManager.update(disconnectedSessionId, { awaitingFileAccess: false });
       browserGateway.broadcastSessionUpdated(disconnectedSessionId, { awaitingFileAccess: false });
+    }
+    // Same for a supervised tool approval. See change: add-supervised-tool-approval (D16).
+    if (disconnectedSessionId && sessionManager.get(disconnectedSessionId)?.awaitingToolApproval) {
+      sessionManager.update(disconnectedSessionId, { awaitingToolApproval: false });
+      browserGateway.broadcastSessionUpdated(disconnectedSessionId, { awaitingToolApproval: false });
     }
   };
 
@@ -729,7 +765,7 @@ export function wireEvents(deps: EventWiringDeps): void {
     // See change: restore-ask-user-tool-state-on-reconnect (D6b).
     browserGateway.clearPendingRequestsForSession(sessionId);
     agentConfirmRegistry.clearSession(sessionId);
-    syncAwaitingFileAccess(sessionId);
+    syncOperatorAttention(sessionId);
     replayPromptIds.delete(sessionId);
     // Ends a replay in flight (cause `unregister`), stops waiting subscribers'
     // keepalives and drops the per-session replay state.
@@ -907,12 +943,12 @@ export function wireEvents(deps: EventWiringDeps): void {
     browserGateway.reconcilePromptRequests(sessionId, [...(collected ?? [])]);
     // File-access prompts are excluded from the fold: they must never overwrite the
     // in-flight tool (`awaitingFileAccess` carries them). See change: ask-agent-file-access-in-chat.
-    if (browserGateway.hasPendingPromptOtherThan(sessionId, FILE_ACCESS_KINDS)) {
+    if (browserGateway.hasPendingPromptOtherThan(sessionId, TOOL_ATTACHED_PROMPT_KINDS)) {
       sessionManager.update(sessionId, { currentTool: "ask_user" });
     }
     // Re-derive from the reconciled registry (flag only; `currentTool` keeps its
     // replay discipline). See change: ask-agent-file-access-in-chat (D7).
-    syncAwaitingFileAccess(sessionId);
+    syncOperatorAttention(sessionId);
     replayPromptIds.delete(sessionId);
   }
   /**
@@ -1266,7 +1302,7 @@ export function wireEvents(deps: EventWiringDeps): void {
       // See change: restore-ask-user-tool-state-on-reconnect (D1/D4).
       const hasPendingPrompt =
         !replayed &&
-        browserGateway.hasPendingPromptOtherThan(sessionId, FILE_ACCESS_KINDS);
+        browserGateway.hasPendingPromptOtherThan(sessionId, TOOL_ATTACHED_PROMPT_KINDS);
       const updates = extractSessionUpdates(msg.event, hasPendingPrompt);
       if (updates) {
         sessionManager.update(sessionId, updates as Partial<DashboardSession>);
@@ -1554,7 +1590,7 @@ export function wireEvents(deps: EventWiringDeps): void {
             // the same gate `extractSessionUpdates` applies via
             // `hasPendingPrompt` (design D10).
             const applied =
-              updates.currentTool === null && browserGateway.hasPendingPromptOtherThan(sessionId, FILE_ACCESS_KINDS)
+              updates.currentTool === null && browserGateway.hasPendingPromptOtherThan(sessionId, TOOL_ATTACHED_PROMPT_KINDS)
                 ? { status: updates.status }
                 : updates;
             // `streaming`/`idle` disagreements mean a run-boundary event was
@@ -1590,6 +1626,17 @@ export function wireEvents(deps: EventWiringDeps): void {
         });
       }
       replayController.complete(sessionId);
+    }
+
+    // Bridge → server Supervised-mode report (after an applied `set_supervised`, and when
+    // the mode / tool-gate owner drifted). Reconciled like a registration; only a
+    // mismatch is answered with `set_supervised`. Malformed payloads are ignored.
+    // See change: add-supervised-tool-approval (D4, D12).
+    if (msg.type === "supervised_state") {
+      if (isSupervisedReport(msg)) {
+        applyBridgeSupervised(supervisedSyncDeps, sessionId, msg, msg.toolGateOwner, { alwaysSend: false });
+      }
+      return;
     }
 
     if (msg.type === "session_register") {
@@ -1903,6 +1950,19 @@ export function wireEvents(deps: EventWiringDeps): void {
         }
       }
 
+
+      // ── supervised-mode arm ──────────────────────────────────────────
+      // Reconcile the bridge's `{on, rev}` with the persisted copy (higher rev wins;
+      // Supervised on a tie / missing rev), persist the winner, broadcast it, and
+      // (re)send `set_supervised` — this runs on every register, so it covers a
+      // reconnect too. An older bridge reports nothing: nothing to reconcile.
+      // See change: add-supervised-tool-approval (D4).
+      if (isSupervisedReport(msg.supervised)) {
+        applyBridgeSupervised(supervisedSyncDeps, sessionId, msg.supervised, msg.toolGateOwner, {
+          alwaysSend: true,
+          fileHint: msg.sessionFile,
+        });
+      }
 
       // ── initial-prompt arm ──────────────────────────────────────────
       // Consume any pending initial-prompt intent queued by the no-hook
@@ -2478,7 +2538,7 @@ export function wireEvents(deps: EventWiringDeps): void {
           agentConfirmRegistry.observe(sessionId, promptId, { path: meta.path, subject: meta.subject }, "select");
         }
       }
-      if (!replayingSessions.has(sessionId)) syncAwaitingFileAccess(sessionId);
+      if (!replayingSessions.has(sessionId)) syncOperatorAttention(sessionId);
       if (replayingSessions.has(sessionId)) {
         // Inside the replay window the bridge's re-sent burst is a snapshot;
         // collect the id for the exit reconcile and write nothing — the replay
@@ -2504,7 +2564,7 @@ export function wireEvents(deps: EventWiringDeps): void {
         // Precedence (D3): a genuine in-flight tool wins; only an empty field
         // is folded to "ask_user".
         const promptKind = (msg as any).prompt?.metadata?.kind;
-        const isFileAccessPrompt = typeof promptKind === "string" && (FILE_ACCESS_KINDS as readonly string[]).includes(promptKind);
+        const isFileAccessPrompt = typeof promptKind === "string" && (TOOL_ATTACHED_PROMPT_KINDS as readonly string[]).includes(promptKind);
         if (sessionBefore && !sessionBefore.currentTool && !isFileAccessPrompt) {
           sessionManager.update(sessionId, { currentTool: "ask_user" });
           browserGateway.broadcastSessionUpdated(sessionId, { currentTool: "ask_user" });
@@ -2564,12 +2624,12 @@ export function wireEvents(deps: EventWiringDeps): void {
       browserGateway.clearPromptRequest(sessionId, (msg as any).promptId);
       if (msg.type === "prompt_cancel") agentConfirmRegistry.cancel(sessionId, (msg as any).promptId);
       else agentConfirmRegistry.settle(sessionId, (msg as any).promptId);
-      if (!replayingSessions.has(sessionId)) syncAwaitingFileAccess(sessionId);
+      if (!replayingSessions.has(sessionId)) syncOperatorAttention(sessionId);
       // Clear only when the registry is now empty AND the field still holds the
       // derived value — a real tool that started meanwhile must not be stomped.
       if (
         !replayingSessions.has(sessionId) &&
-        !browserGateway.hasPendingPromptOtherThan(sessionId, FILE_ACCESS_KINDS) &&
+        !browserGateway.hasPendingPromptOtherThan(sessionId, TOOL_ATTACHED_PROMPT_KINDS) &&
         sessionManager.get(sessionId)?.currentTool === "ask_user"
       ) {
         sessionManager.update(sessionId, { currentTool: null });

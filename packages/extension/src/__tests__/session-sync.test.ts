@@ -5,6 +5,7 @@ import { describe, it, expect, vi } from "vitest";
 import { sendStateSync, handleSessionChange, replaySessionEntries, isLive } from "../session-sync.js";
 import type { BridgeContext } from "../bridge-context.js";
 import { __resetSpawnToken, captureSpawnTokenAtActivation } from "../spawn-token.js";
+import { createSupervisedGateForBridge } from "../supervised-gate/index.js";
 
 function createMockBridgeContext(overrides?: Partial<BridgeContext>): BridgeContext {
   const sent: any[] = [];
@@ -438,6 +439,98 @@ describe("replaySessionEntries live tail (test-plan #E6)", () => {
       () => [],
     );
     expect(endsFor((bc2 as any)._sent)).toEqual(["A", "B"]);
+  });
+});
+
+// See change: add-supervised-tool-approval (test-plan #E30, #X14; design D4, D12).
+describe("supervised mode: restore at session_start + registration fields", () => {
+  const mode = (on: unknown, rev: number) => ({ type: "custom", customType: "supervised-mode", data: { on, rev } });
+  const sm = (id: string, entries: unknown[] | (() => never)) => ({
+    getSessionId: () => id,
+    getSessionFile: () => `/f/${id}.jsonl`,
+    getSessionDir: () => "/f",
+    getBranch: typeof entries === "function" ? entries : () => entries,
+    getEntries: typeof entries === "function" ? entries : () => entries,
+  });
+  function rig(cfgDefault: "full" | "supervised" = "full") {
+    const logs: string[] = [];
+    const gate = createSupervisedGateForBridge({
+      state: {} as never,
+      getSessionId: () => "unused",
+      getPromptBus: () => undefined,
+      readConfig: () => ({ default: cfgDefault, timeoutSeconds: 120, tools: ["bash"] }),
+      configFile: "/nonexistent/config.json",
+      redact: (x) => x,
+      appendEntry: () => {},
+      log: (l) => logs.push(l),
+    });
+    const bc = createMockBridgeContext({ supervisedRegistration: (sid: string) => gate.control.registrationFields(sid) } as any);
+    /** What bridge session_start does: restore for the incoming id, then register through handleSessionChange. */
+    const start = (id: string, entries: unknown[] | (() => never)) => {
+      const m = sm(id, entries);
+      gate.control.restore(id, () => (m.getBranch as () => unknown[])());
+      handleSessionChange(bc, { cwd: "/p", sessionManager: m } as any, () => []);
+      return ((bc as any)._sent as any[]).filter((x) => x.type === "session_register").at(-1);
+    };
+    return { gate, bc, start, logs };
+  }
+
+  it("#E30 resume s1 (entries true@1, false@2) → false before any tool call; switch to s2 (no entries) → config default, not s1's mode", () => {
+    const r = rig("full");
+    const reg1 = r.start("s1", [mode(true, 1), mode(false, 2)]);
+    expect(r.gate.modes.get("s1")).toBe(false);
+    expect(reg1.supervised).toEqual({ on: false, rev: 2 });
+    r.gate.modes.set("s1", true, 3); // s1 ends Supervised in this variant
+    const reg2 = r.start("s2", []);
+    expect(r.gate.modes.get("s2")).toBe(false);
+    expect(reg2.supervised).toEqual({ on: false, rev: 0 });
+    expect(reg2.sessionId).toBe("s2");
+    expect(r.gate.modes.get("s1")).toBe(true); // per-session entries; nothing was inherited or overwritten
+  });
+
+  it("#X14 a throwing entry read registers the session as Supervised (fail closed) and logs", () => {
+    const r = rig("full");
+    const reg = r.start("s1", () => {
+      throw new Error("EIO");
+    });
+    expect(r.gate.modes.get("s1")).toBe(true);
+    expect(reg.supervised.on).toBe(true);
+    expect(r.logs.some((l) => l.startsWith("[supervised] mode restore failed"))).toBe(true);
+  });
+
+  it("sendStateSync (first register and reconnect) carries supervised {on,rev}", () => {
+    const r = rig("supervised");
+    sendStateSync(r.bc, () => []);
+    const reg = ((r.bc as any)._sent as any[]).find((m) => m.type === "session_register");
+    expect(reg.supervised).toEqual({ on: true, rev: 0 });
+    expect(reg).not.toHaveProperty("toolGateOwner");
+  });
+
+  it("registers toolGateOwner only when the owner slot is set", () => {
+    const logs: string[] = [];
+    const gate = createSupervisedGateForBridge({
+      state: {} as never,
+      getSessionId: () => "sess-123",
+      getPromptBus: () => undefined,
+      readConfig: () => ({ default: "full", timeoutSeconds: 120, tools: [] }),
+      configFile: "/nonexistent/config.json",
+      redact: (x) => x,
+      appendEntry: () => {},
+      getOwner: () => "chat-gateway",
+      log: (l) => logs.push(l),
+    });
+    const bc = createMockBridgeContext({ supervisedRegistration: (sid: string) => gate.control.registrationFields(sid) } as any);
+    sendStateSync(bc, () => []);
+    const reg = ((bc as any)._sent as any[]).find((m) => m.type === "session_register");
+    expect(reg.toolGateOwner).toBe("chat-gateway");
+  });
+
+  it("a context without the supervised hook (older wiring / unit tests) registers exactly as before", () => {
+    const bc = createMockBridgeContext();
+    sendStateSync(bc, () => []);
+    const reg = ((bc as any)._sent as any[]).find((m) => m.type === "session_register");
+    expect(reg).not.toHaveProperty("supervised");
+    expect(reg).not.toHaveProperty("toolGateOwner");
   });
 });
 

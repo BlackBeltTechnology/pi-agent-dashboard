@@ -66,7 +66,7 @@ function makeGateway(active: boolean) {
     ...(skip as []),
     () => active, // isResolverActive (position 25)
   );
-  return { gateway, sendToSession };
+  return { gateway, sendToSession, sessionManager };
 }
 
 async function deliver(ws: EventEmitter, msg: unknown) {
@@ -114,6 +114,67 @@ describe("gateway §8.3 owner-equality gate", () => {
     gateway.wss.emit("connection", ws, {});
     await deliver(ws, { type: "retry_session", sessionId: "s1" });
     expect(sendToSession).toHaveBeenCalledWith("s1", { type: "retry_session", sessionId: "s1" });
+  });
+});
+
+// Supervised-mode flip: session-owner only, same gate as `send_prompt`; audited.
+// See change: add-supervised-tool-approval — test-plan #X27, #X28.
+describe("gateway set_supervised (X27, X28)", () => {
+  let errorSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+  afterEach(() => errorSpy.mockRestore());
+
+  const modeLines = () =>
+    (errorSpy.mock.calls as unknown[][]).map((c) => String(c[0])).filter((l) => l.startsWith("[supervised] mode"));
+
+  it("X27 a non-owner flip is dropped: mode + rev kept, nothing forwarded, no mode log line; the owner's same frame is accepted", async () => {
+    const { gateway, sendToSession, sessionManager } = makeGateway(true);
+    sessionManager.update("s1", { supervised: false, supervisedRev: 3 });
+
+    const intruder = makeFakeWs(other);
+    gateway.wss.emit("connection", intruder, {});
+    await deliver(intruder, { type: "set_supervised", sessionId: "s1", on: true });
+    expect(sessionManager.get("s1")).toMatchObject({ supervised: false, supervisedRev: 3 });
+    expect(sendToSession).not.toHaveBeenCalled();
+    expect(modeLines()).toEqual([]);
+
+    const ownerWs = makeFakeWs(owner);
+    gateway.wss.emit("connection", ownerWs, {});
+    await deliver(ownerWs, { type: "set_supervised", sessionId: "s1", on: true });
+    expect(sessionManager.get("s1")).toMatchObject({ supervised: true, supervisedRev: 4 });
+    expect(sendToSession).toHaveBeenCalledWith("s1", { type: "set_supervised", on: true, rev: 4 });
+  });
+
+  it("X28 each accepted flip logs `[supervised] mode on|off rev=<n> session=<id> source=<connId>` with rev incrementing", async () => {
+    const { gateway, sendToSession, sessionManager } = makeGateway(true);
+    const ownerWs = makeFakeWs(owner);
+    gateway.wss.emit("connection", ownerWs, {});
+    await deliver(ownerWs, { type: "set_supervised", sessionId: "s1", on: true });
+    await deliver(ownerWs, { type: "set_supervised", sessionId: "s1", on: false });
+    const lines = modeLines();
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toMatch(/^\[supervised\] mode on rev=1 session=s1 source=\S+$/);
+    expect(lines[1]).toMatch(/^\[supervised\] mode off rev=2 session=s1 source=\S+$/);
+    // same connection id on both lines
+    expect(lines[0].split("source=")[1]).toBe(lines[1].split("source=")[1]);
+    expect(sessionManager.get("s1")).toMatchObject({ supervised: false, supervisedRev: 2 });
+    expect(sendToSession).toHaveBeenLastCalledWith("s1", { type: "set_supervised", on: false, rev: 2 });
+    // the browsers see the flip
+    const frames = ownerWs.send.mock.calls.map((c) => JSON.parse(c[0] as string));
+    expect(frames).toContainEqual({ type: "session_updated", sessionId: "s1", updates: { supervised: true, supervisedRev: 1 } });
+  });
+
+  it("malformed payload / unknown session: ignored, nothing forwarded", async () => {
+    const { gateway, sendToSession, sessionManager } = makeGateway(true);
+    const ownerWs = makeFakeWs(owner);
+    gateway.wss.emit("connection", ownerWs, {});
+    await deliver(ownerWs, { type: "set_supervised", sessionId: "s1", on: "yes" });
+    await deliver(ownerWs, { type: "set_supervised", sessionId: "nope", on: true });
+    expect(sendToSession).not.toHaveBeenCalled();
+    expect(sessionManager.get("s1")?.supervised).toBeUndefined();
+    expect(modeLines()).toEqual([]);
   });
 });
 

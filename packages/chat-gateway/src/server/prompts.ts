@@ -56,6 +56,21 @@ function strArray(value: unknown): string[] | undefined {
   return out.length > 0 ? out : undefined;
 }
 
+/**
+ * True for a prompt the chat gateway must NOT render: a supervised tool approval
+ * (`metadata.kind === "supervised-tool-approval"`) or a path-gate prompt enriched with
+ * supervised content (`metadata.supervised === true`). A channel member could otherwise
+ * approve a tool call in the owner's session — a privilege raise the operator never chose;
+ * these are answered on the dashboard or the terminal only. Accepts the wrapped
+ * (`{ prompt }`) and flat shapes. See change: add-supervised-tool-approval (D17).
+ */
+export function isOperatorOnlyPrompt(request: unknown): boolean {
+  if (!isObject(request)) return false;
+  const prompt = isObject(request.prompt) ? request.prompt : request;
+  const metadata = isObject(prompt.metadata) ? prompt.metadata : {};
+  return metadata.kind === "supervised-tool-approval" || metadata.supervised === true;
+}
+
 export function toPromptControl(request: unknown): PromptControl {
   if (!isObject(request)) {
     return { requestId: "", kind: "unsupported", title: "" };

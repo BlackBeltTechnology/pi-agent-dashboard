@@ -172,6 +172,9 @@ export function sendStateSync(
     isGitRepo: detectIsGitRepo(process.cwd()),
     ...(spawnToken ? { spawnToken } : {}),
     ...(dashboardSpawned ? { dashboardSpawned: true } : {}),
+    // Supervised-mode state + gate owner (the server reconciles by `rev`).
+    // See change: add-supervised-tool-approval (design D4, D12).
+    ...(bc.supervisedRegistration?.(bc.sessionId) ?? {}),
   });
 
   bc.hasRegisteredOnce = true;
@@ -314,6 +317,8 @@ export function handleSessionChange(
     // See change: gate-session-worktree-button-on-git.
     isGitRepo: detectIsGitRepo(cwd),
     ...(usageSeed ? { usageSeed } : {}),
+    // The incoming session's own mode was restored at session_start, before this register.
+    ...(bc.supervisedRegistration?.(bc.sessionId) ?? {}),
   });
 
   // New / fork / resume: no turn in flight, and bc.cachedCtx is still the

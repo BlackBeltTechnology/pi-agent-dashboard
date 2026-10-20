@@ -50,6 +50,7 @@ Dashboard config loader. `loadConfig()` reads `~/.pi/dashboard/config.json` via 
 `editor: { largeFileLimitMb }` block: `DEFAULT_EDITOR_CONFIG` (10), `parseEditorConfig` (round + clamp 1–256, non-number → 10). See change: gate-changed-on-disk-by-content.
 `AuthConfig.capabilityRoutePlugins?: string[]` (manifest ids of non-bundled plugins trusted to `serveApp`; default `[]`, string-filtered). It alone counts as auth content for `parseAuthConfig`, so it is not dropped. See change: add-plugin-capability-routes.
 
+`SupervisedModeConfig {default:"full"|"supervised", timeoutSeconds, tools}`, `DEFAULT_SUPERVISED_MODE` (`"full"`, 120, `DEFAULT_SUPERVISED_TOOLS`), `parseSupervisedMode(raw)` (unknown default → `full`; non-array tools → default set; blank/non-string entries dropped), `normalizeSupervisedTimeoutSeconds(raw)` (finite number in [10,3600] else 120 — shared with the server PUT normaliser), `SUPERVISED_TIMEOUT_{MIN,MAX}_SECONDS`; `DashboardConfig.supervisedMode` always set by `loadConfig`/`DEFAULTS`. See change: add-supervised-tool-approval.
 - `terminals` block: `TerminalsConfig`, `DEFAULT_TERMINALS_CONFIG` (32/16/600000), `parseTerminalsConfig` (integer >= 1 else default + one warn). See change: harden-server-capability-bounds.
 
 - `browse` block: `BrowseConfig {confineRemote}`, `DEFAULT_BROWSE_CONFIG`, `parseBrowseConfig` (only explicit `false` disables remote browse confinement; read at server start). See change: harden-server-capability-bounds.

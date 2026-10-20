@@ -475,3 +475,15 @@ describe("memory-session-manager — pidRecordedAt stamp", () => {
     expect(sm.get("s1")?.pidRecordedAt).toBeUndefined();
   });
 });
+
+// ── Supervised mode survives a bridge reattach — see change: add-supervised-tool-approval ──
+describe("register: supervised mode carry-over (E31 / X23)", () => {
+  it("a same-id re-register (reattach / reconnect) keeps supervised + supervisedRev; a first register has none", () => {
+    const mgr = createMemorySessionManager();
+    mgr.register({ id: "s1", cwd: "/p", source: "tui", startedAt: 1 } as never);
+    expect(mgr.get("s1")?.supervised).toBeUndefined();
+    mgr.update("s1", { supervised: true, supervisedRev: 3 });
+    mgr.register({ id: "s1", cwd: "/p", source: "tui", startedAt: 1, registerReason: "reattach" } as never);
+    expect(mgr.get("s1")).toMatchObject({ supervised: true, supervisedRev: 3 });
+  });
+});

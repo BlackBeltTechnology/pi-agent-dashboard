@@ -13,3 +13,5 @@ Non-archived sidecar with `statsExtractorVersion` absent/older than `STATS_EXTRA
 - `ScanOptions.archiveServiceSessionsOnEnd` (default `loadConfig()`) + `legacyPass` (default false). Service backfill branch beside age rule, gate `live !== true && archived === undefined`: declared `archiveOnEnd === true` every boot; legacy `lifecyclePolicy:"ephemeral"` + undeclared only on `legacyPass`. Logs `[archive] service-end-backfill archived <id>`. `ScanResult.serviceArchived`. `bootScanAllSessions()` = scan + one-shot legacy pass from `boot-state.json` stamp, stamped only while setting on. `sessionFromMeta` restores `archiveOnEnd`. See change: archive-service-sessions-on-end.
 
 - Restores `nameSourceFor` from `.meta.json`. See change: investigate-auto-name-provenance-relabel.
+
+- `sessionFromMeta` restores `supervised` + `supervisedRev` from `meta.supervised`. See change: add-supervised-tool-approval (D4).

@@ -172,4 +172,66 @@ describe("awaitingFileAccess (integration)", () => {
     await wait(100);
     expect((await session("s1"))?.awaitingFileAccess ?? false).toBe(false);
   });
+
+  // ── Supervised tool approvals — see change: add-supervised-tool-approval (D16) ──
+  // test-plan #E37: awaitingToolApproval false → true → false on each resolution path.
+  const supervisedPrompt = (ws: WebSocket, id: string, promptId: string) =>
+    gatePrompt(ws, id, promptId, "supervised-tool-approval");
+
+  for (const [label, resolve] of [
+    ["answered (bridge settles the prompt after the browser's prompt_response)", (b: WebSocket) => send(b, { type: "prompt_dismiss", sessionId: "s1", promptId: "p1" })],
+    ["prompt_cancel (client dismiss)", (b: WebSocket) => send(b, { type: "prompt_cancel", sessionId: "s1", promptId: "p1" })],
+    ["timeout cancel (the gate's own cancel)", (b: WebSocket) => send(b, { type: "prompt_cancel", sessionId: "s1", promptId: "p1", reason: "timeout" })],
+  ] as const) {
+    it(`E37 awaitingToolApproval false → true → false: ${label}`, async () => {
+      await boot();
+      const bridge = await openBridge();
+      await registerLive(bridge, "s1");
+      expect((await session("s1"))?.awaitingToolApproval ?? false).toBe(false);
+      supervisedPrompt(bridge, "s1", "p1");
+      await wait(120);
+      let s = await session("s1");
+      expect(s?.awaitingToolApproval).toBe(true);
+      // a supervised approval is not a file-access prompt and never folds currentTool to ask_user
+      expect(s?.awaitingFileAccess ?? false).toBe(false);
+      expect(s?.currentTool ?? null).toBeNull();
+      resolve(bridge);
+      await wait(120);
+      s = await session("s1");
+      expect(s?.awaitingToolApproval ?? false).toBe(false);
+    });
+  }
+
+  it("E37 bridge disconnect drops the flag; replay re-derives it", async () => {
+    await boot();
+    const bridge = await openBridge();
+    await registerLive(bridge, "s1");
+    supervisedPrompt(bridge, "s1", "p1");
+    await wait(120);
+    expect((await session("s1"))?.awaitingToolApproval).toBe(true);
+    bridge.close();
+    await wait(300);
+    expect((await session("s1"))?.awaitingToolApproval ?? false).toBe(false);
+    const again = await openBridge();
+    send(again, { type: "session_register", sessionId: "s1", cwd: "/tmp", source: "cli" });
+    supervisedPrompt(again, "s1", "p1");
+    send(again, { type: "replay_complete", sessionId: "s1" });
+    await wait(200);
+    expect((await session("s1"))?.awaitingToolApproval).toBe(true);
+  });
+
+  it("E37 an enriched path prompt (agent-path-gate + supervised:true) keeps awaitingFileAccess and does not set awaitingToolApproval", async () => {
+    await boot();
+    const bridge = await openBridge();
+    await registerLive(bridge, "s1");
+    send(bridge, {
+      type: "prompt_request", sessionId: "s1", promptId: "p1",
+      prompt: { question: "q", type: "select", options: ["Allow once", "Deny"], metadata: { kind: "agent-path-gate", supervised: true, path: "/etc/hosts" } },
+      component: { type: "generic-dialog", props: {} }, placement: "inline",
+    });
+    await wait(120);
+    const s = await session("s1");
+    expect(s?.awaitingFileAccess).toBe(true);
+    expect(s?.awaitingToolApproval ?? false).toBe(false);
+  });
 });

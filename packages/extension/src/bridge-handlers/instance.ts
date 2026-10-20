@@ -33,6 +33,7 @@ import type { ReadFileOutcome } from "../markdown-image-inliner.js";
 import type { createMcpDashboardRegistrar } from "../mcp-token-delivery.js";
 import type { MessageUpdateCoalescer } from "../message-update-coalescer.js";
 import type { createPathGate } from "../path-gate/index.js";
+import type { createSupervisedGateForBridge } from "../supervised-gate/index.js";
 import type { Suppression } from "../path-gate/suppression.js";
 import type { PluginForwardRegistry } from "../plugin-event-forward-registry.js";
 import type { createPluginRequestClient } from "../plugin-request-client.js";
@@ -57,6 +58,13 @@ export interface BridgeState {
   generation?: number;
   /** Path-gate denial map; process-global so a /reload keeps the 120 s suppression. */
   pathGateSuppression?: Suppression;
+  /**
+   * Per-session supervised-mode flag and its flip revision. Process-global (never one flag) so a
+   * session switch never inherits another session's mode; cleared per id on `session_shutdown`.
+   * See change: add-supervised-tool-approval (design D4).
+   */
+  supervisedModes?: Map<string, boolean>;
+  supervisedRevs?: Map<string, number>;
   /** The pi instance that owns the bridge (used to detect subagent re-entry) */
   pi?: ExtensionAPI;
   /** All connection instances from any bridge incarnation (for cleanup) */
@@ -185,6 +193,8 @@ export interface BridgeInstance {
   uiModulesBridgeCtx: UiModulesBridgeCtx;
   pluginRequests: ReturnType<typeof createPluginRequestClient>;
   pathGate: ReturnType<typeof createPathGate>;
+  /** Supervised-mode tool-approval gate. See change: add-supervised-tool-approval. */
+  supervisedGate: ReturnType<typeof createSupervisedGateForBridge>;
   /** Credential-vault env delivery (bridge half). See change: add-credential-vault. */
   vaultDelivery: VaultDelivery;
   connection: ConnectionManager;

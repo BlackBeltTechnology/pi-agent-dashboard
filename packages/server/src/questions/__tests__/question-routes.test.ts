@@ -355,6 +355,28 @@ describe("question REST roads", () => {
     });
   });
 
+  // test-plan #E34 — supervised approvals (and enriched path prompts) are read-only in the stack.
+  // See change: add-supervised-tool-approval (D17).
+  describe("supervised approvals (test-plan #E34)", () => {
+    it.each([
+      ["supervised-tool-approval", { kind: "supervised-tool-approval" }],
+      ["enriched agent-path-gate (supervised:true)", { kind: "agent-path-gate", supervised: true }],
+      ["supervised:true without a file-access kind", { supervised: true }],
+    ])("%s: listed read-only (origin file), POST 403, nothing forwarded, still pending", async (_label, metadata) => {
+      const { store } = makeStore();
+      store.onTracked("s1", promptMsg("s1", "p1", { metadata }));
+      const id = idOf(store);
+      const { app, send } = await makeApp(store);
+      expect((await app.inject({ method: "GET", url: "/api/questions" })).json().data[0].origin).toBe("file");
+      expect((await app.inject({ method: "GET", url: `/api/questions/${id}` })).json().data.answerable).toBe(false);
+      expect((await post(app, id, { answer: "Allow once" })).statusCode).toBe(403);
+      expect((await post(app, id, { cancelled: true })).statusCode).toBe(403);
+      expect(send).not.toHaveBeenCalled();
+      expect(store.listRows()).toHaveLength(1);
+      expect(store.claim(id).status).toBe("claimed"); // no claim was taken
+    });
+  });
+
   it("chat-gateway session prompts are answerable under the same rules (test-plan #E12)", async () => {
     const { store } = makeStore({ describe: () => ({ label: "discord", chatGateway: true }) });
     store.onTracked("s1", promptMsg("s1", "p1"));

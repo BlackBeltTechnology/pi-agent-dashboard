@@ -37,6 +37,7 @@ import { dispatchToSession } from "./dispatch.js";
 import {
   composeBatchAnswers,
   composeMultiselectAnswer,
+  isOperatorOnlyPrompt,
   multiselectToSequence,
   type PromptControl,
   toPromptControl,
@@ -1542,6 +1543,9 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
         // empty and a later `prompt_dismiss` can never match it.
         const promptId = typeof frameObj.promptId === "string" ? frameObj.promptId : "";
         const raw = frameObj.prompt ?? frame;
+        // Supervised approvals (and supervised-enriched path prompts) are never rendered
+        // in a channel — spawned or attached. See change: add-supervised-tool-approval (D17).
+        if (isOperatorOnlyPrompt(raw)) return;
         const control = toPromptControl(
           typeof raw === "object" && raw !== null ? { ...(raw as object), requestId: promptId } : raw,
         );

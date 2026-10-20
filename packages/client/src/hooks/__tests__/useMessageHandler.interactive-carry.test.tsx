@@ -188,3 +188,38 @@ describe("useMessageHandler carries the inline-Other opt-in into params (E16)", 
     expect(byId("false").params).not.toHaveProperty("allowOther");
   });
 });
+
+// test-plan #E33 (live site) — See change: add-supervised-tool-approval (5.1a)
+describe("useMessageHandler passes the supervised metadata keys into params (E33)", () => {
+const SUPERVISED_META = {
+  kind: "supervised-tool-approval",
+  deadline: 1_900_000_000_000,
+  tool: "edit",
+  summary: "edit src/a.ts (+3 −1)",
+  command: "echo hi",
+  path: "src/a.ts",
+  diffStat: "+3 −1",
+  diff: "-old\n+new",
+  cwd: "/repo",
+  toolCallId: "tc-1",
+} as const;
+  it("all ten keys arrive verbatim; a plain prompt gains none of them", () => {
+    const { dispatch, sessionStatesRef } = setup();
+    const mk = (promptId: string, metadata?: Record<string, unknown>): ServerToBrowserMessage =>
+      ({
+        type: "prompt_request",
+        sessionId: SID,
+        promptId,
+        prompt: { question: "Edit this file?", type: "select", options: ["Allow once", "Deny"], ...(metadata ? { metadata } : {}) },
+        component: { type: "select", props: {} },
+        placement: "inline",
+      }) as ServerToBrowserMessage;
+    dispatch(mk("sup", { ...SUPERVISED_META, allowOther: true }));
+    dispatch(mk("plain"));
+    const reqs = sessionStatesRef.current.get(SID)!.interactiveRequests;
+    const sup = reqs.find((r) => r.requestId === "sup")!;
+    for (const [k, v] of Object.entries(SUPERVISED_META)) expect(sup.params[k]).toEqual(v);
+    const plain = reqs.find((r) => r.requestId === "plain")!;
+    for (const k of Object.keys(SUPERVISED_META)) expect(plain.params).not.toHaveProperty(k);
+  });
+});

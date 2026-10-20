@@ -17,6 +17,7 @@ import { forbiddenGrantSubjects, isUngrantableSubject } from "@blackbelt-technol
 import type { PromptBus } from "../prompt-bus.js";
 import { GrantCache } from "./grant-cache.js";
 import { createGrantLink } from "./grant-link.js";
+import { createHandoffSet } from "./handoff.js";
 import { createYoloLink } from "./yolo-link.js";
 import { createPathGateHandler, type GatePrompter } from "./handler.js";
 import { Suppression } from "./suppression.js";
@@ -37,6 +38,10 @@ export interface PathGateOptions {
   notify?: (message: string) => void;
   /** Denial map owned by the caller so it outlives a /reload (new bridge instance, same session). */
   suppression?: Suppression;
+  /** Narrow supervised-in-effect accessor (D14); absent → path prompts are never enriched. */
+  supervisedInEffect?: (sessionId: string, toolName: string) => boolean;
+  /** Secret redaction for the supervised content appended to a path prompt. */
+  redact?: (text: string) => string;
 }
 
 export function createPathGate(opts: PathGateOptions) {
@@ -101,7 +106,13 @@ export function createPathGate(opts: PathGateOptions) {
   // Entries are keyed by session id (handler.ts), so a denial never leaks to another
   // session; the caller passes a process-global map so it also survives a /reload.
   const suppression = opts.suppression ?? new Suppression();
+  // Allow-once-on-enriched-prompt hand-off to the supervised gate (D14); per bridge instance, cleared
+  // on `session_shutdown` (which precedes any /reload re-creation).
+  const handoff = createHandoffSet();
   const handler = createPathGateHandler({
+    handoff,
+    supervisedInEffect: opts.supervisedInEffect,
+    redact: opts.redact,
     getConfig,
     getRoots: (g, needsCheckout, cwd) => roots.roots(g, needsCheckout, cwd),
     getGrants: () => grants.get(),
@@ -123,6 +134,11 @@ export function createPathGate(opts: PathGateOptions) {
   return {
     handler,
     counters,
+    /** Supervised gate hook: true once per id the operator Allow-once'd on an enriched path prompt. */
+    consumeHandoff: (sessionId: string, toolCallId: string): boolean => handoff.consume(sessionId, toolCallId),
+    /** `session_shutdown`: drop the session's hand-off ids. */
+    clearSession: (sessionId: string): void => handoff.clear(sessionId),
+    hasHandoff: (sessionId: string): boolean => handoff.has(sessionId),
     /** Start the bounded checkout probe + resolve pi's own dirs (best effort). */
     onSessionStart(): void {
       roots.startProbe();

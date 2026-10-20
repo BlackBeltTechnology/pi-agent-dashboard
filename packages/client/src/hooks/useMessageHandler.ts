@@ -18,6 +18,7 @@ import type { DiscoveredServerInfo } from "../components/connectivity/ServerSele
 import type { ToastVariant } from "../components/primitives/Toast.js";
 import { EMPTY_CANVAS_STATE, reduceCanvasChip, reduceCanvasIntent } from "../lib/canvas/canvas-gate.js";
 import { foldLiveEvents, type QueuedLiveEvent } from "../lib/chat/coalesce-live-events.js";
+import { supervisedPromptParams } from "../lib/chat/supervised-prompt-params.js";
 import { addInteractiveRequest, addNotify, applyPromptReceived, carryInteractiveRequests, carryPendingPrompt, createInitialState, dismissInteractiveRequest, finalizeBackfillSegment, reduceEvent, reseatTimedNotifies, retailPendingInteractiveRows, type SessionState } from "../lib/chat/event-reducer.js";
 import {
   createHistoryGapRow,
@@ -1874,6 +1875,8 @@ export function useMessageHandler(
               questions: msg.prompt?.metadata?.questions,
               // Inline "Other" opt-in (core metadata key). See change: add-ask-user-inline-other.
               ...(msg.prompt?.metadata?.allowOther === true ? { allowOther: true } : {}),
+              // Supervised tool-approval keys, verbatim. See change: add-supervised-tool-approval (5.1a).
+              ...supervisedPromptParams(msg.prompt?.metadata),
               _promptBusComponent: msg.component,
               _promptBusPlacement: msg.placement,
               // Namespaced plugin data (`ctx.ui.*` `pluginMeta`), exposed to

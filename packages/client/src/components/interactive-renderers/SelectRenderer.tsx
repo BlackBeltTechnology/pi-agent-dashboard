@@ -1,7 +1,7 @@
 import { isOtherAllowed } from "@blackbelt-technology/pi-dashboard-shared/prompt-answer.js";
 import { mdiFormatListBulleted } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import React, { useState } from "react";
+import React, { lazy, Suspense, useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { MarkdownContent } from "../preview/MarkdownContent.js";
 import { AnsweredOption } from "./AnsweredOption.js";
@@ -10,7 +10,28 @@ import { OtherOption } from "./OtherOption.js";
 import { isCancelOption, parseOption } from "./parseOption.js";
 import type { InteractiveRendererProps } from "./types.js";
 
-export function SelectRenderer({ params, status, result, onRespond, onCancel }: InteractiveRendererProps) {
+/**
+ * `ask_user` select. A supervised tool-approval prompt (`params.kind`) renders as the dedicated
+ * `ToolApprovalCard`; every other select is the plain option list. The registry stays keyed by method.
+ * See change: add-supervised-tool-approval (design D3).
+ */
+// Lazy: the card (diff, countdown, reason field) is only needed while an approval is pending, and
+// the entry chunk sits at its gzip cap (`mdi-chunk-size.test.ts`). The kind literal stays eager.
+const SUPERVISED_APPROVAL_KIND = "supervised-tool-approval";
+const ToolApprovalCard = lazy(() => import("./ToolApprovalCard.js").then((m) => ({ default: m.ToolApprovalCard })));
+
+export function SelectRenderer(props: InteractiveRendererProps) {
+  if (props.params.kind === SUPERVISED_APPROVAL_KIND) {
+    return (
+      <Suspense fallback={null}>
+        <ToolApprovalCard {...props} />
+      </Suspense>
+    );
+  }
+  return <PlainSelectRenderer {...props} />;
+}
+
+function PlainSelectRenderer({ params, status, result, onRespond, onCancel }: InteractiveRendererProps) {
   const title = params.title as string;
   const message = params.message as string | undefined;
   // Non-string options are dropped (parseOption would throw on them). See change: add-ask-user-inline-other (X2).

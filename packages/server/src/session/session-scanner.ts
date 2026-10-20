@@ -240,6 +240,10 @@ export function sessionFromMeta(
     // Restore the human owner so owner-scoping survives a restart / cold start
     // without re-reading the sidecar. See change: add-multi-user-identity-plane.
     principalOwner: meta.principalOwner,
+    // Restore the Supervised-mode state; reconciled with the bridge's on register.
+    // See change: add-supervised-tool-approval (design D4).
+    supervised: meta.supervised?.on,
+    supervisedRev: meta.supervised?.rev,
     // Restore session classification for the client (grouping / board
     // visibility). Recovery no longer reads `kind` — it reads the core-owned
     // `recover` flag below. See change: reopen-sessions-after-shutdown.

@@ -5,7 +5,7 @@ Stage: design   Generated: 2026-10-19
 Hard gate satisfied: all five gaps were answered before this plan was finalised.
 G1 diff cap = 16 KiB, truncated diff ends `… (truncated)` (E44, F15) · G2 `PUT /api/config`
 normalises out-of-range `supervisedMode.timeoutSeconds` to 120 and persists it (X26) ·
-G3 mode flip is session-owner only, same gate as `send_prompt`, non-owner gets 403 and mode kept (X27) ·
+G3 mode flip is session-owner only, same gate as `send_prompt`, non-owner is dropped by the owner gate (no error frame) and mode kept (X27) ·
 G4 no new harness fixture: F11 → L1 component test, X9 → L1 bridge-gate test (owner slot marked) ·
 G5 server log line `[supervised] mode on|off rev=<n> session=<id> source=<connId>` (X28).
 P2 kept as a regression guard. No open slots remain.
@@ -142,7 +142,7 @@ Harness note: L3 rows run against the docker harness port from `.pi-test-harness
 | X24 | Version skew: old guard never marks slot | decision-table | L1 | automated | gateway guard active, owner slot empty, mode `true` | `bash` | supervised prompt requested (≤2 prompts, never 0) |
 | X25 | Approved tool runs with full permissions | EP | L1 | automated | Supervised, Allow once on `bash` | gate result | `undefined` returned, `event.input` unmodified by the gate |
 | X26 | Out-of-range timeout via API | EP | L1 | automated | `PUT /api/config {supervisedMode:{timeoutSeconds:5}}` sent directly (bypassing the Settings field) | request, then `GET /api/config` | PUT succeeds; persisted and returned `supervisedMode.timeoutSeconds` is 120 (normalised, not 5, no 400) |
-| X27 | Unauthorised mode flip | fault-injection | L1 | automated | browser connection that is not the session owner sends `set_supervised{on:true}` for session s1 (mode `false`, rev 3) | server WS handler (same owner gate as `send_prompt`, `ws-message-scope.ts:48`) | 403 error frame; mode stays `false`, rev 3; no `set_supervised` forwarded to the bridge; the owner's same message is accepted |
+| X27 | Unauthorised mode flip | fault-injection | L1 | automated | browser connection that is not the session owner sends `set_supervised{on:true}` for session s1 (mode `false`, rev 3) | server WS handler (same owner gate as `send_prompt`, `ws-message-scope.ts:48`) | frame dropped by the owner gate (no error frame, as `send_prompt`); mode stays `false`, rev 3; no `set_supervised` forwarded to the bridge; the owner's same message is accepted |
 | X28 | Flip audited | EP | L1 | automated | owner flips session s1 on, then off (console spy on the server) | each accepted flip | log lines `[supervised] mode on rev=<n> session=s1 source=<connId>` then `[supervised] mode off rev=<n+1> session=s1 source=<connId>`; the rejected flip of X27 logs no mode line |
 
 ---

@@ -14,10 +14,26 @@
  * never handed this extension, so they stay ungated. This module is loaded ONLY
  * on the spawn path.
  *
- * See change: add-chat-gateway.
+ * The decision engine and guard core are shared
+ * (`@blackbelt-technology/pi-dashboard-shared/tool-gate/*`); this file supplies the
+ * chat-gateway `ApprovalSurface` and the extension entrypoint.
+ *
+ * See change: add-chat-gateway, add-supervised-tool-approval.
  */
 
-import { decideToolCall, type ToolPolicy } from "./policy.js";
+import {
+  ALLOW_ONCE,
+  type ApprovalSurface,
+  createToolCallGuard as createSharedGuard,
+  type GuardResult,
+} from "@blackbelt-technology/pi-dashboard-shared/tool-gate/guard.js";
+import {
+  clearToolGateOwner,
+  markToolGateOwner,
+} from "@blackbelt-technology/pi-dashboard-shared/tool-gate/owner.js";
+import { parseToolPolicy, type ToolPolicy } from "@blackbelt-technology/pi-dashboard-shared/tool-gate/policy.js";
+
+export type { GuardResult };
 
 /** Minimal slice of the pi extension API this guard needs. */
 export interface GuardPi {
@@ -25,6 +41,7 @@ export interface GuardPi {
     event: "tool_call",
     handler: (event: { toolName: string; toolCallId?: string; input?: unknown }, ctx: GuardCtx) => unknown,
   ): void;
+  on(event: "session_start" | "session_shutdown", handler: (event: unknown, ctx: GuardCtx) => unknown): void;
 }
 
 /** Minimal slice of pi's extension context this guard needs. */
@@ -33,6 +50,8 @@ export interface GuardCtx {
     confirm(title: string, message?: string): Promise<boolean>;
     notify?(message: string, kind?: string): void;
   };
+  /** Session id access (session_start / session_shutdown owner marking). */
+  sessionManager?: { getSessionId(): string };
 }
 
 export interface GuardOptions {
@@ -44,69 +63,59 @@ export interface GuardOptions {
   cancel?: (handle: unknown) => void;
 }
 
-export type GuardResult = { block: true; reason: string; terminate?: boolean } | undefined;
+/** The gateway only permits these `defaultAction`s; `"allow"` is supervised-only. */
+const GATEWAY_ALLOWED_DEFAULTS = ["deny", "approve"] as const;
 
 const DEFAULT_TIMEOUT_MS = 60_000;
 
+/** The single agent-visible reason for every negative approval path (unchanged pre-extraction). */
+const APPROVAL_DENIED_REASON = "approval_denied_or_timed_out";
+
+/**
+ * The chat-gateway `ApprovalSurface`: existing chat copy, `chat-gateway` prefix,
+ * `ctx.ui.confirm` transport (bridge → PromptBus → gateway → Discord yes/no).
+ * `cancel()` is a no-op (card lifetime unchanged); denied / dismissed / timeout /
+ * error all collapse to one reason so agent-visible behaviour is byte-identical.
+ */
+export const chatGatewaySurface: ApprovalSurface<GuardCtx> = {
+  buildPrompt: (event) => ({
+    title: `Allow tool "${event.toolName}"?`,
+    body: "A chat user asked this session to run a tool that needs approval.",
+    plain: `Allow tool "${event.toolName}"?`,
+    metadata: {},
+  }),
+  reasonPrefix: "chat-gateway",
+  reasonFor: () => APPROVAL_DENIED_REASON,
+  request: (prompt, ctx) => ({
+    // `Promise.resolve().then` turns a synchronous throw from confirm into a rejection (fail closed).
+    decision: Promise.resolve()
+      .then(() => ctx.ui.confirm(prompt.title, prompt.body))
+      // A `false` is an explicit No: a non-`Allow once` string settles `denied` (the core reads a bare
+      // `undefined` as a dismiss). The agent-visible reason is the same single collapsed string.
+      .then((ok) => ({ answer: ok === true ? ALLOW_ONCE : "Deny", surface: "chat-gateway" })),
+    cancel: () => {},
+  }),
+  onDecision: (record) => {
+    console.log(`[chat-gateway] tool approval ${record.toolName}: ${record.outcome}`);
+  },
+};
+
 /**
  * Build the `tool_call` handler. Exported (and timer-injectable) so the whole
- * decision → approval → block path is unit-testable without pi.
+ * decision → approval → block path is unit-testable without pi. The policy is
+ * validated through `parseToolPolicy` with `allowedDefaults: ["deny","approve"]`,
+ * so a raw `"allow"` can never reach the gateway path.
  */
 export function createToolCallGuard(opts: GuardOptions) {
   const timeoutMs = Number.isFinite(opts.timeoutMs) ? Math.max(0, opts.timeoutMs as number) : DEFAULT_TIMEOUT_MS;
-  const schedule =
-    opts.schedule ?? ((fn: () => void, ms: number) => setTimeout(fn, ms) as unknown);
-  const cancel =
-    opts.cancel ?? ((h: unknown) => clearTimeout(h as ReturnType<typeof setTimeout>));
-
-  /** Resolve `false` after `timeoutMs`; an unanswered approval must DENY. */
-  function withTimeout(promise: Promise<boolean>): Promise<boolean> {
-    return new Promise<boolean>((resolve) => {
-      let settled = false;
-      const handle = schedule(() => {
-        if (settled) return;
-        settled = true;
-        resolve(false); // fail closed
-      }, timeoutMs);
-      promise.then(
-        (value) => {
-          if (settled) return;
-          settled = true;
-          cancel(handle);
-          resolve(value);
-        },
-        () => {
-          // A throwing/failing confirm DENIES — never escalate to allow.
-          if (settled) return;
-          settled = true;
-          cancel(handle);
-          resolve(false);
-        },
-      );
-    });
-  }
-
-  return async function onToolCall(
-    event: { toolName: string },
-    ctx: GuardCtx,
-  ): Promise<GuardResult> {
-    const decision = decideToolCall(event?.toolName, opts.policy);
-    if (decision.action === "allow") return undefined;
-    if (decision.action === "deny") {
-      return { block: true, reason: `chat-gateway: ${decision.reason}` };
-    }
-
-    const approved = await withTimeout(
-      Promise.resolve().then(() =>
-        ctx.ui.confirm(
-          `Allow tool "${event.toolName}"?`,
-          "A chat user asked this session to run a tool that needs approval.",
-        ),
-      ),
-    );
-    if (approved) return undefined;
-    return { block: true, reason: "chat-gateway: approval_denied_or_timed_out" };
-  };
+  return createSharedGuard<GuardCtx>({
+    surface: chatGatewaySurface,
+    policy: parseToolPolicy(opts.policy, { allowedDefaults: GATEWAY_ALLOWED_DEFAULTS }),
+    // The shared core needs strictly-positive ms; 0 keeps its "expire at once" meaning.
+    timeoutMs: Math.max(1, timeoutMs),
+    schedule: opts.schedule,
+    cancelTimer: opts.cancel,
+  });
 }
 
 /**
@@ -128,8 +137,10 @@ export function policyFromEnv(
   const raw = env.PI_EXT_CHAT_GATEWAY_GUARD_POLICY;
   if (typeof raw === "string" && raw.trim() !== "") {
     try {
-      const parsed = JSON.parse(raw) as ToolPolicy;
-      if (parsed && typeof parsed === "object") return parsed;
+      const parsed: unknown = JSON.parse(raw);
+      if (parsed && typeof parsed === "object") {
+        return parseToolPolicy(parsed, { allowedDefaults: GATEWAY_ALLOWED_DEFAULTS });
+      }
     } catch {
       // fall through to deny-all
     }
@@ -139,5 +150,23 @@ export function policyFromEnv(
 
 export default function chatGatewayGuard(pi: GuardPi, options?: Partial<GuardOptions>): void {
   const policy: ToolPolicy = options?.policy ?? policyFromEnv();
+  // Owner marking needs a session id, so it happens in the session hooks —
+  // never at registration. Ids we marked are remembered so shutdown clears
+  // even when its ctx can no longer name the session.
+  const marked = new Set<string>();
+  pi.on("session_start", (_event, ctx) => {
+    const id = ctx?.sessionManager?.getSessionId?.();
+    if (typeof id !== "string" || id === "") return;
+    markToolGateOwner(id, "chat-gateway");
+    marked.add(id);
+  });
+  pi.on("session_shutdown", (_event, ctx) => {
+    const id = ctx?.sessionManager?.getSessionId?.();
+    const ids = typeof id === "string" && id !== "" ? [id] : [...marked];
+    for (const sid of ids) {
+      clearToolGateOwner(sid);
+      marked.delete(sid);
+    }
+  });
   pi.on("tool_call", createToolCallGuard({ ...options, policy }));
 }

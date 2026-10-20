@@ -2395,3 +2395,93 @@ describe("SettingsPanel — Add-ons issue badge", () => {
     expect(screen.queryByTestId("nav-addons-issues")).toBeNull();
   });
 });
+
+// ── add-supervised-tool-approval: Security ▸ Tool approval (Supervised mode) ──
+// test-plan #E45 (no allow list), #F22 (bounds + undercut warning, component-level equivalent).
+describe("SettingsPanel Security ▸ Tool approval (Supervised mode)", () => {
+  const supervisedCfg = (over: Record<string, unknown> = {}) => ({
+    ...mockConfig,
+    askUserPromptTimeoutSeconds: 300,
+    supervisedMode: { default: "full", timeoutSeconds: 120, tools: ["bash", "powershell", "write", "edit", "Agent"], ...over },
+  });
+  const renderSecurity = async (cfg: any, onPut?: (body: any) => void) => {
+    global.fetch = vi.fn().mockImplementation((url: string, options?: any) => {
+      if (url === "/api/config" && options?.method === "PUT") {
+        onPut?.(JSON.parse(options.body));
+        return Promise.resolve({ json: () => Promise.resolve({ success: true }) });
+      }
+      if (url === "/api/config") return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, data: cfg }) });
+      return Promise.resolve({ ok: false, json: () => Promise.resolve(null) });
+    });
+    setPath("/settings/security");
+    render(<SettingsPanel />);
+    await waitFor(() => screen.getByTestId("supervised-mode-section"));
+  };
+
+  beforeEach(() => {
+    fetchAutoInitWorktreePref.mockResolvedValue(false);
+    setAutoInitWorktreePref.mockResolvedValue(true);
+  });
+  afterEach(() => cleanup());
+
+  it("E45: shows default mode, timeout and tool chips — and no allow-list field", async () => {
+    await renderSecurity(supervisedCfg());
+    const section = screen.getByTestId("supervised-mode-section");
+    expect(within(section).getByText("Tool approval (Supervised mode)")).toBeTruthy();
+    expect((within(section).getByTestId("supervised-default-mode") as HTMLSelectElement).value).toBe("full");
+    expect((within(section).getByTestId("supervised-timeout") as HTMLInputElement).value).toBe("120");
+    expect(within(section).getAllByTestId("supervised-tool-chip").map((c) => c.textContent)).toEqual(["bash", "powershell", "write", "edit", "Agent"]);
+    expect(section.textContent?.toLowerCase()).not.toMatch(/allow.?list|allowlist|always allow/);
+    expect(section.querySelector('[data-testid*="allow-list"], [name*="allow"]')).toBeNull();
+    // Beside "Agent file access" on the Security page.
+    expect(screen.getByTestId("agent-path-gate-section")).toBeTruthy();
+    expect(within(section).getByTestId("supervised-allow-first-hint").textContent).toMatch(/ctx_execute/);
+    expect(section.textContent).toMatch(/not a sandbox/i);
+  });
+
+  it("F22: 9 and 3601 show a field error and disable Save; 10 saves", async () => {
+    let put: any;
+    await renderSecurity(supervisedCfg(), (b) => { put = b; });
+    const field = screen.getByTestId("supervised-timeout") as HTMLInputElement;
+    for (const bad of ["9", "3601", "0", "abc", ""]) {
+      fireEvent.change(field, { target: { value: bad } });
+      expect(screen.getByTestId("supervised-timeout-error")).toBeTruthy();
+      expect((screen.getAllByTestId("save-btn")[0] as HTMLButtonElement).disabled).toBe(true);
+    }
+    fireEvent.change(field, { target: { value: "10" } });
+    expect(screen.queryByTestId("supervised-timeout-error")).toBeNull();
+    const save = screen.getAllByTestId("save-btn")[0] as HTMLButtonElement;
+    expect(save.disabled).toBe(false);
+    fireEvent.click(save);
+    await waitFor(() => expect(put?.supervisedMode).toEqual({ default: "full", timeoutSeconds: 10, tools: ["bash", "powershell", "write", "edit", "Agent"] }));
+  });
+
+  it("F22: ask_user timeout 30 with supervised 120 warns with the effective 29 s; a longer one does not", async () => {
+    await renderSecurity({ ...supervisedCfg(), askUserPromptTimeoutSeconds: 30 });
+    expect(screen.getByTestId("supervised-timeout-undercut").textContent).toMatch(/effective 29 s/);
+    cleanup();
+    await renderSecurity({ ...supervisedCfg(), askUserPromptTimeoutSeconds: 300 });
+    expect(screen.queryByTestId("supervised-timeout-undercut")).toBeNull();
+  });
+
+  it("edits the draft (default mode + tool chips) and saves it whole; nothing is sent when untouched", async () => {
+    let put: any;
+    await renderSecurity(supervisedCfg(), (b) => { put = b; });
+    fireEvent.change(screen.getByTestId("supervised-default-mode"), { target: { value: "supervised" } });
+    fireEvent.click(screen.getByLabelText("Stop asking for powershell"));
+    fireEvent.change(screen.getByTestId("supervised-tool-add"), { target: { value: "ctx_execute" } });
+    fireEvent.click(screen.getByTestId("supervised-tool-add-button"));
+    fireEvent.change(screen.getByTestId("supervised-tool-add"), { target: { value: "BASH" } }); // duplicate, ignoring case
+    fireEvent.click(screen.getByTestId("supervised-tool-add-button"));
+    expect(screen.getAllByTestId("supervised-tool-chip").map((c) => c.textContent)).toEqual(["bash", "write", "edit", "Agent", "ctx_execute"]);
+    fireEvent.click(screen.getAllByTestId("save-btn")[0]);
+    await waitFor(() =>
+      expect(put?.supervisedMode).toEqual({ default: "supervised", timeoutSeconds: 120, tools: ["bash", "write", "edit", "Agent", "ctx_execute"] }),
+    );
+  });
+
+  it("an empty tool list is called out", async () => {
+    await renderSecurity(supervisedCfg({ tools: [] }));
+    expect(screen.getByTestId("supervised-tools-empty")).toBeTruthy();
+  });
+});

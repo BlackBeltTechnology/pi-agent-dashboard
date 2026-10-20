@@ -1,6 +1,8 @@
 /**
  * Extension ↔ Server WebSocket protocol messages.
  */
+
+import type { ToolGateOwner } from "./tool-gate/owner.js";
 import type { AutoNamerPersistedState, CommandInfo, ContextUsage, DashboardEvent, DecoratorDescriptor, ExtensionUiModule, FileEntry, FlowInfo, FollowUpEntryView, GitPrChecks, GitPrState, ImageContent, ModelInfo, NotifyLevel, OpenSpecPhase, PiSessionInfo, ProviderInfo, RoleInfo, SessionDriver, SessionSource, TurnUsage } from "./types.js";
 import type { UsageTotals } from "./usage-totals.js";
 
@@ -264,6 +266,20 @@ export interface SessionRegisterMessage {
   driver?: SessionDriver;
   /** Configured ACP agent id (`acpAgents[].id`) when `driver === "acp"`. */
   acpAgentId?: string;
+  /**
+   * Supervised-mode state the bridge holds for this session: `on` + the per-session
+   * monotonic `rev` of its last flip. The server reconciles it with its persisted copy
+   * (higher `rev` wins; Supervised on a tie / missing rev). Additive/back-compatible.
+   * See change: add-supervised-tool-approval (design D4).
+   */
+  supervised?: SupervisedState;
+  /**
+   * Which in-session gate owns this session's tool calls (`"chat-gateway"` = the guard;
+   * absent = none). The client hides the mode chip only for `"chat-gateway"`. Authoritative
+   * value is the bridge's per-call read of the owner slot; this is a UI hint.
+   * See change: add-supervised-tool-approval (design D12).
+   */
+  toolGateOwner?: ToolGateOwner;
 }
 
 export interface SessionUnregisterMessage {
@@ -1091,6 +1107,38 @@ export interface PluginRequestMessage {
   payload: unknown;
 }
 
+/** Supervised-mode state of one session: `on` + monotonic per-session flip `rev`. */
+export interface SupervisedState {
+  on: boolean;
+  rev: number;
+}
+
+/**
+ * Bridge → server: report a supervised-mode / tool-gate-owner change after registration
+ * (registration itself carries the same fields). Not part of the approval round-trip.
+ * See change: add-supervised-tool-approval (design D4, D12).
+ */
+export interface SupervisedStateMessage {
+  type: "supervised_state";
+  sessionId: string;
+  on: boolean;
+  rev: number;
+  toolGateOwner?: ToolGateOwner;
+}
+
+/**
+ * Server → bridge: set a session's supervised mode (live toggle, and the reconciled
+ * value after register / reconnect). `rev` is the winning flip revision. A malformed
+ * payload is ignored (mode kept); it never resolves a pending prompt. Parse with
+ * `parseSetSupervised` (`tool-gate/supervised-mode.ts`).
+ * See change: add-supervised-tool-approval (design D4).
+ */
+export interface SetSupervisedMessage {
+  type: "set_supervised";
+  on: boolean;
+  rev?: number;
+}
+
 export type ExtensionToServerMessage =
   | SessionMovedMessage
   | SessionMoveCommitMessage
@@ -1118,6 +1166,7 @@ export type ExtensionToServerMessage =
   | VaultSyncRequestMessage
   | VaultReportMessage
   | PathGateRefusalMessage
+  | SupervisedStateMessage
   | ReplayCompleteMessage
   | FirstMessageUpdateMessage
   | RolesListMessage
@@ -1746,7 +1795,8 @@ export type ServerToExtensionMessage =
   | PreferencesUpdateExtensionMessage
   | GitCommitDraftMessage
   | SubagentResyncRequestExtensionMessage
-  | PromptResyncRequestExtensionMessage;
+  | PromptResyncRequestExtensionMessage
+  | SetSupervisedMessage;
 
 /**
  * Server → extension: request an AI-drafted commit message. The bridge builds

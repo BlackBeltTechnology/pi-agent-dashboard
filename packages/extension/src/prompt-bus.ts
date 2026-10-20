@@ -266,6 +266,15 @@ export class PromptBus {
     return result;
   }
 
+  /**
+   * The bus-wide timeout in ms (`<= 0` = infinite). Read accessor so a caller that owns a
+   * shorter clock (supervised approval) can keep its own timer strictly before the backstop.
+   * See change: add-supervised-tool-approval (design D10).
+   */
+  getTimeoutMs(): number {
+    return this.options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  }
+
   /** Get the number of pending prompts (for testing/diagnostics). */
   get pendingCount(): number {
     return this.pending.size;

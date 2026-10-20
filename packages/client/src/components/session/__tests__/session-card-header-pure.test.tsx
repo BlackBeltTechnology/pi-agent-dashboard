@@ -44,6 +44,7 @@ describe("activityContent — same branch list the indicator rendered before", (
     ["ended no reason", s({ status: "ended", closedReason: undefined }), undefined, false, null],
     ["ended moved", s({ status: "ended", closedReason: "process_gone", movedTo: { instanceId: "i2" } as never }), undefined, false, null],
     ["awaitingFileAccess beats widget-bar suppression", s({ status: "streaming", awaitingFileAccess: true }), undefined, true, "Needs you"],
+    ["awaitingToolApproval beats widget-bar suppression (E36)", s({ status: "streaming", awaitingToolApproval: true }), undefined, true, "Needs you"],
     ["ask_user, no widget-bar prompt", s({ status: "streaming", currentTool: "ask_user" }), undefined, false, "Needs you"],
     ["ask_user with widget-bar prompt → standard streaming tool", s({ status: "streaming", currentTool: "ask_user" }), undefined, true, "ask_user"],
     ["retry", s({ status: "streaming", currentTool: "bash" }), 2, false, "Retry 2"],

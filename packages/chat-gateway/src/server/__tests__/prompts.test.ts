@@ -5,6 +5,7 @@ import {
   composeBatchAnswer,
   composeBatchAnswers,
   composeMultiselectAnswer,
+  isOperatorOnlyPrompt,
   multiselectToSequence,
   toPromptControl,
 } from "../prompts.js";
@@ -192,5 +193,22 @@ describe("composeMultiselectAnswer / composeBatchAnswers (7.2)", () => {
   it("batch encodes index-aligned answers as JSON", () => {
     expect(composeBatchAnswers(["Ada", "blue"])).toBe('["Ada","blue"]');
     expect(composeBatchAnswers([])).toBe("[]");
+  });
+});
+
+// test-plan #E35 — see change: add-supervised-tool-approval (D17).
+describe("isOperatorOnlyPrompt (E35)", () => {
+  const sel = (metadata?: Record<string, unknown>) => ({ type: "select", title: "t", options: ["Allow once", "Deny"], metadata });
+  it("true for a supervised tool approval and for a supervised-enriched path prompt", () => {
+    expect(isOperatorOnlyPrompt(sel({ kind: "supervised-tool-approval" }))).toBe(true);
+    expect(isOperatorOnlyPrompt(sel({ kind: "agent-path-gate", supervised: true }))).toBe(true);
+    expect(isOperatorOnlyPrompt({ requestId: "r", prompt: sel({ kind: "supervised-tool-approval" }) })).toBe(true);
+  });
+  it("false for a plain path prompt, an ask_user select, supervised:false, and non-objects", () => {
+    expect(isOperatorOnlyPrompt(sel({ kind: "agent-path-gate" }))).toBe(false);
+    expect(isOperatorOnlyPrompt(sel({ kind: "agent-path-gate", supervised: false }))).toBe(false);
+    expect(isOperatorOnlyPrompt(sel())).toBe(false);
+    expect(isOperatorOnlyPrompt(null)).toBe(false);
+    expect(isOperatorOnlyPrompt("x")).toBe(false);
   });
 });

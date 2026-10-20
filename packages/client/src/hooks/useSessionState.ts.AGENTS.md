@@ -5,3 +5,5 @@ Embed-side session-state accumulator. Exports `useSessionState(sessionId?)` (`{s
 `applyReplay` (post-fold) and the `session_state_reset` arm both carry unanswered interactive requests + their `ui-<requestId>` rows via `carryInteractiveRequests` (rows at the rebuilt tail). See change: fix-pending-prompt-lost-on-replay (D8).
 
 `case "notify"` passes `msg.ts` to `addNotify` (same chronological placement as the main handler). See change: collapse-and-order-notify-rows.
+
+`addPromptBusRequest` spreads `supervisedPromptParams(metadata)` into params (replay parity, E33). See change: add-supervised-tool-approval.

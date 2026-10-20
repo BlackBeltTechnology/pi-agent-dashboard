@@ -139,6 +139,13 @@ export function sessionToMeta(session: DashboardSession): SessionMeta {
     // not wiped by this full overwrite without core naming it here.
     // See session/plugin-refs.ts.
     pluginRefs: session.pluginRefs,
+    // Supervised-mode `{ on, rev }`. MUST be listed here because this save does a
+    // full .meta.json overwrite (not a merge) — omitting it wipes the mode, and a
+    // restart would fall back to the bridge's copy (fail-open if it missed an ON).
+    // Undefined (never recorded) serializes to no key.
+    // See change: add-supervised-tool-approval (design D4).
+    supervised:
+      session.supervised === undefined ? undefined : { on: session.supervised, rev: session.supervisedRev ?? 0 },
     cachedAt: Date.now(),
   };
 }

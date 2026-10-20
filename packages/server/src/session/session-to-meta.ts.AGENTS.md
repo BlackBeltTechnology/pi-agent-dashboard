@@ -9,3 +9,5 @@ Enumerates `statsExtractorVersion` (full-overwrite save must keep it). See chang
 - Enumerates `archiveOnEnd` (pass-through; undeclared → no key). See change: archive-service-sessions-on-end.
 
 - Enumerates `nameSourceFor` (witness; full-overwrite save). See change: investigate-auto-name-provenance-relabel.
+
+- Enumerates `supervised` `{on,rev}` (from `session.supervised`/`supervisedRev`; undefined → no key); full-overwrite save would wipe it. See change: add-supervised-tool-approval (D4).

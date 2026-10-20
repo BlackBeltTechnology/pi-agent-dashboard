@@ -55,3 +55,29 @@ describe("useFileAccessToasts (#F7, #F8)", () => {
     expect(t.showToast).not.toHaveBeenCalled();
   });
 });
+
+describe("useFileAccessToasts — supervised tool approval (E36 client half, F19)", () => {
+  it("toasts once for a pending tool approval, names the kind, withdraws on resolve", () => {
+    const t = setup(new Map([["B", sess("B")], ["A", sess("A", { name: "Alpha" } as never)]]), "B");
+    const pending = () => new Map([["B", sess("B")], ["A", sess("A", { name: "Alpha", awaitingToolApproval: true } as never)]]);
+    t.hook.rerender({ sessions: pending(), selectedId: "B" });
+    t.hook.rerender({ sessions: pending(), selectedId: "B" });
+    expect(t.showToast).toHaveBeenCalledTimes(1);
+    const [text, variant, opts] = t.showToast.mock.calls[0];
+    expect(text).toContain("Alpha");
+    expect(text.toLowerCase()).toContain("approval");
+    expect(variant).toBe("warning");
+    expect(opts).toMatchObject({ key: fileAccessToastKey("A"), noAutoDismiss: true });
+    t.hook.rerender({ sessions: new Map([["B", sess("B")], ["A", sess("A", { name: "Alpha" } as never)]]), selectedId: "B" });
+    expect(t.dismissToastByKey).toHaveBeenCalledWith(fileAccessToastKey("A"));
+  });
+
+  it("one toast per session when both kinds are pending; none while viewing", () => {
+    const t = setup(new Map(), "B");
+    t.hook.rerender({ sessions: new Map([["A", sess("A", { awaitingFileAccess: true, awaitingToolApproval: true })]]), selectedId: "B" });
+    expect(t.showToast).toHaveBeenCalledTimes(1);
+    const v = setup(new Map([["A", sess("A")]]), "A");
+    v.hook.rerender({ sessions: new Map([["A", sess("A", { awaitingToolApproval: true })]]), selectedId: "A" });
+    expect(v.showToast).not.toHaveBeenCalled();
+  });
+});

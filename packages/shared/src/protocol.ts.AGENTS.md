@@ -45,3 +45,5 @@ Adds `McpTokenMintedExtensionMessage` (`mcp_token_minted`, carries the plaintext
 `DispatchExtensionCommandMessage` is `@deprecated` — the bridge dispatches in-process since change `retire-slash-dispatch-via-expand-prompt-templates`; a one-release server tombstone answers it.
 
 - `VaultSyncRequestMessage`, `VaultReportMessage` (bridge→server), `VaultSnapshotMessage` (server→bridge). See change: add-credential-vault.
+
+- Supervised mode: `SupervisedState {on, rev}`, `SupervisedStateMessage` (`supervised_state`, bridge→server: `on`, `rev`, `toolGateOwner?`), `SetSupervisedMessage` (`set_supervised`, server→bridge: `on`, `rev?`; in `ServerToExtensionMessage`), registration fields `SessionRegisterMessage.supervised?` / `.toolGateOwner?`. Parse with `tool-gate/supervised-mode.ts` `parseSetSupervised`. See change: add-supervised-tool-approval.

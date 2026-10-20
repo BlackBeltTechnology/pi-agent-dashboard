@@ -57,6 +57,7 @@ import { createPluginRequestClient, installPluginRequest } from "./plugin-reques
 import { COALESCE_WINDOW_MS, MessageUpdateCoalescer } from "./message-update-coalescer.js";
 import { resetReconnectCaches as _resetReconnectCaches, sendCwdMissingIfChanged as _sendCwdMissingIfChanged, sendModelUpdateIfChanged as _sendModelUpdateIfChanged, sendPiVersionIfChanged as _sendPiVersionIfChanged, sendSessionNameIfChanged as _sendSessionNameIfChanged } from "./model-tracker.js";
 import { createPathGate } from "./path-gate/index.js";
+import { createSupervisedGateForBridge } from "./supervised-gate/index.js";
 import { Suppression } from "./path-gate/suppression.js";
 import { emitPendingPrompts } from "./pending-prompt-emitter.js";
 import { readPiRetrySettings } from "./pi-retry-settings.js";
@@ -1098,6 +1099,10 @@ function initBridge(pi: ExtensionAPI) {
     getPromptBus: () => inst.promptBus,
     send: (m) => inst.connection.sendIfOpen(m),
     readConfig: () => loadConfig().agentPathGate,
+    // Supervised composition (D14): the path prompt carries the supervised action content when the
+    // session is Supervised + the tool is risky; both resolved lazily (the gate is created below).
+    supervisedInEffect: (sid, tool) => inst.supervisedGate.inEffect(sid, tool),
+    redact: (text) => vaultRedaction.masker.mask(text),
     getCwd: () => inst.cachedCwd ?? process.cwd(),
     getSessionDir: () => {
       try {
@@ -1144,6 +1149,21 @@ function initBridge(pi: ExtensionAPI) {
     log: (line) => console.log(line),
   });
   const vaultForwardFilter = createVaultForwardFilter(vaultRedaction.masker);
+  // Supervised mode: asks the operator before a risky tool (bash/write/edit/Agent…) runs in a
+  // Supervised session. Per-session mode lives on the process-global BridgeState. Created after the
+  // vault redaction so action text shown / logged is masked. See change: add-supervised-tool-approval.
+  const supervisedGate = createSupervisedGateForBridge({
+    state: getBridgeState(),
+    getSessionId: () => inst.sessionId,
+    getPromptBus: () => inst.promptBus,
+    readConfig: () => loadConfig().supervisedMode,
+    redact: (text) => vaultRedaction.masker.mask(text),
+    appendEntry: (type, data) => pi.appendEntry(type, data),
+    send: (m) => void inst.connection.send(m),
+    consumeHandoff: (sid, toolCallId) => pathGate.consumeHandoff(sid, toolCallId),
+    log: (line) => console.log(line),
+  });
+  inst.supervisedGate = supervisedGate;
   // tool_result / message_end / user_bash: masked before pi records the result.
   // Fail CLOSED: if masking throws, the output is withheld rather than passed raw.
   pi.on("tool_result", async (event: any) => {
@@ -1784,6 +1804,7 @@ function initBridge(pi: ExtensionAPI) {
       selfSpawnedPgids,
       prStatus,
       gitTracker: polling.gitTracker ?? undefined,
+      supervisedRegistration: (sid) => supervisedGate.control.registrationFields(sid),
     };
   }
   inst.syncBc = syncBc;
@@ -1958,9 +1979,19 @@ function initBridge(pi: ExtensionAPI) {
     if (!isActive()) return undefined;
     return pathGate.handler(event, ctx);
   }) as any);
+  // Supervised-mode gate — the FOURTH `tool_call` handler: after the forwarder, the fan-out
+  // admission and the agent path gate (a path the path gate blocks never raises an action
+  // prompt). Deliberately NOT wrapped in the fail-open `safe()` — `safe()` turns a throw into
+  // "allow"; the gate's own try/catch maps any internal error to a block. Stale bridge
+  // instances (after reload) pass through. See change: add-supervised-tool-approval (D8).
+  pi.on("tool_call", (event, ctx) => {
+    if (!isActive()) return undefined;
+    return supervisedGate.handler(event, ctx);
+  });
   pi.on("before_agent_start", safe((event: any) => {
     if (!isActive()) return;
     pathGate.onBeforeAgentStart(event);
+    supervisedGate.control.reportIfChanged(); // owner slot may have been marked since registration
   }));
   // Release permits on `tool_execution_end` — the ONE signal pi emits on the
   // normal, blocked AND aborted paths. NEVER `tool_result`: an aborted call

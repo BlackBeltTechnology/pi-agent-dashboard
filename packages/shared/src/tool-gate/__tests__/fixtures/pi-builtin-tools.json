@@ -1,0 +1,5 @@
+{
+  "piVersion": "1.3.0",
+  "source": "node_modules/@earendil-works/pi-coding-agent/docs/cli.md:140-155 (built-ins) + built-in extensions codemode, tool_search",
+  "tools": ["read", "bash", "powershell", "edit", "write", "grep", "find", "ls", "codemode", "tool_search"]
+}

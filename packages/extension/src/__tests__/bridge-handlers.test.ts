@@ -132,6 +132,7 @@ describe("E9: session_start delegates the session change to session-sync", () =>
     const { inst, pi } = makeStubInstance({
       sessionId: "OLD",
       pathGate: { onSessionStart: vi.fn() } as never,
+      supervisedGate: { control: { restore: vi.fn() } } as never,
       mcpRegistrar: { onSessionStart: vi.fn() } as never,
       usageDrain: { baseline: vi.fn(() => undefined) } as never,
       abortLatch: { clear: vi.fn() } as never,
