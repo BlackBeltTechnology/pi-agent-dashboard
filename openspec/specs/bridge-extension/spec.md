@@ -176,7 +176,7 @@ The standalone `.pi/extensions/ask-user.ts` file SHALL be removed from the proje
 - **THEN** `.pi/extensions/ask-user.ts` SHALL NOT exist
 
 ### Requirement: Bridge listens to flow events on pi.events
-The bridge extension SHALL register listeners on `pi.events` for all `flow:*` event names and forward them as `event_forward` messages using the mapped `eventType` values defined in the flow-event-bridge spec.
+The bridge extension SHALL register listeners on `pi.events` for every `flow:*` channel in `FLOW_EVENT_MAP` (a `flow:*` channel outside that map, e.g. `flow:list-flows` or `flow:run`, is not forwarded, per `catch-all-event-forwarding`) and forward them as `event_forward` messages using the mapped `eventType` values defined in the flow-event-bridge spec.
 
 #### Scenario: Flow event listeners registered at activation
 - **WHEN** the bridge extension activates and `pi.events` is available
