@@ -6,20 +6,22 @@
  * exposes no config API — design D1):
  *
  *   GET  /api/plugins/hermes-memory/config → effective + default + isDefault per field
- *   PUT  /api/plugins/hermes-memory/config → validate, then atomic full-write
+ *   PUT  /api/plugins/hermes-memory/config → validate, then compose + atomic write
+ *        (preserves unknown on-disk keys, omits default-valued fields)
  *
  * The PUT route validates the browser-supplied body BEFORE any disk write
  * (`validateHermesConfig` — the security boundary, design D6): invalid → 400,
  * no write. Structured logging records path + field count on success and the
  * failure reason on error, NEVER field values (config may hold model/provider
- * hints — design D9).
+ * hints — design D9). An unreadable file (or a failed quarantine copy of a
+ * malformed one) maps to HTTP 500 `{ error, code }` on GET and PUT, no write.
  *
- * See change: add-hermes-memory-settings-plugin.
+ * See change: add-hermes-memory-settings-plugin, resync-hermes-memory-config-0-9.
  */
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import { validateHermesConfig } from "../shared/hermes-config.js";
-import { readEffectiveConfig, writeResolvedConfig } from "./config-io.js";
+import { HermesConfigError, readEffectiveConfig, type WriteDeps, writeResolvedConfig } from "./config-io.js";
 import { resolveHermesConfigPath } from "./config-path.js";
 
 /** Minimal structured logger surface (subset of PluginLogger). */
@@ -38,17 +40,34 @@ const ROUTE = "/api/plugins/hermes-memory/config";
  */
 export function registerHermesRoutes(
   fastify: FastifyInstance,
-  deps: { logger: RouteLogger; env?: Record<string, string | undefined> },
+  deps: {
+    logger: RouteLogger;
+    env?: Record<string, string | undefined>;
+    /** Test seams for the quarantine path (clock, copy). */
+    write?: Pick<WriteDeps, "now" | "writeQuarantine">;
+  },
 ): void {
   const { logger, env } = deps;
 
-  fastify.get(ROUTE, async () => {
+  /** Map an unreadable-file / failed-quarantine error to 500; log path + code only. */
+  const fail = (reply: FastifyReply, filePath: string, op: string, e: unknown) => {
+    if (!(e instanceof HermesConfigError)) throw e;
+    logger.error(`hermes-memory config ${op} failed path=${filePath} error="${e.error}" code=${e.code}`);
+    reply.code(500);
+    return { error: e.error, code: e.code };
+  };
+
+  fastify.get(ROUTE, async (_req, reply) => {
     const filePath = resolveHermesConfigPath(env);
-    const effective = readEffectiveConfig(filePath);
-    logger.info(
-      `hermes-memory config read path=${filePath} exists=${effective.exists} fields=${Object.keys(effective.fields).length}`,
-    );
-    return effective;
+    try {
+      const effective = readEffectiveConfig(filePath);
+      logger.info(
+        `hermes-memory config read path=${filePath} exists=${effective.exists} fields=${Object.keys(effective.fields).length}`,
+      );
+      return effective;
+    } catch (e) {
+      return fail(reply, filePath, "read", e);
+    }
   });
 
   fastify.put<{ Body: unknown }>(ROUTE, async (req, reply) => {
@@ -61,10 +80,17 @@ export function registerHermesRoutes(
       reply.code(400);
       return { error: "invalid config", errors: result.errors };
     }
-    writeResolvedConfig(filePath, body as Record<string, unknown>);
-    const fieldCount = Object.keys(body as Record<string, unknown>).length;
-    logger.info(`hermes-memory config wrote path=${filePath} fields=${fieldCount}`);
-    return readEffectiveConfig(filePath);
+    try {
+      // Synchronous read → compose → atomic write (design D1 invariant).
+      const written = writeResolvedConfig(filePath, body as Record<string, unknown>, {
+        ...deps.write,
+        log: (m) => logger.warn(m),
+      });
+      logger.info(`hermes-memory config wrote path=${filePath} fields=${Object.keys(written).length}`);
+      return readEffectiveConfig(filePath);
+    } catch (e) {
+      return fail(reply, filePath, "write", e);
+    }
   });
 }
 

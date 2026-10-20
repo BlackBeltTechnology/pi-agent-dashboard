@@ -11,6 +11,9 @@ import { fileURLToPath } from "node:url";
 /** Absolute path of the packaged shim (`src/shim/craft-shim.js`). */
 export const SHIM_SOURCE_PATH = fileURLToPath(new URL("../shim/craft-shim.js", import.meta.url));
 
+/** Absolute path of the worker trampoline (`src/shim/craft-worker.js`), shipped for `workerTrampoline` profiles. */
+export const WORKER_SOURCE_PATH = fileURLToPath(new URL("../shim/craft-worker.js", import.meta.url));
+
 const VERSION_RE = /^const SHIM_VERSION = (\d+);/m;
 
 /** Parse the `SHIM_VERSION` literal of a shim source; throws when absent or not a positive integer. */

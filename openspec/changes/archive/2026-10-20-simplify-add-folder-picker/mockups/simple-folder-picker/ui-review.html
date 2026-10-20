@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Add folders: UI review, current build vs proposed (mockup)</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg-primary); color: var(--text-primary); }
+  button, input, select { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--focus-ring, var(--accent-blue)); outline-offset: 2px; }
+  svg.i { width: 15px; height: 15px; fill: currentColor; flex: none; }
+
+  .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 12px 20px; border-bottom: 1px solid var(--border-primary); background: var(--bg-secondary); position: sticky; top: 0; z-index: 5; }
+  .toolbar h1 { font-size: 14px; margin: 0 12px 0 0; }
+  .seg { display: inline-flex; border: 1px solid var(--border-secondary); border-radius: 8px; overflow: hidden; }
+  .seg button { background: none; border: 0; padding: 4px 10px; min-height: 28px; font-size: 12px; color: var(--text-secondary); cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: var(--bg-surface); color: var(--text-primary); }
+  .lbl { font-size: 11px; color: var(--text-tertiary); margin-left: 8px; }
+
+  .board { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; max-width: 1240px; margin: 0 auto; padding: 20px; }
+  .board.phone { grid-template-columns: repeat(2, 390px); justify-content: center; }
+  @media (max-width: 980px) { .board, .board.phone { grid-template-columns: 1fr; justify-content: stretch; } }
+  .col h2 { font-size: 13px; margin: 0 0 8px; color: var(--text-secondary); font-weight: 600; }
+  .col h2 b { color: var(--text-primary); }
+  .stage { position: relative; border-radius: 12px; border: 1px solid var(--border-primary); background: var(--bg-secondary); display: flex; justify-content: center; padding: 28px 10px; overflow: hidden; }
+  .stage::before { content: ""; position: absolute; inset: 0; background: var(--bg-overlay); }
+  .phone .stage { height: 760px; padding-top: 16px; padding-bottom: 16px; align-items: flex-start; }
+
+  /* Live <Dialog size="lg">: max-w-lg, p-5, rounded-xl, bg-secondary, border-secondary, max-h-80vh scroll */
+  .dlg { position: relative; width: 100%; max-width: 512px; background: var(--bg-secondary); border: 1px solid var(--border-secondary); border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,.45); padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+  .phone .dlg { max-height: 100%; overflow: auto; padding: 16px; }
+  .dlg > * { flex-shrink: 0; }
+  .dlg .hd { display: flex; align-items: center; justify-content: space-between; }
+  .dlg h3 { font-size: 18px; font-weight: 600; margin: 0; }
+  .x { width: 36px; height: 36px; border: 0; background: none; color: var(--text-secondary); border-radius: 6px; font-size: 18px; }
+
+  .pin { width: 100%; background: var(--bg-tertiary); border: 1px solid var(--border-secondary); border-radius: 4px; padding: 8px 12px; font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text-primary); }
+  .lb { overflow-y: auto; border: 1px solid var(--border-secondary); border-radius: 4px; background: var(--bg-tertiary); user-select: none; }
+  .r { height: 32px; padding: 0 12px; display: flex; align-items: center; gap: 8px; font-size: 14px; cursor: default; }
+  .touch .r { height: 44px; }
+  .r:hover { background: var(--bg-secondary); }
+  .r .i { color: var(--text-secondary); }
+  .r .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cur .r.sel { background: color-mix(in srgb, var(--accent-blue) 25%, transparent); }
+  .pro .r.sel { background: color-mix(in srgb, var(--accent-blue) 22%, transparent); box-shadow: inset 3px 0 0 var(--accent-blue); }
+  .r .ck { width: 15px; color: var(--accent-blue-text); visibility: hidden; }
+  .r.sel .ck { visibility: visible; }
+  .empty { padding: 8px 12px; font-size: 14px; color: var(--text-secondary); }
+  .pro .empty { margin: 12px; padding: 14px; border-radius: 8px; border: 1px dashed var(--border-secondary); background: var(--bg-secondary); font-size: 13px; }
+  .pro .empty b { display: block; color: var(--text-primary); font-weight: 600; margin-bottom: 2px; }
+
+  /* badges: current build uses raw palette + 10px added; proposed uses tokens */
+  .cur .b-git { font-size: 12px; color: #4ade80; } .cur .b-pi { font-size: 12px; color: #22d3ee; }
+  .cur .b-add { font-size: 10px; padding: 1px 6px; border-radius: 999px; background: var(--bg-secondary); color: var(--text-secondary); }
+  .pro .b-git { font-size: 12px; color: var(--accent-green-text); } .pro .b-pi { font-size: 12px; color: var(--text-secondary); }
+  .pro .b-add { font-size: 11px; padding: 1px 7px; border-radius: 999px; background: var(--bg-surface); color: var(--text-primary); border: 1px solid var(--border-secondary); }
+  .b-s { font-size: 10px; padding: 1px 6px; border-radius: 999px; background: color-mix(in srgb, var(--accent-blue) 15%, transparent); color: var(--accent-blue-text); }
+
+  .btn { min-height: 36px; padding: 0 16px; border-radius: 4px; font-size: 14px; border: 1px solid transparent; background: none; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+  .btn.ol { border-color: var(--border-secondary); color: var(--text-secondary); align-self: flex-start; }
+  .btn.gh { color: var(--text-secondary); }
+  .cur .btn.pr { background: #2563eb; color: #fff; }
+  .cur .btn.pr:disabled { opacity: .5; }
+  .pro .btn { font-size: 13px; font-weight: 600; border-radius: 6px; }
+  .pro .btn.pr { background: var(--accent-solid); color: #fff; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; line-height: 36px; }
+  .pro .btn.pr:disabled { background: var(--bg-tertiary); color: var(--text-secondary); }
+  .phone .pro .btn { min-height: 44px; } .phone .pro .btn.pr { line-height: 44px; }
+
+  .rule { border-top: 1px solid var(--border-subtle); padding-top: 12px; }
+  /* current status line */
+  .cur .st { display: flex; flex-wrap: wrap; gap: 8px; font-size: 12px; align-items: center; }
+  .cur .st .p { font-family: ui-monospace, monospace; color: var(--text-secondary); }
+  .cur .st .h { margin-left: auto; color: var(--text-muted); }
+  /* current workspace block */
+  .ws-l { font-size: 12px; font-weight: 500; color: var(--text-secondary); margin-bottom: 8px; }
+  .ws-l span { color: var(--text-muted); font-weight: 400; }
+  .pills { display: flex; flex-wrap: wrap; gap: 6px; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; min-height: 24px; border-radius: 999px; font-size: 12px; border: 1px solid var(--border-secondary); color: var(--text-secondary); background: none; }
+  .pill .d { width: 10px; height: 10px; border-radius: 50%; border: 1px solid var(--border-secondary); }
+  .pill.on { border-color: var(--accent-blue); color: var(--accent-blue); background: color-mix(in srgb, var(--accent-blue) 10%, transparent); }
+  .pill.on .d { border-color: var(--accent-blue); background: var(--accent-blue); }
+  .ws-empty { font-size: 12px; color: var(--text-muted); display: flex; gap: 6px; align-items: center; }
+  .ws-new { margin-top: 8px; font-size: 12px; color: var(--accent-blue); background: none; border: 0; padding: 0; min-height: 24px; }
+  .trust { display: flex; gap: 8px; font-size: 12px; color: var(--text-secondary); align-items: flex-start; }
+  .trust b { color: var(--text-primary); font-weight: 400; display: block; }
+  .trust i { font-style: normal; color: var(--text-tertiary); }
+  .ft { display: flex; justify-content: flex-end; gap: 8px; }
+
+  /* proposed: status line + options row + sticky footer */
+  .pro .st { display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
+  .pro .st .tgt { display: flex; gap: 6px; align-items: baseline; min-width: 0; color: var(--text-secondary); }
+  .pro .st .tgt b { font-weight: 600; color: var(--text-primary); flex: none; }
+  .pro .st code { font: 12px ui-monospace, monospace; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .pro .st .clr { background: none; border: 0; padding: 0 4px; min-height: 24px; color: var(--accent-blue-text); font-size: 12px; font-weight: 600; flex: none; }
+  .pro .st .h { color: var(--text-secondary); }
+  .opts { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 12px; align-items: center; font-size: 12px; }
+  .opts .fl { font-size: 12px; font-weight: 600; color: var(--text-primary); }
+  .opts select { height: 32px; background: var(--bg-tertiary); border: 1px solid var(--border-secondary); border-radius: 6px; padding: 0 8px; color: var(--text-primary); font-size: 13px; max-width: 260px; }
+  .phone .opts select { height: 44px; max-width: none; width: 100%; }
+  .opts .why { grid-column: 2; color: var(--text-secondary); font-size: 12px; margin-top: -4px; }
+  .opts .tr { display: flex; gap: 8px; align-items: flex-start; color: var(--text-primary); }
+  .opts .tr small { display: block; color: var(--text-secondary); font-size: 12px; }
+  .pro .ft { position: sticky; bottom: -16px; background: var(--bg-secondary); padding: 12px 0 0; margin-top: 0; border-top: 1px solid var(--border-subtle); }
+  .phone .pro .ft { padding-bottom: 16px; }
+
+  /* numbered review markers */
+  /* Markers sit in the stage gutter, left of the dialog, never over content. */
+  .mk { position: absolute; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; background: var(--accent-solid); color: #fff; font: 600 11px/20px system-ui; text-align: center; pointer-events: none; z-index: 3; }
+  .mk.c { background: var(--bg-surface); color: var(--text-primary); border: 1px solid var(--border-strong); line-height: 18px; }
+  .mk-line { position: absolute; height: 1px; background: var(--border-strong); z-index: 2; pointer-events: none; }
+  .stage { padding-left: 40px; padding-right: 40px; }
+  .phone .stage { padding-left: 8px; padding-right: 8px; }
+
+  .notes { max-width: 1240px; margin: 0 auto; padding: 0 20px 40px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; font-size: 13px; color: var(--text-secondary); }
+  @media (max-width: 980px) { .notes { grid-template-columns: 1fr; } }
+  .card { border: 1px solid var(--border-primary); background: var(--bg-secondary); border-radius: 10px; padding: 14px; }
+  .card h3 { font-size: 13px; color: var(--text-primary); margin: 0 0 8px; }
+  .card ol { margin: 0; padding-left: 20px; } .card li { margin-bottom: 6px; }
+  .card code { font-size: 12px; color: var(--text-primary); }
+  .tag { font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 4px; margin-right: 4px; background: var(--bg-surface); color: var(--text-primary); }
+</style>
+</head>
+<body>
+<div class="toolbar">
+  <h1>Add folders: UI review</h1>
+  <span class="lbl">State</span>
+  <div class="seg" id="state"><button data-v="default">Nothing selected</button><button data-v="two">2 selected</button><button data-v="home">Home (empty)</button></div>
+  <span class="lbl">Workspaces</span>
+  <div class="seg" id="ws"><button data-v="none">0</button><button data-v="some">3</button><button data-v="pre">Opened from "Client work"</button></div>
+  <span class="lbl">Device</span>
+  <div class="seg" id="dev"><button data-v="desk">Desktop</button><button data-v="phone">Phone 390×760</button></div>
+  <span class="lbl">Theme</span>
+  <div class="seg" id="theme"><button data-v="dark">Dark</button><button data-v="light">Light</button></div>
+  <span class="lbl">Markers</span>
+  <div class="seg" id="marks"><button data-v="on">On</button><button data-v="off">Off</button></div>
+</div>
+
+<div class="board" id="board">
+  <div class="col"><h2><b>Current build</b> (AddFoldersDialog.tsx today)</h2><div class="stage"><div class="dlg cur" id="cur"></div></div></div>
+  <div class="col"><h2><b>Proposed</b> (UI review fixes)</h2><div class="stage"><div class="dlg pro" id="pro"></div></div></div>
+</div>
+
+<div class="notes">
+  <div class="card">
+    <h3>What looks off today (numbers match the grey markers)</h3>
+    <ol>
+      <li><b>Workspace is three different controls.</b> Round radio chips, a detached grey "None — no workspaces yet" line and a "+ New workspace…" text link, for one optional choice.</li>
+      <li><b>Workspace has the most visual weight.</b> Coloured bordered chips outshine the primary Add button.</li>
+      <li><b>Weak label with a glued-on hint.</b> "Add to workspace" is small medium-weight secondary text; " — optional; a folder lives in exactly one" is muted and wraps badly.</li>
+      <li><b>Faint text.</b> The selected chip and "+ New workspace…" use raw <code>--accent-blue</code> as text; the hint and empty line use <code>--text-muted</code>. Both fall below the contract's contrast floor.</li>
+      <li><b>Four stacked rules.</b> Status, workspace, trust and footer each sit in their own band; the dialog reads as boxes.</li>
+      <li><b>Status line has no verb.</b> A bare path; it is not clear that's what Add adds. The hint is muted and shares the line.</li>
+      <li><b>Selection is colour only</b>, no shape.</li>
+      <li><b>Hard-coded palette</b> on the Add button and the git/pi badges; the "added" badge is 10 px and barely visible.</li>
+      <li><b>Empty home is a dead end</b>: "No subdirectories", no next step.</li>
+      <li><b>Phone:</b> the 8-row list is 352 px, so Add/Cancel scroll off-screen; buttons are 36 px, under the 44 px touch floor.</li>
+    </ol>
+  </div>
+  <div class="card">
+    <h3>Proposed fixes (numbers match the blue markers)</h3>
+    <ol>
+      <li><span class="tag">P1</span><b>One Workspace dropdown</b>, default "None", "+ New workspace…" as its last option (opens the existing NewWorkspaceDialog). Matches the original mockup.</li>
+      <li><span class="tag">P1</span><b>Options share one quiet block</b> (Workspace + Trust) with field-label typography; no own divider.</li>
+      <li><span class="tag">P2</span><b>Proper field label</b> (<code>text-[12px] font-semibold text-primary</code>); "optional" moves into the "None" option.</li>
+      <li><span class="tag">P2</span><b>Readable tokens</b>: <code>--accent-blue-text</code> for link text, <code>--text-secondary</code> for hints.</li>
+      <li><span class="tag">P2</span><b>Two rules total</b>: one above the options block, one above the sticky footer.</li>
+      <li><span class="tag">P2</span><b>"Adds:" prefix</b> on the target, truncating path, hint on its own line.</li>
+      <li><span class="tag">P2</span><b>Selected rows</b> get a left accent bar and a check mark.</li>
+      <li><span class="tag">P1</span><b>Add uses <code>--accent-solid</code></b>, truncates long names; badges use tokens; "added" is 11 px with a border.</li>
+      <li><span class="tag">P2</span><b>Empty state</b> says what to do next: open a folder above, or use New folder.</li>
+      <li><span class="tag">P1</span><b>Phone</b>: 6 rows, sticky footer, 44 px buttons and select. Add/Cancel are always visible.</li>
+    </ol>
+  </div>
+</div>
+
+<script>
+const P = {
+  folder: "M10,4H4C2.89,4 2,4.89 2,6V18A2,2 0 0,0 4,20H20A2,2 0 0,0 22,18V8C22,6.89 21.1,6 20,6H12L10,4Z",
+  up: "M13,20H11V8L5.5,13.5L4.08,12.08L12,4.16L19.92,12.08L18.5,13.5L13,8V20Z",
+  plusF: "M13,19C13,19.34 13.04,19.67 13.09,20H4C2.9,20 2,19.11 2,18V6C2,4.89 2.89,4 4,4H10L12,6H20A2,2 0 0,1 22,8V13.81C21.39,13.46 20.72,13.22 20,13.09V8H4V18H13.09C13.04,18.33 13,18.66 13,19M20,18V15H18V18H15V20H18V23H20V20H23V18H20Z",
+  check: "M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z",
+  info: "M13,9H11V7H13M13,17H11V11H13M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z",
+};
+const ic = (p) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="${p}"/></svg>`;
+const S = { state: "default", ws: "some", dev: "desk", theme: "dark", marks: "on" };
+const WS = ["Pi packages", "Client work", "Infra"];
+const ROWS = [
+  { n: "pi-agent-dashboard", git: 1, pi: 1, added: 1 },
+  { n: "pi-flows", git: 1, pi: 1, s: 1 },
+  { n: "pi-kb", git: 1 },
+  { n: "pi-vault", git: 1 },
+  { n: "scratch" },
+];
+const m = (n) => (S.marks === "on" ? `data-m="${n}"` : "");
+const cwd = () => (S.state === "home" ? "/home/ana" : "/home/ana/Projects/Pi-Packages");
+const sel = () => (S.state === "two" ? ["pi-flows", "pi-kb"] : []);
+const phone = () => S.dev === "phone";
+
+function list(kind) {
+  const touch = phone();
+  const rows = phone() && kind === "pro" ? 6 : 8;
+  const h = rows * (touch ? 44 : 32);
+  if (S.state === "home") {
+    const empty = kind === "cur"
+      ? `<div class="empty m" ${m(9)}>No subdirectories</div>`
+      : `<div class="empty m" ${m(9)}><b>No subfolders here</b>Type a path above to open another folder, or use New folder to create one.</div>`;
+    return `<div class="lb ${touch ? "touch" : ""}" style="height:${h}px">${empty}</div>`;
+  }
+  const s = sel();
+  const r = [`<div class="r">${ic(P.up)}<span class="nm">..</span></div>`].concat(ROWS.map((x, i) => {
+    const on = s.includes(x.n);
+    const ck = kind === "pro" ? `<span class="ck">${ic(P.check)}</span>` : "";
+    return `<div class="r ${on ? "sel" : ""} ${i === 2 && on ? "m" : ""}" ${i === 2 && on ? m(7) : ""}>${ic(P.folder)}<span class="nm">${x.n}</span>`
+      + (x.added ? `<span class="b-add ${i === 0 ? "m" : ""}" ${i === 0 ? m(8) : ""}>added</span>` : "")
+      + (x.s ? `<span class="b-s">1 session</span>` : "")
+      + (x.git ? `<span class="b-git">git</span>` : "") + (x.pi ? `<span class="b-pi">pi</span>` : "") + ck + `</div>`;
+  }));
+  return `<div class="lb ${touch ? "touch" : ""}" style="height:${h}px">${r.join("")}</div>`;
+}
+
+function label() {
+  if (S.state === "home") return { t: "Select or open a folder", dis: true };
+  if (S.state === "two") return { t: "Add 2 folders", dis: false };
+  return { t: 'Add "Pi-Packages"', dis: false };
+}
+const hint = () => (phone() ? "Tap to open · long-press to select" : "Click to select · Ctrl-click for more · double-click to open");
+
+function current() {
+  const s = sel(), L = label();
+  const status = s.length
+    ? `<span class="p" style="font-family:inherit">${s.join(", ")}</span><button class="ws-new" style="margin:0;color:var(--accent-blue-text)">Clear</button>`
+    : `<span class="p">${cwd()}</span>`;
+  let ws;
+  if (S.ws === "none") {
+    ws = `<div class="ws-empty m" ${m(1)}>${ic(P.info)}None — no workspaces yet</div>`;
+  } else {
+    const onId = S.ws === "pre" ? "Client work" : null;
+    ws = `<div class="pills m" ${m(2)}>` + [`<span class="pill ${onId ? "" : "on"}"><span class="d"></span>None</span>`]
+      .concat(WS.map((w) => `<span class="pill ${w === onId ? "on" : ""}"><span class="d"></span>${w}</span>`)).join("") + `</div>`;
+  }
+  return `<div class="hd"><h3>Add folders</h3><button class="x" aria-label="Close">✕</button></div>
+    <input class="pin" value="${cwd()}/" aria-label="Folder path">
+    ${list("cur")}
+    <button class="btn ol">${ic(P.plusF)}New folder</button>
+    <div class="st rule m" ${m(6)}>${status}<span class="h">${hint()}</span></div>
+    <div class="rule m" ${m(5)}>
+      <div class="ws-l m" ${m(3)}>Add to workspace<span> — optional; a folder lives in exactly one</span></div>
+      ${ws}
+      <button class="ws-new m" ${m(4)}>+ New workspace…</button>
+    </div>
+    <label class="trust"><input type="checkbox" checked><span><b>Also trust this folder in pi</b><i>Lets every project extension and MCP server in this folder and below, including ones added later, start with pi. This is wider than approving one hook script.</i></span></label>
+    <div class="ft rule m" ${m(10)}><button class="btn gh">Cancel</button><button class="btn pr" ${L.dis ? "disabled" : ""}>${L.t}</button></div>`;
+}
+
+function proposed() {
+  const s = sel(), L = label();
+  const target = s.length
+    ? `<div class="tgt"><b>Adds:</b><code>${s.join(", ")}</code><button class="clr">Clear</button></div>`
+    : S.state === "home"
+      ? `<div class="tgt"><b>Adds:</b><span>nothing yet. Your home folder is never added by default.</span></div>`
+      : `<div class="tgt"><b>Adds:</b><code>${cwd()}</code></div>`;
+  const opts = ["None (optional)"].concat(WS).concat(["+ New workspace…"]);
+  const chosen = S.ws === "pre" ? "Client work" : "None (optional)";
+  const list2 = S.ws === "none" ? ["None (optional)", "+ New workspace…"] : opts;
+  const why = S.ws === "pre" ? `<div class="why">Preselected because you opened this from "Client work".</div>` : "";
+  return `<div class="hd"><h3>Add folders</h3><button class="x" aria-label="Close">✕</button></div>
+    <input class="pin" value="${cwd()}/" aria-label="Folder path">
+    ${list("pro")}
+    <button class="btn ol">${ic(P.plusF)}New folder</button>
+    <div class="st m" ${m(6)}>${target}<span class="h">${hint()}</span></div>
+    <div class="opts rule m" ${m(5)}>
+      <label class="fl m" ${m(3)} for="wsel">Workspace</label>
+      <select id="wsel" class="m" ${m(1)}>${list2.map((o) => `<option ${o === chosen ? "selected" : ""}>${o}</option>`).join("")}</select>
+      ${why}
+      <span class="fl m" ${m(2)}>Trust</span>
+      <label class="tr"><input type="checkbox" checked><span>Also trust this folder in pi<small>Extensions and MCP servers in this folder and below can start with pi.</small></span></label>
+    </div>
+    <div class="ft m" ${m(10)}><button class="btn gh">Cancel</button><button class="btn pr m" ${m(8)} ${L.dis ? "disabled" : ""} title="${L.t}">${L.t}</button></div>`;
+}
+
+function markers() {
+  document.querySelectorAll(".mk, .mk-line").forEach((x) => x.remove());
+  if (S.marks !== "on" || phone()) return; // phone: no gutter; the scroll/footer is the point there
+  for (const id of ["cur", "pro"]) {
+    const dlg = document.getElementById(id), stage = dlg.parentElement;
+    const sr = stage.getBoundingClientRect(), dr = dlg.getBoundingClientRect();
+    // Group markers whose targets share a row into one badge ("1·3").
+    const groups = [];
+    [...dlg.querySelectorAll("[data-m]")]
+      .map((el) => { const r = el.getBoundingClientRect(); const pad = parseFloat(getComputedStyle(el).paddingTop) || 0; return { n: el.dataset.m, y: r.top + pad + Math.min(r.height - pad, 24) / 2 - sr.top - 10 }; })
+      .sort((x, z) => x.y - z.y)
+      .forEach((it) => {
+        const g = groups[groups.length - 1];
+        if (g && Math.abs(g.y - it.y) < 14) g.n.push(it.n); else groups.push({ y: it.y, n: [it.n] });
+      });
+    let last = -1e9;
+    for (const g of groups) {
+      const y = Math.max(g.y, last + 22); last = y;
+      const b = document.createElement("span");
+      b.className = "mk" + (id === "cur" ? " c" : "");
+      b.textContent = g.n.sort((x, z) => x - z).join("·");
+      b.style.top = `${y}px`;
+      stage.append(b);
+      b.style.left = `${dr.left - sr.left - 12 - b.offsetWidth}px`;
+      const ln = document.createElement("span");
+      ln.className = "mk-line";
+      ln.style.left = `${dr.left - sr.left - 10}px`;
+      ln.style.width = "10px";
+      ln.style.top = `${y + 10}px`;
+      stage.append(ln);
+    }
+  }
+}
+function render() {
+  document.getElementById("cur").innerHTML = current();
+  document.getElementById("pro").innerHTML = proposed();
+  document.getElementById("board").classList.toggle("phone", phone());
+  document.documentElement.dataset.theme = S.theme;
+  requestAnimationFrame(markers);
+}
+addEventListener("resize", () => requestAnimationFrame(markers));
+function seg(id, key) {
+  const el = document.getElementById(id);
+  const set = (v) => { S[key] = v; el.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.v === v)); render(); };
+  el.addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) set(b.dataset.v); });
+  set(S[key]);
+}
+seg("state", "state"); seg("ws", "ws"); seg("dev", "dev"); seg("theme", "theme"); seg("marks", "marks");
+</script>
+</body>
+</html>

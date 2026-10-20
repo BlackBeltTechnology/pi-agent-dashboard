@@ -1,8 +1,9 @@
 /**
  * Draggable divider used by both split-workspace dividers (outer chat/editor
- * and inner browse-rail↔viewer). Presentational + drag lifecycle only: it
- * reports the pointer client coordinate on each frame; the parent decides how
- * to interpret it (ratio vs pixel width). Orientation-aware cursor.
+ * and inner browse-rail↔viewer). Presentational; the drag lifecycle lives in
+ * `useResizeDrag`. `onResize` is the per-frame preview and `onResizeEnd` the
+ * single commit (`null` = nothing to commit); the parent decides how to
+ * interpret the coordinate (ratio vs pixel width). Orientation-aware cursor.
  *
  * Resize-only: it carries an always-visible dotted grip (the shared seam
  * signifier) and NO collapse control — collapse is driven solely by the header
@@ -10,19 +11,18 @@
  * (was: split-editor-workspace).
  */
 
-import type React from "react";
-import { useCallback, useEffect, useRef } from "react";
-import { useBodyDragStyle } from "../../hooks/useBodyDragStyle.js";
+import { useResizeDrag } from "../../hooks/useResizeDrag.js";
 import type { SplitOrientation } from "../../lib/layout/split-state.js";
 import { SeamGrip } from "./SeamGrip.js";
 
 interface SplitDividerProps {
   /** `h` = side-by-side split → vertical bar, `col-resize`. `v` = stacked → row-resize. */
   orientation: SplitOrientation;
-  /** Called on each drag frame with the pointer client coordinate (X for `h`, Y for `v`). */
+  /** Per-frame live preview with the pointer client coordinate (X for `h`, Y for `v`). */
   onResize: (clientPos: number) => void;
   onResizeStart?: () => void;
-  onResizeEnd?: () => void;
+  /** Drag ended: final client coordinate to commit, or `null` for nothing to commit. */
+  onResizeEnd?: (clientPos: number | null) => void;
   /** Extra classes for size/color per divider (outer vs inner rail). */
   className?: string;
   title?: string;
@@ -38,38 +38,13 @@ export function SplitDivider({
   title,
   "data-testid": testId,
 }: SplitDividerProps) {
-  const dragging = useRef(false);
-  const cursor = orientation === "h" ? "col-resize" : "row-resize";
-  const { beginBodyDrag, endBodyDrag } = useBodyDragStyle();
-
-  const handleMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      dragging.current = true;
-      beginBodyDrag(cursor);
-      onResizeStart?.();
-    },
-    [cursor, onResizeStart, beginBodyDrag],
-  );
-
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!dragging.current) return;
-      onResize(orientation === "h" ? e.clientX : e.clientY);
-    };
-    const handleMouseUp = () => {
-      if (!dragging.current) return;
-      dragging.current = false;
-      endBodyDrag();
-      onResizeEnd?.();
-    };
-    document.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseup", handleMouseUp);
-    return () => {
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
-    };
-  }, [orientation, onResize, onResizeEnd, endBodyDrag]);
+  const drag = useResizeDrag({
+    axis: orientation === "h" ? "x" : "y",
+    cursor: orientation === "h" ? "col-resize" : "row-resize",
+    onStart: onResizeStart,
+    onPreview: onResize,
+    onEnd: (pos) => onResizeEnd?.(pos),
+  });
 
   const base =
     orientation === "h"
@@ -81,7 +56,9 @@ export function SplitDivider({
       // Resize handle: `aria-orientation` describes the drag axis. Not a
       // valued `separator` role (no aria-valuenow), so the role is omitted.
       aria-orientation={orientation === "h" ? "vertical" : "horizontal"}
-      onMouseDown={handleMouseDown}
+      onPointerDown={drag.onPointerDown}
+      onMouseDown={drag.onMouseDown}
+      style={{ touchAction: "none" }}
       title={title}
       data-testid={testId}
       className={`relative flex shrink-0 items-center justify-center bg-[var(--border-primary)] transition-colors hover:bg-blue-500/40 active:bg-blue-500/60 ${base} ${className}`}

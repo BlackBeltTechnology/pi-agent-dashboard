@@ -1,8 +1,8 @@
-import { describe, it, expect, vi } from "vitest";
-import { handleOpenInlineTerminal, handleCloseInlineTerminal } from "../browser-handlers/terminal-handler.js";
+import { describe, expect, it, vi } from "vitest";
 import type { BrowserHandlerContext } from "../browser-handlers/handler-context.js";
-import { capTranscript } from "../terminal/terminal-manager.js";
+import { handleCloseInlineTerminal, handleCreateTerminal, handleOpenInlineTerminal } from "../browser-handlers/terminal-handler.js";
 import { createMemoryEventStore } from "../persistence/memory-event-store.js";
+import { capTranscript, TerminalLimitError } from "../terminal/terminal-manager.js";
 
 /**
  * Inline interactive terminal card server handlers.
@@ -161,5 +161,57 @@ describe("inline terminal handlers", () => {
     handleCloseInlineTerminal({ type: "close_inline_terminal", sessionId: "s1", terminalId: "term-xyz" }, ctx);
     expect(events).toHaveLength(1);
     expect(events[0].event.data.transcript).toBe("content");
+  });
+});
+
+// ─── PTY cap refusal delivery (change: harden-server-capability-bounds, #E6-#E8, #E36) ───
+describe("terminal cap refusal", () => {
+  function capCtx(err: Error) {
+    const ws = { id: "requesting-socket" };
+    const sendTo = vi.fn();
+    const broadcast = vi.fn();
+    const insert = vi.fn();
+    const insertEvent = vi.fn();
+    const ctx = {
+      ws,
+      sendTo,
+      broadcast,
+      broadcastEvent: vi.fn(),
+      eventStore: { insertEvent, getEvent: vi.fn(), getEvents: vi.fn(() => []) },
+      sessionOrderManager: { insert, getOrder: vi.fn(() => []) },
+      terminalManager: { spawn: vi.fn(() => { throw err; }) },
+    } as unknown as BrowserHandlerContext;
+    return { ctx, ws, sendTo, broadcast, insert, insertEvent };
+  }
+
+  it("E6 create_terminal at the cap: requesting socket only gets terminal_limit_reached; nothing broadcast or inserted", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { ctx, ws, sendTo, broadcast, insert } = capCtx(new TerminalLimitError("global", 32));
+    handleCreateTerminal({ type: "create_terminal", cwd: "/w" }, ctx);
+    expect(sendTo).toHaveBeenCalledTimes(1);
+    expect(sendTo).toHaveBeenCalledWith(ws, { type: "terminal_limit_reached", scope: "global", limit: 32, cwd: "/w", inline: false });
+    expect(broadcast).not.toHaveBeenCalled();
+    expect(insert).not.toHaveBeenCalled();
+    // E36: exactly one log line with scope + limit
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0][0])).toMatch(/global/);
+    expect(String(warn.mock.calls[0][0])).toMatch(/32/);
+    warn.mockRestore();
+  });
+
+  it("E7 open_inline_terminal at the cap: inline:true, no event, no terminal_added", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { ctx, ws, sendTo, broadcast, insertEvent } = capCtx(new TerminalLimitError("owner", 16));
+    handleOpenInlineTerminal({ type: "open_inline_terminal", sessionId: "S", cwd: "/w" } as any, ctx);
+    expect(sendTo).toHaveBeenCalledWith(ws, { type: "terminal_limit_reached", scope: "owner", limit: 16, cwd: "/w", inline: true });
+    expect(insertEvent).not.toHaveBeenCalled();
+    expect(broadcast).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("E8 a non-cap spawn error is rethrown and sends nothing", () => {
+    const { ctx, sendTo } = capCtx(new Error("pty boom"));
+    expect(() => handleCreateTerminal({ type: "create_terminal", cwd: "/w" }, ctx)).toThrow("pty boom");
+    expect(sendTo).not.toHaveBeenCalled();
   });
 });

@@ -101,8 +101,9 @@ jobs:
     # test` at 15m15s and reported as `cancelled` (GitHub marks a timed-out job
     # cancelled, not failed — it does NOT look like a test failure). Keep this
     # comfortably above the serial suite's real duration; it still bounds a
-    # genuine hang.
-    timeout-minutes: 45
+    # genuine hang. Raised 45 -> 75 at v0.10.0: the suite took 38.5 min on one
+    # run and exceeded 45 on the next (Release run 39401261897).
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
         with:

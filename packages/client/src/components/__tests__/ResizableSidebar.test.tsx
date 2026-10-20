@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { nextFrame, pointerDown, pointerMove, pointerUp } from "../../test-support/pointer.js";
 import type { SidebarState } from "../../hooks/useSidebarState.js";
 import { ResizableSidebar } from "../shell/ResizableSidebar.js";
 
@@ -93,9 +94,10 @@ describe("ResizableSidebar", () => {
         <div>Content</div>
       </ResizableSidebar>,
     );
-    const handle = screen.getByTestId("drag-handle");
-    fireEvent.mouseDown(handle);
-    fireEvent.mouseUp(document, { clientX: 400 });
+    pointerDown(screen.getByTestId("drag-handle"), { clientX: 256 });
+    pointerMove(window, { clientX: 400 });
+    pointerUp(window, { clientX: 400 });
+    expect(sidebar.setWidth).toHaveBeenCalledTimes(1);
     expect(sidebar.setWidth).toHaveBeenCalledWith(400);
   });
 
@@ -106,8 +108,9 @@ describe("ResizableSidebar", () => {
         <div>Content</div>
       </ResizableSidebar>,
     );
-    fireEvent.mouseDown(screen.getByTestId("drag-handle"));
-    fireEvent.mouseUp(document, { clientX: 120 });
+    pointerDown(screen.getByTestId("drag-handle"), { clientX: 256 });
+    pointerMove(window, { clientX: 120 });
+    pointerUp(window, { clientX: 120 });
     expect(sidebar.setWidth).toHaveBeenCalledWith(180);
   });
 
@@ -118,8 +121,9 @@ describe("ResizableSidebar", () => {
         <div>Content</div>
       </ResizableSidebar>,
     );
-    fireEvent.mouseDown(screen.getByTestId("drag-handle"));
-    fireEvent.mouseUp(document, { clientX: 640 });
+    pointerDown(screen.getByTestId("drag-handle"), { clientX: 256 });
+    pointerMove(window, { clientX: 640 });
+    pointerUp(window, { clientX: 640 });
     expect(sidebar.setWidth).toHaveBeenCalledWith(500);
   });
 
@@ -130,9 +134,12 @@ describe("ResizableSidebar", () => {
         <div>Content</div>
       </ResizableSidebar>,
     );
-    // Clicking the collapse button should not start a drag
-    fireEvent.mouseDown(screen.getByTestId("sidebar-collapse"));
-    fireEvent.mouseUp(document, { clientX: 400 });
+    // E23 — pressing the knob must not start a drag (no shield, no body cursor).
+    pointerDown(screen.getByTestId("sidebar-collapse"), { clientX: 256 });
+    pointerMove(window, { clientX: 400 });
+    expect(document.body.style.cursor).toBe("");
+    expect(document.querySelector("[data-testid='resize-drag-shield']")).toBeNull();
+    pointerUp(window, { clientX: 400 });
     expect(sidebar.setWidth).not.toHaveBeenCalled();
   });
 
@@ -151,11 +158,11 @@ describe("ResizableSidebar", () => {
         <div>Content</div>
       </ResizableSidebar>,
     );
-    fireEvent.mouseDown(screen.getByTestId("drag-handle"));
+    pointerDown(screen.getByTestId("drag-handle"), { clientX: 256 });
     expect(document.body.style.cursor).toBe("col-resize");
     expect(document.body.style.userSelect).toBe("none");
 
-    fireEvent.mouseUp(document, { clientX: 400 });
+    pointerUp(window, { clientX: 256 });
     expect(document.body.style.cursor).toBe("");
     expect(document.body.style.userSelect).toBe("");
   });
@@ -167,7 +174,7 @@ describe("ResizableSidebar", () => {
         <div>Content</div>
       </ResizableSidebar>,
     );
-    fireEvent.mouseDown(screen.getByTestId("drag-handle"));
+    pointerDown(screen.getByTestId("drag-handle"), { clientX: 256 });
     expect(document.body.style.userSelect).toBe("none");
 
     unmount();
@@ -175,5 +182,33 @@ describe("ResizableSidebar", () => {
     expect(document.body.style.cursor).toBe("");
     expect(document.body.style.userSelect).toBe("");
     expect(getComputedStyle(document.body).userSelect).not.toBe("none");
+  });
+
+  // X6 — a release the page never saw: the next no-button move ends at the previewed width.
+  it("X6: a buttons:0 move ends the drag at the previewed width, not the stale coordinate", async () => {
+    const sidebar = makeSidebar({ width: 280 });
+    const { container } = render(
+      <ResizableSidebar sidebar={sidebar}>
+        <div>Content</div>
+      </ResizableSidebar>,
+    );
+    pointerDown(screen.getByTestId("drag-handle"), { clientX: 280 });
+    pointerMove(window, { clientX: 350 });
+    await nextFrame();
+    pointerMove(window, { clientX: 480, buttons: 0 });
+    expect(sidebar.setWidth).toHaveBeenCalledTimes(1);
+    expect(sidebar.setWidth).toHaveBeenCalledWith(350);
+    expect((container.firstElementChild as HTMLElement).style.width).toBe("350px");
+    expect(document.querySelector("[data-testid='resize-drag-shield']")).toBeNull();
+  });
+
+  // E26 — touch drag is not taken over by panning.
+  it("E26: the seam sets touch-action:none", () => {
+    render(
+      <ResizableSidebar sidebar={makeSidebar()}>
+        <div>Content</div>
+      </ResizableSidebar>,
+    );
+    expect(screen.getByTestId("drag-handle").style.touchAction).toBe("none");
   });
 });

@@ -1513,16 +1513,35 @@ Automation plugin = `packages/automation-plugin/`. Schedule-triggered background
 - First consumer: chat-gateway spawn/resume (`sessionVisibility: "hidden"` default). See [`chat-gateway.md`](chat-gateway.md).
 - See change: hide-chat-gateway-sessions, fix-plugin-hidden-across-restart, add-session-close-plugin-hook.
 
-### Hermes Memory Settings Plugin (`add-hermes-memory-settings-plugin`)
+### Hermes Memory Settings Plugin (`add-hermes-memory-settings-plugin`, `resync-hermes-memory-config-0-9`)
 
 New package `packages/hermes-memory-plugin` (client + server + shared). Settings-section plugin for the external `pi-hermes-memory` pi extension.
 
 - Two Fastify routes on shared instance (`ctx.fastify`): `GET /api/plugins/hermes-memory/config` + `PUT /api/plugins/hermes-memory/config`.
-- GET returns per `MemoryConfig` field: `{ value (on-disk else default), default, isDefault }` + `filePath` + `exists` + `raw`.
+- GET returns per `MemoryConfig` field `{ value (on-disk else default), default, isDefault }` + `filePath` + `exists` + `raw`.
+- `raw` = preserved unknown keys + resolved known values. Display-only, not a valid PUT body.
+- GET mirrors upstream derivations:
+  - valid strategy → `autoConsolidate`.
+  - strategy absent + boolean `autoConsolidate` → strategy.
+  - array-form `llmModelOverride` → string primary + fallback tail.
+  - `llmModelFallbacks` / `fallbackModels` aliases unioned into `llmFallbackModels`.
 - PUT validates browser body via `validateHermesConfig` (shared) BEFORE any write — unknown-key allowlist, type/enum/numeric-bound, `correction*Patterns` regex-compile. Invalid → 400, no write.
-- Write is atomic: tmp file in same dir + `fs.rename`, pretty 2-space JSON, `mkdir -p` parent. Full resolved config written on save (every field's effective value).
+- Write atomic: tmp file in same dir + `fs.rename`, pretty 2-space JSON, `mkdir -p` parent.
+- Written object = preserved unknown on-disk keys + non-default body fields (`composeWritten` in `src/server/config-io.ts`).
+  - Default-valued fields omitted → upstream default changes flow through.
+  - `memoryOverflowStrategy` always written.
+  - Empty `llmFallbackModels` omitted.
+- Known keys come only from PUT body. Known key body omits → dropped (clear-to-inherit / reset).
+- Unknown keys come only from disk. Body unknown keys → still 400.
+- One-time legacy heal: drop `consolidationTimeoutMs` 60000 iff disk holds all 23 `LEGACY_0_8_1_DEFAULTED_KEYS` and body also 60000.
+- Strict read (`readDisk`):
+  - ENOENT → `{}`.
+  - Other read error → HTTP 500 `{ error: "hermes config file unreadable", code }` on GET + PUT, no write.
+  - Malformed / non-object JSON (BOM not stripped) → GET all defaults. PUT copies bytes to `hermes-memory-config.json.corrupt-<YYYYMMDDTHHMMSSsssZ>[-N]` (flag `wx`, mode 0600) then writes.
+  - Copy failure → 500 `{ error: "hermes config quarantine failed", code }`.
+- `__proto__` on disk kept as data. Objects built via `Object.fromEntries` + spread, never `out[k] = v`.
 - External-file contract: edits the exact file the extension loads — `PI_CODING_AGENT_DIR` (trimmed, `~`-expanded) else `<home>/.pi/agent`, then fixed `hermes-memory-config.json`. Filename never from request input (no path traversal).
-- No hermes API exists; plugin re-declares `MemoryConfig` + defaults in `src/shared/hermes-config.ts` (mirrors goal-plugin vs pi-goal-hermes). Drift risk accepted; source-version pin comment references pi-hermes-memory@0.8.1.
+- No hermes API exists; plugin re-declares `MemoryConfig` + defaults in `src/shared/hermes-config.ts` (mirrors goal-plugin vs pi-goal-hermes). Mirror pinned to pi-hermes-memory@0.9.10 (44 keys; `llmThinkingOverride` adds `max`; `consolidationTimeoutMs` default 180000). Drift guard: fixture `src/shared/__tests__/fixtures/hermes-0.9.10-fields.json` (keys + defaults from upstream `loadConfig()`); local-only check vs installed `~/.pi/agent/npm/node_modules/pi-hermes-memory` (skipped in CI).
 - `requires.piExtensions: ["pi-hermes-memory"]` — section + routes active only when extension installed.
 - Runtime caveat: hermes reads config once at extension load → edits apply to newly started sessions only ("applies to new sessions" notice in the UI), not running ones.
 - Structured logging: path + field count on read/write success, failure reason on error, NEVER field values (config may hold model/provider hints).
@@ -2921,7 +2940,7 @@ See change: widen-containment-to-resolved-checkout (was: git-root-file-containme
 
 ### Filesystem Browser (PathPicker)
 
-The dashboard's reusable directory chooser (`PathPicker`) is backed by three localhost-only endpoints:
+The dashboard's reusable directory chooser (`PathPicker`) is backed by three endpoints (full picker for local callers; remote callers confined, see Remote confinement below):
 
 - `GET /api/browse?path=<dir>&q=<query>&detect=<0|1>` — lists subdirectories of `<dir>` (or `$HOME` when omitted). By default this is a single-`readdir` enumeration with no per-entry filesystem probes; `isGit` / `isPi` are absent from each `BrowseEntry`. Pass `detect=1` (only the literal string `"1"` is truthy) to opt into eager `.git` / `.pi` classification on every entry — useful for skill recipes that consumed the legacy shape. When `q` is non-empty, entries are case-insensitive substring-filtered and ranked:
   - **Tier 0** exact match → **Tier 1** prefix → **Tier 2** word-boundary substring (after `-`, `_`, `.`, space, `/`) → **Tier 3** plain substring.
@@ -2939,6 +2958,38 @@ Client-side, `PathPicker` debounces the `q` request at 150ms and cancels in-flig
 If a debounced query is still pending when Enter fires, the client flushes it synchronously before evaluating the rules so the freshest server result is considered.
 
 New folders can be created from two entry points — a footer **＋ New folder** button (inline name entry), or an inline **＋ Create "<name>" here** row shown when the typed partial has no exact match. The create-here row is suppressed if the parsed parent differs from the last-successfully-fetched directory (prevents creating inside a stale parent after a mid-path typo). On success the picker refetches and descends into the new directory.
+
+#### Remote confinement (change: harden-server-capability-bounds)
+
+`/api/browse`, `/api/browse/flags`, `/api/browse/mkdir` confine non-local callers. Local callers (`isLocallyTrusted` true) unchanged: full picker.
+
+- Not genuinely local = tunnel, LAN, relayed loopback with forwarding header. Confined to shared roots.
+- Shared roots = `$HOME` + pinned dirs + session cwds + workspace folders + worktree-init trust roots + project-scope access-grant subjects.
+- Compare by realpath. Symlink escape refused.
+- Forbidden: `/`, `$HOME` itself as pinned root, system roots, ancestors of those, `~/.ssh`, `~/.pi`. `~/.pi` subtree refused even under `$HOME`.
+- Outside roots → 403 `path outside allowed roots`.
+- Listing: `confined: true`; `parent: null` at root top.
+- Flags: any outside path → 403 whole request.
+- mkdir: parent outside → 403 before any write.
+- Remote sockets cannot widen roots. `pin_directory`, `add_folder_to_workspace`, `move_folder_to_workspace` outside roots dropped. Server sends `folder_refused {path, reason: outside_allowed_roots}`. Client toast: "Ask the host to pin it".
+- Locality bit stamped per socket once at `/ws` upgrade. Unstamped = remote.
+- Docker: host browser hits container via port mapping = non-loopback peer. Confined to container `$HOME` + auto-pinned `PI_WORKSPACES`. Recovery actions refused there; use `docker compose restart` / `docker exec`. Set `browse.confineRemote: false` to lift it.
+- Residual: marker-less relay (`ssh -R`, no forwarding headers) looks loopback = local unless `requireLocalProof` on.
+- Operator opt-out: `config.json` `browse.confineRemote` (default `true`). Only explicit `false` disables. Read at server start (restart to apply). Off → remote callers browse / mkdir / pin like local callers. Used by the Docker e2e harness (browser = remote peer via port mapping; specs pin per-test dirs outside `$HOME`); harness env `PI_E2E_BROWSE_CONFINEMENT=1` keeps it on. Shipping installs stay confined.
+- Threat model: guards observe-tier remote viewer. Caller that may spawn session/terminal already has FS reach.
+
+#### Recovery server lockdown (change: harden-server-capability-bounds)
+
+`recovery-server.ts` serves recovery page when main server fails. Imports node built-ins only.
+
+- Binds `config.host` (default `127.0.0.1`). Never all interfaces unless operator sets `bindHost`.
+- `GET /` and `GET /api/health` stay open.
+- `POST /api/recovery/retry|reinstall` admitted iff either:
+  - local token: `x-pi-local-token`, timing-safe compare; or
+  - loopback peer AND none of 8 forwarding headers (`x-forwarded-for`, `x-forwarded-host`, `x-forwarded-proto`, `x-real-ip`, `forwarded`, `via`, `x-forwarded-server`, `x-forwarded-port`) AND loopback `Host` AND `Origin` absent or same host:port as `Host` (default port stripped; `Origin: null` refused).
+- Else 403 `text/plain` with remedy. Page shows it in `role=alert` callout. Buttons stay enabled.
+- One log line per refusal: route only, no token.
+- Residual: `ssh -R` rewriting `Host` to localhost and sending no `Origin` passes.
 
 ### Pi Resources Browser
 
@@ -4318,10 +4369,10 @@ See change: `lazy-load-session-history`, `add-tail-only-replay-window`.
 ### Bridge Reconnection (State Reset)
 When a bridge extension reconnects (e.g., after `pnpm run reload` or network recovery):
 1. Bridge sends `session_register` with `eventCount` to re-register the session
-2. Server checks `canSkipWipe`: if the bridge's `eventCount` matches the server's `lastEntryCount` and events exist in the store, the wipe is skipped (fast reconnect path)
-3. **Full replay path** (`canSkipWipe = false`): Server clears the in-memory event store, broadcasts `session_state_reset` to browsers, stores replayed events, and sends them as `event_replay` batch after `replay_complete`
-4. **Skip replay path** (`canSkipWipe = true`): Server keeps existing events in the store, marks the session in `skipReplayInsert` set so replayed events are NOT re-inserted (preventing exponential duplication). Status updates are still processed for session state accuracy. After `replay_complete`, the `event_replay` batch is skipped since browsers already have the events.
-5. Bridge replays full session history as individual `event_forward` messages
+2. Server checks skip-wipe fingerprint (see Event Broadcast During Replay): `eventCount` + `leafEntryId` match, store intact → wipe skipped (fast reconnect path). Old bridge (no leaf) always wipes.
+3. **Full replay path** (wipe): Server clears the in-memory event store, broadcasts `session_state_reset` to browsers, stores replayed events, and sends them as `event_replay` batch after `replay_complete`
+4. **Skip replay path** (no wipe): Server keeps existing events in the store. Replayed marked events are NOT inserted (preventing exponential duplication). Status updates are still processed for session state accuracy. After `replay_complete`, the `event_replay` batch is skipped since browsers already have the events.
+5. Bridge replays full session history as individual `event_forward` messages, each marked `replay: true`
 6. Bridge sends `replay_complete` to signal replay is done
 7. If the agent is currently mid-turn (bridge tracks `isAgentStreaming` flag in persistent `BridgeState`), a synthetic `agent_start` event is sent after `replay_complete` so the session card shows "Thinking…" instead of "Waiting for input"
 8. Server clears the replaying flag, broadcasts the final accumulated session status
@@ -4329,7 +4380,7 @@ When a bridge extension reconnects (e.g., after `pnpm run reload` or network rec
 
 Without the `session_state_reset` message (full replay path), replayed events would duplicate existing messages in the browser's accumulated state.
 
-**Replay status suppression**: During step 5, replayed events like `agent_start`/`agent_end` would normally trigger rapid `session_updated` broadcasts (e.g., `status: "streaming"` → `status: "idle"` for each turn), causing visible flicker on session cards. The server suppresses these status broadcasts while replaying, accumulating them in the session manager. Only the final status is broadcast after `replay_complete`. A 5-second safety timeout ensures the flag is cleared even if `replay_complete` never arrives (e.g., older bridge versions).
+**Replay status suppression**: During step 5, replayed events like `agent_start`/`agent_end` would normally trigger rapid `session_updated` broadcasts (e.g., `status: "streaming"` → `status: "idle"` for each turn), causing visible flicker on session cards. The server suppresses these status broadcasts while replaying, accumulating them in the session manager. Only the final status is broadcast after `replay_complete`. Fallback for unmarked (older) bridges: idle exit after 5s with no bridge message, or cap exit after 60s (see Event Broadcast During Replay). `replay_complete` never arriving no longer leaves the flag set.
 
 **Agent streaming state recovery**: The bridge tracks `isAgentStreaming` in process-level `BridgeState` (survives reload). Set `true` on `agent_start`, `false` on `agent_end`/`session_shutdown`. Since the replay doesn't include `agent_start`/`agent_end` events, the session status would otherwise stay "active" (displayed as "Waiting for input") when the agent is mid-turn during reconnect.
 
@@ -4559,8 +4610,84 @@ When a browser subscribes to a session whose events have been evicted from memor
 ### Flows Refresh Deduplication
 When a session sends `flows_list`, the server notifies other sessions in the same cwd to rediscover flows. To prevent infinite loops (A→refresh B→B sends flows→refresh A→...), a per-session 5-second cooldown (`recentFlowsRefresh` set) suppresses duplicate refresh requests.
 
-### Event Broadcast During Replay
-During bridge session replay (while `replayingSessions` set contains the session), `event_forward` messages are stored but NOT broadcast individually to browser subscribers. Instead, when `replay_complete` arrives (or the 5s safety timeout fires), the server sends all accumulated events as a single `event_replay` batch to subscribers. This prevents per-event serialization overhead during replay while still delivering the full history to browsers.
+### Event Broadcast During Replay (change: fix-large-session-resume-replay, #928/#929)
+
+**Replay marking (bridge).**
+- Bridge sets `replay: true` on every replayed `event_forward`. Sites: `replaySessionEntries` (`packages/extension/src/session-sync.ts`); ACP event-log replay (`packages/server/src/acp-bridge/acp-session-adapter.ts`).
+- Live forwards never marked.
+- Field optional: `EventForwardMessage.replay?: true` (`packages/shared/src/protocol.ts`). Old server ignores it.
+
+**Classification (server).** `isReplayedForward(sessionId, msg)` in `packages/server/src/event-wiring.ts`:
+`msg.replay === true || replayingSessions.has(sessionId)`.
+- Marked event never live: no broadcast, unread, push, `lastActivityAt`, card order, OpenSpec detection.
+- Marked event after exit → controller `reopen` → next exit flushes it.
+- Skipped replay: marked events never inserted until next register.
+
+**Replay mode owner.** `packages/server/src/session/replay-exit-controller.ts`, one per session.
+- API: `begin`, `touch`, `reopen`, `complete`, `release`.
+- State: flush epoch, `flushPending`, waiter registry.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Replaying: session_register (begin)
+    Replaying --> Exit: replay_complete (complete)
+    Replaying --> Exit: 5s idle, unmarked bridge (idle)
+    Replaying --> Exit: 60s cap, unmarked bridge (cap)
+    Replaying --> Exit: unregister
+    Exit --> Flush: flushPending
+    Flush --> [*]: isLast true
+    Exit --> [*]: no pending flush
+```
+
+**Fallback exits (unmarked old bridges only).**
+- `idle`: no processed bridge message of any type for `REPLAY_IDLE_MS` (5000).
+- `idle` re-check runs via one `setImmediate`, so queued input handled first. Busy server does not force idle exit.
+- `cap`: `REPLAY_CAP_MS` (60000) after register.
+- One timer set per session. Each new register cancels old set.
+- Test seam: `createServer({ replayTimings: { idleMs, capMs, keepaliveMs } })`.
+
+**Exit (`exitReplay(sessionId, cause)`).** Single implementation.
+- Causes: `complete | idle | cap | unregister`.
+- Log: `[replay] exit <id> cause=<cause>`. `warn` level for `idle` / `cap`.
+- Work, fixed order:
+  1. clear OpenSpec phase/change.
+  2. reconcile + recompute prompts (not on `unregister`).
+  3. one `session_updated` broadcast.
+  4. windowed flush when `flushPending`.
+- Late `replay_complete` after `idle` / `cap` exit = no-op.
+
+**Pending proposal.**
+- Bridge replay neither raises nor clears `pendingReplaceProposal`.
+- `register()` carries `pendingReplaceProposal` + `rejectedReplaceProposals` across re-register (`packages/server/src/session/memory-session-manager.ts`).
+
+**Windowed abortable flush.** `BrowserGateway.replayStoreToSubscribers(sessionId, isStale)` (`packages/server/src/pairing/browser-gateway.ts`). Per WebSocket subscriber:
+- Exactly one `session_state_reset`.
+- Store windowed like subscribe-time full replay: `sendEventBatches` with `maxReplayEvents`, `history_window` when window applies.
+- Ends `isLast: true`. Empty store → terminal empty batch.
+- In-process subscribers: one full `event_replay`.
+- `isStale` polled before each batch. Re-register / unregister → flush stops, socket unmuted, no catch-up.
+- `flushPending` stays set until flush completes → next exit sends full flush even after skipped register.
+
+**Skip-wipe fingerprint.**
+- `session_register` (`SessionRegisterMessage`) carries `eventCount`, optional `leafEntryId`, `liveTailOpen`.
+- Skip wipe only when `leafEntryId` valid (string, 1–128 chars) AND one of:
+  - bridge-learned: `eventCount` + leaf match previous register.
+  - hydration-learned: cold hydration recorded `{entryCount, leafEntryId, storeMaxSeq}` (`packages/server/src/session/hydration-state.ts`); needs `liveTailOpen === false` and unchanged store.
+- Old bridge (no leaf) always wipes.
+- Log: `[replay] register <id> skipWipe=<bool> reason=<...>`.
+- `LoadResult` carries `entryCount` + `leafEntryId` (`session-load-worker.ts`, `directory-service.ts`).
+
+**Register supersedes cold hydration.**
+- `session_register` bumps per-session generation (`hydration-state.ts`) → calls `directoryService.cancelLoad`.
+- Subscription handler drops hydration result whose generation changed before insert; stops its fan-out.
+- Subscribe during bridge replay, store empty: no cold load (works without `sessionFile`).
+  - Immediate `event_replay{events:[],isLast:false}`.
+  - Keepalive every `keepaliveMs` (10000 default) until exit flush.
+  - Keepalive stops before terminal batch.
+
+**Mixed versions.**
+- New server + old bridge: timer fallback + full wipe.
+- Old server + new bridge: extra fields ignored.
 
 ### Per-message entry id stamping (live vs replay)
 
@@ -5760,6 +5887,22 @@ Sidebar `[Terminals(N)]` retargets to `/folder/:cwd/editor`; badge count unchang
 Inline `!!` ephemeral cards (`InlineTerminalCard`) unchanged, excluded from tabs. Server PTY / WS protocol / `terminal-manager` unchanged.
 
 See change: terminals-in-tabbed-panes.
+
+### Terminal Caps and Orphan Reaping (change: harden-server-capability-bounds)
+
+`TerminalManager` bounds live PTYs. Config block `terminals` in `config.json`:
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `maxConcurrent` | 32 | Global live PTY cap. Tab + inline both count. |
+| `maxPerOwner` | 16 | Per `{iss,sub}` owner. Only while identity plane stamps owners. Ownerless PTYs count global only. |
+| `inlineOrphanTtlMs` | 600000 | Inline PTY TTL with no client attached. |
+
+- Each value integer >= 1, else default + one warn line.
+- Restart server to apply.
+- Refused spawn starts nothing. Requesting socket gets `terminal_limit_reached {scope: global|owner, limit, cwd, inline}`. UI shows dismissible notice.
+- Tab terminals never reaped on idleness.
+- Inline (ephemeral) PTY: clock starts at spawn, restarts at last detach. Expiry kills PTY. Transcript tombstone kept.
 
 ### Known Servers Configuration
 

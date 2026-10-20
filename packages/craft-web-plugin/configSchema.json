@@ -7,11 +7,38 @@
   "properties": {
     "apps": {
       "type": "object",
-      "description": "Per-app switches. An app without a verified web build version contributes no handler regardless of this flag.",
+      "description": "Per-app switches, keyed by app id (status, prepare, config and mount are keyed by app id; one app may own several claims). An app without a verified web build version contributes no handler regardless of this flag.",
       "properties": {
-        "wordcraft": { "$ref": "#/definitions/app" },
-        "gridcraft": { "$ref": "#/definitions/app" },
-        "deckcraft": { "$ref": "#/definitions/app" }
+        "wordcraft": {
+          "$ref": "#/definitions/app"
+        },
+        "gridcraft": {
+          "$ref": "#/definitions/app"
+        },
+        "pdfcraft": {
+          "$ref": "#/definitions/app"
+        },
+        "cadcraft": {
+          "$ref": "#/definitions/app"
+        },
+        "designcraft": {
+          "$ref": "#/definitions/app"
+        },
+        "soundcraft": {
+          "$ref": "#/definitions/app"
+        },
+        "photocraft": {
+          "$ref": "#/definitions/app"
+        },
+        "vectorcraft": {
+          "$ref": "#/definitions/app"
+        },
+        "deckcraft": {
+          "$ref": "#/definitions/app"
+        },
+        "lightcraft": {
+          "$ref": "#/definitions/app"
+        }
       },
       "additionalProperties": false,
       "default": {}
@@ -29,8 +56,11 @@
         },
         "version": {
           "type": "string",
-          "enum": ["pinned", "latest"],
-          "description": "Version channel. 'pinned' uses the verified web build. 'latest' tracks the newest release that publishes a web build (checked at most once a day); a newer one shows as a Download (update) action, and a failed update keeps the prepared build. Latest builds are not verified against the host shim. Env <APP>_WEB_VERSION overrides this.",
+          "enum": [
+            "pinned",
+            "latest"
+          ],
+          "description": "Version channel. 'pinned' uses the verified web build. 'latest' tracks the newest release that publishes a web build (checked at most once a day); a newer one shows as a Download (update) action, and a failed update keeps the prepared build. Latest builds are not verified against the host shim. Ignored for apps whose channel is fixed to the verified version (every app except WordCraft until a scheduled e2e covers its latest build; DeckCraft because newer web builds fail to start). Env <APP>_WEB_VERSION overrides this.",
           "default": "pinned"
         }
       },

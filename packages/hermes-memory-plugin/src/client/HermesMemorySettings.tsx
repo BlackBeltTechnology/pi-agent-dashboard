@@ -36,7 +36,14 @@ import { useLocation } from "wouter";
 import { DEFAULTS, FIELD_DESCRIPTORS, KNOWN_KEYS, type MemoryConfig } from "../shared/hermes-config.js";
 import { FIELD_GROUPS, type FieldMeta } from "./field-groups.js";
 import { type EffectiveConfig, getConfig, putConfig } from "./hermes-api.js";
-import { arrayToLines, buildResolvedConfig, fieldError, linesToArray, valueEquals } from "./settings-model.js";
+import {
+  arrayToLines,
+  buildResolvedConfig,
+  fieldError,
+  linesToArray,
+  unknownKeysOf,
+  valueEquals,
+} from "./settings-model.js";
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -261,7 +268,7 @@ export function HermesMemorySettings(): React.ReactElement {
 
       {showRaw && (
         <RawJsonDialog
-          json={JSON.stringify(buildResolvedConfig(values, overridden), null, 2)}
+          json={JSON.stringify({ ...unknownKeysOf(effective?.raw), ...buildResolvedConfig(values, overridden) }, null, 2)}
           opener={rawOpenerRef}
           onClose={() => setShowRaw(false)}
           t={t}

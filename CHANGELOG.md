@@ -12,6 +12,27 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Added
 
+- **Craft web editors for ten ArtCraft apps.** The opt-in Craft Web Editors plugin now edits more file
+  types in the editor pane: GridCraft (`.xlsx`), PdfCraft (`.pdf`), CADCraft (`.dxf`), DesignCraft
+  (`.designcraft`) and SoundCraft (`.scraftz`) save in place; PhotoCraft (`.psd`, and `.png .jpg .jpeg
+  .webp .tif .tiff` saved as a `.psd` next to the file), VectorCraft (`.svg` → `.vectorcraft`) and
+  DeckCraft 0.7.0 (`.pptx` → `.deckcraft`, `.deckcraft` in place) save their native format as a new
+  sibling file; LightCraft views camera RAW files (`.dng .cr2 .cr3 .nef .arw .raf .orf .rw2`) without
+  ever changing them. Every save passes a per-format validator (SVG saves are filtered for script). New apps
+  use their verified web build only; an installed WordCraft build keeps loading and is offered an update.
+  The binary-file notice now offers the matching editor. **`pi-dashboard-shared` minor:** additive
+  `siblingExtensions` on `editor-pane-file-handler` claims, `FileHandlerProps.save({target:"sibling", ext})`
+  and optional `FileHandlerProps.openFile(path, claimId?)`; `POST /api/file/write-binary` accepts
+  `mode=copy&siblingExt=<.ext>`. An older runtime drops the claim field (native saves then download).
+
+### Changed
+
+### Fixed
+
+## [0.10.0] - 2026-10-20
+
+### Added
+
 - **Three more recommended extensions.** The recommended-extensions list now offers
   `pi-untrusted-content-guard` (strips hidden prompt-injection payloads from web/search/email
   results and asks before sensitive tools run afterwards), `pi-dashboard-deck3d` (Markdown or
@@ -111,6 +132,54 @@ see [`docs/release-process.md`](docs/release-process.md).
 - **Generic custom-entry fallback shows JSON objects as key/value lists.** An untruncated
   object body renders up to 50 keys as a list instead of pretty-printed JSON; everything else
   stays plain text.
+- **Request access from a LAN device.** A browser that is denied by the network can now ask to pair
+  from its denied screen. The dashboard shows an approval dialog with the requester's address and a
+  PIN, and the device waits for approval. This is off unless "Accept LAN requests" is enabled under
+  Gateway ▸ Connect a device. Requests are accepted only from private, same-subnet addresses with no
+  proxy headers, and are rate-limited (3 live, 10 per 10 min). A request over plain http is labelled
+  unencrypted. A Vault refusal for a caller with no credential now offers the same Request access link.
+- **One desktop window per paired server.** The Electron app discovers LAN servers, pairs with them
+  (on the local network only) and opens each paired server in its own window with separate storage.
+  It keeps a keyring (`~/.pi-dashboard/server-keyring.json`) pinned to each server's identity. Device
+  credentials are encrypted with the OS keychain. The Connect window lists discovered and paired
+  servers, and the app menu/tray gain a Servers submenu. Remote mode is unchanged for thin-client and
+  docker installs.
+- **Let's Encrypt certificates via DNS-01.** The built-in HTTPS listener can obtain and renew
+  certificates for your own domains through Cloudflare or a delegated acme-dns account. It uses
+  staging by default until you switch to production. Solver secrets live in the credential vault and
+  are never shown again. Manage domains, status and "issue now" under Gateway ▸ Certificates. See
+  [`docs/acme-dns01-certs.md`](docs/acme-dns01-certs.md).
+- **Settings → Services.** New pages list every managed service with its state, reason and
+  endpoints, plus a runtimes matrix. A service detail page offers Start / Stop / Force stop / Retry /
+  Pin / Prefetch, recent logs (requires operate authority; secrets redacted), Reset data and Remove
+  with purge. A Prune action removes leftover dashboard-owned containers and run folders after a
+  dry-run preview. Services started by the dashboard now keep their output in
+  `services-run/<id>/output.log`.
+- **Plugins can open binary files in the editor pane.** A new `editor-pane-file-handler` slot lets a
+  plugin claim non-text file extensions in preview or edit mode. A file tab with such a handler shows
+  a mode switcher next to the built-in Preview. Saves (overwrite or copy) go through the new
+  `POST /api/file/write-binary` route with a conflict check. See
+  [`docs/plugin-seams.md`](docs/plugin-seams.md).
+- **context-mode settings page.** A new settings plugin (shown when the `context-mode` extension is
+  installed) edits context-mode options in `~/.pi/context-mode/settings.json` and applies them to
+  new sessions. A variable you already export yourself takes precedence. Server plugins can now add
+  environment variables to every session the dashboard spawns
+  (`registerSpawnEnvContributor`, trusted plugins only). The hermes-memory model override uses the
+  shared model picker.
+- **PhotoCraft package.** The new optional `pi-dashboard-photocraft` downloads a checksum-verified
+  PhotoCraft binary on demand. It adds the `pi-photocraft` CLI (`exec`, `mcp`, `mcp --register`,
+  `replace-region` with nano-banana) and a `photocraft` skill. `pi-nano-banana` now runs from a
+  shell.
+- **deck3d: PowerPoint import and camera motions.** `deck3d pptx import <file.pptx>` turns a deck
+  into a deck3d baseline. Unsupported elements become visible fallbacks, and `--force` re-imports
+  without losing your tuning. Decks gain embedded assets, slide-layer effects, new camera moves
+  (revolve, crane, bank, flythrough, keyframed paths) and a cross-fade between slides.
+- **Craft office workflows.** craft-apps ships five workflow skills: brand kit, document publish,
+  deck, photo pipeline and data visual. It also adds `pi-craft doc prepare`, which fills a DOCX
+  template from Markdown frontmatter.
+- **anti-slop taste v2.** The design skills gain surface profiles, theme-parity checks and three new
+  skills: `anti-slop-redesign`, image direction and brand kit. Upstream sources are recorded in
+  `UPSTREAM.md`.
 
 ### Changed
 
@@ -238,9 +307,44 @@ see [`docs/release-process.md`](docs/release-process.md).
   load it.
 - **First-party source is erasable-only.** `erasableSyntaxOnly` is on in `tsconfig.base.json`
   (TypeScript `^5.8.0`) and Biome `useImportType` is an error. No behaviour change.
+- **Session actions button moved to the card edge.** The session actions menu now opens from a small
+  pill on the card's right border instead of the header `⋮` (removed). The pill is always visible,
+  including on touch devices, and stronger on hover or focus. Cards are about 10 px narrower to fit
+  it. Right-click, Shift+F10 and the hover strip still work.
+- **Changed-on-disk banner shows only on a real content change.** The editor compares content
+  digests (new `GET /api/file/digest`), so your own saves, `touch` and identical rewrites no longer
+  raise it. File watches survive reconnects and atomic replaces. The rich-viewer size limit is now
+  configurable (`editor.largeFileLimitMb`, default 10, max 256), and saves over 1 MiB no longer fail
+  with 413.
+- **Security: local clients prove the local token instead of sending it.** The bridge, CLI, desktop
+  app and `reload-all.sh` send an HMAC proof (`X-Pi-Local-Proof`) bound to the dialled address and
+  port, so a relayed request no longer counts as local. Bridges started by the dashboard check the
+  server's counter-proof before connecting. The raw `X-Pi-Local-Token` header is deprecated: it is
+  still accepted and logged until 1.0.0.
+- **Credential Vault redesign; vault routes require operate authority (security).** Settings ▸ Vault
+  now has Variables / Accounts / Import tabs, a project picker, grant-from-session, a confirmation
+  before delivering keys to a checkout, and two-step delete/revoke that lists the impact first. Every
+  vault route now requires `operate` authority. An observe-only login, for example on a trusted
+  network, can no longer change the vault.
+- **Accessible model picker and connectivity screens.** The model selector, role settings, users,
+  server selector and known-servers surfaces were redesigned for contrast, keyboard reach and labels
+  that do not rely on colour alone. Every role-bound setting uses one display (role, resolved model,
+  level), and one-shot picks read "from @role".
+- **Security: server resource and path limits.** At most 32 terminals can run at once (16 per
+  directory), and terminals with no viewer and no output for 6 h are closed. Folder browsing and "new
+  folder" are limited to your home directory and pinned folders (403 outside them). The recovery page
+  binds the configured host (loopback by default), never all interfaces, and its actions require
+  loopback or the local token.
 
 ### Fixed
 
+- **Hermes memory settings no longer delete settings they don't know.** Saving from the
+  hermes-memory settings page used to rewrite `~/.pi/agent/hermes-memory-config.json` with only the
+  fields the dashboard knew, silently removing anything newer `pi-hermes-memory` versions added. Saves
+  now keep those keys, store only values that differ from the defaults (so upstream default changes
+  apply), and the page covers all `pi-hermes-memory` 0.9.10 settings — including the `max` thinking
+  level and the new 180 s consolidation timeout default. A malformed config file is backed up to
+  `hermes-memory-config.json.corrupt-<timestamp>` before a save replaces it.
 - **The desktop app's server and the `pi-dashboard` CLI cooperate (#924).**
   - Quitting the app stops the server it started again. `/api/health` stopped publishing `starter` on 2026-05-26, so the app never saw its own server as owned on quit; it now reads `launchSource` (legacy `starter` as a fallback) and waits up to 5 s for the server to exit. Behaviour change: since 2026-05-26 quit left the server and its sessions running.
   - `pi-dashboard stop` of a server this HOME provably owns goes through the announced `/api/shutdown`, with the SIGTERM fallback kept. Bridges suppress auto-start, so a terminal pi session no longer races a replacement server in. The exit intent is `shutdown` instead of `signal` (no recovery offer on the next boot). For a server the open desktop app started it prints a note: the app stays open and shows its reconnect page.
@@ -292,6 +396,33 @@ see [`docs/release-process.md`](docs/release-process.md).
 - **Healed subagent cards show the real result** instead of "result unavailable".
 - **Read and other tool output in the inspector** shows the text, not raw JSON.
 - **Disabled plugins no longer register their bridge** at server start.
+- **Ended sessions without a transcript can be archived.** Archiving an ended session that has no
+  session file used to fail silently. It now removes the card, and any archive failure appears as a
+  toast. A new session that takes over an ended session's file replaces the old card instead of
+  leaving an orphan.
+- **Browser pane input.** Typing in the browser pane now sends text, including Enter and AltGr
+  characters. Clicks outside the live image are ignored, and the idle strip waits 5 s before showing.
+  Connecting no longer times out during the 60 s handshake.
+- **Automation runs no longer stay "running".** The automation engine no longer stops starting when
+  a hook registers after the server begins listening. Parent runs left unfinished by a previous
+  server process are now marked finished.
+- **Setup banner clears when setup finishes.** The "set up this project" banner checks again when a
+  session in the folder goes idle or ends, and when you return to the tab. Project init now repairs a
+  project that has `openspec/` but no pi OpenSpec skills, and lists what it will overwrite.
+- **Session names keep their origin across restarts.** Names set by the dashboard (attach / detach
+  renames, plugins) no longer count as your own rename, so auto-naming keeps working. Name provenance
+  now survives a restart or resume.
+- **Copy buttons work over plain-http LAN.** Plugin copy and ID generation (Gmail, KB and others) no
+  longer fail on plain-http LAN addresses, where the browser hides the clipboard and crypto APIs.
+- **KB folder pill explains why it is empty.** A folder the server will not index shows "not allowed"
+  with a Pin folder action instead of an error. A deleted folder shows "folder missing", and a folder
+  with no sources shows "no sources" with Configure sources. Reading stats no longer creates an index
+  folder, and reindex refuses missing folders and empty source lists.
+- **Additional fixes.**
+  - The View popover's "changed" count, dots and Reset now agree.
+  - YouTube previews embed only real YouTube hosts.
+  - `pi-obs stop` stops streaming, recording and the virtual camera before quitting OBS, and presets
+    scale to the real canvas size.
 
 ## [0.9.0] - 2026-10-06
 

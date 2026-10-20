@@ -44,3 +44,19 @@ export function reportCsp(appId: string, directive: string): void {
     body: JSON.stringify({ app: appId, directive }),
   }).catch(() => {});
 }
+
+/** Open outcome of one frame (design D4 telemetry): which signal opened it, or why it did not open. */
+export type OpenOutcome = "title" | "fallback" | "timeout" | "start-failed";
+
+/**
+ * Fire-and-forget telemetry (server log counters only; no paths, no names). `open`: the open outcome of a
+ * frame; `reject`: a save the format validator refused, by extension.
+ * See change: extend-craft-web-to-all-apps (observability).
+ */
+export function reportTelemetry(appId: string, event: { kind: "open"; outcome: OpenOutcome } | { kind: "reject"; ext: string }): void {
+  void fetch(`${BASE}/telemetry`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ app: appId, ...event }),
+  }).catch(() => {});
+}

@@ -1,7 +1,7 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-obs-studio-plugin",
-  "version": "0.9.0",
-  "description": "OBS Studio for pi agents and the dashboard \u2014 detect/install, obs-websocket provisioning as a managed service, the pi-obs CLI and skill, and a remote scene/virtual-camera/record panel.",
+  "version": "0.10.0",
+  "description": "OBS Studio for pi agents and the dashboard — detect/install, obs-websocket provisioning as a managed service, the pi-obs CLI and skill, and a remote scene/virtual-camera/record panel.",
   "license": "MIT",
   "publishConfig": {
     "access": "public"
@@ -73,9 +73,9 @@
     "react-dom": ">=18.0.0"
   },
   "dependencies": {
-    "@blackbelt-technology/dashboard-plugin-runtime": "^0.9.0",
-    "@blackbelt-technology/pi-dashboard-app-kit": "^0.9.0",
-    "@blackbelt-technology/pi-dashboard-shared": "^0.9.0",
+    "@blackbelt-technology/dashboard-plugin-runtime": "^0.10.0",
+    "@blackbelt-technology/pi-dashboard-app-kit": "^0.10.0",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.10.0",
     "@fastify/rate-limit": "^11.2.0",
     "obs-websocket-js": "^5.0.6",
     "wouter": "^3.9.0"

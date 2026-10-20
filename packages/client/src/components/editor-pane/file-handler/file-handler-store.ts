@@ -11,7 +11,7 @@
  *
  * See change: add-editor-pane-file-handlers (D5, tasks 5.1–5.3).
  */
-import type { FileHandlerClaimMeta } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/file-handler.js";
+import { type FileHandlerClaimMeta, fileHandlerClaimKey } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/file-handler.js";
 import type { FileDigest } from "../../../lib/file-digest.js";
 import { t } from "../../../lib/i18n/i18n.js";
 import { type FileHandlerClaim, fileHandlerInstanceKey } from "./file-handler-claims.js";
@@ -31,7 +31,8 @@ interface FileHandlerBridge {
   cwd: string;
   trackedFileWrite(path: string, body: Record<string, unknown>, send: (signal: AbortSignal) => Promise<Response>): Promise<Response>;
   setBaseline(path: string, digest: FileDigest): void;
-  openFile(path: string): void;
+  /** Open a workspace file in a tab; `mode` = a file-handler claim key (`<pluginId>/<claimId>`) to select. */
+  openFile(path: string, mode?: string): void;
 }
 
 interface HandlerInstanceSpec {
@@ -104,6 +105,8 @@ export interface FileHandlerStore {
   /** Drop this scope's instances whose tab no longer exists (unguarded). */
   syncTabs(sessionId: string, cwd: string, wanted: ReadonlySet<string>): void;
   setDirty(key: string, state: HandlerDirtyState): void;
+  /** `FileHandlerProps.openFile` of instance `key`: open `path`, optionally in that plugin's claim `claimId`. */
+  openFile(key: string, path: string, claimId?: string): void;
   /** Confirm discarding the instance's edits; `true` when nothing to lose or the user agreed. */
   guardDiscard(key: string, kind: DiscardKind): Promise<boolean>;
   /** Re-mount from a fresh snapshot (call after `guardDiscard`). */
@@ -386,6 +389,11 @@ export function createFileHandlerStore(): FileHandlerStore {
     },
     setBridge(b) {
       bridge = b;
+    },
+    openFile(key, path, claimId) {
+      const r = recs.get(key);
+      if (!r) return;
+      bridgeFor(r)?.openFile(path, claimId ? fileHandlerClaimKey(r.pluginId, claimId) : undefined);
     },
     setAnchor(el) {
       if (anchor === el) return;

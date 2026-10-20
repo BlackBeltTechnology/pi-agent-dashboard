@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+  <title>SoundCraft</title>
+  <link rel="icon" href="./ai.storyteller.soundcraft-4f86cc0f1d19c49f.png" integrity="sha384-gGGdqNRRqqtc1O6hUsGr2t6crDCmPT5aQ88HrS63AGKTx8mtjcAwCaMFzW6yzgT0"/>
+  
+<script type="module">
+import init, * as bindings from './soundcraft-web-6682977b65c10746.js';
+const wasm = await init({ module_or_path: './soundcraft-web-6682977b65c10746_bg.wasm' });
+
+
+window.wasmBindings = bindings;
+
+
+dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
+
+</script>
+  <style>
+    html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #1e1f22; }
+    #soundcraft_canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+    #soundcraft_loading { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      color: #b8b8b8; font: 14px system-ui, sans-serif; pointer-events: none; }
+  </style>
+<link rel="modulepreload" href="./soundcraft-web-6682977b65c10746.js" crossorigin="anonymous" integrity="sha384-xULyk/HfVHcuYDalQ5rWIrnKQL1rHHdjzLb8ajY8ELpXT6T/PD6WGqdkjL1C8hnx"><link rel="preload" href="./soundcraft-web-6682977b65c10746_bg.wasm" crossorigin="anonymous" integrity="sha384-T36novcHRlMn8YiKb716PGNSXe5vgrLFUDOO5U+4O5oET22K7FgaNTVsA/EORHyh" as="fetch" type="application/wasm"></head>
+<body>
+  <canvas id="soundcraft_canvas"></canvas>
+  <script>
+    // cpal (wasm) builds the output stream at startup, before any user gesture, so the
+    // WebAudio AudioContext stays 'suspended': no audio is heard and the transport clock
+    // (driven by the audio callback) never advances. Capture the AudioContext cpal creates
+    // and resume it on the first user gesture. Runs before the wasm module is instantiated.
+    (function () {
+      var Orig = window.AudioContext || window.webkitAudioContext;
+      if (!Orig) return;
+      var ctxs = [];
+      function Wrapped(opts) { var c = new Orig(opts); ctxs.push(c); return c; }
+      Wrapped.prototype = Orig.prototype;
+      window.AudioContext = Wrapped;
+      if (window.webkitAudioContext) window.webkitAudioContext = Wrapped;
+      function resumeAll() {
+        ctxs.forEach(function (c) { if (c.state === 'suspended') { c.resume().catch(function () {}); } });
+      }
+      ['pointerdown', 'mousedown', 'touchstart', 'keydown'].forEach(function (ev) {
+        window.addEventListener(ev, resumeAll, { capture: true });
+      });
+    })();
+  </script>
+  <div id="soundcraft_loading">Loading SoundCraft&hellip;</div>
+</body>
+</html>

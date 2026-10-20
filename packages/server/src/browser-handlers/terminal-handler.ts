@@ -3,6 +3,7 @@
  */
 import type { BrowserToServerMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { canAccessSession } from "../identity/session-access.js";
+import { TerminalLimitError } from "../terminal/terminal-manager.js";
 import type { BrowserHandlerContext } from "./handler-context.js";
 
 type Owner = { iss: string; sub: string };
@@ -43,13 +44,29 @@ function mayUseTerminal(ctx: BrowserHandlerContext, terminalId: string): boolean
   return canAccessSession({ active: true, principal: principalOf(ctx), owner: t.principalOwner });
 }
 
+/**
+ * A cap refusal starts nothing and is told ONLY to the requesting socket: no
+ * broadcast, no session-order insert, no inline event. Anything else rethrows
+ * (the gateway logs it). See change: harden-server-capability-bounds (D3).
+ */
+function refuseAtCap(err: unknown, cwd: string, inline: boolean, ctx: BrowserHandlerContext): void {
+  if (!(err instanceof TerminalLimitError)) throw err;
+  console.warn(`[terminal] new terminal refused: ${err.scope} limit ${err.limit} reached (inline=${inline})`);
+  ctx.sendTo(ctx.ws, { type: "terminal_limit_reached", scope: err.scope, limit: err.limit, cwd, inline });
+}
+
 export function handleCreateTerminal(
   msg: Extract<BrowserToServerMessage, { type: "create_terminal" }>,
   ctx: BrowserHandlerContext,
 ): void {
   const { terminalManager, sessionOrderManager, broadcast } = ctx;
   if (terminalManager && sessionOrderManager) {
-    const terminal = terminalManager.spawn(msg.cwd, { owner: ownerForSpawn(ctx) });
+    let terminal: ReturnType<typeof terminalManager.spawn>;
+    try {
+      terminal = terminalManager.spawn(msg.cwd, { owner: ownerForSpawn(ctx) });
+    } catch (err) {
+      return refuseAtCap(err, msg.cwd, false, ctx);
+    }
     sessionOrderManager.insert(msg.cwd, terminal.id);
     broadcast({ type: "terminal_added", terminal });
     broadcast({ type: "sessions_reordered", cwd: msg.cwd, sessionIds: sessionOrderManager.getOrder(msg.cwd) });
@@ -70,7 +87,12 @@ export function handleOpenInlineTerminal(
   const { terminalManager, eventStore, broadcast, broadcastEvent } = ctx;
   if (!terminalManager) return;
   if (!mayWriteSession(ctx, msg.sessionId)) return;
-  const terminal = terminalManager.spawn(msg.cwd, { ephemeral: true, owner: ownerForSpawn(ctx) });
+  let terminal: ReturnType<typeof terminalManager.spawn>;
+  try {
+    terminal = terminalManager.spawn(msg.cwd, { ephemeral: true, owner: ownerForSpawn(ctx) });
+  } catch (err) {
+    return refuseAtCap(err, msg.cwd, true, ctx);
+  }
   broadcast({ type: "terminal_added", terminal });
   const seq = eventStore.insertEvent(msg.sessionId, {
     eventType: "inline_terminal_open",

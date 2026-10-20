@@ -6,8 +6,10 @@
  */
 import { cleanup, fireEvent } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { CraftAppProfile } from "../../shared/app-profiles.js";
 import { OPENED_TIMEOUT_MS, READY_TIMEOUT_MS } from "../CraftFrame.js";
-import { advance, bytesOf, flush, mountFrame, nonceOf, openDoc, opens, shimSend, stubFetch } from "./test-utils.js";
+import { CRAFT_WEB_APPS, type CraftWebApp } from "../craft-apps-table.js";
+import { advance, bytesOf, flush, makeFh, mountFrame, nonceOf, openDoc, opens, saveResults, shimSend, stubFetch } from "./test-utils.js";
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
@@ -306,5 +308,183 @@ describe("blocked / csp / navigate-blocked", () => {
     expect(m.queryByTestId("craft-nav-open")).toBeNull();
     expect(m.getByTestId("craft-nav-offer").textContent).not.toContain("javascript");
     expect(open).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------
+// Host v2 (change: extend-craft-web-to-all-apps, D2/D4/D11)
+// ---------------------------------------------------------------------------------------------------
+
+const WORD = CRAFT_WEB_APPS.wordcraft;
+/** A synthetic claim row for an app profile (rows of later waves; the host is generic). */
+function appRow(appId: string, label: string, claim: Partial<CraftWebApp>, profile: Partial<CraftAppProfile> = {}): CraftWebApp {
+  return {
+    ...WORD,
+    id: appId,
+    claimId: claim.claimId ?? appId,
+    label,
+    extensions: [".x"],
+    mode: "edit",
+    siblingExtensions: [],
+    ...claim,
+    profile: { ...WORD.profile, appId, label, ...profile },
+  };
+}
+const CAD = appRow("cadcraft", "CADCraft", { extensions: [".dxf"] }, { title: undefined, openedFallbackMs: 3000, cleanOnAckedSave: true });
+const PHOTO_RASTER = appRow("photocraft", "PhotoCraft", { claimId: "photocraft-raster", extensions: [".jpg"], siblingExtensions: [".psd"] });
+const LIGHT = appRow("lightcraft", "LightCraft", { extensions: [".dng"], mode: "preview" }, { title: undefined, openedFallbackMs: 5000, frameParams: ["nosw"], workerTrampoline: true });
+const statusFor = (...ids: string[]) => () => Object.fromEntries(ids.map((id) => [id, { status: "ok" }]));
+const telemetry = (f: { calls: Array<{ url: string; body?: string }> }) =>
+  f.calls.filter((c) => c.url.endsWith("/telemetry")).map((c) => JSON.parse(c.body as string) as Record<string, unknown>);
+
+describe("E12 v1 compatibility of opened", () => {
+  it("an opened without `confirmed` opens, counts as `title`, and the first overwrite goes straight to core", async () => {
+    const f = stubFetch({});
+    const m = await mountFrame();
+    await shimSend(m.iframe, { type: "ready" });
+    await shimSend(m.iframe, { type: "opened", title: "report" }); // v1 shim: no confirmed field
+    expect(m.iframe.closest("[data-phase]")?.getAttribute("data-phase")).toBe("open");
+    expect(telemetry(f)).toEqual([{ app: "wordcraft", kind: "open", outcome: "title" }]);
+    await shimSend(m.iframe, { type: "save", suggestedName: "report.docx", bytes: bytesOf(3) });
+    expect(m.fh.save).toHaveBeenCalledWith(expect.anything(), { target: "overwrite" });
+    expect(m.queryByTestId("craft-save-as")).toBeNull();
+  });
+});
+
+describe("E28 unconfirmed open: one question (core's)", () => {
+  it("opened{confirmed:false} → telemetry fallback; the first own save calls props.save directly, no plugin dialog", async () => {
+    const f = stubFetch({ status: statusFor("cadcraft") });
+    const m = await mountFrame({ app: CAD, fh: makeFh({ path: "plan.dxf", save: vi.fn(async () => ({ ok: true as const, path: "plan.dxf", mtime: 2, sha1: "b" })) as never }) });
+    await shimSend(m.iframe, { type: "ready" });
+    await shimSend(m.iframe, { type: "opened", title: "plan.dxf", confirmed: false });
+    expect(telemetry(f)).toEqual([{ app: "cadcraft", kind: "open", outcome: "fallback" }]);
+    await shimSend(m.iframe, { type: "save", suggestedName: "plan.dxf", bytes: bytesOf(3) });
+    expect(m.fh.save).toHaveBeenCalledTimes(1);
+    expect(m.fh.save).toHaveBeenCalledWith(expect.anything(), { target: "overwrite" });
+    expect(m.queryByTestId("craft-save-as")).toBeNull();
+    expect(saveResults(m).at(-1)).toMatchObject({ ok: true, own: true });
+  });
+
+  it("core turning the overwrite into a copy (first-overwrite notice → Save as copy) is not an own save: stays dirty", async () => {
+    stubFetch({ status: statusFor("cadcraft") });
+    const save = vi.fn(async () => ({ ok: true as const, path: "plan.cadcraft.dxf", mtime: 2, sha1: "b" }));
+    const m = await mountFrame({ app: CAD, fh: makeFh({ path: "plan.dxf", save: save as never }) });
+    await shimSend(m.iframe, { type: "ready" });
+    await shimSend(m.iframe, { type: "opened", title: "plan.dxf", confirmed: false });
+    await shimSend(m.iframe, { type: "dirty", value: true });
+    await shimSend(m.iframe, { type: "save", suggestedName: "plan.dxf", bytes: bytesOf(3) });
+    const r = saveResults(m).at(-1) as Record<string, unknown>;
+    expect(r).toMatchObject({ ok: true });
+    expect(r.own).toBeUndefined();
+    expect(m.fh.setDirty.mock.calls.at(-1)?.[0]).toBe(true);
+  });
+});
+
+describe("start-failed from the shim (D4)", () => {
+  it("before opened → 'could not start' + Retry, telemetry start-failed, the open is never resent", async () => {
+    const f = stubFetch({});
+    const m = await mountFrame();
+    await shimSend(m.iframe, { type: "ready" });
+    expect(opens(m)).toHaveLength(1);
+    await shimSend(m.iframe, { type: "start-failed", detail: "panicked at …" });
+    expect(m.getByTestId("craft-start-failed")).toBeTruthy();
+    expect(m.queryByTestId("craft-frame")).toBeNull();
+    expect(opens(m)).toHaveLength(1);
+    expect(telemetry(f)).toEqual([{ app: "wordcraft", kind: "open", outcome: "start-failed" }]);
+  });
+
+  it("after opened → ignored", async () => {
+    stubFetch({});
+    const m = await mountFrame();
+    await openDoc(m);
+    await shimSend(m.iframe, { type: "start-failed" });
+    expect(m.queryByTestId("craft-start-failed")).toBeNull();
+    expect(m.getByTestId("craft-frame")).toBeTruthy();
+  });
+
+  it("an open timeout is reported as `timeout`", async () => {
+    const f = stubFetch({});
+    const m = await mountFrame();
+    await shimSend(m.iframe, { type: "ready" });
+    await advance(OPENED_TIMEOUT_MS + 1);
+    expect(telemetry(f)).toEqual([{ app: "wordcraft", kind: "open", outcome: "timeout" }]);
+  });
+});
+
+describe("E25 frame flags invariant", () => {
+  it("every shipped claim: sandbox allow-scripts, allow clipboard-write; profile frameParams only in the src query", async () => {
+    for (const app of [...Object.values(CRAFT_WEB_APPS), LIGHT]) {
+      stubFetch({ status: statusFor(app.id) });
+      const m = await mountFrame({ app, fh: makeFh({ path: `f${app.extensions[0]}` }) });
+      expect(m.iframe.getAttribute("sandbox")).toBe("allow-scripts");
+      expect(m.iframe.getAttribute("allow")).toBe("clipboard-write");
+      const src = m.iframe.getAttribute("src") as string;
+      const query = /\?([^#]*)/.exec(src)?.[1] ?? "";
+      for (const flag of app.profile.frameParams ?? []) expect(query.split("&")).toContain(flag);
+      expect(src.split("#")[1]).toMatch(/^n=[0-9a-f]+$/);
+      cleanup();
+    }
+  });
+
+  it("nosw with the WebGL path: both flags in the query, no document data in the URL", async () => {
+    stubFetch({ status: statusFor("lightcraft") });
+    const m = await mountFrame({ app: LIGHT, fh: makeFh({ path: "sample.dng" }), renderer: { gpu: false, webgl2: true } });
+    const src = m.iframe.getAttribute("src") as string;
+    expect(src).toMatch(/^\/apps\/craft-lightcraft\/index\.html\?nosw&webgl#n=[0-9a-f]+$/);
+    expect(src).not.toContain("sample");
+  });
+});
+
+describe("E30 toolbar states where saves go (B2/B3)", () => {
+  it("plain edit claim: no chip, label 'Save target'", async () => {
+    stubFetch({ status: statusFor("cadcraft") });
+    const m = await mountFrame({ app: CAD, fh: makeFh({ path: "plan.dxf" }) });
+    expect(m.queryByTestId("craft-sibling-chip")).toBeNull();
+    expect(m.queryByTestId("craft-preview-chip")).toBeNull();
+    expect(m.getByTestId("craft-save-target-label").textContent).toBe("Save target");
+  });
+
+  it("edit claim with siblingExtensions: chip names the created file, label 'Exports to .jpg', toggle present", async () => {
+    stubFetch({ status: statusFor("photocraft") });
+    const m = await mountFrame({ app: PHOTO_RASTER, fh: makeFh({ path: "img/photo.jpg" }) });
+    expect(m.getByTestId("craft-sibling-chip").textContent).toBe("Save (Ctrl+S) creates photo.psd");
+    expect(m.getByTestId("craft-save-target-label").textContent).toBe("Exports to .jpg");
+    expect(m.getByTestId("craft-save-target-overwrite")).toBeTruthy();
+  });
+
+  it("preview claim: 'View only' chip, no save-target group", async () => {
+    stubFetch({ status: statusFor("lightcraft") });
+    const m = await mountFrame({ app: LIGHT, fh: makeFh({ path: "sample.dng" }) });
+    expect(m.getByTestId("craft-preview-chip").textContent).toBe("View only. Exports download to this device");
+    expect(m.queryByTestId("craft-save-target")).toBeNull();
+  });
+});
+
+describe("E33 save-target contrast fix", () => {
+  it("the selected button uses --text-primary on --accent-soft, never --accent-text", async () => {
+    stubFetch({});
+    const m = await mountFrame();
+    const selected = m.getByTestId("craft-save-target-overwrite");
+    expect(selected.getAttribute("aria-pressed")).toBe("true");
+    expect(selected.className).toContain("text-[var(--text-primary)]");
+    expect(selected.className).toContain("bg-[var(--accent-soft)]");
+    expect(selected.className).not.toContain("--accent-text");
+  });
+});
+
+describe("E27 view-only host", () => {
+  it("setDirty(false) once opened; dirty messages ignored even after input; saves never reach props.save", async () => {
+    stubFetch({ status: statusFor("lightcraft") });
+    const m = await mountFrame({ app: LIGHT, fh: makeFh({ path: "sample.dng" }) });
+    await shimSend(m.iframe, { type: "ready" });
+    await shimSend(m.iframe, { type: "opened", title: "sample.dng", confirmed: false });
+    await shimSend(m.iframe, { type: "dirty", value: true });
+    await shimSend(m.iframe, { type: "dirty", value: true });
+    expect(m.fh.setDirty.mock.calls.map((c) => c[0])).toEqual(["unknown", false]);
+    expect(m.queryByTestId("craft-save-target")).toBeNull();
+    await shimSend(m.iframe, { type: "save", suggestedName: "sample.dng", bytes: bytesOf(3) });
+    expect(m.fh.save).not.toHaveBeenCalled();
+    expect(saveResults(m).at(-1)).toMatchObject({ ok: true });
+    await flush();
   });
 });

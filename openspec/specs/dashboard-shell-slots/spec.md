@@ -992,6 +992,7 @@ The slot taxonomy SHALL include the slot id `editor-pane-file-handler`, with mul
 | first-overwrite notice | no | at most 300 characters |
 | validator flag | no | declares that saves require the plugin's registered content validator |
 | copy suffix | required for edit mode | lower-case slug |
+| sibling extensions | no; edit mode only | lower-case extensions with a leading dot, same rules as `extensions`, none of them also listed in `extensions` |
 
 A claimed extension SHALL be rejected when the shared file-kind classifier treats it as text-backed: editable, or a recognised kind rendered by the text, markdown, Mermaid, AsciiDoc or HTML viewer (for example `.md`, `.markdown`, `.csv`, `.adoc`, `.mmd`, `.puml`, `.txt`, `.json`, `.ts`, `.html`). A claimed extension SHALL also be rejected when it is on the frozen deny list of secrets, executable scripts and plain-text formats that the classifier does not know (for example `.pem`, `.key`, `.ps1`, `.bat`, `.patch`, `.jsonl`, `.ipynb`, `.lock`, `.kt`); the list is fixed so the claimable set does not shift when the classifier learns a new kind. Other extensions the classifier does not recognise SHALL be claimable. Extensions SHALL be a single segment (`.tar.gz` is rejected). Ordering among claims SHALL use the plugin priority rule of this capability. A duplicate claim id within one plugin SHALL fail registry generation naming the plugin.
 
@@ -1038,6 +1039,22 @@ A claimed extension SHALL be rejected when the shared file-kind classifier treat
 #### Scenario: Predicate classification
 - **WHEN** type-checking `SlotPredicateInput<"editor-pane-file-handler">`
 - **THEN** the resolved type SHALL be `never`
+
+#### Scenario: Validator accepts sibling extensions on an edit claim
+- **WHEN** an `edit` claim lists `extensions: [".jpg"]` and sibling extensions `[".psd"]`
+- **THEN** the validator SHALL accept it and the sibling extensions SHALL survive registry generation and contribute to the registry hash
+
+#### Scenario: Sibling extensions on a preview claim rejected
+- **WHEN** a `preview` claim declares sibling extensions
+- **THEN** the validator SHALL throw a manifest validation error naming the plugin and the claim
+
+#### Scenario: Text-backed sibling extension rejected
+- **WHEN** an `edit` claim lists `.md` among its sibling extensions
+- **THEN** the validator SHALL throw a manifest validation error naming the extension
+
+#### Scenario: Sibling extension overlapping the claim's extensions rejected
+- **WHEN** an `edit` claim lists `.psd` both in `extensions` and among its sibling extensions
+- **THEN** the validator SHALL throw a manifest validation error naming the extension
 
 ## Related Capabilities
 

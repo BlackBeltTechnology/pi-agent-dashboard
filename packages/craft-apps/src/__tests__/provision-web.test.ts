@@ -127,7 +127,7 @@ describe("provisionWeb resolution", () => {
 
   it("E4 an app without a verified web build fails closed with no network", async () => {
     const s = await setup();
-    const e = await errOf(provisionWeb("deckcraft", s.opts()));
+    const e = await errOf(provisionWeb("figcraft", s.opts()));
     expect(e.code).toBe<WebErrorCode>("not-verified");
     expect(s.fx.requests).toHaveLength(0);
   });
