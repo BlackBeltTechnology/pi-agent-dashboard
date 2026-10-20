@@ -479,6 +479,22 @@ describe("decision record (#E40) and hand-off hook", () => {
     expect(h.records[0].answeredSurface).toBe("tui");
   });
 
+  it("B2: answeredSurface stays in the D11 vocabulary — a bus dismiss is `dashboard`, a hand-off allow is not `path-gate`", async () => {
+    const allowed = new Set(["dashboard", "tui", "chat-gateway", "timeout", "aborted", "error"]);
+    let h = makeGate();
+    let p = h.call("bash");
+    await flush();
+    h.prompter.dismiss();
+    await p;
+    expect(h.records[0].answeredSurface).toBe("dashboard");
+    const ids = new Set(["t1"]);
+    h = makeGate({ handoff: (_s, id) => ids.delete(id) });
+    await h.call("edit", { path: "/w/o/f.txt", edits: [] }, "t1");
+    expect(h.records[0]).toMatchObject({ via: "path-gate" });
+    expect(allowed.has(h.records[0].answeredSurface)).toBe(true);
+    expect(h.records[0].answeredSurface).not.toBe("path-gate");
+  });
+
   it("a consumed hand-off allows without asking and logs via path-gate; ids are one-shot", async () => {
     const ids = new Set(["t1"]);
     const h = makeGate({ handoff: (_s, id) => ids.delete(id) });

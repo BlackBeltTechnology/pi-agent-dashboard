@@ -90,7 +90,9 @@ export const chatGatewaySurface: ApprovalSurface<GuardCtx> = {
     // `Promise.resolve().then` turns a synchronous throw from confirm into a rejection (fail closed).
     decision: Promise.resolve()
       .then(() => ctx.ui.confirm(prompt.title, prompt.body))
-      .then((ok) => ({ answer: ok === true ? ALLOW_ONCE : undefined, surface: "chat-gateway" })),
+      // A `false` is an explicit No: a non-`Allow once` string settles `denied` (the core reads a bare
+      // `undefined` as a dismiss). The agent-visible reason is the same single collapsed string.
+      .then((ok) => ({ answer: ok === true ? ALLOW_ONCE : "Deny", surface: "chat-gateway" })),
     cancel: () => {},
   }),
   onDecision: (record) => {

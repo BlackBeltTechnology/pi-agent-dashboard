@@ -135,9 +135,13 @@ export function effectiveDeadlineMs(timeoutSeconds: unknown, busTimeoutMs: numbe
   return Math.max(1000, Math.min(cfgMs, busTimeoutMs - 1000));
 }
 
-/** Map a PromptBus response `source` to the audit `answeredSurface`. */
+/**
+ * Map a PromptBus response `source` to the audit `answeredSurface` (design D11 vocabulary:
+ * `dashboard | tui | chat-gateway | timeout | error`, plus the gate's own `aborted`). A bus-side
+ * dismiss (`__bus__`) comes from a client, i.e. the dashboard; the road a decision took
+ * (`supervised` vs `path-gate`) lives in `via`, never here.
+ */
 function surfaceOf(source: string | undefined): string {
-  if (source === "__bus__") return "bus";
   if (typeof source === "string" && source.startsWith("tui")) return "tui";
   return "dashboard";
 }
@@ -311,7 +315,8 @@ export function createSupervisedGate(deps: SupervisedGateDeps) {
     const id = typeof event.toolCallId === "string" && event.toolCallId ? event.toolCallId : undefined;
     if (!id || !deps.consumeHandoff?.(sid, id)) return false;
     const s = buildSupervisedSummary(event.toolName, event.input, ctx?.cwd ?? "");
-    writeRecord(sid, { tool: event.toolName, summary: s.line, outcome: "approved", answeredSurface: "path-gate", via: "path-gate" });
+    // The enriched path prompt was answered on the dashboard or the terminal (not tracked here); `via` carries the road.
+    writeRecord(sid, { tool: event.toolName, summary: s.line, outcome: "approved", answeredSurface: "dashboard", via: "path-gate" });
     return true;
   }
 

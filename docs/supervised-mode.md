@@ -150,7 +150,7 @@ Two durable copies per session id.
 
 ## Audit
 
-- Durable: `pi.appendEntry("supervised-tool-decision", record)`. Fields incl. `tool`, `summary`, `outcome`, `answeredSurface` (`dashboard | tui | chat-gateway | timeout | error`), `via` (`supervised | path-gate`).
+- Durable: `pi.appendEntry("supervised-tool-decision", record)`. Fields incl. `tool`, `summary`, `outcome`, `answeredSurface` (`dashboard | tui | chat-gateway | timeout | aborted | error`), `via` (`supervised | path-gate`).
 - Summary capped 500 chars, secret-redacted.
 - Console line: `[supervised] <outcome> tool=… via=… surface=… session=… summary=…`.
 - Server log per flip: `[supervised] mode on|off rev=<n> session=<id> source=<connId>`.

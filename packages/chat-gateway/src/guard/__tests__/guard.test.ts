@@ -63,6 +63,25 @@ describe("createToolCallGuard", () => {
     expect(result).toEqual({ block: true, reason: "chat-gateway: approval_denied_or_timed_out" });
   });
 
+  it("X5/B1: an explicit DENY is audited as `denied` (not `dismissed`); a throw as `error`", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const guard = createToolCallGuard({ policy: { approval: ["bash"] } });
+      await guard({ toolName: "bash" }, ctxWithConfirm(async () => false));
+      await guard(
+        { toolName: "bash" },
+        ctxWithConfirm(async () => {
+          throw new Error("boom");
+        }),
+      );
+      const lines = log.mock.calls.map((c) => String(c[0]));
+      expect(lines).toContain("[chat-gateway] tool approval bash: denied");
+      expect(lines).toContain("[chat-gateway] tool approval bash: error");
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   it("X4: an UNANSWERED approval fails closed (blocked, never auto-allowed)", async () => {
     // A confirm that never settles, with a timer that fires immediately.
     const guard = createToolCallGuard({
