@@ -15,7 +15,11 @@ import { validateSvg } from "./svg.mjs";
 import { validateVectorcraft } from "./vectorcraft.mjs";
 import { validateZipMembers } from "./zip-members.mjs";
 
-/** Extension → check. The drift test pins every claimed edit + sibling extension to a route. */
+/**
+ * Extension → check. The drift test pins every claimed edit + sibling extension to a route (claim → route,
+ * one way). `.odt`, `.rtf` and `.dwg` are reserved: their fixture spikes failed (design.md, Implementation
+ * findings), so no claim routes to them until a follow-up adds them.
+ */
 export const ROUTES = {
   ".docx": validateOoxml,
   ".xlsx": validateOoxml,

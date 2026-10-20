@@ -259,7 +259,9 @@ export function createCraftWebService(deps: CraftWebServiceDeps): CraftWebServic
 
   /**
    * Trees of the current shim prepared with another profile hash can never become `ok`; drop them so the
-   * prepare re-runs post-install instead of reusing the cached `<version>-s<shim>` tree.
+   * prepare re-runs post-install instead of reusing the cached `<version>-s<shim>` tree. Deleting before the
+   * re-prepare is safe: such a tree is already `shim-outdated` (never loaded), so a failed (offline) prepare
+   * loses nothing usable — the same trade-off D3 accepts for a code downgrade.
    */
   function dropStaleProfileTrees(app: string): void {
     const profile = profileFor(app);

@@ -414,3 +414,18 @@ describe("D6 native-format sibling in the host (E14, E19, E31, X3)", () => {
     expect(save).not.toHaveBeenCalled();
   });
 });
+
+describe("observability: validator rejects are counted by the written format", () => {
+  it("a rejected sibling save reports the sibling extension (.psd), not the tab's (.jpg)", async () => {
+    const f = stubFetch({ status: () => ({ photocraft: { status: "ok" } }) });
+    const save = vi.fn(async () => ({ ok: false as const, reason: "rejected" as const, message: "rejected: missing 8BPS signature" }));
+    const m = await mountFrame({ app: CRAFT_WEB_APPS["photocraft-raster"], fh: makeFh({ path: "img/photo.jpg", save: save as never, openFile: vi.fn() }) });
+    await shimSend(m.iframe, { type: "ready" });
+    await shimSend(m.iframe, { type: "opened", title: "photo.jpg", confirmed: true });
+    await shimSend(m.iframe, { type: "save", suggestedName: "photo.psd", bytes: bytesOf(9) });
+    fireEvent.click(m.getByTestId("craft-sibling-create"));
+    await flush();
+    const events = f.calls.filter((c) => c.url.endsWith("/telemetry")).map((c) => JSON.parse(c.body as string));
+    expect(events).toContainEqual({ app: "photocraft", kind: "reject", ext: ".psd" });
+  });
+});

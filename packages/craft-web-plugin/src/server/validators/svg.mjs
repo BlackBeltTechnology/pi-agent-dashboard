@@ -43,7 +43,6 @@ function checkElement(name, attrs) {
       const target = value.trim().toLowerCase();
       if (target.startsWith("on") || localName(target) === "href") return `animation of ${value.trim()}`;
     }
-    // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what the strip removes
     const compact = value.replace(/[\s\u0000-\u001f]+/g, "");
     if (BAD_URL.test(compact)) return `script URL in ${attr}`;
   }

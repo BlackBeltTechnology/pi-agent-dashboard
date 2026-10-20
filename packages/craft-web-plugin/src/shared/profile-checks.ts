@@ -40,30 +40,30 @@ function oneProfile(p: CraftAppProfile): string[] {
   return errs;
 }
 
+/** Every `(profile, claim, extension)` triple of a table, for one list of a claim. */
+const triples = (profiles: readonly CraftAppProfile[], list: (c: CraftAppProfile["claims"][number]) => readonly string[] | undefined) =>
+  profiles.flatMap((p) => p.claims.flatMap((c) => (list(c) ?? []).map((ext) => ({ p, c, ext }))));
+
 /**
  * All rule violations of a profile table: per-profile rules plus one craft mode per extension
- * (no extension in two claims' `extensions`, nor in one claim's `extensions` and another's `siblingExtensions`).
+ * (no extension in two claims' `extensions`, nor in one claim's `extensions` and another app's `siblingExtensions`).
  */
 export function profileErrors(profiles: readonly CraftAppProfile[]): string[] {
   const errs = profiles.flatMap(oneProfile);
   const owner = new Map<string, string>();
-  for (const p of profiles)
-    for (const c of p.claims)
-      for (const e of c.extensions) {
-        const prev = owner.get(e);
-        if (prev) errs.push(`${p.appId}: ${e} of claim ${c.id} is already claimed by ${prev}`);
-        else owner.set(e, c.id);
-      }
-  for (const p of profiles)
-    for (const c of p.claims)
-      for (const s of c.siblingExtensions ?? []) {
-        const o = owner.get(s);
-        if (o && o !== c.id && !p.claims.some((own) => own.id === o)) errs.push(`${p.appId}: sibling ${s} of claim ${c.id} is claimed by another app's ${o}`);
-      }
-  const ids = new Set<string>();
+  for (const { p, c, ext } of triples(profiles, (c) => c.extensions)) {
+    const prev = owner.get(ext);
+    if (prev) errs.push(`${p.appId}: ${ext} of claim ${c.id} is already claimed by ${prev}`);
+    else owner.set(ext, c.id);
+  }
+  for (const { p, c, ext } of triples(profiles, (c) => c.siblingExtensions)) {
+    const o = owner.get(ext);
+    if (o && o !== c.id && !p.claims.some((own) => own.id === o)) errs.push(`${p.appId}: sibling ${ext} of claim ${c.id} is claimed by another app's ${o}`);
+  }
+  const seen = new Set<string>();
   for (const p of profiles) {
-    if (ids.has(p.appId)) errs.push(`${p.appId}: duplicate profile`);
-    ids.add(p.appId);
+    if (seen.has(p.appId)) errs.push(`${p.appId}: duplicate profile`);
+    seen.add(p.appId);
   }
   return errs;
 }

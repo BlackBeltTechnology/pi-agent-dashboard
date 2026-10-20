@@ -399,7 +399,7 @@ export class FrameSession {
         this.d.ui.setExhausted({ name, first: `${stem}-2${ext}`, last: `${stem}-99${ext}`, offer: { name, bytes: m.bytes, mime: m.mime } });
         return this.reply(false, "conflict");
       }
-      return this.onSaveFailed(res.reason, res.message);
+      return this.onSaveFailed(res.reason, res.message, ext);
     }
     this.d.ui.setSaveError(null);
     this.copyPending = true;
@@ -445,9 +445,10 @@ export class FrameSession {
     this.reply(true, undefined, own);
   }
 
-  private onSaveFailed(reason: string, message: string): void {
+  /** `ext` = the format that was written (a sibling's native extension), default the tab's own. */
+  private onSaveFailed(reason: string, message: string, ext = splitName(this.d.fh().path).ext): void {
     if (reason !== "cancelled") this.d.ui.setSaveError(this.d.t()("saveFailed", { message }));
-    if (reason === "rejected") reportTelemetry(this.d.app.id, { kind: "reject", ext: splitName(this.d.fh().path).ext });
+    if (reason === "rejected") reportTelemetry(this.d.app.id, { kind: "reject", ext });
     this.reply(false, reason);
   }
 }
