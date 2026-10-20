@@ -80,7 +80,7 @@
 ## 9. Integration
 
 - [x] 9.1 Write the Playwright spec for test-plan #F7 in `tests/e2e/large-session-resume-replay.spec.ts` (exemplars: `tests/e2e/large-session-replay.spec.ts` for wire-level assertions, `tests/e2e/paging-exhausted-reconnect-rearm.spec.ts` for the reconnect): harness session with ≥ 3,000 events incl. a historical Write to another `openspec/changes/<x>/` while a different change is attached · bridge reconnect with a second browser context subscribed · no `[data-testid="replace-proposal-dialog"]`, history-window affordance rendered, no `event_replay` frame > `maxReplayEvents`. Verify with `npm run test:e2e -- large-session-resume-replay`.
-- [ ] 9.2 Manual check (test-plan: manual-only, #M1): resume a real ≥ 6,500-entry session in the local dashboard after `npm run reload` + `curl -X POST http://localhost:8000/api/restart`; UI stays responsive, no Replace-proposal dialog.
+- [x] 9.2 Manual check (test-plan: manual-only, #M1): resume a real ≥ 6,500-entry session in the local dashboard after `npm run reload` + `curl -X POST http://localhost:8000/api/restart`; UI stays responsive, no Replace-proposal dialog.
 - [x] 9.3 Full suite: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` then `grep -nE 'FAIL|Tests +[0-9]+ (failed|passed)' /tmp/pi-test.log`; verify 0 failed. Record P1 before/after numbers in `spike/spike.md`.
 - [x] 9.4 Delete `spike/*.test.ts` and `spike/idle-timeout-prototype.diff` once tasks 1.x, 4.9 cover them; keep `spike/spike.md` as the measurement record.
 
