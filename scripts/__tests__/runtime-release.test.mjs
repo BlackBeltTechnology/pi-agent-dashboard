@@ -21,7 +21,7 @@ import url from "node:url";
 import { describe, expect, it } from "vitest";
 import { checkPublished } from "../assert-bundled-plugins-published.mjs";
 import { checkRuntimeRelease } from "../assert-runtime-release.mjs";
-import { pruneBinLinks, sha512Line } from "../build-runtime-asset.mjs";
+import { breakHardLinks, moveFile, pruneBinLinks, sha512Line } from "../build-runtime-asset.mjs";
 import { buildRuntimeRootManifest, finalizeRuntimeLock, serverTarballUrl } from "../generate-runtime-lock.mjs";
 import {
   bundledPluginPackages,
@@ -292,6 +292,48 @@ describe("build-runtime-asset", () => {
     fs.mkdirSync(path.join(root, "node_modules/a"), { recursive: true });
     fs.symlinkSync("/etc", path.join(root, "node_modules/a/evil"));
     expect(() => pruneBinLinks(root)).toThrow(/node_modules[\\/]a[\\/]evil/);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  // esbuild's postinstall hardlinks its native binary into esbuild/bin; tar
+  // then emits an `h` member, which the consumer's extractor refuses.
+  it("breaks hardlinks into independent regular files, keeping content and mode", () => {
+    const root = mk();
+    fs.mkdirSync(path.join(root, "node_modules/@esbuild/linux-arm64/bin"), { recursive: true });
+    fs.mkdirSync(path.join(root, "node_modules/esbuild/bin"), { recursive: true });
+    const src = path.join(root, "node_modules/@esbuild/linux-arm64/bin/esbuild");
+    const dst = path.join(root, "node_modules/esbuild/bin/esbuild");
+    fs.writeFileSync(src, "ELF");
+    fs.chmodSync(src, 0o755);
+    fs.linkSync(src, dst);
+    expect(breakHardLinks(root)).toBe(1);
+    for (const p of [src, dst]) {
+      const st = fs.statSync(p);
+      expect(st.nlink).toBe(1);
+      expect(fs.readFileSync(p, "utf8")).toBe("ELF");
+      if (process.platform !== "win32") expect(st.mode & 0o777).toBe(0o755);
+    }
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  // Windows runners: os.tmpdir() on C:, the workspace on D: — rename throws EXDEV.
+  it("moveFile falls back to copy + unlink when rename crosses devices (EXDEV)", () => {
+    const root = mk();
+    const src = path.join(root, "a.tgz");
+    const dst = path.join(root, "out", "a.tgz");
+    fs.mkdirSync(path.dirname(dst));
+    fs.writeFileSync(src, "TGZ");
+    const exdev = () => {
+      throw Object.assign(new Error("EXDEV: cross-device link not permitted"), { code: "EXDEV" });
+    };
+    moveFile(src, dst, exdev);
+    expect(fs.readFileSync(dst, "utf8")).toBe("TGZ");
+    expect(fs.existsSync(src)).toBe(false);
+    const eperm = () => {
+      throw Object.assign(new Error("EPERM"), { code: "EPERM" });
+    };
+    fs.writeFileSync(src, "X");
+    expect(() => moveFile(src, dst, eperm)).toThrow(/EPERM/);
     fs.rmSync(root, { recursive: true, force: true });
   });
 
