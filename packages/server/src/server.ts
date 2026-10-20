@@ -163,6 +163,7 @@ import { createDirectoryService, type DirectoryService } from "./directory-servi
 import { createEmbedLifecycleController } from "./embed-lifecycle/embed-lifecycle-controller.js";
 import { createPluginSessionCloseApi, createSessionCloserRegistry } from "./embed-lifecycle/plugin-session-close.js";
 import { wireEvents } from "./event-wiring.js";
+import { createReplayState } from "./session/hydration-state.js";
 import { createFileWatchManager } from "./file-watch-manager.js";
 import { createWorktreeInitRegistry } from "./git-worktree/worktree-init-registry.js";
 import { listPersistedTrust as listPersistedWorktreeTrust, setTrustChangedListener } from "./git-worktree/worktree-init-trust.js";
@@ -443,6 +444,12 @@ export interface ServerConfig {
   /** Shape of the replay window when one applies (`head-tail` | `tail-only`).
    *  Absent → `head-tail`. See change: add-tail-only-replay-window (D1). */
   replayWindowMode?: import("@blackbelt-technology/pi-dashboard-shared/memory-limits.js").ReplayWindowMode;
+  /**
+   * Test seam: shorten the bridge replay fallback exits and the keepalive sent
+   * to subscribers waiting on a replay (defaults 5 s idle / 60 s cap / 10 s).
+   * See change: fix-large-session-resume-replay (D2).
+   */
+  replayTimings?: { idleMs?: number; capMs?: number; keepaliveMs?: number };
   /** OpenSpec polling config (interval, concurrency, change detection, jitter) */
   openspec?: import("@blackbelt-technology/pi-dashboard-shared/config.js").OpenSpecPollConfig;
   /** Push notifications. Absent or `enabled !== true` means disabled (no dispatcher,
@@ -1368,7 +1375,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   const confineRemoteBrowse = loadConfig().browse.confineRemote;
   const browseRoots = () => (confineRemoteBrowse ? resolveBrowseRoots(browseRootSources) : Promise.resolve(null));
 
-  const browserGateway = createBrowserGateway(sessionManager, eventStore, piGateway, undefined, pendingForkRegistry, sessionOrderManager, preferencesStore, directoryService, terminalManager, pendingDashboardSpawns, config.maxWsBufferBytes, pendingAttachRegistry, pendingInitialPromptRegistry, pendingResumeIntents, pendingClientCorrelations, pendingWorktreeBaseRegistry, metaPersistence, fitWorkerPool, config.maxReplayEvents, config.replayWindowMode, sessionArchive, pendingArchiveIntents, remoteTranscriptStore, pendingPrincipalOwnerRegistry, identityEnforced, undefined, questionStore, browseRoots);
+  const replayState = createReplayState(config.replayTimings);
+  const browserGateway = createBrowserGateway(sessionManager, eventStore, piGateway, undefined, pendingForkRegistry, sessionOrderManager, preferencesStore, directoryService, terminalManager, pendingDashboardSpawns, config.maxWsBufferBytes, pendingAttachRegistry, pendingInitialPromptRegistry, pendingResumeIntents, pendingClientCorrelations, pendingWorktreeBaseRegistry, metaPersistence, fitWorkerPool, config.maxReplayEvents, config.replayWindowMode, sessionArchive, pendingArchiveIntents, remoteTranscriptStore, pendingPrincipalOwnerRegistry, identityEnforced, undefined, questionStore, browseRoots, replayState);
   // App-wide pairing approval dialog: a content-free hint on every pending
   // change; operator browsers refetch the guarded list (D1).
   // See change: add-pairing-approval-dialog.
@@ -1768,6 +1776,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     getGraceHours: () => loadConfig().vault.offlineGraceHours,
   });
   wireEvents({
+    replayState,
     inFlightToolCalls,
     vaultDelivery,
     // Lazy: `yolo` is constructed further down; a pre-init call throws and the

@@ -233,4 +233,52 @@ describe("replace-proposal race handling", () => {
     expect(s?.pendingReplaceProposal).toBeFalsy();
     expect(s?.attachedProposal).toBe("change-a");
   });
+  // ── Bridge replay neither raises nor clears a pending replacement ──
+  // See change: fix-large-session-resume-replay, test-plan #E19.
+
+  function reconnect(sessionId: string) {
+    ws.send(JSON.stringify({ type: "session_register", sessionId, cwd: "/tmp", source: "cli" }));
+  }
+  function sendMarkedChangeEvent(sessionId: string, changeName: string) {
+    ws.send(JSON.stringify({
+      type: "event_forward",
+      sessionId,
+      replay: true,
+      event: {
+        eventType: "tool_execution_start",
+        timestamp: Date.now(),
+        data: { toolName: "Write", args: { path: `openspec/changes/${changeName}/proposal.md` } },
+      },
+    }));
+  }
+
+  it("E19a a live pending suggestion survives a bridge reconnect + replay", async () => {
+    sendChangeEvent(ws, "s1", "change-b");
+    await wait(80);
+    expect(server.sessionManager.get("s1")?.pendingReplaceProposal).toBe("change-b");
+
+    reconnect("s1");
+    await wait(40);
+    sendMarkedChangeEvent("s1", "change-c"); // historical write: must raise nothing
+    await wait(40);
+    ws.send(JSON.stringify({ type: "replay_complete", sessionId: "s1" }));
+    await wait(120);
+    expect(server.sessionManager.get("s1")?.pendingReplaceProposal).toBe("change-b");
+  });
+
+  it("E19b an accept made during the replay stands after replay_complete", async () => {
+    sendChangeEvent(ws, "s1", "change-b");
+    await wait(80);
+    reconnect("s1");
+    await wait(40);
+    await sendBrowser(browserPort, { type: "accept_replace_proposal", sessionId: "s1", changeName: "change-b" });
+    await wait(60);
+    sendMarkedChangeEvent("s1", "change-b");
+    ws.send(JSON.stringify({ type: "replay_complete", sessionId: "s1" }));
+    await wait(120);
+    const s = server.sessionManager.get("s1");
+    expect(s?.pendingReplaceProposal).toBeFalsy();
+    expect(s?.attachedProposal).toBe("change-b");
+  });
+
 });

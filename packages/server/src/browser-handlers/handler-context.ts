@@ -72,6 +72,12 @@ export interface BrowserHandlerContext {
    * See change: add-tail-only-replay-window (D1).
    */
   replayWindowMode?: import("@blackbelt-technology/pi-dashboard-shared/memory-limits.js").ReplayWindowMode;
+  /**
+   * Bridge replay-mode controller + hydration/register bookkeeping. Absent ⇒
+   * a subscribe never waits for a bridge replay and records no fingerprint.
+   * See change: fix-large-session-resume-replay (D5, D6).
+   */
+  replayState?: import("../session/hydration-state.js").ReplayState;
   directoryService?: DirectoryService;
   terminalManager?: TerminalManager;
   headlessPidRegistry: HeadlessPidRegistry;

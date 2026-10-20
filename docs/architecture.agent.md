@@ -87,7 +87,7 @@ Web dashboard monitors + interacts with pi sessions. Three components + shared t
 - Ghost Session Cleanup — duplicate bridge loads → ghost sessions cleaned on session-id change if `source:unknown`.
 - On-Demand Session Loading — evicted events: server sends empty `event_replay isLast:false` loading indicator.
 - Flows Refresh Deduplication — `flows_list` notifies same-cwd sessions; loop prevention.
-- Event Broadcast During Replay — during replay, `event_forward` stored not broadcast individually.
+- Event Broadcast During Replay — bridge marks replayed `event_forward` `replay:true`; server never treats marked event as live. Unmarked (old) bridge lacks `replay: true` → fallback exit: idle 5 s (`REPLAY_IDLE_MS` 5000, busy → `setImmediate` re-check), cap 60 s (`REPLAY_CAP_MS` 60000). Exit via `replay-exit-controller.ts` (`complete|idle|cap|unregister`); skip-wipe via `leafEntryId` fingerprint; windowed flush via `replayStoreToSubscribers`.
 - Per-message entry id stamping — Fork button needs entry id. Replay path reads JSONL (`state-replay.ts`).
 
 ## Persistence

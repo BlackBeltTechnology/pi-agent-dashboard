@@ -103,6 +103,10 @@ export interface LoadResult {
   success: boolean;
   events: Array<{ eventType: string; timestamp: number; data: Record<string, unknown> }>;
   error?: string;
+  /** Branch entry count + last-entry id of the hydrated transcript: the skip-wipe
+   *  fingerprint source. See change: fix-large-session-resume-replay (D5). */
+  entryCount?: number;
+  leafEntryId?: string;
 }
 
 export interface DirectoryAddedResult {
@@ -960,7 +964,7 @@ export function createDirectoryService(
             }
           }
         }
-        return { success: true, events: out.events };
+        return { success: true, events: out.events, entryCount: out.entryCount, leafEntryId: out.leafEntryId };
       }
       return { success: false, events: [], error: out.error };
     } finally {
@@ -1021,7 +1025,7 @@ export function createDirectoryService(
       const out = await result;
       entryCount = out.entryCount ?? 0;
       eventCount = out.events.length;
-      if (out.success) return { success: true, events: out.events };
+      if (out.success) return { success: true, events: out.events, entryCount: out.entryCount, leafEntryId: out.leafEntryId };
       return { success: false, events: [], error: out.error };
     } finally {
       inFlightLoadJobs.delete(sessionId);

@@ -4369,10 +4369,10 @@ See change: `lazy-load-session-history`, `add-tail-only-replay-window`.
 ### Bridge Reconnection (State Reset)
 When a bridge extension reconnects (e.g., after `pnpm run reload` or network recovery):
 1. Bridge sends `session_register` with `eventCount` to re-register the session
-2. Server checks `canSkipWipe`: if the bridge's `eventCount` matches the server's `lastEntryCount` and events exist in the store, the wipe is skipped (fast reconnect path)
-3. **Full replay path** (`canSkipWipe = false`): Server clears the in-memory event store, broadcasts `session_state_reset` to browsers, stores replayed events, and sends them as `event_replay` batch after `replay_complete`
-4. **Skip replay path** (`canSkipWipe = true`): Server keeps existing events in the store, marks the session in `skipReplayInsert` set so replayed events are NOT re-inserted (preventing exponential duplication). Status updates are still processed for session state accuracy. After `replay_complete`, the `event_replay` batch is skipped since browsers already have the events.
-5. Bridge replays full session history as individual `event_forward` messages
+2. Server checks skip-wipe fingerprint (see Event Broadcast During Replay): `eventCount` + `leafEntryId` match, store intact → wipe skipped (fast reconnect path). Old bridge (no leaf) always wipes.
+3. **Full replay path** (wipe): Server clears the in-memory event store, broadcasts `session_state_reset` to browsers, stores replayed events, and sends them as `event_replay` batch after `replay_complete`
+4. **Skip replay path** (no wipe): Server keeps existing events in the store. Replayed marked events are NOT inserted (preventing exponential duplication). Status updates are still processed for session state accuracy. After `replay_complete`, the `event_replay` batch is skipped since browsers already have the events.
+5. Bridge replays full session history as individual `event_forward` messages, each marked `replay: true`
 6. Bridge sends `replay_complete` to signal replay is done
 7. If the agent is currently mid-turn (bridge tracks `isAgentStreaming` flag in persistent `BridgeState`), a synthetic `agent_start` event is sent after `replay_complete` so the session card shows "Thinking…" instead of "Waiting for input"
 8. Server clears the replaying flag, broadcasts the final accumulated session status
@@ -4380,7 +4380,7 @@ When a bridge extension reconnects (e.g., after `pnpm run reload` or network rec
 
 Without the `session_state_reset` message (full replay path), replayed events would duplicate existing messages in the browser's accumulated state.
 
-**Replay status suppression**: During step 5, replayed events like `agent_start`/`agent_end` would normally trigger rapid `session_updated` broadcasts (e.g., `status: "streaming"` → `status: "idle"` for each turn), causing visible flicker on session cards. The server suppresses these status broadcasts while replaying, accumulating them in the session manager. Only the final status is broadcast after `replay_complete`. A 5-second safety timeout ensures the flag is cleared even if `replay_complete` never arrives (e.g., older bridge versions).
+**Replay status suppression**: During step 5, replayed events like `agent_start`/`agent_end` would normally trigger rapid `session_updated` broadcasts (e.g., `status: "streaming"` → `status: "idle"` for each turn), causing visible flicker on session cards. The server suppresses these status broadcasts while replaying, accumulating them in the session manager. Only the final status is broadcast after `replay_complete`. Fallback for unmarked (older) bridges: idle exit after 5s with no bridge message, or cap exit after 60s (see Event Broadcast During Replay). `replay_complete` never arriving no longer leaves the flag set.
 
 **Agent streaming state recovery**: The bridge tracks `isAgentStreaming` in process-level `BridgeState` (survives reload). Set `true` on `agent_start`, `false` on `agent_end`/`session_shutdown`. Since the replay doesn't include `agent_start`/`agent_end` events, the session status would otherwise stay "active" (displayed as "Waiting for input") when the agent is mid-turn during reconnect.
 
@@ -4610,8 +4610,84 @@ When a browser subscribes to a session whose events have been evicted from memor
 ### Flows Refresh Deduplication
 When a session sends `flows_list`, the server notifies other sessions in the same cwd to rediscover flows. To prevent infinite loops (A→refresh B→B sends flows→refresh A→...), a per-session 5-second cooldown (`recentFlowsRefresh` set) suppresses duplicate refresh requests.
 
-### Event Broadcast During Replay
-During bridge session replay (while `replayingSessions` set contains the session), `event_forward` messages are stored but NOT broadcast individually to browser subscribers. Instead, when `replay_complete` arrives (or the 5s safety timeout fires), the server sends all accumulated events as a single `event_replay` batch to subscribers. This prevents per-event serialization overhead during replay while still delivering the full history to browsers.
+### Event Broadcast During Replay (change: fix-large-session-resume-replay, #928/#929)
+
+**Replay marking (bridge).**
+- Bridge sets `replay: true` on every replayed `event_forward`. Sites: `replaySessionEntries` (`packages/extension/src/session-sync.ts`); ACP event-log replay (`packages/server/src/acp-bridge/acp-session-adapter.ts`).
+- Live forwards never marked.
+- Field optional: `EventForwardMessage.replay?: true` (`packages/shared/src/protocol.ts`). Old server ignores it.
+
+**Classification (server).** `isReplayedForward(sessionId, msg)` in `packages/server/src/event-wiring.ts`:
+`msg.replay === true || replayingSessions.has(sessionId)`.
+- Marked event never live: no broadcast, unread, push, `lastActivityAt`, card order, OpenSpec detection.
+- Marked event after exit → controller `reopen` → next exit flushes it.
+- Skipped replay: marked events never inserted until next register.
+
+**Replay mode owner.** `packages/server/src/session/replay-exit-controller.ts`, one per session.
+- API: `begin`, `touch`, `reopen`, `complete`, `release`.
+- State: flush epoch, `flushPending`, waiter registry.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Replaying: session_register (begin)
+    Replaying --> Exit: replay_complete (complete)
+    Replaying --> Exit: 5s idle, unmarked bridge (idle)
+    Replaying --> Exit: 60s cap, unmarked bridge (cap)
+    Replaying --> Exit: unregister
+    Exit --> Flush: flushPending
+    Flush --> [*]: isLast true
+    Exit --> [*]: no pending flush
+```
+
+**Fallback exits (unmarked old bridges only).**
+- `idle`: no processed bridge message of any type for `REPLAY_IDLE_MS` (5000).
+- `idle` re-check runs via one `setImmediate`, so queued input handled first. Busy server does not force idle exit.
+- `cap`: `REPLAY_CAP_MS` (60000) after register.
+- One timer set per session. Each new register cancels old set.
+- Test seam: `createServer({ replayTimings: { idleMs, capMs, keepaliveMs } })`.
+
+**Exit (`exitReplay(sessionId, cause)`).** Single implementation.
+- Causes: `complete | idle | cap | unregister`.
+- Log: `[replay] exit <id> cause=<cause>`. `warn` level for `idle` / `cap`.
+- Work, fixed order:
+  1. clear OpenSpec phase/change.
+  2. reconcile + recompute prompts (not on `unregister`).
+  3. one `session_updated` broadcast.
+  4. windowed flush when `flushPending`.
+- Late `replay_complete` after `idle` / `cap` exit = no-op.
+
+**Pending proposal.**
+- Bridge replay neither raises nor clears `pendingReplaceProposal`.
+- `register()` carries `pendingReplaceProposal` + `rejectedReplaceProposals` across re-register (`packages/server/src/session/memory-session-manager.ts`).
+
+**Windowed abortable flush.** `BrowserGateway.replayStoreToSubscribers(sessionId, isStale)` (`packages/server/src/pairing/browser-gateway.ts`). Per WebSocket subscriber:
+- Exactly one `session_state_reset`.
+- Store windowed like subscribe-time full replay: `sendEventBatches` with `maxReplayEvents`, `history_window` when window applies.
+- Ends `isLast: true`. Empty store → terminal empty batch.
+- In-process subscribers: one full `event_replay`.
+- `isStale` polled before each batch. Re-register / unregister → flush stops, socket unmuted, no catch-up.
+- `flushPending` stays set until flush completes → next exit sends full flush even after skipped register.
+
+**Skip-wipe fingerprint.**
+- `session_register` (`SessionRegisterMessage`) carries `eventCount`, optional `leafEntryId`, `liveTailOpen`.
+- Skip wipe only when `leafEntryId` valid (string, 1–128 chars) AND one of:
+  - bridge-learned: `eventCount` + leaf match previous register.
+  - hydration-learned: cold hydration recorded `{entryCount, leafEntryId, storeMaxSeq}` (`packages/server/src/session/hydration-state.ts`); needs `liveTailOpen === false` and unchanged store.
+- Old bridge (no leaf) always wipes.
+- Log: `[replay] register <id> skipWipe=<bool> reason=<...>`.
+- `LoadResult` carries `entryCount` + `leafEntryId` (`session-load-worker.ts`, `directory-service.ts`).
+
+**Register supersedes cold hydration.**
+- `session_register` bumps per-session generation (`hydration-state.ts`) → calls `directoryService.cancelLoad`.
+- Subscription handler drops hydration result whose generation changed before insert; stops its fan-out.
+- Subscribe during bridge replay, store empty: no cold load (works without `sessionFile`).
+  - Immediate `event_replay{events:[],isLast:false}`.
+  - Keepalive every `keepaliveMs` (10000 default) until exit flush.
+  - Keepalive stops before terminal batch.
+
+**Mixed versions.**
+- New server + old bridge: timer fallback + full wipe.
+- Old server + new bridge: extra fields ignored.
 
 ### Per-message entry id stamping (live vs replay)
 
