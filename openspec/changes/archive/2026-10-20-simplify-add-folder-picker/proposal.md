@@ -16,7 +16,7 @@ Users open the folder they want in "Add folders" and then can't add it. The curr
 - **The selection is scoped to the browsed folder.** Opening another folder clears it, as file managers do.
 - **Already-added folders** render an `added` marker, are skipped on commit, and the primary action disables when every target is already added. `AddFoldersDialog` gains a pinned-paths input; `App.tsx` already holds `pinnedDirectories`; `SessionList.tsx` has the optional prop but does not yet pass it to the dialog.
 - Commit semantics are unchanged: pin every target first, then add it to the chosen workspace; pin stays implicit, and the pi-trust choice passes through.
-- Mockup: `openspec/changes/simplify-add-folder-picker/mockups/simple-folder-picker/index.html`
+- Mockup: `openspec/changes/archive/2026-10-20-simplify-add-folder-picker/mockups/simple-folder-picker/index.html` (UI review comparison: `ui-review.html` in the same folder)
 
 ## Capabilities
 
