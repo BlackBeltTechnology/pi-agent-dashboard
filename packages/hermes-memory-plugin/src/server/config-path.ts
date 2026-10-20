@@ -6,7 +6,7 @@
  * SOURCE-VERSION PIN: mirrored from `pi-hermes-memory@0.9.10` src/paths.ts (unchanged since 0.8.1)
  * (`resolveAgentRoot`, `expandHome`).
  *
- * See change: add-hermes-memory-settings-plugin.
+ * See change: add-hermes-memory-settings-plugin, resync-hermes-memory-config-0-9.
  */
 import * as os from "node:os";
 import * as path from "node:path";
