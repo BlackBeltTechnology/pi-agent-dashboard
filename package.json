@@ -115,7 +115,8 @@
     "knip:ratchet": "node scripts/knip-ratchet.mjs",
     "codeql": "node scripts/codeql-local.mjs",
     "z-layer:lint": "node scripts/z-layer-lint.mjs",
-    "knip:config": "node scripts/knip-config.mjs"
+    "knip:config": "node scripts/knip-config.mjs",
+    "check:plugin-boundary": "node scripts/check-plugin-boundary.mjs"
   },
   "engines": {
     "node": ">=22.19.0 <27"

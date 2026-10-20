@@ -1,0 +1,312 @@
+#!/usr/bin/env node
+/**
+ * Plugin/core boundary gate. Core packages and plugins SHALL NOT import plugin
+ * packages. A ratcheting allowlist (`scripts/plugin-boundary-allowlist.json`)
+ * records the known edges: a NEW edge or a STALE row fails the run.
+ *
+ *   node scripts/check-plugin-boundary.mjs [--root <dir>] [--allowlist <file>]
+ *                                          [--no-allowlist] [--write-baseline]
+ *
+ *   --no-allowlist    report every edge as NEW (ignore the allowlist file)
+ *   --write-baseline  rewrite the allowlist from current edges; rows that still
+ *                     match keep reason/disposition/removedBy, stale rows drop
+ *
+ * Plugin set = packages whose `package.json#pi-dashboard-plugin` or adjacent
+ * `dashboard-plugin.json` exists (never a name pattern). "Core" = every other
+ * `packages/*` package. Edges: ts imports (`ts.preProcessFile`), mock / dynamic
+ * template literals, all four package.json dependency fields, CSS `@source`.
+ * Rows are keyed `(from, to)` — line numbers never enter the key, so churn
+ * above an import does not invalidate a row.
+ *
+ * Exemptions are computed from manifests on every run, never stored as rows:
+ *   - the generated client plugin registry / plugin-sources.css;
+ *   - `packages/client/package.json` `dependencies` on a bundled plugin
+ *     (non-fixture, declares `client`);
+ *   - fixture plugins used from tests or `devDependencies`.
+ *
+ * Exit: 0 ok, 1 violations, 2 script error. No dependencies beyond `typescript`.
+ *
+ * See change: decouple-plugins-from-core.
+ */
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import ts from "typescript";
+
+const DEFAULT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const ALLOWLIST_REL = "scripts/plugin-boundary-allowlist.json";
+const PACKAGES = "packages";
+const SKIP_DIRS = new Set(["node_modules", "dist", "build", "coverage", ".git", ".worktrees", "release", "out"]);
+const SOURCE_FILE = /\.[cm]?[jt]sx?$/;
+const DEP_FIELDS = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"];
+const KIND_ORDER = ["prod", "test", "pkg", "css", "host"];
+const RUNTIME_HOST = "@blackbelt-technology/dashboard-plugin-runtime/host";
+const GENERATED = new Set([
+  "packages/client/src/generated/plugin-registry.tsx",
+  "packages/client/src/generated/plugin-sources.css",
+]);
+const CLIENT_PKG = "packages/client/package.json";
+
+/** Test sources: test dirs, `*.test.*` / `*.spec.*`, and vitest/jest setup files. */
+const TEST_PATH =
+  /(^|\/)(__tests__|__mocks__|tests?|test-support|e2e)\/|\.(test|spec)\.[cm]?[jt]sx?$|(^|\/)(vitest|jest)[.-][\w.-]*setup[\w.-]*\.[cm]?[jt]s$|(^|\/)[\w.-]*\.setup\.[cm]?[jt]s$|(^|\/)setup\.[cm]?[jt]s$/;
+export const isTestFile = (rel) => TEST_PATH.test(rel);
+
+const MOCK_LITERAL = /\b(?:vi|jest)\s*\.\s*(?:do)?(?:mock|unmock|importActual|requireActual)\s*\(\s*(["'`])([^"'`$]+)\1/g;
+const DYNAMIC_TEMPLATE = /\b(?:import|require)\s*\(\s*`([^`$]*)/g;
+const CSS_SOURCE = /@source\s+(?:not\s+)?(?:inline\()?\s*["']([^"']+)["']/g;
+
+function readJson(file) {
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+/** One record per `packages/<dir>` holding a package.json. */
+function loadPackages(root) {
+  const base = path.join(root, PACKAGES);
+  const pkgs = [];
+  for (const dir of fs.existsSync(base) ? fs.readdirSync(base).sort() : []) {
+    const json = readJson(path.join(base, dir, "package.json"));
+    if (!json) continue;
+    const sidecar = readJson(path.join(base, dir, "dashboard-plugin.json"));
+    const manifest = json["pi-dashboard-plugin"] ?? sidecar;
+    const m = manifest && typeof manifest === "object" ? manifest : {};
+    pkgs.push({
+      dir,
+      name: json.name,
+      isPlugin: Boolean(manifest),
+      fixture: m.fixture === true,
+      hasClient: Boolean(m.client),
+    });
+  }
+  return pkgs;
+}
+
+function buildContext(root) {
+  const pkgs = loadPackages(root);
+  const byDir = new Map(pkgs.map((p) => [p.dir, p]));
+  const byName = new Map(pkgs.filter((p) => p.name).map((p) => [p.name, p]));
+  const bundled = new Set(pkgs.filter((p) => p.isPlugin && !p.fixture && p.hasClient).map((p) => p.dir));
+  return { root, byDir, byName, bundled };
+}
+
+function* walk(dir, base = dir) {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isDirectory()) {
+      if (!SKIP_DIRS.has(entry.name)) yield* walk(path.join(dir, entry.name), base);
+    } else if (entry.isFile()) {
+      yield path.relative(base, path.join(dir, entry.name)).split(path.sep).join("/");
+    }
+  }
+}
+
+const packageDirOf = (rel) => (rel.startsWith(`${PACKAGES}/`) ? rel.split("/")[1] : null);
+
+/** Package dir a module specifier or relative path points at, or null. */
+function resolveTarget(spec, fromRel, ctx) {
+  if (spec.startsWith(".")) {
+    const joined = path.posix.normalize(path.posix.join(path.posix.dirname(fromRel), spec));
+    return packageDirOf(joined);
+  }
+  const m = spec.match(/^(@[^/]+\/[^/]+|[^/@][^/]*)/);
+  return m ? (ctx.byName.get(m[1])?.dir ?? null) : null;
+}
+
+/** Every module specifier of a ts/js file: imports, requires, mock literals. */
+function tsSpecifiers(content) {
+  const specs = new Set();
+  for (const f of ts.preProcessFile(content, true, true).importedFiles) specs.add(f.fileName);
+  return specs;
+}
+
+/** Offsets of block comments, so literal scanners skip commented-out code. */
+function blockComments(content) {
+  return [...content.matchAll(/\/\*[\s\S]*?\*\//g)].map((m) => [m.index, m.index + m[0].length]);
+}
+
+function isCommented(content, index, blocks) {
+  if (blocks.some(([a, b]) => index >= a && index < b)) return true;
+  const lineStart = content.lastIndexOf("\n", index) + 1;
+  return /(^|[^:])\/\//.test(content.slice(lineStart, index));
+}
+
+/** `vi|jest.(do)?mock|importActual("lit")` and `` import(`lit${x}`) `` prefixes. */
+function literalSpecifiers(content) {
+  const specs = new Set();
+  const blocks = blockComments(content);
+  for (const re of [MOCK_LITERAL, DYNAMIC_TEMPLATE]) {
+    for (const m of content.matchAll(re)) {
+      if (!isCommented(content, m.index, blocks)) specs.add(m[2] ?? m[1]);
+    }
+  }
+  return specs;
+}
+
+function scanTsFile(rel, content, ctx) {
+  const specs = new Set([...tsSpecifiers(content), ...literalSpecifiers(content)]);
+  const kind = isTestFile(rel) ? "test" : "prod";
+  const refs = [];
+  for (const spec of specs) {
+    const to = resolveTarget(spec, rel, ctx);
+    if (isHostSpecifier(spec)) refs.push({ from: rel, to: "dashboard-plugin-runtime/host", kind: "host" });
+    else if (to) refs.push({ from: rel, to, kind });
+  }
+  return refs;
+}
+
+const isHostSpecifier = (spec) => spec === RUNTIME_HOST || spec.startsWith(`${RUNTIME_HOST}/`);
+
+function scanPackageJson(rel, json, ctx) {
+  const refs = [];
+  for (const field of DEP_FIELDS) {
+    for (const dep of Object.keys(json?.[field] ?? {})) {
+      const to = ctx.byName.get(dep)?.dir;
+      if (to) refs.push({ from: rel, to, kind: "pkg", field });
+    }
+  }
+  return refs;
+}
+
+function scanCssFile(rel, content, ctx) {
+  const refs = [];
+  for (const m of content.matchAll(CSS_SOURCE)) {
+    const to = resolveTarget(m[1].startsWith(".") ? m[1] : `./${m[1]}`, rel, ctx);
+    if (to) refs.push({ from: rel, to, kind: "css" });
+  }
+  return refs;
+}
+
+/** Raw references of one file, before plugin classification and exemptions. */
+function scanFile(rel, ctx) {
+  const abs = path.join(ctx.root, rel);
+  if (SOURCE_FILE.test(rel)) return scanTsFile(rel, fs.readFileSync(abs, "utf8"), ctx);
+  if (rel.endsWith(".css")) return scanCssFile(rel, fs.readFileSync(abs, "utf8"), ctx);
+  if (/^packages\/[^/]+\/package\.json$/.test(rel)) return scanPackageJson(rel, readJson(abs), ctx);
+  return [];
+}
+
+function isExempt(ref, ctx) {
+  if (GENERATED.has(ref.from)) return true;
+  const target = ctx.byDir.get(ref.to);
+  if (target.fixture && (ref.kind === "test" || ref.field === "devDependencies")) return true;
+  return ref.from === CLIENT_PKG && ref.field === "dependencies" && ctx.bundled.has(ref.to);
+}
+
+function isViolation(ref, ctx) {
+  if (ref.kind === "host") return !isTestFile(ref.from) && ctx.byDir.get(packageDirOf(ref.from))?.isPlugin === true;
+  if (ref.to === packageDirOf(ref.from)) return false;
+  return ctx.byDir.get(ref.to)?.isPlugin === true && !isExempt(ref, ctx);
+}
+
+/** Forbidden edges, one per `(from, to)`, sorted by kind then path. */
+export function findEdges(root) {
+  const ctx = buildContext(root);
+  const edges = new Map();
+  for (const rel of walk(path.join(root, PACKAGES), root)) {
+    for (const ref of scanFile(rel, ctx)) {
+      const key = rowKey(ref);
+      if (!edges.has(key) && isViolation(ref, ctx)) edges.set(key, { from: ref.from, to: ref.to, kind: ref.kind });
+    }
+  }
+  return [...edges.values()].sort(compareRows);
+}
+
+const rowKey = (r) => `${r.from}\u0000${r.to}`;
+const kindRank = (k) => (KIND_ORDER.indexOf(k) === -1 ? KIND_ORDER.length : KIND_ORDER.indexOf(k));
+const compareRows = (a, b) =>
+  kindRank(a.kind) - kindRank(b.kind) || a.from.localeCompare(b.from) || a.to.localeCompare(b.to);
+
+const PLACEHOLDER = "TODO";
+const ANNOTATIONS = ["reason", "disposition", "removedBy"];
+const isUnannotated = (row) => ANNOTATIONS.some((f) => !row[f] || row[f] === PLACEHOLDER);
+
+/** Compare edges with allowlist rows → NEW edges, STALE rows, UNANNOTATED rows. */
+export function reconcile(edges, rows) {
+  const rowKeys = new Set(rows.map(rowKey));
+  const edgeKeys = new Set(edges.map(rowKey));
+  return {
+    added: edges.filter((e) => !rowKeys.has(rowKey(e))),
+    stale: rows.filter((r) => !edgeKeys.has(rowKey(r))),
+    unannotated: rows.filter(isUnannotated),
+  };
+}
+
+/** Rewrite rows from current edges, keeping annotations of rows that still match. */
+export function rebaseline(edges, rows) {
+  const old = new Map(rows.map((r) => [rowKey(r), r]));
+  return edges.map((e) => {
+    const prev = old.get(rowKey(e));
+    const fresh = { from: e.from, to: e.to, kind: e.kind };
+    const notes = Object.fromEntries(ANNOTATIONS.map((f) => [f, PLACEHOLDER]));
+    return { ...fresh, ...notes, ...prev, kind: e.kind };
+  });
+}
+
+function loadRows(file) {
+  if (!fs.existsSync(file)) return [];
+  const json = readJson(file);
+  if (!json || !Array.isArray(json.rows)) throw new Error(`${file}: expected {"rows": [...]}`);
+  return json.rows;
+}
+
+const fmtEdge = (e) => `[${e.kind}] ${e.from} → ${e.to}`;
+
+function report(result) {
+  const lines = [];
+  for (const e of result.added) lines.push(`NEW ${fmtEdge(e)}`);
+  for (const r of result.stale) lines.push(`STALE allowlist entry ${fmtEdge(r)} — no matching edge, delete it`);
+  for (const r of result.unannotated) lines.push(`UNANNOTATED allowlist entry ${fmtEdge(r)} — set reason, disposition, removedBy`);
+  return lines;
+}
+
+function parseArgs(argv) {
+  const opts = { root: DEFAULT_ROOT, allowlist: null, noAllowlist: false, writeBaseline: false };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === "--root") opts.root = path.resolve(argv[++i]);
+    else if (a === "--allowlist") opts.allowlist = path.resolve(argv[++i]);
+    else if (a === "--no-allowlist") opts.noAllowlist = true;
+    else if (a === "--write-baseline") opts.writeBaseline = true;
+    else throw new Error(`unknown argument: ${a}`);
+  }
+  opts.allowlist ??= path.join(opts.root, ALLOWLIST_REL);
+  return opts;
+}
+
+function writeBaseline(file, edges) {
+  const rows = rebaseline(edges, loadRows(file));
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, `${JSON.stringify({ rows }, null, 2)}\n`);
+  return rows;
+}
+
+function main(argv) {
+  const opts = parseArgs(argv);
+  const edges = findEdges(opts.root);
+  if (opts.writeBaseline) {
+    const rows = writeBaseline(opts.allowlist, edges);
+    console.log(`plugin boundary: wrote ${rows.length} row(s) to ${path.relative(opts.root, opts.allowlist)}`);
+    return 0;
+  }
+  const rows = opts.noAllowlist ? [] : loadRows(opts.allowlist);
+  const lines = report(reconcile(edges, rows));
+  if (lines.length === 0) {
+    console.log(`plugin boundary: OK — ${edges.length} allowlisted edge(s)`);
+    return 0;
+  }
+  console.error(lines.join("\n"));
+  console.error(`plugin boundary: ${lines.length} violation(s). Fix the import, or (after review) --write-baseline.`);
+  return 1;
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  try {
+    process.exitCode = main(process.argv.slice(2));
+  } catch (err) {
+    console.error(`check-plugin-boundary: ${err.message}`);
+    process.exitCode = 2;
+  }
+}

@@ -169,6 +169,7 @@ rule; this step only *invokes* them:
 
 ```bash
 node scripts/check-conventions.mjs --base origin/develop
+node scripts/check-plugin-boundary.mjs  # core/plugin import ratchet: NEW edge or STALE allowlist row fails
 node scripts/dox-byte-gate.mjs
 node scripts/i18n-lint.mjs --strict     # --strict, else it exits 0 regardless
 node scripts/i18n-parity.mjs
@@ -177,6 +178,12 @@ node scripts/knip-ratchet.mjs           # per-class dead-code ratchet (~8s)
 node scripts/knip-ratchet.mjs --check-baseline-diff origin/develop   # ceiling not raised
 node scripts/codeql-local.mjs --check-baseline-diff origin/develop   # CodeQL baseline grew only with a reason (static, instant)
 ```
+
+The plugin-boundary gate (`npm run check:plugin-boundary`) fails on a core→plugin
+or plugin→plugin edge with no row in `scripts/plugin-boundary-allowlist.json`
+(NEW) and on a row whose edge is gone (STALE). A fix PR deletes the rows it
+removes; `--write-baseline` re-seeds and is a reviewed maintainer step, never a
+way to make this check green. A failure routes to the step-4 fix loop.
 
 The knip pair is the **preventive** half of the dead-code oracle: the nightly
 job runs after merge and can only report. Order matters — `knip-config.mjs`
