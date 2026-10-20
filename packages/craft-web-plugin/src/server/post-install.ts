@@ -51,7 +51,7 @@ export interface CraftBuildInfo {
 const shortHash = (data: string | Buffer): string => createHash("sha256").update(data).digest("hex").slice(0, 10);
 
 /** The profile script the frame loads before the shim. */
-export const profileScript = (p: CraftAppProfile): string => `window.__CRAFT_PROFILE__ = Object.freeze(${JSON.stringify(frameProfile(p))});\n`;
+const profileScript = (p: CraftAppProfile): string => `window.__CRAFT_PROFILE__ = Object.freeze(${JSON.stringify(frameProfile(p))});\n`;
 
 /** Hash of everything post-install derives from a profile (a change → `shim-outdated` → one re-prepare). */
 export function profileHash(p: CraftAppProfile): string {

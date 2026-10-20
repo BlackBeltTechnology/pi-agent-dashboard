@@ -95,7 +95,7 @@ export function capForExtension(ext: string): number {
   }
 }
 
-export const SVG_MAX_BYTES = 16 * 1024 * 1024;
+const SVG_MAX_BYTES = 16 * 1024 * 1024;
 
 /** Claim cap: the smallest cap over its extensions (a claim carries ONE `maxBytes`). */
 const capFor = (extensions: readonly string[]): number => Math.min(...extensions.map(capForExtension));
@@ -263,9 +263,6 @@ export function appKind(p: CraftAppProfile): CraftAppKind {
   if (p.claims.some((c) => (c.siblingExtensions?.length ?? 0) > 0)) return "sibling";
   return "edit";
 }
-
-/** Every extension an app claims (settings header), claim order, deduplicated. */
-export const appExtensions = (p: CraftAppProfile): string[] => [...new Set(p.claims.flatMap((c) => c.extensions))];
 
 /** The part of a profile the shim reads in the frame (`window.__CRAFT_PROFILE__`). Stable key order. */
 export interface FrameProfile {

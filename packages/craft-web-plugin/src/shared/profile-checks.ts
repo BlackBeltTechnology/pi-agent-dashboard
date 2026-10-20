@@ -6,8 +6,8 @@
 import { HANDLER_MAX_BYTES } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/file-handler.js";
 import type { CraftAppProfile } from "./app-profiles.js";
 
-export const OPENED_FALLBACK_MIN_MS = 1000;
-export const OPENED_FALLBACK_MAX_MS = 15_000;
+const OPENED_FALLBACK_MIN_MS = 1000;
+const OPENED_FALLBACK_MAX_MS = 15_000;
 
 const EXT_RE = /^\.[a-z0-9][a-z0-9.-]{0,15}$/;
 

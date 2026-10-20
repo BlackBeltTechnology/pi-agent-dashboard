@@ -5,7 +5,7 @@
 // See change: edit-office-in-pane-with-craft-web (D5), extend-craft-web-to-all-apps (D7).
 import { inflateRawSync } from "node:zlib";
 
-export const MAX_ENTRIES = 10_000;
+const MAX_ENTRIES = 10_000;
 const EOCD_SEARCH = 22 + 0xffff;
 
 /** Last End-Of-Central-Directory record whose comment length is consistent with the file length. */

@@ -1,7 +1,7 @@
 // Bounded byte windows for the text-format validators (D7): at most the first 1 MiB and the last 4 KiB.
 // See change: extend-craft-web-to-all-apps.
-export const HEAD_MAX = 1024 * 1024;
-export const TAIL_MAX = 4 * 1024;
+const HEAD_MAX = 1024 * 1024;
+const TAIL_MAX = 4 * 1024;
 
 /** Latin-1 text of `bytes[from, to)` (byte-preserving, no decoding errors). */
 export const latin1 = (bytes, from, to) => Buffer.from(bytes.subarray(from, to)).toString("latin1");

@@ -49,7 +49,7 @@ export interface SiblingExhausted {
 }
 
 /** The app's claim that EDITS `ext` in place (the native claim of a sibling extension). */
-export function nativeClaimFor(app: CraftWebApp, ext: string): CraftWebApp | undefined {
+function nativeClaimFor(app: CraftWebApp, ext: string): CraftWebApp | undefined {
   return Object.values(CRAFT_WEB_APPS).find((c) => c.id === app.id && c.mode === "edit" && c.extensions.includes(ext));
 }
 export interface DownloadOffer {

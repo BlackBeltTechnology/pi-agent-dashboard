@@ -8,7 +8,7 @@ import { OK, reject } from "./text-window.mjs";
 import { readZipDirectory, readZipMember } from "./zip.mjs";
 
 /** @type {Record<string, {mimetype?: string, required?: string[], oneTopLevel?: string}>} */
-export const ZIP_RULES = {
+const ZIP_RULES = {
   ".designcraft": { mimetype: "application/vnd.designcraft+zip", required: ["document.json"] },
   ".scraftz": { oneTopLevel: ".scraft" },
   ".deckcraft": { mimetype: "application/vnd.storyteller.deckcraft+zip", required: ["presentation.json"] },

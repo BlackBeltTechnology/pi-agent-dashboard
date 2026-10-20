@@ -161,7 +161,7 @@ export function CraftFrame({ app, fh, initialWebgl, webglCapable, takeSnapshot }
  * Frame URL: the app's mount, URL-only profile flags (`frameParams`, e.g. `nosw`) and `webgl`, nonce in the
  * hash. Never carries document data; frame permissions are fixed on the element, not here (D2).
  */
-export function frameSrc(app: CraftWebApp, webgl: boolean, nonce: string): string {
+function frameSrc(app: CraftWebApp, webgl: boolean, nonce: string): string {
   const flags = [...(app.profile.frameParams ?? []), ...(webgl ? ["webgl"] : [])];
   return `/apps/craft-${app.id}/index.html${flags.length ? `?${flags.map(encodeURIComponent).join("&")}` : ""}#n=${nonce}`;
 }
