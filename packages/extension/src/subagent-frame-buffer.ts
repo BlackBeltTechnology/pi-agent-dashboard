@@ -2,7 +2,8 @@
  * SubagentFrameBuffer — makes the running-subagent timeline reconcilable
  * instead of fire-and-forget.
  *
- * Background: the bridge's `pi.events.emit` intercept forwards subagent
+ * Background: the bridge's per-channel subscription
+ * (`registerEventBusForwarding` → `forwardBusEvent`) forwards subagent
  * lifecycle frames (`subagents:created/started/completed/failed`) as
  * `event_forward` messages, but only while `sessionReady && isActive()`.
  * Frames emitted during a not-ready window (reconnect / discovery / `/reload`
