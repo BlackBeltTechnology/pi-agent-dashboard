@@ -168,7 +168,8 @@ export function resolveStaticRoot(
   hasMarker: (dir: string) => boolean,
 ): string {
   const fileDir = posixDir(file);
-  const base = cwd.length > 1 ? cwd.replace(/\/+$/, "") : cwd;
+  let base = cwd;
+  while (base.length > 1 && base.endsWith("/")) base = base.slice(0, -1);
   if (!isWithin(file, base)) return fileDir;
   let dir = fileDir;
   for (;;) {

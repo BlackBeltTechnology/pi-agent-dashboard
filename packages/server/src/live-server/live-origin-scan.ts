@@ -55,7 +55,8 @@ const CSS_IMPORT = /@import\s+(?:url\(\s*)?(?:"([^"]*)"|'([^']*)')/gi;
 const HREF_TAGS = new Set(["link", "image", "use"]);
 const SRC_ATTRS = new Set(["src", "poster", "data"]);
 
-const decodeEntities = (s: string): string => s.replace(/&amp;/gi, "&").replace(/&#x2f;/gi, "/").replace(/&#47;/g, "/");
+const decodeEntities = (s: string): string =>
+  s.replace(/&(amp|#x2f|#47);/gi, (_m, e: string) => (e.toLowerCase() === "amp" ? "&" : "/"));
 
 /**
  * Classify one reference: an external origin, a root-absolute path, or neither
@@ -144,7 +145,12 @@ function scanTag(refs: TextRefs, name: string, attrs: string): void {
 /** Pure pass over a markup text. */
 export function scanMarkup(html: string): TextRefs {
   const refs: TextRefs = { origins: new Set(), stylesheets: [], rootAbsolute: false };
-  const text = html.replace(COMMENT, "");
+  // Strip comments to a fixpoint so a nested `<!<!---->--` cannot leave one behind.
+  let text = html;
+  for (let prev = ""; prev !== text; ) {
+    prev = text;
+    text = text.replace(COMMENT, "");
+  }
   for (const tag of text.matchAll(TAG)) scanTag(refs, tag[1].toLowerCase(), tag[2]);
   for (const block of text.matchAll(STYLE_BLOCK)) scanCssText(block[1], refs, true);
   return refs;
