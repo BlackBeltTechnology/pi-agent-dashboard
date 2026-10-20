@@ -581,7 +581,7 @@ jobs:
       source_only_bundle:      false
       artifact_retention_days: 90
       # Install the bundled server's third-party tree from X's published
-      # runtime-lock.json (npm ci) instead of floating ranges. Locked by
+      # runtime-lock.json (lock-pinned install) instead of floating ranges. Locked by
       # publish-workflow-contract.test.ts. See change: pin-electron-bundle-dependency-tree.
       release_lock:            true
       use_dependency_cache:    false  # release-privileged: cold install (harden-ci-cache-poisoning D4)

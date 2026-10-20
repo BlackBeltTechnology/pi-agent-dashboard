@@ -73,8 +73,8 @@ on:
         description: |
           Release-lock bundle: forward `--release-lock=<version>` to
           bundle-server.mjs, which installs the bundled server's third-party
-          tree from `server@<version>`'s published `runtime-lock.json` with
-          `npm ci` (integrity-verified, fail-closed — never the floating
+          tree from `server@<version>`'s published `runtime-lock.json`
+          (lock-pinned, integrity-verified, fail-closed — never the floating
           install), then assert the bundle recorded it. Set by publish.yml and
           nightly.yml; on-demand (ci-electron.yml) and ci-e2e-electron.yml
           builds leave it false and keep the floating `npm install`. Pinned by
