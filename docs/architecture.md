@@ -1513,16 +1513,35 @@ Automation plugin = `packages/automation-plugin/`. Schedule-triggered background
 - First consumer: chat-gateway spawn/resume (`sessionVisibility: "hidden"` default). See [`chat-gateway.md`](chat-gateway.md).
 - See change: hide-chat-gateway-sessions, fix-plugin-hidden-across-restart, add-session-close-plugin-hook.
 
-### Hermes Memory Settings Plugin (`add-hermes-memory-settings-plugin`)
+### Hermes Memory Settings Plugin (`add-hermes-memory-settings-plugin`, `resync-hermes-memory-config-0-9`)
 
 New package `packages/hermes-memory-plugin` (client + server + shared). Settings-section plugin for the external `pi-hermes-memory` pi extension.
 
 - Two Fastify routes on shared instance (`ctx.fastify`): `GET /api/plugins/hermes-memory/config` + `PUT /api/plugins/hermes-memory/config`.
-- GET returns per `MemoryConfig` field: `{ value (on-disk else default), default, isDefault }` + `filePath` + `exists` + `raw`.
+- GET returns per `MemoryConfig` field `{ value (on-disk else default), default, isDefault }` + `filePath` + `exists` + `raw`.
+- `raw` = preserved unknown keys + resolved known values. Display-only, not a valid PUT body.
+- GET mirrors upstream derivations:
+  - valid strategy → `autoConsolidate`.
+  - strategy absent + boolean `autoConsolidate` → strategy.
+  - array-form `llmModelOverride` → string primary + fallback tail.
+  - `llmModelFallbacks` / `fallbackModels` aliases unioned into `llmFallbackModels`.
 - PUT validates browser body via `validateHermesConfig` (shared) BEFORE any write — unknown-key allowlist, type/enum/numeric-bound, `correction*Patterns` regex-compile. Invalid → 400, no write.
-- Write is atomic: tmp file in same dir + `fs.rename`, pretty 2-space JSON, `mkdir -p` parent. Full resolved config written on save (every field's effective value).
+- Write atomic: tmp file in same dir + `fs.rename`, pretty 2-space JSON, `mkdir -p` parent.
+- Written object = preserved unknown on-disk keys + non-default body fields (`composeWritten` in `src/server/config-io.ts`).
+  - Default-valued fields omitted → upstream default changes flow through.
+  - `memoryOverflowStrategy` always written.
+  - Empty `llmFallbackModels` omitted.
+- Known keys come only from PUT body. Known key body omits → dropped (clear-to-inherit / reset).
+- Unknown keys come only from disk. Body unknown keys → still 400.
+- One-time legacy heal: drop `consolidationTimeoutMs` 60000 iff disk holds all 23 `LEGACY_0_8_1_DEFAULTED_KEYS` and body also 60000.
+- Strict read (`readDisk`):
+  - ENOENT → `{}`.
+  - Other read error → HTTP 500 `{ error: "hermes config file unreadable", code }` on GET + PUT, no write.
+  - Malformed / non-object JSON (BOM not stripped) → GET all defaults. PUT copies bytes to `hermes-memory-config.json.corrupt-<YYYYMMDDTHHMMSSsssZ>[-N]` (flag `wx`, mode 0600) then writes.
+  - Copy failure → 500 `{ error: "hermes config quarantine failed", code }`.
+- `__proto__` on disk kept as data. Objects built via `Object.fromEntries` + spread, never `out[k] = v`.
 - External-file contract: edits the exact file the extension loads — `PI_CODING_AGENT_DIR` (trimmed, `~`-expanded) else `<home>/.pi/agent`, then fixed `hermes-memory-config.json`. Filename never from request input (no path traversal).
-- No hermes API exists; plugin re-declares `MemoryConfig` + defaults in `src/shared/hermes-config.ts` (mirrors goal-plugin vs pi-goal-hermes). Drift risk accepted; source-version pin comment references pi-hermes-memory@0.8.1.
+- No hermes API exists; plugin re-declares `MemoryConfig` + defaults in `src/shared/hermes-config.ts` (mirrors goal-plugin vs pi-goal-hermes). Mirror pinned to pi-hermes-memory@0.9.10 (44 keys; `llmThinkingOverride` adds `max`; `consolidationTimeoutMs` default 180000). Drift guard: fixture `src/shared/__tests__/fixtures/hermes-0.9.10-fields.json` (keys + defaults from upstream `loadConfig()`); local-only check vs installed `~/.pi/agent/npm/node_modules/pi-hermes-memory` (skipped in CI).
 - `requires.piExtensions: ["pi-hermes-memory"]` — section + routes active only when extension installed.
 - Runtime caveat: hermes reads config once at extension load → edits apply to newly started sessions only ("applies to new sessions" notice in the UI), not running ones.
 - Structured logging: path + field count on read/write success, failure reason on error, NEVER field values (config may hold model/provider hints).

@@ -16,6 +16,7 @@
  * from the npm registry or GitHub (see `/api/packages/recommended`).
  */
 
+import { ANTHROPIC_MESSAGES_SOURCE } from "./anthropic-messages-source.js";
 import type { PluginRequirements } from "./dashboard-plugin/manifest-types.js";
 import type { PluginRequirementReport } from "./dashboard-plugin/plugin-status.js";
 
@@ -143,7 +144,7 @@ export const RECOMMENDED_EXTENSIONS: readonly RecommendedExtension[] = [
 		// Published to the @blackbelt-technology npm scope. Source MUST be the
 		// npm spec so sourcesMatch() recognizes the npm install as satisfying
 		// this required entry (npm↔git cross-kind also added defensively).
-		source: "npm:@blackbelt-technology/pi-anthropic-messages",
+		source: ANTHROPIC_MESSAGES_SOURCE,
 		displayName: "pi-anthropic-messages",
 		fallbackDescription:
 			"Protocol bridge that makes pi's custom tools work with any " +

@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Canvas HTML &amp; URL UX: as-built vs proposed</title>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="mockup.css" />
+<link rel="stylesheet" href="board.css" />
+<link rel="stylesheet" href="canvas.css" />
+<script src="icons.js"></script>
+<script src="surfaces.js"></script>
+<script src="probe.js"></script>
+</head>
+<body data-view="both">
+<div class="toolbar" role="toolbar" aria-label="Board controls">
+  <h1>Canvas HTML &amp; URL UX</h1>
+  <span class="seg-label" id="lbl-theme">Theme</span>
+  <div class="seg" aria-labelledby="lbl-theme" data-group="theme">
+    <button aria-pressed="true" data-v="base-dark">Base dark</button>
+    <button aria-pressed="false" data-v="base-light">Base light</button>
+    <button aria-pressed="false" data-v="nord-dark">Nord dark</button>
+  </div>
+  <span class="seg-label" id="lbl-w">Frame</span>
+  <div class="seg" aria-labelledby="lbl-w" data-group="width">
+    <button aria-pressed="false" data-v="375">375</button>
+    <button aria-pressed="false" data-v="768">768</button>
+    <button aria-pressed="true" data-v="full">Full</button>
+  </div>
+  <span class="seg-label" id="lbl-v">Show</span>
+  <div class="seg" aria-labelledby="lbl-v" data-group="view">
+    <button aria-pressed="true" data-v="both">Side by side</button>
+    <button aria-pressed="false" data-v="asbuilt">As-built</button>
+    <button aria-pressed="false" data-v="proposed">Proposed</button>
+  </div>
+</div>
+<div class="shell">
+  <nav class="nav" aria-label="Surfaces" id="nav"></nav>
+  <main id="board"></main>
+</div>
+<script>
+const codeify = (s) => s.replace(/`([^`]+)`/g, (_, c) => `<code>${esc(c)}</code>`);
+
+function renderNav(cur) {
+  document.getElementById("nav").innerHTML = `<h2>Surfaces</h2>` + SURFACES.map((s, i) =>
+    `<a href="#${s.id}" ${s.id === cur ? 'aria-current="page"' : ""}>${ic(s.icon)}S${i + 1} ${s.title}</a>`).join("");
+}
+function renderSurface(id) {
+  _n = 0;
+  const s = SURFACES.find((x) => x.id === id) || SURFACES[0];
+  const built = s.built();
+  const prop = s.states.map(([name, fn, note]) => `<div class="pstate"><p class="src"><code>${codeify(name)}</code></p><div class="frame">${fn()}</div>${note ? `<p class="annot">${codeify(note)}</p>` : ""}</div>`).join("");
+  document.getElementById("board").innerHTML = `<div class="surface-h"><h2>S${SURFACES.indexOf(s) + 1} ${s.title}</h2><span class="pill neutral probe-badge" id="probe-badge">probe…</span></div>
+    <p class="surface-lead">${codeify(s.lead)}</p>
+    <div class="cites">Sources: ${s.cites.map(([f, n]) => `<span><code>${f}</code>${n ? ` ${codeify(n)}` : ""}</span>`).join(" · ")}</div>
+    <ul class="finds-list">${s.finds.map(([fid, t]) => `<li><code class="id">${fid}</code>${codeify(t)}</li>`).join("")}</ul>
+    <p class="realizes">Realizes: ${s.realizes.map((r) => `<span class="pill info">${esc(r)}</span>`).join(" ")}</p>
+    <div class="sf-stack">
+      ${built ? `<div class="col built"><p class="tag">As-built · shipped classes, verbatim</p>${built}</div>` : ""}
+      <div class="col prop"><p class="tag">Proposed</p>${prop}</div></div>`;
+  renderNav(s.id); badge();
+}
+function badge() {
+  requestAnimationFrame(() => {
+    const fails = [...document.querySelectorAll(".col.prop .frame")].flatMap(window.__probeRoot);
+    const b = document.getElementById("probe-badge");
+    b.className = `pill ${fails.length ? "error" : "success"} probe-badge`;
+    b.textContent = fails.length ? `Proposed: ${fails.length} probe failure${fails.length > 1 ? "s" : ""}` : "Proposed: 0 probe failures";
+    b.title = fails.join("\n");
+  });
+}
+function route() { renderSurface(location.hash.slice(1) || SURFACES[0].id); window.scrollTo(0, 0); }
+addEventListener("hashchange", route);
+document.querySelectorAll(".seg").forEach((seg) => seg.addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  seg.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+  const group = seg.dataset.group, v = b.dataset.v, html = document.documentElement;
+  if (group === "theme") {
+    const [pal, mode] = v.split("-");
+    mode === "light" ? html.setAttribute("data-theme", "light") : html.removeAttribute("data-theme");
+    pal === "nord" ? html.setAttribute("data-palette", "nord") : html.removeAttribute("data-palette");
+    route();
+  }
+  if (group === "width") { document.body.style.setProperty("--frame-w", v === "full" ? "100%" : `${v}px`); document.body.dataset.w = v; }
+  if (group === "view") document.body.dataset.view = v;
+}));
+route();
+const params = new URLSearchParams(location.search);
+for (const g of ["theme", "width", "view"]) if (params.get(g)) document.querySelector(`.seg[data-group="${g}"] button[data-v="${params.get(g)}"]`)?.click();
+</script>
+</body>
+</html>

@@ -89,3 +89,15 @@ export function buildResolvedConfig(
   }
   return out;
 }
+
+/**
+ * The preserved, un-mirrored keys of GET `raw` (design D4) — shown in the
+ * raw-JSON dialog so the user sees what a save will keep. Built with
+ * `Object.fromEntries` (design D2) so an on-disk `"__proto__"` key stays an own
+ * data property. Never part of a PUT body (unknown body keys → 400).
+ */
+export function unknownKeysOf(raw: Record<string, unknown> | undefined): Record<string, unknown> {
+  if (!raw) return {};
+  const known = new Set<string>(KNOWN_KEYS as string[]);
+  return Object.fromEntries(Object.entries(raw).filter(([key]) => !known.has(key)));
+}

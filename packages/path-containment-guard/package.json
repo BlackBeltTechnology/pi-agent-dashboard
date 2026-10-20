@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/pi-path-containment-guard",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "Opt-in, fail-closed pi extension that rejects tool calls whose path argument resolves outside configured allowed roots, and rejects configured denied tools. Loaded explicitly (-e / scope.extensions), never by discovery.",
   "type": "module",
   "repository": {
@@ -30,7 +30,7 @@
     "!**/*.AGENTS.md"
   ],
   "dependencies": {
-    "@blackbelt-technology/pi-dashboard-shared": "^0.9.0"
+    "@blackbelt-technology/pi-dashboard-shared": "^0.10.0"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": ">=1.3.0"

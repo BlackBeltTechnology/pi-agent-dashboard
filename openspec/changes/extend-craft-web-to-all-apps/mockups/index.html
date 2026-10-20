@@ -1,0 +1,417 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>extend-craft-web-to-all-apps: UX surfaces</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="mockup.css">
+</head>
+<body>
+<div class="toolbar">
+  <h1>extend-craft-web-to-all-apps: UX surfaces</h1>
+  <div class="seg" role="group" aria-label="Theme">
+    <button type="button" aria-pressed="true" data-t="dark">Dark</button>
+    <button type="button" aria-pressed="false" data-t="light">Light</button>
+    <button type="button" aria-pressed="false" data-t="nord">Nord dark</button>
+  </div>
+  <nav aria-label="Surfaces">
+    <a href="#A">A Choosing the editor</a>
+    <a href="#B">B Frame toolbar</a>
+    <a href="#C">C Unconfirmed open</a>
+    <a href="#D">D Native-format save</a>
+    <a href="#E">E Session-named save</a>
+    <a href="#G">G Settings</a>
+  </nav>
+</div>
+<main>
+<p class="intro">Every state is drawn with the shipped recipes (<code>ui.ts</code>, <code>FileModeSwitcher</code>, <code>Dialog</code>, settings kit) and theme tokens only. The app's own canvas is a labelled placeholder: the plugin never styles inside the frame. Tags: <span class="tag built">as built</span> exists today, <span class="tag designed">as designed</span> what design.md specifies, <span class="tag proposed">proposed</span> a UX change this board asks you to approve.</p>
+
+<!-- ========================= A ========================= -->
+<section class="surface" id="A">
+  <h2>A. Choosing the editor for a file</h2>
+  <p class="verdict">The mode switcher is unchanged: <code>Preview</code> first, then one craft mode per extension (each extension has exactly one craft claim, D2), so the choice stays at two buttons (Hick's Law). The gap is files with no built-in viewer (<code>.psd .designcraft .scraftz .dng .dwg</code>): Preview shows only "binary", and the way out is a small button in a different row. <b>Proposal A4:</b> the binary notice names the available mode as a button (Nielsen #6 recognition rather than recall, #10 help users recover). Core change in <code>BinaryWarn</code>, reading the same matching claims the switcher already has.</p>
+  <div class="grid">
+    <div class="state">
+      <header><b>A1</b> type A, in place <span class="tag designed">as designed</span></header>
+      <div class="pane">
+        <div class="tabs" role="tablist"><span role="tab" aria-selected="true">budget.xlsx</span><span role="tab" aria-selected="false">plan.dxf</span></div>
+        <div class="modes" role="group" aria-label="View mode">
+          <button type="button" aria-pressed="false">Preview</button>
+          <button type="button" aria-pressed="true">Edit in GridCraft</button>
+        </div>
+        <div class="body"><div class="appcanvas">GridCraft canvas (app content, sandboxed)</div></div>
+      </div>
+      <footer>Label pattern <b>Edit in &lt;App&gt;</b> for every edit claim, <b>View in &lt;App&gt;</b> for preview claims.</footer>
+    </div>
+
+    <div class="state">
+      <header><b>A2</b> type B, foreign format <span class="tag designed">as designed</span></header>
+      <div class="pane">
+        <div class="tabs" role="tablist"><span role="tab" aria-selected="true">photo.jpg</span></div>
+        <div class="modes" role="group" aria-label="View mode">
+          <button type="button" aria-pressed="true">Preview</button>
+          <button type="button" aria-pressed="false">Edit in PhotoCraft</button>
+        </div>
+        <div class="body"><div class="appcanvas">Built-in image preview (unchanged)</div></div>
+      </div>
+      <footer><code>.jpg</code> belongs only to the <code>photocraft-raster</code> claim, so no second "Edit in" competes.</footer>
+    </div>
+
+    <div class="state">
+      <header><b>A3</b> no built-in viewer <span class="tag built">as built</span></header>
+      <div class="pane">
+        <div class="tabs" role="tablist"><span role="tab" aria-selected="true">photo.psd</span></div>
+        <div class="modes" role="group" aria-label="View mode">
+          <button type="button" aria-pressed="true">Preview</button>
+          <button type="button" aria-pressed="false">Edit in PhotoCraft</button>
+        </div>
+        <div class="body"><div class="binary"><p>This file is binary and can't be shown here.</p></div></div>
+      </div>
+      <footer>Dead end: the notice does not say an editor exists one row up.</footer>
+    </div>
+
+    <div class="state">
+      <header><b>A4</b> binary notice names the mode <span class="tag proposed">proposed</span></header>
+      <div class="pane">
+        <div class="tabs" role="tablist"><span role="tab" aria-selected="true">sample.dng</span></div>
+        <div class="modes" role="group" aria-label="View mode">
+          <button type="button" aria-pressed="true">Preview</button>
+          <button type="button" aria-pressed="false">View in LightCraft</button>
+        </div>
+        <div class="body"><div class="binary">
+          <p>This file is binary and can't be shown here.</p>
+          <span>It can be opened with a plugin:</span>
+          <button type="button" class="btn">View in LightCraft</button>
+        </div></div>
+      </div>
+      <footer>Same action as the switcher button (same claim key), so no new behaviour. Shown only when a matching enabled claim exists.</footer>
+    </div>
+  </div>
+</section>
+
+<!-- ========================= B ========================= -->
+<section class="surface" id="B">
+  <h2>B. Frame toolbar per app type</h2>
+  <p class="verdict">Today's toolbar is app name + Save target (Overwrite / Copy). Two new types make that toggle mislead: in a foreign-format tab Ctrl+S never touches the file (it creates a <code>.psd</code> next to it), and a view-only tab cannot save at all. Design D4 already removes the toggle for preview claims. <b>Proposal B2/B3:</b> a short status chip states where saves go before the user saves (Nielsen #1 visibility of system status, #5 error prevention). <b>Found while measuring:</b> the shipped selected Save-target button (<code>--accent-text</code> on <code>--accent-soft</code>, 12 px) is 4.49:1 in dark and Nord, just under WCAG AA 4.5:1. All states here use <code>--text-primary</code> on <code>--accent-soft</code> (the pairing the token is documented for); proposed as a one-class fix in <code>CraftFrame.tsx</code>.</p>
+  <div class="grid">
+    <div class="state">
+      <header><b>B1</b> in place: CADCraft on plan.dxf <span class="tag built">as built</span></header>
+      <div class="pane" style="min-height:180px">
+        <div class="ftool">
+          <span class="app">CADCraft</span>
+          <div class="right" role="group" aria-label="Save target">
+            <span class="lbl">Save target</span>
+            <button type="button" class="tgt" aria-pressed="true">Overwrite</button>
+            <button type="button" class="tgt" aria-pressed="false">Copy</button>
+          </div>
+        </div>
+        <div class="body" style="min-height:120px"><div class="appcanvas">CADCraft canvas</div></div>
+      </div>
+    </div>
+
+    <div class="state">
+      <header><b>B2</b> foreign format: PhotoCraft on photo.jpg <span class="tag proposed">proposed</span></header>
+      <div class="pane" style="min-height:180px">
+        <div class="ftool">
+          <span class="app">PhotoCraft</span>
+          <span class="chip info">Save (Ctrl+S) creates photo.psd</span>
+          <div class="right" role="group" aria-label="Save target">
+            <span class="lbl">Exports to .jpg</span>
+            <button type="button" class="tgt" aria-pressed="true">Overwrite</button>
+            <button type="button" class="tgt" aria-pressed="false">Copy</button>
+          </div>
+        </div>
+        <div class="body" style="min-height:120px"><div class="appcanvas">PhotoCraft canvas</div></div>
+      </div>
+      <footer>The toggle stays (an in-app JPEG export is an own save) but its label says it applies to <b>.jpg exports</b>. Chip text comes from <code>siblingExtensions[0]</code>.</footer>
+    </div>
+
+    <div class="state">
+      <header><b>B3</b> view only: LightCraft on sample.dng <span class="tag proposed">proposed</span></header>
+      <div class="pane" style="min-height:180px">
+        <div class="ftool">
+          <span class="app">LightCraft</span>
+          <span class="chip">View only. Exports download to this device</span>
+        </div>
+        <div class="body" style="min-height:120px"><div class="appcanvas">LightCraft develop view</div></div>
+      </div>
+      <footer>No save target (D4, as designed). The chip explains why nothing is written to the workspace.</footer>
+    </div>
+  </div>
+</section>
+
+<!-- ========================= C ========================= -->
+<section class="surface" id="C">
+  <h2>C. First overwrite when the app cannot confirm the file opened</h2>
+  <p class="verdict">Five apps (PdfCraft, CADCraft, DesignCraft, SoundCraft, DeckCraft) never report which document they opened, so <b>every</b> instance of them is "unconfirmed" (D4 fallback). As designed, the first overwrite then shows two modal dialogs back to back with the same three choices: the plugin's check, then core's fidelity notice. Repeated near-identical confirmations train users to click through (NN/g, "Confirmation dialogs can prevent user errors, if they are not overused"; Nielsen #8 minimalist design). <b>Proposal C3:</b> because "unconfirmed" is fixed per app, not per open, put the check sentence into those claims' static <code>firstOverwriteNotice</code> and drop the plugin dialog. One dialog, core-owned, once per instance, same protection. This also removes the documented double-prompt trade-off and test rows E28/F4.</p>
+  <div class="grid">
+    <div class="state">
+      <header><b>C1</b> step 1 of 2: plugin check <span class="tag designed">as designed</span></header>
+      <div class="pane" style="min-height:260px">
+        <div class="ftool"><span class="app">CADCraft</span></div>
+        <div class="body" style="min-height:230px">
+          <div class="appcanvas">CADCraft canvas</div>
+          <div class="scrim">
+            <div class="frame-dialog" role="alertdialog" aria-modal="true" aria-labelledby="c1t">
+              <h3 id="c1t">CADCraft did not confirm it loaded plan.dxf</h3>
+              <p>Check that it shows your document before overwriting.</p>
+              <div class="acts">
+                <button type="button" class="btn-primary">Save as copy</button>
+                <button type="button" class="btn">Overwrite plan.dxf</button>
+                <button type="button" class="btn">Cancel</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="state">
+      <header><b>C2</b> step 2 of 2: core first-overwrite notice <span class="tag designed">as designed</span></header>
+      <div class="pane" style="min-height:260px">
+        <div class="ftool"><span class="app">CADCraft</span></div>
+        <div class="body" style="min-height:230px">
+          <div class="appcanvas">CADCraft canvas</div>
+          <div class="dlg-scrim">
+            <div class="dlg" role="dialog" aria-modal="true" aria-labelledby="c2t">
+              <h3 id="c2t">Overwrite the original file?</h3>
+              <p>Saves are rewritten by CADCraft; entities it does not support may change. A copy is the safe way to compare.</p>
+              <div class="foot">
+                <button type="button" class="da cancel">Cancel</button>
+                <button type="button" class="da danger">Overwrite</button>
+                <button type="button" class="da primary">Save as copy</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <footer>The user already chose Overwrite once, seconds ago.</footer>
+    </div>
+
+    <div class="state">
+      <header><b>C3</b> one dialog, check folded into the notice <span class="tag proposed">proposed</span></header>
+      <div class="pane" style="min-height:260px">
+        <div class="ftool"><span class="app">CADCraft</span></div>
+        <div class="body" style="min-height:230px">
+          <div class="appcanvas">CADCraft canvas</div>
+          <div class="dlg-scrim">
+            <div class="dlg" role="dialog" aria-modal="true" aria-labelledby="c3t">
+              <h3 id="c3t">Overwrite the original file?</h3>
+              <p>CADCraft does not report which file it opened. Check that it shows this file before overwriting. Saves are rewritten by CADCraft; entities it does not support may change.</p>
+              <div class="foot">
+                <button type="button" class="da cancel">Cancel</button>
+                <button type="button" class="da danger">Overwrite</button>
+                <button type="button" class="da primary">Save as copy</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <footer>Notice ≤ 300 chars (drift-test limit). Drift test adds: a profile without <code>title</code> requires a <code>firstOverwriteNotice</code> containing the check sentence.</footer>
+    </div>
+  </div>
+</section>
+
+<!-- ========================= D ========================= -->
+<section class="surface" id="D">
+  <h2>D. Saving from an app that writes its own format</h2>
+  <p class="verdict">PhotoCraft opened <code>photo.jpg</code> and Ctrl+S produced a <code>.psd</code>. The dialog (D6) names the real target file, not the name typed in the app, and offers the next step that keeps work in one place ("Create and open"). Button order follows the plugin's existing in-frame dialog: primary first. Proposed copy changes only: say <i>why</i> in one line, and name the file on the buttons so each choice is self-describing (Nielsen #2 match with the real world).</p>
+  <div class="grid">
+    <div class="state">
+      <header><b>D1</b> native claim available <span class="tag designed">as designed</span> + copy</header>
+      <div class="pane" style="min-height:280px">
+        <div class="ftool"><span class="app">PhotoCraft</span><span class="chip info">Save (Ctrl+S) creates photo.psd</span></div>
+        <div class="body" style="min-height:250px">
+          <div class="appcanvas">PhotoCraft canvas</div>
+          <div class="scrim">
+            <div class="frame-dialog" role="alertdialog" aria-modal="true" aria-labelledby="d1t">
+              <h3 id="d1t">PhotoCraft saves as .psd</h3>
+              <p>Its Save writes Photoshop files. Your edits go into a new file next to photo.jpg, which stays unchanged.</p>
+              <div class="acts">
+                <button type="button" class="btn-primary">Create and open photo.psd</button>
+                <button type="button" class="btn">Create photo.psd</button>
+                <button type="button" class="btn">Download instead</button>
+                <button type="button" class="btn">Cancel</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <footer>Target is the first free name: <code>photo.psd</code>, then <code>photo-2.psd</code>. The <code>photo.jpg</code> tab stays dirty.</footer>
+    </div>
+
+    <div class="state">
+      <header><b>D2</b> native claim off or not verified <span class="tag designed">as designed</span></header>
+      <div class="pane" style="min-height:280px">
+        <div class="ftool"><span class="app">VectorCraft</span><span class="chip info">Save (Ctrl+S) creates shapes.vectorcraft</span></div>
+        <div class="body" style="min-height:250px">
+          <div class="appcanvas">VectorCraft canvas</div>
+          <div class="scrim">
+            <div class="frame-dialog" role="alertdialog" aria-modal="true" aria-labelledby="d2t">
+              <h3 id="d2t">VectorCraft saves as .vectorcraft</h3>
+              <p>Your edits go into a new file next to shapes.svg, which stays unchanged. To change shapes.svg itself, use VectorCraft's Export to SVG.</p>
+              <div class="acts">
+                <button type="button" class="btn-primary">Create shapes.vectorcraft</button>
+                <button type="button" class="btn">Download instead</button>
+                <button type="button" class="btn">Cancel</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <footer>"Create and open" is hidden, not disabled, when the native claim is unavailable. The Export sentence is per-app copy (optional message key), used where the app can export the tab's format.</footer>
+    </div>
+
+    <div class="state">
+      <header><b>D3</b> 99 copies exist (core 409) <span class="tag designed">as designed</span> + copy</header>
+      <div class="pane" style="min-height:200px">
+        <div class="ftool"><span class="app">PhotoCraft</span><span class="chip info">Save (Ctrl+S) creates photo.psd</span></div>
+        <div class="notice err" role="alert">
+          <span>Not saved: photo.psd and photo-2.psd to photo-99.psd already exist. Open photo.psd in PhotoCraft to keep editing it in place.</span>
+          <button type="button" class="btn">Download instead</button>
+          <button type="button" class="btn">Dismiss</button>
+        </div>
+        <div class="body" style="min-height:120px"><div class="appcanvas">PhotoCraft canvas</div></div>
+      </div>
+      <footer>Recovery names the way out (Nielsen #9) and keeps the bytes reachable via download.</footer>
+    </div>
+  </div>
+</section>
+
+<!-- ========================= E ========================= -->
+<section class="surface" id="E">
+  <h2>E. Apps that name the save after their content (SoundCraft)</h2>
+  <p class="verdict">SoundCraft suggests the <i>session</i> name, so opening <code>mix.scraftz</code> and saving asks about "Midnight Groove.scraftz". The existing Save As question is reused (D10); without an explanation the user cannot tell why the name changed. <b>Proposal E2:</b> one sentence for <code>saveName: "inner-title"</code> profiles, and the Overwrite button names the tab file. Answer remembered only for the same suggested name (as designed).</p>
+  <div class="grid">
+    <div class="state">
+      <header><b>E1</b> existing Save As question <span class="tag built">as built</span></header>
+      <div class="pane" style="min-height:240px">
+        <div class="ftool"><span class="app">SoundCraft</span><div class="right"><span class="lbl">Save target</span><button type="button" class="tgt" aria-pressed="true">Overwrite</button><button type="button" class="tgt" aria-pressed="false">Copy</button></div></div>
+        <div class="body" style="min-height:210px">
+          <div class="appcanvas">SoundCraft session view</div>
+          <div class="scrim">
+            <div class="frame-dialog" role="alertdialog" aria-modal="true" aria-label="SoundCraft wants to save as Midnight Groove.scraftz">
+              <p style="color:var(--text-primary)">SoundCraft wants to save as Midnight Groove.scraftz</p>
+              <div class="acts">
+                <button type="button" class="btn-primary">Save as copy next to mix.scraftz</button>
+                <button type="button" class="btn">Overwrite mix.scraftz</button>
+                <button type="button" class="btn">Cancel</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="state">
+      <header><b>E2</b> with the reason <span class="tag proposed">proposed</span></header>
+      <div class="pane" style="min-height:240px">
+        <div class="ftool"><span class="app">SoundCraft</span><div class="right"><span class="lbl">Save target</span><button type="button" class="tgt" aria-pressed="true">Overwrite</button><button type="button" class="tgt" aria-pressed="false">Copy</button></div></div>
+        <div class="body" style="min-height:210px">
+          <div class="appcanvas">SoundCraft session view</div>
+          <div class="scrim">
+            <div class="frame-dialog" role="alertdialog" aria-modal="true" aria-labelledby="e2t">
+              <h3 id="e2t">SoundCraft wants to save as Midnight Groove.scraftz</h3>
+              <p>SoundCraft names saves after the session inside the file, not after mix.scraftz.</p>
+              <div class="acts">
+                <button type="button" class="btn-primary">Save as copy next to mix.scraftz</button>
+                <button type="button" class="btn">Overwrite mix.scraftz</button>
+                <button type="button" class="btn">Cancel</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <footer>New key <code>saveAsInnerTitleHint</code> (en, zh-CN, hu; parity test).</footer>
+    </div>
+  </div>
+</section>
+
+<!-- ========================= G ========================= -->
+<section class="surface" id="G">
+  <h2>G. Settings: ten more apps</h2>
+  <p class="verdict">Settings grows from 1 to 11 app groups. As designed, each new app shows a <b>disabled</b> version selector with a reason. A disabled control the user can never enable is noise, and its reason is easy to miss (NN/g, "Disabled buttons" guidance: explain or remove). <b>Proposal G2:</b> (1) a fixed channel renders as a read-only fact, "Verified 0.8.0", with the reason as hint text, no select; (2) groups are chunked under three headings by what the app does to your files (Miller / chunking, Gestalt common region), so the user knows which apps write to the workspace. Spec text "selector disabled with the reason" changes accordingly.</p>
+  <div class="grid">
+    <div class="state">
+      <header><b>G1</b> flat list, disabled selector <span class="tag designed">as designed</span></header>
+      <div class="settings">
+        <div class="sgroup">
+          <div class="h"><b>WordCraft</b><span class="pill ok">Installed</span></div>
+          <div class="b">
+            <div class="field"><div class="row"><span class="switch" role="switch" aria-checked="true" aria-label="Enable WordCraft"></span><label>Enable WordCraft</label></div></div>
+            <div class="field"><label for="g1v1">Version</label><select id="g1v1"><option>Verified (recommended)</option><option>Latest release</option></select></div>
+          </div>
+        </div>
+        <div class="sgroup">
+          <div class="h"><b>GridCraft</b><span class="pill neutral">Not downloaded</span></div>
+          <div class="b">
+            <div class="field"><div class="row"><span class="switch" role="switch" aria-checked="true" aria-label="Enable GridCraft"></span><label>Enable GridCraft</label></div></div>
+            <div class="field"><label for="g1v2">Version</label><select id="g1v2" disabled><option>Verified (recommended)</option></select><span class="hint">Latest builds are not verified yet.</span></div>
+            <div><button type="button" class="btn-primary">Download GridCraft</button></div>
+          </div>
+        </div>
+        <div class="sgroup">
+          <div class="h"><b>DeckCraft</b><span class="pill neutral">Not downloaded</span></div>
+          <div class="b">
+            <div class="field"><div class="row"><span class="switch" role="switch" aria-checked="true" aria-label="Enable DeckCraft"></span><label>Enable DeckCraft</label></div></div>
+            <div class="field"><label for="g1v3">Version</label><select id="g1v3" disabled><option>Verified (recommended)</option></select><span class="hint">Newer web builds fail to start.</span></div>
+            <div><button type="button" class="btn-primary">Download DeckCraft</button></div>
+          </div>
+        </div>
+        <p style="margin:0">… 8 more groups in the same shape.</p>
+      </div>
+    </div>
+
+    <div class="state">
+      <header><b>G2</b> grouped, fixed channel as a fact <span class="tag proposed">proposed</span></header>
+      <div class="settings">
+        <p class="shead">Edit files in place</p>
+        <div class="sgroup">
+          <div class="h"><b>WordCraft</b><span class="sub">.docx .odt .rtf</span><span class="pill ok">Installed</span></div>
+          <div class="b">
+            <div class="field"><div class="row"><span class="switch" role="switch" aria-checked="true" aria-label="Enable WordCraft"></span><label>Enable WordCraft</label></div></div>
+            <div class="field"><label for="g2v1">Version</label><select id="g2v1"><option>Verified (recommended)</option><option>Latest release</option></select></div>
+          </div>
+        </div>
+        <div class="sgroup">
+          <div class="h"><b>GridCraft</b><span class="sub">.xlsx</span><span class="pill neutral">Not downloaded</span></div>
+          <div class="b">
+            <div class="field"><div class="row"><span class="switch" role="switch" aria-checked="true" aria-label="Enable GridCraft"></span><label>Enable GridCraft</label></div></div>
+            <dl class="facts"><dt>Version</dt><dd>Verified 0.8.0</dd></dl>
+            <span class="hint">Newer releases are used once they are verified with this dashboard.</span>
+            <div><button type="button" class="btn-primary">Download GridCraft (about 7 MB)</button></div>
+          </div>
+        </div>
+        <p class="shead">Save in their own format, next to the file</p>
+        <div class="sgroup">
+          <div class="h"><b>DeckCraft</b><span class="sub">.pptx → .deckcraft</span><span class="pill neutral">Not downloaded</span></div>
+          <div class="b">
+            <div class="field"><div class="row"><span class="switch" role="switch" aria-checked="true" aria-label="Enable DeckCraft"></span><label>Enable DeckCraft</label></div></div>
+            <dl class="facts"><dt>Version</dt><dd>Verified 0.7.0</dd></dl>
+            <span class="hint">Newer DeckCraft web builds fail to start, so this version is kept.</span>
+            <div><button type="button" class="btn-primary">Download DeckCraft (about 11 MB)</button></div>
+          </div>
+        </div>
+        <p class="shead">View only</p>
+        <div class="sgroup">
+          <div class="h"><b>LightCraft</b><span class="sub">camera RAW</span><span class="pill neutral">Not downloaded</span></div>
+          <div class="b"><div class="field"><div class="row"><span class="switch" role="switch" aria-checked="true" aria-label="Enable LightCraft"></span><label>Enable LightCraft</label></div></div></div>
+        </div>
+      </div>
+      <footer>Extension list under the name answers "which files does this open" without leaving settings. The size moves onto the button (already known from status <code>approxDownloadBytes</code>).</footer>
+    </div>
+  </div>
+</section>
+
+</main>
+<script>
+document.querySelectorAll('[data-t]').forEach(function(b){b.addEventListener('click',function(){
+  var t=b.dataset.t,h=document.documentElement;
+  h.dataset.theme=t==='light'?'light':'dark';
+  if(t==='nord')h.dataset.palette='nord';else delete h.dataset.palette;
+  document.querySelectorAll('[data-t]').forEach(function(x){x.setAttribute('aria-pressed',String(x===b));});
+});});
+</script>
+</body>
+</html>

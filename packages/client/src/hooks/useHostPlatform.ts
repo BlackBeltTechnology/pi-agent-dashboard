@@ -41,6 +41,19 @@ export function browserPlatformFallback(): HostPlatform | null {
   return null;
 }
 
+/**
+ * True when the BROWSER (not the dashboard host) uses Apple keyboard
+ * conventions: macOS, iPadOS (reports `MacIntel` + touch points) and iOS.
+ * Drives the add-to-selection modifier (Command vs Control).
+ * See change: simplify-add-folder-picker (design D4).
+ */
+export function browserIsMacLike(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const nav = navigator as Navigator & { userAgentData?: { platform?: string } };
+  const raw = nav.userAgentData?.platform ?? nav.platform ?? "";
+  return /mac|iphone|ipad|ipod/i.test(raw);
+}
+
 function probe(): Promise<HostPlatform | null> {
   // Explicit nullish check — a `Promise` is always truthy, so the bare guard was
   // correct only by accident. See change: cleanup-client-plugin-promises (D6).

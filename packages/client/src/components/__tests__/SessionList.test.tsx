@@ -582,7 +582,7 @@ describe("SessionList workspace-scope Add Folder", () => {
     // Opens the multi-select Add Folders dialog with THIS workspace preselected
     // as the destination. See change: redesign-folder-workspace-add-flow.
     expect(screen.getByTestId("add-folders-dialog")).toBeTruthy();
-    expect(screen.getByTestId("add-folders-dest-ws1").getAttribute("aria-checked")).toBe("true");
+    expect((screen.getByTestId("add-folders-dest") as HTMLSelectElement).value).toBe("ws1");
   });
 
   it("hides the workspace Add Folder button when collapsed", () => {

@@ -9,13 +9,16 @@
  * See change: streamline-first-run (design D2).
  */
 import { PEER_AM_LEGACY } from "@blackbelt-technology/pi-dashboard-flows-anthropic-bridge-plugin/peer-probe";
-import { RECOMMENDED_EXTENSIONS } from "@blackbelt-technology/pi-dashboard-shared/recommended-extensions.js";
+import { ANTHROPIC_MESSAGES_SOURCE } from "@blackbelt-technology/pi-dashboard-shared/anthropic-messages-source.js";
 
 const BRIDGE_PLUGIN_ID = "flows-anthropic-bridge";
 
-/** Install source for the peer — the shipped recommended-extensions entry. */
-export const ANTHROPIC_PEER_SOURCE: string =
-  RECOMMENDED_EXTENSIONS.find((e) => e.id === "pi-anthropic-messages")?.source ?? "";
+/**
+ * Install source for the peer — the shipped recommended-extensions entry's
+ * source (one constant; importing the manifest here would put every entry's
+ * description in the cold-landing chunk).
+ */
+export const ANTHROPIC_PEER_SOURCE: string = ANTHROPIC_MESSAGES_SOURCE;
 
 /** The recommended-extensions entry id for the peer. */
 export const ANTHROPIC_PEER_ENTRY_ID = "pi-anthropic-messages";

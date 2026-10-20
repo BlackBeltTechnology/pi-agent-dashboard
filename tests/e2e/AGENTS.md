@@ -12,7 +12,7 @@ One row per file.
 | `acp-spawn-picker.spec.ts` | → see `acp-spawn-picker.spec.ts.AGENTS.md` |
 | `agent-path-gate.spec.ts` | → see `agent-path-gate.spec.ts.AGENTS.md` |
 | `apply-fix-to-file.spec.ts` | → see `apply-fix-to-file.spec.ts.AGENTS.md` |
-| `archive-service-sessions-on-end.spec.ts` | L3 #F1/#F5 servi… → see `archive-service-sessions-on-end.spec.ts.AGENTS.md` |
+| `archive-service-sessions-on-end.spec.ts` | → see `archive-service-sessions-on-end.spec.ts.AGENTS.md` |
 | `archived-attachment.spec.ts` | → see `archived-attachment.spec.ts.AGENTS.md` |
 | `changed-on-disk-content-gate.spec.ts` | L3 |
 | `composer-liveness-reload.spec.ts` | → see `composer-liveness-reload.spec.ts.AGENTS.md` |
@@ -30,7 +30,7 @@ One row per file.
 | `local-credential-proof-nat.spec.ts` | L3 #X9: published-port proof. → see `local-credential-proof-nat.spec.ts.AGENTS.md` |
 | `markup-repair.spec.ts` | → see `markup-repair.spec.ts.AGENTS.md` |
 | `model-roles-promotion.spec.ts` | L3 spec. → see `model-roles-promotion.spec.ts.AGENTS.md` |
-| `gmail-plugin.spec.ts` | L3 gmail-plugin vs in-container fake Google: F1–… → see `gmail-plugin.spec.ts.AGENTS.md` |
+| `gmail-plugin.spec.ts` | → see `gmail-plugin.spec.ts.AGENTS.md` |
 | `notify-collapse.spec.ts` | → see `notify-collapse.spec.ts.AGENTS.md` |
 | `pi-settings-editor.spec.ts` | L3 pi settings #F13/#F14 |
 | `plugin-embedded-app.spec.ts` | L3 demo `"content"` embedded app (F1/F2). → see `plugin-embedded-app.spec.ts.AGENTS.md` |
@@ -38,9 +38,10 @@ One row per file.
 | `preview-denial-remedy.spec.ts` | L3 preview denial remedy (#F1,#F4-#F13,#X1,#X2). → see `preview-denial-remedy.spec.ts.AGENTS.md` |
 | `provider-models-refresh.spec.ts` | L3: Refresh models row. → see `provider-models-refresh.spec.ts.AGENTS.md` |
 | `push-webhook-settings.spec.ts` | L3 #F9 push webhook. → see `push-webhook-settings.spec.ts.AGENTS.md` |
-| `README.md` | Docs for browser E2E. Prerequisites: Docker, `npx… → see `README.md.AGENTS.md` |
+| `README.md` | → see `README.md.AGENTS.md` |
 | `fixtures/severity-baseline.json` | Severity theme-token baseline. → see `fixtures/severity-baseline.json.AGENTS.md` |
-| `access-grants-revoke.spec.ts` | L3 access-grant remedy journey: denial → gra… → see `access-grants-revoke.spec.ts.AGENTS.md` |
+| `access-grants-revoke.spec.ts` | → see `access-grants-revoke.spec.ts.AGENTS.md` |
+| `add-folder-file-manager.spec.ts` | → see `add-folder-file-manager.spec.ts.AGENTS.md` |
 | `access-grant-dialog.spec.ts` | L3 for the access-grant prompt dialog +… → see `access-grant-dialog.spec.ts.AGENTS.md` |
 | `anthropic-bridge-activation.spec.ts` | → see `anthropic-bridge-activation.spec.ts.AGENTS.md` |
 | `archive-fold.spec.ts` | L3 for the per-folder `Archive (N)` fold (test-p… → see `archive-fold.spec.ts.AGENTS.md` |

@@ -222,9 +222,13 @@ jobs:
   # the last release that selected jiti on Node 26 keeps `--import <jiti>` in its
   # execArgv and carries it across `POST /api/restart`. Upgrading the install
   # underneath it must not strand it:
-  #   restart 1 -> new code runs under the OLD loader (jiti stays installed as
-  #                the transitional dependency): healthy + a foreign-loader
-  #                warning naming jiti in server.log;
+  #   restart 1 -> healthy, and EITHER new code runs under the OLD loader (jiti
+  #                stays installed as the transitional dependency) with a
+  #                foreign-loader warning naming jiti in server.log, OR it
+  #                already landed on native-ts-register.mjs: the old server's
+  #                /api/restart runs the restart orchestrator from DISK (new
+  #                code), whose server-launcher always resolves the native
+  #                loader (observed on the 0.9.0 baseline);
   #   restart 2 -> the new server normalizes the restart: healthy + argv names
   #                native-ts-register.mjs.
   # UPGRADE_FROM_VERSION is PINNED to the last pre-change release: a floating
@@ -275,8 +279,10 @@ jobs:
             done
             echo "FAIL: /api/health never answered 200 within 90s"; return 1
           }
-          # First process whose argv names cli.ts (awk, no early-exit pipe: pipefail-safe).
-          server_argv() { ps -eo args= | awk '/cli\.ts/ && !/awk/ && !n++ { print }'; }
+          # argv of the process that answers /api/health (its reported pid). Not
+          # "first cli.ts process": a `cli.ts start` launcher (which may still run
+          # under the inherited jiti --import) can outlive the spawn briefly.
+          server_argv() { local id; id=$(ident); ps -o args= -p "${id%%@*}"; }
           # POST /api/restart, then wait for a NEW process (pid@startedAt changes).
           restart_and_wait() {
             local before; before=$(ident)
@@ -306,13 +312,18 @@ jobs:
           node -e "const d=require(process.argv[1]).dependencies||{};if(!d.amaro){console.error('packed shared is missing amaro');process.exit(1)}" \
             "$PWD/node_modules/@blackbelt-technology/pi-dashboard-shared/package.json"
 
-          echo "== restart 1: new code under the inherited jiti loader =="
+          echo "== restart 1: new code, inherited jiti loader or already native =="
           restart_and_wait
           wait_healthy
-          if ! awk 'tolower($0) ~ /jiti/ && /pi-dashboard stop/ { f = 1 } END { exit !f }' "$LOG"; then
-            echo "FAIL (restart 1): no foreign-loader warning naming jiti in server.log"; exit 1
+          ARGV1=$(server_argv)
+          echo "argv: $ARGV1"
+          if [[ "$ARGV1" == *native-ts-register.mjs* ]]; then
+            echo "restart 1: healthy, already on the native loader (orchestrator ran from disk)"
+          elif awk 'tolower($0) ~ /jiti/ && /pi-dashboard stop/ { f = 1 } END { exit !f }' "$LOG"; then
+            echo "restart 1: healthy, foreign-loader warning names jiti"
+          else
+            echo "FAIL (restart 1): neither on the native loader nor a foreign-loader warning naming jiti"; exit 1
           fi
-          echo "restart 1: healthy, foreign-loader warning names jiti"
 
           echo "== restart 2: normalized to the native loader =="
           restart_and_wait

@@ -195,9 +195,11 @@ The PathPicker SHALL browse directories via `GET /api/browse` and render an inli
 The PathPicker SHALL support two selection modes:
 
 1. **Single-select** (existing behaviour, default): activating a row commits it as the answer via `onSelect`.
-2. **Multi-select** (opt-in, used by the Add Folders dialog): activating a row navigates INTO it, per-row
-   checkboxes accumulate a selection set, and the caller commits the whole set. In this mode the picker SHALL
-   NOT commit an answer on row activation.
+2. **Multi-select** (opt-in, used by the Add Folders dialog): rows follow file-manager gestures as specified by
+   the `multi-select-folder-picker` capability — a single click selects, the platform modifier adds to the
+   selection, a double-click (or a touch tap) navigates INTO the row, and the picker reports the selection and
+   the browsed directory to the caller, which commits them. Rows SHALL NOT render checkboxes. In this mode the
+   picker SHALL NOT commit an answer on row activation.
 
 All row iconography SHALL be rendered from `@mdi/js` paths so glyphs inherit `currentColor` and remain stable
 across platform fonts: the parent (`..`) row SHALL use `mdiArrowUp` (replacing the `⬆` emoji), directory rows
@@ -219,8 +221,14 @@ than icons.
 - **THEN** `onSelect` SHALL be invoked with that directory's path
 
 #### Scenario: Multi-select mode navigates on activation
-- **WHEN** the picker is in multi-select mode and the user activates a directory row
+- **WHEN** the picker is in multi-select mode and the user activates a directory row (double-click on a fine
+  pointer, tap on touch, or Enter with that row selected)
 - **THEN** the picker SHALL browse into that directory
+- **AND** `onSelect` SHALL NOT be invoked
+
+#### Scenario: Multi-select single click selects without committing
+- **WHEN** the picker is in multi-select mode and the user single-clicks a directory row on a fine pointer
+- **THEN** that row SHALL be selected and the browsed directory SHALL NOT change
 - **AND** `onSelect` SHALL NOT be invoked
 
 #### Scenario: Row glyphs are MDI paths

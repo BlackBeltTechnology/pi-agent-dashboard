@@ -12,10 +12,12 @@ import { describe, expect, it } from "vitest";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
 
 describe("document-converter release notes", () => {
-  it("E10: CHANGELOG [Unreleased] announces MMDC_UNAVAILABLE as breaking", () => {
+  // Section-agnostic: a release cut promotes [Unreleased] to [x.y.z], and the
+  // announcement must survive that move, so assert on the bullet itself.
+  it("E10: CHANGELOG announces MMDC_UNAVAILABLE in a bullet marked breaking", () => {
     const changelog = readFileSync(join(ROOT, "CHANGELOG.md"), "utf8");
-    const unreleased = changelog.split(/^## \[/m)[1] ?? "";
-    expect(unreleased).toContain("MMDC_UNAVAILABLE");
-    expect(unreleased).toMatch(/breaking/i);
+    const bullet = changelog.split(/^- /m).find((b) => b.includes("MMDC_UNAVAILABLE")) ?? "";
+    expect(bullet).toContain("MMDC_UNAVAILABLE");
+    expect(bullet).toMatch(/breaking/i);
   });
 });

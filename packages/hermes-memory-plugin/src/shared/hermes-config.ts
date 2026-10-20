@@ -8,15 +8,18 @@
  * (the values in the extension's `DEFAULT_CONFIG`). A drift risk (D-R1) is
  * accepted + documented.
  *
- * SOURCE-VERSION PIN: mirrored from `pi-hermes-memory@0.8.1`
+ * SOURCE-VERSION PIN: mirrored from `pi-hermes-memory@0.9.10`
  * `src/types.ts` (MemoryConfig) + `src/config.ts` (DEFAULT_CONFIG). Re-check
- * this field set + DEFAULTS on every hermes upgrade (risk D-R1).
+ * this field set + DEFAULTS on every hermes upgrade (risk D-R1); the
+ * drift-guard fixture `__tests__/fixtures/hermes-0.9.10-fields.json` fails
+ * the shared tests when they diverge.
  *
- * See change: add-hermes-memory-settings-plugin.
+ * See change: add-hermes-memory-settings-plugin, resync-hermes-memory-config-0-9.
  */
 
 /** Re-declared hermes `MemoryConfig` (mirror of the extension's types.ts). */
 export interface MemoryConfig {
+  lazyInitialization?: boolean;
   memoryMode: "policy-only" | "legacy-inject";
   memoryPolicyStyle?: "full" | "compact" | "custom" | "none";
   memoryPolicyCustomText?: string;
@@ -31,13 +34,16 @@ export interface MemoryConfig {
   flushOnShutdown: boolean;
   flushMinTurns: number;
   flushRecentMessages?: number;
+  flushCompactTimeoutMs?: number;
   memoryDir?: string;
   projectsMemoryDir?: string;
   sessionSearch?: { variant: "legacy" | "anchors" };
   llmModelOverride?: string;
-  llmThinkingOverride?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+  llmThinkingOverride?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+  llmFallbackModels?: string[];
   childExtensionPaths?: string[];
   memoryOverflowStrategy?: "auto-consolidate" | "reject" | "fifo-evict";
+  overflowGraceMs?: number;
   autoConsolidate: boolean;
   correctionDetection: boolean;
   correctionStrongPatterns?: string[];
@@ -49,6 +55,14 @@ export interface MemoryConfig {
   failureInjectionMaxEntries: number;
   nudgeToolCalls: number;
   consolidationTimeoutMs: number;
+  consolidationChunking?: boolean;
+  consolidationChunkChars?: number;
+  usageHitTrackingEnabled?: boolean;
+  consolidationUsageSignals?: boolean;
+  autoConsolidationWarnOnFailure: boolean;
+  standingInstructionsEnabled: boolean;
+  quickCheckOnOpen?: boolean;
+  sessionRetentionDays?: number;
 }
 
 /** Per-field descriptor driving validation + form rendering. */
@@ -64,12 +78,17 @@ export type FieldDescriptor =
   | { kind: "sessionSearch" };
 
 const NON_NEG_INT: FieldDescriptor = { kind: "number", integer: true, min: 0 };
+/** Any finite value >= 0, fractions included (matches upstream `loadConfig`). */
+const NON_NEG_NUM: FieldDescriptor = { kind: "number", integer: false, min: 0 };
+/** Upstream `CONSOLIDATION_CHUNK_CHARS_MIN` (constants.ts). */
+const CONSOLIDATION_CHUNK_CHARS_MIN = 500;
 
 /**
  * The complete, allowlisted `MemoryConfig` field set. Key presence here is the
  * unknown-key gate: a body key absent from this map is rejected.
  */
 export const FIELD_DESCRIPTORS: Record<keyof MemoryConfig, FieldDescriptor> = {
+  lazyInitialization: { kind: "boolean" },
   memoryMode: { kind: "enum", values: ["policy-only", "legacy-inject"] },
   memoryPolicyStyle: { kind: "enum", values: ["full", "compact", "custom", "none"] },
   memoryPolicyCustomText: { kind: "string" },
@@ -84,13 +103,18 @@ export const FIELD_DESCRIPTORS: Record<keyof MemoryConfig, FieldDescriptor> = {
   flushOnShutdown: { kind: "boolean" },
   flushMinTurns: NON_NEG_INT,
   flushRecentMessages: NON_NEG_INT,
+  // Any finite number; upstream treats <= 0 as "disabled" (design D7).
+  flushCompactTimeoutMs: { kind: "number", integer: false, min: Number.NEGATIVE_INFINITY },
   memoryDir: { kind: "string" },
   projectsMemoryDir: { kind: "string" },
   sessionSearch: { kind: "sessionSearch" },
   llmModelOverride: { kind: "model" },
-  llmThinkingOverride: { kind: "enum", values: ["off", "minimal", "low", "medium", "high", "xhigh"] },
+  // Upstream ThinkingLevel = pi-ai ModelThinkingLevel (adds "max" in 0.9.x).
+  llmThinkingOverride: { kind: "enum", values: ["off", "minimal", "low", "medium", "high", "xhigh", "max"] },
+  llmFallbackModels: { kind: "stringArray" },
   childExtensionPaths: { kind: "stringArray" },
   memoryOverflowStrategy: { kind: "enum", values: ["auto-consolidate", "reject", "fifo-evict"] },
+  overflowGraceMs: NON_NEG_NUM,
   autoConsolidate: { kind: "boolean" },
   correctionDetection: { kind: "boolean" },
   correctionStrongPatterns: { kind: "regexArray" },
@@ -102,6 +126,16 @@ export const FIELD_DESCRIPTORS: Record<keyof MemoryConfig, FieldDescriptor> = {
   failureInjectionMaxEntries: NON_NEG_INT,
   nudgeToolCalls: NON_NEG_INT,
   consolidationTimeoutMs: NON_NEG_INT,
+  consolidationChunking: { kind: "boolean" },
+  // Stricter than upstream (which silently ignores < 500): never save an ignored value.
+  consolidationChunkChars: { kind: "number", integer: false, min: CONSOLIDATION_CHUNK_CHARS_MIN },
+  usageHitTrackingEnabled: { kind: "boolean" },
+  consolidationUsageSignals: { kind: "boolean" },
+  autoConsolidationWarnOnFailure: { kind: "boolean" },
+  standingInstructionsEnabled: { kind: "boolean" },
+  quickCheckOnOpen: { kind: "boolean" },
+  // Stricter than upstream (integer): a fractional typo would prune almost all history at startup.
+  sessionRetentionDays: NON_NEG_INT,
 };
 
 /** Allowlisted key set (validation gate + GET field enumeration). */
@@ -116,6 +150,7 @@ export const KNOWN_KEYS: readonly (keyof MemoryConfig)[] = Object.keys(
  * back as `undefined`.
  */
 export const DEFAULTS: Partial<MemoryConfig> = {
+  lazyInitialization: false,
   memoryMode: "policy-only",
   memoryPolicyStyle: "full",
   memoryCharLimit: 5000,
@@ -129,17 +164,63 @@ export const DEFAULTS: Partial<MemoryConfig> = {
   flushOnShutdown: true,
   flushMinTurns: 6,
   flushRecentMessages: 0,
+  flushCompactTimeoutMs: 60000,
   memoryOverflowStrategy: "auto-consolidate",
+  overflowGraceMs: 180000,
   autoConsolidate: true,
   correctionDetection: true,
   failureInjectionEnabled: true,
   failureInjectionMaxAgeDays: 7,
   failureInjectionMaxEntries: 5,
-  consolidationTimeoutMs: 60000,
+  consolidationChunking: false,
+  consolidationChunkChars: 4000,
+  consolidationTimeoutMs: 180000,
+  usageHitTrackingEnabled: true,
+  consolidationUsageSignals: true,
+  autoConsolidationWarnOnFailure: true,
   nudgeToolCalls: 15,
+  standingInstructionsEnabled: true,
   projectsMemoryDir: "projects-memory",
   sessionSearch: { variant: "legacy" },
+  quickCheckOnOpen: true,
+  sessionRetentionDays: 0,
 };
+
+/**
+ * The 23 keys that carried a defined default in the 0.8.1 mirror, frozen. A
+ * file holding ALL of them was written by the 0.8.1-era write-all plugin; the
+ * compose step uses it as the signature for the one-time
+ * `consolidationTimeoutMs` 60000 heal (design D6). Never edit: it describes
+ * history, not the current field set.
+ */
+export const LEGACY_0_8_1_DEFAULTED_KEYS: readonly string[] = Object.freeze([
+  "memoryMode",
+  "memoryPolicyStyle",
+  "memoryCharLimit",
+  "userCharLimit",
+  "projectCharLimit",
+  "nudgeInterval",
+  "reviewRecentMessages",
+  "reviewEnabled",
+  "reviewTransport",
+  "flushOnCompact",
+  "flushOnShutdown",
+  "flushMinTurns",
+  "flushRecentMessages",
+  "memoryOverflowStrategy",
+  "autoConsolidate",
+  "correctionDetection",
+  "failureInjectionEnabled",
+  "failureInjectionMaxAgeDays",
+  "failureInjectionMaxEntries",
+  "consolidationTimeoutMs",
+  "nudgeToolCalls",
+  "projectsMemoryDir",
+  "sessionSearch",
+]);
+
+/** The 0.8.1-era `consolidationTimeoutMs` default that write-all files pinned. */
+export const LEGACY_CONSOLIDATION_TIMEOUT_MS = 60000;
 
 export interface ValidationError {
   field: string;
