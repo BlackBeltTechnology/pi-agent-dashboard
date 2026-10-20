@@ -30,7 +30,8 @@ unit-tested (`.pi/skills/ship-it` is a vitest project):
 `resolveReviewer`, `classifyFindings`, `REVIEW_TIMEOUT_MS`),
 `scripts/fix-ledger.ts` (`validateFixLedger`), `scripts/review-state.ts`
 (`deriveReviewState`), and `scripts/review-prompt.ts` (`buildReviewPrompt` + the
-step-4.5 CLI). The CodeQL ratchet of step 4.4b is the repo script
+step-4.5 CLI), and `scripts/openspec-deps-gate.ts` (`runGate`, the step-1.5
+dependency gate). The CodeQL ratchet of step 4.4b is the repo script
 `scripts/codeql-local.mjs` (see `docs/code-quality.md`).
 
 ## Preconditions
@@ -73,6 +74,38 @@ when its **test file exists AND passes in the harness** (step 3). Any automated
 row whose test file is absent → NOT done → author it (step 2) regardless of the
 checkbox. This makes re-invocation genuinely idempotent: fresh run and re-run
 reach the same all-green end state.
+
+### 1.5. Dependency gate — are this change's blockers shipped?
+
+Runs on every invocation, **after** the `SHIP_IT_BLOCKED.md` entry gate and the
+orientation above, and **before** any implementation step. From the worktree
+root, with a **60 s overall timeout** on the tool call:
+
+```bash
+npx tsx .pi/skills/ship-it/scripts/openspec-deps-gate.ts --change <change>
+```
+
+The script owns all logic (dashboard query with a bounded retry, offline parser
+fallback, `origin/develop` archive lookup) and prints one JSON verdict
+`{ status: ok|warn|blocked, mode: online|offline, blockers: [{ change, state:
+open|satisfied|unknown, source }], issues: [{ code, severity, message }], notes }`.
+Act on it — do not re-derive it:
+
+- **Crash, timeout or unparseable output** → record *"dependencies not checked"*
+  in the step report and **continue**; this gate never stops a run by failing.
+- **`status: blocked`** (an `error` issue: `invalid-file`, `self-reference`, a
+  declared `cycle`) → write `SHIP_IT_BLOCKED.md` naming the issue(s) and stop via
+  the step-5 escape hatch. No fix loop, no review round.
+- **Open blockers** (`state: open`) → a warning. **Interactive** → `ask_user`
+  *continue / stop* (with the situation brief below, listing the open blockers);
+  on *stop* write `SHIP_IT_BLOCKED.md` naming them and stop. **Headless** →
+  **continue** and carry the open blockers into the final report.
+- Warnings (including inferred-cycle warnings), `satisfied`, `unknown` names and
+  the script's notes never interrupt; report them. A blocker the script counted
+  as satisfied because it is archived on `origin/develop` is a pending merge,
+  not a blocker (step 2.5 brings it in).
+- `mode: offline` checked this change's own `dependencies.yaml` only: say in the
+  report that cycles and inferred edges were **not checked**.
 
 ### 2. Run apply if non-manual work remains — inject the exemplar
 

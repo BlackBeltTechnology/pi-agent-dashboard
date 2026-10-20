@@ -37,6 +37,7 @@ import {
   type TrackedExtras,
 } from "@blackbelt-technology/pi-dashboard-shared/openspec-status-all.js";
 import type { OpenSpecChange, OpenSpecData } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { computeDependencies, summarizeDependencyGraph } from "./openspec-dependency-inputs.js";
 import {
   effectiveMtimeOr,
   type ProbeRequest,
@@ -215,6 +216,11 @@ export type StatusAllBuildResponse =
       cwdStamp: number | undefined;
       /** Tracked extras per change for the next probe and the watcher filter. */
       extras: Record<string, TrackedExtras>;
+      /**
+       * Capability ids touched by an active delta, stored with the gate stamp:
+       * the next probe stats their main-spec paths. See change: add-openspec-change-dependencies.
+       */
+      capabilityIds: string[];
     };
 
 function sameExtras(a: TrackedExtras | undefined, b: TrackedExtras | undefined): boolean {
@@ -297,7 +303,29 @@ export async function buildFromStatusAll(req: StatusAllBuildRequest): Promise<St
     for (const name of rec.needNewSetStamp) rec.stampMtimes[name] = reprobe.changes[name];
   }
 
-  const data = finishPayload({ initialized: true, changes: rec.changes }, hasOpenspecDir, groupAssignments);
+  // Dependency graph: always recomputed from the files read in THIS build, for
+  // every change — including racy ones whose other fields keep the previous
+  // entry — so `blocks` / `blockedBy` stay inverse within one payload.
+  const dep = await computeDependencies(
+    openspecDir,
+    rec.changes.map((c) => c.name),
+    post.changes,
+  );
+  if (debugEnabled()) {
+    // eslint-disable-next-line no-console
+    console.debug(summarizeDependencyGraph(dep.graph, dep.ms));
+  }
+  const changes = rec.changes.map((c) => ({ ...c, dependencies: dep.graph[c.name] }));
+
+  // The cwd-level stamp must cover the paths the NEXT probe will stat; when the
+  // touched capability set moved, re-take the cwd-level mtime over the new set.
+  const prevCaps = probeReq.capabilityIds ? [...probeReq.capabilityIds].sort().join("\n") : null;
+  let cwdStamp = pre.cwdMtime === post.cwdMtime ? pre.cwdMtime : undefined;
+  if (cwdStamp !== undefined && prevCaps !== dep.capabilityIds.join("\n")) {
+    cwdStamp = (await probeTrackedPaths({ openspecDir, extras: built.extras, capabilityIds: dep.capabilityIds })).cwdMtime;
+  }
+
+  const data = finishPayload({ initialized: true, changes }, hasOpenspecDir, groupAssignments);
   return {
     cwd,
     kind: "ok",
@@ -305,8 +333,9 @@ export async function buildFromStatusAll(req: StatusAllBuildRequest): Promise<St
     serialized: JSON.stringify(data),
     stampMtimes: rec.stampMtimes,
     racyNames: rec.racyNames,
-    cwdStamp: pre.cwdMtime === post.cwdMtime ? pre.cwdMtime : undefined,
+    cwdStamp,
     extras: built.extras,
+    capabilityIds: dep.capabilityIds,
   };
 }
 

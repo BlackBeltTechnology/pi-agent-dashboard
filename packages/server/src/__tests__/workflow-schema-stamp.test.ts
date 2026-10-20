@@ -7,6 +7,7 @@ import path from "node:path";
 import type { Semaphore } from "@blackbelt-technology/pi-dashboard-shared/semaphore.js";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  CURRENT_PATCH,
   compareStamp,
   computeWorkflowSchemaStatus,
   evaluateSchemaStatus,
@@ -24,18 +25,19 @@ afterEach(() => {
   for (const r of roots.splice(0)) fs.rmSync(r, { recursive: true, force: true });
 });
 
-const LOCAL = { base: "1.11.0", patch: 1 };
+const P = CURRENT_PATCH;
+const LOCAL = { base: "1.11.0", patch: P };
 
 describe("compareStamp / evaluateSchemaStatus", () => {
   it.each([
-    [{ base: "1.11.0", patch: 1 }, "current"],
-    [{ base: "1.10.0", patch: 1 }, "outdated"],
-    [{ base: "1.11.0", patch: 0 }, "outdated"],
-    [{ base: "1.12.0", patch: 1 }, "newer"],
-    [{ base: "1.11.0", patch: 2 }, "newer"],
-    [{ base: "1.12.0", patch: 0 }, "conflict"],
-    [{ base: "1.10.0", patch: 2 }, "conflict"],
-  ] as const)("#E10 stamp %j vs local (1.11.0,1) → %s", async (stamp, expected) => {
+    [{ base: "1.11.0", patch: P }, "current"],
+    [{ base: "1.10.0", patch: P }, "outdated"],
+    [{ base: "1.11.0", patch: P - 1 }, "outdated"],
+    [{ base: "1.12.0", patch: P }, "newer"],
+    [{ base: "1.11.0", patch: P + 1 }, "newer"],
+    [{ base: "1.12.0", patch: P - 1 }, "conflict"],
+    [{ base: "1.10.0", patch: P + 1 }, "conflict"],
+  ] as const)("#E10 stamp %j vs local (1.11.0,CURRENT_PATCH) → %s", async (stamp, expected) => {
     expect(compareStamp(stamp, LOCAL)).toBe(expected);
     // and through the filesystem evaluation (validate passes → status unchanged)
     const root = repo();
@@ -53,7 +55,7 @@ describe("compareStamp / evaluateSchemaStatus", () => {
   it("#E10 a symlinked directory is unmanaged", async () => {
     const root = repo();
     const elsewhere = repo();
-    const target = writeSchemaDir(elsewhere, { base: "1.11.0", patch: 1 });
+    const target = writeSchemaDir(elsewhere, { base: "1.11.0", patch: P });
     fs.mkdirSync(path.join(root, "openspec", "schemas"), { recursive: true });
     fs.symlinkSync(target, path.join(root, "openspec", "schemas", "pi-spec-driven"));
     expect(await evaluateSchemaStatus(root, "1.11.0", stubDeps(makeFakeCli()))).toBe("unmanaged");
@@ -99,7 +101,7 @@ describe("computeWorkflowSchemaStatus (poll-side status, no CLI)", () => {
 
   it("reports configured, generated, affected and unpinned changes from files alone", async () => {
     const root = repo({ config: "schema: pi-spec-driven\n" });
-    writeSchemaDir(root, { base: "1.11.0", patch: 1 });
+    writeSchemaDir(root, { base: "1.11.0", patch: P });
     write(root, "openspec/changes/a/proposal.md", "x");
     write(root, "openspec/changes/b/.openspec.yaml", "schema: pi-spec-driven\n");
     write(root, "openspec/changes/c/.openspec.yaml", "schema: spec-driven\n");

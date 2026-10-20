@@ -53,6 +53,18 @@ describe("OpenSpecChangeWatcher debounce", () => {
     expect(onChange).toHaveBeenCalledWith("/some/cwd");
   });
 
+  it("#E16 a dependencies.yaml event of a spec-driven change fires one debounced onChange", () => {
+    const onChange = vi.fn();
+    const watcher = createOpenSpecChangeWatcher({ onChange, debounceMs: 300 });
+    watcher.attach("/some/cwd");
+    const fakeWatcher = fakeWatchers[0]!;
+    fakeWatcher.emit("change", "change", "foo/dependencies.yaml");
+    fakeWatcher.emit("rename", "rename", "foo/dependencies.yaml");
+    vi.advanceTimersByTime(300);
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith("/some/cwd");
+  });
+
   it("ignores non-matching filenames (no debounce armed)", () => {
     const onChange = vi.fn();
     const watcher = createOpenSpecChangeWatcher({ onChange, debounceMs: 300 });

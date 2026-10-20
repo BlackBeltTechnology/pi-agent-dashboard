@@ -199,6 +199,30 @@ describe("OpenSpecWorkflowSchemaSection", () => {
     expect(within(dialog).getByTestId("workflow-schema-affected").textContent).toContain("3");
   });
 
+  it("#F9 Update names the patch-2 impact: how many affected changes need a declaration", async () => {
+    renderSection({
+      [CWD]: status({
+        generated: "outdated",
+        configured: "pi-spec-driven",
+        affectedChanges: ["a", "b", "c", "d"],
+        undeclaredChanges: ["a", "b", "d"],
+      }),
+    });
+    fireEvent.click(screen.getByTestId(`workflow-schema-update-${CWD}`));
+    const dialog = await screen.findByTestId("workflow-schema-confirm");
+    expect(within(dialog).getByTestId("workflow-schema-affected").textContent).toContain("Affects 4 active changes");
+    const impact = within(dialog).getByTestId("workflow-schema-dependencies-impact").textContent ?? "";
+    expect(impact).toContain("3 of 4");
+    expect(impact).toMatch(/return to planning/);
+  });
+
+  it("#F9 no impact line when the server has not reported undeclared changes or none are missing", async () => {
+    renderSection({ [CWD]: status({ generated: "outdated", configured: "pi-spec-driven", affectedChanges: ["a"] }) });
+    fireEvent.click(screen.getByTestId(`workflow-schema-update-${CWD}`));
+    const dialog = await screen.findByTestId("workflow-schema-confirm");
+    expect(within(dialog).queryByTestId("workflow-schema-dependencies-impact")).toBeNull();
+  });
+
   it("#F7 Pin posts the unpinned changes with the chosen target", async () => {
     renderSection({
       [CWD]: status({ generated: "current", configured: "pi-spec-driven", unpinnedChanges: ["foo", "bar"] }),

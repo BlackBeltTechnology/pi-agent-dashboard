@@ -3060,6 +3060,46 @@ Fix (change: harden-worktree-spawn):
 
 Manual recovery if auto-install fails: `cd <worktree>; npm ci`.
 
+## How do I declare an OpenSpec change dependency?
+
+Three ways. Same result: blockers feed execution order and ship-it.
+
+1. File: create `openspec/changes/<name>/dependencies.yaml`.
+
+   ```yaml
+   blocked_by:
+     - other-change
+     - change: third-change
+       reason: needs API from it
+   not_blocked_by:
+     - looks-related-but-independent
+   related:
+     - sibling-change
+   ```
+
+2. Board: open the card → `Dependencies…` dialog. Writes the same file.
+3. Proposal: labelled line under `## Dependencies` in `proposal.md`.
+
+   ```md
+   ## Dependencies
+   - Depends on: `other-change`
+   ```
+
+   Labels: `Blocked by`, `Depends on`, `Builds on` (blocking); `Blocks` (inverse). Not `Blocks on`.
+
+Rules:
+- Empty lists = explicit "no dependencies".
+- Name grammar: kebab-case change id. Unknown top-level key or bad name → `invalid-file` error.
+- Inferred edges (proposal prose, shared capability) rejected with `not_blocked_by: [name]`.
+- Archived blocker (`<YYYY-MM-DD>-<name>`) counts satisfied. `SHELVED` archive does NOT.
+- Unknown name in `blocked_by` → `unknown-change` warning.
+
+Schema: `pi-spec-driven` patch 2 requires `dependencies.yaml`. Undeclared change stays in planning (artifact `L`, "Declare dependencies" hint). Patch-1 projects: Settings → OpenSpec → Update schema.
+
+ship-it: open blockers → warn. Errors (cycle, invalid file) → block. Gate: `.pi/skills/ship-it/scripts/openspec-deps-gate.ts --change <name>`.
+
+See `docs/architecture.md` § OpenSpec change dependencies. See change: add-openspec-change-dependencies.
+
 ## How do I change the OpenSpec workflow profile from the dashboard?
 
 Settings → Advanced → OpenSpec Workflow Profile. Pick Core / Expanded / Custom. Custom exposes 11-workflow multiselect.

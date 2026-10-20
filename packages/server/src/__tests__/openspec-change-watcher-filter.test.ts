@@ -13,6 +13,8 @@ describe("matchesOpenSpecArtifact", () => {
     "my-change/proposal.md",
     "my-change/design.md",
     "my-change/.openspec.yaml",        // change metadata (schema / error state)
+    "my-change/dependencies.yaml",     // declared dependencies (spec-driven changes don't declare it as an artifact)
+    "my-change\\dependencies.yaml",
     "my-change",                       // change dir created / renamed
     "my-change/specs/cap/spec.md",
     "my-change/specs/deep/nested/cap/spec.md",
@@ -30,6 +32,8 @@ describe("matchesOpenSpecArtifact", () => {
     "my-change/README.md",             // wrong file at change root
     "archive",                         // the archive container is not a change
     "archive/2026-01-01-old/tasks.md", // archived changes are not polled
+    "my-change/dependencies.yaml.bak", // backup file
+    "archive/2026-01-01-old/dependencies.yaml",
     "my-change/notes.txt",             // non-markdown
     "my-change/specs/cap/notes.txt",   // wrong extension under specs
     "my-change/specs/cap/spec.txt",    // wrong extension
@@ -48,15 +52,15 @@ describe("matchesOpenSpecArtifact", () => {
 });
 
 describe("matchesOpenSpecArtifact — schema-declared outputs and root events (#E13)", () => {
-  const outputs = { known: ["dependencies.yaml", "specs/**/*.md", "plan.md"] };
+  const outputs = { known: ["research.yaml", "specs/**/*.md", "plan.md"] };
 
   it("matches a not-yet-created schema output of a known change", () => {
-    expect(matchesOpenSpecArtifact("known/dependencies.yaml", outputs)).toBe(true);
+    expect(matchesOpenSpecArtifact("known/research.yaml", outputs)).toBe(true);
     expect(matchesOpenSpecArtifact("known/plan.md", outputs)).toBe(true);
   });
   it("does not match the same name for an unknown change or without patterns", () => {
-    expect(matchesOpenSpecArtifact("other/dependencies.yaml", outputs)).toBe(false);
-    expect(matchesOpenSpecArtifact("known/dependencies.yaml")).toBe(false);
+    expect(matchesOpenSpecArtifact("other/research.yaml", outputs)).toBe(false);
+    expect(matchesOpenSpecArtifact("known/research.yaml")).toBe(false);
   });
   it("README.md under a known change is not an output", () => {
     expect(matchesOpenSpecArtifact("known/README.md", outputs)).toBe(false);

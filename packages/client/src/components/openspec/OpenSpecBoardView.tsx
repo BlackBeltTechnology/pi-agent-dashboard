@@ -77,6 +77,13 @@ import {
   slotsEqual,
 } from "../../lib/openspec/openspec-board-order.js";
 import { deriveWorktreeProgress } from "../../lib/openspec/openspec-board-worktree.js";
+import {
+  executionOrderDrop,
+  hasDependencyGraph,
+  orderByWave,
+  showDeclareHint,
+  showDependencyUi,
+} from "../../lib/openspec/openspec-dependencies-view.js";
 import { useOpenSpecConfig } from "../../lib/openspec/openspec-config-api.js";
 import { GROUP_PALETTE, resolveGroupColor } from "../../lib/openspec/openspec-group-palette.js";
 import { createGroup, deleteGroup, fetchGroups, setAssignment, setChangeOrder, updateGroup } from "../../lib/openspec/openspec-groups-api.js";
@@ -84,6 +91,8 @@ import { selectBadgeTimestamp } from "../../lib/session/session-card-time.js";
 import { deriveDotColor, deriveIconStatusColor, deriveProposalCardState, getCardPulseClass, getCardStripeFxClass, pulseClassForStatus, sourceIcons } from "../../lib/session/session-status-visuals.js";
 import { formatRelativeTime, formatTokens } from "../../lib/util/format.js";
 import { DialogPortal } from "../primitives/DialogPortal.js";
+import { DependenciesDialog } from "./DependenciesDialog.js";
+import { DependencyChips } from "./DependencyChips.js";
 import { LazyTasksPopover } from "./lazy-openspec-dialogs.js";
 import { OpenSpecActivityBadge } from "./OpenSpecActivityBadge.js";
 import { OpenSpecGroupManager } from "./OpenSpecGroupManager.js";
@@ -214,6 +223,13 @@ export function OpenSpecBoardView(props: OpenSpecBoardViewProps) {
   const [manageGroupId, setManageGroupId] = useState<string | null>(null);
   const [proposalDialogGroup, setProposalDialogGroup] = useState<{ open: boolean; groupId: string } | null>(null);
   const [addGroupOpen, setAddGroupOpen] = useState(false);
+  // Dependencies: which change's editor is open, and the execution-order view
+  // (cards sorted by wave; within-column reorder off). See change: add-openspec-change-dependencies.
+  const [depsDialogFor, setDepsDialogFor] = useState<string | null>(null);
+  const [executionOrder, setExecutionOrder] = useState(false);
+  const depGraph = hasDependencyGraph(data.changes);
+  const depUi = showDependencyUi(data);
+  const execView = executionOrder && depGraph;
 
   // Filters
   const [query, setQuery] = useState("");
@@ -305,12 +321,15 @@ export function OpenSpecBoardView(props: OpenSpecBoardViewProps) {
       byKey.set(key, list);
     }
     const cols: Array<{ key: string; group: OpenSpecGroup | null; changes: OpenSpecChange[] }> = [];
-    cols.push({ key: UNGROUPED, group: null, changes: orderChangesForGroup(byKey.get(UNGROUPED) ?? [], changeOrder[UNGROUPED]) });
+    // Execution-order view sorts each column by wave and never touches `changeOrder`.
+    const order = (list: OpenSpecChange[], persisted: string[] | undefined) =>
+      execView ? orderByWave(list) : orderChangesForGroup(list, persisted);
+    cols.push({ key: UNGROUPED, group: null, changes: order(byKey.get(UNGROUPED) ?? [], changeOrder[UNGROUPED]) });
     for (const g of groups) {
-      cols.push({ key: g.id, group: g, changes: orderChangesForGroup(byKey.get(g.id) ?? [], changeOrder[g.id]) });
+      cols.push({ key: g.id, group: g, changes: order(byKey.get(g.id) ?? [], changeOrder[g.id]) });
     }
     return cols;
-  }, [data.changes, groups, changeOrder, cardVisible, resolveGroupKey]);
+  }, [data.changes, groups, changeOrder, cardVisible, resolveGroupKey, execView]);
 
   // DnD ------------------------------------------------------------
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
@@ -406,22 +425,35 @@ export function OpenSpecBoardView(props: OpenSpecBoardViewProps) {
       const targetCol = columns.find((c) => c.key === targetKey);
       if (!targetCol) return;
 
-      // Frame-race guard (design D3): re-resolve from THIS event rather than
-      // trusting the last `onDragMove`. `dropSlot` is only refreshed by a
-      // subsequent move, so a pointer jump released within one frame would
-      // otherwise commit a stale slot — including a same-column jump off the
-      // rail onto a card, where the column matches but the index does not.
-      const slot = resolveMoveSlot(e, columns, dropRectsRef.current);
-      if (!slot || slot.colKey !== targetKey) return;
-
+      let newTargetOrder: string[];
+      if (execView) {
+        // Execution-order view: no within-column reorder; a drop on another
+        // column reassigns the group and appends to its manual order.
+        const drop = executionOrderDrop({
+          sourceKey,
+          targetKey,
+          movedName,
+          targetManualOrder: orderChangesForGroup(targetCol.changes, changeOrder[targetKey]).map((c) => c.name),
+        });
+        if (!drop) return;
+        newTargetOrder = drop.newTargetOrder;
+      } else {
+        // Frame-race guard (design D3): re-resolve from THIS event rather than
+        // trusting the last `onDragMove`. `dropSlot` is only refreshed by a
+        // subsequent move, so a pointer jump released within one frame would
+        // otherwise commit a stale slot — including a same-column jump off the
+        // rail onto a card, where the column matches but the index does not.
+        const slot = resolveMoveSlot(e, columns, dropRectsRef.current);
+        if (!slot || slot.colKey !== targetKey) return;
+        // `slot.index` is already an index into the without-moved list, which is
+        // exactly `computeReorder`'s contract — no `+1` correction.
+        newTargetOrder = computeReorder(
+          targetCol.changes.map((c) => c.name),
+          movedName,
+          slot.index,
+        );
+      }
       const groupChanged = sourceKey !== targetKey;
-      // `slot.index` is already an index into the without-moved list, which is
-      // exactly `computeReorder`'s contract — no `+1` correction.
-      const newTargetOrder = computeReorder(
-        targetCol.changes.map((c) => c.name),
-        movedName,
-        slot.index,
-      );
 
       // Optimistic local update.
       setLocal((prev) => {
@@ -450,7 +482,16 @@ export function OpenSpecBoardView(props: OpenSpecBoardViewProps) {
         } catch {/* tolerate; WS will reconcile */}
       })();
     }
-  }, [groups, columns, cwd, persistGroupOrder, clearDrag]);
+  }, [groups, columns, cwd, persistGroupOrder, clearDrag, execView, changeOrder]);
+
+  // Where the insertion marker shows. Execution-order view: a cross-column drop
+  // always appends (marker at the end); the own column shows none.
+  const dragSourceKey = activeDrag?.type === "card" ? columns.find((c) => c.changes.some((x) => x.name === activeDrag.id))?.key ?? null : null;
+  const dropIndexFor = (col: { key: string; changes: OpenSpecChange[] }): number | null => {
+    if (dropSlot?.colKey !== col.key) return null;
+    if (!execView) return dropSlot.index;
+    return col.key === dragSourceKey ? null : col.changes.length;
+  };
 
   // Group mutations ------------------------------------------------
   const handleCreateGroup = useCallback(async (name: string, color: string) => {
@@ -522,6 +563,14 @@ export function OpenSpecBoardView(props: OpenSpecBoardViewProps) {
             <FilterPill key={p.label} active={sessFilter === p.value} onClick={() => setSessFilter(p.value)} testId={`sess-pill-${p.label}`}>{p.label}</FilterPill>
           ))}
         </div>
+        {depGraph && (
+          <>
+            <span className="w-px h-[18px] bg-[var(--border-secondary)]" />
+            <FilterPill active={executionOrder} onClick={() => setExecutionOrder((v) => !v)} testId="board-execution-order">
+              {i18nT("openspec.dependencies.executionOrder", undefined, "Execution order")}
+            </FilterPill>
+          </>
+        )}
       </div>
 
       {/* Board */}
@@ -545,7 +594,7 @@ export function OpenSpecBoardView(props: OpenSpecBoardViewProps) {
                 isDragging={activeDrag?.type === "column" && activeDrag.id === col.key}
                 cardDragActive={activeDrag?.type === "card"}
                 movedName={activeDrag?.type === "card" ? activeDrag.id : null}
-                dropIndex={dropSlot?.colKey === col.key ? dropSlot.index : null}
+                dropIndex={dropIndexFor(col)}
                 receded={activeDrag?.type === "card" && dropSlot != null && dropSlot.colKey !== col.key}
                 onNewProposal={() => setProposalDialogGroup({ open: true, groupId: col.key })}
                 onManage={col.group ? () => setManageGroupId(col.group!.id) : undefined}
@@ -573,6 +622,8 @@ export function OpenSpecBoardView(props: OpenSpecBoardViewProps) {
                     onReplaceProposal={onReplaceProposal}
                     onBulkArchive={onBulkArchive}
                     allChanges={data.changes}
+                    showDependencies={depUi}
+                    onOpenDependencies={setDepsDialogFor}
                     groups={groups}
                     assignments={assignments}
                     openspecConfig={openspecConfig}
@@ -606,6 +657,16 @@ export function OpenSpecBoardView(props: OpenSpecBoardViewProps) {
       </div>
 
       {/* Dialogs */}
+      {depsDialogFor && (
+        <DependenciesDialog
+          key={depsDialogFor}
+          cwd={cwd}
+          change={depsDialogFor}
+          activeNames={data.changes.map((c) => c.name)}
+          onClose={() => setDepsDialogFor(null)}
+          onOpenChange={setDepsDialogFor}
+        />
+      )}
       {tasksOpenFor && (
         <DialogPortal>
           <Suspense fallback={null}><LazyTasksPopover cwd={cwd} change={tasksOpenFor} onClose={() => setTasksOpenFor(null)} /></Suspense>
@@ -1063,6 +1124,9 @@ function ProposalCard(props: {
   onReplaceProposal?: (sessionId: string, accept: boolean, changeName: string) => void;
   onBulkArchive: () => void;
   allChanges: OpenSpecChange[];
+  /** Dependency chips render only when the dependency UI is visible (D8). */
+  showDependencies: boolean;
+  onOpenDependencies: (changeName: string) => void;
   groups: OpenSpecGroup[];
   assignments: Record<string, string>;
   openspecConfig: ReturnType<typeof useOpenSpecConfig>;
@@ -1102,6 +1166,20 @@ function ProposalCard(props: {
         />
       </div>
 
+      {props.showDependencies && c.dependencies ? <DependencyChips dependencies={c.dependencies} /> : null}
+      {showDeclareHint(c) && (
+        <button
+          type="button"
+          className="focus-ring mt-1.5 text-[11px] underline text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+          title={i18nT("openspec.dependencies.declareHintTitle", undefined, "This change stays in planning until its dependencies are declared")}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={() => props.onOpenDependencies(c.name)}
+          data-testid={`card-declare-dependencies-${c.name}`}
+        >
+          {i18nT("openspec.dependencies.declareHint", undefined, "Declare dependencies")}
+        </button>
+      )}
+
       {/* Sessions */}
       {sessions.length > 0 && (
         <div className="mt-2 flex flex-col gap-1" data-testid="board-card-sessions">
@@ -1137,6 +1215,18 @@ function ProposalCard(props: {
         >
           <Icon path={mdiSourceBranchPlus} size={0.5} className="flex-shrink-0" />{i18nT("worktree.newWorktree", undefined, "New worktree")}
         </button>
+        {/* Available whenever the graph is computed, even while the chips are
+            hidden, so a spec-driven project can opt in from the board. */}
+        {c.dependencies !== undefined && (
+          <button
+            type="button"
+            onClick={() => props.onOpenDependencies(c.name)}
+            className="focus-ring inline-flex items-center justify-center gap-1 text-[12px] font-semibold px-2.5 tap-target rounded-md border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] whitespace-nowrap"
+            data-testid={`card-dependencies-${c.name}`}
+          >
+            {i18nT("openspec.dependencies.action", undefined, "Dependencies…")}
+          </button>
+        )}
       </div>
     </div>
   );

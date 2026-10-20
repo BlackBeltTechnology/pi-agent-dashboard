@@ -22,7 +22,7 @@ import { createDirectoryService, type DirectoryService } from "../directory-serv
 import { deriveOpenSpecReadiness, type ReadinessInputs } from "../openspec/readiness.js";
 import type { PreferencesStore } from "../persistence/preferences-store.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
-import type { CliCall } from "../openspec/workflow-schema.js";
+import { CURRENT_PATCH, type CliCall } from "../openspec/workflow-schema.js";
 
 // ── git-operations mock: resolveConfigRoot is faked (configurable per test);
 // everything else stays real (folder-head-poll needs readHeadDisplayAsync).
@@ -759,7 +759,7 @@ describe("DirectoryService — OpenSpecData.workflowSchema (add-pi-spec-driven-s
     const repo = path.join(tmpRoot, "repo");
     mkProject(repo, { skills: true });
     put(repo, "openspec/config.yaml", "schema: pi-spec-driven\n");
-    stampedSchema(repo, "1.10.0", 1);
+    stampedSchema(repo, "1.10.0", CURRENT_PATCH);
     const out = await make().refreshOpenSpec(repo);
     expect(out.readiness?.state).toBe("READY");
     expect(out.workflowSchema?.generated).toBe("outdated");
@@ -775,7 +775,7 @@ describe("DirectoryService — OpenSpecData.workflowSchema (add-pi-spec-driven-s
     await service.refreshOpenSpec(repo);
     expect(service.getOpenSpecData(repo)?.workflowSchema).toMatchObject({ configured: "spec-driven", generated: "none" });
     put(repo, "openspec/config.yaml", "schema: pi-spec-driven\n");
-    stampedSchema(repo, "1.11.0", 1);
+    stampedSchema(repo, "1.11.0", CURRENT_PATCH);
     const out = await service.pollDirectoryGated(repo);
     expect(out.workflowSchema).toMatchObject({ configured: "pi-spec-driven", generated: "current" });
   });
@@ -784,7 +784,7 @@ describe("DirectoryService — OpenSpecData.workflowSchema (add-pi-spec-driven-s
     const repo = path.join(tmpRoot, "repo");
     mkProject(repo, { skills: true });
     put(repo, "openspec/config.yaml", "schema: pi-spec-driven\n");
-    stampedSchema(repo, "1.12.0", 1);
+    stampedSchema(repo, "1.12.0", CURRENT_PATCH);
     const cli = vi.fn(async (_call: CliCall) => ({ ok: true as const, stdout: JSON.stringify({ valid: false }) }));
     make({ workflowSchema: { packageSchemasDir: async () => pkgSchemas, deps: { cli, validateMemo: new Map() } } });
     expect((await service.refreshOpenSpec(repo)).workflowSchema?.generated).toBe("incompatible");
@@ -815,7 +815,7 @@ describe("DirectoryService — OpenSpecData.workflowSchema (add-pi-spec-driven-s
     const repo = path.join(tmpRoot, "repo");
     mkProject(repo, { skills: true });
     put(repo, "openspec/config.yaml", "schema: pi-spec-driven\n");
-    stampedSchema(repo, "1.11.0", 1);
+    stampedSchema(repo, "1.11.0", CURRENT_PATCH);
     put(repo, "openspec/changes/foo/.openspec.yaml", "schema: spec-driven\n");
     put(repo, "openspec/changes/bar/proposal.md", "# p\n");
     const { runOpenSpecList } = await import("@blackbelt-technology/pi-dashboard-shared/openspec-poller.js");
@@ -846,7 +846,7 @@ describe("DirectoryService — OpenSpecData.workflowSchema (add-pi-spec-driven-s
     const repo = path.join(tmpRoot, "repo");
     mkProject(repo, { skills: true });
     put(repo, "openspec/config.yaml", "schema: pi-spec-driven\n");
-    stampedSchema(repo, "1.10.0", 1);
+    stampedSchema(repo, "1.10.0", CURRENT_PATCH);
     const { runOpenSpecStatusAll } = await import("@blackbelt-technology/pi-dashboard-shared/openspec-poller.js");
     (runOpenSpecStatusAll as any).mockImplementationOnce(async () => ({ stdout: "not json", stderr: "boom", exitCode: 1 }));
     const out = await make().refreshOpenSpec(repo);
@@ -871,7 +871,7 @@ describe("DirectoryService — OpenSpecData.workflowSchema (add-pi-spec-driven-s
     const repo = path.join(tmpRoot, "repo");
     mkProject(repo, { skills: true });
     put(repo, "openspec/config.yaml", "schema: pi-spec-driven\n");
-    if (!missingDir) stampedSchema(repo, "1.11.0", 1);
+    if (!missingDir) stampedSchema(repo, "1.11.0", CURRENT_PATCH);
     put(repo, "openspec/changes/a/proposal.md", "# p\n"); // unpinned
     put(repo, "openspec/changes/b/.openspec.yaml", "schema: pi-spec-driven\n");
     put(repo, "openspec/changes/c/.openspec.yaml", "schema: spec-driven\n");

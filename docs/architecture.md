@@ -6400,6 +6400,173 @@ Design-evidence promotion (R1 split files, R2 `design/` dir, R3 no design + task
 - Skills: `.pi/skills/openspec-shared/scripts/effective-status.sh` — `jq -r '.schemaName'` gate on `openspec status --change <name> --json`.
 - Other schemas: rules unchanged. Fallback `list` path (no `schemaName`): keeps promoting.
 
+## OpenSpec change dependencies (`add-openspec-change-dependencies`)
+
+Per-change execution order. Declared + inferred edges → graph → cycle/unknown validation → waves. Pure parser in shared; server builds inputs; client renders chips, dialog, "Execution order" board mode.
+
+Code:
+- `packages/shared/src/openspec-dependencies.ts` — pure: `parse`, `scanProposal`, `scanDelta`, `computeDependencyGraph`, `serializeDependencies`.
+- `packages/shared/src/types.ts` — `ChangeDependencies`, `DependencyEdge`, `DependencyIssue`; `OpenSpecChange.dependencies`.
+- `packages/server/src/openspec/openspec-dependency-inputs.ts` — per-file + per-change parse cache; `computeDependencies`.
+- `packages/server/src/openspec/openspec-poll-worker.ts` — `buildFromStatusAll` calls `computeDependencies` (worker and in-process identical).
+- `packages/server/src/openspec/dependencies-file.ts` — read/write helper for `dependencies.yaml`.
+- `packages/server/src/routes/openspec-routes.ts` — `GET`/`PUT /api/openspec/dependencies`.
+- `packages/client/src/components/openspec/DependencyChips.tsx`, `DependenciesDialog.tsx`.
+- `packages/client/src/lib/openspec/openspec-dependencies-view.ts` (pure helpers), `openspec-dependencies-api.ts` (fetch).
+- `.pi/skills/ship-it/scripts/openspec-deps-gate.ts` — ship-it step 1.5 gate.
+
+Spec: `openspec/changes/add-openspec-change-dependencies/`. See change: add-openspec-change-dependencies.
+
+### Pipeline
+
+```mermaid
+flowchart LR
+  DECL["declared: dependencies.yaml"] --> MERGE
+  L1["L1: proposal labelled lines + prose refs"] --> MERGE
+  L23["L2 capability birth / L3 shared capability"] --> MERGE
+  MERGE["merge per ordered pair (blocked, blocker)"] --> RES["resolve: open / satisfied / unknown"]
+  RES --> VAL["validate: cycle check x2"]
+  VAL --> WAVE["waves: Kahn over open edges"]
+  WAVE --> OUT["OpenSpecChange.dependencies"]
+```
+
+### File: `openspec/changes/<name>/dependencies.yaml`
+
+Keys:
+- `blocked_by: [name | {change, reason?}]`.
+- `not_blocked_by: [name]`.
+- `related: [name]`.
+
+Rules:
+- Unknown top-level key → `invalid-file`.
+- Bad name → `invalid-file`. Name grammar `/^[a-z0-9]+(?:-[a-z0-9]+)*$/` (OpenSpec change-id).
+- `reason` > 500 chars → `invalid-file`. Alias → `invalid-file`.
+- File > 64 KiB → `invalid-file`. Symlink / non-regular file → `invalid-file`.
+- Empty file or empty key → no deps (not an error).
+- Parse: `yaml` `failsafe` schema + `maxAliasCount: 0`.
+- Reader `readDependenciesFile`: `lstat` regular-file check, read ≤ 64 KiB + 1, `O_NOFOLLOW`.
+- Only `blocked_by` stored. `blocks` always computed (inverse).
+
+### Inference layers
+
+- Declared edges: from `dependencies.yaml`. Highest precedence.
+- L1 proposal text: labelled lines `Blocked by` / `Depends on` / `Builds on` / `Blocks`.
+  - List item or paragraph. Optional bold + parenthetical. Value after `:` or as backticked token. Continuation lines allowed.
+  - `Blocks on` is NOT a label.
+  - Fenced code blocks skipped.
+  - Self, unknown, and archived-under-`Blocks` ignored.
+  - Other backticked active change names in prose → `related`. Never blocking.
+- L2 capability birth: capability with no `openspec/specs/<cap>/spec.md` is unborn.
+  - Sole ADDED-only birther blocks every other change that has a delta header.
+  - ≥ 2 birthers → `duplicate-capability` warning. No edge.
+- L3 shared capability: `overlaps` edge. Undirected. Never blocking.
+
+### Merge
+
+- Key: `(blocked, blocker)`.
+- Precedence: declared > inferred-text > inferred-capability.
+- `not_blocked_by` suppresses any edge for that pair.
+- Name in both `blocked_by` and `not_blocked_by` → `conflicting-entry` warning. `not_blocked_by` wins.
+
+### Resolution
+
+| Blocker state | Result |
+|---|---|
+| active change dir `openspec/changes/<name>/` | open |
+| archive dir exactly `<YYYY-MM-DD>-<name>` | satisfied |
+| `<date>-SHELVED-<name>` | NOT satisfied |
+| unknown, in declared `blocked_by` | `unknown-change` warning |
+| unknown, inferred | silent |
+| self | `self-reference` error |
+
+### Validation
+
+- Errors: `invalid-file`, `self-reference`, `cycle` (declared-only).
+- Warnings: `cycle` (inferred edge involved), `blocked-by-cycle`, `unknown-change`, `conflicting-entry`, `duplicate-capability`.
+- Cycle path: shortest cycle through smallest-named SCC member. Lexicographic tie-break. Format `a → b → a`.
+
+### Waves
+
+- Kahn over open edges among active changes.
+- Wave 1 = no open blockers.
+- Cycle members + their dependents → `wave: null`.
+
+### Tracked paths (poll gate + watcher)
+
+- Per-change `dependencies.yaml` in gate probe + watcher filter.
+- cwd-level: `changes/archive/`, `openspec/specs/`, `openspec/specs/<cap>/spec.md` for capability ids of previous build (`DirCache.allCapIds`).
+- `allCapIds === null` → gate never skips.
+- Capability set change → re-stamp cwd mtime.
+
+### Schema patch v2
+
+- `CURRENT_PATCH = 2` in `packages/server/src/openspec/workflow-schema.ts`.
+- Inserts artifact `dependencies` before `tasks`. Generates `dependencies.yaml` from `templates/dependencies.yaml`. Requires `[proposal, specs]`.
+- `tasks.requires = [specs, design, dependencies]`.
+- Anchor must be exactly `[specs, design]`. Otherwise generation aborts.
+- Patch-1 stamp → `generated: outdated`. Only explicit Update regenerates.
+- Undeclared change stays `PLANNING`. Board shows "Declare dependencies" hint, artifact letter `L`.
+
+### REST
+
+`GET /api/openspec/dependencies?cwd=&change=` (tier `observe`) → `{dependencies, declared, declaredError, file}`.
+
+`PUT /api/openspec/dependencies` (tier `control`). Body: `{cwd, change, blockedBy, notBlockedBy, related, expected}`.
+
+Both `networkGuard`.
+
+Gate order and codes:
+1. `400` `invalid-request`.
+2. `403` `cwd-not-tracked`.
+3. `403` `openspec-disabled`.
+4. `403` `opted-out`.
+5. `404` `no-openspec-dir`.
+6. `409` `status-all-unsupported`.
+7. `503` `pending`.
+8. `404` `unknown-change`.
+
+PUT after gate:
+1. `writeGuard` → `403` `write-refused`.
+2. Shared per-cwd lock `inFlightInits` → `409` `locked`.
+3. `expected` precondition (mtime + size) → `409` `modified`.
+4. YAML serializer → temp file → `rename` (replace) or `link` (create, no replace).
+
+Log event: `openspec.dependencies`.
+
+MCP tools: `get_openspec_dependencies`, `openspec_dependencies`.
+
+### Client
+
+- `DependencyChips` + `DependenciesDialog` (edit `blocked_by` / `not_blocked_by` / `related`).
+- Chips visible when default schema is `pi-spec-driven` or any change `hasFile`.
+- Board toggle "Execution order": sorts columns by wave. Within-column reorder off. Cross-column drop appends.
+
+### ship-it gate
+
+`.pi/skills/ship-it/scripts/openspec-deps-gate.ts --change <name>` (step 1.5).
+
+- Online: `GET` per request, 5 s timeout. 503 retried ≤ 3× at 2 s.
+- Offline fallback: shared parser. Cycles and inferred edges NOT checked.
+- Open blockers archived on `origin/develop` count satisfied.
+- Output JSON: `{status: ok|warn|blocked, mode, blockers[{change,state,source}], issues, notes}`.
+- Errors → block via `SHIP_IT_BLOCKED.md`. Open blockers → warn.
+
+### Cost
+
+- Debug line: `[openspec-deps] changes=N edges declared=.. inferred-text=.. inferred-capability=.. issues error=.. warning=.. ms=..`. Shown when `DEBUG` matches `openspec-poll`.
+- Budget: < 20 ms median for 100 changes after one input edit.
+- Caches: per-file (path + mtime + size); per-change keyed by gate probe mtime.
+- Measured (#P2, macOS 26.4, Apple M5 Pro, this repo, 85 active changes):
+  - cold first run: 73 ms (cold fs cache) / 24 ms (warm fs cache).
+  - warm, nothing changed: 2.0 ms.
+  - one input touched: 2.3 ms.
+- Windows 11 QA VM: pending (manual-only row P2).
+
+### Compat / rollback
+
+- Additive. No migration.
+- Rollback: revert commit. Leftover `dependencies.yaml` files inert.
+
 ## Electron Server Lifecycle
 
 Paired remote dashboards open in per-server Electron windows (own origin, device cookie): see [electron-server-windows.md](./electron-server-windows.md).

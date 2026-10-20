@@ -73,6 +73,7 @@ caller's tier. Do not edit the table by hand.
 | `file_mkdir` | control | POST /api/browse/mkdir |
 | `get_openspec_tasks` | observe | GET /api/openspec/tasks |
 | `get_openspec_config` | observe | GET /api/openspec/config |
+| `get_openspec_dependencies` | operate | GET /api/openspec/dependencies |
 | `toggle_openspec_task` | control | POST /api/openspec/tasks/toggle |
 | `set_openspec_config` | control | POST /api/openspec/config |
 | `list_goals` | observe | GET /api/folders/goals |
@@ -184,6 +185,7 @@ caller's tier. Do not edit the table by hand.
 | `resources_trust` | operate | POST /api/resources/trust |
 | `tunnel_reserved_name` | operate | POST /api/tunnel-reserved-name |
 | `tunnel_enroll` | operate | POST /api/tunnel/enroll |
+| `openspec_dependencies` | operate | PUT /api/openspec/dependencies |
 | `openspec_groups_assignments` | control | PUT /api/openspec/groups/assignments |
 | `openspec_groups_change_order` | control | PUT /api/openspec/groups/change-order |
 | `pi_retry` | control | PUT /api/pi-retry |

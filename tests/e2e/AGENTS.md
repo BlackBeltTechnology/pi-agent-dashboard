@@ -33,6 +33,7 @@ One row per file.
 | `model-roles-promotion.spec.ts` | L3 spec. → see `model-roles-promotion.spec.ts.AGENTS.md` |
 | `gmail-plugin.spec.ts` | → see `gmail-plugin.spec.ts.AGENTS.md` |
 | `notify-collapse.spec.ts` | → see `notify-collapse.spec.ts.AGENTS.md` |
+| `openspec-dependencies-dialog.spec.ts` | L3 #F10 |
 | `pi-settings-editor.spec.ts` | L3 pi settings #F13/#F14 |
 | `plugin-embedded-app.spec.ts` | L3 demo `"content"` embedded app (F1/F2). → see `plugin-embedded-app.spec.ts.AGENTS.md` |
 | `plugin-oauth-flow.spec.ts` | → see `plugin-oauth-flow.spec.ts.AGENTS.md` |

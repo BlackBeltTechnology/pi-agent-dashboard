@@ -32,7 +32,7 @@ import type {
 import semver from "semver";
 import YAML from "yaml";
 
-export const CURRENT_PATCH = 1;
+export const CURRENT_PATCH = 2;
 const WORKFLOW_SCHEMA_NAME = "pi-spec-driven";
 const BASE_SCHEMA = "spec-driven";
 const STAMP_KEY = "x-pi-dashboard";
@@ -515,13 +515,49 @@ export async function computeWorkflowSchemaStatus(
   return { configured, generated, missing, unpinnedChanges, affectedChanges, projectSchemas };
 }
 
-// ── Patch v1 + stamp ────────────────────────────────────────────────────────
+// ── Patch set (v1 + v2) + stamp ─────────────────────────────────────────────
 
-type PatchResult = { ok: true; text: string } | { ok: false; error: string };
+/** `ok` carries the patched `schema.yaml` text and the template files the patch set adds. */
+type PatchResult =
+  | { ok: true; text: string; templates: Record<string, string> }
+  | { ok: false; error: string };
+
+/** `templates/dependencies.yaml` written by patch v2 (three empty lists, one comment each). */
+const DEPENDENCIES_TEMPLATE = `# Changes that must ship before this one. Each entry: \`- change: <name>\` with an optional \`reason: <why>\`.
+blocked_by: []
+# Changes the dashboard may infer a dependency on that are NOT one (suppresses the inferred edge).
+not_blocked_by: []
+# Changes that are related but impose no order.
+related: []
+`;
+
+const DEPENDENCIES_INSTRUCTION = `Declare how this change relates to the OTHER active changes by writing
+dependencies.yaml in the change directory (see the template for the format).
+
+Before writing it, inspect the other active changes (\`openspec list\`, then skim the
+proposals and delta specs of those that touch the same capabilities, files or APIs):
+- blocked_by: changes that must be implemented and shipped before this one. One entry
+  per blocker (\`- change: <name>\`), with a short \`reason\` when it is not obvious.
+  Use the exact change directory name; do not list this change itself.
+- not_blocked_by: a change the dashboard might infer as a blocker (for example because
+  it shares a capability) that is NOT one.
+- related: changes that are connected but impose no order.
+
+The file is required even when there is nothing to declare: write empty lists
+(\`blocked_by: []\`) to state explicitly that no dependencies exist.
+`;
+
+/** True when \`node\` is a YAML sequence of exactly the scalar strings \`values\`. */
+function isSeqOf(node: unknown, values: string[]): node is YAML.YAMLSeq {
+  if (!YAML.isSeq(node) || node.items.length !== values.length) return false;
+  return node.items.every((item, i) => YAML.isScalar(item) && item.value === values[i]);
+}
 
 /**
- * Comment-preserving patch v1 + stamp. Aborts when the design-instruction
- * anchor line is not found exactly once (a stamp never claims an unapplied patch).
+ * Comment-preserving patch set + stamp. Patch v1 rewrites the design-instruction
+ * anchor line; patch v2 inserts the \`dependencies\` artifact before \`tasks\` and
+ * makes \`tasks\` require it. Aborts when an anchor is not found exactly as expected
+ * (a stamp never claims an unapplied patch).
  */
 function patchAndStampSchemaYaml(
   yamlText: string,
@@ -542,9 +578,36 @@ function patchAndStampSchemaYaml(
   if (hits !== 1) {
     return { ok: false, error: `patch anchor not found exactly once (${hits}): "${DESIGN_ANCHOR}"` };
   }
+
+  // Patch v2 anchors: exactly one \`tasks\` artifact whose \`requires\` is [specs, design].
+  const items = YAML.isSeq(artifacts) ? artifacts.items : [];
+  const taskIdx = items.map((a, i) => (YAML.isMap(a) && a.get("id") === "tasks" ? i : -1)).filter((i) => i >= 0);
+  if (!YAML.isSeq(artifacts) || taskIdx.length !== 1) {
+    return { ok: false, error: "patch anchor not found: expected exactly one `tasks` artifact" };
+  }
+  const tasks = items[taskIdx[0]] as YAML.YAMLMap;
+  const requires = tasks.get("requires", true);
+  if (!isSeqOf(requires, ["specs", "design"])) {
+    return { ok: false, error: "patch anchor not found: `tasks.requires` is not exactly [specs, design]" };
+  }
+
   node.value = lines
     .map((l) => (l.trim() === DESIGN_ANCHOR ? l.slice(0, l.indexOf(DESIGN_ANCHOR)) + DESIGN_REPLACEMENT : l))
     .join("\n");
+
+  const instruction = new YAML.Scalar(DEPENDENCIES_INSTRUCTION);
+  instruction.type = "BLOCK_LITERAL";
+  const dependencies = doc.createNode({
+    id: "dependencies",
+    generates: "dependencies.yaml",
+    description: "Declared dependencies on other active changes",
+    template: "dependencies.yaml",
+    instruction,
+    requires: ["proposal", "specs"],
+  });
+  artifacts.items.splice(taskIdx[0], 0, dependencies);
+  requires.add(doc.createNode("dependencies"));
+
   doc.set(
     STAMP_KEY,
     doc.createNode({
@@ -553,7 +616,7 @@ function patchAndStampSchemaYaml(
       previousDefault: stamp.previousDefault,
     }),
   );
-  return { ok: true, text: doc.toString({ lineWidth: 0 }) };
+  return { ok: true, text: doc.toString({ lineWidth: 0 }), templates: { "dependencies.yaml": DEPENDENCIES_TEMPLATE } };
 }
 
 // ── Generation + staged swap ────────────────────────────────────────────────
@@ -608,6 +671,9 @@ export async function generateWorkflowSchema(
     const patched = patchAndStampSchemaYaml(await fsp.readFile(yamlPath, "utf8"), { cliVersion, previousDefault });
     if (!patched.ok) return { ok: false, error: patched.error };
     await fsp.writeFile(yamlPath, patched.text);
+    for (const [file, content] of Object.entries(patched.templates)) {
+      await fsp.writeFile(path.join(scratchSchema, "templates", file), content);
+    }
 
     if (!(await runValidate(deps, scratchRoot, WORKFLOW_SCHEMA_NAME, xdg))) {
       return { ok: false, error: "generated schema failed `openspec schema validate`" };
@@ -771,8 +837,11 @@ interface Outcome {
 
 const refused = (error: string, extra: Partial<Outcome> = {}): Outcome => ({ ok: false, written: [], error, ...extra });
 
-/** Fresh `status --all` root checks + symlink refusals. Returns the canonical root or an error. */
-async function writeGuard(cwd: string, deps: WorkflowSchemaDeps): Promise<{ root: string } | { error: string }> {
+/**
+ * Fresh `status --all` root checks + symlink refusals. Returns the canonical root or an error.
+ * Exported for the dependencies PUT, which applies the same "verify the root first" guard.
+ */
+export async function writeGuard(cwd: string, deps: WorkflowSchemaDeps): Promise<{ root: string } | { error: string }> {
   let real: string;
   try {
     real = await fsp.realpath(cwd);

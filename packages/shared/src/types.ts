@@ -997,6 +997,60 @@ export interface OpenSpecChange {
    * OpenSpec actions are blocked for this change. See change: use-openspec-status-all.
    */
   error?: { code: string; message: string };
+  /**
+   * Computed change-to-change dependency graph entry (declared + inferred edges,
+   * waves, validator issues). Absent on the fallback poll path (CLI without
+   * `status --all`). See change: add-openspec-change-dependencies.
+   */
+  dependencies?: ChangeDependencies;
+}
+
+/** Where a dependency edge came from. */
+export type DependencyEdgeSource = "declared" | "inferred-text" | "inferred-capability";
+
+/** One `blocked by` edge of a change. `satisfied` = the blocker is archived. */
+export interface DependencyEdge {
+  /** The blocking change name. */
+  change: string;
+  source: DependencyEdgeSource;
+  /** Declared reason, matched proposal line (≤ 200 chars) or capability name. */
+  reason?: string;
+  state: "open" | "satisfied";
+}
+
+export type DependencyIssueCode =
+  | "invalid-file"
+  | "self-reference"
+  | "cycle"
+  | "blocked-by-cycle"
+  | "unknown-change"
+  | "conflicting-entry"
+  | "duplicate-capability";
+
+export interface DependencyIssue {
+  severity: "error" | "warning";
+  code: DependencyIssueCode;
+  message: string;
+  /** Canonical cycle path (`cycle` only), e.g. `["a", "b", "a"]`. */
+  path?: string[];
+  /** Other change names involved (`duplicate-capability`, `unknown-change`, `conflicting-entry`). */
+  with?: string[];
+}
+
+/** Computed dependency entry of one active change. See change: add-openspec-change-dependencies. */
+export interface ChangeDependencies {
+  /** Whether `dependencies.yaml` exists for the change. */
+  hasFile: boolean;
+  blockedBy: DependencyEdge[];
+  /** Active changes with an open edge to this one (computed inverse). */
+  blocks: string[];
+  /** Non-blocking references (declared `related` + backticked prose mentions). */
+  related: string[];
+  /** Active changes sharing a capability delta (undirected, never blocking). */
+  overlaps: string[];
+  /** Execution wave (1 = no open blockers); `null` for cycle members and their dependents. */
+  wave: number | null;
+  issues: DependencyIssue[];
 }
 
 /** Schema version for the per-repo OpenSpec groups file at
@@ -1399,6 +1453,12 @@ export interface OpenSpecWorkflowSchemaStatus {
    * See change: add-pi-spec-driven-schema.
    */
   projectSchemas: string[];
+  /**
+   * Members of `affectedChanges` without a regular `dependencies.yaml`; with
+   * patch v2 they stay in planning until they declare. Absent until the server
+   * computes it. See change: add-openspec-change-dependencies.
+   */
+  undeclaredChanges?: string[];
 }
 
 /** OpenSpec workflow phase detected from tool calls */

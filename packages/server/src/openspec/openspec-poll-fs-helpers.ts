@@ -84,10 +84,20 @@ export interface ProbeRequest {
   openspecDir: string;
   /** Per-change extras from the last successful `--all` result; `null` before the first one (legacy set only). */
   extras: Record<string, TrackedExtras> | null;
+  /**
+   * Capability ids touched by an active delta in the previous build; the probe
+   * stats `specs/<cap>/` and `specs/<cap>/spec.md` for each (L2 reads main-spec
+   * existence). `null`/absent before the first build: the cwd-level stamp is
+   * then incomplete and the gate does not skip. See change: add-openspec-change-dependencies.
+   */
+  capabilityIds?: readonly string[] | null;
 }
 
 export interface ProbeResponse {
-  /** Max mtime over the cwd-level set (`openspec/`, `changes/`, `config.yaml`, everything under `schemas/`). */
+  /**
+   * Max mtime over the cwd-level set (`openspec/`, `changes/`, `changes/archive/`, `config.yaml`,
+   * `specs/`, the main-spec paths of `capabilityIds`, everything under `schemas/`).
+   */
   cwdMtime: number | undefined;
   /** Enumerated change directories (excludes `archive/` and dot-dirs), sorted by name. */
   names: string[];
@@ -157,6 +167,7 @@ async function legacyChangePaths(changeDir: string): Promise<string[]> {
   const base = [
     changeDir,
     path.join(changeDir, ".openspec.yaml"),
+    path.join(changeDir, "dependencies.yaml"),
     path.join(changeDir, "tasks.md"),
     path.join(changeDir, "proposal.md"),
     path.join(changeDir, "design.md"),
@@ -177,6 +188,21 @@ async function legacyChangePaths(changeDir: string): Promise<string[]> {
 }
 
 /**
+ * Cwd-level dependency inputs beyond the legacy set: `changes/archive/` (an
+ * archive satisfies edges), `openspec/specs/` and, for each capability id,
+ * every directory prefix plus `spec.md` (directory mtimes catch deletions).
+ */
+function dependencyCwdPaths(openspecDir: string, capabilityIds: readonly string[] | null | undefined): string[] {
+  const out = [path.join(openspecDir, "changes", "archive"), path.join(openspecDir, "specs")];
+  for (const cap of capabilityIds ?? []) {
+    const parts = cap.split("/");
+    for (let i = 1; i <= parts.length; i++) out.push(path.join(openspecDir, "specs", ...parts.slice(0, i)));
+    out.push(path.join(openspecDir, "specs", ...parts, "spec.md"));
+  }
+  return out;
+}
+
+/**
  * Tracked-path probe for the `status --all` gate: cwd-level effective mtime
  * plus one effective mtime per enumerated change. Async and bounded so it can
  * run in-process without a long synchronous turn. Missing paths are skipped,
@@ -189,7 +215,12 @@ export async function probeTrackedPaths(req: ProbeRequest): Promise<ProbeRespons
 
   const cwdPaths = [openspecDir, changesDir, path.join(openspecDir, "config.yaml")];
   const schemaTree = await walk(path.join(openspecDir, "schemas"), true);
-  const cwdMtime = await maxMtime([...cwdPaths, path.join(openspecDir, "schemas"), ...schemaTree]);
+  const cwdMtime = await maxMtime([
+    ...cwdPaths,
+    ...dependencyCwdPaths(openspecDir, req.capabilityIds),
+    path.join(openspecDir, "schemas"),
+    ...schemaTree,
+  ]);
 
   const mtimes = await mapLimit(names, 16, async (name) => {
     const changeDir = path.join(changesDir, name);
