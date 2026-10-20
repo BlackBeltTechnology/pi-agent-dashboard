@@ -55,22 +55,49 @@ function assertEventBusMapPinned(src: string): void {
   }
 }
 
+/** Index of the closing quote of the string literal opened at `i`. */
+function endOfString(src: string, i: number): number {
+  const quote = src[i];
+  let j = i + 1;
+  for (; j < src.length && src[j] !== quote; j++) if (src[j] === "\\") j++;
+  return j;
+}
+
+const isQuote = (c: string) => c === '"' || c === "'" || c === "`";
+const OPENERS = "([{";
+const CLOSERS = ")]}";
+
 /** Index of the `)` closing the call whose `(` is at `open`, skipping string literals. */
 function closingParen(src: string, open: number): number {
   let depth = 0;
   for (let i = open; i < src.length; i++) {
     const c = src[i];
-    if (c === '"' || c === "'" || c === "`") {
-      for (i++; i < src.length && src[i] !== c; i++) if (src[i] === "\\") i++;
-      continue;
-    }
-    if (c === "(" || c === "[" || c === "{") depth++;
-    else if (c === ")" || c === "]" || c === "}") {
-      depth--;
-      if (depth === 0) return i;
-    }
+    if (isQuote(c)) i = endOfString(src, i);
+    else if (OPENERS.includes(c)) depth++;
+    else if (CLOSERS.includes(c) && --depth === 0) return i;
   }
   throw new Error("unbalanced call");
+}
+
+/** Top-level, non-empty argument texts of a call's inner source (string-literal aware). */
+function topLevelArgs(inner: string): string[] {
+  const args: string[] = [""];
+  let depth = 0;
+  for (let i = 0; i < inner.length; i++) {
+    const c = inner[i];
+    if (isQuote(c)) {
+      const end = endOfString(inner, i);
+      args[args.length - 1] += inner.slice(i, end + 1);
+      i = end;
+    } else if (c === "," && depth === 0) {
+      args.push("");
+    } else {
+      if (OPENERS.includes(c)) depth++;
+      else if (CLOSERS.includes(c)) depth--;
+      args[args.length - 1] += c;
+    }
+  }
+  return args.filter((a) => a.trim() !== "");
 }
 
 /** Top-level argument count of each `registerEventBusForwarding(` call (balanced-paren scan). */
@@ -79,25 +106,7 @@ function countForwardingCallArgs(src: string): number[] {
   const re = /\bregisterEventBusForwarding\(/g;
   for (let m = re.exec(src); m; m = re.exec(src)) {
     const open = m.index + m[0].length - 1;
-    const close = closingParen(src, open);
-    const inner = src.slice(open + 1, close);
-    let depth = 0;
-    const args: string[] = [""];
-    for (let i = 0; i < inner.length; i++) {
-      const c = inner[i];
-      if (c === '"' || c === "'" || c === "`") {
-        let j = i + 1;
-        for (; j < inner.length && inner[j] !== c; j++) if (inner[j] === "\\") j++;
-        args[args.length - 1] += inner.slice(i, j + 1);
-        i = j;
-        continue;
-      }
-      if (c === "(" || c === "[" || c === "{") depth++;
-      else if (c === ")" || c === "]" || c === "}") depth--;
-      if (c === "," && depth === 0) args.push("");
-      else args[args.length - 1] += c;
-    }
-    counts.push(args.filter((a) => a.trim() !== "").length);
+    counts.push(topLevelArgs(src.slice(open + 1, closingParen(src, open))).length);
   }
   return counts;
 }
@@ -189,9 +198,11 @@ describe("RPC probes are not forwarded (two-facade bus)", () => {
     const host = makeHost();
     const { deps, sent } = makeDeps();
     registerEventBusForwarding(host.bridgeEvents, deps);
-    host.foreignEvents.on("model:resolve", async (d) => {
-      await Promise.resolve();
-      (d as { auth?: unknown }).auth = { ok: true };
+    // The host's `on` handler type returns void, so the async fill is scheduled on the microtask queue, not awaited.
+    host.foreignEvents.on("model:resolve", (d) => {
+      queueMicrotask(() => {
+        (d as { auth?: unknown }).auth = { ok: true };
+      });
     });
 
     const probe: { auth?: unknown } = {};
