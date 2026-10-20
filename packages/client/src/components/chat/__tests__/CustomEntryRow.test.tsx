@@ -9,7 +9,6 @@
 import { DISPLAY_PRESETS, type DisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 import { createSlotRegistry, bumpSlotClaimsVersion } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { PluginContextProvider } from "@blackbelt-technology/dashboard-plugin-runtime/context";
-import { WebSearchEntryCard } from "@blackbelt-technology/pi-dashboard-web-access-plugin";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatMessage } from "../../../lib/chat/event-reducer.js";
@@ -334,10 +333,15 @@ describe("CustomEntryRow — diagnostics group (change: render-unclaimed-custom-
   });
 });
 
-describe("CustomEntryRow — web-access claim (change: render-unclaimed-custom-entries, F6–F8, X6)", () => {
+/** Stand-in for a plugin's claimed card (replaces the real web-access card; that card is tested in its plugin). */
+function ClaimedSearchCard() {
+  return <div data-testid="web-search-entry" />;
+}
+
+describe("CustomEntryRow — claimed web-search-results entry (change: render-unclaimed-custom-entries, F6–F8, X6; decouple-plugins-from-core 2.12)", () => {
   const searchBody = JSON.stringify({ type: "search", queries: [{ query: "q", results: [{}] }] });
   const row = () => customMsg({ customType: "web-search-results", groupId: "search", content: searchBody, entryId: "e1" });
-  const webRegistry = (Component: React.ComponentType<never> = WebSearchEntryCard as never) => {
+  const webRegistry = (Component: React.ComponentType<never> = ClaimedSearchCard as never) => {
     const registry = createSlotRegistry();
     registry.addClaim({
       pluginId: "web-access",
@@ -349,7 +353,7 @@ describe("CustomEntryRow — web-access claim (change: render-unclaimed-custom-e
     return registry;
   };
 
-  it("F6: a claimed row renders the web-access card, not the generic fallback", () => {
+  it("F6: a claimed row renders the claimed card, not the generic fallback", () => {
     renderRow(row(), { registry: webRegistry() });
     expect(screen.getByTestId("web-search-entry")).toBeTruthy();
     expect(screen.queryByTestId("custom-entry-card")).toBeNull();

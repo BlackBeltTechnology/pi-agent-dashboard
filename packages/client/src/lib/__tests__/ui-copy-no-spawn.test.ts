@@ -19,15 +19,18 @@
  *   the Hungarian catalog and the client zh map, and still carry their
  *   (unchanged) non-English wording.
  *
+ * The plugin zh-CN catalogs are discovered from `packages/*\/src/i18n.ts` at
+ * runtime, so core imports no plugin (see change: decouple-plugins-from-core,
+ * task 2.12).
+ *
  * See change: align-ui-with-theme-tokens (tasks 3b.1, 4.4, 5.18, 5.19).
  */
 
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import { huCatalog } from "../i18n/i18n-hu.js";
-import { catalog as goalCatalog } from "../../../../goal-plugin/src/i18n.js";
 
 const ROOT = join(import.meta.dirname, "..", "..", "..", "..", "..");
 const PACKAGES = join(ROOT, "packages");
@@ -219,11 +222,41 @@ describe("user-facing copy — keys and translations stable (E8)", () => {
     expect(huCatalog["session.noSpawnFailuresRecorded"]).toBe("Nincs rögzített indítási hiba.");
   });
 
-  it("goal-plugin zh says restart (重启), never respawn (重生); keys unchanged", () => {
-    const zh = goalCatalog["zh-CN"] as Record<string, string>;
-    for (const k of ["autoRespawnLabel", "autoRespawnDefaultLabel", "autoRespawnHelp"]) {
-      expect(zh[k], k).toContain("重启");
-      expect(zh[k], k).not.toContain("重生");
+  /** zh-CN catalogs of every plugin that ships `src/i18n.ts`, discovered at runtime (no plugin import). */
+  async function pluginZhCatalogs(): Promise<Array<{ pkg: string; zh: Record<string, string> }>> {
+    const out: Array<{ pkg: string; zh: Record<string, string> }> = [];
+    for (const pkg of readdirSync(PACKAGES)) {
+      const file = join(PACKAGES, pkg, "src", "i18n.ts");
+      if (pkg === "client" || !existsSync(file)) continue;
+      const mod = (await import(/* @vite-ignore */ file)) as { catalog?: Record<string, Record<string, string>> };
+      const zh = mod.catalog?.["zh-CN"];
+      if (zh) out.push({ pkg, zh });
     }
+    return out;
+  }
+
+  it("plugin zh says restart (重启), never respawn (重生); keys unchanged", async () => {
+    const catalogs = await pluginZhCatalogs();
+    expect(catalogs.length).toBeGreaterThan(0);
+    const checked: string[] = [];
+    for (const { pkg, zh } of catalogs) {
+      for (const k of ["autoRespawnLabel", "autoRespawnDefaultLabel", "autoRespawnHelp"]) {
+        if (!(k in zh)) continue;
+        checked.push(`${pkg}:${k}`);
+        expect(zh[k], `${pkg}:${k}`).toContain("重启");
+        expect(zh[k], `${pkg}:${k}`).not.toContain("重生");
+      }
+    }
+    // the three D9 keys still exist in the plugin that owns them (no key renamed)
+    expect(checked.map((c) => c.split(":")[1]).sort()).toEqual(["autoRespawnDefaultLabel", "autoRespawnHelp", "autoRespawnLabel"]);
+  });
+
+  it("no plugin zh-CN catalog value says respawn as 重生", async () => {
+    const offenders = (await pluginZhCatalogs()).flatMap(({ pkg, zh }) =>
+      Object.entries(zh)
+        .filter(([, v]) => typeof v === "string" && v.includes("重生"))
+        .map(([k]) => `${pkg}:${k}`),
+    );
+    expect(offenders).toEqual([]);
   });
 });

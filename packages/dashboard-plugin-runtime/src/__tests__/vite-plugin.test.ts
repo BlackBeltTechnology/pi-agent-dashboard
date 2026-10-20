@@ -189,3 +189,97 @@ describe("viteDashboardPluginsPlugin", () => {
     expect(content1).toBe(content2);
   });
 });
+
+// test-plan #E15 — see change: decouple-plugins-from-core (task 2.11, 8.23).
+describe("plugin-sources.css generation", () => {
+  const sourcesPath = () => path.join(tmpDir, "packages", "client", "src", "generated", "plugin-sources.css");
+
+  function writeClientFile(pkg: string, rel: string, src: string) {
+    const full = path.join(tmpDir, "packages", pkg, rel);
+    fs.mkdirSync(path.dirname(full), { recursive: true });
+    fs.writeFileSync(full, src, "utf-8");
+  }
+
+  function writeSources() {
+    writePlugin("zeta-plugin", {
+      id: "zeta",
+      displayName: "Zeta",
+      client: "./src/client/index.tsx",
+      claims: [{ slot: "session-card-badge", component: "ZetaBadge" }],
+    });
+    writeClientFile("zeta-plugin", "src/client/index.tsx", "export function ZetaBadge() { return null; }\n");
+    writePlugin("alpha-plugin", {
+      id: "alpha",
+      displayName: "Alpha",
+      client: "./src/client.tsx",
+      claims: [{ slot: "session-card-badge", component: "AlphaBadge" }],
+    });
+    writeClientFile("alpha-plugin", "src/client.tsx", "export function AlphaBadge() { return null; }\n");
+    // Fixture plugin: included by the sources file regardless of build policy.
+    writePlugin("demo-plugin", {
+      id: "demo",
+      displayName: "Demo",
+      fixture: true,
+      client: "./src/client.tsx",
+      claims: [{ slot: "session-card-badge", component: "DemoBadge" }],
+    });
+    writeClientFile("demo-plugin", "src/client.tsx", "export function DemoBadge() { return null; }\n");
+    // Claim module outside the client dir.
+    writePlugin("board-plugin", {
+      id: "board",
+      displayName: "Board",
+      client: "./src/client/index.tsx",
+      claims: [{ slot: "settings-section", component: "Board", module: "./src/board/Board.tsx" }],
+    });
+    writeClientFile("board-plugin", "src/client/index.tsx", "export const X = 1;\n");
+    writeClientFile("board-plugin", "src/board/Board.tsx", "export function Board() { return null; }\n");
+    // No client entry => not client-bearing => no line.
+    writePlugin("server-only-plugin", { id: "server-only", displayName: "S", claims: [] });
+  }
+
+  it("emits one sorted @source line per client-bearing plugin, relative to generated/, plus outside claim module dirs", async () => {
+    writeSources();
+    await invokePlugin();
+    const lines = fs
+      .readFileSync(sourcesPath(), "utf-8")
+      .split("\n")
+      .filter((l) => l.startsWith("@source"));
+    expect(lines).toEqual([
+      '@source "../../../alpha-plugin/src";',
+      '@source "../../../board-plugin/src/board";',
+      '@source "../../../board-plugin/src/client";',
+      '@source "../../../demo-plugin/src";',
+      '@source "../../../zeta-plugin/src/client";',
+    ]);
+  });
+
+  it("dev (fixtures included) and production (fixtures excluded) produce byte-identical files", async () => {
+    writeSources();
+    await invokePlugin(false);
+    const dev = fs.readFileSync(sourcesPath(), "utf-8");
+    fs.rmSync(sourcesPath());
+    await invokePlugin(true);
+    const prod = fs.readFileSync(sourcesPath(), "utf-8");
+    expect(prod).toBe(dev);
+    expect(prod).toContain("demo-plugin/src");
+  });
+
+  it("an unchanged plugin set causes no rewrite", async () => {
+    writeSources();
+    await invokePlugin();
+    const before = fs.statSync(sourcesPath()).mtimeMs;
+    const content = fs.readFileSync(sourcesPath(), "utf-8");
+    await new Promise((r) => setTimeout(r, 20));
+    await invokePlugin();
+    expect(fs.statSync(sourcesPath()).mtimeMs).toBe(before);
+    expect(fs.readFileSync(sourcesPath(), "utf-8")).toBe(content);
+  });
+
+  it("generatePluginSourcesContent is a pure function of the manifests", async () => {
+    writeSources();
+    const { generatePluginSourcesContent } = await import("../vite-plugin/index.js");
+    const a = generatePluginSourcesContent(tmpDir);
+    clearDiscoveryCache();
+    expect(generatePluginSourcesContent(tmpDir)).toBe(a);
+  });
+});

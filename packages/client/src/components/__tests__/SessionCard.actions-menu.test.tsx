@@ -18,11 +18,21 @@ import { mdiDotsHorizontal, mdiDotsVertical, mdiFolderCogOutline } from "@mdi/js
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Router } from "wouter";
+import { Router, useLocation } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
-import { GoalControl } from "../../../../goal-plugin/src/client/GoalControl.js";
 import { CardSectionsProvider } from "../../lib/state/CardSectionsContext.js";
 import { SessionCard } from "../session/SessionCard.js";
+
+/** Stand-in for a plugin's `session-card-action-bar` link chip (a session-scoped chip that navigates to a detail route). */
+function LinkChipClaim({ session }: { session: DashboardSession & { goalId?: string } }) {
+  const [, navigate] = useLocation();
+  if (!session.goalId) return null;
+  return (
+    <button type="button" data-testid="plugin-chip-link" onClick={() => navigate(`/folder/x/detail/${session.goalId}`)}>
+      chip
+    </button>
+  );
+}
 
 vi.mock("../../hooks/useMobile.js", () => ({ useMobile: vi.fn(() => false) }));
 vi.mock("../../lib/git/git-api.js", async (orig) => ({
@@ -495,19 +505,19 @@ describe("plugin hosting in the PLUGINS group (F19, X1, F22, X3)", () => {
     expect(document.activeElement).toBe(trigger());
   });
 
-  it("X3: the goal plugin's claim renders in the menu (link chip → goal detail) while GoalChip stays on the card", () => {
+  it("X3: a plugin's action-bar claim renders in the menu (link chip → detail route), not on the card", () => {
     const mem = memoryLocation({ path: "/", record: true });
     const registry = createSlotRegistry();
-    registry.addClaim({ pluginId: "goal", priority: 100, slot: "session-card-action-bar", Component: GoalControl as never });
+    registry.addClaim({ pluginId: "linkchip", priority: 100, slot: "session-card-action-bar", Component: LinkChipClaim as never });
     const s = makeSession({ goalId: "g1" } as Partial<DashboardSession>);
     card(s, {}, (n) => (
       <Router hook={mem.hook}>
         <PluginContextProvider registry={registry}>{n}</PluginContextProvider>
       </Router>
     ));
-    expect(screen.queryByTestId("goal-control-link")).toBeNull(); // not on the card
+    expect(screen.queryByTestId("plugin-chip-link")).toBeNull(); // not on the card
     fireEvent.click(trigger());
-    fireEvent.click(screen.getByTestId("goal-control-link"));
+    fireEvent.click(screen.getByTestId("plugin-chip-link"));
     expect(mem.history?.at(-1)).toContain("g1");
     expect(screen.queryByTestId("session-actions-menu-s1")).toBeNull();
   });

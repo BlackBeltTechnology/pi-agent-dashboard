@@ -9,10 +9,13 @@
  *
  * Reuses the shell's `shouldReset` so a full re-replay clears the store
  * before republishing (no duplicates) while a continuation batch appends.
+ *
+ * Uses generic `plugin_x_*` events and a test-local reducer (the real flows
+ * reducer is covered by the flows plugin's own tests) so core imports no plugin.
+ * See change: decouple-plugins-from-core (task 2.12).
  */
 
 import { clearSessionEvents, getSessionEvents } from "@blackbelt-technology/dashboard-plugin-runtime";
-import { reduceFlowsSessionState } from "@blackbelt-technology/pi-dashboard-flows-plugin/client";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { renderHook } from "@testing-library/react";
@@ -20,21 +23,30 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionState } from "../../lib/chat/event-reducer.js";
 import { useMessageHandler } from "../useMessageHandler.js";
 
+/** Test-local stand-in for a plugin's session-state reducer: derives state solely from the per-session event store. */
+function reducePluginState(events: ReadonlyArray<{ eventType: string; data?: unknown }>) {
+  const agents = new Set<string>();
+  for (const e of events) {
+    const name = (e.data as { agentName?: string } | undefined)?.agentName;
+    if (name) agents.add(name);
+  }
+  return { flowState: events.length > 0 ? { agents } : null };
+}
+
 function flowStarted(): DashboardEvent {
   return {
-    eventType: "flow_started",
+    eventType: "plugin_x_started",
     timestamp: 100,
     data: {
-      flowName: "test",
+      agentName: "demo-researcher",
       task: "",
-      steps: [{ id: "research", stepType: "agent", agent: "demo-researcher", blockedBy: [] }],
     },
   } as unknown as DashboardEvent;
 }
 
 function flowToolCall(): DashboardEvent {
   return {
-    eventType: "flow_tool_call",
+    eventType: "plugin_x_tool_call",
     timestamp: 200,
     data: { agentName: "demo-researcher", stepId: "research", toolName: "bash", input: { command: "ls" } },
   } as unknown as DashboardEvent;
@@ -92,9 +104,9 @@ describe("useMessageHandler event_replay → plugin event-store", () => {
     dispatch(replayMsg(sid, 1, [flowStarted(), flowToolCall()]));
 
     const events = getSessionEvents(sid);
-    expect(events.map((e) => e.eventType)).toEqual(["flow_started", "flow_tool_call"]);
+    expect(events.map((e) => e.eventType)).toEqual(["plugin_x_started", "plugin_x_tool_call"]);
 
-    const { flowState } = reduceFlowsSessionState(events);
+    const { flowState } = reducePluginState(events);
     expect(flowState).not.toBeNull();
     expect(flowState!.agents.size).toBeGreaterThanOrEqual(1);
   });

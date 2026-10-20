@@ -13,11 +13,11 @@ A repository test SHALL enumerate every plugin package whose manifest declares a
 #### Scenario: Goal-plugin hover utilities are emitted
 
 - **GIVEN** `goal-plugin/src/client/FolderGoalsSection.tsx` applies
-  `hover:text-indigo-400`, `hover:text-indigo-300`, and
+  `hover:text-indigo-300`, and
   `hover:border-indigo-500/70`
 - **WHEN** the production build runs (`npm run build`)
 - **THEN** `packages/client/dist/assets/index-*.css` SHALL contain
-  `hover:text-indigo-400`, `hover:text-indigo-300`, and
+  `hover:text-indigo-300`, and
   `hover:border-indigo-500/70`
 
 #### Scenario: Existing plugin utilities are not regressed

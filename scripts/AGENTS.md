@@ -9,7 +9,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/assert-bundled-server-plugin-load.test.mjs` | Tests for the bundled-server plugin-load gate: layout, verdicts, selected loader, all-plugins gate. → see `__tests__/assert-bundled-server-plugin-load.test.mjs.AGENTS.md` |
 | `__tests__/check-kb-dist-fresh.test.mjs` | C1 (fix-kb-eval-measurement-integrity): fault-injection via `--pkg` sandbox — clean fingerprint → exit 0;… → see `__tests__/check-kb-dist-fresh.test.mjs.AGENTS.md` |
 | `__tests__/check-pi-settings-paths.test.mjs` | Drives `absoluteSourceViolations` directly (12 cases) so detection is pinned independently of what… → see `__tests__/check-pi-settings-paths.test.mjs.AGENTS.md` |
-| `__tests__/check-plugin-boundary.test.mjs` | `check-plugin-boundary.mjs` via CLI on tmp `packages/*` trees (test-plan #E1–#E8) + real tree green, 76 rows (#E9). See change: decouple-plugins-from-core. |
+| `__tests__/check-plugin-boundary.test.mjs` | `check-plugin-boundary.mjs` via CLI on tmp `packages/*` trees (test-plan #E1–#E8) + real tree green with the current ratcheted row counts (#E9). See change: decouple-plugins-from-core. |
 | `__tests__/biome-undeclared-dependencies.test.mjs` | Guardrails for the `noUndeclaredDependencies` config in `biome.json`. → see `__tests__/biome-undeclared-dependencies.test.mjs.AGENTS.md` |
 | `__tests__/claude-plugin-ensure-dashboard.test.mjs` | Behaviour tests for `ensure-dashboard.sh` (test-plan E3–E34, P1, X1–X10): real script vs temp HOME records, stub PATH, Node fixture servers. Timing via `PIDB_TEST_*`. |
 | `__tests__/claude-plugin-publish-contract.test.mjs` | Static contract over `publish.yml`. `publish` preflight reads tagged `plugin.json` (`git show… → see `__tests__/claude-plugin-publish-contract.test.mjs.AGENTS.md` |
@@ -105,7 +105,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `commit-windows-parity.sh` | Stages and commits fix-windows-server-parity + consolidate-platform-handlers work in 5 logical chunks (fix:,… → see `commit-windows-parity.sh.AGENTS.md` |
 | `dox-byte-gate.mjs` | AGENTS.md byte-cap gate for `ship-it` step 4.4. Filters `kb dox lint --json` to `kind:"over-threshold"` +… → see `dox-byte-gate.mjs.AGENTS.md` |
 | `fix-pty-permissions.cjs` | Postinstall: fix node-pty spawn-helper execute permissions |
-| `generate-plugin-registry.mjs` | Standalone generator for packages/client/src/generated/plugin-registry.tsx (gitignored). → see `generate-plugin-registry.mjs.AGENTS.md` |
+| `generate-plugin-registry.mjs` | Standalone generator for packages/client/src/generated/plugin-registry.tsx + plugin-sources.css (both committed). → see `generate-plugin-registry.mjs.AGENTS.md` |
 | `generate-runtime-lock.mjs` | Server lock gen. → see `generate-runtime-lock.mjs.AGENTS.md` |
 | `i18n-lint.mjs` | Hardcoded-UI-string lint. → see `i18n-lint.mjs.AGENTS.md` |
 | `i18n-parity.mjs` | Catalog parity gate: every key in the union of zh-CN (`i18n-zh-CN.ts`) + hu + plugin catalogs exists in each. → see `i18n-parity.mjs.AGENTS.md` |
