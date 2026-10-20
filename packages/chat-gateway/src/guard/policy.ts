@@ -8,9 +8,4 @@
  *
  * See change: add-chat-gateway, add-supervised-tool-approval.
  */
-export {
-  decideToolCall,
-  type ToolDecision,
-  type ToolDefaultAction,
-  type ToolPolicy,
-} from "@blackbelt-technology/pi-dashboard-shared/tool-gate/policy.js";
+export { decideToolCall } from "@blackbelt-technology/pi-dashboard-shared/tool-gate/policy.js";

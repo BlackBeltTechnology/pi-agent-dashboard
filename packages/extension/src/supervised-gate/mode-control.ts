@@ -122,4 +122,3 @@ export function createSupervisedModeControl(deps: SupervisedModeControlDeps) {
   };
 }
 
-export type SupervisedModeControl = ReturnType<typeof createSupervisedModeControl>;
