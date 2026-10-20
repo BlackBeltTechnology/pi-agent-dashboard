@@ -87,8 +87,12 @@ export function createReplayState(controllerOpts?: ReplayExitControllerOptions):
 }
 
 interface HydrationState {
-  /** Record the fingerprint after a successful hydration insert. */
-  recordFingerprint(sessionId: string, fp: HydrationFingerprint): void;
+  /**
+   * A cold hydration just rebuilt the store: drop the bridge-learned pair (the
+   * rebuilt store has fabricated closed-tail ends, so the bridge-learned arm
+   * must not skip over it) and record the fingerprint when the leaf is known.
+   */
+  markHydrated(sessionId: string, fp: HydrationFingerprint | undefined): void;
   getFingerprint(sessionId: string): HydrationFingerprint | undefined;
   clearFingerprint(sessionId: string): void;
   /**
@@ -116,7 +120,11 @@ function createHydrationState(): HydrationState {
   // reuse a generation a still-running hydration captured.
   let counter = 0;
   return {
-    recordFingerprint: (id, fp) => { fingerprints.set(id, fp); },
+    markHydrated: (id, fp) => {
+      bridgeLearned.delete(id);
+      if (fp) fingerprints.set(id, fp);
+      else fingerprints.delete(id);
+    },
     getFingerprint: (id) => fingerprints.get(id),
     clearFingerprint: (id) => { fingerprints.delete(id); },
     setBridgeLearned: (id, learned) => { bridgeLearned.set(id, learned); },

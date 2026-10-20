@@ -1043,6 +1043,23 @@ describe("handleSubscribe — register supersedes cold hydration", () => {
     expect(replayState.hydration.getFingerprint(SID)).toBeUndefined();
   });
 
+  it("a hydration rebuilds the store: the bridge-learned pair is dropped so a later register cannot skip over it", async () => {
+    const { ctx, replayState } = setup(async () => ({ success: true, events: msgEvents(2), entryCount: 2, leafEntryId: "e1" }));
+    replayState.hydration.setBridgeLearned(SID, { entryCount: 2, leafEntryId: "e1" });
+    handleSubscribe({ type: "subscribe", sessionId: SID }, new Set(), ctx);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(replayState.hydration.getBridgeLearned(SID)).toEqual({ entryCount: undefined, leafEntryId: undefined });
+  });
+
+  it("a hydration without a resolvable leaf also drops the bridge-learned pair and records no fingerprint", async () => {
+    const { ctx, replayState } = setup(async () => ({ success: true, events: msgEvents(2) }));
+    replayState.hydration.setBridgeLearned(SID, { entryCount: 2, leafEntryId: "e1" });
+    handleSubscribe({ type: "subscribe", sessionId: SID }, new Set(), ctx);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(replayState.hydration.getBridgeLearned(SID).entryCount).toBeUndefined();
+    expect(replayState.hydration.getFingerprint(SID)).toBeUndefined();
+  });
+
   it("X2: an unsuperseded load inserts and records the fingerprint", async () => {
     const { ctx, replayState } = setup(async () => ({ success: true, events: msgEvents(3), entryCount: 3, leafEntryId: "e2" }));
     handleSubscribe({ type: "subscribe", sessionId: SID }, new Set(), ctx);

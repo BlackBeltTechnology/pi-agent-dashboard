@@ -164,6 +164,10 @@ export function createReplayExitController(opts: ReplayExitControllerOptions = {
       if (!rec || rec.active || rec.skipped) return false;
       rec.active = true;
       rec.flushPending = true;
+      // A flush still draining from the earlier exit no longer covers the events
+      // this reopened replay will store: stale it, so its completion cannot clear
+      // the pending flag the next exit must honour.
+      rec.flushEpoch++;
       rec.lastTouchAt = now();
       replayingSessions.add(sessionId);
       armIdle(sessionId, rec, idleMs);

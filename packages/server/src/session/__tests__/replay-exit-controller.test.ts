@@ -150,6 +150,20 @@ describe("replay-exit-controller", () => {
     expect(controller.isFlushPending("s1")).toBe(false);
   });
 
+  it("reopen stales a flush still draining from the earlier exit, so its completion cannot clear the pending flag", () => {
+    const { controller } = setup();
+    controller.begin("s1", { skipped: false });
+    vi.advanceTimersByTime(REPLAY_IDLE_MS); // idle exit
+    const draining = controller.startFlush("s1");
+    expect(controller.reopen("s1")).toBe(true);
+    expect(draining.isStale()).toBe(true);
+    draining.finish(); // must not clear: the reopened replay still owes a flush
+    expect(controller.isFlushPending("s1")).toBe(true);
+    const next = controller.startFlush("s1");
+    next.finish();
+    expect(controller.isFlushPending("s1")).toBe(false);
+  });
+
   it("release exits an active replay with cause unregister, stops waiters, drops the record", () => {
     const { controller, exits } = setup();
     controller.begin("s1", { skipped: false });

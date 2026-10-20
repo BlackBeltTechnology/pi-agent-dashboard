@@ -1110,12 +1110,17 @@ export function handleSubscribe(
           }
           // Fingerprint of what was just stored, so a later register of the same
           // branch can skip the wipe. None when the leaf is unknown.
-          if (hydration && result.entryCount !== undefined && result.leafEntryId !== undefined) {
-            hydration.recordFingerprint(msg.sessionId, {
-              entryCount: result.entryCount,
-              leafEntryId: result.leafEntryId,
-              storeMaxSeq: eventStore.getMaxSeq(msg.sessionId),
-            });
+          if (hydration) {
+            hydration.markHydrated(
+              msg.sessionId,
+              result.entryCount !== undefined && result.leafEntryId !== undefined
+                ? {
+                    entryCount: result.entryCount,
+                    leafEntryId: result.leafEntryId,
+                    storeMaxSeq: eventStore.getMaxSeq(msg.sessionId),
+                  }
+                : undefined,
+            );
           }
           const statsUpdates = extractStatsFromEvents(result.events);
           const metaUpdates: Record<string, unknown> = {
