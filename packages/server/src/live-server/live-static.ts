@@ -83,7 +83,7 @@ function isForbiddenName(name: string): boolean {
 function isUnsafeSegment(seg: string): boolean {
   if (seg === "" || seg === "." || seg === "..") return true;
   if (seg.includes("\\") || CONTROL.test(seg) || DOUBLE_ENCODED.test(seg)) return true;
-  return process.platform === "win32" && seg.includes(":");
+  return process.platform === "win32" && seg.includes(":"); // platform-branch-ok: reject NTFS drive/ADS segments on Windows only
 }
 
 /**

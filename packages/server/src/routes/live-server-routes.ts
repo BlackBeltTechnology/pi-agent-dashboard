@@ -17,7 +17,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { COOKIE_NAME, type TokenPayload } from "../auth/auth.js";
 import { hasLocalCredential } from "../auth/local-credential.js";
 import type { LocalTrustContext } from "../auth/local-proof.js";
-import { canDiscloseAccessPosture, isGenuinelyLocal, isLocallyTrusted, isTrustedSource } from "../auth/localhost-guard.js";
+import { canDiscloseAccessPosture, isLocallyTrusted, isTrustedSource } from "../auth/localhost-guard.js";
 import { sendTierRefusal, tierRefusalFor } from "../auth/route-tier-gate.js";
 import {
   type CapabilityPrincipal,
@@ -96,7 +96,7 @@ function scriptsGranted(egress: LivePolicy["egress"], exposure: "local-only" | "
 function isLocalBoundMint(request: FastifyRequest, principal: CapabilityPrincipal): boolean {
   return (
     principal.kind === "local" &&
-    isGenuinelyLocal(request.ip, request.headers as Record<string, unknown>) &&
+    isLocallyTrusted({ ip: request.ip, headers: request.headers as Record<string, unknown> }) &&
     (request as { authVia?: string }).authVia === undefined
   );
 }

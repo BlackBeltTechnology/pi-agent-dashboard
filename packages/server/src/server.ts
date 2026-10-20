@@ -111,7 +111,7 @@ import {
   createLanInterfaceProvider,
   createNetworkGuard,
   createNetworkGuardHook,
-  isGenuinelyLocal,
+  isLocallyTrusted,
   isPluginScopePeerLocal,
   noteTrustedList,
   parseGuardTarget,
@@ -4488,7 +4488,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         const liveCap = scope === "live" ? parseCapabilityPath(request.url) : null;
         const liveCapPrincipal = liveCap
           ? liveCapabilities.validate(liveCap.targetId, liveCap.token, {
-              genuinelyLocal: isGenuinelyLocal(remoteAddress, request.headers as Record<string, unknown>),
+              genuinelyLocal: isLocallyTrusted({ ip: remoteAddress, headers: request.headers as Record<string, unknown> }),
             })
           : null;
         if (!isWsOriginTrusted(request.headers.origin, request.headers.host, scope, corsOpts(), liveCapPrincipal !== null)) {

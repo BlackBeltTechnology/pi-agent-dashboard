@@ -20,7 +20,7 @@ import crypto from "node:crypto";
 import type { Principal } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
 import type { Tier } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
 import type { TokenPayload } from "../auth/auth.js";
-import { isGenuinelyLocal } from "../auth/localhost-guard.js";
+import { isLocallyTrusted } from "../auth/localhost-guard.js";
 import { CAPABILITY_SEGMENT, redactCapability } from "./capability-redact.js";
 
 // Lifetime note: a capability's life is bounded by its own idle/absolute limits and
@@ -442,7 +442,7 @@ export function createLiveCapabilityHook(store: LiveCapabilityStore) {
     if (!cap) return;
     // A token minted by a genuinely local caller works only from genuinely local requests.
     const grant = store.validateGrant(cap.targetId, cap.token, {
-      genuinelyLocal: isGenuinelyLocal(request.ip ?? "", request.headers ?? {}),
+      genuinelyLocal: isLocallyTrusted({ ip: request.ip ?? "", headers: request.headers ?? {} }),
     });
     if (!grant) return;
     const principal = grant.principal;

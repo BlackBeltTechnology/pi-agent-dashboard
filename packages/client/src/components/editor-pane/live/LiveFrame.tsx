@@ -25,6 +25,7 @@ import { useAddressBar } from "./useAddressBar.js";
 import { useEgressReport } from "./useEgressReport.js";
 import { useFramePolicy } from "./useFramePolicy.js";
 import { useOpenExternal } from "./useOpenExternal.js";
+import { randomUuid } from "../../../lib/util/random-uuid.js";
 
 export type FramedTarget =
   | { kind: "port"; id: string; host: string; port: number; addedBy?: LiveTargetAddedBy }
@@ -47,10 +48,7 @@ export interface LiveFrameProps {
   onAckUpdate?: () => void;
 }
 
-const newViewerId = (): string =>
-  typeof crypto !== "undefined" && "randomUUID" in crypto
-    ? crypto.randomUUID()
-    : `v${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
+const newViewerId = (): string => randomUuid();
 
 /** Last two path segments of the document root, with a trailing slash (display only). */
 function lastSegments(root: string): string {
