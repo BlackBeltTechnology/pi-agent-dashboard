@@ -34,7 +34,10 @@ test.describe("remote folder picker confinement", () => {
     }
     const dialog = byTestId(page, "addFoldersDialog");
     await dialog.waitFor({ state: "visible" });
-    await dialog.getByRole("option").first().waitFor({ state: "visible", timeout: 20_000 });
+    // Wait on the status line, not a row: the same wait `pinDirectory` uses (an empty root renders zero options).
+    await expect(
+      dialog.getByTestId("add-folders-status-path").or(dialog.getByTestId("add-folders-status-home")),
+    ).toBeVisible({ timeout: 20_000 });
 
     await dialog.getByRole("textbox").first().fill("/");
     const refusal = dialog.getByTestId("path-picker-outside-roots");
