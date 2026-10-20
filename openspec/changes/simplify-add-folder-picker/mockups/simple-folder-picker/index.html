@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Add folder: reused PathPicker, file-manager clicks (mockup)</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg-primary); color: var(--text-primary); }
+  button, input, select { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--accent-blue); outline-offset: 2px; }
+  svg.i { width: 15px; height: 15px; fill: currentColor; flex: none; }
+
+  .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 12px 20px; border-bottom: 1px solid var(--border-primary); background: var(--bg-secondary); }
+  .toolbar h1 { font-size: 14px; margin: 0 12px 0 0; }
+  .seg { display: inline-flex; border: 1px solid var(--border-secondary); border-radius: 8px; overflow: hidden; }
+  .seg button { background: none; border: 0; padding: 4px 10px; min-height: 28px; font-size: 12px; color: var(--text-secondary); cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: var(--bg-surface); color: var(--text-primary); }
+  .lbl { font-size: 11px; color: var(--text-tertiary); margin-left: 8px; }
+  .board { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 24px; max-width: 1180px; margin: 0 auto; padding: 20px; }
+  @media (max-width: 960px) { .board { grid-template-columns: 1fr; } }
+  .stage { position: relative; border-radius: 12px; border: 1px solid var(--border-primary); background: var(--bg-secondary); min-height: 600px; display: flex; align-items: flex-start; justify-content: center; padding: 40px 12px; overflow: hidden; }
+  .stage::before { content: ""; position: absolute; inset: 0; background: var(--bg-overlay); }
+
+  /* Dialog — same chrome as the live <Dialog size="lg"> */
+  .dlg { position: relative; width: 100%; max-width: 560px; background: var(--bg-secondary); border: 1px solid var(--border-secondary); border-radius: 8px; box-shadow: 0 20px 60px rgba(0,0,0,.45); padding: 16px; display: flex; flex-direction: column; gap: 8px; }
+  .dlg h2 { font-size: 16px; margin: 0 0 4px; }
+
+  /* PathPicker — unchanged anatomy: mono input + listbox + New folder */
+  .pin { width: 100%; background: var(--bg-tertiary); border: 1px solid var(--border-secondary); border-radius: 4px; padding: 8px 12px; font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text-primary); outline: none; }
+  .pin:focus { border-color: var(--accent-blue); }
+  .lb { height: 256px; overflow-y: auto; border: 1px solid var(--border-secondary); border-radius: 4px; background: var(--bg-tertiary); user-select: none; -webkit-user-select: none; }
+  .r { height: 32px; padding: 0 12px; display: flex; align-items: center; gap: 8px; font-size: 14px; cursor: default; color: var(--text-primary); -webkit-touch-callout: none; }
+  .r:hover { background: var(--bg-secondary); }
+  .r.sel, .r.sel:hover { background: color-mix(in srgb, var(--accent-blue) 30%, transparent); }
+  .r .i { color: var(--text-secondary); }
+  .r .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .r.added { color: var(--text-tertiary); }
+  .b-git { font-size: 12px; color: var(--accent-green-text); }
+  .b-pi { font-size: 12px; color: var(--accent-blue-text); }
+  .b-s { font-size: 10px; padding: 1px 6px; border-radius: 999px; background: color-mix(in srgb, var(--accent-blue) 15%, transparent); color: var(--accent-blue-text); }
+  .b-add { font-size: 11px; color: var(--text-tertiary); }
+  .empty { padding: 8px 12px; font-size: 14px; color: var(--text-secondary); }
+
+  /* touch selection-mode check (only visible after a long-press) */
+  .tick { width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid var(--text-tertiary); display: none; align-items: center; justify-content: center; flex: none; }
+  .touch-sel .tick { display: inline-flex; }
+  .r.sel .tick { background: var(--accent-blue); border-color: var(--accent-blue); color: #fff; }
+  .touch .r { height: 44px; }
+
+  .row2 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+  .btn { padding: 8px 16px; border-radius: 4px; font-size: 14px; border: 1px solid transparent; background: none; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+  .btn.ol { border-color: var(--border-secondary); color: var(--text-secondary); }
+  .btn.gh { color: var(--text-secondary); }
+  .btn.ol:hover, .btn.gh:hover { background: var(--bg-tertiary); }
+  .btn.pr { background: var(--accent-blue); color: #fff; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .btn.pr:disabled { opacity: .5; cursor: default; }
+  .sp { flex: 1; }
+  .opts { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--text-secondary); border-top: 1px solid var(--border-subtle); padding-top: 10px; margin-top: 4px; }
+  .opts select { font-size: 12px; background: var(--bg-tertiary); border: 1px solid var(--border-secondary); border-radius: 4px; height: 26px; color: var(--text-primary); }
+  .opts input { accent-color: var(--accent-blue); }
+  .status { font-size: 12px; color: var(--text-tertiary); min-height: 18px; display: flex; gap: 6px; align-items: baseline; }
+  .status code { color: var(--text-primary); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .status .link { background: none; border: 0; color: var(--accent-blue-text); cursor: pointer; padding: 0; font-size: 12px; }
+
+  .notes { font-size: 13px; color: var(--text-secondary); }
+  .card { border: 1px solid var(--border-primary); background: var(--bg-secondary); border-radius: 10px; padding: 14px; margin-bottom: 14px; }
+  .card h3 { font-size: 13px; color: var(--text-primary); margin: 0 0 8px; }
+  .card ul { padding-left: 18px; margin: 0; } .card li { margin-bottom: 5px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  td, th { text-align: left; padding: 4px 6px 4px 0; border-bottom: 1px solid var(--border-subtle); vertical-align: top; }
+  th { color: var(--text-tertiary); font-weight: 600; }
+  kbd { font: 11px ui-monospace, monospace; color: var(--text-primary); border: 1px solid var(--border-secondary); border-radius: 3px; padding: 0 3px; }
+  .toast { position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--bg-surface); border: 1px solid var(--border-strong); padding: 8px 14px; border-radius: 8px; font-size: 13px; display: none; }
+</style>
+</head>
+<body>
+<div class="toolbar">
+  <h1>Add folder: reused PathPicker</h1>
+  <span class="lbl">Platform</span>
+  <div class="seg" id="os"><button data-v="mac">macOS</button><button data-v="win">Windows</button><button data-v="linux">Linux</button><button data-v="touch">Touch</button></div>
+  <span class="lbl">Theme</span>
+  <div class="seg" id="theme"><button aria-pressed="true" data-v="dark">Dark</button><button aria-pressed="false" data-v="light">Light</button></div>
+</div>
+
+<div class="board">
+  <div class="stage">
+    <div class="dlg" role="dialog" aria-modal="true" aria-labelledby="t">
+      <h2 id="t">Add folders</h2>
+      <input class="pin" id="pin" role="textbox" aria-label="Folder path" spellcheck="false">
+      <div class="lb" id="lb" role="listbox" aria-multiselectable="true" tabindex="0" aria-label="Folders"></div>
+      <div class="status" id="status" aria-live="polite"></div>
+      <div class="opts">
+        <label>Workspace <select><option>None</option><option>Pi packages</option><option>Client work</option><option>+ New workspace…</option></select></label>
+        <label><input type="checkbox"> Trust in pi</label>
+      </div>
+      <div class="row2">
+        <button class="btn ol" id="newf"></button>
+        <span class="sp"></span>
+        <button class="btn gh">Cancel</button>
+        <button class="btn pr" id="go"></button>
+      </div>
+    </div>
+    <div class="toast" id="toast" role="status"></div>
+  </div>
+
+  <aside class="notes">
+    <div class="card">
+      <h3>What changes vs today</h3>
+      <ul>
+        <li><b>Same component.</b> It's still <code>PathPicker</code> inside <code>AddFoldersDialog</code>: the path input, the list, New folder, workspace and trust options.</li>
+        <li><b>Removed:</b> row checkboxes, the chevron buttons, the "current folder" self-row with its "Contents" label, and the "Selected" basket.</li>
+        <li><b>Clicks work like a file manager</b> (table below).</li>
+        <li><b>With nothing selected, the button adds the folder you're in.</b> The status line names the exact path.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>Interaction, per platform</h3>
+      <table>
+        <tr><th></th><th>macOS</th><th>Win / Linux</th><th>Touch</th></tr>
+        <tr><td>Select one</td><td>click</td><td>click</td><td>long-press</td></tr>
+        <tr><td>Add to selection</td><td><kbd>⌘</kbd>-click</td><td><kbd>Ctrl</kbd>-click</td><td>tap (in select mode)</td></tr>
+        <tr><td>Range</td><td><kbd>⇧</kbd>-click</td><td><kbd>Shift</kbd>-click</td><td>n/a</td></tr>
+        <tr><td>Open folder</td><td>double-click</td><td>double-click</td><td>tap</td></tr>
+        <tr><td>Up</td><td><kbd>..</kbd> row / <kbd>⌘↑</kbd></td><td><kbd>..</kbd> row / <kbd>Alt↑</kbd> / <kbd>⌫</kbd></td><td><kbd>..</kbd> row</td></tr>
+        <tr><td>Keyboard open</td><td><kbd>⌘↓</kbd> / <kbd>Enter</kbd></td><td><kbd>Enter</kbd></td><td>n/a</td></tr>
+      </table>
+      <ul style="margin-top:8px">
+        <li>macOS uses <kbd>⌘</kbd> because Ctrl-click there means right-click. The real check is <code>e.metaKey || e.ctrlKey</code>, picked by platform.</li>
+        <li>Touch devices can't double-tap reliably, so they follow Android Files and the iOS Files app: tap opens, long-press starts select mode.</li>
+        <li>Typing in the input and pressing <kbd>Enter</kbd> still works (tryConfirm Rules 1–3), along with <kbd>↑↓</kbd>.</li>
+      </ul>
+    </div>
+  </aside>
+</div>
+
+<script>
+const P = {
+  folder: "M10,4H4C2.89,4 2,4.89 2,6V18A2,2 0 0,0 4,20H20A2,2 0 0,0 22,18V8C22,6.89 21.1,6 20,6H12L10,4Z",
+  up: "M13,20H11V8L5.5,13.5L4.08,12.08L12,4.16L19.92,12.08L18.5,13.5L13,8V20Z",
+  plusF: "M13,19C13,19.34 13.04,19.67 13.09,20H4C2.9,20 2,19.11 2,18V6C2,4.89 2.89,4 4,4H10L12,6H20A2,2 0 0,1 22,8V13.81C21.39,13.46 20.72,13.22 20,13.09V8H4V18H13.09C13.04,18.33 13,18.66 13,19M20,18V15H18V18H15V20H18V23H20V20H23V18H20Z",
+  check: "M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z",
+};
+const ic = (p) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="${p}"/></svg>`;
+document.getElementById("newf").innerHTML = ic(P.plusF) + "New folder";
+
+const FS = {
+  "/Users/ana": ["Desktop", "Documents", "Downloads", "Projects"],
+  "/Users/ana/Desktop": [], "/Users/ana/Documents": ["invoices"], "/Users/ana/Documents/invoices": [], "/Users/ana/Downloads": [],
+  "/Users/ana/Projects": ["Pi-Packages", "client-portal", "infra-terraform", "notes"],
+  "/Users/ana/Projects/client-portal": ["src", "docs"], "/Users/ana/Projects/infra-terraform": [], "/Users/ana/Projects/notes": [],
+  "/Users/ana/Projects/Pi-Packages": ["pi-agent-dashboard", "pi-flows", "pi-kb", "pi-vault", "scratch"],
+  "/Users/ana/Projects/Pi-Packages/pi-agent-dashboard": ["docker", "docs", "packages"],
+  "/Users/ana/Projects/Pi-Packages/pi-flows": [], "/Users/ana/Projects/Pi-Packages/pi-kb": [], "/Users/ana/Projects/Pi-Packages/pi-vault": [], "/Users/ana/Projects/Pi-Packages/scratch": [],
+};
+const GIT = new Set(["client-portal", "infra-terraform", "pi-agent-dashboard", "pi-flows", "pi-kb", "pi-vault"]);
+const PI = new Set(["pi-agent-dashboard", "pi-flows"]);
+const SESS = { "/Users/ana/Projects/Pi-Packages/pi-flows": 1 };
+const ADDED = new Set(["/Users/ana/Projects/Pi-Packages/pi-agent-dashboard"]);
+
+const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
+let os = matchMedia("(pointer: coarse)").matches ? "touch" : isMac ? "mac" : "win";
+let cwd = "/Users/ana/Projects/Pi-Packages", sel = [], anchor = null, typed = null, touchSel = false;
+
+const leaf = (p) => p.split("/").pop();
+const tilde = (p) => p.replace(/^\/Users\/ana/, "~");
+const parent = (p) => p.slice(0, p.lastIndexOf("/"));
+const kids = () => {
+  const all = (FS[cwd] || []).map((n) => `${cwd}/${n}`);
+  if (typed == null) return all;
+  const part = typed.slice(typed.lastIndexOf("/") + 1).toLowerCase();
+  return all.filter((p) => leaf(p).toLowerCase().startsWith(part));
+};
+const addKey = (e) => (os === "mac" ? e.metaKey : e.ctrlKey);
+
+function open(p) { if (FS[p] === undefined) return; cwd = p; sel = []; anchor = null; typed = null; touchSel = false; render(); }
+
+function render() {
+  const lb = document.getElementById("lb");
+  lb.className = "lb" + (os === "touch" ? " touch" : "") + (touchSel ? " touch-sel" : "");
+  const pin = document.getElementById("pin");
+  if (typed == null) pin.value = tilde(cwd) + "/";
+  const ks = kids();
+  let h = cwd !== "/Users/ana" ? `<div class="r" data-up role="option" aria-selected="false">${ic(P.up)}<span class="nm">..</span></div>` : "";
+  h += ks.map((p) => {
+    const n = leaf(p), on = sel.includes(p);
+    return `<div class="r ${on ? "sel" : ""} ${ADDED.has(p) ? "added" : ""}" data-p="${p}" role="option" aria-selected="${on}">
+      <span class="tick">${on ? ic(P.check) : ""}</span>${ic(P.folder)}<span class="nm">${n}</span>
+      ${SESS[p] ? `<span class="b-s">${SESS[p]} session</span>` : ""}
+      ${ADDED.has(p) ? `<span class="b-add">added</span>` : ""}
+      ${GIT.has(n) ? `<span class="b-git">git</span>` : ""}${PI.has(n) ? `<span class="b-pi">pi</span>` : ""}</div>`;
+  }).join("");
+  if (!ks.length) h += `<div class="empty">${typed ? "No matches" : "No subdirectories"}</div>`;
+  lb.innerHTML = h;
+  paint();
+}
+
+// Selection changes repaint in place — never rebuild rows, or the 2nd click of a
+// double-click lands on a new node and the browser never fires dblclick.
+function paint() {
+  const lb = document.getElementById("lb");
+  lb.classList.toggle("touch-sel", touchSel);
+  lb.querySelectorAll("[data-p]").forEach((r) => {
+    const on = sel.includes(r.dataset.p);
+    r.classList.toggle("sel", on); r.setAttribute("aria-selected", on);
+    r.querySelector(".tick").innerHTML = on ? ic(P.check) : "";
+  });
+  const targets = sel.length ? sel : [cwd];
+  const fresh = targets.filter((t) => !ADDED.has(t));
+  const go = document.getElementById("go");
+  go.disabled = !fresh.length;
+  go.textContent = !fresh.length ? "Already added" : fresh.length === 1 ? `Add “${leaf(fresh[0])}”` : `Add ${fresh.length} folders`;
+  const hint = os === "touch" ? "Tap to open · long-press to select" : `Double-click to open · ${os === "mac" ? "⌘" : "Ctrl"}-click to select more`;
+  document.getElementById("status").innerHTML = sel.length
+    ? `${sel.length === 1 ? `Selected <code>${tilde(sel[0])}</code>` : `Selected <code>${sel.map(leaf).join(", ")}</code>`} <button class="link" id="clr">Clear</button>`
+    : `<span>Adds <code>${tilde(cwd)}</code></span><span class="sp"></span><span>${hint}</span>`;
+}
+
+const lb = document.getElementById("lb");
+let pressT = null, longFired = false;
+lb.addEventListener("pointerdown", (e) => {
+  if (os !== "touch") return;
+  const r = e.target.closest("[data-p]"); if (!r) return;
+  longFired = false;
+  pressT = setTimeout(() => { longFired = true; touchSel = true; const p = r.dataset.p; if (!sel.includes(p)) sel.push(p); paint(); navigator.vibrate?.(10); }, 450);
+});
+["pointerup", "pointerleave", "pointercancel"].forEach((t) => lb.addEventListener(t, () => clearTimeout(pressT)));
+lb.addEventListener("contextmenu", (e) => { if (os === "touch") e.preventDefault(); });
+
+lb.addEventListener("click", (e) => {
+  if (e.target.closest("[data-up]")) { open(parent(cwd)); return; }
+  const r = e.target.closest("[data-p]");
+  if (!r) { if (os !== "touch") { sel = []; paint(); } return; }
+  const p = r.dataset.p;
+  if (os === "touch") {
+    if (longFired) { longFired = false; return; }
+    if (touchSel) { sel = sel.includes(p) ? sel.filter((x) => x !== p) : [...sel, p]; if (!sel.length) touchSel = false; paint(); }
+    else open(p);
+    return;
+  }
+  const ks = kids();
+  if (e.shiftKey && anchor) { const [a, b] = [ks.indexOf(anchor), ks.indexOf(p)].sort((x, y) => x - y); sel = ks.slice(a, b + 1); }
+  else if (addKey(e)) { sel = sel.includes(p) ? sel.filter((x) => x !== p) : [...sel, p]; anchor = p; }
+  else { sel = [p]; anchor = p; }
+  paint();
+});
+lb.addEventListener("dblclick", (e) => {
+  if (os === "touch") return;
+  if (e.target.closest("[data-up]")) return;
+  const r = e.target.closest("[data-p]"); if (r) open(r.dataset.p);
+});
+
+function key(e) {
+  const ks = kids(), i = sel.length ? ks.indexOf(sel[sel.length - 1]) : -1;
+  const openKey = e.key === "Enter" || (e.key === "ArrowDown" && (os === "mac" ? e.metaKey : false));
+  const upKey = (e.key === "ArrowUp" && (os === "mac" ? e.metaKey : e.altKey)) || (e.key === "Backspace" && e.target.id !== "pin");
+  if (upKey) { e.preventDefault(); if (cwd !== "/Users/ana") open(parent(cwd)); }
+  else if (openKey && sel.length === 1) { e.preventDefault(); open(sel[0]); }
+  else if (e.key === "ArrowDown" && ks.length) { e.preventDefault(); const p = ks[Math.min(i + 1, ks.length - 1)]; sel = e.shiftKey ? [...new Set([...sel, p])] : [p]; anchor = p; render(); }
+  else if (e.key === "ArrowUp" && ks.length) { e.preventDefault(); const p = ks[Math.max(i - 1, 0)]; sel = e.shiftKey ? [...new Set([...sel, p])] : [p]; anchor = p; render(); }
+  else if (e.key === "Escape" && sel.length) { e.preventDefault(); sel = []; touchSel = false; render(); }
+  else if (e.key === "a" && addKey(e) && e.target.id !== "pin") { e.preventDefault(); sel = ks.slice(); render(); }
+}
+lb.addEventListener("keydown", key);
+const pin = document.getElementById("pin");
+pin.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && typed != null) {
+    e.preventDefault();
+    const raw = pin.value.replace(/^~/, "/Users/ana").replace(/\/$/, "");
+    if (FS[raw] !== undefined) return open(raw);
+    const ks = kids(); if (ks.length === 1) return open(ks[0]);
+    pin.style.borderColor = "var(--accent-red)"; setTimeout(() => (pin.style.borderColor = ""), 400); return;
+  }
+  if (["ArrowDown", "ArrowUp"].includes(e.key)) key(e);
+});
+pin.addEventListener("input", () => {
+  const raw = pin.value.replace(/^~/, "/Users/ana");
+  const dir = raw.slice(0, raw.lastIndexOf("/"));
+  if (FS[dir] !== undefined && dir !== cwd) { cwd = dir; sel = []; }
+  typed = pin.value; render();
+});
+document.getElementById("status").addEventListener("click", (e) => { if (e.target.id === "clr") { sel = []; touchSel = false; render(); } });
+function toast(t) { const el = document.getElementById("toast"); el.textContent = t; el.style.display = "block"; setTimeout(() => (el.style.display = "none"), 2200); }
+document.getElementById("go").onclick = () => { const t = (sel.length ? sel : [cwd]).filter((x) => !ADDED.has(x)); toast(`Added ${t.map(leaf).join(", ")}`); };
+document.getElementById("newf").onclick = () => toast("Existing inline “New folder name” row (unchanged)");
+
+function seg(id, fn, init) {
+  const el = document.getElementById(id);
+  const set = (v) => { el.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", x.dataset.v === v)); fn(v); };
+  el.addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) set(b.dataset.v); });
+  if (init) set(init);
+}
+seg("os", (v) => { os = v === "linux" ? "win" : v; sel = []; touchSel = false; render(); }, os);
+seg("theme", (v) => { document.documentElement.dataset.theme = v; });
+render();
+</script>
+</body>
+</html>
