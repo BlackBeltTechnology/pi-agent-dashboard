@@ -23,7 +23,7 @@ export type ReplayExitCause = "complete" | "idle" | "cap" | "unregister";
 export const REPLAY_IDLE_MS = 5_000;
 export const REPLAY_CAP_MS = 60_000;
 /** Keepalive cadence for subscribers waiting on a bridge replay (= cold-load heartbeat). */
-export const REPLAY_KEEPALIVE_MS = 10_000;
+const REPLAY_KEEPALIVE_MS = 10_000;
 
 type Timer = ReturnType<typeof setTimeout>;
 

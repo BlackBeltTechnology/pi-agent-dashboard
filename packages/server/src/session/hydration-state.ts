@@ -18,9 +18,9 @@ import {
 } from "./replay-exit-controller.js";
 
 /** Bridge-supplied `leafEntryId` is an untrusted string: bound it. */
-export const LEAF_ENTRY_ID_MAX = 128;
+const LEAF_ENTRY_ID_MAX = 128;
 
-export interface HydrationFingerprint {
+interface HydrationFingerprint {
   entryCount: number;
   leafEntryId: string;
   /** Highest store seq right after the hydration insert. */
@@ -83,7 +83,7 @@ export function createReplayState(controllerOpts?: ReplayExitControllerOptions):
   return { controller: createReplayExitController(controllerOpts), hydration: createHydrationState() };
 }
 
-export interface HydrationState {
+interface HydrationState {
   /** Record the fingerprint after a successful hydration insert. */
   recordFingerprint(sessionId: string, fp: HydrationFingerprint): void;
   getFingerprint(sessionId: string): HydrationFingerprint | undefined;
@@ -105,7 +105,7 @@ export interface HydrationState {
   forget(sessionId: string): void;
 }
 
-export function createHydrationState(): HydrationState {
+function createHydrationState(): HydrationState {
   const fingerprints = new Map<string, HydrationFingerprint>();
   const bridgeLearned = new Map<string, { entryCount: number; leafEntryId: string | undefined }>();
   const generations = new Map<string, number>();
