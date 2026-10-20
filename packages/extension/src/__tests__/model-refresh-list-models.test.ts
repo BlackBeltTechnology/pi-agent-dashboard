@@ -27,7 +27,7 @@ describe("resyncForListModels — bounded waits", () => {
     const refresh = vi.fn(async () => OK);
     let settled = false;
     const call = resyncForListModels({ refresh }, { reloadProviders: () => new Promise(() => {}) });
-    call.then(() => { settled = true; });
+    const tracked = call.then(() => { settled = true; });
 
     await vi.advanceTimersByTimeAsync(PROVIDERS_RESYNC_TIMEOUT_MS - 1);
     expect(settled).toBe(false);
@@ -35,6 +35,8 @@ describe("resyncForListModels — bounded waits", () => {
 
     await vi.advanceTimersByTimeAsync(1);
     await expect(call).resolves.toBe(OK);
+    await tracked;
+    expect(settled).toBe(true);
     expect(refresh).toHaveBeenCalledOnce();
   });
 
@@ -42,12 +44,14 @@ describe("resyncForListModels — bounded waits", () => {
     const refresh = vi.fn(() => new Promise<never>(() => {}));
     let settled = false;
     const call = resyncForListModels({ refresh }, { reloadProviders: async () => {} });
-    call.then(() => { settled = true; });
+    const tracked = call.then(() => { settled = true; });
 
     await vi.advanceTimersByTimeAsync(REFRESH_TIMEOUT_MS - 1);
     expect(settled).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
     await expect(call).resolves.toBeUndefined();
+    await tracked;
+    expect(settled).toBe(true);
   });
 });
 
