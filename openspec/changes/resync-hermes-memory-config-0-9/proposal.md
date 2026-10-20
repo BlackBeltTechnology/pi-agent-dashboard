@@ -15,27 +15,43 @@ The recommended extension installs `npm:pi-hermes-memory` at latest — now
 - **Enum drift**: upstream `ThinkingLevel` = pi-ai `ModelThinkingLevel`, which
   adds `"max"`; the PUT validator rejects `llmThinkingOverride: "max"`.
 - **Default drift**: `consolidationTimeoutMs` default 60000 → 180000.
-- **Data loss (worst)**: `readEffectiveConfig` builds `raw` from `KNOWN_KEYS`
-  only and `PUT` writes that object over the whole file. Saving from the
+- **Data loss (worst)**: the client's `buildResolvedConfig` emits `KNOWN_KEYS`
+  only and `PUT` writes that body verbatim over the whole file. Saving from the
   dashboard silently **deletes** every on-disk key the plugin does not know —
   today all 12 fields above, and any future upstream field.
 
 ## What Changes
 
-- Re-mirror `MemoryConfig`, field descriptors, enums and `DEFAULTS` in
+- Re-mirror `MemoryConfig`, field descriptors, enums, bounds and `DEFAULTS` in
   `src/shared/hermes-config.ts` from `pi-hermes-memory@0.9.10`
   (`src/types.ts`, `src/config.ts`, `src/constants.ts`); bump the
   SOURCE-VERSION PIN comments in `hermes-config.ts` + `server/config-path.ts`
-  (`paths.ts` unchanged 0.8.1 → 0.9.10 — pin bump only).
+  (`paths.ts` verified byte-identical 0.8.1 → 0.9.10 — pin bump only).
 - Add the 12 fields to the settings form (`client/field-groups.ts`) with
-  labels/descriptions + i18n catalog entries.
+  labels/descriptions (presentation data, like every existing field — not
+  i18n keys; design D8).
 - Accept `"max"` for `llmThinkingOverride`.
-- **Preserve unknown on-disk keys on write**: PUT merges the validated body
-  over the on-disk object so keys outside `KNOWN_KEYS` survive a save. The PUT
-  *body* unknown-key rejection stays (security boundary unchanged).
-- Add a drift-guard test: a checked-in fixture of the upstream field list
-  (0.9.10) asserted equal to `KNOWN_KEYS`, so the next re-mirror is a
-  deliberate, reviewed diff.
+- **Preserve unknown on-disk keys on write**: the written file = on-disk keys
+  outside `KNOWN_KEYS` + the validated body. Known keys come from the body
+  only, so a cleared/reset override stays absent (design D1). The PUT *body*
+  unknown-key rejection stays (security boundary unchanged).
+- **Stop pinning defaults**: a submitted known field equal to its default is
+  omitted from the file (except `memoryOverflowStrategy`, kept authoritative),
+  so upstream default changes reach users; a one-time heal drops the legacy
+  pinned `consolidationTimeoutMs: 60000` from 0.8.1-era write-all files
+  (design D1, D6).
+- **Corrupt file safety**: an unreadable file → 500, no write; a malformed
+  (non-object JSON) file is quarantined to `*.corrupt-<stamp>` (repo
+  convention, as for `auth.json`) before being overwritten (design D3).
+- GET `raw` and the raw-JSON dialog also show preserved unknown keys (design D4).
+- GET mirrors two upstream derivations so a no-touch save never changes the
+  effective config: strategy-absent `autoConsolidate` → derived
+  `memoryOverflowStrategy`; array-form `llmModelOverride` → primary + fallbacks
+  (design D1, D9).
+- Unreadable file → GET/PUT 500 with `{ error, code }` (design D3).
+- Drift guard: a checked-in 0.9.10 fixture (keys + defaults) replaces the
+  inline `EXPECTED_KEYS` list; a local-only test (skipped when hermes is not
+  installed) compares it to the installed upstream `MemoryConfig` (design D5).
 
 No dependency on `pi-hermes-memory` is added (D3 stands).
 
@@ -55,14 +71,17 @@ _None._
 ### Modified Capabilities
 
 - `hermes-memory-settings`: write preserves unknown on-disk keys; field set +
-  defaults track `pi-hermes-memory@0.9.10`.
+  defaults track `pi-hermes-memory@0.9.10`; default-valued fields are
+  omitted on write; GET `raw` includes preserved unknown keys.
 
 ## Impact
 
 - Code: `packages/hermes-memory-plugin/src/{shared/hermes-config.ts,
-  server/config-io.ts, server/config-path.ts, client/field-groups.ts,
-  client/settings-model.ts}`, i18n catalog, tests.
-- No server/protocol change outside the plugin; no migration — the config file
-  format is owned by hermes and only gains preserved keys.
-- Rollback: revert the commit; files written by the new code remain valid for
-  the old plugin (old plugin would again drop unknown keys on its next save).
+  server/config-io.ts, server/config-path.ts, client/field-groups.ts}`, tests.
+  `client/settings-model.ts` needs no change (iterates `KNOWN_KEYS`).
+- No server/protocol change outside the plugin; no migration beyond the one-shot
+  `consolidationTimeoutMs` heal (design D6) — the file format is owned by hermes.
+- Rollback: revert the commit; files written by the new code stay readable by
+  the old plugin (it would again drop unknown keys and pin defaults on its next
+  save; a file holding `llmThinkingOverride: "max"` makes its validator 400
+  until hand-edited).

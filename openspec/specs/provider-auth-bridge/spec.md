@@ -88,9 +88,31 @@ When the bridge extension receives a `credentials_updated` message, it SHALL re-
 - **AND** `modelRegistry.refresh()` SHALL still be invoked to handle non-provider credential changes (e.g. OAuth)
 
 #### Scenario: providers.json read fails
-- **WHEN** reading `~/.pi/agent/providers.json` throws (missing file, parse error, IO error)
+- **WHEN** `~/.pi/agent/providers.json` exists but reading or parsing it throws (parse error, IO error)
 - **THEN** the bridge SHALL log the error via `console.error` with a `[dashboard]` prefix
+- **AND** SHALL keep every currently registered custom provider (no `pi.unregisterProvider` / `pi.registerProvider` call) and report an empty diff
 - **AND** SHALL still invoke `modelRegistry.refresh()` so other credential updates are not blocked
+
+#### Scenario: providers.json parses but has no usable providers object
+- **WHEN** `~/.pi/agent/providers.json` parses as JSON but its `providers` key is absent, `null`, or not a plain object
+- **THEN** the bridge SHALL treat it like a read failure: log, keep every registered custom provider, report an empty diff
+
+#### Scenario: A single malformed provider entry makes the whole file unreadable
+- **WHEN** `~/.pi/agent/providers.json` parses but any entry under `providers` is not a plain object (e.g. `{"providers":{"a":null}}`)
+- **THEN** the bridge SHALL treat the whole file as unreadable: log, keep every registered custom provider, report an empty diff
+
+#### Scenario: Explicitly empty providers object removes custom providers
+- **WHEN** `~/.pi/agent/providers.json` parses and contains `"providers": {}`
+- **THEN** the bridge SHALL unregister every previously registered custom provider
+
+#### Scenario: Missing providers.json removes custom providers
+- **WHEN** `~/.pi/agent/providers.json` does not exist
+- **THEN** the bridge SHALL unregister every previously registered custom provider
+
+#### Scenario: Recovered providers.json applies normally
+- **GIVEN** a previous re-sync saw an unreadable file and kept custom provider `keep`
+- **WHEN** `~/.pi/agent/providers.json` is now valid and omits `keep`, and a re-sync runs
+- **THEN** the bridge SHALL unregister `keep`
 
 ### Requirement: Model metadata enriched via pi's model registry
 

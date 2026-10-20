@@ -473,28 +473,63 @@ function entriesEqual(a: ProviderEntry, b: ProviderEntry): boolean {
 
 // -- Config I/O (read-only — providers section) ----------------------------
 
-function loadProviders(): Record<string, ProviderEntry> {
-  const path = configPath();
-  if (existsSync(path)) {
-    try {
-      const raw = JSON.parse(readFileSync(path, "utf-8"));
-      const providers: Record<string, ProviderEntry> = { ...raw.providers };
-      for (const [, entry] of Object.entries(providers) as [string, any][]) {
-        if (entry.apiKeyEnv && !entry.apiKey) {
-          entry.apiKey = "$" + entry.apiKeyEnv;
-          delete entry.apiKeyEnv;
-        }
-        delete (entry as any).modelIds;
-      }
-      return providers;
-    } catch (err: any) {
-      console.error(
-        `[dashboard] providers.json reload failed: ${err?.message ?? String(err)}`,
-      );
-    }
-  }
-  return {};
+/**
+ * Tri-state read of providers.json. `unreadable` (IO/parse error, `providers`
+ * absent or not a plain object, or any non-plain-object entry) is never treated
+ * as an empty map: a re-sync on an unreadable file must not unregister every
+ * custom provider (e.g. mid-save of a non-atomic hand-edit). Only a fully
+ * well-formed `providers` (including `{}`) is `ok`.
+ * See change: list-models-auto-resync (design D5).
+ */
+type LoadedProviders =
+  | { kind: "absent" }
+  | { kind: "ok"; providers: Record<string, ProviderEntry> }
+  | { kind: "unreadable"; error: string };
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
 }
+
+function loadProviders(): LoadedProviders {
+  const path = configPath();
+  if (!existsSync(path)) {
+    lastUnreadableError = undefined;
+    return { kind: "absent" };
+  }
+  let error: string;
+  try {
+    const raw = JSON.parse(readFileSync(path, "utf-8"));
+    if (!isPlainObject(raw) || !isPlainObject(raw.providers)) {
+      error = "`providers` is missing or not an object";
+    } else {
+      const bad = Object.entries(raw.providers).find(([, e]) => !isPlainObject(e));
+      if (bad) {
+        error = `provider entry "${bad[0]}" is not an object`;
+      } else {
+        const providers = { ...raw.providers } as Record<string, ProviderEntry>;
+        for (const [, entry] of Object.entries(providers) as [string, any][]) {
+          if (entry.apiKeyEnv && !entry.apiKey) {
+            entry.apiKey = "$" + entry.apiKeyEnv;
+            delete entry.apiKeyEnv;
+          }
+          delete (entry as any).modelIds;
+        }
+        lastUnreadableError = undefined;
+        return { kind: "ok", providers };
+      }
+    }
+  } catch (err: any) {
+    error = err?.message ?? String(err);
+  }
+  // Log once per distinct error: a roles-only file (no `providers` key) is
+  // re-read on every resync and must not spam the TUI.
+  if (error !== lastUnreadableError) {
+    console.error(`[dashboard] providers.json reload failed (keeping current providers): ${error}`);
+    lastUnreadableError = error;
+  }
+  return { kind: "unreadable", error };
+}
+let lastUnreadableError: string | undefined;
 
 // -- API key resolution ---------------------------------------------------
 
@@ -955,7 +990,10 @@ async function reloadProvidersNow(
 
   let current: Record<string, ProviderEntry>;
   try {
-    current = loadProviders();
+    const loaded = loadProviders();
+    // Unreadable → empty diff, `lastRegistered` untouched (design D5).
+    if (loaded.kind === "unreadable") return { added, removed, changed };
+    current = loaded.kind === "ok" ? loaded.providers : {};
   } catch {
     return { added, removed, changed };
   }
@@ -1107,7 +1145,10 @@ async function resolveModelProbe(probe: any, ref: string): Promise<void> {
 
 export function activate(pi: ExtensionAPI) {
   piRef = pi;
-  const providers = loadProviders();
+  // Unreadable is treated like absent here: nothing is registered yet, so
+  // nothing is lost. See change: list-models-auto-resync (design D5).
+  const loaded = loadProviders();
+  const providers = loaded.kind === "ok" ? loaded.providers : {};
 
   // Register providers (async discovery, fire-and-forget at startup).
   // Startup registrations join `reloadChain` so a re-sync arriving during

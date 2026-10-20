@@ -15,6 +15,7 @@
  *   - prunes `node_modules/**\/.bin` symlinks (the consumer's extractor refuses
  *     every link member; nothing in the runtime execs a `.bin` shim) and
  *     fails on any other symlink;
+ *   - breaks hardlinks into independent copies (same reason: no `h` member);
  *   - tars the tree ROOT entries (no `./` prefix) into
  *     `pi-dashboard-runtime-<X>-<platform>-<arch>.tgz`;
  *   - writes `<asset>.sha512` (`<hex>  <asset>`; consumer reads token 1).
@@ -25,7 +26,7 @@
  */
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { createReadStream, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, createReadStream, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -58,6 +59,44 @@ export function pruneBinLinks(root) {
   }
   if (others.length) throw new Error(`runtime tree has symlinks outside .bin: ${others.slice(0, 10).join(", ")}`);
   return pruned;
+}
+
+/**
+ * Rewrite every extra path of a hardlinked regular file as an independent
+ * copy (same content and mode), so `tar` emits no `h` member — the consumer's
+ * extractor refuses every link member. esbuild's postinstall hardlinks its
+ * native binary into `esbuild/bin` on some platforms (seen on linux-arm64).
+ * Returns the number of rewritten paths.
+ */
+export function breakHardLinks(root) {
+  let rewritten = 0;
+  const seen = new Set();
+  const stack = [root];
+  while (stack.length) {
+    const dir = stack.pop();
+    for (const ent of readdirSync(dir, { withFileTypes: true })) {
+      const p = join(dir, ent.name);
+      if (ent.isDirectory()) stack.push(p);
+      else if (ent.isFile() && unlinkExtraHardLink(p, seen)) rewritten++;
+    }
+  }
+  return rewritten;
+}
+
+/** Keep the first path of each inode; replace later ones with a copy. */
+function unlinkExtraHardLink(p, seen) {
+  const st = lstatSync(p);
+  if (st.nlink < 2) return false;
+  const key = `${st.dev}:${st.ino}`;
+  if (!seen.has(key)) {
+    seen.add(key);
+    return false;
+  }
+  const tmp = `${p}.unlink-tmp`;
+  copyFileSync(p, tmp);
+  chmodSync(tmp, st.mode & 0o7777);
+  renameSync(tmp, p);
+  return true;
 }
 
 /** `.sha512` file body: hex digest, two spaces, asset name. */
@@ -114,6 +153,7 @@ export async function buildRuntimeAsset({ version, outDir, deps = stagerDeps(), 
       onProgress: (p) => p.phase !== "install" && log(`[${p.phase}] ${p.message ?? ""}`),
     });
     log(`pruned ${pruneBinLinks(root)} .bin symlink(s)`);
+    log(`broke ${breakHardLinks(root)} hardlink(s)`);
 
     // Relative output path + root entry names: no drive letters (GNU tar on
     // Windows reads `C:` as a remote host) and no `./` member prefix.
