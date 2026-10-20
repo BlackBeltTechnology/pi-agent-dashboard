@@ -17,3 +17,5 @@ PTY env `{ ...process.env, ...hints }` passes through `normalizeEnvPathKey` befo
 - Identity plane: `spawn(cwd, {ephemeral?, owner?})` stamps `principalOwner` `{iss,sub}` (copy). Owner rule = sessions (equality; ownerless invisible to humans; operator sees all). See change: add-multi-user-identity-plane (18.13).
 
 POSIX PTY spawns `$SHELL -l` (login shell) so `~/.zprofile`/`~/.bash_profile` run (e.g. `brew shellenv` → `/opt/homebrew/bin`); server's inherited GUI/launchd PATH lacks Homebrew. win32 args stay `[]`.
+
+- Caps: `maxConcurrent` (32) global, then `maxPerOwner` (16; `{iss,sub}` equality; ownerless count global only), checked BEFORE `pty.spawn`; over → `TerminalLimitError{scope:"global"|"owner", limit}`. Inline (ephemeral) PTYs count. Defaults from shared `DEFAULT_TERMINALS_CONFIG` (`terminals.*`). Orphan reaper: ephemeral PTY with no client for `inlineOrphanTtlMs` (600000; clock starts at spawn, restarts at last detach) killed via `kill` → tombstone. Tab terminals never reaped. See change: harden-server-capability-bounds.

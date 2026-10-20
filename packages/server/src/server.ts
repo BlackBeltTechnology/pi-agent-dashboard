@@ -188,6 +188,7 @@ import { canAccessSession, isLocalOperator, markLocalOperator, sessionPrincipalO
 import { scheduleAtExpiry } from "./identity/socket-lifetime.js";
 import { authorizeRoadUpgrade } from "./identity/upgrade-gate.js";
 import { createKnownServerMoves } from "./known-server-moves.js";
+import { buildBrowseRootSources, resolveBrowseRoots } from "./lib/browse-roots.js";
 import {
   clientBuildDiagnostic,
   clientBuildSnapshotFor,
@@ -223,6 +224,7 @@ import { type BrowserGateway, createBrowserGateway } from "./pairing/browser-gat
 import { createRequestAccessAvailable, type KnockPeerDeps } from "./pairing/knock-admission.js";
 import { PairedDeviceRegistry } from "./pairing/paired-devices.js";
 import { PairingManager, wirePendingHint } from "./pairing/pairing.js";
+import { stampSocketLocality } from "./pairing/socket-locality.js";
 import type { TieredSocket } from "./pairing/ws-tier-gate.js";
 import { buildSelfServer, wirePeerServers } from "./peer-servers.js";
 import { createPendingArchiveIntentRegistry } from "./pending/pending-archive-intent-registry.js";
@@ -255,6 +257,7 @@ import { registerQuestionRoutes } from "./questions/question-routes.js";
 import { createQuestionStack, persistedPresence } from "./questions/question-stack.js";
 import { registerAccessPromptRoutes } from "./routes/access-prompt-routes.js";
 import { registerAccessRoutes } from "./routes/access-routes.js";
+import { registerAcmeRoutes } from "./routes/acme-routes.js";
 import { registerAcpRoutes } from "./routes/acp-routes.js";
 import { registerAddonsRoutes } from "./routes/addons-routes.js";
 import { registerAttachmentRoutes } from "./routes/attachment-routes.js";
@@ -301,10 +304,6 @@ import { registerRuntimeRoutes } from "./routes/runtime-routes.js";
 import { registerSessionRoutes, type ToolResultStats } from "./routes/session-routes.js";
 import { registerSystemRoutes } from "./routes/system-routes.js";
 import { registerTlsRoutes } from "./routes/tls-routes.js";
-import { registerAcmeRoutes } from "./routes/acme-routes.js";
-import { createAcmeCredentials } from "./tls/sources/acme/credentials.js";
-import { configureAcmeRuntime } from "./tls/sources/acme/runtime.js";
-import { acmeGc } from "./tls/sources/acme/gc.js";
 import { registerToolRoutes } from "./routes/tool-routes.js";
 import { registerUserRoutes } from "./routes/user-routes.js";
 import {
@@ -353,6 +352,9 @@ import { registerSpawnEnvContributorForPlugin, setSpawnEnvPluginEnabledCheck } f
 import { armSpawnWatchdog } from "./spawn-process/spawn-register-watchdog.js";
 import { createTerminalGateway } from "./terminal/terminal-gateway.js";
 import { createTerminalManager, deriveTranscriptCapBytes } from "./terminal/terminal-manager.js";
+import { createAcmeCredentials } from "./tls/sources/acme/credentials.js";
+import { acmeGc } from "./tls/sources/acme/gc.js";
+import { configureAcmeRuntime } from "./tls/sources/acme/runtime.js";
 import {
   MAIN_CONNECTION_TIMEOUT_MS,
   MAIN_KEEP_ALIVE_TIMEOUT_MS,
@@ -1319,8 +1321,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   const fitWorkerPool = createFitWorkerPool({ size: 2 });
 
   // Create terminal manager with exit callback
+  // PTY caps + inline orphan TTL from `terminals.*` (restart to apply).
+  // See change: harden-server-capability-bounds (D3).
+  const terminalsConfig = loadConfig().terminals;
   const terminalManager = createTerminalManager({
     transcriptCapBytes,
+    maxConcurrent: terminalsConfig.maxConcurrent,
+    maxPerOwner: terminalsConfig.maxPerOwner,
+    inlineOrphanTtlMs: terminalsConfig.inlineOrphanTtlMs,
     onExit: (terminalId) => {
       // Find and remove from session order
       const allOrders = sessionOrderManager.getAllOrders();
@@ -1354,8 +1362,21 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   questionStore.loadPersisted();
   questionStore.sweepAtBoot((sessionId) => persistedSessionPresence.get(sessionId) ?? "unknown");
 
+  // Shared roots for browse confinement + the remote folder gate (ONE definition).
+  // Project-scope grants only: session-scope grants are transient.
+  // See change: harden-server-capability-bounds (D2).
+  const browseRootSources = buildBrowseRootSources({
+    preferencesStore,
+    sessionManager,
+    worktreeRoots: () => listPersistedWorktreeTrust().map((t) => t.repoRoot),
+    projectGrants: () => listAccessGrants().filter((g) => g.scope === "project").map((g) => g.subject),
+  });
+  // `browse.confineRemote: false` (operator opt-out, read at start) => `null` = unconfined.
+  const confineRemoteBrowse = loadConfig().browse.confineRemote;
+  const browseRoots = () => (confineRemoteBrowse ? resolveBrowseRoots(browseRootSources) : Promise.resolve(null));
+
   const replayState = createReplayState(config.replayTimings);
-  const browserGateway = createBrowserGateway(sessionManager, eventStore, piGateway, undefined, pendingForkRegistry, sessionOrderManager, preferencesStore, directoryService, terminalManager, pendingDashboardSpawns, config.maxWsBufferBytes, pendingAttachRegistry, pendingInitialPromptRegistry, pendingResumeIntents, pendingClientCorrelations, pendingWorktreeBaseRegistry, metaPersistence, fitWorkerPool, config.maxReplayEvents, config.replayWindowMode, sessionArchive, pendingArchiveIntents, remoteTranscriptStore, pendingPrincipalOwnerRegistry, identityEnforced, undefined, questionStore, replayState);
+  const browserGateway = createBrowserGateway(sessionManager, eventStore, piGateway, undefined, pendingForkRegistry, sessionOrderManager, preferencesStore, directoryService, terminalManager, pendingDashboardSpawns, config.maxWsBufferBytes, pendingAttachRegistry, pendingInitialPromptRegistry, pendingResumeIntents, pendingClientCorrelations, pendingWorktreeBaseRegistry, metaPersistence, fitWorkerPool, config.maxReplayEvents, config.replayWindowMode, sessionArchive, pendingArchiveIntents, remoteTranscriptStore, pendingPrincipalOwnerRegistry, identityEnforced, undefined, questionStore, browseRoots, replayState);
   // App-wide pairing approval dialog: a content-free hint on every pending
   // change; operator browsers refetch the guarded list (D1).
   // See change: add-pairing-approval-dialog.
@@ -2525,6 +2546,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     if (cwd) worktreeInitRegistry.unsubscribeCwd(cwd, ws);
   });
   registerFileRoutes(fastify, {
+    // Remote browse confinement (change: harden-server-capability-bounds, D1/D2):
+    // strict-proof context + the two root sources only this file can read.
+    localTrust,
+    browseConfineRemote: confineRemoteBrowse,
+    browseRootSources: {
+      worktreeRoots: browseRootSources.worktreeRoots,
+      projectGrants: browseRootSources.projectGrants,
+    },
     sessionManager,
     preferencesStore,
     networkGuard,
@@ -4488,6 +4517,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                   : Object.freeze({ ...upgradeAuth.principal });
                 bound.principalExpiresAt = upgradeAuth.principalExpiresAt;
               }
+              // Locality is decided ONCE here, from the upgrade request; handlers read the bit.
+              // See change: harden-server-capability-bounds (D1b).
+              stampSocketLocality(ws, request, localTrust);
               if (grants) (ws as { bootstrapGrants?: BootstrapGrants }).bootstrapGrants = grants;
               if (sessionTierOf) (ws as TieredSocket).sessionTier = sessionTierOf;
               browserGateway.wss.emit("connection", ws, request);

@@ -35,6 +35,8 @@ function createHarness(opts: {
       }
     : undefined;
   const ctx = {
+    // A local socket: the remote folder gate (harden-server-capability-bounds, D1b) default-denies an unflagged one.
+    locallyTrusted: true,
     preferencesStore: store,
     directoryService: withDirectoryService
       ? { onDirectoryAdded: vi.fn(async () => ({ sessions: [], openspecData: {} })) }

@@ -38,7 +38,7 @@ const PROXY_FORWARDING_HEADERS = [
  * Core callers keep the 5-header list above: widening the shared constant
  * would change core admission; plugin scopes get the stricter set.
  */
-const PLUGIN_PROXY_FORWARDING_HEADERS = [
+export const PLUGIN_PROXY_FORWARDING_HEADERS = [
   ...PROXY_FORWARDING_HEADERS,
   "via",
   "x-forwarded-server",

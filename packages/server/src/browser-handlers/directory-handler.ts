@@ -9,6 +9,7 @@ import { normalizePath } from "@blackbelt-technology/pi-dashboard-shared/platfor
 import { isGroupByMode } from "@blackbelt-technology/pi-dashboard-shared/session-group-by.js";
 import { getPiTrustMirror } from "../access/pi-trust-mirror-service.js";
 import { safeRealpathSync } from "../resolve-path.js";
+import { gateRemoteFolder } from "./folder-gate.js";
 import type { BrowserHandlerContext } from "./handler-context.js";
 
 /**
@@ -23,6 +24,14 @@ function canonicalizePath(input: string): string {
 }
 
 export function handlePinDirectory(
+  msg: Extract<BrowserToServerMessage, { type: "pin_directory" }>,
+  ctx: BrowserHandlerContext,
+): void {
+  // A remote socket may only pin inside the shared roots. See change: harden-server-capability-bounds (D1b).
+  gateRemoteFolder(ctx, canonicalizePath(msg.path), "pin_directory", () => pinDirectoryNow(msg, ctx));
+}
+
+function pinDirectoryNow(
   msg: Extract<BrowserToServerMessage, { type: "pin_directory" }>,
   ctx: BrowserHandlerContext,
 ): void {
@@ -350,6 +359,13 @@ export function handleAddFolderToWorkspace(
   msg: Extract<BrowserToServerMessage, { type: "add_folder_to_workspace" }>,
   ctx: BrowserHandlerContext,
 ): void {
+  gateRemoteFolder(ctx, canonicalizePath(msg.path), "add_folder_to_workspace", () => addFolderToWorkspaceNow(msg, ctx));
+}
+
+function addFolderToWorkspaceNow(
+  msg: Extract<BrowserToServerMessage, { type: "add_folder_to_workspace" }>,
+  ctx: BrowserHandlerContext,
+): void {
   const store = ctx.preferencesStore;
   if (!store) return;
   const mirror = getPiTrustMirror();
@@ -410,6 +426,13 @@ export function handleReorderWorkspaceFolders(
  * See change: drag-folders-across-workspaces.
  */
 export function handleMoveFolderToWorkspace(
+  msg: Extract<BrowserToServerMessage, { type: "move_folder_to_workspace" }>,
+  ctx: BrowserHandlerContext,
+): void {
+  gateRemoteFolder(ctx, canonicalizePath(msg.path), "move_folder_to_workspace", () => moveFolderToWorkspaceNow(msg, ctx));
+}
+
+function moveFolderToWorkspaceNow(
   msg: Extract<BrowserToServerMessage, { type: "move_folder_to_workspace" }>,
   ctx: BrowserHandlerContext,
 ): void {

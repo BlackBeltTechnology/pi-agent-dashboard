@@ -51,7 +51,13 @@ const MDI_MARKER = "mdiZodiacAquarius";
 // colorize-actions-menus (2026-10-19): 582 → 583 KiB. develop sat 417 B under the cap; the change's
 // tone helper (`client-utils/tone`), the host tone assignments and the lifecycle-row glyph map are
 // unavoidably in the entry (+~1.1 KB gz) → 596,669 B. Smallest step that clears it; not a general raise.
-const INDEX_GZ_CAP_BYTES = 583 * 1024;
+// harden-server-capability-bounds (2026-10-20): 583 -> 585 KiB. develop HEAD was already 404 B OVER the
+// 583 KiB cap (597,396 B on CI: the recommended-extensions catalog commit landed on a 417 B margin). The
+// change adds, unavoidably in the entry: the `terminal_limit_reached` / `folder_refused` handlers + notice
+// store (useMessageHandler), the typed browse refusal (browse-api), and the PathPicker confined/refused
+// states + their English fallbacks (+~1.2 KB gz) -> 598,604 B on CI. Smallest KiB step that clears both
+// (435 B headroom); not a general raise.
+const INDEX_GZ_CAP_BYTES = 585 * 1024;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.resolve(here, "../../dist");

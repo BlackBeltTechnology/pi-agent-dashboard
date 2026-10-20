@@ -161,14 +161,11 @@ export function frameClassOf(
 }
 
 import { randomUUID } from "node:crypto";
-import { createQuestionBroadcaster, createQuestionVisibility, type QuestionBroadcaster } from "../questions/question-broadcast.js";
-import { relayBrowserPromptResponse } from "../questions/question-answer.js";
-import type { QuestionStore } from "../questions/question-store.js";
 import type { UpgradeHeaders } from "../access/capability-issuance.js";
 import { issuePromptChannel, releasePromptChannel } from "../access/prompt-channel.js";
+import { guardAcpBrowserMessage } from "../browser-handlers/acp-guard.js";
 import { handleAddFolderToWorkspace, handleCreateWorkspace, handleDeleteWorkspace, handleExtensionUiResponse, handleFavoriteModel, handleMoveFolderToWorkspace, handleOpenSpecBulkArchive, handleOpenSpecGet, handleOpenSpecRefresh, handlePiGatewayForward, handlePinDirectory, handleRemoveFolderFromWorkspace, handleRenameWorkspace, handleReorderPinnedDirs, handleReorderSessions, handleReorderWorkspaceFolders, handleReorderWorkspaces, handleResetFolderCardSections, handleSetCardSectionVisibility, handleSetDefaultGroupBy, handleSetFocusMode, handleSetFocusProfile, handleSetFolderCollapsed, handleSetFolderExpanded, handleSetFolderGroupBy, handleSetLaneCollapsed, handleSetWorkspaceCollapsed, handleUnfavoriteModel, handleUnpinDirectory } from "../browser-handlers/directory-handler.js";
 import type { BrowserHandlerContext } from "../browser-handlers/handler-context.js";
-import { guardAcpBrowserMessage } from "../browser-handlers/acp-guard.js";
 import { acpGuardCtx, handleAbort, handleClearFollowupEntries, handleEditFollowupEntry, handleFlowControl, handleForceKill, handleKillProcess, handlePromoteFollowupEntry, handlePromptResyncRequest, handleRemoveFollowupEntry, handleResumeSession, handleRetrySession, handleSendPrompt, handleShutdown, handleSpawnSession, handleStopAfterTurn, handleSubagentResyncRequest, shutdownSession as shutdownSessionImpl } from "../browser-handlers/session-action-handler.js";
 import { handleAcceptReplaceProposal, handleArchiveSession, handleAttachProposal, handleDetachProposal, handleDismissReplaceProposal, handleFetchContent, handleListSessions, handleRemoveTagGlobally, handleRenameSession, handleSessionsPage, handleSetSessionDisplayPrefs, handleSetSessionProcessDrawer, handleSetSessionTags, handleUnarchiveSession } from "../browser-handlers/session-meta-handler.js";
 import { clearGapState, handleHistoryBackfill, handleSubscribe, sendEventBatches } from "../browser-handlers/subscription-handler.js";
@@ -176,8 +173,12 @@ import { DEFAULT_MEMORY_LIMITS } from "@blackbelt-technology/pi-dashboard-shared
 import type { ReplayState } from "../session/hydration-state.js";
 import { handleCloseInlineTerminal, handleCreateTerminal, handleKillTerminal, handleOpenInlineTerminal, handleRenameTerminal } from "../browser-handlers/terminal-handler.js";
 import { createPendingResumeRegistry, type PendingResumeRegistry } from "../pending/pending-resume-registry.js";
+import { relayBrowserPromptResponse } from "../questions/question-answer.js";
+import { createQuestionBroadcaster, createQuestionVisibility, type QuestionBroadcaster } from "../questions/question-broadcast.js";
+import type { QuestionStore } from "../questions/question-store.js";
 import { createViewedSessionTracker, type ViewedSessionTracker } from "../session/viewed-session-tracker.js";
 import type { TerminalManager } from "../terminal/terminal-manager.js";
+import { isSocketLocallyTrusted } from "./socket-locality.js";
 import { ResyncRequesterRegistry, resyncRequestIdOf } from "./subagent-resync-routing.js";
 import { decideWsTier, type TieredSocket, WS_CLOSE_SESSION_REVOKED } from "./ws-tier-gate.js";
 
@@ -626,6 +627,10 @@ export function createBrowserGateway(
    *  and fanned out as per-recipient `questions_update` frames. Absent → inert.
    *  See change: add-pending-question-stack. */
   questionStore?: QuestionStore,
+  /** The shared-root set for the remote pin / add / move-folder gate. Absent: a
+   *  remote socket's folder commands are refused (fail closed).
+   *  See change: harden-server-capability-bounds (D1b). */
+  browseRoots?: () => Promise<import("../lib/browse-roots.js").BrowseRoots | null>,
   /** Replay-mode controller + hydration/register bookkeeping shared with
    *  `wireEvents`. Absent → subscribe never waits on a bridge replay.
    *  See change: fix-large-session-resume-replay. */
@@ -1971,6 +1976,9 @@ export function createBrowserGateway(
       try {
         const ctx: BrowserHandlerContext = {
           ws, sessionManager, eventStore, piGateway,
+          // Stamped at the /ws upgrade; an unstamped socket is NOT local.
+          locallyTrusted: isSocketLocallyTrusted(ws),
+          browseRoots,
           pendingForkRegistry, sessionOrderManager, preferencesStore,
           metaPersistence,
           fitWorkerPool,
