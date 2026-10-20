@@ -401,3 +401,46 @@ describe("serveApp mount — cross-origin frame (3.3c)", () => {
     expect(res.headers["access-control-allow-origin"]).toBeUndefined();
   });
 });
+
+describe("serveApp mount — extraTypes (extend-craft-web-to-all-apps)", () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = path.join(dataDir, "web");
+    write(path.join(dir, "index.html"), "<html>shell</html>");
+    write(path.join(dir, "app", "parts.txt"), "photocraft-web-1a2b.part-aa\n");
+    write(path.join(dir, "app", "photocraft-web-1a2b.part-aa"), Buffer.alloc(32, 7));
+    write(path.join(dir, "notes.json"), "{}");
+  });
+
+  it("without extraTypes the split-wasm part list and parts are 404 (built-in allowlist only)", async () => {
+    const f = await boot({ dir });
+    expect((await f.inject({ url: "/apps/wall/app/parts.txt" })).statusCode).toBe(404);
+    expect((await f.inject({ url: "/apps/wall/app/photocraft-web-1a2b.part-aa" })).statusCode).toBe(404);
+  });
+
+  it("serves declared extensions with their inert type, still under the CSP; other unknown extensions stay 404", async () => {
+    const f = await boot({ dir, crossOriginFrame: true, extraTypes: { ".txt": "text/plain; charset=utf-8", ".part-aa": "application/octet-stream" } });
+    const txt = await f.inject({ url: "/apps/wall/app/parts.txt" });
+    expect(txt.statusCode).toBe(200);
+    expect(txt.headers["content-type"]).toBe("text/plain; charset=utf-8");
+    expect(txt.headers["content-security-policy"]).toBe("default-src 'self'");
+    expect(txt.headers["x-content-type-options"]).toBe("nosniff");
+    expect(txt.headers["access-control-allow-origin"]).toBe("*");
+    const part = await f.inject({ url: "/apps/wall/app/photocraft-web-1a2b.part-aa" });
+    expect(part.statusCode).toBe(200);
+    expect(part.headers["content-type"]).toBe("application/octet-stream");
+    expect((await f.inject({ url: "/apps/wall/notes.json" })).statusCode).toBe(404);
+  });
+
+  it.each([
+    [{ ".txt": "text/html; charset=utf-8" }, /not an inert data type/],
+    [{ ".js": "text/plain; charset=utf-8" }, /not a new lower-case extension/],
+    [{ txt: "text/plain; charset=utf-8" }, /not a new lower-case extension/],
+    [{ ".TXT": "text/plain; charset=utf-8" }, /not a new lower-case extension/],
+  ])("refuses %j (nothing mounted)", (extraTypes, err) => {
+    const f = Fastify({ logger: false });
+    expect(() => mountApp(env(f), { dir, csp: "default-src 'self'", extraTypes })).toThrow(err);
+    expect(registry.has("wall")).toBe(false);
+    void f.close();
+  });
+});

@@ -343,3 +343,5 @@ Upstream issues (task 6.1, filed 2026-10-20 after approval; drafts in `upstream-
 - FigCraft dropped-file open: https://github.com/storytold/figcraft/issues/916
 - Common `window.<app>.request` API: https://github.com/storytold/craft-libs/issues/193
 - GridCraft `— Edited` kept after save: https://github.com/storytold/gridcraft/issues/2050
+
+Harness finding (ship-it step 3, decided 2026-10-20 — option A): **PhotoCraft 0.10.0 fetches `app/parts.txt` and a split wasm part `app/photocraft-web-<hash>.part-aa`**, which the core `serveApp` extension allowlist refuses (404 → "could not be opened"); the spike server served every file and hid it. Fix: additive `ServeAppOptions.extraTypes` (exact new lower-case extensions → `text/plain; charset=utf-8` or `application/octet-stream` only; same CSP, containment, nosniff, CORS headers; a bad key or any other type throws at mount) fed from the profile field `extraAssetTypes` (PhotoCraft: `.txt`, `.part-aa`). Rollback: drop the profile field; an older runtime ignores the option and PhotoCraft fails to start (status stays `ok`, the frame reports could-not-open).

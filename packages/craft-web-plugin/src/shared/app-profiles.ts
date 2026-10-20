@@ -59,6 +59,11 @@ export interface CraftAppProfile {
   frameParams?: readonly string[];
   /** Wrap `new Worker(httpUrl)` in a `blob:` bootstrap (D5). */
   workerTrampoline?: boolean;
+  /**
+   * Extra build files the mount must serve as inert data (`serveApp` `extraTypes`): PhotoCraft's boot loader
+   * fetches `app/parts.txt` and a split wasm part `*.part-aa`.
+   */
+  extraAssetTypes?: Readonly<Record<string, "text/plain; charset=utf-8" | "application/octet-stream">>;
   /** `false` = the version channel is fixed to the verified registry `webVersion` (D8). */
   latestChannel: boolean;
   /** Settings hint for a fixed channel. */
@@ -201,6 +206,7 @@ export const CRAFT_APP_PROFILES: readonly CraftAppProfile[] = [
     fixedReason: "unverified-latest",
     minShimVersion: 2,
     approxDownloadBytes: 11_400_000,
+    extraAssetTypes: { ".txt": "text/plain; charset=utf-8", ".part-aa": "application/octet-stream" },
     claims: [claim("photocraft", [".psd"]), claim("photocraft-raster", [".png", ".jpg", ".jpeg", ".webp", ".tif", ".tiff"], { siblingExtensions: [".psd"] })],
   },
   {

@@ -34,6 +34,7 @@ export default async function registerPlugin(ctx: ServerPluginContext): Promise<
         dir: path.join(ctx.dataDir, `${app}-web`, "current"),
         csp: (request) => buildCsp(publicOrigin(request.headers), app),
         crossOriginFrame: true,
+        ...(profileFor(app)?.extraAssetTypes ? { extraTypes: profileFor(app)?.extraAssetTypes } : {}),
       });
     } catch (err) {
       ctx.logger.warn(`serveApp(${mountId(app)}) failed; ${app} stays unavailable until restart`, err);

@@ -157,3 +157,13 @@ describe("csp helpers", () => {
     );
   });
 });
+
+describe("PhotoCraft split-wasm assets (extend-craft-web-to-all-apps)", () => {
+  it("passes the profile's extraAssetTypes to serveApp for PhotoCraft only", async () => {
+    const host = await boot();
+    const calls = host.serveApp.mock.calls.map((c) => c[0] as { appId: string; extraTypes?: Record<string, string> });
+    expect(calls.find((c) => c.appId === "craft-photocraft")?.extraTypes).toEqual({ ".txt": "text/plain; charset=utf-8", ".part-aa": "application/octet-stream" });
+    expect(calls.find((c) => c.appId === "craft-wordcraft")?.extraTypes).toBeUndefined();
+    await host.fastify.close();
+  });
+});

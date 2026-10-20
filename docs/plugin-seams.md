@@ -432,6 +432,15 @@ ctx.serveApp({
 - `dir` must realpath inside plugin package root or `ctx.dataDir`, else throw. May be absent → 503 until it exists.
 - Realpath resolved per request: symlink swap (`current`) needs no re-registration.
 - Extensions: `.html .js .mjs .css .svg .png .jpg .jpeg .gif .webp .ico .woff .woff2 .wasm`.
+- `extraTypes?: Record<string,string>`: extra exts beyond allowlist.
+  - Key: `^\.[a-z0-9][a-z0-9-]{0,15}$`, lower-case, not already allowlisted.
+  - Value: `EXTRA_TYPE_VALUES` only: `text/plain; charset=utf-8` | `application/octet-stream`.
+  - Inert types only. No executable/renderable types.
+  - Same CSP, containment, `nosniff`, CORS headers as allowlisted exts.
+  - Bad key or other type → throw at mount. Nothing mounted.
+  - Source: `packages/dashboard-plugin-runtime/src/server/app-mount.ts`.
+  - Consumer: craft-web PhotoCraft profile `extraAssetTypes` (`.txt`, `.part-aa`). Boot loader fetches `app/parts.txt` + split wasm part.
+  - See change: extend-craft-web-to-all-apps.
 - `.gz` sibling served when client accepts gzip: `Content-Encoding: gzip`, `Vary: Accept-Encoding`. Global compressor bypassed for mount.
 - `GET /apps/<appId>` → 308 to trailing slash. Falls back to `index.html`.
 - `csp` sent enforced on every response. Function evaluated per response; throw → 500.
