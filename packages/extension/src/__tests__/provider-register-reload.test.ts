@@ -391,6 +391,18 @@ describe("reloadProviders", () => {
       err.mockRestore();
     });
 
+    it("a repeatedly unreadable file (roles-only) logs once, not on every resync", async () => {
+      const mod = await importFresh();
+      const { pi } = makeMockPi();
+      const err = vi.spyOn(console, "error").mockImplementation(() => {});
+      writeRaw('{"roles":{}}');
+      await mod.reloadProviders(pi);
+      await mod.reloadProviders(pi);
+      await mod.reloadProviders(pi);
+      expect(err).toHaveBeenCalledTimes(1);
+      err.mockRestore();
+    });
+
     it("X8: an unreadable file still yields a full local refresh on the credentials path", async () => {
       const mod = await importFresh();
       const { pi } = makeMockPi();

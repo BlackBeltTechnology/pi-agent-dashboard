@@ -191,7 +191,9 @@ export function registerRoleModelTools(pi: ExtensionAPI, deps: RoleModelToolsDep
         result = buildModelsResult(reg, annotated, deps.getScopedModels?.());
       } else {
         // Resync before read (design D3). The resync never passes the agent
-        // signal into refresh; abort only stops our wait, so race it here.
+        // signal into refresh, and its internal signal race only covers the
+        // providers re-apply — so race the signal here too, or an abort would
+        // still wait out the refresh bound.
         const sig: AbortSignal | undefined = signal instanceof AbortSignal ? signal : undefined;
         let onAbort: (() => void) | undefined;
         const refreshResult = await Promise.race([

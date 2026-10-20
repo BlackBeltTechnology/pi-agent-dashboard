@@ -492,7 +492,10 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 
 function loadProviders(): LoadedProviders {
   const path = configPath();
-  if (!existsSync(path)) return { kind: "absent" };
+  if (!existsSync(path)) {
+    lastUnreadableError = undefined;
+    return { kind: "absent" };
+  }
   let error: string;
   try {
     const raw = JSON.parse(readFileSync(path, "utf-8"));
@@ -511,15 +514,22 @@ function loadProviders(): LoadedProviders {
           }
           delete (entry as any).modelIds;
         }
+        lastUnreadableError = undefined;
         return { kind: "ok", providers };
       }
     }
   } catch (err: any) {
     error = err?.message ?? String(err);
   }
-  console.error(`[dashboard] providers.json reload failed (keeping current providers): ${error}`);
+  // Log once per distinct error: a roles-only file (no `providers` key) is
+  // re-read on every resync and must not spam the TUI.
+  if (error !== lastUnreadableError) {
+    console.error(`[dashboard] providers.json reload failed (keeping current providers): ${error}`);
+    lastUnreadableError = error;
+  }
   return { kind: "unreadable", error };
 }
+let lastUnreadableError: string | undefined;
 
 // -- API key resolution ---------------------------------------------------
 

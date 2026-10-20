@@ -34,6 +34,6 @@
 
 ## 4. Integration
 
-- [ ] 4.1 Regression: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`, then grep the summary. The existing `command-handler.test.ts` `request_models` fixtures pass unedited (test-plan #X9). Verify: 0 failures.
-- [ ] 4.2 Run `review-code` on the diff before commit. Verify: no blocking findings.
-- [ ] 4.3 Manual: `npm run reload`, hand-edit `~/.pi/agent/providers.json` to add a provider in a live session, call `list_models`, and confirm the new `ref` appears without a restart (test-plan: manual-only, #X10). Verify: observed output.
+- [x] 4.1 Regression: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`, then grep the summary. The existing `command-handler.test.ts` `request_models` fixtures pass unedited (test-plan #X9). Verify: 0 failures.
+- [x] 4.2 Run `review-code` on the diff before commit. Verify: no blocking findings.
+- [x] 4.3 Manual: `npm run reload`, hand-edit `~/.pi/agent/providers.json` to add a provider in a live session, call `list_models`, and confirm the new `ref` appears without a restart (test-plan: manual-only, #X10). Verify: observed output.
