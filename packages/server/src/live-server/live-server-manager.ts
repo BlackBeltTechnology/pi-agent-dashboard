@@ -34,8 +34,8 @@ import type { PreferencesStore } from "../persistence/preferences-store.js";
 export const MAX_PRESETS_PER_SESSION = 16;
 export const MAX_STATIC_PER_CWD = 32;
 
-export type StartInput = { host?: unknown; port?: unknown; label?: unknown; addedBy?: unknown; sessionId?: unknown };
-export type StartResult =
+type StartInput = { host?: unknown; port?: unknown; label?: unknown; addedBy?: unknown; sessionId?: unknown };
+type StartResult =
   | { ok: true; target: LiveServerTarget; path: string }
   | { ok: false; error: string };
 

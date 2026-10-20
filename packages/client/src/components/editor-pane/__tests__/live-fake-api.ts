@@ -4,13 +4,13 @@
  */
 import { vi } from "vitest";
 
-export interface FakeCall {
+interface FakeCall {
   method: string;
   url: string;
   body: Record<string, unknown> | null;
 }
 
-export interface FakeEgressOrigin {
+interface FakeEgressOrigin {
   origin: string;
   source: "markup" | "runtime";
   state: "blocked" | "allowed-once" | "allowed-project";

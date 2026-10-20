@@ -29,13 +29,13 @@ export interface ExposureInputs {
   getConfigOverride?: () => string | undefined;
 }
 
-export interface ExposureState {
+interface ExposureState {
   exposure: LiveExposure;
   epoch: number;
 }
 
 /** Is `host` unambiguously loopback-only? Names other than `localhost` are NOT (fail closed). */
-export function isLoopbackBindHost(host: string): boolean {
+function isLoopbackBindHost(host: string): boolean {
   const h = host.trim().toLowerCase().replace(/^\[|\]$/g, "");
   if (h === "localhost") return true;
   if (h === "::1") return true;
@@ -56,7 +56,7 @@ export function computeExposure(args: {
   return isLoopbackBindHost(args.bindHost) ? "local-only" : "exposed";
 }
 
-export type ExposureListener = (state: ExposureState, previous: ExposureState) => void;
+type ExposureListener = (state: ExposureState, previous: ExposureState) => void;
 
 export interface PreviewExposure {
   /** Recompute (cheap) and return the current state; fires listeners on a change. */

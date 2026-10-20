@@ -9,8 +9,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { type EgressReport, getLiveEgress } from "../../../lib/api/live-server-api.js";
 
-export const EGRESS_POLL_MS = 2000;
-export const EGRESS_IDLE_STOP_MS = 30_000;
+const EGRESS_POLL_MS = 2000;
+const EGRESS_IDLE_STOP_MS = 30_000;
 
 export type EgressMode = "poll" | "once" | "off";
 

@@ -64,7 +64,7 @@ const MIME: Readonly<Record<string, string>> = {
 };
 
 /** Content type for a served file name (`application/octet-stream` for the unreachable fallthrough). */
-export function mimeOf(name: string): string {
+function mimeOf(name: string): string {
   const i = name.lastIndexOf(".");
   return (i >= 0 ? MIME[name.slice(i + 1).toLowerCase()] : undefined) ?? "application/octet-stream";
 }
@@ -116,7 +116,7 @@ const isInside = (child: string, parent: string): boolean => {
 type RangeResult = { kind: "full" } | { kind: "range"; start: number; end: number } | { kind: "unsatisfiable" };
 
 /** Parse a single `bytes=` range; anything else (multi-range, bad syntax) serves the full body. */
-export function parseRange(header: string | undefined, size: number): RangeResult {
+function parseRange(header: string | undefined, size: number): RangeResult {
   if (!header || size === 0) return { kind: "full" };
   const m = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
   if (!m) return { kind: "full" };

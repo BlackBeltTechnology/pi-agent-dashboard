@@ -209,12 +209,12 @@ export function createCorsPlane(deps: Pick<PlaneDeps, "readRawCors" | "writeConf
 }
 
 /** Grant-time DNS budget (design D7). */
-export const EGRESS_DNS_TIMEOUT_MS = 3000;
+const EGRESS_DNS_TIMEOUT_MS = 3000;
 /** The dialog text when a name cannot be resolved in time (decision C3). */
-export const EGRESS_UNVERIFIABLE_MESSAGE = "Could not verify this origin; try again";
+const EGRESS_UNVERIFIABLE_MESSAGE = "Could not verify this origin; try again";
 
 /** Resolve a host to its addresses; throws on failure. Injectable so tests need no network. */
-export type EgressResolver = (host: string) => Promise<readonly string[]>;
+type EgressResolver = (host: string) => Promise<readonly string[]>;
 
 const defaultEgressResolver: EgressResolver = async (host) =>
   (await dns.promises.lookup(host, { all: true, verbatim: true })).map((a) => a.address);

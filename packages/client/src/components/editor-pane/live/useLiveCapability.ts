@@ -15,11 +15,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { mintLiveCapability, type PreviewPolicy, touchLiveCapability } from "../../../lib/api/live-server-api.js";
 
 /** Re-mint this long before the capability's absolute expiry. */
-export const REMINT_LEAD_MS = 10 * 60_000;
+const REMINT_LEAD_MS = 10 * 60_000;
 /** Retry cadence after a failed re-mint (the current token is still valid meanwhile). */
-export const REMINT_RETRY_MS = 30_000;
+const REMINT_RETRY_MS = 30_000;
 /** Keepalive cadence (static idle expiry is 10 min). */
-export const TOUCH_INTERVAL_MS = 5 * 60_000;
+const TOUCH_INTERVAL_MS = 5 * 60_000;
 
 export interface LiveCapability {
   /** `/live/<id>/~c/<token>/` — framed, never displayed. */

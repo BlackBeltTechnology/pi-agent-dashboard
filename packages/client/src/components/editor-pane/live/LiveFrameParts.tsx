@@ -8,14 +8,14 @@ import { Icon } from "@mdi/react";
 import type { ReactNode } from "react";
 import { useI18n } from "../../../lib/i18n/i18n.js";
 
-export const BTN =
+const BTN =
   "inline-flex min-h-[28px] items-center gap-1 rounded border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] px-2 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-50";
 export const GHOST = "inline-flex min-h-[28px] items-center gap-1 rounded px-2 text-xs text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)]";
 const NOTE =
   "mx-2 mt-1 flex items-start gap-2 rounded border border-[var(--severity-info-border)] bg-[var(--severity-info-bg)] p-2 text-xs text-[var(--severity-info-fg)]";
 
 /** Info notice row: icon, body, optional action. `role="status"`, never moves focus. */
-export function InfoNote({ testId, children, action }: { testId: string; children: ReactNode; action?: ReactNode }) {
+function InfoNote({ testId, children, action }: { testId: string; children: ReactNode; action?: ReactNode }) {
   return (
     <div role="status" data-testid={testId} className={NOTE}>
       <Icon path={mdiInformationOutline} size={0.7} className="mt-0.5 shrink-0" />

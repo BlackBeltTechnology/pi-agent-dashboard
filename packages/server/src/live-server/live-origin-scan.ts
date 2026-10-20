@@ -29,7 +29,7 @@ const SCAN_MAX_CSS_DEPTH = 3;
 /** Origins one scan may report (the per-token blocked set is bounded at 64 anyway). */
 const SCAN_MAX_ORIGINS = 64;
 
-export interface ScanResult {
+interface ScanResult {
   /** Canonical external origins found, in first-seen order. */
   origins: string[];
   /** The document or a stylesheet was truncated, unreadable or over a bound. */
@@ -188,7 +188,7 @@ async function resolveStylesheet(realRoot: string, fromFile: string, ref: string
 }
 
 /** A file the scan depended on: re-stat these to know whether a cached result is still valid. */
-export interface ScanDependency {
+interface ScanDependency {
   file: string;
   mtimeMs: number;
   size: number;

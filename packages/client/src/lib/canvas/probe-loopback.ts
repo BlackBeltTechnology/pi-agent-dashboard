@@ -14,7 +14,7 @@ import { mintLiveCapability, startLiveServer } from "../api/live-server-api.js";
 import { classifyServerProbe, type ServerProbeOutcome } from "./canvas-gate.js";
 
 /** Client timeout for the on-tap probe (S31 threshold). */
-export const PROBE_TIMEOUT_MS = 3000;
+const PROBE_TIMEOUT_MS = 3000;
 
 export async function probeLoopbackServer(port: number, sessionId?: string): Promise<ServerProbeOutcome> {
   const started = await startLiveServer({ host: "127.0.0.1", port, addedBy: "preset", sessionId });

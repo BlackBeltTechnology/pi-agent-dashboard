@@ -9,7 +9,7 @@ import { redactCapability } from "./capability-redact.js";
 
 export type LiveLogSink = (line: string) => void;
 
-export function formatLiveLog(event: string, fields: Record<string, unknown> = {}): string {
+function formatLiveLog(event: string, fields: Record<string, unknown> = {}): string {
   const kv = Object.entries(fields)
     .map(([k, v]) => `${k}=${JSON.stringify(v) ?? "null"}`)
     .join(" ");

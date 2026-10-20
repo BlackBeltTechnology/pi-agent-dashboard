@@ -27,8 +27,8 @@ const MAX_TOKEN_STATES = 512;
 const MAX_SCAN_CACHE = 64;
 /** CSP report limits per token (decision C4). */
 export const CSP_REPORT_MAX_BYTES = 64 * 1024;
-export const CSP_REPORTS_PER_SECOND = 20;
-export const CSP_REPORTS_PER_HOUR = 600;
+const CSP_REPORTS_PER_SECOND = 20;
+const CSP_REPORTS_PER_HOUR = 600;
 /** Reports read from one body (a Reporting API batch). */
 const MAX_REPORTS_PER_BODY = 20;
 
@@ -50,7 +50,7 @@ const SHARED_HOSTING = [
   "share.zrok.io",
 ] as const;
 
-export const isSharedHostingOrigin = (origin: string): boolean => {
+const isSharedHostingOrigin = (origin: string): boolean => {
   let host: string;
   try {
     host = new URL(origin).hostname;
@@ -60,7 +60,7 @@ export const isSharedHostingOrigin = (origin: string): boolean => {
   return SHARED_HOSTING.some((d) => host === d || host.endsWith(`.${d}`));
 };
 
-export interface EgressOriginView {
+interface EgressOriginView {
   origin: string;
   source: "markup" | "runtime";
   state: "blocked" | "allowed-once" | "allowed-project";
@@ -68,7 +68,7 @@ export interface EgressOriginView {
   ungrantable?: boolean;
 }
 
-export interface EgressView {
+interface EgressView {
   origins: EgressOriginView[];
   scanIncomplete: boolean;
   rootAbsolute: boolean;
@@ -100,7 +100,7 @@ interface TokenState {
   hourCount: number;
 }
 
-export type ReportOutcome = "ok" | "rate-limited";
+type ReportOutcome = "ok" | "rate-limited";
 
 /**
  * Pull the blocked URLs out of a CSP report body: the legacy
@@ -108,7 +108,7 @@ export type ReportOutcome = "ok" | "rate-limited";
  * array `[{type:"csp-violation",body:{blockedURL:…}}]` (`application/reports+json`).
  * Nothing else in the body is read.
  */
-export function blockedUrisOf(body: unknown): string[] {
+function blockedUrisOf(body: unknown): string[] {
   const out: string[] = [];
   const one = (item: unknown): void => {
     if (!item || typeof item !== "object") return;
@@ -124,7 +124,7 @@ export function blockedUrisOf(body: unknown): string[] {
 }
 
 /** A blocked URL as a listable origin (`https://…` canonical, `http://…` as-is), or `null` (inline, data, own, …). */
-export function listedOriginOf(blockedUri: string): string | null {
+function listedOriginOf(blockedUri: string): string | null {
   let u: URL;
   try {
     u = new URL(blockedUri);
@@ -368,7 +368,7 @@ export type EgressGrantRequestOutcome =
   | "unavailable";
 
 /** Map the coordinator's denial reason for a deferred request onto the route's outcome. */
-export function outcomeOfDenialReason(reason: string): EgressGrantRequestOutcome {
+function outcomeOfDenialReason(reason: string): EgressGrantRequestOutcome {
   switch (reason) {
     // The entry was recorded and the dialog raised (a deferred request is never held).
     case "not-held":

@@ -16,7 +16,7 @@ export interface PendingTarget {
   deep: string;
 }
 
-export function addressText(target: FramedTarget, deep: string): string {
+function addressText(target: FramedTarget, deep: string): string {
   const d = displayDeep(deep);
   return target.kind === "static" ? d : `http://${target.host}:${target.port}/${d}`;
 }

@@ -43,7 +43,7 @@ import type { NetworkGuard } from "./route-deps.js";
  * `/api/file/raw` read does (known session cwd + containment, grants admitted)
  * and, on refusal, yields that route's status and body verbatim.
  */
-export type StaticStartGate = (
+type StaticStartGate = (
   cwd: string | undefined,
   relPath: string | undefined,
   opts: { disclosure: boolean },
@@ -54,7 +54,7 @@ export type StaticStartGate = (
  * request: a device credential, a login session, an identity principal, or
  * nothing revocable (a genuine-local caller).
  */
-export function capabilityPrincipalOf(request: FastifyRequest): CapabilityPrincipal {
+function capabilityPrincipalOf(request: FastifyRequest): CapabilityPrincipal {
   const r = request as {
     authVia?: string;
     principalTier?: Tier;
