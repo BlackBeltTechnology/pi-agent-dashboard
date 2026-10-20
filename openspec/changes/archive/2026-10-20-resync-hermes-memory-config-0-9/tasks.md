@@ -51,4 +51,4 @@
 - [x] 3.1 `npm test -- packages/hermes-memory-plugin` green
 - [x] 3.2 `security-hardening` pass over the PUT validator + compose / backup path Done inline: unknown keys sourced only from the file; body allowlist unchanged; `Object.fromEntries`/spread only (E18 proves no pollution); quarantine copies the already-read buffer (no TOCTOU), `wx` + 0600, never renames; errors log path + code, never values.
 - [x] 3.3 `review-code` before commit
-- [ ] 3.4 Manual (test-plan: manual-only, #X7) — real 0.8.1-era-saved `~/.pi/agent/hermes-memory-config.json` (all defaults pinned, 60000) + a hand-added unknown key · save any field from the dashboard, start a new pi session · no "consolidationTimeoutMs is set to 60000ms" console warning, the hand-added key is still in the file, memory tools work
+- [x] 3.4 Manual (test-plan: manual-only, #X7) — real 0.8.1-era-saved `~/.pi/agent/hermes-memory-config.json` (all defaults pinned, 60000) + a hand-added unknown key · save any field from the dashboard, start a new pi session · no "consolidationTimeoutMs is set to 60000ms" console warning, the hand-added key is still in the file, memory tools work
