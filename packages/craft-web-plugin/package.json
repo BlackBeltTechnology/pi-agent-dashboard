@@ -1,7 +1,7 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-craft-web-plugin",
   "version": "0.10.0",
-  "description": "Dashboard plugin that edits Office documents (.docx, and later .xlsx/.pptx) in the editor pane by embedding the matching ArtCraft web build (WordCraft first) in a sandboxed opaque-origin frame as an editor-pane-file-handler edit mode. Builds are provisioned on demand (checksum-verified GitHub release, shim injected), served read-only through ctx.serveApp under an enforced CSP with no programmatic network access, and saved only through the core write-binary path behind an OOXML content validator. Disabled by default (defaultEnabled: false) — opt in via settings.",
+  "description": "Dashboard plugin that edits and views files in the editor pane with the ArtCraft web builds (WordCraft, GridCraft, PdfCraft, CADCraft, DesignCraft, SoundCraft in place; PhotoCraft, VectorCraft, DeckCraft saving their native format next to the file; LightCraft view-only RAW) in a sandboxed opaque-origin frame as editor-pane-file-handler modes. Builds are provisioned on demand (checksum-verified GitHub release, inline scripts externalized, adapter profile + shim injected), served read-only through ctx.serveApp under an enforced CSP with no programmatic network access, and saved only through the core write-binary path behind per-format validators. Disabled by default (defaultEnabled: false) — opt in via settings.",
   "license": "MIT",
   "publishConfig": {
     "access": "public"
@@ -62,6 +62,222 @@
         "firstOverwriteNotice": "Saves are re-rendered by WordCraft's own writer; formatting of unsupported features may change. A copy is the safe way to compare.",
         "copySuffix": "wordcraft",
         "validator": true
+      },
+      {
+        "slot": "editor-pane-file-handler",
+        "component": "GridCraftHandler",
+        "module": "./src/client/handlers.tsx",
+        "id": "gridcraft",
+        "extensions": [
+          ".xlsx"
+        ],
+        "mode": "edit",
+        "label": "Edit in GridCraft",
+        "keepAlive": {
+          "max": 3
+        },
+        "maxBytes": 52428800,
+        "firstOverwriteNotice": "Saves are rewritten by GridCraft's own writer; formulas, charts or formatting it does not support may change. A copy is the safe way to compare.",
+        "copySuffix": "gridcraft",
+        "validator": true
+      },
+      {
+        "slot": "editor-pane-file-handler",
+        "component": "PdfCraftHandler",
+        "module": "./src/client/handlers.tsx",
+        "id": "pdfcraft",
+        "extensions": [
+          ".pdf"
+        ],
+        "mode": "edit",
+        "label": "Edit in PdfCraft",
+        "keepAlive": {
+          "max": 3
+        },
+        "maxBytes": 134217728,
+        "firstOverwriteNotice": "PdfCraft does not report which file it opened. Check that it shows this file before overwriting. PdfCraft appends your changes as an incremental update and keeps the original bytes. A copy is the safe way to compare.",
+        "copySuffix": "pdfcraft",
+        "validator": true
+      },
+      {
+        "slot": "editor-pane-file-handler",
+        "component": "CADCraftHandler",
+        "module": "./src/client/handlers.tsx",
+        "id": "cadcraft",
+        "extensions": [
+          ".dxf"
+        ],
+        "mode": "edit",
+        "label": "Edit in CADCraft",
+        "keepAlive": {
+          "max": 3
+        },
+        "maxBytes": 134217728,
+        "firstOverwriteNotice": "CADCraft does not report which file it opened. Check that it shows this file before overwriting. Saves are rewritten by CADCraft as DXF R2000; entities it does not support may change. A copy is the safe way to compare.",
+        "copySuffix": "cadcraft",
+        "validator": true
+      },
+      {
+        "slot": "editor-pane-file-handler",
+        "component": "DesignCraftHandler",
+        "module": "./src/client/handlers.tsx",
+        "id": "designcraft",
+        "extensions": [
+          ".designcraft"
+        ],
+        "mode": "edit",
+        "label": "Edit in DesignCraft",
+        "keepAlive": {
+          "max": 3
+        },
+        "maxBytes": 134217728,
+        "firstOverwriteNotice": "DesignCraft does not report which file it opened. Check that it shows this file before overwriting. Saves are rewritten by DesignCraft with its assets embedded; content it does not support may change. A copy is the safe way to compare.",
+        "copySuffix": "designcraft",
+        "validator": true
+      },
+      {
+        "slot": "editor-pane-file-handler",
+        "component": "SoundCraftHandler",
+        "module": "./src/client/handlers.tsx",
+        "id": "soundcraft",
+        "extensions": [
+          ".scraftz"
+        ],
+        "mode": "edit",
+        "label": "Edit in SoundCraft",
+        "keepAlive": {
+          "max": 3
+        },
+        "maxBytes": 134217728,
+        "firstOverwriteNotice": "SoundCraft does not report which file it opened. Check that it shows this file before overwriting. Saves are rewritten by SoundCraft with the session's audio files; content it does not support may change. A copy is the safe way to compare.",
+        "copySuffix": "soundcraft",
+        "validator": true
+      },
+      {
+        "slot": "editor-pane-file-handler",
+        "component": "PhotoCraftHandler",
+        "module": "./src/client/handlers.tsx",
+        "id": "photocraft",
+        "extensions": [
+          ".psd"
+        ],
+        "mode": "edit",
+        "label": "Edit in PhotoCraft",
+        "keepAlive": {
+          "max": 3
+        },
+        "maxBytes": 134217728,
+        "firstOverwriteNotice": "PhotoCraft saves layered .psd files; formats it does not support may change. A copy is the safe way to compare.",
+        "copySuffix": "photocraft",
+        "validator": true
+      },
+      {
+        "slot": "editor-pane-file-handler",
+        "component": "PhotoCraftRasterHandler",
+        "module": "./src/client/handlers.tsx",
+        "id": "photocraft-raster",
+        "extensions": [
+          ".png",
+          ".jpg",
+          ".jpeg",
+          ".webp",
+          ".tif",
+          ".tiff"
+        ],
+        "mode": "edit",
+        "label": "Edit in PhotoCraft",
+        "keepAlive": {
+          "max": 3
+        },
+        "maxBytes": 134217728,
+        "firstOverwriteNotice": "PhotoCraft saves layered .psd files; formats it does not support may change. A copy is the safe way to compare.",
+        "copySuffix": "photocraft",
+        "validator": true,
+        "siblingExtensions": [
+          ".psd"
+        ]
+      },
+      {
+        "slot": "editor-pane-file-handler",
+        "component": "VectorCraftHandler",
+        "module": "./src/client/handlers.tsx",
+        "id": "vectorcraft",
+        "extensions": [
+          ".svg"
+        ],
+        "mode": "edit",
+        "label": "Edit in VectorCraft",
+        "keepAlive": {
+          "max": 3
+        },
+        "maxBytes": 16777216,
+        "firstOverwriteNotice": "Saves are rewritten by VectorCraft; SVG features it does not support may change. A copy is the safe way to compare.",
+        "copySuffix": "vectorcraft",
+        "validator": true,
+        "siblingExtensions": [
+          ".vectorcraft"
+        ]
+      },
+      {
+        "slot": "editor-pane-file-handler",
+        "component": "DeckCraftHandler",
+        "module": "./src/client/handlers.tsx",
+        "id": "deckcraft",
+        "extensions": [
+          ".pptx"
+        ],
+        "mode": "edit",
+        "label": "Edit in DeckCraft",
+        "keepAlive": {
+          "max": 3
+        },
+        "maxBytes": 104857600,
+        "firstOverwriteNotice": "DeckCraft does not report which file it opened. Check that it shows this file before overwriting. Saves are rewritten by DeckCraft; slide features it does not support may change. A copy is the safe way to compare.",
+        "copySuffix": "deckcraft",
+        "validator": true,
+        "siblingExtensions": [
+          ".deckcraft"
+        ]
+      },
+      {
+        "slot": "editor-pane-file-handler",
+        "component": "DeckCraftNativeHandler",
+        "module": "./src/client/handlers.tsx",
+        "id": "deckcraft-native",
+        "extensions": [
+          ".deckcraft"
+        ],
+        "mode": "edit",
+        "label": "Edit in DeckCraft",
+        "keepAlive": {
+          "max": 3
+        },
+        "maxBytes": 134217728,
+        "firstOverwriteNotice": "DeckCraft does not report which file it opened. Check that it shows this file before overwriting. Saves are rewritten by DeckCraft; slide features it does not support may change. A copy is the safe way to compare.",
+        "copySuffix": "deckcraft",
+        "validator": true
+      },
+      {
+        "slot": "editor-pane-file-handler",
+        "component": "LightCraftHandler",
+        "module": "./src/client/handlers.tsx",
+        "id": "lightcraft",
+        "extensions": [
+          ".dng",
+          ".cr2",
+          ".cr3",
+          ".nef",
+          ".arw",
+          ".raf",
+          ".orf",
+          ".rw2"
+        ],
+        "mode": "preview",
+        "label": "View in LightCraft",
+        "keepAlive": {
+          "max": 3
+        },
+        "maxBytes": 134217728
       },
       {
         "slot": "settings-section",

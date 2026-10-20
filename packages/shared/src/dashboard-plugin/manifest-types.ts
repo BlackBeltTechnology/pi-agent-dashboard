@@ -79,6 +79,13 @@ export interface PluginClaim {
   /** For `editor-pane-file-handler` edit mode: `<stem>.<copySuffix>.<ext>` suffix, `^[a-z][a-z0-9-]{1,31}$` (required for edit). */
   copySuffix?: string;
   /**
+   * For `editor-pane-file-handler` edit mode: native-format extensions a save may create as a NEW sibling
+   * `<stem><ext>` next to the tab's file (never-overwrite). Same per-extension rules as `extensions`, disjoint
+   * from them; edit claims only. An older runtime drops the key (saves then go to the device).
+   * See change: extend-craft-web-to-all-apps (D6).
+   */
+  siblingExtensions?: string[];
+  /**
    * For `editor-pane-file-handler`: `true` = saves require the plugin's
    * `ctx.registerFileValidator` validator; fail closed (503) while it is not loaded.
    */

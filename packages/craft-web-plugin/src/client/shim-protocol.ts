@@ -9,16 +9,20 @@
 
 export type ShimMessage =
   | { type: "ready"; nonce: string }
-  | { type: "opened"; nonce: string; title?: string }
+  /** `confirmed:false` = opened by the no-title fallback (shim v2); absent (v1 shim) counts as confirmed. */
+  | { type: "opened"; nonce: string; title?: string; confirmed?: boolean }
   | { type: "save"; nonce: string; suggestedName: string; mime?: string; bytes: ArrayBuffer }
   | { type: "dirty"; nonce: string; value: boolean }
   | { type: "blocked"; nonce: string; what?: string }
   | { type: "csp"; nonce: string; directive: string }
-  | { type: "navigate-blocked"; nonce: string; url: string };
+  | { type: "navigate-blocked"; nonce: string; url: string }
+  /** Wasm trap / Rust panic before opened (shim v2). */
+  | { type: "start-failed"; nonce: string; detail?: string };
 
 export type HostMessage =
   | { type: "open"; nonce: string; name: string; bytes: ArrayBuffer }
-  | { type: "save-result"; nonce: string; ok: boolean; error?: string };
+  /** `own`: an acknowledged overwrite of the tab's own file (shim v2 `cleanOnAckedSave`). */
+  | { type: "save-result"; nonce: string; ok: boolean; error?: string; own?: boolean };
 
 const tag = (v: unknown): string => Object.prototype.toString.call(v);
 
@@ -39,7 +43,7 @@ type Fields = Record<string, unknown>;
 /** Per-type field validators; each returns the payload (without `nonce`) or `null` when malformed. */
 const PARSERS: Record<string, (d: Fields) => Record<string, unknown> | null> = {
   ready: () => ({}),
-  opened: (d) => ({ title: str(d.title) ?? undefined }),
+  opened: (d) => ({ title: str(d.title) ?? undefined, confirmed: typeof d.confirmed === "boolean" ? d.confirmed : undefined }),
   save: (d) => {
     const suggestedName = str(d.suggestedName);
     const bytes = toBuffer(d.bytes);
@@ -55,6 +59,7 @@ const PARSERS: Record<string, (d: Fields) => Record<string, unknown> | null> = {
     const url = str(d.url);
     return url === null ? null : { url };
   },
+  "start-failed": (d) => ({ detail: str(d.detail) ?? undefined }),
 };
 
 /** Shape + type check. Returns `null` for anything that is not a well-formed known message. */

@@ -367,6 +367,8 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "POST", path: "/api/plugins/blackhole/bindings/reattach", tier: "operate" },
   // edit-office-in-pane-with-craft-web: prepare downloads a build (control, like spawning); csp-report only bumps a counter.
   { method: "POST", path: "/api/plugins/craft-web/csp-report", tier: "control" },
+  // extend-craft-web-to-all-apps: open-outcome / validator-reject counters (log only, like csp-report).
+  { method: "POST", path: "/api/plugins/craft-web/telemetry", tier: "control" },
   { method: "POST", path: "/api/plugins/craft-web/prepare/:app", tier: "control" },
   { method: "POST", path: "/api/plugins/team/agents/:key/conversations", tier: "operate" },
   { method: "POST", path: "/api/plugins/team/agents/:key/conversations/:c/restart", tier: "operate" },

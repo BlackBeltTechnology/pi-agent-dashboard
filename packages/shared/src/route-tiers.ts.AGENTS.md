@@ -53,3 +53,5 @@ Adds `GET /api/file/digest` (observe). See change: gate-changed-on-disk-by-conte
 `POST /api/file/write-binary` → `control`. See change: add-editor-pane-file-handlers.
 
 `GET /api/plugins/craft-web/status` → `observe`; `POST /api/plugins/craft-web/prepare/:app` + `POST /api/plugins/craft-web/csp-report` → `control`. See change: edit-office-in-pane-with-craft-web.
+
+`POST /api/plugins/craft-web/telemetry` control (open outcome / validator reject counters, log only). See change: extend-craft-web-to-all-apps.

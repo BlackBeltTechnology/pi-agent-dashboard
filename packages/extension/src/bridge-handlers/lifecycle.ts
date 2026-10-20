@@ -37,7 +37,7 @@ import { registerRoleModelTools } from "../role-model-tools.js";
 import { autoStartServer } from "../server-auto-start.js";
 import { launchServer } from "../server-launcher.js";
 import { loadServerPins, notePinEndpoint, serverPinsPath } from "../server-pin-store.js";
-import { handleSessionChange as _handleSessionChange, consumeSpawnToken, filterByEnabledModels, isLive } from "../session-sync.js";
+import { branchFingerprint, handleSessionChange as _handleSessionChange, consumeSpawnToken, filterByEnabledModels, isLive } from "../session-sync.js";
 import { detectSessionSource } from "../source-detector.js";
 import { consumePendingReloadOnSessionStart, releaseBridgeOwnerOnShutdown, reloadCompletedFeedback } from "../terminal-reload.js";
 import { refreshUiModules, subscribeUiInvalidate } from "../ui-modules.js";
@@ -540,12 +540,11 @@ export function registerSessionStart(inst: BridgeInstance): void {
     inst.lastModel = initialModel;
     inst.lastThinkingLevel = initialThinkingLevel;
 
-    // Include eventCount so server can skip event wipe on reconnect
-    let eventCount: number | undefined;
-    try {
-      const entries = ctx.sessionManager?.getBranch?.();
-      if (entries) eventCount = entries.length;
-    } catch { /* ignore */ }
+    // Include eventCount (+ leaf id, liveTailOpen) so server can skip event wipe
+    // on reconnect. `liveTailOpen` is computed ONCE and shared with the replay
+    // below. See change: fix-large-session-resume-replay (D7).
+    const { eventCount, leafEntryId } = branchFingerprint(ctx.sessionManager);
+    const liveTailOpen = isLive(ctx, inst.shared.isAgentStreaming);
 
     // See change: fix-dashboard-source-mislabelling — sent on every
     // register so server can re-stamp source after restart. Derived from the
@@ -570,6 +569,8 @@ export function registerSessionStart(inst: BridgeInstance): void {
       sessionDir,
       firstMessage,
       eventCount,
+      ...(leafEntryId !== undefined ? { leafEntryId } : {}),
+      liveTailOpen,
       // The ONLY channel by which the server learns this session's process for a
       // non-headless spawn: `tmux new-window` returns tmux's own pid, not pi's,
       // so without this the server's record has no `pid` and shutdown has
@@ -633,7 +634,7 @@ export function registerSessionStart(inst: BridgeInstance): void {
     // still running across a `/reload` keeps its in-flight calls open instead
     // of getting a fabricated `session_ended` end. See change:
     // fix-replay-fabricates-orphan-end-for-live-calls (D3).
-    inst.replaySessionEntries({ liveTailOpen: isLive(ctx, inst.shared.isAgentStreaming) });
+    inst.replaySessionEntries({ liveTailOpen });
     inst.connection.send({ type: "replay_complete", sessionId: inst.sessionId });
     // After replay_complete: inside the replay window the server may drop
     // forwarded events without insert or broadcast (`skipReplayInsert`).

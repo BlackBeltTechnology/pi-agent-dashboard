@@ -67,6 +67,8 @@ import type { ViewedSessionTracker } from "./session/viewed-session-tracker.js";
 import { keeperOptsFromSpawnResult } from "./spawn-process/headless-pid-registry.js";
 import { buildPidIndex, classifyProcesses } from "./spawn-process/process-classifier.js";
 import { spawnPiSession } from "./spawn-process/process-manager.js";
+import { createReplayState, decideSkipWipe, type ReplayState, validLeafEntryId } from "./session/hydration-state.js";
+import type { ReplayExitCause } from "./session/replay-exit-controller.js";
 import { armSpawnWatchdog } from "./spawn-process/spawn-register-watchdog.js";
 import {
   buildEmptyActionableLogLine,
@@ -106,6 +108,12 @@ const STRICT_SPAWN_CORRELATION =
 
 export interface EventWiringDeps {
   sessionManager: SessionManager;
+  /**
+   * Replay-mode controller + hydration/register bookkeeping shared with the
+   * browser gateway. Created internally when absent.
+   * See change: fix-large-session-resume-replay.
+   */
+  replayState?: ReplayState;
   /**
    * Live-only in-flight tool-call hint shared with the tool-result route
    * (`202` vs `404`). Created internally when absent.
@@ -355,8 +363,15 @@ export function wireEvents(deps: EventWiringDeps): void {
     customEventGroupResolver,
   } = deps;
   const inFlightToolCalls = deps.inFlightToolCalls ?? createInFlightToolCalls();
+  const replayState = deps.replayState ?? createReplayState();
+  const replayController = replayState.controller;
+  const hydration = replayState.hydration;
   // Session removal (archive) frees the hint; the store frees its own record.
-  sessionManager.onRemoved = (sessionId) => inFlightToolCalls.clear(sessionId);
+  sessionManager.onRemoved = (sessionId) => {
+    inFlightToolCalls.clear(sessionId);
+    replayController.release(sessionId);
+    hydration.forget(sessionId);
+  };
 
   // Once-per-activation guard for the eager liveness marker: maps sessionId
   // → epoch already stamped. Prevents a fresh atomic write on every event.
@@ -752,6 +767,11 @@ export function wireEvents(deps: EventWiringDeps): void {
     agentConfirmRegistry.clearSession(sessionId);
     syncOperatorAttention(sessionId);
     replayPromptIds.delete(sessionId);
+    // Ends a replay in flight (cause `unregister`), stops waiting subscribers'
+    // keepalives and drops the per-session replay state.
+    // See change: fix-large-session-resume-replay (D2).
+    replayController.release(sessionId);
+    hydration.release(sessionId);
     // Fan the death out to plugin onSessionEnded subscribers regardless of
     // whether a session record still exists — the automation plugin finalizes
     // any run wedged by a lost terminal event.
@@ -773,7 +793,16 @@ export function wireEvents(deps: EventWiringDeps): void {
   const UI_DATA_PER_EVENT_CAP = 1000;
 
   // Track sessions replaying history — suppress status broadcasts to avoid card flicker
-  const replayingSessions = new Set<string>();
+  // Membership is owned by the replay controller (session/replay-exit-controller.ts).
+  const replayingSessions = replayController.replayingSessions;
+  /**
+   * A forward is "replayed" when the bridge marked it (`replay: true`) OR the
+   * session is in bridge replay mode (old, unmarked bridges). A marked event is
+   * replayed whatever the timers say. See change: fix-large-session-resume-replay (D1).
+   */
+  function isReplayedForward(sessionId: string, msg: { replay?: true }): boolean {
+    return msg.replay === true || replayingSessions.has(sessionId);
+  }
   // Auto-canvas driver (change: auto-canvas). Per-session per-turn candidate
   // buffer + eager/settle/reset lifecycle. Broadcasts ride the existing
   // browser fan-out; settings are read fresh per detect (no cache).
@@ -806,8 +835,6 @@ export function wireEvents(deps: EventWiringDeps): void {
       });
     },
   });
-  // Sessions whose replay should be discarded (canSkipWipe was true — events already in store)
-  const skipReplayInsert = new Set<string>();
   // Prompt ids re-sent by the bridge inside a session's replay window. Ephemeral
   // and per-replay: it exists only to drive one `reconcilePromptRequests` call at
   // the replay exit, and is drained there. Distinct from the durable
@@ -924,6 +951,49 @@ export function wireEvents(deps: EventWiringDeps): void {
     syncOperatorAttention(sessionId);
     replayPromptIds.delete(sessionId);
   }
+  /**
+   * The ONE replay exit, for every cause (`complete` / `idle` / `cap` /
+   * `unregister`), run by the controller exactly once per replay: clear the
+   * OpenSpec activity state, reconcile + recompute (not on unregister — the
+   * session is dying and its registries are cleared by `onUnregister`), one
+   * status broadcast, and the windowed exit flush when one is pending.
+   * See change: fix-large-session-resume-replay (D2, D4).
+   */
+  function exitReplay(sessionId: string, cause: ReplayExitCause): void {
+    const line = `[replay] exit ${sessionId} cause=${cause}`;
+    if (cause === "idle" || cause === "cap") console.warn(line);
+    else console.log(line);
+    const pre = sessionManager.get(sessionId);
+    if (pre?.openspecPhase || pre?.openspecChange) {
+      sessionManager.update(sessionId, { openspecPhase: null as any, openspecChange: null as any });
+    }
+    if (cause !== "unregister") {
+      // Reconcile → recompute BEFORE the status broadcast, so the recomputed
+      // `currentTool` rides it with no extra broadcast site (R10).
+      reconcileAndRecomputeOnReplayExit(sessionId);
+      const session = sessionManager.get(sessionId);
+      if (session) {
+        browserGateway.broadcastSessionUpdated(sessionId, {
+          status: session.status,
+          currentTool: session.currentTool ?? null,
+          openspecPhase: null,
+          openspecChange: null,
+        });
+      }
+    }
+    if (!replayController.isFlushPending(sessionId)) return;
+    // Unregister drops the record right after this returns, so its (tiny,
+    // terminal) flush must not poll a probe that record's removal would trip.
+    const flush = cause === "unregister" ? { isStale: () => false, finish: () => {} } : replayController.startFlush(sessionId);
+    browserGateway
+      .replayStoreToSubscribers(sessionId, flush.isStale)
+      .then(flush.finish)
+      .catch((err: unknown) => {
+        console.error(`[replay] exit flush failed for ${sessionId}:`, err);
+      });
+  }
+  replayController.setOnExit(exitReplay);
+
   // Debounce flows refresh to prevent infinite loop between sessions in same cwd
   const recentFlowsRefresh = new Set<string>();
   // Per-session timestamp of the most recent `lastActivityAt` broadcast.
@@ -992,7 +1062,7 @@ export function wireEvents(deps: EventWiringDeps): void {
    * so the client adds it to totals without turn bookkeeping.
    * See change: count-non-message-usage.
    */
-  function accumulateUsage(sessionId: string, stats: StatsData, usageKind?: string): void {
+  function accumulateUsage(sessionId: string, stats: StatsData, usageKind?: string, replayedForward = false): void {
     const session = sessionManager.get(sessionId);
     const statsUpdates: Partial<DashboardSession> = {
       tokensIn: (session?.tokensIn ?? 0) + stats.tokensIn,
@@ -1021,7 +1091,7 @@ export function wireEvents(deps: EventWiringDeps): void {
       },
     };
     const statsSeq = eventStore.insertEvent(sessionId, statsEvent);
-    if (!replayingSessions.has(sessionId)) {
+    if (!replayingSessions.has(sessionId) && !replayedForward) {
       browserGateway.broadcastEvent(sessionId, statsSeq, statsEvent);
       browserGateway.broadcastSessionUpdated(sessionId, statsUpdates);
     }
@@ -1039,6 +1109,10 @@ export function wireEvents(deps: EventWiringDeps): void {
   }
 
   const coreGatewayEventHandler = (sessionId: string, msg: ExtensionToServerMessage): void => {
+    // Any processed bridge message keeps a replaying session out of the idle
+    // exit (prompt re-sends count, not only event_forward).
+    // See change: fix-large-session-resume-replay (D2).
+    replayController.touch(sessionId);
     // Generic plugin bridge→server channel. Routed to plugin-server
     // handlers by messageType; never touches core session state.
     // See change: add-goal-continuation-plugin.
@@ -1101,6 +1175,11 @@ export function wireEvents(deps: EventWiringDeps): void {
     }
 
     if (msg.type === "event_forward") {
+      // A marked event after the replay exited (early idle/cap, slow link)
+      // re-enters replay mode so the next exit flushes it; it is replayed
+      // whatever the timers say. See change: fix-large-session-resume-replay (D1).
+      if (msg.replay === true && !replayingSessions.has(sessionId)) replayController.reopen(sessionId);
+      const replayed = isReplayedForward(sessionId, msg);
       // Raw-event fan-out to plugin onEvent subscribers (live + replay).
       // Fired before the core handling so plugins see every forwarded event.
       // See change: add-goal-continuation-plugin.
@@ -1113,7 +1192,7 @@ export function wireEvents(deps: EventWiringDeps): void {
       // still reaches the client. Late feedback after the server's own
       // deadline error is dropped. See change: fix-terminal-session-dashboard-reload (D5).
       const reloadRoute = routeReloadFeedback(sessionId, msg.event, {
-        inReplaySkipWindow: replayingSessions.has(sessionId) && skipReplayInsert.has(sessionId),
+        inReplaySkipWindow: replayed && replayController.isSkipped(sessionId),
         persistAndBroadcast: () => {
           const seq = eventStore.insertEvent(sessionId, msg.event);
           browserGateway.broadcastEvent(sessionId, seq, eventStore.getEvent(sessionId, seq) ?? msg.event);
@@ -1122,7 +1201,7 @@ export function wireEvents(deps: EventWiringDeps): void {
       if (reloadRoute === "handled") return;
       // When canSkipWipe was true, the event store already has all events —
       // don't insert replayed events again (would cause exponential duplication)
-      if (replayingSessions.has(sessionId) && skipReplayInsert.has(sessionId)) {
+      if (replayed && replayController.isSkipped(sessionId)) {
         // Still process status updates so session state stays accurate
         const updates = extractSessionUpdates(msg.event);
         if (updates) {
@@ -1148,7 +1227,7 @@ export function wireEvents(deps: EventWiringDeps): void {
       // end/`agent_settled` can describe a still-running call (the reconnect
       // orphan-close), so replay never feeds either. See change:
       // distinguish-tool-result-pending-vs-gone (D1, D2).
-      if (!replayingSessions.has(sessionId)) {
+      if (!replayed) {
         inFlightToolCalls.observeLive(sessionId, msg.event);
         if (msg.event.eventType === "tool_execution_start") {
           const startData = msg.event.data;
@@ -1162,7 +1241,7 @@ export function wireEvents(deps: EventWiringDeps): void {
         }
       }
       // Skip broadcasting during replay — browser gets events via subscribe replay
-      if (!replayingSessions.has(sessionId)) {
+      if (!replayed) {
         const storedEvent = eventStore.getEvent(sessionId, seq) ?? prepared.event;
         browserGateway.broadcastEvent(sessionId, seq, storedEvent);
       }
@@ -1188,7 +1267,7 @@ export function wireEvents(deps: EventWiringDeps): void {
       // The empty-actionable case (clean `stop`) never matches the error
       // extractor, keeping the two paths distinct (spec req).
       // See change: fix-gemini-subagent-silent-tool-schema-failure.
-      if (!replayingSessions.has(sessionId)) {
+      if (!replayed) {
         if (msg.event.eventType === "empty_actionable_surface") {
           const d = msg.event.data ?? {};
           console.log(
@@ -1222,14 +1301,14 @@ export function wireEvents(deps: EventWiringDeps): void {
       // post-reconcile recompute could no longer distinguish from a real one.
       // See change: restore-ask-user-tool-state-on-reconnect (D1/D4).
       const hasPendingPrompt =
-        !replayingSessions.has(sessionId) &&
+        !replayed &&
         browserGateway.hasPendingPromptOtherThan(sessionId, TOOL_ATTACHED_PROMPT_KINDS);
       const updates = extractSessionUpdates(msg.event, hasPendingPrompt);
       if (updates) {
         sessionManager.update(sessionId, updates as Partial<DashboardSession>);
         // During replay, accumulate in sessionManager but don't broadcast
         // to avoid rapid status flickers on the session card
-        if (!replayingSessions.has(sessionId)) {
+        if (!replayed) {
           browserGateway.broadcastSessionUpdated(sessionId, updates);
         }
       }
@@ -1239,7 +1318,7 @@ export function wireEvents(deps: EventWiringDeps): void {
       // The viewedSessionTracker dep is optional for backward compatibility
       // (and to keep tests that don't need it lean).
       // See change: session-card-unread-stripes.
-      if (!replayingSessions.has(sessionId) && viewedSessionTracker) {
+      if (!replayed && viewedSessionTracker) {
         const sessionAfter = sessionManager.get(sessionId);
         stampUnreadIfTriggered(
           sessionId,
@@ -1260,7 +1339,7 @@ export function wireEvents(deps: EventWiringDeps): void {
       // and skipped during replay / for ended sessions (alive→ended is
       // handled in server.ts onChange). See change:
       // simplify-session-card-ordering.
-      if (!replayingSessions.has(sessionId)) {
+      if (!replayed) {
         const placed = sessionManager.get(sessionId);
         if (placed && placed.status !== "ended") {
           const askTrigger =
@@ -1279,7 +1358,7 @@ export function wireEvents(deps: EventWiringDeps): void {
       // Skipped during replay — historical events should not retroactively
       // bump the badge. In-memory updates always; broadcasts throttled per
       // session. See change: session-card-last-activity-badge.
-      if (!replayingSessions.has(sessionId) && isActivityEvent(msg.event.eventType)) {
+      if (!replayed && isActivityEvent(msg.event.eventType)) {
         const now = Date.now();
         sessionManager.update(sessionId, { lastActivityAt: now });
         // Stamp the eager liveness marker once per activation. Guarded so an
@@ -1306,7 +1385,7 @@ export function wireEvents(deps: EventWiringDeps): void {
       // feeds only the reaper; no runtime behavior change when the feature is
       // off. Skipped during replay so historical events do not reclassify a
       // live session. See change: add-embed-session-lifecycle.
-      if (!replayingSessions.has(sessionId)) {
+      if (!replayed) {
         const lifecycleTs = captureLifecycleTimestamp(msg.event.eventType, Date.now());
         if (lifecycleTs) sessionManager.update(sessionId, lifecycleTs);
         // A turn started: the session is alive, so a pending idle-alive archive
@@ -1320,13 +1399,13 @@ export function wireEvents(deps: EventWiringDeps): void {
       // forwarded tool-event stream `detectOpenSpecActivity` reads. cwd comes
       // from server session state, never the model (anti-traversal).
       canvasAccumulator.onEvent(sessionId, msg.event, {
-        replaying: replayingSessions.has(sessionId),
+        replaying: replayed,
         cwd: sessionManager.get(sessionId)?.cwd ?? "",
       });
 
       // Server-side OpenSpec activity detection from forwarded events
       // Skip during replay — replayed events from a forked session would set stale phase/change
-      if (msg.event.eventType === "tool_execution_start" && !replayingSessions.has(sessionId)) {
+      if (msg.event.eventType === "tool_execution_start" && !replayed) {
         // cwd comes from server session state, never the model (anti-traversal).
         // See change: scope-openspec-auto-attach-to-session-cwd.
         const detectedRaw = detectOpenSpecActivity(
@@ -1422,7 +1501,7 @@ export function wireEvents(deps: EventWiringDeps): void {
                 }
               }
             }
-            if (!replayingSessions.has(sessionId)) {
+            if (!replayed) {
               browserGateway.broadcastSessionUpdated(sessionId, {
                 ...activityUpdates,
                 ...attachUpdates,
@@ -1431,7 +1510,7 @@ export function wireEvents(deps: EventWiringDeps): void {
           }
         }
       }
-      if (msg.event.eventType === "agent_end" && !replayingSessions.has(sessionId)) {
+      if (msg.event.eventType === "agent_end" && !replayed) {
         const session = sessionManager.get(sessionId);
         // Clear OpenSpec tracking AND the replace-proposal lifecycle on every
         // turn end. agent_end = fresh intent slate: the pending suggestion and
@@ -1458,7 +1537,7 @@ export function wireEvents(deps: EventWiringDeps): void {
       if (msg.event.eventType === "turn_end") {
         const ctxUsage = msg.event.data.contextUsage as { tokens: number | null; contextWindow: number } | undefined;
         const stats = extractTurnStats(msg.event.data, ctxUsage);
-        if (stats) accumulateUsage(sessionId, stats);
+        if (stats) accumulateUsage(sessionId, stats, undefined, replayed);
       }
       // Tool-result usage (codemode models.classify()/generateImages()): its
       // ONE live source is the forwarded tool-result `message_end`, read from
@@ -1469,7 +1548,7 @@ export function wireEvents(deps: EventWiringDeps): void {
       if (msg.event.eventType === "message_end") {
         const m = (msg.event.data as { message?: { role?: unknown; usage?: unknown } } | undefined)?.message;
         if (m?.role === "toolResult" && m.usage && typeof m.usage === "object") {
-          accumulateUsage(sessionId, nonTurnStats(m.usage as Record<string, unknown>), "tool");
+          accumulateUsage(sessionId, nonTurnStats(m.usage as Record<string, unknown>), "tool", replayed);
         }
       }
     }
@@ -1534,18 +1613,11 @@ export function wireEvents(deps: EventWiringDeps): void {
     }
 
     if (msg.type === "replay_complete") {
-      // Guarded like the safety timeout below so only the FIRST replay exit
-      // acts. Previously this deleted unconditionally, so a late
-      // `replay_complete` after a fired timeout re-sent a duplicate
-      // `event_replay`; this change adds a second consumer of the path (the
-      // reconcile) and so closes that rather than inheriting it.
-      // See change: restore-ask-user-tool-state-on-reconnect (D4, task 5.4).
+      // The controller runs `exitReplay` once per replay (first exit wins), so
+      // a late `replay_complete` after an idle/cap exit is a no-op.
       // Clear any stale OpenSpec activity state that may have leaked (e.g.
       // from events forwarded before the replay flag was set). Deliberately
-      // OUTSIDE the once-only guard below: on a replay slower than the 5s
-      // safety timeout the guard would otherwise swallow this cleanup entirely
-      // (the timeout path never had it), leaking stale OpenSpec activity onto
-      // the card. It is idempotent, so running it on a duplicate is harmless.
+      // OUTSIDE the once-only exit: idempotent, so a duplicate is harmless.
       const preSession = sessionManager.get(sessionId);
       if (preSession?.openspecPhase || preSession?.openspecChange) {
         sessionManager.update(sessionId, {
@@ -1553,39 +1625,7 @@ export function wireEvents(deps: EventWiringDeps): void {
           openspecChange: null as any,
         });
       }
-      if (replayingSessions.delete(sessionId)) {
-        const wasSkipped = skipReplayInsert.has(sessionId);
-        skipReplayInsert.delete(sessionId);
-        // Reconcile → recompute BEFORE the status broadcast below, so the
-        // recomputed `currentTool` rides the existing broadcast with no new
-        // broadcast site (R10).
-        reconcileAndRecomputeOnReplayExit(sessionId);
-        // Broadcast the final accumulated status after replay
-        const session = sessionManager.get(sessionId);
-        if (session) {
-          browserGateway.broadcastSessionUpdated(sessionId, {
-            status: session.status,
-            currentTool: session.currentTool ?? null,
-            openspecPhase: null,
-            openspecChange: null,
-          });
-        }
-        // Send replayed events to browser subscribers.
-        // During replay, event_forward messages were stored but not broadcast.
-        // Subscribers who received session_state_reset need the events to rebuild chat.
-        // Skip when canSkipWipe was true — browser already has the events.
-        if (!wasSkipped) {
-          const storedEvents = eventStore.getEvents(sessionId, 1);
-          if (storedEvents.length > 0) {
-            browserGateway.sendToSubscribers(sessionId, {
-              type: "event_replay",
-              sessionId,
-              events: storedEvents.map((e) => ({ seq: e.seq, event: e.event })),
-              isLast: true,
-            } as any);
-          }
-        }
-      }
+      replayController.complete(sessionId);
     }
 
     // Bridge → server Supervised-mode report (after an applied `set_supervised`, and when
@@ -1614,53 +1654,38 @@ export function wireEvents(deps: EventWiringDeps): void {
       // re-seeding from replayed events would reintroduce the orphan-close
       // hazard. See change: distinguish-tool-result-pending-vs-gone (D2).
       inFlightToolCalls.clear(sessionId);
-      replayingSessions.add(sessionId);
-      // Safety timeout: clear replay flag after 5s if replay_complete never arrives
-      setTimeout(() => {
-        if (replayingSessions.delete(sessionId)) {
-          const wasSkipped = skipReplayInsert.delete(sessionId);
-          // Same reconcile → recompute as `replay_complete`. Hooking only that
-          // exit would leave a lost-dismiss entry alive whenever
-          // `replay_complete` never arrives — and with the reaper union (D5)
-          // the session would then never reap.
-          reconcileAndRecomputeOnReplayExit(sessionId);
-          const session = sessionManager.get(sessionId);
-          if (session) {
-            browserGateway.broadcastSessionUpdated(sessionId, {
-              status: session.status,
-              currentTool: session.currentTool ?? null,
-            });
-          }
-          // Send any accumulated events to browser subscribers
-          if (!wasSkipped) {
-            const fallbackEvents = eventStore.getEvents(sessionId, 1);
-            if (fallbackEvents.length > 0) {
-              browserGateway.sendToSubscribers(sessionId, {
-                type: "event_replay",
-                sessionId,
-                events: fallbackEvents.map((e) => ({ seq: e.seq, event: e.event })),
-                isLast: true,
-              } as any);
-            }
-          }
-        }
-      }, 5_000);
-      // Skip wipe if bridge provides eventCount matching the last known entry count.
-      // This avoids full replay cascade when bridge simply reconnects.
+      // A register supersedes any cold hydration still loading or about to
+      // insert, and decides the wipe. See change: fix-large-session-resume-replay (D5, D6).
+      hydration.bumpRegister(sessionId);
+      directoryService.cancelLoad?.(sessionId);
+      // Skip the wipe only for a register that provably carries the SAME branch:
+      // bridge-learned (count + leaf of the previous register) or learned from a
+      // cold hydration (count + leaf + not mid-turn + store untouched since).
       // Compare entry counts (apples to apples) — not entries vs stored events.
-      const session = sessionManager.get(sessionId);
-      const lastEntryCount = session?.lastEntryCount;
-      const canSkipWipe = msg.eventCount !== undefined && lastEntryCount !== undefined && msg.eventCount === lastEntryCount && eventStore.hasEvents(sessionId);
-      // Store the bridge's entry count for future reconnect comparisons
+      const leafEntryId = validLeafEntryId(msg.leafEntryId);
+      const skipDecision = decideSkipWipe({
+        eventCount: msg.eventCount,
+        leafEntryId,
+        liveTailOpen: msg.liveTailOpen,
+        hasEvents: eventStore.hasEvents(sessionId),
+        storeMaxSeq: eventStore.getMaxSeq(sessionId),
+        bridgeLearned: hydration.getBridgeLearned(sessionId),
+        fingerprint: hydration.getFingerprint(sessionId),
+      });
+      const canSkipWipe = skipDecision.skip;
+      console.log(`[replay] register ${sessionId} skipWipe=${canSkipWipe} reason=${skipDecision.reason}`);
+      hydration.clearFingerprint(sessionId);
+      // Store the bridge's entry count + leaf for future reconnect comparisons
       if (msg.eventCount !== undefined) {
         sessionManager.update(sessionId, { lastEntryCount: msg.eventCount });
+        hydration.setBridgeLearned(sessionId, { entryCount: msg.eventCount, leafEntryId });
       }
+      // Replay mode + one timer set per session; the previous register's timers
+      // (and a still-draining exit flush) are cancelled here.
+      replayController.begin(sessionId, { skipped: canSkipWipe });
       if (!canSkipWipe) {
         eventStore.deleteEventsForSession(sessionId);
         browserGateway.broadcastSessionStateReset(sessionId);
-      } else {
-        // Mark this session so replayed events are not re-inserted into the store
-        skipReplayInsert.add(sessionId);
       }
       // NOTE: do NOT reset `hidden` here. The auto-hide decision is the sole
       // responsibility of `memorySessionManager.register` (first register vs

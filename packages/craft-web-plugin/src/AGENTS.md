@@ -6,10 +6,11 @@ Directories + shared tests. See change: edit-office-in-pane-with-craft-web.
 |------|---------|
 | `client/` | `CraftFrameHost` slot component + frame/host protocol — see `client/AGENTS.md`. |
 | `server/` | Server entry: provisioning, `serveApp` mounts, status/prepare/csp-report routes, OOXML validator — see `server/AGENTS.md`. |
+| `shared/` | Adapter profiles (one declarative row per app) + profile rule checks, imported by server AND client — see `shared/AGENTS.md`. See change: extend-craft-web-to-all-apps. |
 | `shim/` | `craft-shim.js` copied into each web build — see `shim/craft-shim.js.AGENTS.md`. |
 
 Files in `__tests__/`:
 
 | File | Purpose |
 |------|---------|
-| `manifest.test.ts` | E1 drift test. Manifest claims vs `server/apps.ts` vs `craft-apps` registry (`webVersion`, `webFidelityNote`, `copySuffix`) vs `OFFICE_SIZE_CAPS`; notice ≤ 300; `validator:true`; configSchema `apps.<app>.enabled` default true. E24 bundling: listed in server `bundledPlugins`, depends on craft-apps, `repository.directory`. |
+| `manifest.test.ts` | D2 drift test. Manifest claims ↔ profile claims (id, exts, mode, `siblingExtensions`, `maxBytes`) ↔ server/client tables ↔ registry `webVersion`/`webFidelityNote`/name; caps per ext (`capForExtension`); edit `copySuffix`=appId, `validator:true`, label `Edit in <App>` / preview `View in <App>`; notice = fidelity note, no-title apps prefixed with the unconfirmed-open check (E28), ≤ 300; `keepAlive {max:3}`; `profileErrors` clean; E2 fallback bounds, E3 one craft mode per ext; configSchema app keys per profile. E24 bundling. See change: extend-craft-web-to-all-apps. |

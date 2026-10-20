@@ -25,6 +25,7 @@ One row per file.
 | `hermes-model-override.spec.ts` | L3 F3 → see `hermes-model-override.spec.ts.AGENTS.md` |
 | `kb-settings-sources-search.spec.ts` | L3 KB settings sources + search. → see `kb-settings-sources-search.spec.ts.AGENTS.md` |
 | `known-server-stale-name.spec.ts` | L3 stale known-server name. → see `known-server-stale-name.spec.ts.AGENTS.md` |
+| `large-session-resume-replay.spec.ts` | → see `large-session-resume-replay.spec.ts.AGENTS.md` |
 | `lazy-islands.spec.ts` | → see `lazy-islands.spec.ts.AGENTS.md` |
 | `live-server-downloads.spec.ts` | L3 #F1/#X1 |
 | `local-credential-proof-nat.spec.ts` | L3 #X9: published-port proof. → see `local-credential-proof-nat.spec.ts.AGENTS.md` |
@@ -67,7 +68,7 @@ One row per file.
 | `chat-render-fx.spec.ts` | Browser E2E gate for `reduce-chat-render-cpu-umb… → see `chat-render-fx.spec.ts.AGENTS.md` |
 | `chat-render-perf.spec.ts` | ADVISORY opt-in perf probe for `re… → see `chat-render-perf.spec.ts.AGENTS.md` |
 | `chat-transcript-virtualization.spec.ts` | L3 gate for virtualize-cha… → see `chat-transcript-virtualization.spec.ts.AGENTS.md` |
-| `compaction-boundary-replay.spec.ts` | L3 for change replay-compaction-bounda… → see `compaction-boundary-replay.spec.ts.AGENTS.md` |
+| `compaction-boundary-replay.spec.ts` | L3 replay-compaction-bounda… → see `compaction-boundary-replay.spec.ts.AGENTS.md` |
 | `origin-gate.spec.ts` | → see `origin-gate.spec.ts.AGENTS.md` |
 | `csp.spec.ts` | → see `csp.spec.ts.AGENTS.md` |
 | `ctx-running-render.spec.ts` | Browser E2E for `fix-ctx-running-render`. Drives… → see `ctx-running-render.spec.ts.AGENTS.md` |
@@ -105,7 +106,7 @@ One row per file.
 | `followup-image-queue.spec.ts` | L3 for `fix-bridge-followup-image-drop` (test-pl… → see `followup-image-queue.spec.ts.AGENTS.md` |
 | `followup-settle-drain.spec.ts` | L3 follow-up drain on `agent_settled`. → see `followup-settle-drain.spec.ts.AGENTS.md` |
 | `gateway-board-mobile.spec.ts` | 6.8/6.9 board at 375. → see `gateway-board-mobile.spec.ts.AGENTS.md` |
-| `gateway-origin-surfaces.spec.ts` | L3 for the transport/identity CLIENT surface… → see `gateway-origin-surfaces.spec.ts.AGENTS.md` |
+| `gateway-origin-surfaces.spec.ts` | L3 transport/identity CLIENT surface… → see `gateway-origin-surfaces.spec.ts.AGENTS.md` |
 | `gateway-primary-offer.spec.ts` | F7/F8 primary offer. → see `gateway-primary-offer.spec.ts.AGENTS.md` |
 | `gateway-qr-selector.spec.ts` | Browser E2E for the Gateway single-QR network se… → see `gateway-qr-selector.spec.ts.AGENTS.md` |
 | `gateway-readiness-board.spec.ts` | F1–F6, F9 board. → see `gateway-readiness-board.spec.ts.AGENTS.md` |

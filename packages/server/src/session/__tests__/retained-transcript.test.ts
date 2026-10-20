@@ -299,7 +299,9 @@ describe("readRetainedTranscript", () => {
     // reads it. See change: offload-retained-transcript-replay (task 4.6).
     const s = store();
     s.append("sess-remote", TRANSCRIPT, { restarted: false, complete: true });
-    expect(Object.keys(await hydrate(s, "sess-remote")).sort()).toEqual(["cancelled", "events", "state"]);
+    // `entryCount` + `leafEntryId` are the skip-wipe fingerprint source
+    // (fix-large-session-resume-replay D5); the parsed `entries` still never cross.
+    expect(Object.keys(await hydrate(s, "sess-remote")).sort()).toEqual(["cancelled", "entryCount", "events", "leafEntryId", "state"]);
   });
 
   it("reports a transfer that never completed as INCOMPLETE, with what it has", async () => {

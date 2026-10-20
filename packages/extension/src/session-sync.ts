@@ -77,12 +77,39 @@ export function filterByEnabledModels<T extends { provider: string; id: string }
 }
 
 /**
+ * Branch fingerprint carried on `session_register`: `eventCount` (branch length)
+ * and `leafEntryId` (id of its last entry). With `liveTailOpen` it lets the
+ * server skip the wipe when it already holds this exact branch. Never throws.
+ * See change: fix-large-session-resume-replay (D5, D7).
+ */
+export function branchFingerprint(
+  sessionManager: { getBranch?: () => Array<{ id?: unknown }> } | undefined,
+): { eventCount?: number; leafEntryId?: string } {
+  try {
+    const entries = sessionManager?.getBranch?.();
+    if (!entries) return {};
+    const last = entries.length > 0 ? entries[entries.length - 1].id : undefined;
+    return {
+      eventCount: entries.length,
+      ...(typeof last === "string" && last.length > 0 ? { leafEntryId: last } : {}),
+    };
+  } catch {
+    return {};
+  }
+}
+
+/**
  * Send full state sync to the server (session_register, commands, flows, models).
  * Called on initial connect and reconnect.
+ *
+ * `opts.liveTailOpen` is computed ONCE by the caller and shared with the replay
+ * that follows, so the register and the replay agree.
+ * See change: fix-large-session-resume-replay (D7).
  */
 export function sendStateSync(
   bc: BridgeContext,
   getFlowsList: () => FlowInfo[],
+  opts?: { liveTailOpen?: boolean },
 ): void {
   const model = getCurrentModelString(bc);
   const thinkingLevel = (bc.pi as any).getThinkingLevel?.() ?? undefined;
@@ -93,12 +120,8 @@ export function sendStateSync(
   const sessionDir = bc.lastSessionDir ?? bc.cachedCtx?.sessionManager?.getSessionDir?.() ?? undefined;
   const firstMessage = extractFirstMessage(bc.cachedCtx);
 
-  // Include eventCount so server can skip event wipe on reconnect
-  let eventCount: number | undefined;
-  try {
-    const entries = bc.cachedCtx?.sessionManager?.getBranch?.();
-    if (entries) eventCount = entries.length;
-  } catch { /* ignore */ }
+  // Include eventCount (+ leaf id, liveTailOpen) so server can skip event wipe on reconnect
+  const { eventCount, leafEntryId } = branchFingerprint(bc.cachedCtx?.sessionManager);
 
   // Tag the very first sendStateSync after process boot as "spawn";
   // every subsequent invocation (driven by WebSocket reconnect after a
@@ -140,6 +163,8 @@ export function sendStateSync(
     sessionDir,
     firstMessage,
     eventCount,
+    ...(leafEntryId !== undefined ? { leafEntryId } : {}),
+    ...(opts?.liveTailOpen !== undefined ? { liveTailOpen: opts.liveTailOpen } : {}),
     pid: process.pid,
     registerReason,
     // Tri-state git-repo signal computed synchronously (no git_info_update
@@ -217,7 +242,9 @@ export function replaySessionEntries(bc: BridgeContext, opts?: { liveTailOpen?: 
     if (!entries || entries.length === 0) return;
     const events = replayEntriesAsEvents(bc.sessionId, entries, undefined, opts);
     for (const msg of events) {
-      bc.connection.send(msg);
+      // Mark every replayed forward so the server never treats it as live,
+      // whatever its replay timers say. See change: fix-large-session-resume-replay (D1).
+      bc.connection.send({ ...msg, replay: true });
     }
   } catch { /* ignore */ }
 }
@@ -255,11 +282,7 @@ export function handleSessionChange(
 
   // Include eventCount for consistency (session switch/fork changes sessionId,
   // so the server will wipe regardless, but include for completeness)
-  let eventCount: number | undefined;
-  try {
-    const entries = ctx.sessionManager?.getBranch?.();
-    if (entries) eventCount = entries.length;
-  } catch { /* ignore */ }
+  const { eventCount, leafEntryId } = branchFingerprint(ctx.sessionManager);
 
   // handleSessionChange always mints a fresh sessionId (new/fork/resume),
   // so registerReason is unconditionally "spawn" — even after the bridge
@@ -286,6 +309,9 @@ export function handleSessionChange(
     ...(dashboardSpawned ? { dashboardSpawned: true } : {}),
     firstMessage,
     eventCount,
+    ...(leafEntryId !== undefined ? { leafEntryId } : {}),
+    // The switch path never leaves the tail open (see replaySessionEntries below).
+    liveTailOpen: false,
     pid: process.pid,
     registerReason: "spawn",
     // See change: gate-session-worktree-button-on-git.

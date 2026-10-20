@@ -169,7 +169,9 @@ import { handleAddFolderToWorkspace, handleCreateWorkspace, handleDeleteWorkspac
 import type { BrowserHandlerContext } from "../browser-handlers/handler-context.js";
 import { acpGuardCtx, handleAbort, handleClearFollowupEntries, handleEditFollowupEntry, handleFlowControl, handleForceKill, handleKillProcess, handlePromoteFollowupEntry, handlePromptResyncRequest, handleRemoveFollowupEntry, handleResumeSession, handleRetrySession, handleSendPrompt, handleShutdown, handleSpawnSession, handleStopAfterTurn, handleSubagentResyncRequest, shutdownSession as shutdownSessionImpl } from "../browser-handlers/session-action-handler.js";
 import { handleAcceptReplaceProposal, handleArchiveSession, handleAttachProposal, handleDetachProposal, handleDismissReplaceProposal, handleFetchContent, handleListSessions, handleRemoveTagGlobally, handleRenameSession, handleSessionsPage, handleSetSessionDisplayPrefs, handleSetSessionProcessDrawer, handleSetSessionTags, handleUnarchiveSession } from "../browser-handlers/session-meta-handler.js";
-import { clearGapState, handleHistoryBackfill, handleSubscribe } from "../browser-handlers/subscription-handler.js";
+import { clearGapState, handleHistoryBackfill, handleSubscribe, sendEventBatches } from "../browser-handlers/subscription-handler.js";
+import { DEFAULT_MEMORY_LIMITS } from "@blackbelt-technology/pi-dashboard-shared/memory-limits.js";
+import type { ReplayState } from "../session/hydration-state.js";
 import { handleCloseInlineTerminal, handleCreateTerminal, handleKillTerminal, handleOpenInlineTerminal, handleRenameTerminal } from "../browser-handlers/terminal-handler.js";
 import { createPendingResumeRegistry, type PendingResumeRegistry } from "../pending/pending-resume-registry.js";
 import { relayBrowserPromptResponse } from "../questions/question-answer.js";
@@ -292,6 +294,17 @@ export interface BrowserGateway {
    */
   shutdownSession(sessionId: string): Promise<void>;
   sendToSubscribers(sessionId: string, msg: ServerToBrowserMessage): void;
+  /**
+   * Bridge replay-exit flush: send the stored events to every subscriber.
+   * Each WebSocket subscriber gets exactly one `session_state_reset`, then the
+   * store windowed like a subscribe-time full replay (`history_window` when a
+   * window applies), ending `isLast: true` (a terminal empty batch for an
+   * empty store). In-process subscribers keep one full `event_replay`.
+   * `isStale` is polled before every batch; a stale flush stops and unmutes its
+   * sockets WITHOUT a catch-up. Resolves when every subscriber is done.
+   * See change: fix-large-session-resume-replay (D4).
+   */
+  replayStoreToSubscribers(sessionId: string, isStale: () => boolean): Promise<void>;
   /**
    * Register an IN-PROCESS subscriber for one session's live server→browser
    * frames — for a headless plugin acting as a browser-protocol client without
@@ -620,6 +633,10 @@ export function createBrowserGateway(
    *  remote socket's folder commands are refused (fail closed).
    *  See change: harden-server-capability-bounds (D1b). */
   browseRoots?: () => Promise<import("../lib/browse-roots.js").BrowseRoots | null>,
+  /** Replay-mode controller + hydration/register bookkeeping shared with
+   *  `wireEvents`. Absent → subscribe never waits on a bridge replay.
+   *  See change: fix-large-session-resume-replay. */
+  replayState?: ReplayState,
 ): BrowserGateway {
   const wss = new WebSocketServer({ noServer: true });
 
@@ -706,6 +723,17 @@ export function createBrowserGateway(
   const inProcessSubscribers = new Map<string, Set<(msg: ServerToBrowserMessage) => void>>();
   // Track which sessions are mid-replay per WebSocket (suppress live events)
   const replayingSessions = new Map<WebSocket, Set<string>>();
+  // Owner of a socket's current bridge replay-exit flush mute, per session.
+  // A superseded flush may unmute only a socket it still owns, or it would drop
+  // the mute of the newer flush that took over.
+  const flushOwners = new WeakMap<WebSocket, Map<string, number>>();
+  let flushSeq = 0;
+
+  function markReplayingWs(targetWs: WebSocket, sessionId: string): void {
+    let set = replayingSessions.get(targetWs);
+    if (!set) { set = new Set(); replayingSessions.set(targetWs, set); }
+    set.add(sessionId);
+  }
 
   // Track headless child processes with sessionId linkage
   const headlessPidRegistry = createHeadlessPidRegistry();
@@ -1976,11 +2004,8 @@ export function createBrowserGateway(
           sendTo, broadcast, getSubscribers, replayPendingUiRequests, replayNotifyLog,
           broadcastEvent: gateway.broadcastEvent,
           trackUiRequest: trackUiRequest,
-          markReplaying(targetWs, sessionId) {
-            let set = replayingSessions.get(targetWs);
-            if (!set) { set = new Set(); replayingSessions.set(targetWs, set); }
-            set.add(sessionId);
-          },
+          markReplaying: markReplayingWs,
+          replayState,
           clearReplaying(targetWs, sessionId, lastReplayedSeq) {
             const set = replayingSessions.get(targetWs);
             if (set) {
@@ -2665,6 +2690,62 @@ export function createBrowserGateway(
         sendTo(ws, msg);
       }
       deliverInProcess(sessionId, msg);
+    },
+
+    async replayStoreToSubscribers(sessionId: string, isStale: () => boolean): Promise<void> {
+      const stored = eventStore.getEvents(sessionId, 1);
+      // In-process subscribers keep the full stream (they hold no window).
+      if (stored.length > 0) {
+        deliverInProcess(sessionId, {
+          type: "event_replay",
+          sessionId,
+          events: stored.map((e) => ({ seq: e.seq, event: e.event })),
+          isLast: true,
+        } as ServerToBrowserMessage);
+      }
+      const limit = maxReplayEvents ?? DEFAULT_MEMORY_LIMITS.maxReplayEvents;
+      const mode = replayWindowMode ?? DEFAULT_MEMORY_LIMITS.replayWindowMode;
+      const token = ++flushSeq;
+      const sockets = getSubscribers(sessionId);
+      // Mute EVERY subscriber synchronously, before the first await, so no live
+      // event slips between the exit and the flush.
+      for (const sock of sockets) {
+        markReplayingWs(sock, sessionId);
+        let owners = flushOwners.get(sock);
+        if (!owners) { owners = new Map(); flushOwners.set(sock, owners); }
+        owners.set(sessionId, token);
+      }
+      const unmute = (sock: WebSocket, lastSeq: number): void => {
+        const owners = flushOwners.get(sock);
+        if (owners?.get(sessionId) !== token) return; // a newer flush owns the mute
+        owners.delete(sessionId);
+        const set = replayingSessions.get(sock);
+        if (set) {
+          set.delete(sessionId);
+          if (set.size === 0) replayingSessions.delete(sock);
+        }
+        if (lastSeq > 0) {
+          const catchUp = eventStore.getEvents(sessionId, lastSeq + 1);
+          if (catchUp.length > 0) {
+            sendTo(sock, {
+              type: "event_replay",
+              sessionId,
+              events: catchUp.map((e) => ({ seq: e.seq, event: e.event })),
+              isLast: true,
+            });
+          }
+        }
+      };
+      await Promise.all(sockets.map(async (sock) => {
+        try {
+          const lastSent = await sendEventBatches(sock, sessionId, stored, sendTo, limit, mode, isStale, true);
+          // Stale: stop without a catch-up (the successor flush resends everything).
+          unmute(sock, isStale() ? 0 : lastSent);
+        } catch (err) {
+          console.error(`[replay] exit flush failed for ${sessionId}:`, err);
+          unmute(sock, 0);
+        }
+      }));
     },
 
     addInProcessSubscriber(sessionId: string, handler: (msg: ServerToBrowserMessage) => void) {

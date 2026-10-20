@@ -7,8 +7,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { ProvisionWebError, type ProvisionWebFn, provisionWeb } from "@blackbelt-technology/pi-dashboard-craft-apps/provision.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { profileFor } from "../../shared/app-profiles.js";
 import type { CraftWebConfig } from "../config.js";
-import { createPostInstall } from "../post-install.js";
+import { createPostInstall, profileHash } from "../post-install.js";
 import { type CraftWebService, createCraftWebService } from "../service.js";
 import { cleanupTmp, recordingLogger, tmp, writeShim, writeTrunkBuild } from "./helpers.js";
 
@@ -103,13 +104,15 @@ describe("prepare + shim version (E12 status side)", () => {
     expect(st.sizeGzip).toBe((first as { sizeGzip: number }).sizeGzip);
 
     r.setShim(2);
-    expect(r.service.status().apps.wordcraft).toMatchObject({ status: "shim-outdated", reason: "shim-outdated", shimVersion: 1 });
-    // the host loads nothing while outdated; prepare installs the new tree
+    // WordCraft's minShimVersion is 1: the v1 tree keeps loading, a re-prepare is offered as an update (D8)
+    expect(r.service.status().apps.wordcraft).toMatchObject({ status: "ok", shimVersion: 1, shimUpdate: true });
+    // prepare installs the new tree
     const root = path.join(r.dataDir, "wordcraft-web");
     const oldTree = fs.readdirSync(root).find((n) => n.endsWith("-s1")) as string;
     const second = await r.service.prepare("wordcraft");
     expect(second).toMatchObject({ ok: true, shimVersion: 2 });
     expect(r.service.status().apps.wordcraft).toMatchObject({ status: "ok", shimVersion: 2 });
+    expect(r.service.status().apps.wordcraft.shimUpdate).toBeUndefined();
     expect(fs.readdirSync(root).sort()).toEqual([oldTree, oldTree.replace(/-s1$/, "-s2"), "current"].sort());
     expect(fs.realpathSync(path.join(root, "current"))).toBe(fs.realpathSync(path.join(root, oldTree.replace(/-s1$/, "-s2"))));
   });
@@ -121,6 +124,101 @@ describe("prepare + shim version (E12 status side)", () => {
     fs.writeFileSync(path.join(root, "0.7.0-s1", "craft-build.json"), JSON.stringify({ app: "wordcraft", version: "0.7.0", shimVersion: 1, sizeGzip: 5 }));
     fs.symlinkSync("0.7.0-s1", path.join(root, "current"));
     expect(r.service.status().apps.wordcraft).toMatchObject({ status: "not-prepared", version: "0.8.0" });
+  });
+});
+
+describe("E6 shim compatibility (D8)", () => {
+  /** A prepared `<version>-s<shim>` WordCraft tree (`current` → it) with an optional profile hash. */
+  function preparedTree(dataDir: string, shim: number, profile?: string): void {
+    const root = path.join(dataDir, "wordcraft-web");
+    const key = `0.8.0-s${shim}`;
+    fs.mkdirSync(path.join(root, key), { recursive: true });
+    const info = { app: "wordcraft", version: "0.8.0", shimVersion: shim, sizeGzip: 5, ...(profile ? { profileHash: profile } : {}) };
+    fs.writeFileSync(path.join(root, key, "craft-build.json"), JSON.stringify(info));
+    fs.rmSync(path.join(root, "current"), { force: true });
+    fs.symlinkSync(key, path.join(root, "current"));
+  }
+  const current = profileHash(profileFor("wordcraft") as NonNullable<ReturnType<typeof profileFor>>);
+
+  it("WordCraft v1 build (no profile line) under shim 2 → ok + update offered", () => {
+    const r = rig({ env: { CRAFT_HOME: "x" } });
+    r.setShim(2);
+    preparedTree(r.dataDir, 1);
+    expect(r.service.status().apps.wordcraft).toMatchObject({ status: "ok", shimVersion: 1, shimUpdate: true });
+  });
+
+  it("v2 build with a stale profile hash → shim-outdated; current hash → ok", () => {
+    const r = rig({ env: { CRAFT_HOME: "x" } });
+    r.setShim(2);
+    preparedTree(r.dataDir, 2, "0000000000");
+    expect(r.service.status().apps.wordcraft).toMatchObject({ status: "shim-outdated", shimVersion: 2 });
+    preparedTree(r.dataDir, 2, current);
+    const ok = r.service.status().apps.wordcraft;
+    expect(ok).toMatchObject({ status: "ok", shimVersion: 2 });
+    expect(ok.shimUpdate).toBeUndefined();
+  });
+
+  it("a build newer than the plugin's shim → shim-outdated", () => {
+    const r = rig({ env: { CRAFT_HOME: "x" } });
+    r.setShim(2);
+    preparedTree(r.dataDir, 3, current);
+    expect(r.service.status().apps.wordcraft).toMatchObject({ status: "shim-outdated" });
+  });
+
+  it("profile change → shim-outdated → prepare re-runs post-install (no cache reuse) → ok", async () => {
+    const dataDir = tmp("craft-web-data-");
+    const r = rig({ env: overrideEnv(dataDir) });
+    r.setShim(2);
+    expect(await r.service.prepare("wordcraft")).toMatchObject({ ok: true, shimVersion: 2 });
+    const root = path.join(r.dataDir, "wordcraft-web");
+    const key = fs.readdirSync(root).find((n) => n.endsWith("-s2")) as string;
+    const buildFile = path.join(root, key, "craft-build.json");
+    fs.writeFileSync(buildFile, JSON.stringify({ ...JSON.parse(fs.readFileSync(buildFile, "utf8")), profileHash: "0000000000" }));
+    expect(r.service.status().apps.wordcraft).toMatchObject({ status: "shim-outdated" });
+    expect(await r.service.prepare("wordcraft")).toMatchObject({ ok: true, cacheHit: false });
+    expect(r.service.status().apps.wordcraft).toMatchObject({ status: "ok", shimVersion: 2 });
+  });
+});
+
+describe("E6/E23 new apps (minShimVersion 2, fixed channel)", () => {
+  function tree(dataDir: string, app: string, version: string, shim: number, profile?: string): void {
+    const root = path.join(dataDir, `${app}-web`);
+    const key = `${version}-s${shim}`;
+    fs.mkdirSync(path.join(root, key), { recursive: true });
+    const info = { app, version, shimVersion: shim, sizeGzip: 5, ...(profile ? { profileHash: profile } : {}) };
+    fs.writeFileSync(path.join(root, key, "craft-build.json"), JSON.stringify(info));
+    fs.rmSync(path.join(root, "current"), { force: true });
+    fs.symlinkSync(key, path.join(root, "current"));
+  }
+
+  it("E6: a GridCraft v1-shim build → shim-outdated (below its minShimVersion)", () => {
+    const r = rig({ env: { CRAFT_HOME: "x" } });
+    r.setShim(2);
+    tree(r.dataDir, "gridcraft", "0.8.0", 1);
+    expect(r.service.status().apps.gridcraft).toMatchObject({ status: "shim-outdated", shimVersion: 1 });
+  });
+
+  it("E23: a fixed-channel app ignores a stored latest — verified version, zero latest lookups, prepare pinned; WordCraft unchanged", async () => {
+    const latest = vi.fn(async (_app: string) => "0.99.0");
+    const provision = vi.fn().mockRejectedValue(new Error("stop"));
+    const r = rig({ config: { apps: { gridcraft: { version: "latest" }, wordcraft: { version: "latest" } } }, latestWebVersion: latest, provision: provision as never });
+    const st = r.service.status();
+    expect(st.apps.gridcraft).toMatchObject({ channel: "pinned", version: "0.8.0", status: "not-prepared" });
+    expect(st.apps.gridcraft.latestVersion).toBeUndefined();
+    expect(latest.mock.calls.filter((c) => c[0] === "gridcraft")).toHaveLength(0);
+    await r.service.prepare("gridcraft");
+    expect(provision).toHaveBeenLastCalledWith("gridcraft", expect.objectContaining({ channel: "pinned" }));
+    expect(st.apps.wordcraft.channel).toBe("latest");
+  });
+
+  it("3.9: DeckCraft (latest fails to start) with a stored latest → status and prepare use 0.7.0", async () => {
+    const latest = vi.fn(async (_app: string) => "0.8.0");
+    const provision = vi.fn().mockRejectedValue(new Error("stop"));
+    const r = rig({ config: { apps: { deckcraft: { version: "latest" } } }, latestWebVersion: latest, provision: provision as never });
+    expect(r.service.status().apps.deckcraft).toMatchObject({ channel: "pinned", version: "0.7.0" });
+    expect(latest).not.toHaveBeenCalled();
+    await r.service.prepare("deckcraft");
+    expect(provision).toHaveBeenLastCalledWith("deckcraft", expect.objectContaining({ channel: "pinned" }));
   });
 });
 

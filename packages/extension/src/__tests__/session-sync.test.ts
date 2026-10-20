@@ -533,3 +533,72 @@ describe("supervised mode: restore at session_start + registration fields", () =
     expect(reg).not.toHaveProperty("toolGateOwner");
   });
 });
+
+// test-plan #E14 — the bridge marks replayed events and carries the branch fingerprint.
+// See change: fix-large-session-resume-replay (D1, D5, D7).
+describe("replay marker + branch fingerprint (test-plan #E14)", () => {
+  const branch5 = ["e1", "e2", "e3", "e4", "e5"].map((id, i) => ({
+    type: "message",
+    id,
+    ...(i > 0 ? { parentId: `e${i}` } : {}),
+    timestamp: `2026-10-13T10:00:0${i}.000Z`,
+    message: i % 2 === 0
+      ? { role: "user", content: `question ${i}` }
+      : { role: "assistant", content: [{ type: "text", text: `answer ${i}` }] },
+  }));
+  const mk = () =>
+    createMockBridgeContext({
+      cachedCtx: { sessionManager: { getBranch: () => branch5, getSessionFile: () => "/f", getSessionDir: () => "/d" } },
+    } as any);
+  const forwards = (sent: any[]) => sent.filter((m) => m.type === "event_forward");
+
+  it("reconnect: every replayed event_forward is marked, the first after replay_complete is not", () => {
+    const bc = mk();
+    sendStateSync(bc, () => [], { liveTailOpen: false });
+    replaySessionEntries(bc, { liveTailOpen: false });
+    (bc as any).connection.send({ type: "replay_complete", sessionId: bc.sessionId });
+    (bc as any).connection.send({ type: "event_forward", sessionId: bc.sessionId, event: { eventType: "agent_start", timestamp: 1, data: {} } });
+    const sent = (bc as any)._sent as any[];
+    const completeAt = sent.findIndex((m) => m.type === "replay_complete");
+    const replayed = forwards(sent.slice(0, completeAt));
+    expect(replayed.length).toBeGreaterThan(0);
+    expect(replayed.every((m) => m.replay === true)).toBe(true);
+    const live = forwards(sent.slice(completeAt));
+    expect(live).toHaveLength(1);
+    expect(live[0].replay).toBeUndefined();
+  });
+
+  it("register carries leafEntryId (last branch id), eventCount and the shared liveTailOpen", () => {
+    const bc = mk();
+    sendStateSync(bc, () => [], { liveTailOpen: false });
+    const reg = (bc as any)._sent.find((m: any) => m.type === "session_register");
+    expect(reg.eventCount).toBe(5);
+    expect(reg.leafEntryId).toBe("e5");
+    expect(reg.liveTailOpen).toBe(false);
+  });
+
+  it("register omits liveTailOpen / leafEntryId when the caller or branch gives none", () => {
+    const bc = createMockBridgeContext(); // branch entries carry no id
+    sendStateSync(bc, () => []);
+    const reg = (bc as any)._sent.find((m: any) => m.type === "session_register");
+    expect(reg.leafEntryId).toBeUndefined();
+    expect(reg.liveTailOpen).toBeUndefined();
+  });
+
+  it("session switch: marked replay, leafEntryId from the new session, liveTailOpen: false", () => {
+    const bc = mk();
+    handleSessionChange(
+      bc,
+      { cwd: "/proj", sessionManager: { getSessionId: () => "s2", getSessionFile: () => "/f", getSessionDir: () => "/d", getBranch: () => branch5, getEntries: () => branch5 } } as any,
+      () => [],
+    );
+    const sent = (bc as any)._sent as any[];
+    const reg = sent.find((m) => m.type === "session_register");
+    expect(reg.liveTailOpen).toBe(false);
+    expect(reg.leafEntryId).toBe("e5");
+    const completeAt = sent.findIndex((m) => m.type === "replay_complete");
+    const replayed = forwards(sent.slice(0, completeAt));
+    expect(replayed.length).toBeGreaterThan(0);
+    expect(replayed.every((m) => m.replay === true)).toBe(true);
+  });
+});

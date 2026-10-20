@@ -167,7 +167,7 @@ function validateNavHint(raw: unknown, pluginId: string, index: number): Setting
 /** The normalized `editor-pane-file-handler` fields of a claim. */
 type FileHandlerFields = Pick<
   PluginClaim,
-  "id" | "extensions" | "mode" | "label" | "keepAlive" | "maxBytes" | "firstOverwriteNotice" | "copySuffix" | "validator"
+  "id" | "extensions" | "mode" | "label" | "keepAlive" | "maxBytes" | "firstOverwriteNotice" | "copySuffix" | "siblingExtensions" | "validator"
 >;
 
 /**
@@ -225,6 +225,7 @@ function validateFileHandlerClaim(c: Record<string, unknown>, pluginId: string, 
     fail(`"copySuffix" must match ${FILE_HANDLER_COPY_SUFFIX_RE}`);
   }
   if (c.mode === "edit" && !copySuffixGiven) fail('mode "edit" requires "copySuffix"');
+  const siblings = validateSiblingExtensions(c, extensions as string[], fail);
   return {
     id: c.id as string,
     extensions: [...(extensions as string[])],
@@ -234,8 +235,32 @@ function validateFileHandlerClaim(c: Record<string, unknown>, pluginId: string, 
     ...(typeof c.maxBytes === "number" ? { maxBytes: c.maxBytes } : {}),
     ...(typeof c.firstOverwriteNotice === "string" ? { firstOverwriteNotice: c.firstOverwriteNotice } : {}),
     ...(typeof c.copySuffix === "string" ? { copySuffix: c.copySuffix } : {}),
+    ...(siblings ? { siblingExtensions: siblings } : {}),
     ...(typeof c.validator === "boolean" ? { validator: c.validator } : {}),
   };
+}
+
+/**
+ * `siblingExtensions` (edit claims only): non-empty array, each entry under the same per-extension rules as
+ * `extensions`, none also in `extensions`, no duplicates. Messages name the claim id and the extension
+ * (the caller's `fail` prefixes plugin + claim index). See change: extend-craft-web-to-all-apps (D6).
+ */
+function validateSiblingExtensions(c: Record<string, unknown>, extensions: string[], fail: (msg: string) => never): string[] | undefined {
+  if (c.siblingExtensions === undefined) return undefined;
+  const at = `claim "${String(c.id)}" "siblingExtensions"`;
+  if (c.mode !== "edit") fail(`${at} is only allowed on mode "edit"`);
+  if (!Array.isArray(c.siblingExtensions) || c.siblingExtensions.length === 0) fail(`${at} must be a non-empty array`);
+  const out: string[] = [];
+  for (const ext of c.siblingExtensions as unknown[]) {
+    if (typeof ext !== "string" || !FILE_HANDLER_EXT_RE.test(ext)) {
+      fail(`${at} extension ${JSON.stringify(ext)} must match ${FILE_HANDLER_EXT_RE} (lower-case, single segment, leading dot)`);
+    }
+    if (isUnclaimableHandlerExt(ext as string)) fail(`${at} extension "${ext}" is a text-backed or reserved file kind and cannot be claimed`);
+    if (extensions.includes(ext as string)) fail(`${at} extension "${ext}" is also in "extensions"`);
+    if (out.includes(ext as string)) fail(`${at} extension "${ext}" is listed twice`);
+    out.push(ext as string);
+  }
+  return out;
 }
 
 function validateClaim(claim: unknown, pluginId: string, index: number): PluginClaim {

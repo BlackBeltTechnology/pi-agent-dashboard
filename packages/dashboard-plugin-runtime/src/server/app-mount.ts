@@ -32,7 +32,18 @@ export interface ServeAppOptions {
   appId?: string;
   /** Add `Access-Control-Allow-Origin: *` + `Cross-Origin-Resource-Policy: cross-origin` (never credentials). */
   crossOriginFrame?: boolean;
+  /**
+   * Extra file extensions to serve beyond the built-in allowlist, each as INERT data only:
+   * `{ ".txt": "text/plain; charset=utf-8", ".part-aa": "application/octet-stream" }`. Keys
+   * `^\.[a-z0-9][a-z0-9-]{0,15}$`, not already allowlisted; values from {@link EXTRA_TYPE_VALUES}.
+   * See change: extend-craft-web-to-all-apps (a web build that fetches split wasm parts).
+   */
+  extraTypes?: Readonly<Record<string, string>>;
 }
+
+/** The only content types `extraTypes` may assign: never executable or renderable as a document. */
+export const EXTRA_TYPE_VALUES: ReadonlySet<string> = new Set(["text/plain; charset=utf-8", "application/octet-stream"]);
+const EXTRA_EXT = /^\.[a-z0-9][a-z0-9-]{0,15}$/;
 
 export interface AppMountRecord {
   appId: string;
@@ -186,7 +197,7 @@ export interface MountAppEnv {
 // ── Request pipeline helpers (pure) ─────────────────────────────────────────
 
 /** Decoded path segments under the mount, or null when the request must be refused (NUL, `\\`, bad escape, dotfile / `..`). */
-function parseSegments(rawPath: string, prefix: string): string[] | null {
+function parseSegments(rawPath: string, prefix: string, types: Readonly<Record<string, string>>): string[] | null {
   if (!rawPath.startsWith(`${prefix}/`)) return null;
   let decoded: string;
   try {
@@ -199,7 +210,7 @@ function parseSegments(rawPath: string, prefix: string): string[] | null {
   // Dotfiles and any `.`/`..` segment: never served, never resolved.
   if (segments.some((s) => s.startsWith("."))) return null;
   const ext = path.extname(segments[segments.length - 1] ?? "").toLowerCase();
-  if (ext && !MIME[ext]) return null;
+  if (ext && !types[ext]) return null;
   return segments;
 }
 
@@ -282,7 +293,11 @@ function setFileHeaders(reply: FastifyReply, h: FileHeaders): void {
  * a missing/odd `csp`, or a `dir` outside the package root and `dataDir`; on a
  * throw nothing is mounted. `dir` need not exist yet: requests get 503 until it does.
  */
-function validateMount(env: MountAppEnv, opts: ServeAppOptions, registry: AppMountRegistry): { appId: string; roots: string[] } {
+function validateMount(
+  env: MountAppEnv,
+  opts: ServeAppOptions,
+  registry: AppMountRegistry,
+): { appId: string; roots: string[]; types: Readonly<Record<string, string>> } {
   if (!opts || typeof opts !== "object") throw new Error("serveApp: options object required");
   const appId = opts.appId ?? env.pluginId;
   if (typeof appId !== "string" || !APP_ID.test(appId)) {
@@ -298,13 +313,26 @@ function validateMount(env: MountAppEnv, opts: ServeAppOptions, registry: AppMou
     throw new Error(`serveApp: dir "${opts.dir}" must be inside the plugin package or its data directory`);
   }
   if (registry.has(appId)) throw new Error(`serveApp: appId "${appId}" is already mounted`);
-  return { appId, roots };
+  return { appId, roots, types: mountTypes(opts.extraTypes) };
+}
+
+/** Built-in allowlist + validated `extraTypes` (throws on a bad key or a non-inert type). */
+function mountTypes(extra: ServeAppOptions["extraTypes"]): Readonly<Record<string, string>> {
+  if (extra === undefined) return MIME;
+  if (!extra || typeof extra !== "object" || Array.isArray(extra)) throw new Error("serveApp: extraTypes must be an object");
+  const out: Record<string, string> = { ...MIME };
+  for (const [ext, type] of Object.entries(extra)) {
+    if (!EXTRA_EXT.test(ext) || Object.hasOwn(MIME, ext)) throw new Error(`serveApp: extraTypes key "${ext}" is not a new lower-case extension`);
+    if (!EXTRA_TYPE_VALUES.has(type)) throw new Error(`serveApp: extraTypes "${ext}" type "${type}" is not an inert data type`);
+    out[ext] = type;
+  }
+  return out;
 }
 
 export function mountApp(env: MountAppEnv, opts: ServeAppOptions): void {
   const { fastify, logger } = env;
   const registry = env.registry ?? getAppMountRegistry();
-  const { appId, roots } = validateMount(env, opts, registry);
+  const { appId, roots, types } = validateMount(env, opts, registry);
   const prefix = `${MOUNT_BASE}${appId}`;
   const { csp } = opts;
   const crossOriginFrame = opts.crossOriginFrame === true;
@@ -341,7 +369,7 @@ export function mountApp(env: MountAppEnv, opts: ServeAppOptions): void {
   };
 
   const sendFile = (request: FastifyRequest, reply: FastifyReply, root: string, real: string, isIndex: boolean): void => {
-    const type = MIME[path.extname(real).toLowerCase()];
+    const type = types[path.extname(real).toLowerCase()];
     const variant = type ? pickVariant(real, root, request.headers["accept-encoding"]) : null;
     if (!type || !variant) return notFound(reply);
     let policy: string;
@@ -384,7 +412,7 @@ export function mountApp(env: MountAppEnv, opts: ServeAppOptions): void {
     url: `${prefix}/*`,
     ...routeExtras,
     handler: (request, reply) => {
-      const segments = parseSegments((request.raw.url ?? "").split(/[?#]/, 1)[0], prefix);
+      const segments = parseSegments((request.raw.url ?? "").split(/[?#]/, 1)[0], prefix, types);
       if (segments === null) return notFound(reply);
       const root = resolveRoot(reply);
       if (root === null) return;
