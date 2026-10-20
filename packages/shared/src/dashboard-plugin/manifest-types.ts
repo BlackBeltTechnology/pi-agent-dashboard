@@ -355,6 +355,14 @@ export interface PluginManifest {
    * See change: decouple-plugins-from-core (design D5).
    */
   eventTypes?: string[];
+  /**
+   * Host API range this plugin was built against: `^MAJOR.MINOR[.PATCH]` or an
+   * exact `MAJOR.MINOR.PATCH`. Evaluated at discovery against
+   * `PLUGIN_HOST_API_VERSION`; one range covers the server and client halves.
+   * Required for `pi-package`-source plugins and `clientBundle` plugins.
+   * See change: decouple-plugins-from-core (design D7).
+   */
+  hostApi?: string;
 }
 
 /**

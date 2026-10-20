@@ -85,3 +85,21 @@ describe("host-design token drift (E18)", () => {
     expect(undeclared(md, declared)).toEqual(["--not-a-real-token"]);
   });
 });
+
+describe("host API surface snapshot — accent text tokens (E29)", () => {
+  const SNAPSHOT = path.join(REPO, "packages/dashboard-plugin-runtime/host-api-surface.json");
+
+  it("holds the six expanded --accent-<hue>-text tokens, never the literal pattern", () => {
+    const snap = JSON.parse(fs.readFileSync(SNAPSHOT, "utf8")) as { cssCustomProperties: string[] };
+    for (const hue of ["purple", "blue", "green", "orange", "red", "yellow"]) {
+      expect(snap.cssCustomProperties).toContain(`--accent-${hue}-text`);
+    }
+    expect(snap.cssCustomProperties.filter((t) => /[<>{}]/.test(t))).toEqual([]);
+  });
+
+  it("every recorded token is declared in the dashboard token layer", () => {
+    const snap = JSON.parse(fs.readFileSync(SNAPSHOT, "utf8")) as { cssCustomProperties: string[] };
+    const declared = declaredTokens(fs.readFileSync(INDEX_CSS, "utf8"));
+    expect(snap.cssCustomProperties.filter((t) => !declared.has(t))).toEqual([]);
+  });
+});

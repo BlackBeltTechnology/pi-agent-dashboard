@@ -12,6 +12,12 @@ import os from "node:os";
 import path from "node:path";
 import url from "node:url";
 import type { PluginManifest } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js";
+import type {
+  PluginClientStatus,
+  PluginDiscoverySource,
+  PluginHostApiStatus,
+  PluginStatus,
+} from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/plugin-status.js";
 import {
   buildGraph,
   detectCycles,
@@ -21,6 +27,7 @@ import {
 import { validateManifest } from "../manifest-validator.js";
 import { getFileValidatorRegistry } from "./file-validator-registry.js";
 import { fixtureEntryAllowed } from "./fixture-gate.js";
+import { evaluateHostApi } from "./host-api-gate.js";
 import { createPluginStatusStore, type PluginStatusStore } from "./plugin-status-store.js";
 import {
   missingFromReport,
@@ -48,6 +55,21 @@ export interface DiscoveredPlugin {
   bridgeEntryPath?: string;
   /** Absolute path to the client entry (if declared and resolved). */
   clientEntryPath?: string;
+  /** Search dir this plugin was discovered in. See change: decouple-plugins-from-core (D7). */
+  source: PluginDiscoverySource;
+  /** Host API range evaluation (absent when none declared or required). */
+  hostApi?: PluginHostApiStatus;
+  /**
+   * Set (to a `host-api: …` message) when an `installed` / `pi-package` plugin's
+   * `hostApi` is incompatible: its server entry is skipped and its client refused.
+   */
+  hostApiRefusal?: string;
+}
+
+/** Extra discovery dir with an explicit source (test/seam; production dirs are derived). */
+export interface DiscoverySearchDir {
+  dir: string;
+  source: PluginDiscoverySource;
 }
 
 let _discoveryCache: DiscoveredPlugin[] | null = null;
@@ -116,27 +138,28 @@ export function findBundledPluginsDir(): string | null {
  * Results are cached for the process lifetime. Pass an explicit `repoRoot`
  * to force discovery from a specific directory (useful for tests).
  */
-export function discoverPlugins(repoRoot?: string): DiscoveredPlugin[] {
+export function discoverPlugins(repoRoot?: string, extraSearchDirs: readonly DiscoverySearchDir[] = []): DiscoveredPlugin[] {
   if (_discoveryCache !== null) return _discoveryCache;
 
-  const searchDirs: string[] = [];
+  const searchDirs: DiscoverySearchDir[] = [];
 
   if (repoRoot) {
     // Explicit override (test or build-time call site): keep legacy behaviour.
-    searchDirs.push(path.join(repoRoot, "packages"));
+    searchDirs.push({ dir: path.join(repoRoot, "packages"), source: "workspace" });
+    searchDirs.push(...extraSearchDirs);
   } else {
     const monorepo = findMonorepoRoot();
-    if (monorepo) searchDirs.push(path.join(monorepo, "packages"));
+    if (monorepo) searchDirs.push({ dir: path.join(monorepo, "packages"), source: "workspace" });
     const installed = findInstalledPluginsDir();
-    if (installed) searchDirs.push(installed);
+    if (installed) searchDirs.push({ dir: installed, source: "installed" });
     const bundled = findBundledPluginsDir();
-    if (bundled) searchDirs.push(bundled);
+    if (bundled) searchDirs.push({ dir: bundled, source: "bundled" });
   }
 
   const results: DiscoveredPlugin[] = [];
   const seenIds = new Set<string>();
 
-  for (const packagesDir of searchDirs) {
+  for (const { dir: packagesDir, source } of searchDirs) {
     if (!fs.existsSync(packagesDir)) continue;
 
     let entries: string[];
@@ -192,8 +215,23 @@ export function discoverPlugins(repoRoot?: string): DiscoveredPlugin[] {
       const resolve = (rel: string | undefined) =>
         rel ? path.resolve(pkgDir, rel) : undefined;
 
+      // One hostApi range gates both halves. `clientBundle` is read raw: the
+      // validator learns the field in Phase 5. See change: decouple-plugins-from-core (D7).
+      const verdict = evaluateHostApi({
+        source,
+        range: manifest.hostApi,
+        hasClientBundle:
+          typeof manifestRaw === "object" && typeof (manifestRaw as { clientBundle?: unknown }).clientBundle === "string",
+      });
+      if (verdict.warn) {
+        console.warn(`[plugin-loader] Plugin "${manifest.id}" (${source}): ${verdict.reason}; loading anyway`);
+      }
+
       results.push({
         manifest,
+        source,
+        ...(verdict.status ? { hostApi: verdict.status } : {}),
+        ...(verdict.refuse ? { hostApiRefusal: verdict.reason } : {}),
         packageDir: pkgDir,
         packageName: typeof raw.name === "string" ? raw.name : "",
         serverEntryPath: resolve(manifest.server),
@@ -219,6 +257,18 @@ export function discoverPlugins(repoRoot?: string): DiscoveredPlugin[] {
 
   _discoveryCache = results;
   return results;
+}
+
+/** Discovery-derived `PluginStatus` fields: source, host API evaluation, client refusal. */
+function discoveryFields(plugin: DiscoveredPlugin): Pick<PluginStatus, "source" | "hostApi" | "client"> {
+  const client: PluginClientStatus | undefined = plugin.hostApiRefusal
+    ? { delivery: "refused", refusedReason: "host-api" }
+    : undefined;
+  return {
+    source: plugin.source,
+    ...(plugin.hostApi ? { hostApi: plugin.hostApi } : {}),
+    ...(client ? { client } : {}),
+  };
 }
 
 /** Clear the discovery cache (for testing). */
@@ -402,6 +452,24 @@ export async function loadServerEntries(deps: ServerLoadDeps): Promise<void> {
     const dependents = dependentsById.get(manifest.id) ?? [];
     const cycleError = cycleErrorById.get(manifest.id);
 
+    // ---- Host API gate: installed / pi-package plugins built for another
+    // host API load neither half. See change: decouple-plugins-from-core (D7).
+    if (plugin.hostApiRefusal) {
+      store.setStatus({
+        id: manifest.id,
+        displayName: manifest.displayName,
+        enabled,
+        loaded: false,
+        error: plugin.hostApiRefusal,
+        claims: manifest.claims.length,
+        ...discoveryFields(plugin),
+        dependsOn,
+        dependents,
+      });
+      console.error(`[plugin-loader] Refusing plugin "${manifest.id}" — ${plugin.hostApiRefusal}`);
+      continue;
+    }
+
     // ---- Cycle soft-fail ---------------------------------------------
     if (cycleError) {
       store.setStatus({
@@ -411,6 +479,7 @@ export async function loadServerEntries(deps: ServerLoadDeps): Promise<void> {
         loaded: false,
         error: cycleError,
         claims: manifest.claims.length,
+        ...discoveryFields(plugin),
         dependsOn,
         dependents,
       });
@@ -434,6 +503,7 @@ export async function loadServerEntries(deps: ServerLoadDeps): Promise<void> {
           loaded: false,
           error: `missing/disabled dep: ${missingDeps.join(", ")}`,
           claims: manifest.claims.length,
+          ...discoveryFields(plugin),
           dependsOn,
           dependents,
           missingDeps,
@@ -458,6 +528,7 @@ export async function loadServerEntries(deps: ServerLoadDeps): Promise<void> {
         enabled: false,
         loaded: false,
         claims: manifest.claims.length,
+        ...discoveryFields(plugin),
         dependsOn,
         dependents,
       });
@@ -475,6 +546,7 @@ export async function loadServerEntries(deps: ServerLoadDeps): Promise<void> {
         enabled: true,
         loaded: true,
         claims: manifest.claims.length,
+        ...discoveryFields(plugin),
         dependsOn,
         dependents,
       });
@@ -509,6 +581,7 @@ export async function loadServerEntries(deps: ServerLoadDeps): Promise<void> {
         enabled: true,
         loaded: true,
         claims: manifest.claims.length,
+        ...discoveryFields(plugin),
         dependsOn,
         dependents,
       });
@@ -527,6 +600,7 @@ export async function loadServerEntries(deps: ServerLoadDeps): Promise<void> {
         loaded: false,
         error: msg,
         claims: manifest.claims.length,
+        ...discoveryFields(plugin),
         dependsOn,
         dependents,
       });
@@ -630,6 +704,7 @@ export async function refreshRequirementProbesFor(
           enabled: existing?.enabled ?? true,
           loaded: existing?.loaded ?? true,
           claims: manifest.claims.length,
+          ...discoveryFields(plugin),
           ...(existing?.error ? { error: existing.error } : {}),
           requirements: report,
           missingRequirements: missing,

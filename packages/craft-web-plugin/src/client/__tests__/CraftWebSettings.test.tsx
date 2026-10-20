@@ -9,7 +9,7 @@ import {
   type RegisteredSource,
   SettingsDraftProvider,
   type SettingsDraftRegistry,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { CurrentPluginLayer, initPluginConfigs, PluginContextProvider } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";

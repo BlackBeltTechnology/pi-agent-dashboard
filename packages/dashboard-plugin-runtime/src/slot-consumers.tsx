@@ -17,6 +17,7 @@ import { IntentRenderer } from "./intent-renderer.js";
 import { useSlotIntents } from "./intent-store.js";
 import { sendPluginAction } from "./plugin-action-bridge.js";
 import { CurrentPluginLayer, useSlotRegistryOrNull } from "./plugin-context.js";
+import { decodeFolderPath } from "./sdk.js";
 import { useShellSessionOrNull } from "./shell-sessions-context.js";
 import { useSlotClaimsVersion } from "./slot-claims-invalidation.js";
 import { SlotErrorBoundary } from "./slot-error-boundary.js";
@@ -1201,6 +1202,9 @@ function ShellOverlayRouteRender({
   const sessionParam = overlaySessionParam(claim);
   const sessionId = params[sessionParam];
   const session = useShellSessionOrNull(sessionId ?? "");
+  // Decoded folder next to the deprecated `params.encodedCwd`, so a claim never
+  // re-implements the folder codec. See change: decouple-plugins-from-core (D6).
+  const cwd = params.encodedCwd ? (decodeFolderPath(params.encodedCwd) ?? undefined) : undefined;
   // `renderClaim` carries the Suspense boundary. The skeleton keeps the
   // top-bar shape while a lazy claim chunk loads — a "content" claim usually
   // exports a `React.lazy` route component (add-plugin-app-host D8); a
@@ -1208,7 +1212,7 @@ function ShellOverlayRouteRender({
   const rendered = renderClaim(
     claim as Parameters<typeof renderClaim>[0],
     "shell-overlay-route",
-    { params, session, onBack },
+    { params, cwd, session, onBack },
     <ContentClaimSkeleton />,
   );
   return <div className="absolute inset-0 flex flex-col overflow-hidden">{rendered}</div>;

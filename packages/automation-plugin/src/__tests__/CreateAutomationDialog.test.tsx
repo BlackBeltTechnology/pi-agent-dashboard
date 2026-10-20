@@ -6,7 +6,7 @@
  * api + ui-primitive mocked. See change: redesign-automation-editor-and-board.
  */
 
-import { createSlotRegistry } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { createSlotRegistry } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import {
   applyPluginConfigUpdate,
   CurrentPluginLayer,

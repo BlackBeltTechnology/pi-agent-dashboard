@@ -3,7 +3,7 @@
  * plugins, so the shell knows event ownership without hard-coding a prefix.
  * See change: decouple-plugins-from-core (task 2.8).
  */
-import { createSlotRegistry } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { createSlotRegistry } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { matchEventTypeOwner } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/event-type-owners.js";
 import { describe, expect, it } from "vitest";
 import { PLUGIN_REGISTRY } from "../../../generated/plugin-registry.js";

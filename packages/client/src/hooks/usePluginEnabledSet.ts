@@ -10,7 +10,11 @@
  * See change: add-plugin-activation-ui.
  */
 
-import { bumpSlotClaimsVersion, clearFolderProjects, type SlotRegistry } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { bumpSlotClaimsVersion } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  clearFolderProjects,
+  type SlotRegistry,
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { useEffect, useRef, useState } from "react";
 import { applyPluginStatuses, type PluginStatusLike } from "../lib/plugins/plugin-availability.js";
 import { logRejection } from "../lib/report-error.js";

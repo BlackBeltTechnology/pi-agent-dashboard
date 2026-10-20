@@ -1,4 +1,7 @@
-import { type ClaimEntry, createSlotRegistry } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  type ClaimEntry,
+  createSlotRegistry,
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { PluginContextProvider } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import { DemoToolRenderer } from "@blackbelt-technology/demo-plugin";
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";

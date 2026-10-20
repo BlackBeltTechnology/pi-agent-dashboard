@@ -13,7 +13,11 @@
  *   - Preset save/load/delete dispatch the matching existing messages.
  */
 
-import { createSlotRegistry, type RegisteredSource, SettingsDraftProvider } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  createSlotRegistry,
+  type RegisteredSource,
+  SettingsDraftProvider,
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import {
   applyPluginConfigUpdate,
   CurrentPluginLayer,

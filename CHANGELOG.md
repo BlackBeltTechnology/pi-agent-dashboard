@@ -12,7 +12,26 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Added
 
+- **Versioned plugin host API.** `@blackbelt-technology/dashboard-plugin-runtime` now has a
+  public surface (`src/public.ts`, re-exported by the package root) versioned by
+  `PLUGIN_HOST_API_VERSION` (`1.0.0`), a new `./sdk` subpath with the pure helpers a plugin bundles
+  (`encodeFolderPath`, `decodeFolderPath`, `folderRouteHref`, `HOST_FX_CLASSES`, the primitive and
+  slot-props types, `satisfiesHostApiRange`), and an optional manifest field `hostApi` (`^MAJOR.MINOR`
+  or an exact version). Installed plugins built for an incompatible host API are refused at
+  discovery. The surface is snapshotted in `host-api-surface.json`; removing a name needs a major
+  bump, adding one a minor bump. `shell-overlay-route` claims now also receive a decoded `cwd`.
+
 ### Changed
+
+- **Plugin runtime root split (deprecation).** Shell-internal names (every `*Slot` consumer,
+  `createSlotRegistry`, the providers, the `publish*`/`clear*` stores, `setSender`, `intentStore`,
+  `IntentRenderer`, `SlotErrorBoundary`, `use*ClaimsVersion`, `useSlotRegistry`, graph helpers, ...)
+  moved to the new `@blackbelt-technology/dashboard-plugin-runtime/host` subpath. The package root
+  still re-exports them as `@deprecated` for one minor release; **build-time consumers of the root
+  should import them from `./host` now — the deprecated root re-exports will be removed in the
+  release after.** The `__reset*ForTests` helpers moved to `./test-support` and are no longer
+  exported by the root. `./context` stays one minor release as a deprecated alias; prefer the root
+  for plugin hooks.
 
 ### Fixed
 

@@ -18,7 +18,7 @@ import {
   forCustomType,
   type SlotRegistry,
   useSlotClaimsVersion,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { useSlotRegistryOrNull } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import React, { useCallback, useMemo, useState } from "react";
 import { useCustomEntryPayload } from "../../hooks/useCustomEntryPayload.js";

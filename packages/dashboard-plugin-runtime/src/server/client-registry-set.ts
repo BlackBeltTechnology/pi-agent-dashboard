@@ -24,6 +24,8 @@ export interface ClientRegistryCandidate {
   manifest: PluginManifest;
   packageDir: string;
   clientEntryPath?: string;
+  /** Set by the loader when the host API gate refused the plugin; it is never listed. */
+  hostApiRefusal?: string;
 }
 
 export interface SelectClientRegistryOptions {
@@ -68,6 +70,8 @@ export function selectClientRegistryPlugins<T extends ClientRegistryCandidate>(
   return discovered.filter((p) => {
     // A build can only emit an import for a plugin that declares a client entry.
     if (!p.clientEntryPath) return false;
+    // A plugin built for another host API contributes no client at all.
+    if (p.hostApiRefusal) return false;
     // Fixture plugins are dropped from production builds but kept in dev.
     if (isProd && p.manifest.fixture === true) return false;
     // Runtime-only roots cannot enter any bundle.

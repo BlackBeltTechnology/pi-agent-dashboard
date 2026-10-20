@@ -4,6 +4,16 @@
  * The PluginContextProvider wraps the entire React app. Each slot consumer
  * pushes a nested CurrentPluginContext layer when rendering a contribution,
  * scoping hooks like usePluginConfig<T>() and logger to the contributing plugin.
+ *
+ * @deprecated The `./context` subpath is a deprecated alias kept for one minor
+ * release. Plugin-facing hooks (`useT`, `usePluginConfig`, `usePluginLogger`,
+ * `usePluginRouter`, `useSessionEvents`, ...) are exported by the package ROOT
+ * (`public.ts`, the versioned host API); the shell names (`PluginContextProvider`,
+ * `useSlotRegistry`, `useSlotRegistryOrNull`, `initPluginConfigs`,
+ * `applyPluginConfigUpdate`, `CurrentPluginLayer`) live in `./host`. This file is
+ * the single implementation both resolve to, so the alias exposes both groups.
+ *
+ * See change: decouple-plugins-from-core (design D6).
  */
 
 import type { PluginConfigUpdateMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";

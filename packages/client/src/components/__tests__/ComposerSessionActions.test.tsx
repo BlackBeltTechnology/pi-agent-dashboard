@@ -1,8 +1,10 @@
 import {
   ComposerContextGroup,
+} from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
   createSlotRegistry,
   PluginContextProvider,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import type { DashboardSession, OpenSpecChange } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import React from "react";

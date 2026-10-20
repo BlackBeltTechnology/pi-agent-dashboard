@@ -16,7 +16,7 @@
 import {
   buildGraph,
   computeToggleImpact,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LINK_BG, LINK_BG_HOVER, LINK_BORDER, LINK_FG } from "../components/packages/plugin-row-parts.js";

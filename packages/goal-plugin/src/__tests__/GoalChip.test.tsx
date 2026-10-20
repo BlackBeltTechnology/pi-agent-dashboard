@@ -11,7 +11,7 @@ import {
   publishSessionEvent,
   clearSessionEvents,
   PluginContextProvider,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { GoalChip } from "../client/GoalChip.js";
 import { detailsToSnapshot, GOAL_STATUS_EVENT_TYPE, type GoalHermesEventDetails } from "../shared/goal-types.js";

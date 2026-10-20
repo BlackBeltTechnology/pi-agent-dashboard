@@ -17,6 +17,14 @@
       "types": "./src/index.ts",
       "default": "./src/index.ts"
     },
+    "./host": {
+      "types": "./src/host.ts",
+      "default": "./src/host.ts"
+    },
+    "./sdk": {
+      "types": "./src/sdk.ts",
+      "default": "./src/sdk.ts"
+    },
     "./context": {
       "types": "./src/plugin-context.tsx",
       "default": "./src/plugin-context.tsx"

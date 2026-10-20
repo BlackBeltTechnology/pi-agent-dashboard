@@ -6,7 +6,10 @@
  * api + ui-primitive mocked (mirrors CreateAutomationDialog.test.tsx).
  */
 
-import { createSlotRegistry, type SlotRegistry } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  createSlotRegistry,
+  type SlotRegistry,
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import {
   applyPluginConfigUpdate,
   CurrentPluginLayer,

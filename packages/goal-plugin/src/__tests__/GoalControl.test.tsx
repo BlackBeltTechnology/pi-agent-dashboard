@@ -18,7 +18,7 @@ import {
   publishSessionEvent,
   clearSessionEvents,
   setSender,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 
 type PluginActionMessage = { pluginId: string; sessionId: string | null; action: string; payload?: Record<string, unknown> };
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";

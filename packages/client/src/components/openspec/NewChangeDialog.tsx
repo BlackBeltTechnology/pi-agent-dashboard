@@ -1,4 +1,4 @@
-import { ComposerPanelSlot } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { ComposerPanelSlot } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 import { mdiPlusBoxOutline, mdiSend } from "@mdi/js";
 import { Icon } from "@mdi/react";

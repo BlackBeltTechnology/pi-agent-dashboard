@@ -1,4 +1,7 @@
-import { isWidgetBarPrompt, useSlotClaimsVersion } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  isWidgetBarPrompt,
+  useSlotClaimsVersion,
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { useSlotRegistryOrNull } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import { EmptyState } from "@blackbelt-technology/pi-dashboard-client-utils/EmptyState";
 import { Skeleton } from "@blackbelt-technology/pi-dashboard-client-utils/Skeleton";

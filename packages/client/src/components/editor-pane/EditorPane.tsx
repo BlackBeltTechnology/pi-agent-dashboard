@@ -42,7 +42,10 @@ import { useFileHandlerPane } from "./file-handler/use-file-handler-pane.js";
 // on every folder pane).
 const TerminalPaneLayer = lazy(() => import("./TerminalPaneLayer.js").then((m) => ({ default: m.TerminalPaneLayer })));
 
-import { EditorPaneTabLabelSlot, useShellSessionOrNull } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  EditorPaneTabLabelSlot,
+  useShellSessionOrNull,
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { useServerCapabilities } from "../../hooks/useServerCapabilities.js";
 import { PreviewProvenance } from "../../lib/access-grants/preview-provenance.js";
 import { CappedViewer } from "./CappedViewer.js";

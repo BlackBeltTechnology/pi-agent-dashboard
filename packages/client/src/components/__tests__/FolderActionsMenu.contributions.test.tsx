@@ -7,12 +7,14 @@
  */
 
 import {
-  CurrentPluginLayer,
-  createFolderMenuStore,
   type FolderMenuContribution,
-  FolderMenuProvider,
   useFolderMenuItem,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  CurrentPluginLayer,
+  createFolderMenuStore,
+  FolderMenuProvider,
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { mdiPin, mdiPlus, mdiRefresh } from "@mdi/js";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import React from "react";

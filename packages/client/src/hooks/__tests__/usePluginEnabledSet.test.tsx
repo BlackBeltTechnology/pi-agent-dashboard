@@ -2,15 +2,15 @@
  * `usePluginEnabledSet` clears the folder-project cache only when the enabled
  * set CHANGES (test-plan F9). See change: add-project-scoped-apps.
  */
-import { createSlotRegistry } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { createSlotRegistry } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { __resetPluginAvailabilityForTests, isPluginUnavailable } from "../../lib/plugins/plugin-availability.js";
 import { usePluginEnabledSet } from "../usePluginEnabledSet.js";
 
 const clearFolderProjects = vi.hoisted(() => vi.fn());
-vi.mock("@blackbelt-technology/dashboard-plugin-runtime", async (orig) => ({
-  ...(await orig<typeof import("@blackbelt-technology/dashboard-plugin-runtime")>()),
+vi.mock("@blackbelt-technology/dashboard-plugin-runtime/host", async (orig) => ({
+  ...(await orig<typeof import("@blackbelt-technology/dashboard-plugin-runtime/host")>()),
   clearFolderProjects,
 }));
 

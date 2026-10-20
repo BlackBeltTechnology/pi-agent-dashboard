@@ -82,7 +82,7 @@ import {
   publishSessionData,
   publishSessionEvent,
   publishSessionEvents,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { applyPluginConfigUpdate, getPluginConfig } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 
 /**

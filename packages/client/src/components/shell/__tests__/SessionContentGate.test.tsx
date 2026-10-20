@@ -4,10 +4,14 @@
  * even when the selected session itself does not change (idle session).
  */
 import {
-  __resetSlotClaimsVersionForTests,
   bumpSlotClaimsVersion,
-  createSlotRegistry,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  createSlotRegistry,
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
+import {
+  __resetSlotClaimsVersionForTests,
+} from "@blackbelt-technology/dashboard-plugin-runtime/test-support";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";

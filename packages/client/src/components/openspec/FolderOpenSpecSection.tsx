@@ -1,4 +1,5 @@
-import { SLOT_PILL_LEGEND, SlotPill } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { SlotPill } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { SLOT_PILL_LEGEND } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 import type { OpenSpecData, OpenSpecReadiness, OpenSpecReadinessReason } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { mdiAlert, mdiClipboardTextOutline, mdiClose, mdiInformationOutline } from "@mdi/js";

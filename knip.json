@@ -227,6 +227,8 @@
     "packages/dashboard-plugin-runtime": {
       "entry": [
         "src/index.ts",
+        "src/host.ts",
+        "src/sdk.ts",
         "src/plugin-context.tsx",
         "src/server/index.ts",
         "src/server/file-validator-worker.mjs",

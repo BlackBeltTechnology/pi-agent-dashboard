@@ -9,7 +9,8 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/assert-bundled-server-plugin-load.test.mjs` | Tests for the bundled-server plugin-load gate: layout, verdicts, selected loader, all-plugins gate. → see `__tests__/assert-bundled-server-plugin-load.test.mjs.AGENTS.md` |
 | `__tests__/check-kb-dist-fresh.test.mjs` | C1 (fix-kb-eval-measurement-integrity): fault-injection via `--pkg` sandbox — clean fingerprint → exit 0;… → see `__tests__/check-kb-dist-fresh.test.mjs.AGENTS.md` |
 | `__tests__/check-pi-settings-paths.test.mjs` | Drives `absoluteSourceViolations` directly (12 cases) so detection is pinned independently of what… → see `__tests__/check-pi-settings-paths.test.mjs.AGENTS.md` |
-| `__tests__/check-plugin-boundary.test.mjs` | `check-plugin-boundary.mjs` via CLI on tmp `packages/*` trees (test-plan #E1–#E8) + real tree green with the current ratcheted row counts (#E9). See change: decouple-plugins-from-core. |
+| `__tests__/check-plugin-boundary.test.mjs` | `check-plugin-boundary.mjs` via CLI on tmp `packages/*` trees (test-plan #E1–#E8) + real tree green with the… → see `__tests__/check-plugin-boundary.test.mjs.AGENTS.md` |
+| `__tests__/host-api-surface.test.mjs` | Bump-rule table for `host-api-surface.mjs` (#E29), committed snapshot is current, accent-token expansion, unexpanded `<…>` span fails. See change: decouple-plugins-from-core. |
 | `__tests__/biome-undeclared-dependencies.test.mjs` | Guardrails for the `noUndeclaredDependencies` config in `biome.json`. → see `__tests__/biome-undeclared-dependencies.test.mjs.AGENTS.md` |
 | `__tests__/claude-plugin-ensure-dashboard.test.mjs` | Behaviour tests for `ensure-dashboard.sh` (test-plan E3–E34, P1, X1–X10): real script vs temp HOME records, stub PATH, Node fixture servers. Timing via `PIDB_TEST_*`. |
 | `__tests__/claude-plugin-publish-contract.test.mjs` | Static contract over `publish.yml`. `publish` preflight reads tagged `plugin.json` (`git show… → see `__tests__/claude-plugin-publish-contract.test.mjs.AGENTS.md` |
@@ -98,7 +99,8 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `check-kb-dist-fresh.mjs` | CI gate (ci.yml, ship-it 4.4-adjacent): recomputes kb srcHash+tsconfigHash vs the committed… → see `check-kb-dist-fresh.mjs.AGENTS.md` |
 | `check-loader-neutral-source.mjs` | Loader-neutral source gate (AST; server scope). → see `check-loader-neutral-source.mjs.AGENTS.md` |
 | `check-pi-settings-paths.mjs` | Guard, run by ci.yml: no machine-specific absolute path in a committed `.pi/settings.json`… → see `check-pi-settings-paths.mjs.AGENTS.md` |
-| `check-plugin-boundary.mjs` | Core/plugin import ratchet for `ship-it` step 4.4 + `npm run check:plugin-boundary`: NEW edge / STALE row fails. → see `check-plugin-boundary.mjs.AGENTS.md` |
+| `check-plugin-boundary.mjs` | Core/plugin import ratchet for `ship-it` step 4.4 + `npm run check:plugin-boundary`: NEW edge / STALE row… → see `check-plugin-boundary.mjs.AGENTS.md` |
+| `host-api-surface.mjs` | Host API surface snapshot + bump gate. `--write` regenerates… → see `host-api-surface.mjs.AGENTS.md` |
 | `check-skill-frontmatter.mjs` | Skill frontmatter guard, run by ci.yml. Exit non-zero iff >=1 error; warnings never fail. → see `check-skill-frontmatter.mjs.AGENTS.md` |
 | `check-vendor-specifiers.mjs` | Static specifier guard for the vendored relay: every import under `relay/vendor/` must be a builtin, a declared dep, or relative. → see `check-vendor-specifiers.mjs.AGENTS.md` |
 | `codeql-local.mjs` | Local CodeQL ratchet for `ship-it` steps 4.4/4.4b: snapshot → analyse → per-alert baseline ratchet (`codeql-baseline.json`). → see `codeql-local.mjs.AGENTS.md` |

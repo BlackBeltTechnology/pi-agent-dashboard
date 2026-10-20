@@ -5,13 +5,15 @@
  * F22, X1, X3, X4).
  */
 import {
-  createSlotRegistry,
   createUiPrimitiveRegistry,
-  intentStore,
-  PluginContextProvider,
   registerUiPrimitive,
   UiPrimitiveProvider,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  createSlotRegistry,
+  intentStore,
+  PluginContextProvider,
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { ActionList } from "@blackbelt-technology/pi-dashboard-client-utils/ActionList";
 import type { DashboardSession, OpenSpecChange } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { mdiDotsHorizontal, mdiDotsVertical, mdiFolderCogOutline } from "@mdi/js";

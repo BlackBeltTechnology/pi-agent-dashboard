@@ -45,6 +45,27 @@ export interface BridgeProbeSnapshot {
   at: number;
 }
 
+/**
+ * Which discovery search dir a plugin came from (one per search dir in the
+ * loader). `pi-package` is reserved for the Phase 4 package-discovery source
+ * and has no producer yet; the host API gate already treats it like `installed`.
+ * See change: decouple-plugins-from-core (design D7).
+ */
+export type PluginDiscoverySource = "workspace" | "installed" | "bundled" | "pi-package";
+
+/** Result of evaluating a manifest `hostApi` range at discovery. */
+export interface PluginHostApiStatus {
+  /** The manifest range; absent when the plugin declares none. */
+  range?: string;
+  compatible: boolean;
+}
+
+/** Client delivery state. Minimal placeholder: Phase 5 adds `bundled`/`runtime`/`none` handling. */
+export interface PluginClientStatus {
+  delivery: "bundled" | "runtime" | "refused" | "none";
+  refusedReason?: "host-api" | "disabled";
+}
+
 /** Status of a single discovered plugin, reported by /api/health. */
 export interface PluginStatus {
   id: string;
@@ -60,6 +81,12 @@ export interface PluginStatus {
   error?: string;
   /** Number of slot claims declared in the plugin's manifest. */
   claims: number;
+  /** Discovery source of the plugin. See change: decouple-plugins-from-core. */
+  source?: PluginDiscoverySource;
+  /** Host API range evaluation (absent when the plugin declares none and none is required). */
+  hostApi?: PluginHostApiStatus;
+  /** Client delivery; `refused` + `host-api` when the host API gate refused the plugin. */
+  client?: PluginClientStatus;
   /**
    * Where the bridge entry is registered, classified at health-check time.
    * See change: fix-pi-flows-end-to-end Group 2.

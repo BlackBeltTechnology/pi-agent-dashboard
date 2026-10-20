@@ -7,11 +7,13 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  __resetSessionDataStoreForTests,
   clearSessionEvents,
   publishSessionData,
   publishSessionEvent,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
+import {
+  __resetSessionDataStoreForTests,
+} from "@blackbelt-technology/dashboard-plugin-runtime/test-support";
 import { initPluginConfigs } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import { __resetFlowsAvailabilityForTests, sessionHasFlowEvents } from "../client/flowsAvailability.js";
 import { shouldRenderFlowsSubcard } from "../client/shouldRender.js";

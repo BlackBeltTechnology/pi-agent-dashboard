@@ -8,7 +8,7 @@ import {
   type RegisteredSource,
   SettingsDraftProvider,
   type SettingsDraftRegistry,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { withUiPrimitiveProvider } from "@blackbelt-technology/dashboard-plugin-runtime/test-support";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import type React from "react";

@@ -424,3 +424,100 @@ describe("check-plugin-boundary", () => {
     });
   });
 });
+
+// test-plan #E11 (PHA › Root keeps deprecated shell re-exports; Allowlist `expires` is inclusive)
+describe("check-plugin-boundary — ./host symbol check", () => {
+  const RUNTIME = `${SCOPE}/dashboard-plugin-runtime`;
+  const HOST_TS = [
+    'export { createSlotRegistry, type SlotRegistry } from "./slot-registry.js";',
+    'export { PluginContextProvider } from "./plugin-context.js";',
+    "",
+  ].join("\n");
+  const FILE = "packages/roles-plugin/src/__tests__/a.test.ts";
+  const rootImport = `import { createSlotRegistry } from "${RUNTIME}";\nexport const r = createSlotRegistry;\n`;
+
+  const tree = (files = {}, version = "0.10.0") =>
+    makeTree({
+      "packages/dashboard-plugin-runtime/package.json": { name: RUNTIME, version },
+      "packages/dashboard-plugin-runtime/src/host.ts": HOST_TS,
+      [ALLOWLIST]: allowlist(),
+      ...files,
+    });
+  const withRow = (expires, extra = {}) => ({
+    [ALLOWLIST]: { rows: [], hostRootImports: [{ file: FILE, expires, reason: "migration pending", ...extra }] },
+  });
+
+  it("no row: fails naming the file and the ./host / ./test-support remedy", () => {
+    const r = run(tree({ [FILE]: rootImport }));
+    expect(r.status).toBe(1);
+    expect(r.out).toContain(FILE);
+    expect(r.out).toContain("createSlotRegistry");
+    expect(r.out).toContain("./host");
+    expect(r.out).toContain("./test-support");
+  });
+
+  it("covers prod plugin files too, but not core files or public names", () => {
+    const r = run(
+      tree({
+        "packages/roles-plugin/src/client.tsx": rootImport,
+        "packages/roles-plugin/src/ok.ts": `import { useT } from "${RUNTIME}";\nexport const u = useT;\n`,
+        "packages/server/src/core.ts": rootImport,
+      }),
+    );
+    expect(r.status).toBe(1);
+    expect(r.out).toContain("packages/roles-plugin/src/client.tsx");
+    expect(r.out).not.toContain("packages/roles-plugin/src/ok.ts");
+    expect(r.out).not.toContain("packages/server/src/core.ts");
+  });
+
+  it("importing from the ./host subpath is clean", () => {
+    const r = run(tree({ [FILE]: `import { createSlotRegistry } from "${RUNTIME}/host";\nexport const r = createSlotRegistry;\n` }));
+    expect(r.status).toBe(0);
+  });
+
+  it("re-exporting a host name from the root is caught too", () => {
+    const r = run(tree({ [FILE]: `export { PluginContextProvider } from "${RUNTIME}";\n` }));
+    expect(r.status).toBe(1);
+    expect(r.out).toContain("PluginContextProvider");
+  });
+
+  it("row expires: −1 minor fails naming row and file; = current and +1 pass (inclusive)", () => {
+    const files = { [FILE]: rootImport };
+    const below = run(tree({ ...files, ...withRow("0.9.0") }));
+    expect(below.status).toBe(1);
+    expect(below.out).toContain(FILE);
+    expect(below.out).toMatch(/expires/);
+    expect(below.out).toContain("0.9.0");
+    expect(run(tree({ ...files, ...withRow("0.10.0") })).status).toBe(0);
+    expect(run(tree({ ...files, ...withRow("0.11.0") })).status).toBe(0);
+  });
+
+  it("a minor-only expires (0.10) covers every patch of that minor", () => {
+    expect(run(tree({ [FILE]: rootImport, ...withRow("0.10") }, "0.10.3")).status).toBe(0);
+    expect(run(tree({ [FILE]: rootImport, ...withRow("0.10") }, "0.11.0")).status).toBe(1);
+  });
+
+  it("a row whose file no longer imports a host name from the root is STALE", () => {
+    const r = run(tree({ [FILE]: "export const clean = 1;\n", ...withRow("0.11.0") }));
+    expect(r.status).toBe(1);
+    expect(r.out).toMatch(/STALE host-import allowlist row/);
+    expect(r.out).toContain(FILE);
+  });
+
+  it("--no-allowlist ignores host rows", () => {
+    const r = run(tree({ [FILE]: rootImport, ...withRow("0.11.0") }), ["--no-allowlist"]);
+    expect(r.status).toBe(1);
+  });
+
+  it("no host.ts yet: the check is skipped", () => {
+    const r = run(makeTree({ [FILE]: rootImport, [ALLOWLIST]: allowlist() }));
+    expect(r.status).toBe(0);
+  });
+
+  it("--write-baseline keeps the host rows", () => {
+    const root = tree({ [FILE]: rootImport, ...withRow("0.11.0") });
+    const r = run(root, ["--write-baseline"]);
+    expect(r.status).toBe(0);
+    expect(readAllowlist(root).hostRootImports).toHaveLength(1);
+  });
+});

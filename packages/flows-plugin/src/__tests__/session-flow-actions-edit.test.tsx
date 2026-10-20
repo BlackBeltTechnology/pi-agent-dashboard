@@ -7,13 +7,15 @@
  */
 
 import {
-  CurrentPluginLayer,
   createUiPrimitiveRegistry,
-  PluginContextProvider,
-  publishSessionData,
   registerUiPrimitive,
   UiPrimitiveProvider,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  CurrentPluginLayer,
+  PluginContextProvider,
+  publishSessionData,
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { initPluginConfigs } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import type { DashboardSession, FlowInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";

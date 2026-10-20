@@ -7,7 +7,7 @@ import {
   createSlotRegistry,
   type RegisteredSource,
   SettingsDraftProvider,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { CurrentPluginLayer, PluginContextProvider } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";

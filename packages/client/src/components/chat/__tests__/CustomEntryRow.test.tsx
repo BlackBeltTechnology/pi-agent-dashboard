@@ -7,7 +7,8 @@
  * collapsed-first fetch contract (test-plan F1, F2, F11, P1, P2, X1, X2, X10).
  */
 import { DISPLAY_PRESETS, type DisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
-import { createSlotRegistry, bumpSlotClaimsVersion } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { bumpSlotClaimsVersion } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { createSlotRegistry } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { PluginContextProvider } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";

@@ -26,6 +26,7 @@ function plugin(
     },
     packageDir,
     packageName: id,
+    source: "workspace",
     clientEntryPath:
       opts.client === false ? undefined : `${packageDir}/src/client.tsx`,
   };

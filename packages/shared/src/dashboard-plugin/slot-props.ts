@@ -254,7 +254,13 @@ export interface SlotPropsMap {
     pluginContext: AnyPluginContext;
   };
   "shell-overlay-route": {
-    params: Record<string, string>;
+    /** Route params. `encodedCwd` (the base64url folder segment) is deprecated: use `cwd`. Kept for one minor. */
+    params: Record<string, string> & {
+      /** @deprecated Use the decoded `cwd` prop. */
+      encodedCwd?: string;
+    };
+    /** Decoded folder path of a `/folder/:encodedCwd/…` route; undefined when the route has no such param or it does not decode. */
+    cwd?: string;
     /** DashboardSession metadata resolved from the URL’s session param (`config.sessionParam`, default `"sid"`). Undefined when the URL has no session id or no matching session. */
     session?: DashboardSession;
     onBack: () => void;

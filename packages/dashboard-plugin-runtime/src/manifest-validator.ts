@@ -8,6 +8,7 @@ import {
   RESERVED_PANE_TAB_PREFIXES,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/editor-pane-tab.js";
 import { isValidEventTypePattern } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/event-type-owners.js";
+import { isValidHostApiRange } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/host-api.js";
 import {
   FILE_HANDLER_COPY_SUFFIX_RE,
   FILE_HANDLER_EXT_RE,
@@ -772,6 +773,14 @@ export function validateManifest(raw: unknown, fallbackId = "unknown"): PluginMa
     eventTypes = [...(m.eventTypes as string[])];
   }
 
+  // hostApi: `^MAJOR.MINOR[.PATCH]` or exact. See change: decouple-plugins-from-core (D7).
+  if (m.hostApi !== undefined && !isValidHostApiRange(m.hostApi)) {
+    throw new ManifestValidationError(
+      pluginId,
+      'manifest.hostApi must be a caret range "^MAJOR.MINOR[.PATCH]" or an exact "MAJOR.MINOR.PATCH" version',
+    );
+  }
+
   return {
     id: pluginId,
     displayName: m.displayName,
@@ -790,5 +799,6 @@ export function validateManifest(raw: unknown, fallbackId = "unknown"): PluginMa
 
     ...(projectTypes ? { projectTypes } : {}),
     ...(eventTypes ? { eventTypes } : {}),
+    ...(typeof m.hostApi === "string" ? { hostApi: m.hostApi } : {}),
   };
 }

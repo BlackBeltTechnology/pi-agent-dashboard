@@ -1,3 +1,4 @@
+import { satisfiesHostApiRange } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/host-api.js";
 import { describe, expect, it, vi } from "vitest";
 import { ManifestValidationError, validateManifest } from "../manifest-validator.js";
 
@@ -598,5 +599,40 @@ describe("validateManifest — eventTypes (change: decouple-plugins-from-core)",
     expect(() => validateManifest({ ...base, eventTypes: ["a*b"] })).toThrow(ManifestValidationError);
     expect(() => validateManifest({ ...base, eventTypes: [""] })).toThrow(ManifestValidationError);
     expect(() => validateManifest({ ...base, eventTypes: [1] })).toThrow(ManifestValidationError);
+  });
+});
+
+describe("satisfiesHostApiRange — host 1.2.0 (test-plan #E26)", () => {
+  const ranges = ["^1.0.0", "^1.2", "^1.2.0", "^1.2.1", "^1.3.0", "^1.9.0", "^2.0.0", "^0.9.0", "1.2.0", "1.2.1"];
+  const expected = [true, true, true, false, false, false, false, false, true, false];
+  it("matches the caret/exact table", () => {
+    expect(ranges.map((r) => satisfiesHostApiRange("1.2.0", r))).toEqual(expected);
+  });
+});
+
+describe("validateManifest — hostApi (test-plan #E27; change: decouple-plugins-from-core)", () => {
+  const base = {
+    id: "demo",
+    displayName: "Demo Plugin",
+    claims: [{ slot: "session-card-badge", component: "DemoBadge" }],
+  };
+
+  it("keeps a valid range verbatim", () => {
+    expect(validateManifest({ ...base, hostApi: "^1.0.0" }).hostApi).toBe("^1.0.0");
+  });
+
+  it("omits hostApi when absent", () => {
+    expect(validateManifest(base).hostApi).toBeUndefined();
+  });
+
+  it.each(["latest", "", "^1", ">=1.0.0", "~1.2.0", "1.x", 42])("rejects %j with an error naming hostApi", (bad) => {
+    let thrown: unknown;
+    try {
+      validateManifest({ ...base, hostApi: bad });
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(ManifestValidationError);
+    expect((thrown as Error).message).toContain("hostApi");
   });
 });

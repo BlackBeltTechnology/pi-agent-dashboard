@@ -6,7 +6,14 @@
  */
 
 import { createHash } from "node:crypto";
-import { __resetSlotClaimsVersionForTests, bumpSlotClaimsVersion, createSlotRegistry, PluginContextProvider } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { bumpSlotClaimsVersion } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  createSlotRegistry,
+  PluginContextProvider,
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
+import {
+  __resetSlotClaimsVersionForTests,
+} from "@blackbelt-technology/dashboard-plugin-runtime/test-support";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

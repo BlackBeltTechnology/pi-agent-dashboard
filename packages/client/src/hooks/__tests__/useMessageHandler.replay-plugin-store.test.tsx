@@ -15,7 +15,8 @@
  * See change: decouple-plugins-from-core (task 2.12).
  */
 
-import { clearSessionEvents, getSessionEvents } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { getSessionEvents } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { clearSessionEvents } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { renderHook } from "@testing-library/react";

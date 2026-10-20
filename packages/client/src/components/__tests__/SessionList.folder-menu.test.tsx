@@ -9,7 +9,10 @@
  * See change: move-slot-actions-to-menu.
  */
 
-import { createFolderMenuStore, FolderMenuProvider } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  createFolderMenuStore,
+  FolderMenuProvider,
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import type { DashboardSession, OpenSpecData } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type React from "react";

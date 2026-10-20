@@ -10,7 +10,7 @@ import {
   clearSessionEvents,
   PluginContextProvider,
   publishSessionEvent,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import type { GoalRecord } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import React from "react";

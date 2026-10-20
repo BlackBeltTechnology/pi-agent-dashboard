@@ -34,10 +34,12 @@
  */
 
 import {
-  FOLDER_MENU_GROUPS,
   type FolderMenuGroup,
-  useFolderMenuItems,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  FOLDER_MENU_GROUPS,
+  useFolderMenuItems,
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import {
   LayerHostProvider,
   LayerPortal,

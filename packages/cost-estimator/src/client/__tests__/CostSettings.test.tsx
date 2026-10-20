@@ -12,7 +12,7 @@ import {
   type RegisteredSource,
   SettingsDraftProvider,
   type SettingsDraftRegistry,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import {
   applyPluginConfigUpdate,
   CurrentPluginLayer,

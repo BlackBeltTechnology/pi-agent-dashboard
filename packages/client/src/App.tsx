@@ -238,7 +238,8 @@ const EMPTY_SUBAGENTS_MAP: ReadonlyMap<string, SubagentStateSnapshot> = Object.f
 import {
   ContentHeaderStickySlot,
   ContentInlineFooterSlot,
-  ContentViewSlot,createSlotRegistry, 
+  ContentViewSlot,
+  createSlotRegistry,
   EmbeddedAppReturnPill,
   EmbeddedAppShellProvider,
   FolderMenuProvider,
@@ -247,8 +248,8 @@ import {
   ShellSessionsProvider,
   useShellOverlayRouteDepth,
   useShellOverlayRouteMatched,
-  useShellOverlayRoutePresentation
-} from "@blackbelt-technology/dashboard-plugin-runtime";
+  useShellOverlayRoutePresentation,
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { claimsToRouteDescriptors } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/route-descriptor.js";
 import { PLUGIN_REGISTRY } from "./generated/plugin-registry.js";
 import { usePluginEnabledSet } from "./hooks/usePluginEnabledSet.js";

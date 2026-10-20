@@ -16,7 +16,11 @@
  * See change: split-editor-workspace.
  */
 
-import { findEditorPaneTabClaim, useSlotClaimsVersion, useSlotRegistryOrNull } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  findEditorPaneTabClaim,
+  useSlotClaimsVersion,
+  useSlotRegistryOrNull,
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { fileKind } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
 import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
 import type { FileEntry } from "@blackbelt-technology/pi-dashboard-shared/types.js";

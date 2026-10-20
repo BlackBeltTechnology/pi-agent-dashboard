@@ -24,7 +24,7 @@ import { WebSearchEntryCard, catalog as web_access_catalog } from "@blackbelt-te
 import { lazyClaim } from "@blackbelt-technology/dashboard-plugin-runtime";
 
 import type { PluginManifest } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js";
-import type { ClaimEntry } from "@blackbelt-technology/dashboard-plugin-runtime";
+import type { ClaimEntry } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 
 export interface RegistryEntry {
   manifest: PluginManifest;

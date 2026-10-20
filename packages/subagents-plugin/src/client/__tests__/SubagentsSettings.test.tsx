@@ -9,10 +9,10 @@ import React from "react";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import {
-	createSlotRegistry,
-	SettingsDraftProvider,
-	type RegisteredSource,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
+  createSlotRegistry,
+  SettingsDraftProvider,
+  type RegisteredSource,
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import {
 	applyPluginConfigUpdate,
 	CurrentPluginLayer,

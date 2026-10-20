@@ -29,6 +29,7 @@ function plugin(id: string, root = "/repo/packages"): DiscoveredPlugin {
     manifest: { id, displayName: id, claims: [{ slot: "settings-section", component: "X" }] },
     packageDir,
     packageName: id,
+    source: "workspace",
     clientEntryPath: `${packageDir}/src/client.tsx`,
   };
 }

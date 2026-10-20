@@ -24,6 +24,15 @@
  *     (non-fixture, declares `client`);
  *   - fixture plugins used from tests or `devDependencies`.
  *
+ * `./host` symbol check (design D6/X7): the runtime root re-exports every
+ * `dashboard-plugin-runtime/src/host.ts` name as `@deprecated` for one minor. An
+ * in-repo plugin file (test or prod) importing / re-exporting such a name from
+ * the package ROOT fails unless the allowlist's `hostRootImports` has a row
+ * `{ file, expires, reason }` covering it. `expires` (`MAJOR.MINOR[.PATCH]`) is
+ * inclusive: valid while the runtime package version <= `expires`, an error once
+ * greater. A row whose file no longer violates is STALE. Skipped when
+ * `src/host.ts` is absent.
+ *
  * Exit: 0 ok, 1 violations, 2 script error. No dependencies beyond `typescript`.
  *
  * See change: decouple-plugins-from-core.
@@ -41,7 +50,9 @@ const SOURCE_FILE = /\.[cm]?[jt]sx?$/;
 const DEP_FIELDS = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"];
 const KIND_ORDER = ["prod", "test", "pkg", "css", "host"];
 // Built by concatenation: the pnpm contract test scans string literals for undeclared workspace imports.
-const RUNTIME_HOST = `${"@blackbelt-technology"}/dashboard-plugin-runtime/host`;
+const RUNTIME_ROOT = `${"@blackbelt-technology"}/dashboard-plugin-runtime`;
+const RUNTIME_HOST = `${RUNTIME_ROOT}/host`;
+const RUNTIME_DIR = "packages/dashboard-plugin-runtime";
 const GENERATED = new Set([
   "packages/client/src/generated/plugin-registry.tsx",
   "packages/client/src/generated/plugin-sources.css",
@@ -220,6 +231,102 @@ const kindRank = (k) => (KIND_ORDER.indexOf(k) === -1 ? KIND_ORDER.length : KIND
 const compareRows = (a, b) =>
   kindRank(a.kind) - kindRank(b.kind) || a.from.localeCompare(b.from) || a.to.localeCompare(b.to);
 
+/** Names exported by `dashboard-plugin-runtime/src/host.ts` (empty when absent). */
+function hostExportNames(root) {
+  const file = path.join(root, RUNTIME_DIR, "src", "host.ts");
+  if (!fs.existsSync(file)) return new Set();
+  const sf = ts.createSourceFile(file, fs.readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true);
+  const names = new Set();
+  for (const n of sf.statements) {
+    if (ts.isExportDeclaration(n) && n.exportClause && ts.isNamedExports(n.exportClause)) {
+      for (const e of n.exportClause.elements) names.add(e.name.text);
+    } else if (ts.isVariableStatement(n) && n.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword)) {
+      for (const d of n.declarationList.declarations) if (ts.isIdentifier(d.name)) names.add(d.name.text);
+    } else if (
+      (ts.isFunctionDeclaration(n) || ts.isClassDeclaration(n) || ts.isInterfaceDeclaration(n) || ts.isTypeAliasDeclaration(n)) &&
+      n.name &&
+      n.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword)
+    ) {
+      names.add(n.name.text);
+    }
+  }
+  return names;
+}
+
+/** Host names a file imports / re-exports from the package ROOT (not a subpath). */
+function rootHostNamesOf(content, hostNames) {
+  const sf = ts.createSourceFile("x.tsx", content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const found = new Set();
+  for (const n of sf.statements) {
+    const named = ts.isImportDeclaration(n) ? n.importClause?.namedBindings : ts.isExportDeclaration(n) ? n.exportClause : undefined;
+    if (!(ts.isImportDeclaration(n) || ts.isExportDeclaration(n)) || n.moduleSpecifier?.text !== RUNTIME_ROOT) continue;
+    if (!named || !(ts.isNamedImports(named) || ts.isNamedExports(named))) continue;
+    for (const e of named.elements) {
+      const name = (e.propertyName ?? e.name).text;
+      if (hostNames.has(name)) found.add(name);
+    }
+  }
+  return [...found].sort();
+}
+
+/** In-repo plugin files that import a `./host` name from the runtime root: `{ file, names }`. */
+export function findHostRootImports(root) {
+  const hostNames = hostExportNames(root);
+  if (hostNames.size === 0) return [];
+  const ctx = buildContext(root);
+  const out = [];
+  for (const rel of walk(path.join(root, PACKAGES), root)) {
+    if (!SOURCE_FILE.test(rel) || rel.startsWith(`${RUNTIME_DIR}/`)) continue;
+    if (ctx.byDir.get(packageDirOf(rel))?.isPlugin !== true) continue;
+    const content = fs.readFileSync(path.join(root, rel), "utf8");
+    if (!content.includes(RUNTIME_ROOT)) continue;
+    const names = rootHostNamesOf(content, hostNames);
+    if (names.length) out.push({ file: rel, names });
+  }
+  return out.sort((a, b) => a.file.localeCompare(b.file));
+}
+
+/** `MAJOR.MINOR[.PATCH]` → numeric triple; a missing patch is `Infinity` (the whole minor is covered). */
+function parseVersionLoose(v) {
+  const m = /^(\d+)\.(\d+)(?:\.(\d+))?/.exec(String(v ?? ""));
+  return m ? [Number(m[1]), Number(m[2]), m[3] === undefined ? Number.POSITIVE_INFINITY : Number(m[3])] : null;
+}
+const compareVersions = (a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
+
+function runtimeVersion(root) {
+  const v = readJson(path.join(root, RUNTIME_DIR, "package.json"))?.version;
+  const parsed = parseVersionLoose(v);
+  return parsed ? { text: v, parsed } : null;
+}
+
+/** Compare host-root imports with `hostRootImports` rows → violation lines. */
+export function reconcileHostRoot(imports, rows, version) {
+  const lines = [];
+  const rowByFile = new Map(rows.map((r) => [r.file, r]));
+  const importFiles = new Set(imports.map((i) => i.file));
+  for (const { file, names } of imports) {
+    const row = rowByFile.get(file);
+    if (!row) {
+      lines.push(
+        `HOST-IMPORT ${file} imports ${names.join(", ")} from the runtime root — import it from the ./host subpath of dashboard-plugin-runtime (./test-support for __reset*ForTests helpers)`,
+      );
+      continue;
+    }
+    const expires = parseVersionLoose(row.expires);
+    if (!expires) {
+      lines.push(`HOST-IMPORT allowlist row for ${file} has no valid "expires" (MAJOR.MINOR[.PATCH])`);
+    } else if (version && compareVersions(version.parsed, expires) > 0) {
+      lines.push(
+        `EXPIRED host-import allowlist row ${file} (expires ${row.expires}; runtime is ${version.text}) — migrate ${file} to ./host or ./test-support and delete the row`,
+      );
+    }
+  }
+  for (const row of rows) {
+    if (!importFiles.has(row.file)) lines.push(`STALE host-import allowlist row ${row.file} — no host name imported from the root any more, delete it`);
+  }
+  return lines;
+}
+
 const PLACEHOLDER = "TODO";
 const ANNOTATIONS = ["reason", "disposition", "removedBy"];
 const isUnannotated = (row) => ANNOTATIONS.some((f) => !row[f] || row[f] === PLACEHOLDER);
@@ -253,6 +360,15 @@ function loadRows(file) {
   return json.rows;
 }
 
+/** Optional `hostRootImports` rows (`{ file, expires, reason }`). */
+function loadHostRows(file) {
+  if (!fs.existsSync(file)) return [];
+  const rows = readJson(file)?.hostRootImports;
+  if (rows === undefined) return [];
+  if (!Array.isArray(rows)) throw new Error(`${file}: "hostRootImports" must be an array`);
+  return rows;
+}
+
 const fmtEdge = (e) => `[${e.kind}] ${e.from} → ${e.to}`;
 
 function report(result) {
@@ -279,8 +395,10 @@ function parseArgs(argv) {
 
 function writeBaseline(file, edges) {
   const rows = rebaseline(edges, loadRows(file));
+  const hostRootImports = loadHostRows(file);
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, `${JSON.stringify({ rows }, null, 2)}\n`);
+  const body = hostRootImports.length ? { rows, hostRootImports } : { rows };
+  fs.writeFileSync(file, `${JSON.stringify(body, null, 2)}\n`);
   return rows;
 }
 
@@ -293,9 +411,13 @@ function main(argv) {
     return 0;
   }
   const rows = opts.noAllowlist ? [] : loadRows(opts.allowlist);
-  const lines = report(reconcile(edges, rows));
+  const hostRows = opts.noAllowlist ? [] : loadHostRows(opts.allowlist);
+  const lines = [
+    ...report(reconcile(edges, rows)),
+    ...reconcileHostRoot(findHostRootImports(opts.root), hostRows, runtimeVersion(opts.root)),
+  ];
   if (lines.length === 0) {
-    console.log(`plugin boundary: OK — ${edges.length} allowlisted edge(s)`);
+    console.log(`plugin boundary: OK — ${edges.length} allowlisted edge(s), ${hostRows.length} host-import row(s)`);
     return 0;
   }
   console.error(lines.join("\n"));
