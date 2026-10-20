@@ -25,7 +25,8 @@ taken from request input.
 file-level `exists` flag, a `raw` resolved config object, and a `fields` map
 where each known `MemoryConfig` key carries `value` (the on-disk value when
 present, else the default), `default` (the built-in default), and `isDefault`
-(true when the key is absent from the on-disk file). `raw` SHALL also contain
+(true when the key is absent from the on-disk file, except for the derived
+fields whose `isDefault` follows the derivation rules below). `raw` SHALL also contain
 every on-disk key outside the known field set, with its on-disk value; `fields`
 SHALL contain known keys only. `raw` is display-only and SHALL NOT be assumed
 to be a valid PUT body.
@@ -151,7 +152,7 @@ rename it into place).
 - **THEN** the written file contains `"consolidationTimeoutMs": 60000`
 
 #### Scenario: Malformed on-disk file is backed up before overwrite
-- **WHEN** the on-disk file contains `{ "memoryMode": ` (invalid JSON) and a valid config object is PUT
+- **WHEN** the on-disk file contains `{"memoryMode":` (invalid JSON) and a valid config object is PUT
 - **THEN** a `hermes-memory-config.json.corrupt-<stamp>` file holding the original bytes exists in the same directory, with no `:` in its name
 - **AND** an existing quarantine file of the same name is not overwritten (a `-1` suffix is used)
 - **AND** the config file contains the newly written object
