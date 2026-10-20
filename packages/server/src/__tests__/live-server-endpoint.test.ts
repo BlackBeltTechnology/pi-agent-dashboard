@@ -159,11 +159,17 @@ function stubManager(ids: string[] = ["vite-5173", "docs-8080"]) {
   const targets = new Map(ids.map((id) => [id, { id, label: id, host: "127.0.0.1", port: Number(id.split("-")[1]) }]));
   const manager = {
     start: () => ({ ok: false as const, error: "unused" }),
+    startPreset: () => ({ ok: false as const, error: "unused" }),
+    startStatic: () => ({ ok: false as const, error: "unused" }),
     get: (id: string) => targets.get(id),
+    getStatic: () => undefined,
+    has: (id: string) => targets.has(id),
     list: () => [...targets.values()],
     remove: (id: string) => {
       targets.delete(id);
     },
+    use: () => {},
+    setEvictionListener: () => {},
   } satisfies LiveServerManager;
   return { manager, targets };
 }

@@ -7,7 +7,7 @@ import { isIPv4, isIPv6 } from "node:net";
 import os from "node:os";
 import { routeTier } from "@blackbelt-technology/pi-dashboard-shared/route-tiers.js";
 import type { FastifyReply, FastifyRequest } from "fastify";
-import { redactCapability } from "../live-server/live-capability.js";
+import { redactCapability } from "../live-server/capability-redact.js";
 import { blockEvents } from "../tunnel/tunnel-block-events.js";
 import { isBypassed } from "./bypass-urls.js";
 import { hasLocalCredential } from "./local-credential.js";

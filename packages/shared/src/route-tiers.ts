@@ -327,8 +327,15 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "POST", path: "/api/known-servers", tier: "operate" },
   { method: "POST", path: "/api/known-servers/accept-move", tier: "operate" },
   { method: "POST", path: "/api/known-servers/probe", tier: "operate" },
-  { method: "POST", path: "/api/live-server/:id/capability", tier: "control" },
+  // improve-canvas-html-and-url-ux: the mint route sits at the raw-file-read tier so an
+  // observe-tier viewer can mint a STATIC target; a PORT-target mint still needs `control`
+  // (checked in the handler, `portMintRefused`). `start-static` is the raw-read gate; `policy`
+  // is the exposure posture; `touch` extends only the caller's OWN token (minting principal).
+  { method: "POST", path: "/api/live-server/:id/capability", tier: "observe" },
+  { method: "POST", path: "/api/live-server/:id/touch", tier: "observe" },
+  { method: "GET", path: "/api/live-server/policy", tier: "observe" },
   { method: "POST", path: "/api/live-server/start", tier: "operate" },
+  { method: "POST", path: "/api/live-server/start-static", tier: "observe" },
   { method: "POST", path: "/api/local-proof", tier: "operate" },
   { method: "POST", path: "/api/mcp-client/servers/:name/convert", tier: "operate" },
   { method: "POST", path: "/api/mcp-client/servers/:name/convert-to-override", tier: "operate" },

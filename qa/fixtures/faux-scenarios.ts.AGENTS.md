@@ -21,3 +21,5 @@ See change: add-browser-editor-pane-tab — scenario `browser-show-in-pane` (`[[
 - Adds `ask-select-brief` (select canary/broad with a 296-char `message`) + exported `ASK_BRIEF_MESSAGE` (≥ `minBriefChars` → brief `provided`, no model call). Drives pending-prompt-recovery X5. See change: add-pending-question-stack.
 
 `text-realfile-applyfix`: assistant text linking `/fixtures/sample-git/apply-fix.md` so the FilePreviewOverlay opens on a broken diagram (apply-fix e2e F11). See change: add-preview-apply-fix-to-file.
+
+Adds `canvas-declare-url-loopback` (canvas url `http://127.0.0.1:5188/app`), `canvas-html-cdn` (write `mockups/cdn/index.html` with Tailwind CDN + canvas file) and `canvas-html-screens` (write index + `screens/b.html` + canvas file) for L3 F5/F15-F18. See change: improve-canvas-html-and-url-ux.

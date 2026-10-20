@@ -92,9 +92,15 @@ class Upstream {
 function managerFor(port: () => number): LiveServerManager {
   return {
     start: () => ({ ok: false, error: "unused" }),
+    startPreset: () => ({ ok: false, error: "unused" }),
+    startStatic: () => ({ ok: false, error: "unused" }),
     get: (id) => (id === "vite-5173" ? { id, label: id, host: "127.0.0.1", port: port() } : undefined),
+    getStatic: () => undefined,
+    has: (id) => id === "vite-5173",
     list: () => [],
     remove: () => {},
+    use: () => {},
+    setEvictionListener: () => {},
   };
 }
 

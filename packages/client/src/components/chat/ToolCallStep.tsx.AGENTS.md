@@ -11,3 +11,5 @@ Props `nested?`, `nestedComplete?` → renders `NestedToolCallList` under the he
 `healedBy === "result_evicted"` renders `data-testid="tool-evicted-badge"` (distinct from superseded badge). See change: distinguish-tool-result-pending-vs-gone.
 
 `isAgentResultNotReceived(toolDetails, subagents)` → `data-testid="tool-recovered-badge"` (tooltip `chat.tool.subagentResultNotReceived`) for `resultMissing` without a known subagent result, and for `healedBy:"session_ended"`. `subagent_stopped` / known-result `turn_settled` unbadged. See change: finalize-agent-card-on-subagent-stop.
+
+Passes `toolCallId` to renderer; `canvas` rows start expanded. See change: improve-canvas-html-and-url-ux.

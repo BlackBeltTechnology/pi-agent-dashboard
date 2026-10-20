@@ -28,6 +28,7 @@ import {
 } from "../lib/chat/history-gap.js";
 import { dispatchInitEvent } from "../lib/git/worktree-init-bus.js";
 import { t } from "../lib/i18n/i18n.js";
+import { notifyExposureChanged } from "../lib/live-preview/exposure-store.js";
 import { setQuestions } from "../lib/questions/question-store.js";
 import { clearLoadingHistory, HYDRATE_CEILING_MS, rearmLoadingHistory } from "../lib/replay/loading-history.js";
 import type { ReplayPersister } from "../lib/replay/replay-persist.js";
@@ -1006,6 +1007,14 @@ export function useMessageHandler(
           next.set(msg.sessionId, reduceCanvasChip(prev.get(msg.sessionId) ?? EMPTY_CANVAS_STATE, msg));
           return next;
         });
+        break;
+      }
+
+      case "preview_exposure_changed": {
+        // The dashboard became reachable beyond this machine: open live viewers
+        // re-read the policy and re-mint without scripts. See change:
+        // improve-canvas-html-and-url-ux (D5).
+        notifyExposureChanged(msg.epoch);
         break;
       }
 

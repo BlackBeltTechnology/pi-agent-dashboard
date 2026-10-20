@@ -122,7 +122,9 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
   const resultNotReceived = isAgentResultNotReceived(toolDetails, context.session?.subagents);
   const isAskUser = toolName === "ask_user";
   const isFailedAskUser = isAskUser && status === "error";
-  const [expanded, setExpanded] = useState(hasImages || isAgentRunning || (isAskUser && !isFailedAskUser));
+  // A `canvas` card IS its target (title, kind, link): starting it collapsed hides the
+  // only thing it shows. See change: improve-canvas-html-and-url-ux (D8).
+  const [expanded, setExpanded] = useState(hasImages || isAgentRunning || (isAskUser && !isFailedAskUser) || toolName === "canvas");
   // Hook always called (rules of hooks); inactive when a burst controller is supplied.
   const ownStop = useToolStopState({ active: status === "running" && !stopController, onAbort, onForceKill });
   const stop = stopController ?? ownStop;
@@ -267,6 +269,7 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
             ) : (
               <Renderer
                 toolName={toolName}
+                toolCallId={toolCallId}
                 args={args}
                 status={status}
                 result={displayResult}
