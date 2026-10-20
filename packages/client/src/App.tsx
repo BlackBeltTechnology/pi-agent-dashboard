@@ -2876,6 +2876,7 @@ export default function App() {
       <AddFoldersDialog
         workspaces={workspaces}
         sessionCwds={allSessionsList.map((s) => s.cwd)}
+        pinnedPaths={pinnedDirectories}
         onPin={(dirPath, piTrust) => {
           setPinnedDirectories((prev) => (prev.includes(dirPath) ? prev : [...prev, dirPath]));
           send({ type: "pin_directory", path: dirPath, piTrust });

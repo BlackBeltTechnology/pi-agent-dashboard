@@ -3171,6 +3171,7 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
           workspaces={workspaces ?? []}
           initialWorkspaceId={pickFolderForWsId}
           sessionCwds={sessions.map((s) => s.cwd)}
+          pinnedPaths={pinnedDirectories}
           onCancel={() => setPickFolderForWsId(null)}
           onPin={(path) => onPinDirectory?.(path)}
           onAddFolderToWorkspace={(wsId, path) => onAddFolderToWorkspace?.(wsId, path)}

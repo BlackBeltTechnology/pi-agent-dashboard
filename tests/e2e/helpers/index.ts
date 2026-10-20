@@ -30,9 +30,10 @@ export const TESTIDS = {
   // still renders that testid, but is only reachable from Settings ▸ Packages
   // — no longer from these affordances. The map kept pointing at it, so every
   // spec that pins a folder hung until its 180 s cap.
-  // The flow differs too: the row body navigates, a per-row checkbox selects
-  // into a basket, and a commit button pins every basket entry.
-  // See change: project-scope-disable-global-resources (helper drift fix).
+  // The flow differs too: file-manager gestures (click selects, double-click
+  // opens) and a commit button that pins the selection, else the browsed folder.
+  // See changes: project-scope-disable-global-resources (helper drift fix),
+  // simplify-add-folder-picker.
   addFoldersDialog: "add-folders-dialog",
   addFoldersCommit: "add-folders-commit",
   // Accumulated-state path: once a folder/session exists the LandingPage
@@ -211,10 +212,11 @@ async function visible(loc: Locator): Promise<boolean> {
  * onboarding gate is cleared and the directory-listing endpoint is reachable.
  *
  * Pinning is IMPLICIT here — adding a folder IS pinning it, so the dialog
- * offers no pin control. Typing the full path is still how the target row is
- * reached (`parseInput` splits it into parent + filter, so the parent is
- * listed and filtered down to the leaf), but selection is now the per-row
- * checkbox plus a commit button, not a `Select` confirm.
+ * offers no pin control. Pointer-independent (works on touch projects too):
+ * type the full path WITH a trailing separator so the picker browses INTO the
+ * folder, assert the status line names exactly that folder, then commit with
+ * nothing selected — the dialog commits the browsed folder.
+ * See change: simplify-add-folder-picker (test-plan E15/E16).
  */
 export async function pinDirectory(page: Page, absPath: string): Promise<void> {
   const onboardingCta = byTestId(page, "onboardingStep2Cta");
@@ -231,26 +233,25 @@ export async function pinDirectory(page: Page, absPath: string): Promise<void> {
   }
   const dialog = byTestId(page, "addFoldersDialog");
   await dialog.waitFor({ state: "visible" });
-  // The picker lists the typed path's PARENT filtered by its leaf, so typing
-  // the full path surfaces the target's own row. Tick that row's checkbox —
-  // the basket, not the browsed directory, is what the dialog commits.
   // `.first()` — the dialog grows a second textbox in new-folder mode.
   const textbox = dialog.getByRole("textbox").first();
   // The picker re-lists its initial directory on mount, and that late response
   // can land AFTER an immediate fill and clobber it. Let the first listing
-  // render, then fill, then assert the value actually STUCK (auto-retrying)
-  // before selecting — otherwise the row below never appears and the spec dies
-  // at its timeout with no clue why.
-  await dialog.getByRole("option").first().waitFor({ state: "visible", timeout: 20_000 });
-  await textbox.fill(absPath);
-  await expect(textbox).toHaveValue(absPath);
-  // Keyed by the FULL path, so no leaf-regex escaping is needed and a sibling
-  // whose name contains the target's cannot be ticked instead.
-  const check = dialog.getByTestId(`path-picker-check-${absPath}`);
-  await check.waitFor({ state: "visible", timeout: 20_000 });
-  await check.click();
+  // render, then fill, then assert the value actually STUCK (auto-retrying).
+  // Wait on the status line, not a row: an empty browse root (no `..`, no
+  // children) renders zero options. See change: simplify-add-folder-picker.
+  await expect(
+    dialog.getByTestId("add-folders-status-path").or(dialog.getByTestId("add-folders-status-home")),
+  ).toBeVisible({ timeout: 20_000 });
+  const sep = absPath.includes("\\") && !absPath.includes("/") ? "\\" : "/";
+  const browsed = absPath.replace(/[\\/]+$/, "");
+  await textbox.fill(browsed + sep);
+  await expect(textbox).toHaveValue(browsed + sep);
+  // No row click: a tap on touch would OPEN the row. The status line proves
+  // the browse landed on the requested folder, not its parent or a child.
+  await expect(dialog.getByTestId("add-folders-status-path")).toHaveText(browsed, { timeout: 20_000 });
   const commit = byTestId(dialog, "addFoldersCommit");
-  await expect(commit).toBeEnabled(); // proves the basket actually took the path
+  await expect(commit).toBeEnabled();
   await commit.click();
   await dialog.waitFor({ state: "hidden" });
 }

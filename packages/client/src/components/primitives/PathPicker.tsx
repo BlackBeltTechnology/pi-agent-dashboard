@@ -1,21 +1,15 @@
-import { normalizePath, parsePathInput, withTrailingSep } from "@blackbelt-technology/pi-dashboard-shared/platform/paths.js";
+import { parsePathInput, withTrailingSep } from "@blackbelt-technology/pi-dashboard-shared/platform/paths.js";
 import type { BrowseEntry, BrowseResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
-import {
-  mdiArrowUp,
-  mdiCheckboxBlankOutline,
-  mdiCheckboxMarked,
-  mdiChevronRight,
-  mdiFolder,
-  mdiFolderOpen,
-  mdiFolderPlusOutline,
-} from "@mdi/js";
+import { mdiArrowUp, mdiCheck, mdiFolder, mdiFolderPlusOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type React from "react";
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { browserIsMacLike } from "../../hooks/useHostPlatform.js";
 import { browseDirectory, classifyPaths, createDirectory } from "../../lib/api/browse-api.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
-import { inferPlatform, pathKey } from "../../lib/session/session-grouping.js";
 import { logRejection } from "../../lib/report-error.js";
+import { applyRowClick, isAddToSelectionModifier, type SelectionPlatform } from "../../lib/selection-modifier.js";
+import { inferPlatform, pathKey } from "../../lib/session/session-grouping.js";
 
 interface Props {
   initialPath?: string;
@@ -31,17 +25,20 @@ interface Props {
   onOpenServers?: () => void;
   /**
    * Opt-in MULTI-SELECT mode. Absent (the default) keeps every existing caller
-   * single-select. Present, the picker becomes a file explorer: the row body
-   * still navigates (as it always has) and a per-row checkbox accumulates the
-   * caller's selection set — the caller commits the whole basket, so the picker
-   * never calls `onSelect` from a row.
-   * See change: redesign-folder-workspace-add-flow.
+   * single-select. Present, the picker behaves like an OS file manager: click
+   * selects, the platform modifier toggles, Shift ranges, double-click (or a
+   * touch tap) opens, long-press selects on touch. The picker OWNS the
+   * selection (scoped to the browsed folder, cleared whenever it changes) and
+   * reports it upward; it never calls `onSelect` from a row.
+   * See change: simplify-add-folder-picker (design D1–D9).
    */
   selection?: {
-    /** Absolute paths currently in the caller's basket. */
-    selected: Set<string>;
-    /** Toggle membership of `path` in the basket. */
-    onToggle: (path: string) => void;
+    /** Fires after every selection change and every change of the browsed folder. */
+    onChange: (state: { selected: string[]; current: string | null; isHome: boolean }) => void;
+    /** `pathKey`s of already-added folders — their rows render an `added` marker. */
+    pinnedKeys?: Set<string>;
+    /** Bump to clear the selection from the host (e.g. a status-line Clear). */
+    clearRequest?: number;
   };
   /**
    * Live-session counts keyed by `pathKey(cwd)` (NOT raw path strings — the key
@@ -63,24 +60,26 @@ function parseInput(value: string): { parent: string; partial: string } {
   return parsePathInput(value, platform);
 }
 
-/**
- * True when `p` is a non-empty absolute path (POSIX root, Windows drive root,
- * or UNC root). The self-row render-gate uses this so an empty/relative/malformed
- * current-directory value never produces a bogus selectable row (design D4).
- */
-function isAbsolutePath(p: string): boolean {
-  // POSIX root, Windows drive root, or a UNC path with at least a server segment
-  // (`\\host…`) — a bare `\\` / `\\\` is malformed and does not qualify.
-  return p.startsWith("/") || /^[A-Za-z]:[\\/]/.test(p) || /^\\\\[^\\/]/.test(p);
-}
-
 const DEBOUNCE_MS = 150;
+/** Touch hold that enters select mode (design D3). */
+const LONG_PRESS_MS = 400;
+/** Finger travel (px) that cancels a pending long-press. */
+const LONG_PRESS_SLOP_PX = 10;
 
 type DisplayItem =
   | { type: "parent" }
   | { type: "entry"; entry: BrowseEntry }
-  | { type: "self"; path: string }
   | { type: "create-here"; name: string };
+
+interface RowSel {
+  selected: string[];
+  anchor: string | null;
+  /** Keyboard cursor (drives `aria-activedescendant`); may differ from the anchor during Shift+Arrow. */
+  cursor: string | null;
+}
+const EMPTY_SEL: RowSel = { selected: [], anchor: null, cursor: null };
+
+const keyOf = (p: string) => pathKey(p, inferPlatform([p]));
 
 export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenServers, selection, sessionCounts }: Props) {
   const multiSelect = selection !== undefined;
@@ -117,23 +116,26 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
    */
   const userEditedRef = useRef(false);
 
-  /**
-   * Normalized snapshot of the caller's basket for the checkbox checked-state
-   * test. Both the stored paths and the compared row path are run through
-   * `normalizePath` (collapses trailing-separator / `.` / `..` drift, PRESERVES
-   * case) so a directory ticked via the self-row — whose path may carry a
-   * trailing separator — and the same directory ticked via a child row resolve
-   * to ONE checked state. Case-insensitive dedup is deliberately NOT introduced.
-   * See change: add-current-folder-to-add-flow (design D5).
-   */
-  const normalizedSelected = useMemo(() => {
-    const set = new Set<string>();
-    if (selection) {
-      for (const p of selection.selected) set.add(normalizePath(p, inferPlatform([p])));
-    }
-    return set;
-  }, [selection]);
-  const isPathSelected = (p: string) => normalizedSelected.has(normalizePath(p, inferPlatform([p])));
+  // ---- Multi-select (file-manager) state. See change: simplify-add-folder-picker.
+  const [sel, setSel] = useState<RowSel>(EMPTY_SEL);
+  // Touch select mode: entered by long-press, left when the last row is deselected.
+  const [selectMode, setSelectMode] = useState(false);
+  // Browsed directory as STATE (fetchedDirRef is a ref and cannot drive onChange).
+  const [currentDir, setCurrentDir] = useState<string | null>(null);
+  // "Home" = `current` of the first no-path browse (design D9). Never set when
+  // the picker opens on an explicit initialPath.
+  const homeRef = useRef<string | null>(null);
+  // `click`/`dblclick` carry no pointer type; pointerdown records it (design D3).
+  const lastPointerTypeRef = useRef<string>("mouse");
+  const longPressRef = useRef<{ timer: ReturnType<typeof setTimeout>; x: number; y: number } | null>(null);
+  const suppressNextClickRef = useRef(false);
+  const onChangeRef = useRef(selection?.onChange);
+  onChangeRef.current = selection?.onChange;
+  const platform: SelectionPlatform = useMemo(() => (browserIsMacLike() ? "mac" : "other"), []);
+  const [coarse] = useState(
+    () => typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches,
+  );
+  const listId = useId();
 
   /**
    * Fetch directory contents. If `q` is non-empty, filters server-side.
@@ -159,7 +161,15 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
         const result = await browseDirectory(dir, { q, signal: ctrl.signal });
         // Ignore stale response if a newer request superseded us
         if (abortRef.current !== ctrl) return;
+        if (dir === undefined && homeRef.current === null) homeRef.current = result.current;
+        // Every navigation (row open, `..`, typed path, mount, create-folder)
+        // lands here: selection is scoped to the browsed folder (design D1).
+        if (fetchedDirRef.current !== result.current) {
+          setSel(EMPTY_SEL);
+          setSelectMode(false);
+        }
         fetchedDirRef.current = result.current;
+        setCurrentDir(result.current);
         fetchedQRef.current = q;
         setEntries(result.entries);
         setParentPath(result.parent);
@@ -280,12 +290,6 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
 
   const showDotDot = parentPath !== null;
   const displayItems: DisplayItem[] = [];
-  // Self-row (multi-select only): the directory currently being browsed is
-  // itself selectable. Render-gated on a resolved, non-empty absolute current
-  // path so the initial default-directory load shows no row (design D1/D4).
-  const selfDir = fetchedDirRef.current;
-  const showSelfRow = multiSelect && selfDir !== null && isAbsolutePath(selfDir);
-  if (showSelfRow && selfDir) displayItems.push({ type: "self", path: selfDir });
   if (showDotDot) displayItems.push({ type: "parent" });
   for (const entry of filtered) {
     displayItems.push({ type: "entry", entry });
@@ -348,9 +352,6 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
       descendInto(parentPath);
     } else if (item.type === "entry") {
       descendInto(item.entry.path);
-    } else if (item.type === "self") {
-      // The current directory cannot be descended into — activation TOGGLES it.
-      selection?.onToggle(item.path);
     } else if (item.type === "create-here") {
       if (!fetchedDirRef.current) return;
       void createFolder(fetchedDirRef.current, item.name);
@@ -406,7 +407,158 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inputValue, entries, onSelect]);
 
+  // ---- Multi-select gestures (design D2–D8) ----------------------------------
+  const ordered = useMemo(() => entries.map((e) => e.path), [entries]);
+  const selectedSet = useMemo(() => new Set(sel.selected), [sel.selected]);
+  const isHome =
+    currentDir !== null && homeRef.current !== null && keyOf(currentDir) === keyOf(homeRef.current);
+
+  // Layout effect: the host's targets update BEFORE paint, so a click on the
+  // freshly rendered listing can never commit the folder just left (test-plan F9).
+  useLayoutEffect(() => {
+    onChangeRef.current?.({ selected: sel.selected, current: currentDir, isHome });
+  }, [sel.selected, currentDir, isHome]);
+
+  const clearRequest = selection?.clearRequest;
+  useEffect(() => {
+    if (!clearRequest) return;
+    setSel(EMPTY_SEL);
+    setSelectMode(false);
+  }, [clearRequest]);
+
+  const clearSelection = () => {
+    setSel(EMPTY_SEL);
+    setSelectMode(false);
+  };
+
+  const cancelLongPress = () => {
+    if (longPressRef.current) {
+      clearTimeout(longPressRef.current.timer);
+      longPressRef.current = null;
+    }
+  };
+  useEffect(() => cancelLongPress, []);
+
+  const handleRowPointerDown = (e: React.PointerEvent, path: string) => {
+    lastPointerTypeRef.current = e.pointerType || "mouse";
+    suppressNextClickRef.current = false;
+    cancelLongPress();
+    if (e.pointerType !== "touch") return;
+    const timer = setTimeout(() => {
+      longPressRef.current = null;
+      // Chromium fires `click` after the hold, iOS does not — swallow at most one.
+      suppressNextClickRef.current = true;
+      setSelectMode(true);
+      setSel((prev) => ({
+        selected: prev.selected.includes(path) ? prev.selected : [...prev.selected, path],
+        anchor: path,
+        cursor: path,
+      }));
+    }, LONG_PRESS_MS);
+    longPressRef.current = { timer, x: e.clientX, y: e.clientY };
+  };
+
+  const handleRowPointerMove = (e: React.PointerEvent) => {
+    const lp = longPressRef.current;
+    if (lp && Math.hypot(e.clientX - lp.x, e.clientY - lp.y) > LONG_PRESS_SLOP_PX) cancelLongPress();
+  };
+
+  const handleEntryClick = (e: React.MouseEvent, path: string) => {
+    if (lastPointerTypeRef.current === "touch") {
+      if (suppressNextClickRef.current) {
+        suppressNextClickRef.current = false;
+        return;
+      }
+      if (!selectMode) {
+        descendInto(path);
+        return;
+      }
+      const selected = selectedSet.has(path) ? sel.selected.filter((p) => p !== path) : [...sel.selected, path];
+      setSel({ selected, anchor: path, cursor: path });
+      if (selected.length === 0) setSelectMode(false);
+      return;
+    }
+    const next = applyRowClick(sel, {
+      path,
+      ordered,
+      mod: isAddToSelectionModifier(e, platform),
+      shift: e.shiftKey,
+    });
+    setSel({ ...next, cursor: path });
+    inputRef.current?.focus();
+  };
+
+  // Backspace / select-all act on the list only while the input shows the
+  // browsed folder unedited; otherwise they edit text (design D8).
+  const inputAtCurrent =
+    partial === "" && fetchedDirRef.current !== null && keyOf(currentParent) === keyOf(fetchedDirRef.current);
+
+  const goUp = () => {
+    if (parentPath) descendInto(parentPath);
+  };
+
+  const moveCursor = (delta: 1 | -1, shift: boolean) => {
+    if (ordered.length === 0) return;
+    const cur = sel.cursor ? ordered.indexOf(sel.cursor) : -1;
+    const next = ordered[cur < 0 ? 0 : Math.min(Math.max(cur + delta, 0), ordered.length - 1)];
+    const a = sel.anchor ? ordered.indexOf(sel.anchor) : -1;
+    if (shift && a >= 0) {
+      const n = ordered.indexOf(next);
+      const [lo, hi] = n < a ? [n, a] : [a, n];
+      setSel({ selected: ordered.slice(lo, hi + 1), anchor: sel.anchor, cursor: next });
+    } else {
+      setSel({ selected: [next], anchor: next, cursor: next });
+    }
+  };
+
+  const openFromKeyboard = () => {
+    if (sel.selected.length === 1) {
+      descendInto(sel.selected[0]);
+    } else if (exactMatch) {
+      descendInto(exactMatch.path);
+    } else if (pendingFetchRef.current) {
+      void pendingFetchRef.current();
+    }
+  };
+
+  const handleMultiKeyDown = (e: React.KeyboardEvent) => {
+    const arrow = e.key === "ArrowUp" || e.key === "ArrowDown";
+    if (e.key === "ArrowUp" && (platform === "mac" ? e.metaKey : e.altKey)) {
+      e.preventDefault();
+      goUp();
+    } else if (e.key === "Enter" || (e.key === "ArrowDown" && platform === "mac" && e.metaKey)) {
+      e.preventDefault();
+      openFromKeyboard();
+    } else if (arrow && (e.metaKey || e.altKey)) {
+      // The other platform's go-up/open chord: swallow, do nothing.
+      e.preventDefault();
+    } else if (arrow) {
+      e.preventDefault();
+      moveCursor(e.key === "ArrowDown" ? 1 : -1, e.shiftKey);
+    } else if (e.key === "Backspace" && inputAtCurrent) {
+      e.preventDefault();
+      goUp();
+    } else if (e.key.toLowerCase() === "a" && isAddToSelectionModifier(e, platform) && inputAtCurrent) {
+      e.preventDefault();
+      setSel({ selected: ordered, anchor: ordered[0] ?? null, cursor: ordered[0] ?? null });
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      if (sel.selected.length > 0) {
+        // defaultPrevented makes the Dialog escape layer stand down (escape-stack.ts).
+        e.stopPropagation();
+        clearSelection();
+      } else {
+        onCancel();
+      }
+    }
+    // Tab and Space are deliberately not handled: focus moves on / literal space.
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (multiSelect) {
+      handleMultiKeyDown(e);
+      return;
+    }
     if (e.key === "ArrowDown") {
       e.preventDefault();
       setHighlightIndex((prev) => Math.min(prev + 1, displayItems.length - 1));
@@ -421,21 +573,6 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
       } else if (filtered.length === 1) {
         descendInto(filtered[0].path);
       }
-    } else if (e.key === " " && multiSelect) {
-      // Multi-select only: Space TOGGLES the highlighted row's selection while
-      // Enter still ACTIVATES (descends). In single-select mode Space stays a
-      // literal space character for the path input.
-      // See change: redesign-folder-workspace-add-flow.
-      if (highlightIndex >= 0 && highlightIndex < displayItems.length) {
-        const item = displayItems[highlightIndex];
-        if (item.type === "entry") {
-          e.preventDefault();
-          selection?.onToggle(item.entry.path);
-        } else if (item.type === "self") {
-          e.preventDefault();
-          selection?.onToggle(item.path);
-        }
-      }
     } else if (e.key === "Enter") {
       e.preventDefault();
       // If the highlighted item is the create-here row, trigger it
@@ -445,16 +582,7 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
           handleItemClick(item);
           return;
         }
-        // Multi-select: Enter on a highlighted child directory descends into it
-        // (the basket — not the input — is the answer, so tryConfirm never runs);
-        // Enter on the self-row toggles its selection (nowhere to descend).
-        if (multiSelect && (item.type === "entry" || item.type === "self")) {
-          handleItemClick(item);
-          return;
-        }
       }
-      // Multi-select has no single-path answer to confirm.
-      if (multiSelect) return;
       void (async () => {
         const handled = await tryConfirm();
         if (!handled) triggerInvalid();
@@ -464,6 +592,13 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
       onCancel();
     }
   };
+
+  // Multi-select: keep the keyboard cursor row in view.
+  const rowId = (path: string) => `${listId}-row-${ordered.indexOf(path)}`;
+  const cursorId = multiSelect && sel.cursor && ordered.includes(sel.cursor) ? rowId(sel.cursor) : undefined;
+  useEffect(() => {
+    if (cursorId) document.getElementById(cursorId)?.scrollIntoView?.({ block: "nearest" });
+  }, [cursorId]);
 
   // Scroll highlighted item into view
   useEffect(() => {
@@ -498,8 +633,11 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
     }
   };
 
-  const rowHeight = 32; // px per row
+  // 44 px touch targets on a coarse pointer in multi-select (design D3).
+  const touchRows = multiSelect && coarse;
+  const rowHeight = touchRows ? 44 : 32; // px per row
   const listHeight = rows * rowHeight;
+  const multiRowStyle = touchRows ? { minHeight: rowHeight } : undefined;
 
   const inputBorderClass = invalidFlash
     ? "border-red-500"
@@ -515,13 +653,19 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
         onChange={handleInputChange}
         onKeyDown={handleKeyDown}
         className={`w-full bg-[var(--bg-tertiary)] rounded px-3 py-2 text-sm border focus:outline-none font-mono ${inputBorderClass}`}
+        aria-controls={multiSelect ? listId : undefined}
+        aria-activedescendant={cursorId}
         autoFocus
       />
       <div
         ref={listRef}
+        id={listId}
         className="overflow-y-auto border border-[var(--border-secondary)] rounded bg-[var(--bg-tertiary)]"
         style={{ height: listHeight }}
         role="listbox"
+        aria-multiselectable={multiSelect ? true : undefined}
+        // Click on empty list space clears the selection (file-manager norm).
+        onClick={multiSelect ? (e) => { if (e.target === e.currentTarget) clearSelection(); } : undefined}
       >
         {newFolderMode && (
           <div className="px-3 py-1 text-sm flex items-center gap-2 border-b border-[var(--border-secondary)]">
@@ -561,63 +705,10 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
         {!loading && !error && !denial && (
           <>
             {displayItems.map((item, i) => {
-              const isHighlighted = i === highlightIndex;
+              const isHighlighted = !multiSelect && i === highlightIndex;
               const baseClass = `px-3 py-1 text-sm cursor-pointer flex items-center gap-2 ${
                 isHighlighted ? "bg-blue-600/30" : "hover:bg-[var(--bg-secondary)]"
               }`;
-              if (item.type === "self") {
-                // Current-directory self-row: open-folder glyph, NO descend
-                // chevron (you cannot descend into where you already are),
-                // accent-tinted, followed by a presentational CONTENTS eyebrow
-                // that marks where browsing begins. The label is NOT a
-                // role="option" and is not in displayItems, so it never offsets
-                // highlight traversal (design D1/D3/D7).
-                const checked = isPathSelected(item.path);
-                const selfSessions = sessionCounts?.get(pathKey(item.path, inferPlatform([item.path])));
-                return (
-                  <Fragment key="__self">
-                    <div
-                      role="option"
-                      aria-selected={isHighlighted}
-                      className={`${baseClass} bg-[var(--accent-blue)]/5`}
-                      onClick={() => handleItemClick(item)}
-                      data-testid="path-picker-self"
-                    >
-                      <button
-                        type="button"
-                        role="checkbox"
-                        aria-checked={checked}
-                        aria-label={i18nT("folders.selectFolder", { name: item.path }, `Select ${item.path}`)}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          selection?.onToggle(item.path);
-                        }}
-                        className="focus-ring shrink-0 inline-flex items-center justify-center min-w-6 min-h-6 -m-1 rounded text-[var(--text-tertiary)] hover:text-[var(--accent-blue)]"
-                        data-testid={`path-picker-check-${item.path}`}
-                      >
-                        <Icon path={checked ? mdiCheckboxMarked : mdiCheckboxBlankOutline} size={0.65} />
-                      </button>
-                      <Icon path={mdiFolderOpen} size={0.6} className="shrink-0 text-[var(--text-secondary)]" />
-                      <span className="flex-1 truncate">{item.path}</span>
-                      {selfSessions ? (
-                        <span
-                          className="text-[10px] px-1.5 py-px rounded-full bg-[var(--accent-blue)]/15 text-[var(--accent-blue)] shrink-0"
-                          data-testid={`path-picker-sessions-${item.path}`}
-                        >
-                          {i18nT("folders.sessionCount", { count: selfSessions }, `${selfSessions} sessions`)}
-                        </span>
-                      ) : null}
-                    </div>
-                    <div
-                      aria-hidden="true"
-                      className="px-3 pt-1.5 pb-0.5 text-[10px] uppercase tracking-wide font-bold text-[var(--text-muted)]"
-                      data-testid="path-picker-contents-label"
-                    >
-                      {i18nT("folders.contents", undefined, "Contents")}
-                    </div>
-                  </Fragment>
-                );
-              }
               if (item.type === "parent") {
                 return (
                   <div
@@ -625,9 +716,10 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
                     role="option"
                     aria-selected={isHighlighted}
                     className={baseClass}
+                    style={multiRowStyle}
+                    // `..` stays single-click in every mode (design: Risks).
                     onClick={() => handleItemClick(item)}
                   >
-                    {multiSelect && <span className="w-4 shrink-0" aria-hidden="true" />}
                     <Icon path={mdiArrowUp} size={0.6} className="shrink-0 text-[var(--text-secondary)]" />
                     <span>..</span>
                   </div>
@@ -640,52 +732,67 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
                     role="option"
                     aria-selected={isHighlighted}
                     className={`${baseClass} text-blue-400`}
+                    style={multiRowStyle}
                     onClick={() => handleItemClick(item)}
                   >
-                    {multiSelect && <span className="w-4 shrink-0" aria-hidden="true" />}
                     <Icon path={mdiFolderPlusOutline} size={0.6} className="shrink-0" />
                     <span className="flex-1 truncate">{i18nT("common.create2", undefined, "Create \"")}{item.name}{i18nT("common.here", undefined, "\" here")}</span>
                   </div>
                 );
               }
               const { entry } = item;
+              const isSel = multiSelect && selectedSet.has(entry.path);
+              const isAdded = multiSelect && !!selection?.pinnedKeys?.has(keyOf(entry.path));
+              // Rows are keyed by entry.name and selection only flips aria/class:
+              // a remount between the two clicks would suppress dblclick (design D5).
+              const rowClass = multiSelect
+                ? `px-3 py-1 text-sm cursor-pointer flex items-center gap-2 select-none ${
+                    // Accent bar + check mark: selection is never colour-only.
+                    isSel ? "bg-[var(--accent-blue)]/20 shadow-[inset_3px_0_0_var(--accent-blue)]" : "hover:bg-[var(--bg-secondary)]"
+                  }`
+                : baseClass;
               return (
                 <div
                   key={entry.name}
+                  id={multiSelect ? rowId(entry.path) : undefined}
                   role="option"
-                  aria-selected={isHighlighted}
-                  className={baseClass}
-                  onClick={() => handleItemClick(item)}
+                  aria-selected={multiSelect ? isSel : isHighlighted}
+                  className={rowClass}
+                  style={multiSelect ? { ...multiRowStyle, touchAction: "pan-y" } : undefined}
+                  data-testid={multiSelect ? `path-picker-row-${entry.path}` : undefined}
+                  onClick={multiSelect ? (e) => handleEntryClick(e, entry.path) : () => handleItemClick(item)}
+                  onDoubleClick={
+                    multiSelect
+                      ? () => {
+                          if (lastPointerTypeRef.current !== "touch") descendInto(entry.path);
+                        }
+                      : undefined
+                  }
+                  onPointerDown={multiSelect ? (e) => handleRowPointerDown(e, entry.path) : undefined}
+                  onPointerMove={multiSelect ? handleRowPointerMove : undefined}
+                  onPointerUp={multiSelect ? cancelLongPress : undefined}
+                  onPointerCancel={multiSelect ? cancelLongPress : undefined}
+                  onContextMenu={
+                    multiSelect
+                      ? (e) => {
+                          // Stops the iOS/Android long-press callout; mouse right-click unaffected.
+                          if (lastPointerTypeRef.current === "touch") e.preventDefault();
+                        }
+                      : undefined
+                  }
                 >
-                  {/* Row anatomy (mockup): [checkbox] [folder] name … [badges]
-                      [chevron]. Checkbox = SELECT, everything else = OPEN. */}
-                  {selection && (
-                    <button
-                      type="button"
-                      role="checkbox"
-                      aria-checked={isPathSelected(entry.path)}
-                      aria-label={i18nT("folders.selectFolder", { name: entry.name }, `Select ${entry.name}`)}
-                      // stopPropagation so ticking never navigates.
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        selection.onToggle(entry.path);
-                      }}
-                      // Glyph stays compact; the hit box is padded to the
-                      // WCAG 2.5.8 minimum (24×24) so the small icon is still a
-                      // reachable target. See change: redesign-folder-workspace-add-flow.
-                      className="focus-ring shrink-0 inline-flex items-center justify-center min-w-6 min-h-6 -m-1 rounded text-[var(--text-tertiary)] hover:text-[var(--accent-blue)]"
-                      data-testid={`path-picker-check-${entry.path}`}
-                    >
-                      <Icon
-                        path={isPathSelected(entry.path) ? mdiCheckboxMarked : mdiCheckboxBlankOutline}
-                        size={0.65}
-                      />
-                    </button>
-                  )}
                   <Icon path={mdiFolder} size={0.6} className="shrink-0 text-[var(--text-secondary)]" />
                   <span className="flex-1 truncate">{entry.name}</span>
+                  {isAdded && (
+                    <span
+                      className="text-[11px] px-1.5 py-px rounded-full border border-[var(--border-secondary)] bg-[var(--bg-surface)] text-[var(--text-primary)] shrink-0"
+                      data-testid={`path-picker-added-${entry.path}`}
+                    >
+                      {i18nT("folders.addedBadge", undefined, "added")}
+                    </span>
+                  )}
                   {(() => {
-                    const n = sessionCounts?.get(pathKey(entry.path, inferPlatform([entry.path])));
+                    const n = sessionCounts?.get(keyOf(entry.path));
                     return n ? (
                       <span
                         className="text-[10px] px-1.5 py-px rounded-full bg-[var(--accent-blue)]/15 text-[var(--accent-blue)] shrink-0"
@@ -696,34 +803,37 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
                     ) : null;
                   })()}
                   {entry.isGit && (
-                    <span className="text-xs text-green-400" title={i18nT("git.gitRepo", undefined, "git repo")}>git</span>
+                    <span className="text-xs text-[var(--accent-green-text)]" title={i18nT("git.gitRepo", undefined, "git repo")}>git</span>
                   )}
                   {entry.isPi && (
-                    <span className="text-xs text-cyan-400" title={i18nT("common.piProject", undefined, "pi project")}>pi</span>
+                    <span className="text-xs text-[var(--text-secondary)]" title={i18nT("common.piProject", undefined, "pi project")}>pi</span>
                   )}
-                  {/* Explicit descend affordance — makes "open" discoverable
-                      rather than merely implied by the row being clickable. */}
                   {multiSelect && (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleItemClick(item);
-                      }}
-                      // Padded to the 24×24 WCAG 2.5.8 minimum (see checkbox).
-                      className="focus-ring shrink-0 inline-flex items-center justify-center min-w-6 min-h-6 -m-1 rounded text-[var(--text-tertiary)] hover:text-[var(--accent-blue)]"
-                      title={i18nT("common.open", undefined, "Open")}
-                      aria-label={i18nT("folders.openFolder", { name: entry.name }, `Open ${entry.name}`)}
-                      data-testid={`path-picker-open-${entry.path}`}
-                    >
-                      <Icon path={mdiChevronRight} size={0.6} />
-                    </button>
+                    <Icon
+                      path={mdiCheck}
+                      size={0.6}
+                      aria-hidden="true"
+                      className={`shrink-0 text-[var(--accent-blue-text)] ${isSel ? "" : "invisible"}`}
+                      data-testid={isSel ? `path-picker-check-mark-${entry.path}` : undefined}
+                    />
                   )}
                 </div>
               );
             })}
             {filtered.length === 0 && !createHereAvailable && entries.length === 0 && partial === "" && (
-              <div className="px-3 py-2 text-sm text-[var(--text-secondary)]">{i18nT("common.noSubdirectories", undefined, "No subdirectories")}</div>
+              multiSelect ? (
+                <div
+                  className="m-3 p-3.5 rounded-lg border border-dashed border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[13px] text-[var(--text-secondary)]"
+                  data-testid="path-picker-empty"
+                >
+                  <div className="font-semibold text-[var(--text-primary)] mb-0.5">
+                    {i18nT("folders.emptyTitle", undefined, "No subfolders here")}
+                  </div>
+                  {i18nT("folders.emptyHint", undefined, "Type a path above to open another folder, or use New folder to create one.")}
+                </div>
+              ) : (
+                <div className="px-3 py-2 text-sm text-[var(--text-secondary)]">{i18nT("common.noSubdirectories", undefined, "No subdirectories")}</div>
+              )
             )}
             {filtered.length === 0 && !createHereAvailable && partial !== "" && (
               <div className="px-3 py-2 text-sm text-[var(--text-secondary)]">{i18nT("common.noMatches", undefined, "No matches")}</div>
@@ -731,6 +841,13 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
           </>
         )}
       </div>
+      {multiSelect && (
+        <div className="sr-only" aria-live="polite" data-testid="path-picker-live">
+          {sel.selected.length > 0
+            ? i18nT("folders.selectedCount", { count: sel.selected.length }, `${sel.selected.length} selected`)
+            : ""}
+        </div>
+      )}
       {/* Multi-select owns no answer, so Cancel/Select belong to the hosting
           dialog's footer — only "New folder" stays with the picker.
           See change: redesign-folder-workspace-add-flow. */}
@@ -762,7 +879,7 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
               })();
             }}
             disabled={!inputValue.trim()}
-            className="px-4 py-2 rounded text-sm bg-blue-600 hover:bg-blue-500 disabled:opacity-50"
+            className="px-4 py-2 rounded text-sm bg-[var(--accent-solid)] text-white hover:opacity-90 disabled:opacity-50"
           >
             {i18nT("common.select", undefined, "Select")}
           </button>
