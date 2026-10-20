@@ -194,7 +194,12 @@ describe("bundle install argv (E15)", () => {
     expect(code).not.toMatch(/\bpnpm\b/);
   });
 
-  it("release-lock mode removes its temporary package-lock.json in a finally", () => {
-    expect(code).toMatch(/finally\s*\{\s*rmSync\(lockFile/);
+  it("release-lock mode runs its install inside withTempLockFile and exits only after it", () => {
+    const fn = code.slice(code.indexOf("async function installFromReleaseLock"), code.indexOf("async function releaseLockInstall"));
+    expect(fn).toMatch(/await withTempLockFile\(lockFile,/);
+    // process.exit sits in the catch, after the helper's finally has removed the lock.
+    expect(fn.indexOf("process.exit(1)")).toBeGreaterThan(fn.indexOf("catch (err)"));
+    // nothing inside the install body may exit the process (it would skip the cleanup)
+    expect(code.slice(code.indexOf("async function releaseLockInstall"), code.indexOf("Stamp `resources/server"))).not.toContain("process.exit");
   });
 });

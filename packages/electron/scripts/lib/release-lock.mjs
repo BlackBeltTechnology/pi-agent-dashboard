@@ -57,9 +57,10 @@ const isFirstParty = (name) => name.startsWith(SCOPE_PREFIX);
  * @returns {{ mode: "floating" } | { mode: "release-lock", version: string }}
  */
 export function parseReleaseLockArgs(argv, { serverVersion }) {
-  const idx = argv.findIndex((a) => a === "--release-lock" || a.startsWith("--release-lock="));
-  if (idx === -1) return { mode: "floating" };
-  const arg = argv[idx];
+  const flags = argv.filter((a) => a === "--release-lock" || a.startsWith("--release-lock="));
+  if (flags.length === 0) return { mode: "floating" };
+  if (flags.length > 1) throw new Error(`--release-lock given ${flags.length} times (${flags.join(" ")}); pass it exactly once`);
+  const arg = flags[0];
   if (arg === "--release-lock") {
     throw new Error(
       "--release-lock needs the form --release-lock=<version> (bare flag or space-separated value refused)",
@@ -347,15 +348,34 @@ function readInstalledVersion(pkgDir) {
   }
 }
 
-/** Null when `pkgDir` is a symlink to its bundled workspace; else the problem text. */
+/** Null when `pkgDir` is a link (symlink / junction) to its bundled workspace; else the problem text. */
 function firstPartyLinkProblem(bundleDir, pkgDir, key, name, workspaces) {
   const ws = workspaces.get(name);
   const bad = `${name} at ${key} is not a symlink to its bundled workspace (first-party package must not come from the registry)`;
-  if (!ws || !lstatSync(pkgDir).isSymbolicLink()) return bad;
+  if (!ws) return bad;
+  // realpath equality proves a link (a real copy resolves to itself, never to
+  // packages/<dir>); this also holds for Windows junctions.
   try {
     return realpathSync(pkgDir) === realpathSync(path.join(bundleDir, "packages", ws.dir)) ? null : bad;
   } catch {
     return bad;
+  }
+}
+
+// ── temporary lock file lifecycle ─────────────────────────────────────────
+
+/**
+ * Run `fn` with `file` as a temporary `package-lock.json`: removed first (stale
+ * leftovers) and ALWAYS removed afterwards, success or throw. Callers that exit
+ * the process on failure must do so AFTER this returns/throws — `process.exit`
+ * inside `fn`'s try block would skip the cleanup.
+ */
+export async function withTempLockFile(file, fn) {
+  rmSync(file, { force: true });
+  try {
+    return await fn();
+  } finally {
+    rmSync(file, { force: true });
   }
 }
 

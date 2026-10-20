@@ -59,6 +59,7 @@ import {
   parseReleaseLockArgs,
   readBundledWorkspaces,
   rebaseRuntimeLock,
+  withTempLockFile,
 } from "./lib/release-lock.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -715,54 +716,48 @@ console.log(`✓ Server bundled (${finalSize}) at ${SERVER_BUNDLE}`);
  */
 async function installFromReleaseLock(version) {
   const lockFile = path.join(SERVER_BUNDLE, "package-lock.json");
-  const fail = (err) => {
+  try {
+    await withTempLockFile(lockFile, () => releaseLockInstall(version, lockFile));
+  } catch (err) {
+    // process.exit only AFTER withTempLockFile removed the lock (its finally).
     console.error(`\u2717 release-lock install failed: ${err instanceof Error ? err.message : String(err)}`);
     console.error("  Release builds never fall back to the floating install. See change: pin-electron-bundle-dependency-tree.");
     process.exit(1);
-  };
-  rmSync(lockFile, { force: true });
-  try {
-    const published = await fetchPublishedLock({ version });
-    const workspaces = readBundledWorkspaces(PROJECT_DIR, BUNDLED_WORKSPACE_PKGS);
-    const bundledPlugins = new Set();
-    for (const id of readBundledPluginIds(SERVER_PKG_JSON)) {
-      const pj = path.join(PROJECT_DIR, "packages", id, "package.json");
-      if (existsSync(pj)) bundledPlugins.add(JSON.parse(readFileSync(pj, "utf8")).name);
-    }
-    const { lock, stats } = rebaseRuntimeLock(published, { workspaces, bundledPlugins, pluginUnion: pluginRuntimeDeps, version });
-    writeFileSync(lockFile, `${JSON.stringify(lock, null, 2)}\n`);
-    console.log(
-      `  Release lock: server@${version} (rebased: ${stats.linked} workspaces linked, ${stats.dropped} first-party entries dropped, ${stats.thirdParty} third-party kept)`,
-    );
-
-    const ci = spawnSync(
-      npmCmd,
-      ["ci", "--omit=dev", "--no-audit", "--no-fund", "--allow-remote=all"],
-      {
-        cwd: SERVER_BUNDLE,
-        encoding: "utf8",
-        env: npmEnv,
-        shell: process.platform === "win32",
-        stdio: ["ignore", "pipe", "pipe"],
-      },
-    );
-    const out = ((ci.stdout || "") + (ci.stderr || "")).trim();
-    if (ci.error || ci.status !== 0) {
-      const tail = out.split(/\r?\n/).slice(-15).join("\n");
-      throw new Error(`npm ci exited ${ci.status ?? ci.error?.message}\n${tail}`);
-    }
-    const tail = out.split(/\r?\n/).slice(-5).join("\n");
-    if (tail) console.log(tail);
-
-    const audited = auditInstalledTree({ bundleDir: SERVER_BUNDLE, lock, workspaces });
-    console.log(
-      `  Install mode: release-lock (server@${version}) — audited ${audited.thirdParty} third-party packages against ${audited.lockEntries} lock entries, ${audited.firstParty} first-party links`,
-    );
-  } catch (err) {
-    fail(err);
-  } finally {
-    rmSync(lockFile, { force: true });
   }
+}
+
+async function releaseLockInstall(version, lockFile) {
+  const published = await fetchPublishedLock({ version });
+  const workspaces = readBundledWorkspaces(PROJECT_DIR, BUNDLED_WORKSPACE_PKGS);
+  const bundledPlugins = new Set();
+  for (const id of readBundledPluginIds(SERVER_PKG_JSON)) {
+    const pj = path.join(PROJECT_DIR, "packages", id, "package.json");
+    if (existsSync(pj)) bundledPlugins.add(JSON.parse(readFileSync(pj, "utf8")).name);
+  }
+  const { lock, stats } = rebaseRuntimeLock(published, { workspaces, bundledPlugins, pluginUnion: pluginRuntimeDeps, version });
+  writeFileSync(lockFile, `${JSON.stringify(lock, null, 2)}\n`);
+  console.log(
+    `  Release lock: server@${version} (rebased: ${stats.linked} workspaces linked, ${stats.dropped} first-party entries dropped, ${stats.thirdParty} third-party kept)`,
+  );
+
+  const ci = spawnSync(npmCmd, ["ci", "--omit=dev", "--no-audit", "--no-fund", "--allow-remote=all"], {
+    cwd: SERVER_BUNDLE,
+    encoding: "utf8",
+    env: npmEnv,
+    shell: process.platform === "win32",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const out = ((ci.stdout || "") + (ci.stderr || "")).trim();
+  if (ci.error || ci.status !== 0) {
+    throw new Error(`npm ci exited ${ci.status ?? ci.error?.message}\n${out.split(/\r?\n/).slice(-15).join("\n")}`);
+  }
+  const tail = out.split(/\r?\n/).slice(-5).join("\n");
+  if (tail) console.log(tail);
+
+  const audited = auditInstalledTree({ bundleDir: SERVER_BUNDLE, lock, workspaces });
+  console.log(
+    `  Install mode: release-lock (server@${version}) — audited ${audited.thirdParty} third-party packages against ${audited.lockEntries} lock entries, ${audited.firstParty} first-party links`,
+  );
 }
 
 /**

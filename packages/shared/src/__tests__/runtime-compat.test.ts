@@ -62,6 +62,9 @@ describe("runtime manifest", () => {
   it("rejects an unknown installMode and a non-string lockVersion", () => {
     expect(parseRuntimeManifest({ ...manifest(), installMode: "other" })).toBeNull();
     expect(parseRuntimeManifest({ ...manifest(), installMode: "release-lock", lockVersion: 10 })).toBeNull();
+    // lockVersion is only meaningful for a release-lock install
+    expect(parseRuntimeManifest({ ...manifest(), lockVersion: "0.10.0" })).toBeNull();
+    expect(parseRuntimeManifest({ ...manifest(), installMode: "floating", lockVersion: "0.10.0" })).toBeNull();
     expect(() => writeRuntimeManifest(os.tmpdir(), { ...manifest(), installMode: "other" } as never)).toThrow(/invalid runtime manifest/);
   });
 

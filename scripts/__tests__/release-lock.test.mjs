@@ -16,9 +16,11 @@ import { checkReleaseLockBundle } from "../../packages/electron/scripts/assert-r
 import {
   auditInstalledTree,
   fetchPublishedLock,
+  parseReleaseLockArgs,
   readBundledWorkspaceDirs,
   readBundledWorkspaces,
   rebaseRuntimeLock,
+  withTempLockFile,
 } from "../../packages/electron/scripts/lib/release-lock.mjs";
 import { collectPluginRuntimeDeps as collectBundlePluginDeps, readBundledPluginIds } from "../../packages/shared/src/runtime-overlay/materialize-plugins.mjs";
 import { pluginRuntimeDeps } from "../lib/runtime-release.mjs";
@@ -447,5 +449,44 @@ describe("checkReleaseLockBundle (design D1)", () => {
   it("X1: an empty release version fails instead of passing vacuously", () => {
     manifest({ installMode: "release-lock", lockVersion: "" });
     expect(checkReleaseLockBundle(dir, "")).not.toBeNull();
+  });
+});
+
+// ── temporary lock lifecycle (review B1) and argv ─────────────────────────
+
+describe("withTempLockFile (no package-lock.json may remain)", () => {
+  let dir;
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "templock-"));
+  });
+  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const file = () => path.join(dir, "package-lock.json");
+
+  it("removes a stale lock before running fn", async () => {
+    fs.writeFileSync(file(), "stale");
+    await withTempLockFile(file(), async () => {
+      expect(fs.existsSync(file())).toBe(false);
+    });
+  });
+
+  it("removes the lock after success", async () => {
+    await withTempLockFile(file(), async () => fs.writeFileSync(file(), "{}"));
+    expect(fs.existsSync(file())).toBe(false);
+  });
+
+  it("removes the lock when fn throws (npm ci / audit failure) and rethrows", async () => {
+    await expect(
+      withTempLockFile(file(), async () => {
+        fs.writeFileSync(file(), "{}");
+        throw new Error("audit failed");
+      }),
+    ).rejects.toThrow("audit failed");
+    expect(fs.existsSync(file())).toBe(false);
+  });
+});
+
+describe("parseReleaseLockArgs duplicates", () => {
+  it("rejects --release-lock given twice instead of silently using the first", () => {
+    expect(() => parseReleaseLockArgs([`--release-lock=${X}`, "--release-lock=0.0.1"], { serverVersion: X })).toThrow(/2 times/);
   });
 });
