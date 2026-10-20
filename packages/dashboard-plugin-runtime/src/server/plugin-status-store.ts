@@ -14,6 +14,8 @@ import type {
 export interface PluginStatusStore {
   setStatus(status: PluginStatus): void;
   getStatus(id: string): PluginStatus | undefined;
+  /** Drop a row (a removed plugin whose server entry never loaded). No-op when absent. */
+  removeStatus(id: string): void;
   listAll(): PluginStatus[];
   /**
    * Record the latest bridge probe for a plugin. The most recent snapshot
@@ -35,6 +37,9 @@ export function createPluginStatusStore(): PluginStatusStore {
     },
     getStatus(id: string) {
       return store.get(id);
+    },
+    removeStatus(id: string) {
+      store.delete(id);
     },
     listAll(): PluginStatus[] {
       // Splice the latest probe in at read time so callers always see the

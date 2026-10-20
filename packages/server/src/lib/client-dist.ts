@@ -21,6 +21,7 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import {
   type FixturePolicy,
+  buildDeclarationPath,
   bundleRootsFor,
   discoverPlugins,
   findMonorepoRoot,
@@ -159,4 +160,23 @@ export function clientBuildSnapshotFor(clientDir: string | null): ClientBuildSna
   return readClientBuildSnapshot(clientDir, (policy) =>
     runtimePluginRegistryHash(policy === "excluded"),
   );
+}
+
+/**
+ * Ids the served build declares bundled (`pi-dashboard-build.json#bundledPluginIds`), read raw
+ * (additive field; `readBuildDeclaration` does not surface it yet). `undefined` = undeclared
+ * (no served build, unreadable file, or the field is absent / not a string array) — discovery
+ * then falls back to plain source priority. Handed to the loader via
+ * `setDeclaredBundledPluginIds` before any server-side discovery call, and re-read by
+ * `refreshPluginDiscovery()`. See change: decouple-plugins-from-core (task 5.4, design D11/D15).
+ */
+export function readServedBundledPluginIds(clientDir: string | null): readonly string[] | undefined {
+  if (!clientDir) return undefined;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(buildDeclarationPath(clientDir), "utf-8")) as { bundledPluginIds?: unknown };
+    const ids = parsed.bundledPluginIds;
+    return Array.isArray(ids) && ids.every((i) => typeof i === "string") ? (ids as string[]) : undefined;
+  } catch {
+    return undefined;
+  }
 }

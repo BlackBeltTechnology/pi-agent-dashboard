@@ -253,6 +253,11 @@ export interface EventWiringDeps {
    */
   dispatchPluginSessionEnded?: (sessionId: string) => void;
   /**
+   * A session's bridge registered with `cwd` — drives local-scope plugin detection for a cwd not
+   * yet scanned. See change: decouple-plugins-from-core (task 5.9).
+   */
+  dispatchSessionRegisteredCwd?: (cwd: string) => void;
+  /**
    * Optional eager liveness stamping. When both provided, the wiring stamps
    * `{ live:true, liveEpoch }` into a session's `.meta.json` once per
    * activation (first live activity event under the current epoch), via the
@@ -322,6 +327,7 @@ export function wireEvents(deps: EventWiringDeps): void {
     eventStore,
     fitWorkerPool,
     dispatchPluginSessionEnded,
+    dispatchSessionRegisteredCwd,
     piGateway,
     browserGateway,
     sessionOrderManager,
@@ -484,6 +490,7 @@ export function wireEvents(deps: EventWiringDeps): void {
     // drops its index row + broadcasts the decremented count before the live
     // registration is reflected. See change: archive-sessions-lazy-load.
     sessionArchive?.onBridgeRegister(sessionId);
+    dispatchSessionRegisteredCwd?.(cwd);
     // ── attachProposal arm ───────────────────────────────────────────────
     let attachConsumed = false;
     if (pendingAttachRegistry) {

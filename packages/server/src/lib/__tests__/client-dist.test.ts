@@ -11,7 +11,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { resolveStaticClientDir } from "../client-dist.js";
+import { readServedBundledPluginIds, resolveStaticClientDir } from "../client-dist.js";
 
 const dirs: string[] = [];
 
@@ -99,5 +99,29 @@ describe("resolveStaticClientDir (E10, E11)", () => {
     });
 
     expect(resolved).toBeNull();
+  });
+});
+
+// task 5.4: the served declaration's ids reach discovery (absent → undeclared).
+describe("readServedBundledPluginIds", () => {
+  const write = (dir: string, body: unknown) => fs.writeFileSync(path.join(dir, "pi-dashboard-build.json"), typeof body === "string" ? body : JSON.stringify(body));
+
+  it("reads the string array", () => {
+    const dir = tmpDir();
+    write(dir, { schemaVersion: 1, bundledPluginIds: ["goal", "flows"] });
+    expect(readServedBundledPluginIds(dir)).toEqual(["goal", "flows"]);
+  });
+
+  it.each([
+    ["no served build", null],
+    ["missing file", "missing"],
+    ["malformed json", "{bad"],
+    ["field absent", { schemaVersion: 1 }],
+    ["not a string array", { bundledPluginIds: [1, "a"] }],
+  ])("%s → undeclared", (_n, body) => {
+    const dir = tmpDir();
+    if (body === null) return expect(readServedBundledPluginIds(null)).toBeUndefined();
+    if (body !== "missing") write(dir, body);
+    expect(readServedBundledPluginIds(dir)).toBeUndefined();
   });
 });

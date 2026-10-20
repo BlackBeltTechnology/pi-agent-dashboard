@@ -46,12 +46,18 @@ export interface BridgeProbeSnapshot {
 }
 
 /**
- * Which discovery search dir a plugin came from (one per search dir in the
- * loader). `pi-package` is reserved for the Phase 4 package-discovery source
- * and has no producer yet; the host API gate already treats it like `installed`.
- * See change: decouple-plugins-from-core (design D7).
+ * Which discovery source a plugin came from. `pi-package` = a `settings.json#packages[]`
+ * (user scope) package carrying a manifest (lowest priority, server entry default-deny);
+ * `local-detected` = a project-scope (`<cwd>/.pi/settings.json`) package that is reported
+ * but never loaded. See change: decouple-plugins-from-core (design D7, D12, D15).
  */
-export type PluginDiscoverySource = "workspace" | "installed" | "bundled" | "pi-package";
+export type PluginDiscoverySource = "workspace" | "installed" | "bundled" | "pi-package" | "local-detected";
+
+/** A losing duplicate of a plugin id, recorded on the winner (never loaded). */
+export interface PluginShadowedCopy {
+  source: PluginDiscoverySource;
+  packageDir: string;
+}
 
 /** Result of evaluating a manifest `hostApi` range at discovery. */
 export interface PluginHostApiStatus {
@@ -83,6 +89,10 @@ export interface PluginStatus {
   claims: number;
   /** Discovery source of the plugin. See change: decouple-plugins-from-core. */
   source?: PluginDiscoverySource;
+  /** Losing duplicates of this id (one row per id; never loaded). See change: decouple-plugins-from-core (D15). */
+  shadowed?: PluginShadowedCopy[];
+  /** Loaded plugin whose package changed or vanished: the running copy is stale until a server restart. */
+  restartRequired?: boolean;
   /** Host API range evaluation (absent when the plugin declares none and none is required). */
   hostApi?: PluginHostApiStatus;
   /** Client delivery; `refused` + `host-api` when the host API gate refused the plugin. */

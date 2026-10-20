@@ -7,6 +7,7 @@ import type {
   PluginEventBroadcast,
   PluginIntentsMessage,
 } from "./dashboard-plugin/intent-types.js";
+import type { PluginStatus } from "./dashboard-plugin/plugin-status.js";
 import type { DisplayPrefs, PartialDisplayPrefs } from "./display-prefs.js";
 import type { AutoNameOutcome, NotifyLevel } from "./protocol.js";
 import type { QuestionsUpdateMessage } from "./question-types.js";
@@ -1080,6 +1081,15 @@ export interface PluginConfigUpdateMessage {
 }
 
 /**
+ * Server → browser: the plugin status set changed (discovery refresh, local-scope
+ * detection). Carries the full list. See change: decouple-plugins-from-core (task 5.8).
+ */
+export interface PluginsChangedMessage {
+  type: "plugins_changed";
+  plugins: PluginStatus[];
+}
+
+/**
  * Server → browser: broadcast just before the server restarts/shuts down so a
  * browser-side `useAsyncAction(confirm: "ws")` can correlate its restart click.
  * Mirrors the bridge-facing `ServerRestartingExtensionMessage` (protocol.ts).
@@ -1170,6 +1180,7 @@ export type ServerToBrowserMessage =
   | AutoNameOutcomeBrowserMessage
   | RecoveryOfferMessage
   | PluginConfigUpdateMessage
+  | PluginsChangedMessage
   | EditorTabOpenMessage
   | PluginActionErrorMessage
   | RetrySessionErrorMessage

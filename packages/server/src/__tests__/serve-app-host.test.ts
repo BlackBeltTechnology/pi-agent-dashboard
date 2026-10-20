@@ -30,8 +30,10 @@ function plugin(dirName: string, manifestId: string) {
   const packageDir = path.join(tmp, "packages", dirName);
   fs.mkdirSync(path.join(packageDir, "dist"), { recursive: true });
   fs.writeFileSync(path.join(packageDir, "dist", "index.html"), `<p>${manifestId}</p>`);
-  return { packageDir, manifestId };
+  return { packageDir, manifestId, source: "workspace" as const };
 }
+
+const roots = () => [path.join(tmp, "packages")];
 
 describe("readBundledPluginDirs", () => {
   it("lists package DIRECTORY names from the server package (not manifest ids)", () => {
@@ -51,12 +53,72 @@ describe("isServeAppTrusted (E5 trust table, serveApp subset)", () => {
     ["neither (priority is not trust)", "third-party", "tp", ["other"], false],
     ["id equal to a bundled DIR name does not count", "third-party", "voice-wall-plugin", [], false],
   ])("%s", (_n, dir, id, configured, expected) => {
-    expect(isServeAppTrusted({ packageDir: `/x/${dir}`, manifestId: id }, { bundledDirs, configuredIds: configured as string[] })).toBe(expected);
+    const p = plugin(dir as string, id as string);
+    expect(isServeAppTrusted(p, { bundledDirs, configuredIds: configured as string[], bundledRoots: roots() })).toBe(expected);
+  });
+});
+
+// test-plan #E52 (task 5.1): bundled app-mount trust is path-contained.
+describe("isServeAppTrusted — path-contained bundled trust (E52)", () => {
+  const bundledDirs = new Set(["goal-plugin", "craft-web-plugin"]);
+  const dashPlugins = () => path.join(tmp, "dash", "plugins");
+  const lists = () => ({ bundledDirs, configuredIds: [] as string[], bundledRoots: [path.join(tmp, "packages"), dashPlugins()] });
+  const at = (packageDir: string, source: "workspace" | "installed" | "bundled" | "pi-package" | "local-detected") => {
+    fs.mkdirSync(packageDir, { recursive: true });
+    return { packageDir, manifestId: "x", source };
+  };
+
+  it("(a) a pi-package copy with a spoofed bundled basename is refused", () => {
+    const evil = at(path.join(tmp, ".pi", "agent", "npm", "node_modules", "@evil", "goal-plugin"), "pi-package");
+    expect(isServeAppTrusted(evil, lists())).toBe(false);
+  });
+
+  it("(a') even a bundled-looking source with a dir outside every root is refused", () => {
+    expect(isServeAppTrusted(at(path.join(tmp, "elsewhere", "goal-plugin"), "installed"), lists())).toBe(false);
+  });
+
+  it("(b) an installed craft-web-plugin under the dashboard plugins dir is admitted as bundled", () => {
+    expect(isServeAppTrusted(at(path.join(dashPlugins(), "craft-web-plugin"), "installed"), lists())).toBe(true);
+  });
+
+  it("(c) a symlink under the dashboard plugins dir pointing outside is refused (realpath)", () => {
+    const target = path.join(tmp, "evil", "goal-plugin");
+    fs.mkdirSync(target, { recursive: true });
+    fs.mkdirSync(dashPlugins(), { recursive: true });
+    const link = path.join(dashPlugins(), "goal-plugin");
+    fs.symlinkSync(target, link);
+    expect(isServeAppTrusted({ packageDir: link, manifestId: "x", source: "installed" }, lists())).toBe(false);
+  });
+
+  it("(d) a workspace copy under <repo>/packages is admitted", () => {
+    expect(isServeAppTrusted(at(path.join(tmp, "packages", "goal-plugin"), "workspace"), lists())).toBe(true);
+  });
+
+  it("(e) a local-detected copy is never bundled, even in a root", () => {
+    expect(isServeAppTrusted(at(path.join(tmp, "packages", "goal-plugin"), "local-detected"), lists())).toBe(false);
+  });
+
+  it("default roots: the real goal-plugin workspace copy is admitted, a same-named pi-package copy is not", () => {
+    const real = path.resolve(__dirname, "../../../goal-plugin");
+    const defaults = { bundledDirs: readBundledPluginDirs(), configuredIds: [] as string[] };
+    expect(isServeAppTrusted({ packageDir: real, manifestId: "goal", source: "workspace" }, defaults)).toBe(true);
+    expect(isServeAppTrusted({ packageDir: real, manifestId: "goal", source: "pi-package" }, defaults)).toBe(false);
+  });
+
+  it("a missing source fails closed", () => {
+    const dir = path.join(tmp, "packages", "goal-plugin");
+    fs.mkdirSync(dir, { recursive: true });
+    expect(isServeAppTrusted({ packageDir: dir, manifestId: "x" }, lists())).toBe(false);
+  });
+
+  it("a configured id (auth.capabilityRoutePlugins) still admits a pi-package copy", () => {
+    const evil = at(path.join(tmp, ".pi", "agent", "npm", "node_modules", "goal-plugin"), "pi-package");
+    expect(isServeAppTrusted(evil, { ...lists(), configuredIds: ["x"] })).toBe(true);
   });
 });
 
 describe("createHostServeApp (E13)", () => {
-  function ctxFor(p: { packageDir: string; manifestId: string }, configured: string[], bundled: string[]) {
+  function ctxFor(p: ReturnType<typeof plugin>, configured: string[], bundled: string[]) {
     const deps = {
       fastify: app,
       sessionManager: { listActive: () => [], listAll: () => [], getSession: () => undefined },
@@ -86,7 +148,7 @@ describe("createHostServeApp (E13)", () => {
       networkGuard: async () => {},
       onShutdown: () => () => {},
       pluginDataDir: () => path.join(tmp, "data", p.manifestId),
-      serveApp: createHostServeApp({ fastify: app, plugin: p, readConfiguredIds: () => configured, bundledDirs: new Set(bundled) }),
+      serveApp: createHostServeApp({ fastify: app, plugin: p, readConfiguredIds: () => configured, bundledDirs: new Set(bundled), bundledRoots: roots() }),
     } as ServerContextDeps;
     return createServerPluginContext(deps, p.manifestId);
   }

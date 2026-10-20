@@ -82,6 +82,53 @@ describe("npm-search-proxy", () => {
       expect(calledUrl).toContain("doom");
     });
 
+    // test-plan #E66 (task 5.12)
+    describe("dashboard-plugin type", () => {
+      const quota = {
+        package: { name: "pi-dashboard-quota", description: "Quota", version: "1.0.0", keywords: ["pi-dashboard-plugin"], date: "2025-03-01", links: {} },
+      };
+
+      it("searches the dashboard-plugin keyword and keeps keyword results typed dashboard-plugin", async () => {
+        mockFetch.mockResolvedValueOnce(npmSearchResponse([quota, sampleObject]));
+
+        const result = await searchPackages({ query: "quota", type: "dashboard-plugin" });
+
+        const calledUrl = decodeURIComponent(mockFetch.mock.calls[0][0] as string);
+        expect(calledUrl).toContain("text=keywords:pi-dashboard-plugin quota");
+        expect(calledUrl).not.toContain("keywords:pi-package");
+        expect(result.packages.map((p) => p.name)).toEqual(["pi-dashboard-quota"]);
+        expect(result.packages[0].types).toContain("dashboard-plugin");
+      });
+
+      it("the default (and other types) keep the pi-package keyword", async () => {
+        mockFetch.mockResolvedValue(npmSearchResponse([sampleObject]));
+        await searchPackages({ query: "doom" });
+        await searchPackages({ query: "doom", type: "extension" });
+        for (const call of mockFetch.mock.calls) {
+          expect(decodeURIComponent(call[0] as string)).toContain("text=keywords:pi-package doom");
+        }
+      });
+
+      it("the cache is keyed by type + query, and expires after 5 minutes", async () => {
+        vi.useFakeTimers();
+        try {
+          vi.setSystemTime(0);
+          mockFetch.mockResolvedValue(npmSearchResponse([quota]));
+          await searchPackages({ query: "q", type: "dashboard-plugin" });
+          await searchPackages({ query: "q", type: "extension" });
+          expect(mockFetch).toHaveBeenCalledTimes(2); // same q, different type → separate entries
+          vi.setSystemTime(4 * 60_000 + 59_999);
+          await searchPackages({ query: "q", type: "dashboard-plugin" });
+          expect(mockFetch).toHaveBeenCalledTimes(2); // hit
+          vi.setSystemTime(5 * 60_000 + 1);
+          await searchPackages({ query: "q", type: "dashboard-plugin" });
+          expect(mockFetch).toHaveBeenCalledTimes(3); // miss
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+    });
+
     it("returns cached result on second call", async () => {
       mockFetch.mockResolvedValueOnce(npmSearchResponse([sampleObject]));
 

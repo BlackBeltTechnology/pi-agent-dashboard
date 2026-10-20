@@ -2,6 +2,9 @@
   "name": "@blackbelt-technology/pi-dashboard-craft-web-plugin",
   "version": "0.10.0",
   "description": "Dashboard plugin that edits Office documents (.docx, and later .xlsx/.pptx) in the editor pane by embedding the matching ArtCraft web build (WordCraft first) in a sandboxed opaque-origin frame as an editor-pane-file-handler edit mode. Builds are provisioned on demand (checksum-verified GitHub release, shim injected), served read-only through ctx.serveApp under an enforced CSP with no programmatic network access, and saved only through the core write-binary path behind an OOXML content validator. Disabled by default (defaultEnabled: false) — opt in via settings.",
+  "keywords": [
+    "pi-dashboard-plugin"
+  ],
   "license": "MIT",
   "publishConfig": {
     "access": "public"

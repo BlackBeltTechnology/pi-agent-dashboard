@@ -3,7 +3,7 @@
  * See change: add-apple-tools-imcp-plugin.
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -66,5 +66,29 @@ describe("package manifest", () => {
     const claim = (m?.claims ?? []).find((c: { slot: string }) => c.slot === "settings-section");
     expect(claim).toBeTruthy();
     expect(claim.tab).toBeUndefined();
+  });
+});
+
+// test-plan #E67 / PS › First-party plugins findable (task 5.13). The README half is task 5.16.
+describe("first-party plugin packages are findable by the dashboard-plugin keyword", () => {
+  const packagesDir = join(here, "..", "..", "..");
+  const manifestPackages = readdirSync(packagesDir).flatMap((name) => {
+    const pkgPath = join(packagesDir, name, "package.json");
+    if (!existsSync(pkgPath)) return [];
+    const raw = JSON.parse(readFileSync(pkgPath, "utf8")) as { keywords?: string[]; "pi-dashboard-plugin"?: { fixture?: boolean } };
+    const adjacent = join(packagesDir, name, "dashboard-plugin.json");
+    const manifest = existsSync(adjacent)
+      ? (JSON.parse(readFileSync(adjacent, "utf8")) as { fixture?: boolean })
+      : raw["pi-dashboard-plugin"];
+    return manifest ? [{ name, keywords: raw.keywords ?? [], fixture: manifest.fixture === true }] : [];
+  });
+
+  it("finds the manifest packages (guards against a vacuous pass)", () => {
+    expect(manifestPackages.length).toBeGreaterThan(20);
+  });
+
+  it("every non-fixture manifest package carries keywords ∋ pi-dashboard-plugin", () => {
+    const missing = manifestPackages.filter((p) => !p.fixture && !p.keywords.includes("pi-dashboard-plugin")).map((p) => p.name);
+    expect(missing).toEqual([]);
   });
 });

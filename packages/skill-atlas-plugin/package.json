@@ -2,6 +2,9 @@
   "name": "@blackbelt-technology/pi-dashboard-skill-atlas-plugin",
   "version": "0.10.0",
   "description": "Dashboard plugin showing every skill pi loads in a folder or globally as a typed relation graph (references, same package, shared tool), rebuilt automatically when skills change.",
+  "keywords": [
+    "pi-dashboard-plugin"
+  ],
   "license": "MIT",
   "publishConfig": {
     "access": "public"

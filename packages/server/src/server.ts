@@ -8,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
-import { createGatedProviderAuth, createIsPiExtensionInstalled, createServerPluginContext, discoverPlugins, fixtureEntryAllowed, getFileValidatorPool, getFileValidatorRegistry, getPluginStatusStore, getWsRouteRegistry, loadServerEntries, pluginSpawnToSessionOptions, redactPluginConfigForClient, refreshRequirementProbesFor, resolvePluginEnabled } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import { createGatedProviderAuth, createIsPiExtensionInstalled, createServerPluginContext, discoverPlugins, fixtureEntryAllowed, getFileValidatorPool, getFileValidatorRegistry, getPluginStatusStore, getWsRouteRegistry, loadServerEntries, pluginServerAllowed, pluginSpawnToSessionOptions, redactPluginConfigForClient, refreshRequirementProbesFor, resolvePluginEnabled, type ServerLoadDeps, setDeclaredBundledPluginIds } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import {
   createMcpClientConfigService,
   createRealConfigIO,
@@ -121,6 +121,7 @@ import { resolveRpContext } from "./auth/passkey/rp-context.js";
 import { UserDirectory } from "./auth/passkey/user-directory.js";
 import type { OAuthLoginFlow } from "./auth/pi-oauth-types.js";
 import { createPluginCredentialStore } from "./auth/plugin-credential-store.js";
+import { isServerTrusted } from "./auth/plugin-server-trust.js";
 import { setOAuthRegistryRuntimeSource } from "./auth/provider-auth-registry.js";
 import { readAuthJson } from "./auth/provider-auth-storage.js";
 import { countReloads, type RadiusMcpService } from "./auth/radius-mcp.js";
@@ -190,6 +191,7 @@ import { createKnownServerMoves } from "./known-server-moves.js";
 import {
   clientBuildDiagnostic,
   clientBuildSnapshotFor,
+  readServedBundledPluginIds,
   resolveStaticClientDir,
 } from "./lib/client-dist.js";
 import { collectRuleSources } from "./lib/folder-project.js";
@@ -245,6 +247,7 @@ import { PiCoreChecker } from "./pi/pi-core-checker.js";
 import { PiCoreUpdater } from "./pi/pi-core-updater.js";
 import { createPiGateway } from "./pi/pi-gateway.js";
 import { listGlobalSkills } from "./pi/pi-resource-scanner.js";
+import { createPluginDiscoveryWiring, type PluginDiscoveryWiring } from "./plugin-discovery-wiring.js";
 import * as pluginEventSeam from "./plugin-event-seam.js";
 import { pluginIntentCache } from "./plugin-intent-cache.js";
 import { createPluginRequestLane } from "./plugin-request-lane.js";
@@ -1501,6 +1504,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // death signal, even when no terminal pi event was forwarded.
   // See change: finalize-automation-run-on-session-death.
   const pluginSessionEndSubs = new Set<(sessionId: string) => void>();
+  // Post-boot plugin discovery (refreshPluginDiscovery + local-scope detection); built right
+  // after the boot `loadServerEntries` pass. See change: decouple-plugins-from-core (5.5, 5.9).
+  let pluginDiscovery: PluginDiscoveryWiring | undefined;
   // Plugin shutdown subscribers (ServerPluginContext.onShutdown). Dispatched
   // in server stop() at the exact point the goal supervisor disposes today —
   // BEFORE piGateway.stop() tears bridges down — so plugin backoff timers /
@@ -1657,6 +1663,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     for (const h of pluginSessionEndSubs) {
       try { h(sessionId); } catch (err) { console.error("[plugin-onSessionEnded]", err); }
     }
+    pluginDiscovery?.onSessionEnded();
+  }
+  // A bridge registered: a cwd not yet scanned may carry local-scope plugins. Deferred one tick so the
+  // session is in the manager's active list. See change: decouple-plugins-from-core (task 5.9).
+  function dispatchSessionRegisteredCwd(cwd: string): void {
+    setImmediate(() => pluginDiscovery?.onSessionRegistered(cwd));
   }
   // Notify a resolved session's OWNING plugin only. Routed by ownerId so no
   // plugin sees another's ref. See change: detach-automation-goal-from-core.
@@ -1790,6 +1802,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     dispatchPluginRequest,
     dispatchPluginRawEvent,
     dispatchPluginSessionEnded,
+    dispatchSessionRegisteredCwd,
     metaPersistence,
     liveEpoch,
     commitDraftRelay,
@@ -2711,6 +2724,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   const hasProductionBuild = clientDirResolved !== null;
   // ONE snapshot feeds the startup diagnostic, `fastifyStatic`, and
   // `/api/health.clientBuild` (passed to `registerSystemRoutes` below).
+  // Served declaration's `bundledPluginIds` reach discovery BEFORE any server-side discovery call
+  // (D15). See change: decouple-plugins-from-core (task 5.4).
+  setDeclaredBundledPluginIds(readServedBundledPluginIds(clientDirResolved));
   const clientBuild = clientBuildSnapshotFor(clientDirResolved);
   console.log(clientBuildDiagnostic(clientBuild));
   if (!hasProductionBuild) {
@@ -3602,7 +3618,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         return resolvePluginEnabled(pluginCfg, manifest?.defaultEnabled);
       });
       try {
-        await loadServerEntries({
+        const pluginLoadDeps: ServerLoadDeps = {
+          // pi-package server entries stay refused until the operator grants server trust (D12, R9).
+          isServerTrusted,
           isEnabled: (pluginId) => {
             const cfg = loadConfig();
             const pluginCfg = getPluginConfigFromFile(cfg, pluginId) as Record<string, unknown>;
@@ -4015,7 +4033,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               // mounts `/apps/<appId>/`. See change: add-plugin-capability-routes (D2, D5).
               serveApp: createHostServeApp({
                 fastify,
-                plugin: { packageDir: plugin.packageDir, manifestId: plugin.manifest.id },
+                plugin: { packageDir: plugin.packageDir, manifestId: plugin.manifest.id, source: plugin.source },
                 readConfiguredIds: () => loadConfig().auth?.capabilityRoutePlugins ?? [],
               }),
               // Emit a configured pi event into a session (relayed as a
@@ -4218,7 +4236,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               editClaimIds: plugin.manifest.claims.flatMap((c) => (c.slot === "editor-pane-file-handler" && c.mode === "edit" && c.id ? [c.id] : [])),
             },
           )),
+        };
+        pluginDiscovery = createPluginDiscoveryWiring({
+          loadDeps: pluginLoadDeps,
+          readDeclaredBundledIds: () => readServedBundledPluginIds(clientDirResolved),
+          listActiveCwds: () => sessionManager.listActive().map((s) => s.cwd),
+          broadcastPluginsChanged: (plugins) => browserGateway.broadcast({ type: "plugins_changed", plugins }),
         });
+        await loadServerEntries(pluginLoadDeps);
       } catch (err) {
         console.error('[plugin-loader] Unexpected error during pre-listen load:', err);
       } finally {
@@ -4778,6 +4803,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         // or they would land in every pi session's tool list.
         // See change: expose-plugin-credential-and-oauth-seams (D8).
         .filter(p => fixtureEntryAllowed(p.manifest))
+        // A pi-package bridge is not auto-registered until the operator grants server trust
+        // (D12, R9). See change: decouple-plugins-from-core (task 5.2).
+        .filter(p => pluginServerAllowed(p, isServerTrusted))
         // A disabled plugin's bridge is deregistered (both registries) and an
         // enabled one registered — same predicate as the server-entry loader.
         // The toggle route answers `restartRequired`, so this boot pass is

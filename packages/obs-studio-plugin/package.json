@@ -2,6 +2,9 @@
   "name": "@blackbelt-technology/pi-dashboard-obs-studio-plugin",
   "version": "0.10.0",
   "description": "OBS Studio for pi agents and the dashboard — detect/install, obs-websocket provisioning as a managed service, the pi-obs CLI and skill, and a remote scene/virtual-camera/record panel.",
+  "keywords": [
+    "pi-dashboard-plugin"
+  ],
   "license": "MIT",
   "publishConfig": {
     "access": "public"

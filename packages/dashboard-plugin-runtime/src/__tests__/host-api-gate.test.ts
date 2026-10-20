@@ -134,6 +134,8 @@ describe("discovery + status — host API gate", () => {
       },
       isEnabled: () => true,
       repoRoot: tmpDir,
+      // The discovery cache is keyed by the effective root set, so the load pass names the same roots.
+      discovery: { extraSearchDirs: [{ dir: installedDir, source: "installed" }] },
     });
     const store = getPluginStatusStore();
     const inst = store.getStatus("inst");
@@ -167,7 +169,12 @@ describe("discovery + status — host API gate", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     writePlugin(installedDir, "bundle", { id: "bundle", displayName: "B", claims: [], clientBundle: "./dist/client.js" });
     discoverPlugins(tmpDir, [{ dir: installedDir, source: "installed" }]);
-    await loadServerEntries({ createContext: () => makeFakeContext(), isEnabled: () => true, repoRoot: tmpDir });
+    await loadServerEntries({
+      createContext: () => makeFakeContext(),
+      isEnabled: () => true,
+      repoRoot: tmpDir,
+      discovery: { extraSearchDirs: [{ dir: installedDir, source: "installed" }] },
+    });
     expect(getPluginStatusStore().getStatus("bundle")).toMatchObject({
       loaded: false,
       client: { delivery: "refused", refusedReason: "host-api" },
