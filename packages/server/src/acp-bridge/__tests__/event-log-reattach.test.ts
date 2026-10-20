@@ -10,7 +10,7 @@ import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/t
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createEventLog, LOG_NOTICE_TYPE } from "../event-log.js";
 import { startHostB } from "../main.js";
-import { fakeAgentLauncher, SESSION_ID } from "./adapter-harness.js";
+import { fakeAgentLauncher, makeHarness, SESSION_ID, startReady } from "./adapter-harness.js";
 import { startFakeGateway } from "./fake-gateway.js";
 
 let dir: string;
@@ -162,4 +162,39 @@ describe("E40: reattach after the dashboard restarts", () => {
       await gw.close();
     }
   }, 20000);
+});
+
+// test-plan #E15 — the reattach replay is marked; live traffic held during it is not.
+// See change: fix-large-session-resume-replay (D1).
+describe("E15: ACP reattach replay is marked", () => {
+  it("3 logged events replay with replay:true before replay_complete; held live messages after it are unmarked", async () => {
+    const logged = [ev("agent_start"), ev("message_end", { n: 1 }), ev("agent_settled")];
+    const eventLog = {
+      append: () => {},
+      flush: async () => {},
+      size: () => logged.length,
+      replay: async (cb: (e: DashboardEvent) => void) => {
+        for (const e of logged) cb(e);
+        // live traffic arriving while the replay is still running is held back
+        h.prompt("live during replay");
+        await new Promise((r) => setTimeout(r, 40));
+      },
+    };
+    const h = makeHarness({ adapter: { eventLog: eventLog as never } });
+    await startReady(h);
+    h.sent.length = 0;
+    await h.adapter.reconnected();
+    const completeAt = h.sent.findIndex((m) => m.type === "replay_complete");
+    expect(completeAt).toBeGreaterThan(-1);
+    const forwards = (from: number, to: number) =>
+      h.sent.slice(from, to).filter((m) => m.type === "event_forward") as Array<{ replay?: true; event: DashboardEvent }>;
+    // The logged events carry timestamp 1; stray live traffic from startup does not.
+    const replayed = forwards(0, completeAt).filter((m) => m.event.timestamp === 1);
+    expect(replayed).toHaveLength(3);
+    expect(replayed.every((m) => m.replay === true)).toBe(true);
+    await h.waitFor(() => forwards(completeAt, h.sent.length).length > 0);
+    expect(forwards(completeAt, h.sent.length).every((m) => m.replay === undefined)).toBe(true);
+    // nothing but the logged events carries the marker
+    expect(forwards(0, h.sent.length).filter((m) => m.replay === true)).toHaveLength(3);
+  });
 });

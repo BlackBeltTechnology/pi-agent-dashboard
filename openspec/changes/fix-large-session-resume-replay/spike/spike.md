@@ -40,3 +40,14 @@ cleared on `replay_complete` and on each new register; 120 s hard cap.
 - bridge send loop: 157 ms
 - register → exit flush received by browser: 741 ms (one `event_replay` frame)
 - Server-side processing is far below 5 s; field replays above 5 s come from bridge-side or network time. Loopback only — a throttled link was not measured.
+
+## P1 before / after (task 9.3) — `large-resume-replay-perf.test.ts`
+
+15,213 issue-shaped `event_forward` (~80 MB), one subscribed browser, default `maxReplayEvents` 2,000, loopback.
+
+| | frames after `replay_complete` | largest `event_replay` frame | register → last frame |
+|---|---|---|---|
+| develop (spike) | 1 | 11,203 events (~80 MB) | 741 ms |
+| fixed | 10 | 200 events (window 2,000 in 200-event batches, `history_window` sent) | 2,295 ms |
+
+The wall time rises because the flush now yields between batches instead of serialising one frame; what matters is that no single frame stalls the socket / client. The spike tests were deleted once tasks 1.x and 4.9 covered them; this file stays as the measurement record.

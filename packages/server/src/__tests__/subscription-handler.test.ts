@@ -8,6 +8,7 @@ import type { BrowserHandlerContext } from "../browser-handlers/handler-context.
 import { handleSubscribe, replaySessionAssets, sendEventBatches } from "../browser-handlers/subscription-handler.js";
 import { createDirectoryService, type DirectoryService, type LoadResult } from "../directory-service.js";
 import { createMemoryEventStore } from "../persistence/memory-event-store.js";
+import { createReplayState } from "../session/hydration-state.js";
 import { createMemorySessionManager } from "../session/memory-session-manager.js";
 import type { RemoteTranscriptStore } from "../session/remote-transcript-store.js";
 
@@ -996,5 +997,89 @@ describe("handleSubscribe — retained hydration coalescing (D4)", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+/**
+ * A register supersedes a cold hydration that is loading, resolved-but-not-inserted,
+ * or already fanning out. See change: fix-large-session-resume-replay (D6),
+ * test-plan #X2, #X3.
+ */
+describe("handleSubscribe — register supersedes cold hydration", () => {
+  const SID = "s-hyd";
+  const msgEvents = (n: number): Array<{ eventType: string; timestamp: number; data: Record<string, unknown> }> =>
+    Array.from({ length: n }, (_, i) => ({
+      eventType: "message_end",
+      timestamp: 1,
+      data: { message: { role: "user", content: [{ type: "text", text: `m${i}` }] } },
+    }));
+
+  function setup(load: () => Promise<LoadResult>, sendTo?: (ws: any, msg: any) => void) {
+    const replayState = createReplayState();
+    const ws = { readyState: 1, OPEN: 1, bufferedAmount: 0 } as any;
+    const sessionManager = createMemorySessionManager();
+    sessionManager.register({ id: SID, cwd: "/x", sessionFile: "/x/s.jsonl", source: "terminal" } as any);
+    const ctx = createMockContext({
+      ws,
+      sessionManager,
+      replayState,
+      sendTo: vi.fn(sendTo ?? (() => {})),
+      getSubscribers: () => [ws],
+      directoryService: { loadSessionEvents: vi.fn(load) } as unknown as DirectoryService,
+    });
+    return { ctx, replayState };
+  }
+
+  // test-plan #X2
+  it("X2: a load that resolved but whose continuation has not run inserts nothing once a register lands", async () => {
+    let resolve!: (r: LoadResult) => void;
+    const { ctx, replayState } = setup(() => new Promise<LoadResult>((r) => { resolve = r; }));
+    handleSubscribe({ type: "subscribe", sessionId: SID }, new Set(), ctx);
+    // Resolve, then register in the SAME tick: the `.then` continuation is still queued.
+    resolve({ success: true, events: msgEvents(3), entryCount: 3, leafEntryId: "e2" });
+    replayState.hydration.bumpRegister(SID);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(ctx.eventStore.getEvents(SID, 1)).toHaveLength(0);
+    expect(replayState.hydration.getFingerprint(SID)).toBeUndefined();
+  });
+
+  it("X2: an unsuperseded load inserts and records the fingerprint", async () => {
+    const { ctx, replayState } = setup(async () => ({ success: true, events: msgEvents(3), entryCount: 3, leafEntryId: "e2" }));
+    handleSubscribe({ type: "subscribe", sessionId: SID }, new Set(), ctx);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(ctx.eventStore.getEvents(SID, 1)).toHaveLength(3);
+    expect(replayState.hydration.getFingerprint(SID)).toEqual({
+      entryCount: 3,
+      leafEntryId: "e2",
+      storeMaxSeq: ctx.eventStore.getMaxSeq(SID),
+    });
+  });
+
+  // test-plan #X3
+  it("X3: no hydration batch reaches the browser after the register's session_state_reset", async () => {
+    const log: any[] = [];
+    let registered = false;
+    let hydrationRef!: ReturnType<typeof createReplayState>["hydration"];
+    const { ctx, replayState } = setup(
+      async () => ({ success: true, events: msgEvents(6_000), entryCount: 6000, leafEntryId: "e5999" }),
+      (_ws, msg) => {
+        log.push(msg);
+        if (!registered && msg.type === "event_replay" && msg.events.length > 0) {
+          // The bridge registers mid fan-out: generation bump + its wipe's reset.
+          registered = true;
+          hydrationRef.bumpRegister(SID);
+          log.push({ type: "session_state_reset" });
+        }
+      },
+    );
+    hydrationRef = replayState.hydration;
+    handleSubscribe({ type: "subscribe", sessionId: SID }, new Set([SID]), ctx);
+    await new Promise((r) => setTimeout(r, 400));
+    expect(registered).toBe(true);
+    // the LAST reset is the register's; the windowed hydration sent its own first
+    const resetAt = log.map((m) => m.type).lastIndexOf("session_state_reset");
+    expect(log.filter((m) => m.type === "event_replay" && m.events.length > 0).length).toBeGreaterThan(0);
+    const after = log.slice(resetAt + 1).filter((m) => m.type === "event_replay" && m.events.length > 0);
+    expect(after).toEqual([]);
   });
 });

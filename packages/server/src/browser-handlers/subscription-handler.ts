@@ -37,6 +37,50 @@ interface LoadResultLike {
   success: boolean;
   events: Array<{ eventType: string; timestamp: number; data: Record<string, unknown> }>;
   error?: string;
+  /** Skip-wipe fingerprint source. See change: fix-large-session-resume-replay (D5). */
+  entryCount?: number;
+  leafEntryId?: string;
+}
+
+/**
+ * A subscriber with nothing to read yet because a bridge is replaying the
+ * session: keepalive the client's replay-in-flight state until the replay exit
+ * flush (or the unregister terminal batch) ends it with `isLast: true`. The
+ * controller stops the keepalive BEFORE it flushes, so no empty marker can
+ * follow the terminal batch; a closed socket stops its own.
+ * See change: fix-large-session-resume-replay (D6).
+ */
+function waitForBridgeReplay(
+  ws: WebSocket,
+  sessionId: string,
+  ctx: BrowserHandlerContext,
+  opts: { prime: boolean },
+): void {
+  const controller = ctx.replayState?.controller;
+  if (!controller) return;
+  const { sendTo } = ctx;
+  if (opts.prime) sendTo(ws, { type: "event_replay", sessionId, events: [], isLast: false });
+  let removeWaiter = (): void => {};
+  let timer: ReturnType<typeof setInterval> | null = setInterval(() => {
+    if (ws.readyState !== ws.OPEN) {
+      stop();
+      removeWaiter();
+      return;
+    }
+    sendTo(ws, { type: "event_replay", sessionId, events: [], isLast: false });
+  }, controller.keepaliveMs);
+  timer.unref?.();
+  function stop(): void {
+    if (timer !== null) {
+      clearInterval(timer);
+      timer = null;
+    }
+  }
+  removeWaiter = controller.addWaiter(sessionId, stop);
+  ws.once("close", () => {
+    stop();
+    removeWaiter();
+  });
 }
 
 /**
@@ -333,7 +377,21 @@ export async function sendEventBatches(
   sendTo: (ws: WebSocket, msg: ServerToBrowserMessage) => void,
   windowLimit?: number,
   mode: ReplayWindowMode = "head-tail",
+  /**
+   * Superseded-send probe, checked before every batch (and once up front). When
+   * it answers true the send stops and returns 0; the caller unmutes the socket
+   * without a catch-up. Absent ⇒ never stale.
+   * See change: fix-large-session-resume-replay (D4).
+   */
+  isStale?: () => boolean,
+  /**
+   * Send a `session_state_reset` when NO window applies, so the replay-exit
+   * flush always announces exactly one reset — the store may be head-trimmed
+   * (first seq > 1), where the client's seq-1 reset rule cannot be relied on.
+   */
+  resetIfUnwindowed = false,
 ): Promise<number> {
+  if (isStale?.()) return 0;
   // High-water mark is computed from the PRE-compaction window (D4).
   const preCompactionMaxSeq = stored.length > 0 ? stored[stored.length - 1].seq : 0;
   // Replay-only stream compaction: drop assistant `message_update` snapshots
@@ -424,6 +482,8 @@ export async function sendEventBatches(
     if (ws.readyState === ws.OPEN) {
       sendTo(ws, { type: "history_window", sessionId, headMaxSeq, tailMinSeq, gapCount, oldestGapSeq, windowShape: mode });
     }
+  } else if (resetIfUnwindowed && ws.readyState === ws.OPEN) {
+    sendTo(ws, { type: "session_state_reset", sessionId });
   }
   // Terminate an empty payload explicitly. The loop below cannot run when there
   // is nothing to batch, so without this a warm empty delta (or a cold session
@@ -439,6 +499,7 @@ export async function sendEventBatches(
   }
   for (let i = 0; i < compacted.length; i += REPLAY_BATCH_SIZE) {
     if (ws.readyState !== ws.OPEN) return 0;
+    if (isStale?.()) return 0;
     const batch = compacted.slice(i, i + REPLAY_BATCH_SIZE);
     sendTo(ws, {
       type: "event_replay",
@@ -889,6 +950,12 @@ export function handleSubscribe(
           .catch(onReplayFailed);
       }
     }
+  } else if (ctx.replayState?.controller.replayingSessions.has(msg.sessionId)) {
+    // A bridge is replaying this session and nothing is stored yet: do NOT
+    // hydrate from disk (it would race the replay, and a session without a
+    // `sessionFile` would be reported unavailable). The exit flush serves us.
+    // See change: fix-large-session-resume-replay (D6).
+    waitForBridgeReplay(ws, msg.sessionId, ctx, { prime: true });
   } else if (directoryService) {
     const session = sessionManager.get(msg.sessionId);
     // Archived sessions are non-resident: resolve the transcript file from the
@@ -984,6 +1051,11 @@ export function handleSubscribe(
           replayed: replayedSockets,
         });
       }
+      // A register that lands while this load is running (or resolved but not
+      // yet inserted) supersedes it. See change: fix-large-session-resume-replay (D6).
+      const hydration = ctx.replayState?.hydration;
+      const generation = hydration?.generation(msg.sessionId) ?? 0;
+      const superseded = (): boolean => hydration !== undefined && hydration.generation(msg.sessionId) !== generation;
       // The retained read is async now, so it is handed to the same promise
       // chain the disk path uses rather than forking the ~60 lines of
       // ingest/broadcast below.
@@ -1003,11 +1075,21 @@ export function handleSubscribe(
               // `retainedTranscript` after the last subscriber left.
               if (read.cancelled) return { success: false, events: [], error: "cancelled" };
               retainedState = read.state;
-              return { success: true, events: read.events };
+              return { success: true, events: read.events, entryCount: read.entryCount, leafEntryId: read.leafEntryId };
             })
           : directoryService.loadSessionEvents(msg.sessionId, sessionFile as string, session?.contextWindow);
       loaded.then(async (result) => {
         stopHeartbeat();
+        if (superseded()) {
+          // Drop the result before it is inserted. The bridge replay is now the
+          // only source: keep this socket waiting for its exit flush.
+          if (ctx.replayState?.controller.replayingSessions.has(msg.sessionId)) {
+            if (subs.has(msg.sessionId)) waitForBridgeReplay(ws, msg.sessionId, ctx, { prime: false });
+          } else if (!eventStore.hasEvents(msg.sessionId)) {
+            sendTo(ws, { type: "event_replay", sessionId: msg.sessionId, events: [], isLast: true });
+          }
+          return;
+        }
         if (result.success) {
           // Hydration admits full-resolution inline images straight from the
           // transcript, so it needs the SAME two-phase strip as the live path.
@@ -1025,6 +1107,15 @@ export function handleSubscribe(
             const prepared = prepareEventForIngest(evt);
             pendingAttachments.push(...prepared.pending);
             eventStore.insertEvent(msg.sessionId, prepared.event);
+          }
+          // Fingerprint of what was just stored, so a later register of the same
+          // branch can skip the wipe. None when the leaf is unknown.
+          if (hydration && result.entryCount !== undefined && result.leafEntryId !== undefined) {
+            hydration.recordFingerprint(msg.sessionId, {
+              entryCount: result.entryCount,
+              leafEntryId: result.leafEntryId,
+              storeMaxSeq: eventStore.getMaxSeq(msg.sessionId),
+            });
           }
           const statsUpdates = extractStatsFromEvents(result.events);
           const metaUpdates: Record<string, unknown> = {
@@ -1049,7 +1140,9 @@ export function handleSubscribe(
             // Cold hydration is ALWAYS a full stream — window it (D1). The
             // `history_window` message is emitted per subscriber inside this
             // loop by `sendEventBatches` itself.
-            await sendEventBatches(sub, msg.sessionId, stored, sendTo, maxReplayEvents, replayWindowMode);
+            await sendEventBatches(sub, msg.sessionId, stored, sendTo, maxReplayEvents, replayWindowMode, superseded);
+            // A register superseded the fan-out: stop; the exit flush serves everyone.
+            if (superseded()) break;
             replayPendingUiRequests(sub, msg.sessionId);
             replayNotifyLog(sub, msg.sessionId);
             replayUiState(sub, msg.sessionId, ctx);
