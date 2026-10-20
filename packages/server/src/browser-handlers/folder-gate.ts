@@ -12,8 +12,8 @@ import { isWithinBrowseRoots } from "../lib/browse-roots.js";
 import type { BrowserHandlerContext } from "./handler-context.js";
 
 /**
- * Run `proceed` for a local socket (synchronously, exactly as before) or for a
- * remote socket when `path` is inside the shared roots. Anything else, including
+ * Run `proceed` for a local socket (`locallyTrusted === true`; synchronously, exactly as
+ * before) or for a remote (or unflagged) socket when `path` is inside the shared roots. Anything else, including
  * a root computation failure or a missing root resolver, refuses (fail closed).
  */
 export function gateRemoteFolder(
@@ -22,7 +22,8 @@ export function gateRemoteFolder(
   command: string,
   proceed: () => void,
 ): void {
-  if (ctx.locallyTrusted !== false) {
+  // Default-deny: only an explicit `true` is local; an absent bit is treated as remote.
+  if (ctx.locallyTrusted === true) {
     proceed();
     return;
   }

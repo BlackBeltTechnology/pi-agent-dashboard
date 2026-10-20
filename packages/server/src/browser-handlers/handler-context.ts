@@ -28,9 +28,9 @@ export interface BrowserHandlerContext {
   ws: WebSocket;
   /**
    * Was this socket genuinely local at the `/ws` upgrade (`isLocallyTrusted`)?
-   * `false` = remote: `pin_directory` / `add_folder_to_workspace` /
-   * `move_folder_to_workspace` are confined to the shared roots. Absent =
-   * ungated (contexts built outside the gateway); the gateway always sets it.
+   * Only `true` is local: `false` OR absent is remote, so `pin_directory` /
+   * `add_folder_to_workspace` / `move_folder_to_workspace` are confined to the shared
+   * roots (default-deny). The gateway always sets it.
    * See change: harden-server-capability-bounds (D1b).
    */
   locallyTrusted?: boolean;

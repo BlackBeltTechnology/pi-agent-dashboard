@@ -102,11 +102,12 @@ describe("E26 pin_directory", () => {
     expect(store.pinDirectory).not.toHaveBeenCalled();
   });
 
-  it("a context with no locality flag is ungated (contexts built outside the gateway)", async () => {
+  it("review r1 B1: a context with NO locality flag is gated (fail closed), not ungated", async () => {
     const work = await mk("srv", "work");
-    const { ctx, store } = makeCtx(undefined);
+    const { ctx, store, sendTo, ws } = makeCtx(undefined);
     handlePinDirectory({ type: "pin_directory", path: work }, ctx);
-    expect(store.pinDirectory).toHaveBeenCalledWith(work);
+    await vi.waitFor(() => refusedFor(sendTo, ws, work));
+    expect(store.pinDirectory).not.toHaveBeenCalled();
   });
 });
 
