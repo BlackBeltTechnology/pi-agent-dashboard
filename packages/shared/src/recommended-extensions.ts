@@ -635,6 +635,52 @@ export const RECOMMENDED_EXTENSIONS: readonly RecommendedExtension[] = [
 			"pi-photocraft CLI (compatibility alias; replace-region)",
 		],
 	},
+	{
+		id: "@blackbelt-technology/pi-untrusted-content-guard",
+		source: "npm:@blackbelt-technology/pi-untrusted-content-guard",
+		displayName: "pi-untrusted-content-guard",
+		fallbackDescription:
+			"Defends against indirect prompt injection: strips hidden payloads " +
+			"from untrusted tool results (web pages, search, email), spotlights " +
+			"them as data, and asks for confirmation before sensitive tools " +
+			"(bash, *_send, *_delete, ...) once untrusted content entered the run. " +
+			"Active on install in strip mode; set mode: \"off\" to disable.",
+		status: "optional",
+		unlocks: [
+			"Hidden prompt-injection payload removal in untrusted tool results",
+			"Confirmation gate on sensitive tools after untrusted content was read",
+		],
+		autowired: true,
+	},
+	{
+		id: "@blackbelt-technology/pi-dashboard-deck3d",
+		source: "npm:@blackbelt-technology/pi-dashboard-deck3d",
+		displayName: "pi-dashboard-deck3d",
+		fallbackDescription:
+			"Deterministic Markdown to self-contained 3D presentation engine " +
+			"(three.js runtime, effects, props, mermaid diagrams). Mermaid " +
+			"harvest needs Playwright chromium (npx playwright install chromium). " +
+			"Exposes the deck3d CLI.",
+		status: "optional",
+		unlocks: [
+			"deck3d + deck3d-from-pptx skills (Markdown or PPTX to 3D HTML deck)",
+			"deck3d CLI",
+		],
+	},
+	{
+		id: "@blackbelt-technology/pi-dashboard-music-production",
+		source: "npm:@blackbelt-technology/pi-dashboard-music-production",
+		displayName: "pi-dashboard-music-production",
+		fallbackDescription:
+			"Music-production skills: analyse an audio file into a music map " +
+			"(tempo, downbeat grid, key, sections, stems), cut it to length on " +
+			"the beat grid with click-free joins, and pick camera-punch hits for " +
+			"beat-synced video edits. Python scripts; uses ffmpeg and uv.",
+		status: "optional",
+		unlocks: [
+			"music-analysis, music-edit-to-length and beat-sync-video skills",
+		],
+	},
 ];
 
 /**

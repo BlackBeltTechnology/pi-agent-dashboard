@@ -12,6 +12,11 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Added
 
+- **Three more recommended extensions.** The recommended-extensions list now offers
+  `pi-untrusted-content-guard` (strips hidden prompt-injection payloads from web/search/email
+  results and asks before sensitive tools run afterwards), `pi-dashboard-deck3d` (Markdown or
+  PPTX to a 3D HTML deck) and `pi-dashboard-music-production` (beat-grid audio analysis,
+  cut-to-length and beat-synced video cues). All optional.
 - **Coloured action menus.** Session and folder action menus now tint each action icon by intent
   (go, create, caution, danger); danger rows also tint on hover/focus. Plugins opt in with the new
   optional `tone` field on `FolderMenuContribution` and `UiActionListItem` (`"go" | "create" |
