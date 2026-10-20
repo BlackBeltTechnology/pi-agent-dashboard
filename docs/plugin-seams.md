@@ -338,6 +338,7 @@ Claim fields (`PluginClaim`, validated by `manifest-validator.ts`):
 | `firstOverwriteNotice` | no | ≤ 300 chars |
 | `validator` | no | `true` = saves need registered validator (fail closed) |
 | `copySuffix` | edit: yes | `^[a-z][a-z0-9-]{1,31}$` |
+| `siblingExtensions` | no (edit only) | non-empty; each same rule as `extensions`; disjoint from `extensions`; no duplicates. Native-format exts a save may create next to tab file (`write-binary?mode=copy&siblingExt=`). Older runtime drops unknown key silently → client routes native saves to device download. See change: extend-craft-web-to-all-apps (D6). |
 
 - Rejected: text-backed (`isUnclaimableHandlerExt` → `isTextBackedExt`, from `fileKind`) or frozen deny list `HANDLER_DENIED_EXTS` (`packages/shared/src/file-kind.ts`).
 - Deny groups: secrets (`.env` `.npmrc` `.pem` `.key` `.pfx` …), scripts (`.ps1` `.bat` `.cmd` `.vbs` …), plain text (`.patch` `.diff` `.jsonl` `.ipynb` `.lock` `.srt` …).
@@ -355,16 +356,19 @@ Claim fields (`PluginClaim`, validated by `manifest-validator.ts`):
 interface FileHandlerProps {
   cwd: string; path: string; session: DashboardSession | null; isActive: boolean;
   snapshot(): Promise<{ bytes: ArrayBuffer; size: number; mtime: number; sha1: string }>;
-  save(bytes: ArrayBuffer, opts: { target: "overwrite" | "copy" }):
+  save(bytes: ArrayBuffer, opts: { target: "overwrite" | "copy" } | { target: "sibling"; ext: string }):
     Promise<{ ok: true; path: string; mtime: number; sha1: string }
       | { ok: false; reason: "cancelled" | "conflict-unresolved" | "rejected" | "too-large" | "busy"; message: string }>;
   setDirty(state: boolean | "unknown"): void;   // initial "unknown"
+  openFile?(path: string, claimId?: string): void;   // optional; absent on older runtime
   context: PluginContext;
 }
 ```
 
 - `snapshot()`: `GET /api/file/digest` → `GET /api/file/raw` (`no-store`) → digest again. Accept when digests match and `sha1(bytes)` matches. Retry 3×, then reject. Size > `maxBytes` → `too-large` before content fetch. Mtime-only change tolerated.
 - `save()` → `POST /api/file/write-binary` (below). First overwrite per instance shows `firstOverwriteNotice` dialog.
+- `save(bytes, {target:"sibling", ext})`: create NEW `<stem><ext>` next to tab file. Never overwrite → no `firstOverwriteNotice`. `ext` must be in claim `siblingExtensions`. 409 (every name taken) → `reason: "conflict-unresolved"`. See change: extend-craft-web-to-all-apps (D6).
+- `openFile(path, claimId?)`: open workspace file (cwd-relative, as save result returns it) in new tab. `claimId` selects one of this plugin's file-handler modes. Used by "Create and open". Optional: hidden when absent. See change: extend-craft-web-to-all-apps (D6).
 - `setDirty("unknown")` = dirty for every guard. Initial state. Never evictable.
 - Call `setDirty(false|true)` as soon as document loads. Unset `"unknown"` pins instance (never evicted).
 - Keep-alive: `MAX_LIVE_HANDLERS = 3` per page. LRU eviction of instances with state `false` only. Dirty/unknown never evicted; no evictable → save-or-discard dialog.
@@ -384,6 +388,20 @@ interface FileHandlerProps {
 - Overwrite: requested AND realpath ext must be in `claim.extensions`.
 - Copy: `<stem>.<copySuffix>.<ext>`, then `-2`…`-99` via `wx`. Never overwrites.
 - Mode preserved on overwrite; copy takes source mode (or `0644` masked by umask if source gone).
+
+### Sibling copy (`mode=copy&siblingExt`)
+
+See change: extend-craft-web-to-all-apps (D6).
+
+- Query: `POST /api/file/write-binary?mode=copy&siblingExt=<.ext>&cwd=…&path=…&claim=<pluginId>/<claimId>`.
+- No `expectSha1`. No content-hash check.
+- `<.ext>` must be in claim `siblingExtensions` → else `403`.
+- `mode=overwrite` + `siblingExt` → `400`.
+- Tab file must resolve inside cwd under a claimed extension.
+- Target: first free `<stem><.ext>`, then `<stem>-<n><.ext>`, n ≤ 99. Created via `wx`. Never overwrites.
+- No free name → `409`.
+- Same authz, lock, size and validator order as overwrite. Validator receives `<.ext>` (`validate(bytes, ext)`).
+- Size cap: claim `maxBytes`.
 
 ### Validators (`ctx.registerFileValidator`)
 

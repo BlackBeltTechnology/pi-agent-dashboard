@@ -333,3 +333,13 @@ Wave 3 RAW spike (task 4.1) — **go**:
 - Opened via the fallback (`confirmed:false`) about 10 s after the host's `open` (3 s drop fallback + decode + 5 s `openedFallbackMs`), inside the 15 s open budget but close to it. A Samsung `.dng` from the same site was a JPEG in disguise (`FFD8`); only real TIFF-based DNGs are used.
 - Rendering stays interactive in headless Chromium with SwiftShader; no page-thread stall was measured beyond the decode. The `lightcraft_zh_hans.otf` font is absent from the release, so one `ERR_FAILED` resource error is logged (the app falls back as designed).
 - Every claimed RAW extension passed its open gate with a raw.pixls.us sample (CR2 PowerShot S2 IS, CR3 EOS R6 Mark III, NEF D2H, ARW DSLR-A330, RAF FinePix S5000, ORF C5050Z, RW2 DC-GH5S): each shows the photo in the develop view. For the ARW and RAF samples LightCraft shows its own "Preview only" note (it views the embedded JPEG of an unsupported camera variant); that is still a view, so the extensions stay.
+
+Wave 4 media-project spike (task 5.1) — **deferred to `add-craft-web-media-projects`**: FilmCraft 0.9.0 starts with the `load-ready-ms` hook, accepts several synthetic drops (media land as `/files/<name>`), and saves projects that reference media only by those VFS paths. Whether a project dropped after its media resolves them could not be told apart from the demo project; OPFS recovery writes fail (logged). EffectCraft's `window.effectcraft.addFile` is the more direct route. No FilmCraft/EffectCraft claim ships here; the follow-up change starts with a from-scratch project spike.
+
+Upstream issues (task 6.1, filed 2026-10-20 after approval; drafts in `upstream-issues.md`):
+
+- Viewport `Title` naming the document: pdfcraft#3640, cadcraft#1717, designcraft#1356, soundcraft#809, deckcraft#1058, lightcraft#2397, filmcraft#2579 (`https://github.com/storytold/<app>/issues/<n>`).
+- DeckCraft web 0.8.0 `process::id` panic: https://github.com/storytold/deckcraft/issues/1059
+- FigCraft dropped-file open: https://github.com/storytold/figcraft/issues/916
+- Common `window.<app>.request` API: https://github.com/storytold/craft-libs/issues/193
+- GridCraft `— Edited` kept after save: https://github.com/storytold/gridcraft/issues/2050
