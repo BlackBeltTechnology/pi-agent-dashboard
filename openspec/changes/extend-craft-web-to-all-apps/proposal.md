@@ -33,7 +33,7 @@ Spike evidence and the per-app matrix: `design.md` §Context.
 
   The CSP stays hash-free.
 - **Shim v2** (an installed WordCraft build keeps loading; per-app minimum supported shim, re-prepare offered as an update). Title parsing is profile-driven (and handles the em-dash suffix).
-  - **Opened (apps without a title signal):** after a bounded time, when the drop was delivered, the canvas is alive and no start error occurred. Such an open is *unconfirmed*: the first overwrite asks the user to check that the document is shown.
+  - **Opened (apps without a title signal):** after a bounded time, when the drop was delivered, the canvas is alive and no start error occurred. Such an open is *unconfirmed*: the app's first-overwrite notice asks the user to check that the document is shown (one question, not two).
   - **Start failures:** a wasm trap/panic before opened → "could not start".
   - **Clean:** per profile, after an acknowledged save to the tab's own file with no input since. WordCraft keeps its title-driven rule.
   - **Worker trampoline:** wraps `new Worker(httpUrl)` in a blob bootstrap that imports the mount URL. This adds no network reach; the blob worker inherits the frame's CSP.
@@ -80,13 +80,14 @@ None. Everything extends existing capabilities.
 - `craft-web-editor`:
   - claims are per app type rather than per Office kind;
   - adapter profiles;
-  - readiness and opened detection without titles, with an unconfirmed-open overwrite check;
+  - readiness and opened detection without titles, with the unconfirmed-open check folded into the first-overwrite notice;
+  - UX from the approved board (`mockups/`): toolbar chips stating where saves go, sibling-dialog copy, a session-name hint, settings grouped by app type with fixed channels as read-only facts, and a contrast fix on the save-target toggle;
   - dirty clean-after-own-save per app;
   - a version channel fixed to the verified version (settings shows it fixed; shim compatibility keeps older builds usable);
   - native-format sibling saves;
   - per-format validators;
   - preview-only claims.
-- `editor-pane-file-handlers`: a copy save may use one of the claim's declared sibling extensions instead of the tab file's extension.
+- `editor-pane-file-handlers`: a copy save may use one of the claim's declared sibling extensions instead of the tab file's extension; the binary-file notice offers matching handler modes.
 - `dashboard-shell-slots`: the file-handler claim gains the optional `siblingExtensions` field (edit mode only; same extension rules).
 
 ## Impact

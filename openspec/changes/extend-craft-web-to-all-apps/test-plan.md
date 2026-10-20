@@ -6,6 +6,7 @@ Hard gate passed (decided 2026-10-20):
 - **Performance thresholds:** first open with a cached build ≤ 10 s p95 per app; validation of a 16 MiB SVG ≤ 2 s.
 - **e2e builds:** real pinned releases are downloaded from GitHub every run (checksum-verified, same path as the product). CI needs network.
 - **RAW fixture:** one small CC0 DNG committed under `docker/fixtures/sample-git/craft/`, licence recorded in that folder's `AGENTS.md`.
+- **UX board approved (2026-10-20):** `mockups/` proposals A4, B2/B3, C3, E2, G2 and the contrast fix (rows E12, E24, E28–E33, F4, F15).
 
 Exemplars by level:
 
@@ -39,7 +40,7 @@ Exemplars by level:
 | E9 | dirty rules | decision table | L1 | automated | `cleanOnAckedSave` {true, false} × {ack own overwrite, ack copy, ack sibling, trusted input after save request before ack, persisting `— Edited` title after ack, title changes to `— Edited` after ack} | shim message sequence | true+own ack → `dirty:false`; copy/sibling ack → stays `true`; input after request → stays `true`; persisting marker → stays `false`; marker change after ack → `true`; false (WordCraft) → only title-driven clean |
 | E10 | opened fallback | state-transition | L1 | automated | no-title profile, `openedFallbackMs` 3000 | synthetic drop delivered; then (a) 3000 ms pass, (b) canvas removed at 2000 ms, (c) frame reload at 2000 ms, (d) start error at 1000 ms | (a) `opened{confirmed:false}` then `dirty:false`; (b) and (c) no `opened`; (d) `start-failed`, no `opened` |
 | E11 | start-failed detector | state-transition | L1 | automated | `WebAssembly.RuntimeError` window error; `console.error("panicked at …")`; same events after `opened` | shim | before opened → one `start-failed`; after opened → no `start-failed` |
-| E12 | v1 compatibility of `opened` | EP | L1 | automated | `opened` message without `confirmed` | host first overwrite | no unconfirmed-open dialog; core first-overwrite notice only |
+| E12 | v1 compatibility of `opened` | EP | L1 | automated | `opened` message without `confirmed` (v1 shim) | host receives it, then first overwrite | phase `open`; telemetry counts it as `title`; the first overwrite shows only core's first-overwrite notice |
 | E13 | save routing | decision table | L1 | automated | `routeSave` inputs: tab `photo.jpg` claim `photocraft-raster` (sibling `.psd`); tab `mix.scraftz` (`inner-title`); tab `report.docx`; names {`photo.jpg`, `draft.jpg`, `photo.psd`, `other.psd`, `photo.pdf`}, {`Midnight Groove.scraftz` twice, `Other.scraftz`}, oversize bytes; preview claim | `routeSave` | `photo.jpg` → own; `draft.jpg` → save-as; `photo.psd` and `other.psd` → sibling (target `photo.psd`); `photo.pdf` → download; first `Midnight Groove.scraftz` → save-as even if stem matched, second (answer remembered) → own, `Other.scraftz` → save-as; oversize → too-large; preview claim → download for every name |
 | E14 | Create-and-open availability | decision table | L1 | automated | native claim `photocraft` {enabled+verified, disabled, absent} | sibling dialog render | "Create and open" shown only when enabled+verified; "Create", "Download instead", "Cancel" always |
 | E15 | `siblingExtensions` manifest rules | EP | L1 | automated | edit claim `[".jpg"]` + sibling `[".psd"]`; preview claim with siblings; sibling `.md`; sibling `.psd` also in `extensions`; sibling `psd` (no dot) | `validateManifest` | first accepted and survives registry generation; others throw naming plugin, claim and extension |
@@ -51,11 +52,16 @@ Exemplars by level:
 | E21 | SVG script filter | EP | L1 | automated | SVGs: plain; comment+PI before `<svg`; `<!DOCTYPE`; `<!ENTITY`; `<script>`; `<svg:script>`; `onload=`; `<set attributeName="onmouseover">`; `<animate attributeName="href" values="javascript:…">`; `href="&#106;avascript:…"`; `href=" java\tscript:…"`; `data:text/html`; `<foreignObject>`; `<script>` after 1 MiB of padding; first element `<html>` | `validate(bytes, ".svg")` | plain and comment+PI → ok; every other input → reject |
 | E22 | size caps | BVA | L1 | automated | `.odt` bytes at docx cap, cap+1; `.svg` at 16 MiB, 16 MiB+1 | core write-binary | at cap → passes size check; cap+1 → 413 |
 | E23 | fixed channel | decision table | L1 | automated | `latestChannel:false` app (GridCraft, DeckCraft) with stored `version:"latest"`; `latestChannel:true` (WordCraft) | status; prepare | fixed apps: status reports verified version, zero latest-metadata requests, prepare installs verified; WordCraft unchanged |
-| E24 | settings fixed channel | EP | L1 | automated | status rows for DeckCraft (fixed, reason "newer web builds fail to start"), GridCraft (fixed, "latest builds not verified yet"), WordCraft | `CraftWebSettings` render | DeckCraft/GridCraft selectors disabled with their reason text; WordCraft selector enabled |
+| E24 | settings fixed channel + grouping (D11 G2) | EP | L1 | automated | status rows for WordCraft (`latestChannel:true`), GridCraft (fixed, "newer releases are used once they are verified with this dashboard"), DeckCraft (fixed, "newer web builds fail to start"), LightCraft (preview) | `CraftWebSettings` render | WordCraft has `craft-web-wordcraft-version` select; GridCraft/DeckCraft have no select, show "Verified 0.8.0" / "Verified 0.7.0" plus their reason; headings in order "Edit files in place" (WordCraft, GridCraft), "Save in their own format, next to the file" (DeckCraft), "View only" (LightCraft); each header lists its extensions; Download button text includes the size |
 | E25 | frame flags invariant | EP | L1 | automated | every profile; profile with `frameParams:["nosw"]` | `CraftFrame` render | iframe `sandbox` = `allow-scripts`, `allow` = `clipboard-write` for every profile; `nosw` appears only in the `src` query |
 | E26 | worker trampoline | EP | L1 | automated | `new Worker("https://h/apps/craft-x/worker.js", {type:"module"})`; classic URL; URL containing `"` and a newline; `blob:` URL; `data:` URL | wrapped `Worker` (jsdom) | http → `blob:` whose body is exactly one `import`/`importScripts` of the `JSON.stringify`-escaped absolute URL; `blob:`/`data:` passed through unchanged |
 | E27 | view-only host | state-transition | L1 | automated | preview claim instance | `opened`, then `dirty:true` messages after trusted input, then close | `setDirty(false)` once; dirty messages ignored; no save-target toggle rendered; close → no unsaved prompt |
-| E28 | unconfirmed-open dialog order | decision table | L1 | automated | instance `opened{confirmed:false}` with fidelity notice; user choice {Overwrite, Save as copy, Cancel} | first own save | Overwrite → plugin dialog then core notice; Save as copy → copy, no core notice; Cancel → nothing written, `save-result ok:false`; second save → neither dialog |
+| E28 | unconfirmed open checked in one question (D4) | consistency + state | L1 | automated | profiles without `title`; their manifest claims; an instance `opened{confirmed:false}` | drift test; first own overwrite | every such claim's `firstOverwriteNotice` starts with "<App> does not report which file it opened." and is ≤ 300 chars; the host calls `props.save` directly (no plugin dialog), so exactly one dialog (core's) appears |
+| E29 | binary notice offers modes (A4) | decision table | L1 | automated | `photo.psd` tab in built-in view {PhotoCraft edit claim enabled, claim disabled, no claim}; `archive.bin` | `BinaryWarn` render; click the button | enabled → one button "Edit in PhotoCraft", click selects `craft-web/photocraft` exactly like the switcher; disabled / no claim → no button |
+| E30 | toolbar states where saves go (B2/B3) | decision table | L1 | automated | claims {plain edit `cadcraft` on `plan.dxf`, edit with `siblingExtensions:[".psd"]` on `photo.jpg`, preview `lightcraft` on `sample.dng`} | `CraftFrame` toolbar render | plain → no chip, label "Save target"; sibling → chip "Save (Ctrl+S) creates photo.psd", label "Exports to .jpg", toggle present; preview → chip "View only. Exports download to this device", no save-target group |
+| E31 | sibling dialog copy (D11) | EP | L1 | automated | sibling save of `photo.jpg` → `.psd`; then core 409 | dialog render; save result | title "PhotoCraft saves as .psd"; create buttons read "Create and open photo.psd" / "Create photo.psd"; 409 → alert names "Open photo.psd in PhotoCraft" and offers "Download instead" |
+| E32 | session-name hint (E2) | EP | L1 | automated | `inner-title` profile (SoundCraft) on `mix.scraftz`, suggested `Midnight Groove.scraftz`; `stem` profile (WordCraft) with `draft.docx` | Save As question render | SoundCraft question contains "names saves after the session inside the file, not after mix.scraftz"; WordCraft question has no such line |
+| E33 | save-target contrast fix | EP | L1 | automated | selected save-target button | `CraftFrame` render | selected class contains `text-[var(--text-primary)]` and not `--accent-text` |
 
 ### Performance
 
@@ -71,7 +77,7 @@ Exemplars by level:
 | F1 | open per app | state-convergence | L3 | automated | table row per shipped app with its fixture (`report.docx`, `letter.odt`, `letter.rtf`, `budget.xlsx`, `doc.pdf`, `plan.dxf`, `plan.dwg`, `mag.designcraft`, `mix.scraftz`, `photo.psd`, `photo.jpg`, `shapes.svg`, `talk.pptx`, `talk.deckcraft`) | select the app's mode | converges to `opened` (title apps confirmed, no-title apps unconfirmed); frame URL has no document data |
 | F2 | in-place save per type A app | state-convergence | L3 | automated | the app's fixture; an edit the row defines (xlsx: `999` into C2; dxf: `CIRCLE 10,10 5`; designcraft: none, save only; pdf: none; scraftz: none) | Ctrl/Cmd+S (+ accept the unconfirmed/fidelity dialogs) | file on disk changes, passes its validator, contains the edit (`C2=999`; a new CIRCLE r=5); `.designcraft` still contains `assets/` |
 | F3 | dirty round trip | state-transition | L3 | automated | GridCraft `budget.xlsx`; CADCraft `plan.dxf` | type → close tab → cancel; save → close tab | first close prompts; after acknowledged save the close does not prompt, although GridCraft still shows `— Edited` |
-| F4 | unconfirmed-open guard | decision table | L3 | automated | CADCraft `plan.dxf` | first save, choose Save as copy | `plan.cadcraft.dxf` created, `plan.dxf` unchanged, no core first-overwrite notice shown |
+| F4 | unconfirmed open, one question | decision table | L3 | automated | CADCraft `plan.dxf` | first save with target overwrite; choose Save as copy | exactly one dialog (`file-handler-first-overwrite-dialog`) whose text contains "does not report which file it opened"; `plan.cadcraft.dxf` created; `plan.dxf` unchanged; no further dialog |
 | F5 | CSP per app | invariant | L3 | automated | each shipped app frame | frame evaluates `fetch("https://example.com")` and `fetch("/api/health")` | both rejected; a `csp` report reaches the server; no request reaches example.com |
 | F6 | rendering legs | state-convergence | L3 | automated | each shipped app | open with WebGPU leg and with `?webgl` | both converge to `opened` |
 | F7 | native sibling | state-convergence | L3 | automated | PhotoCraft `photo.jpg` | save → dialog → Create and open | `photo.psd` exists and passes the PSD validator; a `photo.psd` tab is active in PhotoCraft's `.psd` mode; `photo.jpg` unchanged; the `photo.jpg` tab still dirty |
@@ -82,6 +88,7 @@ Exemplars by level:
 | F12 | broken latest | state-transition | L3 | automated | `DECKCRAFT_WEB_VERSION=0.8.0` prepared | select DeckCraft mode on `talk.pptx` | "could not start" panel with Retry; exactly one `open` message sent; no `opened` |
 | F13 | first click starts SoundCraft audio | hardware/audio | — | manual-only | `mix.scraftz` in SoundCraft, no `autoplay` grant | press play after one click inside the frame | [judgment: audio is heard — no automatable audio-output observable in headless CI] |
 | F14 | cross-browser drop | real browsers | — | manual-only | one type A (CADCraft) and one type B (PhotoCraft) app | open in Firefox and Safari | [judgment: document visible and save works — headless harness is Chromium-only] |
+| F15 | toolbar contrast (D11) | computed contrast | L3 | automated | CADCraft frame toolbar, target "overwrite" selected | evaluate WCAG contrast of every toolbar text node in base dark, base light and Nord dark | every ratio ≥ 4.5:1 |
 
 ### Error-handling
 
@@ -97,14 +104,14 @@ Exemplars by level:
 
 ## Coverage summary
 
-- Requirements covered: 14/14 delta requirements:
+- Requirements covered: 15/15 delta requirements:
   - craft-web-editor: 10 (claims, prepared/served, loaded, saves, unsaved state, validators, settings channel, isolation, view-only, fixed channel);
-  - editor-pane-file-handlers: 1;
+  - editor-pane-file-handlers: 2 (sibling copy, binary notice modes);
   - dashboard-shell-slots: 1;
   - baseline isolation and rendering re-asserted per app: 2.
-- Scenarios by class: edge 28 · perf 2 · frontend 14 · error 5.
-- Scenarios by level: L1 35 · L3 14 · manual 2 (L2: none; no process/install surface changes).
-- Scenarios by disposition: automated 47 · manual-only 2.
+- Scenarios by class: edge 33 · perf 2 · frontend 15 · error 5.
+- Scenarios by level: L1 40 · L3 15 · manual 2 (L2: none; no process/install surface changes).
+- Scenarios by disposition: automated 53 · manual-only 2.
 
 ## New infra needed
 

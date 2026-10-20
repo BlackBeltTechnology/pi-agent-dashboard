@@ -23,7 +23,7 @@ When enabled, the plugin SHALL contribute file handlers only for apps that have 
 | `.pptx` | DeckCraft | edit | `.deckcraft` sibling |
 | `.dng` `.cr2` `.cr3` `.nef` `.arw` `.raf` `.orf` `.rw2` | LightCraft | preview | device download |
 
-Each edit handler SHALL use a size limit: the docx office cap for `.docx`, `.odt` and `.rtf`, the sheet office cap for `.xlsx`, the pptx office cap for `.pptx`, and the core handler ceiling otherwise. It SHALL ask to be kept alive, carry the app's fidelity notice as its first-overwrite notice, and use the app id as its copy suffix. An app without a verified web build version SHALL contribute no handler; if one is nevertheless present, it SHALL show as not verified and load nothing. An app disabled in the plugin settings SHALL show its mode as unavailable with that reason, and the server SHALL refuse to prepare it or save through it. FilmCraft, EffectCraft and FigCraft SHALL contribute no handler.
+Each edit handler SHALL use a size limit: the docx office cap for `.docx`, `.odt` and `.rtf`, the sheet office cap for `.xlsx`, the pptx office cap for `.pptx`, and the core handler ceiling otherwise. It SHALL ask to be kept alive, carry the app's fidelity notice as its first-overwrite notice, and use the app id as its copy suffix. For an app known not to signal which document it opened, that notice SHALL also ask the user to check that the app shows the tab's file. An app without a verified web build version SHALL contribute no handler; if one is nevertheless present, it SHALL show as not verified and load nothing. An app disabled in the plugin settings SHALL show its mode as unavailable with that reason, and the server SHALL refuse to prepare it or save through it. FilmCraft, EffectCraft and FigCraft SHALL contribute no handler.
 
 #### Scenario: Verified app
 - **WHEN** the plugin is enabled, WordCraft has a verified web version, and the user opens `report.docx`
@@ -140,7 +140,7 @@ Attempts inside the app to open another file — file chooser, open picker, a dr
 ### Requirement: Saves map to the core save path; other formats go to the device
 A save SHALL be classified by its file type before its name. A save of the tab's file type under a different file name than the tab's (an in-app "Save As") SHALL first ask the user whether to save it as a copy next to the tab's file, overwrite the tab's file, or cancel. For an app whose saves are named after an inner document title rather than the file (SoundCraft sessions), the first save of the tab's file type in an instance SHALL always ask the same question, whatever its name, and the answer SHALL apply to later saves in that instance under the same suggested name. A save from the app whose file type and name match the tab SHALL be passed to the core handler save as an overwrite or a copy, according to a save-target choice that is always available in the editor and shared by all tabs of the same file. Its outcome SHALL be reported back to the app, so a save that did not happen leaves the document marked unsaved.
 
-The first overwrite from an instance whose document was opened unconfirmed SHALL first ask the user to check that the app shows the tab's document, offering to overwrite, save as a copy, or cancel; this question SHALL come before core's first-overwrite notice. A save in a file type that the handler declares as the app's native sibling type SHALL ask the user whether to create a new file of that type next to the tab's file (also offering to open it for further editing when that type has an available mode), download it to the device instead, or cancel; it SHALL never overwrite an existing file. A save of any other file type (for example an export to PDF), and every save from a view-only mode, SHALL NOT be written to the workspace. The browser SHALL instead offer it as a download to the user's device.
+The first overwrite from an instance whose document was opened unconfirmed SHALL be preceded by exactly one question, core's first-overwrite notice, which asks the user to check that the app shows the tab's file. Before any save, an edit mode whose app cannot save the tab's file type in place SHALL state which file a save creates, and a view-only mode SHALL state that exports go to the device. For an app whose saves are named after an inner document title, the Save As question SHALL say so. A save in a file type that the handler declares as the app's native sibling type SHALL ask the user whether to create a new file of that type next to the tab's file (also offering to open it for further editing when that type has an available mode), download it to the device instead, or cancel; it SHALL never overwrite an existing file. A save of any other file type (for example an export to PDF), and every save from a view-only mode, SHALL NOT be written to the workspace. The browser SHALL instead offer it as a download to the user's device.
 
 #### Scenario: Save as copy via the target choice
 - **WHEN** the save target is "copy" and the user saves in WordCraft
@@ -172,11 +172,15 @@ The first overwrite from an instance whose document was opened unconfirmed SHALL
 
 #### Scenario: Session-named save asks once
 - **WHEN** the user edits `mix.scraftz` in SoundCraft, whose session is named "Midnight Groove", saves, chooses to overwrite `mix.scraftz`, edits again and saves again
-- **THEN** the first save asks, the second save overwrites `mix.scraftz` without asking
+- **THEN** the first save asks, saying that SoundCraft names saves after the session, and the second save overwrites `mix.scraftz` without asking
 
-#### Scenario: Unconfirmed open asks before the first overwrite
+#### Scenario: Unconfirmed open is checked in one question
 - **WHEN** the user opened `plan.dxf` in CADCraft, which signals no title, and saves for the first time with the save target "overwrite"
-- **THEN** the user is asked to check that CADCraft shows `plan.dxf` before it is overwritten, and nothing is written before choosing
+- **THEN** a single question asks the user to check that CADCraft shows the file, offering to overwrite, save as a copy or cancel; nothing is written before choosing and no second question follows
+
+#### Scenario: Where a save goes is shown before saving
+- **WHEN** the user opens `photo.jpg` in PhotoCraft
+- **THEN** the editor states that saving creates `photo.psd`, before any save
 
 #### Scenario: Create and open the native sibling
 - **WHEN** PhotoCraft produces `photo.psd` while editing `photo.jpg` and the user chooses to create and open it
@@ -252,7 +256,7 @@ A save in an extension the handler does not declare as its own or sibling type S
 - **THEN** the save is rejected and `logo.svg` is unchanged
 
 ### Requirement: Settings page edits per-app enable and version channel
-The plugin SHALL contribute a section to its own settings page showing, per claimed app, an enable switch, a version channel selector (shown fixed, with its reason, for an app whose channel is fixed to its verified version), the installed and known latest versions, and the app status. Edits SHALL be saved through the page's global Save without dropping other stored config keys.
+The plugin SHALL contribute a section to its own settings page showing, per claimed app, an enable switch, a version channel selector, the installed and known latest versions, and the app status. For an app whose channel is fixed to its verified version, the page SHALL show that version as read-only text with the reason instead of a selector. Apps SHALL be grouped by what they do to files (edit in place, save in their own format next to the file, view only), and each app SHALL list the file extensions it opens. Edits SHALL be saved through the page's global Save without dropping other stored config keys.
 
 #### Scenario: Switch to latest from the settings page
 - **WHEN** the user selects "Latest release" for WordCraft and saves
@@ -260,7 +264,7 @@ The plugin SHALL contribute a section to its own settings page showing, per clai
 
 #### Scenario: Fixed channel shown with its reason
 - **WHEN** the settings page shows DeckCraft, whose channel is fixed to its verified version
-- **THEN** its channel selector is disabled and states why
+- **THEN** it shows "Verified 0.7.0" with the reason and offers no channel selector, and DeckCraft appears under the apps that save in their own format
 
 ## ADDED Requirements
 

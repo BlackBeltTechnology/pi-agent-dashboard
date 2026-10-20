@@ -171,8 +171,7 @@ Initial per-app values (from the spike; the e2e row confirms each). `latest` is 
   - Profiles with `title`: the title must name the delivered document (current rule; the regex accepts `-`, `–`, `—`). No title within the bound → "could not open" (unchanged for WordCraft).
   - Profiles without `title`: `opened` is posted `openedFallbackMs` after the synthetic drop. Conditions: the canvas still exists, no start error was recorded, the frame did not reload. `opened.title` = file name; the message carries `confirmed:false`.
 - **Start error.** Before opened, the shim watches window `error` / `unhandledrejection` (`WebAssembly.RuntimeError`, `unreachable`) and `console.error` lines containing `panicked at`. A match → `start-failed` (host: "could not start" + Retry, no resend).
-- **Unconfirmed open guard.** For an instance opened with `confirmed:false`, the **first overwrite** of the tab's file shows a plugin dialog first: "<App> did not confirm it loaded <file>. Check that it shows your document before overwriting." (Overwrite / Save as copy / Cancel). This stops an app's default document from silently replacing the file, which validators cannot detect.
-- **Dialog order (first overwrite of an unconfirmed instance).** The plugin's check comes first. Overwrite → `props.save` (overwrite) → core's first-overwrite (fidelity) notice. Save as copy → a copy save, with no core overwrite notice. Each dialog appears at most once per instance.
+- **Unconfirmed open check.** An app without a title signal is unconfirmed on *every* open: the property belongs to the profile, not to one open. Its claim's `firstOverwriteNotice` therefore starts with the check, "<App> does not report which file it opened. Check that it shows this file before overwriting.", followed by the fidelity sentence. Core shows that notice once per instance before the first overwrite (Overwrite / Save as copy / Cancel), so the user answers one question, not two. This stops an app's default document from silently replacing the file, which validators cannot detect. The drift test requires the check sentence in the notice of every profile without `title`. The `confirmed` flag on `opened` only feeds telemetry. Decided in the UX review (`mockups/` C3); it replaces a plugin dialog that came before core's notice.
 - **Dirty.**
   - Fallback-opened instances post `dirty:false` at open: an unmodified, just-opened document counts as saved until input. The spec states this explicitly. Without it these instances would stay `unknown`, which is never evictable and always prompts.
   - **Preview claims:** the host ignores `dirty` messages, calls `setDirty(false)` once opened, and offers no save target.
@@ -243,7 +242,7 @@ Validators are format sanity checks; only the SVG row also acts as a script filt
 ### D8 — Versions
 
 - Registry `webVersion` is set per shipped app.
-- DeckCraft: `webVersion: "0.7.0"`. Status ignores a stored `version: "latest"` for any `latestChannel:false` app. Settings shows the channel selector disabled with the reason (DeckCraft: "newer web builds fail to start"; others: "latest builds not verified yet").
+- DeckCraft: `webVersion: "0.7.0"`. Status ignores a stored `version: "latest"` for any `latestChannel:false` app. Settings shows the fixed version as read-only text ("Verified 0.7.0") with the reason as a hint, and no selector (D11). Reasons: DeckCraft "newer web builds fail to start"; others "newer releases are used once they are verified with this dashboard".
 - WordCraft keeps both channels (shipped by `track-latest-craft-web-version`, which accepted that latest builds are not shim-verified).
 - **Every new app starts with `latestChannel: false`.** Status prepares the verified version and settings shows the channel fixed, so no claim runs on an unverified build. An app's latest channel is enabled in a later change, once a scheduled e2e run covers its latest build.
 - DeckCraft additionally documents why (the 0.8.0 start panic). An e2e negative row prepares 0.8.0 via `DECKCRAFT_WEB_VERSION=0.8.0` and asserts "could not start".
@@ -259,10 +258,33 @@ Validators are format sanity checks; only the SVG row also acts as a script filt
 
 With `saveName: "inner-title"`, the first save of the tab's file type in an instance always asks the existing Save As question (copy / overwrite / cancel), even when the suggested stem equals the tab's stem. The answer is remembered for later saves in that instance **with the same suggested name**. A different suggested name asks again. A remembered "copy" creates a new `-n` copy per save, as the WordCraft copy target does today. This keeps the baseline "different name asks first" guarantee without asking on every save.
 
+### D11 — UX surfaces (`mockups/`)
+
+Board `mockups/index.html`, plan `mockups/ui-plan.md`, approved 2026-10-20. Every state uses shipped recipes and theme tokens; computed contrast passes in base dark, base light and Nord dark at 375 and 1280 px.
+
+- **Binary notice names the mode (A4, core `BinaryWarn`).** When enabled claims match the file, the built-in "binary file" notice adds one button per matching mode, with the switcher's label and the switcher's action. Files with no built-in viewer (`.psd .designcraft .scraftz .dng .dwg`) otherwise reach a dead end.
+- **Toolbar states where saves go (B2/B3).**
+  - Edit claim with `siblingExtensions`: an info chip "Save (Ctrl+S) creates <stem><sibling>"; the save-target label reads "Exports to <ext>", because an in-app export to the tab's type is still an own save.
+  - Preview claim: a chip "View only. Exports download to this device", and no save target (D4).
+- **Unconfirmed open (C3):** one core question, see D4.
+- **Sibling dialog copy (D1–D3).**
+  - Title "<App> saves as <ext>", then one line saying why and that the tab's file stays unchanged; file names on the create buttons.
+  - "Create and open" is hidden, not disabled, when the native claim is unavailable.
+  - The 409 message names the way out ("Open <stem><ext> in <App> to keep editing it in place") and offers Download instead.
+- **Session-named Save As (E2).** For `saveName: "inner-title"` profiles, the existing question adds "<App> names saves after the session inside the file, not after <file>."
+- **Settings (G2).**
+  - App groups appear under three headings by app type: "Edit files in place", "Save in their own format, next to the file", "View only".
+  - Each group header lists the app's extensions.
+  - A fixed channel is a read-only fact "Verified <v>" with its reason as a hint, never a disabled selector (a control that can never be enabled is noise).
+  - The download size moves onto the Download button.
+- **Contrast fix.** The selected save-target button uses `--text-primary` on `--accent-soft`. The shipped `--accent-text` pairing measures 4.49:1 in dark and Nord, below WCAG AA 4.5:1.
+
+New strings go into `messages.ts` EN plus zh-CN/hu (`__tests__/i18n.test.ts` parity).
+
 ## Risks / Trade-offs
 
 - **Upstream drift** in loaders, titles and save paths → pinned versions + per-app e2e + exactly-once injection (D3).
-- **Unconfirmed opens** (D4) → the first-overwrite guard + validators + telemetry.
+- **Unconfirmed opens** (D4) → the check sentence in the first-overwrite notice + validators + telemetry.
 - **Worker trampoline breaks an app** that derives URLs from `self.location` inside the worker (relative to `blob:`) → per-profile flag, off by default; enabled only where the e2e passes.
 - **Page-thread rendering** (EffectCraft/LightCraft frame workers fail) → acceptable for preview; measured in Wave 3.
 - **Bigger trusted-bundle surface** (13 vs 1) → the same sandbox/CSP; per-app enable switch; `defaultEnabled:false` unchanged.

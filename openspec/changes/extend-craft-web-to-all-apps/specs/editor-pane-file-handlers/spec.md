@@ -91,3 +91,16 @@ A save performed through a handler SHALL count as the pane's own save for the ch
 #### Scenario: Overwrite cannot change the extension
 - **WHEN** a handler for `photo.jpg` requests an overwrite with the target `photo.psd`
 - **THEN** the save is rejected and nothing is written
+
+## ADDED Requirements
+
+### Requirement: The binary-file notice offers matching handler modes
+When a file tab's built-in view shows the binary-file notice and at least one enabled handler claim matches the file, the notice SHALL offer each matching mode as a button labelled like that mode in the mode switcher, and choosing it SHALL behave exactly like selecting that mode in the switcher. With no matching enabled claim, the notice SHALL be unchanged.
+
+#### Scenario: Binary file with a matching mode
+- **WHEN** the user opens `photo.psd`, PhotoCraft's edit claim is enabled, and the built-in view shows the binary-file notice
+- **THEN** the notice offers "Edit in PhotoCraft", and choosing it switches the tab to that mode
+
+#### Scenario: Binary file without a matching mode
+- **WHEN** the user opens `archive.bin` and no handler claim matches it
+- **THEN** the binary-file notice shows no mode button
