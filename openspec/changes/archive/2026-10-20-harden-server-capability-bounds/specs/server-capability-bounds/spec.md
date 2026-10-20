@@ -94,6 +94,11 @@ nearest existing ancestor, lies outside every shared root. A locally trusted req
 - **WHEN** a locally trusted request calls `/api/browse?path=/`
 - **THEN** the listing SHALL succeed and SHALL NOT carry `confined`
 
+#### Scenario: operator opt-out disables confinement
+- **GIVEN** `config.json` sets `browse.confineRemote` to `false` (default `true`; only an explicit `false` disables it; read at server start)
+- **WHEN** a non-local request calls `/api/browse?path=/`, `/api/browse/flags` with an outside path, or `/api/browse/mkdir` with an outside parent
+- **THEN** each SHALL behave as for a locally trusted request, and `pin_directory`, `add_folder_to_workspace` and `move_folder_to_workspace` from a non-local socket SHALL NOT be gated
+
 ### Requirement: Shared-root set
 The shared-root set SHALL be `os.homedir()` plus every pinned directory, session
 cwd, workspace folder, worktree-init trust root, and persisted project-scope
@@ -119,10 +124,10 @@ the set. A root source that fails to read SHALL contribute no roots.
 - **WHEN** a non-local request browses `$HOME/.ssh`
 - **THEN** the response SHALL be 403
 
-#### Scenario: escaping entries omitted from a confined listing
+#### Scenario: symlink escaping a root is never offered in a listing
 - **GIVEN** `$HOME/Dropbox` is a symlink to `/Volumes/ext/Dropbox`, which is outside every root
 - **WHEN** a non-local request lists `$HOME`
-- **THEN** the entries SHALL NOT include `Dropbox`
+- **THEN** the entries SHALL NOT include `Dropbox` (a directory listing never includes symlinked directories)
 
 #### Scenario: non-existent path inside a root keeps its not-found error
 - **WHEN** a non-local request browses `$HOME/does-not-exist`

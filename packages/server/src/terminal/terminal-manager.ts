@@ -3,6 +3,7 @@
  */
 
 import { randomBytes } from "node:crypto";
+import { DEFAULT_TERMINALS_CONFIG } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { stripDashboardHeapFlag } from "@blackbelt-technology/pi-dashboard-shared/heap-flags.js";
 import type { TerminalControlMessage, TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
 import type { IPty } from "node-pty";
@@ -76,28 +77,27 @@ const TOMBSTONE_CAP = 64;
 const RELEASED_TTL_MS = 60_000;
 
 /**
- * PTY bounds (B7). Each live terminal costs a ring buffer plus a real OS shell
- * process, so an authenticated client looping `create_terminal` could exhaust
- * memory/PIDs. Defaults are well above normal multi-terminal use.
+ * PTY bounds (B7, D3). Each live terminal costs a ring buffer plus a real OS
+ * shell process, so an authenticated client looping `create_terminal` /
+ * `open_inline_terminal` could exhaust memory/PIDs. Defaults come from
+ * `DEFAULT_TERMINALS_CONFIG` in shared `config.ts` (the `terminals.*` block).
  * See change: harden-server-capability-bounds.
  */
-export const DEFAULT_MAX_TERMINALS = 32;
-export const DEFAULT_MAX_TERMINALS_PER_CWD = 16;
-/** A terminal with no client attached and no PTY output for this long is reaped. */
-export const DEFAULT_IDLE_REAP_MS = 6 * 60 * 60 * 1000;
-const DEFAULT_REAP_INTERVAL_MS = 60_000;
+const DEFAULT_REAP_INTERVAL_MS = 30_000;
 
-/** Thrown by `spawn` when a concurrent-terminal cap would be exceeded. */
+/** Thrown by `spawn`, BEFORE any shell starts, when a concurrent-terminal cap would be exceeded. */
 export class TerminalLimitError extends Error {
-  readonly scope: "global" | "cwd";
-  constructor(scope: "global" | "cwd", limit: number) {
+  readonly scope: "global" | "owner";
+  readonly limit: number;
+  constructor(scope: "global" | "owner", limit: number) {
     super(
       scope === "global"
         ? `terminal limit reached (${limit} concurrent terminals)`
-        : `terminal limit reached for this directory (${limit} concurrent terminals)`,
+        : `terminal limit reached for this user (${limit} concurrent terminals)`,
     );
     this.name = "TerminalLimitError";
     this.scope = scope;
+    this.limit = limit;
   }
 }
 
@@ -196,8 +196,11 @@ interface TerminalEntry {
   clients: Set<WebSocket>;
   /** True once the user has sent any input keystroke to this PTY. */
   sawInput: boolean;
-  /** ms epoch of the last output / attach / detach; drives the idle reaper. */
-  lastActivity: number;
+  /**
+   * Orphan clock for ephemeral (inline) PTYs: ms epoch of spawn or of the last
+   * client detach. Meaningful only while no client is attached.
+   */
+  orphanSince: number;
   /** Set once the reaper has issued a kill, so a slow exit is not re-killed every sweep. */
   reaping?: boolean;
 }
@@ -213,12 +216,12 @@ export interface TerminalManagerOptions {
   bufferSize?: number;
   /** Byte budget for captured transcripts. See change: preserve-inline-terminal-transcript. */
   transcriptCapBytes?: number;
-  /** Global concurrent-terminal cap. See change: harden-server-capability-bounds. */
-  maxTerminals?: number;
-  /** Per-cwd concurrent-terminal cap. */
-  maxTerminalsPerCwd?: number;
-  /** Idle (no client, no output) reap threshold in ms; `0` disables the reaper. */
-  idleReapMs?: number;
+  /** Global cap on live PTYs. See change: harden-server-capability-bounds. */
+  maxConcurrent?: number;
+  /** Per-owner cap (`{iss,sub}` equality); ownerless PTYs count toward the global cap only. */
+  maxPerOwner?: number;
+  /** Orphaned inline PTY reap threshold in ms. Tab terminals are never reaped. */
+  inlineOrphanTtlMs?: number;
   /** Reaper sweep period in ms. */
   reapIntervalMs?: number;
 }
@@ -264,9 +267,9 @@ export function createTerminalManager(options?: TerminalManagerOptions): Termina
   const entries = new Map<string, TerminalEntry>();
   const bufferSize = options?.bufferSize ?? DEFAULT_BUFFER_SIZE;
   const transcriptCapBytes = options?.transcriptCapBytes ?? DEFAULT_TRANSCRIPT_CAP_BYTES;
-  const maxTerminals = options?.maxTerminals ?? DEFAULT_MAX_TERMINALS;
-  const maxTerminalsPerCwd = options?.maxTerminalsPerCwd ?? DEFAULT_MAX_TERMINALS_PER_CWD;
-  const idleReapMs = options?.idleReapMs ?? DEFAULT_IDLE_REAP_MS;
+  const maxConcurrent = options?.maxConcurrent ?? DEFAULT_TERMINALS_CONFIG.maxConcurrent;
+  const maxPerOwner = options?.maxPerOwner ?? DEFAULT_TERMINALS_CONFIG.maxPerOwner;
+  const inlineOrphanTtlMs = options?.inlineOrphanTtlMs ?? DEFAULT_TERMINALS_CONFIG.inlineOrphanTtlMs;
   // Retained transcripts of dead ephemeral terminals (insertion-ordered).
   const transcripts = new Map<string, TranscriptTombstone>();
   // Sticky close-release suppression flags: id -> timestamp (ms). Bounded by
@@ -298,11 +301,17 @@ export function createTerminalManager(options?: TerminalManagerOptions): Termina
   }
 
   function spawn(cwd: string, opts?: { ephemeral?: boolean; owner?: { iss: string; sub: string } }): TerminalSession {
-    // Bound BEFORE any shell is spawned (B7).
-    if (entries.size >= maxTerminals) throw new TerminalLimitError("global", maxTerminals);
-    let sameCwd = 0;
-    for (const e of entries.values()) if (e.session.cwd === cwd) sameCwd++;
-    if (sameCwd >= maxTerminalsPerCwd) throw new TerminalLimitError("cwd", maxTerminalsPerCwd);
+    // Bound BEFORE any shell is spawned (B7). Global first, then per-owner.
+    if (entries.size >= maxConcurrent) throw new TerminalLimitError("global", maxConcurrent);
+    const owner = opts?.owner;
+    if (owner) {
+      let owned = 0;
+      for (const e of entries.values()) {
+        const o = e.session.principalOwner;
+        if (o && o.iss === owner.iss && o.sub === owner.sub) owned++;
+      }
+      if (owned >= maxPerOwner) throw new TerminalLimitError("owner", maxPerOwner);
+    }
 
     const shell = detectShell();
     const id = generateId();
@@ -346,12 +355,11 @@ export function createTerminalManager(options?: TerminalManagerOptions): Termina
     const buffer = new RingBuffer(bufferSize);
     const clients = new Set<WebSocket>();
 
-    const entry: TerminalEntry = { session, pty: p, buffer, clients, sawInput: false, lastActivity: Date.now() };
+    const entry: TerminalEntry = { session, pty: p, buffer, clients, sawInput: false, orphanSince: Date.now() };
     entries.set(id, entry);
 
     p.onData((data: string) => {
       const buf = Buffer.from(data);
-      entry.lastActivity = Date.now();
       buffer.write(buf);
       for (const ws of clients) {
         if (ws.readyState === ws.OPEN) {
@@ -386,7 +394,6 @@ export function createTerminalManager(options?: TerminalManagerOptions): Termina
     }
 
     entry.clients.add(ws);
-    entry.lastActivity = Date.now();
 
     ws.on("message", (data: Buffer, isBinary: boolean) => {
       if (isBinary) {
@@ -428,7 +435,7 @@ export function createTerminalManager(options?: TerminalManagerOptions): Termina
 
     ws.on("close", () => {
       entry.clients.delete(ws);
-      entry.lastActivity = Date.now(); // idle clock starts at detach
+      if (entry.clients.size === 0) entry.orphanSince = Date.now(); // orphan clock restarts at last detach
     });
   }
 
@@ -436,7 +443,7 @@ export function createTerminalManager(options?: TerminalManagerOptions): Termina
     const entry = entries.get(id);
     if (entry) {
       entry.clients.delete(ws);
-      entry.lastActivity = Date.now();
+      if (entry.clients.size === 0) entry.orphanSince = Date.now();
     }
   }
 
@@ -540,20 +547,21 @@ export function createTerminalManager(options?: TerminalManagerOptions): Termina
     }
   }
 
-  // Idle reaper (B7): release terminals nobody is attached to and that have
-  // produced no output for `idleReapMs`, so orphaned shells do not accumulate.
-  if (idleReapMs > 0) {
-    const timer = setInterval(() => {
-      const cutoff = Date.now() - idleReapMs;
-      for (const [id, entry] of [...entries]) {
-        if (!entry.reaping && entry.clients.size === 0 && entry.lastActivity <= cutoff) {
-          entry.reaping = true;
-          try { kill(id); } catch { /* already gone */ }
-        }
+  // Orphaned-inline reaper (B7, D3): inline PTYs are hidden from the tab bar, so
+  // without this a client looping `open_inline_terminal` could hold the cap with
+  // shells no UI can close. Tab (non-ephemeral) terminals are NEVER reaped:
+  // detached long-running shells (dev servers, watchers) are a supported use.
+  const reapTimer = setInterval(() => {
+    const cutoff = Date.now() - inlineOrphanTtlMs;
+    for (const [id, entry] of [...entries]) {
+      if (!entry.session.ephemeral || entry.reaping) continue;
+      if (entry.clients.size === 0 && entry.orphanSince <= cutoff) {
+        entry.reaping = true;
+        try { kill(id); } catch { /* exited in the same tick */ }
       }
-    }, options?.reapIntervalMs ?? DEFAULT_REAP_INTERVAL_MS);
-    timer.unref?.();
-  }
+    }
+  }, options?.reapIntervalMs ?? DEFAULT_REAP_INTERVAL_MS);
+  reapTimer.unref?.();
 
   return { spawn, attach, detach, kill, get, list, updateTitle, getTranscript, getTerminalRecord, releaseTranscript, isReleased };
 }

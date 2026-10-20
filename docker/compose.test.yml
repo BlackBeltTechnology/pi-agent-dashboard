@@ -120,6 +120,13 @@ services:
       # seed a `Fake` profile row — the docker harness has no real Chrome.
       # Default empty => no Fake instance, no relay config.
       PI_BROWSER_RELAY_FAKE: "${PI_BROWSER_RELAY_FAKE:-}"
+      # Terminal-cap e2e faucet (change: harden-server-capability-bounds): non-empty
+      # seeds `terminals.maxConcurrent` in config.json (needs PI_E2E_SEED=1). Empty =>
+      # the default cap (32). Only tests/e2e/terminal-cap.spec.ts wants it.
+      PI_E2E_TERMINALS_MAX_CONCURRENT: "${PI_E2E_TERMINALS_MAX_CONCURRENT:-}"
+      # Remote browse confinement is seeded OFF in the harness (the browser is a remote
+      # peer via the port mapping). "1" leaves it ON for tests/e2e/remote-browse-confinement.spec.ts.
+      PI_E2E_BROWSE_CONFINEMENT: "${PI_E2E_BROWSE_CONFINEMENT:-}"
       # Chat-gateway team-controls e2e faucet (change:
       # add-chat-gateway-team-controls, task 10g). Non-empty makes
       # test-entrypoint seed `plugins["chat-gateway"]` (enabled + allowedRoots +

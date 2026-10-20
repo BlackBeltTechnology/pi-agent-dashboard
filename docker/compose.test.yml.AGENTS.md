@@ -6,3 +6,7 @@ Passes `PI_DASHBOARD_DISABLE_GRANT_PROMPT` through (empty = unset; only exact `1
 
 Sets `PI_DASHBOARD_FIXTURE_PLUGINS=1` as build arg + runtime env (demo-plugin fixture loaded in the harness). See change: expose-plugin-credential-and-oauth-seams.
 Passes `PI_E2E_GOOGLE_BASE_URL` through to the dashboard service (loopback-only honoured by gmail-plugin; inert until a spec starts the fake). See change: add-gmail-plugin.
+
+- Passes `PI_E2E_TERMINALS_MAX_CONCURRENT` (seeds `terminals.maxConcurrent`; empty = default 32). See change: harden-server-capability-bounds.
+
+- Passes `PI_E2E_BROWSE_CONFINEMENT` (empty = confinement seeded off). See change: harden-server-capability-bounds.

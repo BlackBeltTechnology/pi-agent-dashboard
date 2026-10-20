@@ -756,6 +756,30 @@ export interface TerminalRemovedMessage {
   terminalId: string;
 }
 
+/**
+ * A `create_terminal` / `open_inline_terminal` was refused because a PTY cap is
+ * reached. Sent only to the requesting socket. See change: harden-server-capability-bounds (D3).
+ */
+export interface TerminalLimitReachedMessage {
+  type: "terminal_limit_reached";
+  scope: "global" | "owner";
+  limit: number;
+  cwd: string;
+  /** True when the refused request was an inline-terminal open. */
+  inline: boolean;
+}
+
+/**
+ * A `pin_directory` / `add_folder_to_workspace` / `move_folder_to_workspace` from a
+ * non-local socket was refused: the path is outside the shared roots. Sent only to
+ * the requesting socket. See change: harden-server-capability-bounds (D1b).
+ */
+export interface FolderRefusedMessage {
+  type: "folder_refused";
+  path: string;
+  reason: "outside_allowed_roots";
+}
+
 export interface TerminalUpdatedMessage {
   type: "terminal_updated";
   terminalId: string;
@@ -1213,6 +1237,8 @@ export type ServerToBrowserMessage =
   | CardSectionsUpdatedMessage
   | TerminalAddedMessage
   | TerminalRemovedMessage
+  | TerminalLimitReachedMessage
+  | FolderRefusedMessage
   | TerminalUpdatedMessage
   | SessionStateResetMessage
   | PackageProgressMessage

@@ -95,3 +95,7 @@ Plugin context deps gain `serveApp: createHostServeApp({fastify, plugin:{package
 Wires `fileHandlers` (live `resolveClaim` from `discoverPlugins` + `resolvePluginEnabled` + status store `loaded`, validator registry, shared pool) into `registerFileRoutes`; passes `{packageDir, editClaimIds}` as 4th arg of `createServerPluginContext`. See change: add-editor-pane-file-handlers.
 
 ACME source (add-acme-dns01-certs): `configureAcmeRuntime({credentials: createAcmeCredentials(vaultStore)})` right after `createVaultStore()`, `void acmeGc()` once at start; `registerAcmeRoutes(fastify,{networkGuard, manageGuard: createVaultManageGuard(vaultRoutesDeps), listener: tlsListener})` after `registerVaultRoutes`.
+
+- Builds `browseRootSources` (pinned, session cwds, workspace folders, worktree-init roots, project grants) shared by file routes + gateway; `stampSocketLocality` at browser WS upgrade; passes `terminals.*` to `createTerminalManager`. See change: harden-server-capability-bounds.
+
+- `browse.confineRemote` read once at start: `browseRoots()` resolves `null` when off (gate + routes unconfined). See change: harden-server-capability-bounds.
