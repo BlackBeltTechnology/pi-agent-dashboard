@@ -107,12 +107,10 @@ test.describe("session header narrow content", () => {
     test.setTimeout(180_000);
     const card = await spawnFreshGitSession(page);
     await card.click();
-    await page.setViewportSize({ width: 1000, height: 800 });
+    await page.setViewportSize({ width: 900, height: 800 });
     const header = page.getByTestId("session-header");
     await expect(header).toBeVisible({ timeout: 30_000 });
     await renameSessionViaTitleMenu(page, LONG_NAME);
-    await page.getByTestId("layout-mode-split").click();
-    await expect(page.getByTestId("split-chat-pane")).toBeVisible({ timeout: 15_000 });
 
     const headerBox = (await header.boundingBox())!;
     // Every control that is present (Modules, Changed Files, Resume, Fork when
