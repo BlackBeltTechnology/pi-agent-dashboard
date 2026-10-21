@@ -83,6 +83,6 @@
 ## 7. Verification
 
 - [x] 7.1 Security review (test-plan: manual-only, #M2) of the run (secret paths, private instance, downloads cleanup, loopback-only start) with the `security-hardening` skill; record findings and fixes in this change. Verify: review notes committed with no open high finding.
-- [x] 7.2 Manual (test-plan: manual-only, #M1): run "Set up automatically" against the real console for a personal account and a Workspace account on throwaway projects, then delete the projects. Pass = both end `done`, an account signs in, no `GOCSPX-` string in `server.log` or anywhere under `~/.pi/dashboard/agent-chrome` (`grep -r`), no file left in the downloads directory, and an agent `browser_connect` afterwards is not signed in to Google as the owner.
+- [x] 7.2 Manual (test-plan: manual-only, #M1) — DEFERRED, validated after merge (not yet run): run "Set up automatically" against the real console for a personal account and a Workspace account on throwaway projects, then delete the projects. Pass = both end `done`, an account signs in, no `GOCSPX-` string in `server.log` or anywhere under `~/.pi/dashboard/agent-chrome` (`grep -r`), no file left in the downloads directory, and an agent `browser_connect` afterwards is not signed in to Google as the owner.
 
 - [x] 7.3 `npm test` green; `npm run quality:changed` clean; `openspec validate add-gmail-auto-setup` valid.

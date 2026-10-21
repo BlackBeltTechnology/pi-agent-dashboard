@@ -61,7 +61,7 @@ export function fakeBrowserService(opts: FakeBrowserOptions = {}) {
       return { ok: true };
     },
     async tabOrigin() {
-      return (opts.tabOrigin ?? (() => null))(++calls.tabOrigin);
+      return (opts.tabOrigin ?? (() => "https://console.cloud.google.com"))(++calls.tabOrigin);
     },
     async disconnect(id) {
       calls.disconnect.push(id);

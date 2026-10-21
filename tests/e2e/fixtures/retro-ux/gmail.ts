@@ -70,8 +70,8 @@ const runView = (state: string, step: (typeof STEP_IDS)[number], extra: Record<s
 });
 
 /** Stub the run endpoints so a started run answers `view` forever. */
-const withRun = (view: Record<string, unknown>) => async (page: Page) => {
-  await state({ configured: false }, [], undefined, AUTO)(page);
+const withRun = (view: Record<string, unknown>, client: Record<string, unknown> = { configured: false }) => async (page: Page) => {
+  await state(client, [], undefined, AUTO)(page);
   await stubApi(page, RUN, (route) => json(route, { runId: "r1" }), "POST");
   await stubApi(page, RUN_VIEW, (route) => json(route, view), "GET");
 };
@@ -216,7 +216,7 @@ const autoSetupStates: UiState[] = [
     id: "auto-done",
     label: "run finished; Add account prefilled with the owner email",
     stubs: RUN_STUBS,
-    install: withRun(runView("done", "capture", { clientId: "603-abc.apps.googleusercontent.com", steps: STEP_IDS.map((id) => ({ id, status: "done" })) })),
+    install: withRun(runView("done", "capture", { clientId: "603-abc.apps.googleusercontent.com", steps: STEP_IDS.map((id) => ({ id, status: "done" })) }), CLIENT),
     open: startRunAndWait("gmail-setup-done"),
     root,
   },

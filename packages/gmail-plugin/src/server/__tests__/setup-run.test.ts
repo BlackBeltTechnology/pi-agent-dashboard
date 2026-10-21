@@ -7,6 +7,7 @@
 import { describe, expect, it } from "vitest";
 import {
   autopilot,
+  EXISTING,
   type Harness,
   makeHarness,
   OWNER,
@@ -309,5 +310,69 @@ describe("review B1 — human waits obey cancel and a closing browser", () => {
     h.console.serverClose();
     const v = await until(() => h.view(id), (x) => x.state === "handoff", 1500);
     expect(v.handoff).toMatchObject({ reason: "browser_closed" });
+  });
+});
+
+describe("review (CodeRabbit) — cancel while the first connect is pending", () => {
+  it("a connect that answers busy after the cancel never overwrites `cancelled`; the run slot is free", async () => {
+    const h = await makeHarness({ browser: { busyHolder: "agent-session" } });
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const realConnect = h.browser.service.connect;
+    h.browser.service.connect = async (o) => {
+      await gate;
+      return realConnect(o);
+    };
+    const id = await startExisting(h);
+    await new Promise((r) => setTimeout(r, 20)); // the gated connect() is in flight
+    expect((await h.del(`/setup/run/${id}`)).json().state).toBe("cancelled");
+    release();
+    await new Promise((r) => setTimeout(r, 50));
+    expect((await h.view(id)).state).toBe("cancelled");
+    // Not wedged: a new run can start.
+    expect((await h.start(EXISTING)).statusCode).toBe(200);
+  });
+
+  it("a connect that succeeds after the cancel is disconnected, not leaked", async () => {
+    const h = await makeHarness();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const realConnect = h.browser.service.connect;
+    h.browser.service.connect = async (o) => {
+      await gate;
+      return realConnect(o);
+    };
+    const id = await startExisting(h);
+    expect((await h.del(`/setup/run/${id}`)).json().state).toBe("cancelled");
+    release();
+    await until(() => h.browser.calls.disconnect, (d) => d.length > 0);
+    expect(h.browser.calls.disconnect).toEqual(["inst-1"]);
+  });
+});
+
+describe("review — a closed sign-in tab is not a completed sign-in", () => {
+  it("tabOrigin null keeps the checkpoint waiting until the user confirms", async () => {
+    let flipped = false;
+    const h = await makeHarness({ browser: { tabOrigin: () => null } });
+    preset(h.console, "publish");
+    h.console.beforeNavigate = (u) => {
+      if (u.pathname === PATHS.clientCreate && !flipped) {
+        flipped = true;
+        h.console.signedIn = false;
+      }
+    };
+    const id = await startExisting(h);
+    const v = await autopilot(h, id, { stopAt: (x) => x.state === "waiting_user" && x.checkpoint?.kind === "sign_in" });
+    expect(v.checkpoint?.kind).toBe("sign_in");
+    await new Promise((r) => setTimeout(r, 120));
+    expect((await h.view(id)).checkpoint?.kind).toBe("sign_in"); // still waiting: null never counts as signed in
+    expect(h.browser.calls.open).toHaveLength(1); // no second sign-in tab was opened by a restarted step
+    h.console.signedIn = true;
+    expect((await h.post(`/setup/run/${id}/continue`)).statusCode).toBe(200);
+    expect((await autopilot(h, id)).state).toBe("done");
   });
 });

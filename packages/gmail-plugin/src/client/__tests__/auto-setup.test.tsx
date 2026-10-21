@@ -495,6 +495,35 @@ describe("test-plan #F4 — hand-off opens the manual wizard at the failed step"
   });
 });
 
+describe("review — domain_blocked hand-off names the domains to allow", () => {
+  it("lists every domain the dedicated browser must allow, and no other reason does", async () => {
+    scriptedFetch({
+      state: configuredState({ available: false, reason: "run_active", local: true, runId: "r1" }),
+      views: [
+        view("handoff", "project", {
+          handoff: { step: "project", wizardStep: 1, reason: "domain_blocked", domains: ["console.cloud.google.com", "accounts.google.com"] },
+        }),
+      ],
+    });
+    renderSettings();
+    const list = await screen.findByTestId("gmail-setup-handoff-domains");
+    expect(Array.from(list.querySelectorAll("li")).map((li) => li.textContent)).toEqual(["console.cloud.google.com", "accounts.google.com"]);
+    expect(screen.getByTestId("gmail-setup-handoff-reason").textContent).toMatch(/dedicated browser refused/);
+    cleanup();
+  });
+
+  it("other reasons render no domain list", async () => {
+    scriptedFetch({
+      state: configuredState({ available: false, reason: "run_active", local: true, runId: "r1" }),
+      views: [view("handoff", "project", { handoff: { step: "project", wizardStep: 1, reason: "timeout" } })],
+    });
+    renderSettings();
+    await screen.findByTestId("gmail-setup-handoff-reason");
+    expect(screen.queryByTestId("gmail-setup-handoff-domains")).toBeNull();
+    cleanup();
+  });
+});
+
 describe("test-plan #E11 — unverified-app notice while a sign-in waits", () => {
   it.each([
     [null, true],

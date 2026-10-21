@@ -276,7 +276,7 @@ export const catalog = {
     handoffLocale:
       "控制台不是英文，自动设置无法可靠地读取它。请把 Google 账户的语言切换为英文，或从高亮的步骤手动继续。",
     handoffDomainBlocked:
-      "Google 拒绝了发布链接所用的授权域名（该域名被阻止或需要验证）。请手动继续，并使用你拥有的域名。",
+      "专用浏览器拒绝打开 Google Cloud 控制台或 Google 登录页。请把下方列出的域名添加到浏览器插件的允许域名中，或手动继续。",
     handoffPublishCancelled:
       "浏览器窗口中取消了发布确认。请从高亮的步骤手动继续。",
     handoffTimeout:
@@ -596,7 +596,7 @@ export const catalog = {
     handoffLocale:
       "A konzol nem angol nyelvű, így az automatikus beállítás nem tudta megbízhatóan olvasni. Állítsd a Google-fiók nyelvét angolra, vagy folytasd kézzel a kiemelt lépéstől.",
     handoffDomainBlocked:
-      "A Google elutasította a közzétételi hivatkozásokhoz megadott engedélyezett domaint (a domain tiltott, vagy ellenőrizni kell). Folytasd kézzel, és olyan domaint használj, amely a tiéd.",
+      "A dedikált böngésző nem nyitotta meg a Google Cloud konzolt vagy a Google-bejelentkezést. Add hozzá az alább felsorolt domaineket a böngészőbővítmény engedélyezett domainjeihez, vagy folytasd kézzel.",
     handoffPublishCancelled:
       "A közzétételi megerősítést megszakították a böngészőablakban. Folytasd kézzel a kiemelt lépéstől.",
     handoffTimeout:

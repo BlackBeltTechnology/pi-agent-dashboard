@@ -355,6 +355,11 @@ export class SetupRun {
     if (!service) throw new SetupHandoff("unloaded", "project");
     this.service = service;
     let res = await service.connect({ client: "gmail-setup", private: true, ephemeral: true });
+    if (this.ended) {
+      // Cancelled (or the browser closed) while the connect was pending: stay terminal, never enter `busy`.
+      if (res.ok) await service.disconnect(res.instanceId).catch(() => undefined);
+      throw new RunAborted();
+    }
     if (!res.ok && res.reason === "busy") {
       // The holder's instance id stays server-side; the view only names the holder.
       this.busyHolder = res.holder;
@@ -525,7 +530,9 @@ export class SetupRun {
       for (;;) {
         if (this.ended) throw new RunAborted();
         if (this.signInContinue) return;
-        if ((await service.tabOrigin(opened.tabId)) !== SIGN_IN_ORIGIN) return;
+        // `null` = the tab is gone (closed by the user, dead Chrome): not a completed sign-in; keep waiting for "I've signed in" or the timeout.
+        const origin = await service.tabOrigin(opened.tabId);
+        if (origin !== null && origin !== SIGN_IN_ORIGIN) return;
         if (Date.now() >= deadline) throw new SetupHandoff("timeout");
         await Promise.race([sleep(this.timing.pollMs), this.abort.promise]);
       }

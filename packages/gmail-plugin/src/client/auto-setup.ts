@@ -99,7 +99,7 @@ export const AUTO_SETUP_ERROR_EN: Record<string, string> = {
   handoffLocale:
     "The console is not in English, so the automatic setup could not read it reliably. Switch the Google account's language to English, or continue by hand from the highlighted step.",
   handoffDomainBlocked:
-    "Google refused the authorized domain for the publishing links (the domain is blocked or must be verified). Continue by hand and use a domain you own.",
+    "The dedicated browser refused to open the Google Cloud console or Google sign-in. Add the domains listed below to the Browser plugin's allowed domains, or continue by hand.",
   handoffPublishCancelled: "The publish confirmation was cancelled in the browser window. Continue by hand from the highlighted step.",
   handoffTimeout: "The automatic setup waited 15 minutes for a step on your side and gave up. Continue by hand, or start it again.",
   handoffSecretCaptureFailed:

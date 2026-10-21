@@ -337,6 +337,15 @@ function HandoffNotice({ view }: { view: SetupRunView }) {
       <div className="flex flex-col gap-1.5" data-reason={h.reason} data-step={h.wizardStep}>
         <strong>{t("autoHandoffTitle", undefined, "Automatic setup stopped — finish by hand")}</strong>
         <span data-testid="gmail-setup-handoff-reason">{t(key, undefined, ERROR_EN[key])}</span>
+        {h.reason === "domain_blocked" && h.domains && h.domains.length > 0 && (
+          <ul className="m-0 list-disc pl-5" data-testid="gmail-setup-handoff-domains">
+            {h.domains.map((d) => (
+              <li key={d}>
+                <code>{d}</code>
+              </li>
+            ))}
+          </ul>
+        )}
         <span>
           {t(
             "autoHandoffAt",
