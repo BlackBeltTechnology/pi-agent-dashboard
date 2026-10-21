@@ -30,17 +30,19 @@ export default defineConfig({
         __dirname,
         "../dashboard-plugin-runtime/src/test-support/index.ts",
       ),
+      "@blackbelt-technology/dashboard-plugin-runtime/host": path.resolve(
+        __dirname,
+        "../dashboard-plugin-runtime/src/host.ts",
+      ),
+      "@blackbelt-technology/dashboard-plugin-runtime/sdk": path.resolve(
+        __dirname,
+        "../dashboard-plugin-runtime/src/sdk.ts",
+      ),
       "@blackbelt-technology/dashboard-plugin-runtime": path.resolve(
         __dirname,
         "../dashboard-plugin-runtime/src/index.ts",
       ),
       "@blackbelt-technology/pi-dashboard-shared": path.resolve(__dirname, "../shared/src"),
-      // The verb→tier table is read from the mcp-server plugin's generated
-      // manifest; alias to worktree-local source like the others above.
-      "@blackbelt-technology/pi-dashboard-mcp-server-plugin/manifest": path.resolve(
-        __dirname,
-        "../mcp-server-plugin/src/server/manifest-export.ts",
-      ),
     },
   },
 });

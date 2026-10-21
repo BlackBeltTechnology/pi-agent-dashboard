@@ -286,3 +286,31 @@ describe("#X10 review-code rubric — defect classes and fix protocol", () => {
     expect(between("## Verification", "\n## ")).toMatch(/per-class sweep summary/);
   });
 });
+
+describe("#E10 plugin/core boundary gate in the ship path", () => {
+  const repoRoot = path.resolve(skillDir, "../../..");
+  const section = () => SKILL.slice(indexOfStep("### 4.4."), indexOfStep("### 4.5."));
+
+  it("runs check:plugin-boundary next to check-conventions at 4.4", () => {
+    const lines = section().split("\n");
+    const conventions = lines.findIndex((l) => /check-conventions\.mjs --base origin\/develop/.test(l));
+    const boundary = lines.findIndex((l) => /^node scripts\/check-plugin-boundary\.mjs\b/.test(l));
+    expect(conventions).toBeGreaterThan(-1);
+    expect(boundary).toBe(conventions + 1);
+  });
+
+  it("exposes the root npm script", () => {
+    const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8"));
+    expect(pkg.scripts["check:plugin-boundary"]).toBe("node scripts/check-plugin-boundary.mjs");
+  });
+
+  it("adds no dependency: the script imports only node builtins and the existing typescript dep", () => {
+    const src = fs.readFileSync(path.join(repoRoot, "scripts/check-plugin-boundary.mjs"), "utf8");
+    const specs = [...src.matchAll(/^import .* from "([^"]+)";$/gm)].map((m) => m[1]);
+    expect(specs.length).toBeGreaterThan(0);
+    for (const s of specs) expect(s.startsWith("node:") || s === "typescript", s).toBe(true);
+    const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8"));
+    expect({ ...pkg.dependencies, ...pkg.devDependencies }.typescript).toBeTruthy();
+    expect(fs.readFileSync(path.join(repoRoot, "pnpm-lock.yaml"), "utf8")).not.toMatch(/check-plugin-boundary/);
+  });
+});

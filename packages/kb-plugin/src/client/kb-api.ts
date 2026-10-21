@@ -1,6 +1,6 @@
 /**
- * Thin REST client for the folder-scoped KB endpoints, plus the base64url
- * folder-path codec used in the `/folder/:encodedCwd/kb` overlay route.
+ * Thin REST client for the folder-scoped KB endpoints. The base64url folder
+ * codec is the runtime `./sdk` one (no local copy).
  *
  * Same-origin relative `/api/kb/...` URLs. The kb routes return plain JSON
  * objects (`{ files, chunks, ... }` or `{ error }`) — not the `{ success,
@@ -10,6 +10,7 @@
  *
  * See change: add-kb-folder-slot.
  */
+import { folderRouteHref } from "@blackbelt-technology/dashboard-plugin-runtime/sdk";
 import type {
   KbConfigPatch,
   KbConfigPutResponse,
@@ -23,29 +24,8 @@ import type {
   KbTrustGrantResponse,
 } from "../shared/kb-plugin-types.js";
 
-// ── Folder-path codec (base64url, UTF-8 safe) ─────────────────────
-// `btoa`/`atob` only handle Latin1; round-trip through UTF-8 bytes first so a
-// cwd with accents/CJK does not throw.
-export function encodeFolderPath(cwd: string): string {
-  const bytes = new TextEncoder().encode(cwd);
-  let bin = "";
-  for (const b of bytes) bin += String.fromCharCode(b);
-  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-export function decodeFolderPath(encoded: string): string | null {
-  try {
-    const padded = encoded.replace(/-/g, "+").replace(/_/g, "/");
-    const pad = (4 - (padded.length % 4)) % 4;
-    const bin = atob(padded + "=".repeat(pad));
-    const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
-    return new TextDecoder().decode(bytes);
-  } catch {
-    return null;
-  }
-}
-
 export function kbSettingsUrl(cwd: string): string {
-  return `/folder/${encodeFolderPath(cwd)}/kb`;
+  return folderRouteHref(cwd, "/kb");
 }
 
 // ── Typed refusals ────────────────────────────────────────────────

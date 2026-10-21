@@ -27,7 +27,10 @@ vi.mock("../../lib/openspec/openspec-config-api.js", () => ({
   fetchGlobalOpenSpecConfig: (...a: any[]) => api.fetchGlobalOpenSpecConfig(...a),
 }));
 
-import { type RegisteredSource, SettingsDraftProvider } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  type RegisteredSource,
+  SettingsDraftProvider,
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { OpenSpecProfileSection } from "../openspec/OpenSpecProfileSection.js";
 
 // Renders the section inside a draft registry and returns the live source map

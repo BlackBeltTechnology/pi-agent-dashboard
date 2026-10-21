@@ -25,12 +25,7 @@
  * See change: defer-role-persistence-with-save-reload.
  */
 
-import { RoleRef, type RoleRefLabels, useSettingsDraftSource, useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
-import {
-  useAllSessions,
-  usePluginConfig,
-  usePluginSend,
-} from "@blackbelt-technology/dashboard-plugin-runtime/context";
+import { RoleRef, type RoleRefLabels, useAllSessions, usePluginConfig, usePluginSend, useSettingsDraftSource, useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import { isValidRoleName } from "@blackbelt-technology/pi-dashboard-shared/role-name-validation.js";
 import { THINKING_LEVELS } from "@blackbelt-technology/pi-dashboard-shared/role-schema.js";

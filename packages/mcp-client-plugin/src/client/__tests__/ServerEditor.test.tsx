@@ -6,9 +6,10 @@
  * literal values (E13), unknown fields in a validated JSON fallback, the
  * discard guard, and the OAuth rename/URL warning.
  */
+
+import schemaDoc from "@blackbelt-technology/pi-dashboard-mcp-core/schema/mcp-config.schema.json";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import schemaDoc from "../../../schema/mcp-config.schema.json";
 import { invalidateEffective } from "../hooks.js";
 import { ServerEditor, type ServerEditorProps } from "../ServerEditor.js";
 import { defsOf } from "../schema.js";

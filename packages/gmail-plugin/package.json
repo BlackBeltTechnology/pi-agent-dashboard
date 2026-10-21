@@ -2,6 +2,9 @@
   "name": "@blackbelt-technology/pi-dashboard-gmail-plugin",
   "version": "0.10.0",
   "description": "Multi-account Gmail for pi agents — guided Google OAuth setup, per-account permission levels, server-side token leasing and account-scoped Gmail tools with confirmed writes.",
+  "keywords": [
+    "pi-dashboard-plugin"
+  ],
   "license": "MIT",
   "publishConfig": {
     "access": "public"

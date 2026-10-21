@@ -2,6 +2,9 @@
   "name": "@blackbelt-technology/pi-dashboard-system-one-plugin",
   "version": "0.10.0",
   "description": "Dashboard surface for System-1 decision models — settings section (backends, presets, per-consumer overrides, Test/calibration, key entry), /api/system-one/* routes, and the managed local Von/Laya supervisor.",
+  "keywords": [
+    "pi-dashboard-plugin"
+  ],
   "license": "MIT",
   "publishConfig": {
     "access": "public"

@@ -136,15 +136,18 @@ describe("D2 — startup removes the legacy provisioned entry and writes nothing
 });
 
 describe("manifest (task 6.1)", () => {
-  it("declares no dependsOn — the config service is a package dependency", () => {
+  it("declares no dependsOn — the config factories come from the mcp-core library, not mcp-client", () => {
     const pkg = JSON.parse(
       readFileSync(resolve(import.meta.dirname, "../../../package.json"), "utf8"),
-    ) as {
-      dependencies?: Record<string, string>;
+    ) as Record<string, Record<string, string> | undefined> & {
       "pi-dashboard-plugin"?: { dependsOn?: string[] };
     };
     expect(pkg["pi-dashboard-plugin"]?.dependsOn).toBeUndefined();
-    expect(pkg.dependencies?.["@blackbelt-technology/pi-dashboard-mcp-client-plugin"]).toBeTruthy();
+    expect(pkg.dependencies?.["@blackbelt-technology/pi-dashboard-mcp-core"]).toBeTruthy();
+    // #X1: no mcp-client-plugin in ANY dependency field.
+    for (const field of ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]) {
+      expect(pkg[field]?.["@blackbelt-technology/pi-dashboard-mcp-client-plugin"], field).toBeUndefined();
+    }
   });
 });
 

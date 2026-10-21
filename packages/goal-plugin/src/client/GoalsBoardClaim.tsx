@@ -18,7 +18,7 @@ import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { CreateGoalDialog } from "./CreateGoalDialog.js";
 import { deriveSnapshot, fmtUsd, gaugePct, resolveGoalTurns } from "./goal-state.js";
-import { decodeFolderPath, deleteGoal, goalDetailUrl } from "./goals-api.js";
+import { deleteGoal, goalDetailUrl } from "./goals-api.js";
 import { statusMeta, useGoals } from "./useGoals.js";
 
 const FILTERS: { id: "all" | GoalRecordStatus; label: string }[] = [
@@ -159,12 +159,14 @@ function GoalCard({ goal, onOpen, onDelete }: { goal: GoalRecord; onOpen: () => 
 
 export interface GoalsBoardClaimProps {
   params: Record<string, string>;
+  /** Decoded folder path of the route (host-provided). */
+  cwd?: string;
   onBack: () => void;
 }
 
-export function GoalsBoardClaim({ params, onBack }: GoalsBoardClaimProps): React.ReactElement {
+export function GoalsBoardClaim({ cwd: routeCwd, onBack }: GoalsBoardClaimProps): React.ReactElement {
   const t = useT();
-  const cwd = decodeFolderPath(params.encodedCwd ?? "") ?? "";
+  const cwd = routeCwd ?? "";
   const [, navigate] = useLocation();
   const { goals, loading, error, refetch } = useGoals(cwd);
   const [filter, setFilter] = useState<"all" | GoalRecordStatus>("all");

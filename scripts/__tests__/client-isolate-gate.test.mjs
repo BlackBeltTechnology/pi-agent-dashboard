@@ -68,3 +68,74 @@ describe("client isolate gate", () => {
     }, 3_600_000);
   });
 });
+
+// #E22 (task 2.15): the unused client dependency on keycloak-resolver-plugin is dropped; the plugin is
+// still shipped by `piDashboard.bundledPlugins` (npm-global discovery never reads node_modules).
+describe("client entries bundled — keycloak dep dropped (E22)", () => {
+  const clientPkg = JSON.parse(readFileSync(resolve(REPO_ROOT, "packages/client/package.json"), "utf8"));
+  const serverPkg = JSON.parse(readFileSync(resolve(REPO_ROOT, "packages/server/package.json"), "utf8"));
+  const KEYCLOAK = "@blackbelt-technology/pi-dashboard-keycloak-resolver-plugin";
+
+  it("packages/client declares no keycloak-resolver-plugin dependency in any field", () => {
+    for (const field of ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]) {
+      expect(clientPkg[field]?.[KEYCLOAK], field).toBeUndefined();
+    }
+  });
+
+  it("the plugin is still bundled by the server's piDashboard.bundledPlugins", () => {
+    expect(serverPkg.piDashboard.bundledPlugins).toContain("keycloak-resolver-plugin");
+  });
+
+  it("its allowlist row is deleted and the boundary gate exits 0", () => {
+    const rows = JSON.parse(readFileSync(resolve(REPO_ROOT, "scripts/plugin-boundary-allowlist.json"), "utf8")).rows;
+    expect(rows.find((r) => r.to === "keycloak-resolver-plugin")).toBeUndefined();
+    const res = spawnSync(process.execPath, [resolve(REPO_ROOT, "scripts/check-plugin-boundary.mjs")], {
+      cwd: REPO_ROOT,
+      encoding: "utf8",
+    });
+    expect(res.status, `${res.stdout}${res.stderr}`).toBe(0);
+  });
+});
+
+// #E51 (task 4.10): the replay suites that fold events through the client reducer and assert
+// `SessionState.subagents` get the subagents plugin's reducer slice AND Agent finalizer from a vitest
+// setup file per package; each setup-file → subagents-plugin edge carries one `integration-keep` row
+// whose reason names the replay contract (spec `plugin-core-boundary` › "Ratcheting allowlist").
+// The suites themselves (`memory-event-store`, `collapse-replay-equivalence`, the client
+// `event-reducer.*` files) run green under those setup files in the normal test run.
+describe("replay setup files register the subagents slice + finalizer (E51)", () => {
+  const rows = JSON.parse(readFileSync(resolve(REPO_ROOT, "scripts/plugin-boundary-allowlist.json"), "utf8")).rows;
+  const SETUPS = [
+    { config: "packages/client/vitest.config.ts", setup: "packages/client/src/test-support/subagents-reducer-slice.ts" },
+    { config: "packages/client/vitest.node.config.ts", setup: "packages/client/src/test-support/subagents-reducer-slice.ts" },
+    { config: "packages/server/vitest.config.ts", setup: "packages/server/src/__tests__/setup/subagents-reducer-slice.ts" },
+  ];
+
+  it.each(SETUPS)("$config lists $setup in setupFiles", ({ config: cfg, setup }) => {
+    const text = readFileSync(resolve(REPO_ROOT, cfg), "utf8").replace(/\/\/.*$/gm, "");
+    expect(text).toContain(setup.split("/").slice(-3).join("/"));
+  });
+
+  it.each([...new Set(SETUPS.map((s) => s.setup))])("%s registers the slice AND the finalizer", (setup) => {
+    const text = readFileSync(resolve(REPO_ROOT, setup), "utf8");
+    expect(text).toContain("registerSessionEventReducer");
+    expect(text).toContain("registerToolRowFinalizer");
+    expect(text).toContain("toolRowFinalizers");
+  });
+
+  it.each([...new Set(SETUPS.map((s) => s.setup))])("%s has exactly one integration-keep row naming the replay contract", (setup) => {
+    const mine = rows.filter((r) => r.from === setup && r.to === "subagents-plugin");
+    expect(mine).toHaveLength(1);
+    expect(mine[0].disposition).toBe("integration-keep");
+    expect(mine[0].reason.length).toBeGreaterThanOrEqual(20);
+    expect(mine[0].reason).toMatch(/replay contract/i);
+  });
+
+  it("the boundary gate accepts the rows (exit 0)", () => {
+    const res = spawnSync(process.execPath, [resolve(REPO_ROOT, "scripts/check-plugin-boundary.mjs")], {
+      cwd: REPO_ROOT,
+      encoding: "utf8",
+    });
+    expect(res.status, `${res.stdout}${res.stderr}`).toBe(0);
+  });
+});

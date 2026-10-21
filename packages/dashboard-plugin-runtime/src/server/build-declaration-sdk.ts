@@ -45,6 +45,8 @@ export function declarationFromPlugins(
     schemaVersion: BUILD_DECLARATION_SCHEMA_VERSION,
     pluginRegistryHash: pluginRegistryHash(plugins),
     fixturePolicy,
+    // Ids of the selected set = the ids `PLUGIN_REGISTRY` embeds; sorted + deduped so the bytes are host-independent.
+    bundledPluginIds: [...new Set(plugins.map((p) => p.manifest.id))].sort(),
   };
 }
 

@@ -10,8 +10,7 @@
  * panel's Save). See change: rework-flows-plugin-for-new-pi-flows.
  */
 
-import { ToggleField, useSettingsDraftSource, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
-import { usePluginConfig, usePluginSend } from "@blackbelt-technology/dashboard-plugin-runtime/context";
+import { ToggleField, usePluginConfig, usePluginSend, useSettingsDraftSource, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type React from "react";
 import { useCallback, useRef, useState } from "react";
 

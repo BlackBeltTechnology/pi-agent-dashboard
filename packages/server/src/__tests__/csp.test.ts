@@ -8,6 +8,7 @@ import { AppMountRegistry, mountApp } from "@blackbelt-technology/dashboard-plug
 import Fastify from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildCsp, registerCsp, resolveCspMode } from "../auth/csp.js";
+import { createIndexHtmlSender } from "../lib/index-html.js";
 
 describe("buildCsp", () => {
   it("locks down the high-value directives", () => {
@@ -135,6 +136,36 @@ describe("registerCsp + serveApp mounts (test-plan #E14)", () => {
     const app = await mounted("off");
     const own = await app.inject({ method: "GET", url: "/" });
     expect(own.headers["content-security-policy"]).toBeUndefined();
+    await app.close();
+  });
+});
+
+// decouple-plugins-from-core 6.4 — test-plan #E94 (BCSP: tightening script-src keeps the import map working).
+describe("sendIndexWithImportMap under a nonce-based script-src (E94)", () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "csp-index-"));
+    fs.writeFileSync(path.join(dir, "index.html"), '<html><head><script type="module" src="/assets/i.js"></script></head></html>');
+  });
+  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  it("the baseline does not adopt nonces yet: no nonce attribute is emitted without one", async () => {
+    expect(buildCsp()).not.toContain("nonce-");
+    const app = Fastify();
+    const sender = createIndexHtmlSender(dir);
+    app.get("/", (_req, reply) => sender.sendIndexWithImportMap(reply));
+    const res = await app.inject("/");
+    expect(res.body).toContain('<script type="importmap">');
+    expect(res.body).not.toContain("nonce=");
+    await app.close();
+  });
+
+  it("with a per-response nonce the importmap tag carries it", async () => {
+    const app = Fastify();
+    const sender = createIndexHtmlSender(dir);
+    app.get("/", (_req, reply) => sender.sendIndexWithImportMap(reply, { nonce: "n1" }));
+    const res = await app.inject("/");
+    expect(res.body).toContain('<script type="importmap" nonce="n1">');
     await app.close();
   });
 });

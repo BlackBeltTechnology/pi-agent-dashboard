@@ -1,8 +1,10 @@
+import fs from "node:fs";
+import path from "node:path";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { act, cleanup, render, renderHook, screen } from "@testing-library/react";
 import type React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createUiPrimitiveRegistry, registerUiPrimitive, UiPrimitiveProvider } from "../index.js";
+import { createUiPrimitiveRegistry, registerUiPrimitive, UiPrimitiveProvider, useUiPrimitiveOrNull } from "../index.js";
 import { intentStore } from "../intent-store.js";
 import { PluginContextProvider } from "../plugin-context.js";
 import { __resetSlotClaimsVersionForTests, bumpSlotClaimsVersion } from "../slot-claims-invalidation.js";
@@ -10,6 +12,7 @@ import {
   ComposerContextGroup,
   ComposerContextGroupSlot,
   ComposerPanelSlot,
+  ContentViewSlot,
   SessionCardActionBarSlot,
   SessionCardBadgeSlot,
   SessionCardMemorySlot,
@@ -925,5 +928,113 @@ describe("folder slot consumers + slot-claims version", () => {
     expect(screen.queryByTestId("late")).not.toBeNull();
     expect(errorSpy.mock.calls.filter((c) => /hook|Hooks/i.test(String(c[0])))).toEqual([]);
     errorSpy.mockRestore();
+  });
+});
+
+// ── Slot consumers accept BOTH claims and intents (test-plan #E35) ───────────
+// A plugin MAY both emit intents and register React claims; `many` slots render
+// both, `one-active` slots prefer the intent. A trusted claim may call
+// `useUiPrimitiveOrNull`. See change: decouple-plugins-from-core (D8).
+
+/**
+ * @structural-pin the "imports no shell component" leg reads the real kb-plugin claim's import lines (text is the only observable)
+ */
+describe("slot consumers accept BOTH claims and intents (#E35)", () => {
+  function prims() {
+    const reg = createUiPrimitiveRegistry();
+    registerUiPrimitive(
+      reg,
+      "ui:action-list" as never,
+      (({ actions }: { actions: { label: string }[] }) => (
+        <b data-testid="intent-node">{actions.map((a) => a.label)}</b>
+      )) as never,
+    );
+    registerUiPrimitive(reg, "ui:path-picker" as never, (() => <i data-testid="picker" />) as never);
+    return reg;
+  }
+
+  it("many slot: the automation claim and the flows intent both render, claims in priority order, intents after", () => {
+    intentStore.__resetForTests();
+    const registry = createSlotRegistry();
+    // Added out of priority order on purpose.
+    registry.addClaim({
+      pluginId: "automation",
+      priority: 20,
+      slot: "session-card-action-bar",
+      Component: () => <span data-testid="claim-automation">auto</span>,
+    });
+    registry.addClaim({
+      pluginId: "browser",
+      priority: 10,
+      slot: "session-card-action-bar",
+      Component: () => <span data-testid="claim-browser">browser</span>,
+    });
+    intentStore.set(
+      { pluginId: "flows", sessionId: "s1", slot: "session-card-action-bar" },
+      { primitive: "ui:action-list", props: { actions: [{ label: "flow-run" }] } } as never,
+    );
+    const { container } = render(
+      <UiPrimitiveProvider value={prims()}>
+        <PluginContextProvider registry={registry}>
+          <SessionCardActionBarSlot session={makeSession()} />
+        </PluginContextProvider>
+      </UiPrimitiveProvider>,
+    );
+    const order = Array.from(container.querySelectorAll("[data-testid]")).map((n) => n.getAttribute("data-testid"));
+    expect(order).toEqual(["claim-browser", "claim-automation", "intent-node"]);
+    intentStore.__resetForTests();
+  });
+
+  it("one-active slot: with a goal claim AND a goal intent, only the intent renders", () => {
+    intentStore.__resetForTests();
+    const registry = createSlotRegistry();
+    registry.addClaim({
+      pluginId: "goal",
+      priority: 10,
+      slot: "content-view",
+      Component: () => <span data-testid="goal-claim">claim</span>,
+    });
+    const ui = () => (
+      <UiPrimitiveProvider value={prims()}>
+        <PluginContextProvider registry={registry}>
+          <ContentViewSlot session={makeSession()} routeParams={{}} onClose={() => {}} />
+        </PluginContextProvider>
+      </UiPrimitiveProvider>
+    );
+    // Claim alone renders…
+    let r = render(ui());
+    expect(screen.queryByTestId("goal-claim")).not.toBeNull();
+    r.unmount();
+    // …and yields to the same plugin's intent.
+    intentStore.set(
+      { pluginId: "goal", sessionId: "s1", slot: "content-view" },
+      { primitive: "ui:action-list", props: { actions: [{ label: "goal-intent" }] } } as never,
+    );
+    r = render(ui());
+    expect(screen.queryByTestId("intent-node")?.textContent).toBe("goal-intent");
+    expect(screen.queryByTestId("goal-claim")).toBeNull();
+    r.unmount();
+    intentStore.__resetForTests();
+  });
+
+  it("a bundled claim may call useUiPrimitiveOrNull(pathPicker) and imports no shell component", () => {
+    const registry = createSlotRegistry();
+    const Claim = () => {
+      const Picker = useUiPrimitiveOrNull("ui:path-picker");
+      return Picker ? <Picker open onSelect={() => {}} onCancel={() => {}} /> : <span data-testid="no-picker" />;
+    };
+    registry.addClaim({ pluginId: "kb", priority: 1, slot: "session-card-action-bar", Component: Claim });
+    render(
+      <UiPrimitiveProvider value={prims()}>
+        <PluginContextProvider registry={registry}>
+          <SessionCardActionBarSlot session={makeSession()} />
+        </PluginContextProvider>
+      </UiPrimitiveProvider>,
+    );
+    expect(screen.queryByTestId("picker")).not.toBeNull();
+    // The real bundled claim that uses the soft hook (kb-plugin) imports nothing from the client/shell.
+    const kb = fs.readFileSync(path.resolve(__dirname, "../../../kb-plugin/src/client/KbSourceAdd.tsx"), "utf-8");
+    expect(kb).toContain("useUiPrimitiveOrNull");
+    expect(kb).not.toMatch(/from\s+["'][^"']*(pi-dashboard-web|pi-dashboard-client["'/]|\.\.\/\.\.\/\.\.\/client)/);
   });
 });

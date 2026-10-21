@@ -76,6 +76,7 @@ Props `historyPhase`, `historyStartedAt`, `onRetryHistory`. Empty branch: `waiti
 
 See change: add-pending-question-stack — `InteractiveUiCard` wraps a PENDING ask in `<div data-pending-ask tabIndex=-1 class="focus-ring rounded-lg">`: scroll/focus target for question-stack "Go to session" (`lib/questions/route-question.ts`). Resolved asks unwrapped.
 
+`rawEvent` branch: a row with `ownedGroup` (plugin-owned event group) IGNORES `showDebugTools`. Visibility (`isRowVisible`) + render mirror: visible/rendered only while `usePluginAvailability().isUnavailable(ownerId)`; available owner or no status read yet → filtered out (renders nothing). Unavailable → `OwnedEventGroupCard` (owner name via `ownerDisplayName`). Plain `rawEvent` keeps the `showDebugTools` gate. Availability snapshot is a `isRowVisible` dep: a status change re-renders, never re-reduces. See change: decouple-plugins-from-core.
 ## chat-motion (add-fluid-chat-motion)
 
 - Effective motion = `useChatMotion(prefs)` (pref ∧ ¬reduced-motion ∧ visible). All motion reads it; false → today's exact render + write path.

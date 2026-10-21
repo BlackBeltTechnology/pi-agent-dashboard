@@ -79,6 +79,8 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "DELETE", path: "/api/openspec/groups/:id", tier: "control" },
   { method: "DELETE", path: "/api/paired-devices/:id", tier: "operate" },
   { method: "DELETE", path: "/api/plugins/automation", tier: "control" },
+  // decouple-plugins-from-core: removes a plugin's whole trust entry; the matching POST also needs a genuinely local caller.
+  { method: "DELETE", path: "/api/plugins/:id/trust", tier: "operate" },
   { method: "DELETE", path: "/api/plugins/gmail/accounts/:sub", tier: "operate" },
   { method: "DELETE", path: "/api/plugins/team/agents/:key/conversations/:c", tier: "operate" },
   { method: "DELETE", path: "/api/plugins/team/personas/:key", tier: "operate" },
@@ -206,6 +208,8 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "GET", path: "/api/pi/installs", tier: "observe" },
   { method: "GET", path: "/api/pinned-dirs", tier: "observe" },
   { method: "GET", path: "/api/plugins", tier: "observe" },
+  // decouple-plugins-from-core: admitted runtime plugin clients (URLs under /plugin-assets/<id>/<sha>/).
+  { method: "GET", path: "/api/plugins/runtime-clients", tier: "observe" },
   { method: "GET", path: "/api/plugins/automation/actions", tier: "observe" },
   { method: "GET", path: "/api/plugins/automation/definition", tier: "observe" },
   { method: "GET", path: "/api/plugins/automation/git-capable", tier: "observe" },
@@ -405,6 +409,8 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "POST", path: "/api/pi/runtime", tier: "operate" },
   { method: "POST", path: "/api/addons/:featureId/toggle", tier: "operate" },
   { method: "POST", path: "/api/plugins/:id/toggle", tier: "operate" },
+  // Pins a client bundle hash or grants pi-package server trust: operate AND isLocallyTrusted (a remote operate bearer is refused).
+  { method: "POST", path: "/api/plugins/:id/trust", tier: "operate" },
   { method: "POST", path: "/api/plugins/automation/create", tier: "control" },
   { method: "POST", path: "/api/plugins/automation/run", tier: "control" },
   { method: "POST", path: "/api/plugins/automation/stop", tier: "control" },

@@ -72,6 +72,9 @@ describe("bundled server ships the pi runtime (E10)", () => {
       // See change: add-plugin-app-host.
       "app-kit",
       "mcp-client-plugin",
+      // mcp-core: non-plugin MCP config library imported by the server and several plugins.
+      // See change: decouple-plugins-from-core.
+      "mcp-core",
       "bus-client",
       "client-utils",
       "document-converter",

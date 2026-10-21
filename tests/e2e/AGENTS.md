@@ -37,6 +37,7 @@ One row per file.
 | `model-roles-promotion.spec.ts` | L3 spec. → `model-roles-promotion.spec.ts.AGENTS.md` |
 | `gmail-plugin.spec.ts` | → `gmail-plugin.spec.ts.AGENTS.md` |
 | `notify-collapse.spec.ts` | → `notify-collapse.spec.ts.AGENTS.md` |
+| `owned-event-group-row.spec.ts` | → see `owned-event-group-row.spec.ts.AGENTS.md` |
 | `pi-settings-editor.spec.ts` | L3 pi settings #F13/#F14 |
 | `plugin-embedded-app.spec.ts` | L3 demo `"content"` embedded app (F1/F2). → `plugin-embedded-app.spec.ts.AGENTS.md` |
 | `plugin-oauth-flow.spec.ts` | → `plugin-oauth-flow.spec.ts.AGENTS.md` |

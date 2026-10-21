@@ -13,7 +13,8 @@
  * `kb dox lint`. Rules 2 and 3 stay tree-absolute because their present count is
  * zero, so they cost no backfill.
  *
- * Four rules is the ceiling. Growth pressure here is a signal to write a
+ * Five rules is the ceiling (rule 5, the skill-template gate, is
+ * decouple-plugins-from-core's). Growth pressure here is a signal to write a
  * different script, not to add a plugin system.
  *
  *   node scripts/check-conventions.mjs [--base <ref>]
@@ -193,6 +194,57 @@ export function disciplineSkillsViolations(touched) {
   return out;
 }
 
+/** A scaffold template of `dashboard-plugin-skill` (the dox rows beside them are docs, not templates). */
+const SKILL_TEMPLATE = /^packages\/dashboard-plugin-skill\/(?:src\/)?templates\/(?!(?:[^/]*\.)?AGENTS\.md$)/;
+/** Any artifact of an OpenSpec change (proposal, design, tasks, specs), live or archived: the change is in the diff. */
+const CHANGE_ARTIFACT = /^openspec\/changes\/(?:archive\/)?[^/]+\/[^/]+/;
+
+/** Version pins (`^0.x`, `1.2.3`, `^1.2.0`) and quoted path/specifier strings, normalised away. */
+function stripPinsAndPaths(line) {
+  return line
+    .replace(/(["'`])[^"'`\n]*\/[^"'`\n]*\1/g, '"<path>"')
+    .replace(/\d+\.(?:\d+|x)(?:\.(?:\d+|x))?(?:-[\w.]+)?/g, "<v>")
+    .trim();
+}
+
+/**
+ * True when a `-U0` diff only re-pins versions or re-points paths: at least one changed line, and the removed
+ * and added lines are equal as multisets once version pins and quoted paths are normalised.
+ */
+export function onlySyncsPathsOrPins(diff) {
+  const removed = [];
+  const added = [];
+  for (const line of diff.split("\n")) {
+    if (/^(---|\+\+\+)/.test(line)) continue;
+    if (line.startsWith("-")) removed.push(stripPinsAndPaths(line.slice(1)));
+    else if (line.startsWith("+")) added.push(stripPinsAndPaths(line.slice(1)));
+  }
+  if (removed.length === 0 || removed.length !== added.length) return false;
+  const a = [...removed].sort();
+  const b = [...added].sort();
+  return a.every((l, i) => l === b[i]);
+}
+
+/**
+ * Rule 5 — editing a `dashboard-plugin-skill` template needs an OpenSpec change in the same diff (its artifacts, proposal included),
+ * unless the edit only syncs paths/version pins (spec `dashboard-plugin-skill`, "Template change is gated").
+ * `touched` entries may carry `diff` (a `-U0` unified diff); without one a template edit is not a sync.
+ * See change: decouple-plugins-from-core (task 8.137).
+ */
+export function templateGateViolations(touched) {
+  const templates = touched.filter((e) => SKILL_TEMPLATE.test(e.path) && e.status !== "R");
+  if (templates.length === 0) return [];
+  if (touched.some((e) => CHANGE_ARTIFACT.test(e.path))) return [];
+  return templates
+    .filter((e) => !(e.status === "M" && typeof e.diff === "string" && onlySyncsPathsOrPins(e.diff)))
+    .map((e) => ({
+      file: e.path,
+      message:
+        "scaffold template changed with no openspec/changes/* change in the diff — " +
+        "add a change proposal, or limit the edit to syncing paths/version pins",
+    }));
+}
+
 // --- CLI -------------------------------------------------------------------
 
 function listMarkdown() {
@@ -261,6 +313,22 @@ function committedTouched(base) {
   return entries;
 }
 
+/** Attach each skill-template entry's `-U0` diff against the merge base (committed + uncommitted). */
+function withTemplateDiffs(touched, base) {
+  const mergeBase = execFileSync("git", ["merge-base", base, "HEAD"], { cwd: ROOT, encoding: "utf8" }).trim();
+  return touched.map((e) =>
+    SKILL_TEMPLATE.test(e.path)
+      ? {
+          ...e,
+          diff: execFileSync("git", ["diff", "-U0", "--no-color", mergeBase, "--", e.path], {
+            cwd: ROOT,
+            encoding: "utf8",
+          }),
+        }
+      : e,
+  );
+}
+
 function main() {
   const argv = process.argv.slice(2);
   const baseIdx = argv.indexOf("--base");
@@ -282,6 +350,7 @@ function main() {
   let advisory = [];
   if (base) {
     violations.push(...disciplineSkillsViolations(touched));
+    violations.push(...templateGateViolations(withTemplateDiffs(touched, base)));
   } else {
     // No base ⇒ no touched set ⇒ the touched-scoped rules report without
     // gating. Archived changes are excluded: they are immutable history.

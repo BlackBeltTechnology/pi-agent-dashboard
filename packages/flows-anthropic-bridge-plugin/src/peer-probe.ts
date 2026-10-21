@@ -18,9 +18,11 @@
  *   - `via === "pi-packages"` → `await import(entryPath!)` (absolute path)
  */
 
+import { PEER_AM_LEGACY } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/anthropic-peer-names.js";
+
 export const PEER_AM = "@blackbelt-technology/pi-anthropic-messages";
-/** Legacy pre-rescope module name, still probed for back-compat. */
-export const PEER_AM_LEGACY = "@pi/anthropic-messages";
+/** Legacy pre-rescope module name, still probed for back-compat. Defined in shared; re-exported. */
+export { PEER_AM_LEGACY };
 /** All anthropic-messages specifiers to probe, new name first. */
 export const PEER_AM_NAMES = [PEER_AM, PEER_AM_LEGACY] as const;
 export const PEER_FLOWS = "pi-flows";

@@ -13,7 +13,7 @@ import { HANDLER_MAX_BYTES } from "@blackbelt-technology/pi-dashboard-shared/das
 import { OFFICE_SIZE_CAPS } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
 
 /** How the post-install hook makes the app's loader dispatch `TrunkApplicationStarted` (D3). */
-export type CraftReadyHook =
+type CraftReadyHook =
   | { kind: "trunk" }
   /** Dispatch right after the statement assigning `window.<global>.readyMs = …`. */
   | { kind: "load-ready-ms"; global: string }
@@ -36,7 +36,7 @@ export interface CraftClaimProfile {
 }
 
 /** Why a `latestChannel:false` app's version is fixed (settings hint, D8/D11). */
-export type FixedChannelReason = "unverified-latest" | "latest-fails-to-start";
+type FixedChannelReason = "unverified-latest" | "latest-fails-to-start";
 
 export interface CraftAppProfile {
   /** `craft-apps` registry id; status/prepare/config/mount key. */

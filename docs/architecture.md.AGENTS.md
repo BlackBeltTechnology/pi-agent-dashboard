@@ -40,3 +40,5 @@ TS loader §: single native strip-only loader;tiers 1-3 (registerHooks/register+
 - `### Built-in TLS listener`: 2nd `https.Server`→same Fastify;SNI store, `CertManager`, tailscale source, `/api/health.tls`. See change: add-tailscale-cert-tls.
 - `#### Domain certs: acme`: DNS-01 source;solvers `cloudflare`/`acme-dns`;gates `credentials`/`dns-cname`/`dns-zone`;vault `tls:<id>`;routes `acme-routes.ts`;guide `acme-dns01-certs.md`. See change: add-acme-dns01-certs.
 - `### Live Preview: Static Targets, Exposure, Egress`: capability-only static previews;exposure epoch;`preview-egress`. See change: improve-canvas-html-and-url-ux.
+
+- `#### Plugin Discovery, Trust and Runtime Delivery`: 4 sources, shadowing, `plugins_changed`, `auth.trustedPlugins`, runtime delivery. See change: decouple-plugins-from-core.

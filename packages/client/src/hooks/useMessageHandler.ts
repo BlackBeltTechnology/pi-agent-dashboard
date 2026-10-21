@@ -78,14 +78,7 @@ export interface SpawnErrorDetail {
   timeoutMs?: number;
 }
 
-import {
-  clearSessionEvents,
-  intentStore,
-  publishSessionData,
-  publishSessionEvent,
-  publishSessionEvents,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
-import { applyPluginConfigUpdate, getPluginConfig } from "@blackbelt-technology/dashboard-plugin-runtime/context";
+import { applyPluginConfigUpdate, clearSessionEvents, getPluginConfig, intentStore, publishSessionData, publishSessionEvent, publishSessionEvents } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 
 /**
  * Group key a session's ended count belongs under (D4/D9): the same
@@ -2018,6 +2011,15 @@ export function useMessageHandler(
         // refetch /api/health and propagate the new enabled set into the
         // slot registry. See change: add-plugin-activation-ui.
         window.dispatchEvent(new CustomEvent("plugin-config-update", { detail: msg }));
+        break;
+
+      case "plugins_changed":
+        // Full plugin status snapshot (discovery refresh, toggle, local detection).
+        // Re-emitted as a DOM event, like `plugin-config-update`, so the Plugins tab and
+        // `usePluginEnabledSet` stay independent of the WS plumbing. An older client
+        // that lacks this case ignores the type via the default branch.
+        // See change: decouple-plugins-from-core (tasks 5.8, 5.11, 5.18).
+        window.dispatchEvent(new CustomEvent("plugins-changed", { detail: msg }));
         break;
 
       // bootstrap_status_update + bootstrap_ticket_complete WS messages

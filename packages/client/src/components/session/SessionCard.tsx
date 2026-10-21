@@ -38,7 +38,16 @@ export { getCardPulseClass, getCardStripeFxClass } from "../../lib/session/sessi
 export const statusColors = statusColorsExt;
 export const sourceBadgeColors = sourceBadgeColorsExt;
 
-import { SessionCardActionBarSlot, SessionCardBadgeSlot, SessionCardFlowsSlot, SessionCardMemorySlot, useHasWidgetBarPrompt, useSlotHasClaimsForSession, useSlotHasVisibleClaimsForSession, WorktreeCardSectionSlot } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  SessionCardActionBarSlot,
+  SessionCardBadgeSlot,
+  SessionCardFlowsSlot,
+  SessionCardMemorySlot,
+  useHasWidgetBarPrompt,
+  useSlotHasClaimsForSession,
+  useSlotHasVisibleClaimsForSession,
+  WorktreeCardSectionSlot,
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { folderKeyForSession } from "@blackbelt-technology/pi-dashboard-shared/card-sections.js";
 import { parseModelId } from "@blackbelt-technology/pi-dashboard-shared/model-id.js";
 import type { ClosedReason, CommandInfo, DashboardSession, GitStatus, ImageContent, OpenSpecChange, OpenSpecData, OpenSpecGroup, OpenSpecReadiness, OpenSpecReadinessReason } from "@blackbelt-technology/pi-dashboard-shared/types.js";

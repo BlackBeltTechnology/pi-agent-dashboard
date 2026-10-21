@@ -88,3 +88,9 @@ Pull-only condensed map. Source: docs/plugin-seams.md. Server-entry seams on `Se
 - `PI_DASHBOARD_FIXTURE_PLUGINS=1` gates `fixture: true` plugins (server + bridge entries; fixture clients via `fixturePolicy: "included"`).
 - Set only by docker test harness.
 - `packages/demo-plugin`: `demo/echo`, fake login flow, `ctx.credentials`, `demo_echo` bridge tool.
+
+## Decoupling seams (decouple-plugins-from-core)
+- Shared contracts in non-plugin pkgs: `shared/dashboard-plugin/{subagent-types,anthropic-peer-names}.ts`, `shared/mcp/verb-tiers.generated.ts`, `packages/mcp-core`. Gate `npm run check:plugin-boundary`.
+- Manifest `eventTypes` (exact or `prefix_*`) → one `role:"rawEvent"` group row per owned type (`ownedGroup`, payloads cap 50). Availability read at render via `pluginAvailability`, never in reducer.
+- Client entry exports `sessionEventReducer` + `toolRowFinalizers`; shell registers via `./host`, gated by enabled set; heal guards; generic heals stay in core.
+- `tool-renderer` claim: `expandWhileRunning`, `resultPending` (sync predicate export name).

@@ -7,7 +7,7 @@
  * here collapses the panel to the flat back-compat layout.
  */
 
-import { getPluginConfig } from "@blackbelt-technology/dashboard-plugin-runtime/context";
+import { getPluginConfig } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";

@@ -9,7 +9,7 @@ import {
   type ConfigIO,
   createMcpClientConfigService,
   type McpClientConfigService,
-} from "@blackbelt-technology/pi-dashboard-mcp-client-plugin/core";
+} from "@blackbelt-technology/pi-dashboard-mcp-core";
 import { describe, expect, it } from "vitest";
 import { type BrewResult, type InstallerEnv, runInstaller, TERMINAL_STATES } from "../install.js";
 

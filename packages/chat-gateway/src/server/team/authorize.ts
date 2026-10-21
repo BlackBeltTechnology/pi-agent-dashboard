@@ -9,7 +9,7 @@
  *
  * Pure over (author, binding, verb, targetCwd, disarmed) — the verb→tier table
  * and command allowlist are injectable purely to make the table-driven tests
- * possible; production uses the shared `GENERATED_TOOLS` table.
+ * possible; production uses the shared `GENERATED_VERB_TIERS` table.
  *
  * See change: add-chat-gateway-team-controls (D2).
  */

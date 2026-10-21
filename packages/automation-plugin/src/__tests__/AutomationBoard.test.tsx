@@ -6,13 +6,13 @@
  * See change: add-automation-plugin, redesign-automation-editor-and-board.
  */
 
+import { encodeFolderPath } from "@blackbelt-technology/dashboard-plugin-runtime/sdk";
 import { withUiPrimitiveProvider } from "@blackbelt-technology/dashboard-plugin-runtime/test-support";
 import { Popover } from "@blackbelt-technology/pi-dashboard-client-utils/Popover";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { encodeFolderPath } from "../client/folder-encoding.js";
 import type { AutomationConfig, DiscoveredAutomation, RunRecord } from "../shared/automation-types.js";
 
 const nightlyConfig: AutomationConfig = {
@@ -58,7 +58,7 @@ import { listAutomations, listRuns as listRunsMock } from "../client/api.js";
 // container-scoped queries returned by render().
 function renderBoard(props: React.ComponentProps<typeof AutomationBoard>) {
   return render(
-    withUiPrimitiveProvider({ [UI_PRIMITIVE_KEYS.popover]: Popover }, <AutomationBoard {...props} />),
+    withUiPrimitiveProvider({ [UI_PRIMITIVE_KEYS.popover]: Popover }, <AutomationBoard cwd="/r" {...props} />),
   );
 }
 
@@ -80,7 +80,7 @@ describe("AutomationBoard", () => {
   });
 
   it("rejects an undecodable encodedCwd instead of running unscoped queries", async () => {
-    const { getByTestId } = renderBoard({ params: { encodedCwd: "!!!not-base64!!!" } });
+    const { getByTestId } = renderBoard({ params: { encodedCwd: "!!!not-base64!!!" }, cwd: undefined });
     await waitFor(() => expect(getByTestId("automation-board-invalid")).toBeTruthy());
     expect(vi.mocked(listAutomations)).not.toHaveBeenCalled();
   });

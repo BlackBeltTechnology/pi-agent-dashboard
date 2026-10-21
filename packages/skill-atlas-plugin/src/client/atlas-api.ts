@@ -1,8 +1,9 @@
 /**
  * REST client + URL helpers for the skill atlas.
- * Folder paths use the shell's base64url `/folder/:encodedCwd` codec.
+ * Folder routes use the runtime `./sdk` codec (`folderRouteHref`).
  * See change: add-skill-atlas-screen.
  */
+import { folderRouteHref } from "@blackbelt-technology/dashboard-plugin-runtime/sdk";
 import type { SkillAtlasScope, SkillGraphResponse } from "../shared/types.js";
 
 const GRAPH_URL = "/api/plugins/skill-atlas/graph";
@@ -33,26 +34,9 @@ export function piResourceViewerUrl(filePath: string, title: string): string {
   return `/pi-resource?${q.toString()}`;
 }
 
-function encodeFolderPath(cwd: string): string {
-  const bytes = new TextEncoder().encode(cwd);
-  let bin = "";
-  for (const b of bytes) bin += String.fromCharCode(b);
-  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-export function decodeFolderPath(encoded: string): string | null {
-  try {
-    const padded = encoded.replace(/-/g, "+").replace(/_/g, "/");
-    const bin = atob(padded + "=".repeat((4 - (padded.length % 4)) % 4));
-    return new TextDecoder("utf-8", { fatal: true }).decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)));
-  } catch {
-    return null;
-  }
-}
-
 /** Atlas URL; `sel` + `hops` preselect a skill (most-connected chips). */
 export function atlasUrl(scope: SkillAtlasScope, cwd?: string, sel?: string, hops?: number): string {
-  const base = scope === "project" && cwd ? `/folder/${encodeFolderPath(cwd)}/atlas` : "/atlas";
+  const base = scope === "project" && cwd ? folderRouteHref(cwd, "/atlas") : "/atlas";
   if (!sel) return base;
   const q = new URLSearchParams({ sel });
   if (hops) q.set("hops", String(hops));

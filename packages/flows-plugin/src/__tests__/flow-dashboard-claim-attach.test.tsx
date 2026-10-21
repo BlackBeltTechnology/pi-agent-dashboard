@@ -12,13 +12,15 @@
 import {
   createUiPrimitiveRegistry,
   type InteractiveUiRequestSnapshot,
+  registerUiPrimitive,
+  UiPrimitiveProvider,
+} from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
   PluginContextProvider,
   publishSessionData,
   publishSessionEvent,
   publishSessionEvents,
-  registerUiPrimitive,
-  UiPrimitiveProvider,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import type { DashboardEvent, DashboardSession, FlowInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";

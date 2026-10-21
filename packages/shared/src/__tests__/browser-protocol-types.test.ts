@@ -36,6 +36,7 @@ import {
   type BrowserHostClientMessage,
   type BrowserHostServerMessage,
 } from "../browser-protocol.js";
+import type { PluginStatus } from "../dashboard-plugin/plugin-status.js";
 import type {
   AssetRegisterMessage,
   ExtensionToServerMessage,
@@ -555,6 +556,43 @@ describe("browser_host_* message names (E32)", () => {
     for (const m of sample) {
       expect(Object.keys(m).filter((k) => /guid|token|privateKey/i.test(k))).toEqual([]);
     }
+  });
+});
+
+// decouple-plugins-from-core test-plan #E63 (task 8.81): `plugins_changed` is additive.
+describe("plugins_changed (decouple-plugins-from-core)", () => {
+  type Old = { id: string; displayName: string; enabled: boolean; loaded: boolean; claims: number };
+  const oldRow: Old = { id: "demo", displayName: "Demo", enabled: true, loaded: true, claims: 0 };
+  const newRow: PluginStatus = { ...oldRow, source: "workspace", restartRequired: true, client: { delivery: "refused", refusedReason: "missing-dep" } };
+  const msg: ServerToBrowserMessage = { type: "plugins_changed", plugins: [newRow] };
+
+  it("is a member of the server→browser union", () => {
+    expect(msg.type).toBe("plugins_changed");
+  });
+
+  it("a pre-change client handler (known-type switch with a no-op default) ignores it: no throw, state unchanged", () => {
+    const state = { sessions: 1, plugins: [oldRow] };
+    const before = JSON.stringify(state);
+    // Mirrors the pre-change `useMessageHandler` shape: unknown types fall through to a no-op.
+    const handle = (m: { type: string }) => {
+      switch (m.type) {
+        case "plugin_config_update":
+          state.sessions++;
+          break;
+        default:
+          break;
+      }
+    };
+    expect(() => handle(msg)).not.toThrow();
+    expect(JSON.stringify(state)).toBe(before);
+  });
+
+  it("old-shape and new-shape status rows both parse as a PluginStatus", () => {
+    const parse = (raw: string): PluginStatus => JSON.parse(raw) as PluginStatus;
+    const o = parse(JSON.stringify(oldRow));
+    const n = parse(JSON.stringify(newRow));
+    expect([o.id, o.source, o.restartRequired, o.client]).toEqual(["demo", undefined, undefined, undefined]);
+    expect([n.source, n.restartRequired, n.client?.refusedReason]).toEqual(["workspace", true, "missing-dep"]);
   });
 });
 

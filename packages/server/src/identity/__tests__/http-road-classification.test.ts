@@ -104,6 +104,15 @@ describe("classifyHttpRoad — roads", () => {
     });
   });
 
+  it("E81: the runtime-client routes are core plugin management at their tiers (trust = operate, listing = observe)", () => {
+    expect(classifyHttpRoad("GET", "/api/plugins/runtime-clients")).toMatchObject({ road: "non-session", action: "plugins.read", resource: { kind: "plugin" } });
+    expect(classifyHttpRoad("POST", "/api/plugins/:id/trust")).toMatchObject({ road: "non-session", action: "plugins.write", resource: { kind: "plugin" } });
+    expect(classifyHttpRoad("DELETE", "/api/plugins/:id/trust")).toMatchObject({ road: "non-session", action: "plugins.write" });
+    expect(routeTier("GET", "/api/plugins/runtime-clients")).toBe("observe");
+    expect(routeTier("POST", "/api/plugins/:id/trust")).toBe("operate");
+    expect(routeTier("DELETE", "/api/plugins/:id/trust")).toBe("operate");
+  });
+
   it("a plugin-registered route outside /api/plugins/ is namespaced by its registering plugin", () => {
     const ownerOf = (r: string) => (r.startsWith("/api/kb/") ? "kb" : undefined);
     expect(classifyHttpRoad("GET", "/api/kb/stats", ownerOf)).toMatchObject({

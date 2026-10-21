@@ -1,0 +1,212 @@
+{
+  "rows": [
+    {
+      "from": "packages/automation-plugin/src/__tests__/flows-run-finalizes-on-forwarded-completion.test.ts",
+      "to": "flows-plugin",
+      "kind": "test",
+      "reason": "Test asserts a contract against a real collaborating plugin; no fixture covers it.",
+      "disposition": "integration-keep",
+      "removedBy": "never"
+    },
+    {
+      "from": "packages/blackhole-plugin/src/server/__tests__/routes.test.ts",
+      "to": "roles-plugin",
+      "kind": "test",
+      "reason": "Test asserts a contract against a real collaborating plugin; no fixture covers it.",
+      "disposition": "integration-keep",
+      "removedBy": "never"
+    },
+    {
+      "from": "packages/client/src/__tests__/plugin-settings-consistency.test.tsx",
+      "to": "apple-tools",
+      "kind": "test",
+      "reason": "Cross-plugin settings consistency test: enumerates every bundled plugin by design.",
+      "disposition": "integration-keep",
+      "removedBy": "never"
+    },
+    {
+      "from": "packages/client/src/__tests__/plugin-settings-consistency.test.tsx",
+      "to": "automation-plugin",
+      "kind": "test",
+      "reason": "Cross-plugin settings consistency test: enumerates every bundled plugin by design.",
+      "disposition": "integration-keep",
+      "removedBy": "never"
+    },
+    {
+      "from": "packages/client/src/__tests__/plugin-settings-consistency.test.tsx",
+      "to": "blackhole-plugin",
+      "kind": "test",
+      "reason": "Cross-plugin settings consistency test: enumerates every bundled plugin by design.",
+      "disposition": "integration-keep",
+      "removedBy": "never"
+    },
+    {
+      "from": "packages/client/src/__tests__/plugin-settings-consistency.test.tsx",
+      "to": "browser-plugin",
+      "kind": "test",
+      "reason": "Cross-plugin settings consistency test: enumerates every bundled plugin by design.",
+      "disposition": "integration-keep",
+      "removedBy": "never"
+    },
+    {
+      "from": "packages/client/src/__tests__/plugin-settings-consistency.test.tsx",
+      "to": "chat-gateway",
+      "kind": "test",
+      "reason": "Cross-plugin settings consistency test: enumerates every bundled plugin by design.",
+      "disposition": "integration-keep",
+      "removedBy": "never"
+    },
+    {
+      "from": "packages/client/src/__tests__/plugin-settings-consistency.test.tsx",
+      "to": "cost-estimator",
+      "kind": "test",
+      "reason": "Cross-plugin settings consistency test: enumerates every bundled plugin by design.",
+      "disposition": "integration-keep",
+      "removedBy": "never"
+    },
+    {
+      "from": "packages/client/src/__tests__/plugin-settings-consistency.test.tsx",
+      "to": "flows-anthropic-bridge-plugin",
+      "kind": "test",
+      "reason": "Cross-plugin settings consistency test: enumerates every bundled plugin by design.",
+      "disposition": "integration-keep",
+      "removedBy": "never"
+    },
+    {
+      "from": "packages/client/src/__tests__/plugin-settings-consistency.test.tsx",
+      "to": "flows-plugin",
+      "kind": "test",
+      "reason": "Cross-plugin settings consistency test: enumerates every bundled plugin by design.",
+      "disposition": "integration-keep",
+      "removedBy": "never"
+    },
+    {
+      "from": "packages/client/src/__tests__/plugin-settings-consistency.test.tsx",
+      "to": "goal-plugin",
+      "kind": "test",
+      "reason": "Cross-plugin settings consistency test: enumerates every bundled plugin by design.",
+      "disposition": "integration-keep",
+      "removedBy": "never"
+    },
+    {
+      "from": "packages/client/src/__tests__/plugin-settings-consistency.test.tsx",
+      "to": "grammar-plugin",
+      "kind": "test",
+      "reason": "Cross-plugin settings consistency test: enumerates every bundled plugin by design.",
+      "disposition": "integration-keep",
+      "removedBy": "never"
+    },
+    {
+      "from": "packages/client/src/__tests__/plugin-settings-consistency.test.tsx",
+      "to": "mcp-client-plugin",
+      "kind": "test",
+      "reason": "Cross-plugin settings consistency test: enumerates every bundled plugin by design.",
+      "disposition": "integration-keep",
+      "removedBy": "never"
+    },
+    {
+      "from": "packages/client/src/__tests__/plugin-settings-consistency.test.tsx",
+      "to": "obs-studio-plugin",
+      "kind": "test",
+      "reason": "Cross-plugin settings consistency test: enumerates every bundled plugin by design.",
+      "disposition": "integration-keep",
+      "removedBy": "never"
+    },
+    {
+      "from": "packages/client/src/__tests__/plugin-settings-consistency.test.tsx",
+      "to": "quota-plugin",
+      "kind": "test",
+      "reason": "Cross-plugin settings consistency test: enumerates every bundled plugin by design.",
+      "disposition": "integration-keep",
+      "removedBy": "never"
+    },
+    {
+      "from": "packages/client/src/__tests__/plugin-settings-consistency.test.tsx",
+      "to": "subagents-plugin",
+      "kind": "test",
+      "reason": "Cross-plugin settings consistency test: enumerates every bundled plugin by design.",
+      "disposition": "integration-keep",
+      "removedBy": "never"
+    },
+    {
+      "from": "packages/client/src/__tests__/plugin-settings-consistency.test.tsx",
+      "to": "system-one-plugin",
+      "kind": "test",
+      "reason": "Cross-plugin settings consistency test: enumerates every bundled plugin by design.",
+      "disposition": "integration-keep",
+      "removedBy": "never"
+    },
+    {
+      "from": "packages/client/src/test-support/subagents-reducer-slice.ts",
+      "to": "subagents-plugin",
+      "kind": "test",
+      "reason": "Vitest setup file registers the subagents session event reducer slice and Agent tool-row finalizer so core replay suites keep asserting SessionState.subagents (replay contract, design D5 item 11).",
+      "disposition": "integration-keep",
+      "removedBy": "never"
+    },
+    {
+      "from": "packages/server/src/__tests__/setup/subagents-reducer-slice.ts",
+      "to": "subagents-plugin",
+      "kind": "test",
+      "reason": "Server vitest setup file registers the subagents reducer slice and Agent tool-row finalizer so the replay suites folding through the client reducer keep asserting SessionState.subagents (replay contract, design D5 item 11).",
+      "disposition": "integration-keep",
+      "removedBy": "never"
+    },
+    {
+      "from": "packages/extension/src/__tests__/system-prompt-structured-contributions.test.ts",
+      "to": "roles-plugin",
+      "kind": "test",
+      "reason": "Test asserts a contract against a real collaborating plugin; no fixture covers it.",
+      "disposition": "integration-keep",
+      "removedBy": "never"
+    },
+    {
+      "from": "packages/kb-plugin/src/__tests__/i18n.test.ts",
+      "to": "context-mode-settings-plugin",
+      "kind": "test",
+      "reason": "i18n catalog parity test spans several plugin catalogs by design.",
+      "disposition": "integration-keep",
+      "removedBy": "never"
+    },
+    {
+      "from": "packages/kb-plugin/src/__tests__/i18n.test.ts",
+      "to": "gmail-plugin",
+      "kind": "test",
+      "reason": "i18n catalog parity test spans several plugin catalogs by design.",
+      "disposition": "integration-keep",
+      "removedBy": "never"
+    },
+    {
+      "from": "packages/kb-plugin/src/__tests__/i18n.test.ts",
+      "to": "hermes-memory-plugin",
+      "kind": "test",
+      "reason": "i18n catalog parity test spans several plugin catalogs by design.",
+      "disposition": "integration-keep",
+      "removedBy": "never"
+    },
+    {
+      "from": "packages/server/src/__tests__/host-gate-inject.test.ts",
+      "to": "mcp-server-plugin",
+      "kind": "test",
+      "reason": "Core integration test: host-gate injection must keep dispatching real mcp-server tools (core host-gate contract).",
+      "disposition": "integration-keep",
+      "removedBy": "none"
+    },
+    {
+      "from": "packages/server/src/__tests__/mcp-manifest-completeness.test.ts",
+      "to": "mcp-server-plugin",
+      "kind": "test",
+      "reason": "Core integration test: every generated mcp-server tool needs a core ROUTE_TIERS entry (ROUTE_TIERS completeness contract).",
+      "disposition": "integration-keep",
+      "removedBy": "none"
+    },
+    {
+      "from": "packages/server/package.json",
+      "to": "mcp-server-plugin",
+      "kind": "pkg",
+      "reason": "devDependency for host-gate-inject.test.ts and mcp-manifest-completeness.test.ts, which guard the core ROUTE_TIERS / host-gate contract against the real mcp-server plugin.",
+      "disposition": "integration-keep",
+      "removedBy": "none"
+    }
+  ]
+}

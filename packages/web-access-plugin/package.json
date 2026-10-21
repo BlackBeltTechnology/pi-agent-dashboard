@@ -2,6 +2,9 @@
   "name": "@blackbelt-technology/pi-dashboard-web-access-plugin",
   "version": "0.10.0",
   "description": "Dashboard rendering for the pi-web-access extension — compact, safe chat cards for web-search-results custom entries (search, fetch).",
+  "keywords": [
+    "pi-dashboard-plugin"
+  ],
   "license": "MIT",
   "publishConfig": {
     "access": "public"

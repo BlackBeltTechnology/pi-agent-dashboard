@@ -2,6 +2,9 @@
   "name": "@blackbelt-technology/pi-dashboard-craft-web-plugin",
   "version": "0.10.0",
   "description": "Dashboard plugin that edits and views files in the editor pane with the ArtCraft web builds (WordCraft, GridCraft, PdfCraft, CADCraft, DesignCraft, SoundCraft in place; PhotoCraft, VectorCraft, DeckCraft saving their native format next to the file; LightCraft view-only RAW) in a sandboxed opaque-origin frame as editor-pane-file-handler modes. Builds are provisioned on demand (checksum-verified GitHub release, inline scripts externalized, adapter profile + shim injected), served read-only through ctx.serveApp under an enforced CSP with no programmatic network access, and saved only through the core write-binary path behind per-format validators. Disabled by default (defaultEnabled: false) — opt in via settings.",
+  "keywords": [
+    "pi-dashboard-plugin"
+  ],
   "license": "MIT",
   "publishConfig": {
     "access": "public"

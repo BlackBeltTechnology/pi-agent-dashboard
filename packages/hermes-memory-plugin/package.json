@@ -2,6 +2,9 @@
   "name": "@blackbelt-technology/pi-dashboard-hermes-memory-plugin",
   "version": "0.10.0",
   "description": "Dashboard settings surface for the pi-hermes-memory extension — reads and writes its on-disk hermes-memory-config.json through validated server routes and a full-coverage settings form.",
+  "keywords": [
+    "pi-dashboard-plugin"
+  ],
   "license": "MIT",
   "publishConfig": {
     "access": "public"

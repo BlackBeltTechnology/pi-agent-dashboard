@@ -11,7 +11,7 @@ view. Uses pi's BUILT-IN MCP (pi ≥ 1.0.0); no `pi-mcp-adapter`.
 |---|---|
 | `.` / `./client` | Settings claim + sidebar/worktree folder MCP section + `/folder/:cwd/mcp` page |
 | `./server` | `registerPlugin` — provides `mcp-client.config`, mounts the REST surface |
-| `./core` | Host-free logic (also consumed by the hostless `apple-tools` installer CLI) |
+| `./core` | DEPRECATED re-export of `@blackbelt-technology/pi-dashboard-mcp-core` (the host-free logic now lives there; kept for one minor) |
 
 ## Two layers
 

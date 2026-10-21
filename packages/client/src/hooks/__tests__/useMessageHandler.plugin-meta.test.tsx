@@ -5,10 +5,18 @@
  * See change: add-browser-editor-pane-tab (D6).
  */
 
+import { createSlotRegistry } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
-import { renderHook } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { act, renderHook } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SessionState } from "../../lib/chat/event-reducer.js";
+import {
+  __resetRuntimeLoaderForTests,
+  getRuntimeLoaderState,
+  loadRuntimePlugins,
+  type RuntimeListingEntry,
+  startRuntimePluginLoader,
+} from "../../lib/plugins/runtime-plugin-loader.js";
 import { useMessageHandler } from "../useMessageHandler.js";
 
 const SID = "session-1";
@@ -92,5 +100,55 @@ describe("prompt_request metadata.plugin (task 4.2)", () => {
     const { dispatch, sessionStatesRef } = setup();
     dispatch(promptWith("p2", { message: "m" }));
     expect(sessionStatesRef.current.get(SID)?.interactiveRequests[0]?.params._pluginMeta).toBeUndefined();
+  });
+});
+
+// test-plan #E93 — `plugins_changed` → `plugins-changed` DOM event → loader re-fetch.
+// See change: decouple-plugins-from-core (task 6.17).
+describe("plugins_changed drives the runtime loader (task 6.17)", () => {
+  afterEach(() => __resetRuntimeLoaderForTests());
+
+  const entry = (id: string, sha: string): RuntimeListingEntry => ({
+    id,
+    displayName: id,
+    priority: 1000,
+    sha256: sha,
+    entry: `/plugin-assets/${id}/${sha}/client.js`,
+    eventTypes: [],
+    claims: [{ slot: "session-card-badge", component: "B" }],
+    routes: [],
+  });
+
+  it("upgrade asks for a reload without re-importing; a new plugin appears live; no location.reload", async () => {
+    const reload = vi.fn();
+    const orig = window.location;
+    Object.defineProperty(window, "location", { value: { ...orig, reload }, configurable: true });
+    const registry = createSlotRegistry();
+    let listing = [entry("ext", "1".repeat(64))];
+    const importModule = vi.fn(async () => ({ B: () => null }));
+    const deps = { registry, buildTimeIds: new Set<string>(), buildTimeRoutes: [], getApiBase: () => "", hasImportMap: () => true, fetchListing: async () => listing, importModule };
+    const stop = startRuntimePluginLoader(deps);
+    await loadRuntimePlugins(deps);
+    expect(importModule).toHaveBeenCalledTimes(1);
+
+    const { dispatch } = setup();
+    listing = [entry("ext", "2".repeat(64))];
+    await act(async () => {
+      dispatch({ type: "plugins_changed", plugins: [] } as unknown as ServerToBrowserMessage);
+      await loadRuntimePlugins(deps);
+    });
+    expect(getRuntimeLoaderState().reloadNeeded).toBe(true);
+    expect(importModule).toHaveBeenCalledTimes(1);
+
+    listing = [entry("ext", "2".repeat(64)), entry("ext3", "3".repeat(64))];
+    await act(async () => {
+      dispatch({ type: "plugins_changed", plugins: [] } as unknown as ServerToBrowserMessage);
+      await loadRuntimePlugins(deps);
+    });
+    expect(importModule).toHaveBeenCalledTimes(2);
+    expect(registry.getClaims("session-card-badge").map((c) => c.pluginId).sort()).toEqual(["ext", "ext3"]);
+    expect(reload).not.toHaveBeenCalled();
+    stop();
+    Object.defineProperty(window, "location", { value: orig, configurable: true });
   });
 });
