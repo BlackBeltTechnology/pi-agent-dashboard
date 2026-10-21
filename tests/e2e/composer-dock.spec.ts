@@ -29,7 +29,7 @@ import {
   stubSessionDiff,
 } from "./helpers/composer-bridge.js";
 import { contrastFailures, measureText, setThemeMode, sizeFailures } from "./helpers/computed-contrast.js";
-import { FIXTURE_GIT, gotoDashboard, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
+import { chooseLayoutMode, FIXTURE_GIT, gotoDashboard, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 
 /** `YOLO_FOOTER_HEIGHT` (chat-pane-row-class.ts): the footer is one fixed `h-8` line. */
 const FOOTER_HEIGHT = 32;
@@ -119,6 +119,7 @@ test.describe("composer dock (L3)", () => {
 
   test("compact chips at 480 px: one chip per lane, a chip opens a sheet; rows return at 640 px", async ({ page }) => {
     await stubSessionDiff(page);
+    await stubQuota(page);
     const bridge = await openProcessSession(page, "compact");
     try {
       pushWorktreeWithPr(bridge);
@@ -130,9 +131,12 @@ test.describe("composer dock (L3)", () => {
       await expect(dock(page)).toHaveAttribute("data-layout", "compact", { timeout: 10_000 });
 
       const chips = dock(page).getByTestId("composer-dock-chips");
-      await expect(chips.locator("[data-dock-toggle]")).toHaveCount(2);
+      // Every lane is a chip in compact mode, also a lane that is not expandable in rows (spec
+      // "Compact dock below 520 px"): Processes, Changes and the Context lane the stubbed quota brings.
+      await expect(chips.locator("[data-dock-toggle]")).toHaveCount(3);
       await expect(chips.getByTestId("composer-dock-chip-processes")).toBeVisible();
       await expect(chips.getByTestId("composer-dock-chip-changes")).toBeVisible();
+      await expect(chips.getByTestId("composer-dock-chip-context")).toBeVisible();
 
       await chips.getByTestId("composer-dock-chip-processes").click();
       await expect(dock(page).getByTestId("composer-dock-sheet")).toBeVisible();
@@ -210,14 +214,14 @@ test.describe("composer dock (L3)", () => {
 
       // The Editor layout is the canvas taking the chat's place (mobile tier: the chat pane is
       // kept mounted but hidden; tablet omits it).
-      await page.getByTestId("layout-mode-full").click();
+      await chooseLayoutMode(page, "full");
       await expect(page.getByTestId("split-editor-pane")).toBeVisible({ timeout: 15_000 });
       await expect(dock(page)).toBeHidden();
       await expect(page.getByTestId("composer-card")).toBeHidden();
       await expect(page.getByTestId("chat-scroll-container")).toBeHidden();
 
       // Back to Chat restores all three.
-      await page.getByTestId("layout-mode-closed").click();
+      await chooseLayoutMode(page, "closed");
       await expect(dock(page)).toBeVisible({ timeout: 15_000 });
       await expect(page.getByTestId("composer-card")).toBeVisible();
     } finally {

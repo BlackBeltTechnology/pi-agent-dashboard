@@ -221,6 +221,34 @@ export async function robustClick(page: Page, testid: string): Promise<void> {
   }).toPass({ timeout: 30_000 });
 }
 
+/**
+ * Pick an editor layout mode at any width. The wide header renders the 3-segment
+ * radiogroup (`layout-mode-<mode>` visible directly); below the mobile breakpoint
+ * it renders a menu whose trigger is `layout-mode-switch` and whose
+ * `menuitemradio` items carry the same `layout-mode-<mode>` ids. Opens the menu
+ * when the item is not visible, clicks the item, then (menu form) waits for the
+ * menu to close so the next step never races it.
+ * See changes: reorganize-session-header, add-composer-dock.
+ */
+export async function chooseLayoutMode(page: Page, mode: "closed" | "split" | "full"): Promise<void> {
+  const item = page.getByTestId(`layout-mode-${mode}`);
+  const trigger = page.getByTestId("layout-mode-switch");
+  // A viewport change re-renders the header between the segmented and the menu form (and a menu
+  // closes when it does), so decide from the live DOM on every attempt and retry the whole step.
+  await expect(async () => {
+    if (!(await item.isVisible())) {
+      expect(await trigger.getAttribute("aria-haspopup"), "layout switch is the menu form").toBe("menu");
+      if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click({ timeout: 2_000 });
+      await expect(item).toBeVisible({ timeout: 2_000 });
+    }
+    await item.click({ timeout: 2_000 });
+  }).toPass({ timeout: 30_000 });
+  // Menu form: the choice closes the menu; wait for it so the next step never races it.
+  if ((await trigger.getAttribute("aria-haspopup")) === "menu") {
+    await expect(trigger).toHaveAttribute("aria-expanded", "false", { timeout: 5_000 });
+  }
+}
+
 /** Navigate to the dashboard root and wait for the shell to mount. */
 // Track pages that already have the first-launch auto-dismiss handler wired, so
 // repeated gotoDashboard calls don't stack duplicate handlers.

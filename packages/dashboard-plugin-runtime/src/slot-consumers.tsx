@@ -643,7 +643,7 @@ export function ToolbarGroup({
         data-testid={labelTestId ?? (testId ? `${testId}-label` : undefined)}
         // Text pinned to the FIRST row (26 px = min-h-7 minus borders), so a
         // group wrapping onto several rows keeps its label beside its first item.
-        className={`toolbar-group-label flex-shrink-0 inline-flex items-start leading-[26px] px-2 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] rounded-l-lg ${
+        className={`toolbar-group-label flex-shrink-0 inline-flex items-start leading-[26px] px-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] rounded-l-lg ${
           isActions ? "bg-[var(--bg-surface)] border-r border-[var(--border-secondary)]" : ""
         }`}
       >

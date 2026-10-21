@@ -173,7 +173,7 @@ export function DeliveryChip({ mode, onSelect }: { mode: DeliveryMode; onSelect:
         ref={triggerRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="focus-ring inline-flex items-center justify-center gap-1 px-2 h-[30px] rounded-lg text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+        className="focus-ring inline-flex items-center justify-center gap-1 px-2 h-[30px] rounded-lg text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
         title={name}
         aria-label={name}
         aria-haspopup="menu"

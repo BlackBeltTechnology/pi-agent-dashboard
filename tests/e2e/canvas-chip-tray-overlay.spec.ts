@@ -47,7 +47,7 @@ function expectSameBoxes(after: Record<string, Box | null>, before: Record<strin
 
 /**
  * Top edge (viewport px) of the topmost composer-stack row currently rendered:
- * the composer dock when it renders, else the composer card's wrapper.
+ * the composer dock when it is laid out, else the composer card's wrapper.
  * See change: add-composer-dock (the strip, StatusBar and QueuePanel rows are gone).
  */
 async function composerStackTop(page: Page): Promise<number> {
@@ -55,7 +55,8 @@ async function composerStackTop(page: Page): Promise<number> {
     const ids = ["composer-dock", "composer-root"];
     const tops = ids
       .map((id) => document.querySelector(`[data-testid="${id}"]`))
-      .filter((el): el is Element => el != null)
+      // A `hidden` dock (every lane renders nothing) is laid out nowhere: its rect top is 0, not an edge.
+      .filter((el): el is Element => el != null && el.getClientRects().length > 0)
       .map((el) => el.getBoundingClientRect().top);
     return Math.min(...tops);
   });
@@ -315,7 +316,11 @@ test.describe("canvas chip tray — tracks the composer dock", () => {
   test("#F12b: a quiet session (no dock) keeps the tray above the card's top edge", async ({ page }) => {
     await page.route("**/api/quota", (route) => route.abort());
     await openSessionWithServerChip(page);
-    await expect(page.getByTestId("composer-dock")).toHaveCount(0);
+    // The Context lane's claim applies but its Quota group renders nothing (the route is aborted):
+    // the dock element may stay mounted with `hidden` (spec: "a lane whose groups all render nothing
+    // SHALL leave no visible trace"), so assert it is not visible rather than not mounted. The fixture
+    // folder's 7 dirty files do not give the session a Changes lane (session-diff driven, not repo dirtyCount).
+    await expect(page.getByTestId("composer-dock")).toBeHidden();
     await expect
       .poll(async () => (await chipBottom(page)) <= (await topOf(page, "composer-root"))! + 0.5, { timeout: 10_000 })
       .toBe(true);

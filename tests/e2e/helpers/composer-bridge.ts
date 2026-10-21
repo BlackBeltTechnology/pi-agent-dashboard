@@ -100,6 +100,13 @@ export async function connectComposerBridge(page: Page, tag: string): Promise<Co
   });
   send({ type: "models_list", sessionId, models: COMPOSER_MODELS.map((m) => ({ ...m, name: m.id })) });
   send({ type: "replay_complete", sessionId });
+  // A real bridge rescans periodically and every scan carries the full list, so a scan the server
+  // saw before the page had bound the session is superseded by the next one. Mirror that: resend the
+  // latest list until close (a one-shot send is lost when it races the session's registration).
+  let processes: BridgeProcess[] | null = null;
+  const rescan = setInterval(() => {
+    if (processes) send({ type: "process_list", sessionId, processes });
+  }, 1500);
   return {
     sessionId,
     startStreaming: () => {
@@ -107,9 +114,13 @@ export async function connectComposerBridge(page: Page, tag: string): Promise<Co
       send({ type: "session_heartbeat", sessionId, agentRunning: true });
     },
     send,
-    setProcesses: (processes) => send({ type: "process_list", sessionId, processes }),
+    setProcesses: (next) => {
+      processes = next;
+      send({ type: "process_list", sessionId, processes });
+    },
     received: () => inbox,
     close: () => {
+      clearInterval(rescan);
       send({ type: "session_unregister", sessionId });
       ws.close();
     },

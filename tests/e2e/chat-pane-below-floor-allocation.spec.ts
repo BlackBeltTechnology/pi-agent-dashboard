@@ -1,6 +1,6 @@
 import { expect, narrowTrust, test } from "./fixtures.js";
 import { dragChatPaneTo, openIdleGrid } from "./helpers/flow-card-grid.js";
-import { FIXTURE_GIT, spawnFreshGitSession } from "./helpers/index.js";
+import { chooseLayoutMode, FIXTURE_GIT, spawnFreshGitSession } from "./helpers/index.js";
 
 /**
  * Browser E2E — define-chat-pane-below-floor-allocation
@@ -14,6 +14,30 @@ import { FIXTURE_GIT, spawnFreshGitSession } from "./helpers/index.js";
  * Test-Plan rows covered: E3, E4, E5, E6, E7, E8, E9, F4.
  */
 
+/**
+ * Resize and wait until the chat pane's box stops changing. A viewport change crosses the mobile /
+ * desktop header tiers and remounts the split layout, so a measurement taken in the same tick reads
+ * the previous layout (a stale 469 px pane bottom under a 900 px viewport).
+ */
+async function resizeAndSettle(page: import("@playwright/test").Page, size: { width: number; height: number }) {
+  await page.setViewportSize(size);
+  const pane = page.getByTestId("split-chat-pane");
+  let last = "";
+  let stable = 0;
+  await expect
+    .poll(
+      async () => {
+        const b = await pane.boundingBox();
+        const now = b ? `${b.x},${b.y},${b.width},${b.height}` : "none";
+        stable = now === last && b ? stable + 1 : 0;
+        last = now;
+        return stable;
+      },
+      { timeout: 15_000, intervals: [100] },
+    )
+    .toBeGreaterThanOrEqual(3);
+}
+
 async function openSplitSession(page: import("@playwright/test").Page) {
     const card = await spawnFreshGitSession(page);
     await card.click();
@@ -26,7 +50,7 @@ async function openSplitSession(page: import("@playwright/test").Page) {
     await expect(sendBtn).toBeVisible({ timeout: 30_000 });
 
     // Open split mode
-    await page.getByTestId("layout-mode-split").click();
+    await chooseLayoutMode(page, "split");
     const chatPane = page.getByTestId("split-chat-pane");
     await expect(chatPane).toBeVisible({ timeout: 15_000 });
     return chatPane;
@@ -36,7 +60,7 @@ test.describe("chat-pane below-floor allocation", () => {
   test("3.1 & 3.2 At and just above the floor sum, rows are full and nothing clips (#E3, #E4)", async ({ page }) => {
     // Comfortably tall viewport so pane is well above the floor sum
     const chatPane = await openSplitSession(page);
-    await page.setViewportSize({ width: 1280, height: 900 });
+    await resizeAndSettle(page, { width: 1280, height: 900 });
 
     const paneBox = await chatPane.boundingBox();
     expect(paneBox).not.toBeNull();
@@ -62,7 +86,7 @@ test.describe("chat-pane below-floor allocation", () => {
   test("3.3 & 3.4 Below the floor sum, deficit is shared and not dumped on one row (#E5, #E6)", async ({ page }) => {
     // Short viewport puts pane below floor sum
     const chatPane = await openSplitSession(page);
-    await page.setViewportSize({ width: 375, height: 280 });
+    await resizeAndSettle(page, { width: 375, height: 280 });
 
     const paneBox = await chatPane.boundingBox();
     expect(paneBox).not.toBeNull();
@@ -91,7 +115,7 @@ test.describe("chat-pane below-floor allocation", () => {
   test("3.7 min-height beats max-h-[40%] below floor sum (#E9)", async ({ page }) => {
     // Short viewport where 0.4 * pane < 72px
     const chatPane = await openSplitSession(page);
-    await page.setViewportSize({ width: 375, height: 260 });
+    await resizeAndSettle(page, { width: 375, height: 260 });
 
     const paneBox = await chatPane.boundingBox();
     expect(paneBox).not.toBeNull();
@@ -214,7 +238,7 @@ test.describe("chat-pane below-floor allocation — sticky header row", () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     const { panel } = await openIdleGrid(page);
     await page.setViewportSize({ width: 375, height: 360 });
-    await page.getByTestId("layout-mode-split").click();
+    await chooseLayoutMode(page, "split");
     const chatPane = page.getByTestId("split-chat-pane");
     await expect(chatPane).toBeVisible({ timeout: 15_000 });
     // Below the md breakpoint the shell collapses the flow slot to its mobile

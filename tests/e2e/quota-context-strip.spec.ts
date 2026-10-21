@@ -92,8 +92,10 @@ test.describe("quota context lane", () => {
 
   test("F9: the label stays on the same line as its chips, inside the viewport", async ({ page }) => {
     const lane = await openSessionWithQuota(page);
-    // Wide enough that the composer column stays in the dock's row layout (≥ 32.5rem).
-    await page.setViewportSize({ width: 1000, height: 800 });
+    // Wide enough that the composer column (viewport minus the ~480 px sidebar) stays in the dock's
+    // row layout (≥ 32.5rem = 520 px); at 1000 px the column is ~450 px and the dock goes compact,
+    // where the Context lane is a chip and has no group to measure.
+    await page.setViewportSize({ width: 1280, height: 800 });
 
     const group = lane.getByTestId("quota-context-group");
     await expect(group).toBeVisible({ timeout: 20_000 });

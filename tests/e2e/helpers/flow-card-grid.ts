@@ -1,5 +1,5 @@
 import { expect, type Locator, type Page } from "../fixtures.js";
-import { spawnFreshGitSession } from "./index.js";
+import { chooseLayoutMode, spawnFreshGitSession } from "./index.js";
 
 /**
  * Shared e2e fixture for the flow card grid (change: consolidate-flow-agent-cards).
@@ -132,7 +132,7 @@ export const gridContainerOf = (panel: Locator) => gridOf(panel).locator("xpath=
 
 /** Open the split editor and drag the divider so the chat pane is ~`width` px. */
 export async function dragChatPaneTo(page: Page, width: number): Promise<Locator> {
-  await page.getByTestId("layout-mode-split").click();
+  await chooseLayoutMode(page, "split");
   await expect(page.getByTestId("split-editor-pane")).toBeVisible({ timeout: 15_000 });
   const divider = page.getByTestId("split-divider");
   const box = await divider.boundingBox();

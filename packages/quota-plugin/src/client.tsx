@@ -289,8 +289,8 @@ export function QuotaWidget({ session }: { session?: DashboardSession }) {
           <span
             data-testid="quota-no-adapter-note"
             style={{
-              fontSize: 10,
-              color: "var(--text-muted, #71717a)",
+              fontSize: 11,
+              color: "var(--text-secondary)",
               border: "1px dashed var(--border-subtle, rgba(82,82,91,0.6))",
               borderRadius: 4,
               padding: "0 4px",
@@ -338,7 +338,7 @@ export function QuotaWidget({ session }: { session?: DashboardSession }) {
                 padding: "0 6px",
                 minHeight: 24,
                 lineHeight: 1.4,
-                fontSize: 10,
+                fontSize: 12,
                 cursor: "pointer",
                 whiteSpace: "nowrap",
                 color: ringed ? "var(--text-primary, #e4e4e7)" : "var(--text-secondary, #a1a1aa)",

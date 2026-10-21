@@ -125,33 +125,52 @@ const box = async (l: Locator) => {
 };
 
 test.describe("composer session strip (L3)", () => {
-  test("#F8: an all-null badge slot hides the whole Status group; content brings the label back", async ({ page }) => {
-    // The browser-relay plugin's badge is claimed for EVERY session and
-    // renders null until a relay tab exists — the real-world empty STATUS case.
-    // The harness ships it disabled; report it enabled to THIS page only.
-    await page.route("**/api/health", async (route) => {
-      const res = await route.fetch();
-      const body = (await res.json()) as { plugins?: Array<{ id: string; enabled?: boolean }> };
-      for (const p of body.plugins ?? []) if (p.id === "browser") p.enabled = true;
-      await route.fulfill({ response: res, json: body });
-    });
+  test("#F8: an empty Status group leaves no container or label; the hide rule drops an empty group and shows it again with content", async ({ page }) => {
+    // Since fix-empty-status-subcard (#919) the browser-relay badge claim is gated by
+    // `shouldRender` (relay tabs), so no real `session-card-badge` claim applies to a fresh session
+    // (this harness does not seed the Fake relay tab: that needs PI_BROWSER_RELAY_FAKE=1) and a
+    // claim-less Status group must leave nothing behind — no container, no label (spec
+    // "Empty Status group leaves no label"). The CSS rule that backs the claim-present-but-null
+    // case (`[data-group]:has(> [data-group-content]:empty)`) is exercised on a synthetic group
+    // injected into the page, with the same markup `ToolbarGroup` renders.
     await gotoDashboard(page);
     await ensurePinned(page);
     const b = await connectBridge(page, "f8");
     try {
       await openComposer(page, b.sessionId);
-      const container = page.getByTestId("composer-status-container");
-      await expect(container).toHaveCount(1, { timeout: 15_000 });
-      await expect(container).toHaveCSS("display", "none");
-      await expect(page.getByTestId("composer-status-group-label")).toBeHidden();
+      // Readiness anchor: the Context lane (the always-claimed quota group) is mounted — hidden, as it
+      // renders nothing here — so the slot claims have loaded before we assert the Status group is absent.
+      await expect(page.getByTestId("composer-dock-lane-context")).toHaveCount(1, { timeout: 15_000 });
+      await expect(page.getByTestId("composer-status-container")).toHaveCount(0);
+      await expect(page.getByTestId("composer-status-group-label")).toHaveCount(0);
 
-      // Non-null half: once the fieldset has content, the group shows.
-      await page.getByTestId("composer-status-group").evaluate((el) => {
+      await page.evaluate(() => {
+        const group = document.createElement("div");
+        group.setAttribute("data-group", "actions");
+        group.setAttribute("data-testid", "f8-probe-container");
+        group.setAttribute("role", "group");
+        group.className = "toolbar-group inline-flex";
+        const label = document.createElement("span");
+        label.setAttribute("data-testid", "f8-probe-label");
+        label.textContent = "STATUS";
+        const content = document.createElement("fieldset");
+        content.setAttribute("data-group-content", "");
+        content.setAttribute("data-testid", "f8-probe-content");
+        group.append(label, content);
+        document.querySelector('[data-testid="composer-root"]')?.parentElement?.appendChild(group);
+      });
+      const container = page.getByTestId("f8-probe-container");
+      await expect(container).toHaveCount(1);
+      await expect(container).toHaveCSS("display", "none");
+      await expect(page.getByTestId("f8-probe-label")).toBeHidden();
+
+      // Non-null half: once the content element has a child, the group shows.
+      await page.getByTestId("f8-probe-content").evaluate((el) => {
         const s = document.createElement("span");
         s.textContent = "RUN";
         el.appendChild(s);
       });
-      await expect(page.getByTestId("composer-status-group-label")).toBeVisible();
+      await expect(page.getByTestId("f8-probe-label")).toBeVisible();
       await expect(container).not.toHaveCSS("display", "none");
     } finally {
       b.close();
