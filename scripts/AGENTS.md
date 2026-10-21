@@ -6,15 +6,15 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 |------|---------|
 | `__tests__/anti-slop-suite-contract.test.mjs` | Static L1 contract over `packages/anti-slop` skill suite + dashboard adapter. → see `__tests__/anti-slop-suite-contract.test.mjs.AGENTS.md` |
 | `__tests__/assert-bundled-plugins-complete.test.mjs` | Vitest unit tests for packages/electron/scripts/assert-bundled-plugins-complete.mjs (… → see `__tests__/assert-bundled-plugins-complete.test.mjs.AGENTS.md` |
-| `__tests__/assert-bundled-server-plugin-load.test.mjs` | Tests for the bundled-server plugin-load gate: layout, verdicts, selected loader, all… → see `__tests__/assert-bundled-server-plugin-load.test.mjs.AGENTS.md` |
+| `__tests__/assert-bundled-server-plugin-load.test.mjs` | Tests for the bundled-server plugin-load gate: |
 | `__tests__/build-runtime-canary.test.mjs` | Builds canary + variants via SDK preset; artifact shape (#E95). → see `build-runtime-canary.mjs.AGENTS.md` |
 | `__tests__/check-kb-dist-fresh.test.mjs` | C1 (fix-kb-eval-measurement-integrity): fault-injection via `--pkg` sandbox — clean fingerprint → exit 0;… → see `__tests__/check-kb-dist-fresh.test.mjs.AGENTS.md` |
 | `__tests__/check-pi-settings-paths.test.mjs` | Drives `absoluteSourceViolations` directly (12 cases) so detection is pinned independ… → see `__tests__/check-pi-settings-paths.test.mjs.AGENTS.md` |
 | `__tests__/check-plugin-boundary.test.mjs` | `check-plugin-boundary.mjs` via CLI on tmp `packages/*` trees (test-plan #E1–#E8) + r… → see `__tests__/check-plugin-boundary.test.mjs.AGENTS.md` |
 | `__tests__/e2e-canary-seed.test.mjs` | → see `__tests__/e2e-canary-seed.test.mjs.AGENTS.md` |
-| `__tests__/host-api-surface.test.mjs` | Bump-rule table for `host-api-surface.mjs` (#E29), committed snapshot is current, accent-token expansion, unexpanded `<…>` span fails. See change: decouple-plugins-from-core. |
+| `__tests__/host-api-surface.test.mjs` | Bump-rule table for `host-api-surface.mjs` (#E29), committed snapshot is current, accent-token expansion, unexpanded … |
 | `__tests__/biome-undeclared-dependencies.test.mjs` | Guardrails for the `noUndeclaredDependencies` config in `biome.json`. → see `__tests__/biome-undeclared-dependencies.test.mjs.AGENTS.md` |
-| `__tests__/claude-plugin-ensure-dashboard.test.mjs` | Behaviour tests for `ensure-dashboard.sh` (test-plan E3–E34, P1, X1–X10): real script vs temp HOME records, stub PATH, Node fixture servers. Timing via `PIDB_TEST_*`. |
+| `__tests__/claude-plugin-ensure-dashboard.test.mjs` | Behaviour tests for `ensure-dashboard.sh` (test-plan E3–E34, P1, X1–X10): |
 | `__tests__/claude-plugin-publish-contract.test.mjs` | Static contract over `publish.yml`. `publish` preflight reads tagged `plugin.json` (`… → see `__tests__/claude-plugin-publish-contract.test.mjs.AGENTS.md` |
 | `__tests__/claude-plugin-parity.test.mjs` | Derived `api-reference.md` byte parity (E35), missing-heading failure (E36), skill routes registered by the server (E38). |
 | `__tests__/claude-plugin-structure.test.mjs` | Plugin layout + marketplace manifest (E1, E2), forbidden references (E37), skill content contract (E39). |
@@ -95,7 +95,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/runtime-release.test.mjs` | Runtime release tests. → see `__tests__/runtime-release.test.mjs.AGENTS.md` |
 | `__tests__/refresh-vendor.test.mjs` | Tests for `refresh-vendor.mjs` (X3: an unfaithful stubbed fetch aborts before patching with tree + manifest… → see `__tests__/refresh-vendor.test.mjs.AGENTS.md` |
 | `__tests__/vendor-specifiers.test.mjs` | Tests for `check-vendor-specifiers.mjs` (E1/E2/X4: the patched tree passes non-vacuously;… → see `__tests__/vendor-specifiers.test.mjs.AGENTS.md` |
-| `__tests__/verify-plugin-install-load.test.mjs` | Tests for `verify-plugin-install-load.mjs` (E8 scope filter always; X1/X2/X6 pack→install→import opt-in via `RUN_INSTALL_LOAD=1`). See change: fix-browser-plugin-vendor-specifier-resolution. |
+| `__tests__/verify-plugin-install-load.test.mjs` | Tests for `verify-plugin-install-load.mjs` (E8 scope filter always; |
 | `__tests__/verify-docker-plugin-load.test.mjs` | Tests for `verify-docker-plugin-load.mjs` (X12): harness-state parsing, the load verd… → see `__tests__/verify-docker-plugin-load.test.mjs.AGENTS.md` |
 | `__tests__/vitest-workers.test.mjs` | Guard over the vitest worker consolidation (test-plan E15-E17, P1): no config restates the parallel target as… → see `__tests__/vitest-workers.test.mjs.AGENTS.md` |
 | `check-conventions.mjs` | Deterministic half of the ship gate, run by `ship-it` step 4.4. → see `check-conventions.mjs.AGENTS.md` |
