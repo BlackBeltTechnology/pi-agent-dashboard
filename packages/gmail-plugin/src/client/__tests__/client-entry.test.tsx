@@ -60,7 +60,7 @@ describe("test-plan #E30 (improve-gmail-plugin-setup-ux) — consent and publish
   const NEW_KEYS = [
     "projectModeLegend", "projectModeNew", "projectModeExisting", "projectIdHint", "openProjectList", "ownerAccount", "ownerHint",
     "errOwnerInvalid", "errSetupSave", "errProjectLooksLikeName", "errProjectInvalid", "projectMismatch", "projectMismatchUse",
-    "authLoginNote", "findProject", "needValidProjectId", "filtersFor", "filtersLabel", "filtersHelp",
+    "authLoginNote", "findProject", "needValidProjectId", "filtersFor", "filtersHelp",
   ];
 
   it("the English copy names both consent shapes, the cleanup URL and the publishing facts", () => {

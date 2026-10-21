@@ -3,14 +3,15 @@
  * lower/raise, alias, revoke (remote down), client upload, secret-free logs.
  * See change: add-gmail-plugin.
  */
+
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   PluginFlowStartError,
   type PluginLoginInteraction,
   type PluginOAuthCredential,
   type PluginOAuthStartOptions,
 } from "@blackbelt-technology/dashboard-plugin-runtime/server";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import Fastify from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CLIENT, capturingLogger, fakeGoogleFetch, memoryCredentials, TEST_ENDPOINTS } from "../../__tests__/fakes.js";

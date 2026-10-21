@@ -135,8 +135,6 @@ export const catalog = {
       "需要有效的项目 ID，项目链接和命令才会出现。",
     filtersFor:
       "{email} 的过滤器",
-    filtersLabel:
-      "过滤器",
     filtersHelp:
       "过滤器让代理可以列出、创建和删除 Gmail 过滤器。开启时会向 Google 请求一项额外权限（gmail.settings.basic）；创建和删除还需要 send 级别。",
   },
@@ -287,8 +285,6 @@ export const catalog = {
       "Érvényes projektazonosító kell ahhoz, hogy a projekt linkjei és parancsai megjelenjenek.",
     filtersFor:
       "{email} szűrői",
-    filtersLabel:
-      "Szűrők",
     filtersHelp:
       "A szűrők lehetővé teszik, hogy az ügynökök Gmail-szűrőket listázzanak, hozzanak létre és töröljenek. A bekapcsolás egy plusz engedélyt kér a Google-tól (gmail.settings.basic); a létrehozáshoz és a törléshez send szint is kell.",
   },

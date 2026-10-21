@@ -265,7 +265,7 @@ test.describe("gmail plugin", () => {
     const section = await openGmailSettings(page);
     await uploadClient(section);
     await addAccount(section, cid, "a@fake.test", "send");
-    const toggle = row(section, "a@fake.test").getByRole("checkbox", { name: "Filters for a@fake.test" });
+    const toggle = row(section, "a@fake.test").getByRole("switch", { name: "Filters for a@fake.test" });
     await expect(toggle).not.toBeChecked();
 
     fakeGoogleControl(cid, "config", { nextEmail: "a@fake.test" });

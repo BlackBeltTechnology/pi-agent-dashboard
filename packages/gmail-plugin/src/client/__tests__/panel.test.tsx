@@ -790,12 +790,12 @@ describe("test-plan #E31 — filters control", () => {
       extra: (r) => (r.url.endsWith("/accounts/s9/filters") ? { applied: true } : undefined),
     });
     renderPanel();
-    const box = (await screen.findByRole("checkbox", { name: "Filters for anna@blackbelt.hu" })) as HTMLInputElement;
-    expect(box.checked).toBe(false);
+    const box = await screen.findByRole("switch", { name: "Filters for anna@blackbelt.hu" });
+    expect(box.getAttribute("aria-checked")).toBe("false");
     fireEvent.click(box);
-    await waitFor(() => expect(box.checked).toBe(true));
+    await waitFor(() => expect(box.getAttribute("aria-checked")).toBe("true"));
     fireEvent.click(box);
-    await waitFor(() => expect(box.checked).toBe(false));
+    await waitFor(() => expect(box.getAttribute("aria-checked")).toBe("false"));
     const posts = h.calls.filter((c) => c.method === "POST" && c.url.endsWith("/accounts/s9/filters"));
     expect(posts.map((p) => p.body)).toEqual([{ enabled: true }, { enabled: false }]);
     expect(screen.queryByTestId("flow-view")).toBeNull();
@@ -813,7 +813,7 @@ describe("test-plan #E31 — filters control", () => {
       }),
     );
     renderPanel();
-    fireEvent.click(await screen.findByRole("checkbox", { name: "Filters for anna@blackbelt.hu" }));
+    fireEvent.click(await screen.findByRole("switch", { name: "Filters for anna@blackbelt.hu" }));
     expect(await screen.findByTestId("flow-view")).toBeTruthy();
   });
 });

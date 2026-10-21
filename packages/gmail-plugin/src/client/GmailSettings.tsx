@@ -27,6 +27,7 @@ import {
   SettingsGroup,
   SettingsNotice,
   TextField,
+  ToggleField,
   useT,
   useUiPrimitive,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
@@ -698,17 +699,13 @@ function AccountRow({
             ))}
           </select>
         </label>
-        <label className={`${muted} flex items-center gap-1`}>
-          <input
-            type="checkbox"
-            className="focus-ring"
-            data-testid="gmail-account-filters"
-            aria-label={t("filtersFor", { email: acct.email }, `Filters for ${acct.email}`)}
-            checked={filtersOn}
-            onChange={(e) => void toggleFilters(e.target.checked)}
-          />
-          {t("filtersLabel", undefined, "Filters")}
-        </label>
+        <ToggleField
+          label={t("filtersFor", { email: acct.email }, `Filters for ${acct.email}`)}
+          hint={null}
+          testIds={{ control: "gmail-account-filters" }}
+          value={filtersOn}
+          onChange={(enabled) => void toggleFilters(enabled)}
+        />
         <button
           type="button"
           className={btn}
