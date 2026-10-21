@@ -27,7 +27,7 @@ import { IMCP_BREW_CASK } from "./detect.js";
 import type { BrewResult, InstallerEnv } from "./install.js";
 
 /** 10-minute cap on the brew cask install (design X4). */
-export const BREW_TIMEOUT_MS = 10 * 60 * 1000;
+const BREW_TIMEOUT_MS = 10 * 60 * 1000;
 
 function probeOsVersion(): string | null {
   try {

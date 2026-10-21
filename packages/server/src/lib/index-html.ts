@@ -14,7 +14,7 @@ import path from "node:path";
 import { hostImportMapJson } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/host-import-map.js";
 import type { FastifyReply } from "fastify";
 
-export const INDEX_HTML_CACHE_CONTROL = "no-cache, no-store, must-revalidate";
+const INDEX_HTML_CACHE_CONTROL = "no-cache, no-store, must-revalidate";
 
 const FIRST_MODULE_ENTRY = /<script\b[^>]*\btype\s*=\s*["']?module["']?[^>]*>|<link\b[^>]*\brel\s*=\s*["']?modulepreload["']?[^>]*>/i;
 

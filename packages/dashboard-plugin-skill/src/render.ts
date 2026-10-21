@@ -35,6 +35,20 @@ const TEMPLATE_DIR = path.join(__dirname, "templates");
 /** Keyword that marks a package as a pi-dashboard plugin for registry search / `pi install`. */
 const PLUGIN_KEYWORD = "pi-dashboard-plugin";
 
+/** Dedicated client output dir of a runtime-delivered augmented project (never holds the server/bridge entry). */
+const CLIENT_BUNDLE_DIR = "dist/client";
+
+/** devDependencies `npm run build:dashboard` needs (added only when absent, so the author's pins win). */
+const BUILD_DEV_DEPS: Record<string, string> = {
+  "@types/react": "^19.0.0",
+  react: "^19.0.0",
+  vite: "^6.0.0",
+};
+const STYLES_DEV_DEPS: Record<string, string> = { "@tailwindcss/vite": "^4.1.0", tailwindcss: "^4.1.0" };
+
+/** `pi-coding-agent`, or a scoped fork of it (`@scope/pi-coding-agent`). */
+const PI_CODING_AGENT_RE = /^(?:@[^/]+\/)?pi-coding-agent$/;
+
 /** Slot ids accepted by the renderer (the 10 React slots). */
 export type SlotId =
   | "sidebar-folder-section"
@@ -111,6 +125,8 @@ export interface AugmentModeAnswers {
   runtimeVersionRange?: string;
   sharedVersionRange?: string;
   requiredApi?: string;
+  /** Emit `clientStyles` (`dist/client/client.css`, utilities-only Tailwind). Default false. */
+  styles?: boolean;
 }
 
 export type Answers = NewModeAnswers | AugmentModeAnswers;
@@ -479,7 +495,11 @@ function renderAugment(a: AugmentModeAnswers, sink: WriteSink): void {
 
   // Read the existing package.json from disk.
   const pkgPath = path.join(a.outDir, "package.json");
+  if (!fs.existsSync(pkgPath)) throw new Error(`augment: no package.json at ${a.outDir} — not a pi extension`);
   const existing = JSON.parse(fs.readFileSync(pkgPath, "utf8")) as Record<string, unknown>;
+  if (!declaresPiCodingAgent(existing)) {
+    throw new Error("augment: package.json declares no `pi-coding-agent` dependency or peerDependency — not a pi extension; nothing was written");
+  }
 
   // Derive a plugin id from the package name (strip scope, strip leading "pi-").
   const pkgName = String(existing.name ?? "");
@@ -522,7 +542,10 @@ function renderAugment(a: AugmentModeAnswers, sink: WriteSink): void {
     requiredApi,
     hostApi: scaffoldHostApiRange(),
     client: "./src/dashboard/client.tsx",
+    // Runtime-delivered (an augmented project lives outside the monorepo): the prebuilt bundle in its own dir.
+    clientBundle: `./${CLIENT_BUNDLE_DIR}/index.js`,
   };
+  if (a.styles) manifest.clientStyles = `./${CLIENT_BUNDLE_DIR}/client.css`;
   if (a.addServer) manifest.server = "./src/dashboard/server.ts";
   manifest.claims = claims;
   existing["pi-dashboard-plugin"] = manifest;
@@ -530,7 +553,13 @@ function renderAugment(a: AugmentModeAnswers, sink: WriteSink): void {
   const keywords = Array.isArray(existing.keywords) ? (existing.keywords as unknown[]) : [];
   if (!keywords.includes(PLUGIN_KEYWORD)) existing.keywords = [...keywords, PLUGIN_KEYWORD];
 
+  addDashboardBuild(existing, deps, a.styles === true);
+
   sink.write("package.json", JSON.stringify(existing, null, 2) + "\n");
+  sink.write(
+    "vite.dashboard.config.ts",
+    readTpl("vite.dashboard.config.ts.tmpl").replace(/\{\{ stylesLine \}\}/g, a.styles ? "" : "\n  styles: false,"),
+  );
 
   // Scaffold src/dashboard/client.tsx with stubs for each confirmed claim.
   const ConfigTypeName = pascalCase(id) + "Config";
@@ -553,6 +582,31 @@ function renderAugment(a: AugmentModeAnswers, sink: WriteSink): void {
         .replace(/\{\{ ConfigTypeName \}\}/g, ConfigTypeName),
     );
   }
+}
+
+/** Wire `npm run build:dashboard` (SDK preset), its devDependencies and the published file list into `pkg`. */
+function addDashboardBuild(pkg: Record<string, unknown>, deps: Record<string, string>, styles: boolean): void {
+  pkg.scripts = {
+    ...((pkg.scripts as Record<string, string> | undefined) ?? {}),
+    "build:dashboard": "vite build --config vite.dashboard.config.ts --configLoader runner",
+  };
+  const devDeps = { ...((pkg.devDependencies as Record<string, string> | undefined) ?? {}) };
+  for (const [name, range] of Object.entries({ ...BUILD_DEV_DEPS, ...(styles ? STYLES_DEV_DEPS : {}) })) {
+    if (!(name in devDeps) && !(name in deps)) devDeps[name] = range;
+  }
+  pkg.devDependencies = Object.fromEntries(Object.entries(devDeps).sort(([x], [y]) => x.localeCompare(y)));
+  // A published package must carry the built bundle and the entries; only touch an explicit allow-list.
+  if (Array.isArray(pkg.files)) {
+    const files = pkg.files as string[];
+    for (const f of [`${CLIENT_BUNDLE_DIR}/`, "src/dashboard/"]) if (!files.includes(f)) files.push(f);
+  }
+}
+
+function declaresPiCodingAgent(pkg: Record<string, unknown>): boolean {
+  return ["dependencies", "peerDependencies"].some((field) => {
+    const group = pkg[field];
+    return typeof group === "object" && group !== null && Object.keys(group).some((n) => PI_CODING_AGENT_RE.test(n));
+  });
 }
 
 // ───────── helpers ─────────

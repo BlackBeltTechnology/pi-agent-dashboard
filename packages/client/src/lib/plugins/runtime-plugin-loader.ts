@@ -100,7 +100,7 @@ export function getRuntimeLoaderState(): RuntimeLoaderState {
   return state;
 }
 
-export function subscribeRuntimeLoaderState(listener: () => void): () => void {
+function subscribeRuntimeLoaderState(listener: () => void): () => void {
   listeners.add(listener);
   return () => {
     listeners.delete(listener);

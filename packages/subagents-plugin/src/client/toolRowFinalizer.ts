@@ -38,7 +38,7 @@ import type { SubagentSessionSlice } from "./sessionEventReducer.js";
 /** Never-empty body when a completed subagent reported no result. */
 export const SUBAGENT_DONE_NO_RESULT = "subagent finished";
 /** Never-empty body when a failed subagent reported no error text. */
-export const SUBAGENT_FAILED_NO_ERROR = "subagent failed";
+const SUBAGENT_FAILED_NO_ERROR = "subagent failed";
 
 /** Detail keys that exist only because a heal set them; a real end clears them. */
 const HEAL_ONLY_DETAIL_KEYS = ["healedBy", "resultMissing"] as const;

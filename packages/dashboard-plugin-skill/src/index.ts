@@ -1,3 +1,4 @@
+export { nextSteps } from "./next-steps.js";
 export type { WriteProjectIdResult } from "./project-identity.js";
 export { writeProjectId } from "./project-identity.js";
 export type {

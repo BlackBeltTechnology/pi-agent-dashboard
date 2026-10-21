@@ -61,7 +61,7 @@ export function AgentToolRenderer({ args, context, ...rest }: LegacyProps) {
 }
 
 /** A session-state stand-in holding the given subagents (the renderer reads only `subagents`). */
-export function sessionWith(...subs: Array<Partial<SubagentState> & { id: string }>) {
+function sessionWith(...subs: Array<Partial<SubagentState> & { id: string }>) {
   return {
     subagents: new Map(
       subs.map((s) => [s.id, { type: "Explore", description: "", status: "running", ...s } as SubagentState]),

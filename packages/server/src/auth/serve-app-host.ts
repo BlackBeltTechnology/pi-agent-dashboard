@@ -73,7 +73,7 @@ function realpathOrNull(p: string): string | null {
 }
 
 /** Real roots a bundled plugin may live directly under: `<repo>/packages`, `resources/plugins`, `~/.pi/dashboard/plugins`. */
-export function readBundledPluginRoots(): string[] {
+function readBundledPluginRoots(): string[] {
   const monorepo = findMonorepoRoot();
   const candidates = [monorepo ? path.join(monorepo, "packages") : null, findBundledPluginsDir(), findInstalledPluginsDir()];
   return candidates.flatMap((c) => {

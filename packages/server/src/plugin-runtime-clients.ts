@@ -54,7 +54,7 @@ export interface RuntimeClientsOptions {
 }
 
 /** Build a registry over the production deps (no singleton, no store hook). */
-export function createServerRuntimeClients(opts: RuntimeClientsOptions = {}): RuntimeClientRegistry {
+function createServerRuntimeClients(opts: RuntimeClientsOptions = {}): RuntimeClientRegistry {
   const discover = () => discoverPlugins(opts.repoRoot);
   return createRuntimeClientRegistry({
     discover,

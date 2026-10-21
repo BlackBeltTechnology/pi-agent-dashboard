@@ -29,7 +29,7 @@ let status: StandInFrame | null = null;
 const subscribers = new Set<() => void>();
 
 /** Flatten a frame into `<instanceId>/<tabId>` items; malformed shapes yield nothing. */
-export function standInItemsOf(frame: StandInFrame | null): string[] {
+function standInItemsOf(frame: StandInFrame | null): string[] {
   const instances: unknown = frame?.instances;
   if (!Array.isArray(instances)) return [];
   return instances.flatMap((instance: { instanceId?: string; tabs?: unknown }) =>

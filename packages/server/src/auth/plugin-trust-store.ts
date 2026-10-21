@@ -32,7 +32,7 @@ export function readTrustedPlugins(): readonly TrustedPluginEntry[] {
 }
 
 /** Pure: entry for `pluginId`, if any. */
-export function findTrustEntry(entries: readonly TrustedPluginEntry[], pluginId: string): TrustedPluginEntry | undefined {
+function findTrustEntry(entries: readonly TrustedPluginEntry[], pluginId: string): TrustedPluginEntry | undefined {
   return entries.find((e) => e.id === pluginId);
 }
 

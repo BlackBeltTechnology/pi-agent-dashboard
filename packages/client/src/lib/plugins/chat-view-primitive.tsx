@@ -39,7 +39,7 @@ interface FoldCache {
  * growth of the same stream folds only the new tail; anything else (a clear on
  * `session_state_reset`, a different session) refolds from scratch.
  */
-export function useFoldedSessionState(sessionId: string, events: readonly DashboardEvent[]): SessionState {
+function useFoldedSessionState(sessionId: string, events: readonly DashboardEvent[]): SessionState {
   const cache = useRef<FoldCache | null>(null);
   return useMemo(() => {
     const prev = cache.current;

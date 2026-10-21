@@ -77,7 +77,7 @@ export function applyDesiredEnabled(
  * minimal row (its manifest summary arrives with the next full `GET /api/plugins`). Exported for tests.
  * See change: decouple-plugins-from-core (task 5.11).
  */
-export function applyPluginsChanged(rows: PluginRow[], snapshot: readonly PluginStatus[]): PluginRow[] {
+function applyPluginsChanged(rows: PluginRow[], snapshot: readonly PluginStatus[]): PluginRow[] {
   const byId = new Map(snapshot.map((s) => [s.id, s] as const));
   const next: PluginRow[] = [];
   for (const r of rows) {
