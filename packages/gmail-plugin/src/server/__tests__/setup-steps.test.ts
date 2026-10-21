@@ -67,6 +67,14 @@ describe("pure recipe helpers", () => {
     expect(parseUserType("Get started")).toBeUndefined();
   });
 
+  it("validateLinks trims pasted whitespace before validating and storing", () => {
+    const r = validateLinks({ homePage: "  https://github.com/o/r \n", privacyPolicy: "https://github.com/o/r ", authorizedDomain: " GitHub.com " });
+    expect(r).toEqual({
+      ok: true,
+      links: { homePage: "https://github.com/o/r", privacyPolicy: "https://github.com/o/r", authorizedDomain: "github.com" },
+    });
+  });
+
   it("validateLinks: https + host under the authorized domain only", () => {
     const ok = { homePage: "https://github.com/a", privacyPolicy: "https://docs.github.com/p", authorizedDomain: "GitHub.com" };
     expect(validateLinks(ok)).toMatchObject({ ok: true, links: { authorizedDomain: "github.com" } });

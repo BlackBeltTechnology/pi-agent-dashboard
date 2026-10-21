@@ -469,7 +469,7 @@ export class SetupRun {
     for (;;) {
       if (await untilTolerantOfCdp(until)) return;
       if (Date.now() >= deadline) throw new SetupHandoff("timeout");
-      await sleep(this.timing.pollMs);
+      await Promise.race([sleep(this.timing.pollMs), this.abort.promise]);
       if (attempt.dead || this.ended) throw new RunAborted();
     }
   }
@@ -481,9 +481,13 @@ export class SetupRun {
       this.state = "waiting_decision";
       this.decision = decision;
       try {
-        answer = await new Promise<SetupContinueRequest>((resolve) => {
-          this.pendingDecision = { decision, resolve };
-        });
+        // Raced with abort so a cancel or a closing browser releases the wait (and the `finally` below) at once.
+        answer = await Promise.race([
+          new Promise<SetupContinueRequest>((resolve) => {
+            this.pendingDecision = { decision, resolve };
+          }),
+          this.abort.promise,
+        ]);
       } finally {
         this.pendingDecision = undefined;
         this.decision = undefined;
@@ -523,7 +527,7 @@ export class SetupRun {
         if (this.signInContinue) return;
         if ((await service.tabOrigin(opened.tabId)) !== SIGN_IN_ORIGIN) return;
         if (Date.now() >= deadline) throw new SetupHandoff("timeout");
-        await sleep(this.timing.pollMs);
+        await Promise.race([sleep(this.timing.pollMs), this.abort.promise]);
       }
     } finally {
       this.signInPending = false;

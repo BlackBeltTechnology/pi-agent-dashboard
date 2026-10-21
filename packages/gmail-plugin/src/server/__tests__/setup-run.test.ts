@@ -275,3 +275,39 @@ describe("browser endpoint hardening (security review #2, #3)", () => {
     expect((await h.start({ mode: "existing", projectId: "pi-dashboard-abc123", ownerEmail: OWNER })).statusCode).toBe(200);
   });
 });
+
+describe("review B1 — human waits obey cancel and a closing browser", () => {
+  it("cancel during a waiting_decision settles the run task as cancelled", async () => {
+    const h = await makeHarness();
+    preset(h.console, "api");
+    h.console.userType = null;
+    const run = new SetupRunManager(h.deps).start({ mode: "existing", projectId: "pi-dashboard-abc123", ownerEmail: OWNER });
+    if (!run) throw new Error("no run");
+    await until(() => run.view(), (v) => v.state === "waiting_decision");
+    await run.cancel();
+    const settled = await Promise.race([run.settled.then(() => "settled"), new Promise((r) => setTimeout(() => r("hung"), 1500))]);
+    expect(settled).toBe("settled");
+    expect(run.view().state).toBe("cancelled");
+  });
+
+  it("the browser closing during a waiting_decision hands off browser_closed", async () => {
+    const h = await makeHarness();
+    preset(h.console, "api");
+    h.console.userType = null;
+    const id = await startExisting(h);
+    await until(() => h.view(id), (v) => v.state === "waiting_decision");
+    h.console.serverClose();
+    const v = await until(() => h.view(id), (x) => x.state === "handoff", 1500);
+    expect(v.handoff).toMatchObject({ step: "branding", reason: "browser_closed" });
+  });
+
+  it("the browser closing during a waiting_user checkpoint hands off browser_closed, not timeout", async () => {
+    const h = await makeHarness();
+    preset(h.console, "api");
+    const id = await startExisting(h);
+    await autopilot(h, id, { stopAt: (v) => v.state === "waiting_user" && v.checkpoint?.kind === "policy" });
+    h.console.serverClose();
+    const v = await until(() => h.view(id), (x) => x.state === "handoff", 1500);
+    expect(v.handoff).toMatchObject({ reason: "browser_closed" });
+  });
+});

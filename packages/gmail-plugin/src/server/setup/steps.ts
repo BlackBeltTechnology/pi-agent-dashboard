@@ -219,7 +219,7 @@ export function validateLinks(links: unknown): { ok: true; links: PublishLinks }
   for (const key of ["homePage", "privacyPolicy"] as const) {
     let u: URL;
     try {
-      u = new URL(l[key] as string);
+      u = new URL((l[key] as string).trim());
     } catch {
       return { ok: false, error: `invalid_${key}` };
     }
@@ -230,7 +230,7 @@ export function validateLinks(links: unknown): { ok: true; links: PublishLinks }
   }
   return {
     ok: true,
-    links: { homePage: l.homePage, privacyPolicy: l.privacyPolicy, authorizedDomain: domain },
+    links: { homePage: l.homePage.trim(), privacyPolicy: l.privacyPolicy.trim(), authorizedDomain: domain },
   };
 }
 
