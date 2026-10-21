@@ -74,6 +74,7 @@ export class FollowGlide {
   start(): void {
     if (this.raf !== null) return;
     this.last = now(); // the first step's dt is the real time since start
+    this.achievedTop = Number.NaN; // never match a previous run's position
     this.raf = requestAnimationFrame(this.step);
     this.deps.onBusyChange?.(true);
   }

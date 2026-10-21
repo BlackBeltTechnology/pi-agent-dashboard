@@ -1331,6 +1331,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
    * runs, so the measure path needs it to start the glide itself.
    */
   const liveGlideEligibleRef = useRef(false);
+  // Assigned IN RENDER on purpose: the measure `onChange` reads it before this commit's layout effects run.
   liveGlideEligibleRef.current =
     effectiveMotion &&
     prevPinSessionRef.current === sessionId &&
