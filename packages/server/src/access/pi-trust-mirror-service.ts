@@ -45,6 +45,7 @@ import type {
   PiTrustSnapshot,
   PiTrustSnapshotEntry,
 } from "@blackbelt-technology/pi-dashboard-shared/pi-trust-mirror-types.js";
+import { hasProjectRootMarker } from "@blackbelt-technology/pi-dashboard-shared/project-root.js";
 
 /** Above this many counted entries every snapshot rewrite logs a warning. */
 export const SNAPSHOT_WARN_ENTRIES = 5000;
@@ -174,17 +175,9 @@ function buildCandidates(
   }
   for (const { subject } of deps.listPersistedGrants()) {
     const key = keyOf(subject);
-    if (key) push({ sourceKind: "accessGrants", key, projectRoot: isProjectRootDir(key) });
+    if (key) push({ sourceKind: "accessGrants", key, projectRoot: hasProjectRootMarker(key) });
   }
   return out;
-}
-
-function isProjectRootDir(dir: string): boolean {
-  try {
-    return fs.existsSync(path.join(dir, ".git")) || fs.existsSync(path.join(dir, ".pi"));
-  } catch {
-    return false;
-  }
 }
 
 function defaultWriteAtomic(file: string, content: string, mode: number): void {

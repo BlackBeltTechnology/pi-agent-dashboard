@@ -14,11 +14,20 @@
  * - `activateYolo`        POST   /api/access/yolo  (activate, or ADD a root to
  *   the live session - timer unchanged; tasks 8b.7a, 8b.7b)
  * - `endYolo`             DELETE /api/access/yolo
+ * - `fetchProvisionRequests` GET  /api/access/provision  (pending requests)
+ * - `settleProvisionRequest` POST /api/access/provision/:id/settle  (capability header
+ *   attaches automatically, `grant-channel.ts`)
+ * - `dismissAllProvisionRequests` POST /api/access/provision/dismiss-all
+ *   (change: add-access-provisioning)
  */
 import type {
   AccessPlaneId,
-  YoloSurfaceId,
   GrantVerdict,
+  ProvisionRemoteTarget,
+  ProvisionRequestLine,
+  ProvisionRequestMessage,
+  ProvisionResponseMessage,
+  YoloSurfaceId,
 } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { getApiBase } from "../api/api-context.js";
 import type { AccessPromptsView, YoloSessionView } from "./access-prompts-types.js";
@@ -82,4 +91,48 @@ export function activateYolo(
 
 export function endYolo(): Promise<ApiResult> {
   return call("DELETE", "/api/access/yolo");
+}
+
+/** One request as `GET /api/access/provision` returns it (server `ProvisionRequestView`). */
+export interface ProvisionRequestView {
+  requestId: string;
+  status: "pending" | "settled" | "dismissed" | "expired";
+  projectRoot: string;
+  lines: ProvisionRequestLine[];
+  remote: { target: ProvisionRemoteTarget }[];
+  createdAt: number;
+  expiresAt: number;
+}
+
+/** A listed request as the `provision_request` frame the dialog renders (outcome fields dropped). */
+export function provisionViewToMessage(v: ProvisionRequestView): ProvisionRequestMessage {
+  return {
+    type: "provision_request",
+    requestId: v.requestId,
+    projectRoot: v.projectRoot,
+    lines: v.lines.map(({ lineId, path, why, classification, projectRoot }) => ({
+      lineId,
+      path,
+      why,
+      classification,
+      ...(projectRoot ? { projectRoot } : {}),
+    })),
+    remote: v.remote.map((g) => g.target),
+    expiresAt: v.expiresAt,
+  };
+}
+
+export function fetchProvisionRequests(): Promise<ApiResult<{ requests: ProvisionRequestView[] }>> {
+  return call<{ requests: ProvisionRequestView[] }>("GET", "/api/access/provision");
+}
+
+export function settleProvisionRequest(
+  requestId: string,
+  lines: ProvisionResponseMessage["lines"],
+): Promise<ApiResult<ProvisionRequestView>> {
+  return call<ProvisionRequestView>("POST", `/api/access/provision/${encodeURIComponent(requestId)}/settle`, { lines });
+}
+
+export function dismissAllProvisionRequests(): Promise<ApiResult<{ dismissed: number }>> {
+  return call<{ dismissed: number }>("POST", "/api/access/provision/dismiss-all");
 }
