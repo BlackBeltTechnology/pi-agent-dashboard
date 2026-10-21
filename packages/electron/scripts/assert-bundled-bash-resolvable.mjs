@@ -17,7 +17,7 @@
  *      via the bundle's jiti, and pi's `getShellConfig` via `import()` of the
  *      shipped pi dist.
  *   2. Builds the child env in `buildSpawnEnv` order: inherited env, PATH key
- *      normalised, `ProgramFiles*` pointed at an empty dir (no Git for Windows),
+ *      normalised, `ProgramFiles*` + `ProgramW6432` pointed at an empty dir (no Git for Windows),
  *      a stub host dir holding a `bash.exe` on PATH (deterministic stand-in for a
  *      host shell, independent of what the runner ships), then the two helpers.
  *   3. Runs a child Node (cwd = empty temp dir, so `where.exe`'s cwd-first search
@@ -136,11 +136,14 @@ async function childMain(resourcesDir) {
 
 function buildEnv(shared, layout, { emptyDir, stubDir, bashSource }) {
   let env = shared.normalizeEnvPathKey({ ...process.env }, "win32");
+  // `ProgramW6432` too: the OS re-derives a 64-bit child's `ProgramFiles` from it
+  // (measured on windows-latest: overriding ProgramFiles alone is ignored).
   for (const key of Object.keys(env)) {
-    if (/^programfiles(\(x86\))?$/i.test(key)) delete env[key];
+    if (/^(programfiles(\(x86\))?|programw6432)$/i.test(key)) delete env[key];
   }
   env.ProgramFiles = emptyDir;
   env["ProgramFiles(x86)"] = emptyDir;
+  env.ProgramW6432 = emptyDir;
   env.PATH = `${stubDir};${env.PATH ?? ""}`;
   env.GATE_RESOURCES_DIR = path.dirname(layout.gitDir);
   env = shared.ensureWindowsSystemPath(env, { platform: "win32" });
