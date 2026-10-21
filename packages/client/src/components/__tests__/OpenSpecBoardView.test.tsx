@@ -335,6 +335,23 @@ describe("OpenSpecBoardView — dependencies", () => {
     }
   });
 
+  it("#F1 (review) a real mouse click opens the list and a second click closes it; a keyboard focus still opens it", () => {
+    const c = change("b", deps({ blockedBy: [{ change: "x", source: "declared", state: "open" }] }));
+    render(<OpenSpecBoardView {...board([change("x", deps()), c])} />);
+    const chip = within(screen.getByTestId("board-card-b")).getByTestId("dep-chip-blockedBy");
+    // A browser's mouse gesture: mousedown focuses the button unless its default is prevented, then click.
+    const mouseClick = () => {
+      if (fireEvent.mouseDown(chip)) fireEvent.focus(chip);
+      fireEvent.click(chip);
+    };
+    mouseClick();
+    expect(screen.queryByTestId("dep-list-blockedBy")).not.toBeNull();
+    mouseClick();
+    expect(screen.queryByTestId("dep-list-blockedBy")).toBeNull();
+    fireEvent.focus(chip); // keyboard Tab
+    expect(screen.queryByTestId("dep-list-blockedBy")).not.toBeNull();
+  });
+
   it("#F1 focusing 'blocked by 1' lists the blocker with its source and reason; inferred edges look different", () => {
     const c = change("b", deps({
       blockedBy: [

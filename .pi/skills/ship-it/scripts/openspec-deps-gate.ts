@@ -193,13 +193,22 @@ function developArchivedNames(cwd: string, fetchTimeoutMs: number, notes: string
 
 export async function runGate(opts: GateOptions): Promise<GateVerdict> {
   const notes: string[] = [];
-  const online = KEBAB_ID_REGEX.test(opts.change) ? await askDashboard(opts, notes) : null;
+  if (!KEBAB_ID_REGEX.test(opts.change)) {
+    // Not a change name: no request, no path built from it, and never a passing verdict.
+    return {
+      status: "blocked",
+      mode: "offline",
+      blockers: [],
+      issues: [{ severity: "error", code: "invalid-file", message: `"${opts.change}" is not a valid change name` }],
+      notes: [`"${opts.change}" is not a valid change name`],
+    };
+  }
+  const online = await askDashboard(opts, notes);
   const mode: GateMode = online ? "online" : "offline";
   let entry: ChangeDependencies;
   if (online) {
     entry = online;
   } else {
-    if (!KEBAB_ID_REGEX.test(opts.change)) notes.push(`"${opts.change}" is not a valid change name`);
     entry = await offlineEntry(opts);
     notes.push("offline: cycles and inferred edges were not checked");
   }

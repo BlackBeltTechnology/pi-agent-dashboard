@@ -174,7 +174,10 @@ export async function readDependenciesFile(file: string, fsImpl: ReaderFs = fsp)
   let openedStat: FileStat = stat;
   try {
     const noFollow = typeof fsConstants.O_NOFOLLOW === "number" ? fsConstants.O_NOFOLLOW : 0;
-    const handle = await fsImpl.open(file, fsConstants.O_RDONLY | noFollow);
+    // O_NONBLOCK: a FIFO swapped in after the lstat must not park a threadpool thread until a writer
+    // appears; the fstat re-check below then rejects it. No effect on regular files.
+    const nonBlock = typeof fsConstants.O_NONBLOCK === "number" ? fsConstants.O_NONBLOCK : 0;
+    const handle = await fsImpl.open(file, fsConstants.O_RDONLY | noFollow | nonBlock);
     try {
       const hs = await handle.stat();
       if (!hs.isFile()) return { kind: "invalid", error: "is not a regular file", stat };

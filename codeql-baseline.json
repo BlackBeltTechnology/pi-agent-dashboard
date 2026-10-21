@@ -1130,7 +1130,7 @@
     {
       "ruleId": "js/path-injection",
       "file": "packages/shared/src/openspec-dependencies.ts",
-      "lineHash": "9e9544df41e97367:1",
+      "lineHash": "99538694ddfeba02:1",
       "count": 1,
       "reason": "operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); cwd must be a tracked session/pinned directory, change is KEBAB_ID_REGEX-checked, writes re-check realpath containment under openspec/changes. See change: add-openspec-change-dependencies."
     },

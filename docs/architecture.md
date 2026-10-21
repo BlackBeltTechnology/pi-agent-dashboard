@@ -6328,7 +6328,7 @@ See change: repair-corrupted-main-specs.
 
 ## OpenSpec workflow schema (`pi-spec-driven`)
 
-Dashboard-managed project schema. Base: OpenSpec built-in `spec-driven` + patch set (`CURRENT_PATCH = 1`). Opt-in per project. Never enabled on existing projects by default.
+Dashboard-managed project schema. Base: OpenSpec built-in `spec-driven` + patch set (`CURRENT_PATCH = 2`). Opt-in per project. Never enabled on existing projects by default.
 
 Code:
 - `packages/server/src/openspec/workflow-schema.ts` — generation, stamp, state table, write guard, actions.
@@ -6538,7 +6538,7 @@ Code:
 - `packages/client/src/lib/openspec/openspec-dependencies-view.ts` (pure helpers), `openspec-dependencies-api.ts` (fetch).
 - `.pi/skills/ship-it/scripts/openspec-deps-gate.ts` — ship-it step 1.5 gate.
 
-Spec: `openspec/changes/add-openspec-change-dependencies/`. See change: add-openspec-change-dependencies.
+Spec: `openspec/specs/openspec-change-dependencies/spec.md`. Archived change: `openspec/changes/archive/2026-10-21-add-openspec-change-dependencies/`. See change: add-openspec-change-dependencies.
 
 ### Pipeline
 
@@ -6623,7 +6623,7 @@ Rules:
 
 ### Schema patch v2
 
-- `CURRENT_PATCH = 2` in `packages/server/src/openspec/workflow-schema.ts`.
+- `CURRENT_PATCH = 2` in `packages/server/src/openspec/workflow-schema-status.ts` (`workflow-schema.ts` re-exports it).
 - Inserts artifact `dependencies` before `tasks`. Generates `dependencies.yaml` from `templates/dependencies.yaml`. Requires `[proposal, specs]`.
 - `tasks.requires = [specs, design, dependencies]`.
 - Anchor must be exactly `[specs, design]`. Otherwise generation aborts.

@@ -6,11 +6,12 @@
  */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import fsp from "node:fs/promises";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { runGate } from "../openspec-deps-gate.ts";
 
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "deps-gate-"));
@@ -153,9 +154,19 @@ describe("#X10 offline", () => {
     expect(v).toMatchObject({ status: "blocked", issues: [{ code: "invalid-file" }] });
   });
 
-  it("an invalid change name is reported, never used to build a path", async () => {
+  it("an invalid change name is blocked, and never used to build a path (a file it would reach is not read)", async () => {
     const repo = mkRepoDir("x10-name");
+    // `../../etc` from <repo>/openspec/changes lands on <repo>/etc/dependencies.yaml: plant a file there.
+    fs.mkdirSync(path.join(repo, "etc"), { recursive: true });
+    fs.writeFileSync(path.join(repo, "etc", "dependencies.yaml"), "blocked_by: [some-open-change]\n");
+    const readSpy = vi.spyOn(fsp, "lstat");
     const v = await runGate({ cwd: repo, change: "../../etc", baseUrl: "http://127.0.0.1:1", skipDevelop: true });
+    const touched = readSpy.mock.calls.map((c) => String(c[0])).filter((p) => p.includes("etc"));
+    readSpy.mockRestore();
+    expect(touched).toEqual([]);
+    expect(v.status).toBe("blocked");
+    expect(v.blockers).toEqual([]);
+    expect(v.issues[0]).toMatchObject({ severity: "error", code: "invalid-file" });
     expect(v.notes.join(" ")).toMatch(/not a valid change name/);
   });
 });

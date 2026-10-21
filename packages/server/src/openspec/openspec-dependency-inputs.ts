@@ -167,6 +167,8 @@ interface CollectedInputs {
  * `mtimes` = the probe's per-change effective mtime (optional): equal to the
  * previous build's value → the assembled inputs are reused without any I/O.
  */
+const isSingleSegment = (name: string): boolean => name !== "" && name !== "." && name !== ".." && !/[\\/\0]/.test(name);
+
 async function collectDependencyInputs(
   openspecDir: string,
   names: string[],
@@ -176,6 +178,9 @@ async function collectDependencyInputs(
   const seen = new Set<string>();
   const seenChanges = new Set<string>();
   const changes = await mapLimit(names, CHANGE_CONCURRENCY, async (name): Promise<ChangeInputs> => {
+    // Names come from the CLI's listing; defence in depth: only a single path segment is ever joined onto
+    // `changes/` (never `..`, a separator or NUL), so a hostile entry cannot reach files outside it.
+    if (!isSingleSegment(name)) return { name, declared: { state: "absent" }, proposal: null, deltas: {} };
     const dir = path.join(changesDir, name);
     const mtime = mtimes?.[name];
     const hit = changeCache.get(dir);

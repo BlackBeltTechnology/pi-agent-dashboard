@@ -88,6 +88,24 @@ describe("#X14 per-rebuild debug line", () => {
   });
 });
 
+describe("review: change names are single path segments", () => {
+  it("a name that is not a single segment is never used to build a path", async () => {
+    writeFile(cwd, "openspec/changes/real/proposal.md", "# real\n");
+    // `../outside` from openspec/changes resolves to openspec/outside: plant a file there that would name `real` a blocker.
+    writeFile(cwd, "openspec/outside/dependencies.yaml", "blocked_by: [real]\n");
+    const touched: string[] = [];
+    const orig = fsp.lstat.bind(fsp);
+    vi.spyOn(fsp, "lstat").mockImplementation(((p: unknown, ...rest: unknown[]) => {
+      touched.push(String(p));
+      return (orig as (...a: unknown[]) => unknown)(p, ...rest);
+    }) as never);
+    const out = await computeDependencies(openspecDir, ["real", "../outside", "a/b", "..", "."]);
+    expect(touched.filter((p) => p.includes("outside") || p.includes(`${path.sep}a${path.sep}b`))).toEqual([]);
+    expect(out.graph["real"]?.blocks ?? []).toEqual([]);
+    expect(Object.keys(out.graph)).toContain("real");
+  });
+});
+
 describe("#P1 warm rebuild budget", () => {
   /** 100 active changes with a labelled proposal and three deltas each. */
   function seed100(): string[] {

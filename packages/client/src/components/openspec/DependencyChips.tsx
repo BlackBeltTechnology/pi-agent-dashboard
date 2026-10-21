@@ -42,6 +42,9 @@ export function DependencyChips({ dependencies }: { dependencies: ChangeDependen
       aria-expanded={open === key}
       aria-controls={`dep-list-${key}`}
       onFocus={() => setOpen(key)}
+      // A mouse press would focus the button (opening the list) and the click that follows would toggle it
+      // straight shut again; keep the press from focusing, so click toggles and Tab/focus still opens.
+      onMouseDown={(e) => e.preventDefault()}
       onClick={() => setOpen((cur) => (cur === key ? null : key))}
     >
       {label}

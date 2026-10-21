@@ -96,6 +96,28 @@ describe("parseDependenciesFile", () => {
 });
 
 // ── E3 ─────────────────────────────────────────────────────────────
+describe("readDependenciesFile (FIFO swapped in after the lstat)", () => {
+  it.skipIf(process.platform === "win32")("review: the open does not block on a FIFO, and the fstat re-check rejects it", async () => {
+    const dir = mkTmp();
+    const fifo = path.join(dir, "swapped.yaml");
+    execFileSync("mkfifo", [fifo]);
+    // The lstat reports a regular file (as if the swap happened right after it); the open then meets a FIFO.
+    const lying = {
+      ...fsp,
+      lstat: (async (p: string, ...rest: unknown[]) => {
+        const st = (await (fsp.lstat as (...a: unknown[]) => Promise<import("node:fs").Stats>)(p, ...rest)) as import("node:fs").Stats;
+        return Object.assign(Object.create(Object.getPrototypeOf(st)), st, { isFile: () => true, isSymbolicLink: () => false, size: 10 });
+      }) as typeof fsp.lstat,
+    };
+    const res = await Promise.race([
+      readDependenciesFile(fifo, lying),
+      new Promise<"blocked">((r) => setTimeout(() => r("blocked"), 3000)),
+    ]);
+    expect(res).not.toBe("blocked"); // without O_NONBLOCK a read-only FIFO open waits for a writer forever
+    expect((res as { kind: string }).kind).toBe("invalid");
+  }, 10_000);
+});
+
 describe("readDependenciesFile", () => {
   const body = (bytes: number) => `blocked_by: [a]\n#${"x".repeat(bytes - 18)}\n`;
 
@@ -116,18 +138,21 @@ describe("readDependenciesFile", () => {
     const alias = path.join(dir, "alias.yaml");
     writeFileSync(alias, "blocked_by: &x [a]\nrelated: *x\n");
     const link = path.join(dir, "zero.yaml");
-    symlinkSync("/dev/zero", link);
+    if (process.platform !== "win32") symlinkSync("/dev/zero", link);
+    const posix = process.platform !== "win32"; // `mkfifo` and `/dev/zero` are POSIX-only fixtures
     const fifo = path.join(dir, "fifo.yaml");
-    execFileSync("mkfifo", [fifo]);
+    if (posix) execFileSync("mkfifo", [fifo]);
 
     const t0 = Date.now();
     expect((await readDependenciesFile(f64, spy)).kind).toBe("ok");
     expect((await readDependenciesFile(f64p, spy)).kind).toBe("invalid");
     expect((await readDependenciesFile(alias, spy)).kind).toBe("invalid");
     opened.length = 0;
-    expect((await readDependenciesFile(link, spy)).kind).toBe("invalid");
-    expect((await readDependenciesFile(fifo, spy)).kind).toBe("invalid");
-    expect(opened).toEqual([]);
+    if (posix) {
+      expect((await readDependenciesFile(link, spy)).kind).toBe("invalid");
+      expect((await readDependenciesFile(fifo, spy)).kind).toBe("invalid");
+      expect(opened).toEqual([]);
+    }
     expect((await readDependenciesFile(path.join(dir, "missing.yaml"), spy)).kind).toBe("absent");
     expect(Date.now() - t0).toBeLessThan(1000);
   });
