@@ -111,9 +111,9 @@ so pi can call it and its call forwards on the tool-event stream the server obse
 return a trivial `{ ok: true }` ack; the result SHALL NOT be relied upon to be stripped from pi's
 history. The `target` input is a convenience shape normalized server-side into a real
 `ViewTarget`: `file.path` + server-supplied session `cwd` → `{ kind:"file", cwd, path }`;
-`url` passes through as a `ViewTarget`. A `server.port` target SHALL NOT be converted to a
-`ViewTarget` (the union has no server kind); it SHALL route directly to the server chip path,
-bypassing `selectCanvasTarget`. A model-supplied `cwd` or traversal path, or a rejected declare,
+a non-loopback `url` passes through as a `ViewTarget`. A `server.port` target, and a `url` whose host
+is loopback, SHALL NOT be converted to a `ViewTarget`; each SHALL route directly to the server
+chip path (a URL keeps its path for the open after the tap), bypassing `selectCanvasTarget`. A model-supplied `cwd` or traversal path, or a rejected declare,
 SHALL return an error result — NOT `{ ok: true }`; the ack SHALL claim success only when the
 dashboard accepted the declare.
 
@@ -138,6 +138,10 @@ dashboard accepted the declare.
 #### Scenario: Last declare wins within a turn
 - **WHEN** the agent calls `canvas()` twice in one turn with different targets
 - **THEN** both the eager-open and the turn-end settle resolve to the last declared target
+
+#### Scenario: Loopback URL declare routes to the chip
+- **WHEN** the agent calls `canvas({ target: { kind:"url", url:"http://127.0.0.1:5173/app" } })`
+- **THEN** no auto-open occurs and a confirm chip carrying port 5173 and path `/app` surfaces
 
 ### Requirement: Canvas-type registry gates DETECT only, default all-on
 
@@ -167,15 +171,23 @@ SHALL bypass it. There SHALL be no separate server toggle (servers are declare-o
 ### Requirement: Auto-opened file documents carry a restrictive CSP
 
 The dashboard SHALL apply a restrictive Content-Security-Policy (blocking external subresources)
-to any auto-opened agent-authored file-kind document (html, svg, md, pdf opened via the
+to any auto-opened agent-authored file-kind document (svg, md, pdf opened via the
 DOC-detect path without a user click), so auto-open egress does not exceed the existing manual
-click-to-open flow, and it SHALL ship with auto-open rather than later. The CSP SHALL NOT apply to
-`canvas()` URL or youtube declares, which render a live URL and are egress-equal to a manual URL open.
+click-to-open flow, and it SHALL ship with auto-open rather than later. An auto-opened `.html`
+document SHALL instead be served as a live-server static target under the restricted
+preview-egress policy: external origins are blocked unless granted for that preview or its
+project, and scripts run only while the dashboard is reachable from this machine alone. The CSP SHALL NOT apply to `canvas()` URL or youtube declares, which render a live
+URL and are egress-equal to a manual URL open.
 
 #### Scenario: Auto-opened HTML cannot beacon out
 - **GIVEN** an agent-written `.html` containing `<img src="http://attacker/beacon">`
 - **WHEN** the canvas auto-opens it
-- **THEN** the external subresource is blocked by the preview frame CSP
+- **THEN** the external subresource is blocked by the preview's content security policy
+
+#### Scenario: Auto-opened HTML loads a granted CDN
+- **GIVEN** `https://cdn.tailwindcss.com` is granted for the session's project
+- **WHEN** the canvas auto-opens an agent-written `.html` that loads it
+- **THEN** the CDN loads and the page renders styled
 
 #### Scenario: URL declare renders normally
 - **WHEN** the agent calls `canvas({ target: { kind:"url", url:"https://youtu.be/abc" } })`
@@ -184,12 +196,15 @@ click-to-open flow, and it SHALL ship with auto-open rather than later. The CSP 
 ### Requirement: Auto-open drives the split-workspace surface without disrupting the reader
 
 On desktop/tablet the auto-canvas driver SHALL open the winning target through the
-existing split-workspace openers (`openInSplit` for file targets, `openLiveTarget`
-for loopback urls, `openUrlTarget` for generic urls). The auto-open SHALL be
+existing split-workspace openers (`openInSplit` for non-HTML file targets, a static live-server
+target for `.html` file targets, `openUrlTarget` for generic non-loopback urls). Loopback urls never
+auto-open; they surface the confirm chip. The auto-open SHALL be
 **non-disruptive**: it SHALL reveal `split` only when the current mode is `closed`;
 when the editor is already shown (`split` or `full`) it SHALL leave the mode
 unchanged, add the target's tab **without** changing the active tab, mark it
-**unread**, and play a one-time highlight — for all three target kinds. On mobile the
+**unread**, and play a one-time highlight — for all target kinds. When the target's tab is
+already open and only the canvas version changed, the driver SHALL NOT open another tab: a
+background tab SHALL reload, and the active tab SHALL keep its content and offer a reload. On mobile the
 driver SHALL NEVER yank chat; it SHALL surface a tap-to-open chip. A target withheld by
 the mobile gate SHALL NOT count as delivered: when the viewport later grows to
 desktop/tablet, the driver SHALL auto-open that same pending target (same version)
@@ -208,6 +223,26 @@ auto-open path that shares its handler is background.
 - **THEN** the mode is unchanged
 - **AND** the active tab is unchanged
 - **AND** the canvas target's tab is added, marked unread, with a one-time highlight
+
+#### Scenario: HTML file target opens as a served page
+- **GIVEN** desktop and an agent-written `mockups/a/index.html` linking `./style.css`
+- **WHEN** the canvas target changes to that file
+- **THEN** it opens in a live-server tab with the stylesheet applied
+
+#### Scenario: Second file under the same root gets its own tab
+- **GIVEN** `split` mode with `mockups/a/index.html` open and active
+- **WHEN** the canvas target changes to `mockups/a/settings.html`
+- **THEN** a new tab is added for `settings.html` and the active tab still shows `index.html`
+
+#### Scenario: Version bump reloads a background tab
+- **GIVEN** a canvas target open in a tab that is not active
+- **WHEN** the same target is declared again with a higher version
+- **THEN** that tab's content reloads and no second tab is opened
+
+#### Scenario: Version bump does not disturb the reader
+- **GIVEN** the user is viewing the canvas target's tab
+- **WHEN** the same target is declared again with a higher version
+- **THEN** the content is unchanged and a reload is offered
 
 #### Scenario: Mobile still surfaces a chip
 - **GIVEN** a mobile viewport (`<768w` OR `<600h`)
@@ -284,3 +319,12 @@ through to the content beneath.
 - **WHEN** the tap-to-open chip is shown
 - **THEN** it floats above the composer without shifting the chat layout
 - **AND** tapping it still opens the target in the foreground
+
+### Requirement: canvas() guidance steers local servers to loopback URLs
+
+The `canvas` tool's model-facing guidance SHALL instruct the agent to declare a local server by its localhost URL (`http://localhost:<port>/…`) and never by a LAN or IP address, and to declare a local HTML file as a file target. The dashboard's loopback-only routing SHALL be unchanged.
+
+#### Scenario: Guidance present in the tool definition
+- **WHEN** the bridge registers the `canvas` tool
+- **THEN** its guidelines state that local servers are declared by localhost URL, not LAN or IP URLs
+- **AND** that a local HTML file is declared with `kind:'file'`

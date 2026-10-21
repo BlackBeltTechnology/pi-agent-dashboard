@@ -167,19 +167,44 @@ The server SHALL expose `GET /api/file/render?cwd=&path=` that runs `asciidoctor
 
 ### Requirement: HTML preview is sandboxed without script execution
 
-The `HtmlPreview` component SHALL render local `.html` files in an `<iframe>` with the `sandbox` attribute set to `allow-same-origin` only. It SHALL NOT include `allow-scripts`, `allow-forms`, `allow-top-navigation`, or `allow-popups`. The iframe `srcdoc` attribute SHALL be populated with the file contents fetched from `/api/file/raw`.
+The `HtmlPreview` component SHALL render local `.html` files by framing a live-server **static target** for the file, so relative stylesheets, scripts and images resolve against the file's document root. The frame SHALL never carry `allow-same-origin`. On a surface that declares operator provenance (the preview overlay opened by a click, an editor tab last activated by the operator), it SHALL run scripts with open egress. On every other surface it SHALL use the restricted preview-egress policy. A "Static (no scripts)" mode SHALL render the same document with an empty sandbox. The component SHALL NOT populate `srcdoc` from file contents. HTML in chat content SHALL NOT be rendered by this component.
 
 #### Scenario: Sandbox excludes scripts
 
 - **GIVEN** a local `.html` file containing a `<script>` tag
-- **WHEN** the user opens it through `/view @file.html`
-- **THEN** the iframe sandbox is `"allow-same-origin"` and the `<script>` does not execute (sandbox without `allow-scripts` blocks all script execution)
+- **WHEN** the user opens it and selects "Static (no scripts)"
+- **THEN** the frame's sandbox is empty and the `<script>` does not execute
+
+#### Scenario: Scripts run isolated on operator open
+
+- **GIVEN** a local `.html` file whose script writes text into the page
+- **WHEN** the user opens it from the file tree or by clicking a chat file link
+- **THEN** the script runs and its output is visible
+- **AND** the frame's sandbox does not contain `allow-same-origin`
+
+#### Scenario: Undeclared surface is restricted
+
+- **GIVEN** an agent-emitted preview card for a local `.html` file
+- **WHEN** it renders without an operator click
+- **THEN** it uses the restricted preview-egress policy
+
+#### Scenario: Observe-tier reader still previews HTML
+
+- **GIVEN** a browser authenticated with a tier that may read files but not control live servers
+- **WHEN** it opens a local `.html` preview
+- **THEN** the page renders as a static target
+
+#### Scenario: Relative assets resolve
+
+- **GIVEN** `mockups/a/index.html` linking `./style.css` and `img/logo.png`
+- **WHEN** it opens in the chat preview overlay or the editor pane
+- **THEN** both assets load and the page renders styled
 
 #### Scenario: Chat HTML content NOT rendered
 
 - **GIVEN** an agent message contains an `<html>` block in its content
 - **WHEN** the message renders in `ChatView`
-- **THEN** the existing markdown / text rendering path runs; the `HtmlPreview` component does NOT render chat content (HtmlPreview is only invoked from `/view @<file>.html`)
+- **THEN** the existing markdown / text rendering path runs; the `HtmlPreview` component does NOT render chat content (HtmlPreview is only invoked for a local `.html` file target)
 
 ### Requirement: PDF preview ships as a lazy chunk
 
@@ -470,7 +495,7 @@ that fetches `/api/file/eml`, displays the message headers (from, to, subject, d
 the sanitized body inside an `<iframe>` whose `sandbox` attribute is the **empty string**
 (opaque origin — NOT `allow-same-origin`, and no `allow-scripts`, `allow-forms`,
 `allow-top-navigation`, or `allow-popups`), and lists the attachments. This is deliberately
-stricter than `HtmlPreview` (which renders trusted local `.html` with `allow-same-origin`)
+stricter than `HtmlPreview` (which may run scripts in an opaque origin for local `.html`)
 because `.eml` bodies are untrusted sender HTML: an opaque origin removes any same-origin
 access to `/api/*` from embedded refs. Header values SHALL be rendered as escaped text nodes
 (never `dangerouslySetInnerHTML`). Like every other renderer, `EmlPreview` SHALL be wired
@@ -774,3 +799,63 @@ server from starting or registering routes.
 - **GIVEN** a process started with `node --import <native-ts-register.mjs URL>` (as the dashboard server is)
 - **WHEN** `loadPurify()` sanitizes `<svg><script>…</script><g/></svg>`
 - **THEN** it returns `<svg><g></g></svg>` (jsdom initialized correctly, script stripped)
+
+### Requirement: Raw active-content responses are sandboxed
+
+When `GET /api/file/raw` serves a scriptable media type (`text/html`, `image/svg+xml`, `application/xhtml+xml`, `application/xml`, `text/xml`), the response SHALL carry an enforced `Content-Security-Policy: sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; frame-ancestors 'self'` and `X-Content-Type-Options: nosniff` on every admission path, for 200 and 206, in every CSP mode. Other media types SHALL NOT carry this policy.
+
+#### Scenario: Active-content raw responses carry the sandbox headers
+
+- **GIVEN** `evil.svg` (containing `<script>` and an `onload` handler), `page.html`, `page.HTM` and `LOGO.SVG` exist inside a known cwd
+- **WHEN** the client requests each from `/api/file/raw`
+- **THEN** each response carries the sandbox `Content-Security-Policy` and `X-Content-Type-Options: nosniff`
+- **AND** the `Content-Type` and the body bytes are unchanged
+
+#### Scenario: Script-bearing SVG opened directly cannot run in the dashboard origin
+
+- **GIVEN** `evil.svg` inside a known cwd contains a `<script>` that writes a marker to `document.title`
+- **WHEN** a browser navigates directly to `/api/file/raw?cwd=…&path=evil.svg`
+- **THEN** the marker is never written
+- **AND** the document's `window.origin` is `"null"` (opaque), not the dashboard origin
+
+#### Scenario: XML document types are classified as scriptable
+
+- **GIVEN** the raw route's MIME mapping yields `application/xhtml+xml`, `application/xml`, `text/xml`, `TEXT/HTML; charset=utf-8` or `image/svg+xml`
+- **WHEN** the route decides whether to apply the sandbox policy
+- **THEN** each of those media types is treated as scriptable, and `text/plain`, `application/pdf`, `image/png` and `application/octet-stream` are not
+
+#### Scenario: Ranged SVG response is sandboxed
+
+- **GIVEN** `big.svg` exists inside a known cwd
+- **WHEN** the client requests it with `Range: bytes=0-99`
+- **THEN** the response status is 206 and it carries the sandbox `Content-Security-Policy` and `X-Content-Type-Options: nosniff`
+
+#### Scenario: SVG admitted via the artifact root is sandboxed
+
+- **GIVEN** `shot.svg` lives under an artifact root and outside every cwd and git root
+- **WHEN** the client requests it from `/api/file/raw`
+- **THEN** the response carries the sandbox `Content-Security-Policy` and `X-Content-Type-Options: nosniff`
+
+#### Scenario: Grant-admitted HTML is sandboxed
+
+- **GIVEN** `page.html` lives outside the session's cwd and git root and is admitted by an access grant
+- **WHEN** the client requests it from `/api/file/raw`
+- **THEN** the response carries the sandbox `Content-Security-Policy` and `X-Content-Type-Options: nosniff`
+
+#### Scenario: Image preview of SVG keeps rendering
+
+- **GIVEN** `logo.svg` with an inline `<style>` exists inside a known cwd
+- **WHEN** the file preview renders it as an image from `/api/file/raw`
+- **THEN** the rendered image has non-zero natural width and height
+
+#### Scenario: Non-active types do not get the sandbox policy
+
+- **GIVEN** `foo.pdf` and `photo.png` exist inside a known cwd
+- **WHEN** the client requests each from `/api/file/raw`
+- **THEN** neither response carries the sandbox `Content-Security-Policy`
+
+#### Scenario: Sandbox policy holds in every CSP mode
+
+- **WHEN** the client requests an `.svg` from `/api/file/raw` with the dashboard CSP mode `enforce`, `report` or `off`
+- **THEN** the `Content-Security-Policy` header is the sandbox policy in all three modes, with `X-Content-Type-Options: nosniff`
+- **AND** in `report` mode the response also carries the baseline `Content-Security-Policy-Report-Only`

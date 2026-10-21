@@ -19,6 +19,7 @@ import { pipeline } from "node:stream/promises";
 import { normalizeEnvPathKey } from "@blackbelt-technology/pi-dashboard-shared/platform/env-path-key.js";
 import { execFileAsync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { prependManagedNodeToPath } from "@blackbelt-technology/pi-dashboard-shared/platform/managed-node-path.js";
+import { assertSafeArchiveListing } from "@blackbelt-technology/pi-dashboard-shared/runtime-overlay/archive-safety.mjs";
 import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import type { RuntimeLock, StagerDeps } from "./runtime-stager.js";
 import { RUNTIME_GITHUB_REPO, RUNTIME_SERVER_PACKAGE, type RuntimeReleaseFeeds } from "./runtime-update-checker.js";
@@ -49,19 +50,11 @@ async function npm(args: string[], cwd: string, timeoutMs = NPM_TIMEOUT_MS): Pro
 /** List members; refuse any that are absolute, climb out (`..`), or are links — before extracting. */
 async function safeMembers(tgz: string): Promise<string[]> {
   const { stdout } = await execFileAsync("tar", ["-tzf", tgz], { timeout: NPM_TIMEOUT_MS, maxBuffer: MAX_BUFFER });
-  const names = String(stdout).split(/\r?\n/).filter(Boolean);
-  for (const name of names) {
-    if (path.isAbsolute(name) || /^[a-zA-Z]:/.test(name) || name.startsWith("\\") || name.split(/[\\/]/).includes("..")) {
-      throw new Error(`unsafe_archive member ${JSON.stringify(name)}`);
-    }
-  }
   // Links could point out of the staging dir and a later member write through
   // them. A runtime tree has no links (npm ci output, plugins copied), so refuse
   // all. `tar -tv` (bsdtar and GNU) starts each line with the entry type.
   const { stdout: verbose } = await execFileAsync("tar", ["-tvzf", tgz], { timeout: NPM_TIMEOUT_MS, maxBuffer: MAX_BUFFER });
-  const link = String(verbose).split(/\r?\n/).find((line) => /^[lh]/.test(line));
-  if (link) throw new Error(`unsafe_archive link member ${JSON.stringify(link.trim())}`);
-  return names;
+  return assertSafeArchiveListing(String(stdout), String(verbose));
 }
 
 async function tarExtract(tgz: string, destDir: string, members: string[] = []): Promise<void> {

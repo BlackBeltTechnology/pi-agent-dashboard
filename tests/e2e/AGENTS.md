@@ -14,10 +14,13 @@ One row per file.
 | `apply-fix-to-file.spec.ts` | → see `apply-fix-to-file.spec.ts.AGENTS.md` |
 | `archive-service-sessions-on-end.spec.ts` | → see `archive-service-sessions-on-end.spec.ts.AGENTS.md` |
 | `archived-attachment.spec.ts` | → see `archived-attachment.spec.ts.AGENTS.md` |
+| `canvas-egress-banner.spec.ts` | L3 |
+| `canvas-loopback-url-chip.spec.ts` | L3 |
+| `canvas-static-mockup.spec.ts` | L3 |
 | `changed-on-disk-content-gate.spec.ts` | L3 |
 | `chat-motion.spec.ts` | L3 chat motion → see `chat-motion.spec.ts.AGENTS.md` |
 | `composer-liveness-reload.spec.ts` | → see `composer-liveness-reload.spec.ts.AGENTS.md` |
-| `composer-session-strip.spec.ts` | L3 redesign-composer-session-strip (F8–F12). → see `composer-session-strip.spec.ts.AGENTS.md` |
+| `composer-session-strip.spec.ts` | → see `composer-session-strip.spec.ts.AGENTS.md` |
 | `context-mode-settings.spec.ts` | L3 F1/F2 → see `context-mode-settings.spec.ts.AGENTS.md` |
 | `craft-web-editor.spec.ts` | L3 WordCraft F1–F9, X7, P1/P2. → see `craft-web-editor.spec.ts.AGENTS.md` |
 | `editor-pane-file-handler.spec.ts` | L3 F1–F3, F11, F12, X9. → see `editor-pane-file-handler.spec.ts.AGENTS.md` |
@@ -63,7 +66,7 @@ One row per file.
 | `blackhole-session-pipeline.spec.ts` | L3 blackhole session pipeline (add… → see `blackhole-session-pipeline.spec.ts.AGENTS.md` |
 | `bridge-contention-health.spec.ts` | L3 contention health surface (test-plan #F6). → see `bridge-contention-health.spec.ts.AGENTS.md` |
 | `browser-relay.spec.ts` | L3 for the browser relay (change: add-browser-re… → see `browser-relay.spec.ts.AGENTS.md` |
-| `bus-client-goal-plugin-action.spec.ts` | L3/P1 `BusClient` host scripting… → see `bus-client-goal-plugin-action.spec.ts.AGENTS.md` |
+| `bus-client-goal-plugin-action.spec.ts` | → see `bus-client-goal-plugin-action.spec.ts.AGENTS.md` |
 | `chat-attachment-two-phase.spec.ts` | Two-phase attachment render E2E (change… → see `chat-attachment-two-phase.spec.ts.AGENTS.md` |
 | `chat-pane-below-floor-allocation.spec.ts` | → see `chat-pane-below-floor-allocation.spec.ts.AGENTS.md` |
 | `chat-render-fx.spec.ts` | Browser E2E gate for `reduce-chat-render-cpu-umb… → see `chat-render-fx.spec.ts.AGENTS.md` |
@@ -240,7 +243,7 @@ One row per file.
 | `tail-only-loading-head.spec.ts` | L3 for the loading head's TERMINAL state… → see `tail-only-loading-head.spec.ts.AGENTS.md` |
 | `tail-only-scroll-perf.spec.ts` | ADVISORY opt-in scroll-smoothness… → see `tail-only-scroll-perf.spec.ts.AGENTS.md` |
 | `tail-only-settings.spec.ts` | → see `tail-only-settings.spec.ts.AGENTS.md` |
-| `tail-only-splice-anchor.spec.ts` | L3 gate for D7a (F9, F10, F18). Asserts the… → see `tail-only-splice-anchor.spec.ts.AGENTS.md` |
+| `tail-only-splice-anchor.spec.ts` | → see `tail-only-splice-anchor.spec.ts.AGENTS.md` |
 | `tail-only-trigger-suppression.spec.ts` | L3 for D7's suppression mo… → see `tail-only-trigger-suppression.spec.ts.AGENTS.md` |
 | `table-copy.spec.ts` | Playwright spec (change: fix-table-copy-empty-cl… → see `table-copy.spec.ts.AGENTS.md` |
 | `terminal-cap.spec.ts` | → see `terminal-cap.spec.ts.AGENTS.md` |

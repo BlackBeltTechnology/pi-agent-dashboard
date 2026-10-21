@@ -13,8 +13,8 @@ import {
 } from "../access-grants-types.js";
 import { aggregateAccessEntries, groupAccessEntriesByStore } from "../aggregate-access-entries.js";
 
-/** One entry per store — the eight-store fixture (task 7.2). */
-function eightStoreSnapshot(): AccessGrantSnapshot {
+/** One entry per store — the nine-store fixture (task 7.2). */
+function nineStoreSnapshot(): AccessGrantSnapshot {
   return {
     pathGrants: [
       { subject: "/repo/allowed/subdir", scope: "project", grantedAt: "2026-01-01T00:00:00Z", origin: "sess-a" },
@@ -33,27 +33,28 @@ function eightStoreSnapshot(): AccessGrantSnapshot {
     bypassHosts: ["nas.local"],
     corsOrigins: ["https://dashboard.example.com"],
     pinnedDirectories: ["/home/dev/pinned"],
+    previewEgress: [{ project: "/p", origin: "https://cdn.tailwindcss.com" }],
   };
 }
 
 describe("aggregateAccessEntries", () => {
-  it("lists entries from every one of the eight in-scope stores", () => {
-    const entries = aggregateAccessEntries(eightStoreSnapshot());
+  it("lists entries from every one of the nine in-scope stores", () => {
+    const entries = aggregateAccessEntries(nineStoreSnapshot());
     const stores = new Set(entries.map((e) => e.store));
     for (const store of ACCESS_STORES) {
       expect(stores.has(store), `store ${store} missing from the aggregate`).toBe(true);
     }
-    expect(stores.size).toBe(8);
+    expect(stores.size).toBe(9);
   });
 
   it("labels every entry with its origin store", () => {
-    for (const entry of aggregateAccessEntries(eightStoreSnapshot())) {
+    for (const entry of aggregateAccessEntries(nineStoreSnapshot())) {
       expect(ACCESS_STORES).toContain(entry.store);
     }
   });
 
   it("keeps auth.bypassHosts distinguishable from config.trustedNetworks", () => {
-    const entries = aggregateAccessEntries(eightStoreSnapshot());
+    const entries = aggregateAccessEntries(nineStoreSnapshot());
     const host = entries.find((e) => e.subject === "nas.local");
     const cidr = entries.find((e) => e.subject === "192.168.1.0/24");
     expect(host?.store).toBe("bypassHosts");
@@ -64,7 +65,7 @@ describe("aggregateAccessEntries", () => {
   });
 
   it("carries the four session-grant fields on session-scoped path grants (D17)", () => {
-    const entry = aggregateAccessEntries(eightStoreSnapshot()).find(
+    const entry = aggregateAccessEntries(nineStoreSnapshot()).find(
       (e) => e.subject === "/repo/session-only",
     );
     expect(entry).toBeDefined();
@@ -72,14 +73,14 @@ describe("aggregateAccessEntries", () => {
     expect(entry!.grantedAt).toBe("2026-01-02T00:00:00Z");
     expect(entry!.origin).toBe("sess-b");
     // Renders alongside the persisted grant, not in a separate universe.
-    const persisted = aggregateAccessEntries(eightStoreSnapshot()).find(
+    const persisted = aggregateAccessEntries(nineStoreSnapshot()).find(
       (e) => e.subject === "/repo/allowed/subdir",
     );
     expect(persisted!.store).toBe(entry!.store);
   });
 
   it("renders a legacy hash-only KB entry as its opaque hash without erroring (7.6)", () => {
-    const entries = aggregateAccessEntries(eightStoreSnapshot());
+    const entries = aggregateAccessEntries(nineStoreSnapshot());
     const legacy = entries.find((e) => e.id === "c0ffee00");
     expect(legacy).toBeDefined();
     expect(legacy!.legacyHashOnly).toBe(true);
@@ -96,7 +97,7 @@ describe("aggregateAccessEntries", () => {
   });
 
   it("groups by store in ACCESS_STORES order with only non-empty groups", () => {
-    const groups = groupAccessEntriesByStore(aggregateAccessEntries(eightStoreSnapshot()));
+    const groups = groupAccessEntriesByStore(aggregateAccessEntries(nineStoreSnapshot()));
     expect(groups.map((g) => g.store)).toEqual([...ACCESS_STORES]);
   });
 });
@@ -110,7 +111,7 @@ describe("store exclusions (design D6, task 7.3)", () => {
     expect(ACCESS_STORES).not.toContain("bypassUrls");
   });
 
-  it("the in-scope set is exactly the eight stores", () => {
+  it("the in-scope set is exactly the nine stores", () => {
     expect([...ACCESS_STORES].sort()).toEqual(
       [
         "pathGrants",
@@ -121,7 +122,30 @@ describe("store exclusions (design D6, task 7.3)", () => {
         "bypassHosts",
         "corsOrigins",
         "pinnedDirectories",
+        "previewEgress",
       ].sort(),
     );
+  });
+});
+
+describe("preview-egress rows (improve-canvas-html-and-url-ux)", () => {
+  it("one row per (project, origin), showing the project; the same origin in two projects is two rows", () => {
+    const entries = aggregateAccessEntries({
+      ...emptyAccessGrantSnapshot(),
+      previewEgress: [
+        { project: "/p", origin: "https://cdn.tailwindcss.com" },
+        { project: "/q", origin: "https://cdn.tailwindcss.com" },
+      ],
+    });
+    expect(entries.map((e) => [e.store, e.subject, e.project])).toEqual([
+      ["previewEgress", "https://cdn.tailwindcss.com", "/p"],
+      ["previewEgress", "https://cdn.tailwindcss.com", "/q"],
+    ]);
+    expect(new Set(entries.map((e) => e.id)).size).toBe(2);
+  });
+
+  it("a server that predates the store (no field) lists nothing and does not throw", () => {
+    const { previewEgress: _omit, ...legacy } = emptyAccessGrantSnapshot();
+    expect(aggregateAccessEntries(legacy)).toEqual([]);
   });
 });

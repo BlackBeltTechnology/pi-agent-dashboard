@@ -20,6 +20,7 @@
 
 import type { CanvasCandidate } from "./canvas-detect.js";
 import { type RendererKind, rendererKindForPath } from "./renderer-by-ext.js";
+import { isLoopbackUrl } from "./live-server.js";
 import type { ViewTarget } from "./types.js";
 
 export type CanvasMode = "replace" | "pin" | "section";
@@ -42,6 +43,14 @@ export interface ServerChip {
   kind: "server";
   port: number;
   title?: string;
+  /**
+   * Path (+query/fragment) of a declared loopback URL, e.g. `/app`. Absent for
+   * a bare `kind:"server"` declare or a root URL. Untrusted until the viewer
+   * re-validates it through `validateAddressPath`.
+   */
+  path?: string;
+  /** Tool call id of the declare that produced this chip (set server-side). */
+  declarationId?: string;
 }
 
 export type CanvasDeclareResult =
@@ -112,6 +121,24 @@ export function normalizeCanvasDeclare(
   if (target.kind === "server") {
     // NOTE: the announced host (if any) is intentionally dropped here.
     return { ok: true, chip: { kind: "server", port: target.port, title } };
+  }
+
+  // A loopback `kind:"url"` is a dashboard-probed local server: it routes to
+  // the confirm chip (no fetch before the tap), keeping its path. See change:
+  // improve-canvas-html-and-url-ux (design D1).
+  if (target.kind === "url" && isLoopbackUrl(target.url)) {
+    const u = new URL(target.url);
+    const port = u.port ? Number(u.port) : u.protocol === "https:" ? 443 : 80;
+    const path = `${u.pathname}${u.search}${u.hash}`;
+    return {
+      ok: true,
+      chip: {
+        kind: "server",
+        port,
+        title,
+        ...(path && path !== "/" ? { path } : {}),
+      },
+    };
   }
 
   let viewTarget: ViewTarget;

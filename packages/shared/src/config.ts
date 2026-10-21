@@ -1209,6 +1209,13 @@ export interface DashboardConfig {
    * See change: harden-trust-and-credential-boundaries (D2).
    */
   requireLocalProof: boolean;
+  /**
+   * Live-preview exposure override. `"exposed"` forces the preview policy to treat the
+   * dashboard as reachable from elsewhere — for a same-host relay that adds no
+   * forwarding header (`ssh -L`, socat), which is otherwise undetectable. Absent / any
+   * other value → automatic detection. See change: improve-canvas-html-and-url-ux (D5).
+   */
+  liveServer?: { previewExposure?: "exposed" };
   /** Merged trustedNetworks + auth.bypassHosts (deduplicated). Computed at load time. */
   resolvedTrustedNetworks: string[];
   /** CORS allowed origins for cross-origin client hosting */
@@ -2578,6 +2585,7 @@ export function loadConfig(): DashboardConfig {
       trustedNetworks: parseTrustedNetworks(parsed.trustedNetworks),
       ...(parseNetworkConfig(parsed.network) ? { network: parseNetworkConfig(parsed.network) } : {}),
       requireLocalProof: parsed.requireLocalProof === true,
+      ...(parsed.liveServer?.previewExposure === "exposed" ? { liveServer: { previewExposure: "exposed" as const } } : {}),
       resolvedTrustedNetworks: [],
       cors: {
         allowedOrigins: Array.isArray(parsed.cors?.allowedOrigins)

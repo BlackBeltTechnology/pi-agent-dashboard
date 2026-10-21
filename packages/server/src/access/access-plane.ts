@@ -35,7 +35,11 @@ interface PlaneGrantRequest {
 
 type PlaneGrantResult =
   | { ok: true; store: string; widenedFrom?: string }
-  | { ok: false; reason: "unnamed" | "forbidden" | "invalid-subject" | "write-failed"; error?: string };
+  | {
+      ok: false;
+      reason: "unnamed" | "forbidden" | "invalid-subject" | "write-failed" | "unverifiable";
+      error?: string;
+    };
 
 interface PlaneBase {
   readonly id: AccessPlaneId;

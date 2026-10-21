@@ -14,8 +14,11 @@
  *   (b) `node scripts/sync-versions.js`         — rewrite ^<base> cross-refs
  *   (c) `npm install --package-lock-only`        — regen lockfile
  *   (d) `node scripts/verify-lockfile-versions.mjs` — assert coherence
- *   (e) publish every non-private workspace to `$REGISTRY`, sub-packages
- *       first (topological on @blackbelt-technology/* deps), root last.
+ *   (e) publish every non-private workspace to `$REGISTRY` in RELEASE order
+ *       (publish.yml): everything except server + root (topological), then
+ *       `generate-runtime-lock.mjs` against `$REGISTRY` + the pre-publish lock
+ *       lint, then the server (carrying its `runtime-lock.json`), root last.
+ *       The release-lock bundle path (`--release-lock`) then runs on every leg.
  *
  * The publish SET is DERIVED from the filesystem (every non-private
  * workspace under packages/* + the root), not a hand-maintained allowlist —
@@ -36,6 +39,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT_META = "@blackbelt-technology/pi-agent-dashboard";
+const SERVER_PKG = "@blackbelt-technology/pi-dashboard-server";
 const SCOPE = "@blackbelt-technology/";
 
 /**
@@ -120,6 +124,20 @@ export function orderPublishSet(workspaces) {
   return order;
 }
 
+/**
+ * Split the topological order into the release phases (design D5):
+ * `before` = every package except server + root; `server` (published AFTER the
+ * lock is generated + linted, so it carries `runtime-lock.json`); `root` last.
+ * `server` / `root` are null when absent from the set.
+ */
+export function planNightlyPublish(order) {
+  return {
+    before: order.filter((n) => n !== SERVER_PKG && n !== ROOT_META),
+    server: order.includes(SERVER_PKG) ? SERVER_PKG : null,
+    root: order.includes(ROOT_META) ? ROOT_META : null,
+  };
+}
+
 // ── main (only when executed directly, not when imported by the test) ───────
 function main() {
   const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -132,8 +150,12 @@ function main() {
         "The nightly MUST NOT reach public npm.",
     );
   }
+  // npm is `npm.cmd` on Windows, which Node only spawns through a shell
+  // (`spawnSync npm ENOENT` otherwise). `node` is a real executable everywhere.
+  const isWin = process.platform === "win32";
+  const bin = (cmd) => (isWin && cmd === "npm" ? "npm.cmd" : cmd);
   const run = (cmd, args) =>
-    execFileSync(cmd, args, { cwd: repoRoot, stdio: "inherit" });
+    execFileSync(bin(cmd), args, { cwd: repoRoot, stdio: "inherit", shell: isWin && cmd === "npm" });
 
   // Single source of truth: the nightly workflow's `resolve` job computes the
   // slug and passes it in via NIGHTLY_VERSION so the version the bundle's
@@ -184,11 +206,12 @@ function main() {
     [`npm_config_//${regHost}/:_authToken`]: "nightly-verdaccio",
   };
   const publish = (args) =>
-    execFileSync("npm", args, { cwd: repoRoot, stdio: "inherit", env: publishEnv });
+    execFileSync(bin("npm"), args, { cwd: repoRoot, stdio: "inherit", env: publishEnv, shell: isWin });
 
   const order = orderPublishSet(discoverWorkspaces(repoRoot));
+  const plan = planNightlyPublish(order);
   console.log(`Publishing ${order.length} workspace(s) to ${registry}`);
-  for (const name of order) {
+  const publishOne = (name) => {
     const args =
       name === ROOT_META
         ? ["publish", "--registry", registry, "--no-provenance"]
@@ -196,7 +219,18 @@ function main() {
     console.log(`::group::npm ${args.join(" ")}`);
     publish(args);
     console.log("::endgroup::");
+  };
+  for (const name of plan.before) publishOne(name);
+
+  // Release order: the runtime lock resolves every other first-party package
+  // from the registry, so it is generated after they are published and BEFORE
+  // the server (which carries it). Then the same lint publish.yml runs.
+  if (plan.server) {
+    run("node", ["scripts/generate-runtime-lock.mjs", "--version", version, "--registry", registry]);
+    run("node", ["scripts/lint-runtime-lock.mjs", "--version", version]);
+    publishOne(plan.server);
   }
+  if (plan.root) publishOne(plan.root);
   console.log(`✓ Published ${order.length} workspace(s) to ${registry}`);
 }
 

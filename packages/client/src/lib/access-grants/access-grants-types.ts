@@ -13,7 +13,8 @@
  */
 
 /**
- * The eight in-scope stores (design D6), in display order.
+ * The nine in-scope stores (design D6 + `previewEgress` from improve-canvas-html-and-url-ux),
+ * in display order.
  *
  * Deliberately NOT members (design D6, exclusion rationale):
  * - `paired-devices.json` — device pairing has its own management surface;
@@ -30,6 +31,7 @@ export const ACCESS_STORES = [
   "bypassHosts",
   "corsOrigins",
   "pinnedDirectories",
+  "previewEgress",
 ] as const;
 
 export type AccessStoreId = (typeof ACCESS_STORES)[number];
@@ -68,6 +70,12 @@ interface KbTrustSnapshotEntry {
   subject?: string;
 }
 
+/** One project egress grant (`~/.pi/dashboard/preview-egress.json`): an https origin a restricted preview may load. */
+interface PreviewEgressSnapshotEntry {
+  project: string;
+  origin: string;
+}
+
 /** Aggregate read shape of `GET /api/access/grants`. */
 export interface AccessGrantSnapshot {
   pathGrants: PathGrantSnapshotEntry[];
@@ -80,6 +88,8 @@ export interface AccessGrantSnapshot {
   bypassHosts: string[];
   corsOrigins: string[];
   pinnedDirectories: string[];
+  /** Absent on a server that predates the preview-egress store. */
+  previewEgress?: PreviewEgressSnapshotEntry[];
 }
 
 export function emptyAccessGrantSnapshot(): AccessGrantSnapshot {
@@ -92,6 +102,7 @@ export function emptyAccessGrantSnapshot(): AccessGrantSnapshot {
     bypassHosts: [],
     corsOrigins: [],
     pinnedDirectories: [],
+    previewEgress: [],
   };
 }
 
@@ -125,6 +136,8 @@ export interface AccessEntry {
   via?: "prompt" | "agent-prompt" | (string & {});
   /** Path grants only: the denied subject a widened grant came from. */
   widenedFrom?: string;
+  /** Preview-egress only: the project (git common root, else cwd) the grant applies to. */
+  project?: string;
 }
 
 /**

@@ -55,3 +55,6 @@ Adds `GET /api/file/digest` (observe). See change: gate-changed-on-disk-by-conte
 `GET /api/plugins/craft-web/status` → `observe`; `POST /api/plugins/craft-web/prepare/:app` + `POST /api/plugins/craft-web/csp-report` → `control`. See change: edit-office-in-pane-with-craft-web.
 
 `POST /api/plugins/craft-web/telemetry` control (open outcome / validator reject counters, log only). See change: extend-craft-web-to-all-apps.
+
+improve-canvas-html-and-url-ux: `/api/live-server/:id/capability` now `observe` (port targets still need `control`, enforced in the handler); added `start-static`, `:id/touch`, `GET policy` as `observe`. `GET :id/egress`, `POST :id/allow-once`, `POST :id/egress-grant-request` are `control` (handler also requires the token's minting principal); `DELETE /api/access/preview-egress` is `operate`.
+

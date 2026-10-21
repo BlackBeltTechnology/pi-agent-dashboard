@@ -265,16 +265,20 @@ export function isOriginAdmitted(
  * WS upgrade admission, per route scope.
  *
  * `live` admits the opaque `Origin: null` — the sandboxed preview iframe is its
- * only intended client and rejecting it would silently break HMR (D3). Every
- * other scope (including `bridge` and the unrouted `null` scope) is strict.
+ * only intended client and rejecting it would silently break HMR (D3) — but ONLY
+ * for an upgrade that carries a VALID capability (`liveCapabilityValid`): an
+ * opaque frame without one would otherwise reach any port target. Every other
+ * scope (including `bridge` and the unrouted `null` scope) is strict.
+ * See change: improve-canvas-html-and-url-ux (design D10).
  */
 export function isWsOriginTrusted(
   origin: string | undefined,
   hostHeader: string | undefined,
   scope: WsRouteScope | null,
   opts: CorsOriginOptions,
+  liveCapabilityValid = false,
 ): boolean {
-  if (scope === "live" && origin === "null") return true;
+  if (scope === "live" && origin === "null") return liveCapabilityValid;
   return isOriginAdmitted(origin, hostHeader, opts);
 }
 

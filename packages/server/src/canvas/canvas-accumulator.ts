@@ -36,7 +36,7 @@ import type { ViewTarget } from "@blackbelt-technology/pi-dashboard-shared/types
 /** Minimal forwarded-event shape the accumulator reads. */
 export interface CanvasForwardedEvent {
   eventType: string;
-  data?: { toolName?: unknown; args?: unknown };
+  data?: { toolName?: unknown; args?: unknown; toolCallId?: unknown };
 }
 
 export interface CanvasAccumulatorDeps {
@@ -52,9 +52,16 @@ export interface CanvasAccumulatorDeps {
     target: ViewTarget | null,
     mode?: "replace" | "pin",
     title?: string,
+    /** Tool call id that produced the target (last writer wins). */
+    sourceCallId?: string,
   ) => void;
   /** Broadcast a `canvas_server_chip` for a declared server (Decision 4). */
-  broadcastServerChip: (sessionId: string, port: number, title?: string) => void;
+  broadcastServerChip: (
+    sessionId: string,
+    port: number,
+    title?: string,
+    extra?: { path?: string; declarationId?: string },
+  ) => void;
   /**
    * Broadcast a chip-expiry for a session's active server chip (S32): at the
    * turn boundary (`agent_end`) or abort/termination the chip must become
@@ -87,6 +94,8 @@ export function createCanvasAccumulator(
 ): CanvasAccumulator {
   // Per-session per-turn candidate buffer.
   const buffers = new Map<string, CanvasCandidate[]>();
+  // Tool call id that produced each buffered candidate (parallel by identity).
+  const callIds = new WeakMap<CanvasCandidate, string>();
   // Per-session active server-chip port (declared this turn), for expiry (S32).
   const activeChips = new Map<string, number>();
 
@@ -102,7 +111,9 @@ export function createCanvasAccumulator(
     candidate: CanvasCandidate,
     mode?: "replace" | "pin",
     title?: string,
+    callId?: string,
   ): void {
+    if (callId) callIds.set(candidate, callId);
     const buf = buffers.get(sessionId) ?? [];
     const wasEmpty = buf.length === 0;
     buf.push(candidate);
@@ -111,13 +122,17 @@ export function createCanvasAccumulator(
     // DECLARE re-crowns the eager target (S16). Non-first DOC candidates only
     // accumulate — recency is resolved at settle.
     if (wasEmpty || candidate.prio === "DECLARE") {
-      deps.broadcastIntent(sessionId, "eager", candidate.target, mode, title);
+      deps.broadcastIntent(sessionId, "eager", candidate.target, mode, title, callId);
     }
   }
 
   function onToolStart(sessionId: string, event: CanvasForwardedEvent, cwd: string): void {
     const toolName = typeof event.data?.toolName === "string" ? event.data.toolName : "";
     if (!toolName) return;
+    const callId =
+      typeof event.data?.toolCallId === "string" && event.data.toolCallId
+        ? event.data.toolCallId
+        : undefined;
     const args = event.data?.args as Record<string, unknown> | undefined;
 
     // `canvas()` declare-tool: normalized here with the session cwd; bypasses
@@ -131,17 +146,20 @@ export function createCanvasAccumulator(
       if (!result.ok) return;
       if ("chip" in result) {
         activeChips.set(sessionId, result.chip.port);
-        deps.broadcastServerChip(sessionId, result.chip.port, result.chip.title);
+        deps.broadcastServerChip(sessionId, result.chip.port, result.chip.title, {
+          path: result.chip.path,
+          declarationId: callId,
+        });
         return;
       }
-      pushCandidate(sessionId, result.candidate, intentMode(result.mode), result.title);
+      pushCandidate(sessionId, result.candidate, intentMode(result.mode), result.title, callId);
       return;
     }
 
     // DOC detect: write/edit only, gated by the fresh-read type registry.
     const canvasTypes = deps.readCanvasTypes(cwd);
     const candidate = detectCanvasIntent(toolName, args, cwd, canvasTypes);
-    if (candidate) pushCandidate(sessionId, candidate);
+    if (candidate) pushCandidate(sessionId, candidate, undefined, undefined, callId);
   }
 
   function onAgentEnd(sessionId: string): void {
@@ -153,7 +171,17 @@ export function createCanvasAccumulator(
     // No canvas activity this turn → nothing to settle (avoids closing a prior
     // session-persisted canvas and avoids per-idle-turn spam).
     if (!buf || buf.length === 0) return;
-    deps.broadcastIntent(sessionId, "settle", selectCanvasTarget(buf));
+    const winner = selectCanvasTarget(buf);
+    // The winning candidate is the one whose target `selectCanvasTarget` returned.
+    const source = winner ? buf.findLast((c) => c.target === winner) : undefined;
+    deps.broadcastIntent(
+      sessionId,
+      "settle",
+      winner,
+      undefined,
+      undefined,
+      source ? callIds.get(source) : undefined,
+    );
   }
 
   function resetTurn(sessionId: string): void {

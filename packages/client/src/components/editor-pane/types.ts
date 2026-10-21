@@ -23,4 +23,11 @@ export interface ViewerProps {
    * auto-canvas (Section 8 / S34).
    */
   restrictCsp?: boolean;
+  /**
+   * Live-server tabs: the agent re-declared the target while this tab was not
+   * active (reload), or while it WAS active (`updatedByAgent` → offer Reload).
+   * See change: improve-canvas-html-and-url-ux (D8).
+   */
+  reloadNonce?: number;
+  updatedByAgent?: boolean;
 }

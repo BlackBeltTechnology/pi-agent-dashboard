@@ -191,3 +191,50 @@ describe("classifyServerProbe (S30/S31 chip tap)", () => {
     expect(classifyServerProbe({ aborted: true, ok: true })).toBe("not-responding");
   });
 });
+
+// See change: improve-canvas-html-and-url-ux (task 1.6 client plumbing, D8).
+describe("sourceCallId + chip declaration plumbing", () => {
+  const intent = (over: Partial<CanvasIntentMessage>): CanvasIntentMessage => ({
+    type: "canvas_intent",
+    sessionId: "s1",
+    phase: "eager",
+    target: fileA,
+    ...over,
+  });
+
+  it("eager carries the declaring call id; a later declare of another target is the last writer", () => {
+    const a = reduceCanvasIntent(EMPTY_CANVAS_STATE, intent({ sourceCallId: "c1" }));
+    expect(a.sourceCallId).toBe("c1");
+    const b = reduceCanvasIntent(a, intent({ target: fileB, sourceCallId: "c3" }));
+    expect(b.sourceCallId).toBe("c3");
+  });
+
+  it("re-declaring the SAME target moves the active card to the newer call", () => {
+    const a = reduceCanvasIntent(EMPTY_CANVAS_STATE, intent({ sourceCallId: "c1" }));
+    const b = reduceCanvasIntent(a, intent({ sourceCallId: "c2" }));
+    expect(b.sourceCallId).toBe("c2");
+    expect(b.version).toBe(a.version + 1);
+  });
+
+  it("settle echoes the winning writer; an older server omitting it keeps the eager one", () => {
+    const a = reduceCanvasIntent(EMPTY_CANVAS_STATE, intent({ sourceCallId: "c1" }));
+    expect(reduceCanvasIntent(a, intent({ phase: "settle", sourceCallId: "c2" })).sourceCallId).toBe("c2");
+    expect(reduceCanvasIntent(a, intent({ phase: "settle" })).sourceCallId).toBe("c1");
+  });
+
+  it("a settle with no target clears the writer with the slot", () => {
+    const a = reduceCanvasIntent(EMPTY_CANVAS_STATE, intent({ sourceCallId: "c1" }));
+    expect(reduceCanvasIntent(a, intent({ phase: "settle", target: null })).sourceCallId).toBeUndefined();
+  });
+
+  it("the chip keeps its declared path and declaration id", () => {
+    const s = reduceCanvasChip(EMPTY_CANVAS_STATE, {
+      type: "canvas_server_chip",
+      sessionId: "s1",
+      port: 5173,
+      path: "/app",
+      declarationId: "c2",
+    });
+    expect(s.chip).toEqual({ kind: "server", port: 5173, title: undefined, path: "/app", declarationId: "c2" });
+  });
+});
