@@ -55,7 +55,7 @@ export async function promptVersionSkewRestart(params: {
 }): Promise<SkewRestartChoice> {
   const { response } = await dialog.showMessageBox({
     type: "question",
-    title: "Dashboard server is out of date",
+    title: "Dashboard server version differs",
     message: `The running dashboard server is v${params.server}; this app runs v${params.expected}.`,
     detail: `Restart the server with v${params.expected} so plugins and fixes match this app? ${RESTART_WARNING}`,
     buttons: [`Restart with v${params.expected}`, "Leave running"],
@@ -77,7 +77,7 @@ export async function promptMergedZombieSkew(params: {
     title: "Leftover server from a previous run",
     message: `Leftover dashboard server v${params.server} (PID ${params.pid}); this app runs v${params.expected}.`,
     detail:
-      `The server outlived a previous Electron session and is older than this app. ` +
+      `The server outlived a previous Electron session and runs a different version than this app. ` +
       `Restart it with v${params.expected}, or take ownership of it as-is. ${RESTART_WARNING}`,
     buttons: [`Restart with v${params.expected}`, "Take ownership", "Leave running"],
     defaultId: 0,

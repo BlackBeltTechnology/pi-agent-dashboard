@@ -12,6 +12,7 @@
  * See change: electron-attach-version-skew.
  */
 
+import { type ChildProcess, spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -70,6 +71,7 @@ const standalone = (version: string): FakeHealth => ({
 let server: FakeHealthServer | undefined;
 let app: ElectronApplication | undefined;
 let home: string | undefined;
+let child: ChildProcess | undefined;
 
 test.beforeAll(async () => {
   test.skip(BUNDLED === null, "no packaged bundle (runtime-manifest.json) — skew scenarios need one");
@@ -84,6 +86,7 @@ test.beforeEach(() => {
 test.afterEach(async () => {
   if (app) { await app.close().catch(() => {}); app = undefined; }
   if (server) { await server.close().catch(() => {}); server = undefined; }
+  if (child) { child.kill(); child = undefined; }
   if (home) { fs.rmSync(home, { recursive: true, force: true }); home = undefined; }
 });
 
@@ -116,7 +119,9 @@ test("F2: the info modal never stops an external server", async () => {
 });
 
 test("F3/F4: Restart sends a graceful /api/shutdown with local-proof headers", async () => {
-  await launch(ownedElectron(skewedVersion(BUNDLED!)), { response: 0 /* Restart with v… */, zombiePrompt: true });
+  // A live, test-owned PID: if the force path escalates to a signal after the graceful wait, it can only hit this child.
+  child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+  await launch({ ...ownedElectron(skewedVersion(BUNDLED!)), pid: child.pid }, { response: 0 /* Restart with v… */, zombiePrompt: true });
   await expect
     .poll(() => server!.requests.filter((r) => r.method === "POST" && r.url.startsWith("/api/shutdown")).length, { timeout: 30_000 })
     .toBeGreaterThan(0);
