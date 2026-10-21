@@ -13,7 +13,6 @@ import { parseDependenciesFile } from "@blackbelt-technology/pi-dashboard-shared
 import { routeTier } from "@blackbelt-technology/pi-dashboard-shared/route-tiers.js";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { MANIFEST } from "../../../mcp-server-plugin/src/server/tools.manifest.js";
 import { classifyHttpRoad } from "../identity/http-road-classification.js";
 import { writeDependenciesFile } from "../openspec/dependencies-file.js";
 import { registerOpenSpecRoutes } from "../routes/openspec-routes.js";
@@ -364,11 +363,10 @@ describe("#X6 injection", () => {
 describe("#X7 registration", () => {
   const URL = "/api/openspec/dependencies";
 
-  it("GET is observe and PUT is control; both are in the MCP manifest and road-classified", () => {
+  it("GET is observe and PUT is control; both are road-classified (manifest rows: mcp-server-plugin dependencies-tools.test.ts)", () => {
     expect(routeTier("GET", URL)).toBe("observe");
     expect(routeTier("PUT", URL)).toBe("control");
     for (const method of ["GET", "PUT"]) {
-      expect(MANIFEST.some((r) => r.bind.kind === "rest" && r.bind.method === method && r.bind.path === URL)).toBe(true);
       expect(classifyHttpRoad(method, URL)?.road).toBe("non-session");
     }
   });
