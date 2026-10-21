@@ -20,10 +20,19 @@ import {
 import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import { DEFAULT_OPENSPEC_POLL, type OpenSpecPollConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import type { Semaphore } from "@blackbelt-technology/pi-dashboard-shared/semaphore.js";
+import {
+  type DeclaredDependencies,
+  type FileStat,
+  KEBAB_ID_REGEX,
+  MAX_DEPENDENCIES_BYTES,
+  MAX_REASON_CHARS,
+  serializeDependencies,
+} from "@blackbelt-technology/pi-dashboard-shared/openspec-dependencies.js";
 import { inferPlatform, pathKey } from "@blackbelt-technology/pi-dashboard-shared/session-group-path.js";
 import type { ApiResponse, OpenSpecConfig } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
 import { type DirectoryService, hasOpenSpecRoot } from "../directory-service.js";
+import { readDeclared, writeDependenciesFile } from "../openspec/dependencies-file.js";
 import { currentGlobalWorkflowSignature } from "../openspec/global-signature.js";
 import { scanOpenSpecArchive } from "../openspec/openspec-archive.js";
 import {
@@ -35,12 +44,14 @@ import {
 } from "../openspec/openspec-tasks.js";
 import {
   inspectSchema,
+  resolveDeps,
   runWorkflowSchemaAction,
   type WorkflowSchemaAction,
   type WorkflowSchemaDeps,
   type WorkflowSchemaRequest,
   type WorkflowSchemaResult,
   type WorkflowSchemaStamp,
+  writeGuard,
 } from "../openspec/workflow-schema.js";
 import type { PreferencesStore } from "../persistence/preferences-store.js";
 import { type FolderCommandsResult, resolveFolderCommands } from "../pi/folder-commands.js";
@@ -502,6 +513,184 @@ export function registerOpenSpecRoutes(
         return { success: false, error: result.error ?? "workflow-schema action failed", data: result } satisfies ApiResponse;
       } finally {
         inFlightInits.delete(real);
+      }
+    },
+  );
+
+  // ── Change dependencies (add-openspec-change-dependencies) ───────────
+  //
+  // GET/PUT /api/openspec/dependencies?cwd=&change= — one change's
+  // `dependencies.yaml`. Gate order (answers carry `reason`): request shape →
+  // tracked → enabled → not opted out → `openspec/` exists → not on the
+  // fallback path → a cached `status --all` result → change in that result.
+  // PUT then: write guard + containment → per-cwd lock → `expected` precondition
+  // → atomic write.
+  type DepGate = { ok: true; real: string; change: string } | { ok: false };
+
+  const depFail = (reply: import("fastify").FastifyReply, code: number, reason: string, error: string) => {
+    reply.code(code);
+    return { success: false, error, reason } satisfies ApiResponse & { reason: string };
+  };
+
+  /** Gates 2–8 of the dependencies endpoints (gate 1, request validity, runs before). */
+  async function depGates(cwd: string, change: string, reply: import("fastify").FastifyReply): Promise<DepGate | { ok: false; body: unknown }> {
+    const respond = (code: number, reason: string, error: string) => ({ ok: false as const, body: depFail(reply, code, reason, error) });
+    if (!knownInitTargets().includes(cwd)) return respond(403, "cwd-not-tracked", "cwd is not a known session or pinned directory");
+    const cfg = gateConfig();
+    if (cfg.enabled === false) return respond(403, "openspec-disabled", "OpenSpec is disabled");
+    if (cfg.optOutDirectories.length > 0) {
+      const platform = inferPlatform([cwd, ...cfg.optOutDirectories]);
+      const key = pathKey(cwd, platform);
+      if (cfg.optOutDirectories.some((d) => pathKey(d, platform) === key)) {
+        return respond(403, "opted-out", "OpenSpec is opted out for this directory");
+      }
+    }
+    let real: string;
+    try {
+      real = realpathSync.native(cwd);
+    } catch {
+      return respond(404, "no-openspec-dir", "cwd does not exist");
+    }
+    const hasOpenspec = await fs
+      .stat(path.join(real, "openspec"))
+      .then((st) => st.isDirectory())
+      .catch(() => false);
+    if (!hasOpenspec) return respond(404, "no-openspec-dir", "no openspec/ directory in cwd");
+    if (directoryService.getOpenSpecPollMode(cwd) === "fallback") {
+      return respond(409, "status-all-unsupported", "this OpenSpec CLI has no `status --all`; dependencies are not computed");
+    }
+    const data = directoryService.getOpenSpecData(cwd);
+    if (!data || !data.initialized || directoryService.getOpenSpecPollMode(cwd) !== "all") {
+      return respond(503, "pending", "no OpenSpec status result is cached for this directory yet");
+    }
+    if (!data.changes.some((c) => c.name === change)) return respond(404, "unknown-change", `no active change named ${change}`);
+    return { ok: true, real, change };
+  }
+
+  fastify.get<{ Querystring: { cwd?: string; change?: string } }>(
+    "/api/openspec/dependencies",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const { cwd, change } = request.query ?? {};
+      if (typeof cwd !== "string" || !cwd || typeof change !== "string" || !KEBAB_ID_REGEX.test(change)) {
+        return depFail(reply, 400, "invalid-request", "cwd and a valid change name are required");
+      }
+      const gate = await depGates(cwd, change, reply);
+      if (!gate.ok) return "body" in gate ? gate.body : undefined;
+      const entry = directoryService.getOpenSpecData(cwd)?.changes.find((c) => c.name === change);
+      const read = await readDeclared(gate.real, change);
+      return {
+        success: true,
+        data: {
+          dependencies: entry?.dependencies ?? null,
+          declared: read.declared,
+          declaredError: read.declaredError,
+          file: read.file,
+        },
+      } satisfies ApiResponse;
+    },
+  );
+
+  /** Whole-body validation of the PUT (gate 1). Returns the parsed declaration or an error message. */
+  function parseDependenciesPut(
+    body: unknown,
+  ): { ok: true; cwd: string; change: string; declared: DeclaredDependencies; expected: FileStat | null } | { ok: false; error: string } {
+    if (!body || typeof body !== "object" || Array.isArray(body)) return { ok: false, error: "JSON object body required" };
+    if (Buffer.byteLength(JSON.stringify(body), "utf8") > MAX_DEPENDENCIES_BYTES) return { ok: false, error: "body exceeds 64 KiB" };
+    const b = body as Record<string, unknown>;
+    if (typeof b.cwd !== "string" || !b.cwd) return { ok: false, error: "cwd required" };
+    if (typeof b.change !== "string" || !KEBAB_ID_REGEX.test(b.change)) return { ok: false, error: "change must be a valid change name" };
+    const change = b.change;
+    const names = (v: unknown, key: string): string[] | string => {
+      if (!Array.isArray(v)) return `${key} must be a list`;
+      const out: string[] = [];
+      for (const n of v) {
+        if (typeof n !== "string" || !KEBAB_ID_REGEX.test(n)) return `${key} has an invalid change name`;
+        if (n === change) return `${key} must not name the change itself`;
+        if (!out.includes(n)) out.push(n);
+      }
+      return out;
+    };
+    if (!Array.isArray(b.blockedBy)) return { ok: false, error: "blockedBy must be a list" };
+    const blockedBy: DeclaredDependencies["blockedBy"] = [];
+    for (const item of b.blockedBy) {
+      const rec = typeof item === "string" ? { change: item } : (item as { change?: unknown; reason?: unknown } | null);
+      if (!rec || typeof rec !== "object" || typeof rec.change !== "string" || !KEBAB_ID_REGEX.test(rec.change)) {
+        return { ok: false, error: "blockedBy has an invalid change name" };
+      }
+      if (rec.change === change) return { ok: false, error: "blockedBy must not name the change itself" };
+      const reason = (rec as { reason?: unknown }).reason;
+      if (reason !== undefined && reason !== null && (typeof reason !== "string" || reason.length > MAX_REASON_CHARS)) {
+        return { ok: false, error: `reason must be a string of at most ${MAX_REASON_CHARS} characters` };
+      }
+      if (blockedBy.some((x) => x.change === rec.change)) continue;
+      blockedBy.push(typeof reason === "string" && reason !== "" ? { change: rec.change, reason } : { change: rec.change });
+    }
+    const notBlockedBy = names(b.notBlockedBy, "notBlockedBy");
+    if (typeof notBlockedBy === "string") return { ok: false, error: notBlockedBy };
+    const related = names(b.related, "related");
+    if (typeof related === "string") return { ok: false, error: related };
+    if (!("expected" in b)) return { ok: false, error: "expected is required (null or { mtimeMs, size })" };
+    let expected: FileStat | null = null;
+    if (b.expected !== null) {
+      const e = b.expected as { mtimeMs?: unknown; size?: unknown };
+      if (!e || typeof e !== "object" || typeof e.mtimeMs !== "number" || typeof e.size !== "number") {
+        return { ok: false, error: "expected must be null or { mtimeMs, size }" };
+      }
+      expected = { mtimeMs: e.mtimeMs, size: e.size };
+    }
+    return { ok: true, cwd: b.cwd, change, declared: { blockedBy, notBlockedBy, related }, expected };
+  }
+
+  fastify.put<{ Body: unknown }>(
+    "/api/openspec/dependencies",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const parsed = parseDependenciesPut(request.body);
+      if (!parsed.ok) return depFail(reply, 400, "invalid-request", parsed.error);
+      const { cwd, change, declared, expected } = parsed;
+      const gate = await depGates(cwd, change, reply);
+      if (!gate.ok) return "body" in gate ? gate.body : undefined;
+
+      // Same root verification as every workflow-schema write.
+      // The guard spawns `status --all`; bound it by the shared spawn semaphore like every other CLI spawn.
+      const guard = () => writeGuard(cwd, resolveDeps(deps.workflowSchemaDeps));
+      const guarded = await (deps.spawnSemaphore ? deps.spawnSemaphore.run(guard) : guard());
+      if ("error" in guarded) return depFail(reply, 403, "write-refused", guarded.error);
+
+      // Shared per-cwd lock (keyed by the canonical cwd, so symlinked spellings collide).
+      const lockKey = gate.real; // canonical cwd from the gates; never re-resolved after they answered
+      if (inFlightInits.has(lockKey)) {
+        return depFail(reply, 409, "locked", "an OpenSpec init or workflow-schema action is already in flight for this directory");
+      }
+      inFlightInits.add(lockKey);
+      try {
+        const out = await writeDependenciesFile({
+          root: guarded.root,
+          change,
+          content: serializeDependencies(declared),
+          expected,
+        });
+        if (!out.ok) return depFail(reply, out.status, out.reason, out.error);
+        request.log.info(
+          {
+            event: "openspec.dependencies",
+            cwd,
+            change,
+            blockedBy: declared.blockedBy.length,
+            notBlockedBy: declared.notBlockedBy.length,
+            related: declared.related.length,
+          },
+          "openspec dependencies written",
+        );
+        // The watcher would pick the write up; refresh now so the board updates promptly.
+        void directoryService
+          .refreshOpenSpec(cwd)
+          .then(() => onOpenSpecChanged?.(cwd))
+          .catch(() => undefined);
+        return { success: true, data: { file: out.file } } satisfies ApiResponse;
+      } finally {
+        inFlightInits.delete(lockKey);
       }
     },
   );

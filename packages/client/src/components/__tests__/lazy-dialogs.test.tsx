@@ -11,6 +11,7 @@ describe("code-split dialog loaders", () => {
       "../openspec/lazy-openspec-dialogs.js",
     );
     expect((await L.AttachChangePicker()).default).toBe((await import("../openspec/AttachChangePicker.js")).AttachChangePicker);
+    expect((await L.DependenciesDialog()).default).toBe((await import("../openspec/DependenciesDialog.js")).DependenciesDialog);
     expect((await L.ExploreDialog()).default).toBe((await import("../openspec/ExploreDialog.js")).ExploreDialog);
     expect((await L.NewChangeDialog()).default).toBe((await import("../openspec/NewChangeDialog.js")).NewChangeDialog);
     expect((await L.ProposeDialog()).default).toBe((await import("../openspec/ProposeDialog.js")).ProposeDialog);

@@ -7,6 +7,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  CURRENT_PATCH,
   checkActionState,
   resolveDeps,
   runWorkflowSchemaAction,
@@ -45,7 +46,7 @@ const schemaDirNames = (root: string): string[] => fs.readdirSync(path.join(root
 /** Enabled project: config names pi-spec-driven, schema stamped with `prev`. */
 function enabledRepo(prev = "spec-driven"): string {
   const root = repo({ config: "schema: pi-spec-driven\n" });
-  writeSchemaDir(root, { base: "1.11.0", patch: 1, previousDefault: prev });
+  writeSchemaDir(root, { base: "1.11.0", patch: CURRENT_PATCH, previousDefault: prev });
   return root;
 }
 
@@ -203,7 +204,7 @@ describe("pin", () => {
     const unknown = await run(root, { action: "pin", pinTo: "spec-driven", changes: ["../etc"] });
     expect(unknown.ok).toBe(false);
     const off = repo();
-    writeSchemaDir(off, { base: "1.11.0", patch: 1 });
+    writeSchemaDir(off, { base: "1.11.0", patch: CURRENT_PATCH });
     expect((await run(off, { action: "pin", pinTo: "spec-driven" })).ok).toBe(false);
   });
 
@@ -219,7 +220,7 @@ describe("pin", () => {
 describe("#E16 update re-stamps the previous default", () => {
   it("enable refused naming Update → update re-stamps → enable succeeds", async () => {
     const root = repo({ config: "schema: team-flow\n" });
-    writeSchemaDir(root, { base: "1.11.0", patch: 1, previousDefault: "spec-driven" });
+    writeSchemaDir(root, { base: "1.11.0", patch: CURRENT_PATCH, previousDefault: "spec-driven" });
     const fake = makeFakeCli();
     const first = await run(root, { action: "enable" }, fake);
     expect(first.ok).toBe(false);
@@ -268,7 +269,7 @@ describe("disable", () => {
 
   it("#E23 is a no-op when the user already switched the default", async () => {
     const root = repo({ config: "schema: team-flow\n" });
-    writeSchemaDir(root, { base: "1.11.0", patch: 1 });
+    writeSchemaDir(root, { base: "1.11.0", patch: CURRENT_PATCH });
     const before = snapshotTree(root);
     const res = await run(root, { action: "disable" });
     expect(res.ok).toBe(true);
@@ -300,7 +301,7 @@ describe("disable", () => {
 describe("remove", () => {
   const disabled = (): string => {
     const root = repo({ config: "schema: spec-driven\n" });
-    writeSchemaDir(root, { base: "1.11.0", patch: 1 });
+    writeSchemaDir(root, { base: "1.11.0", patch: CURRENT_PATCH });
     return root;
   };
 
@@ -392,7 +393,7 @@ describe("adopt", () => {
     expect((await run(link, { action: "adopt", confirm: true, previousDefault: "spec-driven" })).ok).toBe(false);
 
     const managed = repo();
-    writeSchemaDir(managed, { base: "1.11.0", patch: 1 });
+    writeSchemaDir(managed, { base: "1.11.0", patch: CURRENT_PATCH });
     expect((await run(managed, { action: "adopt", confirm: true, previousDefault: "spec-driven" })).ok).toBe(false);
   });
 });

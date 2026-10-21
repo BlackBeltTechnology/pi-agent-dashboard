@@ -20,7 +20,7 @@ import {
 } from "../openspec/openspec-poll-worker.js";
 import { createOpenSpecPollWorkerPool, runAsyncInProcess } from "../openspec/openspec-poll-worker-pool.js";
 import { runWorkflowSchemaAction } from "../openspec/workflow-schema.js";
-import { computeSchemaStatus } from "../openspec/workflow-schema-status.js";
+import { CURRENT_PATCH, computeSchemaStatus } from "../openspec/workflow-schema-status.js";
 import { makeFakeCli, mkRepo, stubDeps, write, writeSchemaDir } from "./helpers/workflow-schema-fixtures.js";
 
 const roots: string[] = [];
@@ -39,14 +39,14 @@ const NO_USER = "/nonexistent-user-schemas";
 describe("#P4 stamp-first status with a lean fingerprint", () => {
   type Row = [label: string, setup: (root: string) => void, generated: string, fpCalls: number, validate: boolean, rejectFp?: boolean];
   const rows: Row[] = [
-    ["stamp current", (r) => void writeSchemaDir(r, { base: "1.11.0", patch: 1 }), "current", 0, false],
-    ["stamp outdated", (r) => void writeSchemaDir(r, { base: "1.10.0", patch: 1 }), "outdated", 0, false],
+    ["stamp current", (r) => void writeSchemaDir(r, { base: "1.11.0", patch: CURRENT_PATCH }), "current", 0, false],
+    ["stamp outdated", (r) => void writeSchemaDir(r, { base: "1.10.0", patch: CURRENT_PATCH }), "outdated", 0, false],
     ["no stamp in an existing dir", (r) => void writeSchemaDir(r, null), "unmanaged", 0, false],
     ["no dir", () => undefined, "none", 0, false],
-    ["stamp newer", (r) => void writeSchemaDir(r, { base: "1.12.0", patch: 1 }), "newer", 1, true],
+    ["stamp newer", (r) => void writeSchemaDir(r, { base: "1.12.0", patch: CURRENT_PATCH }), "newer", 1, true],
     ["stamp conflict", (r) => void writeSchemaDir(r, { base: "1.12.0", patch: 0 }), "conflict", 1, true],
-    ["current + rejecting fingerprint", (r) => void writeSchemaDir(r, { base: "1.11.0", patch: 1 }), "current", 0, false, true],
-    ["newer + rejecting fingerprint", (r) => void writeSchemaDir(r, { base: "1.12.0", patch: 1 }), "unmanaged", 1, false, true],
+    ["current + rejecting fingerprint", (r) => void writeSchemaDir(r, { base: "1.11.0", patch: CURRENT_PATCH }), "current", 0, false, true],
+    ["newer + rejecting fingerprint", (r) => void writeSchemaDir(r, { base: "1.12.0", patch: CURRENT_PATCH }), "unmanaged", 1, false, true],
   ];
   it.each(rows)("%s", async (_label, setup, generated, fpCalls, validate, rejectFp) => {
     const root = repo({ config: "schema: pi-spec-driven\n" });
@@ -166,7 +166,7 @@ describe("#P15 worker-safe import closure", () => {
 describe("#P7 writing actions keep the full fingerprint", () => {
   it("update on a current schema re-stamps previousDefault with no fingerprint-mismatch refusal", async () => {
     const root = repo({ config: "schema: pi-spec-driven\n" });
-    writeSchemaDir(root, { base: "1.11.0", patch: 1, previousDefault: "spec-driven" });
+    writeSchemaDir(root, { base: "1.11.0", patch: CURRENT_PATCH, previousDefault: "spec-driven" });
     const res = await runWorkflowSchemaAction(
       { cwd: root, action: "update", previousDefault: "team-flow" },
       stubDeps(makeFakeCli()),
@@ -180,7 +180,7 @@ describe("#P7 writing actions keep the full fingerprint", () => {
 describe("#P17 exhaustive request dispatch", () => {
   const fixture = (): SchemaStatusRequest => {
     const root = repo({ config: "schema: pi-spec-driven\n" });
-    writeSchemaDir(root, { base: "1.12.0", patch: 1 });
+    writeSchemaDir(root, { base: "1.12.0", patch: CURRENT_PATCH });
     return { cwd: root, localVersion: "1.11.0", packageSchemasDir: "/pkg", userSchemasDir: NO_USER };
   };
   const shape = (r: unknown): unknown => {

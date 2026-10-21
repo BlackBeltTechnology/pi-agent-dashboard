@@ -10,6 +10,7 @@ import { vi } from "vitest";
 
 vi.mock("../components/openspec/lazy-openspec-dialogs.js", async () => ({
   LazyAttachChangePicker: (await import("../components/openspec/AttachChangePicker.js")).AttachChangePicker,
+  LazyDependenciesDialog: (await import("../components/openspec/DependenciesDialog.js")).DependenciesDialog,
   LazyExploreDialog: (await import("../components/openspec/ExploreDialog.js")).ExploreDialog,
   LazyNewChangeDialog: (await import("../components/openspec/NewChangeDialog.js")).NewChangeDialog,
   LazyProposeDialog: (await import("../components/openspec/ProposeDialog.js")).ProposeDialog,
