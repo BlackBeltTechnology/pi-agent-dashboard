@@ -20,7 +20,7 @@
  * See change: add-fluid-chat-motion.
  */
 
-export const GLIDE_TAU_MS = 60;
+const GLIDE_TAU_MS = 60;
 export const GLIDE_SNAP_PX = 2;
 /** Longest frame delta counted, so a throttled/background frame cannot teleport. */
 const MAX_DT_MS = 100;

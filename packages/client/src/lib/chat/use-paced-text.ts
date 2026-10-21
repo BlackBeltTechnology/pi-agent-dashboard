@@ -30,15 +30,15 @@
  */
 import { useEffect, useLayoutEffect, useReducer, useRef } from "react";
 
-export const PACE_BASE_CPS = 90;
-export const PACE_TAU_MS = 120;
+const PACE_BASE_CPS = 90;
+const PACE_TAU_MS = 120;
 export const PACE_DEADLINE_MS = 400;
 export const PACE_SNAP_BACKLOG = 4000;
-export const PACE_MAX_WORD_EXTEND = 48;
+const PACE_MAX_WORD_EXTEND = 48;
 /** Longest frame delta counted (a backgrounded tab resuming must not teleport). */
 const MAX_DT_MS = 100;
 /** Design D4 escalation step 1: minimum ms between reveal steps (0 = every frame). Each step is one render. */
-export const PACE_MIN_STEP_MS = 33;
+const PACE_MIN_STEP_MS = 33;
 
 export interface PacedTextOptions {
   /** Motion on ∧ document visible ∧ following ∧ (reasoning: inline-flow ∧ expanded). */

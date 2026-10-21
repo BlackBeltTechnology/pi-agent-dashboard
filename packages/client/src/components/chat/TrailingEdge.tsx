@@ -22,7 +22,7 @@ const NON_PROSE = "pre, svg, .katex, .katex-display, [data-mermaid-ordinal], [cl
 const EDGE_EM = 2.5;
 
 /** The last non-blank text node under `root`, found by walking backwards (O(depth), not O(nodes)). */
-export function lastTextNode(root: Element): Text | null {
+function lastTextNode(root: Element): Text | null {
   const walker = root.ownerDocument.createTreeWalker(root, NodeFilter.SHOW_ALL);
   while (walker.lastChild()) {
     // descend to the deepest last node
@@ -36,7 +36,7 @@ export function lastTextNode(root: Element): Text | null {
 }
 
 /** Why the overlay cannot sit at this reveal point, or null when it can. */
-export function edgeSkipReason(node: Text): "block" | "inline-code" | "rtl" | null {
+function edgeSkipReason(node: Text): "block" | "inline-code" | "rtl" | null {
   const parent = node.parentElement;
   if (!parent) return "block";
   if (parent.closest(NON_PROSE)) return "block";
