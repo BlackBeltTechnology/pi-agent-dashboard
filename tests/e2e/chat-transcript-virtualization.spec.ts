@@ -216,9 +216,11 @@ test.describe("chat transcript — scroll-lock + virtualization (Step B gate)", 
 
     // Following at bottom: as new rows append and the live tail grows, the
     // viewport must stay pinned. Sample across several stream frames.
+    // With chat motion on the follow is a short glide (settles within 500 ms), so a
+    // sample may land mid-glide; the viewport must reach the bottom each time.
     for (let i = 0; i < 5; i++) {
       await page.waitForTimeout(600);
-      expect((await metrics(page)).distanceFromBottom).toBeLessThan(50);
+      await expect.poll(async () => (await metrics(page)).distanceFromBottom, { timeout: 1500 }).toBeLessThan(50);
     }
 
     // Growth actually happened during the window (a settled transcript would

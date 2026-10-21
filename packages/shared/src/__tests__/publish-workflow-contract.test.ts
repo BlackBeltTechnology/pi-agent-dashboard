@@ -27,10 +27,11 @@
  *
  * See changes: publish-fix-macos, add-ci-electron-on-demand-build.
  */
-import { describe, it, expect } from "vitest";
+
 import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
+import { describe, expect, it } from "vitest";
 
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..");
@@ -791,5 +792,74 @@ describe("publish.yml — discord-announce contract", () => {
 
   it("D6: suppresses mentions so changelog text cannot ping @everyone", () => {
     expect(block).toMatch(/allowed_mentions:\s*\{\s*parse:\s*\[\]\s*\}/);
+  });
+});
+
+// ── release-lock contract (design D1/D6) ────────────────────────────────────
+// See change: pin-electron-bundle-dependency-tree (test-plan #E16).
+
+const NIGHTLY_WORKFLOW_PATH = path.join(REPO_ROOT, ".github", "workflows", "nightly.yml");
+const E2E_ELECTRON_WORKFLOW_PATH = path.join(REPO_ROOT, ".github", "workflows", "ci-e2e-electron.yml");
+
+/** Violations of the release-lock contract in a set of workflow texts; empty = contract holds. */
+function releaseLockViolations(w: { publish: string; reusable: string; ciElectron: string; nightly: string; e2e: string }): string[] {
+  const out: string[] = [];
+  const strip = (y: string) => y.split("\n").filter((l) => !/^\s*#/.test(l)).join("\n");
+  const publishElectron = extractJobBlock(strip(w.publish), "electron");
+  if (!/^\s{6}release_lock:\s*true\s*$/m.test(publishElectron)) out.push("publish.yml electron job does not pass `release_lock: true`");
+  const nightlyElectron = extractJobBlock(strip(w.nightly), "electron");
+  if (!/^\s{6}release_lock:\s*true\s*$/m.test(nightlyElectron)) out.push("nightly.yml electron job does not pass `release_lock: true`");
+
+  // The pre-publish lint runs between lock generation and the server's npm publish.
+  const publishSrc = strip(w.publish);
+  const iGen = publishSrc.indexOf("generate-runtime-lock.mjs");
+  const iLint = publishSrc.indexOf("lint-runtime-lock.mjs");
+  const iPub = publishSrc.indexOf('npm publish --workspace="$pkg"');
+  if (iLint === -1 || iLint < iGen || iLint > iPub) out.push("publish.yml does not lint the runtime lock between generation and the server publish");
+
+  const reusable = strip(w.reusable);
+  if (!/inputs\.release_lock && format\('"--release-lock=\{0\}"', inputs\.version\)/.test(reusable)) {
+    out.push("_electron-build.yml does not forward --release-lock=<inputs.version> conditionally on inputs.release_lock");
+  }
+  const m = /- name: Assert release-lock bundle[\s\S]*?\n {8}if: (.*)\n[\s\S]*?assert-release-lock-bundle\.mjs/.exec(reusable);
+  if (!m) out.push("_electron-build.yml has no release-lock assertion step");
+  else if (!/inputs\.release_lock/.test(m[1]) || /inputs\.version/.test(m[1])) out.push("the release-lock assertion is not gated on inputs.release_lock alone");
+
+  for (const [name, text] of [["ci-electron.yml", w.ciElectron], ["ci-e2e-electron.yml", w.e2e]] as const) {
+    if (/release_lock/.test(strip(text))) out.push(`${name} must not set release_lock (floating install)`);
+  }
+  return out;
+}
+
+describe("release-lock workflow contract (E16)", () => {
+  const read = (p: string) => fs.readFileSync(p, "utf8");
+  const real = {
+    publish: read(WORKFLOW_PATH),
+    reusable: read(REUSABLE_WORKFLOW_PATH),
+    ciElectron: read(CI_ELECTRON_WORKFLOW_PATH),
+    nightly: read(NIGHTLY_WORKFLOW_PATH),
+    e2e: read(E2E_ELECTRON_WORKFLOW_PATH),
+  };
+
+  it("the repo's workflows satisfy the contract", () => {
+    expect(releaseLockViolations(real)).toEqual([]);
+  });
+
+  it("a publish.yml without `release_lock: true` fails the contract", () => {
+    const broken = { ...real, publish: real.publish.replace(/^\s{6}release_lock:\s*true\s*$/m, "") };
+    expect(releaseLockViolations(broken).join("\n")).toContain("publish.yml electron job");
+  });
+
+  it("an assertion gated on the version string instead of `release_lock` fails the contract", () => {
+    const broken = {
+      ...real,
+      reusable: real.reusable.replace("if: ${{ inputs.release_lock }}\n        env:\n          RELEASE_VERSION", "if: ${{ inputs.version != '' }}\n        env:\n          RELEASE_VERSION"),
+    };
+    expect(releaseLockViolations(broken).join("\n")).toContain("assertion is not gated");
+  });
+
+  it("an on-demand caller that sets `release_lock` fails the contract", () => {
+    const broken = { ...real, ciElectron: `${real.ciElectron}\n      release_lock: true\n` };
+    expect(releaseLockViolations(broken).join("\n")).toContain("ci-electron.yml must not set release_lock");
   });
 });

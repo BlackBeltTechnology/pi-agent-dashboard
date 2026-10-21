@@ -387,6 +387,11 @@ function backfillDisplayPrefs(
   if (typeof out.reasoningInlineFlow !== "boolean") {
     out = { ...out, reasoningInlineFlow: false };
   }
+  // Legacy prefs predating chat motion default it ON, matching the presets.
+  // See change: add-fluid-chat-motion.
+  if (typeof out.chatMotion !== "boolean") {
+    out = { ...out, chatMotion: true };
+  }
   // Custom event groups (add-custom-event-group-filters): migrate the removed
   // single `customEntryFallback` switch onto the `other` group (idempotent,
   // design D7), then seed every configured group so a gate is never
@@ -1121,6 +1126,9 @@ let dirty =
         showOutOfCwdSessionDiffs: false,
         notifyMinLevel: "all",
         reasoningInlineFlow: false,
+        // Documented exception to the all-`false` base: the default is ON.
+        // See change: add-fluid-chat-motion.
+        chatMotion: true,
         customEventGroups: { ...seededCustomEventGroupDefaults },
       };
       const merged: DisplayPrefs = {
@@ -1143,6 +1151,7 @@ let dirty =
           partial.showOutOfCwdSessionDiffs ?? base.showOutOfCwdSessionDiffs,
         notifyMinLevel: partial.notifyMinLevel ?? base.notifyMinLevel,
         reasoningInlineFlow: partial.reasoningInlineFlow ?? base.reasoningInlineFlow,
+        chatMotion: partial.chatMotion ?? base.chatMotion,
         customEventGroups: mergeCustomEventGroupPrefs(base.customEventGroups, partial.customEventGroups),
       };
       displayPrefs = merged;

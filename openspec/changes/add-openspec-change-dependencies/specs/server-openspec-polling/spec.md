@@ -10,12 +10,15 @@ Tracked paths for a directory SHALL be:
 - `<cwd>/openspec/specs/` and, for every capability that has a delta in any active change, `<cwd>/openspec/specs/<cap>/` and `<cwd>/openspec/specs/<cap>/spec.md` (stat only, never watched; the directory mtimes catch deletions), because dependency inference reads whether that main spec exists;
 - `<cwd>/openspec/changes/archive/` (its directory mtime changes when a change is archived, which satisfies dependency edges).
 
+The gate governs the `openspec status --all` invocation and the reuse of per-change data. It does NOT govern `OpenSpecData.workflowSchema`, which is recomputed on every tick regardless of a gate hit (see "Workflow-schema status is computed in the poll worker on every poll tick").
+
 Before the first successful `--all` result (cold cache, or after a whole-call failure) the per-change set is the legacy fixed set for every enumerated change directory. Missing paths SHALL be skipped, not treated as zero; directory enumeration SHALL NOT throw on `ENOENT`.
 
 #### Scenario: Unchanged directory skips the CLI
 
 - **WHEN** the effective mtime equals the cached value
 - **THEN** the server SHALL reuse cached data and SHALL NOT spawn `openspec status --all`
+- **AND** `OpenSpecData.workflowSchema` SHALL NOT be reused from that cached data: it is recomputed by the worker request of "Workflow-schema status is computed in the poll worker on every poll tick" (whose poll-configuration rebroadcast exception is not a tick)
 
 #### Scenario: In-place edit to any tracked artifact re-runs the CLI once
 
@@ -61,7 +64,6 @@ Before the first successful `--all` result (cold cache, or after a whole-call fa
 - **GIVEN** an active change has a delta for `push-notifications`
 - **WHEN** `openspec/specs/push-notifications/spec.md` is created by a spec sync, or deleted by a branch switch
 - **THEN** the next periodic gated poll SHALL rebuild the directory's data
-
 ### Requirement: Push refresh on local filesystem change to openspec/changes/
 
 The server SHALL maintain, for every known directory, a recursive filesystem watcher on `<cwd>/openspec/changes/`, plus a non-recursive watcher on `<cwd>/openspec/` (for `config.yaml`) and a recursive watcher on `<cwd>/openspec/schemas/` when it exists. Main specs under `<cwd>/openspec/specs/` SHALL NOT be watched. A relevant event is a write, rename, or create that affects: (a) a change directory itself (creation or rename of `changes/<change>/`), or under any `changes/<change>/` directory `tasks.md`, `proposal.md`, `design.md`, `dependencies.yaml`, `specs/**/*.md` or `.openspec.yaml` (also for change directories not yet in the cached result); (b) under a change directory present in the cached `openspec status --all` result, a path matching one of that change's artifact outputs — tested against each `artifactPaths.<id>.resolvedOutputPath` (glob-aware, relativized against `root.path` as emitted and mapped onto the server's canonical `<cwd>/openspec/`, separator-normalized), so a not-yet-created output such as `dependencies.yaml` matches; or (c) `openspec/config.yaml` or any file under `openspec/schemas/`. On a relevant event the server SHALL trigger an mtime-gated re-poll of that cwd within a debounce window of ≤ 1 second (default 300 ms), reusing the same `pollOne(cwd, force=false)` path as the periodic timer. The watcher SHALL NOT bypass the mtime-gate, the concurrency cap, or the broadcast dedup — it is a *trigger*, not a parallel poll path.

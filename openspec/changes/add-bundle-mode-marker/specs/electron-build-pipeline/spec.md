@@ -9,7 +9,7 @@ At the end of every run, `packages/electron/scripts/bundle-server.mjs` SHALL wri
 |---|---|---|
 | `mode` | `"full"` \| `"source-only"` | `full` when `npm install --omit=dev` ran; `source-only` when `--source-only` was passed. |
 | `bundledAt` | ISO-8601 string | UTC timestamp captured at the start of the bundle run. |
-| `npmInstallSucceeded` | boolean | `true` only when `mode === "full"` AND `npm install` exited with status 0. Always `false` for `mode === "source-only"`. |
+| `npmInstallSucceeded` | boolean | `true` only when `mode === "full"` AND the install step (`npm install` or `npm ci`) exited with status 0. Always `false` for `mode === "source-only"`. |
 | `bundleScriptCommit` | string \| null | Output of `git rev-parse HEAD` from the repo root, best-effort; `null` if git is unavailable or the script runs outside a checkout. |
 
 The stamp SHALL be written under both code paths — source-only short-circuit and full-install completion — so no produced bundle is ever stampless.

@@ -6,7 +6,8 @@
  *     `BUNDLED_WORKSPACE_PKGS` entry (parsed from bundle-server.mjs),
  *   - `packages/<id>/src` + `packages/<id>/package.json` per
  *     `packages/server/package.json#piDashboard.bundledPlugins` id,
- *   - `packages/server/package.json`, the built client, the bundler itself.
+ *   - `packages/server/package.json`, the built client, the bundler itself and
+ *     its helpers under `packages/electron/scripts/lib` (release-lock rebase/audit).
  * Derived so the shell never re-hardcodes either list (bundled plugins were
  * previously not watched at all).
  * See change: bundle-plugin-third-party-deps (design D6).
@@ -36,5 +37,5 @@ for (const dir of pkgDirs) {
   paths.add(`packages/${dir}/src`);
   paths.add(`packages/${dir}/package.json`);
 }
-for (const extra of ["packages/server/package.json", "packages/dist/index.html", BUNDLER_REL]) paths.add(extra);
+for (const extra of ["packages/server/package.json", "packages/dist/index.html", BUNDLER_REL, "packages/electron/scripts/lib"]) paths.add(extra);
 process.stdout.write(`${[...paths].join("\n")}\n`);

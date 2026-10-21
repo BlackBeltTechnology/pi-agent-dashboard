@@ -106,6 +106,7 @@ React-based responsive web UI that:
 - Shows all active sessions organized by directory, with pinned directories always visible at the top
 - Renders chat messages with markdown, syntax highlighting, streaming, and a small raw-HTML pass that strips React-only `ref` attributes before render
 - Persists scroll position per session — switching sessions restores exact scroll position if locked, or scrolls to bottom if following
+- Animates live arrivals, paces streamed text, glides follow-scroll; `chatMotion` pref (rollback: `PATCH /api/preferences/display {"chatMotion":false}`). Full ref: [`chat-motion.md`](chat-motion.md)
 - Displays collapsed tool call steps with lazy-loaded content and elapsed time badges
 - Shows live ticking elapsed counters on running operations (thinking, tool calls) and final duration on completed ones
 - Provides command autocomplete with `/` prefix
@@ -6241,7 +6242,9 @@ Dashboard-managed project schema. Base: OpenSpec built-in `spec-driven` + patch 
 Code:
 - `packages/server/src/openspec/workflow-schema.ts` — generation, stamp, state table, write guard, actions.
 - `packages/server/src/routes/openspec-routes.ts` — `POST /api/openspec/workflow-schema`, init chain.
-- `packages/server/src/directory-service.ts` — `workflowSchemaStatusFor` (poll status).
+- `packages/server/src/openspec/workflow-schema-status.ts` — worker-safe fs-only status (`computeSchemaStatus`, `inspectSchema`, stamp parse/compare, `fingerprintDir`, config + change enumeration). No CLI/semaphore imports.
+- `packages/server/src/openspec/openspec-poll-worker.ts` + `openspec-poll-worker-pool.ts` — `schemaStatus` request kind: `{cwd, localVersion, packageSchemasDir, userSchemasDir}` → `{status, validateFingerprint?}`.
+- `packages/server/src/directory-service.ts` — `requestSchemaStatus` enqueues it.
 - `packages/shared/src/types.ts` — `WorkflowSchemaGenerated`, `OpenSpecWorkflowSchemaStatus`.
 - `packages/shared/src/openspec-poller.ts`, `.pi/skills/openspec-shared/scripts/effective-status.sh` — R-rule skip.
 
@@ -6370,10 +6373,39 @@ Remove sees only local working tree. Unmerged branches pinning `pi-spec-driven` 
 
 `OpenSpecData.workflowSchema?: OpenSpecWorkflowSchemaStatus` = `{ configured, generated, missing, unpinnedChanges, affectedChanges }`.
 - Attached only to successful-poll payloads. Failure payload carries no schema status (`hasWorkflowSchemaStatus(readiness)` gate in `directory-service.ts`).
-- Computed on the MAIN thread, not the poll worker. `workflowSchemaStatusFor` (`directory-service.ts`) runs concurrently with the CLI spawn in `pollOne`, attached at finalize. Async fs reads only.
-- Only `newer` / `conflict` `schema validate` spawns. Routed through the shared spawn semaphore; memoized by (cwd, fingerprint, CLI version).
+- Computed by poll worker `schemaStatus` request. See Poll status below.
+- Only `newer` / `conflict` spawn `schema validate`. Main thread, shared spawn semaphore, memoized.
 - Readiness untouched. Missing schema dir → per-change `Unknown schema` errors, not `STALE`. `STALE` would disable every OpenSpec control on session cards.
 - Settings section: `/settings/openspec#workflow-schema` (`OpenSpecWorkflowSchemaSection.tsx`). Folder-section chip only links there.
+
+### Poll status
+
+```mermaid
+sequenceDiagram
+  participant M as main
+  participant W as poll worker
+  M->>W: schemaStatus {cwd, localVersion, packageSchemasDir, userSchemasDir}
+  W-->>M: {status, validateFingerprint?}
+  opt newer / conflict
+    M->>M: openspec schema validate pi-spec-driven (semaphore, memoized)
+  end
+```
+
+- Computed by worker `schemaStatus` request on EVERY tick, gate hit included.
+- Gate does not track: CLI version, `config.yml`, user/package schema dirs, fallback `list` path.
+- Enqueued once per tick:
+  - status-all path: right after `pool.probe`.
+  - fallback `list` path: before `list` spawn.
+- `build` never waits on it. Only finalize awaits.
+- Stamp compare decided from stamp alone.
+- Whole-dir fingerprint only for `newer` / `conflict`. `.openspec.yaml` reads bounded (16).
+- `newer` / `conflict`: worker returns `validateFingerprint`. Main runs `openspec schema validate pi-spec-driven` via shared semaphore. Memoized by (cwd, fingerprint, CLI version). Failure → `incompatible`.
+- Worker error / timeout / disabled → in-process fallback `schemaStatusImpl`.
+- Both fail → `workflowSchema` key omitted for tick. Logged once per failure run per cwd.
+- `finalizeOpenSpecData` never carries previous tick's `workflowSchema`.
+- One spawn semaphore: `DirectoryService.semaphore` shared with REST route (`server.ts` passes as `spawnSemaphore`). `reconfigurePolling` resize applies to both.
+
+See change: move-workflow-schema-status-to-poll-worker.
 
 ### REST endpoint
 
@@ -6506,6 +6538,9 @@ Rules:
 - Anchor must be exactly `[specs, design]`. Otherwise generation aborts.
 - Patch-1 stamp → `generated: outdated`. Only explicit Update regenerates.
 - Undeclared change stays `PLANNING`. Board shows "Declare dependencies" hint, artifact letter `L`.
+- `OpenSpecData.workflowSchema.undeclaredChanges`: `affectedChanges` members without regular `dependencies.yaml`. Lstat only; symlink or dir counts as undeclared. Sorted.
+- Computed each poll tick by `listUndeclared` in `packages/server/src/openspec/workflow-schema-status.ts`. Worker-safe. Reads bounded by `mapLimit` 16.
+- Consumed by Settings → OpenSpec Update confirmation (patch 2): count of affected changes returning to `PLANNING`. Update applies patch v2 only on explicit action; enable never regenerates.
 
 ### REST
 
@@ -6849,10 +6884,15 @@ Configuration lives in `pnpm-workspace.yaml` (NOT `package.json` `pnpm.*` — ya
 
 1. `npm publish --provenance` in `publish.yml` — OIDC Trusted Publishing. Needs no npm-installed tree. `publish` job upgrades to `npm@latest` only for OIDC ≥11.5.1 floor.
 2. Column C runtime `npm install` on END-USER machines: `pi-core-updater.ts`, `pi-core-checker.ts`, `recovery-server.ts`, electron `update-checker.ts`.
-3. `bundle-server.mjs` internal `npm install --omit=dev` for electron bundle.
-4. `deploy-site.yml` `site/` job (separate `site/package-lock.json`; `site/` NOT a pnpm workspace member).
+3. `bundle-server.mjs` internal npm for electron bundle runtime tree:
+   - `npm install --omit=dev` (floating mode, default).
+   - `npm pack @blackbelt-technology/pi-dashboard-server@X` (`fetchPublishedLock`, release-lock mode).
+   - `npm ci --omit=dev --allow-remote=all` on rebased `package-lock.json` (release-lock mode).
+4. Runtime-lock generation: `scripts/generate-runtime-lock.mjs` (publish + nightly). Rebase check: `scripts/lint-runtime-lock.mjs --version X`.
+5. `deploy-site.yml` `site/` job (separate `site/package-lock.json`; `site/` NOT a pnpm workspace member).
 
 See change: adopt-pnpm-for-dev-ci.
+See change: pin-electron-bundle-dependency-tree.
 
 ## Doctor Diagnostics
 

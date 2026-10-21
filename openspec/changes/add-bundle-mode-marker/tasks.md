@@ -5,7 +5,7 @@
 - [ ] 1.1 In `packages/electron/scripts/bundle-server.mjs`, after the synthetic `package.json` is written but before the source-only short-circuit, define `bundleStartedAt = new Date().toISOString()`.
 - [ ] 1.2 Add helper `writeBundleModeStamp({ mode, npmInstallSucceeded })` that writes `<SERVER_BUNDLE>/.bundle-mode.json` containing `{ mode, bundledAt: bundleStartedAt, npmInstallSucceeded, bundleScriptCommit: <best-effort git sha or null> }`. `git rev-parse HEAD` via `spawnSync`; on failure, emit `null` and continue.
 - [ ] 1.3 Call `writeBundleModeStamp({ mode: "source-only", npmInstallSucceeded: false })` immediately before the `process.exit(0)` in the `SOURCE_ONLY` branch.
-- [ ] 1.4 Call `writeBundleModeStamp({ mode: "full", npmInstallSucceeded: <result of npmInstall.status === 0> })` at the very end of the full-mode path, after all materialisation steps complete.
+- [ ] 1.4 Call `writeBundleModeStamp({ mode: "full", npmInstallSucceeded: <exit status 0 of whichever install ran: `npm install` (floating) or `npm ci` (release-lock)> })` at the very end of the full-mode path, after all materialisation steps complete.
 - [ ] 1.5 Unit test the helper: given a tmp dir as `SERVER_BUNDLE`, call helper, parse the written JSON, assert all four fields are present and well-typed.
 
 ## 2. Shared types
