@@ -25,3 +25,5 @@ See change: surface-denial-remedy-in-previews — Every denial site passes `disc
 - Browse routes (`/api/browse`, `/flags`, `/mkdir`) confined to the `resolveBrowseRoots` set ONLY when `!isLocallyTrusted` (deps `localTrust`, `browseRootSources`): outside → 403 `path outside allowed roots` + one warn; response `confined:true`, `parent:null` at root top; flags 403 whole request; mkdir checked before any write. Local callers unchanged. See change: harden-server-capability-bounds.
 
 - dep `browseConfineRemote === false` → browse routes unconfined for every caller. See change: harden-server-capability-bounds.
+
+`GET /api/file/raw` sets enforced `Content-Security-Policy: RAW_SANDBOX_CSP` + `X-Content-Type-Options: nosniff` when the served `Content-Type` is scriptable (`isScriptableMediaType`: text/html, image/svg+xml, application/xhtml+xml, application/xml, text/xml). Set before Range parsing → 200/206/416, all admission paths, every dashboard CSP mode (baseline hook skips an already-set header). See change: harden-raw-svg-responses.
