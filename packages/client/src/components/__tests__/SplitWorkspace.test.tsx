@@ -1,5 +1,8 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { useSplitState } from "../../lib/layout/split-state.js";
+import { nextFrame, pointerDown, pointerMove, pointerUp } from "../../test-support/pointer.js";
+import { SplitDivider } from "../split/SplitDivider.js";
 import { SplitWorkspace } from "../split/SplitWorkspace.js";
 
 afterEach(() => cleanup());
@@ -9,7 +12,7 @@ const editor = <div data-testid="editor">editor</div>;
 
 const noop = () => {};
 
-/** Stub the split container's box so useSplitRatio maps pointer→ratio. */
+/** Stub the split container's box so the divider drag maps pointer→ratio. */
 function stubContainerBox(container: HTMLElement, left: number, width: number) {
   const root = container.firstElementChild as HTMLElement;
   root.getBoundingClientRect = () =>
@@ -79,28 +82,105 @@ describe("SplitWorkspace", () => {
     expect(onModeChange.mock.calls.every(([m]) => m === "split")).toBe(true);
   });
 
-  it("E1: dragging the divider toward chat clamps the ratio to 0.25", () => {
+  // E12 — one commit per drag, after release.
+  it("E12: many held moves → one onRatioChange, after release, with the final ratio", async () => {
     const onRatioChange = vi.fn();
     const { container } = render(
       <SplitWorkspace mode="split" ratio={0.5} orientation="h" onRatioChange={onRatioChange} onModeChange={noop} chat={chat} editor={editor} />,
     );
     stubContainerBox(container, 0, 1000);
-    fireEvent.mouseDown(screen.getByTestId("split-divider"));
-    // Pointer at x=100 → raw fraction 0.1 → below the 0.25 floor.
-    fireEvent.mouseMove(document, { clientX: 100 });
-    expect(onRatioChange).toHaveBeenLastCalledWith(0.25);
+    pointerDown(screen.getByTestId("split-divider"), { clientX: 500 });
+    for (const x of [520, 540, 560, 580, 600]) {
+      pointerMove(window, { clientX: x });
+      await nextFrame();
+    }
+    expect(onRatioChange).not.toHaveBeenCalled();
+    pointerUp(window, { clientX: 600 });
+    expect(onRatioChange).toHaveBeenCalledTimes(1);
+    expect(onRatioChange).toHaveBeenCalledWith(0.6);
   });
 
-  it("E2: dragging the divider toward editor clamps the ratio to 0.75", () => {
+  // E13 — clamps (regression guard).
+  it("E13: drag toward chat clamps to 0.25, toward editor to 0.75 (on release)", async () => {
     const onRatioChange = vi.fn();
     const { container } = render(
       <SplitWorkspace mode="split" ratio={0.5} orientation="h" onRatioChange={onRatioChange} onModeChange={noop} chat={chat} editor={editor} />,
     );
     stubContainerBox(container, 0, 1000);
-    fireEvent.mouseDown(screen.getByTestId("split-divider"));
-    // Pointer at x=900 → raw fraction 0.9 → above the 0.75 ceiling.
-    fireEvent.mouseMove(document, { clientX: 900 });
+    const divider = screen.getByTestId("split-divider");
+    pointerDown(divider, { clientX: 500 });
+    pointerMove(window, { clientX: 100 });
+    pointerUp(window, { clientX: 100 });
+    expect(onRatioChange).toHaveBeenLastCalledWith(0.25);
+    pointerDown(divider, { clientX: 500 });
+    pointerMove(window, { clientX: 900 });
+    pointerUp(window, { clientX: 900 });
     expect(onRatioChange).toHaveBeenLastCalledWith(0.75);
+  });
+
+  // E14 — live DOM preview, no commit yet.
+  it("E14: a held move previews flex-grow on both panes without committing", async () => {
+    const onRatioChange = vi.fn();
+    const { container } = render(
+      <SplitWorkspace mode="split" ratio={0.5} orientation="h" onRatioChange={onRatioChange} onModeChange={noop} chat={chat} editor={editor} />,
+    );
+    stubContainerBox(container, 0, 1000);
+    pointerDown(screen.getByTestId("split-divider"), { clientX: 500 });
+    pointerMove(window, { clientX: 600 });
+    await nextFrame();
+    expect(screen.getByTestId("split-chat-pane").style.flexGrow).toBe("0.6");
+    expect(screen.getByTestId("split-editor-pane").style.flexGrow).toBe("0.4");
+    expect(onRatioChange).not.toHaveBeenCalled();
+  });
+
+  // E15 — regression guard: unrelated re-render keeps the preview.
+  it("E15: an identical-props re-render mid-drag keeps the previewed flex-grow", async () => {
+    const props = { mode: "split" as const, ratio: 0.5, orientation: "h" as const, onRatioChange: vi.fn(), onModeChange: noop, chat, editor };
+    const { container, rerender } = render(<SplitWorkspace {...props} />);
+    stubContainerBox(container, 0, 1000);
+    pointerDown(screen.getByTestId("split-divider"), { clientX: 500 });
+    pointerMove(window, { clientX: 600 });
+    await nextFrame();
+    rerender(<SplitWorkspace {...props} />);
+    expect(screen.getByTestId("split-chat-pane").style.flexGrow).toBe("0.6");
+  });
+
+  // E16 — regression guard: click without movement.
+  it("E16: press + release without movement does not commit", () => {
+    const onRatioChange = vi.fn();
+    render(
+      <SplitWorkspace mode="split" ratio={0.5} orientation="h" onRatioChange={onRatioChange} onModeChange={noop} chat={chat} editor={editor} />,
+    );
+    const divider = screen.getByTestId("split-divider");
+    pointerDown(divider, { clientX: 500 });
+    pointerUp(window, { clientX: 500 });
+    expect(onRatioChange).not.toHaveBeenCalled();
+  });
+
+  // E17 — persisted once per drag.
+  it("E17: a 5-frame drag writes the split ratio to localStorage exactly once", async () => {
+    function Harness() {
+      const [split, update] = useSplitState("s1", "split");
+      return (
+        <SplitWorkspace mode={split.mode} ratio={split.ratio} orientation="h" onRatioChange={(ratio) => update({ ratio })} onModeChange={noop} chat={chat} editor={editor} />
+      );
+    }
+    const { container } = render(<Harness />);
+    stubContainerBox(container, 0, 1000);
+    const setItem = vi.spyOn(Storage.prototype, "setItem");
+    try {
+      pointerDown(screen.getByTestId("split-divider"), { clientX: 500 });
+      for (const x of [520, 540, 560, 580, 600]) {
+        pointerMove(window, { clientX: x });
+        await nextFrame();
+      }
+      pointerUp(window, { clientX: 600 });
+      const writes = setItem.mock.calls.filter(([k]) => k === "pi-dashboard:split:s1");
+      expect(writes).toHaveLength(1);
+      expect(JSON.parse(String(writes[0][1])).ratio).toBe(0.6);
+    } finally {
+      setItem.mockRestore();
+    }
   });
 
   it("full: editor pane + leading chat restore tab; chat stays mounted but hidden", () => {
@@ -171,5 +251,23 @@ describe("SplitWorkspace", () => {
     const editorPane = screen.getByTestId("split-editor-pane");
     expect(Number(chatPane.style.flexGrow)).toBeCloseTo(0.6);
     expect(Number(editorPane.style.flexGrow)).toBeCloseTo(0.4);
+  });
+
+  // E11 — focus preserved: the compat mousedown is default-prevented.
+  it("E11: mousedown on the divider is default-prevented (keeps editing focus)", () => {
+    render(<SplitDivider orientation="h" onResize={() => {}} data-testid="d" />);
+    const ev = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
+    act(() => {
+      screen.getByTestId("d").dispatchEvent(ev);
+    });
+    expect(ev.defaultPrevented).toBe(true);
+  });
+
+  // E18 — touch drag is not taken over by panning.
+  it("E18: the divider sets touch-action:none in both orientations", () => {
+    const { rerender } = render(<SplitDivider orientation="h" onResize={() => {}} data-testid="d" />);
+    expect(screen.getByTestId("d").style.touchAction).toBe("none");
+    rerender(<SplitDivider orientation="v" onResize={() => {}} data-testid="d" />);
+    expect(screen.getByTestId("d").style.touchAction).toBe("none");
   });
 });

@@ -40,7 +40,6 @@ import {
   readRuntimeRequest,
   readRuntimeState,
 } from "@blackbelt-technology/pi-dashboard-shared/runtime-overlay/state.js";
-import { createSemaphore } from "@blackbelt-technology/pi-dashboard-shared/semaphore.js";
 import { proveServerIdentity } from "@blackbelt-technology/pi-dashboard-shared/server-pinning.js";
 import { discoverServiceOffers } from "@blackbelt-technology/pi-dashboard-shared/services/offers.js";
 import { isRecoveryCandidate, isShutdownWindowCandidate, mergeSessionMeta, type SessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
@@ -2726,9 +2725,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     piGateway,
     // Live (per-request) config for the workflow-schema gates + new-project default.
     getOpenSpecConfig: () => loadConfig().openspec,
-    // Own bounded pool for the workflow-schema `newer`/`conflict` validate: the
-    // directory service's semaphore is not exposed. See change: add-pi-spec-driven-schema.
-    spawnSemaphore: createSemaphore(loadConfig().openspec.maxConcurrentSpawns),
+    // The directory service's ONE spawn semaphore (cap resizable by
+    // `reconfigurePolling`) bounds the route's `newer`/`conflict` validate too.
+    // See changes: add-pi-spec-driven-schema, move-workflow-schema-status-to-poll-worker.
+    spawnSemaphore: directoryService.semaphore,
     onOpenSpecChanged: (cwd) => {
       const data = directoryService.getOpenSpecData(cwd);
       if (data) browserGateway.broadcastToAll({ type: "openspec_update", cwd, data });

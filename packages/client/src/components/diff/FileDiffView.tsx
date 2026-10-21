@@ -6,8 +6,8 @@
 import { mdiArrowLeft, mdiFileTreeOutline, mdiRefresh } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type React from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useBodyDragStyle } from "../../hooks/useBodyDragStyle.js";
+import { useCallback, useRef, useState } from "react";
+import { useResizeDrag } from "../../hooks/useResizeDrag.js";
 import { useMobile } from "../../hooks/useMobile.js";
 import { useSessionDiff } from "../../hooks/useSessionDiff.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
@@ -156,41 +156,23 @@ const MAX_TREE_WIDTH = 500;
 // Exported so the drag lifecycle is directly testable (test-plan #E8).
 export function ResizableTreePanel({ children }: { children: React.ReactNode }) {
   const [width, setWidth] = useState(DEFAULT_TREE_WIDTH);
-  const dragging = useRef(false);
   const panelRef = useRef<HTMLDivElement>(null);
-  const { beginBodyDrag, endBodyDrag } = useBodyDragStyle();
-
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!dragging.current || !panelRef.current) return;
-      const rect = panelRef.current.parentElement?.getBoundingClientRect();
-      const newWidth = e.clientX - (rect?.left ?? 0);
-      const clamped = Math.max(MIN_TREE_WIDTH, Math.min(MAX_TREE_WIDTH, newWidth));
-      panelRef.current.style.width = `${clamped}px`;
-    };
-
-    const handleMouseUp = (e: MouseEvent) => {
-      if (!dragging.current) return;
-      dragging.current = false;
-      endBodyDrag();
-      const rect = panelRef.current?.parentElement?.getBoundingClientRect();
-      const newWidth = e.clientX - (rect?.left ?? 0);
-      setWidth(Math.max(MIN_TREE_WIDTH, Math.min(MAX_TREE_WIDTH, newWidth)));
-    };
-
-    document.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseup", handleMouseUp);
-    return () => {
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
-    };
-  }, [endBodyDrag]);
-
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    dragging.current = true;
-    beginBodyDrag("col-resize");
-  }, [beginBodyDrag]);
+  const widthAt = (clientX: number) => {
+    const rect = panelRef.current?.parentElement?.getBoundingClientRect();
+    return Math.max(MIN_TREE_WIDTH, Math.min(MAX_TREE_WIDTH, clientX - (rect?.left ?? 0)));
+  };
+  // Direct `style.width` preview per frame, `setWidth` once on release.
+  // See change: fix-split-divider-drag (D6).
+  const drag = useResizeDrag({
+    axis: "x",
+    cursor: "col-resize",
+    onPreview: (clientX) => {
+      if (panelRef.current) panelRef.current.style.width = `${widthAt(clientX)}px`;
+    },
+    onEnd: (clientX) => {
+      if (clientX !== null) setWidth(widthAt(clientX));
+    },
+  });
 
   return (
     <div
@@ -202,7 +184,10 @@ export function ResizableTreePanel({ children }: { children: React.ReactNode }) 
         {children}
       </div>
       <div
-        onMouseDown={handleMouseDown}
+        onPointerDown={drag.onPointerDown}
+        onMouseDown={drag.onMouseDown}
+        style={{ touchAction: "none" }}
+        data-testid="tree-panel-handle"
         className="w-1 cursor-col-resize hover:bg-blue-500/30 active:bg-blue-500/50 shrink-0"
       />
     </div>

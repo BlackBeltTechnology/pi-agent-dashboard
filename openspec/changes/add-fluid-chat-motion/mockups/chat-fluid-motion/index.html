@@ -1,0 +1,449 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Chat fluid motion — today vs fluid</title>
+<link rel="stylesheet" href="tokens.css" />
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg-primary); color: var(--text-secondary);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  header.bar {
+    position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center;
+    padding: 10px 16px; background: var(--bg-secondary); border-bottom: 1px solid var(--border-primary);
+  }
+  header.bar h1 { font-size: 14px; margin: 0 8px 0 0; color: var(--text-primary); }
+  .ctl { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-tertiary); }
+  .ctl select, button.btn {
+    font: inherit; font-size: 12px; color: var(--text-primary); background: var(--bg-tertiary);
+    border: 1px solid var(--border-secondary); border-radius: 6px; padding: 4px 10px; min-height: 28px;
+  }
+  button.btn:hover { background: var(--bg-surface); }
+  button.btn.primary { background: var(--accent-blue); border-color: var(--accent-blue); color: #fff; }
+  button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent-blue); outline-offset: 2px; }
+  .toggles { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+  .toggles label { font-size: 12px; color: var(--text-secondary); display: inline-flex; gap: 5px; align-items: center; cursor: pointer; }
+
+  main.panes { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 16px; }
+  @media (max-width: 900px) { main.panes { grid-template-columns: 1fr; } }
+  .pane { display: flex; flex-direction: column; min-width: 0; border: 1px solid var(--border-primary); border-radius: 10px; background: var(--bg-primary); overflow: hidden; }
+  .pane-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 8px 12px; background: var(--bg-secondary); border-bottom: 1px solid var(--border-primary); }
+  .pane-head b { color: var(--text-primary); font-size: 13px; }
+  .hud { font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text-tertiary); }
+  .scroller { position: relative; height: 68vh; min-height: 380px; overflow-y: auto; overflow-anchor: none; padding: 8px 0 24px; }
+  .jump {
+    position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%);
+    font-size: 12px; padding: 4px 12px; border-radius: 999px; border: 1px solid var(--border-secondary);
+    background: var(--bg-surface); color: var(--text-primary); cursor: pointer; display: none;
+  }
+  .pane-wrap { position: relative; }
+
+  /* ── Replica rows (classes mirror ChatView.tsx / ToolCallStep.tsx) ───────── */
+  .row-user { display: flex; justify-content: flex-end; margin: 16px 16px; }
+  .bubble-user {
+    max-width: 85%; padding: 8px 16px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / .2);
+    background: color-mix(in srgb, var(--accent-blue) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent-blue) 20%, transparent);
+    border-left: 2px solid var(--accent-blue-text); color: var(--text-primary);
+  }
+  .row-asst { display: flex; justify-content: flex-start; margin: 8px 16px; }
+  .bubble-asst {
+    max-width: 85%; padding: 8px 16px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / .2);
+    background: var(--bg-tertiary); border: 1px solid var(--border-subtle); color: var(--text-secondary);
+  }
+  .md p { margin: 0 0 .5em; } .md p:last-child { margin-bottom: 0; }
+  .md ul { margin: 0 0 .5em; padding-left: 1.2em; }
+  .md code { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--bg-code); border: 1px solid var(--border-subtle); padding: 0 4px; border-radius: 4px; color: var(--text-primary); }
+  .md pre { background: var(--bg-code); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 8px 10px; overflow-x: auto; margin: 0 0 .5em; }
+  .md pre code { border: 0; padding: 0; background: none; }
+  .md strong { color: var(--text-primary); font-weight: 700; }
+
+  .row-tool { margin: 6px 16px; border-left: 2px solid var(--border-secondary); padding-left: 12px; }
+  .tool-head { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-tertiary); min-height: 22px; border-radius: 4px; }
+  .tool-head .name { color: var(--text-secondary); font-weight: 600; }
+  .tool-head .sum { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ico { width: 12px; height: 12px; flex: none; display: inline-block; }
+  .ico.spin { border: 2px solid var(--accent-yellow); border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; }
+  .ico.ok { color: var(--accent-green-text); }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .tool-body pre { margin: 4px 0 2px; font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text-tertiary); background: var(--bg-code); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 6px 8px; white-space: pre-wrap; }
+
+  /* existing liveness cues (copied semantics from index.css) — present in BOTH panes */
+  @keyframes sweep { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
+  @keyframes glow { 0%,100% { opacity: 0; } 50% { opacity: 1; } }
+  .shimmer { position: relative; overflow: hidden; }
+  .shimmer::after { content: ""; position: absolute; inset: 0; pointer-events: none; border-radius: inherit;
+    background: linear-gradient(100deg, transparent 20%, color-mix(in srgb, var(--accent-yellow) 12%, transparent) 50%, transparent 80%);
+    animation: sweep 1.6s linear infinite; }
+  .stream-live { position: relative; overflow: hidden; border-color: color-mix(in srgb, var(--accent-blue) 35%, transparent) !important; }
+  .stream-live::before { content: ""; position: absolute; inset: 0; pointer-events: none; border-radius: inherit;
+    box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent-blue) 18%, transparent); opacity: 0; animation: glow 1.8s ease-in-out infinite; }
+  .stream-live::after { content: ""; position: absolute; inset: 0; pointer-events: none; border-radius: inherit;
+    background: linear-gradient(100deg, transparent 20%, color-mix(in srgb, var(--accent-blue) 12%, transparent) 50%, transparent 80%);
+    animation: sweep 1.6s linear infinite; }
+  .sending { opacity: .6; }
+
+  /* TODAY caret: animate-pulse block */
+  .caret-today { display: inline-block; width: 6px; height: 16px; vertical-align: text-bottom; margin-left: 2px; background: var(--bg-surface); animation: pulse 2s cubic-bezier(.4,0,.6,1) infinite; }
+  @keyframes pulse { 50% { opacity: .5; } }
+
+  /* ── FLUID techniques (only applied when the toggle is on) ─────────────── */
+  /* T1 entry: opacity + transform only (compositor), ~200ms ease-out */
+  @keyframes row-in { from { opacity: 0; transform: translateY(6px); } }
+  @keyframes user-in { from { opacity: 0; transform: translate(10px, 6px) scale(.98); } }
+  .fx-enter .row-asst, .fx-enter .row-tool { animation: row-in 220ms cubic-bezier(.2,.8,.2,1) both; }
+  .fx-enter .row-user { animation: user-in 240ms cubic-bezier(.2,.8,.2,1) both; transform-origin: right bottom; }
+
+  /* T3 token fade — negative animation-delay keeps progress continuous across re-renders */
+  .tok { animation: tok-fade 360ms ease-out both; }
+  .tok-blur { animation: tok-blur 420ms ease-out both; }
+  @keyframes tok-fade { from { opacity: 0; } }
+  @keyframes tok-blur { from { opacity: 0; filter: blur(4px); } }
+
+  /* T3b caret: thin bar, steady blink, sits after the last revealed glyph */
+  .caret-fluid { display: inline-block; width: 2px; height: 1.05em; vertical-align: text-bottom; margin-left: 1px; border-radius: 1px; background: var(--accent-blue-text); animation: blink 1s steps(1) infinite; }
+  .caret-fluid.idle { animation-duration: 1s; } .caret-fluid.busy { animation: none; }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* T5 tool result: grid-rows 0fr→1fr expand (no JS measuring), check pops in */
+  .fx-tool .tool-body { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 220ms cubic-bezier(.2,.8,.2,1), opacity 220ms; opacity: 0; }
+  .fx-tool .tool-body.open { grid-template-rows: 1fr; opacity: 1; }
+  .tool-body > div { overflow: hidden; min-height: 0; }
+  .fx-tool .ico.ok { animation: pop 260ms cubic-bezier(.2,.8,.2,1); }
+  @keyframes pop { 0% { transform: scale(.4); opacity: 0; } 60% { transform: scale(1.18); } 100% { transform: scale(1); opacity: 1; } }
+
+  /* Reduced motion: real media query + simulated toggle */
+  @media (prefers-reduced-motion: reduce) {
+    .row-asst, .row-user, .row-tool, .tok, .tok-blur, .ico.ok, .shimmer::after, .stream-live::before, .stream-live::after, .caret-fluid { animation: none !important; }
+    .fx-tool .tool-body { transition: none; }
+  }
+  .sim-reduced .row-asst, .sim-reduced .row-user, .sim-reduced .row-tool, .sim-reduced .tok, .sim-reduced .tok-blur,
+  .sim-reduced .ico.ok, .sim-reduced .shimmer::after, .sim-reduced .stream-live::before, .sim-reduced .stream-live::after,
+  .sim-reduced .caret-fluid { animation: none !important; }
+  .sim-reduced .tool-body { transition: none !important; }
+
+  /* ── Pattern notes ───────────────────────────────────────────────────── */
+  section.notes { padding: 0 16px 40px; display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+  section.notes h2 { grid-column: 1 / -1; font-size: 14px; color: var(--text-primary); margin: 8px 0 0; }
+  .note { background: var(--bg-secondary); border: 1px solid var(--border-primary); border-radius: 10px; padding: 12px 14px; font-size: 13px; }
+  .note h3 { margin: 0 0 6px; font-size: 13px; color: var(--text-primary); }
+  .note p { margin: 0 0 6px; } .note code { font: 11.5px ui-monospace, Menlo, monospace; color: var(--text-primary); }
+  .note a { color: var(--accent-blue-text); }
+  .tag { display: inline-block; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; padding: 0 6px; border-radius: 4px; border: 1px solid var(--border-secondary); color: var(--text-tertiary); margin-right: 4px; }
+</style>
+</head>
+<body>
+<header class="bar">
+  <h1>Chat fluid motion</h1>
+  <button class="btn primary" id="play">▶ Play</button>
+  <button class="btn" id="stop">■ Stop</button>
+  <span class="ctl">Transport
+    <select id="transport">
+      <option value="coalesced">Bridge coalesced (50 ms) — today</option>
+      <option value="stalls" selected>Coalesced + provider stalls</option>
+      <option value="smooth">Per-token (ideal)</option>
+    </select>
+  </span>
+  <span class="ctl">Model speed
+    <select id="speed"><option value="0.6">slow</option><option value="1" selected>normal</option><option value="2.2">fast</option></select>
+  </span>
+  <span class="ctl">Reveal
+    <select id="reveal"><option value="tok">fade</option><option value="tok-blur">blur-in</option></select>
+  </span>
+  <div class="toggles" role="group" aria-label="Fluid techniques">
+    <label><input type="checkbox" id="t-enter" checked> T1 entry</label>
+    <label><input type="checkbox" id="t-pace" checked> T2 paced reveal</label>
+    <label><input type="checkbox" id="t-fade" checked> T3 token fade</label>
+    <label><input type="checkbox" id="t-spring" checked> T4 spring scroll</label>
+    <label><input type="checkbox" id="t-tool" checked> T5 tool transitions</label>
+    <label><input type="checkbox" id="t-reduced"> reduced motion</label>
+  </div>
+  <span class="ctl"><button class="btn" id="theme">◐ Theme</button></span>
+</header>
+
+<main class="panes">
+  <div class="pane" id="pane-today">
+    <div class="pane-head"><b>Today</b><span class="hud" data-hud></span></div>
+    <div class="pane-wrap"><div class="scroller" data-scroller></div><button class="jump" data-jump>↓ Latest</button></div>
+  </div>
+  <div class="pane" id="pane-fluid">
+    <div class="pane-head"><b>Fluid (proposed)</b><span class="hud" data-hud></span></div>
+    <div class="pane-wrap"><div class="scroller" data-scroller></div><button class="jump" data-jump>↓ Latest</button></div>
+  </div>
+</main>
+
+<section class="notes">
+  <h2>Patterns used (and where they come from)</h2>
+  <div class="note"><h3>T1 · Row entry, live rows only</h3>
+    <p>New user, tool, and assistant rows fade in and rise 6 px over ~220 ms, animating only <code>opacity</code>/<code>transform</code>. The user card grows from its bottom-right corner, toward the composer.</p>
+    <p><span class="tag">risk</span>The TanStack virtualizer remounts rows on scroll-back and history replay. The animation must key on a <em>live-arrival</em> marker (as <code>streamedLive</code> does for reasoning), not on mount.</p>
+    <p>Alternatives: CSS <a href="https://developer.mozilla.org/en-US/docs/Web/CSS/@starting-style">@starting-style</a> (Baseline 2024) or a plain keyframe class. Neither needs Motion/Framer.</p></div>
+  <div class="note"><h3>T2 · Paced reveal (buffer → rAF drain)</h3>
+    <p>Received text goes into a buffer. A <code>requestAnimationFrame</code> loop reveals <code>max(baseCps·dt, backlog·(1−e^(−dt/τ)))</code> characters per frame. That gives steady flow during normal streaming and catches up quickly after a stall dump. Lag stays at about τ (120 ms) rather than growing.</p>
+    <p>Same idea as AI SDK <a href="https://ai-sdk.dev/docs/reference/ai-sdk-core/smooth-stream">smoothStream</a> (done server-side) and the <a href="https://upstash.com/blog/smooth-streaming">Upstash rAF typewriter</a>. Their fixed ms-per-char rate falls behind on fast models, which is why this version adapts to the backlog. Fits here because the bridge already flushes in 50 ms bursts (<code>COALESCE_WINDOW_MS</code>).</p></div>
+  <div class="note"><h3>T3 · Fresh-token fade</h3>
+    <p>Only text revealed in the last ~400 ms is wrapped in spans that fade from opacity 0. Older text is plain markup, so the DOM stays small. A negative <code>animation-delay</code> (−age) keeps the fade continuous when React re-renders. Blur-in is a variant.</p>
+    <p>Pattern from <a href="https://github.com/Ephibbs/flowtoken">FlowToken</a>. A thin blinking caret follows the last glyph and goes solid while text is flowing.</p>
+    <p><span class="tag">risk</span><code>MarkdownContent</code> re-parses the whole tail on every update. That needs memoized stable blocks plus a re-rendered last block (the approach <a href="https://streamdown.ai/docs">Streamdown</a> takes for incomplete markdown).</p></div>
+  <div class="note"><h3>T4 · Spring stick-to-bottom</h3>
+    <p>Each frame, scrollTop moves toward the bottom with velocity <code>v = (damping·v + stiffness·Δ)/mass</code> instead of jumping instantly with every chunk. Scrolling up with the wheel or touch turns stickiness off, and “↓ Latest” turns it back on.</p>
+    <p>Algorithm from <a href="https://github.com/stackblitz-labs/use-stick-to-bottom">use-stick-to-bottom</a> (StackBlitz/bolt). We would port only the spring step into the existing <code>stickToBottomRef</code> logic, because the virtualizer grow-pin and selection-anchor writers must keep a single scroll writer.</p></div>
+  <div class="note"><h3>T5 · Tool card transitions</h3>
+    <p>When a tool finishes, its check icon pops in (same motion as <code>tool-group-flash</code>). The result body expands using the <code>grid-template-rows: 0fr→1fr</code> trick: no JS measuring, and the height is bounded. This fits the existing “bounded height transition” requirement in <code>chat-view</code>.</p></div>
+  <div class="note"><h3>Guardrails</h3>
+    <p>All animation is <code>opacity</code>/<code>transform</code>/<code>filter</code>, and none of it changes layout. Under <code>prefers-reduced-motion</code> all of it is suppressed: text appears per chunk, and scrolling is instant. Nothing animates when the session is idle or the tab is hidden (<code>chat-idle-render-cost</code>).</p></div>
+</section>
+
+<script>
+/* ───────────────────────── script (identical feed to both panes) ───────── */
+const LONG = `The view feels stiff for three reasons:
+
+- rows **mount instantly**, with no entry transition
+- the bridge flushes text every \`50 ms\`, so words land in bursts
+- stick-to-bottom jumps with \`behavior: "instant"\` on every chunk
+
+Proposed fix: buffer the received text and drain it on \`requestAnimationFrame\`, fade only the freshest tokens, and spring the scroll toward the bottom. Everything stays on the compositor (\`opacity\` / \`transform\`), and reduced motion falls back to today's behaviour.
+
+\`\`\`ts
+const n = Math.max(baseCps * dt, backlog * (1 - Math.exp(-dt / TAU)));
+\`\`\`
+
+Rows from history replay or virtualizer remounts never animate. Only live arrivals do.`;
+
+const SCRIPT = [
+  { type: "user", text: "Make the chat feel more fluid — cards and streaming text just pop in." },
+  { type: "wait", ms: 500 },
+  { type: "stream", text: "Let me look at how the chat renders its rows and the streaming tail first." },
+  { type: "wait", ms: 250 },
+  { type: "tool", name: "read", summary: "packages/client/src/components/chat/ChatView.tsx", dur: 900, result: "2496 lines · streaming tail at L2174" },
+  { type: "tool", name: "bash", summary: 'grep -n "chat-stream-live" packages/client/src/index.css', dur: 1300,
+    result: "565:@keyframes chat-stream-glow-pulse {\n571:.chat-stream-live {\n578:.chat-stream-live::before {" },
+  { type: "wait", ms: 300 },
+  { type: "stream", text: LONG },
+];
+
+/* seeded RNG so every run is identical */
+let seed = 7; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+
+/* LLM emits tokens (1 word-ish each) at ~tps; transport groups them */
+function tokenize(text) { return text.match(/\s*\S+|\s+/g) || []; }
+function deliveries(text, transport, speed) {
+  const toks = tokenize(text); const out = []; let t = 0;
+  const tps = 55 * speed;
+  const gen = toks.map(tok => { t += (1000 / tps) * (0.6 + rnd() * 0.8); return { t, tok }; });
+  if (transport === "stalls") {           // provider buffering: random long gaps, then a dump
+    let shift = 0; gen.forEach((g, i) => { if (i > 0 && i % 22 === 0) shift += 350 + rnd() * 450; g.t += shift; });
+  }
+  if (transport === "smooth") return gen.map(g => ({ t: g.t, text: g.tok }));
+  // coalesced: bridge flushes every 50ms window; under stalls also a provider chunk boundary
+  let bucket = null;
+  for (const g of gen) {
+    const w = Math.ceil(g.t / 50) * 50;
+    if (!bucket || bucket.t !== w) { bucket = { t: w, text: "" }; out.push(bucket); }
+    bucket.text += g.tok;
+  }
+  if (transport === "stalls") { // stalls deliver as one dump: merge buckets after a gap
+    const merged = []; for (const b of out) { const p = merged[merged.length - 1];
+      if (p && b.t - p.t <= 50 && p.text.length < 140) p.text += b.text; else merged.push({ ...b }); }
+    return merged;
+  }
+  return out;
+}
+
+/* ───────────────────────── tiny streaming-tolerant markdown ─────────────── */
+const esc = s => s.replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+function renderMd(text, fadeOf, fadeCls) {
+  // fadeOf(i) -> null | negative delay ms for char index i
+  const lines = text.split("\n"); let html = ""; let i = 0; let k = 0;
+  const inline = (s, off) => {
+    let out = "", code = false, bold = false, cur = undefined;
+    const setF = d => { if (d === cur) return; if (cur != null) out += "</span>"; if (d != null) out += `<span class="${fadeCls}" style="animation-delay:${d}ms">`; cur = d; };
+    for (let j = 0; j < s.length; j++) {
+      const ch = s[j];
+      if (ch === "`") { setF(undefined); out += code ? "</code>" : "<code>"; code = !code; continue; }
+      if (!code && ch === "*" && s[j + 1] === "*") { setF(undefined); out += bold ? "</strong>" : "<strong>"; bold = !bold; j++; continue; }
+      setF(fadeOf(off + j) ?? undefined); out += esc(ch);
+    }
+    setF(undefined); if (bold) out += "</strong>"; if (code) out += "</code>"; // remend unterminated
+    return out;
+  };
+  while (k < lines.length) {
+    const ln = lines[k];
+    if (ln.startsWith("```")) {
+      let body = "", start = i + ln.length + 1; i = start; k++;
+      while (k < lines.length && !lines[k].startsWith("```")) { body += (body ? "\n" : "") + lines[k]; i += lines[k].length + 1; k++; }
+      let code = ""; let cur;
+      for (let j = 0; j < body.length; j++) { const d = fadeOf(start + j) ?? undefined;
+        if (d !== cur) { if (cur != null) code += "</span>"; if (d != null) code += `<span class="${fadeCls}" style="animation-delay:${d}ms">`; cur = d; }
+        code += esc(body[j]); }
+      if (cur != null) code += "</span>";
+      html += `<pre><code>${code}</code></pre>`;
+      if (k < lines.length) { i += lines[k].length + 1; k++; }
+      continue;
+    }
+    if (ln.startsWith("- ")) {
+      html += "<ul>";
+      while (k < lines.length && lines[k].startsWith("- ")) { html += `<li>${inline(lines[k].slice(2), i + 2)}</li>`; i += lines[k].length + 1; k++; }
+      html += "</ul>"; continue;
+    }
+    if (ln.trim() === "") { i += ln.length + 1; k++; continue; }
+    let para = "", pOff = i;
+    while (k < lines.length && lines[k].trim() !== "" && !lines[k].startsWith("- ") && !lines[k].startsWith("```")) {
+      para += (para ? "\n" : "") + lines[k]; i += lines[k].length + 1; k++; }
+    html += `<p>${inline(para, pOff)}</p>`;
+  }
+  return html;
+}
+
+/* ───────────────────────── pane ─────────────────────────────────────────── */
+const opt = () => ({
+  enter: $("#t-enter").checked, pace: $("#t-pace").checked, fade: $("#t-fade").checked,
+  spring: $("#t-spring").checked, tool: $("#t-tool").checked, reduced: $("#t-reduced").checked,
+  reveal: $("#reveal").value,
+});
+function $(s, r = document) { return r.querySelector(s); }
+const RM = matchMedia("(prefers-reduced-motion: reduce)");
+
+class Pane {
+  constructor(el, fluid) {
+    this.el = el; this.fluid = fluid; this.sc = $("[data-scroller]", el); this.hud = $("[data-hud]", el); this.jumpBtn = $("[data-jump]", el);
+    this.sticky = true; this.v = 0; this.updates = 0;
+    this.sc.addEventListener("wheel", e => { if (e.deltaY < 0) this.unstick(); }, { passive: true });
+    this.sc.addEventListener("touchmove", () => this.unstick(), { passive: true });
+    this.sc.addEventListener("scroll", () => { if (this.atBottom()) { this.sticky = true; this.jumpBtn.style.display = "none"; } });
+    this.jumpBtn.addEventListener("click", () => { this.sticky = true; this.jumpBtn.style.display = "none"; if (!this.useSpring()) this.snap(); });
+    requestAnimationFrame(this.frame.bind(this));
+  }
+  o() { const o = opt(); if (!this.fluid) return { today: true }; const reduced = o.reduced || RM.matches; return { ...o, reduced }; }
+  useSpring() { const o = this.o(); return this.fluid && o.spring && !o.reduced; }
+  unstick() { this.sticky = false; this.v = 0; if (!this.atBottom()) this.jumpBtn.style.display = "block"; }
+  atBottom() { return this.sc.scrollHeight - this.sc.clientHeight - this.sc.scrollTop < 4; }
+  snap() { this.sc.scrollTop = this.sc.scrollHeight; }
+  reset() { this.sc.innerHTML = ""; this.stream = null; this.sticky = true; this.v = 0; this.updates = 0; this.t0 = performance.now(); this.applyClasses(); }
+  applyClasses() {
+    const o = this.o(); const s = this.sc.classList;
+    s.toggle("fx-enter", !!(this.fluid && o.enter)); s.toggle("fx-tool", !!(this.fluid && o.tool)); s.toggle("sim-reduced", !!(this.fluid && o.reduced));
+  }
+  changed() { if (this.sticky && !this.useSpring()) this.snap(); }
+  add(html) { const d = document.createElement("div"); d.innerHTML = html; const n = d.firstElementChild; this.sc.appendChild(n); this.changed(); return n; }
+
+  user(text) {
+    const n = this.add(`<div class="row-user"><div class="bubble-user sending prompt"><div class="md"><p>${esc(text)}</p></div></div></div>`);
+    setTimeout(() => n.querySelector(".prompt").classList.remove("sending"), 380);
+  }
+  toolStart(name, summary) {
+    return this.add(`<div class="row-tool"><div class="tool-head shimmer"><span class="ico spin"></span><span class="name">${name}</span><span class="sum">${esc(summary)}</span></div><div class="tool-body"><div></div></div></div>`);
+  }
+  toolDone(n, result) {
+    const head = n.querySelector(".tool-head"); head.classList.remove("shimmer");
+    n.querySelector(".ico").outerHTML = `<svg class="ico ok" viewBox="0 0 24 24" aria-label="done"><path fill="currentColor" d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z"/></svg>`;
+    const body = n.querySelector(".tool-body"); body.firstElementChild.innerHTML = `<pre>${esc(result)}</pre>`;
+    if (this.fluid && this.o().tool) requestAnimationFrame(() => body.classList.add("open")); else body.classList.add("open");
+    this.changed();
+  }
+  streamStart() {
+    const n = this.add(`<div class="row-asst"><div class="bubble-asst stream-live"><div class="md"></div></div></div>`);
+    this.stream = { n, md: n.querySelector(".md"), received: "", shown: 0, acc: 0, batches: [], ending: false, done: null, lastRx: performance.now() };
+    return new Promise(r => (this.stream.done = r));
+  }
+  streamAppend(text) {
+    const s = this.stream; s.received += text; s.lastRx = performance.now();
+    const o = this.o();
+    if (!this.fluid || !o.pace || o.reduced) { this.reveal(s.received.length); }
+  }
+  streamEnd() { this.stream.ending = true; }
+  reveal(upto) {
+    const s = this.stream, now = performance.now();
+    if (upto > s.shown) {
+      const last = s.batches[s.batches.length - 1];
+      if (last && now - last.t < 40) last.end = upto; else s.batches.push({ start: s.shown, end: upto, t: now });
+      s.shown = upto; this.updates++; this.paint(); this.changed();
+    }
+  }
+  paint() {
+    const s = this.stream, now = performance.now(), o = this.o();
+    const fade = this.fluid && o.fade && !o.reduced;
+    s.batches = s.batches.filter(b => now - b.t < 450);
+    const fadeOf = !fade ? () => null : i => { for (const b of s.batches) if (i >= b.start && i < b.end) return -Math.round(now - b.t); return null; };
+    const text = s.received.slice(0, s.shown);
+    let html = renderMd(text, fadeOf, o.reveal);
+    if (!s.final) {
+      const flowing = s.shown < s.received.length || now - s.lastRx < 120;
+      const caret = this.fluid ? `<span class="caret-fluid ${flowing ? "busy" : ""}"></span>` : `<span class="caret-today"></span>`;
+      html = html.replace(/(<\/(p|li|code)>)(<\/(ul|pre)>)?$/, caret + "$1$3");
+      if (!/caret/.test(html)) html += caret;
+    }
+    s.md.innerHTML = html;
+  }
+  frame(ts) {
+    const dt = Math.min(64, ts - (this.lastTs || ts)); this.lastTs = ts;
+    const s = this.stream;
+    if (s && !s.final) {
+      const o = this.o();
+      if (this.fluid && o.pace && !o.reduced) {
+        const backlog = s.received.length - s.shown;
+        if (backlog > 0) {
+          const TAU = s.ending ? 60 : 120, BASE_CPS = 0.09; // chars per ms (~90 cps floor)
+          s.acc += Math.max(BASE_CPS * dt, backlog * (1 - Math.exp(-dt / TAU)));
+          let n = Math.floor(s.acc); if (n > 0) { s.acc -= n; this.reveal(Math.min(s.received.length, s.shown + n)); }
+        }
+      }
+      if (this.fluid && s.batches.length) this.paint(); // keep caret/fade state fresh
+      if (s.ending && s.shown >= s.received.length) {
+        s.final = true; s.n.querySelector(".bubble-asst").classList.remove("stream-live"); this.paint(); s.done();
+      }
+    }
+    // T4 spring scroll (use-stick-to-bottom style)
+    if (this.sticky && this.useSpring()) {
+      const target = this.sc.scrollHeight - this.sc.clientHeight, diff = target - this.sc.scrollTop;
+      if (Math.abs(diff) > 0.5 || Math.abs(this.v) > 0.5) {
+        const damping = 0.7, stiffness = 0.05, mass = 1.25;
+        this.v = (damping * this.v + stiffness * diff) / mass;
+        this.sc.scrollTop += this.v;
+      } else this.v = 0;
+    }
+    const lag = s && !s.final ? Math.round((s.received.length - s.shown) / 0.25) : 0;
+    this.hud.textContent = `text paints: ${this.updates}` + (s && !s.final && this.fluid ? ` · buffer ${s.received.length - s.shown}ch` : "");
+    requestAnimationFrame(this.frame.bind(this));
+  }
+}
+
+const today = new Pane($("#pane-today"), false);
+const fluid = new Pane($("#pane-fluid"), true);
+const panes = [today, fluid];
+
+/* ───────────────────────── runner ───────────────────────────────────────── */
+let runId = 0;
+const sleep = (ms, id) => new Promise((res, rej) => setTimeout(() => (id === runId ? res() : rej("stop")), ms));
+async function run() {
+  const id = ++runId; seed = 7; panes.forEach(p => p.reset());
+  const transport = $("#transport").value, speed = +$("#speed").value;
+  try {
+    for (const step of SCRIPT) {
+      if (step.type === "wait") await sleep(step.ms, id);
+      if (step.type === "user") { panes.forEach(p => p.user(step.text)); await sleep(400, id); }
+      if (step.type === "tool") {
+        const nodes = panes.map(p => p.toolStart(step.name, step.summary));
+        await sleep(step.dur, id); panes.forEach((p, i) => p.toolDone(nodes[i], step.result)); await sleep(200, id);
+      }
+      if (step.type === "stream") {
+        const done = panes.map(p => p.streamStart());
+        let last = 0;
+        for (const d of deliveries(step.text, transport, speed)) { await sleep(d.t - last, id); last = d.t; panes.forEach(p => p.streamAppend(d.text)); }
+        panes.forEach(p => p.streamEnd());
+        await Promise.all(done);
+      }
+    }
+  } catch (e) { if (e !== "stop") throw e; }
+}
+$("#play").onclick = run;
+$("#stop").onclick = () => { runId++; };
+["#t-enter", "#t-tool", "#t-reduced"].forEach(s => $(s).addEventListener("change", () => fluid.applyClasses()));
+$("#theme").onclick = () => { const h = document.documentElement; h.dataset.theme = h.dataset.theme === "dark" ? "light" : "dark"; };
+run();
+</script>
+</body>
+</html>
