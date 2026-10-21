@@ -75,7 +75,7 @@
 - [x] 6.10 Write the failing test (test-plan #F5). Exemplar: `packages/client/src/components/__tests__/OpenSpecBoardView.test.tsx`. Input: rows: GET `declaredError` set; PUT 409 `modified`; PUT 409 `locked`. Trigger: save. Observable: save disabled until explicit replace confirm; reload offered; retry offered.
 - [x] 6.11 Implement the Dependencies dialog (GET-loaded declared lists with reasons, Not a dependency, read-only blocks links, picker, invalid-file confirm, 409 handling); verify #F4, #F5 green.
 - [x] 6.12 Write the failing test (test-plan #F9). Exemplar: `packages/client/src/components/__tests__/OpenSpecProfileSection.test.tsx`. Input: `generated: outdated` (patch 1), `affectedChanges` 4, `undeclaredChanges` 3. Trigger: open Update. Observable: dialog states 4 affected, 3 needing a declaration and returning to planning.
-- [ ] 6.13 Extend the Workflow Schema Update confirmation with the patch-2 counts; verify #F9 green and `npm run build` succeeds.
+- [x] 6.13 Extend the Workflow Schema Update confirmation with the patch-2 counts; verify #F9 green and `npm run build` succeeds.
 - [x] 6.14 Write the failing test (test-plan #F10). Exemplar: `tests/e2e/openspec-board-drop.spec.ts`. Input: docker harness repo with `pi-spec-driven` and changes `a`, `b`. Trigger: board → b → Dependencies… → add `a` → save. Observable: `b/dependencies.yaml` lists `a`; after the poll `b` shows "blocked by 1" and wave 2.
 
 ## 7. ship-it and plan-proposal
@@ -90,6 +90,6 @@
 
 ## 8. Docs and closeout
 
-- [ ] 8.1 Delegate to DocScribe: `docs/architecture.md` dependencies section (file format, inference layers, resolution table, waves, tracked paths, REST, ship-it gate, the #P2 measurements) and a `docs/faq.md` entry "How do I declare an OpenSpec change dependency?"; verify with `grep -n "dependencies.yaml" docs/architecture.md docs/faq.md`.
-- [ ] 8.2 Update the AGENTS.md rows for every new or touched file (`openspec-dependencies.ts`, `types.ts`, poll worker / gate / watcher modules, `workflow-schema.ts`, `openspec-routes.ts`, `route-tiers.ts`, board components, `openspec-deps-gate.ts`, ship-it and plan-proposal SKILL.md); verify `kb dox lint` reports nothing stale for them.
+- [x] 8.1 Delegate to DocScribe: `docs/architecture.md` dependencies section (file format, inference layers, resolution table, waves, tracked paths, REST, ship-it gate, the #P2 measurements) and a `docs/faq.md` entry "How do I declare an OpenSpec change dependency?"; verify with `grep -n "dependencies.yaml" docs/architecture.md docs/faq.md`.
+- [x] 8.2 Update the AGENTS.md rows for every new or touched file (`openspec-dependencies.ts`, `types.ts`, poll worker / gate / watcher modules, `workflow-schema.ts`, `openspec-routes.ts`, `route-tiers.ts`, board components, `openspec-deps-gate.ts`, ship-it and plan-proposal SKILL.md); verify `kb dox lint` reports nothing stale for them.
 - [ ] 8.3 Run the full suite (`set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`) and confirm no failures.
