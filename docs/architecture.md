@@ -6714,10 +6714,15 @@ Configuration lives in `pnpm-workspace.yaml` (NOT `package.json` `pnpm.*` — ya
 
 1. `npm publish --provenance` in `publish.yml` — OIDC Trusted Publishing. Needs no npm-installed tree. `publish` job upgrades to `npm@latest` only for OIDC ≥11.5.1 floor.
 2. Column C runtime `npm install` on END-USER machines: `pi-core-updater.ts`, `pi-core-checker.ts`, `recovery-server.ts`, electron `update-checker.ts`.
-3. `bundle-server.mjs` internal `npm install --omit=dev` for electron bundle.
-4. `deploy-site.yml` `site/` job (separate `site/package-lock.json`; `site/` NOT a pnpm workspace member).
+3. `bundle-server.mjs` internal npm for electron bundle runtime tree:
+   - `npm install --omit=dev` (floating mode, default).
+   - `npm pack @blackbelt-technology/pi-dashboard-server@X` (`fetchPublishedLock`, release-lock mode).
+   - `npm ci --omit=dev --allow-remote=all` on rebased `package-lock.json` (release-lock mode).
+4. Runtime-lock generation: `scripts/generate-runtime-lock.mjs` (publish + nightly). Rebase check: `scripts/lint-runtime-lock.mjs --version X`.
+5. `deploy-site.yml` `site/` job (separate `site/package-lock.json`; `site/` NOT a pnpm workspace member).
 
 See change: adopt-pnpm-for-dev-ci.
+See change: pin-electron-bundle-dependency-tree.
 
 ## Doctor Diagnostics
 

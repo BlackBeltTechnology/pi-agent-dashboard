@@ -15,7 +15,7 @@ When the Electron app is built with a release-lock version X (release and nightl
 - **AND** a lock entry for a first-party package the bundle does not map SHALL fail the bundle step naming that package
 
 #### Scenario: Lock entry without integrity is rejected
-- **WHEN** a third-party entry in the release lock carries no `integrity` value
+- **WHEN** a separately fetched third-party entry in the release lock (not one `inBundle`, which ships inside its parent package's tarball) carries no `integrity` value
 - **THEN** the bundle step SHALL exit non-zero naming the entry instead of installing it unverified
 
 #### Scenario: Missing release lock fails the build
@@ -41,5 +41,5 @@ When the Electron app is built with a release-lock version X (release and nightl
 - **AND** the build SHALL fail if either value is missing or different, regardless of what the release-lock version resolved to
 
 #### Scenario: Lock defects stop the release before the server is published
-- **WHEN** the release workflow generates X's runtime lock and the lock contains an unmapped first-party entry, a third-party entry without `integrity` or with a non-`https` source, or a plugin-union mismatch with the bundled workspaces
+- **WHEN** the release workflow generates X's runtime lock and the lock contains an unmapped first-party entry, a third-party entry without `integrity` (other than one bundled inside its parent package) or with a non-`https` source (loopback `http`, used by the nightly's Verdaccio, is accepted), or a plugin-union mismatch with the bundled workspaces
 - **THEN** the workflow SHALL fail before publishing `@blackbelt-technology/pi-dashboard-server@X`

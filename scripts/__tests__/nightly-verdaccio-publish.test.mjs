@@ -21,6 +21,7 @@ import {
   NIGHTLY_VERSION_RE,
   nextPatch,
   orderPublishSet,
+  planNightlyPublish,
 } from "../nightly-verdaccio-publish.mjs";
 
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
@@ -121,5 +122,75 @@ describe("discoverWorkspaces / orderPublishSet", () => {
       pos.get(synthetic.name),
     );
     expect(withNew[withNew.length - 1]).toBe(ROOT_META);
+  });
+});
+
+// Release order (design D5). See change: pin-electron-bundle-dependency-tree (test-plan #E17).
+describe("planNightlyPublish (release order)", () => {
+  const SERVER = "@blackbelt-technology/pi-dashboard-server";
+  const plan = planNightlyPublish(order_());
+
+  function order_() {
+    return orderPublishSet(discoverWorkspaces(REPO_ROOT));
+  }
+
+  it("E17: every package except server and root is published before the lock", () => {
+    const all = order_();
+    expect(plan.before.length).toBe(all.length - 2);
+    expect(plan.before).not.toContain(SERVER);
+    expect(plan.before).not.toContain(ROOT_META);
+  });
+
+  it("E17: the server is published after the lock + lint, the root last", () => {
+    expect(plan.server).toBe(SERVER);
+    expect(plan.root).toBe(ROOT_META);
+    const src = fs.readFileSync(path.join(REPO_ROOT, "scripts", "nightly-verdaccio-publish.mjs"), "utf8");
+    const iBefore = src.indexOf("for (const name of plan.before) publishOne(name)");
+    const iLock = src.indexOf('"scripts/generate-runtime-lock.mjs"');
+    const iLint = src.indexOf('"scripts/lint-runtime-lock.mjs"');
+    const iServer = src.indexOf("publishOne(plan.server)");
+    const iRoot = src.indexOf("publishOne(plan.root)");
+    expect(iBefore).toBeGreaterThan(-1);
+    expect(iLock).toBeGreaterThan(iBefore);
+    expect(iLint).toBeGreaterThan(iLock);
+    expect(iServer).toBeGreaterThan(iLint);
+    expect(iRoot).toBeGreaterThan(iServer);
+  });
+
+  it("E17: topological order holds across the phases", () => {
+    const flat = [...plan.before, plan.server, plan.root];
+    const pos = new Map(flat.map((n, i) => [n, i]));
+    for (const w of discoverWorkspaces(REPO_ROOT)) {
+      for (const dep of w.scopedDeps) {
+        if (!pos.has(dep) || dep === w.name) continue;
+        expect(pos.get(dep), `${dep} must publish before ${w.name}`).toBeLessThan(pos.get(w.name));
+      }
+    }
+  });
+
+  it("tolerates a set without a server or root", () => {
+    expect(planNightlyPublish(["a", "b"])).toEqual({ before: ["a", "b"], server: null, root: null });
+  });
+});
+
+// Nightly infra defects found while verifying pin-electron-bundle-dependency-tree on real runners.
+describe("nightly infra contracts", () => {
+  const read = (...p) => fs.readFileSync(path.join(REPO_ROOT, ...p), "utf8");
+
+  it("the Verdaccio config accepts large packages (pi-dashboard-web publish hit 413)", () => {
+    expect(read(".github", "verdaccio", "config.yml")).toMatch(/^max_body_size:\s*\d+mb\s*$/m);
+  });
+
+  it("the publish script spawns npm through npm.cmd + a shell on win32 (spawnSync npm ENOENT)", () => {
+    const src = read("scripts", "nightly-verdaccio-publish.mjs");
+    expect(src).toContain('"npm.cmd"');
+    expect(src).toMatch(/shell:\s*isWin/);
+  });
+
+  it("verify-publish installs with pnpm (the repo has no package-lock.json)", () => {
+    const wf = read(".github", "workflows", "nightly.yml");
+    const job = wf.slice(wf.indexOf("  verify-publish:"), wf.indexOf("  knip:"));
+    expect(job).toContain("pnpm install --frozen-lockfile");
+    expect(job).not.toMatch(/npm ci|cache:\s*npm/);
   });
 });
