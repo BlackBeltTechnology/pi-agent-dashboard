@@ -91,9 +91,8 @@ import { selectBadgeTimestamp } from "../../lib/session/session-card-time.js";
 import { deriveDotColor, deriveIconStatusColor, deriveProposalCardState, getCardPulseClass, getCardStripeFxClass, pulseClassForStatus, sourceIcons } from "../../lib/session/session-status-visuals.js";
 import { formatRelativeTime, formatTokens } from "../../lib/util/format.js";
 import { DialogPortal } from "../primitives/DialogPortal.js";
-import { DependenciesDialog } from "./DependenciesDialog.js";
 import { DependencyChips } from "./DependencyChips.js";
-import { LazyTasksPopover } from "./lazy-openspec-dialogs.js";
+import { LazyDependenciesDialog, LazyTasksPopover } from "./lazy-openspec-dialogs.js";
 import { OpenSpecActivityBadge } from "./OpenSpecActivityBadge.js";
 import { OpenSpecGroupManager } from "./OpenSpecGroupManager.js";
 import { OpenSpecErrorBadge } from "./OpenSpecErrorBadge.js";
@@ -658,14 +657,16 @@ export function OpenSpecBoardView(props: OpenSpecBoardViewProps) {
 
       {/* Dialogs */}
       {depsDialogFor && (
-        <DependenciesDialog
-          key={depsDialogFor}
-          cwd={cwd}
-          change={depsDialogFor}
-          activeNames={data.changes.map((c) => c.name)}
-          onClose={() => setDepsDialogFor(null)}
-          onOpenChange={setDepsDialogFor}
-        />
+        <Suspense fallback={null}>
+          <LazyDependenciesDialog
+            key={depsDialogFor}
+            cwd={cwd}
+            change={depsDialogFor}
+            activeNames={data.changes.map((c) => c.name)}
+            onClose={() => setDepsDialogFor(null)}
+            onOpenChange={setDepsDialogFor}
+          />
+        </Suspense>
       )}
       {tasksOpenFor && (
         <DialogPortal>
