@@ -1,6 +1,6 @@
 ---
 name: project-access
-description: 'Map, suggest and request the folder access a project needs. Three modes: `map` (read-only report of what this project''s sessions can already reach), `suggest` (draft `.pi/access.json` from grants this project''s sessions created), `provision` (submit the profile as a request the operator approves line by line in the dashboard). Use when an agent keeps getting folder access prompts, when asked "what folders can this project reach", "set up folder access", "which grants does this repo have", to write or submit `.pi/access.json`, or to retry access setup after project-init.'
+description: 'Map, suggest and request the folder access a project needs: `map` (read-only report), `suggest` (draft `.pi/access.json` from this project''s grants), `provision` (submit it for line-by-line operator approval). Use on "what folders can this project reach", "set up folder access", "write .pi/access.json", repeated folder access prompts, or retrying access setup after project-init.'
 license: MIT
 metadata:
   author: pi-dashboard
