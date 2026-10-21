@@ -107,7 +107,14 @@ type RetainedTranscriptEvents = Array<{
  */
 export type RetainedTranscriptHydration =
   | { cancelled: true }
-  | { cancelled: false; events: RetainedTranscriptEvents; state: RetainedTranscriptState };
+  | {
+      cancelled: false;
+      events: RetainedTranscriptEvents;
+      state: RetainedTranscriptState;
+      /** Skip-wipe fingerprint source (see `LoadResult`). */
+      entryCount?: number;
+      leafEntryId?: string;
+    };
 
 /**
  * The one `DirectoryService` method the hydration read needs. Narrowed to a
@@ -247,5 +254,5 @@ export async function readRetainedTranscript(
     );
     return { cancelled: false, events: [], state };
   }
-  return { cancelled: false, events: out.events, state };
+  return { cancelled: false, events: out.events, state, entryCount: out.entryCount, leafEntryId: out.leafEntryId };
 }

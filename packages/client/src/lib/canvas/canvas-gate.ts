@@ -74,6 +74,12 @@ export interface CanvasState {
   version: number;
   /** Declared-server confirm chip, or null when none/expired. */
   chip: ServerChip | null;
+  /**
+   * Tool call id of the `canvas` declare / `write` that produced `target`
+   * (last writer wins). Absent from older servers. Drives which chat card links
+   * to the canvas. See change: improve-canvas-html-and-url-ux (D8).
+   */
+  sourceCallId?: string;
 }
 
 export const EMPTY_CANVAS_STATE: CanvasState = {
@@ -83,6 +89,7 @@ export const EMPTY_CANVAS_STATE: CanvasState = {
   phase: "settle",
   version: 0,
   chip: null,
+  sourceCallId: undefined,
 };
 
 /** Structural equality for two ViewTargets (same file cwd+path, or same url). */
@@ -115,7 +122,14 @@ export function reduceCanvasIntent(prev: CanvasState, msg: CanvasIntentMessage):
       return prev;
     }
     if (sameTarget(prev.target, msg.target)) {
-      return { ...prev, phase: "eager", mode: nextMode, title: msg.title, version: prev.version + 1 };
+      return {
+        ...prev,
+        phase: "eager",
+        mode: nextMode,
+        title: msg.title,
+        version: prev.version + 1,
+        sourceCallId: msg.sourceCallId,
+      };
     }
     return {
       ...prev,
@@ -124,6 +138,7 @@ export function reduceCanvasIntent(prev: CanvasState, msg: CanvasIntentMessage):
       title: msg.title,
       phase: "eager",
       version: prev.version + 1,
+      sourceCallId: msg.sourceCallId,
     };
   }
 
@@ -134,7 +149,14 @@ export function reduceCanvasIntent(prev: CanvasState, msg: CanvasIntentMessage):
     return { ...EMPTY_CANVAS_STATE, chip: prev.chip };
   }
   if (sameTarget(prev.target, msg.target)) {
-    return { ...prev, phase: "settle", mode: nextMode, title: msg.title };
+    // Settle echoes the winning writer; keep the eager one when an older server omits it.
+    return {
+      ...prev,
+      phase: "settle",
+      mode: nextMode,
+      title: msg.title,
+      sourceCallId: msg.sourceCallId ?? prev.sourceCallId,
+    };
   }
   return {
     ...prev,
@@ -143,6 +165,7 @@ export function reduceCanvasIntent(prev: CanvasState, msg: CanvasIntentMessage):
     title: msg.title,
     phase: "settle",
     version: prev.version + 1,
+    sourceCallId: msg.sourceCallId,
   };
 }
 
@@ -158,7 +181,10 @@ export function reduceCanvasChip(prev: CanvasState, msg: CanvasServerChipMessage
     if (prev.chip != null && prev.chip.port === msg.port) return expireCanvasChip(prev);
     return prev;
   }
-  return { ...prev, chip: { kind: "server", port: msg.port, title: msg.title } };
+  return {
+    ...prev,
+    chip: { kind: "server", port: msg.port, title: msg.title, path: msg.path, declarationId: msg.declarationId },
+  };
 }
 
 /** Drop the server chip (turn boundary / server-exit expiry, Decision 4 S32). */
@@ -192,4 +218,35 @@ export function classifyServerProbe(input: ServerProbeInput): ServerProbeOutcome
   if (input.aborted) return "not-responding";
   if (!input.ok) return "not-running";
   return "iframe";
+}
+
+// ─── Tool-card scalars ──────────────────────────────────────────────────────
+
+/**
+ * The scalar slice of a session's canvas state that `canvas` tool cards read
+ * (`ToolContext.canvas`). Scalars only, so the memo that builds the tool context
+ * depends on values, not on `CanvasState` identity: a phase / title / version /
+ * chip-title change that moves none of them never re-renders the transcript.
+ * See change: improve-canvas-html-and-url-ux (D8).
+ */
+export interface CanvasToolScalars {
+  /** Identity of the current target (no version), or the chip's `server:<port>`; null when empty. */
+  key: string | null;
+  /** Call id of the `canvas` declare / write that owns the current target. */
+  sourceCallId: string | undefined;
+  /** Call id of the declare that owns the current server chip. */
+  chipDeclarationId: string | undefined;
+}
+
+export function canvasToolScalars(state: CanvasState | undefined): CanvasToolScalars {
+  const t = state?.target ?? null;
+  const key =
+    t == null
+      ? state?.chip
+        ? `server:${state.chip.port}`
+        : null
+      : t.kind === "file"
+        ? `file:${t.cwd}:${t.path}`
+        : `url:${t.url}`;
+  return { key, sourceCallId: state?.sourceCallId, chipDeclarationId: state?.chip?.declarationId };
 }

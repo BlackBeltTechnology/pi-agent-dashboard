@@ -17,15 +17,16 @@
 import { fileKind } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
 import { mdiClose, mdiConsoleLine, mdiFileTreeOutline, mdiMagnify, mdiRefresh, mdiWeb } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { grepContents } from "../../lib/api/grep-api.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
-import { useRailWidth } from "../../lib/layout/rail-width.js";
+import { clampRailWidth, useRailWidth } from "../../lib/layout/rail-width.js";
 import { stripTermId } from "../../lib/layout/use-terminal-pane-tabs.js";
 import { useTreeVisible } from "../../lib/util/tree-visible.js";
 import { ErrorBoundary } from "../primitives/ErrorBoundary.js";
 import { SplitDivider } from "../split/SplitDivider.js";
 import { useSplitWorkspace } from "../split/SplitWorkspaceContext.js";
+import { TerminalLimitNotice } from "../terminal/TerminalLimitNotice.js";
 import { ChangedOnDiskBanner } from "./ChangedOnDiskBanner.js";
 import { ChangesRailSection } from "./ChangesRailSection.js";
 import { EditorFileTree } from "./EditorFileTree.js";
@@ -33,6 +34,7 @@ import { EditorSearchPanel } from "./EditorSearchPanel.js";
 import { EditorTabs } from "./EditorTabs.js";
 import { FileHandlerAnchor } from "./file-handler/FileHandlerAnchor.js";
 import { FileModeSwitcher } from "./file-handler/FileModeSwitcher.js";
+import { type FileModeOffers, FileModeOffersContext } from "./file-handler/file-mode-offers.js";
 import { useFileHandlerPane } from "./file-handler/use-file-handler-pane.js";
 
 // D3 (change: add-lazy-terminal-diff-bootstrap): the keep-alive terminal layer
@@ -148,6 +150,10 @@ export function EditorPane() {
   // Tree+viewer row — its left edge anchors the rail-width drag math so the
   // width stays correct regardless of the outer split ratio.
   const rowRef = useRef<HTMLDivElement>(null);
+  // Rail wrapper: the drag previews its width straight in the DOM and commits
+  // once on release. See change: fix-split-divider-drag (D5).
+  const railRef = useRef<HTMLDivElement>(null);
+  const railLeft = () => rowRef.current?.getBoundingClientRect().left ?? 0;
   // Scroll target for the active tab, latched from the pending-scroll signal.
   const [scrollTo, setScrollTo] = useState<{ path: string; line: number } | null>(null);
 
@@ -156,6 +162,12 @@ export function EditorPane() {
   // Plugin file-handler modes (session-scoped panes only — `changeDetection` is
   // the session-pane flag). See change: add-editor-pane-file-handlers.
   const fh = useFileHandlerPane({ sessionId, cwd, sessionPane: changeDetection, state, dispatch });
+  // The binary notice names the matching modes (D11 A4); same claims + action as the switcher.
+  const fhSelect = fh.selectMode;
+  const modeOffers = useMemo<FileModeOffers | null>(
+    () => (fh.matching.length > 0 && !fh.outsideCwd ? { claims: fh.matching, onSelect: (key) => void fhSelect(key) } : null),
+    [fh.matching, fh.outsideCwd, fhSelect],
+  );
   const stateRef = useRef(state);
   stateRef.current = state;
 
@@ -235,6 +247,8 @@ export function EditorPane() {
       size: 0,
       line: lineForTab,
       restrictCsp: activeTab.restrictCsp,
+      reloadNonce: activeTab.reloadNonce,
+      updatedByAgent: activeTab.updatedByAgent,
     };
     // Plugin tabs render through PluginTabHost (claim by prefix, richer
     // props); never the registry, never CappedViewer (no `/api/file`).
@@ -254,7 +268,9 @@ export function EditorPane() {
               onClose={() => dispatch({ type: "closeTab", index: activeIdx })}
             />
           ) : PseudoTabViewerComponent ? (
-            <PseudoTabViewerComponent key={viewerKey} {...viewerProps} />
+            // A live-server tab keeps per-target state (framed target, token, policy): key it by tab path so
+            // two `static:`/`live:` tabs never show each other's page. See change: improve-canvas-html-and-url-ux.
+            <PseudoTabViewerComponent key={viewer === "live-server" ? activeTab.path : viewerKey} {...viewerProps} />
           ) : isPseudoTabViewer(viewer) ? null : fh.handlerView && fh.activeKey ? (
             // Plugin file-handler mode: the page-level layer aligns the live
             // instance over this anchor; CappedViewer is NOT mounted.
@@ -264,7 +280,9 @@ export function EditorPane() {
             // fail-safe ordering; a failed digest still resolves (null baseline).
             <div className="p-4 text-sm text-[var(--text-tertiary)]">{t("editor.loadingViewer", undefined, "Loading viewer…")}</div>
           ) : (
-            <CappedViewer key={viewerKey} viewer={viewer} {...viewerProps} />
+            <FileModeOffersContext.Provider value={modeOffers}>
+              <CappedViewer key={viewerKey} viewer={viewer} {...viewerProps} />
+            </FileModeOffersContext.Provider>
           )}
         </Suspense>
       </PreviewProvenance>
@@ -345,6 +363,10 @@ export function EditorPane() {
         </button>
       </div>
 
+      {/* A refused terminal spawn (PTY cap) reports here, under the header that has the "+".
+          See change: harden-server-capability-bounds. */}
+      <TerminalLimitNotice cwd={cwd} inline={false} />
+
       {/* Tabs */}
       {state.openFiles.length > 0 && (
         <EditorTabs
@@ -376,7 +398,7 @@ export function EditorPane() {
       <div ref={rowRef} className="flex min-h-0 flex-1">
         {treeVisible && (
           <>
-            <div className="shrink-0 flex min-h-0 flex-col" style={{ width: railWidth }}>
+            <div ref={railRef} className="shrink-0 flex min-h-0 flex-col" style={{ width: railWidth }}>
               {/* Changes section pinned atop the project-tree rail (change:
                   add-change-summary-table). Absent when no changes. */}
               <ChangesRailSection sessionOnly={sessionOnly} onSessionOnlyChange={setSessionOnly} />
@@ -395,8 +417,10 @@ export function EditorPane() {
             <SplitDivider
               orientation="h"
               onResize={(clientX) => {
-                const left = rowRef.current?.getBoundingClientRect().left ?? 0;
-                setRailWidth(clientX - left);
+                if (railRef.current) railRef.current.style.width = `${clampRailWidth(clientX - railLeft())}px`;
+              }}
+              onResizeEnd={(clientX) => {
+                if (clientX !== null) setRailWidth(clientX - railLeft());
               }}
               data-testid="rail-divider"
               title={t("editor.dragResizeRail", undefined, "Drag to resize the browse rail")}

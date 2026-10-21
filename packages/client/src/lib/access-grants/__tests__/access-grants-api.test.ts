@@ -349,3 +349,21 @@ describe("revocation takes effect on the next request without a restart (7.8)", 
     ).toBe(false);
   });
 });
+
+describe("preview-egress revoke (improve-canvas-html-and-url-ux, task 3.4)", () => {
+  it("DELETEs /api/access/preview-egress with the project AND the origin", async () => {
+    const calls: RecordedCall[] = [];
+    global.fetch = vi.fn().mockImplementation((url: string, options?: FetchArgs) => {
+      calls.push({ method: options?.method ?? "GET", url, body: JSON.parse(options?.body ?? "{}") });
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ success: true }) });
+    }) as unknown as typeof fetch;
+    const [entry] = aggregateAccessEntries({
+      ...emptyAccessGrantSnapshot(),
+      previewEgress: [{ project: "/p", origin: "https://cdn.tailwindcss.com" }],
+    });
+    expect((await revokeAccessEntry(entry)).ok).toBe(true);
+    expect(calls).toEqual([
+      { method: "DELETE", url: "/api/access/preview-egress", body: { project: "/p", origin: "https://cdn.tailwindcss.com" } },
+    ]);
+  });
+});

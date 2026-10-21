@@ -48,7 +48,7 @@ export function containerSh(script: string): string {
 }
 
 /** A request issued from inside the container (loopback ⇒ "genuinely local"). */
-export function localFetch(method: string, path: string, body?: string): { status: number; body: string } {
+function localFetch(method: string, path: string, body?: string): { status: number; body: string } {
   const data = body === undefined ? "" : `-H 'content-type: application/json' --data-binary '${body.replace(/'/g, "'\\''")}'`;
   const out = containerSh(`curl -s -w '\\n%{http_code}' -X ${method} ${data} http://127.0.0.1:${DASHBOARD_PORT}${path}`);
   const cut = out.lastIndexOf("\n");

@@ -44,6 +44,7 @@ import type {
   NotifyMessage,
 } from "../protocol.js";
 import type { BriefStatus, QuestionAnswerRequest, QuestionRow } from "../question-types.js";
+import type { BrowseResult } from "../rest-api.js";
 import type { DecoratorDescriptor } from "../types.js";
 
 // Type-level assertion: if these types are NOT in the union, this will fail to
@@ -592,5 +593,27 @@ describe("plugins_changed (decouple-plugins-from-core)", () => {
     const n = parse(JSON.stringify(newRow));
     expect([o.id, o.source, o.restartRequired, o.client]).toEqual(["demo", undefined, undefined, undefined]);
     expect([n.source, n.restartRequired, n.client?.refusedReason]).toEqual(["workspace", true, "missing-dep"]);
+  });
+});
+
+// ─── harden-server-capability-bounds (test-plan #E35, #E38) ──────────────────
+describe("terminal_limit_reached / folder_refused / BrowseResult.confined types", () => {
+  it("both new messages are members of ServerToBrowserMessage", () => {
+    const a: ServerToBrowserMessage = { type: "terminal_limit_reached", scope: "owner", limit: 16, cwd: "/w", inline: false };
+    const b: ServerToBrowserMessage = { type: "folder_refused", path: "/", reason: "outside_allowed_roots" };
+    // @ts-expect-error scope must be "global" | "owner"
+    const bad: ServerToBrowserMessage = { type: "terminal_limit_reached", scope: "cwd", limit: 1, cwd: "/w", inline: false };
+    expect([a.type, b.type, bad.type]).toEqual(["terminal_limit_reached", "folder_refused", "terminal_limit_reached"]);
+  });
+
+  it("BrowseResult.confined is boolean | undefined", () => {
+    const base: BrowseResult = { entries: [], parent: null, current: "/h" };
+    const confined: boolean | undefined = base.confined;
+    expect(confined).toBeUndefined();
+    const yes: BrowseResult = { ...base, confined: true };
+    expect(yes.confined).toBe(true);
+    // @ts-expect-error confined is a boolean
+    const bad: BrowseResult = { ...base, confined: "yes" };
+    expect(bad).toBeDefined();
   });
 });

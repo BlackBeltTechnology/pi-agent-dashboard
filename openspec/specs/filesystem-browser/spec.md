@@ -4,7 +4,9 @@ Server-side directory browse API plus the PathPicker UI for choosing filesystem 
 ## Requirements
 
 ### Requirement: Directory browse API
-The server SHALL expose `GET /api/browse?path=<dir>&q=<query>&detect=<0|1>` (localhost-only) that returns directory entries for the given path. The response SHALL include `{ success: true, data: { entries: Array<{ name, path, isGit?, isPi? }>, parent: string | null, current: string } }`. Only directories SHALL be listed (no files). Hidden directories (names starting with `.`) SHALL be excluded. If `path` is omitted, it SHALL default to the user's home directory. The entry limit SHALL be 200, applied AFTER filtering and ranking so best matches are never truncated.
+The server SHALL expose `GET /api/browse?path=<dir>&q=<query>&detect=<0|1>` (behind `networkGuard`) that returns directory entries for the given path. The response SHALL include `{ success: true, data: { entries: Array<{ name, path, isGit?, isPi? }>, parent: string | null, current: string } }`. Only directories SHALL be listed (no files). Hidden directories (names starting with `.`) SHALL be excluded. If `path` is omitted, it SHALL default to the user's home directory. The entry limit SHALL be 200, applied AFTER filtering and ranking so best matches are never truncated.
+
+A request that is not locally trusted SHALL be confined to the shared-root set defined by the `server-capability-bounds` capability: a `path` outside every root SHALL return HTTP 403 `{ success: false, error: "path outside allowed roots" }`; a confined listing SHALL carry `confined: true` and SHALL report `parent: null` when the parent lies outside every root. Locally trusted requests SHALL be unaffected and SHALL NOT carry `confined`.
 
 When `detect` is omitted, empty, or any value other than `1`, the server SHALL skip per-entry `.git` / `.pi` detection and SHALL omit the `isGit` and `isPi` fields from each entry. The default response is therefore a single-`readdir` enumeration with no per-entry filesystem probes.
 
@@ -55,8 +57,16 @@ When `q` is provided, entries SHALL be filtered case-insensitively by substring 
 - **THEN** the `parent` field SHALL be `null`
 
 #### Scenario: Remote access blocked
-- **WHEN** a GET request originates from a non-loopback address
-- **THEN** the server SHALL return `{ success: false, error: "localhost only" }`
+- **WHEN** a non-local GET request is made to `/api/browse?path=/`
+- **THEN** the server SHALL return HTTP 403 `{ success: false, error: "path outside allowed roots" }`
+
+#### Scenario: Browse response type carries the confined flag
+- **WHEN** client code reads `BrowseResult.confined`
+- **THEN** it SHALL type-check as `boolean | undefined` without casts
+
+#### Scenario: Remote listing at a shared-root top has no parent
+- **WHEN** a non-local GET request lists `$HOME` and the parent of `$HOME` is outside every shared root
+- **THEN** the `parent` field SHALL be `null` and `confined` SHALL be `true`
 
 #### Scenario: Hidden directories excluded
 - **WHEN** a directory contains subdirectories like `.config`, `.cache`, `projects`
@@ -85,7 +95,7 @@ When `q` is provided, entries SHALL be filtered case-insensitively by substring 
 - **THEN** the server SHALL behave as if `q` were omitted (alphabetical, unfiltered)
 
 ### Requirement: Directory flag classification API
-The server SHALL expose `GET /api/browse/flags?paths=<json-array>` (localhost-only) that classifies a batch of absolute paths as git repositories and/or pi projects. The `paths` query value SHALL be a URL-encoded JSON array of absolute path strings.
+The server SHALL expose `GET /api/browse/flags?paths=<json-array>` (behind `networkGuard`) that classifies a batch of absolute paths as git repositories and/or pi projects. The `paths` query value SHALL be a URL-encoded JSON array of absolute path strings.
 
 The response on success SHALL be:
 
@@ -99,6 +109,8 @@ The response on success SHALL be:
 ```
 
 The response key set SHALL equal the input `paths` set (one classification per input path, no extras, no omissions). For every input path the server SHALL probe `<path>/.git` and `<path>/.pi` using `fs.access`-style detection: any error (ENOENT, EACCES, ELOOP, race-on-deletion, target is not a directory, anything else) SHALL map the corresponding flag to `false`. The endpoint SHALL never throw out of a single bad path — only out-of-protocol failures (malformed `paths` JSON, over-cap input) SHALL produce a top-level error.
+
+A request that is not locally trusted SHALL be refused with HTTP 403 `path outside allowed roots` when any input path lies outside the shared-root set (`server-capability-bounds`).
 
 The endpoint SHALL cap input length at 100 paths per request. Internal probe concurrency SHALL be bounded (initial value 32 in-flight `fs.access` calls).
 
@@ -121,8 +133,9 @@ The endpoint SHALL cap input length at 100 paths per request. Internal probe con
 - **THEN** the server SHALL return `{ success: false, error: "invalid paths" }` with HTTP 400
 
 #### Scenario: Bulk classification remote access blocked
-- **WHEN** a GET request to `/api/browse/flags` originates from a non-loopback address
-- **THEN** the server SHALL return `{ success: false, error: "localhost only" }`
+- **WHEN** a non-local GET request to `/api/browse/flags` includes any path outside the shared-root set
+- **THEN** the server SHALL return HTTP 403 `{ success: false, error: "path outside allowed roots" }`
+- **AND** no filesystem probe SHALL be performed
 
 #### Scenario: Empty paths array
 - **WHEN** a GET request is made with `paths=[]`
@@ -130,11 +143,13 @@ The endpoint SHALL cap input length at 100 paths per request. Internal probe con
 - **AND** no filesystem probe SHALL be performed
 
 ### Requirement: Directory create API
-The server SHALL expose `POST /api/browse/mkdir` (localhost-only) that creates a new directory under a specified parent. The request body SHALL be `{ parent: string, name: string }`. On success the response SHALL be `{ success: true, data: { path: string } }` where `path` is the absolute path of the created directory.
+The server SHALL expose `POST /api/browse/mkdir` (behind `networkGuard`) that creates a new directory under a specified parent. The request body SHALL be `{ parent: string, name: string }`. On success the response SHALL be `{ success: true, data: { path: string } }` where `path` is the absolute path of the created directory.
 
 The server SHALL validate:
 - `parent` is an absolute path, exists on disk, and is a directory.
 - `name` is non-empty after trimming, is not `.` or `..`, contains no `/` or backslash or `\0`, and has no leading or trailing whitespace.
+
+A request that is not locally trusted SHALL be refused with HTTP 403 `path outside allowed roots`, before any filesystem write, when `parent` (symlinks resolved) lies outside the shared-root set (`server-capability-bounds`).
 
 Directory creation SHALL be non-recursive (`fs.mkdir` without `recursive: true`): if the target already exists the server SHALL fail rather than silently succeed.
 
@@ -171,8 +186,8 @@ Directory creation SHALL be non-recursive (`fs.mkdir` without `recursive: true`)
 - **THEN** the server SHALL return `{ success: false, error: "invalid name" }` and SHALL NOT create any directory
 
 #### Scenario: Remote access blocked
-- **WHEN** a POST request originates from a non-loopback address
-- **THEN** the server SHALL return `{ success: false, error: "localhost only" }` and SHALL NOT create any directory
+- **WHEN** a non-local POST request targets `parent: "/tmp"` and `/tmp` is outside every shared root
+- **THEN** the server SHALL return HTTP 403 `{ success: false, error: "path outside allowed roots" }` and SHALL NOT create any directory
 
 ### Requirement: PathPicker component
 The PathPicker SHALL browse directories via `GET /api/browse` and render an inline error region on failure. When the failure is a network-guard denial (HTTP 403 with `error: "network_not_allowed"`), the PathPicker SHALL render the server-supplied `hint` and an affordance to Settings → Servers — NOT a bare "Access denied" string. Other failures (e.g. directory not found, transport error) SHALL keep their existing error copy.
@@ -220,6 +235,21 @@ than icons.
 - **WHEN** the picker renders a parent row, a directory row, and a create-here row
 - **THEN** each SHALL render an SVG path sourced from `@mdi/js`
 - **AND** none SHALL contain the characters `⬆`, `📁`, or `＋`
+
+#### Scenario: Confined listing at a shared-root top shows the shared-folders hint
+- **WHEN** a `/api/browse` response carries `confined: true` and `parent: null`
+- **THEN** the picker SHALL omit the parent (`..`) row
+- **AND** SHALL show a hint that this device can browse only the folders the dashboard shares and that other folders are pinned on the host
+
+#### Scenario: Path outside shared roots shows a plain-language refusal
+- **WHEN** `/api/browse` or `/api/browse/mkdir` answers HTTP 403 with error `path outside allowed roots`
+- **THEN** the browse API helper SHALL throw a typed error with `code: "path_outside_allowed_roots"` (distinct from `network_not_allowed`)
+- **AND** the picker SHALL show, in its inline error slot, that the path is outside the folders this dashboard shares and to ask the host to pin it
+- **AND** SHALL offer a "Back to home" action and SHALL NOT show the raw error string
+
+#### Scenario: Local picker shows no confinement hint
+- **WHEN** a `/api/browse` response does not carry `confined`
+- **THEN** the picker SHALL render as before, with no shared-folders hint
 
 ### Requirement: PathPicker new folder creation
 The `PathPicker` component SHALL let users create a new directory inside the currently-browsed parent directory via two affordances:

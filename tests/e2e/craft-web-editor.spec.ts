@@ -1,7 +1,11 @@
 /**
- * Browser E2E — WordCraft (craft-web plugin) edits a `.docx` in the editor pane
- * (change: edit-office-in-pane-with-craft-web, test-plan F1–F9, X7, P1, P2;
- * tasks 9.26–9.36, 9.43).
+ * Browser E2E — the craft-web plugin edits files in the editor pane through the ArtCraft web builds.
+ *
+ * TABLE-DRIVEN (change: extend-craft-web-to-all-apps, design D9): `ROWS` holds one row per shipped app
+ * claim; the per-row scenarios are test-plan F1 (open), F2 (save), F3 (dirty round trip), F5 (CSP),
+ * F6 (rendering legs, `?webgl`), P1 (first open p95), plus F11 (v1-shim build keeps working) and F15
+ * (toolbar contrast). The WordCraft-only scenarios of edit-office-in-pane-with-craft-web (Save As,
+ * Export PDF, hyperlink, reload loss, refused open, disable mid-session) follow, prefixed "WordCraft:".
  *
  * Only a real browser + the real server can prove these: the production
  * `sandbox="allow-scripts"` frame (opaque origin, IndexedDB refused), the mount's
@@ -31,10 +35,12 @@
  */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import zlib from "node:zlib";
 import type { Frame } from "@playwright/test";
 import { expect, type Locator, type Page, test } from "./fixtures.js";
+import { contrastFailures, measureText, setThemeMode } from "./helpers/computed-contrast.js";
 import { resolveContainer } from "./helpers/container-proc.js";
 import { FIXTURE_GIT, spawnFreshGitSession } from "./helpers/index.js";
 import { DASHBOARD_PORT, REPO_ROOT } from "./lifecycle.js";
@@ -44,9 +50,11 @@ const API = `http://localhost:${DASHBOARD_PORT}`;
 const DOCX = "report.docx";
 const COPY = "report.wordcraft.docx";
 const LINK_DOCX = "linked.docx";
-const MODE = "file-mode-craft-web/wordcraft";
 const ABS = (rel: string) => `${FIXTURE_GIT}/${rel}`;
-const FIXTURE_BYTES = fs.readFileSync(path.join(REPO_ROOT, "docker", "fixtures", "sample-git", DOCX));
+const FIXTURE_DIR = path.join(REPO_ROOT, "docker", "fixtures", "sample-git");
+const FIXTURE_BYTES = fs.readFileSync(path.join(FIXTURE_DIR, DOCX));
+/** The plugin's data dir inside the harness container (`ctx.dataDir`, server user `pi`). */
+const PLUGIN_DATA = "/home/pi/.pi/dashboard/plugin-data/craft-web";
 /** Ready (60 s) + opened (15 s) host budgets, plus slack for the wasm download. */
 const OPEN_TIMEOUT = 90_000;
 
@@ -58,12 +66,17 @@ function inBox(script: string): string {
     maxBuffer: 64 * 1024 * 1024,
   }).trim();
 }
+/** Bytes go through stdin (a large fixture would overflow argv: E2BIG). */
 function writeBytesOob(rel: string, bytes: Uint8Array): void {
   const q = JSON.stringify(ABS(rel));
-  inBox(`printf %s ${Buffer.from(bytes).toString("base64")} | base64 -d > ${q} && chmod 666 ${q}`);
+  execFileSync("docker", ["exec", "-i", resolveContainer(), "sh", "-c", `base64 -d > ${q} && chmod 666 ${q}`], {
+    input: Buffer.from(bytes).toString("base64"),
+    maxBuffer: 64 * 1024 * 1024,
+  });
 }
 const readBytesOob = (rel: string): Buffer => Buffer.from(inBox(`base64 < ${JSON.stringify(ABS(rel))} | tr -d '\\n'`), "base64");
 const existsOob = (rel: string): boolean => inBox(`[ -e ${JSON.stringify(ABS(rel))} ] && echo y || echo n`) === "y";
+const mtimeOob = (rel: string): string => inBox(`stat -c %y ${JSON.stringify(ABS(rel))}`);
 const listOob = (): string[] => inBox(`ls -1A ${JSON.stringify(FIXTURE_GIT)}`).split("\n").sort();
 
 // ---------------------------------------------------------------- tiny OOXML zip (no deps)
@@ -179,6 +192,180 @@ function makeDocx(text: string, link?: string): Buffer {
   return zipStore(files);
 }
 
+// ---------------------------------------------------------------- per-app rows (D9)
+
+/**
+ * One shipped app claim. `fixture` lives in `docker/fixtures/sample-git/` (host) and is re-seeded into
+ * the session's git fixture before every test; `edit` makes the document dirty through the app's own UI;
+ * `verify` checks the saved bytes contain the edit.
+ */
+interface CraftRow {
+  appId: string;
+  claimId: string;
+  label: string;
+  /** Workspace-relative file the row opens (copied from `fixtureSource`). */
+  fixture: string;
+  /** Host path relative to `docker/fixtures/sample-git/`. */
+  fixtureSource: string;
+  /** The app reports a document title (opened is confirmed). */
+  titled: boolean;
+  edit?: (page: Page, iframe: Locator) => Promise<void>;
+  verify?: (saved: Buffer) => void;
+  /** F3 dirty round trip runs for this row. */
+  dirtyRoundTrip?: boolean;
+  /** F15 toolbar contrast runs for this row (a plain edit claim). */
+  contrast?: boolean;
+  /** `inner-title` app: the first save always asks Save As (D10, F8). */
+  saveAsFirst?: boolean;
+}
+
+const ROWS: readonly CraftRow[] = [
+  {
+    appId: "wordcraft",
+    claimId: "wordcraft",
+    label: "WordCraft",
+    fixture: DOCX,
+    fixtureSource: DOCX,
+    titled: true,
+    edit: (page, iframe) => typeInCanvas(page, iframe, "Edited in pane"),
+    verify: (saved) => {
+      expect(saved.subarray(0, 2).toString("latin1")).toBe("PK");
+      expect(docxText(saved)).toContain("Edited in pane");
+    },
+  },
+  // ---- Wave 1 (extend-craft-web-to-all-apps group 2). Edits drive each app's own UI.
+  {
+    appId: "gridcraft",
+    claimId: "gridcraft",
+    label: "GridCraft",
+    fixture: "budget.xlsx",
+    fixtureSource: "craft/budget.xlsx",
+    titled: true,
+    // Name Box (top-left, fixed offset) → C2, then type: robust to the frame width.
+    edit: async (page, iframe) => {
+      await iframe.click({ position: { x: 66, y: 186 } });
+      await page.keyboard.press("ControlOrMeta+a");
+      await page.keyboard.type("C2", { delay: 30 });
+      await page.keyboard.press("Enter");
+      await page.keyboard.type("999", { delay: 30 });
+      await page.keyboard.press("Enter");
+    },
+    verify: (saved) => expect(unzipEntry(saved, "xl/worksheets/sheet1.xml")?.toString("utf8")).toMatch(/<c r="C2"[^>]*><v>999<\/v>/),
+    dirtyRoundTrip: true,
+  },
+  {
+    appId: "pdfcraft",
+    claimId: "pdfcraft",
+    label: "PdfCraft",
+    fixture: "doc.pdf",
+    fixtureSource: "craft/doc.pdf",
+    titled: false,
+  },
+  {
+    appId: "cadcraft",
+    claimId: "cadcraft",
+    label: "CADCraft",
+    fixture: "plan.dxf",
+    fixtureSource: "craft/plan.dxf",
+    titled: false,
+    // Keystrokes go to CADCraft's command line.
+    edit: async (page, iframe) => {
+      await focusApp(iframe);
+      for (const step of ["CIRCLE", "10,10", "5"]) {
+        await page.keyboard.type(step, { delay: 60 });
+        await page.keyboard.press("Enter");
+        await page.waitForTimeout(500); // the next prompt must be up before its input
+      }
+    },
+    verify: (saved) => expect(dxfCircles(saved)).toContainEqual({ x: 10, y: 10, r: 5 }),
+    dirtyRoundTrip: true,
+    contrast: true,
+  },
+  {
+    appId: "designcraft",
+    claimId: "designcraft",
+    label: "DesignCraft",
+    fixture: "mag.designcraft",
+    fixtureSource: "craft/mag.designcraft",
+    titled: false,
+    verify: (saved) => expect(zipNames(saved).some((n) => n.startsWith("assets/"))).toBe(true),
+  },
+  {
+    appId: "soundcraft",
+    claimId: "soundcraft",
+    label: "SoundCraft",
+    fixture: "mix.scraftz",
+    fixtureSource: "craft/mix.scraftz",
+    titled: false,
+    saveAsFirst: true,
+  },
+  // ---- Wave 2 (group 3): native-format apps. Rows here open + save the NATIVE claim in place;
+  // the foreign-format sibling flow is F7 below.
+  {
+    appId: "photocraft",
+    claimId: "photocraft",
+    label: "PhotoCraft",
+    fixture: "photo.psd",
+    fixtureSource: "craft/photo.psd",
+    titled: true,
+    verify: (saved) => expect(saved.subarray(0, 4).toString("latin1")).toBe("8BPS"),
+  },
+  {
+    appId: "deckcraft",
+    claimId: "deckcraft-native",
+    label: "DeckCraft",
+    fixture: "talk.deckcraft",
+    fixtureSource: "craft/talk.deckcraft",
+    titled: false,
+    verify: (saved) => expect(zipNames(saved)).toContain("presentation.json"),
+  },
+];
+
+/** Foreign-format claims (D1 type B): opening only; saves create the native sibling (F7). */
+const SIBLING_ROWS: ReadonlyArray<{ appId: string; claimId: string; label: string; fixture: string; fixtureSource: string; native: string; nativeClaim: string; titled: boolean }> = [
+  { appId: "photocraft", claimId: "photocraft-raster", label: "PhotoCraft", fixture: "photo.jpg", fixtureSource: "craft/photo.jpg", native: ".psd", nativeClaim: "photocraft", titled: true },
+  { appId: "vectorcraft", claimId: "vectorcraft", label: "VectorCraft", fixture: "shapes.svg", fixtureSource: "craft/shapes.svg", native: ".vectorcraft", nativeClaim: "", titled: true },
+  { appId: "deckcraft", claimId: "deckcraft", label: "DeckCraft", fixture: "talk.pptx", fixtureSource: "craft/talk.pptx", native: ".deckcraft", nativeClaim: "deckcraft-native", titled: false },
+];
+
+/** CIRCLE entities `{x, y, r}` of an ASCII DXF. */
+function dxfCircles(bytes: Buffer): Array<{ x: number; y: number; r: number }> {
+  const l = bytes.toString("latin1").split(/\r?\n/).map((x) => x.trim());
+  const out: Array<{ x: number; y: number; r: number }> = [];
+  for (let i = 0; i + 1 < l.length; i += 2) {
+    if (l[i] !== "0" || l[i + 1] !== "CIRCLE") continue;
+    const c: Record<string, number> = {};
+    for (let j = i + 2; j + 1 < l.length && l[j] !== "0"; j += 2) c[l[j]] = Number(l[j + 1]);
+    out.push({ x: c["10"], y: c["20"], r: c["40"] });
+  }
+  return out;
+}
+
+/** Member names of a zip (central directory). */
+function zipNames(zip: Buffer): string[] {
+  const names: string[] = [];
+  let eocd = -1;
+  for (let i = zip.length - 22; i >= Math.max(0, zip.length - 65_557); i--) if (zip.readUInt32LE(i) === 0x06054b50) {
+    eocd = i;
+    break;
+  }
+  if (eocd < 0) return names;
+  let p = zip.readUInt32LE(eocd + 16);
+  for (let n = zip.readUInt16LE(eocd + 10); n > 0; n--) {
+    const nameLen = zip.readUInt16LE(p + 28);
+    names.push(zip.toString("utf8", p + 46, p + 46 + nameLen));
+    p += 46 + nameLen + zip.readUInt16LE(p + 30) + zip.readUInt16LE(p + 32);
+  }
+  return names;
+}
+
+/** View-only claim (D1 type C, Wave 3): LightCraft on a CC0 DNG (raw.pixls.us). */
+const VIEW_ROW = { appId: "lightcraft", claimId: "lightcraft", label: "LightCraft", fixture: "sample.dng", fixtureSource: "craft/sample.dng", titled: false } as CraftRow;
+
+const APP_IDS = [...new Set([...ROWS, ...SIBLING_ROWS, VIEW_ROW].map((r) => r.appId))];
+const rowBytes = (r: CraftRow): Buffer => fs.readFileSync(path.join(FIXTURE_DIR, r.fixtureSource));
+const modeOf = (r: CraftRow): string => `file-mode-craft-web/${r.claimId}`;
+
 // ---------------------------------------------------------------- dashboard plumbing
 
 interface AppStatus {
@@ -186,12 +373,15 @@ interface AppStatus {
   reason?: string;
   sizeGzip?: number;
   cspViolations?: number;
+  installedVersion?: string;
+  shimVersion?: number;
+  shimUpdate?: boolean;
 }
-async function craftStatus(): Promise<{ http: number; app?: AppStatus }> {
+async function craftStatus(app = "wordcraft"): Promise<{ http: number; app?: AppStatus }> {
   const res = await fetch(`${API}/api/plugins/craft-web/status`);
   if (!res.ok) return { http: res.status };
   const body = (await res.json()) as { apps?: Record<string, AppStatus> };
-  return { http: res.status, app: body.apps?.wordcraft };
+  return { http: res.status, app: body.apps?.[app] };
 }
 async function pluginEnabled(): Promise<boolean> {
   const res = await fetch(`${API}/api/plugins`);
@@ -220,25 +410,30 @@ async function restartDashboard(): Promise<void> {
   }
   throw new Error("dashboard did not come back after POST /api/restart");
 }
+async function prepare(app: string): Promise<{ wallMs: number; body: Record<string, unknown> }> {
+  const t0 = Date.now();
+  const res = await fetch(`${API}/api/plugins/craft-web/prepare/${app}`, { method: "POST" });
+  const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  expect(res.ok, `prepare ${app}: HTTP ${res.status} ${JSON.stringify(body)}`).toBeTruthy();
+  return { wallMs: Date.now() - t0, body };
+}
 
 let initiallyEnabled = false;
-/** First prepare outcome of this run (P2 records it; cold on a fresh harness). */
-let firstPrepare: { wallMs: number; body: Record<string, unknown> } | null = null;
+/** First prepare outcome per app of this run (P2 records it; cold on a fresh harness). */
+const firstPrepare = new Map<string, { wallMs: number; body: Record<string, unknown> }>();
 
 test.beforeAll(async () => {
-  test.setTimeout(600_000);
+  test.setTimeout(600_000 + APP_IDS.length * 120_000);
   initiallyEnabled = await pluginEnabled();
   const st = await craftStatus();
   if (st.http === 404 || st.app?.reason === "restart-required" || st.app?.reason === "disabled") {
     if (!initiallyEnabled) await togglePlugin(true);
     await restartDashboard();
   }
-  const t0 = Date.now();
-  const res = await fetch(`${API}/api/plugins/craft-web/prepare/wordcraft`, { method: "POST" });
-  const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-  firstPrepare = { wallMs: Date.now() - t0, body };
-  expect(res.ok, `prepare wordcraft: HTTP ${res.status} ${JSON.stringify(body)}`).toBeTruthy();
-  expect((await craftStatus()).app?.status).toBe("ok");
+  for (const app of APP_IDS) {
+    firstPrepare.set(app, await prepare(app));
+    expect((await craftStatus(app)).app?.status, `${app} status after prepare`).toBe("ok");
+  }
 });
 
 test.afterAll(async () => {
@@ -251,12 +446,13 @@ test.afterAll(async () => {
 
 test.beforeEach(async ({ page }) => {
   await page.setViewportSize(DESKTOP);
-  writeBytesOob(DOCX, FIXTURE_BYTES);
+  for (const r of [...ROWS, ...SIBLING_ROWS, VIEW_ROW]) writeBytesOob(r.fixture, rowBytes(r as CraftRow));
 });
 
 test.afterEach(() => {
-  inBox(`rm -f ${[COPY, "draft.docx", "report.pdf", LINK_DOCX].map((f) => JSON.stringify(ABS(f))).join(" ")}`);
-  writeBytesOob(DOCX, FIXTURE_BYTES);
+  const extra = [COPY, "draft.docx", "report.pdf", LINK_DOCX, ...SIBLING_ROWS.flatMap((r) => [`${path.parse(r.fixture).name}${r.native}`, `${path.parse(r.fixture).name}-2${r.native}`])];
+  inBox(`rm -f ${extra.map((f) => JSON.stringify(ABS(f))).join(" ")}`);
+  for (const r of [...ROWS, ...SIBLING_ROWS]) writeBytesOob(r.fixture, rowBytes(r as CraftRow));
 });
 
 async function sessionIdOf(card: Locator): Promise<string> {
@@ -269,10 +465,10 @@ async function openInPane(page: Page, sid: string, rel: string): Promise<void> {
   await expect(page.getByTestId("split-editor-pane").first()).toBeVisible({ timeout: 20_000 });
 }
 
-/** Select "Edit in WordCraft"; resolve once the host saw `opened` (`data-phase="open"`). */
-async function editInWordCraft(page: Page): Promise<{ host: Locator; iframe: Locator; frame: Frame; ms: number }> {
+/** Select the row's mode; resolve once the host saw `opened` (`data-phase="open"`). */
+async function editIn(page: Page, row: CraftRow = ROWS[0]): Promise<{ host: Locator; iframe: Locator; frame: Frame; ms: number }> {
   const t0 = Date.now();
-  await page.getByTestId(MODE).click();
+  await page.getByTestId(modeOf(row)).click();
   const host = page.getByTestId("craft-frame-host");
   await expect(host).toHaveAttribute("data-phase", "open", { timeout: OPEN_TIMEOUT });
   const ms = Date.now() - t0;
@@ -282,10 +478,10 @@ async function editInWordCraft(page: Page): Promise<{ host: Locator; iframe: Loc
   return { host, iframe, frame, ms };
 }
 
-async function freshEditor(page: Page, rel = DOCX) {
+async function freshEditor(page: Page, rel = DOCX, row: CraftRow = ROWS[0]) {
   const card = await spawnFreshGitSession(page);
   await openInPane(page, await sessionIdOf(card), rel);
-  return editInWordCraft(page);
+  return editIn(page, row);
 }
 
 /**
@@ -297,6 +493,22 @@ async function typeInCanvas(page: Page, iframe: Locator, text: string): Promise<
   await iframe.click({ position: { x: 200, y: 200 } });
   await page.keyboard.press("ControlOrMeta+End");
   await page.keyboard.type(text, { delay: 20 });
+}
+
+/** Focus the app without editing: click the frame's centre (the document canvas in every app), close any popup. */
+async function focusApp(iframe: Locator): Promise<void> {
+  const box = await iframe.boundingBox();
+  await iframe.click({ position: { x: (box?.width ?? 600) / 2, y: (box?.height ?? 600) / 2 } });
+  await iframe.page().keyboard.press("Escape");
+}
+
+/** Answer core's once-per-instance first-overwrite notice when it appears (every edit claim declares one). */
+async function confirmFirstOverwrite(page: Page): Promise<string> {
+  const notice = page.getByTestId("file-handler-first-overwrite-dialog");
+  await expect(notice).toBeVisible({ timeout: 30_000 });
+  const text = (await notice.textContent()) ?? "";
+  await page.getByTestId("file-handler-first-overwrite-dialog-overwrite").click();
+  return text;
 }
 
 /**
@@ -324,70 +536,425 @@ async function shimSave(frame: Frame, name: string, bytes: Buffer): Promise<void
   );
 }
 
-// ---------------------------------------------------------------- scenarios
+// ---------------------------------------------------------------- per-app scenarios
 
-test.describe("craft-web: WordCraft edits a .docx in the editor pane", () => {
+for (const row of ROWS) {
+  test.describe(`craft-web ${row.label} (${row.claimId}) on ${row.fixture}`, () => {
+    test.describe.configure({ timeout: 240_000 });
+
+    test(`F1: Edit in ${row.label} opens the sandboxed frame (${row.titled ? "confirmed" : "unconfirmed"}), no document data in its URL`, async ({ page }) => {
+      const { iframe, frame } = await freshEditor(page, row.fixture, row);
+      await expect(iframe).toHaveAttribute("sandbox", "allow-scripts");
+      await expect(iframe).toHaveAttribute("allow", "clipboard-write");
+      const src = (await iframe.getAttribute("src")) ?? "";
+      expect(src).toMatch(new RegExp(`^/apps/craft-${row.appId}/index\\.html(\\?[a-z&]+)?#n=[A-Za-z0-9_-]+$`));
+      expect(src).not.toContain(row.fixture);
+      expect(new URL(frame.url()).hash).toMatch(/^#n=/);
+      await test.info().attach(`${row.appId}-canvas`, { body: await iframe.screenshot(), contentType: "image/png" });
+    });
+
+    test(`F2: edit + Ctrl/Cmd+S overwrites ${row.fixture} in place with the edit; no banner`, async ({ page }) => {
+      const { iframe } = await freshEditor(page, row.fixture, row);
+      const mtime0 = mtimeOob(row.fixture);
+      await row.edit?.(page, iframe);
+      if (!row.edit) await focusApp(iframe);
+      await page.waitForTimeout(800); // let the app settle the edit before its Save chord
+      await page.keyboard.press("ControlOrMeta+s");
+      if (row.saveAsFirst) {
+        await expect(page.getByTestId("craft-save-as")).toBeVisible({ timeout: 30_000 });
+        await page.getByTestId("craft-save-as-overwrite").click();
+      }
+      const notice = await confirmFirstOverwrite(page);
+      if (!row.titled) expect(notice).toContain(`${row.label} does not report which file it opened.`);
+      // A no-edit save may write identical bytes: the write itself (mtime) is the observable then.
+      if (row.edit) await expect.poll(() => !readBytesOob(row.fixture).equals(rowBytes(row)), { timeout: 30_000 }).toBe(true);
+      else await expect.poll(() => mtimeOob(row.fixture) !== mtime0, { timeout: 30_000 }).toBe(true);
+      row.verify?.(readBytesOob(row.fixture));
+      await page.waitForTimeout(2_500); // settle + catch-up windows
+      await expect(page.getByTestId("changed-on-disk-banner")).toHaveCount(0);
+    });
+
+    if (row.dirtyRoundTrip) {
+      test("F3: dirty round trip — close prompts while dirty; after an acknowledged save it does not", async ({ page }) => {
+        const { iframe } = await freshEditor(page, row.fixture, row);
+        await row.edit?.(page, iframe);
+        await page.waitForTimeout(800);
+        const tab = page.getByTestId("editor-tab").filter({ hasText: path.basename(row.fixture) });
+        await tab.click({ button: "middle" });
+        await expect(page.getByTestId("file-handler-guard-dialog")).toBeVisible({ timeout: 15_000 });
+        await page.getByTestId("file-handler-guard-dialog-cancel").click();
+        await focusApp(iframe);
+        await page.waitForTimeout(500);
+        await page.keyboard.press("ControlOrMeta+s");
+        await confirmFirstOverwrite(page);
+        await expect.poll(() => !readBytesOob(row.fixture).equals(rowBytes(row)), { timeout: 30_000 }).toBe(true);
+        await page.waitForTimeout(1_000);
+        await tab.click({ button: "middle" });
+        await expect(page.getByTestId("file-handler-guard-dialog")).toHaveCount(0);
+        await expect(page.getByTestId("craft-frame-host")).toHaveCount(0, { timeout: 15_000 });
+      });
+    }
+
+    test("F5: the frame cannot reach the network or the dashboard API; the violation is reported server-side", async ({ page }) => {
+      const external: string[] = [];
+      await page.context().route("https://example.com/**", (r) => {
+        external.push(r.request().url());
+        return r.abort();
+      });
+      const { frame } = await freshEditor(page, row.fixture, row);
+      const cspBefore = (await craftStatus(row.appId)).app?.cspViolations ?? 0;
+      const results = await frame.evaluate(async () => {
+        const probe = async (u: string) => {
+          try {
+            await fetch(u);
+            return "resolved";
+          } catch {
+            return "rejected";
+          }
+        };
+        return { external: await probe("https://example.com"), api: await probe("/api/health") };
+      });
+      expect(results).toEqual({ external: "rejected", api: "rejected" });
+      expect(external).toEqual([]);
+      await expect.poll(async () => (await craftStatus(row.appId)).app?.cspViolations ?? 0, { timeout: 20_000 }).toBeGreaterThan(cspBefore);
+    });
+
+    for (const leg of ["default", "webgl"] as const) {
+      test(`F6: rendering leg ${leg} — opened within the host budgets, IndexedDB refused`, async ({ page }) => {
+        if (leg === "webgl") {
+          // Hide WebGPU from the host probe so it picks `?webgl` (WebGL2 via SwiftShader).
+          await page.addInitScript(() => Object.defineProperty(Navigator.prototype, "gpu", { get: () => undefined, configurable: true }));
+        }
+        const { iframe, frame, ms } = await freshEditor(page, row.fixture, row);
+        if (leg === "webgl") expect(await iframe.getAttribute("src")).toMatch(/[?&]webgl(&|#)/);
+        expect(ms).toBeLessThan(60_000 + 15_000);
+        const idb = await frame.evaluate(
+          () =>
+            new Promise<string>((resolve) => {
+              try {
+                const req = indexedDB.open("craft-e2e-probe");
+                req.onsuccess = () => resolve("opened");
+                req.onerror = () => resolve("refused");
+              } catch {
+                resolve("refused");
+              }
+            }),
+        );
+        expect(idb).toBe("refused");
+        test.info().annotations.push({ type: `F6 ${row.appId} ${leg}`, description: `opened in ${ms} ms` });
+      });
+    }
+
+    test("P1: mode select → opened, 5 opens, p95 ≤ 10 s (prepared build)", async ({ page }) => {
+      test.setTimeout(900_000);
+      await page.addInitScript(() => Object.defineProperty(Navigator.prototype, "gpu", { get: () => undefined, configurable: true }));
+      const card = await spawnFreshGitSession(page);
+      const sid = await sessionIdOf(card);
+      const runs: number[] = [];
+      for (let i = 0; i < 5; i++) {
+        await openInPane(page, sid, row.fixture); // a fresh page load → fresh page-level handler layer
+        runs.push((await editIn(page, row)).ms);
+      }
+      const sorted = [...runs].sort((a, b) => a - b);
+      const p95 = sorted[Math.ceil(0.95 * sorted.length) - 1];
+      test.info().annotations.push({ type: `P1 ${row.appId}`, description: JSON.stringify({ runs, p95, prepare: firstPrepare.get(row.appId) }) });
+      expect(p95, `P1 ${row.appId} runs=${JSON.stringify(runs)}`).toBeLessThanOrEqual(10_000);
+    });
+
+    if (row.contrast) {
+      test("F15: every toolbar text node ≥ 4.5:1 in base dark, base light and Nord dark (target overwrite selected)", async ({ page }) => {
+        const card = await spawnFreshGitSession(page);
+        await openInPane(page, await sessionIdOf(card), row.fixture);
+        await editIn(page, row);
+        const failures: string[] = [];
+        for (const [mode, theme] of [
+          ["dark", "base"],
+          ["light", "base"],
+          ["dark", "nord"],
+        ] as const) {
+          await setThemeMode(page, mode, theme);
+          const toolbar = page.getByTestId("craft-save-target").locator("xpath=..");
+          await expect(page.getByTestId("craft-save-target-overwrite")).toHaveAttribute("aria-pressed", "true", { timeout: OPEN_TIMEOUT });
+          const ms = await measureText(toolbar);
+          expect(ms.length, `${theme}-${mode}: toolbar text measured`).toBeGreaterThan(2);
+          failures.push(...contrastFailures(ms).map((f) => `${theme}-${mode}: ${f}`));
+        }
+        expect(failures).toEqual([]);
+      });
+    }
+  });
+}
+
+// ---------------------------------------------------------------- Wave 1 single-app scenarios
+
+const rowOf = (claimId: string): CraftRow => ROWS.find((r) => r.claimId === claimId) as CraftRow;
+
+test.describe("craft-web Wave 1 scenarios", () => {
+  test.describe.configure({ timeout: 240_000 });
+
+  test("F4: unconfirmed open (CADCraft) asks ONE question; Save as copy creates plan.cadcraft.dxf, plan.dxf unchanged", async ({ page }) => {
+    const row = rowOf("cadcraft");
+    const { iframe } = await freshEditor(page, row.fixture, row);
+    await row.edit?.(page, iframe);
+    await page.waitForTimeout(800);
+    await page.keyboard.press("ControlOrMeta+s");
+    const notice = page.getByTestId("file-handler-first-overwrite-dialog");
+    await expect(notice).toBeVisible({ timeout: 30_000 });
+    await expect(notice).toContainText("does not report which file it opened");
+    await page.getByTestId("file-handler-first-overwrite-dialog-copy").click();
+    await expect.poll(() => existsOob("plan.cadcraft.dxf"), { timeout: 30_000 }).toBe(true);
+    expect(readBytesOob(row.fixture).equals(rowBytes(row))).toBe(true);
+    await page.waitForTimeout(1_000);
+    await expect(page.getByTestId("file-handler-first-overwrite-dialog")).toHaveCount(0);
+    await expect(page.getByTestId("craft-save-as")).toHaveCount(0);
+    inBox(`rm -f ${JSON.stringify(ABS("plan.cadcraft.dxf"))}`);
+  });
+
+  test("F8: session-named save (SoundCraft) — first save asks, Overwrite; the second save writes without a question", async ({ page }) => {
+    const row = rowOf("soundcraft");
+    const { iframe } = await freshEditor(page, row.fixture, row);
+    const mtime0 = mtimeOob(row.fixture);
+    await focusApp(iframe);
+    await page.keyboard.press("ControlOrMeta+s");
+    await expect(page.getByTestId("craft-save-as")).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId("craft-save-as")).toContainText("names saves after the session inside the file");
+    await page.getByTestId("craft-save-as-overwrite").click();
+    await confirmFirstOverwrite(page);
+    await expect.poll(() => mtimeOob(row.fixture) !== mtime0, { timeout: 30_000 }).toBe(true);
+    const first = mtimeOob(row.fixture);
+    await page.waitForTimeout(1_100);
+    await focusApp(iframe);
+    await page.keyboard.press("ControlOrMeta+s");
+    await expect.poll(() => mtimeOob(row.fixture) !== first, { timeout: 30_000 }).toBe(true);
+    await expect(page.getByTestId("craft-save-as")).toHaveCount(0);
+    await expect(page.getByTestId("file-handler-first-overwrite-dialog")).toHaveCount(0);
+    expect(unzipEntry(readBytesOob(row.fixture), "Audio Files/tone.wav")).not.toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------- Wave 2: native-format siblings (D6)
+
+for (const row of SIBLING_ROWS) {
+  test.describe(`craft-web ${row.label} (${row.claimId}) on ${row.fixture} → ${row.native} sibling`, () => {
+    test.describe.configure({ timeout: 240_000 });
+
+    test("F1: opens (foreign format); toolbar states the sibling Ctrl+S creates", async ({ page }) => {
+      const { iframe } = await freshEditor(page, row.fixture, row as unknown as CraftRow);
+      await expect(iframe).toHaveAttribute("sandbox", "allow-scripts");
+      const stem = path.parse(row.fixture).name;
+      await expect(page.getByTestId("craft-sibling-chip")).toHaveText(`Save (Ctrl+S) creates ${stem}${row.native}`);
+    });
+
+    test(`F7: Ctrl/Cmd+S → sibling dialog → Create${row.nativeClaim ? " and open" : ""}; ${row.fixture} unchanged, tab stays dirty`, async ({ page }) => {
+      const stem = path.parse(row.fixture).name;
+      const target = `${stem}${row.native}`;
+      // The native file may exist as another row's fixture: free the first sibling name (afterEach restores).
+      inBox(`rm -f ${JSON.stringify(ABS(target))}`);
+      const { iframe, frame } = await freshEditor(page, row.fixture, row as unknown as CraftRow);
+      if (row.appId === "vectorcraft") {
+        // TODO(spike): VectorCraft's Ctrl+S opens its own Save As dialog drawn in the canvas (no stable OK
+        // position across frame sizes). Drive the call its OK makes: the stubbed picker with the native name.
+        await shimSave(frame, target, Buffer.from('{\n  "format": "vectorcraft",\n  "version": 4,\n  "document": {}\n}\n'));
+      } else {
+        await focusApp(iframe);
+        await page.keyboard.press("ControlOrMeta+s");
+      }
+      const dlg = page.getByTestId("craft-sibling");
+      await expect(dlg).toBeVisible({ timeout: 30_000 });
+      await expect(dlg).toContainText(`${row.label} saves as ${row.native}`);
+      await page.getByTestId(row.nativeClaim ? "craft-sibling-create-open" : "craft-sibling-create").click();
+      await expect.poll(() => existsOob(target), { timeout: 30_000 }).toBe(true);
+      expect(readBytesOob(row.fixture).equals(rowBytes(row as unknown as CraftRow))).toBe(true);
+      expect(await (await fetch(`${API}/api/plugins/craft-web/status`)).ok).toBe(true);
+      if (row.nativeClaim) {
+        await expect(page.getByTestId(`file-mode-craft-web/${row.nativeClaim}`)).toHaveAttribute("aria-pressed", "true", { timeout: 30_000 });
+        await expect(page.getByTestId("editor-tab").filter({ hasText: target })).toHaveCount(1);
+      }
+      const original = page.getByTestId("editor-tab").filter({ hasText: row.fixture });
+      await original.click({ button: "middle" });
+      await expect(page.getByTestId("file-handler-guard-dialog")).toBeVisible({ timeout: 15_000 });
+      await page.getByTestId("file-handler-guard-dialog-cancel").click();
+    });
+  });
+}
+
+test.describe("craft-web DeckCraft broken latest", () => {
+  test.describe.configure({ timeout: 600_000 });
+
+  /**
+   * F12: the 0.8.0 web build panics on start (`std::process::id`). The harness cannot change the server's
+   * env, so the test post-installs the REAL 0.8.0 release with the REAL hook on the host, labels it as the
+   * pinned 0.7.0 tree and points `current` at it — the start-failed detector then meets a real panic.
+   */
+  test("F12: a panicking build → 'could not start' + Retry; never opened", async ({ page }) => {
+    const { createPostInstall } = await import("../../packages/craft-web-plugin/src/server/post-install.js");
+    const shimVersion = ((await (await fetch(`${API}/api/plugins/craft-web/status`)).json()) as { shimVersion: number }).shimVersion;
+    const work = fs.mkdtempSync(path.join(os.tmpdir(), "deck080-"));
+    const zip = path.join(work, "deck.zip");
+    const res = await fetch("https://github.com/storytold/deckcraft/releases/download/v0.8.0/deckcraft-web-0.8.0.zip");
+    expect(res.ok, "download deckcraft-web-0.8.0.zip").toBe(true);
+    fs.writeFileSync(zip, Buffer.from(await res.arrayBuffer()));
+    execFileSync("unzip", ["-q", zip, "-d", path.join(work, "x")]);
+    const inner = fs.readdirSync(path.join(work, "x")).map((d) => path.join(work, "x", d)).find((d) => fs.existsSync(path.join(d, "index.html"))) ?? path.join(work, "x");
+    await createPostInstall()({ dir: inner, app: "deckcraft", version: "0.7.0", shimVersion });
+    const root = `${PLUGIN_DATA}/deckcraft-web`;
+    const real = inBox(`readlink -f ${JSON.stringify(`${root}/current`)}`);
+    const broken = `${root}/0.7.0-s${shimVersion}-broken`;
+    inBox(`rm -rf ${JSON.stringify(broken)}`);
+    execFileSync("docker", ["cp", inner, `${resolveContainer()}:${broken}`]);
+    inBox(`chmod -R a+rX ${JSON.stringify(broken)}; ln -sfn ${JSON.stringify(broken)} ${JSON.stringify(`${root}/current.tmp`)} && mv -T ${JSON.stringify(`${root}/current.tmp`)} ${JSON.stringify(`${root}/current`)}`);
+    try {
+      writeBytesOob("talk.pptx", rowBytes({ fixtureSource: "craft/talk.pptx" } as CraftRow));
+      const card = await spawnFreshGitSession(page);
+      await openInPane(page, await sessionIdOf(card), "talk.pptx");
+      await page.getByTestId("file-mode-craft-web/deckcraft").click();
+      await expect(page.getByTestId("craft-start-failed")).toBeVisible({ timeout: OPEN_TIMEOUT });
+      await expect(page.getByTestId("craft-start-failed-retry")).toBeVisible();
+      await expect(page.getByTestId("craft-frame-host")).toHaveAttribute("data-phase", "start-failed");
+    } finally {
+      inBox(`ln -sfn ${JSON.stringify(real)} ${JSON.stringify(`${root}/current.tmp`)} && mv -T ${JSON.stringify(`${root}/current.tmp`)} ${JSON.stringify(`${root}/current`)}; rm -rf ${JSON.stringify(broken)}`);
+      fs.rmSync(work, { recursive: true, force: true });
+    }
+  });
+});
+
+// ---------------------------------------------------------------- Wave 3: view only (LightCraft)
+
+test.describe("craft-web LightCraft (view only) on sample.dng", () => {
+  test.describe.configure({ timeout: 240_000 });
+
+  test("F10: opens; drag + close → no unsaved prompt; DNG unchanged; export → device download, no workspace file", async ({ page }) => {
+    const { iframe } = await freshEditor(page, VIEW_ROW.fixture, VIEW_ROW);
+    await expect(page.getByTestId("craft-preview-chip")).toHaveText("View only. Exports download to this device");
+    await expect(page.getByTestId("craft-save-target")).toHaveCount(0);
+    const before = listOob();
+    const box = await iframe.boundingBox();
+    if (box) {
+      // Drag inside the develop panel (an exposure-like adjustment); the tab must stay clean.
+      await page.mouse.move(box.x + box.width - 140, box.y + 400);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width - 100, box.y + 400, { steps: 5 });
+      await page.mouse.up();
+    }
+    const download = page.waitForEvent("download", { timeout: 30_000 }).catch(() => null);
+    await iframe.click({ position: { x: 200, y: 200 } });
+    await page.keyboard.press("ControlOrMeta+s");
+    await download; // LightCraft's own save/export, when it emits one, is a device download
+    await page.waitForTimeout(1_000);
+    expect(listOob()).toEqual(before);
+    expect(readBytesOob(VIEW_ROW.fixture).equals(rowBytes(VIEW_ROW))).toBe(true);
+    await page.getByTestId("editor-tab").filter({ hasText: VIEW_ROW.fixture }).click({ button: "middle" });
+    await expect(page.getByTestId("file-handler-guard-dialog")).toHaveCount(0);
+  });
+
+  test("F9: worker isolation — new Worker(https://example.com/w.js) is blocked; nothing reaches example.com; LightCraft keeps running", async ({ page }) => {
+    const external: string[] = [];
+    await page.context().route("https://example.com/**", (r) => {
+      external.push(r.request().url());
+      return r.abort();
+    });
+    const { frame, host } = await freshEditor(page, VIEW_ROW.fixture, VIEW_ROW);
+    const outcome = await frame.evaluate(
+      () =>
+        new Promise<string>((resolve) => {
+          try {
+            const w = new Worker("https://example.com/w.js", { type: "module" });
+            w.onerror = () => resolve("error");
+            setTimeout(() => resolve("no-error"), 5_000);
+          } catch {
+            resolve("threw");
+          }
+        }),
+    );
+    expect(outcome).not.toBe("no-error");
+    expect(external).toEqual([]);
+    await expect(host).toHaveAttribute("data-phase", "open");
+  });
+
+  test("F5: CSP — the frame cannot reach the network or the dashboard API", async ({ page }) => {
+    const { frame } = await freshEditor(page, VIEW_ROW.fixture, VIEW_ROW);
+    const results = await frame.evaluate(async () => {
+      const probe = async (u: string) => {
+        try {
+          await fetch(u);
+          return "resolved";
+        } catch {
+          return "rejected";
+        }
+      };
+      return { external: await probe("https://example.com"), api: await probe("/api/health") };
+    });
+    expect(results).toEqual({ external: "rejected", api: "rejected" });
+  });
+});
+
+// ---------------------------------------------------------------- shim compatibility (D8)
+
+test.describe("craft-web shim compatibility", () => {
+  test.describe.configure({ timeout: 300_000 });
+
+  /**
+   * F11: seed a WordCraft tree carrying only the v1 marker (no profile line / script) and point `current`
+   * at it. The shim file is the current one; without `window.__CRAFT_PROFILE__` it runs the v1 title rule
+   * (the v1 host-side `opened` contract is pinned by L1 #E12).
+   */
+  test("F11: a v1-shim WordCraft build keeps loading — no prepare, no release fetch — and settings offers Update", async ({ page }) => {
+    const root = `${PLUGIN_DATA}/wordcraft-web`;
+    inBox(
+      [
+        `set -e; R=${JSON.stringify(root)}; CUR=$(readlink -f "$R/current"); V1="$R/0.8.0-s1"`,
+        `rm -rf "$V1"; cp -a "$CUR" "$V1"; cd "$V1"`,
+        `sed -i -e '/<!-- craft-profile:/d' -e '/craft-profile-[0-9a-f]*\\.js/d' -e 's/<!-- craft-shim:[0-9]* -->/<!-- craft-shim:1 -->/' index.html`,
+        `rm -f craft-profile-*.js craft-profile-*.js.gz index.html.gz; gzip -9 -k index.html`,
+        `SIZE=$(node -e 'console.log(require("./craft-build.json").sizeGzip)')`,
+        `printf '{"app":"wordcraft","version":"0.8.0","shimVersion":1,"sizeGzip":%s}\\n' "$SIZE" > craft-build.json`,
+        `ln -sfn 0.8.0-s1 "$R/current.tmp" && mv -T "$R/current.tmp" "$R/current"`,
+      ].join("; "),
+    );
+    const st = (await craftStatus()).app;
+    expect(st).toMatchObject({ status: "ok", shimVersion: 1, shimUpdate: true });
+
+    const prepares: string[] = [];
+    const releases: string[] = [];
+    page.on("request", (r) => {
+      if (r.url().includes("/api/plugins/craft-web/prepare/")) prepares.push(r.url());
+      if (/github(usercontent)?\.com/.test(r.url())) releases.push(r.url());
+    });
+    const logBefore = inBox("wc -l < /home/pi/.pi/dashboard/server.log 2>/dev/null || echo 0");
+    await freshEditor(page, DOCX);
+    expect(prepares).toEqual([]);
+    expect(releases).toEqual([]);
+    const newLog = inBox(`tail -n +$((${Number(logBefore) || 0} + 1)) /home/pi/.pi/dashboard/server.log 2>/dev/null || true`);
+    expect(newLog).not.toMatch(/prepare wordcraft (ok|failed)/);
+
+    await page.goto("/settings/plugins/craft-web");
+    await expect(page.getByTestId("craft-web-wordcraft-prepare")).toHaveText("Update WordCraft", { timeout: 30_000 });
+    // Leave the harness on the current build for the rest of the run.
+    await prepare("wordcraft");
+    expect((await craftStatus()).app).toMatchObject({ status: "ok", shimVersion: 2 });
+  });
+});
+
+// ---------------------------------------------------------------- WordCraft-only scenarios
+
+test.describe("craft-web WordCraft-only (edit-office-in-pane-with-craft-web)", () => {
   test.describe.configure({ timeout: 240_000 });
 
   test("P2: prepare — duration + served gzip bytes (measure-only)", async () => {
     const st = await craftStatus();
+    const first = firstPrepare.get("wordcraft");
     const rec = {
-      prepareWallMs: firstPrepare?.wallMs,
-      prepareDurationMs: firstPrepare?.body.durationMs,
-      cacheHit: firstPrepare?.body.cacheHit,
-      version: firstPrepare?.body.version,
-      sizeGzip: st.app?.sizeGzip ?? firstPrepare?.body.sizeGzip,
+      prepareWallMs: first?.wallMs,
+      prepareDurationMs: first?.body.durationMs,
+      cacheHit: first?.body.cacheHit,
+      version: first?.body.version,
+      sizeGzip: st.app?.sizeGzip ?? first?.body.sizeGzip,
     };
     console.log(`[P2] ${JSON.stringify(rec)}`);
     test.info().annotations.push({ type: "P2 prepare", description: JSON.stringify(rec) });
   });
 
-  test("P1: first Edit → opened, 5 runs, p95 (measure-only)", async ({ page }) => {
-    test.setTimeout(900_000);
-    const card = await spawnFreshGitSession(page);
-    const sid = await sessionIdOf(card);
-    const runs: number[] = [];
-    for (let i = 0; i < 5; i++) {
-      await openInPane(page, sid, DOCX); // a fresh page load → fresh page-level handler layer
-      runs.push((await editInWordCraft(page)).ms);
-    }
-    const sorted = [...runs].sort((a, b) => a - b);
-    const p95 = sorted[Math.ceil(0.95 * sorted.length) - 1];
-    console.log(`[P1] runs=${JSON.stringify(runs)} p95=${p95}ms`);
-    test.info().annotations.push({ type: "P1 first-edit", description: JSON.stringify({ runs, p95 }) });
-  });
-
-  test("F1: Edit in WordCraft opens the sandboxed frame with only #n= in its URL", async ({ page }) => {
-    const { iframe, frame } = await freshEditor(page);
-    await expect(iframe).toHaveAttribute("sandbox", "allow-scripts");
-    const src = (await iframe.getAttribute("src")) ?? "";
-    expect(src).toMatch(/^\/apps\/craft-wordcraft\/index\.html(\?webgl)?#n=[A-Za-z0-9_-]+$/);
-    expect(new URL(frame.url()).hash).toMatch(/^#n=/);
-    // TODO(spike): the "report" title is drawn into the canvas (no DOM text). Kept as
-    // an attached screenshot for review until a pixel/OCR check is chosen.
-    await test.info().attach("wordcraft-canvas", { body: await iframe.screenshot(), contentType: "image/png" });
-  });
-
-  test("F2: type, confirm overwrite, save → report.docx rewritten with the edit; no banner", async ({ page }) => {
-    const { iframe } = await freshEditor(page);
-    await typeInCanvas(page, iframe, "Edited in pane");
-    // TODO(spike): confirm WordCraft's Save shortcut (ControlOrMeta+S) reaches the app inside the sandboxed frame.
-    await page.keyboard.press("ControlOrMeta+s");
-
-    const notice = page.getByTestId("file-handler-first-overwrite-dialog");
-    await expect(notice).toBeVisible({ timeout: 30_000 });
-    await page.getByTestId("file-handler-first-overwrite-dialog-overwrite").click();
-
-    await expect.poll(() => !readBytesOob(DOCX).equals(FIXTURE_BYTES), { timeout: 30_000 }).toBe(true);
-    const saved = readBytesOob(DOCX);
-    expect(saved.subarray(0, 2).toString("latin1")).toBe("PK");
-    expect(docxText(saved)).toContain("Edited in pane");
-
-    await page.waitForTimeout(2_500); // settle + catch-up windows
-    await expect(page.getByTestId("changed-on-disk-banner")).toHaveCount(0);
-  });
-
-  test("F3: in-app Save As draft.docx → host dialog first; Save as copy writes report.wordcraft.docx", async ({ page }) => {
+  test("WordCraft F3: in-app Save As draft.docx → host dialog first; Save as copy writes report.wordcraft.docx", async ({ page }) => {
     const { frame } = await freshEditor(page);
     // TODO(spike): drive WordCraft's own File ▸ Save As menu and name field; this
     // makes the same `showSaveFilePicker({suggestedName:"draft.docx"})` call.
@@ -407,7 +974,7 @@ test.describe("craft-web: WordCraft edits a .docx in the editor pane", () => {
     expect(readBytesOob(DOCX).equals(FIXTURE_BYTES)).toBe(true);
   });
 
-  test("F4: in-app Export PDF → host-origin download report.pdf; no new workspace file", async ({ page }) => {
+  test("WordCraft F4: in-app Export PDF → host-origin download report.pdf; no new workspace file", async ({ page }) => {
     const { frame } = await freshEditor(page);
     const before = listOob();
     const download = page.waitForEvent("download", { timeout: 30_000 });
@@ -425,25 +992,7 @@ test.describe("craft-web: WordCraft edits a .docx in the editor pane", () => {
     expect(listOob()).toEqual(before);
   });
 
-  test("F5: the frame cannot reach the network or the dashboard API; the violation is reported server-side", async ({ page }) => {
-    const { frame } = await freshEditor(page);
-    const cspBefore = (await craftStatus()).app?.cspViolations ?? 0;
-    const results = await frame.evaluate(async () => {
-      const probe = async (u: string) => {
-        try {
-          await fetch(u);
-          return "resolved";
-        } catch {
-          return "rejected";
-        }
-      };
-      return { external: await probe("https://example.com"), api: await probe("/api/sessions") };
-    });
-    expect(results).toEqual({ external: "rejected", api: "rejected" });
-    await expect.poll(async () => (await craftStatus()).app?.cspViolations ?? 0, { timeout: 20_000 }).toBeGreaterThan(cspBefore);
-  });
-
-  test("F6: activating a hyperlink keeps the editor loaded and offers a new tab", async ({ page }) => {
+  test("WordCraft F6: activating a hyperlink keeps the editor loaded and offers a new tab", async ({ page }) => {
     writeBytesOob(LINK_DOCX, makeDocx("Has a link", "https://example.com/"));
     const { host, iframe, frame } = await freshEditor(page, LINK_DOCX);
     await typeInCanvas(page, iframe, " edit");
@@ -462,7 +1011,7 @@ test.describe("craft-web: WordCraft edits a .docx in the editor pane", () => {
     expect(new URL(frame.url()).pathname).toBe("/apps/craft-wordcraft/index.html");
   });
 
-  test("F7: a navigated frame is dropped with 'unsaved edits were lost' + Resume; no new open", async ({ page }) => {
+  test("WordCraft F7: a navigated frame is dropped with 'unsaved edits were lost' + Resume; no new open", async ({ page }) => {
     const { iframe, frame } = await freshEditor(page);
     await typeInCanvas(page, iframe, "will be lost");
     // Browser-initiated reload of the frame document. A query change makes it cross-document: the
@@ -476,7 +1025,7 @@ test.describe("craft-web: WordCraft edits a .docx in the editor pane", () => {
     await expect(page.getByTestId("craft-frame")).toHaveCount(0);
   });
 
-  test("F8: opening a local file from inside the app is refused; the next save still targets report.docx", async ({ page }) => {
+  test("WordCraft F8: opening a local file from inside the app is refused; the next save still targets report.docx", async ({ page }) => {
     const { frame } = await freshEditor(page);
     // TODO(spike): use WordCraft's own File ▸ Open (file chooser) / a desktop drop.
     const picker = await frame.evaluate(async () => {
@@ -495,38 +1044,11 @@ test.describe("craft-web: WordCraft edits a .docx in the editor pane", () => {
     await expect(page.getByTestId("craft-blocked-toast")).toHaveText("Open other files from the dashboard", { timeout: 15_000 });
 
     await shimSave(frame, DOCX, makeDocx("still report"));
-    await expect(page.getByTestId("file-handler-first-overwrite-dialog")).toBeVisible({ timeout: 20_000 });
-    await page.getByTestId("file-handler-first-overwrite-dialog-overwrite").click();
+    await confirmFirstOverwrite(page);
     await expect.poll(() => docxText(readBytesOob(DOCX)), { timeout: 20_000 }).toContain("still report");
   });
 
-  for (const leg of ["default", "webgl"] as const) {
-    test(`F9: sandboxed boot gate (${leg} leg) — opened within 60 s, IndexedDB refused`, async ({ page }) => {
-      if (leg === "webgl") {
-        // Hide WebGPU from the host probe so it picks `?webgl` (WebGL2 via SwiftShader).
-        await page.addInitScript(() => Object.defineProperty(Navigator.prototype, "gpu", { get: () => undefined, configurable: true }));
-      }
-      const { iframe, frame, ms } = await freshEditor(page);
-      if (leg === "webgl") expect(await iframe.getAttribute("src")).toContain("?webgl");
-      expect(ms).toBeLessThan(60_000 + 15_000);
-      const idb = await frame.evaluate(
-        () =>
-          new Promise<string>((resolve) => {
-            try {
-              const req = indexedDB.open("craft-e2e-probe");
-              req.onsuccess = () => resolve("opened");
-              req.onerror = () => resolve("refused");
-            } catch {
-              resolve("refused");
-            }
-          }),
-      );
-      expect(idb).toBe("refused");
-      test.info().annotations.push({ type: `F9 ${leg}`, description: `opened in ${ms} ms` });
-    });
-  }
-
-  test("X7: disabling the plugin mid-session keeps the dirty instance behind a re-enable/discard overlay", async ({ page }) => {
+  test("WordCraft X7: disabling the plugin mid-session keeps the dirty instance behind a re-enable/discard overlay", async ({ page }) => {
     const { iframe } = await freshEditor(page);
     await typeInCanvas(page, iframe, "keep me");
     // The client follows `/api/health.plugins[]`, which only reports a plugin as disabled after a

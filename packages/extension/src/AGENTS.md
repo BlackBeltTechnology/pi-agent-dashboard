@@ -22,7 +22,7 @@ Files in this directory. One row per source file.
 | `bridge-handlers/` | Handler bodies extracted from `bridge.ts`: lifecycle, inbound dispatch, forwarders, ui-prompt patch, `BridgeInstance`. → see `bridge-handlers/AGENTS.md` |
 | `bridge-polling.ts` | Testable seams from `bridge.ts` to the poll-cost machinery: `createPollingHolder` (scan + tracker, replace… → see `bridge-polling.ts.AGENTS.md` |
 | `bridge-ticket-client.ts` | Mints the credential a REMOTE bridge needs to open a gateway connection (§6 made TCP bridge auth mandatory). → see `bridge-ticket-client.ts.AGENTS.md` |
-| `bridge.ts` | Main bridge extension entry (default export). Connects to dashboard server, forwards pi events via… → see… → see `bridge.ts.AGENTS.md` |
+| `bridge.ts` | Main bridge extension entry (default export). Connects to dashboard server, forwards pi events via… → see… → see `bridge.ts.AGENTS.md` `onReconnect` computes `liveTailOpen` once, passes it to `sendStateSync({liveTailOpen})` and the replay. See change: fix-large-session-resume-replay. |
 | `command-handler.ts` | Command routing: `!`/`!!` bash, `/compact`, slash commands. → see `command-handler.ts.AGENTS.md` Team `/skill:` route → see `command-handler.ts.AGENTS.md`. See change: add-team-skill-access. |
 | `connect-target.ts` | `parseConnectTarget()` / `describeConnectTarget()` — parses the overloaded `/dashboard connect <target>`… → see `connect-target.ts.AGENTS.md` |
 | `connection.ts` | WebSocket connection manager with exponential backoff reconnect, message buffering while disconnected,… → see… → see `connection.ts.AGENTS.md` |

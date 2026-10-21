@@ -49,6 +49,7 @@ const TITLE_EN: Record<AccessPlaneId, string> = {
   cwd: "Allow this working directory?",
   network: "Allow this network?",
   cors: "Allow this origin?",
+  "preview-egress": "Allow this site in previews?",
 };
 
 const PLANE_EN: Record<AccessPlaneId, string> = {
@@ -56,6 +57,7 @@ const PLANE_EN: Record<AccessPlaneId, string> = {
   cwd: "working directory",
   network: "network",
   cors: "CORS origin",
+  "preview-egress": "preview origin",
 };
 
 const REASON_EN: Record<AccessPlaneId, string> = {
@@ -63,6 +65,7 @@ const REASON_EN: Record<AccessPlaneId, string> = {
   cwd: "This directory is not pinned, so the dashboard refused to operate in it.",
   network: "A request from this network was refused.",
   cors: "A cross-origin request from this origin was refused.",
+  "preview-egress": "A preview page asked to load this site. Allowing it lets previews in this project load it.",
 };
 
 /** Planes YOLO can answer (design D13: only the two whose subject is a path). */

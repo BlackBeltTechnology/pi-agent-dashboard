@@ -106,6 +106,7 @@ React-based responsive web UI that:
 - Shows all active sessions organized by directory, with pinned directories always visible at the top
 - Renders chat messages with markdown, syntax highlighting, streaming, and a small raw-HTML pass that strips React-only `ref` attributes before render
 - Persists scroll position per session — switching sessions restores exact scroll position if locked, or scrolls to bottom if following
+- Animates live arrivals, paces streamed text, glides follow-scroll; `chatMotion` pref (rollback: `PATCH /api/preferences/display {"chatMotion":false}`). Full ref: [`chat-motion.md`](chat-motion.md)
 - Displays collapsed tool call steps with lazy-loaded content and elapsed time badges
 - Shows live ticking elapsed counters on running operations (thinking, tool calls) and final duration on completed ones
 - Provides command autocomplete with `/` prefix
@@ -2940,7 +2941,7 @@ See change: widen-containment-to-resolved-checkout (was: git-root-file-containme
 
 ### Filesystem Browser (PathPicker)
 
-The dashboard's reusable directory chooser (`PathPicker`) is backed by three localhost-only endpoints:
+The dashboard's reusable directory chooser (`PathPicker`) is backed by three endpoints (full picker for local callers; remote callers confined, see Remote confinement below):
 
 - `GET /api/browse?path=<dir>&q=<query>&detect=<0|1>` — lists subdirectories of `<dir>` (or `$HOME` when omitted). By default this is a single-`readdir` enumeration with no per-entry filesystem probes; `isGit` / `isPi` are absent from each `BrowseEntry`. Pass `detect=1` (only the literal string `"1"` is truthy) to opt into eager `.git` / `.pi` classification on every entry — useful for skill recipes that consumed the legacy shape. When `q` is non-empty, entries are case-insensitive substring-filtered and ranked:
   - **Tier 0** exact match → **Tier 1** prefix → **Tier 2** word-boundary substring (after `-`, `_`, `.`, space, `/`) → **Tier 3** plain substring.
@@ -2958,6 +2959,38 @@ Client-side, `PathPicker` debounces the `q` request at 150ms and cancels in-flig
 If a debounced query is still pending when Enter fires, the client flushes it synchronously before evaluating the rules so the freshest server result is considered.
 
 New folders can be created from two entry points — a footer **＋ New folder** button (inline name entry), or an inline **＋ Create "<name>" here** row shown when the typed partial has no exact match. The create-here row is suppressed if the parsed parent differs from the last-successfully-fetched directory (prevents creating inside a stale parent after a mid-path typo). On success the picker refetches and descends into the new directory.
+
+#### Remote confinement (change: harden-server-capability-bounds)
+
+`/api/browse`, `/api/browse/flags`, `/api/browse/mkdir` confine non-local callers. Local callers (`isLocallyTrusted` true) unchanged: full picker.
+
+- Not genuinely local = tunnel, LAN, relayed loopback with forwarding header. Confined to shared roots.
+- Shared roots = `$HOME` + pinned dirs + session cwds + workspace folders + worktree-init trust roots + project-scope access-grant subjects.
+- Compare by realpath. Symlink escape refused.
+- Forbidden: `/`, `$HOME` itself as pinned root, system roots, ancestors of those, `~/.ssh`, `~/.pi`. `~/.pi` subtree refused even under `$HOME`.
+- Outside roots → 403 `path outside allowed roots`.
+- Listing: `confined: true`; `parent: null` at root top.
+- Flags: any outside path → 403 whole request.
+- mkdir: parent outside → 403 before any write.
+- Remote sockets cannot widen roots. `pin_directory`, `add_folder_to_workspace`, `move_folder_to_workspace` outside roots dropped. Server sends `folder_refused {path, reason: outside_allowed_roots}`. Client toast: "Ask the host to pin it".
+- Locality bit stamped per socket once at `/ws` upgrade. Unstamped = remote.
+- Docker: host browser hits container via port mapping = non-loopback peer. Confined to container `$HOME` + auto-pinned `PI_WORKSPACES`. Recovery actions refused there; use `docker compose restart` / `docker exec`. Set `browse.confineRemote: false` to lift it.
+- Residual: marker-less relay (`ssh -R`, no forwarding headers) looks loopback = local unless `requireLocalProof` on.
+- Operator opt-out: `config.json` `browse.confineRemote` (default `true`). Only explicit `false` disables. Read at server start (restart to apply). Off → remote callers browse / mkdir / pin like local callers. Used by the Docker e2e harness (browser = remote peer via port mapping; specs pin per-test dirs outside `$HOME`); harness env `PI_E2E_BROWSE_CONFINEMENT=1` keeps it on. Shipping installs stay confined.
+- Threat model: guards observe-tier remote viewer. Caller that may spawn session/terminal already has FS reach.
+
+#### Recovery server lockdown (change: harden-server-capability-bounds)
+
+`recovery-server.ts` serves recovery page when main server fails. Imports node built-ins only.
+
+- Binds `config.host` (default `127.0.0.1`). Never all interfaces unless operator sets `bindHost`.
+- `GET /` and `GET /api/health` stay open.
+- `POST /api/recovery/retry|reinstall` admitted iff either:
+  - local token: `x-pi-local-token`, timing-safe compare; or
+  - loopback peer AND none of 8 forwarding headers (`x-forwarded-for`, `x-forwarded-host`, `x-forwarded-proto`, `x-real-ip`, `forwarded`, `via`, `x-forwarded-server`, `x-forwarded-port`) AND loopback `Host` AND `Origin` absent or same host:port as `Host` (default port stripped; `Origin: null` refused).
+- Else 403 `text/plain` with remedy. Page shows it in `role=alert` callout. Buttons stay enabled.
+- One log line per refusal: route only, no token.
+- Residual: `ssh -R` rewriting `Host` to localhost and sending no `Origin` passes.
 
 ### Pi Resources Browser
 
@@ -3220,6 +3253,97 @@ Content area (right panel) shows one view at a time: ChatView, ArchiveBrowserVie
 Shell overlays dispatch by route match (see Shell overlay routing). Mutual exclusivity intrinsic — only one route active at a time. No `clearAllContentViews` helper, no `onBeforeOpen`. Session switch navigates; route change unmounts previous view.
 
 Plugin content-view claims (flows-plugin) still predicate-driven via SlotRegistry. See change `overlay-url-routing`.
+
+### Live Preview: Static Targets, Exposure, Egress (change: improve-canvas-html-and-url-ux)
+
+Source: `packages/server/src/live-server/` (`live-static.ts`, `live-csp.ts`, `live-exposure.ts`, `live-browser-gate.ts`, `live-egress.ts`, `live-csp-report.ts`, `live-origin-scan.ts`, `live-capability.ts`), `packages/server/src/access/planes.ts`, `packages/shared/src/live-server.ts`, `packages/shared/src/preview-egress.ts`. Design: `openspec/changes/improve-canvas-html-and-url-ux/design.md` (D1-D10).
+
+#### Target kinds
+- `port`: proxied loopback `host:port`. Persisted only when `addedBy:"user"`. Preset (agent declare, confirm-chip tap) in memory, ≤16/session LRU. Rejects dashboard listen ports.
+- `static`: `{cwd, root}` via `POST /api/live-server/start-static`. In memory, keyed `(cwd, root)`, ≤32/session LRU.
+- Eviction: LRU. Evicted target tokens revoked. "Use" = register or accepted request.
+
+#### Static roots and servable files (D2)
+- In cwd: nearest ancestor (inclusive, ≤ cwd) with `index.html` or `package.json`. None → file dir. No whole-cwd fallback.
+- Granted file outside cwd: root = file dir. Per-request gate limits to grant.
+- Extension allowlist (`STATIC_WEB_EXTENSIONS`): html htm css js mjs json svg png jpg jpeg gif webp avif ico woff woff2 ttf otf mp4 webm ogg mp3 wav m4a. No `.map`, `.txt`.
+- 404: dot / `.git` / `node_modules` segments, forbidden subjects, `isCredentialName` names.
+- Realpath containment. `%2e`/`%2f` decoded once, re-checked. Symlink escape → 404.
+- Single `Range` → 206. Headers: `Cache-Control: no-store`, `nosniff`, `Referrer-Policy: no-referrer`.
+- Every request re-runs `gateFilePath(cwd, <real path>)`. Revoked grant or pin applies next request.
+
+#### Capability URL and policy (D1, D4)
+- Mint: `POST /api/live-server/:id/capability` → `/live/<id>/~c/<token>/`. Body `{egress:"open"|"restricted", scripts:boolean, runScripts?:true}`.
+- Fail-closed: absent/invalid `egress` → `restricted`. Absent `scripts` → `false`.
+- Policy stored on token. Never read from request path, query or header.
+- Idle / max: port 30 min / 12 h; static 10 min / 2 h (`CAPABILITY_*_MS`).
+- `POST /api/live-server/:id/touch {tokenId}` every 5 min while viewer mounted + visible.
+- Token reused only when (target, policy, exposure epoch, viewer) unchanged.
+- Logs: `redactCapability` → `/~c/<redacted>`.
+
+#### Response isolation (D3)
+| Mode | Frame `sandbox` | Response CSP |
+|---|---|---|
+| open, scripts | `allow-scripts allow-forms allow-popups allow-downloads` | `sandbox …; object-src 'none'; frame-ancestors 'self'` |
+| restricted, scripts | `allow-scripts allow-forms` | `sandbox …` + egress directives |
+| scripts off | empty | `sandbox` (+ egress directives if restricted) |
+- Applies to port AND static targets on every capability response (`buildLiveCsp`).
+- Our CSP appended to upstream CSP. Upstream never stripped. Browser enforces intersection.
+- Restricted: `default-src 'none'`; `script-src` / `style-src` = `<P> 'unsafe-inline'` (+ `'unsafe-eval'` with scripts) + `<G>`; `connect-src <P> <G>`; `form-action 'none'`; `base-uri 'none'`; `frame-src 'none'`; `object-src 'none'`; `worker-src <P> blob:`; `manifest-src 'none'`; `frame-ancestors 'self'`; `report-uri` / `report-to`.
+- `<P>` = prefix from validated `Host`. Never `'self'`. Never dashboard origin.
+- `<G>` = project grants ∪ viewer allow-once set.
+
+#### Exposure policy (D5)
+- `exposed` if ANY: bind host not loopback (unparseable → exposed); `collectEndpoints()` non-empty (tunnel, `publicBaseUrls`, TLS); forwarding-header request seen since start (sticky); `liveServer.previewExposure: "exposed"` in `config.json`. Else `local-only`.
+- Same-host relay adding no header (`ssh -L`, socat) is undetectable. Operators set `previewExposure`. Residual.
+- `GET /api/live-server/policy` (observe) → `{exposure, epoch, promptingEnabled}`.
+- Epoch bumps on every change. Change to `exposed`: revoke restricted scripts-on `local-only` tokens; broadcast `preview_exposure_changed {epoch}`; viewers re-mint without scripts within 2 s.
+- Scripts on restricted mint: `local-only` → allowed. `exposed` → refused unless `runScripts:true` (viewer "Run scripts" only).
+- Frames cannot mint: opaque origin, CORS rejects `null`, no token on `/api`. Client-asserted marker is safe.
+- Local-minted token accepted only from genuinely-local requests.
+- Residual: remote operator open with scripts → token valid to expiry. Documented in viewer tooltip.
+- Provenance: operator open → `open`. Agent / undeclared → `restricted`. Confirm-chip tap → restricted preset (consents to connect, not egress).
+- Agent-declared loopback URL never auto-opened. Routed to confirm chip.
+
+#### Browser-capability rule (D10)
+- `isBrowserOriginated(headers)`: `Origin: null` or any `Sec-Fetch-*` header.
+- Browser-originated `/live/` HTTP or WS upgrade without valid capability → 404 (`live-server-proxy.ts`).
+- Non-browser local callers (curl, `fastify.inject`) keep admission for port targets.
+- Static targets: never reachable without capability, by any caller.
+
+```mermaid
+flowchart TD
+  A["Request /live/:id/…"] --> B{"Browser-originated?<br/>Origin null or Sec-Fetch-*"}
+  B -- yes --> C{"Valid capability?<br/>/~c/token/"}
+  C -- no --> X["404"]
+  C -- yes --> K{"Target kind"}
+  B -- no --> D{"Capability present?"}
+  D -- yes --> K
+  D -- no --> E{"Port target admitted?<br/>static never"}
+  E -- no --> X
+  E -- yes --> P["Proxy upstream<br/>no capability CSP"]
+  K -- port --> Q["Proxy upstream<br/>CSP from token policy"]
+  K -- static --> G{"gateFilePath(cwd, real path)<br/>per request"}
+  G -- denied --> X
+  G -- ok --> S["serveStatic<br/>CSP from token policy"]
+```
+
+#### Preview egress plane (D6, D7)
+- Origin scan (`live-origin-scan.ts`): HTML ≤ 2 MiB (`SCAN_MAX_HTML_BYTES`) + same-root CSS. Reads `src`, `srcset`, `poster`, `data`, `<link href>`, `@import`. Plain `<a href>` ignored.
+- Output `{source:"markup"}`. Truncation → `scanIncomplete`. Root-absolute refs → `rootAbsolute`.
+- Runtime reports: `POST /live/<id>/~c/<token>/__pi/csp-report` (`CSP_REPORT_SUBPATH`). Types `application/csp-report`, `application/reports+json`.
+- Limits: body ≤ 64 KiB (413), 20/s and 600/h per token (429). Reads `blocked-uri` only.
+- Runtime reports best-effort. Page may forge → labelled "reported by this page", allow-once only.
+- Blocked set per token ≤ 64 (`MAX_BLOCKED_ORIGINS`). Eviction drops runtime entries first.
+- `GET /api/live-server/:id/egress?token=` and `POST /api/live-server/:id/allow-once {tokenId, origin}`: control tier. Minting principal only.
+- Allow-once keyed by client `viewerId` (per tab), ≤ 32.
+- Grant = deferred plane `preview-egress` (`planes.ts`). `allow-always` / `deny`. Never YOLO-eligible.
+- "Allow for this project" (operator click) → deferred registry entry → standard dialog. Prompting off (default) → Allow once only.
+- Subject: `canonicalHttpsOrigin` (https only, no userinfo, punycode, default port elided).
+- Ungrantable (`isUngrantableEgressOrigin`): non-https, `localhost`, loopback / private / link-local / CGNAT / ULA IP literals, single-label, `.local` `.internal` `.lan` `.home.arpa`, IPv4-embedding labels, dashboard origins.
+- Grant-time DNS: 3 s (`EGRESS_DNS_TIMEOUT_MS`). Private / loopback / fail → "Could not verify this origin; try again". Later rebinding = residual.
+- Store: `~/.pi/dashboard/preview-egress.json` `{[projectKey]: string[]}` via `auth/locked-json-file.ts`. Override `PI_PREVIEW_EGRESS_STORE`.
+- `projectKey` = canonical subject of git common root, else cwd.
 
 ### Network Access Control
 
@@ -4337,10 +4461,10 @@ See change: `lazy-load-session-history`, `add-tail-only-replay-window`.
 ### Bridge Reconnection (State Reset)
 When a bridge extension reconnects (e.g., after `pnpm run reload` or network recovery):
 1. Bridge sends `session_register` with `eventCount` to re-register the session
-2. Server checks `canSkipWipe`: if the bridge's `eventCount` matches the server's `lastEntryCount` and events exist in the store, the wipe is skipped (fast reconnect path)
-3. **Full replay path** (`canSkipWipe = false`): Server clears the in-memory event store, broadcasts `session_state_reset` to browsers, stores replayed events, and sends them as `event_replay` batch after `replay_complete`
-4. **Skip replay path** (`canSkipWipe = true`): Server keeps existing events in the store, marks the session in `skipReplayInsert` set so replayed events are NOT re-inserted (preventing exponential duplication). Status updates are still processed for session state accuracy. After `replay_complete`, the `event_replay` batch is skipped since browsers already have the events.
-5. Bridge replays full session history as individual `event_forward` messages
+2. Server checks skip-wipe fingerprint (see Event Broadcast During Replay): `eventCount` + `leafEntryId` match, store intact → wipe skipped (fast reconnect path). Old bridge (no leaf) always wipes.
+3. **Full replay path** (wipe): Server clears the in-memory event store, broadcasts `session_state_reset` to browsers, stores replayed events, and sends them as `event_replay` batch after `replay_complete`
+4. **Skip replay path** (no wipe): Server keeps existing events in the store. Replayed marked events are NOT inserted (preventing exponential duplication). Status updates are still processed for session state accuracy. After `replay_complete`, the `event_replay` batch is skipped since browsers already have the events.
+5. Bridge replays full session history as individual `event_forward` messages, each marked `replay: true`
 6. Bridge sends `replay_complete` to signal replay is done
 7. If the agent is currently mid-turn (bridge tracks `isAgentStreaming` flag in persistent `BridgeState`), a synthetic `agent_start` event is sent after `replay_complete` so the session card shows "Thinking…" instead of "Waiting for input"
 8. Server clears the replaying flag, broadcasts the final accumulated session status
@@ -4348,7 +4472,7 @@ When a bridge extension reconnects (e.g., after `pnpm run reload` or network rec
 
 Without the `session_state_reset` message (full replay path), replayed events would duplicate existing messages in the browser's accumulated state.
 
-**Replay status suppression**: During step 5, replayed events like `agent_start`/`agent_end` would normally trigger rapid `session_updated` broadcasts (e.g., `status: "streaming"` → `status: "idle"` for each turn), causing visible flicker on session cards. The server suppresses these status broadcasts while replaying, accumulating them in the session manager. Only the final status is broadcast after `replay_complete`. A 5-second safety timeout ensures the flag is cleared even if `replay_complete` never arrives (e.g., older bridge versions).
+**Replay status suppression**: During step 5, replayed events like `agent_start`/`agent_end` would normally trigger rapid `session_updated` broadcasts (e.g., `status: "streaming"` → `status: "idle"` for each turn), causing visible flicker on session cards. The server suppresses these status broadcasts while replaying, accumulating them in the session manager. Only the final status is broadcast after `replay_complete`. Fallback for unmarked (older) bridges: idle exit after 5s with no bridge message, or cap exit after 60s (see Event Broadcast During Replay). `replay_complete` never arriving no longer leaves the flag set.
 
 **Agent streaming state recovery**: The bridge tracks `isAgentStreaming` in process-level `BridgeState` (survives reload). Set `true` on `agent_start`, `false` on `agent_end`/`session_shutdown`. Since the replay doesn't include `agent_start`/`agent_end` events, the session status would otherwise stay "active" (displayed as "Waiting for input") when the agent is mid-turn during reconnect.
 
@@ -4578,8 +4702,84 @@ When a browser subscribes to a session whose events have been evicted from memor
 ### Flows Refresh Deduplication
 When a session sends `flows_list`, the server notifies other sessions in the same cwd to rediscover flows. To prevent infinite loops (A→refresh B→B sends flows→refresh A→...), a per-session 5-second cooldown (`recentFlowsRefresh` set) suppresses duplicate refresh requests.
 
-### Event Broadcast During Replay
-During bridge session replay (while `replayingSessions` set contains the session), `event_forward` messages are stored but NOT broadcast individually to browser subscribers. Instead, when `replay_complete` arrives (or the 5s safety timeout fires), the server sends all accumulated events as a single `event_replay` batch to subscribers. This prevents per-event serialization overhead during replay while still delivering the full history to browsers.
+### Event Broadcast During Replay (change: fix-large-session-resume-replay, #928/#929)
+
+**Replay marking (bridge).**
+- Bridge sets `replay: true` on every replayed `event_forward`. Sites: `replaySessionEntries` (`packages/extension/src/session-sync.ts`); ACP event-log replay (`packages/server/src/acp-bridge/acp-session-adapter.ts`).
+- Live forwards never marked.
+- Field optional: `EventForwardMessage.replay?: true` (`packages/shared/src/protocol.ts`). Old server ignores it.
+
+**Classification (server).** `isReplayedForward(sessionId, msg)` in `packages/server/src/event-wiring.ts`:
+`msg.replay === true || replayingSessions.has(sessionId)`.
+- Marked event never live: no broadcast, unread, push, `lastActivityAt`, card order, OpenSpec detection.
+- Marked event after exit → controller `reopen` → next exit flushes it.
+- Skipped replay: marked events never inserted until next register.
+
+**Replay mode owner.** `packages/server/src/session/replay-exit-controller.ts`, one per session.
+- API: `begin`, `touch`, `reopen`, `complete`, `release`.
+- State: flush epoch, `flushPending`, waiter registry.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Replaying: session_register (begin)
+    Replaying --> Exit: replay_complete (complete)
+    Replaying --> Exit: 5s idle, unmarked bridge (idle)
+    Replaying --> Exit: 60s cap, unmarked bridge (cap)
+    Replaying --> Exit: unregister
+    Exit --> Flush: flushPending
+    Flush --> [*]: isLast true
+    Exit --> [*]: no pending flush
+```
+
+**Fallback exits (unmarked old bridges only).**
+- `idle`: no processed bridge message of any type for `REPLAY_IDLE_MS` (5000).
+- `idle` re-check runs via one `setImmediate`, so queued input handled first. Busy server does not force idle exit.
+- `cap`: `REPLAY_CAP_MS` (60000) after register.
+- One timer set per session. Each new register cancels old set.
+- Test seam: `createServer({ replayTimings: { idleMs, capMs, keepaliveMs } })`.
+
+**Exit (`exitReplay(sessionId, cause)`).** Single implementation.
+- Causes: `complete | idle | cap | unregister`.
+- Log: `[replay] exit <id> cause=<cause>`. `warn` level for `idle` / `cap`.
+- Work, fixed order:
+  1. clear OpenSpec phase/change.
+  2. reconcile + recompute prompts (not on `unregister`).
+  3. one `session_updated` broadcast.
+  4. windowed flush when `flushPending`.
+- Late `replay_complete` after `idle` / `cap` exit = no-op.
+
+**Pending proposal.**
+- Bridge replay neither raises nor clears `pendingReplaceProposal`.
+- `register()` carries `pendingReplaceProposal` + `rejectedReplaceProposals` across re-register (`packages/server/src/session/memory-session-manager.ts`).
+
+**Windowed abortable flush.** `BrowserGateway.replayStoreToSubscribers(sessionId, isStale)` (`packages/server/src/pairing/browser-gateway.ts`). Per WebSocket subscriber:
+- Exactly one `session_state_reset`.
+- Store windowed like subscribe-time full replay: `sendEventBatches` with `maxReplayEvents`, `history_window` when window applies.
+- Ends `isLast: true`. Empty store → terminal empty batch.
+- In-process subscribers: one full `event_replay`.
+- `isStale` polled before each batch. Re-register / unregister → flush stops, socket unmuted, no catch-up.
+- `flushPending` stays set until flush completes → next exit sends full flush even after skipped register.
+
+**Skip-wipe fingerprint.**
+- `session_register` (`SessionRegisterMessage`) carries `eventCount`, optional `leafEntryId`, `liveTailOpen`.
+- Skip wipe only when `leafEntryId` valid (string, 1–128 chars) AND one of:
+  - bridge-learned: `eventCount` + leaf match previous register.
+  - hydration-learned: cold hydration recorded `{entryCount, leafEntryId, storeMaxSeq}` (`packages/server/src/session/hydration-state.ts`); needs `liveTailOpen === false` and unchanged store.
+- Old bridge (no leaf) always wipes.
+- Log: `[replay] register <id> skipWipe=<bool> reason=<...>`.
+- `LoadResult` carries `entryCount` + `leafEntryId` (`session-load-worker.ts`, `directory-service.ts`).
+
+**Register supersedes cold hydration.**
+- `session_register` bumps per-session generation (`hydration-state.ts`) → calls `directoryService.cancelLoad`.
+- Subscription handler drops hydration result whose generation changed before insert; stops its fan-out.
+- Subscribe during bridge replay, store empty: no cold load (works without `sessionFile`).
+  - Immediate `event_replay{events:[],isLast:false}`.
+  - Keepalive every `keepaliveMs` (10000 default) until exit flush.
+  - Keepalive stops before terminal batch.
+
+**Mixed versions.**
+- New server + old bridge: timer fallback + full wipe.
+- Old server + new bridge: extra fields ignored.
 
 ### Per-message entry id stamping (live vs replay)
 
@@ -5780,6 +5980,22 @@ Inline `!!` ephemeral cards (`InlineTerminalCard`) unchanged, excluded from tabs
 
 See change: terminals-in-tabbed-panes.
 
+### Terminal Caps and Orphan Reaping (change: harden-server-capability-bounds)
+
+`TerminalManager` bounds live PTYs. Config block `terminals` in `config.json`:
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `maxConcurrent` | 32 | Global live PTY cap. Tab + inline both count. |
+| `maxPerOwner` | 16 | Per `{iss,sub}` owner. Only while identity plane stamps owners. Ownerless PTYs count global only. |
+| `inlineOrphanTtlMs` | 600000 | Inline PTY TTL with no client attached. |
+
+- Each value integer >= 1, else default + one warn line.
+- Restart server to apply.
+- Refused spawn starts nothing. Requesting socket gets `terminal_limit_reached {scope: global|owner, limit, cwd, inline}`. UI shows dismissible notice.
+- Tab terminals never reaped on idleness.
+- Inline (ephemeral) PTY: clock starts at spawn, restarts at last detach. Expiry kills PTY. Transcript tombstone kept.
+
 ### Known Servers Configuration
 
 ```json
@@ -6117,7 +6333,9 @@ Dashboard-managed project schema. Base: OpenSpec built-in `spec-driven` + patch 
 Code:
 - `packages/server/src/openspec/workflow-schema.ts` — generation, stamp, state table, write guard, actions.
 - `packages/server/src/routes/openspec-routes.ts` — `POST /api/openspec/workflow-schema`, init chain.
-- `packages/server/src/directory-service.ts` — `workflowSchemaStatusFor` (poll status).
+- `packages/server/src/openspec/workflow-schema-status.ts` — worker-safe fs-only status (`computeSchemaStatus`, `inspectSchema`, stamp parse/compare, `fingerprintDir`, config + change enumeration). No CLI/semaphore imports.
+- `packages/server/src/openspec/openspec-poll-worker.ts` + `openspec-poll-worker-pool.ts` — `schemaStatus` request kind: `{cwd, localVersion, packageSchemasDir, userSchemasDir}` → `{status, validateFingerprint?}`.
+- `packages/server/src/directory-service.ts` — `requestSchemaStatus` enqueues it.
 - `packages/shared/src/types.ts` — `WorkflowSchemaGenerated`, `OpenSpecWorkflowSchemaStatus`.
 - `packages/shared/src/openspec-poller.ts`, `.pi/skills/openspec-shared/scripts/effective-status.sh` — R-rule skip.
 
@@ -6246,10 +6464,39 @@ Remove sees only local working tree. Unmerged branches pinning `pi-spec-driven` 
 
 `OpenSpecData.workflowSchema?: OpenSpecWorkflowSchemaStatus` = `{ configured, generated, missing, unpinnedChanges, affectedChanges }`.
 - Attached only to successful-poll payloads. Failure payload carries no schema status (`hasWorkflowSchemaStatus(readiness)` gate in `directory-service.ts`).
-- Computed on the MAIN thread, not the poll worker. `workflowSchemaStatusFor` (`directory-service.ts`) runs concurrently with the CLI spawn in `pollOne`, attached at finalize. Async fs reads only.
-- Only `newer` / `conflict` `schema validate` spawns. Routed through the shared spawn semaphore; memoized by (cwd, fingerprint, CLI version).
+- Computed by poll worker `schemaStatus` request. See Poll status below.
+- Only `newer` / `conflict` spawn `schema validate`. Main thread, shared spawn semaphore, memoized.
 - Readiness untouched. Missing schema dir → per-change `Unknown schema` errors, not `STALE`. `STALE` would disable every OpenSpec control on session cards.
 - Settings section: `/settings/openspec#workflow-schema` (`OpenSpecWorkflowSchemaSection.tsx`). Folder-section chip only links there.
+
+### Poll status
+
+```mermaid
+sequenceDiagram
+  participant M as main
+  participant W as poll worker
+  M->>W: schemaStatus {cwd, localVersion, packageSchemasDir, userSchemasDir}
+  W-->>M: {status, validateFingerprint?}
+  opt newer / conflict
+    M->>M: openspec schema validate pi-spec-driven (semaphore, memoized)
+  end
+```
+
+- Computed by worker `schemaStatus` request on EVERY tick, gate hit included.
+- Gate does not track: CLI version, `config.yml`, user/package schema dirs, fallback `list` path.
+- Enqueued once per tick:
+  - status-all path: right after `pool.probe`.
+  - fallback `list` path: before `list` spawn.
+- `build` never waits on it. Only finalize awaits.
+- Stamp compare decided from stamp alone.
+- Whole-dir fingerprint only for `newer` / `conflict`. `.openspec.yaml` reads bounded (16).
+- `newer` / `conflict`: worker returns `validateFingerprint`. Main runs `openspec schema validate pi-spec-driven` via shared semaphore. Memoized by (cwd, fingerprint, CLI version). Failure → `incompatible`.
+- Worker error / timeout / disabled → in-process fallback `schemaStatusImpl`.
+- Both fail → `workflowSchema` key omitted for tick. Logged once per failure run per cwd.
+- `finalizeOpenSpecData` never carries previous tick's `workflowSchema`.
+- One spawn semaphore: `DirectoryService.semaphore` shared with REST route (`server.ts` passes as `spawnSemaphore`). `reconfigurePolling` resize applies to both.
+
+See change: move-workflow-schema-status-to-poll-worker.
 
 ### REST endpoint
 
@@ -6558,10 +6805,15 @@ Configuration lives in `pnpm-workspace.yaml` (NOT `package.json` `pnpm.*` — ya
 
 1. `npm publish --provenance` in `publish.yml` — OIDC Trusted Publishing. Needs no npm-installed tree. `publish` job upgrades to `npm@latest` only for OIDC ≥11.5.1 floor.
 2. Column C runtime `npm install` on END-USER machines: `pi-core-updater.ts`, `pi-core-checker.ts`, `recovery-server.ts`, electron `update-checker.ts`.
-3. `bundle-server.mjs` internal `npm install --omit=dev` for electron bundle.
-4. `deploy-site.yml` `site/` job (separate `site/package-lock.json`; `site/` NOT a pnpm workspace member).
+3. `bundle-server.mjs` internal npm for electron bundle runtime tree:
+   - `npm install --omit=dev` (floating mode, default).
+   - `npm pack @blackbelt-technology/pi-dashboard-server@X` (`fetchPublishedLock`, release-lock mode).
+   - `npm ci --omit=dev --allow-remote=all` on rebased `package-lock.json` (release-lock mode).
+4. Runtime-lock generation: `scripts/generate-runtime-lock.mjs` (publish + nightly). Rebase check: `scripts/lint-runtime-lock.mjs --version X`.
+5. `deploy-site.yml` `site/` job (separate `site/package-lock.json`; `site/` NOT a pnpm workspace member).
 
 See change: adopt-pnpm-for-dev-ci.
+See change: pin-electron-bundle-dependency-tree.
 
 ## Doctor Diagnostics
 

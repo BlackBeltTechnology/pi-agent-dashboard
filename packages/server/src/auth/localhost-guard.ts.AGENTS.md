@@ -19,3 +19,7 @@ See change: fix-trusted-network-tunnel-bypass — `isTrustedSource(ip, headers, 
 Knock source classification. `parseIpAddress(raw)` → IPv4/IPv6 (zone id stripped, v4-mapped unwrapped). `isOnLinkPrivate(ip, interfaces)` — peer shares an on-link private subnet with a bound interface. `knockSourceKey(ip)` keys the rate limiter on the FULL address, never a /64 (a /64 bucket lets one host spend a whole prefix's budget). `createLanInterfaceProvider({bindHost})` lists non-internal interfaces the bind actually covers, 30 s cached. Type `LanInterface`. See change: add-lan-knock-pairing.
 
 Trust-mode: `hasNetworkPassCondition` evaluates `isAuthenticated` BEFORE the trusted match and counts network-only admissions (`noteNetworkOnlyAdmission`, once per request via `networkOnlyCounted`). Trusted list read via admission thunk (`[]` in `pair`). Denial `reason`/`hint` mode-neutral: "Pair this device (Request access) or sign in.". New `isKnockListedPeer`. Denial log redacts `/~c/<token>`. See change: retire-trusted-networks-bypass.
+
+- `PLUGIN_PROXY_FORWARDING_HEADERS` now exported (recovery gate parity test). See change: harden-server-capability-bounds.
+
+- `redactCapability` now imported from `live-server/capability-redact.ts` (breaks the guard↔capability-store cycle). See change: improve-canvas-html-and-url-ux.

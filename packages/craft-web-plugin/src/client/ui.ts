@@ -7,3 +7,6 @@ export const NOTICE =
   "flex flex-wrap items-center gap-2 border-b border-[var(--border-primary)] bg-[var(--bg-secondary)] px-3 py-2 text-xs text-[var(--text-primary)]";
 export const PANEL =
   "flex h-full flex-col items-center justify-center gap-3 p-6 text-center text-sm text-[var(--text-secondary)]";
+/** Toolbar status chip stating where saves go (D11 B2/B3). */
+export const CHIP =
+  "inline-flex items-center rounded border border-[var(--severity-info-border)] bg-[var(--severity-info-bg)] px-2 py-0.5 text-xs text-[var(--severity-info-fg)]";

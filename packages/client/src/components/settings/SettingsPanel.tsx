@@ -3198,6 +3198,12 @@ function DisplayPrefsSection() {
         value={prefs.toolGroupDefaultCollapsed}
         onChange={(v) => patch({ toolGroupDefaultCollapsed: v })}
       />
+      <ToggleField
+        hint={i18nT("settings.hint.chatMotion", undefined, "Animate new chat rows, pace streamed text and glide to the newest content. Turns off with your system's reduced-motion setting.")}
+        label={t("settings.chatMotion", undefined, "Fluid chat motion")}
+        value={prefs.chatMotion}
+        onChange={(v) => patch({ chatMotion: v })}
+      />
       <ToggleField label={t("settings.toolResultBodies", undefined, "Tool result bodies")} value={prefs.toolResults} onChange={(v) => patch({ toolResults: v })} hint={i18nT("settings.hint.toolResultBodies", undefined, "Show what a tool returned, not just that it ran.")} />
       <ToggleField label={t("settings.debugEvents", undefined, "Debug events")} value={prefs.debugTools} onChange={(v) => patch({ debugTools: v })} hint={i18nT("settings.hint.debugEvents", undefined, "Raw protocol traffic (flow:list-flows, resources_discover, …). Noisy — for diagnosing the bridge.")} />
       <div className="pt-2">

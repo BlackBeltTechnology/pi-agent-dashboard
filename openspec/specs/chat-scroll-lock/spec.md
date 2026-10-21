@@ -16,10 +16,10 @@ The chat view SHALL pause auto-scrolling when the user scrolls away from the bot
 - **THEN** auto-scroll SHALL resume and the view SHALL follow new content
 
 ### Requirement: Scroll-to-bottom button
-The chat view SHALL display a floating button when the user is scroll-locked (not near the bottom). The button SHALL be centered horizontally at the bottom of the chat area.
+The chat view SHALL display a floating button when the user is scroll-locked (not near the bottom). The button SHALL be centered horizontally at the bottom of the chat area. While the view is following the bottom and a follow motion toward the bottom is in progress, the view is not scroll-locked: the button SHALL NOT be shown, whatever the momentary distance from the bottom.
 
 #### Scenario: Button appears when scrolled up
-- **WHEN** the scroll position is more than 50px from the bottom
+- **WHEN** the scroll position is more than 50px from the bottom and no follow motion is in progress
 - **THEN** a scroll-to-bottom button SHALL be visible
 
 #### Scenario: Button hidden when at bottom
@@ -29,6 +29,11 @@ The chat view SHALL display a floating button when the user is scroll-locked (no
 #### Scenario: Clicking button scrolls to bottom and resumes follow
 - **WHEN** the user clicks the scroll-to-bottom button
 - **THEN** the view SHALL smooth-scroll to the bottom AND auto-scroll SHALL resume
+
+#### Scenario: No button during a follow motion
+- **GIVEN** the view is following the bottom and a follow motion is moving it toward new content
+- **WHEN** an intermediate position is more than 50px from the bottom
+- **THEN** the scroll-to-bottom button SHALL NOT be visible and follow SHALL remain engaged
 
 ### Requirement: Auto-scroll robust to multi-batch event replay
 When the chat view scrolls programmatically (on session switch in the "near bottom" branch, or when new content arrives while the user is at the bottom), the resulting `onScroll` event SHALL NOT cause the view to register that the user has scrolled away from the bottom. The auto-scroll chase SHALL continue across every subsequent `event_replay` batch until either replay completes or the user performs a real scroll gesture. The auto-scroll bottom-pin (both the `stickToBottom` follow effect and the virtualizer `onChange` re-pin) SHALL additionally be suspended while an active transcript selection is held, and SHALL resume on selection collapse without clearing the underlying at-bottom follow state.
@@ -69,6 +74,13 @@ transcript's scroll extent.
 The position match SHALL tolerate sub-pixel differences in reported scroll
 position, which occur under browser zoom and device-pixel rounding; it SHALL NOT
 require exact equality.
+
+A follow-glide step (capability `chat-motion`), which moves the view part-way
+toward the bottom while following live growth, SHALL be a bottom-pin write for
+attribution purposes. It SHALL claim attribution for the position it achieved.
+A scroll event matching that position SHALL preserve the follow state. Any other
+event SHALL fall through to the normal position rules and SHALL end the glide.
+The escape paths above apply to a glide unchanged.
 
 #### Scenario: Programmatic scroll-to-bottom races a replay batch
 - **GIVEN** the user has switched to a session whose events are not cached on the server
@@ -127,3 +139,8 @@ require exact equality.
 - **WHEN** the user holds an active transcript selection while new content streams in
 - **THEN** the view SHALL NOT auto-scroll to the bottom for the lifetime of the selection
 - **AND** when the selection collapses the view SHALL resume following the bottom
+
+#### Scenario: Scrollbar drag during a follow glide releases the follow
+- **GIVEN** the view is following the bottom and a follow glide is moving it toward new content
+- **WHEN** the user drags the scrollbar upward, producing scroll events that do not match the glide's achieved position
+- **THEN** those events SHALL fall through to the position rules, the glide SHALL end, and scroll lock SHALL engage once the view is more than 50px from the bottom

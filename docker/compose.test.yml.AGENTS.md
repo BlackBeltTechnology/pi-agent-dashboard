@@ -8,3 +8,6 @@ Sets `PI_DASHBOARD_FIXTURE_PLUGINS=1` as build arg + runtime env (demo-plugin fi
 Passes `PI_E2E_GOOGLE_BASE_URL` through to the dashboard service (loopback-only honoured by gmail-plugin; inert until a spec starts the fake). See change: add-gmail-plugin.
 
 Passes `PI_E2E_CANARY` + `PI_DASHBOARD_CSP` to the container (the entrypoint reads the stage from `${HOST_CWD}/.pi-test-canary`).
+- Passes `PI_E2E_TERMINALS_MAX_CONCURRENT` (seeds `terminals.maxConcurrent`; empty = default 32). See change: harden-server-capability-bounds.
+
+- Passes `PI_E2E_BROWSE_CONFINEMENT` (empty = confinement seeded off). See change: harden-server-capability-bounds.

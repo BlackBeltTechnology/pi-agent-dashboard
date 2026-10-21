@@ -611,6 +611,48 @@ const COALESCE_REASONING =
 export const COALESCE_PRE_TOOL_TEXT = "coalesce pre-tool text";
 export const COALESCE_TOOL_COMMAND = "echo coalesce-tool-ran";
 
+/**
+ * Chat-motion fixtures (change: add-fluid-chat-motion).
+ *
+ * `chat-motion-stream` streams ≥ 4000 chars of prose, a bullet list and fenced
+ * code at the default `FAUX_TPS` (~20 s): the D4 render-cost workload (P1/P2)
+ * and the paced-reveal / trailing-edge / freeze rows. `chat-motion-glide` first
+ * streams enough prose to overflow the viewport, then runs a ~3 s bash call (a
+ * tool row arriving below the fold while following), then a closing message —
+ * the follow-glide, completion-cue and idle-exemption rows.
+ */
+export const CHAT_MOTION_STREAM_TAIL = "chat-motion stream complete";
+const CHAT_MOTION_PROSE = Array.from(
+  { length: 6 },
+  (_unused, index) =>
+    `Section ${index + 1} explains how the transcript stays continuous while the answer arrives in bursts. ` +
+    "The bridge forwards one snapshot per window, the client reveals it on animation frames, and the lag " +
+    "stays bounded so nothing waits on motion. Every sentence here is plain prose so the trailing edge has " +
+    "somewhere to sit and a selection has text to hold on to.",
+).join("\n\n");
+const CHAT_MOTION_LIST = Array.from(
+  { length: 12 },
+  (_unused, index) => `- item ${index + 1}: a short list entry that keeps the markdown tree re-parsing on every step`,
+).join("\n");
+const CHAT_MOTION_CODE = [
+  "```ts",
+  ...Array.from(
+    { length: 24 },
+    (_unused, index) => `export function step${index}(input: number): number { return input * ${index + 2} + ${index}; }`,
+  ),
+  "```",
+].join("\n");
+const CHAT_MOTION_STREAM_TEXT = `${CHAT_MOTION_PROSE}\n\n${CHAT_MOTION_LIST}\n\n${CHAT_MOTION_CODE}\n\n${CHAT_MOTION_PROSE}\n\n${CHAT_MOTION_STREAM_TAIL}`;
+
+export const CHAT_MOTION_GLIDE_TAIL = "chat-motion glide complete";
+export const CHAT_MOTION_GLIDE_TOOL_OUTPUT = "motion-glide-tool-ran";
+const CHAT_MOTION_GLIDE_PRELUDE = Array.from(
+  { length: 12 },
+  (_unused, index) =>
+    `Prelude ${index + 1}. This paragraph exists only to push the transcript past the viewport so the next row arrives below the fold ` +
+    "while the view is following the bottom of a live session, which is exactly where the glide has to carry the user.",
+).join("\n\n");
+
 export const SCENARIOS: Record<string, Scenario> = {
   // ── Server-side round-trip scenarios ────────────────────────────────────
   "plain-text": {
@@ -650,6 +692,25 @@ export const SCENARIOS: Record<string, Scenario> = {
         fauxAssistantMessage([fauxText(extractDashboardFragment(context.systemPrompt))]),
     ],
     expect: { text: DASHBOARD_CONTEXT_DELIMITER },
+  },
+
+  "chat-motion-stream": {
+    script: [fauxAssistantMessage([fauxText(CHAT_MOTION_STREAM_TEXT)])],
+    expect: { text: CHAT_MOTION_STREAM_TAIL },
+  },
+
+  "chat-motion-glide": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxText(CHAT_MOTION_GLIDE_PRELUDE),
+          fauxToolCall("bash", { command: `sleep 3 && echo ${CHAT_MOTION_GLIDE_TOOL_OUTPUT}` }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText(CHAT_MOTION_GLIDE_TAIL)]),
+    ],
+    expect: { text: CHAT_MOTION_GLIDE_TAIL },
   },
 
   "slow-stream": {
@@ -1884,6 +1945,69 @@ export const SCENARIOS: Record<string, Scenario> = {
         { stopReason: "toolUse" },
       ),
       fauxAssistantMessage([fauxText("url declared")]),
+    ],
+    expect: { toolName: "canvas" },
+  },
+
+  // ── canvas HTML + URL ux (change: improve-canvas-html-and-url-ux) ────────
+  // A loopback `kind:"url"` declare routes to the confirm chip with its path kept
+  // (no auto-open, no fetch). Port 5188 is served by the spec (F5), in the container.
+  "canvas-declare-url-loopback": {
+    script: [
+      fauxAssistantMessage(
+        [fauxToolCall("canvas", { target: { kind: "url", url: "http://127.0.0.1:5188/app" }, title: "Local app" })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("loopback url declared")]),
+    ],
+    expect: { toolName: "canvas" },
+  },
+
+  // An agent-written mockup that pulls Tailwind from a CDN, then `canvas` kind:file.
+  // Auto-open serves it as a restricted static target → the egress banner lists the CDN (F16/F18).
+  "canvas-html-cdn": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("write", {
+            path: "mockups/cdn/index.html",
+            content:
+              '<!doctype html><html><head><title>cdn</title><script src="https://cdn.tailwindcss.com"></script></head>' +
+              '<body><h1 class="text-3xl">CDN mockup</h1></body></html>\n',
+          }),
+          fauxToolCall("canvas", { target: { kind: "file", path: "mockups/cdn/index.html" }, title: "CDN mockup" }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("cdn mockup declared")]),
+    ],
+    expect: { toolName: "canvas" },
+  },
+
+  // A two-screen static mockup: the address bar navigates index.html → screens/b.html (F17).
+  "canvas-html-screens": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("write", {
+            path: "mockups/screens/index.html",
+            content:
+              '<!doctype html><html><head><link rel="stylesheet" href="./style.css"></head>' +
+              "<body><h1>Screen A</h1></body></html>\n",
+          }),
+          fauxToolCall("write", {
+            path: "mockups/screens/style.css",
+            content: "h1 { border-radius: 7px; }\n",
+          }),
+          fauxToolCall("write", {
+            path: "mockups/screens/screens/b.html",
+            content: "<!doctype html><html><body><h1>Screen B</h1></body></html>\n",
+          }),
+          fauxToolCall("canvas", { target: { kind: "file", path: "mockups/screens/index.html" }, title: "Screens" }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("screens declared")]),
     ],
     expect: { toolName: "canvas" },
   },

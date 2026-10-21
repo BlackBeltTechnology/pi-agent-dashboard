@@ -161,8 +161,19 @@ export interface FileHandlerProps {
   isActive: boolean;
   /** Consistent digest-bracketed read; rejects with `too-large` above the claim's `maxBytes`. */
   snapshot(): Promise<FileHandlerSnapshot>;
-  save(bytes: ArrayBuffer, opts: { target: "overwrite" | "copy" }): Promise<FileHandlerSaveResult>;
+  /**
+   * `sibling` (claims with `siblingExtensions`): create a NEW `<stem><ext>` next to the tab's file — never an
+   * overwrite, so no first-overwrite notice; 409 (every name taken) → `conflict-unresolved`.
+   * See change: extend-craft-web-to-all-apps (D6).
+   */
+  save(bytes: ArrayBuffer, opts: { target: "overwrite" | "copy" } | { target: "sibling"; ext: string }): Promise<FileHandlerSaveResult>;
   setDirty(state: boolean | "unknown"): void;
+  /**
+   * Open a workspace file (cwd-relative, as a save result returns it) in a new tab; `claimId` selects one of
+   * this plugin's file-handler modes on it. Optional: absent on an older runtime.
+   * See change: extend-craft-web-to-all-apps (D6 "Create and open").
+   */
+  openFile?(path: string, claimId?: string): void;
   context: AnyPluginContext;
 }
 

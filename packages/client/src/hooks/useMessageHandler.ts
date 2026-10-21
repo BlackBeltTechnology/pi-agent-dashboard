@@ -28,12 +28,14 @@ import {
 } from "../lib/chat/history-gap.js";
 import { dispatchInitEvent } from "../lib/git/worktree-init-bus.js";
 import { t } from "../lib/i18n/i18n.js";
+import { notifyExposureChanged } from "../lib/live-preview/exposure-store.js";
 import { setQuestions } from "../lib/questions/question-store.js";
 import { clearLoadingHistory, HYDRATE_CEILING_MS, rearmLoadingHistory } from "../lib/replay/loading-history.js";
 import type { ReplayPersister } from "../lib/replay/replay-persist.js";
 import { inferPlatform, pathKey, resolveSessionGroupPath } from "../lib/session/session-grouping.js";
 import { clearRecoveryOffer, setRecoveryOffer } from "../lib/state/recovery-offer-bus.js";
 import { pushSpawnErrorToast } from "../lib/state/spawn-error-toast-bus.js";
+import { clearTerminalLimitNotices, showTerminalLimitNotice } from "../lib/state/terminal-limit-notice-store.js";
 import { isVisibleCwd } from "../lib/util/cwd-visibility.js";
 import type { OpenSpecGetInflight } from "./useOpenSpecReconcile.js";
 import type { PendingSpawnEntry } from "./useSessionActions.js";
@@ -1001,6 +1003,14 @@ export function useMessageHandler(
         break;
       }
 
+      case "preview_exposure_changed": {
+        // The dashboard became reachable beyond this machine: open live viewers
+        // re-read the policy and re-mint without scripts. See change:
+        // improve-canvas-html-and-url-ux (D5).
+        notifyExposureChanged(msg.epoch);
+        break;
+      }
+
       case "models_list": {
         // Models are GLOBAL in pi-coding-agent (single ModelRegistry per pi
         // process). The bridge emits this on session_start using the same
@@ -1911,6 +1921,8 @@ export function useMessageHandler(
           next.set(msg.terminal.id, msg.terminal);
           return next;
         });
+        // A spawn succeeded: any "limit reached" notice for this cwd is stale.
+        clearTerminalLimitNotices(msg.terminal.cwd);
         // A newly-created terminal now surfaces as a `term:<id>` tab inside the
         // pane that requested it (the pane's terminal slice watches the
         // terminal set and opens the tab in-place). The standalone
@@ -1922,6 +1934,24 @@ export function useMessageHandler(
           pendingTerminalCwdRef.current = null;
           lastCreatedTerminalIdRef.current = msg.terminal.id;
         }
+        break;
+
+      // A cap refusal: notice in the slot that asked (tab bar vs chat). Sent only
+      // to the requesting socket. See change: harden-server-capability-bounds.
+      case "terminal_limit_reached":
+        showTerminalLimitNotice({ scope: msg.scope, limit: msg.limit, cwd: msg.cwd, inline: msg.inline });
+        break;
+
+      // A remote pin / add / move-folder outside the shared roots was dropped.
+      case "folder_refused":
+        showToast?.(
+          t(
+            "folderRefused.toast",
+            { path: msg.path },
+            "{path} is outside the folders this dashboard shares. Ask the host to pin it.",
+          ),
+          "error",
+        );
         break;
 
       case "terminal_removed":

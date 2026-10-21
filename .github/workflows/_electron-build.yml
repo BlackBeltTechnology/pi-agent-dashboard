@@ -69,6 +69,20 @@ on:
         type: string
         required: false
         default: ""
+      release_lock:
+        description: |
+          Release-lock bundle: forward `--release-lock=<version>` to
+          bundle-server.mjs, which installs the bundled server's third-party
+          tree from `server@<version>`'s published `runtime-lock.json`
+          (lock-pinned, integrity-verified, fail-closed — never the floating
+          install), then assert the bundle recorded it. Set by publish.yml and
+          nightly.yml; on-demand (ci-electron.yml) and ci-e2e-electron.yml
+          builds leave it false and keep the floating `npm install`. Pinned by
+          publish-workflow-contract.test.ts.
+          See change: pin-electron-bundle-dependency-tree.
+        type: boolean
+        required: false
+        default: false
       use_dependency_cache:
         description: |
           Restore the pnpm dependency cache in each build leg. Default false
@@ -371,7 +385,23 @@ jobs:
         # bundle-server.mjs. See change: embed-git-bash-on-windows.
         env:
           GIT_TARGET_ARCH: ${{ matrix.arch }}
-        run: node packages/electron/scripts/bundle-server.mjs ${{ inputs.source_only_bundle && '--source-only' || '' }}
+        #
+        # `--release-lock=<version>` is appended ONLY when `inputs.release_lock`
+        # is true (release + nightly): the third-party tree is then installed
+        # from the published runtime lock. Double-quoted so PowerShell (win32
+        # legs) does not split the argument at the version's dots.
+        run: node packages/electron/scripts/bundle-server.mjs ${{ inputs.source_only_bundle && '--source-only' || '' }} ${{ inputs.release_lock && format('"--release-lock={0}"', inputs.version) || '' }}
+
+      - name: Assert release-lock bundle (installMode / lockVersion)
+        # Positive proof that a release-lock build used the lock: gated on the
+        # BOOLEAN (never on the version string), so a release whose flag was
+        # dropped or whose version resolved empty fails here instead of shipping
+        # a floating tree. Node-native — Windows-safe.
+        # See change: pin-electron-bundle-dependency-tree (design D1).
+        if: ${{ inputs.release_lock }}
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: node packages/electron/scripts/assert-release-lock-bundle.mjs packages/electron/resources/server
 
       - name: Assert runnable bundle (cli.ts exists)
         # Defence-in-depth gate: when `inputs.source_only_bundle == false`,

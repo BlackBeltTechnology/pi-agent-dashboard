@@ -47,6 +47,8 @@ export interface CraftWebAppStatus {
   latestVersion?: string;
   enabled?: boolean;
   preparing?: boolean;
+  /** `ok` build on an older supported shim: re-preparing is offered as an update. See change: extend-craft-web-to-all-apps (D8). */
+  shimUpdate?: boolean;
 }
 
 export interface CraftWebStatus {
@@ -83,6 +85,7 @@ function optionalFields(v: Record<string, unknown>): Partial<CraftWebAppStatus> 
     latestVersion: optStr(v.latestVersion),
     enabled: optBool(v.enabled),
     preparing: optBool(v.preparing),
+    shimUpdate: optBool(v.shimUpdate),
   };
 }
 

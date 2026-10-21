@@ -49,3 +49,9 @@ Dashboard config loader. `loadConfig()` reads `~/.pi/dashboard/config.json` via 
 
 `editor: { largeFileLimitMb }` block: `DEFAULT_EDITOR_CONFIG` (10), `parseEditorConfig` (round + clamp 1–256, non-number → 10). See change: gate-changed-on-disk-by-content.
 `AuthConfig.capabilityRoutePlugins?: string[]` (manifest ids of non-bundled plugins trusted to `serveApp`; default `[]`, string-filtered). It alone counts as auth content for `parseAuthConfig`, so it is not dropped. See change: add-plugin-capability-routes.
+
+- `terminals` block: `TerminalsConfig`, `DEFAULT_TERMINALS_CONFIG` (32/16/600000), `parseTerminalsConfig` (integer >= 1 else default + one warn). See change: harden-server-capability-bounds.
+
+- `browse` block: `BrowseConfig {confineRemote}`, `DEFAULT_BROWSE_CONFIG`, `parseBrowseConfig` (only explicit `false` disables remote browse confinement; read at server start). See change: harden-server-capability-bounds.
+
+- `liveServer?: {previewExposure?: "exposed"}`: forces live-preview exposure to `exposed` (same-host relay with no forwarding header). Parsed only when exactly `"exposed"`. See change: improve-canvas-html-and-url-ux.

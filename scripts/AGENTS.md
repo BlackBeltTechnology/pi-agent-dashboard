@@ -91,6 +91,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/verify-published-imports.test.mjs` | Tests for `verify-published-imports.mjs`. Fixtures built in `mkdtemp` OUTSIDE the rep… → see `__tests__/verify-published-imports.test.mjs.AGENTS.md` |
 | `__tests__/patch-vendor-specifiers.test.mjs` | Tests for `patch-vendor-specifiers.mjs` (E6: 4-specifier rewrite, byte-identical tree… → see `__tests__/patch-vendor-specifiers.test.mjs.AGENTS.md` |
 | `__tests__/root-packaging.test.mjs` | ci-level root tarball exclusion check (E14/E15). → see `__tests__/root-packaging.test.mjs.AGENTS.md` |
+| `__tests__/release-lock.test.mjs` | Tests for release-lock rebase/audit/fetch/lint + post-bundle assertion (E1–E12, E18, E19, X1, X2). See change: pin-electron-bundle-dependency-tree. |
 | `__tests__/runtime-release.test.mjs` | Runtime release tests. → see `__tests__/runtime-release.test.mjs.AGENTS.md` |
 | `__tests__/refresh-vendor.test.mjs` | Tests for `refresh-vendor.mjs` (X3: an unfaithful stubbed fetch aborts before patching with tree + manifest… → see `__tests__/refresh-vendor.test.mjs.AGENTS.md` |
 | `__tests__/vendor-specifiers.test.mjs` | Tests for `check-vendor-specifiers.mjs` (E1/E2/X4: the patched tree passes non-vacuously;… → see `__tests__/vendor-specifiers.test.mjs.AGENTS.md` |
@@ -113,6 +114,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `fix-pty-permissions.cjs` | Postinstall: fix node-pty spawn-helper execute permissions |
 | `generate-plugin-registry.mjs` | Standalone generator for packages/client/src/generated/plugin-registry.tsx + plugin-sources.css (both committed). → see `generate-plugin-registry.mjs.AGENTS.md` |
 | `generate-runtime-lock.mjs` | Server lock gen. → see `generate-runtime-lock.mjs.AGENTS.md` |
+| `lint-runtime-lock.mjs` | `--version X [--lock F]`: runs the bundle's `rebaseRuntimeLock` over the generated lock as a check; non-zero… → see `lint-runtime-lock.mjs.AGENTS.md` |
 | `i18n-lint.mjs` | Hardcoded-UI-string lint. → see `i18n-lint.mjs.AGENTS.md` |
 | `i18n-parity.mjs` | Catalog parity gate: every key in the union of zh-CN (`i18n-zh-CN.ts`) + hu + plugin catalogs exists in each. → see `i18n-parity.mjs.AGENTS.md` |
 | `rebuild-and-restart.sh` | Build → verify served client → `pi-dashboard restart` → `npm run reload`. → see `rebuild-and-restart.sh.AGENTS.md` |

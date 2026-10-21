@@ -22,6 +22,7 @@ import { CappedViewer } from "../CappedViewer.js";
 import { pseudoTabRegistry } from "../pseudo-tab-registry.js";
 import { isPseudoTabViewer, OPEN_PATH_VIEWERS, PSEUDO_TAB_VIEWERS } from "../viewer-kinds.js";
 import { viewerRegistry } from "../viewer-registry.js";
+import { installFakeLiveServer } from "./live-fake-api.js";
 
 const originalFetch = globalThis.fetch;
 
@@ -159,13 +160,17 @@ describe("viewerRegistry — preview/* delegation", () => {
     expect(getByLabelText("Zoom out")).toBeTruthy();
   });
 
-  it("html mounts a sandboxed iframe (scripts disabled)", async () => {
+  it("html frames a static target in a sandboxed iframe (never allow-same-origin, never srcdoc)", async () => {
+    // Was: `<iframe sandbox="allow-same-origin" srcDoc>`. Now the file is served as a live-server
+    // static target and framed by capability path. See change: improve-canvas-html-and-url-ux (F14).
+    installFakeLiveServer();
     const { container } = renderKind("html");
     await waitFor(() => expect(container.querySelector("iframe")).toBeTruthy());
     const iframe = container.querySelector("iframe")!;
     const sandbox = iframe.getAttribute("sandbox") ?? "";
-    expect(sandbox).toContain("allow-same-origin");
-    expect(sandbox).not.toContain("allow-scripts");
+    expect(sandbox).not.toContain("allow-same-origin");
+    expect(iframe.hasAttribute("srcdoc")).toBe(false);
+    expect(iframe.getAttribute("src")).toMatch(/^\/live\/stat1234\/~c\/[A-Za-z0-9_-]{22,}\/index\.html$/);
   });
 });
 

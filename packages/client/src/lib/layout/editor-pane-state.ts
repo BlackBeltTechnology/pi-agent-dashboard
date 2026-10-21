@@ -50,6 +50,17 @@ export interface OpenFile {
    * built-in view for this tab only. See change: add-editor-pane-file-handlers (D2).
    */
   handlerMode?: string;
+  /**
+   * Agent re-declared the tab's target with a higher version while the tab was
+   * NOT active: a mounted live viewer reloads (re-mints) when this changes.
+   * See change: improve-canvas-html-and-url-ux (D8).
+   */
+  reloadNonce?: number;
+  /**
+   * Agent re-declared the target of the ACTIVE tab: the viewer keeps its content
+   * and offers "Updated by the agent · Reload". Cleared by `ackUpdate`.
+   */
+  updatedByAgent?: boolean;
 }
 
 export interface EditorPaneState {
@@ -74,8 +85,16 @@ export type EditorPaneAction =
       activate?: boolean;
       /** An agent (canvas auto-open) issued this open, not the operator. */
       autoOpened?: boolean;
+      /**
+       * The canvas re-declared an already-open target at a higher version: an
+       * inactive tab reloads (`reloadNonce`), the active tab only flags
+       * `updatedByAgent`. Ignored for a tab that is not open yet.
+       */
+      bump?: boolean;
     }
   | { type: "closeTab"; index: number }
+  // The viewer showed/handled the "Updated by the agent" notice. Clears `updatedByAgent`.
+  | { type: "ackUpdate"; path: string }
   // Close the tab addressed by its full path (stable across index shifts).
   // Used by the terminal-tab reconcile loop, which drops several stale
   // `term:<id>` tabs in one pass. See change: terminals-in-tabbed-panes.
@@ -155,6 +174,21 @@ function activateAt(openFiles: OpenFile[], index: number, autoOpened: boolean): 
  * without moving `activeIndex`. See change: non-disruptive-file-open.
  */
 function reduceOpenFile(state: EditorPaneState, action: Extract<EditorPaneAction, { type: "openFile" }>): EditorPaneState {
+  const next = reduceOpenFileBase(state, action);
+  if (!action.bump) return next;
+  const i = next.openFiles.findIndex((f) => f.path === action.path);
+  const was = state.openFiles.findIndex((f) => f.path === action.path);
+  if (i < 0 || was < 0) return next; // a brand-new tab has nothing to reload
+  const openFiles = [...next.openFiles];
+  // The tab that WAS active keeps its content and offers a reload; any other tab reloads.
+  openFiles[i] =
+    was === state.activeIndex
+      ? { ...openFiles[i], updatedByAgent: true }
+      : { ...openFiles[i], reloadNonce: (openFiles[i].reloadNonce ?? 0) + 1 };
+  return { ...next, openFiles };
+}
+
+function reduceOpenFileBase(state: EditorPaneState, action: Extract<EditorPaneAction, { type: "openFile" }>): EditorPaneState {
   // Reveal the file's row: expand its ancestor dir chain (#5).
   const treeOpenRoots = mergeRoots(state.treeOpenRoots, ancestorDirs(action.path));
   const activate = action.activate !== false; // default true (foreground)
@@ -231,6 +265,14 @@ export function editorPaneReducer(state: EditorPaneState, action: EditorPaneActi
 
     case "openFile":
       return reduceOpenFile(state, action);
+
+    case "ackUpdate": {
+      const i = state.openFiles.findIndex((f) => f.path === action.path);
+      if (i < 0 || !state.openFiles[i].updatedByAgent) return state;
+      const openFiles = [...state.openFiles];
+      openFiles[i] = { ...openFiles[i], updatedByAgent: false };
+      return { ...state, openFiles };
+    }
 
     case "closeByPath": {
       const index = state.openFiles.findIndex((f) => f.path === action.path);

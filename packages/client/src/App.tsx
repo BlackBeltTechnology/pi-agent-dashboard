@@ -58,6 +58,7 @@ import { StatusBar } from "./components/shell/StatusBar.js";
 import { SessionSplitView, SplitRouteSync } from "./components/split/SessionSplitView.js";
 import { SplitWorkspaceProvider } from "./components/split/SplitWorkspaceContext.js";
 import { allTagsInUse } from "./components/tags/all-tags.js";
+import { TerminalLimitNotice } from "./components/terminal/TerminalLimitNotice.js";
 import { CommitDialogProvider } from "./components/worktree/CommitDialog.js";
 import { LazyWorktreeSpawnDialog } from "./components/worktree/lazy-worktree-dialogs.js";
 import { WorktreeInitStack } from "./components/worktree/WorktreeInitStack.js";
@@ -82,6 +83,7 @@ import { fetchArchivedSessionById } from "./lib/api/archived-sessions-api.js";
 import { getInitialWsUrl, LAST_SERVER_KEY, performServerSwitch } from "./lib/api/server-switch.js";
 import { openStagingSocket } from "./lib/api/staging-socket.js";
 import { EMPTY_CANVAS_STATE } from "./lib/canvas/canvas-gate.js";
+import { useCanvasToolScalars } from "./lib/canvas/use-canvas-tool-scalars.js";
 import { composerLiveness, isComposerWorking } from "./lib/chat/composer-liveness.js";
 // SubagentPopoutPage no longer imported by the shell — it's registered via
 // the subagents-plugin's `shell-overlay-route` claim and mounted through
@@ -1857,12 +1859,17 @@ export default function App() {
   // the type matches what is actually kept fresh. See change:
   // fix-long-session-ux-degradation (D7).
   const selectedSubagents = selectedId ? sessionStates.get(selectedId)?.subagents : undefined;
+  // `canvas` is the scalar ownership slice (key / sourceCallId / chipDeclarationId):
+  // the memo moves only when one of them does, never on a phase/title/version change.
+  // See change: improve-canvas-html-and-url-ux (D8).
+  const canvasScalars = useCanvasToolScalars(selectedId ? canvasMap.get(selectedId) : undefined);
   const toolContext: ToolContext = useMemo(() => makeToolContext({
     cwd: selectedCwd,
     sessionId: selectedId,
     session: selectedSubagents ? { subagents: selectedSubagents } : undefined,
+    canvas: canvasScalars,
     send,
-  }), [selectedCwd, selectedId, selectedSubagents, send]);
+  }), [selectedCwd, selectedId, selectedSubagents, canvasScalars, send]);
 
   const contextUsageMap = useMemo(
     () => buildContextUsageMap(sessionStates, sessions),
@@ -2587,6 +2594,9 @@ export default function App() {
               </div>
             </div>
           }>
+            {/* A refused inline terminal (PTY cap) reports in the chat slot.
+                See change: harden-server-capability-bounds. */}
+            {selectedSession && <TerminalLimitNotice cwd={selectedSession.cwd} inline />}
             <SessionAssetsProvider assets={selectedSession?.assets}>
             <ChatView ref={chatViewRef} sessionId={selectedId} state={selectedState} toolContext={toolContext} onRespondToUi={handleRespondToUi} onPromptResync={requestPromptResync} onAbort={handleAbort} onForceKill={handleForceKill} onForkFromMessage={selectedId ? handleForkFromMessage : undefined} onRetryPendingPrompt={selectedId ? handleRetryPendingPrompt : undefined} onForkPendingPrompt={selectedId ? handleForkPendingPrompt : undefined} onCloseInlineTerminal={selectedId ? handleCloseInlineTerminalForSelected : undefined} pendingSteering={selectedSession?.pendingQueues?.steering ?? EMPTY_STEERING} loadingHistory={selectedId ? loadingHistory.get(selectedId) ?? false : false} retainedTranscript={selectedSession?.retainedTranscript} replayInFlight={selectedId ? replayInFlight.get(selectedId) ?? false : false} historyGap={selectedId ? historyGaps.get(selectedId) : undefined} onLoadEarlier={selectedId ? handleLoadEarlier : undefined} historySpliceRev={historySpliceRev} onCollapseStreamingThinking={selectedId ? handleCollapseStreamingThinking : undefined} historyPhase={selectedHistoryPhase?.phase ?? "idle"} historyStartedAt={selectedHistoryPhase?.startedAt} onRetryHistory={selectedId ? handleRetryHistory : undefined} />
             </SessionAssetsProvider>

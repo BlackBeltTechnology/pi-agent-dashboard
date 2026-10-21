@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300">
+  <rect x="20" y="20" width="160" height="100" fill="#3b82f6"/>
+  <circle cx="280" cy="150" r="70" fill="#f97316"/>
+  <text x="40" y="250" font-size="32" fill="#111">Spike</text>
+</svg>

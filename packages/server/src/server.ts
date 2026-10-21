@@ -2,7 +2,7 @@
  * Dashboard HTTP + WebSocket server.
  */
 
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
@@ -40,7 +40,6 @@ import {
   readRuntimeRequest,
   readRuntimeState,
 } from "@blackbelt-technology/pi-dashboard-shared/runtime-overlay/state.js";
-import { createSemaphore } from "@blackbelt-technology/pi-dashboard-shared/semaphore.js";
 import { proveServerIdentity } from "@blackbelt-technology/pi-dashboard-shared/server-pinning.js";
 import { discoverServiceOffers } from "@blackbelt-technology/pi-dashboard-shared/services/offers.js";
 import { isRecoveryCandidate, isShutdownWindowCandidate, mergeSessionMeta, type SessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
@@ -65,7 +64,8 @@ import { installGrantCoordinator } from "./access/denial-hold.js";
 import { GrantCoordinator } from "./access/grant-coordinator.js";
 import { ensureGrantStoreId } from "./access/grant-store-id.js";
 import { createPiTrustMirrorService, setPiTrustMirror } from "./access/pi-trust-mirror-service.js";
-import { createCorsPlane, createCwdPlane, createFilesystemPlane, createNetworkPlane } from "./access/planes.js";
+import { createCorsPlane, createCwdPlane, createFilesystemPlane, createNetworkPlane, createPreviewEgressPlane } from "./access/planes.js";
+import { projectEgressGrants } from "./access/preview-egress-store.js";
 import { promptChannelCount } from "./access/prompt-channel.js";
 import { clearRefusal, isRefused, listRefusals, recordRefusal } from "./access/refusal-ledger.js";
 import { sourceChannel } from "./access/source-channel.js";
@@ -110,11 +110,13 @@ import {
   createLanInterfaceProvider,
   createNetworkGuard,
   createNetworkGuardHook,
+  isLocallyTrusted,
   isPluginScopePeerLocal,
   noteTrustedList,
   parseGuardTarget,
   setNetworkDenialObserver,
 } from "./auth/localhost-guard.js";
+import { collectEndpoints } from "./tunnel/tunnel-endpoints.js";
 import { createMutationOriginGate } from "./auth/mutation-origin-gate.js";
 import { PasskeyService } from "./auth/passkey/passkey-service.js";
 import { resolveRpContext } from "./auth/passkey/rp-context.js";
@@ -154,6 +156,7 @@ import {
   liveAllowedHosts,
   liveCorsAllowedOrigins,
   liveHostGateMode,
+  livePreviewExposureOverride,
   livePublicBaseUrls,
   liveRequireLocalProof,
   liveTrustedNetworks,
@@ -164,7 +167,9 @@ import { createDirectoryService, type DirectoryService } from "./directory-servi
 import { createEmbedLifecycleController } from "./embed-lifecycle/embed-lifecycle-controller.js";
 import { createPluginSessionCloseApi, createSessionCloserRegistry } from "./embed-lifecycle/plugin-session-close.js";
 import { wireEvents } from "./event-wiring.js";
+import { createReplayState } from "./session/hydration-state.js";
 import { createFileWatchManager } from "./file-watch-manager.js";
+import { resolveMainPath } from "./git-worktree/git-operations.js";
 import { createWorktreeInitRegistry } from "./git-worktree/worktree-init-registry.js";
 import { listPersistedTrust as listPersistedWorktreeTrust, setTrustChangedListener } from "./git-worktree/worktree-init-trust.js";
 import { identityDisarmedWarning, isIdentityEnforced } from "./identity/activation.js";
@@ -188,6 +193,7 @@ import { canAccessSession, isLocalOperator, markLocalOperator, sessionPrincipalO
 import { scheduleAtExpiry } from "./identity/socket-lifetime.js";
 import { authorizeRoadUpgrade } from "./identity/upgrade-gate.js";
 import { createKnownServerMoves } from "./known-server-moves.js";
+import { buildBrowseRootSources, resolveBrowseRoots } from "./lib/browse-roots.js";
 import {
   clientBuildDiagnostic,
   clientBuildSnapshotFor,
@@ -207,6 +213,9 @@ import {
   redactCapability,
   sessionKeyOf,
 } from "./live-server/live-capability.js";
+import { createReservedHandler } from "./live-server/live-csp-report.js";
+import { createEgressGrantRequester, createPreviewEgress, requestOriginsOf } from "./live-server/live-egress.js";
+import { createPreviewExposure, wirePreviewExposure } from "./live-server/live-exposure.js";
 import { createLiveServerManager } from "./live-server/live-server-manager.js";
 import { handleLiveServerUpgrade, registerLiveServerProxy } from "./live-server/live-server-proxy.js";
 import { startEventLoopSampler } from "./metrics/eventloop-sampler.js";
@@ -225,6 +234,7 @@ import { type BrowserGateway, createBrowserGateway } from "./pairing/browser-gat
 import { createRequestAccessAvailable, type KnockPeerDeps } from "./pairing/knock-admission.js";
 import { PairedDeviceRegistry } from "./pairing/paired-devices.js";
 import { PairingManager, wirePendingHint } from "./pairing/pairing.js";
+import { stampSocketLocality } from "./pairing/socket-locality.js";
 import type { TieredSocket } from "./pairing/ws-tier-gate.js";
 import { buildSelfServer, wirePeerServers } from "./peer-servers.js";
 import { createPendingArchiveIntentRegistry } from "./pending/pending-archive-intent-registry.js";
@@ -266,7 +276,7 @@ import { registerAttachmentRoutes } from "./routes/attachment-routes.js";
 import { registerCanvasTypesRoutes } from "./routes/canvas-types-routes.js";
 import { registerCustomEventGroupsRoutes } from "./routes/custom-event-groups-routes.js";
 import { registerDoctorRoutes } from "./routes/doctor-routes.js";
-import { registerFileRoutes } from "./routes/file-routes.js";
+import { denialBody, gateFilePath, registerFileRoutes } from "./routes/file-routes.js";
 import { registerFolderProjectRoutes } from "./routes/folder-project-routes.js";
 import { registerGitRoutes } from "./routes/git-routes.js";
 import { registerGrepRoutes } from "./routes/grep-routes.js";
@@ -447,6 +457,12 @@ export interface ServerConfig {
   /** Shape of the replay window when one applies (`head-tail` | `tail-only`).
    *  Absent → `head-tail`. See change: add-tail-only-replay-window (D1). */
   replayWindowMode?: import("@blackbelt-technology/pi-dashboard-shared/memory-limits.js").ReplayWindowMode;
+  /**
+   * Test seam: shorten the bridge replay fallback exits and the keepalive sent
+   * to subscribers waiting on a replay (defaults 5 s idle / 60 s cap / 10 s).
+   * See change: fix-large-session-resume-replay (D2).
+   */
+  replayTimings?: { idleMs?: number; capMs?: number; keepaliveMs?: number };
   /** OpenSpec polling config (interval, concurrency, change detection, jitter) */
   openspec?: import("@blackbelt-technology/pi-dashboard-shared/config.js").OpenSpecPollConfig;
   /** Push notifications. Absent or `enabled !== true` means disabled (no dispatcher,
@@ -1318,8 +1334,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   const fitWorkerPool = createFitWorkerPool({ size: 2 });
 
   // Create terminal manager with exit callback
+  // PTY caps + inline orphan TTL from `terminals.*` (restart to apply).
+  // See change: harden-server-capability-bounds (D3).
+  const terminalsConfig = loadConfig().terminals;
   const terminalManager = createTerminalManager({
     transcriptCapBytes,
+    maxConcurrent: terminalsConfig.maxConcurrent,
+    maxPerOwner: terminalsConfig.maxPerOwner,
+    inlineOrphanTtlMs: terminalsConfig.inlineOrphanTtlMs,
     onExit: (terminalId) => {
       // Find and remove from session order
       const allOrders = sessionOrderManager.getAllOrders();
@@ -1336,7 +1358,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   const terminalGateway = createTerminalGateway(terminalManager);
 
   // Live-server-preview manager (loopback dev-server allowlist + proxy).
-  const liveServerManager = createLiveServerManager(preferencesStore);
+  // Ports the dashboard itself listens on are never previewable (a loopback origin is trusted
+  // by its CORS / mutation gates). See change: improve-canvas-html-and-url-ux (D1).
+  const liveServerManager = createLiveServerManager(preferencesStore, {
+    ownPorts: () => {
+      const tls = loadConfig().tls;
+      return [config.port, config.piPort, ...(tls?.enabled ? [tls.port] : [])];
+    },
+  });
 
   // ACP host A (in-process): attach virtual connections to THIS gateway.
   // See change: add-acp-session-driver (D1).
@@ -1353,7 +1382,21 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   questionStore.loadPersisted();
   questionStore.sweepAtBoot((sessionId) => persistedSessionPresence.get(sessionId) ?? "unknown");
 
-  const browserGateway = createBrowserGateway(sessionManager, eventStore, piGateway, undefined, pendingForkRegistry, sessionOrderManager, preferencesStore, directoryService, terminalManager, pendingDashboardSpawns, config.maxWsBufferBytes, pendingAttachRegistry, pendingInitialPromptRegistry, pendingResumeIntents, pendingClientCorrelations, pendingWorktreeBaseRegistry, metaPersistence, fitWorkerPool, config.maxReplayEvents, config.replayWindowMode, sessionArchive, pendingArchiveIntents, remoteTranscriptStore, pendingPrincipalOwnerRegistry, identityEnforced, undefined, questionStore);
+  // Shared roots for browse confinement + the remote folder gate (ONE definition).
+  // Project-scope grants only: session-scope grants are transient.
+  // See change: harden-server-capability-bounds (D2).
+  const browseRootSources = buildBrowseRootSources({
+    preferencesStore,
+    sessionManager,
+    worktreeRoots: () => listPersistedWorktreeTrust().map((t) => t.repoRoot),
+    projectGrants: () => listAccessGrants().filter((g) => g.scope === "project").map((g) => g.subject),
+  });
+  // `browse.confineRemote: false` (operator opt-out, read at start) => `null` = unconfined.
+  const confineRemoteBrowse = loadConfig().browse.confineRemote;
+  const browseRoots = () => (confineRemoteBrowse ? resolveBrowseRoots(browseRootSources) : Promise.resolve(null));
+
+  const replayState = createReplayState(config.replayTimings);
+  const browserGateway = createBrowserGateway(sessionManager, eventStore, piGateway, undefined, pendingForkRegistry, sessionOrderManager, preferencesStore, directoryService, terminalManager, pendingDashboardSpawns, config.maxWsBufferBytes, pendingAttachRegistry, pendingInitialPromptRegistry, pendingResumeIntents, pendingClientCorrelations, pendingWorktreeBaseRegistry, metaPersistence, fitWorkerPool, config.maxReplayEvents, config.replayWindowMode, sessionArchive, pendingArchiveIntents, remoteTranscriptStore, pendingPrincipalOwnerRegistry, identityEnforced, undefined, questionStore, browseRoots, replayState);
   // App-wide pairing approval dialog: a content-free hint on every pending
   // change; operator browsers refetch the guarded list (D1).
   // See change: add-pairing-approval-dialog.
@@ -1762,6 +1805,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     getGraceHours: () => loadConfig().vault.offlineGraceHours,
   });
   wireEvents({
+    replayState,
     inFlightToolCalls,
     vaultDelivery,
     // Lazy: `yolo` is constructed further down; a pre-init call throws and the
@@ -2031,6 +2075,18 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   grantPlanes.register(
     createCorsPlane({ readRawCors: () => (readRawConfig().cors ?? {}) as Record<string, unknown>, writeConfigPartial }),
   );
+  // Preview egress: an external https origin a restricted live preview may load, granted per project.
+  // The dashboard's own origins (tunnels, public base URLs, configured CORS origins) are never grantable.
+  // See change: improve-canvas-html-and-url-ux (D7).
+  const previewEgressOwnOrigins = (): string[] =>
+    [getTunnelUrl(), ...liveTunnelOrigins(), ...livePublicBaseUrls(), ...corsAllowedOrigins()].flatMap((u) => {
+      try {
+        return typeof u === "string" && u ? [new URL(u).origin] : [];
+      } catch {
+        return [];
+      }
+    });
+  grantPlanes.register(createPreviewEgressPlane({ ownOrigins: previewEgressOwnOrigins }));
   // YOLO (design D13): consulted at the prompt point; the refusal ledger stops it
   // reversing an explicit deny. Environment activation is attempted once, at
   // boot, and refused outright in report mode or on any unusable root.
@@ -2163,7 +2219,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Liveness is re-checked at every use, so a revoked device, an ended session
   // or a removed target is refused on its next request.
   const liveCapabilities = new LiveCapabilityStore({
-    isTargetLive: (id) => liveServerManager.get(id) !== undefined,
+    isTargetLive: (id) => liveServerManager.has(id),
     isPrincipalLive: (p) => {
       if (p.identityExpiresAt !== undefined && p.identityExpiresAt <= Date.now()) return false;
       // Minted on network trust alone: only valid while network trust still authenticates.
@@ -2172,6 +2228,59 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       if (p.kind === "session" && p.session) return effectiveSessionTier(p.session, passkeyService) !== null;
       return true;
     },
+  });
+  // An evicted preset / static target takes its tokens with it.
+  liveServerManager.setEvictionListener((id) => liveCapabilities.revokeByTarget(id));
+  // Per-token egress state (markup scan, CSP reports, allow-once, project grants). Project grants are read
+  // from their store on every CSP build, so a grant or revoke applies on the next response with no restart.
+  const previewEgress = createPreviewEgress({
+    getStatic: (id) => liveServerManager.getStatic(id),
+    presetCwdOf: (id) => {
+      const sessionId = liveServerManager.presetSessionOf(id);
+      return sessionId ? sessionManager.get(sessionId)?.cwd : undefined;
+    },
+    projectKeyOf: (cwd) => {
+      let real = cwd;
+      try {
+        real = realpathSync(cwd);
+      } catch {
+        /* keep the stated cwd */
+      }
+      return resolveMainPath(real) ?? real;
+    },
+    projectGrants: projectEgressGrants,
+    allowOnce: (viewerId) => liveCapabilities.getAllowOnce(viewerId),
+    ownOrigins: previewEgressOwnOrigins,
+  });
+  // Preview exposure (is the dashboard reachable from anywhere but this machine?). Drives the
+  // scripts rule on restricted mints; a flip to `exposed` kills restricted scripted local-only
+  // tokens and tells open viewers to re-mint. See change: improve-canvas-html-and-url-ux (D5).
+  const previewExposure = createPreviewExposure({
+    getBindHost: () => config.host,
+    getEndpoints: () =>
+      collectEndpoints({
+        providerEndpoints: [getTunnelUrl(), ...liveTunnelOrigins()]
+          .filter((u): u is string => typeof u === "string" && u.length > 0)
+          .map((url) => ({ kind: "public" as const, url, tls: url.startsWith("https://") })),
+        publicBaseUrls: livePublicBaseUrls(),
+        port: config.port,
+        tlsEndpoints: tlsListener.tlsListenerUrls(),
+        includeLocal: false,
+      }).map((e) => e.url),
+    getConfigOverride: livePreviewExposureOverride,
+  });
+  wirePreviewExposure({
+    exposure: previewExposure,
+    capabilities: liveCapabilities,
+    broadcast: (epoch) => browserGateway.broadcastToAll({ type: "preview_exposure_changed", epoch }),
+  });
+  // Detect the flip even when no request arrives (a tunnel connecting), within the viewers' 2 s budget.
+  const previewExposureTimer = setInterval(() => previewExposure.current(), 1000);
+  previewExposureTimer.unref();
+  fastify.addHook("onClose", async () => clearInterval(previewExposureTimer));
+  // A request carrying a forwarding header pins the exposure to `exposed` until restart (fails closed).
+  fastify.addHook("onRequest", async (request) => {
+    previewExposure.noteRequest(request.headers as Record<string, unknown>);
   });
   fastify.addHook("onRequest", createLiveCapabilityHook(liveCapabilities));
   registerBearerAuth(fastify, { registry: pairedDeviceRegistry });
@@ -2532,6 +2641,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     if (cwd) worktreeInitRegistry.unsubscribeCwd(cwd, ws);
   });
   registerFileRoutes(fastify, {
+    // Remote browse confinement (change: harden-server-capability-bounds, D1/D2):
+    // strict-proof context + the two root sources only this file can read.
+    localTrust,
+    browseConfineRemote: confineRemoteBrowse,
+    browseRootSources: {
+      worktreeRoots: browseRootSources.worktreeRoots,
+      projectGrants: browseRootSources.projectGrants,
+    },
     sessionManager,
     preferencesStore,
     networkGuard,
@@ -2624,9 +2741,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     piGateway,
     // Live (per-request) config for the workflow-schema gates + new-project default.
     getOpenSpecConfig: () => loadConfig().openspec,
-    // Own bounded pool for the workflow-schema `newer`/`conflict` validate: the
-    // directory service's semaphore is not exposed. See change: add-pi-spec-driven-schema.
-    spawnSemaphore: createSemaphore(loadConfig().openspec.maxConcurrentSpawns),
+    // The directory service's ONE spawn semaphore (cap resizable by
+    // `reconfigurePolling`) bounds the route's `newer`/`conflict` validate too.
+    // See changes: add-pi-spec-driven-schema, move-workflow-schema-status-to-poll-worker.
+    spawnSemaphore: directoryService.semaphore,
     onOpenSpecChanged: (cwd) => {
       const data = directoryService.getOpenSpecData(cwd);
       if (data) browserGateway.broadcastToAll({ type: "openspec_update", cwd, data });
@@ -3053,8 +3171,36 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   ]);
 
   // Live-server-preview routes + reverse proxy (main-origin /live/:id/*).
-  registerLiveServerRoutes(fastify, liveServerManager, { networkGuard, capabilities: liveCapabilities });
-  registerLiveServerProxy(fastify, liveServerManager, { isDeviceBearer: (token) => pairedDeviceRegistry.verify(token) !== null });
+  registerLiveServerRoutes(fastify, liveServerManager, {
+    networkGuard,
+    capabilities: liveCapabilities,
+    exposure: previewExposure,
+    promptingEnabled: () => loadConfig().accessGrants?.promptEnabled === true,
+    getTrustedNetworks: admissionList,
+    localTrust,
+    egress: previewEgress,
+    requestEgressGrant: createEgressGrantRequester(grantCoordinator),
+    channelOf: (request) => sourceChannel(request.ip),
+    // `start-static`: the SAME gate as a raw file read; a refusal answers with that route's status and body.
+    staticGate: async (cwd, relPath, opts) => {
+      const gate = await gateFilePath(cwd, relPath, sessionManager, { allowGrant: true, disclosure: opts.disclosure });
+      if ("code" in gate) return { ok: false, status: gate.code, body: denialBody(gate) };
+      return { ok: true, resolved: gate.resolved };
+    },
+  });
+  registerLiveServerProxy(fastify, liveServerManager, {
+    isDeviceBearer: (token) => pairedDeviceRegistry.verify(token) !== null,
+    grantedOrigins: (grant) => previewEgress.grantedFor(grant),
+    onStaticHtmlServed: (grant, real) => previewEgress.noteServed(grant, real),
+    reservedHandler: createReservedHandler({
+      egress: previewEgress,
+      ownOriginsOf: (request) => requestOriginsOf(request),
+    }),
+    // Re-run on EVERY static request, so a revoked grant or pin applies on the next one. Quiet:
+    // a refusal here records no denial and raises no prompt.
+    staticGate: async (cwd, absPath) =>
+      !("code" in (await gateFilePath(cwd, absPath, sessionManager, { allowGrant: true, quiet: true }))),
+  });
 
   // ONE model runtime for the provider-auth flow listing AND the model proxy,
   // injected so auth/ never imports model-proxy/.
@@ -4410,7 +4556,18 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         // routed path from an unrouted one. A browser cannot omit or forge
         // `Origin` on a handshake; every non-browser client sends none and is
         // unaffected. See change: fix-ws-origin-cswsh (D1).
-        if (!isWsOriginTrusted(request.headers.origin, request.headers.host, scope, corsOpts())) {
+        // A live-scope upgrade may be admitted by a validated capability path
+        // (token read from the path segment only — never query/subprotocol).
+        // Any other scope ignores it entirely. The opaque `Origin: null` is admitted
+        // only WITH a valid capability. See change: retire-trusted-networks-bypass (D5),
+        // improve-canvas-html-and-url-ux (D10).
+        const liveCap = scope === "live" ? parseCapabilityPath(request.url) : null;
+        const liveCapPrincipal = liveCap
+          ? liveCapabilities.validate(liveCap.targetId, liveCap.token, {
+              genuinelyLocal: isLocallyTrusted({ ip: remoteAddress, headers: request.headers as Record<string, unknown> }),
+            })
+          : null;
+        if (!isWsOriginTrusted(request.headers.origin, request.headers.host, scope, corsOpts(), liveCapPrincipal !== null)) {
           console.error(
             `[ws-gate] rejected upgrade origin=${sanitizeHeaderForLog(request.headers.origin)} scope=${scope ?? "none"} peer=${sanitizeHeaderForLog(remoteAddress)}`,
           );
@@ -4447,11 +4604,6 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         // principal-bearing ticket — they were the legacy loopback / local-token /
         // trusted-network / principal-less-ticket allowances that bypassed it.
         const requireIdentityTicket = (scope === "browser" || scope === "terminal" || scope === "live") && identityEnforced();
-        // A live-scope upgrade may be admitted by a validated capability path
-        // (token read from the path segment only — never query/subprotocol).
-        // Any other scope ignores it entirely. See change: retire-trusted-networks-bypass (D5).
-        const liveCap = scope === "live" ? parseCapabilityPath(request.url) : null;
-        const liveCapPrincipal = liveCap ? liveCapabilities.validate(liveCap.targetId, liveCap.token) : null;
         const upgradeAuth = authorizeWsUpgrade({
           cookieHeader: request.headers.cookie,
           remoteAddress,
@@ -4551,6 +4703,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                   : Object.freeze({ ...upgradeAuth.principal });
                 bound.principalExpiresAt = upgradeAuth.principalExpiresAt;
               }
+              // Locality is decided ONCE here, from the upgrade request; handlers read the bit.
+              // See change: harden-server-capability-bounds (D1b).
+              stampSocketLocality(ws, request, localTrust);
               if (grants) (ws as { bootstrapGrants?: BootstrapGrants }).bootstrapGrants = grants;
               if (sessionTierOf) (ws as TieredSocket).sessionTier = sessionTierOf;
               browserGateway.wss.emit("connection", ws, request);

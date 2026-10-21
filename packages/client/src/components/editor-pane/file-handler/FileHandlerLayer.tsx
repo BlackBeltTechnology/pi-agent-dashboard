@@ -69,6 +69,7 @@ function InstanceBody({ inst, visible }: { inst: HandlerInstance; visible: boole
   const store = useFileHandlerStore();
   const session = useShellSessionOrNull(inst.sessionId);
   const setDirty = useCallback((s: boolean | "unknown") => store.setDirty(inst.key, s), [store, inst.key]);
+  const openFile = useCallback((p: string, claimId?: string) => store.openFile(inst.key, p, claimId), [store, inst.key]);
   const context = useMemo(() => ({ pluginId: inst.pluginId }), [inst.pluginId]);
   const Comp = inst.Component;
   if (!Comp || inst.error) return null;
@@ -85,6 +86,7 @@ function InstanceBody({ inst, visible }: { inst: HandlerInstance; visible: boole
             snapshot={inst.host.snapshot}
             save={inst.host.save}
             setDirty={setDirty}
+            openFile={openFile}
             context={context}
           />
         </CurrentPluginLayer>
@@ -209,6 +211,7 @@ export function FileHandlerLayer() {
   const trackedFileWrite = split?.trackedFileWrite;
   const setBaseline = split?.setBaseline;
   const openInSplit = split?.openInSplit;
+  const paneDispatch = split?.dispatch;
   useEffect(() => {
     if (sessionId === undefined || cwd === undefined || !trackedFileWrite || !setBaseline || !openInSplit) return;
     store.setBridge({
@@ -216,10 +219,14 @@ export function FileHandlerLayer() {
       cwd,
       trackedFileWrite,
       setBaseline,
-      openFile: (p) => openInSplit(p),
+      // `mode` selects a file-handler mode on the opened tab (sibling "Create and open", extend-craft-web-to-all-apps D6).
+      openFile: (p, mode) => {
+        openInSplit(p);
+        if (mode) paneDispatch?.({ type: "setHandlerMode", path: p, mode });
+      },
     });
     return () => store.setBridge(null);
-  }, [store, sessionId, cwd, trackedFileWrite, setBaseline, openInSplit]);
+  }, [store, sessionId, cwd, trackedFileWrite, setBaseline, openInSplit, paneDispatch]);
 
   // Live plugin disable/enable (slot-claims bump): clean instances close, unsaved ones get the overlay.
   // biome-ignore lint/correctness/useExhaustiveDependencies: `claimsVersion` is the registry's change signal

@@ -1,16 +1,16 @@
-import { describe, it, expect, afterEach } from "vitest";
 import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  parseModuleNotFoundError,
-  isModuleNotFoundError,
+  buildRecoveryHtml,
   detectInstallLayout,
   detectPackageManager,
-  suggestedReinstallCommand,
-  buildRecoveryHtml,
+  isModuleNotFoundError,
+  parseModuleNotFoundError,
   startRecoveryServer,
+  suggestedReinstallCommand,
 } from "../lifecycle/recovery-server.js";
 
 describe("parseModuleNotFoundError", () => {
@@ -250,5 +250,43 @@ describe("startRecoveryServer (integration)", () => {
       expect(res.status).toBe(200);
       expect(res.body).toContain("Recovery Mode");
     });
+  });
+});
+
+/**
+ * @structural-pin recovery-server.ts must stay importable when a third-party dependency is missing (its whole purpose); an import-shape fact over the module's own source
+ */
+// ─── bind host + built-ins-only (change: harden-server-capability-bounds, #E32, #E34) ───
+import fsSync from "node:fs";
+import { builtinModules } from "node:module";
+import { fileURLToPath } from "node:url";
+
+describe("recovery server bind + imports", () => {
+  it("E32 binds 127.0.0.1 by default, never 0.0.0.0 / ::", async () => {
+    const spy = vi.spyOn(http, "createServer");
+    const origErr = console.error;
+    console.error = () => {};
+    try {
+      await startRecoveryServer({ port: 0, error: new Error("Cannot find module 'fastify'") });
+      const server = spy.mock.results[0].value as http.Server;
+      const addr = server.address() as { address: string };
+      expect(addr.address).toBe("127.0.0.1");
+      server.closeAllConnections?.();
+      await new Promise<void>((r) => server.close(() => r()));
+    } finally {
+      console.error = origErr;
+      spy.mockRestore();
+    }
+  });
+
+  it("E34 imports only node built-ins (a missing third-party dep must not break recovery)", () => {
+    const src = fsSync.readFileSync(
+      fileURLToPath(new URL("../lifecycle/recovery-server.ts", import.meta.url)),
+      "utf8",
+    );
+    const specs = [...src.matchAll(/^import\s[^;]*?from\s+["']([^"']+)["']/gm)].map((m) => m[1]);
+    expect(specs.length).toBeGreaterThan(0);
+    const builtins = new Set([...builtinModules, ...builtinModules.map((m) => `node:${m}`)]);
+    expect(specs.filter((s) => !builtins.has(s))).toEqual([]);
   });
 });

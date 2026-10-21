@@ -23,10 +23,21 @@ interface Shim {
   start(): void;
   dispose(): void;
 }
+interface TitleSpec {
+  pattern: string;
+  dirtyMarker?: string;
+}
+interface FrameProfile {
+  appId: string;
+  title: TitleSpec | null;
+  openedFallbackMs: number | null;
+  cleanOnAckedSave: boolean;
+  saveName: "stem" | "inner-title";
+}
 interface ShimModule {
   SHIM_VERSION: number;
-  parseTitle(input: string | unknown[]): ParsedTitle | null;
-  createShim(win: Window, doc: Document, opts?: { isTrusted?: (e: Event) => boolean }): Shim;
+  parseTitle(input: string | unknown[], spec?: TitleSpec): ParsedTitle | null;
+  createShim(win: Window, doc: Document, opts?: { isTrusted?: (e: Event) => boolean; profile?: FrameProfile | null }): Shim;
 }
 
 function loadModule(): ShimModule {
@@ -253,7 +264,7 @@ describe("open → synthetic drop, opened (X4 shim side)", () => {
     console.warn(titleWarn("other - WordCraft"));
     expect(sent("opened")).toHaveLength(0);
     console.warn(titleWarn("report.docx - WordCraft"));
-    expect(sent("opened")).toEqual([{ type: "opened", nonce: NONCE, title: "report.docx" }]);
+    expect(sent("opened")).toEqual([{ type: "opened", nonce: NONCE, title: "report.docx", confirmed: true }]);
     console.warn(titleWarn("report.docx • - WordCraft"));
     expect(sent("opened")).toHaveLength(1);
   });
@@ -634,5 +645,285 @@ describe("CSP + navigation", () => {
 
   it("is a no-op without the Navigation API", () => {
     expect(w.navigation).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------
+// Shim v2 — adapter profiles (change: extend-craft-web-to-all-apps, D4/D5)
+// ---------------------------------------------------------------------------------------------------
+
+const WORDCRAFT: FrameProfile = {
+  appId: "wordcraft",
+  title: { pattern: "^(.*?)(?: •)? [-–—] WordCraft$", dirtyMarker: "•" },
+  openedFallbackMs: null,
+  cleanOnAckedSave: false,
+  saveName: "stem",
+};
+const PHOTOCRAFT: FrameProfile = { ...WORDCRAFT, appId: "photocraft", title: { pattern: "^(.*) [-–—] PhotoCraft$" }, cleanOnAckedSave: true };
+const GRIDCRAFT: FrameProfile = { ...WORDCRAFT, appId: "gridcraft", title: { pattern: "^(.*?)(?: — Edited)?$", dirtyMarker: "— Edited" }, cleanOnAckedSave: true };
+const CADCRAFT: FrameProfile = { ...WORDCRAFT, appId: "cadcraft", title: null, openedFallbackMs: 3000, cleanOnAckedSave: true };
+const LIGHTCRAFT: FrameProfile = { ...CADCRAFT, appId: "lightcraft", openedFallbackMs: 5000 };
+
+function makeProfiledShim(profile: FrameProfile | null) {
+  shim.dispose();
+  posted = [];
+  shim = mod.createShim(window, document, { isTrusted: (e) => (e as any).__trusted === true, profile });
+  shim.start();
+}
+
+describe("E8 title parsing per profile", () => {
+  it.each([
+    ["report • - WordCraft", WORDCRAFT, "report", false],
+    ["report - WordCraft", WORDCRAFT, "report", true],
+    ["report — WordCraft", WORDCRAFT, "report", true],
+    ["report.docx • - WordCraft", WORDCRAFT, "report.docx", false],
+    ["photo.jpg — PhotoCraft", PHOTOCRAFT, "photo.jpg", true],
+    ["budget.xlsx", GRIDCRAFT, "budget.xlsx", true],
+    ["budget.xlsx — Edited", GRIDCRAFT, "budget.xlsx", false],
+  ] as const)("%s", (title, profile, name, clean) => {
+    const t = mod.parseTitle(titleWarn(title), profile.title as TitleSpec);
+    expect(t?.name).toBe(name);
+    expect(t?.clean).toBe(clean);
+  });
+
+  it("the v1 rule (no profile) strips an em-dash suffix too", () => {
+    expect(mod.parseTitle(titleWarn("photo.jpg — PhotoCraft"))?.name).toBe("photo.jpg");
+  });
+
+  it("a title that does not match the pattern parses to null", () => {
+    expect(mod.parseTitle(titleWarn("LightCraft"), PHOTOCRAFT.title as TitleSpec)).toBeNull();
+  });
+
+  it.each([
+    [WORDCRAFT, "report.docx", "report • - WordCraft", "report", true],
+    [PHOTOCRAFT, "photo.jpg", "photo.jpg — PhotoCraft", "photo.jpg", false],
+    [GRIDCRAFT, "budget.xlsx", "budget.xlsx — Edited", "budget.xlsx", true],
+  ] as const)("%# opens on a title naming the delivered document, with the dirty marker deciding dirty", (profile, file, title, name, dirty) => {
+    makeProfiledShim(profile);
+    document.body.innerHTML = "<canvas></canvas>";
+    hostSend({ type: "open", nonce: NONCE, name: file, bytes: bytesOf(1) });
+    console.warn(titleWarn(title));
+    expect(sent("opened")).toEqual([{ type: "opened", nonce: NONCE, title: name, confirmed: true }]);
+    expect(sent("dirty").map((m) => m.value)).toEqual([dirty]);
+  });
+
+  it("`Book1` (GridCraft) and `LightCraft` (no-title profile) never post opened", () => {
+    makeProfiledShim(GRIDCRAFT);
+    hostSend({ type: "open", nonce: NONCE, name: "budget.xlsx", bytes: bytesOf(1) });
+    console.warn(titleWarn("Book1"));
+    expect(sent("opened")).toHaveLength(0);
+    makeProfiledShim(LIGHTCRAFT);
+    hostSend({ type: "open", nonce: NONCE, name: "LightCraft", bytes: bytesOf(1) });
+    console.warn(titleWarn("LightCraft"));
+    expect(sent("opened")).toHaveLength(0);
+  });
+});
+
+describe("E9 dirty rules with cleanOnAckedSave", () => {
+  const dirtyValues = () => sent("dirty").map((m) => m.value);
+
+  async function openGrid(profile: FrameProfile) {
+    makeProfiledShim(profile);
+    document.body.innerHTML = "<canvas></canvas>";
+    hostSend({ type: "open", nonce: NONCE, name: "budget.xlsx", bytes: bytesOf(1) });
+    console.warn(titleWarn("budget.xlsx"));
+  }
+
+  /** Save through the picker stub; resolves once the shim posted `save` (wrapped: an async fn would flatten the promise). */
+  async function requestSave(): Promise<{ closing: Promise<void> }> {
+    const ws = await (await w.showSaveFilePicker({ suggestedName: "budget.xlsx" })).createWritable();
+    await ws.write(new Uint8Array([1]));
+    const closing = ws.close();
+    await tick();
+    return { closing };
+  }
+
+  async function editThenSave(ack: Record<string, unknown>, opts: { inputAfterRequest?: boolean } = {}) {
+    window.dispatchEvent(trusted(new KeyboardEvent("keydown", { key: "a" })));
+    console.warn(titleWarn("budget.xlsx — Edited"));
+    const { closing } = await requestSave();
+    if (opts.inputAfterRequest) window.dispatchEvent(trusted(new KeyboardEvent("keydown", { key: "b" })));
+    hostSend({ type: "save-result", nonce: NONCE, ok: true, ...ack });
+    await closing;
+  }
+
+  it("true + acknowledged own overwrite → dirty:false, a persisting `— Edited` keeps it false", async () => {
+    await openGrid(GRIDCRAFT);
+    await editThenSave({ own: true });
+    expect(dirtyValues()).toEqual([false, true, false]);
+    console.warn(titleWarn("budget.xlsx — Edited")); // GridCraft re-sends the same title
+    expect(dirtyValues().at(-1)).toBe(false);
+  });
+
+  it("a title CHANGE to `— Edited` after the ack raises dirty", async () => {
+    await openGrid(GRIDCRAFT);
+    window.dispatchEvent(trusted(new KeyboardEvent("keydown", { key: "a" })));
+    const { closing } = await requestSave();
+    hostSend({ type: "save-result", nonce: NONCE, ok: true, own: true });
+    await closing;
+    expect(dirtyValues().at(-1)).toBe(false);
+    console.warn(titleWarn("budget.xlsx — Edited"));
+    expect(dirtyValues().at(-1)).toBe(true);
+  });
+
+  it("copy / sibling acknowledgements (own absent or false) keep dirty", async () => {
+    await openGrid(GRIDCRAFT);
+    await editThenSave({ own: false });
+    expect(dirtyValues().at(-1)).toBe(true);
+    await editThenSave({});
+    expect(dirtyValues().at(-1)).toBe(true);
+  });
+
+  it("trusted input after the save request, before the ack, keeps dirty", async () => {
+    await openGrid(GRIDCRAFT);
+    await editThenSave({ own: true }, { inputAfterRequest: true });
+    expect(dirtyValues().at(-1)).toBe(true);
+  });
+
+  it("cleanOnAckedSave:false (WordCraft): an ack changes nothing, only the title clears", async () => {
+    makeProfiledShim(WORDCRAFT);
+    document.body.innerHTML = "<canvas></canvas>";
+    hostSend({ type: "open", nonce: NONCE, name: "report.docx", bytes: bytesOf(1) });
+    console.warn(titleWarn("report - WordCraft"));
+    window.dispatchEvent(trusted(new KeyboardEvent("keydown", { key: "a" })));
+    console.warn(titleWarn("report • - WordCraft"));
+    const { closing } = await requestSave();
+    hostSend({ type: "save-result", nonce: NONCE, ok: true, own: true });
+    await closing;
+    expect(dirtyValues().at(-1)).toBe(true);
+    console.warn(titleWarn("report - WordCraft"));
+    expect(dirtyValues().at(-1)).toBe(false);
+  });
+});
+
+describe("E10 opened fallback (no-title profile)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  async function openCad() {
+    makeProfiledShim(CADCRAFT);
+    document.body.innerHTML = "<canvas></canvas>";
+    hostSend({ type: "open", nonce: NONCE, name: "plan.dxf", bytes: bytesOf(1) });
+    await vi.advanceTimersByTimeAsync(3000); // drop fallback: no title tick
+    await settleDrop(); // the drop is delivered now
+  }
+
+  it("(a) posts opened{confirmed:false} then dirty:false after openedFallbackMs", async () => {
+    await openCad(); // the drop went out 150 ms ago (settle = 250 ms of the 400 advanced)
+    await vi.advanceTimersByTimeAsync(2700);
+    expect(sent("opened")).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(sent("opened")).toEqual([{ type: "opened", nonce: NONCE, title: "plan.dxf", confirmed: false }]);
+    expect(posted.map((p) => p.msg.type).slice(-2)).toEqual(["opened", "dirty"]);
+    expect(sent("dirty")).toEqual([{ type: "dirty", nonce: NONCE, value: false }]);
+  });
+
+  it("(b) canvas removed at 2000 ms → no opened", async () => {
+    await openCad();
+    await vi.advanceTimersByTimeAsync(2000);
+    document.body.innerHTML = "";
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(sent("opened")).toHaveLength(0);
+  });
+
+  it("(c) frame reload (pagehide) at 2000 ms → no opened", async () => {
+    await openCad();
+    await vi.advanceTimersByTimeAsync(2000);
+    window.dispatchEvent(new Event("pagehide"));
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(sent("opened")).toHaveLength(0);
+  });
+
+  it("(d) start error at 1000 ms → start-failed, no opened", async () => {
+    await openCad();
+    await vi.advanceTimersByTimeAsync(1000);
+    console.error("panicked at src/main.rs:1:1: boom");
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(sent("start-failed")).toHaveLength(1);
+    expect(sent("opened")).toHaveLength(0);
+  });
+
+  it("titles never open a no-title profile (a static app title is not a document title)", async () => {
+    makeProfiledShim(CADCRAFT);
+    document.body.innerHTML = "<canvas></canvas>";
+    hostSend({ type: "open", nonce: NONCE, name: "CADCraft", bytes: bytesOf(1) });
+    console.warn(titleWarn("CADCraft"));
+    await settleDrop();
+    expect(sent("opened")).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(sent("opened")).toHaveLength(1);
+  });
+
+  it("then input → dirty:true, acknowledged own save → dirty:false", async () => {
+    await openCad();
+    await vi.advanceTimersByTimeAsync(3000);
+    window.dispatchEvent(trusted(new KeyboardEvent("keydown", { key: "a" })));
+    expect(sent("dirty").map((m) => m.value)).toEqual([false, true]);
+    const ws = await (await w.showSaveFilePicker({ suggestedName: "plan.dxf" })).createWritable();
+    await ws.write(new Uint8Array([1]));
+    const closing = ws.close();
+    await vi.advanceTimersByTimeAsync(0);
+    hostSend({ type: "save-result", nonce: NONCE, ok: true, own: true });
+    await closing;
+    expect(sent("dirty").map((m) => m.value)).toEqual([false, true, false]);
+  });
+});
+
+describe("E11 start-failed detector", () => {
+  it("a WebAssembly.RuntimeError window error before opened → one start-failed", () => {
+    makeProfiledShim(WORDCRAFT);
+    const err = new WebAssembly.RuntimeError("unreachable");
+    window.dispatchEvent(new ErrorEvent("error", { error: err, message: String(err) }));
+    window.dispatchEvent(new ErrorEvent("error", { error: err, message: String(err) }));
+    expect(sent("start-failed")).toHaveLength(1);
+  });
+
+  it("console.error 'panicked at …' before opened → start-failed; the original console.error still runs", () => {
+    shim.dispose(); // restores the pre-shim console.error before the spy goes in
+    const orig = console.error;
+    const spy = vi.fn();
+    console.error = spy as any;
+    try {
+      posted = [];
+      shim = mod.createShim(window, document, { profile: WORDCRAFT });
+      shim.start();
+      console.error("panicked at library/std/src/sys/pal/wasm/../unsupported/os.rs: no pids on this platform");
+      expect(sent("start-failed")).toHaveLength(1);
+      expect(spy).toHaveBeenCalledTimes(1);
+    } finally {
+      shim.dispose();
+      console.error = orig;
+      makeShim();
+    }
+  });
+
+  it("an unhandled rejection with a RuntimeError before opened → start-failed", () => {
+    makeProfiledShim(WORDCRAFT);
+    const ev = new Event("unhandledrejection") as Event & { reason?: unknown };
+    ev.reason = new WebAssembly.RuntimeError("unreachable executed");
+    window.dispatchEvent(ev);
+    expect(sent("start-failed")).toHaveLength(1);
+  });
+
+  it("the same events after opened → no start-failed", () => {
+    makeProfiledShim(WORDCRAFT);
+    document.body.innerHTML = "<canvas></canvas>";
+    hostSend({ type: "open", nonce: NONCE, name: "report.docx", bytes: bytesOf(1) });
+    console.warn(titleWarn("report - WordCraft"));
+    expect(sent("opened")).toHaveLength(1);
+    window.dispatchEvent(new ErrorEvent("error", { error: new WebAssembly.RuntimeError("unreachable") }));
+    console.error("panicked at x");
+    expect(sent("start-failed")).toHaveLength(0);
+  });
+
+  it("an ordinary error is not a start failure", () => {
+    makeProfiledShim(WORDCRAFT);
+    window.dispatchEvent(new ErrorEvent("error", { error: new TypeError("x is undefined"), message: "x is undefined" }));
+    console.error("failed to load favicon");
+    expect(sent("start-failed")).toHaveLength(0);
   });
 });

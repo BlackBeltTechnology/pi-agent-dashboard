@@ -10,6 +10,7 @@
 import type { FileHandlerClaimMeta } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/file-handler.js";
 import { HANDLER_MAX_BYTES } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/file-handler.js";
 import type {
+  FileHandlerProps,
   FileHandlerSaveFailureReason,
   FileHandlerSaveResult,
   FileHandlerSnapshot,
@@ -65,7 +66,7 @@ export interface FileHandlerHostDeps {
 
 export interface FileHandlerHostApi {
   snapshot(): Promise<FileHandlerSnapshot>;
-  save(bytes: ArrayBuffer, opts: { target: "overwrite" | "copy" }): Promise<FileHandlerSaveResult>;
+  save: FileHandlerProps["save"];
 }
 
 const fail = (reason: FileHandlerSaveFailureReason, message: string): FileHandlerSaveResult => ({ ok: false, reason, message });
@@ -139,8 +140,8 @@ export function createFileHandlerHost(deps: FileHandlerHostDeps): FileHandlerHos
       limit,
     );
 
-  const post = (mode: "overwrite" | "copy", bytes: ArrayBuffer, expectSha1: string | null, signal: AbortSignal): Promise<Response> =>
-    fetch(`${getApiBase()}/api/file/write-binary?${q({ mode, claim: claimKey, ...(expectSha1 ? { expectSha1 } : {}) })}`, {
+  const post = (mode: "overwrite" | "copy", bytes: ArrayBuffer, expectSha1: string | null, signal: AbortSignal, siblingExt?: string): Promise<Response> =>
+    fetch(`${getApiBase()}/api/file/write-binary?${q({ mode, claim: claimKey, ...(expectSha1 ? { expectSha1 } : {}), ...(siblingExt ? { siblingExt } : {}) })}`, {
       method: "POST",
       headers: { "Content-Type": "application/octet-stream" },
       body: bytes,
@@ -165,6 +166,20 @@ export function createFileHandlerHost(deps: FileHandlerHostDeps): FileHandlerHos
     if (!o.data) return mapFailure(o);
     deps.notifyCopy(o.data.path);
     // The tab stays bound to the original file: token + baseline are untouched.
+    return { ok: true, path: o.data.path, mtime: o.data.mtime, sha1: o.data.sha1 };
+  }
+
+  /** Native-format sibling (D6): `mode=copy&siblingExt`; the tab stays bound to its own file. */
+  async function writeSibling(bytes: ArrayBuffer, ext: string): Promise<FileHandlerSaveResult> {
+    let res: Response;
+    try {
+      res = await post("copy", bytes, null, new AbortController().signal, ext);
+    } catch (err) {
+      return fail("rejected", err instanceof Error ? err.message : String(err));
+    }
+    const o = await parseWrite(res);
+    if (!o.data) return o.status === 409 ? fail("conflict-unresolved", o.error ?? "no free name") : mapFailure(o);
+    deps.notifyCopy(o.data.path);
     return { ok: true, path: o.data.path, mtime: o.data.mtime, sha1: o.data.sha1 };
   }
 
@@ -252,11 +267,19 @@ export function createFileHandlerHost(deps: FileHandlerHostDeps): FileHandlerHos
     return choice === "overwrite" || choice === "copy" ? choice : null;
   }
 
-  async function save(bytes: ArrayBuffer, opts: { target: "overwrite" | "copy" }): Promise<FileHandlerSaveResult> {
+  async function save(
+    bytes: ArrayBuffer,
+    opts: { target: "overwrite" | "copy" } | { target: "sibling"; ext: string },
+  ): Promise<FileHandlerSaveResult> {
     if (bytes.byteLength > maxBytes) return fail("too-large", tooLarge(maxBytes).message);
     if (saving) return fail("busy", t("fileHandler.saveInFlight", undefined, "A save is already in progress."));
     saving = true;
     try {
+      // A sibling never overwrites: no first-overwrite notice, no conflict token. Only declared extensions.
+      if (opts.target === "sibling") {
+        if (!(meta.siblingExtensions ?? []).includes(opts.ext)) return fail("rejected", `${opts.ext} is not a sibling extension of this claim`);
+        return await writeSibling(bytes, opts.ext);
+      }
       const target = await pickTarget(opts.target);
       if (!target) return fail("cancelled", "cancelled");
       return target === "copy" ? await writeCopy(bytes) : await overwrite(bytes);

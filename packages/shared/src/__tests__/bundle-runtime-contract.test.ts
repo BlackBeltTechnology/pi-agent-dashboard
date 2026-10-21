@@ -8,6 +8,7 @@
  * See change: cleanup-stale-fork-specs.
  */
 
+import { spawnSync } from "node:child_process"; // ban:child_process-ok — runs the script under test
 import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
@@ -149,5 +150,59 @@ describe("removed bundled-extensions step stays gone (X5)", () => {
   it("_electron-build.yml bundles the server with bundle-server.mjs", () => {
     const src = stripComments(read(".github", "workflows", "_electron-build.yml"));
     expect(src).toMatch(/run: node packages\/electron\/scripts\/bundle-server\.mjs/);
+  });
+});
+
+// Release-lock mode (design D1/D3). See change: pin-electron-bundle-dependency-tree
+// (test-plan #E14, #E15).
+describe("bundle-server.mjs release-lock argv (E14)", () => {
+  const script = path.join(REPO_ROOT, "packages", "electron", "scripts", "bundle-server.mjs");
+  const serverVersion = (JSON.parse(read("packages", "server", "package.json")) as { version: string }).version;
+
+  it.each([
+    [["--release-lock="], /empty version/],
+    [["--release-lock"], /--release-lock=<version>/],
+    [["--release-lock", "0.10.0"], /--release-lock=<version>/],
+    [["--release-lock=0.10.0", "--source-only"], /--source-only/],
+    [["--release-lock=0.0.1"], /differs from the server workspace version/],
+  ])("%j exits non-zero before any npm spawn, naming the misuse", (argv, message) => {
+    const bundleDir = path.join(REPO_ROOT, "packages", "electron", "resources", "server");
+    const before = fs.existsSync(bundleDir) ? fs.statSync(bundleDir).mtimeMs : null;
+    const r = spawnSync(process.execPath, [script, ...argv], { encoding: "utf8" });
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toMatch(message);
+    expect(r.stdout).not.toContain("Bundling dashboard server"); // fails before any work
+    expect(fs.existsSync(bundleDir) ? fs.statSync(bundleDir).mtimeMs : null).toBe(before);
+  });
+
+  it("the stamped server version is a valid release-lock value", async () => {
+    const { parseReleaseLockArgs } = await import(path.join(REPO_ROOT, "packages", "electron", "scripts", "lib", "release-lock.mjs"));
+    expect(parseReleaseLockArgs([`--release-lock=${serverVersion}`], { serverVersion })).toEqual({ mode: "release-lock", version: serverVersion });
+    expect(parseReleaseLockArgs(["--source-only"], { serverVersion })).toEqual({ mode: "floating" });
+  });
+});
+
+describe("bundle install argv (E15)", () => {
+  const code = stripComments(read("packages", "electron", "scripts", "bundle-server.mjs"));
+
+  it("floating mode runs `npm install --omit=dev --no-audit --no-fund --no-package-lock`", () => {
+    expect(code).toContain('["install", "--omit=dev", "--no-audit", "--no-fund", "--no-package-lock"]');
+  });
+
+  it("release-lock mode runs `npm ci --omit=dev --no-audit --no-fund --allow-remote=all`", () => {
+    expect(code).toContain('["ci", "--omit=dev", "--no-audit", "--no-fund", "--allow-remote=all"]');
+  });
+
+  it("neither install uses pnpm", () => {
+    expect(code).not.toMatch(/\bpnpm\b/);
+  });
+
+  it("release-lock mode runs its install inside withTempLockFile and exits only after it", () => {
+    const fn = code.slice(code.indexOf("async function installFromReleaseLock"), code.indexOf("async function releaseLockInstall"));
+    expect(fn).toMatch(/await withTempLockFile\(lockFile,/);
+    // process.exit sits in the catch, after the helper's finally has removed the lock.
+    expect(fn.indexOf("process.exit(1)")).toBeGreaterThan(fn.indexOf("catch (err)"));
+    // nothing inside the install body may exit the process (it would skip the cleanup)
+    expect(code.slice(code.indexOf("async function releaseLockInstall"), code.indexOf("Stamp `resources/server"))).not.toContain("process.exit");
   });
 });

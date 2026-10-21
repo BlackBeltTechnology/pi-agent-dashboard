@@ -73,9 +73,18 @@ export interface SessionLoadResult {
   /** Parsed entry count — telemetry for the hydration sample. Omitted on the
    *  failure path. Additive; not part of the event-parity contract. */
   entryCount?: number;
+  /** Id of the last branch entry (server reader rule) — the skip-wipe
+   *  fingerprint's leaf. Omitted when that entry has no string id.
+   *  See change: fix-large-session-resume-replay (D5). */
+  leafEntryId?: string;
   /** Max timestamp over ALL transcript entries. Only set in `"diff-events"`
    *  mode; used to clamp an ended session's open Bash window. */
   lastEntryTs?: number;
+}
+
+function leafIdOf(entries: ReadonlyArray<{ id?: unknown }>): string | undefined {
+  const id = entries.length > 0 ? entries[entries.length - 1].id : undefined;
+  return typeof id === "string" && id.length > 0 ? id : undefined;
 }
 
 /**
@@ -100,10 +109,10 @@ export function loadAndReplay(req: SessionLoadRequest): SessionLoadResult {
       : loadSessionEntries(sessionFile as string);
     if (mode === "diff-events") {
       const { events, lastEntryTs } = projectDiffEvents(sessionId, entries, { maxStringSize });
-      return { jobId, success: true, events, entryCount: entries.length, lastEntryTs };
+      return { jobId, success: true, events, entryCount: entries.length, leafEntryId: leafIdOf(entries), lastEntryTs };
     }
     const events = replayEntriesAsEvents(sessionId, entries, knownContextWindow).map((m) => m.event);
-    return { jobId, success: true, events, entryCount: entries.length };
+    return { jobId, success: true, events, entryCount: entries.length, leafEntryId: leafIdOf(entries) };
   } catch (err: any) {
     const error = err?.code === "ENOENT" ? "file_not_found" : (err?.message ?? "parse_error");
     return { jobId, success: false, events: [], error };

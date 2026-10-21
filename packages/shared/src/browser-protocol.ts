@@ -757,6 +757,30 @@ export interface TerminalRemovedMessage {
   terminalId: string;
 }
 
+/**
+ * A `create_terminal` / `open_inline_terminal` was refused because a PTY cap is
+ * reached. Sent only to the requesting socket. See change: harden-server-capability-bounds (D3).
+ */
+export interface TerminalLimitReachedMessage {
+  type: "terminal_limit_reached";
+  scope: "global" | "owner";
+  limit: number;
+  cwd: string;
+  /** True when the refused request was an inline-terminal open. */
+  inline: boolean;
+}
+
+/**
+ * A `pin_directory` / `add_folder_to_workspace` / `move_folder_to_workspace` from a
+ * non-local socket was refused: the path is outside the shared roots. Sent only to
+ * the requesting socket. See change: harden-server-capability-bounds (D1b).
+ */
+export interface FolderRefusedMessage {
+  type: "folder_refused";
+  path: string;
+  reason: "outside_allowed_roots";
+}
+
 export interface TerminalUpdatedMessage {
   type: "terminal_updated";
   terminalId: string;
@@ -1224,6 +1248,8 @@ export type ServerToBrowserMessage =
   | CardSectionsUpdatedMessage
   | TerminalAddedMessage
   | TerminalRemovedMessage
+  | TerminalLimitReachedMessage
+  | FolderRefusedMessage
   | TerminalUpdatedMessage
   | SessionStateResetMessage
   | PackageProgressMessage
@@ -1258,6 +1284,7 @@ export type ServerToBrowserMessage =
   | PromptReceivedToBrowserMessage
   | CanvasIntentMessage
   | CanvasServerChipMessage
+  | PreviewExposureChangedMessage
   | FileChangedMessage
   | BrowserRelayFrameMessage
   | BrowserRelayStatusMessage
@@ -1295,6 +1322,22 @@ export interface CanvasIntentMessage {
   target: ViewTarget | null;
   mode?: "replace" | "pin";
   title?: string;
+  /**
+   * Tool call id of the `canvas` declare / `write` that produced `target`
+   * (last writer wins). Drives which chat card links to the canvas. Absent on
+   * older servers. See change: improve-canvas-html-and-url-ux (D8).
+   */
+  sourceCallId?: string;
+}
+
+/**
+ * Server push: the dashboard's preview-exposure epoch changed (it became
+ * reachable beyond this machine). Open viewers re-mint without scripts.
+ * See change: improve-canvas-html-and-url-ux (D5).
+ */
+export interface PreviewExposureChangedMessage {
+  type: "preview_exposure_changed";
+  epoch: number;
 }
 
 /**
@@ -1307,6 +1350,10 @@ export interface CanvasServerChipMessage {
   sessionId: string;
   port: number;
   title?: string;
+  /** Path (+query/fragment) of a declared loopback URL, e.g. `/app`. */
+  path?: string;
+  /** Tool call id of the declare that produced this chip. */
+  declarationId?: string;
   /**
    * True = the chip expired at the turn boundary / server-exit and MUST become
    * non-actionable (S32). When set, `port` echoes the expired chip's port; the
@@ -2694,9 +2741,11 @@ export const BROWSER_HOST_SERVER_TYPES = [
  * The access planes a denial can originate from. Closed on purpose: the wire
  * carries the plane id, the plane registry (server) keys on it, and a typo'd
  * plane must be a type error rather than a silently-unmatched string.
- * `cwd` is the unknown-working-directory plane.
+ * `cwd` is the unknown-working-directory plane. `preview-egress` is the deferred
+ * plane for an external https origin a restricted preview may load, granted per
+ * project (see change: improve-canvas-html-and-url-ux, design D7).
  */
-export type AccessPlaneId = "filesystem" | "cwd" | "network" | "cors";
+export type AccessPlaneId = "filesystem" | "cwd" | "network" | "cors" | "preview-egress";
 
 /**
  * Surfaces YOLO answers: the closed plane ids plus the agent path gate (which is

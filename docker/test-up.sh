@@ -205,6 +205,19 @@ export PI_TEST_PEERS="${PI_TEST_PEERS:-}"
 #   PI_E2E_SEED=1 PI_BROWSER_RELAY_FAKE=1 docker/test-up.sh -d --build
 export PI_BROWSER_RELAY_FAKE="${PI_BROWSER_RELAY_FAKE:-}"
 
+# Terminal-cap e2e faucet (change: harden-server-capability-bounds). Passed through
+# to the container (compose.test.yml -> test-entrypoint.sh), which seeds
+# `terminals.maxConcurrent` so tests/e2e/terminal-cap.spec.ts can hit the cap in two
+# clicks. Requires PI_E2E_SEED=1.
+#   PI_E2E_SEED=1 PI_E2E_TERMINALS_MAX_CONCURRENT=2 docker/test-up.sh -d --build
+export PI_E2E_TERMINALS_MAX_CONCURRENT="${PI_E2E_TERMINALS_MAX_CONCURRENT:-}"
+
+# Remote browse confinement is seeded OFF by test-entrypoint (the harness browser is a remote
+# peer through the Docker port mapping and ~30 specs pin dirs outside $HOME). "1" keeps it ON for
+# tests/e2e/remote-browse-confinement.spec.ts. Requires PI_E2E_SEED=1.
+#   PI_E2E_SEED=1 PI_E2E_BROWSE_CONFINEMENT=1 docker/test-up.sh -d --build
+export PI_E2E_BROWSE_CONFINEMENT="${PI_E2E_BROWSE_CONFINEMENT:-}"
+
 # Chat-gateway team-controls e2e faucet (change:
 # add-chat-gateway-team-controls, task 10g). Passed through to the container
 # (compose.test.yml -> test-entrypoint.sh) which seeds `plugins["chat-gateway"]`

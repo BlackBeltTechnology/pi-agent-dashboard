@@ -1,0 +1,3 @@
+# large-session-resume-replay.spec.ts — index
+
+Playwright spec (L3). F7: fake bridge reconnects with a ≥3,200-event marked (`replay: true`) replay incl. a historical Write to another `openspec/changes/<x>/` while `change-a` is manually attached. Second browser context already subscribed. Asserts on the wire: every `event_replay` frame ≤ `maxReplayEvents`, a `history_window` frame, last frame `isLast`. Asserts no `replace-proposal-dialog` on both pages and `pendingReplaceProposal` null via `/api/sessions`. Pins the fixture folder over the bus (`pin_directory`): the Add-folders dialog browses through the confined `/api/browse`, which refuses `/fixtures/*`. See change: fix-large-session-resume-replay.

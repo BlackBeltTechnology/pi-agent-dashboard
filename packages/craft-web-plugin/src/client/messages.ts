@@ -75,6 +75,25 @@ export const EN = {
   saveFirst: "Save your changes first.",
   settingsStatusRestart: "Restart the server to load the plugin, then reload this page.",
   settingsStatusUnreachable: "Could not load the editor status.",
+  // extend-craft-web-to-all-apps (D6, D10, D11).
+  siblingChip: "Save (Ctrl+S) creates {name}",
+  exportsTo: "Exports to {ext}",
+  previewChip: "View only. Exports download to this device",
+  siblingTitle: "{app} saves as {ext}",
+  siblingReason: "Its Save writes {ext} files. Your edits go into a new file next to {file}, which stays unchanged.",
+  siblingCreateOpen: "Create and open {name}",
+  siblingCreate: "Create {name}",
+  downloadInstead: "Download instead",
+  siblingExhausted: "Not saved: {name} and {first} to {last} already exist. Open {name} in {app} to keep editing it in place.",
+  saveAsInnerTitleHint: "{app} names saves after the session inside the file, not after {file}.",
+  groupEdit: "Edit files in place",
+  groupSibling: "Save in their own format, next to the file",
+  groupView: "View only",
+  settingsVerifiedFixed: "Verified {version}",
+  fixedUnverifiedLatest: "Newer releases are used once they are verified with this dashboard.",
+  fixedLatestFailsToStart: "Newer web builds fail to start.",
+  prepareSized: "Download {app} (about {size})",
+  updateShim: "Update {app}",
 } as const;
 
 export type MsgKey = keyof typeof EN;

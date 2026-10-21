@@ -132,6 +132,17 @@ at once; the resulting precedence MUST be pinned rather than left to rule order.
 This requirement is complementary to, and does not replace, pausing while the
 document is hidden.
 
+Arrival-driven chat motion is a second, bounded exemption. This means the
+transcript's entry and completion transitions, the trailing-edge softening of
+streamed text, frame-paced reveal of streamed text, and the follow-scroll glide
+(capability `chat-motion`). It MAY run while the idle mark is set, because a
+user watching content arrive is looking at the screen, the same reason the
+indeterminate-indicator exemption exists. The exemption SHALL hold only while
+new content is arriving: chat motion SHALL schedule no work later than one
+second after the last content arrival. It SHALL NOT apply while the document
+is hidden or while the transcript is scroll-locked away from the bottom. No state SHALL be communicated only by this
+motion.
+
 #### Scenario: Visible but unattended dashboard pauses animations
 - **GIVEN** the dashboard is visible on screen with a selected session card and one or more background sessions streaming
 - **WHEN** the user performs no input for the idle delay
@@ -182,3 +193,9 @@ document is hidden.
 - **WHEN** the user looks at the session list
 - **THEN** each session's state SHALL remain distinguishable from its static styling
 - **AND** the selected session SHALL remain visually identified by a static selection affordance
+
+#### Scenario: Arrival-driven chat motion is not paused by the idle mark
+- **GIVEN** the document root is marked idle while the user watches a session stream
+- **WHEN** new streamed text and a new tool row arrive with chat motion active
+- **THEN** the text reveal, entry transition, and follow glide SHALL run to completion
+- **AND** no chat-motion frame callback SHALL run later than one second after the last arrival while the idle mark persists

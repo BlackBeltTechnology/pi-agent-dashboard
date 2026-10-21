@@ -33,6 +33,7 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "DELETE", path: "/api/access/cors-origin", tier: "operate" },
   { method: "DELETE", path: "/api/access/grants", tier: "operate" },
   { method: "DELETE", path: "/api/access/pinned-directory", tier: "operate" },
+  { method: "DELETE", path: "/api/access/preview-egress", tier: "operate" },
   { method: "DELETE", path: "/api/access/project-trust", tier: "operate" },
   // add-access-grant-dialog: prompt answers, YOLO and refusals widen trust exactly
   // like a grant write, so every mutation is `operate`; reads are `observe`.
@@ -331,8 +332,19 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "POST", path: "/api/known-servers", tier: "operate" },
   { method: "POST", path: "/api/known-servers/accept-move", tier: "operate" },
   { method: "POST", path: "/api/known-servers/probe", tier: "operate" },
-  { method: "POST", path: "/api/live-server/:id/capability", tier: "control" },
+  // improve-canvas-html-and-url-ux: the mint route sits at the raw-file-read tier so an
+  // observe-tier viewer can mint a STATIC target; a PORT-target mint still needs `control`
+  // (checked in the handler, `portMintRefused`). `start-static` is the raw-read gate; `policy`
+  // is the exposure posture; `touch` extends only the caller's OWN token (minting principal).
+  { method: "POST", path: "/api/live-server/:id/capability", tier: "observe" },
+  { method: "POST", path: "/api/live-server/:id/touch", tier: "observe" },
+  // Egress state is private to the preview's owner: control tier AND the minting principal (handler).
+  { method: "GET", path: "/api/live-server/:id/egress", tier: "control" },
+  { method: "POST", path: "/api/live-server/:id/allow-once", tier: "control" },
+  { method: "POST", path: "/api/live-server/:id/egress-grant-request", tier: "control" },
+  { method: "GET", path: "/api/live-server/policy", tier: "observe" },
   { method: "POST", path: "/api/live-server/start", tier: "operate" },
+  { method: "POST", path: "/api/live-server/start-static", tier: "observe" },
   { method: "POST", path: "/api/local-proof", tier: "operate" },
   { method: "POST", path: "/api/mcp-client/servers/:name/convert", tier: "operate" },
   { method: "POST", path: "/api/mcp-client/servers/:name/convert-to-override", tier: "operate" },
@@ -371,6 +383,8 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "POST", path: "/api/plugins/blackhole/bindings/reattach", tier: "operate" },
   // edit-office-in-pane-with-craft-web: prepare downloads a build (control, like spawning); csp-report only bumps a counter.
   { method: "POST", path: "/api/plugins/craft-web/csp-report", tier: "control" },
+  // extend-craft-web-to-all-apps: open-outcome / validator-reject counters (log only, like csp-report).
+  { method: "POST", path: "/api/plugins/craft-web/telemetry", tier: "control" },
   { method: "POST", path: "/api/plugins/craft-web/prepare/:app", tier: "control" },
   { method: "POST", path: "/api/plugins/team/agents/:key/conversations", tier: "operate" },
   { method: "POST", path: "/api/plugins/team/agents/:key/conversations/:c/restart", tier: "operate" },

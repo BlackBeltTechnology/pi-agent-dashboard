@@ -33,6 +33,31 @@ see [`docs/release-process.md`](docs/release-process.md).
   exported by the root. `./context` stays one minor release as a deprecated alias; prefer the root
   for plugin hooks.
 
+- **Craft web editors for ten ArtCraft apps.** The opt-in Craft Web Editors plugin now edits more file
+  types in the editor pane: GridCraft (`.xlsx`), PdfCraft (`.pdf`), CADCraft (`.dxf`), DesignCraft
+  (`.designcraft`) and SoundCraft (`.scraftz`) save in place; PhotoCraft (`.psd`, and `.png .jpg .jpeg
+  .webp .tif .tiff` saved as a `.psd` next to the file), VectorCraft (`.svg` → `.vectorcraft`) and
+  DeckCraft 0.7.0 (`.pptx` → `.deckcraft`, `.deckcraft` in place) save their native format as a new
+  sibling file; LightCraft views camera RAW files (`.dng .cr2 .cr3 .nef .arw .raf .orf .rw2`) without
+  ever changing them. Every save passes a per-format validator (SVG saves are filtered for script). New apps
+  use their verified web build only; an installed WordCraft build keeps loading and is offered an update.
+  The binary-file notice now offers the matching editor. **`pi-dashboard-shared` minor:** additive
+  `siblingExtensions` on `editor-pane-file-handler` claims, `FileHandlerProps.save({target:"sibling", ext})`
+  and optional `FileHandlerProps.openFile(path, claimId?)`; `POST /api/file/write-binary` accepts
+  `mode=copy&siblingExt=<.ext>`. An older runtime drops the claim field (native saves then download).
+
+### Changed
+
+- **Canvas and live previews: HTML renders as authored, with fail-closed isolation.** A local `.html`
+  file now opens as an in-memory, capability-only *static target* of the live-server viewer, so relative
+  CSS/JS/images resolve and scripts run inside the opaque-origin sandbox (the old `srcdoc` no-script
+  preview is gone; a "Static" toggle restores script-free rendering). Previews are egress-restricted
+  unless the operator opened them; blocked CDN origins show in a banner with "Allow once" or a per-project
+  `preview-egress` grant (reviewed on the Access page). The viewer header is an editable address bar, and
+  the `canvas` tool shows a clickable card. **Breaking:** tokenless browser access to `/live/` (any request
+  with `Origin: null` or `Sec-Fetch-*`) now returns 404 — use a minted capability path. Agent-declared
+  localhost URLs show the confirm chip and are no longer persisted as live-server targets.
+
 ### Fixed
 
 ## [0.10.0] - 2026-10-20

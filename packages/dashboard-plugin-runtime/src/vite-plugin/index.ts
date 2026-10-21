@@ -621,6 +621,8 @@ function generateRegistryContent(entries: PluginEntry[], repoRoot: string): stri
               ...(claim.maxBytes !== undefined ? { maxBytes: claim.maxBytes } : {}),
               ...(claim.firstOverwriteNotice ? { firstOverwriteNotice: claim.firstOverwriteNotice } : {}),
               ...(claim.copySuffix ? { copySuffix: claim.copySuffix } : {}),
+              // See change: extend-craft-web-to-all-apps (D6).
+              ...(claim.siblingExtensions ? { siblingExtensions: claim.siblingExtensions } : {}),
               ...(claim.validator !== undefined ? { validator: claim.validator } : {}),
             })}`
           : "";

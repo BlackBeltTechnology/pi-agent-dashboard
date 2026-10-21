@@ -1,7 +1,9 @@
-import { act, fireEvent, render } from "@testing-library/react";
+import { DISPLAY_PRESETS } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
+import { act, fireEvent, render, waitFor } from "@testing-library/react";
 import React from "react";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { type ChatMessage, createInitialState, type PendingPrompt } from "../../lib/chat/event-reducer.js";
+import { type ChatMessage, createInitialState, type PendingPrompt, type SessionState } from "../../lib/chat/event-reducer.js";
+import { DisplayPrefsProvider } from "../../lib/state/DisplayPrefsContext.js";
 import { ChatView } from "../chat/ChatView.js";
 import { ThemeProvider } from "../settings/ThemeProvider.js";
 import type { ToolContext } from "../tool-renderers/index.js";
@@ -388,7 +390,7 @@ describe("ChatView", () => {
       return container.querySelector("[class*='overflow-y-auto']")!;
     }
 
-    it("auto-scrolls when near bottom (default behavior)", () => {
+    it("auto-scrolls when near bottom (default behavior)", async () => {
       const state = stateWithMessages([
         { id: "1", role: "user", content: "Hello" },
       ]);
@@ -409,6 +411,29 @@ describe("ChatView", () => {
       ]);
       rerender(<ThemeProvider><ChatView state={state2} toolContext={defaultToolContext} /></ThemeProvider>);
 
+      // Chat motion on (default): the follow is a short glide to the new bottom
+      // (1500 − 400 = 1100, since the scroll mock does not clamp the instant write).
+      await waitFor(() => expect(scrollEl.scrollTop).toBeGreaterThanOrEqual(1099));
+    });
+
+    it("auto-scrolls instantly (today's write) when chat motion is off", () => {
+      const global = { ...DISPLAY_PRESETS.standard, chatMotion: false };
+      const tree = (state: SessionState) => (
+        <ThemeProvider>
+          <DisplayPrefsProvider value={{ global, getSessionOverride: () => undefined }}>
+            <ChatView state={state} toolContext={defaultToolContext} />
+          </DisplayPrefsProvider>
+        </ThemeProvider>
+      );
+      const { container, rerender } = render(tree(stateWithMessages([{ id: "1", role: "user", content: "Hello" }])));
+      const scrollEl = getScrollContainer(container);
+      setScrollPosition(scrollEl, 1000, 1000, 400);
+      fireEvent.scroll(scrollEl);
+      setScrollPosition(scrollEl, 1000, 1500, 400);
+      rerender(tree(stateWithMessages([
+        { id: "1", role: "user", content: "Hello" },
+        { id: "2", role: "assistant", content: "Hi" },
+      ])));
       expect(scrollEl.scrollTop).toBe(1500);
     });
 

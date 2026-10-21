@@ -492,6 +492,8 @@ export function deterministicSerializePlugins(
           ...(c.maxBytes !== undefined ? { maxBytes: c.maxBytes } : {}),
           ...(c.firstOverwriteNotice !== undefined ? { firstOverwriteNotice: c.firstOverwriteNotice } : {}),
           ...(c.copySuffix !== undefined ? { copySuffix: c.copySuffix } : {}),
+          // See change: extend-craft-web-to-all-apps (D6).
+          ...(c.siblingExtensions !== undefined ? { siblingExtensions: c.siblingExtensions } : {}),
           ...(c.validator !== undefined ? { validator: c.validator } : {}),
         }))
         .sort((a, b) =>

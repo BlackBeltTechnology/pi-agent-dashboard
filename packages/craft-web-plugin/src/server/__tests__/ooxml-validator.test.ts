@@ -4,7 +4,7 @@
  */
 import { strToU8, zipSync } from "fflate";
 import { describe, expect, it } from "vitest";
-import { validate } from "../ooxml-validator.mjs";
+import { validate } from "../validators/ooxml.mjs";
 
 const MAIN = {
   ".docx": ["/word/document.xml", "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"],

@@ -32,6 +32,7 @@ import {
 import {
   resolveOpenSpecPackageSchemasDir,
   resolveOpenSpecPackageVersion,
+  userSchemasDir,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/openspec.js";
 import type { PiResourcesResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { createSemaphore, type Semaphore } from "@blackbelt-technology/pi-dashboard-shared/semaphore.js";
@@ -44,11 +45,7 @@ import type {
 import { computeFolderGroupKeys, createFolderHeadPoll, type FolderHeadPoll } from "./git-worktree/folder-head-poll.js";
 import type { EventLoopSpikeMetrics, EventLoopTurn } from "./metrics/eventloop-spike-metrics.js";
 import { type BrokeReason, deriveOpenSpecReadiness, hasWorkflowSchemaStatus } from "./openspec/readiness.js";
-import {
-  computeWorkflowSchemaStatus,
-  makeValidateLocal,
-  type WorkflowSchemaDeps,
-} from "./openspec/workflow-schema.js";
+import { makeValidateLocal, type WorkflowSchemaDeps } from "./openspec/workflow-schema.js";
 
 /**
  * Debounce for the folder-HEAD entry refresh, so a registration burst collapses
@@ -70,11 +67,14 @@ import {
 import type {
   PollWorkerPerChangeIn,
   PollWorkerRequest,
+  SchemaStatusRequest,
+  SchemaStatusResponse,
   StatusAllBuildResponse,
 } from "./openspec/openspec-poll-worker.js";
 import {
   createOpenSpecPollWorkerPool,
   type PollWorkerPool,
+  type PollWorkerPoolOptions,
 } from "./openspec/openspec-poll-worker-pool.js";
 import type { PreferencesStore } from "./persistence/preferences-store.js";
 import { scanPiResources } from "./pi/pi-resource-scanner.js";
@@ -103,6 +103,10 @@ export interface LoadResult {
   success: boolean;
   events: Array<{ eventType: string; timestamp: number; data: Record<string, unknown> }>;
   error?: string;
+  /** Branch entry count + last-entry id of the hydrated transcript: the skip-wipe
+   *  fingerprint source. See change: fix-large-session-resume-replay (D5). */
+  entryCount?: number;
+  leafEntryId?: string;
 }
 
 export interface DirectoryAddedResult {
@@ -201,6 +205,13 @@ export interface DirectoryService {
    */
   ensureLoadWorkerPool(): SessionLoadWorkerPool | null;
   getOpenSpecData(cwd: string): OpenSpecData | undefined;
+  /**
+   * The ONE spawn semaphore bounding every `openspec` CLI spawn: the poll, and
+   * (passed in by `server.ts`) the REST workflow-schema validate. Resized by
+   * `reconfigurePolling`, so holders see the new cap.
+   * See change: move-workflow-schema-status-to-poll-worker.
+   */
+  readonly semaphore: Semaphore;
   /** Force refresh: bypasses the mtime gate. Still honors the semaphore. */
   refreshOpenSpec(cwd: string): Promise<OpenSpecData>;
   /**
@@ -436,15 +447,24 @@ export interface DirectoryServiceOptions {
   openspecVersionResolver?: () => Promise<string | null>;
   /**
    * Test seams for `OpenSpecData.workflowSchema`: CLI/semaphore deps of the
-   * `newer`/`conflict` `schema validate`, the package-schemas dir resolver and
-   * the user-level schemas dir. Defaults are the real ones.
-   * See change: add-pi-spec-driven-schema.
+   * main-thread `newer`/`conflict` `schema validate`, the package-schemas dir
+   * resolver, the user-level schemas dir, and `computeStatus` — the in-process
+   * implementation of the pool's `schemaStatus` request (threaded into the
+   * pool as `schemaStatusImpl`). Defaults are the real ones.
+   * See changes: add-pi-spec-driven-schema, move-workflow-schema-status-to-poll-worker.
    */
   workflowSchema?: {
     deps?: Partial<WorkflowSchemaDeps>;
     packageSchemasDir?: () => Promise<string | null>;
     userSchemasDirPath?: string;
+    computeStatus?: (req: SchemaStatusRequest) => Promise<SchemaStatusResponse>;
   };
+  /**
+   * Test seam: builds the poll worker pool (default `createOpenSpecPollWorkerPool`),
+   * so tests can record or delay requests or point the pool at a fixture worker.
+   * See change: move-workflow-schema-status-to-poll-worker.
+   */
+  pollWorkerPoolFactory?: (opts: PollWorkerPoolOptions) => PollWorkerPool;
   /**
    * Per-turn slow-tick alarm threshold (ms). Independent of the retained wall
    * `durationMs` alarm: fires when any single instrumented turn's synchronous
@@ -619,9 +639,12 @@ export function createDirectoryService(
       d,
       { breakReason },
     );
-    const out: OpenSpecData = { ...d, hasOpenSpecSkills: skills, readiness };
+    // Never carry a previous tick's `workflowSchema`: the key is set below only
+    // from THIS tick's request, so a failed computation omits it.
+    const { workflowSchema: _previous, ...carried } = d;
+    const out: OpenSpecData = { ...carried, hasOpenSpecSkills: skills, readiness };
     // Separate from readiness (never alters it): successful-poll payloads only —
-    // the success call sites pass the status promise `pollOne` started up front.
+    // the success call sites pass the status promise enqueued earlier in the tick.
     if (schemaStatus && breakReason === undefined && d.initialized === true && hasWorkflowSchemaStatus(readiness)) {
       const workflowSchema = await schemaStatus;
       if (workflowSchema) out.workflowSchema = workflowSchema;
@@ -629,36 +652,82 @@ export function createDirectoryService(
     return out;
   }
 
-  // `OpenSpecData.workflowSchema` — computed on the main thread (async fs, small)
-  // by `pollOne` CONCURRENTLY with the CLI spawn / worker build, then attached at
-  // finalize, so the gated gate-hit, status-all, fallback and force paths all
-  // agree and the poll's wall time is not extended. The `newer`/`conflict`
-  // `schema validate` goes through the shared spawn semaphore, memoized by
-  // (cwd, fingerprint, CLI version). See change: add-pi-spec-driven-schema.
+  // `OpenSpecData.workflowSchema` — the filesystem part is computed by the poll
+  // worker's `schemaStatus` request on EVERY tick (gate hit included), enqueued
+  // once per tick right after the cwd's probe (status-all path) or before the
+  // list spawn (fallback path), and attached at finalize. Only the
+  // `newer`/`conflict` `schema validate` stays on the main thread: through the
+  // shared spawn semaphore, memoized by (cwd, fingerprint, CLI version).
+  // See change: move-workflow-schema-status-to-poll-worker.
   const workflowSchemaOpts = options.workflowSchema;
-  let packageSchemasDirMemo: { version: string | null; dir: string } | null = null;
+  let packageSchemasDirMemo: { version: string | null; dir: string | null } | null = null;
   async function packageSchemasDirFor(version: string | null): Promise<string | null> {
     if (workflowSchemaOpts?.packageSchemasDir) return workflowSchemaOpts.packageSchemasDir();
     if (packageSchemasDirMemo && packageSchemasDirMemo.version === version) return packageSchemasDirMemo.dir;
-    const dir = await resolveOpenSpecPackageSchemasDir();
-    if (dir) packageSchemasDirMemo = { version, dir };
+    const dir = await resolveOpenSpecPackageSchemasDir().catch(() => undefined);
+    if (dir === undefined) return null; // resolution threw: do not memoize
+    packageSchemasDirMemo = { version, dir }; // a `null` (no CLI) is memoized too: no per-tick re-walk
     return dir;
   }
-  async function workflowSchemaStatusFor(
+  type SchemaStatusInputs = Pick<SchemaStatusRequest, "packageSchemasDir" | "userSchemasDir">;
+  /**
+   * Main-thread inputs of the `schemaStatus` request (the worker module must not
+   * import them). Advisory: a resolution failure yields `{ error }`, never a throw,
+   * so it can neither fail a poll nor escape `pollOne`.
+   */
+  async function schemaStatusInputsFor(version: string | null): Promise<SchemaStatusInputs | { error: unknown }> {
+    try {
+      return {
+        packageSchemasDir: await packageSchemasDirFor(version),
+        userSchemasDir: workflowSchemaOpts?.userSchemasDirPath ?? userSchemasDir(),
+      };
+    } catch (error) {
+      return { error };
+    }
+  }
+  // cwds whose status computation failed on the previous tick (log once per failure run).
+  const schemaStatusFailing = new Set<string>();
+  function noteSchemaStatusFailure(cwd: string, err: unknown): void {
+    if (schemaStatusFailing.has(cwd)) return;
+    schemaStatusFailing.add(cwd);
+    console.warn(
+      `[openspec-poll] workflow-schema status failed for ${cwd} (worker request and in-process fallback); omitting workflowSchema this tick:`,
+      err,
+    );
+  }
+  /**
+   * Enqueue the `schemaStatus` request NOW (synchronously — callers rely on its
+   * place in the pool FIFO) and resolve the finished status. Never rejects: a
+   * computation failure (worker AND in-process fallback) resolves `undefined`,
+   * so the key is omitted for the tick and an abandoned promise is never an
+   * unhandled rejection.
+   */
+  function requestSchemaStatus(
     cwd: string,
     version: string | null,
+    inputs: SchemaStatusInputs | { error: unknown },
   ): Promise<OpenSpecWorkflowSchemaStatus | undefined> {
-    try {
-      const localVersion = version ?? "";
-      return await computeWorkflowSchemaStatus(cwd, {
-        localVersion,
-        packageSchemasDir: () => packageSchemasDirFor(version),
-        ...(workflowSchemaOpts?.userSchemasDirPath ? { userSchemasDirPath: workflowSchemaOpts.userSchemasDirPath } : {}),
-        validateLocal: makeValidateLocal(cwd, localVersion, { semaphore, ...workflowSchemaOpts?.deps }),
-      });
-    } catch {
-      return undefined; // advisory only: never fail or alter a poll
+    if ("error" in inputs) {
+      noteSchemaStatusFailure(cwd, inputs.error);
+      return Promise.resolve(undefined);
     }
+    const localVersion = version ?? "";
+    const run = async (): Promise<OpenSpecWorkflowSchemaStatus | undefined> => {
+      try {
+        const res = await ensureWorkerPool().schemaStatus({ cwd, localVersion, ...inputs });
+        let status = res.status;
+        if (res.validateFingerprint !== undefined) {
+          const validate = makeValidateLocal(cwd, localVersion, { semaphore, ...workflowSchemaOpts?.deps });
+          if (!(await validate(res.validateFingerprint))) status = { ...status, generated: "incompatible" };
+        }
+        schemaStatusFailing.delete(cwd);
+        return status;
+      } catch (err) {
+        noteSchemaStatusFailure(cwd, err);
+        return undefined; // advisory only: never fail or alter a poll
+      }
+    };
+    return run();
   }
 
   /** Cleared disabled payload — allocation-only, no stat, no CLI. */
@@ -714,10 +783,12 @@ export function createDirectoryService(
   function ensureWorkerPool(): PollWorkerPool {
     if (workerPool) return workerPool;
     const cpuCount = os.cpus().length || 1;
-    workerPool = createOpenSpecPollWorkerPool({
+    const poolOptions: PollWorkerPoolOptions = {
       size: Math.max(1, Math.min(cfg.maxConcurrentSpawns, cpuCount)),
       useWorker: cfg.useWorker !== false,
-    });
+      ...(workflowSchemaOpts?.computeStatus ? { schemaStatusImpl: workflowSchemaOpts.computeStatus } : {}),
+    };
+    workerPool = (options.pollWorkerPoolFactory ?? createOpenSpecPollWorkerPool)(poolOptions);
     return workerPool;
   }
 
@@ -960,7 +1031,7 @@ export function createDirectoryService(
             }
           }
         }
-        return { success: true, events: out.events };
+        return { success: true, events: out.events, entryCount: out.entryCount, leafEntryId: out.leafEntryId };
       }
       return { success: false, events: [], error: out.error };
     } finally {
@@ -1021,7 +1092,7 @@ export function createDirectoryService(
       const out = await result;
       entryCount = out.entryCount ?? 0;
       eventCount = out.events.length;
-      if (out.success) return { success: true, events: out.events };
+      if (out.success) return { success: true, events: out.events, entryCount: out.entryCount, leafEntryId: out.leafEntryId };
       return { success: false, events: [], error: out.error };
     } finally {
       inFlightLoadJobs.delete(sessionId);
@@ -1061,18 +1132,15 @@ export function createDirectoryService(
   // (stdout received → build dispatched) → await build → `dirPollPost`
   // (response applied; the caller times the broadcast). Returns `null` when
   // the CLI turned out not to support `--all`, so the caller continues on the
-  // fallback in the same poll.
+  // fallback in the same poll. Also hands back the tick's `schemaStatus`
+  // request (enqueued right after the probe), so the fallback reuses it.
   async function pollOneStatusAll(
     cwd: string,
     force: boolean,
     cache: DirCache,
-    ctx: {
-      hasOpenspecDir: boolean;
-      cliVersion: string | null;
-      schemaStatus: Promise<OpenSpecWorkflowSchemaStatus | undefined>;
-    },
-  ): Promise<OpenSpecData | null> {
-    const { hasOpenspecDir, cliVersion, schemaStatus } = ctx;
+    ctx: { hasOpenspecDir: boolean; cliVersion: string | null },
+  ): Promise<{ data: OpenSpecData | null; schemaStatus: Promise<OpenSpecWorkflowSchemaStatus | undefined> }> {
+    const { hasOpenspecDir, cliVersion } = ctx;
     const gateEnabled = cfg.changeDetection === "mtime" && !force;
     if (cache.mode !== "all") {
       cache.mode = "all";
@@ -1086,8 +1154,13 @@ export function createDirectoryService(
 
     const openspecDir = await canonicalOpenspecDir(cwd);
     const probeReq = { openspecDir, extras: cache.allExtras };
+    const schemaInputs = await schemaStatusInputsFor(cliVersion);
     const pool = ensureWorkerPool();
-    const pre = await pool.probe(probeReq).catch(() => ({
+    const probePromise = pool.probe(probeReq);
+    // Enqueued right after the probe (before it is awaited): the FIFO keeps the
+    // probe ahead of it, the CLI spawn and `build` never wait for it.
+    const schemaStatus = requestSchemaStatus(cwd, cliVersion, schemaInputs);
+    const pre = await probePromise.catch(() => ({
       cwdMtime: undefined as number | undefined,
       names: [] as string[],
       changes: {} as Record<string, number | undefined>,
@@ -1101,7 +1174,7 @@ export function createDirectoryService(
       cache.data = reused;
       cache.serialized = undefined;
       caches.set(cwd, cache);
-      return reused;
+      return { data: reused, schemaStatus };
     }
     const rawPromise = semaphore.run(() => runOpenSpecStatusAll(cwd));
     // Read concurrently with the CLI; awaited before the `dirPollCli` turn
@@ -1149,7 +1222,7 @@ export function createDirectoryService(
     try {
       out = await buildPromise;
     } catch {
-      return failedPayload();
+      return { data: await failedPayload(), schemaStatus };
     }
 
     // dirPollPost: the build response applied to the cache. Timed up to its
@@ -1158,11 +1231,11 @@ export function createDirectoryService(
     if (out.kind === "unsupported") {
       statusAllSupport.markUnsupported(cliVersion);
       recordTurn("dirPollPost", postStart);
-      return null; // continue on the fallback in this same poll
+      return { data: null, schemaStatus }; // continue on the fallback in this same poll
     }
     if (out.kind === "failed") {
       recordTurn("dirPollPost", postStart);
-      return failedPayload();
+      return { data: await failedPayload(), schemaStatus };
     }
 
     applyStatusAllBuild(cache, out);
@@ -1175,7 +1248,7 @@ export function createDirectoryService(
     // add-openspec-init-affordances.
     cache.serialized = undefined;
     caches.set(cwd, cache);
-    return finalized;
+    return { data: finalized, schemaStatus };
   }
 
   // ── Core gated poll ──────────────────────────────────────────────
@@ -1228,11 +1301,17 @@ export function createDirectoryService(
     // poll (`pollOneStatusAll` resolves `null`). See change:
     // use-openspec-status-all.
     const cliVersion = await resolveCliVersion();
-    const schemaStatus = workflowSchemaStatusFor(cwd, cliVersion); // concurrent with the poll
+    //
+    // The `schemaStatus` request is enqueued at most once per tick: inside
+    // `pollOneStatusAll` (right after its probe) or, on the fallback path,
+    // before the `list` spawn. See change: move-workflow-schema-status-to-poll-worker.
+    let schemaStatus: Promise<OpenSpecWorkflowSchemaStatus | undefined> | undefined;
     if (!statusAllSupport.isKnownUnsupported(cliVersion, force)) {
-      const handled = await pollOneStatusAll(cwd, force, cache, { hasOpenspecDir, cliVersion, schemaStatus });
-      if (handled) return handled;
+      const handled = await pollOneStatusAll(cwd, force, cache, { hasOpenspecDir, cliVersion });
+      schemaStatus = handled.schemaStatus;
+      if (handled.data) return handled.data;
     }
+    schemaStatus ??= requestSchemaStatus(cwd, cliVersion, await schemaStatusInputsFor(cliVersion));
     if (cache.mode !== "fallback") {
       // Entering (or re-entering) the fallback path: drop `--all` state so
       // stamps over the two different tracked sets are never compared.
@@ -2309,5 +2388,6 @@ export function createDirectoryService(
     },
 
     refreshFolderHeadsForEnteringKeys,
+    semaphore,
   };
 }

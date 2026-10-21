@@ -24,7 +24,8 @@ import {
   readFileVerifiedUtf8,
   VerifiedReadRefused,
 } from "../access/verified-read.js";
-import { canDiscloseAccessPosture } from "../auth/localhost-guard.js";
+import type { LocalTrustContext } from "../auth/local-proof.js";
+import { canDiscloseAccessPosture, isLocallyTrusted } from "../auth/localhost-guard.js";
 import {
   CreateProjectError,
   type CreateProjectReason,
@@ -34,8 +35,15 @@ import {
   listDirectories,
   parseFlagsQuery,
 } from "../browse.js";
-import { BROWSE_OUTSIDE_ROOTS_ERROR, isWithinBrowseRoots, resolveBrowseRoots } from "../lib/browse-roots.js";
 import { isImageUnderArtifactRoot } from "../lib/artifact-roots.js";
+import {
+  BROWSE_OUTSIDE_ROOTS_ERROR,
+  type BrowseRootSources,
+  type BrowseRoots,
+  buildBrowseRootSources,
+  isWithinBrowseRoots,
+  resolveBrowseRoots,
+} from "../lib/browse-roots.js";
 import { decodeFileUri } from "../lib/decode-file-uri.js";
 import { renderDiagram } from "../lib/diagram-render.js";
 import { createDigestGate, type DigestGate, type DigestLane } from "../lib/digest-gate.js";
@@ -63,14 +71,14 @@ import { loadPurify } from "../lib/purify.js";
  * the denial can name its remedy and bind a later grant to this refusal (D15).
  * `{ code, error }` stays INTERNAL — callers convert via `denialBody`.
  */
-type GateFailure = { code: number; error: string } & Partial<DenialRemedy>;
+export type GateFailure = { code: number; error: string } & Partial<DenialRemedy>;
 
 /**
  * The single conversion from a gate failure to the wire body. Every containment
  * caller uses this so the additive fields cannot drift between sites, and so
  * pre-existing fields stay byte-identical (task 3.2).
  */
-function denialBody(gate: GateFailure): ApiResponse {
+export function denialBody(gate: GateFailure): ApiResponse {
   const body: Record<string, unknown> = { success: false, error: gate.error };
   if (gate.reason !== undefined) body.reason = gate.reason;
   if (gate.hint !== undefined) body.hint = gate.hint;
@@ -325,12 +333,15 @@ async function sanitizeAdocHtml(html: string): Promise<string> {
 // `/api/file/raw` (known session + `isAllowed` against the cwd anchor), factored
 // so both new routes CALL it rather than re-implementing the containment logic
 // (design D5). Returns the resolved abs path or a {code,error} reply mapping.
-async function gateFilePath(
+export async function gateFilePath(
   cwd: string | undefined,
   relPath: string | undefined,
   sessionManager: SessionManager,
-  /** `disclosure`: the caller may see `promptOutcome` (`canDiscloseAccessPosture`). */
-  opts: { allowGrant?: boolean; disclosure?: boolean } = {},
+  /**
+   * `disclosure`: the caller may see `promptOutcome` (`canDiscloseAccessPosture`).
+   * `quiet`: record no denial and raise no prompt (a per-request re-check on a static preview).
+   */
+  opts: { allowGrant?: boolean; disclosure?: boolean; quiet?: boolean } = {},
 ): Promise<{ resolved: string; viaGrant: boolean } | GateFailure> {
   if (!cwd || !relPath) return { code: 400, error: "cwd and path parameters required" };
   if (!sessionManager.listAll().some((s) => s.cwd === cwd)) {
@@ -341,6 +352,7 @@ async function gateFilePath(
     site: "file-routes:gateFilePath",
     allowGrant: opts.allowGrant,
     disclosure: opts.disclosure,
+    ...(opts.quiet ? { quiet: true } : {}),
   });
   if (!decision.allowed) {
     return { code: 403, error: "path outside working directory", ...decision.remedy };
@@ -430,6 +442,15 @@ export function registerFileRoutes(
     // Plugin file-handler registry/validator seams for `POST /api/file/write-binary`
     // (change: add-editor-pane-file-handlers). Absent → every handler save is refused (403).
     fileHandlers?: FileHandlerDeps;
+    // Browse confinement (change: harden-server-capability-bounds, D1/D2).
+    // `localTrust`: strict-mode context for `isLocallyTrusted`. `browseRootSources`:
+    // the two root sources only server.ts can read (worktree-init trust roots and
+    // project-scope access grants); pinned dirs, session cwds and workspace
+    // folders come from `preferencesStore` / `sessionManager`.
+    localTrust?: LocalTrustContext;
+    browseRootSources?: Pick<BrowseRootSources, "worktreeRoots" | "projectGrants">;
+    /** `browse.confineRemote` (default true). `false` = a remote caller browses like a local one. */
+    browseConfineRemote?: boolean;
   },
 ) {
   const { sessionManager, preferencesStore, networkGuard } = deps;
@@ -493,9 +514,28 @@ export function registerFileRoutes(
     return { resolved, ext, stat, viaGrant: decision.viaGrant };
   }
 
-  // Allowed browse roots: `$HOME` + current pinned dirs, recomputed per request
-  // so a pin/unpin takes effect immediately. See change: harden-server-capability-bounds.
-  const browseRoots = () => resolveBrowseRoots(preferencesStore.getPinnedDirectories());
+  // Browse confinement applies ONLY to requests that are not genuinely local
+  // (tunnel, LAN, relayed loopback). Returns the shared-root set to enforce, or
+  // `null` for a local request (unrestricted picker). Roots are recomputed per
+  // request so a pin / unpin / grant applies immediately.
+  // See change: harden-server-capability-bounds (D1, D2).
+  const browseRootSources = buildBrowseRootSources({
+    preferencesStore,
+    sessionManager,
+    worktreeRoots: deps.browseRootSources?.worktreeRoots,
+    projectGrants: deps.browseRootSources?.projectGrants,
+  });
+  async function confinedRoots(request: { ip: string; headers: Record<string, unknown> }): Promise<BrowseRoots | null> {
+    if (deps.browseConfineRemote === false) return null;
+    if (isLocallyTrusted({ ip: request.ip, headers: request.headers }, deps.localTrust)) return null;
+    return resolveBrowseRoots(browseRootSources);
+  }
+  const refuseOutsideRoots = (reply: { code(n: number): unknown }, route: string, requested: string) => {
+    // JSON.stringify: the path is caller-controlled, so a newline must not forge a log line.
+    console.warn(`[browse] refused ${route}: ${JSON.stringify(requested)} is outside the shared roots`);
+    reply.code(403);
+    return { success: false, error: BROWSE_OUTSIDE_ROOTS_ERROR } satisfies ApiResponse;
+  };
 
   // Directory browse endpoint.
   // `detect=1` opts into eager `.git` / `.pi` classification on every entry
@@ -507,13 +547,10 @@ export function registerFileRoutes(
     "/api/browse",
     { preHandler: networkGuard },
     async (request, reply) => {
-      // Confined to `$HOME` + pinned dirs (B8). No path → home, always allowed.
-      // See change: harden-server-capability-bounds.
-      const roots = await browseRoots();
+      const roots = await confinedRoots(request);
       const requested = request.query.path || undefined;
-      if (requested && !(await isWithinBrowseRoots(requested, roots))) {
-        reply.code(403);
-        return { success: false, error: BROWSE_OUTSIDE_ROOTS_ERROR } satisfies ApiResponse;
+      if (roots && requested && !(await isWithinBrowseRoots(requested, roots))) {
+        return refuseOutsideRoots(reply, "GET /api/browse", requested);
       }
       try {
         const result = await listDirectories(
@@ -521,9 +558,10 @@ export function registerFileRoutes(
           request.query.q || undefined,
           { detect: request.query.detect === "1" },
         );
-        // Never offer a `..` row that leads to a refused directory.
-        if (result.parent && !(await isWithinBrowseRoots(result.parent, roots))) {
-          result.parent = null;
+        if (roots) {
+          result.confined = true;
+          // Never offer a `..` row that leads to a refused directory.
+          if (result.parent && !(await isWithinBrowseRoots(result.parent, roots))) result.parent = null;
         }
         return { success: true, data: result } satisfies ApiResponse;
       } catch {
@@ -547,11 +585,10 @@ export function registerFileRoutes(
         reply.code(400);
         return { success: false, error: parsed.error } satisfies ApiResponse;
       }
-      const roots = await browseRoots();
-      for (const p of parsed.paths) {
-        if (!(await isWithinBrowseRoots(p, roots))) {
-          reply.code(403);
-          return { success: false, error: BROWSE_OUTSIDE_ROOTS_ERROR } satisfies ApiResponse;
+      const roots = await confinedRoots(request);
+      if (roots) {
+        for (const p of parsed.paths) {
+          if (!(await isWithinBrowseRoots(p, roots))) return refuseOutsideRoots(reply, "GET /api/browse/flags", p);
         }
       }
       const flags = await classifyPaths(parsed.paths);
@@ -567,10 +604,10 @@ export function registerFileRoutes(
       const body = request.body ?? {};
       const parent = typeof body.parent === "string" ? body.parent : "";
       const name = typeof body.name === "string" ? body.name : "";
-      // mkdir only inside `$HOME` + pinned dirs (B8). Checked before any fs write.
-      if (parent && !(await isWithinBrowseRoots(parent, await browseRoots()))) {
-        reply.code(403);
-        return { success: false, error: BROWSE_OUTSIDE_ROOTS_ERROR } satisfies ApiResponse;
+      // A remote caller may create only inside the shared roots; checked before any fs write.
+      const roots = await confinedRoots(request);
+      if (roots && parent && !(await isWithinBrowseRoots(parent, roots))) {
+        return refuseOutsideRoots(reply, "POST /api/browse/mkdir", parent);
       }
       try {
         const newPath = await createDirectory(parent, name);

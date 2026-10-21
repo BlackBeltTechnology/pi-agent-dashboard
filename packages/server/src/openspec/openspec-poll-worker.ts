@@ -44,6 +44,7 @@ import {
   perChangeArtifactPaths,
   probeTrackedPaths,
 } from "./openspec-poll-fs-helpers.js";
+import { computeSchemaStatus, type SchemaStatusResult } from "./workflow-schema-status.js";
 
 export type { ProbeRequest, ProbeResponse };
 export { probeTrackedPaths };
@@ -310,10 +311,61 @@ export async function buildFromStatusAll(req: StatusAllBuildRequest): Promise<St
   };
 }
 
+// ── `schemaStatus` request ──────────────────────────────────────────
+//
+// Filesystem part of `OpenSpecData.workflowSchema`, computed on every poll tick
+// (gate hit or not). The main thread resolves the CLI-dependent inputs and runs
+// the `newer`/`conflict` `schema validate` for the returned fingerprint.
+// See change: move-workflow-schema-status-to-poll-worker.
+
+export interface SchemaStatusRequest {
+  cwd: string;
+  /** Resolved CLI version; `""` when unknown. */
+  localVersion: string;
+  /** `<openspec package>/schemas`, `null` = unknown. Resolved on main. */
+  packageSchemasDir: string | null;
+  /** User-level schemas dir. Resolved on main. */
+  userSchemasDir: string;
+}
+
+export type SchemaStatusResponse = SchemaStatusResult;
+
+/** The whole worker body of the `schemaStatus` request (also the default in-process implementation). */
+export function computeSchemaStatusFor(req: SchemaStatusRequest): Promise<SchemaStatusResponse> {
+  return computeSchemaStatus(req.cwd, {
+    localVersion: req.localVersion,
+    packageSchemasDir: req.packageSchemasDir,
+    userSchemasDirPath: req.userSchemasDir,
+    fingerprint: "when-needed",
+  });
+}
+
 // ── Worker bootstrap ────────────────────────────────────────────────
 // Only runs when this module is loaded as the entry of a `worker_threads`
 // Worker. Direct imports (tests, in-process fallback) skip this block.
-export type PollWorkerKind = "derive" | "probe" | "build";
+export type PollWorkerKind = "derive" | "probe" | "build" | "schemaStatus";
+
+/**
+ * Run one request body. Exhaustive over the request kind: an unknown kind
+ * rejects instead of silently running another request's body.
+ */
+export async function handlePollWorkerMessage(kind: PollWorkerKind | undefined, payload: unknown): Promise<unknown> {
+  switch (kind) {
+    case undefined: // legacy messages without a kind are `derive`
+    case "derive":
+      return deriveAndSerialize(payload as PollWorkerRequest);
+    case "probe":
+      return probeTrackedPaths(payload as ProbeRequest);
+    case "build":
+      return buildFromStatusAll(payload as StatusAllBuildRequest);
+    case "schemaStatus":
+      return computeSchemaStatusFor(payload as SchemaStatusRequest);
+    default: {
+      const unknownKind: never = kind;
+      throw new Error(`unknown poll worker request kind: ${String(unknownKind)}`);
+    }
+  }
+}
 
 if (!isMainThread && parentPort !== null) {
   parentPort.on(
@@ -325,12 +377,7 @@ if (!isMainThread && parentPort !== null) {
       }
       const { id, kind, payload } = msg as { id: number; kind?: PollWorkerKind; payload: unknown };
       try {
-        const response =
-          kind === "probe"
-            ? await probeTrackedPaths(payload as ProbeRequest)
-            : kind === "build"
-              ? await buildFromStatusAll(payload as StatusAllBuildRequest)
-              : deriveAndSerialize(payload as PollWorkerRequest);
+        const response = await handlePollWorkerMessage(kind, payload);
         parentPort!.postMessage({ id, ok: true, response });
       } catch (err) {
         parentPort!.postMessage({
