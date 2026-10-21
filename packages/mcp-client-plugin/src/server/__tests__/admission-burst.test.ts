@@ -4,8 +4,13 @@
  *   P2 — event-loop delay, before vs after. "Before" is the legacy synchronous
  *        guard (`isAllowedCwd`, up to 10 `spawnSync` probes per request) behind
  *        the same route shape; "after" is the shipped async, capped `admitCwd`.
- *        Real git, real worktrees. The measured numbers are printed and recorded
- *        in tasks 1.2 / 8.4.
+ *        Real worktrees, real git behind a ~30 ms/probe shim: on fast CI runners
+ *        bare git probes took ~1-2 ms, so both arms sat at the runner's noise
+ *        floor (~50 ms p99) and the comparison flaked (nightly 2026-10-20). The
+ *        shim makes the sync arm's loop blocking deterministic while staying
+ *        under its 200 ms probe timeout and keeping the async arm's 25 x probes
+ *        / 4-way cap well inside the 3 s admission deadline. The measured
+ *        numbers are printed (originally recorded in tasks 1.2 / 8.4).
  *   P1 — with git slowed to ~900 ms per probe, `/api/health` on the same server
  *        stays responsive (p99 < 250 ms) while the 25 admissions are pending.
  *
@@ -120,13 +125,20 @@ const p99 = (xs: number[]): number => {
 };
 
 describe("25-worktree page-load burst", () => {
-  it("P2: p99 event-loop delay is lower with async admission than with the legacy sync guard (real git)", async () => {
-    const before = await newServer("before");
-    const b = await burst(before.base);
-    await before.app.close();
-    const after = await newServer("after");
-    const a = await burst(after.base);
-    await after.app.close();
+  it("P2: p99 event-loop delay is lower with async admission than with the legacy sync guard (git ~30 ms/probe)", async () => {
+    const restore = useGitPath(makeSlowGitShim(30, resolveRealGit()));
+    let a: Awaited<ReturnType<typeof burst>>;
+    let b: Awaited<ReturnType<typeof burst>>;
+    try {
+      const before = await newServer("before");
+      b = await burst(before.base);
+      await before.app.close();
+      const after = await newServer("after");
+      a = await burst(after.base);
+      await after.app.close();
+    } finally {
+      restore();
+    }
 
     // eslint-disable-next-line no-console
     console.log(`[P2] p99 event-loop delay: before=${b.p99Ms.toFixed(1)} ms, after=${a.p99Ms.toFixed(1)} ms`);
