@@ -267,13 +267,13 @@ export type AttachAction =
 /** Trim + strip a leading `v`; empty / `unknown` / absent → null (unknown). */
 export function normalizeVersion(v: string | null | undefined): string | null {
   if (typeof v !== "string") return null;
-  const n = v.trim().replace(/^v/i, "");
+  const n = v.trim().replace(/^v+/i, "");
   return n === "" || n.toLowerCase() === "unknown" ? null : n;
 }
 
 /** Launch source the dismissal key and fix text use: static source, else legacy starter, else "unknown". */
 export function dismissalLaunchSource(health: AttachHealth): string {
-  return health.launchSource || health.starter || "unknown";
+  return health.launchSource || health.starter?.toLowerCase() || "unknown";
 }
 
 /**

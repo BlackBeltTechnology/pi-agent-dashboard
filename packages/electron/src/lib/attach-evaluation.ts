@@ -252,7 +252,7 @@ export function createAttachEvaluator(deps: AttachEvaluationDeps): AttachEvaluat
           server,
           expected,
           shellVersion: deps.shellVersion,
-          launchSource: health.launchSource || health.starter?.toLowerCase(),
+          launchSource: dismissalLaunchSource(health),
         });
         if (choice === "dismiss") deps.addDismissal({ server, expected, launchSource });
         askedThisLifetime = true;
