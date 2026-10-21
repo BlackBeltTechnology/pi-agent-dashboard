@@ -48,12 +48,15 @@ export interface FrameInjector {
  * a live view is requested).
  */
 export async function installFrameInjector(page: Page): Promise<FrameInjector> {
-  let live: { send(data: string): void } | undefined;
+  // Open sockets in open order. The oldest still-open one is the shell socket; a
+  // reload's new socket may open before the old one reports `close`, so a close
+  // only removes ITS socket instead of clearing a single "live" slot.
+  const open: Array<{ send(data: string): void }> = [];
   await page.routeWebSocket(/.*/, (ws) => {
-    // Re-capture after a page reload: the previous socket closes, the app opens a new one.
-    live ??= ws;
+    open.push(ws);
     ws.onClose(() => {
-      if (live === ws) live = undefined;
+      const i = open.indexOf(ws);
+      if (i >= 0) open.splice(i, 1);
     });
     const server = ws.connectToServer();
     ws.onMessage((message) => server.send(message));
@@ -61,6 +64,7 @@ export async function installFrameInjector(page: Page): Promise<FrameInjector> {
   });
   return {
     send(frame) {
+      const live = open[0];
       if (!live) throw new Error("the page has not opened its shell WebSocket yet");
       live.send(JSON.stringify(frame));
     },
