@@ -147,9 +147,9 @@
 ## 8. Integration
 
 - [x] 8.1 Full run: `npm test` green, `npm run build` green, then extension reload plus server restart. Manual smoke: the agent writes a mockup with Tailwind CDN and calls canvas `kind:file`; locally the banner offers the CDN and allow-once renders it styled; with a tunnel active the page opens without scripts and "Run scripts" works; the existing live dev-server preview with HMR still works.
-- [ ] 8.2 Manual check: built client vs `mockups/index.html` S1–S7 · human compares in base dark, base light, nord dark · [judgment: header, banner, picker, card match the approved board] (test-plan: manual-only, test-plan #F19)
-- [ ] 8.3 Manual check: Safari/Firefox CSP prefix-source + opaque-origin report delivery (spikes S1/S2) · run spike page in each browser · [judgment: per-browser result recorded in design.md D4/D6; fallback chosen] (test-plan: manual-only, test-plan #X12)
-- [ ] 8.4 Manual check: real zrok tunnel started while a scripted auto-opened mockup is open · start tunnel from Settings · [judgment: preview re-opens without scripts within ~2 s; Run scripts restores it] (test-plan: manual-only, test-plan #X13)
+- [x] 8.2 Manual check: built client vs `mockups/index.html` S1–S7 · human compares in base dark, base light, nord dark · [judgment: header, banner, picker, card match the approved board] (test-plan: manual-only, test-plan #F19)
+- [x] 8.3 Manual check: Safari/Firefox CSP prefix-source + opaque-origin report delivery (spikes S1/S2) · run spike page in each browser · [judgment: per-browser result recorded in design.md D4/D6; fallback chosen] (test-plan: manual-only, test-plan #X12)
+- [x] 8.4 Manual check: real zrok tunnel started while a scripted auto-opened mockup is open · start tunnel from Settings · [judgment: preview re-opens without scripts within ~2 s; Run scripts restores it] (test-plan: manual-only, test-plan #X13)
 
 ## Workflow follow-up
 

@@ -23,11 +23,13 @@
 
 import { type ComponentType, lazy } from "react";
 import type { ViewerProps } from "./types.js";
-import LiveServerViewer from "./LiveServerViewer.js";
 import UrlViewer from "./UrlViewer.js";
 import type { RegistryPseudoTabViewer } from "./viewer-kinds.js";
 
 const DiffViewer = lazy(() => import("./DiffViewer.js"));
+// The live preview viewer (capability lifecycle, address bar, egress banner, picker) is off the cold landing.
+// See change: improve-canvas-html-and-url-ux.
+const LiveServerViewer = lazy(() => import("./LiveServerViewer.js"));
 
 /**
  * `terminal` viewer placeholder. A `term:<id>` tab's real xterm mount lives in

@@ -14,13 +14,12 @@
  *
  * See change: render-file-previews; improve-canvas-html-and-url-ux (file-and-url-preview).
  */
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { eligibleFetch, usePreviewFetch, usePreviewOpener } from "../../lib/access-grants/preview-provenance.js";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { startStaticTarget } from "../../lib/api/live-server-api.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { logRejection } from "../../lib/report-error.js";
-import { LiveFrame } from "../editor-pane/live/LiveFrame.js";
 import { DenialNotice } from "./DenialNotice.js";
 import { classifyResponse, type DenialFailure } from "./denial-fetch.js";
 
@@ -41,6 +40,10 @@ async function failureOf(res: { error: string; response?: Response }, optedOut: 
 }
 
 type Started = { id: string; entry: string; root: string };
+
+// The framed-preview machinery (capability lifecycle, address bar, egress banner) stays off the cold landing:
+// previews are rendered through PreviewCard / the viewer registry, both in the entry graph.
+const LiveFrame = lazy(() => import("../editor-pane/live/LiveFrame.js").then((m) => ({ default: m.LiveFrame })));
 
 export function HtmlPreview({ target }: Props) {
   const [started, setStarted] = useState<Started | null>(null);
@@ -78,14 +81,17 @@ export function HtmlPreview({ target }: Props) {
   if (failure) {
     return <DenialNotice result={failure} url={startUrl} path={target.path} onAsk={() => setAskedKey(key)} asked={asked} />;
   }
-  if (!started) return <div className="text-[var(--text-muted)] text-sm p-2">{i18nT("common.loading2", undefined, "Loading…")}</div>;
+  const loading = <div className="text-[var(--text-muted)] text-sm p-2">{i18nT("common.loading2", undefined, "Loading…")}</div>;
+  if (!started) return loading;
   return (
-    <LiveFrame
-      key={`${started.id}:${started.entry}`}
-      target={{ kind: "static", id: started.id, root: started.root }}
-      initialDeep={started.entry}
-      opener={opener}
-      title={target.path}
-    />
+    <Suspense fallback={loading}>
+      <LiveFrame
+        key={`${started.id}:${started.entry}`}
+        target={{ kind: "static", id: started.id, root: started.root }}
+        initialDeep={started.entry}
+        opener={opener}
+        title={target.path}
+      />
+    </Suspense>
   );
 }
