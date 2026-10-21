@@ -974,7 +974,11 @@ function modeTriage(cwd, [ruleId, file, lineHash], reason) {
 }
 
 const GH_TIMEOUT_DEFAULT_MS = 15_000;
-const sameMultiset = (a, b) => a.length === b.length && [...a].sort((x, y) => x - y).every((v, i) => v === [...b].sort((x, y) => x - y)[i]);
+const sameMultiset = (a, b) => {
+  const sorted = (xs) => [...xs].sort((x, y) => x - y);
+  const right = sorted(b);
+  return a.length === b.length && sorted(a).every((v, i) => v === right[i]);
+};
 
 /** `--alert 12,13` → `[12, 13]`: positive integers, no duplicates. */
 function parseAlertList(value) {
