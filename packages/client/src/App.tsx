@@ -7,6 +7,7 @@ import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRe
 import { Redirect, Route, Switch, useLocation, useRoute, useSearch, useSearchParams } from "wouter";
 import { useHistoryState } from "wouter/use-browser-location";
 import { GrantPromptHost } from "./components/access-grant/GrantPromptHost.js";
+import { ProvisionPromptHost } from "./components/access-grant/ProvisionPromptHost.js";
 import { YoloComposerStrip } from "./components/access-grant/YoloIndicators.js";
 import { CanvasDriver } from "./components/canvas/CanvasDriver.js";
 import { ChatView, type ChatViewHandle } from "./components/chat/ChatView.js";
@@ -3068,6 +3069,9 @@ export default function App() {
   // `firstLaunchModal`. Also owns the prompt capability's lifecycle.
   // See change: add-access-grant-dialog.
   const grantPromptHost = <GrantPromptHost onMessage={onMessage} send={send} ws={ws} />;
+  // Provisioning dialog: beside the grant host (which owns the capability).
+  // See change: add-access-provisioning.
+  const provisionPromptHost = <ProvisionPromptHost onMessage={onMessage} send={send} ws={ws} />;
   // Pairing approval dialog: mounted beside the grant host in BOTH returns.
   // See change: add-pairing-approval-dialog.
   const pairingApprovalHost = (
@@ -3243,6 +3247,7 @@ export default function App() {
         <RecoveryOfferHost onReopen={(ids) => { for (const id of ids) handleResumeSession(id, "continue"); }} onDismiss={(ids) => send({ type: "recovery_dismiss", sessionIds: ids })} />
         {firstLaunchModal}
         {grantPromptHost}
+        {provisionPromptHost}
         {pairingApprovalHost}
         <MobileShell
           depth={mobileDepth}
@@ -3290,6 +3295,7 @@ export default function App() {
     <div className="flex h-screen bg-[var(--bg-primary)] text-[var(--text-primary)]">
       {firstLaunchModal}
       {grantPromptHost}
+      {provisionPromptHost}
       {pairingApprovalHost}
       {/* Concurrent worktree-init stack — fixed overlay, mounted in both shells
           (mobile branch above) so desktop also surfaces it. See change:

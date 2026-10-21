@@ -27,6 +27,13 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Changed
 
+- **Access-grant prompts are now on by default.** `accessGrants.promptEnabled` defaults to `true` when it
+  is absent from `config.json`, so a fresh or never-configured install raises the "Allow access?" dialog
+  (and the new agent-proposed access requests) instead of silently recording denials. An explicit value
+  is kept as written: set `accessGrants.promptEnabled` to `false` (Settings ▸ Access) to turn prompting
+  off, or set `PI_DASHBOARD_DISABLE_GRANT_PROMPT=1` in automated environments. No config migration.
+  A grant approved from a provisioning request is never evicted by the 200-grant cap.
+
 ### Fixed
 
 ## [0.10.0] - 2026-10-20

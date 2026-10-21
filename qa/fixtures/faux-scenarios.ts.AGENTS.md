@@ -12,6 +12,8 @@ Adds `mcp-env-probe` (X1: reads the pi session env and reports `PI_DASHBOARD_MCP
 
 Catalog `tool-read-outside` (reads `/etc/hostname`) and `tool-read-outside-grantable` (reads `/srv/fixtures-outside/a.txt` then `b.txt`, then text `outside reads done`) for the agent path gate e2e. See change: ask-agent-file-access-in-chat.
 
+Catalog `tool-read-provisioned` (reads `/srv/fixtures-outside/__prov-e2e__/lines/lib/x.txt` then `…/other/x.txt`, then text `provisioned reads done`) for tests/e2e/access-provisioning.spec.ts. See change: add-access-provisioning.
+
 See change: add-browser-editor-pane-tab — scenario `browser-show-in-pane` (`[[faux:browser-show-in-pane]] <instanceId>`): calls the real `browser_show_in_pane` tool, echoes its result.
 - Adds `subagent-reasoning` (parent) + `subagent-reasoning-inner` (thinking + `sleep 3` bash ×3, ~9 s); parent Agent call pins literal `model: "faux/faux-1"` (Explore `@fast` falls back to credential-less anthropic in harness → child dies ~300 ms) for stable-card-height L3. See change: stream-subagent-reasoning-and-stable-card.
 - Adds `web-search-entry` (`[[faux:web-search-entry]]`): one assistant message with `e2e_custom_entry` ×3 — `e2e:before-search`, a `web-search-results` search payload (2 queries, 5+3 results, one https link + 4 `javascript:` URLs), `e2e:after-search` — so the web-access card sits INSIDE the tool burst. Exports `WEB_SEARCH_TAIL`, `WEB_SEARCH_LINK`, `WEB_SEARCH_SUMMARY`. See change: render-unclaimed-custom-entries.

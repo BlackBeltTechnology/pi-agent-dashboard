@@ -501,6 +501,40 @@ List pinned directories.
 
 ---
 
+## Access Provisioning
+
+An agent proposes the folders a project needs; the dashboard operator approves them line by line. A request is a proposal: it writes no grant and no configuration. Requests are in memory only (a server restart forgets them) and expire 10 minutes after creation. Use the `project-access` skill rather than calling these by hand. Replies use the usual envelope: `{ "success": true, "data": … }` or `{ "success": false, "error": "<code>", … }`.
+
+### `POST /api/access/provision`
+Propose a request. Delivered as a dialog only to operator browsers (operate tier holding a prompt capability).
+
+**Body:**
+```json
+{ "projectRoot": "/abs/project", "lines": [{ "path": "../shared-lib", "why": "sibling package" }], "remote": ["lan"] }
+```
+- `projectRoot`: absolute path to a directory holding `.git` or `.pi`; its real path is the per-project key
+- `lines`: 0–32 entries; `path` absolute, `~/`-rooted or relative to the root; `why` optional (cut at 200 characters, control characters removed)
+- `remote` (optional): `lan`, `internet`, `device` — hand-off to the Remote access dialog, nothing is configured
+
+**Response `200`:** `{ "success": true, "data": { "requestId", "status": "pending", "projectRoot", "lines": [{ "lineId", "path", "why", "classification", "projectRoot"? }], "remote": [{ "goal" }], "createdAt", "expiresAt" } }`. `classification`: `invalid`, `missing`, `forbidden`, `sensitive`, `in-root`, `covered`, `grantable`.
+
+**Refusals** (`error`, plus `reason` / `requestId` / `retryAfterMs` where noted; `retry-after` header on 429):
+- `400`: `empty`, `too-many-lines`, `invalid-request`, `invalid-root` (`reason`: `not-absolute`, `missing`, `not-directory`, `forbidden`, `no-marker`)
+- `409`: `pending-exists` (`requestId` of the open one), `no-operator`, `prompting-disabled`, `report-mode`
+- `429`: `capacity`, `rate-limited`, `cooldown` (each with `retryAfterMs`)
+- `503`: `disabled` (grant prompt kill switch)
+
+### `GET /api/access/provision`
+Pending requests: `{ "success": true, "data": { "requests": [ …request views ] } }`. Observe tier.
+
+### `GET /api/access/provision/:id`
+One request: `status` (`pending`, `settled`, `dismissed`, `expired`) and, once ended, each line's `outcome` (`granted`, `rejected`, `changed`, `refused`, `failed`) with `reason`, and each remote goal's `outcome` (`handed-off`). `404 not-found` for an unknown id or after a server restart.
+
+### `POST /api/access/provision/:id/settle` · `POST /api/access/provision/dismiss-all`
+Operator-only: `403 no-capability` without a live prompt capability. Used by the dashboard UI, never by an agent or skill. `settle` is `409 already-settled` once the request ended.
+
+---
+
 ## Open Questions
 
 Every open `ask_user` question of every session the caller may see, including hidden, headless, automation and goal-driver sessions. Question ids are opaque URL-safe strings, stable while the question is pending (also across a bridge reconnect). A question the caller may not see is `404`, the same as an unknown id. Reads need the `observe` tier, answers the `control` tier. These routes are not exposed as MCP tools.

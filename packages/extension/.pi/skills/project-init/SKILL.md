@@ -220,6 +220,12 @@ Step 4b) — NOT a file write:
   (the install runs `pi install npm:…`); the scaffolded repo itself gains no
   dependency.
 
+Then name, last, the separate opt-in question of Step 4c — NOT a file write:
+
+- will ask whether to set up this project's folder access: submits a request the
+  dashboard operator approves line by line (via the `project-access` skill). Writes
+  nothing itself; declining, a refusal or no answer never fails the init.
+
 **Idempotency:** before writing, check whether `./AGENTS.md` or
 `./.pi/settings.json` already exist. If they do, ask before overwriting — never
 clobber silently.
@@ -280,6 +286,34 @@ The footnote is **detection-conditional**: written only on the absent/declined
 branch, never on the present/installed path (so a successfully-wired project
 never carries a false "not detected" line). The install is always user-global
 and never forced.
+
+## Step 4c — Offer folder access (separate opt-in; never fails the init)
+
+Runs after the scaffold is written (Steps 4/4b), for every profile. It asks the
+operator's dashboard to pre-approve folders outside the project, through the
+`project-access` skill's `provision` mode. Nothing here grants access: the
+operator approves each line in the dashboard.
+
+1. `ask_user` (confirm), as a question separate from the Step 3c confirmation:
+
+   > Set up this project's folder access now? This asks the dashboard operator to
+   > approve folders outside the project, line by line. Nothing is granted until
+   > they approve.
+
+   **Declined** → submit nothing; go to Step 5. The user can run `project-access`
+   later.
+2. **Accepted** → find the lines:
+   - `./.pi/access.json` exists → read it per the `project-access` profile rules
+     (version 1 only; an unknown `version` is refused — say so and treat it as no
+     profile). Offer its lines, showing each path and reason.
+   - otherwise → ask the user (`ask_user` input) to list folders to approve, or
+     none. No folders and no remote goals → skip.
+3. Follow `project-access` `provision` (its confirm, request, polling and refusal
+   table) and report each line's outcome.
+4. **Never fail the init.** A refused request, an `expired`/`dismissed` one or an
+   unreachable dashboard is reported and the init continues. On `no-operator`,
+   tell the user to open the dashboard and retry later with the `project-access`
+   skill. Do not retry on your own, and never call the settle routes.
 
 ## Step 5 — DOX pointer seed (only when `DOX_ENABLED` is true)
 
@@ -392,7 +426,7 @@ command, no clobber. A re-run after a failed repair lands in `repair` again.
 
 ## Step 7 — Done
 
-Confirm what was written. Writing `worktreeInit` flips the directory to
+Confirm what was written, and the outcome of any Step 4c access request. Writing `worktreeInit` flips the directory to
 "configured": the next dashboard **Initialize** click runs the hook (change-A)
 instead of re-launching this skill. Tell the user they can click Initialize
 again to run `npm ci` (or the profile's hook).

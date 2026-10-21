@@ -69,6 +69,7 @@ const WS_ROADS: Readonly<Record<string, readonly [HostAction, string]>> = {
   request_commands: ["packages.read", "packages"],
   // access
   grant_response: ["access.write", "access"],
+  provision_response: ["access.write", "access"],
   // system
   recovery_dismiss: ["system.write", "system"],
   // plugins (core management)

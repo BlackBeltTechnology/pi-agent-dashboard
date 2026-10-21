@@ -136,6 +136,11 @@ export function frameClassOf(
     case "grant_request":
     case "grant_dismiss":
       return { cls: "state", key: `grant:${msg.promptId}` };
+    // Same shape for a provisioning request: its dismissal supersedes a still-queued
+    // request, and neither is shed. See change: add-access-provisioning.
+    case "provision_request":
+    case "provision_dismiss":
+      return { cls: "state", key: `provision:${msg.requestId}` };
     // The reply to a rejected archive click: coalesces per session (latest
     // wins) and is never shed — a shed one is a click with no feedback.
     // See change: fix-orphaned-ended-session-archive.
@@ -162,7 +167,7 @@ export function frameClassOf(
 
 import { randomUUID } from "node:crypto";
 import type { UpgradeHeaders } from "../access/capability-issuance.js";
-import { issuePromptChannel, releasePromptChannel } from "../access/prompt-channel.js";
+import { hasPromptChannel, issuePromptChannel, releasePromptChannel } from "../access/prompt-channel.js";
 import { guardAcpBrowserMessage } from "../browser-handlers/acp-guard.js";
 import { handleAddFolderToWorkspace, handleCreateWorkspace, handleDeleteWorkspace, handleExtensionUiResponse, handleFavoriteModel, handleMoveFolderToWorkspace, handleOpenSpecBulkArchive, handleOpenSpecGet, handleOpenSpecRefresh, handlePiGatewayForward, handlePinDirectory, handleRemoveFolderFromWorkspace, handleRenameWorkspace, handleReorderPinnedDirs, handleReorderSessions, handleReorderWorkspaceFolders, handleReorderWorkspaces, handleResetFolderCardSections, handleSetCardSectionVisibility, handleSetDefaultGroupBy, handleSetFocusMode, handleSetFocusProfile, handleSetFolderCollapsed, handleSetFolderExpanded, handleSetFolderGroupBy, handleSetLaneCollapsed, handleSetWorkspaceCollapsed, handleUnfavoriteModel, handleUnpinDirectory } from "../browser-handlers/directory-handler.js";
 import type { BrowserHandlerContext } from "../browser-handlers/handler-context.js";
@@ -411,6 +416,19 @@ export interface BrowserGateway {
    * See change: add-access-grant-dialog (tasks 2b.1, 3.2).
    */
   setPromptCapabilityPolicy(policy: ((headers: UpgradeHeaders) => boolean) | null): void;
+  /**
+   * Whether THIS socket was issued a prompt capability that is still live (design
+   * D3 of add-access-provisioning). Per socket: another socket's capability never
+   * counts. Backed by a `WeakMap<WebSocket, grantSocketId>` filled at issuance and
+   * cleared on release, checked against the live table in `prompt-channel.ts`.
+   */
+  holdsLiveCapability(ws: WebSocket): boolean;
+  /** An operator socket: holds a live capability AND may send operate-tier messages. */
+  isOperatorSocket(ws: WebSocket): boolean;
+  /** Connected operator sockets; the `no-operator` count of the provisioning ladder. */
+  operatorSocketCount(): number;
+  /** Send to every operator socket (never `broadcastToAll`); returns how many were sent to. */
+  sendToOperators(msg: ServerToBrowserMessage): number;
   /**
    * Requester-scoped delivery of a prompt-resync reply (fix B, server half).
    * `msg` is an ordinary bridge `prompt_request` that may carry the echoed
@@ -1772,6 +1790,18 @@ export function createBrowserGateway(
   // See change: add-access-grant-dialog.
   let promptCapabilityPolicy: ((headers: UpgradeHeaders) => boolean) | null = null;
 
+  // socket → the id its prompt capability was issued under (D3 of add-access-provisioning).
+  // Filled at issuance, cleared on release; liveness is the table in `prompt-channel.ts`.
+  const capabilitySocketIds = new WeakMap<WebSocket, string>();
+  const holdsLiveCapability = (ws: WebSocket): boolean => {
+    const id = capabilitySocketIds.get(ws);
+    return id !== undefined && hasPromptChannel(id);
+  };
+  // Operate tier = what the WS tier gate would admit for an operate-level message
+  // (sockets with no `sessionTier` are not tier-gated, like the REST gate's exemptions).
+  const isOperatorSocket = (ws: WebSocket): boolean =>
+    holdsLiveCapability(ws) && decideWsTier(ws as TieredSocket, "provision_response").kind === "allow";
+
   wss.on("connection", (ws, req) => {
     // Per-connection identity for the prompt capability; released on close.
     const grantSocketId = randomUUID();
@@ -1920,6 +1950,7 @@ export function createBrowserGateway(
     }
     if (issueCapability) {
       sendTo(ws, { type: "grant_channel", capability: issuePromptChannel(grantSocketId) });
+      capabilitySocketIds.set(ws, grantSocketId);
     }
 
     // Current open questions for this recipient (full replacement; sent even when
@@ -2530,6 +2561,7 @@ export function createBrowserGateway(
       );
       // The capability dies with its connection (spec: access-grant-eligibility).
       releasePromptChannel(grantSocketId);
+      capabilitySocketIds.delete(ws);
       disposeLifetime?.();
       if (wss.clients.size === 0) stopKeepalive();
       subscriptions.delete(ws);
@@ -2575,6 +2607,23 @@ export function createBrowserGateway(
 
     broadcast(msg: ServerToBrowserMessage) {
       broadcast(msg);
+    },
+
+    holdsLiveCapability,
+    isOperatorSocket,
+    operatorSocketCount() {
+      let n = 0;
+      for (const ws of subscriptions.keys()) if (isOperatorSocket(ws)) n += 1;
+      return n;
+    },
+    sendToOperators(msg: ServerToBrowserMessage) {
+      let n = 0;
+      for (const ws of subscriptions.keys()) {
+        if (!isOperatorSocket(ws)) continue;
+        sendTo(ws, msg);
+        n += 1;
+      }
+      return n;
     },
 
     registerHandler(type, handler, ownerPluginId) {

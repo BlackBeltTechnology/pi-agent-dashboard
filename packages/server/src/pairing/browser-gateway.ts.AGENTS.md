@@ -38,3 +38,7 @@ Optional trailing ctor param `questionStore?: QuestionStore` (`questions/`). `tr
 `frameClassOf`: `archive_session_error` → `{cls:"state", key:"archive_session_error:<sessionId>"}` (never shed; latest per session wins). See change: fix-orphaned-ended-session-archive.
 
 - Handler ctx carries `locallyTrusted` (`isSocketLocallyTrusted(ws)`, stamped at upgrade) + `browseRoots` (new last positional param `browseRoots`). See change: harden-server-capability-bounds.
+
+## add-access-provisioning
+
+Operator-socket set (design D2/D3). `holdsLiveCapability(ws)`: `capabilitySocketIds` `WeakMap<WebSocket, grantSocketId>` filled where `grant_channel` is issued, cleared on close, checked against `hasPromptChannel`; per socket, another socket's capability never counts. `isOperatorSocket(ws)` = live capability AND `decideWsTier(ws, "provision_response") === allow` (no `sessionTier` = not tier-gated). `operatorSocketCount()` = the `no-operator` ladder count; `sendToOperators(msg)` sends to that set only (never `broadcastToAll`), returns the count. `frameClassOf`: `provision_request` / `provision_dismiss` are `state` frames, key `provision:<requestId>` (dismiss supersedes a queued request; never shed). `provision_response` reaches the registry via `registerHandler` (server.ts). Tests: `__tests__/browser-gateway-grant-channel.test.ts`. See change: add-access-provisioning.

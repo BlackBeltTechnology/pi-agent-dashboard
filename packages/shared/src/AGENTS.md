@@ -13,6 +13,7 @@ Files in this directory. One row per source file.
 | `__tests__/config-pi-trust-mirror.test.ts` | #E21: `piTrustMirror` loader defaults + partial merge. See change: mirror-dashboard-trust-to-pi. |
 | `__tests__/nightly-tests-workflow-contract.test.ts` | Repo-lint for `nightly-tests.yml` (E31). → see `__tests__/nightly-tests-workflow-contract.test.ts.AGENTS.md` |
 | `__tests__/pi-trust-mirror.test.ts` | #E1 #E2 #E6 #E7 #E8 #E9: piTrustKey golden vs installed pi store, deny rules, source/choice filter, decidePiTrust table. See change: mirror-dashboard-trust-to-pi. |
+| `__tests__/project-root.test.ts` | `hasProjectRootMarker`: `.git` dir/file + `.pi` true; plain/missing false. See change: add-access-provisioning. |
 | `__tests__/tool-path-resolve.test.ts` | #E24: containment (sibling prefix, equality, probe-free exact hit, fold only when probe says, win32), D6 dangling-link following on a real temp tree (`sub/../x` from real target), loop throws, legacy env literal unchanged. See change: add-path-containment-guard-extension. |
 | `__tests__/ship-it-codeql-wiring.test.ts` | Static wiring guard (#E30): `ship-it` step 4.4 lists the CodeQL baseline-diff check; step 4.4b sits between… → see `__tests__/ship-it-codeql-wiring.test.ts.AGENTS.md` |
 | `__tests__/test-collection-completeness.test.ts` | Every test-bearing `packages/*` collected by root projects or excluded with a reason (E28). → see `__tests__/test-collection-completeness.test.ts.AGENTS.md` |
@@ -100,6 +101,7 @@ Files in this directory. One row per source file.
 | `pi-trust-mirror.ts` | Dashboard-trust → pi mirror shared core. `piTrustKey(path,{home})` = pi's trust-store key (realpath∘resolve,… → see `pi-trust-mirror.ts.AGENTS.md` |
 | `plugin-bridge-register.ts` | Dual-write contract. `registerPluginBridge` writes BOTH `dashboardPluginBridges["dashboard-<id>"]` AND… → see `plugin-bridge-register.ts.AGENTS.md` |
 | `project-name.ts` | Portable project-name rules + `isPortableProjectName` guard. → see `project-name.ts.AGENTS.md` |
+| `project-root.ts` | `hasProjectRootMarker(dir)`: the ONE `.git`/`.pi` project-root test (`.git` dir or worktree file, or `.pi`); never throws. Used by `pi-trust-mirror-snapshot.ts` + server `pi-trust-mirror-service.ts`. Node-only. See change: add-access-provisioning. |
 | `prompt-answer.ts` | `encodePromptAnswer` (moved from client) + `validateQuestionAnswer`. → see `prompt-answer.ts.AGENTS.md` |
 | `protocol.ts` | Extension↔Server WebSocket protocol. `ExtensionToServerMessage` + `ServerToExtensionMessage` unions. → see `protocol.ts.AGENTS.md` `EventForwardMessage.replay?: true`; `SessionRegisterMessage.leafEntryId?` + `liveTailOpen?`. See change: fix-large-session-resume-replay. |
 | `question-types.ts` | `QuestionRow`/`QuestionDetail`/`BriefStatus`/`QuestionAnswerRequest`/`QuestionsUpdateMessage`. → see `question-types.ts.AGENTS.md` |
@@ -141,7 +143,7 @@ Files in this directory. One row per source file.
 | `vault-origin.ts` | Pure `normalizeOrigin(raw)`: SSH / SCP / HTTPS spellings of one repository → `host[:port]/path`; no node… → see `vault-origin.ts.AGENTS.md` |
 | `vault-project-key.ts` | `resolveSessionProject`: the vault project key; re-exports `normalizeOrigin` (moved to `vault-origin.ts`). → see `vault-project-key.ts.AGENTS.md` |
 | `worktree-init-hook.ts` | Pure worktree-init hook shape + hash moved from server: `normalizeHook`, `canonicalize`, `hookDefHash`,… → see `worktree-init-hook.ts.AGENTS.md` |
-| `ws-message-tiers.ts` | `WS_MESSAGE_TIERS`, `wsMessageTier` (unlisted ⇒ operate), `LIVE_PREVIEW_TIER`, `TERMINAL_TIER`. WS half of the tier model. See change: add-passkey-user-auth. |
+| `ws-message-tiers.ts` | `WS_MESSAGE_TIERS`, `wsMessageTier` (unlisted ⇒ operate), `LIVE_PREVIEW_TIER`, `TERMINAL_TIER`. WS half of the tier model. See change: add-passkey-user-auth. `provision_response: "operate"`. See change: add-access-provisioning. |
 | `zrok-env.ts` | Pure `readZrokEnvironment({homedir,fs})` returning `{found, kind: v2\|v1\|null, path, env, reason}`. → see `zrok-env.ts.AGENTS.md` |
 | `route-tiers.ts` | `ROUTE_TIERS`, `routeTier(method, pattern)`, `hasRouteTier`… → see `route-tiers.ts.AGENTS.md` |
 | `tiers.ts` | `TIERS`, `Tier`, `isTier`, `rank`, `minTier`, `defaultTierForSource`. → see `tiers.ts.AGENTS.md` |

@@ -116,6 +116,7 @@ export const WS_MESSAGE_TIERS: Readonly<Record<string, Tier>> = {
   open_inline_terminal: "operate",
   plugin_action: "operate",
   plugin_config_write: "operate",
+  provision_response: "operate",
   rename_terminal: "operate",
   role_preset_delete: "operate",
   role_preset_load: "operate",

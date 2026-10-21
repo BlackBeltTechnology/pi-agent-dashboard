@@ -55,3 +55,5 @@ Adds `GET /api/file/digest` (observe). See change: gate-changed-on-disk-by-conte
 `GET /api/plugins/craft-web/status` → `observe`; `POST /api/plugins/craft-web/prepare/:app` + `POST /api/plugins/craft-web/csp-report` → `control`. See change: edit-office-in-pane-with-craft-web.
 
 `POST /api/plugins/craft-web/telemetry` control (open outcome / validator reject counters, log only). See change: extend-craft-web-to-all-apps.
+
+`GET /api/access/provision`, `GET /api/access/provision/:id` → `observe`; `POST /api/access/provision`, `POST /api/access/provision/:id/settle`, `POST /api/access/provision/dismiss-all` → `operate` (settle + dismiss-all also need a live prompt capability, checked in the route). See change: add-access-provisioning.
