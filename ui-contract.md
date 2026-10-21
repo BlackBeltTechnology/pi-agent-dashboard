@@ -113,6 +113,15 @@ keep the meanings apart. See change: align-ui-with-theme-tokens.
   `--text-secondary`; timestamps and counts are information →
   `--text-secondary`.
 
+**Card pill roles** (folder-card and session-card pills). See change: fix-folder-card-pill-contrast.
+
+- **Banner action:** the hook-rung action inherits the region's `--severity-<sev>-fg` (`border-current`, `currentColor` hover fill) — no palette colour of its own; running / done / failed chip content inherits too, only the expanded log `<pre>` keeps `--text-secondary` on `--bg-code`.
+- **Slot pills:** `SlotAccent` resolves onto host hues — blue/indigo → blue, cyan/teal → green, purple, red; glyph chip = `text-[var(--accent-<h>-text)] bg-[var(--tint-<h>-bg)]`. Markers use `--accent-orange-text` / `--accent-red-text`.
+- **Pressed chips** (sidebar toggles, include-archive, OpenSpec group pills): selected-chip recipe — `--text-primary` on `--accent-soft`, `--accent` border; unpressed `--text-secondary`.
+- **Phase / flow / artifact letters:** fold onto `--accent-<hue>-text` (blue = design, purple = spec, yellow = apply, green = done, red = error); counts and meta `--text-secondary`.
+- **Size floor:** controls 12 px, other text 11 px; never `--text-muted` as readable text.
+- **Guard:** `scripts/theme-token-guard.mjs` arm `rawPalette` ratchets Tailwind palette classes (`text-amber-400`, `border-l-blue-500/40`) per `<file>::<hue>`; new ones fail, use the families above.
+
 **Tinted action recipe:** `border tint-action-X` (X = green | orange | blue | purple | red).
 `@utility tint-action-X` in `packages/client/src/index.css` = `--tint-X-fg` text,
 `--tint-X-border` border, `--tint-X-bg` bg; hover (on `(hover: hover)`) mixes the bg

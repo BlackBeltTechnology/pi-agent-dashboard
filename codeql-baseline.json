@@ -355,14 +355,14 @@
       "file": "packages/client/src/lib/plugins/runtime-plugin-loader.ts",
       "lineHash": "8bf6f4883d8afee7:1",
       "count": 1,
-      "reason": "false-positive: href is a same-origin, server-served plugin stylesheet URL resolved from the plugin manifest, not user-controlled input"
+      "reason": "accepted-risk: pre-existing on develop (runtime-plugin-loader.ts), outside fix-folder-card-pill-contrast"
     },
     {
       "ruleId": "js/xss",
       "file": "packages/client/src/lib/plugins/runtime-plugin-loader.ts",
       "lineHash": "8bf6f4883d8afee7:1",
       "count": 1,
-      "reason": "false-positive: href is a same-origin, server-served plugin stylesheet URL resolved from the plugin manifest, not user-controlled input"
+      "reason": "accepted-risk: pre-existing on develop (runtime-plugin-loader.ts), outside fix-folder-card-pill-contrast"
     },
     {
       "ruleId": "js/xss",

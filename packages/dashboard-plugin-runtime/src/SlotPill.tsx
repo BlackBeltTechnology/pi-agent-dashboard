@@ -65,15 +65,38 @@ const LEGEND_BG: Record<SlotSurface, string> = {
 export const SLOT_PILL_LEGEND =
   "absolute -top-2 left-1/2 -translate-x-1/2 max-w-[calc(100%-12px)] truncate px-1.5 py-px rounded-full border border-[var(--border-subtle)] text-[11px] font-semibold tracking-wide uppercase text-[var(--text-secondary)] leading-none";
 
-// Static accent map — Tailwind cannot JIT-scan a dynamic `text-${accent}-400`,
+// Static accent map — Tailwind cannot JIT-scan a dynamic `text-[var(--accent-${h}-text)]`,
 // so each accent resolves through a literal class string keyed off the union.
+// Every key maps onto one of four host hues (blue/green/purple/red): the glyph
+// chip is the slot's identity tint, painted with the `-text` ramp on `--tint-<h>-bg`
+// (AA-safe in every palette). See change: fix-folder-card-pill-contrast (D3).
+const BLUE = {
+  icon: "text-[var(--accent-blue-text)]",
+  glyphBg: "bg-[var(--tint-blue-bg)]",
+  hoverBorder: "hover:border-[var(--tint-blue-border)]",
+};
+const GREEN = {
+  icon: "text-[var(--accent-green-text)]",
+  glyphBg: "bg-[var(--tint-green-bg)]",
+  hoverBorder: "hover:border-[var(--tint-green-border)]",
+};
+const PURPLE = {
+  icon: "text-[var(--accent-purple-text)]",
+  glyphBg: "bg-[var(--tint-purple-bg)]",
+  hoverBorder: "hover:border-[var(--tint-purple-border)]",
+};
+const RED = {
+  icon: "text-[var(--accent-red-text)]",
+  glyphBg: "bg-[var(--tint-red-bg)]",
+  hoverBorder: "hover:border-[var(--tint-red-border)]",
+};
 const ACCENT: Record<SlotAccent, { icon: string; glyphBg: string; hoverBorder: string }> = {
-  blue: { icon: "text-blue-400", glyphBg: "bg-blue-500/10", hoverBorder: "hover:border-blue-500/45" },
-  indigo: { icon: "text-indigo-400", glyphBg: "bg-indigo-500/10", hoverBorder: "hover:border-indigo-500/45" },
-  cyan: { icon: "text-cyan-400", glyphBg: "bg-cyan-500/10", hoverBorder: "hover:border-cyan-500/45" },
-  teal: { icon: "text-teal-400", glyphBg: "bg-teal-500/10", hoverBorder: "hover:border-teal-500/45" },
-  purple: { icon: "text-purple-400", glyphBg: "bg-purple-500/10", hoverBorder: "hover:border-purple-500/45" },
-  red: { icon: "text-red-400", glyphBg: "bg-red-500/10", hoverBorder: "hover:border-red-500/45" },
+  blue: BLUE,
+  indigo: BLUE,
+  cyan: GREEN,
+  teal: GREEN,
+  purple: PURPLE,
+  red: RED,
 };
 
 export interface SlotPillProps {

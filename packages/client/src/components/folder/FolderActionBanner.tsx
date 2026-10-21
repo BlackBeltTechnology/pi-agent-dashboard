@@ -28,10 +28,17 @@
  *     false "not a pi project".
  *
  * Colours come exclusively from the `--severity-{info,warning,error}-*` triples;
- * no new token is introduced.
+ * no new token is introduced. The retrust / init-needed rungs render a rung glyph
+ * + message before the hosted action, which inherits the region colour.
+ * See change: fix-folder-card-pill-contrast.
  */
 
-import { mdiAlertOutline, mdiTextBoxCheckOutline } from "@mdi/js";
+import {
+  mdiAlertCircleOutline,
+  mdiScriptTextPlayOutline,
+  mdiShieldAlertOutline,
+  mdiTextBoxCheckOutline,
+} from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { useEffect, useState } from "react";
 import type { WorktreeInitStatus } from "../../lib/git/git-api.js";
@@ -96,6 +103,15 @@ interface Props {
   compact?: boolean;
 }
 
+/** Rung glyph — shared by the compact chip and the retrust / init-needed rows. */
+const RUNG_GLYPH: Record<BannerRung, string> = {
+  failed: mdiAlertCircleOutline,
+  running: mdiScriptTextPlayOutline,
+  retrust: mdiShieldAlertOutline,
+  "init-needed": mdiScriptTextPlayOutline,
+  setup: mdiTextBoxCheckOutline,
+};
+
 const CHIP_LABEL: Record<BannerRung, () => string> = {
   failed: () => i18nT("folders.chipInitFailed", undefined, "Init failed"),
   running: () => i18nT("folders.chipInitRunning", undefined, "Initializing…"),
@@ -130,9 +146,9 @@ export function FolderActionBanner({
         type="button"
         data-testid={`folder-banner-chip-${cwd}`}
         onClick={(e) => { e.stopPropagation(); setRevealed(true); }}
-        className={`focus-ring mt-1 inline-flex min-h-[44px] md:min-h-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${SEVERITY_CLASS[RUNG_SEVERITY[rung]]}`}
+        className={`focus-ring mt-1 inline-flex min-h-[44px] md:min-h-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[12px] font-medium ${SEVERITY_CLASS[RUNG_SEVERITY[rung]]}`}
       >
-        <Icon path={mdiAlertOutline} size={0.5} className="shrink-0" />
+        <Icon path={RUNG_GLYPH[rung]} size={0.5} className="shrink-0" />
         {CHIP_LABEL[rung]()}
       </button>
     );
@@ -153,7 +169,7 @@ export function FolderActionBanner({
     >
       {rung === "setup" ? (
         <>
-          <Icon path={mdiTextBoxCheckOutline} size={0.6} className="shrink-0" />
+          <Icon path={RUNG_GLYPH.setup} size={0.6} className="shrink-0" />
           <span className="flex-1 min-w-0 text-[12px] font-medium">
             {i18nT("folders.notAPiProjectYet", undefined, "Not a pi project yet")}
           </span>
@@ -162,7 +178,7 @@ export function FolderActionBanner({
             onClick={(e) => { e.stopPropagation(); onInitializeProject?.(cwd); }}
             data-testid={`folder-banner-setup-action-${cwd}`}
             disabled={!onInitializeProject}
-            className="focus-ring shrink-0 min-h-[44px] md:min-h-0 rounded border border-current px-2 py-1 text-[11px] font-semibold hover:opacity-80 disabled:opacity-50"
+            className="focus-ring shrink-0 min-h-[44px] md:min-h-0 rounded border border-current px-2 py-1 text-[12px] font-semibold hover:opacity-80 disabled:opacity-50"
           >
             {i18nT("folders.setUpArrow", undefined, "Set up →")}
           </button>
@@ -170,16 +186,31 @@ export function FolderActionBanner({
       ) : (
         // Hook rungs (running / failed / retrust / init-needed): WorktreeInitButton
         // renders the chip while a run is live, otherwise the Initialize / Review
-        // control, and owns the trust-confirm dialog. A polite live region carries
-        // the failure summary; it re-announces only when the message changes.
-        <div className="flex-1 min-w-0">
-          {rung === "failed" && (
-            <span className="sr-only" aria-live="polite">
-              {run?.message ?? i18nT("worktree.initFailedShort", undefined, "init failed")}
-            </span>
+        // control, and owns the trust-confirm dialog. retrust / init-needed lead
+        // with a glyph + message that explain the block; the hosted action stays
+        // colour-free and inherits this region's `--severity-*-fg`. A polite live
+        // region carries the failure summary; it re-announces only when the
+        // message changes. See change: fix-folder-card-pill-contrast.
+        <>
+          {(rung === "retrust" || rung === "init-needed") && (
+            <>
+              <Icon path={RUNG_GLYPH[rung]} size={0.6} className="shrink-0" />
+              <span className="flex-1 min-w-0 text-[12px] font-medium">
+                {rung === "retrust"
+                  ? i18nT("folders.bannerRetrust", undefined, "Init hook needs your trust before it can run")
+                  : i18nT("folders.bannerInitNeeded", undefined, "Init hook hasn't run in this checkout")}
+              </span>
+            </>
           )}
-          <WorktreeInitButton cwd={cwd} status={status} onStatusChange={onStatusChange} />
-        </div>
+          <div className={rung === "retrust" || rung === "init-needed" ? "shrink-0" : "flex-1 min-w-0"}>
+            {rung === "failed" && (
+              <span className="sr-only" aria-live="polite">
+                {run?.message ?? i18nT("worktree.initFailedShort", undefined, "init failed")}
+              </span>
+            )}
+            <WorktreeInitButton cwd={cwd} status={status} onStatusChange={onStatusChange} />
+          </div>
+        </>
       )}
     </div>
   );

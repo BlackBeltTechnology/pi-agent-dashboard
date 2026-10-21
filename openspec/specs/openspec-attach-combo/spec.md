@@ -43,11 +43,11 @@ On the desktop session card, attaching is offered as the **Attach change…** it
 - **AND** selecting `"add-auth"` there SHALL send `{ type: "attach_proposal", sessionId: "s1", changeName: "add-auth" }`
 
 ### Requirement: PDST rendered as single button navigating to proposal
-Wherever the session OpenSpec block shows the attached change's artifact letters, it SHALL render them as a single combined button (`ArtifactLettersButton`). The session header SHALL NOT render this button. Each letter keeps its status color. Clicking the button navigates to the proposal artifact. The session card SHALL NOT render this button; there the lifecycle bar carries per-artifact state and navigation.
+Wherever the session OpenSpec block shows the attached change's artifact letters, it SHALL render them as a single combined button (`ArtifactLettersButton`). The session header SHALL NOT render this button. Each letter keeps its status color: done → `--accent-green-text`, ready → `--accent-yellow-text`, any other status → `--text-secondary`. Clicking the button navigates to the proposal artifact. The session card SHALL NOT render this button; there the lifecycle bar carries per-artifact state and navigation.
 
 #### Scenario: Single PDST button in attached session
 - **WHEN** session `"s1"` has `attachedProposal = "add-auth"` with artifacts `[proposal: done, design: ready, specs: blocked, tasks: blocked]`
-- **THEN** the session OpenSpec block SHALL show a single clickable button containing `P D S T` with green, yellow, muted, muted colors respectively
+- **THEN** the session OpenSpec block SHALL show a single clickable button containing `P D S T` painted `--accent-green-text`, `--accent-yellow-text`, `--text-secondary`, `--text-secondary` respectively
 - **AND** the session card SHALL NOT show that button
 - **AND** the session header SHALL NOT show that button
 

@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Worktree-init chip overflow: as-built vs proposed</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+/* Board chrome (mockup-only) */
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg-primary); color: var(--text-primary);
+  font: 13px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+header.bar { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center;
+  padding: 10px 20px; background: var(--bg-secondary); border-bottom: 1px solid var(--border-primary); }
+header.bar h1 { font-size: 14px; margin: 0; font-weight: 600; }
+.ctl { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); }
+.seg { display: inline-flex; border: 1px solid var(--border-secondary); border-radius: 8px; overflow: hidden; }
+.seg button { font: inherit; font-size: 12px; padding: 4px 10px; border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--bg-surface); color: var(--text-primary); }
+input[type=range] { width: 160px; }
+main { padding: 16px 20px 60px; }
+.intro { max-width: 980px; color: var(--text-secondary); font-size: 12.5px; }
+.intro code, td code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; color: var(--text-primary); }
+h2 { font-size: 13px; margin: 26px 0 8px; color: var(--text-primary); }
+.grid { display: grid; grid-template-columns: repeat(3, max-content); gap: 18px 48px; align-items: start; overflow-x: auto; padding-bottom: 6px; }
+.col h3 { margin: 0 0 6px; font-size: 12px; font-weight: 600; color: var(--text-secondary); display: flex; gap: 8px; align-items: center; }
+.tag { font-size: 10.5px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--border-secondary); color: var(--text-tertiary); }
+.col.built h3 .tag { color: var(--severity-error-fg); border-color: var(--severity-error-border); }
+.col.prop h3 .tag { color: var(--severity-info-fg); border-color: var(--severity-info-border); }
+/* the gutter makes the overflow visible: card sits inside, spill paints over it */
+.gutter { padding: 10px 28px 10px 10px; background: repeating-linear-gradient(45deg, transparent 0 6px, var(--border-subtle) 6px 7px); border-radius: 12px; }
+.verdict { margin-top: 6px; font-size: 11.5px; font-family: ui-monospace, Menlo, monospace; }
+.verdict.ok { color: var(--severity-info-fg); }
+.verdict.bad { color: var(--severity-error-fg); font-weight: 600; }
+table.diff { border-collapse: collapse; font-size: 12px; margin-top: 8px; max-width: 1100px; }
+table.diff td, table.diff th { border: 1px solid var(--border-primary); padding: 5px 8px; vertical-align: top; text-align: left; }
+table.diff th { color: var(--text-secondary); font-weight: 600; background: var(--bg-secondary); }
+
+/* ── Card replica (SessionList folder group, trimmed) ─────────────────── */
+.card { width: var(--card-w, 340px); border-radius: 0.75rem; border: 1px solid var(--border-secondary);
+  background: var(--bg-secondary); padding: 10px 12px 12px; }
+.card .name { display: flex; gap: 6px; align-items: baseline; min-width: 0; font-size: 13px; color: var(--text-tertiary); }
+.card .name b { color: var(--text-primary); font-size: 15px; white-space: nowrap; }
+.card .name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.card .git { margin-top: 4px; font-size: 12px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* FolderActionBanner: `mt-1 flex w-full items-center gap-2 rounded-lg border px-2.5 py-1.5` + severity-info */
+.banner { margin-top: 4px; display: flex; width: 100%; align-items: center; gap: 8px; border-radius: 0.5rem; border: 1px solid;
+  padding: 6px 10px; background: var(--severity-info-bg); color: var(--severity-info-fg); border-color: var(--severity-info-border); }
+.banner.err { background: var(--severity-error-bg); color: var(--severity-error-fg); border-color: var(--severity-error-border); }
+.banner > .slot { flex: 1 1 0%; min-width: 0; } /* `flex-1 min-w-0` */
+
+/* ── WorktreeInitChip replica — Tailwind classes mirrored 1:1 ─────────── */
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+.spinner { display: inline-block; width: 12px; height: 12px; border-radius: 999px; border: 2px solid rgb(251 191 36 / .25); border-top-color: #fbbf24; animation: spin 1s linear infinite; flex: none; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes wtinit-slide { 0% { transform: translateX(-120%); } 100% { transform: translateX(320%); } }
+@media (prefers-reduced-motion: reduce) { .spinner, .bar i { animation: none; } }
+.pill { display: inline-flex; align-items: center; gap: 8px; font-size: 11.5px; border-radius: 0.5rem; padding: 6px 10px; border: 1px solid; }
+.pill.amber { border-color: rgb(245 158 11 / .35); background: rgb(245 158 11 / .06); color: #fbbf24; }
+.pill.red { gap: 6px; border-color: rgb(239 68 68 / .4); background: rgb(239 68 68 / .07); color: #f87171; }
+.pill.green { gap: 4px; border-color: rgb(34 197 94 / .35); background: rgb(34 197 94 / .06); color: #4ade80; } /* green-500/400 */
+.pill .sem { font-weight: 600; }
+.pill .meta { color: var(--text-muted); }
+.bar { height: 3px; border-radius: 4px; background: rgb(245 158 11 / .15); overflow: hidden; margin-top: 6px; }
+.bar i { display: block; height: 100%; width: 40%; border-radius: 4px; background: linear-gradient(to right, transparent, #fbbf24, transparent); animation: wtinit-slide 1.4s ease-in-out infinite; }
+.ghost { font-size: 11px; color: var(--text-muted); margin-top: 6px; padding-left: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+details.log { margin-top: 6px; }
+details.log summary { list-style: none; cursor: pointer; font-size: 11px; color: var(--text-tertiary); display: inline-flex; align-items: center; gap: 4px; user-select: none; }
+details.log summary::-webkit-details-marker { display: none; }
+details.log summary::before { content: "›"; display: inline-block; transition: transform .15s; }
+details.log[open] summary::before { transform: rotate(90deg); }
+details.log pre { margin: 6px 0 0; background: var(--bg-code, var(--bg-tertiary)); border: 1px solid var(--border-subtle); border-radius: 0.5rem;
+  padding: 8px 10px; max-height: 200px; overflow: auto; font-size: 10.5px; line-height: 1.625; color: var(--text-tertiary); white-space: pre-wrap; }
+.retry { margin-left: 8px; font: inherit; font-size: 11px; padding: 2px 8px; border-radius: 0.375rem; border: 1px solid rgb(245 158 11 / .4); background: rgb(245 158 11 / .06); color: #fbbf24; cursor: pointer; }
+
+/* AS-BUILT — exact current classes */
+.v-built .chip.run  { display: inline-flex; flex-direction: column; min-width: 240px; max-width: 420px; }   /* inline-flex flex-col min-w-[240px] max-w-[420px] */
+.v-built .chip.fail { display: inline-flex; flex-direction: column; max-width: 460px; }                    /* inline-flex flex-col max-w-[460px] */
+.v-built .ghost { max-width: 420px; }                                                                       /* max-w-[420px] */
+.v-built details.log { max-width: 460px; }                                                                  /* max-w-[460px] */
+
+/* PROPOSED A — layout only. Diff:
+   running root  inline-flex min-w-[240px]  → flex w-full min-w-0   (keep max-w-[420px])
+   failed root   inline-flex                → flex w-full min-w-0   (keep max-w-[460px])
+   ghost         max-w-[420px]              → max-w-full
+   <details>     max-w-[460px]              → max-w-full
+   <pre>         + [overflow-wrap:anywhere]
+   failed pill   inline-flex                → flex flex-wrap; summary span + min-w-0 [overflow-wrap:anywhere] */
+.v-a .chip.run, .v-b .chip.run   { display: flex; flex-direction: column; width: 100%; min-width: 0; max-width: 420px; }
+.v-a .chip.fail, .v-b .chip.fail { display: flex; flex-direction: column; width: 100%; min-width: 0; max-width: 460px; }
+.v-a .ghost, .v-b .ghost { max-width: 100%; }
+.v-a details.log, .v-b details.log { max-width: 100%; }
+.v-a details.log pre, .v-b details.log pre { overflow-wrap: anywhere; }
+.v-a .pill.red, .v-b .pill.red { display: flex; flex-wrap: wrap; }
+.v-a .pill.red .sum, .v-b .pill.red .sum { min-width: 0; overflow-wrap: anywhere; }
+
+/* PROPOSED B′ — built ON TOP of fix-folder-card-pill-contrast (sibling, in flight):
+   sibling base: pill has no own border/fill; label, glyph, spinner, bar, Retry
+   and View log inherit the banner --severity-*-fg; failure code on its own
+   line; done inherits info fg + check glyph; log <pre> --text-secondary on
+   --bg-code. THIS change adds:
+   - layout A (fits the banner);
+   - secondary single-line text (elapsed, last-line preview, failure code line)
+     → --text-secondary: >=5.3:1 on info AND error bg in all 18 combos, where
+     the inherited fg is 2.71–4.41:1 in catppuccin/tokyo-night/rose-pine light;
+   - View log toggle text-[12px] + underline (ui-contract a11y rule 7);
+   - Retry tap-target (44px below sm, folder-action-banner "Banner is accessible"). */
+.v-b .pill { border-color: transparent; background: transparent; padding: 0; color: inherit; font-size: 12px; }
+.v-b .pill .meta, .v-b .ghost, .v-b .pill .sum { color: var(--text-secondary); }
+.v-b .pill.red .sum { flex-basis: 100%; }                         /* sibling: failure code on its own line */
+.v-b .spinner { border-color: color-mix(in srgb, currentColor 25%, transparent); border-top-color: currentColor; }
+.v-b .bar { background: color-mix(in srgb, currentColor 15%, transparent); }
+.v-b .bar i { background: linear-gradient(to right, transparent, currentColor, transparent); }
+.v-b .retry { min-height: 32px; font-size: 12px; font-weight: 600; border-color: currentColor; background: transparent; color: inherit; }
+@media (max-width: 639px) { .v-b .retry { min-height: 44px; } }   /* tap-target */
+.v-b details.log summary { color: inherit; font-size: 12px; text-decoration: underline; }
+.v-b details.log pre { color: var(--text-secondary); }
+.v-b details.log pre, .v-b .pill .sum { font-size: 11px !important; }
+.v-b .pill.green { padding: 0; border-color: transparent; background: transparent; color: inherit; } /* sibling: done inherits info fg */
+
+.overflow-mark { outline: 2px dashed var(--severity-error-fg); outline-offset: 1px; }
+</style>
+</head>
+<body>
+<header class="bar">
+  <h1>Worktree-init chip overflow</h1>
+  <span class="ctl">Theme <span class="seg" id="theme">
+    <button data-t="dark" aria-pressed="true">Base dark</button><button data-t="light" aria-pressed="false">Base light</button><button data-t="nord" aria-pressed="false">Nord dark</button></span></span>
+  <span class="ctl"><label for="w">Card width</label> <input id="w" type="range" min="240" max="520" step="10" value="340"> <output id="wo">340px</output></span>
+  <span class="ctl">Presets <span class="seg" id="presets"><button data-w="260">260</button><button data-w="340">340</button><button data-w="460">460</button></span></span>
+</header>
+<main>
+  <p class="intro">
+    Replica of <code>FolderActionBanner</code> → <code>WorktreeInitButton</code> → <code>WorktreeInitChip</code> inside a session-list folder card.
+    The hatched gutter sits outside the card; anything painting into it is overflow. Each frame reports
+    <code>chip right − banner content-box right</code>. Root cause: the chip root is <code>inline-flex</code> (shrink-to-fit),
+    so its <code>min-w-0</code> parent cannot constrain it; the <code>whitespace-nowrap</code> ghost line drives it to its 420&nbsp;px cap.
+  </p>
+  <div id="rows"></div>
+
+  <h2>Class diff (WorktreeInitChip.tsx)</h2>
+  <table class="diff">
+    <tr><th>Element</th><th>As-built</th><th>Proposed A (layout fix)</th><th>Proposed B (A + embedded tokens)</th></tr>
+    <tr><td>running root</td><td><code>inline-flex flex-col min-w-[240px] max-w-[420px]</code></td><td><code>flex flex-col w-full min-w-0 max-w-[420px]</code></td><td>same as A</td></tr>
+    <tr><td>failed root</td><td><code>inline-flex flex-col max-w-[460px]</code></td><td><code>flex flex-col w-full min-w-0 max-w-[460px]</code></td><td>same as A</td></tr>
+    <tr><td>ghost line</td><td><code>… max-w-[420px]</code></td><td><code>… max-w-full</code></td><td>+ <code>--text-secondary</code> (sibling: inherits fg)</td></tr>
+    <tr><td>&lt;details&gt; / &lt;pre&gt;</td><td><code>max-w-[460px]</code> / <code>whitespace-pre-wrap</code></td><td><code>max-w-full</code> / + <code>[overflow-wrap:anywhere]</code></td><td>same as A</td></tr>
+    <tr><td>failed pill</td><td><code>inline-flex …</code></td><td><code>flex flex-wrap …</code>; summary + <code>min-w-0 [overflow-wrap:anywhere]</code></td><td>same as A</td></tr>
+    <tr><td>pill colours</td><td>raw <code>amber/red/green-400/500</code>; meta <code>--text-muted</code></td><td>unchanged</td><td>sibling base (all inherit banner fg) + elapsed / last-line preview / failure code line → <code>--text-secondary</code>; View log 12px underlined; Retry <code>tap-target</code></td></tr>
+    <tr><td>type floor</td><td>log/summary 10.5px; View log + Retry 11px</td><td>unchanged</td><td>label <code>text-[12px]</code>; log/summary <code>text-[11px]</code>; View log + Retry <code>text-[12px]</code></td></tr>
+  </table>
+</main>
+
+<script>
+const LOG = `> ./mvnw -q dependency:go-offline
+[p2] Wed Oct 21 18:36:58 CEST 2026 - [main] CategoryParser: Error parsing site stream. Element: "Description / Site" already set for the Site.
+[p2] Wed Oct 21 18:37:00 CEST 2026 - [ForkJoinPool.commonPool-worker-13] CategoryParser: Error parsing site stream. Element: "Description / Site" already set for the Site.`;
+const LONG_PATH = "/Users/robson/.m2/repository/hu/blackbelt/judo/meta/judo-meta-esm-runtime/1.42.0-SNAPSHOT/judo-meta-esm-runtime-1.42.0-SNAPSHOT-tests.jar";
+const LOG2 = LOG + "\n[INFO] Downloaded " + LONG_PATH;
+const GHOST = '[p2] Wed Oct 21 18:37:00 CEST 2026 - [ForkJoinPool.commonPool-worker-13] CategoryParser: Error parsing site stream.';
+
+const STATES = [
+  { id: "run", title: "Running · log open", banner: "", chip: running(GHOST, LOG) },
+  { id: "run-path", title: "Running · unbroken path token in log", banner: "", chip: running("[INFO] Downloaded " + LONG_PATH, LOG2) },
+  { id: "done", title: "Done · success flash (same info banner)", banner: "", chip: done() },
+  { id: "fail", title: "Failed · long summary + stderr", banner: "err",
+    chip: failed("hook_exit_nonzero", "./mvnw -q dependency:go-offline exited 1 (" + LONG_PATH + ")", LOG2) },
+];
+const VARIANTS = [
+  { cls: "v-built", col: "built", label: "As-built", tag: "current" },
+  { cls: "v-a", col: "prop", label: "Proposed A", tag: "layout fix" },
+  { cls: "v-b", col: "prop", label: "Proposed B\u2032", tag: "A + sibling base + secondary text" },
+];
+function esc(s) { return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+function logBlock(body) { return `<details class="log" open data-testid="worktree-init-log"><summary>View log</summary><pre class="mono">${esc(body)}</pre></details>`; }
+function running(ghost, log) {
+  return `<div class="chip run" data-testid="worktree-init-chip">
+    <span class="pill amber"><span class="spinner" aria-hidden="true"></span><span class="sem">Initializing…</span><span class="meta">· 24s</span></span>
+    <div class="bar"><i></i></div>
+    <div class="ghost mono" data-testid="worktree-init-ghost">${esc(ghost)}</div>
+    ${logBlock(log)}</div>`;
+}
+function done() {
+  return `<span class="chip done pill green" data-testid="worktree-init-chip">✓ <span class="sem">Initialized</span><span class="meta">· 31s</span></span>`;
+}
+function failed(code, msg, stderr) {
+  return `<div class="chip fail" data-testid="worktree-init-chip">
+    <span class="pill red" data-testid="worktree-init-error">✕ <span class="sem">Init failed</span>
+      <span class="meta sum mono" style="font-size:10.5px">· ${esc(code)} · ${esc(msg)}</span>
+      <button type="button" class="retry" data-testid="worktree-init-retry">↻ Retry</button></span>
+    ${logBlock(stderr)}</div>`;
+}
+function card(s) {
+  return `<div class="card"><div class="name"><span>/Users/robson/Project/judo-ng…/</span><b>judo-meta-esm</b></div>
+    <div class="git">⑂ feature/JNG-6349_AddZetaValidatiob</div>
+    <div class="banner ${s.banner}" role="region" aria-label="Folder action"><div class="slot">${s.chip}</div></div></div>`;
+}
+function render() {
+  document.getElementById("rows").innerHTML = STATES.map((s) => `<h2>${s.title}</h2><div class="grid">${
+    VARIANTS.map((v) => `<div class="col ${v.col} ${v.cls}"><h3>${v.label} <span class="tag">${v.tag}</span></h3>
+      <div class="gutter"><div class="frame demo">${card(s)}</div></div><div class="verdict"></div></div>`).join("")
+  }</div>`).join("");
+  measure();
+}
+function measure() {
+  document.querySelectorAll(".col").forEach((col) => {
+    const banner = col.querySelector(".banner"), slot = banner.querySelector(".slot");
+    const limit = slot.getBoundingClientRect().right;
+    let worst = 0;
+    col.querySelectorAll(".chip, .chip *").forEach((el) => { el.classList.remove("overflow-mark"); worst = Math.max(worst, el.getBoundingClientRect().right - limit); });
+    const chip = col.querySelector(".chip");
+    const v = col.querySelector(".verdict");
+    const px = Math.round(worst);
+    if (px > 0) { chip.classList.add("overflow-mark"); v.className = "verdict bad"; v.textContent = `✕ overflow +${px}px`; }
+    else { v.className = "verdict ok"; v.textContent = "✓ fits (0px)"; }
+  });
+}
+function setW(w) { document.documentElement.style.setProperty("--card-w", w + "px"); document.getElementById("w").value = w; document.getElementById("wo").textContent = w + "px"; requestAnimationFrame(measure); }
+document.getElementById("w").addEventListener("input", (e) => setW(+e.target.value));
+document.getElementById("presets").addEventListener("click", (e) => { const w = e.target.dataset.w; if (w) setW(+w); });
+document.getElementById("theme").addEventListener("click", (e) => {
+  const t = e.target.dataset.t; if (!t) return;
+  const root = document.documentElement;
+  root.dataset.theme = t === "light" ? "light" : "dark";
+  if (t === "nord") root.dataset.palette = "nord"; else delete root.dataset.palette;
+  document.querySelectorAll("#theme button").forEach((b) => b.setAttribute("aria-pressed", String(b === e.target)));
+  requestAnimationFrame(measure);
+});
+document.addEventListener("toggle", () => requestAnimationFrame(measure), true);
+window.__measure = measure;
+render();
+const q = new URLSearchParams(location.search);
+setW(+(q.get("w") || 340));
+if (q.get("theme")) document.querySelector(`#theme button[data-t="${q.get("theme")}"]`)?.click();
+</script>
+<script src="probe.js"></script>
+</body>
+</html>
