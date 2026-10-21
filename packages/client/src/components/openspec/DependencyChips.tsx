@@ -1,5 +1,5 @@
 import type { ChangeDependencies, DependencyEdgeSource, DependencyIssue } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 
 /**
@@ -26,8 +26,51 @@ const sourceLabel = (s: DependencyEdgeSource): string =>
       ? i18nT("openspec.dependencies.sourceText", undefined, "inferred from text")
       : i18nT("openspec.dependencies.sourceCapability", undefined, "inferred from capability");
 
-export function DependencyChips({ dependencies }: { dependencies: ChangeDependencies }) {
+/** A name in a list: activating it scrolls to / highlights that change's card, or opens the archive for an archived one. */
+function NameButton({ name, archived, onActivate }: { name: string; archived: boolean; onActivate?: (name: string, archived: boolean) => void }) {
+  if (!onActivate) return <span className="font-mono text-[var(--text-primary)]">{name}</span>;
+  return (
+    <button
+      type="button"
+      className="focus-ring cursor-pointer border-0 bg-transparent p-0 font-mono text-[var(--text-primary)] underline decoration-dotted"
+      data-testid={`dep-name-${name}`}
+      onClick={() => onActivate(name, archived)}
+    >
+      {name}
+    </button>
+  );
+}
+
+export function DependencyChips({
+  dependencies,
+  onActivate,
+}: {
+  dependencies: ChangeDependencies;
+  onActivate?: (name: string, archived: boolean) => void;
+}) {
   const [open, setOpen] = useState<ListKey | null>(null);
+  const uid = useId();
+  const listId = (key: ListKey) => `dep-list-${key}-${uid}`;
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  // A mouse press never focuses the chip (see onMouseDown), so blur / container keydown cannot close a list the
+  // mouse opened. Close on an outside press or Escape instead; capture phase, because the container stops
+  // pointerdown from reaching the card's drag handlers.
+  useEffect(() => {
+    if (open === null) return;
+    const onPress = (e: Event) => {
+      if (!rootRef.current?.contains(e.target as Node | null)) setOpen(null);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(null);
+    };
+    document.addEventListener("pointerdown", onPress, true);
+    document.addEventListener("keydown", onKey, true);
+    return () => {
+      document.removeEventListener("pointerdown", onPress, true);
+      document.removeEventListener("keydown", onKey, true);
+    };
+  }, [open]);
   const d = dependencies;
   const openBlockers = d.blockedBy.filter((e) => e.state === "open");
   const errors = d.issues.filter((i) => i.severity === "error");
@@ -40,7 +83,7 @@ export function DependencyChips({ dependencies }: { dependencies: ChangeDependen
       className={`${CHIP} ${cls}`}
       data-testid={`dep-chip-${key}`}
       aria-expanded={open === key}
-      aria-controls={`dep-list-${key}`}
+      aria-controls={listId(key)}
       onFocus={() => setOpen(key)}
       // A mouse press would focus the button (opening the list) and the click that follows would toggle it
       // straight shut again; keep the press from focusing, so click toggles and Tab/focus still opens.
@@ -56,6 +99,7 @@ export function DependencyChips({ dependencies }: { dependencies: ChangeDependen
 
   return (
     <div
+      ref={rootRef}
       className="mt-1.5 flex flex-col gap-1"
       data-testid="dep-chips"
       onPointerDown={(e) => e.stopPropagation()}
@@ -76,7 +120,11 @@ export function DependencyChips({ dependencies }: { dependencies: ChangeDependen
           </span>
         )}
         {openBlockers.length > 0 &&
-          chip("blockedBy", i18nT("openspec.dependencies.blockedByCount", { count: String(openBlockers.length) }, "blocked by {count}"))}
+          chip(
+            "blockedBy",
+            i18nT("openspec.dependencies.blockedByCount", { count: String(openBlockers.length) }, "blocked by {count}"),
+            CHIP_ERROR,
+          )}
         {d.blocks.length > 0 && chip("blocks", i18nT("openspec.dependencies.blocksCount", { count: String(d.blocks.length) }, "blocks {count}"))}
         {d.overlaps.length > 0 &&
           chip("overlaps", i18nT("openspec.dependencies.overlapCount", { count: String(d.overlaps.length) }, "overlaps {count}"))}
@@ -89,7 +137,7 @@ export function DependencyChips({ dependencies }: { dependencies: ChangeDependen
       </div>
 
       {open === "blockedBy" && (
-        <ul id="dep-list-blockedBy" className="m-0 list-none p-0 text-[11px] text-[var(--text-secondary)]" data-testid="dep-list-blockedBy">
+        <ul id={listId("blockedBy")} className="m-0 list-none p-0 text-[11px] text-[var(--text-secondary)]" data-testid="dep-list-blockedBy">
           {d.blockedBy.map((e) => (
             <li
               key={e.change}
@@ -97,7 +145,7 @@ export function DependencyChips({ dependencies }: { dependencies: ChangeDependen
               data-state={e.state}
               className={e.source === "declared" ? "" : "italic border-l border-dashed border-[var(--border-secondary)] pl-1.5"}
             >
-              <span className="font-mono text-[var(--text-primary)]">{e.change}</span>
+              <NameButton name={e.change} archived={e.state === "satisfied"} {...(onActivate ? { onActivate } : {})} />
               {" · "}
               {e.state === "satisfied" ? i18nT("openspec.dependencies.satisfied", undefined, "satisfied") : sourceLabel(e.source)}
               {e.reason ? ` · ${e.reason}` : ""}
@@ -106,21 +154,25 @@ export function DependencyChips({ dependencies }: { dependencies: ChangeDependen
         </ul>
       )}
       {open === "blocks" && (
-        <ul id="dep-list-blocks" className="m-0 list-none p-0 text-[11px] text-[var(--text-secondary)]" data-testid="dep-list-blocks">
+        <ul id={listId("blocks")} className="m-0 list-none p-0 text-[11px] text-[var(--text-secondary)]" data-testid="dep-list-blocks">
           {d.blocks.map((n) => (
-            <li key={n} className="font-mono text-[var(--text-primary)]">{n}</li>
+            <li key={n}>
+              <NameButton name={n} archived={false} {...(onActivate ? { onActivate } : {})} />
+            </li>
           ))}
         </ul>
       )}
       {open === "overlaps" && (
-        <ul id="dep-list-overlaps" className="m-0 list-none p-0 text-[11px] text-[var(--text-secondary)]" data-testid="dep-list-overlaps">
+        <ul id={listId("overlaps")} className="m-0 list-none p-0 text-[11px] text-[var(--text-secondary)]" data-testid="dep-list-overlaps">
           {d.overlaps.map((n) => (
-            <li key={n} className="font-mono text-[var(--text-primary)]">{n}</li>
+            <li key={n}>
+              <NameButton name={n} archived={false} {...(onActivate ? { onActivate } : {})} />
+            </li>
           ))}
         </ul>
       )}
       {open === "issues" && (
-        <ul id="dep-list-issues" className="m-0 list-none p-0 text-[11px] text-[var(--text-secondary)]" data-testid="dep-list-issues">
+        <ul id={listId("issues")} className="m-0 list-none p-0 text-[11px] text-[var(--text-secondary)]" data-testid="dep-list-issues">
           {issueList.map((i: DependencyIssue, idx) => (
             <li key={`${i.code}-${idx}`} data-severity={i.severity}>
               <span className="font-semibold">{i.code}</span> — {i.message}

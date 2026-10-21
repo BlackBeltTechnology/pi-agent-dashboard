@@ -957,7 +957,7 @@ function AffectedChanges({ affected }: { affected: string[] }) {
  */
 function DependenciesImpact({ status }: { status: OpenSpecWorkflowSchemaStatus }) {
   const undeclared = status.undeclaredChanges;
-  if (status.generated !== "outdated" || !undeclared || undeclared.length === 0) return null;
+  if (status.generated !== "outdated" || status.raisesToDependencies !== true || !undeclared || undeclared.length === 0) return null;
   return (
     <p className={FIELD_HELP} data-testid="workflow-schema-dependencies-impact">
       {i18nT(

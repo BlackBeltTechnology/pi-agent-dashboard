@@ -377,6 +377,80 @@ describe("OpenSpecBoardView — dependencies", () => {
     expect(screen.queryByTestId("dep-list-blockedBy")).toBeNull();
   });
 
+  it("#F1 (review) 'blocked by N' renders in error tone (spec), warnings stay warning", () => {
+    const c = change("b", deps({ blockedBy: [{ change: "x", source: "declared", state: "open" }] }));
+    render(<OpenSpecBoardView {...board([change("x", deps()), c])} />);
+    const chip = within(screen.getByTestId("board-card-b")).getByTestId("dep-chip-blockedBy");
+    expect(chip.className).toContain("--severity-error-fg");
+  });
+
+  it("#F1 (review) list ids are unique per card, and each chip's aria-controls points at its own list", () => {
+    const blocked = (name: string) => change(name, deps({ blockedBy: [{ change: "x", source: "declared", state: "open" }] }));
+    render(<OpenSpecBoardView {...board([change("x", deps()), blocked("p"), blocked("q")])} />);
+    const chipOf = (n: string) => within(screen.getByTestId(`board-card-${n}`)).getByTestId("dep-chip-blockedBy");
+    fireEvent.focus(chipOf("p"));
+    fireEvent.focus(chipOf("q"));
+    const lists = [...document.querySelectorAll('[data-testid="dep-list-blockedBy"]')];
+    expect(lists).toHaveLength(2);
+    const ids = lists.map((l) => l.id);
+    expect(new Set(ids).size).toBe(2);
+    expect(ids).toContain(chipOf("p").getAttribute("aria-controls"));
+    expect(ids).toContain(chipOf("q").getAttribute("aria-controls"));
+    expect(chipOf("p").getAttribute("aria-controls")).not.toBe(chipOf("q").getAttribute("aria-controls"));
+  });
+
+  it("#F1 (review) a mouse-opened list closes on an outside press and on Escape (focus never entered it)", () => {
+    const c = change("b", deps({ blockedBy: [{ change: "x", source: "declared", state: "open" }] }));
+    render(<OpenSpecBoardView {...board([change("x", deps()), c])} />);
+    const chip = within(screen.getByTestId("board-card-b")).getByTestId("dep-chip-blockedBy");
+    const mouseClick = () => {
+      if (fireEvent.mouseDown(chip)) fireEvent.focus(chip);
+      fireEvent.click(chip);
+    };
+    mouseClick();
+    expect(screen.queryByTestId("dep-list-blockedBy")).not.toBeNull();
+    fireEvent.pointerDown(screen.getByTestId("board-column-__ungrouped__"));
+    expect(screen.queryByTestId("dep-list-blockedBy")).toBeNull();
+
+    mouseClick();
+    expect(screen.queryByTestId("dep-list-blockedBy")).not.toBeNull();
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(screen.queryByTestId("dep-list-blockedBy")).toBeNull();
+
+    mouseClick();
+    fireEvent.pointerDown(screen.getByTestId("dep-list-blockedBy")); // a press INSIDE the list keeps it open
+    expect(screen.queryByTestId("dep-list-blockedBy")).not.toBeNull();
+  });
+
+  it("#F1 (review) activating a blocker name scrolls to and highlights its card; an archived name opens the archive", () => {
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    const c = change("b", deps({
+      blockedBy: [
+        { change: "x", source: "declared", state: "open" },
+        { change: "2026-01-01-old", source: "declared", state: "satisfied" },
+      ],
+      blocks: [],
+    }));
+    const p = board([change("x", deps()), c]);
+    render(<OpenSpecBoardView {...p} />);
+    fireEvent.focus(within(screen.getByTestId("board-card-b")).getByTestId("dep-chip-blockedBy"));
+    fireEvent.click(screen.getByTestId("dep-name-x"));
+    expect(scroll).toHaveBeenCalledTimes(1);
+    expect(scroll.mock.contexts[0]).toBe(screen.getByTestId("board-card-x"));
+    expect(p.onOpenArchive).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("dep-name-2026-01-01-old"));
+    expect(p.onOpenArchive).toHaveBeenCalledTimes(1);
+    expect(scroll).toHaveBeenCalledTimes(1);
+  });
+
+  it("#F2 (review) the Execution-order toggle needs the dependency UI too, not only a graph", () => {
+    // A graph exists (every status-all change carries `dependencies`) but the schema is not pi-spec-driven and no file exists.
+    render(<OpenSpecBoardView {...board([change("a", deps({ wave: 1 })), change("b", deps({ wave: 2 }))], null)} />);
+    expect(screen.queryByTestId("dep-wave")).toBeNull();
+    expect(screen.queryByTestId("board-execution-order")).toBeNull();
+  });
+
   it("#F8 a card keeps its lifecycle content and adds 'blocked by 1' and the wave", () => {
     const auth = change("add-auth", deps({ wave: 2, blockedBy: [{ change: "base", source: "declared", state: "open" }] }), {
       status: "in-progress", completedTasks: 3, totalTasks: 8,
@@ -502,6 +576,7 @@ describe("OpenSpecBoardView — dependencies dialog", () => {
     const dialog = await openFor();
     await within(dialog).findByTestId("deps-declared-x");
     fireEvent.change(within(dialog).getByTestId("deps-picker"), { target: { value: "qux" } });
+    expect(within(dialog).getByTestId("deps-picker-reason").getAttribute("aria-label")).toBeTruthy(); // not placeholder-only
     fireEvent.change(within(dialog).getByTestId("deps-picker-reason"), { target: { value: "needs it" } });
     fireEvent.click(within(dialog).getByTestId("deps-add"));
     expect(within(dialog).getByTestId("deps-declared-qux").textContent).toContain("needs it");

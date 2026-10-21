@@ -10,7 +10,7 @@ import fsp from "node:fs/promises";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { clearDependencyInputCache, computeDependencies } from "../openspec/openspec-dependency-inputs.js";
-import { probeTrackedPaths } from "../openspec/openspec-poll-fs-helpers.js";
+import { perChangeArtifactPaths, probeTrackedPaths } from "../openspec/openspec-poll-fs-helpers.js";
 import { buildFromStatusAll, type StatusAllBuildRequest } from "../openspec/openspec-poll-worker.js";
 import { createOpenSpecPollWorkerPool } from "../openspec/openspec-poll-worker-pool.js";
 import { backdate, mkTmpCwd, renderStatusAll, seedChanges, writeFile } from "./helpers/status-all-fixture.js";
@@ -202,5 +202,50 @@ describe("#P1 warm rebuild budget", () => {
     expect(second.graph["chg-005"].blockedBy.map((e) => e.change)).toEqual(["chg-001"]);
     // The edge lists of every other change are untouched (their waves move with the chain, which is the graph's job).
     expect(second.graph["chg-050"].blockedBy).toEqual(first.graph["chg-050"].blockedBy);
+  });
+});
+
+describe("review: nested delta specs are probed (#E15)", () => {
+  const nested = "openspec/changes/c000/specs/area/feature/spec.md";
+
+  it("both per-change path sets include every nested spec.md, so an in-place edit advances the mtime", async () => {
+    seedChanges(cwd, 1);
+    writeFile(cwd, nested, "## ADDED Requirements\n");
+    backdate(openspecDir);
+    const file = path.join(cwd, nested);
+    expect(perChangeArtifactPaths(path.join(openspecDir, "changes"), "c000")).toContain(file);
+
+    const before = (await probeTrackedPaths({ openspecDir, extras: null })).changes.c000;
+    const later = new Date(Date.now() + 60_000);
+    fs.utimesSync(file, later, later); // in-place edit: the file's mtime moves, no parent directory's does
+    const after = (await probeTrackedPaths({ openspecDir, extras: null })).changes.c000;
+    expect(after).toBeGreaterThan(before as number);
+  });
+});
+
+describe("review: the cwd stamp never covers a main-spec read it did not see", () => {
+  it("a main spec created between the graph read and the re-stamp drops the stamp (next tick re-spawns)", async () => {
+    seedMixedEdges();
+    const real = await import("../openspec/openspec-dependency-inputs.js");
+    const orig = real.computeDependencies;
+    let first = true;
+    const spy = vi.spyOn(real, "computeDependencies").mockImplementation(async (...args) => {
+      const out = await orig(...args);
+      if (first) {
+        first = false;
+        writeFile(cwd, "openspec/specs/cap/spec.md", "# cap\n"); // a spec sync lands after the read
+      }
+      return out;
+    });
+    const req = await buildRequest(); // capabilityIds null: the touched set "changed", so the re-stamp path runs
+    const out = await buildFromStatusAll(req);
+    expect(out.kind).toBe("ok");
+    if (out.kind === "ok") expect(out.cwdStamp).toBeUndefined();
+    spy.mockRestore();
+
+    // Control: nothing moves in between, the stamp is kept.
+    clearDependencyInputCache();
+    const calm = await buildFromStatusAll(await buildRequest());
+    expect(calm.kind === "ok" && calm.cwdStamp !== undefined).toBe(true);
   });
 });

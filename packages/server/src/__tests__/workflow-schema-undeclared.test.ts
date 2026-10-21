@@ -7,7 +7,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { computeSchemaStatus } from "../openspec/workflow-schema-status.js";
+import { CURRENT_PATCH, computeSchemaStatus } from "../openspec/workflow-schema-status.js";
 import { mkRepo, write } from "./helpers/workflow-schema-fixtures.js";
 
 const roots: string[] = [];
@@ -73,5 +73,43 @@ describe("#E23 undeclaredChanges", () => {
     }
     const s = await status(root);
     expect(s.undeclaredChanges).toEqual(s.affectedChanges.filter((_, i) => i % 3 !== 0));
+  });
+});
+
+describe("review: raisesToDependencies (the update message must only claim what the update does)", () => {
+  const stamped = (root: string, base: string, patch: number): void =>
+    write(
+      root,
+      "openspec/schemas/pi-spec-driven/schema.yaml",
+      `name: pi-spec-driven\nx-pi-dashboard:\n  derivedFrom: spec-driven@${base}\n  patch: ${patch}\n  previousDefault: spec-driven\n`,
+    );
+  const run = async (root: string, localVersion: string) =>
+    (await computeSchemaStatus(root, { localVersion, packageSchemasDir: "/pkg", userSchemasDirPath: "/nonexistent-user-schemas" })).status;
+
+  it("a patch-1 stamp (outdated) will gain the dependencies artifact → true", async () => {
+    const root = repo();
+    change(root, "a");
+    stamped(root, "1.11.0", 1);
+    const s = await run(root, "1.11.0");
+    expect(s.generated).toBe("outdated");
+    expect(s.raisesToDependencies).toBe(true);
+  });
+
+  it("a current-patch stamp that is outdated only because the CLI base moved → false (dependencies already supported)", async () => {
+    const root = repo();
+    change(root, "a");
+    stamped(root, "1.10.0", CURRENT_PATCH);
+    const s = await run(root, "1.11.0");
+    expect(s.generated).toBe("outdated");
+    expect(s.raisesToDependencies).toBe(false);
+  });
+
+  it("a current stamp → false", async () => {
+    const root = repo();
+    change(root, "a");
+    stamped(root, "1.11.0", CURRENT_PATCH);
+    const s = await run(root, "1.11.0");
+    expect(s.generated).toBe("current");
+    expect(s.raisesToDependencies).toBe(false);
   });
 });

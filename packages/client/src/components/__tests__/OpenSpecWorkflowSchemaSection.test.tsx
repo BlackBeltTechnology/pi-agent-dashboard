@@ -206,6 +206,7 @@ describe("OpenSpecWorkflowSchemaSection", () => {
         configured: "pi-spec-driven",
         affectedChanges: ["a", "b", "c", "d"],
         undeclaredChanges: ["a", "b", "d"],
+        raisesToDependencies: true,
       }),
     });
     fireEvent.click(screen.getByTestId(`workflow-schema-update-${CWD}`));
@@ -214,6 +215,21 @@ describe("OpenSpecWorkflowSchemaSection", () => {
     const impact = within(dialog).getByTestId("workflow-schema-dependencies-impact").textContent ?? "";
     expect(impact).toContain("3 of 4");
     expect(impact).toMatch(/return to planning/);
+  });
+
+  it("#F9 no impact line when the update does not raise the stamp to the dependencies patch (outdated for the CLI base only)", async () => {
+    renderSection({
+      [CWD]: status({
+        generated: "outdated",
+        configured: "pi-spec-driven",
+        affectedChanges: ["a", "b"],
+        undeclaredChanges: ["a", "b"],
+        raisesToDependencies: false,
+      }),
+    });
+    fireEvent.click(screen.getByTestId(`workflow-schema-update-${CWD}`));
+    const dialog = await screen.findByTestId("workflow-schema-confirm");
+    expect(within(dialog).queryByTestId("workflow-schema-dependencies-impact")).toBeNull();
   });
 
   it("#F9 no impact line when the server has not reported undeclared changes or none are missing", async () => {

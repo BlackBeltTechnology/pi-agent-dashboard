@@ -1459,6 +1459,12 @@ export interface OpenSpecWorkflowSchemaStatus {
    * computes it. See change: add-openspec-change-dependencies.
    */
   undeclaredChanges?: string[];
+  /**
+   * True when the pending `outdated` update lifts the installed stamp across the patch that adds the
+   * required `dependencies` artifact; gates the Update dialog's "return to planning" message.
+   * See change: add-openspec-change-dependencies.
+   */
+  raisesToDependencies?: boolean;
 }
 
 /** OpenSpec workflow phase detected from tool calls */

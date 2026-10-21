@@ -23,6 +23,8 @@ import semver from "semver";
 import YAML from "yaml";
 
 export const CURRENT_PATCH = 2;
+/** First patch whose schema carries the required `dependencies` artifact (see change: add-openspec-change-dependencies). */
+const DEPENDENCIES_PATCH = 2;
 export const WORKFLOW_SCHEMA_NAME = "pi-spec-driven";
 export const STAMP_KEY = "x-pi-dashboard";
 const KEBAB = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -365,6 +367,9 @@ export async function computeSchemaStatus(cwd: string, opts: SchemaStatusOptions
     unpinnedChanges,
     affectedChanges,
     undeclaredChanges,
+    // An update only "adds a required dependencies declaration" when the installed stamp predates it; an
+    // outdated stamp already at the dependencies patch is outdated for the CLI base alone.
+    raisesToDependencies: inspection.generated === "outdated" && (inspection.stamp?.patch ?? 0) < DEPENDENCIES_PATCH,
     projectSchemas,
   };
   const needsValidate = inspection.generated === "newer" || inspection.generated === "conflict";

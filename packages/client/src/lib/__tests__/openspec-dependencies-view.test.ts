@@ -11,6 +11,7 @@ import {
   orderByWave,
   showDeclareHint,
   showDependencyUi,
+  sourceOrderAfterMove,
 } from "../openspec/openspec-dependencies-view.js";
 
 const deps = (over: Partial<ChangeDependencies> = {}): ChangeDependencies => ({
@@ -94,5 +95,18 @@ describe("#F6 showDeclareHint", () => {
   });
   it("no hint on the fallback path (no dependencies field)", () => {
     expect(showDeclareHint(withArtifact("ready"))).toBe(false);
+  });
+});
+
+describe("review: the source column keeps its MANUAL order after an execution-order drop", () => {
+  const col = [change("a"), change("b"), change("c")]; // displayed in wave order a, b, c
+  it("persisted manual order c, a, b survives moving a out", () => {
+    expect(sourceOrderAfterMove(col, ["c", "a", "b"], "a")).toEqual(["c", "b"]);
+  });
+  it("with no stored manual order the default order is used, never the wave-ordered display", () => {
+    const wave = [change("z", undefined, { status: "complete" }), change("m")]; // wave order z, m
+    const out = sourceOrderAfterMove(wave, undefined, "x");
+    expect(out.sort()).toEqual(["m", "z"]);
+    expect(out).not.toEqual(["z", "m"]); // defaultChangeSort puts the non-complete change first
   });
 });

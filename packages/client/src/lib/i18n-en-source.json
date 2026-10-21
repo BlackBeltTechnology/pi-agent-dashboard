@@ -1345,6 +1345,7 @@
   "openspec.dependencies.notADependency": "Not a dependency",
   "openspec.dependencies.notBlockedBy": "Rejected (not a dependency)",
   "openspec.dependencies.overlapCount": "overlaps {count}",
+  "openspec.dependencies.reasonLabel": "Reason for the new blocker (optional)",
   "openspec.dependencies.reasonPlaceholder": "Reason (optional)",
   "openspec.dependencies.related": "Related",
   "openspec.dependencies.reload": "Reload",

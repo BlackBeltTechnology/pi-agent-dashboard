@@ -113,6 +113,7 @@ describe("computeWorkflowSchemaStatus (poll-side status, no CLI)", () => {
       unpinnedChanges: ["a"],
       affectedChanges: ["a", "b"],
       undeclaredChanges: ["a", "b"], // neither has a dependencies.yaml. See change: add-openspec-change-dependencies.
+      raisesToDependencies: false, // a current stamp has nothing left to raise
       projectSchemas: [],
     });
   });

@@ -25,10 +25,10 @@ import {
 } from "@blackbelt-technology/pi-dashboard-shared/openspec-dependencies.js";
 import { mapLimit } from "@blackbelt-technology/pi-dashboard-shared/openspec-status-all.js";
 import type { ChangeDependencies } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { MAX_SPEC_DEPTH } from "./openspec-poll-fs-helpers.js";
 
 /** Markdown inputs larger than this are ignored (never read). */
 const MAX_MARKDOWN_BYTES = 1024 * 1024;
-const MAX_SPEC_DEPTH = 6;
 const CHANGE_CONCURRENCY = 16;
 
 interface CacheEntry<T> {

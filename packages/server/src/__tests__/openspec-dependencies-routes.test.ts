@@ -40,6 +40,7 @@ interface Opts {
   optOut?: string[];
   statusRoot?: { path?: string; source?: string };
   workflowSchemaCli?: Parameters<typeof stubDeps>[0];
+  spawnSemaphore?: { run: (fn: () => Promise<unknown>) => Promise<unknown> };
 }
 
 function repoWith(...changes: string[]): string {
@@ -70,6 +71,7 @@ async function setup(root: string, o: Opts = {}) {
     getOpenSpecConfig: () =>
       ({ enabled: o.enabled ?? true, optOutDirectories: o.optOut ?? [], workflowSchema: { defaultForNewProjects: false } }) as never,
     workflowSchemaDeps: stubDeps(fake),
+    ...(o.spawnSemaphore ? { spawnSemaphore: o.spawnSemaphore as never } : {}),
   };
   fastify = Fastify({
     logger: {
@@ -401,5 +403,28 @@ describe("review: writeDependenciesFile owns its containment", () => {
     }
     expect(nodeFs.existsSync(path.join(root, "openspec", "changes", "dependencies.yaml"))).toBe(false);
     nodeFs.rmSync(root, { recursive: true, force: true });
+  });
+});
+
+describe("review: PUT size and spawn bounds", () => {
+  it("the 64 KiB cap counts UTF-8 bytes, not UTF-16 code units (a CJK body cannot pass then be rejected on read)", async () => {
+    const root = repoWith("foo", "bar");
+    await setup(root);
+    const reason = "漢".repeat(500); // 500 code units, 1500 bytes
+    const many = Array.from({ length: 50 }, (_, i) => ({ change: `dep-${i}`, reason })); // ~25 K units, ~75 KB bytes
+    expect(JSON.stringify(many).length).toBeLessThan(65_536);
+    expect(Buffer.byteLength(JSON.stringify(many))).toBeGreaterThan(65_536);
+    const res = await put(body(root, { blockedBy: many }));
+    expect([res.statusCode, reasonOf(res)]).toEqual([400, "invalid-request"]);
+    expect(nodeFs.existsSync(fileOf(root))).toBe(false);
+  });
+
+  it("the writeGuard status-all spawn runs through the shared spawn semaphore", async () => {
+    const root = repoWith("foo", "bar");
+    const run = vi.fn(async (fn: () => Promise<unknown>) => fn());
+    await setup(root, { spawnSemaphore: { run } });
+    const res = await put(body(root));
+    expect(res.statusCode).toBe(200);
+    expect(run).toHaveBeenCalledTimes(1);
   });
 });

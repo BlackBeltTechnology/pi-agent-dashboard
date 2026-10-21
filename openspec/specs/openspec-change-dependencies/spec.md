@@ -138,7 +138,7 @@ Cycles SHALL be detected over open edges among active changes with Tarjan SCC, t
 - **WHEN** `a` declares `b` and an L2 edge makes `b` blocked by `a`
 - **THEN** both SHALL carry a `cycle` warning naming the inferred edge
 
-#### Scenario: Self reference
+#### Scenario: Self-reference
 
 - **WHEN** `a` lists itself in `blocked_by`
 - **THEN** `a` SHALL carry a `self-reference` error and the entry SHALL be ignored

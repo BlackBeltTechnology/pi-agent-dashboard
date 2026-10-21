@@ -189,6 +189,7 @@ export function DependenciesDialog({
                 value={pickReason}
                 onChange={(e) => setPickReason(e.target.value)}
                 maxLength={500}
+                aria-label={i18nT("openspec.dependencies.reasonLabel", undefined, "Reason for the new blocker (optional)")}
                 placeholder={i18nT("openspec.dependencies.reasonPlaceholder", undefined, "Reason (optional)")}
                 className="bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] rounded text-[12px] px-1.5 py-1 text-[var(--text-primary)] flex-1 min-w-[120px]"
                 data-testid="deps-picker-reason"

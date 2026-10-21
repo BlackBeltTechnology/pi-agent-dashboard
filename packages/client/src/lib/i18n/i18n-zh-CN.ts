@@ -3432,6 +3432,7 @@ export const zhCNCatalog: Record<string, string> = {
   "openspec.dependencies.notADependency": "不是依赖",
   "openspec.dependencies.notBlockedBy": "已拒绝（不是依赖）",
   "openspec.dependencies.overlapCount": "与 {count} 个重叠",
+  "openspec.dependencies.reasonLabel": "新阻塞项的原因（可选）",
   "openspec.dependencies.reasonPlaceholder": "原因（可选）",
   "openspec.dependencies.related": "相关",
   "openspec.dependencies.reload": "重新加载",

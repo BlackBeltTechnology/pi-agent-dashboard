@@ -6,6 +6,7 @@
  * See change: add-openspec-change-dependencies.
  */
 import type { OpenSpecChange, OpenSpecData } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { orderChangesForGroup } from "./openspec-board-order.js";
 
 const WORKFLOW_SCHEMA_NAME = "pi-spec-driven";
 
@@ -63,4 +64,19 @@ export function executionOrderDrop(args: {
   const { sourceKey, targetKey, movedName, targetManualOrder } = args;
   if (sourceKey === targetKey) return null;
   return { newTargetOrder: [...targetManualOrder.filter((n) => n !== movedName), movedName] };
+}
+
+/**
+ * The source column's names, minus the moved one, in its MANUAL order. In the execution-order view the column
+ * is displayed in wave order, so persisting `column.changes` would overwrite the user's manual order with the
+ * wave order; resolve it from the stored order instead (identity in the default view).
+ */
+export function sourceOrderAfterMove(
+  columnChanges: OpenSpecChange[],
+  persisted: string[] | undefined,
+  movedName: string,
+): string[] {
+  return orderChangesForGroup(columnChanges, persisted)
+    .map((c) => c.name)
+    .filter((n) => n !== movedName);
 }

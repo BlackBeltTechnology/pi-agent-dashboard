@@ -323,7 +323,17 @@ export async function buildFromStatusAll(req: StatusAllBuildRequest): Promise<St
   const prevCaps = probeReq.capabilityIds ? [...probeReq.capabilityIds].sort().join("\n") : null;
   let cwdStamp = pre.cwdMtime === post.cwdMtime ? pre.cwdMtime : undefined;
   if (cwdStamp !== undefined && prevCaps !== dep.capabilityIds.join("\n")) {
-    cwdStamp = (await probeTrackedPaths({ openspecDir, extras: built.extras, capabilityIds: dep.capabilityIds })).cwdMtime;
+    const restamp = (await probeTrackedPaths({ openspecDir, extras: built.extras, capabilityIds: dep.capabilityIds })).cwdMtime;
+    // The new stamp is taken AFTER the main-spec reads it covers. A spec sync landing in between would be inside
+    // the stamp but missing from the graph, and the next gated tick would reuse the stale payload. Re-read once
+    // (warm: per-file parses are cached); keep the stamp only if the graph did not move.
+    const again = await computeDependencies(
+      openspecDir,
+      rec.changes.map((c) => c.name),
+      post.changes,
+    );
+    const same = again.capabilityIds.join("\n") === dep.capabilityIds.join("\n") && JSON.stringify(again.graph) === JSON.stringify(dep.graph);
+    cwdStamp = same ? restamp : undefined;
   }
 
   const data = finishPayload({ initialized: true, changes }, hasOpenspecDir, groupAssignments);

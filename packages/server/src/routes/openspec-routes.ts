@@ -596,7 +596,7 @@ export function registerOpenSpecRoutes(
     body: unknown,
   ): { ok: true; cwd: string; change: string; declared: DeclaredDependencies; expected: FileStat | null } | { ok: false; error: string } {
     if (!body || typeof body !== "object" || Array.isArray(body)) return { ok: false, error: "JSON object body required" };
-    if (JSON.stringify(body).length > MAX_DEPENDENCIES_BYTES) return { ok: false, error: "body exceeds 64 KiB" };
+    if (Buffer.byteLength(JSON.stringify(body), "utf8") > MAX_DEPENDENCIES_BYTES) return { ok: false, error: "body exceeds 64 KiB" };
     const b = body as Record<string, unknown>;
     if (typeof b.cwd !== "string" || !b.cwd) return { ok: false, error: "cwd required" };
     if (typeof b.change !== "string" || !KEBAB_ID_REGEX.test(b.change)) return { ok: false, error: "change must be a valid change name" };
@@ -653,7 +653,9 @@ export function registerOpenSpecRoutes(
       if (!gate.ok) return "body" in gate ? gate.body : undefined;
 
       // Same root verification as every workflow-schema write.
-      const guarded = await writeGuard(cwd, resolveDeps(deps.workflowSchemaDeps));
+      // The guard spawns `status --all`; bound it by the shared spawn semaphore like every other CLI spawn.
+      const guard = () => writeGuard(cwd, resolveDeps(deps.workflowSchemaDeps));
+      const guarded = await (deps.spawnSemaphore ? deps.spawnSemaphore.run(guard) : guard());
       if ("error" in guarded) return depFail(reply, 403, "write-refused", guarded.error);
 
       // Shared per-cwd lock (keyed by the canonical cwd, so symlinked spellings collide).

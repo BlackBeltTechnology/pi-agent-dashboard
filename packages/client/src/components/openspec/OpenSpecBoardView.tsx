@@ -79,6 +79,7 @@ import {
 import { deriveWorktreeProgress } from "../../lib/openspec/openspec-board-worktree.js";
 import {
   executionOrderDrop,
+  sourceOrderAfterMove,
   hasDependencyGraph,
   orderByWave,
   showDeclareHint,
@@ -228,7 +229,25 @@ export function OpenSpecBoardView(props: OpenSpecBoardViewProps) {
   const [executionOrder, setExecutionOrder] = useState(false);
   const depGraph = hasDependencyGraph(data.changes);
   const depUi = showDependencyUi(data);
-  const execView = executionOrder && depGraph;
+  const execView = executionOrder && depGraph && depUi;
+  // Activating a name in a dependency list: an active change scrolls into view and flashes; an archived one has
+  // no card, so open the archive browser (it offers no per-entry deep link).
+  const activateDependency = useCallback(
+    (name: string, archived: boolean) => {
+      if (archived) {
+        onOpenArchive();
+        return;
+      }
+      const testId = `board-card-${name}`; // exact-match lookup: never build a selector from a change name
+      const el = [...document.querySelectorAll<HTMLElement>('[data-testid^="board-card-"]')].find((n) => n.dataset.testid === testId);
+      if (!el) return; // filtered out of view
+      el.scrollIntoView?.({ block: "center", behavior: "smooth" });
+      const flash = ["ring-2", "ring-[var(--accent-blue)]"];
+      el.classList.add(...flash);
+      window.setTimeout(() => el.classList.remove(...flash), 1600);
+    },
+    [onOpenArchive],
+  );
 
   // Filters
   const [query, setQuery] = useState("");
@@ -461,7 +480,7 @@ export function OpenSpecBoardView(props: OpenSpecBoardViewProps) {
           if (targetKey === UNGROUPED) delete next.assignments[movedName];
           else next.assignments[movedName] = targetKey;
           // prune from source order
-          const srcOrder = (prev.changeOrder?.[sourceKey] ?? columns.find((c) => c.key === sourceKey)?.changes.map((c) => c.name) ?? []).filter((n) => n !== movedName);
+          const srcOrder = sourceOrderAfterMove(columns.find((c) => c.key === sourceKey)?.changes ?? [], prev.changeOrder?.[sourceKey], movedName);
           next.changeOrder![sourceKey] = srcOrder;
         }
         next.changeOrder![targetKey] = newTargetOrder;
@@ -474,7 +493,7 @@ export function OpenSpecBoardView(props: OpenSpecBoardViewProps) {
           if (groupChanged) {
             await setAssignment(cwd, { changeName: movedName, groupId: targetKey === UNGROUPED ? null : targetKey });
             const srcCol = columns.find((c) => c.key === sourceKey);
-            const srcOrder = (srcCol?.changes ?? []).map((c) => c.name).filter((n) => n !== movedName);
+            const srcOrder = sourceOrderAfterMove(srcCol?.changes ?? [], changeOrder[sourceKey], movedName);
             await setChangeOrder(cwd, { groupId: sourceKey, order: srcOrder });
           }
           await setChangeOrder(cwd, { groupId: targetKey, order: newTargetOrder });
@@ -562,7 +581,7 @@ export function OpenSpecBoardView(props: OpenSpecBoardViewProps) {
             <FilterPill key={p.label} active={sessFilter === p.value} onClick={() => setSessFilter(p.value)} testId={`sess-pill-${p.label}`}>{p.label}</FilterPill>
           ))}
         </div>
-        {depGraph && (
+        {depGraph && depUi && (
           <>
             <span className="w-px h-[18px] bg-[var(--border-secondary)]" />
             <FilterPill active={executionOrder} onClick={() => setExecutionOrder((v) => !v)} testId="board-execution-order">
@@ -622,6 +641,7 @@ export function OpenSpecBoardView(props: OpenSpecBoardViewProps) {
                     onBulkArchive={onBulkArchive}
                     allChanges={data.changes}
                     showDependencies={depUi}
+                    onActivateDependency={activateDependency}
                     onOpenDependencies={setDepsDialogFor}
                     groups={groups}
                     assignments={assignments}
@@ -1127,6 +1147,7 @@ function ProposalCard(props: {
   allChanges: OpenSpecChange[];
   /** Dependency chips render only when the dependency UI is visible (D8). */
   showDependencies: boolean;
+  onActivateDependency: (name: string, archived: boolean) => void;
   onOpenDependencies: (changeName: string) => void;
   groups: OpenSpecGroup[];
   assignments: Record<string, string>;
@@ -1167,7 +1188,7 @@ function ProposalCard(props: {
         />
       </div>
 
-      {props.showDependencies && c.dependencies ? <DependencyChips dependencies={c.dependencies} /> : null}
+      {props.showDependencies && c.dependencies ? <DependencyChips dependencies={c.dependencies} onActivate={props.onActivateDependency} /> : null}
       {showDeclareHint(c) && (
         <button
           type="button"
