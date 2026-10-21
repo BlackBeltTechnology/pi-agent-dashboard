@@ -91,12 +91,12 @@ Tests first in every group (write → see red → implement → green). Test tas
 
 ## 8. Integration + manual QA
 
-- [x] 8.1 `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` green; `npm run quality:changed` clean.
+- [x] 8.1 `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` green; `npm run quality:changed` clean. — Local run: only environment/flaky failures (worktree lacks workspace links; e.g. large-resume-replay fails on clean develop too); PR CI green.
 - [x] 8.2 Run `review-code` on the diff; resolve findings.
-- [x] 8.3 Manual (test-plan: manual-only, #X11): CI-built Windows installer on a machine without Git for Windows → new session, model runs `echo $BASH_VERSION && git --version` → bash 5.x + git 2.53.0.windows.4; Doctor bash row ok showing `…\resources\git\usr\bin\bash.exe`.
-- [x] 8.4 Manual (test-plan: manual-only, #X12): Windows with an installed WSL distro, bundled git source → set `windowsBashSource: "host"`, new session, `uname -a` → Linux kernel string; Doctor bash row ok with WSL detail.
-- [x] 8.5 Manual (test-plan: manual-only, #X13): Windows on ARM with the arm64 installer → new session, `echo $BASH_VERSION` → non-empty.
-- [x] 8.6 Manual (test-plan: manual-only, #F4): Electron Windows → Settings → General: "Bash for agent commands" reads clearly next to "Git & Bash source"; hint wording understandable.
+- [x] 8.3 Manual (test-plan: manual-only, #X11): CI-built Windows installer on a machine without Git for Windows → new session, model runs `echo $BASH_VERSION && git --version` → bash 5.x + git 2.53.0.windows.4; Doctor bash row ok showing `…\resources\git\usr\bin\bash.exe`. — **Deferred: not yet performed; verify post-merge (ship-change defer of manual-only row).**
+- [x] 8.4 Manual (test-plan: manual-only, #X12): Windows with an installed WSL distro, bundled git source → set `windowsBashSource: "host"`, new session, `uname -a` → Linux kernel string; Doctor bash row ok with WSL detail. — **Deferred: not yet performed; verify post-merge (ship-change defer of manual-only row).**
+- [x] 8.5 Manual (test-plan: manual-only, #X13): Windows on ARM with the arm64 installer → new session, `echo $BASH_VERSION` → non-empty. — **Deferred: not yet performed; verify post-merge (ship-change defer of manual-only row).**
+- [x] 8.6 Manual (test-plan: manual-only, #F4): Electron Windows → Settings → General: "Bash for agent commands" reads clearly next to "Git & Bash source"; hint wording understandable. — **Deferred: not yet performed; verify post-merge (ship-change defer of manual-only row).**
 
 ## Workflow follow-up
 
