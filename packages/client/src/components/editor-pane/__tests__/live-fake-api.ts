@@ -28,6 +28,8 @@ export interface FakeServers {
   staticEntry: string;
   staticRoot: string;
   touchOk: boolean;
+  /** Test hook: the server saw a different exposure than /policy told the client. */
+  mintSeesExposed?: boolean;
   grantReply: { status: number; body: Record<string, unknown> };
   mints: () => FakeCall[];
   callsTo: (needle: string, method?: string) => FakeCall[];
@@ -49,6 +51,7 @@ export function installFakeLiveServer(): FakeServers {
     staticEntry: "index.html",
     staticRoot: "/p/m/a",
     touchOk: true,
+    mintSeesExposed: undefined as boolean | undefined,
     grantReply: { status: 200, body: { ok: true } },
     mints: () => f.calls.filter((c) => c.url.endsWith("/capability")),
     callsTo: (needle, method) => f.calls.filter((c) => c.url.includes(needle) && (!method || c.method === method)),
@@ -75,7 +78,7 @@ export function installFakeLiveServer(): FakeServers {
         const id = /\/api\/live-server\/([^/]+)\//.exec(url)?.[1] ?? "x";
         if (url.endsWith("/capability")) {
           mintN += 1;
-          const exposedBlocked = f.policy.exposure === "exposed" && body?.egress !== "open" && body?.runScripts !== true;
+          const exposedBlocked = (f.mintSeesExposed ?? f.policy.exposure === "exposed") && body?.egress !== "open" && body?.runScripts !== true;
           const scripts = body?.scripts === true && !exposedBlocked;
           return json(200, {
             ok: true,

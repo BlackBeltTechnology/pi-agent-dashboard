@@ -222,6 +222,22 @@ describe("F8 — Scripts ⇄ Static toggle", () => {
 });
 
 describe("F9 — exposure", () => {
+  it("B1: Run scripts re-mints with runScripts:true when the server withheld scripts the client expected", async () => {
+    // The client believes local-only (so it asks for scripts), but the server mints under `exposed`.
+    fake.policy = { exposure: "local-only", epoch: 1, promptingEnabled: false };
+    fake.mintSeesExposed = true;
+    render(agent(staticViewer()));
+    await flush();
+    expect(lastMint()).toMatchObject({ egress: "restricted", scripts: true });
+    expect(sandbox()).toBe("");
+    const mintsBefore = fake.mints().length;
+    fireEvent.click(screen.getByTestId("live-run-scripts"));
+    await flush();
+    expect(fake.mints().length).toBe(mintsBefore + 1);
+    expect(lastMint()).toMatchObject({ egress: "restricted", scripts: true, runScripts: true });
+    expect(sandbox()).toBe("allow-scripts allow-forms");
+  });
+
   it("exposed: restricted scripts are off with Run scripts; the click mints runScripts:true", async () => {
     fake.policy = { exposure: "exposed", epoch: 3, promptingEnabled: false };
     render(agent(staticViewer()));

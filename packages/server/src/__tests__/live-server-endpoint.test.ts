@@ -163,6 +163,7 @@ function stubManager(ids: string[] = ["vite-5173", "docs-8080"]) {
     startStatic: () => ({ ok: false as const, error: "unused" }),
     get: (id: string) => targets.get(id),
     getStatic: () => undefined,
+    presetSessionOf: () => undefined,
     has: (id: string) => targets.has(id),
     list: () => [...targets.values()],
     remove: (id: string) => {

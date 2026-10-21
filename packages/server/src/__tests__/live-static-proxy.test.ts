@@ -354,6 +354,7 @@ describe("E20 — port target: upstream CSP kept, ours appended, X-Forwarded-For
       startStatic: () => ({ ok: false, error: "unused" }),
       get: (id) => (id === "vite-5173" ? { id, label: id, host: "127.0.0.1", port: upstreamPort } : undefined),
       getStatic: () => undefined,
+    presetSessionOf: () => undefined,
       has: (id) => id === "vite-5173",
       list: () => [],
       remove: () => {},

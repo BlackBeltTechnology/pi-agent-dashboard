@@ -160,7 +160,7 @@ export default function LiveServerViewer({ path: viewerPath, cwd, reloadNonce, u
     const preset = parsePresetPath(viewerPath);
     if (!preset) return;
     if (preset.kind === "static" && !cwd) return; // wait for the session cwd
-    const key = preset.kind === "static" ? `${viewerPath}|${cwd}` : viewerPath;
+    const key = preset.kind === "static" ? `${viewerPath}|${cwd}` : (viewerPath ?? "");
     if (launchedKey.current === key) return;
     launchedKey.current = key;
     if (preset.kind === "invalid-path") {

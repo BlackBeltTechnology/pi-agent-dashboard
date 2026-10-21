@@ -48,7 +48,9 @@ export function useLiveCapability({ targetId, policy, runScripts, epoch, viewerI
   const [error, setError] = useState<string | null>(null);
   const [forced, setForced] = useState(0);
 
-  const key = targetId ? `${targetId}|${policy.egress}|${policy.scripts}|${epoch}` : "";
+  // `runScripts` is part of the key: the operator's "Run scripts" click must re-mint even when the
+  // client already asked for `scripts:true` (the server withheld them under a different exposure view).
+  const key = targetId ? `${targetId}|${policy.egress}|${policy.scripts}|${runScripts}|${epoch}` : "";
   // Latest request params, read by timers without re-subscribing them.
   const latest = useRef({ policy, runScripts, viewerId });
   latest.current = { policy, runScripts, viewerId };

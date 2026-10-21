@@ -2220,6 +2220,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // from their store on every CSP build, so a grant or revoke applies on the next response with no restart.
   const previewEgress = createPreviewEgress({
     getStatic: (id) => liveServerManager.getStatic(id),
+    presetCwdOf: (id) => {
+      const sessionId = liveServerManager.presetSessionOf(id);
+      return sessionId ? sessionManager.get(sessionId)?.cwd : undefined;
+    },
     projectKeyOf: (cwd) => {
       let real = cwd;
       try {

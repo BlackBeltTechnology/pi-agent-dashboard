@@ -77,6 +77,8 @@ interface EgressView {
 
 export interface PreviewEgressDeps {
   getStatic(id: string): StaticTarget | undefined;
+  /** The cwd of the session that opened an in-memory preset (port) target, when still known. */
+  presetCwdOf?(id: string): string | undefined;
   /** The project a working directory belongs to (git common root, else cwd). Cached here. */
   projectKeyOf(cwd: string): string;
   /** Origins granted for a project (read live: a revoke applies on the next call). */
@@ -217,16 +219,17 @@ export function createPreviewEgress(deps: PreviewEgressDeps): PreviewEgress {
   const own = (extra?: readonly string[]): readonly string[] => [...(deps.ownOrigins?.() ?? []), ...(extra ?? [])];
 
   const projectKeyFor = (grant: LiveCapabilityGrant): string | null => {
-    const target = deps.getStatic(grant.targetId);
-    if (!target) return null;
-    let key = projectKeys.get(target.cwd);
+    // A static target carries its cwd; a preset port target borrows its opening session's.
+    const cwd = deps.getStatic(grant.targetId)?.cwd ?? deps.presetCwdOf?.(grant.targetId);
+    if (!cwd) return null;
+    let key = projectKeys.get(cwd);
     if (key === undefined) {
       try {
-        key = deps.projectKeyOf(target.cwd);
+        key = deps.projectKeyOf(cwd);
       } catch {
-        key = target.cwd;
+        key = cwd;
       }
-      projectKeys.set(target.cwd, key);
+      projectKeys.set(cwd, key);
       while (projectKeys.size > 256) {
         const oldest = projectKeys.keys().next().value;
         if (oldest === undefined) break;

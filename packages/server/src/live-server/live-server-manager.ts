@@ -53,6 +53,8 @@ export interface LiveServerManager {
   get(id: string): LiveServerTarget | undefined;
   /** A registered STATIC target. */
   getStatic(id: string): StaticTarget | undefined;
+  /** The session that registered an in-memory preset target (undefined for user/legacy targets). */
+  presetSessionOf(id: string): string | undefined;
   /** Is `id` a live target of either kind? */
   has(id: string): boolean;
   /** Every port target (persisted and preset), each with `addedBy`. Static targets are not listed. */
@@ -226,6 +228,9 @@ export function createLiveServerManager(
     },
     get(id) {
       return persisted.get(id) ?? presets.get(id)?.target;
+    },
+    presetSessionOf(id) {
+      return presets.get(id)?.sessionId || undefined;
     },
     getStatic(id) {
       return statics.get(id)?.target;
