@@ -1,0 +1,3 @@
+# update-checker.ts — index
+
+Checks outdated pi/openspec versions. Exports `OutdatedPackage`, `checkOutdated(starter)` (Standalone→global, Electron/unknown→managed `~/.pi-dashboard`), `updatePackage()`, `startUpdateChecker()` (30s initial + 24h interval). Starter from `/api/health`; Bridge skips. Delegates npm calls to shared `platform/npm.ts`. `PACKAGES_TO_CHECK` = earendil pi + openspec (fork never checked). See change: drop-mariozechner-pi-fork. Strategy derived via `starterFromHealth` (Bridge skips, Standalone → npm, Electron/unknown → managed). See change: fix-cli-control-electron-server.

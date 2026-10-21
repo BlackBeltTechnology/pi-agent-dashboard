@@ -185,7 +185,16 @@ Runtime identity env (`runtimeIdentityEnv()`): `PI_DASHBOARD_RUNTIME_ID`, `PI_DA
 
 ## Zombie adoption
 
-Electron `attach` arm runs `maybePromptZombieAdoption()` (in `packages/electron/src/main.ts`) after BrowserWindow created. Detects leftover server from prior Electron lifetime via `decideIsZombie(...)` in `packages/electron/src/lib/server-lifecycle.ts`.
+Electron `attach` arm runs `void attachEvaluator.evaluate()` (`createAttachEvaluator(deps)` in `packages/electron/src/lib/attach-evaluation.ts`; deps injected, wired in `packages/electron/src/main.ts`) after BrowserWindow created. Window opens first; evaluation fire-and-forget.
+
+Flow per evaluation:
+
+- One `GET /api/health`. Unreachable → silent, logged `health-unreachable`.
+- `decideIsZombie(...)` (`packages/electron/src/lib/server-lifecycle.ts`).
+- `resolveExpectedRuntime()` (`packages/electron/src/lib/runtime-overlay-main.ts`). Read-only twin of cold launch: `peekColdLaunch` + `selectLaunchSource({skipAttach:true})` + `readRuntimeManifest`. Zero writes. dev / localLink / missing manifest / error → expected version `null`.
+- Pure `decideAttachAction` (`packages/electron/src/lib/server-lifecycle.ts`) → at most one modal.
+
+Zombie detection gates below unchanged.
 
 Common gates (all platforms): `health.launchSourceEffective === "electron"` AND `storedSpawnedPid === null`.
 
@@ -198,24 +207,74 @@ Common gates (all platforms): `health.launchSourceEffective === "electron"` AND 
 - Tier 1: `isProcessAlive(bootParentPid)` all platforms, PID-reuse-vulnerable.
 - Tier 2: win32-only optional `koffi` FFI holds `SYNCHRONIZE` `OpenProcess` handle + `WaitForSingleObject(h,0)`, PID-reuse-safe, falls back to Tier 1.
 
-Modal: `promptZombieAdoption({pid})` (`packages/electron/src/lib/zombie-adoption-dialog.ts`), 3 buttons, default "Leave running".
+Zombie modal: `promptZombieAdoption({pid})` (`packages/electron/src/lib/zombie-adoption-dialog.ts`), 3 buttons, default "Leave running". Shown when zombie AND no version skew (`zombie` action).
 
 | Button | Action |
 |---|---|
 | Take ownership | `setSpawnedPid(health.pid)`; subsequent quit stops server. |
-| Leave running | In-memory `zombieAskedThisSession` flag; no re-prompt this process lifetime; re-evaluated next launch. |
-| Stop now | `stopZombieServer` (SIGTERM → poll ≤5 s → SIGKILL), re-enter `selectLaunchSource()`, spawn fresh server, reload BrowserWindow after positive health probe. |
+| Leave running | Evaluator-lifetime flag (replaces `zombieAskedThisSession`); no re-prompt this process lifetime; re-evaluated next launch. |
+| Stop now | `stopZombieServer` ladder (SIGTERM 5 s → SIGKILL +2 s). Returns `true` only when PID confirmed gone. Failure → notice, no respawn. |
 
-`--no-zombie-prompt` switch suppresses modal (detection still runs for logging). Used by QA.
+`--no-zombie-prompt` suppresses modal; decision still computed (see [Attach-time version skew](#attach-time-version-skew) logging).
 
 ```mermaid
 flowchart TD
-  A[attach arm: BrowserWindow created] --> B[maybePromptZombieAdoption]
-  B --> C{decideIsZombie}
-  C -->|common gates fail| Z[no prompt]
-  C -->|POSIX/Windows final gate fails| Z
-  C -->|zombie| M[promptZombieAdoption]
+  A[attach arm: BrowserWindow created] --> B[attachEvaluator.evaluate]
+  B --> H[GET /api/health]
+  H -->|unreachable| Q[silent, log health-unreachable]
+  H --> C{decideIsZombie}
+  C -->|zombie| E{version skew?}
+  C -->|not zombie| E
+  E -->|zombie, no skew| M[promptZombieAdoption]
+  E -->|zombie + skew| MM[skew-zombie-merged]
+  E -->|electron, skew| SR[skew-restart]
+  E -->|other source, skew| SI[skew-info, never stops]
+  E -->|no skew| Z[no prompt]
   M -->|Take ownership| O[setSpawnedPid]
-  M -->|Leave running| L[zombieAskedThisSession]
-  M -->|Stop now| S[stopZombieServer → selectLaunchSource → spawn → reload]
+  M -->|Leave running| L[evaluator flag]
+  M -->|Stop now| S[stopZombieServer]
 ```
+
+## Attach-time version skew
+
+Runs inside the same evaluation as zombie adoption. Compares health server version vs expected packaged-runtime version. See change: electron-attach-version-skew.
+
+Version normalise:
+
+- trim, strip leading `v`.
+- empty / `unknown` → unknown.
+- any inequality = skew. No semver ordering.
+- skew requires packaged app AND both versions known.
+
+Decision matrix (`decideAttachAction`):
+
+| Zombie | Skew | Launch source (effective) | Action | Modal buttons |
+|---|---|---|---|---|
+| yes | no | any | `zombie` | Take ownership, Leave running, Stop now |
+| yes | yes | any | `skew-zombie-merged` | Restart with v`<expected>`, Take ownership, Leave running |
+| no | yes | `electron` | `skew-restart` | Restart with v`<expected>`, Leave running |
+| no | yes | other / unknown | `skew-info` | OK, Don't show again for this version pair |
+| no | no | any | none | none |
+
+- `skew-restart` default = Restart only when `bootParentAlive === false`; else Leave running.
+- `skew-info` never stops server.
+- `skew-info` text: shared `attachedServerVersionSuggestion` (`doctor-core.ts`) + disclosure line when expected ≠ shell version.
+- "Leave running" / "OK" → evaluator-lifetime flag.
+- "Don't show again" → persists `{server, expected, launchSource, at}` to `~/.pi-dashboard/version-skew-dismissals.json`. FIFO 20, dedupe, tmp+rename. Never `dashboard-settings.json`. Key includes launch source.
+
+Restart (`requestServerLaunch({force:true})`; also tray "Restart server"):
+
+1. Re-fetch health. Abort + notice if `pid` / `bootParentPid` / `launchSourceEffective` changed, or version already expected.
+2. Read old PID from health.
+3. Graceful `POST /api/shutdown` (local proof).
+4. Poll PID ≤5 s via `isProcessAlive(pid, {epermAlive:true})` (EPERM = alive).
+5. `stopZombieServer` ladder: SIGTERM (5 s) → SIGKILL (+2 s).
+6. PID survives → `failed`, no spawn.
+7. Foreign server still on port → `failed`, never `started`.
+8. `started` → health `pid` must equal `getStoredSpawnedPid()` and `launchSourceEffective === "electron"`, else recovery page.
+9. Actual version ≠ promised → notice.
+10. Reload window.
+
+Doctor row unchanged (shell-version based). May disagree with this check while overlay active.
+
+`--no-zombie-prompt`: decision computed, modal suppressed. One `[attach-check]` log line per evaluation → `$TMP/pi-dashboard-electron.log`. Fields: server raw+normalised, expected raw+normalised, launchSource, effective, zombie, action.

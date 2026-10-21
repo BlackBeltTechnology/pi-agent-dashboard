@@ -1,0 +1,3 @@
+# server-discovery.ts — index
+
+Pure helpers: `shortFingerprint` (`sha256:` + 16 chars), `isFingerprint`, `serverOrigin` (brackets IPv6), `partitionFor(fp, remembered)` (`persist:`? + `server-<32hex sha256>`), `resolveExpectedFingerprint`/`identityVerdict` (pin ?? advert; both+differ ⇒ mismatch), `buildCandidates` (stored https → stored http → discovered, cap 3), `pickVerifiedHost` (concurrent, 5 s deadline), `describeDiscovered` (drops local, labels clone of local fp). `createServerDiscovery` wraps shared `createBrowser` (app-lifetime). Re-exports `sanitizeDisplayName`. See change: add-electron-server-windows (D3, D6, D10).

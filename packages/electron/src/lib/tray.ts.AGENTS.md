@@ -1,0 +1,3 @@
+# tray.ts — index
+
+System tray with platform-specific icons (template on macOS, ico/png on Win/Linux). See change: electron-server-launch-controls. Ownership-aware menu: pure `buildTrayMenuTemplate({ownership, onLaunch, onShow, onQuit})` (exported for tests) keyed on `TrayOwnership` (`electron\|foreign\|none\|unknown`) — `electron`→Restart, `none`→Start, `foreign`→disabled "Server managed externally" row, `unknown`→omit. `createTray` hook takes `getServerOwnership(): Promise<TrayOwnership>` polled every 3s (rebuild on change via `lastOwnership`). See change: electron-attach-ownership-fixes. `buildTrayMenuTemplate` takes optional `servers` item; menu rebuilds on keyring change. See change: add-electron-server-windows.

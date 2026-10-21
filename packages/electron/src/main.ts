@@ -92,8 +92,10 @@ if (disableGpu) {
 log("Importing lib modules...");
 
 import fs from "node:fs";
+import { isProcessAlive } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
 import { handleCheckForUpdates, setupAppMenu, showDoctorDialog } from "./lib/app-menu.js";
 import { downloadAndInstall, initAutoUpdater, quitAndInstall } from "./lib/app-updater.js";
+import { createAttachEvaluator } from "./lib/attach-evaluation.js";
 import { registerBundledBridgeExtension } from "./lib/bridge-register.js";
 import { startBrowserHost } from "./lib/browser-host/electron-main.js";
 import type { BrowserHost } from "./lib/browser-host/ipc.js";
@@ -109,10 +111,10 @@ import type { SwitchResult } from "./lib/runtime-overlay.js";
 import {
   type RuntimeSwitchContext,
   resolveAndSpawnRuntime,
+  resolveExpectedRuntime,
   startActivationWatcher,
 } from "./lib/runtime-overlay-main.js";
 import {
-  decideIsZombie,
   decideOwnership,
   getStoredSpawnedPid,
   isGracefulShutdownInProgress,
@@ -131,8 +133,15 @@ import { createTray, destroyTray, type TrayOwnership } from "./lib/tray.js";
 import { startUpdateChecker } from "./lib/update-checker.js";
 import { notifyUpdatesAvailable } from "./lib/update-notifier.js";
 import { loadWindowState, saveWindowState } from "./lib/window-state.js";
-import { readModeFile } from "./lib/wizard-state.js";
-import { promptZombieAdoption, stopZombieServer } from "./lib/zombie-adoption-dialog.js";
+import { addDismissedVersionSkew, readDismissedVersionSkews, readModeFile } from "./lib/wizard-state.js";
+import {
+  notifyRestartOutcome,
+  promptMergedZombieSkew,
+  promptVersionSkewInfo,
+  promptVersionSkewRestart,
+  promptZombieAdoption,
+  stopZombieServer,
+} from "./lib/zombie-adoption-dialog.js";
 
 log("All imports loaded");
 
@@ -217,12 +226,6 @@ function startRuntimeActivationWatcher(ctx: RuntimeSwitchContext): void {
   startActivationWatcher(ctx, notifyRuntimeSwitch);
 }
 
-// Zombie-adoption modal: in-memory "already asked this launch" guard so a
-// user who picks "Leave running" is not re-prompted by any later re-evaluation
-// this process lifetime. Reset only on the next Electron launch.
-// See change: electron-attach-ownership-fixes.
-let zombieAskedThisSession = false;
-
 /**
  * Ownership probe for the tray. GET /api/health with a 1 s timeout; classifies
  * via `decideOwnership`. Returns "unknown" on fetch error or non-200 so the
@@ -251,105 +254,107 @@ async function getServerOwnership(): Promise<TrayOwnership> {
 }
 
 /**
- * On the attach arm: detect a leftover server from a prior Electron lifetime
- * and offer adoption. Suppressed under --no-zombie-prompt (detection still
- * runs for logging). See change: electron-attach-ownership-fixes.
+ * Respawn the current runtime after a confirmed zombie stop, then reload the
+ * window once the fresh server answers health.
  */
-async function maybePromptZombieAdoption(): Promise<void> {
-  if (zombieAskedThisSession) return;
+async function respawnAfterZombieStop(): Promise<void> {
   const config = loadMinimalConfig();
-  let body: Record<string, unknown>;
-  try {
-    const res = await fetch(`http://localhost:${config.port}/api/health`, {
-      signal: AbortSignal.timeout(1000),
-    });
-    if (!res.ok) return;
-    body = await res.json() as Record<string, unknown>;
-  } catch {
-    return;
-  }
-  const healthPid = typeof body.pid === "number" ? body.pid : undefined;
-  const isZombie = decideIsZombie({
-    healthLaunchSourceEffective:
-      typeof body.launchSourceEffective === "string" ? (body.launchSourceEffective as any) : null,
-    healthPid,
-    healthPpid: typeof body.ppid === "number" ? body.ppid : undefined,
-    healthBootParentPid: typeof body.bootParentPid === "number" ? body.bootParentPid : undefined,
-    healthBootParentAlive: typeof body.bootParentAlive === "boolean" ? body.bootParentAlive : undefined,
-    storedSpawnedPid: getStoredSpawnedPid(),
-    platform: process.platform,
+  // Runtime-overlay aware: respawn the current runtime, not always the bundle.
+  // See change: electron-runtime-overlay-updates.
+  const launched = await resolveAndSpawnRuntime({
+    resolver: {
+      isPackaged: app.isPackaged,
+      cwd: process.cwd(),
+      preferOverride: parsePreferOverride(process.env),
+      resourcesPath: (process as { resourcesPath?: string }).resourcesPath ?? "",
+      port: config.port,
+    },
+    port: config.port,
+    piPort: config.piPort,
+    logFile: path.join(os.homedir(), ".pi", "dashboard", "server.log"),
+    shellVersion: app.getVersion(),
+    log,
+    registerBundledExtension: registerBundledBridgeExtension,
+    onChildExit: (code, signal, pid) => serverExitWatchdog(pid)(code, signal),
   });
-  if (!isZombie || healthPid === undefined) return;
-  log(`[zombie] detected leftover server PID ${healthPid}`);
+  if (launched.kind === "spawned") {
+    setSpawnedPid(launched.pid);
+    log(`[zombie] respawned server pid=${launched.pid}`);
+  }
+  // Reload the window only after the fresh server passes a health probe.
+  // Gate on an explicit success flag: a bare deadline break would reload the
+  // window against a not-yet-ready server, reproducing the connection-refused
+  // page this path exists to avoid.
+  const deadline = Date.now() + 15_000;
+  let healthy = false;
+  while (Date.now() < deadline) {
+    if ((await isDashboardRunning(config.port)).running) { healthy = true; break; }
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  if (healthy && mainWindow && !mainWindow.isDestroyed()) {
+    loadWithLocalProof(mainWindow, `http://localhost:${config.port}`, { host: loadMinimalConfig().host }).catch((e) => log(`[zombie] loadURL failed: ${e?.message || e}`));
+  } else if (mainWindow && !mainWindow.isDestroyed()) {
+    log("[zombie] respawned server did not become healthy within 15s; leaving current page");
+  }
+}
 
-  if (app.commandLine.hasSwitch("no-zombie-prompt")) {
-    log("[zombie] --no-zombie-prompt set; skipping modal");
-    return;
-  }
-
-  const choice = await promptZombieAdoption({ pid: healthPid });
-  if (choice === "adopt") {
-    setSpawnedPid(healthPid);
-    log(`[zombie] adopted PID ${healthPid}`);
-    return;
-  }
-  if (choice === "leave") {
-    zombieAskedThisSession = true;
-    log("[zombie] left running, will prompt next launch");
-    return;
-  }
-  // "stop": SIGTERM → SIGKILL, then respawn a fresh server + reload the window
-  // (which was pointed at the now-killed server's URL).
-  log(`[zombie] stopping PID ${healthPid} and respawning`);
-  await stopZombieServer(healthPid, {
-    // Signal a specific pid (not a group) — the injected fn drives the
-    // stopZombieServer SIGTERM→poll→SIGKILL ladder.
-    kill: (pid, signal) => process.kill(pid, signal), // ban:process-kill-ok
-    isRunning: async () => (await isDashboardRunning(config.port)).running,
-    sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
-  });
-  try {
-    // Runtime-overlay aware: respawn the current runtime, not always the bundle.
-    // See change: electron-runtime-overlay-updates.
-    const launched = await resolveAndSpawnRuntime({
+/**
+ * Attach-arm evaluation: zombie detection + version skew in one pass, at most
+ * one modal. Suppressed under --no-zombie-prompt (decision still logged).
+ * See change: electron-attach-ownership-fixes, electron-attach-version-skew.
+ */
+const attachEvaluator = createAttachEvaluator({
+  shellVersion: app.getVersion(),
+  isPackaged: app.isPackaged,
+  platform: process.platform,
+  get noPrompt() { return app.commandLine.hasSwitch("no-zombie-prompt"); },
+  fetchHealth: async () => {
+    try {
+      const res = await fetch(`http://localhost:${loadMinimalConfig().port}/api/health`, { signal: AbortSignal.timeout(1000) });
+      return res.ok ? ((await res.json()) as Record<string, unknown>) : null;
+    } catch {
+      return null;
+    }
+  },
+  resolveExpected: () =>
+    resolveExpectedRuntime({
       resolver: {
         isPackaged: app.isPackaged,
         cwd: process.cwd(),
         preferOverride: parsePreferOverride(process.env),
         resourcesPath: (process as { resourcesPath?: string }).resourcesPath ?? "",
-        port: config.port,
+        port: loadMinimalConfig().port,
       },
-      port: config.port,
-      piPort: config.piPort,
-      logFile: path.join(os.homedir(), ".pi", "dashboard", "server.log"),
       shellVersion: app.getVersion(),
-      log,
-      registerBundledExtension: registerBundledBridgeExtension,
-      onChildExit: (code, signal, pid) => serverExitWatchdog(pid)(code, signal),
-    });
-    if (launched.kind === "spawned") {
-      setSpawnedPid(launched.pid);
-      log(`[zombie] respawned server pid=${launched.pid}`);
+    }),
+  getStoredSpawnedPid,
+  setSpawnedPid,
+  readDismissals: readDismissedVersionSkews,
+  addDismissal: addDismissedVersionSkew,
+  dialogs: {
+    zombie: promptZombieAdoption,
+    restart: promptVersionSkewRestart,
+    merged: promptMergedZombieSkew,
+    info: promptVersionSkewInfo,
+    notify: notifyRestartOutcome,
+  },
+  stopZombie: (pid) =>
+    stopZombieServer(pid, {
+      // Signal a specific pid (not a group) — SIGTERM→poll→SIGKILL→poll ladder.
+      kill: (p, signal) => process.kill(p, signal), // ban:process-kill-ok
+      isAlive: (p) => isProcessAlive(p, { epermAlive: true }),
+      sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+    }),
+  respawnAndReload: respawnAfterZombieStop,
+  requestServerLaunch,
+  reloadWindow: () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      loadWithLocalProof(mainWindow, `http://localhost:${loadMinimalConfig().port}`, { host: loadMinimalConfig().host }).catch((e) => log(`[attach-check] loadURL failed: ${e?.message || e}`));
     }
-    // Reload the window only after the fresh server passes a health probe.
-    // Gate on an explicit success flag: a bare deadline break would reload the
-    // window against a not-yet-ready server, reproducing the connection-refused
-    // page this path exists to avoid.
-    const deadline = Date.now() + 15_000;
-    let healthy = false;
-    while (Date.now() < deadline) {
-      if ((await isDashboardRunning(config.port)).running) { healthy = true; break; }
-      await new Promise((r) => setTimeout(r, 200));
-    }
-    if (healthy && mainWindow && !mainWindow.isDestroyed()) {
-      loadWithLocalProof(mainWindow, `http://localhost:${config.port}`, { host: loadMinimalConfig().host }).catch((e) => log(`[zombie] loadURL failed: ${e?.message || e}`));
-    } else if (mainWindow && !mainWindow.isDestroyed()) {
-      log("[zombie] respawned server did not become healthy within 15s; leaving current page");
-    }
-  } catch (err: any) {
-    log(`[zombie] respawn failed: ${err?.message || err}`);
-  }
-}
+  },
+  showRecovery: showServerRecovery,
+  log,
+});
 
 /** Show a splash screen immediately while the app boots. */
 function showSplash(): void {
@@ -854,7 +859,7 @@ async function main(): Promise<void> {
       // Detect + offer adoption of a leftover server from a prior Electron
       // lifetime. Fire-and-forget; the modal is non-blocking for startup.
       // See change: electron-attach-ownership-fixes.
-      void maybePromptZombieAdoption();
+      void attachEvaluator.evaluate();
       startRuntimeActivationWatcher(runtimeCtx);
       return;
     }

@@ -14,6 +14,7 @@ import path from "node:path";
 import url from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  attachedServerVersionSuggestion,
   checkAttachedServerVersion,
   type DoctorCheck,
   type DoctorStatus,
@@ -621,5 +622,30 @@ describe("TypeScript loader row checks the native register module (E30, #E20)", 
     expect(src).not.toMatch(/(which|where) tsx/);
     expect(src).not.toMatch(/(tryResolvePkg|resolvePackageJson)\(\s*"(tsx|jiti)"/);
     expect(src).not.toMatch(/"node_modules",\s*"(tsx|jiti)"/);
+  });
+});
+
+describe("attachedServerVersionSuggestion (E21)", () => {
+  const app = "0.10.0";
+  const expected: Array<[string | undefined, string]> = [
+    ["standalone", "Run `npm i -g @blackbelt-technology/pi-dashboard@0.10.0` and restart your terminal session."],
+    ["bridge", "Stop the pi session that started this server (or run `pi-dashboard stop`) and relaunch the app."],
+    ["bridge-orphaned", "Stop the pi session that started this server (or run `pi-dashboard stop`) and relaunch the app."],
+    ["electron", "Quit the other Electron instance or use the zombie-adoption prompt to take ownership."],
+    [
+      undefined,
+      "The attached server's version differs from this app bundle. Determine how that server was started (npm, a pi session, or another app) and update it from there.",
+    ],
+  ];
+
+  it.each(expected)("launch source %s keeps today's literal text", async (ls, text) => {
+    expect(attachedServerVersionSuggestion(ls, app)).toBe(text);
+    const row = await checkAttachedServerVersion({
+      appVersion: app,
+      healthFetcher: async () => ({ version: "0.9.0", launchSource: ls }),
+    });
+    expect(row.suggestion).toBe(text);
+    expect(row.message).toBe("Dashboard server reports v0.9.0; this app bundle is v0.10.0");
+    expect(row.detail).toBe(`launchSource: ${ls ?? "unknown"}`);
   });
 });
