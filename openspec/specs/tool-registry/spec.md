@@ -152,7 +152,7 @@ otherwise required to be identical — `npm` has no `managedBin` step, and `npm`
 #### Scenario: bash strategy chain
 
 - **WHEN** `registry.resolve("bash")` runs
-- **THEN** strategies SHALL be tried in order: `override`, `managed` (`MANAGED_BIN/bash`), `where` (delegating to `ToolResolver.which("bash")`)
+- **THEN** strategies SHALL be tried in order: `override`, `bundled-git-bash` (win32 only: `<resourcesPath>\git\usr\bin\bash.exe` when the bundled git tree exists; fails fast on other platforms), `managed` (`MANAGED_BIN/bash`), `where` (delegating to `ToolResolver.which("bash")`)
 - **AND** the `managed` slot SHALL be retained for chain uniformity with other binary tools even though `bash` is not currently npm-installable (the archived `fix-doctor-stale-managed-install-check` already deprecated the false "managed install incomplete" Doctor advisory)
 
 ### Requirement: Source classification
@@ -372,11 +372,23 @@ A repo-level vitest test SHALL exist at `packages/shared/src/__tests__/no-hardco
 
 ### Requirement: `bash` is a registered binary tool
 
-The registry SHALL ship with a `bash` definition of `kind: "binary"`. The definition SHALL be registered on every platform (`darwin`, `linux`, `win32`). `bash` is a meaningful concept on all three even when the resolved path differs (`/bin/bash`, `/opt/homebrew/bin/bash`, `C:\Program Files\Git\bin\bash.exe`). The definition SHALL use the stock binary strategy chain: `override`, `managed` (`MANAGED_BIN/bash`), `where` (delegating to `ToolResolver.which("bash")`).
+The registry SHALL ship with a `bash` definition of `kind: "binary"`. The definition SHALL be registered on every platform (`darwin`, `linux`, `win32`). `bash` is a meaningful concept on all three even when the resolved path differs (`/bin/bash`, `/opt/homebrew/bin/bash`, `C:\Program Files\Git\bin\bash.exe`, the Electron bundle's `usr\bin\bash.exe`). The definition SHALL use the strategy chain `override`, `bundled-git-bash`, `managed` (`MANAGED_BIN/bash`), `where` (delegating to `ToolResolver.which("bash")`). The `bundled-git-bash` strategy SHALL resolve only a file named `bash.exe`; a bundle that ships only `sh.exe` SHALL NOT satisfy it.
+
+#### Scenario: bash resolves to the bundled bash.exe on Windows Electron
+
+- **WHEN** `registry.resolve("bash")` runs on `win32` with no override AND the bundled git tree contains `usr\bin\bash.exe`
+- **THEN** the `bundled-git-bash` strategy SHALL succeed with that path
+- **AND** `Resolution.source` SHALL equal `"bundled"`
+
+#### Scenario: bundle with only sh.exe falls through
+
+- **WHEN** `registry.resolve("bash")` runs on `win32` AND the bundled git tree contains `usr\bin\sh.exe` but no `usr\bin\bash.exe`
+- **THEN** the `bundled-git-bash` strategy SHALL record `{ ok: false }` naming the missing `bash.exe`
+- **AND** resolution SHALL continue with `managed` and `where`
 
 #### Scenario: bash resolves via PATH on a system with Git-for-Windows
 
-- **WHEN** `registry.resolve("bash")` runs on `win32`
+- **WHEN** `registry.resolve("bash")` runs on `win32` with no bundled git tree
 - **AND** Git-for-Windows is installed so `bash.exe` is on PATH
 - **THEN** the `where` strategy SHALL succeed
 - **AND** `Resolution.path` SHALL be the absolute path returned by `ToolResolver.which("bash")`
@@ -391,7 +403,7 @@ The registry SHALL ship with a `bash` definition of `kind: "binary"`. The defini
 
 #### Scenario: bash not found on a host without Git-for-Windows or WSL on PATH
 
-- **WHEN** `registry.resolve("bash")` runs on a host where no override is set, no managed install holds `bash`, and `bash` is not on PATH
+- **WHEN** `registry.resolve("bash")` runs on a host where no override is set, no bundled `bash.exe` exists, no managed install holds `bash`, and `bash` is not on PATH
 - **THEN** every strategy SHALL record `{ ok: false, reason: <descriptive string> }`
 - **AND** `Resolution.ok` SHALL be `false`
 - **AND** `Resolution.path` SHALL be `null`
