@@ -1,0 +1,8 @@
+import Fastify from "fastify";
+import fs from "node:fs";
+import { isAllowedCwd } from "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js";
+const app = Fastify();
+const known = () => ["/a"];
+app.get("/guarded", async (req: any) => { const c = req.query.cwd; if (isAllowedCwd(c, known)) { return fs.readFileSync(c + "/x"); } return null; });
+app.get("/unguarded", async (req: any) => { const c = req.query.cwd; return fs.readFileSync(c + "/z"); });
+app.listen({ port: 1 });
