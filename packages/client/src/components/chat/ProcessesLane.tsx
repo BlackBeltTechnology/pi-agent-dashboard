@@ -54,9 +54,15 @@ export interface ProcessesLaneResult {
 
 /** Scans after Kill (counting the first) that still list the group before `Still running`. */
 const SCANS_BEFORE_STILL_RUNNING = 3;
+/**
+ * The bridge sends `process_list` only when the PID set changes, so a Kill the group ignores
+ * produces no further update at all. Past this long with the group still listed the row
+ * escalates on the clock instead of waiting for scans that will never come.
+ */
+export const KILL_STILL_RUNNING_MS = 8_000;
 
 const EMPTY_PROCESSES: readonly ProcessEntry[] = [];
-const EMPTY_PROGRESS: ReadonlyMap<number, number> = new Map();
+const EMPTY_PROGRESS: ReadonlyMap<number, KillEntry> = new Map();
 const TIME_TOKEN = "\u0001";
 
 /** Leaf: owns its 1 s tick; `aria-hidden` so no accessible name carries clock text. */
@@ -124,32 +130,41 @@ function usePluginSummaries() {
   return { summaries, onReportSummary };
 }
 
-/** Kill progress: pgid → post-Kill scans that still list it. One scan = a new `scanned` identity. */
+interface KillEntry {
+  /** Post-Kill scans that still list the group. One scan = a new `scanned` identity. */
+  scans: number;
+  /** When Kill was pressed (epoch ms). */
+  at: number;
+}
+
+/** Kill progress: pgid → scans that still list it, or the clock once `KILL_STILL_RUNNING_MS` passed. */
 function useKillProgress(scanned: readonly ProcessEntry[], onKill: (pgid: number) => void) {
-  const [progress, setProgress] = useState<ReadonlyMap<number, number>>(EMPTY_PROGRESS);
+  const [progress, setProgress] = useState<ReadonlyMap<number, KillEntry>>(EMPTY_PROGRESS);
+  // Ticks only while a Kill is pending, so an idle dock re-renders nothing.
+  const now = useNow(progress.size > 0);
   useEffect(() => {
     setProgress((prev) => {
       if (prev.size === 0) return prev;
       const present = new Set(scanned.map((p) => p.pgid));
-      const next = new Map<number, number>();
-      for (const [pgid, scans] of prev) if (present.has(pgid)) next.set(pgid, scans + 1);
+      const next = new Map<number, KillEntry>();
+      for (const [pgid, entry] of prev) if (present.has(pgid)) next.set(pgid, { ...entry, scans: entry.scans + 1 });
       return next;
     });
   }, [scanned]);
   const handleKill = useCallback(
     (pgid: number) => {
-      setProgress((prev) => new Map(prev).set(pgid, 0));
+      setProgress((prev) => new Map(prev).set(pgid, { scans: 0, at: Date.now() }));
       onKill(pgid);
     },
     [onKill],
   );
   const killStage = useCallback(
     (pgid: number): KillStage => {
-      const scans = progress.get(pgid);
-      if (scans === undefined) return "idle";
-      return scans >= SCANS_BEFORE_STILL_RUNNING ? "still-running" : "stopping";
+      const entry = progress.get(pgid);
+      if (entry === undefined) return "idle";
+      return entry.scans >= SCANS_BEFORE_STILL_RUNNING || now - entry.at >= KILL_STILL_RUNNING_MS ? "still-running" : "stopping";
     },
-    [progress],
+    [progress, now],
   );
   return { killStage, handleKill };
 }

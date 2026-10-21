@@ -188,18 +188,69 @@ function LaneRow({
   );
 }
 
+/**
+ * One lane's compact sheet: header (title, meta, actions) plus body while open. A `hideWhenEmpty`
+ * lane keeps its sheet mounted-but-`hidden` while closed so its claims can report whether they render
+ * anything: the row layout learns this from the actions region, and the chip must follow the same
+ * rule (an empty claim leaves no label, no focusable chip).
+ */
+function CompactSheet({
+  lane,
+  open,
+  sheetId,
+  onEmptyChange,
+}: {
+  lane: DockLane;
+  open: boolean;
+  sheetId: string;
+  onEmptyChange: (key: DockLaneKey, empty: boolean) => void;
+}) {
+  const laneKey = lane.key;
+  const actionsEmpty = useActionsEmpty(
+    !!lane.hideWhenEmpty,
+    useCallback((empty: boolean) => onEmptyChange(laneKey, empty), [onEmptyChange, laneKey]),
+  );
+  return (
+    <div
+      id={open ? sheetId : undefined}
+      role="group"
+      aria-label={lane.label}
+      data-testid={open ? "composer-dock-sheet" : `composer-dock-sheet-probe-${lane.key}`}
+      data-dock-lane={lane.key}
+      hidden={!open || actionsEmpty.empty || undefined}
+      className="border-t border-[var(--border-subtle)]"
+    >
+      <div className="flex min-h-10 items-center gap-1.5 pl-3 pr-2 text-xs max-md:min-h-11">
+        <span className="min-w-0 shrink-[0.5] truncate font-semibold">{lane.title}</span>
+        {lane.meta !== undefined && (
+          <span className="min-w-0 flex-1 truncate tabular-nums text-[var(--text-secondary)]">{lane.meta}</span>
+        )}
+        {lane.actions !== undefined && (
+          <div ref={actionsEmpty.ref} className="ml-auto flex flex-none items-center gap-1">
+            {lane.actions}
+          </div>
+        )}
+      </div>
+      {open && lane.renderBody && <div className={`${LANE_BODY} pl-3`}>{lane.renderBody()}</div>}
+    </div>
+  );
+}
+
 function CompactDock({
   lanes,
   openLane,
   onOpenLaneChange,
+  emptyLanes,
+  onEmptyChange,
 }: {
   lanes: readonly DockLane[];
   openLane: DockLaneKey | null;
   onOpenLaneChange: (next: DockLaneKey | null) => void;
+  emptyLanes: ReadonlySet<DockLaneKey>;
+  onEmptyChange: (key: DockLaneKey, empty: boolean) => void;
 }) {
   const baseId = useId();
   const sheetId = `${baseId}-sheet`;
-  const open = lanes.find((l) => l.key === openLane);
   return (
     <>
       <div
@@ -208,47 +259,35 @@ function CompactDock({
         data-testid="composer-dock-chips"
         className="sticky top-0 z-[2] flex flex-wrap items-center gap-1 bg-[var(--bg-secondary)] px-2 py-1.5"
       >
-        {lanes.map((lane) => {
-          const expanded = lane.key === openLane;
-          return (
-            <button
-              key={lane.key}
-              type="button"
-              aria-expanded={expanded}
-              aria-controls={sheetId}
-              aria-label={t("dock.chipName", { lane: lane.label, summary: lane.summaryText }, "{lane}: {summary}")}
-              data-dock-toggle={lane.key}
-              data-testid={`composer-dock-chip-${lane.key}`}
-              onClick={() => onOpenLaneChange(expanded ? null : lane.key)}
-              className="focus-ring inline-flex min-h-8 items-center gap-1.5 rounded-full border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] px-2.5 text-xs font-semibold tabular-nums text-[var(--text-primary)] aria-expanded:border-[var(--accent)] aria-expanded:bg-[var(--accent-soft)] max-md:min-h-11 max-md:min-w-11 max-md:justify-center"
-            >
-              <span aria-hidden="true" className={LANE_ICON}>
-                {lane.icon}
-              </span>
-              <span>{lane.summary}</span>
-            </button>
-          );
-        })}
+        {lanes
+          .filter((lane) => !emptyLanes.has(lane.key))
+          .map((lane) => {
+            const expanded = lane.key === openLane;
+            return (
+              <button
+                key={lane.key}
+                type="button"
+                aria-expanded={expanded}
+                aria-controls={sheetId}
+                aria-label={t("dock.chipName", { lane: lane.label, summary: lane.summaryText }, "{lane}: {summary}")}
+                data-dock-toggle={lane.key}
+                data-testid={`composer-dock-chip-${lane.key}`}
+                onClick={() => onOpenLaneChange(expanded ? null : lane.key)}
+                className="focus-ring inline-flex min-h-8 items-center gap-1.5 rounded-full border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] px-2.5 text-xs font-semibold tabular-nums text-[var(--text-primary)] aria-expanded:border-[var(--accent)] aria-expanded:bg-[var(--accent-soft)] max-md:min-h-11 max-md:min-w-11 max-md:justify-center"
+              >
+                <span aria-hidden="true" className={LANE_ICON}>
+                  {lane.icon}
+                </span>
+                <span>{lane.summary}</span>
+              </button>
+            );
+          })}
       </div>
-      {open && (
-        <div
-          id={sheetId}
-          role="group"
-          aria-label={open.label}
-          data-testid="composer-dock-sheet"
-          data-dock-lane={open.key}
-          className="border-t border-[var(--border-subtle)]"
-        >
-          <div className="flex min-h-10 items-center gap-1.5 pl-3 pr-2 text-xs max-md:min-h-11">
-            <span className="min-w-0 shrink-[0.5] truncate font-semibold">{open.title}</span>
-            {open.meta !== undefined && (
-              <span className="min-w-0 flex-1 truncate tabular-nums text-[var(--text-secondary)]">{open.meta}</span>
-            )}
-            {open.actions !== undefined && <div className="ml-auto flex flex-none items-center gap-1">{open.actions}</div>}
-          </div>
-          {open.renderBody && <div className={`${LANE_BODY} pl-3`}>{open.renderBody()}</div>}
-        </div>
-      )}
+      {lanes.map((lane) => {
+        const open = lane.key === openLane;
+        if (!open && !lane.hideWhenEmpty) return null;
+        return <CompactSheet key={lane.key} lane={lane} open={open} sheetId={sheetId} onEmptyChange={onEmptyChange} />;
+      })}
     </>
   );
 }
@@ -328,7 +367,7 @@ function ComposerDockInner({
       : undefined;
   const toggle = (key: DockLaneKey) => onOpenLaneChange(effectiveOpen === key ? null : key);
   // Every lane renders nothing visible (claims that return `null`) and no footer: leave no chrome.
-  const allEmpty = !yoloLive && !compact && lanes.every((l) => emptyLanes.has(l.key));
+  const allEmpty = !yoloLive && lanes.every((l) => emptyLanes.has(l.key));
 
   return (
     <>
@@ -346,7 +385,13 @@ function ComposerDockInner({
         {lanes.length > 0 && (
           <div data-testid="composer-dock-scroll" className="min-h-0 flex-initial overflow-y-auto">
             {compact ? (
-              <CompactDock lanes={lanes} openLane={effectiveOpen} onOpenLaneChange={onOpenLaneChange} />
+              <CompactDock
+                lanes={lanes}
+                openLane={effectiveOpen}
+                onOpenLaneChange={onOpenLaneChange}
+                emptyLanes={emptyLanes}
+                onEmptyChange={onEmptyChange}
+              />
             ) : (
               lanes.map((lane) => (
                 <LaneRow

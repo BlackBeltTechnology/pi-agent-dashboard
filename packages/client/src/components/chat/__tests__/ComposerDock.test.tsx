@@ -11,7 +11,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { ComposerContextGroup } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { createSlotRegistry } from "@blackbelt-technology/dashboard-plugin-runtime/host";
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CommandInput } from "../CommandInput.js";
 import {
@@ -295,6 +295,22 @@ describe("compact mode (E6, F5, F11, P4)", () => {
     env.resize(1041);
     env.flush();
     expect(mode()).toBe("rows");
+  });
+
+  it("B1: a hideWhenEmpty lane whose claims render nothing leaves no chip in compact; content brings it back", async () => {
+    const env = installFrameAndResizeObserver();
+    const columnEl = makeColumn();
+    const empty = () => fakeLane("context", { expandable: false, hideWhenEmpty: true, actions: <div data-testid="claim-slot">{null}</div> });
+    const full = () =>
+      fakeLane("context", { expandable: false, hideWhenEmpty: true, actions: <div data-testid="claim-slot"><span>Quota</span></div> });
+    const { rerenderDock } = renderDock({ session: makeSession({ processes: [proc(1)] }), lanes: [empty()], columnEl });
+    env.resize(400);
+    env.flush();
+    expect(mode()).toBe("compact");
+    expect(screen.queryByTestId("composer-dock-chip-context")).toBeNull();
+    expect(screen.getByTestId("composer-dock-chip-processes")).toBeTruthy();
+    rerenderDock({ session: makeSession({ processes: [proc(1)] }), lanes: [full()], columnEl });
+    await waitFor(() => expect(screen.getByTestId("composer-dock-chip-context")).toBeTruthy());
   });
 
   it("every lane gets a chip with an accessible name naming lane and summary, including non-expandable ones", () => {

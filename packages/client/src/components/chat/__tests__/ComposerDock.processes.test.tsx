@@ -2,8 +2,9 @@
  * Processes lane core groups: sub-session link, Kill progress, Show, Open/Kill
  * wiring. Test-plan #F22 #X3. See change: add-composer-dock (task 3.1).
  */
-import { cleanup, fireEvent, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { KILL_STILL_RUNNING_MS } from "../ProcessesLane.js";
 import { bash, makeSession, proc, renderDock } from "./dock-harness.js";
 
 afterEach(cleanup);
@@ -79,6 +80,25 @@ describe("Kill progress (X3)", () => {
     fireEvent.click(killButton());
     expect(onKill).toHaveBeenCalledTimes(2);
     expect(rowFor("script-60105").textContent).toContain("Stopping…");
+  });
+
+  it("X3c: the bridge sends no process_list while the PID set is unchanged, so a Kill that is ignored escalates on the clock", () => {
+    vi.useFakeTimers();
+    try {
+      onKill.mockClear();
+      renderDock(base([proc(60105)]));
+      open();
+      fireEvent.click(killButton());
+      expect(rowFor("script-60105").textContent).toContain("Stopping…");
+      // No further scan arrives (the bridge only sends on a PID-set change): the clock decides.
+      act(() => {
+        vi.advanceTimersByTime(KILL_STILL_RUNNING_MS + 1_000);
+      });
+      expect(rowFor("script-60105").textContent).toContain("Still running");
+      expect(killButton().disabled).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("an unrelated re-render (same scan) does not advance the scan counter", () => {
