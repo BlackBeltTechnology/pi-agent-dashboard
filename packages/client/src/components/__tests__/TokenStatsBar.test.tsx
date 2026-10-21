@@ -1,9 +1,9 @@
-import { describe, it, expect, vi } from "vitest";
-import { render, fireEvent } from "@testing-library/react";
+import { fireEvent, render } from "@testing-library/react";
 import React from "react";
+import { describe, expect, it, vi } from "vitest";
+import type { TurnStat } from "../../lib/chat/event-reducer.js";
 import { ContextRing } from "../session/ContextRing.js";
 import { TokenStatsBar } from "../session/TokenStatsBar.js";
-import type { TurnStat } from "../../lib/chat/event-reducer.js";
 
 function makeTurn(overrides: Partial<TurnStat> = {}): TurnStat {
   return { input: 1000, output: 500, cacheRead: 3000, cacheWrite: 200, turnIndex: 0, ...overrides };

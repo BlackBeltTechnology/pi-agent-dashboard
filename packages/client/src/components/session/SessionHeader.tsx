@@ -1,7 +1,8 @@
 import type { CommandInfo, DashboardSession, ImageContent, OpenSpecChange } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { mdiArrowLeft, mdiDockLeft, mdiFileCompare, mdiPlayCircleOutline, mdiSourceFork, mdiViewGridOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import React, { useEffect, useRef, useState } from "react";
+import type React from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMobile } from "../../hooks/useMobile.js";
 import type { SessionState } from "../../lib/chat/event-reducer.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
@@ -99,6 +100,7 @@ function MobileHeader({ session, showBack, onBack, isRenaming, onConfirmRename, 
       <div className="flex items-center min-h-12" data-testid="mobile-header-row">
         {showBack && onBack && (
           <button
+            type="button"
             onClick={onBack}
             className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
             title={i18nT("common.goBack", undefined, "Go back")}
@@ -157,6 +159,101 @@ type SessionHeaderMobileActions = NonNullable<Props["mobileActions"]>;
 const CHIP_BTN =
   "inline-flex items-center gap-1.5 min-h-8 px-2.5 rounded-md border text-xs font-semibold whitespace-nowrap shrink-0 disabled:opacity-50 disabled:cursor-not-allowed";
 const CHIP_NEUTRAL = `${CHIP_BTN} border-[var(--border-secondary)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)]`;
+
+/** Meta line: tags, phase, pi version (or below-floor warning), clock, context ring. */
+function HeaderMeta({ session, allTags, onSetTags, tagEditSignal, usage, showContextRing }: {
+  session: DashboardSession;
+  allTags?: string[];
+  onSetTags?: (tags: string[]) => void;
+  tagEditSignal: number;
+  usage?: ContextUsageValue;
+  showContextRing: boolean;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0 text-xs text-[var(--text-secondary)]" data-testid="session-header-meta">
+      {onSetTags && (
+        <>
+          <TagEditor tags={session.tags ?? []} allTags={allTags ?? []} onChange={onSetTags} openSignal={tagEditSignal} />
+          {session.openspecPhase && <TagChip label={session.openspecPhase} variant="exec" />}
+        </>
+      )}
+      {/* pi version the session actually runs, reported by the bridge.
+          See change: restore-pi-version-skew-surface. */}
+      {session.piBelowFloor ? (
+        // See change: update-pi-core-1-0-adopt-apis.
+        <PiBelowFloorWarning session={session} />
+      ) : (
+        session.piVersion && (
+          <span className="@max-[760px]:hidden" title="pi version" data-testid="session-header-pi-version">
+            pi {session.piVersion}
+          </span>
+        )
+      )}
+      <SessionClock startedAt={session.startedAt} lastActivityAt={session.lastActivityAt} ended={session.status === "ended"} />
+      {showContextRing && <ContextRing usage={usage} />}
+    </div>
+  );
+}
+
+/** Trailing zone: Modules · Changed Files · Resume · Fork · layout switch · View. */
+function HeaderTrailing({ session, isEnded, hasFileChanges, onOpenDiffView, onOpenExtensionModulePicker, onResume, renderViewMenu }: {
+  session: DashboardSession;
+  isEnded: boolean;
+  hasFileChanges?: boolean;
+  onOpenDiffView?: () => void;
+  onOpenExtensionModulePicker?: () => void;
+  onResume?: (mode: "continue" | "fork") => void;
+  renderViewMenu?: Props["renderViewMenu"];
+}) {
+  return (
+    <div className="flex items-center gap-2 shrink-0" data-testid="session-header-trailing">
+      {/* Extension UI System (Phase 1): Modules entry point. Shown only when
+          the bridge has reported at least one module for this session.
+          See change: add-extension-ui-modal. */}
+      {(session.uiModules?.length ?? 0) > 0 && onOpenExtensionModulePicker && (
+        <button
+          type="button"
+          onClick={onOpenExtensionModulePicker}
+          className={CHIP_NEUTRAL}
+          title={i18nT("packages.extensionModules", undefined, "Extension modules")}
+          data-testid="open-extension-modules"
+        >
+          <Icon path={mdiViewGridOutline} size={0.67} className="text-[var(--text-secondary)]" />
+          {i18nT("packages.modules", undefined, "Modules")}
+        </button>
+      )}
+      <ChangedFilesChip hasFileChanges={hasFileChanges} onOpenDiffView={onOpenDiffView} />
+      {isEnded && (
+        <>
+          <button
+            type="button"
+            onClick={() => onResume!("continue")}
+            disabled={!!session.resuming}
+            className={`${CHIP_BTN} tint-action-green`}
+            title={i18nT("session.resumeSessionContinueSameSession", undefined, "Resume session (continue same session)")}
+            data-testid="header-resume-button"
+          >
+            <Icon path={mdiPlayCircleOutline} size={0.67} />
+            {i18nT("session.resume", undefined, "Resume")}
+          </button>
+          <button
+            type="button"
+            onClick={() => onResume!("fork")}
+            disabled={!!session.resuming}
+            className={`${CHIP_BTN} tint-action-blue`}
+            title={i18nT("session.forkSessionNewSessionFromThis", undefined, "Fork session (new session from this point)")}
+            data-testid="header-fork-button"
+          >
+            <Icon path={mdiSourceFork} size={0.67} />
+            {i18nT("session.fork", undefined, "Fork")}
+          </button>
+        </>
+      )}
+      <LayoutModeSwitch />
+      {renderViewMenu?.({ iconOnly: false })}
+    </div>
+  );
+}
 
 export function SessionHeader({ session, state, onRename, showBack, onBack, mobileActions, hasFileChanges, onOpenDiffView, onRefresh, onOpenExtensionModulePicker, onResume, allTags, onSetTags, onSeekToCard, contextUsage, showContextRing = true, renderViewMenu }: Props) {
   const [isRenaming, setIsRenaming] = useState(false);
@@ -250,6 +347,7 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
         <div className="flex items-center gap-1 min-w-0 flex-1">
           {showBack && onBack && (
             <button
+              type="button"
               onClick={onBack}
               className="shrink-0 inline-flex items-center justify-center min-w-8 min-h-8 rounded-md text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
               title={i18nT("common.goBack", undefined, "Go back")}
@@ -291,29 +389,14 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
                 </button>
               )}
             </span>
-            {/* Meta line: tags, phase, pi version (or below-floor warning), clock, context ring. */}
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0 text-xs text-[var(--text-secondary)]" data-testid="session-header-meta">
-              {onSetTags && (
-                <>
-                  <TagEditor tags={session.tags ?? []} allTags={allTags ?? []} onChange={onSetTags} openSignal={tagEditSignal} />
-                  {session.openspecPhase && <TagChip label={session.openspecPhase} variant="exec" />}
-                </>
-              )}
-              {/* pi version the session actually runs, reported by the bridge.
-                  See change: restore-pi-version-skew-surface. */}
-              {session.piBelowFloor ? (
-                // See change: update-pi-core-1-0-adopt-apis.
-                <PiBelowFloorWarning session={session} />
-              ) : (
-                session.piVersion && (
-                  <span className="@max-[760px]:hidden" title="pi version" data-testid="session-header-pi-version">
-                    pi {session.piVersion}
-                  </span>
-                )
-              )}
-              <SessionClock startedAt={session.startedAt} lastActivityAt={session.lastActivityAt} ended={session.status === "ended"} />
-              {showContextRing && <ContextRing usage={usage} />}
-            </div>
+            <HeaderMeta
+              session={session}
+              allTags={allTags}
+              onSetTags={onSetTags}
+              tagEditSignal={tagEditSignal}
+              usage={usage}
+              showContextRing={showContextRing}
+            />
           </div>
         </div>
         {/* Middle: extension-ui footer segments + vault chip. */}
@@ -325,49 +408,15 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
           <VaultBindingsChip sessionId={session.id} />
         </div>
         {/* Trailing: Modules · Changed Files · Resume · Fork · layout switch · View. */}
-        <div className="flex items-center gap-2 shrink-0" data-testid="session-header-trailing">
-          {/* Extension UI System (Phase 1): Modules entry point. Shown only when
-              the bridge has reported at least one module for this session.
-              See change: add-extension-ui-modal. */}
-          {(session.uiModules?.length ?? 0) > 0 && onOpenExtensionModulePicker && (
-            <button
-              onClick={onOpenExtensionModulePicker}
-              className={CHIP_NEUTRAL}
-              title={i18nT("packages.extensionModules", undefined, "Extension modules")}
-              data-testid="open-extension-modules"
-            >
-              <Icon path={mdiViewGridOutline} size={0.67} className="text-[var(--text-secondary)]" />
-              {i18nT("packages.modules", undefined, "Modules")}
-            </button>
-          )}
-          <ChangedFilesChip hasFileChanges={hasFileChanges} onOpenDiffView={onOpenDiffView} />
-          {isEnded && (
-            <>
-              <button
-                onClick={() => onResume!("continue")}
-                disabled={!!session.resuming}
-                className={`${CHIP_BTN} tint-action-green`}
-                title={i18nT("session.resumeSessionContinueSameSession", undefined, "Resume session (continue same session)")}
-                data-testid="header-resume-button"
-              >
-                <Icon path={mdiPlayCircleOutline} size={0.67} />
-                {i18nT("session.resume", undefined, "Resume")}
-              </button>
-              <button
-                onClick={() => onResume!("fork")}
-                disabled={!!session.resuming}
-                className={`${CHIP_BTN} tint-action-blue`}
-                title={i18nT("session.forkSessionNewSessionFromThis", undefined, "Fork session (new session from this point)")}
-                data-testid="header-fork-button"
-              >
-                <Icon path={mdiSourceFork} size={0.67} />
-                {i18nT("session.fork", undefined, "Fork")}
-              </button>
-            </>
-          )}
-          <LayoutModeSwitch />
-          {renderViewMenu?.({ iconOnly: false })}
-        </div>
+        <HeaderTrailing
+          session={session}
+          isEnded={isEnded}
+          hasFileChanges={hasFileChanges}
+          onOpenDiffView={onOpenDiffView}
+          onOpenExtensionModulePicker={onOpenExtensionModulePicker}
+          onResume={onResume}
+          renderViewMenu={renderViewMenu}
+        />
       </div>
       {/* Flow picker + launch dialog removed; owned by flows-plugin
           command-route claims (/flows, /flows:new, /flows:edit,

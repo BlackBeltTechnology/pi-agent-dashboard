@@ -151,6 +151,8 @@ function LayoutModeMenu({ ctx }: { ctx: Ctx }) {
   const activeIndex = Math.max(0, segments.findIndex((s) => s.mode === active));
   const current = segments[activeIndex];
 
+  // Focus only on open; later mode changes close the menu anyway.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `activeIndex` is read once, at open time.
   useEffect(() => {
     if (!open) return;
     itemRefs.current[activeIndex]?.focus();
@@ -163,8 +165,6 @@ function LayoutModeMenu({ ctx }: { ctx: Ctx }) {
       document.removeEventListener("mousedown", onOutside);
       document.removeEventListener("touchstart", onOutside);
     };
-    // Focus only on open; later mode changes close the menu anyway.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const focusItem = (index: number) => itemRefs.current[(index + segments.length) % segments.length]?.focus();

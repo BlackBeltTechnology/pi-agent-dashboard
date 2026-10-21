@@ -22,10 +22,10 @@ import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDisplayPrefs } from "../../hooks/useDisplayPrefs.js";
 import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
-import { useDisplayPrefsContext } from "../../lib/state/DisplayPrefsContext.js";
-import { useCustomEventGroups } from "../../lib/state/custom-event-groups.js";
-import { usePopoverBoundary } from "../../lib/state/PopoverBoundaryContext.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { useCustomEventGroups } from "../../lib/state/custom-event-groups.js";
+import { useDisplayPrefsContext } from "../../lib/state/DisplayPrefsContext.js";
+import { usePopoverBoundary } from "../../lib/state/PopoverBoundaryContext.js";
 
 type ToolCallPatch = Partial<DisplayPrefs["toolCalls"]>;
 type CustomEventGroupsPatch = Partial<DisplayPrefs["customEventGroups"]>;

@@ -7,11 +7,12 @@
  * and a blue Fork pill that mirror the sidebar SessionCard's visual language.
  * Disabled while session.resuming. Mobile path is unaffected.
  */
-import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, cleanup, fireEvent } from "@testing-library/react";
-import React from "react";
-import { createInitialState } from "../../lib/chat/event-reducer.js";
+
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import React from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { createInitialState } from "../../lib/chat/event-reducer.js";
 
 function makeSession(overrides?: Partial<DashboardSession>): DashboardSession {
   return {

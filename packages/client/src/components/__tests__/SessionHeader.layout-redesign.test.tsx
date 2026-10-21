@@ -8,7 +8,8 @@
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { mdiFileCompare } from "@mdi/js";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import React, { Profiler } from "react";
+import type React from "react";
+import { Profiler } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createInitialState } from "../../lib/chat/event-reducer.js";
 import { SplitWorkspaceProvider } from "../split/SplitWorkspaceContext.js";

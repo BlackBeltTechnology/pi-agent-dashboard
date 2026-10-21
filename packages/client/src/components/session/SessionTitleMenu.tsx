@@ -166,7 +166,7 @@ export function SessionTitleMenu({ name, buttonRef, onRename, onReveal, onEditTa
           {items.map((item, i) => (
             <div key={item.key} role="none">
               {item.key === "reload" && separatorBeforeReload && (
-                <hr role="separator" className="my-1 border-0 border-t border-[var(--border-secondary)]" />
+                <hr className="my-1 border-0 border-t border-[var(--border-secondary)]" />
               )}
               <button
                 ref={(el) => {

@@ -19,7 +19,7 @@ export interface ContextUsageValue {
   contextWindow: number;
 }
 
-export type RingTier = "neutral" | "blue" | "green" | "orange" | "red";
+type RingTier = "neutral" | "blue" | "green" | "orange" | "red";
 
 const TIER_STROKE: Record<RingTier, string> = {
   neutral: "var(--text-secondary)",
