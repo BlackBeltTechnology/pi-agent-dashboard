@@ -109,6 +109,10 @@ describe("QuotaWidget context-strip chip", () => {
     const note = await screen.findByTestId("quota-no-adapter-note");
     expect(note.textContent).toBe("gemini-x · no quota");
     expect(note.tagName).not.toBe("BUTTON");
+    // Readable text in the dock's Context lane (WCAG 4.5:1, ≥ 11 px): the secondary text token,
+    // never `--text-muted` (a hint/disabled colour, 2.6:1 on the dark dock). See change: add-composer-dock.
+    expect(note.style.color).toContain("--text-secondary");
+    expect(Number.parseInt(note.style.fontSize, 10)).toBeGreaterThanOrEqual(11);
     const chip = screen.getByTestId("quota-chip-anthropic");
     expect(note.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(chip.getAttribute("data-dimmed")).toBe("true");

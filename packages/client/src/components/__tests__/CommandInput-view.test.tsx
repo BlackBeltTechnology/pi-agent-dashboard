@@ -147,7 +147,7 @@ describe("CommandInput — /view interception", () => {
     // The dropdown intercepts Enter when open — but `/view @foo.md` is past
     // the `/v` substring autocomplete; the dropdown for `/view ` doesn't open
     // (commandFilter wouldn't match anything). Easier path: click send button.
-    const sendBtn = textarea.parentElement!.querySelector('[data-testid="send-button"]') as HTMLButtonElement;
+    const sendBtn = textarea.closest('[data-testid="composer-card"]')!.querySelector('[data-testid="send-button"]') as HTMLButtonElement;
     fireEvent.click(sendBtn);
     expect(onSend).not.toHaveBeenCalled();
     expect(onViewLocal).toHaveBeenCalledTimes(1);
@@ -161,7 +161,7 @@ describe("CommandInput — /view interception", () => {
   it("`/view https://youtu.be/x` calls onViewLocal with url target", () => {
     const { textarea, onSend, onViewLocal } = renderInput();
     fireEvent.change(textarea, { target: { value: "/view https://youtu.be/x" } });
-    const sendBtn = textarea.parentElement!.querySelector('[data-testid="send-button"]') as HTMLButtonElement;
+    const sendBtn = textarea.closest('[data-testid="composer-card"]')!.querySelector('[data-testid="send-button"]') as HTMLButtonElement;
     fireEvent.click(sendBtn);
     expect(onSend).not.toHaveBeenCalled();
     expect(onViewLocal).toHaveBeenCalledWith({ kind: "url", url: "https://youtu.be/x" });
@@ -171,7 +171,7 @@ describe("CommandInput — /view interception", () => {
     let draft = "/view";
     const onDraftChange = vi.fn((v: string) => { draft = v; });
     const { textarea, onSend, onViewLocal } = renderInput({ draft, onDraftChange });
-    const sendBtn = textarea.parentElement!.querySelector('[data-testid="send-button"]') as HTMLButtonElement;
+    const sendBtn = textarea.closest('[data-testid="composer-card"]')!.querySelector('[data-testid="send-button"]') as HTMLButtonElement;
     fireEvent.click(sendBtn);
     expect(onSend).not.toHaveBeenCalled();
     expect(onViewLocal).not.toHaveBeenCalled();
@@ -182,7 +182,7 @@ describe("CommandInput — /view interception", () => {
   it("non-view slash still routes to onSend", () => {
     const { textarea, onSend, onViewLocal } = renderInput();
     fireEvent.change(textarea, { target: { value: "/compact" } });
-    const sendBtn = textarea.parentElement!.querySelector('[data-testid="send-button"]') as HTMLButtonElement;
+    const sendBtn = textarea.closest('[data-testid="composer-card"]')!.querySelector('[data-testid="send-button"]') as HTMLButtonElement;
     fireEvent.click(sendBtn);
     expect(onSend).toHaveBeenCalledTimes(1);
     expect(onSend.mock.calls[0][0]).toBe("/compact");

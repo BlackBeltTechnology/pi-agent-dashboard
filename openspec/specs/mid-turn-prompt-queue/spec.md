@@ -81,34 +81,6 @@ This replaces the prior `queue.pending: PendingPrompt[]` cache, which was source
 - **THEN** the initial-state snapshot SHALL include the current `pendingQueues` value
 - **AND** the client SHALL render chips for both arrays without waiting for a fresh `queue_update`
 
-### Requirement: Queue panel renders above the chat input
-
-When `Session.queue.pending.length > 0` for the currently selected session, the chat view SHALL render a queue panel between the message list and the chat input. The panel SHALL list each queued message as a chip displaying the message text truncated to one line with overflow ellipsis. The panel SHALL include a "Clear all" affordance that, when clicked, sends a `clear_queue { sessionId }` message for the active session.
-
-#### Scenario: Empty queue hides the panel
-- **WHEN** `Session.queue.pending` is `[]`
-- **THEN** the queue panel SHALL NOT be rendered
-
-#### Scenario: Non-empty queue renders chips in insertion order
-- **WHEN** `Session.queue.pending` is `[{id:"q1",text:"A"},{id:"q2",text:"B"},{id:"q3",text:"C"}]`
-- **THEN** the queue panel SHALL render three chips in order: `A`, `B`, `C`
-
-#### Scenario: Long message text truncates
-- **WHEN** a queue chip's message text exceeds the chip's render width
-- **THEN** the chip SHALL display the text with an ellipsis and SHALL NOT wrap to multiple lines
-
-#### Scenario: Clear all sends clear_queue
-- **WHEN** the user clicks the queue panel's "Clear all" button while subscribed to session S
-- **THEN** the client SHALL send `clear_queue { type: "clear_queue", sessionId: "S" }` to the server
-
-#### Scenario: Per-chip remove button sends remove_queue_entry
-- **WHEN** the user clicks the X button on a chip whose entry id is `E` while subscribed to session S
-- **THEN** the client SHALL send `remove_queue_entry { type: "remove_queue_entry", sessionId: "S", id: "E" }` to the server
-
-#### Scenario: Each chip exposes a remove affordance
-- **WHEN** the queue panel renders any chip
-- **THEN** that chip SHALL include an X / remove button that, on click, invokes the per-entry remove flow
-
 ### Requirement: Client sends steer by default, followUp on modifier key
 
 The command input SHALL send `delivery: "steer"` when the user presses Enter, and `delivery: "followUp"` when the user presses Alt+Enter (or Option+Enter on macOS). The send button click SHALL default to `delivery: "steer"`. This mirrors pi's TUI keyboard contract where Enter = steer and Alt+Enter = followUp.

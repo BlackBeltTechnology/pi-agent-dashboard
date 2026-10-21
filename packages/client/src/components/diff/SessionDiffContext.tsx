@@ -12,6 +12,7 @@ import type { SessionDiffResponse } from "@blackbelt-technology/pi-dashboard-sha
 import type React from "react";
 import { createContext, useContext, useEffect, useRef } from "react";
 import { useSessionDiff } from "../../hooks/useSessionDiff.js";
+import { logRejection } from "../../lib/report-error.js";
 
 export interface SessionDiffContextValue {
   sessionId: string;
@@ -45,7 +46,7 @@ export function SessionDiffProvider({
   useEffect(() => {
     if (changeSignal !== prevSignal.current) {
       prevSignal.current = changeSignal;
-      refresh();
+      void refresh().catch(logRejection("SessionDiffContext.refresh"));
     }
   }, [changeSignal, refresh]);
 

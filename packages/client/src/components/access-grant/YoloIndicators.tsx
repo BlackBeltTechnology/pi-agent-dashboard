@@ -156,16 +156,41 @@ export function YoloBarLink({ store }: { store?: YoloStatusStore }) {
 }
 
 /**
+ * Link (shield + static sentence) and time, as siblings: the link's accessible
+ * name never changes per tick. Shared by the folder-home strip and the dock footer.
+ */
+function YoloStripContent({ session, now }: { session: YoloSessionView; now: number }) {
+  const open = useOpenAccess();
+  const sentence = yoloCoverageSentence(session);
+  const ms = remainingMs(session, now);
+  return (
+    <>
+      <a href={ACCESS_PAGE} onClick={open} title={sentence} className="flex items-center gap-1.5 flex-1 min-w-0 focus-ring">
+        <Icon path={mdiShieldAlertOutline} size={0.5} className="shrink-0" aria-hidden="true" />
+        <span className="truncate min-w-0">{sentence}</span>
+      </a>
+      <span className="shrink-0 tabular-nums font-semibold">
+        {ms === null ? (
+          <>
+            <span aria-hidden="true">{"\u221e"}</span>
+            <span className="sr-only">{i18nT("yolo.noExpiry", undefined, "no expiry")}</span>
+          </>
+        ) : (
+          formatRemaining(ms)
+        )}
+      </span>
+    </>
+  );
+}
+
+/**
  * Single-line strip directly above a prompt composer (outside its card).
  * Link (shield + static sentence) and time are siblings, so the link's
  * accessible name never changes per tick. Absent unless live and `cwd` in scope.
  */
 export function YoloComposerStrip({ cwd, store }: { cwd: string | undefined; store?: YoloStatusStore }) {
   const { session, now } = useLiveYoloSession(store);
-  const open = useOpenAccess();
   if (!session || !isCwdInYoloScope(cwd, session)) return null;
-  const sentence = yoloCoverageSentence(session);
-  const ms = remainingMs(session, now);
   return (
     <div className="shrink-0 px-3 pt-2">
       <div
@@ -173,21 +198,39 @@ export function YoloComposerStrip({ cwd, store }: { cwd: string | undefined; sto
         data-scope={session.unscoped ? "unscoped" : "scoped"}
         className={`flex items-center gap-1.5 w-full min-w-0 whitespace-nowrap overflow-hidden rounded-lg border px-2.5 py-1 text-xs ${yoloTone(session.unscoped)}`}
       >
-        <a href={ACCESS_PAGE} onClick={open} title={sentence} className="flex items-center gap-1.5 flex-1 min-w-0 focus-ring">
-          <Icon path={mdiShieldAlertOutline} size={0.5} className="shrink-0" aria-hidden="true" />
-          <span className="truncate min-w-0">{sentence}</span>
-        </a>
-        <span className="shrink-0 tabular-nums font-semibold">
-          {ms === null ? (
-            <>
-              <span aria-hidden="true">{"\u221e"}</span>
-              <span className="sr-only">{i18nT("yolo.noExpiry", undefined, "no expiry")}</span>
-            </>
-          ) : (
-            formatRemaining(ms)
-          )}
-        </span>
+        <YoloStripContent session={session} now={now} />
       </div>
+    </div>
+  );
+}
+
+/**
+ * Whether YOLO is live for `cwd`, without a 1 Hz tick (one timeout at expiry).
+ * The composer dock uses it to decide it has content; the ticking time lives
+ * in `YoloDockFooter`'s own subtree. See change: add-composer-dock.
+ */
+export function useYoloLiveForCwd(cwd: string | undefined, store?: YoloStatusStore): boolean {
+  const session = useLiveYoloSessionNoTick(store);
+  return session !== null && isCwdInYoloScope(cwd, session);
+}
+
+/**
+ * The composer dock's last line: the YOLO signal as a `flex-none` footer with a
+ * fixed one-line height (`h-8`, `YOLO_FOOTER_HEIGHT`), outside the lane scroll
+ * region and never a live region or a chip. Same internals as the strip, so the
+ * `access-grant-yolo` invariants carry over. Owns its own tick, so the dock
+ * above it never re-renders per second. See change: add-composer-dock (D10, D23).
+ */
+export function YoloDockFooter({ cwd, store }: { cwd: string | undefined; store?: YoloStatusStore }) {
+  const { session, now } = useLiveYoloSession(store);
+  if (!session || !isCwdInYoloScope(cwd, session)) return null;
+  return (
+    <div
+      data-testid="yolo-composer-strip"
+      data-scope={session.unscoped ? "unscoped" : "scoped"}
+      className={`flex h-8 w-full min-w-0 flex-none items-center gap-1.5 overflow-hidden whitespace-nowrap border-t px-3 text-xs ${yoloTone(session.unscoped)}`}
+    >
+      <YoloStripContent session={session} now={now} />
     </div>
   );
 }

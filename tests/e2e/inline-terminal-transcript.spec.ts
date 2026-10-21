@@ -1,5 +1,5 @@
 import { expect, type Locator, type Page, test } from "./fixtures.js";
-import { byTestId, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
+import { openInlineTerminalFromAddMenu, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 import { BASE_URL } from "./lifecycle.js";
 
 /**
@@ -12,9 +12,8 @@ import { BASE_URL } from "./lifecycle.js";
  * See change: preserve-inline-terminal-transcript.
  */
 
-// The composer folds the terminal button into a ⋯ overflow menu below the
-// `@[44rem]` container-query breakpoint. Widen the viewport so the desktop
-// affordance renders; openInline() still falls back to ⋯ if it does not.
+// The terminal is an item of the composer's `＋` menu at every width. A wide
+// viewport keeps the toolbar unfolded so the card geometry stays predictable.
 test.use({ viewport: { width: 1680, height: 900 } });
 
 const card = (page: Page) => page.getByTestId("terminal-card");
@@ -37,23 +36,11 @@ async function dismissOverlays(page: Page): Promise<void> {
   }
 }
 
-/** Click the composer's "open inline terminal" affordance (desktop or ⋯). */
+/** Open the inline terminal from the composer's `＋` menu (the only entry point at every width). */
 async function clickOpenTerminal(page: Page): Promise<void> {
   await dismissOverlays(page);
-  const openBtn = byTestId(page, "openInlineTerminalButton");
-  const desktopVisible = await openBtn
-    .first()
-    .waitFor({ state: "visible", timeout: 5_000 })
-    .then(() => true)
-    .catch(() => false);
-  if (desktopVisible) {
-    await openBtn.first().click();
-  } else {
-    // Narrow composer: the button lives in the ⋯ overflow menu.
-    await page.getByTestId("overflow-button").first().click();
-    await page.getByTestId("overflow-menu").waitFor({ state: "visible", timeout: 10_000 });
-    await page.getByTestId("overflow-menu").getByTestId("open-inline-terminal-button").click();
-  }
+  await page.getByTestId("attach-button").first().waitFor({ state: "visible", timeout: 10_000 });
+  await openInlineTerminalFromAddMenu(page);
   await expect(liveCard(page)).toBeVisible({ timeout: 20_000 });
   // xterm textarea proves the pane initialized end-to-end over the WS.
   await expect(termInput(page)).toBeVisible({ timeout: 20_000 });

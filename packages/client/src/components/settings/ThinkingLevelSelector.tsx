@@ -13,6 +13,15 @@ import { usePopoverBoundary } from "../../lib/state/PopoverBoundaryContext.js";
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 const FALLBACK_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"] as const;
 
+/**
+ * The levels a model offers, in canonical order. Undefined or empty `supported`
+ * → the six fallback levels. Shared with the composer's merged model chip.
+ * See change: add-composer-dock (D8).
+ */
+export function thinkingLevelsFor(supported?: string[]): readonly string[] {
+  return supported?.length ? THINKING_LEVELS.filter((l) => supported.includes(l)) : FALLBACK_LEVELS;
+}
+
 interface Props {
   current?: string;
   onSelect: (level: string) => void;
@@ -34,9 +43,7 @@ const GAP = 4;
 
 export function ThinkingLevelSelector({ current, onSelect, supportedLevels, placeholder, tag }: Props) {
   const { t } = useI18n();
-  const levelsToRender = supportedLevels?.length
-    ? THINKING_LEVELS.filter((l) => supportedLevels.includes(l))
-    : FALLBACK_LEVELS;
+  const levelsToRender = thinkingLevelsFor(supportedLevels);
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);

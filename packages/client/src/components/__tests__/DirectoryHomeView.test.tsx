@@ -11,7 +11,9 @@ import type React from "react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
+import { yoloStatus } from "../../lib/access-grants/yolo-status.js";
 import { folderPaneId } from "../../lib/layout/folder-pane-id.js";
+import { scopedSession } from "../access-grant/__tests__/yolo-test-server.js";
 import { DirectoryHomeView } from "../folder/DirectoryHomeView.js";
 import { FolderSplitProvider } from "../folder/FolderSplitProvider.js";
 
@@ -400,5 +402,26 @@ describe("folder split host (F17)", () => {
     // Chat pane stays mounted (hidden), so the draft survives a mode round-trip.
     expect(screen.getByTestId("split-chat-pane").className).toContain("hidden");
     act(() => {});
+  });
+});
+
+describe("composer dock footer (F15)", () => {
+  afterEach(() => {
+    yoloStatus.publish({ available: true, durationsMinutes: [15], session: null });
+  });
+
+  it("YOLO active for the folder: a dock with only the footer sits directly above the composer card", () => {
+    yoloStatus.publish({ available: true, durationsMinutes: [15], session: scopedSession(Date.now(), "/a") });
+    renderView({ cwd: "/a" });
+    const dock = screen.getByTestId("composer-dock");
+    expect(dock.getAttribute("data-footer-only")).toBe("true");
+    expect(dock.querySelector('[data-testid="composer-dock-scroll"]')).toBeNull();
+    expect(dock.querySelector('[data-testid="yolo-composer-strip"]')).not.toBeNull();
+    expect(dock.nextElementSibling).toBe(screen.getByTestId("composer-root"));
+  });
+
+  it("no YOLO for the folder: no dock renders", () => {
+    renderView({ cwd: "/a" });
+    expect(screen.queryByTestId("composer-dock")).toBeNull();
   });
 });

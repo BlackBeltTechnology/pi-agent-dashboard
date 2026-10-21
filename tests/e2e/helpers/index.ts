@@ -129,16 +129,49 @@ export const TESTIDS = {
   commitSubmit: "commit-submit",
   commitCancel: "commit-cancel",
   commitError: "commit-error",
-  // Terminal (scenario 5.4). open-inline-terminal-button lives in the selected
-  // session's composer (CommandInput); terminal-card mounts in the chat stream.
+  // Terminal (scenario 5.4). open-inline-terminal-button is an item of the
+  // composer's `＋` menu (attach-menu) — reach it via `openInlineTerminalFromAddMenu`;
+  // terminal-card mounts in the chat stream. See change: add-composer-dock.
   terminalCard: "terminal-card",
   openInlineTerminalButton: "open-inline-terminal-button",
+  attachButton: "attach-button",
+  attachMenu: "attach-menu",
   // Top-level / folder route containers (scenario 5.6 navigation).
   settingsContent: "settings-content",
   openspecBoard: "openspec-board",
   archiveBrowser: "archive-browser",
   specsBrowser: "specs-browser",
 } as const;
+
+/**
+ * Open the composer `＋` menu and choose "Open inline terminal". The terminal
+ * chip left the toolbar row (and the `⋯` overflow is gone), so the menu item is
+ * the only entry point at every width. See change: add-composer-dock.
+ */
+export async function openInlineTerminalFromAddMenu(page: Page): Promise<void> {
+  await byTestId(page, "attachButton").first().click();
+  const menu = byTestId(page, "attachMenu");
+  await menu.waitFor({ state: "visible", timeout: 10_000 });
+  await byTestId(menu, "openInlineTerminalButton").click();
+}
+
+/**
+ * Expand the composer dock's Queue lane. Queued follow-ups render in the lane's
+ * body (`queue-panel` / `queue-chip-followup`), which mounts only while the lane
+ * is open — the lane itself shows collapsed (`N queued follow-ups`). Works in rows
+ * and compact layout (the chip carries the same `data-dock-toggle`). Idempotent.
+ * See change: add-composer-dock.
+ */
+export async function expandQueueLane(page: Page): Promise<void> {
+  const toggle = page.locator('[data-dock-toggle="queue"]').first();
+  await toggle.waitFor({ state: "visible", timeout: 15_000 });
+  // A mid-turn lane arrives while the transcript is still streaming and the stack settles: a click can
+  // land on whatever shifted under the pointer. Retry until the lane really reports expanded.
+  await expect(async () => {
+    if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click({ timeout: 2_000 });
+    await expect(toggle).toHaveAttribute("aria-expanded", "true", { timeout: 1_000 });
+  }).toPass({ timeout: 15_000 });
+}
 
 /**
  * Reload the transcript from the session header: open the title menu, then
@@ -193,6 +226,34 @@ export async function robustClick(page: Page, testid: string): Promise<void> {
     await dismissToasts(page);
     await target.click({ timeout: 2_000 });
   }).toPass({ timeout: 30_000 });
+}
+
+/**
+ * Pick an editor layout mode at any width. The wide header renders the 3-segment
+ * radiogroup (`layout-mode-<mode>` visible directly); below the mobile breakpoint
+ * it renders a menu whose trigger is `layout-mode-switch` and whose
+ * `menuitemradio` items carry the same `layout-mode-<mode>` ids. Opens the menu
+ * when the item is not visible, clicks the item, then (menu form) waits for the
+ * menu to close so the next step never races it.
+ * See changes: reorganize-session-header, add-composer-dock.
+ */
+export async function chooseLayoutMode(page: Page, mode: "closed" | "split" | "full"): Promise<void> {
+  const item = page.getByTestId(`layout-mode-${mode}`);
+  const trigger = page.getByTestId("layout-mode-switch");
+  // A viewport change re-renders the header between the segmented and the menu form (and a menu
+  // closes when it does), so decide from the live DOM on every attempt and retry the whole step.
+  await expect(async () => {
+    if (!(await item.isVisible())) {
+      expect(await trigger.getAttribute("aria-haspopup"), "layout switch is the menu form").toBe("menu");
+      if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click({ timeout: 2_000 });
+      await expect(item).toBeVisible({ timeout: 2_000 });
+    }
+    await item.click({ timeout: 2_000 });
+  }).toPass({ timeout: 30_000 });
+  // Menu form: the choice closes the menu; wait for it so the next step never races it.
+  if ((await trigger.getAttribute("aria-haspopup")) === "menu") {
+    await expect(trigger).toHaveAttribute("aria-expanded", "false", { timeout: 5_000 });
+  }
 }
 
 /** Navigate to the dashboard root and wait for the shell to mount. */

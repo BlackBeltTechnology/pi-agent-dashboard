@@ -129,7 +129,7 @@ Superseded by `add-plugin-app-host` (D19). No tasks.
 
 - [ ] 9c.1 `composer-toolbar-action` slot id in `slot-types.ts`, props in `slot-props.ts`; `manifest-validator.ts` requires `ariaLabel`.
 - [ ] 9c.2 `ComposerToolbarActionSlot` consumer + bounded `composer` handle (`insertAtCursor`, `snapshot`/`restore`, `submit` via the send path); inert after unmount/session switch.
-- [ ] 9c.3 `CommandInput.tsx`: render the slot in the input-row trailing cluster before terminal + action button; never folded into `⋯`; never hidden by draft/attachments/working state.
+- [ ] 9c.3 `CommandInput.tsx`: render the slot in the composer toolbar row directly before the action cluster (send/stop); never folded into `＋`, keeps its 44 px narrow target; never hidden by draft/attachments/working state.
 - [ ] 9c.4 DOX rows (`CommandInput.tsx.AGENTS.md`, runtime/shared AGENTS); `docs/` slot list via DocScribe.
 
 ## 9b. Core seam — folder settings plugin sections (D21)
@@ -232,7 +232,7 @@ Superseded by `add-plugin-app-host` (D19). No tasks.
 - [ ] 10.89 [L1] test-plan #89: Folder settings Plugins group {0 claims → hidden · claim → entry · disabled → hidden + fallback}
 - [ ] 10.90 [L1] test-plan #90: /folder/:cwd/settings/plugins/<id> {claiming → section with cwd · global-only plugin → invalid-page fallback}
 - [ ] 10.91 [L1] test-plan #91: Folder section render error isolated by slot error boundary
-- [ ] 10.92 [L1] test-plan #92: composer-toolbar-action {no claim → unchanged · claim → before send/stop · no ariaLabel → rejected}
+- [ ] 10.92 [L1] test-plan #92: composer-toolbar-action {no claim → unchanged · claim → toolbar row directly before the action cluster, never folds into `＋`, 44 px narrow target · no ariaLabel → rejected}
 - [ ] 10.93 [L1] test-plan #93: composer handle insertAtCursor at caret / unfocused append / snapshot+restore / stale handle no-op
 - [ ] 10.94 [L1] test-plan #94: submit() honours Steer|Queue while streaming
 - [ ] 10.95 [L1] test-plan #95: Delivery {draft · send ≥3 words · send <3 words · send while streaming+Queue}

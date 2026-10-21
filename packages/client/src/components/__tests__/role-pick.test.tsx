@@ -3,9 +3,9 @@
  * (CommandInput) and the OpenSpec run-config row. Resolves once at pick time;
  * the session never follows later preset changes.
  *
- * Note: the model picker lives in the composer (`CommandInput`), not StatusBar —
- * StatusBar was reduced to a working-status label by `redesign-prompt-input`.
- * See change: add-role-aware-model-refs (test-plan E31–E34).
+ * Note: the model picker lives in the composer (`CommandInput`) as the merged
+ * model · thinking chip; the retired StatusBar is gone (`add-composer-dock`).
+ * See changes: add-role-aware-model-refs (test-plan E31–E34), add-composer-dock.
  */
 import type { ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -45,12 +45,13 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function Composer({ model, onSelectModel, onSelectThinkingLevel }: { model?: string; onSelectModel: (m: string) => void; onSelectThinkingLevel: (l: string) => void }) {
+function Composer({ model, thinkingLevel, onSelectModel, onSelectThinkingLevel }: { model?: string; thinkingLevel?: string; onSelectModel: (m: string) => void; onSelectThinkingLevel: (l: string) => void }) {
   return (
     <CommandInput
       commands={[]}
       onSend={() => {}}
       model={model}
+      thinkingLevel={thinkingLevel}
       models={MODELS}
       onSelectModel={onSelectModel}
       onSelectThinkingLevel={onSelectThinkingLevel}
@@ -139,6 +140,16 @@ describe("role pick presentation (retro-ux-model-selector)", () => {
     expect(via.textContent).toBe("from @coding");
     expect(screen.getByTestId("model-selector-button").textContent).toContain("claude-sonnet-4-5");
     expect(screen.getByTestId("model-selector-button").textContent).not.toMatch(/\bvia\b/);
+  });
+
+  it("merged chip (add-composer-dock): `from @coding` and the level share one face; the name holds model + level", async () => {
+    const { rerender } = render(<Composer model="anthropic/claude-haiku-4-5" thinkingLevel="low" onSelectModel={vi.fn()} onSelectThinkingLevel={vi.fn()} />);
+    await pickRole("coding");
+    rerender(<Composer model="anthropic/claude-sonnet-4-5" thinkingLevel="high" onSelectModel={vi.fn()} onSelectThinkingLevel={vi.fn()} />);
+    const chip = screen.getByTestId("model-selector-button");
+    expect(screen.getByTestId("model-via-role").textContent).toBe("from @coding");
+    expect(chip.textContent).toContain("high");
+    expect(chip.getAttribute("aria-label")).toBe("Model anthropic/claude-sonnet-4-5, thinking high");
   });
 
   it("E7: unassigned and level-skipped notices are warning callouts with an icon and role=status", async () => {

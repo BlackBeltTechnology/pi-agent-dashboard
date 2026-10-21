@@ -274,7 +274,7 @@ test.describe("route-backed overlays", () => {
     const card = await spawnFreshGitSession(page);
     await card.click();
     await expect(page).toHaveURL(/\/session\//, { timeout: 30_000 });
-    await expect(page.getByTestId("composer-context-strip")).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId("composer-card")).toBeVisible({ timeout: 30_000 });
 
     // Client-side navigation into a preview overlay, so the session is captured
     // as the frozen background.
@@ -286,7 +286,7 @@ test.describe("route-backed overlays", () => {
 
     const underlay = page.getByTestId("preview-route-overlay-underlay");
     // The session chat is still what sits behind the scrim...
-    await expect(underlay.getByTestId("composer-context-strip")).toBeVisible();
+    await expect(underlay.getByTestId("composer-card")).toBeVisible();
     // ...and the underlay is NOT a second copy of the preview.
     await expect(underlay.getByTestId("preview-overlay")).toHaveCount(0);
   });

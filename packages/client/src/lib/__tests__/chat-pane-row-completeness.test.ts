@@ -1,15 +1,14 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { CHAT_PANE_ROW_TABLE } from "../layout/chat-pane-row-class.js";
+import { CHAT_PANE_ROW_TABLE, YOLO_FOOTER_HEIGHT } from "../layout/chat-pane-row-class.js";
 
 /**
  * Task 2.2 / Test-Plan #E2: Classification completeness.
  *
  * Assert that every row App.tsx renders into `SessionSplitView`'s `chat` prop
  * (including every conditional row: content-header-sticky, error-boundary fallback,
- * session-banner, composer-context-strip, status-bar, queue-panel, composer-root,
- * content-inline-footer) appears in CHAT_PANE_ROW_TABLE exactly once as
+ * session-banner, composer-dock, composer-root, content-inline-footer) appears in CHAT_PANE_ROW_TABLE exactly once as
  * either `shrinkable` or `fixed`.
  *
  * @structural-pin a row table must cover every row App.tsx renders; App.tsx cannot be mounted in a unit test
@@ -27,9 +26,8 @@ describe("chat-pane row classification completeness (L1, #E2)", () => {
       "error-boundary-fallback",
       "session-banner",
       "composer-stack-anchor",
-      "composer-context-strip",
-      "status-bar",
-      "queue-panel",
+      "composer-dock",
+      "composer-dock:footer-only",
       "composer-root",
       "content-inline-footer",
     ];
@@ -40,9 +38,7 @@ describe("chat-pane row classification completeness (L1, #E2)", () => {
     expect(appSource).toContain("ErrorBoundary");
     expect(appSource).toContain("<SessionBanner");
     expect(appSource).toContain('data-testid="composer-stack-anchor"');
-    expect(appSource).toContain('data-testid="composer-context-strip"');
-    expect(appSource).toContain("<StatusBar");
-    expect(appSource).toContain("<QueuePanel");
+    expect(appSource).toContain("<ComposerDock");
     expect(appSource).toContain("<CommandInput");
     expect(appSource).toContain("ContentInlineFooterSlot");
 
@@ -65,6 +61,46 @@ describe("chat-pane row classification completeness (L1, #E2)", () => {
         expectedRows,
         `Table entry '${key}' must correspond to a row rendered in App.tsx`,
       ).toContain(key);
+    }
+  });
+});
+
+/**
+ * Test-plan #F14: the composer dock's two static shrinkable shapes keep the
+ * footer from ever being clipped (floor strictly above bound, with or without
+ * lanes). See change: add-composer-dock (D10).
+ */
+describe("composer dock row entries (L1, #F14)", () => {
+  it("every shrinkable entry has floor > bound (the dock's included)", () => {
+    for (const [key, spec] of Object.entries(CHAT_PANE_ROW_TABLE)) {
+      if (spec.rowClass !== "shrinkable") continue;
+      expect(spec.floor, `${key}: floor must exceed bound`).toBeGreaterThan(spec.bound);
+    }
+  });
+
+  it("declares composer-dock and composer-dock:footer-only as shrinkable", () => {
+    expect(CHAT_PANE_ROW_TABLE["composer-dock"]?.rowClass).toBe("shrinkable");
+    expect(CHAT_PANE_ROW_TABLE["composer-dock:footer-only"]?.rowClass).toBe("shrinkable");
+  });
+
+  it("composer-dock: bound = YOLO footer height, floor = bound + 41, weight 1", () => {
+    expect(CHAT_PANE_ROW_TABLE["composer-dock"]).toEqual({
+      rowClass: "shrinkable",
+      floor: YOLO_FOOTER_HEIGHT + 41,
+      bound: YOLO_FOOTER_HEIGHT,
+      weight: 1,
+    });
+  });
+
+  it("composer-dock:footer-only: bound == YOLO_FOOTER_HEIGHT, floor = bound + 1", () => {
+    const spec = CHAT_PANE_ROW_TABLE["composer-dock:footer-only"];
+    expect(spec).toMatchObject({ rowClass: "shrinkable", bound: YOLO_FOOTER_HEIGHT, floor: YOLO_FOOTER_HEIGHT + 1 });
+  });
+
+  it("the footer's fixed height is the h-8 line (32px) and the legacy fixed rows are gone", () => {
+    expect(YOLO_FOOTER_HEIGHT).toBe(32);
+    for (const gone of ["composer-context-strip", "status-bar", "queue-panel"]) {
+      expect(CHAT_PANE_ROW_TABLE).not.toHaveProperty(gone);
     }
   });
 });

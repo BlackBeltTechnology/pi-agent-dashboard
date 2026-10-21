@@ -1,6 +1,6 @@
-import { expect, test } from "./fixtures.js";
+import { expect, narrowTrust, test } from "./fixtures.js";
 import { dragChatPaneTo, openIdleGrid } from "./helpers/flow-card-grid.js";
-import { spawnFreshGitSession } from "./helpers/index.js";
+import { chooseLayoutMode, FIXTURE_GIT, spawnFreshGitSession } from "./helpers/index.js";
 
 /**
  * Browser E2E — define-chat-pane-below-floor-allocation
@@ -14,6 +14,30 @@ import { spawnFreshGitSession } from "./helpers/index.js";
  * Test-Plan rows covered: E3, E4, E5, E6, E7, E8, E9, F4.
  */
 
+/**
+ * Resize and wait until the chat pane's box stops changing. A viewport change crosses the mobile /
+ * desktop header tiers and remounts the split layout, so a measurement taken in the same tick reads
+ * the previous layout (a stale 469 px pane bottom under a 900 px viewport).
+ */
+async function resizeAndSettle(page: import("@playwright/test").Page, size: { width: number; height: number }) {
+  await page.setViewportSize(size);
+  const pane = page.getByTestId("split-chat-pane");
+  let last = "";
+  let stable = 0;
+  await expect
+    .poll(
+      async () => {
+        const b = await pane.boundingBox();
+        const now = b ? `${b.x},${b.y},${b.width},${b.height}` : "none";
+        stable = now === last && b ? stable + 1 : 0;
+        last = now;
+        return stable;
+      },
+      { timeout: 15_000, intervals: [100] },
+    )
+    .toBeGreaterThanOrEqual(3);
+}
+
 async function openSplitSession(page: import("@playwright/test").Page) {
     const card = await spawnFreshGitSession(page);
     await card.click();
@@ -26,7 +50,7 @@ async function openSplitSession(page: import("@playwright/test").Page) {
     await expect(sendBtn).toBeVisible({ timeout: 30_000 });
 
     // Open split mode
-    await page.getByTestId("layout-mode-split").click();
+    await chooseLayoutMode(page, "split");
     const chatPane = page.getByTestId("split-chat-pane");
     await expect(chatPane).toBeVisible({ timeout: 15_000 });
     return chatPane;
@@ -36,7 +60,7 @@ test.describe("chat-pane below-floor allocation", () => {
   test("3.1 & 3.2 At and just above the floor sum, rows are full and nothing clips (#E3, #E4)", async ({ page }) => {
     // Comfortably tall viewport so pane is well above the floor sum
     const chatPane = await openSplitSession(page);
-    await page.setViewportSize({ width: 1280, height: 900 });
+    await resizeAndSettle(page, { width: 1280, height: 900 });
 
     const paneBox = await chatPane.boundingBox();
     expect(paneBox).not.toBeNull();
@@ -62,7 +86,7 @@ test.describe("chat-pane below-floor allocation", () => {
   test("3.3 & 3.4 Below the floor sum, deficit is shared and not dumped on one row (#E5, #E6)", async ({ page }) => {
     // Short viewport puts pane below floor sum
     const chatPane = await openSplitSession(page);
-    await page.setViewportSize({ width: 375, height: 280 });
+    await resizeAndSettle(page, { width: 375, height: 280 });
 
     const paneBox = await chatPane.boundingBox();
     expect(paneBox).not.toBeNull();
@@ -80,17 +104,18 @@ test.describe("chat-pane below-floor allocation", () => {
     // While holding at or above its 16px bound
     expect(chatViewBox!.height).toBeGreaterThanOrEqual(16);
 
-    // Fixed row (composer-context-strip) holds its content height
-    const strip = page.getByTestId("composer-context-strip");
-    await expect(strip).toBeVisible();
-    const stripBox = await strip.boundingBox();
-    expect(stripBox!.height).toBeGreaterThan(20);
+    // The composer-stack anchor is the only fixed row above the card now that the
+    // context strip, StatusBar and QueuePanel are gone: it stays 0 px and never
+    // absorbs (or adds to) the deficit. See change: add-composer-dock.
+    const anchorBox = await page.getByTestId("composer-stack-anchor").boundingBox();
+    expect(anchorBox).not.toBeNull();
+    expect(anchorBox!.height).toBeLessThanOrEqual(1);
   });
 
   test("3.7 min-height beats max-h-[40%] below floor sum (#E9)", async ({ page }) => {
     // Short viewport where 0.4 * pane < 72px
     const chatPane = await openSplitSession(page);
-    await page.setViewportSize({ width: 375, height: 260 });
+    await resizeAndSettle(page, { width: 375, height: 260 });
 
     const paneBox = await chatPane.boundingBox();
     expect(paneBox).not.toBeNull();
@@ -185,7 +210,8 @@ test.describe("chat-pane below-floor allocation — sticky header row", () => {
     // Nothing is painted outside its own row's box.
     const inside = await chatPane.evaluate((pane) => {
       const pr = pane.getBoundingClientRect();
-      return [...pane.children].every((c) => {
+      // A `hidden` row (an empty dock) paints nothing: it has no rect to be outside of.
+      return [...pane.children].filter((c) => c.getClientRects().length > 0).every((c) => {
         const r = c.getBoundingClientRect();
         return r.top >= pr.top - 1 && r.bottom <= pr.bottom + 1;
       });
@@ -213,7 +239,7 @@ test.describe("chat-pane below-floor allocation — sticky header row", () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     const { panel } = await openIdleGrid(page);
     await page.setViewportSize({ width: 375, height: 360 });
-    await page.getByTestId("layout-mode-split").click();
+    await chooseLayoutMode(page, "split");
     const chatPane = page.getByTestId("split-chat-pane");
     await expect(chatPane).toBeVisible({ timeout: 15_000 });
     // Below the md breakpoint the shell collapses the flow slot to its mobile
@@ -234,5 +260,87 @@ test.describe("chat-pane below-floor allocation — sticky header row", () => {
     const composer = await page.getByTestId("composer-root").boundingBox();
     expect(chat!.height).toBeGreaterThanOrEqual(16);
     expect(composer!.height).toBeGreaterThanOrEqual(72);
+  });
+});
+
+// ── Composer dock allocation (add-composer-dock, test-plan #F13) ─────────────
+// The dock is a SHRINKABLE row (`composer-dock`: bound = YOLO footer, floor = bound + 41,
+// weight 1). Below the floor sum its lane region scrolls; the footer (one fixed 32 px line)
+// and the composer card are never clipped, and the transcript keeps its declared bound.
+
+test.describe("chat-pane below-floor allocation — composer dock", () => {
+  test.describe.configure({ mode: "serial" });
+
+  test.beforeAll(async ({ request }) => {
+    // YOLO activation refuses in report mode; same narrowing as yolo-indicator-layout.spec.ts.
+    await narrowTrust(request, { hostGate: { mode: "enforce" } });
+  });
+
+  test.afterEach(async ({ page }) => {
+    await page.request.delete("/api/access/yolo").catch(() => undefined);
+  });
+
+  test("#F13: pane = floor sum − 50 px with YOLO on and lanes present: lanes scroll, footer and card stay fully visible", async ({ page }) => {
+    // A stubbed quota gives the session a Context lane (a dock WITH lanes) with no extra setup.
+    await page.route("**/api/quota", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          providers: [
+            {
+              provider: "anthropic",
+              windows: [{ label: "5h", usedPercent: 14, resetsAt: new Date(Date.now() + 3 * 3600_000).toISOString(), windowSeconds: 5 * 3600 }],
+            },
+          ],
+          unavailable: [],
+        }),
+      }),
+    );
+    await page.request.delete("/api/access/yolo").catch(() => undefined);
+    const started = await page.request.post("/api/access/yolo", {
+      data: { durationMinutes: 15, base: FIXTURE_GIT, root: FIXTURE_GIT },
+    });
+    expect(started.ok(), `YOLO activation: ${started.status()}`).toBe(true);
+    await page.reload();
+
+    const chatPane = await openSplitSession(page);
+    await page.setViewportSize({ width: 1280, height: 900 });
+    const dock = page.getByTestId("composer-dock");
+    await expect(dock).toBeVisible({ timeout: 20_000 });
+    const footer = page.getByTestId("yolo-composer-strip");
+    await expect(footer).toBeVisible({ timeout: 20_000 });
+
+    // Floor sum (chat-pane-row-class.ts): transcript 64 + composer bound 72 + dock (32 + 41).
+    // Pin the pane 50 px below it.
+    const FLOOR_SUM = 64 + 72 + (32 + 41);
+    await chatPane.evaluate((el, h) => {
+      const e = el as HTMLElement;
+      e.style.flex = "none";
+      e.style.height = `${h}px`;
+      e.style.maxHeight = `${h}px`;
+    }, FLOOR_SUM - 50);
+
+    const paneBox = (await chatPane.boundingBox())!;
+    const inPane = (b: { y: number; height: number }) => b.y >= paneBox.y - 1 && b.y + b.height <= paneBox.y + paneBox.height + 1;
+
+    const footerBox = (await footer.boundingBox())!;
+    expect(footerBox.height, "footer keeps its one-line 32 px height").toBeCloseTo(32, 0);
+    expect(inPane(footerBox), "footer fully inside the pane").toBe(true);
+
+    const card = (await page.getByTestId("composer-card").boundingBox())!;
+    expect(inPane(card), "composer card fully inside the pane").toBe(true);
+    expect((await page.getByTestId("composer-root").boundingBox())!.height).toBeGreaterThanOrEqual(72);
+
+    // The lane region is the dock's scrollport: it gave height, the footer did not.
+    const scroll = page.getByTestId("composer-dock-scroll");
+    const scrollBox = (await scroll.boundingBox())!;
+    expect(scrollBox.height, "lane region may shrink, never below 0").toBeGreaterThanOrEqual(0);
+    expect(await scroll.evaluate((el) => getComputedStyle(el).overflowY)).toBe("auto");
+    expect(inPane(scrollBox), "lane region stays inside the pane").toBe(true);
+
+    // The transcript keeps at least its declared lower bound (16 px) — the deficit is shared, not dumped on it.
+    const chat = (await chatPane.locator('[data-testid="chat-scroll-container"]').boundingBox())!;
+    expect(chat.height).toBeGreaterThanOrEqual(16);
   });
 });

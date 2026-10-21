@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: `composer-toolbar-action` slot
-The chat composer (`CommandInput`) SHALL expose a `composer-toolbar-action` slot rendered in the **input row's trailing cluster**, immediately before the inline-terminal control and the morphing send/stop action button. Claim components SHALL receive `{ pluginContext, sessionId, sessionStatus, draft, composer }`, where `composer` is a bounded write handle:
+The chat composer (`CommandInput`) SHALL expose a `composer-toolbar-action` slot rendered in the **composer toolbar row**, directly before the action cluster (the morphing send/stop button) and never folded into `＋`. Claim components SHALL receive `{ pluginContext, sessionId, sessionStatus, draft, composer }`, where `composer` is a bounded write handle:
 - `insertAtCursor(text)` — inserts at the caret (or appends when the textarea is unfocused), separated by one space from adjacent text, and leaves the caret after the insert;
 - `snapshot()` / `restore(snapshot)` — capture and restore the draft and caret, so a cancelled action restores the prior draft;
 - `submit()` — submits the current draft exactly as the send button would, honouring the `Steer | Queue` delivery control.
@@ -10,11 +10,11 @@ The handle SHALL NOT expose arbitrary draft replacement. The slot id SHALL be de
 
 #### Scenario: No claim — composer unchanged
 - **WHEN** no enabled plugin claims `composer-toolbar-action`
-- **THEN** the input row renders the textarea, inline terminal and action button exactly as before
+- **THEN** the composer renders exactly as before, with no extra control in the toolbar row
 
 #### Scenario: Claim renders before the action button
 - **WHEN** a plugin claims `composer-toolbar-action`
-- **THEN** its control renders in the input row directly before the inline-terminal control and the send/stop button, aligned to the textarea's bottom edge
+- **THEN** its control renders in the composer toolbar row directly before the action cluster (the send/stop button)
 
 #### Scenario: Insert at caret keeps typed text
 - **WHEN** the draft is `refactor the auth|` with the caret at `|` and a claim calls `insertAtCursor("use the helper")`
@@ -33,7 +33,7 @@ The handle SHALL NOT expose arbitrary draft replacement. The slot id SHALL be de
 - **THEN** the manifest validator rejects the claim
 
 ### Requirement: Toolbar actions are never displaced
-A `composer-toolbar-action` control SHALL stay visible and operable regardless of draft content, attachments, or session state: it SHALL NOT be hidden when the draft is non-empty, when attachments are present, or while the session is working, and the morphing send/stop button SHALL NOT replace it. When the composer container is narrow, toolbar actions SHALL stay in the input row (they do not fold into `⋯`). Each control SHALL have a target of at least 44×44 CSS px on the narrow layout and 24×24 otherwise.
+A `composer-toolbar-action` control SHALL stay visible and operable regardless of draft content, attachments, or session state: it SHALL NOT be hidden when the draft is non-empty, when attachments are present, or while the session is working, and the morphing send/stop button SHALL NOT replace it. When the composer container is narrow, toolbar actions SHALL stay in the toolbar row, directly before the action cluster (they never fold into `＋`). Each control SHALL have a target of at least 44×44 CSS px on the narrow layout and 24×24 otherwise.
 
 #### Scenario: Visible while the agent works
 - **WHEN** the session is streaming and the draft is empty
@@ -43,9 +43,9 @@ A `composer-toolbar-action` control SHALL stay visible and operable regardless o
 - **WHEN** the draft has text and an image is attached
 - **THEN** the toolbar action is visible
 
-#### Scenario: Narrow pane keeps the action in the input row
+#### Scenario: Narrow pane keeps the action in the toolbar row
 - **WHEN** the composer folds to its narrow layout
-- **THEN** the toolbar action remains in the input row and is not moved into `⋯`
+- **THEN** the toolbar action remains in the toolbar row, keeps its 44 px target, and is not moved into `＋`
 
 ### Requirement: Toolbar actions are isolated
 Each claim SHALL render inside the plugin slot error boundary, and SHALL only receive the handle of the composer it is mounted in. The handle SHALL become inert when its composer unmounts or switches session.

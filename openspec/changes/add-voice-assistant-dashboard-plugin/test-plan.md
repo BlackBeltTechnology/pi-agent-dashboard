@@ -116,7 +116,7 @@ Scenario catalog (stage: design, **revised 2026-10-03** for the child-process en
 | 89 | edge-case | decision table | L1 | automated | Folder settings Plugins group {0 claims → hidden · claim → entry · disabled → hidden + fallback} |
 | 90 | edge-case | decision table | L1 | automated | /folder/:cwd/settings/plugins/<id> {claiming → section with cwd · global-only plugin → invalid-page fallback} |
 | 91 | error-handling | fault injection | L1 | automated | Folder section render error isolated by slot error boundary |
-| 92 | edge-case | decision table | L1 | automated | composer-toolbar-action {no claim → unchanged · claim → before send/stop · no ariaLabel → rejected} |
+| 92 | edge-case | decision table | L1 | automated | composer-toolbar-action {no claim → unchanged · claim → toolbar row directly before the action cluster, never folds into `＋`, 44 px narrow target · no ariaLabel → rejected} |
 | 93 | edge-case | BVA | L1 | automated | composer handle insertAtCursor at caret / unfocused append / snapshot+restore / stale handle no-op |
 | 94 | edge-case | state-transition | L1 | automated | submit() honours Steer|Queue while streaming |
 | 95 | edge-case | decision table | L1 | automated | Delivery {draft · send ≥3 words · send <3 words · send while streaming+Queue} |

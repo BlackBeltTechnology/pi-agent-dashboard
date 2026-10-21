@@ -1,6 +1,6 @@
 # Slot Taxonomy
 
-The 23 React-accepting slots a dashboard plugin can claim. Frozen for v0.x. The source of truth is `SLOT_DEFINITIONS` in `packages/shared/src/dashboard-plugin/slot-types.ts`; this table mirrors its ids (docs only, no taxonomy change).
+The 24 React-accepting slots a dashboard plugin can claim. Frozen for v0.x. The source of truth is `SLOT_DEFINITIONS` in `packages/shared/src/dashboard-plugin/slot-types.ts`; this table mirrors its ids (docs only, no taxonomy change).
 
 For the full slot table including descriptor-only slots (`management-modal`, `footer-segment`, `agent-metric`, `breadcrumb`, `gate`, `toast`, `rjsf-form`), see the archived design at `openspec/changes/archive/2026-04-26-dashboard-plugin-architecture/design.md` § "Slot taxonomy".
 
@@ -20,7 +20,8 @@ For the full slot table including descriptor-only slots (`management-modal`, `fo
 | `session-card-flows` | many per session | persistent | Contributions inside the FLOWS subcard of a session card. |
 | `workspace-action-bar` | many per session | persistent | Action buttons inside the WORKSPACE subcard of a session card (git workspace tooling). |
 | `worktree-card-section` | many per worktree card | persistent | Folder-scoped block inside a worktree session card, scoped to the worktree's own cwd (e.g. the KB row). |
-| `composer-context-group` | many | persistent | Labelled context group in the chat composer's session-action strip, after the Git group and before the Status group. Read-only; not disabled while streaming. Pair with the runtime's `ComposerContextGroup` primitive. |
+| `composer-context-group` | many | persistent | Labelled context group in the composer dock's Context lane, ahead of the Status group. Read-only; not disabled while streaming. Pair with the runtime's `ComposerContextGroup` primitive. |
+| `composer-dock-process-group` | many | persistent | Group of running-work rows in the composer dock's Processes lane, before the core Commands and Background groups. React-only, session-scoped. Props `{ session, pluginContext, mode: "summary" \| "rows", reportSummary }`: in `summary` mode render `null` and call `reportSummary({ count, noun })` (or `null` when nothing runs; `noun` agrees with `count`); in `rows` mode render runtime `ComposerDockRow`s. Needs `hostApi` `^1.1`. |
 | `composer-panel` | many | persistent | Panel rendered below the chat composer input; receives a read-only draft (and language). |
 | `shell-overlay-route` | many globally | persistent | Plugin-owned full-screen route mounted at the top of the shell (desktop and mobile). Each claim ships a wouter path pattern in `config.path` and a component receiving `{ params, onBack, session? }`. |
 | `login-provider` | one active | persistent | Identity plane: a trusted resolver plugin supplies the browser login mechanics (OIDC discovery, PKCE, callback exchange). Component-only; core renders it before the shell. |

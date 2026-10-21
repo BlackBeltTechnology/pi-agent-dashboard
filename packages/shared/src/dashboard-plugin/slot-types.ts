@@ -17,6 +17,7 @@ export type SlotId =
   | "session-card-action-bar"
   | "workspace-action-bar"
   | "composer-context-group"
+  | "composer-dock-process-group"
   | "composer-panel"
   | "shell-overlay-route"
   | "login-provider"
@@ -112,6 +113,12 @@ export const SLOT_DEFINITIONS: Record<SlotId, SlotDefinition> = {
     payloadTier: "react-only",
     description:
       "Labelled context group inside the chat composer's session-action strip, after the Git group and before the Status group. Contributions render read-only and are NOT disabled while streaming. Pair with the runtime's `ComposerContextGroup` primitive. See change: move-quota-to-context-strip.",
+  },
+  "composer-dock-process-group": {
+    multiplicity: "many",
+    payloadTier: "react-only",
+    description:
+      "Group of running-work rows inside the composer dock's Processes lane, before the core Commands and Background groups. Receives { session, pluginContext, mode, reportSummary }: in `summary` mode render null and report { count, noun } (or null); in `rows` mode render `ComposerDockRow`s. See change: add-composer-dock.",
   },
   "composer-panel": {
     multiplicity: "many",
@@ -288,6 +295,7 @@ type SessionScopedSlot =
   | "content-header-sticky"
   | "content-inline-footer"
   | "composer-context-group"
+  | "composer-dock-process-group"
   | "command-route"
   | "shell-overlay-route";
 

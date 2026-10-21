@@ -1133,6 +1133,12 @@ describe("CommandInput v2 — morphing action button (T1)", () => {
   });
 });
 
+/** Open the delivery dropdown and pick a state (the menu closes on pick). */
+function chooseDelivery(getByTestId: (id: string) => HTMLElement, mode: "steer" | "queue") {
+  fireEvent.click(getByTestId("delivery-control"));
+  fireEvent.click(getByTestId(`delivery-${mode}`));
+}
+
 describe("CommandInput v2 — Steer|Queue delivery control (T1)", () => {
   it("defaults to Steer: Enter sends delivery=steer", () => {
     const { textarea, onSend } = renderInput({ draft: "go", onDraftChange: vi.fn() });
@@ -1142,15 +1148,15 @@ describe("CommandInput v2 — Steer|Queue delivery control (T1)", () => {
 
   it("Queue selected routes Enter to followUp", () => {
     const { textarea, onSend, getByTestId } = renderInput({ draft: "later", onDraftChange: vi.fn() });
-    fireEvent.click(getByTestId("delivery-queue"));
+    chooseDelivery(getByTestId, "queue");
     fireEvent.keyDown(textarea, { key: "Enter" });
     expect(onSend).toHaveBeenCalledWith("later", undefined, "followUp");
   });
 
   it("Steer selected routes Enter to steer (after toggling back)", () => {
     const { textarea, onSend, getByTestId } = renderInput({ draft: "now", onDraftChange: vi.fn() });
-    fireEvent.click(getByTestId("delivery-queue"));
-    fireEvent.click(getByTestId("delivery-steer"));
+    chooseDelivery(getByTestId, "queue");
+    chooseDelivery(getByTestId, "steer");
     fireEvent.keyDown(textarea, { key: "Enter" });
     expect(onSend).toHaveBeenCalledWith("now", undefined, "steer");
   });
@@ -1234,28 +1240,18 @@ describe("CommandInput v2 — ＋ attach menu (T1)", () => {
 });
 
 describe("CommandInput v2 — mobile adaptation (T4)", () => {
-  it("persistent toolbar row exposes ＋, model, ⋯, and the action button", () => {
-    const { getByTestId } = renderInput({
+  it("toolbar row exposes ＋, model chip and the action button; no ⋯ at any width", () => {
+    const { getByTestId, queryByTestId, queryByLabelText } = renderInput({
       onSelectModel: vi.fn(),
       models: [{ provider: "anthropic", id: "claude-4" }],
       onOpenInlineTerminal: vi.fn(),
     });
     expect(getByTestId("attach-button")).toBeTruthy();
     expect(getByTestId("model-selector-button")).toBeTruthy();
-    expect(getByTestId("overflow-button")).toBeTruthy();
     expect(getByTestId("send-button")).toBeTruthy();
-  });
-
-  it("⋯ overflow hosts thinking, delivery, and terminal controls", () => {
-    const { getByTestId } = renderInput({
-      onSelectThinkingLevel: vi.fn(),
-      onOpenInlineTerminal: vi.fn(),
-    });
-    fireEvent.click(getByTestId("overflow-button"));
-    const menu = getByTestId("overflow-menu");
-    expect(menu.querySelector('[data-testid="thinking-level-button"]')).not.toBeNull();
-    expect(menu.querySelector('[data-testid="delivery-control"]')).not.toBeNull();
-    expect(menu.querySelector('[data-testid="open-inline-terminal-button"]')).not.toBeNull();
+    expect(queryByTestId("overflow-button")).toBeNull();
+    expect(queryByTestId("overflow-menu")).toBeNull();
+    expect(queryByLabelText("More")).toBeNull();
   });
 
   it("the action button meets the 44px touch-target minimum", () => {
@@ -1269,29 +1265,41 @@ describe("CommandInput v2 — mobile adaptation (T4)", () => {
 // ── redesign-composer-session-strip (D7) ────────────────────────────────────
 // test-plan #E15 / #E16 / #E17 (tasks 8.15–8.17, 6.1–6.3).
 
-describe("CommandInput — input row / settings row (#E15)", () => {
-  it("send lives in the input row; ＋ / model / thinking / delivery / terminal in the settings row", () => {
-    const { getByTestId } = renderInput({
-      draft: "x",
+describe("CommandInput — input row / toolbar row (#E15, #E24)", () => {
+  it("E24: the input row holds only the textarea; send ends the toolbar row; the terminal is a ＋ menu item", () => {
+    const { getByTestId, queryByTestId } = renderInput({
+      draft: "Run the tests.",
       onDraftChange: vi.fn(),
+      sessionStatus: "idle",
       onSelectModel: vi.fn(),
       models: [{ provider: "anthropic", id: "claude-4" }] as any,
       onSelectThinkingLevel: vi.fn(),
       onOpenInlineTerminal: vi.fn(),
     });
     const input = getByTestId("composer-input-row");
-    const settings = getByTestId("composer-settings-row");
-    expect(input.contains(getByTestId("send-button"))).toBe(true);
-    expect(input.querySelector("textarea")).not.toBeNull();
-    // The inline terminal (desktop) sits in the settings row; the folded copy is in ⋯.
-    expect(input.querySelector('[data-testid="open-inline-terminal-button"]')).toBeNull();
-    const term = settings.querySelector('[data-testid="open-inline-terminal-button"]') as HTMLElement;
+    const toolbar = getByTestId("composer-settings-row");
+    expect(input.children).toHaveLength(1);
+    expect(input.firstElementChild?.tagName).toBe("TEXTAREA");
+    expect(toolbar.lastElementChild).toBe(getByTestId("send-button"));
+    expect(toolbar.querySelector('[data-testid="open-inline-terminal-button"]')).toBeNull();
+    fireEvent.click(getByTestId("attach-button"));
+    const menu = getByTestId("attach-menu");
+    const term = menu.querySelector('[data-testid="open-inline-terminal-button"]') as HTMLElement;
+    expect(term).not.toBeNull();
     expect(term.getAttribute("aria-label")).toBe("Open inline terminal");
-    expect(term.textContent).toContain("Terminal");
-    for (const id of ["attach-button", "model-selector-button", "thinking-level-button", "delivery-control"]) {
-      expect(settings.querySelector(`[data-testid="${id}"]`), id).not.toBeNull();
+    expect(queryByTestId("composer-input-row")?.contains(getByTestId("send-button"))).toBe(false);
+    for (const id of ["attach-button", "model-selector-button", "delivery-control"]) {
+      expect(toolbar.querySelector(`[data-testid="${id}"]`), id).not.toBeNull();
     }
-    expect(settings.querySelector('[data-testid="send-button"]')).toBeNull();
+  });
+
+  it("the terminal menu item opens the inline terminal and closes the menu", () => {
+    const onOpenInlineTerminal = vi.fn();
+    const { getByTestId, queryByTestId } = renderInput({ onOpenInlineTerminal });
+    fireEvent.click(getByTestId("attach-button"));
+    fireEvent.click(getByTestId("open-inline-terminal-button"));
+    expect(onOpenInlineTerminal).toHaveBeenCalledOnce();
+    expect(queryByTestId("attach-menu")).toBeNull();
   });
 });
 
@@ -1445,5 +1453,350 @@ describe("CommandInput — reconciled composer liveness", () => {
     expect(q(container, "send-button")).not.toBeNull();
     rerender(<CommandInput {...props} sessionStatus={composerLiveness("idle", "streaming")} />);
     expect(q(container, "stop-button")).not.toBeNull();
+  });
+});
+
+// ===========================================================================
+// add-composer-dock — toolbar restructure (D7–D9, tasks 7.1–7.5)
+// ===========================================================================
+
+/** The composer card is the `@container`; jsdom has no layout, so pin its width. */
+function setComposerWidth(getByTestId: (id: string) => HTMLElement, px: number) {
+  Object.defineProperty(getByTestId("composer-card"), "clientWidth", { configurable: true, value: px });
+}
+
+const DOCK_MODELS = [
+  { provider: "anthropic", id: "claude-opus-5-5", supportedThinkingLevels: ["off", "low", "medium", "high", "xhigh"] },
+  { provider: "anthropic", id: "claude-haiku-5-5", supportedThinkingLevels: ["off", "low"] },
+] as any;
+
+describe("CommandInput — delivery dropdown (E20, 7.2)", () => {
+  const cases: Array<["steer" | "queue", boolean, "steer" | "followUp"]> = [
+    ["steer", false, "steer"],
+    ["steer", true, "followUp"],
+    ["queue", false, "followUp"],
+    ["queue", true, "followUp"],
+  ];
+  for (const [mode, alt, expected] of cases) {
+    it(`E20: ${mode} + ${alt ? "Alt+Enter" : "Enter"} → ${expected}`, () => {
+      const { textarea, onSend, getByTestId } = renderInput({ draft: "hi", onDraftChange: vi.fn() });
+      if (mode === "queue") chooseDelivery(getByTestId, "queue");
+      fireEvent.keyDown(textarea, { key: "Enter", altKey: alt });
+      expect(onSend).toHaveBeenCalledWith("hi", undefined, expected);
+    });
+  }
+
+  it("the trigger is a menu button naming the current state; its menu offers both states as radio items with description + key", () => {
+    const { getByTestId, getAllByRole } = renderInput();
+    const trigger = getByTestId("delivery-control");
+    expect(trigger.tagName).toBe("BUTTON");
+    expect(trigger.getAttribute("aria-haspopup")).toBe("menu");
+    expect(trigger.getAttribute("aria-label")).toBe("Delivery mode: Steer");
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(trigger);
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    const radios = getAllByRole("menuitemradio");
+    expect(radios.map((r) => r.getAttribute("data-testid"))).toEqual(["delivery-steer", "delivery-queue"]);
+    expect(radios[0]!.getAttribute("aria-checked")).toBe("true");
+    expect(radios[1]!.getAttribute("aria-checked")).toBe("false");
+    expect(radios[0]!.textContent).toContain("Steer");
+    expect(radios[0]!.textContent).toContain("Interrupts at the next tool boundary");
+    expect(radios[0]!.textContent).toContain("⏎");
+    expect(radios[1]!.textContent).toContain("Delivered when the turn ends");
+    expect(radios[1]!.textContent).toContain("⌥⏎");
+  });
+
+  it("picking Queue updates the trigger name and closes the menu; Escape closes without changing", () => {
+    const { getByTestId, queryByTestId } = renderInput();
+    chooseDelivery(getByTestId, "queue");
+    expect(queryByTestId("delivery-queue")).toBeNull();
+    expect(getByTestId("delivery-control").getAttribute("aria-label")).toBe("Delivery mode: Queue");
+    fireEvent.click(getByTestId("delivery-control"));
+    fireEvent.keyDown(getByTestId("delivery-steer"), { key: "Escape" });
+    expect(queryByTestId("delivery-steer")).toBeNull();
+    expect(getByTestId("delivery-control").getAttribute("aria-label")).toBe("Delivery mode: Queue");
+  });
+
+  it("375 px: the chip is hidden by the 26.25rem container query and ＋ offers Steer/Queue as radio items", () => {
+    const { getByTestId } = renderInput({ draft: "q", onDraftChange: vi.fn() });
+    expect(getByTestId("delivery-control").closest("span")!.className).toMatch(/hidden .*@\[26\.25rem\]:inline-flex/);
+    setComposerWidth(getByTestId, 375);
+    fireEvent.click(getByTestId("attach-button"));
+    const menu = getByTestId("attach-menu");
+    const radios = menu.querySelectorAll('[role="menuitemradio"]');
+    expect(radios).toHaveLength(2);
+    expect(radios[0]!.getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("375 px: a Queue pick from ＋ routes Enter to followUp", () => {
+    const { getByTestId, onSend, textarea } = renderInput({ draft: "later", onDraftChange: vi.fn() });
+    setComposerWidth(getByTestId, 375);
+    fireEvent.click(getByTestId("attach-button"));
+    fireEvent.click(getByTestId("delivery-queue"));
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(onSend).toHaveBeenCalledWith("later", undefined, "followUp");
+  });
+
+  it("wide composer: ＋ does not duplicate the delivery states", () => {
+    const { getByTestId } = renderInput();
+    setComposerWidth(getByTestId, 1000);
+    fireEvent.click(getByTestId("attach-button"));
+    expect(getByTestId("attach-menu").querySelectorAll('[role="menuitemradio"]')).toHaveLength(0);
+  });
+
+  it("no ⋯ overflow control at any width", () => {
+    for (const w of [1200, 880, 640, 420, 375]) {
+      const { getByTestId, queryByTestId, queryByLabelText, unmount } = renderInput({ onOpenInlineTerminal: vi.fn() });
+      setComposerWidth(getByTestId, w);
+      fireEvent.click(getByTestId("attach-button"));
+      expect(queryByTestId("overflow-button"), String(w)).toBeNull();
+      expect(queryByTestId("overflow-menu"), String(w)).toBeNull();
+      expect(queryByLabelText("More"), String(w)).toBeNull();
+      unmount();
+    }
+  });
+});
+
+describe("CommandInput — merged model chip (E19, 7.3)", () => {
+  const chipProps = () => ({
+    model: "anthropic/claude-opus-5-5",
+    models: DOCK_MODELS,
+    thinkingLevel: "xhigh",
+    onSelectModel: vi.fn(),
+    onSelectThinkingLevel: vi.fn(),
+  });
+
+  it("the face shows model and level; the accessible name carries both", () => {
+    const { getByTestId } = renderInput(chipProps());
+    const chip = getByTestId("model-selector-button");
+    expect(chip.textContent).toContain("anthropic/claude-opus-5-5");
+    expect(chip.textContent).toContain("xhigh");
+    const name = chip.getAttribute("aria-label")!;
+    expect(name).toContain("anthropic/claude-opus-5-5");
+    expect(name).toContain("xhigh");
+    // The level drops from the face below 420 px (container query) but never from the name.
+    expect(getByTestId("model-chip-level").className).toMatch(/hidden .*@\[26\.25rem\]:inline/);
+    // No separate thinking chip.
+    expect(document.querySelector('[data-testid="thinking-level-button"]')).toBeNull();
+  });
+
+  it("the model id truncates with an ellipsis (it shrinks before any other control)", () => {
+    const { getByTestId } = renderInput(chipProps());
+    const face = getByTestId("model-selector-button").querySelector(".truncate");
+    expect(face).not.toBeNull();
+    expect(getByTestId("model-selector").className).toContain("min-w-0");
+  });
+
+  it("choosing a model in the chip popover sends set_model's value", () => {
+    const props = chipProps();
+    const { getByTestId, getAllByTestId } = renderInput(props);
+    fireEvent.click(getByTestId("model-selector-button"));
+    fireEvent.click(getAllByTestId("model-row").find((r) => r.textContent?.includes("claude-haiku-5-5"))!);
+    expect(props.onSelectModel).toHaveBeenCalledWith("anthropic/claude-haiku-5-5");
+  });
+
+  it("choosing a level in the chip popover sends set_thinking_level's value", () => {
+    const props = chipProps();
+    const { getByTestId, getByRole } = renderInput(props);
+    fireEvent.click(getByTestId("model-selector-button"));
+    const group = getByRole("radiogroup", { name: "Thinking level" });
+    const high = group.querySelector('[role="radio"][data-level="high"]') as HTMLElement;
+    expect(high.getAttribute("aria-checked")).toBe("false");
+    expect(group.querySelector('[role="radio"][data-level="xhigh"]')!.getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(high);
+    expect(props.onSelectThinkingLevel).toHaveBeenCalledWith("high");
+    expect(document.querySelector('[data-testid="model-dropdown"]')).toBeNull();
+  });
+
+  it("offers only the levels the selected model supports", () => {
+    const props = { ...chipProps(), model: "anthropic/claude-haiku-5-5", thinkingLevel: "low" };
+    const { getByTestId, getByRole } = renderInput(props);
+    fireEvent.click(getByTestId("model-selector-button"));
+    const levels = Array.from(getByRole("radiogroup", { name: "Thinking level" }).querySelectorAll('[role="radio"]')).map((r) => r.getAttribute("data-level"));
+    expect(levels).toEqual(["off", "low"]);
+  });
+
+  it("E19: a role pick shows `from @fast` and the level; the name holds the model and level", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ data: [{ preset: null, roles: [{ role: "fast", assigned: true, model: "anthropic/claude-haiku-5-5", thinkingLevel: "low" }] }] }),
+    })));
+    try {
+      const props = { ...chipProps(), model: "anthropic/claude-opus-5-5", thinkingLevel: "xhigh" };
+      const view = renderInput(props);
+      await act(async () => {});
+      fireEvent.click(view.getByTestId("model-selector-button"));
+      await act(async () => {});
+      fireEvent.click(view.getByTestId("model-tab-role"));
+      await act(async () => {
+        fireEvent.click(view.getAllByTestId("role-row").find((r) => r.getAttribute("data-role") === "fast")!);
+      });
+      expect(props.onSelectModel).toHaveBeenCalledWith("anthropic/claude-haiku-5-5");
+      expect(props.onSelectThinkingLevel).toHaveBeenCalledWith("low");
+      view.rerender(<CommandInput commands={commands} onSend={vi.fn()} {...props} model="anthropic/claude-haiku-5-5" thinkingLevel="low" />);
+      const chip = view.getByTestId("model-selector-button");
+      expect(chip.textContent).toContain("from");
+      expect(view.getByTestId("model-via-role").textContent).toContain("@fast");
+      expect(chip.textContent).toContain("claude-haiku-5-5");
+      expect(chip.textContent).toContain("low");
+      expect(chip.getAttribute("aria-label")).toContain("claude-haiku-5-5");
+      expect(chip.getAttribute("aria-label")).toContain("low");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("the empty catalogue state still opens from the chip", () => {
+    const { getByTestId } = renderInput({ ...chipProps(), models: [] });
+    fireEvent.click(getByTestId("model-selector-button"));
+    expect(getByTestId("model-empty")).toBeTruthy();
+  });
+
+  it("folder-home unset values show the placeholder once, without a duplicate level", () => {
+    const { getByTestId } = renderInput({ onSelectModel: vi.fn(), onSelectThinkingLevel: vi.fn(), unsetLabel: "pi default" });
+    const text = getByTestId("model-selector-button").textContent ?? "";
+    expect(text.match(/pi default/g)).toHaveLength(1);
+  });
+});
+
+describe("CommandInput — working status word (7.4)", () => {
+  it("streaming + bash: shows `Running bash…` beside an aria-hidden shape; no standalone status row", () => {
+    const { getByTestId, queryByTestId } = renderInput({ sessionStatus: "streaming", currentTool: "bash" });
+    const status = getByTestId("working-status");
+    expect(status.textContent).toMatch(/Running bash/);
+    expect(status.querySelector("svg")!.getAttribute("aria-hidden")).toBe("true");
+    expect(getByTestId("composer-settings-row").contains(status)).toBe(true);
+    expect(queryByTestId("status-bar")).toBeNull();
+  });
+
+  it("the word is sr-only below 40rem (still in the DOM for assistive tech); the shape stays visible", () => {
+    const { getByTestId } = renderInput({ sessionStatus: "streaming", currentTool: "bash" });
+    const status = getByTestId("working-status");
+    const word = Array.from(status.children).find((c) => c.tagName === "SPAN" && /Running bash/.test(c.textContent ?? ""))!;
+    expect(word.className).toContain("sr-only");
+    expect(word.className).toContain("@[40rem]:not-sr-only");
+    expect(status.querySelector("svg")!.parentElement!.className).not.toContain("sr-only");
+  });
+
+  it("thinking / generating labels; nothing when idle", () => {
+    const a = renderInput({ sessionStatus: "streaming" });
+    expect(a.getByTestId("working-status").textContent).toMatch(/Thinking/);
+    a.unmount();
+    const b = renderInput({ sessionStatus: "streaming", streamingText: "x" });
+    expect(b.getByTestId("working-status").textContent).toMatch(/Generating/);
+    b.unmount();
+    const c = renderInput({ sessionStatus: "idle", currentTool: "bash" });
+    expect(c.queryByTestId("working-status")).toBeNull();
+  });
+
+  it("renders no context gauge in the toolbar", () => {
+    const { getByTestId } = renderInput({ sessionStatus: "streaming", contextUsage: { tokens: 46000, contextWindow: 100000 } });
+    const toolbar = getByTestId("composer-settings-row");
+    expect(toolbar.querySelector('[role="meter"], [role="progressbar"], circle')).toBeNull();
+    expect(toolbar.textContent).not.toMatch(/\d+%/);
+  });
+});
+
+describe("CommandInput — kept and removed test ids (E23)", () => {
+  it("E23: every kept D7 id is present; the strip, status bar and ⋯ are gone", () => {
+    const view = renderInput({
+      sessionStatus: "streaming",
+      draft: "go",
+      onDraftChange: vi.fn(),
+      onAbort: vi.fn(),
+      onForceKill: vi.fn(),
+      onStopAfterTurn: vi.fn(),
+      onOpenInlineTerminal: vi.fn(),
+      contextUsage: { tokens: 20000, contextWindow: 100000 },
+      onSelectModel: vi.fn(),
+      models: DOCK_MODELS,
+    });
+    const present = (id: string) => expect(view.queryByTestId(id), id).not.toBeNull();
+    for (const id of ["composer-root", "composer-card", "composer-input-row", "composer-settings-row", "composer-footer", "composer-context-left", "attach-button", "delivery-control", "stop-split", "stop-after-turn-button", "stop-button"]) present(id);
+    fireEvent.click(view.getByTestId("attach-button"));
+    present("attach-menu");
+    present("open-inline-terminal-button");
+    fireEvent.mouseDown(document.body);
+    fireEvent.click(view.getByTestId("delivery-control"));
+    present("delivery-steer");
+    present("delivery-queue");
+    fireEvent.mouseDown(document.body);
+    fireEvent.click(view.getByTestId("stop-after-turn-button"));
+    present("stop-after-turn-pill");
+    fireEvent.click(view.getByTestId("stop-button"));
+    present("force-stop-button");
+    fireEvent.click(view.getByTestId("force-stop-button"));
+    present("killing-button");
+    for (const id of ["composer-context-strip", "status-bar", "composer-session-actions", "overflow-button", "overflow-menu"]) {
+      expect(view.queryByTestId(id), id).toBeNull();
+    }
+  });
+
+  it("send-button is kept idle", () => {
+    expect(renderInput({ draft: "x", onDraftChange: vi.fn() }).queryByTestId("send-button")).not.toBeNull();
+  });
+});
+
+describe("CommandInput — action cluster (F23, F24, 7.5)", () => {
+  const RAW_PALETTE = /\b(?:bg|text|border|ring)-(?:red|blue|orange|yellow|green|amber|emerald|rose)-\d{2,3}/;
+
+  it("F23: stop-after-turn immediately precedes stop inside one group named `Stop options`", () => {
+    const { getByTestId, getByRole } = renderInput({ sessionStatus: "streaming", onAbort: vi.fn(), onStopAfterTurn: vi.fn() });
+    const group = getByRole("group", { name: "Stop options" });
+    expect(getByTestId("stop-after-turn-button").nextElementSibling).toBe(getByTestId("stop-button"));
+    expect(group.contains(getByTestId("stop-button"))).toBe(true);
+    expect(getByTestId("composer-settings-row").contains(group)).toBe(true);
+  });
+
+  it("F24: force-stop's glyph differs from stop's", () => {
+    const { getByTestId } = renderInput({ sessionStatus: "streaming", onAbort: vi.fn(), onForceKill: vi.fn() });
+    const glyph = (id: string) => getByTestId(id).querySelector("path")!.getAttribute("d");
+    const stopGlyph = glyph("stop-button");
+    fireEvent.click(getByTestId("stop-button"));
+    expect(glyph("force-stop-button")).not.toBe(stopGlyph);
+  });
+
+  it("7.5: send / stop / force / killing / after-turn paint from tokens, not raw palette classes", () => {
+    const send = renderInput({ draft: "x", onDraftChange: vi.fn() });
+    expect(send.getByTestId("send-button").className).toContain("--text-primary");
+    expect(send.getByTestId("send-button").className).toContain("--bg-primary");
+    expect(send.getByTestId("send-button").className).toContain("disabled:bg-[var(--bg-surface)]");
+    expect(send.getByTestId("send-button").className).toContain("disabled:text-[var(--text-muted)]");
+    expect(send.getByTestId("send-button").className).not.toMatch(RAW_PALETTE);
+    send.unmount();
+    const { getByTestId } = renderInput({ sessionStatus: "streaming", onAbort: vi.fn(), onForceKill: vi.fn(), onStopAfterTurn: vi.fn() });
+    expect(getByTestId("stop-after-turn-button").className).not.toMatch(RAW_PALETTE);
+    expect(getByTestId("stop-button").className).not.toMatch(RAW_PALETTE);
+    expect(getByTestId("stop-button").className).toContain("--text-primary");
+    fireEvent.click(getByTestId("stop-button"));
+    const force = getByTestId("force-stop-button");
+    expect(force.className).not.toMatch(RAW_PALETTE);
+    expect(force.className).toContain("--severity-warning-bg");
+    expect(force.className).toContain("--severity-warning-fg");
+    expect(force.className).toContain("--severity-warning-border");
+    fireEvent.click(force);
+    expect(getByTestId("killing-button").className).not.toMatch(RAW_PALETTE);
+  });
+
+  it("the after-turn label shows from 55rem (collapses to the icon below, name kept)", () => {
+    const { getByTestId } = renderInput({ sessionStatus: "streaming", onAbort: vi.fn(), onStopAfterTurn: vi.fn() });
+    const sat = getByTestId("stop-after-turn-button");
+    expect(sat.querySelector("span")!.className).toContain("@[55rem]:inline");
+    expect(sat.getAttribute("aria-label")).toBe("Stop after turn");
+  });
+});
+
+describe("CommandInput — invalid border (team-app composer, task 8.4)", () => {
+  it("invalid sets aria-invalid on the textarea and the error border on the card", () => {
+    const { textarea, getByTestId } = renderInput({ invalid: true });
+    expect(textarea.getAttribute("aria-invalid")).toBe("true");
+    expect(getByTestId("composer-card").className).toContain("border-[var(--severity-error-border)]");
+  });
+
+  it("renders without model/delivery extras bare (no dock, no model chip)", () => {
+    const { getByTestId, queryByTestId } = renderInput();
+    expect(queryByTestId("model-selector-button")).toBeNull();
+    expect(getByTestId("composer-settings-row").lastElementChild).toBe(getByTestId("send-button"));
   });
 });

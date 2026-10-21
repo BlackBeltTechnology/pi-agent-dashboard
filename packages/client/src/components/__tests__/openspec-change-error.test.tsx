@@ -8,12 +8,10 @@ import type { DashboardSession, OpenSpecChange, OpenSpecData } from "@blackbelt-
 import { cleanup, fireEvent, render as rtlRender, screen, within } from "@testing-library/react";
 import type React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Router } from "wouter";
-import { memoryLocation } from "wouter/memory-location";
 import { makeRunConfig, RunConfigHarness } from "../../test-support/runConfigHarness.js";
+import { renderLanesDock, stubSessionDiffFetch } from "../chat/__tests__/dock-harness.js";
 import { OpenSpecBoardView } from "../openspec/OpenSpecBoardView.js";
 import { SessionOpenSpecActions } from "../openspec/SessionOpenSpecActions.js";
-import { ComposerSessionActions } from "../session/ComposerSessionActions.js";
 import { MobileActionMenu } from "../shell/MobileActionMenu.js";
 
 vi.mock("../../lib/openspec/openspec-groups-api.js", () => ({
@@ -127,20 +125,20 @@ describe("#F7 error clears on the session card", () => {
   });
 });
 
-describe("#F5 composer strip", () => {
+describe("#F5 composer dock OpenSpec lane", () => {
   it("Continue primary is aria-disabled, focusable, and describes itself with the message", () => {
-    rtlRender(
-      <Router hook={memoryLocation({ path: "/" }).hook}>
-        <ComposerSessionActions
-          session={session({ cwd: "/repo" })}
-          changes={[broken()]}
-          openspecHasDir={true}
-          openspecReadiness={{ state: "READY" }}
-          onReadArtifact={vi.fn()}
-          onDetach={vi.fn()}
-        />
-      </Router>,
-    );
+    stubSessionDiffFetch(() => ({ body: { success: true, data: { files: [], isGitRepo: true } } }));
+    renderLanesDock({
+      input: {
+        session: session({ cwd: "/repo" }),
+        working: false,
+        changes: [broken()],
+        openspecHasDir: true,
+        openspecReadiness: { state: "READY" },
+        onReadArtifact: vi.fn(),
+        onDetach: vi.fn(),
+      },
+    });
     const cont = screen.getByTestId("composer-continue-btn") as HTMLButtonElement;
     expect(cont.getAttribute("aria-disabled")).toBe("true");
     expect(cont.disabled).toBe(false); // stays focusable

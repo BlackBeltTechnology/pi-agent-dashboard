@@ -273,16 +273,6 @@ Consequently a plugin surface rendering the primitive SHALL offer favorite stars
 - **THEN** `IntentRenderer` SHALL resolve the primitive via `useUiPrimitiveOrNull` and render the registered impl
 - **AND** the impl's `onSelect` SHALL be wired to `send("...", { ...payload, modelLabel })` — using the wireActions descriptor pathway
 
-### Requirement: Existing `StatusBar` usage SHALL remain direct-import
-
-`packages/client/src/components/StatusBar.tsx` SHALL keep its direct `import { ModelSelector } from "./ModelSelector.js"`. The primitive registry is for plugin consumers; the dashboard shell continues to import shell-private components directly. This keeps the StatusBar's call graph trivially analyzable and avoids a registry round-trip for first-party code.
-
-#### Scenario: StatusBar source unchanged
-
-- **WHEN** inspecting `packages/client/src/components/StatusBar.tsx` after this change lands
-- **THEN** the file SHALL still import `ModelSelector` directly from `./ModelSelector.js`
-- **AND** the file SHALL NOT call `useUiPrimitive("ui:model-selector")`
-
 ### Requirement: `ui:thinking-level-selector` primitive key and contract
 
 `packages/shared/src/dashboard-plugin/ui-primitives.ts` SHALL include `thinkingLevelSelector: "ui:thinking-level-selector"` in `UI_PRIMITIVE_KEYS` and a matching entry in `UiPrimitiveMap`. The primitive SHALL expose a thinking-level picker with the same per-model level filtering the dashboard shell applies to its own composer.

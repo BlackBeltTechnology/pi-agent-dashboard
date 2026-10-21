@@ -9,6 +9,7 @@ import { LIST_POPOVER_MIN_HEIGHT, usePopoverFlip } from "../../hooks/usePopoverF
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { useModelConfigOptional } from "../../lib/state/ModelConfigContext.js";
 import { usePopoverBoundary } from "../../lib/state/PopoverBoundaryContext.js";
+import { thinkingLevelsFor } from "./ThinkingLevelSelector.js";
 
 // Per-browser view-state persistence (NOT favorites — those persist server-side).
 // See change: enrich-model-selector-capabilities-favorites.
@@ -50,6 +51,23 @@ interface Props {
    * and will NOT follow later role changes. Shown beside the trigger text.
    */
   viaRole?: string;
+
+  /**
+   * Merged model · thinking chip (composer). When `onSelectLevel` is set the
+   * trigger appends `· <level>` (hidden below 26.25rem, kept in the accessible
+   * name) and the popover appends a single-choice thinking-level group filtered
+   * by `supportedLevels`. Absent → the selector is the plain model picker.
+   * See change: add-composer-dock (D8).
+   */
+  level?: string;
+  /** Face text when the model is set but `level` is not. Default `off`. */
+  levelPlaceholder?: string;
+  /** Small badge beside the level on the face (e.g. `default`). */
+  levelTag?: string;
+  /** Levels the current model supports; undefined/empty → the six fallback levels. */
+  supportedLevels?: string[];
+  /** Pick a thinking level (`set_thinking_level`). Enables the merged chip. */
+  onSelectLevel?: (level: string) => void;
 
   /**
    * Opt-in disable of the trigger. Default (undefined/false) leaves the trigger
@@ -523,7 +541,7 @@ function TriggerValue({
       </span>
     );
   }
-  return <span className="font-mono truncate max-w-[260px]">{current ?? placeholder ?? "no model"}</span>;
+  return <span className="font-mono truncate min-w-[8ch] max-w-[260px]">{current ?? placeholder ?? "no model"}</span>;
 }
 
 function RoleTabs({ tab, setTab, baseId }: { tab: "model" | "role"; setTab: (t: "model" | "role") => void; baseId: string }) {
@@ -781,6 +799,47 @@ function useGridKeyboard({
   };
 }
 
+/** Single-choice thinking-level group appended to the popover (arrows move focus; Enter/Space picks). */
+function LevelRadioGroup({ levels, current, onPick }: { levels: readonly string[]; current?: string; onPick: (level: string) => void }) {
+  const headingId = `${useId()}-level-h`;
+  const onKey = (e: React.KeyboardEvent) => {
+    if (!["ArrowRight", "ArrowLeft", "ArrowDown", "ArrowUp"].includes(e.key)) return;
+    e.preventDefault();
+    const radios = Array.from(e.currentTarget.querySelectorAll<HTMLElement>('[role="radio"]'));
+    const at = radios.indexOf(document.activeElement as HTMLElement);
+    const step = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : -1;
+    radios[(at + step + radios.length) % radios.length]?.focus();
+  };
+  const focusable = current && levels.includes(current) ? current : levels[0];
+  return (
+    <div className="flex-none border-t border-[var(--border-secondary)] px-2 py-1.5" data-testid="model-level-group">
+      <div id={headingId} className="px-1 pb-1 text-[11px] font-semibold text-[var(--text-secondary)]">
+        {i18nT("thinking.level", undefined, "Thinking level")}
+      </div>
+      <div role="radiogroup" aria-labelledby={headingId} className="flex flex-wrap gap-1" onKeyDown={onKey}>
+        {levels.map((l) => (
+          <button
+            key={l}
+            type="button"
+            role="radio"
+            aria-checked={l === current}
+            tabIndex={l === focusable ? 0 : -1}
+            data-level={l}
+            onClick={() => onPick(l)}
+            className={`focus-ring tap-target px-2.5 rounded-md border text-xs font-mono ${
+              l === current
+                ? "bg-[var(--accent-soft)] border-[var(--accent)] text-[var(--text-primary)]"
+                : "border-[var(--border-secondary)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
+            }`}
+          >
+            {l}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /** Fixed-position style for the portaled panel, from the flip hook's measurements. */
 function panelStyle(
   pos: Pick<ReturnType<typeof usePopoverFlip>, "flipUp" | "maxHeight" | "minHeight" | "anchorRight" | "maxWidth" | "triggerRect">,
@@ -867,7 +926,7 @@ function useDismissOutside(open: boolean, panelRef: React.RefObject<HTMLElement 
   }, [open, panelRef, triggerRef, close]);
 }
 
-export function ModelSelector({ current, models, onSelect, onRefresh, refreshErrors, onOpenProviderSettings, favorites, onToggleFavorite, placeholder, tag, disabled, allowRoles, viaRole }: Props) {
+export function ModelSelector({ current, models, onSelect, onRefresh, refreshErrors, onOpenProviderSettings, favorites, onToggleFavorite, placeholder, tag, disabled, allowRoles, viaRole, level, levelPlaceholder, levelTag, supportedLevels, onSelectLevel }: Props) {
   const [open, setOpen] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
   // Which cell of the active row the combobox's `aria-activedescendant` points at.
@@ -948,6 +1007,15 @@ export function ModelSelector({ current, models, onSelect, onRefresh, refreshErr
     [onSelect, setPendingModel],
   );
 
+  const handleLevelPick = useCallback(
+    (picked: string) => {
+      onSelectLevel?.(picked);
+      setOpen(false);
+      requestAnimationFrame(() => triggerRef.current?.focus());
+    },
+    [onSelectLevel],
+  );
+
   const handleRolePick = useCallback(
     (role: string) => {
       onSelect(`@${role}`);
@@ -1016,26 +1084,51 @@ export function ModelSelector({ current, models, onSelect, onRefresh, refreshErr
     ? "text-[var(--text-muted)]"
     : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]";
 
+  // Merged chip: `· level` after the model. Omitted when neither is set (the
+  // placeholder already reads "pi default"). Its name carries both values.
+  const merged = onSelectLevel !== undefined;
+  const levelText = merged ? (level ?? (current === undefined ? undefined : (levelPlaceholder ?? "off"))) : undefined;
+  const chipName =
+    levelText === undefined
+      ? undefined
+      : i18nT(
+          "command.modelChipName",
+          { model: pendingModel ?? current ?? placeholder ?? "", level: levelText },
+          `Model ${pendingModel ?? current ?? placeholder ?? ""}, thinking ${levelText}`,
+        );
+
   return (
-    <div ref={containerRef} className="relative" data-testid="model-selector">
+    <div ref={containerRef} className="relative min-w-0" data-testid="model-selector">
       <button
         ref={triggerRef}
         type="button"
         onClick={() => !disabled && setOpen(!open)}
-        className={`focus-ring flex items-center gap-1 text-xs px-2 tap-target rounded ${triggerClass}`}
+        className={`focus-ring flex items-center gap-1 max-w-full min-w-0 text-xs px-2 tap-target rounded ${triggerClass}`}
         disabled={disabled}
         data-testid="model-selector-button"
+        aria-label={chipName}
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={open ? dropdownId : undefined}
       >
         <TriggerValue current={current} pendingModel={pendingModel} viaRole={viaRole} roleRows={roleRows} placeholder={placeholder} />
         {tag && !pendingModel && (
-          <span data-testid="model-tag" className="text-[10px] px-1 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)]">
+          <span data-testid="model-tag" className="flex-none text-[10px] px-1 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)]">
             {tag}
           </span>
         )}
-        {!pendingModel && !disabled && <Icon path={mdiChevronDown} size={0.5} aria-hidden />}
+        {levelText !== undefined && (
+          <span data-testid="model-chip-level" className="hidden @[26.25rem]:inline-flex flex-none items-center gap-1 whitespace-nowrap text-[var(--text-secondary)]">
+            <span aria-hidden="true">·</span>
+            <span className="font-mono">{levelText}</span>
+            {levelTag && (
+              <span data-testid="thinking-tag" className="text-[10px] px-1 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)]">
+                {levelTag}
+              </span>
+            )}
+          </span>
+        )}
+        {!pendingModel && !disabled && <Icon path={mdiChevronDown} size={0.5} className="flex-none" aria-hidden />}
       </button>
 
       {open && (
@@ -1094,6 +1187,7 @@ export function ModelSelector({ current, models, onSelect, onRefresh, refreshErr
               )}
             </div>
           )}
+          {merged && <LevelRadioGroup levels={thinkingLevelsFor(supportedLevels)} current={level} onPick={handleLevelPick} />}
           </div>
         </LayerPortal>
       )}

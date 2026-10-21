@@ -1,5 +1,5 @@
 import { expect, test } from "./fixtures.js";
-import { byTestId, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
+import { byTestId, expandQueueLane, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 
 /**
  * Browser E2E for change: fix-bridge-followup-image-drop.
@@ -35,14 +35,14 @@ async function selectedSessionId(page: import("@playwright/test").Page): Promise
   return id as string;
 }
 
-/** POST a prompt (optionally with images) through the same-origin REST route. */
+/** POST a prompt (optionally with images) through the same-origin REST route, then open the dock's Queue lane. */
 async function postFollowUp(
   page: import("@playwright/test").Page,
   sessionId: string,
   text: string,
   images?: unknown[],
 ): Promise<number> {
-  return page.evaluate(
+  const status = await page.evaluate(
     async ([id, body]) => {
       const r = await fetch(`/api/session/${id}/prompt`, {
         method: "POST",
@@ -53,6 +53,8 @@ async function postFollowUp(
     },
     [sessionId, { text, ...(images ? { images } : {}) }] as const,
   );
+  await expandQueueLane(page);
+  return status;
 }
 
 /** Spawn a session, select it, and drive it into a long streaming turn. */

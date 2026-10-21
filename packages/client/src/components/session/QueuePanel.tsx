@@ -49,19 +49,28 @@ interface Props {
   onPromote?: (index: number) => void;
   /** Dispatch `clear_followup_entries { indices: "all" }`. */
   onClearAll?: () => void;
+  /**
+   * Hosted by the composer dock's Queue lane: the lane header owns the subtitle
+   * and Clear all, so both are hidden here; the panel chrome (border, padding)
+   * is dropped too. Everything else is unchanged (position, nav, edit, promote,
+   * remove, height cap, attachment indicator). See change: add-composer-dock (D13).
+   */
+  embedded?: boolean;
 }
 
-export function QueuePanel({ followUp, onEdit, onRemove, onPromote, onClearAll }: Props) {
+export function QueuePanel({ followUp, onEdit, onRemove, onPromote, onClearAll, embedded = false }: Props) {
   const hasFollowUp = followUp.length > 0;
   if (!hasFollowUp) return null;
 
   return (
     <div
       data-testid="queue-panel"
-      className="border-t border-[var(--border-primary)] bg-[var(--bg-secondary)]/40 px-3 py-2 flex flex-col gap-2"
+      data-embedded={embedded ? "true" : undefined}
+      className={embedded ? "flex flex-col gap-2" : "border-t border-[var(--border-primary)] bg-[var(--bg-secondary)]/40 px-3 py-2 flex flex-col gap-2"}
     >
       <FollowupCycler
         entries={followUp}
+        embedded={embedded}
         onEdit={onEdit}
         onRemove={onRemove}
         onPromote={onPromote}
@@ -73,12 +82,14 @@ export function QueuePanel({ followUp, onEdit, onRemove, onPromote, onClearAll }
 
 function FollowupCycler({
   entries,
+  embedded,
   onEdit,
   onRemove,
   onPromote,
   onClearAll,
 }: {
   entries: FollowUpEntryView[];
+  embedded: boolean;
   onEdit?: (index: number, text: string) => void;
   onRemove?: (index: number) => void;
   onPromote?: (index: number) => void;
@@ -144,8 +155,12 @@ function FollowupCycler({
     >
       <div className="flex items-center justify-between mb-1.5">
         <div className="text-[10px] uppercase tracking-wider text-[var(--text-tertiary)] flex items-center gap-1.5">
-          <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400/80" aria-hidden />
-          {i18nT("session.followUpDeliveredWhenTheAgent", undefined, "Follow-up — delivered when the agent finishes the turn")}
+          {!embedded && (
+            <>
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400/80" aria-hidden />
+              {i18nT("session.followUpDeliveredWhenTheAgent", undefined, "Follow-up — delivered when the agent finishes the turn")}
+            </>
+          )}
           {total > 1 && (
             <span data-testid="queue-followup-position" className="ml-1 text-[var(--text-secondary)]">
               {idx + 1} of {total}
@@ -177,6 +192,7 @@ function FollowupCycler({
               >
                 <Icon path={mdiChevronDown} size={0.65} />
               </button>
+              {!embedded && (
               <button
                 type="button"
                 onClick={() => onClearAll?.()}
@@ -188,6 +204,7 @@ function FollowupCycler({
               >
                 <Icon path={mdiCloseCircleOutline} size={0.65} />
               </button>
+              )}
             </>
           )}
         </div>
