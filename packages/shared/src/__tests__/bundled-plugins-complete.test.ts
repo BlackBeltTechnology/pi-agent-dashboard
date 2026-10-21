@@ -160,7 +160,11 @@ describe("cwd-guard CodeQL barrier model (E41)", () => {
   }).extensions
     .filter((e) => e.addsTo.extensible === "barrierGuardModel")
     .flatMap((e) => e.data);
-  const has = (module: string, member: string) => rows.some((r) => r[0] === module && r[1] === member && r[2] === "true" && r[3] === "path-injection");
+  // The type column is single-quoted when it contains a dot (`'pkg/m.js'`): CodeQL parses an
+  // unquoted type up to its first dot, so strip one surrounding quote pair before comparing.
+  // See change: codeql-model-pack-and-mirror.
+  const unquote = (t: string) => t.replace(/^'([^']+)'$/, "$1");
+  const has = (module: string, member: string) => rows.some((r) => unquote(r[0]) === module && r[1] === member && r[2] === "true" && r[3] === "path-injection");
   const MODULES = [
     "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js",
     "@blackbelt-technology/pi-dashboard-shared/cwd-guard",
@@ -182,7 +186,7 @@ describe("cwd-guard CodeQL barrier model (E41)", () => {
     const barrierRows = (parse(fs.readFileSync(modelPath, "utf8")) as {
       extensions: Array<{ addsTo: { extensible: string }; data: string[][] }>;
     }).extensions.filter((e) => e.addsTo.extensible === "barrierModel");
-    const found = barrierRows.flatMap((e) => e.data).some((r) => r[0] === m && r[1] === "Member[admitCwd].Argument[0]" && r[2] === "path-injection");
+    const found = barrierRows.flatMap((e) => e.data).some((r) => unquote(r[0]) === m && r[1] === "Member[admitCwd].Argument[0]" && r[2] === "path-injection");
     expect(found).toBe(true);
   });
 });
