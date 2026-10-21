@@ -72,30 +72,37 @@ function failureKind(err: unknown): "unreachable" | "error" {
   return "error";
 }
 
+type Prepared = { url: string; headers: Record<string, string> } | { early: LiveQueryResult };
+
+/** URL + credential for this bridge kind, or an answer that needs no round trip. */
+function prepareRequest(deps: HttpLiveQueryDeps, remote: boolean): Prepared {
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  if (remote) {
+    const base = httpBaseUrlFor(deps.endpoint());
+    const token = readDeviceToken(deps.env);
+    if (!base || !token) return { early: { kind: "error" } };
+    headers.authorization = `Bearer ${token}`;
+    return { url: `${base}${PI_TRUST_QUERY_PATH}`, headers };
+  }
+  const cfg = loadConfig();
+  const url = `http://${localDialHost(cfg.bindHost)}:${deps.httpPort?.() ?? cfg.port}${PI_TRUST_QUERY_PATH}`;
+  const token = readLocalToken();
+  // No local token ⇒ nothing to prove with; the server would refuse. Say so without a round trip.
+  if (!token) return { early: { kind: "response", status: 401, body: undefined } };
+  Object.assign(headers, httpProofHeaders(token, url, "POST"));
+  return { url, headers };
+}
+
 /** The real transport. Never throws. */
 export function createHttpLiveQuery(deps: HttpLiveQueryDeps): LiveQueryFn {
   const doFetch = deps.fetchImpl ?? fetch;
   return async ({ cwdKey, remote, signal }) => {
     try {
-      let url: string;
-      const headers: Record<string, string> = { "content-type": "application/json" };
-      if (remote) {
-        const base = httpBaseUrlFor(deps.endpoint());
-        const token = readDeviceToken(deps.env);
-        if (!base || !token) return { kind: "error" };
-        url = `${base}${PI_TRUST_QUERY_PATH}`;
-        headers.authorization = `Bearer ${token}`;
-      } else {
-        const cfg = loadConfig();
-        url = `http://${localDialHost(cfg.bindHost)}:${deps.httpPort?.() ?? cfg.port}${PI_TRUST_QUERY_PATH}`;
-        const token = readLocalToken();
-        // No local token ⇒ nothing to prove with; the server would refuse. Say so without a round trip.
-        if (!token) return { kind: "response", status: 401, body: undefined };
-        Object.assign(headers, httpProofHeaders(token, url, "POST"));
-      }
-      const res = await doFetch(url, {
+      const prepared = prepareRequest(deps, remote);
+      if ("early" in prepared) return prepared.early;
+      const res = await doFetch(prepared.url, {
         method: "POST",
-        headers,
+        headers: prepared.headers,
         body: JSON.stringify({ cwd: cwdKey }),
         redirect: "error",
         signal,

@@ -146,20 +146,21 @@ test.describe("pi trust mirror (L3)", () => {
 
     await expect.poll(liveCount, { timeout: 30_000 }).toBe(1);
     expect(snapshotKeys()).not.toContain(CWD);
-    await page.goto(`/folder/${encodeURIComponent(CWD)}/mcp`);
-    const banner = page.getByTestId("mcp-folder-trusted-dashboard");
-    await expect(banner).toBeVisible({ timeout: 30_000 });
-    await expect(banner).toContainText("worktree-init trust");
-    await expect(banner).toContainText("until the dashboard restarts");
-    await expect(page.getByTestId("mcp-folder-untrusted")).toHaveCount(0);
+    // The folder is not tracked by the dashboard, so the folder MCP page has nothing to say
+    // here (it needs a pinned or session folder); the Access page lists live entries instead.
+    await page.goto("/settings/access");
+    const effective = page.getByTestId("pi-trust-effective");
+    await expect(effective).toContainText(CWD, { timeout: 30_000 });
+    await expect(effective).toContainText("until dashboard restarts");
 
     await page.request.post("/api/restart", { timeout: 10_000 }).catch(() => undefined);
     await expect
       .poll(async () => (await page.request.get("/api/health").catch(() => undefined))?.ok() ?? false, { timeout: 90_000 })
       .toBe(true);
 
+    // restart: the snapshot count is back to 0 and the entry (and its choice) is gone
     await expect.poll(liveCount, { timeout: 30_000 }).toBe(0);
-    await page.goto(`/folder/${encodeURIComponent(CWD)}/mcp`);
-    await expect(page.getByTestId("mcp-folder-trusted-dashboard")).toHaveCount(0, { timeout: 30_000 });
+    await page.goto("/settings/access");
+    await expect(page.getByTestId("pi-trust-effective")).not.toContainText(CWD, { timeout: 30_000 });
   });
 });

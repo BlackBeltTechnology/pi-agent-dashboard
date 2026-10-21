@@ -23,7 +23,6 @@ import type { NetworkInterface, PiMirrorResult, ReservedNameResult } from "@blac
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
 import type { AccessGrantHealth } from "../access/access-health.js";
-import type { PiTrustLiveCounters } from "./pi-trust-query-routes.js";
 import {
   computeBindReachability,
   getLastBindReachability,
@@ -67,14 +66,14 @@ import { mirrorDefaultsToPi } from "../pi-agent-settings.js";
 import { EMPTY_KEEPER_LOG_STATS, type KeeperLogStats } from "../rpc-keeper/keeper-manager.js";
 import type { ServerConfig } from "../server.js";
 import { serverHeapTelemetry } from "../server-heap-telemetry.js";
-import { projectAcmeConfigured } from "../tls/sources/acme/config-projection.js";
-import { touchesTlsOrPorts, validateTlsConfigWrite } from "../tls/tls-config-validation.js";
-import type { TlsListener } from "../tls/tls-listener.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
 import { heapFallbackStatus } from "../spawn-process/heap-args.js";
 import { spawnRestart } from "../spawn-process/restart-helper.js";
 import { readSpawnFailures } from "../spawn-process/spawn-failure-log.js";
 import { systemOpenCapability } from "../system-open-capability.js";
+import { projectAcmeConfigured } from "../tls/sources/acme/config-projection.js";
+import { touchesTlsOrPorts, validateTlsConfigWrite } from "../tls/tls-config-validation.js";
+import type { TlsListener } from "../tls/tls-listener.js";
 import { connectedProviderIds, connectGateway, createTunnel, deleteTunnel, disconnectResolvedProviders, ensureReservedName, gatewayProviderStatus, getProviderReadiness, getTunnelStatus, getTunnelUrl, getZrokLastError, releaseShare } from "../tunnel/tunnel.js";
 import { acceptTargetFor, blockEvents } from "../tunnel/tunnel-block-events.js";
 import { collectEndpoints, liveReadinessEndpoints } from "../tunnel/tunnel-endpoints.js";
@@ -82,6 +81,7 @@ import { runEnrollStep } from "../tunnel/tunnel-enroll.js";
 import { startTunnelWatchdog, stopTunnelWatchdog } from "../tunnel/tunnel-watchdog.js";
 import { reserveNameAsync } from "../tunnel-providers/zrok.js";
 import { buildNetworkInterfaceList } from "./network-interfaces.js";
+import type { PiTrustLiveCounters } from "./pi-trust-query-routes.js";
 
 /** Heartbeat poll-cost counters summed on /api/health. See change: optimize-polling-hot-paths. */
 const POLL_COST_KEYS = [

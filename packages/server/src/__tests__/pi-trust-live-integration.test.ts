@@ -9,15 +9,15 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { createHttpLiveQuery } from "../../../extension/src/project-trust-live.js";
-import { decideBridgeProjectTrust, type ProjectTrustDeps } from "../../../extension/src/project-trust.js";
 import { getDashboardConfigDir } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 import { readPiTrustMirrorSnapshot } from "@blackbelt-technology/pi-dashboard-shared/pi-trust-mirror-snapshot.js";
 import { trustResourceManifest } from "@blackbelt-technology/pi-dashboard-shared/pi-trust-resource-digest.js";
 import { hookDefHash } from "@blackbelt-technology/pi-dashboard-shared/worktree-init-hook.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { PairedDeviceRegistry } from "../pairing/paired-devices.js";
+import { decideBridgeProjectTrust, type ProjectTrustDeps } from "../../../extension/src/project-trust.js";
+import { createHttpLiveQuery } from "../../../extension/src/project-trust-live.js";
 import { __resetSessionTrust, recordTrust } from "../git-worktree/worktree-init-trust.js";
+import { PairedDeviceRegistry } from "../pairing/paired-devices.js";
 import { createTestServer, type TestServerHandle } from "../test-support/test-server.js";
 
 const hook = { gate: "true", run: { type: "script" as const, command: "echo" } };

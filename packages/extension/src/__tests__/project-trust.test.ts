@@ -13,17 +13,17 @@ import os from "node:os";
 import path from "node:path";
 import type { PiTrustMirrorConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { statFolderIdentity } from "@blackbelt-technology/pi-dashboard-shared/pi-trust-mirror.js";
+import { readPiTrustFileLockless, readPiTrustMirrorSnapshot } from "@blackbelt-technology/pi-dashboard-shared/pi-trust-mirror-snapshot.js";
+import type { PiTrustSnapshot, PiTrustSnapshotEntry } from "@blackbelt-technology/pi-dashboard-shared/pi-trust-mirror-types.js";
 import {
   newTrustSalt,
   trustResourceDigest,
   trustResourceManifest,
 } from "@blackbelt-technology/pi-dashboard-shared/pi-trust-resource-digest.js";
-import { readPiTrustFileLockless, readPiTrustMirrorSnapshot } from "@blackbelt-technology/pi-dashboard-shared/pi-trust-mirror-snapshot.js";
-import type { PiTrustSnapshot, PiTrustSnapshotEntry } from "@blackbelt-technology/pi-dashboard-shared/pi-trust-mirror-types.js";
 import { hookDefHash } from "@blackbelt-technology/pi-dashboard-shared/worktree-init-hook.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { decideBridgeProjectTrust, type ProjectTrustDecisionInput, type ProjectTrustDeps, readEventCwd } from "../project-trust.js";
 import { registerProjectTrust } from "../bridge-handlers/lifecycle.js";
+import { decideBridgeProjectTrust, type ProjectTrustDecisionInput, type ProjectTrustDeps, readEventCwd } from "../project-trust.js";
 import { createHttpLiveQuery, isRemoteBridge, type LiveQueryFn, type LiveQueryResult } from "../project-trust-live.js";
 import { __resetSpawnToken, captureSpawnTokenAtActivation, consumeSpawnToken } from "../spawn-token.js";
 
@@ -355,48 +355,81 @@ const covered = (r: string, over: Record<string, unknown> = {}): LiveQueryResult
   body: { covered: true, key: r, sourceKind: "worktreeInit", ...statFolderIdentity(r)!, ...over },
 });
 
+/** Every combination of the given option lists (first list varies slowest). */
+function combinations<T extends Record<string, readonly unknown[]>>(axes: T): Array<{ [K in keyof T]: T[K][number] }> {
+  let out: Array<Record<string, unknown>> = [{}];
+  for (const [name, values] of Object.entries(axes)) {
+    out = out.flatMap((acc) => values.map((v) => ({ ...acc, [name]: v })));
+  }
+  return out as Array<{ [K in keyof T]: T[K][number] }>;
+}
+
+type AskCase = {
+  enabled: boolean;
+  liveQuery: boolean;
+  session: "spawned-headless" | "plain-interactive";
+  coverInteractive: boolean;
+  recorded: boolean;
+  isDenied: boolean;
+  snapshotKind: "cover" | "identity-mismatch" | "none";
+  liveCount: number;
+  remote: boolean;
+};
+
+function snapshotEntriesFor(kind: AskCase["snapshotKind"], cwd: string): PiTrustSnapshotEntry[] {
+  if (kind === "cover") return [entryFor(cwd)];
+  if (kind === "identity-mismatch") return [{ ...entryFor(cwd), ino: "999999999" }];
+  return [];
+}
+
+/** The spec's condition list, written once and independently of the implementation. */
+function shouldHaveAsked(c: AskCase): boolean {
+  const sessionAllowed = c.session === "spawned-headless" || c.coverInteractive;
+  const switchesOn = c.enabled && c.liveQuery;
+  const nothingElseDecided = !c.recorded && !c.isDenied && c.snapshotKind !== "cover";
+  return switchesOn && sessionAllowed && nothingElseDecided && (c.liveCount > 0 || c.remote);
+}
+
 describe("#E8 when the bridge asks", () => {
   it("queries exactly when every condition holds, and never on a snapshot cover", async () => {
     const dir = mkdir("live-e8");
     const denied = mkdir("live-e8-denied");
-    let checked = 0;
-    for (const enabled of [true, false])
-      for (const liveQuery of [true, false])
-        for (const [dashboardSpawned, isHeadless] of [[true, true], [false, false]] as const)
-          for (const coverInteractive of [true, false])
-            for (const recorded of [true, false])
-              for (const isDenied of [true, false])
-                for (const snapshotKind of ["cover", "identity-mismatch", "none"] as const)
-                  for (const liveCount of [0, 1])
-                    for (const remote of [true, false]) {
-                      const cwd = isDenied ? denied : dir;
-                      fs.writeFileSync(path.join(agentDir, "trust.json"), recorded ? JSON.stringify({ [cwd]: true }) : "{}");
-                      const entries =
-                        snapshotKind === "cover"
-                          ? [entryFor(cwd)]
-                          : snapshotKind === "identity-mismatch"
-                            ? [{ ...entryFor(cwd), ino: "999999999" }]
-                            : [];
-                      const calls: unknown[] = [];
-                      await decideLive(
-                        { eventCwd: cwd, dashboardSpawned, isHeadless },
-                        {
-                          liveQuery: async (req) => {
-                            calls.push(req);
-                            return { kind: "response", status: 200, body: { covered: false } };
-                          },
-                          denyRules: () => ({ exact: [], subtree: [denied] }),
-                        },
-                        { cfg: { enabled, liveQuery, coverInteractive }, snapshot: liveSnap(liveCount, ...entries), remote },
-                      );
-                      const sessionAllowed = (dashboardSpawned && isHeadless) || coverInteractive;
-                      const expected =
-                        enabled && liveQuery && sessionAllowed && !recorded && !isDenied && snapshotKind !== "cover" && (liveCount > 0 || remote);
-                      expect(calls.length > 0, JSON.stringify({ enabled, liveQuery, dashboardSpawned, coverInteractive, recorded, isDenied, snapshotKind, liveCount, remote })).toBe(expected);
-                      if (calls.length) expect(calls[0]).toMatchObject({ cwdKey: cwd, remote });
-                      checked += 1;
-                    }
-    expect(checked).toBe(2 * 2 * 2 * 2 * 2 * 2 * 3 * 2 * 2);
+    const cases = combinations({
+      enabled: [true, false],
+      liveQuery: [true, false],
+      session: ["spawned-headless", "plain-interactive"],
+      coverInteractive: [true, false],
+      recorded: [true, false],
+      isDenied: [true, false],
+      snapshotKind: ["cover", "identity-mismatch", "none"],
+      liveCount: [0, 1],
+      remote: [true, false],
+    } as const) as AskCase[];
+    expect(cases).toHaveLength(2 * 2 * 2 * 2 * 2 * 2 * 3 * 2 * 2);
+
+    for (const c of cases) {
+      const cwd = c.isDenied ? denied : dir;
+      fs.writeFileSync(path.join(agentDir, "trust.json"), c.recorded ? JSON.stringify({ [cwd]: true }) : "{}");
+      const calls: Array<{ cwdKey: string; remote: boolean }> = [];
+      const spawnedHeadless = c.session === "spawned-headless";
+      await decideLive(
+        { eventCwd: cwd, dashboardSpawned: spawnedHeadless, isHeadless: spawnedHeadless },
+        {
+          liveQuery: async (req) => {
+            calls.push(req);
+            return { kind: "response", status: 200, body: { covered: false } };
+          },
+          denyRules: () => ({ exact: [], subtree: [denied] }),
+        },
+        {
+          cfg: { enabled: c.enabled, liveQuery: c.liveQuery, coverInteractive: c.coverInteractive },
+          snapshot: liveSnap(c.liveCount, ...snapshotEntriesFor(c.snapshotKind, cwd)),
+          remote: c.remote,
+        },
+      );
+      expect(calls.length > 0, JSON.stringify(c)).toBe(shouldHaveAsked(c));
+      expect(calls.every((r) => r.cwdKey === cwd && r.remote === c.remote)).toBe(true);
+    }
   });
 });
 
@@ -532,18 +565,18 @@ describe("the real transport against a live HTTP server (#P2 #P4 #X1–#X3)", ()
   let port = 0;
   let hits: string[] = [];
   let closedByClient = false;
-  let handler: (req: http.IncomingMessage, res: http.ServerResponse) => void = () => {};
+  let respond: (req: http.IncomingMessage, res: http.ServerResponse) => void = () => {};
 
   beforeEach(async () => {
     hits = [];
     closedByClient = false;
-    handler = () => {};
+    respond = () => {};
     server = http.createServer((req, res) => {
       hits.push(`${req.method} ${req.url}`);
       req.on("close", () => {
         if (!res.writableEnded) closedByClient = true;
       });
-      handler(req, res);
+      respond(req, res);
     });
     await new Promise<void>((r) => server!.listen(0, "127.0.0.1", r));
     port = (server.address() as AddressInfo).port;
@@ -565,7 +598,7 @@ describe("the real transport against a live HTTP server (#P2 #P4 #X1–#X3)", ()
     const dir = mkdir("live-t1");
     let auth = "";
     let body = "";
-    handler = (req, res) => {
+    respond = (req, res) => {
       auth = String(req.headers.authorization);
       req.on("data", (c) => {
         body += c;
@@ -584,7 +617,7 @@ describe("the real transport against a live HTTP server (#P2 #P4 #X1–#X3)", ()
 
   it("#X3 a 404 → live-unsupported", async () => {
     const dir = mkdir("live-t2");
-    handler = (_req, res) => {
+    respond = (_req, res) => {
       res.writeHead(404);
       res.end();
     };
@@ -603,7 +636,7 @@ describe("the real transport against a live HTTP server (#P2 #P4 #X1–#X3)", ()
 
   it("#X2 a server that delays 2 s → live-timeout ≤ 400 ms, and the server sees the request aborted", async () => {
     const dir = mkdir("live-t4");
-    handler = () => {
+    respond = () => {
       /* never answers */
     };
     const t0 = performance.now();
@@ -616,7 +649,7 @@ describe("the real transport against a live HTTP server (#P2 #P4 #X1–#X3)", ()
 
   it("#P2 a server that accepts and never answers: resolves within 400 ms on every one of 20 runs", async () => {
     const dir = mkdir("live-t5");
-    handler = () => {
+    respond = () => {
       /* never answers */
     };
     for (let i = 0; i < 20; i += 1) {

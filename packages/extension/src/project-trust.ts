@@ -32,6 +32,10 @@ import type { PiTrustMirrorConfig } from "@blackbelt-technology/pi-dashboard-sha
 import { effectiveLiveQueryTimeoutMs, loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { resolvePiAgentDir } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 import {
+  isRemoteLiveAnswer,
+  parsePiTrustLiveAnswer,
+} from "@blackbelt-technology/pi-dashboard-shared/pi-trust-live-query.js";
+import {
   ancestorKeys,
   type FolderIdentity,
   identityMatches,
@@ -42,14 +46,6 @@ import {
   statFolderIdentityAsync,
 } from "@blackbelt-technology/pi-dashboard-shared/pi-trust-mirror.js";
 import {
-  isRemoteLiveAnswer,
-  parsePiTrustLiveAnswer,
-} from "@blackbelt-technology/pi-dashboard-shared/pi-trust-live-query.js";
-import {
-  trustResourceDigest,
-  trustResourceManifest,
-} from "@blackbelt-technology/pi-dashboard-shared/pi-trust-resource-digest.js";
-import {
   coverSnapshot,
   nearestRecordedEntry,
   type PiTrustFileRead,
@@ -58,6 +54,10 @@ import {
   safePiTrustKey,
 } from "@blackbelt-technology/pi-dashboard-shared/pi-trust-mirror-snapshot.js";
 import type { MirrorWithheldReason, PiTrustSnapshot } from "@blackbelt-technology/pi-dashboard-shared/pi-trust-mirror-types.js";
+import {
+  trustResourceDigest,
+  trustResourceManifest,
+} from "@blackbelt-technology/pi-dashboard-shared/pi-trust-resource-digest.js";
 import type { LiveQueryFn } from "./project-trust-live.js";
 
 export interface ProjectTrustDecisionInput {
@@ -178,14 +178,25 @@ async function decideFromMirror(
 
   // The snapshot yields no cover (for any reason, including identity-mismatch): ask the
   // server when it may know more — live entries exist, or this bridge is remote.
-  if (sessionAllowed && cfg.liveQuery && !isMirrorDenied(cwdKey, deps.denyRules())) {
-    const remote = deps.isRemoteBridge();
-    if ((snapshot?.liveCount ?? 0) > 0 || remote) {
-      const live = await runLiveQuery(deps, cfg, cwdKey, remote);
-      return live.ok ? { trusted: "yes", via: "live" } : withheld(live.reason);
-    }
+  const remote = deps.isRemoteBridge();
+  if (shouldAskServer({ sessionAllowed, cfg, cwdKey, deps, liveCount: snapshot?.liveCount ?? 0, remote })) {
+    const live = await runLiveQuery(deps, cfg, cwdKey, remote);
+    return live.ok ? { trusted: "yes", via: "live" } : withheld(live.reason);
   }
   return coverage.reason ? withheld(coverage.reason) : UNDECIDED;
+}
+
+/** The live-query conditions: switches on, allowed session, not a denied folder, and something to learn. */
+function shouldAskServer(c: {
+  sessionAllowed: boolean;
+  cfg: PiTrustMirrorConfig;
+  cwdKey: string;
+  deps: ProjectTrustDeps;
+  liveCount: number;
+  remote: boolean;
+}): boolean {
+  if (!c.sessionAllowed || !c.cfg.liveQuery || isMirrorDenied(c.cwdKey, c.deps.denyRules())) return false;
+  return c.liveCount > 0 || c.remote;
 }
 
 type LiveOutcome = { ok: true } | { ok: false; reason: MirrorWithheldReason };
@@ -225,6 +236,36 @@ function mapStatus(status: number): MirrorWithheldReason {
   return "live-error";
 }
 
+/** Remote proof: recompute the digest of pi's trust-requiring resources HERE and compare. */
+async function verifyRemoteProof(
+  deps: ProjectTrustDeps,
+  cwdKey: string,
+  answer: { salt: string; digest: string },
+  signal: AbortSignal,
+): Promise<LiveOutcome> {
+  const manifest = await deps.manifest(cwdKey, { home: deps.home, signal });
+  if (signal.aborted) return { ok: false, reason: "live-timeout" };
+  if (manifest === null) return { ok: false, reason: "identity-weak" };
+  return trustResourceDigest(answer.salt, cwdKey, manifest) === answer.digest
+    ? { ok: true }
+    : { ok: false, reason: "identity-mismatch" };
+}
+
+/** Local proof: the identity the server recorded when it created the live entry. */
+async function verifyLocalProof(
+  deps: ProjectTrustDeps,
+  cwdKey: string,
+  answer: { key: string; dev: string; ino: string; birthtimeMs?: number },
+  signal: AbortSignal,
+): Promise<LiveOutcome> {
+  if (!isCanonicalAbsolutePath(answer.key) || !ancestorKeys(cwdKey).includes(answer.key)) {
+    return { ok: false, reason: "live-error" };
+  }
+  const observed = await deps.statIdentity(answer.key, signal);
+  if (signal.aborted) return { ok: false, reason: "live-timeout" };
+  return identityMatches(answer, observed) ? { ok: true } : { ok: false, reason: "identity-mismatch" };
+}
+
 async function liveWork(deps: ProjectTrustDeps, cwdKey: string, remote: boolean, signal: AbortSignal): Promise<LiveOutcome> {
   const res = await deps.liveQuery({ cwdKey, remote, signal });
   if (res.kind === "unreachable") return { ok: false, reason: "live-unreachable" };
@@ -233,23 +274,7 @@ async function liveWork(deps: ProjectTrustDeps, cwdKey: string, remote: boolean,
   const answer = parsePiTrustLiveAnswer(res.body);
   if (!answer) return { ok: false, reason: "live-error" };
   if (!answer.covered) return { ok: false, reason: "live-not-covered" };
-
-  if (isRemoteLiveAnswer(answer)) {
-    // Remote proof: recompute the digest of pi's trust-requiring resources HERE.
-    const manifest = await deps.manifest(cwdKey, { home: deps.home, signal });
-    if (signal.aborted) return { ok: false, reason: "live-timeout" };
-    if (manifest === null) return { ok: false, reason: "identity-weak" };
-    return trustResourceDigest(answer.salt, cwdKey, manifest) === answer.digest
-      ? { ok: true }
-      : { ok: false, reason: "identity-mismatch" };
-  }
-  // Local proof: the identity the server recorded when it created the live entry.
-  if (!isCanonicalAbsolutePath(answer.key) || !ancestorKeys(cwdKey).includes(answer.key)) {
-    return { ok: false, reason: "live-error" };
-  }
-  const observed = await deps.statIdentity(answer.key, signal);
-  if (signal.aborted) return { ok: false, reason: "live-timeout" };
-  return identityMatches(answer, observed) ? { ok: true } : { ok: false, reason: "identity-mismatch" };
+  return isRemoteLiveAnswer(answer) ? verifyRemoteProof(deps, cwdKey, answer, signal) : verifyLocalProof(deps, cwdKey, answer, signal);
 }
 
 /**

@@ -13,7 +13,6 @@ import type { PiTrustMirrorConfig } from "@blackbelt-technology/pi-dashboard-sha
 import { identityMatches, statFolderIdentity } from "@blackbelt-technology/pi-dashboard-shared/pi-trust-mirror.js";
 import { hookDefHash } from "@blackbelt-technology/pi-dashboard-shared/worktree-init-hook.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createHostProjectTrustService, coveringDashboardEntry } from "../../pi/host-project-trust.js";
 import {
   __resetSessionTrust,
   listSessionTrust,
@@ -21,6 +20,7 @@ import {
   revokeTrust,
   setSessionTrustChangedListener,
 } from "../../git-worktree/worktree-init-trust.js";
+import { coveringDashboardEntry, createHostProjectTrustService } from "../../pi/host-project-trust.js";
 import {
   __resetAccessGrants,
   listGrants,

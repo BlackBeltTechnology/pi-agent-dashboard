@@ -119,7 +119,6 @@ import {
   parseGuardTarget,
   setNetworkDenialObserver,
 } from "./auth/localhost-guard.js";
-import { collectEndpoints } from "./tunnel/tunnel-endpoints.js";
 import { createMutationOriginGate } from "./auth/mutation-origin-gate.js";
 import { PasskeyService } from "./auth/passkey/passkey-service.js";
 import { resolveRpContext } from "./auth/passkey/rp-context.js";
@@ -169,7 +168,6 @@ import { createDirectoryService, type DirectoryService } from "./directory-servi
 import { createEmbedLifecycleController } from "./embed-lifecycle/embed-lifecycle-controller.js";
 import { createPluginSessionCloseApi, createSessionCloserRegistry } from "./embed-lifecycle/plugin-session-close.js";
 import { wireEvents } from "./event-wiring.js";
-import { createReplayState } from "./session/hydration-state.js";
 import { createFileWatchManager } from "./file-watch-manager.js";
 import { resolveMainPath } from "./git-worktree/git-operations.js";
 import { createWorktreeInitRegistry } from "./git-worktree/worktree-init-registry.js";
@@ -284,7 +282,6 @@ import { registerFolderProjectRoutes } from "./routes/folder-project-routes.js";
 import { registerGitRoutes } from "./routes/git-routes.js";
 import { registerGrepRoutes } from "./routes/grep-routes.js";
 import { registerHostGateRoutes } from "./routes/host-gate-routes.js";
-import { registerPiTrustQueryRoutes } from "./routes/pi-trust-query-routes.js";
 import { registerKnownServersRoutes } from "./routes/known-servers-routes.js";
 import { registerLiveServerRoutes } from "./routes/live-server-routes.js";
 import { registerLocalProofRoutes } from "./routes/local-proof-routes.js";
@@ -306,6 +303,7 @@ import { registerPiCoreRoutes } from "./routes/pi-core-routes.js";
 import { registerPiRetryRoutes } from "./routes/pi-retry-routes.js";
 import { registerPiRuntimeRoutes } from "./routes/pi-runtime-routes.js";
 import { registerPiSettingsRoutes } from "./routes/pi-settings-routes.js";
+import { registerPiTrustQueryRoutes } from "./routes/pi-trust-query-routes.js";
 import { registerPluginActivationRoutes, setPluginsEnabled } from "./routes/plugin-activation-routes.js";
 import { registerPluginConfigRoutes } from "./routes/plugin-config-routes.js";
 import { registerPreferencesAutoNameRoutes } from "./routes/preferences-auto-name-routes.js";
@@ -341,6 +339,7 @@ import { createArchiveSweeper } from "./session/archive-sweeper.js";
 import { CustomEventGroupMatcher } from "./session/custom-event-group-matcher.js";
 import { CustomEventGroupResolver } from "./session/custom-event-group-resolver.js";
 import { deriveEndedAt } from "./session/derive-ended-at.js";
+import { createReplayState } from "./session/hydration-state.js";
 import { createInFlightToolCalls } from "./session/in-flight-tool-calls.js";
 import { createMemorySessionManager, type SessionManager } from "./session/memory-session-manager.js";
 import { systemRenameUpdates } from "./session/name-provenance.js";
@@ -377,6 +376,7 @@ import {
   TlsListener,
 } from "./tls/tls-listener.js";
 import { cleanupStaleZrok, createTunnel, deleteTunnel, detectZrokBinary, ensureReservedName, getTunnelUrl, liveTunnelOrigins, scavengeOrphanZrokProcesses } from "./tunnel/tunnel.js";
+import { collectEndpoints } from "./tunnel/tunnel-endpoints.js";
 import { startTunnelWatchdog, stopTunnelWatchdog } from "./tunnel/tunnel-watchdog.js";
 import { createVaultDeliveryHub } from "./vault/vault-delivery-hub.js";
 import { createVaultImport, defaultKnownLocations } from "./vault/vault-import.js";

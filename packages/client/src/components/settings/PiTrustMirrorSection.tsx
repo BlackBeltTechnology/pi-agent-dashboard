@@ -41,7 +41,7 @@ const LIVE_TIMEOUT_MIN_MS = 50;
 const LIVE_TIMEOUT_MAX_MS = 1000;
 
 /** Lifetime of a live entry, in words ("YOLO until 14:30" uses the viewer's locale). */
-export function liveLifetimeLabel(l: PiTrustLiveLifetime): string {
+function liveLifetimeLabel(l: PiTrustLiveLifetime): string {
   if (l.kind === "restart") return i18nT("piTrust.lifetimeRestart", undefined, "until dashboard restarts");
   if (l.kind === "yolo-process") return i18nT("piTrust.lifetimeYoloProcess", undefined, "YOLO while the server runs");
   const time = new Date(l.until).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });

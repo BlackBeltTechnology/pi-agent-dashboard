@@ -470,7 +470,6 @@ describe("#X7 log hygiene", () => {
     for (let i = 0; i < 25; i += 1) await device(op, { cwd });
     const lines = logs.filter((l) => l.includes("rate limited"));
     expect(lines).toHaveLength(1);
-    // biome-ignore lint/suspicious/noControlCharactersInRegex: asserting the absence of control characters
     expect(lines[0]).not.toMatch(/[\u0000-\u001f\u007f]/);
     expect(logs.join("")).not.toContain("\u001b");
   });

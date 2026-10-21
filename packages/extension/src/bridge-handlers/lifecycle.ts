@@ -6,6 +6,7 @@
  */
 
 import { loadConfig, resolveDashboardPorts } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { formatHostPort } from "@blackbelt-technology/pi-dashboard-shared/host-port.js";
 import { discoverDashboard } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
 import { isDashboardRunning } from "@blackbelt-technology/pi-dashboard-shared/server-identity.js";
 import { Loader } from "@earendil-works/pi-tui";
@@ -38,7 +39,7 @@ import { registerRoleModelTools } from "../role-model-tools.js";
 import { autoStartServer } from "../server-auto-start.js";
 import { launchServer } from "../server-launcher.js";
 import { loadServerPins, notePinEndpoint, serverPinsPath } from "../server-pin-store.js";
-import { branchFingerprint, handleSessionChange as _handleSessionChange, consumeSpawnToken, filterByEnabledModels, isLive } from "../session-sync.js";
+import { handleSessionChange as _handleSessionChange, branchFingerprint, consumeSpawnToken, filterByEnabledModels, isLive } from "../session-sync.js";
 import { detectSessionSource } from "../source-detector.js";
 import { consumePendingReloadOnSessionStart, releaseBridgeOwnerOnShutdown, reloadCompletedFeedback } from "../terminal-reload.js";
 import { refreshUiModules, subscribeUiInvalidate } from "../ui-modules.js";
@@ -46,7 +47,6 @@ import { runUiSafely } from "../ui-stale-guard.js";
 import { sendShutdownUsageThenUnregister, type UsageDrain } from "../usage-drain.js";
 import { detectIsGitRepo } from "../vcs-info.js";
 import { buildVisibilityRegisterFields } from "../visibility-intent.js";
-import { formatHostPort } from "@blackbelt-technology/pi-dashboard-shared/host-port.js";
 import type { BridgeInstance } from "./instance.js";
 import { patchUiForPromptBus } from "./ui-prompt-patch.js";
 

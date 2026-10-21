@@ -68,16 +68,15 @@ export interface PiTrustQueryDeps {
 }
 
 const WINDOW_MS = 10_000;
-export const LOCAL_QUERIES_PER_WINDOW = 200;
-export const DEVICE_QUERIES_PER_WINDOW = 20;
-export const GLOBAL_PROOF_PERMITS = 4;
-export const DEVICE_PROOF_PERMITS = 1;
+const LOCAL_QUERIES_PER_WINDOW = 200;
+const DEVICE_QUERIES_PER_WINDOW = 20;
+const GLOBAL_PROOF_PERMITS = 4;
+const DEVICE_PROOF_PERMITS = 1;
 const MAX_TRACKED_REQUESTERS = 1000;
 
 /** Strip control characters (incl. ESC / newlines) and cap the length of anything logged. */
-export function sanitizeForLog(value: unknown, max = 200): string {
+function sanitizeForLog(value: unknown, max = 200): string {
   return String(value)
-    // biome-ignore lint/suspicious/noControlCharactersInRegex: this IS the control-character filter
     .replace(/[\u0000-\u001f\u007f-\u009f]/g, "?")
     .slice(0, max);
 }
@@ -233,6 +232,78 @@ export function registerPiTrustQueryRoutes(
     return best;
   }
 
+  /** Body → the server's own canonical key, or a 400 / an immediate "not covered". */
+  function canonicalKey(body: unknown): { key: string } | { status: number; error: string } | { notCovered: true } {
+    const checked = validatePiTrustQueryBody(body);
+    if (!checked.ok) return { status: checked.status, error: checked.error };
+    let key: string | null;
+    try {
+      key = safePiTrustKey(checked.cwd, home);
+    } catch {
+      key = null;
+    }
+    if (key === null) return { status: 400, error: "cwd malformed" };
+    // A symlink or `..` confusion: the bridge's key must be OUR key for that path.
+    return key === checked.cwd ? { key } : { notCovered: true };
+  }
+
+  /** The server's own switches and deny rules: may this folder be answered at all? */
+  function mayAnswer(key: string): boolean {
+    const cfg = deps.getConfig();
+    if (!cfg.enabled || !cfg.liveQuery) return false;
+    const deny = deps.denyRules ? deps.denyRules() : mirrorDenyRules({ homedir: home });
+    return !isMirrorDenied(key, deny);
+  }
+
+  /** The entry may have ended since the lookup (YOLO expiry / end): never answer from a dead one. */
+  const stillLive = (cover: Cover): boolean => !cover.live || deps.live()?.isStillLive(cover.live) === true;
+
+  function localAnswer(cover: Cover): PiTrustLiveAnswer {
+    if (!stillLive(cover)) return { covered: false };
+    return {
+      covered: true,
+      key: cover.key,
+      sourceKind: cover.sourceKind,
+      dev: cover.dev,
+      ino: cover.ino,
+      ...(cover.birthtimeMs !== undefined ? { birthtimeMs: cover.birthtimeMs } : {}),
+    };
+  }
+
+  /** Remote: salted digest of pi's trust-requiring resources, under permits. `null` = permits exhausted. */
+  async function remoteAnswer(deviceId: string, key: string, cover: Cover): Promise<PiTrustLiveAnswer | null> {
+    if (!permits.tryAcquire(deviceId)) {
+      const rl = limiter.allow(`permit:${deviceId}`, 0, nowMs());
+      if (!rl.ok && rl.firstInWindow) {
+        log(`[pi-trust-query] proof permits exhausted requester=${sanitizeForLog(deviceId)} cwd=${sanitizeForLog(key)}`);
+      }
+      return null;
+    }
+    let manifest: string | null;
+    try {
+      manifest = await manifestOf(key, { home });
+    } finally {
+      permits.release(deviceId);
+    }
+    if (manifest === null || !stillLive(cover)) return { covered: false };
+    const salt = newTrustSalt();
+    return { covered: true, salt, digest: trustResourceDigest(salt, key, manifest) };
+  }
+
+  type Outcome = { answer: PiTrustLiveAnswer } | { status: number; error: string };
+
+  async function evaluate(requester: Requester, body: unknown): Promise<Outcome> {
+    const notCovered: Outcome = { answer: { covered: false } };
+    const canonical = canonicalKey(body);
+    if ("status" in canonical) return canonical;
+    if ("notCovered" in canonical || !mayAnswer(canonical.key)) return notCovered;
+    const cover = findCover(canonical.key);
+    if (!cover) return notCovered;
+    if (requester.kind === "local") return { answer: localAnswer(cover) };
+    const answer = await remoteAnswer(requester.id, canonical.key, cover);
+    return answer ? { answer } : { status: 429, error: "rate_limited" };
+  }
+
   fastify.post(
     PI_TRUST_QUERY_PATH,
     { bodyLimit: PI_TRUST_QUERY_MAX_BODY_BYTES, onRequest: admit },
@@ -240,75 +311,18 @@ export function registerPiTrustQueryRoutes(
       const started = (request as unknown as Record<symbol, Started | undefined>)[STARTED];
       const requester: Requester = started?.requester ?? { kind: "local" };
       const startedAt = started?.startedAt ?? nowMs();
-      const remote = requester.kind === "device";
 
-      const finish = (answer: PiTrustLiveAnswer): PiTrustLiveAnswer => {
-        if (answer.covered) counters.covered += 1;
-        else counters.notCovered += 1;
-        const cfg = deps.getConfig();
-        if (nowMs() - startedAt > effectiveLiveQueryTimeoutMs(cfg, remote)) counters.budgetMissed += 1;
-        return answer;
-      };
-
-      const checked = validatePiTrustQueryBody(request.body);
-      if (!checked.ok) {
-        reply.code(checked.status);
-        return { success: false, error: checked.error };
+      const outcome = await evaluate(requester, request.body);
+      if ("status" in outcome) {
+        if (outcome.status === 429) counters.rateLimited += 1;
+        reply.code(outcome.status);
+        return { success: false, error: outcome.error };
       }
-      let key: string | null;
-      try {
-        key = safePiTrustKey(checked.cwd, home);
-      } catch {
-        key = null;
-      }
-      if (key === null) {
-        reply.code(400);
-        return { success: false, error: "cwd malformed" };
-      }
-      // A symlink or `..` confusion: the bridge's key must be OUR key for that path.
-      if (key !== checked.cwd) return finish({ covered: false });
-
-      const cfg = deps.getConfig();
-      if (!cfg.enabled || !cfg.liveQuery) return finish({ covered: false });
-      const deny = deps.denyRules ? deps.denyRules() : mirrorDenyRules({ homedir: home });
-      if (isMirrorDenied(key, deny)) return finish({ covered: false });
-
-      const cover = findCover(key);
-      if (!cover) return finish({ covered: false });
-
-      if (requester.kind === "local") {
-        if (cover.live && !deps.live()?.isStillLive(cover.live)) return finish({ covered: false });
-        return finish({
-          covered: true,
-          key: cover.key,
-          sourceKind: cover.sourceKind,
-          dev: cover.dev,
-          ino: cover.ino,
-          ...(cover.birthtimeMs !== undefined ? { birthtimeMs: cover.birthtimeMs } : {}),
-        });
-      }
-
-      // Remote: salted digest of pi's trust-requiring resources, under permits.
-      if (!permits.tryAcquire(requester.id)) {
-        const rl = limiter.allow(`permit:${requester.id}`, 0, nowMs());
-        if (!rl.ok && rl.firstInWindow) {
-          log(`[pi-trust-query] proof permits exhausted requester=${sanitizeForLog(requester.id)} cwd=${sanitizeForLog(key)}`);
-        }
-        counters.rateLimited += 1;
-        reply.code(429);
-        return { success: false, error: "rate_limited" };
-      }
-      let manifest: string | null;
-      try {
-        manifest = await manifestOf(key, { home });
-      } finally {
-        permits.release(requester.id);
-      }
-      if (manifest === null) return finish({ covered: false });
-      // The entry may have ended while the proof was being built (YOLO expiry / end).
-      if (cover.live && !deps.live()?.isStillLive(cover.live)) return finish({ covered: false });
-      const salt = newTrustSalt();
-      return finish({ covered: true, salt, digest: trustResourceDigest(salt, key, manifest) });
+      if (outcome.answer.covered) counters.covered += 1;
+      else counters.notCovered += 1;
+      const budget = effectiveLiveQueryTimeoutMs(deps.getConfig(), requester.kind === "device");
+      if (nowMs() - startedAt > budget) counters.budgetMissed += 1;
+      return outcome.answer;
     },
   );
 

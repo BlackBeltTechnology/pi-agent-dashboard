@@ -52,11 +52,6 @@ function makeTree(name: string, over: Record<string, string> = {}): string {
   return cwd;
 }
 
-async function digestOf(cwd: string, homeDir: string, salt = "salt-1"): Promise<string | null> {
-  const manifest = await trustResourceManifest(cwd, { home: homeDir });
-  return manifest === null ? null : trustResourceDigest(salt, cwd, manifest);
-}
-
 describe("#E15 digest equality", () => {
   it("equal when nothing differs; differs per trust-requiring change; user skills excluded", async () => {
     const a = makeTree("a");

@@ -46,37 +46,47 @@ describe("#E17 golden vs the installed pi", () => {
     expect(theirs.length).toBeGreaterThan(0);
   });
 
-  it("non-empty verdict equals hasTrustRequiringProjectResources, and every consulted path is in the manifest", async () => {
-    const pi = (await import("@earendil-works/pi-coding-agent")) as unknown as {
-      hasTrustRequiringProjectResources: (cwd: string) => boolean;
-    };
-    // [name, paths to create (files, or dirs when the path ends with "/"), label the manifest must hold]
-    const trees: Array<[string, string[], string | null]> = [
+  /** Create `paths` (dirs when the path ends with "/", else files) under `base`; `~/` goes under the fake HOME. */
+  function materialize(base: string, paths: string[]): void {
+    for (const rel of paths) {
+      const abs = rel.startsWith("~/") ? path.join(home, rel.slice(2)) : path.join(base, rel);
+      if (rel.endsWith("/")) {
+        fs.mkdirSync(abs, { recursive: true });
+        continue;
+      }
+      fs.mkdirSync(path.dirname(abs), { recursive: true });
+      fs.writeFileSync(abs, abs.endsWith("settings.json") ? "{}" : "x");
+    }
+  }
+
+  // [name, paths to create, label the manifest must hold]
+  function treeMatrix(): Array<[string, string[], string | null]> {
+    const perResource = TRUST_REQUIRING_PROJECT_CONFIG_RESOURCES.map((n): [string, string[], string | null] => [
+      `only-${n}`,
+      [`top/proj/.pi/${n}${n.includes(".") ? "" : "/"}`],
+      `c/${n}`,
+    ]);
+    return [
       ["nothing", [], null],
-      ...TRUST_REQUIRING_PROJECT_CONFIG_RESOURCES.map((n): [string, string[], string | null] => {
-        const isDir = !n.includes(".");
-        return [`only-${n}`, [`top/proj/.pi/${n}${isDir ? "/" : ""}`], `c/${n}`];
-      }),
+      ...perResource,
       ["cwd-agents-skills", ["top/proj/.agents/skills/"], "a0"],
       ["ancestor-agents-skills", ["top/.agents/skills/"], "a1"],
       ["user-skills-only", ["~/.agents/skills/"], null],
       ["unrelated-pi-file", ["top/proj/.pi/unrelated.txt"], null],
     ];
-    for (const [name, paths, mustHold] of trees) {
+  }
+
+  it("non-empty verdict equals hasTrustRequiringProjectResources, and every consulted path is in the manifest", async () => {
+    const pi = (await import("@earendil-works/pi-coding-agent")) as unknown as {
+      hasTrustRequiringProjectResources: (cwd: string) => boolean;
+    };
+    for (const [name, paths, mustHold] of treeMatrix()) {
       const base = path.join(root, `tree-${name}`);
       fs.mkdirSync(path.join(base, "top", "proj"), { recursive: true });
-      for (const rel of paths) {
-        const abs = rel.startsWith("~/") ? path.join(home, rel.slice(2)) : path.join(base, rel);
-        if (rel.endsWith("/")) fs.mkdirSync(abs, { recursive: true });
-        else {
-          fs.mkdirSync(path.dirname(abs), { recursive: true });
-          fs.writeFileSync(abs, abs.endsWith("settings.json") ? "{}" : "x");
-        }
-      }
+      materialize(base, paths);
       const cwd = path.join(base, "top", "proj");
       const manifest = await trustResourceManifest(cwd, { home });
-      const piSays = pi.hasTrustRequiringProjectResources(cwd);
-      expect(manifest !== null, `tree ${name}`).toBe(piSays);
+      expect(manifest !== null, `tree ${name}`).toBe(pi.hasTrustRequiringProjectResources(cwd));
       if (mustHold) expect(manifest, `tree ${name}`).toContain(mustHold);
     }
   });

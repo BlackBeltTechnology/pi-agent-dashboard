@@ -305,8 +305,10 @@ describe("#F3 YOLO activation discloses pi trust (mirror-dashboard-trust-live-re
   /** The config request was issued and its answer applied (a vacuous absence check is not a pass). */
   const configSettled = async () => {
     await waitFor(() => expect(global.fetch).toHaveBeenCalledWith("/api/config", expect.anything()));
+    // The mocked fetch → json → setState chain is pure promises: draining the microtask queue inside
+    // `act` applies it (no timer, so no fixed-tick barrier).
     await act(async () => {
-      await new Promise((r) => setTimeout(r, 0));
+      for (let i = 0; i < 5; i += 1) await Promise.resolve();
     });
   };
 

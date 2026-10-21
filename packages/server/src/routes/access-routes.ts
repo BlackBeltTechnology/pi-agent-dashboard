@@ -45,9 +45,9 @@ import {
 } from "../access/access-grants.js";
 import { grantNamedPathSubject } from "../access/named-grant.js";
 import { getPiTrustMirror } from "../access/pi-trust-mirror-service.js";
+import { listPreviewEgressRows, revokePreviewEgressGrant } from "../access/preview-egress-store.js";
 import { isPromptEligible } from "../access/prompt-channel.js";
 import type { ProvisionFailure, ProvisioningRegistry, ProvisionRequestView, SettleInput } from "../access/provisioning.js";
-import { listPreviewEgressRows, revokePreviewEgressGrant } from "../access/preview-egress-store.js";
 import { readRawConfig } from "../config-api.js";
 import { revokeTrust as revokeWorktreeTrust } from "../git-worktree/worktree-init-trust.js";
 import type { PreferencesStore } from "../persistence/preferences-store.js";

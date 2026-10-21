@@ -38,7 +38,7 @@ import type { MirrorSourceKind } from "@blackbelt-technology/pi-dashboard-shared
 import { hasProjectRootMarker } from "@blackbelt-technology/pi-dashboard-shared/project-root.js";
 import type { YoloSession } from "./yolo-session.js";
 
-export type LiveSourceKind = Extract<MirrorSourceKind, "worktreeInit" | "accessGrants" | "yolo">;
+type LiveSourceKind = Extract<MirrorSourceKind, "worktreeInit" | "accessGrants" | "yolo">;
 
 export type LiveLifetime =
   | { kind: "restart" }
@@ -77,7 +77,7 @@ export interface LiveProviderDeps {
   stat?: (key: string) => FolderIdentity | null;
 }
 
-export interface LiveEnumeration {
+interface LiveEnumeration {
   counted: LiveEntry[];
   ignored: MirrorIgnored[];
   /** Every live candidate (counted + ignored), with its lifetime, for the Access page. */
@@ -103,6 +103,68 @@ interface RawCandidate {
   lifetime: LiveLifetime;
 }
 
+type Unchoiced = { candidate: Omit<MirrorCandidate, "choice">; lifetime: LiveLifetime };
+type KeyOf = (folder: string) => string | null;
+
+function sessionTrustCandidates(deps: LiveProviderDeps, keyOf: KeyOf, hookHash: (root: string) => string | null): Unchoiced[] {
+  const out: Unchoiced[] = [];
+  for (const { repoRoot, hash } of deps.listSessionTrust()) {
+    const key = keyOf(repoRoot);
+    if (!key) continue;
+    const current = hookHash(repoRoot);
+    const hookState = current === null ? "unreadable" : current === hash ? "current" : "changed";
+    out.push({
+      candidate: { sourceKind: "worktreeInit", key, hookState, meta: { configRoot: repoRoot, hookHash: hash } },
+      lifetime: { kind: "restart" },
+    });
+  }
+  return out;
+}
+
+function sessionGrantCandidates(deps: LiveProviderDeps, keyOf: KeyOf): Unchoiced[] {
+  const out: Unchoiced[] = [];
+  for (const { subject } of deps.listSessionGrants()) {
+    const key = keyOf(subject);
+    if (key) {
+      out.push({ candidate: { sourceKind: "accessGrants", key, projectRoot: hasProjectRootMarker(key) }, lifetime: { kind: "restart" } });
+    }
+  }
+  return out;
+}
+
+function yoloCandidates(deps: LiveProviderDeps, keyOf: KeyOf): Unchoiced[] {
+  const session = deps.getYolo()?.status() ?? null;
+  if (!session || session.unscoped) return [];
+  const lifetime: LiveLifetime =
+    session.expiresAt === null ? { kind: "yolo-process" } : { kind: "yolo-until", until: session.expiresAt };
+  const out: Unchoiced[] = [];
+  for (const root of session.roots) {
+    const key = keyOf(root.path);
+    if (key) out.push({ candidate: { sourceKind: "yolo", key }, lifetime });
+  }
+  return out;
+}
+
+/** Counted candidates that hold a recorded identity become entries; the rest are ignored `identity-mismatch`. */
+function toEntries(
+  counted: readonly MirrorCandidate[],
+  identities: ReadonlyMap<string, FolderIdentity | null>,
+  lifetimes: ReadonlyMap<string, LiveLifetime>,
+): { entries: LiveEntry[]; noIdentity: MirrorIgnored[] } {
+  const entries: LiveEntry[] = [];
+  const noIdentity: MirrorIgnored[] = [];
+  for (const c of counted) {
+    const k = idKey(c.sourceKind, c.key);
+    const identity = identities.get(k);
+    if (!identity) {
+      noIdentity.push({ entry: c, reason: "identity-mismatch" });
+      continue;
+    }
+    entries.push({ sourceKind: c.sourceKind as LiveSourceKind, key: c.key, identity, lifetime: lifetimes.get(k) as LiveLifetime });
+  }
+  return { entries, noIdentity };
+}
+
 export function createPiTrustLiveProvider(deps: LiveProviderDeps): PiTrustLiveProvider {
   const home = deps.home ?? os.homedir();
   const now = deps.now ?? Date.now;
@@ -112,34 +174,14 @@ export function createPiTrustLiveProvider(deps: LiveProviderDeps): PiTrustLivePr
   const identities = new Map<string, FolderIdentity | null>();
   const choices = new Map<string, boolean>();
 
-  const keyOf = (folder: string): string | null => safePiTrustKey(folder, home);
+  const keyOf: KeyOf = (folder) => safePiTrustKey(folder, home);
 
   function raw(): RawCandidate[] {
-    const out: RawCandidate[] = [];
-    const push = (c: Omit<MirrorCandidate, "choice">, lifetime: LiveLifetime): void => {
-      out.push({ candidate: { ...c, choice: choices.get(idKey(c.sourceKind, c.key)) }, lifetime });
-    };
-    for (const { repoRoot, hash } of deps.listSessionTrust()) {
-      const key = keyOf(repoRoot);
-      if (!key) continue;
-      const current = hookHash(repoRoot);
-      const hookState = current === null ? "unreadable" : current === hash ? "current" : "changed";
-      push({ sourceKind: "worktreeInit", key, hookState, meta: { configRoot: repoRoot, hookHash: hash } }, { kind: "restart" });
-    }
-    for (const { subject } of deps.listSessionGrants()) {
-      const key = keyOf(subject);
-      if (key) push({ sourceKind: "accessGrants", key, projectRoot: hasProjectRootMarker(key) }, { kind: "restart" });
-    }
-    const session = deps.getYolo()?.status() ?? null;
-    if (session && !session.unscoped) {
-      const lifetime: LiveLifetime =
-        session.expiresAt === null ? { kind: "yolo-process" } : { kind: "yolo-until", until: session.expiresAt };
-      for (const root of session.roots) {
-        const key = keyOf(root.path);
-        if (key) push({ sourceKind: "yolo", key }, lifetime);
-      }
-    }
-    return out;
+    const all = [...sessionTrustCandidates(deps, keyOf, hookHash), ...sessionGrantCandidates(deps, keyOf), ...yoloCandidates(deps, keyOf)];
+    return all.map(({ candidate, lifetime }) => ({
+      candidate: { ...candidate, choice: choices.get(idKey(candidate.sourceKind, candidate.key)) },
+      lifetime,
+    }));
   }
 
   /** Stat new keys now (creation time), forget keys that ended, drop their choices. */
@@ -160,33 +202,17 @@ export function createPiTrustLiveProvider(deps: LiveProviderDeps): PiTrustLivePr
   function enumerate(): LiveEnumeration {
     const candidates = raw();
     sync(candidates);
-    const cfg = deps.getConfig();
     const lifetimes = new Map(candidates.map((c) => [idKey(c.candidate.sourceKind, c.candidate.key), c.lifetime]));
-    const filtered = filterMirrorEntries(candidates.map((c) => c.candidate), { sources: cfg.sources }, {
+    const filtered = filterMirrorEntries(candidates.map((c) => c.candidate), { sources: deps.getConfig().sources }, {
       choicesReadable: true,
       deny: deps.denyRules ? deps.denyRules() : mirrorDenyRules({ homedir: home }),
       home,
     });
-    const counted: LiveEntry[] = [];
-    const ignored: MirrorIgnored[] = [...filtered.ignored];
-    for (const c of filtered.counted) {
-      const k = idKey(c.sourceKind, c.key);
-      const identity = identities.get(k);
-      if (!identity) {
-        ignored.push({ entry: c, reason: "identity-mismatch" });
-        continue;
-      }
-      counted.push({
-        sourceKind: c.sourceKind as LiveSourceKind,
-        key: c.key,
-        identity,
-        lifetime: lifetimes.get(k) as LiveLifetime,
-      });
-    }
-    const countedKeys = new Set(counted.map((e) => idKey(e.sourceKind, e.key)));
+    const { entries, noIdentity } = toEntries(filtered.counted, identities, lifetimes);
+    const countedKeys = new Set(entries.map((e) => idKey(e.sourceKind, e.key)));
     return {
-      counted,
-      ignored,
+      counted: entries,
+      ignored: [...filtered.ignored, ...noIdentity],
       candidates: candidates.map((c) => ({
         candidate: c.candidate,
         lifetime: c.lifetime,
@@ -195,18 +221,19 @@ export function createPiTrustLiveProvider(deps: LiveProviderDeps): PiTrustLivePr
     };
   }
 
+  function yoloStillLive(entry: LiveEntry): boolean {
+    if (!deps.getConfig().sources.yolo) return false;
+    const session = deps.getYolo()?.status() ?? null;
+    if (!session || session.unscoped) return false;
+    if (session.expiresAt !== null && now() >= session.expiresAt) return false;
+    return session.roots.some((r) => keyOf(r.path) === entry.key);
+  }
+
   return {
     reconcile: () => enumerate().counted.length,
     enumerate,
     covering: (cwdKey) => findCoveringEntry(enumerate().counted, cwdKey),
-    isStillLive(entry) {
-      if (entry.sourceKind !== "yolo") return true;
-      if (!deps.getConfig().sources.yolo) return false;
-      const session = deps.getYolo()?.status() ?? null;
-      if (!session || session.unscoped) return false;
-      if (session.expiresAt !== null && now() >= session.expiresAt) return false;
-      return session.roots.some((r) => keyOf(r.path) === entry.key);
-    },
+    isStillLive: (entry) => entry.sourceKind !== "yolo" || yoloStillLive(entry),
     setChoice(kind, folder, choice) {
       const key = keyOf(folder);
       if (!key) return;

@@ -85,6 +85,7 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "/api/vault", reason: "credential vault: accounts, grants, import; operator-only, secret-bearing" },
   { pattern: "/api/session/:id/vault-bindings", reason: "vault binding state for the session view; UI-only" },
   { pattern: "/api/ws-ticket", reason: "transport credential" },
+  { pattern: "/api/pi-trust/query", reason: "bridge-to-server trust query at project_trust; authenticated by the bridge's own credential, not an agent action" },
   { pattern: "/api/local-proof", reason: "mints a one-time local-proof bootstrap code; host-local credential" },
   { pattern: "/api/device-session", reason: "exchanges the device bearer for an httpOnly cookie; browser credential plumbing" },
   { pattern: "/api/pair/challenge", reason: "pairing ceremony" },
