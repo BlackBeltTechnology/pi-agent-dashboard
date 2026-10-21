@@ -34,17 +34,11 @@ KB retrieval pipeline, Pi Gateway Transport & Identity: see dedicated sections. 
 
 `### Plugin Session Lifecycle Declarations (hide-chat-gateway-sessions)`: `PluginSpawnOptions.lifecycle` (`recover`/`finalizeOnSocketClose`/`hidden`);`hidden` persisted;not re-applied on reattach;`pluginHidden` survives restart;`ServerPluginContext.shutdownSession` (trusted `priority<=100`;reuses `browserGateway.shutdownSession`). See change: hide-chat-gateway-sessions, fix-plugin-hidden-across-restart, chat-gateway-close-command.
 
-TS loader §: single native strip-only loader; tiers 1-3 (registerHooks / register+native strip / register+amaro); jiti server path removed; `PI_DASHBOARD_TS_LOADER` ignored + boot warn; foreign jiti/tsx `--import` warn. See change: fix-appimage-cold-boot-latency, strip-only-native-ts-loader.
-- `### Plugin cwd admission`: async tri-state `admitCwd` (`admit`|`refuse`|`indeterminate`); `indeterminate` → 503 `cwd-admission-unavailable` + `Retry-After: 1`, never admits. `holdCwdDenial` seam; verdict re-run `resolveCwdVerdict`. See change: harden-plugin-cwd-admission.
-`resource-page-section` slot (react-only, many; props `ResourcePageSectionProps`). Optional host seams `getPiResources`/`onPiResourcesInvalidated` (ServerPluginContext). Settings nav `PROMOTION_GROUP_ALLOWLIST` = `models`, `resources`. See change: add-skill-atlas-screen.
-- `### Built-in TLS listener`: 2nd `https.Server` → same Fastify; SNI store, `CertManager`, tailscale source, `/api/health.tls`. See change: add-tailscale-cert-tls.
-- `#### Domain certs: acme`: DNS-01 source; solvers `cloudflare`/`acme-dns`; gates `credentials`/`dns-cname`/`dns-zone`; vault `tls:<id>`; routes `acme-routes.ts`; guide `acme-dns01-certs.md`. See change: add-acme-dns01-certs.
-- `### Live Preview: Static Targets, Exposure, Egress`: capability-only static previews; exposure epoch; `preview-egress`. See change: improve-canvas-html-and-url-ux.
-
-- `#### Plugin Discovery, Trust and Runtime Delivery`: 4 discovery sources + priority (workspace > installed > bundled > pi-package), `source`, one-row `shadowed[]`, `local-detected`, refresh-on-completion (`refreshPluginDiscovery`, coalesced, ONE `plugins_changed`), `bundledPluginIds`, trust defaults (`auth.trustedPlugins`, `server-untrusted`), runtime delivery pipeline. See change: decouple-plugins-from-core.
 TS loader §: single native strip-only loader;tiers 1-3 (registerHooks/register+native strip/register+amaro);jiti server path removed;`PI_DASHBOARD_TS_LOADER` ignored+boot warn;foreign jiti/tsx `--import` warn. See change: fix-appimage-cold-boot-latency, strip-only-native-ts-loader.
 - `### Plugin cwd admission`: async tri-state `admitCwd` (`admit`|`refuse`|`indeterminate`);`indeterminate`→503 `cwd-admission-unavailable`+`Retry-After: 1`, never admits. `holdCwdDenial` seam;verdict re-run `resolveCwdVerdict`. See change: harden-plugin-cwd-admission.
 `resource-page-section` slot (react-only, many;props `ResourcePageSectionProps`). Optional host seams `getPiResources`/`onPiResourcesInvalidated` (ServerPluginContext). Settings nav `PROMOTION_GROUP_ALLOWLIST`=`models`, `resources`. See change: add-skill-atlas-screen.
 - `### Built-in TLS listener`: 2nd `https.Server`→same Fastify;SNI store, `CertManager`, tailscale source, `/api/health.tls`. See change: add-tailscale-cert-tls.
 - `#### Domain certs: acme`: DNS-01 source;solvers `cloudflare`/`acme-dns`;gates `credentials`/`dns-cname`/`dns-zone`;vault `tls:<id>`;routes `acme-routes.ts`;guide `acme-dns01-certs.md`. See change: add-acme-dns01-certs.
 - `### Live Preview: Static Targets, Exposure, Egress`: capability-only static previews;exposure epoch;`preview-egress`. See change: improve-canvas-html-and-url-ux.
+
+- `#### Plugin Discovery, Trust and Runtime Delivery`: 4 sources, shadowing, `plugins_changed`, `auth.trustedPlugins`, runtime delivery. See change: decouple-plugins-from-core.
