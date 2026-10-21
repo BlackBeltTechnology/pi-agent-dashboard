@@ -859,7 +859,7 @@ async function main(): Promise<void> {
       // Detect + offer adoption of a leftover server from a prior Electron
       // lifetime. Fire-and-forget; the modal is non-blocking for startup.
       // See change: electron-attach-ownership-fixes.
-      void attachEvaluator.evaluate();
+      attachEvaluator.evaluate().catch((err: unknown) => log(`[attach-check] evaluation failed: ${String(err)}`));
       startRuntimeActivationWatcher(runtimeCtx);
       return;
     }

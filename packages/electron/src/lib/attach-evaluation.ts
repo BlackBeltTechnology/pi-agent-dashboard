@@ -153,7 +153,7 @@ export function createAttachEvaluator(deps: AttachEvaluationDeps): AttachEvaluat
     }
     deps.log(`[zombie] stopping PID ${pid} and respawning`);
     if (!(await deps.stopZombie(pid))) {
-      deps.log(`[zombie] PID ${pid} survived the kill ladder; not respawning`);
+      deps.log(`[zombie] PID ${pid} survived the kill ladder; not starting a new server`);
       await deps.dialogs.notify({
         title: "Leftover server could not be stopped",
         message: `The leftover dashboard server (PID ${pid}) is still running, so no new server was started.`,
