@@ -10,6 +10,7 @@
  * (`--check-baseline-diff`), and only shrinks through `--prune`.
  *
  * Modes: (default) analyse · `--prune` · `--accept` · `--triage` ·
+ * `--mirror-dismissal` (record a GitHub dismissal GitHub confirms) ·
  * `--write-baseline` (seed) · `--check-baseline-diff <ref>` (static, no CodeQL).
  * Exit codes: 0 pass / skipped · 1 new alerts or growth violation · 2 error.
  *
@@ -56,6 +57,11 @@ export const LANGUAGES = {
   "javascript-typescript": { pack: "codeql/javascript-queries", suite: "codeql-suites/javascript-code-scanning.qls" },
   actions: { pack: "codeql/actions-queries", suite: "codeql-suites/actions-code-scanning.qls" },
 };
+
+/** The local wrapper pack that carries the repo's CodeQL data extensions (JavaScript analysis only). */
+export const MODEL_PACK = "pi-dashboard/local-models";
+const MODEL_DIR = ".github/codeql/extensions";
+const MODEL_MANIFEST = `name: ${MODEL_PACK}\nversion: 0.0.0\nlibrary: true\nextensionTargets: { codeql/javascript-all: "*" }\ndataExtensions: ["*.model.yml"]\n`;
 
 const PRESET_RULES = ["js/path-injection", "js/command-line-injection", "js/shell-command-constructed-from-input"];
 const BASELINE_COMMENT =
@@ -120,7 +126,9 @@ export function countResults(results) {
 }
 
 const REASON_PREFIX = /^(operator-authz|false-positive|accepted-risk): \S/;
-const REASON_DISMISSED = /^github-dismissed \(#[0-9]+, [^)]+\): \S/;
+/** `github-dismissed (#12[, #13…], <GitHub reason>): <original reason>` — written only by `--mirror-dismissal`. */
+const GITHUB_DISMISS_REASONS = ["false positive", "won't fix", "used in tests"];
+const REASON_DISMISSED = /^github-dismissed \(#[1-9][0-9]*(, #[1-9][0-9]*)*, (false positive|won't fix|used in tests)\): \S/;
 
 /** Error text for an invalid reason on `ruleId`, or null when valid. Pure. */
 export function reasonError(reason, ruleId) {
@@ -128,7 +136,7 @@ export function reasonError(reason, ruleId) {
   if (reason === "untriaged") return null;
   const m = REASON_PREFIX.exec(reason);
   if (!m && !REASON_DISMISSED.test(reason)) {
-    return `reason "${reason}" is neither "untriaged" nor "operator-authz|false-positive|accepted-risk: <text>" nor "github-dismissed (#<n>, <reason>): <text>"`;
+    return `reason "${reason}" is neither "untriaged" nor "operator-authz|false-positive|accepted-risk: <text>" nor "github-dismissed (#<n>[, #<m>…], false positive|won't fix|used in tests): <text>"`;
   }
   if (m?.[1] === "operator-authz" && !PRESET_RULES.includes(ruleId)) {
     return `"operator-authz:" is only valid on ${PRESET_RULES.join(", ")} (not ${ruleId})`;
@@ -288,6 +296,28 @@ export function pruneBaseline(baseline, counts) {
     if (current > 0) entries.push({ ...e, count: current });
   }
   return { baseline: { ...baseline, entries }, changes };
+}
+
+const GH_REMOTES = [
+  /^git@github\.com:([^/]+)\/([^/]+?)(?:\.git)?\/?$/,
+  /^ssh:\/\/git@github\.com\/([^/]+)\/([^/]+?)(?:\.git)?\/?$/,
+  /^https:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?\/?$/,
+];
+const GH_NAME = /^[A-Za-z0-9_.-]+$/;
+
+/**
+ * `{ owner, repo }` of a plain github.com remote URL, else null. A security boundary: the result is
+ * spliced into a `gh api` path, so only a strict character class is accepted and `.`/`..` never are.
+ * Not shared with the extension's lenient display-link parser. Pure.
+ */
+export function parseGithubRemote(url) {
+  for (const re of GH_REMOTES) {
+    const m = re.exec(String(url).trim());
+    if (!m) continue;
+    const [, owner, repo] = m;
+    if ([owner, repo].every((p) => GH_NAME.test(p) && p !== "." && p !== "..")) return { owner, repo };
+  }
+  return null;
 }
 
 const normWs = (s) => s.trim().replace(/\s+/g, " ");
@@ -636,7 +666,7 @@ function printVerdict(say, decision) {
 }
 
 function jsonObject(status, extra) {
-  return { status, versions: { codeql: null, packs: {} }, newResults: [], staleEntries: [], warnings: [], ...extra };
+  return { status, versions: { codeql: null, packs: {}, models: null }, newResults: [], staleEntries: [], warnings: [], ...extra };
 }
 
 function resultView(r) {
@@ -654,8 +684,78 @@ function materializeSnapshot(cwd, top, run) {
   }
 }
 
+const modelPackFlags = (modelPack) => [`--additional-packs=${modelPack.dir}`, `--model-packs=${MODEL_PACK}`];
+
+/** Data rows of one model YAML: the sum of its `extensions[].data` lengths. */
+function modelRowCount(name, text) {
+  let doc;
+  try {
+    doc = parseYaml(text);
+  } catch (err) {
+    throw new CodeqlError(`model pack ${MODEL_PACK}: ${name} is not valid YAML: ${err.message}`);
+  }
+  return (doc?.extensions ?? []).reduce((n, ext) => n + (Array.isArray(ext?.data) ? ext.data.length : 0), 0);
+}
+
+/**
+ * Write `<run>/model-pack/` (manifest + the snapshot's `*.model.yml` bytes — what the analysis sees
+ * and, once committed, what CI sees). Outside `<run>/src`, so the snapshot id is untouched.
+ * Returns `{ dir, files: [{ name, path, rows }], digest }`, or null when the snapshot has no model file.
+ */
+function prepareModelPack(run) {
+  const from = join(run, "src", MODEL_DIR);
+  if (!existsSync(from)) return null;
+  const names = readdirSync(from)
+    .filter((n) => n.endsWith(".model.yml") && statSync(join(from, n)).isFile())
+    .sort(cmp);
+  if (names.length === 0) return null;
+  const dir = join(run, "model-pack");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "codeql-pack.yml"), MODEL_MANIFEST);
+  const hash = createHash("sha256");
+  const files = names.map((name) => {
+    const bytes = readFileSync(join(from, name));
+    writeFileSync(join(dir, name), bytes);
+    hash.update(bytes);
+    return { name, path: join(dir, name), rows: modelRowCount(name, bytes.toString("utf8")) };
+  });
+  return { dir, files, digest: hash.digest("hex") };
+}
+
+const realPath = (p) => {
+  try {
+    return realpathSync(p);
+  } catch {
+    return resolve(p);
+  }
+};
+
+/**
+ * Prove the CLI resolves the wrapper pack and loads every copied file: per file the summed `rowCount`
+ * must equal its data rows. A presence check only — matching is proven by the spike. Any failure is
+ * exit 2, never a skip (a skip would disarm the whole JavaScript gate). The exit code alone is
+ * meaningless (`resolve extensions` exits 0 with no data), so the JSON is the verdict.
+ */
+function verifyModelPack(bin, modelPack, packs) {
+  const { pack, suite } = LANGUAGES["javascript-typescript"];
+  const fail = (why) => new CodeqlError(`model pack ${MODEL_PACK} is not usable: ${why}`);
+  const res = runCodeql(bin, ["resolve", "extensions", ...modelPackFlags(modelPack), "--", `${pack}@${packs[pack]}:${suite}`], { timeout: PACK_DOWNLOAD_TIMEOUT_MS, label: "resolve extensions" });
+  if (res.error || res.status !== 0) throw fail(`codeql resolve extensions failed (${res.error ? res.error.message : `exit ${res.status}`}): ${tail(res.stderr, 3) || tail(res.stdout, 3)}`);
+  let entries;
+  try {
+    entries = Object.values(JSON.parse(res.stdout).data).flat();
+    if (!entries.every((e) => typeof e?.file === "string" && Number.isInteger(e.rowCount))) throw new Error("unexpected entry shape");
+  } catch (err) {
+    throw fail(`unparsable \`resolve extensions\` output (${err.message})`);
+  }
+  for (const f of modelPack.files) {
+    const loaded = entries.filter((e) => realPath(e.file) === realPath(f.path)).reduce((n, e) => n + e.rowCount, 0);
+    if (loaded !== f.rows) throw fail(`${f.name}: ${loaded} of ${f.rows} data rows loaded`);
+  }
+}
+
 /** `database create` + `analyze` for one language; returns its SARIF document, or null when it has no source. */
-function analyseLanguage(bin, run, language, { pack, suite }, packs, globs) {
+function analyseLanguage(bin, run, language, { pack, suite }, packs, globs, modelPack) {
   const db = join(run, `db-${language}`);
   const out = join(run, `${language}.sarif`);
   const created = runCodeql(bin, ["database", "create", db, `--language=${language}`, "--build-mode=none", `--source-root=${join(run, "src")}`, "--overwrite", "--threads=0"], {
@@ -667,7 +767,8 @@ function analyseLanguage(bin, run, language, { pack, suite }, packs, globs) {
   if (created.error || created.status !== 0) {
     throw new CodeqlError(`codeql ${created.label} failed (${created.error ? created.error.message : `exit ${created.status}`}):\n${tail(created.stderr) || tail(created.stdout)}`);
   }
-  mustRun(bin, ["database", "analyze", db, `${pack}@${packs[pack]}:${suite}`, "--threat-model=remote", "--format=sarif-latest", `--output=${out}`, "--threads=0"], {
+  const modelFlags = modelPack && language === "javascript-typescript" ? modelPackFlags(modelPack) : [];
+  mustRun(bin, ["database", "analyze", db, `${pack}@${packs[pack]}:${suite}`, "--threat-model=remote", ...modelFlags, "--format=sarif-latest", `--output=${out}`, "--threads=0"], {
     label: `database analyze ${language}`,
   });
   try {
@@ -686,6 +787,23 @@ function ranPackVersions(sarifs, packs) {
     out[pack] = seen[pack] ?? packs[pack];
   }
   return out;
+}
+
+/**
+ * Persist the run for --prune/--accept/--triage/--mirror-dismissal. `headCommit` + `clean` let the mirror
+ * compare GitHub's alert commit with HEAD and demand a tree where only the baseline can differ.
+ */
+function writeRunRecord(dir, top, { tree, results, baseline }) {
+  const status = git(["status", "--porcelain", "--untracked-files=all", "--", `:(exclude)${BASELINE_FILE}`], { cwd: top, allowFail: true });
+  const record = {
+    snapshotId: tree,
+    headCommit: git(["rev-parse", "HEAD"], { cwd: top, allowFail: true })?.trim() ?? null,
+    clean: status !== null && status.trim() === "",
+    counts: countResults(results),
+    results,
+  };
+  if (baseline) record.baselineHash = baselineHash(baseline);
+  atomicWrite(join(dir, "last-run.json"), JSON.stringify(record));
 }
 
 /** Run CodeQL over a snapshot. Returns `{ results, warnings, versions, snapshotId }`. */
@@ -708,9 +826,11 @@ function analyse(cwd, { packs, baseline, seed }) {
   const run = join(dir, `run-${process.pid}`);
   mkdirSync(run, { recursive: true });
   const tree = materializeSnapshot(cwd, top, run);
+  const modelPack = prepareModelPack(run);
+  if (modelPack) verifyModelPack(bin, modelPack, packs);
 
   const sarifs = Object.entries(LANGUAGES)
-    .map(([language, cfg]) => analyseLanguage(bin, run, language, cfg, packs, globs))
+    .map(([language, cfg]) => analyseLanguage(bin, run, language, cfg, packs, globs, modelPack))
     .filter(Boolean);
   const { results, warnings: keyWarnings } = resultKeys(sarifs);
   warnings.push(...keyWarnings);
@@ -719,10 +839,8 @@ function analyse(cwd, { packs, baseline, seed }) {
     if (glob) throw new CodeqlError(`exclusion not applied: result in ${r.file} matches paths-ignore glob ${glob}`);
   }
 
-  const versions = { codeql: version, packs: ranPackVersions(sarifs, packs) };
-  const record = { snapshotId: tree, counts: countResults(results), results };
-  if (baseline) record.baselineHash = baselineHash(baseline);
-  atomicWrite(join(dir, "last-run.json"), JSON.stringify(record));
+  const versions = { codeql: version, packs: ranPackVersions(sarifs, packs), models: modelPack?.digest ?? null };
+  writeRunRecord(dir, top, { tree, results, baseline });
   return { results, warnings, versions, snapshotId: tree };
 }
 
@@ -855,6 +973,147 @@ function modeTriage(cwd, [ruleId, file, lineHash], reason) {
   return 0;
 }
 
+const GH_TIMEOUT_DEFAULT_MS = 15_000;
+const sameMultiset = (a, b) => a.length === b.length && [...a].sort((x, y) => x - y).every((v, i) => v === [...b].sort((x, y) => x - y)[i]);
+
+/** `--alert 12,13` → `[12, 13]`: positive integers, no duplicates. */
+function parseAlertList(value) {
+  const parts = String(value ?? "").split(",");
+  if (!parts.every((p) => /^[1-9][0-9]*$/.test(p))) throw new CodeqlError(`--alert must be a comma-separated list of positive integers (got ${JSON.stringify(value)})`);
+  const nums = parts.map(Number);
+  if (new Set(nums).size !== nums.length) throw new CodeqlError("--alert lists a number twice");
+  return nums.sort((a, b) => a - b);
+}
+
+/** The `gh` binary and call timeout. `PI_CODEQL_GH_BIN` is an explicit path trusted like `CODEQL_BIN`. */
+function ghSettings() {
+  const raw = process.env.PI_CODEQL_GH_TIMEOUT_MS;
+  if (raw !== undefined && !/^[1-9][0-9]*$/.test(raw)) throw new CodeqlError(`PI_CODEQL_GH_TIMEOUT_MS must be a positive integer (got ${JSON.stringify(raw)})`);
+  const bin = process.env.PI_CODEQL_GH_BIN;
+  if (bin) {
+    try {
+      accessSync(bin, constants.X_OK);
+    } catch {
+      throw new CodeqlError(`PI_CODEQL_GH_BIN=${bin} is not an executable file`);
+    }
+  }
+  return { bin: bin || "gh", timeout: raw === undefined ? GH_TIMEOUT_DEFAULT_MS : Number(raw) };
+}
+
+/** One alert from GitHub with every field the checks need, or a refusal naming the missing field. */
+function fetchAlert(gh, slug, n) {
+  let text;
+  try {
+    text = execFileSync(gh.bin, ["api", `repos/${slug.owner}/${slug.repo}/code-scanning/alerts/${n}`], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: gh.timeout, maxBuffer: 16 * 1024 * 1024 });
+  } catch (err) {
+    const why = err.code === "ETIMEDOUT" ? `timed out after ${gh.timeout} ms` : tail(err.stderr || err.message, 3);
+    throw new CodeqlError(`--mirror-dismissal refused: reading alert #${n} failed: ${why}`);
+  }
+  let a;
+  try {
+    a = JSON.parse(text);
+  } catch {
+    throw new CodeqlError(`--mirror-dismissal refused: alert #${n} is not JSON`);
+  }
+  const at = (path, type) => {
+    const v = path.split(".").reduce((o, k) => o?.[k], a);
+    if (type === "int" ? !Number.isInteger(v) : typeof v !== "string" || v === "") throw new CodeqlError(`--mirror-dismissal refused: alert #${n} has no usable \`${path}\``);
+    return v;
+  };
+  return {
+    n,
+    state: at("state", "str"),
+    ruleId: at("rule.id", "str"),
+    path: at("most_recent_instance.location.path", "str"),
+    line: at("most_recent_instance.location.start_line", "int"),
+    commit: at("most_recent_instance.commit_sha", "str"),
+    reason: a.state === "dismissed" ? at("dismissed_reason", "str") : null,
+  };
+}
+
+/** The baseline entry a mirror may rewrite: it exists, is operator-triaged, and has one alert per result. */
+function mirrorEntry(baseline, key, alertCount) {
+  const entry = baseline.entries.find((e) => entryKey(e) === key);
+  if (!entry) throw new CodeqlError(`--mirror-dismissal refused: no baseline entry for ${JSON.parse(key).join(" ")}`);
+  if (!REASON_PREFIX.test(entry.reason)) throw new CodeqlError(`--mirror-dismissal refused: entry reason "${entry.reason}" is not an operator-authz|false-positive|accepted-risk reason`);
+  if (alertCount !== entry.count) throw new CodeqlError(`--mirror-dismissal refused: ${alertCount} alert(s) given for an entry of ${entry.count} result(s)`);
+  return entry;
+}
+
+/** The recorded run a mirror may rely on: this snapshot, clean, at a commit, with a baseline hash. */
+function mirrorRun(cwd) {
+  const last = readLastRun(cwd);
+  if (!last) throw new CodeqlError("--mirror-dismissal refused: no recorded CodeQL run; run the analysis first");
+  if (last.baselineHash === undefined) throw new CodeqlError("--mirror-dismissal refused: the recorded run has no baseline hash (legacy record); re-run the analysis");
+  if (last.snapshotId !== snapshotId(cwd)) throw new CodeqlError("--mirror-dismissal refused: the working tree changed since the recorded run; re-run the analysis");
+  if (last.clean !== true || typeof last.headCommit !== "string" || last.headCommit === "") {
+    throw new CodeqlError("--mirror-dismissal refused: the recorded run was not on a clean tree at a commit; check out the commit GitHub analysed and re-run the analysis");
+  }
+  return last;
+}
+
+/** Why one GitHub alert does not confirm the entry (rule, file, commit, dismissal), or null. */
+function alertProblem(a, { ruleId, file, headCommit }) {
+  if (a.state !== "dismissed") return `is ${a.state}, not dismissed`;
+  if (a.ruleId !== ruleId) return `is for rule ${a.ruleId}`;
+  if (a.path !== file) return `is for file ${a.path}`;
+  if (a.commit !== headCommit) return `was analysed at ${a.commit}, not ${headCommit}`;
+  if (!GITHUB_DISMISS_REASONS.includes(a.reason)) return `has dismissal reason ${JSON.stringify(a.reason)}`;
+  return null;
+}
+
+/** Refuse unless every alert confirms the entry, shares one reason, and covers exactly the recorded lines. */
+function confirmAlerts(alerts, want, last, recorded) {
+  for (const a of alerts) {
+    const bad = alertProblem(a, { ruleId: want.ruleId, file: want.file, headCommit: last.headCommit });
+    if (bad) throw new CodeqlError(`--mirror-dismissal refused: alert #${a.n} ${bad}`);
+  }
+  if (new Set(alerts.map((a) => a.reason)).size !== 1) throw new CodeqlError("--mirror-dismissal refused: the alerts carry different dismissal reasons");
+  const lines = alerts.map((a) => a.line);
+  if (!sameMultiset(lines, recorded)) {
+    const sorted = (xs) => [...xs].sort((x, y) => x - y);
+    throw new CodeqlError(`--mirror-dismissal refused: alert lines [${sorted(lines)}] differ from the recorded results' lines [${sorted(recorded)}]`);
+  }
+}
+
+/**
+ * `--mirror-dismissal <rule> <file> <lineHash> --alert <n>[,<n>…]`: record that GitHub dismissed the
+ * alerts of one baseline entry. Every check must pass or nothing is written (exit 2): the run is
+ * recorded, clean and at HEAD; one dismissed alert per recorded result (start lines as a multiset), at
+ * HEAD, for the same rule and file, with one shared GitHub reason.
+ */
+function modeMirror(cwd, [ruleId, file, lineHash], alertValue) {
+  const { say } = makeReporter(false);
+  if (!ruleId || !file || !lineHash) throw new CodeqlError("usage: --mirror-dismissal <ruleId> <file> <lineHash> --alert <n>[,<n>…]");
+  if (alertValue === undefined) throw new CodeqlError("--mirror-dismissal needs --alert <n>[,<n>…]");
+  const alertNumbers = parseAlertList(alertValue);
+  const gh = ghSettings();
+  const top = topLevel(cwd);
+  acquireLock(cwd);
+  const baseline = readBaseline(top);
+  const key = keyOf(ruleId, file, lineHash);
+  const entry = mirrorEntry(baseline, key, alertNumbers.length);
+  const last = mirrorRun(cwd);
+  const recorded = last.results.filter((r) => r.key === key).map((r) => r.startLine);
+
+  const origin = git(["remote", "get-url", "origin"], { cwd: top, allowFail: true })?.trim();
+  const slug = origin ? parseGithubRemote(origin) : null;
+  if (!slug) throw new CodeqlError(`--mirror-dismissal refused: origin ${JSON.stringify(origin ?? null)} is not a plain github.com repository URL`);
+
+  const alerts = alertNumbers.map((n) => fetchAlert(gh, slug, n));
+  confirmAlerts(alerts, { ruleId, file }, last, recorded);
+
+  const reason = `github-dismissed (${alertNumbers.map((n) => `#${n}`).join(", ")}, ${alerts[0].reason}): ${entry.reason}`;
+  const why = reasonError(reason, ruleId);
+  if (why) throw new CodeqlError(`--mirror-dismissal refused: ${why}`);
+  // Re-bind only a record bound to the pre-write baseline: never launder a hand edit.
+  const bound = last.baselineHash === baselineHash(baseline);
+  const text = writeBaseline(top, { ...baseline, entries: baseline.entries.map((e) => (e === entry ? { ...e, reason } : e)) });
+  if (bound) rebindLastRun(cwd, last, text);
+  say(`mirrored ${ruleId} ${file} ${lineHash}: ${reason}`);
+  return 0;
+}
+
 /** The introducing change (the ref has no baseline): the seed must equal the recorded run exactly. */
 function seedCheck(cwd, ref, work, say) {
   const last = readLastRun(cwd);
@@ -904,9 +1163,17 @@ export function main(argv = process.argv.slice(2), cwd = process.cwd()) {
       "write-baseline": { type: "boolean" },
       "check-baseline-diff": { type: "string" },
       "no-growth": { type: "boolean" },
+      "mirror-dismissal": { type: "boolean" },
+      alert: { type: "string" },
       reason: { type: "string" },
     },
   });
+  if (values["mirror-dismissal"]) {
+    const clash = ["json", "reason", "prune", "accept", "triage", "write-baseline", "check-baseline-diff", "no-growth"].filter((o) => values[o] !== undefined);
+    if (clash.length > 0) throw new CodeqlError(`--mirror-dismissal cannot be combined with ${clash.map((o) => `--${o}`).join(", ")}`);
+    return modeMirror(cwd, positionals, values.alert);
+  }
+  if (values.alert !== undefined) throw new CodeqlError("--alert is only valid with --mirror-dismissal");
   const modes = ["prune", "accept", "triage", "write-baseline", "check-baseline-diff"].filter((m) => values[m] !== undefined);
   if (modes.length > 1) throw new CodeqlError(`choose one mode (got ${modes.map((m) => `--${m}`).join(", ")})`);
   if (values.prune) return modePrune(cwd);

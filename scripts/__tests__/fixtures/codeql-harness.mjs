@@ -12,6 +12,8 @@ import { dirname, join, resolve } from "node:path";
 
 export const SCRIPT = resolve(import.meta.dirname, "..", "..", "codeql-local.mjs");
 export const FAKE_BIN = resolve(import.meta.dirname, "fake-codeql.mjs");
+export const FAKE_GH = resolve(import.meta.dirname, "fake-gh.mjs");
+export const GH_ALERT_FIXTURE = resolve(import.meta.dirname, "gh-code-scanning-alert.json");
 export const REAL_CONFIG = resolve(import.meta.dirname, "..", "..", "..", ".github", "codeql", "codeql-config.yml");
 
 export const PACKS = { "codeql/actions-queries": "0.6.37", "codeql/javascript-queries": "2.4.7" };
@@ -63,6 +65,23 @@ export const baselineOf = (entries = [], header = {}) => ({
 export const entry = (ruleId, file, lineHash, count = 1, reason = "untriaged") => ({ ruleId, file, lineHash, count, reason });
 export const writeBaselineFile = (repo, baseline, dir = repo.dir) => write(dir, "codeql-baseline.json", `${JSON.stringify(baseline, null, 2)}\n`);
 
+/** A code-scanning alert as `gh api` returns it, built from the recorded real response. */
+export function ghAlert(number, { rule = "js/path-injection", path = "a.js", line = 1, sha = "0".repeat(40), state = "dismissed", reason = "won't fix", drop = [] } = {}) {
+  const alert = JSON.parse(readFileSync(GH_ALERT_FIXTURE, "utf8"));
+  alert.number = number;
+  alert.state = state;
+  alert.dismissed_reason = state === "dismissed" ? reason : null;
+  alert.rule.id = rule;
+  alert.most_recent_instance.commit_sha = sha;
+  alert.most_recent_instance.location = { ...alert.most_recent_instance.location, path, start_line: line, end_line: line };
+  for (const dotted of drop) {
+    const keys = dotted.split(".");
+    const last = keys.pop();
+    delete keys.reduce((o, k) => o[k], alert)[last];
+  }
+  return alert;
+}
+
 /** SARIF doc with `results: [{ruleId, file, line, hash?, message?}]` and pack extensions. */
 export function sarifOf(results = [], { packVersions = { "codeql/javascript-queries": "2.4.7+abc", "codeql/actions-queries": "0.6.37+def" } } = {}) {
   return {
@@ -89,13 +108,20 @@ export function sarifOf(results = [], { packVersions = { "codeql/javascript-quer
  * opts: plan (fake plan, `sarif` keyed by language), env (null deletes), cwd.
  * `calls` holds only this run's fake-binary invocations.
  */
-export function run(repo, args = [], { plan = {}, env = {}, cwd = repo.dir } = {}) {
+export function run(repo, args = [], { plan = {}, env = {}, cwd = repo.dir, gh = null } = {}) {
   rmSync(repo.log, { force: true });
   writeFileSync(repo.plan, JSON.stringify({ log: repo.log, ...plan }));
-  const childEnv = { ...process.env, TMPDIR: repo.tmp, CODEQL_BIN: FAKE_BIN, FAKE_CODEQL_PLAN: repo.plan, ...env };
+  const ghPlan = join(repo.root, "gh-plan.json");
+  const ghLog = join(repo.root, "gh-calls.jsonl");
+  rmSync(ghLog, { force: true });
+  // `gh` (when given) is the fake GitHub CLI plan: { alerts, exit, stderr, sleepMs }.
+  if (gh) writeFileSync(ghPlan, JSON.stringify({ log: ghLog, ...gh }));
+  const ghEnv = gh ? { PI_CODEQL_GH_BIN: FAKE_GH, FAKE_GH_PLAN: ghPlan } : {};
+  const childEnv = { ...process.env, TMPDIR: repo.tmp, CODEQL_BIN: FAKE_BIN, FAKE_CODEQL_PLAN: repo.plan, ...ghEnv, ...env };
   for (const [k, v] of Object.entries(env)) if (v === null) delete childEnv[k];
   const r = spawnSync(process.execPath, [SCRIPT, ...args], { cwd, env: childEnv, encoding: "utf8" });
-  return { status: r.status, stdout: r.stdout, stderr: r.stderr, calls: calls(repo) };
+  const ghCalls = existsSync(ghLog) ? readFileSync(ghLog, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)) : [];
+  return { status: r.status, stdout: r.stdout, stderr: r.stderr, calls: calls(repo), ghCalls };
 }
 
 export function calls(repo) {

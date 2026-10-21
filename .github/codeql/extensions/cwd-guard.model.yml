@@ -31,22 +31,30 @@
 # characters, device names, > 255 bytes). `createProjectDirectory` branches on it before joining
 # the name onto the realpath'd projects root, then re-checks realpath containment.
 # See change: streamline-first-run.
+#
+# TYPE STRINGS: a type containing a dot MUST be single-quoted (`"'pkg/m.js'"`). CodeQL's
+# `parseTypeString` (`('[^']+'|[^.]+)(.*)`) ends the package name at the FIRST dot, so an
+# unquoted `pkg/m.js` parses as package `pkg/m` + type `js` and matches nothing — the rows
+# silently never applied before this fix. Production imports use the `.js` specifier; the bare
+# rows stay as harmless dot-free aliases. Enforced by
+# packages/shared/src/__tests__/codeql-model-contract.test.ts.
+# See change: codeql-model-pack-and-mirror.
 extensions:
   - addsTo:
       pack: codeql/javascript-all
       extensible: barrierGuardModel
     data:
-      - ["@blackbelt-technology/pi-dashboard-shared/project-name.js", "Member[isPortableProjectName].Argument[0]", "true", "path-injection"]
+      - ["'@blackbelt-technology/pi-dashboard-shared/project-name.js'", "Member[isPortableProjectName].Argument[0]", "true", "path-injection"]
       - ["@blackbelt-technology/pi-dashboard-shared/project-name", "Member[isPortableProjectName].Argument[0]", "true", "path-injection"]
-      - ["@blackbelt-technology/pi-dashboard-shared/cwd-guard.js", "Member[isAllowedCwd].Argument[0]", "true", "path-injection"]
+      - ["'@blackbelt-technology/pi-dashboard-shared/cwd-guard.js'", "Member[isAllowedCwd].Argument[0]", "true", "path-injection"]
       - ["@blackbelt-technology/pi-dashboard-shared/cwd-guard", "Member[isAllowedCwd].Argument[0]", "true", "path-injection"]
-      - ["@blackbelt-technology/pi-dashboard-shared/cwd-guard.js", "Member[admissionAllows].Argument[1]", "true", "path-injection"]
+      - ["'@blackbelt-technology/pi-dashboard-shared/cwd-guard.js'", "Member[admissionAllows].Argument[1]", "true", "path-injection"]
       - ["@blackbelt-technology/pi-dashboard-shared/cwd-guard", "Member[admissionAllows].Argument[1]", "true", "path-injection"]
-      - ["@blackbelt-technology/pi-dashboard-shared/cwd-guard.js", "Member[tokenAllows].Argument[1]", "true", "path-injection"]
+      - ["'@blackbelt-technology/pi-dashboard-shared/cwd-guard.js'", "Member[tokenAllows].Argument[1]", "true", "path-injection"]
       - ["@blackbelt-technology/pi-dashboard-shared/cwd-guard", "Member[tokenAllows].Argument[1]", "true", "path-injection"]
   - addsTo:
       pack: codeql/javascript-all
       extensible: barrierModel
     data:
-      - ["@blackbelt-technology/pi-dashboard-shared/cwd-guard.js", "Member[admitCwd].Argument[0]", "path-injection"]
+      - ["'@blackbelt-technology/pi-dashboard-shared/cwd-guard.js'", "Member[admitCwd].Argument[0]", "path-injection"]
       - ["@blackbelt-technology/pi-dashboard-shared/cwd-guard", "Member[admitCwd].Argument[0]", "path-injection"]

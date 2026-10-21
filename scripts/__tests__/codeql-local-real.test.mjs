@@ -29,6 +29,41 @@ const packsCached =
 const FLAGGED = 'import http from "http";\nhttp.createServer((req, res) => { const password = req.body.password; console.log("pw " + password); res.end(); });\n';
 const FILLER = `// ${"unchanged trailing context ".repeat(8)}\n`;
 
+// Mini monorepo mirroring production: a shared package exporting `./*.js` → `./src/*.ts`, and a route that
+// imports the guard through the `.js` specifier. Uses the REPO'S model file (the bytes CI loads).
+const MODEL_REL = ".github/codeql/extensions/cwd-guard.model.yml";
+const GUARD_IMPORT = '@blackbelt-technology/pi-dashboard-shared/cwd-guard.js';
+const monorepo = (route) => ({
+  "package.json": '{ "name": "mini", "private": true }\n',
+  "pnpm-workspace.yaml": 'packages:\n  - "packages/*"\n',
+  "packages/shared/package.json": JSON.stringify({ name: "@blackbelt-technology/pi-dashboard-shared", type: "module", exports: { "./*.js": "./src/*.ts", "./*": "./src/*" } }),
+  // Opaque bodies on purpose: `known().includes(cwd)` is itself a CodeQL sanitizing guard, which would hide the model.
+  "packages/shared/src/cwd-guard.ts":
+    "export function isAllowedCwd(cwd: string, known: () => string[]): boolean { return cwd.length > 0 && known().length > Date.now() % 2; }\n" +
+    "export async function admitCwd(cwd: string, known: () => string[]): Promise<{ ok: boolean; cwd: string }> { return { ok: isAllowedCwd(cwd, known), cwd }; }\n",
+  "packages/server/src/probe.ts": route,
+  [MODEL_REL]: readFileSync(join(import.meta.dirname, "..", "..", MODEL_REL), "utf8"),
+});
+const GUARDED_AND_TWIN = `import Fastify from "fastify";
+import fs from "node:fs";
+import { isAllowedCwd } from "${GUARD_IMPORT}";
+const app = Fastify();
+const known = () => ["/a"];
+app.get("/guarded", async (req: any) => { const c = req.query.cwd; if (isAllowedCwd(c, known)) { return fs.readFileSync(c + "/x"); } return null; });
+app.get("/unguarded", async (req: any) => { const c = req.query.cwd; return fs.readFileSync(c + "/z"); });
+app.listen({ port: 1 });
+`;
+const UNCHECKED_BARRIER = `import Fastify from "fastify";
+import fs from "node:fs";
+import { admitCwd } from "${GUARD_IMPORT}";
+const app = Fastify();
+const known = () => ["/a"];
+app.get("/unchecked", async (req: any) => { const c = req.query.cwd; await admitCwd(c, known); return fs.readFileSync(c + "/x"); });
+app.listen({ port: 1 });
+`;
+const pathInjectionLines = (out) => out.newResults.filter((r) => r.ruleId === "js/path-injection" && r.file === "packages/server/src/probe.ts").map((r) => r.startLine);
+const lineOf = (text, needle) => text.split("\n").findIndex((l) => l.includes(needle)) + 1;
+
 const realRun = (repo, args = [], env = {}) => {
   const childEnv = { ...process.env, HOME: realHome, TMPDIR: repo.tmp, ...env };
   delete childEnv.CODEQL_BIN;
@@ -63,6 +98,19 @@ describe.skipIf(!packsCached)("real CodeQL CLI", () => {
     writeBaselineFile(repo, realBaseline());
     const out = JSON.parse(realRun(repo, ["--json"]).stdout);
     expect(new Set(out.newResults.map((x) => x.file))).toEqual(new Set(["packages/x/spike/b.mjs"]));
+  }, 600_000);
+
+  it("#E4 the quoted `.js` model suppresses the guarded sink and keeps the unguarded twin", () => {
+    const repo = realRepo(monorepo(GUARDED_AND_TWIN));
+    const out = JSON.parse(realRun(repo, ["--json"]).stdout);
+    expect(out.versions.models).toMatch(/^[0-9a-f]{64}$/);
+    expect(pathInjectionLines(out)).toEqual([lineOf(GUARDED_AND_TWIN, '"/z"')]);
+  }, 600_000);
+
+  it("#E5 an admitCwd result that is never branched on does not bless later sinks", () => {
+    const repo = realRepo(monorepo(UNCHECKED_BARRIER));
+    const out = JSON.parse(realRun(repo, ["--json"]).stdout);
+    expect(pathInjectionLines(out)).toEqual([lineOf(UNCHECKED_BARRIER, "readFileSync")]);
   }, 600_000);
 
   it("#E18 code inserted above a baselined result keeps its key", () => {

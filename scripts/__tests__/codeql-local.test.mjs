@@ -4,6 +4,8 @@
  *
  * See change: add-local-codeql-ratchet.
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   acceptEntry,
@@ -12,8 +14,10 @@ import {
   indexFilters,
   keyOf,
   matchingIgnoreGlob,
+  parseGithubRemote,
   pruneBaseline,
   ratchetDecision,
+  reasonError,
   resultKeys,
   serializeBaseline,
   validateBaseline,
@@ -230,5 +234,36 @@ describe("shared-config translation", () => {
     expect(matchingIgnoreGlob("mockups/m.js", globs)).toBe("**/mockups/**");
     expect(matchingIgnoreGlob("scripts/x.mjs", globs)).toBeNull();
     expect(matchingIgnoreGlob("lib/a.js", globs)).toBeNull();
+  });
+});
+
+describe("dismissed reason grammar (#E13, #E14)", () => {
+  const dismissed = (head) => `github-dismissed (${head}): operator-authz: x`;
+  it("#E13 accepts several positive alert numbers and the three GitHub reasons only", () => {
+    expect(reasonError("github-dismissed (#12, #13, won't fix): operator-authz: x", PI)).toBeNull();
+    expect(reasonError(dismissed("#12, x"), PI)).not.toBeNull();
+    expect(reasonError(dismissed("#0, false positive"), PI)).not.toBeNull();
+    expect(reasonError(dismissed("#12, used in tests"), PI)).toBeNull();
+    expect(reasonError(dismissed("#12, #13"), PI)).not.toBeNull();
+    expect(reasonError("github-dismissed (#12, false positive): ", PI)).not.toBeNull();
+  });
+
+  it("#E14 every entry of the committed baseline still validates", () => {
+    const committed = JSON.parse(readFileSync(join(import.meta.dirname, "..", "..", "codeql-baseline.json"), "utf8"));
+    expect(committed.entries.length).toBeGreaterThan(0);
+    for (const e of committed.entries) expect(reasonError(e.reason, e.ruleId), `${e.ruleId} ${e.file} ${e.lineHash}`).toBeNull();
+  });
+});
+
+describe("parseGithubRemote (#E16)", () => {
+  it("accepts the four plain github.com forms", () => {
+    for (const url of ["git@github.com:o/r.git", "ssh://git@github.com/o/r", "https://github.com/o/r/", "https://github.com/o/r.git"]) {
+      expect(parseGithubRemote(url), url).toEqual({ owner: "o", repo: "r" });
+    }
+  });
+  it("refuses another host, dot segments, escapes and extra path", () => {
+    for (const url of ["https://gitlab.com/o/r", "git@github.com:o/..", "https://github.com/o%2F/r", "https://github.com/o/r/x", "https://github.com/../r", "file:///o/r", ""]) {
+      expect(parseGithubRemote(url), url).toBeNull();
+    }
   });
 });
