@@ -7,7 +7,6 @@ import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRe
 import { Redirect, Route, Switch, useLocation, useRoute, useSearch, useSearchParams } from "wouter";
 import { useHistoryState } from "wouter/use-browser-location";
 import { GrantPromptHost } from "./components/access-grant/GrantPromptHost.js";
-import { ProvisionPromptHost } from "./components/access-grant/ProvisionPromptHost.js";
 import { YoloComposerStrip } from "./components/access-grant/YoloIndicators.js";
 import { CanvasDriver } from "./components/canvas/CanvasDriver.js";
 import { ChatView, type ChatViewHandle } from "./components/chat/ChatView.js";
@@ -174,6 +173,11 @@ const RuntimeUpdateBadge = lazy(() =>
 // See change: add-set-global-view.
 const ChatViewMenu = lazy(() =>
   import("./components/chat/ChatViewMenu.js").then((m) => ({ default: m.ChatViewMenu })),
+);
+// Provisioning dialog host: its own chunk, off the entry gzip cap (mdi-chunk-size).
+// See change: add-access-provisioning.
+const ProvisionPromptHost = lazy(() =>
+  import("./components/access-grant/ProvisionPromptHost.js").then((m) => ({ default: m.ProvisionPromptHost })),
 );
 const PairingApprovalHost = lazy(() =>
   import("./components/pairing-approval/PairingApprovalHost.js").then((m) => ({ default: m.PairingApprovalHost })),
@@ -3077,7 +3081,11 @@ export default function App() {
   const grantPromptHost = <GrantPromptHost onMessage={onMessage} send={send} ws={ws} />;
   // Provisioning dialog: beside the grant host (which owns the capability).
   // See change: add-access-provisioning.
-  const provisionPromptHost = <ProvisionPromptHost onMessage={onMessage} send={send} ws={ws} />;
+  const provisionPromptHost = (
+    <Suspense fallback={null}>
+      <ProvisionPromptHost onMessage={onMessage} send={send} ws={ws} />
+    </Suspense>
+  );
   // Pairing approval dialog: mounted beside the grant host in BOTH returns.
   // See change: add-pairing-approval-dialog.
   const pairingApprovalHost = (
