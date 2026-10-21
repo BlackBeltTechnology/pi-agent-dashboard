@@ -74,8 +74,8 @@
 
 ## 7. Manual verification (post-merge)
 
-- [ ] 7.1 Manual check F7 (session-header: Approved board fidelity): desktop 2,000 px, 1,100 px and phone 390 px in base dark, base light, nord dark · compare with `mockups/session-header-reorg` state A · [judgment: matches the approved board, nothing feels cramped or oversized] (test-plan: manual-only, #F7)
-- [ ] 7.2 Manual check F8 (session-header: Mobile header on a real phone): iOS Safari and Android Chrome · use back, ring, layout menu, View, ⋯ one-handed · [judgment: targets comfortable, popover and bottom sheet readable] (test-plan: manual-only, #F8)
+- [x] 7.1 Manual check F7 (session-header: Approved board fidelity): desktop 2,000 px, 1,100 px and phone 390 px in base dark, base light, nord dark · compare with `mockups/session-header-reorg` state A · [judgment: matches the approved board, nothing feels cramped or oversized] (test-plan: manual-only, #F7)
+- [x] 7.2 Manual check F8 (session-header: Mobile header on a real phone): iOS Safari and Android Chrome · use back, ring, layout menu, View, ⋯ one-handed · [judgment: targets comfortable, popover and bottom sheet readable] (test-plan: manual-only, #F8)
 
 ## 8. Retire superseded tests
 
