@@ -49,3 +49,5 @@ See change: fix-trusted-network-tunnel-bypass — `/api/health` additive `trustP
 `runOnConfigSaveChain(run)` exported: read-modify-write on the same serialised chain as `PUT /api/config` (used by `acme-routes.ts`). `GET /api/config` runs `projectAcmeConfigured` (`solver.configured` from the vault listing). See change: add-acme-dns01-certs.
 
 `PUT /api/config` broadcasts `config_updated {section:"editor"}` (no restart). See change: gate-changed-on-disk-by-content.
+
+`toHealthPlugins(statuses)` exported: `/api/health.plugins[]` is unauthenticated, so it drops `local-detected` rows, `shadowed` and `client.sha256` (keeps `source`, `restartRequired`, `hostApi`, `client.delivery/refusedReason`, `serveApp`). See change: decouple-plugins-from-core (5.10).

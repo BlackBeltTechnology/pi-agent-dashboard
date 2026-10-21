@@ -3,7 +3,7 @@ import {
   SessionCardBadgeSlot,
   ToolbarGroup,
   useSlotHasClaimsForSession,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm";
 import { Popover } from "@blackbelt-technology/pi-dashboard-client-utils/Popover";
 import type {

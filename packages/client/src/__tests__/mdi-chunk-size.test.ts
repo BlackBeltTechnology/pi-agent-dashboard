@@ -62,7 +62,11 @@ const MDI_MARKER = "mdiZodiacAquarius";
 // controller + pin planner, the parser-based tail block split, the trailing-edge overlay, `useChatMotion`
 // and the pref plumbing/i18n (~+3 KB gz) -> 602,323 B in this test's own gzip (1,283 B over the old cap). Smallest KiB step
 // that leaves ~800 B of headroom for CI's compressor variance; not a general raise.
-const INDEX_GZ_CAP_BYTES = 589 * 1024;
+// improve-gmail-plugin-setup-ux (2026-10-21): 589 -> 591 KiB. The Gmail plugin's hu/zh-CN catalog keys
+// (setup wizard, consent copy, filter control) ship in the entry like every plugin catalog (+~1.9 KB gz)
+// -> 604,237 B on CI, 1,101 B over the old cap; 590 KiB would still be 77 B short. Smallest KiB step
+// that clears it (~950 B headroom); not a general raise.
+const INDEX_GZ_CAP_BYTES = 591 * 1024;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.resolve(here, "../../dist");

@@ -1,0 +1,3 @@
+# __tests__/ws-route-registry.test.ts — index
+
+Plugin WS route registry decision tables (test-plan #E1-#E3, spec plugin-ws-route): duplicate scope / nested prefix throw + first stays active + failed plugins marked in status store; 8 reserved cases throw + registry unchanged; late registration throws, toggle off→on re-registers afresh (new handler generation); teardown closes tracked sockets 1001. Drives the REAL `loadServerEntries` over committed fixture plugins in `__tests__/fixtures/ws-route-plugins/packages/` (temp-dir entries can't be dynamically imported under vitest; fixture order pinned by manifest `priority`). See change: add-browser-relay.

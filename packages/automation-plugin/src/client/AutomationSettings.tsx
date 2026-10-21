@@ -15,18 +15,7 @@
  * See changes: add-automation-plugin, retro-ux-plugin-settings-wave-2.
  */
 
-import {
-  FieldShell,
-  NumberField,
-  SelectField,
-  SettingsGroup,
-  ToggleField,
-  useSettingsDraftSource,
-  useT,
-  useUiPrimitive,
-  usePluginConfigOf,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
-import { usePluginConfig, usePluginSend } from "@blackbelt-technology/dashboard-plugin-runtime/context";
+import { FieldShell, NumberField, SelectField, SettingsGroup, ToggleField, usePluginConfig, usePluginConfigOf, usePluginSend, useSettingsDraftSource, useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import { mdiClose } from "@mdi/js";
 import { Icon } from "@mdi/react";

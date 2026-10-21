@@ -45,6 +45,48 @@ export interface BridgeProbeSnapshot {
   at: number;
 }
 
+/**
+ * Which discovery source a plugin came from. `pi-package` = a `settings.json#packages[]`
+ * (user scope) package carrying a manifest (lowest priority, server entry default-deny);
+ * `local-detected` = a project-scope (`<cwd>/.pi/settings.json`) package that is reported
+ * but never loaded. See change: decouple-plugins-from-core (design D7, D12, D15).
+ */
+export type PluginDiscoverySource = "workspace" | "installed" | "bundled" | "pi-package" | "local-detected";
+
+/** A losing duplicate of a plugin id, recorded on the winner (never loaded). */
+export interface PluginShadowedCopy {
+  source: PluginDiscoverySource;
+  packageDir: string;
+}
+
+/** Result of evaluating a manifest `hostApi` range at discovery. */
+export interface PluginHostApiStatus {
+  /** The manifest range; absent when the plugin declares none. */
+  range?: string;
+  compatible: boolean;
+}
+
+/** Why a plugin's client was refused (design D12 precedence: structural, then config, then consent). */
+export type PluginClientRefusedReason =
+  | "build-undeclared"
+  | "no-bundle"
+  | "host-api"
+  | "disabled"
+  | "missing-dep"
+  | "untrusted"
+  | "pin-mismatch";
+
+/** Client delivery state. Phase 5 adds the `bundled`/`runtime`/`none` handling that fills `sha256`. */
+export interface PluginClientStatus {
+  delivery: "bundled" | "runtime" | "refused" | "none";
+  refusedReason?: PluginClientRefusedReason;
+  /**
+   * Content hash of the runtime client bundle. Appears only on the guarded `GET /api/plugins` and
+   * `plugins_changed`; NEVER on the unauthenticated `/api/health.plugins[]`.
+   */
+  sha256?: string;
+}
+
 /** Status of a single discovered plugin, reported by /api/health. */
 export interface PluginStatus {
   id: string;
@@ -60,6 +102,18 @@ export interface PluginStatus {
   error?: string;
   /** Number of slot claims declared in the plugin's manifest. */
   claims: number;
+  /** Discovery source of the plugin. See change: decouple-plugins-from-core. */
+  source?: PluginDiscoverySource;
+  /** Losing duplicates of this id (one row per id; never loaded). See change: decouple-plugins-from-core (D15). */
+  shadowed?: PluginShadowedCopy[];
+  /** Loaded plugin whose package changed or vanished: the running copy is stale until a server restart. */
+  restartRequired?: boolean;
+  /** Host API range evaluation (absent when the plugin declares none and none is required). */
+  hostApi?: PluginHostApiStatus;
+  /** Client delivery; `refused` + `host-api` when the host API gate refused the plugin. */
+  client?: PluginClientStatus;
+  /** `serveApp` mount outcome; `refused` when the host refused the mount. */
+  serveApp?: "mounted" | "refused";
   /**
    * Where the bridge entry is registered, classified at health-check time.
    * See change: fix-pi-flows-end-to-end Group 2.

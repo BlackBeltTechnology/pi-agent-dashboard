@@ -145,11 +145,12 @@ const BUNDLED_WORKSPACE_PKGS = [
   "dashboard-plugin-runtime",
   "app-kit", // dashboard-plugin-runtime (./embedded-app; client-side only)
   "mcp-client-plugin",
+  "mcp-core", // server / mcp-client-plugin / mcp-server-plugin / apple-tools (MCP config library, not a plugin)
   "bus-client", // extension
   "client-utils", // automation / flows / keycloak-resolver / subagents plugins
   "document-converter", // server
   "kb", // kb-plugin
-  "mcp-server-plugin", // chat-gateway
+  "mcp-server-plugin", // bundled plugin (chat-gateway no longer depends on it; see decouple-plugins-from-core 2.6)
   "session-distiller", // cost-estimator
   "system-one", // system-one-plugin
   "craft-apps", // craft-web-plugin (provisionWeb)

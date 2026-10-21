@@ -20,11 +20,11 @@
  * See change: migrate-mcp-to-pi-builtin; mcp-client-project-overrides.
  */
 import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { isProjectOverride } from "@blackbelt-technology/pi-dashboard-mcp-core/pi-rules.js";
+import type { EffectiveServerView, EffectiveView, Provenance, Scope } from "@blackbelt-technology/pi-dashboard-mcp-core/types.js";
 import type React from "react";
 import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
-import { isProjectOverride } from "../core/pi-rules.js";
-import type { EffectiveServerView, EffectiveView, Provenance, Scope } from "../core/types.js";
 import { ApiError, convertToOverride, removeServer, saveServer, scopeToWire, setProjectOverride } from "./api.js";
 import { folderOverrideDraftOf, isFolderOwned, overrideRestorePatch } from "./folder-view.js";
 import { invalidateEffective, useEffectiveConfig } from "./hooks.js";
@@ -90,7 +90,27 @@ const SOURCE_LABEL: Record<string, string> = {
   pinned: "pinned folder",
   folderWorkspaces: "folder workspace",
   accessGrants: "access grant",
+  yolo: "YOLO",
 };
+
+/**
+ * A live entry's lifetime phrase from the host ("until dashboard restarts",
+ * "YOLO until <ISO>", "YOLO while the server runs"), worded for the banner.
+ * YOLO's ISO instant renders as the viewer's local time; the "YOLO" prefix is
+ * dropped because the sentence already names YOLO.
+ */
+function lifetimePhrase(lifetime: string): string {
+  if (lifetime === "until dashboard restarts") return "until the dashboard restarts";
+  const yoloUntil = /^YOLO until (.+)$/.exec(lifetime);
+  if (yoloUntil) {
+    const at = new Date(yoloUntil[1]);
+    return Number.isNaN(at.getTime())
+      ? lifetime
+      : `until ${at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+  }
+  const yoloOther = /^YOLO (.+)$/.exec(lifetime);
+  return yoloOther ? yoloOther[1] : lifetime;
+}
 
 /**
  * Who trusts this folder, per the host's decision order: pi's trust store (naming
@@ -135,8 +155,12 @@ function trustText(
   const scope = coverInteractive
     ? t("mcpFolderTrustedScopeAll", undefined, "This applies to every pi session on this machine.")
     : t("mcpFolderTrustedScopeDashboard", undefined, "This applies to dashboard sessions, not terminal pi.");
+  // A live (server-lifetime) entry names its source and how long it lasts.
+  const through = source.lifetime
+    ? `${t("mcpFolderTrustedThrough", undefined, "through")} ${label} ${t("mcpFolderTrustedFor", undefined, "for")} ${source.entry} ${lifetimePhrase(source.lifetime)}`
+    : `${label} ${source.entry}`;
   return (
-    `${t("mcpFolderTrustedByDashboard", undefined, "This folder is trusted by the dashboard")} — ${label} ${source.entry}. ${scope} ` +
+    `${t("mcpFolderTrustedByDashboard", undefined, "This folder is trusted by the dashboard")} ${source.lifetime ? "" : "— "}${through}. ${scope} ` +
     t("mcpFolderTrustedNotChecked", undefined, "Running pi mcp list here, outside the dashboard, still reports its servers as not loaded.")
   );
 }

@@ -1660,6 +1660,32 @@ Cross-refs:
 - README.md:466
 - packages/dashboard-plugin-runtime/src/slot-registry.ts
 
+## How do I install a dashboard plugin with `pi install`?
+
+Plugin = pi package with `pi-dashboard-plugin` manifest. Install globally. Operator trust required before its client or (for `pi-package` source) server code runs.
+
+Steps:
+1. Install globally:
+   - Packages tab ▸ search `pi-dashboard-plugin` ▸ Install. **Appears live.** No restart.
+   - Terminal `pi install <package>`. **Appears after a dashboard restart.** Only dashboard-run installs reach the discovery refresh hook.
+2. Settings ▸ Plugins. Plugin row shows `source: pi-package`.
+3. Client UI (`clientBundle`): row shows `refused` / `untrusted`. Check package path + full hash. Click **Trust**. Live: claims appear without reload.
+4. Server entry: row shows error `server-untrusted`. Click **Trust server code**. Entry loads without restart (new id only).
+5. Needs local operator. Paired remote device cannot grant. Trust writes `auth.trustedPlugins`.
+
+Gotchas:
+- `--scope local` install (`<cwd>/.pi/settings.json`): row `local-detected`, never loaded. Install with `--scope global`. Session end prunes local-detected rows (no active session with that cwd left).
+- Rebuilt bundle → `pin-mismatch` → click **Trust this version**. Reload browser for changed/removed code ("Plugin changes need a reload").
+- Update or remove of a loaded plugin → `restartRequired`. Restart dashboard: `curl -X POST http://localhost:8000/api/restart`.
+- Same id as a first-party plugin: build's own copy wins. Installed copy shows under `shadowed`.
+- `refused` reason `host-api`: plugin `hostApi` range excludes host `PLUGIN_HOST_API_VERSION`. Update plugin or dashboard.
+- `build-undeclared`: served client build predates `bundledPluginIds`. Rebuild + restart client.
+- Remote-server page (Electron paired window) or `--dev` page: Plugins tab says "Runtime plugins are unavailable…" / "need the production page". Build-time plugins unaffected.
+
+Docs: `docs/runtime-plugin-clients.md`, `docs/architecture.md` § "Plugin Discovery, Trust and Runtime Delivery".
+
+See change: decouple-plugins-from-core.
+
 ## How to add a new session-card subcard?
 
 Mirror MEMORY/FLOWS pattern. Five edits.
@@ -4404,3 +4430,64 @@ Cross-refs:
 - openspec/changes/triage-browser-e2e-offbox-poison/
 
 See change: triage-browser-e2e-offbox-poison.
+
+## Why does a remote pi get no dashboard trust?
+
+Remote pi = bridge dialling a non-loopback dashboard endpoint. All four needed:
+
+- Paired device token: `PI_DASHBOARD_TOKEN` in bridge env, device tier `operate`.
+- Non-loopback dashboard endpoint. Loopback endpoint = classed local (see `ssh -L` entry below).
+- Same canonical path on both machines. No path mapping.
+- Byte-identical trust-requiring resources on both sides: `.pi/{settings.json,mcp.json,extensions,skills,prompts,themes,SYSTEM.md,APPEND_SYSTEM.md}` + ancestor `.agents/skills` (except `~/.agents/skills`).
+
+Also needed: dashboard trusts the folder now (durable source, session trust, session grant, or YOLO root). Remote bridge asks on every snapshot miss via `POST /api/pi-trust/query`.
+Check bridge log for the withheld reason code. Lookup: next entry.
+Rollback on that machine: `piTrustMirror.liveQuery=false` in `~/.pi/dashboard/config.json`.
+
+## What do the `live-*`, `identity-weak` and `identity-mismatch` reason codes mean?
+
+Bridge logs one code when it withholds trust. Pi then decides itself (`defaultProjectTrust`).
+
+| Code | Meaning | Fix |
+|---|---|---|
+| `live-timeout` | Request + proof exceeded `piTrustMirror.liveQueryTimeoutMs` (300 local / 1000 remote, clamp 50–1000) | Raise `liveQueryTimeoutMs`. Check network. Shrink `.pi/` tree |
+| `live-unreachable` | Connection refused | Start dashboard server. Check endpoint |
+| `live-refused` | 401/403 | Remote: pair device, set `PI_DASHBOARD_TOKEN`, tier `operate`. Local: raw legacy token / login cookie / trusted network not accepted, bridge needs endpoint-bound local proof |
+| `live-unsupported` | 404, server too old | Upgrade server. Old server never answers |
+| `live-rate-limited` | 429. Limit 20/10 s per device, 200/10 s local, proof permits 4 global / 1 per device | Retry. Spawn fewer sessions at once. Check `/api/health` `piTrustMirror.live.rateLimited` |
+| `live-not-covered` | Server does not trust folder now (YOLO ended/expired, session trust gone, deny rule) | Trust folder in dashboard again |
+| `live-error` | 5xx, redirect, malformed body, covered answer without proof fields | Check server log `[pi-trust-query]` |
+| `identity-weak` | No usable proof: empty resource set, symlink in set, `.pi/settings.json` refs outside set (`packages` entry), >1,000 files, >16 MiB | Remove symlinks (pnpm-style trees fail). Drop `packages` entry or accept no remote trust |
+| `identity-mismatch` | Folder differs from trusted one. Local: `dev`/`ino` changed (re-created, moved, other machine). Remote: digests unequal | Sync bytes of trust-requiring resources. Re-trust folder |
+
+Server counters: `/api/health` `piTrustMirror.live` = `{covered, notCovered, refused, rateLimited, budgetMissed}`. Server-side only. Remote bridge with shorter timeout can log `live-timeout` while server counts `covered`.
+
+## `ssh -L` tunnel to a dashboard + shared home: why `identity-mismatch`?
+
+Tunnel endpoint = `localhost`/`127.0.0.1` on remote machine. Bridge treats it as loopback → local. Server also sees loopback peer → local.
+Local answer = recorded `dev`+`ino` of server's folder. Remote machine's folder has other `dev`/`ino` → `identity-mismatch`. Fail-closed. Safe, no trust.
+Fix: dial dashboard's non-loopback endpoint (LAN IP, tailnet, hostname, TLS URL) with paired device token `PI_DASHBOARD_TOKEN`. Then remote proof (digest) applies.
+Shared home: bridge reads same `~/.pi/dashboard/pi-trust-mirror.json` snapshot → snapshot miss with `identity-mismatch` → live query. Same outcome.
+Residual: marker-less relay (`ssh -R`, `socat`) + shared home can look local. Needs same-user access to dashboard host. Accepted.
+
+## Why does editing `.pi/settings.json` on one side drop remote trust?
+
+Remote proof = salted HMAC of content of every trust-requiring resource. Not a listing, not mtime.
+Any byte change in `.pi/settings.json`, `.pi/mcp.json`, `.pi/extensions`, `.pi/skills`, `.pi/prompts`, `.pi/themes`, `SYSTEM.md`, `APPEND_SYSTEM.md`, or ancestor `.agents/skills` on one side → digests unequal → `identity-mismatch` → undecided. Even benign edit. Intended: remote pi must run exactly the code the dashboard trusted.
+Fix: make both sides byte-identical (sync/commit/pull). Retry on next pi start.
+Residual: npm packages named in `.pi/settings.json` bound by reference, not fetched bytes. Different installed version on remote machine not detected.
+
+## Does YOLO now trust folders in pi?
+
+Yes. `piTrustMirror.sources.yolo` default `true`. YOLO roots count as pi-trusted project folders for covered sessions.
+
+- Widens YOLO from file access to project-code execution (extensions, MCP servers, skills) in its roots.
+- Scoped YOLO: trusted until expiry. Env activation (`PI_DASHBOARD_GRANT_YOLO`): while server runs. Unscoped YOLO: never counts.
+- Mirror deny rules still apply (`$HOME`, system dirs, temp, `~/.ssh` etc).
+- Recorded pi entry (true/false) still wins. `~/.pi/agent/trust.json` never written.
+- Activation UI shows one-line disclosure while source on.
+- Ends when YOLO ends/expires. No per-root opt-out.
+
+Turn off: `piTrustMirror.sources.yolo=false` in `~/.pi/dashboard/config.json`. Other live sources stay. Disable all live trust: `piTrustMirror.liveQuery=false`. Disable whole mirror: `piTrustMirror.enabled=false`.
+
+See change: mirror-dashboard-trust-live-remote.

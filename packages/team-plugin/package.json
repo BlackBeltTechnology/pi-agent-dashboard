@@ -2,6 +2,9 @@
   "name": "@blackbelt-technology/pi-dashboard-team-plugin",
   "version": "0.10.0",
   "description": "Dashboard plugin: persistent per-user AI team agents (personas, project teams, conversations) with an isolation guard, served as an app at /apps/team/.",
+  "keywords": [
+    "pi-dashboard-plugin"
+  ],
   "license": "MIT",
   "publishConfig": {
     "access": "public"

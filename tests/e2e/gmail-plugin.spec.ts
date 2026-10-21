@@ -220,4 +220,75 @@ test.describe("gmail plugin", () => {
     await expect(row(again, "a@fake.test").getByTestId("gmail-account-status")).toHaveAttribute("data-status", "reauth_required");
     await expect(row(again, "a@fake.test").getByTestId("gmail-account-status")).toHaveText("Re-auth needed");
   });
+
+  test("improve-gmail-plugin-setup-ux F2: a display name is explained; the saved id and owner survive a reload and tint the links", async ({
+    page,
+  }) => {
+    const section = await openGmailSettings(page);
+    const project = section.getByTestId("gmail-project-id");
+    const owner = section.getByTestId("gmail-owner-account");
+    try {
+      await project.fill("PiDashboard");
+      await expect(section.getByTestId("gmail-project-error")).toHaveCount(0); // not while typing
+      await expect(section.getByTestId("gmail-need-project-id")).toBeVisible();
+      await project.blur();
+      await expect(section.getByTestId("gmail-project-error")).toBeVisible();
+      await expect(section.getByTestId("gmail-project-error")).toContainText(/project name/i);
+
+      await project.fill("pidashboard-510015");
+      await expect(section.getByTestId("gmail-project-error")).toHaveCount(0);
+      await project.blur();
+      await owner.fill("csakany.robert@gmail.com");
+      await owner.blur();
+      await expect.poll(async () => (await (await page.request.get("/api/plugins/gmail/state")).json()).setup).toEqual({
+        projectId: "pidashboard-510015",
+        ownerAccount: "csakany.robert@gmail.com",
+      });
+
+      await page.reload();
+      const again = page.getByTestId("gmail-settings");
+      await again.waitFor({ state: "visible", timeout: 20_000 });
+      await expect(again.getByTestId("gmail-project-id")).toHaveValue("pidashboard-510015");
+      await expect(again.getByTestId("gmail-owner-account")).toHaveValue("csakany.robert@gmail.com");
+      await expect(again.locator('a[href*="gmail.googleapis.com"]').first()).toHaveAttribute(
+        "href",
+        /authuser=csakany\.robert%40gmail\.com/,
+      );
+    } finally {
+      await page.request.put("/api/plugins/gmail/setup", { data: { projectId: "", ownerAccount: "" } });
+    }
+  });
+
+  test("improve-gmail-plugin-setup-ux F3: turning filters on re-consents with settings.basic; an agent archive rule becomes one filter", async ({
+    page,
+  }) => {
+    const section = await openGmailSettings(page);
+    await uploadClient(section);
+    await addAccount(section, cid, "a@fake.test", "send");
+    const toggle = row(section, "a@fake.test").getByRole("switch", { name: "Filters for a@fake.test" });
+    await expect(toggle).not.toBeChecked();
+
+    fakeGoogleControl(cid, "config", { nextEmail: "a@fake.test" });
+    // Off → on needs the extra scope, so the box stays unchecked until the grant lands (check() would assert it flips).
+    await toggle.click();
+    await consentViaPaste(section, cid);
+    await expect(toggle).toBeChecked({ timeout: 15_000 });
+    const scopes = fakeGoogleState(cid).authorizeScopes;
+    expect(scopes.at(-1)).toContain("https://www.googleapis.com/auth/gmail.settings.basic");
+    expect(scopes.at(-1)).not.toContain("gmail.settings.sharing");
+
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+    await sendPrompt(page, "[[faux:gmail-filter-create]] go");
+    await expect(page.getByText("Gmail: create filter in a@fake.test").first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText(/all future matching mail/).first()).toBeVisible();
+    expect(fakeGoogleState(cid).filters).toHaveLength(0);
+
+    await page.getByRole("button", { name: /^yes$/i }).first().click();
+    await expect(page.getByText("gmail filter done").first()).toBeVisible({ timeout: 30_000 });
+    const filters = fakeGoogleState(cid).filters;
+    expect(filters).toHaveLength(1);
+    expect(filters[0]?.action?.removeLabelIds).toEqual(["INBOX"]);
+    expect(filters[0]?.criteria).toEqual({ from: "newsletter@dest.test" });
+  });
 });

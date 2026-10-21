@@ -215,5 +215,50 @@ else
   echo "  SKIP: openspec seed unavailable — skipping config-read assertion"
 fi
 
+# ── Runtime plugin delivery on the PACKAGED app (test-plan #E103, task 8.143) ──
+# D4 packaging + the import map on a packaged Electron: the bundled server tree ships `mcp-core`
+# (BUNDLED_WORKSPACE_PKGS — the static half is pinned by scripts/__tests__/qa-dist-only-scripts.test.mjs),
+# the served HTML carries the host import map, `/host/react.js` is served, and every plugin the build
+# bundled reports `client.delivery:"bundled"` (never `runtime`). See change: decouple-plugins-from-core.
+#   a. a bundled server tree found under ~/.pi-dashboard ⇒ `packages/mcp-core` sits beside it
+SERVER_PKG_DIR=$(find "$HOME/.pi-dashboard" -maxdepth 6 -type d -path '*/packages/server' 2>/dev/null | head -1 || true)
+if [ -n "$SERVER_PKG_DIR" ]; then
+  if [ ! -d "$(dirname "$SERVER_PKG_DIR")/mcp-core" ]; then
+    echo "FAIL: bundled server tree $SERVER_PKG_DIR has no sibling packages/mcp-core (BUNDLED_WORKSPACE_PKGS regression)"
+    exit 1
+  fi
+  echo "  ✓ bundled server tree ships packages/mcp-core"
+else
+  echo "  NOTE: no extracted bundled server tree under ~/.pi-dashboard — mcp-core presence not probed here"
+fi
+#   b. import map in the served shell
+ROOT_HTML=$(curl -sf "http://localhost:$PORT/" 2>/dev/null || true)
+if ! printf '%s' "$ROOT_HTML" | grep -q '<script type="importmap"'; then
+  echo "FAIL: GET / carries no <script type=\"importmap\"> (packaged shell lost the host import map)"
+  exit 1
+fi
+echo "  ✓ GET / carries the host import map"
+#   c. the host shim the map points at
+HOST_CODE=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:$PORT/host/react.js" 2>/dev/null || echo 000)
+if [ "$HOST_CODE" != "200" ]; then
+  echo "FAIL: GET /host/react.js answered $HOST_CODE (expected 200)"
+  exit 1
+fi
+echo "  ✓ /host/react.js → 200"
+#   d. bundled plugins report delivery bundled (≥1, none runtime)
+PLUGINS_BODY=$(curl -sf "http://localhost:$PORT/api/plugins" 2>/dev/null || true)
+DELIVERY=$(printf '%s' "$PLUGINS_BODY" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{const rows=(JSON.parse(s).plugins||[]).filter(p=>p.status&&p.status.source==='bundled'&&p.status.client);const b=rows.filter(p=>p.status.client.delivery==='bundled').length;const r=rows.filter(p=>p.status.client.delivery==='runtime').map(p=>p.id);process.stdout.write(b+' '+r.join(','))}catch{process.stdout.write('? ')}})")
+BUNDLED_N=${DELIVERY%% *}
+RUNTIME_IDS=${DELIVERY#* }
+if [ "$BUNDLED_N" = "?" ] || [ "$BUNDLED_N" = "0" ]; then
+  echo "FAIL: no bundled-source plugin reports client.delivery:bundled (got '$DELIVERY'; body: ${PLUGINS_BODY:0:300})"
+  exit 1
+fi
+if [ -n "$RUNTIME_IDS" ]; then
+  echo "FAIL: bundled-source plugin(s) report client.delivery:runtime: $RUNTIME_IDS"
+  exit 1
+fi
+echo "  ✓ $BUNDLED_N bundled plugin(s) report client.delivery:bundled, none runtime"
+
 echo "PASS: Electron real-launch smoke succeeded"
 exit 0

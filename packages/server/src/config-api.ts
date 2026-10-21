@@ -308,6 +308,9 @@ export function writeConfigPartial(
         mergedAuth.capabilityRoutePlugins = partial.auth.capabilityRoutePlugins;
       }
 
+      // `auth.trustedPlugins` is deliberately NOT merged: only the trust endpoints write it
+      // (`auth/plugin-trust-store.ts`). `mergedAuth` starts from the stored auth block and copies only the
+      // keys named above, so the stored list is kept whatever the body carries (design D12, R1).
       partial.auth = mergedAuth;
     }
 

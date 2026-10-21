@@ -1,0 +1,3 @@
+# Built by scripts/build-runtime-canary.mjs — never committed (the harness builds it, hashes the output, then trusts that hash).
+dist/
+node_modules/

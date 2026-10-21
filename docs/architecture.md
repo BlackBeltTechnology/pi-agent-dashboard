@@ -1193,7 +1193,7 @@ Authoring rules: [`plugin-seams.md`](plugin-seams.md#lazy-claim-modules-module).
 
 **Bundled-by-default plugins:** The plugin loader treats all plugins identically (same manifest, same discovery, same `enabled` flag, same failure isolation). What distinguishes "bundled-by-default" plugins (initial set: `git-plugin`) is purely operational — the build pipeline always includes them in `packages/`. Their absence is a deliberate user opt-out, not a normal state. OpenSpec, Flows, and Subagents plugins are bundled in standard builds but their absence is a normal use case (e.g. a workspace without OpenSpec).
 
-**Future Work — external plugin discovery:** Phase 1 scans `packages/*/package.json` only. The manifest format (`pi-dashboard-plugin` field in any `package.json`) is intentionally **format-compatible with arbitrary npm packages**, which unblocks an eventual progression where stable plugins can be PR'd into upstream packages (e.g. `pi-dashboard-subagents/dashboard/`) and discovered from `node_modules`. The deferred work (trust model, SemVer pinning of the plugin context API, build integration with `node_modules` paths) is documented in `dashboard-plugin-architecture/design.md` §"Future Work: external plugin discovery".
+**External plugin discovery (shipped):** `decouple-plugins-from-core` adds the `settings.json#packages[]` discovery source, manifest `hostApi` pinning, operator trust, and runtime-delivered clients. See "Plugin Discovery, Trust and Runtime Delivery" below and `docs/runtime-plugin-clients.md`.
 
 #### JSX slot wrappers and `??` fallback chains — anti-pattern
 
@@ -1255,7 +1255,7 @@ All producers hash deterministic manifest serialization via `pluginRegistryHash(
 
 **Served-artifact build declaration (`pi-dashboard-build.json`):**
 Production Vite build writes `packages/client/dist/pi-dashboard-build.json`:
-- Schema: `{ schemaVersion: 1, pluginRegistryHash: "<sha256>", fixturePolicy: "excluded" | "included" }`.
+- Schema: `{ schemaVersion: 1, pluginRegistryHash: "<sha256>", fixturePolicy: "excluded" | "included", bundledPluginIds?: string[] }`. `bundledPluginIds` = sorted ids of plugins the build bundled (additive; decides bundled-vs-runtime on every host — see "Plugin Discovery, Trust and Runtime Delivery").
 - Byte-reproducible: no timestamps, no host paths. Dev/HMR emits nothing.
 - SDK: `build-declaration-sdk.ts` + `build-metadata.ts` in `dashboard-plugin-runtime`.
 
@@ -1327,6 +1327,110 @@ flowchart TD
 Client banner flow: `PluginStalenessBanner` fetches `/api/health` on mount. Compares `bundleHash` against imported `PLUGIN_REGISTRY_HASH`. Mismatch ⇒ render banner with Refresh + Dismiss buttons. Refresh calls `location.reload()`. Dismiss persists in `sessionStorage` key `pi-plugin-staleness-dismissed` (tab-scoped, clears on browser close). Dismissed banner stays hidden until next session.
 
 See change: `add-served-build-coherence-and-hash-parity`.
+
+#### Plugin Discovery, Trust and Runtime Delivery (`decouple-plugins-from-core`)
+
+Plugins separable from core. Core imports no plugin. Plugin client reaches stock dashboard at runtime. Detail: `docs/runtime-plugin-clients.md`, `docs/plugin-seams.md`, `docs/publishing-plugins.md`, `docs/plugin-ui-primitives.md`.
+
+**Discovery sources.** `discoverPlugins()` (`packages/dashboard-plugin-runtime/src/server/loader.ts`). `source` on `DiscoveredPlugin` + `PluginStatus`.
+
+| Priority | `source` | Location |
+|---|---|---|
+| 1 | `workspace` | `<repo>/packages` |
+| 2 | `installed` | `~/.pi/dashboard/plugins` |
+| 3 | `bundled` | `resources/plugins` (Electron) |
+| 4 | `pi-package` | `~/.pi/agent/settings.json#packages[]` via `listPiPackages({scope:"user"})` (`packages/shared/src/pi-package-resolver.ts`) |
+| report only | `local-detected` | `<cwd>/.pi/settings.json#packages[]` of active sessions |
+
+- `pi-package` entries: package dirs carrying a manifest. Files + manifest-less dirs skipped silently. Missing install paths invisible. `npm root -g` memoized once per process.
+- Exception to priority: id ∈ served build's `bundledPluginIds` → build's own copy wins (`workspace` if a copy exists, else `bundled`, else plain priority), both halves.
+- Discovery cache keyed by effective root set + digest of `bundledPluginIds` (absent → fixed "undeclared" key). Server reads declaration (`readBuildDeclaration`, `client-dist.ts`) at startup + on every refresh, before any discovery call.
+- Vite build-time call (explicit `repoRoot`) scans only workspace. No declaration. Unaffected.
+
+**One row per id (shadowing).** Losing duplicate → winner's `shadowed: {source, packageDir}[]`. Logged at warn. Never loaded. No second `loaded:false` row. `PluginsSection` renders `shadowed` as sub-line.
+
+**Local-scope detection** (`local-scope-detector.ts`).
+- Per active-session cwd: `listPiPackages({scope:"project", cwd})` entries with plugin manifest → row `source: "local-detected"`, `loaded: false`, `enabled: false`, error "Local-scope plugins are not loaded in this release. Install globally with --scope global to enable."
+- Same id already has a row → local copy goes to that row's `shadowed[]`.
+- Server entry, bridge, claims, client never loaded.
+- Rerun: each discovery refresh, session registers a new cwd, after each successful local-scope package op, on session end (prunes rows no active session has).
+- `plugins_changed` on session end only when the detected set changed.
+
+**Refresh on completion.** Hook: package-operation completion listener (`setCompleteListener`, `packages/server/src/server.ts`), not `package-routes.ts` (routes return 202 before completion). Wiring: `packages/server/src/plugin-discovery-wiring.ts`. Implementation: `plugin-refresh.ts` `refreshPluginDiscovery()`.
+
+```mermaid
+flowchart TD
+    OP["package op completes"] --> SC{"success?"}
+    SC -- no --> NOP["no refresh"]
+    SC -- "yes, scope local" --> LOC["rerun local-scope detection"]
+    SC -- "yes, scope global/user" --> R1["re-read served declaration"]
+    R1 --> R2["clear discovery cache + content-hash stat cache"]
+    R2 --> R3["discoverPlugins()"]
+    R3 --> R4["flag changed/vanished loaded plugins restartRequired"]
+    R4 --> R5["additive loadServerEntries: NEW ids only; hostApi-gated; pi-package server-trust-gated"]
+    R5 --> LOC
+    LOC --> R6["probe refresh + status store update"]
+    R6 --> BC["ONE plugins_changed {plugins: PluginStatus[]} broadcast"]
+```
+
+- Calls coalesce: refresh requested while one runs → exactly one follow-up.
+- Server entry throwing during refresh → `loaded:false` + error, broadcast, refresh continues.
+- Server entries load additively. Loaded plugin changed/vanished → `restartRequired: true`. Routes + handlers stay until restart.
+- Hot-added entry registering Fastify routes: refused (`FST_ERR_INSTANCE_ALREADY_LISTENING`). Recorded `loaded:false`, `restartRequired:true`, `HOT_ROUTE_RESTART_ERROR`.
+- Re-enable of discovered plugin whose server entry never loaded → restart.
+- Terminal `pi install` NOT visible live: only dashboard installs (Packages tab / `POST /api/packages/install`) reach the listener. Appears after dashboard restart. `pi-resources-watcher.ts` not wired to discovery.
+- `POST /api/plugins/:id/toggle` keeps contract (dependency graph, 409, cascade). Also broadcasts one `plugins_changed`.
+
+**`plugins_changed`.** WS message `{type: "plugins_changed", plugins: PluginStatus[]}` (`packages/shared/src/browser-protocol.ts`). Emitted after refresh, toggle, trust write, local detection change. Client re-fetches runtime listing, recomputes enabled set, feeds `pluginAvailability`.
+
+**Status shape (additive).** `PluginStatus.{source, shadowed, restartRequired, hostApi, client, serveApp}` (`packages/shared/src/dashboard-plugin/plugin-status.ts`).
+- `/api/health.plugins[]`: unauthenticated, tunnel-reachable → path- and hash-free subset only (`source`, `restartRequired`, `hostApi`, `client.delivery`, `client.refusedReason`, `serveApp`).
+- Paths, `client.sha256`, `shadowed[].packageDir`, `local-detected` rows → guarded `GET /api/plugins` + `plugins_changed` only.
+
+**Host API version gate.** `PLUGIN_HOST_API_VERSION` (`packages/shared/src/dashboard-plugin/host-api.ts`) vs manifest `hostApi` caret range. Checked at discovery for BOTH halves.
+- `workspace`/`bundled`: warn only.
+- `installed`/`pi-package`: refuse server entry (error `host-api`) + client (`refused`, `host-api`).
+- Required for `pi-package` + `clientBundle` plugins.
+
+**Trust defaults.**
+
+| Thing | Default | Opt-in |
+|---|---|---|
+| `workspace` / `bundled` / `installed` server entry | loads (as before) | n/a |
+| `pi-package` server entry + bridge | DENIED (`server-untrusted`) | local `POST /api/plugins/:id/trust {server:true}` |
+| Runtime client (`clientBundle`) | refused (`untrusted`) | local `POST /api/plugins/:id/trust {sha256}`, pinned to content hash |
+| `serveApp` mount | trusted if bundled ∨ in `auth.trustedPlugins` ∨ in legacy `auth.capabilityRoutePlugins` | edit list; restart-effective |
+| `local-detected` | never loaded | install globally |
+
+- `isServeAppTrusted` (`packages/server/src/auth/serve-app-host.ts`): bundled = source ∈ {`workspace`,`bundled`,`installed`} + realpath containment + basename in `piDashboard.bundledPlugins`. Basename alone no longer trusts. `pi-package` + `local-detected` never bundled.
+- `auth.trustedPlugins: {id, clientSha256?, server?}[]` written only by trust endpoints (`plugin-trust-store.ts`). `PUT /api/config` cannot write it.
+- Grant needs `operate` + genuinely local. Revoke needs `operate`. Tiers in `packages/shared/src/route-tiers.ts`.
+
+**Runtime delivery pipeline.**
+
+```mermaid
+flowchart LR
+    DECL["pi-dashboard-build.json bundledPluginIds"] --> ADM["admission: not bundled, enabled, deps loaded, hostApi ok, trusted + pin"]
+    DISC["discoverPlugins"] --> ADM
+    TRUST["auth.trustedPlugins"] --> ADM
+    ADM --> LIST["GET /api/plugins/runtime-clients"]
+    ADM --> ASSETS["GET /plugin-assets/id/sha/*"]
+    IDX["sendIndexWithImportMap: / and /index.html"] --> MAP["importmap -> /host/*.js shims"]
+    LIST --> LOADER["runtime-plugin-loader.ts"]
+    ASSETS --> LOADER
+    MAP --> LOADER
+    LOADER --> REG["claims, i18n, routes, reducers, eventTypes owners, bumpSlotClaimsVersion"]
+```
+
+- Server pieces: `packages/dashboard-plugin-runtime/src/server/{runtime-client-registry,runtime-client-listing,plugin-assets-route,confined-static}.ts`, `packages/server/src/{plugin-runtime-clients,lib/index-html}.ts`, `routes/plugin-runtime-client-routes.ts`.
+- Client pieces: `packages/client/src/lib/plugins/runtime-plugin-loader.ts`, `packages/client/src/host-shims/*`.
+- Remote-server mode (`getApiBase()` non-empty) + Vite `--dev` page: loader does nothing.
+
+**Core/plugin boundary.** `npm run check:plugin-boundary` (`scripts/check-plugin-boundary.mjs`, ratcheting `scripts/plugin-boundary-allowlist.json`, vitest wrapper). Plugin set from manifests. Shared contracts + `packages/mcp-core` in `docs/plugin-seams.md`.
+
+**Absent-owner UX.** Manifest `eventTypes` → one group row per owned event type; availability decided at render time by `pluginAvailability`. Subagent state written by subagents-plugin slice + finalizers; generic heals in core. See `docs/plugin-seams.md`.
+
+See change: decouple-plugins-from-core.
 
 #### Plugin Activation UI
 
@@ -3460,7 +3564,7 @@ Durable dashboard trust counts as trusted project for pi sessions on SAME machin
 | `folderWorkspaces` | Folder workspaces. |
 | `accessGrants` | Project-root subjects only. Default OFF. |
 
-NOT counted: server-lifetime trust (session worktree trust, session access grants, YOLO), KB source trust. Deferred follow-up: server-lifetime trust; bridges on other machines.
+NOT counted in snapshot: server-lifetime trust (session worktree trust, session access grants, YOLO), KB source trust. Server-lifetime trust + remote bridges now served by live query (see Live trust query).
 
 **Matching.**
 - Key form `piTrustKey` = `realpathSync(path.resolve)`. No Unicode-space normalisation. Source: `packages/shared/src/pi-trust-mirror.ts`.
@@ -3492,11 +3596,11 @@ flowchart TD
 - Recorded pi entry (true or false, nearest ancestor) beats dashboard trust.
 
 **Bridge** `decideBridgeProjectTrust` (`packages/extension/src/project-trust.ts`).
-- No server round trip.
+- No server round trip on snapshot step. Live query only on snapshot miss (see Live trust query).
 - Per event: reads `config.json`, `trust.json` (lockless; BOM stripped; null = absent; bad shape/parse = undecided `store-unreadable`), snapshot.
 - Returns `{trusted:"yes", remember:false}` or undecided.
 - Dashboard-spawned headless sessions consult mirror always. Other sessions only if `coverInteractive`.
-- Reason codes logged when withheld: `forbidden-folder`, `recorded-entry`, `identity-mismatch`, `hook-changed`, `not-project-root`, `source-off`, `source-not-installed`, `choice-unreadable`, `store-unreadable`, `not-covered-session`.
+- Reason codes logged when withheld: `forbidden-folder`, `recorded-entry`, `identity-mismatch`, `hook-changed`, `not-project-root`, `source-off`, `source-not-installed`, `choice-unreadable`, `store-unreadable`, `not-covered-session`, `identity-weak` + 7 `live-*` (see Live trust query).
 - p95 < 20 ms (1,000 entries, 20-deep cwd).
 - Spawn token: `PI_DASHBOARD_SPAWN_TOKEN` read + removed from env at bridge activation (`packages/extension/src/spawn-token.ts`). Process-global until first `session_register`. Agent-started nested pi never counts as dashboard-spawned.
 
@@ -3535,6 +3639,127 @@ flowchart TD
 - Same-user forging of snapshot ≈ writing `trust.json`. Accepted.
 
 See change: mirror-dashboard-trust-to-pi.
+
+#### Live trust query (change: mirror-dashboard-trust-live-remote)
+
+Extends mirror to server-lifetime trust + remote bridges. Live entries never written to disk. Snapshot carries count only. Bridge asks server on snapshot miss.
+
+```mermaid
+sequenceDiagram
+  participant P as pi project_trust
+  participant B as bridge decideBridgeProjectTrust
+  participant S as server POST /api/pi-trust/query
+  P->>B: project_trust(cwd)
+  B->>B: store, recorded entry, activation rule, snapshot cover
+  Note over B: snapshot miss, ask conditions hold
+  B->>S: { cwd } + local proof OR Bearer PI_DASHBOARD_TOKEN
+  S->>S: auth, rate limit, cap 8 KiB, deny rules, cover lookup
+  alt local requester
+    S-->>B: { covered, key, sourceKind, dev, ino, birthtimeMs? }
+    B->>B: identityMatches vs own stat
+  else paired device
+    S-->>B: { covered, salt, digest }
+    B->>B: trustResourceManifest + HMAC, compare digests
+  end
+  B-->>P: trusted yes (remember false) OR undecided + reason code
+```
+
+**Route.** `POST /api/pi-trust/query` body `{cwd}`. Source: `packages/server/src/routes/pi-trust-query-routes.ts`. Path const `PI_TRUST_QUERY_PATH` (`packages/shared/src/pi-trust-live-query.ts`).
+- `ROUTE_TIERS` tier `operate` (same as `POST /api/ws-ticket`). Registered in `http-road-classification.ts`. Not PRE_AUTH.
+- Body cap 8 KiB → 413. Bad `cwd` (relative, NUL, length) → 400, never 500.
+- Server re-canonicalises: `piTrustKey(cwd) !== cwd` → not covered.
+- Handler order: auth → rate limit → body → switches + deny rules → cover lookup → proof → YOLO liveness re-check.
+
+**Admission.**
+- Local = loopback + no forwarding headers + VERIFIED endpoint-bound `X-Pi-Local-Proof` (`kind === "proof"`). Shared `isLoopbackHost`.
+- Remote = paired device bearer at `operate`.
+- Refused: raw legacy local token, browser login cookie, trusted-network admission.
+- Proof binds method + path, not body. `cwd` = unauthenticated input.
+
+**When bridge asks** (all must hold):
+- `enabled` ∧ `liveQuery` in `config.json`.
+- session allowed by `coverInteractive` rule.
+- no recorded pi entry.
+- `!isMirrorDenied(cwd)`.
+- snapshot gives no cover (any reason, incl `identity-mismatch`).
+- `liveCount > 0` ∨ remote bridge (non-loopback endpoint + `PI_DASHBOARD_TOKEN`).
+
+Bridge `decideBridgeProjectTrust` now async. Snapshot step stays sync (p95 < 20 ms). Handler never throws: every path resolves `{trusted:"undecided"}` on failure.
+
+**Live sources** (`piTrustMirror.sources.*`, in-memory, listed by provider in mirror service):
+
+| Source | Covers | Lifetime |
+|---|---|---|
+| worktree-init session trust | `listSessionTrust()`, hook hash re-checked | until server restart |
+| session access grants | project-root subjects, `scope==="session"` | until server restart |
+| `yolo` (default ON) | roots of `yolo.status()` | scoped: until expiry. env activation: while server runs. unscoped: never |
+
+- Identity `{dev, ino, birthtimeMs?}` recorded at entry creation, in-memory map keyed `<source>\0<key>`. Unstatable folder never counts.
+- Fixed listener gaps: session branches of `recordTrust`/`revokeTrust`/`recordGrant`/`revokeGrant` notify. `YoloController.setChangeListener` + unref'd expiry timer.
+- Snapshot field `liveCount` only. Never paths or identities. Boot writes `0`. Rewritten only when count changes, synchronously in the changing action. Failed rewrite logged, action succeeds. Reader treats missing/invalid as 0. Snapshot `version` stays 1.
+- Stale count = extra or missed query, never wrong yes.
+- Server consumers (`host.isProjectTrusted`, `projectTrustSource`, MCP view) run `decidePiTrust` over durable + live entries, no folder proof.
+
+**Proofs.**
+- Local: recorded `dev`+`ino`[+`birthtimeMs`]. Bridge compares via `identityMatches`. Re-created folder → `identity-mismatch`.
+- Remote: `{covered:true, salt, digest}`. No source kind, no identity. Salt 16 random bytes.
+- `digest = HMAC-SHA256(salt, "pi-trust-live/v1\n" + cwdKey + "\n" + manifest)`. cwd key binds answer to path.
+- `manifest` = sorted entries of pi's trust-requiring resources: cwd `.pi/{settings.json,mcp.json,extensions,skills,prompts,themes,SYSTEM.md,APPEND_SYSTEM.md}` (recursive, label `c/<rel>`) + `<d>/.agents/skills` for cwd and each ancestor except `~/.agents/skills` (label `a<k>/<rel>`, `k`=levels above cwd).
+- Entry: file → `label\0f\0sha256(content)`. Dir → `label\0d`. Other type → null.
+- Shared fn `trustResourceManifest(cwd, {home, signal})` in `packages/shared/src/pi-trust-resource-digest.ts`. Async `fs/promises`, `AbortSignal`, one read per file.
+- Fail-closed → null → `identity-weak`: empty set, any symlink, `.pi/settings.json` unparseable/unknown ref shape/refs outside set (`packages` entry, ext/skill path outside), >1,000 files, >16 MiB, read failure.
+- Bridge compares two non-null digests only. Unequal → `identity-mismatch`.
+- Resource-name list = literal (pi does not export it). Golden test `packages/shared/src/__tests__/pi-trust-resource-golden.test.ts` asserts equality with installed pi `trust-manager.js` + `hasTrustRequiringProjectResources` parity.
+
+**One deadline** `piTrustMirror.liveQueryTimeoutMs`.
+- Default 300 ms local / 1000 ms remote. Clamp 50–1000. Non-finite → default. Resolver `effectiveLiveQueryTimeoutMs` (`packages/shared/src/config.ts`).
+- Bounds request + proof. `Promise.race([work, deadline→live-timeout])`. `AbortController` per call aborts `fetch` (`redirect:"error"`) + every `fs/promises` read.
+- After race: `inst.isActive()` re-check. Stale instance → undecided.
+
+**Reason codes** (`MirrorWithheldReason`, `packages/shared/src/pi-trust-mirror-types.ts`; 18, labels in `MIRROR_WITHHELD_LABELS`):
+- Parent (7): `forbidden-folder`, `not-project-root`, `hook-changed`, `source-off`, `source-not-installed`, `identity-mismatch`, `choice-unreadable`.
+- Bridge (4): `recorded-entry`, `store-unreadable`, `not-covered-session`, `identity-weak`.
+- Live (7): `live-timeout`, `live-unreachable`, `live-refused`, `live-unsupported`, `live-rate-limited`, `live-not-covered`, `live-error`.
+
+| Outcome | Code |
+|---|---|
+| connection refused | `live-unreachable` |
+| 401 / 403 | `live-refused` |
+| 404 (old server) | `live-unsupported` |
+| 429 | `live-rate-limited` |
+| abort / deadline | `live-timeout` |
+| answer `covered:false` | `live-not-covered` |
+| 5xx, redirect, malformed body, covered answer missing proof fields | `live-error` |
+
+**Rate limits.**
+- Fixed window 10 s. 20 queries per paired device. 200 for `local` requester.
+- Proof permits: 4 global, 1 per device. Excess → 429. One log line per window. Control chars stripped from logged `cwd`/device.
+- Local identity answers take no permit.
+- No manifest cache (staleness in security decision).
+
+**Health.** `/api/health` `piTrustMirror.live` = `{covered, notCovered, refused, rateLimited, budgetMissed}`. Same disclosure gate as access-grant health block (`access-health.ts`). Server-side only. `budgetMissed` = handling time > server `liveQueryTimeoutMs` for requester class. Bridge logs own reason codes. Remote bridge with shorter timeout can log `live-timeout` while server counts `covered`.
+
+**Settings + rollback.**
+- `piTrustMirror.liveQuery` (default `true`), `liveQueryTimeoutMs`, `sources.yolo` (default `true`).
+- `liveQuery=false`: no queries. Bridge reads `config.json`, works with server down.
+- `sources.yolo=false`: YOLO roots stop counting. Other live sources stay.
+- `enabled=false`: everything off.
+- Old bridge never queries. New bridge + old server → 404 → `live-unsupported` → undecided.
+- Nothing live persisted.
+
+**Residuals.**
+- YOLO default ON widens YOLO from file access to project-code execution in its roots. Disclosed at activation + Access page. Unscoped YOLO never counts. Deny rules apply.
+- npm packages named in `.pi/settings.json` bound by reference, not fetched bytes.
+- Marker-less relay (`ssh -R`, `socat`) + shared home can look local. Needs same-user access + dev+ino(+birth) match. Accepted.
+- `ssh -L` tunnel + shared home: loopback → classed local → `identity-mismatch`, fail-closed. Dial non-loopback endpoint with device token.
+- Symlinked (pnpm-style) trees, >1,000 files, >16 MiB → no remote trust (`identity-weak`).
+- Benign `.pi/settings.json` edit on one side drops remote trust.
+- Local-rate-limit key shared by all local pi. 200/10 s sized for fleet spawns.
+- Snapshot step sync: hung mount blocks before live deadline starts (parent residual).
+- Non-goal: no path mapping between machines. Canonical paths must be equal.
+- Non-goal: no defence against malicious bridge. Bridge decides only for own pi process.
+
+See change: mirror-dashboard-trust-live-remote.
 
 ### Access Grants and Denial Remedies (change: add-access-grants-and-review)
 

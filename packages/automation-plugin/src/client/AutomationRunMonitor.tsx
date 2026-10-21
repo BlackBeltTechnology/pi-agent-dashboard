@@ -27,10 +27,11 @@ import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared
 import type React from "react";
 import { useEffect, useState } from "react";
 import { getRunBySessionId, getRunResult, type RunBySession } from "./api.js";
-import { decodeFolderPath } from "./folder-encoding.js";
 
 export interface AutomationRunMonitorProps {
   params?: Record<string, string>;
+  /** Decoded folder path of the route (host-provided); undefined when the route has none. */
+  cwd?: string;
   /** Run session resolved from the URL's session param. */
   session?: DashboardSession;
   onBack?: () => void;
@@ -50,6 +51,7 @@ function statusLabel(
 
 export function AutomationRunMonitor({
   params,
+  cwd,
   session,
   onBack,
 }: AutomationRunMonitorProps): React.ReactElement {
@@ -63,7 +65,7 @@ export function AutomationRunMonitor({
   // The run session is archived on end (evicted from the live set), so a
   // missing `session` with a route `sid` means "resolve from the run store".
   const archivedSid = !session ? params?.sid : undefined;
-  const archivedCwd = params?.encodedCwd ? (decodeFolderPath(params.encodedCwd) ?? undefined) : undefined;
+  const archivedCwd = cwd;
   useEffect(() => {
     let cancelled = false;
     if (!archivedSid) return;

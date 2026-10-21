@@ -10,7 +10,7 @@ Detects when a running dashboard server's discovered plugin set differs from the
 
 The Vite plugin SHALL compute a SHA-256 hash of the discovered plugin set at registry-generation time and emit it as a named export `PLUGIN_REGISTRY_HASH` alongside `PLUGIN_REGISTRY` in the generated `plugin-registry.tsx`. The hash input SHALL be a deterministic JSON serialization (sorted keys, lexicographic plugin order) of `{id, version, claims: [{slot, component, predicate?, shouldRender?, command?}]}` for each plugin.
 
-The hashed set SHALL be the **client-registry plugin set**: plugins that contribute a client entry, discovered from a bundle-eligible root, under the build's fixture policy. The same selection SHALL be used by the server when it computes its side of the comparison, so the two hashes are never computed over different sets. A plugin discovered only from a root no build can emit an import for SHALL be excluded from both sides.
+The hashed set SHALL be the **client-registry plugin set**: plugins that contribute a client entry, discovered from a bundle-eligible root, under the build's fixture policy. A production build SHALL record the ids of that set as `bundledPluginIds` in its build declaration. The server SHALL compute its side of the comparison over the discovery winners (`dashboard-plugin-loader`) whose id is in the served build's `bundledPluginIds`, plus — only where a monorepo root is resolvable — the client-contributing plugins discovered under that root's bundle-eligible directory, so the two hashes are never computed over structurally different sets. A plugin that is runtime-delivered (its id not bundled and no monorepo root containing it) SHALL be excluded from both sides, on every host layout including npm-global and Electron installs. The server SHALL re-derive the declared subset only from the build's own copies (`workspace` or `bundled` source). When any declared id has no such copy on disk (npm-global ships no `resources/plugins`), the server SHALL NOT hash another copy; it SHALL use the declaration's `pluginRegistryHash` for the declared subset, so the comparison is against the declaration. On such a host the banner therefore cannot report a version skew between a declared plugin's halves. When the served build declares no `bundledPluginIds`, the server SHALL keep the selection it used before this change.
 
 #### Scenario: Hash is deterministic across rebuilds
 
@@ -28,11 +28,27 @@ The hashed set SHALL be the **client-registry plugin set**: plugins that contrib
 - **THEN** it SHALL NOT contribute to `PLUGIN_REGISTRY_HASH`
 - **AND** it SHALL NOT contribute to the server-side hash either
 
+#### Scenario: Runtime plugin on an npm-global host does not enter the hash
+
+- **WHEN** the server runs from an npm-global install with no resolvable monorepo root, and a client-contributing plugin is discovered under `~/.pi/dashboard/plugins` whose id is not in the served build's `bundledPluginIds`
+- **THEN** it SHALL NOT contribute to the server-side hash
+- **AND** `/api/health.bundleHash` SHALL equal the embedded `PLUGIN_REGISTRY_HASH`
+
+#### Scenario: npm-global host compares against the declaration
+
+- **WHEN** an npm-global host (no build copy of the declared plugins on disk) discovers an `installed` copy of declared id `goal` at another version
+- **THEN** the server SHALL NOT hash that copy, `/api/health.bundleHash` SHALL equal the declaration's `pluginRegistryHash`, and no staleness banner SHALL appear
+
+#### Scenario: Edited workspace manifest still reports staleness
+
+- **WHEN** a monorepo host's workspace copy of a declared plugin gains a claim after the client was built
+- **THEN** the re-derived server hash SHALL differ and staleness SHALL be reported
+
 ### Requirement: Server exposes live plugin manifest with current hash
 
 The dashboard server SHALL expose `GET /api/plugins/manifest` returning `{ hash, plugins: [{id, version, claims}] }`. The endpoint SHALL be public (no auth gate) so that any client connected to the server — including remote browsers via tunnel — can probe staleness.
 
-The endpoint hash SHALL be computed by the same deterministic serialization **over the same client-registry plugin set** used at build time: the same client-entry requirement, the same bundle-eligible roots, and the same fixture policy. The hash surfaced as `/api/health.bundleHash` — which is the surface the client actually compares against — SHALL be computed identically, and every other producer of this hash in the repository SHALL select the set through the same shared selector.
+The endpoint hash SHALL be computed by the same deterministic serialization **over the same client-registry plugin set** used at build time: the same client-entry requirement, the same fixture policy, and the bundled set defined above (the served build's `bundledPluginIds`, plus the monorepo bundle-eligible directory where one is resolvable), with the declaration-hash substitution defined above where no build copy exists. The hash surfaced as `/api/health.bundleHash` — which is the surface the client actually compares against — SHALL be computed identically, and every other producer of this hash in the repository SHALL select the set through the same shared selector.
 
 #### Scenario: Endpoint returns live discovery
 
@@ -64,7 +80,7 @@ The endpoint hash SHALL be computed by the same deterministic serialization **ov
 
 #### Scenario: Staleness reported only for a genuine set difference
 
-- **WHEN** the server's client-contributing plugin set differs from the set the loaded bundle was built from
+- **WHEN** the server's client-contributing plugin set differs from the set the loaded bundle was built from, on a host where the build's own copies exist on disk (on npm-global the declared subset is taken from the declaration, as defined above)
 - **THEN** staleness SHALL be reported
 - **AND** when the two sets are equal, staleness SHALL NOT be reported regardless of which root each plugin was discovered from
 

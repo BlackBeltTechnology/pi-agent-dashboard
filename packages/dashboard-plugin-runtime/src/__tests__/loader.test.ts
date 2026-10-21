@@ -10,6 +10,7 @@ import {
   discoverPlugins,
   getPluginStatusStore,
   loadServerEntries,
+  pluginServerAllowed,
 } from "../server/loader.js";
 import type { ServerPluginContext } from "../server/server-context.js";
 
@@ -355,5 +356,311 @@ describe("settings-section nav hint — loader", () => {
       warn.mockRestore();
       error.mockRestore();
     }
+  });
+});
+
+// ── Discovery sources, winners, shadowing, keyed cache (Phase 4A) ───────────
+// See change: decouple-plugins-from-core (tasks 5.2-5.4; test-plan #E53 #X6 #E54 #E55 #E61)
+
+describe("discovery sources (pi-package 4th source, winners, shadowing)", () => {
+  let agentDir: string;
+  beforeEach(() => {
+    agentDir = path.join(tmpDir, "agent");
+    fs.mkdirSync(agentDir, { recursive: true });
+    delete (globalThis as { __loadSpy?: string[] }).__loadSpy;
+  });
+
+  const SPY_ENTRY = (tag: string) =>
+    `export default () => { (globalThis.__loadSpy ||= []).push(${JSON.stringify(tag)}); };\n`;
+
+  /** A plugin package dir with a manifest, an optional server entry spy, at an explicit path. */
+  function writeAt(dir: string, id: string, extra: Record<string, unknown> = {}, tag?: string) {
+    fs.mkdirSync(dir, { recursive: true });
+    const manifest: Record<string, unknown> = { id, displayName: id, claims: [], hostApi: "^1.0.0", ...extra };
+    if (tag) {
+      manifest.server = "./server.mjs";
+      fs.writeFileSync(path.join(dir, "server.mjs"), SPY_ENTRY(tag));
+    }
+    fs.writeFileSync(
+      path.join(dir, "package.json"),
+      JSON.stringify({ name: path.basename(dir), version: "1.0.0", "pi-dashboard-plugin": manifest }),
+    );
+  }
+  // Server entries are imported by file URL; vite-node only resolves them when the path is externalised
+  // (under node_modules), so a root whose workspace entries must really load lives there.
+  const wsRoot = () => path.join(tmpDir, "node_modules", "ws-root");
+  const piOpts = () => ({ agentDir, npmRoot: path.join(tmpDir, "no-global") });
+  const settings = (packages: unknown[]) =>
+    fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({ packages }));
+  const spy = () => (globalThis as { __loadSpy?: string[] }).__loadSpy ?? [];
+
+  it("E53: a pi-installed plugin is source pi-package; files and manifest-less dirs are skipped silently", () => {
+    writeAt(path.join(agentDir, "npm", "node_modules", "@acme", "pi-dashboard-quota"), "quota");
+    fs.mkdirSync(path.join(agentDir, "npm", "node_modules", "plain"), { recursive: true });
+    fs.writeFileSync(path.join(agentDir, "npm", "node_modules", "plain", "package.json"), JSON.stringify({ name: "plain" }));
+    fs.writeFileSync(path.join(tmpDir, "ext.ts"), "export default () => {}");
+    settings(["npm:@acme/pi-dashboard-quota", "npm:plain", path.join(tmpDir, "ext.ts"), "npm:@acme/not-installed"]);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const plugins = discoverPlugins(tmpDir, [], { piPackages: piOpts() });
+    expect(plugins.map((p) => [p.manifest.id, p.source])).toEqual([["quota", "pi-package"]]);
+    expect(plugins[0].packageDir).toBe(path.join(agentDir, "npm", "node_modules", "@acme", "pi-dashboard-quota"));
+    expect(warn).not.toHaveBeenCalled();
+    expect(err).not.toHaveBeenCalled();
+    warn.mockRestore();
+    err.mockRestore();
+  });
+
+  it("X6: an unreadable settings.json warns once and does not abort the other sources", () => {
+    writePlugin("ws-plugin", { id: "ws", displayName: "WS", claims: [] });
+    const installed = path.join(tmpDir, "installed");
+    writeAt(path.join(installed, "inst-plugin"), "inst");
+    fs.writeFileSync(path.join(agentDir, "settings.json"), "{bad json");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const plugins = discoverPlugins(tmpDir, [{ dir: installed, source: "installed" }], { piPackages: piOpts() });
+    expect(plugins.map((p) => p.manifest.id).sort()).toEqual(["inst", "ws"]);
+    expect(warn.mock.calls.filter((c) => /failed to read/.test(String(c[0])))).toHaveLength(1);
+    warn.mockRestore();
+  });
+
+  describe("E54 winner rules", () => {
+    const flows = (root: string, tag: string) => writeAt(path.join(root, "flows-plugin"), "flows", { priority: 10 }, tag);
+
+    it("(1) undeclared: installed beats bundled", () => {
+      const installed = path.join(tmpDir, "installed");
+      const bundled = path.join(tmpDir, "bundled");
+      flows(installed, "installed");
+      flows(bundled, "bundled");
+      const [p] = discoverPlugins(tmpDir, [
+        { dir: bundled, source: "bundled" },
+        { dir: installed, source: "installed" },
+      ]);
+      expect(p.source).toBe("installed");
+      expect(p.shadowed).toEqual([{ source: "bundled", packageDir: path.join(bundled, "flows-plugin") }]);
+    });
+
+    it("(2) declared flows: the bundled copy wins, installed is shadowed", () => {
+      const installed = path.join(tmpDir, "installed");
+      const bundled = path.join(tmpDir, "bundled");
+      flows(installed, "installed");
+      flows(bundled, "bundled");
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const [p] = discoverPlugins(
+        tmpDir,
+        [
+          { dir: installed, source: "installed" },
+          { dir: bundled, source: "bundled" },
+        ],
+        { bundledPluginIds: ["flows"] },
+      );
+      expect(p.source).toBe("bundled");
+      expect(p.shadowed).toEqual([{ source: "installed", packageDir: path.join(installed, "flows-plugin") }]);
+      // warn names both paths
+      const line = warn.mock.calls.map((c) => String(c[0])).find((l) => l.includes("shadows"));
+      expect(line).toContain(path.join(bundled, "flows-plugin"));
+      expect(line).toContain(path.join(installed, "flows-plugin"));
+      warn.mockRestore();
+    });
+
+    it("(3) Electron root: goal only bundled, mcp-client in packages/ → bundled and workspace", () => {
+      const bundled = path.join(tmpDir, "bundled");
+      writeAt(path.join(bundled, "goal-plugin"), "goal");
+      writeAt(path.join(tmpDir, "packages", "mcp-client-plugin"), "mcp-client");
+      const out = discoverPlugins(tmpDir, [{ dir: bundled, source: "bundled" }], { bundledPluginIds: ["goal", "mcp-client"] });
+      expect(Object.fromEntries(out.map((p) => [p.manifest.id, p.source]))).toEqual({ goal: "bundled", "mcp-client": "workspace" });
+    });
+
+    it("(4) npm-global, declared goal only installed → installed by plain priority", () => {
+      const installed = path.join(tmpDir, "installed");
+      writeAt(path.join(installed, "goal-plugin"), "goal");
+      const [p] = discoverPlugins(tmpDir, [{ dir: installed, source: "installed" }], { bundledPluginIds: ["goal"] });
+      expect(p.source).toBe("installed");
+      expect(p.shadowed).toBeUndefined();
+    });
+
+    it("(5) workspace + pi-package: workspace wins, pi-package shadowed; only the winner's entry runs", async () => {
+      writeAt(path.join(wsRoot(), "packages", "subagents-plugin"), "subagents", {}, "workspace");
+      const piDir = path.join(agentDir, "npm", "node_modules", "pi-subagents");
+      writeAt(piDir, "subagents", {}, "pi-package");
+      settings(["npm:pi-subagents"]);
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const discovery = { piPackages: piOpts() };
+      const [p] = discoverPlugins(wsRoot(), [], discovery);
+      expect(p.source).toBe("workspace");
+      expect(p.shadowed).toEqual([{ source: "pi-package", packageDir: piDir }]);
+      expect(warn.mock.calls.some((c) => String(c[0]).includes(piDir) && String(c[0]).includes(path.join(wsRoot(), "packages", "subagents-plugin")))).toBe(true);
+      await loadServerEntries({ createContext: () => makeFakeContext(), isEnabled: () => true, repoRoot: wsRoot(), discovery });
+      expect(spy()).toEqual(["workspace"]);
+      expect(getPluginStatusStore().getStatus("subagents")?.shadowed).toEqual([{ source: "pi-package", packageDir: piDir }]);
+      expect(getPluginStatusStore().listAll().filter((s) => s.id === "subagents")).toHaveLength(1);
+      warn.mockRestore();
+    });
+
+    it("a pi-package entry pointing at the workspace dir itself is not its own shadow", () => {
+      writeAt(path.join(tmpDir, "packages", "x-plugin"), "x");
+      settings([path.join(tmpDir, "packages", "x-plugin")]);
+      const [p] = discoverPlugins(tmpDir, [], { piPackages: piOpts() });
+      expect(p.shadowed).toBeUndefined();
+    });
+  });
+
+  describe("E61 pi-package server entries are default-deny", () => {
+    it("(a) a pi-package with server + bridge, no grant: not loaded, server-untrusted, sentinel not written", async () => {
+      const dir = path.join(agentDir, "npm", "node_modules", "pi-evil");
+      writeAt(dir, "evil", { bridge: "./bridge.mjs" }, "evil-server");
+      settings(["npm:pi-evil"]);
+      const err = vi.spyOn(console, "warn").mockImplementation(() => {});
+      await loadServerEntries({ createContext: () => makeFakeContext(), isEnabled: () => true, repoRoot: tmpDir, discovery: { piPackages: piOpts() } });
+      const st = getPluginStatusStore().getStatus("evil");
+      expect(st).toMatchObject({ loaded: false, error: "server-untrusted", source: "pi-package" });
+      expect(spy()).toEqual([]);
+      err.mockRestore();
+    });
+
+    it("(b) a pi-package copy of a first-party id with no build copy is refused the same way", async () => {
+      writeAt(path.join(agentDir, "npm", "node_modules", "pi-goal"), "goal", {}, "pi-goal");
+      settings(["npm:pi-goal"]);
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      await loadServerEntries({ createContext: () => makeFakeContext(), isEnabled: () => true, repoRoot: tmpDir, discovery: { piPackages: piOpts(), bundledPluginIds: ["goal"] } });
+      expect(getPluginStatusStore().getStatus("goal")).toMatchObject({ loaded: false, error: "server-untrusted" });
+      expect(spy()).toEqual([]);
+      warn.mockRestore();
+    });
+
+    it("the bridge gate (pluginServerAllowed): pi-package needs the grant, other sources never ask", () => {
+      const mk = (source: "pi-package" | "workspace" | "installed" | "bundled") => ({ source, manifest: { id: "x" } }) as never;
+      expect(pluginServerAllowed(mk("pi-package"))).toBe(false);
+      expect(pluginServerAllowed(mk("pi-package"), () => false)).toBe(false);
+      expect(pluginServerAllowed(mk("pi-package"), () => true)).toBe(true);
+      for (const src of ["workspace", "installed", "bundled"] as const) expect(pluginServerAllowed(mk(src))).toBe(true);
+    });
+
+    it("(c) an operator grant (isServerTrusted) loads it; workspace sources never ask", async () => {
+      writeAt(path.join(agentDir, "npm", "node_modules", "pi-ok"), "ok", {}, "ok");
+      writeAt(path.join(wsRoot(), "packages", "ws"), "ws", {}, "ws");
+      settings(["npm:pi-ok"]);
+      const asked: string[] = [];
+      await loadServerEntries({
+        createContext: () => makeFakeContext(),
+        isEnabled: () => true,
+        repoRoot: wsRoot(),
+        discovery: { piPackages: piOpts() },
+        isServerTrusted: (p) => (asked.push(p.manifest.id), p.manifest.id === "ok"),
+      });
+      expect(asked).toEqual(["ok"]);
+      expect(spy().sort()).toEqual(["ok", "ws"]);
+      expect(getPluginStatusStore().getStatus("ok")?.loaded).toBe(true);
+    });
+  });
+});
+
+describe("E55 keyed discovery cache", () => {
+  function plug(root: string, name: string, id: string, priority?: number) {
+    const d = path.join(root, name);
+    fs.mkdirSync(d, { recursive: true });
+    fs.writeFileSync(
+      path.join(d, "package.json"),
+      JSON.stringify({ name, "pi-dashboard-plugin": { id, displayName: id, claims: [], ...(priority ? { priority } : {}) } }),
+    );
+  }
+
+  it("globs once per root set; separate results per set; re-globs after clear", () => {
+    plug(path.join(tmpDir, "packages"), "a", "a");
+    const extra = path.join(tmpDir, "extra");
+    plug(extra, "b", "b");
+    const readdir = vi.spyOn(fs, "readdirSync");
+    const first = discoverPlugins(tmpDir);
+    discoverPlugins(tmpDir);
+    const globsFirstSet = readdir.mock.calls.length;
+    expect(globsFirstSet).toBe(1);
+    const second = discoverPlugins(tmpDir, [{ dir: extra, source: "installed" }]);
+    expect(second).not.toBe(first);
+    expect(second.map((p) => p.manifest.id)).toEqual(["a", "b"]);
+    expect(first.map((p) => p.manifest.id)).toEqual(["a"]);
+    clearDiscoveryCache();
+    discoverPlugins(tmpDir);
+    expect(readdir.mock.calls.length).toBe(globsFirstSet + 2 + 1);
+    readdir.mockRestore();
+  });
+
+  it("a changed declared-id digest keys a new entry and picks different winners; clear clears every key", () => {
+    const installed = path.join(tmpDir, "installed");
+    const bundled = path.join(tmpDir, "bundled");
+    plug(installed, "flows-plugin", "flows");
+    plug(bundled, "flows-plugin", "flows");
+    const dirs = [
+      { dir: installed, source: "installed" as const },
+      { dir: bundled, source: "bundled" as const },
+    ];
+    const undeclared = discoverPlugins(tmpDir, dirs);
+    const declared = discoverPlugins(tmpDir, dirs, { bundledPluginIds: ["flows"] });
+    expect(undeclared[0].source).toBe("installed");
+    expect(declared[0].source).toBe("bundled");
+    expect(discoverPlugins(tmpDir, dirs)).toBe(undeclared);
+    expect(discoverPlugins(tmpDir, dirs, { bundledPluginIds: ["flows"] })).toBe(declared);
+    // digest ignores order and duplicates
+    expect(discoverPlugins(tmpDir, dirs, { bundledPluginIds: ["flows", "flows"] })).toBe(declared);
+    clearDiscoveryCache();
+    expect(discoverPlugins(tmpDir, dirs)).not.toBe(undeclared);
+    expect(discoverPlugins(tmpDir, dirs, { bundledPluginIds: ["flows"] })).not.toBe(declared);
+  });
+
+  it("order is deterministic: priority asc, id asc, whatever order readdir returns", () => {
+    const root = path.join(tmpDir, "packages");
+    plug(root, "zz", "b-late", 500);
+    plug(root, "aa", "z-early", 100);
+    plug(root, "mm", "a-late", 500);
+    const real = fs.readdirSync;
+    const shuffled = vi.spyOn(fs, "readdirSync").mockImplementation(((p: fs.PathLike, o?: unknown) =>
+      (real as (a: fs.PathLike, b?: unknown) => string[])(p, o).reverse()) as never);
+    expect(discoverPlugins(tmpDir).map((p) => p.manifest.id)).toEqual(["z-early", "a-late", "b-late"]);
+    shuffled.mockRestore();
+  });
+});
+
+// task 6.1 / E69: manifest `clientBundle` + `clientStyles`, dedicated asset root.
+describe("E69 client bundle manifest fields and asset-root layout", () => {
+  const base = { id: "ext", displayName: "Ext", claims: [], hostApi: "^1.0.0" };
+
+  it("(a) keeps clientBundle + clientStyles; `client` stays the build-time entry", () => {
+    writePlugin("ext", {
+      ...base,
+      client: "./src/client.tsx",
+      clientBundle: "./dist/client/index.js",
+      clientStyles: "./dist/client/client.css",
+    });
+    const [p] = discoverPlugins(tmpDir);
+    expect(p.manifest).toMatchObject({
+      client: "./src/client.tsx",
+      clientBundle: "./dist/client/index.js",
+      clientStyles: "./dist/client/client.css",
+    });
+    expect(p.clientEntryPath).toBe(path.join(tmpDir, "packages", "ext", "src", "client.tsx"));
+    expect(p.clientBundleDir).toBe(path.join(tmpDir, "packages", "ext", "dist", "client"));
+    expect(p.clientBundlePath).toBe(path.join(tmpDir, "packages", "ext", "dist", "client", "index.js"));
+    expect(p.clientStylesPath).toBe(path.join(tmpDir, "packages", "ext", "dist", "client", "client.css"));
+    expect(p.clientLayoutError).toBeUndefined();
+  });
+
+  it("rejects a non-string clientBundle", () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    writePlugin("ext", { ...base, clientBundle: 3 });
+    expect(discoverPlugins(tmpDir)).toEqual([]);
+    err.mockRestore();
+  });
+
+  it.each([
+    ["(c) bundle beside the server entry", { clientBundle: "./dist/client.js", server: "./dist/server.js" }, /server entry/],
+    ["(d) bundle at the package root", { clientBundle: "./client.js" }, /package root/],
+    ["(e) bridge inside the bundle dir", { clientBundle: "./dist/client/index.js", bridge: "./dist/client/bridge.js" }, /bridge entry/],
+    ["bundle escaping the package", { clientBundle: "../other/index.js" }, /outside the package/],
+    ["styles outside the asset root", { clientBundle: "./dist/client/index.js", clientStyles: "./dist/other.css" }, /clientStyles/],
+  ])("%s: layout error logged, naming the violation", (_n, extra, pattern) => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    writePlugin("ext", { ...base, ...extra });
+    const [p] = discoverPlugins(tmpDir);
+    expect(p.clientLayoutError).toMatch(pattern);
+    expect(err.mock.calls.map((c) => String(c[0])).join("\n")).toMatch(/client layout error/);
+    err.mockRestore();
   });
 });

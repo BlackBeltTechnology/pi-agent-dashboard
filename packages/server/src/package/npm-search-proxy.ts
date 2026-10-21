@@ -25,6 +25,8 @@ const TYPE_KEYWORDS: Record<string, string[]> = {
   skill: ["skill", "pi-skill", "skills"],
   theme: ["theme", "pi-theme", "themes"],
   prompt: ["prompt", "pi-prompt", "prompts"],
+  // Dashboard plugins: findable by the manifest-package keyword. See change: decouple-plugins-from-core (5.12).
+  "dashboard-plugin": ["pi-dashboard-plugin"],
 };
 
 function extractTypes(keywords: string[]): string[] {
@@ -65,8 +67,9 @@ export async function searchPackages(options: NpmSearchOptions = {}): Promise<Np
   const cached = searchCache.get(cacheKey);
   if (isFresh(cached)) return cached.data;
 
-  // Build search text
-  let text = "keywords:pi-package";
+  // Build search text. `type=dashboard-plugin` searches the dashboard-plugin keyword instead of
+  // `pi-package`; every other type keeps the default.
+  let text = type === "dashboard-plugin" ? "keywords:pi-dashboard-plugin" : "keywords:pi-package";
   if (query.trim()) text += ` ${query.trim()}`;
 
   const url = `${NPM_SEARCH_URL}?text=${encodeURIComponent(text)}&size=${SEARCH_SIZE}`;

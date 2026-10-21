@@ -17,6 +17,14 @@
       "types": "./src/index.ts",
       "default": "./src/index.ts"
     },
+    "./host": {
+      "types": "./src/host.ts",
+      "default": "./src/host.ts"
+    },
+    "./sdk": {
+      "types": "./src/sdk.ts",
+      "default": "./src/sdk.ts"
+    },
     "./context": {
       "types": "./src/plugin-context.tsx",
       "default": "./src/plugin-context.tsx"
@@ -55,10 +63,16 @@
     "!**/*.test.tsx"
   ],
   "peerDependencies": {
+    "@tailwindcss/vite": ">=4.1.0",
     "fastify": "^5.0.0",
     "react": ">=18.0.0",
     "vite": "^6.0.0",
     "wouter": "^3.9.0"
+  },
+  "peerDependenciesMeta": {
+    "@tailwindcss/vite": {
+      "optional": true
+    }
   },
   "dependencies": {
     "@blackbelt-technology/pi-dashboard-app-kit": "^0.10.0",
@@ -68,12 +82,14 @@
     "ajv": "^8.17.1"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.1.0",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.1.0",
     "@types/react": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.4",
     "ajv": "^8.17.1",
     "react": "^19.0.0",
+    "tailwindcss": "^4.1.0",
     "vite": "^6.0.0"
   }
 }

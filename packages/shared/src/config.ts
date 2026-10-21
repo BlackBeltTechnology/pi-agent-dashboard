@@ -194,6 +194,18 @@ function parseNetworkConfig(raw: any): NetworkConfig | undefined {
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
+/**
+ * One operator trust grant for a plugin (design D12). `clientSha256` pins the runtime client bundle to
+ * its content hash (an entry without it never admits a client); `server: true` trusts a `pi-package`
+ * plugin's server entry. Written ONLY by the trust endpoints (`writePluginTrust`), never by `PUT /api/config`.
+ * See change: decouple-plugins-from-core (task 6.5).
+ */
+export interface TrustedPluginEntry {
+  id: string;
+  clientSha256?: string;
+  server?: true;
+}
+
 export interface AuthConfig {
   secret: string;
   providers: Record<string, AuthProviderConfig>;
@@ -206,6 +218,12 @@ export interface AuthConfig {
    * (restart-effective). Default `[]`. See change: add-plugin-capability-routes (D2).
    */
   capabilityRoutePlugins?: string[];
+  /**
+   * The single operator trust list for plugin capabilities that need consent: runtime client code
+   * (pinned by `clientSha256`), `pi-package` server entries (`server: true`) and `serveApp` mounts.
+   * Only the trust endpoints write it. See change: decouple-plugins-from-core (task 6.5, design D12).
+   */
+  trustedPlugins?: TrustedPluginEntry[];
   /** Base URL for OAuth redirect URIs — overrides the tunnel URL when set. */
   redirectBaseUrl?: string;
   /** Admin email override — can list/revoke every user's proxy API keys. */
@@ -853,17 +871,30 @@ export interface AccessGrantsConfig {
 
 /**
  * Dashboard trust → pi `project_trust` mirror. `enabled` (default true) lets
- * durably dashboard-trusted folders count as trusted projects for pi sessions on
- * the same machine; `coverInteractive` (default false) extends that to sessions
- * not spawned headless by the dashboard; `sources.<id>` enable each durable source
- * (all on except `accessGrants`). Rollback: `enabled: false` (read live by the
- * bridge, works with the server down). See change: mirror-dashboard-trust-to-pi.
+ * dashboard-trusted folders count as trusted projects for pi sessions;
+ * `coverInteractive` (default false) extends that to sessions not spawned
+ * headless by the dashboard; `sources.<id>` enable each source (all on except
+ * `accessGrants`; `yolo` is live-only — no durable store backs it).
+ * `liveQuery` (default true) lets the bridge ask the running server about
+ * server-lifetime entries; `liveQueryTimeoutMs` bounds that ask (default 300 ms
+ * local / 1000 ms remote, clamped 50–1000). Rollback: `enabled: false` or
+ * `liveQuery: false` (both read live by the bridge, work with the server down).
+ * See change: mirror-dashboard-trust-to-pi, mirror-dashboard-trust-live-remote.
  */
-export type PiTrustMirrorSourceId = "worktreeInit" | "workflow" | "pinned" | "folderWorkspaces" | "accessGrants";
+export type PiTrustMirrorSourceId =
+  | "worktreeInit"
+  | "workflow"
+  | "pinned"
+  | "folderWorkspaces"
+  | "accessGrants"
+  | "yolo";
 
 export interface PiTrustMirrorConfig {
   enabled: boolean;
   coverInteractive: boolean;
+  liveQuery: boolean;
+  /** Raw configured value; `undefined` = unset or not a finite number. Use {@link effectiveLiveQueryTimeoutMs}. */
+  liveQueryTimeoutMs?: number;
   sources: Record<PiTrustMirrorSourceId, boolean>;
 }
 
@@ -873,13 +904,29 @@ export const PI_TRUST_MIRROR_SOURCE_IDS: readonly PiTrustMirrorSourceId[] = [
   "pinned",
   "folderWorkspaces",
   "accessGrants",
+  "yolo",
 ];
 
 export const DEFAULT_PI_TRUST_MIRROR: PiTrustMirrorConfig = {
   enabled: true,
   coverInteractive: false,
-  sources: { worktreeInit: true, workflow: true, pinned: true, folderWorkspaces: true, accessGrants: false },
+  liveQuery: true,
+  sources: { worktreeInit: true, workflow: true, pinned: true, folderWorkspaces: true, accessGrants: false, yolo: true },
 };
+
+export const LIVE_QUERY_TIMEOUT_LOCAL_MS = 300;
+export const LIVE_QUERY_TIMEOUT_REMOTE_MS = 1000;
+export const LIVE_QUERY_TIMEOUT_MIN_MS = 50;
+export const LIVE_QUERY_TIMEOUT_MAX_MS = 1000;
+
+/** The deadline for one live trust query: configured value clamped to 50–1000, else the class default. */
+export function effectiveLiveQueryTimeoutMs(cfg: Pick<PiTrustMirrorConfig, "liveQueryTimeoutMs">, remote: boolean): number {
+  const raw = cfg.liveQueryTimeoutMs;
+  if (typeof raw !== "number" || !Number.isFinite(raw)) {
+    return remote ? LIVE_QUERY_TIMEOUT_REMOTE_MS : LIVE_QUERY_TIMEOUT_LOCAL_MS;
+  }
+  return Math.min(LIVE_QUERY_TIMEOUT_MAX_MS, Math.max(LIVE_QUERY_TIMEOUT_MIN_MS, raw));
+}
 
 export function parsePiTrustMirror(raw: unknown): PiTrustMirrorConfig {
   const r = (raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {}) as Record<string, unknown>;
@@ -888,10 +935,13 @@ export function parsePiTrustMirror(raw: unknown): PiTrustMirrorConfig {
   for (const id of PI_TRUST_MIRROR_SOURCE_IDS) {
     if (typeof src[id] === "boolean") sources[id] = src[id] as boolean;
   }
+  const timeout = typeof r.liveQueryTimeoutMs === "number" && Number.isFinite(r.liveQueryTimeoutMs) ? r.liveQueryTimeoutMs : undefined;
   return {
     enabled: typeof r.enabled === "boolean" ? r.enabled : DEFAULT_PI_TRUST_MIRROR.enabled,
     coverInteractive:
       typeof r.coverInteractive === "boolean" ? r.coverInteractive : DEFAULT_PI_TRUST_MIRROR.coverInteractive,
+    liveQuery: typeof r.liveQuery === "boolean" ? r.liveQuery : DEFAULT_PI_TRUST_MIRROR.liveQuery,
+    ...(timeout !== undefined ? { liveQueryTimeoutMs: timeout } : {}),
     sources,
   };
 }
@@ -1807,6 +1857,25 @@ function parseGroupTiers(raw: unknown): Record<string, Tier> | undefined {
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
+/** Normalize `auth.trustedPlugins`: object entries with a non-empty string id; a malformed pin is dropped (never widened). */
+export function parseTrustedPlugins(raw: unknown): TrustedPluginEntry[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const out: TrustedPluginEntry[] = [];
+  for (const e of raw) {
+    if (!e || typeof e !== "object" || Array.isArray(e)) continue;
+    const { id, clientSha256, server } = e as { id?: unknown; clientSha256?: unknown; server?: unknown };
+    if (typeof id !== "string" || id === "" || seen.has(id)) continue;
+    seen.add(id);
+    out.push({
+      id,
+      ...(typeof clientSha256 === "string" && /^[0-9a-f]{64}$/.test(clientSha256) ? { clientSha256 } : {}),
+      ...(server === true ? { server: true as const } : {}),
+    });
+  }
+  return out;
+}
+
 function parseAuthConfig(raw: any): AuthConfig | undefined {
   if (!raw || typeof raw !== "object") return undefined;
   const providers = raw.providers;
@@ -1816,7 +1885,9 @@ function parseAuthConfig(raw: any): AuthConfig | undefined {
   const hasUrls = Array.isArray(raw.bypassUrls) && raw.bypassUrls.length > 0;
   const hasPasskeys = raw.passkeys?.enabled === true;
   const hasCapabilityPlugins = Array.isArray(raw.capabilityRoutePlugins) && raw.capabilityRoutePlugins.length > 0;
-  if (!hasProviders && !hasHosts && !hasUrls && !hasPasskeys && !hasCapabilityPlugins) return undefined;
+  const trustedPlugins = parseTrustedPlugins(raw.trustedPlugins);
+  const hasTrustedPlugins = trustedPlugins.length > 0;
+  if (!hasProviders && !hasHosts && !hasUrls && !hasPasskeys && !hasCapabilityPlugins && !hasTrustedPlugins) return undefined;
 
   // Validate each provider has at least clientId and clientSecret.
   // validProviders may end up empty when providers is {} or all entries
@@ -1840,7 +1911,7 @@ function parseAuthConfig(raw: any): AuthConfig | undefined {
   // If providers was declared but all entries are malformed AND there is no
   // bypass content, fall back to undefined — same "nothing auth-relevant"
   // rule as the top-level gate.
-  if (Object.keys(validProviders).length === 0 && !hasHosts && !hasUrls && !hasPasskeys && !hasCapabilityPlugins) {
+  if (Object.keys(validProviders).length === 0 && !hasHosts && !hasUrls && !hasPasskeys && !hasCapabilityPlugins && !hasTrustedPlugins) {
     return undefined;
   }
 
@@ -1855,6 +1926,7 @@ function parseAuthConfig(raw: any): AuthConfig | undefined {
     capabilityRoutePlugins: Array.isArray(raw.capabilityRoutePlugins)
       ? raw.capabilityRoutePlugins.filter((u: unknown) => typeof u === "string")
       : [],
+    ...(hasTrustedPlugins ? { trustedPlugins } : {}),
     ...(typeof raw.redirectBaseUrl === "string" && raw.redirectBaseUrl.trim()
       ? { redirectBaseUrl: raw.redirectBaseUrl.trim() }
       : {}),

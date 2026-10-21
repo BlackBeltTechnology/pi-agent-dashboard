@@ -53,6 +53,8 @@ describe("classifyHttpRoad — roads", () => {
       ["GET", "/api/identity/login-config"],
       ["GET", "/api/identity/me"],
       ["POST", "/api/ws-ticket"],
+      // test-plan #E26 (mirror-dashboard-trust-live-remote): the bridge's live trust query
+      ["POST", "/api/pi-trust/query"],
     ] as const) {
       expect(classifyHttpRoad(m, p)?.road, p).toBe("identity");
     }
@@ -104,6 +106,15 @@ describe("classifyHttpRoad — roads", () => {
     });
   });
 
+  it("E81: the runtime-client routes are core plugin management at their tiers (trust = operate, listing = observe)", () => {
+    expect(classifyHttpRoad("GET", "/api/plugins/runtime-clients")).toMatchObject({ road: "non-session", action: "plugins.read", resource: { kind: "plugin" } });
+    expect(classifyHttpRoad("POST", "/api/plugins/:id/trust")).toMatchObject({ road: "non-session", action: "plugins.write", resource: { kind: "plugin" } });
+    expect(classifyHttpRoad("DELETE", "/api/plugins/:id/trust")).toMatchObject({ road: "non-session", action: "plugins.write" });
+    expect(routeTier("GET", "/api/plugins/runtime-clients")).toBe("observe");
+    expect(routeTier("POST", "/api/plugins/:id/trust")).toBe("operate");
+    expect(routeTier("DELETE", "/api/plugins/:id/trust")).toBe("operate");
+  });
+
   it("a plugin-registered route outside /api/plugins/ is namespaced by its registering plugin", () => {
     const ownerOf = (r: string) => (r.startsWith("/api/kb/") ? "kb" : undefined);
     expect(classifyHttpRoad("GET", "/api/kb/stats", ownerOf)).toMatchObject({
@@ -147,5 +158,14 @@ describe("operator-host pin reset route (E34)", () => {
   it("DELETE /api/browser/operator-hosts/:hostId is listed at operate", () => {
     expect(hasRouteTier("DELETE", "/api/browser/operator-hosts/:hostId")).toBe(true);
     expect(routeTier("DELETE", "/api/browser/operator-hosts/:hostId")).toBe("operate");
+  });
+});
+
+describe("live pi-trust query route registration (#E26)", () => {
+  it("is classified like /api/ws-ticket and sits at the operate tier", async () => {
+    const { routeTier } = await import("@blackbelt-technology/pi-dashboard-shared/route-tiers.js");
+    expect(classifyHttpRoad("POST", "/api/pi-trust/query")).toEqual(classifyHttpRoad("POST", "/api/ws-ticket"));
+    expect(routeTier("POST", "/api/pi-trust/query")).toBe("operate");
+    expect(routeTier("POST", "/api/pi-trust/query")).toBe(routeTier("POST", "/api/ws-ticket"));
   });
 });

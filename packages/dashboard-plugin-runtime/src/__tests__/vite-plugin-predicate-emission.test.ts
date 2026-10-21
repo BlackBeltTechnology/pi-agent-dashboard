@@ -232,3 +232,69 @@ export function hasActiveFlow(session) { return Boolean(session); }
     expect(occurrences?.length).toBe(1);
   });
 });
+
+
+// Declarative reducer registration + tool-renderer row fields in the generated
+// registry (design D5 items 6-7). See change: decouple-plugins-from-core (4.2, 4.5).
+describe("viteDashboardPluginsPlugin reducer exports + tool-renderer claim fields", () => {
+  const pluginSource = `
+    export const sessionEventReducer = { eventTypes: ["sub_*"], reduce: (s) => s };
+    export const toolRowFinalizers = [{ toolName: "Agent" }];
+    export function isPending() { return true; }
+    export function AgentCard() { return null; }
+  `;
+
+  it("carries sessionEventReducer / toolRowFinalizers exports into the registry entry", async () => {
+    writePluginWithSource(
+      "sub-plugin",
+      { id: "sub", displayName: "Sub", priority: 100, claims: [{ slot: "tool-renderer", toolName: "Agent", component: "AgentCard" }] },
+      pluginSource,
+    );
+    const out = await invokePlugin();
+    expect(out).toMatch(/sessionEventReducer as sub_sessionEventReducer/);
+    expect(out).toMatch(/toolRowFinalizers as sub_toolRowFinalizers/);
+    expect(out).toMatch(/sessionEventReducer: sub_sessionEventReducer,/);
+    expect(out).toMatch(/toolRowFinalizers: sub_toolRowFinalizers,/);
+  });
+
+  it("a plugin without those exports gets no reducer fields", async () => {
+    writePluginWithSource(
+      "plain-plugin",
+      { id: "plain", displayName: "Plain", priority: 100, claims: [{ slot: "tool-renderer", toolName: "x", component: "AgentCard" }] },
+      "export function AgentCard() { return null; }",
+    );
+    const out = await invokePlugin();
+    expect(out).not.toMatch(/plain_sessionEventReducer/);
+    expect(out).not.toMatch(/plain_toolRowFinalizers/);
+  });
+
+  it("emits expandWhileRunning and resultPending (as a named import) on the claim literal", async () => {
+    writePluginWithSource(
+      "sub-plugin",
+      {
+        id: "sub",
+        displayName: "Sub",
+        priority: 100,
+        claims: [{ slot: "tool-renderer", toolName: "Agent", component: "AgentCard", expandWhileRunning: true, resultPending: "isPending" }],
+      },
+      pluginSource,
+    );
+    const out = await invokePlugin();
+    expect(out).toMatch(/import \{[^}]*\bisPending\b[^}]*\} from/);
+    expect(out).toMatch(/toolName: "Agent", expandWhileRunning: true, Component: AgentCard, resultPending: isPending/);
+  });
+
+  it("fails the build when resultPending names an export the entry lacks", async () => {
+    writePluginWithSource(
+      "sub-plugin",
+      {
+        id: "sub",
+        displayName: "Sub",
+        priority: 100,
+        claims: [{ slot: "tool-renderer", toolName: "Agent", component: "AgentCard", resultPending: "nope" }],
+      },
+      pluginSource,
+    );
+    await expect(invokePlugin()).rejects.toThrow(/resultPending "nope"/);
+  });
+});

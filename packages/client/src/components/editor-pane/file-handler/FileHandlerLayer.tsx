@@ -17,7 +17,7 @@ import {
   useShellSessionOrNull,
   useSlotClaimsVersion,
   useSlotRegistryOrNull,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";

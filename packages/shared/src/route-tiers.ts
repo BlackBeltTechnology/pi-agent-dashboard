@@ -79,6 +79,8 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "DELETE", path: "/api/openspec/groups/:id", tier: "control" },
   { method: "DELETE", path: "/api/paired-devices/:id", tier: "operate" },
   { method: "DELETE", path: "/api/plugins/automation", tier: "control" },
+  // decouple-plugins-from-core: removes a plugin's whole trust entry; the matching POST also needs a genuinely local caller.
+  { method: "DELETE", path: "/api/plugins/:id/trust", tier: "operate" },
   { method: "DELETE", path: "/api/plugins/gmail/accounts/:sub", tier: "operate" },
   { method: "DELETE", path: "/api/plugins/team/agents/:key/conversations/:c", tier: "operate" },
   { method: "DELETE", path: "/api/plugins/team/personas/:key", tier: "operate" },
@@ -206,6 +208,8 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "GET", path: "/api/pi/installs", tier: "observe" },
   { method: "GET", path: "/api/pinned-dirs", tier: "observe" },
   { method: "GET", path: "/api/plugins", tier: "observe" },
+  // decouple-plugins-from-core: admitted runtime plugin clients (URLs under /plugin-assets/<id>/<sha>/).
+  { method: "GET", path: "/api/plugins/runtime-clients", tier: "observe" },
   { method: "GET", path: "/api/plugins/automation/actions", tier: "observe" },
   { method: "GET", path: "/api/plugins/automation/definition", tier: "observe" },
   { method: "GET", path: "/api/plugins/automation/git-capable", tier: "observe" },
@@ -405,6 +409,8 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "POST", path: "/api/pi/runtime", tier: "operate" },
   { method: "POST", path: "/api/addons/:featureId/toggle", tier: "operate" },
   { method: "POST", path: "/api/plugins/:id/toggle", tier: "operate" },
+  // Pins a client bundle hash or grants pi-package server trust: operate AND isLocallyTrusted (a remote operate bearer is refused).
+  { method: "POST", path: "/api/plugins/:id/trust", tier: "operate" },
   { method: "POST", path: "/api/plugins/automation/create", tier: "control" },
   { method: "POST", path: "/api/plugins/automation/run", tier: "control" },
   { method: "POST", path: "/api/plugins/automation/stop", tier: "control" },
@@ -413,6 +419,7 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "POST", path: "/api/plugins/obs-studio/:service/record", tier: "operate" },
   { method: "POST", path: "/api/plugins/obs-studio/:service/scene", tier: "operate" },
   { method: "POST", path: "/api/plugins/obs-studio/:service/virtualcam", tier: "operate" },
+  { method: "POST", path: "/api/plugins/gmail/accounts/:sub/filters", tier: "operate" },
   { method: "POST", path: "/api/plugins/gmail/accounts/:sub/level", tier: "operate" },
   { method: "POST", path: "/api/plugins/gmail/accounts/:sub/reauth", tier: "operate" },
   { method: "POST", path: "/api/provider-auth/flow/:flowId/input", tier: "operate" },
@@ -478,6 +485,9 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "POST", path: "/api/vault/grants", tier: "operate" },
   { method: "POST", path: "/api/vault/import/confirm", tier: "operate" },
   { method: "POST", path: "/api/vault/import/propose", tier: "operate" },
+  // Live pi-trust query: a device that may run a bridge may ask (same tier as the ticket mint).
+  // See change: mirror-dashboard-trust-live-remote.
+  { method: "POST", path: "/api/pi-trust/query", tier: "operate" },
   { method: "POST", path: "/api/ws-ticket", tier: "operate" },
   { method: "PUT", path: "/api/access/pi-trust/choice", tier: "operate" },
   { method: "PUT", path: "/api/config", tier: "operate" },
@@ -492,6 +502,7 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "PUT", path: "/api/pi-settings/raw", tier: "operate" },
   { method: "PUT", path: "/api/plugins/blackhole/config", tier: "operate" },
   { method: "PUT", path: "/api/plugins/gmail/client", tier: "operate" },
+  { method: "PUT", path: "/api/plugins/gmail/setup", tier: "operate" },
   { method: "PUT", path: "/api/plugins/hermes-memory/config", tier: "operate" },
   { method: "PUT", path: "/api/plugins/context-mode-settings/config", tier: "operate" },
   { method: "PUT", path: "/api/plugins/team/personas/:key", tier: "operate" },

@@ -1,5 +1,7 @@
-import { describe, it, expect } from "vitest";
-import { formatElapsed } from "../session/ElapsedBadge.js";
+import { act, cleanup, render } from "@testing-library/react";
+import { createElement } from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ElapsedBadge, formatElapsed } from "../session/ElapsedBadge.js";
 
 describe("formatElapsed", () => {
   it("shows <1s for sub-second durations", () => {
@@ -23,5 +25,31 @@ describe("formatElapsed", () => {
   it("shows hours and minutes for >= 60m", () => {
     expect(formatElapsed(3600000)).toBe("1h");
     expect(formatElapsed(5400000)).toBe("1h 30m");
+  });
+});
+
+describe("ElapsedBadge (ui:elapsed-badge, test-plan #E31)", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+  });
+
+  it("ticks a live counter from startedAt", () => {
+    const { container } = render(createElement(ElapsedBadge, { startedAt: Date.now() }));
+    expect(container.textContent).toBe("<1s…");
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(container.textContent).toBe("1s…");
+  });
+
+  it("shows a static duration that wins over startedAt", () => {
+    const { container } = render(createElement(ElapsedBadge, { startedAt: Date.now(), duration: 65000 }));
+    expect(container.textContent).toBe("1m 5s");
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+    expect(container.textContent).toBe("1m 5s");
   });
 });

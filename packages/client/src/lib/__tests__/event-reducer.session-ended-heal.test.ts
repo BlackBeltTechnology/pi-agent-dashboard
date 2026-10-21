@@ -10,7 +10,8 @@
  * See change: heal-orphaned-tool-cards-on-session-end (design D4).
  */
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { disableSubagentsPlugin, registerSubagentsReducerSlice } from "../../test-support/subagents-reducer-slice.js";
 import { createInitialState, reduceEvent, type SessionState } from "../chat/event-reducer.js";
 
 function apply(events: DashboardEvent[], from: SessionState = createInitialState()): SessionState {
@@ -267,5 +268,62 @@ describe("session_ended heal — reopened by a live tick", () => {
     const s2 = reduceEvent(stopped, liveTick(5, "A", "ag-1"));
     expect(s2.messages.findLast((m) => m.toolCallId === "A")?.toolStatus).toBe("complete");
     expect(s2.subagents.get("ag-1")?.status).toBe("completed");
+  });
+});
+
+// ── Subagents plugin disabled: the generic heals stay in core ────────────────
+// With the plugin off no finalizer is registered: the server-synthesized end
+// still stops the Agent row, the neutral settle heal still runs, a live tick
+// still reopens the row — and `SessionState.subagents` is never written; the
+// synthesized `subagent_failed` folds into the owned group row.
+// See change: decouple-plugins-from-core (design D5 items 8-9; test-plan #X4).
+describe("session_ended heal — subagents plugin disabled (test-plan #X4)", () => {
+  afterEach(() => {
+    registerSubagentsReducerSlice();
+  });
+
+  it("Agent card heals without the plugin; subagent_failed folds into the group row", () => {
+    disableSubagentsPlugin();
+    const before = apply([asstStart(1), toolStart(2, "A"), liveTick(3, "A", "ag-1")]);
+    const subagentsBefore = before.subagents;
+    const s = apply([healEnd(4, "A", "ag-1"), healSubagentFail(5, "ag-1")], before);
+
+    const row = s.messages.findLast((m) => m.toolCallId === "A");
+    expect(row?.toolStatus).toBe("error");
+    expect(row?.result).toBe("parent session ended");
+    expect(s.toolCalls.get("A")?.status).toBe("error");
+    expect(s.subagents).toBe(subagentsBefore);
+    expect(s.subagents.size).toBe(0);
+    const group = s.messages.find((m) => (m as { ownedGroup?: unknown }).ownedGroup);
+    expect(group).toMatchObject({ role: "rawEvent", toolName: "subagent_failed", ownedGroup: { ownerId: "subagents", count: 1 } });
+  });
+
+  it("a live tick on a session_ended row reopens the row and leaves subagents untouched", () => {
+    disableSubagentsPlugin();
+    const healed = apply([asstStart(1), toolStart(2, "A"), healEnd(3, "A", "ag-1")]);
+    const subagentsBefore = healed.subagents;
+    const s = reduceEvent(healed, liveTick(10, "A", "ag-1"));
+    const row = s.messages.findLast((m) => m.toolCallId === "A");
+    expect(row?.toolStatus).toBe("running");
+    expect(row?.toolDetails?.healedBy).toBeUndefined();
+    expect(row?.duration).toBeUndefined();
+    expect(s.toolCalls.get("A")?.status).toBe("running");
+    expect(s.subagents).toBe(subagentsBefore);
+  });
+
+  it("a running Agent row at turn settle gets the neutral sentinel body", () => {
+    disableSubagentsPlugin();
+    const s = apply([
+      asstStart(1),
+      toolStart(2, "A"),
+      liveTick(3, "A", "ag-1"),
+      { eventType: "agent_settled", timestamp: 4, data: {} },
+    ]);
+    const row = s.messages.findLast((m) => m.toolCallId === "A");
+    expect(row?.toolStatus).toBe("complete");
+    expect(row?.result).toBe("subagent stopped — result not received");
+    expect(row?.toolDetails?.resultMissing).toBe(true);
+    expect(row?.toolDetails?.healedBy).toBe("turn_settled");
+    expect(s.subagents.size).toBe(0);
   });
 });

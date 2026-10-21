@@ -9,6 +9,7 @@ Lifecycle recorder (#451 part 1): after the oversubscription guard and before `c
 
 `TEST_EXTRA_COMPOSE` split on whitespace (basenames under `docker/`), each layered last. State file always carries `extraCompose: [..]` (`[]` when none) so `test-down.sh` tears overlays down without the env var. `containerId` resolved via `compose ps -q pi-dashboard` (overlays add siblings). See change: add-acme-dns01-certs.
 
+Runtime canary (decouple-plugins-from-core 7.5/8.2/8.3): stages `.pi-test-canary` via `scripts/stage-runtime-canary.mjs` before `compose up` (fatal unless `PI_E2E_CANARY=off`); `PI_E2E_CANARY` = `trusted` (default; pinned) | `untrusted` (no pin + failure variants + intent.flag) | `off`; exports `PI_DASHBOARD_CSP` (`enforce` for the CSP spec).
 - Exports `PI_E2E_TERMINALS_MAX_CONCURRENT` (terminal-cap e2e faucet; needs `PI_E2E_SEED=1`). See change: harden-server-capability-bounds.
 
 - Exports `PI_E2E_BROWSE_CONFINEMENT` (variant boot keeping remote browse confinement on). See change: harden-server-capability-bounds.

@@ -8,12 +8,13 @@
  * shared package doesn't depend on the runtime package. The runtime package
  * will re-export this map with the concrete PluginContext type filled in.
  */
+import type { BrowserToServerMessage } from "../browser-protocol.js";
 import type { DashboardSession } from "../types.js";
 import type { SlotId } from "./slot-types.js";
 
 /**
  * Opaque marker type for PluginContext.
- * The concrete type is defined in @blackbelt-technology/dashboard-plugin-runtime/context.
+ * The concrete type is defined in @blackbelt-technology/dashboard-plugin-runtime (plugin-context.tsx).
  * Using `unknown` here keeps this shared types-only package free of runtime deps.
  */
 export type AnyPluginContext = unknown;
@@ -52,6 +53,12 @@ export interface ToolRendererContext {
   editors?: unknown[];
   sessionId?: string;
   session?: unknown;
+  /**
+   * Send a browser→server message (e.g. a subagent resync request). The SAME
+   * function reference the built-in renderer receives; absent in tests and
+   * embedders without a connection. See change: decouple-plugins-from-core (D5 item 5).
+   */
+  send?: (message: BrowserToServerMessage) => void;
 }
 
 /**
@@ -265,7 +272,13 @@ export interface SlotPropsMap {
     pluginContext: AnyPluginContext;
   };
   "shell-overlay-route": {
-    params: Record<string, string>;
+    /** Route params. `encodedCwd` (the base64url folder segment) is deprecated: use `cwd`. Kept for one minor. */
+    params: Record<string, string> & {
+      /** @deprecated Use the decoded `cwd` prop. */
+      encodedCwd?: string;
+    };
+    /** Decoded folder path of a `/folder/:encodedCwd/…` route; undefined when the route has no such param or it does not decode. */
+    cwd?: string;
     /** DashboardSession metadata resolved from the URL’s session param (`config.sessionParam`, default `"sid"`). Undefined when the URL has no session id or no matching session. */
     session?: DashboardSession;
     onBack: () => void;

@@ -12,6 +12,14 @@ import os from "node:os";
 import path from "node:path";
 import url from "node:url";
 import type { PluginManifest } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js";
+import type {
+  PluginClientStatus,
+  PluginDiscoverySource,
+  PluginHostApiStatus,
+  PluginShadowedCopy,
+  PluginStatus,
+} from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/plugin-status.js";
+import { listPiPackages } from "@blackbelt-technology/pi-dashboard-shared/pi-package-resolver.js";
 import {
   buildGraph,
   detectCycles,
@@ -19,8 +27,10 @@ import {
   transitiveDependents,
 } from "../dependency-graph.js";
 import { validateManifest } from "../manifest-validator.js";
+import { type ClientLayout, evaluateClientLayout } from "./client-layout.js";
 import { getFileValidatorRegistry } from "./file-validator-registry.js";
 import { fixtureEntryAllowed } from "./fixture-gate.js";
+import { evaluateHostApi } from "./host-api-gate.js";
 import { createPluginStatusStore, type PluginStatusStore } from "./plugin-status-store.js";
 import {
   missingFromReport,
@@ -48,9 +58,85 @@ export interface DiscoveredPlugin {
   bridgeEntryPath?: string;
   /** Absolute path to the client entry (if declared and resolved). */
   clientEntryPath?: string;
+  /** Prebuilt client bundle layout (`clientBundle` / `clientStyles`); `clientLayoutError` refuses it `no-bundle`. */
+  clientBundlePath?: string;
+  clientBundleDir?: string;
+  clientStylesPath?: string;
+  clientLayoutError?: string;
+  /** Search dir this plugin was discovered in. See change: decouple-plugins-from-core (D7). */
+  source: PluginDiscoverySource;
+  /** Host API range evaluation (absent when none declared or required). */
+  hostApi?: PluginHostApiStatus;
+  /**
+   * Set (to a `host-api: …` message) when an `installed` / `pi-package` plugin's
+   * `hostApi` is incompatible: its server entry is skipped and its client refused.
+   */
+  hostApiRefusal?: string;
+  /**
+   * Losing duplicates of this id (never loaded). One row per id.
+   * See change: decouple-plugins-from-core (D15).
+   */
+  shadowed?: PluginShadowedCopy[];
 }
 
-let _discoveryCache: DiscoveredPlugin[] | null = null;
+/** Extra discovery dir with an explicit source (test/seam; production dirs are derived). */
+export interface DiscoverySearchDir {
+  dir: string;
+  source: PluginDiscoverySource;
+}
+
+/** Discovery options. See change: decouple-plugins-from-core (D11, D15). */
+export interface DiscoveryOptions {
+  /**
+   * Ids the served client build declares bundled (`pi-dashboard-build.json#bundledPluginIds`).
+   * Overrides the process-wide declared ids (`setDeclaredBundledPluginIds`). Absent → "undeclared".
+   */
+  bundledPluginIds?: readonly string[];
+  /**
+   * The 4th, lowest-priority source: user-scope `settings.json#packages[]` packages carrying a
+   * manifest. On by default when `repoRoot` is not given (production); with an explicit
+   * `repoRoot` only when an object is passed (`agentDir` / `npmRoot` are test seams).
+   * `false` disables it.
+   */
+  piPackages?: false | { agentDir?: string; npmRoot?: string };
+}
+
+/** Per-key discovery cache: effective root set + digest of declared bundled ids. */
+const _discoveryCache = new Map<string, DiscoveredPlugin[]>();
+
+/** Ids of the served build declaration, handed over by the server before any discovery call. */
+let _declaredBundledIds: readonly string[] | undefined;
+
+/** Set (or clear, with `undefined`) the served declaration's `bundledPluginIds`. */
+export function setDeclaredBundledPluginIds(ids: readonly string[] | undefined): void {
+  _declaredBundledIds = ids ? [...ids] : undefined;
+}
+
+export function getDeclaredBundledPluginIds(): readonly string[] | undefined {
+  return _declaredBundledIds;
+}
+
+/** Digest of declared ids; absent → the fixed "undeclared" key. */
+function idsDigest(ids: readonly string[] | undefined): string {
+  if (!ids) return "undeclared";
+  return crypto.createHash("sha1").update([...new Set(ids)].sort().join("\n")).digest("hex");
+}
+
+/** Source priority; declared ids prefer the copy the build was made from (workspace, then bundled). */
+const PLAIN_RANK: Record<PluginDiscoverySource, number> = {
+  workspace: 0,
+  installed: 1,
+  bundled: 2,
+  "pi-package": 3,
+  "local-detected": 4,
+};
+const DECLARED_RANK: Record<PluginDiscoverySource, number> = {
+  workspace: 0,
+  bundled: 1,
+  installed: 2,
+  "pi-package": 3,
+  "local-detected": 4,
+};
 
 /**
  * Find the monorepo root by walking up from `import.meta.url` looking for
@@ -109,99 +195,195 @@ export function findBundledPluginsDir(): string | null {
   return null;
 }
 
-/**
- * Discover plugin manifests from the monorepo, user-installed plugins, and
- * bundled-resources plugins (in that priority order).
- *
- * Results are cached for the process lifetime. Pass an explicit `repoRoot`
- * to force discovery from a specific directory (useful for tests).
- */
-export function discoverPlugins(repoRoot?: string): DiscoveredPlugin[] {
-  if (_discoveryCache !== null) return _discoveryCache;
+/** Read + validate one candidate package dir; null (silently) when it carries no valid manifest. */
+export function readPluginCandidate(pkgDir: string, source: PluginDiscoverySource): DiscoveredPlugin | null {
+  const pkgJson = path.join(pkgDir, "package.json");
+  if (!fs.existsSync(pkgJson)) return null;
 
-  const searchDirs: string[] = [];
+  let raw: Record<string, unknown>;
+  try {
+    raw = JSON.parse(fs.readFileSync(pkgJson, "utf-8"));
+  } catch {
+    return null;
+  }
+
+  // Check for adjacent dashboard-plugin.json (takes precedence)
+  const adjacentJson = path.join(pkgDir, "dashboard-plugin.json");
+  let manifestRaw: unknown = raw["pi-dashboard-plugin"];
+
+  if (fs.existsSync(adjacentJson)) {
+    if (manifestRaw !== undefined) {
+      console.warn(
+        `[plugin-loader] Both package.json#pi-dashboard-plugin and dashboard-plugin.json found in ${pkgDir}. Using dashboard-plugin.json.`,
+      );
+    }
+    try {
+      manifestRaw = JSON.parse(fs.readFileSync(adjacentJson, "utf-8"));
+    } catch {
+      return null;
+    }
+  }
+
+  if (manifestRaw === undefined || manifestRaw === null) return null;
+
+  let manifest: PluginManifest;
+  try {
+    manifest = validateManifest(manifestRaw);
+  } catch (e) {
+    console.error(`[plugin-loader] Validation failed for package at ${pkgDir}:`, e);
+    return null;
+  }
+
+  const resolve = (rel: string | undefined) => (rel ? path.resolve(pkgDir, rel) : undefined);
+
+  // One hostApi range gates both halves. See change: decouple-plugins-from-core (D7).
+  const verdict = evaluateHostApi({
+    source,
+    range: manifest.hostApi,
+    hasClientBundle: manifest.clientBundle !== undefined,
+  });
+  if (verdict.warn) {
+    console.warn(`[plugin-loader] Plugin "${manifest.id}" (${source}): ${verdict.reason}; loading anyway`);
+  }
+
+  // The asset root must be a dedicated client dir; a violation refuses the client `no-bundle` (D10, R25).
+  const layout: ClientLayout = evaluateClientLayout({
+    packageDir: pkgDir,
+    clientBundle: manifest.clientBundle,
+    clientStyles: manifest.clientStyles,
+    server: manifest.server,
+    bridge: manifest.bridge,
+  });
+  if (layout.clientLayoutError) {
+    console.error(`[plugin-loader] Plugin "${manifest.id}" (${source}): client layout error: ${layout.clientLayoutError}`);
+  }
+
+  return {
+    manifest,
+    source,
+    ...layout,
+    ...(verdict.status ? { hostApi: verdict.status } : {}),
+    ...(verdict.refuse ? { hostApiRefusal: verdict.reason } : {}),
+    packageDir: pkgDir,
+    packageName: typeof raw.name === "string" ? raw.name : "",
+    serverEntryPath: resolve(manifest.server),
+    bridgeEntryPath: resolve(manifest.bridge),
+    clientEntryPath: resolve(manifest.client),
+  };
+}
+
+function realOrSelf(p: string): string {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return p;
+  }
+}
+
+/** Candidates of one search dir (one level: `<dir>/<entry>/package.json`), alphabetical = deterministic. */
+function scanSearchDir(dir: string, source: PluginDiscoverySource): DiscoveredPlugin[] {
+  if (!fs.existsSync(dir)) return [];
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(dir).sort();
+  } catch {
+    return [];
+  }
+  const out: DiscoveredPlugin[] = [];
+  for (const entry of entries) {
+    const candidate = readPluginCandidate(path.join(dir, entry), source);
+    if (candidate) out.push(candidate);
+  }
+  return out;
+}
+
+/**
+ * Pick one winner per id; losers become the winner's `shadowed` (warn-logged, never loaded).
+ * Plain priority is workspace > installed > bundled > pi-package; for an id the served build
+ * declares bundled, the copy the build was made from wins (workspace, else bundled), then plain
+ * priority. See change: decouple-plugins-from-core (D11, D15).
+ */
+function pickWinners(candidates: DiscoveredPlugin[], declared: ReadonlySet<string>): DiscoveredPlugin[] {
+  const byId = new Map<string, DiscoveredPlugin[]>();
+  for (const c of candidates) {
+    const list = byId.get(c.manifest.id);
+    if (list) list.push(c);
+    else byId.set(c.manifest.id, [c]);
+  }
+  const winners: DiscoveredPlugin[] = [];
+  for (const [id, list] of byId) {
+    const rank = declared.has(id) ? DECLARED_RANK : PLAIN_RANK;
+    // Array.prototype.sort is stable: equal ranks keep discovery order (search-dir order, alphabetical).
+    const ordered = [...list].sort((a, b) => rank[a.source] - rank[b.source]);
+    const [winner, ...losers] = ordered;
+    const winnerReal = realOrSelf(winner.packageDir);
+    const shadowed: PluginShadowedCopy[] = [];
+    for (const loser of losers) {
+      // The same directory reached through two sources (e.g. a pi-package entry pointing at a workspace dir).
+      if (realOrSelf(loser.packageDir) === winnerReal) continue;
+      shadowed.push({ source: loser.source, packageDir: loser.packageDir });
+      console.warn(
+        `[plugin-loader] Plugin "${id}": ${winner.source} copy at ${winner.packageDir} shadows ${loser.source} copy at ${loser.packageDir}`,
+      );
+    }
+    winners.push(shadowed.length > 0 ? { ...winner, shadowed } : winner);
+  }
+  return winners;
+}
+
+/**
+ * Discover plugin manifests from the monorepo, user-installed plugins,
+ * bundled-resources plugins and `settings.json#packages[]` packages
+ * (in that priority order; one winner per id, losers recorded as `shadowed`).
+ *
+ * Results are cached per effective root set + digest of the served declaration's
+ * `bundledPluginIds`; each key globs once until `clearDiscoveryCache()`. Pass an
+ * explicit `repoRoot` to force discovery from a specific directory (useful for tests).
+ */
+export function discoverPlugins(
+  repoRoot?: string,
+  extraSearchDirs: readonly DiscoverySearchDir[] = [],
+  opts: DiscoveryOptions = {},
+): DiscoveredPlugin[] {
+  const searchDirs: DiscoverySearchDir[] = [];
 
   if (repoRoot) {
     // Explicit override (test or build-time call site): keep legacy behaviour.
-    searchDirs.push(path.join(repoRoot, "packages"));
+    searchDirs.push({ dir: path.join(repoRoot, "packages"), source: "workspace" });
+    searchDirs.push(...extraSearchDirs);
   } else {
     const monorepo = findMonorepoRoot();
-    if (monorepo) searchDirs.push(path.join(monorepo, "packages"));
+    if (monorepo) searchDirs.push({ dir: path.join(monorepo, "packages"), source: "workspace" });
     const installed = findInstalledPluginsDir();
-    if (installed) searchDirs.push(installed);
+    if (installed) searchDirs.push({ dir: installed, source: "installed" });
     const bundled = findBundledPluginsDir();
-    if (bundled) searchDirs.push(bundled);
+    if (bundled) searchDirs.push({ dir: bundled, source: "bundled" });
   }
 
-  const results: DiscoveredPlugin[] = [];
-  const seenIds = new Set<string>();
+  const piOpts = opts.piPackages === false ? null : (opts.piPackages ?? (repoRoot ? null : {}));
+  const declaredIds = opts.bundledPluginIds ?? _declaredBundledIds;
+  const cacheKey = JSON.stringify([
+    searchDirs.map((d) => [d.source, d.dir]),
+    piOpts ? [piOpts.agentDir ?? "", piOpts.npmRoot ?? ""] : null,
+    idsDigest(declaredIds),
+  ]);
+  const cached = _discoveryCache.get(cacheKey);
+  if (cached) return cached;
 
-  for (const packagesDir of searchDirs) {
-    if (!fs.existsSync(packagesDir)) continue;
+  const candidates: DiscoveredPlugin[] = [];
+  for (const { dir, source } of searchDirs) candidates.push(...scanSearchDir(dir, source));
 
-    let entries: string[];
-    try {
-      entries = fs.readdirSync(packagesDir);
-    } catch {
-      continue;
+  // 4th, lowest-priority source: user-scope pi packages. Entries that resolve to a file or to a
+  // directory without a manifest are skipped silently (the resolver omits missing ones and warns
+  // only when settings.json cannot be read). See change: decouple-plugins-from-core (D15).
+  if (piOpts) {
+    for (const pkg of listPiPackages({ scope: "user", ...piOpts })) {
+      const candidate = readPluginCandidate(pkg.packageDir, "pi-package");
+      if (candidate) candidates.push(candidate);
     }
+  }
 
-    for (const entry of entries) {
-      const pkgDir = path.join(packagesDir, entry);
-      const pkgJson = path.join(pkgDir, "package.json");
-      if (!fs.existsSync(pkgJson)) continue;
-
-      let raw: Record<string, unknown>;
-      try {
-        raw = JSON.parse(fs.readFileSync(pkgJson, "utf-8"));
-      } catch {
-        continue;
-      }
-
-      // Check for adjacent dashboard-plugin.json (takes precedence)
-      const adjacentJson = path.join(pkgDir, "dashboard-plugin.json");
-      let manifestRaw: unknown = raw["pi-dashboard-plugin"];
-
-      if (fs.existsSync(adjacentJson)) {
-        if (manifestRaw !== undefined) {
-          console.warn(
-            `[plugin-loader] Both package.json#pi-dashboard-plugin and dashboard-plugin.json found in ${pkgDir}. Using dashboard-plugin.json.`,
-          );
-        }
-        try {
-          manifestRaw = JSON.parse(fs.readFileSync(adjacentJson, "utf-8"));
-        } catch {
-          continue;
-        }
-      }
-
-      if (manifestRaw === undefined || manifestRaw === null) continue;
-
-      let manifest: PluginManifest;
-      try {
-        manifest = validateManifest(manifestRaw);
-      } catch (e) {
-        console.error(`[plugin-loader] Validation failed for package at ${pkgDir}:`, e);
-        continue;
-      }
-
-      // Earlier search dirs win on ID collisions (monorepo > installed > bundled).
-      if (seenIds.has(manifest.id)) continue;
-      seenIds.add(manifest.id);
-
-      const resolve = (rel: string | undefined) =>
-        rel ? path.resolve(pkgDir, rel) : undefined;
-
-      results.push({
-        manifest,
-        packageDir: pkgDir,
-        packageName: typeof raw.name === "string" ? raw.name : "",
-        serverEntryPath: resolve(manifest.server),
-        bridgeEntryPath: resolve(manifest.bridge),
-        clientEntryPath: resolve(manifest.client),
-      });
-    }
-  } // end for searchDirs
+  const results = pickWinners(candidates, new Set(declaredIds ?? []));
 
   // Sort by (priority asc, id asc)
   results.sort((a, b) => {
@@ -217,13 +399,26 @@ export function discoverPlugins(repoRoot?: string): DiscoveredPlugin[] {
       .join(", ") || "(none)"}`,
   );
 
-  _discoveryCache = results;
+  _discoveryCache.set(cacheKey, results);
   return results;
 }
 
-/** Clear the discovery cache (for testing). */
+/** Discovery-derived `PluginStatus` fields: source, shadowed copies, host API evaluation, client refusal. */
+export function discoveryFields(plugin: DiscoveredPlugin): Pick<PluginStatus, "source" | "hostApi" | "client" | "shadowed"> {
+  const client: PluginClientStatus | undefined = plugin.hostApiRefusal
+    ? { delivery: "refused", refusedReason: "host-api" }
+    : undefined;
+  return {
+    source: plugin.source,
+    ...(plugin.shadowed?.length ? { shadowed: plugin.shadowed } : {}),
+    ...(plugin.hostApi ? { hostApi: plugin.hostApi } : {}),
+    ...(client ? { client } : {}),
+  };
+}
+
+/** Clear every discovery cache key (tests, `refreshPluginDiscovery`, the vite plugin). */
 export function clearDiscoveryCache(): void {
-  _discoveryCache = null;
+  _discoveryCache.clear();
 }
 
 // ── Status store singleton ─────────────────────────────────────────────────
@@ -354,6 +549,93 @@ export interface ServerLoadDeps {
    * See change: add-apple-tools-imcp-plugin.
    */
   getPluginConfig?: (pluginId: string) => Record<string, unknown>;
+  /**
+   * Operator server-trust predicate for a `pi-package` winner (design D12, R9). Default-deny:
+   * absent → every `pi-package` server entry / bridge stays refused (`server-untrusted`).
+   * `workspace` / `bundled` / `installed` are never asked.
+   */
+  isServerTrusted?: (plugin: DiscoveredPlugin) => boolean;
+  /**
+   * Additive mode (`refreshPluginDiscovery`): only these ids are (re)evaluated and loaded;
+   * every other discovered plugin keeps its status row untouched. Absent → all plugins.
+   */
+  onlyIds?: ReadonlySet<string>;
+  /** Extra discovery dirs + options forwarded to `discoverPlugins` (test seam; production derives its roots). */
+  discovery?: { extraSearchDirs?: readonly DiscoverySearchDir[] } & DiscoveryOptions;
+}
+
+/** `discoverPlugins` as the loader deps describe it (shared by the boot pass and refresh). */
+export function discoverForDeps(deps: Pick<ServerLoadDeps, "repoRoot" | "discovery">): DiscoveredPlugin[] {
+  const { extraSearchDirs, ...opts } = deps.discovery ?? {};
+  return discoverPlugins(deps.repoRoot, extraSearchDirs ?? [], opts);
+}
+
+/** Error text of a `pi-package` plugin whose server entry / bridge the operator has not trusted. */
+export const SERVER_UNTRUSTED_ERROR = "server-untrusted";
+
+/** Whether a plugin's server entry / bridge may be loaded: only a `pi-package` winner needs operator trust. */
+export function pluginServerAllowed(
+  plugin: DiscoveredPlugin,
+  isServerTrusted?: (plugin: DiscoveredPlugin) => boolean,
+): boolean {
+  if (plugin.source !== "pi-package") return true;
+  return isServerTrusted?.(plugin) === true;
+}
+
+/**
+ * What a loaded plugin looked like when its server entry ran. `refreshPluginDiscovery` compares
+ * the current discovery against it to flag `restartRequired` (package changed or vanished).
+ */
+interface LoadedSnapshot {
+  packageDir: string;
+  fingerprint: string;
+}
+const _loadedSnapshots = new Map<string, LoadedSnapshot>();
+
+function packageFingerprint(plugin: DiscoveredPlugin): string {
+  let version = "";
+  try {
+    const raw = JSON.parse(fs.readFileSync(path.join(plugin.packageDir, "package.json"), "utf-8")) as { version?: unknown };
+    if (typeof raw.version === "string") version = raw.version;
+  } catch {
+    /* unreadable → empty version */
+  }
+  let entry = "";
+  if (plugin.serverEntryPath) {
+    try {
+      const st = fs.statSync(plugin.serverEntryPath);
+      entry = `${st.size}:${st.mtimeMs}`;
+    } catch {
+      /* missing entry */
+    }
+  }
+  return `${version}|${entry}`;
+}
+
+function recordLoaded(plugin: DiscoveredPlugin): void {
+  _loadedSnapshots.set(plugin.manifest.id, { packageDir: plugin.packageDir, fingerprint: packageFingerprint(plugin) });
+}
+
+/** Snapshot ids loaded this process (test/inspection seam). */
+export function getLoadedSnapshotIds(): string[] {
+  return [..._loadedSnapshots.keys()];
+}
+
+/** Compare a rediscovered plugin to what is loaded: did its package change? */
+export function loadedPackageChanged(plugin: DiscoveredPlugin): boolean {
+  const snap = _loadedSnapshots.get(plugin.manifest.id);
+  if (!snap) return false;
+  return snap.packageDir !== plugin.packageDir || snap.fingerprint !== packageFingerprint(plugin);
+}
+
+/** Whether this id's server side ran in this process (snapshot exists). */
+export function wasLoadedThisProcess(id: string): boolean {
+  return _loadedSnapshots.has(id);
+}
+
+/** Forget load snapshots (tests). */
+export function clearLoadedSnapshots(): void {
+  _loadedSnapshots.clear();
 }
 
 /**
@@ -363,7 +645,7 @@ export interface ServerLoadDeps {
  */
 export async function loadServerEntries(deps: ServerLoadDeps): Promise<void> {
   const store = getPluginStatusStore();
-  const plugins = discoverPlugins(deps.repoRoot);
+  const plugins = discoverForDeps(deps);
 
   // ---- Build dependency graph + soft-fail cycles ----------------------
   // See change: add-plugin-activation-ui (Layer 2 — dependency graph).
@@ -396,13 +678,36 @@ export async function loadServerEntries(deps: ServerLoadDeps): Promise<void> {
   // The set of plugin ids that successfully loaded in this pass; consulted
   // by subsequent plugins' dep-validation step.
   const loadedIds = new Set<string>();
+  // Additive pass: ids loaded by an earlier pass still satisfy dependents' dep-validation.
+  if (deps.onlyIds) {
+    for (const s of store.listAll()) if (s.loaded) loadedIds.add(s.id);
+  }
 
   for (const plugin of orderedPlugins) {
     const { manifest } = plugin;
+    if (deps.onlyIds && !deps.onlyIds.has(manifest.id)) continue;
     const enabled = deps.isEnabled(manifest.id);
     const dependsOn = manifest.dependsOn ?? [];
     const dependents = dependentsById.get(manifest.id) ?? [];
     const cycleError = cycleErrorById.get(manifest.id);
+
+    // ---- Host API gate: installed / pi-package plugins built for another
+    // host API load neither half. See change: decouple-plugins-from-core (D7).
+    if (plugin.hostApiRefusal) {
+      store.setStatus({
+        id: manifest.id,
+        displayName: manifest.displayName,
+        enabled,
+        loaded: false,
+        error: plugin.hostApiRefusal,
+        claims: manifest.claims.length,
+        ...discoveryFields(plugin),
+        dependsOn,
+        dependents,
+      });
+      console.error(`[plugin-loader] Refusing plugin "${manifest.id}" — ${plugin.hostApiRefusal}`);
+      continue;
+    }
 
     // ---- Cycle soft-fail ---------------------------------------------
     if (cycleError) {
@@ -413,6 +718,7 @@ export async function loadServerEntries(deps: ServerLoadDeps): Promise<void> {
         loaded: false,
         error: cycleError,
         claims: manifest.claims.length,
+        ...discoveryFields(plugin),
         dependsOn,
         dependents,
       });
@@ -436,6 +742,7 @@ export async function loadServerEntries(deps: ServerLoadDeps): Promise<void> {
           loaded: false,
           error: `missing/disabled dep: ${missingDeps.join(", ")}`,
           claims: manifest.claims.length,
+          ...discoveryFields(plugin),
           dependsOn,
           dependents,
           missingDeps,
@@ -460,9 +767,33 @@ export async function loadServerEntries(deps: ServerLoadDeps): Promise<void> {
         enabled: false,
         loaded: false,
         claims: manifest.claims.length,
+        ...discoveryFields(plugin),
         dependsOn,
         dependents,
       });
+      continue;
+    }
+
+    // ---- Server trust: a `pi-package` winner's server entry and bridge are default-deny
+    // until the local operator grants trust. See change: decouple-plugins-from-core (D12, R9).
+    if (
+      (plugin.serverEntryPath || plugin.bridgeEntryPath) &&
+      !pluginServerAllowed(plugin, deps.isServerTrusted)
+    ) {
+      store.setStatus({
+        id: manifest.id,
+        displayName: manifest.displayName,
+        enabled: true,
+        loaded: false,
+        error: SERVER_UNTRUSTED_ERROR,
+        claims: manifest.claims.length,
+        ...discoveryFields(plugin),
+        dependsOn,
+        dependents,
+      });
+      console.warn(
+        `[plugin-loader] Refusing server entry of "${manifest.id}" (pi-package at ${plugin.packageDir}): ${SERVER_UNTRUSTED_ERROR}`,
+      );
       continue;
     }
 
@@ -477,10 +808,12 @@ export async function loadServerEntries(deps: ServerLoadDeps): Promise<void> {
         enabled: true,
         loaded: true,
         claims: manifest.claims.length,
+        ...discoveryFields(plugin),
         dependsOn,
         dependents,
       });
       loadedIds.add(manifest.id);
+      recordLoaded(plugin);
       continue;
     }
 
@@ -511,10 +844,12 @@ export async function loadServerEntries(deps: ServerLoadDeps): Promise<void> {
         enabled: true,
         loaded: true,
         claims: manifest.claims.length,
+        ...discoveryFields(plugin),
         dependsOn,
         dependents,
       });
       loadedIds.add(manifest.id);
+      recordLoaded(plugin);
       console.info(`[plugin-loader] Loaded plugin "${manifest.id}"`);
     } catch (e) {
       // A failed activation must not leave its WS routes live (spec
@@ -529,6 +864,7 @@ export async function loadServerEntries(deps: ServerLoadDeps): Promise<void> {
         loaded: false,
         error: msg,
         claims: manifest.claims.length,
+        ...discoveryFields(plugin),
         dependsOn,
         dependents,
       });
@@ -620,7 +956,7 @@ export async function refreshRequirementProbesFor(
         const report = await runRequirementProbes(manifest, perPluginDeps);
         const missing = missingFromReport(report);
         setCachedReport(manifest.id, report);
-        const existing = store.getStatus(manifest.id);
+        const existing = store.getStoredStatus(manifest.id);
         const prevMissing = existing?.missingRequirements ?? [];
         const missingChanged =
           prevMissing.length !== missing.length ||
@@ -632,6 +968,7 @@ export async function refreshRequirementProbesFor(
           enabled: existing?.enabled ?? true,
           loaded: existing?.loaded ?? true,
           claims: manifest.claims.length,
+          ...discoveryFields(plugin),
           ...(existing?.error ? { error: existing.error } : {}),
           requirements: report,
           missingRequirements: missing,

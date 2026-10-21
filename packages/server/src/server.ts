@@ -8,11 +8,11 @@ import os from "node:os";
 import path from "node:path";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
-import { createGatedProviderAuth, createIsPiExtensionInstalled, createServerPluginContext, discoverPlugins, fixtureEntryAllowed, getFileValidatorPool, getFileValidatorRegistry, getPluginStatusStore, getWsRouteRegistry, loadServerEntries, pluginSpawnToSessionOptions, redactPluginConfigForClient, refreshRequirementProbesFor, resolvePluginEnabled } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import { createGatedProviderAuth, createIsPiExtensionInstalled, createServerPluginContext, discoverPlugins, fixtureEntryAllowed, getFileValidatorPool, getFileValidatorRegistry, getPluginStatusStore, getWsRouteRegistry, loadServerEntries, pluginServerAllowed, pluginSpawnToSessionOptions, redactPluginConfigForClient, refreshRequirementProbesFor, registerPluginAssetsRoute, resolvePluginEnabled, type ServerLoadDeps, setDeclaredBundledPluginIds } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import {
   createMcpClientConfigService,
   createRealConfigIO,
-} from "@blackbelt-technology/pi-dashboard-mcp-client-plugin/core";
+} from "@blackbelt-technology/pi-dashboard-mcp-core";
 import type { ExitIntent } from "@blackbelt-technology/pi-dashboard-shared/boot-state.js";
 import { isRecoveryAllowed } from "@blackbelt-technology/pi-dashboard-shared/boot-state.js";
 import { findBundledExtension, registerBridgeExtension } from "@blackbelt-technology/pi-dashboard-shared/bridge-register.js";
@@ -52,7 +52,7 @@ import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
-import { listGrants as listAccessGrants, setGrantsChangedListener } from "./access/access-grants.js";
+import { listGrants as listAccessGrants, setGrantsChangedListener, setSessionGrantsChangedListener } from "./access/access-grants.js";
 import { snapshotAccessGrantHealth } from "./access/access-health.js";
 import { AccessPlaneRegistry, isGrantPromptKilled } from "./access/access-plane.js";
 import { shouldIssuePromptCapability } from "./access/capability-issuance.js";
@@ -62,6 +62,7 @@ import { createCwdHold } from "./access/cwd-verdict.js";
 import { installGrantCoordinator } from "./access/denial-hold.js";
 import { GrantCoordinator } from "./access/grant-coordinator.js";
 import { ensureGrantStoreId } from "./access/grant-store-id.js";
+import { createPiTrustLiveProvider } from "./access/pi-trust-live.js";
 import { createPiTrustMirrorService, setPiTrustMirror } from "./access/pi-trust-mirror-service.js";
 import { createCorsPlane, createCwdPlane, createFilesystemPlane, createNetworkPlane, createPreviewEgressPlane } from "./access/planes.js";
 import { projectEgressGrants } from "./access/preview-egress-store.js";
@@ -117,13 +118,13 @@ import {
   parseGuardTarget,
   setNetworkDenialObserver,
 } from "./auth/localhost-guard.js";
-import { collectEndpoints } from "./tunnel/tunnel-endpoints.js";
 import { createMutationOriginGate } from "./auth/mutation-origin-gate.js";
 import { PasskeyService } from "./auth/passkey/passkey-service.js";
 import { resolveRpContext } from "./auth/passkey/rp-context.js";
 import { UserDirectory } from "./auth/passkey/user-directory.js";
 import type { OAuthLoginFlow } from "./auth/pi-oauth-types.js";
 import { createPluginCredentialStore } from "./auth/plugin-credential-store.js";
+import { isServerTrusted } from "./auth/plugin-server-trust.js";
 import { setOAuthRegistryRuntimeSource } from "./auth/provider-auth-registry.js";
 import { readAuthJson } from "./auth/provider-auth-storage.js";
 import { countReloads, type RadiusMcpService } from "./auth/radius-mcp.js";
@@ -167,11 +168,15 @@ import { createDirectoryService, type DirectoryService } from "./directory-servi
 import { createEmbedLifecycleController } from "./embed-lifecycle/embed-lifecycle-controller.js";
 import { createPluginSessionCloseApi, createSessionCloserRegistry } from "./embed-lifecycle/plugin-session-close.js";
 import { wireEvents } from "./event-wiring.js";
-import { createReplayState } from "./session/hydration-state.js";
 import { createFileWatchManager } from "./file-watch-manager.js";
 import { resolveMainPath } from "./git-worktree/git-operations.js";
 import { createWorktreeInitRegistry } from "./git-worktree/worktree-init-registry.js";
-import { listPersistedTrust as listPersistedWorktreeTrust, setTrustChangedListener } from "./git-worktree/worktree-init-trust.js";
+import {
+  listPersistedTrust as listPersistedWorktreeTrust,
+  listSessionTrust as listSessionWorktreeTrust,
+  setSessionTrustChangedListener,
+  setTrustChangedListener,
+} from "./git-worktree/worktree-init-trust.js";
 import { identityDisarmedWarning, isIdentityEnforced } from "./identity/activation.js";
 import { buildAuthContext } from "./identity/auth-context.js";
 import { type BootstrapGrants, DENY_ALL_GRANTS, decideBootstrapGrants } from "./identity/bootstrap-grants.js";
@@ -197,9 +202,11 @@ import { buildBrowseRootSources, resolveBrowseRoots } from "./lib/browse-roots.j
 import {
   clientBuildDiagnostic,
   clientBuildSnapshotFor,
+  readServedBundledPluginIds,
   resolveStaticClientDir,
 } from "./lib/client-dist.js";
 import { collectRuleSources } from "./lib/folder-project.js";
+import { createIndexHtmlSender } from "./lib/index-html.js";
 import { bootParentPid, isBootParentProvablyDead } from "./lifecycle/boot-parent-liveness.js";
 import { runBoundedStartup } from "./lifecycle/bounded-startup.js";
 import { startEphemeralParentWatch } from "./lifecycle/ephemeral-parent-watch.js";
@@ -256,9 +263,11 @@ import { PiCoreChecker } from "./pi/pi-core-checker.js";
 import { PiCoreUpdater } from "./pi/pi-core-updater.js";
 import { createPiGateway } from "./pi/pi-gateway.js";
 import { listGlobalSkills } from "./pi/pi-resource-scanner.js";
+import { createPackageCompletionHandler, createPluginDiscoveryWiring, type PluginDiscoveryWiring } from "./plugin-discovery-wiring.js";
 import * as pluginEventSeam from "./plugin-event-seam.js";
 import { pluginIntentCache } from "./plugin-intent-cache.js";
 import { createPluginRequestLane } from "./plugin-request-lane.js";
+import { getRuntimeClientRegistry, installRuntimeClientRegistry, logRuntimeAdmissions } from "./plugin-runtime-clients.js";
 import { createPushService, type PushService } from "./push/push-service.js";
 import type { SessionPresence } from "./questions/question-files.js";
 import { registerQuestionRoutes } from "./questions/question-routes.js";
@@ -298,8 +307,10 @@ import { registerPiCoreRoutes } from "./routes/pi-core-routes.js";
 import { registerPiRetryRoutes } from "./routes/pi-retry-routes.js";
 import { registerPiRuntimeRoutes } from "./routes/pi-runtime-routes.js";
 import { registerPiSettingsRoutes } from "./routes/pi-settings-routes.js";
+import { registerPiTrustQueryRoutes } from "./routes/pi-trust-query-routes.js";
 import { registerPluginActivationRoutes, setPluginsEnabled } from "./routes/plugin-activation-routes.js";
 import { registerPluginConfigRoutes } from "./routes/plugin-config-routes.js";
+import { registerPluginRuntimeClientRoutes } from "./routes/plugin-runtime-client-routes.js";
 import { registerPreferencesAutoNameRoutes } from "./routes/preferences-auto-name-routes.js";
 import { registerPreferencesDisplayRoutes } from "./routes/preferences-display-routes.js";
 import { registerPreferencesWorktreeInitRoutes } from "./routes/preferences-worktree-init-routes.js";
@@ -333,6 +344,7 @@ import { createArchiveSweeper } from "./session/archive-sweeper.js";
 import { CustomEventGroupMatcher } from "./session/custom-event-group-matcher.js";
 import { CustomEventGroupResolver } from "./session/custom-event-group-resolver.js";
 import { deriveEndedAt } from "./session/derive-ended-at.js";
+import { createReplayState } from "./session/hydration-state.js";
 import { createInFlightToolCalls } from "./session/in-flight-tool-calls.js";
 import { createMemorySessionManager, type SessionManager } from "./session/memory-session-manager.js";
 import { systemRenameUpdates } from "./session/name-provenance.js";
@@ -369,6 +381,7 @@ import {
   TlsListener,
 } from "./tls/tls-listener.js";
 import { cleanupStaleZrok, createTunnel, deleteTunnel, detectZrokBinary, ensureReservedName, getTunnelUrl, liveTunnelOrigins, scavengeOrphanZrokProcesses } from "./tunnel/tunnel.js";
+import { collectEndpoints } from "./tunnel/tunnel-endpoints.js";
 import { startTunnelWatchdog, stopTunnelWatchdog } from "./tunnel/tunnel-watchdog.js";
 import { createVaultDeliveryHub } from "./vault/vault-delivery-hub.js";
 import { createVaultImport, defaultKnownLocations } from "./vault/vault-import.js";
@@ -1545,6 +1558,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // death signal, even when no terminal pi event was forwarded.
   // See change: finalize-automation-run-on-session-death.
   const pluginSessionEndSubs = new Set<(sessionId: string) => void>();
+  // Post-boot plugin discovery (refreshPluginDiscovery + local-scope detection); built right
+  // after the boot `loadServerEntries` pass. See change: decouple-plugins-from-core (5.5, 5.9).
+  let pluginDiscovery: PluginDiscoveryWiring | undefined;
   // Plugin shutdown subscribers (ServerPluginContext.onShutdown). Dispatched
   // in server stop() at the exact point the goal supervisor disposes today —
   // BEFORE piGateway.stop() tears bridges down — so plugin backoff timers /
@@ -1591,12 +1607,24 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Durable dashboard trust is mirrored into pi's `project_trust` through a
   // server-written snapshot (rebuilt now from the persisted stores, so a crash
   // between a revoke's two writes heals at boot). See change: mirror-dashboard-trust-to-pi.
+  // Server-lifetime ("live") trust: session worktree trust, session grants, YOLO
+  // roots. Counted into the snapshot as `liveCount` only; the YOLO controller is
+  // constructed further down, so it is read through a late-bound reference.
+  // See change: mirror-dashboard-trust-live-remote.
+  let yoloForLiveTrust: YoloController | undefined;
+  const piTrustLive = createPiTrustLiveProvider({
+    getConfig: () => loadConfig().piTrustMirror,
+    listSessionTrust: listSessionWorktreeTrust,
+    listSessionGrants: () => listAccessGrants().filter((g) => g.scope === "session"),
+    getYolo: () => yoloForLiveTrust,
+  });
   const piTrustMirror = createPiTrustMirrorService({
     getConfig: () => loadConfig().piTrustMirror,
     listPinned: () => preferencesStore.getPinnedDirectories(),
     listWorkspaceFolders: () => preferencesStore.getWorkspaces().flatMap((w) => w.folders),
     listWorktreeTrust: listPersistedWorktreeTrust,
     listPersistedGrants: () => listAccessGrants().filter((g) => g.scope === "project"),
+    live: piTrustLive,
   });
   setPiTrustMirror(piTrustMirror);
   try {
@@ -1619,6 +1647,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   preferencesStore.onWorkspacesChanged(queueMirrorRefresh);
   setGrantsChangedListener(queueMirrorRefresh);
   setTrustChangedListener(queueMirrorRefresh);
+  // Session entries never reach disk, so their listeners recompute the live count
+  // synchronously (the snapshot is rewritten before the action reports success).
+  setSessionGrantsChangedListener(() => piTrustMirror.noteLiveChanged());
+  setSessionTrustChangedListener(() => piTrustMirror.noteLiveChanged());
   const hostProjectTrust = await loadHostProjectTrustService();
   pluginServiceRegistry.set("host.isProjectTrusted", hostProjectTrust.isProjectTrusted);
   pluginServiceRegistry.set("host.projectTrustSource", hostProjectTrust.projectTrustSource);
@@ -1701,6 +1733,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     for (const h of pluginSessionEndSubs) {
       try { h(sessionId); } catch (err) { console.error("[plugin-onSessionEnded]", err); }
     }
+    pluginDiscovery?.onSessionEnded();
+  }
+  // A bridge registered: a cwd not yet scanned may carry local-scope plugins. Deferred one tick so the
+  // session is in the manager's active list. See change: decouple-plugins-from-core (task 5.9).
+  function dispatchSessionRegisteredCwd(cwd: string): void {
+    setImmediate(() => pluginDiscovery?.onSessionRegistered(cwd));
   }
   // Notify a resolved session's OWNING plugin only. Routed by ownerId so no
   // plugin sees another's ref. See change: detach-automation-goal-from-core.
@@ -1835,6 +1873,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     dispatchPluginRequest,
     dispatchPluginRawEvent,
     dispatchPluginSessionEnded,
+    dispatchSessionRegisteredCwd,
     metaPersistence,
     liveEpoch,
     commitDraftRelay,
@@ -2079,6 +2118,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     hostGateMode: () => resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode,
     isRefused,
   });
+  yoloForLiveTrust = yolo;
+  yolo.setChangeListener(() => piTrustMirror.noteLiveChanged());
   const yoloBoot = yolo.activateFromEnv(process.env[YOLO_ENV]);
   if (yoloBoot.ok) {
     const s = yoloBoot.session;
@@ -2857,6 +2898,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   const hasProductionBuild = clientDirResolved !== null;
   // ONE snapshot feeds the startup diagnostic, `fastifyStatic`, and
   // `/api/health.clientBuild` (passed to `registerSystemRoutes` below).
+  // Served declaration's `bundledPluginIds` reach discovery BEFORE any server-side discovery call
+  // (D15). See change: decouple-plugins-from-core (task 5.4).
+  setDeclaredBundledPluginIds(readServedBundledPluginIds(clientDirResolved));
   const clientBuild = clientBuildSnapshotFor(clientDirResolved);
   console.log(clientBuildDiagnostic(clientBuild));
   if (!hasProductionBuild) {
@@ -2865,7 +2909,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
 
   registerAcpRoutes(fastify);
   registerTlsRoutes(fastify, { networkGuard, listener: tlsListener });
-  registerSystemRoutes(fastify, { onVaultConfigChanged: () => void vaultDelivery.pushNow(), tls: tlsListener, sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, toolResultStats, embedLifecycle, clientDir, clientBuild, readTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []), readAccessGrants: () => snapshotAccessGrantHealth({ coordinator: grantCoordinator, yolo, refusalCount: () => listRefusals().length, promptEnabled: () => loadConfig().accessGrants?.promptEnabled === true, killSwitch: () => isGrantPromptKilled(), hostGateMode: () => resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode, operatorChannels: () => promptChannelCount(), provisioning: () => provisioning.registry.stats() }), keeperLogStats: { get: () => getKeeperManager().getKeeperLogStats() }, readPushErrors: pushService ? () => pushService?.errors ?? [] : pushInitError ? () => [pushInitError as string] : undefined });
+  // Live pi-trust query: authenticated one-shot HTTP for the bridge's `project_trust`.
+  // See change: mirror-dashboard-trust-live-remote.
+  const piTrustQuery = registerPiTrustQueryRoutes(fastify, {
+    getConfig: () => loadConfig().piTrustMirror,
+    live: () => piTrustMirror.live,
+    readSnapshot: () => piTrustMirror.readSnapshot(),
+  });
+  registerSystemRoutes(fastify, { onVaultConfigChanged: () => void vaultDelivery.pushNow(), tls: tlsListener, sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, toolResultStats, embedLifecycle, clientDir, clientBuild, readTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []), readPiTrustLive: piTrustQuery.counters, readAccessGrants: () => snapshotAccessGrantHealth({ coordinator: grantCoordinator, yolo, refusalCount: () => listRefusals().length, promptEnabled: () => loadConfig().accessGrants?.promptEnabled === true, killSwitch: () => isGrantPromptKilled(), hostGateMode: () => resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode, operatorChannels: () => promptChannelCount(), provisioning: () => provisioning.registry.stats() }), keeperLogStats: { get: () => getKeeperManager().getKeeperLogStats() }, readPushErrors: pushService ? () => pushService?.errors ?? [] : pushInitError ? () => [pushInitError as string] : undefined });
   registerHostGateRoutes(fastify, { getCtx: getHostGateCtx, state: hostGateState, networkGuard });
   // GET /api/doctor — see change: doctor-rich-output (task 4.2). Auth-gated identically to /api/config.
   // Assigned by the runtime-overlay block below; read lazily per request.
@@ -2995,27 +3046,33 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   let modelProxyMounted = false;
 
   // On completion: broadcast to browsers + invalidate the recommended cache
-  packageManagerWrapper.setCompleteListener((result) => {
-    browserGateway.broadcastToAll({
-      type: "package_operation_complete",
-      operationId: result.operationId,
-      action: result.action,
-      source: result.source,
-      scope: result.scope,
-      success: result.success,
-      error: result.error,
-      diagnostics: result.diagnostics,
-      sessionsReloaded: (result as OperationResult & { sessionsReloaded?: number }).sessionsReloaded,
-      ...(result.moveId ? { moveId: result.moveId } : {}),
-      ...(result.partialSuccess ? { partialSuccess: result.partialSuccess } : {}),
-    } as PackageOperationCompleteMessage);
-    if (result.success) invalidateRecommendedCache();
+  packageManagerWrapper.setCompleteListener(createPackageCompletionHandler<OperationResult>({
+    broadcastComplete: (result) => {
+      browserGateway.broadcastToAll({
+        type: "package_operation_complete",
+        operationId: result.operationId,
+        action: result.action,
+        source: result.source,
+        scope: result.scope,
+        success: result.success,
+        error: result.error,
+        diagnostics: result.diagnostics,
+        sessionsReloaded: (result as OperationResult & { sessionsReloaded?: number }).sessionsReloaded,
+        ...(result.moveId ? { moveId: result.moveId } : {}),
+        ...(result.partialSuccess ? { partialSuccess: result.partialSuccess } : {}),
+      } as PackageOperationCompleteMessage);
+    },
+    invalidateRecommendedCache,
+    // Hot-add: a successful op refreshes plugin discovery (global) or local-scope detection
+    // (local); ONE `plugins_changed` follows the completion broadcast. Never from
+    // `package-routes.ts`. See change: decouple-plugins-from-core (task 5.7, D16).
+    discovery: () => pluginDiscovery,
     // A successful package operation may have changed plugin requirement
     // satisfaction. Refresh probes and broadcast plugin_config_update for
     // any plugin whose `missingRequirements` flipped.
     // See change: add-plugin-activation-ui.
-    if (result.success) {
-      void refreshRequirementProbesFor(
+    refreshProbes: () =>
+      refreshRequirementProbesFor(
         null,
         {
           listInstalled: () => packageManagerWrapper.listInstalled("global"),
@@ -3031,9 +3088,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
             config: status ?? {},
           });
         }
-      });
-    }
-  });
+      }),
+  }));
 
   // Reload all active sessions after a successful package operation
   packageManagerWrapper.setReloadSessions(async () => {
@@ -3362,6 +3418,21 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     networkGuard,
     broadcast: (msg) => browserGateway.broadcast(msg),
   });
+  // Runtime plugin clients: admitted listing, trust grant/revoke, and the content-addressed asset prefix
+  // (outside the network guard's jurisdiction, no auth skip: it behaves exactly like `/assets/*`).
+  // See change: decouple-plugins-from-core (6.10–6.12).
+  registerPluginRuntimeClientRoutes(fastify, {
+    networkGuard,
+    broadcast: (msg) => browserGateway.broadcast(msg),
+    localTrust,
+    // `pluginDiscovery` is built after listen; a trust grant before that point just broadcasts.
+    refreshDiscovery: async () => {
+      if (pluginDiscovery) await pluginDiscovery.refreshPluginDiscovery();
+      else browserGateway.broadcast({ type: "plugins_changed", plugins: getPluginStatusStore().listAll() });
+    },
+    log: { info: (m) => console.log(m) },
+  });
+  registerPluginAssetsRoute(fastify, { getRegistry: getRuntimeClientRegistry });
   // Add-ons hub: feature catalog + combined feature toggle. See change: addons-hub-feature-catalog.
   registerAddonsRoutes(fastify, {
     networkGuard,
@@ -3496,6 +3567,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // some HTTP/2 proxy chains (notably zrok free-tier) occasionally
       // stream-reset as ERR_ABORTED 500 in browsers.
       preCompressed: true,
+      // `index.html` (and its `.gz`) is never served by the static handler: every HTML response
+      // passes `sendIndexWithImportMap`, which inserts the host import map. A direct `/index.html.gz`
+      // falls to the not-found handler (the SPA shell, map included). See change: decouple-plugins-from-core (6.4).
+      index: false,
+      allowedPath: (pathName) => pathName !== "/index.html" && pathName !== "/index.html.gz",
       // @fastify/static v10 hands `setHeaders` a FastifyReply (v8 passed the
       // raw ServerResponse), so the header goes through `.header()`.
       setHeaders: (reply, filePath) => {
@@ -3518,6 +3594,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     return reply.code(404).send({ success: false, error: "not_found", message: `No API route for ${request.method} ${rawPath}` });
   };
 
+  const indexHtml = createIndexHtmlSender(clientDir);
+
   if (config.dev) {
     // Dev mode: proxy to Vite dev server, fall back to production build
     const VITE_PORTS = [3000, 5173, 5174];
@@ -3535,38 +3613,50 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
 
     vitePort = await detectVitePort();
 
-    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: legacy server wiring, grandfathered; decompose in a dedicated refactor, not piecemeal
+    /** Proxy `request.url` to Vite; the reply when Vite answered, `undefined` when it is down (re-probed next time). */
+    const proxyToVite = async (request: FastifyRequest, reply: FastifyReply): Promise<FastifyReply | undefined> => {
+      if (!vitePort) vitePort = await detectVitePort();
+      if (!vitePort) return undefined;
+      try {
+        const viteUrl = `http://localhost:${vitePort}${request.url}`;
+        const res = await fetch(viteUrl);
+        const contentType = res.headers.get("content-type");
+        if (contentType) reply.header("Content-Type", contentType);
+        reply.code(res.status);
+        return reply.send(Buffer.from(await res.arrayBuffer()));
+      } catch {
+        vitePort = 0; // Vite stopped — re-probe next time
+        return undefined;
+      }
+    };
+
+    // `/` and `/index.html` keep today's order: Vite first (its HTML carries no injected map), then the
+    // production HTML with the map (D21, R21).
+    if (hasProductionBuild) {
+      const devHtml = async (request: FastifyRequest, reply: FastifyReply) =>
+        (await proxyToVite(request, reply)) ?? indexHtml.sendIndexWithImportMap(reply);
+      fastify.get("/", devHtml);
+      fastify.get("/index.html", devHtml);
+    }
+
     fastify.setNotFoundHandler(async (request, reply) => {
       const apiMiss = replyIfApiNotFound(request, reply);
       if (apiMiss) return apiMiss;
       // Try Vite proxy first
-      if (!vitePort) vitePort = await detectVitePort();
-      if (vitePort) {
-        try {
-          const viteUrl = `http://localhost:${vitePort}${request.url}`;
-          const res = await fetch(viteUrl);
-          const contentType = res.headers.get("content-type");
-          if (contentType) reply.header("Content-Type", contentType);
-          reply.code(res.status);
-          return reply.send(Buffer.from(await res.arrayBuffer()));
-        } catch {
-          vitePort = 0; // Vite stopped — re-probe next time
-        }
-      }
+      const proxied = await proxyToVite(request, reply);
+      if (proxied) return proxied;
       // Fallback: serve production build if available
-      if (hasProductionBuild) {
-        reply.header("Cache-Control", "no-cache, no-store, must-revalidate");
-        return reply.sendFile("index.html");
-      }
+      if (hasProductionBuild) return indexHtml.sendIndexWithImportMap(reply);
       return reply.code(404).send({ error: "API-only mode: no client build available. Install @blackbelt-technology/pi-dashboard-web or run npm run build." });
     });
   } else if (hasProductionBuild) {
-    // Production mode: SPA fallback
+    // Production mode: SPA fallback (and the explicit `/`, `/index.html`) through the import-map sender.
+    fastify.get("/", (_request, reply) => indexHtml.sendIndexWithImportMap(reply));
+    fastify.get("/index.html", (_request, reply) => indexHtml.sendIndexWithImportMap(reply));
     fastify.setNotFoundHandler(async (request, reply) => {
       const apiMiss = replyIfApiNotFound(request, reply);
       if (apiMiss) return apiMiss;
-      reply.header("Cache-Control", "no-cache, no-store, must-revalidate");
-      return reply.sendFile("index.html");
+      return indexHtml.sendIndexWithImportMap(reply);
     });
   } else {
     fastify.setNotFoundHandler(async (request, reply) => {
@@ -3776,7 +3866,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         return resolvePluginEnabled(pluginCfg, manifest?.defaultEnabled);
       });
       try {
-        await loadServerEntries({
+        // Runtime-client registry: derives `PluginStatus.client` at every status read (live content hash,
+        // trust, config) and serves the admitted-plugin listing. See change: decouple-plugins-from-core (6.7).
+        const runtimeClients = installRuntimeClientRegistry();
+        const pluginLoadDeps: ServerLoadDeps = {
+          // pi-package server entries stay refused until the operator grants server trust (D12, R9).
+          isServerTrusted,
           isEnabled: (pluginId) => {
             const cfg = loadConfig();
             const pluginCfg = getPluginConfigFromFile(cfg, pluginId) as Record<string, unknown>;
@@ -4185,11 +4280,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               // this is NOT trust-gated. See change:
               // relocate-goal-product-to-plugin (D1-#7).
               networkGuard,
-              // `ctx.serveApp`: trust-gated (bundled plugin dir OR `auth.capabilityRoutePlugins`),
+              // `ctx.serveApp`: trust-gated (bundled plugin dir, `auth.trustedPlugins` OR legacy `auth.capabilityRoutePlugins`),
               // mounts `/apps/<appId>/`. See change: add-plugin-capability-routes (D2, D5).
               serveApp: createHostServeApp({
                 fastify,
-                plugin: { packageDir: plugin.packageDir, manifestId: plugin.manifest.id },
+                plugin: { packageDir: plugin.packageDir, manifestId: plugin.manifest.id, source: plugin.source },
                 readConfiguredIds: () => loadConfig().auth?.capabilityRoutePlugins ?? [],
               }),
               // Emit a configured pi event into a session (relayed as a
@@ -4392,7 +4487,16 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               editClaimIds: plugin.manifest.claims.flatMap((c) => (c.slot === "editor-pane-file-handler" && c.mode === "edit" && c.id ? [c.id] : [])),
             },
           )),
+        };
+        pluginDiscovery = createPluginDiscoveryWiring({
+          loadDeps: pluginLoadDeps,
+          readDeclaredBundledIds: () => readServedBundledPluginIds(clientDirResolved),
+          clearContentHashCache: () => runtimeClients.clearContentHashCache(),
+          logAdmissions: () => logRuntimeAdmissions({ info: (m) => console.log(m) }, "refresh"),
+          listActiveCwds: () => sessionManager.listActive().map((s) => s.cwd),
+          broadcastPluginsChanged: (plugins) => browserGateway.broadcast({ type: "plugins_changed", plugins }),
         });
+        await loadServerEntries(pluginLoadDeps);
       } catch (err) {
         console.error('[plugin-loader] Unexpected error during pre-listen load:', err);
       } finally {
@@ -4961,6 +5065,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         // or they would land in every pi session's tool list.
         // See change: expose-plugin-credential-and-oauth-seams (D8).
         .filter(p => fixtureEntryAllowed(p.manifest))
+        // A pi-package bridge is not auto-registered until the operator grants server trust
+        // (D12, R9). See change: decouple-plugins-from-core (task 5.2).
+        .filter(p => pluginServerAllowed(p, isServerTrusted))
         // A disabled plugin's bridge is deregistered (both registries) and an
         // enabled one registered — same predicate as the server-entry loader.
         // The toggle route answers `restartRequired`, so this boot pass is

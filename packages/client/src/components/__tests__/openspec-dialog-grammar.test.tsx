@@ -15,7 +15,7 @@ import { makeRunConfig, RunConfigHarness } from "../../test-support/runConfigHar
 
 const { slotProps } = vi.hoisted(() => ({ slotProps: [] as Array<Record<string, unknown>> }));
 
-vi.mock("@blackbelt-technology/dashboard-plugin-runtime", async (orig) => {
+vi.mock("@blackbelt-technology/dashboard-plugin-runtime/host", async (orig) => {
   const actual = (await orig()) as Record<string, unknown>;
   return {
     ...actual,

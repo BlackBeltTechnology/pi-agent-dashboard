@@ -147,6 +147,7 @@
         "src/chat-embed/index.ts",
         "src/main.tsx",
         "src/test-support/*.ts",
+        "src/host-shims/*.ts",
         "**/vitest.config.ts",
         "**/__tests__/**/*.test.{ts,tsx}"
       ],
@@ -227,6 +228,8 @@
     "packages/dashboard-plugin-runtime": {
       "entry": [
         "src/index.ts",
+        "src/host.ts",
+        "src/sdk.ts",
         "src/plugin-context.tsx",
         "src/server/index.ts",
         "src/server/file-validator-worker.mjs",
@@ -251,6 +254,17 @@
       ],
       "project": [
         "src/**/*.{ts,tsx,mjs}"
+      ]
+    },
+    "tests/fixtures/runtime-canary-plugin": {
+      "entry": [
+        "src/server/index.ts",
+        "src/client/**/*.{ts,tsx}",
+        "variants/**/src/**/*.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx}",
+        "variants/**/src/**/*.{ts,tsx}"
       ]
     },
     "packages/demo-plugin": {
@@ -541,6 +555,17 @@
       ],
       "project": [
         "src/**/*.{ts,tsx,mjs,js}"
+      ]
+    },
+    "packages/mcp-core": {
+      "entry": [
+        "src/index.ts",
+        "src/*.ts",
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.ts"
+      ],
+      "project": [
+        "src/**/*.ts"
       ]
     },
     "packages/mcp-client-plugin": {

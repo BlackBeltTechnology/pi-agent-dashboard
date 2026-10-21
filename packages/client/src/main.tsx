@@ -13,49 +13,12 @@ import "./index.css";
 // KaTeX styles load with the lazy math engine (lib/preview/math-engine.ts).
 // See change: shrink-client-entry-lazy-islands.
 
-import {
-  createUiPrimitiveRegistry,
-  registerUiPrimitive,
-  UiPrimitiveProvider,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
-import { ActionList } from "@blackbelt-technology/pi-dashboard-client-utils/ActionList";
-import { AgentCardShell } from "@blackbelt-technology/pi-dashboard-client-utils/AgentCardShell";
-import {
-  formatDuration,
-  formatTokens,
-} from "@blackbelt-technology/pi-dashboard-client-utils/agent-card-utils";
-import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm";
-import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
-import { DialogPortal } from "@blackbelt-technology/pi-dashboard-client-utils/DialogPortal";
+import { UiPrimitiveProvider } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { hasLiveToken, setAccessToken, setIdToken } from "@blackbelt-technology/pi-dashboard-client-utils/identity/token-store";
-import { Popover } from "@blackbelt-technology/pi-dashboard-client-utils/Popover";
-import { SearchableSelectDialog } from "@blackbelt-technology/pi-dashboard-client-utils/SearchableSelectDialog";
-import { StatusPill } from "@blackbelt-technology/pi-dashboard-client-utils/StatusPill";
-import { ZoomControls } from "@blackbelt-technology/pi-dashboard-client-utils/ZoomControls";
-import type {
-  UiConfirmDialogProps,
-  UiThinkingBlockProps,
-  UiToolCallStepProps,
-} from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
-// UI primitive registry — see change: add-plugin-ui-primitive-registry.
-// The dashboard registers each declared primitive synchronously at startup;
-// plugin slot contributions look them up via `useUiPrimitive(key)`. Adding
-// a key in shared/ui-primitives.ts requires adding a registration here.
-import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
-import { ThinkingBlock } from "./components/chat/ThinkingBlock.js";
-import { ToolCallStep } from "./components/chat/ToolCallStep.js";
 import { LoginGate } from "./components/identity/LoginGate.js";
-import { MarkdownContent } from "./components/preview/MarkdownContent.js";
-import { LogBlock } from "./components/primitives/LogBlock.js";
-import { PathPickerDialog } from "./components/primitives/PathPickerDialog.js";
-import { OAuthFlowView } from "./components/settings/OAuthFlowView.js";
-import { makeToolContext } from "./components/tool-renderers/make-tool-context.js";
 import { installFetchWrappers } from "./lib/api/install-fetch-wrappers.js";
 import { migrateLegacyDeviceBearer } from "./lib/pairing/device-auth.js";
-import {
-  ModelSelectorPrimitive,
-  ThinkingLevelSelectorPrimitive,
-} from "./lib/plugins/shell-primitives.js";
+import { createHostPrimitiveRegistry } from "./lib/plugins/host-primitives.js";
 import { installUnhandledRejectionReporter } from "./lib/report-error.js";
 
 // `/pair` is a device-only landing; load it on demand so it stays off the
@@ -71,108 +34,11 @@ const PairLanding = React.lazy(() =>
 // See change: cleanup-client-plugin-promises (design D2).
 installUnhandledRejectionReporter();
 
-const primitiveRegistry = createUiPrimitiveRegistry();
-registerUiPrimitive(primitiveRegistry, UI_PRIMITIVE_KEYS.agentCard, AgentCardShell);
-registerUiPrimitive(primitiveRegistry, UI_PRIMITIVE_KEYS.markdownContent, MarkdownContent);
-// `confirmDialog` primitive — re-skinned over the unified `Confirm`/`Dialog`
-// without changing the narrow contract plugins depend on. Maps the registry's
-// `onCancel` to `Confirm`'s `onClose`, supplies no title (always open while
-// rendered), and lets `Confirm`'s default primary intent apply.
-// See change: unify-dialog-system.
-const ConfirmDialogPrimitive: React.FC<UiConfirmDialogProps> = ({
-  message,
-  confirmLabel,
-  onConfirm,
-  onCancel,
-}) => (
-  <Confirm
-    open
-    onClose={onCancel}
-    onConfirm={onConfirm}
-    title=""
-    message={message}
-    confirmLabel={confirmLabel}
-    testId="confirm-dialog"
-  />
-);
-registerUiPrimitive(
-  primitiveRegistry,
-  UI_PRIMITIVE_KEYS.confirmDialog,
-  ConfirmDialogPrimitive,
-);
-registerUiPrimitive(primitiveRegistry, UI_PRIMITIVE_KEYS.dialog, Dialog);
-registerUiPrimitive(primitiveRegistry, UI_PRIMITIVE_KEYS.dialogPortal, DialogPortal);
-registerUiPrimitive(
-  primitiveRegistry,
-  UI_PRIMITIVE_KEYS.searchableSelectDialog,
-  SearchableSelectDialog,
-);
-registerUiPrimitive(primitiveRegistry, UI_PRIMITIVE_KEYS.zoomControls, ZoomControls);
-registerUiPrimitive(primitiveRegistry, UI_PRIMITIVE_KEYS.formatTokens, formatTokens);
-registerUiPrimitive(primitiveRegistry, UI_PRIMITIVE_KEYS.formatDuration, formatDuration);
-registerUiPrimitive(primitiveRegistry, UI_PRIMITIVE_KEYS.actionList, ActionList);
-registerUiPrimitive(primitiveRegistry, UI_PRIMITIVE_KEYS.statusPill, StatusPill);
-registerUiPrimitive(primitiveRegistry, UI_PRIMITIVE_KEYS.popover, Popover);
-registerUiPrimitive(primitiveRegistry, UI_PRIMITIVE_KEYS.logBlock, LogBlock);
-// Generic OAuth sign-in flow body for plugin settings sections.
-// See change: expose-plugin-credential-and-oauth-seams (D6).
-registerUiPrimitive(primitiveRegistry, UI_PRIMITIVE_KEYS.oauthFlow, OAuthFlowView);
-// Folder picker for plugin settings (transient input; soft hook only).
-// See change: improve-kb-settings-sources-and-search.
-registerUiPrimitive(primitiveRegistry, UI_PRIMITIVE_KEYS.pathPicker, PathPickerDialog);
-
-// `toolCallStep` primitive — plugin timelines (e.g. flow-plugin's
-// MinimalChatView) consume this to render tool calls with the same
-// per-tool renderers and visual style as the main chat view. The
-// shell's `ToolCallStep` requires a `ToolContext` (editors list, cwd,
-// session) plus `onAbort` / `onForceKill`; popout/inline views can't
-// abort tools, so we adapt the primitive to omit those and supply a
-// minimal context. See change: fix-flows-plugin-polish (chat-view parity).
-const ToolCallStepPrimitive: React.FC<UiToolCallStepProps> = (props) => (
-  <ToolCallStep
-    toolName={props.toolName}
-    toolCallId={props.toolCallId}
-    args={props.args}
-    status={props.status}
-    result={props.result}
-    images={props.images}
-    toolDetails={props.toolDetails}
-    startedAt={props.startedAt}
-    duration={props.duration}
-    context={makeToolContext({ sessionId: props.sessionId })}
-  />
-);
-registerUiPrimitive(
-  primitiveRegistry,
-  UI_PRIMITIVE_KEYS.toolCallStep,
-  ToolCallStepPrimitive,
-);
-
-registerUiPrimitive(
-  primitiveRegistry,
-  UI_PRIMITIVE_KEYS.modelSelector,
-  ModelSelectorPrimitive,
-);
-registerUiPrimitive(
-  primitiveRegistry,
-  UI_PRIMITIVE_KEYS.thinkingLevelSelector,
-  ThinkingLevelSelectorPrimitive,
-);
-
-const ThinkingBlockPrimitive: React.FC<UiThinkingBlockProps> = (props) => (
-  <ThinkingBlock
-    content={props.content}
-    isStreaming={props.isStreaming}
-    defaultExpanded={props.defaultExpanded}
-    startedAt={props.startedAt}
-    duration={props.duration}
-  />
-);
-registerUiPrimitive(
-  primitiveRegistry,
-  UI_PRIMITIVE_KEYS.thinkingBlock,
-  ThinkingBlockPrimitive,
-);
+// UI primitive registry — see change: add-plugin-ui-primitive-registry. The full
+// registration list (every UI_PRIMITIVE_KEYS entry, incl. the self-providing
+// `ui:chat-view` / `ui:elapsed-badge`) lives in `createHostPrimitiveRegistry()`,
+// shared with the standalone chat-embed. See change: decouple-plugins-from-core.
+const primitiveRegistry = createHostPrimitiveRegistry();
 
 // Install the global fetch wrappers (single ordered seam — see
 // lib/api/install-fetch-wrappers.ts): paired-device bearer on same-origin

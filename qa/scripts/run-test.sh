@@ -43,6 +43,18 @@ echo ""
 echo "=== Uploading tests ==="
 scp -i "$SSH_KEY" -o StrictHostKeyChecking=no -r "$QA_DIR/tests" "${SSH_USER}@${VM_IP}:/tmp/qa-tests"
 
+# The dist-only plugin scripts (47..51) pack their fixture plugins with this helper and look for it NEXT TO
+# the scripts (they run from /tmp/qa-tests on the VM, where `qa/scripts` does not exist).
+scp -i "$SSH_KEY" -o StrictHostKeyChecking=no "$SCRIPT_DIR/pack-fixture-plugin.mjs" "${SSH_USER}@${VM_IP}:/tmp/qa-tests/" >/dev/null
+# Optional: a STAGED runtime canary (`node scripts/stage-runtime-canary.mjs --out <d> --mode untrusted`, then
+# QA_CANARY_DIR=<d>/plugins/runtime-canary) for 47-plugin-runtime-dist-only.sh; it SKIPs when absent.
+QA_ENV=""
+if [ -n "${QA_CANARY_DIR:-}" ] && [ -f "${QA_CANARY_DIR}/package.json" ] && [[ "$PLATFORM" != windows* ]]; then
+  echo "=== Uploading staged runtime canary ==="
+  scp -i "$SSH_KEY" -o StrictHostKeyChecking=no -r "$QA_CANARY_DIR" "${SSH_USER}@${VM_IP}:/tmp/qa-canary" >/dev/null
+  QA_ENV="QA_CANARY_DIR=/tmp/qa-canary "
+fi
+
 # Optional: upload Electron ZIP artifact for the V2 bootstrap test
 # (qa/tests/07-electron-bootstrap-v2.ps1). The test skips when absent.
 # Override location via QA_ELECTRON_ZIP env; default looks in the
@@ -66,7 +78,7 @@ if [[ "$PLATFORM" == windows* ]]; then
   $SSH_CMD "powershell -ExecutionPolicy Bypass -File /tmp/qa-tests/run-all.ps1"
 else
   # Unix: use bash test runner
-  $SSH_CMD "chmod +x /tmp/qa-tests/*.sh && bash /tmp/qa-tests/run-all.sh"
+  $SSH_CMD "chmod +x /tmp/qa-tests/*.sh && ${QA_ENV}bash /tmp/qa-tests/run-all.sh"
 fi
 
 TEST_EXIT=$?

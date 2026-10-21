@@ -5,7 +5,10 @@
  *
  * See change: add-editor-pane-file-handlers (D5).
  */
-import { useSlotClaimsVersion, useSlotRegistryOrNull } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  useSlotClaimsVersion,
+  useSlotRegistryOrNull,
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { createContext, useContext, useMemo, useSyncExternalStore } from "react";
 import { type FileHandlerClaim, listFileHandlerClaims } from "./file-handler-claims.js";
 import { type FileHandlerStore, type FileHandlerStoreState, fileHandlerStore } from "./file-handler-store.js";

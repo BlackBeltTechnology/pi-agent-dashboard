@@ -42,6 +42,7 @@ Triggers: "ship it", "build and ship this change", "run ship-it", "implement + t
 
 ## Step 4.4 — Enforcers (worktree root, no model call)
 - `node scripts/check-conventions.mjs --base origin/develop`
+- `node scripts/check-plugin-boundary.mjs` (core/plugin import ratchet; NEW edge or STALE allowlist row fails)
 - `node scripts/dox-byte-gate.mjs`
 - `node scripts/i18n-lint.mjs --strict` (`--strict` required)
 - `node scripts/i18n-parity.mjs`

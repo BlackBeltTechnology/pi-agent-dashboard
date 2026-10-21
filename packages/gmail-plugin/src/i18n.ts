@@ -14,9 +14,10 @@ export const catalog = {
     audienceErrors:
       "Google 错误页面：org_internal = 账户不属于该组织，请改为“外部”；access_denied = 将账户添加为测试用户；admin_policy_enforced = 该账户的 Workspace 管理员必须信任此 OAuth 客户端。",
     audienceHelp:
-      "“内部”仅允许项目所属 Workspace 组织的账户：只有当你要连接的每个账户都属于该组织时才选择它。否则选择“外部”，并将要连接的每个地址添加为测试用户。测试模式下令牌 7 天后过期；“发布应用”可获得更长期的令牌，但会显示未验证应用警告。",
+      "“内部”仅允许项目所属 Workspace 组织的账户：只有当你要连接的每个账户都属于该组织时才选择它。否则选择“外部”，并将要连接的每个地址添加为测试用户。测试模式下令牌 7 天后过期。发布应用可取消 7 天令牌过期限制；未验证的应用会显示 Google 警告，且最多允许 100 个用户；在测试模式下添加的账户在发布后需要重新验证一次。",
     clientHelp: "应用类型：桌面应用。下载 JSON。若链接已变更：API 和服务 → 凭据。",
-    consentHint: "在 Google 同意屏幕上勾选每一项权限（全选）。Gmail 权限可能默认未勾选。",
+    consentHint:
+      "Google 以复选框（请勾选）或显示应用“想要获得额外访问权限”的第二个屏幕（请接受）的方式请求 Gmail 权限。只完成第一个屏幕只会让你登录。",
     copied: "已复制",
     copy: "复制",
     copyFailed: "复制失败",
@@ -46,7 +47,8 @@ export const catalog = {
     errNotJson: "该文件不是有效的 JSON。请上传你下载的 client_secret_*.json（第 5 步）。",
     errOrgInternal: "Google 阻止了此账户：OAuth 应用的目标对象为“内部”，仅允许项目所属 Workspace 组织的账户。请将目标对象改为“外部”，并将此账户添加为测试用户（第 3 步）。",
     errRedirectMismatch: "Google 拒绝了重定向地址。请创建桌面应用客户端，而不是 Web 客户端（第 4 步）。",
-    errScopeMissing: "Google 未授予 Gmail 权限。请重新添加账户，并在 Google 同意屏幕上勾选每一项权限。",
+    errScopeMissing:
+      "Google 未授予 Gmail 权限。Google 要么以必须勾选的复选框、要么在第二个屏幕（“想要获得额外访问权限”）上请求该权限，必须接受——只完成第一个屏幕只会让你登录。请在 myaccount.google.com/connections 移除此应用的访问权限，然后重新添加账户。",
     errStartTimeout: "登录未能及时开始。请重试。",
     errStateMismatch: "粘贴的重定向属于另一次登录。请重新开始，并粘贴本次登录的 URL。",
     errTimeout: "等待 Google 超时。如果 Google 显示了错误页面，请通过登录链接下方的选项报告。",
@@ -99,6 +101,42 @@ export const catalog = {
     uploadLabel: "上传 OAuth 客户端 JSON",
     withGcloud: "使用 gcloud（请自行运行）：",
     withoutGcloud: "不使用 gcloud：",
+    projectModeLegend:
+      "项目",
+    projectModeNew:
+      "创建新项目",
+    projectModeExisting:
+      "使用现有项目",
+    projectIdHint:
+      "你的 Google Cloud 项目的 ID，而不是显示名称：小写字母、数字和连字符，例如 my-gmail-agent。控制台的项目列表同时显示两者；ID 在“ID”列。",
+    openProjectList:
+      "打开项目列表",
+    ownerAccount:
+      "所有者账户（可选）",
+    ownerHint:
+      "拥有该项目的 Google 账户。控制台链接和 gcloud 命令将以此账户而不是浏览器的默认账户执行。",
+    errOwnerInvalid:
+      "请输入完整的电子邮件地址，例如 you@gmail.com。",
+    errSetupSave:
+      "无法保存项目 ID，因此未发送上传。请重试（第 1 步）。",
+    errProjectLooksLikeName:
+      "这看起来像项目名称。向导需要项目 ID（小写，例如 pidashboard-510015）：打开项目列表并复制“ID”列。",
+    errProjectInvalid:
+      "项目 ID 为 6–30 个字符：小写字母、数字和连字符，以字母开头，且不以连字符结尾。",
+    projectMismatch:
+      "上传的客户端属于项目 {json}，但已保存的项目 ID 是 {saved}。",
+    projectMismatchUse:
+      "使用 {id}",
+    authLoginNote:
+      "请先运行一次，以便 gcloud 以所有者账户执行：",
+    findProject:
+      "查找项目的 ID：",
+    needValidProjectId:
+      "需要有效的项目 ID，项目链接和命令才会出现。",
+    filtersFor:
+      "{email} 的过滤器",
+    filtersHelp:
+      "过滤器让代理可以列出、创建和删除 Gmail 过滤器。开启时会向 Google 请求一项额外权限（gmail.settings.basic）；创建和删除还需要 send 级别。",
   },
   hu: {
     accounts: "Fiókok",
@@ -109,11 +147,11 @@ export const catalog = {
     audienceErrors:
       "Google hibaoldalak: org_internal = a fiók a szervezeten kívül van, válts Külsőre; access_denied = vedd fel a fiókot tesztfelhasználóként; admin_policy_enforced = a fiók Workspace-adminisztrátorának meg kell bíznia ebben az OAuth-ügyfélben.",
     audienceHelp:
-      "A Belső csak a projekt saját Workspace-szervezetének fiókjait engedi be: csak akkor válaszd, ha minden csatlakoztatandó fiók ehhez a szervezethez tartozik. Egyébként válaszd a Külsőt, és vedd fel tesztfelhasználóként minden csatlakoztatandó címet. Tesztelés módban a tokenek 7 nap után lejárnak; az „Alkalmazás közzététele” hosszabb életű tokeneket ad, nem ellenőrzött alkalmazás figyelmeztetéssel.",
+      "A Belső csak a projekt saját Workspace-szervezetének fiókjait engedi be: csak akkor válaszd, ha minden csatlakoztatandó fiók ehhez a szervezethez tartozik. Egyébként válaszd a Külsőt, és vedd fel tesztfelhasználóként minden csatlakoztatandó címet. Tesztelés módban a tokenek 7 nap után lejárnak. Az alkalmazás közzététele megszünteti a 7 napos lejáratot; a nem ellenőrzött alkalmazás Google-figyelmeztetést mutat, és legfeljebb 100 felhasználót enged be; a Tesztelés alatt hozzáadott fiókoknak közzététel után egyszer újra kell hitelesíteniük.",
     clientHelp:
       "Alkalmazástípus: Asztali alkalmazás. Töltsd le a JSON-t. Ha a link elköltözött: API-k és szolgáltatások → Hitelesítő adatok.",
     consentHint:
-      "A Google hozzájárulási képernyőjén pipálj be minden engedélyt (Összes kijelölése). A Gmail-engedély kezdetben kipipálatlan lehet.",
+      "A Google a Gmail-engedélyt vagy jelölőnégyzetként kéri (pipáld be), vagy egy második képernyőn, amely szerint az alkalmazás „további hozzáférést kér” (fogadd el). Ha az első képernyő után megállsz, az csak bejelentkeztet.",
     copied: "Másolva",
     copy: "Másolás",
     copyFailed: "A másolás nem sikerült",
@@ -155,7 +193,7 @@ export const catalog = {
     errRedirectMismatch:
       "A Google elutasította az átirányítási címet. Asztali alkalmazás ügyfelet hozz létre, ne webes ügyfelet (4. lépés).",
     errScopeMissing:
-      "A Google nem adta meg a Gmail-engedélyt. Add hozzá újra a fiókot, és a Google hozzájárulási képernyőjén pipálj be minden engedélyt.",
+      "A Google nem adta meg a Gmail-engedélyt. A Google vagy jelölőnégyzetként kéri, amelyet be kell pipálnod, vagy egy második képernyőn („további hozzáférést kér”), amelyet el kell fogadnod — az első képernyő után megállva csak bejelentkezel. Távolítsd el az alkalmazás hozzáférését a myaccount.google.com/connections oldalon, majd add hozzá újra a fiókot.",
     errStartTimeout: "A bejelentkezés nem indult el időben. Próbáld újra.",
     errStateMismatch:
       "A beillesztett átirányítás egy másik bejelentkezéshez tartozik. Kezdd újra, és ennek a bejelentkezésnek az URL-jét illeszd be.",
@@ -213,5 +251,41 @@ export const catalog = {
     uploadLabel: "OAuth-ügyfél JSON feltöltése",
     withGcloud: "gcloud-dal (futtasd magad):",
     withoutGcloud: "gcloud nélkül:",
+    projectModeLegend:
+      "Projekt",
+    projectModeNew:
+      "Új projekt létrehozása",
+    projectModeExisting:
+      "Meglévő projekt használata",
+    projectIdHint:
+      "A Google Cloud projekt azonosítója, nem a megjelenített neve: kisbetűk, számok és kötőjelek, például my-gmail-agent. A konzol projektlistája mindkettőt mutatja; az azonosító az ID oszlopban van.",
+    openProjectList:
+      "Projektlista megnyitása",
+    ownerAccount:
+      "Tulajdonos fiók (nem kötelező)",
+    ownerHint:
+      "A projektet birtokló Google-fiók. A konzol-linkek és a gcloud-parancsok ekkor ezzel a fiókkal járnak el a böngésző alapértelmezett fiókja helyett.",
+    errOwnerInvalid:
+      "Adj meg teljes e-mail-címet, például you@gmail.com.",
+    errSetupSave:
+      "A projektazonosítót nem sikerült menteni, ezért a feltöltés nem indult el. Próbáld újra (1. lépés).",
+    errProjectLooksLikeName:
+      "Ez a projekt nevének tűnik. A varázslónak a projektazonosító kell (kisbetűs, például pidashboard-510015): nyisd meg a projektlistát, és másold ki az ID oszlopot.",
+    errProjectInvalid:
+      "A projektazonosító 6–30 karakter: kisbetűk, számok és kötőjelek, betűvel kezdődik, és nem végződik kötőjellel.",
+    projectMismatch:
+      "A feltöltött ügyfél a(z) {json} projekthez tartozik, de a mentett projektazonosító {saved}.",
+    projectMismatchUse:
+      "{id} használata",
+    authLoginNote:
+      "Futtasd le egyszer előbb, hogy a gcloud a tulajdonos fiókkal járjon el:",
+    findProject:
+      "A projekt azonosítójának megkeresése:",
+    needValidProjectId:
+      "Érvényes projektazonosító kell ahhoz, hogy a projekt linkjei és parancsai megjelenjenek.",
+    filtersFor:
+      "{email} szűrői",
+    filtersHelp:
+      "A szűrők lehetővé teszik, hogy az ügynökök Gmail-szűrőket listázzanak, hozzanak létre és töröljenek. A bekapcsolás egy plusz engedélyt kér a Google-tól (gmail.settings.basic); a létrehozáshoz és a törléshez send szint is kell.",
   },
 };

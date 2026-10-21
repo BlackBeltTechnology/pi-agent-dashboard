@@ -5,9 +5,15 @@
 // real fetch rejection so callers can distinguish it from a server response.
 // Only navigation/asset requests get the synthetic "Offline" fallback.
 // See change: fix-openspec-profile-load-race.
+//
+// /plugin-assets/* (content-addressed runtime plugin bundles) and /host/* (the host import-map shims)
+// are forwarded untouched too: they are ES module imports, so a fabricated "Offline" text/plain 503 would
+// surface as a confusing MIME error instead of the real network failure, and the loader's own error
+// handling must see the real response. See change: decouple-plugins-from-core (6.19).
+const PASS_THROUGH_PREFIXES = ["/api/", "/plugin-assets/", "/host/"];
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
-  if (url.pathname.startsWith("/api/")) {
+  if (PASS_THROUGH_PREFIXES.some((prefix) => url.pathname.startsWith(prefix))) {
     // Pass through; do NOT mask failures as a fabricated 503.
     return; // let the browser perform the default network fetch
   }

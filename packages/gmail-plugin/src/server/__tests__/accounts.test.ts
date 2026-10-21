@@ -106,3 +106,27 @@ describe("CodeRabbit — alias uniqueness under concurrency", () => {
     expect((await store.list()).filter((a) => a.alias === "work")).toHaveLength(1);
   });
 });
+
+describe("test-plan #E20 — filters flag", () => {
+  const signIn = { sub: "s1", email: "a@x.com", tier: "readonly" as const, scopes: [], access: "a2", expires: 5 };
+
+  it("an Add-account sign-in (filters undefined) keeps the stored flag", async () => {
+    const store = new AccountStore(memoryCredentials({ [acctKey("s1")]: { ...acct("s1", "a@x.com"), filters: true } }));
+    await store.upsertFromSignIn(signIn);
+    expect((await store.get("s1"))?.filters).toBe(true);
+  });
+
+  it("an explicit filters value is written (true sets, false clears)", async () => {
+    const store = new AccountStore(memoryCredentials({ [acctKey("s1")]: acct("s1", "a@x.com") }));
+    await store.upsertFromSignIn({ ...signIn, filters: true });
+    expect((await store.get("s1"))?.filters).toBe(true);
+    await store.upsertFromSignIn({ ...signIn, filters: false });
+    expect((await store.get("s1"))?.filters).toBeUndefined();
+  });
+
+  it("setFilters toggles the flag", async () => {
+    const store = new AccountStore(memoryCredentials({ [acctKey("s1")]: acct("s1", "a@x.com") }));
+    expect((await store.setFilters("s1", true)).filters).toBe(true);
+    expect((await store.setFilters("s1", false)).filters).toBeUndefined();
+  });
+});

@@ -10,7 +10,7 @@ import { FolderKbSection, catalog as kb_catalog } from "@blackbelt-technology/pi
 import { FolderMcpSection } from "@blackbelt-technology/pi-dashboard-mcp-client-plugin";
 import { catalog as roles_catalog } from "@blackbelt-technology/pi-dashboard-roles-plugin";
 import { SkillAtlasSection, FolderAtlasMenu, ProjectAtlasClaim, GlobalAtlasClaim, SkillAtlasSettings, catalog as skill_atlas_catalog } from "@blackbelt-technology/pi-dashboard-skill-atlas-plugin";
-import { catalog as subagents_catalog } from "@blackbelt-technology/pi-dashboard-subagents-plugin";
+import { isAgentResultNotReceived, catalog as subagents_catalog, sessionEventReducer as subagents_sessionEventReducer, toolRowFinalizers as subagents_toolRowFinalizers } from "@blackbelt-technology/pi-dashboard-subagents-plugin";
 import { FolderTeamSection, catalog as team_catalog } from "@blackbelt-technology/pi-dashboard-team-plugin";
 import { MemorySubcard, shouldRenderMemorySubcard, isPipelineDetailActive, OmEntryCard, catalog as blackhole_catalog } from "@blackbelt-technology/pi-dashboard-blackhole-plugin";
 import { catalog as system_one_catalog } from "@blackbelt-technology/pi-dashboard-system-one-plugin";
@@ -24,11 +24,15 @@ import { WebSearchEntryCard, catalog as web_access_catalog } from "@blackbelt-te
 import { lazyClaim } from "@blackbelt-technology/dashboard-plugin-runtime";
 
 import type { PluginManifest } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js";
-import type { ClaimEntry } from "@blackbelt-technology/dashboard-plugin-runtime";
+import type { ClaimEntry } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 
 export interface RegistryEntry {
   manifest: PluginManifest;
   claims: ClaimEntry[];
+  /** Session event reducer slice the client entry exports as `sessionEventReducer`. Registered by the shell via `./host`. */
+  sessionEventReducer?: import("@blackbelt-technology/dashboard-plugin-runtime").SessionEventReducerSlice<any>;
+  /** Tool-row finalizers the client entry exports as `toolRowFinalizers`. Registered by the shell via `./host`. */
+  toolRowFinalizers?: import("@blackbelt-technology/dashboard-plugin-runtime").ToolRowFinalizer<any>[];
   /** Plugin i18n catalog (unprefixed keys). Merged under plugin.<id>.* by the shell. */
   catalog?: import("@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js").PluginI18nCatalog;
 }
@@ -254,7 +258,10 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
         "server": "./src/server/index.ts",
         "bridge": "./src/bridge/index.ts",
         "configSchema": "./src/configSchema.json",
-        "i18nCatalog": "catalog"
+        "i18nCatalog": "catalog",
+        "eventTypes": [
+            "flow_*"
+        ]
     },
     claims: [
       { pluginId: "flows", priority: 100, slot: "session-card-flows", Component: SessionFlowActionsClaim, shouldRender: shouldRenderFlowsSubcard },
@@ -561,6 +568,14 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
                 "sessionParam": "sessionId",
                 "depth": 2,
                 "parentPath": "/session/:sessionId"
+            },
+            {
+                "slot": "tool-renderer",
+                "component": "AgentToolRenderer",
+                "module": "./src/client/AgentToolRenderer.tsx",
+                "toolName": "Agent",
+                "expandWhileRunning": true,
+                "resultPending": "isAgentResultNotReceived"
             }
         ],
         "client": "./src/client/index.tsx",
@@ -572,12 +587,18 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
             "piExtensions": [
                 "@blackbelt-technology/pi-dashboard-subagents"
             ]
-        }
+        },
+        "eventTypes": [
+            "subagent_*"
+        ]
     },
     claims: [
       { pluginId: "subagents", priority: 100, slot: "settings-section", tab: "general", Component: lazyClaim(() => import("../../../subagents-plugin/src/client/SubagentsSettings"), "SubagentsSettings") },
       { pluginId: "subagents", priority: 100, slot: "shell-overlay-route", path: "/session/:sessionId/subagent/:agentId", sessionParam: "sessionId", depth: 2, parentPath: "/session/:sessionId", Component: lazyClaim(() => import("../../../subagents-plugin/src/client/SubagentPopoutClaim"), "SubagentPopoutClaim") },
+      { pluginId: "subagents", priority: 100, slot: "tool-renderer", toolName: "Agent", expandWhileRunning: true, Component: lazyClaim(() => import("../../../subagents-plugin/src/client/AgentToolRenderer"), "AgentToolRenderer"), resultPending: isAgentResultNotReceived },
     ],
+    sessionEventReducer: subagents_sessionEventReducer,
+    toolRowFinalizers: subagents_toolRowFinalizers,
     catalog: subagents_catalog,
   },
   {
@@ -1127,4 +1148,4 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "c6c963c24cc16a95927d9b14646df18d3eaba40e30e42738545d2857b6e00a2e";
+export const PLUGIN_REGISTRY_HASH = "ecddc750bacdbe3f54bea9fd0c00e8e8074cdbfe4c8c8784b7bfc5014ff713fb";

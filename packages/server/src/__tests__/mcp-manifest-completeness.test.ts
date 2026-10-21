@@ -235,3 +235,13 @@ describe("X8 — /api/questions routes are tiered and denylisted", () => {
     for (const r of QUESTION_ROUTES) expect(registered.has(`${r.method} ${r.path}`), `${r.method} ${r.path}`).toBe(true);
   });
 });
+
+describe("improve-gmail-plugin-setup-ux E29 — gmail setup + filters routes are triaged", () => {
+  it.each([
+    ["PUT", "/api/plugins/gmail/setup"],
+    ["POST", "/api/plugins/gmail/accounts/:sub/filters"],
+  ])("%s %s is an operate route covered by the gmail denylist prefix", (method, path) => {
+    expect(ROUTE_TIERS.find((e) => e.method === method && e.path === path)?.tier).toBe("operate");
+    expect(isDenylisted(path)).toBe(true);
+  });
+});
