@@ -99,6 +99,11 @@ export function releasePromptChannel(socketId: string): void {
   channels.delete(socketId);
 }
 
+/** Whether `socketId` still holds a live capability (provisioning: the gateway's per-socket check). */
+export function hasPromptChannel(socketId: string): boolean {
+  return channels.has(socketId);
+}
+
 /** Live capability count (diagnostics and tests only). */
 export function promptChannelCount(): number {
   return channels.size;

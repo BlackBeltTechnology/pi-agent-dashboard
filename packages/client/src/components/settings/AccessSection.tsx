@@ -278,7 +278,7 @@ export function AccessSection({ configTrustMode }: { configTrustMode?: "pair" | 
                           {i18nT("access.columnGranted", undefined, "Granted")}: {entry.grantedAt}
                         </span>
                       )}
-                      {entry.origin && (
+                      {entry.origin && entry.via !== "provision" && (
                         <span data-testid="access-entry-origin">
                           {i18nT("access.columnOrigin", undefined, "Origin")}: {entry.origin}
                         </span>
@@ -287,6 +287,21 @@ export function AccessSection({ configTrustMode }: { configTrustMode?: "pair" | 
                         <span data-testid="access-entry-via-agent-prompt">
                           {i18nT("access.viaAgentPrompt", undefined, "Agent prompt")}
                         </span>
+                      ) : entry.via === "provision" ? (
+                        // The project root is the requester's claim, never "belongs to"; it replaces `Origin:` (same value).
+                        <>
+                          <span
+                            data-testid="access-entry-via-provision"
+                            className="shrink-0 rounded border border-[var(--severity-info-border)] bg-[var(--severity-info-bg)] px-1.5 font-semibold text-[var(--severity-info-fg)]"
+                          >
+                            {i18nT("access.viaProvision", undefined, "Provisioned")}
+                          </span>
+                          {entry.origin && (
+                            <span data-testid="access-entry-requested-for">
+                              {i18nT("access.requestedFor", { project: entry.origin }, "requested for {project}")}
+                            </span>
+                          )}
+                        </>
                       ) : (
                         // `prompt` and any unknown future `via` render as a generic prompt origin.
                         entry.via && (

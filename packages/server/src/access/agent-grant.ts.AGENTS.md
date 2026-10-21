@@ -1,0 +1,3 @@
+# agent-grant.ts — index
+
+`handlePathGrantRequest(connectionSessionId, msg, deps)` → `path_grant_result`. Binds to connection session + confirm registry (single use), re-derives the subject from the confirmed PATH (`realpathNearestAncestor(path)` when a directory, else its `dirname` — the gate's rule) and refuses unless it equals the confirmed subject (ancestor-subject / swapped-symlink / path-change refused), `isUngrantableSubject`, `recordGrant({scope:"project", via:"agent-prompt", origin: session})`. Logs accepted/refused with cause. Bridge never writes the store. See change: ask-agent-file-access-in-chat. Consumes `confirm` kind only. See change: yolo-covers-agent-path-gate.

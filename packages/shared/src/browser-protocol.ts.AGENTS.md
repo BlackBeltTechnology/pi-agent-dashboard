@@ -50,3 +50,5 @@ Server→browser: `ServicesChangedMessage` (`services_changed`, type only) — c
 Server→browser `ArchiveSessionErrorMessage` (`archive_session_error {sessionId, error}`): reply to the requester when `archive_session` is rejected. See change: fix-orphaned-ended-session-archive.
 
 - `terminal_limit_reached {scope,limit,cwd,inline}` + `folder_refused {path,reason}` server→browser, requesting socket only. See change: harden-server-capability-bounds.
+
+- Provisioning frames (change: add-access-provisioning): server→browser `ProvisionRequestMessage {requestId, projectRoot, lines[{lineId,path,why,classification,projectRoot?}], remote[], expiresAt, ttlMs?}` + `ProvisionDismissMessage {requestId, reason settled|expired|dismissed}`; browser→server `ProvisionResponseMessage {requestId, lines[{lineId, verdict approve|reject, piTrust?}]}` (omitted line = reject). Unioned; `provision_response` operate tier, capability-gated server-side (D3).

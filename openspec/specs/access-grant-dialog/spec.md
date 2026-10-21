@@ -116,34 +116,6 @@ so the operator knows whether answering resumes something in flight.
 - **WHEN** a dialog is raised for a denial that was already answered
 - **THEN** it SHALL state that the verdict applies to a subsequent attempt
 
-### Requirement: Prompting is opt-in and can be disabled outright
-
-Prompting SHALL be disabled by default and SHALL be enabled only by explicit
-operator configuration. An environment variable SHALL disable prompting
-regardless of configuration, for automated environments where a browser is
-connected but no human is present.
-
-Disabling prompting SHALL suppress only the prompt: existing grants SHALL remain
-in force, and denials SHALL still be recorded for review.
-
-#### Scenario: Default deployment never prompts
-
-- **WHEN** the feature has not been enabled
-- **THEN** no dialog SHALL ever be raised
-- **AND** every guard SHALL behave exactly as before
-
-#### Scenario: Automated environments suppress prompts despite a connected browser
-
-- **GIVEN** the disabling environment variable is set and a browser is connected
-- **WHEN** a prompt-eligible denial occurs
-- **THEN** no dialog SHALL be raised
-- **AND** the denial SHALL still be recorded
-
-#### Scenario: Disabling does not revoke
-
-- **WHEN** prompting is disabled after grants were created
-- **THEN** those grants SHALL continue to apply
-
 ### Requirement: A dialog is never raised for a subject no answer can grant
 
 A denial whose subject is refused by the forbidden-subject rule SHALL NOT raise
@@ -166,3 +138,45 @@ resumed request would then refuse.
 - **GIVEN** prompting is enabled and the host gate enforces
 - **WHEN** an eligible filesystem denial names a directory that is not forbidden
 - **THEN** a dialog SHALL be raised
+
+### Requirement: Prompting is on by default and can be disabled outright
+
+Prompting SHALL be enabled by default: an absent setting enables it, and only an
+explicit operator configuration of `false` disables it. An existing explicit
+setting SHALL be kept as it is. An environment variable SHALL disable prompting
+regardless of configuration, for automated environments where a browser is
+connected but no human is present.
+
+Disabling prompting SHALL suppress only the prompt: existing grants SHALL remain
+in force, and denials SHALL still be recorded for review.
+
+#### Scenario: Default deployment prompts
+
+- **GIVEN** a configuration with no prompting setting, Host admission enforced and an operator browser connected
+- **WHEN** a prompt-eligible denial occurs
+- **THEN** a dialog SHALL be raised
+
+#### Scenario: Explicitly disabled deployment never prompts
+
+- **GIVEN** prompting is set to `false` in configuration
+- **WHEN** a prompt-eligible denial occurs
+- **THEN** no dialog SHALL be raised
+- **AND** every guard SHALL behave exactly as it does with prompting absent from the product
+
+#### Scenario: An explicit setting survives the default change
+
+- **GIVEN** a configuration written before this change with prompting set to `false`
+- **WHEN** the dashboard starts
+- **THEN** prompting SHALL stay disabled
+
+#### Scenario: Automated environments suppress prompts despite a connected browser
+
+- **GIVEN** the disabling environment variable is set and a browser is connected
+- **WHEN** a prompt-eligible denial occurs
+- **THEN** no dialog SHALL be raised
+- **AND** the denial SHALL still be recorded
+
+#### Scenario: Disabling does not revoke
+
+- **WHEN** prompting is disabled after grants were created
+- **THEN** those grants SHALL continue to apply

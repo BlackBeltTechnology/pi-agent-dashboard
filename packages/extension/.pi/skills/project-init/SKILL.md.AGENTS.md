@@ -5,3 +5,5 @@ OpenSpec (coding only): Step 3b computes `OPENSPEC_MODE` (`offer`/`repair`/`skip
 Guard: `packages/extension/src/__tests__/project-init-openspec-skill-text.test.ts`. See change: fix-project-setup-completion-state.
 
 Workflow-schema flag: Step 3b reads `openspec.workflowSchema.defaultForNewProjects` as `ENABLE_SCHEMA` (literal `true` only; never affects `OPENSPEC_MODE`). Step 3c preview lists the follow-up; Step 6 (mode `offer` only, after successful init) calls `POST /api/openspec/workflow-schema` `{cwd, action:"enable"}`; failure never fails init. Never for `repair`/`skip`. Guard: `project-init-openspec-skill-text.test.ts`. See change: add-pi-spec-driven-schema.
+
+Step 4c (after scaffold, all profiles): separate opt-in `ask_user` to provision folder access via `project-access` `provision`; lines from `.pi/access.json` (v1) or user list; announced last in Step 3c preview; declined/refused/`no-operator`/expired never fails init (`no-operator` → retry later with `project-access`). Guard: `packages/extension/src/__tests__/project-access-skill-text.test.ts`. See change: add-access-provisioning.

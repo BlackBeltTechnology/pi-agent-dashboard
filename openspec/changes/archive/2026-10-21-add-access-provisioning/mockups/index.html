@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Access provisioning: dialog + Access page (proposed)</title>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="mockup.css" />
+<link rel="stylesheet" href="prov.css" />
+<script src="icons.js"></script>
+<script src="probe.js"></script>
+</head>
+<body>
+<div class="toolbar" role="toolbar" aria-label="Board controls">
+  <h1>Access provisioning (proposed)</h1>
+  <span class="seg-label" id="lbl-theme">Theme</span>
+  <div class="seg" aria-labelledby="lbl-theme" data-group="theme">
+    <button aria-pressed="true" data-v="base-dark">Base dark</button>
+    <button aria-pressed="false" data-v="base-light">Base light</button>
+    <button aria-pressed="false" data-v="nord-dark">Nord dark</button>
+  </div>
+  <span class="seg-label" id="lbl-w">Frame</span>
+  <div class="seg" aria-labelledby="lbl-w" data-group="width">
+    <button aria-pressed="false" data-v="375">375</button>
+    <button aria-pressed="false" data-v="768">768</button>
+    <button aria-pressed="true" data-v="full">Full</button>
+  </div>
+  <span class="pill neutral" id="probe-all" title="Contrast and text-size probe over every frame">probe…</span>
+</div>
+<nav class="jump" aria-label="States">
+  <a href="#s0">S0 Line classes</a><a href="#s1">S1 Dialog: 6 lines</a><a href="#s2">S2 Dialog: 32 lines</a><a href="#s3">S3 Dialog: remote only</a><a href="#s4">S4 Access: answerable</a><a href="#s5">S5 Access: read-only</a><a href="#s6">S6 Grant label + notices</a>
+</nav>
+<main id="board"></main>
+
+<script>
+/* ── helpers ─────────────────────────────────────────────────── */
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const code = (s) => s.replace(/`([^`]+)`/g, (_, c) => `<code>${esc(c)}</code>`);
+const ic = (n, cls = "") => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true"><path d="${ICON[n] || ""}"/></svg>`;
+let uid = 0;
+
+/* D4 classes, in first-match order. Copy is the proposal for the real strings. */
+const CLS = {
+  invalid:   { n: 1, pill: "warning", icon: "AlertOutline",       label: "Not a valid path",     exp: "This can't be read as a path, so nothing was resolved.", ok: false },
+  missing:   { n: 2, pill: "warning", icon: "FolderOffOutline",   label: "Not a folder",         exp: "No folder exists at this path. A file doesn't count.", ok: false },
+  forbidden: { n: 3, pill: "error",   icon: "Cancel",             label: "Can't be granted",     exp: "This folder can't be granted to anyone, for example your home folder.", ok: false },
+  sensitive: { n: 4, pill: "error",   icon: "ShieldLockOutline",  label: "Credential folder",    exp: "Holds credentials, or contains a folder that does. Never provisioned.", ok: false },
+  "in-root": { n: 5, pill: "neutral", icon: "FolderCheckOutline", label: "In the project folder", exp: "Sessions in this project already have it. No grant needed.", ok: false },
+  covered:   { n: 6, pill: "success", icon: "CheckCircleOutline", label: "Already allowed",      exp: "An existing grant already admits this folder.", ok: false },
+  grantable: { n: 7, pill: "info",    icon: "FolderOutline",      label: "Needs your approval",  exp: "", ok: true },
+};
+const GOAL = {
+  lan:      { name: "Reach this dashboard from other devices on your network", task: "Allow devices on my network" },
+  internet: { name: "Share this dashboard over the internet",                  task: "Share over the internet" },
+  device:   { name: "Sign in from a phone or laptop",                          task: "Let a phone or laptop in" },
+};
+const TRUST_T = "Also trust this folder in pi";
+const TRUST_C = "Lets every project extension and MCP server in this folder and below, including ones added later, start with pi. This is wider than approving one hook script.";
+const REACH = `<strong>Approved folders become readable and writable by every session on this machine</strong> until you revoke them in Settings → Access.`;
+const LIMIT = `Approving records your consent. It does not protect against a program on this machine that changes access by other means.`;
+const CONSEQ = `<div class="csq" data-testid="provision-consequence"><p>${REACH}</p><p class="csq-limit">${LIMIT}</p></div>`;
+
+/* ── line + goal + trust ─────────────────────────────────────── */
+function line(l, o) {
+  const c = CLS[l.cls], grant = l.cls === "grantable", id = ++uid;
+  const why = l.why === undefined || l.why === ""
+    ? `<span class="none">no reason given</span>`
+    : esc(l.cut ? l.why.slice(0, 200) : l.why) + (l.cut ? `<span class="cutmark" title="The reason was longer than 200 characters and was shortened.">… cut</span>` : "");
+  const ctl = grant && o.answer
+    ? `<label class="ap"><input type="checkbox" class="ap-cb" aria-label="Approve ${esc(l.path)}"> Approve</label>`
+    : grant ? `<span class="ap-ro">Read-only</span>` : "";
+  const trust = grant && o.answer && l.trust
+    ? `<div class="pt"><input type="checkbox" id="pt${id}"><label for="pt${id}"><span class="t">${TRUST_T}</span><span class="c">${TRUST_C}</span></label></div>` : "";
+  return `<li class="ln" data-class="${l.cls}">
+    <div class="main">
+      <code class="path">${esc(l.path)}</code>
+      ${l.from ? `<div class="src">${l.cls === "invalid" ? "as written" : "resolved from"} <code>${esc(l.from)}</code></div>` : ""}
+      <div class="why"><span class="k">Reason:</span> ${why}</div>
+      <div class="cls"><span class="pill ${c.pill}">${ic(c.icon)}${c.label}</span>${c.exp ? `<span class="exp">${c.exp}</span>` : ""}</div>
+    </div>
+    ${ctl}${trust}
+  </li>`;
+}
+function goals(list, o) {
+  if (!list.length) return "";
+  return `<div class="goals" data-testid="provision-goals">
+    <div class="lh"><h4>Remote access (${list.length})</h4></div>
+    <p class="goals-note">These open the Remote access wizard. This request changes nothing there.</p>
+    ${list.map((k) => `<div class="goal" data-goal="${k}">
+      <div><div class="g">${GOAL[k].name}</div>
+      <div class="to">In Remote access, choose <q>${GOAL[k].task}</q>.</div>
+      ${o && o.opened === k ? `<div class="st"><span class="pill success">${ic("Check")}Remote access opened</span></div>` : ""}</div>
+      <button type="button" class="b open-remote">${ic("OpenInNew")}Open Remote access</button>
+    </div>`).join("")}</div>`;
+}
+const nGrant = (ls) => ls.filter((l) => l.cls === "grantable").length;
+function lines(ls, o) {
+  return `<div class="lh"><h4>Folders (${ls.length})</h4><span class="sum" aria-live="polite">${nGrant(ls)} can be approved${o.answer ? ` · <span class="sel">0</span> selected` : ""}</span></div>
+    <ul class="lines">${ls.map((l) => line(l, o)).join("")}</ul>`;
+}
+
+/* ── dialog (ProvisionPromptDialog) ──────────────────────────── */
+function dialog(r, o = {}) {
+  const folders = r.lines.length > 0;
+  return `<div class="frame"><div class="stage"><div class="dlg${o.tall ? " tall" : ""}" role="dialog" aria-modal="true" aria-labelledby="t${++uid}" data-req data-testid="provision-dialog">
+    <button type="button" class="dlg-x${o.focus ? " is-focus" : ""}" aria-label="Close. Closing rejects every folder.">${ic("Close")}</button>
+    <div class="dlg-head"><span class="dlg-ico">${ic("ShieldAlertOutline")}</span><h3 id="t${uid}">${folders ? "Allow folders for this project?" : "Open Remote access for this project?"}</h3></div>
+    <div class="dlg-body" tabindex="0" role="region" aria-label="Request details">
+      <div class="chips"><span class="pill neutral">Provisioning request</span><span class="pill info">Expires in 9 min</span>${o.queued ? `<span class="push">${o.queued} more waiting</span>` : ""}</div>
+      <p class="claim"><span class="lbl">requested for</span><code class="root">${esc(r.root)}</code><span class="why">The project name is the requester's claim; nothing has verified it.${folders ? " Only the folders you tick are approved." : ""}</span></p>
+      ${folders ? lines(r.lines, { answer: true }) : ""}
+      ${goals(r.goals || [], o)}
+      ${folders ? `<div class="csq in-body"><p>${LIMIT}</p></div>` : ""}
+    </div>
+    <div class="dlg-foot">
+      ${folders ? CONSEQ : ""}
+      <div class="actions">
+      <span class="note">${folders ? "Dismissing rejects every folder." : "Dismissing closes this request."}</span>
+      ${folders
+        ? `<button type="button" class="b reject-all">Reject all</button><button type="button" class="b approve" disabled><span>Approve selected (<span class="sel">0</span>)</span></button>`
+        : `<button type="button" class="b">Dismiss</button>`}
+      </div>
+    </div></div></div></div>`;
+}
+
+/* ── Access page ─────────────────────────────────────────────── */
+function reqCard(r, o) {
+  return `<div class="card rq" data-req data-testid="access-provision-request">
+    <div class="rq-h"><div class="grow"><span class="lbl">requested for</span><div class="subj">${esc(r.root)}</div></div>
+      <span class="pill neutral">Expires in ${r.exp} min</span></div>
+    ${lines(r.lines, o)}
+    ${goals(r.goals || [], {})}
+    ${o.answer ? CONSEQ : ""}
+    ${o.answer ? `<div class="rq-f"><span class="note">Closing this request rejects every folder.</span>
+      <button type="button" class="b reject-all">Reject request</button><button type="button" class="b approve" disabled><span>Approve selected (<span class="sel">0</span>)</span></button></div>` : ""}
+  </div>`;
+}
+const SWITCH = (on) => `<button type="button" class="sw" role="switch" aria-checked="${on}" aria-label="Ask me when access is denied"></button>`;
+function promptsHead(on, hint) {
+  return `<div><h2>Access prompts</h2><p class="desc">Denied requests waiting for a verdict, and the verdicts given. Every pending request can be answered here, with or without prompting.</p></div>
+  <div class="card row center"><div class="grow"><div style="font-size:14px;color:var(--text-primary)">Ask me when access is denied</div><div class="meta">${hint}</div></div>${SWITCH(on)}</div>`;
+}
+const HINT_NEW = "On by default. Existing grants stay in force when off; denials are still recorded.";
+function provSection(reqs, o) {
+  const dis = !o.answer || reqs.length === 0;
+  return `<div><div class="gh-row"><h3 class="gh">Provisioning requests (${reqs.length})</h3><span class="grow"></span>
+      <button type="button" class="b sm dismiss-all" ${dis ? `disabled${o.answer ? "" : ' aria-describedby="ro-why"'}` : ""}>Dismiss all pending</button></div>
+      <div class="meta" style="margin:0 0 6px">Dismissing a request counts toward that project's cooldown, so it can't ask again straight away.</div>
+      <div style="display:grid;gap:8px">${reqs.length ? reqs.map((r) => reqCard(r, o)).join("") : `<div class="card empty">No provisioning request is waiting.</div>`}</div></div>`;
+}
+const ROWS = (answer) => [
+  { root: "/Users/me/work/app", exp: 8, goals: ["lan"], lines: [
+    { cls: "grantable", path: "/Users/me/work/shared-lib", why: "Sibling checkout imported by packages/api", trust: true },
+    { cls: "grantable", path: "/Users/me/work/design-tokens", from: "../design-tokens", why: "Reads the token JSON at build time" },
+    { cls: "grantable", path: "/Users/me/data/fixtures" },
+    { cls: "covered", path: "/Users/me/work/common", why: "Shared eslint config" },
+  ] },
+  { root: "/Users/me/work/billing", exp: 4, goals: ["internet"], lines: [
+    { cls: "grantable", path: "/Users/me/work/billing-schemas", why: "Generated protobuf schemas" },
+    { cls: "forbidden", path: "/Users/me", from: "~", why: "Wants to index every project" },
+  ] },
+];
+const RO_NOCAP = `<div class="banner" role="status" id="ro-why" data-testid="access-provision-readonly">${ic("AlertOutline")}<div><b>Read-only: this browser can't answer provisioning requests</b>
+  <p>The server issued it no prompt capability (only a same-origin dashboard browser connection gets one). Open the dashboard in a browser that has one to answer. "Dismiss all pending" is unavailable here for the same reason.</p></div></div>`;
+const RO_OBSERVE = `<div class="banner" role="status" id="ro-why2">${ic("AlertOutline")}<div><b>Read-only: this connection is view-only</b>
+  <p>An observe-tier connection can't answer provisioning requests, even with a prompt capability. "Dismiss all pending" is unavailable here for the same reason.</p></div></div>`;
+
+/* ── Access grants (AccessSection) rows ──────────────────────── */
+function grantRows() {
+  const rev = (s) => `<button type="button" class="b sm" aria-label="Revoke ${esc(s)}">Revoke</button>`;
+  const row = (subj, meta) => `<div class="row center"><div class="grow"><div class="subj">${esc(subj)}</div><div class="meta">${meta}</div></div>${rev(subj)}</div>`;
+  return `<section><h3 class="gh">Path grants — access-grants.json</h3><div class="card divide">
+    ${row("/Users/me/work/shared-lib", `<span>Scope: Project</span><span>Granted: 2026-10-21 10:12</span><span class="tag prov">Provisioned</span><span>requested for <code>/Users/me/work/app</code></span>`)}
+    ${row("/Users/me/work/design-tokens", `<span>Scope: Project</span><span>Granted: 2026-10-21 10:12</span><span class="tag prov">Provisioned</span><span>requested for <code>/Users/me/work/app</code></span>`)}
+    ${row("/Users/me/work/legacy-api", `<span>Scope: Project</span><span>Granted: 2026-10-14 16:40</span><span>Origin: /Users/me/work/api</span><span>Agent prompt</span>`)}
+    ${row("/Users/me/Downloads/export", `<span>Scope: Project</span><span>Granted: 2026-10-09 09:03</span><span>Origin: /Users/me/work/app</span><span>via prompt</span>`)}
+  </div></section>`;
+}
+
+/* ── 32-line stress set ──────────────────────────────────────── */
+function stress() {
+  const ls = [], W = "/Users/me/work/", long = "Needed so the monorepo build can follow the symlinked workspace packages into the shared vendor tree, resolve generated typings, and re-run codegen without prompting every time a new package appears under the vendor directory, which happens often during migration weeks. ";
+  for (let i = 1; i <= 32; i++) {
+    const n = String(i).padStart(2, "0");
+    if (i === 7) ls.push({ cls: "forbidden", path: "/Users/me", from: "~", why: "Wants to index every project" });
+    else if (i === 12) ls.push({ cls: "sensitive", path: "/Users/me/.aws", from: "~/.aws", why: "Read the default profile to run integration tests" });
+    else if (i === 15) ls.push({ cls: "sensitive", path: "/Users/me/Library", from: "~/Library", why: "Find the app support folder" });
+    else if (i === 19) ls.push({ cls: "invalid", path: "~robson/notes", from: "~robson/notes", why: "Old notes" });
+    else if (i === 24) ls.push({ cls: "grantable", path: `${W}vendor/workspace-packages/generated`, why: long.repeat(2), cut: true });
+    else if (i === 27) ls.push({ cls: "grantable", path: `${W}fixtures-${n}`, why: "Needs <" + "script>alert(1)</" + "script> and [access-provision] settled" });
+    else if (i % 8 === 2) ls.push({ cls: "in-root", path: `/Users/me/work/app/packages/pkg-${n}`, why: "Part of this repo" });
+    else if (i % 8 === 3) ls.push({ cls: "covered", path: `${W}common/lib-${n}`, why: "Shared lint config" });
+    else if (i % 8 === 5) ls.push({ cls: "missing", path: `${W}old-checkout-${n}`, why: "Previous layout" });
+    else if (i % 8 === 4) ls.push({ cls: "grantable", path: `${W}repo-${n}`, why: "Sibling repo with shared types", trust: true });
+    else if (i % 8 === 1) ls.push({ cls: "grantable", path: `${W}lib-${n}` });
+    else ls.push({ cls: "grantable", path: `${W}pkg-${n}`, why: "Imported by the build" });
+  }
+  return ls;
+}
+
+/* ── surfaces ────────────────────────────────────────────────── */
+const SECTIONS = [
+  { id: "s0", title: "S0 Line classes (reference)",
+    lead: "The seven classes of design D4, in first-match order. Only `grantable` has an approve control. State is always a word plus an icon, never colour alone.",
+    realizes: ["Each line is resolved and classified before the operator sees it", "Credential folders are not provisionable"],
+    states: [["Class → what the dialog shows", () => `<div class="frame" style="background:var(--bg-secondary)"><table class="kv"><thead><tr><th>Check order</th><th>Class</th><th>Pill</th><th>Explanation shown on the line</th><th>Approve control</th></tr></thead><tbody>${
+      Object.entries(CLS).map(([k, c]) => `<tr><td data-l="Check order">${c.n}</td><td data-l="Class"><code>${k}</code></td><td data-l="Pill"><span class="pill ${c.pill}">${ic(c.icon)}${c.label}</span></td><td data-l="Explanation">${c.exp || "None needed: the line is the request."}</td><td data-l="Approve control">${c.ok ? "Yes, unchecked" : "None"}</td></tr>`).join("")}</tbody></table></div>`, ""]],
+    notes: ["Same real path collapses into one line; the first reason is kept (D4). A symlinked or relative line shows its real path with `resolved from <as written>`; an `invalid` line shows the raw input with `as written`.", "Pill words are proposed copy; the internal class names never reach the UI."] },
+  { id: "s1", title: "S1 Dialog: 6-line mixed request",
+    lead: "`ProvisionPromptDialog` on the client-utils `Dialog` (size `lg`). Four folders, one already allowed, one credential folder, plus a LAN goal. Nothing is selected; initial focus is on the built-in close (outlined). Tick a box to see the count and button react.",
+    realizes: ["The provisioning dialog asks per line and preselects nothing", "A project-root line offers the pi-trust choice", "Reach and limits are stated (dialog scenario)", "Reasons are bounded and inert"],
+    states: [["Open, nothing selected", () => dialog({ root: "/Users/me/work/app", goals: ["lan"], lines: [
+      { cls: "grantable", path: "/Users/me/work/shared-lib", why: "Sibling checkout imported by packages/api", trust: true },
+      { cls: "grantable", path: "/Users/me/work/design-tokens", from: "../design-tokens", why: "Reads the token JSON at build time" },
+      { cls: "grantable", path: "/Users/me/data/fixtures" },
+      { cls: "covered", path: "/Users/me/work/common", why: "Shared eslint config" },
+      { cls: "in-root", path: "/Users/me/work/app/docs", why: "Docs generator reads the whole tree" },
+      { cls: "sensitive", path: "/Users/me/.aws", from: "~/.aws", why: "Read the default profile to run integration tests" },
+    ] }, { focus: true, queued: 1 }), "Focus ring on Close is the as-built initial focus: no answer is focus-defaulted. Two buttons share the neutral intent; Approve is disabled at 0."]],
+    notes: ["The pi-trust checkbox appears only on the line whose folder holds `.git` or `.pi`; it is unchecked and uses the `PiTrustCheckbox` copy verbatim. Open question: it is enabled even while its line is unapproved (spec stores it only for a `granted` line). Fine, or disable it until the line is ticked?", "The reach sentence (\"every session on this machine\") and the answer buttons are pinned below the scrolling body, so they are never below the fold. Below 640 px the consent-not-protection sentence moves to the end of the scrolling body to give the list room (at 375 × 800 the full pinned block left room for one line).", "No \"Select all\" control: a bulk approve would be a preselect by another route. Open question for the operator."] },
+  { id: "s2", title: "S2 Dialog: 32-line stress case",
+    lead: "The maximum request. Dialog is capped at 80vh; one scroll region (title, requester, folders, goals) with the consequence block and buttons pinned below it. Mix of every class, a 500-character reason cut at 200, a reason containing markup and a log-forging string (shown as literal text), and a deep path that wraps.",
+    realizes: ["Provisioning requests are bounded, rate limited and expire (32-line cap)", "Reasons are bounded and inert", "Credential folders are not provisionable"],
+    states: [["32 lines, internal scroll (scroll the body)", () => dialog({ root: "/Users/me/work/app", lines: stress() }, { tall: true }), "Summary reads `N can be approved · 0 selected` so a long list is countable. The body is one keyboard-focusable scroll region (no nested scrolling)."]],
+    notes: ["Layout change from as-built `GrantPromptDialog` (whole panel scrolls, buttons scroll away). Proposal: `ProvisionPromptDialog` uses the flush `Dialog` mode: title fixed, body `flex-1 min-h-0 overflow-auto`, consequence + buttons fixed. A 6-line request with a goal already exceeds a 900 px viewport, so this is needed at small sizes too."] },
+  { id: "s3", title: "S3 Dialog: remote-only request",
+    lead: "No folder lines, one remote goal (spec: \"the dialog SHALL show only the hand-off action\"). Provisioning writes nothing remote; the action opens `RemoteAccessDialog` on its landing and the line names the task to pick.",
+    realizes: ["Remote-access goals are handed off to the remote-access wizard", "A provisioning request proposes and never writes"],
+    states: [
+      ["Remote goal `lan` only", () => dialog({ root: "/Users/me/work/app", lines: [], goals: ["lan"] }, {}), ""],
+      ["After the operator taps Open Remote access (outcome `handed-off`)", () => dialog({ root: "/Users/me/work/app", lines: [], goals: ["lan", "device"] }, { opened: "lan" }), "The wizard opens on top on its landing, unchanged; this dialog stays behind it and keeps naming the task. Nothing else is shown because there is nothing to approve."],
+    ],
+    notes: ["Goal names: lan → `Allow devices on my network`, internet → `Share over the internet`, device → `Let a phone or laptop in` (D10)."] },
+  { id: "s4", title: "S4 Access page: two pending requests, answerable",
+    lead: "Settings → Access. A new `Provisioning requests (n)` group sits inside the Access prompts section, above the denial `Pending requests`. Same line component, same defaults, same consequence block as the dialog. The page holds a prompt capability and operate tier.",
+    realizes: ["The Access page lists and answers pending provisioning requests", "The Access page dismisses all pending provisioning requests at once"],
+    states: [["Answerable, nothing selected", () => `<div class="frame pg" data-req-scope>${`<div class="crumbs">Settings → Access</div>`}${promptsHead(true, HINT_NEW)}${provSection(ROWS(), { answer: true })}</div>`, ""]],
+    notes: ["`Dismiss all pending` dismisses every request with no confirm step (spec), so it is a small neutral button, not styled as destructive.", "Each card repeats the consequence block: an answer on this page must never be less informed than one in the dialog."] },
+  { id: "s5", title: "S5 Access page: read-only, with the reason",
+    lead: "Without a prompt capability, or on an observe-tier connection, requests stay visible but carry no approve, reject or trust controls. The reason is stated once at the top; `Dismiss all pending` is inert, never hidden (as-built toggle precedent).",
+    realizes: ["The Access page lists and answers pending provisioning requests (read-only scenario)", "Only a capability-holding connection can settle a request"],
+    states: [
+      ["No prompt capability", () => `<div class="frame pg">${`<div class="crumbs">Settings → Access</div>`}${RO_NOCAP}${provSection(ROWS(), { answer: false })}</div>`, "Grantable lines say `Read-only` in place of the approve control, so the missing control is explained at the line."],
+      ["Observe-tier connection (variant reason)", () => `<div class="frame pg">${RO_OBSERVE}${provSection([ROWS()[1]], { answer: false })}</div>`, ""],
+    ],
+    notes: ["Two reason strings: missing capability, and observe tier. Both use the as-built warning banner recipe (`--severity-warning-*`).", "`Open Remote access` stays enabled read-only: it answers nothing and only opens the wizard, which enforces its own access. Open question: disable it too?"] },
+  { id: "s6", title: "S6 Provisioned-grant label and amended notices",
+    lead: "Provisioned grants read `Provisioned` plus `requested for <project>`, distinct from `Agent prompt` and `via prompt`. The prompting toggle hint and disabled banner change with prompting on by default (D16).",
+    realizes: ["Provisioned grants are labelled with their project", "Prompting is on by default and can be disabled outright", "The Access page reviews and revokes; it does not create grants"],
+    states: [
+      ["Access grants: provisioned vs prompted rows", () => `<div class="frame pg"><div><h2>Access grants</h2><p class="desc">Every access grant across all grant stores, labelled with the store it lives in.</p></div>${grantRows()}</div>`, "A provisioned row drops `Origin:` (it would repeat the project) and shows an info-tone tag with the project in `requested for`. The word is the signal, tone is secondary."],
+      ["Prompting off: amended banner and toggle hint; no request pending", () => `<div class="frame pg">${promptsHead(false, HINT_NEW)}<div class="banner" role="status">${ic("AlertOutline")}<div>Prompting is off. No dialog will be raised, and project provisioning requests are refused. Recorded denials remain listed and answerable below.</div></div>${provSection([], { answer: true })}</div>`, "As-built hint was `Off by default. …`; as-built banner had no provisioning clause."],
+    ],
+    notes: [] },
+];
+
+function render() {
+  uid = 0;
+  document.getElementById("board").innerHTML = SECTIONS.map((s) => `<section class="sec" id="${s.id}">
+    <h2>${s.title}<span class="pill neutral probe-badge" data-for="${s.id}">probe…</span></h2>
+    <p class="lead">${code(s.lead)}</p>
+    <p class="realizes">Realizes: ${s.realizes.map((r) => `<span class="pill info">${esc(r)}</span>`).join(" ")}</p>
+    ${s.states.map(([name, fn, note]) => `<div class="state-h"><b>${code(name)}</b></div>${fn()}${note ? `<p class="annot">${code(note)}</p>` : ""}`).join("")}
+    ${s.notes.length ? `<ul class="notes">${s.notes.map((n) => `<li>${code(n)}</li>`).join("")}</ul>` : ""}</section>`).join("");
+  badge();
+}
+
+/* ── interaction (demo only) ─────────────────────────────────── */
+document.addEventListener("change", (e) => {
+  if (!e.target.matches(".ap-cb")) return;
+  const root = e.target.closest("[data-req]"), n = root.querySelectorAll(".ap-cb:checked").length;
+  root.querySelectorAll(".sel").forEach((x) => (x.textContent = n));
+  const b = root.querySelector(".approve"); if (b) b.disabled = n === 0;
+});
+document.addEventListener("click", (e) => {
+  const rej = e.target.closest(".reject-all");
+  if (rej) { const root = rej.closest("[data-req]"); root.querySelectorAll(".ap-cb").forEach((c) => (c.checked = false)); root.querySelector(".ap-cb")?.dispatchEvent(new Event("change", { bubbles: true })); }
+  const open = e.target.closest(".open-remote");
+  if (open && !open.parentElement.querySelector(".st")) open.parentElement.firstElementChild.insertAdjacentHTML("beforeend", `<div class="st"><span class="pill success">${ic("Check")}Remote access opened</span></div>`);
+});
+
+/* ── probe ───────────────────────────────────────────────────── */
+function probe() {
+  const per = {};
+  document.querySelectorAll(".sec").forEach((s) => { per[s.id] = [...s.querySelectorAll(".frame")].flatMap(window.__probeRoot); });
+  return per;
+}
+function badge() {
+  requestAnimationFrame(() => {
+    const per = probe(); let total = 0;
+    document.querySelectorAll(".probe-badge").forEach((b) => {
+      const f = per[b.dataset.for] || []; total += f.length;
+      b.className = `pill ${f.length ? "error" : "success"} probe-badge`;
+      b.textContent = f.length ? `${f.length} probe failure${f.length > 1 ? "s" : ""}` : "0 probe failures";
+      b.title = f.join("\n");
+    });
+    const a = document.getElementById("probe-all");
+    a.className = `pill ${total ? "error" : "success"}`; a.textContent = total ? `Probe: ${total} failures` : "Probe: 0 failures";
+  });
+}
+window.__probeMock = () => { const out = {}; const per = probe(); for (const k in per) out[k] = per[k]; return out; };
+
+/* ── toolbar ─────────────────────────────────────────────────── */
+document.querySelectorAll(".seg").forEach((seg) => seg.addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  seg.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+  const v = b.dataset.v, html = document.documentElement;
+  if (seg.dataset.group === "theme") {
+    const [pal, mode] = v.split("-");
+    mode === "light" ? html.setAttribute("data-theme", "light") : html.removeAttribute("data-theme");
+    pal === "nord" ? html.setAttribute("data-palette", "nord") : html.removeAttribute("data-palette");
+    badge();
+  }
+  if (seg.dataset.group === "width") { document.body.style.setProperty("--frame-w", v === "full" ? "100%" : `${v}px`); badge(); }
+}));
+render();
+const params = new URLSearchParams(location.search);
+for (const g of ["theme", "width"]) if (params.get(g)) document.querySelector(`.seg[data-group="${g}"] button[data-v="${params.get(g)}"]`)?.click();
+</script>
+</body>
+</html>

@@ -13,6 +13,7 @@
 import type { GrantCoordinator } from "./grant-coordinator.js";
 import type { GrantRegistryStats } from "./pending-grant-registry.js";
 import type { HostGateMode } from "./prompt-channel.js";
+import type { ProvisionStats } from "./provisioning.js";
 import type { YoloController } from "./yolo-session.js";
 
 export interface AccessGrantHealth {
@@ -40,6 +41,12 @@ export interface AccessGrantHealth {
   };
   /** Remembered explicit refusals (the durable ledger). */
   refusals: number;
+  /**
+   * Access-provisioning counters (design D14): cumulative except `pending`.
+   * Additive and optional: absent when no reader is wired; readers ignore it.
+   * See change: add-access-provisioning.
+   */
+  provisioning?: ProvisionStats;
 }
 
 export interface AccessGrantHealthDeps {
@@ -50,6 +57,8 @@ export interface AccessGrantHealthDeps {
   killSwitch(): boolean;
   hostGateMode(): HostGateMode;
   operatorChannels(): number;
+  /** Provisioning registry stats; omit to leave `provisioning` out of the snapshot. */
+  provisioning?(): ProvisionStats;
 }
 
 export function snapshotAccessGrantHealth(deps: AccessGrantHealthDeps): AccessGrantHealth {
@@ -73,5 +82,6 @@ export function snapshotAccessGrantHealth(deps: AccessGrantHealthDeps): AccessGr
       refusedByPriorRefusal: totals.refusedByPriorRefusal,
     },
     refusals: deps.refusalCount(),
+    ...(deps.provisioning ? { provisioning: deps.provisioning() } : {}),
   };
 }

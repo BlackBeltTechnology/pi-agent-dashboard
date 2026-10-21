@@ -1,0 +1,7 @@
+extensions:
+  - addsTo:
+      pack: codeql/javascript-all
+      extensible: barrierGuardModel
+    data:
+      - ["@blackbelt-technology/pi-dashboard-shared", "Member[cwd-guard.js].Member[isAllowedCwd].Argument[0]", "true", "path-injection"]
+      - ["@blackbelt-technology/pi-dashboard-shared", "Member[isAllowedCwd].Argument[0]", "true", "path-injection"]

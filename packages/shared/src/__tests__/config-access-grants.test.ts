@@ -7,8 +7,9 @@ import { loadConfig } from "../config.js";
 /**
  * `accessGrants.promptEnabled` loader (change: add-access-grant-dialog, task 2.3).
  *
- * Prompting is opt-in: an absent key SHALL parse to disabled, so an existing
- * config that predates the feature never starts raising dialogs.
+ * Prompting is on by default (change: add-access-provisioning, D16): an absent
+ * key parses to enabled, a non-boolean falls back to the default, and an
+ * explicit boolean is kept as written (test-plan #E22).
  */
 
 let dir: string;
@@ -31,33 +32,16 @@ function write(value: unknown): void {
 }
 
 describe("accessGrants.promptEnabled loader", () => {
-  it("an absent key parses to disabled", () => {
-    write({});
-    expect(loadConfig().accessGrants.promptEnabled).toBe(false);
-  });
-
-  it("an absent accessGrants group parses to disabled", () => {
-    write({ port: 8000 });
-    expect(loadConfig().accessGrants.promptEnabled).toBe(false);
-  });
-
-  it("an explicit true is honoured", () => {
-    write({ accessGrants: { promptEnabled: true } });
-    expect(loadConfig().accessGrants.promptEnabled).toBe(true);
-  });
-
-  it("an explicit false stays disabled", () => {
-    write({ accessGrants: { promptEnabled: false } });
-    expect(loadConfig().accessGrants.promptEnabled).toBe(false);
-  });
-
-  it("a non-boolean falls back to disabled", () => {
-    write({ accessGrants: { promptEnabled: "yes" } });
-    expect(loadConfig().accessGrants.promptEnabled).toBe(false);
-  });
-
-  it("a malformed group falls back to disabled", () => {
-    write({ accessGrants: 42 });
-    expect(loadConfig().accessGrants.promptEnabled).toBe(false);
+  it.each([
+    ["a config without accessGrants", {}, true],
+    ["an absent accessGrants group", { port: 8000 }, true],
+    ["an empty accessGrants group", { accessGrants: {} }, true],
+    ["an explicit false", { accessGrants: { promptEnabled: false } }, false],
+    ["an explicit true", { accessGrants: { promptEnabled: true } }, true],
+    ["a non-boolean falls back to the default", { accessGrants: { promptEnabled: "yes" } }, true],
+    ["a malformed group falls back to the default", { accessGrants: 42 }, true],
+  ])("%s -> %s", (_label, config, expected) => {
+    write(config);
+    expect(loadConfig().accessGrants.promptEnabled).toBe(expected);
   });
 });
