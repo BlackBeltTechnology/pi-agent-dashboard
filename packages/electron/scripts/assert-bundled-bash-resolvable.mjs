@@ -104,7 +104,19 @@ async function loadShared(layout) {
 /** Child mode: resolve with the SHIPPED pi + replica, print one JSON line. */
 async function childMain(resourcesDir) {
   const layout = bundleLayout(resourcesDir);
-  const out = { pi: null, piArgs: null, error: null, replica: null };
+  const out = { pi: null, piArgs: null, error: null, replica: null, diag: null };
+  try {
+    const w = spawnSync("where", ["bash.exe"], { encoding: "utf8", timeout: 10_000, windowsHide: true });
+    out.diag = {
+      cwd: process.cwd(),
+      programFiles: process.env.ProgramFiles ?? null,
+      programFilesX86: process.env["ProgramFiles(x86)"] ?? null,
+      pathHead: String(process.env.PATH ?? "").split(";").slice(0, 8),
+      where: String(w.stdout ?? "").trim().split(/\r?\n/),
+    };
+  } catch {
+    /* diagnostics only */
+  }
   try {
     const pi = await import(pathToFileURL(layout.piEntry).href);
     const cfg = pi.getShellConfig();
@@ -158,7 +170,12 @@ function runChild(env, cwd, resourcesDir) {
   }
 }
 
+function printDiag(label, got) {
+  console.error(`  [${label}] child diagnostics: ${JSON.stringify(got.diag, null, 2)}`);
+}
+
 function checkResolution(label, got, expected) {
+  if (got.error || normWin(got.pi) !== normWin(expected)) printDiag(label, got);
   if (got.error) fail(`[${label}] pi getShellConfig() threw: ${got.error} (expected ${expected})`);
   if (normWin(got.pi) !== normWin(expected)) {
     fail(`[${label}] pi resolved ${got.pi}, expected ${expected}`);
