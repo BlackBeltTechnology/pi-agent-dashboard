@@ -63,9 +63,9 @@
 
 ## 6. Manual checks, security pass, docs
 
-- [x] 6.1 Real Google consent shapes (Workspace + gmail.com) match the `consentHint` wording (test-plan: manual-only, #F4)
-- [x] 6.2 Wizard link with owner set opens the real console as that account (test-plan: manual-only, #F5)
-- [x] 6.3 Review zh-CN and hu wording of step 1, consent hint and filters control (test-plan: manual-only, #F6)
+- [x] 6.1 Real Google consent shapes (Workspace + gmail.com) match the `consentHint` wording (test-plan: manual-only, #F4) — deferred: ticked per ship-change, to be performed post-merge, not yet done
+- [x] 6.2 Wizard link with owner set opens the real console as that account (test-plan: manual-only, #F5) — deferred: ticked per ship-change, to be performed post-merge, not yet done
+- [x] 6.3 Review zh-CN and hu wording of step 1, consent hint and filters control (test-plan: manual-only, #F6) — deferred: ticked per ship-change, to be performed post-merge, not yet done
 - [x] 6.4 Confirm in the Gmail API reference that `users.settings.filters` accepts `gmail.settings.basic` and not `gmail.modify`; record in the PR; do this before 1.2 and 3.1, since the scope split in D6/D7 rests on it (test-plan: manual-only, #X3)
 - [x] 6.5 `security-hardening` pass: `gmail.settings.sharing` never requested; no `forward` path reaches Google; filter writes confirmed and pre-checked; `PUT /setup` guarded/rate-limited and logs no values; findings recorded in the PR
 - [x] 6.6 Update `packages/gmail-plugin/src/{shared,server,bridge,client}/AGENTS.md` and `packages/shared/src/route-tiers.ts.AGENTS.md` rows (`See change: improve-gmail-plugin-setup-ux`); verify `npm test` passes and `npm run quality:changed` is clean

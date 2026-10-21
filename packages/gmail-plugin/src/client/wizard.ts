@@ -65,9 +65,19 @@ export interface GcloudCommands {
   enable: string | null;
 }
 
+/**
+ * POSIX-shell quote for a value the user will paste into a terminal. `isEmail` admits shell
+ * metacharacters in the local part (`a;b@x.co`, `$(id)@x.co`), so anything outside the plain
+ * address alphabet is single-quoted (embedded `'` as `'\''`); ordinary addresses stay bare.
+ */
+function shellQuote(v: string): string {
+  return /^[A-Za-z0-9@._+-]+$/.test(v) ? v : `'${v.replaceAll("'", "'\\''")}'`;
+}
+
 /** Copyable gcloud commands (design D3); `--account <email>` on every command but `auth login`. */
 export function gcloudCommands(projectId: string, owner?: string): GcloudCommands {
-  const email = validOwner(owner);
+  const valid = validOwner(owner);
+  const email = valid === undefined ? undefined : shellQuote(valid);
   const id = classifyProjectId(projectId) === "ok" ? normalizeProjectId(projectId) : undefined;
   const acct = (cmd: string): string => (email ? `${cmd} --account ${email}` : cmd);
   return {

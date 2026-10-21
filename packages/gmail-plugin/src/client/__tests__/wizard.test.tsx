@@ -206,3 +206,22 @@ describe("test-plan #E4 (improve-gmail-plugin-setup-ux) — gcloud commands", ()
     });
   });
 });
+
+describe("owner account is shell-quoted in the copyable commands", () => {
+  it("leaves an ordinary address bare", () => {
+    expect(gcloudCommands(VALID_ID, "a.b+c_d-e@x-y.co").projectsList).toBe("gcloud projects list --account a.b+c_d-e@x-y.co");
+  });
+
+  it.each([
+    ["a;touch@b.co", "'a;touch@b.co'"],
+    ["$(id)@b.co", "'$(id)@b.co'"],
+    ["a`id`@b.co", "'a`id`@b.co'"],
+    ["a'b@c.co", "'a'\\''b@c.co'"],
+    ["a|b&c@d.co", "'a|b&c@d.co'"],
+  ])("%j is wrapped in single quotes", (owner, quoted) => {
+    // These pass isEmail (no whitespace, one @, dotted domain), so they reach the command text.
+    const c = gcloudCommands(VALID_ID, owner);
+    expect(c.authLogin).toBe(`gcloud auth login ${quoted.toLowerCase()}`);
+    expect(c.projectsList).toBe(`gcloud projects list --account ${quoted.toLowerCase()}`);
+  });
+});
