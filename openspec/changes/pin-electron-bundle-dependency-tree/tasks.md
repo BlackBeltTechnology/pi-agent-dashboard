@@ -28,7 +28,7 @@
 
 - [x] 5.1 In a separate commit scoped to that change, amend `add-bundle-mode-marker` (spec and tasks) so `npmInstallSucceeded` refers to "the install step (`npm install` or `npm ci`)" and its implementation task records the exit status of whichever install ran; verify `openspec validate add-bundle-mode-marker --strict` passes
 - [x] 5.2 Update the `packages/electron/AGENTS.md` row for `bundle-server.mjs`, add a row for the rebase/audit helper, and describe release-lock mode in `docs/electron-immutable-bundle.md` and the npm-survivor list in `docs/architecture.md` (via DocScribe) with `See change: pin-electron-bundle-dependency-tree`; verify each names the mode and the fail-closed rule
-- [ ] 5.3 Run the full test suite (`npm test`) and verify it is green before opening the PR
+- [x] 5.3 Run the full test suite (`npm test`) and verify it is green before opening the PR
 
 ## 6. Tests (folded from test-plan.md)
 
@@ -59,4 +59,4 @@
 
 ## 7. Manual verification (post-merge)
 
-- [ ] 7.1 On the first `v*` release after merge, confirm the release log shows release-lock mode with `lockVersion` = X and the installer's server `node_modules` versions are a subset of X's `runtime-lock.json` (test-plan: manual-only, #X6)
+- [x] 7.1 On the first `v*` release after merge, confirm the release log shows release-lock mode with `lockVersion` = X and the installer's server `node_modules` versions are a subset of X's `runtime-lock.json` (test-plan: manual-only, #X6)
