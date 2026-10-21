@@ -1,0 +1,3 @@
+blocked_by:
+  - change: add-vault-llm-delivery
+    reason: "credential-vault delta archives after add-vault-llm-delivery (proposal: archive after it)"

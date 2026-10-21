@@ -1,0 +1,3 @@
+blocked_by:
+  - change: core-cwd-admission
+    reason: "dismisses the alert residue left after the core-cwd-admission post-merge scan (proposal: runs after)"

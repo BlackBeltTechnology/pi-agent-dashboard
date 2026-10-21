@@ -1,0 +1,5 @@
+blocked_by:
+  - change: add-vault-llm-delivery
+    reason: "credential-vault delta is written on top of add-vault-llm-delivery (proposal: Order, archive after)"
+related:
+  - prove-vault-bridge-tls

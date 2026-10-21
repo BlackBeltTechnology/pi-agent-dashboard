@@ -305,6 +305,7 @@ interface Config {
   };
   /** Windows-only git/bash source. See change: embed-git-bash-on-windows. */
   windowsGitSource?: "auto" | "host" | "bundled";
+  windowsBashSource?: "bundled" | "host";
   /** Keeper log behavior — gates capture of pi stdout/stderr into keeper-<id>.log. Default off. See change: add-keeper-output-capture-toggle. */
   keeperLog?: { capturePiOutput?: boolean };
   /**
@@ -353,7 +354,7 @@ export const CONFIG_FIELD_PAGE: Record<string, string> = {
   folderListMode: "sessions", folderAttentionPeek: "sessions",
   questionFirst: "sessions", askUserPromptTimeoutSeconds: "sessions", spawnRegisterTimeoutMs: "sessions", sessionList: "sessions",
   gitWorktreeEnabled: "sessions", dashboardName: "general", defaultModel: "sessions", defaultThinkingLevel: "sessions",
-  windowsGitSource: "sessions", autoStart: "sessions", editor: "general",
+  windowsGitSource: "sessions", windowsBashSource: "sessions", autoStart: "sessions", editor: "general",
   trustedNetworks: "security", network: "security", pairing: "security", auth: "security", allowedHosts: "security", hostGate: "security", agentPathGate: "security",
   modelProxy: "providers",
   openspec: "openspec",
@@ -407,6 +408,9 @@ export function computeConfigPartial(config: Config, original: Config): Record<s
   }
   if ((config.windowsGitSource ?? "auto") !== (original.windowsGitSource ?? "auto")) {
     partial.windowsGitSource = config.windowsGitSource ?? "auto";
+  }
+  if ((config.windowsBashSource ?? "bundled") !== (original.windowsBashSource ?? "bundled")) {
+    partial.windowsBashSource = config.windowsBashSource ?? "bundled";
   }
   if ((config.gitWorktreeEnabled ?? true) !== (original.gitWorktreeEnabled ?? true)) {
     partial.gitWorktreeEnabled = config.gitWorktreeEnabled ?? true;
@@ -847,6 +851,7 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
   const [gitSourceReadout, setGitSourceReadout] = useState<{
     setting: string; source: string; gitPath: string | null;
     gitVersion: string | null; shellPath: string | null;
+    bashSetting?: string; shellIsWslLauncher?: boolean;
   } | null>(null);
   // Session-independent model catalogue (GET /api/models). The panel owns the
   // refetch triggers (credential writes) and the unavailable callout; the state
@@ -1062,7 +1067,7 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
           const data = await res.json();
           if (!data.success) throw new Error(data.error || "config");
           setOriginal(JSON.parse(JSON.stringify(config)));
-          if (configPartial.windowsGitSource !== undefined || configPartial.network !== undefined) void refreshGitSourceReadout();
+          if (configPartial.windowsGitSource !== undefined || configPartial.windowsBashSource !== undefined || configPartial.network !== undefined) void refreshGitSourceReadout();
           setPiMirror(data.piMirror ?? null);
           return { restartRequired: !!data.restartRequired };
         },
@@ -2429,6 +2434,25 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
                         {gitSourceReadout.gitPath ? <> — <code>{gitSourceReadout.gitPath}</code></> : null}
                         {gitSourceReadout.gitVersion ? <> ({gitSourceReadout.gitVersion})</> : null}
                         . {i18nT("git.gitSourceTakesEffect", undefined, "Takes effect for new sessions. macOS/Linux ignore this setting.")}
+                      </>}
+                    />
+                  )}
+                  {/* Which bash.exe the agent resolves while the git source is
+                      bundled. Same Windows-only gate. See change:
+                      fix-windows-bundled-bash-exe. */}
+                  {gitSourceReadout && (
+                    <SelectField
+                      label={i18nT("git.bashSource", undefined, "Bash for agent commands")}
+                      value={config.windowsBashSource ?? "bundled"}
+                      options={[
+                        { value: "bundled", label: i18nT("git.bashSourceBundled", undefined, "Bundled — shipped bash (default)") },
+                        { value: "host", label: i18nT("git.bashSourceHost", undefined, "Host — first bash.exe on PATH, e.g. WSL") },
+                      ]}
+                      onChange={(v) => update((c) => { c.windowsBashSource = v as "bundled" | "host"; })}
+                      hint={<>
+                        {i18nT("common.currentlyActive", undefined, "Currently active:")}{" "}
+                        {gitSourceReadout.shellPath ? <code>{gitSourceReadout.shellPath}</code> : <strong>—</strong>}
+                        . {i18nT("git.bashSourceHint", undefined, "Changes the PATH order only while the git source is bundled. Host also acknowledges a WSL shell in Doctor. Takes effect for new sessions.")}
                       </>}
                     />
                   )}

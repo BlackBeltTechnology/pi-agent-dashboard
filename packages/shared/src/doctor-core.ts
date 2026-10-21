@@ -21,9 +21,9 @@ import { getDashboardConfigDir } from "./dashboard-paths.js";
 import type { LegacyManagedDir } from "./legacy-managed-dir.js";
 import { escapeMdTableCell } from "./md-table-cell.js";
 import { isAtOrAboveEnginesCap } from "./node-version.js";
-import { whichSync } from "./platform/binary-lookup.js";
+import { ToolResolver, whichSync } from "./platform/binary-lookup.js";
 import { execSync } from "./platform/exec.js";
-import { getGitSourceReadout } from "./platform/git-source.js";
+import { type GitSourceReadout, getGitSourceReadout } from "./platform/git-source.js";
 import { buildNativeModuleManifest, findAbiMismatches, type probeNativeModuleAbi } from "./platform/native-module-abi.js";
 import { type ResolvedRuntime, resolvedFamilyEntries } from "./platform/spawn-runtime.js";
 import { resolveNativeTsLoader } from "./platform/ts-loader-select.mjs";
@@ -901,6 +901,12 @@ export interface SharedChecksDeps {
    */
   detectLegacyManagedDir?: () => LegacyManagedDir;
   /**
+   * Test seam for the Windows git/bash source readout. Defaults to the real
+   * `getGitSourceReadout`, fed the same spawn env the server builds for real
+   * spawns. See change: fix-windows-bundled-bash-exe.
+   */
+  gitSourceReadout?: () => GitSourceReadout | null;
+  /**
    * The ladder-resolved pi spawn runtime, passed as an INPUT by the host
    * arm (server: `currentSpawnRuntime()`; Electron: live
    * `resolveSpawnRuntime()`). doctor-core lives in shared and cannot import
@@ -1599,7 +1605,11 @@ export async function runSharedChecks(deps: SharedChecksDeps): Promise<DoctorChe
   // Windows-only: bundled-vs-host git & shell source. See change:
   // embed-git-bash-on-windows.
   try {
-    const readout = getGitSourceReadout(whichSync);
+    const readout = deps.gitSourceReadout
+      ? deps.gitSourceReadout()
+      : getGitSourceReadout(whichSync, {
+          spawnEnv: () => new ToolResolver({ processExecPath: process.execPath }).buildSpawnEnv(process.env),
+        });
     if (readout) {
       const tag = `(${readout.source})`;
       const wantHostButBundled = readout.setting === "host" && readout.source === "bundled";
@@ -1616,20 +1626,72 @@ export async function runSharedChecks(deps: SharedChecksDeps): Promise<DoctorChe
           ? "Install Git for Windows, or set windowsGitSource to 'auto' / 'bundled'."
           : undefined,
       });
-      checks.push({
-        name: "bash source",
-        section: "runtime",
-        status: readout.shellPath ? "ok" : "warning",
-        message: readout.shellPath ? `sh ${tag}` : "no POSIX shell resolved",
-        code: readout.shellPath ? undefined : "doctor.no_posix_shell",
-        detail: readout.shellPath ?? "sh.exe / bash.exe not resolved",
-      });
+      checks.push(bashSourceCheck(readout));
     }
   } catch {
     /* advisory only — never block doctor output */
   }
 
   return checks;
+}
+
+/**
+ * Windows "bash source" row: reports the shell pi-coding-agent will actually
+ * resolve (readout.shellPath), not the shell the dashboard would like. A WSL
+ * launcher is a warning unless the operator chose `windowsBashSource: "host"`.
+ * See change: fix-windows-bundled-bash-exe.
+ */
+function bashSourceCheck(readout: GitSourceReadout): DoctorCheck {
+  const base = { name: "bash source", section: "runtime" as const };
+  const { shellPath } = readout;
+  if (!shellPath) {
+    return {
+      ...base,
+      status: "warning",
+      message: "no POSIX shell resolved",
+      code: "doctor.no_posix_shell",
+      detail: "pi would find no bash.exe (sh.exe is not used) — agent bash commands fail with 'No bash shell found'",
+      suggestion: "Install Git for Windows, or reinstall the dashboard app so the bundled bash.exe is present.",
+    };
+  }
+  const tag = `(${readout.source})`;
+  if (readout.shellIsWslLauncher) {
+    if (readout.bashSetting === "host") {
+      return {
+        ...base,
+        status: "ok",
+        message: `bash ${tag} — WSL`,
+        detail: `${shellPath} — WSL launcher; requires an installed WSL distro`,
+      };
+    }
+    return {
+      ...base,
+      status: "warning",
+      message: "pi would use the WSL launcher as its shell",
+      code: "doctor.bash_is_wsl_launcher",
+      detail: `${shellPath} — fails with 'no installed distributions' unless a WSL distro exists`,
+      suggestion:
+        readout.source === "bundled"
+          ? "The bundled bash.exe is missing: update or reinstall the dashboard app. To use WSL on purpose, set windowsBashSource to 'host'."
+          : "Agent commands would run inside WSL. To use a Windows bash: install Git for Windows or set windowsGitSource to bundled. To use WSL on purpose, set windowsBashSource to 'host'.",
+    };
+  }
+  // Shell lives inside the bundled git tree? Compare against the git root derived
+  // from gitPath (<root>\cmd\git.exe) so no bundled-path literal is needed here.
+  const gitRoot = readout.gitPath ? path.win32.dirname(path.win32.dirname(readout.gitPath)) : null;
+  const shellIsBundled =
+    readout.source === "bundled" &&
+    gitRoot !== null &&
+    shellPath.toLowerCase().startsWith(`${gitRoot.toLowerCase()}\\`);
+  return {
+    ...base,
+    status: "ok",
+    message: `bash ${tag}`,
+    detail:
+      readout.bashSetting === "host" && shellIsBundled
+        ? `${shellPath} — host bash requested, none found — using bundled`
+        : shellPath,
+  };
 }
 
 // ─── Stamping helper ──────────────────────────────────────────────────

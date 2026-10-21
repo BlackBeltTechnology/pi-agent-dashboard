@@ -1,0 +1,3 @@
+blocked_by:
+  - change: context-manager-kernel
+    reason: "needs the kernel flag, chassis and registry; kernel adds context-manager-runtime (umbrella phase 1 before 2a)"
