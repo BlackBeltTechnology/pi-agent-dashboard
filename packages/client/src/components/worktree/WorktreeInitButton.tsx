@@ -6,8 +6,8 @@
  * reports `needsInit` OR the hook is untrusted. The control labels itself by
  * reason (folder-action-bar spec):
  *   - `needsInit === true`                    → "Initialize"
- *   - `needsInit === false && trusted === false` → "Review & trust changes"
- *     (the hook was edited after last trust; granting trust clears the control
+ *   - `trusted === false` → "Review & trust" (`folders.bannerRetrustAction`;
+ *     covers a changed OR never-trusted hook; granting trust clears the control
  *     without running an init when the gate is already satisfied)
  *
  * Execution feedback comes from the cwd-keyed `worktree-init-store` (shared with
@@ -19,13 +19,12 @@
  * re-issues with `confirmHash`. Fail-open: any probe error hides the control.
  *
  * See change: generalize-worktree-init-hook, distinguish-initialize-actions,
- * friendlier-worktree-init.
+ * friendlier-worktree-init, fix-folder-card-pill-contrast (colour-free outlined
+ * action: inherits the hosting banner's colour; no inner glyph).
  */
 
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 import type { WorktreeInitTrustScope } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
-import { mdiScriptTextPlayOutline } from "@mdi/js";
-import { Icon } from "@mdi/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   fetchWorktreeInitStatus,
@@ -126,7 +125,9 @@ export function WorktreeInitButton({ cwd, status: externalStatus, onStatusChange
   // run from a UI click, so the control frames itself as a trust review rather
   // than a plain "Initialize". See change: add-folder-action-banner.
   const reTrust = !!status && status.hasHook === true && status.trusted === false;
-  const label = reTrust ? "Review & trust changes" : "Initialize";
+  const label = reTrust
+    ? i18nT("folders.bannerRetrustAction", undefined, "Review & trust")
+    : i18nT("folders.bannerInitAction", undefined, "Initialize");
 
   // Live run feedback takes over the row while a run is in flight / terminal.
   if (run) {
@@ -147,13 +148,10 @@ export function WorktreeInitButton({ cwd, status: externalStatus, onStatusChange
         type="button"
         onClick={(e) => { e.stopPropagation(); void doRun(); }}
         data-testid="worktree-init-btn"
-        className="text-[10px] px-1.5 py-0.5 min-h-[44px] md:min-h-0 rounded border text-amber-400 border-amber-500/40 bg-amber-500/5 hover:text-amber-300 hover:border-amber-500/70"
+        className="focus-ring inline-flex items-center justify-center rounded border border-current px-2.5 py-1 text-[12px] font-semibold min-h-[44px] md:min-h-[32px] hover:bg-current/10"
         title={i18nT("common.initializeThisCheckoutRunItsDeclared", undefined, "Initialize this checkout (run its declared worktree-init hook)")}
       >
-        <span className="inline-flex items-center gap-0.5">
-          <Icon path={mdiScriptTextPlayOutline} size={0.5} />
-          {label}
-        </span>
+        {label}
       </button>
 
       {confirm && (

@@ -6,7 +6,26 @@
  * ended and rendered-placement behaviours (#F*) are the L3 Playwright suite's.
  */
 
-import { mdiCog, mdiFolderCogOutline, mdiFolderOpen, mdiTextBoxCheckOutline } from "@mdi/js";
+import {
+  mdiAlertCircleOutline,
+  mdiArchiveOutline,
+  mdiBroom,
+  mdiCheckCircleOutline,
+  mdiClipboardCheckOutline,
+  mdiClose,
+  mdiCog,
+  mdiFileDocumentOutline,
+  mdiFolderCogOutline,
+  mdiFolderOpen,
+  mdiPin,
+  mdiRefresh,
+  mdiReplay,
+  mdiScriptTextPlayOutline,
+  mdiShieldAlertOutline,
+  mdiSourceBranch,
+  mdiTextBoxCheckOutline,
+  mdiViewGridPlus,
+} from "@mdi/js";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SetupArtifact, WorktreeInitStatus } from "../../../lib/git/git-api.js";
@@ -135,5 +154,81 @@ describe("FolderActionBanner — setup action (change: fix-project-setup-complet
     expect(
       computeBannerRung(status({ hasHook: true, trusted: false, checklist: checklist(["settings"]) }), undefined, true),
     ).toBe("retrust");
+  });
+});
+
+const glyphs = (el: Element) => [...el.querySelectorAll("svg path")].map((p) => p.getAttribute("d"));
+
+describe("FolderActionBanner — hook rungs explain themselves (change: fix-folder-card-pill-contrast)", () => {
+  it("E14: retrust rung → message outside a glyph-less 'Review & trust' action, shield glyph, no 'changed'", () => {
+    render(<FolderActionBanner cwd={CWD} isProjectRoot status={status({ hasHook: true, trusted: false })} />);
+    const region = screen.getByTestId(`folder-banner-retrust-${CWD}`);
+    const btn = screen.getByTestId("worktree-init-btn");
+    expect(region.textContent).toContain("Init hook needs your trust before it can run");
+    expect(btn.textContent).toBe("Review & trust");
+    expect(btn.querySelector("svg")).toBeNull();
+    expect(btn.textContent).not.toContain("Init hook needs your trust");
+    expect(region.querySelectorAll("svg")).toHaveLength(1);
+    expect(glyphs(region)).toEqual([mdiShieldAlertOutline]);
+    expect(region.textContent?.toLowerCase()).not.toContain("changed");
+  });
+
+  it("E15: init-needed rung → message plus a glyph-less 'Initialize' action", () => {
+    render(<FolderActionBanner cwd={CWD} isProjectRoot status={status({ hasHook: true, trusted: true, needsInit: true })} />);
+    const region = screen.getByTestId(`folder-banner-init-needed-${CWD}`);
+    const btn = screen.getByTestId("worktree-init-btn");
+    expect(region.textContent).toContain("Init hook hasn't run in this checkout");
+    expect(btn.textContent).toBe("Initialize");
+    expect(btn.querySelector("svg")).toBeNull();
+    expect(glyphs(region)).toEqual([mdiScriptTextPlayOutline]);
+  });
+
+  it("the hosted action carries no palette class (inherits the region colour) and is 12px / 44px-32px", () => {
+    render(<FolderActionBanner cwd={CWD} isProjectRoot status={status({ hasHook: true, trusted: false })} />);
+    const cls = screen.getByTestId("worktree-init-btn").className;
+    expect(cls).toContain("border-current");
+    expect(cls).toContain("text-[12px]");
+    expect(cls).toContain("min-h-[44px]");
+    expect(cls).toContain("md:min-h-[32px]");
+    expect(cls).toContain("focus-ring");
+    expect(/(?:text|bg|border)-(?:amber|green|red|blue)-\d/.test(cls)).toBe(false);
+  });
+
+  it("compact chip is 12px and carries its rung glyph", () => {
+    render(<FolderActionBanner cwd={CWD} isProjectRoot compact status={status({ hasHook: true, trusted: false })} />);
+    const chip = screen.getByTestId(`folder-banner-chip-${CWD}`);
+    expect(chip.className).toContain("text-[12px]");
+    expect(glyphs(chip)).toEqual([mdiShieldAlertOutline]);
+  });
+
+  it("E18: banner glyphs never collide with the card's folder / cog / branch / menu / setup glyphs", () => {
+    const card = new Set<string>([
+      mdiFolderOpen, mdiFolderCogOutline, mdiCog, mdiSourceBranch, mdiTextBoxCheckOutline, mdiRefresh,
+      mdiBroom, mdiArchiveOutline, mdiFileDocumentOutline, mdiViewGridPlus, mdiClose, mdiPin, mdiClipboardCheckOutline,
+    ]);
+    const banner = new Set<string>();
+    const collect = (el: Element) => { for (const d of glyphs(el)) if (d) banner.add(d); };
+
+    const a = render(<FolderActionBanner cwd={CWD} isProjectRoot status={status({ hasHook: true, trusted: false })} />);
+    collect(a.container); a.unmount();
+    const b = render(<FolderActionBanner cwd={CWD} isProjectRoot status={status({ hasHook: true, trusted: true, needsInit: true })} />);
+    collect(b.container); b.unmount();
+    initStore.startRun(CWD); initStore.markDone(CWD);
+    const c = render(<FolderActionBanner cwd={CWD} isProjectRoot status={status({ hasHook: true, trusted: true })} />);
+    collect(c.container); c.unmount();
+    initStore.markFailed(CWD, "script_nonzero_exit", "exit 3", "stderr");
+    const d = render(<FolderActionBanner cwd={CWD} isProjectRoot status={status({ hasHook: true, trusted: true })} />);
+    collect(d.container); d.unmount();
+
+    for (const g of [mdiShieldAlertOutline, mdiScriptTextPlayOutline, mdiCheckCircleOutline, mdiAlertCircleOutline, mdiReplay]) {
+      expect(banner.has(g)).toBe(true);
+    }
+    expect([...banner].filter((g) => card.has(g))).toEqual([]);
+  });
+
+  it("X2: status null → no banner region and no init action", () => {
+    render(<FolderActionBanner cwd={CWD} isProjectRoot status={null} />);
+    expect(screen.queryByRole("region")).toBeNull();
+    expect(screen.queryByTestId("worktree-init-btn")).toBeNull();
   });
 });

@@ -79,7 +79,7 @@ describe("SessionOpenSpecActions — groups", () => {
     fireEvent.click(screen.getByTestId("attach-combo"));
     // "All" pill should be active again (default state after remount)
     const allPill = screen.getByTestId("group-pill-all");
-    expect(allPill.className).toContain("blue-500");
+    expect(allPill.className).toContain("bg-[var(--accent-soft)]");
   });
 
   it("selecting from grouped dialog calls onAttach", () => {

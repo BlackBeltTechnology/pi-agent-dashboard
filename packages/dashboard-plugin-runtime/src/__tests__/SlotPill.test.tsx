@@ -83,7 +83,7 @@ describe("SlotPill surface variant", () => {
   it("border, radius, and hover-border are identical across variants", () => {
     const raised = pillRoot("pill-r2", { surface: "raised" });
     const flat = pillRoot("pill-f2", { surface: "flat" });
-    for (const token of ["border-[var(--border-subtle)]", "rounded-[11px]", "hover:border-cyan-500/45"]) {
+    for (const token of ["border-[var(--border-subtle)]", "rounded-[11px]", "hover:border-[var(--tint-green-border)]"]) {
       expect(raised.className).toContain(token);
       expect(flat.className).toContain(token);
     }
@@ -115,5 +115,27 @@ describe("SLOT_PILL_LEGEND constant (#E2)", () => {
     for (const t of ["text-[11px]", "uppercase", "tracking-wide", "-top-2", "font-semibold", "text-[var(--text-secondary)]"]) {
       expect(tokens).toContain(t);
     }
+  });
+});
+
+// See change: fix-folder-card-pill-contrast (test-plan #E1).
+describe("SlotPill accent → host hue tokens (#E1)", () => {
+  const cases = [
+    ["blue", "blue"],
+    ["indigo", "blue"],
+    ["cyan", "green"],
+    ["teal", "green"],
+    ["purple", "purple"],
+    ["red", "red"],
+  ] as const;
+
+  it.each(cases)("accent %s resolves onto the %s token pair", (accent, hue) => {
+    const root = pillRoot(`pill-accent-${accent}`, { accent });
+    const glyph = root.querySelector("span.w-\\[26px\\]") as HTMLElement;
+    const glyphClasses = glyph.className.split(/\s+/);
+    expect(glyphClasses).toContain(`text-[var(--accent-${hue}-text)]`);
+    expect(glyphClasses).toContain(`bg-[var(--tint-${hue}-bg)]`);
+    expect(root.className.split(/\s+/)).toContain(`hover:border-[var(--tint-${hue}-border)]`);
+    expect(root.outerHTML).not.toMatch(/-(400|500)(?![\w-])/);
   });
 });

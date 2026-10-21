@@ -405,7 +405,7 @@ describe("theme-token-guard baseline bootstrap (--bootstrap-arm accentText)", ()
   });
 
   it("refuses when accentText already exists, leaving the file untouched (X2)", () => {
-    const { opts, baselinePath } = setup({ ...OLD, accentText: {} });
+    const { opts, baselinePath } = setup({ ...OLD, accentText: {}, rawPalette: {} });
     const bytes = readFileSync(baselinePath, "utf8");
     const mtime = statSync(baselinePath).mtimeMs;
     expect(main(BOOT, opts)).not.toBe(0);
@@ -435,7 +435,7 @@ describe("theme-token-guard baseline bootstrap (--bootstrap-arm accentText)", ()
   });
 
   it("plain --write refuses to grow accentText once bootstrapped (X6)", () => {
-    const { opts, baselinePath } = setup({ ...OLD, accentText: {} });
+    const { opts, baselinePath } = setup({ ...OLD, accentText: {}, rawPalette: {} });
     const bytes = readFileSync(baselinePath, "utf8");
     expect(main(["--write"], opts)).not.toBe(0);
     expect(stderr()).toMatch(/refuses to GROW/);
@@ -446,5 +446,111 @@ describe("theme-token-guard baseline bootstrap (--bootstrap-arm accentText)", ()
     const { opts, baselinePath } = setup(OLD);
     expect(() => loadBaseline(baselinePath)).toThrow(/accentText/);
     expect(main([], opts)).not.toBe(0);
+  });
+});
+
+// ── Arm 4: rawPalette ───────────────────────────────────────────────────────
+// A Tailwind palette class bypasses the theme tokens. The arm ratchets existing
+// sites per `<file>::<hue>` and fails any new one.
+// See change: fix-folder-card-pill-contrast (test-plan #E8–#E13, #X1).
+
+describe("theme-token-guard rawPalette arm", () => {
+  let err;
+  beforeEach(() => {
+    err = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "log").mockImplementation(() => {});
+  });
+  afterEach(() => vi.restoreAllMocks());
+  const stderr = () => err.mock.calls.map((c) => c.join(" ")).join("\n");
+
+  const FOO = "src/components/Widget.tsx";
+  const ALL = { fallback: {}, undeclared: {}, accentText: {}, rawPalette: {} };
+  function setup(source, baseline) {
+    const { root, roots } = fixture(source);
+    const baselinePath = join(root, "baseline.json");
+    if (baseline !== undefined) writeFileSync(baselinePath, `${JSON.stringify(baseline, null, 2)}\n`);
+    return { root, roots, baselinePath, opts: { root, roots, baselinePath } };
+  }
+
+  // #E8
+  it("fails a new palette class, naming the arm, file, hue and replacement families", () => {
+    const { opts } = setup('const a = "text-amber-400";\n', { ...ALL, rawPalette: { "other.tsx::amber": 1 } });
+    expect(main([], opts)).toBe(1);
+    const out = stderr();
+    expect(out).toMatch(/rawPalette/);
+    expect(out).toContain("Widget.tsx");
+    expect(out).toContain("amber");
+    expect(out).toMatch(/--accent-<hue>-text/);
+    expect(out).toMatch(/--severity-\*/);
+  });
+
+  // #E9
+  it("records side-border, ring-offset and variant-prefixed forms per hue", () => {
+    const { root, roots } = fixture(
+      'const a = "border-l-blue-400 hover:ring-offset-red-500/40 md:text-emerald-300";\n',
+    );
+    const { rawPalette } = scan({ root, roots });
+    expect(rawPalette).toEqual({ [`${FOO}::blue`]: 1, [`${FOO}::emerald`]: 1, [`${FOO}::red`]: 1 });
+  });
+
+  // #E10
+  it("fails growth, passes equal, passes shrink; --write cannot re-add", () => {
+    const base = { ...ALL, rawPalette: { [`${FOO}::blue`]: 2 } };
+    const three = setup('const a = "text-blue-400 bg-blue-500 border-blue-300";\n', base);
+    expect(main([], three.opts)).toBe(1);
+    const two = setup('const a = "text-blue-400 bg-blue-500";\n', base);
+    expect(main([], two.opts)).toBe(0);
+    const one = setup('const a = "text-blue-400";\n', base);
+    expect(main([], one.opts)).toBe(0);
+    expect(main(["--write"], one.opts)).toBe(0);
+    expect(JSON.parse(readFileSync(one.baselinePath, "utf8")).rawPalette[`${FOO}::blue`]).toBe(1);
+    writeFileSync(join(one.root, FOO), 'const a = "text-blue-400 bg-blue-500";\n');
+    expect(main([], one.opts)).toBe(1);
+    expect(main(["--write"], one.opts)).toBe(1);
+  });
+
+  // #E11
+  it("ignores token paints, non-palette utilities and test files", () => {
+    const { root, roots } = fixture(
+      'const a = "text-[var(--accent-red-text)] bg-[var(--tint-blue-bg)] text-white text-xs border-2 text-accent-blue";\n',
+    );
+    writeFileSync(join(root, "src", "components", "Widget.test.tsx"), 'const t = "text-green-500";\n');
+    expect(scan({ root, roots }).rawPalette).toEqual({});
+  });
+
+  // #E12
+  it("bootstrap -> shrink --write keeps the rawPalette key; second bootstrap and growth refuse", () => {
+    const { opts, baselinePath } = setup('const a = "text-amber-400 bg-amber-500";\n', {
+      fallback: {},
+      undeclared: {},
+      accentText: {},
+    });
+    expect(main(["--write", "--bootstrap-arm", "rawPalette"], opts)).toBe(0);
+    expect(JSON.parse(readFileSync(baselinePath, "utf8")).rawPalette).toEqual({ [`${FOO}::amber`]: 2 });
+    writeFileSync(join(opts.root, FOO), 'const a = "text-amber-400";\n');
+    expect(main(["--write"], opts)).toBe(0);
+    expect(JSON.parse(readFileSync(baselinePath, "utf8")).rawPalette).toEqual({ [`${FOO}::amber`]: 1 });
+    expect(main(["--write", "--bootstrap-arm", "rawPalette"], opts)).toBe(1);
+    writeFileSync(join(opts.root, FOO), 'const a = "text-amber-400 bg-amber-500";\n');
+    expect(main(["--write"], opts)).toBe(1);
+    expect(stderr()).toMatch(/refuses to GROW/);
+  });
+
+  // #E13
+  it("passes on the real tree and baselines no card-pill file except SessionList", () => {
+    expect(main([], {})).toBe(0);
+    const keys = Object.keys(loadBaseline().rawPalette);
+    const pill =
+      /\/(SlotPill|FolderAutomationSection|FolderGoalsSection|FolderMcpSection|FolderOpenSpecSection|OpenSpecActivityBadge|openspec-helpers|OpenSpecGroupPills|FlowActivityBadge|WorktreeInitStack|WorktreeInitButton|WorktreeInitChip|FolderActionBanner)\.tsx::/;
+    expect(keys.filter((k) => pill.test(k))).toEqual([]);
+    expect(keys.some((k) => k.endsWith("/SessionList.tsx::blue"))).toBe(true);
+  });
+
+  // #X1
+  it("treats a missing rawPalette key as an error naming the bootstrap command", () => {
+    const { opts, baselinePath } = setup('const a = "x";\n', { fallback: {}, undeclared: {}, accentText: {} });
+    expect(() => loadBaseline(baselinePath)).toThrow(/rawPalette.*--bootstrap-arm rawPalette/);
+    expect(main([], opts)).toBe(1);
+    expect(stderr()).toMatch(/rawPalette/);
   });
 });

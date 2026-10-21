@@ -118,3 +118,14 @@ describe("FolderGoalsSection", () => {
     await waitFor(() => expect(history[history.length - 1]).toBe(goalsBoardUrl(cwd)));
   });
 });
+
+// See change: fix-folder-card-pill-contrast (test-plan #E21).
+describe("FolderGoalsSection pill colour roles", () => {
+  it("E21: the unit label is 11 px", async () => {
+    const { getByTestId } = renderSlot();
+    await waitFor(() => expect(getByTestId("folder-goals-count").textContent).toBe("2"));
+    const unit = getByTestId("folder-goals-count").nextElementSibling as HTMLElement;
+    expect(unit.className).toContain("text-[11px]");
+    expect(unit.className).not.toContain("text-[10px]");
+  });
+});

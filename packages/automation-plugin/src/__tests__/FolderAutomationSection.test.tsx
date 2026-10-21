@@ -125,3 +125,24 @@ describe("FolderAutomationSection", () => {
     expect(setLocation).not.toHaveBeenCalled();
   });
 });
+
+// See change: fix-folder-card-pill-contrast (test-plan #E21).
+describe("FolderAutomationSection pill colour roles", () => {
+  it("E21: unit + invalid marker are 11 px; marker uses the orange text token", async () => {
+    listAutomations.mockResolvedValueOnce([
+      { name: "a", scope: "folder", dir: "/r/.pi/automation/a", valid: true },
+      { name: "b", scope: "folder", dir: "/r/.pi/automation/b", valid: false },
+      { name: "c", scope: "folder", dir: "/r/.pi/automation/c", valid: false },
+    ]);
+    const { getByTestId } = renderSection("/r");
+    const board = await waitFor(() => getByTestId("folder-automation-open-board"));
+    const unit = getByTestId("folder-automation-count").nextElementSibling as HTMLElement;
+    expect(unit.className).toContain("text-[11px]");
+    expect(unit.className).not.toContain("text-[10px]");
+    const marker = unit.nextElementSibling as HTMLElement;
+    expect(marker.textContent).toContain("2");
+    expect(marker.className).toContain("text-[var(--accent-orange-text)]");
+    expect(marker.className).toContain("text-[11px]");
+    expect(board.innerHTML).not.toMatch(/amber|#27272a|text-\[10px\]/);
+  });
+});

@@ -34,10 +34,10 @@ export function OpenSpecGroupPills({
       <button
         type="button"
         onClick={(e) => { e.stopPropagation(); onSelect(null); }}
-        className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
+        className={`text-[12px] px-2 py-0.5 rounded-full border transition-colors ${
           activeGroupId === null
-            ? "border-blue-500/50 text-blue-400 bg-blue-500/10"
-            : "border-[var(--border-secondary)] text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
+            ? "border-[var(--accent)] text-[var(--text-primary)] bg-[var(--accent-soft)]"
+            : "border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
         }`}
         data-testid="group-pill-all"
       >
@@ -53,10 +53,10 @@ export function OpenSpecGroupPills({
             key={g.id}
             type="button"
             onClick={(e) => { e.stopPropagation(); onSelect(g.id); }}
-            className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors flex items-center gap-1 ${
+            className={`text-[12px] px-2 py-0.5 rounded-full border transition-colors flex items-center gap-1 ${
               active
-                ? "border-blue-500/50 text-blue-400 bg-blue-500/10"
-                : "border-[var(--border-secondary)] text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
+                ? "border-[var(--accent)] text-[var(--text-primary)] bg-[var(--accent-soft)]"
+                : "border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
             }`}
             data-testid={`group-pill-${g.id}`}
           >
@@ -74,7 +74,7 @@ export function OpenSpecGroupPills({
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); onManageGroups(); }}
-          className="text-[10px] text-[var(--text-muted)] hover:text-blue-400 ml-1"
+          className="text-[12px] text-[var(--text-secondary)] hover:text-[var(--link-hover)] ml-1"
           data-testid="manage-groups-link"
         >
           {i18nT("common.manageGroups", undefined, "Manage groups…")}

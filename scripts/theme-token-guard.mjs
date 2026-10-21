@@ -20,7 +20,15 @@
  *     reads `.css`. Files in `NON_TEXT_PAINT_FILES` are skipped by it only.
  *     See change: remediate-accent-text-contrast.
  *
- * Neither arm may be a sweep. When this check landed the client carried 72
+ * 4. raw palette (`rawPalette`) — a Tailwind palette class (`text-amber-400`,
+ *     `border-l-blue-500/40`, `hover:ring-offset-red-500`). Palette classes
+ *     bypass the theme tokens, so they carry no contrast guarantee in any
+ *     palette but the one they were authored against. Replacement families:
+ *     `--accent-<hue>-text`, `--severity-*`, `--tint-*`, `--text-*`. Counted per
+ *     `<file>::<hue>` site; ratchet only, existing sites are not swept.
+ *     See change: fix-folder-card-pill-contrast (design D5).
+ *
+ * No arm may be a sweep. When this check landed the client carried 72
  * fallback-form bindings across 19 files, and `--border` / `--danger` /
  * `--success` / `--accent-fg` / `--bg-input` / `--border-focus` were all
  * referenced-but-undeclared. A rule failing on those fails on the day it lands
@@ -35,7 +43,7 @@
  * site grow silently under its own baseline entry.
  *
  * Refresh a shrunk baseline with:  node scripts/theme-token-guard.mjs --write
- * Add a NEW arm's map once:         node scripts/theme-token-guard.mjs --write --bootstrap-arm accentText
+ * Add a NEW arm's map once:         node scripts/theme-token-guard.mjs --write --bootstrap-arm accentText|rawPalette
  *
  * See change: add-zrok-custom-reserved-name.
  */
@@ -134,8 +142,32 @@ export const NON_TEXT_PAINT_FILES = [
   },
 ];
 
-/** Arm keys in the baseline file, and the label each reports under. */
-const ARM_LABELS = { fallback: "fallback-form", undeclared: "undeclared-token", accentText: "accent-as-text" };
+/**
+ * Arm 4 — raw Tailwind palette classes. Colour utility prefix, optional variant
+ * prefixes (`hover:`, `md:`, `[&>svg]:`), one of the 22 palette hues, a numeric
+ * shade and an optional opacity suffix. The lookbehind rejects `--accent-blue-500`
+ * style token names and `bg-accent-blue-500` compounds; `-text` ramp tokens never
+ * match because they carry no numeric shade.
+ */
+const PALETTE_HUES =
+  "slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose";
+const RAW_PALETTE_PREFIXES =
+  "text|bg|border(?:-[trblxyse])?|ring(?:-offset)?|outline|divide|fill|stroke|from|via|to|placeholder|decoration|caret|accent|shadow";
+const RAW_PALETTE_RE = new RegExp(
+  `(?<![\\w-])(?:[^\\s"'\`:]+:)*(?:${RAW_PALETTE_PREFIXES})-(${PALETTE_HUES})-(?:50|[1-9]00|950)(?:/[\\w.\\[\\]]+)?(?![\\w-])`,
+  "g",
+);
+
+/** Arms in baseline order: key, report label. One list drives load / grow / bootstrap / write. */
+const ARMS = [
+  ["fallback", "fallback-form"],
+  ["undeclared", "undeclared-token"],
+  ["accentText", "accent-as-text"],
+  ["rawPalette", "rawPalette"],
+];
+const ARM_LABELS = Object.fromEntries(ARMS);
+/** Arms a baseline may gain after the fact via --bootstrap-arm. */
+const BOOTSTRAP_ARMS = ["accentText", "rawPalette"];
 
 export function isColorToken(name) {
   return COLOR_TOKEN_RE.test(name) && !NON_COLOR_SUFFIX_RE.test(name);
@@ -187,10 +219,23 @@ function scanAccentText(root, roots) {
   return acc;
 }
 
+/** Arm 4 over `.ts`/`.tsx` (test files excluded by `walk`). */
+function scanRawPalette(root, roots) {
+  const acc = {};
+  for (const r of roots) {
+    for (const file of walk(join(root, r))) {
+      const rel = relative(root, file).split("\\").join("/");
+      const src = readFileSync(file, "utf8");
+      for (const m of src.matchAll(RAW_PALETTE_RE)) acc[`${rel}::${m[1]}`] = (acc[`${rel}::${m[1]}`] ?? 0) + 1;
+    }
+  }
+  return acc;
+}
+
 /**
  * Scan sources for every arm.
  *
- * @returns {{ fallback: Record<string,number>, undeclared: Record<string,number>, accentText: Record<string,number> }}
+ * @returns {{ fallback: Record<string,number>, undeclared: Record<string,number>, accentText: Record<string,number>, rawPalette: Record<string,number> }}
  *   `"<file>::<token>"` -> occurrence count.
  */
 export function scan({ root = ROOT, roots = SCAN_ROOTS, css } = {}) {
@@ -216,7 +261,13 @@ export function scan({ root = ROOT, roots = SCAN_ROOTS, css } = {}) {
   }
   const sorted = (o) => Object.fromEntries(Object.entries(o).sort(([a], [b]) => a.localeCompare(b)));
   const accentText = scanAccentText(root, roots);
-  return { fallback: sorted(fallback), undeclared: sorted(undeclared), accentText: sorted(accentText) };
+  const rawPalette = scanRawPalette(root, roots);
+  return {
+    fallback: sorted(fallback),
+    undeclared: sorted(undeclared),
+    accentText: sorted(accentText),
+    rawPalette: sorted(rawPalette),
+  };
 }
 
 /**
@@ -241,17 +292,22 @@ export function total(counts) {
 }
 
 /**
- * `accentText` is REQUIRED: once bootstrapped, a missing key is an error, never
- * an implicit `{}` (which would bless every fill-accent text paint at once).
+ * `accentText` and `rawPalette` are REQUIRED: once bootstrapped, a missing key is
+ * an error, never an implicit `{}` (which would bless every existing site at once).
  */
 export function loadBaseline(path = BASELINE_PATH) {
   const raw = JSON.parse(readFileSync(path, "utf8"));
-  if (raw.accentText === undefined || raw.accentText === null || typeof raw.accentText !== "object") {
-    throw new Error(
-      `baseline has no "accentText" map — establish it once with --write --bootstrap-arm accentText`,
-    );
+  for (const arm of BOOTSTRAP_ARMS) {
+    if (raw[arm] === undefined || raw[arm] === null || typeof raw[arm] !== "object") {
+      throw new Error(`baseline has no "${arm}" map — establish it once with --write --bootstrap-arm ${arm}`);
+    }
   }
-  return { fallback: raw.fallback ?? {}, undeclared: raw.undeclared ?? {}, accentText: raw.accentText };
+  return {
+    fallback: raw.fallback ?? {},
+    undeclared: raw.undeclared ?? {},
+    accentText: raw.accentText,
+    rawPalette: raw.rawPalette,
+  };
 }
 
 /**
@@ -259,7 +315,7 @@ export function loadBaseline(path = BASELINE_PATH) {
  * CI) could adopt today's numbers and re-bless a regression, which is the one
  * direction the spec forbids.
  */
-function grownEntries(found, current, arms = ["fallback", "undeclared", "accentText"]) {
+function grownEntries(found, current, arms = ARMS.map(([k]) => k)) {
   const grown = [];
   for (const arm of arms) {
     for (const [key, n] of Object.entries(found[arm])) {
@@ -271,17 +327,19 @@ function grownEntries(found, current, arms = ["fallback", "undeclared", "accentT
 }
 
 /**
- * `--write --bootstrap-arm accentText` — adds the brand-new arm's map ONCE.
- * Deliberately NOT the `--bootstrap` path (which treats any load error as
+ * `--write --bootstrap-arm <accentText|rawPalette>` — adds a brand-new arm's map
+ * ONCE. Deliberately NOT the `--bootstrap` path (which treats any load error as
  * permission to write a fresh baseline): this reads the raw JSON itself,
- * refuses on a missing/malformed file or an existing `accentText`, refuses if
- * the tree has grown an OLD arm, and carries `fallback`/`undeclared` over
- * exactly as they were.
+ * refuses on a missing/malformed file or an existing map for that arm, refuses
+ * if the tree has grown an arm the baseline already holds, and carries every
+ * existing arm over exactly as it was.
  * @returns {number} exit code
  */
 function bootstrapArm(arm, found, baselinePath) {
-  if (arm !== "accentText") {
-    console.error(`\u2717 theme-token-guard: --bootstrap-arm supports only "accentText", got "${arm}"`);
+  if (!BOOTSTRAP_ARMS.includes(arm)) {
+    console.error(
+      `\u2717 theme-token-guard: --bootstrap-arm supports only ${BOOTSTRAP_ARMS.map((a) => `"${a}"`).join(" or ")}, got "${arm}"`,
+    );
     return 1;
   }
   if (!existsSync(baselinePath)) {
@@ -299,21 +357,24 @@ function bootstrapArm(arm, found, baselinePath) {
     console.error("\u2717 theme-token-guard: baseline lacks fallback/undeclared maps. Refusing to write.");
     return 1;
   }
-  if (raw.accentText !== undefined) {
-    console.error("\u2717 theme-token-guard: baseline already has an accentText arm; bootstrap runs once. Use --write to shrink it.");
+  if (raw[arm] !== undefined) {
+    console.error(`\u2717 theme-token-guard: baseline already has a ${arm} arm; bootstrap runs once. Use --write to shrink it.`);
     return 1;
   }
-  const grown = grownEntries(found, raw, ["fallback", "undeclared"]);
+  const held = ARMS.map(([k]) => k).filter((k) => raw[k] !== undefined);
+  const grown = grownEntries(found, raw, held);
   if (grown.length > 0) {
     console.error("\u2717 theme-token-guard: --bootstrap-arm refuses to GROW an existing arm. Fix the binding instead:");
     for (const g of grown) console.error(`    ${g}`);
     return 1;
   }
-  writeFileSync(
-    baselinePath,
-    `${JSON.stringify({ fallback: raw.fallback, undeclared: raw.undeclared, accentText: found.accentText }, null, 2)}\n`,
-  );
-  console.log(`\u2713 theme-token-guard: accentText arm bootstrapped \u2014 ${total(found.accentText)} accent-as-text`);
+  const out = {};
+  for (const [k] of ARMS) {
+    if (k === arm) out[k] = found[k];
+    else if (raw[k] !== undefined) out[k] = raw[k];
+  }
+  writeFileSync(baselinePath, `${JSON.stringify(out, null, 2)}\n`);
+  console.log(`\u2713 theme-token-guard: ${arm} arm bootstrapped \u2014 ${total(found[arm])} occurrence(s)`);
   return 0;
 }
 
@@ -342,10 +403,10 @@ function writeBaseline(found, { bootstrap = false, baselinePath = BASELINE_PATH 
   }
   writeFileSync(
     baselinePath,
-    `${JSON.stringify({ fallback: found.fallback, undeclared: found.undeclared, accentText: found.accentText }, null, 2)}\n`,
+    `${JSON.stringify(Object.fromEntries(ARMS.map(([k]) => [k, found[k]])), null, 2)}\n`,
   );
   console.log(
-    `\u2713 theme-token-guard: baseline written \u2014 ${total(found.fallback)} fallback, ${total(found.undeclared)} undeclared, ${total(found.accentText)} accent-as-text`,
+    `\u2713 theme-token-guard: baseline written \u2014 ${total(found.fallback)} fallback, ${total(found.undeclared)} undeclared, ${total(found.accentText)} accent-as-text, ${total(found.rawPalette)} rawPalette`,
   );
   return 0;
 }
@@ -370,18 +431,17 @@ export function main(argv = process.argv.slice(2), { root = ROOT, roots = SCAN_R
     console.error(`\u2717 theme-token-guard: ${err?.message ?? err}`);
     return 1;
   }
-  const arms = [
-    ["fallback-form", ratchet(found.fallback, baseline.fallback)],
-    ["undeclared-token", ratchet(found.undeclared, baseline.undeclared)],
-    ["accent-as-text", ratchet(found.accentText, baseline.accentText)],
-  ];
+  const arms = ARMS.map(([k, label]) => [label, ratchet(found[k], baseline[k])]);
 
   let failed = false;
   for (const [arm, r] of arms) {
     for (const { key, found: n, allowed } of r.added) {
       const [file, token] = key.split("::");
       console.error(
-        `✗ theme-token-guard [${arm}]: ${token} in ${file} — ${n} occurrence(s), baseline allows ${allowed}`,
+        `✗ theme-token-guard [${arm}]: ${token} in ${file} — ${n} occurrence(s), baseline allows ${allowed}` +
+          (arm === "rawPalette"
+            ? ` (raw palette class; use --accent-<hue>-text, --severity-*, --tint-* or --text-* tokens)`
+            : ""),
       );
       failed = true;
     }
@@ -401,7 +461,7 @@ export function main(argv = process.argv.slice(2), { root = ROOT, roots = SCAN_R
     return 1;
   }
   console.log(
-    `✓ theme-token-guard: no new violations (baseline ${total(baseline.fallback)} fallback, ${total(baseline.undeclared)} undeclared, ${total(baseline.accentText)} accent-as-text)`,
+    `✓ theme-token-guard: no new violations (baseline ${total(baseline.fallback)} fallback, ${total(baseline.undeclared)} undeclared, ${total(baseline.accentText)} accent-as-text, ${total(baseline.rawPalette)} rawPalette)`,
   );
   return 0;
 }

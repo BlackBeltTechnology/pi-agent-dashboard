@@ -17,10 +17,10 @@ import { Icon } from "@mdi/react";
 import React, { type ReactNode } from "react";
 
 const statusConfig: Record<string, { icon: ReactNode; color: string }> = {
-  running: { icon: <Icon path={mdiLoading} size={0.45} className="animate-spin" />, color: "text-blue-400" },
-  success: { icon: <Icon path={mdiCheckCircle} size={0.45} />, color: "text-green-400" },
-  error: { icon: <Icon path={mdiAlertCircle} size={0.45} />, color: "text-red-400" },
-  aborted: { icon: <Icon path={mdiStopCircle} size={0.45} />, color: "text-orange-400" },
+  running: { icon: <Icon path={mdiLoading} size={0.45} className="animate-spin" />, color: "text-[var(--accent-blue-text)]" },
+  success: { icon: <Icon path={mdiCheckCircle} size={0.45} />, color: "text-[var(--accent-green-text)]" },
+  error: { icon: <Icon path={mdiAlertCircle} size={0.45} />, color: "text-[var(--accent-red-text)]" },
+  aborted: { icon: <Icon path={mdiStopCircle} size={0.45} />, color: "text-[var(--accent-orange-text)]" },
 };
 
 export interface FlowActivityBadgeProps {
@@ -59,7 +59,7 @@ export function FlowActivityBadge({
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); onAbort(); }}
-          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] rounded border border-red-500/40 text-red-400 hover:bg-red-500/10 transition-colors flex-shrink-0"
+          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[12px] rounded border border-[var(--tint-red-border)] text-[var(--tint-red-fg)] bg-[var(--tint-red-bg)] hover:brightness-110 transition-colors flex-shrink-0"
           title={t("abortRunningFlow", undefined, "Abort running flow")}
         >
           <Icon path={mdiStop} size={0.4} />

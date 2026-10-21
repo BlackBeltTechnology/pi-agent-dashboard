@@ -11,8 +11,10 @@
  * Reads the same store as the per-row chips, so stack + cards stay in sync.
  * See change: friendlier-worktree-init.
  */
-import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { mdiAlertCircleOutline, mdiCheckCircleOutline } from "@mdi/js";
+import { Icon } from "@mdi/react";
 import { initStore, useAllInitRuns } from "../../lib/git/worktree-init-store.js";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
 
 const MAX_ROWS = 4;
 
@@ -25,7 +27,7 @@ function basename(p: string): string {
 function Spinner() {
   return (
     <span
-      className="inline-block w-3 h-3 rounded-full border-2 border-amber-400/25 border-t-amber-400 animate-spin flex-none"
+      className="inline-block w-3 h-3 rounded-full border-2 border-[var(--accent-blue-text)]/25 border-t-[var(--accent-blue-text)] animate-spin flex-none"
       aria-hidden
     />
   );
@@ -48,7 +50,7 @@ export function WorktreeInitStack() {
 
   return (
     <div
-      className="fixed bottom-4 right-4 z-overlay w-[360px] max-w-[calc(100vw-2rem)] rounded-xl border border-[var(--border-secondary)] bg-[var(--bg-secondary)] shadow-[0_8px_24px_rgba(0,0,0,0.5)] overflow-hidden"
+      className="fixed bottom-4 right-4 z-overlay w-[360px] max-w-[calc(100vw-2rem)] rounded-xl border border-[var(--border-secondary)] bg-[var(--bg-secondary)] shadow-[0_8px_24px_var(--shadow-card)] overflow-hidden"
       data-testid="worktree-init-stack"
     >
       <div className="flex items-center gap-2 px-3 py-2.5 bg-[var(--bg-tertiary)] border-b border-[var(--border-subtle)]">
@@ -57,45 +59,53 @@ export function WorktreeInitStack() {
           {i18nT("worktree.initializingCount", { count: running || runs.length, s: (running || runs.length) === 1 ? "" : "s" }, "Initializing {count} worktree{s}")}
         </span>
         {headParts.length > 0 && (
-          <span className="ml-auto text-[11px] text-[var(--text-muted)]">{headParts.join(" · ")}</span>
+          <span className="ml-auto text-[11px] text-[var(--text-secondary)]">{headParts.join(" · ")}</span>
         )}
       </div>
       {visible.map((r) => (
         <div
           key={r.cwd}
           className={`flex items-center gap-2 px-3 py-2 border-b border-[var(--border-subtle)] last:border-b-0 text-[11.5px] ${
-            r.phase === "failed" ? "bg-red-500/[0.05]" : ""
+            r.phase === "failed" ? "bg-[var(--severity-error-bg)]" : ""
           }`}
         >
           {r.phase === "running" && <Spinner />}
-          {r.phase === "done" && <span className="w-3.5 text-center text-green-400">✓</span>}
-          {r.phase === "failed" && <span className="w-3.5 text-center text-red-400">✕</span>}
+          {r.phase === "done" && (
+            <span className="w-3.5 flex-none inline-flex justify-center text-[var(--accent-green-text)]" aria-hidden>
+              <Icon path={mdiCheckCircleOutline} size={0.6} />
+            </span>
+          )}
+          {r.phase === "failed" && (
+            <span className="w-3.5 flex-none inline-flex justify-center text-[var(--severity-error-fg)]" aria-hidden>
+              <Icon path={mdiAlertCircleOutline} size={0.6} />
+            </span>
+          )}
           <span className="font-semibold text-[var(--text-primary)] min-w-[74px] truncate">{basename(r.cwd)}</span>
           {r.phase === "running" && (
-            <span className="flex-1 text-[var(--text-muted)] font-mono text-[11px] truncate">{r.lastLine ?? "…"}</span>
+            <span className="flex-1 text-[var(--text-secondary)] font-mono text-[11px] truncate">{r.lastLine ?? "…"}</span>
           )}
-          {r.phase === "done" && <span className="flex-1 text-green-400">{i18nT("worktree.initialized", undefined, "Initialized")}</span>}
+          {r.phase === "done" && <span className="flex-1 text-[var(--accent-green-text)]">{i18nT("worktree.initialized", undefined, "Initialized")}</span>}
           {r.phase === "failed" && (
-            <span className="flex-1 text-red-400 font-mono text-[10.5px] truncate">{r.code ?? "failed"}</span>
+            <span className="flex-1 text-[var(--severity-error-fg)] font-mono text-[11px] truncate">{r.code ?? "failed"}</span>
           )}
           {r.phase === "failed" ? (
             <button
               type="button"
               onClick={() => initStore.dismiss(r.cwd)}
               data-testid="worktree-init-stack-dismiss"
-              className="text-[11px] px-2 py-0.5 rounded-md border border-amber-500/40 bg-amber-500/[0.06] text-amber-400 hover:text-amber-300"
+              className="text-[12px] px-2 py-0.5 rounded-md border border-[var(--border-secondary)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
             >
               {i18nT("common.dismiss", undefined, "Dismiss")}
             </button>
           ) : (
-            <span className="text-[11px] text-[var(--text-muted)]">
+            <span className="text-[11px] text-[var(--text-secondary)]">
               {r.phase === "running" ? `${Math.round((Date.now() - r.startedAt) / 1000)}s` : i18nT("status.fading", undefined, "· fading")}
             </span>
           )}
         </div>
       ))}
       {overflow > 0 && (
-        <div className="px-3 py-1.5 text-[11px] text-[var(--text-muted)]">{i18nT("common.overflowMore", { count: overflow }, "+{count} more")}</div>
+        <div className="px-3 py-1.5 text-[11px] text-[var(--text-secondary)]">{i18nT("common.overflowMore", { count: overflow }, "+{count} more")}</div>
       )}
     </div>
   );

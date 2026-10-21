@@ -104,6 +104,7 @@ One row per file.
 | `flow-roundtrip.spec.ts` | L3 spec (change: add-flow-plugin-… → `flow-roundtrip.spec.ts.AGENTS.md` |
 | `folder-action-banner.spec.ts` | L3 for `add-folder-action-banner`… → `folder-action-banner.spec.ts.AGENTS.md` |
 | `folder-actions-menu.spec.ts` | Playwright spec. Folder actions menu… → `folder-actions-menu.spec.ts.AGENTS.md` |
+| `folder-banner-contrast.spec.ts` | L3 retrust banner on untrusted `sample-hook-ok`: #F1 contrast (text 4.5, glyph 3), #F2 action colour = region over base/nord dark/light, #F7 44/32 px + focus ring. Observe-only (never trusts; sorts before `worktree-init-feedback`). See change: fix-folder-card-pill-contrast. |
 | `folder-collapse-persistence.spec.ts` | L3 folder collapse persistence. → `folder-collapse-persistence.spec.ts.AGENTS.md` |
 | `folder-collapse-seek.spec.ts` | L3 `persist-folder-collapse-server-side` #F5… → `folder-collapse-seek.spec.ts.AGENTS.md` |
 | `folder-collapse-worktree.spec.ts` | → `folder-collapse-worktree.spec.ts.AGENTS.md` |
