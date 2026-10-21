@@ -19,7 +19,7 @@ One row per file.
 | `canvas-static-mockup.spec.ts` | L3 |
 | `changed-on-disk-content-gate.spec.ts` | L3 |
 | `composer-liveness-reload.spec.ts` | → see `composer-liveness-reload.spec.ts.AGENTS.md` |
-| `composer-session-strip.spec.ts` | L3 redesign-composer-session-strip (F8–F12). → see `composer-session-strip.spec.ts.AGENTS.md` |
+| `composer-session-strip.spec.ts` | → see `composer-session-strip.spec.ts.AGENTS.md` |
 | `context-mode-settings.spec.ts` | L3 F1/F2 → see `context-mode-settings.spec.ts.AGENTS.md` |
 | `craft-web-editor.spec.ts` | L3 WordCraft F1–F9, X7, P1/P2. → see `craft-web-editor.spec.ts.AGENTS.md` |
 | `editor-pane-file-handler.spec.ts` | L3 F1–F3, F11, F12, X9. → see `editor-pane-file-handler.spec.ts.AGENTS.md` |
