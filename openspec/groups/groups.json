@@ -342,6 +342,7 @@
     "fix-editor-mtime-token-precision": "ui",
     "fix-terminal-session-dashboard-reload": "ui",
     "context-manager-kernel": "unify-context-manager",
+    "context-manager-blackhole-fork": "unify-context-manager",
     "add-pi-video-gen-export": "ui",
     "add-music-production-skills": "ui",
     "add-gmail-plugin": "ui",
@@ -568,6 +569,7 @@
     "unify-context-manager": [
       "unify-context-manager",
       "context-manager-kernel",
+      "context-manager-blackhole-fork",
       "add-session-step-table",
       "add-kb-semantic-annotation-plane",
       "add-omni-embedding-retrieval",

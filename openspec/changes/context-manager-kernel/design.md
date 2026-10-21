@@ -3,30 +3,48 @@
 ## Context
 
 Phase 1 of `unify-context-manager` (see its `design.md` D2, D5, D6 and the
-Migration Plan). The facts below were verified on pi 0.87.1 and in this repo;
-they are the premises of the decisions.
+Migration Plan). The facts below were first verified on pi 0.87.1 and
+re-verified on pi 1.3.0 on 2026-10-21 (umbrella task 1.1b; the "Spike" items
+come from a throwaway extension run with a faux provider through `pi -p`).
+They are the premises of the decisions.
 
 - **Prompt sections.** `before_agent_start` exposes mutable
   `systemPromptOptions.sections` (`Record<tag, text>`, rendered as XML-tagged
   sections and recorded as transcript deltas). Returning `systemPrompt` forces
   the whole prompt; later handlers see `systemPromptOptions.forceSystemPrompt`.
-- **No cwd anchor.** pi 0.87.1 renders the working directory as a
-  `<cwd>…</cwd>` section; the string `Current working directory:` no longer
-  exists.
-  - The bridge injector (`dashboard-context-injector.ts`) and kb-extension's
-    doctrine (`insertFragment`) both miss that anchor and append their fragment
-    to a forced `systemPrompt`.
-  - The bridge forces the prompt on **every** dashboard turn. Under the
-    dashboard, the forced-prompt path is therefore the normal path, not an
-    edge case.
+  A forced prompt is a snapshot: every structured contribution made after it
+  (sections, tool guidelines) is recorded but never sent.
+- **No first-party forcer.** Since `fix-forced-system-prompt-drops-tool-guidelines`
+  (archived 2026-10-19) the bridge injector writes `sections.dashboard_session`
+  and kb-extension writes `sections.dox_doctrine`; neither returns
+  `systemPrompt`. A third-party extension that still forces the prompt drops
+  every structured contribution; that change recorded it as a known
+  limitation.
+- **cwd.** pi renders the working directory as a `<cwd>` section; the string
+  `Current working directory:` does not exist (Spike, 1.3.0).
+- **Run kinds.** Since pi 1.2, `before_agent_start` also fires for runs
+  started by `pi.sendMessage(..., { triggerTurn: true })`.
+  `event.messageType` is `"user"` (with `prompt`) or `"custom"` (no
+  `prompt`). A returned `message` is added to both kinds.
 - **Tools.**
-  - Registered tools are active by default (`includeAllExtensionTools`).
+  - Registered `direct` tools are active by default.
   - `pi.setActiveTools()` replaces `agent.state.tools`.
-  - The agent loop resolves calls only against the active set: a call to an
-    inactive tool gets an error result. **An inactive alias does not
-    resolve**, as umbrella D6 had assumed it would (corrected here, K8).
+  - The agent loop resolves calls only against `agent.state.tools`. A
+    direct call to an inactive or a `deferred` tool gets `Tool <name> not
+    found` (Spike).
+  - `prepareLoadout(loadout)` on an **active** tool may return
+    `hiddenDeclarations`. Those tools stay in `agent.state.tools` but their
+    declarations leave the request and the system prompt's tool list and
+    rules. A direct model call to a hidden tool **executes** (Spike).
+  - Tools cannot be unregistered; re-registering with `exposure: "hidden"`
+    withdraws one.
+- **Nested calls.** A tool calling `ctx.executeTool()` (`codemode` scripts)
+  fires `tool_call` and `tool_result` for the nested call with
+  `parentToolCallId` set and `toolCallId` = `<parent id>/<n>` (Spike). The
+  nested result reaches only the calling tool and is not written to the
+  transcript.
 - **Tool identity.** `pi.getAllTools()` returns each tool with `sourceInfo`
-  (its extension's source). `recommended-extensions.ts` records
+  (its extension's source) and `exposure`. `recommended-extensions.ts` records
   `toolsRegistered` for pi-hermes-memory and context-mode; pi-blackhole
   (`recall`) is not in the manifest.
 - **`/reload`.** It emits `session_shutdown`, invalidates the runner, re-runs
@@ -40,7 +58,14 @@ they are the premises of the decisions.
   `kb_guard_pause`), the advisory tool_call→tool_result map, `ReindexState`
   (store cache plus walk coalescing), the push mode and the nudge dedupe. Its
   first-contact nudge is ~540 characters plus the cwd length. Its doctrine is
-  ~2.3 KB (READ) and ~4.9 KB (READ + WRITE).
+  ~2.3 KB (READ) and ~4.9 KB (READ + WRITE), written to `sections.dox_doctrine`.
+- **The git scope shipped** (`add-kb-git-forge-scope`, archived 2026-10-13).
+  `kb_search({scope:"git", kind?})` / `kb_get({scope:"git", path})` delegate
+  to `createGitScope` (`packages/kb/src/git-scope/`); every result carries
+  `details.untrusted: true`, and `format:"json"` returns raw hits. kb-extension
+  already binds `gitSearch`/`gitGet` into the context-manager slot at
+  `session_start` when the registry exists. Its `tool_result` hook carries the
+  forge-command hint matcher (`isForgeCommand`).
 
 ## Goals / Non-Goals
 
@@ -49,18 +74,20 @@ they are the premises of the decisions.
 - Flag on and active: one owner of `session_start`, `turn_start`,
   `tool_call`, `tool_result` and `before_agent_start` for context work, in
   any load order and across `/reload`.
-- A pinned tier that is byte-identical across turns while its inputs are
-  unchanged, on both the sections path and the forced-prompt path.
-- `context_search` / `context_get` over `docs` and `lessons`. The `docs`
-  results are identical to `kb_search`.
+- A pinned tier, delivered as one prompt section, that is byte-identical
+  across turns while its inputs are unchanged.
+- `context_search` / `context_get` over `docs`, `lessons` and (named only)
+  `git`. The `docs` results are identical to `kb_search`; the `git` results
+  are identical to `kb_search({scope:"git"})` and stay marked untrusted.
 - An abstention floor whose default is measured on held-out data.
 
 **Non-Goals**
 - Lesson format, triggers, cues and `lesson` (phase 3); session index,
-  capture ingest and forks (phase 2); `exec` and web tap (phase 4); the plugin
-  and recommended-extension entry (phase 6).
-- Moving the bridge injector to `sections` (a follow-up).
-- Changing the doctrine text or the `kb_*` tool descriptions (cutover).
+  capture ingest and forks (phase 2); web tap and `codemode` intent indexing
+  (phase 4); the plugin and recommended-extension entry (phase 6).
+- Changing the doctrine text or the `kb_*` tool descriptions, and hiding the
+  `kb_*` declarations (cutover, K8).
+- Delivering anything into a prompt another extension has forced (K5).
 
 ## Decisions
 
@@ -167,6 +194,13 @@ they are the premises of the decisions.
   stops at the first `{ block }`.
 - **Fail-open.** A throwing `tool_call` consumer does not block. That
   matches kb's guard, which is already fault-isolated (`guardNoteSafe`, X1).
+- **Nested calls.** `tool_call`/`tool_result` events of nested calls
+  (`parentToolCallId` set, e.g. inside a `codemode` script) are dispatched
+  like model-issued ones, with the event passed through unchanged, so a
+  consumer can tell them apart. Text a consumer appends to a nested result
+  reaches the script, not the model; consumers that address the model must
+  check `parentToolCallId` (umbrella D5, phase 3). kb-extension's bodies keep
+  their current nested-call behaviour in this phase.
 - **Chain position (trade-off).** kb-extension's bodies now run at the
   kernel's position in pi's handler chain, not kb-extension's; their order
   relative to other extensions' handlers depends on load order.
@@ -188,7 +222,10 @@ they are the premises of the decisions.
   - `state`;
   - `consumers` (per owner, replace-by-owner, K3);
   - `providers["kb-extension"]`: `{ docsSearch, docsGet, docsNeighbors,
-    pinned, messageItems }`.
+    gitSearch, gitGet, pinned, messageItems }`. `gitSearch`/`gitGet` are
+    already bound by kb-extension's `session_start` (shipped with
+    `add-kb-git-forge-scope`); this change adds the lazy rebind and the
+    others.
 - **Binding.** Each kb-extension instance binds its own closures into its own
   session's slot, at its `session_start` (a new handler that only binds, which
   is registration rather than context work) and lazily on any event whose slot
@@ -217,43 +254,52 @@ they are the premises of the decisions.
   - `messageItems()`: the first-contact or migration nudge, once per
     session.
 
-  kb-extension never touches `systemPrompt` while the kernel is active.
+  While the kernel is active, kb-extension does not write
+  `sections.dox_doctrine` (it deletes the key if set), so the doctrine is
+  delivered once, inside the kernel's section.
+- **The forge-hint matcher** (`isForgeCommand` in kb-extension's
+  `tool_result` body) moves with that body: while active it runs as a chassis
+  consumer, like kb-extension's other `tool_result` jobs (umbrella D13). Its
+  behaviour is unchanged.
 - The guard's reset set adds `context_search` and `context_get`, counted
   only while the session is `active`, so another package's tool of the same
   name cannot reset it.
 
-### K5: Injection owner
+### K5: Injection owner (sections only)
 - **Pinned block.**
-  - The concatenation of the providers' `pinned()` output, prefixed by the
-    sentinel line `── context-manager pinned ──`.
+  - The concatenation of the providers' `pinned()` output. No sentinel: a
+    section key is overwritten, not appended, so it is idempotent by
+    construction.
   - It is memoised on its inputs: the doctrine config, the doctrine file
     bytes, and the legacy-seed verdict.
   - Content classes: the doctrine (~2.3 KB READ, ~4.9 KB READ + WRITE; the
     same bytes kb-extension injects today) and, from phase 3, pinned lessons
     capped at ~2 KB. The umbrella's D2 "≤ ~2 KB" applies to the lessons class;
     it is amended to say so.
-- **Empty block.** When every provider returns `""`, there is no block, no
-  sentinel and no section.
-- **Sections path.** When the prompt is not forced, the kernel sets
-  `sections["context"]` to the block.
-- **Forced path** (the normal dashboard path). When `forceSystemPrompt` is
-  set on entry, the kernel returns `systemPrompt` with the block, wrapped
-  exactly as pi renders a section (`<context>\n…\n</context>`), inserted
-  before `── pi-dashboard session context ──` when present, otherwise
-  appended.
-  - Both the sentinel (idempotency) and the bridge delimiter (insertion
-    point) are searched only **after the last `</cwd>`**, pi's rendered cwd
-    section. Project context, where AGENTS.md rows may quote either literal
-    verbatim, is rendered before it and can neither suppress nor misplace the
-    block. A forced prompt with no `</cwd>` (from another extension) is
-    handled by appending.
-  - When the kernel runs before the bridge, it uses the sections path, and the
-    bridge's forced copy already contains the rendered section.
-  - Each handler order yields exactly one block and one bridge fragment, and
-    is byte-stable across turns. A contract test runs both orders with the real
-    `spliceContextFragment` on a pi-0.87-shaped prompt.
+- **Empty block.** When every provider returns `""`, there is no block and
+  the `context` key is deleted.
+- **Delivery.** The kernel sets `sections["context"]` to the block and never
+  returns `systemPrompt`, like the bridge (`dashboard_session`) and
+  kb-extension (`dox_doctrine`). Section keys are independent, so every
+  handler order yields exactly one block, one bridge section and no
+  `dox_doctrine` section while active. A test runs both orders with the real
+  section-based bridge injector.
+- **Pinned on every run kind.** The section is set for `messageType` `user`
+  and `custom`; it is byte-stable, so pi appends no prompt delta.
+- **Forced prompt (known limitation).** When `forceSystemPrompt` is already
+  set on entry, the kernel still sets the section (it is recorded, not sent)
+  and logs `[context-manager] prompt forced by an earlier handler; pinned
+  section not delivered` once per session. It does not splice into the forced
+  text: such a forcer already drops every structured contribution, ours
+  included (Context).
+- **Rejected alternative:** the first draft's forced-path splice (sentinel,
+  insertion after the last `</cwd>`, before the bridge delimiter). It existed
+  because the bridge forced the prompt every turn; that premise is gone.
 - **Per-turn message** (one `before_agent_start` `message`,
-  `customType: "context-manager"`), with two item classes:
+  `customType: "context-manager"`), only on `messageType: "user"` runs. On
+  a `custom` run no message is emitted and pending items wait for the next
+  user run (onboarding "once" is unaffected: it is read from the session's
+  entries). Two item classes:
   - `onboarding` (the doctrine nudges): delivered whole, once per session,
     **outside** the cue budget, with `display: true`. "Once" is decided from
     the session's entries (an earlier `context-manager` message carrying the
@@ -275,6 +321,14 @@ they are the premises of the decisions.
 | `lessons` | `<root>/.pi/dashboard/context_manager/lessons.db` | `lessons:project` → `<root>/.pi/lessons/`, `lessons:global` → `~/.pi/agent/lessons/` | `indexSource` (markdown), K6.1 |
 | `sessions` | registered, no store | — | phase 2 (D9) |
 | `web` | registered, no store | — | phase 4 (D8) |
+| `git` | kb-extension's git database, via `providers["kb-extension"].gitSearch`/`gitGet` | one DB per git common dir under `~/.pi/dashboard/kb/git/<repoKey>/` (owned by `createGitScope`) | kb-extension: lazy forge sync on a `git`-scope pull (`add-kb-git-forge-scope`) |
+
+- **`git` (umbrella D13).** A provider-backed scope like `docs`: the kernel
+  opens no git store and never triggers a sync itself; a sync happens only
+  inside the provider's search, as with `kb_search({scope:"git"})`. `git` is
+  never in the default scope set and is searched only when named. Without a
+  provider it returns `(git unavailable)`. A disabled git config is reported
+  by the provider's own text (`(git scope disabled …)`), unchanged.
 
 - `<root>` is the git toplevel of the session cwd (`git rev-parse
   --show-toplevel`), falling back to the cwd. Sessions in subdirectories share
@@ -325,7 +379,8 @@ they are the premises of the decisions.
   - `limit?` (default 10);
   - `format?`: a free string with an in-body allowlist, as in `kb_search`
     (unknown → `condensed`, never throws);
-  - `doc_type?` (passed to `docs`).
+  - `doc_type?` (passed to `docs`; ignored by `git`);
+  - `kind?` (`commit | pr | issue`, passed to `git`; ignored elsewhere).
 - **Empty query:** `(no query)` / `[]`, as `kb_search` does.
 - **`docs`** returns `docsSearch`'s hits minus those under a lessons root.
   It is therefore the same code as `kb_search`, and the same results whenever
@@ -333,7 +388,15 @@ they are the premises of the decisions.
 - **Provider missing.** When the session has no docs provider (no
   kb-extension, or version skew), `docs` returns `(docs unavailable)`,
   never the abstention text.
-- A single scope returns its ranking unchanged, plus a scope tag.
+- A single scope returns its ranking unchanged, plus a scope tag. For
+  `scope: "git"` alone, the result is the provider's text and `details`
+  unchanged, so it equals `kb_search({scope:"git"})`.
+- **Fusion input for `git`:** the kernel calls `gitSearch` with
+  `format: "json"` to get raw ranked hits; RRF uses ranks only, so git's
+  score scale does not matter.
+- **Untrusted flag:** `details.untrusted` is the OR of the contributing
+  scopes' flags; a fused result containing any git hit is untrusted, and git
+  hits keep their `[git]` mark.
 - Several scopes are fused with Reciprocal Rank Fusion (`k = 60`) over each
   scope's post-floor list, then truncated to `limit`. RRF uses ranks only.
   Ties go to `docs`, then to the lower within-scope rank.
@@ -341,13 +404,23 @@ they are the premises of the decisions.
   `scope: "docs"` with its floor at 0. The default call (docs with the
   project floor) differs only by whole-call abstention (K9).
 
-### K8: Aliases are the unchanged kb tools (corrects umbrella D6)
-- pi does not execute inactive tools. The `kb_*` tools therefore stay
-  **registered by kb-extension, active and unchanged** (description,
-  parameters, behaviour) in this phase, whatever the kernel's state.
-- Slimming them to deprecation descriptions happens at cutover (phase 6), when
-  the kernel is the only mode.
-- **Cost:** both tool pairs are in the prompt while the opt-in flag is on.
+### K8: Aliases are the unchanged kb tools; cutover hides their declarations
+- **This phase:** the `kb_*` tools stay **registered by kb-extension, active,
+  declared and unchanged** (description, parameters, behaviour), whatever the
+  kernel's state. The doctrine still names them, and hiding a declaration
+  also hides its parameter schema and guidelines from the model.
+- **Cutover mechanism (decided by the 1.1b spike on pi 1.3.0):**
+  `context_search` carries a `prepareLoadout` hook that returns
+  `hiddenDeclarations` for the old names. Their declarations leave the
+  request and the system prompt, while a direct model call (habit, stale
+  skill text) still executes.
+  - Rejected: `exposure: "deferred"`. A direct call returns `Tool <name> not
+    found` unless `tool_search` activated the tool first.
+  - Rejected: inactive tools (0.87.1 finding, unchanged on 1.3.0).
+  - After one release the old names are re-registered with
+    `exposure: "hidden"`.
+- **Cost:** both tool pairs are declared while the opt-in flag is on, until
+  cutover.
 
 ### K9: Abstention floor: off by default, calibrated per project
 - **Rule: top hit only.** A scope abstains when its **first returned hit's**
@@ -393,10 +466,14 @@ they are the premises of the decisions.
 - `lessons` stays at 0 until phase 3 calibrates it on lesson queries.
 
 ### K10: `context_get`
-- **Parameters:** `ref` (a path), `scope?` (`docs` | `lessons`, default
-  `docs`), `section?`, `neighbors?` (a depth; when present, the result is the
-  neighbours of `section`'s heading node if given, else of `ref`'s file node).
-  A lesson path without `scope: "lessons"` is looked up in `docs`.
+- **Parameters:** `ref` (a path), `scope?` (`docs` | `lessons` | `git`,
+  default `docs`), `section?`, `neighbors?` (a depth; when present, the result
+  is the neighbours of `section`'s heading node if given, else of `ref`'s file
+  node). A lesson path without `scope: "lessons"` is looked up in `docs`.
+- `scope: "git"` maps one-to-one to `gitGet({ path: ref })`, i.e.
+  `kb_get({scope:"git", path})` (`commit/<sha prefix ≥7>`, `pr/<n>`,
+  `issue/<n>`), returning the provider's text and `details.untrusted`
+  unchanged. `section` and `neighbors` are ignored for `git`.
 - There is no prefix parsing inside `ref`, so Windows drive paths are safe.
 - `docs` delegates to `docsGet`/`docsNeighbors`; `lessons` delegates to
   `lessons.db`. Both use kb_get's `(+N more sections…)` marker.
@@ -406,7 +483,8 @@ they are the premises of the decisions.
   - once per session for the state and its reason or evidence;
   - once per consumer fault per session;
   - once per malformed config or env value;
-  - once per `active`→`refused` transition.
+  - once per `active`→`refused` transition;
+  - once per session when the prompt was forced by an earlier handler (K5).
 - `/context status` prints the state, the scopes (configured, chunk counts,
   or `empty`), the consumers per hook with their owners, the floors with their
   drift indicator, and the registry version.
@@ -417,7 +495,9 @@ they are the premises of the decisions.
 
 | Risk | Mitigation |
 |---|---|
-| Handler order: bridge, kb-extension, kernel | Per-event, per-session registry (K4); forced path anchored after `</cwd>` (K5); contract tests in every order |
+| Handler order: bridge, kb-extension, kernel | Per-event, per-session registry (K4); independent section keys, no forced path (K5); tests in every order |
+| A third-party extension forces the prompt | Known limitation shared by every structured contributor; logged once per session (K5, K11) |
+| Untrusted forge text loses its flag in fusion | `details.untrusted` = OR across contributing scopes; git hits keep `[git]` (K7) |
 | `/reload` stacking consumers | Replace-by-owner registration (K3), with a test that reloads twice |
 | Old packages detected late | `sourceInfo` identity check once per turn epoch, before the kernel or kb-extension acts (K2) |
 | First event handled twice or not at all | Exactly-once rule: an owner bound during an event handles it itself (K3) |
@@ -425,14 +505,15 @@ they are the premises of the decisions.
 | Child sessions disposed without shutdown | Slots in a `WeakMap` keyed by the session manager (K4) |
 | Cannot dogfood on this host (old packages installed globally) | Clean `PI_CODING_AGENT_DIR` or the docker harness (K2) |
 | Version skew between kernel and kb-extension | Versioned registry key; skew means independent operation, never double work (K4) |
-| Two tool pairs in the prompt while the flag is on | Accepted for the opt-in phases; slimmed at cutover (K8) |
+| Two tool pairs in the prompt while the flag is on | Accepted for the opt-in phases; at cutover the old declarations are hidden with `prepareLoadout` (spike-verified: direct calls still execute) (K8) |
 | Floor hurts recall, P@1 or drifts | Off by default; per-project calibration with a held-out ship rule (Recall@10, P@1, MRR); top-hit-only abstention; drift flag (K9) |
 | Chassis latency | K3 budget test; phase 3 re-measures with the matcher |
 
 ## Migration Plan
 
-1. Ship the package (peer `pi >=0.87.1`, the version the premises were
-   verified on). Install it locally with the `switch-extension-source` skill.
+1. Ship the package (peer `pi >=1.3.0`, the repo-wide floor; the premises
+   were re-verified on 1.3.0 on 2026-10-21; see Context). Install it locally
+   with the `switch-extension-source` skill.
 2. Enable per project (`.pi/dashboard/context_manager.json`
    `{"enabled": true}`) or with `PI_CONTEXT_MANAGER=1`. The old packages must
    not be loaded (on this host, use a clean `PI_CODING_AGENT_DIR`).
@@ -442,7 +523,5 @@ they are the premises of the decisions.
 
 ## Open Questions
 
-- Moving the bridge injector to `sections` would remove K5's forced path. This
-  is a small follow-up.
 - Whether `turn_start` needs consumers beyond the guard pause clock (phase 3
   epoch counter).
