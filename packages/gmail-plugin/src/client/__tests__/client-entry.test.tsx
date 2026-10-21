@@ -11,7 +11,7 @@ import { withUiPrimitiveProvider } from "@blackbelt-technology/dashboard-plugin-
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { catalog, GmailSettings } from "../index.js";
-import { errorKey, KNOWN_FLOW_CODES } from "../wizard.js";
+import { AUDIENCE_HELP_EN, CONSENT_HINT_EN, ERROR_EN, errorKey, KNOWN_FLOW_CODES } from "../wizard.js";
 
 afterEach(() => {
   cleanup();
@@ -53,5 +53,32 @@ describe("improve-gmail-settings-ux", () => {
       expect(catalog["zh-CN"], k).toHaveProperty(k);
       expect(catalog.hu, k).toHaveProperty(k);
     }
+  });
+});
+
+describe("test-plan #E30 (improve-gmail-plugin-setup-ux) — consent and publishing copy", () => {
+  const NEW_KEYS = [
+    "projectModeLegend", "projectModeNew", "projectModeExisting", "projectIdHint", "openProjectList", "ownerAccount", "ownerHint",
+    "errOwnerInvalid", "errSetupSave", "errProjectLooksLikeName", "errProjectInvalid", "projectMismatch", "projectMismatchUse",
+    "authLoginNote", "findProject", "needValidProjectId", "filtersFor", "filtersHelp",
+  ];
+
+  it("the English copy names both consent shapes, the cleanup URL and the publishing facts", () => {
+    for (const phrase of ["second screen", "wants additional access", "myaccount.google.com/connections"]) {
+      expect(ERROR_EN.errScopeMissing, phrase).toContain(phrase);
+    }
+    expect(CONSENT_HINT_EN).toContain("checkbox");
+    expect(CONSENT_HINT_EN).toContain("wants additional access");
+    for (const phrase of ["7-day", "100 users", "re-auth"]) expect(AUDIENCE_HELP_EN, phrase).toContain(phrase);
+  });
+
+  it("every new key exists in zh-CN and hu, and their scope-missing copy names the cleanup URL", () => {
+    for (const k of NEW_KEYS) {
+      expect(catalog["zh-CN"], k).toHaveProperty(k);
+      expect(catalog.hu, k).toHaveProperty(k);
+    }
+    expect(catalog["zh-CN"].errScopeMissing).toContain("myaccount.google.com/connections");
+    expect(catalog.hu.errScopeMissing).toContain("myaccount.google.com/connections");
+    expect(Object.keys(catalog.hu).sort()).toEqual(Object.keys(catalog["zh-CN"]).sort());
   });
 });

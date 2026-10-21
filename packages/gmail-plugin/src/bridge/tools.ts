@@ -13,15 +13,23 @@
  * See change: add-gmail-plugin.
  */
 import type { GoogleEndpoints } from "../shared/endpoints.js";
-import type { LeaseReply } from "../shared/protocol.js";
-import type { Op } from "../shared/scopes.js";
+import type { AccountInfo, LeaseReply } from "../shared/protocol.js";
+import { type Op, tierAllows } from "../shared/scopes.js";
 import { MAX_ATTACH_BYTES, readInsideCwd, saveInsideCwd } from "./attachments.js";
-import { extractBody, GmailApi, type GmailMessage, header, listAttachments } from "./gmail-api.js";
+import { extractBody, GmailApi, type GmailFilter, type GmailMessage, header, listAttachments } from "./gmail-api.js";
 import { GmailToolError, type LeaseClient } from "./lease-client.js";
 import { buildMime, type MimeAttachment, toRaw } from "./mime.js";
 
-export const READ_TOOLS = ["gmail_search", "gmail_get", "gmail_labels", "gmail_attachments"] as const;
-export const WRITE_TOOLS = ["gmail_draft", "gmail_send", "gmail_reply", "gmail_modify", "gmail_trash"] as const;
+export const READ_TOOLS = ["gmail_search", "gmail_get", "gmail_labels", "gmail_attachments", "gmail_filters_list"] as const;
+export const WRITE_TOOLS = [
+  "gmail_draft",
+  "gmail_send",
+  "gmail_reply",
+  "gmail_modify",
+  "gmail_trash",
+  "gmail_filter_create",
+  "gmail_filter_delete",
+] as const;
 
 const MAX_SEARCH_RESULTS = 50;
 const PREVIEW_CHARS = 500;
@@ -149,17 +157,96 @@ function messageLines(m: { account: string; to: string[]; cc?: string[]; bcc?: s
   ];
 }
 
-async function confirmWrite(ctx: ToolContext | undefined, title: string, lines: string[]): Promise<void> {
+/** A confirmed write needs an interactive UI; checked before anything reaches Google. */
+function assertInteractive(ctx: ToolContext | undefined): void {
   if (!ctx?.hasUI || !ctx.ui) {
     throw new GmailToolError("blocked", "blocked: this Gmail write needs user confirmation, but no UI is available");
   }
+}
+
+async function confirmWrite(ctx: ToolContext | undefined, title: string, lines: string[]): Promise<void> {
+  assertInteractive(ctx);
+  const ui = (ctx as ToolContext).ui as NonNullable<ToolContext["ui"]>;
   let ok = false;
   try {
-    ok = (await ctx.ui.confirm(title, lines.join("\n"))) === true;
+    ok = (await ui.confirm(title, lines.join("\n"))) === true;
   } catch {
     ok = false; // dismissed / timed out / transport error → deny
   }
   if (!ok) throw new GmailToolError("denied", "denied: the user did not approve this Gmail action");
+}
+
+const CRITERIA_STRING_KEYS = ["from", "to", "subject", "query", "negatedQuery"] as const;
+const CRITERIA_KEYS: readonly string[] = [...CRITERIA_STRING_KEYS, "hasAttachment"];
+const ACTION_KEYS: readonly string[] = ["addLabelIds", "removeLabelIds"];
+const FORBIDDEN_ADD_LABELS = new Set(["TRASH", "SPAM"]);
+
+const isPlain = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+const isForwardKey = (k: string) => k.toLowerCase().startsWith("forward");
+const invalidFilter = (why: string) => new GmailToolError("invalid_filter", `invalid_filter: ${why}`);
+
+interface FilterSpec {
+  criteria: Record<string, string | true>;
+  action: { addLabelIds?: string[]; removeLabelIds?: string[] };
+}
+
+/**
+ * Fail-closed allow-list for `gmail_filter_create`, run before any account
+ * check, confirm, lease or request: label actions only, no forwarding, no
+ * blank / `*` / match-all criteria, no TRASH/SPAM additions.
+ */
+export function parseFilterSpec(p: Record<string, unknown>): FilterSpec {
+  const sections: Array<[string, unknown]> = [["request", p], ["criteria", p.criteria], ["filterAction", p.filterAction]];
+  for (const [, obj] of sections) {
+    if (isPlain(obj) && Object.keys(obj).some(isForwardKey)) {
+      throw new GmailToolError("forward_refused", "forward_refused: forwarding filters are not supported");
+    }
+  }
+  const extra = Object.keys(p).filter((k) => !["account", "criteria", "filterAction"].includes(k));
+  if (extra.length) throw invalidFilter(`unsupported field \`${extra[0]}\``);
+  if (!isPlain(p.criteria)) throw invalidFilter("`criteria` must be an object");
+  if (!isPlain(p.filterAction)) throw invalidFilter("`filterAction` must be an object");
+
+  const criteria: Record<string, string | true> = {};
+  for (const [k, v] of Object.entries(p.criteria)) {
+    if (!CRITERIA_KEYS.includes(k)) throw invalidFilter(`unsupported criteria field \`${k}\``);
+    if (k === "hasAttachment") {
+      if (typeof v !== "boolean") throw invalidFilter("`hasAttachment` must be a boolean");
+      if (v) criteria[k] = true;
+    } else {
+      if (typeof v !== "string") throw invalidFilter(`criteria \`${k}\` must be a string`);
+      const t = v.trim();
+      if (t && t !== "*") criteria[k] = t;
+    }
+  }
+  if (!Object.keys(criteria).length) throw invalidFilter("at least one non-blank criterion (not `*`) is required");
+
+  const action: FilterSpec["action"] = {};
+  for (const [k, v] of Object.entries(p.filterAction)) {
+    if (!ACTION_KEYS.includes(k)) throw invalidFilter(`unsupported action field \`${k}\``);
+    if (!Array.isArray(v) || v.some((x) => typeof x !== "string")) throw invalidFilter(`\`${k}\` must be a list of label ids`);
+    const ids = (v as string[]).map((x) => x.trim()).filter(Boolean);
+    if (k === "addLabelIds" && ids.some((x) => FORBIDDEN_ADD_LABELS.has(x.toUpperCase()))) {
+      throw invalidFilter("a filter must not add the TRASH or SPAM label");
+    }
+    if (ids.length) action[k as "addLabelIds" | "removeLabelIds"] = ids;
+  }
+  if (!action.addLabelIds?.length && !action.removeLabelIds?.length) throw invalidFilter("at least one label id to add or remove is required");
+  return { criteria, action };
+}
+
+function describeCriteria(c: Record<string, unknown> | undefined): string {
+  const parts = Object.entries(c ?? {}).map(([k, v]) => `${k}=${typeof v === "string" ? v : String(v)}`);
+  return parts.length ? parts.join(", ") : "(none)";
+}
+
+function describeAction(a: GmailFilter["action"]): string {
+  const parts = [
+    ...(a?.addLabelIds?.length ? [`add labels ${a.addLabelIds.join(", ")}`] : []),
+    ...(a?.removeLabelIds?.length ? [`remove labels ${a.removeLabelIds.join(", ")}`] : []),
+    ...(a?.forward ? ["forward (not supported by this tool)"] : []),
+  ];
+  return parts.length ? parts.join("; ") : "(none)";
 }
 
 export function createGmailTools(deps: GmailToolDeps): GmailToolDef[] {
@@ -185,6 +272,33 @@ export function createGmailTools(deps: GmailToolDeps): GmailToolDef[] {
       const p = params ?? {};
       return run(await requireAccount(p), p, ctx);
     };
+
+  /**
+   * Resolve `ref` (alias or email) against the secret-free account list and
+   * refuse a filter call the server would refuse anyway — BEFORE any confirm,
+   * lease or request. The lease stays authoritative.
+   */
+  async function filterPrecheck(ref: string, op: "filters_read" | "filters_write"): Promise<AccountInfo> {
+    const list = await deps.leases.accounts();
+    const key = ref.trim().toLowerCase();
+    const hits = list.filter((a) => a.alias?.toLowerCase() === key || a.email.toLowerCase() === key);
+    if (hits.length === 0) {
+      const known = list.map((x) => (x.alias ? `${x.alias} (${x.email})` : x.email)).join(", ") || "none connected";
+      throw new GmailToolError("not_found", `not_found: no connected account matches "${ref}". Connected accounts: ${known}`);
+    }
+    if (hits.length > 1) throw new GmailToolError("ambiguous", `ambiguous: "${ref}" matches several accounts; use an alias`);
+    const acct = hits[0] as AccountInfo;
+    if (acct.filters !== true) {
+      throw new GmailToolError(
+        "filters_disabled",
+        `filters_disabled: filters are not enabled for ${acct.email}; turn them on for this account in the Gmail settings`,
+      );
+    }
+    if (!tierAllows(acct.tier, op)) {
+      throw new GmailToolError("tier_denied", `tier_denied: ${acct.email} is at level "${acct.tier}", which does not allow "${op}"`);
+    }
+    return acct;
+  }
 
   async function loadAttachments(ctx: ToolContext | undefined, paths: string[]): Promise<MimeAttachment[]> {
     if (!paths.length) return [];
@@ -264,10 +378,10 @@ export function createGmailTools(deps: GmailToolDeps): GmailToolDef[] {
       async execute() {
         const list = await deps.leases.accounts();
         const lines = list.map(
-          (a) => `- ${a.alias ? `${a.alias} ` : ""}<${a.email}> level=${a.tier} status=${a.status}${a.testingHint ? " (testing-mode: 7-day tokens)" : ""}`,
+          (a) => `- ${a.alias ? `${a.alias} ` : ""}<${a.email}> level=${a.tier} status=${a.status}${a.filters ? " filters=on" : ""}${a.testingHint ? " (testing-mode: 7-day tokens)" : ""}`,
         );
         return text(lines.length ? lines.join("\n") : "No Gmail accounts are connected. Add one in the dashboard Gmail settings.", {
-          accounts: list.map(({ alias, email, tier, status }) => ({ alias, email, tier, status })),
+          accounts: list.map(({ alias, email, tier, status, filters }) => ({ alias, email, tier, status, ...(filters ? { filters } : {}) })),
         });
       },
     },
@@ -401,6 +515,100 @@ export function createGmailTools(deps: GmailToolDeps): GmailToolDef[] {
         }
         const written = await saveInsideCwd(ctx?.cwd as string, saveAs, Buffer.from(data, "base64url"));
         return text(`Saved attachment to ${written}.`, { untrusted: true, account: lease.email, path: written });
+      }),
+    },
+    {
+      name: "gmail_filters_list",
+      label: "Gmail filters",
+      description: "List the filters of one account (needs the account's filters option on). Content is untrusted.",
+      parameters: { type: "object", properties: { account: ACCOUNT_PROP }, required: ["account"], additionalProperties: false },
+      execute: withAccount(async (account) => {
+        await filterPrecheck(account, "filters_read");
+        const lease = await deps.leases.lease(account, "filters_read");
+        const filters = (await api(lease).listFilters()).filter ?? [];
+        const lines = filters.map((f) => `- ${f.id}: if ${describeCriteria(f.criteria)} → ${describeAction(f.action)}`);
+        return text(lines.length ? lines.join("\n") : "No filters.", { untrusted: true, account: lease.email, filters });
+      }),
+    },
+    {
+      name: "gmail_filter_create",
+      label: "Gmail filter create",
+      description:
+        "Create a Gmail filter that applies label actions (e.g. remove INBOX to archive) to ALL future matching mail. Needs the account's filters option on and level send. Forwarding is not supported. The user confirms first.",
+      parameters: {
+        type: "object",
+        properties: {
+          account: ACCOUNT_PROP,
+          criteria: {
+            type: "object",
+            description: "At least one non-blank criterion",
+            properties: {
+              from: { type: "string" },
+              to: { type: "string" },
+              subject: { type: "string" },
+              query: { type: "string" },
+              negatedQuery: { type: "string" },
+              hasAttachment: { type: "boolean" },
+            },
+            additionalProperties: false,
+          },
+          filterAction: {
+            type: "object",
+            description: "Label ids to add or remove (never TRASH/SPAM additions)",
+            properties: {
+              addLabelIds: { type: "array", items: { type: "string", minLength: 1 } },
+              removeLabelIds: { type: "array", items: { type: "string", minLength: 1 } },
+            },
+            additionalProperties: false,
+          },
+        },
+        required: ["account", "criteria", "filterAction"],
+        additionalProperties: false,
+      },
+      // Order: validate → account-summary pre-check → no-UI check → confirm → write lease → REST.
+      execute: withAccount(async (account, p, ctx) => {
+        const spec = parseFilterSpec(p);
+        await filterPrecheck(account, "filters_write");
+        assertInteractive(ctx);
+        await confirmWrite(ctx, `Gmail: create filter in ${account}`, [
+          `Account: ${account}`,
+          `Criteria: ${describeCriteria(spec.criteria)}`,
+          `Actions: ${describeAction(spec.action)}`,
+          "",
+          "This filter applies to all future matching mail.",
+        ]);
+        const lease = await deps.leases.lease(account, "filters_write");
+        const f = await api(lease).createFilter(spec.criteria, spec.action);
+        return text(`Filter ${f.id} created in ${lease.email}.`, { account: lease.email, filterId: f.id });
+      }),
+    },
+    {
+      name: "gmail_filter_delete",
+      label: "Gmail filter delete",
+      description:
+        "Delete a Gmail filter by id (needs the account's filters option on and level send). The user confirms first, seeing the filter's criteria and actions.",
+      parameters: {
+        type: "object",
+        properties: { account: ACCOUNT_PROP, id: { type: "string", minLength: 1, description: "Filter id (from gmail_filters_list)" } },
+        required: ["account", "id"],
+        additionalProperties: false,
+      },
+      // Order: validate → pre-check → no-UI check → read lease + GET → confirm → write lease → DELETE.
+      execute: withAccount(async (account, p, ctx) => {
+        const id = str(p.id, "id") as string;
+        await filterPrecheck(account, "filters_write");
+        assertInteractive(ctx);
+        const readLease = await deps.leases.lease(account, "filters_read");
+        const filter = await api(readLease).getFilter(id);
+        await confirmWrite(ctx, `Gmail: delete filter in ${account}`, [
+          `Account: ${account}`,
+          `Filter: ${filter.id ?? id}`,
+          `Criteria: ${describeCriteria(filter.criteria)}`,
+          `Actions: ${describeAction(filter.action)}`,
+        ]);
+        const lease = await deps.leases.lease(account, "filters_write");
+        await api(lease).deleteFilter(id);
+        return text(`Filter ${id} deleted in ${lease.email}.`, { account: lease.email, filterId: id });
       }),
     },
     compose("draft"),

@@ -191,14 +191,7 @@ Every write operation (draft, send, reply, modify, trash, filter create, filter 
 ## ADDED Requirements
 
 ### Requirement: Opt-in Gmail filter management
-Each account SHALL have a filters option, off by default and independent of its permission level. Turning it on SHALL require a new consent requesting the account level's scopes plus `gmail.settings.basic`, unless the account's grant already covers both; a grant that lacks either SHALL be treated as the Gmail permission not being granted and SHALL NOT change the stored account. Turning it off SHALL take effect immediately without re-consent. Re-authentication and level raises of an account with the filters option on SHALL request the filter permission again (lowering never re-consents); a grant without it SHALL be treated the same way and SHALL leave the stored account unchanged. The server SHALL refuse a filter lease for an account whose filters option is off, and the filter tools SHALL refuse such a call, and a filter write below level `send`, before asking for confirmation or contacting Google. Signing in again through "Add account" with an existing account SHALL NOT change its filters option.
-
-Three tools SHALL manage filters, each requiring an explicit account:
-- `gmail_filters_list` lists the account's filters (filters option on, any level) and marks its result untrusted;
-- `gmail_filter_create` creates a filter (filters option on, level `send`);
-- `gmail_filter_delete` deletes a filter by id (filters option on, level `send`).
-
-A create request SHALL carry at least one criterion whose value is non-empty after trimming and is not `*`, and at least one action. Criteria SHALL be limited to sender, recipient, subject, query, negated query and has-attachment; actions SHALL be limited to adding or removing label ids, including archiving by removing `INBOX`. Adding the `TRASH` or `SPAM` label SHALL be refused. A request carrying any other field or value — including any forwarding action — SHALL be refused before any confirmation or request to Google. Create and delete are confirmed writes: the delete confirmation SHALL show the criteria and actions of the filter being deleted.
+Each account SHALL have a filters option, off by default and independent of its permission level. Turning it on SHALL require a new consent for the level's scopes plus `gmail.settings.basic`, unless the grant already covers both; a grant lacking either SHALL count as the Gmail permission not granted and SHALL NOT change the stored account. Turning it off SHALL take effect immediately. "Add account" for an existing account SHALL NOT change its filters option.
 
 #### Scenario: Filters off by default
 - **WHEN** an account is added
@@ -217,9 +210,46 @@ A create request SHALL carry at least one criterion whose value is non-empty aft
 - **WHEN** the user turns filters off for an account
 - **THEN** the next filter tool call for that account is refused without any sign-in
 
+### Requirement: Filter permission survives re-authentication and level raises
+Re-authentication and level raises of an account with the filters option on SHALL request the filter permission again; lowering a level never re-consents. A grant without the filter permission SHALL be treated as the Gmail permission not being granted and SHALL leave the stored account unchanged.
+
+#### Scenario: Re-auth without filter permission
+- **WHEN** an account with filters on is re-authenticated and the grant lacks `gmail.settings.basic`
+- **THEN** the stored account keeps its previous scopes, level, filters option and status, and the settings show the permission-not-granted guidance
+
+### Requirement: Filter operations are gated before confirmation
+The server SHALL refuse a filter lease for an account whose filters option is off. The filter tools SHALL refuse a call for such an account, and a filter write below level `send`, before asking for confirmation or contacting Google.
+
+#### Scenario: Create below send refused
+- **WHEN** the agent asks to create a filter on an account at `draft` with filters on
+- **THEN** the call fails with a level-denied error, no confirmation is asked and no filter is created
+
+### Requirement: Gmail filter tools
+Three tools SHALL manage filters, each requiring an explicit account:
+- `gmail_filters_list` lists the account's filters (filters option on, any level) and marks its result untrusted;
+- `gmail_filter_create` creates a filter (filters option on, level `send`);
+- `gmail_filter_delete` deletes a filter by id (filters option on, level `send`).
+
+Create and delete are confirmed writes; the delete confirmation SHALL show the criteria and actions of the filter being deleted.
+
 #### Scenario: Archive rule becomes a filter after confirmation
 - **WHEN** the agent asks to create a filter from `newsletter@example.com` that removes `INBOX` on an account at `send` with filters on, and the user confirms
 - **THEN** the filter is created in that account and the tool returns its id
+
+#### Scenario: Filter list is untrusted
+- **WHEN** filters are listed for an account with filters on
+- **THEN** the result declares itself untrusted
+
+#### Scenario: Delete confirmation shows the rule
+- **WHEN** the agent asks to delete a filter by id on an account at `send` with filters on
+- **THEN** the confirmation shows that filter's criteria and actions before anything is deleted
+
+#### Scenario: Headless filter write blocked
+- **WHEN** a filter create is called in a session without an interactive UI
+- **THEN** the call is blocked
+
+### Requirement: Filter create requests are allow-listed
+A create request SHALL carry at least one criterion whose value is non-empty after trimming and is not `*`, and at least one action. Criteria SHALL be limited to sender, recipient, subject, query, negated query and has-attachment; actions SHALL be limited to adding or removing label ids, including archiving by removing `INBOX`. Adding `TRASH` or `SPAM` and any other field or value, including any forwarding action, SHALL be refused before any confirmation or request to Google.
 
 #### Scenario: Forwarding filter refused
 - **WHEN** the agent asks to create a filter with a forwarding action
@@ -228,23 +258,3 @@ A create request SHALL carry at least one criterion whose value is non-empty aft
 #### Scenario: Unsafe or malformed filter refused
 - **WHEN** the agent asks to create a filter with an unsupported criteria key, no criteria, only blank or `*` criteria, no action, or an action adding `TRASH` or `SPAM`
 - **THEN** the call fails without contacting Google and without asking for confirmation
-
-#### Scenario: Delete confirmation shows the rule
-- **WHEN** the agent asks to delete a filter by id on an account at `send` with filters on
-- **THEN** the confirmation shows that filter's criteria and actions before anything is deleted
-
-#### Scenario: Re-auth without filter permission
-- **WHEN** an account with filters on is re-authenticated and the grant lacks `gmail.settings.basic`
-- **THEN** the stored account keeps its previous scopes, level, filters option and status, and the settings show the permission-not-granted guidance
-
-#### Scenario: Filter list is untrusted
-- **WHEN** filters are listed for an account with filters on
-- **THEN** the result declares itself untrusted
-
-#### Scenario: Create below send refused
-- **WHEN** the agent asks to create a filter on an account at `draft` with filters on
-- **THEN** the call fails with a level-denied error, no confirmation is asked and no filter is created
-
-#### Scenario: Headless filter write blocked
-- **WHEN** a filter create is called in a session without an interactive UI
-- **THEN** the call is blocked

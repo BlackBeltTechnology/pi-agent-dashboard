@@ -14,13 +14,14 @@ import { createGmailTools, type GmailToolDef, splitAddresses, type ToolContext }
 
 const b64u = (s: string) => Buffer.from(s, "utf8").toString("base64url");
 
-function acct(sub: string, email: string, tier: Tier, alias?: string) {
+function acct(sub: string, email: string, tier: Tier, alias?: string, filters = false) {
   return {
     sub,
     email,
     ...(alias ? { alias } : {}),
     tier,
-    scopes: [...TIER_SCOPES[tier]],
+    scopes: [...TIER_SCOPES[tier], ...(filters ? [SCOPE.settingsBasic] : [])],
+    ...(filters ? { filters: true } : {}),
     refresh: `REFRESH-${sub}`,
     access: `ACCESS-${sub}`,
     expires: Date.now() + 3_600_000,
@@ -54,6 +55,8 @@ function fullPayload(html: boolean | undefined) {
   return { mimeType: "multipart/mixed", headers: HEADERS, parts };
 }
 
+const FILTER_F1 = { id: "f1", criteria: { from: "newsletter@example.com" }, action: { removeLabelIds: ["INBOX"] } };
+
 /** Canned Gmail REST replies by path. */
 function route(
   url: URL,
@@ -71,6 +74,9 @@ function route(
   if (p.endsWith("/attachments/att1")) return { data: b64u("PDF"), size: opts.attachmentSize ?? 3 };
   if (p.endsWith("/messages/send")) return { id: "sent1", threadId: body?.threadId ?? "tNew" };
   if (p.endsWith("/drafts")) return { id: "d1" };
+  if (p.endsWith("/settings/filters/f1")) return FILTER_F1;
+  if (p.endsWith("/settings/filters") && method === "POST") return { id: "f-new" };
+  if (p.endsWith("/settings/filters")) return { filter: [FILTER_F1] };
   return {};
 }
 
@@ -92,6 +98,7 @@ function fakeGmail(
     const path = url.href.slice(base.length);
     const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : undefined;
     calls.push({ method: init?.method ?? "GET", path, body });
+    if (url.pathname.endsWith("/settings/filters/f9")) return new Response("{}", { status: 404 });
     if (opts.status) {
       return new Response(opts.errorBody ?? "{}", { status: opts.status, headers: opts.retryAfter ? { "retry-after": opts.retryAfter } : {} });
     }
@@ -104,10 +111,10 @@ function fakeGmail(
   return { fetchImpl, calls };
 }
 
-function setup(opts: { tier?: Tier; gmail?: Parameters<typeof fakeGmail>[0] } = {}) {
+function setup(opts: { tier?: Tier; filters?: boolean; gmail?: Parameters<typeof fakeGmail>[0] } = {}) {
   const creds = memoryCredentials({
     [CLIENT_KEY]: { ...CLIENT },
-    [acctKey("s1")]: acct("s1", "a@x.com", opts.tier ?? "send", "work"),
+    [acctKey("s1")]: acct("s1", "a@x.com", opts.tier ?? "send", "work", opts.filters ?? false),
     [acctKey("s2")]: acct("s2", "b@y.com", "readonly"),
   });
   const store = new AccountStore(creds);
@@ -427,5 +434,167 @@ describe("test-plan #X8 — malformed 403 bodies degrade to gmail_error", () => 
     expect(err).toBeInstanceOf(GmailToolError);
     expect(err.code).toBe("gmail_error");
     expect(err.message).toBe("gmail_error: Gmail returned HTTP 403");
+  });
+});
+
+// ── improve-gmail-plugin-setup-ux — filter tools ─────────────────────────────
+
+const send = (extra: Record<string, unknown>) => ({
+  account: "work",
+  criteria: { from: "newsletter@example.com" },
+  filterAction: { removeLabelIds: ["INBOX"] },
+  ...extra,
+});
+const filterCalls = (calls: GmailCall[]) => calls.filter((c) => c.path.startsWith("settings/filters"));
+
+describe("test-plan #E22 — filter create validation fails closed", () => {
+  const invalid: Array<[string, Record<string, unknown>]> = [
+    ["unsupported criteria key", send({ criteria: { size: 1 } })],
+    ["empty criteria", send({ criteria: {} })],
+    ["blank from", send({ criteria: { from: "  " } })],
+    ["query *", send({ criteria: { query: "*" } })],
+    ["hasAttachment false only", send({ criteria: { hasAttachment: false } })],
+    ["no action", send({ filterAction: {} })],
+    ["adds TRASH", send({ filterAction: { addLabelIds: ["TRASH"] } })],
+    ["adds SPAM", send({ filterAction: { addLabelIds: ["spam"] } })],
+  ];
+  it.each(invalid)("%s → invalid_filter, nothing leased, confirmed or fetched", async (_label, params) => {
+    const { run, gmail, laneTypes } = setup({ filters: true });
+    const { ctx, confirm } = ui(true);
+    await expect(run("gmail_filter_create", params, ctx)).rejects.toMatchObject({ code: "invalid_filter" });
+    expect(confirm).not.toHaveBeenCalled();
+    expect(gmail.calls).toHaveLength(0);
+    expect(laneTypes).toEqual([]);
+  });
+
+  it.each([
+    ["nested in filterAction", send({ filterAction: { removeLabelIds: ["INBOX"], forward: "x@evil.com" } })],
+    ["top level", send({ forward: "x@evil.com" })],
+    ["nested in criteria", send({ criteria: { from: "a@b.co", forward: "x@evil.com" } })],
+  ])("forwarding %s → forward_refused with no side effect", async (_label, params) => {
+    const { run, gmail, laneTypes } = setup({ filters: true });
+    const { ctx, confirm } = ui(true);
+    await expect(run("gmail_filter_create", params, ctx)).rejects.toMatchObject({ code: "forward_refused" });
+    expect(confirm).not.toHaveBeenCalled();
+    expect(gmail.calls).toHaveLength(0);
+    expect(laneTypes).toEqual([]);
+  });
+});
+
+describe("test-plan #E23 — filter pre-checks run before confirm and any request", () => {
+  it("filters off at send → filters_disabled for list, create and delete", async () => {
+    const { run, gmail } = setup({ tier: "send" });
+    const { ctx, confirm } = ui(true);
+    await expect(run("gmail_filter_create", send({}), ctx)).rejects.toMatchObject({ code: "filters_disabled" });
+    await expect(run("gmail_filter_delete", { account: "work", id: "f1" }, ctx)).rejects.toMatchObject({ code: "filters_disabled" });
+    await expect(run("gmail_filters_list", { account: "work" }, ctx)).rejects.toMatchObject({ code: "filters_disabled" });
+    expect(confirm).not.toHaveBeenCalled();
+    expect(gmail.calls).toHaveLength(0);
+  });
+
+  it("filters on at draft → tier_denied for create and delete", async () => {
+    const { run, gmail } = setup({ tier: "draft", filters: true });
+    const { ctx, confirm } = ui(true);
+    await expect(run("gmail_filter_create", send({}), ctx)).rejects.toMatchObject({ code: "tier_denied" });
+    await expect(run("gmail_filter_delete", { account: "work", id: "f1" }, ctx)).rejects.toMatchObject({ code: "tier_denied" });
+    expect(confirm).not.toHaveBeenCalled();
+    expect(gmail.calls).toHaveLength(0);
+  });
+
+  it("an unknown account → not_found before anything else", async () => {
+    const { run, gmail } = setup({ filters: true });
+    await expect(run("gmail_filter_create", send({ account: "nobody" }), ui(true).ctx)).rejects.toMatchObject({ code: "not_found" });
+    expect(gmail.calls).toHaveLength(0);
+  });
+});
+
+describe("test-plan #E24 — archive rule becomes a filter after confirmation", () => {
+  it("confirms with the exact rule, then leases filters_write and POSTs once", async () => {
+    const { run, gmail, laneTypes } = setup({ tier: "send", filters: true });
+    const { ctx, confirm } = ui(true);
+    const r = await run("gmail_filter_create", send({}), ctx);
+    const [, message] = confirm.mock.calls[0] as unknown as [string, string];
+    expect(message).toContain("newsletter@example.com");
+    expect(message).toContain("INBOX");
+    expect(message).toContain("all future matching mail");
+    expect(filterCalls(gmail.calls)).toEqual([
+      { method: "POST", path: "settings/filters", body: { criteria: { from: "newsletter@example.com" }, action: { removeLabelIds: ["INBOX"] } } },
+    ]);
+    expect(laneTypes.filter((t) => t === LEASE_TYPE)).toHaveLength(1);
+    expect(r.details.filterId).toBe("f-new");
+    expect(r.content[0]?.text).toContain("f-new");
+  });
+
+  it("blank sibling criteria are dropped from the request body", async () => {
+    const { run, gmail } = setup({ filters: true });
+    await run("gmail_filter_create", send({ criteria: { from: "a@b.co", subject: "  ", hasAttachment: false } }), ui(true).ctx);
+    expect(filterCalls(gmail.calls)[0]?.body).toMatchObject({ criteria: { from: "a@b.co" } });
+    expect(filterCalls(gmail.calls)[0]?.body?.criteria).not.toHaveProperty("subject");
+  });
+});
+
+describe("test-plan #E25 — delete shows the rule before anything is deleted", () => {
+  it("reads the filter with a read lease, confirms its criteria, and does not delete on denial", async () => {
+    const { run, gmail } = setup({ tier: "send", filters: true });
+    const { ctx, confirm } = ui(false);
+    await expect(run("gmail_filter_delete", { account: "work", id: "f1" }, ctx)).rejects.toMatchObject({ code: "denied" });
+    expect(gmail.calls.map((c) => `${c.method} ${c.path}`)).toEqual(["GET settings/filters/f1"]);
+    const [, message] = confirm.mock.calls[0] as unknown as [string, string];
+    expect(message).toContain("newsletter@example.com");
+    expect(message).toContain("INBOX");
+  });
+
+  it("approved → exactly one DELETE", async () => {
+    const { run, gmail } = setup({ tier: "send", filters: true });
+    await run("gmail_filter_delete", { account: "work", id: "f1" }, ui(true).ctx);
+    expect(gmail.calls.map((c) => `${c.method} ${c.path}`)).toEqual(["GET settings/filters/f1", "DELETE settings/filters/f1"]);
+  });
+});
+
+describe("test-plan #E26 — denied create", () => {
+  it("makes no POST and reports the denial", async () => {
+    const { run, gmail } = setup({ filters: true });
+    await expect(run("gmail_filter_create", send({}), ui(false).ctx)).rejects.toMatchObject({ code: "denied" });
+    expect(filterCalls(gmail.calls)).toHaveLength(0);
+  });
+});
+
+describe("test-plan #E27 — headless filter writes are blocked", () => {
+  it("create and delete are blocked with no request", async () => {
+    const { run, gmail } = setup({ filters: true });
+    const headless: ToolContext = { hasUI: false, cwd: process.cwd() };
+    await expect(run("gmail_filter_create", send({}), headless)).rejects.toMatchObject({ code: "blocked" });
+    await expect(run("gmail_filter_delete", { account: "work", id: "f1" }, headless)).rejects.toMatchObject({ code: "blocked" });
+    expect(gmail.calls).toHaveLength(0);
+  });
+});
+
+describe("test-plan #E28 — the list result is untrusted", () => {
+  it("lists filters with details.untrusted === true at any level", async () => {
+    const { run } = setup({ tier: "readonly", filters: true });
+    const r = await run("gmail_filters_list", { account: "work" });
+    expect(r.details.untrusted).toBe(true);
+    expect(r.content[0]?.text).toContain("f1");
+    expect(r.content[0]?.text).toContain("newsletter@example.com");
+  });
+});
+
+describe("test-plan #X1 — deleting a missing filter", () => {
+  it("fails with not_found before any confirm or DELETE", async () => {
+    const { run, gmail } = setup({ filters: true });
+    const { ctx, confirm } = ui(true);
+    await expect(run("gmail_filter_delete", { account: "work", id: "f9" }, ctx)).rejects.toMatchObject({ code: "not_found" });
+    expect(confirm).not.toHaveBeenCalled();
+    expect(gmail.calls.some((c) => c.method === "DELETE")).toBe(false);
+  });
+});
+
+describe("test-plan #X2 — Google refuses the filter scope", () => {
+  it("a 403 scope-insufficient on a confirmed create → scope_insufficient, no body text", async () => {
+    const body = body403({ message: "SECRET-BODY-TEXT", details: [errorInfo("ACCESS_TOKEN_SCOPE_INSUFFICIENT", { service: "gmail.googleapis.com" })] });
+    const { run } = setup({ filters: true, gmail: { status: 403, errorBody: body } });
+    const err = (await run("gmail_filter_create", send({}), ui(true).ctx).catch((e) => e)) as GmailToolError;
+    expect(err.code).toBe("scope_insufficient");
+    expect(err.message).not.toContain("SECRET-BODY-TEXT");
   });
 });

@@ -33,6 +33,13 @@ export interface GmailMessage {
   payload?: GmailPart;
 }
 
+/** A Gmail filter (`users.settings.filters`): criteria + label actions only are ever sent. */
+export interface GmailFilter {
+  id: string;
+  criteria?: Record<string, unknown>;
+  action?: { addLabelIds?: string[]; removeLabelIds?: string[]; forward?: string };
+}
+
 export class GmailApi {
   private readonly base: string;
   private readonly token: string;
@@ -124,6 +131,22 @@ export class GmailApi {
 
   trash(id: string) {
     return this.call<unknown>("POST", `messages/${encodeURIComponent(id)}/trash`);
+  }
+
+  listFilters() {
+    return this.call<{ filter?: GmailFilter[] }>("GET", "settings/filters");
+  }
+
+  getFilter(id: string) {
+    return this.call<GmailFilter>("GET", `settings/filters/${encodeURIComponent(id)}`);
+  }
+
+  createFilter(criteria: Record<string, unknown>, action: Record<string, unknown>) {
+    return this.call<GmailFilter>("POST", "settings/filters", { criteria, action });
+  }
+
+  deleteFilter(id: string) {
+    return this.call<unknown>("DELETE", `settings/filters/${encodeURIComponent(id)}`);
   }
 }
 

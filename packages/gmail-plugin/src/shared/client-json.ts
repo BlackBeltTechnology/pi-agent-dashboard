@@ -5,6 +5,8 @@
  * route (authoritative). See change: add-gmail-plugin.
  */
 
+import { PROJECT_ID_RE } from "./setup.js";
+
 interface ParsedClient {
   clientId: string;
   clientSecret: string;
@@ -48,6 +50,6 @@ export function validateClientJson(input: string | unknown): ClientJsonResult {
     return { ok: false, error: { code: "missing_secret", step: 5 } };
   }
   const client: ParsedClient = { clientId: i.client_id, clientSecret: i.client_secret };
-  if (typeof i.project_id === "string" && /^[a-z][a-z0-9-]{4,62}$/.test(i.project_id)) client.projectId = i.project_id;
+  if (typeof i.project_id === "string" && PROJECT_ID_RE.test(i.project_id)) client.projectId = i.project_id;
   return { ok: true, client };
 }
