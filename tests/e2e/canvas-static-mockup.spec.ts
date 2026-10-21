@@ -78,13 +78,16 @@ test.describe("improve-canvas-html-and-url-ux — static mockup viewer", () => {
     const frame = page.frameLocator('[data-testid="live-iframe"]');
     await expect(frame.getByRole("heading", { name: "Screen A" })).toBeVisible({ timeout: 20_000 });
 
+    // Static targets are in-memory and never listed; the manual/legacy list must not grow.
+    const listed = async () => ((await (await page.request.get("/api/live-server/list")).json()) as { data?: { servers?: unknown[] } }).data?.servers?.length ?? 0;
+    const before = await listed();
+
     const address = page.getByTestId("live-address");
     await address.fill("screens/b.html");
     await address.press("Enter");
     await expect(frame.getByRole("heading", { name: "Screen B" })).toBeVisible({ timeout: 20_000 });
 
-    // Navigating inside the target registered nothing: the picker lists no new target.
-    await page.getByTestId("live-back").click();
-    await expect(page.getByTestId("live-target-row")).toHaveCount(0);
+    // Navigating inside the target registered nothing: no new target appeared.
+    expect(await listed()).toBe(before);
   });
 });

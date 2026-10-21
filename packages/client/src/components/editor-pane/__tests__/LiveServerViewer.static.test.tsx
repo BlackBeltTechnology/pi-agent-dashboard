@@ -578,3 +578,20 @@ describe("agent re-declare of the active tab", () => {
     expect(iframe()).not.toBe(before);
   });
 });
+
+describe("static preset waits for the session cwd (reload regression)", () => {
+  it("launches once the cwd resolves, not with a 'no working directory' error", async () => {
+    const { rerender } = render(agent(<LiveServerViewer path="static:/p/m/a/index.html" cwd={undefined} />));
+    await flush();
+    expect(fake.callsTo("/start-static", "POST")).toHaveLength(0);
+    expect(screen.queryByText(/no working directory/i)).toBeNull();
+    rerender(agent(<LiveServerViewer path="static:/p/m/a/index.html" cwd="/p" />));
+    await flush();
+    expect(fake.callsTo("/start-static", "POST")).toHaveLength(1);
+    expect(src()).toContain("/index.html");
+    // A further render with the same cwd does not relaunch.
+    rerender(agent(<LiveServerViewer path="static:/p/m/a/index.html" cwd="/p" />));
+    await flush();
+    expect(fake.callsTo("/start-static", "POST")).toHaveLength(1);
+  });
+});

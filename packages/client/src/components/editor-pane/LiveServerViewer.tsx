@@ -152,10 +152,17 @@ export default function LiveServerViewer({ path: viewerPath, cwd, reloadNonce, u
   );
 
   // Auto-launch a preset (`live:<url>` / `static:<file>`) instead of showing the picker.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: launch once per preset path
+  // Re-runs when the session cwd resolves: after a page reload the restored `static:` tab mounts
+  // before the sessions snapshot, so its first pass has no cwd to anchor the file to.
+  const launchedKey = useRef<string | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: launch once per preset path (+ cwd for static)
   useEffect(() => {
     const preset = parsePresetPath(viewerPath);
     if (!preset) return;
+    if (preset.kind === "static" && !cwd) return; // wait for the session cwd
+    const key = preset.kind === "static" ? `${viewerPath}|${cwd}` : viewerPath;
+    if (launchedKey.current === key) return;
+    launchedKey.current = key;
     if (preset.kind === "invalid-path") {
       setFramed(null);
       setError(t("live.address.invalidPath", undefined, "Invalid path. Use a path inside this preview (no empty, . or .. segments)."));
@@ -166,7 +173,7 @@ export default function LiveServerViewer({ path: viewerPath, cwd, reloadNonce, u
       return;
     }
     void launchPort({ host: preset.host, port: preset.port, deep: preset.deep, addedBy: "preset" }, "preset");
-  }, [viewerPath]);
+  }, [viewerPath, cwd]);
 
   const onConfirm = () => {
     const parsed = parseTarget(url);
