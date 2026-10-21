@@ -1,0 +1,56 @@
+{
+  "name": "pi-dashboard-runtime-canary",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Runtime-delivery canary (fixture) \u2014 a prebuilt-ESM dashboard plugin loaded through the import map. NOT a workspace member; built by scripts/build-runtime-canary.mjs.",
+  "type": "module",
+  "keywords": [
+    "pi-dashboard-plugin"
+  ],
+  "scripts": {
+    "build:canary": "node ../../../scripts/build-runtime-canary.mjs"
+  },
+  "pi-dashboard-plugin": {
+    "id": "runtime-canary",
+    "displayName": "Runtime Canary (fixture)",
+    "fixture": true,
+    "priority": 1000,
+    "hostApi": "^1.0.0",
+    "clientBundle": "./dist/client/index.js",
+    "clientStyles": "./dist/client/client.css",
+    "i18nCatalog": "catalog",
+    "server": "./src/server/index.ts",
+    "claims": [
+      {
+        "slot": "settings-section",
+        "component": "CanarySettings",
+        "tab": "general",
+        "shouldRender": "canaryShouldRender"
+      },
+      {
+        "slot": "shell-overlay-route",
+        "component": "S6Route",
+        "module": "./dist/client/s6-route.js",
+        "path": "/s6/*?",
+        "depth": 1,
+        "presentation": "content"
+      },
+      {
+        "slot": "sidebar-folder-section",
+        "component": "CanaryFolderEntry"
+      },
+      {
+        "slot": "settings-section",
+        "component": "CanaryLazyPanel",
+        "module": "./dist/client/lazy-panel.js",
+        "tab": "general"
+      }
+    ]
+  },
+  "peerDependencies": {
+    "@blackbelt-technology/dashboard-plugin-runtime": "*",
+    "@blackbelt-technology/pi-dashboard-app-kit": "*",
+    "react": ">=18.0.0",
+    "wouter": "^3.9.0"
+  }
+}

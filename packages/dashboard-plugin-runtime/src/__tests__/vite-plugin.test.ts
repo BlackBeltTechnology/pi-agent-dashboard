@@ -1,12 +1,18 @@
+// @vitest-environment node
+// (node, not jsdom: the real Vite/esbuild builds below break under jsdom's TextEncoder.)
 /**
  * Tests for the Vite plugin manifest scanning and registry generation.
  * We test the generation logic without spinning up a real Vite server.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { HOST_IMPORT_MAP_SPECIFIERS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/host-import-map.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { clearDiscoveryCache } from "../server/loader.js";
+import { buildDashboardClient, CLIENT_PRESET_EXTERNALS, clientStylesTemplate } from "../vite-plugin/index.js";
 
 // We test the generation by importing the internal helpers via the vite-plugin module.
 // Since the plugin is exported, we call buildStart directly.
@@ -281,5 +287,96 @@ describe("plugin-sources.css generation", () => {
     const a = generatePluginSourcesContent(tmpDir);
     clearDiscoveryCache();
     expect(generatePluginSourcesContent(tmpDir)).toBe(a);
+  });
+});
+
+
+// ── SDK client preset (tasks 7.2, 7.3; tests 8.133 / test-plan #E96, 8.129 / #E95 artifact half) ─────────
+// Real Vite builds of tiny fixtures. See change: decouple-plugins-from-core.
+
+const FIXTURES = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "client-preset");
+const BUILD_TIMEOUT = 120_000;
+
+async function presetBuild(fixture: string, extra: Record<string, unknown> = {}): Promise<string> {
+  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "client-preset-out-"));
+  await buildDashboardClient({
+    root: path.join(FIXTURES, fixture),
+    entry: "index.tsx",
+    outDir,
+    ...extra,
+  });
+  return outDir;
+}
+
+const read = (dir: string, rel: string) => fs.readFileSync(path.join(dir, rel), "utf8");
+
+describe("dashboard client preset", () => {
+  it("externals are exactly the host import-map specifiers", () => {
+    expect([...CLIENT_PRESET_EXTERNALS]).toEqual([...HOST_IMPORT_MAP_SPECIFIERS]);
+  });
+
+  it("CSS template is utilities-only: theme as reference, utilities, no preflight, no :root", () => {
+    const css = clientStylesTemplate(["/abs/src"]);
+    expect(css).toContain('@import "tailwindcss/theme.css" theme(reference);');
+    expect(css).toContain('@import "tailwindcss/utilities.css";');
+    expect(css).toContain('@source "/abs/src";');
+    expect(css).not.toMatch(/preflight|@import "tailwindcss";|:root/);
+  });
+
+  it("(f) clean fixture: ES entry + lazy chunk + utilities-only CSS; every import-map specifier external", async () => {
+    const out = await presetBuild("clean", { lazyModules: { lazy: "lazy.tsx" } });
+    try {
+      const entry = read(out, "index.js");
+      // Every import-map specifier stays a bare import (and nothing else bare is imported).
+      const bare = new Set([...entry.matchAll(/from\s*["']([^"'./][^"']*)["']|import\s*["']([^"'./][^"']*)["']/g)].map((m) => m[1] ?? m[2]));
+      expect([...bare].sort()).toEqual([...HOST_IMPORT_MAP_SPECIFIERS].sort());
+      // No bundled React (and no preload helper that would need a DOM).
+      expect(entry).not.toMatch(/react\.transitional\.element|__vitePreload/);
+      // Lazy chunk emitted as its own file, with its own component export.
+      expect(fs.existsSync(path.join(out, "lazy.js"))).toBe(true);
+      expect(read(out, "lazy.js")).toMatch(/export\s*\{[^}]*LazyPanel/);
+      // The lazy module is NOT pulled into the entry.
+      expect(entry).not.toContain("LazyPanel");
+      // Utilities-only stylesheet: utilities present, no reset, no :root theme, host var passed through.
+      const css = read(out, "client.css");
+      expect(css).toMatch(/\.flex\b/);
+      expect(css).toMatch(/\.grid\b/);
+      expect(css).toContain("var(--bg-surface)");
+      expect(css).not.toMatch(/\*,\s*::before|::backdrop|box-sizing:\s*border-box|:root|:host/);
+      expect(fs.readdirSync(out).filter((f) => f.endsWith(".css"))).toEqual(["client.css"]);
+    } finally {
+      fs.rmSync(out, { recursive: true, force: true });
+    }
+  }, BUILD_TIMEOUT);
+
+  it("(a) bundling React fails the build, naming the module and the import-map specifier", async () => {
+    await expect(presetBuild("bundle-react")).rejects.toThrow(/node_modules\/react\/[\s\S]*"react", "react\/jsx-runtime", "react-dom" or "react-dom\/client"/);
+  }, BUILD_TIMEOUT);
+
+  it.each([
+    ["(b) LayerPortal", "layer-portal", "LayerPortal"],
+    ["(c) useMobile", "use-mobile", "useMobile"],
+    ["(d) escape-stack", "escape-stack", "escape-stack"],
+    ["(e) ActionListMenuContext", "action-list-menu-context", "ActionListMenuContext"],
+  ])("%s fails the build naming the module", async (_label, fixture, moduleName) => {
+    await expect(presetBuild(fixture)).rejects.toThrow(new RegExp(`client-utils/src/${moduleName}\\.[tj]sx?`));
+  }, BUILD_TIMEOUT);
+
+  it("unsafeBundleSpecifiers (test-only) bypasses the React half of the guard", async () => {
+    const out = await presetBuild("bundle-react", { unsafeBundleSpecifiers: ["react"] });
+    try {
+      // Built (guard bypassed); the deep React path was bundled, not left as an external import.
+      expect(read(out, "index.js")).not.toMatch(/from\s*["']react\/jsx-dev-runtime["']/);
+    } finally {
+      fs.rmSync(out, { recursive: true, force: true });
+    }
+  }, BUILD_TIMEOUT);
+
+  it("standalone config: own React (no externals), relative base, separate outDir", async () => {
+    const { dashboardStandaloneViteConfig } = await import("../vite-plugin/index.js");
+    const cfg = await dashboardStandaloneViteConfig({ root: path.join(FIXTURES, "clean") });
+    expect(cfg.base).toBe("./");
+    expect(cfg.build?.outDir).toBe(path.join(FIXTURES, "clean", "dist", "standalone"));
+    expect(cfg.build?.rollupOptions?.external).toBeUndefined();
   });
 });

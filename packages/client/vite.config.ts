@@ -61,7 +61,16 @@ function resolveDashboardPort(): number {
 const DASHBOARD_PORT = resolveDashboardPort();
 
 /** Host shim entries (src/host-shims/<name>.ts → dist/host/<name>.js); keep in lock-step with HOST_IMPORT_MAP_IMPORTS. */
-const HOST_SHIMS = ["react", "react-jsx-runtime", "react-dom", "react-dom-client", "runtime"] as const;
+const HOST_SHIMS = [
+  "react",
+  "react-jsx-runtime",
+  "react-dom",
+  "react-dom-client",
+  "runtime",
+  "embedded-app",
+  "app-kit-react",
+  "wouter",
+] as const;
 
 export default defineConfig({
   plugins: [

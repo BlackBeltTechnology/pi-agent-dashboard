@@ -12,12 +12,18 @@ import * as JsxRuntime from "react/jsx-runtime";
 import * as ReactDom from "react-dom";
 import * as ReactDomClient from "react-dom/client";
 import { describe, expect, it } from "vitest";
+import * as wouter from "wouter";
+import * as appKitReact from "../../../../app-kit/src/react/index.js";
+import * as embeddedAppModule from "../../../../dashboard-plugin-runtime/src/embedded-app.js";
 import * as publicSurface from "../../../../dashboard-plugin-runtime/src/public.js";
+import * as appKitReactShim from "../app-kit-react.js";
+import * as embeddedAppShim from "../embedded-app.js";
 import * as reactShim from "../react.js";
 import * as reactDomShim from "../react-dom.js";
 import * as reactDomClientShim from "../react-dom-client.js";
 import * as reactJsxShim from "../react-jsx-runtime.js";
 import * as runtimeShim from "../runtime.js";
+import * as wouterShim from "../wouter.js";
 
 const named = (ns: object) => Object.keys(ns).filter((k) => k !== "default" && k !== "__esModule" && k !== "module.exports").sort();
 
@@ -42,10 +48,17 @@ describe("host shims", () => {
     expect(named(runtimeShim)).not.toContain("setSender");
   });
 
+  it("embedded-app shim == the runtime ./embedded-app module (same EmbeddedApp instance)", () => {
+    expectParity(embeddedAppShim, embeddedAppModule);
+    expect(named(embeddedAppShim)).toEqual(["EmbeddedApp"]);
+  });
+  it("app-kit-react shim == app-kit/react (same instances: one AppHostProvider context)", () => expectParity(appKitReactShim, appKitReact));
+  it("wouter shim == wouter (same instances: one router context)", () => expectParity(wouterShim, wouter));
+
   it("every import-map target has a shim source (and no shim is unmapped)", () => {
     const dir = path.dirname(fileURLToPath(import.meta.url));
     const names = Object.values(HOST_IMPORT_MAP_IMPORTS).map((u) => u.replace(/^\/host\//, "").replace(/\.js$/, ""));
     for (const n of names) expect(existsSync(path.join(dir, "..", `${n}.ts`)), n).toBe(true);
-    expect(names.sort()).toEqual(["react", "react-dom", "react-dom-client", "react-jsx-runtime", "runtime"]);
+    expect(names.sort()).toEqual(["app-kit-react", "embedded-app", "react", "react-dom", "react-dom-client", "react-jsx-runtime", "runtime", "wouter"]);
   });
 });

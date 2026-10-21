@@ -36,6 +36,18 @@ import {
   pluginRegistryHash,
 } from "../server/loader.js";
 
+export {
+  buildDashboardClient,
+  buildDashboardStandalone,
+  CLIENT_PRESET_EXTERNALS,
+  type ClientPresetOptions,
+  clientStylesTemplate,
+  dashboardClientViteConfig,
+  dashboardSingletonGuard,
+  dashboardStandaloneViteConfig,
+  type StandalonePresetOptions,
+} from "./client-preset.js";
+
 /** Generated file path (relative to the calling vite.config location). */
 const GENERATED_DIR = "packages/client/src/generated";
 const GENERATED_FILE = "plugin-registry.tsx";

@@ -115,8 +115,17 @@ describe("committed snapshot", () => {
     expect(s.sdkExports).toContain("satisfiesHostApiRange");
   });
 
-  it("records the planned import-map specifiers", () => {
-    expect(snapshot().importMapSpecifiers).toEqual(["react", "react/jsx-runtime", "react-dom", "react-dom/client", "@blackbelt-technology/dashboard-plugin-runtime"]);
+  it("records the import-map specifiers (task 7.1 appended embedded-app, app-kit/react, wouter)", () => {
+    expect(snapshot().importMapSpecifiers).toEqual([
+      "react",
+      "react/jsx-runtime",
+      "react-dom",
+      "react-dom/client",
+      "@blackbelt-technology/dashboard-plugin-runtime",
+      "@blackbelt-technology/dashboard-plugin-runtime/embedded-app",
+      "@blackbelt-technology/pi-dashboard-app-kit/react",
+      "wouter",
+    ]);
   });
 
   it("the CLI passes on the real tree", () => {

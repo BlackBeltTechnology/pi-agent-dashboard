@@ -300,6 +300,9 @@
     "react/jsx-runtime",
     "react-dom",
     "react-dom/client",
-    "@blackbelt-technology/dashboard-plugin-runtime"
+    "@blackbelt-technology/dashboard-plugin-runtime",
+    "@blackbelt-technology/dashboard-plugin-runtime/embedded-app",
+    "@blackbelt-technology/pi-dashboard-app-kit/react",
+    "wouter"
   ]
 }

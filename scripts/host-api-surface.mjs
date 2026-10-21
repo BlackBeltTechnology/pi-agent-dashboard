@@ -43,8 +43,17 @@ const INDEX_CSS_REL = "packages/client/src/index.css";
 const SCOPE = "@blackbelt-technology";
 const RUNTIME_SPECIFIER = `${SCOPE}/dashboard-plugin-runtime`;
 
-/** Planned import-map specifiers (design D9). The import map itself lands in Phase 5; recorded here so the 1.0.0 surface already pins them. */
-export const IMPORT_MAP_SPECIFIERS = ["react", "react/jsx-runtime", "react-dom", "react-dom/client", RUNTIME_SPECIFIER];
+/** Import-map specifiers (design D9), in `HOST_IMPORT_MAP_IMPORTS` order (pinned equal by a test). */
+export const IMPORT_MAP_SPECIFIERS = [
+  "react",
+  "react/jsx-runtime",
+  "react-dom",
+  "react-dom/client",
+  RUNTIME_SPECIFIER,
+  `${RUNTIME_SPECIFIER}/embedded-app`,
+  `${SCOPE}/pi-dashboard-app-kit/react`,
+  "wouter",
+];
 
 /** `--accent-<hue>-text` hues (client `index.css`; theme-gallery requires the ramp). */
 const ACCENT_HUES = ["purple", "blue", "green", "orange", "red", "yellow"];
