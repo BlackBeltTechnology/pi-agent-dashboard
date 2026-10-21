@@ -45,7 +45,7 @@ describe("runtime manifest", () => {
   });
 
   // See change: pin-electron-bundle-dependency-tree (test-plan #E13).
-  it.each([
+  it.each<[Partial<RuntimeManifest>]>([
     [{ installMode: "release-lock", lockVersion: "0.10.0" }],
     [{ installMode: "floating" }],
   ])("round-trips bundle provenance fields %j", (extra) => {
