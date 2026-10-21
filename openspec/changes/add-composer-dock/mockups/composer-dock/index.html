@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Composer Dock: as-built vs proposed</title>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="board.css" />
+<link rel="stylesheet" href="asbuilt.css" />
+<link rel="stylesheet" href="dock.css" />
+<script src="icons.js"></script>
+<script src="scenarios.js"></script>
+<script src="probe.js"></script>
+</head>
+<body data-view="both">
+<div class="toolbar" role="toolbar" aria-label="Board controls">
+  <h1>Composer Dock (option C)</h1>
+  <span class="seg-label" id="lbl-theme">Theme</span>
+  <div class="seg" aria-labelledby="lbl-theme" data-group="theme">
+    <button aria-pressed="true" data-v="base-dark">Base dark</button>
+    <button aria-pressed="false" data-v="base-light">Base light</button>
+    <button aria-pressed="false" data-v="nord-dark">Nord dark</button>
+  </div>
+  <span class="seg-label" id="lbl-w">Pane width</span>
+  <div class="seg" aria-labelledby="lbl-w" data-group="width">
+    <button aria-pressed="false" data-v="375">375</button>
+    <button aria-pressed="false" data-v="480">480</button>
+    <button aria-pressed="true" data-v="768">768</button>
+    <button aria-pressed="false" data-v="1000">1000</button>
+  </div>
+  <span class="seg-label" id="lbl-v">Show</span>
+  <div class="seg" aria-labelledby="lbl-v" data-group="view">
+    <button aria-pressed="true" data-v="both">Both</button>
+    <button aria-pressed="false" data-v="asbuilt">As-built</button>
+    <button aria-pressed="false" data-v="proposed">Proposed</button>
+  </div>
+  <span class="probe-badge" id="probe-badge" role="status">probe…</span>
+</div>
+<div class="shell">
+  <nav class="nav" aria-label="Scenarios" id="nav"></nav>
+  <main id="board"></main>
+</div>
+<script>
+let WIDTH = 768;
+const FRAMES = new Map();
+let CUR = null;
+
+function renderNav() {
+  document.getElementById("nav").innerHTML = `<h2>Scenarios</h2>` + SCENARIOS.map((s, i) =>
+    `<a href="#${s.id}" ${s.id === CUR ? 'aria-current="page"' : ""}>S${i + 1} ${s.title}</a>`).join("");
+}
+function renderScenario(id, keep) {
+  const s = SCENARIOS.find((x) => x.id === id) || SCENARIOS[0];
+  if (!keep || CUR !== s.id) { FRAMES.clear(); s.frames.forEach((f, i) => FRAMES.set(`${s.id}-f${i}`, structuredClone(f.state))); }
+  CUR = s.id;
+  const props = s.frames.map((f, i) => {
+    const fid = `${s.id}-f${i}`, w = f.width || WIDTH;
+    return `<div class="frame-wrap"><p class="frame-cap"><code>${f.cap}</code> · ${w} px</p>${proposedPane(FRAMES.get(fid), fid, w, f)}</div>`;
+  }).join("");
+  const built = s.built ? `<div class="col built"><p class="tag">As-built · shipped classes, transcribed</p><div class="frame-wrap"><p class="frame-cap"><code>today</code> · ${WIDTH} px</p>${asBuiltPane(s.frames[0].state, WIDTH)}</div></div>` : "";
+  document.getElementById("board").innerHTML = `<h2 class="sc-h">S${SCENARIOS.indexOf(s) + 1} ${s.title}</h2>
+    <p class="sc-lead">${s.lead}</p>
+    <ul class="finds">${s.finds.map(([k, t]) => `<li><b>${k}</b>${t}</li>`).join("")}</ul>
+    <div class="cols">${built}<div class="col prop"><p class="tag">Proposed · tokens only</p><div class="cols">${props}</div></div></div>`;
+  renderNav(); badge();
+}
+function badge() {
+  requestAnimationFrame(() => {
+    const fails = [...document.querySelectorAll(".frame.prop")].flatMap(window.__probeRoot);
+    const b = document.getElementById("probe-badge");
+    b.className = `probe-badge ${fails.length ? "bad" : "ok"}`;
+    b.textContent = fails.length ? `Proposed: ${fails.length} probe failure${fails.length > 1 ? "s" : ""}` : "Proposed: 0 probe failures";
+    b.title = fails.join("\n");
+  });
+}
+document.getElementById("board").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-act]"); if (!b) return;
+  const st = FRAMES.get(b.dataset.frame); if (!st) return;
+  const sel = `[data-act="${b.dataset.act}"][data-frame="${b.dataset.frame}"]` + (b.dataset.lane ? `[data-lane="${b.dataset.lane}"]` : `[data-menu="${b.dataset.menu}"]`);
+  if (b.dataset.act === "lane") st.open = st.open === b.dataset.lane ? null : b.dataset.lane;
+  if (b.dataset.act === "menu") st.menu = st.menu === b.dataset.menu ? null : b.dataset.menu;
+  renderScenario(CUR, true);
+  document.querySelector(sel)?.focus();
+});
+addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  let changed = false; FRAMES.forEach((st) => { if (st.menu) { st.menu = null; changed = true; } });
+  if (changed) renderScenario(CUR, true);
+});
+function route() { renderScenario(location.hash.slice(1) || SCENARIOS[0].id); }
+addEventListener("hashchange", route);
+document.querySelectorAll(".seg").forEach((seg) => seg.addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  seg.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+  const g = seg.dataset.group, v = b.dataset.v, html = document.documentElement;
+  if (g === "theme") {
+    const [pal, mode] = v.split("-");
+    mode === "light" ? html.setAttribute("data-theme", "light") : html.removeAttribute("data-theme");
+    pal === "nord" ? html.setAttribute("data-palette", "nord") : html.removeAttribute("data-palette");
+    badge();
+  } else if (g === "width") { WIDTH = Number(v); renderScenario(CUR, true); }
+  else if (g === "view") document.body.dataset.view = v;
+}));
+const q = new URLSearchParams(location.search);
+if (q.get("theme")) document.querySelector(`[data-group=theme] [data-v="${q.get("theme")}"]`)?.click();
+if (q.get("width")) { WIDTH = Number(q.get("width")); document.querySelectorAll("[data-group=width] button").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.v === q.get("width")))); }
+if (q.get("view")) document.querySelector(`[data-group=view] [data-v="${q.get("view")}"]`)?.click();
+route();
+</script>
+</body>
+</html>

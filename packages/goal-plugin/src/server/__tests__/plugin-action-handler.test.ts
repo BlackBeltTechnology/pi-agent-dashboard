@@ -249,15 +249,30 @@ describe("goal-plugin composition root (fake ctx)", () => {
     // A passing snapshot from the driver: verdict recorded + status projected.
     handlers.forEach((h2) => h2({ sessionId: "s1", payload: { status: "active", verdict: "pass", turnsUsed: 1 } }));
     await settle();
-    let res = await app.inject({ method: "GET", url: `/api/folders/goals?cwd=${encodeURIComponent(cwd)}` });
-    let record = (JSON.parse(res.payload).data as Array<Record<string, unknown>>).find((r) => r.id === goalId)!;
-    expect(record.status).toBe("pursuing");
-    expect(record.totalTurnsUsed).toBe(1);
+    // Poll instead of trusting the settle budget: the store write is real fs I/O
+    // and still lagged settle() on a loaded CI runner (nightly 2026-10-20).
+    // vi.waitFor runs on real timers, unaffected by the faked clock.
+    await vi.waitFor(
+      async () => {
+        await flush();
+        const res = await app.inject({ method: "GET", url: `/api/folders/goals?cwd=${encodeURIComponent(cwd)}` });
+        const record = (JSON.parse(res.payload).data as Array<Record<string, unknown>>).find((r) => r.id === goalId)!;
+        expect(record.status).toBe("pursuing");
+        expect(record.totalTurnsUsed).toBe(1);
+      },
+      { timeout: 5_000, interval: 50 },
+    );
 
     // Budget exceeded: the guard halts the loop via a /goal pause dispatch.
     handlers.forEach((h2) => h2({ sessionId: "s1", payload: { status: "active", verdict: "pass", turnsUsed: 5 } }));
     await settle();
-    expect(h.mocks.sendToSession).toHaveBeenCalledWith("s1", "/goal pause");
+    await vi.waitFor(
+      async () => {
+        await flush();
+        expect(h.mocks.sendToSession).toHaveBeenCalledWith("s1", "/goal pause");
+      },
+      { timeout: 5_000, interval: 50 },
+    );
   });
 
 

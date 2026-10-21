@@ -1,0 +1,46 @@
+/* AS-BUILT replica of the shipped chat-pane bottom stack (App.tsx 2615-2765):
+   composer-context-strip (StatusBarRefreshButton · ChatViewMenu · ComposerSessionActions
+   ToolbarGroups) → StatusBar → QueuePanel → CommandInput card.
+   Classes transcribed from source; raw Tailwind palette values (bg-red-600, bg-blue-600,
+   text-orange-400, ...) are reproduced as literals ON PURPOSE: they are shipped debt,
+   not proposals. The probe ignores this file's frames. */
+.ab-strip { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 12px 0; font-size: 12px; }
+.ab-ico { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 4px; color: var(--text-tertiary); font-size: 14px; }
+.ab-tg { display: inline-flex; align-items: stretch; min-height: 28px; border-radius: 8px; border: 1px solid var(--border-secondary); background: var(--bg-tertiary); }
+.ab-tg.dashed { border-style: dashed; background: transparent; }
+.ab-tg-l { display: inline-flex; align-items: flex-start; line-height: 26px; padding: 0 8px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--text-tertiary); background: var(--bg-surface); border-right: 1px solid var(--border-secondary); border-radius: 8px 0 0 8px; }
+.ab-tg.dashed .ab-tg-l { background: transparent; border: 0; }
+.ab-tg-c { display: flex; flex-wrap: wrap; align-items: center; padding: 0 2px; }
+.ab-tg-c > * + * { border-left: 1px solid var(--border-subtle); }
+.ab-it { display: inline-flex; align-items: center; gap: 2px; min-height: 24px; padding: 0 8px; font-size: 10px; color: var(--text-secondary); white-space: nowrap; }
+.ab-it.mono { font-family: "SF Mono", Menlo, monospace; color: var(--text-primary); }
+.ab-it.primary { background: var(--accent-solid); color: #fff; font-weight: 600; }
+.ab-it .o { color: #fb923c; } .ab-it .g { color: #4ade80; }
+.ab-lc { display: inline-flex; gap: 1px; padding: 0 6px; }
+.ab-lc span { min-width: 18px; text-align: center; font-size: 10px; color: var(--text-secondary); border-top: 3px solid var(--border-secondary); }
+.ab-lc span.d { border-top-color: var(--accent-green); } .ab-lc span.c { border-top-color: var(--accent-primary); color: var(--text-primary); }
+.ab-status { display: flex; align-items: center; padding: 4px 16px; border-top: 1px solid var(--border-primary); font-size: 12px; color: var(--text-secondary); margin-top: 8px; gap: 6px; }
+.ab-queue { border-top: 1px solid var(--border-primary); background: color-mix(in srgb, var(--bg-secondary) 40%, transparent); padding: 8px 12px; }
+.ab-queue .qc { border-radius: 6px; border: 1px solid var(--border-secondary); background: color-mix(in srgb, var(--bg-secondary) 40%, transparent); padding: 8px 12px; }
+.ab-queue .qh { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-tertiary); }
+.ab-queue .qh .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #fbbf24cc; margin-right: 6px; }
+.ab-queue .qt { font-size: 14px; color: var(--text-primary); }
+.ab-queue .qb { display: inline-flex; gap: 2px; color: var(--text-tertiary); font-size: 14px; }
+.ab-yolo { display: flex; align-items: center; gap: 6px; margin: 8px 12px 0; padding: 4px 10px; border-radius: 8px; border: 1px solid var(--severity-warning-border); background: var(--severity-warning-bg); color: var(--severity-warning-fg); font-size: 12px; white-space: nowrap; overflow: hidden; }
+.ab-yolo span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ab-card { margin: 8px 12px 12px; background: var(--bg-tertiary); border: 1px solid var(--border-secondary); border-radius: 12px; padding: 8px 10px 6px; }
+.ab-in { display: flex; align-items: flex-end; gap: 6px; }
+.ab-in .ta { flex: 1; min-height: 38px; padding: 4px 6px; font-size: 14px; color: #6b7280; }
+.ab-split { display: inline-flex; align-items: stretch; }
+.ab-split .at { display: flex; align-items: center; gap: 4px; padding: 0 8px; min-height: 44px; border-radius: 8px 0 0 8px; font-size: 12px; color: #fca5a5; background: #dc262626; border-right: 1px solid #7f1d1d99; }
+.ab-split .st { display: flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; background: #dc2626; border-radius: 0 8px 8px 0; color: #fff; font-size: 18px; }
+.ab-hair { height: 1px; background: var(--border-subtle); margin: 4px 0; }
+.ab-set { display: flex; align-items: center; gap: 6px; }
+.ab-set .pl { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 30px; color: var(--text-secondary); font-size: 18px; }
+.ab-set .mc { font-family: "SF Mono", Menlo, monospace; font-size: 12px; color: var(--text-primary); padding: 0 6px; }
+.ab-set .tl { font-size: 12px; color: var(--text-secondary); display: inline-flex; align-items: center; gap: 2px; }
+.ab-dc { display: inline-flex; border-radius: 8px; overflow: hidden; border: 1px solid var(--border-secondary); height: 30px; }
+.ab-dc span { display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; font-size: 11px; color: var(--text-tertiary); }
+.ab-dc span.on { background: color-mix(in srgb, var(--accent-primary) 18%, transparent); color: var(--text-primary); }
+.ab-term { display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; height: 30px; border-radius: 8px; border: 1px solid var(--border-secondary); font-size: 11px; color: var(--text-tertiary); }
+.ab-else { margin: 0 12px 12px; padding: 8px 10px; border: 1px dashed var(--border-secondary); border-radius: 8px; font-size: 12px; color: var(--text-secondary); }
