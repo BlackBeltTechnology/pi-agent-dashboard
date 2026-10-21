@@ -8,12 +8,18 @@
  * `analyzeWrites` (optional) writes `content` to the absolute `path` during
  * `database analyze` — simulates a concurrent edit (harden-codeql-ratchet-followups #E3).
  * Every invocation appends one JSON line to `plan.log`:
- *   { argv, env: { LGTM_INDEX_FILTERS }, sourceRoot?: { "<relpath>": "<content>" } }
+ *   { argv, env: { LGTM_INDEX_FILTERS }, sourceRoot?: { "<relpath>": "<content>" },
+ *     modelPack?: { "<file>": "<content>" } }   // the --additional-packs dir, at call time
+ *
+ * `resolve extensions` (plan.resolveExtensions: { exit, stderr, stdout, rowCountDelta, omitFile }) answers
+ * with the CAPTURED real-CLI shape (fixtures/codeql-resolve-extensions.json): one entry per
+ * (predicate, model file) with `rowCount` = the file's real data rows, so a test can break it on purpose.
  *
  * See change: add-local-codeql-ratchet.
  */
 import { appendFileSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import { parse as parseYaml } from "yaml";
 
 const plan = JSON.parse(readFileSync(process.env.FAKE_CODEQL_PLAN, "utf8"));
 const argv = process.argv.slice(2);
@@ -36,8 +42,36 @@ const done = (code = 0) => {
   process.exit(code);
 };
 
+/** The captured `resolve extensions` JSON with this pack's model files substituted for the placeholder. */
+function resolveExtensions(opts) {
+  const template = JSON.parse(readFileSync(join(import.meta.dirname, "codeql-resolve-extensions.json"), "utf8"));
+  const [queryPackDir, entries] = Object.entries(template.data)[0];
+  const shape = entries.find((e) => e.file === "<MODEL_FILE>");
+  const packDir = flag("--additional-packs");
+  const out = entries.filter((e) => e.file !== "<MODEL_FILE>");
+  let index = 0;
+  for (const name of packDir ? readdirSync(packDir).filter((n) => n.endsWith(".model.yml")).sort() : []) {
+    if (name === opts.omitFile) continue;
+    const doc = parseYaml(readFileSync(join(packDir, name), "utf8"));
+    for (const ext of doc?.extensions ?? []) {
+      const rows = ext.data?.length ?? 0;
+      out.push({ ...shape, predicate: ext.addsTo.extensible, file: join(packDir, name), index: index++, rowCount: rows + (opts.rowCountDelta ?? 0) });
+    }
+  }
+  return JSON.stringify({ ...template, data: { [queryPackDir]: out } });
+}
+
 const [cmd, sub] = argv;
-if (cmd === "version") {
+if (cmd === "resolve" && sub === "extensions") {
+  const opts = plan.resolveExtensions ?? {};
+  if (opts.exit) {
+    process.stderr.write(`${opts.stderr ?? "resolve extensions failed"}\n`);
+    done(opts.exit);
+  }
+  record.modelPack = flag("--additional-packs") ? listFiles(flag("--additional-packs")) : null;
+  process.stdout.write(opts.stdout ?? resolveExtensions(opts));
+  done();
+} else if (cmd === "version") {
   process.stdout.write(JSON.stringify({ productName: "CodeQL", version: plan.version ?? "2.27.2" }));
   done();
 } else if (cmd === "resolve") {
@@ -53,6 +87,7 @@ if (cmd === "version") {
   }
   done();
 } else if (cmd === "database" && sub === "analyze") {
+  if (flag("--additional-packs")) record.modelPack = listFiles(flag("--additional-packs"));
   if (plan.analyzeExit) {
     process.stderr.write("analyze failed\n");
     done(plan.analyzeExit);

@@ -175,6 +175,10 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "plugin_config_write", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "promote_followup_entry", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "prompt_resync_request", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
+  // An operator's per-line answer to an access PROVISIONING request (change:
+  // add-access-provisioning). Same reason as `grant_response`: never an MCP tool,
+  // or an agent could approve the access it asked for.
+  { pattern: "provision_response", reason: "operator-only answer to an access provisioning request; self-approval risk" },
   { pattern: "recovery_dismiss", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "remove_folder_from_workspace", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "remove_followup_entry", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },

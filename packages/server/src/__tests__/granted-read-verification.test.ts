@@ -88,6 +88,24 @@ describe("grant-admitted byte serving is verified against the open handle (task 
     await app.close();
   });
 
+  it("E7 sandboxes a grant-admitted HTML served from /api/file/raw", async () => {
+    const file = path.join(granted, "page.html");
+    await fsp.writeFile(file, "<script>1</script>");
+    await expectContainmentAdmits(file); // admitted by the grant layer, not ①/②
+    const app = makeApp();
+    await app.ready();
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/file/raw?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(file)}`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-security-policy"]).toBe(
+      "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; frame-ancestors 'self'",
+    );
+    expect(res.headers["x-content-type-options"]).toBe("nosniff");
+    await app.close();
+  });
+
   it.skipIf(!posix)("9a.24 refuses a granted FIFO before any open, without blocking", async () => {
     const fifo = path.join(granted, "pipe");
     execFileSync("mkfifo", [fifo]);

@@ -11,147 +11,153 @@
       "id": "github-bug-fixes",
       "name": "GitHub Bug Fixes",
       "color": "#ef4444",
-      "order": 2
+      "order": 1
     },
     {
       "id": "artcraft-craft-apps",
       "name": "ArtCraft Craft Apps",
-      "order": 3
+      "order": 2
     },
     {
       "id": "addons-hub",
       "name": "Addons Hub",
       "color": "#8b5cf6",
-      "order": 4
+      "order": 3
     },
     {
       "id": "project-workflows",
       "name": "Project Workflows",
       "color": "#14b8a6",
-      "order": 5
+      "order": 4
     },
     {
       "id": "update-to-node-26",
       "name": "Update to Node 26",
       "color": "#3b82f6",
-      "order": 6
+      "order": 5
     },
     {
       "id": "vault",
       "name": "Vault",
       "color": "#f97316",
-      "order": 7
+      "order": 6
     },
     {
       "id": "security",
       "name": "Security",
       "color": "#ef4444",
-      "order": 8
+      "order": 7
     },
     {
       "id": "copilot-assistant",
       "name": "Copilot / Assistant",
-      "order": 9
+      "order": 8
     },
     {
       "id": "customer-web-chat",
       "name": "Customer Web Chat",
-      "order": 10
+      "order": 9
     },
     {
       "id": "fix-mermaid",
       "name": "Fix mermaid",
       "color": "#3b82f6",
-      "order": 11
+      "order": 10
     },
     {
       "id": "unify-context-manager",
       "name": "Unify Context Manager",
       "color": "#06b6d4",
-      "order": 12
+      "order": 11
     },
     {
       "id": "ai-team",
       "name": "AI Team",
       "color": "#a855f7",
-      "order": 13
+      "order": 12
     },
     {
       "id": "next-phase",
       "name": "Next phase",
       "color": "#3b82f6",
-      "order": 14
+      "order": 13
     },
     {
       "id": "electrun-execution",
       "name": "Electrun execution",
       "color": "#a855f7",
-      "order": 15
+      "order": 14
     },
     {
       "id": "future",
       "name": "Future",
       "color": "#f97316",
-      "order": 16
+      "order": 15
     },
     {
       "id": "retro-ui",
       "name": "Retro UI",
       "color": "#3b82f6",
-      "order": 17
+      "order": 16
     },
     {
       "id": "ui-extensions",
       "name": "UI Extensions",
       "color": "#eab308",
-      "order": 18
+      "order": 17
     },
     {
       "id": "pi-trust-mirror",
       "name": "Pi Trust Mirror",
       "color": "#0ea5e9",
-      "order": 19
+      "order": 18
     },
     {
       "id": "separate-functions-to-plugins",
       "name": "Separate functions to plugins",
       "color": "#ef4444",
-      "order": 20
+      "order": 19
     },
     {
       "id": "lan-pairing-trust",
       "name": "LAN Pairing & Trust",
       "color": "#14b8a6",
-      "order": 21
+      "order": 20
     },
     {
       "id": "kowledge-base",
       "name": "Kowledge Base",
       "color": "#f97316",
-      "order": 22
+      "order": 21
     },
     {
       "id": "browser-agent",
       "name": "Browser Agent",
       "color": "#14b8a6",
-      "order": 23
+      "order": 22
     },
     {
       "id": "openspec-workflow",
       "name": "OpenSpec Workflow",
       "color": "#22c55e",
-      "order": 24
+      "order": 23
     },
     {
       "id": "automation-scheduler",
       "name": "Automation Scheduler",
       "color": "#eab308",
-      "order": 25
+      "order": 24
     },
     {
       "id": "gmail",
       "name": "Gmail",
       "color": "#ea4335",
+      "order": 25
+    },
+    {
+      "id": "codeql-debt",
+      "name": "CodeQL Debt",
+      "color": "#f97316",
       "order": 26
     }
   ],
@@ -493,7 +499,10 @@
     "add-meeting-bot-attendee": "ui",
     "pin-electron-bundle-dependency-tree": "ui",
     "fix-split-divider-drag": "ui",
-    "add-access-provisioning": "ui"
+    "add-access-provisioning": "ui",
+    "codeql-model-pack-and-mirror": "codeql-debt",
+    "core-cwd-admission": "codeql-debt",
+    "triage-codeql-alert-debt": "codeql-debt"
   },
   "changeOrder": {
     "__ungrouped__": [
@@ -674,6 +683,11 @@
     "retro-ui": [
       "move-session-actions-trigger-to-card-edge",
       "colorize-actions-menus"
+    ],
+    "codeql-debt": [
+      "codeql-model-pack-and-mirror",
+      "core-cwd-admission",
+      "triage-codeql-alert-debt"
     ]
   }
 }

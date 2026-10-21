@@ -1,0 +1,3 @@
+# named-grant.ts — index
+
+`grantNamedPathSubject` (task 5.2): the ONE path-grant creation sequence, extracted from `POST /api/access/grants` so the route and the filesystem plane cannot drift. Canonical compare of the chosen subject against the denied subject + offered rungs (`unnamed` otherwise); forbidden filter on the NORMALIZED subject (`forbidden`; a lexical-dirname FILE subject normalizing to `$HOME` was a real one-click escalation); `recordGrant` with `widenedFrom`; write failure returned as `write-failed`, never swallowed. See changes: add-access-grants-and-review (origin), add-access-grant-dialog (extraction). Passes optional `via` through to `recordGrant` (8.2).

@@ -4,9 +4,10 @@
  *
  * See change: add-openspec-change-grouping (tasks 4.1–4.2).
  */
-import { describe, it, expect } from "vitest";
-import { joinGroupIdsToOpenSpecData } from "../openspec/openspec-group-store.js";
+
 import type { OpenSpecData } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { describe, expect, it } from "vitest";
+import { joinGroupIdsToOpenSpecData } from "../openspec/openspec-group-store.js";
 
 function mkData(changes: Array<{ name: string }>): OpenSpecData {
   return {

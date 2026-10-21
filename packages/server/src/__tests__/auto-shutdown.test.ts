@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { createServer, type ServerConfig, type DashboardServer } from "../server.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createServer, type DashboardServer, type ServerConfig } from "../server.js";
 
 describe("Server auto-shutdown", () => {
   let server: DashboardServer;

@@ -10,11 +10,12 @@
  *
  * See change: fix-electron-server-launch-node-bin (resume stuck bug).
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { WebSocket } from "ws";
+
 import { mkdtempSync, writeFileSync } from "node:fs";
-import path from "node:path";
 import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { WebSocket } from "ws";
 import { createServer, type DashboardServer } from "../server.js";
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));

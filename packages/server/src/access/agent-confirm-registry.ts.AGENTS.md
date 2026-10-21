@@ -1,0 +1,3 @@
+# agent-confirm-registry.ts — index
+
+`createAgentConfirmRegistry` / `AgentConfirmRegistry`. First-sight record of `agent-path-gate-confirm` prompt_requests `{promptId, sessionId, path, subject, expiresAt}`; replay never re-registers or extends TTL (gate timeout). States pending/settled/used/cancelled; `settle` (prompt_dismiss) keeps redeemable 5 s; `cancel` (prompt_cancel) never; `consume` single-use, path/subject match, per-session cap 32. See change: ask-agent-file-access-in-chat. Entries carry a `kind` (`select` | `confirm`); `observe`/`consume` take it (default `confirm`), caps per kind, never redeemable cross-kind (select ↔ `path_gate_refusal`, confirm ↔ `path_grant_request`). See change: yolo-covers-agent-path-gate.

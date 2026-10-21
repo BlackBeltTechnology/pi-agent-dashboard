@@ -20,6 +20,7 @@
       ".pi/skills/pi-dashboard",
       ".pi/skills/browser",
       ".pi/skills/project-init",
+      ".pi/skills/project-access",
       ".pi/skills/doctor"
     ],
     "tools": [
@@ -39,6 +40,7 @@
     ".pi/skills/pi-dashboard/",
     ".pi/skills/browser/",
     ".pi/skills/project-init/",
+    ".pi/skills/project-access/",
     ".pi/skills/doctor/",
     "agents/",
     "!**/AGENTS.md",

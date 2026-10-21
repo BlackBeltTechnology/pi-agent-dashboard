@@ -1,18 +1,18 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import {
-	PackageManagerWrapper,
-	AlreadyAtDestinationError,
-	InvalidMoveRequestError,
-	UnsupportedSourceForDestinationError,
-} from "../package/package-manager-wrapper.js";
-import {
-	ToolRegistry,
-	OverridesStore,
-} from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
-import { registerDefaultTools } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/definitions.js";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { registerDefaultTools } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/definitions.js";
+import {
+	OverridesStore,
+	ToolRegistry,
+} from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	AlreadyAtDestinationError,
+	InvalidMoveRequestError,
+	PackageManagerWrapper,
+	UnsupportedSourceForDestinationError,
+} from "../package/package-manager-wrapper.js";
 
 // ──────────────────────────────────────────────────────────────────
 // Fake pi.DefaultPackageManager + fake settingsManager that share

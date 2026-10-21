@@ -1,15 +1,15 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import Fastify from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { COOKIE_NAME, signToken } from "../auth/auth.js";
 import { validateWsUpgrade } from "../auth/auth-plugin.js";
-import Fastify from "fastify";
 import { parseBearerHeader, registerBearerAuth } from "../auth/bearer-auth.js";
 import { createNetworkGuardHook } from "../auth/localhost-guard.js";
 import { createRouteTierGate } from "../auth/route-tier-gate.js";
-import { PairedDeviceRegistry } from "../pairing/paired-devices.js";
 import { WsTicketStore } from "../auth/ws-ticket.js";
+import { PairedDeviceRegistry } from "../pairing/paired-devices.js";
 
 const SECRET = "test-secret-for-bearer";
 let tmpDir: string;

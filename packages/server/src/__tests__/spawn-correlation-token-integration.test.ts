@@ -7,14 +7,15 @@
  *
  * See change: spawn-correlation-token.
  */
-import { describe, it, expect } from "vitest";
+
 import { EventEmitter } from "node:events";
 import { mkdtempSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createHeadlessPidRegistry } from "../spawn-process/headless-pid-registry.js";
-import { createPendingForkRegistry } from "../pending/pending-fork-registry.js";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
 import { mintSpawnToken } from "../auth/spawn-token.js";
+import { createPendingForkRegistry } from "../pending/pending-fork-registry.js";
+import { createHeadlessPidRegistry } from "../spawn-process/headless-pid-registry.js";
 
 function mockProc() {
   return new EventEmitter() as any;

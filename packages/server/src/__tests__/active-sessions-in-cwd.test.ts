@@ -5,13 +5,14 @@
  *
  * See change: add-worktree-lifecycle-actions.
  */
-import { describe, it, expect } from "vitest";
+
+import type { DashboardSession, SessionStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { describe, expect, it } from "vitest";
 import {
   activeSessionsUnder,
   isPathInside,
   sessionsUnder,
 } from "../session/active-sessions-in-cwd.js";
-import type { DashboardSession, SessionStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 function s(id: string, cwd: string, status: SessionStatus = "active"): Pick<DashboardSession, "id" | "cwd" | "status"> {
   return { id, cwd, status };

@@ -13,12 +13,13 @@ import Fastify, { type FastifyInstance } from "fastify";
 import iconv from "iconv-lite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as XLSX from "xlsx";
+import { buildCsp, type CspMode, registerCsp } from "../auth/csp.js";
 import { clearEmlCache, sanitizeBody } from "../lib/eml.js";
 import { extToContentType } from "../lib/mime-types.js";
 import type { DocxPdfEngine, OfficeCaps } from "../lib/office-preview.js";
 import * as officePreviewModule from "../lib/office-preview.js";
 import { OFFICE_CAPS } from "../lib/office-preview.js";
-import { registerFileRoutes } from "../routes/file-routes.js";
+import { isScriptableMediaType, registerFileRoutes } from "../routes/file-routes.js";
 
 // Fault injection for the shared DOMPurify loader (change:
 // sanitize-untrusted-rendered-content). Defaults to the REAL loader.
@@ -111,8 +112,10 @@ function makeApp(
     officeCaps?: Partial<OfficeCaps>;
     docxRenderMode?: "pdf" | "html" | "auto";
   },
+  cspMode?: CspMode,
 ): FastifyInstance {
   const app = Fastify({ logger: false });
+  if (cspMode) registerCsp(app, cspMode);
   registerFileRoutes(app, {
     sessionManager: {
       listAll: () => cwds.map((cwd) => ({ cwd })),
@@ -274,6 +277,139 @@ describe("GET /api/file/raw", () => {
     expect(res.statusCode).toBe(416);
     expect(res.headers["content-range"]).toBe("bytes */8");
   });
+});
+
+// See change: harden-raw-svg-responses (E1–E5, E8, X1).
+const SANDBOX =
+  "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; frame-ancestors 'self'";
+
+describe("GET /api/file/raw — scriptable media types are sandboxed", () => {
+  let app: FastifyInstance;
+  let tmp: string;
+  const rawUrl = (name: string) => `/api/file/raw?cwd=${encodeURIComponent(tmp)}&path=${encodeURIComponent(name)}`;
+
+  beforeEach(async () => {
+    tmp = await fsp.mkdtemp(path.join(os.tmpdir(), "file-raw-sbx-"));
+    app = makeApp([tmp]);
+    await app.ready();
+  });
+
+  afterEach(async () => {
+    await app.close();
+    await fsp.rm(tmp, { recursive: true, force: true });
+  });
+
+  it("E1 sandboxes a script-bearing SVG and HTML, body byte-identical", async () => {
+    const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"><script>alert(2)</script></svg>');
+    const html = Buffer.from("<html><script>alert(1)</script></html>");
+    await fsp.writeFile(path.join(tmp, "evil.svg"), svg);
+    await fsp.writeFile(path.join(tmp, "page.html"), html);
+    const a = await app.inject({ method: "GET", url: rawUrl("evil.svg") });
+    expect(a.statusCode).toBe(200);
+    expect(a.headers["content-security-policy"]).toBe(SANDBOX);
+    expect(a.headers["x-content-type-options"]).toBe("nosniff");
+    expect(a.headers["content-type"]).toBe("image/svg+xml");
+    expect(a.rawPayload.equals(svg)).toBe(true);
+    const b = await app.inject({ method: "GET", url: rawUrl("page.html") });
+    expect(b.headers["content-security-policy"]).toBe(SANDBOX);
+    expect(b.headers["x-content-type-options"]).toBe("nosniff");
+    expect(b.headers["content-type"]).toBe("text/html; charset=utf-8");
+    expect(b.rawPayload.equals(html)).toBe(true);
+  });
+
+  it("E2 sandboxes upper-case extensions", async () => {
+    await fsp.writeFile(path.join(tmp, "page.HTM"), "<p>x</p>");
+    await fsp.writeFile(path.join(tmp, "LOGO.SVG"), "<svg/>");
+    for (const n of ["page.HTM", "LOGO.SVG"]) {
+      const res = await app.inject({ method: "GET", url: rawUrl(n) });
+      expect(res.headers["content-security-policy"]).toBe(SANDBOX);
+      expect(res.headers["x-content-type-options"]).toBe("nosniff");
+    }
+  });
+
+  it("E3 leaves non-active types untouched", async () => {
+    await fsp.writeFile(path.join(tmp, "foo.pdf"), "%PDF-1.4\n");
+    await fsp.writeFile(path.join(tmp, "photo.png"), Buffer.from([0x89, 0x50]));
+    await fsp.writeFile(path.join(tmp, "notes.txt"), "hi");
+    for (const [n, type] of [
+      ["foo.pdf", "application/pdf"],
+      ["photo.png", "image/png"],
+      ["notes.txt", extToContentType(".txt")],
+    ] as const) {
+      const res = await app.inject({ method: "GET", url: rawUrl(n) });
+      expect(res.headers["content-security-policy"]).toBeUndefined();
+      expect(res.headers["x-content-type-options"]).toBeUndefined();
+      expect(res.headers["content-type"]).toBe(type);
+    }
+  });
+
+  it("E4 isScriptableMediaType classifies by media type", () => {
+    for (const t of [
+      "application/xhtml+xml",
+      "application/xml",
+      "text/xml",
+      "TEXT/HTML; charset=utf-8",
+      " image/svg+xml ",
+    ]) {
+      expect(isScriptableMediaType(t), t).toBe(true);
+    }
+    for (const t of ["text/plain; charset=utf-8", "application/pdf", "image/png", "application/octet-stream", ""]) {
+      expect(isScriptableMediaType(t), t).toBe(false);
+    }
+  });
+
+  it("E5 sandboxes ranged SVG (206)", async () => {
+    const body = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg">${"a".repeat(300)}</svg>`);
+    await fsp.writeFile(path.join(tmp, "big.svg"), body);
+    const first = await app.inject({ method: "GET", url: rawUrl("big.svg"), headers: { range: "bytes=0-99" } });
+    expect(first.statusCode).toBe(206);
+    expect(first.headers["content-range"]).toBe(`bytes 0-99/${body.length}`);
+    expect(first.headers["content-security-policy"]).toBe(SANDBOX);
+    expect(first.headers["x-content-type-options"]).toBe("nosniff");
+    const last = await app.inject({ method: "GET", url: rawUrl("big.svg"), headers: { range: "bytes=-1" } });
+    expect(last.statusCode).toBe(206);
+    expect(last.headers["content-range"]).toBe(`bytes ${body.length - 1}-${body.length - 1}/${body.length}`);
+    expect(last.headers["content-security-policy"]).toBe(SANDBOX);
+    expect(last.headers["x-content-type-options"]).toBe("nosniff");
+  });
+
+  it("X1 a malformed Range on SVG still 416s with an empty body", async () => {
+    await fsp.writeFile(path.join(tmp, "evil.svg"), "<svg/>");
+    const res = await app.inject({ method: "GET", url: rawUrl("evil.svg"), headers: { range: "bytes=abc" } });
+    expect(res.statusCode).toBe(416);
+    expect(res.headers["content-range"]).toBe("bytes */6");
+    expect(res.headers["content-security-policy"]).toBe(SANDBOX);
+    expect(res.headers["x-content-type-options"]).toBe("nosniff");
+    expect(res.rawPayload.length).toBe(0);
+  });
+});
+
+describe("GET /api/file/raw — sandbox × dashboard CSP mode (E8)", () => {
+  let tmp: string;
+  beforeEach(async () => {
+    tmp = await fsp.mkdtemp(path.join(os.tmpdir(), "file-raw-mode-"));
+    await fsp.writeFile(path.join(tmp, "logo.svg"), "<svg/>");
+    await fsp.writeFile(path.join(tmp, "foo.pdf"), "%PDF-1.4\n");
+  });
+  afterEach(async () => {
+    await fsp.rm(tmp, { recursive: true, force: true });
+  });
+
+  for (const mode of ["enforce", "report", "off"] as const) {
+    it(`mode=${mode}`, async () => {
+      const app = makeApp([tmp], undefined, mode);
+      await app.ready();
+      const get = (n: string) =>
+        app.inject({ method: "GET", url: `/api/file/raw?cwd=${encodeURIComponent(tmp)}&path=${n}` });
+      const svg = await get("logo.svg");
+      expect(svg.headers["content-security-policy"]).toBe(SANDBOX);
+      expect(svg.headers["content-security-policy-report-only"]).toBe(mode === "report" ? buildCsp() : undefined);
+      const pdf = await get("foo.pdf");
+      expect(pdf.headers["content-security-policy"]).toBe(mode === "enforce" ? buildCsp() : undefined);
+      expect(pdf.headers["content-security-policy-report-only"]).toBe(mode === "report" ? buildCsp() : undefined);
+      await app.close();
+    });
+  }
 });
 
 describe("GET /api/file/raw — git-root widening", () => {

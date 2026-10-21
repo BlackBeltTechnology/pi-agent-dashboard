@@ -1,12 +1,12 @@
-import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
-  writeSessionMeta,
   readSessionMeta,
   type SessionMeta,
+  writeSessionMeta,
 } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
+import { describe, expect, it } from "vitest";
 
 /**
  * Persistence round-trip for `SessionMeta.unread`.

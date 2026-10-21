@@ -85,6 +85,25 @@ describe("config-api", () => {
       expect(written.port).toBe(8000); // preserved
     });
 
+    // test-plan #E23 (add-access-provisioning, D16): the default flips to on, so a
+    // partial write must neither drop an explicit false nor seed the default.
+    it("keeps an explicit accessGrants.promptEnabled:false across a partial write", () => {
+      fs.writeFileSync(configFile, JSON.stringify({ port: 8000, accessGrants: { promptEnabled: false } }));
+      expect(writeConfigPartial({ port: 8001 }).success).toBe(true);
+      const written = JSON.parse(fs.readFileSync(configFile, "utf-8"));
+      expect(written.port).toBe(8001);
+      expect(written.accessGrants).toEqual({ promptEnabled: false });
+      expect(loadConfig().accessGrants.promptEnabled).toBe(false);
+    });
+
+    it("never adds accessGrants to a config that lacked it", () => {
+      fs.writeFileSync(configFile, JSON.stringify({ port: 8000 }));
+      expect(writeConfigPartial({ port: 8001 }).success).toBe(true);
+      const written = JSON.parse(fs.readFileSync(configFile, "utf-8"));
+      expect("accessGrants" in written).toBe(false);
+      expect(loadConfig().accessGrants.promptEnabled).toBe(true);
+    });
+
     it("should flag restartRequired when port changes", () => {
       fs.writeFileSync(configFile, JSON.stringify({ port: 8000 }));
       const result = writeConfigPartial({ port: 9000 });

@@ -1,0 +1,56 @@
+{
+  "models": [],
+  "data": {
+    "<QUERY_PACK_DIR>": [
+      {
+        "predicate": "typeModel",
+        "file": "/Users/robson/.codeql/packages/codeql/javascript-queries/2.4.7/.codeql/libraries/codeql/javascript-all/2.10.3/ext/anthropic.model.yml",
+        "index": 0,
+        "firstRowId": 0,
+        "rowCount": 1,
+        "predicateHasOrigin": false
+      },
+      {
+        "predicate": "sinkModel",
+        "file": "/Users/robson/.codeql/packages/codeql/javascript-queries/2.4.7/.codeql/libraries/codeql/javascript-all/2.10.3/ext/anthropic.model.yml",
+        "index": 1,
+        "firstRowId": 1,
+        "rowCount": 7,
+        "predicateHasOrigin": true
+      },
+      {
+        "predicate": "barrierGuardModel",
+        "file": "<MODEL_FILE>",
+        "index": 0,
+        "firstRowId": 1752,
+        "rowCount": 8,
+        "predicateHasOrigin": true
+      },
+      {
+        "predicate": "barrierModel",
+        "file": "<MODEL_FILE>",
+        "index": 1,
+        "firstRowId": 1760,
+        "rowCount": 2,
+        "predicateHasOrigin": true
+      }
+    ]
+  },
+  "threatModels": {
+    "/Users/robson/.codeql/packages/codeql/javascript-queries/2.4.7": {
+      "extensions": [
+        {
+          "data": [],
+          "addsTo": {
+            "extensible": "threatModelConfiguration",
+            "checkPresence": true,
+            "packName": "codeql/threat-models"
+          }
+        }
+      ]
+    }
+  },
+  "extensionPacks": [
+    "/tmp/mp"
+  ]
+}

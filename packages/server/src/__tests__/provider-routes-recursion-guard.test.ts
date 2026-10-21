@@ -6,11 +6,12 @@
  * - Valid external baseUrl → accepted (2xx, written to disk)
  * - Existing providers untouched on validation failure
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import Fastify from "fastify";
-import { writeFileSync, mkdirSync, rmSync } from "node:fs";
-import { join } from "node:path";
+
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
+import { join } from "node:path";
+import Fastify from "fastify";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { registerProviderRoutes } from "../routes/provider-routes.js";
 
 const PROVIDERS_PATH = join(homedir(), ".pi", "agent", "providers.json");

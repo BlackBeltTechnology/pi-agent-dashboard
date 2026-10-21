@@ -26,4 +26,6 @@ See change: surface-denial-remedy-in-previews — Every denial site passes `disc
 
 - dep `browseConfineRemote === false` → browse routes unconfined for every caller. See change: harden-server-capability-bounds.
 
+`GET /api/file/raw` sets enforced `Content-Security-Policy: RAW_SANDBOX_CSP` + `X-Content-Type-Options: nosniff` when the served `Content-Type` is scriptable (`isScriptableMediaType`: text/html, image/svg+xml, application/xhtml+xml, application/xml, text/xml). Set before Range parsing → 200/206/416, all admission paths, every dashboard CSP mode (baseline hook skips an already-set header). See change: harden-raw-svg-responses.
+
 - Exports `gateFilePath` (opts `quiet`: no denial/prompt, for per-request static re-checks), `denialBody`, `GateFailure` for `start-static` + live static proxy. See change: improve-canvas-html-and-url-ux.

@@ -1298,6 +1298,8 @@ export type ServerToBrowserMessage =
   | GrantChannelMessage
   | GrantRequestMessage
   | GrantDismissMessage
+  | ProvisionRequestMessage
+  | ProvisionDismissMessage
   | PairPendingChangedMessage
   | ServicesChangedMessage;
 
@@ -2289,6 +2291,7 @@ export type BrowserToServerMessage =
   | BrowserHostExtDataMessage
   | BrowserHostExtCloseMessage
   | GrantResponseBrowserMessage
+  | ProvisionResponseMessage
   | WatchFilesBrowserMessage;
 
 /**
@@ -2868,6 +2871,71 @@ export interface GrantDismissMessage {
   plane: AccessPlaneId;
   subject: string;
   reason: "settled" | "expired";
+}
+
+/** How the server classified one provisioning line (design D4); only `grantable` is approvable. */
+export type ProvisionLineClassification =
+  | "grantable"
+  | "covered"
+  | "in-root"
+  | "forbidden"
+  | "sensitive"
+  | "missing"
+  | "invalid";
+
+/** A remote-access goal an agent may name; the dialog hands it off to the wizard (design D10). */
+export type ProvisionRemoteTarget = "lan" | "internet" | "device";
+
+/** One line of a provisioning request as shown to the operator. */
+export interface ProvisionRequestLine {
+  lineId: string;
+  /** The REAL path the operator is shown and approves (design D4). */
+  path: string;
+  /** Agent-supplied reason: bounded, control characters stripped, rendered as text only. */
+  why: string;
+  classification: ProvisionLineClassification;
+  /** `grantable` line whose real path holds `.git`/`.pi`: show the pi-trust choice (design D9). */
+  projectRoot?: boolean;
+}
+
+/**
+ * Server → browser (operator sockets only: live capability AND operate tier):
+ * an agent proposed a set of access lines for a project. The route writes
+ * nothing; the operator answers per line with `provision_response`.
+ * See change: add-access-provisioning.
+ */
+export interface ProvisionRequestMessage {
+  type: "provision_request";
+  requestId: string;
+  /** Real path of the claimed project root (a label, never proof of ownership). */
+  projectRoot: string;
+  lines: ProvisionRequestLine[];
+  remote: ProvisionRemoteTarget[];
+  /** Epoch ms after which the request expires. */
+  expiresAt: number;
+  /** Milliseconds left when the server sent this (clients re-base on their own clock). */
+  ttlMs?: number;
+}
+
+/**
+ * Browser → server: the operator's per-line answer. Omitted lines are rejected;
+ * an omitted `piTrust` on an approved project-root line means `false`
+ * (design D9). Accepted only from a socket holding a live capability (D3).
+ */
+export interface ProvisionResponseMessage {
+  type: "provision_response";
+  requestId: string;
+  lines: { lineId: string; verdict: "approve" | "reject"; piTrust?: boolean }[];
+}
+
+/**
+ * Server → browser: this request reached a terminal state elsewhere (settled,
+ * expired or dismissed) — remove the dialog without interaction.
+ */
+export interface ProvisionDismissMessage {
+  type: "provision_dismiss";
+  requestId: string;
+  reason: "settled" | "expired" | "dismissed";
 }
 
 /**

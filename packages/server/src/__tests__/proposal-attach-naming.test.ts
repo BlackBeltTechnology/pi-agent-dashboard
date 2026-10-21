@@ -2,7 +2,7 @@
  * Pure-helper tests for the idempotent attach/detach auto-rename rule.
  * See change: fix-mobile-attach-proposal-display (design.md decision matrix).
  */
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   attachRenameTarget,
   detachShouldClearName,

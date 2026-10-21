@@ -46,6 +46,7 @@ One row per file.
 | `README.md` | → see `README.md.AGENTS.md` |
 | `fixtures/severity-baseline.json` | Severity theme-token baseline. → see `fixtures/severity-baseline.json.AGENTS.md` |
 | `access-grants-revoke.spec.ts` | → see `access-grants-revoke.spec.ts.AGENTS.md` |
+| `access-provisioning.spec.ts` | L3 provisioning F1/F2/F4/F5/F6, X9, X11, X12. → see `access-provisioning.spec.ts.AGENTS.md` |
 | `add-folder-file-manager.spec.ts` | → see `add-folder-file-manager.spec.ts.AGENTS.md` |
 | `access-grant-dialog.spec.ts` | L3 for the access-grant prompt dialog +… → see `access-grant-dialog.spec.ts.AGENTS.md` |
 | `anthropic-bridge-activation.spec.ts` | → see `anthropic-bridge-activation.spec.ts.AGENTS.md` |
@@ -165,6 +166,7 @@ One row per file.
 | `owned-event-group-row.spec.ts` | → see `owned-event-group-row.spec.ts.AGENTS.md` |
 | `package-queue-visible.spec.ts` | Browser E2E gate for… → see `package-queue-visible.spec.ts.AGENTS.md` |
 | `pairing-qr.spec.ts` | Browser E2E for the camera-scannable pairing QR… → see `pairing-qr.spec.ts.AGENTS.md` |
+| `raw-active-content-sandbox.spec.ts` | L3 raw SVG/HTML sandbox CSP. See change: harden-raw-svg-responses. |
 | `remote-access-wizard.spec.ts` | L3 dialog. → see `remote-access-wizard.spec.ts.AGENTS.md` |
 | `remote-browse-confinement.spec.ts` | → see `remote-browse-confinement.spec.ts.AGENTS.md` |
 | `replay-live-tool-not-orphaned.spec.ts` | L3 restart mid-call |

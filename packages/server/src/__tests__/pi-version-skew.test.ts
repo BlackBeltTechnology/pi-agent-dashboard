@@ -10,10 +10,10 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import type { Resolution, ToolRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import { beforeEach, describe, expect, it } from "vitest";
-// @ts-expect-error -- .mjs release gate, no type declarations; exported for fixture-driven tests.
-import { checkPiPinCoherence, collectFailures } from "../../../../scripts/verify-release-deps.mjs";
 // @ts-expect-error -- .mjs release gate helper, no type declarations.
 import { rangeIsSatisfiable } from "../../../../scripts/verify-published-imports.mjs";
+// @ts-expect-error -- .mjs release gate, no type declarations; exported for fixture-driven tests.
+import { checkPiPinCoherence, collectFailures } from "../../../../scripts/verify-release-deps.mjs";
 import {
   compareVersions,
   computeCompatibility,

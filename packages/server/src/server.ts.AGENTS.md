@@ -103,3 +103,5 @@ Plugin discovery post-boot: `setDeclaredBundledPluginIds(readServedBundledPlugin
 - `browse.confineRemote` read once at start: `browseRoots()` resolves `null` when off (gate + routes unconfined). See change: harden-server-capability-bounds.
 
 Passes `directoryService.semaphore` as the REST workflow-schema route's `spawnSemaphore` (one spawn cap for poll + route; no private `createSemaphore`). See change: move-workflow-schema-status-to-poll-worker.
+
+Access provisioning: `installProvisioning({gateway: browserGateway, deps})` (`access/provisioning-wiring.ts`) builds the registry (ladder readers live: kill switch, `accessGrants.promptEnabled`, host gate mode; `operatorCount` = gateway operator sockets; pi-trust `mirror` wraps `setChoice` + `refresh`); server.ts registers `browserGateway.registerHandler("provision_response", provisioning.onResponse)` itself (bus-client verb-completeness scans that literal), passes `provisioning: {registry, announce}` to `registerAccessRoutes`, and `provisioning: () => registry.stats()` to `snapshotAccessGrantHealth`. See change: add-access-provisioning.

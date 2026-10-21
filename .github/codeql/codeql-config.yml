@@ -6,6 +6,12 @@
 # Only test, e2e, QA and mockup / design-scratch code is ignored. Non-test
 # scripts stay analyzed: publish.yml / nightly.yml run them with publish-scope
 # tokens. Every glob must stay expressible as an extractor filter.
+#
+# Exception: root `spike/**` holds throwaway experiments (smoke tests and the
+# docker harness read some of them, e.g. docker/test-entrypoint.sh) and is not
+# analyzed. Only the REPOSITORY-ROOT `spike/` is excluded: the extractor filter
+# `exclude:spike` is root-anchored, so a nested `packages/x/spike/` stays
+# analyzed. The spike gate (change codeql-model-pack-and-mirror) depends on that.
 # See change: add-local-codeql-ratchet.
 name: pi-dashboard
 queries: [] # suite defaults: code-scanning (local) / default (CI)
@@ -23,3 +29,4 @@ paths-ignore:
   - "openspec/changes/**/mockup*"
   - site/design-scratch/**
   - "**/e2e/**"
+  - spike/**

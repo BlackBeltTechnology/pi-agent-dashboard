@@ -9,12 +9,13 @@
  *
  * See change: fix-dashboard-spawn-correlation-by-token.
  */
-import { describe, it, expect, afterEach, vi } from "vitest";
-import { WebSocket } from "ws";
-import { mkdtempSync, writeFileSync, existsSync, readFileSync } from "node:fs";
-import path from "node:path";
+
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
+import path from "node:path";
 import { readSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { WebSocket } from "ws";
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 

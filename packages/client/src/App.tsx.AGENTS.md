@@ -78,3 +78,5 @@ Reducer contributions: next to the claims loop, `registerSessionEventReducer(id,
 
 Runtime plugins: build-time route descriptors kept as `_buildTimeRoutes` (the back-target store replaces its list), `_buildTimePluginIds` = build-time ids. An effect keyed on `apiBase` runs `startRuntimePluginLoader({registry, buildTimeIds, buildTimeRoutes})` (apiBase is only known after render, so not at module scope); a `runtime-plugins-registered` listener runs `regroupAllSessionStates` over `sessionStates` (late event-type owners). `pluginNames` merges `useRuntimePluginNames()`. Mounts `<RuntimePluginReloadNotice />` under `PluginStalenessBanner` (mobile branch) AND at the top of the desktop content column (desktop had no mount until the e2e F12 caught it). See change: decouple-plugins-from-core (tasks 6.14, 6.17, 6.18).
 - Mounts `TerminalLimitNotice inline` above the chat view. See change: harden-server-capability-bounds.
+
+- Mounts `ProvisionPromptHost` beside `GrantPromptHost` in both returns (provisioning dialog; capability owned by the grant host). See change: add-access-provisioning.

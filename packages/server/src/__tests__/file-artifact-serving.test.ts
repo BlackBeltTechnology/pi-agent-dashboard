@@ -86,6 +86,21 @@ describe("GET /api/file/raw — artifact-root image anchor (layer ③)", () => {
     expect(res.headers["content-type"]).toBe("image/png");
   });
 
+  it("(a2) sandboxes an SVG under the artifact root (E6)", async () => {
+    const shot = path.join(artifactRoot, "screenshots", "shot.svg");
+    await fsp.mkdir(path.dirname(shot), { recursive: true });
+    await fsp.writeFile(shot, "<svg xmlns='http://www.w3.org/2000/svg'><script>1</script></svg>");
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/file/raw?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(shot)}`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-security-policy"]).toBe(
+      "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; frame-ancestors 'self'",
+    );
+    expect(res.headers["x-content-type-options"]).toBe("nosniff");
+  });
+
   it("(b) rejects a non-image file under the artifact root (403)", async () => {
     const trace = path.join(artifactRoot, "trace.json");
     await fsp.writeFile(trace, "{}\n");

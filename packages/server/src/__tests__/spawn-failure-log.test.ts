@@ -2,13 +2,13 @@
  * Tests for spawn-failure-log.ts.
  * See change: spawn-failure-diagnostics.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, statSync, existsSync } from "node:fs";
-import path from "node:path";
-import os from "node:os";
 
-import { appendSpawnFailure, readSpawnFailures, _setLogDirForTests } from "../spawn-process/spawn-failure-log.js";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { SpawnFailureEntry } from "../spawn-process/spawn-failure-log.js";
+import { _setLogDirForTests, appendSpawnFailure, readSpawnFailures } from "../spawn-process/spawn-failure-log.js";
 
 function makeEntry(overrides: Partial<SpawnFailureEntry> = {}): SpawnFailureEntry {
   return {

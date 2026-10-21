@@ -2,7 +2,7 @@
  * Bounded-startup scenarios E2, E3, E20.
  * See change: fix-worktree-server-autostart-leak.
  */
-import { describe, it, expect, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { runBoundedStartup, StartupDeadlineError } from "../lifecycle/bounded-startup.js";
 
 describe("runBoundedStartup", () => {

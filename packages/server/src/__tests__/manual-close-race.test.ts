@@ -9,7 +9,7 @@
  * `manual` before pi is signalled.
  * See change: fix-recovery-pi-signal-unregister (test-plan #E18).
  */
-import { spawn, type ChildProcess } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";

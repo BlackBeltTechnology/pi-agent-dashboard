@@ -6,7 +6,7 @@
  * the stored, already-classified entries.
  * See change: classify-process-list-entries.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { createServer, type DashboardServer } from "../server.js";
 

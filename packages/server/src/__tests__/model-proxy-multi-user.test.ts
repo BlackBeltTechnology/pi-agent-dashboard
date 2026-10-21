@@ -9,11 +9,12 @@
  *
  * Uses Fastify directly, injecting user context via request.user.
  */
-import { describe, it, expect } from "vitest";
+
+import type { ModelProxyConfig, ProxyApiKey } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import Fastify from "fastify";
-import { registerModelProxyApiKeyRoutes } from "../routes/model-proxy-api-key-routes.js";
+import { describe, expect, it } from "vitest";
 import { generateKey, hashKey } from "../model-proxy/api-key-store.js";
-import type { ProxyApiKey, ModelProxyConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { registerModelProxyApiKeyRoutes } from "../routes/model-proxy-api-key-routes.js";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 

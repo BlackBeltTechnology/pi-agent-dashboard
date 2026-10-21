@@ -849,16 +849,18 @@ export interface SubagentSaturationThresholds {
 }
 
 /**
- * Access-grant prompting. Prompting is opt-in: a fresh install records denials
- * and raises no dialog until an operator turns it on explicitly.
- * See change: add-access-grant-dialog.
+ * Access-grant prompting. Prompting is ON by default (an absent key means on);
+ * an explicit value is kept as written. Automated environments set
+ * `PI_DASHBOARD_DISABLE_GRANT_PROMPT=1`.
+ * See changes: add-access-grant-dialog, add-access-provisioning (default flip).
  */
 export interface AccessGrantsConfig {
   /**
-   * Master switch for raising access-grant dialogs. Default **false**. Absent
-   * parses to false, so an un-upgraded config never starts prompting. Not
-   * seeded by `ensureConfig()`: absent and explicit-false mean the same thing
-   * here, and seeding would churn every existing config file.
+   * Master switch for raising access-grant dialogs. Default **true**. Absent
+   * (and a non-boolean) parses to true; an explicit false is kept. Not seeded
+   * by `ensureConfig()`: absent means "never chosen", and seeding the default
+   * would persist it as if it were a choice. Writers are partial, so none adds
+   * `accessGrants` to a config that lacked it.
    *
    * Invariant: the Access-page toggle writes `PUT /api/config { accessGrants:
    * { promptEnabled } }`, which REPLACES the whole group. Adding a second field
@@ -1202,7 +1204,7 @@ export interface DashboardConfig {
    */
   hostGate: HostGateConfig;
   /**
-   * Access-grant prompting settings. Default `{ promptEnabled: false }`.
+   * Access-grant prompting settings. Default `{ promptEnabled: true }`.
    * See change: add-access-grant-dialog.
    */
   accessGrants: AccessGrantsConfig;
@@ -1745,7 +1747,7 @@ const DEFAULTS: DashboardConfig = {
     },
   },
   devBuildOnReload: false,
-  accessGrants: { promptEnabled: false },
+  accessGrants: { promptEnabled: true },
   piTrustMirror: { ...DEFAULT_PI_TRUST_MIRROR, sources: { ...DEFAULT_PI_TRUST_MIRROR.sources } },
   agentPathGate: { ...DEFAULT_AGENT_PATH_GATE },
   bridge: { ...DEFAULT_BRIDGE_ACTIVATION },

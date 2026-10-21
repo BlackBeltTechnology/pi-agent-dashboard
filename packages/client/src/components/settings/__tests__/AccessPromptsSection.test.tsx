@@ -218,6 +218,14 @@ describe("AccessPromptsSection", () => {
       );
     });
 
+    // add-access-provisioning 3.4 — prompting is on by default and the notice names provisioning.
+    it("amended notice says provisioning requests are refused; the hint says on by default", async () => {
+      render(<AccessPromptsSection store={store()} />);
+      const b = await screen.findByTestId("access-prompts-banner-disabled");
+      expect(b.textContent).toContain("project provisioning requests are refused");
+      expect(screen.getByTestId("access-prompts-toggle-reason").textContent).toMatch(/^On by default\./);
+    });
+
     // 10.62c (E55) — a browser without a capability is told so.
     it("states this browser will not receive prompts when it holds no capability", async () => {
       render(<AccessPromptsSection store={store()} />);

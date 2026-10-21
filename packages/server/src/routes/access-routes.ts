@@ -35,7 +35,7 @@ import { MIRROR_SOURCE_LABELS } from "@blackbelt-technology/pi-dashboard-shared/
 import { readPiTrustFileLockless } from "@blackbelt-technology/pi-dashboard-shared/pi-trust-mirror-snapshot.js";
 import { MIRROR_REASON_LABELS, type MirrorSourceKind } from "@blackbelt-technology/pi-dashboard-shared/pi-trust-mirror-types.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import { getPathDenial } from "../access/access-denials.js";
 import {
   __accessGrantsLoadCount,
@@ -45,6 +45,8 @@ import {
 } from "../access/access-grants.js";
 import { grantNamedPathSubject } from "../access/named-grant.js";
 import { getPiTrustMirror } from "../access/pi-trust-mirror-service.js";
+import { isPromptEligible } from "../access/prompt-channel.js";
+import type { ProvisionFailure, ProvisioningRegistry, ProvisionRequestView, SettleInput } from "../access/provisioning.js";
 import { listPreviewEgressRows, revokePreviewEgressGrant } from "../access/preview-egress-store.js";
 import { readRawConfig } from "../config-api.js";
 import { revokeTrust as revokeWorktreeTrust } from "../git-worktree/worktree-init-trust.js";
@@ -138,6 +140,12 @@ export function registerAccessRoutes(
     preferencesStore: PreferencesStore;
     /** Config write path (the tab revokes trusted networks / CORS origins here). */
     writeConfigPartial: (partial: Record<string, unknown>) => { success: boolean; error?: string };
+    /**
+     * Access provisioning (change: add-access-provisioning). Absent = the four
+     * `/api/access/provision*` routes are not registered. `announce` delivers a
+     * freshly created request to the operator sockets (the route itself never does).
+     */
+    provisioning?: { registry: ProvisioningRegistry; announce(request: ProvisionRequestView): void };
   },
 ): void {
   const { networkGuard, preferencesStore, writeConfigPartial } = deps;
@@ -558,10 +566,87 @@ export function registerAccessRoutes(
     },
   );
 
+  if (deps.provisioning) registerProvisionRoutes(fastify, networkGuard, deps.provisioning);
+
   // Diagnostics: confirms the containment hot path never re-reads the store.
   fastify.get("/api/access/store-stats", { preHandler: networkGuard }, async () => {
     return { success: true, data: { loads: __accessGrantsLoadCount() } } satisfies ApiResponse;
   });
+}
+
+/** Map a registry refusal onto the HTTP reply (`retry-after` in whole seconds when it carries a delay). */
+function provisionFailure(reply: FastifyReply, f: ProvisionFailure): ApiResponse & Record<string, unknown> {
+  reply.code(f.status);
+  if (f.retryAfterMs !== undefined) reply.header("retry-after", String(Math.max(1, Math.ceil(f.retryAfterMs / 1000))));
+  return {
+    success: false,
+    error: f.error,
+    ...(f.reason ? { reason: f.reason } : {}),
+    ...(f.requestId ? { requestId: f.requestId } : {}),
+    ...(f.retryAfterMs !== undefined ? { retryAfterMs: f.retryAfterMs } : {}),
+  };
+}
+
+/**
+ * Access provisioning routes (change: add-access-provisioning, design D2/D3).
+ *
+ * `POST` proposes: validate, classify, record pending, announce to operator
+ * sockets; it writes no grant and no config. The two reads sit at observe tier.
+ * `settle` is the HTTP twin of the `provision_response` WS message and is
+ * accepted only when the request presents a LIVE prompt capability
+ * (`isPromptEligible`): a plain operate-tier caller (the agent) cannot approve
+ * what it asked for. Honest-path guard, not proof of operator presence (D11).
+ */
+function registerProvisionRoutes(
+  fastify: FastifyInstance,
+  networkGuard: NetworkGuard,
+  { registry, announce }: NonNullable<Parameters<typeof registerAccessRoutes>[1]["provisioning"]>,
+): void {
+  fastify.post<{ Body: { projectRoot?: unknown; lines?: unknown; remote?: unknown } }>(
+    "/api/access/provision",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const { projectRoot, lines, remote } = request.body ?? {};
+      const out = registry.create({ projectRoot, lines, remote });
+      if (!out.ok) return provisionFailure(reply, out);
+      announce(out.request);
+      return { success: true, data: out.request } satisfies ApiResponse;
+    },
+  );
+
+  fastify.get("/api/access/provision", { preHandler: networkGuard }, async () => {
+    return { success: true, data: { requests: registry.list() } } satisfies ApiResponse;
+  });
+
+  fastify.get<{ Params: { id: string } }>("/api/access/provision/:id", { preHandler: networkGuard }, async (request, reply) => {
+    const found = registry.get(request.params.id);
+    if (!found) return provisionFailure(reply, { ok: false, status: 404, error: "not-found" });
+    return { success: true, data: found } satisfies ApiResponse;
+  });
+
+  // Static segment: find-my-way ranks it above the parametric `/api/access/provision/:id`
+  // (GET) and the POST `/:id/settle` shape cannot match it, so registration order is moot.
+  fastify.post("/api/access/provision/dismiss-all", { preHandler: networkGuard }, async (request, reply) => {
+    if (!isPromptEligible(request)) {
+      reply.code(403);
+      return { success: false, error: "no-capability" } satisfies ApiResponse;
+    }
+    return { success: true, data: { dismissed: registry.dismissAll() } } satisfies ApiResponse;
+  });
+
+  fastify.post<{ Params: { id: string }; Body: Partial<SettleInput> }>(
+    "/api/access/provision/:id/settle",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      if (!isPromptEligible(request)) {
+        reply.code(403);
+        return { success: false, error: "no-capability" } satisfies ApiResponse;
+      }
+      const out = await registry.settle(request.params.id, { lines: request.body?.lines as SettleInput["lines"] });
+      if (!out.ok) return provisionFailure(reply, out);
+      return { success: true, data: out.request } satisfies ApiResponse;
+    },
+  );
 }
 
 /**

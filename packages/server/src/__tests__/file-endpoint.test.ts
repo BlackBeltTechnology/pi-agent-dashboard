@@ -3,8 +3,9 @@
  * Uses lightweight path validation tests since integration tests
  * require a full server (covered by manual testing).
  */
-import { describe, it, expect } from "vitest";
+
 import path from "node:path";
+import { describe, expect, it } from "vitest";
 
 /**
  * Extracted path containment check — same logic used in the endpoint.

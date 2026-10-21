@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { searchPackages, fetchReadme, PackageNotFoundError, clearCaches, deriveSkillIds } from "../package/npm-search-proxy.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { clearCaches, deriveSkillIds, fetchReadme, PackageNotFoundError, searchPackages } from "../package/npm-search-proxy.js";
 
 // Mock global fetch
 const mockFetch = vi.fn();

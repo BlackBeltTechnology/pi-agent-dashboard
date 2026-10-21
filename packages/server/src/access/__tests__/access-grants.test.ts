@@ -494,3 +494,78 @@ describe("D15/D11 load-time hardening", () => {
     expect(grantedSubjects()).toContain(fs.realpathSync(fresh));
   });
 });
+
+describe("add-access-provisioning: provisioned grants and `evict:false`", () => {
+  function seedFull(provisioned: (i: number) => boolean): string[] {
+    const base = fs.realpathSync(mkdir("prov"));
+    const subjects = Array.from({ length: GRANT_CAP_PER_SCOPE }, (_, i) => path.join(base, `p${i}`));
+    fs.mkdirSync(path.dirname(storePath), { recursive: true });
+    fs.writeFileSync(
+      storePath,
+      JSON.stringify({
+        version: 1,
+        grants: subjects.map((subject, i) => ({
+          subject,
+          scope: "project",
+          grantedAt: 1000 + i,
+          origin: "seed",
+          ...(provisioned(i) ? { via: "provision" } : {}),
+        })),
+      }),
+      "utf8",
+    );
+    __resetAccessGrants();
+    return subjects;
+  }
+
+  it("1.1 a store entry with via:'provision' round-trips through loadFromDisk", () => {
+    const dir = mkdir("rt-prov");
+    expect(recordGrant({ subject: dir, via: "provision", origin: "/w/app", now: 5 }).ok).toBe(true);
+    __resetAccessGrants();
+    const [grant] = listGrants();
+    expect(grant.via).toBe("provision");
+    expect(grant.origin).toBe("/w/app");
+  });
+
+  it("E18 an eviction skips provisioned grants and is logged; all-provisioned refuses", () => {
+    // Oldest (index 0) is provisioned, so the oldest NON-provisioned (index 1) goes.
+    const subjects = seedFull((i) => i === 0 || i > 100);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const first = mkdir("prov-first");
+    expect(recordGrant({ subject: first, via: "prompt", now: 9_000 }).ok).toBe(true);
+    const kept = grantedSubjects();
+    expect(kept).toHaveLength(GRANT_CAP_PER_SCOPE);
+    expect(kept).toContain(subjects[0]); // provisioned and oldest: kept
+    expect(kept).not.toContain(subjects[1]); // oldest non-provisioned: evicted
+    expect(kept).toContain(fs.realpathSync(first));
+    const logged = warn.mock.calls.map((c) => String(c[0]));
+    expect(logged.some((l) => l.startsWith("[access-grants] evicted subject=") && l.includes(`${JSON.stringify(subjects[1])} via=none`))).toBe(true);
+
+    // Now every grant is provisioned: a denial-path write is refused, 200 remain.
+    const all = seedFull(() => true);
+    const second = mkdir("prov-second");
+    expect(recordGrant({ subject: second, via: "prompt", now: 9_001 })).toEqual({ ok: false, error: "capacity" });
+    expect(grantedSubjects()).toHaveLength(GRANT_CAP_PER_SCOPE);
+    expect(grantedSubjects()).not.toContain(fs.realpathSync(second));
+    expect(grantedSubjects().sort()).toEqual([...all].sort());
+  });
+
+  it("E19 evict:false refuses at the cap with `capacity` and leaves the file unchanged", () => {
+    seedFull(() => false);
+    const before = fs.readFileSync(storePath, "utf8");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const res = recordGrant({ subject: mkdir("prov-noevict"), via: "provision", evict: false, now: 9_000 });
+    expect(res).toEqual({ ok: false, error: "capacity" });
+    expect(fs.readFileSync(storePath, "utf8")).toBe(before);
+    expect(grantedSubjects()).toHaveLength(GRANT_CAP_PER_SCOPE);
+    expect(warn.mock.calls.map((c) => String(c[0])).some((l) => l.includes("evicted"))).toBe(false);
+  });
+
+  it("E19 evict:false is idempotent on an existing subject even at the cap", () => {
+    const subjects = seedFull(() => false);
+    const res = recordGrant({ subject: subjects[3], via: "provision", evict: false });
+    expect(res.ok).toBe(true);
+  });
+});

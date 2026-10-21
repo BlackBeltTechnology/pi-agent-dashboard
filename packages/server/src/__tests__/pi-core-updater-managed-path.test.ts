@@ -10,13 +10,14 @@
  *     its head when the runtime is present.
  *   - Permission-error stderr-hint is preserved on global updates.
  */
+
+import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { EventEmitter } from "node:events";
+import type { PiCorePackage } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { describe, expect, it } from "vitest";
 import { defaultRunNpmUpdate } from "../pi/pi-core-updater.js";
-import type { PiCorePackage } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 
 function makePkg(overrides: Partial<PiCorePackage> = {}): PiCorePackage {
 	return {

@@ -17,8 +17,8 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import Fastify from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { registerProviderRoutes } from "../routes/provider-routes.js";
 import { clearProviderHealth, getAllProviderHealth, setProviderHealth } from "../routes/provider-health-cache.js";
+import { registerProviderRoutes } from "../routes/provider-routes.js";
 import { startStalledUpstream } from "./stalled-upstream.js";
 
 const fsState = vi.hoisted(() => ({ interruptRename: false }));

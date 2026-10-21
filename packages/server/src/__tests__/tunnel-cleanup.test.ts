@@ -4,10 +4,11 @@
  *
  * See change: route-kill-paths-through-platform.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const killProcessSpy = vi.fn(async (_pid: number, _opts?: any) => ({ ok: true, forced: false }));
 const isProcessAliveSpy = vi.fn((_pid: number) => true);

@@ -21,6 +21,9 @@ import type {
   GrantRequestMessage,
   GrantResponseBrowserMessage,
   HeldGrantPromptCopy,
+  ProvisionDismissMessage,
+  ProvisionRequestMessage,
+  ProvisionResponseMessage,
   ServerToBrowserMessage,
 } from "../browser-protocol.js";
 
@@ -80,6 +83,31 @@ describe("access-grant frames are members of their unions", () => {
       verdict: "allow-always",
     };
     expect(asBrowserToServer(msg).type).toBe("grant_response");
+  });
+});
+
+describe("provisioning frames are members of their unions (add-access-provisioning)", () => {
+  it("provision_request and provision_dismiss ride the server→browser union", () => {
+    const req: ProvisionRequestMessage = {
+      type: "provision_request",
+      requestId: "r1",
+      projectRoot: "/w/app",
+      lines: [{ lineId: "l1", path: "/w/lib", why: "shared lib", classification: "grantable", projectRoot: true }],
+      remote: ["lan"],
+      expiresAt: 1_700_000_600_000,
+    };
+    const dismiss: ProvisionDismissMessage = { type: "provision_dismiss", requestId: "r1", reason: "settled" };
+    expect(asServerToBrowser(req).type).toBe("provision_request");
+    expect(asServerToBrowser(dismiss).type).toBe("provision_dismiss");
+  });
+
+  it("provision_response rides the browser→server union", () => {
+    const msg: ProvisionResponseMessage = {
+      type: "provision_response",
+      requestId: "r1",
+      lines: [{ lineId: "l1", verdict: "approve", piTrust: false }, { lineId: "l2", verdict: "reject" }],
+    };
+    expect(asBrowserToServer(msg).type).toBe("provision_response");
   });
 });
 

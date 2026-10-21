@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import type { PiCorePackage, PiCoreStatus } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import Fastify, { type FastifyInstance } from "fastify";
-import { registerPiCoreRoutes } from "../routes/pi-core-routes.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PackageOperationBusyError } from "../package/package-manager-wrapper.js";
-import type { PiCoreStatus, PiCorePackage } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import { registerPiCoreRoutes } from "../routes/pi-core-routes.js";
 
 function makePkg(name: string, updateAvailable = false): PiCorePackage {
 	return {

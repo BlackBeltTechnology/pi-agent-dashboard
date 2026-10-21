@@ -2,7 +2,7 @@
  * Tests for cross-platform port-holder detection.
  * See change: fix-windows-server-parity.
  */
-import { describe, it, expect, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { findPortHolders, parseNetstatListeners } from "../cli.js";
 
 describe("parseNetstatListeners", () => {

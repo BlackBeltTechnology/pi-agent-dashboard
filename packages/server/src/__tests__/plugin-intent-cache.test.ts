@@ -3,9 +3,10 @@
  *
  * See change: adopt-server-driven-intent-rendering.
  */
-import { describe, it, expect, beforeEach } from "vitest";
-import { PluginIntentCache } from "../plugin-intent-cache.js";
+
 import type { IntentNode } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/intent-types.js";
+import { beforeEach, describe, expect, it } from "vitest";
+import { PluginIntentCache } from "../plugin-intent-cache.js";
 
 const sampleIntent: IntentNode = {
   primitive: "ui:action-list",

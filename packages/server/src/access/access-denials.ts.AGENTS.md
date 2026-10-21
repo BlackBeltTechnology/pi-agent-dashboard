@@ -1,0 +1,3 @@
+# access-denials.ts — index
+
+Path-denial registry (design D20): `recordPathDenial`, `getPathDenial`, `__resetPathDenials`. A containment refusal records `{denialId, subject, site, session, ancestors, at}` so the remedy a grant binds to is one the OPERATOR saw, never a free-form path (design D12/D15). `denialId` is a `randomUUID`, returned only in the denial body and never by any read route. Bounded TTL + CAP (oldest evicted on record); an evicted or expired id resolves to `undefined`, so a grant against it is refused (409/410 class). Written ONLY by the denial path — no route creates an entry (task 9a.31/9c.6). See change: add-access-grants-and-review.

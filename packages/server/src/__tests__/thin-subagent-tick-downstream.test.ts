@@ -7,8 +7,9 @@
  *
  * See change: reduce-subagent-details-payload.
  */
-import { describe, expect, it } from "vitest";
+
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { describe, expect, it } from "vitest";
 import { createMemoryEventStore } from "../persistence/memory-event-store.js";
 
 const neverPinned = () => false;

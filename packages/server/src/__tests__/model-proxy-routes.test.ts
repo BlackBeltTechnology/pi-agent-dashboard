@@ -11,12 +11,13 @@
  * - auth missing → 401 (auth gate wired)
  * - concurrency cap exhaust → 503
  */
-import { describe, it, expect, beforeEach, vi } from "vitest";
-import Fastify from "fastify";
-import { registerModelProxyRoutes } from "../routes/model-proxy-routes.js";
-import { createModelProxyAuthGate } from "../model-proxy/auth-gate.js";
-import { generateKey, hashKey } from "../model-proxy/api-key-store.js";
+
 import type { ModelProxyConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import Fastify from "fastify";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { generateKey, hashKey } from "../model-proxy/api-key-store.js";
+import { createModelProxyAuthGate } from "../model-proxy/auth-gate.js";
+import { registerModelProxyRoutes } from "../routes/model-proxy-routes.js";
 
 // ── Fake stream ────────────────────────────────────────────────────────────
 

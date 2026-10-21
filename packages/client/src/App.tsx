@@ -175,6 +175,11 @@ const RuntimeUpdateBadge = lazy(() =>
 const ChatViewMenu = lazy(() =>
   import("./components/chat/ChatViewMenu.js").then((m) => ({ default: m.ChatViewMenu })),
 );
+// Provisioning dialog host: its own chunk, off the entry gzip cap (mdi-chunk-size).
+// See change: add-access-provisioning.
+const ProvisionPromptHost = lazy(() =>
+  import("./components/access-grant/ProvisionPromptHost.js").then((m) => ({ default: m.ProvisionPromptHost })),
+);
 const PairingApprovalHost = lazy(() =>
   import("./components/pairing-approval/PairingApprovalHost.js").then((m) => ({ default: m.PairingApprovalHost })),
 );
@@ -3105,6 +3110,13 @@ export default function App() {
   // `firstLaunchModal`. Also owns the prompt capability's lifecycle.
   // See change: add-access-grant-dialog.
   const grantPromptHost = <GrantPromptHost onMessage={onMessage} send={send} ws={ws} />;
+  // Provisioning dialog: beside the grant host (which owns the capability).
+  // See change: add-access-provisioning.
+  const provisionPromptHost = (
+    <Suspense fallback={null}>
+      <ProvisionPromptHost onMessage={onMessage} send={send} ws={ws} />
+    </Suspense>
+  );
   // Pairing approval dialog: mounted beside the grant host in BOTH returns.
   // See change: add-pairing-approval-dialog.
   const pairingApprovalHost = (
@@ -3281,6 +3293,7 @@ export default function App() {
         <RecoveryOfferHost onReopen={(ids) => { for (const id of ids) handleResumeSession(id, "continue"); }} onDismiss={(ids) => send({ type: "recovery_dismiss", sessionIds: ids })} />
         {firstLaunchModal}
         {grantPromptHost}
+        {provisionPromptHost}
         {pairingApprovalHost}
         <MobileShell
           depth={mobileDepth}
@@ -3328,6 +3341,7 @@ export default function App() {
     <div className="flex h-screen bg-[var(--bg-primary)] text-[var(--text-primary)]">
       {firstLaunchModal}
       {grantPromptHost}
+      {provisionPromptHost}
       {pairingApprovalHost}
       {/* Concurrent worktree-init stack — fixed overlay, mounted in both shells
           (mobile branch above) so desktop also surfaces it. See change:

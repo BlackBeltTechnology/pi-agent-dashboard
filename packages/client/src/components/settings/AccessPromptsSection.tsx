@@ -11,6 +11,9 @@
  * - S3: pending requests, each answerable here (the prompt-free path; works
  *   with prompting disabled), and recent verdicts - operator answers vs YOLO
  *   auto-answers, the store an allow-always wrote, and `widenedFrom`.
+ * - Provisioning requests (`AccessProvisioningSection`, change:
+ *   add-access-provisioning): agent-proposed folder lists, answerable here or
+ *   read-only with the reason when this browser holds no prompt capability.
  * - Remembered refusals, each clearable.
  * - YOLO card (tasks 8b.7, 8b.7a): status + activation, scoped by default to
  *   `selectedCwd`. Each fetched `yolo` block is published to the shared
@@ -55,6 +58,7 @@ import { yoloStatus } from "../../lib/access-grants/yolo-status.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { useTrustPosture } from "../../lib/network-trust/trust-posture.js";
 import { YoloAccessCard } from "../access-grant/YoloAccessCard.js";
+import { AccessProvisioningSection } from "./AccessProvisioningSection.js";
 
 /** Background refresh while the page is open (unprompted denials send no frame). */
 const POLL_MS = 10_000;
@@ -190,6 +194,8 @@ export function AccessPromptsSection({
       )}
 
       {view && <YoloAccessCard yolo={view.yolo} base={selectedCwd} onChanged={() => void load()} />}
+
+      <AccessProvisioningSection />
 
       {view && (
         <PendingList
@@ -421,7 +427,7 @@ function PromptingBanners({
           {i18nT(
             "accessPrompts.banner.disabled",
             undefined,
-            "Prompting is off — no dialog will be raised. Recorded denials remain listed and answerable below.",
+            "Prompting is off. No dialog will be raised, and project provisioning requests are refused. Recorded denials remain listed and answerable below.",
           )}
         </div>
       )}
@@ -473,7 +479,7 @@ function PromptToggle({
               : i18nT(
                   "accessPrompts.toggleHint",
                   undefined,
-                  "Off by default. Existing grants stay in force when off; denials are still recorded.",
+                  "On by default. Existing grants stay in force when off; denials are still recorded.",
                 )}
         </div>
       </div>

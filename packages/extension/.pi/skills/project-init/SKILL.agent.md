@@ -44,6 +44,7 @@ Triggers: "create project", bare dir, dashboard "Initialize" button spawns sessi
 - DOX: pointer block in AGENTS.md; `./.pi/dashboard/knowledge_base.json` doctrine flip.
 - OpenSpec: `openspec init --tools pi --force`; overwrite `./.pi/skills/openspec-*`; may remove legacy files; may touch `~/.config/openspec`.
 - coding: may `pi install` eng-disciplines user-global (`~/.pi/agent/settings.json`), opt-in.
+- Last: names Step 4c as a separate opt-in question (not a write).
 - Idempotency: ask before overwriting existing `AGENTS.md` / `.pi/settings.json`.
 
 ## Step 4 — Write
@@ -53,6 +54,12 @@ Triggers: "create project", bare dir, dashboard "Initialize" button spawns sessi
 - Detect: `pi list | grep pi-dashboard-eng-disciplines` or stat `~/.pi/agent/npm/node_modules/@blackbelt-technology/pi-dashboard-eng-disciplines`.
 - PRESENT → skip prompt; remove stale "not detected" footnote.
 - ABSENT → confirm; yes → `pi install npm:@blackbelt-technology/pi-dashboard-eng-disciplines`; no/fail → append footnote under `## Discipline Skills`: "Discipline skills not detected — run `pi install npm:…` to activate the checkpoints above."
+
+## Step 4c — Folder access (separate opt-in; never fails init)
+- After scaffold, all profiles. Own `ask_user` confirm; declined → submit nothing.
+- Lines: `./.pi/access.json` (v1 only; unknown version refused) else user lists folders; none → skip.
+- Submit via `project-access` `provision`; report each line outcome.
+- Refused/expired/dismissed/unreachable → report, init continues. `no-operator` → open dashboard, retry later with `project-access`. Never call settle routes.
 
 ## Step 5 — DOX seed (only if DOX_ENABLED)
 - Append marker block `<!-- dox-doctrine -->` to AGENTS.md unless marker present. No doctrine copied.

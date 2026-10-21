@@ -1,10 +1,10 @@
 /**
  * Smoke integration tests — validates end-to-end flows without SQLite.
  */
-import { describe, it, expect, afterAll } from "vitest";
-import { createTestServer, type TestServerHandle } from "../test-support/test-server.js";
-import type { DashboardServer } from "../server.js";
+import { afterAll, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
+import type { DashboardServer } from "../server.js";
+import { createTestServer, type TestServerHandle } from "../test-support/test-server.js";
 
 function waitForOpen(ws: WebSocket): Promise<void> {
   return new Promise((resolve, reject) => {

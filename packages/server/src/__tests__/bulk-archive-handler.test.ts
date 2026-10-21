@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import type { OpenSpecBulkArchiveBrowserMessage, BrowserToServerMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import type { BrowserToServerMessage, OpenSpecBulkArchiveBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import { describe, expect, it } from "vitest";
 
 describe("openspec_bulk_archive message type", () => {
   it("is a valid BrowserToServerMessage", () => {
