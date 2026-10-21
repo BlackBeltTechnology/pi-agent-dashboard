@@ -9,3 +9,5 @@ L3 for access provisioning (change: add-access-provisioning, tasks 5.3-5.10; tes
 - F2 reloads B: AccessSection loads grants on mount only.
 - X9: proves pending survives operator close + `409 no-operator` + reconcile for a later browser; does NOT wait the 10 min expiry (L1 #X7 covers it).
 - X11/X12: real session via faux scenario `tool-read-provisioned` (`qa/fixtures/faux-scenarios.ts`); `.pi/access.json` written in-container, read back and POSTed in the skill's shape (the skill itself is prose, not run). X11 proves the profile alone gates the read; X12 approved folder silent, rejected still prompts, Access row `access-entry-via-provision` + `access-entry-requested-for`.
+
+Summary (moved from directory AGENTS.md row): L3 provisioning F1/F2/F4/F5/F6, X9, X11, X12.
