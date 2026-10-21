@@ -31,14 +31,16 @@ const en = JSON.parse(read("src/lib/i18n-en-source.json")) as Record<string, str
 const hu = read("src/lib/i18n/i18n-hu.ts");
 const zh = read("src/lib/i18n/i18n-zh-CN.ts");
 
+const escapeRe = (k: string) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 const UI_KEYS = ["git.bashSource", "git.bashSourceBundled", "git.bashSourceHost", "git.bashSourceHint"] as const;
 
 describe("windowsBashSource i18n keys (E32)", () => {
   for (const key of UI_KEYS) {
     it(`${key} is present and non-empty in en-source, hu and zh-CN`, () => {
       expect(en[key]).toBeTruthy();
-      expect(hu).toMatch(new RegExp(`"${key}":\\s*"[^"]+`));
-      expect(zh).toMatch(new RegExp(`"${key}":\\s*"[^"]+`));
+      expect(hu).toMatch(new RegExp(`"${escapeRe(key)}":\\s*"[^"]+`));
+      expect(zh).toMatch(new RegExp(`"${escapeRe(key)}":\\s*"[^"]+`));
     });
   }
 

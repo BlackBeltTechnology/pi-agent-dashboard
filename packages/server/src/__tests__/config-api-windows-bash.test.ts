@@ -38,20 +38,28 @@ const pathOf = () =>
 describe("windowsBashSource wiring", () => {
   let testDir: string;
   let configFile: string;
-  let origHome: string;
+  let origHome: string | undefined;
+  let origUserProfile: string | undefined;
 
   beforeEach(() => {
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), "cfg-api-bash-"));
     fs.mkdirSync(path.join(testDir, ".pi", "dashboard"), { recursive: true });
     configFile = path.join(testDir, ".pi", "dashboard", "config.json");
-    origHome = process.env.HOME!;
+    origHome = process.env.HOME;
+    origUserProfile = process.env.USERPROFILE;
     process.env.HOME = testDir;
+    // os.homedir() reads USERPROFILE on Windows and ignores HOME.
+    if (process.platform === "win32") process.env.USERPROFILE = testDir;
     setWindowsGitSourceSetting("bundled");
     setWindowsBashSourceSetting("bundled");
     invalidateGitSourceCache();
   });
   afterEach(() => {
-    process.env.HOME = origHome;
+    // Restore absence as absence (assigning undefined would stringify to "undefined").
+    if (origHome === undefined) delete process.env.HOME;
+    else process.env.HOME = origHome;
+    if (origUserProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = origUserProfile;
     fs.rmSync(testDir, { recursive: true, force: true });
     setWindowsGitSourceSetting("auto");
     setWindowsBashSourceSetting("bundled");

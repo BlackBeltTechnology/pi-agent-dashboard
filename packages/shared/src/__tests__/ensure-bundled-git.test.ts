@@ -166,6 +166,14 @@ describe("ensureBundledGitOnPath — bashSource placement", () => {
     expect(out.PATH!.split(";").at(-1)).toBe(USR);
   });
 
+  it("a forward-slash spelling of the bundled usr/bin entry is replaced, not duplicated", () => {
+    const stale = USR.replace(/\\/g, "/");
+    const out = base("host", { PATH: `${stale};${SYS};${HOST}` });
+    expect(out.PATH!.split(";")).not.toContain(stale);
+    expect(count(out.PATH!, USR)).toBe(1);
+    expect(out.PATH!.split(";").at(-1)).toBe(USR);
+  });
+
   it("E9: clangarm64-only bundle, host → libdir prepended, usr\\bin last", () => {
     const arm = existsFor([
       win(GIT_DIR, "cmd", "git.exe"),

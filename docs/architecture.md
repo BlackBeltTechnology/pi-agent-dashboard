@@ -5673,8 +5673,9 @@ Bundled bash copy: `ensureBundledBashExe` (`packages/electron/scripts/lib/ensure
 
 `ensureBundledGitOnPath()` prepends to PATH (after `ensureWindowsSystemPath`, lands before System32). Sets `GIT_EXEC_PATH` + `SSL_CERT_FILE`. `<libdir>` = `mingw64` (x64) / `clangarm64` (arm64).
 
-- `windowsBashSource: "bundled"` (default) → prepends `resources/git/{cmd,usr/bin,<libdir>/bin}`. pi picks bundled `bash.exe`.
-- `windowsBashSource: "host"` → prepends `resources/git/{cmd,<libdir>/bin}`. Appends `usr/bin` LAST. pi picks host's first `bash.exe`.
+- `windowsBashSource: "bundled"` (default) → prepends `resources/git/{cmd,usr/bin,<libdir>/bin}`. pi picks bundled `bash.exe` only if no Git for Windows under `%ProgramFiles%` / `%ProgramFiles(x86)%`.
+- `windowsBashSource: "host"` → prepends `resources/git/{cmd,<libdir>/bin}`. Appends `usr/bin` LAST. pi picks host's first `bash.exe` on PATH only if no Git for Windows under `%ProgramFiles%` / `%ProgramFiles(x86)%`.
+- Both modes: installed Git for Windows `bash.exe` in `%ProgramFiles%\Git\bin` wins over PATH (pi step 2 precedes `where bash.exe`). `windowsBashSource` only orders PATH; it does not override that check.
 - Mode applies only while active git source is bundled. Windows-only.
 
 Hooked into `ToolResolver.buildSpawnEnv` (covers server-launcher + process-manager) and `terminal-manager` PTY env separately (PTY bypasses `buildSpawnEnv`).

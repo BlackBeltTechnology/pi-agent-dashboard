@@ -3447,7 +3447,10 @@ Fix:
 
 Set `windowsBashSource` = `"host"` (Settings → Sessions → Worktrees → "Bash for agent commands", or `~/.pi/dashboard/config.json`). Requires an installed WSL distro.
 
-- Pi picks host's first `bash.exe` (`C:\Windows\System32\bash.exe`) → commands run inside Linux distro.
+- `"host"` alone does NOT force WSL. Git for Windows under `%ProgramFiles%\Git\bin\bash.exe` (or `%ProgramFiles(x86)%`) is checked before PATH → pi uses it.
+- Git for Windows installed → to get WSL: remove/rename that Git `bash.exe`, or set pi `shellPath` (bash tool + `!` only) to WSL launcher `C:\Windows\System32\bash.exe`.
+- No Git for Windows under `%ProgramFiles%` → pi picks host's first `bash.exe` (`C:\Windows\System32\bash.exe`) → commands run inside Linux distro.
+- Doctor "bash source" row shows the bash pi will actually use.
 - Bundled git still works, incl. `#!/bin/sh` hooks.
 - Side effect: MSYS tools in bundled `usr/bin` (`find`, `sort`) shadowed by System32 tools for child processes.
 - No host `bash.exe` on PATH → falls back to bundled bash.

@@ -102,8 +102,8 @@ export interface EnsureBundledGitOpts {
   bashSource?: WindowsBashSourceSetting;
 }
 
-/** Trailing-separator-trimmed, case-folded PATH entry key. */
-const entryKey = (e: string): string => e.trim().replace(/[\\/]+$/, "").toLowerCase();
+/** Slash-normalised, trailing-separator-trimmed, case-folded PATH entry key. */
+const entryKey = (e: string): string => e.trim().replace(/\//g, "\\").replace(/\\+$/, "").toLowerCase();
 
 /** Existing, de-duplicated (case/slash-insensitive) subset of `dirs`, order kept. */
 function existingUnique(dirs: string[], exists: (p: string) => boolean): string[] {
