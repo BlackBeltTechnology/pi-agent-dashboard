@@ -59,6 +59,13 @@
     {
       "ruleId": "actions/cache-poisoning/poisonable-step",
       "file": ".github/workflows/_electron-build.yml",
+      "lineHash": "83bf59a0f706d5a9:1",
+      "count": 1,
+      "reason": "accepted-risk: pre-existing on develop, outside change move-workflow-schema-status-to-poll-worker; accepted at ship-it step 4.4b"
+    },
+    {
+      "ruleId": "actions/cache-poisoning/poisonable-step",
+      "file": ".github/workflows/_electron-build.yml",
       "lineHash": "99c66561c0d7d504:1",
       "count": 1,
       "reason": "untriaged"
@@ -216,6 +223,13 @@
       "lineHash": "4bdc898d876be6e8:1",
       "count": 1,
       "reason": "untriaged"
+    },
+    {
+      "ruleId": "js/client-side-unvalidated-url-redirection",
+      "file": "packages/client/src/components/Gateway/GatewayTlsSection.tsx",
+      "lineHash": "852fd92308679508:1",
+      "count": 1,
+      "reason": "accepted-risk: pre-existing on develop, outside change move-workflow-schema-status-to-poll-worker; accepted at ship-it step 4.4b"
     },
     {
       "ruleId": "js/resource-exhaustion",
@@ -772,6 +786,20 @@
     },
     {
       "ruleId": "js/path-injection",
+      "file": "packages/server/src/lib/writable-handler-target.ts",
+      "lineHash": "54b82d15d6f0e059:1",
+      "count": 1,
+      "reason": "operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
+    },
+    {
+      "ruleId": "js/path-injection",
+      "file": "packages/server/src/lib/writable-handler-target.ts",
+      "lineHash": "884d0312ce800623:1",
+      "count": 1,
+      "reason": "operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
+    },
+    {
+      "ruleId": "js/path-injection",
       "file": "packages/server/src/lib/writable-md-target.ts",
       "lineHash": "bca412cc598f753b:1",
       "count": 1,
@@ -902,6 +930,13 @@
       "lineHash": "753c64e63ff40815:1",
       "count": 1,
       "reason": "github-dismissed (#334, false positive): False positive for a path-containment feature: the flagged expression IS the containment/verification guard, not a gap in one. Reviewed in bulk (same class) during ship of add-access-grants-and-review."
+    },
+    {
+      "ruleId": "js/path-injection",
+      "file": "packages/server/src/routes/file-routes.ts",
+      "lineHash": "7fc5eb9027cf81ef:1",
+      "count": 1,
+      "reason": "operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
     },
     {
       "ruleId": "js/path-injection",

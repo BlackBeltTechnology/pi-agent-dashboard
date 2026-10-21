@@ -24,6 +24,7 @@ import { Worker } from "node:worker_threads";
 import type { OpenSpecData } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import {
   buildFromStatusAll,
+  computeSchemaStatusFor,
   deriveAndSerialize,
   type PollWorkerKind,
   type PollWorkerRequest,
@@ -31,6 +32,8 @@ import {
   type ProbeRequest,
   type ProbeResponse,
   probeTrackedPaths,
+  type SchemaStatusRequest,
+  type SchemaStatusResponse,
   type StatusAllBuildRequest,
   type StatusAllBuildResponse,
 } from "./openspec-poll-worker.js";
@@ -44,6 +47,14 @@ export interface PollWorkerPoolOptions {
   useWorker?: boolean;
   /** Override the worker entry URL. Used by tests to force a spawn failure. */
   workerUrlOverride?: string;
+  /**
+   * In-process implementation of the `schemaStatus` request (the worker
+   * fallback, the disabled-worker path and a disposed pool). Default: the
+   * shared computation. A worker thread cannot take a function, so tests make
+   * the worker side fail through `workerUrlOverride`.
+   * See change: move-workflow-schema-status-to-poll-worker.
+   */
+  schemaStatusImpl?: (req: SchemaStatusRequest) => Promise<SchemaStatusResponse>;
 }
 
 export interface PollWorkerPool {
@@ -57,12 +68,18 @@ export interface PollWorkerPool {
   probe(req: ProbeRequest): Promise<ProbeResponse>;
   /** `status --all` post-CLI build: classify, parse, count, re-probe, serialize. */
   build(req: StatusAllBuildRequest): Promise<StatusAllBuildResponse>;
+  /**
+   * Filesystem part of the workflow-schema status (every poll tick). Rejects
+   * only when the in-process fallback also fails.
+   * See change: move-workflow-schema-status-to-poll-worker.
+   */
+  schemaStatus(req: SchemaStatusRequest): Promise<SchemaStatusResponse>;
   dispose(): Promise<void>;
   /** Test-only: number of in-flight worker requests. */
   inFlight(): number;
 }
 
-type PendingPayload = PollWorkerRequest | ProbeRequest | StatusAllBuildRequest;
+type PendingPayload = PollWorkerRequest | ProbeRequest | StatusAllBuildRequest | SchemaStatusRequest;
 
 type Pending = {
   id: number;
@@ -110,11 +127,29 @@ function deriveInProcess(req: PollWorkerRequest): PollWorkerResponse {
   }
 }
 
-/** In-process `probe` / `build` (async, bounded I/O). */
-function runAsyncInProcess(kind: PollWorkerKind, payload: PendingPayload): Promise<unknown> {
-  return kind === "probe"
-    ? probeTrackedPaths(payload as ProbeRequest)
-    : buildFromStatusAll(payload as StatusAllBuildRequest);
+/**
+ * In-process run of one request (async, bounded I/O). Exhaustive over the
+ * request kind: an unknown kind rejects instead of running another body.
+ */
+export function runAsyncInProcess(
+  kind: PollWorkerKind,
+  payload: PendingPayload,
+  schemaStatusImpl: (req: SchemaStatusRequest) => Promise<SchemaStatusResponse> = computeSchemaStatusFor,
+): Promise<unknown> {
+  switch (kind) {
+    case "derive":
+      return new Promise((resolveDerive) => resolveDerive(deriveAndSerialize(payload as PollWorkerRequest)));
+    case "probe":
+      return probeTrackedPaths(payload as ProbeRequest);
+    case "build":
+      return buildFromStatusAll(payload as StatusAllBuildRequest);
+    case "schemaStatus":
+      return schemaStatusImpl(payload as SchemaStatusRequest);
+    default: {
+      const unknownKind: never = kind;
+      return Promise.reject(new Error(`unknown poll worker request kind: ${String(unknownKind)}`));
+    }
+  }
 }
 
 function defaultWorkerUrl(): string {
@@ -129,6 +164,7 @@ export function createOpenSpecPollWorkerPool(opts: PollWorkerPoolOptions = {}): 
   const timeoutMs = opts.timeoutMs ?? 10_000;
   const useWorker = opts.useWorker !== false;
   const workerUrl = opts.workerUrlOverride ?? defaultWorkerUrl();
+  const schemaStatusImpl = opts.schemaStatusImpl ?? computeSchemaStatusFor;
 
   // When workers are globally unavailable for this pool (e.g. spawn URL is
   // bogus on a constrained host), we flip this flag to permanently route
@@ -232,9 +268,10 @@ export function createOpenSpecPollWorkerPool(opts: PollWorkerPoolOptions = {}): 
     if (p.kind === "derive") {
       p.resolve(deriveInProcess(p.payload as PollWorkerRequest));
     } else {
-      // `probe` / `build`: async in-process run (bounded async I/O). A failure
-      // here is a real error for the caller (it treats it as a failed poll).
-      runAsyncInProcess(p.kind, p.payload).then(p.resolve, p.reject);
+      // `probe` / `build` / `schemaStatus`: async in-process run (bounded async
+      // I/O). A failure here is a real error for the caller (it treats it as a
+      // failed poll, or omits the advisory `workflowSchema`).
+      runAsyncInProcess(p.kind, p.payload, schemaStatusImpl).then(p.resolve, p.reject);
     }
     drainQueue();
   }
@@ -303,9 +340,7 @@ export function createOpenSpecPollWorkerPool(opts: PollWorkerPoolOptions = {}): 
   // global `process` (used for `process.execArgv` in `spawnSlot`).
   function enqueue<T>(kind: PollWorkerKind, req: PendingPayload): Promise<T> {
     if (disposed) {
-      return (kind === "derive"
-        ? Promise.resolve(deriveAndSerialize(req as PollWorkerRequest))
-        : runAsyncInProcess(kind, req)) as Promise<T>;
+      return runAsyncInProcess(kind, req, schemaStatusImpl) as Promise<T>;
     }
     return new Promise<T>((resolveOuter, rejectOuter) => {
       const p: Pending = {
@@ -373,6 +408,7 @@ export function createOpenSpecPollWorkerPool(opts: PollWorkerPoolOptions = {}): 
     process: processRequest,
     probe: (req) => enqueue<ProbeResponse>("probe", req),
     build: (req) => enqueue<StatusAllBuildResponse>("build", req),
+    schemaStatus: (req) => enqueue<SchemaStatusResponse>("schemaStatus", req),
     dispose,
     inFlight,
   };
